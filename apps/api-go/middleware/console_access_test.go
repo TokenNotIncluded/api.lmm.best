@@ -110,6 +110,7 @@ func TestConsoleAccessGateHidesDiscoveryRoutesWithoutActivatedSession(t *testing
 		"/api/channel",
 		"/api/custom-oauth-provider",
 		"/api/data",
+		"/api/data/self",
 		"/api/deployments",
 		"/api/group",
 		"/api/log/self",
@@ -146,6 +147,34 @@ func TestConsoleAccessGateHidesDiscoveryRoutesWithoutActivatedSession(t *testing
 
 		assert.Equal(t, http.StatusNotFound, response.Code, path)
 		assert.JSONEq(t, `{"message":"Not Found"}`, response.Body.String(), path)
+	}
+}
+
+func TestConsoleAccessGateAllowsAuthenticatedSelfUsageReadsBeforeActivation(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	levelZero := 0
+	user := &model.UserBase{
+		Id:                 18,
+		Role:               common.RoleCommonUser,
+		TrustLevelOverride: &levelZero,
+	}
+
+	for _, path := range []string{"/api/data/self", "/api/data/flow/self"} {
+		router := gin.New()
+		router.Use(func(c *gin.Context) {
+			c.Set(dashboardCredentialContextKey, dashboardCredentialResult{
+				user:           user,
+				credentialKind: dashboardCredentialInternal,
+			})
+			c.Next()
+		})
+		router.Use(ConsoleAccessGate())
+		router.GET(path, func(c *gin.Context) { c.Status(http.StatusNoContent) })
+
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
+
+		assert.Equal(t, http.StatusNoContent, response.Code, path)
 	}
 }
 

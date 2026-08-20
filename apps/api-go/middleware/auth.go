@@ -327,6 +327,12 @@ func preActivationRouteAllowed(method string, path string) bool {
 		return method == http.MethodPost
 	case "/api/verify":
 		return method == http.MethodPost
+	case "/api/data/self", "/api/data/flow/self":
+		// These endpoints are authenticated, user-scoped reads. Keep them
+		// available to an authenticated account before console activation;
+		// UserAuth still enforces the identity boundary and the admin-wide
+		// data routes remain behind ConsoleAccessGate.
+		return method == http.MethodGet
 	case "/api/user/self":
 		return method == http.MethodGet || method == http.MethodPut || method == http.MethodDelete
 	case "/api/user/self/onboarding/todo":
