@@ -13,10 +13,11 @@ import (
 )
 
 type fakeBuildRunner struct {
-	t       *testing.T
-	repo    string
-	version string
-	dirty   bool
+	t            *testing.T
+	repo         string
+	version      string
+	goReleaseTag string
+	dirty        bool
 }
 
 func (runner *fakeBuildRunner) Run(_ context.Context, command productionCommand) ([]byte, error) {
@@ -36,6 +37,8 @@ func (runner *fakeBuildRunner) Run(_ context.Context, command productionCommand)
 			return []byte("abcdef123\n"), nil
 		case strings.Contains(joined, "rev-parse HEAD"):
 			return []byte("abcdef1234567890abcdef1234567890abcdef12\n"), nil
+		case strings.Contains(joined, "tag --merged HEAD --list go-v*"):
+			return []byte(runner.goReleaseTag + "\n"), nil
 		case strings.Contains(joined, "ls-remote"):
 			return []byte("abcdef1234567890abcdef1234567890abcdef12\trefs/heads/main\n"), nil
 		}
@@ -182,6 +185,30 @@ func TestProductionBuildRejectsDirtySourceBeforeRunningBuildTools(t *testing.T) 
 	_, err := buildRuntime.build(context.Background(), buildDeployOptions{Repo: repo, Workspace: workspace, Production: true})
 	if err == nil || !strings.Contains(err.Error(), "clean tracked and untracked") {
 		t.Fatalf("production dirty error=%v", err)
+	}
+}
+
+func TestProductionBuildIdentityUsesMergedGoReleaseVersion(t *testing.T) {
+	root := t.TempDir()
+	repo := filepath.Join(root, "repo")
+	if err := os.MkdirAll(repo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeBuildSourceFixture(t, repo)
+	runner := &fakeBuildRunner{
+		t:            t,
+		repo:         repo,
+		goReleaseTag: "go-v0.1.34\ngo-v0.1.9",
+	}
+	buildRuntime := &buildDeployRuntime{runner: runner, now: time.Now}
+	_, version, dirty, err := buildRuntime.resolveBuildIdentity(context.Background(), buildDeployOptions{
+		Repo: repo, Production: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dirty || version != "0.1.34.r300.gabcdef123" {
+		t.Fatalf("version=%q dirty=%t", version, dirty)
 	}
 }
 

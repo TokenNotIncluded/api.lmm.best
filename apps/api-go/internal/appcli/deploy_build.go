@@ -11,6 +11,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -18,6 +19,8 @@ import (
 )
 
 const buildCommandTimeout = 30 * time.Minute
+
+var goReleaseTagPattern = regexp.MustCompile(`^go-v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$`)
 
 type buildDeployOptions struct {
 	Repo       string
@@ -296,14 +299,15 @@ func (buildRuntime *buildDeployRuntime) resolveBuildIdentity(ctx context.Context
 	if !productionVersionPattern.MatchString(baseVersion) {
 		return "", "", false, errors.New("VERSION is invalid")
 	}
-	computedVersion := fmt.Sprintf("%s.r%d.g%s", baseVersion, count, shortRevision)
-	if dirty {
-		computedVersion += ".dirty." + buildRuntime.now().UTC().Format("20060102T150405Z")
-	}
 	if options.Production {
 		if dirty {
 			return "", "", false, errors.New("production build requires a clean tracked and untracked worktree")
 		}
+		goReleaseVersion, err := buildRuntime.resolveMergedGoReleaseVersion(runGit)
+		if err != nil {
+			return "", "", false, err
+		}
+		baseVersion = goReleaseVersion
 		remoteLine, err := runGit("ls-remote", "origin", "refs/heads/main")
 		if err != nil {
 			return "", "", false, fmt.Errorf("read origin/main: %w", err)
@@ -312,6 +316,12 @@ func (buildRuntime *buildDeployRuntime) resolveBuildIdentity(ctx context.Context
 		if len(fields) != 2 || fields[0] != revision || fields[1] != "refs/heads/main" {
 			return "", "", false, errors.New("production source HEAD must equal origin/main")
 		}
+	}
+	computedVersion := fmt.Sprintf("%s.r%d.g%s", baseVersion, count, shortRevision)
+	if dirty {
+		computedVersion += ".dirty." + buildRuntime.now().UTC().Format("20060102T150405Z")
+	}
+	if options.Production {
 		if options.Version != "" && options.Version != computedVersion {
 			return "", "", false, errors.New("explicit production version does not match the source release identity")
 		}
@@ -324,6 +334,54 @@ func (buildRuntime *buildDeployRuntime) resolveBuildIdentity(ctx context.Context
 		return "", "", false, errors.New("resolved build version is invalid")
 	}
 	return revision, version, dirty, nil
+}
+
+// resolveMergedGoReleaseVersion makes native production candidates follow the
+// independently published Go release line. VERSION belongs to the unified
+// product release and can legitimately lag behind a Go-only hotfix.
+func (buildRuntime *buildDeployRuntime) resolveMergedGoReleaseVersion(
+	runGit func(arguments ...string) (string, error),
+) (string, error) {
+	output, err := runGit("tag", "--merged", "HEAD", "--list", "go-v*", "--sort=-v:refname")
+	if err != nil {
+		return "", fmt.Errorf("list merged Go release tags: %w", err)
+	}
+	var selected [3]uint64
+	selectedSet := false
+	for _, tag := range strings.Fields(output) {
+		match := goReleaseTagPattern.FindStringSubmatch(tag)
+		if match == nil {
+			continue
+		}
+		var candidate [3]uint64
+		valid := true
+		for index := range candidate {
+			value, parseErr := strconv.ParseUint(match[index+1], 10, 64)
+			if parseErr != nil {
+				valid = false
+				break
+			}
+			candidate[index] = value
+		}
+		if !valid || selectedSet && !goReleaseVersionAfter(candidate, selected) {
+			continue
+		}
+		selected = candidate
+		selectedSet = true
+	}
+	if !selectedSet {
+		return "", errors.New("production source has no valid merged Go release tag")
+	}
+	return fmt.Sprintf("%d.%d.%d", selected[0], selected[1], selected[2]), nil
+}
+
+func goReleaseVersionAfter(left, right [3]uint64) bool {
+	for index := range left {
+		if left[index] != right[index] {
+			return left[index] > right[index]
+		}
+	}
+	return false
 }
 
 func regexpGitRevision(value string) bool {
