@@ -1,7 +1,7 @@
 # Maintainer: LIghtJUNction <support@lmm.best>
 
 pkgname=lmm-api-web-bin
-pkgver=0.1.29
+pkgver=0.1.30
 pkgrel=1
 pkgdesc='LMM API production web frontend (prebuilt)'
 arch=('any')
