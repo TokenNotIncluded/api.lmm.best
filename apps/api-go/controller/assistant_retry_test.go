@@ -158,6 +158,16 @@ func TestAssistantNamedToolChoiceDoesNotSerializeEmptyName(t *testing.T) {
 	assert.Equal(t, "auto", assistantNamedToolChoice("  "))
 }
 
+func TestAssistantNamedToolChoiceUnsupportedRecognizesProviderCapabilityErrors(t *testing.T) {
+	assert.True(t, assistantNamedToolChoiceUnsupported([]byte(`{"error":{"message":"当前模型或上游不支持指定工具的强制选择方式，请改用 tool_choice=auto"}}`)))
+	assert.True(t, assistantNamedToolChoiceUnsupported([]byte(`{"error":{"message":"provider does not support forced tool_choice"}}`)))
+	assert.False(t, assistantNamedToolChoiceUnsupported([]byte(`{"error":{"message":"upstream overloaded"}}`)))
+	assert.True(t, assistantServerReadFallbackAllowed("get_l1_recommendation"))
+	assert.True(t, assistantServerReadFallbackAllowed("get_available_models"))
+	assert.False(t, assistantServerReadFallbackAllowed("prepare_l1_recommendation"))
+	assert.False(t, assistantServerReadFallbackAllowed("request_create_key"))
+}
+
 func TestAssistantRetryRejectsInvalidInputBeforePersistentWrites(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := setupTokenControllerTestDB(t)

@@ -1257,6 +1257,31 @@ func assistantToolChoiceNameRequired(body []byte) bool {
 		strings.Contains(text, "missing required parameter")
 }
 
+// assistantNamedToolChoiceUnsupported identifies providers that implement
+// function tools but reject selecting one exact function. The fallback is
+// deliberately narrower than a generic retry: only bounded, read-only tools
+// may execute server-side, while every write and confirmation remains model-
+// initiated and confirmation-gated.
+func assistantNamedToolChoiceUnsupported(body []byte) bool {
+	message := strings.ToLower(string(body))
+	if !strings.Contains(message, "tool_choice") && !strings.Contains(message, "tool choice") && !strings.Contains(message, "工具") {
+		return false
+	}
+	return strings.Contains(message, "does not support") ||
+		strings.Contains(message, "not support") ||
+		strings.Contains(message, "不支持指定工具") ||
+		strings.Contains(message, "不支持指定工具的强制选择")
+}
+
+func assistantServerReadFallbackAllowed(name string) bool {
+	switch strings.TrimSpace(name) {
+	case "get_l1_recommendation", "get_account_access", "get_service_facts", "get_available_models":
+		return true
+	default:
+		return false
+	}
+}
+
 func emptyObjectSchema() map[string]any {
 	return map[string]any{
 		"type":                 "object",
@@ -1654,6 +1679,42 @@ func runAssistantAgent(c *gin.Context, settings setting.AssistantSettings, conve
 			return
 		}
 		if status < http.StatusOK || status >= http.StatusMultipleChoices {
+			forcedTool := assistantNamedToolChoiceName(request.ToolChoice)
+			if assistantNamedToolChoiceUnsupported(body) && assistantServerReadFallbackAllowed(forcedTool) {
+				// The provider cannot select the read explicitly. Execute the
+				// bounded server-owned read, append its verified result, then let
+				// the next streamed model turn draft from that context.
+				call := assistantOpenAIToolCall{
+					ID:       fmt.Sprintf("assistant-server-read-%d", step+1),
+					Type:     "function",
+					Function: assistantOpenAIToolCallFunction{Name: forcedTool},
+				}
+				result := executeAssistantTool(c, call)
+				if c.IsAborted() {
+					return
+				}
+				resultJSON, marshalErr := common.MarshalLimit(result, assistantToolResultMaxBytes)
+				if marshalErr != nil {
+					resultJSON = []byte(`{"ok":false,"error":"tool result exceeded its byte budget"}`)
+				}
+				calledTools[forcedTool] = true
+				if ok, _ := result["ok"].(bool); ok {
+					successfulTools[forcedTool] = true
+				}
+				usedCacheSensitiveTool = true
+				toolTraces = append(toolTraces, buildAssistantToolTrace(call, result))
+				c.Set(assistantClientToolsKey, toolTraces)
+				messages = append(messages, assistantOpenAIMessage{
+					Role:      "assistant",
+					ToolCalls: []assistantOpenAIToolCall{call},
+				})
+				messages = append(messages, assistantOpenAIMessage{
+					Role:       "tool",
+					Content:    string(resultJSON),
+					ToolCallID: call.ID,
+				})
+				continue
+			}
 			writeAssistantUpstreamError(c, "ASSISTANT_UPSTREAM_FAILED", "AI assistant upstream request failed")
 			return
 		}
