@@ -119,10 +119,8 @@ func (runtime *productionRuntime) validateBackupSet(ctx context.Context, workspa
 	if err := verifyBackupChecksums(backupDir); err != nil {
 		return nil, err
 	}
-	if _, err := runtime.runner.Run(ctx, productionCommand{
-		Name: "pg_restore", Args: []string{"--list", filepath.Join(backupDir, "database.archive")},
-		Timeout: productionCommandTimeout,
-	}); err != nil {
+	if _, err := runtime.runner.Run(ctx, productionCommand{Name: commandPGRestore, Args: []string{"--list", filepath.Join(backupDir, "database.archive")},
+		Timeout: productionCommandTimeout}); err != nil {
 		return nil, fmt.Errorf("validate PostgreSQL backup: %w", err)
 	}
 	environment, err := environmentFromConfigurationArchive(filepath.Join(backupDir, "configuration.archive"))
@@ -348,6 +346,34 @@ func productionChildEnvironment(values map[string]string, overrides map[string]s
 	return result
 }
 
+func (runtime *productionRuntime) restoreDatabaseBackup(ctx context.Context, workspace productionWorkspace, manifest productionManifest) error {
+	archivePath := filepath.Join(manifest.BackupDir, "database.archive")
+	digest, err := sha256File(archivePath)
+	if err != nil || digest != manifest.DatabaseBackupSHA256 {
+		return errors.New("database backup is missing or no longer matches the deployment manifest")
+	}
+	environment, err := readPrivateRegularFile(filepath.Join(workspace.configRestore, "lmm-api-go.env"), 1<<20)
+	if err != nil {
+		return fmt.Errorf("read database restore environment: %w", err)
+	}
+	values, err := parseProductionEnvironment(environment)
+	if err != nil {
+		return fmt.Errorf("parse database restore environment: %w", err)
+	}
+	databaseURL, childEnvironment, err := productionDatabaseCommand(values)
+	if err != nil {
+		return err
+	}
+	if _, err := runtime.runner.Run(ctx, productionCommand{
+		Name: commandPGRestore,
+		Args: []string{"--clean", "--if-exists", "--exit-on-error", "--single-transaction", "--dbname", databaseURL, archivePath},
+		Env:  childEnvironment, Timeout: 10 * time.Minute, Sensitive: true,
+	}); err != nil {
+		return fmt.Errorf("restore PostgreSQL rollback backup: %w", err)
+	}
+	return nil
+}
+
 func (runtime *productionRuntime) captureDatabaseAccess(ctx context.Context, workspace productionWorkspace, environment []byte) (string, error) {
 	values, err := parseProductionEnvironment(environment)
 	if err != nil {
@@ -357,11 +383,8 @@ func (runtime *productionRuntime) captureDatabaseAccess(ctx context.Context, wor
 	if err != nil {
 		return "", err
 	}
-	schemaOutput, err := runtime.runner.Run(ctx, productionCommand{
-		Name: "psql",
-		Args: []string{"-X", "-v", "ON_ERROR_STOP=1", "--no-align", "--tuples-only", "--command", "SELECT pg_catalog.current_schema()", databaseURL},
-		Env:  childEnvironment, Sensitive: true,
-	})
+	schemaOutput, err := runtime.runner.Run(ctx, productionCommand{Name: commandPSQL, Args: []string{"-X", "-v", "ON_ERROR_STOP=1", "--no-align", "--tuples-only", "--command", "SELECT pg_catalog.current_schema()", databaseURL},
+		Env: childEnvironment, Sensitive: true})
 	if err != nil {
 		return "", fmt.Errorf("discover production database schema: %w", err)
 	}
@@ -381,11 +404,8 @@ WHERE tokens.deleted_at IS NULL
   AND COALESCE(LENGTH(BTRIM(tokens.allow_ips)), 0) = 0
 ORDER BY tokens.unlimited_quota DESC, tokens.remain_quota DESC, tokens.id DESC
 LIMIT 1`
-	tokenOutput, err := runtime.runner.Run(ctx, productionCommand{
-		Name: "psql",
-		Args: []string{"-X", "-v", "ON_ERROR_STOP=1", "--no-align", "--tuples-only", "--command", tokenQuery, databaseURL},
-		Env:  childEnvironment, Sensitive: true,
-	})
+	tokenOutput, err := runtime.runner.Run(ctx, productionCommand{Name: commandPSQL, Args: []string{"-X", "-v", "ON_ERROR_STOP=1", "--no-align", "--tuples-only", "--command", tokenQuery, databaseURL},
+		Env: childEnvironment, Sensitive: true})
 	if err != nil {
 		return "", fmt.Errorf("select safe production probe token: %w", err)
 	}
@@ -508,11 +528,7 @@ func (runtime *productionRuntime) runMigration(
 	if err != nil {
 		return err
 	}
-	_, err = runtime.runner.Run(ctx, productionCommand{
-		Name: run.binary, Args: []string{"migrate", "--" + run.mode},
-		Env: childEnvironment, Dir: migrationWorkdir, Timeout: 5 * time.Minute,
-		Sensitive: true,
-	})
+	_, err = runVerifiedBinary(ctx, runtime.runner, run.binary, []string{"migrate", "--" + run.mode}, childEnvironment, migrationWorkdir, 5*time.Minute, true)
 	if err != nil {
 		return fmt.Errorf("migration %s failed: %w", run.name, err)
 	}

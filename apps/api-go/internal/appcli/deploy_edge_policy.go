@@ -221,30 +221,30 @@ func (runtime *productionRuntime) applyEdgePolicyAssets(ctx context.Context, ass
 			return fmt.Errorf("inspect legacy edge-policy target %s: %w", legacy.Target, err)
 		}
 	}
-	if _, err := runtime.runner.Run(ctx, productionCommand{Name: "nginx", Args: []string{"-t"}}); err != nil {
+	if _, err := runtime.runner.Run(ctx, productionCommand{Name: commandNginx, Args: []string{"-t"}}); err != nil {
 		return fmt.Errorf("validate managed nginx policy: %w", err)
 	}
-	if _, err := runtime.runner.Run(ctx, productionCommand{Name: "systemctl", Args: []string{"reload", "nginx"}}); err != nil {
+	if _, err := runtime.runner.Run(ctx, productionCommand{Name: commandSystemctl, Args: []string{"reload", "nginx"}}); err != nil {
 		return fmt.Errorf("reload nginx with managed policy: %w", err)
 	}
-	if _, err := runtime.runner.Run(ctx, productionCommand{Name: "systemctl", Args: []string{"daemon-reload"}}); err != nil {
+	if _, err := runtime.runner.Run(ctx, productionCommand{Name: commandSystemctl, Args: []string{"daemon-reload"}}); err != nil {
 		return fmt.Errorf("reload systemd after managed policy: %w", err)
 	}
-	if _, err := runtime.runner.Run(ctx, productionCommand{Name: "systemctl", Args: []string{"enable", "--now", "geoip2-country-update.timer"}}); err != nil {
+	if _, err := runtime.runner.Run(ctx, productionCommand{Name: commandSystemctl, Args: []string{"enable", "--now", "geoip2-country-update.timer"}}); err != nil {
 		return fmt.Errorf("enable GeoIP update timer: %w", err)
 	}
 	return nil
 }
 
 func (runtime *productionRuntime) rejectActiveLegacyPolicy(ctx context.Context) error {
-	if _, err := runtime.runner.Run(ctx, productionCommand{Name: "systemctl", Args: []string{"is-active", "--quiet", "geoip2-country-update.service"}}); err == nil {
+	if _, err := runtime.runner.Run(ctx, productionCommand{Name: commandSystemctl, Args: []string{"is-active", "--quiet", "geoip2-country-update.service"}}); err == nil {
 		return errors.New("GeoIP update service is active; wait for it to finish before migration")
 	}
 	for _, unit := range []string{"cn-443-block.service", "cn-443-block-update.service", "cn-443-block-update.timer"} {
-		if _, err := runtime.runner.Run(ctx, productionCommand{Name: "systemctl", Args: []string{"is-active", "--quiet", unit}}); err == nil {
+		if _, err := runtime.runner.Run(ctx, productionCommand{Name: commandSystemctl, Args: []string{"is-active", "--quiet", unit}}); err == nil {
 			return fmt.Errorf("legacy policy unit is active; stop it before migration: %s", unit)
 		}
-		output, err := runtime.runner.Run(ctx, productionCommand{Name: "systemctl", Args: []string{"is-enabled", unit}})
+		output, err := runtime.runner.Run(ctx, productionCommand{Name: commandSystemctl, Args: []string{"is-enabled", unit}})
 		if err == nil && legacyPolicyUnitIsEnabled(output) {
 			return fmt.Errorf("legacy policy unit is enabled; disable it before migration: %s", unit)
 		}
@@ -315,13 +315,13 @@ func (runtime *productionRuntime) restoreEdgePolicyBackup(ctx context.Context, r
 			return fmt.Errorf("restore edge-policy file %s: %w", entry.Key, err)
 		}
 	}
-	if _, err := runtime.runner.Run(ctx, productionCommand{Name: "nginx", Args: []string{"-t"}}); err != nil {
+	if _, err := runtime.runner.Run(ctx, productionCommand{Name: commandNginx, Args: []string{"-t"}}); err != nil {
 		return fmt.Errorf("validate restored nginx policy: %w", err)
 	}
-	if _, err := runtime.runner.Run(ctx, productionCommand{Name: "systemctl", Args: []string{"reload", "nginx"}}); err != nil {
+	if _, err := runtime.runner.Run(ctx, productionCommand{Name: commandSystemctl, Args: []string{"reload", "nginx"}}); err != nil {
 		return fmt.Errorf("reload nginx after edge-policy restore: %w", err)
 	}
-	if _, err := runtime.runner.Run(ctx, productionCommand{Name: "systemctl", Args: []string{"daemon-reload"}}); err != nil {
+	if _, err := runtime.runner.Run(ctx, productionCommand{Name: commandSystemctl, Args: []string{"daemon-reload"}}); err != nil {
 		return fmt.Errorf("reload systemd after edge-policy restore: %w", err)
 	}
 	return nil
@@ -346,7 +346,7 @@ func (runtime *productionRuntime) verifyEdgePolicy(ctx context.Context, assetRoo
 			return fmt.Errorf("legacy edge-policy target remains: %s", legacy.Target)
 		}
 	}
-	if _, err := runtime.runner.Run(ctx, productionCommand{Name: "nginx", Args: []string{"-t"}}); err != nil {
+	if _, err := runtime.runner.Run(ctx, productionCommand{Name: commandNginx, Args: []string{"-t"}}); err != nil {
 		return fmt.Errorf("managed nginx policy validation failed: %w", err)
 	}
 	return nil

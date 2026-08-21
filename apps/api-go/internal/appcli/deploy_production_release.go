@@ -59,7 +59,7 @@ func runProductionRelease(_ []string, _ io.Writer, stderr io.Writer) int {
 }
 
 func parseProductionReleaseOptions(args []string, stderr io.Writer) (productionReleaseOptions, error) {
-	options := productionReleaseOptions{ObservationSeconds: 180, RollbackSeconds: 600}
+	options := productionReleaseOptions{ObservationSeconds: 180, RollbackSeconds: 3600}
 	flags := flag.NewFlagSet("deploy production release", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	flags.StringVar(&options.Repo, "repo", "", "clean api.lmm.best source checkout")
@@ -69,7 +69,7 @@ func parseProductionReleaseOptions(args []string, stderr io.Writer) (productionR
 	flags.StringVar(&options.Confirm, "confirm", "", "must equal api.lmm.best")
 	flags.StringVar(&options.RollbackPackage, "rollback-package", "", "optional bootstrap package matching the currently installed release")
 	flags.IntVar(&options.ObservationSeconds, "observation-seconds", options.ObservationSeconds, "automatic stability observation window (120-360)")
-	flags.IntVar(&options.RollbackSeconds, "rollback-seconds", options.RollbackSeconds, "automatic rollback deadline (600-1800)")
+	flags.IntVar(&options.RollbackSeconds, "rollback-seconds", options.RollbackSeconds, "automatic rollback deadline (dual-package minimum, maximum 3600)")
 	flags.BoolVar(&options.ManualConfirm, "manual-confirm", false, "leave a healthy release awaiting an explicit confirm command")
 	flags.BoolVar(&options.PreserveEdgePolicy, "preserve-edge-policy", false, "preserve the active nginx edge policy during activation")
 	flags.BoolVar(&options.WithBackups, "with-backups", false, "create and verify target, controller, and off-host backups")
@@ -119,8 +119,9 @@ func parseProductionReleaseOptions(args []string, stderr io.Writer) (productionR
 	if options.ObservationSeconds < 120 || options.ObservationSeconds > 360 {
 		return productionReleaseOptions{}, errors.New("--observation-seconds must be between 120 and 360")
 	}
-	if options.RollbackSeconds < 600 || options.RollbackSeconds > 1800 {
-		return productionReleaseOptions{}, errors.New("--rollback-seconds must be between 600 and 1800")
+	requiredRollbackSeconds := int(requiredDeploymentWindow(true, true, time.Duration(options.ObservationSeconds)*time.Second) / time.Second)
+	if options.RollbackSeconds < requiredRollbackSeconds || options.RollbackSeconds > 3600 {
+		return productionReleaseOptions{}, fmt.Errorf("--rollback-seconds must be at least %d for the dual-package transaction and at most 3600", requiredRollbackSeconds)
 	}
 	return options, nil
 }
@@ -372,7 +373,7 @@ func (runtime *productionReleaseRuntime) obtainRollbackPackage(
 		if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || info.Size() == 0 {
 			return "", "", errors.New("bootstrap rollback package is missing, empty, or unsafe")
 		}
-		identity, err := runtime.runner.Run(ctx, productionCommand{Name: "pacman", Args: []string{"-Qp", options.RollbackPackage}})
+		identity, err := runtime.runner.Run(ctx, productionCommand{Name: commandPacman, Args: []string{"-Qp", options.RollbackPackage}})
 		if err != nil || strings.TrimSpace(string(identity)) != installed {
 			return "", "", errors.New("bootstrap rollback package does not match production")
 		}
@@ -404,7 +405,7 @@ func (runtime *productionReleaseRuntime) obtainRollbackPackage(
 	if err != nil || digest != current.PackageSHA256 {
 		return "", "", errors.New("retrieved rollback package checksum mismatch")
 	}
-	identity, err := runtime.runner.Run(ctx, productionCommand{Name: "pacman", Args: []string{"-Qp", local}})
+	identity, err := runtime.runner.Run(ctx, productionCommand{Name: commandPacman, Args: []string{"-Qp", local}})
 	if err != nil || strings.TrimSpace(string(identity)) != installed {
 		return "", "", errors.New("retrieved rollback package identity mismatch")
 	}
@@ -450,20 +451,16 @@ func (runtime *productionReleaseRuntime) assertRemoteHost(ctx context.Context, a
 func (runtime *productionReleaseRuntime) ssh(ctx context.Context, alias string, timeout time.Duration, arguments ...string) ([]byte, error) {
 	args := []string{"-o", "BatchMode=yes", alias}
 	args = append(args, arguments...)
-	return runtime.runner.Run(ctx, productionCommand{Name: "ssh", Args: args, Timeout: timeout})
+	return runtime.runner.Run(ctx, productionCommand{Name: commandSSH, Args: args, Timeout: timeout})
 }
 
 func (runtime *productionReleaseRuntime) scpTo(ctx context.Context, local, alias, remote string) error {
-	_, err := runtime.runner.Run(ctx, productionCommand{
-		Name: "scp", Args: []string{"-q", "-p", "--", local, alias + ":" + remote}, Timeout: 10 * time.Minute,
-	})
+	_, err := runtime.runner.Run(ctx, productionCommand{Name: commandSCP, Args: []string{"-q", "-p", "--", local, alias + ":" + remote}, Timeout: 10 * time.Minute})
 	return err
 }
 
 func (runtime *productionReleaseRuntime) scpToRecursive(ctx context.Context, local, alias, remote string) error {
-	_, err := runtime.runner.Run(ctx, productionCommand{
-		Name: "scp", Args: []string{"-q", "-p", "-r", "--", local, alias + ":" + remote}, Timeout: 10 * time.Minute,
-	})
+	_, err := runtime.runner.Run(ctx, productionCommand{Name: commandSCP, Args: []string{"-q", "-p", "-r", "--", local, alias + ":" + remote}, Timeout: 10 * time.Minute})
 	return err
 }
 
@@ -474,8 +471,6 @@ func (runtime *productionReleaseRuntime) scpFrom(ctx context.Context, alias, rem
 	if err := ensureRealDirectory(filepath.Dir(local), 0o700); err != nil {
 		return err
 	}
-	_, err := runtime.runner.Run(ctx, productionCommand{
-		Name: "scp", Args: []string{"-q", "-p", "-r", "--", alias + ":" + remote, local}, Timeout: 10 * time.Minute,
-	})
+	_, err := runtime.runner.Run(ctx, productionCommand{Name: commandSCP, Args: []string{"-q", "-p", "-r", "--", alias + ":" + remote, local}, Timeout: 10 * time.Minute})
 	return err
 }

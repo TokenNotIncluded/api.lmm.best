@@ -50,8 +50,8 @@ func TestParseProductionReleaseConstrainsRollbackAndObservationWindows(t *testin
 	}{
 		{name: "short observation", flags: []string{"--observation-seconds", "119"}, want: "between 120 and 360"},
 		{name: "long observation", flags: []string{"--observation-seconds", "361"}, want: "between 120 and 360"},
-		{name: "short rollback", flags: []string{"--rollback-seconds", "599"}, want: "between 600 and 1800"},
-		{name: "long rollback", flags: []string{"--rollback-seconds", "1801"}, want: "between 600 and 1800"},
+		{name: "short rollback", flags: []string{"--rollback-seconds", "599"}, want: "must be at least"},
+		{name: "long rollback", flags: []string{"--rollback-seconds", "3601"}, want: "at most 3600"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -69,7 +69,7 @@ func TestParseProductionReleaseAcceptsSafeAbsoluteInputs(t *testing.T) {
 	arguments := append(validProductionReleaseArguments(root),
 		"--rollback-package", filepath.Join(root, "rollback.pkg.tar.zst"),
 		"--observation-seconds", "240",
-		"--rollback-seconds", "900",
+		"--rollback-seconds", "3300",
 		"--manual-confirm",
 		"--preserve-edge-policy",
 	)
@@ -77,7 +77,7 @@ func TestParseProductionReleaseAcceptsSafeAbsoluteInputs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if options.ObservationSeconds != 240 || options.RollbackSeconds != 900 || options.Confirm != "api.lmm.best" ||
+	if options.ObservationSeconds != 240 || options.RollbackSeconds != 3300 || options.Confirm != "api.lmm.best" ||
 		!options.ManualConfirm || !options.PreserveEdgePolicy {
 		t.Fatalf("options=%#v", options)
 	}

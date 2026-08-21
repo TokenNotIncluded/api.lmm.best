@@ -81,7 +81,19 @@ build_package lmm-api-deploy-bin \
   usr/share/licenses/lmm-api-deploy-bin/LICENSE \
   usr/share/doc/lmm-api-deploy-bin/REVISION \
   usr/share/doc/lmm-api-deploy-bin/OPERATOR_SHA256 \
-  usr/share/doc/lmm-api-deploy-bin/RELEASE_ASSET_SHA256
+  usr/share/doc/lmm-api-deploy-bin/RELEASE_ASSET_SHA256 \
+  usr/lib/sysusers.d/lmm-api-deploy.conf \
+  usr/lib/tmpfiles.d/lmm-api-deploy.conf \
+  etc/sudoers.d/lmm-api-deploy
+operator_archive=$(printf '%s\n' "$deploy_work/packages"/*.pkg.tar.*)
+bsdtar -tvf "$operator_archive" | grep -Eq '^-r--r-----.* etc/sudoers.d/lmm-api-deploy$' ||
+  die 'operator sudoers policy is not packaged with mode 0440'
+bsdtar -xOf "$operator_archive" etc/sudoers.d/lmm-api-deploy | grep -Fqx \
+  'lmm-api-deploy ALL=(root) NOPASSWD: /usr/bin/pacman --version' ||
+  die 'operator sudoers policy lacks the non-interactive preflight command'
+bsdtar -xOf "$operator_archive" etc/sudoers.d/lmm-api-deploy | grep -Fqx \
+  'lmm-api-deploy ALL=(root) NOPASSWD: /usr/bin/pacman -U --noconfirm *' ||
+  die 'operator sudoers policy lacks the narrow paru pacman transaction command'
 
 go_work="$tmp/lmm-api-go-bin"
 go_pkgver=$(awk -F= '$1 == "pkgver" { print $2; exit }' "$HERE/lmm-api-go-bin/PKGBUILD")

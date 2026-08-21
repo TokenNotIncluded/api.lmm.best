@@ -40,10 +40,7 @@ func (runtime *productionRuntime) runNativeRequest(ctx context.Context, binary, 
 	if tokenFile != "" {
 		args = append(args, "--token-file", tokenFile)
 	}
-	return runtime.runner.Run(ctx, productionCommand{
-		Name: binary, Args: args, Timeout: productionProbeTimeout + 2*time.Second,
-		Sensitive: tokenFile != "",
-	})
+	return runVerifiedBinary(ctx, runtime.runner, binary, args, nil, "", productionProbeTimeout+2*time.Second, tokenFile != "")
 }
 
 func (runtime *productionRuntime) probeStatus(ctx context.Context, binary, baseURL, expectedVersion string) (string, error) {
@@ -111,6 +108,16 @@ func (runtime *productionRuntime) probeModels(ctx context.Context, binary, token
 	return nil
 }
 
+func (runtime *productionRuntime) probeBackendLocal(ctx context.Context, manifest productionManifest, version string) error {
+	if _, err := runtime.probeStatus(ctx, manifest.ProbeBinary, runtime.paths.LocalBaseURL, version); err != nil {
+		return fmt.Errorf("local status probe: %w", err)
+	}
+	if err := runtime.probeLive(ctx, manifest.ProbeBinary); err != nil {
+		return fmt.Errorf("local live probe: %w", err)
+	}
+	return nil
+}
+
 func (runtime *productionRuntime) probeRelease(ctx context.Context, manifest productionManifest, version, frontendSHA256 string) error {
 	attempts := runtime.probeAttempts
 	if attempts < 1 {
@@ -140,9 +147,7 @@ func (runtime *productionRuntime) probeRelease(ctx context.Context, manifest pro
 }
 
 func (runtime *productionRuntime) readServiceRestarts(ctx context.Context) (int64, error) {
-	output, err := runtime.runner.Run(ctx, productionCommand{
-		Name: "systemctl", Args: []string{"show", runtime.paths.Service, "--property=NRestarts", "--value"},
-	})
+	output, err := runtime.runner.Run(ctx, productionCommand{Name: commandSystemctl, Args: []string{"show", runtime.paths.Service, "--property=NRestarts", "--value"}})
 	if err != nil {
 		return 0, err
 	}
@@ -151,9 +156,7 @@ func (runtime *productionRuntime) readServiceRestarts(ctx context.Context) (int6
 
 func (runtime *productionRuntime) checkMemoryHeadroom(ctx context.Context) error {
 	read := func(property string) (int64, error) {
-		output, err := runtime.runner.Run(ctx, productionCommand{
-			Name: "systemctl", Args: []string{"show", runtime.paths.Service, "--property=" + property, "--value"},
-		})
+		output, err := runtime.runner.Run(ctx, productionCommand{Name: commandSystemctl, Args: []string{"show", runtime.paths.Service, "--property=" + property, "--value"}})
 		if err != nil {
 			return 0, err
 		}
@@ -277,7 +280,7 @@ func (runtime *productionRuntime) checkErrorJournals(ctx context.Context, since 
 	for _, unit := range runtime.paths.JournalUnits {
 		args = append(args, "--unit", unit)
 	}
-	output, err := runtime.runner.Run(ctx, productionCommand{Name: "journalctl", Args: args})
+	output, err := runtime.runner.Run(ctx, productionCommand{Name: commandJournalctl, Args: args})
 	if err != nil {
 		return err
 	}
@@ -290,7 +293,7 @@ func (runtime *productionRuntime) checkErrorJournals(ctx context.Context, since 
 }
 
 func (runtime *productionRuntime) healthCheck(ctx context.Context, workspace productionWorkspace, manifest productionManifest) error {
-	if _, err := runtime.runner.Run(ctx, productionCommand{Name: "systemctl", Args: []string{"is-active", "--quiet", runtime.paths.Service}}); err != nil {
+	if _, err := runtime.runner.Run(ctx, productionCommand{Name: commandSystemctl, Args: []string{"is-active", "--quiet", runtime.paths.Service}}); err != nil {
 		return errors.New("lmm-api service is not active")
 	}
 	restarts, err := runtime.readServiceRestarts(ctx)
@@ -315,7 +318,7 @@ func (runtime *productionRuntime) healthCheck(ctx context.Context, workspace pro
 	if err := retireKnownMemoryOverrides(runtime.paths.DropInDir); err != nil {
 		return err
 	}
-	if _, err := runtime.runner.Run(ctx, productionCommand{Name: "pacman", Args: []string{"-Q", "lmm-api"}}); err == nil {
+	if _, err := runtime.runner.Run(ctx, productionCommand{Name: commandPacman, Args: []string{"-Q", "lmm-api"}}); err == nil {
 		return errors.New("removed split lmm-api package reappeared")
 	}
 	for _, path := range runtime.paths.RemovedPaths {

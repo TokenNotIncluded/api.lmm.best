@@ -26,7 +26,7 @@ import (
 const (
 	productionServiceName          = "lmm-api.service"
 	productionExpectedHost         = "arch-dmit"
-	productionDefaultRollback      = 10 * time.Minute
+	productionDefaultRollback      = 60 * time.Minute
 	productionDefaultObservation   = 3 * time.Minute
 	productionObservationInterval  = 10 * time.Second
 	productionCommandTimeout       = 2 * time.Minute
@@ -45,7 +45,28 @@ const (
 	productionAURPackageName       = "lmm-api-go-bin"
 	productionWebPackageName       = "lmm-api-web-bin"
 	productionOperatorPackageName  = "lmm-api-deploy-bin"
+	productionOperatorUser         = "lmm-api-deploy"
 	productionOperatorBinary       = "/usr/bin/lmm-api-deploy"
+	commandAge                     = "/usr/bin/age"
+	commandBsdtar                  = "/usr/bin/bsdtar"
+	commandBun                     = "/usr/bin/bun"
+	commandFile                    = "/usr/bin/file"
+	commandGit                     = "/usr/bin/git"
+	commandGo                      = "/usr/bin/go"
+	commandID                      = "/usr/bin/id"
+	commandJournalctl              = "/usr/bin/journalctl"
+	commandMakepkg                 = "/usr/bin/makepkg"
+	commandNginx                   = "/usr/bin/nginx"
+	commandPacman                  = "/usr/bin/pacman"
+	commandPGDump                  = "/usr/bin/pg_dump"
+	commandPGRestore               = "/usr/bin/pg_restore"
+	commandPSQL                    = "/usr/bin/psql"
+	commandRunuser                 = "/usr/bin/runuser"
+	commandSCP                     = "/usr/bin/scp"
+	commandSSH                     = "/usr/bin/ssh"
+	commandSudo                    = "/usr/bin/sudo"
+	commandSystemctl               = "/usr/bin/systemctl"
+	commandVercmp                  = "/usr/bin/vercmp"
 )
 
 var (
@@ -110,11 +131,11 @@ func defaultProductionPaths() productionPaths {
 		RunuserBinary:        "/usr/bin/runuser",
 		ParuBinary:           "/usr/bin/paru",
 		GoRevisionFile:       "/usr/share/doc/lmm-api-go-bin/REVISION",
-		GoContractFile:       "/usr/share/doc/lmm-api-go-bin/API_CONTRACT_REVISION",
+		GoContractFile:       "/usr/share/doc/lmm-api-go-bin/API_ROUTE_CONTRACT_REVISION",
 		GoSourceRevisionFile: "/usr/share/doc/lmm-api-go/REVISION",
-		GoSourceContractFile: "/usr/share/doc/lmm-api-go/API_CONTRACT_REVISION",
+		GoSourceContractFile: "/usr/share/doc/lmm-api-go/API_ROUTE_CONTRACT_REVISION",
 		WebRevisionFile:      "/usr/share/doc/lmm-api-web-bin/REVISION",
-		WebContractFile:      "/usr/share/doc/lmm-api-web-bin/ROUTE_CONTRACT_REVISION",
+		WebContractFile:      "/usr/share/doc/lmm-api-web-bin/API_ROUTE_CONTRACT_REVISION",
 		PackagedFrontend:     "/usr/share/lmm-api-web/frontend-dist",
 		ReleasePackages:      "/var/lib/lmm-api-go-deploy/release-packages",
 		PackageCache:         "/var/cache/pacman/pkg",
@@ -153,7 +174,53 @@ func (osProductionCommandRunner) Run(parent context.Context, command productionC
 	}
 	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
-	process := exec.CommandContext(ctx, command.Name, command.Args...)
+	var process *exec.Cmd
+	switch command.Name {
+	case commandAge:
+		process = exec.CommandContext(ctx, "/usr/bin/age", command.Args...)
+	case commandBsdtar:
+		process = exec.CommandContext(ctx, "/usr/bin/bsdtar", command.Args...)
+	case commandBun:
+		process = exec.CommandContext(ctx, "/usr/bin/bun", command.Args...)
+	case commandFile:
+		process = exec.CommandContext(ctx, "/usr/bin/file", command.Args...)
+	case commandGit:
+		process = exec.CommandContext(ctx, "/usr/bin/git", command.Args...)
+	case commandGo:
+		process = exec.CommandContext(ctx, "/usr/bin/go", command.Args...)
+	case commandID:
+		process = exec.CommandContext(ctx, "/usr/bin/id", command.Args...)
+	case commandJournalctl:
+		process = exec.CommandContext(ctx, "/usr/bin/journalctl", command.Args...)
+	case commandMakepkg:
+		process = exec.CommandContext(ctx, "/usr/bin/makepkg", command.Args...)
+	case commandNginx:
+		process = exec.CommandContext(ctx, "/usr/bin/nginx", command.Args...)
+	case commandPacman:
+		process = exec.CommandContext(ctx, "/usr/bin/pacman", command.Args...)
+	case commandPGDump:
+		process = exec.CommandContext(ctx, "/usr/bin/pg_dump", command.Args...)
+	case commandPGRestore:
+		process = exec.CommandContext(ctx, "/usr/bin/pg_restore", command.Args...)
+	case commandPSQL:
+		process = exec.CommandContext(ctx, "/usr/bin/psql", command.Args...)
+	case commandRunuser:
+		process = exec.CommandContext(ctx, "/usr/bin/runuser", command.Args...)
+	case commandSCP:
+		process = exec.CommandContext(ctx, "/usr/bin/scp", command.Args...)
+	case commandSSH:
+		process = exec.CommandContext(ctx, "/usr/bin/ssh", command.Args...)
+	case commandSudo:
+		process = exec.CommandContext(ctx, "/usr/bin/sudo", command.Args...)
+	case commandSystemctl:
+		process = exec.CommandContext(ctx, "/usr/bin/systemctl", command.Args...)
+	case commandVercmp:
+		process = exec.CommandContext(ctx, "/usr/bin/vercmp", command.Args...)
+	case productionOperatorBinary:
+		process = exec.CommandContext(ctx, "/usr/bin/lmm-api-deploy", command.Args...)
+	default:
+		return nil, fmt.Errorf("command executable is not allowlisted: %q", command.Name)
+	}
 	if command.Dir != "" {
 		process.Dir = command.Dir
 	}
@@ -182,6 +249,16 @@ func (osProductionCommandRunner) Run(parent context.Context, command productionC
 		return nil, fmt.Errorf("command %s failed: %w", filepath.Base(command.Name), err)
 	}
 	return nil, fmt.Errorf("command %s failed: %w: %s", filepath.Base(command.Name), err, detail)
+}
+
+func runVerifiedBinary(ctx context.Context, runner productionCommandRunner, binary string, args []string, environment []string, directory string, timeout time.Duration, sensitive bool) ([]byte, error) {
+	if !filepath.IsAbs(binary) {
+		return nil, errors.New("verified binary path must be absolute")
+	}
+	runuserArgs := append([]string{"--user", "root", "--", binary}, args...)
+	return runner.Run(ctx, productionCommand{
+		Name: commandRunuser, Args: runuserArgs, Env: environment, Dir: directory, Timeout: timeout, Sensitive: sensitive,
+	})
 }
 
 type productionRuntime struct {
@@ -268,9 +345,12 @@ type productionManifest struct {
 	ExpectedVersion          string                       `json:"expected_version"`
 	OldVersion               string                       `json:"old_version"`
 	BackupDir                string                       `json:"backup_dir"`
+	DatabaseBackupSHA256     string                       `json:"database_backup_sha256"`
+	DatabaseRestoreRequired  bool                         `json:"database_restore_required"`
 	DatabaseSchema           string                       `json:"database_schema"`
 	DeadlineUTC              time.Time                    `json:"deadline_utc"`
 	ObservationStartedUTC    time.Time                    `json:"observation_started_utc,omitempty"`
+	ObservationSeconds       int64                        `json:"observation_seconds"`
 	ServiceRestartBaseline   int64                        `json:"service_restart_baseline"`
 	EnvironmentRestoreSHA256 string                       `json:"environment_restore_sha256"`
 	NginxEdgeRestoreSHA256   string                       `json:"nginx_edge_restore_sha256,omitempty"`
@@ -303,7 +383,7 @@ func productionPackageMatches(version, release string) bool {
 func (runtime *productionRuntime) installedGoPackage(ctx context.Context) (name, identity string, err error) {
 	seen := make(map[string]struct{}, 1)
 	for _, candidate := range []string{productionAURPackageName, productionSourcePackageName} {
-		output, queryErr := runtime.runner.Run(ctx, productionCommand{Name: "pacman", Args: []string{"-Q", candidate}})
+		output, queryErr := runtime.runner.Run(ctx, productionCommand{Name: commandPacman, Args: []string{"-Q", candidate}})
 		if queryErr != nil {
 			continue
 		}
@@ -327,13 +407,11 @@ func (runtime *productionRuntime) installedGoPackage(ctx context.Context) (name,
 }
 
 func (runtime *productionRuntime) verifyInstalledGoPackage(ctx context.Context, name, identity string) error {
-	installed, err := runtime.runner.Run(ctx, productionCommand{Name: "pacman", Args: []string{"-Q", name}})
+	installed, err := runtime.runner.Run(ctx, productionCommand{Name: commandPacman, Args: []string{"-Q", name}})
 	if err != nil || strings.TrimSpace(string(installed)) != identity {
 		return errors.New("installed Go package identity mismatch")
 	}
-	integrity, err := runtime.runner.Run(ctx, productionCommand{
-		Name: "pacman", Args: []string{"-Qkk", name}, Env: append(os.Environ(), "LC_ALL=C"),
-	})
+	integrity, err := runtime.runner.Run(ctx, productionCommand{Name: commandPacman, Args: []string{"-Qkk", name}, Env: append(os.Environ(), "LC_ALL=C")})
 	if err != nil || !packageIntegrityClean(integrity, name) {
 		return errors.New("installed Go package integrity check failed")
 	}
@@ -390,7 +468,7 @@ func parseNamedPackageIdentity(output []byte, expected string) (productionPackag
 }
 
 func (runtime *productionRuntime) packageMetadata(ctx context.Context, packagePath string, packageNames ...string) (productionPackageMetadata, error) {
-	identityOutput, err := runtime.runner.Run(ctx, productionCommand{Name: "pacman", Args: []string{"-Qp", packagePath}})
+	identityOutput, err := runtime.runner.Run(ctx, productionCommand{Name: commandPacman, Args: []string{"-Qp", packagePath}})
 	if err != nil {
 		return productionPackageMetadata{}, fmt.Errorf("query package identity: %w", err)
 	}
@@ -404,12 +482,9 @@ func (runtime *productionRuntime) packageMetadata(ctx context.Context, packagePa
 		return productionPackageMetadata{}, err
 	}
 	docRoot := "usr/share/doc/" + packageName + "/"
-	contractName := "API_CONTRACT_REVISION"
-	if packageName == productionWebPackageName {
-		contractName = "ROUTE_CONTRACT_REVISION"
-	}
+	const contractName = "API_ROUTE_CONTRACT_REVISION"
 	readMember := func(member string) (string, error) {
-		output, err := runtime.runner.Run(ctx, productionCommand{Name: "bsdtar", Args: []string{"-xOf", packagePath, docRoot + member}})
+		output, err := runtime.runner.Run(ctx, productionCommand{Name: commandBsdtar, Args: []string{"-xOf", packagePath, docRoot + member}})
 		if err != nil {
 			return "", err
 		}
@@ -424,14 +499,14 @@ func (runtime *productionRuntime) packageMetadata(ctx context.Context, packagePa
 		return productionPackageMetadata{}, fmt.Errorf("%s package contract revision is invalid", packageName)
 	}
 	if packageName == productionWebPackageName {
-		index, err := runtime.runner.Run(ctx, productionCommand{Name: "bsdtar", Args: []string{"-xOf", packagePath, "usr/share/lmm-api-web/frontend-dist/index.html"}})
+		index, err := runtime.runner.Run(ctx, productionCommand{Name: commandBsdtar, Args: []string{"-xOf", packagePath, "usr/share/lmm-api-web/frontend-dist/index.html"}})
 		if err != nil || len(index) == 0 {
 			return productionPackageMetadata{}, errors.New("Web package frontend index is missing")
 		}
 		digest := sha256.Sum256(index)
 		metadata.IndexSHA256 = hex.EncodeToString(digest[:])
 	} else {
-		binary, err := runtime.runner.Run(ctx, productionCommand{Name: "bsdtar", Args: []string{"-xOf", packagePath, "usr/bin/lmm-api"}})
+		binary, err := runtime.runner.Run(ctx, productionCommand{Name: commandBsdtar, Args: []string{"-xOf", packagePath, "usr/bin/lmm-api"}})
 		if err != nil || len(binary) == 0 {
 			return productionPackageMetadata{}, errors.New("Go package service binary is missing")
 		}
@@ -442,7 +517,7 @@ func (runtime *productionRuntime) packageMetadata(ctx context.Context, packagePa
 }
 
 func (runtime *productionRuntime) verifyCanonicalOperator(ctx context.Context) error {
-	output, err := runtime.runner.Run(ctx, productionCommand{Name: "pacman", Args: []string{"-Qo", productionOperatorBinary}, Env: append(os.Environ(), "LC_ALL=C")})
+	output, err := runtime.runner.Run(ctx, productionCommand{Name: commandPacman, Args: []string{"-Qo", productionOperatorBinary}, Env: append(os.Environ(), "LC_ALL=C")})
 	prefix := productionOperatorBinary + " is owned by "
 	if err != nil || !strings.HasPrefix(strings.TrimSpace(string(output)), prefix) {
 		return errors.New("canonical deployment operator is not package-owned")
@@ -451,7 +526,7 @@ func (runtime *productionRuntime) verifyCanonicalOperator(ctx context.Context) e
 	if _, err := parseNamedPackageIdentity([]byte(identity), productionOperatorPackageName); err != nil {
 		return errors.New("canonical deployment operator package identity is invalid")
 	}
-	integrity, err := runtime.runner.Run(ctx, productionCommand{Name: "pacman", Args: []string{"-Qkk", productionOperatorPackageName}, Env: append(os.Environ(), "LC_ALL=C")})
+	integrity, err := runtime.runner.Run(ctx, productionCommand{Name: commandPacman, Args: []string{"-Qkk", productionOperatorPackageName}, Env: append(os.Environ(), "LC_ALL=C")})
 	if err != nil || !packageIntegrityClean(integrity, productionOperatorPackageName) {
 		return errors.New("canonical deployment operator package integrity check failed")
 	}
@@ -460,7 +535,7 @@ func (runtime *productionRuntime) verifyCanonicalOperator(ctx context.Context) e
 
 func (runtime *productionRuntime) verifyMemoryPackageOwner(ctx context.Context, identity string) error {
 	path := filepath.Join(runtime.paths.PackagedDropInDir, productionMemoryFileName)
-	output, err := runtime.runner.Run(ctx, productionCommand{Name: "pacman", Args: []string{"-Qo", path}, Env: append(os.Environ(), "LC_ALL=C")})
+	output, err := runtime.runner.Run(ctx, productionCommand{Name: commandPacman, Args: []string{"-Qo", path}, Env: append(os.Environ(), "LC_ALL=C")})
 	if err != nil || strings.TrimSpace(string(output)) != path+" is owned by "+identity {
 		return errors.New("production memory drop-in is not owned by the expected Go package")
 	}
@@ -468,11 +543,11 @@ func (runtime *productionRuntime) verifyMemoryPackageOwner(ctx context.Context, 
 }
 
 func (runtime *productionRuntime) verifyInstalledPackage(ctx context.Context, name, identity string) error {
-	installed, err := runtime.runner.Run(ctx, productionCommand{Name: "pacman", Args: []string{"-Q", name}})
+	installed, err := runtime.runner.Run(ctx, productionCommand{Name: commandPacman, Args: []string{"-Q", name}})
 	if err != nil || strings.TrimSpace(string(installed)) != identity {
 		return fmt.Errorf("installed %s identity mismatch", name)
 	}
-	integrity, err := runtime.runner.Run(ctx, productionCommand{Name: "pacman", Args: []string{"-Qkk", name}, Env: append(os.Environ(), "LC_ALL=C")})
+	integrity, err := runtime.runner.Run(ctx, productionCommand{Name: commandPacman, Args: []string{"-Qkk", name}, Env: append(os.Environ(), "LC_ALL=C")})
 	if err != nil || !packageIntegrityClean(integrity, name) {
 		return fmt.Errorf("installed %s integrity check failed", name)
 	}
@@ -594,10 +669,10 @@ func parseProductionTransactionOptions(action string, args []string, stderr io.W
 		flags.StringVar(&options.ProbeBinary, "probe-binary", "", "candidate Go binary used for migrations and probes")
 		flags.StringVar(&options.ProbeBinarySHA256, "probe-binary-sha256", "", "probe binary SHA-256")
 		flags.StringVar(&options.ExpectedVersion, "expected-version", "", "candidate service version")
-		flags.StringVar(&options.BackupDir, "backup-dir", "", "optional verified target backup directory")
+		flags.StringVar(&options.BackupDir, "backup-dir", "", "required verified target backup directory")
 		rollbackSeconds := int(options.RollbackWindow / time.Second)
 		observationSeconds := int(options.ObservationWindow / time.Second)
-		flags.IntVar(&rollbackSeconds, "rollback-seconds", rollbackSeconds, "automatic rollback window (600-1800)")
+		flags.IntVar(&rollbackSeconds, "rollback-seconds", rollbackSeconds, "automatic rollback window (deployment-specific minimum, maximum 3600)")
 		flags.IntVar(&observationSeconds, "observation-seconds", observationSeconds, "stability observation window (120-360)")
 		flags.BoolVar(&options.ManualConfirm, "manual-confirm", false, "leave a healthy release awaiting explicit confirmation")
 		flags.BoolVar(&options.PreserveEdgePolicy, "preserve-edge-policy", false, "preserve the active nginx edge policy")
@@ -638,7 +713,7 @@ func parseProductionTransactionOptions(action string, args []string, stderr io.W
 			"--web-package": options.WebPackage, "--web-package-sha256": options.WebPackageSHA256,
 			"--web-rollback-package": options.WebRollbackPackage, "--web-rollback-sha256": options.WebRollbackSHA256,
 			"--probe-binary": options.ProbeBinary, "--probe-binary-sha256": options.ProbeBinarySHA256,
-			"--expected-version": options.ExpectedVersion,
+			"--expected-version": options.ExpectedVersion, "--backup-dir": options.BackupDir,
 		}
 		for label, value := range required {
 			if value == "" {
@@ -650,14 +725,15 @@ func parseProductionTransactionOptions(action string, args []string, stderr io.W
 				return productionTransactionOptions{}, errors.New("all SHA-256 values must be 64 lowercase hexadecimal characters")
 			}
 		}
-		if !productionUserPattern.MatchString(options.OperatorUser) || options.OperatorUser == "root" {
-			return productionTransactionOptions{}, errors.New("invalid unprivileged --operator-user")
+		if options.OperatorUser != productionOperatorUser {
+			return productionTransactionOptions{}, fmt.Errorf("--operator-user must be the package-owned %s account", productionOperatorUser)
 		}
 		if !productionVersionPattern.MatchString(options.ExpectedVersion) {
 			return productionTransactionOptions{}, errors.New("invalid --expected-version")
 		}
-		if options.RollbackWindow < 10*time.Minute || options.RollbackWindow > 30*time.Minute {
-			return productionTransactionOptions{}, errors.New("--rollback-seconds must be between 600 and 1800")
+		requiredWindow := requiredDeploymentWindow(options.GoChanged, options.WebChanged, options.ObservationWindow)
+		if options.RollbackWindow < requiredWindow || options.RollbackWindow > 60*time.Minute {
+			return productionTransactionOptions{}, fmt.Errorf("--rollback-seconds must be at least %d for this deployment and at most 3600", int(requiredWindow/time.Second))
 		}
 		if options.ObservationWindow < 2*time.Minute || options.ObservationWindow > 6*time.Minute {
 			return productionTransactionOptions{}, errors.New("--observation-seconds must be between 120 and 360")
@@ -887,7 +963,7 @@ func (runtime *productionRuntime) readManifest(workspace productionWorkspace) (p
 
 func (runtime *productionRuntime) validateManifest(workspace productionWorkspace, manifest productionManifest) error {
 	if !productionVersionPattern.MatchString(manifest.ExpectedVersion) || !productionVersionPattern.MatchString(manifest.OldVersion) ||
-		!productionUserPattern.MatchString(manifest.OperatorUser) || manifest.OperatorUser == "root" {
+		manifest.OperatorUser != productionOperatorUser {
 		return errors.New("deployment manifest contains invalid release or operator identity")
 	}
 	if manifest.Go.CandidatePackageName != productionAURPackageName ||
@@ -926,6 +1002,7 @@ func (runtime *productionRuntime) validateManifest(workspace productionWorkspace
 	for _, digest := range []string{
 		manifest.Go.CandidateSHA256, manifest.Go.RollbackSHA256, manifest.Web.CandidateSHA256, manifest.Web.RollbackSHA256,
 		manifest.ProbeBinarySHA256, manifest.Frontend.OldIndexSHA256, manifest.Frontend.NewIndexSHA256, manifest.EnvironmentRestoreSHA256,
+		manifest.DatabaseBackupSHA256,
 	} {
 		if !productionSHA256Pattern.MatchString(digest) {
 			return errors.New("deployment manifest contains an invalid SHA-256")
@@ -934,8 +1011,11 @@ func (runtime *productionRuntime) validateManifest(workspace productionWorkspace
 	if !pathWithinRoot(workspace.stagingDir, manifest.ProbeBinary) || filepath.Dir(manifest.ProbeBinary) != workspace.stagingDir {
 		return errors.New("deployment manifest probe binary escapes staging")
 	}
-	if manifest.BackupDir != "" && manifest.BackupDir != filepath.Join(runtime.paths.BackupRoot, workspace.id) {
-		return errors.New("deployment manifest backup path is not release-scoped")
+	if manifest.BackupDir != filepath.Join(runtime.paths.BackupRoot, workspace.id) {
+		return errors.New("deployment manifest backup path is missing or not release-scoped")
+	}
+	if manifest.DeadlineUTC.IsZero() || manifest.ObservationSeconds < 120 {
+		return errors.New("deployment manifest deadline or observation window is invalid")
 	}
 	webCandidate, candidateErr := parseNamedPackageIdentity([]byte(manifest.Web.CandidateIdentity), productionWebPackageName)
 	webRollback, rollbackErr := parseNamedPackageIdentity([]byte(manifest.Web.RollbackIdentity), productionWebPackageName)

@@ -138,16 +138,12 @@ func (buildRuntime *buildDeployRuntime) build(ctx context.Context, options build
 
 	frontend := filepath.Join(options.Repo, "apps", "web", "dist")
 	frontendEnvironment := append(os.Environ(), "VITE_REACT_APP_VERSION="+version)
-	if _, err := buildRuntime.runner.Run(ctx, productionCommand{
-		Name: "bun", Args: []string{"run", "build:web"}, Dir: options.Repo,
-		Env: frontendEnvironment, Timeout: buildCommandTimeout,
-	}); err != nil {
+	if _, err := buildRuntime.runner.Run(ctx, productionCommand{Name: commandBun, Args: []string{"run", "build:web"}, Dir: options.Repo,
+		Env: frontendEnvironment, Timeout: buildCommandTimeout}); err != nil {
 		return buildDeployResult{}, fmt.Errorf("build web frontend: %w", err)
 	}
-	if _, err := buildRuntime.runner.Run(ctx, productionCommand{
-		Name: "bun", Args: []string{"run", "--filter", "@lmm/web", "bundle:check"},
-		Dir: options.Repo, Timeout: buildCommandTimeout,
-	}); err != nil {
+	if _, err := buildRuntime.runner.Run(ctx, productionCommand{Name: commandBun, Args: []string{"run", "--filter", "@lmm/web", "bundle:check"},
+		Dir: options.Repo, Timeout: buildCommandTimeout}); err != nil {
 		return buildDeployResult{}, fmt.Errorf("check frontend bundle: %w", err)
 	}
 	if err := validateFrontendTree(frontend); err != nil {
@@ -174,21 +170,18 @@ func (buildRuntime *buildDeployRuntime) build(ctx context.Context, options build
 	defer os.Remove(temporaryBinaryPath)
 	goEnvironment := append(os.Environ(), "CGO_ENABLED=0")
 	linkerFlags := "-s -w -extldflags=-static -X github.com/LIghtJUNction/api.lmm.best/common.Version=" + version
-	if _, err := buildRuntime.runner.Run(ctx, productionCommand{
-		Name: "go",
-		Args: []string{"build", "-trimpath", "-buildvcs=false", "-ldflags", linkerFlags, "-o", temporaryBinaryPath, "."},
-		Dir:  filepath.Join(options.Repo, "apps", "api-go"), Env: goEnvironment, Timeout: buildCommandTimeout,
-	}); err != nil {
+	if _, err := buildRuntime.runner.Run(ctx, productionCommand{Name: commandGo, Args: []string{"build", "-trimpath", "-buildvcs=false", "-ldflags", linkerFlags, "-o", temporaryBinaryPath, "."},
+		Dir: filepath.Join(options.Repo, "apps", "api-go"), Env: goEnvironment, Timeout: buildCommandTimeout}); err != nil {
 		return buildDeployResult{}, fmt.Errorf("build Go backend and CLI: %w", err)
 	}
 	if err := os.Chmod(temporaryBinaryPath, 0o755); err != nil {
 		return buildDeployResult{}, err
 	}
-	versionOutput, err := buildRuntime.runner.Run(ctx, productionCommand{Name: temporaryBinaryPath, Args: []string{"version"}})
+	versionOutput, err := runVerifiedBinary(ctx, buildRuntime.runner, temporaryBinaryPath, []string{"version"}, nil, "", productionCommandTimeout, false)
 	if err != nil || strings.TrimSpace(string(versionOutput)) != version {
 		return buildDeployResult{}, errors.New("built Go binary version assertion failed")
 	}
-	fileOutput, err := buildRuntime.runner.Run(ctx, productionCommand{Name: "file", Args: []string{"-Lb", temporaryBinaryPath}})
+	fileOutput, err := buildRuntime.runner.Run(ctx, productionCommand{Name: commandFile, Args: []string{"-Lb", temporaryBinaryPath}})
 	if err != nil || !strings.Contains(string(fileOutput), "statically linked") {
 		return buildDeployResult{}, fmt.Errorf("built Go binary is not statically linked: %s", strings.TrimSpace(string(fileOutput)))
 	}
@@ -265,9 +258,7 @@ func validateBuildWorkspace(workspace string) error {
 
 func (buildRuntime *buildDeployRuntime) resolveBuildIdentity(ctx context.Context, options buildDeployOptions) (string, string, bool, error) {
 	runGit := func(arguments ...string) (string, error) {
-		output, err := buildRuntime.runner.Run(ctx, productionCommand{
-			Name: "git", Args: append([]string{"-C", options.Repo}, arguments...), Timeout: productionCommandTimeout,
-		})
+		output, err := buildRuntime.runner.Run(ctx, productionCommand{Name: commandGit, Args: append([]string{"-C", options.Repo}, arguments...), Timeout: productionCommandTimeout})
 		return strings.TrimSpace(string(output)), err
 	}
 	revision, err := runGit("rev-parse", "HEAD")
@@ -452,10 +443,8 @@ func (buildRuntime *buildDeployRuntime) buildPackage(
 		"LMM_API_PKGVER="+version,
 		"LMM_API_PKGREL=1",
 	)
-	if _, err := buildRuntime.runner.Run(ctx, productionCommand{
-		Name: "makepkg", Args: []string{"--force", "--nodeps", "--noconfirm", "--cleanbuild"},
-		Dir: buildDir, Env: makepkgEnvironment, Timeout: buildCommandTimeout,
-	}); err != nil {
+	if _, err := buildRuntime.runner.Run(ctx, productionCommand{Name: commandMakepkg, Args: []string{"--force", "--nodeps", "--noconfirm", "--cleanbuild"},
+		Dir: buildDir, Env: makepkgEnvironment, Timeout: buildCommandTimeout}); err != nil {
 		return "", "", fmt.Errorf("build Arch package: %w", err)
 	}
 	entries, err := os.ReadDir(pkgdest)
@@ -490,7 +479,7 @@ func (buildRuntime *buildDeployRuntime) buildPackage(
 	if err != nil {
 		return "", "", err
 	}
-	identity, err := buildRuntime.runner.Run(ctx, productionCommand{Name: "pacman", Args: []string{"-Qp", destination}})
+	identity, err := buildRuntime.runner.Run(ctx, productionCommand{Name: commandPacman, Args: []string{"-Qp", destination}})
 	if err != nil || strings.TrimSpace(string(identity)) != productionAURPackageName+" "+version+"-1" {
 		return "", "", errors.New("built Arch package identity mismatch")
 	}

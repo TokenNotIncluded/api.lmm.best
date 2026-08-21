@@ -56,7 +56,8 @@ done
 
 contains_srcinfo_prefix lmm-api-deploy-bin $'\tprovides = lmm-api-deploy='
 contains_srcinfo lmm-api-deploy-bin $'\tconflicts = lmm-api-deploy'
-if grep -Eq $'\t(depends|optdepends) = (systemd|nginx|postgresql|valkey)' \
+contains_srcinfo lmm-api-deploy-bin $'\tdepends = sudo'
+if grep -Eq $'\t(depends|optdepends) = (nginx|postgresql|valkey)' \
   "$HERE/lmm-api-deploy-bin/.SRCINFO"; then
   die 'deployment operator package has application runtime dependencies'
 fi
@@ -275,6 +276,9 @@ for packaged_path in \
   pkg-deploy/usr/lib/lmm-api-deploy/lmm-api-go \
   pkg-deploy/usr/share/doc/lmm-api-deploy-bin/OPERATOR_SHA256 \
   pkg-deploy/usr/share/doc/lmm-api-deploy-bin/RELEASE_ASSET_SHA256 \
+  pkg-deploy/usr/lib/sysusers.d/lmm-api-deploy.conf \
+  pkg-deploy/usr/lib/tmpfiles.d/lmm-api-deploy.conf \
+  pkg-deploy/etc/sudoers.d/lmm-api-deploy \
   pkg-rs/usr/bin/lmm-api-rs \
   pkg-rs/usr/bin/lmm-db-migrate \
   pkg-web-next/usr/share/lmm-api-web/frontend-dist/index.html \
@@ -288,6 +292,12 @@ done
   die 'operator command does not resolve to its independent package payload'
 cmp -s "$tmp/pkg-deploy/usr/lib/lmm-api-deploy/lmm-api-go" "$deploy_bundle/lmm-api-go" ||
   die 'operator package changed the signed Go release bytes'
+[[ $(stat -c '%a' "$tmp/pkg-deploy/etc/sudoers.d/lmm-api-deploy") == 440 ]] ||
+  die 'operator sudoers policy mode is not 0440'
+grep -Fqx 'lmm-api-deploy ALL=(root) NOPASSWD: /usr/bin/pacman --version' \
+  "$tmp/pkg-deploy/etc/sudoers.d/lmm-api-deploy" || die 'operator preflight sudo rule is missing'
+grep -Fqx 'lmm-api-deploy ALL=(root) NOPASSWD: /usr/bin/pacman -U --noconfirm *' \
+  "$tmp/pkg-deploy/etc/sudoers.d/lmm-api-deploy" || die 'operator pacman sudo rule is missing'
 [[ $(<"$tmp/pkg-deploy/usr/share/doc/lmm-api-deploy-bin/OPERATOR_SHA256") == \
    $(sha256sum "$deploy_bundle/lmm-api-go" | cut -d' ' -f1) ]] ||
   die 'operator byte hash metadata is incorrect'

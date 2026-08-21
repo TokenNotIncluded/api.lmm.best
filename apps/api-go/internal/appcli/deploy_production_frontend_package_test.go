@@ -14,7 +14,7 @@ type candidateFrontendPackageRunner struct {
 
 func (runner candidateFrontendPackageRunner) Run(_ context.Context, command productionCommand) ([]byte, error) {
 	runner.t.Helper()
-	if command.Name != "bsdtar" {
+	if command.Name != commandBsdtar {
 		runner.t.Fatalf("command=%q, want bsdtar", command.Name)
 	}
 	if len(command.Args) != 3 || command.Args[0] != "-xOf" || command.Args[1] != "/candidate.pkg.tar.zst" || command.Args[2] != productionPackagedFrontendIndex {

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -26,42 +27,25 @@ type fakeProductionRunner struct {
 	oldVersion, newVersion                                      string
 	oldRevision, newRevision                                    string
 	contractRevision, webContractRevision                       string
-	operatorUID                                                 string
+	operatorUID, probeVersion                                   string
 	installedGoVersion, installedWebVersion                     string
 	installedGoRevision, installedWebRevision                   string
 	goRevisionFile, webRevisionFile                             string
 	goContractFile, webContractFile                             string
-	serviceActive, timerActive                                  bool
+	serviceActive, timerActive, rollbackServiceActive           bool
 	migrationFailure, rollbackMigrationFailure, failTimerEnable bool
+	sudoFailure, databaseRestored                               bool
 	commands                                                    []productionCommand
+	events                                                      []string
 }
 
 func (runner *fakeProductionRunner) Run(_ context.Context, command productionCommand) ([]byte, error) {
 	runner.commands = append(runner.commands, command)
 	if command.Name == runner.probeBinary || command.Name == runner.installedBinary {
-		if len(command.Args) == 0 {
-			return nil, errors.New("missing native CLI command")
-		}
-		switch command.Args[0] {
-		case "version":
-			if command.Name == runner.probeBinary {
-				return []byte(runner.newVersion + "\n"), nil
-			}
-			return []byte(runner.installedGoVersion + "\n"), nil
-		case "migrate":
-			if runner.migrationFailure && command.Name == runner.probeBinary && command.Args[1] == "--apply" {
-				return nil, errors.New("injected migration failure")
-			}
-			if runner.rollbackMigrationFailure && command.Name == runner.installedBinary {
-				return nil, errors.New("injected rollback compatibility failure")
-			}
-			return nil, nil
-		case "request":
-			return runner.nativeRequest(command.Args)
-		}
+		return runner.runNativeBinary(command.Name, command.Args)
 	}
 	switch command.Name {
-	case "/usr/bin/id":
+	case commandID:
 		if len(command.Args) != 2 {
 			return nil, errors.New("bad id")
 		}
@@ -73,13 +57,17 @@ func (runner *fakeProductionRunner) Run(_ context.Context, command productionCom
 			return []byte(uid + "\n"), nil
 		}
 		return []byte(strconv.Itoa(os.Getgid()) + "\n"), nil
-	case "/usr/bin/runuser":
+	case commandRunuser:
 		return runner.runuser(command.Args)
 	}
 	switch filepath.Base(command.Name) {
 	case "bsdtar":
 		return runner.bsdtar(command.Args)
 	case "pg_restore":
+		if slices.Contains(command.Args, "--dbname") {
+			runner.databaseRestored = true
+			runner.events = append(runner.events, "database-restore")
+		}
 		return []byte("archive ok\n"), nil
 	case "pg_dump":
 		for _, arg := range command.Args {
@@ -124,6 +112,35 @@ func (runner *fakeProductionRunner) Run(_ context.Context, command productionCom
 	default:
 		return nil, fmt.Errorf("unexpected command: %s %s", command.Name, strings.Join(command.Args, " "))
 	}
+}
+
+func (runner *fakeProductionRunner) runNativeBinary(binary string, args []string) ([]byte, error) {
+	if len(args) == 0 {
+		return nil, errors.New("missing native CLI command")
+	}
+	switch args[0] {
+	case "version":
+		if binary == runner.probeBinary {
+			version := runner.probeVersion
+			if version == "" {
+				version = runner.newVersion
+			}
+			return []byte(version + "\n"), nil
+		}
+		return []byte(runner.installedGoVersion + "\n"), nil
+	case "migrate":
+		runner.events = append(runner.events, "migrate:"+args[1])
+		if runner.migrationFailure && binary == runner.probeBinary && args[1] == "--apply" {
+			return nil, errors.New("injected migration failure")
+		}
+		if runner.rollbackMigrationFailure && binary == runner.installedBinary {
+			return nil, errors.New("injected rollback compatibility failure")
+		}
+		return nil, nil
+	case "request":
+		return runner.nativeRequest(args)
+	}
+	return nil, errors.New("unexpected native CLI command")
 }
 
 func (runner *fakeProductionRunner) nativeRequest(args []string) ([]byte, error) {
@@ -187,15 +204,12 @@ func (runner *fakeProductionRunner) bsdtar(args []string) ([]byte, error) {
 	switch {
 	case strings.HasSuffix(member, "/REVISION"):
 		return []byte(revision + "\n"), nil
-	case strings.HasSuffix(member, "/API_CONTRACT_REVISION"), strings.HasSuffix(member, "/ROUTE_CONTRACT_REVISION"):
+	case strings.HasSuffix(member, "/API_ROUTE_CONTRACT_REVISION"):
 		return []byte(contract + "\n"), nil
 	case name == productionWebPackageName && strings.HasSuffix(member, "/index.html"):
 		return os.ReadFile(index)
 	case name == productionAURPackageName && member == "usr/bin/lmm-api":
-		if args[1] == runner.goCandidate {
-			return os.ReadFile(runner.probeBinary)
-		}
-		return []byte("rollback-binary"), nil
+		return os.ReadFile(runner.probeBinary)
 	default:
 		return nil, errors.New("unknown member")
 	}
@@ -237,30 +251,51 @@ func (runner *fakeProductionRunner) pacman(args []string) ([]byte, error) {
 }
 
 func (runner *fakeProductionRunner) runuser(args []string) ([]byte, error) {
-	if len(args) < 7 || args[0] != "--user" || args[2] != "--" || args[3] != "/usr/bin/paru" || args[4] != "-U" || args[5] != "--noconfirm" {
+	if len(args) < 4 || args[0] != "--user" || args[2] != "--" {
 		return nil, fmt.Errorf("unsafe runuser invocation: %v", args)
 	}
-	for _, path := range args[6:] {
-		name, version, revision, _, _, ok := runner.packageData(path)
-		if !ok {
-			return nil, errors.New("unknown paru package")
+	if args[1] == "root" {
+		binary := args[3]
+		if binary != runner.probeBinary && binary != runner.installedBinary {
+			return nil, fmt.Errorf("unverified native binary: %s", binary)
 		}
-		version = strings.TrimSuffix(version, "-1")
-		switch name {
-		case productionAURPackageName:
-			runner.installedGoVersion, runner.installedGoRevision = version, revision
-			if err := os.WriteFile(runner.goRevisionFile, []byte(revision+"\n"), 0o644); err != nil {
-				return nil, err
-			}
-		case productionWebPackageName:
-			runner.installedWebVersion, runner.installedWebRevision = version, revision
-			if err := os.WriteFile(runner.webRevisionFile, []byte(revision+"\n"), 0o644); err != nil {
-				return nil, err
-			}
-			release := version + "-1.g" + revision[:12]
-			if err := executeFrontendDeploy(frontendDeployOptions{Action: "rollback", Root: runner.frontendRoot, Release: release, Keep: 3}); err != nil {
-				return nil, err
-			}
+		return runner.runNativeBinary(binary, args[4:])
+	}
+	if args[1] != productionOperatorUser {
+		return nil, errors.New("unexpected operator user")
+	}
+	if len(args) == 7 && args[3] == commandSudo && args[4] == "-n" && args[5] == commandPacman && args[6] == "--version" {
+		runner.events = append(runner.events, "sudo-preflight")
+		if runner.sudoFailure {
+			return nil, errors.New("sudo policy denied")
+		}
+		return []byte("Pacman v7\n"), nil
+	}
+	if len(args) != 7 || args[3] != "/usr/bin/paru" || args[4] != "-U" || args[5] != "--noconfirm" {
+		return nil, fmt.Errorf("unsafe runuser invocation: %v", args)
+	}
+	path := args[6]
+	name, version, revision, _, _, ok := runner.packageData(path)
+	if !ok {
+		return nil, errors.New("unknown paru package")
+	}
+	version = strings.TrimSuffix(version, "-1")
+	switch name {
+	case productionAURPackageName:
+		runner.events = append(runner.events, "paru-go")
+		runner.installedGoVersion, runner.installedGoRevision = version, revision
+		if err := os.WriteFile(runner.goRevisionFile, []byte(revision+"\n"), 0o644); err != nil {
+			return nil, err
+		}
+	case productionWebPackageName:
+		runner.events = append(runner.events, "paru-web-hook")
+		runner.installedWebVersion, runner.installedWebRevision = version, revision
+		if err := os.WriteFile(runner.webRevisionFile, []byte(revision+"\n"), 0o644); err != nil {
+			return nil, err
+		}
+		release := version + "-1.g" + revision[:12]
+		if err := executeFrontendDeploy(frontendDeployOptions{Action: "rollback", Root: runner.frontendRoot, Release: release, Keep: 3}); err != nil {
+			return nil, err
 		}
 	}
 	return nil, nil
@@ -280,6 +315,9 @@ func (runner *fakeProductionRunner) systemctl(args []string) ([]byte, error) {
 			return nil, errors.New("inactive")
 		}
 		if strings.Contains(unit, "rollback-") {
+			if runner.rollbackServiceActive {
+				return []byte("active\n"), nil
+			}
 			return nil, errors.New("inactive")
 		}
 		if runner.serviceActive {
@@ -291,6 +329,7 @@ func (runner *fakeProductionRunner) systemctl(args []string) ([]byte, error) {
 	case "stop":
 		if !strings.Contains(args[len(args)-1], "rollback-") {
 			runner.serviceActive = false
+			runner.events = append(runner.events, "systemd-stop")
 		}
 		return nil, nil
 	case "enable":
@@ -301,6 +340,7 @@ func (runner *fakeProductionRunner) systemctl(args []string) ([]byte, error) {
 			}
 		} else {
 			runner.serviceActive = true
+			runner.events = append(runner.events, "systemd-start")
 		}
 		return nil, nil
 	case "disable":
@@ -357,9 +397,9 @@ func newProductionFixture(t *testing.T) productionFixture {
 	paths.PackagedDropInDir = filepath.Join(root, "usr", "lib", "systemd", "lmm-api.service.d")
 	paths.InstalledBinary = filepath.Join(root, "usr", "bin", "lmm-api")
 	paths.GoRevisionFile = filepath.Join(root, "usr", "share", "doc", "lmm-api-go-bin", "REVISION")
-	paths.GoContractFile = filepath.Join(root, "usr", "share", "doc", "lmm-api-go-bin", "API_CONTRACT_REVISION")
+	paths.GoContractFile = filepath.Join(root, "usr", "share", "doc", "lmm-api-go-bin", "API_ROUTE_CONTRACT_REVISION")
 	paths.WebRevisionFile = filepath.Join(root, "usr", "share", "doc", "lmm-api-web-bin", "REVISION")
-	paths.WebContractFile = filepath.Join(root, "usr", "share", "doc", "lmm-api-web-bin", "ROUTE_CONTRACT_REVISION")
+	paths.WebContractFile = filepath.Join(root, "usr", "share", "doc", "lmm-api-web-bin", "API_ROUTE_CONTRACT_REVISION")
 	paths.ReleasePackages = filepath.Join(root, "release-packages")
 	paths.PackageCache = filepath.Join(root, "cache")
 	paths.RemovedPaths = []string{filepath.Join(root, "removed")}
@@ -380,7 +420,7 @@ func newProductionFixture(t *testing.T) productionFixture {
 	oldVersion, newVersion := "0.1.0.r282.g546910cef", "0.1.1.r300.gabcdef123"
 	oldRevision := strings.Repeat("1", 40)
 	newRevision := strings.Repeat("2", 40)
-	contract := "contract-2026-08"
+	contract := strings.Repeat("a", 64)
 	if err := os.WriteFile(paths.GoRevisionFile, []byte(oldRevision+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -446,7 +486,7 @@ func newProductionFixture(t *testing.T) productionFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	options := productionTransactionOptions{Action: "apply", Workspace: workspaceRoot, OperatorUser: "deploy", GoPackage: goCandidate, GoPackageSHA256: mustHashFile(t, goCandidate), GoRollbackPackage: goRollback, GoRollbackSHA256: mustHashFile(t, goRollback), WebPackage: webCandidate, WebPackageSHA256: mustHashFile(t, webCandidate), WebRollbackPackage: webRollback, WebRollbackSHA256: mustHashFile(t, webRollback), GoChanged: true, WebChanged: true, ProbeBinary: probe, ProbeBinarySHA256: mustHashFile(t, probe), ExpectedVersion: newVersion, BackupDir: backupDir, RollbackWindow: 10 * time.Minute, ObservationWindow: 2 * time.Minute, ManualConfirm: true}
+	options := productionTransactionOptions{Action: "apply", Workspace: workspaceRoot, OperatorUser: productionOperatorUser, GoPackage: goCandidate, GoPackageSHA256: mustHashFile(t, goCandidate), GoRollbackPackage: goRollback, GoRollbackSHA256: mustHashFile(t, goRollback), WebPackage: webCandidate, WebPackageSHA256: mustHashFile(t, webCandidate), WebRollbackPackage: webRollback, WebRollbackSHA256: mustHashFile(t, webRollback), GoChanged: true, WebChanged: true, ProbeBinary: probe, ProbeBinarySHA256: mustHashFile(t, probe), ExpectedVersion: newVersion, BackupDir: backupDir, RollbackWindow: 10 * time.Minute, ObservationWindow: 2 * time.Minute, ManualConfirm: true}
 	return productionFixture{runtime: runtime, runner: runner, workspace: workspace, options: options, environment: environment, clock: &clockValue}
 }
 
@@ -519,26 +559,36 @@ func TestProductionDualPackageApplyUsesParuAndCanonicalWatchdog(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if manifest.Format != productionTransactionFormat || manifest.OperatorUser != "deploy" || !manifest.Go.Changed || !manifest.Web.Changed ||
+	if manifest.Format != productionTransactionFormat || manifest.OperatorUser != productionOperatorUser || !manifest.Go.Changed || !manifest.Web.Changed ||
 		manifest.Go.CandidatePackageName != productionAURPackageName || manifest.Go.RollbackPackageName != productionAURPackageName ||
 		manifest.Web.CandidatePackageName != productionWebPackageName || manifest.Web.RollbackPackageName != productionWebPackageName ||
 		manifest.Go.CandidateContractRevision != manifest.Web.CandidateContractRevision {
 		t.Fatalf("manifest=%#v", manifest)
 	}
-	seenParu := false
+	paruTransactions := 0
 	for _, command := range fixture.runner.commands {
-		if command.Name == "pacman" && len(command.Args) > 0 && command.Args[0] == "-U" {
+		if command.Name == commandPacman && len(command.Args) > 0 && command.Args[0] == "-U" {
 			t.Fatalf("direct pacman -U used: %#v", command)
 		}
-		if command.Name == fixture.runtime.paths.RunuserBinary {
-			seenParu = true
-			if got := strings.Join(command.Args, " "); !strings.Contains(got, "-- /usr/bin/paru -U --noconfirm") || !strings.Contains(got, fixture.options.GoPackage) || !strings.Contains(got, fixture.options.WebPackage) {
+		if command.Name == commandRunuser && len(command.Args) == 7 && command.Args[3] == "/usr/bin/paru" {
+			paruTransactions++
+			if got := strings.Join(command.Args, " "); !strings.Contains(got, "-- /usr/bin/paru -U --noconfirm") {
 				t.Fatalf("paru invocation=%q", got)
 			}
 		}
 	}
-	if !seenParu {
-		t.Fatal("missing paru install")
+	if paruTransactions != 2 {
+		t.Fatalf("paru transactions=%d, want two split transactions", paruTransactions)
+	}
+	wantOrder := []string{"sudo-preflight", "systemd-stop", "migrate:--apply", "paru-go", "systemd-start", "paru-web-hook"}
+	cursor := 0
+	for _, event := range fixture.runner.events {
+		if cursor < len(wantOrder) && event == wantOrder[cursor] {
+			cursor++
+		}
+	}
+	if cursor != len(wantOrder) {
+		t.Fatalf("events=%v do not contain ordered sequence %v", fixture.runner.events, wantOrder)
 	}
 	for path, wantMode := range map[string]os.FileMode{
 		filepath.Dir(fixture.runtime.paths.WorkRoot):                     0o710,
@@ -664,6 +714,148 @@ func TestProductionRejectsContractMismatchBeforeWatchdog(t *testing.T) {
 	}
 	if fixture.runner.timerActive {
 		t.Fatal("contract mismatch armed watchdog")
+	}
+}
+
+func TestProductionWebOnlyDoesNotMutateGoService(t *testing.T) {
+	fixture := newProductionFixture(t)
+	fixture.options.GoChanged = false
+	fixture.options.GoPackage = fixture.options.GoRollbackPackage
+	fixture.options.GoPackageSHA256 = fixture.options.GoRollbackSHA256
+	fixture.options.ExpectedVersion = fixture.runner.oldVersion
+	fixture.runner.probeVersion = fixture.runner.oldVersion
+	if _, err := fixture.runtime.apply(context.Background(), fixture.workspace, fixture.options); err != nil {
+		t.Fatal(err)
+	}
+	for _, event := range fixture.runner.events {
+		if event == "systemd-stop" || event == "systemd-start" || strings.HasPrefix(event, "migrate:") || event == "paru-go" {
+			t.Fatalf("web-only deployment performed Go mutation: events=%v", fixture.runner.events)
+		}
+	}
+	if !slices.Contains(fixture.runner.events, "paru-web-hook") {
+		t.Fatalf("web-only deployment did not install Web package: events=%v", fixture.runner.events)
+	}
+}
+
+func TestProductionGoOnlyDoesNotSwitchFrontend(t *testing.T) {
+	fixture := newProductionFixture(t)
+	fixture.options.WebChanged = false
+	fixture.options.WebPackage = fixture.options.WebRollbackPackage
+	fixture.options.WebPackageSHA256 = fixture.options.WebRollbackSHA256
+	if _, err := fixture.runtime.apply(context.Background(), fixture.workspace, fixture.options); err != nil {
+		t.Fatal(err)
+	}
+	if slices.Contains(fixture.runner.events, "paru-web-hook") {
+		t.Fatalf("Go-only deployment switched frontend: events=%v", fixture.runner.events)
+	}
+}
+
+func TestProductionMigrationFailureRestoresDatabaseAndPackages(t *testing.T) {
+	fixture := newProductionFixture(t)
+	fixture.runner.migrationFailure = true
+	if _, err := fixture.runtime.apply(context.Background(), fixture.workspace, fixture.options); err == nil {
+		t.Fatal("injected migration failure was accepted")
+	}
+	if !fixture.runner.databaseRestored || fixture.runner.installedGoVersion != fixture.runner.oldVersion || fixture.runner.installedWebVersion != fixture.runner.oldVersion || !fixture.runner.serviceActive {
+		t.Fatalf("rollback did not restore database/packages/service: restored=%v go=%s web=%s active=%v events=%v", fixture.runner.databaseRestored, fixture.runner.installedGoVersion, fixture.runner.installedWebVersion, fixture.runner.serviceActive, fixture.runner.events)
+	}
+}
+
+func TestProductionRejectsMissingOrEmptyBackupBeforeWatchdog(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		mutate func(*productionFixture)
+	}{
+		{"missing", func(f *productionFixture) { f.options.BackupDir = "" }},
+		{"empty-database", func(f *productionFixture) { _ = os.Truncate(filepath.Join(f.options.BackupDir, "database.archive"), 0) }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newProductionFixture(t)
+			test.mutate(&fixture)
+			if _, err := fixture.runtime.apply(context.Background(), fixture.workspace, fixture.options); err == nil {
+				t.Fatal("unsafe backup was accepted")
+			}
+			if fixture.runner.timerActive {
+				t.Fatal("unsafe backup armed watchdog")
+			}
+		})
+	}
+}
+
+func TestProductionRejectsMissingSudoPrivilegeBeforeWatchdog(t *testing.T) {
+	fixture := newProductionFixture(t)
+	fixture.runner.sudoFailure = true
+	if _, err := fixture.runtime.apply(context.Background(), fixture.workspace, fixture.options); err == nil || !strings.Contains(err.Error(), "non-interactive pacman") {
+		t.Fatalf("sudo preflight error=%v", err)
+	}
+	if fixture.runner.timerActive {
+		t.Fatal("failed sudo preflight armed watchdog")
+	}
+}
+
+func TestProductionConfirmRejectsDeadlineAndWatchdogBoundaries(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		mutate func(productionFixture, productionManifest) productionManifest
+		want   string
+	}{
+		{"deadline-equal", func(f productionFixture, m productionManifest) productionManifest { *f.clock = m.DeadlineUTC; return m }, "deadline has expired"},
+		{"timer-inactive", func(f productionFixture, m productionManifest) productionManifest {
+			*f.clock = m.ObservationStartedUTC.Add(time.Duration(m.ObservationSeconds) * time.Second)
+			f.runner.timerActive = false
+			return m
+		}, "timer is no longer active"},
+		{"rollback-triggered", func(f productionFixture, m productionManifest) productionManifest {
+			*f.clock = m.ObservationStartedUTC.Add(time.Duration(m.ObservationSeconds) * time.Second)
+			f.runner.rollbackServiceActive = true
+			return m
+		}, "rollback service has triggered"},
+		{"window-meets-deadline", func(f productionFixture, m productionManifest) productionManifest {
+			m.DeadlineUTC = m.ObservationStartedUTC.Add(time.Duration(m.ObservationSeconds) * time.Second)
+			return m
+		}, "cannot complete"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newProductionFixture(t)
+			if _, err := fixture.runtime.apply(context.Background(), fixture.workspace, fixture.options); err != nil {
+				t.Fatal(err)
+			}
+			manifest, _ := fixture.runtime.readManifest(fixture.workspace)
+			manifest = test.mutate(fixture, manifest)
+			if _, err := fixture.runtime.confirmLoaded(context.Background(), fixture.workspace, manifest); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("confirm error=%v, want %q", err, test.want)
+			}
+			if test.name != "timer-inactive" && !fixture.runner.timerActive {
+				t.Fatal("rejected confirmation disarmed watchdog")
+			}
+		})
+	}
+}
+
+func TestPrepareOperatorWorkspaceRejectsHardlinkBeforePermissionMutation(t *testing.T) {
+	fixture := newProductionFixture(t)
+	external := filepath.Join(t.TempDir(), "external.pkg")
+	if err := os.WriteFile(external, []byte("external"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	linked := filepath.Join(fixture.workspace.stagingDir, "hardlinked.pkg")
+	if err := os.Link(external, linked); err != nil {
+		t.Fatal(err)
+	}
+	err := fixture.runtime.prepareOperatorWorkspace(context.Background(), fixture.workspace, productionOperatorUser, []productionStagedFile{{path: linked}})
+	if err == nil || !strings.Contains(err.Error(), "link count") {
+		t.Fatalf("hardlink error=%v", err)
+	}
+	info, statErr := os.Stat(external)
+	if statErr != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("external file permissions changed before rejection: info=%v err=%v", info, statErr)
+	}
+}
+
+func TestOSProductionCommandRunnerRejectsUnknownExecutable(t *testing.T) {
+	_, err := (osProductionCommandRunner{}).Run(context.Background(), productionCommand{Name: "/tmp/untrusted-command"})
+	if err == nil || !strings.Contains(err.Error(), "not allowlisted") {
+		t.Fatalf("unknown executable error=%v", err)
 	}
 }
 

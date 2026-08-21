@@ -7,7 +7,7 @@ pkgdesc='LMM API tooling-only production deployment operator (prebuilt)'
 arch=('x86_64' 'aarch64')
 url='https://github.com/LIghtJUNction/api.lmm.best'
 license=('AGPL-3.0-only')
-depends=('ca-certificates' 'coreutils' 'libarchive' 'pacman' 'paru' 'systemd' 'util-linux')
+depends=('ca-certificates' 'coreutils' 'libarchive' 'pacman' 'paru' 'sudo' 'systemd' 'util-linux')
 makedepends=('cosign')
 provides=("lmm-api-deploy=${pkgver}")
 conflicts=('lmm-api-deploy')
@@ -81,6 +81,18 @@ package() {
     "${pkgdir}/usr/lib/lmm-api-deploy/lmm-api-go"
   install -d -m0755 "${pkgdir}/usr/bin"
   ln -s ../lib/lmm-api-deploy/lmm-api-go "${pkgdir}/usr/bin/lmm-api-deploy"
+
+  install -Dm0644 /dev/stdin "${pkgdir}/usr/lib/sysusers.d/lmm-api-deploy.conf" <<'EOF'
+u lmm-api-deploy - "LMM API deployment operator" /var/lib/lmm-api-go-deploy/operator /usr/bin/nologin
+EOF
+  install -Dm0644 /dev/stdin "${pkgdir}/usr/lib/tmpfiles.d/lmm-api-deploy.conf" <<'EOF'
+d /var/lib/lmm-api-go-deploy 0710 root lmm-api-deploy -
+d /var/lib/lmm-api-go-deploy/operator 0700 lmm-api-deploy lmm-api-deploy -
+EOF
+  install -Dm0440 /dev/stdin "${pkgdir}/etc/sudoers.d/lmm-api-deploy" <<'EOF'
+lmm-api-deploy ALL=(root) NOPASSWD: /usr/bin/pacman --version
+lmm-api-deploy ALL=(root) NOPASSWD: /usr/bin/pacman -U --noconfirm *
+EOF
 
   for file in LICENSE NOTICE THIRD-PARTY-LICENSES.md; do
     install -Dm0644 "${bundle}/${file}" \

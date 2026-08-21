@@ -22,6 +22,9 @@ type fakeBuildRunner struct {
 
 func (runner *fakeBuildRunner) Run(_ context.Context, command productionCommand) ([]byte, error) {
 	base := filepath.Base(command.Name)
+	if command.Name == commandRunuser && len(command.Args) >= 5 && command.Args[0] == "--user" && command.Args[1] == "root" && command.Args[2] == "--" && command.Args[len(command.Args)-1] == "version" {
+		return []byte(runner.version + "\n"), nil
+	}
 	switch base {
 	case "git":
 		joined := strings.Join(command.Args, " ")

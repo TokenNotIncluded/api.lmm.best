@@ -37,8 +37,19 @@ func (runtime *productionRuntime) loadRollbackEnvironment(ctx context.Context, w
 	return content, nil
 }
 
+func (runtime *productionRuntime) validateOperatorWorkspace(ctx context.Context, workspace productionWorkspace, userName string, files []productionStagedFile) error {
+	return runtime.prepareOperatorWorkspacePermissions(ctx, workspace, userName, files, false)
+}
+
 func (runtime *productionRuntime) prepareOperatorWorkspace(ctx context.Context, workspace productionWorkspace, userName string, files []productionStagedFile) error {
-	uidOutput, err := runtime.runner.Run(ctx, productionCommand{Name: "/usr/bin/id", Args: []string{"-u", userName}})
+	return runtime.prepareOperatorWorkspacePermissions(ctx, workspace, userName, files, true)
+}
+
+func (runtime *productionRuntime) prepareOperatorWorkspacePermissions(ctx context.Context, workspace productionWorkspace, userName string, files []productionStagedFile, mutate bool) error {
+	if userName != productionOperatorUser {
+		return errors.New("operator user is not the package-owned deployment account")
+	}
+	uidOutput, err := runtime.runner.Run(ctx, productionCommand{Name: commandID, Args: []string{"-u", userName}})
 	if err != nil {
 		return errors.New("operator user does not exist")
 	}
@@ -46,7 +57,7 @@ func (runtime *productionRuntime) prepareOperatorWorkspace(ctx context.Context, 
 	if err != nil || uid == 0 {
 		return errors.New("operator user must have uid greater than zero")
 	}
-	gidOutput, err := runtime.runner.Run(ctx, productionCommand{Name: "/usr/bin/id", Args: []string{"-g", userName}})
+	gidOutput, err := runtime.runner.Run(ctx, productionCommand{Name: commandID, Args: []string{"-g", userName}})
 	if err != nil {
 		return errors.New("operator primary group is unavailable")
 	}
@@ -54,35 +65,49 @@ func (runtime *productionRuntime) prepareOperatorWorkspace(ctx context.Context, 
 	if err != nil {
 		return errors.New("operator primary group is invalid")
 	}
+	if _, err := runtime.runner.Run(ctx, productionCommand{
+		Name: commandRunuser,
+		Args: []string{"--user", userName, "--", commandSudo, "-n", commandPacman, "--version"},
+	}); err != nil {
+		return errors.New("operator lacks non-interactive pacman privilege")
+	}
+
 	deployRoot := filepath.Dir(runtime.paths.WorkRoot)
 	if deployRoot == string(filepath.Separator) || deployRoot != filepath.Dir(runtime.paths.BackupRoot) {
 		return errors.New("production work and backup roots must share a dedicated parent")
 	}
-	paths := []struct {
-		path string
-		mode os.FileMode
-	}{
-		{deployRoot, 0o710}, {runtime.paths.WorkRoot, 0o710}, {workspace.root, 0o710},
-		{filepath.Join(workspace.root, productionWorkspaceMarker), 0o640}, {workspace.stagingDir, 0o750},
+	type operatorPath struct {
+		path      string
+		mode      os.FileMode
+		directory bool
+	}
+	paths := []operatorPath{
+		{deployRoot, 0o710, true}, {runtime.paths.WorkRoot, 0o710, true}, {workspace.root, 0o710, true},
+		{filepath.Join(workspace.root, productionWorkspaceMarker), 0o640, false}, {workspace.stagingDir, 0o750, true},
 	}
 	for _, file := range files {
+		if !pathWithinRoot(workspace.stagingDir, file.path) || filepath.Dir(file.path) != workspace.stagingDir {
+			return fmt.Errorf("operator payload path escapes staging: %s", file.path)
+		}
 		mode := os.FileMode(0o640)
 		if file.executable {
 			mode = 0o750
 		}
-		paths = append(paths, struct {
-			path string
-			mode os.FileMode
-		}{file.path, mode})
+		paths = append(paths, operatorPath{file.path, mode, false})
 	}
+	// Validate every path and root-only state before the first chmod/chown.
 	for _, item := range paths {
 		info, err := os.Lstat(item.path)
-		if err != nil || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0o022 != 0 {
+		if err != nil || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0o022 != 0 || item.directory != info.IsDir() {
 			return fmt.Errorf("operator payload path is missing, writable, or unsafe: %s", item.path)
 		}
 		stat, ok := info.Sys().(*syscall.Stat_t)
-		if !ok || stat.Uid != runtime.requiredOwnerUID {
-			return fmt.Errorf("operator payload path is not owned by root: %s", item.path)
+		if !ok || stat.Uid != runtime.requiredOwnerUID || (!item.directory && stat.Nlink != 1) {
+			return fmt.Errorf("operator payload path ownership or link count is unsafe: %s", item.path)
+		}
+		canonical, err := filepath.EvalSymlinks(item.path)
+		if err != nil || filepath.Clean(canonical) != filepath.Clean(item.path) {
+			return fmt.Errorf("operator payload path has a symlink component: %s", item.path)
 		}
 	}
 	for label, path := range map[string]string{"state": workspace.stateDir, "backups": runtime.paths.BackupRoot, "transaction": runtime.paths.TransactionLock} {
@@ -91,16 +116,19 @@ func (runtime *productionRuntime) prepareOperatorWorkspace(ctx context.Context, 
 			return fmt.Errorf("deployment %s directory must remain root-only", label)
 		}
 		stat, ok := info.Sys().(*syscall.Stat_t)
-		if !ok || stat.Uid != runtime.requiredOwnerUID {
-			return fmt.Errorf("deployment %s directory is not owned by root", label)
+		canonical, canonicalErr := filepath.EvalSymlinks(path)
+		if !ok || stat.Uid != runtime.requiredOwnerUID || canonicalErr != nil || filepath.Clean(canonical) != filepath.Clean(path) {
+			return fmt.Errorf("deployment %s directory ownership or path is unsafe", label)
 		}
 	}
-	for _, item := range paths {
-		if err := os.Chown(item.path, int(runtime.requiredOwnerUID), int(gid)); err != nil {
-			return fmt.Errorf("assign operator staging group: %w", err)
-		}
-		if err := os.Chmod(item.path, item.mode); err != nil {
-			return fmt.Errorf("set operator staging permissions: %w", err)
+	if mutate {
+		for _, item := range paths {
+			if err := os.Chown(item.path, int(runtime.requiredOwnerUID), int(gid)); err != nil {
+				return fmt.Errorf("assign operator staging group: %w", err)
+			}
+			if err := os.Chmod(item.path, item.mode); err != nil {
+				return fmt.Errorf("set operator staging permissions: %w", err)
+			}
 		}
 	}
 	return nil
@@ -168,22 +196,56 @@ func changedPackagePaths(manifest productionManifest, rollback bool) []string {
 	return paths
 }
 
+func packageTransitionPath(transition productionPackageTransition, rollback bool) []string {
+	if !transition.Changed {
+		return nil
+	}
+	if rollback {
+		return []string{transition.RollbackPath}
+	}
+	return []string{transition.CandidatePath}
+}
+
+func requiredDeploymentWindow(goChanged, webChanged bool, observation time.Duration) time.Duration {
+	// Budget worst-case command timeouts plus a rollback attempt. The timer is
+	// armed before the first service/package/database mutation.
+	budget := observation + 2*time.Minute
+	if goChanged {
+		budget += 3*5*time.Minute + 5*time.Minute + 10*time.Minute + 5*time.Minute
+	}
+	if webChanged {
+		budget += 5*time.Minute + 5*time.Minute
+	}
+	return budget
+}
+
 func (runtime *productionRuntime) paruInstall(ctx context.Context, userName string, packages []string) error {
 	if len(packages) == 0 {
 		return errors.New("no changed packages selected")
 	}
-	uidOutput, err := runtime.runner.Run(ctx, productionCommand{Name: "/usr/bin/id", Args: []string{"-u", userName}})
+	uidOutput, err := runtime.runner.Run(ctx, productionCommand{Name: commandID, Args: []string{"-u", userName}})
 	uid, parseErr := strconv.ParseUint(strings.TrimSpace(string(uidOutput)), 10, 32)
 	if err != nil || parseErr != nil || uid == 0 {
 		return errors.New("paru operator is missing or no longer unprivileged")
 	}
 	args := []string{"--user", userName, "--", runtime.paths.ParuBinary, "-U", "--noconfirm"}
 	args = append(args, packages...)
-	_, err = runtime.runner.Run(ctx, productionCommand{Name: runtime.paths.RunuserBinary, Args: args, Timeout: 5 * time.Minute})
+	_, err = runtime.runner.Run(ctx, productionCommand{Name: commandRunuser, Args: args, Timeout: 5 * time.Minute})
 	return err
 }
 
 func (runtime *productionRuntime) verifyManifestArchives(ctx context.Context, manifest productionManifest) error {
+	backupEnvironment, err := runtime.validateBackupSet(ctx, productionWorkspace{id: manifest.DeploymentID}, manifest.BackupDir)
+	if err != nil {
+		return fmt.Errorf("revalidate manifest backup: %w", err)
+	}
+	if err := validateBackupAttestation(manifest.BackupDir, manifest.DeploymentID); err != nil {
+		return err
+	}
+	backupDigest, err := sha256File(filepath.Join(manifest.BackupDir, "database.archive"))
+	if err != nil || backupDigest != manifest.DatabaseBackupSHA256 || fmt.Sprintf("%x", sha256Bytes(backupEnvironment)) != manifest.EnvironmentRestoreSHA256 {
+		return errors.New("manifest backup contents no longer match the bound restore state")
+	}
 	pairs := []struct {
 		transition          productionPackageTransition
 		candidate, rollback productionPackageMetadata
@@ -213,26 +275,31 @@ func (runtime *productionRuntime) verifyManifestArchives(ctx context.Context, ma
 	return nil
 }
 
-func (runtime *productionRuntime) verifyManifestInstalled(ctx context.Context, manifest productionManifest, rollback bool) error {
-	for index, transition := range []productionPackageTransition{manifest.Go, manifest.Web} {
-		name, identity, revision, contract := transition.CandidatePackageName, transition.CandidateIdentity, transition.CandidateGitRevision, transition.CandidateContractRevision
-		if rollback {
-			name, identity, revision, contract = transition.RollbackPackageName, transition.RollbackIdentity, transition.RollbackGitRevision, transition.RollbackContractRevision
-		}
-		if err := runtime.verifyInstalledPackage(ctx, name, identity); err != nil {
+func (runtime *productionRuntime) verifyTransitionInstalled(ctx context.Context, transition productionPackageTransition, rollback, verifyMemory bool) error {
+	name, identity, revision, contract := transition.CandidatePackageName, transition.CandidateIdentity, transition.CandidateGitRevision, transition.CandidateContractRevision
+	if rollback {
+		name, identity, revision, contract = transition.RollbackPackageName, transition.RollbackIdentity, transition.RollbackGitRevision, transition.RollbackContractRevision
+	}
+	if err := runtime.verifyInstalledPackage(ctx, name, identity); err != nil {
+		return err
+	}
+	if verifyMemory {
+		if err := runtime.verifyMemoryPackageOwner(ctx, identity); err != nil {
 			return err
 		}
-		if index == 0 {
-			if err := runtime.verifyMemoryPackageOwner(ctx, identity); err != nil {
-				return err
-			}
-		}
-		actualRevision, actualContract, err := runtime.readInstalledReleaseMetadata(name)
-		if err != nil || actualRevision != revision || actualContract != contract {
-			return fmt.Errorf("installed %s Git/contract metadata mismatch", name)
-		}
+	}
+	actualRevision, actualContract, err := runtime.readInstalledReleaseMetadata(name)
+	if err != nil || actualRevision != revision || actualContract != contract {
+		return fmt.Errorf("installed %s Git/contract metadata mismatch", name)
 	}
 	return nil
+}
+
+func (runtime *productionRuntime) verifyManifestInstalled(ctx context.Context, manifest productionManifest, rollback bool) error {
+	if err := runtime.verifyTransitionInstalled(ctx, manifest.Go, rollback, true); err != nil {
+		return err
+	}
+	return runtime.verifyTransitionInstalled(ctx, manifest.Web, rollback, false)
 }
 
 func (runtime *productionRuntime) apply(ctx context.Context, workspace productionWorkspace, options productionTransactionOptions) (result productionStatus, returnErr error) {
@@ -274,7 +341,7 @@ func (runtime *productionRuntime) apply(ctx context.Context, workspace productio
 		{options.WebRollbackPackage, options.WebRollbackSHA256, "rollback Web package", false},
 		{options.ProbeBinary, options.ProbeBinarySHA256, "probe binary", true},
 	}
-	if err := runtime.prepareOperatorWorkspace(ctx, workspace, options.OperatorUser, staged); err != nil {
+	if err := runtime.validateOperatorWorkspace(ctx, workspace, options.OperatorUser, staged); err != nil {
 		return productionStatus{}, err
 	}
 	for _, file := range staged {
@@ -287,19 +354,20 @@ func (runtime *productionRuntime) apply(ctx context.Context, workspace productio
 	if err != nil {
 		return productionStatus{}, err
 	}
-	if _, err := runtime.runner.Run(ctx, productionCommand{Name: "systemctl", Args: []string{"is-active", "--quiet", runtime.paths.Service}}); err != nil {
+	databaseBackupSHA256, err := sha256File(filepath.Join(options.BackupDir, "database.archive"))
+	if err != nil || !productionSHA256Pattern.MatchString(databaseBackupSHA256) {
+		return productionStatus{}, errors.New("verified database backup is missing or empty")
+	}
+	if _, err := runtime.runner.Run(ctx, productionCommand{Name: commandSystemctl, Args: []string{"is-active", "--quiet", runtime.paths.Service}}); err != nil {
 		return productionStatus{}, errors.New("pre-upgrade lmm-api service is not active")
 	}
-	if _, err := runtime.runner.Run(ctx, productionCommand{Name: "systemctl", Args: []string{"is-enabled", "--quiet", runtime.paths.Service}}); err != nil {
+	if _, err := runtime.runner.Run(ctx, productionCommand{Name: commandSystemctl, Args: []string{"is-enabled", "--quiet", runtime.paths.Service}}); err != nil {
 		return productionStatus{}, errors.New("pre-upgrade lmm-api service is not enabled")
 	}
 	if err := runtime.verifyCanonicalOperator(ctx); err != nil {
 		return productionStatus{}, err
 	}
 	if err := verifyProductionMemoryDropIn(filepath.Join(runtime.paths.PackagedDropInDir, productionMemoryFileName)); err != nil {
-		return productionStatus{}, err
-	}
-	if err := retireKnownMemoryOverrides(runtime.paths.DropInDir); err != nil {
 		return productionStatus{}, err
 	}
 	goCandidate, err := runtime.packageMetadata(ctx, options.GoPackage, productionAURPackageName)
@@ -348,7 +416,7 @@ func (runtime *productionRuntime) apply(ctx context.Context, workspace productio
 	if err := runtime.verifyMemoryPackageOwner(ctx, goRollback.Identity); err != nil {
 		return productionStatus{}, err
 	}
-	probeVersion, err := runtime.runner.Run(ctx, productionCommand{Name: options.ProbeBinary, Args: []string{"version"}})
+	probeVersion, err := runVerifiedBinary(ctx, runtime.runner, options.ProbeBinary, []string{"version"}, nil, "", productionCommandTimeout, false)
 	if err != nil || strings.TrimSpace(string(probeVersion)) != options.ExpectedVersion {
 		return productionStatus{}, errors.New("candidate probe binary version mismatch")
 	}
@@ -362,7 +430,7 @@ func (runtime *productionRuntime) apply(ctx context.Context, workspace productio
 	if _, err := runtime.probeStatus(ctx, options.ProbeBinary, runtime.paths.PublicBaseURL, oldVersion); err != nil {
 		return productionStatus{}, fmt.Errorf("pre-upgrade public status probe failed: %w", err)
 	}
-	comparisonOutput, err := runtime.runner.Run(ctx, productionCommand{Name: "vercmp", Args: []string{oldVersion, options.ExpectedVersion}})
+	comparisonOutput, err := runtime.runner.Run(ctx, productionCommand{Name: commandVercmp, Args: []string{oldVersion, options.ExpectedVersion}})
 	if err != nil {
 		return productionStatus{}, fmt.Errorf("compare release versions: %w", err)
 	}
@@ -407,15 +475,21 @@ func (runtime *productionRuntime) apply(ctx context.Context, workspace productio
 		return productionStatus{}, fmt.Errorf("pre-upgrade live probe failed: %w", err)
 	}
 
-	deadline := utcSecond(runtime.now().Add(options.RollbackWindow))
+	rollbackWindow := options.RollbackWindow
+	if required := requiredDeploymentWindow(options.GoChanged, options.WebChanged, options.ObservationWindow); rollbackWindow < required {
+		rollbackWindow = required
+	}
+	deadline := utcSecond(runtime.now().Add(rollbackWindow))
 	manifest := productionManifest{
+		Format: productionTransactionFormat, DeploymentID: workspace.id,
 		OperatorUser: options.OperatorUser,
 		Go:           transitionFromMetadata(options.GoChanged, options.GoPackage, options.GoRollbackPackage, options.GoPackageSHA256, options.GoRollbackSHA256, goCandidate, goRollback),
 		Web:          transitionFromMetadata(options.WebChanged, options.WebPackage, options.WebRollbackPackage, options.WebPackageSHA256, options.WebRollbackSHA256, webCandidate, webRollback),
 		Frontend:     productionFrontendTransition{OldTarget: oldTarget, NewTarget: newTarget, OldIndexSHA256: oldIndexSHA, NewIndexSHA256: webCandidate.IndexSHA256},
 		ProbeBinary:  options.ProbeBinary, ProbeBinarySHA256: options.ProbeBinarySHA256,
 		ExpectedVersion: options.ExpectedVersion, OldVersion: oldVersion, BackupDir: options.BackupDir,
-		DatabaseSchema: databaseSchema, DeadlineUTC: deadline, EnvironmentRestoreSHA256: environmentRestoreSHA256,
+		DatabaseBackupSHA256: databaseBackupSHA256, DatabaseRestoreRequired: options.GoChanged, DatabaseSchema: databaseSchema, DeadlineUTC: deadline,
+		ObservationSeconds: int64(options.ObservationWindow / time.Second), EnvironmentRestoreSHA256: environmentRestoreSHA256,
 		NginxEdgeRestoreSHA256: nginxEdgeRestoreSHA256, PreserveEdgePolicy: options.PreserveEdgePolicy,
 	}
 	if err := runtime.writeManifest(workspace, manifest); err != nil {
@@ -432,51 +506,73 @@ func (runtime *productionRuntime) apply(ctx context.Context, workspace productio
 	if err := runtime.writeStatus(workspace, productionStatus{Phase: "ARMED", Version: options.ExpectedVersion, Previous: oldVersion, RollbackTimer: workspace.timerUnit, DeadlineUTC: deadline}); err != nil {
 		return productionStatus{}, err
 	}
-	if _, err := runtime.runner.Run(ctx, productionCommand{Name: "systemctl", Args: []string{"stop", runtime.paths.Service}}); err != nil {
-		return productionStatus{}, fmt.Errorf("stop current Go service: %w", err)
-	}
-	if err := runtime.writeStatus(workspace, productionStatus{Phase: "MIGRATING", Version: options.ExpectedVersion, Previous: oldVersion, RollbackTimer: workspace.timerUnit, DeadlineUTC: deadline}); err != nil {
+	if err := runtime.prepareOperatorWorkspace(ctx, workspace, options.OperatorUser, staged); err != nil {
 		return productionStatus{}, err
 	}
-	for _, migration := range []migrationRun{{name: "candidate-apply", binary: manifest.ProbeBinary, mode: "apply"}, {name: "candidate-verify", binary: manifest.ProbeBinary, mode: "verify"}, {name: "rollback-verify", binary: runtime.paths.InstalledBinary, mode: "verify"}} {
-		if err := runtime.runMigration(ctx, workspace, manifest, migration); err != nil {
+	if manifest.Go.Changed {
+		if _, err := runtime.runner.Run(ctx, productionCommand{Name: commandSystemctl, Args: []string{"stop", runtime.paths.Service}}); err != nil {
+			return productionStatus{}, fmt.Errorf("stop current Go service: %w", err)
+		}
+		if err := runtime.writeStatus(workspace, productionStatus{Phase: "MIGRATING", Version: options.ExpectedVersion, Previous: oldVersion, RollbackTimer: workspace.timerUnit, DeadlineUTC: deadline}); err != nil {
 			return productionStatus{}, err
 		}
-	}
-	if err := runtime.writeStatus(workspace, productionStatus{Phase: "DEPLOYING", Version: options.ExpectedVersion, Previous: oldVersion, RollbackTimer: workspace.timerUnit, DeadlineUTC: deadline}); err != nil {
-		return productionStatus{}, err
-	}
-	if err := runtime.paruInstall(ctx, manifest.OperatorUser, changedPackagePaths(manifest, false)); err != nil {
-		return productionStatus{}, fmt.Errorf("install candidate split packages: %w", err)
-	}
-	if err := runtime.restoreConfiguration(workspace, manifest); err != nil {
-		return productionStatus{}, err
-	}
-	if manifest.NginxEdgeRestoreSHA256 != "" && !manifest.PreserveEdgePolicy {
-		if err := runtime.applyEdgePolicyAssets(ctx, runtime.paths.EdgeAssetRoot, filepath.Join(workspace.configRestore, "nginx-edge"), true); err != nil {
-			return productionStatus{}, fmt.Errorf("install managed nginx edge policy: %w", err)
+		for _, migration := range []migrationRun{{name: "candidate-apply", binary: manifest.ProbeBinary, mode: "apply"}, {name: "candidate-verify", binary: manifest.ProbeBinary, mode: "verify"}, {name: "rollback-verify", binary: runtime.paths.InstalledBinary, mode: "verify"}} {
+			if err := runtime.runMigration(ctx, workspace, manifest, migration); err != nil {
+				return productionStatus{}, err
+			}
+		}
+		if err := runtime.writeStatus(workspace, productionStatus{Phase: "DEPLOYING_GO", Version: options.ExpectedVersion, Previous: oldVersion, RollbackTimer: workspace.timerUnit, DeadlineUTC: deadline}); err != nil {
+			return productionStatus{}, err
+		}
+		if err := runtime.paruInstall(ctx, manifest.OperatorUser, packageTransitionPath(manifest.Go, false)); err != nil {
+			return productionStatus{}, fmt.Errorf("install candidate Go package: %w", err)
+		}
+		if err := runtime.restoreConfiguration(workspace, manifest); err != nil {
+			return productionStatus{}, err
+		}
+		if manifest.NginxEdgeRestoreSHA256 != "" && !manifest.PreserveEdgePolicy {
+			if err := runtime.applyEdgePolicyAssets(ctx, runtime.paths.EdgeAssetRoot, filepath.Join(workspace.configRestore, "nginx-edge"), true); err != nil {
+				return productionStatus{}, fmt.Errorf("install managed nginx edge policy: %w", err)
+			}
+		}
+		if err := retireKnownMemoryOverrides(runtime.paths.DropInDir); err != nil {
+			return productionStatus{}, err
+		}
+		if err := hardenProductionConfiguration(productionHardenOptions{EnvFile: filepath.Join(runtime.paths.ConfigDir, "lmm-api-go.env"), DropInDir: runtime.paths.PackagedDropInDir, OverrideDropInDir: runtime.paths.DropInDir}); err != nil {
+			return productionStatus{}, err
+		}
+		if _, err := runtime.runner.Run(ctx, productionCommand{Name: commandSystemctl, Args: []string{"daemon-reload"}}); err != nil {
+			return productionStatus{}, fmt.Errorf("reload systemd after Go package installation: %w", err)
+		}
+		if err := runtime.verifyTransitionInstalled(ctx, manifest.Go, false, true); err != nil {
+			return productionStatus{}, err
+		}
+		installedVersion, err := runVerifiedBinary(ctx, runtime.runner, runtime.paths.InstalledBinary, []string{"version"}, nil, "", productionCommandTimeout, false)
+		if err != nil || strings.TrimSpace(string(installedVersion)) != options.ExpectedVersion {
+			return productionStatus{}, errors.New("installed binary version mismatch")
+		}
+		for _, removed := range runtime.paths.RemovedPaths {
+			if _, err := os.Lstat(removed); err == nil || !errors.Is(err, os.ErrNotExist) {
+				return productionStatus{}, fmt.Errorf("removed split-architecture path remains: %s", removed)
+			}
+		}
+		if _, err := runtime.runner.Run(ctx, productionCommand{Name: commandSystemctl, Args: []string{"enable", "--now", runtime.paths.Service}}); err != nil {
+			return productionStatus{}, fmt.Errorf("start candidate Go service: %w", err)
 		}
 	}
-	if err := hardenProductionConfiguration(productionHardenOptions{EnvFile: filepath.Join(runtime.paths.ConfigDir, "lmm-api-go.env"), DropInDir: runtime.paths.PackagedDropInDir, OverrideDropInDir: runtime.paths.DropInDir}); err != nil {
-		return productionStatus{}, err
+	if err := runtime.probeBackendLocal(ctx, manifest, options.ExpectedVersion); err != nil {
+		return productionStatus{}, fmt.Errorf("candidate local backend health gate failed: %w", err)
 	}
-	if _, err := runtime.runner.Run(ctx, productionCommand{Name: "systemctl", Args: []string{"daemon-reload"}}); err != nil {
-		return productionStatus{}, fmt.Errorf("reload systemd after package installation: %w", err)
+	if manifest.Web.Changed {
+		if err := runtime.writeStatus(workspace, productionStatus{Phase: "DEPLOYING_WEB", Version: options.ExpectedVersion, Previous: oldVersion, RollbackTimer: workspace.timerUnit, DeadlineUTC: deadline}); err != nil {
+			return productionStatus{}, err
+		}
+		if err := runtime.paruInstall(ctx, manifest.OperatorUser, packageTransitionPath(manifest.Web, false)); err != nil {
+			return productionStatus{}, fmt.Errorf("install candidate Web package: %w", err)
+		}
 	}
 	if err := runtime.verifyManifestInstalled(ctx, manifest, false); err != nil {
 		return productionStatus{}, err
-	}
-	installedVersion, err := runtime.runner.Run(ctx, productionCommand{Name: runtime.paths.InstalledBinary, Args: []string{"version"}})
-	if err != nil || strings.TrimSpace(string(installedVersion)) != options.ExpectedVersion {
-		return productionStatus{}, errors.New("installed binary version mismatch")
-	}
-	for _, removed := range runtime.paths.RemovedPaths {
-		if _, err := os.Lstat(removed); err == nil || !errors.Is(err, os.ErrNotExist) {
-			return productionStatus{}, fmt.Errorf("removed split-architecture path remains: %s", removed)
-		}
-	}
-	if _, err := runtime.runner.Run(ctx, productionCommand{Name: "systemctl", Args: []string{"enable", "--now", runtime.paths.Service}}); err != nil {
-		return productionStatus{}, fmt.Errorf("start candidate Go service: %w", err)
 	}
 	if err := verifyFrontendIdentity(runtime.paths.FrontendRoot, manifest.Frontend.NewTarget, manifest.Frontend.NewIndexSHA256); err != nil {
 		return productionStatus{}, err
@@ -509,7 +605,13 @@ func (runtime *productionRuntime) apply(ctx context.Context, workspace productio
 
 func (runtime *productionRuntime) observe(ctx context.Context, workspace productionWorkspace, manifest productionManifest, window time.Duration) error {
 	deadline := runtime.now().Add(window)
+	if !deadline.Before(manifest.DeadlineUTC) {
+		return errors.New("observation window cannot complete before rollback deadline")
+	}
 	for {
+		if !runtime.now().Before(manifest.DeadlineUTC) {
+			return errors.New("rollback deadline expired during observation")
+		}
 		if err := runtime.healthCheck(ctx, workspace, manifest); err != nil {
 			return err
 		}
@@ -553,8 +655,23 @@ func (runtime *productionRuntime) confirmLoaded(ctx context.Context, workspace p
 	if err := runtime.verifyManifestArchives(ctx, manifest); err != nil {
 		return productionStatus{}, fmt.Errorf("deployment manifest archive verification failed: %w", err)
 	}
-	if manifest.ObservationStartedUTC.IsZero() || runtime.now().Before(manifest.ObservationStartedUTC.Add(2*time.Minute)) {
-		return productionStatus{}, errors.New("confirmation requires at least 120 seconds of observation")
+	now := runtime.now()
+	if !now.Before(manifest.DeadlineUTC) {
+		return productionStatus{}, errors.New("rollback deadline has expired; confirmation is forbidden")
+	}
+	observationWindow := time.Duration(manifest.ObservationSeconds) * time.Second
+	observationEnd := manifest.ObservationStartedUTC.Add(observationWindow)
+	if manifest.ObservationStartedUTC.IsZero() || !observationEnd.Before(manifest.DeadlineUTC) {
+		return productionStatus{}, errors.New("observation window cannot complete before the rollback deadline")
+	}
+	if now.Before(observationEnd) {
+		return productionStatus{}, errors.New("confirmation requires the configured observation window of at least 120 seconds")
+	}
+	if _, err := runtime.runner.Run(ctx, productionCommand{Name: commandSystemctl, Args: []string{"is-active", "--quiet", workspace.timerUnit}}); err != nil {
+		return productionStatus{}, errors.New("rollback timer is no longer active; confirmation is forbidden")
+	}
+	if _, err := runtime.runner.Run(ctx, productionCommand{Name: commandSystemctl, Args: []string{"is-active", "--quiet", workspace.rollbackUnit}}); err == nil {
+		return productionStatus{}, errors.New("rollback service has triggered; confirmation is forbidden")
 	}
 	if err := runtime.healthCheck(ctx, workspace, manifest); err != nil {
 		return productionStatus{}, fmt.Errorf("final production health gate failed: %w", err)
@@ -570,7 +687,7 @@ func (runtime *productionRuntime) confirmLoaded(ctx context.Context, workspace p
 			return productionStatus{}, err
 		}
 	}
-	if err := runtime.disarmRollbackTimer(ctx, workspace, true); err != nil {
+	if err := runtime.disarmRollbackTimer(ctx, workspace, false); err != nil {
 		return productionStatus{}, err
 	}
 	confirmed := productionStatus{
@@ -602,7 +719,7 @@ func (runtime *productionRuntime) rollback(ctx context.Context, workspace produc
 		return status, nil
 	}
 	switch status.Phase {
-	case "ARMING", "ARMED", "MIGRATING", "DEPLOYING", "AWAITING_CONFIRMATION", "ROLLING_BACK", "ROLLBACK_FAILED":
+	case "ARMING", "ARMED", "MIGRATING", "DEPLOYING", "DEPLOYING_GO", "DEPLOYING_WEB", "AWAITING_CONFIRMATION", "ROLLING_BACK", "ROLLBACK_FAILED":
 	default:
 		return productionStatus{}, fmt.Errorf("deployment phase %s is not rollback-eligible", status.Phase)
 	}
@@ -629,36 +746,50 @@ func (runtime *productionRuntime) rollback(ctx context.Context, workspace produc
 		_ = runtime.writeStatus(workspace, failed)
 		return productionStatus{}, operationErr
 	}
-	_, _ = runtime.runner.Run(ctx, productionCommand{Name: "systemctl", Args: []string{"stop", runtime.paths.Service}})
-	if err := runtime.paruInstall(ctx, manifest.OperatorUser, changedPackagePaths(manifest, true)); err != nil {
-		return fail(fmt.Errorf("install rollback split packages: %w", err))
-	}
-	oldRelease := strings.TrimPrefix(manifest.Frontend.OldTarget, "releases/")
-	if err := executeFrontendDeploy(frontendDeployOptions{Action: "rollback", Root: runtime.paths.FrontendRoot, Release: oldRelease, Keep: productionFrontendReleaseKeep}); err != nil {
-		return fail(fmt.Errorf("restore previous frontend link: %w", err))
-	}
-	if err := runtime.restoreConfiguration(workspace, manifest); err != nil {
-		return fail(err)
-	}
-	if manifest.NginxEdgeRestoreSHA256 != "" {
-		if err := runtime.restoreEdgePolicyBackup(ctx, filepath.Join(workspace.configRestore, "nginx-edge"), manifest.NginxEdgeRestoreSHA256); err != nil {
-			return fail(fmt.Errorf("restore nginx edge policy: %w", err))
+	if manifest.Go.Changed {
+		_, _ = runtime.runner.Run(ctx, productionCommand{Name: commandSystemctl, Args: []string{"stop", runtime.paths.Service}})
+		if err := runtime.paruInstall(ctx, manifest.OperatorUser, packageTransitionPath(manifest.Go, true)); err != nil {
+			return fail(fmt.Errorf("install rollback Go package: %w", err))
+		}
+		if err := runtime.restoreConfiguration(workspace, manifest); err != nil {
+			return fail(err)
+		}
+		if manifest.DatabaseRestoreRequired {
+			if err := runtime.restoreDatabaseBackup(ctx, workspace, manifest); err != nil {
+				return fail(err)
+			}
+		}
+		if manifest.NginxEdgeRestoreSHA256 != "" {
+			if err := runtime.restoreEdgePolicyBackup(ctx, filepath.Join(workspace.configRestore, "nginx-edge"), manifest.NginxEdgeRestoreSHA256); err != nil {
+				return fail(fmt.Errorf("restore nginx edge policy: %w", err))
+			}
+		}
+		if err := hardenProductionConfiguration(productionHardenOptions{EnvFile: filepath.Join(runtime.paths.ConfigDir, "lmm-api-go.env"), DropInDir: runtime.paths.PackagedDropInDir, OverrideDropInDir: runtime.paths.DropInDir}); err != nil {
+			return fail(err)
+		}
+		if _, err := runtime.runner.Run(ctx, productionCommand{Name: commandSystemctl, Args: []string{"daemon-reload"}}); err != nil {
+			return fail(fmt.Errorf("reload systemd for rollback: %w", err))
+		}
+		if err := runtime.verifyTransitionInstalled(ctx, manifest.Go, true, true); err != nil {
+			return fail(err)
+		}
+		if _, err := runtime.runner.Run(ctx, productionCommand{Name: commandSystemctl, Args: []string{"enable", "--now", runtime.paths.Service}}); err != nil {
+			return fail(fmt.Errorf("start rolled-back Go service: %w", err))
+		}
+		if err := runtime.probeBackendLocal(ctx, manifest, manifest.OldVersion); err != nil {
+			return fail(fmt.Errorf("rolled-back local backend health gate failed: %w", err))
 		}
 	}
-	if err := hardenProductionConfiguration(productionHardenOptions{EnvFile: filepath.Join(runtime.paths.ConfigDir, "lmm-api-go.env"), DropInDir: runtime.paths.PackagedDropInDir, OverrideDropInDir: runtime.paths.DropInDir}); err != nil {
-		return fail(err)
-	}
-	if _, err := runtime.runner.Run(ctx, productionCommand{Name: "systemctl", Args: []string{"daemon-reload"}}); err != nil {
-		return fail(fmt.Errorf("reload systemd for rollback: %w", err))
+	if manifest.Web.Changed {
+		if err := runtime.paruInstall(ctx, manifest.OperatorUser, packageTransitionPath(manifest.Web, true)); err != nil {
+			return fail(fmt.Errorf("install rollback Web package: %w", err))
+		}
 	}
 	if err := runtime.verifyManifestInstalled(ctx, manifest, true); err != nil {
 		return fail(err)
 	}
 	if err := verifyFrontendIdentity(runtime.paths.FrontendRoot, manifest.Frontend.OldTarget, manifest.Frontend.OldIndexSHA256); err != nil {
 		return fail(err)
-	}
-	if _, err := runtime.runner.Run(ctx, productionCommand{Name: "systemctl", Args: []string{"enable", "--now", runtime.paths.Service}}); err != nil {
-		return fail(fmt.Errorf("start rolled-back Go service: %w", err))
 	}
 	if err := runtime.probeRelease(ctx, manifest, manifest.OldVersion, manifest.Frontend.OldIndexSHA256); err != nil {
 		return fail(fmt.Errorf("rolled-back release probes failed: %w", err))
@@ -714,19 +845,19 @@ WantedBy=timers.target
 		_ = os.Remove(workspace.rollbackPath)
 		return false, fmt.Errorf("write rollback timer: %w", err)
 	}
-	if _, err := runtime.runner.Run(ctx, productionCommand{Name: "systemctl", Args: []string{"daemon-reload"}}); err != nil {
+	if _, err := runtime.runner.Run(ctx, productionCommand{Name: commandSystemctl, Args: []string{"daemon-reload"}}); err != nil {
 		_ = os.Remove(workspace.timerPath)
 		_ = os.Remove(workspace.rollbackPath)
-		_, _ = runtime.runner.Run(ctx, productionCommand{Name: "systemctl", Args: []string{"daemon-reload"}})
+		_, _ = runtime.runner.Run(ctx, productionCommand{Name: commandSystemctl, Args: []string{"daemon-reload"}})
 		return false, fmt.Errorf("reload rollback units: %w", err)
 	}
-	if _, err := runtime.runner.Run(ctx, productionCommand{Name: "systemctl", Args: []string{"enable", "--now", workspace.timerUnit}}); err != nil {
+	if _, err := runtime.runner.Run(ctx, productionCommand{Name: commandSystemctl, Args: []string{"enable", "--now", workspace.timerUnit}}); err != nil {
 		// systemctl may have started the timer before reporting an error. Treat
 		// this as armed so the caller performs the release-scoped rollback path
 		// and retains the transaction lock if disarming cannot be proven.
 		return true, fmt.Errorf("arm rollback timer: %w", err)
 	}
-	if _, err := runtime.runner.Run(ctx, productionCommand{Name: "systemctl", Args: []string{"is-active", "--quiet", workspace.timerUnit}}); err != nil {
+	if _, err := runtime.runner.Run(ctx, productionCommand{Name: commandSystemctl, Args: []string{"is-active", "--quiet", workspace.timerUnit}}); err != nil {
 		return true, errors.New("rollback timer did not become active")
 	}
 	return true, nil
@@ -746,19 +877,19 @@ func (runtime *productionRuntime) disarmRollbackTimer(ctx context.Context, works
 		*exists = true
 	}
 	if timerExists {
-		if _, err := runtime.runner.Run(ctx, productionCommand{Name: "systemctl", Args: []string{"disable", "--now", workspace.timerUnit}}); err != nil {
+		if _, err := runtime.runner.Run(ctx, productionCommand{Name: commandSystemctl, Args: []string{"disable", "--now", workspace.timerUnit}}); err != nil {
 			return fmt.Errorf("disable rollback timer: %w", err)
 		}
 	}
 	if rollbackExists && stopRollbackService {
-		_, _ = runtime.runner.Run(ctx, productionCommand{Name: "systemctl", Args: []string{"stop", workspace.rollbackUnit}})
+		_, _ = runtime.runner.Run(ctx, productionCommand{Name: commandSystemctl, Args: []string{"stop", workspace.rollbackUnit}})
 	}
-	_, _ = runtime.runner.Run(ctx, productionCommand{Name: "systemctl", Args: []string{"reset-failed", workspace.timerUnit, workspace.rollbackUnit}})
-	if _, err := runtime.runner.Run(ctx, productionCommand{Name: "systemctl", Args: []string{"is-active", "--quiet", workspace.timerUnit}}); err == nil {
+	_, _ = runtime.runner.Run(ctx, productionCommand{Name: commandSystemctl, Args: []string{"reset-failed", workspace.timerUnit, workspace.rollbackUnit}})
+	if _, err := runtime.runner.Run(ctx, productionCommand{Name: commandSystemctl, Args: []string{"is-active", "--quiet", workspace.timerUnit}}); err == nil {
 		return errors.New("rollback timer remains active after disable")
 	}
 	if stopRollbackService {
-		if _, err := runtime.runner.Run(ctx, productionCommand{Name: "systemctl", Args: []string{"is-active", "--quiet", workspace.rollbackUnit}}); err == nil {
+		if _, err := runtime.runner.Run(ctx, productionCommand{Name: commandSystemctl, Args: []string{"is-active", "--quiet", workspace.rollbackUnit}}); err == nil {
 			return errors.New("rollback service remains active after stop")
 		}
 	}
@@ -774,7 +905,7 @@ func (runtime *productionRuntime) disarmRollbackTimer(ctx context.Context, works
 			return fmt.Errorf("remove rollback unit %s: %w", filepath.Base(path), err)
 		}
 	}
-	if _, err := runtime.runner.Run(ctx, productionCommand{Name: "systemctl", Args: []string{"daemon-reload"}}); err != nil {
+	if _, err := runtime.runner.Run(ctx, productionCommand{Name: commandSystemctl, Args: []string{"daemon-reload"}}); err != nil {
 		return fmt.Errorf("reload systemd after removing rollback units: %w", err)
 	}
 	return nil

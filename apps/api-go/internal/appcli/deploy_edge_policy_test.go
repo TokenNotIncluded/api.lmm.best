@@ -13,7 +13,7 @@ import (
 type edgePolicyTestRunner struct{}
 
 func (edgePolicyTestRunner) Run(_ context.Context, command productionCommand) ([]byte, error) {
-	if command.Name == "systemctl" && len(command.Args) >= 2 &&
+	if command.Name == commandSystemctl && len(command.Args) >= 2 &&
 		(command.Args[0] == "is-active" || command.Args[0] == "is-enabled") {
 		return nil, errors.New("unit inactive in test")
 	}
@@ -23,7 +23,7 @@ func (edgePolicyTestRunner) Run(_ context.Context, command productionCommand) ([
 type legacyPolicyStateRunner struct{}
 
 func (legacyPolicyStateRunner) Run(_ context.Context, command productionCommand) ([]byte, error) {
-	if command.Name == "systemctl" && len(command.Args) >= 2 {
+	if command.Name == commandSystemctl && len(command.Args) >= 2 {
 		switch command.Args[0] {
 		case "is-active":
 			return nil, errors.New("unit inactive in test")

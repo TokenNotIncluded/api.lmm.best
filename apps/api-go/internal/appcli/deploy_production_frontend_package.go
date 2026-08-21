@@ -11,10 +11,7 @@ import (
 const productionPackagedFrontendIndex = "usr/share/lmm-api-go/frontend-dist/index.html"
 
 func (runtime *productionRuntime) candidateFrontendIndexSHA256(ctx context.Context, packagePath string) (string, error) {
-	contents, err := runtime.runner.Run(ctx, productionCommand{
-		Name: "bsdtar",
-		Args: []string{"-xOf", packagePath, productionPackagedFrontendIndex},
-	})
+	contents, err := runtime.runner.Run(ctx, productionCommand{Name: commandBsdtar, Args: []string{"-xOf", packagePath, productionPackagedFrontendIndex},})
 	if err != nil {
 		return "", fmt.Errorf("read candidate frontend index: %w", err)
 	}

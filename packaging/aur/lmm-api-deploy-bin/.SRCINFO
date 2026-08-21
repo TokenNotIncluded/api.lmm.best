@@ -12,6 +12,7 @@ pkgbase = lmm-api-deploy-bin
 	depends = libarchive
 	depends = pacman
 	depends = paru
+	depends = sudo
 	depends = systemd
 	depends = util-linux
 	provides = lmm-api-deploy=0.1.35

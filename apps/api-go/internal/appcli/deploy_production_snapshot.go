@@ -422,7 +422,7 @@ func (runtime *productionRuntime) currentPackage(ctx context.Context) (productio
 				if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || info.Size() == 0 {
 					return fmt.Errorf("candidate rollback package is unsafe: %s", path)
 				}
-				identity, err := runtime.runner.Run(ctx, productionCommand{Name: "pacman", Args: []string{"-Qp", path}})
+				identity, err := runtime.runner.Run(ctx, productionCommand{Name: commandPacman, Args: []string{"-Qp", path}})
 				if err == nil && strings.TrimSpace(string(identity)) == installed {
 					candidates = append(candidates, candidate{path: path, source: root.source})
 				}
@@ -477,11 +477,11 @@ func (runtime *productionRuntime) createBackup(ctx context.Context, options prod
 		if err != nil {
 			return fmt.Errorf("query installed Go package: %w", err)
 		}
-		rollbackIdentity, err := runtime.runner.Run(ctx, productionCommand{Name: "pacman", Args: []string{"-Qp", options.RollbackPackage}})
+		rollbackIdentity, err := runtime.runner.Run(ctx, productionCommand{Name: commandPacman, Args: []string{"-Qp", options.RollbackPackage}})
 		if err != nil || strings.TrimSpace(string(rollbackIdentity)) != installed {
 			return errors.New("rollback package does not exactly match the installed Go package")
 		}
-		if _, err := runtime.runner.Run(ctx, productionCommand{Name: "systemctl", Args: []string{"is-active", "--quiet", runtime.paths.Service}}); err != nil {
+		if _, err := runtime.runner.Run(ctx, productionCommand{Name: commandSystemctl, Args: []string{"is-active", "--quiet", runtime.paths.Service}}); err != nil {
 			return errors.New("production Go service is not active before backup")
 		}
 		frontendRelease, err := currentFrontendRelease(runtime.paths.FrontendRoot)
@@ -535,13 +535,11 @@ func (runtime *productionRuntime) createBackup(ctx context.Context, options prod
 		if err := copyRegularFile(options.RollbackPackage, filepath.Join(applicationStage, "rollback.package"), 0o600, true); err != nil {
 			return err
 		}
-		packageInfo, err := runtime.runner.Run(ctx, productionCommand{Name: "pacman", Args: []string{"-Qi", packageName}})
+		packageInfo, err := runtime.runner.Run(ctx, productionCommand{Name: commandPacman, Args: []string{"-Qi", packageName}})
 		if err != nil {
 			return fmt.Errorf("capture installed package metadata: %w", err)
 		}
-		serviceState, err := runtime.runner.Run(ctx, productionCommand{
-			Name: "systemctl", Args: []string{"show", runtime.paths.Service, "--property=LoadState", "--property=ActiveState", "--property=SubState", "--property=UnitFileState"},
-		})
+		serviceState, err := runtime.runner.Run(ctx, productionCommand{Name: commandSystemctl, Args: []string{"show", runtime.paths.Service, "--property=LoadState", "--property=ActiveState", "--property=SubState", "--property=UnitFileState"},})
 		if err != nil {
 			return fmt.Errorf("capture service state: %w", err)
 		}
@@ -579,10 +577,8 @@ func (runtime *productionRuntime) createBackup(ctx context.Context, options prod
 		}
 		databasePath := filepath.Join(stage, "database.archive")
 		databaseTemporary := databasePath + ".new"
-		if _, err := runtime.runner.Run(ctx, productionCommand{
-			Name: "pg_dump", Args: []string{"--format=custom", "--file=" + databaseTemporary, databaseURL},
-			Env: childEnvironment, Timeout: 10 * time.Minute, Sensitive: true,
-		}); err != nil {
+		if _, err := runtime.runner.Run(ctx, productionCommand{Name: commandPGDump, Args: []string{"--format=custom", "--file=" + databaseTemporary, databaseURL},
+			Env: childEnvironment, Timeout: 10 * time.Minute, Sensitive: true,}); err != nil {
 			return fmt.Errorf("create PostgreSQL production backup: %w", err)
 		}
 		info, err := os.Lstat(databaseTemporary)
@@ -592,7 +588,7 @@ func (runtime *productionRuntime) createBackup(ctx context.Context, options prod
 		if err := os.Chmod(databaseTemporary, 0o600); err != nil {
 			return err
 		}
-		if _, err := runtime.runner.Run(ctx, productionCommand{Name: "pg_restore", Args: []string{"--list", databaseTemporary}}); err != nil {
+		if _, err := runtime.runner.Run(ctx, productionCommand{Name: commandPGRestore, Args: []string{"--list", databaseTemporary}}); err != nil {
 			return fmt.Errorf("validate PostgreSQL production backup: %w", err)
 		}
 		if err := os.Rename(databaseTemporary, databasePath); err != nil {
