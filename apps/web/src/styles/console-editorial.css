@@ -1079,6 +1079,96 @@ For commercial licensing, please contact support@quantumnous.com
   outline: none;
 }
 
+/* The service guide is a calm, task-oriented surface. Its empty state needs
+ * enough presence to orient an operator without competing with the actual
+ * conversation once it begins. */
+.console-editorial .assistant-modern-header {
+  background: color-mix(in oklch, var(--background) 90%, transparent);
+}
+
+.console-editorial .assistant-modern-welcome__intro {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 1rem;
+}
+
+.console-editorial .assistant-modern-welcome__mark {
+  display: flex;
+  width: 3.5rem;
+  height: 3.5rem;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid color-mix(in oklch, var(--foreground) 22%, transparent);
+  border-radius: 0.875rem;
+  background: color-mix(in oklch, var(--accent) 38%, var(--card));
+  color: var(--foreground);
+}
+
+.console-editorial .assistant-modern-welcome__lanes {
+  display: grid;
+  margin-top: clamp(2.5rem, 7vh, 4.5rem);
+  border-block: 1px solid var(--border);
+}
+
+.console-editorial .assistant-modern-welcome__lane {
+  display: grid;
+  gap: 0.5rem;
+  padding-block: 1.125rem;
+}
+
+.console-editorial
+  .assistant-modern-welcome__lane
+  + .assistant-modern-welcome__lane {
+  border-top: 1px solid color-mix(in oklch, var(--border) 78%, transparent);
+}
+
+.console-editorial .assistant-modern-welcome__notice {
+  margin-top: 1.25rem;
+}
+
+.console-editorial .assistant-composer {
+  border-top: 1px solid color-mix(in oklch, var(--border) 78%, transparent);
+  background: color-mix(in oklch, var(--background) 92%, var(--card));
+}
+
+.console-editorial .assistant-modern-prompt {
+  border-radius: 0.875rem;
+  transition:
+    border-color 160ms ease-out,
+    background-color 160ms ease-out;
+}
+
+.console-editorial .assistant-modern-prompt:hover {
+  border-color: color-mix(in oklch, var(--foreground) 30%, transparent);
+}
+
+@media (min-width: 640px) {
+  .console-editorial .assistant-modern-welcome__intro {
+    gap: 1.5rem;
+  }
+
+  .console-editorial .assistant-modern-welcome__mark {
+    width: 4rem;
+    height: 4rem;
+  }
+
+  .console-editorial .assistant-modern-welcome__lane {
+    grid-template-columns: minmax(0, 1fr) minmax(13rem, 0.78fr);
+    align-items: baseline;
+    gap: 2rem;
+    padding-block: 1.35rem;
+  }
+}
+
+@media (max-width: 639px) {
+  .console-editorial .assistant-modern-welcome__mark {
+    width: 3rem;
+    height: 3rem;
+  }
+}
+
 .console-editorial .console-info-panel {
   border: 1px solid color-mix(in oklch, var(--console-info) 44%, transparent);
   background: color-mix(in oklch, var(--console-info) 14%, var(--background));

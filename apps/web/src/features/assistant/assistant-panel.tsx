@@ -309,37 +309,41 @@ function AssistantModernWelcome(props: {
 
   return (
     <div
-      className='assistant-modern-welcome mx-auto flex w-full max-w-3xl flex-1 flex-col justify-center px-5 py-16 sm:px-10 sm:py-24'
+      className='assistant-modern-welcome mx-auto flex w-full max-w-4xl flex-1 flex-col justify-center px-5 py-12 sm:px-10 sm:py-20'
       data-testid='assistant-modern-welcome'
     >
-      <div className='max-w-2xl'>
-        <p className='text-muted-foreground text-xs font-medium tracking-[0.18em] uppercase'>
-          LMM Forge · {t('Service guide')}
-        </p>
-        <h2 className='mt-4 text-3xl leading-tight font-semibold tracking-tight sm:text-4xl'>
-          {props.restricted
-            ? t('What would you like to do?')
-            : t('How can I help?')}
-        </h2>
-        <p className='text-muted-foreground mt-4 max-w-xl text-sm leading-7 sm:text-base'>
-          {props.description}
-        </p>
+      <div className='assistant-modern-welcome__intro'>
+        <div className='assistant-modern-welcome__mark' aria-label='LMM Forge'>
+          <LmmBrandMark className='size-8' aria-hidden='true' />
+        </div>
+        <div className='max-w-2xl min-w-0'>
+          <h2 className='text-3xl leading-[1.08] font-semibold tracking-tight text-balance sm:text-5xl'>
+            {props.restricted
+              ? t('What would you like to do?')
+              : t('How can I help?')}
+          </h2>
+          <p className='text-muted-foreground mt-4 max-w-xl text-sm leading-7 sm:text-base'>
+            {props.description}
+          </p>
+        </div>
       </div>
 
-      <div className='mt-12 divide-y border-y' aria-label={t('Capabilities')}>
-        {lanes.map(([label, prompt], index) => (
-          <div
-            className='grid gap-2 py-5 sm:grid-cols-[3rem_1fr_1fr] sm:items-center sm:gap-5'
-            key={label}
-          >
-            <span className='text-muted-foreground text-xs tabular-nums'>
-              {String(index + 1).padStart(2, '0')}
-            </span>
+      <div
+        className='assistant-modern-welcome__lanes'
+        aria-label={t('Capabilities')}
+      >
+        {lanes.map(([label, prompt]) => (
+          <div className='assistant-modern-welcome__lane' key={label}>
             <span className='text-sm font-medium'>{label}</span>
             <span className='text-muted-foreground text-sm'>{prompt}</span>
           </div>
         ))}
       </div>
+
+      <p className='assistant-modern-welcome__notice text-muted-foreground text-xs leading-5'>
+        {t('Permissions still apply')} · {t('Never share secrets in chat')} ·{' '}
+        {t('Write actions need your confirmation')}
+      </p>
     </div>
   )
 }
@@ -770,7 +774,7 @@ function AssistantPromptComposer(props: {
           'assistant-prompt-input has-[[data-slot=input-group-control]:focus-visible]:border-transparent has-[[data-slot=input-group-control]:focus-visible]:ring-0 rounded-xl border-transparent',
           props.classicLayout
             ? 'rounded-2xl border-[#565869] bg-[#40414f] text-[#ececf1] shadow-[0_8px_24px_rgba(0,0,0,0.22)] ring-1 ring-black/20'
-            : 'bg-muted/40 dark:bg-muted/30'
+            : 'assistant-modern-prompt border-border/70 bg-card/80 dark:bg-card/70'
         )}
         aria-label={t('Ask AI assistant')}
         data-testid='assistant-prompt-form'
@@ -1014,7 +1018,7 @@ function AssistantPanelHeader(props: {
     return (
       <header
         className={cn(
-          'assistant-modern-header border-border/70 flex min-w-0 shrink-0 flex-wrap items-center gap-3 border-b bg-background px-5 py-4 sm:px-8',
+          'assistant-glass-surface assistant-modern-header border-border/70 flex min-w-0 shrink-0 flex-wrap items-center gap-3 border-b px-5 py-4 sm:px-8',
           props.historyVisible && 'bg-muted/10'
         )}
       >
@@ -1116,7 +1120,7 @@ function AssistantPanelHeader(props: {
   }
 
   return (
-    <header className='assistant-modern-header border-border/70 bg-background flex min-w-0 shrink-0 items-start gap-2 border-b px-4 py-4 sm:gap-3 sm:px-5'>
+    <header className='assistant-glass-surface assistant-modern-header border-border/70 flex min-w-0 shrink-0 items-start gap-2 border-b px-4 py-4 sm:gap-3 sm:px-5'>
       <div className='min-w-0 flex-1'>
         <h2 className='truncate text-base leading-6 font-semibold'>
           {t('Service guide')}
@@ -2352,7 +2356,7 @@ export function AssistantPanel(props: {
             />
             <div
               className={cn(
-                'px-3 py-2 sm:px-4 sm:py-3',
+                'assistant-composer px-3 py-2 sm:px-4 sm:py-3',
                 mode === 'page' && 'mx-auto w-full max-w-3xl',
                 classicLayout && 'px-5 py-4 sm:px-8 sm:py-5'
               )}
