@@ -446,7 +446,7 @@ type ChannelSearchPage struct {
 	TypeCounts map[int64]int64
 }
 
-func searchChannelsQuery(keyword string, group string, model string) *gorm.DB {
+func searchChannelsQuery(keyword string, group string, model string, searchSensitiveFields bool) *gorm.DB {
 	modelsCol := "`models`"
 
 	// 如果是 PostgreSQL，使用双引号
@@ -454,26 +454,32 @@ func searchChannelsQuery(keyword string, group string, model string) *gorm.DB {
 		modelsCol = `"models"`
 	}
 
-	baseURLCol := "`base_url`"
-	// 如果是 PostgreSQL，使用双引号
-	if common.UsingMainDatabase(common.DatabaseTypePostgreSQL) {
-		baseURLCol = `"base_url"`
+	conditions := []string{"id = ?", "name LIKE ?"}
+	args := []any{common.String2Int(keyword), "%" + keyword + "%"}
+	if searchSensitiveFields {
+		keyCol := "`key`"
+		baseURLCol := "`base_url`"
+		// 如果是 PostgreSQL，使用双引号
+		if common.UsingMainDatabase(common.DatabaseTypePostgreSQL) {
+			keyCol = `"key"`
+			baseURLCol = `"base_url"`
+		}
+		conditions = append(conditions, keyCol+" = ?", baseURLCol+" LIKE ?")
+		args = append(args, keyword, "%"+keyword+"%")
 	}
+	args = append(args, "%"+model+"%")
 
-	// 构造基础查询
+	// Key and base URL may only influence matching for callers with explicit
+	// secret-view permission; otherwise result counts become a secret oracle.
+	whereClause := "(" + strings.Join(conditions, " OR ") + ") AND " + modelsCol + " LIKE ?"
 	baseQuery := DB.Model(&Channel{}).Omit("key")
-
-	// 构造WHERE子句
-	whereClause := "(id = ? OR name LIKE ? OR " + commonKeyCol + " = ? OR " + baseURLCol + " LIKE ?) AND " + modelsCol + " LIKE ?"
-	args := []any{common.String2Int(keyword), "%" + keyword + "%", keyword, "%" + keyword + "%", "%" + model + "%"}
-	baseQuery = ApplyChannelGroupFilter(baseQuery.Where(whereClause, args...), group)
-	return baseQuery
+	return ApplyChannelGroupFilter(baseQuery.Where(whereClause, args...), group)
 }
 
 // SearchChannelsPage searches channels with all filters applied by SQL before
 // pagination. TypeCounts intentionally reflects the status/group/model search
 // set before the optional type filter, matching the channel UI's filter counts.
-func SearchChannelsPage(keyword string, group string, model string, statusFilter int, typeFilter int, startIdx int, pageSize int, idSort bool, sortOptions ...ChannelSortOptions) (ChannelSearchPage, error) {
+func SearchChannelsPage(keyword string, group string, model string, statusFilter int, typeFilter int, startIdx int, pageSize int, searchSensitiveFields bool, idSort bool, sortOptions ...ChannelSortOptions) (ChannelSearchPage, error) {
 	if startIdx < 0 {
 		startIdx = 0
 	}
@@ -484,7 +490,7 @@ func SearchChannelsPage(keyword string, group string, model string, statusFilter
 		pageSize = channelSearchMaxPageSize
 	}
 
-	baseQuery := searchChannelsQuery(keyword, group, model)
+	baseQuery := searchChannelsQuery(keyword, group, model, searchSensitiveFields)
 	if statusFilter == common.ChannelStatusEnabled {
 		baseQuery = baseQuery.Where("status = ?", common.ChannelStatusEnabled)
 	} else if statusFilter == 0 {
@@ -526,8 +532,8 @@ func SearchChannelsPage(keyword string, group string, model string, statusFilter
 
 // SearchChannels is retained for internal callers that need a bounded search
 // result without pagination metadata.
-func SearchChannels(keyword string, group string, model string, idSort bool, sortOptions ...ChannelSortOptions) ([]*Channel, error) {
-	result, err := SearchChannelsPage(keyword, group, model, -1, -1, 0, channelSearchMaxPageSize, idSort, sortOptions...)
+func SearchChannels(keyword string, group string, model string, searchSensitiveFields bool, idSort bool, sortOptions ...ChannelSortOptions) ([]*Channel, error) {
+	result, err := SearchChannelsPage(keyword, group, model, -1, -1, 0, channelSearchMaxPageSize, searchSensitiveFields, idSort, sortOptions...)
 	if err != nil {
 		return nil, err
 	}
@@ -1087,7 +1093,11 @@ func DeleteDisabledChannel() (int64, error) {
 }
 
 func GetPaginatedTags(offset int, limit int) ([]*string, error) {
-	return GetPaginatedChannelTags(DB.Model(&Channel{}), offset, limit)
+	tags, err := GetPaginatedChannelTags(DB.Model(&Channel{}), offset, limit)
+	if err != nil {
+		return nil, fmt.Errorf("get paginated channel tags: %w", err)
+	}
+	return tags, nil
 }
 
 func GetPaginatedChannelTags(query *gorm.DB, offset int, limit int) ([]*string, error) {
@@ -1102,35 +1112,14 @@ func GetPaginatedChannelTags(query *gorm.DB, offset int, limit int) ([]*string, 
 	return tags, err
 }
 
-func SearchTags(keyword string, group string, model string, idSort bool) ([]*string, error) {
+func SearchTags(keyword string, group string, model string, searchSensitiveFields bool, idSort bool) ([]*string, error) {
 	var tags []*string
-	modelsCol := "`models`"
-
-	// 如果是 PostgreSQL，使用双引号
-	if common.UsingMainDatabase(common.DatabaseTypePostgreSQL) {
-		modelsCol = `"models"`
-	}
-
-	baseURLCol := "`base_url`"
-	// 如果是 PostgreSQL，使用双引号
-	if common.UsingMainDatabase(common.DatabaseTypePostgreSQL) {
-		baseURLCol = `"base_url"`
-	}
-
 	order := "priority desc"
 	if idSort {
 		order = "id desc"
 	}
 
-	// 构造基础查询
-	baseQuery := DB.Model(&Channel{}).Omit("key")
-
-	// 构造WHERE子句
-	whereClause := "(id = ? OR name LIKE ? OR " + commonKeyCol + " = ? OR " + baseURLCol + " LIKE ?) AND " + modelsCol + " LIKE ?"
-	args := []any{common.String2Int(keyword), "%" + keyword + "%", keyword, "%" + keyword + "%", "%" + model + "%"}
-	baseQuery = ApplyChannelGroupFilter(baseQuery.Where(whereClause, args...), group)
-
-	subQuery := baseQuery.
+	subQuery := searchChannelsQuery(keyword, group, model, searchSensitiveFields).
 		Select("tag").
 		Where("tag != ''").
 		Order(order)
@@ -1300,7 +1289,11 @@ func CountAllChannels() (int64, error) {
 
 // CountAllTags returns number of non-empty distinct tags
 func CountAllTags() (int64, error) {
-	return CountChannelTags(DB.Model(&Channel{}))
+	total, err := CountChannelTags(DB.Model(&Channel{}))
+	if err != nil {
+		return 0, fmt.Errorf("count channel tags: %w", err)
+	}
+	return total, nil
 }
 
 func CountChannelTags(query *gorm.DB) (int64, error) {

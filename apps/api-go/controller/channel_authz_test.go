@@ -5,14 +5,17 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/LIghtJUNction/api.lmm.best/model"
 	"github.com/gin-gonic/gin"
+	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
 
 func TestChannelHasSensitiveChanges(t *testing.T) {
@@ -127,6 +130,141 @@ func TestClearChannelReadOnlyFields(t *testing.T) {
 	assert.Zero(t, channel.UsedQuota)
 	assert.Equal(t, "gpt-4o", channel.Models)
 	assert.Equal(t, "default", channel.Group)
+}
+
+func TestClearChannelSensitiveInfo(t *testing.T) {
+	baseURL := "https://proxy-user:proxy-pass@example.com"
+	organization := "secret-organization"
+	headerOverride := `{"Authorization":"Bearer secret"}`
+	paramOverride := `{"api_key":"secret"}`
+	setting := `{"credential":"secret"}`
+	channel := &model.Channel{
+		Type:               1,
+		Key:                "secret-key",
+		BaseURL:            &baseURL,
+		OpenAIOrganization: &organization,
+		HeaderOverride:     &headerOverride,
+		ParamOverride:      &paramOverride,
+		Setting:            &setting,
+		Other:              "secret-other",
+		OtherSettings:      `{"proxy":"secret"}`,
+		Name:               "preserved channel name",
+		Models:             "gpt-4o",
+	}
+
+	clearChannelSensitiveInfo(channel)
+
+	assert.Empty(t, channel.Key)
+	assert.Nil(t, channel.BaseURL)
+	assert.Nil(t, channel.OpenAIOrganization)
+	assert.Nil(t, channel.HeaderOverride)
+	assert.Nil(t, channel.ParamOverride)
+	assert.Nil(t, channel.Setting)
+	assert.Empty(t, channel.Other)
+	assert.Empty(t, channel.OtherSettings)
+	assert.Equal(t, 1, channel.Type)
+	assert.Equal(t, "preserved channel name", channel.Name)
+	assert.Equal(t, "gpt-4o", channel.Models)
+}
+
+func TestChannelReadEndpointsRequireSecretViewForSensitiveData(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	previousDB := model.DB
+	previousDatabaseType := common.MainDatabaseType()
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&model.Channel{}))
+	model.DB = db
+	common.SetMainDatabaseType(common.DatabaseTypeSQLite)
+	t.Cleanup(func() {
+		model.DB = previousDB
+		common.SetMainDatabaseType(previousDatabaseType)
+	})
+
+	baseURL := "https://channel-read-secret.example.com/v1"
+	headerOverride := `{"X-Provider-Metadata":"header-redaction-sentinel"}`
+	paramOverride := `{"request_field":"param-redaction-sentinel"}`
+	setting := `{"proxy":"https://proxy-redaction.example.com"}`
+	keySearch := "provider-key-lookup-sentinel"
+	channel := model.Channel{
+		Name:           "ordinary channel inventory entry",
+		Key:            keySearch,
+		BaseURL:        &baseURL,
+		HeaderOverride: &headerOverride,
+		ParamOverride:  &paramOverride,
+		Setting:        &setting,
+		Other:          "other-redaction-sentinel",
+		OtherSettings:  `{"provider":"other-settings-redaction-sentinel"}`,
+		Models:         "gpt-5",
+		Group:          "default",
+		Status:         common.ChannelStatusEnabled,
+	}
+	require.NoError(t, model.DB.Create(&channel).Error)
+	t.Cleanup(func() { model.DB.Unscoped().Delete(&channel) })
+
+	readChannel := func(role int) model.Channel {
+		t.Helper()
+		recorder := httptest.NewRecorder()
+		ctx, _ := gin.CreateTestContext(recorder)
+		ctx.Request = httptest.NewRequest(http.MethodGet, "/api/channel/"+strconv.Itoa(channel.Id), nil)
+		ctx.Params = gin.Params{{Key: "id", Value: strconv.Itoa(channel.Id)}}
+		ctx.Set("id", 880001+role)
+		ctx.Set("role", role)
+		GetChannel(ctx)
+
+		require.Equal(t, http.StatusOK, recorder.Code)
+		var response struct {
+			Success bool          `json:"success"`
+			Data    model.Channel `json:"data"`
+		}
+		require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
+		require.True(t, response.Success)
+		return response.Data
+	}
+
+	adminView := readChannel(common.RoleAdminUser)
+	assert.Empty(t, adminView.Key)
+	assert.Nil(t, adminView.BaseURL)
+	assert.Nil(t, adminView.HeaderOverride)
+	assert.Nil(t, adminView.ParamOverride)
+	assert.Nil(t, adminView.Setting)
+	assert.Empty(t, adminView.Other)
+	assert.Empty(t, adminView.OtherSettings)
+	assert.Equal(t, channel.Name, adminView.Name)
+
+	rootView := readChannel(common.RoleRootUser)
+	// The detail query has always omitted the key itself; secret-view controls
+	// the remaining provider configuration fields.
+	assert.Empty(t, rootView.Key)
+	require.NotNil(t, rootView.BaseURL)
+	assert.Equal(t, baseURL, *rootView.BaseURL)
+	assert.Equal(t, channel.OtherSettings, rootView.OtherSettings)
+
+	searchTotal := func(role int, keyword string) int64 {
+		t.Helper()
+		recorder := httptest.NewRecorder()
+		ctx, _ := gin.CreateTestContext(recorder)
+		ctx.Request = httptest.NewRequest(http.MethodGet, "/api/channel/search?keyword="+keyword, nil)
+		ctx.Set("id", 880101+role)
+		ctx.Set("role", role)
+		SearchChannels(ctx)
+
+		require.Equal(t, http.StatusOK, recorder.Code)
+		var response struct {
+			Success bool `json:"success"`
+			Data    struct {
+				Total int64 `json:"total"`
+			} `json:"data"`
+		}
+		require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
+		require.True(t, response.Success)
+		return response.Data.Total
+	}
+
+	for _, keyword := range []string{keySearch, "channel-read-secret.example.com"} {
+		assert.Zero(t, searchTotal(common.RoleAdminUser, keyword))
+		assert.Equal(t, int64(1), searchTotal(common.RoleRootUser, keyword))
+	}
 }
 
 func TestUpdateChannelRejectsStatusField(t *testing.T) {
