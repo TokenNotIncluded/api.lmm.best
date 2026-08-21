@@ -30,6 +30,8 @@ reject_literal "$GO_WORKFLOW" 'apps/web' 'Go workflow builds the web application
 reject_literal "$GO_WORKFLOW" 'setup-bun' 'Go workflow installs the web build toolchain'
 require_literal "$GO_WORKFLOW" 'cp packaging/common/lmm-api/lmm-api-memory.conf' \
   'Go release omits the package-owned memory drop-in'
+require_literal "$GO_WORKFLOW" 'EXPECTED_CONTRACT_REVISION:' \
+  'Go release does not safely pass expected contract metadata into the build'
 # shellcheck disable=SC2016 # Deliberately inspect workflow source literals.
 require_literal "$GO_WORKFLOW" '"$bundle/API_ROUTE_CONTRACT_REVISION"' \
   'Go release omits API/route contract metadata'

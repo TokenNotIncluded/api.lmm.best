@@ -85,9 +85,7 @@ jobs:
         uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6.2.0
         with:
           go-version-file: apps/api-go/go.mod
-          cache-dependency-path: |
-            apps/api-go/go.sum
-            apps/api-go/relaykit/go.sum
+          cache: false
 
       - name: Check and test default Go module
         working-directory: apps/api-go
@@ -163,13 +161,14 @@ jobs:
         uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6.2.0
         with:
           go-version-file: apps/api-go/go.mod
-          cache-dependency-path: apps/api-go/go.sum
+          cache: false
 
       - name: Build static backend and immutable Go-only archive
         env:
           GOARCH: ${{ matrix.arch }}
           GOOS: linux
           CGO_ENABLED: '0'
+          EXPECTED_CONTRACT_REVISION: ${{ needs.prepare.outputs.contract_revision }}
           RELEASE_REVISION: ${{ needs.prepare.outputs.revision }}
           RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
         run: |
@@ -207,7 +206,7 @@ jobs:
             "$bundle/API_ROUTE_CONTRACT_REVISION"
           deploy/production/api-route-contract-revision.sh verify \
             "$bundle/API_ROUTE_CONTRACT_REVISION"
-          [[ $(<"$bundle/API_ROUTE_CONTRACT_REVISION") == '${{ needs.prepare.outputs.contract_revision }}' ]]
+          [[ $(<"$bundle/API_ROUTE_CONTRACT_REVISION") == "$EXPECTED_CONTRACT_REVISION" ]]
           [[ ! -e "$bundle/frontend-dist" ]]
           tar -czf "release-go/${artifact}.tar.gz" -C release-go "$artifact"
           (cd release-go && sha256sum "${artifact}.tar.gz" >"${artifact}.tar.gz.sha256")
