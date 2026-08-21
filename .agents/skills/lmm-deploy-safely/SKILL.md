@@ -133,7 +133,7 @@ pg_isready
   --path /api/status --show-status --timeout 10s
 /usr/bin/lmm-api-deploy request --base-url http://127.0.0.1:3000 \
   --path /api/livez --show-status --timeout 10s
-journalctl --no-pager -u lmm-api-go.service -u nginx.service \
+journalctl --no-pager -u lmm-api.service -u nginx.service \
   --since '5 minutes ago' -p err..alert
 ```
 

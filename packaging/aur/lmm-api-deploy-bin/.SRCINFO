@@ -8,6 +8,12 @@ pkgbase = lmm-api-deploy-bin
 	license = AGPL-3.0-only
 	makedepends = cosign
 	depends = ca-certificates
+	depends = coreutils
+	depends = libarchive
+	depends = pacman
+	depends = paru
+	depends = systemd
+	depends = util-linux
 	provides = lmm-api-deploy=0.1.35
 	conflicts = lmm-api-deploy
 	noextract = lmm-api-go-0.1.35-linux-amd64.tar.gz
