@@ -1,6 +1,7 @@
 package model
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 
@@ -79,7 +80,7 @@ func GetRankingQuotaBuckets(startTime int64, endTime int64, bucketSize int64) ([
 // of those rows, so callers can consume the ordered result incrementally.
 func IterateRankingQuotaBuckets(startTime int64, endTime int64, bucketSize int64, visit func(RankingQuotaBucket) error) error {
 	if DB == nil || visit == nil {
-		return gorm.ErrInvalidData
+		return fmt.Errorf("iterate ranking quota buckets: %w", gorm.ErrInvalidData)
 	}
 	if bucketSize <= 0 {
 		bucketSize = 3600
@@ -94,19 +95,22 @@ func IterateRankingQuotaBuckets(startTime int64, endTime int64, bucketSize int64
 	query = applyRankingQuotaTimeRange(query, startTime, endTime)
 	rows, err := query.Rows()
 	if err != nil {
-		return err
+		return fmt.Errorf("query ranking quota buckets: %w", err)
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var row RankingQuotaBucket
 		if err := rows.Scan(&row.ModelName, &row.Bucket, &row.Tokens); err != nil {
-			return err
+			return fmt.Errorf("scan ranking quota bucket: %w", err)
 		}
 		if err := visit(row); err != nil {
-			return err
+			return fmt.Errorf("visit ranking quota bucket: %w", err)
 		}
 	}
-	return rows.Err()
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate ranking quota buckets: %w", err)
+	}
+	return nil
 }
 
 func GetUserRankingTotals(startTime int64, endTime int64) ([]UserRankingTotal, error) {
@@ -125,13 +129,16 @@ func GetUserRankingTotals(startTime int64, endTime int64) ([]UserRankingTotal, e
 // IterateUserRankingRows streams grouped usage rows directly from the
 // database. The slice-returning helper above remains for compatibility, while
 // the public leaderboard uses this bounded path for large installations.
-func IterateUserRankingRows(startTime int64, endTime int64, visit func(UserRankingRow) error) error {
+func IterateUserRankingRows(ctx context.Context, startTime int64, endTime int64, visit func(UserRankingRow) error) error {
 	if DB == nil || visit == nil {
-		return gorm.ErrInvalidData
+		return fmt.Errorf("iterate user ranking rows: %w", gorm.ErrInvalidData)
 	}
-	query := DB.Table("quota_data").
+	if ctx == nil {
+		return fmt.Errorf("iterate user ranking rows: nil context")
+	}
+	query := DB.WithContext(ctx).Table("quota_data").
 		Select("quota_data.user_id, COALESCE(SUM(quota_data.count), 0) AS requests, COALESCE(SUM(quota_data.token_used), 0) AS total_tokens, users.username, users.display_name, users.status, users.setting").
-		Joins("JOIN users ON users.id = quota_data.user_id").
+		Joins("JOIN users ON users.id = quota_data.user_id AND users.deleted_at IS NULL").
 		Where("quota_data.user_id > ?", 0).
 		Group("quota_data.user_id, users.username, users.display_name, users.status, users.setting").
 		Having("COALESCE(SUM(quota_data.count), 0) > 0 OR COALESCE(SUM(quota_data.token_used), 0) > 0").
@@ -139,7 +146,7 @@ func IterateUserRankingRows(startTime int64, endTime int64, visit func(UserRanki
 	query = applyRankingQuotaTimeRange(query, startTime, endTime)
 	rows, err := query.Rows()
 	if err != nil {
-		return err
+		return fmt.Errorf("query user ranking rows: %w", err)
 	}
 	defer rows.Close()
 	for rows.Next() {
@@ -154,16 +161,19 @@ func IterateUserRankingRows(startTime int64, endTime int64, visit func(UserRanki
 			&row.Status,
 			&setting,
 		); err != nil {
-			return err
+			return fmt.Errorf("scan user ranking row: %w", err)
 		}
 		row.Username = username.String
 		row.DisplayName = displayName.String
 		row.Setting = setting.String
 		if err := visit(row); err != nil {
-			return err
+			return fmt.Errorf("visit user ranking row: %w", err)
 		}
 	}
-	return rows.Err()
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate user ranking rows: %w", err)
+	}
+	return nil
 }
 
 func GetUsersForUsageRanking(userIDs []int) ([]*User, error) {

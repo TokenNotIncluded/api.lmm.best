@@ -24,7 +24,7 @@ func GetRankings(c *gin.Context) {
 }
 
 func GetUserUsageRankings(c *gin.Context) {
-	result, err := service.GetUserUsageRankingsSnapshot(c.DefaultQuery("period", "week"))
+	result, err := service.GetUserUsageRankingsSnapshot(c.Request.Context(), c.DefaultQuery("period", "week"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,

@@ -253,6 +253,11 @@ func initDBWithMigrationSession(chooser databaseChooser) (*StartupMigrationSessi
 		sqlDB.SetConnMaxLifetime(time.Second * time.Duration(common.GetEnvOrDefault("SQL_MAX_LIFETIME", 60)))
 
 		if mode == DBMigrationModeApply && !common.IsMasterNode {
+			// Register before the master migration finishes so relevant writes
+			// fail closed until the shared revision singleton exists.
+			if err := RegisterUserRankingRevisionCallbacks(DB); err != nil {
+				return nil, errors.Join(session.closeOnFailure(err), closeDB(DB))
+			}
 			return session, nil
 		}
 		if mode == DBMigrationModeApply && common.UsingMainDatabase(common.DatabaseTypeMySQL) {
@@ -266,6 +271,12 @@ func initDBWithMigrationSession(chooser databaseChooser) (*StartupMigrationSessi
 			return verifyPostgresRuntimeAndSchema(DB)
 		})
 		if err != nil {
+			return nil, errors.Join(session.closeOnFailure(err), closeDB(DB))
+		}
+		if err := VerifyUserRankingRevisionState(DB); err != nil {
+			return nil, errors.Join(session.closeOnFailure(err), closeDB(DB))
+		}
+		if err := RegisterUserRankingRevisionCallbacks(DB); err != nil {
 			return nil, errors.Join(session.closeOnFailure(err), closeDB(DB))
 		}
 		return session, nil
@@ -332,7 +343,7 @@ func InitLogDB(session *StartupMigrationSession) (err error) {
 
 func mainMigrationModels() []interface{} {
 	return []interface{}{
-		&Channel{}, &Token{}, &User{}, &UserSession{}, &AuthFlow{}, &ExternalIdentityClaim{},
+		&Channel{}, &Token{}, &UserRankingRevision{}, &User{}, &UserSession{}, &AuthFlow{}, &ExternalIdentityClaim{},
 		&PasskeyCredential{}, &Option{}, &Redemption{}, &Ability{}, &Log{}, &Midjourney{},
 		&DiscountCode{},
 		&TopUp{}, &QuotaData{}, &Task{}, &Model{}, &Vendor{}, &PrefillGroup{}, &Setup{}, &TwoFA{},
@@ -364,6 +375,9 @@ func migrateDB() error {
 
 	err := DB.AutoMigrate(mainMigrationModels()...)
 	if err != nil {
+		return err
+	}
+	if err := EnsureUserRankingRevisionState(DB); err != nil {
 		return err
 	}
 	if err := BackfillDeveloperAccessRecommendationArchives(); err != nil {
@@ -410,6 +424,7 @@ func migrateDBFast() error {
 	}{
 		{&Channel{}, "Channel"},
 		{&Token{}, "Token"},
+		{&UserRankingRevision{}, "UserRankingRevision"},
 		{&User{}, "User"},
 		{&UserSession{}, "UserSession"},
 		{&AuthFlow{}, "AuthFlow"},
@@ -506,6 +521,9 @@ func migrateDBFast() error {
 		if err != nil {
 			return err
 		}
+	}
+	if err := EnsureUserRankingRevisionState(DB); err != nil {
+		return err
 	}
 	if err := BackfillDeveloperAccessRecommendationArchives(); err != nil {
 		return err

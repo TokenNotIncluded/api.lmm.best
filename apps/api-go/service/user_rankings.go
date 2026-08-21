@@ -18,13 +18,17 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 package service
 
 import (
+	"context"
+	"fmt"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/LIghtJUNction/api.lmm.best/model"
 	"github.com/LIghtJUNction/api.lmm.best/relaykit/dto"
+	"golang.org/x/sync/singleflight"
 )
 
 type UserUsageRankingsResponse struct {
@@ -54,13 +58,114 @@ type userUsageCandidate struct {
 	tokens    int64
 }
 
-func GetUserUsageRankingsSnapshot(period string) (*UserUsageRankingsResponse, error) {
+type userUsageRankingCacheItem struct {
+	expiresAt time.Time
+	revision  int64
+	data      *UserUsageRankingsResponse
+}
+
+type userUsageRankingFlightResult struct {
+	revision int64
+	data     *UserUsageRankingsResponse
+}
+
+const (
+	userUsageRankingStabilityAttempts = 3
+	userUsageRankingBuildTimeout      = 30 * time.Second
+)
+
+var (
+	userUsageRankingCacheMu sync.RWMutex
+	userUsageRankingCache   = map[string]userUsageRankingCacheItem{}
+	userUsageRankingFlights singleflight.Group
+)
+
+func GetUserUsageRankingsSnapshot(ctx context.Context, period string) (*UserUsageRankingsResponse, error) {
 	config, err := rankingConfig(period)
 	if err != nil {
 		return nil, err
 	}
+	if ctx == nil {
+		return nil, fmt.Errorf("get user usage rankings: nil context")
+	}
 
-	now := time.Now()
+	for attempt := 0; attempt < userUsageRankingStabilityAttempts; attempt++ {
+		resultChannel := userUsageRankingFlights.DoChan(config.id, func() (any, error) {
+			buildCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), userUsageRankingBuildTimeout)
+			defer cancel()
+			return getUserUsageRankingsSnapshot(buildCtx, config)
+		})
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case result := <-resultChannel:
+			if result.Err != nil {
+				return nil, result.Err
+			}
+			flightResult, ok := result.Val.(userUsageRankingFlightResult)
+			if !ok || flightResult.data == nil {
+				return nil, fmt.Errorf("unexpected user rankings cache result")
+			}
+			current, err := userUsageRankingFlightIsCurrent(ctx, flightResult)
+			if err != nil {
+				return nil, err
+			}
+			if current {
+				return flightResult.data, nil
+			}
+		}
+	}
+	return nil, fmt.Errorf("user ranking visibility changed while returning the snapshot")
+}
+
+func userUsageRankingFlightIsCurrent(ctx context.Context, result userUsageRankingFlightResult) (bool, error) {
+	currentRevision, err := model.CurrentUserRankingRevision(ctx)
+	if err != nil {
+		return false, fmt.Errorf("validate user ranking revision: %w", err)
+	}
+	return currentRevision == result.revision, nil
+}
+
+func getUserUsageRankingsSnapshot(ctx context.Context, config rankingPeriodConfig) (userUsageRankingFlightResult, error) {
+	for attempt := 0; attempt < userUsageRankingStabilityAttempts; attempt++ {
+		revision, err := model.CurrentUserRankingRevision(ctx)
+		if err != nil {
+			return userUsageRankingFlightResult{}, fmt.Errorf("read user ranking revision: %w", err)
+		}
+
+		now := time.Now()
+		userUsageRankingCacheMu.RLock()
+		item, ok := userUsageRankingCache[config.id]
+		userUsageRankingCacheMu.RUnlock()
+		if ok && now.Before(item.expiresAt) && item.revision == revision {
+			return userUsageRankingFlightResult{revision: revision, data: item.data}, nil
+		}
+
+		data, err := buildUserUsageRankingsSnapshot(ctx, config, now)
+		if err != nil {
+			return userUsageRankingFlightResult{}, fmt.Errorf("build user usage rankings: %w", err)
+		}
+		stableRevision, err := model.CurrentUserRankingRevision(ctx)
+		if err != nil {
+			return userUsageRankingFlightResult{}, fmt.Errorf("recheck user ranking revision: %w", err)
+		}
+		if stableRevision != revision {
+			continue
+		}
+
+		userUsageRankingCacheMu.Lock()
+		userUsageRankingCache[config.id] = userUsageRankingCacheItem{
+			expiresAt: time.Now().Add(rankingCacheTTL),
+			revision:  stableRevision,
+			data:      data,
+		}
+		userUsageRankingCacheMu.Unlock()
+		return userUsageRankingFlightResult{revision: stableRevision, data: data}, nil
+	}
+	return userUsageRankingFlightResult{}, fmt.Errorf("user ranking visibility changed while building the snapshot")
+}
+
+func buildUserUsageRankingsSnapshot(ctx context.Context, config rankingPeriodConfig, now time.Time) (*UserUsageRankingsResponse, error) {
 	startTime, endTime := rankingTimeRange(config, now)
 	candidates := make([]userUsageCandidate, 0, rankingLeaderboardLimit)
 	var totalTokens int64
@@ -68,7 +173,7 @@ func GetUserUsageRankingsSnapshot(period string) (*UserUsageRankingsResponse, er
 	participantCount := 0
 	anonymousParticipantCount := 0
 
-	err = model.IterateUserRankingRows(startTime, endTime, func(row model.UserRankingRow) error {
+	err := model.IterateUserRankingRows(ctx, startTime, endTime, func(row model.UserRankingRow) error {
 		if row.Status != common.UserStatusEnabled {
 			return nil
 		}
