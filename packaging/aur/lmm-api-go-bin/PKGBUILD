@@ -19,6 +19,7 @@ backup=('etc/lmm-api-go/lmm-api-go.env')
 options=('!strip')
 
 _release_tag="go-v${pkgver}"
+_legacy_bundled_version=0.1.34
 _artifact="lmm-api-go-${pkgver}-linux"
 _release_base="${url}/releases/download/${_release_tag}"
 source_x86_64=(
@@ -64,6 +65,18 @@ prepare() {
     --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
     "${archive}"
   bsdtar -xf "${archive}"
+
+  local bundle="${srcdir}/${_artifact}-${_release_arch}"
+  if [[ ${pkgver} == "${_legacy_bundled_version}" ]]; then
+    [[ -f ${bundle}/frontend-dist/index.html ]] || return 1
+  else
+    [[ ! -e ${bundle}/frontend-dist ]] || return 1
+    [[ -f ${bundle}/lmm-api-memory.conf && ! -L ${bundle}/lmm-api-memory.conf ]] || return 1
+    [[ -f ${bundle}/API_ROUTE_CONTRACT_REVISION && ! -L ${bundle}/API_ROUTE_CONTRACT_REVISION ]] || return 1
+    [[ $(<"${bundle}/API_ROUTE_CONTRACT_REVISION") =~ ^[0-9a-f]{64}$ ]] || return 1
+    grep -Fqx 'Environment=LMM_API_FRONTEND_DIR=/srv/lmm-api-frontend/current' \
+      "${bundle}/lmm-api.service"
+  fi
 }
 
 package() {
@@ -78,11 +91,18 @@ package() {
   install -m0600 "${bundle}/lmm-api-go.env" \
     "${pkgdir}/etc/lmm-api-go/lmm-api-go.env"
 
-  install -d -m0755 "${pkgdir}/usr/share/lmm-api-go/frontend-dist"
-  cp -R --no-preserve=ownership,mode,timestamps -- "${bundle}/frontend-dist/." \
-    "${pkgdir}/usr/share/lmm-api-go/frontend-dist/"
-  find "${pkgdir}/usr/share/lmm-api-go/frontend-dist" -type d -exec chmod 0755 {} +
-  find "${pkgdir}/usr/share/lmm-api-go/frontend-dist" -type f -exec chmod 0644 {} +
+  if [[ ${pkgver} == "${_legacy_bundled_version}" ]]; then
+    install -d -m0755 "${pkgdir}/usr/share/lmm-api-go/frontend-dist"
+    cp -R --no-preserve=ownership,mode,timestamps -- "${bundle}/frontend-dist/." \
+      "${pkgdir}/usr/share/lmm-api-go/frontend-dist/"
+    find "${pkgdir}/usr/share/lmm-api-go/frontend-dist" -type d -exec chmod 0755 {} +
+    find "${pkgdir}/usr/share/lmm-api-go/frontend-dist" -type f -exec chmod 0644 {} +
+  else
+    install -Dm0644 "${bundle}/lmm-api-memory.conf" \
+      "${pkgdir}/usr/lib/systemd/system/lmm-api.service.d/20-memory.conf"
+    install -Dm0644 "${bundle}/API_ROUTE_CONTRACT_REVISION" \
+      "${pkgdir}/usr/share/doc/${pkgname}/API_ROUTE_CONTRACT_REVISION"
+  fi
 
   install -d -m0755 "${pkgdir}/usr/share/lmm-api-go/edge-policy"
   cp -R --no-preserve=ownership,mode,timestamps -- "${bundle}/edge-policy/." \

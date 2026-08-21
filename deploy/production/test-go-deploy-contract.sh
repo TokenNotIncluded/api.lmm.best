@@ -30,7 +30,7 @@ fi
 
 for literal in \
   'ExecStart=/usr/bin/lmm-api serve' \
-  'Environment=LMM_API_FRONTEND_DIR=/usr/share/lmm-api-go/frontend-dist' \
+  'Environment=LMM_API_FRONTEND_DIR=/srv/lmm-api-frontend/current' \
   'Environment=LMM_DB_MIGRATION_MODE=verify'; do
   contains "$literal" "$repo/packaging/common/lmm-api/lmm-api.service"
 done

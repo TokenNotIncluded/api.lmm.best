@@ -1,33 +1,53 @@
 # AUR packages
 
-Each backend ships its own provider binary. The Go package also provides the
-canonical `lmm-api` command as a symlink to `lmm-api-go`, so systemd can use a
-stable service contract while the provider remains replaceable.
+Production uses one tooling-only deployment operator plus independently owned
+Go backend and Web frontend packages.
 
-| Backend | Stable source | Prebuilt release | Build from Git | Installed command |
+| Role | Stable source | Prebuilt release | Build from Git | Installed command/payload |
 | --- | --- | --- | --- | --- |
-| Go | `lmm-api-go` | `lmm-api-go-bin` | `lmm-api-go-git` | `/usr/bin/lmm-api` → `lmm-api-go` |
-| Rust | — | `lmm-api-rs-bin` | `lmm-api-rs-git` | `/usr/bin/lmm-api-rs` |
+| Deployment operator | — | `lmm-api-deploy-bin` | — | `/usr/bin/lmm-api-deploy` → `/usr/lib/lmm-api-deploy/lmm-api-go` |
+| Go backend | `lmm-api-go` | `lmm-api-go-bin` | `lmm-api-go-git` | `/usr/bin/lmm-api` → `lmm-api-go` |
+| Web frontend | — | `lmm-api-web-bin` | — | `/usr/share/lmm-api-web/frontend-dist` |
+| Rust preview | — | `lmm-api-rs-bin` | `lmm-api-rs-git` | `/usr/bin/lmm-api-rs` |
 
-The independent prebuilt frontend is `lmm-api-web-bin`. It publishes the
-verified static payload under `/srv/lmm-api-frontend`, atomically changes the
-`current` link, reloads nginx, verifies the public page, and rolls back the link
-if verification fails. It never restarts the backend service.
+`lmm-api-deploy-bin` is a canonical tooling-only bootstrap. It extracts the
+signed Go release binary into an independent package payload under
+`/usr/lib/lmm-api-deploy`, owns the `/usr/bin/lmm-api-deploy` link, and installs
+license, Git revision, operator-byte hash, release-asset hash, and contract
+metadata when the source release provides it. It must not own a systemd unit,
+application environment, database state, nginx configuration, frontend
+payload, or active frontend link. Installing it with non-root `paru` is not an
+application switch.
 
-The Go packages currently retain a bundled frontend for safe transition and
-legacy rollback compatibility. New production frontend releases use
-`lmm-api-web-bin`; after deployed-package activation contracts no longer rely
-on the bundled payload, it can be removed from Go packages in a separate
-release. The Go service runs `/usr/bin/lmm-api serve` through the provider
-symlink and keeps its private `/etc/lmm-api-go/lmm-api-go.env` configuration.
+The next `lmm-api-go-bin` release is Go-only. It owns the backend, stable
+`/usr/bin/lmm-api` service entry, `/etc/lmm-api-go/lmm-api-go.env`, edge policy,
+and `/usr/lib/systemd/system/lmm-api.service.d/20-memory.conf`; it does not own
+`frontend-dist`. `lmm-api-web-bin` is the sole owner of immutable production
+frontend bytes and atomically activates them under `/srv/lmm-api-frontend`.
+The shared service resolves frontend files through
+`/srv/lmm-api-frontend/current`.
 
-Install the canonical source package with `paru -S lmm-api-go`. Use
-`lmm-api-go-bin` only when a matching signed GitHub release exists, or
-`lmm-api-go-git` when explicitly following the moving `main` branch.
+Tracked Go/Web binary recipes intentionally remain pinned to their already
+published immutable assets until the next signed releases exist. Their
+explicit legacy branches keep those old archives verifiable and buildable;
+future versions fail closed unless split ownership and
+`API_ROUTE_CONTRACT_REVISION` metadata are present. After publication, a
+separate post-release pin commit must update only the exact `pkgver`, immutable
+asset SHA-256 values, release revision metadata where applicable, descriptions
+that still mention legacy ownership, and regenerated `.SRCINFO`. Never use
+`SKIP`, a placeholder hash, or unverified metadata for that pin.
 
 The Rust packages remain separate until the Rust backend satisfies the same
-native CLI and production route contract. A Rust cutover must atomically
-replace the provider symlink and pass the route gate first.
+production route and ownership gates. A Rust cutover is not part of a Go/Web
+release.
 
-Run `bash packaging/aur/test-matrix.sh` after changing a `PKGBUILD`, and
-regenerate each tracked `.SRCINFO` with `makepkg --printsrcinfo > .SRCINFO`.
+Run these checks after changing a recipe:
+
+```bash
+TMPDIR="${TMPDIR:?marker-owned workspace required}" bash packaging/aur/test-matrix.sh
+TMPDIR="$TMPDIR" bash packaging/aur/test-bin-makepkg.sh
+TMPDIR="$TMPDIR" bash deploy/production/test-release-artifact-contract.sh
+```
+
+Regenerate every changed tracked `.SRCINFO` with
+`makepkg --printsrcinfo > .SRCINFO` and compare it before commit.

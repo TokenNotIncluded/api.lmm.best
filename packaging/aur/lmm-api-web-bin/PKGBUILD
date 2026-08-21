@@ -14,6 +14,7 @@ conflicts=('lmm-api-web')
 install=lmm-api-web.install
 
 _release_tag="web-v${pkgver}"
+_legacy_contractless_version=0.1.31
 _artifact="lmm-api-web-${pkgver}.tar.gz"
 _release_base="${url}/releases/download/${_release_tag}"
 source=(
@@ -49,6 +50,10 @@ prepare() {
   [[ -x ${srcdir}/lmm-api-web-activate.local ]]
   [[ -x ${srcdir}/frontend-release.sh ]]
   ! find "${srcdir}/dist" -type l -print -quit | grep -q .
+  if [[ ${pkgver} != "${_legacy_contractless_version}" ]]; then
+    [[ -f ${srcdir}/API_ROUTE_CONTRACT_REVISION && ! -L ${srcdir}/API_ROUTE_CONTRACT_REVISION ]]
+    [[ $(<"${srcdir}/API_ROUTE_CONTRACT_REVISION") =~ ^[0-9a-f]{64}$ ]]
+  fi
 }
 
 package() {
@@ -68,4 +73,8 @@ package() {
     install -Dm0644 "${srcdir}/${file}" "${pkgdir}/usr/share/licenses/${pkgname}/${file}"
   done
   install -Dm0644 "${srcdir}/REVISION" "${pkgdir}/usr/share/doc/${pkgname}/REVISION"
+  if [[ -f ${srcdir}/API_ROUTE_CONTRACT_REVISION ]]; then
+    install -Dm0644 "${srcdir}/API_ROUTE_CONTRACT_REVISION" \
+      "${pkgdir}/usr/share/doc/${pkgname}/API_ROUTE_CONTRACT_REVISION"
+  fi
 }

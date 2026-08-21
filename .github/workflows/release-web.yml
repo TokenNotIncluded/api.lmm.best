@@ -44,6 +44,11 @@ jobs:
           set -euo pipefail
           revision=$(git rev-parse HEAD)
           [[ "$revision" == "$GITHUB_SHA" ]]
+          [[ "$GITHUB_REF" == "refs/tags/$GITHUB_REF_NAME" ]]
+          version=${GITHUB_REF_NAME#web-v}
+          [[ "$GITHUB_REF_NAME" == "web-v${version}" ]]
+          [[ "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+
           default_branch_ref="refs/remotes/origin/$DEFAULT_BRANCH"
           git fetch --no-tags origin \
             "refs/heads/$DEFAULT_BRANCH:$default_branch_ref"
@@ -51,11 +56,14 @@ jobs:
             echo "$revision is not reachable from default branch $DEFAULT_BRANCH" >&2
             exit 1
           }
-          version=${GITHUB_REF_NAME#web-v}
-          [[ "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
-          [[ $(sed -n 's/^pkgver=//p' packaging/aur/lmm-api-web-bin/PKGBUILD) == "$version" ]]
           [[ $(git rev-list -n 1 "$GITHUB_REF_NAME") == "$revision" ]]
+          aur_version=$(sed -n 's/^pkgver=//p' packaging/aur/lmm-api-web-bin/PKGBUILD)
+          [[ "$aur_version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          [[ "$aur_version" != "$version" ]]
+          [[ $(printf '%s\n%s\n' "$aur_version" "$version" | sort -V | tail -n 1) == "$version" ]]
+          contract_revision=$(deploy/production/api-route-contract-revision.sh print)
           {
+            echo "contract_revision=$contract_revision"
             echo "version=$version"
             echo "revision=$revision"
           } >>"$GITHUB_OUTPUT"
@@ -90,6 +98,8 @@ jobs:
           bsdtar --version | head -1
           TMPDIR="$RUNNER_TEMP" bash deploy/test-frontend-release.sh
           TMPDIR="$RUNNER_TEMP" bash packaging/aur/test-web-activation.sh
+          TMPDIR="$RUNNER_TEMP" bash deploy/production/test-api-route-contract.sh
+          TMPDIR="$RUNNER_TEMP" bash deploy/production/test-release-artifact-contract.sh
 
       - name: Package immutable web artifact
         env:
@@ -104,22 +114,36 @@ jobs:
           cp deploy/frontend-release.sh "$bundle/"
           cp LICENSE NOTICE THIRD-PARTY-LICENSES.md "$bundle/"
           printf '%s\n' "$RELEASE_REVISION" >"$bundle/REVISION"
+          deploy/production/api-route-contract-revision.sh generate \
+            "$bundle/API_ROUTE_CONTRACT_REVISION"
+          deploy/production/api-route-contract-revision.sh verify \
+            "$bundle/API_ROUTE_CONTRACT_REVISION"
+          [[ $(<"$bundle/API_ROUTE_CONTRACT_REVISION") == '${{ steps.identity.outputs.contract_revision }}' ]]
           archive="release-web/lmm-api-web-${RELEASE_VERSION}.tar.gz"
           tar -czf "$archive" -C "$bundle" \
             dist lmm-api-web-activate frontend-release.sh \
-            LICENSE NOTICE THIRD-PARTY-LICENSES.md REVISION
+            LICENSE NOTICE THIRD-PARTY-LICENSES.md REVISION \
+            API_ROUTE_CONTRACT_REVISION
           (cd release-web && sha256sum "${archive##*/}" >"${archive##*/}.sha256")
+          (cd release-web && sha256sum --check "${archive##*/}.sha256")
           rm -rf -- "$bundle"
 
       - name: Install cosign
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
 
-      - name: Sign web artifact
+      - name: Sign and verify web artifact
         env:
           RELEASE_VERSION: ${{ steps.identity.outputs.version }}
         run: |
+          set -euo pipefail
           archive="release-web/lmm-api-web-${RELEASE_VERSION}.tar.gz"
           cosign sign-blob --yes --bundle "${archive}.sigstore.json" "$archive"
+          cosign verify-blob \
+            --bundle "${archive}.sigstore.json" \
+            --certificate-identity \
+              "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/.github/workflows/release-web.yml@refs/tags/${GITHUB_REF_NAME}" \
+            --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
+            "$archive"
 
       - name: Publish immutable web release
         uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b # v3.0.1
@@ -131,6 +155,7 @@ jobs:
             Independent production web frontend release.
 
             Revision: `${{ steps.identity.outputs.revision }}`
+            API/route contract revision: `${{ steps.identity.outputs.contract_revision }}`
           files: release-web/*
           fail_on_unmatched_files: true
           make_latest: false

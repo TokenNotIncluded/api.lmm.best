@@ -11,7 +11,7 @@ WorkingDirectory=/var/lib/lmm-api-go
 Environment=GIN_MODE=release
 Environment=PORT=3000
 Environment=LMM_API_BIND_ADDRESS=127.0.0.1
-Environment=LMM_API_FRONTEND_DIR=/usr/share/lmm-api-go/frontend-dist
+Environment=LMM_API_FRONTEND_DIR=/srv/lmm-api-frontend/current
 Environment=LMM_DB_MIGRATION_MODE=verify
 EnvironmentFile=-/etc/lmm-api-go/lmm-api-go.env
 ExecStart=/usr/bin/lmm-api serve
