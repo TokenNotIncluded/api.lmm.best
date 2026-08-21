@@ -39,3 +39,20 @@ func TestApiRouterRegistersReleaseNoteRoutes(t *testing.T) {
 		require.True(t, routes[expected], expected)
 	}
 }
+
+func TestApiRouterRegistersSelfOnboardingTodoRoutes(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	engine := gin.New()
+	SetApiRouter(engine)
+
+	routes := make(map[string]bool)
+	for _, route := range engine.Routes() {
+		routes[route.Method+" "+route.Path] = true
+	}
+	for _, expected := range []string{
+		"GET /api/user/self/onboarding/todo",
+		"PATCH /api/user/self/onboarding/todo",
+	} {
+		require.True(t, routes[expected], expected)
+	}
+}
