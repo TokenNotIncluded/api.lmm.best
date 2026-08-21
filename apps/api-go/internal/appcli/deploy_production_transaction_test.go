@@ -776,27 +776,33 @@ func TestProductionGoStartupRestartHardStopsBeforeHealthProbe(t *testing.T) {
 	if _, err := fixture.runtime.apply(context.Background(), fixture.workspace, fixture.options); err == nil || !strings.Contains(err.Error(), "restart baseline hard stop") {
 		t.Fatalf("startup restart error=%v", err)
 	}
-	if !fixture.runner.timerActive {
-		t.Fatal("startup restart hard stop disarmed the rollback watchdog")
+	if fixture.runner.timerActive {
+		t.Fatal("successful automatic rollback left the watchdog armed")
 	}
-	if fixture.runner.restartCounter != 1 {
-		t.Fatalf("restart counter=%d, want reset then one startup restart", fixture.runner.restartCounter)
+	if fixture.runner.installedGoVersion != fixture.runner.oldVersion {
+		t.Fatalf("installed Go version=%q, want rollback version %q", fixture.runner.installedGoVersion, fixture.runner.oldVersion)
 	}
-	resetIndex, startIndex := -1, -1
+	resetIndex, startIndex, rollbackInstallIndex := -1, -1, -1
 	for index, event := range fixture.runner.events {
 		switch event {
 		case "systemd-reset-failed":
 			resetIndex = index
 		case "systemd-start":
-			startIndex = index
+			if startIndex < 0 {
+				startIndex = index
+			}
+		case "paru-go":
+			if startIndex >= 0 && rollbackInstallIndex < 0 {
+				rollbackInstallIndex = index
+			}
 		default:
-			if startIndex >= 0 && strings.HasPrefix(event, "request:") {
+			if startIndex >= 0 && rollbackInstallIndex < 0 && strings.HasPrefix(event, "request:") {
 				t.Fatalf("candidate health probe ran after startup restart: events=%v", fixture.runner.events)
 			}
 		}
 	}
-	if resetIndex < 0 || startIndex < 0 || resetIndex >= startIndex {
-		t.Fatalf("reset/start order is unsafe: events=%v", fixture.runner.events)
+	if resetIndex < 0 || startIndex < 0 || rollbackInstallIndex < 0 || resetIndex >= startIndex || startIndex >= rollbackInstallIndex {
+		t.Fatalf("reset/start/rollback order is unsafe: events=%v", fixture.runner.events)
 	}
 	manifest, err := fixture.runtime.readManifest(fixture.workspace)
 	if err != nil {
@@ -804,6 +810,13 @@ func TestProductionGoStartupRestartHardStopsBeforeHealthProbe(t *testing.T) {
 	}
 	if !manifest.ObservationStartedUTC.IsZero() {
 		t.Fatalf("failed startup persisted an observation start: %s", manifest.ObservationStartedUTC)
+	}
+	status, err := fixture.runtime.readStatus(fixture.workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.Phase != "ROLLED_BACK" || status.Reason != "activation-failure" {
+		t.Fatalf("startup restart status=%#v", status)
 	}
 }
 

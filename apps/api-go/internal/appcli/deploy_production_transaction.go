@@ -327,10 +327,10 @@ func (runtime *productionRuntime) apply(ctx context.Context, workspace productio
 	if err := runtime.writeStatus(workspace, productionStatus{Phase: "PREPARING", Version: options.ExpectedVersion}); err != nil {
 		return productionStatus{}, err
 	}
-	armed, awaitingConfirmation, leaveWatchdogArmed := false, false, false
+	armed, awaitingConfirmation := false, false
 	watchdogDeadline := time.Time{}
 	defer func() {
-		if returnErr == nil || awaitingConfirmation || leaveWatchdogArmed {
+		if returnErr == nil || awaitingConfirmation {
 			return
 		}
 		if armed {
@@ -607,12 +607,10 @@ func (runtime *productionRuntime) apply(ctx context.Context, workspace productio
 		}
 		restartBaseline, err := runtime.readServiceRestarts(ctx)
 		if err != nil {
-			leaveWatchdogArmed = true
-			return productionStatus{}, fmt.Errorf("candidate Go service restart baseline hard stop; rollback watchdog remains armed: %w", err)
+			return productionStatus{}, fmt.Errorf("candidate Go service restart baseline hard stop: %w", err)
 		}
 		if restartBaseline != 0 {
-			leaveWatchdogArmed = true
-			return productionStatus{}, fmt.Errorf("candidate Go service restart baseline hard stop; rollback watchdog remains armed: got=%d want=0", restartBaseline)
+			return productionStatus{}, fmt.Errorf("candidate Go service restart baseline hard stop: got=%d want=0", restartBaseline)
 		}
 		manifest.ServiceRestartBaseline = 0
 		manifest.ObservationStartedUTC = utcSecond(runtime.now())
