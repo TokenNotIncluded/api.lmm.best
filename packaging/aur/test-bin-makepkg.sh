@@ -88,12 +88,28 @@ build_package lmm-api-deploy-bin \
 operator_archive=$(printf '%s\n' "$deploy_work/packages"/*.pkg.tar.*)
 bsdtar -tvf "$operator_archive" | grep -Eq '^-r--r-----.* etc/sudoers.d/lmm-api-deploy$' ||
   die 'operator sudoers policy is not packaged with mode 0440'
-bsdtar -xOf "$operator_archive" etc/sudoers.d/lmm-api-deploy | grep -Fqx \
-  'lmm-api-deploy ALL=(root) NOPASSWD: /usr/bin/pacman --version' ||
-  die 'operator sudoers policy lacks the non-interactive preflight command'
-bsdtar -xOf "$operator_archive" etc/sudoers.d/lmm-api-deploy | grep -Fqx \
-  'lmm-api-deploy ALL=(root) NOPASSWD: /usr/bin/pacman -U --noconfirm *' ||
-  die 'operator sudoers policy lacks the narrow paru pacman transaction command'
+operator_sudoers="$tmp/operator-sudoers"
+bsdtar -xOf "$operator_archive" etc/sudoers.d/lmm-api-deploy >"$operator_sudoers"
+visudo -cf "$operator_sudoers" >/dev/null || die 'packaged operator sudoers policy fails visudo validation'
+grep -Fqx \
+  'lmm-api-deploy ALL=(root) NOPASSWD: /usr/bin/pacman ^--upgrade --noconfirm -- /var/lib/lmm-api-go-deploy/work/[A-Za-z0-9][A-Za-z0-9._-]{0,79}/staging/lmm-api-go-bin-[A-Za-z0-9][A-Za-z0-9._+@~-]*\.pkg\.tar\.(zst|xz|gz|bz2|lz4|lrz|lzo|Z)$' \
+  "$operator_sudoers" || die 'operator sudoers policy lacks the exact Go package rule'
+grep -Fqx \
+  'lmm-api-deploy ALL=(root) NOPASSWD: /usr/bin/pacman ^--upgrade --noconfirm -- /var/lib/lmm-api-go-deploy/work/[A-Za-z0-9][A-Za-z0-9._-]{0,79}/staging/lmm-api-web-bin-[A-Za-z0-9][A-Za-z0-9._+@~-]*\.pkg\.tar\.(zst|xz|gz|bz2|lz4|lrz|lzo|Z)$' \
+  "$operator_sudoers" || die 'operator sudoers policy lacks the exact Web package rule'
+mapfile -t paru_sudo_argv < <(paru --sudo printf --sudoflags 'PARU_ARG:%s\n' -U --noconfirm -- "$operator_archive")
+expected_paru_argv=(
+  'PARU_ARG:pacman'
+  'PARU_ARG:--upgrade'
+  'PARU_ARG:--noconfirm'
+  'PARU_ARG:--'
+  "PARU_ARG:$operator_archive"
+)
+[[ ${#paru_sudo_argv[@]} -eq ${#expected_paru_argv[@]} ]] || die 'real paru emitted unexpected sudo argv length'
+for index in "${!expected_paru_argv[@]}"; do
+  [[ ${paru_sudo_argv[$index]} == "${expected_paru_argv[$index]}" ]] ||
+    die "real paru sudo argv mismatch at $index: ${paru_sudo_argv[*]}"
+done
 
 go_work="$tmp/lmm-api-go-bin"
 go_pkgver=$(awk -F= '$1 == "pkgver" { print $2; exit }' "$HERE/lmm-api-go-bin/PKGBUILD")

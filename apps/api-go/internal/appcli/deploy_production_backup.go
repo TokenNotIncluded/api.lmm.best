@@ -346,34 +346,6 @@ func productionChildEnvironment(values map[string]string, overrides map[string]s
 	return result
 }
 
-func (runtime *productionRuntime) restoreDatabaseBackup(ctx context.Context, workspace productionWorkspace, manifest productionManifest) error {
-	archivePath := filepath.Join(manifest.BackupDir, "database.archive")
-	digest, err := sha256File(archivePath)
-	if err != nil || digest != manifest.DatabaseBackupSHA256 {
-		return errors.New("database backup is missing or no longer matches the deployment manifest")
-	}
-	environment, err := readPrivateRegularFile(filepath.Join(workspace.configRestore, "lmm-api-go.env"), 1<<20)
-	if err != nil {
-		return fmt.Errorf("read database restore environment: %w", err)
-	}
-	values, err := parseProductionEnvironment(environment)
-	if err != nil {
-		return fmt.Errorf("parse database restore environment: %w", err)
-	}
-	databaseURL, childEnvironment, err := productionDatabaseCommand(values)
-	if err != nil {
-		return err
-	}
-	if _, err := runtime.runner.Run(ctx, productionCommand{
-		Name: commandPGRestore,
-		Args: []string{"--clean", "--if-exists", "--exit-on-error", "--single-transaction", "--dbname", databaseURL, archivePath},
-		Env:  childEnvironment, Timeout: 10 * time.Minute, Sensitive: true,
-	}); err != nil {
-		return fmt.Errorf("restore PostgreSQL rollback backup: %w", err)
-	}
-	return nil
-}
-
 func (runtime *productionRuntime) captureDatabaseAccess(ctx context.Context, workspace productionWorkspace, environment []byte) (string, error) {
 	values, err := parseProductionEnvironment(environment)
 	if err != nil {

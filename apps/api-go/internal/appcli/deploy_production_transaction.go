@@ -65,13 +65,6 @@ func (runtime *productionRuntime) prepareOperatorWorkspacePermissions(ctx contex
 	if err != nil {
 		return errors.New("operator primary group is invalid")
 	}
-	if _, err := runtime.runner.Run(ctx, productionCommand{
-		Name: commandRunuser,
-		Args: []string{"--user", userName, "--", commandSudo, "-n", commandPacman, "--version"},
-	}); err != nil {
-		return errors.New("operator lacks non-interactive pacman privilege")
-	}
-
 	deployRoot := filepath.Dir(runtime.paths.WorkRoot)
 	if deployRoot == string(filepath.Separator) || deployRoot != filepath.Dir(runtime.paths.BackupRoot) {
 		return errors.New("production work and backup roots must share a dedicated parent")
@@ -196,55 +189,67 @@ func changedPackagePaths(manifest productionManifest, rollback bool) []string {
 	return paths
 }
 
-func packageTransitionPath(transition productionPackageTransition, rollback bool) []string {
-	if !transition.Changed {
-		return nil
+func (runtime *productionRuntime) validateParuPackagePath(workspace productionWorkspace, packagePath string) error {
+	if workspace.root != filepath.Join(runtime.paths.WorkRoot, workspace.id) || filepath.Dir(packagePath) != workspace.stagingDir ||
+		packagePath != filepath.Join(workspace.stagingDir, filepath.Base(packagePath)) || !productionPackageFilenamePattern.MatchString(filepath.Base(packagePath)) {
+		return errors.New("paru package path is not an exact release-scoped Go/Web archive")
 	}
-	if rollback {
-		return []string{transition.RollbackPath}
+	info, err := os.Lstat(packagePath)
+	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0o022 != 0 {
+		return errors.New("paru package must be a non-writable regular file")
 	}
-	return []string{transition.CandidatePath}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok || stat.Uid != runtime.requiredOwnerUID || stat.Nlink != 1 {
+		return errors.New("paru package must be root-owned with exactly one link")
+	}
+	canonical, err := filepath.EvalSymlinks(packagePath)
+	if err != nil || canonical != packagePath {
+		return errors.New("paru package path contains a symlink component")
+	}
+	return nil
 }
 
-func requiredDeploymentWindow(goChanged, webChanged bool, observation time.Duration) time.Duration {
-	// Budget worst-case command timeouts plus a rollback attempt. The timer is
-	// armed before the first service/package/database mutation.
-	budget := observation + 2*time.Minute
-	if goChanged {
-		budget += 3*5*time.Minute + 5*time.Minute + 10*time.Minute + 5*time.Minute
+func (runtime *productionRuntime) preflightParuInstall(ctx context.Context, workspace productionWorkspace, userName, packagePath string) error {
+	if userName != productionOperatorUser {
+		return errors.New("paru operator is not the package-owned deployment account")
 	}
-	if webChanged {
-		budget += 5*time.Minute + 5*time.Minute
-	}
-	return budget
-}
-
-func (runtime *productionRuntime) paruInstall(ctx context.Context, userName string, packages []string) error {
-	if len(packages) == 0 {
-		return errors.New("no changed packages selected")
+	if err := runtime.validateParuPackagePath(workspace, packagePath); err != nil {
+		return err
 	}
 	uidOutput, err := runtime.runner.Run(ctx, productionCommand{Name: commandID, Args: []string{"-u", userName}})
 	uid, parseErr := strconv.ParseUint(strings.TrimSpace(string(uidOutput)), 10, 32)
 	if err != nil || parseErr != nil || uid == 0 {
 		return errors.New("paru operator is missing or no longer unprivileged")
 	}
-	args := []string{"--user", userName, "--", runtime.paths.ParuBinary, "-U", "--noconfirm"}
-	args = append(args, packages...)
-	_, err = runtime.runner.Run(ctx, productionCommand{Name: commandRunuser, Args: args, Timeout: 5 * time.Minute})
+	args := []string{"--user", userName, "--", commandSudo, "-n", "-l", "--", commandPacman, "--upgrade", "--noconfirm", "--", packagePath}
+	if _, err := runtime.runner.Run(ctx, productionCommand{Name: commandRunuser, Args: args}); err != nil {
+		return fmt.Errorf("operator lacks exact non-interactive pacman privilege for %s: %w", filepath.Base(packagePath), err)
+	}
+	return nil
+}
+
+func (runtime *productionRuntime) paruInstall(ctx context.Context, workspace productionWorkspace, userName, packagePath string) error {
+	if err := runtime.preflightParuInstall(ctx, workspace, userName, packagePath); err != nil {
+		return err
+	}
+	args := []string{"--user", userName, "--", runtime.paths.ParuBinary, "-U", "--noconfirm", "--", packagePath}
+	_, err := runtime.runner.Run(ctx, productionCommand{Name: commandRunuser, Args: args, Timeout: 5 * time.Minute})
 	return err
 }
 
 func (runtime *productionRuntime) verifyManifestArchives(ctx context.Context, manifest productionManifest) error {
-	backupEnvironment, err := runtime.validateBackupSet(ctx, productionWorkspace{id: manifest.DeploymentID}, manifest.BackupDir)
-	if err != nil {
-		return fmt.Errorf("revalidate manifest backup: %w", err)
+	restoredEnvironment, err := readPrivateRegularFile(filepath.Join(manifest.ConfigRestorePath, "lmm-api-go.env"), 1<<20)
+	if err != nil || fmt.Sprintf("%x", sha256Bytes(restoredEnvironment)) != manifest.EnvironmentRestoreSHA256 {
+		return errors.New("configuration rollback snapshot no longer matches the deployment manifest")
 	}
-	if err := validateBackupAttestation(manifest.BackupDir, manifest.DeploymentID); err != nil {
-		return err
-	}
-	backupDigest, err := sha256File(filepath.Join(manifest.BackupDir, "database.archive"))
-	if err != nil || backupDigest != manifest.DatabaseBackupSHA256 || fmt.Sprintf("%x", sha256Bytes(backupEnvironment)) != manifest.EnvironmentRestoreSHA256 {
-		return errors.New("manifest backup contents no longer match the bound restore state")
+	if manifest.BackupsEnabled {
+		if err := validateBackupAttestation(manifest.BackupDir, manifest.DeploymentID); err != nil {
+			return err
+		}
+		backupDigest, err := sha256File(filepath.Join(manifest.BackupDir, "database.archive"))
+		if err != nil || backupDigest != manifest.DatabaseBackupSHA256 {
+			return errors.New("optional manifest backup no longer matches the bound evidence")
+		}
 	}
 	pairs := []struct {
 		transition          productionPackageTransition
@@ -303,8 +308,12 @@ func (runtime *productionRuntime) verifyManifestInstalled(ctx context.Context, m
 }
 
 func (runtime *productionRuntime) apply(ctx context.Context, workspace productionWorkspace, options productionTransactionOptions) (result productionStatus, returnErr error) {
+	transactionCtx := ctx
 	if !options.GoChanged && !options.WebChanged {
 		return productionStatus{}, errors.New("at least one of --go-changed or --web-changed is required")
+	}
+	if options.WithBackups != (options.BackupDir != "") {
+		return productionStatus{}, errors.New("optional business backups require both --with-backups and --backup-dir")
 	}
 	if _, err := os.Lstat(workspace.manifestPath); !errors.Is(err, os.ErrNotExist) {
 		return productionStatus{}, errors.New("deployment manifest already exists")
@@ -319,12 +328,17 @@ func (runtime *productionRuntime) apply(ctx context.Context, workspace productio
 		return productionStatus{}, err
 	}
 	armed, awaitingConfirmation := false, false
+	watchdogDeadline := time.Time{}
 	defer func() {
 		if returnErr == nil || awaitingConfirmation {
 			return
 		}
 		if armed {
-			if _, rollbackErr := runtime.rollback(ctx, workspace, "activation-failure"); rollbackErr != nil {
+			if errors.Is(returnErr, context.DeadlineExceeded) || (!watchdogDeadline.IsZero() && !runtime.now().Before(watchdogDeadline)) {
+				returnErr = errors.Join(returnErr, errors.New("fixed deployment deadline reached; persistent systemd watchdog owns rollback"))
+				return
+			}
+			if _, rollbackErr := runtime.rollback(transactionCtx, workspace, "activation-failure"); rollbackErr != nil {
 				returnErr = errors.Join(returnErr, fmt.Errorf("automatic rollback failed: %w", rollbackErr))
 			}
 			return
@@ -349,14 +363,29 @@ func (runtime *productionRuntime) apply(ctx context.Context, workspace productio
 			return productionStatus{}, err
 		}
 	}
+	preflightPackages := make([]string, 0, 4)
+	if options.GoChanged {
+		preflightPackages = append(preflightPackages, options.GoPackage, options.GoRollbackPackage)
+	}
+	if options.WebChanged {
+		preflightPackages = append(preflightPackages, options.WebPackage, options.WebRollbackPackage)
+	}
+	for _, packagePath := range preflightPackages {
+		if err := runtime.preflightParuInstall(ctx, workspace, options.OperatorUser, packagePath); err != nil {
+			return productionStatus{}, err
+		}
+	}
 
 	archivedEnvironment, err := runtime.loadRollbackEnvironment(ctx, workspace, options.BackupDir)
 	if err != nil {
 		return productionStatus{}, err
 	}
-	databaseBackupSHA256, err := sha256File(filepath.Join(options.BackupDir, "database.archive"))
-	if err != nil || !productionSHA256Pattern.MatchString(databaseBackupSHA256) {
-		return productionStatus{}, errors.New("verified database backup is missing or empty")
+	databaseBackupSHA256 := ""
+	if options.BackupDir != "" {
+		databaseBackupSHA256, err = sha256File(filepath.Join(options.BackupDir, "database.archive"))
+		if err != nil || !productionSHA256Pattern.MatchString(databaseBackupSHA256) {
+			return productionStatus{}, errors.New("authorized optional database backup is missing or empty")
+		}
 	}
 	if _, err := runtime.runner.Run(ctx, productionCommand{Name: commandSystemctl, Args: []string{"is-active", "--quiet", runtime.paths.Service}}); err != nil {
 		return productionStatus{}, errors.New("pre-upgrade lmm-api service is not active")
@@ -475,11 +504,18 @@ func (runtime *productionRuntime) apply(ctx context.Context, workspace productio
 		return productionStatus{}, fmt.Errorf("pre-upgrade live probe failed: %w", err)
 	}
 
-	rollbackWindow := options.RollbackWindow
-	if required := requiredDeploymentWindow(options.GoChanged, options.WebChanged, options.ObservationWindow); rollbackWindow < required {
-		rollbackWindow = required
+	if options.RollbackWindow != productionDefaultRollback {
+		return productionStatus{}, errors.New("rollback watchdog window must be exactly 600 seconds")
 	}
-	deadline := utcSecond(runtime.now().Add(rollbackWindow))
+	armedUTC := utcSecond(runtime.now())
+	deadline := armedUTC.Add(productionDefaultRollback)
+	watchdogDeadline = deadline
+	preflightManifest := productionManifest{DatabaseSchema: databaseSchema}
+	if options.GoChanged {
+		if err := runtime.runMigration(ctx, workspace, preflightManifest, migrationRun{name: "rollback-preflight", binary: runtime.paths.InstalledBinary, mode: "verify"}); err != nil {
+			return productionStatus{}, fmt.Errorf("N-1 schema preflight hard stop: %w", err)
+		}
+	}
 	manifest := productionManifest{
 		Format: productionTransactionFormat, DeploymentID: workspace.id,
 		OperatorUser: options.OperatorUser,
@@ -487,9 +523,9 @@ func (runtime *productionRuntime) apply(ctx context.Context, workspace productio
 		Web:          transitionFromMetadata(options.WebChanged, options.WebPackage, options.WebRollbackPackage, options.WebPackageSHA256, options.WebRollbackSHA256, webCandidate, webRollback),
 		Frontend:     productionFrontendTransition{OldTarget: oldTarget, NewTarget: newTarget, OldIndexSHA256: oldIndexSHA, NewIndexSHA256: webCandidate.IndexSHA256},
 		ProbeBinary:  options.ProbeBinary, ProbeBinarySHA256: options.ProbeBinarySHA256,
-		ExpectedVersion: options.ExpectedVersion, OldVersion: oldVersion, BackupDir: options.BackupDir,
-		DatabaseBackupSHA256: databaseBackupSHA256, DatabaseRestoreRequired: options.GoChanged, DatabaseSchema: databaseSchema, DeadlineUTC: deadline,
-		ObservationSeconds: int64(options.ObservationWindow / time.Second), EnvironmentRestoreSHA256: environmentRestoreSHA256,
+		ExpectedVersion: options.ExpectedVersion, OldVersion: oldVersion, BackupDir: options.BackupDir, BackupsEnabled: options.WithBackups,
+		DatabaseBackupSHA256: databaseBackupSHA256, DatabaseSchema: databaseSchema, ArmedUTC: armedUTC, DeadlineUTC: deadline,
+		ObservationSeconds: int64(options.ObservationWindow / time.Second), ConfigRestorePath: workspace.configRestore, EnvironmentRestoreSHA256: environmentRestoreSHA256,
 		NginxEdgeRestoreSHA256: nginxEdgeRestoreSHA256, PreserveEdgePolicy: options.PreserveEdgePolicy,
 	}
 	if err := runtime.writeManifest(workspace, manifest); err != nil {
@@ -506,6 +542,13 @@ func (runtime *productionRuntime) apply(ctx context.Context, workspace productio
 	if err := runtime.writeStatus(workspace, productionStatus{Phase: "ARMED", Version: options.ExpectedVersion, Previous: oldVersion, RollbackTimer: workspace.timerUnit, DeadlineUTC: deadline}); err != nil {
 		return productionStatus{}, err
 	}
+	remaining := manifest.DeadlineUTC.Sub(runtime.now())
+	if remaining <= 0 {
+		return productionStatus{}, errors.New("rollback deadline expired while arming watchdog")
+	}
+	deadlineCtx, cancelDeadline := context.WithTimeout(transactionCtx, remaining)
+	defer cancelDeadline()
+	ctx = deadlineCtx
 	if err := runtime.prepareOperatorWorkspace(ctx, workspace, options.OperatorUser, staged); err != nil {
 		return productionStatus{}, err
 	}
@@ -524,7 +567,7 @@ func (runtime *productionRuntime) apply(ctx context.Context, workspace productio
 		if err := runtime.writeStatus(workspace, productionStatus{Phase: "DEPLOYING_GO", Version: options.ExpectedVersion, Previous: oldVersion, RollbackTimer: workspace.timerUnit, DeadlineUTC: deadline}); err != nil {
 			return productionStatus{}, err
 		}
-		if err := runtime.paruInstall(ctx, manifest.OperatorUser, packageTransitionPath(manifest.Go, false)); err != nil {
+		if err := runtime.paruInstall(ctx, workspace, manifest.OperatorUser, manifest.Go.CandidatePath); err != nil {
 			return productionStatus{}, fmt.Errorf("install candidate Go package: %w", err)
 		}
 		if err := runtime.restoreConfiguration(workspace, manifest); err != nil {
@@ -567,7 +610,7 @@ func (runtime *productionRuntime) apply(ctx context.Context, workspace productio
 		if err := runtime.writeStatus(workspace, productionStatus{Phase: "DEPLOYING_WEB", Version: options.ExpectedVersion, Previous: oldVersion, RollbackTimer: workspace.timerUnit, DeadlineUTC: deadline}); err != nil {
 			return productionStatus{}, err
 		}
-		if err := runtime.paruInstall(ctx, manifest.OperatorUser, packageTransitionPath(manifest.Web, false)); err != nil {
+		if err := runtime.paruInstall(ctx, workspace, manifest.OperatorUser, manifest.Web.CandidatePath); err != nil {
 			return productionStatus{}, fmt.Errorf("install candidate Web package: %w", err)
 		}
 	}
@@ -641,6 +684,9 @@ func (runtime *productionRuntime) confirmLoaded(ctx context.Context, workspace p
 		return productionStatus{}, err
 	}
 	if status.Phase == "CONFIRMED" {
+		if err := runtime.disarmRollbackTimer(ctx, workspace, false); err != nil {
+			return productionStatus{}, err
+		}
 		if err := runtime.finalizeTransactionFiles(workspace); err != nil {
 			return productionStatus{}, err
 		}
@@ -659,6 +705,9 @@ func (runtime *productionRuntime) confirmLoaded(ctx context.Context, workspace p
 	if !now.Before(manifest.DeadlineUTC) {
 		return productionStatus{}, errors.New("rollback deadline has expired; confirmation is forbidden")
 	}
+	if manifest.DeadlineUTC.Sub(now) < productionConfirmationMargin {
+		return productionStatus{}, errors.New("rollback deadline has insufficient time remaining for confirmation")
+	}
 	observationWindow := time.Duration(manifest.ObservationSeconds) * time.Second
 	observationEnd := manifest.ObservationStartedUTC.Add(observationWindow)
 	if manifest.ObservationStartedUTC.IsZero() || !observationEnd.Before(manifest.DeadlineUTC) {
@@ -667,11 +716,12 @@ func (runtime *productionRuntime) confirmLoaded(ctx context.Context, workspace p
 	if now.Before(observationEnd) {
 		return productionStatus{}, errors.New("confirmation requires the configured observation window of at least 120 seconds")
 	}
-	if _, err := runtime.runner.Run(ctx, productionCommand{Name: commandSystemctl, Args: []string{"is-active", "--quiet", workspace.timerUnit}}); err != nil {
-		return productionStatus{}, errors.New("rollback timer is no longer active; confirmation is forbidden")
+	timerState, err := runtime.readRollbackTimerState(ctx, workspace)
+	if err != nil {
+		return productionStatus{}, err
 	}
-	if _, err := runtime.runner.Run(ctx, productionCommand{Name: commandSystemctl, Args: []string{"is-active", "--quiet", workspace.rollbackUnit}}); err == nil {
-		return productionStatus{}, errors.New("rollback service has triggered; confirmation is forbidden")
+	if err := validateArmedRollbackTimer(timerState, manifest.DeadlineUTC); err != nil {
+		return productionStatus{}, fmt.Errorf("confirmation is forbidden: %w", err)
 	}
 	if err := runtime.healthCheck(ctx, workspace, manifest); err != nil {
 		return productionStatus{}, fmt.Errorf("final production health gate failed: %w", err)
@@ -687,14 +737,27 @@ func (runtime *productionRuntime) confirmLoaded(ctx context.Context, workspace p
 			return productionStatus{}, err
 		}
 	}
-	if err := runtime.disarmRollbackTimer(ctx, workspace, false); err != nil {
+	finalNow := runtime.now()
+	if !finalNow.Before(manifest.DeadlineUTC) || manifest.DeadlineUTC.Sub(finalNow) < productionConfirmationMargin {
+		return productionStatus{}, errors.New("rollback deadline became insufficient during final confirmation gates")
+	}
+	finalTimerState, err := runtime.readRollbackTimerState(ctx, workspace)
+	if err != nil {
 		return productionStatus{}, err
+	}
+	if err := validateArmedRollbackTimer(finalTimerState, manifest.DeadlineUTC); err != nil {
+		return productionStatus{}, fmt.Errorf("confirmation is forbidden after final watchdog check: %w", err)
 	}
 	confirmed := productionStatus{
 		Phase: "CONFIRMED", Version: manifest.ExpectedVersion, Previous: manifest.OldVersion,
-		Reason: "native-cli-health-gates-passed",
+		Reason: "native-cli-health-gates-passed", RollbackTimer: workspace.timerUnit, DeadlineUTC: manifest.DeadlineUTC,
 	}
+	// Persist CONFIRMED before disabling the watchdog. If disarming fails, the
+	// timer sees the durable terminal state and cannot roll back a confirmed release.
 	if err := runtime.writeStatus(workspace, confirmed); err != nil {
+		return productionStatus{}, err
+	}
+	if err := runtime.disarmRollbackTimer(ctx, workspace, false); err != nil {
 		return productionStatus{}, err
 	}
 	if err := runtime.finalizeTransactionFiles(workspace); err != nil {
@@ -713,6 +776,9 @@ func (runtime *productionRuntime) rollback(ctx context.Context, workspace produc
 		return productionStatus{}, err
 	}
 	if status.Phase == "CONFIRMED" || status.Phase == "ROLLED_BACK" {
+		if err := runtime.disarmRollbackTimer(ctx, workspace, false); err != nil {
+			return productionStatus{}, err
+		}
 		if err := runtime.finalizeTransactionFiles(workspace); err != nil {
 			return productionStatus{}, err
 		}
@@ -748,16 +814,11 @@ func (runtime *productionRuntime) rollback(ctx context.Context, workspace produc
 	}
 	if manifest.Go.Changed {
 		_, _ = runtime.runner.Run(ctx, productionCommand{Name: commandSystemctl, Args: []string{"stop", runtime.paths.Service}})
-		if err := runtime.paruInstall(ctx, manifest.OperatorUser, packageTransitionPath(manifest.Go, true)); err != nil {
+		if err := runtime.paruInstall(ctx, workspace, manifest.OperatorUser, manifest.Go.RollbackPath); err != nil {
 			return fail(fmt.Errorf("install rollback Go package: %w", err))
 		}
 		if err := runtime.restoreConfiguration(workspace, manifest); err != nil {
 			return fail(err)
-		}
-		if manifest.DatabaseRestoreRequired {
-			if err := runtime.restoreDatabaseBackup(ctx, workspace, manifest); err != nil {
-				return fail(err)
-			}
 		}
 		if manifest.NginxEdgeRestoreSHA256 != "" {
 			if err := runtime.restoreEdgePolicyBackup(ctx, filepath.Join(workspace.configRestore, "nginx-edge"), manifest.NginxEdgeRestoreSHA256); err != nil {
@@ -781,7 +842,7 @@ func (runtime *productionRuntime) rollback(ctx context.Context, workspace produc
 		}
 	}
 	if manifest.Web.Changed {
-		if err := runtime.paruInstall(ctx, manifest.OperatorUser, packageTransitionPath(manifest.Web, true)); err != nil {
+		if err := runtime.paruInstall(ctx, workspace, manifest.OperatorUser, manifest.Web.RollbackPath); err != nil {
 			return fail(fmt.Errorf("install rollback Web package: %w", err))
 		}
 	}
@@ -805,6 +866,88 @@ func (runtime *productionRuntime) rollback(ctx context.Context, workspace produc
 		return fail(err)
 	}
 	return rolledBack, nil
+}
+
+type productionRollbackTimerState struct {
+	LoadState, ActiveState, SubState, UnitFileState string
+	NextElapseUTC, LastTriggerUTC                   time.Time
+}
+
+func parseSystemctlProperties(output []byte) (map[string]string, error) {
+	properties := make(map[string]string)
+	for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
+		if line == "" {
+			continue
+		}
+		key, value, ok := strings.Cut(line, "=")
+		if !ok || key == "" {
+			return nil, errors.New("systemctl show returned malformed properties")
+		}
+		if _, duplicate := properties[key]; duplicate {
+			return nil, errors.New("systemctl show returned a duplicate property")
+		}
+		properties[key] = value
+	}
+	return properties, nil
+}
+
+func parseSystemdTimestamp(value string) (time.Time, error) {
+	value = strings.TrimSpace(value)
+	if value == "" || value == "n/a" {
+		return time.Time{}, nil
+	}
+	if strings.HasPrefix(value, "@") {
+		seconds, err := strconv.ParseInt(strings.TrimPrefix(value, "@"), 10, 64)
+		if err != nil {
+			return time.Time{}, fmt.Errorf("invalid systemd unix timestamp %q", value)
+		}
+		return time.Unix(seconds, 0).UTC(), nil
+	}
+	layouts := []string{"Mon 2006-01-02 15:04:05.999999 MST", "Mon 2006-01-02 15:04:05 MST", time.RFC3339Nano}
+	for _, layout := range layouts {
+		if parsed, err := time.Parse(layout, value); err == nil {
+			return parsed.UTC(), nil
+		}
+	}
+	return time.Time{}, fmt.Errorf("invalid systemd timestamp %q", value)
+}
+
+func (runtime *productionRuntime) readRollbackTimerState(ctx context.Context, workspace productionWorkspace) (productionRollbackTimerState, error) {
+	output, err := runtime.runner.Run(ctx, productionCommand{Name: commandSystemctl, Args: []string{
+		"show", workspace.timerUnit, "--timestamp=unix", "--property=LoadState", "--property=ActiveState", "--property=SubState", "--property=UnitFileState", "--property=NextElapseUSecRealtime", "--property=LastTriggerUSec",
+	}})
+	if err != nil {
+		return productionRollbackTimerState{}, fmt.Errorf("read rollback timer state: %w", err)
+	}
+	properties, err := parseSystemctlProperties(output)
+	if err != nil {
+		return productionRollbackTimerState{}, err
+	}
+	next, err := parseSystemdTimestamp(properties["NextElapseUSecRealtime"])
+	if err != nil {
+		return productionRollbackTimerState{}, err
+	}
+	last, err := parseSystemdTimestamp(properties["LastTriggerUSec"])
+	if err != nil {
+		return productionRollbackTimerState{}, err
+	}
+	return productionRollbackTimerState{
+		LoadState: properties["LoadState"], ActiveState: properties["ActiveState"], SubState: properties["SubState"],
+		UnitFileState: properties["UnitFileState"], NextElapseUTC: next, LastTriggerUTC: last,
+	}, nil
+}
+
+func validateArmedRollbackTimer(state productionRollbackTimerState, deadline time.Time) error {
+	if state.LoadState != "loaded" || state.ActiveState != "active" || state.SubState != "waiting" || state.UnitFileState != "enabled" {
+		return errors.New("rollback timer is not loaded, enabled, active, and waiting")
+	}
+	if !state.LastTriggerUTC.IsZero() {
+		return errors.New("rollback timer has already triggered")
+	}
+	if state.NextElapseUTC.IsZero() || !state.NextElapseUTC.Equal(deadline.UTC()) {
+		return errors.New("rollback timer next elapse does not match the fixed deployment deadline")
+	}
+	return nil
 }
 
 func (runtime *productionRuntime) armRollbackTimer(ctx context.Context, workspace productionWorkspace, manifest productionManifest) (bool, error) {
@@ -857,8 +1000,12 @@ WantedBy=timers.target
 		// and retains the transaction lock if disarming cannot be proven.
 		return true, fmt.Errorf("arm rollback timer: %w", err)
 	}
-	if _, err := runtime.runner.Run(ctx, productionCommand{Name: commandSystemctl, Args: []string{"is-active", "--quiet", workspace.timerUnit}}); err != nil {
-		return true, errors.New("rollback timer did not become active")
+	state, err := runtime.readRollbackTimerState(ctx, workspace)
+	if err != nil {
+		return true, err
+	}
+	if err := validateArmedRollbackTimer(state, manifest.DeadlineUTC); err != nil {
+		return true, err
 	}
 	return true, nil
 }

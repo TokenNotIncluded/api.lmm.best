@@ -83,7 +83,7 @@ func writeProductionDeployUsage(output io.Writer) {
        --go-package FILE --go-package-sha256 HEX --go-rollback-package FILE --go-rollback-sha256 HEX \\
        --web-package FILE --web-package-sha256 HEX --web-rollback-package FILE --web-rollback-sha256 HEX \\
        --probe-binary FILE --probe-binary-sha256 HEX --expected-version VERSION \\
-       [--go-changed] [--web-changed] [--backup-dir DIR] [--manual-confirm]
+       [--go-changed] [--web-changed] [--with-backups --backup-dir DIR] [--manual-confirm]
   %s deploy production status|confirm|rollback --workspace DIR
 
 The source-build/bundled-frontend release path is disabled. Prepare verified split

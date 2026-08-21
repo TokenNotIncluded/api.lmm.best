@@ -82,7 +82,7 @@ func writeDeployUsage(output io.Writer) {
   %s deploy production apply --workspace DIR --package FILE --package-sha256 HEX \
        --rollback-package FILE --rollback-sha256 HEX --probe-binary FILE \
        --probe-binary-sha256 HEX --expected-version VERSION \
-       --frontend-index-sha256 HEX [--backup-dir DIR] [--rollback-seconds 600] \
+       --frontend-index-sha256 HEX [--with-backups --backup-dir DIR] [--rollback-seconds 600] \
        [--observation-seconds 180] [--manual-confirm]
   %s deploy production status --workspace DIR
   %s deploy production confirm --workspace DIR

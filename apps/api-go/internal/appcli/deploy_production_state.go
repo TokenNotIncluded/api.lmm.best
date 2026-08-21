@@ -26,13 +26,14 @@ import (
 const (
 	productionServiceName          = "lmm-api.service"
 	productionExpectedHost         = "arch-dmit"
-	productionDefaultRollback      = 60 * time.Minute
+	productionDefaultRollback      = 10 * time.Minute
 	productionDefaultObservation   = 3 * time.Minute
 	productionObservationInterval  = 10 * time.Second
+	productionConfirmationMargin   = 30 * time.Second
 	productionCommandTimeout       = 2 * time.Minute
 	productionProbeTimeout         = 8 * time.Second
 	productionProbeAttempts        = 45
-	productionTransactionFormat    = 4
+	productionTransactionFormat    = 5
 	productionStatusFormat         = 1
 	productionFrontendReleaseKeep  = 3
 	productionTransactionMarker    = "deployment.env"
@@ -70,14 +71,15 @@ const (
 )
 
 var (
-	productionIDPattern       = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$`)
-	productionVersionPattern  = regexp.MustCompile(`^[0-9][0-9A-Za-z._+]*$`)
-	productionSHA256Pattern   = regexp.MustCompile(`^[0-9a-f]{64}$`)
-	productionReasonPattern   = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`)
-	productionPkgrelPattern   = regexp.MustCompile(`^[1-9][0-9]*(?:\.[0-9]+)?$`)
-	productionUserPattern     = regexp.MustCompile(`^[a-z_][a-z0-9_-]{0,31}$`)
-	productionRevisionPattern = regexp.MustCompile(`^[0-9a-f]{40,64}$`)
-	productionContractPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$`)
+	productionIDPattern              = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$`)
+	productionVersionPattern         = regexp.MustCompile(`^[0-9][0-9A-Za-z._+]*$`)
+	productionSHA256Pattern          = regexp.MustCompile(`^[0-9a-f]{64}$`)
+	productionReasonPattern          = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`)
+	productionPkgrelPattern          = regexp.MustCompile(`^[1-9][0-9]*(?:\.[0-9]+)?$`)
+	productionUserPattern            = regexp.MustCompile(`^[a-z_][a-z0-9_-]{0,31}$`)
+	productionRevisionPattern        = regexp.MustCompile(`^[0-9a-f]{40,64}$`)
+	productionContractPattern        = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$`)
+	productionPackageFilenamePattern = regexp.MustCompile(`^lmm-api-(?:go|web)-bin-[A-Za-z0-9][A-Za-z0-9._+@~-]*\.pkg\.tar\.(?:zst|xz|gz|bz2|lz4|lrz|lzo|Z)$`)
 )
 
 type productionPaths struct {
@@ -303,6 +305,7 @@ type productionTransactionOptions struct {
 	ProbeBinarySHA256  string
 	ExpectedVersion    string
 	BackupDir          string
+	WithBackups        bool
 	RollbackWindow     time.Duration
 	ObservationWindow  time.Duration
 	ManualConfirm      bool
@@ -344,14 +347,16 @@ type productionManifest struct {
 	ProbeBinarySHA256        string                       `json:"probe_binary_sha256"`
 	ExpectedVersion          string                       `json:"expected_version"`
 	OldVersion               string                       `json:"old_version"`
-	BackupDir                string                       `json:"backup_dir"`
-	DatabaseBackupSHA256     string                       `json:"database_backup_sha256"`
-	DatabaseRestoreRequired  bool                         `json:"database_restore_required"`
+	BackupDir                string                       `json:"backup_dir,omitempty"`
+	BackupsEnabled           bool                         `json:"backups_enabled"`
+	DatabaseBackupSHA256     string                       `json:"database_backup_sha256,omitempty"`
 	DatabaseSchema           string                       `json:"database_schema"`
+	ArmedUTC                 time.Time                    `json:"armed_utc"`
 	DeadlineUTC              time.Time                    `json:"deadline_utc"`
 	ObservationStartedUTC    time.Time                    `json:"observation_started_utc,omitempty"`
 	ObservationSeconds       int64                        `json:"observation_seconds"`
 	ServiceRestartBaseline   int64                        `json:"service_restart_baseline"`
+	ConfigRestorePath        string                       `json:"config_restore_path"`
 	EnvironmentRestoreSHA256 string                       `json:"environment_restore_sha256"`
 	NginxEdgeRestoreSHA256   string                       `json:"nginx_edge_restore_sha256,omitempty"`
 	PreserveEdgePolicy       bool                         `json:"preserve_edge_policy,omitempty"`
@@ -669,10 +674,11 @@ func parseProductionTransactionOptions(action string, args []string, stderr io.W
 		flags.StringVar(&options.ProbeBinary, "probe-binary", "", "candidate Go binary used for migrations and probes")
 		flags.StringVar(&options.ProbeBinarySHA256, "probe-binary-sha256", "", "probe binary SHA-256")
 		flags.StringVar(&options.ExpectedVersion, "expected-version", "", "candidate service version")
-		flags.StringVar(&options.BackupDir, "backup-dir", "", "required verified target backup directory")
+		flags.StringVar(&options.BackupDir, "backup-dir", "", "current-turn-authorized verified target business backup directory")
+		flags.BoolVar(&options.WithBackups, "with-backups", false, "bind an explicitly authorized optional business backup")
 		rollbackSeconds := int(options.RollbackWindow / time.Second)
 		observationSeconds := int(options.ObservationWindow / time.Second)
-		flags.IntVar(&rollbackSeconds, "rollback-seconds", rollbackSeconds, "automatic rollback window (deployment-specific minimum, maximum 3600)")
+		flags.IntVar(&rollbackSeconds, "rollback-seconds", rollbackSeconds, "fixed automatic rollback window (must be 600)")
 		flags.IntVar(&observationSeconds, "observation-seconds", observationSeconds, "stability observation window (120-360)")
 		flags.BoolVar(&options.ManualConfirm, "manual-confirm", false, "leave a healthy release awaiting explicit confirmation")
 		flags.BoolVar(&options.PreserveEdgePolicy, "preserve-edge-policy", false, "preserve the active nginx edge policy")
@@ -713,7 +719,7 @@ func parseProductionTransactionOptions(action string, args []string, stderr io.W
 			"--web-package": options.WebPackage, "--web-package-sha256": options.WebPackageSHA256,
 			"--web-rollback-package": options.WebRollbackPackage, "--web-rollback-sha256": options.WebRollbackSHA256,
 			"--probe-binary": options.ProbeBinary, "--probe-binary-sha256": options.ProbeBinarySHA256,
-			"--expected-version": options.ExpectedVersion, "--backup-dir": options.BackupDir,
+			"--expected-version": options.ExpectedVersion,
 		}
 		for label, value := range required {
 			if value == "" {
@@ -731,9 +737,8 @@ func parseProductionTransactionOptions(action string, args []string, stderr io.W
 		if !productionVersionPattern.MatchString(options.ExpectedVersion) {
 			return productionTransactionOptions{}, errors.New("invalid --expected-version")
 		}
-		requiredWindow := requiredDeploymentWindow(options.GoChanged, options.WebChanged, options.ObservationWindow)
-		if options.RollbackWindow < requiredWindow || options.RollbackWindow > 60*time.Minute {
-			return productionTransactionOptions{}, fmt.Errorf("--rollback-seconds must be at least %d for this deployment and at most 3600", int(requiredWindow/time.Second))
+		if options.RollbackWindow != productionDefaultRollback {
+			return productionTransactionOptions{}, errors.New("--rollback-seconds must be exactly 600")
 		}
 		if options.ObservationWindow < 2*time.Minute || options.ObservationWindow > 6*time.Minute {
 			return productionTransactionOptions{}, errors.New("--observation-seconds must be between 120 and 360")
@@ -749,6 +754,9 @@ func parseProductionTransactionOptions(action string, args []string, stderr io.W
 				return productionTransactionOptions{}, fmt.Errorf("invalid %s: %w", label, err)
 			}
 			*value = clean
+		}
+		if options.WithBackups != (options.BackupDir != "") {
+			return productionTransactionOptions{}, errors.New("--with-backups and --backup-dir must be supplied together")
 		}
 		if options.BackupDir != "" {
 			clean, err := cleanAbsoluteNonRoot(options.BackupDir)
@@ -1002,7 +1010,6 @@ func (runtime *productionRuntime) validateManifest(workspace productionWorkspace
 	for _, digest := range []string{
 		manifest.Go.CandidateSHA256, manifest.Go.RollbackSHA256, manifest.Web.CandidateSHA256, manifest.Web.RollbackSHA256,
 		manifest.ProbeBinarySHA256, manifest.Frontend.OldIndexSHA256, manifest.Frontend.NewIndexSHA256, manifest.EnvironmentRestoreSHA256,
-		manifest.DatabaseBackupSHA256,
 	} {
 		if !productionSHA256Pattern.MatchString(digest) {
 			return errors.New("deployment manifest contains an invalid SHA-256")
@@ -1011,11 +1018,18 @@ func (runtime *productionRuntime) validateManifest(workspace productionWorkspace
 	if !pathWithinRoot(workspace.stagingDir, manifest.ProbeBinary) || filepath.Dir(manifest.ProbeBinary) != workspace.stagingDir {
 		return errors.New("deployment manifest probe binary escapes staging")
 	}
-	if manifest.BackupDir != filepath.Join(runtime.paths.BackupRoot, workspace.id) {
-		return errors.New("deployment manifest backup path is missing or not release-scoped")
+	if manifest.ConfigRestorePath != workspace.configRestore {
+		return errors.New("deployment manifest configuration rollback path escapes root-only state")
 	}
-	if manifest.DeadlineUTC.IsZero() || manifest.ObservationSeconds < 120 {
-		return errors.New("deployment manifest deadline or observation window is invalid")
+	if manifest.BackupsEnabled {
+		if manifest.BackupDir != filepath.Join(runtime.paths.BackupRoot, workspace.id) || !productionSHA256Pattern.MatchString(manifest.DatabaseBackupSHA256) {
+			return errors.New("deployment manifest backup path or digest is not release-scoped")
+		}
+	} else if manifest.BackupDir != "" || manifest.DatabaseBackupSHA256 != "" {
+		return errors.New("deployment manifest contains unauthorized optional backup state")
+	}
+	if manifest.ArmedUTC.IsZero() || !manifest.DeadlineUTC.Equal(manifest.ArmedUTC.Add(productionDefaultRollback)) || manifest.ObservationSeconds < 120 {
+		return errors.New("deployment manifest fixed deadline or observation window is invalid")
 	}
 	webCandidate, candidateErr := parseNamedPackageIdentity([]byte(manifest.Web.CandidateIdentity), productionWebPackageName)
 	webRollback, rollbackErr := parseNamedPackageIdentity([]byte(manifest.Web.RollbackIdentity), productionWebPackageName)

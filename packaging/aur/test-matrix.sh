@@ -294,10 +294,27 @@ cmp -s "$tmp/pkg-deploy/usr/lib/lmm-api-deploy/lmm-api-go" "$deploy_bundle/lmm-a
   die 'operator package changed the signed Go release bytes'
 [[ $(stat -c '%a' "$tmp/pkg-deploy/etc/sudoers.d/lmm-api-deploy") == 440 ]] ||
   die 'operator sudoers policy mode is not 0440'
-grep -Fqx 'lmm-api-deploy ALL=(root) NOPASSWD: /usr/bin/pacman --version' \
-  "$tmp/pkg-deploy/etc/sudoers.d/lmm-api-deploy" || die 'operator preflight sudo rule is missing'
-grep -Fqx 'lmm-api-deploy ALL=(root) NOPASSWD: /usr/bin/pacman -U --noconfirm *' \
-  "$tmp/pkg-deploy/etc/sudoers.d/lmm-api-deploy" || die 'operator pacman sudo rule is missing'
+sudoers="$tmp/pkg-deploy/etc/sudoers.d/lmm-api-deploy"
+visudo -cf "$sudoers" >/dev/null || die 'operator sudoers policy fails visudo validation'
+go_pacman_regex='^--upgrade --noconfirm -- /var/lib/lmm-api-go-deploy/work/[A-Za-z0-9][A-Za-z0-9._-]{0,79}/staging/lmm-api-go-bin-[A-Za-z0-9][A-Za-z0-9._+@~-]*\.pkg\.tar\.(zst|xz|gz|bz2|lz4|lrz|lzo|Z)$'
+web_pacman_regex='^--upgrade --noconfirm -- /var/lib/lmm-api-go-deploy/work/[A-Za-z0-9][A-Za-z0-9._-]{0,79}/staging/lmm-api-web-bin-[A-Za-z0-9][A-Za-z0-9._+@~-]*\.pkg\.tar\.(zst|xz|gz|bz2|lz4|lrz|lzo|Z)$'
+grep -Fqx "lmm-api-deploy ALL=(root) NOPASSWD: /usr/bin/pacman $go_pacman_regex" "$sudoers" ||
+  die 'operator exact Go pacman sudo rule is missing'
+grep -Fqx "lmm-api-deploy ALL=(root) NOPASSWD: /usr/bin/pacman $web_pacman_regex" "$sudoers" ||
+  die 'operator exact Web pacman sudo rule is missing'
+for allowed in \
+  '--upgrade --noconfirm -- /var/lib/lmm-api-go-deploy/work/go-abc_123/staging/lmm-api-go-bin-1.2.3-1-x86_64.pkg.tar.zst' \
+  '--upgrade --noconfirm -- /var/lib/lmm-api-go-deploy/work/web-abc.123/staging/lmm-api-web-bin-1.2.3-1-aarch64.pkg.tar.xz'; do
+  [[ $allowed =~ $go_pacman_regex || $allowed =~ $web_pacman_regex ]] || die "safe pacman argv rejected: $allowed"
+done
+for rejected in \
+  '--upgrade --noconfirm -- /var/lib/lmm-api-go-deploy/work/go-abc/staging/lmm-api-go-bin-1-1-x86_64.pkg.tar.zst /var/lib/lmm-api-go-deploy/work/go-abc/staging/lmm-api-web-bin-1-1-x86_64.pkg.tar.zst' \
+  '--upgrade --noconfirm -- /var/lib/lmm-api-go-deploy/work/go-abc/staging/../lmm-api-go-bin-1-1-x86_64.pkg.tar.zst' \
+  '--upgrade --noconfirm -- /var/lib/lmm-api-go-deploy/work/go abc/staging/lmm-api-go-bin-1-1-x86_64.pkg.tar.zst' \
+  '--upgrade --noconfirm -- /var/lib/lmm-api-go-deploy/work/go-abc/staging/lmm-api-go-bin-*.pkg.tar.zst' \
+  '--upgrade --noconfirm -- /tmp/lmm-api-go-bin-1-1-x86_64.pkg.tar.zst'; do
+  [[ ! $rejected =~ $go_pacman_regex && ! $rejected =~ $web_pacman_regex ]] || die "malicious pacman argv accepted: $rejected"
+done
 [[ $(<"$tmp/pkg-deploy/usr/share/doc/lmm-api-deploy-bin/OPERATOR_SHA256") == \
    $(sha256sum "$deploy_bundle/lmm-api-go" | cut -d' ' -f1) ]] ||
   die 'operator byte hash metadata is incorrect'

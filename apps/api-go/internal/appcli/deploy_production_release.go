@@ -59,7 +59,7 @@ func runProductionRelease(_ []string, _ io.Writer, stderr io.Writer) int {
 }
 
 func parseProductionReleaseOptions(args []string, stderr io.Writer) (productionReleaseOptions, error) {
-	options := productionReleaseOptions{ObservationSeconds: 180, RollbackSeconds: 3600}
+	options := productionReleaseOptions{ObservationSeconds: 180, RollbackSeconds: 600}
 	flags := flag.NewFlagSet("deploy production release", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	flags.StringVar(&options.Repo, "repo", "", "clean api.lmm.best source checkout")
@@ -69,7 +69,7 @@ func parseProductionReleaseOptions(args []string, stderr io.Writer) (productionR
 	flags.StringVar(&options.Confirm, "confirm", "", "must equal api.lmm.best")
 	flags.StringVar(&options.RollbackPackage, "rollback-package", "", "optional bootstrap package matching the currently installed release")
 	flags.IntVar(&options.ObservationSeconds, "observation-seconds", options.ObservationSeconds, "automatic stability observation window (120-360)")
-	flags.IntVar(&options.RollbackSeconds, "rollback-seconds", options.RollbackSeconds, "automatic rollback deadline (dual-package minimum, maximum 3600)")
+	flags.IntVar(&options.RollbackSeconds, "rollback-seconds", options.RollbackSeconds, "fixed automatic rollback deadline (must be 600)")
 	flags.BoolVar(&options.ManualConfirm, "manual-confirm", false, "leave a healthy release awaiting an explicit confirm command")
 	flags.BoolVar(&options.PreserveEdgePolicy, "preserve-edge-policy", false, "preserve the active nginx edge policy during activation")
 	flags.BoolVar(&options.WithBackups, "with-backups", false, "create and verify target, controller, and off-host backups")
@@ -119,9 +119,8 @@ func parseProductionReleaseOptions(args []string, stderr io.Writer) (productionR
 	if options.ObservationSeconds < 120 || options.ObservationSeconds > 360 {
 		return productionReleaseOptions{}, errors.New("--observation-seconds must be between 120 and 360")
 	}
-	requiredRollbackSeconds := int(requiredDeploymentWindow(true, true, time.Duration(options.ObservationSeconds)*time.Second) / time.Second)
-	if options.RollbackSeconds < requiredRollbackSeconds || options.RollbackSeconds > 3600 {
-		return productionReleaseOptions{}, fmt.Errorf("--rollback-seconds must be at least %d for the dual-package transaction and at most 3600", requiredRollbackSeconds)
+	if options.RollbackSeconds != 600 {
+		return productionReleaseOptions{}, errors.New("--rollback-seconds must be exactly 600")
 	}
 	return options, nil
 }
@@ -324,7 +323,7 @@ func (runtime *productionReleaseRuntime) release(ctx context.Context, options pr
 		"--observation-seconds", strconv.Itoa(options.ObservationSeconds),
 	}
 	if options.WithBackups {
-		applyArgs = append(applyArgs, "--backup-dir", remoteTargetBackup)
+		applyArgs = append(applyArgs, "--with-backups", "--backup-dir", remoteTargetBackup)
 	}
 	if options.ManualConfirm {
 		applyArgs = append(applyArgs, "--manual-confirm")
