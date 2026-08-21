@@ -54,6 +54,18 @@ func TestPublicRelayPublicViewDoesNotExposeChannelConfig(t *testing.T) {
 	assert.NotContains(t, string(encoded), "secret-key")
 }
 
+func TestPublicRelayContributionDoesNotSerializeChannelConfig(t *testing.T) {
+	item := PublicRelayContribution{
+		Name:          "shared relay",
+		ChannelConfig: `{"channel":{"key":"secret-key"}}`,
+	}
+
+	encoded, err := json.Marshal(item)
+	require.NoError(t, err)
+	assert.NotContains(t, string(encoded), "channel_config")
+	assert.NotContains(t, string(encoded), "secret-key")
+}
+
 func TestPublicRelayTipsRemainPendingUntilWithdrawal(t *testing.T) {
 	db := setupConsoleActivationTestDB(t)
 	require.NoError(t, db.AutoMigrate(&PublicRelayContribution{}, &PublicRelayTip{}))

@@ -44,16 +44,16 @@ var (
 	ErrPublicRelayGroupMismatch   = errors.New("channel is not in the configured public group")
 )
 
-// PublicRelayContribution is a user-submitted channel candidate. The complete
-// configuration is available only to the owner and administrators while the
-// public view remains strictly limited to the fields in PublicRelayView.
+// PublicRelayContribution is a user-submitted channel candidate. ChannelConfig
+// is retained for server-side processing but must never be serialized because
+// it contains upstream credentials.
 type PublicRelayContribution struct {
 	Id               int     `json:"id" gorm:"primaryKey"`
 	UserId           int     `json:"user_id" gorm:"not null;index"`
 	ContributorEmail string  `json:"contributor_email" gorm:"type:varchar(255);not null"`
 	Name             string  `json:"name" gorm:"type:varchar(120);not null"`
 	BaseURL          string  `json:"base_url" gorm:"type:varchar(512);not null"`
-	ChannelConfig    string  `json:"channel_config,omitempty" gorm:"type:text;not null;default:''"`
+	ChannelConfig    string  `json:"-" gorm:"type:text;not null;default:''"`
 	Group            string  `json:"group" gorm:"type:varchar(64);not null;index"`
 	Models           string  `json:"models" gorm:"type:text"`
 	Description      string  `json:"description" gorm:"type:text"`
