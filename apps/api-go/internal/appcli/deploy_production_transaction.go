@@ -327,10 +327,10 @@ func (runtime *productionRuntime) apply(ctx context.Context, workspace productio
 	if err := runtime.writeStatus(workspace, productionStatus{Phase: "PREPARING", Version: options.ExpectedVersion}); err != nil {
 		return productionStatus{}, err
 	}
-	armed, awaitingConfirmation := false, false
+	armed, awaitingConfirmation, leaveWatchdogArmed := false, false, false
 	watchdogDeadline := time.Time{}
 	defer func() {
-		if returnErr == nil || awaitingConfirmation {
+		if returnErr == nil || awaitingConfirmation || leaveWatchdogArmed {
 			return
 		}
 		if armed {
@@ -599,12 +599,42 @@ func (runtime *productionRuntime) apply(ctx context.Context, workspace productio
 				return productionStatus{}, fmt.Errorf("removed split-architecture path remains: %s", removed)
 			}
 		}
+		if _, err := runtime.runner.Run(ctx, productionCommand{Name: commandSystemctl, Args: []string{"reset-failed", runtime.paths.Service}}); err != nil {
+			return productionStatus{}, fmt.Errorf("reset candidate Go service restart counter: %w", err)
+		}
 		if _, err := runtime.runner.Run(ctx, productionCommand{Name: commandSystemctl, Args: []string{"enable", "--now", runtime.paths.Service}}); err != nil {
 			return productionStatus{}, fmt.Errorf("start candidate Go service: %w", err)
+		}
+		restartBaseline, err := runtime.readServiceRestarts(ctx)
+		if err != nil {
+			leaveWatchdogArmed = true
+			return productionStatus{}, fmt.Errorf("candidate Go service restart baseline hard stop; rollback watchdog remains armed: %w", err)
+		}
+		if restartBaseline != 0 {
+			leaveWatchdogArmed = true
+			return productionStatus{}, fmt.Errorf("candidate Go service restart baseline hard stop; rollback watchdog remains armed: got=%d want=0", restartBaseline)
+		}
+		manifest.ServiceRestartBaseline = 0
+		manifest.ObservationStartedUTC = utcSecond(runtime.now())
+		if err := runtime.writeManifest(workspace, manifest); err != nil {
+			return productionStatus{}, err
+		}
+	} else {
+		restartBaseline, err := runtime.readServiceRestarts(ctx)
+		if err != nil {
+			return productionStatus{}, err
+		}
+		manifest.ServiceRestartBaseline = restartBaseline
+		manifest.ObservationStartedUTC = utcSecond(runtime.now())
+		if err := runtime.writeManifest(workspace, manifest); err != nil {
+			return productionStatus{}, err
 		}
 	}
 	if err := runtime.probeBackendLocal(ctx, manifest, options.ExpectedVersion); err != nil {
 		return productionStatus{}, fmt.Errorf("candidate local backend health gate failed: %w", err)
+	}
+	if err := runtime.verifyServiceRestartBaseline(ctx, manifest); err != nil {
+		return productionStatus{}, fmt.Errorf("candidate local backend health gate changed restart baseline: %w", err)
 	}
 	if manifest.Web.Changed {
 		if err := runtime.writeStatus(workspace, productionStatus{Phase: "DEPLOYING_WEB", Version: options.ExpectedVersion, Previous: oldVersion, RollbackTimer: workspace.timerUnit, DeadlineUTC: deadline}); err != nil {
@@ -613,6 +643,9 @@ func (runtime *productionRuntime) apply(ctx context.Context, workspace productio
 		if err := runtime.paruInstall(ctx, workspace, manifest.OperatorUser, manifest.Web.CandidatePath); err != nil {
 			return productionStatus{}, fmt.Errorf("install candidate Web package: %w", err)
 		}
+		if err := runtime.verifyServiceRestartBaseline(ctx, manifest); err != nil {
+			return productionStatus{}, fmt.Errorf("candidate Web installation changed restart baseline: %w", err)
+		}
 	}
 	if err := runtime.verifyManifestInstalled(ctx, manifest, false); err != nil {
 		return productionStatus{}, err
@@ -620,17 +653,14 @@ func (runtime *productionRuntime) apply(ctx context.Context, workspace productio
 	if err := verifyFrontendIdentity(runtime.paths.FrontendRoot, manifest.Frontend.NewTarget, manifest.Frontend.NewIndexSHA256); err != nil {
 		return productionStatus{}, err
 	}
-	restartBaseline, err := runtime.readServiceRestarts(ctx)
-	if err != nil {
-		return productionStatus{}, err
-	}
-	manifest.ServiceRestartBaseline = restartBaseline
-	manifest.ObservationStartedUTC = utcSecond(runtime.now())
-	if err := runtime.writeManifest(workspace, manifest); err != nil {
-		return productionStatus{}, err
+	if err := runtime.verifyServiceRestartBaseline(ctx, manifest); err != nil {
+		return productionStatus{}, fmt.Errorf("candidate release identity verification changed restart baseline: %w", err)
 	}
 	if err := runtime.probeRelease(ctx, manifest, options.ExpectedVersion, manifest.Frontend.NewIndexSHA256); err != nil {
 		return productionStatus{}, fmt.Errorf("candidate release probes failed: %w", err)
+	}
+	if err := runtime.verifyServiceRestartBaseline(ctx, manifest); err != nil {
+		return productionStatus{}, fmt.Errorf("candidate release probes changed restart baseline: %w", err)
 	}
 	awaiting := productionStatus{Phase: "AWAITING_CONFIRMATION", Version: options.ExpectedVersion, Previous: oldVersion, RollbackTimer: workspace.timerUnit, DeadlineUTC: deadline, AutoConfirm: !options.ManualConfirm, ObservationSec: int64(options.ObservationWindow / time.Second)}
 	if err := runtime.writeStatus(workspace, awaiting); err != nil {

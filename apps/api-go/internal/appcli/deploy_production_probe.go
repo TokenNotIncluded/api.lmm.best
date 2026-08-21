@@ -154,6 +154,17 @@ func (runtime *productionRuntime) readServiceRestarts(ctx context.Context) (int6
 	return parseSingleInt(output, "NRestarts")
 }
 
+func (runtime *productionRuntime) verifyServiceRestartBaseline(ctx context.Context, manifest productionManifest) error {
+	restarts, err := runtime.readServiceRestarts(ctx)
+	if err != nil {
+		return err
+	}
+	if restarts != manifest.ServiceRestartBaseline {
+		return fmt.Errorf("service restart count changed: got=%d baseline=%d", restarts, manifest.ServiceRestartBaseline)
+	}
+	return nil
+}
+
 func (runtime *productionRuntime) checkMemoryHeadroom(ctx context.Context) error {
 	read := func(property string) (int64, error) {
 		output, err := runtime.runner.Run(ctx, productionCommand{Name: commandSystemctl, Args: []string{"show", runtime.paths.Service, "--property=" + property, "--value"}})
@@ -296,12 +307,8 @@ func (runtime *productionRuntime) healthCheck(ctx context.Context, workspace pro
 	if _, err := runtime.runner.Run(ctx, productionCommand{Name: commandSystemctl, Args: []string{"is-active", "--quiet", runtime.paths.Service}}); err != nil {
 		return errors.New("lmm-api service is not active")
 	}
-	restarts, err := runtime.readServiceRestarts(ctx)
-	if err != nil {
+	if err := runtime.verifyServiceRestartBaseline(ctx, manifest); err != nil {
 		return err
-	}
-	if restarts != manifest.ServiceRestartBaseline {
-		return fmt.Errorf("service restart count changed: got=%d baseline=%d", restarts, manifest.ServiceRestartBaseline)
 	}
 	if err := runtime.checkMemoryHeadroom(ctx); err != nil {
 		return err
@@ -335,6 +342,9 @@ func (runtime *productionRuntime) healthCheck(ctx context.Context, workspace pro
 		}
 	}
 	if err := runtime.probeRelease(ctx, manifest, manifest.ExpectedVersion, manifest.Frontend.NewIndexSHA256); err != nil {
+		return err
+	}
+	if err := runtime.verifyServiceRestartBaseline(ctx, manifest); err != nil {
 		return err
 	}
 	if err := runtime.checkErrorJournals(ctx, manifest.ObservationStartedUTC); err != nil {

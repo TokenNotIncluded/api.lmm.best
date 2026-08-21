@@ -34,8 +34,10 @@ type fakeProductionRunner struct {
 	goContractFile, webContractFile                             string
 	serviceActive, timerActive, rollbackServiceActive           bool
 	migrationFailure, rollbackMigrationFailure, failTimerEnable bool
-	sudoFailure                                                 bool
+	sudoFailure, restartOnEnable, restartOnWebInstall           bool
+	restartOnRequestAfterBaseline, restartBaselineRead          bool
 	timerDeadline, timerLastTrigger                             time.Time
+	restartCounter                                              int64
 	onlineWriteCount                                            int
 	onCandidateApply                                            func()
 	commands                                                    []productionCommand
@@ -160,7 +162,13 @@ func (runner *fakeProductionRunner) nativeRequest(args []string) ([]byte, error)
 		}
 		return ""
 	}
-	switch value("--path") {
+	requestPath := value("--path")
+	runner.events = append(runner.events, "request:"+requestPath)
+	if runner.restartOnRequestAfterBaseline && runner.restartBaselineRead {
+		runner.restartCounter++
+		runner.restartOnRequestAfterBaseline = false
+	}
+	switch requestPath {
 	case "/api/status":
 		return []byte(fmt.Sprintf(`{"success":true,"ready":true,"data":{"version":%q}}`, runner.installedGoVersion)), nil
 	case "/api/livez":
@@ -300,6 +308,10 @@ func (runner *fakeProductionRunner) runuser(args []string) ([]byte, error) {
 		}
 	case productionWebPackageName:
 		runner.events = append(runner.events, "paru-web-hook")
+		if runner.restartOnWebInstall {
+			runner.restartCounter++
+			runner.restartOnWebInstall = false
+		}
 		runner.installedWebVersion, runner.installedWebRevision = version, revision
 		if err := os.WriteFile(runner.webRevisionFile, []byte(revision+"\n"), 0o644); err != nil {
 			return nil, err
@@ -352,12 +364,23 @@ func (runner *fakeProductionRunner) systemctl(args []string) ([]byte, error) {
 		} else {
 			runner.serviceActive = true
 			runner.events = append(runner.events, "systemd-start")
+			if runner.restartOnEnable {
+				runner.restartCounter++
+				runner.restartOnEnable = false
+			}
 		}
 		return nil, nil
 	case "disable":
 		runner.timerActive = false
 		return nil, nil
-	case "daemon-reload", "reset-failed":
+	case "daemon-reload":
+		return nil, nil
+	case "reset-failed":
+		if slices.Contains(args[1:], productionServiceName) {
+			runner.restartCounter = 0
+			runner.restartBaselineRead = false
+			runner.events = append(runner.events, "systemd-reset-failed")
+		}
 		return nil, nil
 	case "show":
 		if strings.HasSuffix(args[1], ".timer") && slices.Contains(args, "--property=NextElapseUSecRealtime") {
@@ -382,7 +405,10 @@ func (runner *fakeProductionRunner) systemctl(args []string) ([]byte, error) {
 		}
 		switch property {
 		case "NRestarts":
-			return []byte("0\n"), nil
+			restarts := runner.restartCounter
+			runner.restartBaselineRead = true
+			runner.events = append(runner.events, fmt.Sprintf("restart-read:%d", restarts))
+			return []byte(strconv.FormatInt(restarts, 10) + "\n"), nil
 		case "MemoryCurrent":
 			return []byte("67108864\n"), nil
 		case "MemoryHigh":
@@ -587,7 +613,7 @@ func TestProductionDualPackageApplyUsesParuAndCanonicalWatchdog(t *testing.T) {
 	if manifest.Format != productionTransactionFormat || manifest.OperatorUser != productionOperatorUser || !manifest.Go.Changed || !manifest.Web.Changed ||
 		manifest.Go.CandidatePackageName != productionAURPackageName || manifest.Go.RollbackPackageName != productionAURPackageName ||
 		manifest.Web.CandidatePackageName != productionWebPackageName || manifest.Web.RollbackPackageName != productionWebPackageName ||
-		manifest.Go.CandidateContractRevision != manifest.Web.CandidateContractRevision {
+		manifest.Go.CandidateContractRevision != manifest.Web.CandidateContractRevision || manifest.ServiceRestartBaseline != 0 || manifest.ObservationStartedUTC.IsZero() {
 		t.Fatalf("manifest=%#v", manifest)
 	}
 	paruTransactions := 0
@@ -605,7 +631,7 @@ func TestProductionDualPackageApplyUsesParuAndCanonicalWatchdog(t *testing.T) {
 	if paruTransactions != 2 {
 		t.Fatalf("paru transactions=%d, want two split transactions", paruTransactions)
 	}
-	wantOrder := []string{"sudo-preflight:lmm-api-go-bin-new.pkg.tar.zst", "systemd-stop", "migrate:--apply", "paru-go", "systemd-start", "paru-web-hook"}
+	wantOrder := []string{"sudo-preflight:lmm-api-go-bin-new.pkg.tar.zst", "systemd-stop", "migrate:--apply", "paru-go", "systemd-reset-failed", "systemd-start", "restart-read:0", "request:/api/status", "request:/api/livez", "paru-web-hook"}
 	cursor := 0
 	for _, event := range fixture.runner.events {
 		if cursor < len(wantOrder) && event == wantOrder[cursor] {
@@ -739,6 +765,105 @@ func TestProductionRejectsContractMismatchBeforeWatchdog(t *testing.T) {
 	}
 	if fixture.runner.timerActive {
 		t.Fatal("contract mismatch armed watchdog")
+	}
+}
+
+func TestProductionGoStartupRestartHardStopsBeforeHealthProbe(t *testing.T) {
+	fixture := newProductionFixture(t)
+	fixture.runner.restartCounter = 9
+	fixture.runner.restartOnEnable = true
+
+	if _, err := fixture.runtime.apply(context.Background(), fixture.workspace, fixture.options); err == nil || !strings.Contains(err.Error(), "restart baseline hard stop") {
+		t.Fatalf("startup restart error=%v", err)
+	}
+	if !fixture.runner.timerActive {
+		t.Fatal("startup restart hard stop disarmed the rollback watchdog")
+	}
+	if fixture.runner.restartCounter != 1 {
+		t.Fatalf("restart counter=%d, want reset then one startup restart", fixture.runner.restartCounter)
+	}
+	resetIndex, startIndex := -1, -1
+	for index, event := range fixture.runner.events {
+		switch event {
+		case "systemd-reset-failed":
+			resetIndex = index
+		case "systemd-start":
+			startIndex = index
+		default:
+			if startIndex >= 0 && strings.HasPrefix(event, "request:") {
+				t.Fatalf("candidate health probe ran after startup restart: events=%v", fixture.runner.events)
+			}
+		}
+	}
+	if resetIndex < 0 || startIndex < 0 || resetIndex >= startIndex {
+		t.Fatalf("reset/start order is unsafe: events=%v", fixture.runner.events)
+	}
+	manifest, err := fixture.runtime.readManifest(fixture.workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !manifest.ObservationStartedUTC.IsZero() {
+		t.Fatalf("failed startup persisted an observation start: %s", manifest.ObservationStartedUTC)
+	}
+}
+
+func TestProductionWebOnlyRestartCannotBeSwallowed(t *testing.T) {
+	tests := []struct {
+		name                  string
+		inject                func(*fakeProductionRunner)
+		wantCandidateInstalls int
+		wantError             string
+	}{
+		{
+			name: "initial backend probe",
+			inject: func(runner *fakeProductionRunner) {
+				runner.restartOnRequestAfterBaseline = true
+			},
+			wantError: "candidate local backend health gate changed restart baseline",
+		},
+		{
+			name: "Web installation",
+			inject: func(runner *fakeProductionRunner) {
+				runner.restartOnWebInstall = true
+			},
+			wantCandidateInstalls: 1,
+			wantError:             "candidate Web installation changed restart baseline",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newProductionFixture(t)
+			fixture.options.GoChanged = false
+			fixture.options.GoPackage = fixture.options.GoRollbackPackage
+			fixture.options.GoPackageSHA256 = fixture.options.GoRollbackSHA256
+			fixture.options.ExpectedVersion = fixture.runner.oldVersion
+			fixture.runner.probeVersion = fixture.runner.oldVersion
+			fixture.runner.restartCounter = 7
+			test.inject(fixture.runner)
+
+			if _, err := fixture.runtime.apply(context.Background(), fixture.workspace, fixture.options); err == nil || !strings.Contains(err.Error(), test.wantError) {
+				t.Fatalf("Web-only restart error=%v", err)
+			}
+			manifest, err := fixture.runtime.readManifest(fixture.workspace)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if manifest.ServiceRestartBaseline != 7 || manifest.ObservationStartedUTC.IsZero() {
+				t.Fatalf("Web-only observation baseline=%d started=%s", manifest.ServiceRestartBaseline, manifest.ObservationStartedUTC)
+			}
+			candidateInstalls := 0
+			for _, command := range fixture.runner.commands {
+				if command.Name == commandRunuser && len(command.Args) == 8 && command.Args[7] == fixture.options.WebPackage {
+					candidateInstalls++
+				}
+			}
+			if candidateInstalls != test.wantCandidateInstalls {
+				t.Fatalf("candidate Web installs=%d want=%d", candidateInstalls, test.wantCandidateInstalls)
+			}
+			if fixture.runner.restartCounter != 8 {
+				t.Fatalf("restart counter=%d, want baseline change to remain visible", fixture.runner.restartCounter)
+			}
+		})
 	}
 }
 
