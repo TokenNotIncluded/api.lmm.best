@@ -179,8 +179,12 @@ func (runtime *productionRuntime) checkMemoryHeadroom(ctx context.Context) error
 	if err != nil {
 		return fmt.Errorf("read service memory maximum: %w", err)
 	}
-	if high <= 0 || maximum <= high {
-		return fmt.Errorf("production memory guards are invalid: current=%d high=%d max=%d", current, high, maximum)
+	swapMaximum, err := read("MemorySwapMax")
+	if err != nil {
+		return fmt.Errorf("read service swap maximum: %w", err)
+	}
+	if high != 320*1024*1024 || maximum != 384*1024*1024 || swapMaximum != 256*1024*1024 {
+		return fmt.Errorf("production memory guards differ from 320M/384M/256M: current=%d high=%d max=%d swap=%d", current, high, maximum, swapMaximum)
 	}
 	if current*100 >= high*90 {
 		return fmt.Errorf("service memory pressure is too high: current=%d high=%d", current, high)
@@ -299,9 +303,17 @@ func (runtime *productionRuntime) healthCheck(ctx context.Context, workspace pro
 	if err := runtime.checkMemoryHeadroom(ctx); err != nil {
 		return err
 	}
-	packageName, installed, err := runtime.installedGoPackage(ctx)
-	if err != nil || packageName != manifest.PackageName || installed != manifest.PackageIdentity {
-		return errors.New("installed production package identity changed")
+	if err := runtime.verifyManifestInstalled(ctx, manifest, false); err != nil {
+		return fmt.Errorf("installed production package identities changed: %w", err)
+	}
+	if err := verifyFrontendIdentity(runtime.paths.FrontendRoot, manifest.Frontend.NewTarget, manifest.Frontend.NewIndexSHA256); err != nil {
+		return err
+	}
+	if err := verifyProductionMemoryDropIn(filepath.Join(runtime.paths.PackagedDropInDir, productionMemoryFileName)); err != nil {
+		return err
+	}
+	if err := retireKnownMemoryOverrides(runtime.paths.DropInDir); err != nil {
+		return err
 	}
 	if _, err := runtime.runner.Run(ctx, productionCommand{Name: "pacman", Args: []string{"-Q", "lmm-api"}}); err == nil {
 		return errors.New("removed split lmm-api package reappeared")
@@ -319,7 +331,7 @@ func (runtime *productionRuntime) healthCheck(ctx context.Context, workspace pro
 			return err
 		}
 	}
-	if err := runtime.probeRelease(ctx, manifest, manifest.ExpectedVersion, manifest.FrontendIndexSHA256); err != nil {
+	if err := runtime.probeRelease(ctx, manifest, manifest.ExpectedVersion, manifest.Frontend.NewIndexSHA256); err != nil {
 		return err
 	}
 	if err := runtime.checkErrorJournals(ctx, manifest.ObservationStartedUTC); err != nil {

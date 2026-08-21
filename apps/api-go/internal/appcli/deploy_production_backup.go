@@ -14,16 +14,27 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 )
 
 var productionEnvironmentKeyPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 func (runtime *productionRuntime) validateTransactionLock(workspace productionWorkspace) error {
-	if err := requireRealDirectory(runtime.paths.TransactionLock); err != nil {
+	if err := runtime.requireOwnedSafePath(runtime.paths.TransactionLock, true); err != nil {
 		return fmt.Errorf("deployment transaction lock is missing or unsafe: %w", err)
 	}
+	lockInfo, err := os.Lstat(runtime.paths.TransactionLock)
+	if err != nil {
+		return fmt.Errorf("inspect deployment transaction lock: %w", err)
+	}
+	if lockInfo.Mode().Perm() != 0o700 {
+		return errors.New("deployment transaction lock must remain root-only")
+	}
 	markerPath := filepath.Join(runtime.paths.TransactionLock, productionTransactionMarker)
+	if err := runtime.requireOwnedSafePath(markerPath, false); err != nil {
+		return fmt.Errorf("deployment transaction marker is unsafe: %w", err)
+	}
 	content, err := readPrivateRegularFile(markerPath, 16<<10)
 	if err != nil {
 		return fmt.Errorf("read deployment transaction lock: %w", err)
@@ -62,8 +73,11 @@ func (runtime *productionRuntime) validateStagedFile(workspace productionWorkspa
 		return fmt.Errorf("%s must be a direct child of deployment staging", label)
 	}
 	info, err := os.Lstat(path)
-	if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || info.Size() == 0 {
-		return fmt.Errorf("%s is missing, empty, or unsafe", label)
+	if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || info.Size() == 0 || info.Mode().Perm()&0o022 != 0 {
+		return fmt.Errorf("%s is missing, empty, writable, or unsafe", label)
+	}
+	if stat, ok := info.Sys().(*syscall.Stat_t); !ok || stat.Nlink != 1 {
+		return fmt.Errorf("%s must not be hard-linked", label)
 	}
 	if !productionSHA256Pattern.MatchString(expectedSHA256) {
 		return fmt.Errorf("%s SHA-256 is invalid", label)
@@ -396,47 +410,23 @@ func isDatabaseSchema(schema string) bool {
 	return matched
 }
 
-func (runtime *productionRuntime) saveRestoreState(workspace productionWorkspace, archivedEnvironment []byte) (bool, string, string, error) {
+func (runtime *productionRuntime) saveRestoreState(workspace productionWorkspace, archivedEnvironment []byte) (string, error) {
 	if err := ensureRealDirectory(workspace.configRestore, 0o700); err != nil {
-		return false, "", "", fmt.Errorf("prepare configuration restore state: %w", err)
+		return "", fmt.Errorf("prepare configuration restore state: %w", err)
 	}
 	liveEnvironment := filepath.Join(runtime.paths.ConfigDir, "lmm-api-go.env")
 	live, err := readPrivateRegularFile(liveEnvironment, 1<<20)
 	if err != nil {
-		return false, "", "", fmt.Errorf("read live Go environment: %w", err)
+		return "", fmt.Errorf("read live Go environment: %w", err)
 	}
 	if !equalSHA256(live, archivedEnvironment) {
-		return false, "", "", errors.New("verified backup environment does not match the live production environment")
+		return "", errors.New("verified backup environment does not match the live production environment")
 	}
 	environmentRestorePath := filepath.Join(workspace.configRestore, "lmm-api-go.env")
 	if err := writeAtomicRegularFile(environmentRestorePath, archivedEnvironment, 0o600); err != nil {
-		return false, "", "", fmt.Errorf("save environment restore state: %w", err)
+		return "", fmt.Errorf("save environment restore state: %w", err)
 	}
-	environmentDigest, err := sha256File(environmentRestorePath)
-	if err != nil {
-		return false, "", "", err
-	}
-	memoryPath := filepath.Join(runtime.paths.DropInDir, productionMemoryFileName)
-	memoryInfo, err := os.Lstat(memoryPath)
-	if errors.Is(err, os.ErrNotExist) {
-		return false, "", environmentDigest, nil
-	}
-	if err != nil || memoryInfo.Mode()&os.ModeSymlink != 0 || !memoryInfo.Mode().IsRegular() {
-		return false, "", "", errors.New("production memory drop-in is unsafe")
-	}
-	memory, err := os.ReadFile(memoryPath)
-	if err != nil {
-		return false, "", "", fmt.Errorf("read production memory drop-in: %w", err)
-	}
-	restorePath := filepath.Join(workspace.configRestore, productionMemoryFileName)
-	if err := writeAtomicRegularFile(restorePath, memory, 0o600); err != nil {
-		return false, "", "", fmt.Errorf("save memory drop-in restore state: %w", err)
-	}
-	digest, err := sha256File(restorePath)
-	if err != nil {
-		return false, "", "", err
-	}
-	return true, digest, environmentDigest, nil
+	return sha256File(environmentRestorePath)
 }
 
 func equalSHA256(first, second []byte) bool {
@@ -463,33 +453,6 @@ func (runtime *productionRuntime) restoreConfiguration(workspace productionWorks
 	}
 	if err := writeAtomicRegularFile(filepath.Join(runtime.paths.ConfigDir, "lmm-api-go.env"), environment, 0o600); err != nil {
 		return fmt.Errorf("restore production environment: %w", err)
-	}
-	memoryPath := filepath.Join(runtime.paths.DropInDir, productionMemoryFileName)
-	if manifest.MemoryDropInExisted {
-		restorePath := filepath.Join(workspace.configRestore, productionMemoryFileName)
-		actual, err := sha256File(restorePath)
-		if err != nil || actual != manifest.MemoryDropInRestoreSHA256 {
-			return errors.New("memory drop-in restore state is missing or changed")
-		}
-		content, err := readPrivateRegularFile(restorePath, 1<<20)
-		if err != nil {
-			return err
-		}
-		if err := ensureRealDirectory(runtime.paths.DropInDir, 0o755); err != nil {
-			return err
-		}
-		if err := writeAtomicRegularFile(memoryPath, content, 0o644); err != nil {
-			return fmt.Errorf("restore production memory drop-in: %w", err)
-		}
-	} else if info, err := os.Lstat(memoryPath); err == nil {
-		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
-			return errors.New("refusing to remove unsafe production memory drop-in")
-		}
-		if err := os.Remove(memoryPath); err != nil {
-			return fmt.Errorf("remove deployment-created memory drop-in: %w", err)
-		}
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return err
 	}
 	return nil
 }

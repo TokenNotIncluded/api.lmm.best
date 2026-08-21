@@ -1,6 +1,7 @@
 package appcli
 
 import (
+	"bytes"
 	"errors"
 	"flag"
 	"fmt"
@@ -12,24 +13,28 @@ import (
 )
 
 const (
-	defaultProductionEnvFile   = "/etc/lmm-api-go/lmm-api-go.env"
-	defaultProductionDropInDir = "/etc/systemd/system/lmm-api.service.d"
-	productionMemoryFileName   = "80-production-memory.conf"
-	legacyEmergencyMemoryFile  = "99-emergency-memory-safety.conf"
-	productionMemoryHigh       = "320M"
-	productionMemoryMax        = "384M"
-	productionMemorySwapMax    = "256M"
-	productionGoMemoryLimit    = "256MiB"
+	defaultProductionEnvFile       = "/etc/lmm-api-go/lmm-api-go.env"
+	defaultProductionDropInDir     = "/etc/systemd/system/lmm-api.service.d"
+	defaultPackagedMemoryDropInDir = "/usr/lib/systemd/system/lmm-api.service.d"
+	productionMemoryFileName       = "20-memory.conf"
+	legacyMemoryGuardFile          = "50-memory-guard.conf"
+	legacyProductionMemoryFile     = "80-production-memory.conf"
+	legacyEmergencyMemoryFile      = "99-emergency-memory-safety.conf"
+	productionMemoryHigh           = "320M"
+	productionMemoryMax            = "384M"
+	productionMemorySwapMax        = "256M"
+	productionGoMemoryLimit        = "256MiB"
 )
 
 type productionHardenOptions struct {
-	EnvFile   string
-	DropInDir string
+	EnvFile           string
+	DropInDir         string
+	OverrideDropInDir string
 }
 
 func runProductionDeploy(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		writeDeployUsage(stderr)
+		writeProductionDeployUsage(stderr)
 		return ExitUsage
 	}
 	switch args[0] {
@@ -62,25 +67,42 @@ func runProductionDeploy(args []string, stdout, stderr io.Writer) int {
 	case "apply", "status", "confirm", "rollback":
 		return runProductionTransaction(args[0], args[1:], stdout, stderr)
 	case "help", "--help", "-h":
-		writeDeployUsage(stdout)
+		writeProductionDeployUsage(stdout)
 		return ExitOK
 	default:
 		_, _ = fmt.Fprintf(stderr, "%s deploy production: unknown action %q\n", ProgramName, args[0])
-		writeDeployUsage(stderr)
+		writeProductionDeployUsage(stderr)
 		return ExitUsage
 	}
 }
 
+func writeProductionDeployUsage(output io.Writer) {
+	_, _ = fmt.Fprintf(output, `Usage:
+  %s deploy production workspace create --deployment-id ID
+  %s deploy production apply --workspace DIR --operator-user USER \\
+       --go-package FILE --go-package-sha256 HEX --go-rollback-package FILE --go-rollback-sha256 HEX \\
+       --web-package FILE --web-package-sha256 HEX --web-rollback-package FILE --web-rollback-sha256 HEX \\
+       --probe-binary FILE --probe-binary-sha256 HEX --expected-version VERSION \\
+       [--go-changed] [--web-changed] [--backup-dir DIR] [--manual-confirm]
+  %s deploy production status|confirm|rollback --workspace DIR
+
+The source-build/bundled-frontend release path is disabled. Prepare verified split
+lmm-api-go-bin and lmm-api-web-bin candidate and rollback packages, then use apply.
+`, ProgramName, ProgramName, ProgramName)
+}
+
 func parseProductionHardenOptions(args []string, stderr io.Writer) (productionHardenOptions, error) {
 	options := productionHardenOptions{
-		EnvFile:   defaultProductionEnvFile,
-		DropInDir: defaultProductionDropInDir,
+		EnvFile:           defaultProductionEnvFile,
+		DropInDir:         defaultPackagedMemoryDropInDir,
+		OverrideDropInDir: defaultProductionDropInDir,
 	}
 	flags := flag.NewFlagSet("deploy production harden", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	flags.StringVar(&options.EnvFile, "env-file", options.EnvFile, "production environment file")
-	flags.StringVar(&options.DropInDir, "drop-in-dir", options.DropInDir, "systemd service drop-in directory")
-	flags.Usage = func() { writeDeployUsage(stderr) }
+	flags.StringVar(&options.DropInDir, "drop-in-dir", options.DropInDir, "package-owned systemd service drop-in directory")
+	flags.StringVar(&options.OverrideDropInDir, "override-drop-in-dir", options.OverrideDropInDir, "legacy /etc systemd override directory")
+	flags.Usage = func() { writeProductionDeployUsage(stderr) }
 	if err := flags.Parse(args); err != nil {
 		return productionHardenOptions{}, err
 	}
@@ -95,6 +117,10 @@ func parseProductionHardenOptions(args []string, stderr io.Writer) (productionHa
 	options.DropInDir, err = cleanAbsoluteNonRoot(options.DropInDir)
 	if err != nil {
 		return productionHardenOptions{}, fmt.Errorf("invalid --drop-in-dir: %w", err)
+	}
+	options.OverrideDropInDir, err = cleanAbsoluteNonRoot(options.OverrideDropInDir)
+	if err != nil {
+		return productionHardenOptions{}, fmt.Errorf("invalid --override-drop-in-dir: %w", err)
 	}
 	return options, nil
 }
@@ -116,33 +142,10 @@ func hardenProductionConfiguration(options productionHardenOptions) error {
 		return fmt.Errorf("write hardened environment: %w", err)
 	}
 
-	if dropInInfo, err := os.Lstat(options.DropInDir); err == nil {
-		if dropInInfo.Mode()&os.ModeSymlink != 0 || !dropInInfo.IsDir() {
-			return errors.New("drop-in directory must be a real directory")
-		}
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("inspect drop-in directory: %w", err)
-	}
-	if err := os.MkdirAll(options.DropInDir, 0o755); err != nil {
-		return fmt.Errorf("create drop-in directory: %w", err)
-	}
-	if err := os.Chmod(options.DropInDir, 0o755); err != nil {
-		return fmt.Errorf("set drop-in permissions: %w", err)
-	}
-	legacyMemoryPath := filepath.Join(options.DropInDir, legacyEmergencyMemoryFile)
-	if err := retireLegacyEmergencyMemoryDropIn(legacyMemoryPath); err != nil {
+	if err := verifyProductionMemoryDropIn(filepath.Join(options.DropInDir, productionMemoryFileName)); err != nil {
 		return err
 	}
-	memoryPath := filepath.Join(options.DropInDir, productionMemoryFileName)
-	if memoryInfo, err := os.Lstat(memoryPath); err == nil && memoryInfo.Mode()&os.ModeSymlink != 0 {
-		return errors.New("production memory drop-in must not be a symlink")
-	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("inspect production memory drop-in: %w", err)
-	}
-	if err := writeAtomicRegularFile(memoryPath, productionMemoryConfig(), 0o644); err != nil {
-		return fmt.Errorf("write production memory drop-in: %w", err)
-	}
-	return nil
+	return retireKnownMemoryOverrides(options.OverrideDropInDir)
 }
 
 func productionMemoryConfig() []byte {
@@ -153,6 +156,68 @@ MemoryMax=%s
 MemorySwapMax=%s
 Environment=GOMEMLIMIT=%s
 `, productionMemoryHigh, productionMemoryMax, productionMemorySwapMax, productionGoMemoryLimit))
+}
+
+func verifyProductionMemoryDropIn(path string) error {
+	info, err := os.Lstat(path)
+	if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || info.Mode().Perm()&0o022 != 0 {
+		return errors.New("package-owned production memory drop-in is missing or unsafe")
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("read package-owned production memory drop-in: %w", err)
+	}
+	if !bytes.Equal(content, productionMemoryConfig()) {
+		return errors.New("package-owned production memory drop-in does not exactly set 320M/384M/256M limits")
+	}
+	return nil
+}
+
+func retireKnownMemoryOverrides(root string) error {
+	entries, err := os.ReadDir(root)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("inspect legacy override directory: %w", err)
+	}
+	remove := make([]string, 0, 3)
+	emergencyConfig := []byte("[Service]\nMemoryHigh=256M\nMemoryMax=288M\nMemorySwapMax=64M\n")
+	for _, entry := range entries {
+		path := filepath.Join(root, entry.Name())
+		info, err := os.Lstat(path)
+		if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+			return fmt.Errorf("unknown or unsafe systemd override: %s", path)
+		}
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		text := string(content)
+		if !strings.Contains(text, "MemoryHigh=") && !strings.Contains(text, "MemoryMax=") &&
+			!strings.Contains(text, "MemorySwapMax=") && !strings.Contains(text, "GOMEMLIMIT=") {
+			continue
+		}
+		switch entry.Name() {
+		case legacyMemoryGuardFile, legacyProductionMemoryFile:
+			if !bytes.Equal(content, productionMemoryConfig()) {
+				return fmt.Errorf("refusing to remove unknown memory override: %s", path)
+			}
+		case legacyEmergencyMemoryFile:
+			if !bytes.Equal(content, emergencyConfig) {
+				return fmt.Errorf("refusing to remove unknown memory override: %s", path)
+			}
+		default:
+			return fmt.Errorf("unknown memory override blocks deployment: %s", path)
+		}
+		remove = append(remove, path)
+	}
+	for _, path := range remove {
+		if err := os.Remove(path); err != nil {
+			return fmt.Errorf("remove recognized legacy memory override: %w", err)
+		}
+	}
+	return nil
 }
 
 func retireLegacyEmergencyMemoryDropIn(path string) error {
@@ -170,22 +235,12 @@ func retireLegacyEmergencyMemoryDropIn(path string) error {
 	if err != nil {
 		return fmt.Errorf("read legacy emergency memory drop-in: %w", err)
 	}
-	for _, expected := range []string{"MemoryHigh=256M", "MemoryMax=288M", "MemorySwapMax=64M"} {
-		if !strings.Contains(string(content), expected) {
-			return fmt.Errorf("refusing to retire unknown legacy memory drop-in: missing %s", expected)
-		}
+	expected := []byte("[Service]\nMemoryHigh=256M\nMemoryMax=288M\nMemorySwapMax=64M\n")
+	if !bytes.Equal(content, expected) {
+		return errors.New("refusing to retire unknown legacy emergency memory drop-in")
 	}
-	retired := path + ".disabled"
-	if retiredInfo, statErr := os.Lstat(retired); statErr == nil {
-		if retiredInfo.Mode()&os.ModeSymlink != 0 || !retiredInfo.Mode().IsRegular() {
-			return errors.New("retired legacy memory drop-in must be a real regular file")
-		}
-		return fmt.Errorf("retired legacy memory drop-in already exists: %s", retired)
-	} else if !errors.Is(statErr, os.ErrNotExist) {
-		return fmt.Errorf("inspect retired legacy memory drop-in: %w", statErr)
-	}
-	if err := os.Rename(path, retired); err != nil {
-		return fmt.Errorf("retire legacy emergency memory drop-in: %w", err)
+	if err := os.Remove(path); err != nil {
+		return fmt.Errorf("remove recognized legacy emergency memory drop-in: %w", err)
 	}
 	return nil
 }

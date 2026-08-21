@@ -53,22 +53,9 @@ type productionReleaseRuntime struct {
 	now    func() time.Time
 }
 
-func runProductionRelease(args []string, stdout, stderr io.Writer) int {
-	options, err := parseProductionReleaseOptions(args, stderr)
-	if errors.Is(err, flag.ErrHelp) {
-		return ExitOK
-	}
-	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "%s deploy production release: %v\n", ProgramName, err)
-		return ExitUsage
-	}
-	runtime := &productionReleaseRuntime{runner: osProductionCommandRunner{}, now: time.Now}
-	result, err := runtime.release(context.Background(), options)
-	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "%s deploy production release: %v\n", ProgramName, err)
-		return ExitError
-	}
-	return writeJSONCommandResult(result, stdout, stderr, "production release")
+func runProductionRelease(_ []string, _ io.Writer, stderr io.Writer) int {
+	_, _ = fmt.Fprintf(stderr, "%s deploy production release is disabled: source-build and bundled-frontend activation are forbidden; prepare verified split lmm-api-go-bin and lmm-api-web-bin packages and use deploy production apply\n", ProgramName)
+	return ExitUsage
 }
 
 func parseProductionReleaseOptions(args []string, stderr io.Writer) (productionReleaseOptions, error) {

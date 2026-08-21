@@ -277,6 +277,30 @@ func (runtime *productionRuntime) createWorkspace(ctx context.Context, deploymen
 		if err := ensureRealDirectory(runtime.paths.BackupRoot, 0o700); err != nil {
 			return fmt.Errorf("prepare production backup root: %w", err)
 		}
+		deployRoot := filepath.Dir(runtime.paths.WorkRoot)
+		if deployRoot == string(filepath.Separator) || deployRoot != filepath.Dir(runtime.paths.BackupRoot) {
+			return errors.New("production work and backup roots must share a dedicated parent")
+		}
+		if err := runtime.requireOwnedSafePath(deployRoot, true); err != nil {
+			return fmt.Errorf("production deploy root must be root-owned and safe: %w", err)
+		}
+		for label, root := range map[string]string{"work": runtime.paths.WorkRoot, "backup": runtime.paths.BackupRoot} {
+			canonical, err := filepath.EvalSymlinks(root)
+			if err != nil || filepath.Clean(canonical) != filepath.Clean(root) {
+				return fmt.Errorf("production %s root must not contain symlink components", label)
+			}
+			if err := runtime.requireOwnedSafePath(root, true); err != nil {
+				return fmt.Errorf("production %s root must be root-owned and safe: %w", label, err)
+			}
+			info, err := os.Lstat(root)
+			if err != nil {
+				return fmt.Errorf("inspect production %s root: %w", label, err)
+			}
+			mode := info.Mode().Perm()
+			if (label == "backup" && mode != 0o700) || (label == "work" && mode != 0o700 && mode != 0o710) {
+				return fmt.Errorf("production %s root has unsafe permissions", label)
+			}
+		}
 		workspace := filepath.Join(runtime.paths.WorkRoot, deploymentID)
 		if _, err := os.Lstat(workspace); !errors.Is(err, os.ErrNotExist) {
 			return errors.New("release-scoped production workspace already exists or is unsafe")

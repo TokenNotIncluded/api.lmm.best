@@ -14,8 +14,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"golang.org/x/sys/unix"
@@ -30,7 +32,7 @@ const (
 	productionCommandTimeout       = 2 * time.Minute
 	productionProbeTimeout         = 8 * time.Second
 	productionProbeAttempts        = 45
-	productionTransactionFormat    = 3
+	productionTransactionFormat    = 4
 	productionStatusFormat         = 1
 	productionFrontendReleaseKeep  = 3
 	productionTransactionMarker    = "deployment.env"
@@ -41,55 +43,81 @@ const (
 	productionConfigRestoreDirname = "config-restore"
 	productionSourcePackageName    = "lmm-api-go"
 	productionAURPackageName       = "lmm-api-go-bin"
+	productionWebPackageName       = "lmm-api-web-bin"
+	productionOperatorPackageName  = "lmm-api-deploy-bin"
+	productionOperatorBinary       = "/usr/bin/lmm-api-deploy"
 )
 
 var (
-	productionIDPattern      = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$`)
-	productionVersionPattern = regexp.MustCompile(`^[0-9][0-9A-Za-z._+]*$`)
-	productionSHA256Pattern  = regexp.MustCompile(`^[0-9a-f]{64}$`)
-	productionReasonPattern  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`)
-	productionPkgrelPattern  = regexp.MustCompile(`^[1-9][0-9]*(?:\.[0-9]+)?$`)
+	productionIDPattern       = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$`)
+	productionVersionPattern  = regexp.MustCompile(`^[0-9][0-9A-Za-z._+]*$`)
+	productionSHA256Pattern   = regexp.MustCompile(`^[0-9a-f]{64}$`)
+	productionReasonPattern   = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`)
+	productionPkgrelPattern   = regexp.MustCompile(`^[1-9][0-9]*(?:\.[0-9]+)?$`)
+	productionUserPattern     = regexp.MustCompile(`^[a-z_][a-z0-9_-]{0,31}$`)
+	productionRevisionPattern = regexp.MustCompile(`^[0-9a-f]{40,64}$`)
+	productionContractPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$`)
 )
 
 type productionPaths struct {
-	WorkRoot         string
-	BackupRoot       string
-	GlobalLock       string
-	TransactionLock  string
-	FrontendRoot     string
-	SystemdUnitRoot  string
-	ConfigDir        string
-	DropInDir        string
-	NginxRoot        string
-	EdgeAssetRoot    string
-	InstalledBinary  string
-	PackagedFrontend string
-	ReleasePackages  string
-	PackageCache     string
-	RemovedPaths     []string
-	Service          string
-	ExpectedHost     string
-	PublicBaseURL    string
-	LocalBaseURL     string
-	JournalUnits     []string
+	WorkRoot             string
+	BackupRoot           string
+	GlobalLock           string
+	TransactionLock      string
+	FrontendRoot         string
+	SystemdUnitRoot      string
+	ConfigDir            string
+	DropInDir            string
+	PackagedDropInDir    string
+	NginxRoot            string
+	EdgeAssetRoot        string
+	InstalledBinary      string
+	OperatorBinary       string
+	RunuserBinary        string
+	ParuBinary           string
+	GoRevisionFile       string
+	GoContractFile       string
+	GoSourceRevisionFile string
+	GoSourceContractFile string
+	WebRevisionFile      string
+	WebContractFile      string
+	PackagedFrontend     string
+	ReleasePackages      string
+	PackageCache         string
+	RemovedPaths         []string
+	Service              string
+	ExpectedHost         string
+	PublicBaseURL        string
+	LocalBaseURL         string
+	JournalUnits         []string
 }
 
 func defaultProductionPaths() productionPaths {
 	return productionPaths{
-		WorkRoot:         "/var/lib/lmm-api-go/deploy-work",
-		BackupRoot:       "/var/lib/lmm-api-go/deploy-backups",
-		GlobalLock:       "/run/lock/lmm-api-go-deploy.lock",
-		TransactionLock:  "/var/lib/lmm-api-go/deploy-transaction.lock",
-		FrontendRoot:     defaultFrontendRoot,
-		SystemdUnitRoot:  "/etc/systemd/system",
-		ConfigDir:        "/etc/lmm-api-go",
-		DropInDir:        defaultProductionDropInDir,
-		NginxRoot:        defaultNginxRoot,
-		EdgeAssetRoot:    defaultEdgeAssetRoot,
-		InstalledBinary:  "/usr/bin/lmm-api",
-		PackagedFrontend: "/usr/share/lmm-api-go/frontend-dist",
-		ReleasePackages:  "/var/lib/lmm-api-go/release-packages",
-		PackageCache:     "/var/cache/pacman/pkg",
+		WorkRoot:             "/var/lib/lmm-api-go-deploy/work",
+		BackupRoot:           "/var/lib/lmm-api-go-deploy/backups",
+		GlobalLock:           "/run/lock/lmm-api-go-deploy.lock",
+		TransactionLock:      "/var/lib/lmm-api-go-deploy/transaction.lock",
+		FrontendRoot:         defaultFrontendRoot,
+		SystemdUnitRoot:      "/etc/systemd/system",
+		ConfigDir:            "/etc/lmm-api-go",
+		DropInDir:            defaultProductionDropInDir,
+		PackagedDropInDir:    defaultPackagedMemoryDropInDir,
+		NginxRoot:            defaultNginxRoot,
+		EdgeAssetRoot:        defaultEdgeAssetRoot,
+		InstalledBinary:      "/usr/bin/lmm-api",
+		OperatorBinary:       productionOperatorBinary,
+		RunuserBinary:        "/usr/bin/runuser",
+		ParuBinary:           "/usr/bin/paru",
+		GoRevisionFile:       "/usr/share/doc/lmm-api-go-bin/REVISION",
+		GoContractFile:       "/usr/share/doc/lmm-api-go-bin/API_CONTRACT_REVISION",
+		GoSourceRevisionFile: "/usr/share/doc/lmm-api-go/REVISION",
+		GoSourceContractFile: "/usr/share/doc/lmm-api-go/API_CONTRACT_REVISION",
+		WebRevisionFile:      "/usr/share/doc/lmm-api-web-bin/REVISION",
+		WebContractFile:      "/usr/share/doc/lmm-api-web-bin/ROUTE_CONTRACT_REVISION",
+		PackagedFrontend:     "/usr/share/lmm-api-web/frontend-dist",
+		ReleasePackages:      "/var/lib/lmm-api-go-deploy/release-packages",
+		PackageCache:         "/var/cache/pacman/pkg",
 		RemovedPaths: []string{
 			"/usr/bin/lmm-api-select",
 			"/usr/lib/lmm-api",
@@ -157,74 +185,96 @@ func (osProductionCommandRunner) Run(parent context.Context, command productionC
 }
 
 type productionRuntime struct {
-	paths         productionPaths
-	runner        productionCommandRunner
-	now           func() time.Time
-	sleep         func(time.Duration)
-	effectiveUID  func() int
-	hostname      func() (string, error)
-	probeAttempts int
+	paths            productionPaths
+	runner           productionCommandRunner
+	now              func() time.Time
+	sleep            func(time.Duration)
+	effectiveUID     func() int
+	hostname         func() (string, error)
+	probeAttempts    int
+	requiredOwnerUID uint32
 }
 
 func defaultProductionRuntime() *productionRuntime {
 	return &productionRuntime{
-		paths:         defaultProductionPaths(),
-		runner:        osProductionCommandRunner{},
-		now:           time.Now,
-		sleep:         time.Sleep,
-		effectiveUID:  os.Geteuid,
-		hostname:      os.Hostname,
-		probeAttempts: productionProbeAttempts,
+		paths:            defaultProductionPaths(),
+		runner:           osProductionCommandRunner{},
+		now:              time.Now,
+		sleep:            time.Sleep,
+		effectiveUID:     os.Geteuid,
+		hostname:         os.Hostname,
+		probeAttempts:    productionProbeAttempts,
+		requiredOwnerUID: 0,
 	}
 }
 
 type productionTransactionOptions struct {
-	Action              string
-	Workspace           string
-	Package             string
-	PackageSHA256       string
-	RollbackPackage     string
-	RollbackSHA256      string
-	ProbeBinary         string
-	ProbeBinarySHA256   string
-	ExpectedVersion     string
-	FrontendIndexSHA256 string
-	BackupDir           string
-	RollbackWindow      time.Duration
-	ObservationWindow   time.Duration
-	ManualConfirm       bool
-	PreserveEdgePolicy  bool
-	ActivateFrontend    bool
-	Reason              string
+	Action             string
+	Workspace          string
+	OperatorUser       string
+	GoPackage          string
+	GoPackageSHA256    string
+	GoRollbackPackage  string
+	GoRollbackSHA256   string
+	WebPackage         string
+	WebPackageSHA256   string
+	WebRollbackPackage string
+	WebRollbackSHA256  string
+	GoChanged          bool
+	WebChanged         bool
+	ProbeBinary        string
+	ProbeBinarySHA256  string
+	ExpectedVersion    string
+	BackupDir          string
+	RollbackWindow     time.Duration
+	ObservationWindow  time.Duration
+	ManualConfirm      bool
+	PreserveEdgePolicy bool
+	Reason             string
+}
+
+type productionPackageTransition struct {
+	CandidatePackageName      string `json:"candidate_package_name"`
+	RollbackPackageName       string `json:"rollback_package_name"`
+	Changed                   bool   `json:"changed"`
+	CandidatePath             string `json:"candidate_path"`
+	RollbackPath              string `json:"rollback_path"`
+	CandidateIdentity         string `json:"candidate_identity"`
+	RollbackIdentity          string `json:"rollback_identity"`
+	CandidateSHA256           string `json:"candidate_sha256"`
+	RollbackSHA256            string `json:"rollback_sha256"`
+	CandidateGitRevision      string `json:"candidate_git_revision"`
+	RollbackGitRevision       string `json:"rollback_git_revision"`
+	CandidateContractRevision string `json:"candidate_contract_revision"`
+	RollbackContractRevision  string `json:"rollback_contract_revision"`
+}
+
+type productionFrontendTransition struct {
+	OldTarget      string `json:"old_target"`
+	NewTarget      string `json:"new_target"`
+	OldIndexSHA256 string `json:"old_index_sha256"`
+	NewIndexSHA256 string `json:"new_index_sha256"`
 }
 
 type productionManifest struct {
-	Format                    int       `json:"format"`
-	DeploymentID              string    `json:"deployment_id"`
-	PackageName               string    `json:"package_name"`
-	PackageIdentity           string    `json:"package_identity"`
-	Package                   string    `json:"package"`
-	PackageSHA256             string    `json:"package_sha256"`
-	RollbackPackage           string    `json:"rollback_package"`
-	RollbackSHA256            string    `json:"rollback_sha256"`
-	ProbeBinary               string    `json:"probe_binary"`
-	ProbeBinarySHA256         string    `json:"probe_binary_sha256"`
-	ExpectedVersion           string    `json:"expected_version"`
-	OldVersion                string    `json:"old_version"`
-	FrontendIndexSHA256       string    `json:"frontend_index_sha256"`
-	OldFrontendRelease        string    `json:"old_frontend_release"`
-	OldFrontendIndexSHA256    string    `json:"old_frontend_index_sha256"`
-	BackupDir                 string    `json:"backup_dir"`
-	DatabaseSchema            string    `json:"database_schema"`
-	DeadlineUTC               time.Time `json:"deadline_utc"`
-	ObservationStartedUTC     time.Time `json:"observation_started_utc,omitempty"`
-	ServiceRestartBaseline    int64     `json:"service_restart_baseline"`
-	MemoryDropInExisted       bool      `json:"memory_dropin_existed"`
-	MemoryDropInRestoreSHA256 string    `json:"memory_dropin_restore_sha256,omitempty"`
-	EnvironmentRestoreSHA256  string    `json:"environment_restore_sha256"`
-	NginxEdgeRestoreSHA256    string    `json:"nginx_edge_restore_sha256,omitempty"`
-	PreserveEdgePolicy        bool      `json:"preserve_edge_policy,omitempty"`
-	ActivateFrontend          bool      `json:"activate_bundled_frontend,omitempty"`
+	Format                   int                          `json:"format"`
+	DeploymentID             string                       `json:"deployment_id"`
+	OperatorUser             string                       `json:"operator_user"`
+	Go                       productionPackageTransition  `json:"go"`
+	Web                      productionPackageTransition  `json:"web"`
+	Frontend                 productionFrontendTransition `json:"frontend"`
+	ProbeBinary              string                       `json:"probe_binary"`
+	ProbeBinarySHA256        string                       `json:"probe_binary_sha256"`
+	ExpectedVersion          string                       `json:"expected_version"`
+	OldVersion               string                       `json:"old_version"`
+	BackupDir                string                       `json:"backup_dir"`
+	DatabaseSchema           string                       `json:"database_schema"`
+	DeadlineUTC              time.Time                    `json:"deadline_utc"`
+	ObservationStartedUTC    time.Time                    `json:"observation_started_utc,omitempty"`
+	ServiceRestartBaseline   int64                        `json:"service_restart_baseline"`
+	EnvironmentRestoreSHA256 string                       `json:"environment_restore_sha256"`
+	NginxEdgeRestoreSHA256   string                       `json:"nginx_edge_restore_sha256,omitempty"`
+	PreserveEdgePolicy       bool                         `json:"preserve_edge_policy,omitempty"`
 }
 
 func parseProductionPackageIdentity(output []byte) (name, version, identity string, err error) {
@@ -316,6 +366,153 @@ func packageIntegrityClean(output []byte, name string) bool {
 	return summaryFound
 }
 
+type productionPackageMetadata struct {
+	Name             string
+	Version          string
+	Identity         string
+	GitRevision      string
+	ContractRevision string
+	IndexSHA256      string
+	BinarySHA256     string
+}
+
+func parseNamedPackageIdentity(output []byte, expected string) (productionPackageMetadata, error) {
+	fields := strings.Fields(string(output))
+	if len(fields) != 2 || fields[0] != expected {
+		return productionPackageMetadata{}, fmt.Errorf("expected package %s", expected)
+	}
+	separator := strings.LastIndexByte(fields[1], '-')
+	if separator <= 0 || !productionVersionPattern.MatchString(fields[1][:separator]) ||
+		!productionPkgrelPattern.MatchString(fields[1][separator+1:]) {
+		return productionPackageMetadata{}, errors.New("invalid package version")
+	}
+	return productionPackageMetadata{Name: expected, Version: fields[1], Identity: expected + " " + fields[1]}, nil
+}
+
+func (runtime *productionRuntime) packageMetadata(ctx context.Context, packagePath string, packageNames ...string) (productionPackageMetadata, error) {
+	identityOutput, err := runtime.runner.Run(ctx, productionCommand{Name: "pacman", Args: []string{"-Qp", packagePath}})
+	if err != nil {
+		return productionPackageMetadata{}, fmt.Errorf("query package identity: %w", err)
+	}
+	fields := strings.Fields(string(identityOutput))
+	if len(fields) != 2 || !slices.Contains(packageNames, fields[0]) {
+		return productionPackageMetadata{}, fmt.Errorf("package identity is not one of %v", packageNames)
+	}
+	packageName := fields[0]
+	metadata, err := parseNamedPackageIdentity(identityOutput, packageName)
+	if err != nil {
+		return productionPackageMetadata{}, err
+	}
+	docRoot := "usr/share/doc/" + packageName + "/"
+	contractName := "API_CONTRACT_REVISION"
+	if packageName == productionWebPackageName {
+		contractName = "ROUTE_CONTRACT_REVISION"
+	}
+	readMember := func(member string) (string, error) {
+		output, err := runtime.runner.Run(ctx, productionCommand{Name: "bsdtar", Args: []string{"-xOf", packagePath, docRoot + member}})
+		if err != nil {
+			return "", err
+		}
+		return strings.TrimSpace(string(output)), nil
+	}
+	metadata.GitRevision, err = readMember("REVISION")
+	if err != nil || !productionRevisionPattern.MatchString(metadata.GitRevision) {
+		return productionPackageMetadata{}, fmt.Errorf("%s package Git revision is invalid", packageName)
+	}
+	metadata.ContractRevision, err = readMember(contractName)
+	if err != nil || !productionContractPattern.MatchString(metadata.ContractRevision) {
+		return productionPackageMetadata{}, fmt.Errorf("%s package contract revision is invalid", packageName)
+	}
+	if packageName == productionWebPackageName {
+		index, err := runtime.runner.Run(ctx, productionCommand{Name: "bsdtar", Args: []string{"-xOf", packagePath, "usr/share/lmm-api-web/frontend-dist/index.html"}})
+		if err != nil || len(index) == 0 {
+			return productionPackageMetadata{}, errors.New("Web package frontend index is missing")
+		}
+		digest := sha256.Sum256(index)
+		metadata.IndexSHA256 = hex.EncodeToString(digest[:])
+	} else {
+		binary, err := runtime.runner.Run(ctx, productionCommand{Name: "bsdtar", Args: []string{"-xOf", packagePath, "usr/bin/lmm-api"}})
+		if err != nil || len(binary) == 0 {
+			return productionPackageMetadata{}, errors.New("Go package service binary is missing")
+		}
+		digest := sha256.Sum256(binary)
+		metadata.BinarySHA256 = hex.EncodeToString(digest[:])
+	}
+	return metadata, nil
+}
+
+func (runtime *productionRuntime) verifyCanonicalOperator(ctx context.Context) error {
+	output, err := runtime.runner.Run(ctx, productionCommand{Name: "pacman", Args: []string{"-Qo", productionOperatorBinary}, Env: append(os.Environ(), "LC_ALL=C")})
+	prefix := productionOperatorBinary + " is owned by "
+	if err != nil || !strings.HasPrefix(strings.TrimSpace(string(output)), prefix) {
+		return errors.New("canonical deployment operator is not package-owned")
+	}
+	identity := strings.TrimPrefix(strings.TrimSpace(string(output)), prefix)
+	if _, err := parseNamedPackageIdentity([]byte(identity), productionOperatorPackageName); err != nil {
+		return errors.New("canonical deployment operator package identity is invalid")
+	}
+	integrity, err := runtime.runner.Run(ctx, productionCommand{Name: "pacman", Args: []string{"-Qkk", productionOperatorPackageName}, Env: append(os.Environ(), "LC_ALL=C")})
+	if err != nil || !packageIntegrityClean(integrity, productionOperatorPackageName) {
+		return errors.New("canonical deployment operator package integrity check failed")
+	}
+	return nil
+}
+
+func (runtime *productionRuntime) verifyMemoryPackageOwner(ctx context.Context, identity string) error {
+	path := filepath.Join(runtime.paths.PackagedDropInDir, productionMemoryFileName)
+	output, err := runtime.runner.Run(ctx, productionCommand{Name: "pacman", Args: []string{"-Qo", path}, Env: append(os.Environ(), "LC_ALL=C")})
+	if err != nil || strings.TrimSpace(string(output)) != path+" is owned by "+identity {
+		return errors.New("production memory drop-in is not owned by the expected Go package")
+	}
+	return nil
+}
+
+func (runtime *productionRuntime) verifyInstalledPackage(ctx context.Context, name, identity string) error {
+	installed, err := runtime.runner.Run(ctx, productionCommand{Name: "pacman", Args: []string{"-Q", name}})
+	if err != nil || strings.TrimSpace(string(installed)) != identity {
+		return fmt.Errorf("installed %s identity mismatch", name)
+	}
+	integrity, err := runtime.runner.Run(ctx, productionCommand{Name: "pacman", Args: []string{"-Qkk", name}, Env: append(os.Environ(), "LC_ALL=C")})
+	if err != nil || !packageIntegrityClean(integrity, name) {
+		return fmt.Errorf("installed %s integrity check failed", name)
+	}
+	return nil
+}
+
+func (runtime *productionRuntime) readInstalledReleaseMetadata(name string) (string, string, error) {
+	revisionPath, contractPath := runtime.paths.GoRevisionFile, runtime.paths.GoContractFile
+	switch name {
+	case productionSourcePackageName:
+		revisionPath, contractPath = runtime.paths.GoSourceRevisionFile, runtime.paths.GoSourceContractFile
+	case productionWebPackageName:
+		revisionPath, contractPath = runtime.paths.WebRevisionFile, runtime.paths.WebContractFile
+	}
+	read := func(path string) (string, error) {
+		content, err := readSafeRegularFile(path, 4<<10)
+		if err != nil {
+			return "", err
+		}
+		return strings.TrimSpace(string(content)), nil
+	}
+	revision, err := read(revisionPath)
+	if err != nil || !productionRevisionPattern.MatchString(revision) {
+		return "", "", fmt.Errorf("installed %s Git revision is invalid", name)
+	}
+	contract, err := read(contractPath)
+	if err != nil || !productionContractPattern.MatchString(contract) {
+		return "", "", fmt.Errorf("installed %s contract revision is invalid", name)
+	}
+	return revision, contract, nil
+}
+
+func readSafeRegularFile(path string, maximum int64) ([]byte, error) {
+	info, err := os.Lstat(path)
+	if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || info.Mode().Perm()&0o022 != 0 || info.Size() > maximum {
+		return nil, errors.New("path is not a safe regular file")
+	}
+	return os.ReadFile(path)
+}
+
 type productionStatus struct {
 	Format         int       `json:"format"`
 	DeploymentID   string    `json:"deployment_id"`
@@ -376,50 +573,52 @@ func runProductionTransaction(action string, args []string, stdout, stderr io.Wr
 
 func parseProductionTransactionOptions(action string, args []string, stderr io.Writer) (productionTransactionOptions, error) {
 	options := productionTransactionOptions{
-		Action:            action,
-		RollbackWindow:    productionDefaultRollback,
-		ObservationWindow: productionDefaultObservation,
-		Reason:            "operator-request",
+		Action: action, RollbackWindow: productionDefaultRollback,
+		ObservationWindow: productionDefaultObservation, Reason: "operator-request",
 	}
 	flags := flag.NewFlagSet("deploy production "+action, flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	flags.StringVar(&options.Workspace, "workspace", "", "marker-owned target deployment workspace")
-	switch action {
-	case "apply":
-		flags.StringVar(&options.Package, "package", "", "candidate Go backend package")
-		flags.StringVar(&options.PackageSHA256, "package-sha256", "", "candidate package SHA-256")
-		flags.StringVar(&options.RollbackPackage, "rollback-package", "", "captured installed Go backend package")
-		flags.StringVar(&options.RollbackSHA256, "rollback-sha256", "", "rollback package SHA-256")
-		flags.StringVar(&options.ProbeBinary, "probe-binary", "", "candidate Go backend binary used for migration and probes")
+	if action == "apply" {
+		flags.StringVar(&options.OperatorUser, "operator-user", "", "validated unprivileged paru operator")
+		flags.StringVar(&options.GoPackage, "go-package", "", "candidate lmm-api-go-bin package")
+		flags.StringVar(&options.GoPackageSHA256, "go-package-sha256", "", "candidate Go package SHA-256")
+		flags.StringVar(&options.GoRollbackPackage, "go-rollback-package", "", "rollback Go package")
+		flags.StringVar(&options.GoRollbackSHA256, "go-rollback-sha256", "", "rollback Go package SHA-256")
+		flags.StringVar(&options.WebPackage, "web-package", "", "candidate lmm-api-web-bin package")
+		flags.StringVar(&options.WebPackageSHA256, "web-package-sha256", "", "candidate Web package SHA-256")
+		flags.StringVar(&options.WebRollbackPackage, "web-rollback-package", "", "rollback Web package")
+		flags.StringVar(&options.WebRollbackSHA256, "web-rollback-sha256", "", "rollback Web package SHA-256")
+		flags.BoolVar(&options.GoChanged, "go-changed", false, "install the candidate Go package")
+		flags.BoolVar(&options.WebChanged, "web-changed", false, "install the candidate Web package")
+		flags.StringVar(&options.ProbeBinary, "probe-binary", "", "candidate Go binary used for migrations and probes")
 		flags.StringVar(&options.ProbeBinarySHA256, "probe-binary-sha256", "", "probe binary SHA-256")
-		flags.StringVar(&options.ExpectedVersion, "expected-version", "", "candidate release version")
-		flags.StringVar(&options.FrontendIndexSHA256, "frontend-index-sha256", "", "bundled frontend index.html SHA-256 (required with --activate-bundled-frontend)")
+		flags.StringVar(&options.ExpectedVersion, "expected-version", "", "candidate service version")
 		flags.StringVar(&options.BackupDir, "backup-dir", "", "optional verified target backup directory")
 		rollbackSeconds := int(options.RollbackWindow / time.Second)
 		observationSeconds := int(options.ObservationWindow / time.Second)
 		flags.IntVar(&rollbackSeconds, "rollback-seconds", rollbackSeconds, "automatic rollback window (600-1800)")
 		flags.IntVar(&observationSeconds, "observation-seconds", observationSeconds, "stability observation window (120-360)")
-		flags.BoolVar(&options.ManualConfirm, "manual-confirm", false, "leave a healthy release awaiting an explicit confirm command")
-		flags.BoolVar(&options.PreserveEdgePolicy, "preserve-edge-policy", false, "preserve the active nginx edge policy instead of installing package defaults")
-		flags.BoolVar(&options.ActivateFrontend, "activate-bundled-frontend", false, "publish the frontend bundled in the Go package (legacy combined release only)")
+		flags.BoolVar(&options.ManualConfirm, "manual-confirm", false, "leave a healthy release awaiting explicit confirmation")
+		flags.BoolVar(&options.PreserveEdgePolicy, "preserve-edge-policy", false, "preserve the active nginx edge policy")
 		if err := flags.Parse(args); err != nil {
 			return productionTransactionOptions{}, err
 		}
 		options.RollbackWindow = time.Duration(rollbackSeconds) * time.Second
 		options.ObservationWindow = time.Duration(observationSeconds) * time.Second
-	case "rollback":
+	} else if action == "rollback" {
 		flags.StringVar(&options.Reason, "reason", options.Reason, "audit-safe rollback reason")
 		if err := flags.Parse(args); err != nil {
 			return productionTransactionOptions{}, err
 		}
-	case "status", "confirm":
+	} else if action == "status" || action == "confirm" {
 		if err := flags.Parse(args); err != nil {
 			return productionTransactionOptions{}, err
 		}
-	default:
+	} else {
 		return productionTransactionOptions{}, fmt.Errorf("unsupported action %q", action)
 	}
-	flags.Usage = func() { writeDeployUsage(stderr) }
+	flags.Usage = func() { writeProductionDeployUsage(stderr) }
 	if flags.NArg() != 0 {
 		return productionTransactionOptions{}, errors.New("unexpected positional arguments")
 	}
@@ -432,26 +631,27 @@ func parseProductionTransactionOptions(action string, args []string, stderr io.W
 	}
 	options.Workspace = workspace
 	if action == "apply" {
-		for label, value := range map[string]string{
-			"--package": options.Package, "--package-sha256": options.PackageSHA256,
-			"--rollback-package": options.RollbackPackage, "--rollback-sha256": options.RollbackSHA256,
+		required := map[string]string{
+			"--operator-user": options.OperatorUser,
+			"--go-package":    options.GoPackage, "--go-package-sha256": options.GoPackageSHA256,
+			"--go-rollback-package": options.GoRollbackPackage, "--go-rollback-sha256": options.GoRollbackSHA256,
+			"--web-package": options.WebPackage, "--web-package-sha256": options.WebPackageSHA256,
+			"--web-rollback-package": options.WebRollbackPackage, "--web-rollback-sha256": options.WebRollbackSHA256,
 			"--probe-binary": options.ProbeBinary, "--probe-binary-sha256": options.ProbeBinarySHA256,
 			"--expected-version": options.ExpectedVersion,
-		} {
+		}
+		for label, value := range required {
 			if value == "" {
 				return productionTransactionOptions{}, fmt.Errorf("%s is required", label)
 			}
 		}
-		if !productionSHA256Pattern.MatchString(options.PackageSHA256) ||
-			!productionSHA256Pattern.MatchString(options.RollbackSHA256) ||
-			!productionSHA256Pattern.MatchString(options.ProbeBinarySHA256) {
-			return productionTransactionOptions{}, errors.New("all SHA-256 values must be 64 lowercase hexadecimal characters")
+		for _, digest := range []string{options.GoPackageSHA256, options.GoRollbackSHA256, options.WebPackageSHA256, options.WebRollbackSHA256, options.ProbeBinarySHA256} {
+			if !productionSHA256Pattern.MatchString(digest) {
+				return productionTransactionOptions{}, errors.New("all SHA-256 values must be 64 lowercase hexadecimal characters")
+			}
 		}
-		if options.ActivateFrontend && !productionSHA256Pattern.MatchString(options.FrontendIndexSHA256) {
-			return productionTransactionOptions{}, errors.New("--frontend-index-sha256 is required with --activate-bundled-frontend")
-		}
-		if options.FrontendIndexSHA256 != "" && !productionSHA256Pattern.MatchString(options.FrontendIndexSHA256) {
-			return productionTransactionOptions{}, errors.New("invalid --frontend-index-sha256")
+		if !productionUserPattern.MatchString(options.OperatorUser) || options.OperatorUser == "root" {
+			return productionTransactionOptions{}, errors.New("invalid unprivileged --operator-user")
 		}
 		if !productionVersionPattern.MatchString(options.ExpectedVersion) {
 			return productionTransactionOptions{}, errors.New("invalid --expected-version")
@@ -462,10 +662,12 @@ func parseProductionTransactionOptions(action string, args []string, stderr io.W
 		if options.ObservationWindow < 2*time.Minute || options.ObservationWindow > 6*time.Minute {
 			return productionTransactionOptions{}, errors.New("--observation-seconds must be between 120 and 360")
 		}
-		for label, value := range map[string]*string{
-			"--package": &options.Package, "--rollback-package": &options.RollbackPackage,
+		paths := map[string]*string{
+			"--go-package": &options.GoPackage, "--go-rollback-package": &options.GoRollbackPackage,
+			"--web-package": &options.WebPackage, "--web-rollback-package": &options.WebRollbackPackage,
 			"--probe-binary": &options.ProbeBinary,
-		} {
+		}
+		for label, value := range paths {
 			clean, err := cleanAbsoluteNonRoot(*value)
 			if err != nil {
 				return productionTransactionOptions{}, fmt.Errorf("invalid %s: %w", label, err)
@@ -534,26 +736,24 @@ func (runtime *productionRuntime) openWorkspace(root string) (productionWorkspac
 	if !productionIDPattern.MatchString(id) {
 		return productionWorkspace{}, errors.New("invalid deployment ID")
 	}
-	info, err := os.Lstat(root)
-	if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
-		return productionWorkspace{}, errors.New("workspace must be a real directory")
+	if err := runtime.requireOwnedSafePath(root, true); err != nil {
+		return productionWorkspace{}, errors.New("workspace must be a root-owned real directory")
 	}
-	if err := requireRealDirectory(runtime.paths.WorkRoot); err != nil {
+	if err := runtime.requireOwnedSafePath(runtime.paths.WorkRoot, true); err != nil {
 		return productionWorkspace{}, errors.New("production work root must be a real directory")
 	}
-	// Arch systemd's DynamicUser layout exposes /var/lib/lmm-api-go as a
-	// managed symlink to /var/lib/private/lmm-api-go.  The workspace itself
-	// must still be a real directory, but rejecting that trusted parent alias
-	// makes the CLI unable to abort or inspect its own production transactions.
 	canonicalWorkRoot, err := filepath.EvalSymlinks(runtime.paths.WorkRoot)
-	if err != nil {
-		return productionWorkspace{}, fmt.Errorf("resolve production work root: %w", err)
+	if err != nil || filepath.Clean(canonicalWorkRoot) != filepath.Clean(runtime.paths.WorkRoot) {
+		return productionWorkspace{}, errors.New("production work root must not contain symlink components")
 	}
 	canonical, err := filepath.EvalSymlinks(root)
-	if err != nil || filepath.Dir(filepath.Clean(canonical)) != filepath.Clean(canonicalWorkRoot) {
-		return productionWorkspace{}, errors.New("workspace must be a direct child of the canonical production work root")
+	if err != nil || filepath.Clean(canonical) != filepath.Clean(root) || filepath.Dir(filepath.Clean(canonical)) != filepath.Clean(canonicalWorkRoot) {
+		return productionWorkspace{}, errors.New("workspace must be a symlink-free direct child of the production work root")
 	}
 	marker := filepath.Join(root, productionWorkspaceMarker)
+	if err := runtime.requireOwnedSafePath(marker, false); err != nil {
+		return productionWorkspace{}, errors.New("workspace marker must be root-owned and safe")
+	}
 	markerContent, err := readPrivateRegularFile(marker, 16<<10)
 	if err != nil {
 		return productionWorkspace{}, fmt.Errorf("read workspace marker: %w", err)
@@ -566,8 +766,18 @@ func (runtime *productionRuntime) openWorkspace(root string) (productionWorkspac
 	if err := ensureRealDirectory(stateDir, 0o700); err != nil {
 		return productionWorkspace{}, fmt.Errorf("prepare deployment state: %w", err)
 	}
+	if err := runtime.requireOwnedSafePath(stateDir, true); err != nil {
+		return productionWorkspace{}, errors.New("deployment state must be root-owned and safe")
+	}
+	stateInfo, err := os.Lstat(stateDir)
+	if err != nil {
+		return productionWorkspace{}, fmt.Errorf("inspect deployment state: %w", err)
+	}
+	if stateInfo.Mode().Perm() != 0o700 {
+		return productionWorkspace{}, errors.New("deployment state must remain root-only")
+	}
 	stagingDir := filepath.Join(root, "staging")
-	if err := requireRealDirectory(stagingDir); err != nil {
+	if err := runtime.requireOwnedSafePath(stagingDir, true); err != nil {
 		return productionWorkspace{}, fmt.Errorf("validate deployment staging: %w", err)
 	}
 	return productionWorkspace{
@@ -676,50 +886,95 @@ func (runtime *productionRuntime) readManifest(workspace productionWorkspace) (p
 }
 
 func (runtime *productionRuntime) validateManifest(workspace productionWorkspace, manifest productionManifest) error {
-	if !productionVersionPattern.MatchString(manifest.ExpectedVersion) || !productionVersionPattern.MatchString(manifest.OldVersion) {
-		return errors.New("deployment manifest contains an invalid version")
+	if !productionVersionPattern.MatchString(manifest.ExpectedVersion) || !productionVersionPattern.MatchString(manifest.OldVersion) ||
+		!productionUserPattern.MatchString(manifest.OperatorUser) || manifest.OperatorUser == "root" {
+		return errors.New("deployment manifest contains invalid release or operator identity")
 	}
-	if manifest.PackageName != productionAURPackageName && manifest.PackageName != productionSourcePackageName {
-		return errors.New("deployment manifest contains an unsupported package name")
+	if manifest.Go.CandidatePackageName != productionAURPackageName ||
+		(manifest.Go.RollbackPackageName != productionAURPackageName && manifest.Go.RollbackPackageName != productionSourcePackageName) ||
+		manifest.Web.CandidatePackageName != productionWebPackageName || manifest.Web.RollbackPackageName != productionWebPackageName ||
+		manifest.Go.CandidateContractRevision != manifest.Web.CandidateContractRevision ||
+		manifest.Go.RollbackContractRevision != manifest.Web.RollbackContractRevision {
+		return errors.New("deployment manifest Go/Web package or contract pair mismatch")
 	}
-	packageName, packageVersion, packageIdentity, err := parseProductionPackageIdentity([]byte(manifest.PackageIdentity))
-	if err != nil || packageName != manifest.PackageName || packageIdentity != manifest.PackageIdentity ||
-		!productionPackageMatches(packageVersion, manifest.ExpectedVersion) {
-		return errors.New("deployment manifest contains an invalid package identity")
+	for _, transition := range []productionPackageTransition{manifest.Go, manifest.Web} {
+		if !productionRevisionPattern.MatchString(transition.CandidateGitRevision) ||
+			!productionRevisionPattern.MatchString(transition.RollbackGitRevision) ||
+			!productionContractPattern.MatchString(transition.CandidateContractRevision) ||
+			!productionContractPattern.MatchString(transition.RollbackContractRevision) {
+			return errors.New("deployment manifest contains invalid package release metadata")
+		}
+		candidate, err := parseNamedPackageIdentity([]byte(transition.CandidateIdentity), transition.CandidatePackageName)
+		if err != nil || candidate.Identity != transition.CandidateIdentity {
+			return errors.New("deployment manifest contains invalid candidate package identity")
+		}
+		rollback, err := parseNamedPackageIdentity([]byte(transition.RollbackIdentity), transition.RollbackPackageName)
+		if err != nil || rollback.Identity != transition.RollbackIdentity {
+			return errors.New("deployment manifest contains invalid rollback package identity")
+		}
+		if !transition.Changed && (transition.CandidatePackageName != transition.RollbackPackageName || transition.CandidateIdentity != transition.RollbackIdentity ||
+			transition.CandidateSHA256 != transition.RollbackSHA256 || transition.CandidateGitRevision != transition.RollbackGitRevision ||
+			transition.CandidateContractRevision != transition.RollbackContractRevision) {
+			return errors.New("unchanged package manifest identities differ")
+		}
+		for _, path := range []string{transition.CandidatePath, transition.RollbackPath} {
+			if !pathWithinRoot(workspace.stagingDir, path) || filepath.Dir(path) != workspace.stagingDir {
+				return errors.New("deployment manifest package path escapes staging")
+			}
+		}
 	}
 	for _, digest := range []string{
-		manifest.PackageSHA256, manifest.RollbackSHA256, manifest.ProbeBinarySHA256,
-		manifest.FrontendIndexSHA256, manifest.OldFrontendIndexSHA256, manifest.EnvironmentRestoreSHA256,
+		manifest.Go.CandidateSHA256, manifest.Go.RollbackSHA256, manifest.Web.CandidateSHA256, manifest.Web.RollbackSHA256,
+		manifest.ProbeBinarySHA256, manifest.Frontend.OldIndexSHA256, manifest.Frontend.NewIndexSHA256, manifest.EnvironmentRestoreSHA256,
 	} {
 		if !productionSHA256Pattern.MatchString(digest) {
 			return errors.New("deployment manifest contains an invalid SHA-256")
 		}
 	}
-	for label, path := range map[string]string{
-		"package": manifest.Package, "rollback package": manifest.RollbackPackage, "probe binary": manifest.ProbeBinary,
-	} {
-		if !pathWithinRoot(workspace.stagingDir, path) {
-			return fmt.Errorf("deployment manifest %s escapes staging", label)
-		}
+	if !pathWithinRoot(workspace.stagingDir, manifest.ProbeBinary) || filepath.Dir(manifest.ProbeBinary) != workspace.stagingDir {
+		return errors.New("deployment manifest probe binary escapes staging")
 	}
 	if manifest.BackupDir != "" && manifest.BackupDir != filepath.Join(runtime.paths.BackupRoot, workspace.id) {
 		return errors.New("deployment manifest backup path is not release-scoped")
 	}
-	if !releaseIDPattern.MatchString(manifest.OldFrontendRelease) || !isDatabaseSchema(manifest.DatabaseSchema) {
-		return errors.New("deployment manifest contains unsafe release or schema data")
+	webCandidate, candidateErr := parseNamedPackageIdentity([]byte(manifest.Web.CandidateIdentity), productionWebPackageName)
+	webRollback, rollbackErr := parseNamedPackageIdentity([]byte(manifest.Web.RollbackIdentity), productionWebPackageName)
+	if candidateErr != nil || rollbackErr != nil ||
+		manifest.Frontend.NewTarget != frontendTargetFor(productionPackageMetadata{Version: webCandidate.Version, GitRevision: manifest.Web.CandidateGitRevision}) ||
+		manifest.Frontend.OldTarget != frontendTargetFor(productionPackageMetadata{Version: webRollback.Version, GitRevision: manifest.Web.RollbackGitRevision}) {
+		return errors.New("deployment manifest frontend targets do not match Web package identities")
 	}
-	for label, staged := range []struct {
-		path   string
-		digest string
-	}{
-		{manifest.Package, manifest.PackageSHA256},
-		{manifest.RollbackPackage, manifest.RollbackSHA256},
-		{manifest.ProbeBinary, manifest.ProbeBinarySHA256},
-	} {
-		name := []string{"candidate package", "rollback package", "probe binary"}[label]
-		if err := runtime.validateStagedFile(workspace, staged.path, staged.digest, name); err != nil {
-			return fmt.Errorf("deployment manifest %s failed validation: %w", name, err)
+	for _, target := range []string{manifest.Frontend.OldTarget, manifest.Frontend.NewTarget} {
+		if !strings.HasPrefix(target, "releases/") || !releaseIDPattern.MatchString(strings.TrimPrefix(target, "releases/")) {
+			return errors.New("deployment manifest contains unsafe frontend target")
 		}
+	}
+	if !isDatabaseSchema(manifest.DatabaseSchema) {
+		return errors.New("deployment manifest contains unsafe schema data")
+	}
+	staged := []struct{ path, digest, label string }{
+		{manifest.Go.CandidatePath, manifest.Go.CandidateSHA256, "candidate Go package"},
+		{manifest.Go.RollbackPath, manifest.Go.RollbackSHA256, "rollback Go package"},
+		{manifest.Web.CandidatePath, manifest.Web.CandidateSHA256, "candidate Web package"},
+		{manifest.Web.RollbackPath, manifest.Web.RollbackSHA256, "rollback Web package"},
+		{manifest.ProbeBinary, manifest.ProbeBinarySHA256, "probe binary"},
+	}
+	for _, file := range staged {
+		if err := runtime.validateStagedFile(workspace, file.path, file.digest, file.label); err != nil {
+			return fmt.Errorf("deployment manifest %s failed validation: %w", file.label, err)
+		}
+	}
+	return nil
+}
+
+func (runtime *productionRuntime) requireOwnedSafePath(path string, directory bool) error {
+	info, err := os.Lstat(path)
+	if err != nil || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0o022 != 0 || (directory && !info.IsDir()) || (!directory && !info.Mode().IsRegular()) {
+		return errors.New("path is missing, writable, or unsafe")
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok || stat.Uid != runtime.requiredOwnerUID || (!directory && stat.Nlink != 1) {
+		return errors.New("path ownership or link count is unsafe")
 	}
 	return nil
 }

@@ -21,7 +21,7 @@ func TestNativeProductionWorkspaceCreateClaimsExactTransaction(t *testing.T) {
 		paths: paths, runner: &fakeProductionRunner{t: t}, now: func() time.Time {
 			return time.Date(2026, 8, 10, 3, 0, 0, 0, time.UTC)
 		}, sleep: func(time.Duration) {}, effectiveUID: func() int { return 0 },
-		hostname: func() (string, error) { return productionExpectedHost, nil }, probeAttempts: 1,
+		hostname: func() (string, error) { return productionExpectedHost, nil }, probeAttempts: 1, requiredOwnerUID: uint32(os.Getuid()),
 	}
 	result, err := runtime.createWorkspace(context.Background(), "go-native-workspace-test")
 	if err != nil {
@@ -42,7 +42,7 @@ func TestNativeProductionWorkspaceCreateClaimsExactTransaction(t *testing.T) {
 	}
 }
 
-func TestNativeProductionWorkspaceAcceptsManagedVarLibAlias(t *testing.T) {
+func TestNativeProductionWorkspaceRejectsLegacyDynamicUserAlias(t *testing.T) {
 	root := t.TempDir()
 	stateRoot := filepath.Join(root, "private", "lmm-api-go")
 	aliasRoot := filepath.Join(root, "var", "lib", "lmm-api-go")
@@ -63,14 +63,10 @@ func TestNativeProductionWorkspaceAcceptsManagedVarLibAlias(t *testing.T) {
 	runtime := &productionRuntime{
 		paths: paths, runner: &fakeProductionRunner{t: t}, now: time.Now,
 		sleep: func(time.Duration) {}, effectiveUID: func() int { return 0 },
-		hostname: func() (string, error) { return productionExpectedHost, nil }, probeAttempts: 1,
+		hostname: func() (string, error) { return productionExpectedHost, nil }, probeAttempts: 1, requiredOwnerUID: uint32(os.Getuid()),
 	}
-	result, err := runtime.createWorkspace(context.Background(), "go-managed-alias-test")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := runtime.openWorkspace(result.Workspace); err != nil {
-		t.Fatalf("managed /var/lib alias should be accepted: %v", err)
+	if _, err := runtime.createWorkspace(context.Background(), "go-managed-alias-test"); err == nil || (!strings.Contains(err.Error(), "symlink") && !strings.Contains(err.Error(), "deploy root")) {
+		t.Fatalf("legacy DynamicUser alias should be rejected before workspace creation: %v", err)
 	}
 }
 
@@ -84,7 +80,7 @@ func TestNativeProductionWorkspaceRejectsSymlinkedWorkRoot(t *testing.T) {
 	runtime := &productionRuntime{
 		paths: paths, runner: &fakeProductionRunner{t: t}, now: time.Now,
 		sleep: func(time.Duration) {}, effectiveUID: func() int { return 0 },
-		hostname: func() (string, error) { return productionExpectedHost, nil }, probeAttempts: 1,
+		hostname: func() (string, error) { return productionExpectedHost, nil }, probeAttempts: 1, requiredOwnerUID: uint32(os.Getuid()),
 	}
 	result, err := runtime.createWorkspace(context.Background(), "go-symlink-workroot-test")
 	if err != nil {
@@ -109,8 +105,8 @@ func TestNativeProductionBackupCapturesRollbackFrontendConfigAndPostgres(t *test
 	}
 	result, err := fixture.runtime.createBackup(context.Background(), productionBackupOptions{
 		Workspace:       fixture.workspace.root,
-		RollbackPackage: fixture.options.RollbackPackage,
-		RollbackSHA256:  fixture.options.RollbackSHA256,
+		RollbackPackage: fixture.options.GoRollbackPackage,
+		RollbackSHA256:  fixture.options.GoRollbackSHA256,
 		CandidateSHA256: strings.Repeat("a", 64),
 		ExpectedVersion: fixture.options.ExpectedVersion,
 		GitRevision:     strings.Repeat("b", 40),
@@ -118,7 +114,8 @@ func TestNativeProductionBackupCapturesRollbackFrontendConfigAndPostgres(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.BackupDir != fixture.options.BackupDir || result.FrontendRelease != fixture.runner.oldVersion || result.DatabaseEngine != "postgres" {
+	expectedFrontendRelease := fixture.runner.oldVersion + "-1.g" + fixture.runner.oldRevision[:12]
+	if result.BackupDir != fixture.options.BackupDir || result.FrontendRelease != expectedFrontendRelease || result.DatabaseEngine != "postgres" {
 		t.Fatalf("backup result=%#v", result)
 	}
 	for _, name := range []string{

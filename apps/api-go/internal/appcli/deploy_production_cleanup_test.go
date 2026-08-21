@@ -37,7 +37,7 @@ func newCleanupFixture(t *testing.T) (*productionRuntime, time.Time) {
 	now := time.Date(2026, 8, 12, 4, 0, 0, 0, time.UTC)
 	runtime := &productionRuntime{
 		paths: paths, now: func() time.Time { return now }, sleep: func(time.Duration) {},
-		effectiveUID: func() int { return 0 }, hostname: func() (string, error) { return productionExpectedHost, nil },
+		effectiveUID: func() int { return 0 }, hostname: func() (string, error) { return productionExpectedHost, nil }, requiredOwnerUID: uint32(os.Getuid()),
 	}
 	return runtime, now
 }
