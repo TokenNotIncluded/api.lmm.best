@@ -7,10 +7,12 @@
 - Verify the expected SSH alias, static hostname, role marker, service name,
   installed package identity, current backend artifact, frontend symlink, and
   installed CLI protocol/service entry point.
-- Classify the installed layout before invoking a command: direct Go provider
-  (`lmm-api-go*` owns `/usr/bin/lmm-api` and the bundled frontend) or guarded
-  core/provider (`lmm-api-bin`/`lmm-api-git` owns the launcher). Never mix their
-  paths, package identities, rollback archives, or state roots.
+- Classify the installed layout before invoking a command. The canonical
+  deployment operator is the tooling-only `lmm-api-deploy-bin` package at
+  `/usr/bin/lmm-api-deploy`, independent of the Go/Web application packages.
+  Already published Go packages may still own a bundled legacy frontend, but
+  the next split Go package must not. Never mix legacy paths, package
+  identities, rollback archives, or state roots with a split transaction.
 - Treat host or role disagreement as a stop condition.
 - Preserve the repository's one-branch, one-worktree, one-diff rules. A deploy
   request does not authorize Git repair, branch switching, commit, or push.
@@ -54,9 +56,21 @@
   without an explicit compatibility/release asset. Treat that mismatch as a
   hard stop; never retag, reuse, or hand-edit around it.
 - Push package metadata only to the matching AUR repository. Production
-  `paru` runs as the established unprivileged operator, never root, and may
-  update only the exact verified package set. A plain `paru` invocation never
+  `paru` runs as the established unprivileged OS account, never root, and may
+  assemble only the exact verified package set. A plain `paru` invocation never
   replaces the watchdog, confirmation, or health gates.
+- Bootstrap may install only tooling-only `lmm-api-deploy-bin` with non-root
+  `paru`. That package owns only `/usr/bin/lmm-api-deploy`, its independent
+  `/usr/lib/lmm-api-deploy/lmm-api-go` payload, licenses, revision, and hash or
+  contract metadata. It must not own or modify the service, environment,
+  database, nginx configuration, Web payload, or active frontend link. Its
+  installation is not an application switch and does not weaken authorization.
+- Before any operator invocation, require `pacman -Qo` to identify
+  `lmm-api-deploy-bin` as owner of both the canonical command and resolved
+  payload. Verify the command resolves to the package payload, compare its
+  bytes, verify `OPERATOR_SHA256` and `RELEASE_ASSET_SHA256`, and match package
+  version, `REVISION`, Sigstore workflow identity, and optional API/route
+  contract metadata. Stop on any mismatch.
 
 ### Production resource gates
 
@@ -96,17 +110,21 @@ incident signal and must be recorded before any retry.
   reconcile through the coordinator before migration, backend selection, or
   rollback. Do not silently classify that state as a fresh SQLite migration.
 
-## Legacy CLI safety
+## Canonical operator and legacy CLI safety
 
-- Before invoking `/usr/bin/lmm-api-go` on a target, verify both installed
-  entries have the same package owner and bytes, the operator supports the
-  `deploy production` transaction, and systemd uses `/usr/bin/lmm-api serve`.
-- A legacy binary may start the backend for an unknown command. `status`,
-  `deploy`, `--help`, and no-argument calls are not read-only until the
-  protocol is proven.
-- For a legacy target, inspect with `systemctl show`, `readlink`, sanitized
-  process-environment scheme classification, and explicit health probes only.
-  Upgrade the core package through a guarded transaction before using deploy
+- Invoke deployment phases only as `/usr/bin/lmm-api-deploy deploy production
+  ...` after its package-owner, resolved-path, byte, SHA-256, release revision,
+  and command-protocol checks pass. Do not invoke source helpers, copied
+  binaries, shell wrappers, `/tmp` tools, or an improvised command.
+- `/usr/bin/lmm-api-go` and `/usr/bin/lmm-api` are application entries, not the
+  canonical operator. A legacy binary may start the backend for an unknown
+  command, so `status`, `deploy`, `--help`, and no-argument calls are not
+  read-only until the exact protocol is proven.
+- For a legacy target without the package-owned operator, inspect with
+  `systemctl show`, `readlink`, `pacman -Qo`, sanitized process-environment
+  scheme classification, and explicit health probes only. The one permitted
+  bootstrap is non-root `paru -S lmm-api-deploy-bin`; verify that the package
+  transaction changed no service/database/Web state before using deploy
   phases. Preserve and report any artifact created by an unsafe probe; remove
   it only after exact ownership and scope are confirmed.
 
@@ -205,19 +223,34 @@ green.
 
 ## Go/Web AUR migration order
 
-- Require signed immutable release assets and pinned AUR hashes before target
-  package assembly. `paru` may assemble a `-bin` package; it must not compile or
-  replace the signed application artifact.
-- Arm the watchdog before stopping Go. Run the candidate binary as a root
-  transient unit with the production environment file; do not use the stopped
-  service's `DynamicUser` identity.
-- Run `migrate --apply` and then `migrate --verify` before `paru -U`. A failed
-  verification blocks package installation. Never repair the gate with ad-hoc
-  production SQL.
-- Start Go before final Web activation. A local Web activation probe avoids a
-  DNS-only package-hook failure; public status remains a confirmation gate.
-- Observe at least 120 seconds, then confirm exact Go/Web package versions,
-  revisions, frontend link, restart count, database/cache readiness, and memory.
+- Require separately signed immutable Go-only and Web release assets, matching
+  API/route contract revisions, and pinned AUR hashes before target package
+  assembly. The Go package owns the service, environment, edge policy, exact
+  memory drop-in, and backend only; it must not contain `frontend-dist`. The Web
+  package owns the immutable frontend and activation hook.
+- With the canonical operator already verified, use non-root `paru` to assemble
+  both exact candidate packages and both checksum-verified N-1 rollback
+  packages. Record Go/Web package versions, package SHA-256, Git revisions,
+  contract revisions, binary hash, and frontend link for N and N-1. Do not
+  compile or replace signed bytes, install one half of an unsupported pair, or
+  use root `paru`.
+- Arm the persistent 600-second watchdog before stopping Go or changing the Web
+  link. Its guard must contain both N and N-1 package/link identities and the
+  configuration restore state. Run the candidate binary as a root transient
+  unit with the production environment file; do not use the stopped service's
+  `DynamicUser` identity.
+- Run `migrate --apply` and then `migrate --verify` before the split `paru -U`
+  install. A failed verification blocks both package installations. Never
+  repair the gate with ad-hoc production SQL. Migrations must be compatible
+  with both N and N-1 for the complete watchdog window.
+- Apply the package-owned memory drop-in and start Go before final Web
+  activation. A local Web activation probe avoids a DNS-only package-hook
+  failure; public status remains a confirmation gate.
+- Observe at least 120 seconds with the watchdog armed. Confirm only the exact
+  Go/Web package versions and hashes, Git and contract revisions, binary,
+  frontend link, unchanged restart count, database/cache readiness, journals,
+  three native status/livez probes, and exact memory limits. Generic health or
+  confirmation of only one package is insufficient.
 
 ## Rust ownership gate
 

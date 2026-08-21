@@ -7,10 +7,12 @@ description: Safely inspect, stage, back up, deploy, update, confirm, roll back,
 
 Apply one controlled deployment transaction. Do not infer production authority
 from an earlier turn, a generic request to “update,” or access to an SSH host.
-The Go AUR package exposes `/usr/bin/lmm-api-go` for operator commands and the
-byte-identical `/usr/bin/lmm-api` service entry. Use `lmm-api-go deploy ...`
-for deployment phases; verify that systemd invokes `/usr/bin/lmm-api serve`.
-Do not invoke a source-tree deployment helper or invent another deploy command.
+The tooling-only `lmm-api-deploy-bin` AUR package owns the canonical
+`/usr/bin/lmm-api-deploy` operator and its independent signed payload at
+`/usr/lib/lmm-api-deploy/lmm-api-go`. Use `lmm-api-deploy deploy ...` for every
+deployment phase; verify separately that systemd invokes `/usr/bin/lmm-api
+serve`. Do not invoke the application package's CLI, a source-tree helper, a
+temporary wrapper, or an invented deploy command.
 
 ## Read the deployment map
 
@@ -127,9 +129,9 @@ vmstat 1 5
 systemctl show lmm-api.service -p ActiveState -p SubState -p MainPID \
   -p NRestarts -p MemoryCurrent -p MemoryHigh -p MemoryMax -p MemorySwapMax
 pg_isready
-/usr/bin/lmm-api-go request --base-url http://127.0.0.1:3000 \
+/usr/bin/lmm-api-deploy request --base-url http://127.0.0.1:3000 \
   --path /api/status --show-status --timeout 10s
-/usr/bin/lmm-api-go request --base-url http://127.0.0.1:3000 \
+/usr/bin/lmm-api-deploy request --base-url http://127.0.0.1:3000 \
   --path /api/livez --show-status --timeout 10s
 journalctl --no-pager -u lmm-api-go.service -u nginx.service \
   --since '5 minutes ago' -p err..alert
@@ -180,8 +182,8 @@ The production package also owns the regional edge policy. Its Nginx templates
 and Go-rendered access error page are installed from
 `/usr/share/lmm-api-go/edge-policy` by the native transaction; do not edit
 `/etc/nginx/site-policy`, install a second GeoIP shell hook, or keep the old
-APNIC prefix units. Use `lmm-api-go deploy production edge-policy verify` after
-an activation. The monthly DB-IP update is `lmm-api-go geoip update` via the
+APNIC prefix units. Use `lmm-api-deploy deploy production edge-policy verify`
+after an activation. The monthly DB-IP update is `lmm-api-deploy geoip update` via the
 package-owned `geoip2-country-update.timer`.
 
 ## Inspect without exposing secrets
@@ -205,20 +207,24 @@ disagrees. Do not select an engine from stale prose documentation.
 Production may still have an older provider binary at `/usr/bin/lmm-api`. Do
 not assume that `status`, `deploy`, or even `--help` is read-only: a legacy
 binary can interpret an unknown subcommand as a request to start the backend.
-Before invoking any subcommand, inspect the package owner and version, the
-systemd `ExecStart`, the launcher protocol/revision, and the current service
-PID. The canonical service must execute `/usr/bin/lmm-api serve`; the canonical
-operator entry point must expose the `deploy production` transaction.
+Before invoking any subcommand, inspect the package owner and version, resolved
+path, systemd `ExecStart`, protocol/revision, and current service PID. The
+canonical service must execute `/usr/bin/lmm-api serve`. The canonical operator
+must be owned by `lmm-api-deploy-bin`, resolve to
+`/usr/lib/lmm-api-deploy/lmm-api-go`, match those bytes and package-owned
+`OPERATOR_SHA256`, match `RELEASE_ASSET_SHA256` and `REVISION`, and expose the
+`deploy production` transaction.
 
-If the target does not satisfy that protocol, classify it as a pre-transaction
-legacy target. Use `systemctl show`, `readlink`, the running process identity,
-sanitized `/proc/<MainPID>/environ` scheme classification, and explicit HTTP
-probes for read-only inspection. Do not run ambiguous `lmm-api status`,
-`lmm-api deploy`, or no-argument invocations on that target. Upgrade the core
-package through a guarded transaction before using the new phases. If a bad
-probe starts a short-lived process or creates a local database file, preserve
-the evidence, verify the production service remained unchanged, and do not
-delete the artifact without exact ownership and scope confirmation.
+If the target lacks that protocol, classify it as pre-transaction legacy. Use
+`systemctl show`, `readlink`, `pacman -Qo`, running-process identity, sanitized
+`/proc/<MainPID>/environ` scheme classification, and explicit HTTP probes for
+read-only inspection. Do not run ambiguous `lmm-api`, `lmm-api-go`, `status`,
+`deploy`, `--help`, or no-argument invocations. The only permitted bootstrap is
+a non-root `paru` installation of tooling-only `lmm-api-deploy-bin`; it is not
+an application switch and must leave service, database, environment, nginx,
+Web payload, and frontend link unchanged. If a bad probe starts a process or
+creates a local database file, preserve the evidence, verify production stayed
+unchanged, and do not delete it without exact ownership and scope confirmation.
 
 ### Distinguish database runtime from historical cutover prose
 
@@ -259,11 +265,15 @@ an active slot link, or a successful `/readyz` probe is insufficient.
 
 ## Default production update: split `-bin` AUR packages and `paru`
 
-Publish the production frontend and Go backend as two independently versioned
-packages:
+Install the deployment operator independently, then publish the production
+frontend and Go backend as two independently versioned application packages:
 
-- `lmm-api-go-bin` owns only the Go backend, native operator CLI, service and
-  backend-owned policy assets.
+- `lmm-api-deploy-bin` owns only `/usr/bin/lmm-api-deploy`, its independent
+  `/usr/lib/lmm-api-deploy/lmm-api-go` bytes, licenses, revision, hash, and
+  optional contract metadata. Installing it is tooling bootstrap, not a switch.
+- `lmm-api-go-bin` owns only the Go backend, service, environment, package-owned
+  memory drop-in, and backend policy assets. New releases must not contain or
+  own `frontend-dist`.
 - `lmm-api-web-bin` owns only the immutable production frontend payload and its
   package-owned atomic activation hook.
 
@@ -276,37 +286,41 @@ Go/web release wait for Rust unless the user explicitly requests that cutover.
 Apply this sequence:
 
 1. Freeze a clean `main` revision that equals `origin/main`; run the relevant
-   Go, web, route-contract, and AUR package checks.
-2. Publish immutable, signed GitHub release assets for the Go backend and web
-   frontend separately. Each asset records its Git revision and API/route
-   contract revision; independent package versions may differ only when the
-   compatibility gate proves that pair is supported.
-3. Update the separate AUR repositories for every changed artifact:
-   `lmm-api-go-bin` for the backend and `lmm-api-web-bin` for the frontend.
-   Update each `PKGBUILD` and `.SRCINFO` to the exact intended release, verify
-   release URLs, checksums and Sigstore identity, run
-   `packaging/aur/test-matrix.sh` plus the relevant clean `makepkg` package
-   check, then commit and push each AUR update. Read the published AUR metadata
-   back and stop if either package does not match the intended release.
-4. On verified `arch-dmit`, run `paru` as the established unprivileged AUR
-   operator to fetch and assemble only the selected `-bin` recipes. Record the
-   exact package SHA-256. Never run `paru` as root or substitute source, `-git`,
-   or Rust packages.
-5. Stage the exact candidate and rollback packages, arm the ten-minute
-   watchdog, stop Go, then run the candidate binary as a root transient unit
-   with `/etc/lmm-api-go/lmm-api-go.env`: first `migrate --apply`, then
-   `migrate --verify`. Do not use the service's `DynamicUser`; it disappears
-   when the service stops and cannot traverse `/var/lib/private`. A failed
-   verification blocks installation. Never bypass it with manual SQL.
-6. Only after both migration phases pass, install the staged packages through
-   `paru -U`, apply the package-owned systemd memory limits, and start Go.
-   Activate Web after local backend health succeeds. A local activation probe
-   may avoid a DNS-only package-hook failure, but public probes remain required
-   before confirmation.
-7. Verify compatibility again, observe for at least 120 seconds, and confirm
-   only the exact package versions, Git revisions, frontend link, binary,
-   restart count, database/cache readiness, journals, and memory. Retain the
-   terminal marker/status; remove only exact disposable staging/cache children.
+   Go, Web, route-contract, and all three AUR package checks.
+2. If the target lacks the canonical operator, publish and install only the
+   exact tooling-only `lmm-api-deploy-bin` with non-root `paru`. Before and
+   after bootstrap prove service PID/restarts, database/cache, Web link and
+   bytes are unchanged. Verify `pacman -Qo` ownership of command and resolved
+   payload, byte equality, `OPERATOR_SHA256`, `RELEASE_ASSET_SHA256`, package
+   version, Git `REVISION`, Sigstore identity, and contract metadata.
+3. Publish immutable, signed GitHub release assets for Go and Web separately.
+   Go is Go-only; both assets record their Git revision and the SHA-256 revision
+   generated from `deploy/production/API_ROUTE_CONTRACT`. Independent versions
+   may differ only when the compatibility gate proves that pair is supported.
+4. Update the separate AUR repositories for every changed artifact:
+   `lmm-api-go-bin` and `lmm-api-web-bin` (and `lmm-api-deploy-bin` only when
+   operator bytes change). Pin exact versions, URLs, checksums, Git identity and
+   Sigstore workflow; regenerate `.SRCINFO`; run `packaging/aur/test-matrix.sh`
+   and clean `makepkg`; then read published metadata back.
+5. On verified `arch-dmit`, run `paru` as the established unprivileged OS
+   account to assemble exact candidate Go/Web `-bin` packages and exact N-1
+   rollback Go/Web packages. Record both package SHA-256 values, Git and
+   contract revisions, binary identity, and frontend link for N and N-1. Never
+   run `paru` as root or substitute source, `-git`, or Rust packages.
+6. Stage all four verified packages, arm the persistent 600-second watchdog
+   with both package/link identities, stop Go, then run the candidate binary as
+   a root transient unit with `/etc/lmm-api-go/lmm-api-go.env`: `migrate
+   --apply`, then `migrate --verify`. Do not use the service's `DynamicUser`.
+   Migrations must remain N/N-1 compatible for the entire confirmation window.
+7. Only after both migration phases pass, install the split candidate packages
+   through `paru -U`, apply exact package memory limits, and start Go. Activate
+   Web after local backend health succeeds. Public probes remain required.
+8. Verify compatibility again, observe at least 120 seconds with the watchdog
+   armed, and confirm only exact Go/Web package hashes and versions, Git and
+   contract revisions, frontend link, binary, unchanged restart count,
+   database/cache readiness, journals, three status/livez probes, and exact
+   memory limits. Retain terminal marker/status and remove only exact disposable
+   staging/cache children.
 
 The `paru` path does not weaken the rollback/watchdog or exact-release checks.
 The two packages are live, but `paru` alone is not a deployment transaction.

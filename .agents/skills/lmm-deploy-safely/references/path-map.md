@@ -1,8 +1,11 @@
 # LMM deployment path map
 
-The Go AUR package installs `/usr/bin/lmm-api-go` for operator commands and the
-byte-identical `/usr/bin/lmm-api` service entry. Use `lmm-api-go deploy ...`
-for deployment phases and verify systemd uses `/usr/bin/lmm-api serve`.
+The tooling-only `lmm-api-deploy-bin` package owns the canonical operator
+`/usr/bin/lmm-api-deploy`, which resolves to its independent signed payload at
+`/usr/lib/lmm-api-deploy/lmm-api-go`. Use `lmm-api-deploy deploy ...` for every
+deployment phase and verify systemd separately uses `/usr/bin/lmm-api serve`.
+Never use the application package's `/usr/bin/lmm-api-go` as the production
+operator after bootstrap.
 
 ## Controller and package inputs
 
@@ -11,17 +14,22 @@ for deployment phases and verify systemd uses `/usr/bin/lmm-api serve`.
 | Go artifact | `apps/api-go/out/lmm-api-go` |
 | Rust artifacts | `apps/api-rust/target/release/lmm-api-rs`, `lmm-db-migrate` |
 | Frontend build | `apps/web/dist` |
+| Deployment operator AUR recipe | `packaging/aur/lmm-api-deploy-bin` |
 | Go AUR recipe | `packaging/aur/lmm-api-go-bin` |
 | Web AUR recipe | `packaging/aur/lmm-api-web-bin` |
+| API/route compatibility contract | `deploy/production/API_ROUTE_CONTRACT` |
+| Contract revision generator | `deploy/production/api-route-contract-revision.sh` |
 | Persistent controller work | `${XDG_STATE_HOME:-$HOME/.local/state}/lmm-api/deploy-work/<deployment-id>` |
 | Durable controller backups | `$HOME/backup/lmm-api/<verified-host>/<deployment-id>` |
 | Read-only production pressure report | `.agents/skills/lmm-deploy-safely/scripts/resource-pressure-report.sh` |
 
-The direct Go package installs its bundled fallback frontend at
-`/usr/share/lmm-api-go/frontend-dist`; the independent web package publishes
-the active immutable tree under `/srv/lmm-api-frontend`. Read the installed
-package owner and release identity before choosing either path; never mix a
-bundled fallback with an independent frontend release.
+Already published legacy Go packages may still install a bundled fallback at
+`/usr/share/lmm-api-go/frontend-dist`. The next Go release must not contain or
+own that path. The independent Web package owns the immutable payload under
+`/usr/share/lmm-api-web/frontend-dist` and activation under
+`/srv/lmm-api-frontend`; the shared service default is the package-owned
+`/srv/lmm-api-frontend/current` link. A legacy fallback is rollback evidence,
+not an allowed source for a new split release.
 
 ## Historical parity oracle input
 
@@ -43,12 +51,15 @@ deployment backup, rollback, or retention requirements.
 
 | Purpose | Current path |
 | --- | --- |
-| Operator CLI | `/usr/bin/lmm-api-go` |
-| Service entry | `/usr/bin/lmm-api` (byte-identical Go binary) |
+| Canonical operator CLI | `/usr/bin/lmm-api-deploy` (owned by `lmm-api-deploy-bin`) |
+| Independent operator payload | `/usr/lib/lmm-api-deploy/lmm-api-go` |
+| Operator identity metadata | `/usr/share/doc/lmm-api-deploy-bin/{REVISION,OPERATOR_SHA256,RELEASE_ASSET_SHA256}` |
+| Service entry | `/usr/bin/lmm-api` (owned by `lmm-api-go-bin`) |
 | Application environment | `/etc/lmm-api-go/lmm-api-go.env` |
 | systemd unit | `/usr/lib/systemd/system/lmm-api.service` |
+| Package memory drop-in | `/usr/lib/systemd/system/lmm-api.service.d/20-memory.conf` |
 | Runtime state | `/var/lib/lmm-api-go` via `StateDirectory=lmm-api-go` |
-| Bundled fallback frontend | `/usr/share/lmm-api-go/frontend-dist` |
+| Legacy-only bundled fallback | `/usr/share/lmm-api-go/frontend-dist` |
 | Web package payload | `/usr/share/lmm-api-web/frontend-dist` |
 | Web activation tool | `/usr/lib/lmm-api-web/lmm-api-web-activate` |
 | Service port | `3000` |
@@ -69,7 +80,7 @@ guarded path before calling `deploy` phases.
 
 | Purpose | Current path or entry point |
 | --- | --- |
-| Controller entry point | `/usr/bin/lmm-api-go deploy production ...` |
+| Controller entry point | `/usr/bin/lmm-api-deploy deploy production ...` |
 | Target activator | Immutable payload under the marker-owned deployment workspace |
 | Default SSH alias | `ArchDmit` |
 | Required static hostname | `arch-dmit` |
@@ -94,11 +105,21 @@ and includes the actual service cgroup memory and restart counters.
 
 The transaction is marker-owned and persistent. Backups are optional and are
 created only with explicit current-turn authorization and `--with-backups`.
-Every switch requires a checksum-verified rollback package, captured frontend
-and configuration restore state, and a persistent ten-minute watchdog. A switch ends in
-`AWAITING_CONFIRMATION`; only exact-release identity checks and explicit
-confirmation produce `CONFIRMED`. Automatic rollback never restores a
-database.
+The only pre-transaction bootstrap is a non-root `paru` installation of
+`lmm-api-deploy-bin`. It is tooling-only: installing it must not touch the
+service, database, environment, nginx, Web payload, or active link, and is not
+an application switch. Before invoking it, verify `pacman -Qo` ownership for
+the command and resolved payload, compare the resolved bytes with the package
+payload, and verify `OPERATOR_SHA256`, release-asset hash, package version, and
+`REVISION`.
+
+Every application switch stages checksum-verified N and N-1 Go and Web package
+pairs, assembles both candidates with non-root `paru`, captures configuration
+restore state, and arms a persistent ten-minute watchdog before either switch.
+A switch ends in `AWAITING_CONFIRMATION`; observe at least 120 seconds and only
+exact Go/Web versions, Git revisions, API/route contract revision, binary,
+frontend link, and health/resource checks plus explicit confirmation produce
+`CONFIRMED`. Automatic rollback never restores a database.
 
 ## Existing database and cutover state
 
