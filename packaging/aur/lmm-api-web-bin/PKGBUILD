@@ -1,7 +1,7 @@
 # Maintainer: LIghtJUNction <support@lmm.best>
 
 pkgname=lmm-api-web-bin
-pkgver=0.1.31
+pkgver=0.1.32
 pkgrel=1
 pkgdesc='LMM API production web frontend (prebuilt)'
 arch=('any')
@@ -25,9 +25,9 @@ source=(
 )
 noextract=("${_artifact}")
 sha256sums=(
-  'f2f3c27b32e841e4664dd4ac95f2d3a1580c7f4cfb3f1a12bcc183cf0e64f0b2'
-  'f771e408a7fa2ad7f87d3b564bb9295150e121f9cdc074e6880c95d1d0a9cbbd'
-  '91172b1ab054d960aef24f806159bb4f54a87efcc5dc089dd46745578ca8a765'
+  'db979e250438aa462f0beedc96955405953e2f4cdd266987de22b08b54eb206f'
+  '23da01e526aa8a79b87771f7290fb89e091be9a5bb15e55ab75560d115533089'
+  '2482fdf8e238c8dae24c03a5d5cbfe24c5680df7f695d60fa20990d4664631ff'
   '358f5b958f3520757628d803027dafb1b67ec61b565d00bf4cd4f7927347cf33'
 )
 

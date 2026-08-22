@@ -219,6 +219,9 @@ printf 'fixture archive\n' >"$stage/deploy/lmm-api-go-${deploy_pkgver}-linux-amd
   pkgdir="$tmp/pkg-go-legacy"
   # shellcheck disable=SC1091
   source "$HERE/lmm-api-go-bin/PKGBUILD"
+  # Exercise the retained bundled-frontend branch independently of which
+  # immutable release the canonical prebuilt package currently pins.
+  _legacy_bundled_version=$pkgver
   package
 )
 (

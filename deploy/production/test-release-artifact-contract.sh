@@ -74,15 +74,15 @@ require_literal "$WEB_PKGBUILD" 'API_ROUTE_CONTRACT_REVISION' \
   'future Web package does not install contract metadata'
 
 for immutable in \
-  'pkgver=0.1.34' \
-  "'060b87199eeec6ad3cb9466eb80967d7779963f3d59046ac01e044719c7acead'" \
-  "'4d9cf3d4a2711e324486e25a853d6f7048ecd861c9698db0ee1d26456d26ff4f'"; do
+  'pkgver=0.1.36' \
+  "'d4601539c7e7090228d45a1530a00c84be64aadfa800efff887c7c1b18d8e3c4'" \
+  "'3520ee83f15c4dd44c8cedda41299dcf8732c2a423e498e4891e161b09d978f4'"; do
   require_literal "$GO_PKGBUILD" "$immutable" \
     'tracked Go PKGBUILD no longer pins the existing immutable release'
 done
 for immutable in \
-  'pkgver=0.1.31' \
-  "'f2f3c27b32e841e4664dd4ac95f2d3a1580c7f4cfb3f1a12bcc183cf0e64f0b2'"; do
+  'pkgver=0.1.32' \
+  "'db979e250438aa462f0beedc96955405953e2f4cdd266987de22b08b54eb206f'"; do
   require_literal "$WEB_PKGBUILD" "$immutable" \
     'tracked Web PKGBUILD no longer pins the existing immutable release'
 done
