@@ -158,6 +158,15 @@ Environment=GOMEMLIMIT=%s
 `, productionMemoryHigh, productionMemoryMax, productionMemorySwapMax, productionGoMemoryLimit))
 }
 
+func legacyProductionMemoryConfig() []byte {
+	return []byte(fmt.Sprintf(`[Service]
+MemoryAccounting=yes
+MemoryHigh=%s
+MemoryMax=%s
+MemorySwapMax=%s
+`, productionMemoryHigh, productionMemoryMax, productionMemorySwapMax))
+}
+
 func ensureProductionMemoryDropIn(path string) error {
 	if err := verifyProductionMemoryDropIn(path); err == nil {
 		return nil
@@ -208,6 +217,7 @@ func retireKnownMemoryOverrides(root string) error {
 	}
 	remove := make([]string, 0, 3)
 	emergencyConfig := []byte("[Service]\nMemoryHigh=256M\nMemoryMax=288M\nMemorySwapMax=64M\n")
+	legacyProductionConfig := legacyProductionMemoryConfig()
 	for _, entry := range entries {
 		path := filepath.Join(root, entry.Name())
 		info, err := os.Lstat(path)
@@ -225,11 +235,11 @@ func retireKnownMemoryOverrides(root string) error {
 		}
 		switch entry.Name() {
 		case legacyMemoryGuardFile, legacyProductionMemoryFile:
-			if !bytes.Equal(content, productionMemoryConfig()) {
+			if !bytes.Equal(content, productionMemoryConfig()) && !bytes.Equal(content, legacyProductionConfig) {
 				return fmt.Errorf("refusing to remove unknown memory override: %s", path)
 			}
 		case legacyEmergencyMemoryFile:
-			if !bytes.Equal(content, emergencyConfig) {
+			if !bytes.Equal(content, emergencyConfig) && !bytes.Equal(content, legacyProductionConfig) {
 				return fmt.Errorf("refusing to remove unknown memory override: %s", path)
 			}
 		default:

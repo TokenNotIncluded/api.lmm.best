@@ -75,7 +75,7 @@ func TestNativeProductionHardenAtomicallyPinsSecurityAndMemoryGuards(t *testing.
 		t.Fatal(err)
 	}
 	memoryPath := filepath.Join(dropInDir, productionMemoryFileName)
-	if err := os.WriteFile(legacyMemoryPath, []byte("[Service]\nMemoryHigh=256M\nMemoryMax=288M\nMemorySwapMax=64M\n"), 0o644); err != nil {
+	if err := os.WriteFile(legacyMemoryPath, legacyProductionMemoryConfig(), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	for _, path := range []string{legacyGuardPath, legacyProductionPath} {
