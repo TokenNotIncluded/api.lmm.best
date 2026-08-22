@@ -405,7 +405,14 @@ func (runtime *productionRuntime) currentPackage(ctx context.Context) (productio
 		for _, root := range []struct {
 			path   string
 			source string
-		}{{runtime.paths.ReleasePackages, "preserved-release"}, {runtime.paths.PackageCache, "pacman-cache"}} {
+		}{
+			{runtime.paths.ReleasePackages, "preserved-release"},
+			{runtime.paths.PackageCache, "pacman-cache"},
+			{runtime.paths.LegacyReleasePackages, "legacy-preserved-release"},
+		} {
+			if root.path == "" {
+				continue
+			}
 			entries, err := os.ReadDir(root.path)
 			if errors.Is(err, os.ErrNotExist) {
 				continue

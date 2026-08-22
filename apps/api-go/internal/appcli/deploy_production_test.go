@@ -13,6 +13,9 @@ func TestProductionDeploymentDefaultsUseIndependentOperatorRoot(t *testing.T) {
 	if paths.WorkRoot != "/var/lib/lmm-api-go-deploy/work" || paths.BackupRoot != "/var/lib/lmm-api-go-deploy/backups" {
 		t.Fatalf("deployment roots=(%q, %q)", paths.WorkRoot, paths.BackupRoot)
 	}
+	if paths.ReleasePackages != "/var/lib/lmm-api-go-deploy/release-packages" || paths.LegacyReleasePackages != "/var/lib/lmm-api-go/release-packages" {
+		t.Fatalf("release package roots=(%q, %q)", paths.ReleasePackages, paths.LegacyReleasePackages)
+	}
 	if productionMemoryFileName != "20-memory.conf" || filepath.Join(paths.PackagedDropInDir, productionMemoryFileName) != "/usr/lib/systemd/system/lmm-api.service.d/20-memory.conf" {
 		t.Fatalf("package-owned memory path=%q", filepath.Join(paths.PackagedDropInDir, productionMemoryFileName))
 	}

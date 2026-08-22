@@ -198,6 +198,46 @@ func TestNativeProductionBackupCapturesRollbackFrontendConfigAndPostgres(t *test
 	}
 }
 
+func TestProductionPackageCurrentFindsExactLegacyPreservedRelease(t *testing.T) {
+	root := t.TempDir()
+	legacyRoot := filepath.Join(root, "legacy-release-packages")
+	if err := os.Mkdir(legacyRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	version := "0.1.34.r1146.gde02fda27"
+	rollback := filepath.Join(legacyRoot, productionAURPackageName+"-"+version+"-1-x86_64.pkg.tar.zst")
+	if err := os.WriteFile(rollback, []byte("exact legacy rollback package"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runner := &fakeProductionRunner{
+		t: t, goRollback: rollback, oldVersion: version, installedGoVersion: version,
+	}
+	runtime := productionRuntime{
+		paths: productionPaths{
+			ReleasePackages:       filepath.Join(root, "release-packages"),
+			LegacyReleasePackages: legacyRoot,
+			PackageCache:          filepath.Join(root, "package-cache"),
+			GlobalLock:            filepath.Join(root, "run", "deploy.lock"),
+			ExpectedHost:          "test-production-host",
+		},
+		runner:       runner,
+		now:          time.Now,
+		sleep:        func(time.Duration) {},
+		effectiveUID: func() int { return 0 },
+		hostname:     func() (string, error) { return "test-production-host", nil },
+	}
+	result, err := runtime.currentPackage(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Package != rollback || result.Identity != productionAURPackageName+" "+version+"-1" || result.Source != "legacy-preserved-release" {
+		t.Fatalf("legacy current package=%#v", result)
+	}
+	if digest, err := sha256File(rollback); err != nil || result.PackageSHA256 != digest {
+		t.Fatalf("legacy package digest=%q want=%q err=%v", result.PackageSHA256, digest, err)
+	}
+}
+
 func TestProductionBackupParserRejectsNonReleaseDigests(t *testing.T) {
 	_, err := parseProductionBackupOptions([]string{
 		"--workspace", "/var/lib/lmm-api-go/deploy-work/test",
