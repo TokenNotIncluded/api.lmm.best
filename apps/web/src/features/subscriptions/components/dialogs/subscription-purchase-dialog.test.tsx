@@ -151,15 +151,16 @@ describe('subscription purchase checkout', () => {
     const events: string[] = []
     const popup = {
       closed: false,
+      name: '',
       opener: {} as Window | null,
       close: () => undefined,
       focus: () => undefined,
       location: { href: '' },
     }
-    const openCalls: Array<[string, string, string]> = []
-    domWindow.open = ((url: string, target: string, features: string) => {
+    const openCalls: unknown[][] = []
+    domWindow.open = ((...args: unknown[]) => {
       events.push('reserve')
-      openCalls.push([url, target, features])
+      openCalls.push(args)
       return popup as unknown as Window
     }) as typeof domWindow.open
     api.post = (async (url) => {
@@ -189,10 +190,8 @@ describe('subscription purchase checkout', () => {
         'reserve',
         'request:/api/subscription/stripe/pay',
       ])
-      assert.equal(openCalls.length, 1)
-      assert.equal(openCalls[0]?.[0], 'about:blank')
-      assert.match(openCalls[0]?.[1] ?? '', /^payment_checkout_/)
-      assert.equal(openCalls[0]?.[2], 'noopener,noreferrer')
+      assert.deepEqual(openCalls, [[]])
+      assert.match(popup.name, /^payment_checkout_/)
       assert.equal(popup.location.href, 'https://pay.example.test/stripe')
       assert.equal(popup.opener, null)
     } finally {
@@ -204,20 +203,21 @@ describe('subscription purchase checkout', () => {
     const events: string[] = []
     const popup = {
       closed: false,
+      name: '',
       opener: {} as Window | null,
       close: () => undefined,
       focus: () => undefined,
       location: { href: '' },
     }
-    const openCalls: Array<[string, string, string]> = []
+    const openCalls: unknown[][] = []
     const formSubmissions: Array<{
       action: string
       target: string
       fields: Record<string, string>
     }> = []
-    domWindow.open = ((url: string, target: string, features: string) => {
+    domWindow.open = ((...args: unknown[]) => {
       events.push('reserve')
-      openCalls.push([url, target, features])
+      openCalls.push(args)
       return popup as unknown as Window
     }) as typeof domWindow.open
     domWindow.HTMLFormElement.prototype.submit = function () {
@@ -265,14 +265,12 @@ describe('subscription purchase checkout', () => {
         'request:/api/subscription/epay/pay',
         'submit',
       ])
-      assert.equal(openCalls.length, 1)
-      assert.equal(openCalls[0]?.[0], 'about:blank')
-      assert.match(openCalls[0]?.[1] ?? '', /^payment_checkout_/)
-      assert.equal(openCalls[0]?.[2], 'noopener,noreferrer')
+      assert.deepEqual(openCalls, [[]])
+      assert.match(popup.name, /^payment_checkout_/)
       assert.deepEqual(formSubmissions, [
         {
           action: 'https://pay.example.test/epay',
-          target: openCalls[0]?.[1],
+          target: popup.name,
           fields: { pid: 'subscription-7', sign: 'signed' },
         },
       ])

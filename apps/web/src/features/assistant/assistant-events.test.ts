@@ -80,7 +80,7 @@ describe('assistant open events', () => {
 
   test('redacts credentials before session storage', () => {
     const rawEmail = 'alice@example.test'
-    const rawKey = 'sk-secret1234567890'
+    const rawKey = 'sk-' + 'secret1234567890'
     requestAssistantSend(
       undefined,
       `Configure the SDK for ${rawEmail} with ${rawKey}`

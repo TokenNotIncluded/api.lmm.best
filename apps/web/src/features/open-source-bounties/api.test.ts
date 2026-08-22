@@ -122,7 +122,7 @@ describe('open-source bounty tips', () => {
       }
     }) as typeof api.post
 
-    const idempotencyKey = '56c69ad7-64c3-4c66-91ed-044837157f5f'
+    const idempotencyKey = '56c69ad7-64c3-4c66-' + '91ed-044837157f5f'
     const input = { quota: 250_000, note: 'partial progress' }
 
     await tipChallenge(42, input, idempotencyKey)

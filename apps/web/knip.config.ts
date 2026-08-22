@@ -16,7 +16,11 @@ const config: KnipConfig = {
     'src/i18n/static-keys.ts',
     'src/routeTree.gen.ts',
   ],
-  ignoreDependencies: ['playwright', 'tailwindcss', 'tw-animate-css'],
+  ignoreDependencies: ['tailwindcss', 'tw-animate-css'],
+  ignoreIssues: {
+    'scripts/debug-persona-blackbox.mjs': ['unlisted'],
+    'scripts/read-only-dashboard-smoke.mjs': ['unlisted'],
+  },
 }
 
 export default config
