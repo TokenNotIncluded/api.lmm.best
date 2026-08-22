@@ -3,7 +3,8 @@ const { spawn, spawnSync } = require('node:child_process')
 const { tmpdir } = require('node:os')
 const { join } = require('node:path')
 
-const BROWSER_CANDIDATES = process.env.PROBE_BROWSER
+const CUSTOM_BROWSER = process.env.PROBE_BROWSER
+const BROWSER_CANDIDATES = CUSTOM_BROWSER
   ? [process.env.PROBE_BROWSER]
   : [
       'msedge',
@@ -26,6 +27,9 @@ function resolveBrowserExecutable() {
     if (!result.error && result.status === 0) return candidate
   }
 
+  if (CUSTOM_BROWSER) {
+    throw new Error(`Browser executable not found: ${CUSTOM_BROWSER}`)
+  }
   throw new Error(
     `No supported browser executable found. Set PROBE_BROWSER to one of: ${BROWSER_CANDIDATES.join(', ')}`
   )
@@ -137,7 +141,6 @@ async function main() {
     console.log(URL, '=>')
     console.log(await evl(script))
     ws.close()
-    process.exit(0)
   } finally {
     proc.kill()
   }
