@@ -143,7 +143,10 @@ async function main() {
   })()`
     console.log(URL, '=>')
     console.log(await evl(script))
-    ws.close()
+    await new Promise((resolve) => {
+      ws.onclose = resolve
+      ws.close()
+    })
   } finally {
     proc.kill()
   }
