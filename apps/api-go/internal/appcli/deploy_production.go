@@ -142,7 +142,7 @@ func hardenProductionConfiguration(options productionHardenOptions) error {
 		return fmt.Errorf("write hardened environment: %w", err)
 	}
 
-	if err := verifyProductionMemoryDropIn(filepath.Join(options.DropInDir, productionMemoryFileName)); err != nil {
+	if err := ensureProductionMemoryDropIn(filepath.Join(options.DropInDir, productionMemoryFileName)); err != nil {
 		return err
 	}
 	return retireKnownMemoryOverrides(options.OverrideDropInDir)
@@ -156,6 +156,31 @@ MemoryMax=%s
 MemorySwapMax=%s
 Environment=GOMEMLIMIT=%s
 `, productionMemoryHigh, productionMemoryMax, productionMemorySwapMax, productionGoMemoryLimit))
+}
+
+func ensureProductionMemoryDropIn(path string) error {
+	if err := verifyProductionMemoryDropIn(path); err == nil {
+		return nil
+	} else if _, statErr := os.Lstat(path); !os.IsNotExist(statErr) {
+		return err
+	}
+
+	directory := filepath.Dir(path)
+	info, err := os.Lstat(directory)
+	if os.IsNotExist(err) {
+		if err := os.MkdirAll(directory, 0o755); err != nil {
+			return fmt.Errorf("create package-owned production memory drop-in directory: %w", err)
+		}
+	} else if err != nil {
+		return fmt.Errorf("inspect package-owned production memory drop-in directory: %w", err)
+	} else if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() || info.Mode().Perm()&0o022 != 0 {
+		return errors.New("package-owned production memory drop-in directory is unsafe")
+	}
+
+	if err := writeAtomicRegularFile(path, productionMemoryConfig(), 0o644); err != nil {
+		return fmt.Errorf("create package-owned production memory drop-in: %w", err)
+	}
+	return verifyProductionMemoryDropIn(path)
 }
 
 func verifyProductionMemoryDropIn(path string) error {
