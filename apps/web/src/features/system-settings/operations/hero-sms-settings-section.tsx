@@ -60,8 +60,8 @@ import {
 } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
-import { formatCurrencyUSD } from '@/lib/format'
 
+import { formatHeroSmsUSD } from '../../email-activations/api.js'
 import { useHeroSmsTranslations } from '../../email-activations/use-hero-sms-translations.js'
 import {
   SettingsForm,
@@ -460,7 +460,7 @@ export function HeroSmsSettingsSection() {
                     </FormControl>
                     <FormDescription>
                       {t('$1 provider cost → {{price}} customer price', {
-                        price: formatCurrencyUSD(
+                        price: formatHeroSmsUSD(
                           getHeroSmsPreviewCustomerPrice(priceMultiplier || 10)
                         ),
                       })}

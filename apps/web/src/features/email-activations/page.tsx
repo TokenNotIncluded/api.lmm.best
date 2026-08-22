@@ -71,10 +71,11 @@ import {
 import { useDebounce, useMediaQuery } from '@/hooks'
 import { useTableUrlState } from '@/hooks/use-table-url-state'
 import dayjs from '@/lib/dayjs'
-import { formatCurrencyUSD, formatNumber } from '@/lib/format'
+import { formatNumber } from '@/lib/format'
 
 import {
   createHeroSmsIdempotencyKey,
+  formatHeroSmsUSD,
   listHeroSmsProducts,
   parseHeroSmsError,
 } from './api'
@@ -784,7 +785,7 @@ export function EmailActivationsPage() {
           />
         ) : (
           <div className='space-y-4'>
-            {activationsQuery.isError && activations.length > 0 ? (
+            {activationsQuery.isError ? (
               <InlineAlert
                 feedback={describeHeroSmsError(
                   parseHeroSmsError(activationsQuery.error),
@@ -813,6 +814,14 @@ export function EmailActivationsPage() {
                 <CardContent className='space-y-4'>
                   {purchaseFeedback ? (
                     <InlineAlert feedback={purchaseFeedback} />
+                  ) : null}
+                  {productsQuery.isError ? (
+                    <InlineAlert
+                      feedback={describeHeroSmsError(
+                        parseHeroSmsError(productsQuery.error),
+                        t
+                      )}
+                    />
                   ) : null}
 
                   <Field label={t('Site')} controlId='hero-sms-site'>
@@ -847,7 +856,10 @@ export function EmailActivationsPage() {
                     <LoadingState inline message={t('Loading products...')} />
                   ) : null}
 
-                  {trimmedSite && products.length === 0 && !productsLoading ? (
+                  {trimmedSite &&
+                  products.length === 0 &&
+                  !productsLoading &&
+                  !productsQuery.isError ? (
                     <Alert>
                       <HugeiconsIcon
                         icon={InformationCircleIcon}
@@ -923,7 +935,7 @@ export function EmailActivationsPage() {
                         />
                         <MetaItem
                           label={t('Quote')}
-                          value={formatCurrencyUSD(
+                          value={formatHeroSmsUSD(
                             selectedProduct?.customer_price_usd ?? 0
                           )}
                         />
@@ -1096,9 +1108,7 @@ export function EmailActivationsPage() {
                           />
                           <MetaItem
                             label={t('Provider price')}
-                            value={formatCurrencyUSD(
-                              currentActivation.cost_usd
-                            )}
+                            value={formatHeroSmsUSD(currentActivation.cost_usd)}
                           />
                         </div>
                       </div>
@@ -1343,7 +1353,7 @@ export function EmailActivationsPage() {
                       />
                       <MetaItem
                         label={t('Provider price')}
-                        value={formatCurrencyUSD(detailActivation.cost_usd)}
+                        value={formatHeroSmsUSD(detailActivation.cost_usd)}
                       />
                       <MetaItem
                         label={t('Cancellation reason')}
@@ -1375,7 +1385,7 @@ export function EmailActivationsPage() {
                       purchaseTarget.product.charge_quota *
                         purchaseTarget.quantity
                     ),
-                    price: formatCurrencyUSD(
+                    price: formatHeroSmsUSD(
                       purchaseTarget.product.customer_price_usd *
                         purchaseTarget.quantity
                     ),
@@ -1414,7 +1424,7 @@ export function EmailActivationsPage() {
                   {
                     domain: reorderTarget.product.domain,
                     quota: formatNumber(reorderTarget.product.charge_quota),
-                    price: formatCurrencyUSD(
+                    price: formatHeroSmsUSD(
                       reorderTarget.product.customer_price_usd
                     ),
                   }

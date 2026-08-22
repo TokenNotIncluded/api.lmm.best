@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -161,6 +162,41 @@ func testHeroSMSPurchaseRejectsChangedOrTamperedQuote(t *testing.T) {
 	require.ErrorAs(t, err, &apiErr)
 	require.Equal(t, "INVALID_REQUEST", apiErr.Code)
 	require.Zero(t, posts.Load())
+	var refreshed User
+	require.NoError(t, db.First(&refreshed, user.Id).Error)
+	require.Equal(t, user.Quota, refreshed.Quota)
+}
+
+func testHeroSMSExactQuoteRejectsFractionalProviderIncrease(t *testing.T) {
+	db := setupHeroSMSTestDB(t)
+	user := createHeroSMSTestUser(t, db, 108, 1_000_000)
+	require.NoError(t, UpdateHeroSMSSettings(HeroSMSSettingsUpdate{Enabled: ptrBool(true), APIKey: "test-secret-key-12345"}))
+	var deletes atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.Method + " " + request.URL.Path {
+		case http.MethodGet + " /emails/domains":
+			encodeHeroSMSModelTestJSON(t, writer, heroSMSDomainResponse(0.0000011, 5))
+		case http.MethodGet + " /emails":
+			encodeHeroSMSModelTestJSON(t, writer, map[string]any{"data": []any{}})
+		case http.MethodPost + " /emails":
+			writer.WriteHeader(http.StatusCreated)
+			encodeHeroSMSModelTestJSON(t, writer, heroSMSActivationResponse(88, "fraction@mail.test", 0.0000012, 840))
+		case http.MethodDelete + " /emails/88":
+			deletes.Add(1)
+			writer.WriteHeader(http.StatusNoContent)
+		default:
+			writer.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+	restore := SetHeroSMSClientFactoryForTest(func(_ string, _ string) herosms.Client { return herosms.NewClient(server.URL, "secret") }, server.URL)
+	defer restore()
+
+	order, status, err := CreateHeroSMSEmailActivations(t.Context(), user.Id, "fractional-increase", HeroSMSEmailPurchaseRequest{DomainID: heroSMSTestQuoteID(t, "0.0000011"), Quantity: 1})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusAccepted, status)
+	require.Equal(t, HeroSMSEmailOrderStatusFailed, order.Status)
+	require.Equal(t, int32(1), deletes.Load())
 	var refreshed User
 	require.NoError(t, db.First(&refreshed, user.Id).Error)
 	require.Equal(t, user.Quota, refreshed.Quota)
@@ -435,6 +471,7 @@ func testHeroSMSCurrencyMismatchCancelsAndRefunds(t *testing.T) {
 	user := createHeroSMSTestUser(t, db, 104, 1_000_000)
 	require.NoError(t, UpdateHeroSMSSettings(HeroSMSSettingsUpdate{Enabled: ptrBool(true), APIKey: "test-secret-key-12345"}))
 	var deletes atomic.Int32
+	var posts atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		switch request.Method + " " + request.URL.Path {
 		case http.MethodGet + " /emails/domains":
@@ -442,6 +479,7 @@ func testHeroSMSCurrencyMismatchCancelsAndRefunds(t *testing.T) {
 		case http.MethodGet + " /emails":
 			encodeHeroSMSModelTestJSON(t, writer, map[string]any{"data": []any{}})
 		case http.MethodPost + " /emails":
+			posts.Add(1)
 			writer.WriteHeader(http.StatusCreated)
 			encodeHeroSMSModelTestJSON(t, writer, heroSMSActivationResponse(1, "a@mail.test", 0.10, 978))
 		case http.MethodDelete + " /emails/1":
@@ -455,7 +493,8 @@ func testHeroSMSCurrencyMismatchCancelsAndRefunds(t *testing.T) {
 	restore := SetHeroSMSClientFactoryForTest(func(_ string, _ string) herosms.Client { return herosms.NewClient(server.URL, "secret") }, server.URL)
 	defer restore()
 
-	order, status, err := CreateHeroSMSEmailActivations(t.Context(), user.Id, "currency-idem", HeroSMSEmailPurchaseRequest{DomainID: heroSMSTestQuoteID(t, "0.10"), Quantity: 1})
+	purchaseRequest := HeroSMSEmailPurchaseRequest{DomainID: heroSMSTestQuoteID(t, "0.10"), Quantity: 1}
+	order, status, err := CreateHeroSMSEmailActivations(t.Context(), user.Id, "currency-idem", purchaseRequest)
 	require.NoError(t, err)
 	require.Equal(t, http.StatusAccepted, status)
 	require.Equal(t, HeroSMSEmailOrderStatusFailed, order.Status)
@@ -464,6 +503,11 @@ func testHeroSMSCurrencyMismatchCancelsAndRefunds(t *testing.T) {
 	var refreshed User
 	require.NoError(t, db.First(&refreshed, user.Id).Error)
 	require.Equal(t, user.Quota, refreshed.Quota)
+	replayed, replayStatus, err := CreateHeroSMSEmailActivations(t.Context(), user.Id, "currency-idem", purchaseRequest)
+	require.Error(t, err)
+	require.Nil(t, replayed)
+	require.Zero(t, replayStatus)
+	require.Equal(t, int32(1), posts.Load())
 }
 
 func testHeroSMSReorderUsesProviderReorderEndpoint(t *testing.T) {
@@ -494,6 +538,14 @@ func testHeroSMSReorderUsesProviderReorderEndpoint(t *testing.T) {
 	restore := SetHeroSMSClientFactoryForTest(func(_ string, _ string) herosms.Client { return herosms.NewClient(server.URL, "secret") }, server.URL)
 	defer restore()
 
+	require.NoError(t, db.Model(&HeroSMSEmailActivation{}).Where("id = ?", activation.ID).Update("status", HeroSMSEmailActivationStatusActive).Error)
+	activeOrder, activeStatus, err := ReorderHeroSMSEmailActivation(t.Context(), user.Id, activation.ID, "active-reorder", domainID)
+	require.Error(t, err)
+	require.Nil(t, activeOrder)
+	require.Zero(t, activeStatus)
+	require.Zero(t, reorderHits.Load())
+	require.NoError(t, db.Model(&HeroSMSEmailActivation{}).Where("id = ?", activation.ID).Update("status", HeroSMSEmailActivationStatusCompleted).Error)
+
 	created, status, err := ReorderHeroSMSEmailActivation(t.Context(), user.Id, activation.ID, "reorder-idem", domainID)
 	require.NoError(t, err)
 	require.Equal(t, http.StatusCreated, status)
@@ -510,6 +562,7 @@ func testHeroSMSIDORInsufficientBalanceAndRefundIdempotent(t *testing.T) {
 	db := setupHeroSMSTestDB(t)
 	owner := createHeroSMSTestUser(t, db, 201, 500_000)
 	other := createHeroSMSTestUser(t, db, 202, 500_000)
+	require.NoError(t, UpdateHeroSMSSettings(HeroSMSSettingsUpdate{Enabled: ptrBool(true), APIKey: "test-secret-key-12345"}))
 	domainID := heroSMSTestQuoteID(t, "0.10")
 	order := HeroSMSEmailOrder{ID: "order-1", UserID: owner.Id, Operation: "purchase", IdempotencyKeyHash: "h", RequestPayloadHash: "p", DomainID: domainID, Site: "demo.com", Domain: "mail.test", Quantity: 1, Status: HeroSMSEmailOrderStatusCompleted, PriceMultiplier: "10", ReservedUnitCostMicros: 1_000_000, CustomerUnitPriceMicros: 10_000_000, ChargeQuota: 5_000_000, Currency: "USD", CurrencyCode: 840}
 	require.NoError(t, db.Create(&order).Error)
@@ -530,7 +583,6 @@ func testHeroSMSIDORInsufficientBalanceAndRefundIdempotent(t *testing.T) {
 	require.Equal(t, "NOT_FOUND", apiErr.Code)
 
 	poor := createHeroSMSTestUser(t, db, 203, 1)
-	require.NoError(t, UpdateHeroSMSSettings(HeroSMSSettingsUpdate{Enabled: ptrBool(true), APIKey: "test-secret-key-12345"}))
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if request.URL.Path == "/emails/domains" {
 			encodeHeroSMSModelTestJSON(t, writer, heroSMSDomainResponse(0.10, 5))
@@ -608,10 +660,14 @@ func testHeroSMSSettingsEncryptionRetentionAndClear(t *testing.T) {
 	view, err = GetHeroSMSSettingsView()
 	require.NoError(t, err)
 	require.True(t, view.PendingWork)
+	err = UpdateHeroSMSSettings(HeroSMSSettingsUpdate{APIKey: "replacement-secret-key-12345"})
+	require.ErrorAs(t, err, &apiErr)
+	require.Equal(t, "ACTIVE_ORDERS", apiErr.Code)
 	err = ClearHeroSMSAPIKey()
 	require.ErrorAs(t, err, &apiErr)
 	require.Equal(t, "ACTIVE_ORDERS", apiErr.Code)
 	require.NoError(t, db.Model(&HeroSMSEmailActivation{}).Where("id = ?", activeActivation.ID).Update("status", HeroSMSEmailActivationStatusCompleted).Error)
+	require.NoError(t, UpdateHeroSMSSettings(HeroSMSSettingsUpdate{APIKey: "replacement-secret-key-12345"}))
 	require.NoError(t, ClearHeroSMSAPIKey())
 	persistedKey, err = heroSMSConfiguredAPIKey()
 	require.NoError(t, err)
@@ -619,6 +675,36 @@ func testHeroSMSSettingsEncryptionRetentionAndClear(t *testing.T) {
 	var remaining int64
 	require.NoError(t, db.Model(&Option{}).Where("key = ?", setting.HeroSMSOptionAPIKey).Count(&remaining).Error)
 	require.Zero(t, remaining)
+}
+
+func testHeroSMSAbandonedProviderIntentRefundsWithoutUpstreamCall(t *testing.T) {
+	db := setupHeroSMSTestDB(t)
+	user := createHeroSMSTestUser(t, db, 109, 1_000)
+	require.NoError(t, UpdateHeroSMSSettings(HeroSMSSettingsUpdate{Enabled: ptrBool(true), APIKey: "test-secret-key-12345"}))
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		t.Fatal("abandoned provider intent must not call HeroSMS")
+		writer.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+	restore := SetHeroSMSClientFactoryForTest(func(_ string, _ string) herosms.Client { return herosms.NewClient(server.URL, "secret") }, server.URL)
+	defer restore()
+
+	order := HeroSMSEmailOrder{ID: "abandoned-intent", UserID: user.Id, Operation: "purchase", IdempotencyKeyHash: "abandoned-hash", RequestPayloadHash: "abandoned-payload", DomainID: "quote", Site: "demo.com", Domain: "mail.test", Quantity: 1, Status: HeroSMSEmailOrderStatusPendingProvider, LastErrorCode: "PROVIDER_INTENT_PENDING", LastErrorMessage: "provider purchase intent is reserved but not started", ChargeQuota: 100, Currency: "USD", CurrencyCode: 840}
+	activations := []HeroSMSEmailActivation{{ID: "abandoned-activation", UserID: user.Id, Slot: 1, Status: HeroSMSEmailActivationStatusPendingProvider, DomainID: order.DomainID, Site: order.Site, Domain: order.Domain, ChargeQuota: 100}}
+	newQuota, err := reserveHeroSMSEmailQuota(&order, activations)
+	require.NoError(t, err)
+	require.Equal(t, 900, newQuota)
+
+	processed, err := RunHeroSMSEmailReconciliationOnce(t.Context(), 20)
+	require.NoError(t, err)
+	require.Positive(t, processed)
+	var refreshed User
+	require.NoError(t, db.First(&refreshed, user.Id).Error)
+	require.Equal(t, user.Quota, refreshed.Quota)
+	var stored HeroSMSEmailOrder
+	require.NoError(t, db.Where("id = ?", order.ID).First(&stored).Error)
+	require.Equal(t, HeroSMSEmailOrderStatusFailed, stored.Status)
+	require.Equal(t, stored.ChargeQuota, stored.RefundedQuota)
 }
 
 func testHeroSMSReconciliationPollsActiveActivationUntilCodeArrives(t *testing.T) {
@@ -648,6 +734,33 @@ func testHeroSMSReconciliationPollsActiveActivationUntilCodeArrives(t *testing.T
 	require.Equal(t, HeroSMSEmailActivationStatusCompleted, view.Status)
 	require.Equal(t, "582914", view.Code)
 	require.Equal(t, "Your code is 582914", view.Message)
+}
+
+func testHeroSMSNumericTerminalStatusStopsPolling(t *testing.T) {
+	db := setupHeroSMSTestDB(t)
+	user := createHeroSMSTestUser(t, db, 306, 1_000_000)
+	require.NoError(t, UpdateHeroSMSSettings(HeroSMSSettingsUpdate{Enabled: ptrBool(true), APIKey: "test-secret-key-12345"}))
+	order := HeroSMSEmailOrder{ID: "numeric-status-order", UserID: user.Id, Operation: "purchase", IdempotencyKeyHash: "numeric-status-hash", RequestPayloadHash: "numeric-status-payload", DomainID: "quote", Site: "demo.com", Domain: "mail.test", Quantity: 1, Status: HeroSMSEmailOrderStatusCompleted, ReservedUnitCostDecimal: "0.1", ChargeQuota: 100, Currency: "USD", CurrencyCode: 840}
+	require.NoError(t, db.Create(&order).Error)
+	providerID := "56"
+	activation := HeroSMSEmailActivation{ID: "numeric-status-activation", OrderID: order.ID, UserID: user.Id, Slot: 1, Status: HeroSMSEmailActivationStatusActive, DomainID: order.DomainID, Site: order.Site, Domain: order.Domain, ProviderID: &providerID, ChargeQuota: 100}
+	require.NoError(t, db.Create(&activation).Error)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		encodeHeroSMSModelTestJSON(t, writer, map[string]any{"status": true, "data": map[string]any{"id": 56, "site": "demo.com", "email": "terminal@mail.test", "status": 5, "cost": 0.1, "currency": 840}})
+	}))
+	defer server.Close()
+	restore := SetHeroSMSClientFactoryForTest(func(_ string, _ string) herosms.Client { return herosms.NewClient(server.URL, "secret") }, server.URL)
+	defer restore()
+
+	_, err := RunHeroSMSEmailReconciliationOnce(t.Context(), 20)
+	require.NoError(t, err)
+	view, err := GetHeroSMSEmailActivation(user.Id, activation.ID)
+	require.NoError(t, err)
+	require.Equal(t, HeroSMSEmailActivationStatusCompleted, view.Status)
+	require.Empty(t, view.Code)
+	cancelled, err := CancelHeroSMSEmailActivation(t.Context(), user.Id, activation.ID)
+	require.Error(t, err)
+	require.Nil(t, cancelled)
 }
 
 func testHeroSMSRefreshCannotResurrectCancelledActivation(t *testing.T) {
@@ -686,6 +799,40 @@ func testHeroSMSOrderRefundLedgerIsIdempotent(t *testing.T) {
 	var ledgerCount int64
 	require.NoError(t, db.Model(&HeroSMSEmailQuotaLedger{}).Where("order_id = ? AND entry_type = ?", order.ID, HeroSMSEmailLedgerRefund).Count(&ledgerCount).Error)
 	require.Equal(t, int64(1), ledgerCount)
+}
+
+func testHeroSMSReconciliationRotatesAcrossActiveRows(t *testing.T) {
+	db := setupHeroSMSTestDB(t)
+	user := createHeroSMSTestUser(t, db, 308, 1_000_000)
+	require.NoError(t, UpdateHeroSMSSettings(HeroSMSSettingsUpdate{Enabled: ptrBool(true), APIKey: "test-secret-key-12345"}))
+	order := HeroSMSEmailOrder{ID: "rotation-order", UserID: user.Id, Operation: "purchase", IdempotencyKeyHash: "rotation-hash", RequestPayloadHash: "rotation-payload", DomainID: "quote", Site: "demo.com", Domain: "mail.test", Quantity: 15, Status: HeroSMSEmailOrderStatusCompleted, ReservedUnitCostDecimal: "0.1", ChargeQuota: 1500, Currency: "USD", CurrencyCode: 840}
+	require.NoError(t, db.Create(&order).Error)
+	for index := 1; index <= 15; index++ {
+		providerID := strconv.Itoa(1000 + index)
+		activation := HeroSMSEmailActivation{ID: fmt.Sprintf("rotation-%02d", index), OrderID: order.ID, UserID: user.Id, Slot: index, Status: HeroSMSEmailActivationStatusActive, DomainID: order.DomainID, Site: order.Site, Domain: order.Domain, ProviderID: &providerID, ChargeQuota: 100, CreatedAt: int64(index), UpdatedAt: int64(index)}
+		require.NoError(t, db.Create(&activation).Error)
+	}
+	var hitsMu sync.Mutex
+	hits := make(map[string]int)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		providerID := strings.TrimPrefix(request.URL.Path, "/emails/")
+		hitsMu.Lock()
+		hits[providerID]++
+		hitsMu.Unlock()
+		encodeHeroSMSModelTestJSON(t, writer, map[string]any{"status": true, "data": map[string]any{"id": providerID, "site": "demo.com", "email": providerID + "@mail.test", "status": "WAIT", "cost": 0.1, "currency": 840}})
+	}))
+	defer server.Close()
+	restore := SetHeroSMSClientFactoryForTest(func(_ string, _ string) herosms.Client { return herosms.NewClient(server.URL, "secret") }, server.URL)
+	defer restore()
+
+	for range 2 {
+		processed, err := RunHeroSMSEmailReconciliationOnce(t.Context(), 10)
+		require.NoError(t, err)
+		require.Equal(t, 10, processed)
+	}
+	hitsMu.Lock()
+	defer hitsMu.Unlock()
+	require.Len(t, hits, 15)
 }
 
 func testHeroSMSProviderPurchaseLeaseSerializesRequests(t *testing.T) {
@@ -756,6 +903,7 @@ func TestHeroSMSEmailFeature(t *testing.T) {
 	}{
 		{name: "HeroSMSEmailProductsPricing", run: testHeroSMSEmailProductsPricing},
 		{name: "HeroSMSPurchaseRejectsChangedOrTamperedQuote", run: testHeroSMSPurchaseRejectsChangedOrTamperedQuote},
+		{name: "HeroSMSExactQuoteRejectsFractionalProviderIncrease", run: testHeroSMSExactQuoteRejectsFractionalProviderIncrease},
 		{name: "HeroSMSEmailPurchaseIdempotencyAndConcurrency", run: testHeroSMSEmailPurchaseIdempotencyAndConcurrency},
 		{name: "HeroSMSEmailBatchPurchaseReconcilesProviderIDs", run: testHeroSMSEmailBatchPurchaseReconcilesProviderIDs},
 		{name: "HeroSMSBatchCountMismatchCancelsAndRefunds", run: testHeroSMSBatchCountMismatchCancelsAndRefunds},
@@ -765,9 +913,12 @@ func TestHeroSMSEmailFeature(t *testing.T) {
 		{name: "HeroSMSReorderUsesProviderReorderEndpoint", run: testHeroSMSReorderUsesProviderReorderEndpoint},
 		{name: "HeroSMSIDORInsufficientBalanceAndRefundIdempotent", run: testHeroSMSIDORInsufficientBalanceAndRefundIdempotent},
 		{name: "HeroSMSSettingsEncryptionRetentionAndClear", run: testHeroSMSSettingsEncryptionRetentionAndClear},
+		{name: "HeroSMSAbandonedProviderIntentRefundsWithoutUpstreamCall", run: testHeroSMSAbandonedProviderIntentRefundsWithoutUpstreamCall},
 		{name: "HeroSMSReconciliationPollsActiveActivationUntilCodeArrives", run: testHeroSMSReconciliationPollsActiveActivationUntilCodeArrives},
+		{name: "HeroSMSNumericTerminalStatusStopsPolling", run: testHeroSMSNumericTerminalStatusStopsPolling},
 		{name: "HeroSMSRefreshCannotResurrectCancelledActivation", run: testHeroSMSRefreshCannotResurrectCancelledActivation},
 		{name: "HeroSMSOrderRefundLedgerIsIdempotent", run: testHeroSMSOrderRefundLedgerIsIdempotent},
+		{name: "HeroSMSReconciliationRotatesAcrossActiveRows", run: testHeroSMSReconciliationRotatesAcrossActiveRows},
 		{name: "HeroSMSProviderPurchaseLeaseSerializesRequests", run: testHeroSMSProviderPurchaseLeaseSerializesRequests},
 		{name: "HeroSMSSQLiteMigration", run: testHeroSMSSQLiteMigration},
 	}

@@ -131,6 +131,16 @@ function normalizeCreateResult(raw: unknown): HeroSmsCreateActivationsResult {
   }
 }
 
+export function formatHeroSmsUSD(value: number) {
+  if (!Number.isFinite(value)) return '—'
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 8,
+  }).format(value)
+}
+
 export function createHeroSmsIdempotencyKey() {
   if (typeof globalThis.crypto?.randomUUID === 'function') {
     return globalThis.crypto.randomUUID()
