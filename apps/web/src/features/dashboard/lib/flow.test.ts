@@ -753,6 +753,18 @@ describe('dashboard flow data', () => {
     assert.equal(values.links.length, 5)
     assert.equal(aliceNode.name, 'alice')
     assert.match(userNodeLink.linkColor, /^rgba\(/)
+    assert.equal(flowSpec.label.style.fill, 'var(--forge-chart-text)')
+    assert.equal(flowSpec.node.style.stroke(), 'var(--forge-chart-grid)')
+    assert.deepEqual(flowSpec.node.state.hover, {
+      fillOpacity: 1,
+      stroke: 'var(--forge-chart-hover)',
+      lineWidth: 1.5,
+    })
+    assert.deepEqual(flowSpec.node.state.selected, {
+      fillOpacity: 1,
+      stroke: 'var(--forge-chart-hover)',
+      lineWidth: 1.5,
+    })
 
     const tooltipRows = flowSpec.tooltip.mark.content
     assert.deepEqual(

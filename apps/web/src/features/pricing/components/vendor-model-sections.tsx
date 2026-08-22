@@ -42,6 +42,16 @@ type VendorGroup = {
   models: PricingModel[]
 }
 
+function getVendorSectionId(name: string, index: number) {
+  const slug =
+    name
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '') || 'vendor'
+  return `vendor-section-${index}-${slug}`
+}
+
 /**
  * gpt.ge-style model square body: models grouped by vendor, each group led
  * by a soft translucent header card (vendor mark, name, count) and followed
@@ -72,13 +82,11 @@ export function VendorModelSections(props: VendorModelSectionProps) {
 
   return (
     <div className='min-w-0 space-y-10'>
-      {groups.map((group) => {
+      {groups.map((group, index) => {
         const vendorIcon = group.icon ? getLobeIcon(group.icon, 28) : null
+        const headingId = getVendorSectionId(group.name, index)
         return (
-          <section
-            key={group.name}
-            aria-labelledby={`vendor-section-${group.name}`}
-          >
+          <section key={group.name} aria-labelledby={headingId}>
             <div className='bg-card/20 border-border/40 mb-4 flex min-h-16 gap-3 rounded-xl border p-3 max-md:flex-col md:items-center'>
               <div className='flex flex-1 items-center gap-3'>
                 <div className='bg-muted flex size-11 shrink-0 items-center justify-center rounded-xl'>
@@ -94,7 +102,7 @@ export function VendorModelSections(props: VendorModelSectionProps) {
                 <div className='min-w-0 flex-1'>
                   <div className='flex flex-wrap items-center gap-2'>
                     <h2
-                      id={`vendor-section-${group.name}`}
+                      id={headingId}
                       className='text-foreground truncate text-base font-semibold'
                     >
                       {group.name}
