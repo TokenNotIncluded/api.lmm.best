@@ -743,6 +743,8 @@ describe('dashboard flow data', () => {
         link.source === 'user:1' && link.target === 'node:node-a'
     )
 
+    assert.ok(aliceNode)
+    assert.ok(userNodeLink)
     assert.equal(flowSpec.type, 'sankey')
     assert.equal(flowSpec.title.text, 'Flow')
     assert.deepEqual(flowSpec.emphasis, { enable: false })
@@ -813,6 +815,10 @@ describe('dashboard flow data', () => {
     const nodeOpacity = flowSpec.node.style.fillOpacity
     const linkOpacity = flowSpec.link.style.fillOpacity
 
+    assert.ok(aliceNode)
+    assert.ok(bobNode)
+    assert.ok(highlightedLink)
+    assert.ok(dimmedLink)
     assert.deepEqual(flowSpec.emphasis, { enable: false })
     assert.equal(aliceNode.highlighted, true)
     assert.equal(bobNode.dimmed, true)

@@ -35,8 +35,7 @@ import type {
 
 import { getDashboardChartColors } from './charts'
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type VChartSpec = Record<string, any>
+type FlowSankeyDatumValue = string | number | boolean | undefined
 
 type FlowMetrics = {
   quota: number
@@ -1038,19 +1037,33 @@ function sankeyDatumSource(
   return recordValue(nested) ?? datum
 }
 
+function primitiveSankeyValue(value: unknown): FlowSankeyDatumValue {
+  if (
+    typeof value === 'string' ||
+    typeof value === 'number' ||
+    typeof value === 'boolean'
+  ) {
+    return value
+  }
+  return undefined
+}
+
 function sankeyDatumValue(
   datum: Record<string, unknown>,
   key: string
-): unknown {
-  if (datum[key] !== undefined) return datum[key]
-  return sankeyDatumSource(datum)[key]
+): FlowSankeyDatumValue {
+  if (datum[key] !== undefined) return primitiveSankeyValue(datum[key])
+  return primitiveSankeyValue(sankeyDatumSource(datum)[key])
 }
 
 function sankeyDatumFlag(datum: Record<string, unknown>, key: string): boolean {
   return sankeyDatumValue(datum, key) === true
 }
 
-export function flowSankeyDatumValue(datum: unknown, key: string): unknown {
+export function flowSankeyDatumValue(
+  datum: unknown,
+  key: string
+): FlowSankeyDatumValue {
   const record = recordValue(datum)
   return record ? sankeyDatumValue(record, key) : undefined
 }
@@ -1115,12 +1128,117 @@ function tooltipMetricLines(
   ]
 }
 
+function flowSankeyNodeDatum(node: DashboardFlowNode) {
+  return {
+    key: node.id,
+    name: node.label,
+    rawLabel: node.label,
+    kind: node.kind,
+    value: node.value,
+    requests: node.requests,
+    quota: node.quota,
+    tokens: node.tokens,
+    color: node.color,
+    colorKey: node.colorKey,
+    highlighted: node.highlighted,
+    dimmed: node.dimmed,
+  }
+}
+
+function flowSankeyLinkZIndex(link: DashboardFlowLink, index: number) {
+  if (link.highlighted) return 1_000_000 + index
+  if (link.dimmed) return index
+  return 100_000 + index
+}
+
+function flowSankeyLinkDatum(link: DashboardFlowLink, index: number) {
+  return {
+    source: link.source,
+    target: link.target,
+    linkKey: linkStableKey(link),
+    sourceLabel: link.sourceLabel,
+    targetLabel: link.targetLabel,
+    value: link.value,
+    requests: link.requests,
+    quota: link.quota,
+    tokens: link.tokens,
+    color: link.color,
+    linkColor: link.linkColor,
+    linkAlpha: link.linkAlpha,
+    hoverColor: link.hoverColor,
+    colorKey: link.colorKey,
+    share: link.share,
+    highlighted: link.highlighted,
+    dimmed: link.dimmed,
+    zIndex: flowSankeyLinkZIndex(link, index),
+  }
+}
+
+function sortFlowSankeyLinks(
+  a: { value?: number; source?: string; target?: string; index?: number },
+  b: { value?: number; source?: string; target?: string; index?: number }
+) {
+  return (
+    numberValue(b.value) - numberValue(a.value) ||
+    `${a.source ?? ''}\u0000${a.target ?? ''}`.localeCompare(
+      `${b.source ?? ''}\u0000${b.target ?? ''}`
+    ) ||
+    numberValue(a.index) - numberValue(b.index)
+  )
+}
+
+function flowSankeyColor(
+  datum: Record<string, unknown>,
+  primaryKey: 'color' | 'hoverColor' | 'linkColor'
+) {
+  return String(
+    sankeyDatumValue(datum, primaryKey) ??
+      sankeyDatumValue(datum, 'color') ??
+      colorAt(0)
+  )
+}
+
+function flowSankeyNodeOpacity(datum: Record<string, unknown>) {
+  if (sankeyDatumFlag(datum, 'dimmed')) return 0.18
+  if (sankeyDatumFlag(datum, 'highlighted')) return 1
+  return 0.92
+}
+
+function flowSankeyLinkOpacity(datum: Record<string, unknown>) {
+  if (sankeyDatumFlag(datum, 'dimmed')) return 0.08
+  if (sankeyDatumFlag(datum, 'highlighted')) return 0.86
+  return numberValue(sankeyDatumValue(datum, 'linkAlpha')) || 1
+}
+
+function flowSankeyDatumZIndex(datum: Record<string, unknown>) {
+  const zIndex = sankeyDatumValue(datum, 'zIndex')
+  if (zIndex !== undefined) return numberValue(zIndex)
+  return 1_000_000_000 - numberValue(sankeyDatumValue(datum, 'value'))
+}
+
+function flowSankeyTooltipVisible(datum: Record<string, unknown>) {
+  return (
+    isSankeyLinkDatum(datum) || sankeyDatumValue(datum, 'key') !== undefined
+  )
+}
+
+function flowSankeyTooltipTitle(datum: Record<string, unknown>) {
+  const source = sankeyDatumValue(datum, 'source')
+  const target = sankeyDatumValue(datum, 'target')
+  if (source && target) {
+    const sourceLabel = sankeyDatumValue(datum, 'sourceLabel')
+    const targetLabel = sankeyDatumValue(datum, 'targetLabel')
+    return `${sourceLabel ?? source} -> ${targetLabel ?? target}`
+  }
+  return `${sankeyDatumValue(datum, 'name') ?? sankeyDatumValue(datum, 'rawLabel') ?? ''}`
+}
+
 export function buildFlowSankeySpec(
   flow: DashboardFlowGraph,
   title: string,
   valueFormatter: (value: number) => string = formatNumber,
   labels: FlowSankeyLabels = DEFAULT_FLOW_SANKEY_LABELS
-): VChartSpec {
+) {
   return {
     type: 'sankey',
     data: [
@@ -1128,52 +1246,11 @@ export function buildFlowSankeySpec(
         id: 'flow',
         values: [
           {
-            nodes: flow.nodes.map((node) => ({
-              key: node.id,
-              name: node.label,
-              rawLabel: node.label,
-              kind: node.kind,
-              value: node.value,
-              requests: node.requests,
-              quota: node.quota,
-              tokens: node.tokens,
-              color: node.color,
-              colorKey: node.colorKey,
-              highlighted: node.highlighted,
-              dimmed: node.dimmed,
-            })),
+            nodes: flow.nodes.map(flowSankeyNodeDatum),
             links: flow.links
               .filter((link) => link.value > 0)
               .sort(byLinkDrawPriority)
-              .map((link, index) => {
-                let zIndex = 100_000 + index
-                if (link.highlighted) {
-                  zIndex = 1_000_000 + index
-                } else if (link.dimmed) {
-                  zIndex = index
-                }
-
-                return {
-                  source: link.source,
-                  target: link.target,
-                  linkKey: linkStableKey(link),
-                  sourceLabel: link.sourceLabel,
-                  targetLabel: link.targetLabel,
-                  value: link.value,
-                  requests: link.requests,
-                  quota: link.quota,
-                  tokens: link.tokens,
-                  color: link.color,
-                  linkColor: link.linkColor,
-                  linkAlpha: link.linkAlpha,
-                  hoverColor: link.hoverColor,
-                  colorKey: link.colorKey,
-                  share: link.share,
-                  highlighted: link.highlighted,
-                  dimmed: link.dimmed,
-                  zIndex,
-                }
-              }),
+              .map(flowSankeyLinkDatum),
           },
         ],
       },
@@ -1186,15 +1263,7 @@ export function buildFlowSankeySpec(
     direction: 'horizontal',
     nodeAlign: 'justify',
     crossNodeAlign: 'middle',
-    linkSortBy: (
-      a: { value?: number; source?: string; target?: string; index?: number },
-      b: { value?: number; source?: string; target?: string; index?: number }
-    ) =>
-      numberValue(b.value) - numberValue(a.value) ||
-      `${a.source ?? ''}\u0000${a.target ?? ''}`.localeCompare(
-        `${b.source ?? ''}\u0000${b.target ?? ''}`
-      ) ||
-      numberValue(a.index) - numberValue(b.index),
+    linkSortBy: sortFlowSankeyLinks,
     nodeGap: 14,
     nodeWidth: 16,
     minLinkHeight: 2,
@@ -1219,12 +1288,8 @@ export function buildFlowSankeySpec(
       interactive: true,
       style: {
         fill: (datum: Record<string, unknown>) =>
-          String(sankeyDatumValue(datum, 'color') ?? colorAt(0)),
-        fillOpacity: (datum: Record<string, unknown>) => {
-          if (sankeyDatumFlag(datum, 'dimmed')) return 0.18
-          if (sankeyDatumFlag(datum, 'highlighted')) return 1
-          return 0.92
-        },
+          flowSankeyColor(datum, 'color'),
+        fillOpacity: flowSankeyNodeOpacity,
         stroke: () => 'var(--forge-chart-grid)',
         lineWidth: (datum: Record<string, unknown>) =>
           sankeyDatumFlag(datum, 'highlighted') ? 1.5 : 1,
@@ -1251,42 +1316,22 @@ export function buildFlowSankeySpec(
       interactive: true,
       style: {
         fill: (datum: Record<string, unknown>) =>
-          String(
-            sankeyDatumValue(datum, 'linkColor') ??
-              sankeyDatumValue(datum, 'color') ??
-              colorAt(0)
-          ),
-        fillOpacity: (datum: Record<string, unknown>) => {
-          if (sankeyDatumFlag(datum, 'dimmed')) return 0.08
-          if (sankeyDatumFlag(datum, 'highlighted')) return 0.86
-          return numberValue(sankeyDatumValue(datum, 'linkAlpha')) || 1
-        },
+          flowSankeyColor(datum, 'linkColor'),
+        fillOpacity: flowSankeyLinkOpacity,
         cursor: 'pointer',
         pickMode: 'accurate',
         boundsMode: 'accurate',
-        zIndex: (datum: Record<string, unknown>) => {
-          const zIndex = sankeyDatumValue(datum, 'zIndex')
-          if (zIndex !== undefined) return numberValue(zIndex)
-          return 1_000_000_000 - numberValue(sankeyDatumValue(datum, 'value'))
-        },
+        zIndex: flowSankeyDatumZIndex,
       },
       state: {
         hover: {
           fill: (datum: Record<string, unknown>) =>
-            String(
-              sankeyDatumValue(datum, 'hoverColor') ??
-                sankeyDatumValue(datum, 'color') ??
-                colorAt(0)
-            ),
+            flowSankeyColor(datum, 'hoverColor'),
           fillOpacity: 0.9,
         },
         selected: {
           fill: (datum: Record<string, unknown>) =>
-            String(
-              sankeyDatumValue(datum, 'hoverColor') ??
-                sankeyDatumValue(datum, 'color') ??
-                colorAt(0)
-            ),
+            flowSankeyColor(datum, 'hoverColor'),
           fillOpacity: 0.9,
         },
         blur: {
@@ -1308,20 +1353,9 @@ export function buildFlowSankeySpec(
       mark: {
         checkOverlap: true,
         positionMode: 'pointer',
-        visible: (datum: Record<string, unknown>) =>
-          isSankeyLinkDatum(datum) ||
-          sankeyDatumValue(datum, 'key') !== undefined,
+        visible: flowSankeyTooltipVisible,
         title: {
-          value: (datum: Record<string, unknown>) => {
-            const source = sankeyDatumValue(datum, 'source')
-            const target = sankeyDatumValue(datum, 'target')
-            if (source && target) {
-              const sourceLabel = sankeyDatumValue(datum, 'sourceLabel')
-              const targetLabel = sankeyDatumValue(datum, 'targetLabel')
-              return `${sourceLabel ?? source} -> ${targetLabel ?? target}`
-            }
-            return `${sankeyDatumValue(datum, 'name') ?? sankeyDatumValue(datum, 'rawLabel') ?? ''}`
-          },
+          value: flowSankeyTooltipTitle,
         },
         content: tooltipMetricLines(valueFormatter, labels),
       },
