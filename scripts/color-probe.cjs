@@ -54,6 +54,9 @@ async function main() {
   try {
     let targets = null
     for (let i = 0; i < 40; i++) {
+      if (proc.exitCode !== null) {
+        throw new Error(`Browser process exited early with code ${proc.exitCode}`)
+      }
       try {
         const response = await fetch(`http://127.0.0.1:${PORT}/json/list`)
         targets = await response.json()
