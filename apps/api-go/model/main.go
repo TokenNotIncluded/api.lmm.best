@@ -359,6 +359,7 @@ func mainMigrationModels() []interface{} {
 		&AssistantLead{}, &AssistantProfileBucket{}, &AssistantUserProfile{}, &AssistantUserProfileAudit{}, &AssistantMemory{}, &AssistantFirstQuestionStat{}, &PromptPresetRow{}, &PromptPresetStat{}, &PromptConversionRef{}, &PromptConversationRef{}, &AssistantConversation{}, &AssistantHistoryMessage{}, &AssistantSecureCard{}, &AssistantSecurityIncident{}, &AssistantSecurityReviewNotice{}, &AssistantRequestReview{}, &AssistantReviewReset{}, &AssistantNewUserGift{}, &AssistantWeeklyDiscount{}, &AssistantGiftRiskKey{}, &AssistantGiftRiskMemory{}, &AdvancedSecurityEvent{},
 		&ViolationFeeState{}, &ViolationFeeRecord{}, &ViolationFeeAppeal{},
 		&FinanceLedgerEntry{}, &FinancePaymentMethod{},
+		&HeroSMSEmailOrder{}, &HeroSMSEmailActivation{}, &HeroSMSEmailQuotaLedger{},
 		&ReleaseNote{}, &ReleaseNoteRead{}, &UnifiedTodoRead{}, &L1OnboardingTodo{},
 		&PublicRelayContribution{}, &PublicRelayReport{}, &PublicRelayTip{}, &PublicRelayReview{}, &PublicRelayPreference{},
 	}
@@ -464,6 +465,9 @@ func migrateDBFast() error {
 		{&WaffoPancakeWebhookReceipt{}, "WaffoPancakeWebhookReceipt"},
 		{&FinanceLedgerEntry{}, "FinanceLedgerEntry"},
 		{&FinancePaymentMethod{}, "FinancePaymentMethod"},
+		{&HeroSMSEmailOrder{}, "HeroSMSEmailOrder"},
+		{&HeroSMSEmailActivation{}, "HeroSMSEmailActivation"},
+		{&HeroSMSEmailQuotaLedger{}, "HeroSMSEmailQuotaLedger"},
 		{&SubscriptionPreConsumeRecord{}, "SubscriptionPreConsumeRecord"},
 		{&CustomOAuthProvider{}, "CustomOAuthProvider"},
 		{&UserOAuthBinding{}, "UserOAuthBinding"},

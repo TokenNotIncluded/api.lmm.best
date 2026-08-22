@@ -50,6 +50,10 @@ const (
 	// writes, but remain bounded before decoding to keep the root-only editor
 	// from becoming an unbounded heap allocation.
 	rawOptionMutationRequestMaxBytes = 512 << 10
+	// HeroSMS option and purchase payloads only contain a domain id, quantity,
+	// or a small root-owned secret/config tuple. Keep them compact before JSON
+	// decoding and upstream fan-out.
+	heroSMSMutationRequestMaxBytes = 16 << 10
 )
 
 func SetApiRouter(router *gin.Engine) {
@@ -364,6 +368,10 @@ func SetApiRouter(router *gin.Engine) {
 			optionRoute.PUT("/", controller.UpdateOption)
 			optionRoute.POST("/validate", middleware.RequestBodyLimit(rawOptionMutationRequestMaxBytes), controller.ValidateOptions)
 			optionRoute.POST("/bulk", middleware.RequestBodyLimit(rawOptionMutationRequestMaxBytes), controller.UpdateOptionsBulk)
+			optionRoute.GET("/hero-sms", middleware.DisableCache(), controller.GetHeroSMSOptions)
+			optionRoute.PUT("/hero-sms", middleware.DisableCache(), middleware.RequestBodyLimit(heroSMSMutationRequestMaxBytes), controller.PutHeroSMSOptions)
+			optionRoute.POST("/hero-sms/test", middleware.DisableCache(), middleware.RequestBodyLimit(heroSMSMutationRequestMaxBytes), controller.TestHeroSMSOptions)
+			optionRoute.DELETE("/hero-sms/key", middleware.DisableCache(), controller.DeleteHeroSMSOptionKey)
 			optionRoute.GET("/project-update", controller.GetProjectUpdate)
 			optionRoute.POST("/payment_compliance", controller.ConfirmPaymentCompliance)
 			optionRoute.GET("/channel_affinity_cache", controller.GetChannelAffinityCacheStats)
@@ -378,6 +386,18 @@ func SetApiRouter(router *gin.Engine) {
 			optionRoute.POST("/waffo-pancake/save", middleware.RequestBodyLimit(waffoPancakeMutationRequestMaxBytes), controller.SaveWaffoPancake)
 			optionRoute.POST("/waffo-pancake/subscription-product", middleware.RequestBodyLimit(waffoPancakeMutationRequestMaxBytes), controller.CreateWaffoPancakeSubscriptionProduct)
 			optionRoute.GET("/waffo-pancake/subscription-product-options", controller.ListWaffoPancakeSubscriptionProductOptions)
+		}
+
+		heroSMSRoute := apiRouter.Group("/hero-sms")
+		heroSMSRoute.Use(middleware.UserAuth())
+		{
+			heroSMSRoute.GET("/email/products", middleware.DisableCache(), controller.ListHeroSMSEmailProducts)
+			heroSMSRoute.POST("/email/activations", middleware.DisableCache(), middleware.CriticalRateLimit(), middleware.UserCriticalRateLimit("hero-sms-email-purchase"), middleware.RequestBodyLimit(heroSMSMutationRequestMaxBytes), controller.CreateHeroSMSEmailActivations)
+			heroSMSRoute.GET("/email/activations", middleware.DisableCache(), controller.ListHeroSMSEmailActivations)
+			heroSMSRoute.GET("/email/activations/:id", middleware.DisableCache(), controller.GetHeroSMSEmailActivation)
+			heroSMSRoute.POST("/email/activations/:id/refresh", middleware.DisableCache(), middleware.CriticalRateLimit(), middleware.UserCriticalRateLimit("hero-sms-email-refresh"), controller.RefreshHeroSMSEmailActivation)
+			heroSMSRoute.POST("/email/activations/:id/cancel", middleware.DisableCache(), middleware.CriticalRateLimit(), middleware.UserCriticalRateLimit("hero-sms-email-cancel"), controller.CancelHeroSMSEmailActivation)
+			heroSMSRoute.POST("/email/activations/:id/reorder", middleware.DisableCache(), middleware.CriticalRateLimit(), middleware.UserCriticalRateLimit("hero-sms-email-reorder"), controller.ReorderHeroSMSEmailActivation)
 		}
 
 		dynamicPricingRoute := apiRouter.Group("/dynamic_pricing")
