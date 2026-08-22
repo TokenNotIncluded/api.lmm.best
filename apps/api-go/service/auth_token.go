@@ -57,14 +57,9 @@ func authSigningKey(purpose string) []byte {
 	return mac.Sum(nil)
 }
 
-func IssueAccessToken(identity AuthIdentity) (string, int64, error) {
-	if identity.UserID <= 0 || identity.SessionID == "" || identity.UserAuthVersion <= 0 || identity.SessionVersion <= 0 {
-		return "", 0, ErrAuthTokenInvalid
-	}
-	now := time.Now()
-	expiresAt := now.Add(AccessTokenTTL)
-	claims := authClaims{
-		TokenUse:        accessTokenUse,
+func newAuthClaims(identity AuthIdentity, tokenUse string, now, expiresAt time.Time) authClaims {
+	return authClaims{
+		TokenUse:        tokenUse,
 		SessionID:       identity.SessionID,
 		UserAuthVersion: identity.UserAuthVersion,
 		SessionVersion:  identity.SessionVersion,
@@ -78,6 +73,15 @@ func IssueAccessToken(identity AuthIdentity) (string, int64, error) {
 			ID:        uuid.NewString(),
 		},
 	}
+}
+
+func IssueAccessToken(identity AuthIdentity) (string, int64, error) {
+	if identity.UserID <= 0 || identity.SessionID == "" || identity.UserAuthVersion <= 0 || identity.SessionVersion <= 0 {
+		return "", 0, ErrAuthTokenInvalid
+	}
+	now := time.Now()
+	expiresAt := now.Add(AccessTokenTTL)
+	claims := newAuthClaims(identity, accessTokenUse, now, expiresAt)
 	signed, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(authSigningKey(accessTokenUse))
 	return signed, expiresAt.Unix(), err
 }
@@ -136,23 +140,9 @@ func IssueSecurityProof(identity AuthIdentity, method string, scopes []string) (
 	}
 	now := time.Now()
 	expiresAt := now.Add(SecurityProofTTL)
-	claims := authClaims{
-		TokenUse:        securityProofTokenUse,
-		SessionID:       identity.SessionID,
-		UserAuthVersion: identity.UserAuthVersion,
-		SessionVersion:  identity.SessionVersion,
-		Method:          method,
-		Scopes:          append([]string(nil), scopes...),
-		RegisteredClaims: jwt.RegisteredClaims{
-			Issuer:    authTokenIssuer,
-			Subject:   strconv.Itoa(identity.UserID),
-			Audience:  jwt.ClaimStrings{authTokenAudience},
-			ExpiresAt: jwt.NewNumericDate(expiresAt),
-			NotBefore: jwt.NewNumericDate(now.Add(-5 * time.Second)),
-			IssuedAt:  jwt.NewNumericDate(now),
-			ID:        uuid.NewString(),
-		},
-	}
+	claims := newAuthClaims(identity, securityProofTokenUse, now, expiresAt)
+	claims.Method = method
+	claims.Scopes = append([]string(nil), scopes...)
 	signed, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(authSigningKey(securityProofTokenUse))
 	return signed, expiresAt.Unix(), err
 }
