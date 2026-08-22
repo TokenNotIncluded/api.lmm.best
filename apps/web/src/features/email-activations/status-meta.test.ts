@@ -28,7 +28,12 @@ import {
 
 describe('HeroSMS activation status semantics', () => {
   test('polls only backend non-terminal states', () => {
-    for (const status of ['pending_provider', 'active', 'reconciling', 'cancel_pending']) {
+    for (const status of [
+      'pending_provider',
+      'active',
+      'reconciling',
+      'cancel_pending',
+    ]) {
       assert.equal(isHeroSmsActiveStatus(status), true, status)
     }
     for (const status of ['completed', 'cancelled', 'refunded', 'failed']) {

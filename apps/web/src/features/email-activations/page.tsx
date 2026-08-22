@@ -28,18 +28,23 @@ import {
   ReloadIcon,
 } from '@hugeicons/core-free-icons'
 import { HugeiconsIcon } from '@hugeicons/react'
+import { useQueryClient } from '@tanstack/react-query'
 import { getRouteApi } from '@tanstack/react-router'
 import type { ColumnDef } from '@tanstack/react-table'
-import { useQueryClient } from '@tanstack/react-query'
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
+import { ConfirmDialog } from '@/components/confirm-dialog'
 import { CopyButton } from '@/components/copy-button'
+import { useDataTable } from '@/components/data-table/hooks/use-data-table'
 import { DataTablePage } from '@/components/data-table/layout/data-table-page'
 import { ErrorState } from '@/components/error-state'
-import { LoadingState } from '@/components/loading-state'
 import { SectionPageLayout } from '@/components/layout/components/section-page-layout'
+import { LoadingState } from '@/components/loading-state'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import {
   Card,
   CardContent,
@@ -47,10 +52,6 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
-import { ConfirmDialog } from '@/components/confirm-dialog'
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
-import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import {
   Select,
@@ -68,10 +69,10 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet'
 import { useDebounce, useMediaQuery } from '@/hooks'
-import { useDataTable } from '@/components/data-table/hooks/use-data-table'
 import { useTableUrlState } from '@/hooks/use-table-url-state'
-import { formatCurrencyUSD, formatNumber } from '@/lib/format'
 import dayjs from '@/lib/dayjs'
+import { formatCurrencyUSD, formatNumber } from '@/lib/format'
+
 import {
   createHeroSmsIdempotencyKey,
   listHeroSmsProducts,
@@ -88,12 +89,12 @@ import {
   useRefreshHeroSmsActivation,
   useReorderHeroSmsActivation,
 } from './hooks'
+import { HeroSmsStatusBadge } from './status'
 import {
   canCancelHeroSmsActivation,
   canReorderHeroSmsActivation,
   getHeroSmsStatusOptions,
 } from './status-meta'
-import { HeroSmsStatusBadge } from './status'
 import type {
   HeroSmsActivation,
   HeroSmsParsedError,
@@ -291,11 +292,23 @@ function HistoryMobileCards({
                 />
               </div>
               <div className='flex flex-wrap gap-2'>
-                <Button size='sm' variant='outline' onClick={() => onOpenDetail(activation)}>
+                <Button
+                  size='sm'
+                  variant='outline'
+                  onClick={() => onOpenDetail(activation)}
+                >
                   {t('View details')}
                 </Button>
-                <Button size='sm' variant='outline' onClick={() => onRefresh(activation)}>
-                  <HugeiconsIcon icon={ReloadIcon} data-icon='inline-start' strokeWidth={2} />
+                <Button
+                  size='sm'
+                  variant='outline'
+                  onClick={() => onRefresh(activation)}
+                >
+                  <HugeiconsIcon
+                    icon={ReloadIcon}
+                    data-icon='inline-start'
+                    strokeWidth={2}
+                  />
                   <span>{t('Refresh')}</span>
                 </Button>
                 <Button
@@ -304,7 +317,11 @@ function HistoryMobileCards({
                   onClick={() => onCancel(activation)}
                   disabled={!canCancel}
                 >
-                  <HugeiconsIcon icon={CancelCircleIcon} data-icon='inline-start' strokeWidth={2} />
+                  <HugeiconsIcon
+                    icon={CancelCircleIcon}
+                    data-icon='inline-start'
+                    strokeWidth={2}
+                  />
                   <span>{t('Cancel')}</span>
                 </Button>
                 <Button
@@ -313,7 +330,11 @@ function HistoryMobileCards({
                   onClick={() => onReorder(activation)}
                   disabled={!canReorder}
                 >
-                  <HugeiconsIcon icon={ArrowRight01Icon} data-icon='inline-start' strokeWidth={2} />
+                  <HugeiconsIcon
+                    icon={ArrowRight01Icon}
+                    data-icon='inline-start'
+                    strokeWidth={2}
+                  />
                   <span>{t('Reorder')}</span>
                 </Button>
               </div>
@@ -342,13 +363,24 @@ export function EmailActivationsPage() {
   const [selectedSite, setSelectedSite] = useState('')
   const [selectedDomainId, setSelectedDomainId] = useState('')
   const [quantity, setQuantity] = useState(1)
-  const [purchaseFeedback, setPurchaseFeedback] = useState<InlineFeedback | null>(null)
-  const [actionFeedback, setActionFeedback] = useState<InlineFeedback | null>(null)
-  const [detailTarget, setDetailTarget] = useState<HeroSmsActivation | null>(null)
-  const [cancelTarget, setCancelTarget] = useState<HeroSmsActivation | null>(null)
-  const [purchaseTarget, setPurchaseTarget] = useState<PurchaseConfirmation | null>(null)
-  const [reorderTarget, setReorderTarget] = useState<ReorderConfirmation | null>(null)
-  const [reorderQuoteLoadingId, setReorderQuoteLoadingId] = useState<string | null>(null)
+  const [purchaseFeedback, setPurchaseFeedback] =
+    useState<InlineFeedback | null>(null)
+  const [actionFeedback, setActionFeedback] = useState<InlineFeedback | null>(
+    null
+  )
+  const [detailTarget, setDetailTarget] = useState<HeroSmsActivation | null>(
+    null
+  )
+  const [cancelTarget, setCancelTarget] = useState<HeroSmsActivation | null>(
+    null
+  )
+  const [purchaseTarget, setPurchaseTarget] =
+    useState<PurchaseConfirmation | null>(null)
+  const [reorderTarget, setReorderTarget] =
+    useState<ReorderConfirmation | null>(null)
+  const [reorderQuoteLoadingId, setReorderQuoteLoadingId] = useState<
+    string | null
+  >(null)
 
   const {
     columnFilters,
@@ -384,7 +416,10 @@ export function EmailActivationsPage() {
   const refreshMutation = useRefreshHeroSmsActivation()
   const cancelMutation = useCancelHeroSmsActivation()
   const reorderMutation = useReorderHeroSmsActivation()
-  const detailQuery = useHeroSmsActivationDetail(detailTarget?.id ?? null, !!detailTarget)
+  const detailQuery = useHeroSmsActivationDetail(
+    detailTarget?.id ?? null,
+    !!detailTarget
+  )
 
   const productsLoading =
     !!trimmedSite && (debouncedSite !== trimmedSite || productsQuery.isLoading)
@@ -392,11 +427,17 @@ export function EmailActivationsPage() {
     debouncedSite === trimmedSite ? (productsQuery.data?.items ?? []) : []
   const siteProducts = products
   const resolvedDomainId =
-    selectedDomainId && siteProducts.some((item) => String(item.id) === selectedDomainId)
+    selectedDomainId &&
+    siteProducts.some((item) => String(item.id) === selectedDomainId)
       ? selectedDomainId
-      : String(siteProducts.find((item) => item.available)?.id ?? siteProducts[0]?.id ?? '')
+      : String(
+          siteProducts.find((item) => item.available)?.id ??
+            siteProducts[0]?.id ??
+            ''
+        )
   const selectedProduct = useMemo(
-    () => siteProducts.find((item) => String(item.id) === resolvedDomainId) ?? null,
+    () =>
+      siteProducts.find((item) => String(item.id) === resolvedDomainId) ?? null,
     [resolvedDomainId, siteProducts]
   )
   const maxQuantity = Math.min(10, Math.max(1, selectedProduct?.count ?? 10))
@@ -418,7 +459,9 @@ export function EmailActivationsPage() {
               <span className='truncate font-medium'>
                 {activation.email || t('Pending email assignment')}
               </span>
-              {activation.email ? <CopyButton value={activation.email} /> : null}
+              {activation.email ? (
+                <CopyButton value={activation.email} />
+              ) : null}
             </div>
             <p className='text-muted-foreground truncate text-xs'>
               {activation.site || '—'} · {activation.domain || '—'}
@@ -430,7 +473,9 @@ export function EmailActivationsPage() {
     {
       accessorKey: 'status',
       header: t('Status'),
-      cell: ({ row }) => <HeroSmsStatusBadge status={row.original.status} t={t} />,
+      cell: ({ row }) => (
+        <HeroSmsStatusBadge status={row.original.status} t={t} />
+      ),
     },
     {
       accessorKey: 'code',
@@ -471,10 +516,18 @@ export function EmailActivationsPage() {
 
         return (
           <div className='flex flex-wrap justify-end gap-2'>
-            <Button size='sm' variant='outline' onClick={() => setDetailTarget(activation)}>
+            <Button
+              size='sm'
+              variant='outline'
+              onClick={() => setDetailTarget(activation)}
+            >
               {t('View')}
             </Button>
-            <Button size='sm' variant='outline' onClick={() => void handleRefresh(activation)}>
+            <Button
+              size='sm'
+              variant='outline'
+              onClick={() => void handleRefresh(activation)}
+            >
               {t('Refresh')}
             </Button>
             <Button
@@ -489,7 +542,9 @@ export function EmailActivationsPage() {
               size='sm'
               variant='outline'
               onClick={() => void prepareReorder(activation)}
-              disabled={!canReorder || reorderQuoteLoadingId === String(activation.id)}
+              disabled={
+                !canReorder || reorderQuoteLoadingId === String(activation.id)
+              }
             >
               {t('Reorder')}
             </Button>
@@ -527,7 +582,11 @@ export function EmailActivationsPage() {
       setPurchaseTarget(null)
       await invalidateHeroSmsQueries()
       const orderStatus = String(result.order?.status ?? '').toLowerCase()
-      if (['purchase_unknown', 'reconciling', 'pending_provider'].includes(orderStatus)) {
+      if (
+        ['purchase_unknown', 'reconciling', 'pending_provider'].includes(
+          orderStatus
+        )
+      ) {
         setPurchaseFeedback({
           tone: 'default',
           title: t('Purchase reconciling'),
@@ -548,7 +607,9 @@ export function EmailActivationsPage() {
       setPurchaseFeedback(feedback)
       if (parsed.status === 409) {
         setPurchaseTarget(null)
-        await queryClient.invalidateQueries({ queryKey: ['hero-sms', 'products'] })
+        await queryClient.invalidateQueries({
+          queryKey: ['hero-sms', 'products'],
+        })
       }
       toast.error(feedback.title)
     }
@@ -561,7 +622,9 @@ export function EmailActivationsPage() {
       setActionFeedback({
         tone: 'destructive',
         title: t('Reorder unavailable'),
-        description: t('This activation does not contain a reusable site and domain.'),
+        description: t(
+          'This activation does not contain a reusable site and domain.'
+        ),
       })
       return
     }
@@ -569,7 +632,11 @@ export function EmailActivationsPage() {
     setActionFeedback(null)
     setReorderQuoteLoadingId(String(activation.id))
     try {
-      const productsPage = await listHeroSmsProducts({ page: 1, size: 100, site })
+      const productsPage = await listHeroSmsProducts({
+        page: 1,
+        size: 100,
+        site,
+      })
       const product = productsPage.items.find(
         (item) => item.available && item.domain.trim().toLowerCase() === domain
       )
@@ -577,7 +644,9 @@ export function EmailActivationsPage() {
         setActionFeedback({
           tone: 'destructive',
           title: t('Reorder unavailable'),
-          description: t('No matching HeroSMS inventory is available for this activation.'),
+          description: t(
+            'No matching HeroSMS inventory is available for this activation.'
+          ),
         })
         return
       }
@@ -599,8 +668,12 @@ export function EmailActivationsPage() {
     setActionFeedback(null)
     try {
       await refreshMutation.mutateAsync(activation.id)
-      await queryClient.invalidateQueries({ queryKey: ['hero-sms', 'activations'] })
-      await queryClient.invalidateQueries({ queryKey: heroSmsQueryKeys.activation(activation.id) })
+      await queryClient.invalidateQueries({
+        queryKey: ['hero-sms', 'activations'],
+      })
+      await queryClient.invalidateQueries({
+        queryKey: heroSmsQueryKeys.activation(activation.id),
+      })
       toast.success(t('Activation refreshed'))
     } catch (error) {
       const feedback = describeHeroSmsError(parseHeroSmsError(error), t)
@@ -616,7 +689,9 @@ export function EmailActivationsPage() {
     try {
       await cancelMutation.mutateAsync(cancelTarget.id)
       setCancelTarget(null)
-      await queryClient.invalidateQueries({ queryKey: ['hero-sms', 'activations'] })
+      await queryClient.invalidateQueries({
+        queryKey: ['hero-sms', 'activations'],
+      })
       toast.success(t('Cancellation requested'))
     } catch (error) {
       const feedback = describeHeroSmsError(parseHeroSmsError(error), t)
@@ -638,7 +713,11 @@ export function EmailActivationsPage() {
       setReorderTarget(null)
       await invalidateHeroSmsQueries()
       const orderStatus = String(result.order?.status ?? '').toLowerCase()
-      if (['purchase_unknown', 'reconciling', 'pending_provider'].includes(orderStatus)) {
+      if (
+        ['purchase_unknown', 'reconciling', 'pending_provider'].includes(
+          orderStatus
+        )
+      ) {
         setActionFeedback({
           tone: 'default',
           title: t('Purchase reconciling'),
@@ -659,25 +738,36 @@ export function EmailActivationsPage() {
       setActionFeedback(feedback)
       if (parsed.status === 409) {
         setReorderTarget(null)
-        await queryClient.invalidateQueries({ queryKey: ['hero-sms', 'products'] })
+        await queryClient.invalidateQueries({
+          queryKey: ['hero-sms', 'products'],
+        })
       }
       toast.error(feedback.title)
     }
   }
 
   const hasHardError =
-    !productsQuery.data && productsQuery.isError && !activationsQuery.data && activationsQuery.isError
+    !productsQuery.data &&
+    productsQuery.isError &&
+    !activationsQuery.data &&
+    activationsQuery.isError
 
   return (
     <SectionPageLayout>
-      <SectionPageLayout.Title>{t('Email Activations')}</SectionPageLayout.Title>
+      <SectionPageLayout.Title>
+        {t('Email Activations')}
+      </SectionPageLayout.Title>
       <SectionPageLayout.Actions>
         <Button
           variant='outline'
           onClick={() => void invalidateHeroSmsQueries()}
           disabled={productsQuery.isFetching || activationsQuery.isFetching}
         >
-          <HugeiconsIcon icon={ReloadIcon} data-icon='inline-start' strokeWidth={2} />
+          <HugeiconsIcon
+            icon={ReloadIcon}
+            data-icon='inline-start'
+            strokeWidth={2}
+          />
           <span>{t('Refresh')}</span>
         </Button>
       </SectionPageLayout.Actions>
@@ -685,13 +775,20 @@ export function EmailActivationsPage() {
         {hasHardError ? (
           <ErrorState
             title={t('Unable to load HeroSMS email activations')}
-            description={t('Retry to fetch the latest products and activation history.')}
+            description={t(
+              'Retry to fetch the latest products and activation history.'
+            )}
             onRetry={() => void invalidateHeroSmsQueries()}
           />
         ) : (
           <div className='space-y-4'>
             {activationsQuery.isError && activations.length > 0 ? (
-              <InlineAlert feedback={describeHeroSmsError(parseHeroSmsError(activationsQuery.error), t)} />
+              <InlineAlert
+                feedback={describeHeroSmsError(
+                  parseHeroSmsError(activationsQuery.error),
+                  t
+                )}
+              />
             ) : null}
 
             <div className='grid gap-4 xl:grid-cols-[minmax(0,360px)_minmax(0,1fr)]'>
@@ -712,7 +809,9 @@ export function EmailActivationsPage() {
                   </div>
                 </CardHeader>
                 <CardContent className='space-y-4'>
-                  {purchaseFeedback ? <InlineAlert feedback={purchaseFeedback} /> : null}
+                  {purchaseFeedback ? (
+                    <InlineAlert feedback={purchaseFeedback} />
+                  ) : null}
 
                   <Field label={t('Site')} controlId='hero-sms-site'>
                     <Input
@@ -728,10 +827,16 @@ export function EmailActivationsPage() {
 
                   {!trimmedSite ? (
                     <Alert>
-                      <HugeiconsIcon icon={InformationCircleIcon} strokeWidth={2} aria-hidden='true' />
+                      <HugeiconsIcon
+                        icon={InformationCircleIcon}
+                        strokeWidth={2}
+                        aria-hidden='true'
+                      />
                       <AlertTitle>{t('Enter target site first')}</AlertTitle>
                       <AlertDescription>
-                        {t('HeroSMS only returns purchasable email domains after you provide a non-empty target site.')}
+                        {t(
+                          'HeroSMS only returns purchasable email domains after you provide a non-empty target site.'
+                        )}
                       </AlertDescription>
                     </Alert>
                   ) : null}
@@ -742,115 +847,150 @@ export function EmailActivationsPage() {
 
                   {trimmedSite && products.length === 0 && !productsLoading ? (
                     <Alert>
-                      <HugeiconsIcon icon={InformationCircleIcon} strokeWidth={2} aria-hidden='true' />
+                      <HugeiconsIcon
+                        icon={InformationCircleIcon}
+                        strokeWidth={2}
+                        aria-hidden='true'
+                      />
                       <AlertTitle>{t('Purchasing unavailable')}</AlertTitle>
                       <AlertDescription>
-                        {t('No HeroSMS email products are available for the target site right now.')}
+                        {t(
+                          'No HeroSMS email products are available for the target site right now.'
+                        )}
                       </AlertDescription>
                     </Alert>
                   ) : null}
 
                   <>
-                      <Field label={t('Domain')} controlId='hero-sms-domain'>
-                        <Select
-                          value={resolvedDomainId}
-                          onValueChange={(value) => setSelectedDomainId(value ?? '')}
-                          disabled={!trimmedSite || siteProducts.length === 0}
-                        >
-                          <SelectTrigger id='hero-sms-domain' className='w-full'>
-                            <SelectValue placeholder={t('Choose a domain')}>
-                              {selectedProduct?.domain}
-                            </SelectValue>
-                          </SelectTrigger>
-                          <SelectContent>
-                            {siteProducts.map((product) => (
-                              <SelectItem
-                                key={String(product.id)}
-                                value={String(product.id)}
-                                disabled={!product.available}
-                              >
-                                {product.domain} · {t('{{count}} available', { count: product.count })}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </Field>
-
-                      <Field label={t('Quantity')} controlId='hero-sms-quantity'>
-                        <Input
-                          id='hero-sms-quantity'
-                          type='number'
-                          min={1}
-                          max={maxQuantity}
-                          value={String(quantity)}
-                          onChange={(event) => {
-                            const next = Number(event.target.value)
-                            setQuantity(
-                              Number.isFinite(next)
-                                ? Math.min(maxQuantity, Math.max(1, Math.trunc(next)))
-                                : 1
-                            )
-                          }}
-                        />
-                      </Field>
-
-                      <div className='rounded-xl border p-3'>
-                        <div className='grid gap-3 sm:grid-cols-2'>
-                          <MetaItem
-                            label={t('Inventory')}
-                            value={formatNumber(selectedProduct?.count ?? 0)}
-                          />
-                          <MetaItem
-                            label={t('Quote')}
-                            value={formatCurrencyUSD(selectedProduct?.customer_price_usd ?? 0)}
-                          />
-                          <MetaItem
-                            label={t('Multiplier')}
-                            value={`× ${formatNumber(productsQuery.data?.price_multiplier ?? 0)}`}
-                          />
-                          <MetaItem
-                            label={t('Final quota price')}
-                            value={formatNumber((selectedProduct?.charge_quota ?? 0) * quantity)}
-                          />
-                        </div>
-                      </div>
-
-                      {trimmedSite && selectedProduct && !selectedProduct.available ? (
-                        <Alert>
-                          <HugeiconsIcon icon={InformationCircleIcon} strokeWidth={2} aria-hidden='true' />
-                          <AlertTitle>{t('Out of stock')}</AlertTitle>
-                          <AlertDescription>
-                            {t('Choose another domain or refresh to check for replenished inventory.')}
-                          </AlertDescription>
-                        </Alert>
-                      ) : null}
-
-                      <Button
-                        className='w-full'
-                        onClick={() => {
-                          if (!selectedProduct) return
-                          setPurchaseTarget({
-                            product: selectedProduct,
-                            quantity,
-                            idempotencyKey: createHeroSmsIdempotencyKey(),
-                          })
-                        }}
-                        disabled={
-                          !selectedProduct ||
-                          !selectedProduct.available ||
-                          selectedProduct.count < quantity ||
-                          createMutation.isPending ||
-                          productsLoading
+                    <Field label={t('Domain')} controlId='hero-sms-domain'>
+                      <Select
+                        value={resolvedDomainId}
+                        onValueChange={(value) =>
+                          setSelectedDomainId(value ?? '')
                         }
+                        disabled={!trimmedSite || siteProducts.length === 0}
                       >
-                        {createMutation.isPending ? (
-                          <HugeiconsIcon icon={Loading03Icon} data-icon='inline-start' className='animate-spin' strokeWidth={2} />
-                        ) : (
-                          <HugeiconsIcon icon={PackageSearchIcon} data-icon='inline-start' strokeWidth={2} />
-                        )}
-                        <span>{t('Buy activation')}</span>
-                      </Button>
-                    </>
+                        <SelectTrigger id='hero-sms-domain' className='w-full'>
+                          <SelectValue placeholder={t('Choose a domain')}>
+                            {selectedProduct?.domain}
+                          </SelectValue>
+                        </SelectTrigger>
+                        <SelectContent>
+                          {siteProducts.map((product) => (
+                            <SelectItem
+                              key={String(product.id)}
+                              value={String(product.id)}
+                              disabled={!product.available}
+                            >
+                              {product.domain} ·{' '}
+                              {t('{{count}} available', {
+                                count: product.count,
+                              })}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </Field>
+
+                    <Field label={t('Quantity')} controlId='hero-sms-quantity'>
+                      <Input
+                        id='hero-sms-quantity'
+                        type='number'
+                        min={1}
+                        max={maxQuantity}
+                        value={String(quantity)}
+                        onChange={(event) => {
+                          const next = Number(event.target.value)
+                          setQuantity(
+                            Number.isFinite(next)
+                              ? Math.min(
+                                  maxQuantity,
+                                  Math.max(1, Math.trunc(next))
+                                )
+                              : 1
+                          )
+                        }}
+                      />
+                    </Field>
+
+                    <div className='rounded-xl border p-3'>
+                      <div className='grid gap-3 sm:grid-cols-2'>
+                        <MetaItem
+                          label={t('Inventory')}
+                          value={formatNumber(selectedProduct?.count ?? 0)}
+                        />
+                        <MetaItem
+                          label={t('Quote')}
+                          value={formatCurrencyUSD(
+                            selectedProduct?.customer_price_usd ?? 0
+                          )}
+                        />
+                        <MetaItem
+                          label={t('Multiplier')}
+                          value={`× ${formatNumber(productsQuery.data?.price_multiplier ?? 0)}`}
+                        />
+                        <MetaItem
+                          label={t('Final quota price')}
+                          value={formatNumber(
+                            (selectedProduct?.charge_quota ?? 0) * quantity
+                          )}
+                        />
+                      </div>
+                    </div>
+
+                    {trimmedSite &&
+                    selectedProduct &&
+                    !selectedProduct.available ? (
+                      <Alert>
+                        <HugeiconsIcon
+                          icon={InformationCircleIcon}
+                          strokeWidth={2}
+                          aria-hidden='true'
+                        />
+                        <AlertTitle>{t('Out of stock')}</AlertTitle>
+                        <AlertDescription>
+                          {t(
+                            'Choose another domain or refresh to check for replenished inventory.'
+                          )}
+                        </AlertDescription>
+                      </Alert>
+                    ) : null}
+
+                    <Button
+                      className='w-full'
+                      onClick={() => {
+                        if (!selectedProduct) return
+                        setPurchaseTarget({
+                          product: selectedProduct,
+                          quantity,
+                          idempotencyKey: createHeroSmsIdempotencyKey(),
+                        })
+                      }}
+                      disabled={
+                        !selectedProduct ||
+                        !selectedProduct.available ||
+                        selectedProduct.count < quantity ||
+                        createMutation.isPending ||
+                        productsLoading
+                      }
+                    >
+                      {createMutation.isPending ? (
+                        <HugeiconsIcon
+                          icon={Loading03Icon}
+                          data-icon='inline-start'
+                          className='animate-spin'
+                          strokeWidth={2}
+                        />
+                      ) : (
+                        <HugeiconsIcon
+                          icon={PackageSearchIcon}
+                          data-icon='inline-start'
+                          strokeWidth={2}
+                        />
+                      )}
+                      <span>{t('Buy activation')}</span>
+                    </Button>
+                  </>
                 </CardContent>
               </Card>
 
@@ -858,18 +998,25 @@ export function EmailActivationsPage() {
                 <CardHeader>
                   <div className='flex items-start gap-3'>
                     <div className='rounded-lg border p-2'>
-                      <HugeiconsIcon icon={CheckmarkCircle02Icon} strokeWidth={2} />
+                      <HugeiconsIcon
+                        icon={CheckmarkCircle02Icon}
+                        strokeWidth={2}
+                      />
                     </div>
                     <div className='space-y-1'>
                       <CardTitle>{t('Current activation')}</CardTitle>
                       <CardDescription>
-                        {t('Keep the latest active email and verification code visible while you complete sign-up or login.')}
+                        {t(
+                          'Keep the latest active email and verification code visible while you complete sign-up or login.'
+                        )}
                       </CardDescription>
                     </div>
                   </div>
                 </CardHeader>
                 <CardContent className='space-y-4'>
-                  {actionFeedback ? <InlineAlert feedback={actionFeedback} /> : null}
+                  {actionFeedback ? (
+                    <InlineAlert feedback={actionFeedback} />
+                  ) : null}
                   {currentActivationQuery.isError ? (
                     <InlineAlert
                       feedback={describeHeroSmsError(
@@ -884,12 +1031,18 @@ export function EmailActivationsPage() {
                       <div className='rounded-xl border p-4'>
                         <div className='flex flex-wrap items-start justify-between gap-3'>
                           <div className='min-w-0 space-y-2'>
-                            <HeroSmsStatusBadge status={currentActivation.status} t={t} />
+                            <HeroSmsStatusBadge
+                              status={currentActivation.status}
+                              t={t}
+                            />
                             <div className='min-w-0'>
-                              <p className='text-muted-foreground text-xs'>{t('Email')}</p>
+                              <p className='text-muted-foreground text-xs'>
+                                {t('Email')}
+                              </p>
                               <div className='flex items-center gap-2'>
                                 <p className='truncate text-base font-semibold'>
-                                  {currentActivation.email || t('Pending email assignment')}
+                                  {currentActivation.email ||
+                                    t('Pending email assignment')}
                                 </p>
                                 {currentActivation.email ? (
                                   <CopyButton value={currentActivation.email} />
@@ -900,10 +1053,16 @@ export function EmailActivationsPage() {
                           <Button
                             variant='outline'
                             size='sm'
-                            onClick={() => void handleRefresh(currentActivation)}
+                            onClick={() =>
+                              void handleRefresh(currentActivation)
+                            }
                             disabled={refreshMutation.isPending}
                           >
-                            <HugeiconsIcon icon={ReloadIcon} data-icon='inline-start' strokeWidth={2} />
+                            <HugeiconsIcon
+                              icon={ReloadIcon}
+                              data-icon='inline-start'
+                              strokeWidth={2}
+                            />
                             <span>{t('Refresh')}</span>
                           </Button>
                         </div>
@@ -912,10 +1071,13 @@ export function EmailActivationsPage() {
 
                         <div className='grid gap-4 sm:grid-cols-2'>
                           <div className='min-w-0'>
-                            <p className='text-muted-foreground text-xs'>{t('Verification code')}</p>
+                            <p className='text-muted-foreground text-xs'>
+                              {t('Verification code')}
+                            </p>
                             <div className='mt-1 flex items-center gap-2'>
                               <p className='text-lg font-semibold'>
-                                {currentActivation.code || t('Waiting for code')}
+                                {currentActivation.code ||
+                                  t('Waiting for code')}
                               </p>
                               {currentActivation.code ? (
                                 <CopyButton value={currentActivation.code} />
@@ -932,50 +1094,82 @@ export function EmailActivationsPage() {
                           />
                           <MetaItem
                             label={t('Provider price')}
-                            value={formatCurrencyUSD(currentActivation.cost_usd)}
+                            value={formatCurrencyUSD(
+                              currentActivation.cost_usd
+                            )}
                           />
                         </div>
                       </div>
 
                       {currentActivation.message ? (
                         <Alert>
-                          <HugeiconsIcon icon={InformationCircleIcon} strokeWidth={2} aria-hidden='true' />
+                          <HugeiconsIcon
+                            icon={InformationCircleIcon}
+                            strokeWidth={2}
+                            aria-hidden='true'
+                          />
                           <AlertTitle>{t('Latest provider update')}</AlertTitle>
-                          <AlertDescription>{currentActivation.message}</AlertDescription>
+                          <AlertDescription>
+                            {currentActivation.message}
+                          </AlertDescription>
                         </Alert>
                       ) : null}
 
                       <div className='flex flex-wrap gap-2'>
-                        <Button variant='outline' onClick={() => setDetailTarget(currentActivation)}>
+                        <Button
+                          variant='outline'
+                          onClick={() => setDetailTarget(currentActivation)}
+                        >
                           {t('Open details')}
                         </Button>
                         <Button
                           variant='outline'
                           onClick={() => setCancelTarget(currentActivation)}
-                          disabled={!canCancelHeroSmsActivation(currentActivation.status)}
+                          disabled={
+                            !canCancelHeroSmsActivation(
+                              currentActivation.status
+                            )
+                          }
                         >
-                          <HugeiconsIcon icon={CancelCircleIcon} data-icon='inline-start' strokeWidth={2} />
+                          <HugeiconsIcon
+                            icon={CancelCircleIcon}
+                            data-icon='inline-start'
+                            strokeWidth={2}
+                          />
                           <span>{t('Cancel')}</span>
                         </Button>
                         <Button
                           variant='outline'
                           onClick={() => void prepareReorder(currentActivation)}
                           disabled={
-                            !canReorderHeroSmsActivation(currentActivation.status) ||
-                            reorderQuoteLoadingId === String(currentActivation.id)
+                            !canReorderHeroSmsActivation(
+                              currentActivation.status
+                            ) ||
+                            reorderQuoteLoadingId ===
+                              String(currentActivation.id)
                           }
                         >
-                          <HugeiconsIcon icon={ArrowRight01Icon} data-icon='inline-start' strokeWidth={2} />
+                          <HugeiconsIcon
+                            icon={ArrowRight01Icon}
+                            data-icon='inline-start'
+                            strokeWidth={2}
+                          />
                           <span>{t('Reorder')}</span>
                         </Button>
                       </div>
                     </>
                   ) : (
                     <Alert>
-                      <HugeiconsIcon icon={InformationCircleIcon} strokeWidth={2} aria-hidden='true' />
+                      <HugeiconsIcon
+                        icon={InformationCircleIcon}
+                        strokeWidth={2}
+                        aria-hidden='true'
+                      />
                       <AlertTitle>{t('No active email activation')}</AlertTitle>
                       <AlertDescription>
-                        {t('Your next purchased activation will appear here until it completes, expires, or is cancelled.')}
+                        {t(
+                          'Your next purchased activation will appear here until it completes, expires, or is cancelled.'
+                        )}
                       </AlertDescription>
                     </Alert>
                   )}
@@ -987,17 +1181,23 @@ export function EmailActivationsPage() {
               <CardHeader>
                 <CardTitle>{t('History')}</CardTitle>
                 <CardDescription>
-                  {t('Review current and past HeroSMS email activations, filter by status, and reopen order details.')}
+                  {t(
+                    'Review current and past HeroSMS email activations, filter by status, and reopen order details.'
+                  )}
                 </CardDescription>
               </CardHeader>
               <CardContent>
                 <DataTablePage
                   table={table}
                   columns={columns}
-                  isLoading={activationsQuery.isLoading && activations.length === 0}
+                  isLoading={
+                    activationsQuery.isLoading && activations.length === 0
+                  }
                   isFetching={activationsQuery.isFetching}
                   emptyTitle={t('No email activations found')}
-                  emptyDescription={t('Purchase an activation to start receiving temporary email logins here.')}
+                  emptyDescription={t(
+                    'Purchase an activation to start receiving temporary email logins here.'
+                  )}
                   toolbarProps={{
                     filters: [
                       {
@@ -1011,11 +1211,15 @@ export function EmailActivationsPage() {
                   mobile={
                     <HistoryMobileCards
                       items={activations}
-                      loading={activationsQuery.isLoading && activations.length === 0}
+                      loading={
+                        activationsQuery.isLoading && activations.length === 0
+                      }
                       onOpenDetail={setDetailTarget}
                       onCancel={setCancelTarget}
                       onRefresh={(activation) => void handleRefresh(activation)}
-                      onReorder={(activation) => void prepareReorder(activation)}
+                      onReorder={(activation) =>
+                        void prepareReorder(activation)
+                      }
                     />
                   }
                   showPagination
@@ -1027,7 +1231,10 @@ export function EmailActivationsPage() {
           </div>
         )}
 
-        <Sheet open={!!detailTarget} onOpenChange={(open) => !open && setDetailTarget(null)}>
+        <Sheet
+          open={!!detailTarget}
+          onOpenChange={(open) => !open && setDetailTarget(null)}
+        >
           <SheetContent
             side={isMobile ? 'bottom' : 'right'}
             className='max-h-[88dvh] w-full overflow-y-auto sm:max-w-xl'
@@ -1035,7 +1242,9 @@ export function EmailActivationsPage() {
             <SheetHeader>
               <SheetTitle>{t('Activation details')}</SheetTitle>
               <SheetDescription>
-                {t('Review the latest provider status, timestamps, and order identifiers for this activation.')}
+                {t(
+                  'Review the latest provider status, timestamps, and order identifiers for this activation.'
+                )}
               </SheetDescription>
             </SheetHeader>
 
@@ -1045,7 +1254,8 @@ export function EmailActivationsPage() {
               ) : null}
 
               {(() => {
-                const detailActivation = detailQuery.data?.activation ?? detailTarget
+                const detailActivation =
+                  detailQuery.data?.activation ?? detailTarget
                 if (!detailActivation) {
                   return null
                 }
@@ -1054,40 +1264,65 @@ export function EmailActivationsPage() {
                   <>
                     <div className='flex flex-wrap items-start justify-between gap-3'>
                       <div className='min-w-0 space-y-2'>
-                        <HeroSmsStatusBadge status={detailActivation.status} t={t} />
+                        <HeroSmsStatusBadge
+                          status={detailActivation.status}
+                          t={t}
+                        />
                         <div className='min-w-0'>
-                          <p className='text-muted-foreground text-xs'>{t('Email')}</p>
+                          <p className='text-muted-foreground text-xs'>
+                            {t('Email')}
+                          </p>
                           <div className='flex items-center gap-2'>
-                            <p className='truncate font-semibold'>{detailActivation.email || '—'}</p>
+                            <p className='truncate font-semibold'>
+                              {detailActivation.email || '—'}
+                            </p>
                             {detailActivation.email ? (
                               <CopyButton value={detailActivation.email} />
                             ) : null}
                           </div>
                         </div>
                         <div className='min-w-0'>
-                          <p className='text-muted-foreground text-xs'>{t('Verification code')}</p>
+                          <p className='text-muted-foreground text-xs'>
+                            {t('Verification code')}
+                          </p>
                           <div className='flex items-center gap-2'>
-                            <p className='font-semibold'>{detailActivation.code || '—'}</p>
+                            <p className='font-semibold'>
+                              {detailActivation.code || '—'}
+                            </p>
                             {detailActivation.code ? (
                               <CopyButton value={detailActivation.code} />
                             ) : null}
                           </div>
                         </div>
                       </div>
-                      <Badge variant='outline'>{t('Order #{{id}}', { id: detailActivation.order_id })}</Badge>
+                      <Badge variant='outline'>
+                        {t('Order #{{id}}', { id: detailActivation.order_id })}
+                      </Badge>
                     </div>
 
                     {detailActivation.message ? (
                       <Alert>
-                        <HugeiconsIcon icon={InformationCircleIcon} strokeWidth={2} aria-hidden='true' />
+                        <HugeiconsIcon
+                          icon={InformationCircleIcon}
+                          strokeWidth={2}
+                          aria-hidden='true'
+                        />
                         <AlertTitle>{t('Provider message')}</AlertTitle>
-                        <AlertDescription>{detailActivation.message}</AlertDescription>
+                        <AlertDescription>
+                          {detailActivation.message}
+                        </AlertDescription>
                       </Alert>
                     ) : null}
 
                     <div className='grid gap-4 rounded-xl border p-4 sm:grid-cols-2'>
-                      <MetaItem label={t('Site')} value={detailActivation.site || '—'} />
-                      <MetaItem label={t('Domain')} value={detailActivation.domain || '—'} />
+                      <MetaItem
+                        label={t('Site')}
+                        value={detailActivation.site || '—'}
+                      />
+                      <MetaItem
+                        label={t('Domain')}
+                        value={detailActivation.domain || '—'}
+                      />
                       <MetaItem
                         label={t('Created')}
                         value={formatDateTime(detailActivation.created_at)}
@@ -1110,7 +1345,10 @@ export function EmailActivationsPage() {
                       />
                       <MetaItem
                         label={t('Cancellation reason')}
-                        value={formatCancellationReason(detailActivation.cancel_reason, t)}
+                        value={formatCancellationReason(
+                          detailActivation.cancel_reason,
+                          t
+                        )}
                       />
                     </div>
                   </>
@@ -1132,10 +1370,12 @@ export function EmailActivationsPage() {
                     quantity: purchaseTarget.quantity,
                     domain: purchaseTarget.product.domain,
                     quota: formatNumber(
-                      purchaseTarget.product.charge_quota * purchaseTarget.quantity
+                      purchaseTarget.product.charge_quota *
+                        purchaseTarget.quantity
                     ),
                     price: formatCurrencyUSD(
-                      purchaseTarget.product.customer_price_usd * purchaseTarget.quantity
+                      purchaseTarget.product.customer_price_usd *
+                        purchaseTarget.quantity
                     ),
                   }
                 )
@@ -1143,7 +1383,9 @@ export function EmailActivationsPage() {
           }
           confirmText={t('Confirm purchase')}
           isLoading={createMutation.isPending}
-          handleConfirm={() => purchaseTarget && void handlePurchase(purchaseTarget)}
+          handleConfirm={() =>
+            purchaseTarget && void handlePurchase(purchaseTarget)
+          }
         />
 
         <ConfirmDialog
@@ -1170,7 +1412,9 @@ export function EmailActivationsPage() {
                   {
                     domain: reorderTarget.product.domain,
                     quota: formatNumber(reorderTarget.product.charge_quota),
-                    price: formatCurrencyUSD(reorderTarget.product.customer_price_usd),
+                    price: formatCurrencyUSD(
+                      reorderTarget.product.customer_price_usd
+                    ),
                   }
                 )
               : ''
@@ -1205,9 +1449,13 @@ function Field({
 
 function InlineAlert({ feedback }: { feedback: InlineFeedback }) {
   return (
-    <Alert variant={feedback.tone === 'destructive' ? 'destructive' : 'default'}>
+    <Alert
+      variant={feedback.tone === 'destructive' ? 'destructive' : 'default'}
+    >
       <HugeiconsIcon
-        icon={feedback.tone === 'destructive' ? Alert02Icon : InformationCircleIcon}
+        icon={
+          feedback.tone === 'destructive' ? Alert02Icon : InformationCircleIcon
+        }
         strokeWidth={2}
         aria-hidden='true'
       />

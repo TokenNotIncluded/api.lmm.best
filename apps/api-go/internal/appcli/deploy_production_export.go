@@ -262,7 +262,7 @@ func (runtime *productionRuntime) exportBackup(ctx context.Context, options prod
 		} {
 			output := filepath.Join(stage, destination)
 			if _, err := runtime.runner.Run(ctx, productionCommand{Name: commandAge, Args: []string{"--encrypt", "--recipients-file", options.AgeRecipientFile, "--output", output, filepath.Join(backupDir, source)},
-				Timeout: 10 * time.Minute, Sensitive: true,}); err != nil {
+				Timeout: 10 * time.Minute, Sensitive: true}); err != nil {
 				return fmt.Errorf("encrypt %s for %s copy: %w", source, options.Role, err)
 			}
 			info, err := os.Lstat(output)
@@ -462,7 +462,7 @@ func (runtime *productionRuntime) verifyExternalBackupCopy(
 	for encrypted, plain := range map[string]string{"configuration.age": "configuration.archive", "database.age": "database.archive"} {
 		output := filepath.Join(temporaryRoot, role+"-"+plain)
 		if _, err := runtime.runner.Run(ctx, productionCommand{Name: commandAge, Args: []string{"--decrypt", "--identity", identity, "--output", output, filepath.Join(root, encrypted)},
-			Timeout: 10 * time.Minute, Sensitive: true,}); err != nil {
+			Timeout: 10 * time.Minute, Sensitive: true}); err != nil {
 			return "", fmt.Errorf("decrypt %s backup %s: %w", role, encrypted, err)
 		}
 		decryptedDigest, err := sha256File(output)

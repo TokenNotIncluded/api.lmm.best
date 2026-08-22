@@ -72,7 +72,11 @@ describe('email activation api', () => {
       }
     }) as typeof api.get
 
-    const response = await listHeroSmsProducts({ page: 2, size: 5, site: 'Example' })
+    const response = await listHeroSmsProducts({
+      page: 2,
+      size: 5,
+      site: 'Example',
+    })
 
     assert.deepEqual((receivedConfig as { params: unknown }).params, {
       page: 2,
@@ -223,7 +227,10 @@ describe('email activation api', () => {
       return {
         data: {
           success: true,
-          data: { order: { id: 'order-2', status: 'completed' }, activations: [] },
+          data: {
+            order: { id: 'order-2', status: 'completed' },
+            activations: [],
+          },
         },
       }
     }) as typeof api.post

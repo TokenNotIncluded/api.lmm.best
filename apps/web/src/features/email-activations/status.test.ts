@@ -46,27 +46,15 @@ const activation = (status: string) => ({
 describe('email activation status helpers', () => {
   test('polls only while active items remain', () => {
     assert.equal(
-      getHeroSmsPollingInterval(
-        [activation('active')],
-        true,
-        true
-      ),
+      getHeroSmsPollingInterval([activation('active')], true, true),
       5000
     )
     assert.equal(
-      getHeroSmsPollingInterval(
-        [activation('active')],
-        false,
-        true
-      ),
+      getHeroSmsPollingInterval([activation('active')], false, true),
       30000
     )
     assert.equal(
-      getHeroSmsPollingInterval(
-        [activation('cancelled')],
-        true,
-        true
-      ),
+      getHeroSmsPollingInterval([activation('cancelled')], true, true),
       false
     )
   })
@@ -77,7 +65,10 @@ describe('email activation status helpers', () => {
     assert.equal(canReorderHeroSmsActivation('active'), false)
     assert.equal(canReorderHeroSmsActivation('completed'), true)
 
-    const status = getHeroSmsStatusPresentation('cancel_pending', identityT as never)
+    const status = getHeroSmsStatusPresentation(
+      'cancel_pending',
+      identityT as never
+    )
     assert.equal(status.label, 'Cancel pending')
     assert.equal(status.tone, 'warning')
   })

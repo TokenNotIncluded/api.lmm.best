@@ -40,7 +40,10 @@ export type HeroSmsStatusPresentation = {
 }
 
 function normalizeStatus(status: string | null | undefined) {
-  return String(status ?? 'unknown').trim().toLowerCase().replaceAll(' ', '_')
+  return String(status ?? 'unknown')
+    .trim()
+    .toLowerCase()
+    .replaceAll(' ', '_')
 }
 
 export function isHeroSmsActiveStatus(status: string | null | undefined) {

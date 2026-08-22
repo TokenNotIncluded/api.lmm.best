@@ -44,7 +44,9 @@ export const heroSmsQueryKeys = {
 
 export function usePageVisibility() {
   const [isVisible, setIsVisible] = useState(
-    typeof document === 'undefined' ? true : document.visibilityState === 'visible'
+    typeof document === 'undefined'
+      ? true
+      : document.visibilityState === 'visible'
   )
 
   useEffect(() => {
@@ -94,7 +96,11 @@ export function useHeroSmsActivations(params: {
   const isPageVisible = usePageVisibility()
 
   return useQuery({
-    queryKey: heroSmsQueryKeys.activations(params.page, params.size, params.status),
+    queryKey: heroSmsQueryKeys.activations(
+      params.page,
+      params.size,
+      params.status
+    ),
     queryFn: () =>
       listHeroSmsActivations({
         page: params.page,
@@ -138,7 +144,9 @@ export function useHeroSmsActivationDetail(
     enabled: enabled && activationId != null,
     placeholderData: (previousData) => previousData,
     refetchInterval: (query) => {
-      if (!isHeroSmsActiveStatus(query.state.data?.activation.status)) return false
+      if (!isHeroSmsActiveStatus(query.state.data?.activation.status)) {
+        return false
+      }
       return pageVisible ? 5000 : 30000
     },
   })

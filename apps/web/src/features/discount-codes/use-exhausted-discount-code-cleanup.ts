@@ -20,7 +20,9 @@ export function useExhaustedDiscountCodeCleanup(onCleaned: () => void) {
     mutationFn: deleteExhaustedDiscountCodes,
     onSuccess: (result) => {
       if (!result.success) {
-        toast.error(result.message || t('Unable to clear exhausted discount codes'))
+        toast.error(
+          result.message || t('Unable to clear exhausted discount codes')
+        )
         return
       }
       const count = result.data?.count ?? 0
@@ -29,7 +31,9 @@ export function useExhaustedDiscountCodeCleanup(onCleaned: () => void) {
       if (count === 0) {
         toast.info(t('No exhausted discount codes to delete'))
       } else {
-        toast.success(t('Deleted {{count}} exhausted discount codes', { count }))
+        toast.success(
+          t('Deleted {{count}} exhausted discount codes', { count })
+        )
       }
     },
     onError: () => toast.error(t('Unable to clear exhausted discount codes')),

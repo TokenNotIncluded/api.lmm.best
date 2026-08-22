@@ -41,7 +41,11 @@ export function HeroSmsStatusBadge({
       className={cn('gap-1.5', className)}
       aria-label={presentation.label}
     >
-      <HugeiconsIcon icon={presentation.icon} strokeWidth={2} aria-hidden='true' />
+      <HugeiconsIcon
+        icon={presentation.icon}
+        strokeWidth={2}
+        aria-hidden='true'
+      />
       <span>{presentation.label}</span>
     </Badge>
   )

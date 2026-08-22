@@ -1,10 +1,10 @@
 ---
-name: "LMM Forge Console"
+name: 'LMM Forge Console'
 colors:
-  background: "var(--background)"
-  surface: "var(--card)"
-  text: "var(--foreground)"
-  primary: "var(--primary)"
+  background: 'var(--background)'
+  surface: 'var(--card)'
+  text: 'var(--foreground)'
+  primary: 'var(--primary)'
 ---
 
 # Design System: LMM Forge Console

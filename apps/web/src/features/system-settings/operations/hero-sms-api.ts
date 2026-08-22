@@ -51,7 +51,9 @@ interface HeroSmsEnvelope<T> {
 async function unwrap<T>(request: Promise<{ data: HeroSmsEnvelope<T> }>) {
   const response = await request
   if (!response.data.success) {
-    const error = new Error(response.data.message || 'HeroSMS settings request failed')
+    const error = new Error(
+      response.data.message || 'HeroSMS settings request failed'
+    )
     Object.assign(error, { code: response.data.code })
     throw error
   }
@@ -110,9 +112,7 @@ export async function getHeroSmsSettings() {
   )
 }
 
-export async function updateHeroSmsSettings(
-  values: HeroSmsSettingsFormValues
-) {
+export async function updateHeroSmsSettings(values: HeroSmsSettingsFormValues) {
   return unwrap<HeroSmsSettingsResponse>(
     api.put('/api/option/hero-sms', serializeHeroSmsSettingsUpdate(values), {
       skipBusinessError: true,

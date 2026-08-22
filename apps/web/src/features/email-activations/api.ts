@@ -144,8 +144,7 @@ export function parseHeroSmsError(error: unknown): HeroSmsParsedError {
     return {
       status: error.response?.status,
       code: data?.code,
-      message:
-        data?.message || error.message || 'HeroSMS request failed',
+      message: data?.message || error.message || 'HeroSMS request failed',
     }
   }
 
@@ -239,7 +238,9 @@ export async function getCurrentHeroSmsActivation(): Promise<HeroSmsActivation |
   return result == null ? null : normalizeActivation(result)
 }
 
-export async function getHeroSmsActivationDetail(activationId: number | string) {
+export async function getHeroSmsActivationDetail(
+  activationId: number | string
+) {
   const result = await unwrap<unknown>(
     api.get(`${ACTIVATIONS_PATH}/${activationId}`, {
       skipBusinessError: true,
@@ -274,11 +275,15 @@ export async function cancelHeroSmsActivation(activationId: number | string) {
 
 export async function reorderHeroSmsActivation(input: HeroSmsReorderInput) {
   const result = await unwrap<unknown>(
-    api.post(`${ACTIVATIONS_PATH}/${input.activationId}/reorder`, { domain_id: input.domain_id }, {
-      headers: { 'Idempotency-Key': input.idempotencyKey },
-      skipBusinessError: true,
-      skipErrorHandler: true,
-    })
+    api.post(
+      `${ACTIVATIONS_PATH}/${input.activationId}/reorder`,
+      { domain_id: input.domain_id },
+      {
+        headers: { 'Idempotency-Key': input.idempotencyKey },
+        skipBusinessError: true,
+        skipErrorHandler: true,
+      }
+    )
   )
 
   return normalizeCreateResult(result)

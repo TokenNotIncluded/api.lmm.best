@@ -8,6 +8,7 @@ the Free Software Foundation, either version 3 of the License, or
 */
 import { Copy, Plus, RefreshCw, Trash2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { Button } from '@/components/ui/button'
 
