@@ -16,7 +16,7 @@ const config: KnipConfig = {
     'src/i18n/static-keys.ts',
     'src/routeTree.gen.ts',
   ],
-  ignoreDependencies: ['tailwindcss', 'tw-animate-css'],
+  ignoreDependencies: ['playwright', 'tailwindcss', 'tw-animate-css'],
 }
 
 export default config
