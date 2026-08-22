@@ -628,7 +628,7 @@ func (runtime *productionRuntime) apply(ctx context.Context, workspace productio
 			return productionStatus{}, err
 		}
 	}
-	if err := runtime.probeBackendLocal(ctx, manifest, options.ExpectedVersion); err != nil {
+	if err := runtime.probeBackendLocalEventually(ctx, manifest, options.ExpectedVersion); err != nil {
 		return productionStatus{}, fmt.Errorf("candidate local backend health gate failed: %w", err)
 	}
 	if err := runtime.verifyServiceRestartBaseline(ctx, manifest); err != nil {
@@ -672,6 +672,23 @@ func (runtime *productionRuntime) apply(ctx context.Context, workspace productio
 		return productionStatus{}, &productionObservationError{err: fmt.Errorf("observation detected an anomaly; rollback timer remains armed: %w", err)}
 	}
 	return runtime.confirmLoaded(ctx, workspace, manifest)
+}
+
+func (runtime *productionRuntime) probeBackendLocalEventually(ctx context.Context, manifest productionManifest, expectedVersion string) error {
+	var probeErr error
+	for attempt := 0; attempt < 30; attempt++ {
+		probeErr = runtime.probeBackendLocal(ctx, manifest, expectedVersion)
+		if probeErr == nil {
+			return nil
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if attempt < 29 {
+			runtime.sleep(time.Second)
+		}
+	}
+	return probeErr
 }
 
 func (runtime *productionRuntime) observe(ctx context.Context, workspace productionWorkspace, manifest productionManifest, window time.Duration) error {
@@ -865,7 +882,7 @@ func (runtime *productionRuntime) rollback(ctx context.Context, workspace produc
 		if _, err := runtime.runner.Run(ctx, productionCommand{Name: commandSystemctl, Args: []string{"enable", "--now", runtime.paths.Service}}); err != nil {
 			return fail(fmt.Errorf("start rolled-back Go service: %w", err))
 		}
-		if err := runtime.probeBackendLocal(ctx, manifest, manifest.OldVersion); err != nil {
+		if err := runtime.probeBackendLocalEventually(ctx, manifest, manifest.OldVersion); err != nil {
 			return fail(fmt.Errorf("rolled-back local backend health gate failed: %w", err))
 		}
 	}
