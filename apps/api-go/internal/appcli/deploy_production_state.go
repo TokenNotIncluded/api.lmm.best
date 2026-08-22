@@ -550,6 +550,10 @@ func (runtime *productionRuntime) verifyCanonicalOperator(ctx context.Context) e
 
 func (runtime *productionRuntime) verifyMemoryPackageOwner(ctx context.Context, identity string) error {
 	path := filepath.Join(runtime.paths.PackagedDropInDir, productionMemoryFileName)
+	metadata, parseErr := parseNamedPackageIdentity([]byte(identity), productionAURPackageName)
+	if parseErr == nil && isContractlessLegacyPackage(productionAURPackageName, metadata.Version) {
+		return ensureProductionMemoryDropIn(path)
+	}
 	output, err := runtime.runner.Run(ctx, productionCommand{Name: commandPacman, Args: []string{"-Qo", path}, Env: append(os.Environ(), "LC_ALL=C")})
 	if err != nil || strings.TrimSpace(string(output)) != path+" is owned by "+identity {
 		return errors.New("production memory drop-in is not owned by the expected Go package")
