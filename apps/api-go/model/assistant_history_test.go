@@ -605,7 +605,7 @@ func TestAssistantKeySecureCardTransactionRollsBackCredentialOnCardFailure(t *te
 }
 
 func TestRedactAssistantHistoryContentCoversCredentialsAndPersonalData(t *testing.T) {
-	redacted := RedactAssistantHistoryContent("email: alice@example.com cookie=session-abc token=eyJabcDEF012345.abcDEF012345.abcDEF012345 api_key=sk_example_secret_123456 bare=sk-live-secret-token-123456")
+	redacted := RedactAssistantHistoryContent("email: alice@example.com cookie=session-abc token=eyJabcDEF012345.abcDEF012345.abcDEF012345 api_key=sk_example_secret_123456 bare=sk-live-secret-token-123456") // gitleaks:allow -- synthetic redaction fixture
 	for _, value := range []string{"alice@example.com", "session-abc", "eyJabcDEF012345", "sk_example_secret_123456", "sk-live-secret-token-123456"} {
 		assert.NotContains(t, redacted, value)
 	}

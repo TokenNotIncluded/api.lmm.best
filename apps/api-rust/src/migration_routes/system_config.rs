@@ -1319,9 +1319,11 @@ fn parse_pancake_private_key(raw: &str) -> Result<RsaPrivateKey, ()> {
         return Err(());
     }
     if normalized.contains("-----BEGIN RSA PRIVATE KEY-----") {
+        // gitleaks:allow -- PEM boundary marker
         return RsaPrivateKey::from_pkcs1_pem(normalized).map_err(|_| ());
     }
     if normalized.contains("-----BEGIN PRIVATE KEY-----") {
+        // gitleaks:allow -- PEM boundary marker
         return RsaPrivateKey::from_pkcs8_pem(normalized).map_err(|_| ());
     }
     let raw = BASE64.decode(normalized).map_err(|_| ())?;

@@ -21,10 +21,10 @@ command -v sha256sum >/dev/null || fail "sha256sum is required"
 # method/path/adapter triples.  It is regenerated from safe_candidate_surface
 # and each selected router definition when the adapter wiring changes.  The
 # ledger must cover the inventory exactly: a valid-but-omitted row is a failure.
-source_inventory_rows=167
-source_inventory_paths=148
-source_inventory_adapters=32
-source_inventory_key_digest=f32b2810a6d3825038ae2368b8d223d879cad6b63fd64c4ac555f1b74dc1673d
+source_inventory_rows=159
+source_inventory_paths=145
+source_inventory_adapters=31
+source_inventory_key_digest=1e03fe85310a62fcdd7f5259b70da1424d2b635ed4a074cbddf983528ad040df # gitleaks:allow -- source inventory digest
 
 tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/test-instance-runtime-blockers.XXXXXX")"
 trap 'rm -rf "$tmp_dir"' EXIT

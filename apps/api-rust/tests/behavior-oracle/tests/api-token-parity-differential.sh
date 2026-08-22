@@ -728,7 +728,7 @@ assert_static_key_canonicalization_preserves_mismatch() {
   key_a=${key_a// /A}
   printf -v key_b '%*s' 48 ''
   key_b=${key_b// /B}
-  registered_key='Ab12Cd34Ef56Gh78Ij90Kl12Mn34Op56Qr78St90Uv12Wx34'
+  registered_key='Ab12Cd34Ef56Gh78Ij90Kl12Mn34Op56Qr78St90Uv12Wx34' # gitleaks:allow -- synthetic parity key
   registered_mask="${registered_key:0:4}**********${registered_key:44:4}"
   printf '%s\n' "$registered_key" >"$go_generated_keys"
   printf '%s\n' "$registered_key" >"$rust_generated_keys"

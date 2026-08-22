@@ -724,7 +724,7 @@ mod tests {
                 "POST",
                 "/jimeng/",
                 MediaTaskOperation::JimengSubmit,
-                br#"{"req_key":"jimeng_vgfm_t2v_l20"}"#.as_slice(),
+                br#"{"req_key":"jimeng_vgfm_t2v_l20"}"#.as_slice(), // gitleaks:allow -- provider model fixture
             ),
         ];
 

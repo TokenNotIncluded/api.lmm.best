@@ -1871,7 +1871,7 @@ mod tests {
             Some("slash/plus+sign".to_owned())
         );
         assert_eq!(
-            query_key("key=ordinary+plus"),
+            query_key("key=ordinary+plus"), // gitleaks:allow -- URL-decoding fixture
             Some("ordinary plus".to_owned())
         );
         assert_eq!(query_key("key=&key=second"), Some(String::new()));

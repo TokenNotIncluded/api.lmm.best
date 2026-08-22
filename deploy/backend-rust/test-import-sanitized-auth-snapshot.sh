@@ -22,7 +22,7 @@ chmod 0755 "$tmp/bin/psql"
 
 # The literal below is a synthetic bcrypt verifier.
 # shellcheck disable=SC2016
-hash='$2b$12$aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+hash='$2b$12$aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' # nosemgrep: generic.secrets.security.detected-bcrypt-hash.detected-bcrypt-hash
 cat >"$tmp/snapshot.tsv" <<EOF
 id	username	password_bcrypt	display_name	role	status	group	quota	used_quota	request_count	auth_version
 7	test-admin	$hash	Test Admin	10	1	default	1000	0	0	1

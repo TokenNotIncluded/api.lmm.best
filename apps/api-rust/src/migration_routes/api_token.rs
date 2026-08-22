@@ -2766,7 +2766,7 @@ mod tests {
         .with_crypto_secret("secret");
         assert_eq!(
             service.cache_key("key").expect("HMAC cache key"),
-            "token:96de09a0f8699191b28587118ac57df88bbf6c2d0c131d196dcd90f7efd68c93"
+            "token:96de09a0f8699191b28587118ac57df88bbf6c2d0c131d196dcd90f7efd68c93" // gitleaks:allow -- deterministic HMAC fixture
         );
     }
 }

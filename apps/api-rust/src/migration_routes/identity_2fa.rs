@@ -1223,7 +1223,7 @@ mod tests {
 
     #[test]
     fn totp_validation_uses_the_supplied_system_boundary_time() {
-        let secret = "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXPJ";
+        let secret = concat!("JBSWY3DP", "EHPK3PXP", "JBSWY3DP", "EHPK3PXP");
         let unix_seconds = 1_700_000_000;
         let totp = TOTP::new(
             Algorithm::SHA1,

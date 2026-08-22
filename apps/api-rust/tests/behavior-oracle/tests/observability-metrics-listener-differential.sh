@@ -8,7 +8,9 @@ repo_root=$(git rev-parse --show-toplevel)
 go_root=${LMM_GO_ORACLE_ROOT:-/tmp/5418ce6b6d45ed69167b0aad53f2f595e5bc8de9}
 result_dir=${LMM_OBSERVABILITY_RESULT_DIR:-}
 runtime=$(mktemp -d /tmp/lmm-observability-metrics-differential.XXXXXX)
+# shellcheck disable=SC2034 # These variables are read indirectly by the shared process helpers.
 go_pid='' rust_pid='' valkey_pid=''
+# shellcheck disable=SC2034 # These variables are read indirectly by the shared process helpers.
 go_pid_start='' rust_pid_start='' valkey_pid_start=''
 pg_port=${LMM_OBSERVABILITY_PG_PORT:-}
 go_port=${LMM_OBSERVABILITY_GO_PORT:-}
@@ -252,7 +254,7 @@ ON CONFLICT (id) DO UPDATE SET
   model_name=EXCLUDED.model_name,"group"=EXCLUDED."group",bucket_ts=EXCLUDED.bucket_ts,
   request_count=EXCLUDED.request_count,success_count=EXCLUDED.success_count,
   total_latency_ms=EXCLUDED.total_latency_ms,ttft_sum_ms=EXCLUDED.ttft_sum_ms,
-  ttft_count=EXCLUDED.ttft_count,output_tokens=EXCLUDED.output_tokens,
+  ttft_count=EXCLUDED.ttft_count,output_tokens=EXCLUDED.output_tokens, -- gitleaks:allow -- SQL column fixture
   generation_ms=EXCLUDED.generation_ms;
 SQL
 done

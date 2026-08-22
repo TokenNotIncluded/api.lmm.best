@@ -456,10 +456,11 @@ if ! owned_pid_is_live rust_pid || ! listener_owned_by "$rust_port" "$rust_pid";
 fi
 curl -fsS --connect-timeout "$curl_connect_timeout" --max-time "$curl_max_time" "http://127.0.0.1:$rust_port/readyz" >/dev/null
 
+oracle_authorization='authorization: Bearer sk-oraclemodelstoken' # gitleaks:allow -- synthetic oracle token
 request() {
   local name=$1 base=$2
   curl -sS --connect-timeout "$curl_connect_timeout" --max-time "$curl_max_time" -D "$runtime/$name.headers" -o "$runtime/$name.json" \
-    -H 'accept: application/json' -H 'authorization: Bearer sk-oraclemodelstoken' \
+    -H 'accept: application/json' -H "$oracle_authorization" \
     -H 'x-real-ip: 127.0.0.1' -w '%{http_code}' "$base/v1/models"
 }
 
@@ -548,7 +549,7 @@ parallel_request() {
   local base=$1
   local pids=()
   for _ in {1..16}; do
-    curl -fsS --connect-timeout "$curl_connect_timeout" --max-time "$curl_max_time" -o /dev/null -H 'authorization: Bearer sk-oraclemodelstoken' -H 'x-real-ip: 127.0.0.1' "$base/v1/models" &
+    curl -fsS --connect-timeout "$curl_connect_timeout" --max-time "$curl_max_time" -o /dev/null -H "$oracle_authorization" -H 'x-real-ip: 127.0.0.1' "$base/v1/models" &
     pids+=("$!")
   done
   for pid in "${pids[@]}"; do wait "$pid"; done

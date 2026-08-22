@@ -328,8 +328,9 @@ assert_status() {
 }
 
 fixture_hits_before=$(wc -l < "$runtime/provider-hits.log")
+provider_authorization='authorization: Bearer provider-owned-secret' # gitleaks:allow -- synthetic provider token
 curl --silent --show-error --no-buffer --request POST \
-  --header 'authorization: Bearer provider-owned-secret' \
+  --header "$provider_authorization" \
   --header 'x-fixture-mode: sse' \
   "http://127.0.0.1:$provider_port/sse" > "$runtime/provider.sse"
 grep -Fx 'data: {"fixture":true}' "$runtime/provider.sse" >/dev/null
