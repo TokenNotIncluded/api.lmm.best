@@ -49,6 +49,7 @@ import { Route as AuthenticatedDashboardSectionRouteImport } from './routes/_aut
 import { Route as AuthenticatedDeveloperAccessIndexRouteImport } from './routes/_authenticated/developer-access/index'
 import { Route as AuthenticatedDiscountCodesIndexRouteImport } from './routes/_authenticated/discount-codes/index'
 import { Route as AuthenticatedDrawingIndexRouteImport } from './routes/_authenticated/drawing/index'
+import { Route as AuthenticatedEmailActivationsIndexRouteImport } from './routes/_authenticated/email-activations/index'
 import { Route as AuthenticatedErrorsErrorRouteImport } from './routes/_authenticated/errors/$error'
 import { Route as AuthenticatedGettingStartedIndexRouteImport } from './routes/_authenticated/getting-started/index'
 import { Route as AuthenticatedKeysIndexRouteImport } from './routes/_authenticated/keys/index'
@@ -289,6 +290,12 @@ const AuthenticatedDrawingIndexRoute =
   AuthenticatedDrawingIndexRouteImport.update({
     id: '/drawing/',
     path: '/drawing/',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedEmailActivationsIndexRoute =
+  AuthenticatedEmailActivationsIndexRouteImport.update({
+    id: '/email-activations/',
+    path: '/email-activations/',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
 const AuthenticatedErrorsErrorRoute =
@@ -540,6 +547,7 @@ export interface FileRoutesByFullPath {
   '/developer-access/': typeof AuthenticatedDeveloperAccessIndexRoute
   '/discount-codes/': typeof AuthenticatedDiscountCodesIndexRoute
   '/drawing/': typeof AuthenticatedDrawingIndexRoute
+  '/email-activations/': typeof AuthenticatedEmailActivationsIndexRoute
   '/getting-started/': typeof AuthenticatedGettingStartedIndexRoute
   '/keys/': typeof AuthenticatedKeysIndexRoute
   '/models/': typeof AuthenticatedModelsIndexRoute
@@ -614,6 +622,7 @@ export interface FileRoutesByTo {
   '/developer-access': typeof AuthenticatedDeveloperAccessIndexRoute
   '/discount-codes': typeof AuthenticatedDiscountCodesIndexRoute
   '/drawing': typeof AuthenticatedDrawingIndexRoute
+  '/email-activations': typeof AuthenticatedEmailActivationsIndexRoute
   '/getting-started': typeof AuthenticatedGettingStartedIndexRoute
   '/keys': typeof AuthenticatedKeysIndexRoute
   '/models': typeof AuthenticatedModelsIndexRoute
@@ -692,6 +701,7 @@ export interface FileRoutesById {
   '/_authenticated/developer-access/': typeof AuthenticatedDeveloperAccessIndexRoute
   '/_authenticated/discount-codes/': typeof AuthenticatedDiscountCodesIndexRoute
   '/_authenticated/drawing/': typeof AuthenticatedDrawingIndexRoute
+  '/_authenticated/email-activations/': typeof AuthenticatedEmailActivationsIndexRoute
   '/_authenticated/getting-started/': typeof AuthenticatedGettingStartedIndexRoute
   '/_authenticated/keys/': typeof AuthenticatedKeysIndexRoute
   '/_authenticated/models/': typeof AuthenticatedModelsIndexRoute
@@ -769,6 +779,7 @@ export interface FileRouteTypes {
     | '/developer-access/'
     | '/discount-codes/'
     | '/drawing/'
+    | '/email-activations/'
     | '/getting-started/'
     | '/keys/'
     | '/models/'
@@ -843,6 +854,7 @@ export interface FileRouteTypes {
     | '/developer-access'
     | '/discount-codes'
     | '/drawing'
+    | '/email-activations'
     | '/getting-started'
     | '/keys'
     | '/models'
@@ -920,6 +932,7 @@ export interface FileRouteTypes {
     | '/_authenticated/developer-access/'
     | '/_authenticated/discount-codes/'
     | '/_authenticated/drawing/'
+    | '/_authenticated/email-activations/'
     | '/_authenticated/getting-started/'
     | '/_authenticated/keys/'
     | '/_authenticated/models/'
@@ -1259,6 +1272,13 @@ declare module '@tanstack/react-router' {
       path: '/drawing'
       fullPath: '/drawing/'
       preLoaderRoute: typeof AuthenticatedDrawingIndexRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/email-activations/': {
+      id: '/_authenticated/email-activations/'
+      path: '/email-activations'
+      fullPath: '/email-activations/'
+      preLoaderRoute: typeof AuthenticatedEmailActivationsIndexRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/errors/$error': {
@@ -1608,6 +1628,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedDeveloperAccessIndexRoute: typeof AuthenticatedDeveloperAccessIndexRoute
   AuthenticatedDiscountCodesIndexRoute: typeof AuthenticatedDiscountCodesIndexRoute
   AuthenticatedDrawingIndexRoute: typeof AuthenticatedDrawingIndexRoute
+  AuthenticatedEmailActivationsIndexRoute: typeof AuthenticatedEmailActivationsIndexRoute
   AuthenticatedGettingStartedIndexRoute: typeof AuthenticatedGettingStartedIndexRoute
   AuthenticatedKeysIndexRoute: typeof AuthenticatedKeysIndexRoute
   AuthenticatedModelsIndexRoute: typeof AuthenticatedModelsIndexRoute
@@ -1642,6 +1663,8 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
     AuthenticatedDeveloperAccessIndexRoute,
   AuthenticatedDiscountCodesIndexRoute: AuthenticatedDiscountCodesIndexRoute,
   AuthenticatedDrawingIndexRoute: AuthenticatedDrawingIndexRoute,
+  AuthenticatedEmailActivationsIndexRoute:
+    AuthenticatedEmailActivationsIndexRoute,
   AuthenticatedGettingStartedIndexRoute: AuthenticatedGettingStartedIndexRoute,
   AuthenticatedKeysIndexRoute: AuthenticatedKeysIndexRoute,
   AuthenticatedModelsIndexRoute: AuthenticatedModelsIndexRoute,
