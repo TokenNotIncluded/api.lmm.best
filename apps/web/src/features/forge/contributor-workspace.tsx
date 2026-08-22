@@ -52,7 +52,7 @@ export function ContributorWorkspace() {
       </SectionPageLayout.Actions>
       <SectionPageLayout.Content>
         <div className='border-foreground/25 bg-background text-foreground mx-auto max-w-6xl overflow-hidden border'>
-          <section className='border-foreground grid gap-8 border-b bg-[var(--forge-clay)] px-6 py-9 md:grid-cols-[1fr_280px] md:px-10 md:py-12'>
+          <section className='border-foreground bg-accent grid gap-8 border-b px-6 py-9 md:grid-cols-[1fr_280px] md:px-10 md:py-12'>
             <div>
               <p className='mb-4 text-xs font-bold uppercase'>
                 {t('Delivery workspace')}

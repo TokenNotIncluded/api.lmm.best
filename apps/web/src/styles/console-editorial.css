@@ -17,95 +17,10 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 /*
- * Shared editorial surface for authenticated and first-run screens.
- *
- * This file deliberately contains no palette literals. The Forge token file
- * is the only source of raw color values; these semantic aliases let each
- * surface adapt to light/dark mode without component-level color choices.
+ * Scoped helpers for authenticated and first-run screens. The palette now
+ * resolves from the active theme preset; only status utilities and
+ * component-specific adjustments live here.
  */
-.console-editorial {
-  --background: var(--forge-paper-light);
-  --foreground: var(--forge-ink-light);
-  --card: var(--forge-card-light);
-  --card-foreground: var(--forge-ink-light);
-  --popover: var(--forge-paper-light);
-  --popover-foreground: var(--forge-ink-light);
-  --primary: var(--forge-ink-light);
-  --primary-foreground: var(--forge-paper-light);
-  --secondary: var(--forge-secondary-light);
-  --secondary-foreground: var(--forge-ink-light);
-  --muted: var(--forge-muted-light);
-  --muted-foreground: var(--forge-muted-ink-light);
-  --accent: var(--forge-cactus-light);
-  --accent-foreground: var(--forge-ink-light);
-  --border: color-mix(in oklch, var(--forge-ink-light) 18%, transparent);
-  --input: color-mix(in oklch, var(--forge-ink-light) 24%, transparent);
-  --ring: var(--forge-ink-light);
-  --destructive: var(--forge-destructive-light);
-  --destructive-foreground: var(--forge-paper-light);
-  --sidebar: var(--forge-card-light);
-  --sidebar-foreground: var(--forge-ink-light);
-  --sidebar-primary: var(--forge-ink-light);
-  --sidebar-primary-foreground: var(--forge-paper-light);
-  --sidebar-accent: var(--forge-secondary-light);
-  --sidebar-accent-foreground: var(--forge-ink-light);
-  --sidebar-border: color-mix(
-    in oklch,
-    var(--forge-ink-light) 16%,
-    transparent
-  );
-  --sidebar-ring: var(--forge-ink-light);
-  --console-info: var(--forge-extra-mist-light);
-  --console-success: var(--forge-sage-light);
-  --console-warning: var(--forge-clay-light);
-  --console-danger: var(--forge-destructive-light);
-  --console-clay: var(--forge-clay-light);
-  --console-sage: var(--forge-sage-light);
-  color-scheme: light;
-  background: var(--background);
-  color: var(--foreground);
-}
-
-.dark .console-editorial {
-  --background: var(--forge-surface-dark);
-  --foreground: var(--forge-foreground-dark);
-  --card: var(--forge-card-dark);
-  --card-foreground: var(--forge-foreground-dark);
-  --popover: var(--forge-card-dark);
-  --popover-foreground: var(--forge-foreground-dark);
-  --primary: var(--forge-foreground-dark);
-  --primary-foreground: var(--forge-surface-dark);
-  --secondary: var(--forge-secondary-dark);
-  --secondary-foreground: var(--forge-foreground-dark);
-  --muted: var(--forge-muted-dark);
-  --muted-foreground: var(--forge-muted-ink-dark);
-  --accent: var(--forge-stage-dark);
-  --accent-foreground: var(--forge-foreground-dark);
-  --border: color-mix(in oklch, var(--forge-foreground-dark) 18%, transparent);
-  --input: color-mix(in oklch, var(--forge-foreground-dark) 26%, transparent);
-  --ring: var(--forge-foreground-dark);
-  --destructive: var(--forge-destructive-dark);
-  --destructive-foreground: var(--forge-surface-dark);
-  --sidebar: var(--forge-card-dark);
-  --sidebar-foreground: var(--forge-foreground-dark);
-  --sidebar-primary: var(--forge-foreground-dark);
-  --sidebar-primary-foreground: var(--forge-surface-dark);
-  --sidebar-accent: var(--forge-secondary-dark);
-  --sidebar-accent-foreground: var(--forge-foreground-dark);
-  --sidebar-border: color-mix(
-    in oklch,
-    var(--forge-foreground-dark) 18%,
-    transparent
-  );
-  --sidebar-ring: var(--forge-foreground-dark);
-  --console-info: var(--forge-extra-mist-dark);
-  --console-success: var(--forge-sage-dark);
-  --console-warning: var(--forge-clay-dark);
-  --console-danger: var(--forge-destructive-dark);
-  --console-clay: var(--forge-clay-dark);
-  --console-sage: var(--forge-sage-dark);
-  color-scheme: dark;
-}
 
 /* These small status utilities also work inside dialog portals, which are
  * rendered outside the authenticated layout's .console-editorial wrapper. */
@@ -957,37 +872,24 @@ For commercial licensing, please contact support@quantumnous.com
   color: var(--forge-destructive-dark);
 }
 
-.console-editorial [data-slot='sidebar-inner'],
-.console-editorial [data-slot='sidebar-container'],
-.console-editorial [data-slot='sidebar-inset'] {
-  background: var(--background);
-}
-
+/* Console shell — same geometry as the upstream new-api layout:
+ * a paper canvas, a transparent full-width header, the sidebar field
+ * starting below the header inside the standard inset padding, and the
+ * main content floating as a rounded card driven purely by the theme
+ * radius token (`--radius`). No component-level geometry overrides here.
+ *
+ * The sidebar field mirrors the main card's corner radius (both use the
+ * `--radius-xl` scale) so the two surfaces read as one continuous family,
+ * and the open/close slide uses an ease-out curve instead of linear. */
 .console-editorial [data-slot='sidebar-inner'] {
-  border-color: var(--sidebar-border);
-  background: var(--sidebar);
-  box-shadow: none;
+  border-radius: calc(var(--radius) * 1.4);
 }
 
-.console-editorial [data-slot='sidebar-inset'] {
-  border-radius: 0;
-  box-shadow: none;
-}
-
-/* Router-style console shell: a quiet paper canvas, one strong action colour,
- * and navigation that reads like a table of contents instead of a card wall. */
 .console-editorial [data-slot='sidebar-container'] {
-  background: var(--sidebar);
-  border-inline-end: 1px solid var(--sidebar-border);
-}
-
-.console-editorial [data-slot='sidebar-inner'] {
-  padding-block: 0.75rem;
+  transition-timing-function: cubic-bezier(0.32, 0.72, 0, 1);
 }
 
 .console-editorial [data-slot='sidebar-menu-button'] {
-  min-height: 2.5rem;
-  border-radius: 0.55rem;
   color: color-mix(in oklch, var(--sidebar-foreground) 72%, transparent);
   transition:
     background-color 140ms ease,
@@ -1019,7 +921,7 @@ For commercial licensing, please contact support@quantumnous.com
 .console-editorial [data-slot='sidebar-menu-button'][data-active='true'] {
   background: var(--sidebar-accent);
   color: var(--sidebar-accent-foreground);
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .console-editorial [data-slot='sidebar-group-label'] {
@@ -1040,11 +942,11 @@ For commercial licensing, please contact support@quantumnous.com
 }
 
 .console-editorial :where([data-slot='button']) {
-  border-radius: 0.42rem;
+  border-radius: calc(var(--radius) * 0.55);
 }
 
 .console-editorial :where(input, textarea, select) {
-  border-radius: 0.5rem;
+  border-radius: calc(var(--radius) * 0.625);
   background: color-mix(in oklch, var(--background) 88%, var(--card));
 }
 
@@ -1086,62 +988,39 @@ For commercial licensing, please contact support@quantumnous.com
   background: color-mix(in oklch, var(--background) 90%, transparent);
 }
 
-.console-editorial .assistant-modern-welcome__intro {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  align-items: start;
-  gap: 1rem;
-}
-
-.console-editorial .assistant-modern-welcome__mark {
-  display: flex;
-  width: 3.5rem;
-  height: 3.5rem;
-  flex: 0 0 auto;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid color-mix(in oklch, var(--foreground) 22%, transparent);
-  border-radius: 0.875rem;
-  background: color-mix(in oklch, var(--accent) 38%, var(--card));
-  color: var(--foreground);
-}
-
-.console-editorial .assistant-modern-welcome__lanes {
-  display: grid;
-  margin-top: clamp(2.5rem, 7vh, 4.5rem);
-  border-block: 1px solid var(--border);
-}
-
-.console-editorial .assistant-modern-welcome__lane {
-  display: grid;
-  gap: 0.5rem;
-  padding-block: 1.125rem;
-}
-
-.console-editorial
-  .assistant-modern-welcome__lane
-  + .assistant-modern-welcome__lane {
-  border-top: 1px solid color-mix(in oklch, var(--border) 78%, transparent);
-}
-
-.console-editorial .assistant-modern-welcome__notice {
-  margin-top: 1.25rem;
-}
-
 .console-editorial .assistant-composer {
-  border-top: 1px solid color-mix(in oklch, var(--border) 78%, transparent);
-  background: color-mix(in oklch, var(--background) 92%, var(--card));
+  background: transparent;
 }
 
-.console-editorial .assistant-modern-prompt {
-  border-radius: 0.875rem;
+.console-editorial .assistant-modern-prompt,
+.console-editorial .assistant-modern-prompt:where([data-slot='input-group']) {
+  border-radius: calc(var(--radius) * 1.75);
+  /* Lighter than both canvas and card — the gpt.ge composer reads as a
+   * bright pill floating on the panel surface. */
+  background: color-mix(in srgb, var(--background) 55%, #ffffff);
+  border-color: color-mix(in oklch, var(--foreground) 14%, transparent);
+  box-shadow:
+    0 1px 2px color-mix(in oklch, var(--foreground) 4%, transparent),
+    0 8px 24px -12px color-mix(in oklch, var(--foreground) 8%, transparent);
   transition:
     border-color 160ms ease-out,
-    background-color 160ms ease-out;
+    background-color 160ms ease-out,
+    box-shadow 160ms ease-out;
+}
+
+.console-editorial .assistant-modern-prompt [data-slot='input-group-control'],
+.console-editorial .assistant-modern-prompt textarea {
+  background: transparent;
 }
 
 .console-editorial .assistant-modern-prompt:hover {
   border-color: color-mix(in oklch, var(--foreground) 30%, transparent);
+}
+
+.console-editorial .assistant-modern-prompt:focus-within {
+  box-shadow:
+    0 1px 2px color-mix(in oklch, var(--foreground) 5%, transparent),
+    0 10px 28px -12px color-mix(in oklch, var(--foreground) 10%, transparent);
 }
 
 @media (min-width: 640px) {
@@ -1238,9 +1117,10 @@ For commercial licensing, please contact support@quantumnous.com
   letter-spacing: -0.025em;
 }
 
-/* Shared flat card language for wallet, setup, and utility pages. */
+/* Shared card language for wallet, setup, and utility pages: flat surfaces
+ * with the theme radius — quiet, but not knife-edged. */
 .console-editorial :where([data-slot='card']) {
-  border-radius: 0;
+  border-radius: var(--radius);
   box-shadow: none;
   transition: none;
 }
@@ -1251,21 +1131,11 @@ For commercial licensing, please contact support@quantumnous.com
 }
 
 .console-editorial :where([data-slot='card-header']) {
-  border-radius: 0;
+  border-radius: var(--radius) var(--radius) 0 0;
 }
 
 .console-editorial :where([data-slot='card-footer']) {
-  border-radius: 0;
-}
-
-.console-editorial :where(.rounded-2xl) {
-  border-radius: 0;
-}
-
-.console-editorial
-  :where(section.rounded-lg, section.rounded-xl, section.rounded-2xl) {
-  border-radius: 0;
-  box-shadow: none;
+  border-radius: 0 0 var(--radius) var(--radius);
 }
 
 .console-editorial
@@ -1289,6 +1159,13 @@ For commercial licensing, please contact support@quantumnous.com
   ) {
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
+}
+
+.dark .console-editorial .assistant-modern-prompt,
+.dark
+  .console-editorial
+  .assistant-modern-prompt:where([data-slot='input-group']) {
+  background: color-mix(in srgb, var(--card) 72%, #ffffff 6%);
 }
 
 /* The assistant header is intentionally translucent. Keep its blur bounded
@@ -1386,14 +1263,14 @@ For commercial licensing, please contact support@quantumnous.com
 
 .setup-editorial-frame {
   border-color: var(--setup-border);
-  border-radius: 0;
+  border-radius: calc(var(--radius) * 0.875);
   background: var(--setup-panel);
   box-shadow: none;
 }
 
 .setup-editorial-frame-header {
   border-bottom: 1px solid var(--setup-border);
-  border-radius: 0;
+  border-radius: calc(var(--radius) * 0.875) calc(var(--radius) * 0.875) 0 0;
   padding: 1.5rem;
 }
 
@@ -1433,13 +1310,13 @@ For commercial licensing, please contact support@quantumnous.com
 }
 
 .setup-editorial-frame-footer {
-  border-radius: 0;
+  border-radius: 0 0 calc(var(--radius) * 0.875) calc(var(--radius) * 0.875);
   background: transparent;
   padding: 1.25rem 1.5rem 1.5rem;
 }
 
 .setup-editorial :where([data-slot='button']) {
-  border-radius: 0;
+  border-radius: calc(var(--radius) * 0.55);
 }
 
 .setup-editorial-primary {
@@ -1465,13 +1342,13 @@ For commercial licensing, please contact support@quantumnous.com
 }
 
 .setup-editorial :where([data-slot='input']) {
-  border-radius: 0;
+  border-radius: calc(var(--radius) * 0.625);
   background: color-mix(in oklch, var(--setup-canvas) 56%, transparent);
 }
 
 .setup-editorial :where([data-slot='alert']) {
   border-color: var(--setup-border);
-  border-radius: 0;
+  border-radius: calc(var(--radius) * 0.625);
   box-shadow: none;
 }
 
@@ -1550,10 +1427,6 @@ For commercial licensing, please contact support@quantumnous.com
 
 .dark .setup-editorial-summary {
   background: transparent;
-}
-
-.setup-editorial :where(.rounded-xl, .rounded-2xl) {
-  border-radius: 0;
 }
 
 .setup-editorial-success {
@@ -1679,7 +1552,7 @@ For commercial licensing, please contact support@quantumnous.com
 
 .playground-editorial .playground-input-tools {
   border: 0;
-  border-radius: 0.75rem;
+  border-radius: calc(var(--radius) * 0.75);
   background: transparent;
   box-shadow: none;
 }

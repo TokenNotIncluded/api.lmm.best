@@ -20,7 +20,7 @@ import { Check, Copy } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import { ForgePublicShell } from '@/features/forge/forge-public-shell'
+import { PublicLayout } from '@/components/layout'
 
 type GuideCopy = {
   eyebrow: string
@@ -144,12 +144,12 @@ function GuideCode({
   }
 
   return (
-    <div className='forge-guide-code'>
-      <div className='flex items-center justify-between gap-3 border-b px-4 py-2 text-xs'>
-        <span>{label}</span>
+    <div className='bg-muted/40 overflow-hidden rounded-lg border'>
+      <div className='border-border/70 flex items-center justify-between gap-3 border-b px-4 py-2 text-xs'>
+        <span className='text-muted-foreground'>{label}</span>
         <button
           type='button'
-          className='forge-guide-copy'
+          className='text-muted-foreground hover:text-foreground inline-flex items-center gap-1.5 font-medium transition-colors'
           onClick={() => void copy()}
           aria-label={copied ? copiedLabel : copyLabel}
         >
@@ -164,67 +164,110 @@ function GuideCode({
   )
 }
 
+/**
+ * Integration guide, following the same public-page language as the
+ * rankings page: standard shell, soft top glow, rounded bordered cards,
+ * bold tracking-tight headings.
+ */
 export function Guide() {
   const { i18n } = useTranslation()
   const copy = i18n.language.toLowerCase().startsWith('zh') ? COPY.zh : COPY.en
 
   return (
-    <ForgePublicShell>
-      <main className='forge-guide mx-auto max-w-6xl px-6 py-16 md:px-10 md:py-24'>
-        <header className='max-w-3xl'>
-          <p className='forge-kicker mb-5'>{copy.eyebrow}</p>
-          <h1 className='font-serif text-5xl leading-[0.98] tracking-[-0.035em] md:text-7xl'>
-            {copy.title}
-          </h1>
-          <p className='text-muted-foreground mt-7 max-w-2xl text-lg leading-8'>
-            {copy.intro}
-          </p>
-        </header>
+    <PublicLayout showMainContainer={false}>
+      <div className='relative'>
+        <div
+          aria-hidden
+          className='pointer-events-none absolute inset-x-0 top-0 h-[600px] opacity-20 dark:opacity-[0.10]'
+          style={{
+            background: [
+              'radial-gradient(ellipse 60% 50% at 20% 20%, oklch(0.72 0.18 250 / 80%) 0%, transparent 70%)',
+              'radial-gradient(ellipse 50% 40% at 80% 15%, oklch(0.65 0.15 200 / 60%) 0%, transparent 70%)',
+              'radial-gradient(ellipse 40% 35% at 50% 70%, oklch(0.70 0.12 280 / 40%) 0%, transparent 70%)',
+            ].join(', '),
+            maskImage:
+              'linear-gradient(to bottom, black 40%, transparent 100%)',
+            WebkitMaskImage:
+              'linear-gradient(to bottom, black 40%, transparent 100%)',
+          }}
+        />
+        <main className='relative mx-auto max-w-6xl px-4 pt-16 pb-16 sm:px-6 sm:pt-20 md:px-8 md:pb-24'>
+          <header className='mx-auto max-w-3xl text-center'>
+            <p className='text-muted-foreground text-xs font-medium tracking-[0.2em] uppercase sm:text-xs sm:tracking-[0.32em]'>
+              {copy.eyebrow}
+            </p>
+            <h1 className='mt-4 text-3xl leading-[1.15] font-bold tracking-tight sm:text-4xl md:text-5xl'>
+              {copy.title}
+            </h1>
+            <p className='text-muted-foreground mx-auto mt-4 max-w-2xl text-sm leading-7 sm:text-base'>
+              {copy.intro}
+            </p>
+          </header>
 
-        <div className='mt-16 grid gap-16 md:grid-cols-[minmax(0,0.68fr)_minmax(18rem,0.32fr)]'>
-          <div>
-            {copy.steps.map((step) => (
-              <section className='forge-guide-section' key={step.title}>
-                <h2 className='font-serif text-2xl'>{step.title}</h2>
-                <p className='text-muted-foreground mt-3 max-w-2xl leading-7'>
-                  {step.body}
+          <div className='mt-12 grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,22rem)] lg:gap-10'>
+            <div className='min-w-0 space-y-4'>
+              {copy.steps.map((step) => (
+                <section
+                  key={step.title}
+                  className='bg-card/50 border-border/60 rounded-xl border p-5 backdrop-blur md:p-6'
+                >
+                  <h2 className='text-lg font-semibold tracking-tight'>
+                    {step.title}
+                  </h2>
+                  <p className='text-muted-foreground mt-2 text-sm leading-6'>
+                    {step.body}
+                  </p>
+                </section>
+              ))}
+
+              <section className='bg-card/50 border-border/60 rounded-xl border p-5 backdrop-blur md:p-6'>
+                <h2 className='text-lg font-semibold tracking-tight'>
+                  {copy.connectionTitle}
+                </h2>
+                <p className='text-muted-foreground mt-2 text-sm leading-6'>
+                  {copy.connectionBody}
+                </p>
+                <div className='mt-4'>
+                  <GuideCode
+                    label={copy.codeLabel}
+                    copyLabel={copy.copyLabel}
+                    copiedLabel={copy.copiedLabel}
+                  >
+                    {EXAMPLE}
+                  </GuideCode>
+                </div>
+              </section>
+            </div>
+
+            <aside className='min-w-0 space-y-4'>
+              <section className='bg-card/50 border-border/60 rounded-xl border p-5 backdrop-blur'>
+                <p className='text-foreground text-sm font-semibold'>
+                  {copy.keyTitle}
+                </p>
+                <p className='text-muted-foreground mt-2 text-sm leading-6'>
+                  {copy.keyBody}
                 </p>
               </section>
-            ))}
-
-            <section className='forge-guide-section'>
-              <h2 className='font-serif text-2xl'>{copy.connectionTitle}</h2>
-              <p className='text-muted-foreground mt-3 max-w-2xl leading-7'>
-                {copy.connectionBody}
-              </p>
-              <GuideCode
-                label={copy.codeLabel}
-                copyLabel={copy.copyLabel}
-                copiedLabel={copy.copiedLabel}
-              >
-                {EXAMPLE}
-              </GuideCode>
-            </section>
+              <section className='bg-card/50 border-border/60 rounded-xl border p-5 backdrop-blur'>
+                <p className='text-foreground text-sm font-semibold'>
+                  {copy.securityTitle}
+                </p>
+                <p className='text-muted-foreground mt-2 text-sm leading-6'>
+                  {copy.securityBody}
+                </p>
+              </section>
+              <section className='bg-card/50 border-border/60 rounded-xl border p-5 backdrop-blur'>
+                <p className='text-foreground text-sm font-semibold'>
+                  {copy.nextTitle}
+                </p>
+                <p className='text-muted-foreground mt-2 text-sm leading-6'>
+                  {copy.nextBody}
+                </p>
+              </section>
+            </aside>
           </div>
-
-          <aside className='space-y-10'>
-            <section className='forge-guide-note'>
-              <p className='forge-kicker mb-4'>{copy.keyTitle}</p>
-              <p className='text-muted-foreground leading-7'>{copy.keyBody}</p>
-            </section>
-            <section className='forge-guide-note'>
-              <p className='forge-kicker mb-4'>{copy.securityTitle}</p>
-              <p className='text-muted-foreground leading-7'>
-                {copy.securityBody}
-              </p>
-            </section>
-            <section className='forge-guide-note'>
-              <p className='forge-kicker mb-4'>{copy.nextTitle}</p>
-              <p className='text-muted-foreground leading-7'>{copy.nextBody}</p>
-            </section>
-          </aside>
-        </div>
-      </main>
-    </ForgePublicShell>
+        </main>
+      </div>
+    </PublicLayout>
   )
 }

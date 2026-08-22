@@ -61,10 +61,13 @@ function SheetContent({
   children,
   side = 'right',
   showCloseButton = true,
+  overlayClassName,
   ...props
 }: SheetPrimitive.Popup.Props & {
   side?: 'top' | 'right' | 'bottom' | 'left'
   showCloseButton?: boolean
+  /** Optional per-instance scrim overrides (e.g. a stronger dialog veil). */
+  overlayClassName?: string
 }) {
   const { t } = useTranslation()
 
@@ -75,7 +78,7 @@ function SheetContent({
   // and trap the panel at the default `sm:max-w-sm` width.
   return (
     <SheetPortal>
-      <SheetOverlay />
+      <SheetOverlay className={overlayClassName} />
       <SheetPrimitive.Popup
         data-slot='sheet-content'
         data-side={side}

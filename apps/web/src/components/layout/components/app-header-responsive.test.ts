@@ -51,7 +51,7 @@ describe('authenticated header responsive navigation', () => {
   test('keeps the mobile navigation and language controls reachable', () => {
     assert.match(headerSource, /className='size-11 sm:size-8'/)
     assert.match(topNavSource, /className='size-11 lg:size-8'/)
-    assert.match(languageSwitcherSource, /className='h-11 w-11[\s\S]*sm:h-9/)
+    assert.match(languageSwitcherSource, /className='h-11 w-11[\s\S]*sm:h-8/)
     assert.match(languageSwitcherSource, /className='min-h-11 sm:min-h-8'/)
   })
 })

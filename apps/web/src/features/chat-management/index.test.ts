@@ -34,3 +34,29 @@ describe('chat management responsive history', () => {
     assert.match(source, /<AssistantHistory\s+active\s+presentation='rows'/)
   })
 })
+
+describe('chat management page conventions', () => {
+  test('renders inside the standard section page shell', () => {
+    assert.match(source, /SectionPageLayout fixedContent/)
+    assert.match(
+      source,
+      /SectionPageLayout\.Title>\s*\{t\('Conversation records'\)\}/
+    )
+  })
+
+  test('keeps the list and transcript panes independently scrollable', () => {
+    assert.match(
+      source,
+      /section[\s\S]*?min-h-0 min-w-0 overflow-y-auto lg:pr-6/
+    )
+    assert.match(
+      source,
+      /aside[\s\S]*?min-h-0 min-w-0 overflow-y-auto[\s\S]*?lg:pl-6/
+    )
+  })
+
+  test('uses the shared empty state for the unselected transcript pane', () => {
+    assert.match(source, /EmptyState/)
+    assert.match(source, /title=\{t\('Open a conversation'\)\}/)
+  })
+})

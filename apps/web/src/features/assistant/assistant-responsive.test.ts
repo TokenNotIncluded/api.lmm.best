@@ -54,10 +54,13 @@ describe('assistant responsive presentation', () => {
     assert.equal(isAssistantRailViewport(1280), true)
   })
 
-  test('keeps launcher, lazy fallback, and rail on the same xl breakpoint', () => {
+  test('keeps the launcher pill below xl and the overlay dialog everywhere', () => {
+    // The floating launcher pill is a touch/small-screen affordance; desktop
+    // opens the same overlay dialog from the header chat button instead of a
+    // persistent side rail.
     assert.match(launcherSource, /xl:hidden/)
-    assert.match(launcherSource, /xl:flex/)
-    assert.match(panelSource, /border-l xl:flex/)
+    assert.doesNotMatch(panelSource, /mode==='rail'/)
+    assert.match(panelSource, /sm:rounded-xl/)
   })
 
   test('moves the assistant textarea focus outline to its rounded shell', () => {

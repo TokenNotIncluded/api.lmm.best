@@ -24,6 +24,12 @@ type AccessRestrictionNoticeProps = {
   className?: string
 }
 
+const PROJECT_LINKS = {
+  project: 'https://github.com/LIghtJUNction/api.lmm.best',
+  issues: 'https://github.com/LIghtJUNction/api.lmm.best/issues',
+  releases: 'https://github.com/LIghtJUNction/api.lmm.best/releases',
+} as const
+
 export function AccessRestrictionNotice(props: AccessRestrictionNoticeProps) {
   const { t } = useTranslation()
 
@@ -31,7 +37,7 @@ export function AccessRestrictionNotice(props: AccessRestrictionNoticeProps) {
     <aside
       role='note'
       className={cn(
-        'border-border bg-muted/40 text-muted-foreground border-t px-4 py-2 text-center text-[11px] leading-4 font-medium',
+        'bg-muted/40 text-muted-foreground px-4 py-2 text-center text-[11px] leading-4 font-medium',
         props.className
       )}
     >
@@ -40,6 +46,39 @@ export function AccessRestrictionNotice(props: AccessRestrictionNoticeProps) {
           'Service access notice: This notice refers only to ISO 3166-1 alpha-2 CN (Mainland China). It does not state service availability for any other location.'
         )}
       </span>
+      <span aria-hidden='true' className='mx-1.5'>
+        ·
+      </span>
+      <a
+        href={PROJECT_LINKS.project}
+        target='_blank'
+        rel='noopener noreferrer'
+        className='hover:text-foreground underline-offset-2 transition-colors hover:underline'
+      >
+        {t('GitHub project')}
+      </a>
+      <span aria-hidden='true' className='mx-1.5'>
+        ·
+      </span>
+      <a
+        href={PROJECT_LINKS.issues}
+        target='_blank'
+        rel='noopener noreferrer'
+        className='hover:text-foreground underline-offset-2 transition-colors hover:underline'
+      >
+        {t('Report an issue')}
+      </a>
+      <span aria-hidden='true' className='mx-1.5'>
+        ·
+      </span>
+      <a
+        href={PROJECT_LINKS.releases}
+        target='_blank'
+        rel='noopener noreferrer'
+        className='hover:text-foreground underline-offset-2 transition-colors hover:underline'
+      >
+        {t('Changelog')}
+      </a>
     </aside>
   )
 }

@@ -1234,12 +1234,12 @@ export function buildFlowSankeySpec(
       state: {
         hover: {
           fillOpacity: 1,
-          stroke: 'var(--forge-chart-text)',
+          stroke: 'var(--forge-chart-hover)',
           lineWidth: 1.5,
         },
         selected: {
           fillOpacity: 1,
-          stroke: 'var(--forge-chart-text)',
+          stroke: 'var(--forge-chart-hover)',
           lineWidth: 1.5,
         },
         blur: {

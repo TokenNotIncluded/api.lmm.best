@@ -16,11 +16,28 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { ArrowRight01Icon } from '@hugeicons/core-free-icons'
-import { HugeiconsIcon } from '@hugeicons/react'
 import { useQuery } from '@tanstack/react-query'
 import { Link, useNavigate } from '@tanstack/react-router'
-import { type FormEvent, useState } from 'react'
+import {
+  type LucideIcon,
+  ArrowRight,
+  BadgePercent,
+  BookOpen,
+  Braces,
+  Check,
+  ChevronRight,
+  CircleHelp,
+  Code2,
+  Copy,
+  Gauge,
+  Globe2,
+  Image,
+  MessageCircle,
+  ShieldCheck,
+  Sparkles,
+  Workflow,
+} from 'lucide-react'
+import { type FormEvent, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
@@ -38,9 +55,223 @@ import { useStatus } from '@/hooks/use-status'
 import { isConsoleActivated } from '@/lib/console-activation'
 import { useAuthStore } from '@/stores/auth-store'
 
-import { ChallengeList } from './challenge-list'
 import { ForgePublicShell } from './forge-public-shell'
 import { useTypewriterPlaceholder } from './use-typewriter-placeholder'
+
+import './forge-home.css'
+
+const FEATURE_CARDS: Array<{
+  icon: LucideIcon
+  title: string
+  description: string
+  tone: string
+}> = [
+  {
+    icon: BookOpen,
+    title: 'Setup guide',
+    description: 'The built-in assistant configures keys, models, and budgets.',
+    tone: 'text-primary',
+  },
+  {
+    icon: BadgePercent,
+    title: 'Clear pricing',
+    description: 'Per-token billing with visible rates before you commit.',
+    tone: 'text-chart-2',
+  },
+  {
+    icon: Sparkles,
+    title: 'Model Square',
+    description:
+      'Discover curated AI models, compare pricing and capabilities, and choose the right model for every scenario.',
+    tone: 'text-chart-3',
+  },
+  {
+    icon: Gauge,
+    title: 'Uptime',
+    description: 'Health-checked upstreams with latency you can inspect.',
+    tone: 'text-success',
+  },
+  {
+    icon: Globe2,
+    title: 'One endpoint',
+    description:
+      'Chat, reasoning, vision, and audio models behind one endpoint.',
+    tone: 'text-info',
+  },
+  {
+    icon: ShieldCheck,
+    title: 'Support',
+    description: 'Support and access requests stay auditable and fair.',
+    tone: 'text-chart-4',
+  },
+]
+
+const USE_CASES: Array<{
+  icon: LucideIcon
+  title: string
+  description: string
+}> = [
+  {
+    icon: MessageCircle,
+    title: 'Chat',
+    description:
+      'A guided assistant for setup, account, billing, and model questions.',
+  },
+  {
+    icon: Code2,
+    title: 'Client setup guide',
+    description:
+      'Use one Base URL, model ID, and API key across your compatible tools.',
+  },
+  {
+    icon: Braces,
+    title: 'API Endpoints',
+    description:
+      'OpenAI-compatible access for applications, scripts, and agents.',
+  },
+  {
+    icon: Image,
+    title: 'Model Square',
+    description:
+      'Compare providers, capabilities, and transparent token pricing before you choose.',
+  },
+  {
+    icon: Workflow,
+    title: 'Open-source challenges',
+    description:
+      'Connect public work, review evidence, and a practical AI gateway in one place.',
+  },
+]
+
+const CODE_TABS = ['Chat', 'API', 'Claude', 'Gemini'] as const
+type CodeTab = (typeof CODE_TABS)[number]
+
+const HOME_MODEL_NAMES = [
+  'deepseek-v4-pro-0813',
+  'gemini-3.7-flash',
+  'gemini-3.7-flash-search',
+  'grok-4.6',
+] as const
+const HOME_MODEL_ROTATION_MS = 3500
+
+function codeForTab(tab: CodeTab) {
+  if (tab === 'Claude') {
+    return `curl https://api.lmm.best/v1/messages \\
+  -H "x-api-key: sk-••••" \\
+  -H "anthropic-version: 2023-06-01" \\
+  -d '{"model":"model-name","max_tokens":256}'`
+  }
+  if (tab === 'Gemini') {
+    return `curl https://api.lmm.best/v1beta/models \\
+  -H "Authorization: Bearer sk-••••" \\
+  -d '{"model":"model-name","contents":[]}'`
+  }
+  if (tab === 'API') {
+    return `const client = new OpenAI({
+  baseURL: "https://api.lmm.best/v1",
+  apiKey: process.env.LMM_API_KEY,
+})
+
+const response = await client.chat.completions.create({
+  model: "model-name",
+  messages: [{ role: "user", content: "your prompt" }],
+})`
+  }
+  return `curl -X POST "https://api.lmm.best/v1/chat/completions" \\
+  -H "Authorization: Bearer sk-••••" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "model": "model-name",
+    "messages": [{ "role": "user", "content": "your prompt" }]
+  }'`
+}
+
+function HomeSectionHeading(props: {
+  eyebrow: string
+  title: string
+  description: string
+}) {
+  return (
+    <div className='forge-home-section-heading'>
+      <span className='forge-home-pill'>
+        {props.eyebrow}
+        <span className='bg-primary size-1.5 rounded-full' aria-hidden='true' />
+      </span>
+      <h2>{props.title}</h2>
+      <p>{props.description}</p>
+    </div>
+  )
+}
+
+function CodePreview(props: {
+  tab: CodeTab
+  onTabChange: (tab: CodeTab) => void
+}) {
+  const { t } = useTranslation()
+  const code = codeForTab(props.tab)
+  const [copied, setCopied] = useState(false)
+
+  const copyCode = async () => {
+    try {
+      await navigator.clipboard.writeText(code)
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 1400)
+    } catch {
+      setCopied(false)
+    }
+  }
+
+  return (
+    <div className='forge-home-code-card'>
+      <div className='forge-home-window-bar'>
+        <span />
+        <span />
+        <span />
+      </div>
+      <div className='forge-home-code-tabs' role='tablist'>
+        {CODE_TABS.map((tab) => (
+          <button
+            key={tab}
+            type='button'
+            role='tab'
+            aria-selected={props.tab === tab}
+            className={props.tab === tab ? 'is-active' : undefined}
+            onClick={() => props.onTabChange(tab)}
+          >
+            {t(tab)}
+          </button>
+        ))}
+      </div>
+      <div className='forge-home-code-label'>
+        <span>{t('Request')}</span>
+        <Button
+          variant='ghost'
+          size='icon-sm'
+          className='text-muted-foreground hover:text-foreground size-7'
+          onClick={() => void copyCode()}
+          aria-label={t('Copy')}
+        >
+          {copied ? <Check /> : <Copy />}
+        </Button>
+      </div>
+      <pre className='forge-home-code-block'>
+        <code>{code}</code>
+      </pre>
+      <div className='forge-home-code-label forge-home-code-response'>
+        <span>{t('Response')}</span>
+        <span className='forge-home-code-status'>200 OK</span>
+      </div>
+      <pre className='forge-home-code-block forge-home-response-block'>
+        <code>{`{
+  "choices": [{
+    "message": { "role": "assistant", "content": "completion text..." }
+  }],
+  "usage": { "total_tokens": 15 }
+}`}</code>
+      </pre>
+    </div>
+  )
+}
 
 export function ForgeHome() {
   const { t } = useTranslation()
@@ -49,7 +280,34 @@ export function ForgeHome() {
   const { status } = useStatus()
   const [message, setMessage] = useState('')
   const [messageFocused, setMessageFocused] = useState(false)
+  const [codeTab, setCodeTab] = useState<CodeTab>('Chat')
+  const [modelIndex, setModelIndex] = useState(0)
+  const modelMeasureRef = useRef<HTMLSpanElement>(null)
+  const [modelWidth, setModelWidth] = useState<number>()
   const assistantEnabled = status?.assistant?.enabled !== false
+  const activeModelName = HOME_MODEL_NAMES[modelIndex]
+
+  useEffect(() => {
+    const measureModel = () => {
+      const width = modelMeasureRef.current?.getBoundingClientRect().width
+      if (width && Number.isFinite(width)) {
+        setModelWidth(Math.ceil(width))
+      }
+    }
+
+    measureModel()
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(measureModel)
+    if (modelMeasureRef.current) observer.observe(modelMeasureRef.current)
+    return () => observer.disconnect()
+  }, [activeModelName])
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      setModelIndex((current) => (current + 1) % HOME_MODEL_NAMES.length)
+    }, HOME_MODEL_ROTATION_MS)
+    return () => window.clearInterval(intervalId)
+  }, [])
   const messageInvalid = getAssistantPromptValidation(message).invalid
   const preConversationPresetsQuery = useQuery({
     queryKey: ['assistant-pre-conversation-presets'],
@@ -73,8 +331,6 @@ export function ForgeHome() {
       requestAssistantSend(undefined, safeMessage)
       void navigate({
         to: '/sign-in',
-        // The route guard redirects L0 to getting-started after login while
-        // L1+ stays on the dashboard.
         search: { redirect: '/dashboard' },
       })
       return
@@ -87,148 +343,235 @@ export function ForgeHome() {
 
   return (
     <ForgePublicShell>
-      <main>
-        <section
-          aria-labelledby='forge-home-title'
-          className='forge-home-hero border-border border-b'
-        >
-          <div className='mx-auto grid max-w-6xl gap-14 px-6 py-20 md:min-h-[min(43rem,calc(100dvh-5rem))] md:grid-cols-[minmax(0,1.2fr)_minmax(18rem,0.7fr)] md:items-center md:px-10 md:py-24'>
-            <div className='max-w-3xl'>
-              <p className='forge-kicker mb-6'>
-                {t('Developer-friendly AI gateway')}
-              </p>
-              <h1
-                id='forge-home-title'
-                className='mb-8 max-w-3xl font-serif text-5xl leading-[0.98] font-normal tracking-[-0.035em] sm:text-6xl md:text-8xl'
+      <main className='forge-home-page'>
+        <div className='forge-home-aurora' aria-hidden='true'>
+          <div className='forge-home-aurora-layer' />
+        </div>
+
+        <section className='forge-home-hero' aria-labelledby='forge-home-title'>
+          <div className='forge-home-grid' aria-hidden='true' />
+          <div
+            className='forge-home-orb forge-home-orb-left'
+            aria-hidden='true'
+          />
+          <div
+            className='forge-home-orb forge-home-orb-right'
+            aria-hidden='true'
+          />
+          <div className='forge-home-hero-content'>
+            <div className='forge-home-model-badge'>
+              <span className='forge-home-badge-label'>
+                <Sparkles className='size-3' />
+                {t('New')}
+              </span>
+              <span
+                className='forge-home-model-viewport'
+                aria-live='polite'
+                style={modelWidth ? { width: `${modelWidth}px` } : undefined}
               >
-                LMM Forge
-              </h1>
-              <p className='text-foreground/70 max-w-2xl text-lg leading-8 sm:text-xl'>
-                {t(
-                  'A semi-public-interest AI gateway for high-quality, transparent access.'
-                )}
-              </p>
-              <p className='text-muted-foreground mt-4 max-w-xl leading-7'>
-                {t(
-                  'Use one clear API for your work, connect a client, or explore public open-source challenges.'
-                )}
-              </p>
-
-              <form className='mt-12 max-w-2xl' onSubmit={submitMessage}>
-                <label className='sr-only' htmlFor='forge-home-message'>
-                  {t('Tell us what you want to do')}
-                </label>
-                <InputGroup className='has-[[data-slot=input-group-control]:focus-visible]:border-foreground/50 h-12 rounded-xl has-[[data-slot=input-group-control]:focus-visible]:ring-0'>
-                  <InputGroupInput
-                    id='forge-home-message'
-                    value={message}
-                    onChange={(event) => setMessage(event.target.value)}
-                    onFocus={() => setMessageFocused(true)}
-                    onBlur={() => setMessageFocused(false)}
-                    className='focus-visible:!outline-none'
-                    placeholder={
-                      animatedPlaceholder || t('Describe what you need...')
-                    }
-                    maxLength={4000}
-                  />
-                  <InputGroupAddon align='inline-end' className='pr-1'>
-                    <InputGroupButton
-                      type='submit'
-                      variant='default'
-                      size='sm'
-                      className='h-11 rounded-lg px-3 sm:h-10'
-                      disabled={
-                        !message.trim() || messageInvalid || !assistantEnabled
-                      }
-                    >
-                      <span className='forge-home-submit-label'>
-                        {t('Ask AI assistant')}
-                      </span>
-                      <HugeiconsIcon
-                        icon={ArrowRight01Icon}
-                        data-icon='inline-end'
-                        strokeWidth={2}
-                        aria-hidden='true'
-                      />
-                    </InputGroupButton>
-                  </InputGroupAddon>
-                </InputGroup>
-              </form>
-              <div className='mt-5 flex flex-wrap gap-x-6 gap-y-2 text-sm'>
-                <Link className='forge-text-link' to='/pricing'>
-                  {t('View model pricing')}
-                </Link>
-                <Link className='forge-text-link' to='/challenges'>
-                  {t('Browse open-source work')}
-                </Link>
-                <Link className='forge-text-link' to='/guide'>
-                  {t('Read the guide')}
-                </Link>
-              </div>
+                <span
+                  ref={modelMeasureRef}
+                  aria-hidden='true'
+                  className='invisible absolute whitespace-nowrap'
+                >
+                  {activeModelName}
+                </span>
+                <span
+                  key={activeModelName}
+                  className='forge-home-model-current'
+                >
+                  <Link to='/pricing'>{activeModelName}</Link>
+                </span>
+              </span>
+              <ChevronRight className='text-muted-foreground size-4' />
             </div>
-
-            <aside className='forge-home-note' aria-label={t('At a glance')}>
-              <div className='forge-note-rule' />
-              <p className='forge-kicker mb-5'>{t('At a glance')}</p>
-              <ul className='space-y-5 text-sm leading-6'>
-                <li>
-                  <strong className='font-medium'>{t('One endpoint')}</strong>
-                  <span className='text-muted-foreground mt-1 block'>
-                    {t('OpenAI and Anthropic-compatible routes.')}
-                  </span>
-                </li>
-                <li>
-                  <strong className='font-medium'>{t('Clear pricing')}</strong>
-                  <span className='text-muted-foreground mt-1 block'>
-                    {t('Choose the model and group before you spend.')}
-                  </span>
-                </li>
-                <li>
-                  <strong className='font-medium'>{t('Human review')}</strong>
-                  <span className='text-muted-foreground mt-1 block'>
-                    {t('Support and access requests stay auditable.')}
-                  </span>
-                </li>
-              </ul>
-            </aside>
+            <h1 id='forge-home-title'>
+              <span>{t('Just one endpoint')}</span>
+              <span>{t('Connect the world’s most popular models')}</span>
+            </h1>
+            <p className='forge-home-hero-description'>
+              {t(
+                'A semi-public-interest AI gateway for high-quality, transparent access.'
+              )}
+            </p>
+            <p className='forge-home-hero-summary'>
+              {t(
+                'Pay as you go, no time limits, fast chat, transparent details, no hidden fees, and online recharge for access to every model.'
+              )}
+            </p>
+            <div className='forge-home-hero-actions'>
+              <Button
+                size='lg'
+                className='group h-14 rounded-full px-8 text-base'
+                render={
+                  <Link
+                    to={user ? '/dashboard' : '/sign-in'}
+                    search={user ? undefined : { redirect: '/dashboard' }}
+                  />
+                }
+              >
+                {t('Get started')}
+                <ArrowRight className='ml-2 size-4 transition-transform group-hover:translate-x-1' />
+              </Button>
+              <Button
+                variant='outline'
+                size='lg'
+                className='border-border/80 bg-card/50 h-14 rounded-full px-8 text-base'
+                render={<Link to='/guide' />}
+              >
+                {t('Read the guide')}
+              </Button>
+            </div>
+            <form
+              className='forge-home-hero-assistant'
+              onSubmit={submitMessage}
+            >
+              <label className='sr-only' htmlFor='forge-home-message'>
+                {t('Tell us what you want to do')}
+              </label>
+              <InputGroup className='border-border/60 bg-card/60 h-12 rounded-full px-1 backdrop-blur-xl'>
+                <InputGroupInput
+                  id='forge-home-message'
+                  value={message}
+                  onChange={(event) => setMessage(event.target.value)}
+                  onFocus={() => setMessageFocused(true)}
+                  onBlur={() => setMessageFocused(false)}
+                  className='focus-visible:!outline-none'
+                  placeholder={
+                    animatedPlaceholder || t('Describe what you need...')
+                  }
+                  maxLength={4000}
+                />
+                <InputGroupAddon align='inline-end'>
+                  <InputGroupButton
+                    type='submit'
+                    variant='default'
+                    size='sm'
+                    className='h-10 rounded-full px-4'
+                    disabled={
+                      !message.trim() || messageInvalid || !assistantEnabled
+                    }
+                  >
+                    {t('Ask AI assistant')}
+                  </InputGroupButton>
+                </InputGroupAddon>
+              </InputGroup>
+            </form>
           </div>
         </section>
 
         <section
-          aria-labelledby='forge-public-challenges-title'
-          className='border-border border-b'
+          className='forge-home-section'
+          aria-labelledby='forge-home-features-title'
         >
-          <div className='mx-auto max-w-6xl px-6 py-16 md:px-10 md:py-20'>
-            <div className='mb-8 flex items-end justify-between gap-4'>
-              <div>
-                <p className='text-muted-foreground mb-2 text-sm'>
-                  {t('Public challenges')}
-                </p>
-                <h2
-                  id='forge-public-challenges-title'
-                  className='font-serif text-3xl font-normal tracking-[-0.025em] md:text-4xl'
+          <HomeSectionHeading
+            eyebrow={t('Usage at a glance')}
+            title={t('A gateway that stays out of your way')}
+            description={t(
+              'Use one clear API for your work, connect a client, or explore public open-source challenges.'
+            )}
+          />
+          <div
+            id='forge-home-features-title'
+            className='forge-home-feature-grid'
+          >
+            {FEATURE_CARDS.map((feature) => {
+              const Icon = feature.icon
+              return (
+                <article
+                  key={feature.title}
+                  className='forge-home-feature-card'
                 >
-                  {t('Open-source challenges')}
-                </h2>
+                  <div className={`forge-home-feature-icon ${feature.tone}`}>
+                    <Icon />
+                  </div>
+                  <div>
+                    <h3>{t(feature.title)}</h3>
+                    <p>{t(feature.description)}</p>
+                  </div>
+                </article>
+              )
+            })}
+          </div>
+        </section>
+
+        <section
+          className='forge-home-section forge-home-quickstart'
+          aria-labelledby='forge-home-quickstart-title'
+        >
+          <HomeSectionHeading
+            eyebrow={t('Get started')}
+            title={t('A guide that ships answers')}
+            description={t(
+              'Use our unified OpenAI-compatible endpoint in your applications'
+            )}
+          />
+          <div className='forge-home-quickstart-grid'>
+            <div className='forge-home-steps'>
+              {[
+                [
+                  '1',
+                  'Create an API key',
+                  'Generate and manage your API access token',
+                ],
+                [
+                  '2',
+                  'API token management',
+                  'Set API key access restrictions',
+                ],
+                ['3', 'Connect your client', 'Client setup guide'],
+              ].map(([number, title, description]) => (
+                <div key={number} className='forge-home-step'>
+                  <span className='forge-home-step-number'>{number}</span>
+                  <div>
+                    <h3>{t(title)}</h3>
+                    <p>{t(description)}</p>
+                  </div>
+                  <ChevronRight className='forge-home-step-arrow' />
+                </div>
+              ))}
+              <div className='forge-home-quick-links'>
+                <Link to='/guide' className='forge-home-quick-link'>
+                  <Code2 />
+                  <span>{t('Read setup guide')}</span>
+                  <ArrowRight />
+                </Link>
+                <Link to='/pricing' className='forge-home-quick-link'>
+                  <CircleHelp />
+                  <span>{t('View model pricing')}</span>
+                  <ArrowRight />
+                </Link>
               </div>
-              <Button
-                variant='outline'
-                className='forge-outline-button shrink-0 rounded-sm'
-                render={<Link to='/challenges' />}
-              >
-                {t('Browse challenges')}
-                <HugeiconsIcon
-                  icon={ArrowRight01Icon}
-                  data-icon='inline-end'
-                  strokeWidth={2}
-                  aria-hidden='true'
-                />
-              </Button>
             </div>
-            <p className='text-muted-foreground mb-7 max-w-xl text-sm leading-6'>
-              {t('The public board is open to everyone.')}
-            </p>
-            <ChallengeList limit={3} showHeading={false} />
+            <CodePreview tab={codeTab} onTabChange={setCodeTab} />
+          </div>
+        </section>
+
+        <section
+          className='forge-home-section'
+          aria-labelledby='forge-home-use-cases-title'
+        >
+          <HomeSectionHeading
+            eyebrow={t('Model Square')}
+            title={t('One platform, many uses')}
+            description={t(
+              'Discover curated AI models, compare pricing and capabilities, and choose the right model for every scenario.'
+            )}
+          />
+          <div
+            id='forge-home-use-cases-title'
+            className='forge-home-use-case-grid'
+          >
+            {USE_CASES.map((item) => {
+              const Icon = item.icon
+              return (
+                <article key={item.title} className='forge-home-use-case'>
+                  <Icon className='text-primary size-5' />
+                  <h3>{t(item.title)}</h3>
+                  <p>{t(item.description)}</p>
+                </article>
+              )
+            })}
           </div>
         </section>
       </main>

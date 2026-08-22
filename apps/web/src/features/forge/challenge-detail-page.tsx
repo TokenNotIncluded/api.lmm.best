@@ -220,7 +220,7 @@ export function ChallengeDetailPage(props: ChallengeDetailPageProps) {
   return (
     <ForgePublicShell>
       <main className='bg-background text-foreground pt-16'>
-        <section className='border-foreground text-foreground border-y bg-[var(--forge-clay)]'>
+        <section className='border-foreground text-foreground bg-accent border-y'>
           <div className='mx-auto grid max-w-7xl gap-10 px-5 py-14 md:grid-cols-[minmax(0,1fr)_300px] md:px-10 md:py-20'>
             <div>
               <Link
@@ -340,7 +340,7 @@ export function ChallengeDetailPage(props: ChallengeDetailPageProps) {
           </div>
         </section>
 
-        <section className='border-foreground text-foreground border-t bg-[var(--forge-cactus)]'>
+        <section className='border-foreground text-foreground bg-secondary border-t'>
           <div className='mx-auto max-w-7xl px-5 py-16 md:px-10 md:py-20'>
             <h2 className='mb-7 font-serif text-3xl font-normal'>
               {t('Settlement ledger')}

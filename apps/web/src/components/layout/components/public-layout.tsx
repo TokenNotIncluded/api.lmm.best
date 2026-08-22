@@ -55,6 +55,7 @@ export function PublicLayout(props: PublicLayoutProps) {
       ) : (
         props.children
       )}
+
       <AccessRestrictionNotice />
     </div>
   )

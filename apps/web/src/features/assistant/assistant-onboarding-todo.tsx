@@ -2,14 +2,23 @@
 Copyright (C) 2023-2026 QuantumNous
 
 This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU Affero General Public License as published by
-the Free Software Foundation, either version 3 of the License, or
-(at your option) any later version.
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
 */
 import {
   ArrowRight01Icon,
   CheckmarkCircle02Icon,
-  CircleIcon,
   ReloadIcon,
 } from '@hugeicons/core-free-icons'
 import { HugeiconsIcon } from '@hugeicons/react'
@@ -18,11 +27,33 @@ import { useTranslation } from 'react-i18next'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 
-import { getL1OnboardingTodo, type L1OnboardingTodo } from './api'
+import { getL1OnboardingTodo } from './api'
 import { getAssistantOnboardingTodoSteps } from './assistant-onboarding-todo-state'
 
+/** Resolve the next actionable step into a handler + label. */
+function getNextStepAction(
+  steps: ReturnType<typeof getAssistantOnboardingTodoSteps>,
+  props: { onOpenKey: () => void; onOpenSetup: () => void },
+  t: (key: string) => string
+): { action: () => void; label: string } | null {
+  const nextStep = steps.find((step) => !step.complete && step.available)
+  if (!nextStep) return null
+  if (nextStep.id === 'create_api_key') {
+    return { action: props.onOpenKey, label: t('Create API key') }
+  }
+  if (nextStep.id === 'install_client' || nextStep.id === 'configure_client') {
+    return { action: props.onOpenSetup, label: t('Open setup guide') }
+  }
+  return null
+}
+
+/**
+ * First-use checklist, kept deliberately slim: one quiet row above the
+ * conversation with the count, the next actionable step, and a refresh.
+ * The full card body was removed — the assistant itself walks through the
+ * steps, so the dialog does not need to restate them.
+ */
 export function AssistantOnboardingTodo(props: {
   userId: number
   enabled: boolean
@@ -35,8 +66,7 @@ export function AssistantOnboardingTodo(props: {
     queryKey: ['assistant-onboarding-todo', props.userId],
     queryFn: getL1OnboardingTodo,
     enabled: props.enabled,
-    staleTime: 15_000,
-    refetchOnWindowFocus: true,
+    staleTime: 60_000,
     retry: false,
   })
 
@@ -46,120 +76,64 @@ export function AssistantOnboardingTodo(props: {
   const steps = getAssistantOnboardingTodoSteps(todoQuery.data)
   const completedCount = steps.filter((step) => step.complete).length
   const isComplete = todoQuery.data.status === 'completed'
-  const compact = props.presentation === 'compact'
-  const labels: Record<L1OnboardingTodo['steps'][number]['id'], string> = {
-    create_api_key: t('Create API key'),
-    install_client: t('Install a client'),
-    configure_client: t('Configure the client'),
-    first_successful_response: t('Receive a successful response'),
-  }
+  const next = getNextStepAction(steps, props, t)
 
   return (
-    <Card
-      size='sm'
-      className={
-        compact
-          ? 'mx-auto mt-2 w-full max-w-3xl shrink-0 rounded-none border-x-0 border-t-0 bg-transparent shadow-none sm:mt-3'
-          : 'mx-3 mt-3 shrink-0 sm:mx-4'
-      }
+    <div
+      className='border-border/60 bg-card/40 mx-3 mt-3 flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg border px-3 py-2 sm:mx-4'
       data-testid='assistant-onboarding-todo'
-      data-presentation={compact ? 'compact' : 'default'}
+      data-presentation={
+        props.presentation === 'compact' ? 'compact' : 'default'
+      }
     >
-      <CardHeader className='gap-1.5 pb-3'>
-        <div className='flex items-center justify-between gap-3'>
-          <CardTitle className='text-sm'>{t('First-use checklist')}</CardTitle>
-          <div className='flex items-center gap-1.5'>
-            <Badge variant={isComplete ? 'secondary' : 'outline'}>
-              {completedCount}/{steps.length}
-            </Badge>
-            <Button
-              type='button'
-              variant='ghost'
-              size='icon-xs'
-              aria-label={t('Refresh')}
-              title={t('Refresh')}
-              onClick={() => void todoQuery.refetch()}
-            >
-              <HugeiconsIcon
-                icon={ReloadIcon}
-                strokeWidth={2}
-                aria-hidden='true'
-              />
-            </Button>
-          </div>
-        </div>
-        <p className='text-muted-foreground text-xs leading-5'>
-          {t('Only verified account activity can complete these steps.')}
-        </p>
-      </CardHeader>
-      <CardContent
+      <HugeiconsIcon
+        icon={isComplete ? CheckmarkCircle02Icon : ReloadIcon}
         className={
-          compact ? 'grid gap-2 pt-0 sm:grid-cols-2' : 'grid gap-2 pt-0'
+          isComplete
+            ? 'text-success size-4 shrink-0'
+            : 'text-muted-foreground size-4 shrink-0'
         }
+        strokeWidth={2}
+        aria-hidden='true'
+      />
+      <span className='min-w-0 flex-1 truncate text-sm font-medium'>
+        {t('First-use checklist')}
+      </span>
+      <Badge variant={isComplete ? 'secondary' : 'outline'}>
+        {completedCount}/{steps.length}
+      </Badge>
+      <Button
+        type='button'
+        variant='ghost'
+        size='icon-xs'
+        aria-label={t('Refresh')}
+        title={t('Refresh')}
+        onClick={() => void todoQuery.refetch()}
       >
-        {steps.map((step) => {
-          let action: (() => void) | undefined
-          if (step.id === 'create_api_key') action = props.onOpenKey
-          if (step.id === 'install_client' || step.id === 'configure_client') {
-            action = props.onOpenSetup
-          }
-          const actionLabel =
-            step.id === 'create_api_key'
-              ? t('Create API key')
-              : t('Open setup guide')
-
-          return (
-            <div
-              className='flex items-start gap-2.5 text-sm'
-              data-testid={`assistant-onboarding-step-${step.id}`}
-              key={step.id}
-            >
-              <HugeiconsIcon
-                icon={step.complete ? CheckmarkCircle02Icon : CircleIcon}
-                className={
-                  step.complete
-                    ? 'text-success mt-0.5 size-4 shrink-0'
-                    : 'text-muted-foreground mt-0.5 size-4 shrink-0'
-                }
-                strokeWidth={2}
-                aria-hidden='true'
-              />
-              <div className='min-w-0 flex-1'>
-                <p className={step.complete ? 'text-muted-foreground' : ''}>
-                  {labels[step.id]}
-                </p>
-                {!step.complete && step.available && action ? (
-                  <Button
-                    type='button'
-                    variant='ghost'
-                    size='sm'
-                    className='mt-1 h-7 px-2 text-xs'
-                    onClick={action}
-                  >
-                    {actionLabel}
-                    <HugeiconsIcon
-                      icon={ArrowRight01Icon}
-                      strokeWidth={2}
-                      data-icon='inline-end'
-                      aria-hidden='true'
-                    />
-                  </Button>
-                ) : null}
-                {!step.complete && !step.available ? (
-                  <p className='text-muted-foreground mt-0.5 text-xs'>
-                    {t('Complete the previous step first.')}
-                  </p>
-                ) : null}
-              </div>
-            </div>
-          )
-        })}
-        {isComplete ? (
-          <p className='text-muted-foreground pt-1 text-xs'>
-            {t('Setup complete')}
-          </p>
-        ) : null}
-      </CardContent>
-    </Card>
+        <HugeiconsIcon icon={ReloadIcon} strokeWidth={2} aria-hidden='true' />
+      </Button>
+      {next && !isComplete ? (
+        <Button
+          type='button'
+          variant='ghost'
+          size='sm'
+          className='h-7 px-2 text-xs'
+          onClick={next.action}
+        >
+          {next.label}
+          <HugeiconsIcon
+            icon={ArrowRight01Icon}
+            strokeWidth={2}
+            data-icon='inline-end'
+            aria-hidden='true'
+          />
+        </Button>
+      ) : null}
+      {isComplete ? (
+        <span className='text-muted-foreground text-xs'>
+          {t('Setup complete')}
+        </span>
+      ) : null}
+    </div>
   )
 }

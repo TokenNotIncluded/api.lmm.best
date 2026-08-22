@@ -60,26 +60,10 @@ function getDisplaySiteName(
   return systemName
 }
 
-function getPublicNavClassName(
-  editorialHeader: boolean | undefined,
-  scrolled: boolean
-) {
-  let surfaceClassName: string
-  if (scrolled) {
-    surfaceClassName = editorialHeader
-      ? 'forge-public-nav-scrolled'
-      : 'border-border bg-background shadow-md'
-  } else {
-    surfaceClassName = editorialHeader
-      ? 'forge-public-nav-top'
-      : 'border-border'
-  }
-
+function getPublicNavClassName(editorialHeader: boolean | undefined) {
   return cn(
-    'flex items-center justify-between transition-all duration-700 ease-[cubic-bezier(0.16,1,0.3,1)]',
-    editorialHeader ? 'forge-public-nav' : 'text-foreground',
-    scrolled ? 'h-12 rounded-sm pr-1.5 pl-4' : 'h-16 border-b px-2',
-    surfaceClassName
+    'flex h-16 items-center justify-between border-b px-2',
+    editorialHeader && 'forge-public-nav'
   )
 }
 
@@ -162,15 +146,16 @@ export function PublicHeader(props: PublicHeaderProps) {
 
   const { t } = useTranslation()
   const navigate = useNavigate()
-  const [scrolled, setScrolled] = useState(false)
-  const [mobileOpen, setMobileOpen] = useState(false)
+  // The mobile menu is derived from the pathname it was opened on: any
+  // navigation (link click, programmatic, browser back) automatically closes
+  // it during render — no pathname effect or cascading setState needed.
+  const [mobileMenuPath, setMobileMenuPath] = useState<string | null>(null)
   const [authPromptTarget, setAuthPromptTarget] =
     useState<AuthPromptTarget | null>(null)
   const [authPromptSecondsLeft, setAuthPromptSecondsLeft] =
     useState(AUTH_PROMPT_SECONDS)
   const mobileMenuRef = useRef<HTMLDivElement>(null)
   const mobileMenuButtonRef = useRef<HTMLButtonElement>(null)
-  const scrolledRef = useRef(false)
   const { auth } = useAuthStore()
   const {
     systemName,
@@ -196,17 +181,11 @@ export function PublicHeader(props: PublicHeaderProps) {
     useDynamicNavLinks && dynamicLinks.length > 0 ? dynamicLinks : navLinks
   const mobileNavigationLinks = props.mobileLinks ?? links
 
-  useEffect(() => {
-    const onScroll = () => {
-      const nextScrolled = window.scrollY > 20
-      if (scrolledRef.current === nextScrolled) return
-      scrolledRef.current = nextScrolled
-      setScrolled(nextScrolled)
-    }
-    onScroll()
-    window.addEventListener('scroll', onScroll, { passive: true })
-    return () => window.removeEventListener('scroll', onScroll)
-  }, [])
+  const mobileOpen = mobileMenuPath === pathname
+  const closeMobileMenu = useCallback(() => setMobileMenuPath(null), [])
+  const toggleMobileMenu = useCallback(() => {
+    setMobileMenuPath(mobileOpen ? null : pathname)
+  }, [mobileOpen, pathname])
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow
@@ -215,10 +194,6 @@ export function PublicHeader(props: PublicHeaderProps) {
       document.body.style.overflow = previousOverflow
     }
   }, [mobileOpen])
-
-  useEffect(() => {
-    setMobileOpen(false)
-  }, [pathname])
 
   useEffect(() => {
     if (!mobileOpen) return
@@ -236,7 +211,7 @@ export function PublicHeader(props: PublicHeaderProps) {
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        setMobileOpen(false)
+        closeMobileMenu()
         mobileMenuButtonRef.current?.focus()
         return
       }
@@ -255,7 +230,7 @@ export function PublicHeader(props: PublicHeaderProps) {
     }
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [mobileOpen])
+  }, [mobileOpen, closeMobileMenu])
 
   useEffect(() => {
     if (!authPromptTarget) return
@@ -301,7 +276,7 @@ export function PublicHeader(props: PublicHeaderProps) {
       if (link.requiresAuth) {
         event.preventDefault()
         if (closeMobile) {
-          setMobileOpen(false)
+          closeMobileMenu()
         }
         setAuthPromptSecondsLeft(AUTH_PROMPT_SECONDS)
         setAuthPromptTarget({
@@ -312,10 +287,10 @@ export function PublicHeader(props: PublicHeaderProps) {
       }
 
       if (closeMobile) {
-        setMobileOpen(false)
+        closeMobileMenu()
       }
     },
-    [t]
+    [t, closeMobileMenu]
   )
 
   let logoContent = customLogo
@@ -355,17 +330,13 @@ export function PublicHeader(props: PublicHeaderProps) {
       <header
         className={cn(
           'public-header pointer-events-none fixed inset-x-0 top-0 z-50',
+          'bg-background/50 backdrop-blur-2xl',
           props.className
         )}
       >
-        <div
-          className={cn(
-            'pointer-events-auto mx-auto transition-all duration-700 ease-[cubic-bezier(0.16,1,0.3,1)]',
-            scrolled ? 'max-w-[52rem] px-3 pt-3' : 'max-w-7xl px-4 pt-0 md:px-6'
-          )}
-        >
+        <div className='pointer-events-auto mx-auto max-w-7xl px-4 pt-0 md:px-6'>
           <nav
-            className={getPublicNavClassName(editorialHeader, scrolled)}
+            className={getPublicNavClassName(editorialHeader)}
             aria-label={t('Header navigation')}
           >
             {/* Logo */}
@@ -471,7 +442,7 @@ export function PublicHeader(props: PublicHeaderProps) {
                 size='icon'
                 className='focus-visible:ring-ring size-11 touch-manipulation focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none'
                 ref={mobileMenuButtonRef}
-                onClick={() => setMobileOpen((v) => !v)}
+                onClick={toggleMobileMenu}
                 aria-label={t('Toggle navigation menu')}
                 aria-expanded={mobileOpen}
                 aria-controls='public-mobile-navigation'
@@ -591,7 +562,7 @@ export function PublicHeader(props: PublicHeaderProps) {
                     ? getAuthenticatedLandingRoute(user)
                     : '/sign-in'
                 }
-                onClick={() => setMobileOpen(false)}
+                onClick={closeMobileMenu}
                 className={cn(
                   'focus-visible:ring-ring focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none touch-manipulation inline-flex min-h-11 h-10 items-center justify-center rounded-lg text-sm font-medium transition-opacity hover:opacity-90 active:opacity-80',
                   editorialHeader

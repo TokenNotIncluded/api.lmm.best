@@ -137,17 +137,28 @@ describe('dashboard chart palette', () => {
     assert.equal(chartData.spec_area.area.style.fillOpacity, 0.14)
   })
 
-  test('keeps CSS theme tokens aligned with the tested fallback palettes', () => {
+  test('keeps dashboard series tied to the active theme tokens', () => {
     const stylesheet = readFileSync(
       new URL('../dashboard-editorial.css', import.meta.url),
       'utf8'
     )
-    const colors = [
-      ...stylesheet.matchAll(/--forge-model-\d+:\s*(#[\da-f]{6});/gi),
-    ].map((match) => match[1])
+    const series = [
+      ...stylesheet.matchAll(/--forge-model-\d+:\s*([^;]+);/g),
+    ].map((match) => match[1]?.trim())
 
-    assert.deepEqual(colors.slice(0, 24), [...DASHBOARD_CHART_LIGHT_PALETTE])
-    assert.deepEqual(colors.slice(24), [...DASHBOARD_CHART_DARK_PALETTE])
-    assert.equal(colors.length, 48)
+    assert.equal(series.length, 24)
+    assert.ok(
+      series.every(
+        (color) => color?.startsWith('var(') || color?.startsWith('color-mix(')
+      )
+    )
+    assert.deepEqual(series.slice(0, 5), [
+      'var(--chart-1)',
+      'var(--chart-2)',
+      'var(--chart-3)',
+      'var(--chart-4)',
+      'var(--chart-5)',
+    ])
+    assert.doesNotMatch(stylesheet, /--forge-model-\d+:\s*#[\da-f]{6}/i)
   })
 })

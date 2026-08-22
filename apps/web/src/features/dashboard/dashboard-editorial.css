@@ -2,9 +2,9 @@
 Copyright (C) 2023-2026 QuantumNous
 
 This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU Affero General Public License as published by
-the Free Software Foundation, either version 3 of the License, or
-(at your option) any later version.
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
 
 This program is distributed in the hope that it will be useful,
 but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -13,168 +13,72 @@ GNU Affero General Public License for more details.
 
 You should have received a copy of the GNU Affero General Public License
 along with this program. If not, see <https://www.gnu.org/licenses/>.
-*/
 
+For commercial licensing, please contact support@quantumnous.com
+*/
 /*
- * The overview is the first authenticated surface a user sees. Keep its
- * visual language editorial and flat, while leaving the configurable admin
- * sections on their existing theme. All color values come from the shared
- * Forge token source; components only consume these semantic variables.
+ * Dashboard-local chart helpers. The dashboard must not own the app palette:
+ * `data-theme-preset` on <body> is the source of truth for surfaces, semantic
+ * colors, and the overview accents. These aliases intentionally point back to
+ * those theme variables so changing the preset updates this page as well.
+ *
+ * VChart renders on canvas, so `charts.ts` resolves the --forge-model-* values
+ * to computed CSS colors before passing them to the chart. Keeping the series
+ * here as theme references avoids the old failure mode where every preset
+ * silently inherited the Anthropic/editorial palette.
  */
 .dashboard-editorial {
-  --background: var(--forge-paper-light);
-  --foreground: var(--forge-ink-light);
-  --card: var(--forge-card-light);
-  --card-foreground: var(--forge-ink-light);
-  --popover: var(--forge-paper-light);
-  --popover-foreground: var(--forge-ink-light);
-  --primary: var(--forge-ink-light);
-  --primary-foreground: var(--forge-paper-light);
-  --secondary: var(--forge-secondary-light);
-  --secondary-foreground: var(--forge-ink-light);
-  --muted: var(--forge-muted-light);
-  --muted-foreground: var(--forge-muted-ink-light);
-  --accent: var(--forge-cactus-light);
-  --accent-foreground: var(--forge-ink-light);
-  --border: color-mix(in oklch, var(--forge-ink-light) 18%, transparent);
-  --input: color-mix(in oklch, var(--forge-ink-light) 24%, transparent);
-  --ring: var(--forge-ink-light);
-  --overview-accent-1: var(--forge-ink-light);
-  --overview-accent-2: var(--forge-clay-light);
-  --overview-accent-3: var(--forge-sage-light);
-  /*
-   * Dashboard series palette. These are deliberately concrete values instead
-   * of nested var() references because VChart may render on canvas, where CSS
-   * custom properties are not resolved. Every color stays visibly distinct
-   * from the paper/card surface and the sequence alternates hue families so
-   * adjacent model series do not disappear into one another.
-   */
-  --forge-model-1: #0b7285;
-  --forge-model-2: #b24a30;
-  --forge-model-3: #2f5fae;
-  --forge-model-4: #916c00;
-  --forge-model-5: #6d409c;
-  --forge-model-6: #2d7b4b;
-  --forge-model-7: #a43e68;
-  --forge-model-8: #1d718b;
-  --forge-model-9: #8a572a;
-  --forge-model-10: #52658f;
-  --forge-model-11: #783d9e;
-  --forge-model-12: #a9531e;
-  --forge-model-13: #1e785d;
-  --forge-model-14: #466aa3;
-  --forge-model-15: #607d2d;
-  --forge-model-16: #9b4c59;
-  --forge-model-17: #8e7400;
-  --forge-model-18: #7050a0;
-  --forge-model-19: #277d91;
-  --forge-model-20: #96554a;
-  --forge-model-21: #267594;
-  --forge-model-22: #984e8b;
-  --forge-model-23: #4e7d3c;
-  --forge-model-24: #9a6a3a;
-  --forge-chart-hover: #141413;
-  --forge-chart-text: color-mix(
+  --overview-accent-1: var(--chart-1);
+  --overview-accent-2: var(--chart-2);
+  --overview-accent-3: var(--chart-3);
+
+  --forge-model-1: var(--chart-1);
+  --forge-model-2: var(--chart-2);
+  --forge-model-3: var(--chart-3);
+  --forge-model-4: var(--chart-4);
+  --forge-model-5: var(--chart-5);
+  --forge-model-6: var(--success);
+  --forge-model-7: var(--warning);
+  --forge-model-8: var(--info);
+  --forge-model-9: var(--accent);
+  --forge-model-10: var(--destructive);
+  --forge-model-11: var(--primary);
+  --forge-model-12: var(--secondary);
+  --forge-model-13: color-mix(in oklch, var(--chart-1) 78%, var(--foreground));
+  --forge-model-14: color-mix(in oklch, var(--chart-2) 78%, var(--foreground));
+  --forge-model-15: color-mix(in oklch, var(--chart-3) 78%, var(--foreground));
+  --forge-model-16: color-mix(in oklch, var(--chart-4) 78%, var(--foreground));
+  --forge-model-17: color-mix(in oklch, var(--chart-5) 78%, var(--foreground));
+  --forge-model-18: color-mix(in oklch, var(--success) 78%, var(--foreground));
+  --forge-model-19: color-mix(in oklch, var(--warning) 78%, var(--foreground));
+  --forge-model-20: color-mix(in oklch, var(--info) 78%, var(--foreground));
+  --forge-model-21: color-mix(in oklch, var(--accent) 78%, var(--foreground));
+  --forge-model-22: color-mix(
     in oklch,
-    var(--forge-ink-light) 62%,
-    transparent
+    var(--destructive) 78%,
+    var(--foreground)
   );
-  --forge-chart-grid: color-mix(
+  --forge-model-23: color-mix(in oklch, var(--primary) 78%, var(--foreground));
+  --forge-model-24: color-mix(
     in oklch,
-    var(--forge-ink-light) 16%,
-    transparent
+    var(--secondary) 78%,
+    var(--foreground)
   );
-  --dashboard-clay: var(--forge-clay-light);
-  --dashboard-wash: color-mix(
-    in oklch,
-    var(--forge-cactus-light) 32%,
-    var(--forge-paper-light)
-  );
-  --dashboard-mark-paper: var(--forge-paper-light);
-  --dashboard-mark-ink: var(--forge-ink-light);
+
+  --forge-chart-hover: var(--foreground);
+  --forge-chart-text: color-mix(in oklch, var(--foreground) 62%, transparent);
+  --forge-chart-grid: color-mix(in oklch, var(--foreground) 16%, transparent);
+  --dashboard-clay: var(--primary);
+  --dashboard-wash: color-mix(in oklch, var(--accent) 32%, var(--background));
+  --dashboard-mark-paper: var(--background);
+  --dashboard-mark-ink: var(--foreground);
   --dashboard-mark-muted: color-mix(
     in oklch,
-    var(--forge-ink-light) 58%,
+    var(--foreground) 58%,
     transparent
   );
-  color-scheme: light;
   background: var(--background);
   color: var(--foreground);
-}
-
-.dark .dashboard-editorial {
-  --background: var(--forge-surface-dark);
-  --foreground: var(--forge-foreground-dark);
-  --card: var(--forge-card-dark);
-  --card-foreground: var(--forge-foreground-dark);
-  --popover: var(--forge-card-dark);
-  --popover-foreground: var(--forge-foreground-dark);
-  --primary: var(--forge-foreground-dark);
-  --primary-foreground: var(--forge-surface-dark);
-  --secondary: var(--forge-secondary-dark);
-  --secondary-foreground: var(--forge-foreground-dark);
-  --muted: var(--forge-muted-dark);
-  --muted-foreground: var(--forge-muted-ink-dark);
-  --accent: var(--forge-stage-dark);
-  --accent-foreground: var(--forge-foreground-dark);
-  --border: color-mix(in oklch, var(--forge-foreground-dark) 18%, transparent);
-  --input: color-mix(in oklch, var(--forge-foreground-dark) 26%, transparent);
-  --ring: var(--forge-foreground-dark);
-  --overview-accent-1: var(--forge-foreground-dark);
-  --overview-accent-2: var(--forge-clay-dark);
-  --overview-accent-3: var(--forge-sage-dark);
-  /* Keep all 24 categorical series above the dark card surface. The palette
-   * is intentionally brighter than the surrounding editorial background so
-   * stacked bars, area fills, legends, and hover states remain readable. */
-  --forge-model-1: #53d7c1;
-  --forge-model-2: #f18b70;
-  --forge-model-3: #80a8ff;
-  --forge-model-4: #f0c35a;
-  --forge-model-5: #c5a2ff;
-  --forge-model-6: #81d399;
-  --forge-model-7: #ec99bf;
-  --forge-model-8: #75d9ec;
-  --forge-model-9: #e4aa72;
-  --forge-model-10: #aeb9ed;
-  --forge-model-11: #d786b9;
-  --forge-model-12: #ef9b5e;
-  --forge-model-13: #62d5ad;
-  --forge-model-14: #9abfff;
-  --forge-model-15: #b7d88e;
-  --forge-model-16: #e59da5;
-  --forge-model-17: #edd480;
-  --forge-model-18: #cfb3ee;
-  --forge-model-19: #8ed3e3;
-  --forge-model-20: #e8b0a0;
-  --forge-model-21: #68cbe8;
-  --forge-model-22: #e7a7d7;
-  --forge-model-23: #9fd58f;
-  --forge-model-24: #e9c096;
-  --forge-chart-hover: #faf9f5;
-  --forge-chart-text: color-mix(
-    in oklch,
-    var(--forge-foreground-dark) 72%,
-    transparent
-  );
-  --forge-chart-grid: color-mix(
-    in oklch,
-    var(--forge-foreground-dark) 16%,
-    transparent
-  );
-  --dashboard-clay: var(--forge-clay-dark);
-  --dashboard-wash: color-mix(
-    in oklch,
-    var(--forge-stage-dark) 54%,
-    var(--forge-surface-dark)
-  );
-  --dashboard-mark-paper: var(--forge-surface-dark);
-  --dashboard-mark-ink: var(--forge-foreground-dark);
-  --dashboard-mark-muted: color-mix(
-    in oklch,
-    var(--forge-foreground-dark) 62%,
-    transparent
-  );
-  color-scheme: dark;
 }
 
 .dashboard-editorial :where(h1, h2, h3) {
@@ -189,16 +93,12 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 }
 
 .dashboard-editorial-panel {
-  border-radius: 0;
+  border-radius: var(--radius);
   box-shadow: none;
 }
 
 .dashboard-editorial :where(.shadow-xs, .shadow-sm, .shadow-md) {
   box-shadow: none;
-}
-
-.dashboard-editorial :where([data-slot='card'], .rounded-xl, .rounded-2xl) {
-  border-radius: 0;
 }
 
 .dashboard-editorial :where(.backdrop-blur, .backdrop-blur-sm) {

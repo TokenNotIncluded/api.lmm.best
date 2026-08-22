@@ -78,8 +78,6 @@ const { requestAssistantOpen } = await import('./assistant-events')
 const { AssistantLauncher } = await import('./assistant-launcher')
 const { AssistantPanel } = await import('./assistant-panel')
 
-const ASSISTANT_PRIVACY_NOTICE_COLLAPSE_DELAY_MS = 5_000
-
 const originalGet = api.get
 const originalPost = api.post
 const originalFetch = globalThis.fetch
@@ -269,51 +267,20 @@ function findButton(text: string): HTMLButtonElement {
   return button
 }
 
+function findHistoryToggle(): HTMLButtonElement {
+  const button = document.querySelector<HTMLButtonElement>(
+    '[data-testid="assistant-history-toggle"]'
+  )
+  assert.ok(button, 'Could not find the assistant history toggle')
+  return button
+}
+
 function findCard(text: string): HTMLElement | null {
   return (
     [...document.querySelectorAll<HTMLElement>('[data-slot="card"]')].find(
       (card) => card.textContent?.includes(text)
     ) ?? null
   )
-}
-
-const originalSetTimeout = globalThis.setTimeout
-const originalClearTimeout = globalThis.clearTimeout
-const privacyNoticeTimerHandle = {} as ReturnType<typeof setTimeout>
-let capturedPrivacyNoticeTimer: (() => void) | null = null
-
-function capturePrivacyNoticeTimer() {
-  capturedPrivacyNoticeTimer = null
-  globalThis.setTimeout = ((callback: () => void, delay?: number) => {
-    if (
-      typeof callback === 'function' &&
-      delay === ASSISTANT_PRIVACY_NOTICE_COLLAPSE_DELAY_MS
-    ) {
-      capturedPrivacyNoticeTimer = () => callback()
-      return privacyNoticeTimerHandle
-    }
-    return originalSetTimeout(callback, delay)
-  }) as typeof globalThis.setTimeout
-  globalThis.clearTimeout = ((handle) => {
-    if (handle === privacyNoticeTimerHandle) {
-      capturedPrivacyNoticeTimer = null
-      return
-    }
-    return originalClearTimeout(handle)
-  }) as typeof globalThis.clearTimeout
-
-  return () => {
-    globalThis.setTimeout = originalSetTimeout
-    globalThis.clearTimeout = originalClearTimeout
-    capturedPrivacyNoticeTimer = null
-  }
-}
-
-function fireCapturedPrivacyNoticeTimer() {
-  const callback = capturedPrivacyNoticeTimer
-  if (!callback) throw new Error('Privacy notice collapse timer was not set')
-  capturedPrivacyNoticeTimer = null
-  callback()
 }
 
 async function setTextareaValue(textarea: HTMLTextAreaElement, value: string) {
@@ -330,9 +297,6 @@ async function setTextareaValue(textarea: HTMLTextAreaElement, value: string) {
 }
 
 afterEach(() => {
-  globalThis.setTimeout = originalSetTimeout
-  globalThis.clearTimeout = originalClearTimeout
-  capturedPrivacyNoticeTimer = null
   api.get = originalGet
   api.post = originalPost
   window.matchMedia = originalMatchMedia
@@ -352,72 +316,6 @@ after(() => {
 })
 
 describe('AssistantPanel', () => {
-  test('auto-collapses the privacy notice without moving focus and can reopen it', async () => {
-    api.get = (async (url: string) => {
-      assert.equal(url, '/api/assistant/status')
-      return { data: { success: true, data: assistantStatus } }
-    }) as typeof api.get
-
-    const restoreTimers = capturePrivacyNoticeTimer()
-    const rendered = await renderPanel()
-    try {
-      const toggle = document.querySelector<HTMLButtonElement>(
-        '[data-testid="assistant-privacy-notice-toggle"]'
-      )
-      assert.ok(toggle)
-      assert.equal(toggle.getAttribute('aria-expanded'), 'true')
-      const privacyDescription = document.querySelector(
-        '#assistant-privacy-notice-description'
-      )?.textContent
-      assert.match(
-        privacyDescription ?? '',
-        /Your assistant conversations are not private\. Authorized higher-access users may review them\./
-      )
-      assert.match(
-        privacyDescription ?? '',
-        /Do not send personal information, passwords, API keys, or credentials in chat\./
-      )
-      assert.match(
-        privacyDescription ?? '',
-        /Pattern matching is not a guarantee\./
-      )
-
-      toggle.focus()
-      await act(async () => {
-        fireCapturedPrivacyNoticeTimer()
-        await flushEffects()
-      })
-      assert.equal(toggle.getAttribute('aria-expanded'), 'false')
-      assert.equal(document.activeElement, toggle)
-      assert.match(
-        document.querySelector('#assistant-privacy-notice-description')
-          ?.className ?? '',
-        /sr-only/
-      )
-
-      await act(async () => {
-        toggle.click()
-        await flushEffects()
-      })
-      assert.equal(toggle.getAttribute('aria-expanded'), 'true')
-      assert.doesNotMatch(
-        document.querySelector('#assistant-privacy-notice-description')
-          ?.className ?? '',
-        /sr-only/
-      )
-
-      await act(async () => {
-        fireCapturedPrivacyNoticeTimer()
-        await flushEffects()
-      })
-      assert.equal(toggle.getAttribute('aria-expanded'), 'false')
-    } finally {
-      await act(async () => rendered.root.unmount())
-      rendered.queryClient.clear()
-      restoreTimers()
-    }
-  })
-
   test('renders the mobile assistant sheet at the full dynamic viewport size', async () => {
     api.get = (async (url: string) => {
       assert.equal(url, '/api/assistant/status')
@@ -434,17 +332,14 @@ describe('AssistantPanel', () => {
       assert.match(sheetContent.className, /w-screen/)
       assert.match(sheetContent.className, /max-w-none/)
       assert.match(sheetContent.className, /rounded-none/)
-      assert.ok(sheetContent.querySelector('[data-slot="sheet-close"]'))
+      assert.ok(sheetContent.querySelector('[data-testid="assistant-close"]'))
       assert.ok(sheetContent.querySelector('textarea'))
       const historyButton = [...sheetContent.querySelectorAll('button')].find(
-        (button) => button.textContent?.includes('Conversation history')
+        (button) =>
+          button.getAttribute('data-testid') === 'assistant-history-toggle'
       )
       assert.ok(historyButton)
       assert.doesNotMatch(historyButton.className, /border-border/)
-      assert.match(
-        sheetContent.textContent ?? '',
-        /Your assistant conversations are not private/
-      )
     } finally {
       await act(async () => rendered.root.unmount())
       rendered.queryClient.clear()
@@ -479,7 +374,7 @@ describe('AssistantPanel', () => {
     const rendered = await renderPanel()
     try {
       await act(async () => {
-        findButton('Conversation history').click()
+        findHistoryToggle().click()
         await waitForCondition(
           () =>
             document.querySelector('[data-testid="assistant-history-list"]') !==
@@ -490,14 +385,14 @@ describe('AssistantPanel', () => {
       assert.ok(
         document.querySelector('[data-testid="assistant-history-list"]')
       )
-      assert.ok(findButton('Back to conversation'))
+      assert.ok(findHistoryToggle())
 
       await act(async () => {
-        findButton('Back to conversation').click()
+        findHistoryToggle().click()
         await flushEffects()
       })
 
-      assert.ok(findButton('Conversation history'))
+      assert.ok(findHistoryToggle())
       assert.equal(
         document.querySelector('[data-testid="assistant-history-list"]'),
         null
@@ -541,7 +436,7 @@ describe('AssistantPanel', () => {
     })
     try {
       await act(async () => {
-        findButton('Conversation history').click()
+        findHistoryToggle().click()
         await waitForCondition(
           () =>
             document.querySelector('[data-testid="assistant-history-list"]') !==
@@ -701,7 +596,7 @@ describe('AssistantPanel', () => {
         assert.ok(promptShell)
         assert.ok(textarea)
         assert.match(promptShell.className, /assistant-prompt-input/)
-        assert.match(promptShell.className, /rounded-xl/)
+        assert.match(promptShell.className, /rounded-3xl/)
         assert.match(textarea.className, /min-h-10/)
         assert.doesNotMatch(
           document.body.textContent ?? '',
@@ -861,7 +756,7 @@ describe('AssistantPanel', () => {
       assert.ok(textarea)
       await setTextareaValue(textarea, 'Start a fresh ordinary message.')
       const submit = document.querySelector<HTMLButtonElement>(
-        'button[aria-label="Submit"]'
+        'button[aria-label="Send"]'
       )
       assert.ok(submit)
       await act(async () => {
@@ -1051,7 +946,7 @@ describe('AssistantPanel', () => {
     }
   })
 
-  test('keeps the conversation when the desktop service guide is collapsed and expanded', async () => {
+  test('keeps the conversation when the service guide dialog is closed and reopened', async () => {
     api.get = (async (url: string) => {
       if (url === '/api/status') {
         return {
@@ -1111,26 +1006,42 @@ describe('AssistantPanel', () => {
         /Which option is the best value\?/
       )
 
-      const collapseButton = document.querySelector<HTMLButtonElement>(
+      // The service guide is an in-flow desktop rail: closing it hides the
+      // panel without discarding the conversation, and reopening restores
+      // it in place.
+      const closeButton = document.querySelector<HTMLButtonElement>(
         '[data-testid="assistant-collapse"]'
       )
-      assert.ok(collapseButton)
+      assert.ok(closeButton)
       await act(async () => {
-        collapseButton.click()
+        closeButton.click()
         await flushEffects()
       })
       await act(async () =>
         waitForCondition(
           () =>
-            document.querySelector('[data-testid="assistant-expand"]') !== null,
-          'Assistant rail did not collapse'
+            document
+              .querySelector('[data-testid="assistant-rail"]')
+              ?.getAttribute('data-open') === 'false',
+          'Assistant rail did not close'
         )
       )
+      // The panel element itself stays mounted so the conversation survives.
+      assert.ok(document.querySelector('#ai-assistant-panel'))
 
       await act(async () => {
-        findButton('Expand').click()
+        launcherButton.click()
         await flushEffects()
       })
+      await act(async () =>
+        waitForCondition(
+          () =>
+            document
+              .querySelector('[data-testid="assistant-rail"]')
+              ?.getAttribute('data-open') === 'true',
+          'Assistant rail did not reopen'
+        )
+      )
       await act(async () =>
         waitForCondition(
           () =>
@@ -1140,28 +1051,6 @@ describe('AssistantPanel', () => {
           'Assistant conversation was not restored'
         )
       )
-      assert.equal(
-        document.querySelector('[data-testid="assistant-collapse"]') !== null,
-        true
-      )
-
-      const fullscreenButton = document.querySelector<HTMLButtonElement>(
-        '[data-testid="assistant-fullscreen"]'
-      )
-      assert.ok(fullscreenButton)
-      await act(async () => {
-        fullscreenButton.click()
-        await flushEffects()
-      })
-      assert.ok(document.querySelector('[role="dialog"]'))
-      assert.ok(document.querySelector('[aria-label="Exit full screen"]'))
-      await act(async () => {
-        document
-          .querySelector<HTMLButtonElement>('[aria-label="Exit full screen"]')
-          ?.click()
-        await flushEffects()
-      })
-      assert.equal(document.querySelector('[role="dialog"]'), null)
     } finally {
       await act(async () => rendered.root.unmount())
       rendered.queryClient.clear()
@@ -1597,7 +1486,7 @@ describe('AssistantPanel', () => {
       await setTextareaValue(textarea, 'Turn on the desktop sidebar default.')
       await act(async () => {
         document
-          .querySelector<HTMLButtonElement>('button[aria-label="Submit"]')
+          .querySelector<HTMLButtonElement>('button[aria-label="Send"]')
           ?.click()
         await flushEffects()
       })
@@ -1712,12 +1601,8 @@ describe('AssistantPanel', () => {
 
     const rendered = await renderPanel()
     try {
-      assert.match(
-        document.body.textContent ?? '',
-        /Your assistant conversations are not private/
-      )
       await act(async () => {
-        findButton('Conversation history').click()
+        findHistoryToggle().click()
         await flushEffects()
       })
       await act(async () =>
@@ -1782,7 +1667,7 @@ describe('AssistantPanel', () => {
     const rendered = await renderPanel()
     try {
       await act(async () => {
-        findButton('Conversation history').click()
+        findHistoryToggle().click()
         await flushEffects()
       })
       await act(async () =>
@@ -1881,7 +1766,7 @@ describe('AssistantPanel', () => {
     const rendered = await renderPanel()
     try {
       await act(async () => {
-        findButton('Conversation history').click()
+        findHistoryToggle().click()
         await flushEffects()
       })
       await act(async () => {
@@ -1935,7 +1820,7 @@ describe('AssistantPanel', () => {
     const rendered = await renderPanel()
     try {
       await act(async () => {
-        findButton('Conversation history').click()
+        findHistoryToggle().click()
         await flushEffects()
       })
       await act(async () =>
@@ -1978,7 +1863,7 @@ describe('AssistantPanel', () => {
         'Explain this failure for private@example.test with sk-private-secret-123456.'
       )
       const submit = document.querySelector<HTMLButtonElement>(
-        'button[aria-label="Submit"]'
+        'button[aria-label="Send"]'
       )
       assert.ok(submit)
       await act(async () => {
@@ -2029,7 +1914,7 @@ describe('AssistantPanel', () => {
       assert.ok(textarea)
       await setTextareaValue(textarea, 'sk-private-secret-123456')
       const submit = document.querySelector<HTMLButtonElement>(
-        'button[aria-label="Submit"]'
+        'button[aria-label="Send"]'
       )
       assert.ok(submit)
       await act(async () => {
@@ -2121,7 +2006,7 @@ describe('AssistantPanel', () => {
         'I want Claude Code access for my private project.'
       )
       const submit = document.querySelector<HTMLButtonElement>(
-        'button[aria-label="Submit"]'
+        'button[aria-label="Send"]'
       )
       assert.ok(submit)
       await act(async () => {
@@ -2199,7 +2084,7 @@ describe('AssistantPanel', () => {
     )
     await setTextareaValue(textarea, 'How do I configure Claude Code?')
     const submit = document.querySelector<HTMLButtonElement>(
-      'button[aria-label="Submit"]'
+      'button[aria-label="Send"]'
     )
     assert.ok(submit)
 
@@ -2356,7 +2241,7 @@ describe('AssistantPanel', () => {
       )
 
       assert.equal(
-        Array.from(document.querySelectorAll('button')).some(
+        [...document.querySelectorAll('button')].some(
           (button) => button.textContent === 'Submit for administrator review'
         ),
         false
@@ -2401,7 +2286,7 @@ describe('AssistantPanel', () => {
       assert.ok(textarea)
       await setTextareaValue(textarea, 'How do I configure Claude Code?')
       const submit = document.querySelector<HTMLButtonElement>(
-        'button[aria-label="Submit"]'
+        'button[aria-label="Send"]'
       )
       assert.ok(submit)
 

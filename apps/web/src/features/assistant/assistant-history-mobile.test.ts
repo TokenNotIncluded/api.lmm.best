@@ -27,8 +27,8 @@ describe('assistant history mobile controls', () => {
       'history actions should reuse the mobile touch target class'
     )
     assert.ok(
-      (source.match(/historyInputClassName/g) ?? []).length >= 4,
-      'history search and audit inputs should use the mobile input height'
+      (source.match(/historyInputClassName/g) ?? []).length >= 3,
+      'history audit inputs should use the mobile input height'
     )
     assert.match(
       source,

@@ -45,6 +45,25 @@ import {
 
 const COOKIE_MAX_AGE = 60 * 60 * 24 * 365 // 1 year
 
+// d0ee5933 temporarily shipped Anthropic as the default and may have left
+// existing users with a cookie. Migrate that legacy default once; an explicit
+// Anthropic choice made after migration remains a valid user preference.
+const LEGACY_DEFAULT_PRESET: ThemePreset = 'anthropic'
+const DEFAULT_PRESET_MIGRATION_COOKIE = 'theme_preset_default_migrated_v1'
+
+function readInitialPreset(): ThemePreset {
+  const stored = getCookie(THEME_COOKIE_KEYS.preset)
+  const migrated = getCookie(DEFAULT_PRESET_MIGRATION_COOKIE) === '1'
+  if (stored === LEGACY_DEFAULT_PRESET && !migrated) {
+    return DEFAULT_THEME_CUSTOMIZATION.preset
+  }
+  return readCookie<ThemePreset>(
+    THEME_COOKIE_KEYS.preset,
+    THEME_PRESET_VALUES,
+    DEFAULT_THEME_CUSTOMIZATION.preset
+  )
+}
+
 function readCookie<T extends string>(
   name: string,
   allowed: ReadonlySet<T>,
@@ -97,13 +116,7 @@ const ThemeCustomizationContext =
 export function ThemeCustomizationProvider(props: {
   children: React.ReactNode
 }) {
-  const [preset, _setPreset] = useState<ThemePreset>(() =>
-    readCookie<ThemePreset>(
-      THEME_COOKIE_KEYS.preset,
-      THEME_PRESET_VALUES,
-      DEFAULT_THEME_CUSTOMIZATION.preset
-    )
-  )
+  const [preset, _setPreset] = useState<ThemePreset>(readInitialPreset)
   const [font, _setFont] = useState<ThemeFont>(() =>
     readCookie<ThemeFont>(
       THEME_COOKIE_KEYS.font,
@@ -138,13 +151,17 @@ export function ThemeCustomizationProvider(props: {
   useEffect(() => {
     applyAttribute(
       'data-theme-preset',
-      // `anthropic` is the shipped default, but it still needs its selector
-      // on the body so the warm cream/ink tokens override the legacy :root
-      // blue palette. The explicit `default` option remains the neutral
-      // fallback and intentionally removes the attribute.
-      preset === 'default' ? null : preset
+      preset === DEFAULT_THEME_CUSTOMIZATION.preset ? null : preset
     )
   }, [preset])
+
+  useEffect(() => {
+    const stored = getCookie(THEME_COOKIE_KEYS.preset)
+    const migrated = getCookie(DEFAULT_PRESET_MIGRATION_COOKIE) === '1'
+    if (stored !== LEGACY_DEFAULT_PRESET || migrated) return
+    removeCookie(THEME_COOKIE_KEYS.preset)
+    setCookie(DEFAULT_PRESET_MIGRATION_COOKIE, '1', COOKIE_MAX_AGE)
+  }, [])
 
   // Font is the one axis where we resolve before writing the attribute:
   // the persisted preference may be `default`, but CSS works in terms of

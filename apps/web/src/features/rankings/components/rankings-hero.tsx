@@ -44,7 +44,7 @@ export function RankingsHero(props: RankingsHeroProps) {
   return (
     <section className='space-y-5'>
       <div className='space-y-2'>
-        <h1 className='font-serif text-[clamp(2.75rem,6vw,5rem)] leading-[1.02] font-normal tracking-tight'>
+        <h1 className='text-[clamp(1.75rem,4vw,2.5rem)] leading-[1.15] font-bold tracking-tight'>
           {t('Rankings')}
         </h1>
         <p className='text-muted-foreground/80 max-w-2xl text-sm'>
@@ -70,7 +70,7 @@ export function RankingsHero(props: RankingsHeroProps) {
               aria-selected={isActive}
               onClick={() => props.onPeriodChange(p.id)}
               className={cn(
-                'focus-visible:ring-ring/40 relative -mb-px px-3 py-2 text-sm font-medium transition-colors focus-visible:ring-2 focus-visible:outline-none',
+                'focus-visible:ring-ring/40 relative -mb-px rounded-sm px-3 py-2 text-sm font-medium transition-colors focus-visible:ring-2 focus-visible:outline-none',
                 isActive
                   ? 'text-foreground'
                   : 'text-muted-foreground hover:text-foreground'
