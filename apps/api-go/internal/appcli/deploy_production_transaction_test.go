@@ -224,7 +224,7 @@ func (runner *fakeProductionRunner) bsdtar(args []string) ([]byte, error) {
 		return []byte(contract + "\n"), nil
 	case name == productionWebPackageName && strings.HasSuffix(member, "/index.html"):
 		return os.ReadFile(index)
-	case name == productionAURPackageName && member == "usr/bin/lmm-api":
+	case name == productionAURPackageName && member == "usr/bin/lmm-api-go":
 		return os.ReadFile(runner.probeBinary)
 	default:
 		return nil, errors.New("unknown member")
