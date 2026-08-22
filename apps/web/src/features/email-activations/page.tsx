@@ -585,7 +585,16 @@ export function EmailActivationsPage() {
       setPurchaseTarget(null)
       await invalidateHeroSmsQueries()
       const orderStatus = String(result.order?.status ?? '').toLowerCase()
-      if (
+      if (orderStatus === 'failed') {
+        setPurchaseFeedback({
+          tone: 'destructive',
+          title: t('Purchase failed'),
+          description: t(
+            'The provider purchase failed and the reserved quota was refunded.'
+          ),
+        })
+        toast.error(t('Purchase failed'))
+      } else if (
         ['purchase_unknown', 'reconciling', 'pending_provider'].includes(
           orderStatus
         )
@@ -716,7 +725,16 @@ export function EmailActivationsPage() {
       setReorderTarget(null)
       await invalidateHeroSmsQueries()
       const orderStatus = String(result.order?.status ?? '').toLowerCase()
-      if (
+      if (orderStatus === 'failed') {
+        setActionFeedback({
+          tone: 'destructive',
+          title: t('Purchase failed'),
+          description: t(
+            'The provider purchase failed and the reserved quota was refunded.'
+          ),
+        })
+        toast.error(t('Purchase failed'))
+      } else if (
         ['purchase_unknown', 'reconciling', 'pending_provider'].includes(
           orderStatus
         )

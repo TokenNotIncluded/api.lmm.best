@@ -170,6 +170,9 @@ export const heroSmsTranslations = {
     'Provider price changed': 'Provider price changed',
     'Provider currency mismatch': 'Provider currency mismatch',
     'Invalid provider response': 'Invalid provider response',
+    'Purchase failed': 'Purchase failed',
+    'The provider purchase failed and the reserved quota was refunded.':
+      'The provider purchase failed and the reserved quota was refunded.',
   },
   zh: {
     'Activation details': '接码详情',
@@ -327,6 +330,9 @@ export const heroSmsTranslations = {
     'Provider price changed': '服务商价格已变化',
     'Provider currency mismatch': '服务商币种不匹配',
     'Invalid provider response': '服务商返回内容无效',
+    'Purchase failed': '购买失败',
+    'The provider purchase failed and the reserved quota was refunded.':
+      '服务商购买失败，已退还预留额度。',
   },
   'zh-TW': {
     'Activation details': '接碼詳情',
@@ -484,6 +490,9 @@ export const heroSmsTranslations = {
     'Provider price changed': '服務商價格已變更',
     'Provider currency mismatch': '服務商幣別不符',
     'Invalid provider response': '服務商回傳內容無效',
+    'Purchase failed': '購買失敗',
+    'The provider purchase failed and the reserved quota was refunded.':
+      '服務商購買失敗，已退還預留額度。',
   },
   fr: {
     'Activation details': 'Détails de l’activation',
@@ -652,6 +661,9 @@ export const heroSmsTranslations = {
     'Provider price changed': 'Le prix du fournisseur a changé',
     'Provider currency mismatch': 'La devise du fournisseur ne correspond pas',
     'Invalid provider response': 'Réponse du fournisseur non valide',
+    'Purchase failed': 'Échec de l’achat',
+    'The provider purchase failed and the reserved quota was refunded.':
+      'L’achat auprès du fournisseur a échoué et le quota réservé a été remboursé.',
   },
   ja: {
     'Activation details': '認証受信の詳細',
@@ -813,6 +825,9 @@ export const heroSmsTranslations = {
     'Provider price changed': 'プロバイダー価格が変更されました',
     'Provider currency mismatch': 'プロバイダーの通貨が一致しません',
     'Invalid provider response': 'プロバイダーの応答が不正です',
+    'Purchase failed': '購入に失敗しました',
+    'The provider purchase failed and the reserved quota was refunded.':
+      'プロバイダーでの購入に失敗し、予約済みクォータは返金されました。',
   },
   ru: {
     'Activation details': 'Детали активации',
@@ -978,6 +993,9 @@ export const heroSmsTranslations = {
     'Provider price changed': 'Цена провайдера изменилась',
     'Provider currency mismatch': 'Валюта провайдера не совпадает',
     'Invalid provider response': 'Некорректный ответ провайдера',
+    'Purchase failed': 'Покупка не удалась',
+    'The provider purchase failed and the reserved quota was refunded.':
+      'Покупка у провайдера не удалась, зарезервированная квота возвращена.',
   },
   vi: {
     'Activation details': 'Chi tiết kích hoạt',
@@ -1142,6 +1160,9 @@ export const heroSmsTranslations = {
     'Provider price changed': 'Giá nhà cung cấp đã thay đổi',
     'Provider currency mismatch': 'Đơn vị tiền của nhà cung cấp không khớp',
     'Invalid provider response': 'Phản hồi nhà cung cấp không hợp lệ',
+    'Purchase failed': 'Mua thất bại',
+    'The provider purchase failed and the reserved quota was refunded.':
+      'Giao dịch với nhà cung cấp thất bại và quota đã giữ được hoàn lại.',
   },
 } as const
 
