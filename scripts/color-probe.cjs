@@ -79,8 +79,14 @@ async function main() {
     }
 
     const ws = new WebSocket(page.webSocketDebuggerUrl)
-    await new Promise((r) => {
-      ws.onopen = r
+    await new Promise((resolve, reject) => {
+      ws.onopen = resolve
+      ws.onclose = () => {
+        reject(new Error('WebSocket closed before the CDP session opened'))
+      }
+      ws.onerror = (event) => {
+        reject(new Error(`WebSocket connection failed: ${String(event.type)}`))
+      }
     })
     let id = 0
     const pend = new Map()
