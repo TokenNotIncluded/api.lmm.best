@@ -46,7 +46,7 @@ export function PulseSection(props: PulseSectionProps) {
       <PulseCard
         title={t('Trending up')}
         description={t('Models climbing the leaderboard')}
-        icon={<TrendingUp className='size-4 text-[var(--forge-sage)]' />}
+        icon={<TrendingUp className='size-4 text-emerald-500' />}
       >
         {props.movers.length === 0 ? (
           <PulseEmpty label={t('No notable climbers right now')} />
@@ -62,7 +62,7 @@ export function PulseSection(props: PulseSectionProps) {
       <PulseCard
         title={t('Trending down')}
         description={t('Models losing positions')}
-        icon={<TrendingDown className='size-4 text-[var(--forge-clay)]' />}
+        icon={<TrendingDown className='size-4 text-rose-500' />}
       >
         {props.droppers.length === 0 ? (
           <PulseEmpty label={t('No notable drops right now')} />
@@ -85,7 +85,7 @@ function PulseCard(props: {
   children: React.ReactNode
 }) {
   return (
-    <div className='border-foreground overflow-hidden border-t-2 border-b'>
+    <div className='bg-card overflow-hidden rounded-lg border'>
       <header className='border-b px-4 py-3'>
         <h3 className='text-foreground inline-flex items-center gap-2 text-sm font-semibold'>
           {props.icon}
@@ -130,8 +130,8 @@ function MoverRow(props: { row: RankingMover; intent: 'up' | 'down' }) {
         className={cn(
           'inline-flex shrink-0 items-center gap-0.5 font-mono text-xs font-semibold tabular-nums',
           props.intent === 'up'
-            ? 'text-[var(--forge-sage)]'
-            : 'text-[var(--forge-clay)]'
+            ? 'text-emerald-600 dark:text-emerald-400'
+            : 'text-rose-600 dark:text-rose-400'
         )}
       >
         {props.intent === 'up' ? (

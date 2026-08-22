@@ -25,9 +25,11 @@ import { useChartTheme } from '@/lib/use-chart-theme'
 import { VCHART_OPTION } from '@/lib/vchart'
 
 import {
-  buildForgeVendorColorMap,
-  readForgeColor,
-} from '../lib/forge-chart-colors'
+  buildVendorColourMap,
+  getChartGridColour,
+  getChartTextColour,
+  getVendorChartColour,
+} from '../lib/chart-colors'
 import { formatShare, formatTokens } from '../lib/format'
 import type { RankingPeriod, VendorRanking, VendorShareSeries } from '../types'
 import { VendorLink } from './entity-links'
@@ -57,19 +59,15 @@ export function MarketShareSection(props: MarketShareSectionProps) {
   const { resolvedTheme, themeReady } = useChartTheme()
   const chartColors = useMemo(
     () => ({
-      text: readForgeColor('--forge-chart-text', resolvedTheme),
-      grid: readForgeColor('--forge-chart-grid', resolvedTheme),
+      text: getChartTextColour(resolvedTheme),
+      grid: getChartGridColour(resolvedTheme),
     }),
     [resolvedTheme]
   )
 
   const colourMap = useMemo(
-    () =>
-      buildForgeVendorColorMap(
-        props.history.vendors.map((v) => v.name),
-        resolvedTheme
-      ),
-    [props.history, resolvedTheme]
+    () => buildVendorColourMap(props.history.vendors.map((v) => v.name)),
+    [props.history]
   )
 
   const orderedPoints = useMemo(() => {
@@ -167,7 +165,7 @@ export function MarketShareSection(props: MarketShareSectionProps) {
   const right = visible.slice(half)
 
   return (
-    <section className='border-foreground overflow-hidden border-t-2 border-b'>
+    <section className='bg-card overflow-hidden rounded-lg border'>
       {/* Chart block ----------------------------------------------------- */}
       <header className='px-5 py-4'>
         <h2 className='text-foreground inline-flex items-center gap-2 text-base font-semibold'>
@@ -215,9 +213,17 @@ export function MarketShareSection(props: MarketShareSectionProps) {
           </div>
         ) : (
           <div className='grid grid-cols-1 gap-x-8 px-5 pt-1 pb-4 md:grid-cols-2'>
-            <VendorList rows={left} colourMap={colourMap} />
+            <VendorList
+              rows={left}
+              colourMap={colourMap}
+              resolvedTheme={resolvedTheme}
+            />
             {right.length > 0 && (
-              <VendorList rows={right} colourMap={colourMap} />
+              <VendorList
+                rows={right}
+                colourMap={colourMap}
+                resolvedTheme={resolvedTheme}
+              />
             )}
           </div>
         )}
@@ -229,6 +235,7 @@ export function MarketShareSection(props: MarketShareSectionProps) {
 function VendorList(props: {
   rows: VendorRanking[]
   colourMap: Record<string, string>
+  resolvedTheme?: string
 }) {
   return (
     <ul>
@@ -241,9 +248,11 @@ function VendorList(props: {
             aria-hidden
             className='size-2.5 shrink-0 rounded-full'
             style={{
-              backgroundColor:
-                props.colourMap[vendor.vendor] ??
-                readForgeColor('--forge-vendor-fallback'),
+              backgroundColor: getVendorChartColour(
+                props.colourMap,
+                vendor.vendor,
+                props.resolvedTheme
+              ),
             }}
           />
           <VendorLink

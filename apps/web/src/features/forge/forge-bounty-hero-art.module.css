@@ -22,7 +22,7 @@ For commercial licensing, please contact support@quantumnous.com
   overflow: hidden;
   border: 0;
   border-radius: 1.5rem;
-  background: var(--forge-stage);
+  background: var(--accent);
   box-shadow: none;
   isolation: isolate;
 }
@@ -45,12 +45,12 @@ For commercial licensing, please contact support@quantumnous.com
 
 .gestureLeft,
 .gestureRight {
-  fill: var(--forge-gesture-ink);
+  fill: var(--foreground);
 }
 
 .gestureContour {
   fill: none;
-  stroke: var(--forge-gesture-ink);
+  stroke: var(--foreground);
   stroke-linecap: round;
   stroke-linejoin: round;
 }
@@ -60,7 +60,7 @@ For commercial licensing, please contact support@quantumnous.com
 }
 
 .clayMark {
-  fill: var(--forge-clay);
+  fill: var(--primary);
 }
 
 @media (max-width: 767px) {
@@ -71,6 +71,6 @@ For commercial licensing, please contact support@quantumnous.com
 
 @media (prefers-contrast: more) {
   .root {
-    border: 2px solid var(--forge-gesture-ink);
+    border: 2px solid var(--foreground);
   }
 }

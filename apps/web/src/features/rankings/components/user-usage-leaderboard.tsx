@@ -43,14 +43,14 @@ export function UserUsageLeaderboard(props: UserUsageLeaderboardProps) {
     <Collapsible
       open={props.open}
       onOpenChange={props.onOpenChange}
-      className='border-foreground/25 border-t-2 border-b py-6 md:py-8'
+      className='bg-card overflow-hidden rounded-lg border'
     >
-      <div className='flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between'>
+      <div className='flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-end sm:justify-between'>
         <CollapsibleTrigger className='group flex min-w-0 flex-1 items-start justify-between gap-4 text-left'>
           <div className='space-y-1.5'>
             <div className='flex items-center gap-2'>
               <Trophy className='text-muted-foreground h-4 w-4' />
-              <h2 className='font-serif text-2xl font-normal tracking-tight sm:text-3xl'>
+              <h2 className='text-xl font-bold tracking-tight sm:text-2xl'>
                 {t('User usage leaderboard')}
               </h2>
             </div>
@@ -73,7 +73,7 @@ export function UserUsageLeaderboard(props: UserUsageLeaderboardProps) {
         )}
       </div>
 
-      <CollapsibleContent className='pt-5'>
+      <CollapsibleContent className='px-5 pt-0 pb-5'>
         {props.isLoading ? (
           <div className='divide-border/60 divide-y'>
             {Array.from({ length: 5 }, (_, index) => (
@@ -85,11 +85,11 @@ export function UserUsageLeaderboard(props: UserUsageLeaderboardProps) {
             ))}
           </div>
         ) : props.error || !data ? (
-          <p className='text-muted-foreground border-y py-8 text-center text-sm'>
+          <p className='text-muted-foreground py-8 text-center text-sm'>
             {t('User usage rankings are unavailable right now.')}
           </p>
         ) : data.users.length === 0 ? (
-          <p className='text-muted-foreground border-y py-8 text-center text-sm'>
+          <p className='text-muted-foreground py-8 text-center text-sm'>
             {t('No public usage data yet.')}
           </p>
         ) : (

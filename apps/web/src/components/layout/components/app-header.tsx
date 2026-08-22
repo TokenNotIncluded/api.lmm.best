@@ -16,15 +16,26 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { AiChat02Icon } from '@hugeicons/core-free-icons'
+import { HugeiconsIcon } from '@hugeicons/react'
+import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { ConfigDrawer } from '@/components/config-drawer'
 import { LanguageSwitcher } from '@/components/language-switcher'
 import { NotificationPopover } from '@/components/notification-popover'
 import { ProfileDropdown } from '@/components/profile-dropdown'
-import { Search } from '@/components/search'
+import { Button } from '@/components/ui/button'
+import { requestAssistantOpen } from '@/features/assistant/assistant-events'
+import {
+  isAssistantRailOpen,
+  onAssistantRailChange,
+  toggleAssistantRail,
+} from '@/features/assistant/assistant-rail'
 import { useNotifications } from '@/hooks/use-notifications'
+import { useStatus } from '@/hooks/use-status'
 import { useTopNavLinks } from '@/hooks/use-top-nav-links'
+import { cn } from '@/lib/utils'
 
 import { defaultTopNavLinks } from '../config/top-nav.config'
 import type { TopNavLink } from '../types'
@@ -45,8 +56,8 @@ import { TopNav } from './top-nav'
  * <AppHeader navLinks={customLinks} />
  *
  * @example
- * // Hide navigation bar and search box
- * <AppHeader showTopNav={false} showSearch={false} />
+ * // Hide navigation bar
+ * <AppHeader showTopNav={false} />
  *
  * @example
  * // Fully customize left and right content
@@ -69,11 +80,6 @@ type AppHeaderProps = {
    * Left content, overrides TopNav if provided
    */
   leftContent?: React.ReactNode
-  /**
-   * Whether to show search box
-   * @default true
-   */
-  showSearch?: boolean
   /**
    * Custom right content, overrides default right content if provided
    */
@@ -104,7 +110,6 @@ export function AppHeader({
   navLinks = defaultTopNavLinks,
   showTopNav = true,
   leftContent,
-  showSearch = true,
   rightContent,
   showNotifications = true,
   showConfigDrawer = true,
@@ -115,9 +120,26 @@ export function AppHeader({
   const dynamicLinks = useTopNavLinks()
   const links = dynamicLinks.length > 0 ? dynamicLinks : navLinks
   const { t } = useTranslation()
+  const { status } = useStatus()
 
   // Notifications hook
   const notifications = useNotifications()
+
+  const assistantEnabled = status?.assistant?.enabled !== false
+  const [railOpen, setRailOpenState] = useState(false)
+
+  useEffect(
+    () => onAssistantRailChange(() => setRailOpenState(isAssistantRailOpen())),
+    []
+  )
+
+  const handleAssistantClick = () => {
+    if (window.matchMedia('(min-width: 1280px)').matches) {
+      toggleAssistantRail()
+    } else {
+      requestAssistantOpen()
+    }
+  }
 
   return (
     <Header showSidebarTrigger={showSidebarTrigger}>
@@ -127,19 +149,52 @@ export function AppHeader({
         <div className='ms-2 flex items-center'>{leftContent}</div>
       ) : null}
 
+      {/* Centered navigation. The absolutely-positioned full-width track keeps
+       * the links optically centered on the viewport regardless of how wide
+       * the brand block and the action cluster are; the track never intercepts
+       * clicks. `pointer-events` is inherited, so the nav must explicitly
+       * re-enable it for the links to stay clickable (same pattern as the
+       * public header). */}
+      {showTopNav && (
+        <div className='pointer-events-none absolute inset-x-0 hidden lg:block'>
+          <div className='flex justify-center'>
+            <TopNav
+              links={links}
+              className='pointer-events-auto'
+              aria-label={t('Header navigation')}
+            />
+          </div>
+        </div>
+      )}
+
       {rightContent ?? (
         <div className='ms-auto flex items-center gap-1 sm:gap-2'>
           {showTopNav && (
-            <>
-              <div className='me-1 hidden lg:block'>
-                <TopNav links={links} aria-label={t('Header navigation')} />
-              </div>
-              <div className='me-1 lg:hidden'>
-                <TopNav links={links} aria-label={t('Header navigation')} />
-              </div>
-            </>
+            <div className='lg:hidden'>
+              <TopNav links={links} aria-label={t('Header navigation')} />
+            </div>
           )}
-          {showSearch && <Search />}
+          {assistantEnabled && (
+            <Button
+              variant='ghost'
+              size='icon'
+              className={cn(
+                'relative size-8',
+                railOpen && 'bg-accent text-accent-foreground'
+              )}
+              aria-label={t('Open AI assistant')}
+              title={t('Open AI assistant')}
+              aria-pressed={railOpen}
+              onClick={handleAssistantClick}
+            >
+              <HugeiconsIcon
+                icon={AiChat02Icon}
+                strokeWidth={2}
+                className='size-4'
+                aria-hidden='true'
+              />
+            </Button>
+          )}
           {showNotifications && (
             <NotificationPopover
               open={notifications.popoverOpen}

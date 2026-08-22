@@ -19,18 +19,22 @@ For commercial licensing, please contact support@quantumnous.com
 import {
   Alert02Icon,
   ArrowRight01Icon,
+  ArrowUp01Icon,
   CleanIcon,
+  Copy01Icon,
   Maximize01Icon,
   Minimize01Icon,
   ReloadIcon,
+  Share07Icon,
 } from '@hugeicons/core-free-icons'
 import { HugeiconsIcon } from '@hugeicons/react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate } from '@tanstack/react-router'
-import { PanelLeft, Plus, Square } from 'lucide-react'
+import { History, PanelLeft, Plus, Square } from 'lucide-react'
 import { nanoid } from 'nanoid'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
 
 import {
   Conversation,
@@ -49,10 +53,7 @@ import {
   usePromptInputController,
 } from '@/components/ai-elements/prompt-input'
 import { Response } from '@/components/ai-elements/response'
-import {
-  sideDrawerContentClassName,
-  sideDrawerHeaderClassName,
-} from '@/components/drawer-layout'
+import { sideDrawerContentClassName } from '@/components/drawer-layout'
 import { LmmBrandMark } from '@/components/lmm-brand-mark'
 import {
   Alert,
@@ -62,7 +63,6 @@ import {
 } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Separator } from '@/components/ui/separator'
 import {
   Sheet,
   SheetContent,
@@ -104,6 +104,7 @@ import {
 import { AssistantAccountActionTool } from './assistant-account-action-tool'
 import { AssistantActivationTool } from './assistant-activation-tool'
 import { AssistantAdminChangeTool } from './assistant-admin-change-tool'
+import { copyAssistantText } from './assistant-clipboard'
 import { AssistantCostTool } from './assistant-cost-tool'
 import {
   subscribeToAssistantOpen,
@@ -222,7 +223,6 @@ function getBaseUrl(): string {
   return `${window.location.origin}/v1`
 }
 
-const ASSISTANT_PRIVACY_NOTICE_COLLAPSE_DELAY_MS = 5_000
 const ASSISTANT_LAYOUT_STORAGE_KEY = 'lmm-assistant-layout'
 
 function readAssistantClassicLayout(): boolean {
@@ -301,48 +301,22 @@ function AssistantModernWelcome(props: {
   restricted: boolean
 }) {
   const { t } = useTranslation()
-  const lanes = [
-    [t('Live models and pricing'), t('Compare live model pricing')],
-    [t('Step-by-step setup guidance'), t('Explain an API setup')],
-    [t('Confirm sensitive actions yourself'), t('Draft an access request')],
-  ]
 
+  /* Minimal gpt.ge-style empty state: one heading, one line of copy.
+   * Capability lanes and notice rows were cut — the preset chips under the
+   * composer already show what to ask. */
   return (
     <div
-      className='assistant-modern-welcome mx-auto flex w-full max-w-4xl flex-1 flex-col justify-center px-5 py-12 sm:px-10 sm:py-20'
+      className='mx-auto flex w-full max-w-2xl flex-1 flex-col items-center justify-center gap-4 px-5 py-12 text-center sm:py-16'
       data-testid='assistant-modern-welcome'
     >
-      <div className='assistant-modern-welcome__intro'>
-        <div className='assistant-modern-welcome__mark' aria-label='LMM Forge'>
-          <LmmBrandMark className='size-8' aria-hidden='true' />
-        </div>
-        <div className='max-w-2xl min-w-0'>
-          <h2 className='text-3xl leading-[1.08] font-semibold tracking-tight text-balance sm:text-5xl'>
-            {props.restricted
-              ? t('What would you like to do?')
-              : t('How can I help?')}
-          </h2>
-          <p className='text-muted-foreground mt-4 max-w-xl text-sm leading-7 sm:text-base'>
-            {props.description}
-          </p>
-        </div>
-      </div>
-
-      <div
-        className='assistant-modern-welcome__lanes'
-        aria-label={t('Capabilities')}
-      >
-        {lanes.map(([label, prompt]) => (
-          <div className='assistant-modern-welcome__lane' key={label}>
-            <span className='text-sm font-medium'>{label}</span>
-            <span className='text-muted-foreground text-sm'>{prompt}</span>
-          </div>
-        ))}
-      </div>
-
-      <p className='assistant-modern-welcome__notice text-muted-foreground text-xs leading-5'>
-        {t('Permissions still apply')} · {t('Never share secrets in chat')} ·{' '}
-        {t('Write actions need your confirmation')}
+      <h2 className='text-2xl leading-snug font-semibold tracking-tight text-balance sm:text-3xl'>
+        {props.restricted
+          ? t('What would you like to do?')
+          : t('How can I help?')}
+      </h2>
+      <p className='text-muted-foreground max-w-xl text-sm leading-7'>
+        {props.description}
       </p>
     </div>
   )
@@ -732,12 +706,15 @@ function AssistantPresetPrompts(props: {
 function AssistantPromptComposer(props: {
   footerStatus: string
   placeholder: string
-  privacyNoticeId: string
   classicLayout?: boolean
   restricted: boolean
   terminated: boolean
   routeUnavailable: boolean
   sending: boolean
+  canRetry: boolean
+  onRetry: () => void
+  onCopy: () => void
+  onShare: () => void
   onStop: () => void
   onSubmit: (message: { text?: string }) => void | Promise<void>
 }) {
@@ -750,9 +727,7 @@ function AssistantPromptComposer(props: {
   const hasText = value.trim().length > 0
   const showValidationError = hasText && validation.invalid
   const hintId = 'assistant-l0-input-hint'
-  const describedBy = showValidationError
-    ? `${props.privacyNoticeId} ${hintId}`
-    : props.privacyNoticeId
+  const describedBy = showValidationError ? hintId : undefined
 
   const handleSubmit = useCallback(
     (message: { text?: string }) => {
@@ -771,10 +746,12 @@ function AssistantPromptComposer(props: {
       <PromptInput
         onSubmit={handleSubmit}
         groupClassName={cn(
-          'assistant-prompt-input has-[[data-slot=input-group-control]:focus-visible]:border-transparent has-[[data-slot=input-group-control]:focus-visible]:ring-0 rounded-xl border-transparent',
+          // gpt.ge-style composer: full-rounded pill on a light card with a
+          // soft shadow; the classic skin keeps its own dark surface.
+          'assistant-prompt-input has-[[data-slot=input-group-control]:focus-visible]:border-transparent has-[[data-slot=input-group-control]:focus-visible]:ring-0 rounded-3xl border-transparent',
           props.classicLayout
-            ? 'rounded-2xl border-[#565869] bg-[#40414f] text-[#ececf1] shadow-[0_8px_24px_rgba(0,0,0,0.22)] ring-1 ring-black/20'
-            : 'assistant-modern-prompt border-border/70 bg-card/80 dark:bg-card/70'
+            ? 'rounded-3xl border-[#565869] bg-[#40414f] text-[#ececf1] shadow-[0_8px_24px_rgba(0,0,0,0.22)] ring-1 ring-black/20'
+            : 'assistant-modern-prompt bg-card border-border/60 shadow-sm'
         )}
         aria-label={t('Ask AI assistant')}
         data-testid='assistant-prompt-form'
@@ -802,23 +779,45 @@ function AssistantPromptComposer(props: {
         </PromptInputBody>
         <PromptInputFooter
           className={cn(
-            'px-2 py-1 pb-1.5',
+            'items-center gap-0.5 px-1.5 py-1 pb-1.5',
             props.classicLayout && 'text-[#b5b5bd]'
           )}
         >
-          <span className='min-w-0 flex-1 truncate text-xs'>
+          <span className='text-muted-foreground min-w-0 flex-1 truncate text-[11px]'>
             {props.footerStatus}
           </span>
+          <Button
+            type='button'
+            variant='ghost'
+            size='icon-sm'
+            className='text-muted-foreground hover:text-foreground'
+            aria-label={t('Retry the last message')}
+            title={t('Retry the last message')}
+            data-testid='assistant-retry-last'
+            disabled={!props.canRetry || props.sending}
+            onClick={props.onRetry}
+          >
+            <HugeiconsIcon
+              icon={ReloadIcon}
+              strokeWidth={2}
+              aria-hidden='true'
+            />
+          </Button>
           {props.sending ? (
             <Button
               type='button'
-              variant='outline'
-              size='sm'
+              variant='ghost'
+              size='icon-sm'
+              className={cn(
+                'text-muted-foreground hover:text-foreground',
+                props.classicLayout &&
+                  'text-[#19c37d] hover:bg-[#1aaf73] hover:text-[#202123]'
+              )}
               onClick={props.onStop}
               aria-label={t('Stop')}
+              title={t('Stop')}
             >
-              <Square data-icon='inline-start' aria-hidden='true' />
-              {t('Stop')}
+              <Square aria-hidden='true' />
             </Button>
           ) : (
             <PromptInputSubmit
@@ -826,14 +825,21 @@ function AssistantPromptComposer(props: {
               disabled={
                 props.terminated || props.routeUnavailable || validation.invalid
               }
-              size='sm'
-              className={
+              size='icon-sm'
+              aria-label={t('Send')}
+              className={cn(
+                'size-8 rounded-full!',
                 props.classicLayout
                   ? 'bg-[#19c37d] text-[#202123] hover:bg-[#1aaf73]'
-                  : undefined
-              }
+                  : 'bg-primary text-primary-foreground hover:bg-primary/90'
+              )}
             >
-              {t('Send')}
+              <HugeiconsIcon
+                icon={ArrowUp01Icon}
+                strokeWidth={2}
+                aria-hidden='true'
+              />
+              <span className='sr-only'>{t('Send')}</span>
             </PromptInputSubmit>
           )}
         </PromptInputFooter>
@@ -866,7 +872,7 @@ function AssistantPanelHeader(props: {
   historyDetail: boolean
   onOpenHistory: () => void
   onCloseHistory: () => void
-  onToggleCollapsed?: () => void
+  onClose?: () => void
   fullscreen?: boolean
   onToggleFullscreen?: () => void
 }) {
@@ -974,7 +980,7 @@ function AssistantPanelHeader(props: {
               aria-label={t('Collapse')}
               title={t('Collapse')}
               data-testid='assistant-collapse'
-              onClick={props.onToggleCollapsed}
+              onClick={() => props.onClose?.()}
             >
               <HugeiconsIcon
                 icon={ArrowRight01Icon}
@@ -1014,185 +1020,138 @@ function AssistantPanelHeader(props: {
     )
   }
 
-  if (props.mode === 'page') {
-    return (
-      <header
-        className={cn(
-          'assistant-glass-surface assistant-modern-header border-border/70 flex min-w-0 shrink-0 flex-wrap items-center gap-3 border-b px-5 py-4 sm:px-8',
-          props.historyVisible && 'bg-muted/10'
-        )}
-      >
-        <div className='min-w-0 flex-1'>
-          <h1 className='truncate text-sm font-semibold'>
-            {t('Service guide')}
-          </h1>
-          <p className='text-muted-foreground mt-1 hidden truncate text-xs sm:block'>
-            {props.description}
-          </p>
-        </div>
-        <AssistantJourneyProgress presentation='page' />
-        <div className='border-border flex items-center rounded-full border p-0.5'>
-          <span className='bg-muted text-foreground rounded-full px-3 py-1 text-xs font-medium'>
-            {t('Modern chat')}
-          </span>
-          <span className='text-muted-foreground px-1 text-xs'>/</span>
-          <Button
-            type='button'
-            variant='ghost'
-            size='sm'
-            className='h-7 rounded-full px-3 text-xs'
-            aria-pressed={props.classicLayout}
-            aria-label={t('Use classic layout')}
-            data-testid='assistant-layout-toggle'
-            onClick={props.onToggleClassicLayout}
-          >
-            {t('Classic chat')}
-          </Button>
-        </div>
-        <Button
-          type='button'
-          variant='ghost'
-          size='sm'
-          onClick={
-            props.historyVisible ? props.onCloseHistory : props.onOpenHistory
-          }
-        >
-          {props.historyVisible
-            ? props.historyDetail
-              ? t('Conversation history')
-              : t('Back to conversation')
-            : t('Conversation history')}
-        </Button>
-      </header>
-    )
-  }
-
+  // Compact icon-only header for the overlay sheet and the desktop rail:
+  // history + fullscreen on the left, close on the right. No dividers.
   if (props.mode === 'mobile') {
     return (
-      <SheetHeader
-        className={sideDrawerHeaderClassName(
-          'assistant-modern-header min-w-0 shrink-0 flex-row items-start justify-between gap-3 pr-12 pt-[max(0.75rem,env(safe-area-inset-top))]'
-        )}
-      >
-        <div className='min-w-0 flex-1 text-left'>
-          <SheetTitle className='truncate text-base'>
-            {t('Service guide')}
-          </SheetTitle>
-          <SheetDescription className='mt-1 min-w-0 truncate text-xs'>
-            {props.description}
-          </SheetDescription>
-        </div>
-        <div className='flex shrink-0 items-center gap-1'>
-          <Button
-            type='button'
-            variant='ghost'
-            size='sm'
-            className='gap-1 px-2 text-xs'
-            aria-label={t('Conversation history')}
-            title={t('Conversation history')}
-            onClick={
-              props.historyVisible ? props.onCloseHistory : props.onOpenHistory
-            }
-          >
-            <PanelLeft aria-hidden='true' />
-            <span className='hidden min-[420px]:inline'>
-              {props.historyVisible
-                ? props.historyDetail
-                  ? t('Conversation history')
-                  : t('Back to conversation')
-                : t('Conversation history')}
-            </span>
-          </Button>
-          <Button
-            type='button'
-            variant='ghost'
-            size='sm'
-            className='rounded-full px-2 text-xs'
-            aria-pressed={props.classicLayout}
-            data-testid='assistant-layout-toggle'
-            onClick={props.onToggleClassicLayout}
-          >
-            {props.classicLayout ? t('Modern chat') : t('Classic chat')}
-          </Button>
-        </div>
-      </SheetHeader>
-    )
-  }
-
-  return (
-    <header className='assistant-glass-surface assistant-modern-header border-border/70 flex min-w-0 shrink-0 items-start gap-2 border-b px-4 py-4 sm:gap-3 sm:px-5'>
-      <div className='min-w-0 flex-1'>
-        <h2 className='truncate text-base leading-6 font-semibold'>
-          {t('Service guide')}
-        </h2>
-        <p className='text-muted-foreground mt-0.5 text-xs leading-5'>
+      <SheetHeader className='flex-row items-center gap-0.5 px-2 py-2 sm:px-3'>
+        <SheetTitle className='sr-only'>{t('Service guide')}</SheetTitle>
+        <SheetDescription className='sr-only'>
           {props.description}
-        </p>
-      </div>
-      <div className='flex min-w-0 shrink-0 items-center gap-0.5'>
-        <Button
-          type='button'
-          variant='ghost'
-          size='sm'
-          className='hidden max-w-28 truncate px-2 sm:inline-flex'
-          aria-pressed={props.classicLayout}
-          data-testid='assistant-layout-toggle'
-          onClick={props.onToggleClassicLayout}
-        >
-          {props.classicLayout ? t('Modern chat') : t('Classic chat')}
-        </Button>
-        <Button
-          type='button'
-          variant='ghost'
-          size='sm'
-          className='max-w-32 shrink-0 truncate px-2 sm:max-w-40'
-          onClick={
-            props.historyVisible ? props.onCloseHistory : props.onOpenHistory
-          }
-        >
-          {props.historyVisible
-            ? props.historyDetail
-              ? t('Conversation history')
-              : t('Back')
-            : t('Conversation history')}
-        </Button>
-        {!props.fullscreen ? (
-          <Button
-            type='button'
-            variant='ghost'
-            size='icon-sm'
-            aria-label={t('Collapse')}
-            title={t('Collapse')}
-            data-testid='assistant-collapse'
-            onClick={props.onToggleCollapsed}
-          >
-            <HugeiconsIcon
-              icon={ArrowRight01Icon}
-              strokeWidth={2}
-              aria-hidden='true'
-            />
-          </Button>
-        ) : null}
+        </SheetDescription>
         <Button
           type='button'
           variant='ghost'
           size='icon-sm'
-          aria-label={
-            props.fullscreen ? t('Exit full screen') : t('Enter full screen')
+          aria-label={t('Conversation history')}
+          title={t('Conversation history')}
+          data-testid='assistant-history-toggle'
+          onClick={
+            props.historyVisible ? props.onCloseHistory : props.onOpenHistory
           }
-          title={
-            props.fullscreen ? t('Exit full screen') : t('Enter full screen')
-          }
-          data-testid='assistant-fullscreen'
-          onClick={props.onToggleFullscreen}
+        >
+          <History aria-hidden='true' />
+        </Button>
+        <div className='ms-auto' />
+        <Button
+          type='button'
+          variant='ghost'
+          size='icon-sm'
+          aria-label={t('Close')}
+          title={t('Close')}
+          data-testid='assistant-close'
+          onClick={() => props.onClose?.()}
         >
           <HugeiconsIcon
-            icon={props.fullscreen ? Minimize01Icon : Maximize01Icon}
+            icon={ArrowRight01Icon}
             strokeWidth={2}
             aria-hidden='true'
           />
         </Button>
-      </div>
+      </SheetHeader>
+    )
+  }
+
+  if (props.mode === 'page') {
+    return (
+      <header className='assistant-modern-header flex min-w-0 shrink-0 items-center gap-0.5 px-3 py-2 sm:px-4'>
+        <Button
+          type='button'
+          variant='ghost'
+          size='icon-sm'
+          aria-label={t('Conversation history')}
+          title={t('Conversation history')}
+          data-testid='assistant-history-toggle'
+          onClick={
+            props.historyVisible ? props.onCloseHistory : props.onOpenHistory
+          }
+        >
+          <History aria-hidden='true' />
+        </Button>
+        <Button
+          type='button'
+          variant='ghost'
+          size='icon-sm'
+          aria-pressed={props.classicLayout}
+          aria-label={
+            props.classicLayout ? t('Modern chat') : t('Use classic layout')
+          }
+          title={
+            props.classicLayout ? t('Modern chat') : t('Use classic layout')
+          }
+          data-testid='assistant-layout-toggle'
+          onClick={props.onToggleClassicLayout}
+        >
+          <PanelLeft aria-hidden='true' />
+        </Button>
+        <div className='ms-auto flex min-w-0 items-center gap-2'>
+          <AssistantJourneyProgress presentation='page' />
+        </div>
+      </header>
+    )
+  }
+
+  // Desktop rail header
+  return (
+    <header className='flex min-w-0 shrink-0 items-center gap-0.5 px-2 py-2 sm:px-3'>
+      <Button
+        type='button'
+        variant='ghost'
+        size='icon-sm'
+        aria-label={t('Conversation history')}
+        title={t('Conversation history')}
+        data-testid='assistant-history-toggle'
+        onClick={
+          props.historyVisible ? props.onCloseHistory : props.onOpenHistory
+        }
+      >
+        <History aria-hidden='true' />
+      </Button>
+      <Button
+        type='button'
+        variant='ghost'
+        size='icon-sm'
+        aria-label={
+          props.fullscreen ? t('Exit full screen') : t('Enter full screen')
+        }
+        title={
+          props.fullscreen ? t('Exit full screen') : t('Enter full screen')
+        }
+        data-testid='assistant-fullscreen'
+        onClick={props.onToggleFullscreen}
+      >
+        <HugeiconsIcon
+          icon={props.fullscreen ? Minimize01Icon : Maximize01Icon}
+          strokeWidth={2}
+          aria-hidden='true'
+        />
+      </Button>
+      <div className='ms-auto' />
+      <Button
+        type='button'
+        variant='ghost'
+        size='icon-sm'
+        aria-label={t('Close')}
+        title={t('Close')}
+        data-testid='assistant-collapse'
+        onClick={() => props.onClose?.()}
+      >
+        <HugeiconsIcon
+          icon={ArrowRight01Icon}
+          strokeWidth={2}
+          aria-hidden='true'
+        />
+      </Button>
     </header>
   )
 }
@@ -1217,12 +1176,7 @@ export function AssistantPanel(props: {
   const queryClient = useQueryClient()
   const mode = props.mode ?? 'mobile'
   const onConversationReset = props.onConversationReset
-  const panelVisible =
-    mode === 'page'
-      ? true
-      : mode === 'rail'
-        ? !props.collapsed || props.fullscreen === true
-        : props.open
+  const panelVisible = mode === 'page' ? true : props.open
   const baseUrl = getBaseUrl()
   const [entries, setEntries] = useState<ConversationEntry[]>([])
   const [conversationId, setConversationId] = useState<number | null>(null)
@@ -1263,12 +1217,6 @@ export function AssistantPanel(props: {
   const openedTargetRef = useRef<AssistantPresetId | undefined>(undefined)
   const activeToolRegionRef = useRef<HTMLDivElement | null>(null)
   const [conversationResetRevision, setConversationResetRevision] = useState(0)
-  const [privacyNoticeExpanded, setPrivacyNoticeExpanded] = useState(
-    mode !== 'page'
-  )
-  const privacyNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
-    null
-  )
   useEffect(
     () => () => {
       assistantAbortControllerRef.current?.abort()
@@ -1311,45 +1259,12 @@ export function AssistantPanel(props: {
     retry: false,
   })
   const authUser = useAuthStore((state) => state.auth.user)
-  const clearPrivacyNoticeTimer = useCallback(() => {
-    if (privacyNoticeTimerRef.current === null) return
-    clearTimeout(privacyNoticeTimerRef.current)
-    privacyNoticeTimerRef.current = null
-  }, [])
-  const schedulePrivacyNoticeCollapse = useCallback(() => {
-    clearPrivacyNoticeTimer()
-    setPrivacyNoticeExpanded(true)
-    privacyNoticeTimerRef.current = setTimeout(() => {
-      privacyNoticeTimerRef.current = null
-      setPrivacyNoticeExpanded(false)
-    }, ASSISTANT_PRIVACY_NOTICE_COLLAPSE_DELAY_MS)
-  }, [clearPrivacyNoticeTimer])
-  useEffect(() => {
-    if (!panelVisible || mode === 'page') {
-      clearPrivacyNoticeTimer()
-      return
-    }
-
-    schedulePrivacyNoticeCollapse()
-    return clearPrivacyNoticeTimer
-  }, [
-    clearPrivacyNoticeTimer,
-    mode,
-    panelVisible,
-    schedulePrivacyNoticeCollapse,
-  ])
-  const togglePrivacyNotice = useCallback(() => {
-    if (privacyNoticeExpanded) {
-      clearPrivacyNoticeTimer()
-      setPrivacyNoticeExpanded(false)
-      return
-    }
-    schedulePrivacyNoticeCollapse()
-  }, [
-    clearPrivacyNoticeTimer,
-    privacyNoticeExpanded,
-    schedulePrivacyNoticeCollapse,
-  ])
+  useEffect(
+    () => () => {
+      assistantAbortControllerRef.current?.abort()
+    },
+    []
+  )
   const isAdministrator = statusQuery.data?.is_admin === true
   const accessLevel = statusQuery.data?.access_level
   const withAccessLevel = (message: string) =>
@@ -1921,6 +1836,36 @@ export function AssistantPanel(props: {
     )
   }
 
+  const conversationText = () =>
+    entries
+      .filter((entry) => !entry.notice && !entry.error)
+      .map(
+        (entry) =>
+          `${entry.role === 'user' ? t('You') : t('Assistant')}: ${entry.content}`
+      )
+      .join('\n\n')
+
+  const handleCopyConversation = async () => {
+    const text = conversationText()
+    if (!text) return false
+    return copyAssistantText(text, navigator.clipboard)
+  }
+
+  const handleShareConversation = async () => {
+    const text = conversationText()
+    if (!text) return
+    if (typeof navigator.share === 'function') {
+      try {
+        await navigator.share({ title: 'LMM Forge', text })
+        return
+      } catch {
+        // User dismissed the share sheet — fall through to clipboard.
+      }
+    }
+    const copied = await copyAssistantText(text, navigator.clipboard)
+    toast.success(copied ? t('Conversation copied') : t('Copy failed'))
+  }
+
   const panelContent = (
     <>
       <AssistantPanelHeader
@@ -1937,61 +1882,10 @@ export function AssistantPanel(props: {
             current !== null && current !== 'list' ? 'list' : null
           )
         }
-        onToggleCollapsed={props.onToggleCollapsed}
+        onClose={() => props.onOpenChange(false)}
         fullscreen={props.fullscreen}
         onToggleFullscreen={props.onToggleFullscreen}
       />
-      <Alert
-        id='assistant-privacy-notice'
-        className={cn(
-          'mb-0 min-w-0 overflow-hidden',
-          mode === 'page' ? 'hidden' : 'm-3 max-w-[calc(100%-1.5rem)]',
-          classicLayout &&
-            'border-[#565869] bg-[#2a2b32] text-[#ececf1] [&_p]:text-[#c5c5d2]',
-          !classicLayout &&
-            'border-0 bg-transparent px-0 text-muted-foreground shadow-none [&_[data-slot=alert-title]]:text-foreground',
-          !privacyNoticeExpanded && 'py-1.5'
-        )}
-        data-testid='assistant-privacy-notice'
-        variant='default'
-      >
-        <HugeiconsIcon icon={Alert02Icon} strokeWidth={2} aria-hidden='true' />
-        <div className='min-w-0'>
-          <AlertTitle className='min-w-0'>
-            <button
-              type='button'
-              className='focus-visible:ring-ring/50 rounded-sm text-left font-medium outline-none focus-visible:ring-3'
-              aria-controls='assistant-privacy-notice-description'
-              aria-describedby='assistant-privacy-notice-description'
-              aria-expanded={privacyNoticeExpanded}
-              data-testid='assistant-privacy-notice-toggle'
-              onClick={togglePrivacyNotice}
-            >
-              {t('Conversation privacy notice')}
-            </button>
-          </AlertTitle>
-          <AlertDescription
-            id='assistant-privacy-notice-description'
-            className={privacyNoticeExpanded ? undefined : 'sr-only'}
-          >
-            <p className='break-words'>
-              {t(
-                'Your assistant conversations are not private. Authorized higher-access users may review them.'
-              )}
-            </p>
-            <p className='break-words'>
-              {t(
-                'Do not send personal information, passwords, API keys, or credentials in chat. Site-issued credentials are shown only after your explicit confirmation, remain visible only to you, and stay out of the assistant context.'
-              )}
-            </p>
-            <p className='break-words'>
-              {t(
-                'If you accidentally send supported sensitive data, the assistant safety filter may detect common email addresses, phone numbers, and API key formats and redact the message before this assistant request is sent. Pattern matching is not a guarantee.'
-              )}
-            </p>
-          </AlertDescription>
-        </div>
-      </Alert>
       {historyVisible ? (
         <Conversation
           className={cn(
@@ -2312,14 +2206,11 @@ export function AssistantPanel(props: {
 
                   <div
                     className={cn(
-                      'grid gap-3 pt-1',
+                      'flex flex-wrap items-center gap-0.5 pt-1',
                       classicLayout &&
                         'mx-auto w-full max-w-3xl px-5 pb-8 sm:px-8'
                     )}
                   >
-                    <Separator
-                      className={classicLayout ? 'bg-[#4b4d56]' : undefined}
-                    />
                     <Button
                       type='button'
                       variant='ghost'
@@ -2334,6 +2225,46 @@ export function AssistantPanel(props: {
                         aria-hidden='true'
                       />
                       {t('Clear conversation')}
+                    </Button>
+                    <Button
+                      type='button'
+                      variant='ghost'
+                      size='icon-sm'
+                      className='text-muted-foreground hover:text-foreground'
+                      aria-label={t('Copy conversation')}
+                      title={t('Copy conversation')}
+                      data-testid='assistant-copy-conversation'
+                      onClick={() => {
+                        void handleCopyConversation().then((copied) => {
+                          toast.success(
+                            copied ? t('Conversation copied') : t('Copy failed')
+                          )
+                        })
+                      }}
+                    >
+                      <HugeiconsIcon
+                        icon={Copy01Icon}
+                        strokeWidth={2}
+                        aria-hidden='true'
+                      />
+                    </Button>
+                    <Button
+                      type='button'
+                      variant='ghost'
+                      size='icon-sm'
+                      className='text-muted-foreground hover:text-foreground'
+                      aria-label={t('Share conversation')}
+                      title={t('Share conversation')}
+                      data-testid='assistant-share-conversation'
+                      onClick={() => {
+                        void handleShareConversation()
+                      }}
+                    >
+                      <HugeiconsIcon
+                        icon={Share07Icon}
+                        strokeWidth={2}
+                        aria-hidden='true'
+                      />
                     </Button>
                   </div>
                 </>
@@ -2351,12 +2282,9 @@ export function AssistantPanel(props: {
             )}
             data-testid='assistant-composer-footer'
           >
-            <Separator
-              className={classicLayout ? 'bg-[#4b4d56]' : 'bg-border/70'}
-            />
             <div
               className={cn(
-                'assistant-composer px-3 py-2 sm:px-4 sm:py-3',
+                'assistant-composer px-4 py-3 sm:px-6',
                 mode === 'page' && 'mx-auto w-full max-w-3xl',
                 classicLayout && 'px-5 py-4 sm:px-8 sm:py-5'
               )}
@@ -2388,12 +2316,32 @@ export function AssistantPanel(props: {
                       : assistantFooterStatus
                   }
                   placeholder={assistantPromptPlaceholder}
-                  privacyNoticeId='assistant-privacy-notice'
                   classicLayout={classicLayout}
                   restricted={accountAccessState === 'restricted'}
                   terminated={conversationRestricted}
                   routeUnavailable={assistantRouteUnavailable}
                   sending={sending}
+                  canRetry={
+                    entries.some(
+                      (entry) => entry.retry !== undefined && entry.error
+                    ) && !conversationRestricted
+                  }
+                  onRetry={() => {
+                    const retryable = [...entries]
+                      .reverse()
+                      .find((entry) => entry.retry !== undefined && entry.error)
+                    if (retryable) void retryMessage(retryable)
+                  }}
+                  onCopy={() => {
+                    void handleCopyConversation().then((copied) => {
+                      toast.success(
+                        copied ? t('Conversation copied') : t('Copy failed')
+                      )
+                    })
+                  }}
+                  onShare={() => {
+                    void handleShareConversation()
+                  }}
                   onStop={() => assistantAbortControllerRef.current?.abort()}
                   onSubmit={submitMessage}
                 />
@@ -2455,49 +2403,16 @@ export function AssistantPanel(props: {
         </div>
       )
     }
-    if (props.collapsed) {
-      return (
-        <aside
-          id='ai-assistant-panel'
-          className={cn(
-            'hidden min-h-0 w-12 shrink-0 flex-col border-l xl:flex',
-            classicLayout
-              ? 'assistant-classic-shell border-[#4b4d56] bg-[#343541] text-[#ececf1]'
-              : 'bg-background'
-          )}
-          data-layout={classicLayout ? 'classic' : 'modern'}
-          aria-label={t('Service guide')}
-        >
-          <Button
-            type='button'
-            variant='ghost'
-            size='icon'
-            className='m-2'
-            aria-label={t('Expand')}
-            title={t('Expand')}
-            data-testid='assistant-expand'
-            onClick={props.onToggleCollapsed}
-          >
-            <HugeiconsIcon
-              icon={ArrowRight01Icon}
-              strokeWidth={2}
-              aria-hidden='true'
-            />
-            <span className='sr-only'>{t('Expand')}</span>
-          </Button>
-          <span className='sr-only'>{t('Service guide')}</span>
-        </aside>
-      )
-    }
 
+    // In-flow desktop rail: a rounded card that belongs to the same visual
+    // family as the main content surface (radius from the theme token).
     return (
       <aside
         id='ai-assistant-panel'
         className={cn(
-          'hidden min-h-0 w-[min(28vw,30rem)] max-w-full min-w-0 shrink-0 flex-col border-l xl:flex',
-          classicLayout
-            ? 'assistant-classic-shell border-[#4b4d56] bg-[#343541] text-[#ececf1]'
-            : 'bg-background'
+          'bg-card flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded-xl border shadow-sm',
+          classicLayout &&
+            'assistant-classic-shell border-[#4b4d56] bg-[#343541] text-[#ececf1]'
         )}
         data-layout={classicLayout ? 'classic' : 'modern'}
         aria-label={t('Service guide')}
@@ -2511,9 +2426,15 @@ export function AssistantPanel(props: {
     <Sheet open={props.open} onOpenChange={handleOpenChange}>
       <SheetContent
         id='ai-assistant-panel'
+        showCloseButton={false}
+        overlayClassName='bg-black/40 supports-backdrop-filter:bg-black/30 supports-backdrop-filter:backdrop-blur-sm'
         className={sideDrawerContentClassName(
           cn(
-            'inset-0 !h-dvh !max-h-dvh !min-h-0 !w-screen !max-w-none !min-w-0 rounded-none overscroll-contain',
+            // Mobile: edge-to-edge fullscreen.
+            'inset-0 h-dvh max-h-dvh min-h-0 w-screen max-w-none min-w-0 rounded-none overscroll-contain',
+            // sm+: floating right-side dialog aligned with the shell's
+            // rounded-card language (radius follows the theme token).
+            'sm:inset-y-2 sm:right-2 sm:left-auto sm:h-auto sm:w-[min(32rem,calc(100vw-1rem))] sm:max-w-none sm:rounded-xl sm:border sm:shadow-lg',
             classicLayout
               ? 'assistant-classic-shell bg-[#343541] text-[#ececf1]'
               : 'bg-background'

@@ -19,6 +19,14 @@ For commercial licensing, please contact support@quantumnous.com
 /* The public Forge is an editorial surface, not a recoloured admin console.
  * Keep its three-layer language (paper, ink, one restrained accent) intact
  * even when the application-wide theme preset is blue or purple. */
+
+/* The reference landing page keeps its navigation in normal document flow so
+ * the hero begins below it instead of hiding underneath a fixed header. */
+.public-header.forge-public-header {
+  position: sticky;
+  top: 0;
+}
+
 .forge-surface {
   --background: var(--forge-paper-light);
   --foreground: var(--forge-ink-light);
@@ -428,6 +436,7 @@ For commercial licensing, please contact support@quantumnous.com
     var(--forge-ink-light) 68%,
     transparent
   );
+  --forge-brand-mark-accent: var(--forge-header-ink);
 }
 
 .dark .forge-public-header,
@@ -444,6 +453,7 @@ For commercial licensing, please contact support@quantumnous.com
     var(--forge-foreground-dark) 68%,
     transparent
   );
+  --forge-brand-mark-accent: var(--forge-header-ink);
 }
 
 .forge-public-nav {
@@ -500,12 +510,8 @@ For commercial licensing, please contact support@quantumnous.com
  * the route tree. Keep its palette semantic so it cannot drift into a second
  * set of component-level color literals. */
 .forge-footer {
-  --forge-footer-background: color-mix(
-    in oklch,
-    var(--forge-paper-light) 88%,
-    var(--forge-secondary-light)
-  );
-  --forge-footer-foreground: var(--forge-ink-light);
+  --forge-footer-background: oklch(0.99 0 0);
+  --forge-footer-foreground: oklch(0.145 0 0);
   --forge-footer-muted: color-mix(
     in oklch,
     var(--forge-ink-light) 62%,
@@ -521,22 +527,16 @@ For commercial licensing, please contact support@quantumnous.com
     var(--forge-ink-light) 15%,
     transparent
   );
-  --forge-footer-accent: color-mix(
-    in oklch,
-    var(--forge-clay-light) 82%,
-    var(--forge-ink-light)
-  );
+  --forge-footer-accent: oklch(0.145 0 0);
+  --forge-brand-mark-ink: oklch(0.145 0 0);
+  --forge-brand-mark-accent: oklch(0.145 0 0);
   background: var(--forge-footer-background);
   color: var(--forge-footer-foreground);
 }
 
 .dark .forge-footer {
-  --forge-footer-background: color-mix(
-    in oklch,
-    var(--forge-surface-dark) 84%,
-    var(--forge-secondary-dark)
-  );
-  --forge-footer-foreground: var(--forge-foreground-dark);
+  --forge-footer-background: oklch(0.13 0 0);
+  --forge-footer-foreground: oklch(0.965 0 0);
   --forge-footer-muted: color-mix(
     in oklch,
     var(--forge-foreground-dark) 62%,
@@ -552,11 +552,9 @@ For commercial licensing, please contact support@quantumnous.com
     var(--forge-foreground-dark) 15%,
     transparent
   );
-  --forge-footer-accent: color-mix(
-    in oklch,
-    var(--forge-clay-dark) 82%,
-    var(--forge-foreground-dark)
-  );
+  --forge-footer-accent: oklch(0.965 0 0);
+  --forge-brand-mark-ink: oklch(0.965 0 0);
+  --forge-brand-mark-accent: oklch(0.965 0 0);
 }
 
 .forge-footer :where(.forge-footer-muted, .forge-footer-meta) {

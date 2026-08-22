@@ -32,7 +32,7 @@ export const THEME_PRESETS = [
   {
     // Inspired by Anthropic's official brand language: warm cream canvas
     // (#faf9f5) paired with clay/coral (#d97757) as the single accent.
-    // Swatches preview the canvas and accent fields that define the system.
+    // Swatches preview the canvas → accent gradient that defines the system.
     value: 'anthropic',
     name: 'Anthropic',
     swatches: ['oklch(0.984 0.005 95)', 'oklch(0.685 0.142 38)'],
@@ -116,10 +116,7 @@ export type ThemeCustomization = {
 }
 
 export const DEFAULT_THEME_CUSTOMIZATION: ThemeCustomization = {
-  // The shipped experience is the warm editorial system. `default` remains
-  // available as an explicit neutral fallback, but new users should see the
-  // Anthropic-art palette without needing to open the configuration drawer.
-  preset: 'anthropic',
+  preset: 'default',
   font: 'default',
   radius: 'default',
   scale: 'default',

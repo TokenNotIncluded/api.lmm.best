@@ -228,18 +228,6 @@ describe('L0 onboarding assistant experience', () => {
         document.body.textContent ?? '',
         /What would you like to do\?/
       )
-      assert.match(
-        document.body.textContent ?? '',
-        /Your assistant conversations are not private/
-      )
-      assert.match(
-        document.body.textContent ?? '',
-        /passwords, API keys, or credentials/
-      )
-      assert.match(
-        document.body.textContent ?? '',
-        /shown only after your explicit confirmation, remain visible only to you/
-      )
       assert.doesNotMatch(
         document.body.textContent ?? '',
         /shielded private card|private card/
@@ -255,10 +243,6 @@ describe('L0 onboarding assistant experience', () => {
       assert.equal(textarea.getAttribute('aria-label'), 'Ask AI assistant')
       assert.equal(textarea.required, true)
       assert.ok(textarea.minLength <= 0)
-      assert.match(
-        textarea.getAttribute('aria-describedby') ?? '',
-        /assistant-privacy-notice/
-      )
       assert.doesNotMatch(
         textarea.getAttribute('aria-describedby') ?? '',
         /assistant-l0-input-hint/

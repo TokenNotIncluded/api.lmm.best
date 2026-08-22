@@ -1,0 +1,730 @@
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+
+/*
+ * Homepage presentation follows the compact, centered product landing page
+ * pattern used by gpt.ge: translucent navigation, an aurora/grid hero,
+ * centered feature sections and a setup walkthrough.
+ * Colors are semantic so the page remains compatible with the active theme.
+ */
+.forge-home-page {
+  /* gpt.ge's landing page uses a neutral canvas and a single vivid accent.
+   * Keep the accent connected to the active theme's chart palette instead of
+   * inheriting the public Forge shell's older editorial surface aliases. */
+  --background: oklch(0.99 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.145 0 0);
+  --primary-foreground: oklch(1 0 0);
+  --chart-1: oklch(0.145 0 0);
+  --chart-2: oklch(0.32 0 0);
+  --chart-3: oklch(0.48 0 0);
+  --chart-4: oklch(0.62 0 0);
+  --chart-5: oklch(0.74 0 0);
+  --success: oklch(0.28 0 0);
+  --warning: oklch(0.42 0 0);
+  --info: oklch(0.36 0 0);
+  --destructive: oklch(0.2 0 0);
+  --secondary: oklch(0.95 0 0);
+  --muted: oklch(0.96 0 0);
+  --muted-foreground: oklch(0.49 0 0);
+  --accent: color-mix(in oklch, var(--primary) 12%, var(--background));
+  --accent-foreground: var(--foreground);
+  --border: color-mix(in oklch, var(--foreground) 12%, transparent);
+  --input: color-mix(in oklch, var(--foreground) 14%, transparent);
+  --ring: var(--primary);
+  --home-surface: color-mix(in oklch, var(--background) 94%, white);
+  --home-card: color-mix(in oklch, var(--background) 97%, var(--foreground));
+  --home-card-strong: color-mix(
+    in oklch,
+    var(--background) 99%,
+    var(--foreground)
+  );
+  --home-grid: color-mix(in oklch, var(--foreground) 7%, transparent);
+  --home-muted: color-mix(in oklch, var(--foreground) 58%, transparent);
+  position: relative;
+  isolation: isolate;
+  min-height: calc(100svh - 4rem);
+  overflow: hidden;
+  background: var(--home-surface);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+}
+
+.dark .forge-home-page {
+  --background: oklch(0.13 0 0);
+  --foreground: oklch(0.965 0 0);
+  --card: oklch(0.19 0 0);
+  --card-foreground: oklch(0.965 0 0);
+  --primary: oklch(0.92 0 0);
+  --primary-foreground: oklch(0.1 0 0);
+  --chart-1: oklch(0.92 0 0);
+  --chart-2: oklch(0.78 0 0);
+  --chart-3: oklch(0.64 0 0);
+  --chart-4: oklch(0.5 0 0);
+  --chart-5: oklch(0.38 0 0);
+  --success: oklch(0.82 0 0);
+  --warning: oklch(0.7 0 0);
+  --info: oklch(0.76 0 0);
+  --destructive: oklch(0.86 0 0);
+  --secondary: oklch(0.24 0 0);
+  --muted: oklch(0.22 0 0);
+  --muted-foreground: oklch(0.76 0 0);
+  --accent: color-mix(in oklch, var(--primary) 20%, var(--background));
+  --accent-foreground: var(--foreground);
+  --border: oklch(1 0 0 / 14%);
+  --input: oklch(1 0 0 / 20%);
+  --ring: var(--primary);
+  --home-surface: color-mix(in oklch, var(--background) 92%, black);
+  --home-card: color-mix(in oklch, var(--background) 90%, var(--foreground));
+  --home-card-strong: color-mix(
+    in oklch,
+    var(--background) 94%,
+    var(--foreground)
+  );
+  --home-grid: color-mix(in oklch, var(--foreground) 9%, transparent);
+  --home-muted: color-mix(in oklch, var(--foreground) 66%, transparent);
+}
+
+.forge-home-hero {
+  position: relative;
+  display: flex;
+  min-height: min(42rem, calc(100svh - 4rem));
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  padding: 2.5rem 1.5rem 4rem;
+}
+
+.forge-home-aurora {
+  pointer-events: none;
+  position: fixed;
+  z-index: -12;
+  inset: -3.75rem 0 12.5rem;
+  overflow: hidden;
+  opacity: 0.8;
+}
+
+.forge-home-aurora-layer {
+  --aurora: repeating-linear-gradient(
+    100deg,
+    #181818 10%,
+    #666 15%,
+    #ccc 20%,
+    #fff 25%,
+    #333 30%
+  );
+  --dark-gradient: repeating-linear-gradient(
+    100deg,
+    #000 0%,
+    #000 7%,
+    transparent 10%,
+    transparent 12%,
+    #000 16%
+  );
+  --white-gradient: repeating-linear-gradient(
+    100deg,
+    #fff 0%,
+    #fff 7%,
+    transparent 10%,
+    transparent 12%,
+    #fff 16%
+  );
+  position: absolute;
+  inset: -0.625rem;
+  background-image: var(--white-gradient), var(--aurora);
+  background-position: 50%, 50%;
+  background-size: 300% 200%;
+  filter: blur(10px) invert(1);
+  opacity: 0.5;
+  -webkit-mask-image:
+    radial-gradient(
+      at 100% 0,
+      #000 10%,
+      rgb(0 0 0 / 70%) 28%,
+      rgb(0 0 0 / 18%) 48%,
+      transparent 58%
+    ),
+    linear-gradient(90deg, transparent 38%, #000 62%);
+  mask-image:
+    radial-gradient(
+      at 100% 0,
+      #000 10%,
+      rgb(0 0 0 / 70%) 28%,
+      rgb(0 0 0 / 18%) 48%,
+      transparent 58%
+    ),
+    linear-gradient(90deg, transparent 38%, #000 62%);
+  -webkit-mask-composite: source-in;
+  mask-composite: intersect;
+}
+
+.forge-home-aurora-layer::after {
+  position: absolute;
+  inset: 0;
+  background-image: var(--white-gradient), var(--aurora);
+  background-position: 50%, 50%;
+  background-size: 200% 100%;
+  content: '';
+  mix-blend-mode: difference;
+}
+
+.dark .forge-home-aurora-layer {
+  --aurora: repeating-linear-gradient(
+    100deg,
+    #000 10%,
+    #666 15%,
+    #ccc 20%,
+    #fff 25%,
+    #333 30%
+  );
+  background-image: var(--dark-gradient), var(--aurora);
+  filter: blur(10px);
+}
+
+.dark .forge-home-aurora-layer::after {
+  background-image: var(--dark-gradient), var(--aurora);
+}
+
+.forge-home-grid {
+  pointer-events: none;
+  position: absolute;
+  z-index: -11;
+  inset: -2px;
+  background-image:
+    linear-gradient(to right, var(--home-grid) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--home-grid) 1px, transparent 1px);
+  background-size: 100px 100px;
+  mask-image: linear-gradient(to bottom, black 0%, transparent 90%);
+  opacity: 0.7;
+}
+
+.forge-home-orb {
+  pointer-events: none;
+  position: absolute;
+  z-index: -10;
+  inset: auto;
+  height: 24rem;
+  width: 24rem;
+  border-radius: 999px;
+  background: color-mix(in oklch, var(--foreground) 3%, transparent);
+  filter: blur(70px);
+  opacity: 0.7;
+}
+
+.forge-home-orb-left {
+  top: -10rem;
+  left: 18%;
+}
+
+.forge-home-orb-right {
+  right: 17%;
+  bottom: -14rem;
+}
+
+.forge-home-hero-content {
+  display: flex;
+  width: 100%;
+  max-width: 80rem;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.75rem;
+  text-align: center;
+  transform: translateY(clamp(1rem, 4vh, 3rem));
+}
+
+.forge-home-model-badge,
+.forge-home-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  border: 1px solid color-mix(in oklch, var(--border) 70%, transparent);
+  border-radius: 999px;
+  background: color-mix(in oklch, var(--background) 50%, transparent);
+  color: color-mix(in oklch, var(--foreground) 68%, transparent);
+  backdrop-filter: blur(18px);
+}
+
+.forge-home-model-badge {
+  max-width: min(100%, 20rem);
+  padding: 0.375rem 0.875rem 0.375rem 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.forge-home-badge-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  border-radius: 999px;
+  background: var(--primary);
+  padding: 0.125rem 0.5rem;
+  color: var(--primary-foreground);
+  font-size: 0.625rem;
+  line-height: 1.25;
+  text-transform: uppercase;
+}
+
+.forge-home-model-viewport {
+  position: relative;
+  display: inline-flex;
+  width: max-content;
+  min-width: 0;
+  height: 1.25rem;
+  flex: 0 0 auto;
+  align-items: center;
+  overflow: hidden;
+  white-space: nowrap;
+  transition: width 650ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.forge-home-model-current {
+  display: inline-flex;
+  align-items: center;
+  animation: forge-home-model-enter 650ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.forge-home-model-current a {
+  color: inherit;
+  text-decoration: none;
+}
+
+@keyframes forge-home-model-enter {
+  from {
+    opacity: 0;
+    transform: translateY(100%);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.forge-home-hero h1 {
+  display: flex;
+  max-width: 62rem;
+  flex-direction: column;
+  gap: 0.85rem;
+  font-size: clamp(2.75rem, 7vw, 5.25rem);
+  font-weight: 700;
+  line-height: 0.92;
+  letter-spacing: -0.055em;
+  text-wrap: balance;
+}
+
+.forge-home-hero h1 span:first-child {
+  font-size: 0.82em;
+}
+
+.forge-home-hero h1 span:last-child {
+  font-size: 0.7em;
+  font-weight: 600;
+  letter-spacing: -0.035em;
+}
+
+.forge-home-hero-description,
+.forge-home-hero-summary {
+  max-width: 42rem;
+  color: var(--home-muted);
+  line-height: 1.75;
+  text-wrap: balance;
+}
+
+.forge-home-hero-description {
+  font-size: clamp(1rem, 1.5vw, 1.2rem);
+}
+
+.forge-home-hero-summary {
+  max-width: 48rem;
+  margin-top: -0.9rem;
+  font-size: 0.9rem;
+}
+
+.forge-home-hero-actions {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1rem;
+  padding-top: 0.5rem;
+}
+
+.forge-home-hero-assistant {
+  width: min(100%, 38rem);
+  margin-top: 0.5rem;
+}
+
+.forge-home-hero-assistant [data-slot='input-group'] {
+  border-color: color-mix(in oklch, var(--border) 70%, transparent);
+  background: color-mix(in oklch, var(--background) 54%, transparent);
+  box-shadow: 0 14px 40px -28px
+    color-mix(in oklch, var(--foreground) 45%, transparent);
+}
+
+.forge-home-section {
+  width: 100%;
+  max-width: 80rem;
+  margin: 0 auto;
+  padding: 4.5rem 1rem;
+}
+
+.forge-home-section-heading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.9rem;
+  margin: 0 auto 2.75rem;
+  text-align: center;
+}
+
+.forge-home-pill {
+  padding: 0.35rem 0.8rem;
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.forge-home-section-heading h2 {
+  max-width: 48rem;
+  font-size: clamp(1.75rem, 4vw, 2.75rem);
+  font-weight: 650;
+  line-height: 1.1;
+  letter-spacing: -0.04em;
+  text-wrap: balance;
+}
+
+.forge-home-section-heading p {
+  max-width: 42rem;
+  color: var(--home-muted);
+  font-size: 0.95rem;
+  line-height: 1.7;
+  text-wrap: balance;
+}
+
+.forge-home-feature-grid {
+  display: grid;
+  grid-template-columns: repeat(1, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.forge-home-feature-card {
+  display: flex;
+  min-height: 10rem;
+  flex-direction: column;
+  gap: 1rem;
+  border: 1px solid color-mix(in oklch, var(--border) 55%, transparent);
+  border-radius: 1rem;
+  background: color-mix(in oklch, var(--card) 42%, transparent);
+  padding: 1.25rem;
+  text-align: left;
+  transition:
+    border-color 180ms ease,
+    background-color 180ms ease,
+    transform 180ms ease;
+}
+
+.forge-home-feature-card:hover {
+  border-color: color-mix(in oklch, var(--primary) 35%, var(--border));
+  background: color-mix(in oklch, var(--card) 58%, transparent);
+  transform: translateY(-2px);
+}
+
+.forge-home-feature-icon {
+  display: inline-flex;
+  width: 2.75rem;
+  height: 2.75rem;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid color-mix(in oklch, currentColor 20%, transparent);
+  border-radius: 0.8rem;
+  background: color-mix(in oklch, currentColor 8%, transparent);
+}
+
+.forge-home-feature-icon svg {
+  width: 1.25rem;
+  height: 1.25rem;
+}
+
+.forge-home-feature-card h3,
+.forge-home-step h3,
+.forge-home-use-case h3 {
+  font-size: 0.95rem;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+
+.forge-home-feature-card p,
+.forge-home-step p,
+.forge-home-use-case p {
+  margin-top: 0.375rem;
+  color: var(--home-muted);
+  font-size: 0.8rem;
+  line-height: 1.65;
+}
+
+.forge-home-quickstart {
+  max-width: 80rem;
+}
+
+.forge-home-quickstart-grid {
+  display: grid;
+  gap: 1.5rem;
+}
+
+.forge-home-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.forge-home-step {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.875rem;
+  border: 1px solid color-mix(in oklch, var(--border) 55%, transparent);
+  border-radius: 1rem;
+  background: color-mix(in oklch, var(--card) 42%, transparent);
+  padding: 1rem;
+}
+
+.forge-home-step-number {
+  display: inline-flex;
+  width: 2.25rem;
+  height: 2.25rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: var(--primary);
+  color: var(--primary-foreground);
+  font-size: 0.875rem;
+  font-weight: 650;
+}
+
+.forge-home-step-arrow {
+  width: 1rem;
+  height: 1rem;
+  color: color-mix(in oklch, var(--foreground) 28%, transparent);
+}
+
+.forge-home-quick-links {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin-top: 0.25rem;
+}
+
+.forge-home-quick-link {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.75rem;
+  border: 1px solid color-mix(in oklch, var(--border) 55%, transparent);
+  border-radius: 1rem;
+  background: color-mix(in oklch, var(--card) 36%, transparent);
+  padding: 1rem;
+  color: var(--foreground);
+  font-size: 0.8rem;
+  font-weight: 600;
+  transition:
+    background-color 180ms ease,
+    border-color 180ms ease;
+}
+
+.forge-home-quick-link:hover {
+  border-color: color-mix(in oklch, var(--primary) 35%, var(--border));
+  background: var(--home-card-strong);
+}
+
+.forge-home-quick-link svg:first-child {
+  width: 1.25rem;
+  height: 1.25rem;
+  color: var(--primary);
+}
+
+.forge-home-quick-link svg:last-child {
+  width: 1rem;
+  height: 1rem;
+  color: color-mix(in oklch, var(--foreground) 35%, transparent);
+}
+
+.forge-home-code-card {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid color-mix(in oklch, var(--border) 70%, transparent);
+  border-radius: 1rem;
+  background: var(--home-card-strong);
+  padding: 1rem 1.25rem 1.25rem;
+  box-shadow: 0 18px 50px -36px
+    color-mix(in oklch, var(--foreground) 55%, transparent);
+}
+
+.forge-home-window-bar {
+  display: flex;
+  gap: 0.4rem;
+  margin-bottom: 0.75rem;
+}
+
+.forge-home-window-bar span {
+  width: 0.5rem;
+  height: 0.5rem;
+  border: 1px solid color-mix(in oklch, var(--foreground) 14%, transparent);
+  border-radius: 999px;
+  background: color-mix(in oklch, var(--foreground) 7%, transparent);
+}
+
+.forge-home-code-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  border-bottom: 1px solid color-mix(in oklch, var(--border) 65%, transparent);
+  padding-bottom: 0.5rem;
+}
+
+.forge-home-code-tabs button {
+  border-radius: 999px;
+  padding: 0.3rem 0.7rem;
+  color: color-mix(in oklch, var(--foreground) 54%, transparent);
+  font-size: 0.75rem;
+  font-weight: 550;
+  transition:
+    background-color 160ms ease,
+    color 160ms ease;
+}
+
+.forge-home-code-tabs button:hover,
+.forge-home-code-tabs button.is-active {
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+
+.forge-home-code-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 0.85rem;
+  color: color-mix(in oklch, var(--foreground) 45%, transparent);
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.forge-home-code-block {
+  max-height: 13rem;
+  margin: 0.2rem 0 0;
+  overflow: auto;
+  white-space: pre-wrap;
+  color: color-mix(in oklch, var(--foreground) 78%, transparent);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  line-height: 1.65;
+}
+
+.forge-home-code-response {
+  border-top: 1px solid color-mix(in oklch, var(--border) 55%, transparent);
+  padding-top: 0.75rem;
+}
+
+.forge-home-code-status {
+  color: var(--success);
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.forge-home-response-block {
+  max-height: 8rem;
+}
+
+.forge-home-use-case-grid {
+  display: grid;
+  grid-template-columns: repeat(1, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.forge-home-use-case {
+  min-height: 9rem;
+  border-top: 1px solid color-mix(in oklch, var(--border) 75%, transparent);
+  padding: 1.25rem 0.25rem;
+}
+
+.forge-home-use-case h3 {
+  margin-top: 0.9rem;
+}
+
+@media (min-width: 640px) {
+  .forge-home-hero {
+    padding-inline: 2rem;
+  }
+
+  .forge-home-hero-actions {
+    flex-direction: row;
+  }
+
+  .forge-home-section {
+    padding-inline: 2rem;
+  }
+
+  .forge-home-feature-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1rem;
+  }
+
+  .forge-home-use-case-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: 2rem;
+  }
+}
+
+@media (min-width: 900px) {
+  .forge-home-quickstart-grid {
+    grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+    align-items: start;
+    gap: 2rem;
+  }
+
+  .forge-home-feature-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .forge-home-use-case-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .forge-home-use-case:last-child {
+    grid-column: 2;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .forge-home-feature-card,
+  .forge-home-quick-link {
+    transition: none;
+  }
+
+  .forge-home-model-viewport {
+    transition: none;
+  }
+
+  .forge-home-model-current {
+    animation: none;
+  }
+}

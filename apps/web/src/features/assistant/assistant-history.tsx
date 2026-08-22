@@ -31,6 +31,7 @@ import {
 } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import { FolderOpen, Search } from 'lucide-react'
+// `Search` stays imported: the admin audit picker below still uses it.
 import { Fragment, useMemo, useState, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -180,7 +181,6 @@ export function AssistantHistory(props: {
     role: number
   } | null>(null)
   const [filter, setFilter] = useState<'active' | 'archived'>('active')
-  const [search, setSearch] = useState('')
   const showingArchived = filter === 'archived'
   const fixedScope = props.ownerUser
     ? props.ownerUser.id === authUser?.id
@@ -281,25 +281,16 @@ export function AssistantHistory(props: {
     () => historyQuery.data?.pages.flatMap((page) => page.conversations) ?? [],
     [historyQuery.data?.pages]
   )
-  const visibleConversations = useMemo(() => {
-    const query = search.trim().toLocaleLowerCase()
-    if (!query) return conversations
-    return conversations.filter((conversation) =>
-      `${conversation.title} ${conversation.last_message_preview}`
-        .toLocaleLowerCase()
-        .includes(query)
-    )
-  }, [conversations, search])
   const groupedConversations = useMemo(() => {
     const groups = new Map<string, AssistantConversationHistoryItem[]>()
-    for (const conversation of visibleConversations) {
+    for (const conversation of conversations) {
       const day = dayFormatter.format(conversation.updated_at * 1000)
       const group = groups.get(day)
       if (group) group.push(conversation)
       else groups.set(day, [conversation])
     }
     return [...groups.entries()]
-  }, [dayFormatter, visibleConversations])
+  }, [dayFormatter, conversations])
   const status = assistantHistoryErrorStatus(historyQuery.error)
 
   const selectSelfScope = () => {
@@ -513,7 +504,7 @@ export function AssistantHistory(props: {
         <div className='flex flex-wrap gap-3'>
           <Button
             type='button'
-            variant={showingArchived ? 'outline' : 'secondary'}
+            variant={showingArchived ? 'ghost' : 'secondary'}
             size='sm'
             className={historyTouchTargetClassName}
             aria-pressed={!showingArchived}
@@ -523,7 +514,7 @@ export function AssistantHistory(props: {
           </Button>
           <Button
             type='button'
-            variant={showingArchived ? 'secondary' : 'outline'}
+            variant={showingArchived ? 'secondary' : 'ghost'}
             size='sm'
             className={historyTouchTargetClassName}
             aria-pressed={showingArchived}
@@ -532,7 +523,7 @@ export function AssistantHistory(props: {
             {t('Archived conversations')}
           </Button>
         </div>
-        <div className='flex w-full items-center justify-between gap-3 sm:w-auto sm:justify-end'>
+        <div className='flex w-full items-center justify-end gap-3 sm:w-auto'>
           {props.showFullPageLink ? (
             <Button
               type='button'
@@ -545,16 +536,6 @@ export function AssistantHistory(props: {
               {t('Conversation records')}
             </Button>
           ) : null}
-          <Input
-            className={cn(historyInputClassName, 'w-full sm:w-64')}
-            aria-label={t('Search')}
-            placeholder={t('Search')}
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-          />
-          <span className='text-muted-foreground shrink-0 text-xs tabular-nums'>
-            {visibleConversations.length.toLocaleString()}
-          </span>
         </div>
       </div>
       {historyQuery.isLoading ? (
@@ -595,17 +576,15 @@ export function AssistantHistory(props: {
         <p className='text-muted-foreground py-8 text-center text-sm leading-6'>
           {t('Enter a positive integer')}
         </p>
-      ) : visibleConversations.length === 0 ? (
+      ) : conversations.length === 0 ? (
         <p className='text-muted-foreground py-8 text-center text-sm leading-6'>
-          {search.trim()
-            ? t('No matching results')
-            : effectiveScope === 'audit'
-              ? `${t('No visible conversation history yet.')} · ${t('User ID')}: ${activeUserId}`
-              : t(
-                  showingArchived
-                    ? 'No archived conversations yet.'
-                    : 'No active conversations yet.'
-                )}
+          {effectiveScope === 'audit'
+            ? `${t('No visible conversation history yet.')} · ${t('User ID')}: ${activeUserId}`
+            : t(
+                showingArchived
+                  ? 'No archived conversations yet.'
+                  : 'No active conversations yet.'
+              )}
         </p>
       ) : (
         <div

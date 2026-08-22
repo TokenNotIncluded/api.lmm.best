@@ -19,7 +19,6 @@ For commercial licensing, please contact support@quantumnous.com
 import { Link } from '@tanstack/react-router'
 import { useEffect } from 'react'
 
-import { AccessRestrictionNotice } from '@/components/access-restriction-notice'
 import { LanguageSwitcher } from '@/components/language-switcher'
 import { LmmBrandMark } from '@/components/lmm-brand-mark'
 import { ThemeSwitch } from '@/components/theme-switch'
@@ -56,13 +55,12 @@ export function AuthLayout({ children }: AuthLayoutProps) {
           <ThemeSwitch />
         </div>
       </header>
-      <div className='grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)_auto] lg:col-start-1 lg:h-full'>
-        <div className='container min-h-0 overflow-y-auto lg:pt-24'>
+      <div className='grid min-h-0 flex-1 lg:col-start-1 lg:h-full'>
+        <div className='no-scrollbar container min-h-0 overflow-y-auto lg:pt-24'>
           <div className='mx-auto flex min-h-full w-full max-w-md flex-col justify-center px-5 py-7 sm:px-8 sm:py-12'>
             {children}
           </div>
         </div>
-        <AccessRestrictionNotice className='px-3 py-1.5 text-[10px] leading-3 sm:px-4 sm:py-2 sm:text-[11px] sm:leading-4' />
       </div>
       <div className='hidden lg:sticky lg:top-0 lg:col-start-2 lg:row-start-1 lg:block lg:h-svh lg:min-h-[42rem] lg:p-3 lg:pl-0'>
         <AuthArtPanel />

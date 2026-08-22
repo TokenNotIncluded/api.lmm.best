@@ -47,7 +47,9 @@ export function GrowthText(props: GrowthTextProps) {
     <span
       className={cn(
         'font-mono tabular-nums',
-        isUp ? 'text-[var(--forge-sage)]' : 'text-[var(--forge-clay)]',
+        isUp
+          ? 'text-emerald-600 dark:text-emerald-400'
+          : 'text-rose-600 dark:text-rose-400',
         props.className
       )}
     >

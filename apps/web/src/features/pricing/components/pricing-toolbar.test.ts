@@ -30,8 +30,8 @@ const searchBarSource = readFileSync(
   new URL('./search-bar.tsx', import.meta.url),
   'utf8'
 )
-const modelCardGridSource = readFileSync(
-  new URL('./model-card-grid.tsx', import.meta.url),
+const vendorSectionsSource = readFileSync(
+  new URL('./vendor-model-sections.tsx', import.meta.url),
   'utf8'
 )
 
@@ -54,6 +54,6 @@ describe('PricingToolbar mobile controls', () => {
       /min-h-11 min-w-11 items-center justify-center/
     )
     assert.match(searchBarSource, /h-11 w-full[\s\S]*sm:h-10/)
-    assert.match(modelCardGridSource, /min-h-11 gap-1\.5 sm:min-h-7/)
+    assert.match(vendorSectionsSource, /min-h-16 gap-3 rounded-xl/)
   })
 })

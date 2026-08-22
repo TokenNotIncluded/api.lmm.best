@@ -16,10 +16,18 @@ const source = readFileSync(
 )
 
 describe('Forge home mobile controls', () => {
-  test('keeps the assistant submit target at 44px on narrow screens', () => {
+  test('keeps the centered hero and compact assistant submit control', () => {
+    assert.match(source, /<section className='forge-home-hero'/)
+    assert.match(source, /className='forge-home-hero-content'/)
+    assert.match(source, /const HOME_MODEL_NAMES = \[/)
+    assert.match(source, /setInterval\(\(\) => \{/)
+    assert.match(source, /className='forge-home-model-current'/)
+    assert.match(source, /modelMeasureRef/)
+    assert.match(source, /getBoundingClientRect\(\)\.width/)
+    assert.match(source, /style=\{modelWidth \?/)
     assert.match(
       source,
-      /<InputGroupButton[\s\S]*className='h-11 rounded-lg px-3 sm:h-10'/
+      /<InputGroupButton[\s\S]*className='h-10 rounded-full px-4'/
     )
   })
 })

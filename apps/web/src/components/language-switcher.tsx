@@ -69,14 +69,17 @@ export function LanguageSwitcher() {
           <Button
             variant='ghost'
             size='icon'
-            className='h-11 w-11 gap-1.5 sm:h-9 sm:w-auto sm:px-2'
+            className='h-11 w-11 gap-1.5 sm:h-8 sm:w-auto sm:px-2'
             aria-label={`${t('Change language')}: ${currentLanguageLabel}`}
             title={`${t('Change language')}: ${currentLanguageLabel}`}
           />
         }
       >
         <Languages className='size-[1.2rem]' />
-        <span aria-hidden='true' className='hidden text-xs sm:inline'>
+        <span
+          aria-hidden='true'
+          className='hidden text-[0.8125rem] font-medium sm:inline'
+        >
           {currentLanguageShortLabel}
         </span>
         <span className='sr-only'>{t('Change language')}</span>

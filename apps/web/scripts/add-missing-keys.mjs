@@ -28,6 +28,14 @@ function stableStringify(obj) {
 const newKeys = {
   en: {
     Guide: 'Guide',
+    'Just one endpoint': 'Just one endpoint',
+    'Connect the world’s most popular models':
+      'Connect the world’s most popular models',
+    'Pay as you go, no time limits, fast chat, transparent details, no hidden fees, and online recharge for access to every model.':
+      'Pay as you go, no time limits, fast chat, transparent details, no hidden fees, and online recharge for access to every model.',
+    'One platform, many uses': 'One platform, many uses',
+    Statistics: 'Statistics',
+    Years: 'Years',
     Web: 'Web',
     'Upstream returned no usage; no quota charged':
       'Upstream returned no usage; no quota charged',
@@ -141,6 +149,13 @@ const newKeys = {
   },
   zh: {
     Guide: '接入指南',
+    'Just one endpoint': '仅需一个接口',
+    'Connect the world’s most popular models': '连通全球最热门的模型',
+    'Pay as you go, no time limits, fast chat, transparent details, no hidden fees, and online recharge for access to every model.':
+      '按量计费、不限时间、极速对话、明细透明，无隐藏消费，在线充值后即可使用所有模型。',
+    'One platform, many uses': '一个平台，多种用途',
+    Statistics: '统计',
+    Years: '年',
     Web: '前端',
     'Upstream returned no usage; no quota charged': '上游没有返回用量，未扣费',
     'View model pricing': '查看模型价格',
@@ -247,6 +262,13 @@ const newKeys = {
   },
   'zh-TW': {
     Guide: '接入指南',
+    'Just one endpoint': '僅需一個介面',
+    'Connect the world’s most popular models': '串連全球最熱門的模型',
+    'Pay as you go, no time limits, fast chat, transparent details, no hidden fees, and online recharge for access to every model.':
+      '按量計費、不限時間、极速對話、明細透明，無隱藏消費，線上充值後即可使用所有模型。',
+    'One platform, many uses': '一個平台，多種用途',
+    Statistics: '統計',
+    Years: '年',
     Web: '前端',
     'Upstream returned no usage; no quota charged': '上游沒有返回用量，未扣費',
     'View model pricing': '查看模型價格',
@@ -350,6 +372,14 @@ const newKeys = {
   },
   fr: {
     Guide: 'Guide',
+    'Just one endpoint': 'Un seul endpoint',
+    'Connect the world’s most popular models':
+      'Connectez les modèles les plus populaires',
+    'Pay as you go, no time limits, fast chat, transparent details, no hidden fees, and online recharge for access to every model.':
+      'Paiement à l’usage, sans limite de temps, chat rapide, détails transparents, aucun frais caché et recharge en ligne pour accéder à tous les modèles.',
+    'One platform, many uses': 'Une plateforme, de nombreux usages',
+    Statistics: 'Statistiques',
+    Years: 'Ans',
     Web: 'Web',
     'Upstream returned no usage; no quota charged':
       'L’amont n’a renvoyé aucun usage ; aucun quota n’a été débité',
@@ -461,6 +491,14 @@ const newKeys = {
   },
   ja: {
     Guide: 'ガイド',
+    'Just one endpoint': 'ひとつのエンドポイントだけ',
+    'Connect the world’s most popular models':
+      '世界で最も人気のあるモデルをひとつにつなぐ',
+    'Pay as you go, no time limits, fast chat, transparent details, no hidden fees, and online recharge for access to every model.':
+      '従量課金、時間制限なし、高速チャット、透明な明細、隠れた費用なし。オンラインチャージですべてのモデルを利用できます。',
+    'One platform, many uses': 'ひとつのプラットフォーム、多彩な用途',
+    Statistics: '統計',
+    Years: '年',
     Web: 'Web',
     'Upstream returned no usage; no quota charged':
       '上流が使用量を返さなかったため、クォータは引かれていません',
@@ -569,6 +607,14 @@ const newKeys = {
   },
   ru: {
     Guide: 'Руководство',
+    'Just one endpoint': 'Всего один endpoint',
+    'Connect the world’s most popular models':
+      'Доступ к самым популярным моделям мира',
+    'Pay as you go, no time limits, fast chat, transparent details, no hidden fees, and online recharge for access to every model.':
+      'Оплата по использованию, без ограничений по времени, быстрый чат, прозрачная детализация, никаких скрытых платежей и онлайн-пополнение для доступа ко всем моделям.',
+    'One platform, many uses': 'Одна платформа — множество задач',
+    Statistics: 'Статистика',
+    Years: 'Лет',
     Web: 'Веб',
     'Upstream returned no usage; no quota charged':
       'Провайдер не вернул данные об использовании; квота не списана',
@@ -679,6 +725,14 @@ const newKeys = {
   },
   vi: {
     Guide: 'Hướng dẫn',
+    'Just one endpoint': 'Chỉ một endpoint',
+    'Connect the world’s most popular models':
+      'Kết nối các mô hình phổ biến nhất thế giới',
+    'Pay as you go, no time limits, fast chat, transparent details, no hidden fees, and online recharge for access to every model.':
+      'Tính phí theo mức sử dụng, không giới hạn thời gian, trò chuyện nhanh, chi tiết minh bạch, không phí ẩn và nạp tiền trực tuyến để dùng mọi mô hình.',
+    'One platform, many uses': 'Một nền tảng, nhiều mục đích sử dụng',
+    Statistics: 'Thống kê',
+    Years: 'Năm',
     Web: 'Web',
     'Upstream returned no usage; no quota charged':
       'Upstream không trả về mức sử dụng; không trừ quota',

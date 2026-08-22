@@ -128,7 +128,10 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 }
 
 .dark {
-  --forge-brand-mark-accent: var(--forge-clay-dark);
+  --forge-brand-mark-surface: var(--forge-stage-dark);
+  --forge-brand-mark-paper: var(--forge-surface-dark);
+  --forge-brand-mark-ink: var(--forge-foreground-dark);
+  --forge-brand-mark-accent: var(--forge-foreground-dark);
   --forge-code-heading: var(--forge-clay-dark);
   --forge-code-emphasis: var(--forge-extra-terra-dark);
   --forge-code-link: var(--forge-extra-mist-dark);

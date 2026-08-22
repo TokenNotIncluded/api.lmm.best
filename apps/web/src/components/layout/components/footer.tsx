@@ -248,35 +248,96 @@ export function Footer(props: FooterProps) {
 
   if (isForgeSurface) {
     return (
+      // Full-width band with a hairline top rule (reference layout) — brand
+      // column left, link columns right, copyright row underneath. No card
+      // rounding: the footer ends the page as a quiet structural band.
       <footer
         className={cn('forge-footer relative z-10 border-t', props.className)}
       >
-        <div className='mx-auto max-w-7xl px-5 py-6 sm:px-8'>
-          <div className='flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between'>
-            <Link to='/' className='group inline-flex items-center gap-2.5'>
-              <LmmBrandMark className='size-8' title={LMM_BRAND_NAME} />
-              <span className='font-semibold tracking-[-0.025em]'>
-                {displayName}
-              </span>
-            </Link>
+        <div className='mx-auto w-full max-w-6xl px-4 sm:px-6 md:px-8'>
+          {/* gpt.ge layout: 5-col grid — brand spans 2, then four link
+           * columns under plain font-medium headings. */}
+          <div className='grid gap-12 py-8 sm:py-10 md:grid-cols-5 lg:pt-16'>
+            <div className='col-span-5 space-y-6 md:col-span-2 md:space-y-8'>
+              <Link to='/' aria-label={displayName} className='flex size-10'>
+                <LmmBrandMark className='size-10' title={LMM_BRAND_NAME} />
+              </Link>
+              <p className='text-muted-foreground text-sm text-balance'>
+                {t(
+                  'A semi-public-interest AI gateway for high-quality, transparent access.'
+                )}
+              </p>
+            </div>
 
             <nav
               aria-label={t('Footer navigation')}
-              className='forge-footer-meta flex flex-wrap gap-x-5 gap-y-2 text-sm'
+              className='col-span-3 grid gap-6 sm:grid-cols-3'
             >
-              <Link to='/challenges'>{t('Challenges')}</Link>
-              <Link to='/user-agreement'>{t('Terms of Service')}</Link>
-              <Link to='/privacy-policy'>{t('Privacy Policy')}</Link>
-              <a href='mailto:support@lmm.best'>support@lmm.best</a>
+              <div className='space-y-4 text-sm'>
+                <span className='block font-medium'>{t('Product')}</span>
+                <div className='flex flex-wrap gap-4 sm:flex-col'>
+                  <Link
+                    className='text-muted-foreground hover:text-primary block transition-colors duration-150'
+                    to='/pricing'
+                  >
+                    {t('Model Square')}
+                  </Link>
+                  <Link
+                    className='text-muted-foreground hover:text-primary block transition-colors duration-150'
+                    to='/challenges'
+                  >
+                    {t('Challenges')}
+                  </Link>
+                </div>
+              </div>
+              <div className='space-y-4 text-sm'>
+                <span className='block font-medium'>{t('Resources')}</span>
+                <div className='flex flex-wrap gap-4 sm:flex-col'>
+                  <Link
+                    className='text-muted-foreground hover:text-primary block transition-colors duration-150'
+                    to='/guide'
+                  >
+                    {t('Guide')}
+                  </Link>
+                  <Link
+                    className='text-muted-foreground hover:text-primary block transition-colors duration-150'
+                    to='/rankings'
+                  >
+                    {t('Rankings')}
+                  </Link>
+                </div>
+              </div>
+              <div className='space-y-4 text-sm'>
+                <span className='block font-medium'>{t('Legal')}</span>
+                <div className='flex flex-wrap gap-4 sm:flex-col'>
+                  <Link
+                    className='text-muted-foreground hover:text-primary block transition-colors duration-150'
+                    to='/user-agreement'
+                  >
+                    {t('Terms of Service')}
+                  </Link>
+                  <Link
+                    className='text-muted-foreground hover:text-primary block transition-colors duration-150'
+                    to='/privacy-policy'
+                  >
+                    {t('Privacy Policy')}
+                  </Link>
+                  <a
+                    className='text-muted-foreground hover:text-primary block transition-colors duration-150'
+                    href='mailto:support@lmm.best'
+                  >
+                    support@lmm.best
+                  </a>
+                </div>
+              </div>
             </nav>
           </div>
 
-          <div className='forge-footer-rule forge-footer-meta mt-5 flex flex-wrap items-center justify-between gap-2 border-t pt-4 text-xs'>
-            <span>
+          <div className='forge-footer-rule flex flex-col items-center justify-between gap-2 border-t py-6 text-xs sm:flex-row'>
+            <span className='text-muted-foreground'>
               &copy; {currentYear} {displayName}.{' '}
               {props.copyright ?? t('footer.defaultCopyright')}
             </span>
-            <span>{t('Open-source bounty collaboration')}</span>
           </div>
         </div>
       </footer>

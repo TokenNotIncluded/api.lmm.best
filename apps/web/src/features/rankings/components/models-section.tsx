@@ -30,9 +30,10 @@ import { useChartTheme } from '@/lib/use-chart-theme'
 import { VCHART_OPTION } from '@/lib/vchart'
 
 import {
-  buildForgeChartPalette,
-  readForgeColor,
-} from '../lib/forge-chart-colors'
+  getChartGridColour,
+  getChartPalette,
+  getChartTextColour,
+} from '../lib/chart-colors'
 import { formatTokens } from '../lib/format'
 import type { ModelHistorySeries, ModelRanking, RankingPeriod } from '../types'
 import { ModelLeaderboard } from './model-leaderboard'
@@ -62,9 +63,9 @@ export function ModelsSection(props: ModelsSectionProps) {
   const { resolvedTheme, themeReady } = useChartTheme()
   const chartColors = useMemo(
     () => ({
-      text: readForgeColor('--forge-chart-text', resolvedTheme),
-      grid: readForgeColor('--forge-chart-grid', resolvedTheme),
-      palette: buildForgeChartPalette(resolvedTheme),
+      text: getChartTextColour(resolvedTheme),
+      grid: getChartGridColour(resolvedTheme),
+      palette: getChartPalette(resolvedTheme),
     }),
     [resolvedTheme]
   )
@@ -174,7 +175,7 @@ export function ModelsSection(props: ModelsSectionProps) {
   }, [chartColors, orderedPoints, t])
 
   return (
-    <section className='border-foreground overflow-hidden border-t-2 border-b'>
+    <section className='bg-card overflow-hidden rounded-lg border'>
       {/* Chart block ----------------------------------------------------- */}
       <header className='flex items-start justify-between gap-4 px-5 py-4'>
         <div className='min-w-0 flex-1'>

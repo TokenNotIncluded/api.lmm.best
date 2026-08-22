@@ -1210,7 +1210,7 @@ export function buildFlowSankeySpec(
       limit: 220,
       interactive: false,
       style: {
-        fill: 'var(--forge-chart-text)',
+        fill: '#475569',
         fontSize: 11,
         fontWeight: 600,
       },
@@ -1225,7 +1225,7 @@ export function buildFlowSankeySpec(
           if (sankeyDatumFlag(datum, 'highlighted')) return 1
           return 0.92
         },
-        stroke: () => 'var(--forge-chart-grid)',
+        stroke: () => 'rgba(148, 163, 184, 0.45)',
         lineWidth: (datum: Record<string, unknown>) =>
           sankeyDatumFlag(datum, 'highlighted') ? 1.5 : 1,
         cursor: 'pointer',
@@ -1234,12 +1234,12 @@ export function buildFlowSankeySpec(
       state: {
         hover: {
           fillOpacity: 1,
-          stroke: 'var(--forge-chart-text)',
+          stroke: 'rgba(15, 23, 42, 0.68)',
           lineWidth: 1.5,
         },
         selected: {
           fillOpacity: 1,
-          stroke: 'var(--forge-chart-text)',
+          stroke: 'rgba(15, 23, 42, 0.68)',
           lineWidth: 1.5,
         },
         blur: {

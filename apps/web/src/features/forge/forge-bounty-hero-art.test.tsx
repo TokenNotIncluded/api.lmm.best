@@ -115,8 +115,12 @@ describe('ForgeBountyHeroArt', () => {
     assert.equal(styles.includes('gradient'), false)
     assert.equal(styles.includes('stroke-width: 12'), true)
     assert.equal(styles.includes('stroke-width: 8'), false)
+    // The public surface keeps its paper/ink token bridge: the home page's
+    // black-and-white editorial look is defined there, independent of the
+    // active theme preset.
+    assert.equal(shellStyles.includes('.forge-surface {'), true)
     assert.equal(
-      shellStyles.includes('--forge-stage: var(--forge-cactus-dark);'),
+      shellStyles.includes('--background: var(--forge-paper-light);'),
       true
     )
     assert.equal(homeSource.includes('/forge-collaboration.webp'), false)

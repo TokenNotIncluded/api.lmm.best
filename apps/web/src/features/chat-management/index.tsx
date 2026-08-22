@@ -7,18 +7,23 @@ published by the Free Software Foundation, either version 3 of the
 License, or (at your option) any later version.
 
 This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
+but WITHOUT ANY WARRANTY; without even implied warranty of
 MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
 GNU Affero General Public License for more details.
 
 You should have received a copy of the GNU Affero General Public License
 along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
 */
 import { ArrowLeft01Icon } from '@hugeicons/core-free-icons'
 import { HugeiconsIcon } from '@hugeicons/react'
+import { MessagesSquare } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { EmptyState } from '@/components/empty-state'
+import { SectionPageLayout } from '@/components/layout'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
@@ -32,6 +37,12 @@ import {
  * A calm, full-page home for assistant conversations. The launcher remains
  * useful for a quick exchange; this view is for users who have accumulated a
  * real history and need to browse it without a cramped side rail.
+ *
+ * Follows the standard section page shell (`SectionPageLayout`) used by the
+ * other console pages: fixed header, and two independently scrolling panes —
+ * the conversation list on the left, the selected transcript on the right.
+ * Narrow screens keep the single-pane master/detail swap with a back
+ * affordance.
  */
 export function ChatManagement() {
   const { t } = useTranslation()
@@ -39,51 +50,19 @@ export function ChatManagement() {
     useState<AssistantConversationHistoryItem | null>(null)
 
   return (
-    <main className='h-full min-h-0 overflow-y-auto'>
-      <div className='mx-auto grid w-full max-w-6xl gap-10 px-5 py-10 sm:px-8 lg:px-12'>
-        <header className='grid gap-2'>
-          <p className='text-muted-foreground text-xs tracking-[0.18em] uppercase'>
-            {t('Conversations')}
-          </p>
-          <h1 className='text-2xl font-medium tracking-tight sm:text-3xl'>
-            {t('Conversation records')}
-          </h1>
-          <p className='text-muted-foreground max-w-2xl text-sm leading-6'>
-            {t(
-              'Browse, continue, and archive your assistant conversations from one spacious place.'
-            )}
-          </p>
-        </header>
-
-        <div className='grid min-w-0 gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)] lg:gap-12'>
+    <SectionPageLayout fixedContent>
+      <SectionPageLayout.Title>
+        {t('Conversation records')}
+      </SectionPageLayout.Title>
+      <SectionPageLayout.Content>
+        <div className='grid h-full min-h-0 gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(20rem,26rem)] lg:gap-0'>
           <section
-            aria-labelledby='chat-history-heading'
-            className={cn('min-w-0', selected && 'hidden lg:block')}
+            aria-label={t('Conversation history')}
+            className={cn(
+              'min-h-0 min-w-0 overflow-y-auto lg:pr-6',
+              selected && 'hidden lg:block'
+            )}
           >
-            <div className='mb-4 flex items-center justify-between gap-3'>
-              <h2
-                id='chat-history-heading'
-                className='text-base font-medium tracking-tight'
-              >
-                {t('Conversation history')}
-              </h2>
-              {selected ? (
-                <Button
-                  type='button'
-                  variant='ghost'
-                  size='sm'
-                  onClick={() => setSelected(null)}
-                >
-                  <HugeiconsIcon
-                    icon={ArrowLeft01Icon}
-                    className='size-4'
-                    strokeWidth={2}
-                    aria-hidden='true'
-                  />
-                  {t('Back to list')}
-                </Button>
-              ) : null}
-            </div>
             <AssistantHistory
               active
               presentation='rows'
@@ -93,7 +72,7 @@ export function ChatManagement() {
 
           <aside
             className={cn(
-              'min-w-0 border-t pt-8 lg:border-t-0 lg:border-l lg:pt-0 lg:pl-10',
+              'min-h-0 min-w-0 overflow-y-auto border-t pt-6 lg:border-t-0 lg:border-l lg:pt-0 lg:pl-6',
               !selected && 'hidden lg:block'
             )}
           >
@@ -118,20 +97,17 @@ export function ChatManagement() {
                 <AssistantHistoryConversation conversation={selected} />
               </div>
             ) : (
-              <div className='grid gap-2 py-1'>
-                <p className='text-base font-medium'>
-                  {t('Open a conversation')}
-                </p>
-                <p className='text-muted-foreground text-sm leading-6'>
-                  {t(
-                    'Select a conversation to read the full transcript. Private credentials remain protected.'
-                  )}
-                </p>
-              </div>
+              <EmptyState
+                icon={MessagesSquare}
+                title={t('Open a conversation')}
+                description={t(
+                  'Select a conversation to read the full transcript. Private credentials remain protected.'
+                )}
+              />
             )}
           </aside>
         </div>
-      </div>
-    </main>
+      </SectionPageLayout.Content>
+    </SectionPageLayout>
   )
 }
