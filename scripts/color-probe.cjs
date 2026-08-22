@@ -5,7 +5,7 @@ const { join } = require('node:path')
 
 const CUSTOM_BROWSER = process.env.PROBE_BROWSER
 const BROWSER_CANDIDATES = CUSTOM_BROWSER
-  ? [process.env.PROBE_BROWSER]
+  ? [CUSTOM_BROWSER]
   : [
       'msedge',
       'microsoft-edge',
@@ -31,7 +31,7 @@ function resolveBrowserExecutable() {
     throw new Error(`Browser executable not found: ${CUSTOM_BROWSER}`)
   }
   throw new Error(
-    `No supported browser executable found. Set PROBE_BROWSER to one of: ${BROWSER_CANDIDATES.join(', ')}`
+    `None of the default browser executables were found: ${BROWSER_CANDIDATES.join(', ')}. Set PROBE_BROWSER to a custom executable path.`
   )
 }
 
