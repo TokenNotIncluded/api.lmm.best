@@ -293,7 +293,7 @@ func (runtime *productionRuntime) verifyTransitionInstalled(ctx context.Context,
 			return err
 		}
 	}
-	actualRevision, actualContract, err := runtime.readInstalledReleaseMetadata(name)
+	actualRevision, actualContract, err := runtime.readInstalledReleaseMetadata(name, identity)
 	if err != nil || actualRevision != revision || actualContract != contract {
 		return fmt.Errorf("installed %s Git/contract metadata mismatch", name)
 	}
@@ -437,7 +437,7 @@ func (runtime *productionRuntime) apply(ctx context.Context, workspace productio
 		if err := runtime.verifyInstalledPackage(ctx, installed.Name, installed.Identity); err != nil {
 			return productionStatus{}, fmt.Errorf("rollback package does not match installed state: %w", err)
 		}
-		revision, contract, err := runtime.readInstalledReleaseMetadata(installed.Name)
+		revision, contract, err := runtime.readInstalledReleaseMetadata(installed.Name, installed.Identity)
 		if err != nil || revision != installed.GitRevision || contract != installed.ContractRevision {
 			return productionStatus{}, fmt.Errorf("installed %s release metadata does not match rollback package", installed.Name)
 		}

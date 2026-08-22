@@ -56,6 +56,24 @@ func containsString(values []string, expected string) bool {
 	return false
 }
 
+func TestContractlessLegacyPackageAllowlist(t *testing.T) {
+	tests := []struct {
+		name    string
+		version string
+		want    bool
+	}{
+		{productionAURPackageName, legacyContractlessGoVersion, true},
+		{productionWebPackageName, legacyContractlessWebVersion, true},
+		{productionAURPackageName, "0.1.38-1", false},
+		{productionWebPackageName, "0.1.33-1", false},
+	}
+	for _, test := range tests {
+		if got := isContractlessLegacyPackage(test.name, test.version); got != test.want {
+			t.Fatalf("isContractlessLegacyPackage(%q, %q)=%v want=%v", test.name, test.version, got, test.want)
+		}
+	}
+}
+
 func TestNativeProductionHardenAtomicallyPinsSecurityAndMemoryGuards(t *testing.T) {
 	root := t.TempDir()
 	envFile := filepath.Join(root, "etc", "lmm-api-go.env")

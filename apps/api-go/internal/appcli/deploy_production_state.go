@@ -48,6 +48,9 @@ const (
 	productionOperatorPackageName  = "lmm-api-deploy-bin"
 	productionOperatorUser         = "lmm-api-deploy"
 	productionOperatorBinary       = "/usr/bin/lmm-api-deploy"
+	legacyContractRevision         = "legacy"
+	legacyContractlessGoVersion    = "0.1.34.r1146.gde02fda27-1"
+	legacyContractlessWebVersion   = "0.1.30-1"
 	commandAge                     = "/usr/bin/age"
 	commandBsdtar                  = "/usr/bin/bsdtar"
 	commandBun                     = "/usr/bin/bun"
@@ -502,7 +505,12 @@ func (runtime *productionRuntime) packageMetadata(ctx context.Context, packagePa
 		return productionPackageMetadata{}, fmt.Errorf("%s package Git revision is invalid", packageName)
 	}
 	metadata.ContractRevision, err = readMember(contractName)
-	if err != nil || !productionContractPattern.MatchString(metadata.ContractRevision) {
+	if err != nil {
+		if !isContractlessLegacyPackage(packageName, metadata.Version) {
+			return productionPackageMetadata{}, fmt.Errorf("%s package contract revision is invalid", packageName)
+		}
+		metadata.ContractRevision = legacyContractRevision
+	} else if !productionContractPattern.MatchString(metadata.ContractRevision) {
 		return productionPackageMetadata{}, fmt.Errorf("%s package contract revision is invalid", packageName)
 	}
 	if packageName == productionWebPackageName {
@@ -561,7 +569,12 @@ func (runtime *productionRuntime) verifyInstalledPackage(ctx context.Context, na
 	return nil
 }
 
-func (runtime *productionRuntime) readInstalledReleaseMetadata(name string) (string, string, error) {
+func isContractlessLegacyPackage(name, version string) bool {
+	return (name == productionAURPackageName && version == legacyContractlessGoVersion) ||
+		(name == productionWebPackageName && version == legacyContractlessWebVersion)
+}
+
+func (runtime *productionRuntime) readInstalledReleaseMetadata(name, identity string) (string, string, error) {
 	revisionPath, contractPath := runtime.paths.GoRevisionFile, runtime.paths.GoContractFile
 	switch name {
 	case productionSourcePackageName:
@@ -581,7 +594,13 @@ func (runtime *productionRuntime) readInstalledReleaseMetadata(name string) (str
 		return "", "", fmt.Errorf("installed %s Git revision is invalid", name)
 	}
 	contract, err := read(contractPath)
-	if err != nil || !productionContractPattern.MatchString(contract) {
+	if err != nil {
+		metadata, parseErr := parseNamedPackageIdentity([]byte(identity), name)
+		if parseErr != nil || !isContractlessLegacyPackage(name, metadata.Version) {
+			return "", "", fmt.Errorf("installed %s contract revision is invalid", name)
+		}
+		contract = legacyContractRevision
+	} else if !productionContractPattern.MatchString(contract) {
 		return "", "", fmt.Errorf("installed %s contract revision is invalid", name)
 	}
 	return revision, contract, nil
