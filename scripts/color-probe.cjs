@@ -18,6 +18,7 @@ const PORT = Number(process.env.PROBE_PORT || 9441)
 const URL = process.argv[2] || 'http://127.0.0.1:3000/sign-in'
 const USER_DATA_DIR =
   process.env.PROBE_USER_DATA_DIR || join(tmpdir(), 'color-probe')
+const SOCKET_CLOSE_TIMEOUT_MS = 1_000
 const SOCKET_CLOSING = 2
 const SOCKET_CLOSED = 3
 
@@ -155,7 +156,12 @@ async function main() {
     console.log(await evl(script))
     if (ws.readyState < SOCKET_CLOSED) {
       await new Promise((resolve) => {
-        ws.onclose = resolve
+        const timeout = setTimeout(resolve, SOCKET_CLOSE_TIMEOUT_MS)
+        const finish = () => {
+          clearTimeout(timeout)
+          resolve()
+        }
+        ws.onclose = finish
         if (ws.readyState < SOCKET_CLOSING) ws.close()
       })
     }
