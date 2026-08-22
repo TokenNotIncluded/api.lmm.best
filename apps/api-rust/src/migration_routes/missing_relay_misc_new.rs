@@ -289,6 +289,18 @@ mod tests {
         })
     }
 
+    async fn assert_json_response(response: Response, status: StatusCode, expected_body: &str) {
+        assert_eq!(response.status(), status);
+        assert_eq!(
+            response.headers()[header::CONTENT_TYPE],
+            "application/json; charset=utf-8"
+        );
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        assert_eq!(body, expected_body.as_bytes());
+    }
+
     #[tokio::test]
     async fn all_public_paths_preserve_method_path_and_selected_endpoint() {
         let cases = [
@@ -338,20 +350,14 @@ mod tests {
             client_ip: None,
         });
         let response = router.oneshot(request).await.unwrap();
-        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
-        assert_eq!(
-            response.headers()[header::CONTENT_TYPE],
-            "application/json; charset=utf-8"
-        );
         assert_eq!(relays.load(Ordering::SeqCst), 0);
         assert_eq!(*seen.lock().unwrap(), vec![MissingRelayEndpoint::Edits]);
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-            .await
-            .unwrap();
-        assert_eq!(
-            body,
-            r#"{"error":{"message":"invalid API key (request id: edits-auth-request-id)","type":"new_api_error","code":""}}"#
-        );
+        assert_json_response(
+            response,
+            StatusCode::UNAUTHORIZED,
+            r#"{"error":{"message":"invalid API key (request id: edits-auth-request-id)","type":"new_api_error","code":""}}"#,
+        )
+        .await;
     }
 
     #[tokio::test]
@@ -388,18 +394,7 @@ mod tests {
             });
 
             let response = router.oneshot(request).await.unwrap();
-            assert_eq!(response.status(), status);
-            assert_eq!(
-                response.headers()[header::CONTENT_TYPE],
-                "application/json; charset=utf-8"
-            );
-            assert_eq!(
-                axum::body::to_bytes(response.into_body(), usize::MAX)
-                    .await
-                    .unwrap(),
-                expected_body.as_bytes(),
-                "status {status} must preserve the typed dashboard rejection"
-            );
+            assert_json_response(response, status, expected_body).await;
             assert_eq!(relays.load(Ordering::SeqCst), 0);
         }
     }
@@ -408,19 +403,17 @@ mod tests {
     async fn realtime_and_edits_keep_openai_token_auth_shape() {
         let cases = [
             (
-                MissingRelayEndpoint::Realtime,
                 "GET",
                 "/v1/realtime",
                 r#"{"error":{"message":"Invalid token (request id: anonymous-request-id)","type":"new_api_error","code":""}}"#,
             ),
             (
-                MissingRelayEndpoint::Edits,
                 "POST",
                 "/v1/edits",
                 r#"{"error":{"message":"Invalid token (request id: anonymous-request-id)","type":"new_api_error","code":""}}"#,
             ),
         ];
-        for (endpoint, method, path, expected_body) in cases {
+        for (method, path, expected_body) in cases {
             let (router, _, _) = app(rejected(
                 StatusCode::UNAUTHORIZED,
                 "AUTH_UNAUTHORIZED",
@@ -436,18 +429,7 @@ mod tests {
                 client_ip: None,
             });
             let response = router.oneshot(request).await.unwrap();
-            assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
-            assert_eq!(
-                response.headers()[header::CONTENT_TYPE],
-                "application/json; charset=utf-8"
-            );
-            assert_eq!(
-                axum::body::to_bytes(response.into_body(), usize::MAX)
-                    .await
-                    .unwrap(),
-                expected_body.as_bytes(),
-                "{endpoint:?}"
-            );
+            assert_json_response(response, StatusCode::UNAUTHORIZED, expected_body).await;
         }
     }
 
