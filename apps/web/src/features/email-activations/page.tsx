@@ -100,6 +100,7 @@ import type {
   HeroSmsParsedError,
   HeroSmsProduct,
 } from './types'
+import { useHeroSmsTranslations } from './use-hero-sms-translations'
 
 type InlineFeedback = {
   tone: 'default' | 'destructive'
@@ -357,6 +358,7 @@ function MetaItem({ label, value }: { label: string; value: string }) {
 
 export function EmailActivationsPage() {
   const { t } = useTranslation()
+  useHeroSmsTranslations()
   const isMobile = useMediaQuery('(max-width: 640px)')
   const queryClient = useQueryClient()
 

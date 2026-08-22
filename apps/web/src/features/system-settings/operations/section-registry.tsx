@@ -16,6 +16,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { lazy, Suspense } from 'react'
+
 import { SystemBehaviorSection } from '../general/system-behavior-section.js'
 import { EmailSettingsSection } from '../integrations/email-settings-section.js'
 import { MonitoringSettingsSection } from '../integrations/monitoring-settings-section.js'
@@ -25,8 +27,21 @@ import { PerformanceSection } from '../maintenance/performance-section.js'
 import { UpdateCheckerSection } from '../maintenance/update-checker-section.js'
 import type { OperationsSettings } from '../types.js'
 import { createSectionRegistry } from '../utils/section-registry.js'
-import { HeroSmsSettingsSection } from './hero-sms-settings-section.js'
 import { RawJsonConfigurationSection } from './raw-json-configuration-section.js'
+
+const HeroSmsSettingsSection = lazy(() =>
+  import('./hero-sms-settings-section.js').then((module) => ({
+    default: module.HeroSmsSettingsSection,
+  }))
+)
+
+function LazyHeroSmsSettingsSection() {
+  return (
+    <Suspense fallback={<div className='min-h-40' aria-busy='true' />}>
+      <HeroSmsSettingsSection />
+    </Suspense>
+  )
+}
 
 const OPERATIONS_SECTIONS = [
   {
@@ -97,7 +112,7 @@ const OPERATIONS_SECTIONS = [
   {
     id: 'hero-sms',
     titleKey: 'HeroSMS Email',
-    build: () => <HeroSmsSettingsSection />,
+    build: () => <LazyHeroSmsSettingsSection />,
   },
   {
     id: 'logs',

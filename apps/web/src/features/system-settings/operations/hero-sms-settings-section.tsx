@@ -62,6 +62,7 @@ import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
 import { formatCurrencyUSD } from '@/lib/format'
 
+import { useHeroSmsTranslations } from '../../email-activations/use-hero-sms-translations.js'
 import {
   SettingsForm,
   SettingsFormGrid,
@@ -106,6 +107,7 @@ type HeroSmsSettingsFormValues = z.infer<typeof heroSmsSettingsSchema>
 
 export function HeroSmsSettingsSection() {
   const { t } = useTranslation()
+  useHeroSmsTranslations()
   const queryClient = useQueryClient()
   const [clearDialogOpen, setClearDialogOpen] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)

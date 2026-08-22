@@ -320,7 +320,15 @@ jobs:
     steps:
       - name: Install checkout and package validation tools
         run: |
-          pacman --sync --refresh --noconfirm git jq libarchive shellcheck
+          pacman --sync --refresh --noconfirm curl git jq libarchive shellcheck
+          paru_version=2.1.0
+          paru_archive=/tmp/paru.tar.zst
+          curl --fail --location --silent --show-error \
+            "https://github.com/Morganamilo/paru/releases/download/v${paru_version}/paru-v${paru_version}-x86_64.tar.zst" \
+            --output "$paru_archive"
+          echo '28ef88736080e7e96e569f7adf10517ef8310a68b528e7f34c795287d7271880  /tmp/paru.tar.zst' | sha256sum --check --strict
+          bsdtar --extract --to-stdout --file "$paru_archive" paru > /usr/local/bin/paru
+          chmod 0755 /usr/local/bin/paru
           useradd --create-home package-builder
           install -d -o package-builder -g package-builder /home/package-builder/lmm-ci-tmp
 

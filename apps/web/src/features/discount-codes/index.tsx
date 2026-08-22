@@ -61,6 +61,7 @@ import type {
   DiscountCodeBatchInput,
   DiscountCodeInput,
 } from './types.js'
+import { useDiscountCodeTranslations } from './use-discount-code-translations.js'
 import { useExhaustedDiscountCodeCleanup } from './use-exhausted-discount-code-cleanup.js'
 
 const DISABLED = 2
@@ -156,6 +157,7 @@ function availabilityLabel(
 // pi-lens-ignore: high-fan-out, high-complexity
 export function DiscountCodes() {
   const { t } = useTranslation()
+  useDiscountCodeTranslations()
   const queryClient = useQueryClient()
   const [keyword, setKeyword] = useState('')
   const [page, setPage] = useState(1)
