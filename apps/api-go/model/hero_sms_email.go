@@ -3,12 +3,14 @@ package model
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -18,6 +20,7 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/setting"
 	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 const (
@@ -31,6 +34,7 @@ const (
 
 	HeroSMSEmailActivationStatusPendingProvider = "pending_provider"
 	HeroSMSEmailActivationStatusActive          = "active"
+	HeroSMSEmailActivationStatusCompleted       = "completed"
 	HeroSMSEmailActivationStatusReconciling     = "reconciling"
 	HeroSMSEmailActivationStatusCancelPending   = "cancel_pending"
 	HeroSMSEmailActivationStatusCancelled       = "cancelled"
@@ -86,23 +90,24 @@ type HeroSMSSettingsUpdate struct {
 }
 
 type HeroSMSEmailProduct struct {
-	DomainID         string `json:"domain_id"`
+	ID               string `json:"id"`
 	Site             string `json:"site"`
 	Domain           string `json:"domain"`
-	Stock            int    `json:"stock"`
-	UpstreamCostUSD  string `json:"upstream_cost_usd"`
-	PriceMultiplier  string `json:"price_multiplier"`
+	Count            int    `json:"count"`
+	Available        bool   `json:"available"`
+	CostUSD          string `json:"cost_usd"`
 	CustomerPriceUSD string `json:"customer_price_usd"`
 	ChargeQuota      int    `json:"charge_quota"`
-	Currency         string `json:"currency"`
-	CurrencyCode     int    `json:"currency_code"`
 }
 
 type HeroSMSEmailProductPage struct {
-	Data  []HeroSMSEmailProduct `json:"data"`
-	Page  int                   `json:"page"`
-	Size  int                   `json:"size"`
-	Total int                   `json:"total"`
+	Items           []HeroSMSEmailProduct `json:"items"`
+	Page            int                   `json:"page"`
+	Size            int                   `json:"size"`
+	Total           int                   `json:"total"`
+	PriceMultiplier string                `json:"price_multiplier"`
+	Currency        string                `json:"currency"`
+	CurrencyCode    int                   `json:"currency_code"`
 }
 
 type HeroSMSEmailPurchaseRequest struct {
@@ -115,11 +120,14 @@ type HeroSMSEmailOrderView struct {
 	Operation        string                       `json:"operation"`
 	Status           string                       `json:"status"`
 	DomainID         string                       `json:"domain_id"`
+	Site             string                       `json:"site"`
+	Domain           string                       `json:"domain"`
 	Quantity         int                          `json:"quantity"`
 	PriceMultiplier  string                       `json:"price_multiplier"`
 	ReservedCostUSD  string                       `json:"reserved_cost_usd"`
 	CustomerPriceUSD string                       `json:"customer_price_usd"`
 	ChargeQuota      int                          `json:"charge_quota"`
+	RefundedQuota    int                          `json:"refunded_quota"`
 	CreatedAt        int64                        `json:"created_at"`
 	UpdatedAt        int64                        `json:"updated_at"`
 	Activations      []HeroSMSEmailActivationView `json:"activations"`
@@ -130,11 +138,13 @@ type HeroSMSEmailActivationView struct {
 	OrderID      string `json:"order_id"`
 	Status       string `json:"status"`
 	DomainID     string `json:"domain_id"`
-	ProviderID   string `json:"provider_id,omitempty"`
+	Site         string `json:"site"`
+	Domain       string `json:"domain"`
 	Email        string `json:"email,omitempty"`
 	Code         string `json:"code,omitempty"`
 	Message      string `json:"message,omitempty"`
-	UpstreamCost string `json:"upstream_cost_usd,omitempty"`
+	ChargeQuota  int    `json:"charge_quota"`
+	CostUSD      string `json:"cost_usd,omitempty"`
 	Currency     string `json:"currency,omitempty"`
 	CurrencyCode int    `json:"currency_code,omitempty"`
 	CancelReason string `json:"cancel_reason,omitempty"`
@@ -143,32 +153,37 @@ type HeroSMSEmailActivationView struct {
 }
 
 type HeroSMSEmailActivationPage struct {
-	Data  []HeroSMSEmailActivationView `json:"data"`
+	Items []HeroSMSEmailActivationView `json:"items"`
 	Page  int                          `json:"page"`
 	Size  int                          `json:"size"`
 	Total int64                        `json:"total"`
 }
 
 type HeroSMSEmailOrder struct {
-	ID                      string                   `json:"id" gorm:"primaryKey;size:64"`
-	UserID                  int                      `json:"user_id" gorm:"index;not null"`
-	Operation               string                   `json:"operation" gorm:"size:32;index;not null"`
-	IdempotencyKeyHash      string                   `json:"idempotency_key_hash" gorm:"size:64;index:idx_hero_sms_user_idempotency,unique;not null"`
-	RequestPayloadHash      string                   `json:"request_payload_hash" gorm:"size:64;not null"`
-	DomainID                string                   `json:"domain_id" gorm:"size:128;not null"`
-	Quantity                int                      `json:"quantity" gorm:"not null"`
-	Status                  string                   `json:"status" gorm:"size:32;index;not null"`
-	PriceMultiplier         string                   `json:"price_multiplier" gorm:"size:32;not null"`
-	ReservedUnitCostMicros  int64                    `json:"reserved_unit_cost_micros" gorm:"not null"`
-	CustomerUnitPriceMicros int64                    `json:"customer_unit_price_micros" gorm:"not null"`
-	ChargeQuota             int                      `json:"charge_quota" gorm:"not null"`
-	Currency                string                   `json:"currency" gorm:"size:8;not null"`
-	CurrencyCode            int                      `json:"currency_code" gorm:"not null"`
-	LastErrorCode           string                   `json:"last_error_code" gorm:"size:64"`
-	LastErrorMessage        string                   `json:"last_error_message" gorm:"type:text"`
-	CreatedAt               int64                    `json:"created_at" gorm:"index"`
-	UpdatedAt               int64                    `json:"updated_at"`
-	Activations             []HeroSMSEmailActivation `json:"activations" gorm:"foreignKey:OrderID;references:ID"`
+	ID                         string                   `json:"id" gorm:"primaryKey;size:64"`
+	UserID                     int                      `json:"user_id" gorm:"index;not null"`
+	Operation                  string                   `json:"operation" gorm:"size:32;index;not null"`
+	IdempotencyKeyHash         string                   `json:"idempotency_key_hash" gorm:"size:64;index:idx_hero_sms_user_idempotency,unique;not null"`
+	RequestPayloadHash         string                   `json:"request_payload_hash" gorm:"size:64;not null"`
+	DomainID                   string                   `json:"domain_id" gorm:"size:512;not null"`
+	Site                       string                   `json:"site" gorm:"size:255;not null"`
+	Domain                     string                   `json:"domain" gorm:"size:255;not null"`
+	Quantity                   int                      `json:"quantity" gorm:"not null"`
+	Status                     string                   `json:"status" gorm:"size:32;index;not null"`
+	PriceMultiplier            string                   `json:"price_multiplier" gorm:"size:32;not null"`
+	ReservedUnitCostMicros     int64                    `json:"reserved_unit_cost_micros" gorm:"not null"`
+	CustomerUnitPriceMicros    int64                    `json:"customer_unit_price_micros" gorm:"not null"`
+	ChargeQuota                int                      `json:"charge_quota" gorm:"not null"`
+	RefundedQuota              int                      `json:"refunded_quota" gorm:"not null;default:0"`
+	Currency                   string                   `json:"currency" gorm:"size:8;not null"`
+	CurrencyCode               int                      `json:"currency_code" gorm:"not null"`
+	LastErrorCode              string                   `json:"last_error_code" gorm:"size:64"`
+	LastErrorMessage           string                   `json:"last_error_message" gorm:"type:text"`
+	ProviderSnapshotCiphertext string                   `json:"provider_snapshot_ciphertext" gorm:"type:text"`
+	ProviderRequestStartedAt   int64                    `json:"provider_request_started_at" gorm:"index"`
+	CreatedAt                  int64                    `json:"created_at" gorm:"index"`
+	UpdatedAt                  int64                    `json:"updated_at"`
+	Activations                []HeroSMSEmailActivation `json:"activations" gorm:"foreignKey:OrderID;references:ID"`
 }
 
 type HeroSMSEmailActivation struct {
@@ -177,12 +192,15 @@ type HeroSMSEmailActivation struct {
 	UserID                    int     `json:"user_id" gorm:"index;not null"`
 	Slot                      int     `json:"slot" gorm:"not null"`
 	Status                    string  `json:"status" gorm:"size:32;index;not null"`
-	DomainID                  string  `json:"domain_id" gorm:"size:128;not null"`
+	DomainID                  string  `json:"domain_id" gorm:"size:512;not null"`
+	Site                      string  `json:"site" gorm:"size:255;not null"`
+	Domain                    string  `json:"domain" gorm:"size:255;not null"`
 	ProviderID                *string `json:"provider_id" gorm:"size:128;uniqueIndex"`
 	ProviderEmailCiphertext   string  `json:"provider_email_ciphertext" gorm:"type:text"`
 	ProviderCodeCiphertext    string  `json:"provider_code_ciphertext" gorm:"type:text"`
 	ProviderMessageCiphertext string  `json:"provider_message_ciphertext" gorm:"type:text"`
 	ProviderCostMicros        int64   `json:"provider_cost_micros"`
+	ChargeQuota               int     `json:"charge_quota" gorm:"not null"`
 	Currency                  string  `json:"currency" gorm:"size:8"`
 	CurrencyCode              int     `json:"currency_code"`
 	CancelReason              string  `json:"cancel_reason" gorm:"size:64"`
@@ -299,7 +317,7 @@ func UpdateHeroSMSSettings(update HeroSMSSettingsUpdate) error {
 	multiplier := heroSMSMultiplierString()
 	if strings.TrimSpace(update.PriceMultiplier) != "" {
 		parsed, err := decimal.NewFromString(strings.TrimSpace(update.PriceMultiplier))
-		if err != nil || parsed.LessThanOrEqual(decimal.Zero) {
+		if err != nil || parsed.LessThanOrEqual(decimal.Zero) || parsed.GreaterThan(decimal.NewFromInt(1000)) || parsed.Exponent() < -6 {
 			return newHeroSMSError(http.StatusBadRequest, "INVALID_REQUEST", "invalid HeroSMS price multiplier")
 		}
 		multiplier = parsed.String()
@@ -310,13 +328,26 @@ func UpdateHeroSMSSettings(update HeroSMSSettingsUpdate) error {
 	}
 	apiKeyCiphertext := ""
 	storeAPIKey := false
+	effectiveAPIKey := strings.TrimSpace(setting.HeroSMSAPIKey)
 	if strings.TrimSpace(update.APIKey) != "" {
-		ciphertext, err := common.EncryptPersistentString("hero_sms.api_key", "HERO_SMS_ENCRYPTION_KEY", "CRYPTO_SECRET", strings.TrimSpace(update.APIKey))
+		effectiveAPIKey = strings.TrimSpace(update.APIKey)
+		if len(effectiveAPIKey) < 16 || len(effectiveAPIKey) > 1024 {
+			return newHeroSMSError(http.StatusBadRequest, "INVALID_REQUEST", "invalid HeroSMS API key")
+		}
+		ciphertext, err := common.EncryptPersistentString("hero_sms.api_key", "HERO_SMS_ENCRYPTION_KEY", "CRYPTO_SECRET", effectiveAPIKey)
 		if err != nil {
 			return newHeroSMSError(http.StatusServiceUnavailable, "NOT_CONFIGURED", "HeroSMS encryption key is not configured")
 		}
 		apiKeyCiphertext = ciphertext
 		storeAPIKey = true
+	}
+	if enabled {
+		if effectiveAPIKey == "" {
+			return newHeroSMSError(http.StatusBadRequest, "NOT_CONFIGURED", "configure the HeroSMS API key before enabling the service")
+		}
+		if _, err := common.EncryptPersistentString("hero_sms.runtime_check", "HERO_SMS_ENCRYPTION_KEY", "CRYPTO_SECRET", "configured"); err != nil {
+			return newHeroSMSError(http.StatusServiceUnavailable, "NOT_CONFIGURED", "HeroSMS encryption key is not configured")
+		}
 	}
 	updates := map[string]string{
 		setting.HeroSMSOptionEnabled:    strconv.FormatBool(enabled),
@@ -327,8 +358,14 @@ func UpdateHeroSMSSettings(update HeroSMSSettingsUpdate) error {
 	if storeAPIKey {
 		updates[setting.HeroSMSOptionAPIKey] = apiKeyCiphertext
 	}
+	keys := []string{setting.HeroSMSOptionCurrency, setting.HeroSMSOptionCode, setting.HeroSMSOptionMultiplier}
+	if storeAPIKey {
+		keys = append(keys, setting.HeroSMSOptionAPIKey)
+	}
+	keys = append(keys, setting.HeroSMSOptionEnabled)
 	if err := DB.Transaction(func(tx *gorm.DB) error {
-		for key, value := range updates {
+		for _, key := range keys {
+			value := updates[key]
 			option := &Option{}
 			if err := tx.FirstOrCreate(option, Option{Key: key}).Error; err != nil {
 				return err
@@ -342,8 +379,8 @@ func UpdateHeroSMSSettings(update HeroSMSSettingsUpdate) error {
 	}); err != nil {
 		return err
 	}
-	for key, value := range updates {
-		if err := updateOptionMap(key, value); err != nil {
+	for _, key := range keys {
+		if err := updateOptionMap(key, updates[key]); err != nil {
 			return err
 		}
 	}
@@ -361,21 +398,39 @@ func ClearHeroSMSAPIKey() error {
 	return updateOptionMap(setting.HeroSMSOptionAPIKey, "")
 }
 
-func TestHeroSMSConfiguration(ctx context.Context) error {
-	client, err := heroSMSClient()
-	if err != nil {
-		return err
+func TestHeroSMSConfiguration(ctx context.Context, candidateAPIKey string) error {
+	apiKey := strings.TrimSpace(candidateAPIKey)
+	if apiKey == "" {
+		apiKey = strings.TrimSpace(setting.HeroSMSAPIKey)
 	}
-	_, err = client.ListDomains(ctx, 1, 1, "")
+	if len(apiKey) < 16 || len(apiKey) > 1024 {
+		return newHeroSMSError(http.StatusBadRequest, "NOT_CONFIGURED", "configure a valid HeroSMS API key first")
+	}
+	baseURL := herosms.DefaultBaseURL
+	if heroSMSBaseURL != herosms.DefaultBaseURL && !isProductionEnv() {
+		baseURL = heroSMSBaseURL
+	}
+	client := heroSMSClientFactory(baseURL, apiKey)
+	_, err := client.ListDomains(ctx, "")
 	return mapHeroSMSProviderError(err)
 }
 
 func ListHeroSMSEmailProducts(ctx context.Context, page int, size int, site string) (*HeroSMSEmailProductPage, error) {
+	normalizedSite, err := normalizeHeroSMSName(site)
+	if err != nil {
+		return nil, newHeroSMSError(http.StatusBadRequest, "INVALID_REQUEST", "a valid target site is required")
+	}
+	if page < 1 {
+		page = 1
+	}
+	if size < 1 || size > 100 {
+		size = 50
+	}
 	client, err := heroSMSClient()
 	if err != nil {
 		return nil, err
 	}
-	response, err := client.ListDomains(ctx, page, size, site)
+	response, err := client.ListDomains(ctx, normalizedSite)
 	if err != nil {
 		return nil, mapHeroSMSProviderError(err)
 	}
@@ -383,79 +438,137 @@ func ListHeroSMSEmailProducts(ctx context.Context, page int, size int, site stri
 	if err != nil {
 		return nil, err
 	}
-	products := make([]HeroSMSEmailProduct, 0, len(response.Data))
+	allProducts := make([]HeroSMSEmailProduct, 0, len(response.Data))
 	for _, item := range response.Data {
-		if item.CurrencyCode != HeroSMSCurrencyCode || !strings.EqualFold(item.Currency, setting.HeroSMSCurrency) {
-			return nil, newHeroSMSError(http.StatusBadGateway, "CURRENCY_MISMATCH", "HeroSMS product currency mismatch")
+		domain, nameErr := normalizeHeroSMSName(item.Name)
+		if nameErr != nil {
+			return nil, newHeroSMSError(http.StatusBadGateway, "BAD_UPSTREAM_RESPONSE", "HeroSMS returned an invalid domain")
 		}
 		customerPrice := item.CostUSD.Mul(multiplier)
-		chargeQuota, err := heroSMSChargeQuota(customerPrice)
-		if err != nil {
-			return nil, err
+		chargeQuota, chargeErr := heroSMSChargeQuota(customerPrice)
+		if chargeErr != nil {
+			return nil, chargeErr
 		}
-		products = append(products, HeroSMSEmailProduct{
-			DomainID:         item.ID,
-			Site:             item.Site,
-			Domain:           item.Domain,
-			Stock:            item.Stock,
-			UpstreamCostUSD:  item.CostUSD.StringFixed(6),
-			PriceMultiplier:  multiplier.String(),
-			CustomerPriceUSD: customerPrice.StringFixed(6),
+		productID, tokenErr := encodeHeroSMSQuoteID(normalizedSite, domain, item.CostUSD, multiplier)
+		if tokenErr != nil {
+			return nil, newHeroSMSError(http.StatusServiceUnavailable, "NOT_CONFIGURED", "HeroSMS encryption is unavailable")
+		}
+		allProducts = append(allProducts, HeroSMSEmailProduct{
+			ID:               productID,
+			Site:             normalizedSite,
+			Domain:           domain,
+			Count:            item.Count,
+			Available:        item.Count > 0,
+			CostUSD:          item.CostUSD.String(),
+			CustomerPriceUSD: customerPrice.String(),
 			ChargeQuota:      chargeQuota,
-			Currency:         item.Currency,
-			CurrencyCode:     item.CurrencyCode,
 		})
 	}
-	return &HeroSMSEmailProductPage{Data: products, Page: response.Page, Size: response.Size, Total: response.Total}, nil
+	start := (page - 1) * size
+	if start > len(allProducts) {
+		start = len(allProducts)
+	}
+	end := start + size
+	if end > len(allProducts) {
+		end = len(allProducts)
+	}
+	return &HeroSMSEmailProductPage{
+		Items:           allProducts[start:end],
+		Page:            page,
+		Size:            size,
+		Total:           len(allProducts),
+		PriceMultiplier: multiplier.String(),
+		Currency:        setting.HeroSMSCurrency,
+		CurrencyCode:    HeroSMSCurrencyCode,
+	}, nil
 }
 
 func CreateHeroSMSEmailActivations(ctx context.Context, userID int, idempotencyKey string, request HeroSMSEmailPurchaseRequest) (*HeroSMSEmailOrderView, int, error) {
-	return createHeroSMSEmailOrder(ctx, userID, idempotencyKey, request, "purchase", nil)
+	return createHeroSMSEmailOrder(ctx, userID, idempotencyKey, request, "purchase", nil, nil)
 }
 
 func ReorderHeroSMSEmailActivation(ctx context.Context, userID int, activationID string, idempotencyKey string) (*HeroSMSEmailOrderView, int, error) {
+	trimmedKey := strings.TrimSpace(idempotencyKey)
+	if trimmedKey == "" || len(trimmedKey) > 128 {
+		return nil, 0, newHeroSMSError(http.StatusBadRequest, "INVALID_REQUEST", "a valid Idempotency-Key is required")
+	}
+	payloadHash, err := heroSMSPayloadHash("reorder", HeroSMSEmailPurchaseRequest{Quantity: 1}, &activationID)
+	if err != nil {
+		return nil, 0, err
+	}
+	idempotencyHash := hashString(fmt.Sprintf("%d:%s:%s", userID, "reorder", trimmedKey))
+	if existing, lookupErr := getHeroSMSEmailOrderByIdempotency(userID, "reorder", idempotencyHash); lookupErr == nil {
+		if existing.RequestPayloadHash != payloadHash {
+			return nil, 0, newHeroSMSError(http.StatusConflict, "IDEMPOTENCY_MISMATCH", "idempotent request payload mismatch")
+		}
+		view, viewErr := heroSMSEmailOrderView(existing)
+		if viewErr != nil {
+			return nil, 0, viewErr
+		}
+		if existing.Status == HeroSMSEmailOrderStatusCompleted {
+			return view, http.StatusCreated, nil
+		}
+		return view, http.StatusAccepted, nil
+	} else if !errors.Is(lookupErr, gorm.ErrRecordNotFound) {
+		return nil, 0, lookupErr
+	}
 	activation, err := getHeroSMSEmailActivationForUser(userID, activationID)
 	if err != nil {
 		return nil, 0, err
 	}
-	request := HeroSMSEmailPurchaseRequest{DomainID: activation.DomainID, Quantity: 1}
-	return createHeroSMSEmailOrder(ctx, userID, idempotencyKey, request, "reorder", &activation.ID)
+	if activation.ProviderID == nil || strings.TrimSpace(*activation.ProviderID) == "" {
+		return nil, 0, newHeroSMSError(http.StatusConflict, "INVALID_REQUEST", "activation cannot be reordered before provider reconciliation")
+	}
+	quoteID, err := currentHeroSMSQuoteID(ctx, activation.Site, activation.Domain)
+	if err != nil {
+		return nil, 0, err
+	}
+	request := HeroSMSEmailPurchaseRequest{DomainID: quoteID, Quantity: 1}
+	return createHeroSMSEmailOrder(ctx, userID, idempotencyKey, request, "reorder", &activation.ID, activation.ProviderID)
 }
 
-func createHeroSMSEmailOrder(ctx context.Context, userID int, idempotencyKey string, request HeroSMSEmailPurchaseRequest, operation string, reorderOf *string) (*HeroSMSEmailOrderView, int, error) {
-	if strings.TrimSpace(idempotencyKey) == "" {
-		return nil, 0, newHeroSMSError(http.StatusBadRequest, "INVALID_REQUEST", "Idempotency-Key is required")
-	}
-	if strings.TrimSpace(request.DomainID) == "" || request.Quantity < 1 || request.Quantity > 10 {
-		return nil, 0, newHeroSMSError(http.StatusBadRequest, "INVALID_REQUEST", "invalid HeroSMS purchase request")
-	}
+func currentHeroSMSQuoteID(ctx context.Context, site string, domain string) (string, error) {
 	client, err := heroSMSClient()
 	if err != nil {
-		return nil, 0, err
+		return "", err
 	}
-	quote, err := lookupHeroSMSDomainQuote(ctx, client, request.DomainID)
+	response, err := client.ListDomains(ctx, site)
 	if err != nil {
-		return nil, 0, err
-	}
-	if quote.CurrencyCode != HeroSMSCurrencyCode || !strings.EqualFold(quote.Currency, setting.HeroSMSCurrency) {
-		return nil, 0, newHeroSMSError(http.StatusBadGateway, "CURRENCY_MISMATCH", "HeroSMS quote currency mismatch")
+		return "", mapHeroSMSProviderError(err)
 	}
 	multiplier, err := heroSMSMultiplierDecimal()
 	if err != nil {
-		return nil, 0, err
+		return "", err
 	}
-	customerUnitPrice := quote.CostUSD.Mul(multiplier)
-	chargeQuota, err := heroSMSChargeQuota(customerUnitPrice.Mul(decimal.NewFromInt(int64(request.Quantity))))
-	if err != nil {
-		return nil, 0, err
+	for _, item := range response.Data {
+		candidate, normalizeErr := normalizeHeroSMSName(item.Name)
+		if normalizeErr == nil && candidate == domain && item.Count > 0 {
+			quoteID, encodeErr := encodeHeroSMSQuoteID(site, domain, item.CostUSD, multiplier)
+			if encodeErr != nil {
+				return "", newHeroSMSError(http.StatusServiceUnavailable, "NOT_CONFIGURED", "HeroSMS encryption is unavailable")
+			}
+			return quoteID, nil
+		}
+	}
+	return "", newHeroSMSError(http.StatusNotFound, "NOT_FOUND", "HeroSMS domain is unavailable")
+}
+
+func createHeroSMSEmailOrder(ctx context.Context, userID int, idempotencyKey string, request HeroSMSEmailPurchaseRequest, operation string, reorderOf *string, reorderProviderID *string) (*HeroSMSEmailOrderView, int, error) {
+	idempotencyKey = strings.TrimSpace(idempotencyKey)
+	if idempotencyKey == "" || len(idempotencyKey) > 128 {
+		return nil, 0, newHeroSMSError(http.StatusBadRequest, "INVALID_REQUEST", "a valid Idempotency-Key is required")
+	}
+	if strings.TrimSpace(request.DomainID) == "" || request.Quantity < 1 || request.Quantity > 10 {
+		return nil, 0, newHeroSMSError(http.StatusBadRequest, "INVALID_REQUEST", "invalid HeroSMS purchase request")
 	}
 	payloadHash, err := heroSMSPayloadHash(operation, request, reorderOf)
 	if err != nil {
 		return nil, 0, err
 	}
-	idempotencyHash := hashString(fmt.Sprintf("%d:%s:%s", userID, operation, strings.TrimSpace(idempotencyKey)))
+	idempotencyHash := hashString(fmt.Sprintf("%d:%s:%s", userID, operation, idempotencyKey))
 	var existing HeroSMSEmailOrder
-	if err := DB.Preload("Activations").Where("user_id = ? AND operation = ? AND idempotency_key_hash = ?", userID, operation, idempotencyHash).First(&existing).Error; err == nil {
+	lookupErr := DB.Preload("Activations").Where("user_id = ? AND operation = ? AND idempotency_key_hash = ?", userID, operation, idempotencyHash).First(&existing).Error
+	if lookupErr == nil {
 		if existing.RequestPayloadHash != payloadHash {
 			return nil, 0, newHeroSMSError(http.StatusConflict, "IDEMPOTENCY_MISMATCH", "idempotent request payload mismatch")
 		}
@@ -468,24 +581,62 @@ func createHeroSMSEmailOrder(ctx context.Context, userID int, idempotencyKey str
 		}
 		return view, http.StatusAccepted, nil
 	}
+	if !errors.Is(lookupErr, gorm.ErrRecordNotFound) {
+		return nil, 0, lookupErr
+	}
+	client, err := heroSMSClient()
+	if err != nil {
+		return nil, 0, err
+	}
+	quote, err := lookupHeroSMSDomainQuote(ctx, client, request.DomainID)
+	if err != nil {
+		return nil, 0, err
+	}
+	if quote.CurrencyCode != HeroSMSCurrencyCode || !strings.EqualFold(quote.Currency, setting.HeroSMSCurrency) {
+		return nil, 0, newHeroSMSError(http.StatusBadGateway, "CURRENCY_MISMATCH", "HeroSMS quote currency mismatch")
+	}
+	if quote.Count < request.Quantity {
+		return nil, 0, newHeroSMSError(http.StatusConflict, "PRICE_CHANGED", "HeroSMS inventory changed; refresh the quote")
+	}
+	multiplier, err := heroSMSMultiplierDecimal()
+	if err != nil {
+		return nil, 0, err
+	}
+	customerUnitPrice := quote.CostUSD.Mul(multiplier)
+	chargeQuota, err := heroSMSChargeQuota(customerUnitPrice.Mul(decimal.NewFromInt(int64(request.Quantity))))
+	if err != nil {
+		return nil, 0, err
+	}
+	providerSnapshot, snapshotErr := captureHeroSMSProviderSnapshot(ctx, client)
+	if snapshotErr != nil {
+		return nil, 0, mapHeroSMSProviderError(snapshotErr)
+	}
 	order := HeroSMSEmailOrder{
-		UserID:                  userID,
-		Operation:               operation,
-		IdempotencyKeyHash:      idempotencyHash,
-		RequestPayloadHash:      payloadHash,
-		DomainID:                request.DomainID,
-		Quantity:                request.Quantity,
-		Status:                  HeroSMSEmailOrderStatusPendingProvider,
-		PriceMultiplier:         multiplier.String(),
-		ReservedUnitCostMicros:  decimalToMicros(quote.CostUSD),
-		CustomerUnitPriceMicros: decimalToMicros(customerUnitPrice),
-		ChargeQuota:             chargeQuota,
-		Currency:                setting.HeroSMSCurrency,
-		CurrencyCode:            HeroSMSCurrencyCode,
+		UserID:                     userID,
+		Operation:                  operation,
+		IdempotencyKeyHash:         idempotencyHash,
+		RequestPayloadHash:         payloadHash,
+		DomainID:                   request.DomainID,
+		Site:                       quote.Site,
+		Domain:                     quote.Domain,
+		Quantity:                   request.Quantity,
+		Status:                     HeroSMSEmailOrderStatusPendingProvider,
+		PriceMultiplier:            multiplier.String(),
+		ReservedUnitCostMicros:     decimalToMicros(quote.CostUSD),
+		CustomerUnitPriceMicros:    decimalToMicros(customerUnitPrice),
+		ChargeQuota:                chargeQuota,
+		Currency:                   setting.HeroSMSCurrency,
+		CurrencyCode:               HeroSMSCurrencyCode,
+		ProviderSnapshotCiphertext: providerSnapshot,
+		ProviderRequestStartedAt:   time.Now().Unix(),
 	}
 	activations := make([]HeroSMSEmailActivation, 0, request.Quantity)
 	for slot := 0; slot < request.Quantity; slot++ {
-		activation := HeroSMSEmailActivation{UserID: userID, Slot: slot + 1, Status: HeroSMSEmailActivationStatusPendingProvider, DomainID: request.DomainID}
+		activation := HeroSMSEmailActivation{
+			UserID: userID, Slot: slot + 1, Status: HeroSMSEmailActivationStatusPendingProvider,
+			DomainID: request.DomainID, Site: quote.Site, Domain: quote.Domain,
+			ChargeQuota: quotaForSlot(chargeQuota, request.Quantity, slot+1),
+		}
 		if reorderOf != nil {
 			activation.ReorderOfActivationID = reorderOf
 		}
@@ -509,10 +660,24 @@ func createHeroSMSEmailOrder(ctx context.Context, userID int, idempotencyKey str
 		return nil, 0, err
 	}
 	_ = updateUserQuotaCache(userID, newQuota)
+	if markErr := markHeroSMSEmailOrderStatus(order.ID, HeroSMSEmailOrderStatusPurchaseUnknown, "PURCHASE_PENDING_RECONCILIATION", "provider purchase is in progress", HeroSMSEmailActivationStatusReconciling); markErr != nil {
+		_ = failHeroSMSEmailOrder(&order, newHeroSMSError(http.StatusInternalServerError, "INTERNAL_ERROR", "failed to persist provider request intent"))
+		return nil, 0, markErr
+	}
 	var purchaseResult *HeroSMSEmailOrderView
 	statusCode := http.StatusCreated
+	if operation == "reorder" {
+		if reorderProviderID == nil || strings.TrimSpace(*reorderProviderID) == "" {
+			return nil, 0, newHeroSMSError(http.StatusConflict, "INVALID_REQUEST", "activation cannot be reordered")
+		}
+		record, purchaseErr := client.ReorderEmail(ctx, *reorderProviderID)
+		if purchaseErr != nil {
+			return handleHeroSMSPurchaseProviderError(&order, purchaseErr)
+		}
+		return finalizeHeroSMSKnownPurchase(ctx, client, &order, []herosms.EmailRecord{*record}, false)
+	}
 	if request.Quantity == 1 {
-		record, purchaseErr := client.CreateEmail(ctx, request.DomainID)
+		record, purchaseErr := client.CreateEmail(ctx, quote.Site, quote.Domain)
 		if purchaseErr != nil {
 			return handleHeroSMSPurchaseProviderError(&order, purchaseErr)
 		}
@@ -522,7 +687,7 @@ func createHeroSMSEmailOrder(ctx context.Context, userID int, idempotencyKey str
 		}
 		return purchaseResult, statusCode, nil
 	}
-	batch, purchaseErr := client.CreateEmailBatch(ctx, request.DomainID, request.Quantity)
+	batch, purchaseErr := client.CreateEmailBatch(ctx, quote.Site, quote.Domain, request.Quantity)
 	if purchaseErr != nil {
 		return handleHeroSMSPurchaseProviderError(&order, purchaseErr)
 	}
@@ -535,148 +700,246 @@ func createHeroSMSEmailOrder(ctx context.Context, userID int, idempotencyKey str
 
 func reserveHeroSMSEmailQuota(order *HeroSMSEmailOrder, activations []HeroSMSEmailActivation) (int, error) {
 	var newQuota int
-	err := DB.Transaction(func(tx *gorm.DB) error {
-		var user User
-		if err := lockForUpdate(tx).Select("id", "quota").Where("id = ?", order.UserID).First(&user).Error; err != nil {
-			return err
-		}
-		if user.Quota < order.ChargeQuota {
-			return newHeroSMSError(http.StatusPaymentRequired, "INSUFFICIENT_BALANCE", "insufficient quota balance")
-		}
-		update := tx.Model(&User{}).Where("id = ? AND quota >= ?", order.UserID, order.ChargeQuota).UpdateColumn("quota", gorm.Expr("quota - ?", order.ChargeQuota))
-		if update.Error != nil {
-			return update.Error
-		}
-		if update.RowsAffected != 1 {
-			return newHeroSMSError(http.StatusPaymentRequired, "INSUFFICIENT_BALANCE", "insufficient quota balance")
-		}
-		if err := tx.Create(order).Error; err != nil {
-			if uniqueConstraintError(err) {
-				return newHeroSMSError(http.StatusConflict, "IDEMPOTENCY_MISMATCH", "duplicate HeroSMS idempotency key")
+	var err error
+	for attempt := 0; attempt < 5; attempt++ {
+		err = DB.Transaction(func(tx *gorm.DB) error {
+			var user User
+			if err := lockForUpdate(tx).Select("id", "quota").Where("id = ?", order.UserID).First(&user).Error; err != nil {
+				return err
 			}
-			return err
+			if user.Quota < order.ChargeQuota {
+				return newHeroSMSError(http.StatusPaymentRequired, "INSUFFICIENT_BALANCE", "insufficient quota balance")
+			}
+			update := tx.Model(&User{}).Where("id = ? AND quota >= ?", order.UserID, order.ChargeQuota).UpdateColumn("quota", gorm.Expr("quota - ?", order.ChargeQuota))
+			if update.Error != nil {
+				return update.Error
+			}
+			if update.RowsAffected != 1 {
+				return newHeroSMSError(http.StatusPaymentRequired, "INSUFFICIENT_BALANCE", "insufficient quota balance")
+			}
+			if err := tx.Create(order).Error; err != nil {
+				if uniqueConstraintError(err) {
+					return newHeroSMSError(http.StatusConflict, "IDEMPOTENCY_MISMATCH", "duplicate HeroSMS idempotency key")
+				}
+				return err
+			}
+			for i := range activations {
+				activations[i].OrderID = order.ID
+			}
+			if err := tx.Create(&activations).Error; err != nil {
+				return err
+			}
+			if err := tx.Create(&HeroSMSEmailQuotaLedger{UserID: order.UserID, OrderID: order.ID, EntryType: HeroSMSEmailLedgerReserve, AmountQuota: -order.ChargeQuota, IdempotencyKey: "hero_sms:reserve:" + order.ID}).Error; err != nil {
+				return err
+			}
+			newQuota = user.Quota - order.ChargeQuota
+			return nil
+		})
+		if err == nil || !retryableHeroSMSDBError(err) {
+			break
 		}
-		for i := range activations {
-			activations[i].OrderID = order.ID
-		}
-		if err := tx.Create(&activations).Error; err != nil {
-			return err
-		}
-		if err := tx.Create(&HeroSMSEmailQuotaLedger{UserID: order.UserID, OrderID: order.ID, EntryType: HeroSMSEmailLedgerReserve, AmountQuota: -order.ChargeQuota, IdempotencyKey: "hero_sms:reserve:" + order.ID}).Error; err != nil {
-			return err
-		}
-		newQuota = user.Quota - order.ChargeQuota
-		return nil
-	})
+		time.Sleep(time.Duration(attempt+1) * 10 * time.Millisecond)
+	}
 	return newQuota, err
 }
 
-func finalizeHeroSMSKnownPurchase(ctx context.Context, client herosms.Client, order *HeroSMSEmailOrder, records []herosms.EmailRecord, batch bool) (*HeroSMSEmailOrderView, int, error) {
+func runHeroSMSTransaction(operation func(tx *gorm.DB) error) error {
+	var err error
+	for attempt := 0; attempt < 5; attempt++ {
+		err = DB.Transaction(operation)
+		if err == nil || !retryableHeroSMSDBError(err) {
+			break
+		}
+		time.Sleep(time.Duration(attempt+1) * 10 * time.Millisecond)
+	}
+	return err
+}
+
+func retryableHeroSMSDBError(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "database is locked") ||
+		strings.Contains(message, "database table is locked") ||
+		strings.Contains(message, "deadlock") ||
+		strings.Contains(message, "serialization failure") ||
+		strings.Contains(message, "sqlstate 40001") ||
+		strings.Contains(message, "sqlstate 40p01")
+}
+
+func finalizeHeroSMSKnownPurchase(ctx context.Context, client herosms.Client, order *HeroSMSEmailOrder, records []herosms.EmailRecord, _ bool) (*HeroSMSEmailOrderView, int, error) {
+	var activations []HeroSMSEmailActivation
+	if err := DB.Where("order_id = ?", order.ID).Order("slot asc").Find(&activations).Error; err != nil {
+		return nil, 0, err
+	}
+
 	resolved := make([]herosms.EmailRecord, 0, len(records))
 	for _, item := range records {
 		if item.ID == "" && strings.TrimSpace(item.Email) != "" {
-			listing, err := herosms.FindEmailByExactAddress(ctx, client, item.Email)
-			if err != nil {
-				return nil, 0, mapHeroSMSProviderError(err)
+			listing, lookupErr := herosms.FindEmailByExactAddress(ctx, client, item.Email)
+			if lookupErr != nil {
+				_ = markHeroSMSEmailOrderStatus(order.ID, HeroSMSEmailOrderStatusReconciling, "PURCHASE_PENDING_RECONCILIATION", "purchase requires provider reconciliation", HeroSMSEmailActivationStatusReconciling)
+				return GetHeroSMSEmailOrderViewWithStatus(order.UserID, order.ID, http.StatusAccepted)
 			}
 			if listing == nil || strings.TrimSpace(listing.ID) == "" {
 				resolved = append(resolved, item)
 				continue
 			}
-			detail, err := client.GetEmail(ctx, listing.ID)
-			if err != nil {
-				return nil, 0, mapHeroSMSProviderError(err)
+			detail, detailErr := client.GetEmail(ctx, listing.ID)
+			if detailErr != nil {
+				_ = markHeroSMSEmailOrderStatus(order.ID, HeroSMSEmailOrderStatusReconciling, "PURCHASE_PENDING_RECONCILIATION", "purchase requires provider reconciliation", HeroSMSEmailActivationStatusReconciling)
+				return GetHeroSMSEmailOrderViewWithStatus(order.UserID, order.ID, http.StatusAccepted)
 			}
 			resolved = append(resolved, *detail)
 			continue
 		}
 		resolved = append(resolved, item)
 	}
-	status := HeroSMSEmailOrderStatusCompleted
-	if len(resolved) != order.Quantity {
-		status = HeroSMSEmailOrderStatusReconciling
+
+	type preparedActivation struct {
+		providerID        *string
+		emailCiphertext   string
+		codeCiphertext    string
+		messageCiphertext string
+		providerCost      int64
+		currencyCode      int
+		status            string
+		cancelReason      string
+		cancelledAt       int64
+		refundedAt        int64
+		refundQuota       int
 	}
-	var orderView *HeroSMSEmailOrderView
-	err := DB.Transaction(func(tx *gorm.DB) error {
-		var activations []HeroSMSEmailActivation
-		if err := tx.Where("order_id = ?", order.ID).Order("slot asc").Find(&activations).Error; err != nil {
-			return err
+	prepared := make([]preparedActivation, len(activations))
+	for i := range activations {
+		item := preparedActivation{status: HeroSMSEmailActivationStatusReconciling}
+		if i >= len(resolved) {
+			prepared[i] = item
+			continue
 		}
-		for i := range activations {
-			if i >= len(resolved) {
-				activations[i].Status = HeroSMSEmailActivationStatusReconciling
-				if err := tx.Save(&activations[i]).Error; err != nil {
-					return err
-				}
-				continue
+		record := resolved[i]
+		if record.ID != "" {
+			providerID := record.ID
+			item.providerID = &providerID
+		}
+		var encryptErr error
+		item.emailCiphertext, encryptErr = encryptHeroSMSPayload(record.Email)
+		if encryptErr == nil {
+			item.codeCiphertext, encryptErr = encryptHeroSMSPayload(record.Code)
+		}
+		if encryptErr == nil {
+			item.messageCiphertext, encryptErr = encryptHeroSMSPayload(record.Message)
+		}
+		if encryptErr != nil {
+			_ = markHeroSMSEmailOrderStatus(order.ID, HeroSMSEmailOrderStatusReconciling, "ENCRYPTION_UNAVAILABLE", "purchase data could not be persisted", HeroSMSEmailActivationStatusReconciling)
+			return nil, 0, newHeroSMSError(http.StatusServiceUnavailable, "NOT_CONFIGURED", "HeroSMS encryption is unavailable")
+		}
+		item.providerCost = decimalToMicros(record.CostUSD)
+		item.currencyCode = record.CurrencyCode
+		if activations[i].Status == HeroSMSEmailActivationStatusCancelPending && activations[i].CancelReason == HeroSMSEmailCancelReasonUser {
+			item.status = HeroSMSEmailActivationStatusCancelPending
+			item.cancelReason = HeroSMSEmailCancelReasonUser
+			prepared[i] = item
+			continue
+		}
+		reason := ""
+		if strings.TrimSpace(record.Email) == "" || strings.TrimSpace(record.ID) == "" {
+			reason = HeroSMSEmailCancelReasonBadUpstream
+		} else if record.CurrencyCode != HeroSMSCurrencyCode {
+			reason = HeroSMSEmailCancelReasonCurrencyMismatch
+		} else if record.CostUSD.GreaterThan(microsToDecimal(order.ReservedUnitCostMicros)) {
+			reason = HeroSMSEmailCancelReasonPriceChanged
+		}
+		if reason == "" {
+			item.status = HeroSMSEmailActivationStatusActive
+			if strings.TrimSpace(record.Code) != "" || strings.TrimSpace(record.Message) != "" {
+				item.status = HeroSMSEmailActivationStatusCompleted
 			}
-			record := resolved[i]
-			if strings.TrimSpace(record.Email) == "" {
-				activations[i].Status = HeroSMSEmailActivationStatusReconciling
-				status = HeroSMSEmailOrderStatusReconciling
-				if err := tx.Save(&activations[i]).Error; err != nil {
-					return err
-				}
-				continue
-			}
-			if record.ID != "" {
-				activations[i].ProviderID = &record.ID
-			}
-			activations[i].ProviderEmailCiphertext, _ = encryptHeroSMSPayload(record.Email)
-			activations[i].ProviderCodeCiphertext, _ = encryptHeroSMSPayload(record.Code)
-			activations[i].ProviderMessageCiphertext, _ = encryptHeroSMSPayload(record.Message)
-			activations[i].ProviderCostMicros = decimalToMicros(record.CostUSD)
-			activations[i].Currency = strings.TrimSpace(record.Currency)
-			activations[i].CurrencyCode = record.CurrencyCode
-			if record.ID == "" || record.CurrencyCode != HeroSMSCurrencyCode || !strings.EqualFold(record.Currency, setting.HeroSMSCurrency) {
-				activations[i].Status = HeroSMSEmailActivationStatusReconciling
-				activations[i].CancelReason = HeroSMSEmailCancelReasonCurrencyMismatch
-				status = HeroSMSEmailOrderStatusReconciling
-			} else {
-				reservedUnitCost := microsToDecimal(order.ReservedUnitCostMicros)
-				if record.CostUSD.GreaterThan(reservedUnitCost) {
-					cancelErr := client.DeleteEmail(ctx, record.ID)
-					if cancelErr == nil {
-						activations[i].Status = HeroSMSEmailActivationStatusRefunded
-						activations[i].CancelReason = HeroSMSEmailCancelReasonPriceChanged
-						activations[i].CancelledAt = time.Now().Unix()
-						activations[i].RefundedAt = activations[i].CancelledAt
-						activations[i].RefundQuota = quotaPerActivation(order.ChargeQuota, order.Quantity)
-						if err := heroSMSRefundActivationTx(tx, order, &activations[i], activations[i].RefundQuota, "price_changed"); err != nil {
-							return err
-						}
-						status = HeroSMSEmailOrderStatusReconciling
-					} else {
-						activations[i].Status = HeroSMSEmailActivationStatusCancelPending
-						activations[i].CancelReason = HeroSMSEmailCancelReasonPriceChanged
-						activations[i].RefundQuota = quotaPerActivation(order.ChargeQuota, order.Quantity)
-						status = HeroSMSEmailOrderStatusReconciling
-					}
-				} else {
-					activations[i].Status = HeroSMSEmailActivationStatusActive
-				}
-			}
-			if err := tx.Save(&activations[i]).Error; err != nil {
+			prepared[i] = item
+			continue
+		}
+		item.cancelReason = reason
+		item.refundQuota = activations[i].ChargeQuota
+		if item.providerID == nil {
+			prepared[i] = item
+			continue
+		}
+		if cancelErr := client.DeleteEmail(ctx, *item.providerID); cancelErr != nil {
+			item.status = HeroSMSEmailActivationStatusCancelPending
+		} else {
+			now := time.Now().Unix()
+			item.status = HeroSMSEmailActivationStatusRefunded
+			item.cancelledAt = now
+			item.refundedAt = now
+		}
+		prepared[i] = item
+	}
+
+	refundedQuota := 0
+	var err error
+	for attempt := 0; attempt < 5; attempt++ {
+		attemptRefundedQuota := 0
+		err = DB.Transaction(func(tx *gorm.DB) error {
+			var freshOrder HeroSMSEmailOrder
+			if err := lockForUpdate(tx).Where("id = ?", order.ID).First(&freshOrder).Error; err != nil {
 				return err
 			}
+			for i := range activations {
+				var fresh HeroSMSEmailActivation
+				if err := lockForUpdate(tx).Where("id = ? AND order_id = ?", activations[i].ID, freshOrder.ID).First(&fresh).Error; err != nil {
+					return err
+				}
+				if fresh.Status == HeroSMSEmailActivationStatusCancelled || fresh.Status == HeroSMSEmailActivationStatusRefunded {
+					continue
+				}
+				item := prepared[i]
+				fresh.ProviderID = item.providerID
+				fresh.ProviderEmailCiphertext = item.emailCiphertext
+				fresh.ProviderCodeCiphertext = item.codeCiphertext
+				fresh.ProviderMessageCiphertext = item.messageCiphertext
+				fresh.ProviderCostMicros = item.providerCost
+				fresh.Currency = setting.HeroSMSCurrency
+				fresh.CurrencyCode = item.currencyCode
+				fresh.Status = item.status
+				fresh.CancelReason = item.cancelReason
+				fresh.CancelledAt = item.cancelledAt
+				fresh.RefundedAt = item.refundedAt
+				fresh.RefundQuota = item.refundQuota
+				if err := tx.Save(&fresh).Error; err != nil {
+					return err
+				}
+				if item.status == HeroSMSEmailActivationStatusRefunded && item.refundQuota > 0 {
+					if err := heroSMSRefundActivationTx(tx, &freshOrder, &fresh, item.refundQuota, item.cancelReason); err != nil {
+						return err
+					}
+					attemptRefundedQuota += item.refundQuota
+				}
+			}
+			return aggregateHeroSMSEmailOrderStatusTx(tx, freshOrder.ID)
+		})
+		if err == nil {
+			refundedQuota = attemptRefundedQuota
+			break
 		}
-		order.Status = status
-		if status != HeroSMSEmailOrderStatusCompleted && batch {
-			order.LastErrorCode = "PURCHASE_PENDING_RECONCILIATION"
+		if !retryableHeroSMSDBError(err) {
+			break
 		}
-		if err := tx.Save(order).Error; err != nil {
-			return err
-		}
-		return nil
-	})
+		time.Sleep(time.Duration(attempt+1) * 10 * time.Millisecond)
+	}
 	if err != nil {
+		if markErr := markHeroSMSEmailOrderStatus(order.ID, HeroSMSEmailOrderStatusPurchaseUnknown, "PURCHASE_PENDING_RECONCILIATION", "purchase outcome requires provider reconciliation", HeroSMSEmailActivationStatusReconciling); markErr == nil {
+			return GetHeroSMSEmailOrderViewWithStatus(order.UserID, order.ID, http.StatusAccepted)
+		}
 		return nil, 0, err
+	}
+	if refundedQuota > 0 {
+		_ = refreshHeroSMSUserQuotaCache(order.UserID)
 	}
 	fresh, err := getHeroSMSEmailOrder(order.UserID, order.ID)
 	if err != nil {
 		return nil, 0, err
 	}
-	orderView, err = heroSMSEmailOrderView(fresh)
+	orderView, err := heroSMSEmailOrderView(fresh)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -688,8 +951,8 @@ func finalizeHeroSMSKnownPurchase(ctx context.Context, client herosms.Client, or
 
 func handleHeroSMSPurchaseProviderError(order *HeroSMSEmailOrder, purchaseErr error) (*HeroSMSEmailOrderView, int, error) {
 	mapped := mapHeroSMSProviderError(purchaseErr)
-	if heroErr, ok := mapped.(*HeroSMSError); ok && heroErr.Code == "UPSTREAM_TIMEOUT" {
-		if err := markHeroSMSEmailOrderStatus(order.ID, HeroSMSEmailOrderStatusPurchaseUnknown, heroErr.Code, heroErr.Message, HeroSMSEmailActivationStatusReconciling); err != nil {
+	if heroErr, ok := mapped.(*HeroSMSError); ok && (heroErr.Code == "UPSTREAM_TIMEOUT" || heroErr.Code == "UPSTREAM_BUSY" || heroErr.Code == "BAD_UPSTREAM_RESPONSE") {
+		if err := markHeroSMSEmailOrderStatus(order.ID, HeroSMSEmailOrderStatusPurchaseUnknown, "PURCHASE_PENDING_RECONCILIATION", "purchase outcome requires provider reconciliation", HeroSMSEmailActivationStatusReconciling); err != nil {
 			return nil, 0, err
 		}
 		orderView, err := GetHeroSMSEmailOrderView(order.UserID, order.ID)
@@ -706,51 +969,80 @@ func handleHeroSMSPurchaseProviderError(order *HeroSMSEmailOrder, purchaseErr er
 
 func failHeroSMSEmailOrder(order *HeroSMSEmailOrder, cause error) error {
 	heroErr, _ := cause.(*HeroSMSError)
-	return DB.Transaction(func(tx *gorm.DB) error {
-		var fresh HeroSMSEmailOrder
-		if err := lockForUpdate(tx).Where("id = ?", order.ID).First(&fresh).Error; err != nil {
-			return err
-		}
-		if fresh.Status != HeroSMSEmailOrderStatusPendingProvider {
-			return nil
-		}
-		fresh.Status = HeroSMSEmailOrderStatusFailed
-		if heroErr != nil {
-			fresh.LastErrorCode = heroErr.Code
-			fresh.LastErrorMessage = heroErr.Message
-		}
-		if err := tx.Save(&fresh).Error; err != nil {
-			return err
-		}
-		var activations []HeroSMSEmailActivation
-		if err := tx.Where("order_id = ?", fresh.ID).Find(&activations).Error; err != nil {
-			return err
-		}
-		for i := range activations {
-			if activations[i].Status == HeroSMSEmailActivationStatusPendingProvider {
-				activations[i].Status = HeroSMSEmailActivationStatusCancelled
-				activations[i].CancelledAt = time.Now().Unix()
-				if err := tx.Save(&activations[i]).Error; err != nil {
-					return err
+	refunded := false
+	var err error
+	for attempt := 0; attempt < 5; attempt++ {
+		err = DB.Transaction(func(tx *gorm.DB) error {
+			var fresh HeroSMSEmailOrder
+			if err := lockForUpdate(tx).Where("id = ?", order.ID).First(&fresh).Error; err != nil {
+				return err
+			}
+			if fresh.Status != HeroSMSEmailOrderStatusPendingProvider && fresh.Status != HeroSMSEmailOrderStatusPurchaseUnknown {
+				return nil
+			}
+			fresh.Status = HeroSMSEmailOrderStatusFailed
+			if heroErr != nil {
+				fresh.LastErrorCode = heroErr.Code
+				fresh.LastErrorMessage = heroErr.Message
+			}
+			if err := tx.Save(&fresh).Error; err != nil {
+				return err
+			}
+			var activations []HeroSMSEmailActivation
+			if err := tx.Where("order_id = ?", fresh.ID).Find(&activations).Error; err != nil {
+				return err
+			}
+			for i := range activations {
+				if activations[i].Status == HeroSMSEmailActivationStatusPendingProvider || activations[i].Status == HeroSMSEmailActivationStatusReconciling {
+					activations[i].Status = HeroSMSEmailActivationStatusCancelled
+					activations[i].CancelledAt = time.Now().Unix()
+					if err := tx.Save(&activations[i]).Error; err != nil {
+						return err
+					}
 				}
 			}
+			if err := heroSMSRefundOrderTx(tx, &fresh, fresh.ChargeQuota, "order_failure"); err != nil {
+				return err
+			}
+			refunded = true
+			return nil
+		})
+		if err == nil || !retryableHeroSMSDBError(err) {
+			break
 		}
-		return heroSMSRefundOrderTx(tx, &fresh, fresh.ChargeQuota, "order_failure")
-	})
+		time.Sleep(time.Duration(attempt+1) * 10 * time.Millisecond)
+	}
+	if err == nil && refunded {
+		_ = refreshHeroSMSUserQuotaCache(order.UserID)
+	}
+	return err
 }
 
 func heroSMSRefundOrderTx(tx *gorm.DB, order *HeroSMSEmailOrder, quota int, refundKey string) error {
+	if quota <= 0 {
+		return nil
+	}
 	ledger := HeroSMSEmailQuotaLedger{UserID: order.UserID, OrderID: order.ID, EntryType: HeroSMSEmailLedgerRefund, AmountQuota: quota, IdempotencyKey: "hero_sms:refund:" + order.ID + ":" + refundKey}
-	if err := tx.Where("id = ?", order.UserID).UpdateColumn("quota", gorm.Expr("quota + ?", quota)).Error; err != nil {
-		return err
+	insert := tx.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "idempotency_key"}},
+		DoNothing: true,
+	}).Create(&ledger)
+	if insert.Error != nil {
+		return insert.Error
 	}
-	if err := tx.Create(&ledger).Error; err != nil {
-		if uniqueConstraintError(err) {
-			return nil
-		}
-		return err
+	if insert.RowsAffected == 0 {
+		return nil
 	}
-	return nil
+	orderUpdate := tx.Model(&HeroSMSEmailOrder{}).
+		Where("id = ? AND refunded_quota + ? <= charge_quota", order.ID, quota).
+		UpdateColumn("refunded_quota", gorm.Expr("refunded_quota + ?", quota))
+	if orderUpdate.Error != nil {
+		return orderUpdate.Error
+	}
+	if orderUpdate.RowsAffected != 1 {
+		return errors.New("HeroSMS refund exceeds reserved quota")
+	}
+	return tx.Model(&User{}).Where("id = ?", order.UserID).UpdateColumn("quota", gorm.Expr("quota + ?", quota)).Error
 }
 
 func heroSMSRefundActivationTx(tx *gorm.DB, order *HeroSMSEmailOrder, activation *HeroSMSEmailActivation, quota int, refundKey string) error {
@@ -758,22 +1050,43 @@ func heroSMSRefundActivationTx(tx *gorm.DB, order *HeroSMSEmailOrder, activation
 		return nil
 	}
 	ledger := HeroSMSEmailQuotaLedger{UserID: order.UserID, OrderID: order.ID, ActivationID: activation.ID, EntryType: HeroSMSEmailLedgerRefund, AmountQuota: quota, IdempotencyKey: "hero_sms:refund:" + activation.ID + ":" + refundKey}
-	if err := tx.Create(&ledger).Error; err != nil {
-		if uniqueConstraintError(err) {
-			return nil
-		}
-		return err
+	insert := tx.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "idempotency_key"}},
+		DoNothing: true,
+	}).Create(&ledger)
+	if insert.Error != nil {
+		return insert.Error
+	}
+	if insert.RowsAffected == 0 {
+		return nil
+	}
+	orderUpdate := tx.Model(&HeroSMSEmailOrder{}).
+		Where("id = ? AND refunded_quota + ? <= charge_quota", order.ID, quota).
+		UpdateColumn("refunded_quota", gorm.Expr("refunded_quota + ?", quota))
+	if orderUpdate.Error != nil {
+		return orderUpdate.Error
+	}
+	if orderUpdate.RowsAffected != 1 {
+		return errors.New("HeroSMS refund exceeds reserved quota")
 	}
 	return tx.Model(&User{}).Where("id = ?", order.UserID).UpdateColumn("quota", gorm.Expr("quota + ?", quota)).Error
 }
 
 func markHeroSMSEmailOrderStatus(orderID string, status string, errorCode string, errorMessage string, activationStatus string) error {
-	return DB.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Model(&HeroSMSEmailOrder{}).Where("id = ?", orderID).Updates(map[string]any{"status": status, "last_error_code": errorCode, "last_error_message": errorMessage, "updated_at": time.Now().Unix()}).Error; err != nil {
-			return err
+	var err error
+	for attempt := 0; attempt < 5; attempt++ {
+		err = DB.Transaction(func(tx *gorm.DB) error {
+			if err := tx.Model(&HeroSMSEmailOrder{}).Where("id = ?", orderID).Updates(map[string]any{"status": status, "last_error_code": errorCode, "last_error_message": errorMessage, "updated_at": time.Now().Unix()}).Error; err != nil {
+				return err
+			}
+			return tx.Model(&HeroSMSEmailActivation{}).Where("order_id = ? AND status = ?", orderID, HeroSMSEmailActivationStatusPendingProvider).Updates(map[string]any{"status": activationStatus, "updated_at": time.Now().Unix()}).Error
+		})
+		if err == nil || !retryableHeroSMSDBError(err) {
+			break
 		}
-		return tx.Model(&HeroSMSEmailActivation{}).Where("order_id = ? AND status = ?", orderID, HeroSMSEmailActivationStatusPendingProvider).Updates(map[string]any{"status": activationStatus, "updated_at": time.Now().Unix()}).Error
-	})
+		time.Sleep(time.Duration(attempt+1) * 10 * time.Millisecond)
+	}
+	return err
 }
 
 func GetHeroSMSEmailOrderView(userID int, orderID string) (*HeroSMSEmailOrderView, error) {
@@ -782,6 +1095,11 @@ func GetHeroSMSEmailOrderView(userID int, orderID string) (*HeroSMSEmailOrderVie
 		return nil, err
 	}
 	return heroSMSEmailOrderView(order)
+}
+
+func GetHeroSMSEmailOrderViewWithStatus(userID int, orderID string, status int) (*HeroSMSEmailOrderView, int, error) {
+	view, err := GetHeroSMSEmailOrderView(userID, orderID)
+	return view, status, err
 }
 
 func ListHeroSMSEmailActivations(userID int, page int, size int, status string) (*HeroSMSEmailActivationPage, error) {
@@ -811,7 +1129,7 @@ func ListHeroSMSEmailActivations(userID int, page int, size int, status string) 
 		}
 		views = append(views, *view)
 	}
-	return &HeroSMSEmailActivationPage{Data: views, Page: page, Size: size, Total: total}, nil
+	return &HeroSMSEmailActivationPage{Items: views, Page: page, Size: size, Total: total}, nil
 }
 
 func GetHeroSMSEmailActivation(userID int, activationID string) (*HeroSMSEmailActivationView, error) {
@@ -848,27 +1166,72 @@ func RefreshHeroSMSEmailActivation(ctx context.Context, userID int, activationID
 }
 
 func CancelHeroSMSEmailActivation(ctx context.Context, userID int, activationID string) (*HeroSMSEmailActivationView, error) {
-	activation, err := getHeroSMSEmailActivationForUser(userID, activationID)
+	owned, err := getHeroSMSEmailActivationForUser(userID, activationID)
 	if err != nil {
 		return nil, err
+	}
+	var providerID string
+	alreadyTerminal := false
+	err = runHeroSMSTransaction(func(tx *gorm.DB) error {
+		var order HeroSMSEmailOrder
+		if err := lockForUpdate(tx).Select("id").Where("id = ? AND user_id = ?", owned.OrderID, userID).First(&order).Error; err != nil {
+			return err
+		}
+		var activation HeroSMSEmailActivation
+		if err := lockForUpdate(tx).Where("id = ? AND user_id = ?", activationID, userID).First(&activation).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return newHeroSMSError(http.StatusNotFound, "NOT_FOUND", "HeroSMS activation not found")
+			}
+			return err
+		}
+		switch activation.Status {
+		case HeroSMSEmailActivationStatusCancelled, HeroSMSEmailActivationStatusRefunded, HeroSMSEmailActivationStatusCancelPending:
+			alreadyTerminal = true
+			return nil
+		}
+		if activation.ProviderID != nil {
+			providerID = strings.TrimSpace(*activation.ProviderID)
+		}
+		if err := tx.Model(&HeroSMSEmailActivation{}).Where("id = ?", activation.ID).Updates(map[string]any{
+			"status": HeroSMSEmailActivationStatusCancelPending, "cancel_reason": HeroSMSEmailCancelReasonUser, "updated_at": time.Now().Unix(),
+		}).Error; err != nil {
+			return err
+		}
+		return aggregateHeroSMSEmailOrderStatusTx(tx, activation.OrderID)
+	})
+	if err != nil {
+		return nil, err
+	}
+	if alreadyTerminal || providerID == "" {
+		return GetHeroSMSEmailActivation(userID, activationID)
 	}
 	client, err := heroSMSClient()
 	if err != nil {
 		return nil, err
 	}
-	if activation.ProviderID == nil || strings.TrimSpace(*activation.ProviderID) == "" {
-		if err := DB.Model(&HeroSMSEmailActivation{}).Where("id = ? AND user_id = ?", activation.ID, userID).Updates(map[string]any{"status": HeroSMSEmailActivationStatusCancelPending, "cancel_reason": HeroSMSEmailCancelReasonUser, "updated_at": time.Now().Unix()}).Error; err != nil {
-			return nil, err
-		}
+	if err := client.DeleteEmail(ctx, providerID); err != nil && !errors.Is(err, herosms.ErrNotFound) {
 		return GetHeroSMSEmailActivation(userID, activationID)
 	}
-	if err := client.DeleteEmail(ctx, *activation.ProviderID); err != nil {
-		if err := DB.Model(&HeroSMSEmailActivation{}).Where("id = ? AND user_id = ?", activation.ID, userID).Updates(map[string]any{"status": HeroSMSEmailActivationStatusCancelPending, "cancel_reason": HeroSMSEmailCancelReasonUser, "updated_at": time.Now().Unix()}).Error; err != nil {
-			return nil, err
+	err = runHeroSMSTransaction(func(tx *gorm.DB) error {
+		var order HeroSMSEmailOrder
+		if err := lockForUpdate(tx).Select("id").Where("id = ? AND user_id = ?", owned.OrderID, userID).First(&order).Error; err != nil {
+			return err
 		}
-		return GetHeroSMSEmailActivation(userID, activationID)
-	}
-	if err := DB.Model(&HeroSMSEmailActivation{}).Where("id = ? AND user_id = ?", activation.ID, userID).Updates(map[string]any{"status": HeroSMSEmailActivationStatusCancelled, "cancel_reason": HeroSMSEmailCancelReasonUser, "cancelled_at": time.Now().Unix(), "updated_at": time.Now().Unix()}).Error; err != nil {
+		var activation HeroSMSEmailActivation
+		if err := lockForUpdate(tx).Where("id = ? AND user_id = ?", activationID, userID).First(&activation).Error; err != nil {
+			return err
+		}
+		if activation.Status != HeroSMSEmailActivationStatusCancelPending || activation.CancelReason != HeroSMSEmailCancelReasonUser {
+			return nil
+		}
+		if err := tx.Model(&HeroSMSEmailActivation{}).Where("id = ?", activation.ID).Updates(map[string]any{
+			"status": HeroSMSEmailActivationStatusCancelled, "cancelled_at": time.Now().Unix(), "updated_at": time.Now().Unix(),
+		}).Error; err != nil {
+			return err
+		}
+		return aggregateHeroSMSEmailOrderStatusTx(tx, activation.OrderID)
+	})
+	if err != nil {
 		return nil, err
 	}
 	return GetHeroSMSEmailActivation(userID, activationID)
@@ -901,31 +1264,247 @@ func reconcileHeroSMSEmailActivation(ctx context.Context, client herosms.Client,
 	return persistHeroSMSEmailRecord(activation, record)
 }
 
+func aggregateHeroSMSEmailOrderStatusTx(tx *gorm.DB, orderID string) error {
+	var order HeroSMSEmailOrder
+	if err := lockForUpdate(tx).Where("id = ?", orderID).First(&order).Error; err != nil {
+		return err
+	}
+	var activations []HeroSMSEmailActivation
+	if err := tx.Select("status", "provider_id", "provider_email_ciphertext").Where("order_id = ?", orderID).Find(&activations).Error; err != nil {
+		return err
+	}
+	if len(activations) == 0 {
+		return nil
+	}
+	hasPending := false
+	allRefunded := true
+	unknownProvider := false
+	for _, activation := range activations {
+		switch activation.Status {
+		case HeroSMSEmailActivationStatusPendingProvider, HeroSMSEmailActivationStatusReconciling, HeroSMSEmailActivationStatusCancelPending:
+			hasPending = true
+		}
+		if activation.Status != HeroSMSEmailActivationStatusRefunded {
+			allRefunded = false
+		}
+		if activation.ProviderID == nil && strings.TrimSpace(activation.ProviderEmailCiphertext) == "" {
+			unknownProvider = true
+		}
+	}
+	if order.Status == HeroSMSEmailOrderStatusPurchaseUnknown && unknownProvider {
+		return nil
+	}
+	updates := map[string]any{"updated_at": time.Now().Unix()}
+	switch {
+	case hasPending:
+		updates["status"] = HeroSMSEmailOrderStatusReconciling
+		updates["last_error_code"] = "PURCHASE_PENDING_RECONCILIATION"
+		updates["last_error_message"] = "purchase requires provider reconciliation"
+	case allRefunded:
+		updates["status"] = HeroSMSEmailOrderStatusFailed
+		updates["last_error_code"] = "PURCHASE_COMPENSATED"
+		updates["last_error_message"] = "provider purchase was cancelled and refunded"
+	default:
+		updates["status"] = HeroSMSEmailOrderStatusCompleted
+		updates["last_error_code"] = ""
+		updates["last_error_message"] = ""
+	}
+	return tx.Model(&HeroSMSEmailOrder{}).Where("id = ?", orderID).Updates(updates).Error
+}
+
 func persistHeroSMSEmailRecord(activation *HeroSMSEmailActivation, record *herosms.EmailRecord) error {
+	if record == nil || strings.TrimSpace(record.ID) == "" || strings.TrimSpace(record.Email) == "" {
+		return newHeroSMSError(http.StatusBadGateway, "BAD_UPSTREAM_RESPONSE", "HeroSMS returned an incomplete activation")
+	}
+	emailCiphertext, err := encryptHeroSMSPayload(record.Email)
+	if err != nil {
+		return err
+	}
+	codeCiphertext, err := encryptHeroSMSPayload(record.Code)
+	if err != nil {
+		return err
+	}
+	messageCiphertext, err := encryptHeroSMSPayload(record.Message)
+	if err != nil {
+		return err
+	}
+	status := HeroSMSEmailActivationStatusActive
+	if strings.TrimSpace(record.Code) != "" || strings.TrimSpace(record.Message) != "" {
+		status = HeroSMSEmailActivationStatusCompleted
+	}
+	cancelReason := ""
+	refundQuota := 0
+	if record.CurrencyCode != HeroSMSCurrencyCode {
+		status = HeroSMSEmailActivationStatusCancelPending
+		cancelReason = HeroSMSEmailCancelReasonCurrencyMismatch
+		refundQuota = activation.ChargeQuota
+	} else {
+		var order HeroSMSEmailOrder
+		if err := DB.Select("id", "reserved_unit_cost_micros").Where("id = ?", activation.OrderID).First(&order).Error; err != nil {
+			return err
+		}
+		if record.CostUSD.GreaterThan(microsToDecimal(order.ReservedUnitCostMicros)) {
+			status = HeroSMSEmailActivationStatusCancelPending
+			cancelReason = HeroSMSEmailCancelReasonPriceChanged
+			refundQuota = activation.ChargeQuota
+		}
+	}
 	updates := map[string]any{
-		"status":               HeroSMSEmailActivationStatusActive,
-		"provider_cost_micros": decimalToMicros(record.CostUSD),
-		"currency":             strings.TrimSpace(record.Currency),
-		"currency_code":        record.CurrencyCode,
-		"updated_at":           time.Now().Unix(),
+		"status":                      status,
+		"provider_id":                 record.ID,
+		"provider_email_ciphertext":   emailCiphertext,
+		"provider_code_ciphertext":    codeCiphertext,
+		"provider_message_ciphertext": messageCiphertext,
+		"provider_cost_micros":        decimalToMicros(record.CostUSD),
+		"currency":                    setting.HeroSMSCurrency,
+		"currency_code":               record.CurrencyCode,
+		"cancel_reason":               cancelReason,
+		"refund_quota":                refundQuota,
+		"updated_at":                  time.Now().Unix(),
 	}
-	if strings.TrimSpace(record.ID) != "" {
-		updates["provider_id"] = record.ID
+	return runHeroSMSTransaction(func(tx *gorm.DB) error {
+		var order HeroSMSEmailOrder
+		if err := lockForUpdate(tx).Select("id").Where("id = ?", activation.OrderID).First(&order).Error; err != nil {
+			return err
+		}
+		result := tx.Model(&HeroSMSEmailActivation{}).
+			Where("id = ? AND status NOT IN ?", activation.ID, []string{
+				HeroSMSEmailActivationStatusCancelPending,
+				HeroSMSEmailActivationStatusCancelled,
+				HeroSMSEmailActivationStatusRefunded,
+			}).
+			Updates(updates)
+		if result.Error != nil {
+			return result.Error
+		}
+		return aggregateHeroSMSEmailOrderStatusTx(tx, activation.OrderID)
+	})
+}
+
+func captureHeroSMSProviderSnapshot(ctx context.Context, client herosms.Client) (string, error) {
+	items, err := listHeroSMSEmailsForReconciliation(ctx, client)
+	if err != nil {
+		return "", err
 	}
-	if encrypted, err := encryptHeroSMSPayload(record.Email); err == nil {
-		updates["provider_email_ciphertext"] = encrypted
+	ids := make([]string, 0, len(items))
+	for _, item := range items {
+		if strings.TrimSpace(item.ID) != "" {
+			ids = append(ids, item.ID)
+		}
 	}
-	if encrypted, err := encryptHeroSMSPayload(record.Code); err == nil {
-		updates["provider_code_ciphertext"] = encrypted
+	sort.Strings(ids)
+	encoded, err := json.Marshal(ids)
+	if err != nil {
+		return "", err
 	}
-	if encrypted, err := encryptHeroSMSPayload(record.Message); err == nil {
-		updates["provider_message_ciphertext"] = encrypted
+	return encryptHeroSMSPayload(string(encoded))
+}
+
+func listHeroSMSEmailsForReconciliation(ctx context.Context, client herosms.Client) ([]herosms.EmailListItem, error) {
+	const pageSize = 100
+	seen := make(map[string]struct{})
+	items := make([]herosms.EmailListItem, 0)
+	for page := 1; page <= 10; page++ {
+		response, err := client.ListEmails(ctx, page, pageSize)
+		if err != nil {
+			return nil, err
+		}
+		newItems := 0
+		for _, item := range response.Data {
+			id := strings.TrimSpace(item.ID)
+			if id == "" {
+				continue
+			}
+			if _, exists := seen[id]; exists {
+				continue
+			}
+			seen[id] = struct{}{}
+			items = append(items, item)
+			newItems++
+		}
+		if len(response.Data) < pageSize || newItems == 0 {
+			break
+		}
 	}
-	if record.CurrencyCode != HeroSMSCurrencyCode || !strings.EqualFold(record.Currency, setting.HeroSMSCurrency) {
-		updates["status"] = HeroSMSEmailActivationStatusCancelPending
-		updates["cancel_reason"] = HeroSMSEmailCancelReasonCurrencyMismatch
+	return items, nil
+}
+
+func reconcileHeroSMSUnknownOrder(ctx context.Context, client herosms.Client, order *HeroSMSEmailOrder) error {
+	if order == nil || strings.TrimSpace(order.ProviderSnapshotCiphertext) == "" {
+		return nil
 	}
-	return DB.Model(&HeroSMSEmailActivation{}).Where("id = ?", activation.ID).Updates(updates).Error
+	var activations []HeroSMSEmailActivation
+	if err := DB.Where("order_id = ?", order.ID).Order("slot asc").Find(&activations).Error; err != nil {
+		return err
+	}
+	for i := range activations {
+		if activations[i].ProviderID != nil || strings.TrimSpace(activations[i].ProviderEmailCiphertext) != "" {
+			return nil
+		}
+	}
+	snapshotJSON, err := decryptHeroSMSPayload(order.ProviderSnapshotCiphertext)
+	if err != nil {
+		return err
+	}
+	var snapshotIDs []string
+	if err := json.Unmarshal([]byte(snapshotJSON), &snapshotIDs); err != nil {
+		return err
+	}
+	known := make(map[string]struct{}, len(snapshotIDs))
+	for _, id := range snapshotIDs {
+		known[id] = struct{}{}
+	}
+	items, err := listHeroSMSEmailsForReconciliation(ctx, client)
+	if err != nil {
+		return mapHeroSMSProviderError(err)
+	}
+	potential := make([]herosms.EmailListItem, 0, order.Quantity)
+	potentialIDs := make([]string, 0, order.Quantity)
+	for _, item := range items {
+		if _, existedBefore := known[item.ID]; existedBefore {
+			continue
+		}
+		if item.Site != "" && !strings.EqualFold(strings.TrimSpace(item.Site), order.Site) {
+			continue
+		}
+		if !strings.HasSuffix(strings.ToLower(strings.TrimSpace(item.Email)), "@"+strings.ToLower(order.Domain)) {
+			continue
+		}
+		potential = append(potential, item)
+		potentialIDs = append(potentialIDs, item.ID)
+	}
+	claimed := make(map[string]struct{})
+	if len(potentialIDs) > 0 {
+		var claimedIDs []string
+		if err := DB.Model(&HeroSMSEmailActivation{}).
+			Where("provider_id IN ? AND order_id <> ?", potentialIDs, order.ID).
+			Pluck("provider_id", &claimedIDs).Error; err != nil {
+			return err
+		}
+		for _, id := range claimedIDs {
+			claimed[id] = struct{}{}
+		}
+	}
+	candidates := make([]herosms.EmailListItem, 0, order.Quantity)
+	for _, item := range potential {
+		if _, alreadyClaimed := claimed[item.ID]; !alreadyClaimed {
+			candidates = append(candidates, item)
+		}
+	}
+	if len(candidates) != order.Quantity {
+		return nil
+	}
+	sort.Slice(candidates, func(i int, j int) bool { return candidates[i].ID < candidates[j].ID })
+	records := make([]herosms.EmailRecord, 0, len(candidates))
+	for _, candidate := range candidates {
+		record, detailErr := client.GetEmail(ctx, candidate.ID)
+		if detailErr != nil {
+			return mapHeroSMSProviderError(detailErr)
+		}
+		records = append(records, *record)
+	}
+	_, _, err = finalizeHeroSMSKnownPurchase(ctx, client, order, records, order.Quantity > 1)
+	return err
 }
 
 func RunHeroSMSEmailReconciliationOnce(ctx context.Context, limit int) (int, error) {
@@ -939,11 +1518,30 @@ func RunHeroSMSEmailReconciliationOnce(ctx context.Context, limit int) (int, err
 	if err != nil {
 		return 0, nil
 	}
-	var activations []HeroSMSEmailActivation
-	if err := DB.Where("status IN ?", []string{HeroSMSEmailActivationStatusReconciling, HeroSMSEmailActivationStatusCancelPending}).Order("updated_at asc").Limit(limit).Find(&activations).Error; err != nil {
+	processed := 0
+	orderLimit := limit / 2
+	if orderLimit < 1 {
+		orderLimit = 1
+	}
+	var orders []HeroSMSEmailOrder
+	if err := DB.Where("status IN ?", []string{HeroSMSEmailOrderStatusPendingProvider, HeroSMSEmailOrderStatusPurchaseUnknown, HeroSMSEmailOrderStatusReconciling}).Order("updated_at asc").Limit(orderLimit).Find(&orders).Error; err != nil {
 		return 0, err
 	}
-	processed := 0
+	for i := range orders {
+		if processed >= limit {
+			break
+		}
+		processed++
+		_ = reconcileHeroSMSUnknownOrder(ctx, client, &orders[i])
+	}
+	var activations []HeroSMSEmailActivation
+	remaining := limit - processed
+	if remaining <= 0 {
+		return processed, nil
+	}
+	if err := DB.Where("status IN ?", []string{HeroSMSEmailActivationStatusReconciling, HeroSMSEmailActivationStatusCancelPending}).Order("updated_at asc").Limit(remaining).Find(&activations).Error; err != nil {
+		return processed, err
+	}
 	for i := range activations {
 		processed++
 		activation := activations[i]
@@ -955,23 +1553,47 @@ func RunHeroSMSEmailReconciliationOnce(ctx context.Context, limit int) (int, err
 				_ = reconcileHeroSMSEmailActivation(ctx, client, &activation)
 				break
 			}
-			if err := client.DeleteEmail(ctx, *activation.ProviderID); err == nil {
+			deleteErr := client.DeleteEmail(ctx, *activation.ProviderID)
+			if deleteErr != nil && !errors.Is(deleteErr, herosms.ErrNotFound) {
+				break
+			}
+			refunded := false
+			_ = runHeroSMSTransaction(func(tx *gorm.DB) error {
+				var order HeroSMSEmailOrder
+				if err := lockForUpdate(tx).Where("id = ?", activation.OrderID).First(&order).Error; err != nil {
+					return err
+				}
+				var fresh HeroSMSEmailActivation
+				if err := lockForUpdate(tx).Where("id = ?", activation.ID).First(&fresh).Error; err != nil {
+					return err
+				}
+				if fresh.Status != HeroSMSEmailActivationStatusCancelPending {
+					return nil
+				}
+				compensate := fresh.CancelReason == HeroSMSEmailCancelReasonPriceChanged || fresh.CancelReason == HeroSMSEmailCancelReasonCurrencyMismatch || fresh.CancelReason == HeroSMSEmailCancelReasonBadUpstream
 				updates := map[string]any{"status": HeroSMSEmailActivationStatusCancelled, "cancelled_at": time.Now().Unix(), "updated_at": time.Now().Unix()}
-				if activation.CancelReason == HeroSMSEmailCancelReasonPriceChanged || activation.CancelReason == HeroSMSEmailCancelReasonCurrencyMismatch || activation.CancelReason == HeroSMSEmailCancelReasonBadUpstream {
+				if compensate {
+					refundQuota := fresh.RefundQuota
+					if refundQuota <= 0 {
+						refundQuota = fresh.ChargeQuota
+					}
 					updates["status"] = HeroSMSEmailActivationStatusRefunded
 					updates["refunded_at"] = time.Now().Unix()
-					var order HeroSMSEmailOrder
-					if err := DB.Where("id = ?", activation.OrderID).First(&order).Error; err == nil {
-						_ = DB.Transaction(func(tx *gorm.DB) error {
-							if err := tx.Model(&HeroSMSEmailActivation{}).Where("id = ?", activation.ID).Updates(updates).Error; err != nil {
-								return err
-							}
-							return heroSMSRefundActivationTx(tx, &order, &activation, activation.RefundQuota, activation.CancelReason)
-						})
+					updates["refund_quota"] = refundQuota
+					if err := tx.Model(&HeroSMSEmailActivation{}).Where("id = ?", fresh.ID).Updates(updates).Error; err != nil {
+						return err
 					}
-					continue
+					if err := heroSMSRefundActivationTx(tx, &order, &fresh, refundQuota, fresh.CancelReason); err != nil {
+						return err
+					}
+					refunded = true
+				} else if err := tx.Model(&HeroSMSEmailActivation{}).Where("id = ?", fresh.ID).Updates(updates).Error; err != nil {
+					return err
 				}
-				_ = DB.Model(&HeroSMSEmailActivation{}).Where("id = ?", activation.ID).Updates(updates).Error
+				return aggregateHeroSMSEmailOrderStatusTx(tx, fresh.OrderID)
+			})
+			if refunded {
+				_ = refreshHeroSMSUserQuotaCache(activation.UserID)
 			}
 		}
 	}
@@ -980,7 +1602,7 @@ func RunHeroSMSEmailReconciliationOnce(ctx context.Context, limit int) (int, err
 
 func HasPendingHeroSMSEmailReconciliationWork() (bool, error) {
 	var count int64
-	err := DB.Model(&HeroSMSEmailActivation{}).Where("status IN ?", []string{HeroSMSEmailActivationStatusReconciling, HeroSMSEmailActivationStatusCancelPending}).Count(&count).Error
+	err := DB.Model(&HeroSMSEmailActivation{}).Where("status IN ?", []string{HeroSMSEmailActivationStatusPendingProvider, HeroSMSEmailActivationStatusReconciling, HeroSMSEmailActivationStatusCancelPending}).Count(&count).Error
 	return count > 0, err
 }
 
@@ -1028,11 +1650,14 @@ func heroSMSEmailOrderView(order *HeroSMSEmailOrder) (*HeroSMSEmailOrderView, er
 		Operation:        order.Operation,
 		Status:           order.Status,
 		DomainID:         order.DomainID,
+		Site:             order.Site,
+		Domain:           order.Domain,
 		Quantity:         order.Quantity,
 		PriceMultiplier:  order.PriceMultiplier,
 		ReservedCostUSD:  microsToDecimal(order.ReservedUnitCostMicros).StringFixed(6),
 		CustomerPriceUSD: microsToDecimal(order.CustomerUnitPriceMicros).StringFixed(6),
 		ChargeQuota:      order.ChargeQuota,
+		RefundedQuota:    order.RefundedQuota,
 		CreatedAt:        order.CreatedAt,
 		UpdatedAt:        order.UpdatedAt,
 		Activations:      views,
@@ -1052,20 +1677,18 @@ func heroSMSEmailActivationView(activation *HeroSMSEmailActivation) (*HeroSMSEma
 	if err != nil {
 		return nil, err
 	}
-	providerID := ""
-	if activation.ProviderID != nil {
-		providerID = *activation.ProviderID
-	}
 	return &HeroSMSEmailActivationView{
 		ID:           activation.ID,
 		OrderID:      activation.OrderID,
 		Status:       activation.Status,
 		DomainID:     activation.DomainID,
-		ProviderID:   providerID,
+		Site:         activation.Site,
+		Domain:       activation.Domain,
 		Email:        email,
 		Code:         code,
 		Message:      message,
-		UpstreamCost: microsToDecimal(activation.ProviderCostMicros).StringFixed(6),
+		ChargeQuota:  activation.ChargeQuota,
+		CostUSD:      microsToDecimal(activation.ProviderCostMicros).StringFixed(6),
 		Currency:     activation.Currency,
 		CurrencyCode: activation.CurrencyCode,
 		CancelReason: activation.CancelReason,
@@ -1074,22 +1697,130 @@ func heroSMSEmailActivationView(activation *HeroSMSEmailActivation) (*HeroSMSEma
 	}, nil
 }
 
-func lookupHeroSMSDomainQuote(ctx context.Context, client herosms.Client, domainID string) (*herosms.Domain, error) {
-	products, err := client.ListDomains(ctx, 1, 100, "")
+type heroSMSDomainQuote struct {
+	ID           string
+	Site         string
+	Domain       string
+	Count        int
+	CostUSD      decimal.Decimal
+	Currency     string
+	CurrencyCode int
+}
+
+type heroSMSQuoteToken struct {
+	Site       string `json:"s"`
+	Domain     string `json:"d"`
+	CostUSD    string `json:"c"`
+	Multiplier string `json:"m"`
+	IssuedAt   int64  `json:"iat"`
+}
+
+func lookupHeroSMSDomainQuote(ctx context.Context, client herosms.Client, domainID string) (*heroSMSDomainQuote, error) {
+	token, err := decodeHeroSMSQuoteID(domainID)
+	if err != nil {
+		return nil, newHeroSMSError(http.StatusBadRequest, "INVALID_REQUEST", "invalid HeroSMS product id")
+	}
+	now := time.Now().Unix()
+	if token.IssuedAt > now+60 || now-token.IssuedAt > 5*60 {
+		return nil, newHeroSMSError(http.StatusConflict, "PRICE_CHANGED", "HeroSMS quote expired; refresh the quote")
+	}
+	quotedCost, err := decimal.NewFromString(token.CostUSD)
+	if err != nil || quotedCost.IsNegative() {
+		return nil, newHeroSMSError(http.StatusBadRequest, "INVALID_REQUEST", "invalid HeroSMS quote")
+	}
+	quotedMultiplier, err := decimal.NewFromString(token.Multiplier)
+	if err != nil || quotedMultiplier.LessThanOrEqual(decimal.Zero) {
+		return nil, newHeroSMSError(http.StatusBadRequest, "INVALID_REQUEST", "invalid HeroSMS quote")
+	}
+	currentMultiplier, err := heroSMSMultiplierDecimal()
+	if err != nil {
+		return nil, err
+	}
+	if !currentMultiplier.Equal(quotedMultiplier) {
+		return nil, newHeroSMSError(http.StatusConflict, "PRICE_CHANGED", "HeroSMS price changed; refresh the quote")
+	}
+	products, err := client.ListDomains(ctx, token.Site)
 	if err != nil {
 		return nil, mapHeroSMSProviderError(err)
 	}
 	for _, item := range products.Data {
-		if item.ID == domainID {
-			copied := item
-			return &copied, nil
+		candidate, nameErr := normalizeHeroSMSName(item.Name)
+		if nameErr == nil && candidate == token.Domain && item.Count > 0 {
+			if !item.CostUSD.Equal(quotedCost) {
+				return nil, newHeroSMSError(http.StatusConflict, "PRICE_CHANGED", "HeroSMS price changed; refresh the quote")
+			}
+			return &heroSMSDomainQuote{
+				ID:           domainID,
+				Site:         token.Site,
+				Domain:       token.Domain,
+				Count:        item.Count,
+				CostUSD:      item.CostUSD,
+				Currency:     setting.HeroSMSCurrency,
+				CurrencyCode: HeroSMSCurrencyCode,
+			}, nil
 		}
 	}
-	return nil, newHeroSMSError(http.StatusNotFound, "NOT_FOUND", "HeroSMS domain not found")
+	return nil, newHeroSMSError(http.StatusNotFound, "NOT_FOUND", "HeroSMS domain is unavailable")
+}
+
+func encodeHeroSMSQuoteID(site string, domain string, cost decimal.Decimal, multiplier decimal.Decimal) (string, error) {
+	payload, err := json.Marshal(heroSMSQuoteToken{Site: site, Domain: domain, CostUSD: cost.String(), Multiplier: multiplier.String(), IssuedAt: time.Now().Unix()})
+	if err != nil {
+		return "", err
+	}
+	ciphertext, err := common.EncryptPersistentString("hero_sms.quote", "HERO_SMS_ENCRYPTION_KEY", "CRYPTO_SECRET", string(payload))
+	if err != nil {
+		return "", err
+	}
+	return "hsq_" + base64.RawURLEncoding.EncodeToString([]byte(ciphertext)), nil
+}
+
+func decodeHeroSMSQuoteID(value string) (*heroSMSQuoteToken, error) {
+	if !strings.HasPrefix(value, "hsq_") || len(value) > 768 {
+		return nil, errors.New("invalid product id")
+	}
+	encoded, err := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(value, "hsq_"))
+	if err != nil {
+		return nil, err
+	}
+	plaintext, err := common.DecryptPersistentString("hero_sms.quote", "HERO_SMS_ENCRYPTION_KEY", "CRYPTO_SECRET", string(encoded))
+	if err != nil {
+		return nil, err
+	}
+	var token heroSMSQuoteToken
+	if err := json.Unmarshal([]byte(plaintext), &token); err != nil {
+		return nil, err
+	}
+	token.Site, err = normalizeHeroSMSName(token.Site)
+	if err != nil {
+		return nil, err
+	}
+	token.Domain, err = normalizeHeroSMSName(token.Domain)
+	if err != nil {
+		return nil, err
+	}
+	return &token, nil
+}
+
+func normalizeHeroSMSName(value string) (string, error) {
+	normalized := strings.ToLower(strings.TrimSuffix(strings.TrimSpace(value), "."))
+	if normalized == "" || len(normalized) > 253 || strings.HasPrefix(normalized, ".") || strings.HasSuffix(normalized, ".") || strings.Contains(normalized, "..") {
+		return "", errors.New("invalid name")
+	}
+	for _, character := range normalized {
+		if (character >= 'a' && character <= 'z') || (character >= '0' && character <= '9') || character == '.' || character == '-' {
+			continue
+		}
+		return "", errors.New("invalid name")
+	}
+	return normalized, nil
 }
 
 func heroSMSPayloadHash(operation string, request HeroSMSEmailPurchaseRequest, reorderOf *string) (string, error) {
-	body := map[string]any{"operation": operation, "domain_id": request.DomainID, "quantity": request.Quantity}
+	body := map[string]any{"operation": operation, "quantity": request.Quantity}
+	if operation == "purchase" {
+		body["domain_id"] = request.DomainID
+	}
 	if reorderOf != nil {
 		body["reorder_of_activation_id"] = *reorderOf
 	}
@@ -1175,13 +1906,22 @@ func mapHeroSMSProviderError(err error) error {
 	}
 }
 
-func quotaPerActivation(total int, quantity int) int {
+func quotaForSlot(total int, quantity int, slot int) int {
 	if quantity <= 1 {
 		return total
 	}
 	base := total / quantity
-	if base <= 0 {
-		return total
+	remainder := total % quantity
+	if slot >= 1 && slot <= remainder {
+		return base + 1
 	}
 	return base
+}
+
+func refreshHeroSMSUserQuotaCache(userID int) error {
+	var user User
+	if err := DB.Select("id", "quota").Where("id = ?", userID).First(&user).Error; err != nil {
+		return err
+	}
+	return updateUserQuotaCache(userID, user.Quota)
 }

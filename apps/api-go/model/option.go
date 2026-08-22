@@ -276,8 +276,8 @@ func SyncOptions(frequency int) {
 }
 
 func validateOptionValue(key string, value string) error {
-	if key == setting.HeroSMSOptionAPIKey {
-		return errors.New("hero_sms.api_key must be managed via /api/option/hero-sms")
+	if key == setting.HeroSMSOptionAPIKey || key == setting.HeroSMSOptionEnabled || key == setting.HeroSMSOptionMultiplier {
+		return errors.New("HeroSMS settings must be managed via /api/option/hero-sms")
 	}
 	if isRetiredIPAccessOptionKey(key) {
 		return errors.New("legacy IP access option is retired; use IPAccessRoutingRules")
@@ -373,9 +373,6 @@ func UpdateOption(key string, value string) error {
 // use this to reject an invalid change before issuing a one-time confirmation
 // flow.
 func ValidateOptionValue(key, value string) error {
-	if key == setting.HeroSMSOptionAPIKey {
-		return errors.New("hero_sms.api_key must be managed via /api/option/hero-sms")
-	}
 	return validateOptionValue(key, value)
 }
 

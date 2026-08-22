@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -169,7 +170,8 @@ func (heroSMSEmailReconciliationHandler) NewPayload() any { return nil }
 func (heroSMSEmailReconciliationHandler) Run(ctx context.Context, task *model.SystemTask, runnerID string) {
 	processed, err := model.RunHeroSMSEmailReconciliationOnce(ctx, 20)
 	if err != nil {
-		finishSystemTaskHandler(task, runnerID, model.SystemTaskStatusFailed, nil, err)
+		common.SysLog(fmt.Sprintf("HeroSMS reconciliation failed: %T", err))
+		finishSystemTaskHandler(task, runnerID, model.SystemTaskStatusFailed, nil, errors.New("HeroSMS reconciliation failed"))
 		return
 	}
 	finishSystemTaskHandler(task, runnerID, model.SystemTaskStatusSucceeded, map[string]any{"processed": processed}, nil)

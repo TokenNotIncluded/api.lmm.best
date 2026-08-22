@@ -1,10 +1,14 @@
 package controller
 
 import (
+	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
 
+	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/LIghtJUNction/api.lmm.best/model"
 	"github.com/gin-gonic/gin"
 )
@@ -20,7 +24,8 @@ func heroSMSError(c *gin.Context, err error) {
 		c.AbortWithStatusJSON(apiErr.Status, gin.H{"success": false, "code": apiErr.Code, "message": apiErr.Message})
 		return
 	}
-	c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"success": false, "code": "INTERNAL_ERROR", "message": err.Error()})
+	common.SysLog(fmt.Sprintf("HeroSMS request failed: %T", err))
+	c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"success": false, "code": "INTERNAL_ERROR", "message": "HeroSMS operation failed"})
 }
 
 func heroSMSPageSize(c *gin.Context) (int, int) {
@@ -56,7 +61,14 @@ func PutHeroSMSOptions(c *gin.Context) {
 }
 
 func TestHeroSMSOptions(c *gin.Context) {
-	if err := model.TestHeroSMSConfiguration(c.Request.Context()); err != nil {
+	var request struct {
+		APIKey string `json:"api_key"`
+	}
+	if err := c.ShouldBindJSON(&request); err != nil && !errors.Is(err, io.EOF) {
+		heroSMSError(c, model.NewHeroSMSError(http.StatusBadRequest, "INVALID_REQUEST", "invalid HeroSMS test payload"))
+		return
+	}
+	if err := model.TestHeroSMSConfiguration(c.Request.Context(), request.APIKey); err != nil {
 		heroSMSError(c, err)
 		return
 	}
@@ -92,7 +104,7 @@ func CreateHeroSMSEmailActivations(c *gin.Context) {
 		heroSMSError(c, err)
 		return
 	}
-	heroSMSJSON(c, status, order)
+	heroSMSJSON(c, status, gin.H{"order": order, "activations": order.Activations})
 }
 
 func ListHeroSMSEmailActivations(c *gin.Context) {
@@ -138,5 +150,5 @@ func ReorderHeroSMSEmailActivation(c *gin.Context) {
 		heroSMSError(c, err)
 		return
 	}
-	heroSMSJSON(c, status, result)
+	heroSMSJSON(c, status, gin.H{"order": result, "activations": result.Activations})
 }

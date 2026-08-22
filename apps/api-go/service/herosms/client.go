@@ -37,25 +37,21 @@ var (
 )
 
 type Domain struct {
-	ID           string          `json:"id"`
-	Site         string          `json:"site"`
-	Domain       string          `json:"domain"`
-	Stock        int             `json:"stock"`
-	CostUSD      decimal.Decimal `json:"-"`
-	Currency     string          `json:"currency"`
-	CurrencyCode int             `json:"currency_code"`
+	Name    string          `json:"name"`
+	Count   int             `json:"count"`
+	CostUSD decimal.Decimal `json:"-"`
 }
 
 type ListDomainsResponse struct {
-	Data  []Domain `json:"data"`
-	Page  int      `json:"page"`
-	Size  int      `json:"size"`
-	Total int      `json:"total"`
+	Data []Domain `json:"data"`
 }
 
 type EmailListItem struct {
-	ID    string `json:"id"`
-	Email string `json:"email"`
+	ID     string `json:"id"`
+	Email  string `json:"email"`
+	Site   string `json:"site"`
+	Status string `json:"status"`
+	Date   string `json:"date"`
 }
 
 type ListEmailsResponse struct {
@@ -68,13 +64,14 @@ type ListEmailsResponse struct {
 type EmailRecord struct {
 	ID           string          `json:"id"`
 	Email        string          `json:"email"`
-	Code         string          `json:"code"`
+	Code         string          `json:"value"`
 	Message      string          `json:"message"`
 	Status       string          `json:"status"`
-	DomainID     string          `json:"domain_id"`
+	Site         string          `json:"site"`
+	Domain       string          `json:"domain"`
+	Date         string          `json:"date"`
 	CostUSD      decimal.Decimal `json:"-"`
-	Currency     string          `json:"currency"`
-	CurrencyCode int             `json:"currency_code"`
+	CurrencyCode int             `json:"currency"`
 }
 
 type BatchPurchaseResult struct {
@@ -82,10 +79,10 @@ type BatchPurchaseResult struct {
 }
 
 type Client interface {
-	ListDomains(ctx context.Context, page int, size int, site string) (*ListDomainsResponse, error)
+	ListDomains(ctx context.Context, site string) (*ListDomainsResponse, error)
 	ListEmails(ctx context.Context, page int, size int) (*ListEmailsResponse, error)
-	CreateEmail(ctx context.Context, domainID string) (*EmailRecord, error)
-	CreateEmailBatch(ctx context.Context, domainID string, amount int) (*BatchPurchaseResult, error)
+	CreateEmail(ctx context.Context, site string, domain string) (*EmailRecord, error)
+	CreateEmailBatch(ctx context.Context, site string, domain string, count int) (*BatchPurchaseResult, error)
 	GetEmail(ctx context.Context, id string) (*EmailRecord, error)
 	DeleteEmail(ctx context.Context, id string) error
 	ReorderEmail(ctx context.Context, id string) (*EmailRecord, error)
@@ -129,10 +126,8 @@ func (c *HTTPClient) TimeoutForTest(timeout time.Duration) {
 	}
 }
 
-func (c *HTTPClient) ListDomains(ctx context.Context, page int, size int, site string) (*ListDomainsResponse, error) {
+func (c *HTTPClient) ListDomains(ctx context.Context, site string) (*ListDomainsResponse, error) {
 	query := url.Values{}
-	query.Set("page", strconv.Itoa(page))
-	query.Set("size", strconv.Itoa(size))
 	if strings.TrimSpace(site) != "" {
 		query.Set("site", strings.TrimSpace(site))
 	}
@@ -141,15 +136,14 @@ func (c *HTTPClient) ListDomains(ctx context.Context, page int, size int, site s
 		return nil, err
 	}
 	var raw struct {
-		Data  []map[string]any `json:"data"`
-		Page  int              `json:"page"`
-		Size  int              `json:"size"`
-		Total int              `json:"total"`
+		Data []map[string]any `json:"data"`
 	}
-	if err := json.Unmarshal(body, &raw); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.UseNumber()
+	if err := decoder.Decode(&raw); err != nil {
 		return nil, fmt.Errorf("%w: decode domains response", ErrBadResponse)
 	}
-	response := &ListDomainsResponse{Page: raw.Page, Size: raw.Size, Total: raw.Total, Data: make([]Domain, 0, len(raw.Data))}
+	response := &ListDomainsResponse{Data: make([]Domain, 0, len(raw.Data))}
 	for _, item := range raw.Data {
 		domain, err := decodeDomain(item)
 		if err != nil {
@@ -168,30 +162,56 @@ func (c *HTTPClient) ListEmails(ctx context.Context, page int, size int) (*ListE
 	if err != nil {
 		return nil, err
 	}
-	var response ListEmailsResponse
-	if err := json.Unmarshal(body, &response); err != nil {
+	var raw struct {
+		Data  []map[string]any `json:"data"`
+		Page  int              `json:"page"`
+		Size  int              `json:"size"`
+		Total int              `json:"total"`
+	}
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.UseNumber()
+	if err := decoder.Decode(&raw); err != nil {
 		return nil, fmt.Errorf("%w: decode email list response", ErrBadResponse)
 	}
-	return &response, nil
+	response := &ListEmailsResponse{Page: raw.Page, Size: raw.Size, Total: raw.Total, Data: make([]EmailListItem, 0, len(raw.Data))}
+	if response.Page <= 0 {
+		response.Page = page
+	}
+	if response.Size <= 0 {
+		response.Size = size
+	}
+	for _, item := range raw.Data {
+		record, err := decodeEmailRecordMap(item)
+		if err != nil {
+			return nil, err
+		}
+		response.Data = append(response.Data, EmailListItem{ID: record.ID, Email: record.Email, Site: record.Site, Status: record.Status, Date: record.Date})
+	}
+	if response.Total <= 0 {
+		response.Total = len(response.Data)
+	}
+	return response, nil
 }
 
-func (c *HTTPClient) CreateEmail(ctx context.Context, domainID string) (*EmailRecord, error) {
-	body, err := c.doJSON(ctx, http.MethodPost, "/emails", nil, map[string]any{"id": domainID})
+func (c *HTTPClient) CreateEmail(ctx context.Context, site string, domain string) (*EmailRecord, error) {
+	body, err := c.doJSON(ctx, http.MethodPost, "/emails", nil, map[string]any{"site": site, "domain": domain})
 	if err != nil {
 		return nil, err
 	}
 	return decodeEmailRecord(body)
 }
 
-func (c *HTTPClient) CreateEmailBatch(ctx context.Context, domainID string, amount int) (*BatchPurchaseResult, error) {
-	body, err := c.doJSON(ctx, http.MethodPost, "/emails/batch", nil, map[string]any{"id": domainID, "amount": amount})
+func (c *HTTPClient) CreateEmailBatch(ctx context.Context, site string, domain string, count int) (*BatchPurchaseResult, error) {
+	body, err := c.doJSON(ctx, http.MethodPost, "/emails/batch", nil, map[string]any{"site": site, "domain": domain, "count": count})
 	if err != nil {
 		return nil, err
 	}
 	var raw struct {
 		Items []map[string]any `json:"data"`
 	}
-	if err := json.Unmarshal(body, &raw); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.UseNumber()
+	if err := decoder.Decode(&raw); err != nil {
 		return nil, fmt.Errorf("%w: decode batch response", ErrBadResponse)
 	}
 	result := &BatchPurchaseResult{Items: make([]EmailRecord, 0, len(raw.Items))}
@@ -298,36 +318,30 @@ func (c *HTTPClient) doJSON(ctx context.Context, method string, path string, que
 
 func decodeDomain(item map[string]any) (Domain, error) {
 	cost, err := decimalFromAny(item["cost"])
-	if err != nil {
+	if err != nil || cost.IsNegative() {
 		return Domain{}, fmt.Errorf("%w: invalid domain cost", ErrBadResponse)
 	}
-	currencyCode, err := intFromAny(item["currency_code"])
-	if err != nil {
-		return Domain{}, fmt.Errorf("%w: invalid currency code", ErrBadResponse)
+	count, err := intFromAny(item["count"])
+	if err != nil || count < 0 {
+		return Domain{}, fmt.Errorf("%w: invalid domain count", ErrBadResponse)
 	}
-	stock, err := intFromAny(item["stock"])
-	if err != nil {
-		return Domain{}, fmt.Errorf("%w: invalid stock", ErrBadResponse)
-	}
-	domain := Domain{
-		ID:           stringFromAny(item["id"]),
-		Site:         stringFromAny(item["site"]),
-		Domain:       stringFromAny(item["domain"]),
-		Stock:        stock,
-		CostUSD:      cost,
-		Currency:     stringFromAny(item["currency"]),
-		CurrencyCode: currencyCode,
-	}
-	if domain.ID == "" || domain.Domain == "" {
-		return Domain{}, fmt.Errorf("%w: missing domain fields", ErrBadResponse)
+	domain := Domain{Name: stringFromAny(item["name"]), Count: count, CostUSD: cost}
+	if domain.Name == "" {
+		return Domain{}, fmt.Errorf("%w: missing domain name", ErrBadResponse)
 	}
 	return domain, nil
 }
 
 func decodeEmailRecord(body []byte) (*EmailRecord, error) {
-	var item map[string]any
-	if err := json.Unmarshal(body, &item); err != nil {
+	var envelope map[string]any
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.UseNumber()
+	if err := decoder.Decode(&envelope); err != nil {
 		return nil, fmt.Errorf("%w: decode email record", ErrBadResponse)
+	}
+	item, ok := envelope["data"].(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("%w: missing email data", ErrBadResponse)
 	}
 	record, err := decodeEmailRecordMap(item)
 	if err != nil {
@@ -338,25 +352,26 @@ func decodeEmailRecord(body []byte) (*EmailRecord, error) {
 
 func decodeEmailRecordMap(item map[string]any) (EmailRecord, error) {
 	record := EmailRecord{
-		ID:       stringFromAny(item["id"]),
-		Email:    stringFromAny(item["email"]),
-		Code:     stringFromAny(item["code"]),
-		Message:  stringFromAny(item["message"]),
-		Status:   stringFromAny(item["status"]),
-		DomainID: stringFromAny(item["domain_id"]),
-		Currency: stringFromAny(item["currency"]),
+		ID:      stringFromAny(item["id"]),
+		Email:   stringFromAny(item["email"]),
+		Code:    stringFromAny(item["value"]),
+		Message: stringFromAny(item["message"]),
+		Status:  stringFromAny(item["status"]),
+		Site:    stringFromAny(item["site"]),
+		Domain:  stringFromAny(item["domain"]),
+		Date:    stringFromAny(item["date"]),
 	}
 	if rawCost, ok := item["cost"]; ok && rawCost != nil {
 		cost, err := decimalFromAny(rawCost)
-		if err != nil {
+		if err != nil || cost.IsNegative() {
 			return EmailRecord{}, fmt.Errorf("%w: invalid email cost", ErrBadResponse)
 		}
 		record.CostUSD = cost
 	}
-	if rawCode, ok := item["currency_code"]; ok && rawCode != nil {
-		currencyCode, err := intFromAny(rawCode)
+	if rawCurrency, ok := item["currency"]; ok && rawCurrency != nil {
+		currencyCode, err := intFromAny(rawCurrency)
 		if err != nil {
-			return EmailRecord{}, fmt.Errorf("%w: invalid email currency code", ErrBadResponse)
+			return EmailRecord{}, fmt.Errorf("%w: invalid email currency", ErrBadResponse)
 		}
 		record.CurrencyCode = currencyCode
 	}
@@ -426,8 +441,7 @@ func FindEmailByExactAddress(ctx context.Context, client Client, address string)
 	if trimmed == "" {
 		return nil, nil
 	}
-	page := 1
-	for {
+	for page := 1; page <= 10; page++ {
 		list, err := client.ListEmails(ctx, page, defaultPageSize)
 		if err != nil {
 			return nil, err
@@ -438,9 +452,9 @@ func FindEmailByExactAddress(ctx context.Context, client Client, address string)
 				return &copied, nil
 			}
 		}
-		if len(list.Data) == 0 || (list.Total > 0 && page*list.Size >= list.Total) {
+		if len(list.Data) == 0 || len(list.Data) < defaultPageSize || (list.Total > len(list.Data) && page*list.Size >= list.Total) {
 			return nil, nil
 		}
-		page++
 	}
+	return nil, fmt.Errorf("%w: email lookup page limit exceeded", ErrBadResponse)
 }

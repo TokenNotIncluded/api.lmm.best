@@ -21,13 +21,27 @@ func persistentSecretKey(purpose string, primaryEnv string, fallbackEnv string) 
 	if secret == "" && fallbackEnv != "" {
 		secret = strings.TrimSpace(os.Getenv(fallbackEnv))
 	}
-	if secret == "" {
+	if len(secret) < 32 || weakPersistentSecret(secret) {
 		return nil, ErrPersistentSecretNotConfigured
 	}
 	sum := sha256.Sum256([]byte(strings.TrimSpace(purpose) + ":" + secret))
 	key := make([]byte, len(sum))
 	copy(key, sum[:])
 	return key, nil
+}
+
+func weakPersistentSecret(secret string) bool {
+	lower := strings.ToLower(strings.TrimSpace(secret))
+	for _, marker := range []string{"replace_with", "random_string", "your_secret", "example-secret", "change-me", "changeme"} {
+		if strings.Contains(lower, marker) {
+			return true
+		}
+	}
+	unique := make(map[rune]struct{})
+	for _, character := range secret {
+		unique[character] = struct{}{}
+	}
+	return len(unique) < 4
 }
 
 func EncryptPersistentString(purpose string, primaryEnv string, fallbackEnv string, plaintext string) (string, error) {

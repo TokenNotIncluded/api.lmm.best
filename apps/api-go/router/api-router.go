@@ -395,9 +395,9 @@ func SetApiRouter(router *gin.Engine) {
 			heroSMSRoute.POST("/email/activations", middleware.DisableCache(), middleware.CriticalRateLimit(), middleware.UserCriticalRateLimit("hero-sms-email-purchase"), middleware.RequestBodyLimit(heroSMSMutationRequestMaxBytes), controller.CreateHeroSMSEmailActivations)
 			heroSMSRoute.GET("/email/activations", middleware.DisableCache(), controller.ListHeroSMSEmailActivations)
 			heroSMSRoute.GET("/email/activations/:id", middleware.DisableCache(), controller.GetHeroSMSEmailActivation)
-			heroSMSRoute.POST("/email/activations/:id/refresh", middleware.DisableCache(), middleware.CriticalRateLimit(), middleware.UserCriticalRateLimit("hero-sms-email-refresh"), controller.RefreshHeroSMSEmailActivation)
-			heroSMSRoute.POST("/email/activations/:id/cancel", middleware.DisableCache(), middleware.CriticalRateLimit(), middleware.UserCriticalRateLimit("hero-sms-email-cancel"), controller.CancelHeroSMSEmailActivation)
-			heroSMSRoute.POST("/email/activations/:id/reorder", middleware.DisableCache(), middleware.CriticalRateLimit(), middleware.UserCriticalRateLimit("hero-sms-email-reorder"), controller.ReorderHeroSMSEmailActivation)
+			heroSMSRoute.POST("/email/activations/:id/refresh", middleware.DisableCache(), middleware.CriticalRateLimit(), middleware.UserCriticalRateLimit("hero-sms-email-refresh"), middleware.RequestBodyLimit(heroSMSMutationRequestMaxBytes), controller.RefreshHeroSMSEmailActivation)
+			heroSMSRoute.POST("/email/activations/:id/cancel", middleware.DisableCache(), middleware.CriticalRateLimit(), middleware.UserCriticalRateLimit("hero-sms-email-cancel"), middleware.RequestBodyLimit(heroSMSMutationRequestMaxBytes), controller.CancelHeroSMSEmailActivation)
+			heroSMSRoute.POST("/email/activations/:id/reorder", middleware.DisableCache(), middleware.CriticalRateLimit(), middleware.UserCriticalRateLimit("hero-sms-email-reorder"), middleware.RequestBodyLimit(heroSMSMutationRequestMaxBytes), controller.ReorderHeroSMSEmailActivation)
 		}
 
 		dynamicPricingRoute := apiRouter.Group("/dynamic_pricing")
