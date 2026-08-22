@@ -7,7 +7,7 @@ published by the Free Software Foundation, either version 3 of the
 License, or (at your option) any later version.
 
 This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even implied warranty of
+but WITHOUT ANY WARRANTY; without even the implied warranty of
 MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
 GNU Affero General Public License for more details.
 
@@ -50,7 +50,7 @@ type VendorGroup = {
 export function VendorModelSections(props: VendorModelSectionProps) {
   const { t } = useTranslation()
 
-  const groups  = useMemo<VendorGroup[]>(() => {
+  const groups = useMemo<VendorGroup[]>(() => {
     const byVendor = new Map<string, VendorGroup>()
     for (const model of props.models) {
       const name = model.vendor_name || t('Others')
