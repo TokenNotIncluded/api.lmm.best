@@ -80,11 +80,9 @@ Transitive dependencies should be audited before a final external release.
 | web | production | npm | `@tanstack/react-query` | `5.101.2` | MIT |
 | web | production | npm | `@tanstack/react-router` | `1.170.18` | MIT |
 | web | production | npm | `@tanstack/react-table` | `8.21.3` | MIT |
-| web | production | npm | `@tanstack/react-virtual` | `3.14.6` | MIT |
 | web | production | npm | `@visactor/react-vchart` | `2.1.4` | MIT |
 | web | production | npm | `@visactor/vchart` | `2.1.4` | MIT |
 | web | production | npm | `ai` | `7.0.31` | Apache-2.0 |
-| web | production | npm | `auto-skeleton-react` | `1.0.5` | MIT |
 | web | production | npm | `axios` | `1.18.1` | MIT |
 | web | production | npm | `class-variance-authority` | `0.7.1` | Apache-2.0 |
 | web | production | npm | `clsx` | `2.1.1` | MIT |
@@ -99,7 +97,6 @@ Transitive dependencies should be audited before a final external release.
 | web | production | npm | `marked` | `18.0.6` | MIT |
 | web | production | npm | `motion` | `12.42.2` | MIT |
 | web | production | npm | `nanoid` | `5.1.16` | MIT |
-| web | production | npm | `next-themes` | `0.4.6` | MIT |
 | web | production | npm | `qrcode.react` | `4.2.0` | ISC |
 | web | production | npm | `react` | `19.2.7` | MIT |
 | web | production | npm | `react-day-picker` | `10.0.1` | MIT |
@@ -107,16 +104,12 @@ Transitive dependencies should be audited before a final external release.
 | web | production | npm | `react-hook-form` | `7.82.0` | MIT |
 | web | production | npm | `react-i18next` | `17.0.10` | MIT |
 | web | production | npm | `react-icons` | `5.7.0` | MIT |
-| web | production | npm | `react-resizable-panels` | `4.12.2` | MIT |
 | web | production | npm | `react-top-loading-bar` | `3.0.2` | MIT |
-| web | production | npm | `recharts` | `3.9.1` | MIT |
 | web | production | npm | `shiki` | `4.3.1` | MIT |
 | web | production | npm | `sonner` | `2.0.7` | MIT |
-| web | production | npm | `sse.js` | `2.8.0` | Apache-2.0 |
 | web | production | npm | `stream-markdown-parser` | `1.1.3` | MIT |
 | web | production | npm | `tailwind-merge` | `3.6.0` | MIT |
 | web | production | npm | `tailwindcss` | `4.3.3` | MIT |
-| web | production | npm | `tokenlens` | `1.3.1` | MIT |
 | web | production | npm | `tw-animate-css` | `1.4.0` | MIT |
 | web | production | npm | `use-stick-to-bottom` | `1.1.6` | MIT |
 | web | production | npm | `vaul` | `1.1.2` | MIT |
@@ -132,8 +125,6 @@ Transitive dependencies should be audited before a final external release.
 | web | development | npm | `@types/react` | `19.2.17` | MIT |
 | web | development | npm | `@types/react-dom` | `19.2.3` | MIT |
 | web | development | npm | `@typescript/native-preview` | `7.0.0-dev.20260707.2` | Apache-2.0 |
-| web | development | npm | `@xyflow/react` | `12.11.2` | MIT |
-| web | development | npm | `embla-carousel-react` | `8.6.0` | MIT |
 | web | development | npm | `knip` | `6.27.0` | ISC |
 | web | development | npm | `oxfmt` | `0.57.0` | MIT |
 | web | development | npm | `oxlint` | `1.74.0` | MIT |
