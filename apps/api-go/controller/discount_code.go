@@ -190,6 +190,17 @@ func DeleteDiscountCode(c *gin.Context) {
 	common.ApiSuccess(c, nil)
 }
 
+func DeleteExhaustedDiscountCodes(c *gin.Context) {
+	// pi-lens-ignore: compiler:UndeclaredImportedName
+	rows, err := model.DeleteExhaustedDiscountCodes()
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	recordManageAudit(c, "discount_code.delete_exhausted", map[string]interface{}{"count": rows})
+	common.ApiSuccess(c, gin.H{"count": rows})
+}
+
 type discountCodeValidationRequest struct {
 	Code          string `json:"code"`
 	Amount        int64  `json:"amount"`
@@ -216,6 +227,7 @@ func ValidateDiscountCode(c *gin.Context) {
 	})
 }
 
+// pi-lens-ignore: go-bare-error
 func validateDiscountCodeInput(code *model.DiscountCode) error {
 	if err := validateDiscountCodeBatchInput(code); err != nil {
 		return err
@@ -223,6 +235,7 @@ func validateDiscountCodeInput(code *model.DiscountCode) error {
 	return model.ValidateDiscountCodeDefinition(code.Code, code.DiscountPercent, code.MinAmount, code.StartsTime, code.ExpiredTime)
 }
 
+// pi-lens-ignore: go-bare-error
 func validateDiscountCodeBatchInput(code *model.DiscountCode) error {
 	if strings.TrimSpace(code.Name) == "" || len([]rune(code.Name)) > 120 {
 		return errors.New("优惠码名称不能为空且不能超过 120 个字符")

@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -22,6 +23,7 @@ func RegisterScheduledSystemTasks() {
 	service.RegisterSystemTaskHandler(modelUpdateHandler{})
 	service.RegisterSystemTaskHandler(midjourneyPollHandler{})
 	service.RegisterSystemTaskHandler(asyncTaskPollHandler{})
+	service.RegisterSystemTaskHandler(heroSMSEmailReconciliationHandler{})
 }
 
 // channelTestHandler runs the scheduled "test all channels" job. Enablement and
@@ -150,6 +152,29 @@ func (asyncTaskPollHandler) NewPayload() any { return nil }
 func (asyncTaskPollHandler) Run(ctx context.Context, task *model.SystemTask, runnerID string) {
 	summary := service.RunTaskPollingOnce(ctx, service.NewSystemTaskProgressReporter(task, runnerID))
 	finishSystemTaskHandler(task, runnerID, model.SystemTaskStatusSucceeded, summary, nil)
+}
+
+type heroSMSEmailReconciliationHandler struct{}
+
+func (heroSMSEmailReconciliationHandler) Type() string { return model.HeroSMSEmailTaskType }
+
+func (heroSMSEmailReconciliationHandler) Enabled() bool {
+	pending, err := model.HasPendingHeroSMSEmailReconciliationWork()
+	return err == nil && pending
+}
+
+func (heroSMSEmailReconciliationHandler) Interval() time.Duration { return 15 * time.Second }
+
+func (heroSMSEmailReconciliationHandler) NewPayload() any { return nil }
+
+func (heroSMSEmailReconciliationHandler) Run(ctx context.Context, task *model.SystemTask, runnerID string) {
+	processed, err := model.RunHeroSMSEmailReconciliationOnce(ctx, 20)
+	if err != nil {
+		common.SysLog(fmt.Sprintf("HeroSMS reconciliation failed: %T", err))
+		finishSystemTaskHandler(task, runnerID, model.SystemTaskStatusFailed, nil, errors.New("HeroSMS reconciliation failed"))
+		return
+	}
+	finishSystemTaskHandler(task, runnerID, model.SystemTaskStatusSucceeded, map[string]any{"processed": processed}, nil)
 }
 
 func finishSystemTaskHandler(task *model.SystemTask, runnerID string, status model.SystemTaskStatus, result any, runErr error) {

@@ -7548,7 +7548,8 @@
     "Zero retention": "データ保持なし",
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V 4",
-    "Zoom": "ズーム"
+    "Zoom": "ズーム",
+    "Email Activations": "メール認証受信"
   },
   "Complete the full channel configuration below. The submission remains pending until an administrator approves it.": "以下のチャンネル設定をすべて入力してください。管理者が承認するまで申請は保留状態になります。",
   "I confirm that these credentials are authorized for this shared channel.": "これらの認証情報が、この共有チャンネルでの使用を許可されていることを確認します。",

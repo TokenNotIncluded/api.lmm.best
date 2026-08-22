@@ -15,7 +15,7 @@ import type {
   DiscountCodeInput,
   DiscountCodePage,
   DiscountCodeResponse,
-} from './types'
+} from './types.js'
 
 export async function listDiscountCodes(params: {
   page: number
@@ -73,5 +73,12 @@ export async function deleteDiscountCode(
   id: number
 ): Promise<DiscountCodeResponse<null>> {
   const response = await api.delete(`/api/discount-code/${id}`)
+  return response.data
+}
+
+export async function deleteExhaustedDiscountCodes(): Promise<
+  DiscountCodeResponse<{ count: number }>
+> {
+  const response = await api.delete('/api/discount-code/exhausted')
   return response.data
 }

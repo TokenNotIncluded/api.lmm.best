@@ -86,6 +86,8 @@ When deploying and using LMM Forge, we recommend following these security best p
 Please ensure the following security-related environment variables and settings are properly configured:
 
 - `SESSION_SECRET` - Use a strong random string
+- `CRYPTO_SECRET` - Use at least 32 random bytes for persistent encrypted data
+- `HERO_SMS_ENCRYPTION_KEY` - Optional dedicated HeroSMS encryption key; use at least 32 random bytes and keep it stable across restarts
 - `SQL_DSN` - Ensure database connection uses secure configuration
 - `REDIS_CONN_STRING` - If using Redis, ensure secure connection
 

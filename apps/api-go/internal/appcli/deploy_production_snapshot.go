@@ -539,7 +539,7 @@ func (runtime *productionRuntime) createBackup(ctx context.Context, options prod
 		if err != nil {
 			return fmt.Errorf("capture installed package metadata: %w", err)
 		}
-		serviceState, err := runtime.runner.Run(ctx, productionCommand{Name: commandSystemctl, Args: []string{"show", runtime.paths.Service, "--property=LoadState", "--property=ActiveState", "--property=SubState", "--property=UnitFileState"},})
+		serviceState, err := runtime.runner.Run(ctx, productionCommand{Name: commandSystemctl, Args: []string{"show", runtime.paths.Service, "--property=LoadState", "--property=ActiveState", "--property=SubState", "--property=UnitFileState"}})
 		if err != nil {
 			return fmt.Errorf("capture service state: %w", err)
 		}
@@ -578,7 +578,7 @@ func (runtime *productionRuntime) createBackup(ctx context.Context, options prod
 		databasePath := filepath.Join(stage, "database.archive")
 		databaseTemporary := databasePath + ".new"
 		if _, err := runtime.runner.Run(ctx, productionCommand{Name: commandPGDump, Args: []string{"--format=custom", "--file=" + databaseTemporary, databaseURL},
-			Env: childEnvironment, Timeout: 10 * time.Minute, Sensitive: true,}); err != nil {
+			Env: childEnvironment, Timeout: 10 * time.Minute, Sensitive: true}); err != nil {
 			return fmt.Errorf("create PostgreSQL production backup: %w", err)
 		}
 		info, err := os.Lstat(databaseTemporary)

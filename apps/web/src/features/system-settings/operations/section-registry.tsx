@@ -16,16 +16,32 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { SystemBehaviorSection } from '../general/system-behavior-section'
-import { EmailSettingsSection } from '../integrations/email-settings-section'
-import { MonitoringSettingsSection } from '../integrations/monitoring-settings-section'
-import { WorkerSettingsSection } from '../integrations/worker-settings-section'
-import { LogSettingsSection } from '../maintenance/log-settings-section'
-import { PerformanceSection } from '../maintenance/performance-section'
-import { UpdateCheckerSection } from '../maintenance/update-checker-section'
-import type { OperationsSettings } from '../types'
-import { createSectionRegistry } from '../utils/section-registry'
-import { RawJsonConfigurationSection } from './raw-json-configuration-section'
+import { lazy, Suspense } from 'react'
+
+import { SystemBehaviorSection } from '../general/system-behavior-section.js'
+import { EmailSettingsSection } from '../integrations/email-settings-section.js'
+import { MonitoringSettingsSection } from '../integrations/monitoring-settings-section.js'
+import { WorkerSettingsSection } from '../integrations/worker-settings-section.js'
+import { LogSettingsSection } from '../maintenance/log-settings-section.js'
+import { PerformanceSection } from '../maintenance/performance-section.js'
+import { UpdateCheckerSection } from '../maintenance/update-checker-section.js'
+import type { OperationsSettings } from '../types.js'
+import { createSectionRegistry } from '../utils/section-registry.js'
+import { RawJsonConfigurationSection } from './raw-json-configuration-section.js'
+
+const HeroSmsSettingsSection = lazy(() =>
+  import('./hero-sms-settings-section.js').then((module) => ({
+    default: module.HeroSmsSettingsSection,
+  }))
+)
+
+function LazyHeroSmsSettingsSection() {
+  return (
+    <Suspense fallback={<div className='min-h-40' aria-busy='true' />}>
+      <HeroSmsSettingsSection />
+    </Suspense>
+  )
+}
 
 const OPERATIONS_SECTIONS = [
   {
@@ -92,6 +108,11 @@ const OPERATIONS_SECTIONS = [
         }}
       />
     ),
+  },
+  {
+    id: 'hero-sms',
+    titleKey: 'HeroSMS Email',
+    build: () => <LazyHeroSmsSettingsSection />,
   },
   {
     id: 'logs',

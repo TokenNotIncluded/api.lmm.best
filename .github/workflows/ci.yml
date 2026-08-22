@@ -320,7 +320,17 @@ jobs:
     steps:
       - name: Install checkout and package validation tools
         run: |
-          pacman --sync --refresh --noconfirm git jq libarchive shellcheck
+          pacman --sync --refresh --noconfirm clang curl git jq libarchive rust shellcheck
+          paru_revision=9ac3578807a87858651e81a02586ceb947686e7c
+          paru_archive=/tmp/paru.tar.gz
+          curl --fail --location --silent --show-error \
+            "https://github.com/Morganamilo/paru/archive/${paru_revision}.tar.gz" \
+            --output "$paru_archive"
+          echo 'fa1e2da402283f9584f98458c61ae8d0bb04c92b2cddb1d2727c8ce944da457e  /tmp/paru.tar.gz' | sha256sum --check --strict
+          bsdtar --extract --file "$paru_archive" --directory /tmp
+          CARGO_TARGET_DIR=/tmp/paru-target cargo build --release --locked \
+            --manifest-path "/tmp/paru-${paru_revision}/Cargo.toml"
+          install -m0755 /tmp/paru-target/release/paru /usr/local/bin/paru
           useradd --create-home package-builder
           install -d -o package-builder -g package-builder /home/package-builder/lmm-ci-tmp
 
