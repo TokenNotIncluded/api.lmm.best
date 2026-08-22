@@ -18,6 +18,7 @@ const PORT = Number(process.env.PROBE_PORT || 9441)
 const URL = process.argv[2] || 'http://127.0.0.1:3000/sign-in'
 const USER_DATA_DIR =
   process.env.PROBE_USER_DATA_DIR || join(tmpdir(), 'edge-color-probe')
+const SOCKET_CLOSED = 3
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
@@ -85,7 +86,9 @@ async function main() {
         reject(new Error('WebSocket closed before the CDP session opened'))
       }
       ws.onerror = (event) => {
-        reject(new Error(`WebSocket connection failed: ${String(event.type)}`))
+        const message =
+          event.error?.message || event.message || String(event.error || event)
+        reject(new Error(`WebSocket connection failed: ${message}`))
       }
     })
     let id = 0
@@ -149,10 +152,12 @@ async function main() {
   })()`
     console.log(URL, '=>')
     console.log(await evl(script))
-    await new Promise((resolve) => {
-      ws.onclose = resolve
-      ws.close()
-    })
+    if (ws.readyState !== SOCKET_CLOSED) {
+      await new Promise((resolve) => {
+        ws.onclose = resolve
+        ws.close()
+      })
+    }
   } finally {
     proc.kill()
   }
