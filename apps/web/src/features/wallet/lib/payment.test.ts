@@ -392,6 +392,7 @@ describe('payment checkout navigation', () => {
     }> = []
     const popup = {
       closed: false,
+      name: '',
       opener: {} as Window | null,
       close: () => undefined,
       focus: () => undefined,
@@ -407,10 +408,8 @@ describe('payment checkout navigation', () => {
         configurable: true,
         value: {
           location: { href: '' },
-          open: (url: string, target: string, features: string) => {
-            assert.equal(url, 'about:blank')
-            assert.match(target, /^payment_checkout_/)
-            assert.equal(features, 'noopener,noreferrer')
+          open: (...args: unknown[]) => {
+            assert.deepEqual(args, [])
             return popup
           },
         },
@@ -453,6 +452,7 @@ describe('payment checkout navigation', () => {
 
       const checkout = reservePaymentCheckout()
       assert.ok(checkout.target)
+      assert.equal(popup.name, checkout.target)
       assert.equal(popup.opener, null)
       assert.equal(
         submitPaymentForm(
@@ -526,7 +526,11 @@ describe('payment checkout navigation', () => {
       globalThis,
       'navigator'
     )
-    const location = { href: '' }
+    const originalDocument = Object.getOwnPropertyDescriptor(
+      globalThis,
+      'document'
+    )
+    const navigations: string[] = []
 
     try {
       Object.defineProperty(globalThis, 'navigator', {
@@ -536,8 +540,27 @@ describe('payment checkout navigation', () => {
       Object.defineProperty(globalThis, 'window', {
         configurable: true,
         value: {
-          location,
           open: () => null,
+        },
+      })
+      Object.defineProperty(globalThis, 'document', {
+        configurable: true,
+        value: {
+          body: {
+            appendChild: () => undefined,
+            removeChild: () => undefined,
+          },
+          createElement: (tag: string) => {
+            assert.equal(tag, 'a')
+            return {
+              href: '',
+              rel: '',
+              target: '',
+              click(this: { href: string }) {
+                navigations.push(this.href)
+              },
+            }
+          },
         },
       })
 
@@ -550,7 +573,7 @@ describe('payment checkout navigation', () => {
         ),
         true
       )
-      assert.equal(location.href, 'https://pay.example.test/blocked')
+      assert.deepEqual(navigations, ['https://pay.example.test/blocked'])
 
       const closedCheckout = {
         target: 'payment_checkout_closed',
@@ -567,7 +590,10 @@ describe('payment checkout navigation', () => {
         ),
         true
       )
-      assert.equal(location.href, 'https://pay.example.test/closed')
+      assert.deepEqual(navigations, [
+        'https://pay.example.test/blocked',
+        'https://pay.example.test/closed',
+      ])
     } finally {
       if (originalWindow) {
         Object.defineProperty(globalThis, 'window', originalWindow)
@@ -578,6 +604,11 @@ describe('payment checkout navigation', () => {
         Object.defineProperty(globalThis, 'navigator', originalNavigator)
       } else {
         Reflect.deleteProperty(globalThis, 'navigator')
+      }
+      if (originalDocument) {
+        Object.defineProperty(globalThis, 'document', originalDocument)
+      } else {
+        Reflect.deleteProperty(globalThis, 'document')
       }
     }
   })

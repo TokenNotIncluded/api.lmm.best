@@ -19,7 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { useMediaQuery } from '@/hooks/use-media-query'
 
 export const ASSISTANT_RAIL_MIN_WIDTH = 1280
-export const ASSISTANT_RAIL_MEDIA_QUERY = `(min-width: ${ASSISTANT_RAIL_MIN_WIDTH}px)`
+const ASSISTANT_RAIL_MEDIA_QUERY = `(min-width: ${ASSISTANT_RAIL_MIN_WIDTH}px)`
 
 export function isAssistantRailViewport(width: number) {
   return width >= ASSISTANT_RAIL_MIN_WIDTH

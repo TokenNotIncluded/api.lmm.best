@@ -15,7 +15,7 @@ You should have received a copy of the GNU Affero General Public License
 along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 
-export function isSinglePunctuationMark(message: string): boolean {
+function isSinglePunctuationMark(message: string): boolean {
   const trimmed = message.trim()
   const runes = [...trimmed]
   return runes.length === 1 && /^\p{P}$/u.test(runes[0] ?? '')

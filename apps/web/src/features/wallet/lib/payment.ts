@@ -118,12 +118,13 @@ export function reservePaymentCheckout(): PaymentCheckout {
   const target = `payment_checkout_${Date.now()}_${Math.random()
     .toString(36)
     .slice(2)}`
-  const popup = window.open('about:blank', target, 'noopener,noreferrer')
+  const popup = window.open()
 
-  // Defense in depth for browsers that return a Window despite the features.
+  // Defense in depth before the blank window navigates to the checkout.
   // The checkout must never receive a reference to the application window.
   if (popup) {
     try {
+      popup.name = target
       popup.opener = null
     } catch {
       // Cross-origin browser implementations may expose a read-only opener.
@@ -143,6 +144,16 @@ export function cancelPaymentCheckout(checkout: PaymentCheckout): void {
  * fall back to a safe same-tab navigation rather than trying another blocked
  * popup after the async request completes.
  */
+function navigateCurrentWindow(url: string) {
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.target = '_self'
+  anchor.rel = 'noopener noreferrer'
+  document.body.appendChild(anchor)
+  anchor.click()
+  document.body.removeChild(anchor)
+}
+
 export function redirectToPaymentCheckout(
   checkout: PaymentCheckout,
   url: unknown
@@ -155,7 +166,7 @@ export function redirectToPaymentCheckout(
     checkout.popup.location.href = url
     checkout.popup.focus()
   } else {
-    window.location.href = url
+    navigateCurrentWindow(url)
   }
 
   return true
@@ -171,7 +182,7 @@ export function isStripePayment(paymentType: string): boolean {
 /**
  * Check if payment method is Creem
  */
-export function isCreemPayment(paymentType: string): boolean {
+function isCreemPayment(paymentType: string): boolean {
   return paymentType === PAYMENT_TYPES.CREEM
 }
 

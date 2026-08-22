@@ -39,11 +39,6 @@ export const PAYMENT_TYPES = {
 } as const
 
 /**
- * Default payment type
- */
-export const DEFAULT_PAYMENT_TYPE = PAYMENT_TYPES.ALIPAY
-
-/**
  * Payment icon colors. The actual palette lives in forge-tokens.css so icons
  * follow the same source of truth as the rest of the editorial surface.
  */

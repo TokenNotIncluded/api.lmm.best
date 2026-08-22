@@ -21,7 +21,7 @@ export type AssistantMessageSafetyResult = {
   redacted: boolean
 }
 
-export const ASSISTANT_REDACTION_PLACEHOLDERS = {
+const ASSISTANT_REDACTION_PLACEHOLDERS = {
   apiKey: '[REDACTED_API_KEY]',
   credential: '[REDACTED_CREDENTIAL]',
   email: '[REDACTED_EMAIL]',
