@@ -65,7 +65,7 @@ func getAccessToken(a *Adaptor, info *relaycommon.RelayInfo) (string, error) {
 
 func createSignedJWT(email, privateKeyPEM string) (string, error) {
 
-	privateKeyPEM = strings.ReplaceAll(privateKeyPEM, "-----BEGIN PRIVATE KEY-----", "")
+	privateKeyPEM = strings.ReplaceAll(privateKeyPEM, "-----BEGIN PRIVATE KEY-----", "") // gitleaks:allow
 	privateKeyPEM = strings.ReplaceAll(privateKeyPEM, "-----END PRIVATE KEY-----", "")
 	privateKeyPEM = strings.ReplaceAll(privateKeyPEM, "\r", "")
 	privateKeyPEM = strings.ReplaceAll(privateKeyPEM, "\n", "")

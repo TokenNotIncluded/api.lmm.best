@@ -219,7 +219,7 @@ func (a *TaskAdaptor) FetchTask(baseUrl, key string, body map[string]any, proxy 
 		uri = fmt.Sprintf("%s/jimeng/?Action=CVSync2AsyncGetResult&Version=2022-08-31", a.baseURL)
 	}
 	payload := map[string]string{
-		"req_key": "jimeng_vgfm_t2v_l20", // This is fixed value from doc: https://www.volcengine.com/docs/85621/1544774
+		"req_key": "jimeng_vgfm_t2v_l20", // This is fixed value from doc: https://www.volcengine.com/docs/85621/1544774 // gitleaks:allow
 		"task_id": taskID,
 	}
 	payloadBytes, err := common.Marshal(payload)
@@ -391,9 +391,9 @@ func (a *TaskAdaptor) convertToRequestPayload(req *relaycommon.TaskSubmitReq, in
 	// https://www.volcengine.com/docs/85621/1792707
 	imageLen := lo.Max([]int{len(req.Images), len(r.BinaryDataBase64), len(r.ImageUrls)})
 	if strings.Contains(r.ReqKey, "jimeng_v30") {
-		if r.ReqKey == "jimeng_v30_pro" {
+		if r.ReqKey == "jimeng_v30_pro" { // gitleaks:allow
 			// 3.0 pro只有固定的jimeng_ti2v_v30_pro
-			r.ReqKey = "jimeng_ti2v_v30_pro"
+			r.ReqKey = "jimeng_ti2v_v30_pro" // gitleaks:allow
 		} else if imageLen > 1 {
 			// 多张图片：首尾帧生成
 			r.ReqKey = strings.TrimSuffix(strings.Replace(r.ReqKey, "jimeng_v30", "jimeng_i2v_first_tail_v30", 1), "p")

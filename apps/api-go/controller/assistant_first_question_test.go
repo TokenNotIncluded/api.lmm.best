@@ -15,8 +15,8 @@ import (
 func TestAdminGetAssistantFirstQuestionSummary(t *testing.T) {
 	db := setupManageUserTestDB(t)
 	require.NoError(t, db.AutoMigrate(&model.AssistantFirstQuestionStat{}))
-	require.NoError(t, model.RecordAssistantFirstQuestion("  How   do I use the API? email: alice@example.com api_key=sk_live_secret123  "))
-	require.NoError(t, model.RecordAssistantFirstQuestion("how do I use the api? email: bob@example.com api_key=sk_live_other456"))
+	require.NoError(t, model.RecordAssistantFirstQuestion("  How   do I use the API? email: alice@example.com api_key=sk_live_secret123  ")) // gitleaks:allow
+	require.NoError(t, model.RecordAssistantFirstQuestion("how do I use the api? email: bob@example.com api_key=sk_live_other456"))          // gitleaks:allow
 
 	gin.SetMode(gin.TestMode)
 	recorder := httptest.NewRecorder()

@@ -203,8 +203,8 @@ func TestAssistantProfileSummaryIsAggregateOnly(t *testing.T) {
 
 func TestAssistantFirstQuestionAggregationNormalizesAndRedacts(t *testing.T) {
 	_ = setupAssistantLeadTestDB(t)
-	first := "  How   do I use the API? email: alice@example.com user_id=123 token=short-secret-123 api_key=sk_live_supersecret123  "
-	second := "how do I use the api? email: bob@example.com user_id=987 token=another-secret-456 api_key=sk_live_othersecret456"
+	first := "  How   do I use the API? email: alice@example.com user_id=123 token=short-secret-123 api_key=sk_live_supersecret123  " // gitleaks:allow
+	second := "how do I use the api? email: bob@example.com user_id=987 token=another-secret-456 api_key=sk_live_othersecret456"      // gitleaks:allow
 	require.NoError(t, RecordAssistantFirstQuestion(first))
 	require.NoError(t, RecordAssistantFirstQuestion(second))
 
@@ -214,8 +214,8 @@ func TestAssistantFirstQuestionAggregationNormalizesAndRedacts(t *testing.T) {
 	assert.EqualValues(t, 2, rows[0].Count)
 	assert.NotContains(t, rows[0].Question, "alice@example.com")
 	assert.NotContains(t, rows[0].Question, "bob@example.com")
-	assert.NotContains(t, rows[0].Question, "sk_live_supersecret123")
-	assert.NotContains(t, rows[0].Question, "sk_live_othersecret456")
+	assert.NotContains(t, rows[0].Question, "sk_live_supersecret123") // gitleaks:allow
+	assert.NotContains(t, rows[0].Question, "sk_live_othersecret456") // gitleaks:allow
 	assert.NotContains(t, rows[0].Question, "short-secret-123")
 	assert.NotContains(t, rows[0].Question, "another-secret-456")
 	assert.NotContains(t, rows[0].Question, "user_id")

@@ -63,7 +63,7 @@ func TestOpenSourceBountyTipHTTPIdempotencyReplay(t *testing.T) {
 	invalid := send("", `{"quota":250,"note":"HTTP replay"}`)
 	assert.False(t, invalid.Success)
 	assert.Equal(t, "OPEN_SOURCE_BOUNTY_INVALID_IDEMPOTENCY_KEY", invalid.Code)
-	key := "01988f13-4432-7b02-8d5e-9c82794fc004"
+	key := "01988f13-4432-7b02-8d5e-9c82794fc004" // gitleaks:allow
 	first := send(key, `{"quota":250,"note":" HTTP replay "}`)
 	require.True(t, first.Success)
 	replay := send(key, `{"quota":250,"note":"HTTP replay"}`)

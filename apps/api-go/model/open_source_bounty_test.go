@@ -475,7 +475,7 @@ func TestOpenSourceBountyRESTTipIdempotencyReplayMismatchAndRetry(t *testing.T) 
 	challenge, err := AcceptOpenSourceBounty(participant.Id, project.Id, "rest-tip-contributor")
 	require.NoError(t, err)
 
-	key := "01988f13-4432-7b02-8d5e-9c82794fc001"
+	key := "01988f13-4432-7b02-8d5e-9c82794fc001" // gitleaks:allow
 	first, err := TipOpenSourceBountyChallengeIdempotent(owner.Id, challenge.Id, 250, "  Thanks for the focused diagnosis.  ", key)
 	require.NoError(t, err)
 	assert.Equal(t, 250, first.TransferredQuota)
@@ -498,7 +498,7 @@ func TestOpenSourceBountyRESTTipIdempotencyReplayMismatchAndRetry(t *testing.T) 
 	require.NoError(t, db.Model(&OpenSourceBountyRESTOperation{}).Count(&operations).Error)
 	assert.Equal(t, int64(1), operations)
 
-	failedKey := "01988f13-4432-7b02-8d5e-9c82794fc002"
+	failedKey := "01988f13-4432-7b02-8d5e-9c82794fc002" // gitleaks:allow
 	_, err = TipOpenSourceBountyChallengeIdempotent(owner.Id, challenge.Id, 9_000, "Retry after replenishing balance.", failedKey)
 	assert.Equal(t, "OPEN_SOURCE_BOUNTY_INSUFFICIENT_BALANCE", OpenSourceBountyErrorCode(err))
 	require.NoError(t, db.Model(&User{}).Where("id = ?", owner.Id).Update("quota", 9_000).Error)

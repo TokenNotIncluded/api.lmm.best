@@ -660,14 +660,14 @@ func testHeroSMSSettingsEncryptionRetentionAndClear(t *testing.T) {
 	view, err = GetHeroSMSSettingsView()
 	require.NoError(t, err)
 	require.True(t, view.PendingWork)
-	err = UpdateHeroSMSSettings(HeroSMSSettingsUpdate{APIKey: "replacement-secret-key-12345"})
+	err = UpdateHeroSMSSettings(HeroSMSSettingsUpdate{APIKey: "replacement-secret-key-12345"}) // gitleaks:allow
 	require.ErrorAs(t, err, &apiErr)
 	require.Equal(t, "ACTIVE_ORDERS", apiErr.Code)
 	err = ClearHeroSMSAPIKey()
 	require.ErrorAs(t, err, &apiErr)
 	require.Equal(t, "ACTIVE_ORDERS", apiErr.Code)
 	require.NoError(t, db.Model(&HeroSMSEmailActivation{}).Where("id = ?", activeActivation.ID).Update("status", HeroSMSEmailActivationStatusCompleted).Error)
-	require.NoError(t, UpdateHeroSMSSettings(HeroSMSSettingsUpdate{APIKey: "replacement-secret-key-12345"}))
+	require.NoError(t, UpdateHeroSMSSettings(HeroSMSSettingsUpdate{APIKey: "replacement-secret-key-12345"})) // gitleaks:allow
 	require.NoError(t, ClearHeroSMSAPIKey())
 	persistedKey, err = heroSMSConfiguredAPIKey()
 	require.NoError(t, err)

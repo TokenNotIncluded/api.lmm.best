@@ -68,7 +68,7 @@ func TestSubscriptionPaymentMethodsUsePlanStripeProductWithoutWalletProduct(t *t
 
 	paymentSetting.ComplianceConfirmed = true
 	paymentSetting.ComplianceTermsVersion = operation_setting.CurrentComplianceTermsVersion
-	setting.StripeApiSecret = "sk_test_subscription"
+	setting.StripeApiSecret = "sk_test_subscription" // gitleaks:allow
 	setting.StripeWebhookSecret = "whsec_subscription"
 	// The wallet's global Stripe price is intentionally absent. Subscription
 	// plans own their Stripe product and must not depend on this setting.

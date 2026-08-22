@@ -59,7 +59,7 @@ func TestAssistantMemoryViewsRedactLegacyRows(t *testing.T) {
 	legacy := AssistantMemory{
 		UserId:  user.Id,
 		Title:   "Legacy password: hunter2",
-		Content: "Contact old.user@example.com with key=sk_legacy_secret_123456 and card 4111 1111 1111 1111.",
+		Content: "Contact old.user@example.com with key=sk_legacy_secret_123456 and card 4111 1111 1111 1111.", // gitleaks:allow
 		TagsJSON: `[
   "api_key: sk_legacy_tag_secret",
   "legacy"

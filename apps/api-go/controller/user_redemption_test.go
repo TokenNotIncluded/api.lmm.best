@@ -8,7 +8,7 @@ import (
 )
 
 func TestRedeemFailureLogOmitsSubmittedKey(t *testing.T) {
-	const submittedKey = "redeem-secret-123456789"
+	const submittedKey = "redeem-secret-123456789" // gitleaks:allow
 
 	logLine := redeemFailureLog(42, errors.New("invalid redemption code: "+submittedKey))
 
