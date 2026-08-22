@@ -118,6 +118,10 @@ go_artifact="lmm-api-go-${go_pkgver}-linux-amd64"
 go_bundle="$go_work/stage/$go_artifact"
 mkdir -p "$go_bundle/frontend-dist" "$go_bundle/edge-policy/nginx"
 cp "$HERE/lmm-api-go-bin/PKGBUILD" "$go_work/"
+# Exercise the retained bundled-frontend branch independently of the immutable
+# release pinned by the canonical package.
+# shellcheck disable=SC2016 # Deliberately write a PKGBUILD variable reference.
+printf '\n_legacy_bundled_version=$pkgver\n' >> "$go_work/PKGBUILD"
 printf '#!/bin/sh\nexit 0\n' > "$go_bundle/lmm-api-go"
 chmod 0755 "$go_bundle/lmm-api-go"
 printf '<!doctype html>\n' > "$go_bundle/frontend-dist/index.html"
