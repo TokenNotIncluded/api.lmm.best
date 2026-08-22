@@ -583,18 +583,29 @@ grep -Fq 'ROLLED_BACK' "$aur_direct_rollback_workspace/state/status" || fail 'AU
   fail 'AUR Go rollback removed the existing lmm-api.service drop-ins'
 export LMM_TEST_NEW_PKGREL=1
 
-assert_failed_rollback() {
-  local id=$1 injection=$2 step=$3 timer=${4:-active} workspace
+setup_locked_case() {
+  local id=$1
   setup_case "$id" direct lmm-api-go-bin
-  workspace=$CASE_WORKSPACE
   install -d -m0700 "$LMM_DEPLOY_TEST_TRANSACTION_LOCK"
   printf 'deployment_id=%s\n' "$id" >"$LMM_DEPLOY_TEST_TRANSACTION_LOCK/deployment.env"
+}
+
+inject_failed_activation() {
+  local id=$1 injection=$2 workspace
+  setup_locked_case "$id"
+  workspace=$CASE_WORKSPACE
   export LMM_TEST_FAIL_NEW=1
   export "$injection=1"
   if activate_case "$workspace" >"$tmp/activate-$id.out" 2>"$tmp/activate-$id.err"; then
     fail "$id unexpectedly succeeded"
   fi
   unset LMM_TEST_FAIL_NEW "$injection"
+}
+
+assert_failed_rollback() {
+  local id=$1 injection=$2 step=$3 timer=${4:-active} workspace
+  inject_failed_activation "$id" "$injection"
+  workspace=$CASE_WORKSPACE
   grep -Fq 'ROLLBACK_FAILED' "$workspace/state/status" || fail "$id was not marked ROLLBACK_FAILED"
   grep -Fq "step=$step" "$workspace/state/status" || fail "$id did not record failing step $step"
   [[ -f $LMM_DEPLOY_TEST_TRANSACTION_LOCK/deployment.env ]] || fail "$id released the transaction lock"
@@ -607,16 +618,8 @@ assert_failed_rollback() {
 
 assert_retryable_finalization() {
   local id=$1 injection=$2 workspace
-  setup_case "$id" direct lmm-api-go-bin
+  inject_failed_activation "$id" "$injection"
   workspace=$CASE_WORKSPACE
-  install -d -m0700 "$LMM_DEPLOY_TEST_TRANSACTION_LOCK"
-  printf 'deployment_id=%s\n' "$id" >"$LMM_DEPLOY_TEST_TRANSACTION_LOCK/deployment.env"
-  export LMM_TEST_FAIL_NEW=1
-  export "$injection=1"
-  if activate_case "$workspace" >"$tmp/activate-$id.out" 2>"$tmp/activate-$id.err"; then
-    fail "$id unexpectedly succeeded"
-  fi
-  unset LMM_TEST_FAIL_NEW "$injection"
   grep -Fq 'ROLLED_BACK' "$workspace/state/status" || fail "$id did not persist the terminal rollback"
   [[ -f $LMM_TEST_SERVICE_STATE/timer.active ]] || fail "$id left no retry path for finalization"
   "$workspace/staging/activate-go-release.sh" rollback --workspace "$workspace"
@@ -627,10 +630,8 @@ assert_retryable_finalization() {
 
 assert_retryable_confirmation() {
   local id=$1 injection=$2 workspace
-  setup_case "$id" direct lmm-api-go-bin
+  setup_locked_case "$id"
   workspace=$CASE_WORKSPACE
-  install -d -m0700 "$LMM_DEPLOY_TEST_TRANSACTION_LOCK"
-  printf 'deployment_id=%s\n' "$id" >"$LMM_DEPLOY_TEST_TRANSACTION_LOCK/deployment.env"
   activate_case "$workspace" >"$tmp/activate-$id.out"
   export "$injection=1"
   if "$workspace/staging/activate-go-release.sh" confirm --workspace "$workspace" \
