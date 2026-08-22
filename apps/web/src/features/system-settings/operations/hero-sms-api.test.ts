@@ -20,7 +20,7 @@ import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 
 import {
-  getHeroSmsPreviewQuota,
+  getHeroSmsPreviewCustomerPrice,
   serializeHeroSmsSettingsUpdate,
   toHeroSmsSettingsFormValues,
 } from './hero-sms-api'
@@ -58,6 +58,7 @@ describe('hero sms settings api helpers', () => {
       toHeroSmsSettingsFormValues({
         enabled: true,
         api_key_configured: true,
+        pending_work: false,
         currency: 'USD',
         currency_code: 840,
         price_multiplier: 0,
@@ -69,7 +70,7 @@ describe('hero sms settings api helpers', () => {
       }
     )
 
-    assert.equal(getHeroSmsPreviewQuota(10), 10)
-    assert.equal(getHeroSmsPreviewQuota(12.5), 12.5)
+    assert.equal(getHeroSmsPreviewCustomerPrice(10), 10)
+    assert.equal(getHeroSmsPreviewCustomerPrice(12.5), 12.5)
   })
 })

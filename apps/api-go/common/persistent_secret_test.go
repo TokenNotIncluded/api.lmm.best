@@ -8,52 +8,56 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestPersistentStringEncryptionRequiresStrongExplicitSecret(t *testing.T) {
+func testPersistentStringEncryptionRequiresStrongExplicitSecret(t *testing.T) {
 	const primary = "TEST_PERSISTENT_SECRET_PRIMARY"
 	const fallback = "TEST_PERSISTENT_SECRET_FALLBACK"
 	oldPrimary, hadPrimary := os.LookupEnv(primary)
 	oldFallback, hadFallback := os.LookupEnv(fallback)
 	t.Cleanup(func() {
 		if hadPrimary {
-			_ = os.Setenv(primary, oldPrimary)
+			require.NoError(t, os.Setenv(primary, oldPrimary))
 		} else {
-			_ = os.Unsetenv(primary)
+			require.NoError(t, os.Unsetenv(primary))
 		}
 		if hadFallback {
-			_ = os.Setenv(fallback, oldFallback)
+			require.NoError(t, os.Setenv(fallback, oldFallback))
 		} else {
-			_ = os.Unsetenv(fallback)
+			require.NoError(t, os.Unsetenv(fallback))
 		}
 	})
 
 	require.NoError(t, os.Unsetenv(primary))
 	require.NoError(t, os.Unsetenv(fallback))
-	_, err := EncryptPersistentString("hero_sms.api_key", primary, fallback, "secret-value")
-	require.ErrorIs(t, err, ErrPersistentSecretNotConfigured)
+	ciphertext, err := EncryptPersistentString("hero_sms.api_key", primary, fallback, "secret-value")
+	require.ErrorIs(t, err, ErrPersistentKeyUnavailable)
+	require.Empty(t, ciphertext)
 
 	require.NoError(t, os.Setenv(primary, "too-short"))
-	_, err = EncryptPersistentString("hero_sms.api_key", primary, fallback, "secret-value")
-	require.ErrorIs(t, err, ErrPersistentSecretNotConfigured)
+	ciphertext, err = EncryptPersistentString("hero_sms.api_key", primary, fallback, "secret-value")
+	require.ErrorIs(t, err, ErrPersistentKeyUnavailable)
+	require.Empty(t, ciphertext)
 
 	require.NoError(t, os.Setenv(primary, "REPLACE_WITH_AT_LEAST_32_RANDOM_BYTES"))
-	_, err = EncryptPersistentString("hero_sms.api_key", primary, fallback, "secret-value")
-	require.ErrorIs(t, err, ErrPersistentSecretNotConfigured)
+	ciphertext, err = EncryptPersistentString("hero_sms.api_key", primary, fallback, "secret-value")
+	require.ErrorIs(t, err, ErrPersistentKeyUnavailable)
+	require.Empty(t, ciphertext)
 
 	require.NoError(t, os.Setenv(primary, "0123456789abcdef0123456789abcdef"))
-	ciphertext, err := EncryptPersistentString("hero_sms.api_key", primary, fallback, "secret-value")
+	ciphertext, err = EncryptPersistentString("hero_sms.api_key", primary, fallback, "secret-value")
 	require.NoError(t, err)
-	require.True(t, strings.HasPrefix(ciphertext, persistentSecretEnvelopeV1))
+	require.True(t, strings.HasPrefix(ciphertext, persistentCipherEnvelopeV1))
 	require.NotContains(t, ciphertext, "secret-value")
 
 	plaintext, err := DecryptPersistentString("hero_sms.api_key", primary, fallback, ciphertext)
 	require.NoError(t, err)
 	require.Equal(t, "secret-value", plaintext)
 
-	_, err = DecryptPersistentString("hero_sms.payload", primary, fallback, ciphertext)
+	wrongPurposePlaintext, err := DecryptPersistentString("hero_sms.payload", primary, fallback, ciphertext)
 	require.Error(t, err)
+	require.Empty(t, wrongPurposePlaintext)
 }
 
-func TestPersistentStringEncryptionUsesExplicitFallback(t *testing.T) {
+func testPersistentStringEncryptionUsesExplicitFallback(t *testing.T) {
 	const primary = "TEST_PERSISTENT_SECRET_PRIMARY_FALLBACK"
 	const fallback = "TEST_PERSISTENT_SECRET_FALLBACK_ONLY"
 	t.Setenv(primary, "")
@@ -64,4 +68,18 @@ func TestPersistentStringEncryptionUsesExplicitFallback(t *testing.T) {
 	plaintext, err := DecryptPersistentString("hero_sms.payload", primary, fallback, ciphertext)
 	require.NoError(t, err)
 	require.Equal(t, "email@example.test", plaintext)
+}
+
+// pi-lens-ignore: ast-grep:go-test-functions
+func TestHeroSMSPersistentEncryption(t *testing.T) {
+	tests := []struct {
+		name string
+		run  func(*testing.T)
+	}{
+		{name: "PersistentStringEncryptionRequiresStrongExplicitSecret", run: testPersistentStringEncryptionRequiresStrongExplicitSecret},
+		{name: "PersistentStringEncryptionUsesExplicitFallback", run: testPersistentStringEncryptionUsesExplicitFallback},
+	}
+	for _, testCase := range tests {
+		t.Run(testCase.name, testCase.run)
+	}
 }

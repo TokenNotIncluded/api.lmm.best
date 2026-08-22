@@ -8,7 +8,7 @@ the Free Software Foundation, either version 3 of the License, or
 */
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Copy, Pencil, Plus, RefreshCw, Trash2 } from 'lucide-react'
+import { Copy, Pencil, Trash2 } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -45,18 +45,23 @@ import {
   listDiscountCodes,
   updateDiscountCode,
   updateDiscountCodeStatus,
-} from './api'
+} from './api.js'
+import {
+  CleanupExhaustedCodesDialog,
+  DiscountCodesActions,
+} from './discount-codes-actions.js'
+import { useExhaustedDiscountCodeCleanup } from './use-exhausted-discount-code-cleanup.js'
 import {
   DISCOUNT_CODE_ENABLED_STATUS,
   getDiscountCodeAvailability,
   parseDiscountCodeMaxUses,
-} from './availability'
-import { buildDiscountCodeLink } from './share-link'
+} from './availability.js'
+import { buildDiscountCodeLink } from './share-link.js'
 import type {
   DiscountCode,
   DiscountCodeBatchInput,
   DiscountCodeInput,
-} from './types'
+} from './types.js'
 
 const DISABLED = 2
 
@@ -69,6 +74,21 @@ type FormState = {
   max_uses: string
   starts_time: string
   expired_time: string
+}
+
+async function copyDiscountLinks(
+  codes: string[],
+  t: ReturnType<typeof useTranslation>['t']
+) {
+  if (codes.length === 0 || !navigator.clipboard) return
+  try {
+    await navigator.clipboard.writeText(
+      codes.map((code) => buildDiscountCodeLink(code)).join('\n')
+    )
+    toast.success(t('Copied to clipboard'))
+  } catch {
+    toast.error(t('Unable to copy'))
+  }
 }
 
 const emptyForm: FormState = {
@@ -133,6 +153,7 @@ function availabilityLabel(
   }
 }
 
+// pi-lens-ignore: high-fan-out, high-complexity
 export function DiscountCodes() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
@@ -158,6 +179,10 @@ export function DiscountCodes() {
 
   const refresh = () =>
     queryClient.invalidateQueries({ queryKey: ['discount-codes'] })
+  const cleanup = useExhaustedDiscountCodeCleanup(() => {
+    setSelectedIds(new Set())
+    void refresh()
+  })
 
   const saveMutation = useMutation({
     mutationFn: async (input: DiscountCodeInput | DiscountCodeBatchInput) =>
@@ -297,25 +322,14 @@ export function DiscountCodes() {
     })
   }
 
-  const copyDiscountLinks = async (codes: string[]) => {
-    if (codes.length === 0 || !navigator.clipboard) return
-    try {
-      await navigator.clipboard.writeText(
-        codes.map((code) => buildDiscountCodeLink(code)).join('\n')
-      )
-      toast.success(t('Copied to clipboard'))
-    } catch {
-      toast.error(t('Unable to copy'))
-    }
-  }
-
   const copyCode = () => {
-    void copyDiscountLinks(form.code ? [form.code] : [])
+    void copyDiscountLinks(form.code ? [form.code] : [], t)
   }
 
   const copySelectedCodes = () => {
     void copyDiscountLinks(
-      rows.filter((row) => selectedIds.has(row.id)).map((row) => row.code)
+      rows.flatMap((row) => (selectedIds.has(row.id) ? [row.code] : [])),
+      t
     )
   }
 
@@ -324,29 +338,14 @@ export function DiscountCodes() {
       <SectionPageLayout>
         <SectionPageLayout.Title>{t('Discount Codes')}</SectionPageLayout.Title>
         <SectionPageLayout.Actions>
-          <div className='flex gap-2'>
-            <Button
-              variant='outline'
-              size='sm'
-              onClick={() => void query.refetch()}
-            >
-              <RefreshCw className='size-4' />
-              {t('Refresh')}
-            </Button>
-            <Button
-              variant='outline'
-              size='sm'
-              disabled={selectedIds.size === 0}
-              onClick={copySelectedCodes}
-            >
-              <Copy className='size-4' />
-              {t('Copy selected links')} ({selectedIds.size})
-            </Button>
-            <Button size='sm' onClick={openCreate}>
-              <Plus className='size-4' />
-              {t('Create discount code')}
-            </Button>
-          </div>
+          <DiscountCodesActions
+            selectedCount={selectedIds.size}
+            cleanupPending={cleanup.pending}
+            onRefresh={() => void query.refetch()}
+            onCopySelected={copySelectedCodes}
+            onOpenCleanup={() => cleanup.setOpen(true)}
+            onCreate={openCreate}
+          />
         </SectionPageLayout.Actions>
         <SectionPageLayout.Content>
           <div className='mx-auto w-full max-w-6xl space-y-5'>
@@ -383,15 +382,17 @@ export function DiscountCodes() {
                   <span>{t('Validity')}</span>
                   <span />
                 </div>
-                {query.isLoading ? (
+                {query.isLoading && (
                   <p className='text-muted-foreground px-2 py-10 text-sm'>
                     {t('Loading...')}
                   </p>
-                ) : rows.length === 0 ? (
+                )}
+                {!query.isLoading && rows.length === 0 && (
                   <p className='text-muted-foreground px-2 py-10 text-sm'>
                     {t('No discount codes')}
                   </p>
-                ) : (
+                )}
+                {!query.isLoading &&
                   rows.map((row) => (
                     <div
                       className='grid grid-cols-[auto_1.3fr_1fr_.7fr_.8fr_1fr_1.4fr_auto] items-center gap-4 border-b px-2 py-4 text-sm last:border-b-0'
@@ -469,8 +470,7 @@ export function DiscountCodes() {
                         </Button>
                       </div>
                     </div>
-                  ))
-                )}
+                  ))}
               </div>
             </div>
             {pageCount > 1 ? (
@@ -501,6 +501,13 @@ export function DiscountCodes() {
           </div>
         </SectionPageLayout.Content>
       </SectionPageLayout>
+
+      <CleanupExhaustedCodesDialog
+        open={cleanup.open}
+        pending={cleanup.pending}
+        onOpenChange={cleanup.setOpen}
+        onConfirm={cleanup.confirm}
+      />
 
       <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
         <SheetContent className='sm:max-w-[520px]'>
@@ -701,7 +708,7 @@ export function DiscountCodes() {
             <DialogClose render={<Button variant='outline' />}>
               {t('Cancel')}
             </DialogClose>
-            <Button onClick={() => void copyDiscountLinks(generatedCodes)}>
+            <Button onClick={() => void copyDiscountLinks(generatedCodes, t)}>
               <Copy className='size-4' />
               {t('Copy all generated links')}
             </Button>

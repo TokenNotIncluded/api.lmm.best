@@ -27,13 +27,14 @@ const (
 )
 
 var (
-	ErrUnauthorized    = errors.New("hero sms unauthorized")
-	ErrNotFound        = errors.New("hero sms not found")
-	ErrInvalidRequest  = errors.New("hero sms invalid request")
-	ErrRateLimited     = errors.New("hero sms rate limited")
-	ErrUpstreamBusy    = errors.New("hero sms upstream busy")
-	ErrBadResponse     = errors.New("hero sms bad response")
-	ErrUpstreamTimeout = errors.New("hero sms timeout")
+	ErrUnauthorized       = errors.New("hero sms unauthorized")
+	ErrNotFound           = errors.New("hero sms not found")
+	ErrInvalidRequest     = errors.New("hero sms invalid request")
+	ErrRateLimited        = errors.New("hero sms rate limited")
+	ErrUpstreamBusy       = errors.New("hero sms upstream busy")
+	ErrBadResponse        = errors.New("hero sms bad response")
+	ErrBatchCountMismatch = errors.New("hero sms batch count mismatch")
+	ErrUpstreamTimeout    = errors.New("hero sms timeout")
 )
 
 type Domain struct {
@@ -76,6 +77,7 @@ type EmailRecord struct {
 
 type BatchPurchaseResult struct {
 	Items []EmailRecord `json:"items"`
+	Count int           `json:"count"`
 }
 
 type Client interface {
@@ -158,6 +160,7 @@ func (c *HTTPClient) ListEmails(ctx context.Context, page int, size int) (*ListE
 	query := url.Values{}
 	query.Set("page", strconv.Itoa(page))
 	query.Set("size", strconv.Itoa(size))
+	query.Set("sort[id]", "desc")
 	body, err := c.doJSON(ctx, http.MethodGet, "/emails", query, nil)
 	if err != nil {
 		return nil, err
@@ -193,6 +196,35 @@ func (c *HTTPClient) ListEmails(ctx context.Context, page int, size int) (*ListE
 	return response, nil
 }
 
+func (c *HTTPClient) SearchEmails(ctx context.Context, search string, size int) (*ListEmailsResponse, error) {
+	query := url.Values{}
+	query.Set("page", "1")
+	query.Set("size", strconv.Itoa(size))
+	query.Set("sort[id]", "desc")
+	query.Set("search", strings.TrimSpace(search))
+	body, err := c.doJSON(ctx, http.MethodGet, "/emails", query, nil)
+	if err != nil {
+		return nil, err
+	}
+	var raw struct {
+		Data []map[string]any `json:"data"`
+	}
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.UseNumber()
+	if err := decoder.Decode(&raw); err != nil {
+		return nil, fmt.Errorf("%w: decode email search response", ErrBadResponse)
+	}
+	response := &ListEmailsResponse{Page: 1, Size: size, Total: len(raw.Data), Data: make([]EmailListItem, 0, len(raw.Data))}
+	for _, item := range raw.Data {
+		record, err := decodeEmailRecordMap(item)
+		if err != nil {
+			return nil, fmt.Errorf("decode searched HeroSMS email: %w", err)
+		}
+		response.Data = append(response.Data, EmailListItem{ID: record.ID, Email: record.Email, Site: record.Site, Status: record.Status, Date: record.Date})
+	}
+	return response, nil
+}
+
 func (c *HTTPClient) CreateEmail(ctx context.Context, site string, domain string) (*EmailRecord, error) {
 	body, err := c.doJSON(ctx, http.MethodPost, "/emails", nil, map[string]any{"site": site, "domain": domain})
 	if err != nil {
@@ -208,19 +240,25 @@ func (c *HTTPClient) CreateEmailBatch(ctx context.Context, site string, domain s
 	}
 	var raw struct {
 		Items []map[string]any `json:"data"`
+		Meta  struct {
+			Count int `json:"count"`
+		} `json:"meta"`
 	}
 	decoder := json.NewDecoder(bytes.NewReader(body))
 	decoder.UseNumber()
 	if err := decoder.Decode(&raw); err != nil {
 		return nil, fmt.Errorf("%w: decode batch response", ErrBadResponse)
 	}
-	result := &BatchPurchaseResult{Items: make([]EmailRecord, 0, len(raw.Items))}
+	result := &BatchPurchaseResult{Items: make([]EmailRecord, 0, len(raw.Items)), Count: raw.Meta.Count}
 	for _, item := range raw.Items {
 		record, err := decodeEmailRecordMap(item)
 		if err != nil {
 			return nil, err
 		}
 		result.Items = append(result.Items, record)
+	}
+	if len(result.Items) != count || result.Count != count {
+		return result, fmt.Errorf("%w: requested=%d returned=%d meta=%d", ErrBatchCountMismatch, count, len(result.Items), result.Count)
 	}
 	return result, nil
 }
@@ -234,8 +272,14 @@ func (c *HTTPClient) GetEmail(ctx context.Context, id string) (*EmailRecord, err
 }
 
 func (c *HTTPClient) DeleteEmail(ctx context.Context, id string) error {
-	_, err := c.doJSON(ctx, http.MethodDelete, "/emails/"+url.PathEscape(id), nil, nil)
-	return err
+	body, err := c.doJSON(ctx, http.MethodDelete, "/emails/"+url.PathEscape(id), nil, nil)
+	if err != nil {
+		return fmt.Errorf("delete HeroSMS email: %w", err)
+	}
+	if len(body) != 0 {
+		return fmt.Errorf("%w: cancellation returned an unexpected body", ErrBadResponse)
+	}
+	return nil
 }
 
 func (c *HTTPClient) ReorderEmail(ctx context.Context, id string) (*EmailRecord, error) {
@@ -248,7 +292,7 @@ func (c *HTTPClient) ReorderEmail(ctx context.Context, id string) (*EmailRecord,
 
 func (c *HTTPClient) doJSON(ctx context.Context, method string, path string, query url.Values, payload any) ([]byte, error) {
 	if ctx == nil {
-		ctx = context.Background()
+		return nil, fmt.Errorf("%w: request context is required", ErrInvalidRequest)
 	}
 	requestCtx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
@@ -260,7 +304,7 @@ func (c *HTTPClient) doJSON(ctx context.Context, method string, path string, que
 	if payload != nil {
 		encoded, err := json.Marshal(payload)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("encode HeroSMS request: %w", err)
 		}
 		body = bytes.NewReader(encoded)
 	}
@@ -333,7 +377,7 @@ func decodeDomain(item map[string]any) (Domain, error) {
 }
 
 func decodeEmailRecord(body []byte) (*EmailRecord, error) {
-	var envelope map[string]any
+	envelope := make(map[string]any)
 	decoder := json.NewDecoder(bytes.NewReader(body))
 	decoder.UseNumber()
 	if err := decoder.Decode(&envelope); err != nil {
@@ -345,7 +389,7 @@ func decodeEmailRecord(body []byte) (*EmailRecord, error) {
 	}
 	record, err := decodeEmailRecordMap(item)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("decode HeroSMS email data: %w", err)
 	}
 	return &record, nil
 }
@@ -375,8 +419,11 @@ func decodeEmailRecordMap(item map[string]any) (EmailRecord, error) {
 		}
 		record.CurrencyCode = currencyCode
 	}
-	if record.Email == "" {
-		return EmailRecord{}, fmt.Errorf("%w: missing email field", ErrBadResponse)
+	if record.Email == "" || len(record.Email) > 320 {
+		return EmailRecord{}, fmt.Errorf("%w: invalid email field", ErrBadResponse)
+	}
+	if len(record.Code) > 4096 || len(record.Message) > 64*1024 {
+		return EmailRecord{}, fmt.Errorf("%w: activation content exceeds limits", ErrBadResponse)
 	}
 	return record, nil
 }
@@ -436,15 +483,31 @@ func isTimeoutError(err error) bool {
 	return errors.As(err, &netErr) && netErr.Timeout()
 }
 
+// pi-lens-ignore: go-bare-error
 func FindEmailByExactAddress(ctx context.Context, client Client, address string) (*EmailListItem, error) {
 	trimmed := strings.TrimSpace(address)
 	if trimmed == "" {
 		return nil, nil
 	}
+	if searcher, ok := client.(interface {
+		SearchEmails(context.Context, string, int) (*ListEmailsResponse, error)
+	}); ok {
+		list, err := searcher.SearchEmails(ctx, trimmed, defaultPageSize)
+		if err != nil {
+			return nil, fmt.Errorf("search HeroSMS emails during reconciliation: %w", err)
+		}
+		for _, item := range list.Data {
+			if strings.EqualFold(strings.TrimSpace(item.Email), trimmed) {
+				copied := item
+				return &copied, nil
+			}
+		}
+		return nil, nil
+	}
 	for page := 1; page <= 10; page++ {
 		list, err := client.ListEmails(ctx, page, defaultPageSize)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("list HeroSMS emails during reconciliation: %w", err)
 		}
 		for _, item := range list.Data {
 			if strings.EqualFold(strings.TrimSpace(item.Email), trimmed) {

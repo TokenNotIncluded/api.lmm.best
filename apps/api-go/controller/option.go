@@ -163,18 +163,6 @@ func ValidateOptions(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": ""})
 }
 
-func rejectProtectedHeroSMSOption(c *gin.Context, key string) bool {
-	if !strings.HasPrefix(strings.ToLower(strings.TrimSpace(key)), "hero_sms.") {
-		return false
-	}
-	c.JSON(http.StatusBadRequest, gin.H{
-		"success": false,
-		"code":    "HERO_SMS_SETTINGS_PROTECTED",
-		"message": "HeroSMS settings must be managed via /api/option/hero-sms",
-	})
-	return true
-}
-
 // UpdateOptionsBulk validates and persists a related set of option writes as
 // one database transaction. Values are never included in the management
 // audit record because some option families may contain sensitive material.
@@ -182,11 +170,6 @@ func UpdateOptionsBulk(c *gin.Context) {
 	values, ok := decodeOptionValues(c)
 	if !ok {
 		return
-	}
-	for key := range values {
-		if rejectProtectedHeroSMSOption(c, key) {
-			return
-		}
 	}
 	if err := model.UpdateOptionsBulk(values); err != nil {
 		common.ApiError(c, err)
@@ -220,9 +203,6 @@ func UpdateOption(c *gin.Context) {
 		option.Value = common.Interface2String(option.Value.(int))
 	default:
 		option.Value = fmt.Sprintf("%v", option.Value)
-	}
-	if rejectProtectedHeroSMSOption(c, option.Key) {
-		return
 	}
 	switch option.Key {
 	case "QuotaForInviter", "QuotaForInvitee":

@@ -49,11 +49,23 @@ async function unwrap<T>(request: Promise<{ data: HeroSmsEnvelope<T> }>) {
   return response.data.data
 }
 
+function normalizeTimestamp(value: unknown) {
+  if (value == null || value === '') return ''
+  const numeric = Number(value)
+  if (Number.isFinite(numeric) && /^\d+(?:\.\d+)?$/.test(String(value))) {
+    const milliseconds = numeric < 1_000_000_000_000 ? numeric * 1000 : numeric
+    const date = new Date(milliseconds)
+    return Number.isNaN(date.getTime()) ? '' : date.toISOString()
+  }
+  return String(value)
+}
+
 function normalizeActivation(raw: unknown): HeroSmsActivation {
   const activation = raw as Record<string, unknown>
   return {
     id: String(activation.id ?? ''),
     order_id: String(activation.order_id ?? ''),
+    domain_id: String(activation.domain_id ?? ''),
     email: String(activation.email ?? ''),
     code:
       activation.code == null || activation.code === ''
@@ -74,22 +86,22 @@ function normalizeActivation(raw: unknown): HeroSmsActivation {
     status: String(activation.status ?? 'unknown'),
     charge_quota: Number(activation.charge_quota ?? 0),
     cost_usd: Number(activation.cost_usd ?? 0),
-    created_at: String(activation.created_at ?? ''),
-    updated_at: String(activation.updated_at ?? ''),
-    expires_at:
-      activation.expires_at == null || activation.expires_at === ''
-        ? null
-        : String(activation.expires_at),
+    currency: String(activation.currency ?? ''),
+    currency_code: Number(activation.currency_code ?? 0),
+    cancel_reason: String(activation.cancel_reason ?? ''),
+    created_at: normalizeTimestamp(activation.created_at),
+    updated_at: normalizeTimestamp(activation.updated_at),
   }
 }
 
 function normalizeActivationsPage(raw: unknown): HeroSmsActivationsPage {
   const value = raw as Record<string, unknown>
-  const itemsSource = Array.isArray(value.items)
-    ? value.items
-    : Array.isArray(value.activations)
-      ? value.activations
-      : []
+  let itemsSource: unknown[] = []
+  if (Array.isArray(value.items)) {
+    itemsSource = value.items
+  } else if (Array.isArray(value.activations)) {
+    itemsSource = value.activations
+  }
 
   return {
     items: itemsSource.map((item) => normalizeActivation(item)),
@@ -102,10 +114,8 @@ function normalizeActivationsPage(raw: unknown): HeroSmsActivationsPage {
 function normalizeActivationDetail(raw: unknown): HeroSmsActivationDetail {
   const value = raw as Record<string, unknown>
   const activation = 'activation' in value ? value.activation : value
-  const order = 'order' in value ? (value.order as Record<string, unknown>) : null
   return {
     activation: normalizeActivation(activation),
-    order: order ?? null,
   }
 }
 
@@ -171,7 +181,11 @@ export async function listHeroSmsProducts(
       cost_usd: Number(item.cost_usd ?? 0),
       customer_price_usd: Number(item.customer_price_usd ?? 0),
       charge_quota: Number(item.charge_quota ?? 0),
-      available: Number(item.available ?? 0),
+      count: Number(item.count ?? 0),
+      available:
+        typeof item.available === 'boolean'
+          ? item.available
+          : Number(item.available ?? item.count ?? 0) > 0,
     })) as HeroSmsProduct[],
   }
 }
@@ -215,6 +229,16 @@ export async function listHeroSmsActivations(
   return normalizeActivationsPage(result)
 }
 
+export async function getCurrentHeroSmsActivation(): Promise<HeroSmsActivation | null> {
+  const result = await unwrap<unknown | null>(
+    api.get(`${ACTIVATIONS_PATH}/current`, {
+      skipBusinessError: true,
+      skipErrorHandler: true,
+    })
+  )
+  return result == null ? null : normalizeActivation(result)
+}
+
 export async function getHeroSmsActivationDetail(activationId: number | string) {
   const result = await unwrap<unknown>(
     api.get(`${ACTIVATIONS_PATH}/${activationId}`, {
@@ -250,7 +274,7 @@ export async function cancelHeroSmsActivation(activationId: number | string) {
 
 export async function reorderHeroSmsActivation(input: HeroSmsReorderInput) {
   const result = await unwrap<unknown>(
-    api.post(`${ACTIVATIONS_PATH}/${input.activationId}/reorder`, undefined, {
+    api.post(`${ACTIVATIONS_PATH}/${input.activationId}/reorder`, { domain_id: input.domain_id }, {
       headers: { 'Idempotency-Key': input.idempotencyKey },
       skipBusinessError: true,
       skipErrorHandler: true,

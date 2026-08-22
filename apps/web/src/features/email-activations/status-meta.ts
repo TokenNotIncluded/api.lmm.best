@@ -46,45 +46,21 @@ function normalizeStatus(status: string | null | undefined) {
 export function isHeroSmsActiveStatus(status: string | null | undefined) {
   const normalized = normalizeStatus(status)
   return [
-    'pending',
-    'processing',
-    'paid',
-    'purchased',
-    'ready',
-    'waiting',
-    'waiting_code',
-    'awaiting_code',
+    'pending_provider',
+    'active',
     'reconciling',
     'cancel_pending',
-    'refund_pending',
   ].includes(normalized)
 }
 
 export function canCancelHeroSmsActivation(status: string | null | undefined) {
   const normalized = normalizeStatus(status)
-  return [
-    'pending',
-    'processing',
-    'paid',
-    'purchased',
-    'ready',
-    'waiting',
-    'waiting_code',
-    'awaiting_code',
-    'reconciling',
-  ].includes(normalized)
+  return ['pending_provider', 'active', 'reconciling'].includes(normalized)
 }
 
 export function canReorderHeroSmsActivation(status: string | null | undefined) {
   const normalized = normalizeStatus(status)
-  return [
-    'paid',
-    'completed',
-    'expired',
-    'cancelled',
-    'refunded',
-    'refund_pending',
-  ].includes(normalized)
+  return ['completed', 'cancelled', 'expired', 'refunded'].includes(normalized)
 }
 
 export function getHeroSmsStatusPresentation(
@@ -92,23 +68,13 @@ export function getHeroSmsStatusPresentation(
   t: TFunction
 ): HeroSmsStatusPresentation {
   switch (normalizeStatus(status)) {
-    case 'pending':
-    case 'processing':
+    case 'pending_provider':
       return {
         label: t('Pending purchase'),
         tone: 'warning',
         icon: Loading03Icon,
       }
-    case 'paid':
-      return {
-        label: t('Paid'),
-        tone: 'default',
-        icon: CheckmarkCircle02Icon,
-      }
-    case 'ready':
-    case 'waiting':
-    case 'waiting_code':
-    case 'awaiting_code':
+    case 'active':
       return {
         label: t('Awaiting code'),
         tone: 'secondary',
@@ -144,12 +110,6 @@ export function getHeroSmsStatusPresentation(
         tone: 'warning',
         icon: Loading03Icon,
       }
-    case 'refund_pending':
-      return {
-        label: t('Refund pending'),
-        tone: 'warning',
-        icon: Loading03Icon,
-      }
     case 'refunded':
       return {
         label: t('Refunded'),
@@ -174,16 +134,14 @@ export function getHeroSmsStatusPresentation(
 export function getHeroSmsStatusOptions(t: TFunction) {
   return [
     { label: t('All statuses'), value: 'all' },
-    { label: t('Pending purchase'), value: 'pending' },
-    { label: t('Paid'), value: 'paid' },
-    { label: t('Awaiting code'), value: 'waiting_code' },
+    { label: t('Pending purchase'), value: 'pending_provider' },
+    { label: t('Awaiting code'), value: 'active' },
     { label: t('Code received'), value: 'completed' },
     { label: t('Reconciling'), value: 'reconciling' },
     { label: t('Cancel pending'), value: 'cancel_pending' },
-    { label: t('Refund pending'), value: 'refund_pending' },
     { label: t('Cancelled'), value: 'cancelled' },
-    { label: t('Refunded'), value: 'refunded' },
     { label: t('Expired'), value: 'expired' },
+    { label: t('Refunded'), value: 'refunded' },
     { label: t('Failed'), value: 'failed' },
   ]
 }

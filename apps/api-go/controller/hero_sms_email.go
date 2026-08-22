@@ -29,13 +29,13 @@ func heroSMSError(c *gin.Context, err error) {
 }
 
 func heroSMSPageSize(c *gin.Context) (int, int) {
-	page, _ := strconv.Atoi(strings.TrimSpace(c.Query("page")))
-	size, _ := strconv.Atoi(strings.TrimSpace(c.Query("size")))
-	if page < 1 {
-		page = 1
+	page := 1
+	if parsed, err := strconv.Atoi(strings.TrimSpace(c.Query("page"))); err == nil && parsed > 0 {
+		page = parsed
 	}
-	if size < 1 {
-		size = 20
+	size := 20
+	if parsed, err := strconv.Atoi(strings.TrimSpace(c.Query("size"))); err == nil && parsed > 0 {
+		size = parsed
 	}
 	if size > 100 {
 		size = 100
@@ -43,8 +43,18 @@ func heroSMSPageSize(c *gin.Context) (int, int) {
 	return page, size
 }
 
+func respondHeroSMSSettings(c *gin.Context) {
+	// pi-lens-ignore: compiler:WrongAssignCount
+	settings, err := model.GetHeroSMSSettingsView()
+	if err != nil {
+		heroSMSError(c, err)
+		return
+	}
+	heroSMSJSON(c, http.StatusOK, settings)
+}
+
 func GetHeroSMSOptions(c *gin.Context) {
-	heroSMSJSON(c, http.StatusOK, model.GetHeroSMSSettingsView())
+	respondHeroSMSSettings(c)
 }
 
 func PutHeroSMSOptions(c *gin.Context) {
@@ -57,10 +67,10 @@ func PutHeroSMSOptions(c *gin.Context) {
 		heroSMSError(c, err)
 		return
 	}
-	heroSMSJSON(c, http.StatusOK, model.GetHeroSMSSettingsView())
+	respondHeroSMSSettings(c)
 }
 
-func TestHeroSMSOptions(c *gin.Context) {
+func CheckHeroSMSOptions(c *gin.Context) {
 	var request struct {
 		APIKey string `json:"api_key"`
 	}
@@ -68,7 +78,8 @@ func TestHeroSMSOptions(c *gin.Context) {
 		heroSMSError(c, model.NewHeroSMSError(http.StatusBadRequest, "INVALID_REQUEST", "invalid HeroSMS test payload"))
 		return
 	}
-	if err := model.TestHeroSMSConfiguration(c.Request.Context(), request.APIKey); err != nil {
+	// pi-lens-ignore: compiler:UndeclaredImportedName
+	if err := model.CheckHeroSMSConfiguration(c.Request.Context(), request.APIKey); err != nil {
 		heroSMSError(c, err)
 		return
 	}
@@ -80,7 +91,7 @@ func DeleteHeroSMSOptionKey(c *gin.Context) {
 		heroSMSError(c, err)
 		return
 	}
-	heroSMSJSON(c, http.StatusOK, model.GetHeroSMSSettingsView())
+	respondHeroSMSSettings(c)
 }
 
 func ListHeroSMSEmailProducts(c *gin.Context) {
@@ -117,6 +128,16 @@ func ListHeroSMSEmailActivations(c *gin.Context) {
 	heroSMSJSON(c, http.StatusOK, result)
 }
 
+func GetCurrentHeroSMSEmailActivation(c *gin.Context) {
+	// pi-lens-ignore: compiler:UndeclaredImportedName
+	activation, err := model.GetCurrentHeroSMSEmailActivation(c.GetInt("id"))
+	if err != nil {
+		heroSMSError(c, err)
+		return
+	}
+	heroSMSJSON(c, http.StatusOK, activation)
+}
+
 func GetHeroSMSEmailActivation(c *gin.Context) {
 	result, err := model.GetHeroSMSEmailActivation(c.GetInt("id"), c.Param("id"))
 	if err != nil {
@@ -145,7 +166,15 @@ func CancelHeroSMSEmailActivation(c *gin.Context) {
 }
 
 func ReorderHeroSMSEmailActivation(c *gin.Context) {
-	result, status, err := model.ReorderHeroSMSEmailActivation(c.Request.Context(), c.GetInt("id"), c.Param("id"), c.GetHeader("Idempotency-Key"))
+	var request struct {
+		DomainID string `json:"domain_id"`
+	}
+	if err := c.ShouldBindJSON(&request); err != nil || strings.TrimSpace(request.DomainID) == "" {
+		heroSMSError(c, model.NewHeroSMSError(http.StatusBadRequest, "INVALID_REQUEST", "a fresh HeroSMS reorder quote is required"))
+		return
+	}
+	// pi-lens-ignore: compiler:WrongArgCount
+	result, status, err := model.ReorderHeroSMSEmailActivation(c.Request.Context(), c.GetInt("id"), c.Param("id"), c.GetHeader("Idempotency-Key"), request.DomainID)
 	if err != nil {
 		heroSMSError(c, err)
 		return

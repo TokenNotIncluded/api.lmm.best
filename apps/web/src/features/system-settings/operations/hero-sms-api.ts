@@ -23,6 +23,7 @@ import { api } from '@/lib/api'
 export interface HeroSmsSettingsResponse {
   enabled: boolean
   api_key_configured: boolean
+  pending_work: boolean
   currency: 'USD'
   currency_code: 840
   price_multiplier: number
@@ -78,7 +79,7 @@ export function serializeHeroSmsSettingsUpdate(
   }
 }
 
-export function getHeroSmsPreviewQuota(multiplier: number) {
+export function getHeroSmsPreviewCustomerPrice(multiplier: number) {
   return Number((multiplier * 1).toFixed(2))
 }
 
@@ -120,9 +121,10 @@ export async function updateHeroSmsSettings(
   )
 }
 
-export async function testHeroSmsConnection() {
+export async function testHeroSmsConnection(candidateApiKey?: string) {
+  const apiKey = candidateApiKey?.trim()
   return unwrap<{ ok?: boolean }>(
-    api.post('/api/option/hero-sms/test', undefined, {
+    api.post('/api/option/hero-sms/test', apiKey ? { api_key: apiKey } : {}, {
       skipBusinessError: true,
       skipErrorHandler: true,
     })

@@ -22,6 +22,7 @@ import { useEffect, useState } from 'react'
 import {
   cancelHeroSmsActivation,
   createHeroSmsActivations,
+  getCurrentHeroSmsActivation,
   getHeroSmsActivationDetail,
   listHeroSmsActivations,
   listHeroSmsProducts,
@@ -36,6 +37,7 @@ export const heroSmsQueryKeys = {
   products: (site?: string) => ['hero-sms', 'products', site || 'all'] as const,
   activations: (page: number, size: number, status?: string) =>
     ['hero-sms', 'activations', page, size, status || 'all'] as const,
+  current: () => ['hero-sms', 'activations', 'current'] as const,
   activation: (activationId: number | string) =>
     ['hero-sms', 'activation', String(activationId)] as const,
 }
@@ -110,15 +112,35 @@ export function useHeroSmsActivations(params: {
   })
 }
 
+export function useCurrentHeroSmsActivation() {
+  const pageVisible = usePageVisibility()
+  return useQuery({
+    queryKey: heroSmsQueryKeys.current(),
+    queryFn: getCurrentHeroSmsActivation,
+    placeholderData: (previousData) => previousData,
+    refetchInterval: (query) => {
+      if (isHeroSmsActiveStatus(query.state.data?.status)) {
+        return pageVisible ? 5000 : 30000
+      }
+      return pageVisible ? 15000 : 30000
+    },
+  })
+}
+
 export function useHeroSmsActivationDetail(
   activationId: number | string | null,
   enabled = true
 ) {
+  const pageVisible = usePageVisibility()
   return useQuery({
     queryKey: heroSmsQueryKeys.activation(activationId || 'none'),
     queryFn: () => getHeroSmsActivationDetail(String(activationId)),
     enabled: enabled && activationId != null,
     placeholderData: (previousData) => previousData,
+    refetchInterval: (query) => {
+      if (!isHeroSmsActiveStatus(query.state.data?.activation.status)) return false
+      return pageVisible ? 5000 : 30000
+    },
   })
 }
 

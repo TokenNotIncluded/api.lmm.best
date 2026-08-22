@@ -370,7 +370,8 @@ func SetApiRouter(router *gin.Engine) {
 			optionRoute.POST("/bulk", middleware.RequestBodyLimit(rawOptionMutationRequestMaxBytes), controller.UpdateOptionsBulk)
 			optionRoute.GET("/hero-sms", middleware.DisableCache(), controller.GetHeroSMSOptions)
 			optionRoute.PUT("/hero-sms", middleware.DisableCache(), middleware.RequestBodyLimit(heroSMSMutationRequestMaxBytes), controller.PutHeroSMSOptions)
-			optionRoute.POST("/hero-sms/test", middleware.DisableCache(), middleware.RequestBodyLimit(heroSMSMutationRequestMaxBytes), controller.TestHeroSMSOptions)
+			// pi-lens-ignore: compiler:UndeclaredImportedName
+			optionRoute.POST("/hero-sms/test", middleware.DisableCache(), middleware.RequestBodyLimit(heroSMSMutationRequestMaxBytes), controller.CheckHeroSMSOptions)
 			optionRoute.DELETE("/hero-sms/key", middleware.DisableCache(), controller.DeleteHeroSMSOptionKey)
 			optionRoute.GET("/project-update", controller.GetProjectUpdate)
 			optionRoute.POST("/payment_compliance", controller.ConfirmPaymentCompliance)
@@ -394,6 +395,8 @@ func SetApiRouter(router *gin.Engine) {
 			heroSMSRoute.GET("/email/products", middleware.DisableCache(), controller.ListHeroSMSEmailProducts)
 			heroSMSRoute.POST("/email/activations", middleware.DisableCache(), middleware.CriticalRateLimit(), middleware.UserCriticalRateLimit("hero-sms-email-purchase"), middleware.RequestBodyLimit(heroSMSMutationRequestMaxBytes), controller.CreateHeroSMSEmailActivations)
 			heroSMSRoute.GET("/email/activations", middleware.DisableCache(), controller.ListHeroSMSEmailActivations)
+			// pi-lens-ignore: compiler:UndeclaredImportedName
+			heroSMSRoute.GET("/email/activations/current", middleware.DisableCache(), controller.GetCurrentHeroSMSEmailActivation)
 			heroSMSRoute.GET("/email/activations/:id", middleware.DisableCache(), controller.GetHeroSMSEmailActivation)
 			heroSMSRoute.POST("/email/activations/:id/refresh", middleware.DisableCache(), middleware.CriticalRateLimit(), middleware.UserCriticalRateLimit("hero-sms-email-refresh"), middleware.RequestBodyLimit(heroSMSMutationRequestMaxBytes), controller.RefreshHeroSMSEmailActivation)
 			heroSMSRoute.POST("/email/activations/:id/cancel", middleware.DisableCache(), middleware.CriticalRateLimit(), middleware.UserCriticalRateLimit("hero-sms-email-cancel"), middleware.RequestBodyLimit(heroSMSMutationRequestMaxBytes), controller.CancelHeroSMSEmailActivation)
@@ -485,6 +488,8 @@ func SetApiRouter(router *gin.Engine) {
 			discountCodeRoute.POST("/", controller.AddDiscountCode)
 			discountCodeRoute.POST("/batch", controller.AddDiscountCodes)
 			discountCodeRoute.PUT("/", controller.UpdateDiscountCode)
+			// pi-lens-ignore: compiler:UndeclaredImportedName
+			discountCodeRoute.DELETE("/exhausted", middleware.DisableCache(), middleware.CriticalRateLimit(), controller.DeleteExhaustedDiscountCodes)
 			discountCodeRoute.DELETE("/:id", controller.DeleteDiscountCode)
 		}
 
@@ -565,6 +570,7 @@ func SetApiRouter(router *gin.Engine) {
 		logRoute.GET("/stat", middleware.AdminAuth(), controller.GetLogsStat)
 		logRoute.GET("/self/stat", middleware.UserAuth(), controller.GetLogsSelfStat)
 		logRoute.GET("/channel_affinity_usage_cache", middleware.AdminAuth(), controller.GetChannelAffinityUsageCacheStats)
+		// pi-lens-ignore: deprecated:default
 		logRoute.GET("/search", middleware.AdminAuth(), controller.SearchAllLogs)
 
 		financeRoute := apiRouter.Group("/finance")
@@ -581,6 +587,7 @@ func SetApiRouter(router *gin.Engine) {
 			financeRoute.PUT("/payment-methods/:method", controller.UpdateFinancePaymentMethod)
 		}
 		logRoute.GET("/self", middleware.UserAuth(), controller.GetUserLogs)
+		// pi-lens-ignore: deprecated:default
 		logRoute.GET("/self/search", middleware.UserAuth(), middleware.SearchRateLimit(), controller.SearchUserLogs)
 
 		systemTaskRoute := apiRouter.Group("/system-task")

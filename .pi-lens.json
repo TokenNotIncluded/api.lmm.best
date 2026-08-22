@@ -1,0 +1,7 @@
+{
+  "ignore": [
+    "apps/web/src/routeTree.gen.ts",
+    "apps/web/dist/**",
+    "apps/web/src/i18n/locales/_reports/**"
+  ]
+}

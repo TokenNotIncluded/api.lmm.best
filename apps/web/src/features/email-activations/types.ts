@@ -30,7 +30,8 @@ export interface HeroSmsProduct {
   cost_usd: number
   customer_price_usd: number
   charge_quota: number
-  available: number
+  count: number
+  available: boolean
 }
 
 export interface HeroSmsProductsPage {
@@ -46,6 +47,7 @@ export interface HeroSmsProductsPage {
 export interface HeroSmsActivation {
   id: number | string
   order_id: number | string
+  domain_id: string
   email: string
   code?: string | null
   message?: string | null
@@ -54,9 +56,11 @@ export interface HeroSmsActivation {
   status: string
   charge_quota: number
   cost_usd: number
+  currency: string
+  currency_code: number
+  cancel_reason: string
   created_at: string
   updated_at: string
-  expires_at?: string | null
 }
 
 export interface HeroSmsActivationOrder {
@@ -79,7 +83,6 @@ export interface HeroSmsActivationsPage {
 
 export interface HeroSmsActivationDetail {
   activation: HeroSmsActivation
-  order?: HeroSmsActivationOrder | null
 }
 
 export interface HeroSmsCreateActivationsResult {
@@ -107,6 +110,7 @@ export interface HeroSmsCreateActivationsInput {
 
 export interface HeroSmsReorderInput {
   activationId: number | string
+  domain_id: number | string
   idempotencyKey: string
 }
 

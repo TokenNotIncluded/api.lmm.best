@@ -60,7 +60,7 @@ import {
 } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
-import { formatNumber } from '@/lib/format'
+import { formatCurrencyUSD } from '@/lib/format'
 
 import {
   SettingsForm,
@@ -78,9 +78,8 @@ import { SettingsSection } from '../components/settings-section'
 import { useResetForm } from '../hooks/use-reset-form'
 import {
   clearHeroSmsApiKey,
-  getHeroSmsPreviewQuota,
+  getHeroSmsPreviewCustomerPrice,
   getHeroSmsSettings,
-  parseHeroSmsSettingsError,
   testHeroSmsConnection,
   toHeroSmsSettingsFormValues,
   updateHeroSmsSettings,
@@ -88,8 +87,19 @@ import {
 
 const heroSmsSettingsSchema = z.object({
   enabled: z.boolean(),
-  apiKey: z.string(),
-  priceMultiplier: z.number().min(0.01).max(10000),
+  apiKey: z
+    .string()
+    .max(1024)
+    .refine((value) => value.trim() === '' || value.trim().length >= 16, {
+      message: 'API key must contain at least 16 characters',
+    }),
+  priceMultiplier: z
+    .number()
+    .min(0.000001)
+    .max(1000)
+    .refine((value) => /^\d+(?:\.\d{1,6})?$/.test(String(value)), {
+      message: 'Use at most 6 decimal places',
+    }),
 })
 
 type HeroSmsSettingsFormValues = z.infer<typeof heroSmsSettingsSchema>
@@ -98,6 +108,7 @@ export function HeroSmsSettingsSection() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const [clearDialogOpen, setClearDialogOpen] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
   const [testState, setTestState] = useState<{
     loading: boolean
     ok: boolean | null
@@ -112,6 +123,12 @@ export function HeroSmsSettingsSection() {
 
   const updateMutation = useMutation({
     mutationFn: updateHeroSmsSettings,
+    onMutate: () => setSaveError(null),
+    onError: () => {
+      const message = t('Unable to save HeroSMS settings')
+      setSaveError(message)
+      toast.error(message)
+    },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['hero-sms-settings'] })
       toast.success(t('HeroSMS settings saved'))
@@ -120,6 +137,9 @@ export function HeroSmsSettingsSection() {
 
   const clearMutation = useMutation({
     mutationFn: clearHeroSmsApiKey,
+    onError: () => {
+      toast.error(t('Unable to clear HeroSMS API key'))
+    },
     onSuccess: async () => {
       setClearDialogOpen(false)
       await queryClient.invalidateQueries({ queryKey: ['hero-sms-settings'] })
@@ -149,22 +169,40 @@ export function HeroSmsSettingsSection() {
   const priceMultiplier = form.watch('priceMultiplier')
 
   const configured = settingsQuery.data?.api_key_configured ?? false
+  const pendingWork = settingsQuery.data?.pending_work ?? false
   const enabled = form.watch('enabled')
+  let clearKeyTitle: string | undefined
+  if (enabled) {
+    clearKeyTitle = t('Disable HeroSMS before clearing the saved key')
+  } else if (pendingWork) {
+    clearKeyTitle = t('Wait for active orders to finish before clearing the saved key')
+  }
 
   const handleSubmit = async (values: HeroSmsSettingsFormValues) => {
-    await updateMutation.mutateAsync(values)
+    if (values.enabled && !configured && values.apiKey.trim() === '') {
+      form.setError('apiKey', {
+        type: 'manual',
+        message: 'Enter an API key before enabling HeroSMS',
+      })
+      return
+    }
+    try {
+      await updateMutation.mutateAsync(values)
+    } catch {
+      // The mutation's onError handler owns the translated inline feedback.
+    }
   }
 
   const handleTestConnection = async () => {
     setTestState({ loading: true, ok: null, error: null })
     try {
-      await testHeroSmsConnection()
+      await testHeroSmsConnection(form.getValues('apiKey'))
       setTestState({ loading: false, ok: true, error: null })
       toast.success(t('HeroSMS connection test passed'))
-    } catch (error) {
-      const parsed = parseHeroSmsSettingsError(error)
-      setTestState({ loading: false, ok: false, error: parsed.message })
-      toast.error(parsed.message || t('Connection failed'))
+    } catch {
+      const message = t('Connection failed')
+      setTestState({ loading: false, ok: false, error: message })
+      toast.error(message)
     }
   }
 
@@ -228,7 +266,8 @@ export function HeroSmsSettingsSection() {
               size='sm'
               variant='destructive'
               onClick={() => setClearDialogOpen(true)}
-              disabled={!configured || clearMutation.isPending}
+              disabled={!configured || enabled || pendingWork || clearMutation.isPending}
+              title={clearKeyTitle}
             >
               <HugeiconsIcon icon={Key01Icon} data-icon='inline-start' strokeWidth={2} />
               <span>{t('Clear saved key')}</span>
@@ -242,6 +281,24 @@ export function HeroSmsSettingsSection() {
             isSaveDisabled={!form.formState.isDirty}
             isResetDisabled={!form.formState.isDirty}
           />
+
+          {pendingWork ? (
+            <Alert>
+              <HugeiconsIcon icon={InformationCircleIcon} strokeWidth={2} aria-hidden='true' />
+              <AlertTitle>{t('Active orders are still being reconciled')}</AlertTitle>
+              <AlertDescription>
+                {t('Keep the HeroSMS API key until active orders finish or are refunded.')}
+              </AlertDescription>
+            </Alert>
+          ) : null}
+
+          {saveError ? (
+            <Alert variant='destructive'>
+              <HugeiconsIcon icon={Alert02Icon} strokeWidth={2} aria-hidden='true' />
+              <AlertTitle>{t('Unable to save HeroSMS settings')}</AlertTitle>
+              <AlertDescription>{saveError}</AlertDescription>
+            </Alert>
+          ) : null}
 
           {settingsQuery.isError && settingsQuery.data ? (
             <Alert variant='destructive'>
@@ -268,7 +325,7 @@ export function HeroSmsSettingsSection() {
               <HugeiconsIcon icon={CheckmarkCircle02Icon} strokeWidth={2} aria-hidden='true' />
               <AlertTitle>{t('Connection test succeeded')}</AlertTitle>
               <AlertDescription>
-                {t('The server can reach HeroSMS with the currently saved configuration.')}
+                {t('The server can reach HeroSMS with the provided or saved credential.')}
               </AlertDescription>
             </Alert>
           ) : null}
@@ -338,14 +395,17 @@ export function HeroSmsSettingsSection() {
                           field.onChange(Number.isFinite(nextValue) ? nextValue : 0)
                         }}
                         type='number'
-                        min={0.01}
-                        step='0.01'
+                        min={0.000001}
+                        max={1000}
+                        step='0.000001'
                         inputMode='decimal'
                       />
                     </FormControl>
                     <FormDescription>
-                      {t('$1 preview: {{quota}} quota', {
-                        quota: formatNumber(getHeroSmsPreviewQuota(priceMultiplier || 10)),
+                      {t('$1 provider cost → {{price}} customer price', {
+                        price: formatCurrencyUSD(
+                          getHeroSmsPreviewCustomerPrice(priceMultiplier || 10)
+                        ),
                       })}
                     </FormDescription>
                     <FormMessage />
@@ -382,7 +442,7 @@ export function HeroSmsSettingsSection() {
           <AlertDialogHeader>
             <AlertDialogTitle>{t('Clear saved HeroSMS API key')}</AlertDialogTitle>
             <AlertDialogDescription>
-              {t('This permanently removes the server-side secret. Purchasing and connection tests will fail until a new key is saved.')}
+              {t('Disable HeroSMS first. This permanently removes the server-side secret; purchasing and connection tests will fail until a new key is saved.')}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -390,7 +450,7 @@ export function HeroSmsSettingsSection() {
             <AlertDialogAction
               onClick={(event) => {
                 event.preventDefault()
-                void clearMutation.mutateAsync()
+                clearMutation.mutate()
               }}
               disabled={clearMutation.isPending}
             >

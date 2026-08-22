@@ -28,12 +28,26 @@ import {
 } from './status-meta'
 
 const identityT = (value: string) => value
+const activation = (status: string) => ({
+  id: '1',
+  order_id: '1',
+  domain_id: 'quote-1',
+  email: 'a',
+  status,
+  charge_quota: 1,
+  cost_usd: 1,
+  currency: 'USD',
+  currency_code: 840,
+  cancel_reason: '',
+  created_at: '',
+  updated_at: '',
+})
 
 describe('email activation status helpers', () => {
   test('polls only while active items remain', () => {
     assert.equal(
       getHeroSmsPollingInterval(
-        [{ id: '1', order_id: '1', email: 'a', status: 'waiting_code', charge_quota: 1, cost_usd: 1, created_at: '', updated_at: '' }],
+        [activation('active')],
         true,
         true
       ),
@@ -41,7 +55,7 @@ describe('email activation status helpers', () => {
     )
     assert.equal(
       getHeroSmsPollingInterval(
-        [{ id: '1', order_id: '1', email: 'a', status: 'waiting_code', charge_quota: 1, cost_usd: 1, created_at: '', updated_at: '' }],
+        [activation('active')],
         false,
         true
       ),
@@ -49,7 +63,7 @@ describe('email activation status helpers', () => {
     )
     assert.equal(
       getHeroSmsPollingInterval(
-        [{ id: '1', order_id: '1', email: 'a', status: 'cancelled', charge_quota: 1, cost_usd: 1, created_at: '', updated_at: '' }],
+        [activation('cancelled')],
         true,
         true
       ),
@@ -58,13 +72,13 @@ describe('email activation status helpers', () => {
   })
 
   test('maps statuses to actionable capabilities', () => {
-    assert.equal(isHeroSmsActiveStatus('waiting_code'), true)
-    assert.equal(canCancelHeroSmsActivation('waiting_code'), true)
-    assert.equal(canReorderHeroSmsActivation('waiting_code'), false)
+    assert.equal(isHeroSmsActiveStatus('active'), true)
+    assert.equal(canCancelHeroSmsActivation('active'), true)
+    assert.equal(canReorderHeroSmsActivation('active'), false)
     assert.equal(canReorderHeroSmsActivation('completed'), true)
 
-    const status = getHeroSmsStatusPresentation('refund_pending', identityT as never)
-    assert.equal(status.label, 'Refund pending')
+    const status = getHeroSmsStatusPresentation('cancel_pending', identityT as never)
+    assert.equal(status.label, 'Cancel pending')
     assert.equal(status.tone, 'warning')
   })
 })

@@ -67,19 +67,21 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet'
-import { useMediaQuery } from '@/hooks'
+import { useDebounce, useMediaQuery } from '@/hooks'
 import { useDataTable } from '@/components/data-table/hooks/use-data-table'
 import { useTableUrlState } from '@/hooks/use-table-url-state'
 import { formatCurrencyUSD, formatNumber } from '@/lib/format'
 import dayjs from '@/lib/dayjs'
 import {
   createHeroSmsIdempotencyKey,
+  listHeroSmsProducts,
   parseHeroSmsError,
 } from './api'
 import {
   heroSmsQueryKeys,
   useCancelHeroSmsActivation,
   useCreateHeroSmsActivations,
+  useCurrentHeroSmsActivation,
   useHeroSmsActivationDetail,
   useHeroSmsActivations,
   useHeroSmsProducts,
@@ -90,18 +92,30 @@ import {
   canCancelHeroSmsActivation,
   canReorderHeroSmsActivation,
   getHeroSmsStatusOptions,
-  isHeroSmsActiveStatus,
 } from './status-meta'
 import { HeroSmsStatusBadge } from './status'
 import type {
   HeroSmsActivation,
   HeroSmsParsedError,
+  HeroSmsProduct,
 } from './types'
 
 type InlineFeedback = {
   tone: 'default' | 'destructive'
   title: string
   description: string
+}
+
+type PurchaseConfirmation = {
+  product: HeroSmsProduct
+  quantity: number
+  idempotencyKey: string
+}
+
+type ReorderConfirmation = {
+  activation: HeroSmsActivation
+  product: HeroSmsProduct
+  idempotencyKey: string
 }
 
 const route = getRouteApi('/_authenticated/email-activations/')
@@ -113,17 +127,53 @@ function formatDateTime(value: string | null | undefined) {
   return parsed.isValid() ? parsed.format('YYYY-MM-DD HH:mm:ss') : '—'
 }
 
+function formatActivationCurrency(activation: HeroSmsActivation) {
+  if (!activation.currency) return '—'
+  return activation.currency_code > 0
+    ? `${activation.currency} (${activation.currency_code})`
+    : activation.currency
+}
+
+function formatCancellationReason(
+  reason: string,
+  t: ReturnType<typeof useTranslation>['t']
+) {
+  switch (reason) {
+    case 'user':
+      return t('User requested cancellation')
+    case 'price_changed':
+      return t('Provider price changed')
+    case 'currency_mismatch':
+      return t('Provider currency mismatch')
+    case 'bad_upstream':
+      return t('Invalid provider response')
+    default:
+      return '—'
+  }
+}
+
 function describeHeroSmsError(
   error: HeroSmsParsedError,
   t: ReturnType<typeof useTranslation>['t']
 ): InlineFeedback {
-  if (error.code === 'HERO_SMS_PURCHASE_PENDING_RECONCILIATION') {
+  if (
+    error.code === 'HERO_SMS_PURCHASE_PENDING_RECONCILIATION' ||
+    error.code === 'PURCHASE_PENDING_RECONCILIATION'
+  ) {
     return {
       tone: 'default',
       title: t('Purchase reconciling'),
       description: t(
         'The provider is still reconciling your last purchase. Refresh this page in a moment before trying again.'
       ),
+    }
+  }
+
+  if (error.code === 'NOT_CONFIGURED') {
+    return {
+      tone: 'destructive',
+      title: t('Purchasing unavailable'),
+      description: t('HeroSMS purchasing is disabled'),
     }
   }
 
@@ -168,7 +218,7 @@ function describeHeroSmsError(
   return {
     tone: 'destructive',
     title: t('Request failed'),
-    description: error.message || t('An unexpected error occurred'),
+    description: t('An unexpected error occurred'),
   }
 }
 
@@ -236,8 +286,8 @@ function HistoryMobileCards({
                   value={formatDateTime(activation.created_at)}
                 />
                 <MetaItem
-                  label={t('Expires')}
-                  value={formatDateTime(activation.expires_at)}
+                  label={t('Currency code')}
+                  value={formatActivationCurrency(activation)}
                 />
               </div>
               <div className='flex flex-wrap gap-2'>
@@ -296,7 +346,9 @@ export function EmailActivationsPage() {
   const [actionFeedback, setActionFeedback] = useState<InlineFeedback | null>(null)
   const [detailTarget, setDetailTarget] = useState<HeroSmsActivation | null>(null)
   const [cancelTarget, setCancelTarget] = useState<HeroSmsActivation | null>(null)
-  const [reorderTarget, setReorderTarget] = useState<HeroSmsActivation | null>(null)
+  const [purchaseTarget, setPurchaseTarget] = useState<PurchaseConfirmation | null>(null)
+  const [reorderTarget, setReorderTarget] = useState<ReorderConfirmation | null>(null)
+  const [reorderQuoteLoadingId, setReorderQuoteLoadingId] = useState<string | null>(null)
 
   const {
     columnFilters,
@@ -319,7 +371,9 @@ export function EmailActivationsPage() {
   const statusFilterValue = statusFilter[0] ?? 'all'
 
   const trimmedSite = selectedSite.trim()
-  const productsQuery = useHeroSmsProducts(trimmedSite)
+  const debouncedSite = useDebounce(trimmedSite, 450)
+  const productsQuery = useHeroSmsProducts(debouncedSite)
+  const currentActivationQuery = useCurrentHeroSmsActivation()
   const activationsQuery = useHeroSmsActivations({
     page: pagination.pageIndex + 1,
     size: pagination.pageSize,
@@ -332,20 +386,23 @@ export function EmailActivationsPage() {
   const reorderMutation = useReorderHeroSmsActivation()
   const detailQuery = useHeroSmsActivationDetail(detailTarget?.id ?? null, !!detailTarget)
 
-  const products = productsQuery.data?.items ?? []
+  const productsLoading =
+    !!trimmedSite && (debouncedSite !== trimmedSite || productsQuery.isLoading)
+  const products =
+    debouncedSite === trimmedSite ? (productsQuery.data?.items ?? []) : []
   const siteProducts = products
   const resolvedDomainId =
     selectedDomainId && siteProducts.some((item) => String(item.id) === selectedDomainId)
       ? selectedDomainId
-      : String(siteProducts[0]?.id ?? '')
+      : String(siteProducts.find((item) => item.available)?.id ?? siteProducts[0]?.id ?? '')
   const selectedProduct = useMemo(
     () => siteProducts.find((item) => String(item.id) === resolvedDomainId) ?? null,
     [resolvedDomainId, siteProducts]
   )
+  const maxQuantity = Math.min(10, Math.max(1, selectedProduct?.count ?? 10))
 
   const activations = activationsQuery.data?.items ?? EMPTY_ACTIVATIONS
-  const currentActivation =
-    activations.find((item) => isHeroSmsActiveStatus(item.status)) ?? null
+  const currentActivation = currentActivationQuery.data ?? null
 
   const statusOptions = useMemo(() => getHeroSmsStatusOptions(t), [t])
 
@@ -399,9 +456,9 @@ export function EmailActivationsPage() {
       cell: ({ row }) => formatDateTime(row.original.created_at),
     },
     {
-      accessorKey: 'expires_at',
-      header: t('Expires'),
-      cell: ({ row }) => formatDateTime(row.original.expires_at),
+      accessorKey: 'domain',
+      header: t('Domain'),
+      cell: ({ row }) => row.original.domain || '—',
     },
     {
       id: 'actions',
@@ -431,8 +488,8 @@ export function EmailActivationsPage() {
             <Button
               size='sm'
               variant='outline'
-              onClick={() => setReorderTarget(activation)}
-              disabled={!canReorder}
+              onClick={() => void prepareReorder(activation)}
+              disabled={!canReorder || reorderQuoteLoadingId === String(activation.id)}
             >
               {t('Reorder')}
             </Button>
@@ -456,31 +513,85 @@ export function EmailActivationsPage() {
   })
 
   async function invalidateHeroSmsQueries() {
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey: heroSmsQueryKeys.products() }),
-      queryClient.invalidateQueries({ queryKey: ['hero-sms', 'activations'] }),
-    ])
+    await queryClient.invalidateQueries({ queryKey: heroSmsQueryKeys.all })
   }
 
-  async function handlePurchase() {
-    if (!selectedProduct) return
-
+  async function handlePurchase(target: PurchaseConfirmation) {
     setPurchaseFeedback(null)
     try {
       const result = await createMutation.mutateAsync({
-        domain_id: selectedProduct.id,
-        quantity,
-        idempotencyKey: createHeroSmsIdempotencyKey(),
+        domain_id: target.product.id,
+        quantity: target.quantity,
+        idempotencyKey: target.idempotencyKey,
       })
+      setPurchaseTarget(null)
       await invalidateHeroSmsQueries()
-      toast.success(t('Email activation purchased'))
+      const orderStatus = String(result.order?.status ?? '').toLowerCase()
+      if (['purchase_unknown', 'reconciling', 'pending_provider'].includes(orderStatus)) {
+        setPurchaseFeedback({
+          tone: 'default',
+          title: t('Purchase reconciling'),
+          description: t(
+            'The provider is reconciling this purchase. Do not submit another order; this activation will update automatically.'
+          ),
+        })
+        toast.info(t('Purchase submitted for reconciliation'))
+      } else {
+        toast.success(t('Email activation purchased'))
+      }
       if (result.activations[0]) {
         setDetailTarget(result.activations[0])
       }
     } catch (error) {
-      const feedback = describeHeroSmsError(parseHeroSmsError(error), t)
+      const parsed = parseHeroSmsError(error)
+      const feedback = describeHeroSmsError(parsed, t)
       setPurchaseFeedback(feedback)
+      if (parsed.status === 409) {
+        setPurchaseTarget(null)
+        await queryClient.invalidateQueries({ queryKey: ['hero-sms', 'products'] })
+      }
       toast.error(feedback.title)
+    }
+  }
+
+  async function prepareReorder(activation: HeroSmsActivation) {
+    const site = activation.site?.trim() ?? ''
+    const domain = activation.domain?.trim().toLowerCase() ?? ''
+    if (!site || !domain) {
+      setActionFeedback({
+        tone: 'destructive',
+        title: t('Reorder unavailable'),
+        description: t('This activation does not contain a reusable site and domain.'),
+      })
+      return
+    }
+
+    setActionFeedback(null)
+    setReorderQuoteLoadingId(String(activation.id))
+    try {
+      const productsPage = await listHeroSmsProducts({ page: 1, size: 100, site })
+      const product = productsPage.items.find(
+        (item) => item.available && item.domain.trim().toLowerCase() === domain
+      )
+      if (!product) {
+        setActionFeedback({
+          tone: 'destructive',
+          title: t('Reorder unavailable'),
+          description: t('No matching HeroSMS inventory is available for this activation.'),
+        })
+        return
+      }
+      setReorderTarget({
+        activation,
+        product,
+        idempotencyKey: createHeroSmsIdempotencyKey(),
+      })
+    } catch (error) {
+      const feedback = describeHeroSmsError(parseHeroSmsError(error), t)
+      setActionFeedback(feedback)
+      toast.error(feedback.title)
+    } finally {
+      setReorderQuoteLoadingId(null)
     }
   }
 
@@ -520,18 +631,36 @@ export function EmailActivationsPage() {
     setActionFeedback(null)
     try {
       const result = await reorderMutation.mutateAsync({
-        activationId: reorderTarget.id,
-        idempotencyKey: createHeroSmsIdempotencyKey(),
+        activationId: reorderTarget.activation.id,
+        domain_id: reorderTarget.product.id,
+        idempotencyKey: reorderTarget.idempotencyKey,
       })
       setReorderTarget(null)
       await invalidateHeroSmsQueries()
-      toast.success(t('Reorder submitted'))
+      const orderStatus = String(result.order?.status ?? '').toLowerCase()
+      if (['purchase_unknown', 'reconciling', 'pending_provider'].includes(orderStatus)) {
+        setActionFeedback({
+          tone: 'default',
+          title: t('Purchase reconciling'),
+          description: t(
+            'The provider is reconciling this purchase. Do not submit another order; this activation will update automatically.'
+          ),
+        })
+        toast.info(t('Purchase submitted for reconciliation'))
+      } else {
+        toast.success(t('Reorder submitted'))
+      }
       if (result.activations[0]) {
         setDetailTarget(result.activations[0])
       }
     } catch (error) {
-      const feedback = describeHeroSmsError(parseHeroSmsError(error), t)
+      const parsed = parseHeroSmsError(error)
+      const feedback = describeHeroSmsError(parsed, t)
       setActionFeedback(feedback)
+      if (parsed.status === 409) {
+        setReorderTarget(null)
+        await queryClient.invalidateQueries({ queryKey: ['hero-sms', 'products'] })
+      }
       toast.error(feedback.title)
     }
   }
@@ -585,8 +714,9 @@ export function EmailActivationsPage() {
                 <CardContent className='space-y-4'>
                   {purchaseFeedback ? <InlineAlert feedback={purchaseFeedback} /> : null}
 
-                  <Field label={t('Site')}>
+                  <Field label={t('Site')} controlId='hero-sms-site'>
                     <Input
+                      id='hero-sms-site'
                       value={selectedSite}
                       onChange={(event) => {
                         setSelectedSite(event.target.value)
@@ -606,11 +736,11 @@ export function EmailActivationsPage() {
                     </Alert>
                   ) : null}
 
-                  {trimmedSite && productsQuery.isLoading && products.length === 0 ? (
+                  {trimmedSite && productsLoading && products.length === 0 ? (
                     <LoadingState inline message={t('Loading products...')} />
                   ) : null}
 
-                  {trimmedSite && products.length === 0 && !productsQuery.isLoading ? (
+                  {trimmedSite && products.length === 0 && !productsLoading ? (
                     <Alert>
                       <HugeiconsIcon icon={InformationCircleIcon} strokeWidth={2} aria-hidden='true' />
                       <AlertTitle>{t('Purchasing unavailable')}</AlertTitle>
@@ -621,36 +751,43 @@ export function EmailActivationsPage() {
                   ) : null}
 
                   <>
-                      <Field label={t('Domain')}>
+                      <Field label={t('Domain')} controlId='hero-sms-domain'>
                         <Select
                           value={resolvedDomainId}
                           onValueChange={(value) => setSelectedDomainId(value ?? '')}
                           disabled={!trimmedSite || siteProducts.length === 0}
                         >
-                          <SelectTrigger className='w-full'>
-                            <SelectValue placeholder={t('Choose a domain')} />
+                          <SelectTrigger id='hero-sms-domain' className='w-full'>
+                            <SelectValue placeholder={t('Choose a domain')}>
+                              {selectedProduct?.domain}
+                            </SelectValue>
                           </SelectTrigger>
                           <SelectContent>
                             {siteProducts.map((product) => (
-                              <SelectItem key={String(product.id)} value={String(product.id)}>
-                                {product.domain}
+                              <SelectItem
+                                key={String(product.id)}
+                                value={String(product.id)}
+                                disabled={!product.available}
+                              >
+                                {product.domain} · {t('{{count}} available', { count: product.count })}
                               </SelectItem>
                             ))}
                           </SelectContent>
                         </Select>
                       </Field>
 
-                      <Field label={t('Quantity')}>
+                      <Field label={t('Quantity')} controlId='hero-sms-quantity'>
                         <Input
+                          id='hero-sms-quantity'
                           type='number'
                           min={1}
-                          max={10}
+                          max={maxQuantity}
                           value={String(quantity)}
                           onChange={(event) => {
                             const next = Number(event.target.value)
                             setQuantity(
                               Number.isFinite(next)
-                                ? Math.min(10, Math.max(1, Math.trunc(next)))
+                                ? Math.min(maxQuantity, Math.max(1, Math.trunc(next)))
                                 : 1
                             )
                           }}
@@ -661,7 +798,7 @@ export function EmailActivationsPage() {
                         <div className='grid gap-3 sm:grid-cols-2'>
                           <MetaItem
                             label={t('Inventory')}
-                            value={String(selectedProduct?.available ?? 0)}
+                            value={formatNumber(selectedProduct?.count ?? 0)}
                           />
                           <MetaItem
                             label={t('Quote')}
@@ -678,7 +815,7 @@ export function EmailActivationsPage() {
                         </div>
                       </div>
 
-                      {trimmedSite && selectedProduct?.available === 0 ? (
+                      {trimmedSite && selectedProduct && !selectedProduct.available ? (
                         <Alert>
                           <HugeiconsIcon icon={InformationCircleIcon} strokeWidth={2} aria-hidden='true' />
                           <AlertTitle>{t('Out of stock')}</AlertTitle>
@@ -690,12 +827,20 @@ export function EmailActivationsPage() {
 
                       <Button
                         className='w-full'
-                        onClick={() => void handlePurchase()}
+                        onClick={() => {
+                          if (!selectedProduct) return
+                          setPurchaseTarget({
+                            product: selectedProduct,
+                            quantity,
+                            idempotencyKey: createHeroSmsIdempotencyKey(),
+                          })
+                        }}
                         disabled={
                           !selectedProduct ||
-                          selectedProduct.available === 0 ||
+                          !selectedProduct.available ||
+                          selectedProduct.count < quantity ||
                           createMutation.isPending ||
-                          productsQuery.isLoading
+                          productsLoading
                         }
                       >
                         {createMutation.isPending ? (
@@ -725,6 +870,14 @@ export function EmailActivationsPage() {
                 </CardHeader>
                 <CardContent className='space-y-4'>
                   {actionFeedback ? <InlineAlert feedback={actionFeedback} /> : null}
+                  {currentActivationQuery.isError ? (
+                    <InlineAlert
+                      feedback={describeHeroSmsError(
+                        parseHeroSmsError(currentActivationQuery.error),
+                        t
+                      )}
+                    />
+                  ) : null}
 
                   {currentActivation ? (
                     <>
@@ -770,8 +923,8 @@ export function EmailActivationsPage() {
                             </div>
                           </div>
                           <MetaItem
-                            label={t('Expires')}
-                            value={formatDateTime(currentActivation.expires_at)}
+                            label={t('Currency code')}
+                            value={formatActivationCurrency(currentActivation)}
                           />
                           <MetaItem
                             label={t('Quota charge')}
@@ -806,8 +959,11 @@ export function EmailActivationsPage() {
                         </Button>
                         <Button
                           variant='outline'
-                          onClick={() => setReorderTarget(currentActivation)}
-                          disabled={!canReorderHeroSmsActivation(currentActivation.status)}
+                          onClick={() => void prepareReorder(currentActivation)}
+                          disabled={
+                            !canReorderHeroSmsActivation(currentActivation.status) ||
+                            reorderQuoteLoadingId === String(currentActivation.id)
+                          }
                         >
                           <HugeiconsIcon icon={ArrowRight01Icon} data-icon='inline-start' strokeWidth={2} />
                           <span>{t('Reorder')}</span>
@@ -859,7 +1015,7 @@ export function EmailActivationsPage() {
                       onOpenDetail={setDetailTarget}
                       onCancel={setCancelTarget}
                       onRefresh={(activation) => void handleRefresh(activation)}
-                      onReorder={setReorderTarget}
+                      onReorder={(activation) => void prepareReorder(activation)}
                     />
                   }
                   showPagination
@@ -872,7 +1028,10 @@ export function EmailActivationsPage() {
         )}
 
         <Sheet open={!!detailTarget} onOpenChange={(open) => !open && setDetailTarget(null)}>
-          <SheetContent side='right' className='w-full max-w-xl sm:max-w-xl'>
+          <SheetContent
+            side={isMobile ? 'bottom' : 'right'}
+            className='max-h-[88dvh] w-full overflow-y-auto sm:max-w-xl'
+          >
             <SheetHeader>
               <SheetTitle>{t('Activation details')}</SheetTitle>
               <SheetDescription>
@@ -887,8 +1046,6 @@ export function EmailActivationsPage() {
 
               {(() => {
                 const detailActivation = detailQuery.data?.activation ?? detailTarget
-                const detailOrder = detailQuery.data?.order
-
                 if (!detailActivation) {
                   return null
                 }
@@ -940,8 +1097,8 @@ export function EmailActivationsPage() {
                         value={formatDateTime(detailActivation.updated_at)}
                       />
                       <MetaItem
-                        label={t('Expires')}
-                        value={formatDateTime(detailActivation.expires_at)}
+                        label={t('Currency code')}
+                        value={formatActivationCurrency(detailActivation)}
                       />
                       <MetaItem
                         label={t('Quota charge')}
@@ -952,8 +1109,8 @@ export function EmailActivationsPage() {
                         value={formatCurrencyUSD(detailActivation.cost_usd)}
                       />
                       <MetaItem
-                        label={t('Order status')}
-                        value={String(detailOrder?.status || '—')}
+                        label={t('Cancellation reason')}
+                        value={formatCancellationReason(detailActivation.cancel_reason, t)}
                       />
                     </div>
                   </>
@@ -964,11 +1121,37 @@ export function EmailActivationsPage() {
         </Sheet>
 
         <ConfirmDialog
+          open={!!purchaseTarget}
+          onOpenChange={(open) => !open && setPurchaseTarget(null)}
+          title={t('Confirm paid purchase')}
+          desc={
+            purchaseTarget
+              ? t(
+                  'Purchase {{quantity}} × {{domain}} for {{quota}} quota ({{price}} customer price)?',
+                  {
+                    quantity: purchaseTarget.quantity,
+                    domain: purchaseTarget.product.domain,
+                    quota: formatNumber(
+                      purchaseTarget.product.charge_quota * purchaseTarget.quantity
+                    ),
+                    price: formatCurrencyUSD(
+                      purchaseTarget.product.customer_price_usd * purchaseTarget.quantity
+                    ),
+                  }
+                )
+              : ''
+          }
+          confirmText={t('Confirm purchase')}
+          isLoading={createMutation.isPending}
+          handleConfirm={() => purchaseTarget && void handlePurchase(purchaseTarget)}
+        />
+
+        <ConfirmDialog
           open={!!cancelTarget}
           onOpenChange={(open) => !open && setCancelTarget(null)}
           title={t('Cancel activation')}
           desc={t(
-            'Cancel this activation to stop waiting for a code. Any pending provider refund will continue in the background.'
+            'Cancel this activation to stop waiting for a code. Voluntary cancellation does not guarantee or issue a local quota refund.'
           )}
           confirmText={t('Confirm cancel')}
           destructive
@@ -980,9 +1163,18 @@ export function EmailActivationsPage() {
           open={!!reorderTarget}
           onOpenChange={(open) => !open && setReorderTarget(null)}
           title={t('Reorder paid activation')}
-          desc={t(
-            'Create a fresh activation with a new idempotency key. Confirm the latest stock and quota price before continuing.'
-          )}
+          desc={
+            reorderTarget
+              ? t(
+                  'Reorder {{domain}} for {{quota}} quota ({{price}} customer price)? This creates a new paid activation.',
+                  {
+                    domain: reorderTarget.product.domain,
+                    quota: formatNumber(reorderTarget.product.charge_quota),
+                    price: formatCurrencyUSD(reorderTarget.product.customer_price_usd),
+                  }
+                )
+              : ''
+          }
           confirmText={t('Confirm reorder')}
           isLoading={reorderMutation.isPending}
           handleConfirm={() => void handleConfirmReorder()}
@@ -992,10 +1184,20 @@ export function EmailActivationsPage() {
   )
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({
+  label,
+  controlId,
+  children,
+}: {
+  label: string
+  controlId: string
+  children: React.ReactNode
+}) {
   return (
     <div className='space-y-2'>
-      <label className='text-sm font-medium'>{label}</label>
+      <label htmlFor={controlId} className='text-sm font-medium'>
+        {label}
+      </label>
       {children}
     </div>
   )

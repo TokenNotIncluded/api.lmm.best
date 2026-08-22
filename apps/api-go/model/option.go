@@ -88,11 +88,6 @@ func InitOptionMap() {
 	common.OptionMap["About"] = ""
 	common.OptionMap["HomePageContent"] = ""
 	common.OptionMap["Footer"] = common.Footer
-	common.OptionMap[setting.HeroSMSOptionEnabled] = strconv.FormatBool(setting.HeroSMSEnabled)
-	common.OptionMap[setting.HeroSMSOptionAPIKey] = ""
-	common.OptionMap[setting.HeroSMSOptionCurrency] = setting.HeroSMSCurrency
-	common.OptionMap[setting.HeroSMSOptionCode] = strconv.Itoa(setting.HeroSMSCurrencyCode)
-	common.OptionMap[setting.HeroSMSOptionMultiplier] = setting.HeroSMSPriceMultiplierValue
 	common.OptionMap["SystemName"] = common.SystemName
 	common.OptionMap["Logo"] = common.Logo
 	common.OptionMap["ServerAddress"] = system_setting.ServerAddress
@@ -276,9 +271,6 @@ func SyncOptions(frequency int) {
 }
 
 func validateOptionValue(key string, value string) error {
-	if key == setting.HeroSMSOptionAPIKey || key == setting.HeroSMSOptionEnabled || key == setting.HeroSMSOptionMultiplier {
-		return errors.New("HeroSMS settings must be managed via /api/option/hero-sms")
-	}
 	if isRetiredIPAccessOptionKey(key) {
 		return errors.New("legacy IP access option is retired; use IPAccessRoutingRules")
 	}
@@ -603,13 +595,6 @@ func updateOptionMap(key string, value string) (err error) {
 		common.OptionMap[key] = "0"
 		return nil
 	}
-	if key == setting.HeroSMSOptionAPIKey {
-		decrypted, err := common.DecryptPersistentString("hero_sms.api_key", "HERO_SMS_ENCRYPTION_KEY", "CRYPTO_SECRET", value)
-		if err != nil {
-			return fmt.Errorf("decrypt hero sms api key: %w", err)
-		}
-		setting.HeroSMSAPIKey = decrypted
-	}
 	common.OptionMapRWMutex.Lock()
 	defer common.OptionMapRWMutex.Unlock()
 	common.OptionMap[key] = value
@@ -633,7 +618,7 @@ func updateOptionMap(key string, value string) (err error) {
 			common.ImageDownloadPermission = intValue
 		}
 	}
-	if strings.HasSuffix(key, "Enabled") || key == "DefaultCollapseSidebar" || key == "DefaultUseAutoGroup" || key == "SMTPForceAuthLogin" || key == "SMTPInsecureSkipVerify" || key == setting.HeroSMSOptionEnabled {
+	if strings.HasSuffix(key, "Enabled") || key == "DefaultCollapseSidebar" || key == "DefaultUseAutoGroup" || key == "SMTPForceAuthLogin" || key == "SMTPInsecureSkipVerify" {
 		boolValue := value == "true"
 		switch key {
 		case "PasswordRegisterEnabled":
@@ -744,8 +729,6 @@ func updateOptionMap(key string, value string) (err error) {
 			setting.SetAssistantReviewEnabled(boolValue)
 		case setting.AssistantRetentionEnabledOptionKey:
 			setting.SetAssistantRetentionEnabled(boolValue)
-		case setting.HeroSMSOptionEnabled:
-			setting.HeroSMSEnabled = boolValue
 		}
 	}
 	switch key {
@@ -986,18 +969,6 @@ func updateOptionMap(key string, value string) (err error) {
 		err = ratio_setting.UpdateAudioCompletionRatioByJSONString(value)
 	case "TopUpLink":
 		common.TopUpLink = value
-	case setting.HeroSMSOptionCurrency:
-		// fixed contract value; runtime map still reflects persisted/default state
-	case setting.HeroSMSOptionCode:
-		// fixed contract value; runtime map still reflects persisted/default state
-	case setting.HeroSMSOptionMultiplier:
-		if strings.TrimSpace(value) == "" {
-			setting.HeroSMSPriceMultiplierValue = setting.HeroSMSPriceMultiplier
-		} else {
-			setting.HeroSMSPriceMultiplierValue = strings.TrimSpace(value)
-		}
-	case setting.HeroSMSOptionAPIKey:
-		// decrypted earlier, keep ciphertext in OptionMap only
 	//case "ChatLink":
 	//	common.ChatLink = value
 	//case "ChatLink2":
