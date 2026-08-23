@@ -25,6 +25,8 @@ pub enum MissingRelayEndpoint {
     Realtime,
     PgChatCompletions,
     Edits,
+    PgImagesGenerations,
+    PgImagesEdits,
 }
 
 /// A typed authorization failure returned before a request reaches a relay.
@@ -95,7 +97,10 @@ impl MissingRelayService for FailClosedRelayMiscService {
             status: StatusCode::UNAUTHORIZED,
             code: "AUTH_UNAUTHORIZED",
             message: match endpoint {
-                MissingRelayEndpoint::Realtime | MissingRelayEndpoint::Edits => "Invalid token",
+                MissingRelayEndpoint::Realtime
+                | MissingRelayEndpoint::Edits
+                | MissingRelayEndpoint::PgImagesGenerations
+                | MissingRelayEndpoint::PgImagesEdits => "Invalid token",
                 MissingRelayEndpoint::PgChatCompletions => "Unauthorized, invalid access token",
             }
             .to_owned(),
@@ -113,6 +118,8 @@ pub fn missing_relay_misc_router(state: MissingRelayMiscState) -> Router {
         .route("/v1/realtime", get(realtime))
         .route("/pg/chat/completions", post(pg_chat_completions))
         .route("/v1/edits", post(edits))
+        .route("/pg/images/generations", post(pg_images_generations))
+        .route("/pg/images/edits", post(pg_images_edits))
         .with_state(state)
 }
 
@@ -129,6 +136,20 @@ async fn pg_chat_completions(
 
 async fn edits(State(state): State<MissingRelayMiscState>, request: Request) -> Response {
     relay(state, MissingRelayEndpoint::Edits, request).await
+}
+
+async fn pg_images_generations(
+    State(state): State<MissingRelayMiscState>,
+    request: Request,
+) -> Response {
+    relay(state, MissingRelayEndpoint::PgImagesGenerations, request).await
+}
+
+async fn pg_images_edits(
+    State(state): State<MissingRelayMiscState>,
+    request: Request,
+) -> Response {
+    relay(state, MissingRelayEndpoint::PgImagesEdits, request).await
 }
 
 async fn relay(
@@ -166,7 +187,7 @@ fn legacy_error(
             );
             response
         }
-        MissingRelayEndpoint::Realtime | MissingRelayEndpoint::Edits => {
+        MissingRelayEndpoint::Realtime | MissingRelayEndpoint::Edits | MissingRelayEndpoint::PgImagesGenerations | MissingRelayEndpoint::PgImagesEdits => {
             let request_id = request.extensions().get::<RequestContext>().map_or_else(
                 || {
                     request

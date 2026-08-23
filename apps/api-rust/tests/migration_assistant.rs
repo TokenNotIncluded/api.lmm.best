@@ -122,6 +122,7 @@ fn smoke_router() -> axum::Router {
         pg,
         valkey,
         Arc::new(PersonalTokenAuth),
+        secrecy::SecretString::from("assistant-test-session-secret"),
         AssistantRateLimitConfig {
             enabled: false,
             max_requests: 1,

@@ -747,6 +747,117 @@ pub fn provider_router(state: FederationState) -> Router {
         .merge(oauth_external_provider_router(state))
 }
 
+/// Mounts browser OAuth login-start routes for WeChat and Telegram.
+pub fn oauth_login_start_router(state: FederationState) -> Router {
+    Router::new()
+        .route("/api/oauth/wechat/start", post(wechat_auth_start))
+        .route("/api/oauth/telegram/login/start", post(telegram_login_start))
+        .layer(DefaultBodyLimit::max(MAX_IDENTITY_BODY_BYTES))
+        .with_state(state)
+}
+
+#[derive(Default, Deserialize)]
+struct WeChatAuthStartRequest {
+    accepted_legal: bool,
+}
+
+async fn wechat_auth_start(State(state): State<FederationState>, request: Request) -> Response {
+    if !state.providers.wechat_enabled() {
+        return failure(
+            StatusCode::OK,
+            "管理员未开启通过微信登录以及注册",
+        );
+    }
+    let body = match axum::body::to_bytes(request.into_body(), MAX_IDENTITY_BODY_BYTES).await {
+        Ok(body) => body,
+        Err(_) => return failure(StatusCode::OK, "Invalid parameters"),
+    };
+    let input = match serde_json::from_slice::<WeChatAuthStartRequest>(&body) {
+        Ok(input) => input,
+        Err(_) => return failure(StatusCode::OK, "Invalid parameters"),
+    };
+    create_provider_login_flow(
+        &state,
+        "wechat_login",
+        "wechat",
+        "login",
+        0,
+        "",
+        json!({"accepted_legal": input.accepted_legal}).to_string(),
+        "wechat",
+    )
+    .await
+}
+
+async fn telegram_login_start(State(state): State<FederationState>, _: Request) -> Response {
+    if !state.providers.telegram_enabled() {
+        return failure(
+            StatusCode::OK,
+            "管理员未开启通过 Telegram 登录以及注册",
+        );
+    }
+    create_provider_login_flow(
+        &state,
+        "telegram_login",
+        "telegram",
+        "login",
+        0,
+        "",
+        "{}".to_owned(),
+        "telegram",
+    )
+    .await
+}
+
+async fn create_provider_login_flow(
+    state: &FederationState,
+    purpose: &str,
+    provider: &str,
+    intent: &str,
+    user_id: i64,
+    session_id: &str,
+    payload: String,
+    cookie_provider: &str,
+) -> Response {
+    let token = random_urlsafe(32);
+    let hash = match state.flow_hash(&token) {
+        Ok(hash) => hash,
+        Err(_) => return failure(StatusCode::INTERNAL_SERVER_ERROR, "internal server error"),
+    };
+    let created = sqlx::query(
+        "INSERT INTO auth_flows (token_hash, purpose, provider, intent, user_id, session_id, payload, created_at, expires_at) \
+         VALUES ($1, $2, $3, $4, NULLIF($5, 0), NULLIF($6, ''), $7, NOW(), NOW() + make_interval(secs => $8)) \
+         RETURNING EXTRACT(EPOCH FROM expires_at)::BIGINT",
+    )
+    .bind(hash)
+    .bind(purpose)
+    .bind(provider)
+    .bind(intent)
+    .bind(user_id)
+    .bind(session_id)
+    .bind(payload)
+    .bind(OAUTH_FLOW_TTL.as_secs() as f64)
+    .fetch_one(&state.pool)
+    .await;
+    let expires_at = match created.and_then(|row| row.try_get::<i64, _>(0)) {
+        Ok(value) => value,
+        Err(_) => return failure(StatusCode::INTERNAL_SERVER_ERROR, "internal server error"),
+    };
+    let mut response = Json(Envelope {
+        success: true,
+        message: "",
+        data: Some(json!({"flow_token": token, "expires_at": expires_at})),
+    })
+    .into_response();
+    if let Ok(cookie) = axum::http::HeaderValue::from_str(&format!(
+        "oauth_state_{cookie_provider}={token}; Path=/; HttpOnly; SameSite=Lax; Max-Age={}",
+        OAUTH_FLOW_TTL.as_secs()
+    )) {
+        response.headers_mut().append(header::SET_COOKIE, cookie);
+    }
+    response
+}
+
 /// Mounts the external-provider login and bind routes.
 ///
 /// A listener that has not installed a live [`FederationProviders`] adapter

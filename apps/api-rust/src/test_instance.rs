@@ -1954,6 +1954,9 @@ impl MissingRelayService for DenyRelayMisc {
             message: match endpoint {
                 MissingRelayEndpoint::Realtime | MissingRelayEndpoint::Edits => "Invalid token",
                 MissingRelayEndpoint::PgChatCompletions => "Unauthorized, invalid access token",
+                MissingRelayEndpoint::PgImagesGenerations | MissingRelayEndpoint::PgImagesEdits => {
+                    "Invalid token"
+                }
             }
             .to_owned(),
         })

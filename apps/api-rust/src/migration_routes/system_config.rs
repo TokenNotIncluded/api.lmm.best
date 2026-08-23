@@ -1532,7 +1532,9 @@ pub fn system_config_router(state: SystemConfigHttpState) -> Router {
         )
         .route("/api/option/project-update", get(project_update))
         .route("/api/option/rest_model_ratio", post(reset_model_ratio))
-        .route("/api/option/waffo-pancake/catalog", get(pancake_catalog))
+        .route("/api/option/waffo-pancake/catalog", get(pancake_catalog).post(pancake_catalog_post))
+        .route("/api/option/bulk", post(update_options_bulk))
+        .route("/api/option/validate", post(validate_options))
         .route("/api/option/waffo-pancake/pair", post(pancake_pair))
         .route("/api/option/waffo-pancake/save", post(pancake_save))
         .route(
@@ -2438,6 +2440,134 @@ async fn pancake_values(
         Ok((m, k, opts))
     }
 }
+async fn pancake_catalog_post(
+    State(state): State<SystemConfigHttpState>,
+    Extension(_context): Extension<SystemConfigAuthContext>,
+    body: Bytes,
+) -> Response {
+    let input = if body.iter().all(u8::is_ascii_whitespace) {
+        PancakeCreds::default()
+    } else {
+        match serde_json::from_slice::<PancakeCreds>(&body) {
+            Ok(input) => input,
+            Err(_) => {
+                return legacy_json(StatusCode::OK, json!({"message":"error","data":"参数错误"}));
+            }
+        }
+    };
+    let Ok((m, k, _)) = pancake_values(&state, &input).await else {
+        return legacy_json(
+            StatusCode::OK,
+            json!({"message":"error","data":"Waffo Pancake 凭证未配置"}),
+        );
+    };
+    match state.pancake.catalog(&m, &k).await {
+        Ok(data) => legacy_json(StatusCode::OK, json!({"message":"success","data":data})),
+        Err(_) => legacy_json(
+            StatusCode::OK,
+            json!({"message":"error","data":"拉取目录失败"}),
+        ),
+    }
+}
+
+#[derive(Default, Deserialize)]
+struct OptionValuesRequest {
+    values: BTreeMap<String, String>,
+}
+
+async fn validate_options(
+    State(state): State<SystemConfigHttpState>,
+    Extension(_context): Extension<SystemConfigAuthContext>,
+    body: Bytes,
+) -> Response {
+    let values = match decode_option_values(&body) {
+        Ok(values) => values,
+        Err(response) => return response,
+    };
+    let options = match cached_options(&state).await {
+        Ok(options) => options,
+        Err(()) => return legacy_error("保存设置失败"),
+    };
+    for (key, value) in &values {
+        if let Err(message) = validate_option_update(key, value, &options) {
+            return legacy_json(
+                StatusCode::OK,
+                json!({"success": false, "message": message}),
+            );
+        }
+    }
+    legacy_json(StatusCode::OK, json!({"success": true, "message": ""}))
+}
+
+async fn update_options_bulk(
+    State(state): State<SystemConfigHttpState>,
+    Extension(context): Extension<SystemConfigAuthContext>,
+    body: Bytes,
+) -> Response {
+    let values = match decode_option_values(&body) {
+        Ok(values) => values,
+        Err(response) => return response,
+    };
+    let options = match cached_options(&state).await {
+        Ok(options) => options,
+        Err(()) => return legacy_error("保存设置失败"),
+    };
+    for (key, value) in &values {
+        if let Err(message) = validate_option_update(key, value, &options) {
+            return legacy_json(
+                StatusCode::OK,
+                json!({"success": false, "message": message}),
+            );
+        }
+    }
+    let changes: Vec<(String, String)> = values.into_iter().collect();
+    if persist_option_changes(&state, &changes).await.is_err() {
+        return legacy_error("保存设置失败");
+    }
+    let mut keys: Vec<&str> = changes.iter().map(|(key, _)| key.as_str()).collect();
+    keys.sort_unstable();
+    let other = json!({"op": {"action": "option.bulk_update", "params": {"keys": keys}}});
+    let _ = sqlx::query(
+        "INSERT INTO logs (user_id, created_at, type, content, username, other) VALUES ($1, $2, 3, $3, $4, $5)",
+    )
+    .bind(context.identity.user_id)
+    .bind(chrono_seconds())
+    .bind("Updated system settings in bulk")
+    .bind("")
+    .bind(other.to_string())
+    .execute(&state.pg)
+    .await;
+    legacy_json(StatusCode::OK, json!({"success": true, "message": ""}))
+}
+
+fn decode_option_values(body: &Bytes) -> Result<BTreeMap<String, String>, Response> {
+    if body.is_empty() {
+        return Err(legacy_json(
+            StatusCode::BAD_REQUEST,
+            json!({"success": false, "message": "values must be a non-empty JSON object"}),
+        ));
+    }
+    let request: OptionValuesRequest = serde_json::from_slice(body).map_err(|_| {
+        legacy_json(
+            StatusCode::BAD_REQUEST,
+            json!({"success": false, "message": "values must be a non-empty JSON object"}),
+        )
+    })?;
+    if request.values.is_empty() {
+        return Err(legacy_json(
+            StatusCode::BAD_REQUEST,
+            json!({"success": false, "message": "values must be a non-empty JSON object"}),
+        ));
+    }
+    if request.values.len() > 128 {
+        return Err(legacy_json(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            json!({"success": false, "message": "too many option values"}),
+        ));
+    }
+    Ok(request.values)
+}
+
 async fn pancake_catalog(
     State(state): State<SystemConfigHttpState>,
     Extension(_context): Extension<SystemConfigAuthContext>,

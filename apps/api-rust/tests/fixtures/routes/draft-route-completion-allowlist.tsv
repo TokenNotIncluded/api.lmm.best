@@ -2,69 +2,84 @@ method	path	category	source_path	rationale
 GET	/_internal/build	internal	apps/api-rust/src/http.rs	listener build metadata used by the test deployment
 GET	/_test/hold	test	apps/api-rust/src/http.rs	cfg(test) request-boundary fixture
 POST	/_test/json	test	apps/api-rust/src/http.rs	cfg(test) JSON extractor fixture
-GET	/api/extra-probe	test	apps/api-rust/src/http.rs	cfg(test) extra-surface listener-boundary fixture
-GET	/api/livez	health	apps/api-rust/src/http.rs	current Go liveness route outside the frozen migration inventory
-GET	/api/task	compatibility	apps/api-rust/src/migration_routes/control_admin.rs	trailing-slash compatibility redirect outside the frozen Go registration
-OPTIONS	/api/usage/token/	test	apps/api-rust/src/http.rs	cfg(test) CORS preflight fixture for the token-usage boundary
-GET	/incomplete-document	fixture	apps/api-rust/src/migration_routes/control_admin.rs	cfg(test) OAuth discovery validation fixture
-GET	/invalid-json-document	fixture	apps/api-rust/src/migration_routes/control_admin.rs	cfg(test) OAuth discovery validation fixture
-GET	/livez	health	apps/api-rust/src/http.rs	production liveness probe outside the frozen Go API inventory
-POST	/livez	test	apps/api-rust/src/http.rs	cfg(test) complementary-method routing fixture
-GET	/loopback-redirect-document	fixture	apps/api-rust/src/migration_routes/control_admin.rs	cfg(test) OAuth discovery redirect fixture
-GET	/loopback-redirect-start	fixture	apps/api-rust/src/migration_routes/control_admin.rs	cfg(test) OAuth discovery redirect fixture
-GET	/oversized-document	fixture	apps/api-rust/src/migration_routes/control_admin.rs	cfg(test) OAuth discovery response-limit fixture
-GET	/private-redirect-start	fixture	apps/api-rust/src/migration_routes/control_admin.rs	cfg(test) OAuth discovery SSRF fixture
-GET	/readyz	health	apps/api-rust/src/http.rs	production readiness probe outside the frozen Go API inventory
-POST	/token	fixture	apps/api-rust/src/migration_routes/identity_federation.rs	cfg(test) loopback OAuth token endpoint fixture
-GET	/user	fixture	apps/api-rust/src/migration_routes/identity_federation.rs	cfg(test) loopback OAuth user endpoint fixture
-DELETE	/api/open-source-bounties/mcp-token	compatibility	apps/api-rust/src/migration_routes/open_source_bounties.rs	application route intentionally outside the frozen legacy migration inventory
-DELETE	/api/open-source-bounties/projects/:id	compatibility	apps/api-rust/src/migration_routes/open_source_bounties.rs	application route intentionally outside the frozen legacy migration inventory
-DELETE	/api/user/access-ip	compatibility	apps/api-rust/src/migration_routes/access_ip.rs	application route intentionally outside the frozen legacy migration inventory
-DELETE	/api/user/bindings/:binding_type	compatibility	apps/api-rust/src/migration_routes/identity_profile.rs	application route intentionally outside the frozen legacy migration inventory
+GET	/api/account-action-requests	compatibility	apps/api-rust/src/migration_routes/account_action.rs	application route intentionally outside the frozen legacy migration inventory
+POST	/api/account-action-requests/:id/approve	compatibility	apps/api-rust/src/migration_routes/account_action.rs	application route intentionally outside the frozen legacy migration inventory
+POST	/api/account-action-requests/:id/reject	compatibility	apps/api-rust/src/migration_routes/account_action.rs	application route intentionally outside the frozen legacy migration inventory
+POST	/api/assistant/admin/apply	compatibility	apps/api-rust/src/migration_routes/assistant_extended.rs	application route intentionally outside the frozen legacy migration inventory
+GET	/api/assistant/admin/first-questions	compatibility	apps/api-rust/src/migration_routes/assistant_extended.rs	application route intentionally outside the frozen legacy migration inventory
+GET	/api/assistant/admin/funding	compatibility	apps/api-rust/src/migration_routes/assistant_extended.rs	application route intentionally outside the frozen legacy migration inventory
 GET	/api/assistant/admin/handoffs	compatibility	apps/api-rust/src/migration_routes/assistant.rs	application route intentionally outside the frozen legacy migration inventory
+POST	/api/assistant/admin/handoffs/:id/resolve	compatibility	apps/api-rust/src/migration_routes/assistant.rs	application route intentionally outside the frozen legacy migration inventory
 GET	/api/assistant/admin/intents	compatibility	apps/api-rust/src/migration_routes/assistant.rs	application route intentionally outside the frozen legacy migration inventory
+GET	/api/assistant/admin/profiles	compatibility	apps/api-rust/src/migration_routes/assistant_extended.rs	application route intentionally outside the frozen legacy migration inventory
+GET	/api/assistant/admin/request-reviews	compatibility	apps/api-rust/src/migration_routes/assistant_extended.rs	application route intentionally outside the frozen legacy migration inventory
+GET	/api/assistant/admin/review	compatibility	apps/api-rust/src/migration_routes/assistant_extended.rs	application route intentionally outside the frozen legacy migration inventory
+POST	/api/assistant/admin/review/run	compatibility	apps/api-rust/src/migration_routes/assistant_extended.rs	application route intentionally outside the frozen legacy migration inventory
+POST	/api/assistant/admin/users/:user_id/request-reviews/reset	compatibility	apps/api-rust/src/migration_routes/assistant_extended.rs	application route intentionally outside the frozen legacy migration inventory
+GET	/api/assistant/cards/:id/reveal	compatibility	apps/api-rust/src/migration_routes/assistant_extended.rs	application route intentionally outside the frozen legacy migration inventory
+POST	/api/assistant/chat	compatibility	apps/api-rust/src/migration_routes/assistant.rs	application route intentionally outside the frozen legacy migration inventory
+GET	/api/assistant/conversations	compatibility	apps/api-rust/src/migration_routes/assistant_extended.rs	application route intentionally outside the frozen legacy migration inventory
+GET	/api/assistant/conversations/:id	compatibility	apps/api-rust/src/migration_routes/assistant_extended.rs	application route intentionally outside the frozen legacy migration inventory
+POST	/api/assistant/conversations/:id/archive	compatibility	apps/api-rust/src/migration_routes/assistant_extended.rs	application route intentionally outside the frozen legacy migration inventory
+POST	/api/assistant/conversations/:id/unarchive	compatibility	apps/api-rust/src/migration_routes/assistant_extended.rs	application route intentionally outside the frozen legacy migration inventory
+POST	/api/assistant/drawing/generate	compatibility	apps/api-rust/src/migration_routes/assistant_extended.rs	application route intentionally outside the frozen legacy migration inventory
+POST	/api/assistant/handoffs	compatibility	apps/api-rust/src/migration_routes/assistant.rs	application route intentionally outside the frozen legacy migration inventory
 GET	/api/assistant/handoffs/self	compatibility	apps/api-rust/src/migration_routes/assistant.rs	application route intentionally outside the frozen legacy migration inventory
+GET	/api/assistant/journey	compatibility	apps/api-rust/src/migration_routes/assistant_extended.rs	application route intentionally outside the frozen legacy migration inventory
 GET	/api/assistant/models	compatibility	apps/api-rust/src/migration_routes/assistant.rs	application route intentionally outside the frozen legacy migration inventory
+GET	/api/assistant/new-user-gift	compatibility	apps/api-rust/src/migration_routes/assistant_extended.rs	application route intentionally outside the frozen legacy migration inventory
+POST	/api/assistant/new-user-gift/claim	compatibility	apps/api-rust/src/migration_routes/assistant_extended.rs	application route intentionally outside the frozen legacy migration inventory
 GET	/api/assistant/offers	compatibility	apps/api-rust/src/migration_routes/assistant.rs	application route intentionally outside the frozen legacy migration inventory
+GET	/api/assistant/pre-conversation-presets	compatibility	apps/api-rust/src/migration_routes/assistant_extended.rs	application route intentionally outside the frozen legacy migration inventory
+POST	/api/assistant/pre-conversation-presets/:id/click	compatibility	apps/api-rust/src/migration_routes/assistant_extended.rs	application route intentionally outside the frozen legacy migration inventory
 GET	/api/assistant/pricing	compatibility	apps/api-rust/src/migration_routes/missing_control_public.rs	application route intentionally outside the frozen legacy migration inventory
 GET	/api/assistant/status	compatibility	apps/api-rust/src/migration_routes/assistant.rs	application route intentionally outside the frozen legacy migration inventory
-GET	/api/developer-access/requests	compatibility	apps/api-rust/src/migration_routes/developer_access.rs	application route intentionally outside the frozen legacy migration inventory
-GET	/api/finance/export	compatibility	apps/api-rust/src/migration_routes/finance_export.rs	application route intentionally outside the frozen legacy migration inventory
-GET	/api/gift/	compatibility	apps/api-rust/src/migration_routes/gifts.rs	application route intentionally outside the frozen legacy migration inventory
-GET	/api/gift/claims	compatibility	apps/api-rust/src/migration_routes/gifts.rs	application route intentionally outside the frozen legacy migration inventory
-GET	/api/internal/access-ip-policy	internal	apps/api-rust/src/migration_routes/access_ip.rs	internal access policy route outside the frozen legacy migration inventory
-GET	/api/open-source-bounties	compatibility	apps/api-rust/src/migration_routes/open_source_bounties.rs	application route intentionally outside the frozen legacy migration inventory
-GET	/api/open-source-bounties/accepted	compatibility	apps/api-rust/src/migration_routes/open_source_bounties.rs	application route intentionally outside the frozen legacy migration inventory
-GET	/api/open-source-bounties/config	compatibility	apps/api-rust/src/migration_routes/open_source_bounties.rs	application route intentionally outside the frozen legacy migration inventory
-GET	/api/open-source-bounties/disputes/admin	compatibility	apps/api-rust/src/migration_routes/open_source_bounties.rs	application route intentionally outside the frozen legacy migration inventory
-GET	/api/open-source-bounties/disputes/mine	compatibility	apps/api-rust/src/migration_routes/open_source_bounties.rs	application route intentionally outside the frozen legacy migration inventory
-GET	/api/open-source-bounties/mcp-token	compatibility	apps/api-rust/src/migration_routes/open_source_bounties.rs	application route intentionally outside the frozen legacy migration inventory
-GET	/api/open-source-bounties/mine	compatibility	apps/api-rust/src/migration_routes/open_source_bounties.rs	application route intentionally outside the frozen legacy migration inventory
-GET	/api/open-source-bounties/notifications	compatibility	apps/api-rust/src/migration_routes/open_source_bounties.rs	application route intentionally outside the frozen legacy migration inventory
-GET	/api/open-source-bounties/projects/:id	compatibility	apps/api-rust/src/migration_routes/open_source_bounties.rs	application route intentionally outside the frozen legacy migration inventory
-GET	/api/open-source-bounties/tips/received	compatibility	apps/api-rust/src/migration_routes/open_source_bounties.rs	application route intentionally outside the frozen legacy migration inventory
-GET	/api/rankings/users	compatibility	apps/api-rust/src/migration_routes/user_rankings.rs	application route intentionally outside the frozen legacy migration inventory
-GET	/api/release-notes/admin	compatibility	apps/api-rust/src/migration_routes/release_notes.rs	application route intentionally outside the frozen legacy migration inventory
-GET	/api/release-notes/latest	compatibility	apps/api-rust/src/migration_routes/release_notes.rs	application route intentionally outside the frozen legacy migration inventory
-GET	/api/security/admin/events	compatibility	apps/api-rust/src/migration_routes/security_overview.rs	application route intentionally outside the frozen legacy migration inventory
-GET	/api/security/admin/policy	compatibility	apps/api-rust/src/migration_routes/security_overview.rs	application route intentionally outside the frozen legacy migration inventory
-GET	/api/security/admin/stats	compatibility	apps/api-rust/src/migration_routes/security_overview.rs	application route intentionally outside the frozen legacy migration inventory
-GET	/api/security/policy	compatibility	apps/api-rust/src/migration_routes/security_overview.rs	application route intentionally outside the frozen legacy migration inventory
-GET	/api/security/stats	compatibility	apps/api-rust/src/migration_routes/security_overview.rs	application route intentionally outside the frozen legacy migration inventory
-GET	/api/test-public-rate-limit/:name	test	apps/api-rust/src/http.rs	cfg(test) public rate-limit boundary fixture
-GET	/api/token/auto-groups	compatibility	apps/api-rust/src/migration_routes/api_token.rs	application route intentionally outside the frozen legacy migration inventory
-GET	/api/user/access-ip	compatibility	apps/api-rust/src/migration_routes/access_ip.rs	application route intentionally outside the frozen legacy migration inventory
-GET	/api/user/developer-access/request	compatibility	apps/api-rust/src/migration_routes/developer_access.rs	application route intentionally outside the frozen legacy migration inventory
-GET	/api/user/gift	compatibility	apps/api-rust/src/migration_routes/gifts.rs	application route intentionally outside the frozen legacy migration inventory
-GET	/v1/responses	compatibility	apps/api-rust/src/migration_routes/responses_websocket.rs	WebSocket-compatible Responses route outside the frozen HTTP migration inventory
-POST	/api/assistant/admin/handoffs/:id/resolve	compatibility	apps/api-rust/src/migration_routes/assistant.rs	application route intentionally outside the frozen legacy migration inventory
-POST	/api/assistant/chat	compatibility	apps/api-rust/src/migration_routes/assistant.rs	application route intentionally outside the frozen legacy migration inventory
-POST	/api/assistant/handoffs	compatibility	apps/api-rust/src/migration_routes/assistant.rs	application route intentionally outside the frozen legacy migration inventory
 POST	/api/assistant/tools/create-key	compatibility	apps/api-rust/src/migration_routes/assistant.rs	application route intentionally outside the frozen legacy migration inventory
+GET	/api/assistant/weekly-discount	compatibility	apps/api-rust/src/migration_routes/assistant_extended.rs	application route intentionally outside the frozen legacy migration inventory
+POST	/api/assistant/weekly-discount/claim	compatibility	apps/api-rust/src/migration_routes/assistant_extended.rs	application route intentionally outside the frozen legacy migration inventory
+GET	/api/developer-access/requests	compatibility	apps/api-rust/src/migration_routes/developer_access.rs	application route intentionally outside the frozen legacy migration inventory
 POST	/api/developer-access/requests/:id/approve	compatibility	apps/api-rust/src/migration_routes/developer_access.rs	application route intentionally outside the frozen legacy migration inventory
 POST	/api/developer-access/requests/:id/reject	compatibility	apps/api-rust/src/migration_routes/developer_access.rs	application route intentionally outside the frozen legacy migration inventory
+GET	/api/discount-code/	compatibility	apps/api-rust/src/migration_routes/discount_code.rs	application route intentionally outside the frozen legacy migration inventory
+POST	/api/discount-code/	compatibility	apps/api-rust/src/migration_routes/discount_code.rs	application route intentionally outside the frozen legacy migration inventory
+PUT	/api/discount-code/	compatibility	apps/api-rust/src/migration_routes/discount_code.rs	application route intentionally outside the frozen legacy migration inventory
+DELETE	/api/discount-code/:id	compatibility	apps/api-rust/src/migration_routes/discount_code.rs	application route intentionally outside the frozen legacy migration inventory
+GET	/api/discount-code/:id	compatibility	apps/api-rust/src/migration_routes/discount_code.rs	application route intentionally outside the frozen legacy migration inventory
+POST	/api/discount-code/batch	compatibility	apps/api-rust/src/migration_routes/discount_code.rs	application route intentionally outside the frozen legacy migration inventory
+DELETE	/api/discount-code/exhausted	compatibility	apps/api-rust/src/migration_routes/discount_code.rs	application route intentionally outside the frozen legacy migration inventory
+GET	/api/discount-code/search	compatibility	apps/api-rust/src/migration_routes/discount_code.rs	application route intentionally outside the frozen legacy migration inventory
+PUT	/api/dynamic_pricing/setting	compatibility	apps/api-rust/src/migration_routes/dynamic_pricing.rs	application route intentionally outside the frozen legacy migration inventory
+GET	/api/dynamic_pricing/status	compatibility	apps/api-rust/src/migration_routes/dynamic_pricing.rs	application route intentionally outside the frozen legacy migration inventory
+GET	/api/extra-probe	test	apps/api-rust/src/http.rs	cfg(test) extra-surface listener-boundary fixture
+GET	/api/finance/entries	compatibility	apps/api-rust/src/migration_routes/finance.rs	application route intentionally outside the frozen legacy migration inventory
+POST	/api/finance/entries	compatibility	apps/api-rust/src/migration_routes/finance.rs	application route intentionally outside the frozen legacy migration inventory
+POST	/api/finance/entries/:entry_id/reverse	compatibility	apps/api-rust/src/migration_routes/finance.rs	application route intentionally outside the frozen legacy migration inventory
+GET	/api/finance/export	compatibility	apps/api-rust/src/migration_routes/finance_export.rs	application route intentionally outside the frozen legacy migration inventory
+GET	/api/finance/overview	compatibility	apps/api-rust/src/migration_routes/finance.rs	application route intentionally outside the frozen legacy migration inventory
+GET	/api/finance/payment-methods	compatibility	apps/api-rust/src/migration_routes/finance.rs	application route intentionally outside the frozen legacy migration inventory
+PUT	/api/finance/payment-methods/:method	compatibility	apps/api-rust/src/migration_routes/finance.rs	application route intentionally outside the frozen legacy migration inventory
+GET	/api/finance/users	compatibility	apps/api-rust/src/migration_routes/finance.rs	application route intentionally outside the frozen legacy migration inventory
+GET	/api/finance/users/:user_id	compatibility	apps/api-rust/src/migration_routes/finance.rs	application route intentionally outside the frozen legacy migration inventory
+GET	/api/gift/	compatibility	apps/api-rust/src/migration_routes/gifts.rs	application route intentionally outside the frozen legacy migration inventory
 POST	/api/gift/	compatibility	apps/api-rust/src/migration_routes/gifts.rs	application route intentionally outside the frozen legacy migration inventory
+PUT	/api/gift/:id	compatibility	apps/api-rust/src/migration_routes/gifts.rs	application route intentionally outside the frozen legacy migration inventory
+GET	/api/gift/claims	compatibility	apps/api-rust/src/migration_routes/gifts.rs	application route intentionally outside the frozen legacy migration inventory
+GET	/api/hero-sms/email/activations	compatibility	apps/api-rust/src/migration_routes/hero_sms.rs	application route intentionally outside the frozen legacy migration inventory
+POST	/api/hero-sms/email/activations	compatibility	apps/api-rust/src/migration_routes/hero_sms.rs	application route intentionally outside the frozen legacy migration inventory
+GET	/api/hero-sms/email/activations/:id	compatibility	apps/api-rust/src/migration_routes/hero_sms.rs	application route intentionally outside the frozen legacy migration inventory
+POST	/api/hero-sms/email/activations/:id/cancel	compatibility	apps/api-rust/src/migration_routes/hero_sms.rs	application route intentionally outside the frozen legacy migration inventory
+POST	/api/hero-sms/email/activations/:id/refresh	compatibility	apps/api-rust/src/migration_routes/hero_sms.rs	application route intentionally outside the frozen legacy migration inventory
+POST	/api/hero-sms/email/activations/:id/reorder	compatibility	apps/api-rust/src/migration_routes/hero_sms.rs	application route intentionally outside the frozen legacy migration inventory
+GET	/api/hero-sms/email/activations/current	compatibility	apps/api-rust/src/migration_routes/hero_sms.rs	application route intentionally outside the frozen legacy migration inventory
+GET	/api/hero-sms/email/products	compatibility	apps/api-rust/src/migration_routes/hero_sms.rs	application route intentionally outside the frozen legacy migration inventory
+GET	/api/internal/access-ip-policy	internal	apps/api-rust/src/migration_routes/access_ip.rs	internal access policy route outside the frozen legacy migration inventory
+GET	/api/livez	health	apps/api-rust/src/http.rs	current Go liveness route outside the frozen migration inventory
+POST	/api/oauth/telegram/login/start	compatibility	apps/api-rust/src/migration_routes/identity_federation.rs	application route intentionally outside the frozen legacy migration inventory
+POST	/api/oauth/wechat/start	compatibility	apps/api-rust/src/migration_routes/identity_federation.rs	application route intentionally outside the frozen legacy migration inventory
+POST	/api/onboarding/todo/proof	compatibility	apps/api-rust/src/migration_routes/unified_todo.rs	application route intentionally outside the frozen legacy migration inventory
+GET	/api/open-source-bounties	compatibility	apps/api-rust/src/migration_routes/open_source_bounties.rs	application route intentionally outside the frozen legacy migration inventory
 POST	/api/open-source-bounties	compatibility	apps/api-rust/src/migration_routes/open_source_bounties.rs	application route intentionally outside the frozen legacy migration inventory
+GET	/api/open-source-bounties/accepted	compatibility	apps/api-rust/src/migration_routes/open_source_bounties.rs	application route intentionally outside the frozen legacy migration inventory
 POST	/api/open-source-bounties/challenges/:challenge_id/approve	compatibility	apps/api-rust/src/migration_routes/open_source_bounties.rs	application route intentionally outside the frozen legacy migration inventory
 POST	/api/open-source-bounties/challenges/:challenge_id/cancel	compatibility	apps/api-rust/src/migration_routes/open_source_bounties.rs	application route intentionally outside the frozen legacy migration inventory
 POST	/api/open-source-bounties/challenges/:challenge_id/disputes	compatibility	apps/api-rust/src/migration_routes/open_source_bounties.rs	application route intentionally outside the frozen legacy migration inventory
@@ -72,9 +87,19 @@ POST	/api/open-source-bounties/challenges/:challenge_id/rate-owner	compatibility
 POST	/api/open-source-bounties/challenges/:challenge_id/reject	compatibility	apps/api-rust/src/migration_routes/open_source_bounties.rs	application route intentionally outside the frozen legacy migration inventory
 POST	/api/open-source-bounties/challenges/:challenge_id/tip	compatibility	apps/api-rust/src/migration_routes/open_source_bounties.rs	application route intentionally outside the frozen legacy migration inventory
 POST	/api/open-source-bounties/challenges/:challenge_id/withdraw	compatibility	apps/api-rust/src/migration_routes/open_source_bounties.rs	application route intentionally outside the frozen legacy migration inventory
+GET	/api/open-source-bounties/config	compatibility	apps/api-rust/src/migration_routes/open_source_bounties.rs	application route intentionally outside the frozen legacy migration inventory
 POST	/api/open-source-bounties/disputes/:dispute_id/resolve	compatibility	apps/api-rust/src/migration_routes/open_source_bounties.rs	application route intentionally outside the frozen legacy migration inventory
+GET	/api/open-source-bounties/disputes/admin	compatibility	apps/api-rust/src/migration_routes/open_source_bounties.rs	application route intentionally outside the frozen legacy migration inventory
+GET	/api/open-source-bounties/disputes/mine	compatibility	apps/api-rust/src/migration_routes/open_source_bounties.rs	application route intentionally outside the frozen legacy migration inventory
+DELETE	/api/open-source-bounties/mcp-token	compatibility	apps/api-rust/src/migration_routes/open_source_bounties.rs	application route intentionally outside the frozen legacy migration inventory
+GET	/api/open-source-bounties/mcp-token	compatibility	apps/api-rust/src/migration_routes/open_source_bounties.rs	application route intentionally outside the frozen legacy migration inventory
 POST	/api/open-source-bounties/mcp-token	compatibility	apps/api-rust/src/migration_routes/open_source_bounties.rs	application route intentionally outside the frozen legacy migration inventory
+GET	/api/open-source-bounties/mine	compatibility	apps/api-rust/src/migration_routes/open_source_bounties.rs	application route intentionally outside the frozen legacy migration inventory
+GET	/api/open-source-bounties/notifications	compatibility	apps/api-rust/src/migration_routes/open_source_bounties.rs	application route intentionally outside the frozen legacy migration inventory
 POST	/api/open-source-bounties/notifications/read	compatibility	apps/api-rust/src/migration_routes/open_source_bounties.rs	application route intentionally outside the frozen legacy migration inventory
+DELETE	/api/open-source-bounties/projects/:id	compatibility	apps/api-rust/src/migration_routes/open_source_bounties.rs	application route intentionally outside the frozen legacy migration inventory
+GET	/api/open-source-bounties/projects/:id	compatibility	apps/api-rust/src/migration_routes/open_source_bounties.rs	application route intentionally outside the frozen legacy migration inventory
+PUT	/api/open-source-bounties/projects/:id	compatibility	apps/api-rust/src/migration_routes/open_source_bounties.rs	application route intentionally outside the frozen legacy migration inventory
 POST	/api/open-source-bounties/projects/:id/accept	compatibility	apps/api-rust/src/migration_routes/open_source_bounties.rs	application route intentionally outside the frozen legacy migration inventory
 POST	/api/open-source-bounties/projects/:id/archive	compatibility	apps/api-rust/src/migration_routes/open_source_bounties.rs	application route intentionally outside the frozen legacy migration inventory
 POST	/api/open-source-bounties/projects/:id/close	compatibility	apps/api-rust/src/migration_routes/open_source_bounties.rs	application route intentionally outside the frozen legacy migration inventory
@@ -84,12 +109,124 @@ POST	/api/open-source-bounties/projects/:id/resume	compatibility	apps/api-rust/s
 POST	/api/open-source-bounties/projects/:id/submit	compatibility	apps/api-rust/src/migration_routes/open_source_bounties.rs	application route intentionally outside the frozen legacy migration inventory
 POST	/api/open-source-bounties/projects/:id/unarchive	compatibility	apps/api-rust/src/migration_routes/open_source_bounties.rs	application route intentionally outside the frozen legacy migration inventory
 POST	/api/open-source-bounties/tips/:tip_id/thank	compatibility	apps/api-rust/src/migration_routes/open_source_bounties.rs	application route intentionally outside the frozen legacy migration inventory
+GET	/api/open-source-bounties/tips/received	compatibility	apps/api-rust/src/migration_routes/open_source_bounties.rs	application route intentionally outside the frozen legacy migration inventory
 POST	/api/open-source-bounties/tips/received/read	compatibility	apps/api-rust/src/migration_routes/open_source_bounties.rs	application route intentionally outside the frozen legacy migration inventory
+POST	/api/option/bulk	compatibility	apps/api-rust/src/migration_routes/system_config.rs	application route intentionally outside the frozen legacy migration inventory
+GET	/api/option/hero-sms	compatibility	apps/api-rust/src/migration_routes/hero_sms.rs	application route intentionally outside the frozen legacy migration inventory
+PUT	/api/option/hero-sms	compatibility	apps/api-rust/src/migration_routes/hero_sms.rs	application route intentionally outside the frozen legacy migration inventory
+DELETE	/api/option/hero-sms/key	compatibility	apps/api-rust/src/migration_routes/hero_sms.rs	application route intentionally outside the frozen legacy migration inventory
+POST	/api/option/hero-sms/test	compatibility	apps/api-rust/src/migration_routes/hero_sms.rs	application route intentionally outside the frozen legacy migration inventory
+POST	/api/option/validate	compatibility	apps/api-rust/src/migration_routes/system_config.rs	application route intentionally outside the frozen legacy migration inventory
+POST	/api/option/waffo-pancake/catalog	compatibility	apps/api-rust/src/migration_routes/system_config.rs	application route intentionally outside the frozen legacy migration inventory
+GET	/api/public-relays	compatibility	apps/api-rust/src/migration_routes/public_relay.rs	application route intentionally outside the frozen legacy migration inventory
+POST	/api/public-relays	compatibility	apps/api-rust/src/migration_routes/public_relay.rs	application route intentionally outside the frozen legacy migration inventory
+POST	/api/public-relays/:id/report	compatibility	apps/api-rust/src/migration_routes/public_relay.rs	application route intentionally outside the frozen legacy migration inventory
+POST	/api/public-relays/:id/review	compatibility	apps/api-rust/src/migration_routes/public_relay.rs	application route intentionally outside the frozen legacy migration inventory
+GET	/api/public-relays/:id/reviews	compatibility	apps/api-rust/src/migration_routes/public_relay.rs	application route intentionally outside the frozen legacy migration inventory
+POST	/api/public-relays/:id/tip	compatibility	apps/api-rust/src/migration_routes/public_relay.rs	application route intentionally outside the frozen legacy migration inventory
+POST	/api/public-relays/:id/withdraw	compatibility	apps/api-rust/src/migration_routes/public_relay.rs	application route intentionally outside the frozen legacy migration inventory
+GET	/api/public-relays/admin	compatibility	apps/api-rust/src/migration_routes/public_relay.rs	application route intentionally outside the frozen legacy migration inventory
+POST	/api/public-relays/admin/:id/link-channel/:channel_id	compatibility	apps/api-rust/src/migration_routes/public_relay.rs	application route intentionally outside the frozen legacy migration inventory
+POST	/api/public-relays/admin/:id/review	compatibility	apps/api-rust/src/migration_routes/public_relay.rs	application route intentionally outside the frozen legacy migration inventory
+GET	/api/public-relays/admin/reports	compatibility	apps/api-rust/src/migration_routes/public_relay.rs	application route intentionally outside the frozen legacy migration inventory
+POST	/api/public-relays/admin/reports/:id/review	compatibility	apps/api-rust/src/migration_routes/public_relay.rs	application route intentionally outside the frozen legacy migration inventory
+GET	/api/public-relays/config	compatibility	apps/api-rust/src/migration_routes/public_relay.rs	application route intentionally outside the frozen legacy migration inventory
+GET	/api/public-relays/mine	compatibility	apps/api-rust/src/migration_routes/public_relay.rs	application route intentionally outside the frozen legacy migration inventory
+GET	/api/public-relays/routing	compatibility	apps/api-rust/src/migration_routes/public_relay.rs	application route intentionally outside the frozen legacy migration inventory
+PUT	/api/public-relays/routing	compatibility	apps/api-rust/src/migration_routes/public_relay.rs	application route intentionally outside the frozen legacy migration inventory
+GET	/api/rankings/users	compatibility	apps/api-rust/src/migration_routes/user_rankings.rs	application route intentionally outside the frozen legacy migration inventory
 POST	/api/release-notes/:id/read	compatibility	apps/api-rust/src/migration_routes/release_notes.rs	application route intentionally outside the frozen legacy migration inventory
+GET	/api/release-notes/admin	compatibility	apps/api-rust/src/migration_routes/release_notes.rs	application route intentionally outside the frozen legacy migration inventory
 POST	/api/release-notes/admin	compatibility	apps/api-rust/src/migration_routes/release_notes.rs	application route intentionally outside the frozen legacy migration inventory
-POST	/api/user/developer-access/request	compatibility	apps/api-rust/src/migration_routes/developer_access.rs	application route intentionally outside the frozen legacy migration inventory
-POST	/api/user/gift/:id/claim	compatibility	apps/api-rust/src/migration_routes/gifts.rs	application route intentionally outside the frozen legacy migration inventory
-POST	/api/verify/email	compatibility	apps/api-rust/src/migration_routes/verify_email.rs	application route intentionally outside the frozen legacy migration inventory
-PUT	/api/gift/:id	compatibility	apps/api-rust/src/migration_routes/gifts.rs	application route intentionally outside the frozen legacy migration inventory
-PUT	/api/open-source-bounties/projects/:id	compatibility	apps/api-rust/src/migration_routes/open_source_bounties.rs	application route intentionally outside the frozen legacy migration inventory
+GET	/api/release-notes/latest	compatibility	apps/api-rust/src/migration_routes/release_notes.rs	application route intentionally outside the frozen legacy migration inventory
+GET	/api/security/admin/ai-reviews	compatibility	apps/api-rust/src/migration_routes/security_admin.rs	application route intentionally outside the frozen legacy migration inventory
+GET	/api/security/admin/events	compatibility	apps/api-rust/src/migration_routes/security_overview.rs	application route intentionally outside the frozen legacy migration inventory
+GET	/api/security/admin/policy	compatibility	apps/api-rust/src/migration_routes/security_overview.rs	application route intentionally outside the frozen legacy migration inventory
+GET	/api/security/admin/review-runs	compatibility	apps/api-rust/src/migration_routes/security_admin.rs	application route intentionally outside the frozen legacy migration inventory
+GET	/api/security/admin/review-runs/:task_id	compatibility	apps/api-rust/src/migration_routes/security_admin.rs	application route intentionally outside the frozen legacy migration inventory
+PUT	/api/security/admin/settings	compatibility	apps/api-rust/src/migration_routes/security_admin.rs	application route intentionally outside the frozen legacy migration inventory
+GET	/api/security/admin/stats	compatibility	apps/api-rust/src/migration_routes/security_overview.rs	application route intentionally outside the frozen legacy migration inventory
+GET	/api/security/admin/violation-fee-appeals	compatibility	apps/api-rust/src/migration_routes/security_admin.rs	application route intentionally outside the frozen legacy migration inventory
+POST	/api/security/admin/violation-fee-appeals/:id/:action	compatibility	apps/api-rust/src/migration_routes/security_admin.rs	application route intentionally outside the frozen legacy migration inventory
+GET	/api/security/policy	compatibility	apps/api-rust/src/migration_routes/security_overview.rs	application route intentionally outside the frozen legacy migration inventory
+GET	/api/security/stats	compatibility	apps/api-rust/src/migration_routes/security_overview.rs	application route intentionally outside the frozen legacy migration inventory
+GET	/api/task	compatibility	apps/api-rust/src/migration_routes/control_admin.rs	trailing-slash compatibility redirect outside the frozen Go registration
+GET	/api/test-public-rate-limit/:name	test	apps/api-rust/src/http.rs	cfg(test) public rate-limit boundary fixture
+GET	/api/todos	compatibility	apps/api-rust/src/migration_routes/unified_todo.rs	application route intentionally outside the frozen legacy migration inventory
+POST	/api/todos/read	compatibility	apps/api-rust/src/migration_routes/unified_todo.rs	application route intentionally outside the frozen legacy migration inventory
+GET	/api/token/auto-groups	compatibility	apps/api-rust/src/migration_routes/api_token.rs	application route intentionally outside the frozen legacy migration inventory
+OPTIONS	/api/usage/token/	test	apps/api-rust/src/http.rs	cfg(test) CORS preflight fixture for the token-usage boundary
+GET	/api/user/:id/assistant-memories	compatibility	apps/api-rust/src/migration_routes/user_assistant_admin.rs	application route intentionally outside the frozen legacy migration inventory
+POST	/api/user/:id/assistant-memories	compatibility	apps/api-rust/src/migration_routes/user_assistant_admin.rs	application route intentionally outside the frozen legacy migration inventory
+DELETE	/api/user/:id/assistant-memories/:memory_id	compatibility	apps/api-rust/src/migration_routes/user_assistant_admin.rs	application route intentionally outside the frozen legacy migration inventory
+PUT	/api/user/:id/assistant-memories/:memory_id	compatibility	apps/api-rust/src/migration_routes/user_assistant_admin.rs	application route intentionally outside the frozen legacy migration inventory
+GET	/api/user/:id/assistant-profile	compatibility	apps/api-rust/src/migration_routes/user_assistant_admin.rs	application route intentionally outside the frozen legacy migration inventory
+PUT	/api/user/:id/assistant-profile	compatibility	apps/api-rust/src/migration_routes/user_assistant_admin.rs	application route intentionally outside the frozen legacy migration inventory
+GET	/api/user/:id/developer-access/archives	compatibility	apps/api-rust/src/migration_routes/user_assistant_admin.rs	application route intentionally outside the frozen legacy migration inventory
+DELETE	/api/user/access-ip	compatibility	apps/api-rust/src/migration_routes/access_ip.rs	application route intentionally outside the frozen legacy migration inventory
+GET	/api/user/access-ip	compatibility	apps/api-rust/src/migration_routes/access_ip.rs	application route intentionally outside the frozen legacy migration inventory
 PUT	/api/user/access-ip	compatibility	apps/api-rust/src/migration_routes/access_ip.rs	application route intentionally outside the frozen legacy migration inventory
+POST	/api/user/account-action-requests	compatibility	apps/api-rust/src/migration_routes/account_action.rs	application route intentionally outside the frozen legacy migration inventory
+GET	/api/user/account-action-requests/appeal	compatibility	apps/api-rust/src/migration_routes/account_action.rs	application route intentionally outside the frozen legacy migration inventory
+POST	/api/user/account-action-requests/appeal	compatibility	apps/api-rust/src/migration_routes/account_action.rs	application route intentionally outside the frozen legacy migration inventory
+DELETE	/api/user/bindings/:binding_type	compatibility	apps/api-rust/src/migration_routes/identity_profile.rs	application route intentionally outside the frozen legacy migration inventory
+GET	/api/user/developer-access/request	compatibility	apps/api-rust/src/migration_routes/developer_access.rs	application route intentionally outside the frozen legacy migration inventory
+POST	/api/user/developer-access/request	compatibility	apps/api-rust/src/migration_routes/developer_access.rs	application route intentionally outside the frozen legacy migration inventory
+POST	/api/user/discount-code/validate	compatibility	apps/api-rust/src/migration_routes/discount_code.rs	application route intentionally outside the frozen legacy migration inventory
+GET	/api/user/gift	compatibility	apps/api-rust/src/migration_routes/gifts.rs	application route intentionally outside the frozen legacy migration inventory
+POST	/api/user/gift/:id/claim	compatibility	apps/api-rust/src/migration_routes/gifts.rs	application route intentionally outside the frozen legacy migration inventory
+GET	/api/user/self/onboarding/todo	compatibility	apps/api-rust/src/migration_routes/unified_todo.rs	application route intentionally outside the frozen legacy migration inventory
+PATCH	/api/user/self/onboarding/todo	compatibility	apps/api-rust/src/migration_routes/unified_todo.rs	application route intentionally outside the frozen legacy migration inventory
+POST	/api/user/violation-fee-appeals	compatibility	apps/api-rust/src/migration_routes/security_admin.rs	application route intentionally outside the frozen legacy migration inventory
+GET	/api/user/violation-fees	compatibility	apps/api-rust/src/migration_routes/security_admin.rs	application route intentionally outside the frozen legacy migration inventory
+POST	/api/verify/email	compatibility	apps/api-rust/src/migration_routes/verify_email.rs	application route intentionally outside the frozen legacy migration inventory
+GET	/incomplete-document	fixture	apps/api-rust/src/migration_routes/control_admin.rs	cfg(test) OAuth discovery validation fixture
+GET	/invalid-json-document	fixture	apps/api-rust/src/migration_routes/control_admin.rs	cfg(test) OAuth discovery validation fixture
+GET	/livez	health	apps/api-rust/src/http.rs	production liveness probe outside the frozen Go API inventory
+POST	/livez	test	apps/api-rust/src/http.rs	cfg(test) complementary-method routing fixture
+GET	/loopback-redirect-document	fixture	apps/api-rust/src/migration_routes/control_admin.rs	cfg(test) OAuth discovery redirect fixture
+GET	/loopback-redirect-start	fixture	apps/api-rust/src/migration_routes/control_admin.rs	cfg(test) OAuth discovery redirect fixture
+CONNECT	/mcp	compatibility	apps/api-rust/src/migration_routes/mcp.rs	application route intentionally outside the frozen legacy migration inventory
+DELETE	/mcp	compatibility	apps/api-rust/src/migration_routes/mcp.rs	application route intentionally outside the frozen legacy migration inventory
+GET	/mcp	compatibility	apps/api-rust/src/migration_routes/mcp.rs	application route intentionally outside the frozen legacy migration inventory
+HEAD	/mcp	compatibility	apps/api-rust/src/migration_routes/mcp.rs	application route intentionally outside the frozen legacy migration inventory
+OPTIONS	/mcp	compatibility	apps/api-rust/src/migration_routes/mcp.rs	application route intentionally outside the frozen legacy migration inventory
+PATCH	/mcp	compatibility	apps/api-rust/src/migration_routes/mcp.rs	application route intentionally outside the frozen legacy migration inventory
+POST	/mcp	compatibility	apps/api-rust/src/migration_routes/mcp.rs	application route intentionally outside the frozen legacy migration inventory
+PUT	/mcp	compatibility	apps/api-rust/src/migration_routes/mcp.rs	application route intentionally outside the frozen legacy migration inventory
+TRACE	/mcp	compatibility	apps/api-rust/src/migration_routes/mcp.rs	application route intentionally outside the frozen legacy migration inventory
+CONNECT	/mcp/	compatibility	apps/api-rust/src/migration_routes/mcp.rs	application route intentionally outside the frozen legacy migration inventory
+DELETE	/mcp/	compatibility	apps/api-rust/src/migration_routes/mcp.rs	application route intentionally outside the frozen legacy migration inventory
+GET	/mcp/	compatibility	apps/api-rust/src/migration_routes/mcp.rs	application route intentionally outside the frozen legacy migration inventory
+HEAD	/mcp/	compatibility	apps/api-rust/src/migration_routes/mcp.rs	application route intentionally outside the frozen legacy migration inventory
+OPTIONS	/mcp/	compatibility	apps/api-rust/src/migration_routes/mcp.rs	application route intentionally outside the frozen legacy migration inventory
+PATCH	/mcp/	compatibility	apps/api-rust/src/migration_routes/mcp.rs	application route intentionally outside the frozen legacy migration inventory
+POST	/mcp/	compatibility	apps/api-rust/src/migration_routes/mcp.rs	application route intentionally outside the frozen legacy migration inventory
+PUT	/mcp/	compatibility	apps/api-rust/src/migration_routes/mcp.rs	application route intentionally outside the frozen legacy migration inventory
+TRACE	/mcp/	compatibility	apps/api-rust/src/migration_routes/mcp.rs	application route intentionally outside the frozen legacy migration inventory
+CONNECT	/mcp/drawing	compatibility	apps/api-rust/src/migration_routes/mcp.rs	application route intentionally outside the frozen legacy migration inventory
+DELETE	/mcp/drawing	compatibility	apps/api-rust/src/migration_routes/mcp.rs	application route intentionally outside the frozen legacy migration inventory
+GET	/mcp/drawing	compatibility	apps/api-rust/src/migration_routes/mcp.rs	application route intentionally outside the frozen legacy migration inventory
+HEAD	/mcp/drawing	compatibility	apps/api-rust/src/migration_routes/mcp.rs	application route intentionally outside the frozen legacy migration inventory
+OPTIONS	/mcp/drawing	compatibility	apps/api-rust/src/migration_routes/mcp.rs	application route intentionally outside the frozen legacy migration inventory
+PATCH	/mcp/drawing	compatibility	apps/api-rust/src/migration_routes/mcp.rs	application route intentionally outside the frozen legacy migration inventory
+POST	/mcp/drawing	compatibility	apps/api-rust/src/migration_routes/mcp.rs	application route intentionally outside the frozen legacy migration inventory
+PUT	/mcp/drawing	compatibility	apps/api-rust/src/migration_routes/mcp.rs	application route intentionally outside the frozen legacy migration inventory
+TRACE	/mcp/drawing	compatibility	apps/api-rust/src/migration_routes/mcp.rs	application route intentionally outside the frozen legacy migration inventory
+CONNECT	/mcp/drawing/	compatibility	apps/api-rust/src/migration_routes/mcp.rs	application route intentionally outside the frozen legacy migration inventory
+DELETE	/mcp/drawing/	compatibility	apps/api-rust/src/migration_routes/mcp.rs	application route intentionally outside the frozen legacy migration inventory
+GET	/mcp/drawing/	compatibility	apps/api-rust/src/migration_routes/mcp.rs	application route intentionally outside the frozen legacy migration inventory
+HEAD	/mcp/drawing/	compatibility	apps/api-rust/src/migration_routes/mcp.rs	application route intentionally outside the frozen legacy migration inventory
+OPTIONS	/mcp/drawing/	compatibility	apps/api-rust/src/migration_routes/mcp.rs	application route intentionally outside the frozen legacy migration inventory
+PATCH	/mcp/drawing/	compatibility	apps/api-rust/src/migration_routes/mcp.rs	application route intentionally outside the frozen legacy migration inventory
+POST	/mcp/drawing/	compatibility	apps/api-rust/src/migration_routes/mcp.rs	application route intentionally outside the frozen legacy migration inventory
+PUT	/mcp/drawing/	compatibility	apps/api-rust/src/migration_routes/mcp.rs	application route intentionally outside the frozen legacy migration inventory
+TRACE	/mcp/drawing/	compatibility	apps/api-rust/src/migration_routes/mcp.rs	application route intentionally outside the frozen legacy migration inventory
+GET	/oversized-document	fixture	apps/api-rust/src/migration_routes/control_admin.rs	cfg(test) OAuth discovery response-limit fixture
+POST	/pg/images/edits	compatibility	apps/api-rust/src/migration_routes/missing_relay_misc_new.rs	application route intentionally outside the frozen legacy migration inventory
+POST	/pg/images/generations	compatibility	apps/api-rust/src/migration_routes/missing_relay_misc_new.rs	application route intentionally outside the frozen legacy migration inventory
+GET	/private-redirect-start	fixture	apps/api-rust/src/migration_routes/control_admin.rs	cfg(test) OAuth discovery SSRF fixture
+GET	/readyz	health	apps/api-rust/src/http.rs	production readiness probe outside the frozen Go API inventory
+POST	/token	fixture	apps/api-rust/src/migration_routes/identity_federation.rs	cfg(test) loopback OAuth token endpoint fixture
+GET	/user	fixture	apps/api-rust/src/migration_routes/identity_federation.rs	cfg(test) loopback OAuth user endpoint fixture
+GET	/v1/responses	compatibility	apps/api-rust/src/migration_routes/responses_websocket.rs	WebSocket-compatible Responses route outside the frozen HTTP migration inventory

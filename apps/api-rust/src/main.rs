@@ -11,6 +11,7 @@ use lmm_api_rs::{
     auth::{AuthConfig, AuthHttpState, DashboardAuth, PgValkeyDashboardAuth},
     migration_routes::{
         access_ip::{AccessIpState, router as access_ip_router},
+        account_action::{AccountActionState, router as account_action_router},
         admin_catalog::{
             AdminCatalogState, DashboardAdminCatalogAuthorizer, PgCatalogProvider,
             router as admin_catalog_router,
@@ -48,8 +49,14 @@ use lmm_api_rs::{
             IoNetDeploymentJobRunner, PgValkeyDeploymentProvider, router as deployment_router,
         },
         developer_access::{DeveloperAccessState, router as developer_access_router},
+        discount_code::{DiscountCodeState, router as discount_code_router},
+        dynamic_pricing::{DynamicPricingState, router as dynamic_pricing_router},
+        finance::{FinanceState, router as finance_router},
         finance_export::{FinanceExportState, router as finance_export_router},
         gifts::{GiftState, router as gift_router},
+        hero_sms::{
+            DisabledHeroSmsGateway, HeroSmsState, ReqwestHeroSmsGateway, router as hero_sms_router,
+        },
         identity_2fa::{Identity2FAState, router as identity_2fa_router},
         identity_admin::{IdentityAdminState, router as identity_admin_router},
         identity_federation::{
@@ -58,6 +65,7 @@ use lmm_api_rs::{
             bindings_router as identity_federation_bindings_router,
             oauth_email_bind_router as identity_federation_oauth_email_bind_router,
             oauth_external_provider_router as identity_federation_oauth_external_router,
+            oauth_login_start_router as identity_federation_oauth_login_start_router,
             oauth_state_router as identity_federation_oauth_state_router,
         },
         identity_profile::{ProfileState, router as identity_profile_router},
@@ -108,6 +116,7 @@ use lmm_api_rs::{
         missing_relay_misc_new::{
             FailClosedRelayMiscService, MissingRelayMiscState, missing_relay_misc_router,
         },
+        mcp::{McpHttpState, mcp_router},
         missing_relay_models_billing::{ModelLookupState, PgStaticModelLookup},
         missing_relay_video::{
             FailClosedRelayVideoService, RelayVideoHttpState, missing_relay_video_router,
@@ -121,6 +130,7 @@ use lmm_api_rs::{
             observability_performance_router, observability_read_router,
         },
         open_source_bounties::{OpenSourceBountyState, router as open_source_bounty_router},
+        public_relay::{PublicRelayState, router as public_relay_router},
         relay_anthropic_gemini::{
             RelayHttpState as AnthropicGeminiHttpState, router_with_model_lookup,
         },
@@ -135,12 +145,19 @@ use lmm_api_rs::{
         relay_openai::{
             OpenAiRelayHttpState, OpenAiUpstreamClient, PgOpenAiRelayService, openai_relay_router,
         },
+        responses_websocket::{
+            ResponsesWebSocketState, UnconfiguredResponsesWebSocketService,
+            router as responses_websocket_router,
+        },
         release_notes::{ReleaseNoteState, router as release_note_router},
+        security_admin::{SecurityAdminState, router as security_admin_router},
         security_overview::{SecurityOverviewState, router as security_overview_router},
         system_config::{
             DashboardRootAuthorizer, HttpProjectUpdateClient, HttpWaffoPancakeGateway,
             ProcessRuntimeOptions, SystemConfigHttpState, system_config_router,
         },
+        unified_todo::{UnifiedTodoState, router as unified_todo_router},
+        user_assistant_admin::{UserAssistantAdminState, router as user_assistant_admin_router},
         user_rankings::{UserRankingsState, router as user_rankings_router},
         verify_email::{
             PgSmtpSecurityEmailSender, ValkeyVerificationCodeStore, VerifyEmailState,
@@ -490,7 +507,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
         let identity_federation_oauth_external = http::api_global_rate_limited_surface(
             &app_state,
-            identity_federation_oauth_external_router(federation_state),
+            identity_federation_oauth_external_router(federation_state.clone()),
+        );
+        let identity_federation_oauth_login_start = http::api_global_rate_limited_surface(
+            &app_state,
+            identity_federation_oauth_login_start_router(federation_state),
         );
         let identity_2fa = identity_2fa_router(
             Identity2FAState::new(pg.clone(), valkey.clone(), auth_impl.clone())
@@ -569,6 +590,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 pg.clone(),
                 valkey.clone(),
                 Arc::clone(&auth),
+                config.auth_session_secret.clone(),
                 AssistantRateLimitConfig {
                     enabled: config.auth_critical_rate_limit_enabled,
                     max_requests: config.auth_critical_rate_limit,
@@ -586,9 +608,39 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Arc::clone(&auth),
             )),
         );
+        let account_action = http::api_global_rate_limited_surface(
+            &app_state,
+            account_action_router(AccountActionState::new(
+                pg.clone(),
+                valkey.clone(),
+                Arc::clone(&auth),
+                config.auth_session_secret.clone(),
+            )),
+        );
+        let hero_sms_gateway: Arc<dyn lmm_api_rs::migration_routes::hero_sms::HeroSmsGateway> =
+            if local_acceptance {
+                Arc::new(DisabledHeroSmsGateway)
+            } else {
+                Arc::new(
+                    ReqwestHeroSmsGateway::production(config.dependency_timeout)
+                        .map_err(|_| io::Error::other("failed to initialize HeroSMS client"))?,
+                )
+            };
+        let hero_sms = http::api_global_rate_limited_surface(
+            &app_state,
+            hero_sms_router(HeroSmsState::new(
+                pg.clone(),
+                Arc::clone(&auth),
+                hero_sms_gateway,
+            )),
+        );
         let finance_export = http::api_global_rate_limited_surface(
             &app_state,
             finance_export_router(FinanceExportState::new(pg.clone(), Arc::clone(&auth))),
+        );
+        let finance = http::api_global_rate_limited_surface(
+            &app_state,
+            finance_router(FinanceState::new(pg.clone(), Arc::clone(&auth))),
         );
         let release_notes = http::api_global_rate_limited_surface(
             &app_state,
@@ -597,6 +649,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let security_overview = http::api_global_rate_limited_surface(
             &app_state,
             security_overview_router(SecurityOverviewState::new(pg.clone(), Arc::clone(&auth))),
+        );
+        let security_admin = http::api_global_rate_limited_surface(
+            &app_state,
+            security_admin_router(SecurityAdminState::new(pg.clone(), Arc::clone(&auth))),
+        );
+        let unified_todo = http::api_global_rate_limited_surface(
+            &app_state,
+            unified_todo_router(UnifiedTodoState::new(pg.clone(), Arc::clone(&auth))),
+        );
+        let user_assistant_admin = http::api_global_rate_limited_surface(
+            &app_state,
+            user_assistant_admin_router(UserAssistantAdminState::new(
+                pg.clone(),
+                Arc::clone(&auth),
+            )),
         );
         let access_ip = http::api_global_rate_limited_surface(
             &app_state,
@@ -609,6 +676,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let gifts = http::api_global_rate_limited_surface(
             &app_state,
             gift_router(GiftState::new(
+                pg.clone(),
+                valkey.clone(),
+                Arc::clone(&auth),
+            )),
+        );
+        let discount_code = http::api_global_rate_limited_surface(
+            &app_state,
+            discount_code_router(DiscountCodeState::new(pg.clone(), Arc::clone(&auth))),
+        );
+        let dynamic_pricing = http::api_global_rate_limited_surface(
+            &app_state,
+            dynamic_pricing_router(DynamicPricingState::new(
                 pg.clone(),
                 valkey.clone(),
                 Arc::clone(&auth),
@@ -745,6 +824,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             &app_state,
             open_source_bounty_router(OpenSourceBountyState::new(pg.clone(), Arc::clone(&auth))),
         );
+        let public_relays = http::api_global_rate_limited_surface(
+            &app_state,
+            public_relay_router(PublicRelayState::new(pg.clone(), Arc::clone(&auth))),
+        );
         // OpenAI-compatible and media relay routes use the same PostgreSQL
         // token/channel authority as the rest of the normal listener.  Keep
         // the upstream client bounded and let each executor own its billing
@@ -788,6 +871,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let relay_misc_new = missing_relay_misc_router(MissingRelayMiscState::new(Arc::new(
             FailClosedRelayMiscService::new(),
         )));
+        let responses_websocket = responses_websocket_router(ResponsesWebSocketState::new(
+            Arc::new(UnconfiguredResponsesWebSocketService),
+        ));
+        let mcp = http::api_global_rate_limited_surface(
+            &app_state,
+            mcp_router(McpHttpState::new(
+                pg.clone(),
+                valkey.clone(),
+                config.dependency_timeout,
+            )),
+        );
         let model_lookup_state = ModelLookupState::new(
             Arc::new(PgStaticModelLookup::with_current_policy(
                 pg.clone(),
@@ -890,6 +984,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .merge(identity_federation_oauth_state)
             .merge(identity_federation_oauth_email_bind)
             .merge(identity_federation_oauth_external)
+            .merge(identity_federation_oauth_login_start)
             .merge(identity_2fa)
             .merge(channel_core)
             .merge(channel_ops)
@@ -898,12 +993,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .merge(control_admin)
             .merge(assistant_reads)
             .merge(developer_access)
+            .merge(account_action)
+            .merge(hero_sms)
             .merge(finance_export)
+            .merge(finance)
             .merge(release_notes)
             .merge(security_overview)
+            .merge(security_admin)
+            .merge(unified_todo)
+            .merge(user_assistant_admin)
             .merge(access_ip)
             .merge(user_rankings)
             .merge(gifts)
+            .merge(discount_code)
+            .merge(dynamic_pricing)
             .merge(subscription_balance_pay)
             .merge(billing_provider_payments)
             .merge(billing_webhooks)
@@ -918,11 +1021,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .merge(observability_performance)
             .merge(observability_force_gc)
             .merge(open_source_bounties)
+            .merge(public_relays)
             .merge(relay_openai)
             .merge(relay_midjourney)
             .merge(relay_media_tasks)
             .merge(relay_video)
             .merge(relay_misc_new)
+            .merge(responses_websocket)
+            .merge(mcp)
             .merge(relay_anthropic_gemini)
             .merge(relay_media)
             .merge(relay_misc_active)

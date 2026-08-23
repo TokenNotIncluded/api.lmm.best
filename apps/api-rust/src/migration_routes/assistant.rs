@@ -1,5 +1,7 @@
 //! Current Go-compatible assistant routes.
 
+use crate::migration_routes::assistant_extended;
+
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
     sync::Arc,
@@ -1557,8 +1559,9 @@ fn assistant_lead_from_row(row: &PgRow) -> Result<AssistantLead, sqlx::Error> {
 
 #[derive(Clone)]
 pub struct AssistantReadState {
-    pg: PgPool,
-    auth: Arc<dyn DashboardAuth>,
+    pub(crate) pg: PgPool,
+    pub(crate) session_secret: SecretString,
+    pub(crate) auth: Arc<dyn DashboardAuth>,
     store: Arc<dyn AssistantReadStore>,
     user_rate_limiter: Arc<dyn AssistantUserRateLimiter>,
     agent_backend: Arc<dyn AssistantAgentBackend>,
@@ -1570,6 +1573,7 @@ impl AssistantReadState {
         pg: PgPool,
         valkey: redis::Client,
         auth: Arc<dyn DashboardAuth>,
+        session_secret: SecretString,
         rate_limit_config: AssistantRateLimitConfig,
     ) -> Self {
         let store = Arc::new(PgAssistantReadStore {
@@ -1582,6 +1586,7 @@ impl AssistantReadState {
         });
         Self {
             pg,
+            session_secret,
             auth,
             store,
             user_rate_limiter,
@@ -1648,12 +1653,13 @@ pub fn assistant_read_router(state: AssistantReadState) -> Router {
             post(admin_resolve_handoff),
         )
         .route("/api/assistant/admin/intents", get(admin_intents))
+        .merge(assistant_extended::extended_routes())
         .with_state(state)
 }
 
-struct AssistantPrincipal {
-    user: DashboardUserView,
-    credential: String,
+pub(crate) struct AssistantPrincipal {
+    pub(crate) user: DashboardUserView,
+    pub(crate) credential: String,
 }
 
 async fn assistant_route(
@@ -4782,7 +4788,7 @@ async fn offers(State(state): State<AssistantReadState>, headers: HeaderMap) -> 
     success(offer_payload(true, restricted, plans, discounts))
 }
 
-async fn browser_user(
+pub(crate) async fn browser_user(
     state: &AssistantReadState,
     headers: &HeaderMap,
 ) -> Result<DashboardUserView, Response> {
@@ -4795,7 +4801,7 @@ async fn browser_user(
     Ok(principal.user)
 }
 
-async fn authenticated_user(
+pub(crate) async fn authenticated_user(
     state: &AssistantReadState,
     headers: &HeaderMap,
 ) -> Result<AssistantPrincipal, Response> {
@@ -4810,7 +4816,7 @@ async fn authenticated_user(
     Ok(AssistantPrincipal { user, credential })
 }
 
-async fn authenticated_admin(
+pub(crate) async fn authenticated_admin(
     state: &AssistantReadState,
     headers: &HeaderMap,
 ) -> Result<AssistantPrincipal, Response> {
@@ -5030,7 +5036,7 @@ fn user_auth_error(headers: &HeaderMap, error: UserAuthPolicyError) -> Response 
         .into_response()
 }
 
-fn assistant_session_required() -> Response {
+pub(crate) fn assistant_session_required() -> Response {
     with_auth_version(
         (
             StatusCode::FORBIDDEN,
@@ -5065,7 +5071,7 @@ fn assistant_key_group_required(options: Vec<AssistantKeyGroupOption>) -> Respon
     )
 }
 
-fn success(data: Value) -> Response {
+pub(crate) fn success(data: Value) -> Response {
     with_auth_version(
         Json(Envelope {
             success: true,
@@ -5076,7 +5082,7 @@ fn success(data: Value) -> Response {
     )
 }
 
-fn api_error(message: String) -> Response {
+pub(crate) fn api_error(message: String) -> Response {
     with_auth_version(
         Json(json!({
             "success": false,
@@ -5086,7 +5092,7 @@ fn api_error(message: String) -> Response {
     )
 }
 
-fn assistant_error(status: StatusCode, code: &'static str, message: &'static str) -> Response {
+pub(crate) fn assistant_error(status: StatusCode, code: &'static str, message: &'static str) -> Response {
     with_auth_version(
         (
             status,
@@ -5100,7 +5106,11 @@ fn assistant_error(status: StatusCode, code: &'static str, message: &'static str
     )
 }
 
-fn assistant_error_owned(status: StatusCode, code: &'static str, message: String) -> Response {
+pub(crate) fn assistant_error_owned(
+    status: StatusCode,
+    code: &'static str,
+    message: String,
+) -> Response {
     with_auth_version(
         (
             status,
@@ -5122,7 +5132,7 @@ fn with_auth_version(mut response: Response) -> Response {
     response
 }
 
-fn with_no_store(mut response: Response) -> Response {
+pub(crate) fn with_no_store(mut response: Response) -> Response {
     response.headers_mut().insert(
         header::CACHE_CONTROL,
         axum::http::HeaderValue::from_static(
@@ -5629,6 +5639,7 @@ mod tests {
             pg,
             valkey,
             Arc::new(auth),
+            SecretString::from("assistant-test-session-secret"),
             AssistantRateLimitConfig {
                 enabled: false,
                 max_requests: 1,
@@ -5655,6 +5666,7 @@ mod tests {
             pg,
             valkey,
             Arc::new(FixtureAuth::default()),
+            SecretString::from("assistant-test-session-secret"),
             AssistantRateLimitConfig {
                 enabled: false,
                 max_requests: 1,
