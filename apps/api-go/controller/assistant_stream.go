@@ -439,6 +439,20 @@ func (r *assistantStreamingRelayWriter) Written() bool {
 	return r.wroteHeader
 }
 
+func (r *assistantStreamingRelayWriter) ResetForRelayRetry() error {
+	sessionErr := r.session.resetContent()
+	clear(r.header)
+	r.body = common.NewLimitBuffer(assistantUpstreamResponseMaxBytes)
+	r.status = 0
+	r.wroteHeader = false
+	r.writeErr = nil
+	r.decoder = assistantSSEDecoder{}
+	r.content.Reset()
+	clear(r.toolCalls)
+	r.toolCallSeen = false
+	return sessionErr
+}
+
 func (r *assistantStreamingRelayWriter) handleData(data string) {
 	data = strings.TrimSpace(data)
 	if data == "" || data == "[DONE]" {

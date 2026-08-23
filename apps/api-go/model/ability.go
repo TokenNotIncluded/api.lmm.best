@@ -41,17 +41,21 @@ func GetAllEnableAbilityWithChannels() ([]AbilityWithChannel, error) {
 	return abilities, err
 }
 
-// GetGroupEnabledModelsWithError returns the distinct enabled model IDs for a
-// group and preserves database failures for callers that must not turn an
-// unavailable catalog into a successful empty response.
+// GetGroupEnabledModelsWithError returns the distinct model IDs backed by an
+// enabled ability and a currently enabled channel for the requested group. It
+// preserves database failures for callers that must not turn an unavailable
+// catalog into a successful empty response.
 func GetGroupEnabledModelsWithError(group string) ([]string, error) {
 	var models []string
 	groupColumn := commonGroupCol
 	if groupColumn == "" {
 		groupColumn = `"group"`
 	}
-	// Find distinct models
-	err := DB.Table("abilities").Where(groupColumn+" = ? and enabled = ?", group, true).Distinct("model").Pluck("model", &models).Error
+	err := DB.Table("abilities").
+		Joins("JOIN channels ON abilities.channel_id = channels.id").
+		Where("abilities."+groupColumn+" = ? AND abilities.enabled = ? AND channels.status = ?", group, true, common.ChannelStatusEnabled).
+		Distinct("abilities.model").
+		Pluck("abilities.model", &models).Error
 	return models, err
 }
 
@@ -68,8 +72,8 @@ func GetGroupEnabledModels(group string) []string {
 
 // IsModelEnabledForGroup is the cheap, write-time guard used by settings
 // endpoints. Assistant configuration is global, but ordinary users are
-// routed through the default group; accepting a model that exists only in a
-// private group would persist a setting that can never serve those users.
+// routed through the default group; accepting a model that is not backed by a
+// currently enabled channel would persist a setting that cannot serve users.
 func IsModelEnabledForGroup(group, model string) bool {
 	group = strings.TrimSpace(group)
 	model = strings.TrimSpace(model)
@@ -81,8 +85,9 @@ func IsModelEnabledForGroup(group, model string) bool {
 	if groupColumn == "" {
 		groupColumn = `"group"`
 	}
-	err := DB.Model(&Ability{}).
-		Where(groupColumn+" = ? AND model = ? AND enabled = ?", group, model, true).
+	err := DB.Table("abilities").
+		Joins("JOIN channels ON abilities.channel_id = channels.id").
+		Where("abilities."+groupColumn+" = ? AND abilities.model = ? AND abilities.enabled = ? AND channels.status = ?", group, model, true, common.ChannelStatusEnabled).
 		Count(&count).Error
 	return err == nil && count > 0
 }

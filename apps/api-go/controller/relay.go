@@ -297,6 +297,15 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		if !shouldRetry(c, newAPIError, common.RetryTimes-retryParam.GetRetry()) {
 			break
 		}
+		if resetErr := resetRelayResponseForRetry(c); resetErr != nil {
+			newAPIError = types.NewErrorWithStatusCode(
+				fmt.Errorf("reset buffered relay response before retry: %w", resetErr),
+				types.ErrorCodeBadResponse,
+				http.StatusBadGateway,
+				types.ErrOptionWithSkipRetry(),
+			)
+			break
+		}
 	}
 
 	useChannel := c.GetStringSlice("use_channel")
@@ -382,6 +391,24 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 		return nil, newAPIError
 	}
 	return channel, nil
+}
+
+// relayRetryResponseResetter is implemented only by buffered internal writers.
+// It discards a failed channel's status, headers, and body before Relay selects
+// another channel; real client writers cannot safely rewind committed bytes.
+type relayRetryResponseResetter interface {
+	ResetForRelayRetry() error
+}
+
+func resetRelayResponseForRetry(c *gin.Context) error {
+	resetter, ok := c.Writer.(relayRetryResponseResetter)
+	if !ok {
+		return nil
+	}
+	if err := resetter.ResetForRelayRetry(); err != nil {
+		return fmt.Errorf("reset relay response writer: %w", err)
+	}
+	return nil
 }
 
 func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) bool {

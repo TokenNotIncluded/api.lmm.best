@@ -36,6 +36,33 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestAssistantRelayRecorderResetsFailedChannelBeforeRetry(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	httpRecorder := httptest.NewRecorder()
+	context, _ := gin.CreateTestContext(httpRecorder)
+	relayRecorder := newAssistantRelayRecorder(context.Writer)
+	context.Writer = relayRecorder
+
+	relayRecorder.Header().Set("X-Upstream-Attempt", "failed")
+	relayRecorder.WriteHeader(http.StatusServiceUnavailable)
+	_, err := relayRecorder.WriteString(`{"error":{"message":"stale channel failure"}}`)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusServiceUnavailable, relayRecorder.Status())
+
+	require.NoError(t, resetRelayResponseForRetry(context))
+	assert.Equal(t, http.StatusOK, relayRecorder.Status())
+	assert.Equal(t, -1, relayRecorder.Size())
+	assert.False(t, relayRecorder.Written())
+	assert.Empty(t, relayRecorder.Header().Get("X-Upstream-Attempt"))
+
+	relayRecorder.WriteHeader(http.StatusOK)
+	_, err = relayRecorder.WriteString(`{"choices":[{"message":{"content":"recovered answer"}}]}`)
+	require.NoError(t, err)
+	recoveredBody := string(relayRecorder.body.Bytes())
+	assert.JSONEq(t, `{"choices":[{"message":{"content":"recovered answer"}}]}`, recoveredBody)
+	assert.NotContains(t, recoveredBody, "stale channel failure")
+}
+
 func TestAssistantRelayRetryPolicyClassifiesTransientHTTPAndNetworkErrors(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

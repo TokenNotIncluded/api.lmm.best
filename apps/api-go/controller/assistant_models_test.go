@@ -24,6 +24,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/LIghtJUNction/api.lmm.best/model"
 	"github.com/LIghtJUNction/api.lmm.best/setting/ratio_setting"
 	"github.com/gin-gonic/gin"
@@ -37,11 +38,16 @@ func TestGetAssistantModelsEnumeratesEnabledIDsForTheRequestedGroup(t *testing.T
 	t.Cleanup(func() { require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(originalRatios)) })
 
 	db := setupTokenControllerTestDB(t)
-	require.NoError(t, db.AutoMigrate(&model.Ability{}))
+	require.NoError(t, db.AutoMigrate(&model.Ability{}, &model.Channel{}))
+	require.NoError(t, db.Create(&[]model.Channel{
+		{Id: 1, Name: "assistant-models-live", Key: "sk-live", Status: common.ChannelStatusEnabled},
+		{Id: 2, Name: "assistant-models-disabled", Key: "sk-disabled", Status: common.ChannelStatusManuallyDisabled},
+	}).Error)
 	require.NoError(t, db.Create(&[]model.Ability{
 		{Group: "premium", Model: "z-model", ChannelId: 1, Enabled: true},
 		{Group: "premium", Model: "a-model", ChannelId: 1, Enabled: true},
-		{Group: "premium", Model: "disabled-model", ChannelId: 1, Enabled: false},
+		{Group: "premium", Model: "disabled-ability-model", ChannelId: 1, Enabled: false},
+		{Group: "premium", Model: "disabled-channel-model", ChannelId: 2, Enabled: true},
 	}).Error)
 
 	recorder := httptest.NewRecorder()

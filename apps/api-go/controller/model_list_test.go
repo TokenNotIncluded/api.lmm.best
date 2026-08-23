@@ -82,6 +82,20 @@ func setupModelListControllerTestDB(t *testing.T) *gorm.DB {
 	return db
 }
 
+func createEnabledModelListChannels(t *testing.T, db *gorm.DB, ids ...int) {
+	t.Helper()
+	channels := make([]model.Channel, 0, len(ids))
+	for _, id := range ids {
+		channels = append(channels, model.Channel{
+			Id:     id,
+			Name:   fmt.Sprintf("model-list-%d", id),
+			Key:    fmt.Sprintf("sk-model-list-%d", id),
+			Status: common.ChannelStatusEnabled,
+		})
+	}
+	require.NoError(t, db.Create(&channels).Error)
+}
+
 func initModelListColumnNames(t *testing.T) {
 	t.Helper()
 
@@ -204,6 +218,7 @@ func decodeUserModelsResponse(t *testing.T, recorder *httptest.ResponseRecorder)
 
 func TestGetUserModelsFiltersByRequestedGroup(t *testing.T) {
 	db := setupModelListControllerTestDB(t)
+	createEnabledModelListChannels(t, db, 1)
 	require.NoError(t, db.Create(&model.User{
 		Id:       1002,
 		Username: "playground-model-user",
@@ -258,6 +273,7 @@ func TestGetUserModelsExpandsAutoGroupsInConfiguredOrder(t *testing.T) {
 	})
 
 	db := setupModelListControllerTestDB(t)
+	createEnabledModelListChannels(t, db, 1, 2)
 	require.NoError(t, db.Create(&model.User{
 		Id:       1003,
 		Username: "playground-auto-model-user",
@@ -299,6 +315,7 @@ func TestListModelsIncludesTieredBillingModel(t *testing.T) {
 	})
 
 	db := setupModelListControllerTestDB(t)
+	createEnabledModelListChannels(t, db, 1)
 	require.NoError(t, db.Create(&model.User{
 		Id:       1001,
 		Username: "model-list-user",
@@ -426,6 +443,7 @@ func TestListModelsTokenLimitIncludesTieredBillingModel(t *testing.T) {
 		"zz-token-tiered-empty-expr-model": "",
 	})
 	db := setupModelListControllerTestDB(t)
+	createEnabledModelListChannels(t, db, 1)
 	require.NoError(t, db.Create(&[]model.Ability{
 		{Group: "default", Model: "zz-token-tiered-visible-model", ChannelId: 1, Enabled: true},
 		{Group: "default", Model: "zz-token-tiered-empty-expr-model", ChannelId: 1, Enabled: true},
@@ -470,6 +488,7 @@ func TestListModelsTokenLimitUsesResolvedCustomAutoGroups(t *testing.T) {
 	})
 
 	db := setupModelListControllerTestDB(t)
+	createEnabledModelListChannels(t, db, 1)
 	require.NoError(t, db.Create(&[]model.Ability{
 		{Group: "vip", Model: "zz-vip-allowed", ChannelId: 1, Enabled: true},
 		{Group: "vip", Model: "zz-vip-denied", ChannelId: 1, Enabled: true},

@@ -62,6 +62,40 @@ func TestAssistantStreamingRelayWriterParsesSplitSSEChunks(t *testing.T) {
 	assert.NotContains(t, recorder.Body.String(), `"content":"hello world"`)
 }
 
+func TestAssistantStreamingRelayWriterResetsFailedChannelBeforeRetry(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	context, _ := gin.CreateTestContext(recorder)
+	session := newAssistantStreamSession(context.Writer)
+	require.NoError(t, session.start())
+
+	writer := newAssistantStreamingRelayWriter(context.Writer, session)
+	context.Writer = writer
+	writer.Header().Set("X-Upstream-Attempt", "failed")
+	writer.WriteHeader(http.StatusServiceUnavailable)
+	_, err := writer.Write([]byte(`{"error":{"message":"stale channel failure"}}`))
+	require.NoError(t, err)
+	require.Equal(t, http.StatusServiceUnavailable, writer.Status())
+	require.True(t, writer.Written())
+
+	require.NoError(t, resetRelayResponseForRetry(context))
+	assert.Equal(t, http.StatusOK, writer.Status())
+	assert.Equal(t, -1, writer.Size())
+	assert.False(t, writer.Written())
+	assert.Empty(t, writer.Header().Get("X-Upstream-Attempt"))
+
+	writer.WriteHeader(http.StatusOK)
+	_, err = writer.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"recovered answer\"}}]}\n\ndata: [DONE]\n\n"))
+	require.NoError(t, err)
+	body, err := writer.responseBody()
+	require.NoError(t, err)
+	response, err := agent.Parse(body)
+	require.NoError(t, err)
+	require.Len(t, response.Choices, 1)
+	assert.Equal(t, "recovered answer", agent.Text(response.Choices[0].Message.Content))
+	assert.NotContains(t, string(body), "stale channel failure")
+}
+
 func TestAssistantStreamingRelayWriterRetainsToolCallsWithoutLeakingAgentPlanning(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	recorder := httptest.NewRecorder()

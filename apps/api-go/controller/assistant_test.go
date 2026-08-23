@@ -62,7 +62,10 @@ func withAssistantRouteResolver(t *testing.T, modelID string) {
 
 func TestAssistantConfiguredRouteUsesTheConfiguredModelWithinTheSelectedGroup(t *testing.T) {
 	db := setupTokenControllerTestDB(t)
-	require.NoError(t, db.AutoMigrate(&model.Ability{}))
+	require.NoError(t, db.AutoMigrate(&model.Ability{}, &model.Channel{}))
+	require.NoError(t, db.Create(&model.Channel{
+		Id: 1, Name: "vip-assistant", Key: "sk-test", Status: common.ChannelStatusEnabled,
+	}).Error)
 	require.NoError(t, db.Create(&[]model.Ability{
 		{Group: "vip", Model: "vip-assistant-model", ChannelId: 1, Enabled: true},
 		{Group: "vip", Model: "another-model", ChannelId: 1, Enabled: true},
@@ -80,7 +83,10 @@ func TestAssistantConfiguredRouteUsesTheConfiguredModelWithinTheSelectedGroup(t 
 
 func TestAssistantConfiguredRouteRejectsAStaleModelForTheSelectedGroup(t *testing.T) {
 	db := setupTokenControllerTestDB(t)
-	require.NoError(t, db.AutoMigrate(&model.Ability{}))
+	require.NoError(t, db.AutoMigrate(&model.Ability{}, &model.Channel{}))
+	require.NoError(t, db.Create(&model.Channel{
+		Id: 1, Name: "vip-live", Key: "sk-test", Status: common.ChannelStatusEnabled,
+	}).Error)
 	require.NoError(t, db.Create(&model.Ability{
 		Group: "vip", Model: "vip-live-model", ChannelId: 1, Enabled: true,
 	}).Error)
@@ -88,6 +94,27 @@ func TestAssistantConfiguredRouteRejectsAStaleModelForTheSelectedGroup(t *testin
 	_, _, err := assistantConfiguredRoute(setting.AssistantSettings{
 		Group: "vip",
 		Model: "missing-model",
+	})
+
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "not enabled in routing group")
+}
+
+func TestAssistantConfiguredRouteIgnoresModelsBackedOnlyByDisabledChannels(t *testing.T) {
+	db := setupTokenControllerTestDB(t)
+	require.NoError(t, db.AutoMigrate(&model.Ability{}, &model.Channel{}))
+	require.NoError(t, db.Create(&[]model.Channel{
+		{Id: 1, Name: "vip-live", Key: "sk-live", Status: common.ChannelStatusEnabled},
+		{Id: 2, Name: "vip-disabled", Key: "sk-disabled", Status: common.ChannelStatusManuallyDisabled},
+	}).Error)
+	require.NoError(t, db.Create(&[]model.Ability{
+		{Group: "vip", Model: "vip-live-model", ChannelId: 1, Enabled: true},
+		{Group: "vip", Model: "vip-disabled-model", ChannelId: 2, Enabled: true},
+	}).Error)
+
+	_, _, err := assistantConfiguredRoute(setting.AssistantSettings{
+		Group: "vip",
+		Model: "vip-disabled-model",
 	})
 
 	require.Error(t, err)
@@ -1554,6 +1581,7 @@ func TestAssistantL0ModelToolReturnsRealPublicPreviewIDs(t *testing.T) {
 func TestAssistantModelsToolUsesModelListBillingPredicate(t *testing.T) {
 	withSelfUseModeDisabled(t)
 	db := setupModelListControllerTestDB(t)
+	createEnabledModelListChannels(t, db, 1)
 	previousModelRatios := ratio_setting.ModelRatio2JSONString()
 	require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(`{"assistant-priced-model":1}`))
 	t.Cleanup(func() { require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(previousModelRatios)) })

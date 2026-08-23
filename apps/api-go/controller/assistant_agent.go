@@ -1408,6 +1408,15 @@ func (r *assistantRelayRecorder) Written() bool {
 	return r.wroteHeader
 }
 
+func (r *assistantRelayRecorder) ResetForRelayRetry() error {
+	clear(r.header)
+	r.body = common.NewLimitBuffer(assistantUpstreamResponseMaxBytes)
+	r.writeErr = nil
+	r.status = 0
+	r.wroteHeader = false
+	return nil
+}
+
 func relayAssistantTurn(c *gin.Context, request assistantOpenAIRequest, rootRequestID string, step int) (int, []byte, error) {
 	if err := setAssistantRelayRequest(c, request); err != nil {
 		return http.StatusInternalServerError, nil, err
