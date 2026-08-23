@@ -33,6 +33,11 @@ func TestActionableJournalLineFiltersExpectedProxyDisconnects(t *testing.T) {
 			line:       `nginx: [error] upstream prematurely closed connection while reading upstream, client: 203.0.113.10`,
 			actionable: false,
 		},
+		{
+			name:       "successful nginx reload notice",
+			line:       `2026/08/23 05:58:15 [notice] 2472973#2472973: signal process started`,
+			actionable: false,
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

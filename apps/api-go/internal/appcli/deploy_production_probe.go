@@ -283,6 +283,12 @@ func actionableJournalLine(line string) bool {
 		strings.Contains(trimmed, "while sending to client") {
 		return false
 	}
+	// nginx writes this successful reload notice to stderr, so journald can
+	// assign error priority even though the message itself is explicitly a
+	// notice. The post-reload public and local probes remain authoritative.
+	if strings.Contains(trimmed, "[notice]") && strings.HasSuffix(trimmed, "signal process started") {
+		return false
+	}
 	return true
 }
 
