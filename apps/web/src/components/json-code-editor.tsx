@@ -38,9 +38,23 @@ import {
   jsonSmartEnter,
   type CursorLocation,
 } from '@/components/json-code-editor/json-code-editor-utils'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { copyToClipboard } from '@/lib/copy-to-clipboard'
 import { cn } from '@/lib/utils'
+
+export type JsonFieldSpecification = Readonly<{
+  path: string
+  type: string
+  required?: boolean
+  rules?: string
+  example?: string
+}>
+
+export type JsonConfigurationSpecification = Readonly<{
+  rootType: string
+  fields: readonly JsonFieldSpecification[]
+}>
 
 export type JsonCodeEditorProps = Omit<
   ComponentProps<'div'>,
@@ -56,8 +70,93 @@ export type JsonCodeEditorProps = Omit<
   placeholder?: string
   /** A complete, safe-to-share JSON example shown below the editor. */
   example?: string
+  /** The authoritative field contract shown next to the example. */
+  specification?: JsonConfigurationSpecification
+  specificationDefaultOpen?: boolean
   ariaLabel?: string
   'data-form-root'?: string
+}
+
+export function JsonSpecification({
+  specification,
+  defaultOpen = false,
+}: {
+  specification: JsonConfigurationSpecification
+  defaultOpen?: boolean
+}) {
+  const { t } = useTranslation()
+  const requirementLabel = (required: boolean | undefined) => {
+    if (required === undefined) return '—'
+    return t(required ? 'Required' : 'Optional')
+  }
+
+  return (
+    <details className='bg-muted/10 border-t text-xs' open={defaultOpen}>
+      <summary className='text-muted-foreground hover:text-foreground cursor-pointer px-3 py-2 font-medium select-none'>
+        <span className='ml-1 inline-flex flex-wrap items-center gap-2'>
+          <span>{t('Field specification')}</span>
+          <Badge variant='outline' className='font-mono font-normal'>
+            {specification.rootType}
+          </Badge>
+        </span>
+      </summary>
+      <div className='border-t'>
+        <div
+          role='region'
+          aria-label={t('Field specification')}
+          tabIndex={0}
+          className='focus-visible:ring-ring/50 max-w-full overflow-x-auto focus-visible:ring-[3px] focus-visible:outline-none'
+        >
+          <table className='w-full min-w-[640px] border-collapse text-left'>
+            <caption className='sr-only'>{t('Field specification')}</caption>
+            <thead className='bg-muted/20 text-muted-foreground'>
+              <tr>
+                <th scope='col' className='px-3 py-2 font-medium'>
+                  {t('Field')}
+                </th>
+                <th scope='col' className='px-3 py-2 font-medium'>
+                  {t('Type')}
+                </th>
+                <th scope='col' className='px-3 py-2 font-medium'>
+                  {t('Required')}
+                </th>
+                <th scope='col' className='px-3 py-2 font-medium'>
+                  {t('Rules')}
+                </th>
+                <th scope='col' className='px-3 py-2 font-medium'>
+                  {t('Example')}
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {specification.fields.map((field) => (
+                <tr key={field.path} className='border-t align-top'>
+                  <th
+                    scope='row'
+                    className='text-foreground px-3 py-2 font-mono font-medium'
+                  >
+                    {field.path}
+                  </th>
+                  <td className='text-muted-foreground px-3 py-2 font-mono'>
+                    {field.type}
+                  </td>
+                  <td className='text-muted-foreground px-3 py-2'>
+                    {requirementLabel(field.required)}
+                  </td>
+                  <td className='text-muted-foreground px-3 py-2 font-mono whitespace-normal'>
+                    {field.rules || '—'}
+                  </td>
+                  <td className='text-muted-foreground px-3 py-2 font-mono whitespace-normal'>
+                    {field.example || '—'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </details>
+  )
 }
 
 export function JsonExample({
@@ -72,12 +171,12 @@ export function JsonExample({
   const { t } = useTranslation()
 
   return (
-    <details className='bg-muted/20 rounded-lg border px-3 py-2 text-xs'>
-      <summary className='text-muted-foreground cursor-pointer font-medium select-none'>
-        {t('Example')}
+    <details className='bg-muted/10 border-t text-xs'>
+      <summary className='text-muted-foreground hover:text-foreground cursor-pointer px-3 py-2 font-medium select-none'>
+        <span className='ml-1'>{t('Configuration example')}</span>
       </summary>
-      <div className='mt-2 space-y-2'>
-        <pre className='bg-background/70 text-muted-foreground max-h-40 overflow-auto rounded-md p-2 font-mono whitespace-pre-wrap'>
+      <div className='space-y-2 border-t px-3 py-3'>
+        <pre className='bg-background/70 text-muted-foreground max-h-40 overflow-auto rounded-md border p-2 font-mono whitespace-pre-wrap'>
           {example}
         </pre>
         <Button
@@ -117,6 +216,8 @@ export function JsonCodeEditor({
   heightClassName = 'h-56 min-h-56 max-h-56',
   placeholder,
   example,
+  specification,
+  specificationDefaultOpen,
   ariaLabel,
   className,
   id,
@@ -381,6 +482,12 @@ export function JsonCodeEditor({
           className='json-code-editor-yace text-foreground h-full font-mono text-xs leading-5'
         />
       </div>
+      {specification && (
+        <JsonSpecification
+          specification={specification}
+          defaultOpen={specificationDefaultOpen}
+        />
+      )}
       {resolvedExample && (
         <JsonExample
           example={resolvedExample}

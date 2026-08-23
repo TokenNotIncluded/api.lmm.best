@@ -23,7 +23,6 @@ import { useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import * as z from 'zod'
 
-import { JsonCodeEditor } from '@/components/json-code-editor'
 import { Button } from '@/components/ui/button'
 import {
   Form,
@@ -36,6 +35,7 @@ import {
 } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
+import { SystemJsonCodeEditor } from '@/features/system-settings/components/system-json-code-editor'
 
 import {
   SettingsForm,
@@ -273,7 +273,8 @@ export function RateLimitSection({ defaultValues }: RateLimitSectionProps) {
                       onChange={field.onChange}
                     />
                   ) : (
-                    <JsonCodeEditor
+                    <SystemJsonCodeEditor
+                      configurationKey='ModelRequestRateLimitGroup'
                       value={field.value || ''}
                       onChange={field.onChange}
                       name={field.name}

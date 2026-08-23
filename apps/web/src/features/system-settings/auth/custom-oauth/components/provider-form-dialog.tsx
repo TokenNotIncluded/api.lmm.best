@@ -23,7 +23,6 @@ import { useTranslation } from 'react-i18next'
 
 import { CopyButton } from '@/components/copy-button'
 import { Dialog } from '@/components/dialog'
-import { JsonCodeEditor } from '@/components/json-code-editor'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import {
@@ -46,6 +45,7 @@ import {
 } from '@/components/ui/select'
 import { Separator } from '@/components/ui/separator'
 import { Switch } from '@/components/ui/switch'
+import { SystemJsonCodeEditor } from '@/features/system-settings/components/system-json-code-editor'
 
 import {
   SettingsForm,
@@ -82,6 +82,8 @@ export function ProviderFormDialog(props: ProviderFormDialogProps) {
   const updateProvider = useUpdateProvider()
 
   const form = useForm<CustomOAuthFormValues>({
+    // SAFETY: The schema output is CustomOAuthFormValues; the resolver helper
+    // loses that generic relationship across the installed Zod versions.
     resolver: zodResolver(
       customOAuthFormSchema
     ) as unknown as Resolver<CustomOAuthFormValues>,
@@ -604,7 +606,8 @@ export function ProviderFormDialog(props: ProviderFormDialogProps) {
                 <FormItem>
                   <FormLabel>{t('Access Policy (JSON)')}</FormLabel>
                   <FormControl>
-                    <JsonCodeEditor
+                    <SystemJsonCodeEditor
+                      configurationKey='custom_oauth.access_policy'
                       value={field.value || ''}
                       onChange={field.onChange}
                       name={field.name}
@@ -613,12 +616,6 @@ export function ProviderFormDialog(props: ProviderFormDialogProps) {
                       placeholder={t(
                         'Optional JSON policy to restrict access based on user info fields'
                       )}
-                      example={`{
-  "logic": "and",
-  "conditions": [
-    { "field": "email", "op": "eq", "value": "team@example.com" }
-  ]
-}`}
                       heightClassName='h-40 min-h-40 max-h-40'
                     />
                   </FormControl>

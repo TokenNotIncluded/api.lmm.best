@@ -21,7 +21,6 @@ import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
-import { JsonCodeEditor } from '@/components/json-code-editor'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
@@ -33,6 +32,8 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { requestAssistantOpen } from '@/features/assistant/assistant-events'
+import { SystemJsonCodeEditor } from '@/features/system-settings/components/system-json-code-editor'
+import type { SystemJsonConfigurationKey } from '@/features/system-settings/components/system-json-configurations'
 
 import { updateSystemOptions, validateSystemOptions } from '../api'
 import { SettingsPageActionsPortal } from '../components/settings-page-context'
@@ -40,186 +41,82 @@ import { SettingsSection } from '../components/settings-section'
 import { useSystemOptions } from '../hooks/use-system-options'
 
 type RawJsonDescriptor = {
-  key: string
+  key: SystemJsonConfigurationKey
   label: string
-  example: string
 }
 
 // This is an explicit allowlist: the raw editor must never expose secrets or
-// arbitrary option keys. The server still performs the authoritative checks.
-const RAW_JSON_DESCRIPTORS: RawJsonDescriptor[] = [
-  {
-    key: 'group_ratio_setting.group_warnings',
-    label: 'Group warnings',
-    example:
-      '{\n  "free": {\n    "enabled": true,\n    "message": "Community-operated group. Do not send secrets.",\n    "mode": "modal",\n    "confirmations": 3\n  }\n}',
-  },
-  {
-    key: 'GroupRatio',
-    label: 'Group ratios',
-    example: '{\n  "default": 1,\n  "premium": 1.2\n}',
-  },
-  {
-    key: 'GroupGroupRatio',
-    label: 'Inter-group ratios',
-    example: '{\n  "premium": {\n    "default": 1\n  }\n}',
-  },
-  {
-    key: 'TopupGroupRatio',
-    label: 'Top-up group ratios',
-    example: '{\n  "default": 1,\n  "premium": 1.1\n}',
-  },
-  {
-    key: 'UserUsableGroups',
-    label: 'Selectable groups',
-    example:
-      '{\n  "default": "Standard access",\n  "premium": "Premium access"\n}',
-  },
-  {
-    key: 'AutoGroups',
-    label: 'Auto group order',
-    example: '[\n  "default",\n  "premium"\n]',
-  },
+// arbitrary option keys. Examples and field contracts come from the same
+// reviewed registry used by inline settings editors.
+export const RAW_JSON_DESCRIPTORS = [
+  { key: 'group_ratio_setting.group_warnings', label: 'Group warnings' },
+  { key: 'GroupRatio', label: 'Group ratios' },
+  { key: 'GroupGroupRatio', label: 'Inter-group ratios' },
+  { key: 'TopupGroupRatio', label: 'Top-up group ratios' },
+  { key: 'UserUsableGroups', label: 'Selectable groups' },
+  { key: 'AutoGroups', label: 'Auto group order' },
   {
     key: 'group_ratio_setting.group_special_usable_group',
     label: 'Special usable groups',
-    example:
-      '{\n  "premium": {\n    "+:default": "Standard access",\n    "-:legacy": ""\n  }\n}',
   },
   {
     key: 'AssistantReviewGroupPolicies',
     label: 'AI review group policies',
-    example:
-      '{\n  "premium": {\n    "probability": 1,\n    "intensity": "high"\n  }\n}',
   },
-  {
-    key: 'AssistantSkillFiles',
-    label: 'AI skill files',
-    example:
-      '[\n  {\n    "path": "skills/example/SKILL.md",\n    "content": "# Example\\n\\nDescribe the skill here.",\n    "enabled": true\n  }\n]',
-  },
+  { key: 'AssistantSkillFiles', label: 'AI skill files' },
   {
     key: 'global.thinking_model_blacklist',
     label: 'Thinking model blacklist',
-    example: '[\n  "model-id"\n]',
   },
   {
     key: 'global.chat_completions_to_responses_policy',
     label: 'Chat to Responses policy',
-    example: '{\n  "default": "auto"\n}',
   },
-  {
-    key: 'gemini.safety_settings',
-    label: 'Gemini safety settings',
-    example: '{\n  "default": "BLOCK_MEDIUM_AND_ABOVE"\n}',
-  },
-  {
-    key: 'gemini.version_settings',
-    label: 'Gemini version settings',
-    example: '{\n  "default": "v1beta"\n}',
-  },
+  { key: 'gemini.safety_settings', label: 'Gemini safety settings' },
+  { key: 'gemini.version_settings', label: 'Gemini version settings' },
   {
     key: 'gemini.supported_imagine_models',
     label: 'Gemini Imagine models',
-    example: '[\n  "gemini-2.5-flash-image"\n]',
   },
-  {
-    key: 'claude.model_headers_settings',
-    label: 'Claude model headers',
-    example:
-      '{\n  "model-id": {\n    "anthropic-version": "2023-06-01"\n  }\n}',
-  },
-  {
-    key: 'claude.default_max_tokens',
-    label: 'Claude default max tokens',
-    example: '{\n  "model-id": 4096\n}',
-  },
-  {
-    key: 'billing_setting.billing_mode',
-    label: 'Billing modes',
-    example: '{\n  "model-id": "ratio"\n}',
-  },
-  {
-    key: 'billing_setting.billing_expr',
-    label: 'Billing expressions',
-    example: '{\n  "model-id": "input + output"\n}',
-  },
-  {
-    key: 'tool_price_setting.prices',
-    label: 'Tool prices',
-    example: '{\n  "web_search": 0.001\n}',
-  },
-  {
-    key: 'channel_affinity_setting.rules',
-    label: 'Channel affinity rules',
-    example:
-      '[\n  {\n    "group": "default",\n    "channel_ids": [1, 2]\n  }\n]',
-  },
-  {
-    key: 'AdvancedSecurityRules',
-    label: 'Advanced security rules',
-    example: '{\n  "version": 1,\n  "rules": []\n}',
-  },
+  { key: 'claude.model_headers_settings', label: 'Claude model headers' },
+  { key: 'claude.default_max_tokens', label: 'Claude default max tokens' },
+  { key: 'billing_setting.billing_mode', label: 'Billing modes' },
+  { key: 'billing_setting.billing_expr', label: 'Billing expressions' },
+  { key: 'tool_price_setting.prices', label: 'Tool prices' },
+  { key: 'channel_affinity_setting.rules', label: 'Channel affinity rules' },
+  { key: 'AdvancedSecurityRules', label: 'Advanced security rules' },
   {
     key: 'dynamic_pricing_setting.channel_costs',
     label: 'Dynamic pricing channel costs',
-    example: '{\n  "12": 0.5,\n  "34": 1.2\n}',
   },
   {
     key: 'dynamic_pricing_setting.per_model',
     label: 'Dynamic pricing model overrides',
-    example:
-      '{\n  "model-id": {\n    "target_tpm": 100000,\n    "target_rpm": 60\n  }\n}',
   },
-  {
-    key: 'console_setting.api_info',
-    label: 'API information',
-    example:
-      '[\n  {\n    "name": "OpenAI compatible",\n    "url": "https://api.example.com/v1"\n  }\n]',
-  },
-  {
-    key: 'console_setting.announcements',
-    label: 'Announcements',
-    example:
-      '[\n  {\n    "content": "Maintenance window",\n    "type": "warning",\n    "publishDate": "2026-01-01T00:00:00Z"\n  }\n]',
-  },
-  {
-    key: 'console_setting.faq',
-    label: 'FAQ',
-    example:
-      '[\n  {\n    "question": "How do I create a key?",\n    "answer": "Open API Keys and confirm the group."\n  }\n]',
-  },
+  { key: 'console_setting.api_info', label: 'API information' },
+  { key: 'console_setting.announcements', label: 'Announcements' },
+  { key: 'console_setting.faq', label: 'FAQ' },
   {
     key: 'payment_setting.amount_options',
     label: 'Top-up amount options',
-    example: '[\n  5,\n  10,\n  20\n]',
   },
-  {
-    key: 'payment_setting.amount_discount',
-    label: 'Top-up discounts',
-    example: '{\n  "100": 0.95,\n  "500": 0.85\n}',
-  },
-  {
-    key: 'PayMethods',
-    label: 'Payment methods',
-    example:
-      '[\n  {\n    "name": "Example",\n    "type": "example",\n    "enabled": true\n  }\n]',
-  },
-  {
-    key: 'CreemProducts',
-    label: 'Creem products',
-    example: '[\n  {\n    "id": "product_xxx",\n    "name": "Starter"\n  }\n]',
-  },
-  {
-    key: 'WaffoPayMethods',
-    label: 'Waffo payment methods',
-    example: '[\n  {\n    "name": "Example",\n    "type": "example"\n  }\n]',
-  },
-]
+  { key: 'payment_setting.amount_discount', label: 'Top-up discounts' },
+  { key: 'PayMethods', label: 'Payment methods' },
+  { key: 'CreemProducts', label: 'Creem products' },
+  { key: 'WaffoPayMethods', label: 'Waffo payment methods' },
+] as const satisfies readonly RawJsonDescriptor[]
+
+type RawJsonConfigurationKey = (typeof RAW_JSON_DESCRIPTORS)[number]['key']
 
 const descriptorMap = new Map(
   RAW_JSON_DESCRIPTORS.map((descriptor) => [descriptor.key, descriptor])
 )
+
+function isRawJsonConfigurationKey(
+  value: string
+): value is RawJsonConfigurationKey {
+  return RAW_JSON_DESCRIPTORS.some((descriptor) => descriptor.key === value)
+}
 
 function formatJson(value: string) {
   if (!value.trim()) return ''
@@ -231,7 +128,11 @@ function formatJson(value: string) {
 }
 
 function parseImport(value: string): string {
-  return JSON.stringify(JSON.parse(value), null, 2)
+  try {
+    return JSON.stringify(JSON.parse(value), null, 2)
+  } catch (error) {
+    throw error instanceof Error ? error : new Error('Invalid JSON')
+  }
 }
 
 function downloadJson(filename: string, value: string) {
@@ -248,8 +149,8 @@ export function RawJsonConfigurationSection() {
   const { t } = useTranslation()
   const optionsQuery = useSystemOptions()
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const [selectedKey, setSelectedKey] = useState(
-    RAW_JSON_DESCRIPTORS[0]?.key ?? ''
+  const [selectedKey, setSelectedKey] = useState<RawJsonConfigurationKey>(
+    'group_ratio_setting.group_warnings'
   )
   const [editorValue, setEditorValue] = useState('')
   const [baselineValue, setBaselineValue] = useState('')
@@ -284,7 +185,7 @@ export function RawJsonConfigurationSection() {
     setEditorValue(formatted)
     setBaselineValue(formatted)
     setValidationMessage(null)
-  }, [descriptor?.example, optionsQuery.data?.data, selectedKey])
+  }, [optionsQuery.data?.data, selectedKey])
 
   const validate = async () => {
     if (!selectedKey || !editorValue.trim()) {
@@ -380,7 +281,9 @@ export function RawJsonConfigurationSection() {
             <Select
               value={selectedKey}
               onValueChange={(value) => {
-                if (value) setSelectedKey(value)
+                if (value && isRawJsonConfigurationKey(value)) {
+                  setSelectedKey(value)
+                }
               }}
             >
               <SelectTrigger>
@@ -424,13 +327,14 @@ export function RawJsonConfigurationSection() {
             {t('Ask AI to edit')}
           </Button>
         </div>
-        <JsonCodeEditor
+        <SystemJsonCodeEditor
+          configurationKey={selectedKey}
+          specificationDefaultOpen
           value={editorValue}
           onChange={(value) => {
             setEditorValue(value)
             setValidationMessage(null)
           }}
-          example={descriptor?.example}
           disabled={optionsQuery.isLoading || !descriptor}
           heightClassName='h-[28rem] min-h-[28rem] max-h-[28rem]'
           ariaLabel={t('JSON')}

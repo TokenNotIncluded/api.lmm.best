@@ -23,7 +23,6 @@ import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
 import { Dialog } from '@/components/dialog'
-import { JsonCodeEditor } from '@/components/json-code-editor'
 import { Button } from '@/components/ui/button'
 import {
   Collapsible,
@@ -42,6 +41,7 @@ import {
 } from '@/components/ui/select'
 import { Separator } from '@/components/ui/separator'
 import { Textarea } from '@/components/ui/textarea'
+import { SystemJsonCodeEditor } from '@/features/system-settings/components/system-json-code-editor'
 
 import { SettingsSwitchField } from '../../components/settings-form-layout'
 import { RULE_TEMPLATES } from './constants'
@@ -441,7 +441,8 @@ export function RuleEditorDialog(props: Props) {
               <Label htmlFor='channel-affinity-param-override-template'>
                 {t('Parameter Override Template (JSON)')}
               </Label>
-              <JsonCodeEditor
+              <SystemJsonCodeEditor
+                configurationKey='channel_affinity_setting.param_override_template'
                 id='channel-affinity-param-override-template'
                 value={form.watch('param_override_template_json') || ''}
                 onChange={(value) =>
@@ -461,16 +462,6 @@ export function RuleEditorDialog(props: Props) {
                 }}
                 textareaRef={paramOverrideTemplateField.ref}
                 placeholder='{"operations":[...]}'
-                example={`{
-  "operations": [
-    {
-      "mode": "set",
-      "path": "temperature",
-      "value": 0.7,
-      "conditions": [{ "path": "model", "mode": "prefix", "value": "gpt-" }]
-    }
-  ]
-}`}
                 heightClassName='h-40 min-h-40 max-h-40'
               />
             </div>

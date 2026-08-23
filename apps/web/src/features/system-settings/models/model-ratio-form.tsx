@@ -23,7 +23,6 @@ import type { UseFormReturn } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
-import { JsonCodeEditor } from '@/components/json-code-editor'
 import { Button } from '@/components/ui/button'
 import {
   Form,
@@ -36,6 +35,8 @@ import {
 } from '@/components/ui/form'
 import { Switch } from '@/components/ui/switch'
 import { getEnabledModels } from '@/features/channels/api'
+import { SystemJsonCodeEditor } from '@/features/system-settings/components/system-json-code-editor'
+import type { SystemJsonConfigurationKey } from '@/features/system-settings/components/system-json-configurations'
 
 import {
   SettingsForm,
@@ -71,7 +72,8 @@ type ModelRatioFormProps = {
   variant?: 'default' | 'unset'
 }
 
-type ModelJsonFieldName =
+type ModelJsonFieldName = Extract<
+  SystemJsonConfigurationKey,
   | 'ModelPrice'
   | 'ModelRatio'
   | 'CacheRatio'
@@ -80,6 +82,7 @@ type ModelJsonFieldName =
   | 'ImageRatio'
   | 'AudioRatio'
   | 'AudioCompletionRatio'
+>
 
 const modelJsonFields: Array<{
   name: ModelJsonFieldName
@@ -138,11 +141,6 @@ function ModelJsonTextareaField(props: {
   label: string
   description: string
 }) {
-  const example =
-    props.name === 'ModelPrice'
-      ? '{\n  "model-id": 0.00001\n}'
-      : '{\n  "model-id": 1\n}'
-
   return (
     <FormField
       control={props.form.control}
@@ -151,13 +149,13 @@ function ModelJsonTextareaField(props: {
         <FormItem className='flex min-w-0 flex-col gap-2'>
           <FormLabel>{props.label}</FormLabel>
           <FormControl>
-            <JsonCodeEditor
+            <SystemJsonCodeEditor
+              configurationKey={props.name}
               value={field.value}
               onChange={(value) => field.onChange(value)}
               name={field.name}
               onBlur={field.onBlur}
               textareaRef={field.ref}
-              example={example}
             />
           </FormControl>
           <FormDescription className='text-xs leading-5'>

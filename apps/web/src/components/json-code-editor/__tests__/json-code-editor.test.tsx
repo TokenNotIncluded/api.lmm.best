@@ -60,6 +60,13 @@ await i18next.use(initReactI18next).init({
         'Failed to copy': 'Failed to copy',
         'Format JSON': 'Format JSON',
         Example: 'Example',
+        Field: 'Field',
+        Type: 'Type',
+        Required: 'Required',
+        Optional: 'Optional',
+        Rules: 'Rules',
+        'Configuration example': 'Configuration example',
+        'Field specification': 'Field specification',
         'Fill Template': 'Fill Template',
       },
     },
@@ -199,6 +206,56 @@ describe('JsonCodeEditor component', () => {
 
     await act(async () => fillButton.click())
     assert.deepEqual(changes, [example])
+
+    await unmountEditor(rendered)
+  })
+
+  test('renders an accessible field specification with types and constraints', async () => {
+    const rendered = await renderEditor({
+      value: '{"enabled":true}',
+      onChange: () => undefined,
+      example: '{\n  "enabled": true\n}',
+      specificationDefaultOpen: true,
+      specification: {
+        rootType: 'ExampleConfig',
+        fields: [
+          {
+            path: 'enabled',
+            type: 'boolean',
+            required: true,
+            rules: 'default: false',
+            example: 'true',
+          },
+          {
+            path: 'label',
+            type: 'string',
+            required: false,
+          },
+        ],
+      },
+    })
+
+    const details = [...rendered.container.querySelectorAll('details')].find(
+      (element) => element.textContent?.includes('Field specification')
+    )
+    assert.ok(details)
+    assert.equal(details.open, true)
+    assert.equal(details.textContent?.includes('ExampleConfig'), true)
+    assert.equal(details.textContent?.includes('default: false'), true)
+    assert.equal(details.textContent?.includes('Required'), true)
+    assert.equal(details.textContent?.includes('Optional'), true)
+
+    const scrollRegion = details.querySelector('[role="region"]')
+    assert.ok(scrollRegion)
+    assert.equal(scrollRegion.getAttribute('tabindex'), '0')
+
+    const table = details.querySelector('table')
+    assert.ok(table)
+    assert.equal(
+      table.querySelector('caption')?.textContent,
+      'Field specification'
+    )
+    assert.equal(table.querySelector('th[scope="row"]')?.textContent, 'enabled')
 
     await unmountEditor(rendered)
   })

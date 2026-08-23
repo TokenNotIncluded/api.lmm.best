@@ -23,7 +23,6 @@ import { toast } from 'sonner'
 
 import { StaticDataTable } from '@/components/data-table'
 import { Dialog } from '@/components/dialog'
-import { JsonCodeEditor } from '@/components/json-code-editor'
 import { StatusBadge, StatusBadgeList } from '@/components/status-badge'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -36,6 +35,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
+import { SystemJsonCodeEditor } from '@/features/system-settings/components/system-json-code-editor'
 
 import { SettingsSwitchField } from '../../components/settings-form-layout'
 import { SettingsPageActionsPortal } from '../../components/settings-page-context'
@@ -117,8 +117,6 @@ function ChannelAffinityConfirmDialog(props: {
 function serializeRules(rules: AffinityRule[]): string {
   return JSON.stringify(rules.map(({ id: _, ...rest }) => rest))
 }
-
-const RULES_JSON_EXAMPLE = JSON.stringify([RULE_TEMPLATES.codexCli], null, 2)
 
 interface Props {
   defaultValues: ChannelAffinitySettings
@@ -666,11 +664,11 @@ export function ChannelAffinitySection(props: Props) {
             <Label htmlFor='channel-affinity-rules-json'>
               {t('Rules JSON')}
             </Label>
-            <JsonCodeEditor
+            <SystemJsonCodeEditor
+              configurationKey='channel_affinity_setting.rules'
               id='channel-affinity-rules-json'
               value={jsonText}
               onChange={setJsonText}
-              example={RULES_JSON_EXAMPLE}
               heightClassName='h-[300px] min-h-[300px] max-h-[300px]'
             />
           </div>

@@ -22,7 +22,6 @@ import { useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import * as z from 'zod'
 
-import { JsonCodeEditor } from '@/components/json-code-editor'
 import {
   Form,
   FormControl,
@@ -33,6 +32,7 @@ import {
   FormMessage,
 } from '@/components/ui/form'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { SystemJsonCodeEditor } from '@/features/system-settings/components/system-json-code-editor'
 
 import { SettingsForm } from '../components/settings-form-layout'
 import { SettingsPageFormActions } from '../components/settings-page-context'
@@ -40,15 +40,6 @@ import { SettingsSection } from '../components/settings-section'
 import { useUpdateOption } from '../hooks/use-update-option'
 import { ChatSettingsVisualEditor } from './chat-settings-visual-editor'
 import { formatJsonForEditor, normalizeJsonString } from './utils'
-
-const CHAT_SETTINGS_EXAMPLE = JSON.stringify(
-  [
-    { ChatGPT: 'https://chat.openai.com' },
-    { 'Example client': 'https://example.com/chat' },
-  ],
-  null,
-  2
-)
 
 const createChatSchema = (t: (key: string) => string) =>
   z.object({
@@ -181,13 +172,13 @@ export function ChatSettingsSection({
                   <FormItem>
                     <FormLabel>{t('Chat configuration JSON')}</FormLabel>
                     <FormControl>
-                      <JsonCodeEditor
+                      <SystemJsonCodeEditor
+                        configurationKey='Chats'
                         value={field.value}
                         onChange={field.onChange}
                         name={field.name}
                         onBlur={field.onBlur}
                         textareaRef={field.ref}
-                        example={CHAT_SETTINGS_EXAMPLE}
                         placeholder={t(
                           '[{"ChatGPT":"https://chat.openai.com"},{"Lobe Chat":"https://chat-preview.lobehub.com/?settings={...}"}]'
                         )}

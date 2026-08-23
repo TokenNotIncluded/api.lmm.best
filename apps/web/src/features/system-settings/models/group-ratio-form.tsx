@@ -48,7 +48,6 @@ import {
   sideDrawerFormClassName,
   sideDrawerHeaderClassName,
 } from '@/components/drawer-layout'
-import { JsonCodeEditor } from '@/components/json-code-editor'
 import {
   Accordion,
   AccordionContent,
@@ -74,6 +73,7 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet'
 import { Switch } from '@/components/ui/switch'
+import { SystemJsonCodeEditor } from '@/features/system-settings/components/system-json-code-editor'
 
 import {
   SettingsForm,
@@ -104,15 +104,6 @@ type GroupRatioFormProps = {
   isSaving: boolean
 }
 
-const GROUP_RATIO_EXAMPLE = '{\n  "default": 1,\n  "premium": 1.2\n}'
-const TOPUP_GROUP_RATIO_EXAMPLE = '{\n  "default": 1,\n  "premium": 1.1\n}'
-const USABLE_GROUPS_EXAMPLE =
-  '{\n  "default": "Standard access",\n  "premium": "Premium access"\n}'
-const GROUP_GROUP_RATIO_EXAMPLE =
-  '{\n  "premium": {\n    "default": 1,\n    "premium": 1\n  }\n}'
-const AUTO_GROUPS_EXAMPLE = '[\n  "default",\n  "premium"\n]'
-const SPECIAL_USABLE_GROUP_EXAMPLE =
-  '{\n  "premium": {\n    "+:default": "Standard access",\n    "-:legacy": ""\n  }\n}'
 const GROUP_WARNINGS_EXAMPLE =
   '{\n  "free": {\n    "enabled": true,\n    "message": "This group is community-operated. Do not send secrets.",\n    "mode": "modal",\n    "confirmations": 3\n  }\n}'
 
@@ -278,13 +269,13 @@ export const GroupRatioForm = memo(function GroupRatioForm({
                     </Button>
                   </div>
                   <FormControl>
-                    <JsonCodeEditor
+                    <SystemJsonCodeEditor
+                      configurationKey='group_ratio_setting.group_warnings'
                       value={field.value}
                       onChange={field.onChange}
                       name={field.name}
                       onBlur={field.onBlur}
                       textareaRef={field.ref}
-                      example={GROUP_WARNINGS_EXAMPLE}
                       heightClassName='h-40 min-h-40 max-h-40'
                     />
                   </FormControl>
@@ -330,13 +321,13 @@ export const GroupRatioForm = memo(function GroupRatioForm({
                 <FormItem>
                   <FormLabel>{t('Group cost multipliers')}</FormLabel>
                   <FormControl>
-                    <JsonCodeEditor
+                    <SystemJsonCodeEditor
+                      configurationKey='GroupRatio'
                       value={field.value}
                       onChange={field.onChange}
                       name={field.name}
                       onBlur={field.onBlur}
                       textareaRef={field.ref}
-                      example={GROUP_RATIO_EXAMPLE}
                     />
                   </FormControl>
                   <FormDescription>
@@ -356,13 +347,13 @@ export const GroupRatioForm = memo(function GroupRatioForm({
                 <FormItem>
                   <FormLabel>{t('Top-up group ratios')}</FormLabel>
                   <FormControl>
-                    <JsonCodeEditor
+                    <SystemJsonCodeEditor
+                      configurationKey='TopupGroupRatio'
                       value={field.value}
                       onChange={field.onChange}
                       name={field.name}
                       onBlur={field.onBlur}
                       textareaRef={field.ref}
-                      example={TOPUP_GROUP_RATIO_EXAMPLE}
                       heightClassName='h-40 min-h-40 max-h-40'
                     />
                   </FormControl>
@@ -384,13 +375,13 @@ export const GroupRatioForm = memo(function GroupRatioForm({
                 <FormItem>
                   <FormLabel>{t('Selectable groups')}</FormLabel>
                   <FormControl>
-                    <JsonCodeEditor
+                    <SystemJsonCodeEditor
+                      configurationKey='UserUsableGroups'
                       value={field.value}
                       onChange={field.onChange}
                       name={field.name}
                       onBlur={field.onBlur}
                       textareaRef={field.ref}
-                      example={USABLE_GROUPS_EXAMPLE}
                       heightClassName='h-40 min-h-40 max-h-40'
                     />
                   </FormControl>
@@ -411,13 +402,13 @@ export const GroupRatioForm = memo(function GroupRatioForm({
                 <FormItem>
                   <FormLabel>{t('Inter-group overrides')}</FormLabel>
                   <FormControl>
-                    <JsonCodeEditor
+                    <SystemJsonCodeEditor
+                      configurationKey='GroupGroupRatio'
                       value={field.value}
                       onChange={field.onChange}
                       name={field.name}
                       onBlur={field.onBlur}
                       textareaRef={field.ref}
-                      example={GROUP_GROUP_RATIO_EXAMPLE}
                     />
                   </FormControl>
                   <FormDescription>
@@ -439,13 +430,13 @@ export const GroupRatioForm = memo(function GroupRatioForm({
                 <FormItem>
                   <FormLabel>{t('Auto assignment order')}</FormLabel>
                   <FormControl>
-                    <JsonCodeEditor
+                    <SystemJsonCodeEditor
+                      configurationKey='AutoGroups'
                       value={field.value}
                       onChange={field.onChange}
                       name={field.name}
                       onBlur={field.onBlur}
                       textareaRef={field.ref}
-                      example={AUTO_GROUPS_EXAMPLE}
                       heightClassName='h-40 min-h-40 max-h-40'
                     />
                   </FormControl>
@@ -491,13 +482,13 @@ export const GroupRatioForm = memo(function GroupRatioForm({
                 <FormItem>
                   <FormLabel>{t('Special usable group rules')}</FormLabel>
                   <FormControl>
-                    <JsonCodeEditor
+                    <SystemJsonCodeEditor
+                      configurationKey='group_ratio_setting.group_special_usable_group'
                       value={field.value}
                       onChange={field.onChange}
                       name={field.name}
                       onBlur={field.onBlur}
                       textareaRef={field.ref}
-                      example={SPECIAL_USABLE_GROUP_EXAMPLE}
                     />
                   </FormControl>
                   <FormDescription>
@@ -517,13 +508,13 @@ export const GroupRatioForm = memo(function GroupRatioForm({
                 <FormItem>
                   <FormLabel>{t('Group warnings')}</FormLabel>
                   <FormControl>
-                    <JsonCodeEditor
+                    <SystemJsonCodeEditor
+                      configurationKey='group_ratio_setting.group_warnings'
                       value={field.value}
                       onChange={field.onChange}
                       name={field.name}
                       onBlur={field.onBlur}
                       textareaRef={field.ref}
-                      example={GROUP_WARNINGS_EXAMPLE}
                       heightClassName='h-40 min-h-40 max-h-40'
                     />
                   </FormControl>

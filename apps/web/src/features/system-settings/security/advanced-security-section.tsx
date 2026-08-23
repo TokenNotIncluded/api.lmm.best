@@ -25,7 +25,6 @@ import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import * as z from 'zod'
 
-import { JsonCodeEditor } from '@/components/json-code-editor'
 import {
   Form,
   FormControl,
@@ -44,6 +43,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
+import { SystemJsonCodeEditor } from '@/features/system-settings/components/system-json-code-editor'
 
 import { getSystemGroups, updateAdvancedSecuritySettings } from '../api'
 import {
@@ -541,14 +541,14 @@ export function AdvancedSecuritySection({
                 />
                 <FormLabel>{t('Advanced security rules (JSON)')}</FormLabel>
                 <FormControl>
-                  <JsonCodeEditor
+                  <SystemJsonCodeEditor
+                    configurationKey='AdvancedSecurityRules'
                     value={field.value}
                     onChange={field.onChange}
                     name={field.name}
                     onBlur={field.onBlur}
                     textareaRef={field.ref}
                     placeholder={EMPTY_RULE_SET}
-                    example={STARTER_RULE_SET_JSON}
                     heightClassName='h-80 min-h-80 max-h-80'
                     aria-invalid={Boolean(
                       form.formState.errors.AdvancedSecurityRules

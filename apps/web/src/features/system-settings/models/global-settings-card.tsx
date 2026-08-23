@@ -23,7 +23,6 @@ import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import * as z from 'zod'
 
-import { JsonCodeEditor } from '@/components/json-code-editor'
 import { StatusBadge } from '@/components/status-badge'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -39,6 +38,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { Separator } from '@/components/ui/separator'
 import { Switch } from '@/components/ui/switch'
+import { SystemJsonCodeEditor } from '@/features/system-settings/components/system-json-code-editor'
 
 import {
   SettingsForm,
@@ -218,13 +218,13 @@ export function GlobalSettingsCard({ defaultValues }: GlobalSettingsCardProps) {
                   {t('Models that skip thinking suffix processing')}
                 </FormLabel>
                 <FormControl>
-                  <JsonCodeEditor
+                  <SystemJsonCodeEditor
+                    configurationKey='global.thinking_model_blacklist'
                     value={field.value}
                     onChange={(value) => field.onChange(value)}
                     name={field.name}
                     onBlur={field.onBlur}
                     textareaRef={field.ref}
-                    example={thinkingBlacklistExample}
                     placeholder={`${t('Example:')}\n${thinkingBlacklistExample}`}
                     heightClassName='h-32 min-h-32 max-h-32'
                   />
@@ -269,13 +269,13 @@ export function GlobalSettingsCard({ defaultValues }: GlobalSettingsCardProps) {
                 <FormItem>
                   <FormLabel>{t('Policy JSON')}</FormLabel>
                   <FormControl>
-                    <JsonCodeEditor
+                    <SystemJsonCodeEditor
+                      configurationKey='global.chat_completions_to_responses_policy'
                       value={field.value}
                       onChange={(value) => field.onChange(value)}
                       name={field.name}
                       onBlur={field.onBlur}
                       textareaRef={field.ref}
-                      example={chatToResponsesPolicyExample}
                       placeholder={`${t('Example (specific channels):')}\n${chatToResponsesPolicyExample}\n\n${t('Example (all channels):')}\n${chatToResponsesPolicyAllChannelsExample}`}
                     />
                   </FormControl>
