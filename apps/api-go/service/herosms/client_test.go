@@ -30,7 +30,7 @@ func writeHeroSMSTestBody(t *testing.T, writer http.ResponseWriter, body []byte)
 func testHTTPClientEndpointsMatchHeroSMSEmailsContract(t *testing.T) {
 	var deleteCalled atomic.Bool
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		require.Equal(t, "test-key", request.Header.Get("Authorization"))
+		require.Equal(t, "ApiKey test-key", request.Header.Get("Authorization"))
 		require.Equal(t, "test-key", request.Header.Get("ApiKey"))
 		writer.Header().Set("Content-Type", "application/json")
 		switch request.Method + " " + request.URL.Path {
