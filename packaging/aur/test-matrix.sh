@@ -158,7 +158,7 @@ grep -Fqx 'ExecStart=/usr/bin/lmm-api serve' "$SHARED/lmm-api.service" ||
   die 'Go systemd service does not execute the backend directly'
 grep -Fqx 'Environment=LMM_API_FRONTEND_DIR=/srv/lmm-api-frontend/current' \
   "$SHARED/lmm-api.service" || die 'Go service does not use the split web activation link'
-expected_memory=$'[Service]\nMemoryHigh=320M\nMemoryMax=384M\nMemorySwapMax=256M'
+expected_memory=$'[Service]\nMemoryAccounting=yes\nMemoryHigh=320M\nMemoryMax=384M\nMemorySwapMax=256M\nEnvironment=GOMEMLIMIT=256MiB'
 [[ $(<"$SHARED/lmm-api-memory.conf") == "$expected_memory" ]] ||
   die 'package-owned service memory drop-in does not match the production limits'
 if grep -R -Eq 'lmm-api-launcher|backends/(go|rs)' \
