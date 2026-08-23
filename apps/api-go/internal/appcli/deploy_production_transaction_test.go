@@ -1203,6 +1203,40 @@ func TestOSProductionCommandRunnerRejectsUnknownExecutable(t *testing.T) {
 	}
 }
 
+type unownedMemoryDropInRunner struct{}
+
+func (unownedMemoryDropInRunner) Run(_ context.Context, command productionCommand) ([]byte, error) {
+	if command.Name == commandPacman && len(command.Args) == 2 && command.Args[0] == "-Qo" {
+		return nil, errors.New("no package owns the path")
+	}
+	return nil, fmt.Errorf("unexpected command: %s %v", command.Name, command.Args)
+}
+
+func TestRetireContractlessMemoryDropInForPackageAdoption(t *testing.T) {
+	directory := t.TempDir()
+	path := filepath.Join(directory, productionMemoryFileName)
+	if err := os.WriteFile(path, productionMemoryConfig(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runtime := &productionRuntime{runner: unownedMemoryDropInRunner{}, paths: productionPaths{PackagedDropInDir: directory}}
+	identity := productionAURPackageName + " 0.1.34.r1146.gde02fda27-1"
+	if err := runtime.retireContractlessMemoryDropInForUpgrade(context.Background(), identity); err != nil {
+		t.Fatalf("retireContractlessMemoryDropInForUpgrade() error = %v", err)
+	}
+	if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("recognized unowned legacy drop-in remains: %v", err)
+	}
+	if err := os.WriteFile(path, []byte("[Service]\nMemoryMax=999M\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.retireContractlessMemoryDropInForUpgrade(context.Background(), identity); err == nil {
+		t.Fatal("unknown unowned legacy drop-in was accepted")
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("unknown drop-in was removed: %v", err)
+	}
+}
+
 func TestPackageIntegritySummaryIsExact(t *testing.T) {
 	name := productionAURPackageName
 	for _, test := range []struct {

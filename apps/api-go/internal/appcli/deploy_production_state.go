@@ -561,6 +561,28 @@ func (runtime *productionRuntime) verifyMemoryPackageOwner(ctx context.Context, 
 	return nil
 }
 
+func (runtime *productionRuntime) retireContractlessMemoryDropInForUpgrade(ctx context.Context, rollbackIdentity string) error {
+	metadata, err := parseNamedPackageIdentity([]byte(rollbackIdentity), productionAURPackageName)
+	if err != nil || !isContractlessLegacyPackage(productionAURPackageName, metadata.Version) {
+		return nil
+	}
+	path := filepath.Join(runtime.paths.PackagedDropInDir, productionMemoryFileName)
+	output, ownerErr := runtime.runner.Run(ctx, productionCommand{Name: commandPacman, Args: []string{"-Qo", path}, Env: append(os.Environ(), "LC_ALL=C")})
+	if ownerErr == nil {
+		if strings.TrimSpace(string(output)) != path+" is owned by "+rollbackIdentity {
+			return errors.New("legacy production memory drop-in has an unexpected package owner")
+		}
+		return nil
+	}
+	if err := verifyProductionMemoryDropIn(path); err != nil {
+		return fmt.Errorf("refuse to retire unowned legacy production memory drop-in: %w", err)
+	}
+	if err := os.Remove(path); err != nil {
+		return fmt.Errorf("retire unowned legacy production memory drop-in before package adoption: %w", err)
+	}
+	return nil
+}
+
 func (runtime *productionRuntime) verifyInstalledPackage(ctx context.Context, name, identity string) error {
 	installed, err := runtime.runner.Run(ctx, productionCommand{Name: commandPacman, Args: []string{"-Q", name}})
 	if err != nil || strings.TrimSpace(string(installed)) != identity {

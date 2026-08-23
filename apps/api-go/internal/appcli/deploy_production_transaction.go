@@ -567,6 +567,9 @@ func (runtime *productionRuntime) apply(ctx context.Context, workspace productio
 		if err := runtime.writeStatus(workspace, productionStatus{Phase: "DEPLOYING_GO", Version: options.ExpectedVersion, Previous: oldVersion, RollbackTimer: workspace.timerUnit, DeadlineUTC: deadline}); err != nil {
 			return productionStatus{}, err
 		}
+		if err := runtime.retireContractlessMemoryDropInForUpgrade(ctx, manifest.Go.RollbackIdentity); err != nil {
+			return productionStatus{}, err
+		}
 		if err := runtime.paruInstall(ctx, workspace, manifest.OperatorUser, manifest.Go.CandidatePath); err != nil {
 			return productionStatus{}, fmt.Errorf("install candidate Go package: %w", err)
 		}
