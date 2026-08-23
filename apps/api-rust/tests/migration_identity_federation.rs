@@ -11,8 +11,8 @@ use lmm_api_rs::migration_routes::identity_federation::{
     FederatedLogin, FederatedUser, FederationError, FederationIdentity,
     FederationMutationPublisher, FederationPrincipal, FederationProviderError, FederationProviders,
     FederationState, OAuthFlowContext, bindings_router, oauth_email_bind_router,
-    oauth_external_provider_router, oauth_state_router, provider_router, router,
-    verify_telegram_authorization,
+    oauth_external_provider_router, oauth_login_start_router, oauth_state_router, provider_router,
+    router, verify_telegram_authorization,
 };
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -26,6 +26,11 @@ use std::{
 use tower::ServiceExt;
 
 struct NoIdentity;
+
+#[test]
+fn oauth_login_start_router_constructor_is_exposed_for_listener_composition() {
+    let _constructor: fn(FederationState) -> Router = oauth_login_start_router;
+}
 
 #[test]
 fn oauth_state_router_constructor_is_exposed_for_listener_composition() {

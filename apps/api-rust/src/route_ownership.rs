@@ -497,24 +497,23 @@ mod tests {
     }
 
     #[test]
-    fn registry_gate_keeps_unsupported_route_closed_after_complete_differential_proof() {
+    fn registry_gate_keeps_cross_protocol_closed_without_trusted_evidence() {
         let mut evidence = complete();
         evidence.set_shadow_identical(true);
         let registry = crate::protocol_runtime_registry::validated_current_registry()
             .expect("native registry validates");
-        let unsupported_scope = RouteOwnershipScope {
+        let cross_scope = RouteOwnershipScope {
             source: Protocol::OpenAi,
             target: Protocol::Claude,
             stream: true,
         };
-        evidence.scope = unsupported_scope;
+        evidence.scope = cross_scope;
         let decision =
             OwnershipGate::default().evaluate_with_registry(&evidence, &registry, "claude");
         assert!(matches!(
             decision,
             OwnershipDecision::ClosedByDefault { blockers, .. }
-                if blockers.contains(&OwnershipBlocker::RouteQualityUnsupported)
-                    && blockers.contains(&OwnershipBlocker::RouteDirectionUnsupported)
+                if blockers.contains(&OwnershipBlocker::UntrustedEvidence)
         ));
     }
 

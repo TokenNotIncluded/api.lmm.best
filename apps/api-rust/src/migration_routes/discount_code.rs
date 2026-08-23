@@ -733,8 +733,9 @@ fn discount_code_pattern_matches(code: &str) -> bool {
     if chars.len() < 3 || chars.len() > 64 {
         return false;
     }
-    let valid = |ch: char| ch.is_ascii_uppercase() || ch.is_ascii_digit() || matches!(ch, '_' | '-');
-    valid(chars[0]) && chars[1..].iter().copied().all(valid)
+    let first_valid = |ch: char| ch.is_ascii_uppercase() || ch.is_ascii_digit();
+    let rest_valid = |ch: char| ch.is_ascii_uppercase() || ch.is_ascii_digit() || matches!(ch, '_' | '-');
+    first_valid(chars[0]) && chars[1..].iter().copied().all(rest_valid)
 }
 
 fn normalize_discount_code(value: &str) -> String {

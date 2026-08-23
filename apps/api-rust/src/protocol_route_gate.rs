@@ -262,7 +262,7 @@ mod tests {
     use crate::{
         protocol_rollout::{FlagConfig, MAX_BASIS_POINTS, ShadowDifference, ShadowRecord},
         protocol_runtime_registry::validated_current_registry,
-        route_ownership::{DifferentialClass, MIN_REVIEW_CANARY_BASIS_POINTS},
+        route_ownership::{DifferentialClass, MIN_REVIEW_CANARY_BASIS_POINTS, OwnershipBlocker},
     };
     use lmm_contracts::relay::protocols;
 
@@ -299,7 +299,8 @@ mod tests {
     }
 
     #[test]
-    fn current_sixteen_route_registry_closes_every_cross_protocol_pair() {
+    fn current_sixteen_route_registry_keeps_cross_protocol_closed_without_trusted_evidence(
+    ) {
         let registry = validated_current_registry().expect("current registry validates");
         let config = enabled_config();
         for source in protocols() {
@@ -322,14 +323,10 @@ mod tests {
                 );
                 assert!(decision.is_closed(), "{source:?} -> {target:?}");
                 assert!(
-                    decision
-                        .blockers()
-                        .contains(&RouteGateBlocker::DirectionUnsupported)
-                );
-                assert!(
-                    decision
-                        .blockers()
-                        .contains(&RouteGateBlocker::RouteQualityUnsupported)
+                    decision.blockers().iter().any(|blocker| matches!(
+                        blocker,
+                        RouteGateBlocker::Ownership(OwnershipBlocker::UntrustedEvidence)
+                    ))
                 );
             }
         }

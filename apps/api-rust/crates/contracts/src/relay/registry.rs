@@ -13,7 +13,10 @@ use serde::{Deserialize, Serialize};
 
 use super::{Feature, Fidelity, Protocol};
 
-const REGISTRY_VERSION: &str = "relay-capabilities-v1";
+const REGISTRY_VERSION: &str = "relay-capabilities-v2-cortexfs";
+
+const CORTEXFS_CONVERTER_PREFIX: &str = "cortexfs";
+const CORTEXFS_RUNTIME_PREFIX: &str = "cortexfs-runtime";
 
 const RAW_OPENAI_CHAT: &str = "raw-openai-chat-v1";
 const RAW_OPENAI_RESPONSES: &str = "raw-openai-responses-v1";
@@ -149,6 +152,33 @@ impl RouteRegistration {
             quality: Fidelity::Exact,
             version: REGISTRY_VERSION.to_owned(),
             raw_passthrough: true,
+        }
+    }
+
+    /// Creates a cortexfs-backed cross-protocol route aligned with the Go relay matrix.
+    pub fn cortexfs_cross(source: Protocol, target: Protocol) -> Self {
+        let request_converter = cortexfs_converter_id(source, target, Direction::Request);
+        let response_converter = cortexfs_converter_id(source, target, Direction::Response);
+        let stream_converter = cortexfs_converter_id(source, target, Direction::Stream);
+        let stream_finalizer = cortexfs_stream_finalizer_id(source, target);
+        let runtime = cortexfs_runtime_adaptor_id(source, target);
+        Self {
+            source,
+            target,
+            request_supported: true,
+            response_supported: true,
+            stream_supported: true,
+            request_converter_id: Some(request_converter),
+            response_converter_id: Some(response_converter),
+            stream_converter_id: Some(stream_converter),
+            stream_finalizer_id: Some(stream_finalizer),
+            runtime_adaptors: vec![runtime],
+            feature_requirements: all_features(),
+            unsupported_features: BTreeSet::new(),
+            model_constraints: BtreeSetExt::one(ModelConstraint::any()),
+            quality: cross_protocol_fidelity(source, target),
+            version: REGISTRY_VERSION.to_owned(),
+            raw_passthrough: false,
         }
     }
 
@@ -460,7 +490,7 @@ impl Registry {
                 let route = if source == target {
                     RouteRegistration::raw(source)
                 } else {
-                    RouteRegistration::unsupported(source, target)
+                    RouteRegistration::cortexfs_cross(source, target)
                 };
                 routes.push(route);
             }
@@ -978,6 +1008,60 @@ fn raw_converter_id(protocol: Protocol) -> &'static str {
     }
 }
 
+/// Returns the Go-aligned fidelity claim for one cross-protocol pair.
+const fn cross_protocol_fidelity(source: Protocol, target: Protocol) -> Fidelity {
+    match (source, target) {
+        (Protocol::OpenAi, Protocol::OpenAiResponses)
+        | (Protocol::OpenAiResponses, Protocol::OpenAi) => Fidelity::Normalized,
+        (Protocol::Claude, Protocol::Gemini) | (Protocol::Gemini, Protocol::Claude) => {
+            Fidelity::Lossy
+        }
+        _ => Fidelity::Normalized,
+    }
+}
+
+fn cortexfs_converter_id(source: Protocol, target: Protocol, direction: Direction) -> String {
+    format!(
+        "{CORTEXFS_CONVERTER_PREFIX}-{}-to-{}-{}-v1",
+        cortexfs_protocol_slug(source),
+        cortexfs_protocol_slug(target),
+        cortexfs_direction_slug(direction)
+    )
+}
+
+fn cortexfs_stream_finalizer_id(source: Protocol, target: Protocol) -> String {
+    format!(
+        "{CORTEXFS_CONVERTER_PREFIX}-{}-to-{}-stream-finalizer-v1",
+        cortexfs_protocol_slug(source),
+        cortexfs_protocol_slug(target)
+    )
+}
+
+fn cortexfs_runtime_adaptor_id(source: Protocol, target: Protocol) -> String {
+    format!(
+        "{CORTEXFS_RUNTIME_PREFIX}-{}-to-{}-v1",
+        cortexfs_protocol_slug(source),
+        cortexfs_protocol_slug(target)
+    )
+}
+
+const fn cortexfs_protocol_slug(protocol: Protocol) -> &'static str {
+    match protocol {
+        Protocol::OpenAi => "openai-chat",
+        Protocol::OpenAiResponses => "openai-responses",
+        Protocol::Claude => "claude-messages",
+        Protocol::Gemini => "gemini-generate-content",
+    }
+}
+
+const fn cortexfs_direction_slug(direction: Direction) -> &'static str {
+    match direction {
+        Direction::Request => "request",
+        Direction::Response => "response",
+        Direction::Stream => "stream",
+    }
+}
+
 fn protocol_rank(protocol: Protocol) -> u8 {
     match protocol {
         Protocol::OpenAi => 0,
@@ -1023,19 +1107,23 @@ mod tests {
     }
 
     #[test]
-    fn cross_protocol_routes_remain_unsupported_without_a_runtime_adaptor() {
+    fn cross_protocol_routes_are_wired_through_cortexfs() {
         let registry = Registry::default();
         let bridge = registry
             .route(Protocol::OpenAi, Protocol::OpenAiResponses)
             .expect("bridge");
-        assert_eq!(bridge.quality, Fidelity::Unsupported);
-        assert!(!bridge.supports_any_direction());
+        assert_eq!(bridge.quality, Fidelity::Normalized);
+        assert!(bridge.supports_any_direction());
+        assert!(bridge
+            .request_converter_id
+            .as_deref()
+            .is_some_and(|id| id.starts_with("cortexfs-")));
 
-        let unsupported = registry
+        let discouraged = registry
             .route(Protocol::Claude, Protocol::Gemini)
-            .expect("explicit unsupported route");
-        assert_eq!(unsupported.quality, Fidelity::Unsupported);
-        assert!(!unsupported.supports_any_direction());
+            .expect("discouraged bridge");
+        assert_eq!(discouraged.quality, Fidelity::Lossy);
+        assert!(discouraged.supports_any_direction());
     }
 
     #[test]
@@ -1057,7 +1145,7 @@ mod tests {
         registry
             .route_mut(Protocol::Claude, Protocol::Gemini)
             .expect("route")
-            .quality = Fidelity::Normalized;
+            .quality = Fidelity::Exact;
         assert!(matches!(
             registry.validate(),
             Err(RegistryValidationError::QualityCapabilityConflict { .. })
@@ -1110,24 +1198,18 @@ mod tests {
     }
 
     #[test]
-    fn catalog_cannot_invent_an_openai_bridge() {
+    fn catalog_cannot_claim_exact_quality_on_cross_protocol_routes() {
         let mut catalog = runtime_catalog();
-        let raw = RouteRegistration::raw(Protocol::OpenAi);
-        let mut bridge = RuntimeRoute::new(Protocol::OpenAi, Protocol::OpenAiResponses);
-        bridge.request_converter_id = raw.request_converter_id.clone();
-        bridge.response_converter_id = raw.response_converter_id.clone();
-        bridge.stream_converter_id = raw.stream_converter_id.clone();
-        bridge.stream_finalizer_id = raw.stream_finalizer_id.clone();
-        if let Some(adaptor) = raw.runtime_adaptors.first() {
-            bridge.runtime_adaptors.insert(adaptor.clone());
-        }
-        catalog.routes.push(bridge);
+        let bridge = catalog
+            .routes
+            .iter_mut()
+            .find(|route| route.source == Protocol::OpenAi && route.target == Protocol::OpenAiResponses)
+            .expect("cross route runtime metadata");
+        bridge.request_converter_id = Some("raw-openai-chat-v1".to_owned());
         assert!(matches!(
             Registry::default().validate_against_catalog(&catalog),
-            Err(RegistryValidationError::CatalogClaimsUnsupportedRoute {
-                source: Protocol::OpenAi,
-                target: Protocol::OpenAiResponses,
-            })
+            Err(RegistryValidationError::RuntimeDirectionMismatch { .. })
+                | Err(RegistryValidationError::UnknownConverter { .. })
         ));
     }
 
@@ -1174,7 +1256,7 @@ mod tests {
         );
         let json = matrix.to_json().expect("matrix json");
         assert!(json.contains("open_ai_responses"));
-        assert!(json.contains("unsupported"));
+        assert!(json.contains("normalized"));
     }
 
     fn runtime_catalog() -> RuntimeCatalog {
@@ -1182,32 +1264,33 @@ mod tests {
         let mut finalizers = BTreeSet::new();
         let mut adaptors = BTreeSet::new();
         let mut routes = Vec::new();
-        for protocol in protocols() {
-            let route = RouteRegistration::raw(protocol);
-            let converter = route
-                .request_converter_id
-                .clone()
-                .expect("raw request converter");
-            let finalizer = route
-                .stream_finalizer_id
-                .clone()
-                .expect("raw stream finalizer");
-            let adaptor = route
-                .runtime_adaptors
-                .first()
-                .cloned()
-                .expect("raw runtime adaptor");
-            converters.insert(converter.clone());
-            finalizers.insert(finalizer.clone());
-            adaptors.insert(adaptor.clone());
-            let mut runtime = RuntimeRoute::new(protocol, protocol);
-            runtime.request_converter_id = Some(converter.clone());
-            runtime.response_converter_id = Some(converter.clone());
-            runtime.stream_converter_id = Some(converter);
-            runtime.stream_finalizer_id = Some(finalizer);
-            runtime.runtime_adaptors.insert(adaptor);
-            routes.push(runtime);
+        for source in protocols() {
+            for target in protocols() {
+                let registration = if source == target {
+                    RouteRegistration::raw(source)
+                } else {
+                    RouteRegistration::cortexfs_cross(source, target)
+                };
+                for converter in registration.converter_ids() {
+                    converters.insert(converter.to_owned());
+                }
+                if let Some(finalizer) = registration.stream_finalizer_id.clone() {
+                    finalizers.insert(finalizer);
+                }
+                for adaptor in &registration.runtime_adaptors {
+                    adaptors.insert(adaptor.clone());
+                }
+                let mut runtime = RuntimeRoute::new(source, target);
+                runtime.request_converter_id = registration.request_converter_id.clone();
+                runtime.response_converter_id = registration.response_converter_id.clone();
+                runtime.stream_converter_id = registration.stream_converter_id.clone();
+                runtime.stream_finalizer_id = registration.stream_finalizer_id.clone();
+                runtime
+                    .runtime_adaptors
+                    .extend(registration.runtime_adaptors.iter().cloned());
+                routes.push(runtime);
+            }
         }
-        RuntimeCatalog::new("test-runtime-v1", converters, finalizers, adaptors, routes)
+        RuntimeCatalog::new("test-runtime-v2-cortexfs", converters, finalizers, adaptors, routes)
     }
 }

@@ -77,6 +77,9 @@ pub mod route_ownership;
 /// Runtime-owned protocol capability catalog and startup drift validation.
 pub mod protocol_runtime_registry;
 
+/// Production protocol conversion backed by the cortexfs-protocol crate.
+pub mod cortexfs_protocol_bridge;
+
 /// Candidate route slices compiled for migration testing but not mounted.
 pub mod migration_routes;
 

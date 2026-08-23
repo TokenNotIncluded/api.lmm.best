@@ -1719,19 +1719,21 @@ mod tests {
     }
 
     #[test]
-    fn unsupported_registry_route_stays_closed() {
+    fn supported_cross_protocol_registry_route_validates_with_signed_document() {
         let registry = validated_current_registry().expect("built-in registry validates");
-        let mut document = valid_document();
-        document.scope = RouteOwnershipScope {
+        let scope = RouteOwnershipScope {
             source: Protocol::OpenAi,
             target: Protocol::Claude,
             stream: true,
         };
-        document.shadow.scope = document.scope;
-        assert_eq!(
-            document.verify(&registry, &trusted_policy()),
-            Err(DifferentialEvidenceError::RouteQualityUnsupported)
-        );
+        let mut document = valid_document();
+        document.scope = scope;
+        document.shadow.scope = scope;
+        document.model_family = "claude".to_owned();
+        sign_document(&mut document);
+        document
+            .verify(&registry, &trusted_policy())
+            .expect("supported cross route validates");
     }
 
     #[test]

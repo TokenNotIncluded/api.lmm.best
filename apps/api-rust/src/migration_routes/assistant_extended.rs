@@ -32,7 +32,7 @@ const ROOT_ROLE: i64 = 100;
 const ASSISTANT_HISTORY_PAGE_MAX: i64 = 100;
 const ASSISTANT_REQUEST_REVIEW_PAGE_MAX: i64 = 100;
 
-pub fn extended_routes() -> Router<AssistantReadState> {
+pub fn extended_router() -> Router<AssistantReadState> {
     Router::new()
         .route("/api/assistant/journey", get(get_journey))
         .route("/api/assistant/new-user-gift", get(get_new_user_gift))

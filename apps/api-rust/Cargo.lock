@@ -533,6 +533,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "773648b94d0e5d620f64f280777445740e61fe701025087ec8b57f45c791888b"
 
 [[package]]
+name = "cortexfs-protocol"
+version = "0.1.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8a7f7b11039e5fc3b17c0d769c933ad59f4b3d3ba29b10c43437df1cf2c3dca3"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cpufeatures"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1568,6 +1578,7 @@ dependencies = [
  "bcrypt",
  "brotli",
  "chrono",
+ "cortexfs-protocol",
  "flate2",
  "form_urlencoded",
  "futures-util",

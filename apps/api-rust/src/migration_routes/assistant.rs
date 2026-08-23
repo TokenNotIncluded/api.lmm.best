@@ -1653,7 +1653,7 @@ pub fn assistant_read_router(state: AssistantReadState) -> Router {
             post(admin_resolve_handoff),
         )
         .route("/api/assistant/admin/intents", get(admin_intents))
-        .merge(assistant_extended::extended_routes())
+        .merge(assistant_extended::extended_router())
         .with_state(state)
 }
 

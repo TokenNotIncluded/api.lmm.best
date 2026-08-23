@@ -2,17 +2,20 @@
 //!
 //! The contracts crate describes route claims, but it cannot know which HTTP
 //! handlers are actually mounted. This module is the application-owned
-//! inventory for the four native same-protocol passthrough paths and is
-//! checked against the contracts registry before the listener starts.
+//! inventory for native passthrough routes and cortexfs-backed cross-protocol
+//! conversions, and is checked against the contracts registry before the
+//! listener starts.
 
 use std::collections::BTreeSet;
 
 use lmm_contracts::relay::{
     Direction, Fidelity, ModelConstraint, Protocol, Registry, RegistryValidationError,
-    RouteRegistration, RuntimeCatalog, RuntimeRoute, SupportMatrix, ValidatedRegistry,
+    RouteRegistration, RuntimeCatalog, RuntimeRoute, SupportMatrix, ValidatedRegistry, protocols,
 };
 
-const RUNTIME_CATALOG_VERSION: &str = "api-rust-native-relay-v1";
+use crate::cortexfs_protocol_bridge::{converter_id, runtime_adaptor_id, stream_finalizer_id};
+
+const RUNTIME_CATALOG_VERSION: &str = "api-rust-cortexfs-relay-v2";
 
 /// Converter ID registered by the OpenAI Chat native passthrough handler.
 pub const OPENAI_CHAT_RAW_CONVERTER: &str = "raw-openai-chat-v1";
@@ -46,34 +49,67 @@ const RAW_RUNTIME_ROWS: [(Protocol, &str, &str); 4] = [
     ),
 ];
 
-/// Builds the catalog from the native passthrough handlers actually mounted
-/// by the current Rust listener.
+fn native_runtime_route(source: Protocol, converter: &str, adaptor: &str) -> RuntimeRoute {
+    let mut route = RuntimeRoute::new(source, source);
+    route.request_converter_id = Some(converter.to_owned());
+    route.response_converter_id = Some(converter.to_owned());
+    route.stream_converter_id = Some(converter.to_owned());
+    route.stream_finalizer_id = Some(format!("{converter}-finalizer"));
+    route.runtime_adaptors.insert(adaptor.to_owned());
+    route
+}
+
+fn cortexfs_runtime_route(source: Protocol, target: Protocol) -> RuntimeRoute {
+    let mut route = RuntimeRoute::new(source, target);
+    route.request_converter_id = Some(converter_id(source, target, Direction::Request));
+    route.response_converter_id = Some(converter_id(source, target, Direction::Response));
+    route.stream_converter_id = Some(converter_id(source, target, Direction::Stream));
+    route.stream_finalizer_id = Some(stream_finalizer_id(source, target));
+    route
+        .runtime_adaptors
+        .insert(runtime_adaptor_id(source, target));
+    route
+}
+
+/// Builds the catalog from the native passthrough handlers and cortexfs bridge.
 #[must_use]
 pub fn current_runtime_catalog() -> RuntimeCatalog {
-    let converters = RAW_RUNTIME_ROWS
-        .iter()
-        .map(|(_, converter, _)| (*converter).to_owned())
-        .collect::<BTreeSet<_>>();
-    let finalizers = RAW_RUNTIME_ROWS
-        .iter()
-        .map(|(_, converter, _)| format!("{converter}-finalizer"))
-        .collect::<BTreeSet<_>>();
-    let adaptors = RAW_RUNTIME_ROWS
-        .iter()
-        .map(|(_, _, adaptor)| (*adaptor).to_owned())
-        .collect::<BTreeSet<_>>();
-    let routes = RAW_RUNTIME_ROWS
-        .iter()
-        .map(|(protocol, converter, adaptor)| {
-            let mut route = RuntimeRoute::new(*protocol, *protocol);
-            route.request_converter_id = Some((*converter).to_owned());
-            route.response_converter_id = Some((*converter).to_owned());
-            route.stream_converter_id = Some((*converter).to_owned());
-            route.stream_finalizer_id = Some(format!("{converter}-finalizer"));
-            route.runtime_adaptors.insert((*adaptor).to_owned());
-            route
-        })
-        .collect::<Vec<_>>();
+    let mut converters = BTreeSet::new();
+    let mut finalizers = BTreeSet::new();
+    let mut adaptors = BTreeSet::new();
+    let mut routes = Vec::new();
+
+    for (protocol, converter, adaptor) in RAW_RUNTIME_ROWS {
+        converters.insert((*converter).to_owned());
+        finalizers.insert(format!("{converter}-finalizer"));
+        adaptors.insert((*adaptor).to_owned());
+        routes.push(native_runtime_route(protocol, converter, adaptor));
+    }
+
+    for source in protocols() {
+        for target in protocols() {
+            if source == target {
+                continue;
+            }
+            let route = cortexfs_runtime_route(source, target);
+            for converter in [
+                route.request_converter_id.as_deref(),
+                route.response_converter_id.as_deref(),
+                route.stream_converter_id.as_deref(),
+            ]
+            .into_iter()
+            .flatten()
+            {
+                converters.insert(converter.to_owned());
+            }
+            if let Some(finalizer) = route.stream_finalizer_id.as_ref() {
+                finalizers.insert(finalizer.clone());
+            }
+            adaptors.extend(route.runtime_adaptors.iter().cloned());
+            routes.push(route);
+        }
+    }
+
     RuntimeCatalog::new(
         RUNTIME_CATALOG_VERSION,
         converters,
@@ -362,41 +398,37 @@ mod tests {
     }
 
     #[test]
-    fn current_catalog_has_only_four_native_raw_runtime_routes() {
+    fn current_catalog_has_four_native_and_twelve_cortexfs_routes() {
         let catalog = current_runtime_catalog();
-        assert_eq!(catalog.routes.len(), 4);
-        assert!(catalog.routes.iter().all(|route| {
-            route.source == route.target
-                && route.request_converter_id.is_some()
-                && route.response_converter_id.is_some()
-                && route.stream_converter_id.is_some()
-                && route.stream_finalizer_id.is_some()
-        }));
+        assert_eq!(catalog.routes.len(), 16);
+        assert_eq!(
+            catalog
+                .routes
+                .iter()
+                .filter(|route| route.source == route.target)
+                .count(),
+            4
+        );
+        assert_eq!(
+            catalog
+                .routes
+                .iter()
+                .filter(|route| route.source != route.target)
+                .count(),
+            12
+        );
     }
 
     #[test]
-    fn openai_chat_to_responses_is_unsupported_without_a_runtime_adaptor() {
+    fn openai_chat_to_responses_is_supported_with_cortexfs_converters() {
         let registry = validated_current_registry().expect("runtime catalog validates");
         let route = registry
             .route(Protocol::OpenAi, Protocol::OpenAiResponses)
             .expect("complete matrix route");
-        assert!(!route.request_supported);
-        assert!(!route.response_supported);
-        assert!(!route.stream_supported);
-    }
-
-    #[test]
-    fn responses_to_claude_and_gemini_to_claude_are_unsupported() {
-        let registry = validated_current_registry().expect("runtime catalog validates");
-        for (source, target) in [
-            (Protocol::OpenAiResponses, Protocol::Claude),
-            (Protocol::Gemini, Protocol::Claude),
-        ] {
-            let route = registry
-                .route(source, target)
-                .expect("complete matrix route");
-            assert!(!route.supports_any_direction());
-        }
+        assert!(route.request_supported);
+        assert!(route.response_supported);
+        assert!(route.stream_supported);
+        assert_eq!(route.quality, Fidelity::Normalized);
     }
 
     #[test]
@@ -416,44 +448,33 @@ mod tests {
     }
 
     #[test]
-    fn unsupported_cross_protocol_capability_fails_before_converter_selection() {
-        let result = current_route_capability(
+    fn cross_protocol_capability_is_executable_when_registry_and_runtime_agree() {
+        let capability = current_route_capability(
             Protocol::OpenAi,
             Protocol::Claude,
             "claude",
             Direction::Request,
-        );
-        assert!(matches!(
-            result,
-            Err(RuntimeCapabilityError::UnsupportedDirection {
-                source: Protocol::OpenAi,
-                target: Protocol::Claude,
-                direction: Direction::Request,
-            })
-        ));
-        let projection = current_route_projection(Protocol::OpenAi, Protocol::Claude, "claude")
-            .expect("unsupported route remains visible in matrix");
-        assert_eq!(projection.quality, Fidelity::Unsupported);
-        assert!(!projection.is_executable(Direction::Request));
+        )
+        .expect("cross route is executable");
+        assert_eq!(capability.quality, Fidelity::Normalized);
+        assert!(!capability.raw_passthrough);
+        assert!(capability.is_executable(Direction::Request));
     }
 
     #[test]
-    fn explicit_registry_validation_uses_the_same_runtime_direction_gate() {
+    fn explicit_registry_validation_rejects_raw_converter_on_cross_route() {
         let registry = Registry::current();
         let mut catalog = current_runtime_catalog();
         let route = catalog
             .routes
             .iter_mut()
-            .find(|route| route.source == Protocol::OpenAi && route.target == Protocol::OpenAi)
-            .expect("native runtime route");
-        route.stream_converter_id = Some(OPENAI_RESPONSES_RAW_CONVERTER.to_owned());
+            .find(|route| route.source == Protocol::OpenAi && route.target == Protocol::Claude)
+            .expect("cross runtime route");
+        route.request_converter_id = Some(OPENAI_RESPONSES_RAW_CONVERTER.to_owned());
         let result = validate_explicit_registry_against_catalog(&registry, &catalog);
         assert!(matches!(
             result,
-            Err(RegistryValidationError::RuntimeDirectionMismatch {
-                direction: Direction::Stream,
-                ..
-            })
+            Err(RegistryValidationError::RuntimeDirectionMismatch { .. })
         ));
     }
 }

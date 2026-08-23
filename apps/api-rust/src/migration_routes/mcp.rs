@@ -6,9 +6,9 @@ use axum::{
     Router,
     body::Bytes,
     extract::{Request, State},
-    http::{HeaderMap, StatusCode, header},
+    http::{HeaderMap, Method, StatusCode, header},
     response::{IntoResponse, Response},
-    routing::any,
+    routing::{connect, delete, get, head, options, patch, post, put, trace},
     Json,
 };
 use serde_json::json;
@@ -39,10 +39,54 @@ impl McpHttpState {
 /// Mounts `/mcp` and `/mcp/drawing` with Go-compatible Any-method handlers.
 pub fn mcp_router(state: McpHttpState) -> Router {
     Router::new()
-        .route("/mcp", any(open_source_bounty_mcp))
-        .route("/mcp/", any(open_source_bounty_mcp))
-        .route("/mcp/drawing", any(drawing_mcp))
-        .route("/mcp/drawing/", any(drawing_mcp))
+        .route(
+            "/mcp",
+            connect(open_source_bounty_mcp)
+                .trace(open_source_bounty_mcp)
+                .get(open_source_bounty_mcp)
+                .post(open_source_bounty_mcp)
+                .put(open_source_bounty_mcp)
+                .delete(open_source_bounty_mcp)
+                .patch(open_source_bounty_mcp)
+                .head(open_source_bounty_mcp)
+                .options(open_source_bounty_mcp),
+        )
+        .route(
+            "/mcp/",
+            connect(open_source_bounty_mcp)
+                .trace(open_source_bounty_mcp)
+                .get(open_source_bounty_mcp)
+                .post(open_source_bounty_mcp)
+                .put(open_source_bounty_mcp)
+                .delete(open_source_bounty_mcp)
+                .patch(open_source_bounty_mcp)
+                .head(open_source_bounty_mcp)
+                .options(open_source_bounty_mcp),
+        )
+        .route(
+            "/mcp/drawing",
+            connect(drawing_mcp)
+                .trace(drawing_mcp)
+                .get(drawing_mcp)
+                .post(drawing_mcp)
+                .put(drawing_mcp)
+                .delete(drawing_mcp)
+                .patch(drawing_mcp)
+                .head(drawing_mcp)
+                .options(drawing_mcp),
+        )
+        .route(
+            "/mcp/drawing/",
+            connect(drawing_mcp)
+                .trace(drawing_mcp)
+                .get(drawing_mcp)
+                .post(drawing_mcp)
+                .put(drawing_mcp)
+                .delete(drawing_mcp)
+                .patch(drawing_mcp)
+                .head(drawing_mcp)
+                .options(drawing_mcp),
+        )
         .with_state(state)
 }
 

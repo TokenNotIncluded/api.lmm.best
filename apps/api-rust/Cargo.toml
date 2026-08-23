@@ -12,7 +12,7 @@ resolver = "2"
 [workspace.package]
 edition = "2024"
 license = "AGPL-3.0-or-later"
-rust-version = "1.85"
+rust-version = "1.91"
 version = "0.1.6"
 
 [workspace.dependencies]
@@ -67,6 +67,7 @@ bcrypt.workspace = true
 base64.workspace = true
 brotli.workspace = true
 chrono.workspace = true
+cortexfs-protocol = "0.1.7"
 hmac.workspace = true
 hex.workspace = true
 form_urlencoded.workspace = true

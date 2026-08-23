@@ -5,9 +5,9 @@
 //! or a provider decoder.  Same-protocol traffic is an opaque raw passthrough
 //! and borrows the parser's bytes.  Cross-protocol traffic is admitted only
 //! after the route gate and an explicitly supplied source-to-canonical-
-//! to-target adaptor are both present.  The default adaptor registry is empty,
-//! so the current validated registry remains closed for every cross-protocol
-//! stream.
+//! to-target adaptor are both present.  The default adaptor registry is backed
+//! by [`CortexFsStreamAdaptorRegistry`], so cross-protocol streams can compile
+//! once rollout and ownership evidence admit the route.
 
 use std::{collections::BTreeSet, time::Instant};
 
@@ -21,6 +21,7 @@ use crate::{
         ClientAbortGuard, ConversionObserver, ConversionResult, ConverterVersion, FailureReason,
         FeatureClass, MetricLabels, QueueDepthGuard, StreamTiming,
     },
+    cortexfs_protocol_bridge::CortexFsStreamAdaptorRegistry,
     migration_routes::sse::{
         DEFAULT_MAX_FRAME_BYTES, LOSS_UNKNOWN_EVENT, SseFrame, UnknownEventClass,
         UnknownEventDecision, unknown_event_decision,
@@ -1260,12 +1261,12 @@ fn closed_session(
     }
 }
 
-/// Compiles a session with the default closed adaptor registry and route gate.
+/// Compiles a session with the cortexfs-backed adaptor registry and route gate.
 pub fn compile_stream_session(
     spec: StreamSessionSpec<'_>,
 ) -> Result<StreamSession, StreamSetupFailure> {
     let compiler = ValidatedRegistryPlanCompiler;
-    let adaptors = EmptyStreamAdaptorRegistry;
+    let adaptors = CortexFsStreamAdaptorRegistry;
     let admission = ValidatedStreamRouteAdmission;
     compile_stream_session_with_runtime(spec, &compiler, &adaptors, &admission)
 }
