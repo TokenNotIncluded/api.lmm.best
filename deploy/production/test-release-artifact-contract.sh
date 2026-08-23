@@ -87,9 +87,9 @@ for immutable in \
     'tracked Web PKGBUILD no longer pins the existing immutable release'
 done
 
-require_literal "$DEPLOY_PKGBUILD" 'pkgver=0.1.43' \
+require_literal "$DEPLOY_PKGBUILD" 'pkgver=0.1.44' \
   'operator bootstrap does not pin the reviewed Go release'
-require_literal "$DEPLOY_PKGBUILD" '_release_revision=e06a66cdfcfa59edfaad1a0bd810645ec0fd0a66' \
+require_literal "$DEPLOY_PKGBUILD" '_release_revision=1ecedcf2b36fbd7ea03377315ea02fde561a76f5' \
   'operator bootstrap does not pin the release Git identity'
 require_literal "$DEPLOY_PKGBUILD" 'usr/lib/lmm-api-deploy/lmm-api-go' \
   'operator payload is not independent from the application package'
