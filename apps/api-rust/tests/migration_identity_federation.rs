@@ -11,7 +11,8 @@ use lmm_api_rs::migration_routes::identity_federation::{
     FederatedLogin, FederatedUser, FederationError, FederationIdentity,
     FederationMutationPublisher, FederationPrincipal, FederationProviderError, FederationProviders,
     FederationState, OAuthFlowContext, bindings_router, oauth_email_bind_router,
-    oauth_state_router, provider_router, router, verify_telegram_authorization,
+    oauth_external_provider_router, oauth_state_router, provider_router, router,
+    verify_telegram_authorization,
 };
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -36,6 +37,11 @@ fn oauth_state_router_constructor_is_exposed_for_listener_composition() {
 fn oauth_email_bind_router_constructor_is_exposed_for_listener_composition() {
     let _constructor: fn(FederationState, Arc<dyn DashboardAuth>) -> Router =
         oauth_email_bind_router;
+}
+
+#[test]
+fn oauth_external_provider_router_constructor_is_exposed_for_listener_composition() {
+    let _constructor: fn(FederationState) -> Router = oauth_external_provider_router;
 }
 
 #[async_trait]

@@ -7,7 +7,8 @@ use axum::{
     response::Response,
 };
 use lmm_api_rs::migration_routes::media_tasks::{
-    MediaTaskHttpState, MediaTaskOperation, MediaTaskService, media_task_router,
+    MediaTaskHttpState, MediaTaskOperation, MediaTaskService, media_provider_task_router,
+    media_task_router,
 };
 use serde_json::{Value, json};
 use tower::ServiceExt;
@@ -346,4 +347,41 @@ async fn every_selected_submit_and_task_route_reaches_its_exact_operation() {
     assert_eq!(calls[18].operation, MediaTaskOperation::KlingImageToVideo);
     assert_eq!(calls[19].operation, MediaTaskOperation::KlingTextToVideo);
     assert_eq!(calls[20].operation, MediaTaskOperation::JimengSubmit);
+}
+
+#[tokio::test]
+async fn media_provider_task_router_mounts_suno_kling_and_jimeng_without_midjourney() {
+    let service = Arc::new(StubTaskService::default());
+    let router = media_provider_task_router(MediaTaskHttpState::new(
+        Arc::clone(&service) as Arc<dyn MediaTaskService>
+    ));
+    for path in [
+        "/suno/fetch",
+        "/suno/fetch/suno-job",
+        "/suno/submit/extend",
+        "/kling/v1/videos/image2video",
+        "/kling/v1/videos/text2video",
+        "/jimeng/",
+    ] {
+        let method = if path.ends_with("suno-job") {
+            "GET"
+        } else {
+            "POST"
+        };
+        assert_eq!(
+            call(&router, method, path, Body::from("{}")).await.status(),
+            StatusCode::OK,
+            "{path}"
+        );
+    }
+    let midjourney = call(
+        &router,
+        "POST",
+        "/mj/submit/imagine",
+        Body::from(r#"{"prompt":"ok"}"#),
+    )
+    .await
+    .status();
+    assert_eq!(midjourney, StatusCode::NOT_FOUND);
+    assert_eq!(service.calls.lock().expect("calls lock").len(), 6);
 }

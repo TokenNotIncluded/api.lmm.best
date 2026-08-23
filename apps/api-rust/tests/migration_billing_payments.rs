@@ -196,7 +196,15 @@ fn router_with_authorizer(
     compliance: Arc<dyn PaymentCompliance>,
     authorizer: Arc<dyn BillingAuthorizer>,
 ) -> axum::Router {
-    billing_payments_router(BillingHttpState::new(
+    billing_payments_router(billing_state(repo, compliance, authorizer))
+}
+
+fn billing_state(
+    repo: Arc<MemoryRepo>,
+    compliance: Arc<dyn PaymentCompliance>,
+    authorizer: Arc<dyn BillingAuthorizer>,
+) -> BillingHttpState {
+    BillingHttpState::new(
         BillingDependencies {
             repository: repo,
             authorizer,
@@ -211,7 +219,7 @@ fn router_with_authorizer(
             wallet_url: Arc::from("https://console.example.test/wallet"),
             quota_per_unit: 1,
         },
-    ))
+    )
 }
 
 #[tokio::test]
@@ -709,6 +717,42 @@ async fn http_checkout_adapter_uses_a_loopback_provider_and_fails_closed() {
             .await,
         Err(BillingError::Provider)
     ));
+}
+
+#[tokio::test]
+async fn billing_provider_payments_router_mounts_provider_checkout_without_balance_pay() {
+    let repo = Arc::new(MemoryRepo {
+        completions: Mutex::new(Vec::new()),
+        failures: Mutex::new(Vec::new()),
+    });
+    let app = billing_provider_payments_router(billing_state(
+        repo,
+        Arc::new(MutableCompliance(AtomicBool::new(true))),
+        Arc::new(AllowUser),
+    ));
+
+    let stripe = app
+        .clone()
+        .oneshot(
+            Request::post("/api/subscription/stripe/pay")
+                .header("content-type", "application/json")
+                .body(Body::from(r#"{"plan_id":1}"#))
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    assert_eq!(stripe.status(), StatusCode::OK);
+
+    let balance = app
+        .oneshot(
+            Request::post("/api/subscription/balance/pay")
+                .header("content-type", "application/json")
+                .body(Body::from(r#"{"plan_id":1}"#))
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    assert_eq!(balance.status(), StatusCode::NOT_FOUND);
 }
 
 async fn mock_checkout(Json(payload): Json<serde_json::Value>) -> Json<serde_json::Value> {

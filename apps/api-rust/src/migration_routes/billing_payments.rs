@@ -335,6 +335,10 @@ pub fn billing_provider_payments_router(state: BillingHttpState) -> Router {
 pub fn billing_payments_router(state: BillingHttpState) -> Router {
     Router::new()
         .route(BALANCE_PAY_PATH, post(balance_pay))
+        .route_layer(middleware::from_fn_with_state(
+            state.clone(),
+            billing_payment_auth_boundary,
+        ))
         .with_state(state.clone())
         .merge(billing_provider_payments_router(state))
 }
