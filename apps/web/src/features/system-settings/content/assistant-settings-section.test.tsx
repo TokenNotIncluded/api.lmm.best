@@ -325,18 +325,13 @@ describe('assistant search provider settings', () => {
       })
       const modelOption = [
         ...document.querySelectorAll('[role="option"]'),
-      ].find((option) =>
-        option.textContent?.includes('deepseek-v4-flash-0731')
-      )
+      ].find((option) => option.textContent?.includes('deepseek-v4-flash-0731'))
       assert.ok(modelOption)
       await act(async () => {
         ;(modelOption as HTMLElement).click()
         await flushEffects()
       })
-      assert.match(
-        modelTrigger.textContent ?? '',
-        /deepseek-v4-flash-0731/
-      )
+      assert.match(modelTrigger.textContent ?? '', /deepseek-v4-flash-0731/)
       assert.doesNotMatch(rendered.container.textContent ?? '', /Invalid input/)
     } finally {
       api.get = originalGet
