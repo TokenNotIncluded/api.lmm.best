@@ -317,7 +317,7 @@ describe('assistant search provider settings', () => {
         )[1]
       assert.ok(modelTrigger)
       assert.equal(modelTrigger.disabled, false)
-      assert.match(modelTrigger.textContent ?? '', /deepseek-v4-flash/)
+      assert.match(modelTrigger.textContent ?? '', /Select a model ID/)
 
       await act(async () => {
         modelTrigger.click()
