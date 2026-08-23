@@ -65,6 +65,10 @@ func (*StripeAdaptor) RequestAmount(c *gin.Context, req *StripePayRequest) {
 		return
 	}
 	payMoney, _, err := applyDiscountCodeQuote(decimal.NewFromFloat(getStripePayMoney(float64(req.Amount), group)), req.Amount, req.DiscountCode, id)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "优惠码无效"})
+		return
+	}
 	expectedAmountMicros, err := monetaryStringToMicros(payMoney.StringFixed(2))
 	if err != nil || expectedAmountMicros <= 10_000 {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "充值金额过低"})
@@ -115,6 +119,10 @@ func (*StripeAdaptor) RequestPay(c *gin.Context, req *StripePayRequest) {
 		return
 	}
 	payMoney, discountCode, err := applyDiscountCodeQuote(decimal.NewFromFloat(getStripePayMoney(float64(req.Amount), group)), req.Amount, req.DiscountCode, id)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "优惠码无效"})
+		return
+	}
 	expectedAmountMicros, err := monetaryStringToMicros(payMoney.StringFixed(2))
 	if err != nil || expectedAmountMicros <= 10_000 {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "充值金额过低"})

@@ -17,7 +17,7 @@ export function isValidGroupWarnings(value: unknown): boolean {
 
   return Object.entries(value).every(([group, warning]) => {
     const groupName = group.trim()
-    if (!groupName || Array.from(groupName).length > 64) return false
+    if (!groupName || [...groupName].length > 64) return false
     if (!isPlainObject(warning)) return false
 
     const enabled = warning.enabled
@@ -25,7 +25,7 @@ export function isValidGroupWarnings(value: unknown): boolean {
 
     const message = warning.message
     if (message !== undefined && typeof message !== 'string') return false
-    if (typeof message === 'string' && Array.from(message).length > 2000) {
+    if (typeof message === 'string' && [...message].length > 2000) {
       return false
     }
     if (enabled === true && (typeof message !== 'string' || !message.trim())) {

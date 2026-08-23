@@ -210,6 +210,10 @@ func updateTask(info *relaycommon.RelayInfo, taskID string) (*AliResponse, error
 	defer resp.Body.Close()
 
 	responseBody, err := common.ReadResponseBody(resp)
+	if err != nil {
+		common.SysLog("updateTask ReadResponseBody err: " + err.Error())
+		return &aliResponse, err, nil
+	}
 
 	var response AliResponse
 	err = common.Unmarshal(responseBody, &response)

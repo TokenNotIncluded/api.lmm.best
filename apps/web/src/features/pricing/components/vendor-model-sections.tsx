@@ -47,8 +47,8 @@ function getVendorSectionId(name: string, index: number) {
     name
       .trim()
       .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '') || 'vendor'
+      .replaceAll(/[^a-z0-9]+/g, '-')
+      .replaceAll(/^-+|-+$/g, '') || 'vendor'
   return `vendor-section-${index}-${slug}`
 }
 

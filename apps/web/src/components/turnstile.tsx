@@ -102,7 +102,7 @@ export function Turnstile({
     }
 
     const scriptId = 'cf-turnstile'
-    const existingScript = document.getElementById(scriptId)
+    const existingScript = document.querySelector(`#${scriptId}`)
 
     // A different login form may have inserted the shared script already.
     // Wait for its runtime instead of returning before this widget is rendered.

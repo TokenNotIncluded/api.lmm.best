@@ -153,11 +153,7 @@ func (jar *persistentJar) save() error {
 }
 
 func cookieRecord(target *url.URL, cookie *http.Cookie, now time.Time) storedCookie {
-	domain := strings.TrimPrefix(strings.ToLower(cookie.Domain), ".")
-	hostOnly := domain == ""
-	if hostOnly {
-		domain = strings.ToLower(target.Hostname())
-	}
+	hostOnly := strings.TrimPrefix(strings.ToLower(cookie.Domain), ".") == ""
 	path := cookie.Path
 	if path == "" {
 		path = defaultCookiePath(target.EscapedPath())

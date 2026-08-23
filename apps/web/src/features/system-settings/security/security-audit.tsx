@@ -62,15 +62,15 @@ function shortIdentifier(value: string | undefined): string {
 
 function getProtectedGroups(policy: AdminSecurityPolicy | undefined): string[] {
   if (!policy || !policy.settings.enabled) return []
-  return Array.from(
-    new Set(
+  return [
+    ...new Set(
       policy.rules
         .filter((rule) => rule.enabled)
         .flatMap((rule) => rule.groups)
         .map((group) => group.trim())
         .filter(Boolean)
-    )
-  ).sort((left, right) => left.localeCompare(right))
+    ),
+  ].sort((left, right) => left.localeCompare(right))
 }
 
 function sourceLabel(
@@ -182,7 +182,7 @@ function reviewCount(rows: Array<{ count: number }> | undefined): number {
 function reviewLabel(value: string): string {
   return value
     .replaceAll('_', ' ')
-    .replace(/\b\w/g, (letter) => letter.toUpperCase())
+    .replaceAll(/\b\w/g, (letter) => letter.toUpperCase())
 }
 
 function ReviewBreakdown({
@@ -743,13 +743,13 @@ export function SecurityAuditPanel() {
   const protectedGroups = useMemo(() => getProtectedGroups(policy), [policy])
   const categories = useMemo(
     () =>
-      Array.from(
-        new Set(
+      [
+        ...new Set(
           (policy?.rules ?? [])
             .map((rule) => rule.category.trim())
             .filter(Boolean)
-        )
-      )
+        ),
+      ]
         .concat('assistant_review')
         .filter((value, index, values) => values.indexOf(value) === index)
         .sort(),
@@ -757,14 +757,14 @@ export function SecurityAuditPanel() {
   )
   const sources = useMemo(
     () =>
-      Array.from(
-        new Set([
+      [
+        ...new Set([
           ...(policy?.rules ?? [])
             .map((rule) => rule.source.trim())
             .filter(Boolean),
           'ai_review',
-        ])
-      ).sort(),
+        ]),
+      ].sort(),
     [policy]
   )
 

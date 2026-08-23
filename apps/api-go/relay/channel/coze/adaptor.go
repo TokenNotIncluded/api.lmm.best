@@ -96,6 +96,9 @@ func (a *Adaptor) DoRequest(c *gin.Context, info *common.RelayInfo, requestBody 
 		return nil, err
 	}
 	err = json.Unmarshal(respBody, &cozeResponse)
+	if err != nil {
+		return nil, err
+	}
 	if cozeResponse.Code != 0 {
 		return nil, errors.New(cozeResponse.Msg)
 	}

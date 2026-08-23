@@ -273,7 +273,7 @@ export function BasicAuthSection({ defaultValues }: BasicAuthSectionProps) {
                               const next = new Set(disabledMethods)
                               if (allowed) next.delete(method.id)
                               else next.add(method.id)
-                              field.onChange(Array.from(next).sort().join(','))
+                              field.onChange([...next].sort().join(','))
                             }}
                           />
                         </FormControl>

@@ -51,7 +51,9 @@ describe('assistant clipboard', () => {
     assert.equal(await copyAssistantText('WEEKLY-20', undefined), false)
     assert.equal(
       await copyAssistantText('WEEKLY-20', {
-        writeText: async () => Promise.reject(new Error('denied')),
+        writeText: async () => {
+          throw new Error('denied')
+        },
       }),
       false
     )

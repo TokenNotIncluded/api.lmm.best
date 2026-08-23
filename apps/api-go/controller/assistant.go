@@ -874,8 +874,9 @@ func assistantMessageIsSinglePunctuation(message string) bool {
 
 func AssistantChat(c *gin.Context) {
 	settings := setting.GetAssistantSettings()
-	group, groupOK := c.Get(assistantRouteGroupContextKey)
-	modelID, modelOK := c.Get(assistantRouteModelContextKey)
+	group, _ := c.Get(assistantRouteGroupContextKey)
+	modelID, _ := c.Get(assistantRouteModelContextKey)
+	var groupOK, modelOK bool
 	settings.Group, groupOK = group.(string)
 	settings.Model, modelOK = modelID.(string)
 	if !groupOK || !modelOK || strings.TrimSpace(settings.Group) == "" || strings.TrimSpace(settings.Model) == "" {

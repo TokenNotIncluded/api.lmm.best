@@ -81,7 +81,7 @@ func runMigrationCommand(mode model.DBMigrationMode) {
 func runServer() {
 	startTime := time.Now()
 	kitutil.SetLogging(common.SysLog, func(message string) {
-		logger.LogError(nil, message)
+		logger.LogError(context.TODO(), message)
 	})
 	kitutil.SetSystemErrorLogging(common.SysError)
 

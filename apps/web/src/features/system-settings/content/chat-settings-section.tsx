@@ -38,6 +38,8 @@ import { SettingsForm } from '../components/settings-form-layout'
 import { SettingsPageFormActions } from '../components/settings-page-context'
 import { SettingsSection } from '../components/settings-section'
 import { useUpdateOption } from '../hooks/use-update-option'
+import { ChatSettingsVisualEditor } from './chat-settings-visual-editor'
+import { formatJsonForEditor, normalizeJsonString } from './utils'
 
 const CHAT_SETTINGS_EXAMPLE = JSON.stringify(
   [
@@ -47,8 +49,6 @@ const CHAT_SETTINGS_EXAMPLE = JSON.stringify(
   null,
   2
 )
-import { ChatSettingsVisualEditor } from './chat-settings-visual-editor'
-import { formatJsonForEditor, normalizeJsonString } from './utils'
 
 const createChatSchema = (t: (key: string) => string) =>
   z.object({

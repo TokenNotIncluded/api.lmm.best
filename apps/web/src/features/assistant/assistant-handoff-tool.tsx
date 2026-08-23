@@ -92,7 +92,7 @@ export function AssistantHandoffTool(props: {
     }
   }, [props.confirmationAction])
   const trimmedMessage = message.trim()
-  const messageLength = Array.from(trimmedMessage).length
+  const messageLength = [...trimmedMessage].length
   const messageTooShort =
     trimmedMessage.length > 0 && messageLength < minAssistantHandoffCharacters
 

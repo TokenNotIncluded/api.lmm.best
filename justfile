@@ -46,7 +46,7 @@ dev-web:
 dev-rust:
     #!/usr/bin/env bash
     set -euo pipefail
-    @if [[ ! -f docker-compose.dev.yml ]]; then \
+    if [[ ! -f docker-compose.dev.yml ]]; then \
       echo "error: docker-compose.dev.yml is not present in this branch; dev-rust requires the preview compose stack." >&2; \
       exit 1; \
     fi

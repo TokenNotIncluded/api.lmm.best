@@ -326,13 +326,13 @@ function PolicyMetadata({ policy }: { policy: SecurityPolicy }) {
 
 function ProtectedGroupsSummary({ policy }: { policy: SecurityPolicy }) {
   const { t } = useTranslation()
-  const groups = Array.from(
-    new Set(
+  const groups = [
+    ...new Set(
       (policy.protected_groups ?? [])
         .map((group) => group.trim())
         .filter(Boolean)
-    )
-  ).sort()
+    ),
+  ].sort()
 
   return (
     <div className='border-border/70 space-y-3 rounded-xl border p-5'>

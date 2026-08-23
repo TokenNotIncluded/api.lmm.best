@@ -27,7 +27,9 @@ func TestInMemoryRateLimiterUsesConstantSpacePerKey(t *testing.T) {
 
 func TestInMemoryRateLimiterRejectsAtLimit(t *testing.T) {
 	limiter := &InMemoryRateLimiter{}
-	if !limiter.Request("user", 2, 60) || !limiter.Request("user", 2, 60) {
+	firstOK := limiter.Request("user", 2, 60)
+	secondOK := limiter.Request("user", 2, 60)
+	if !firstOK || !secondOK {
 		t.Fatal("requests within the limit were rejected")
 	}
 	if limiter.Request("user", 2, 60) {

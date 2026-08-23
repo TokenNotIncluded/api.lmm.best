@@ -293,7 +293,7 @@ export function Drawing() {
   }
 
   const addReferenceImages = (files: FileList | null) => {
-    const selected = Array.from(files ?? [])
+    const selected = [...(files ?? [])]
     if (selected.length === 0) return
     if (referenceImages.length + selected.length > maxReferenceImages) {
       setError(

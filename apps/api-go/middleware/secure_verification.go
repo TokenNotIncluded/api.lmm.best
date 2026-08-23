@@ -38,13 +38,13 @@ func RequireSecurityProof(c *gin.Context, requiredScope string, allowedMethods [
 	// The configured list remains part of the call contract, but the account
 	// policy is authoritative: a bound email must use email verification; an
 	// account without one may use only its existing Passkey.
-	allowedMethods = preferredMethods
+	_ = allowedMethods
 	raw := strings.TrimSpace(c.GetHeader("X-Security-Proof"))
 	if raw == "" {
 		securityProofError(c, "SECURITY_PROOF_REQUIRED", "需要安全验证")
 		return false
 	}
-	if _, err := service.VerifySecurityProof(raw, identity, requiredScope, allowedMethods); err != nil {
+	if _, err := service.VerifySecurityProof(raw, identity, requiredScope, preferredMethods); err != nil {
 		switch {
 		case errors.Is(err, service.ErrAuthTokenExpired):
 			securityProofError(c, "SECURITY_PROOF_EXPIRED", "安全验证已过期")

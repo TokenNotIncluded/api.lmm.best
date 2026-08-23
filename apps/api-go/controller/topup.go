@@ -967,10 +967,14 @@ func RequestAmount(c *gin.Context) {
 		payMoney, _, err = quoteLegacyTopUpWithDiscount(req.Amount, group, req.DiscountCode, id)
 	} else {
 		payMoney, _, err = quoteTopUpWithDiscount(req.Amount, group, req.PaymentMethod, req.DiscountCode, id)
-		if err != nil {
-			c.JSON(http.StatusOK, gin.H{"message": "error", "data": "支付方式配置无效"})
-			return
+	}
+	if err != nil {
+		message := "优惠码无效"
+		if req.PaymentMethod != "" {
+			message = "支付方式配置无效"
 		}
+		c.JSON(http.StatusOK, gin.H{"message": "error", "data": message})
+		return
 	}
 	if payMoney.LessThanOrEqual(decimal.NewFromFloat(0.01)) {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "充值金额过低"})

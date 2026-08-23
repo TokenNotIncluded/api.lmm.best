@@ -288,8 +288,7 @@ func ollamaChatHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.R
 			}
 			aggContent.WriteString(single.Message.Content)
 			if len(single.Message.ToolCalls) > 0 {
-				var converted []dto.ToolCallResponse
-				converted, toolCallIndex = ollamaToolCallsToOpenAI(single.Message.ToolCalls, toolCallIndex, false)
+				converted, _ := ollamaToolCallsToOpenAI(single.Message.ToolCalls, toolCallIndex, false)
 				toolCalls = append(toolCalls, converted...)
 			}
 		} else {
