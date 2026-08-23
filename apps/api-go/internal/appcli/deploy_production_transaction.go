@@ -62,8 +62,8 @@ func (runtime *productionRuntime) prepareOperatorWorkspacePermissions(ctx contex
 	if err != nil {
 		return errors.New("operator primary group is unavailable")
 	}
-	gid, err := strconv.ParseUint(strings.TrimSpace(string(gidOutput)), 10, 32)
-	if err != nil || gid > uint64(math.MaxInt) {
+	gid, err := strconv.Atoi(strings.TrimSpace(string(gidOutput)))
+	if err != nil || gid < 0 || uint64(gid) > uint64(math.MaxUint32) {
 		return errors.New("operator primary group is invalid")
 	}
 	deployRoot := filepath.Dir(runtime.paths.WorkRoot)
@@ -117,7 +117,7 @@ func (runtime *productionRuntime) prepareOperatorWorkspacePermissions(ctx contex
 	}
 	if mutate {
 		for _, item := range paths {
-			if err := os.Chown(item.path, int(runtime.requiredOwnerUID), int(gid)); err != nil {
+			if err := os.Chown(item.path, int(runtime.requiredOwnerUID), gid); err != nil {
 				return fmt.Errorf("assign operator staging group: %w", err)
 			}
 			if err := os.Chmod(item.path, item.mode); err != nil {
