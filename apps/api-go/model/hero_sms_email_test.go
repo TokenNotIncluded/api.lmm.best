@@ -91,11 +91,21 @@ func testHeroSMSEmailProductsPricing(t *testing.T) {
 	products, err := ListHeroSMSEmailProducts(t.Context(), 1, 10, "demo.com")
 	require.NoError(t, err)
 	require.Len(t, products.Items, 1)
-	require.Equal(t, "1", products.PriceMultiplier)
-	require.Equal(t, "0.0000011", products.Items[0].CostUSD)
 	require.Equal(t, "0.0000011", products.Items[0].CustomerPriceUSD)
 	require.Equal(t, 1, products.Items[0].ChargeQuota)
 	require.True(t, products.Items[0].Available)
+	publicPayload, err := json.Marshal(products)
+	require.NoError(t, err)
+	for _, internalField := range []string{"cost_usd", "price_multiplier", "currency", "currency_code"} {
+		require.NotContains(t, string(publicPayload), `"`+internalField+`"`)
+	}
+	for _, publicView := range []any{HeroSMSEmailOrderView{}, HeroSMSEmailActivationView{}} {
+		publicPayload, err = json.Marshal(publicView)
+		require.NoError(t, err)
+		for _, internalField := range []string{"cost_usd", "reserved_cost_usd", "price_multiplier", "currency", "currency_code"} {
+			require.NotContains(t, string(publicPayload), `"`+internalField+`"`)
+		}
+	}
 	quote, err := decodeHeroSMSQuoteID(products.Items[0].ID)
 	require.NoError(t, err)
 	require.Equal(t, "demo.com", quote.Site)
@@ -105,7 +115,7 @@ func testHeroSMSEmailProductsPricing(t *testing.T) {
 	require.NoError(t, UpdateHeroSMSSettings(HeroSMSSettingsUpdate{PriceMultiplier: "12.5"}))
 	products, err = ListHeroSMSEmailProducts(t.Context(), 1, 10, "demo.com")
 	require.NoError(t, err)
-	require.Equal(t, "12.5", products.PriceMultiplier)
+	require.Equal(t, "0.00001375", products.Items[0].CustomerPriceUSD)
 
 	invalidProducts, err := ListHeroSMSEmailProducts(t.Context(), 1, 10, "https://demo.com/path")
 	require.Nil(t, invalidProducts)

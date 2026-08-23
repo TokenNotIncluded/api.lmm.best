@@ -27,7 +27,6 @@ export interface HeroSmsProduct {
   id: number | string
   domain: string
   site: string
-  cost_usd: number
   customer_price_usd: number
   charge_quota: number
   count: number
@@ -39,9 +38,6 @@ export interface HeroSmsProductsPage {
   page: number
   size: number
   total: number
-  price_multiplier: number
-  currency: 'USD'
-  currency_code: 840
 }
 
 export interface HeroSmsActivation {
@@ -55,9 +51,6 @@ export interface HeroSmsActivation {
   domain?: string | null
   status: string
   charge_quota: number
-  cost_usd: number
-  currency: string
-  currency_code: number
   cancel_reason: string
   created_at: string
   updated_at: string
@@ -68,7 +61,6 @@ export interface HeroSmsActivationOrder {
   status?: string
   quantity?: number
   charge_quota?: number
-  cost_usd?: number
   created_at?: string
   updated_at?: string
   [key: string]: unknown

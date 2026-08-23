@@ -76,7 +76,6 @@ import { formatNumber } from '@/lib/format'
 
 import {
   createHeroSmsIdempotencyKey,
-  formatHeroSmsCNY,
   formatHeroSmsUSD,
   listHeroSmsProducts,
   parseHeroSmsError,
@@ -131,13 +130,6 @@ function formatDateTime(value: string | null | undefined) {
   if (!value) return '—'
   const parsed = dayjs(value)
   return parsed.isValid() ? parsed.format('YYYY-MM-DD HH:mm:ss') : '—'
-}
-
-function formatActivationCurrency(activation: HeroSmsActivation) {
-  if (!activation.currency) return '—'
-  return activation.currency_code > 0
-    ? `${activation.currency} (${activation.currency_code})`
-    : activation.currency
 }
 
 function formatCancellationReason(
@@ -290,10 +282,6 @@ function HistoryMobileCards({
                 <MetaItem
                   label={t('Created')}
                   value={formatDateTime(activation.created_at)}
-                />
-                <MetaItem
-                  label={t('Currency code')}
-                  value={formatActivationCurrency(activation)}
                 />
               </div>
               <div className='flex flex-wrap gap-2'>
@@ -988,10 +976,6 @@ export function EmailActivationsPage() {
                           )}
                         />
                         <MetaItem
-                          label={t('Multiplier')}
-                          value={`× ${formatNumber(productsQuery.data?.price_multiplier ?? 0)}`}
-                        />
-                        <MetaItem
                           label={t('Final quota price')}
                           value={formatNumber(
                             (selectedProduct?.charge_quota ?? 0) * quantity
@@ -1147,16 +1131,8 @@ export function EmailActivationsPage() {
                             </div>
                           </div>
                           <MetaItem
-                            label={t('Currency code')}
-                            value={formatActivationCurrency(currentActivation)}
-                          />
-                          <MetaItem
                             label={t('Quota charge')}
                             value={formatNumber(currentActivation.charge_quota)}
-                          />
-                          <MetaItem
-                            label={t('Provider price')}
-                            value={formatHeroSmsCNY(currentActivation.cost_usd)}
                           />
                         </div>
                       </div>
@@ -1392,16 +1368,8 @@ export function EmailActivationsPage() {
                         value={formatDateTime(detailActivation.updated_at)}
                       />
                       <MetaItem
-                        label={t('Currency code')}
-                        value={formatActivationCurrency(detailActivation)}
-                      />
-                      <MetaItem
                         label={t('Quota charge')}
                         value={formatNumber(detailActivation.charge_quota)}
-                      />
-                      <MetaItem
-                        label={t('Provider price')}
-                        value={formatHeroSmsCNY(detailActivation.cost_usd)}
                       />
                       <MetaItem
                         label={t('Cancellation reason')}

@@ -116,10 +116,8 @@ type HeroSMSSMSOfferView struct {
 	Service          string `json:"service"`
 	Operator         string `json:"operator"`
 	Inventory        int    `json:"inventory"`
-	ProviderPriceCNY string `json:"provider_price_cny"`
 	CustomerPriceUSD string `json:"customer_price_usd"`
 	ChargeQuota      int    `json:"charge_quota"`
-	PriceMultiplier  string `json:"price_multiplier"`
 }
 
 type HeroSMSSMSPurchaseRequest struct {
@@ -132,7 +130,6 @@ type HeroSMSSMSOrderView struct {
 	Service          string  `json:"service"`
 	Operator         string  `json:"operator"`
 	Status           string  `json:"status"`
-	ProviderPriceCNY string  `json:"provider_price_cny"`
 	CustomerPriceUSD string  `json:"customer_price_usd"`
 	ChargeQuota      int     `json:"charge_quota"`
 	RefundedQuota    int     `json:"refunded_quota"`
@@ -262,10 +259,8 @@ func GetHeroSMSSMSOffer(ctx context.Context, countryID int, service string, oper
 		Service:          service,
 		Operator:         operator,
 		Inventory:        offer.Count,
-		ProviderPriceCNY: offer.Price.String(),
 		CustomerPriceUSD: customerPrice.String(),
 		ChargeQuota:      chargeQuota,
-		PriceMultiplier:  multiplier.String(),
 	}, nil
 }
 
@@ -703,7 +698,6 @@ func heroSMSSMSOrderView(order *HeroSMSSMSOrder) (*HeroSMSSMSOrderView, error) {
 		Service:          order.Service,
 		Operator:         order.Operator,
 		Status:           order.Status,
-		ProviderPriceCNY: order.ProviderPriceCNY,
 		CustomerPriceUSD: order.CustomerPriceUSD,
 		ChargeQuota:      order.ChargeQuota,
 		RefundedQuota:    order.RefundedQuota,

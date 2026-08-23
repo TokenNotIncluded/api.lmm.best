@@ -46,10 +46,8 @@ export interface HeroSmsSmsOffer {
   service: string
   operator: string
   inventory: number
-  provider_price_cny: string
   customer_price_usd: string
   charge_quota: number
-  price_multiplier: string
 }
 
 export interface HeroSmsSmsOrder {
@@ -58,7 +56,6 @@ export interface HeroSmsSmsOrder {
   service: string
   operator: string
   status: string
-  provider_price_cny: string
   customer_price_usd: string
   charge_quota: number
   refunded_quota: number

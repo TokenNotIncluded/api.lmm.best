@@ -85,9 +85,6 @@ function normalizeActivation(raw: unknown): HeroSmsActivation {
         : String(activation.domain),
     status: String(activation.status ?? 'unknown'),
     charge_quota: Number(activation.charge_quota ?? 0),
-    cost_usd: Number(activation.cost_usd ?? 0),
-    currency: String(activation.currency ?? ''),
-    currency_code: Number(activation.currency_code ?? 0),
     cancel_reason: String(activation.cancel_reason ?? ''),
     created_at: normalizeTimestamp(activation.created_at),
     updated_at: normalizeTimestamp(activation.updated_at),
@@ -141,16 +138,6 @@ export function formatHeroSmsUSD(value: number) {
   }).format(value)
 }
 
-export function formatHeroSmsCNY(value: number) {
-  if (!Number.isFinite(value)) return '—'
-  return new Intl.NumberFormat('zh-CN', {
-    style: 'currency',
-    currency: 'CNY',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 8,
-  }).format(value)
-}
-
 export function createHeroSmsIdempotencyKey() {
   if (typeof globalThis.crypto?.randomUUID === 'function') {
     return globalThis.crypto.randomUUID()
@@ -191,13 +178,10 @@ export async function listHeroSmsProducts(
   )
 
   return {
-    ...result,
     items: (result.items ?? []).map((item) => ({
-      ...item,
       id: item.id,
       domain: String(item.domain ?? ''),
       site: String(item.site ?? ''),
-      cost_usd: Number(item.cost_usd ?? 0),
       customer_price_usd: Number(item.customer_price_usd ?? 0),
       charge_quota: Number(item.charge_quota ?? 0),
       count: Number(item.count ?? 0),
@@ -206,6 +190,9 @@ export async function listHeroSmsProducts(
           ? item.available
           : Number(item.available ?? item.count ?? 0) > 0,
     })) as HeroSmsProduct[],
+    page: Number(result.page ?? 1),
+    size: Number(result.size ?? 0),
+    total: Number(result.total ?? 0),
   }
 }
 

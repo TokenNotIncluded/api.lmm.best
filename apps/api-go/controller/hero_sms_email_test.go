@@ -173,14 +173,15 @@ func testHeroSMSUserEndpointsUseStableSafeEnvelope(t *testing.T) {
 			Items []struct {
 				ID string `json:"id"`
 			} `json:"items"`
-			CurrencyCode int `json:"currency_code"`
 		} `json:"data"`
 	}
 	require.NoError(t, json.Unmarshal(productsResponse.Body.Bytes(), &productsEnvelope))
 	require.True(t, productsEnvelope.Success)
-	require.Equal(t, 840, productsEnvelope.Data.CurrencyCode)
 	require.Len(t, productsEnvelope.Data.Items, 1)
 	require.NotEmpty(t, productsEnvelope.Data.Items[0].ID)
+	for _, internalField := range []string{"cost_usd", "price_multiplier", "currency", "currency_code"} {
+		require.NotContains(t, productsResponse.Body.String(), `"`+internalField+`"`)
+	}
 	require.NotContains(t, productsResponse.Body.String(), "controller-secret-key-12345")
 
 	purchaseBody := fmt.Sprintf(`{"domain_id":%q,"quantity":1}`, productsEnvelope.Data.Items[0].ID)
@@ -207,7 +208,9 @@ func testHeroSMSUserEndpointsUseStableSafeEnvelope(t *testing.T) {
 	require.NotEmpty(t, purchaseEnvelope.Data.Order.ID)
 	require.Len(t, purchaseEnvelope.Data.Activations, 1)
 	require.Equal(t, "user@mail.test", purchaseEnvelope.Data.Activations[0].Email)
-	require.NotContains(t, purchaseResponse.Body.String(), "provider_id")
+	for _, internalField := range []string{"cost_usd", "reserved_cost_usd", "price_multiplier", "currency", "currency_code", "provider_id"} {
+		require.NotContains(t, purchaseResponse.Body.String(), `"`+internalField+`"`)
+	}
 }
 
 func ptrBoolForController(value bool) *bool { return &value }

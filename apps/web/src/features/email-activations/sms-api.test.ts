@@ -60,10 +60,8 @@ describe('phone activation api', () => {
             service: 'tg',
             operator: 'any',
             inventory: 3,
-            provider_price_cny: '1',
             customer_price_usd: '2',
             charge_quota: 1_000_000,
-            price_multiplier: '2',
           },
         },
       }

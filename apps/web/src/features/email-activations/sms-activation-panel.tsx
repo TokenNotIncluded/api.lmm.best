@@ -253,20 +253,6 @@ export function HeroSmsSmsActivationPanel() {
                   <p className='font-medium'>{offerQuery.data.inventory}</p>
                 </div>
                 <div>
-                  <p className='text-muted-foreground'>{t('Multiplier')}</p>
-                  <p className='font-medium'>
-                    ×{offerQuery.data.price_multiplier}
-                  </p>
-                </div>
-                <div>
-                  <p className='text-muted-foreground'>
-                    {t('HeroSMS upstream price')}
-                  </p>
-                  <p className='font-medium'>
-                    ¥{offerQuery.data.provider_price_cny}
-                  </p>
-                </div>
-                <div>
                   <p className='text-muted-foreground'>
                     {t('Platform balance charge')}
                   </p>

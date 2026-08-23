@@ -92,7 +92,9 @@ describe('email activation api', () => {
     assert.equal(response.items[0]?.domain, 'mail.example')
     assert.equal(response.items[0]?.count, 4)
     assert.equal(response.items[0]?.available, true)
-    assert.equal(response.price_multiplier, 10)
+    assert.equal('cost_usd' in (response.items[0] ?? {}), false)
+    assert.equal('price_multiplier' in response, false)
+    assert.equal('currency' in response, false)
   })
 
   test('creates activations with idempotency header', async () => {
@@ -131,6 +133,7 @@ describe('email activation api', () => {
 
     assert.equal(receivedHeaders?.['Idempotency-Key'], 'idem-123')
     assert.equal(response.activations[0]?.email, 'hero@example.com')
+    assert.equal('cost_usd' in (response.activations[0] ?? {}), false)
     assert.equal(response.order?.id, 'order-1')
   })
 
@@ -190,7 +193,8 @@ describe('email activation api', () => {
     assert.equal(list.items[0]?.status, 'active')
     assert.match(list.items[0]?.created_at ?? '', /^2026-/)
     assert.equal(detail.activation.code, '4321')
-    assert.equal(detail.activation.currency_code, 840)
+    assert.equal('cost_usd' in detail.activation, false)
+    assert.equal('currency_code' in detail.activation, false)
     assert.equal(detail.activation.domain_id, 'opaque-domain-quote')
   })
 
@@ -219,7 +223,8 @@ describe('email activation api', () => {
 
     const current = await getCurrentHeroSmsActivation()
     assert.equal(current?.id, 'current-1')
-    assert.equal(current?.currency_code, 840)
+    assert.equal('cost_usd' in (current ?? {}), false)
+    assert.equal('currency_code' in (current ?? {}), false)
   })
 
   test('reorders with the confirmed quote token and stable idempotency key', async () => {

@@ -101,19 +101,15 @@ type HeroSMSEmailProduct struct {
 	Domain           string `json:"domain"`
 	Count            int    `json:"count"`
 	Available        bool   `json:"available"`
-	CostUSD          string `json:"cost_usd"`
 	CustomerPriceUSD string `json:"customer_price_usd"`
 	ChargeQuota      int    `json:"charge_quota"`
 }
 
 type HeroSMSEmailProductPage struct {
-	Items           []HeroSMSEmailProduct `json:"items"`
-	Page            int                   `json:"page"`
-	Size            int                   `json:"size"`
-	Total           int                   `json:"total"`
-	PriceMultiplier string                `json:"price_multiplier"`
-	Currency        string                `json:"currency"`
-	CurrencyCode    int                   `json:"currency_code"`
+	Items []HeroSMSEmailProduct `json:"items"`
+	Page  int                   `json:"page"`
+	Size  int                   `json:"size"`
+	Total int                   `json:"total"`
 }
 
 type HeroSMSEmailPurchaseRequest struct {
@@ -129,8 +125,6 @@ type HeroSMSEmailOrderView struct {
 	Site             string                       `json:"site"`
 	Domain           string                       `json:"domain"`
 	Quantity         int                          `json:"quantity"`
-	PriceMultiplier  string                       `json:"price_multiplier"`
-	ReservedCostUSD  string                       `json:"reserved_cost_usd"`
 	CustomerPriceUSD string                       `json:"customer_price_usd"`
 	ChargeQuota      int                          `json:"charge_quota"`
 	RefundedQuota    int                          `json:"refunded_quota"`
@@ -150,9 +144,6 @@ type HeroSMSEmailActivationView struct {
 	Code         string `json:"code,omitempty"`
 	Message      string `json:"message,omitempty"`
 	ChargeQuota  int    `json:"charge_quota"`
-	CostUSD      string `json:"cost_usd,omitempty"`
-	Currency     string `json:"currency,omitempty"`
-	CurrencyCode int    `json:"currency_code,omitempty"`
 	CancelReason string `json:"cancel_reason,omitempty"`
 	CreatedAt    int64  `json:"created_at"`
 	UpdatedAt    int64  `json:"updated_at"`
@@ -592,7 +583,6 @@ func ListHeroSMSEmailProducts(ctx context.Context, page int, size int, site stri
 			Domain:           domain,
 			Count:            item.Count,
 			Available:        item.Count > 0,
-			CostUSD:          item.CostUSD.String(),
 			CustomerPriceUSD: customerPrice.String(),
 			ChargeQuota:      chargeQuota,
 		})
@@ -606,13 +596,10 @@ func ListHeroSMSEmailProducts(ctx context.Context, page int, size int, site stri
 		end = len(allProducts)
 	}
 	return &HeroSMSEmailProductPage{
-		Items:           allProducts[start:end],
-		Page:            page,
-		Size:            size,
-		Total:           len(allProducts),
-		PriceMultiplier: multiplier.String(),
-		Currency:        setting.HeroSMSCurrency,
-		CurrencyCode:    HeroSMSCurrencyCode,
+		Items: allProducts[start:end],
+		Page:  page,
+		Size:  size,
+		Total: len(allProducts),
 	}, nil
 }
 
@@ -1971,8 +1958,6 @@ func heroSMSEmailOrderView(order *HeroSMSEmailOrder) (*HeroSMSEmailOrderView, er
 		Site:             order.Site,
 		Domain:           order.Domain,
 		Quantity:         order.Quantity,
-		PriceMultiplier:  order.PriceMultiplier,
-		ReservedCostUSD:  heroSMSReservedUnitCost(order).String(),
 		CustomerPriceUSD: microsToDecimal(order.CustomerUnitPriceMicros).StringFixed(6),
 		ChargeQuota:      order.ChargeQuota,
 		RefundedQuota:    order.RefundedQuota,
@@ -2006,9 +1991,6 @@ func heroSMSEmailActivationView(activation *HeroSMSEmailActivation) (*HeroSMSEma
 		Code:         code,
 		Message:      message,
 		ChargeQuota:  activation.ChargeQuota,
-		CostUSD:      microsToDecimal(activation.ProviderCostMicros).StringFixed(6),
-		Currency:     activation.Currency,
-		CurrencyCode: activation.CurrencyCode,
 		CancelReason: activation.CancelReason,
 		CreatedAt:    activation.CreatedAt,
 		UpdatedAt:    activation.UpdatedAt,

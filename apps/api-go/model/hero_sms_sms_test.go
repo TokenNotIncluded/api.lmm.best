@@ -65,9 +65,13 @@ func TestHeroSMSSMSPurchaseRefreshAndPricing(t *testing.T) {
 	require.Equal(t, []HeroSMSSMSServiceView{{Code: "tg", Name: "Telegram"}}, services)
 	offer, err := GetHeroSMSSMSOffer(t.Context(), 6, "tg", "any")
 	require.NoError(t, err)
-	require.Equal(t, "1", offer.ProviderPriceCNY)
 	require.Equal(t, "2", offer.CustomerPriceUSD)
 	require.Positive(t, offer.ChargeQuota)
+	publicPayload, err := json.Marshal(offer)
+	require.NoError(t, err)
+	for _, internalField := range []string{"provider_price_cny", "price_multiplier"} {
+		require.NotContains(t, string(publicPayload), `"`+internalField+`"`)
+	}
 
 	order, quota, status, err := CreateHeroSMSSMSOrder(
 		t.Context(),
@@ -80,6 +84,9 @@ func TestHeroSMSSMSPurchaseRefreshAndPricing(t *testing.T) {
 	require.Equal(t, HeroSMSSMSOrderStatusActive, order.Status)
 	require.Equal(t, "79001234567", order.PhoneNumber)
 	require.Equal(t, user.Quota-order.ChargeQuota, quota)
+	publicPayload, err = json.Marshal(order)
+	require.NoError(t, err)
+	require.NotContains(t, string(publicPayload), `"provider_price_cny"`)
 
 	replayed, _, _, err := CreateHeroSMSSMSOrder(
 		t.Context(),
