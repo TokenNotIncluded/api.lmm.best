@@ -76,9 +76,9 @@ use lmm_api_rs::{
             billing_dashboard_router,
         },
         missing_billing_webhooks::{
-            PancakeEvent, PancakeWebhookVerifier, Settlement, SignedWaffoResponse,
-            WaffoWebhookAvailability, WaffoWebhookProcessor, WaffoWebhookState,
-            WaffoWebhookVerifier, WebhookFailure, missing_billing_webhooks_router,
+            DisabledPancakeWebhookVerifier, DisabledWaffoWebhookAvailability,
+            DisabledWaffoWebhookProcessor, DisabledWaffoWebhookVerifier, WaffoWebhookState,
+            missing_billing_webhooks_router,
         },
         missing_control_public::{
             DashboardMissingControlAuthorizer, DashboardMissingControlRateLimiter, HeaderNavAccess,
@@ -98,8 +98,8 @@ use lmm_api_rs::{
             IdentityCheckinAffState, PgValkeyCheckinEffects, router as identity_checkin_aff_router,
         },
         missing_identity_epay::{
-            Completion, CreateTopup, DisabledEpayGateway, PendingTopup, TopupAuthorizer,
-            TopupError, TopupRepository, UserTopupState, router as identity_epay_router,
+            DashboardTopupAuthorizer, DisabledEpayGateway, DisabledTopupRepository, UserTopupState,
+            router as identity_epay_router,
         },
         missing_identity_stripe_creem::{
             DashboardStripeCreemAuthorizer, DisabledStripeCreemGateway, IdentityStripeCreemState,
@@ -107,8 +107,7 @@ use lmm_api_rs::{
         },
         missing_identity_topup::{IdentityTopupState, router as identity_topup_router},
         missing_identity_waffo::{
-            PancakeCheckout, PancakeSession, TopUpGateway, WaffoCheckout, WaffoTopUpState,
-            router as identity_waffo_router,
+            DisabledTopUpGateway, WaffoTopUpState, router as identity_waffo_router,
         },
         missing_relay_misc_new::{
             MissingRelayAuthRejection, MissingRelayAuthorization, MissingRelayEndpoint,
@@ -411,7 +410,7 @@ pub fn safe_candidate_surface(
         )))
         .merge(identity_epay_router(UserTopupState::new(
             Arc::new(DashboardTopupAuthorizer::new(Arc::clone(&auth))),
-            Arc::new(DenyTopupRepository),
+            Arc::new(DisabledTopupRepository),
             Arc::new(DisabledEpayGateway),
         )))
         .merge(identity_stripe_creem_router(IdentityStripeCreemState::new(
@@ -422,17 +421,17 @@ pub fn safe_candidate_surface(
         .merge(identity_waffo_router(WaffoTopUpState::new(
             pg.clone(),
             Arc::clone(&auth),
-            Arc::new(DenyTopUpGateway),
+            Arc::new(DisabledTopUpGateway),
         )))
         .merge(billing_dashboard_router(BillingDashboardState::new(
             Arc::new(PgBillingDashboardStore::new(pg.clone())),
             Arc::new(PgBillingDashboardAuthorizer::new(pg.clone())),
         )))
         .merge(missing_billing_webhooks_router(WaffoWebhookState::new(
-            Arc::new(DenyWebhookAvailability),
-            Arc::new(DenyPancakeVerifier),
-            Arc::new(DenyWaffoVerifier),
-            Arc::new(DenyWebhookProcessor),
+            Arc::new(DisabledWaffoWebhookAvailability),
+            Arc::new(DisabledPancakeWebhookVerifier),
+            Arc::new(DisabledWaffoWebhookVerifier),
+            Arc::new(DisabledWaffoWebhookProcessor),
         )))
         .merge(missing_relay_video_router(RelayVideoHttpState::new(
             Arc::new(DenyRelayVideo),
@@ -1924,147 +1923,6 @@ impl ControlTaskStatusProbe for PgTestStatusProbe {
         // The Go endpoint reports listener-owned counters.  This test-only
         // composition has no such collector, so it must not fabricate zeros.
         Err(ControlTaskStatusError::HttpStatsUnavailable)
-    }
-}
-
-#[derive(Clone)]
-struct DashboardTopupAuthorizer {
-    auth: Arc<dyn DashboardAuth>,
-}
-
-impl DashboardTopupAuthorizer {
-    fn new(auth: Arc<dyn DashboardAuth>) -> Self {
-        Self { auth }
-    }
-}
-
-#[async_trait]
-impl TopupAuthorizer for DashboardTopupAuthorizer {
-    async fn user_id(&self, headers: &HeaderMap) -> Result<i64, TopupError> {
-        let token = headers
-            .get(header::AUTHORIZATION)
-            .and_then(|value| value.to_str().ok())
-            .and_then(|value| value.strip_prefix("Bearer "))
-            .filter(|token| !token.is_empty())
-            .ok_or(TopupError::Unauthorized)?;
-        let user = self
-            .auth
-            .self_user(SecretString::from(token.to_owned()))
-            .await
-            .map_err(|_| TopupError::Unauthorized)?;
-        (user.id > 0 && user.status == 1)
-            .then_some(user.id)
-            .ok_or(TopupError::Unauthorized)
-    }
-
-    async fn check_critical_rate_limit(
-        &self,
-        client_ip: &str,
-    ) -> Result<lmm_api_rs::auth::CriticalRateLimitOutcome, TopupError> {
-        self.auth
-            .check_critical_rate_limit(client_ip)
-            .await
-            .map_err(|_| TopupError::Storage)
-    }
-}
-
-/// Payment creation is deliberately unavailable in the copied-data test
-/// instance until dedicated test provider credentials are configured.
-struct DenyTopupRepository;
-
-#[async_trait]
-impl TopupRepository for DenyTopupRepository {
-    async fn minimum_amount(&self) -> Result<i64, TopupError> {
-        Err(TopupError::ProviderFrozen)
-    }
-    async fn payment_method_allowed(&self, _: &str) -> Result<bool, TopupError> {
-        Err(TopupError::ProviderFrozen)
-    }
-    async fn create_pending(&self, _: CreateTopup) -> Result<PendingTopup, TopupError> {
-        Err(TopupError::ProviderFrozen)
-    }
-    async fn complete(
-        &self,
-        _: &str,
-        _: &str,
-        _: Option<&str>,
-        _: &str,
-    ) -> Result<Completion, TopupError> {
-        Err(TopupError::ProviderFrozen)
-    }
-}
-
-struct DenyTopUpGateway;
-#[async_trait]
-impl TopUpGateway for DenyTopUpGateway {
-    async fn create_waffo(&self, _: WaffoCheckout) -> Result<String, ()> {
-        Err(())
-    }
-    async fn create_waffo_pancake(&self, _: PancakeCheckout) -> Result<PancakeSession, ()> {
-        Err(())
-    }
-}
-
-struct DenyWebhookAvailability;
-#[async_trait]
-impl WaffoWebhookAvailability for DenyWebhookAvailability {
-    async fn waffo_enabled(&self) -> Result<bool, WebhookFailure> {
-        Ok(false)
-    }
-    async fn pancake_enabled(&self) -> Result<bool, WebhookFailure> {
-        Ok(false)
-    }
-}
-struct DenyPancakeVerifier;
-#[async_trait]
-impl PancakeWebhookVerifier for DenyPancakeVerifier {
-    async fn verify(&self, _: &[u8], _: &str) -> Result<PancakeEvent, WebhookFailure> {
-        Err(WebhookFailure::Unavailable)
-    }
-}
-struct DenyWaffoVerifier;
-#[async_trait]
-impl WaffoWebhookVerifier for DenyWaffoVerifier {
-    async fn verify(&self, _: &[u8], _: &str) -> Result<(), WebhookFailure> {
-        Err(WebhookFailure::Unavailable)
-    }
-    async fn signed_response(
-        &self,
-        _: bool,
-        _: &str,
-    ) -> Result<SignedWaffoResponse, WebhookFailure> {
-        Err(WebhookFailure::Unavailable)
-    }
-}
-struct DenyWebhookProcessor;
-#[async_trait]
-impl WaffoWebhookProcessor for DenyWebhookProcessor {
-    async fn complete_pancake_top_up(
-        &self,
-        _: &str,
-        _: &str,
-        _: &[u8],
-    ) -> Result<Settlement, WebhookFailure> {
-        Err(WebhookFailure::Unavailable)
-    }
-    async fn complete_pancake_subscription(
-        &self,
-        _: &str,
-        _: &str,
-        _: &[u8],
-    ) -> Result<Settlement, WebhookFailure> {
-        Err(WebhookFailure::Unavailable)
-    }
-    async fn complete_waffo_top_up(
-        &self,
-        _: &str,
-        _: Option<&str>,
-        _: &[u8],
-    ) -> Result<Settlement, WebhookFailure> {
-        Err(WebhookFailure::Unavailable)
-    }
-    async fn mark_waffo_top_up_failed(&self, _: &str) -> Result<(), WebhookFailure> {
-        Err(WebhookFailure::Unavailable)
     }
 }
 

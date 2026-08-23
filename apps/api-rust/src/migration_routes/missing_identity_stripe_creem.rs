@@ -604,22 +604,24 @@ impl IdentityStripeCreemState {
 }
 
 pub fn router(state: IdentityStripeCreemState) -> Router {
-    // BLOCKED(shared listener): Go's UserAuth adds Auth-Version and the two
-    // checkout routes also pass through CriticalRateLimit.  This isolated
-    // slice cannot attach those shared listener policies, so it remains
-    // candidate-only until the root listener owns that integration.
-    amount_routes()
+    amount_router(state.clone()).merge(pay_router(state))
+}
+
+/// Mounts only the deterministic Stripe amount quote.  Checkout lives on
+/// [`pay_router`] so the normal listener can adopt the read-only calculation
+/// without overlapping the payment paths.
+pub fn amount_router(state: IdentityStripeCreemState) -> Router {
+    amount_routes().with_state(state)
+}
+
+/// Mounts Stripe and Creem checkout.  An unconfigured gateway fails closed
+/// before any provider request; the listener supplies the shared dashboard
+/// authorizer used by the amount quote.
+pub fn pay_router(state: IdentityStripeCreemState) -> Router {
+    Router::new()
         .route("/api/user/stripe/pay", post(stripe_pay))
         .route("/api/user/creem/pay", post(creem_pay))
         .with_state(state)
-}
-
-/// Mounts only the deterministic Stripe amount quote.  The checkout routes
-/// additionally require the listener's critical-rate-limit and external
-/// gateway boundaries, so the normal listener can adopt this read-only
-/// calculation without exposing an incomplete payment path.
-pub fn amount_router(state: IdentityStripeCreemState) -> Router {
-    amount_routes().with_state(state)
 }
 
 fn amount_routes() -> Router<IdentityStripeCreemState> {

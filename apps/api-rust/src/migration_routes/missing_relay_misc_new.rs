@@ -73,6 +73,40 @@ impl MissingRelayMiscState {
     }
 }
 
+/// Fail-closed misc-relay adapter for listeners without a live provider.
+#[derive(Clone, Default)]
+pub struct FailClosedRelayMiscService;
+
+impl FailClosedRelayMiscService {
+    #[must_use]
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+#[async_trait]
+impl MissingRelayService for FailClosedRelayMiscService {
+    async fn authorize(
+        &self,
+        endpoint: MissingRelayEndpoint,
+        _: &Request,
+    ) -> MissingRelayAuthorization {
+        MissingRelayAuthorization::Rejected(MissingRelayAuthRejection {
+            status: StatusCode::UNAUTHORIZED,
+            code: "AUTH_UNAUTHORIZED",
+            message: match endpoint {
+                MissingRelayEndpoint::Realtime | MissingRelayEndpoint::Edits => "Invalid token",
+                MissingRelayEndpoint::PgChatCompletions => "Unauthorized, invalid access token",
+            }
+            .to_owned(),
+        })
+    }
+
+    async fn relay(&self, _: MissingRelayEndpoint, _: Request) -> Response {
+        StatusCode::SERVICE_UNAVAILABLE.into_response()
+    }
+}
+
 /// Mount point for the remaining three legacy relay paths.
 pub fn missing_relay_misc_router(state: MissingRelayMiscState) -> Router {
     Router::new()

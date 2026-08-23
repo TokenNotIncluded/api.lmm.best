@@ -18,8 +18,10 @@ use lmm_api_rs::{
         api_token::{ApiTokenHttpState, PgValkeyApiTokenService},
         assistant::{AssistantRateLimitConfig, AssistantReadState, assistant_read_router},
         billing_payments::{
-            DashboardBillingAuthorizer, PgBillingPaymentAccess, PgBillingRepository,
-            PgPaymentCompliance, SubscriptionBalancePayState, ValkeyBillingCache,
+            BillingConfig, BillingDependencies, BillingHttpState, DashboardBillingAuthorizer,
+            DisabledCheckoutProvider, DisabledEpayVerifier, DisabledStripeWebhookVerifier,
+            PgBillingPaymentAccess, PgBillingRepository, PgPaymentCompliance,
+            SubscriptionBalancePayState, ValkeyBillingCache, billing_provider_payments_router,
             subscription_balance_pay_router,
         },
         billing_subscriptions::{
@@ -55,6 +57,7 @@ use lmm_api_rs::{
             ValkeyFederationMutationPublisher,
             bindings_router as identity_federation_bindings_router,
             oauth_email_bind_router as identity_federation_oauth_email_bind_router,
+            oauth_external_provider_router as identity_federation_oauth_external_router,
             oauth_state_router as identity_federation_oauth_state_router,
         },
         identity_profile::{ProfileState, router as identity_profile_router},
@@ -67,9 +70,15 @@ use lmm_api_rs::{
         media_midjourney::{
             MidjourneyHttpState, PgMidjourneyDispatchBackend, media_midjourney_router,
         },
+        media_tasks::{MediaTaskHttpState, MidjourneyMediaTaskService, media_provider_task_router},
         missing_billing_dashboard::{
             BillingDashboardState, PgBillingDashboardAuthorizer, PgBillingDashboardStore,
             billing_dashboard_router,
+        },
+        missing_billing_webhooks::{
+            DisabledPancakeWebhookVerifier, DisabledWaffoWebhookAvailability,
+            DisabledWaffoWebhookProcessor, DisabledWaffoWebhookVerifier, WaffoWebhookState,
+            missing_billing_webhooks_router,
         },
         missing_control_ratio_sync::{
             DashboardRatioSyncAuthorizer, HttpRatioSyncUpstream, PgRatioSyncRepository,
@@ -83,19 +92,33 @@ use lmm_api_rs::{
         missing_identity_checkin_aff::{
             IdentityCheckinAffState, router as identity_checkin_aff_router,
         },
+        missing_identity_epay::{
+            DashboardTopupAuthorizer, DisabledEpayGateway, DisabledTopupRepository, UserTopupState,
+            router as identity_epay_router,
+        },
         missing_identity_stripe_creem::{
             DashboardStripeCreemAuthorizer, DisabledStripeCreemGateway, IdentityStripeCreemState,
             PgStripeCreemStore, amount_router as identity_stripe_amount_router,
+            pay_router as identity_stripe_pay_router,
         },
         missing_identity_topup::{IdentityTopupState, router as identity_topup_router},
+        missing_identity_waffo::{
+            DisabledTopUpGateway, WaffoTopUpState, router as identity_waffo_router,
+        },
+        missing_relay_misc_new::{
+            FailClosedRelayMiscService, MissingRelayMiscState, missing_relay_misc_router,
+        },
         missing_relay_models_billing::{ModelLookupState, PgStaticModelLookup},
+        missing_relay_video::{
+            FailClosedRelayVideoService, RelayVideoHttpState, missing_relay_video_router,
+        },
         observability::{
             DashboardObservabilityAuthorizer, ObservabilityAuthorizer, ObservabilityState,
             PgDiskCacheMaintenance, PgObservabilityStore, PgReadOnlyObservabilityTokenAuthorizer,
             PostgresObservabilityMetrics, UnavailableObservabilityMetrics,
             ValkeyObservabilityMetrics, observability_disk_cache_router,
-            observability_metrics_router, observability_performance_router,
-            observability_read_router,
+            observability_force_gc_router, observability_metrics_router,
+            observability_performance_router, observability_read_router,
         },
         open_source_bounties::{OpenSourceBountyState, router as open_source_bounty_router},
         relay_anthropic_gemini::{
@@ -360,14 +383,35 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             identity_topup_router(IdentityTopupState::new(pg.clone(), Arc::clone(&auth))),
         );
         // Stripe amount quoting is a deterministic PostgreSQL/configuration
-        // calculation.  Keep checkout itself unmounted until its critical
-        // rate-limit and external gateway boundaries are listener-owned.
+        // calculation.  Checkout is mounted with the same authorizer and a
+        // fail-closed gateway so the path cannot 404 through to Go.
+        let identity_stripe_creem_state = IdentityStripeCreemState::new(
+            Arc::new(PgStripeCreemStore::new(pg.clone())),
+            Arc::new(DashboardStripeCreemAuthorizer::new(Arc::clone(&auth))),
+            Arc::new(DisabledStripeCreemGateway),
+        );
         let identity_stripe_amount = http::api_global_rate_limited_surface(
             &app_state,
-            identity_stripe_amount_router(IdentityStripeCreemState::new(
-                Arc::new(PgStripeCreemStore::new(pg.clone())),
-                Arc::new(DashboardStripeCreemAuthorizer::new(Arc::clone(&auth))),
-                Arc::new(DisabledStripeCreemGateway),
+            identity_stripe_amount_router(identity_stripe_creem_state.clone()),
+        );
+        let identity_stripe_pay = http::api_global_rate_limited_surface(
+            &app_state,
+            identity_stripe_pay_router(identity_stripe_creem_state),
+        );
+        let identity_epay = http::api_global_rate_limited_surface(
+            &app_state,
+            identity_epay_router(UserTopupState::new(
+                Arc::new(DashboardTopupAuthorizer::new(Arc::clone(&auth))),
+                Arc::new(DisabledTopupRepository),
+                Arc::new(DisabledEpayGateway),
+            )),
+        );
+        let identity_waffo = http::api_global_rate_limited_surface(
+            &app_state,
+            identity_waffo_router(WaffoTopUpState::new(
+                pg.clone(),
+                Arc::clone(&auth),
+                Arc::new(DisabledTopUpGateway),
             )),
         );
         let identity_checkin = http::api_global_rate_limited_surface(
@@ -439,7 +483,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
         let identity_federation_oauth_email_bind = http::api_global_rate_limited_surface(
             &app_state,
-            identity_federation_oauth_email_bind_router(federation_state, Arc::clone(&auth)),
+            identity_federation_oauth_email_bind_router(
+                federation_state.clone(),
+                Arc::clone(&auth),
+            ),
+        );
+        let identity_federation_oauth_external = http::api_global_rate_limited_surface(
+            &app_state,
+            identity_federation_oauth_external_router(federation_state),
         );
         let identity_2fa = identity_2fa_router(
             Identity2FAState::new(pg.clone(), valkey.clone(), auth_impl.clone())
@@ -583,6 +634,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .with_payment_access(Arc::new(PgBillingPaymentAccess::new(pg.clone()))),
             ),
         );
+        // Provider checkout and callback routes stay fail-closed until a live
+        // gateway is configured. Mounting them here keeps the frozen Go
+        // surface from 404ing through the Rust listener.
+        let billing_provider_payments = http::api_global_rate_limited_surface(
+            &app_state,
+            billing_provider_payments_router(BillingHttpState::new(
+                BillingDependencies {
+                    repository: Arc::new(PgBillingRepository::new(pg.clone())),
+                    authorizer: Arc::new(DashboardBillingAuthorizer::new(Arc::clone(&auth))),
+                    checkout: Arc::new(DisabledCheckoutProvider),
+                    epay: Arc::new(DisabledEpayVerifier),
+                    stripe: Arc::new(DisabledStripeWebhookVerifier),
+                    cache: Arc::new(ValkeyBillingCache::new(valkey.clone())),
+                    compliance: Arc::new(PgPaymentCompliance::new(pg.clone())),
+                },
+                BillingConfig::default(),
+            )),
+        );
+        let billing_webhooks = missing_billing_webhooks_router(WaffoWebhookState::new(
+            Arc::new(DisabledWaffoWebhookAvailability),
+            Arc::new(DisabledPancakeWebhookVerifier),
+            Arc::new(DisabledWaffoWebhookVerifier),
+            Arc::new(DisabledWaffoWebhookProcessor),
+        ));
         let kling_task_reads = kling_task_read_router(KlingTaskReadState::new(Arc::new(
             PgKlingTaskReadService::new(pg.clone(), Arc::clone(&models_service)),
         )));
@@ -655,6 +730,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             )
             .with_console_access_gate(Arc::clone(&auth)),
         );
+        let observability_force_gc = observability_force_gc_router(
+            ObservabilityState::new(
+                Arc::new(PgObservabilityStore::new(
+                    pg.clone(),
+                    Arc::new(UnavailableObservabilityMetrics),
+                    Arc::new(PgDiskCacheMaintenance::new(pg.clone())),
+                )),
+                Arc::clone(&observability_authorizer),
+            )
+            .with_console_access_gate(Arc::clone(&auth)),
+        );
         let open_source_bounties = http::api_global_rate_limited_surface(
             &app_state,
             open_source_bounty_router(OpenSourceBountyState::new(pg.clone(), Arc::clone(&auth))),
@@ -687,6 +773,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 config.dependency_timeout,
                 64 * 1024 * 1024,
             ),
+        )));
+        let relay_media_tasks = media_provider_task_router(MediaTaskHttpState::new(Arc::new(
+            MidjourneyMediaTaskService::new(Arc::new(PgMidjourneyDispatchBackend::new(
+                pg.clone(),
+                relay_client.clone(),
+                config.dependency_timeout,
+                64 * 1024 * 1024,
+            ))),
+        )));
+        let relay_video = missing_relay_video_router(RelayVideoHttpState::new(Arc::new(
+            FailClosedRelayVideoService::new(),
+        )));
+        let relay_misc_new = missing_relay_misc_router(MissingRelayMiscState::new(Arc::new(
+            FailClosedRelayMiscService::new(),
         )));
         let model_lookup_state = ModelLookupState::new(
             Arc::new(PgStaticModelLookup::with_current_policy(
@@ -781,11 +881,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .merge(identity_topup)
             .merge(identity_checkin)
             .merge(identity_stripe_amount)
+            .merge(identity_stripe_pay)
+            .merge(identity_epay)
+            .merge(identity_waffo)
             .merge(identity_security)
             .merge(verify_email)
             .merge(identity_federation_bindings)
             .merge(identity_federation_oauth_state)
             .merge(identity_federation_oauth_email_bind)
+            .merge(identity_federation_oauth_external)
             .merge(identity_2fa)
             .merge(channel_core)
             .merge(channel_ops)
@@ -801,6 +905,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .merge(user_rankings)
             .merge(gifts)
             .merge(subscription_balance_pay)
+            .merge(billing_provider_payments)
+            .merge(billing_webhooks)
             .merge(kling_task_reads)
             .merge(billing_subscriptions)
             .merge(billing_dashboard)
@@ -810,9 +916,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .merge(observability_metrics)
             .merge(observability_disk_cache)
             .merge(observability_performance)
+            .merge(observability_force_gc)
             .merge(open_source_bounties)
             .merge(relay_openai)
             .merge(relay_midjourney)
+            .merge(relay_media_tasks)
+            .merge(relay_video)
+            .merge(relay_misc_new)
             .merge(relay_anthropic_gemini)
             .merge(relay_media)
             .merge(relay_misc_active)

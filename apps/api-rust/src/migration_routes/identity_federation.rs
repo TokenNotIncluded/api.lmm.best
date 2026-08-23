@@ -742,8 +742,19 @@ pub fn router(state: FederationState) -> Router {
 pub fn provider_router(state: FederationState) -> Router {
     Router::new()
         .route("/api/oauth/state", post(create_oauth_state))
-        .route("/api/oauth/{provider}", get(oauth_callback))
         .route("/api/oauth/email/bind", post(bind_email))
+        .with_state(state.clone())
+        .merge(oauth_external_provider_router(state))
+}
+
+/// Mounts the external-provider login and bind routes.
+///
+/// A listener that has not installed a live [`FederationProviders`] adapter
+/// still exposes these paths so they cannot 404 through to Go.  The default
+/// disabled-provider boundary fails closed before any remote exchange.
+pub fn oauth_external_provider_router(state: FederationState) -> Router {
+    Router::new()
+        .route("/api/oauth/{provider}", get(oauth_callback))
         .route("/api/oauth/wechat", get(wechat_login))
         .route("/api/oauth/wechat/bind", post(wechat_bind))
         .route("/api/oauth/telegram/login", get(telegram_login))
@@ -768,8 +779,9 @@ struct OAuthEmailBindRouteState {
 /// Mounts only `POST /api/oauth/state` with the same route-local policy as
 /// the Go router. Critical rate limiting runs before optional authentication
 /// and body parsing; the cache headers are applied only after that gate has
-/// allowed the request. The provider callback remains on the candidate
-/// router until an external-provider adapter is configured and verified.
+/// allowed the request. External-provider callbacks live on
+/// [`oauth_external_provider_router`] so the normal listener can mount them
+/// independently of this state-only policy wrapper.
 pub fn oauth_state_router(
     state: FederationState,
     auth: Arc<dyn DashboardAuth>,

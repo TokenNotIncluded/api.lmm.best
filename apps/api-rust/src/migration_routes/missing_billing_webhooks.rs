@@ -113,6 +113,80 @@ impl WaffoWebhookState {
     }
 }
 
+/// Reports both Waffo families as disabled without consulting operator state.
+pub struct DisabledWaffoWebhookAvailability;
+
+#[async_trait]
+impl WaffoWebhookAvailability for DisabledWaffoWebhookAvailability {
+    async fn waffo_enabled(&self) -> Result<bool, WebhookFailure> {
+        Ok(false)
+    }
+    async fn pancake_enabled(&self) -> Result<bool, WebhookFailure> {
+        Ok(false)
+    }
+}
+
+/// Rejects every Pancake signature until a live verifier is installed.
+pub struct DisabledPancakeWebhookVerifier;
+
+#[async_trait]
+impl PancakeWebhookVerifier for DisabledPancakeWebhookVerifier {
+    async fn verify(&self, _: &[u8], _: &str) -> Result<PancakeEvent, WebhookFailure> {
+        Err(WebhookFailure::Unavailable)
+    }
+}
+
+/// Rejects every Waffo signature and cannot mint an acknowledgement.
+pub struct DisabledWaffoWebhookVerifier;
+
+#[async_trait]
+impl WaffoWebhookVerifier for DisabledWaffoWebhookVerifier {
+    async fn verify(&self, _: &[u8], _: &str) -> Result<(), WebhookFailure> {
+        Err(WebhookFailure::Unavailable)
+    }
+    async fn signed_response(
+        &self,
+        _: bool,
+        _: &str,
+    ) -> Result<SignedWaffoResponse, WebhookFailure> {
+        Err(WebhookFailure::Unavailable)
+    }
+}
+
+/// Refuses settlement so an unconfigured listener cannot credit a wallet.
+pub struct DisabledWaffoWebhookProcessor;
+
+#[async_trait]
+impl WaffoWebhookProcessor for DisabledWaffoWebhookProcessor {
+    async fn complete_pancake_top_up(
+        &self,
+        _: &str,
+        _: &str,
+        _: &[u8],
+    ) -> Result<Settlement, WebhookFailure> {
+        Err(WebhookFailure::Unavailable)
+    }
+    async fn complete_pancake_subscription(
+        &self,
+        _: &str,
+        _: &str,
+        _: &[u8],
+    ) -> Result<Settlement, WebhookFailure> {
+        Err(WebhookFailure::Unavailable)
+    }
+    async fn complete_waffo_top_up(
+        &self,
+        _: &str,
+        _: Option<&str>,
+        _: &[u8],
+    ) -> Result<Settlement, WebhookFailure> {
+        Err(WebhookFailure::Unavailable)
+    }
+    async fn mark_waffo_top_up_failed(&self, _: &str) -> Result<(), WebhookFailure> {
+        Err(WebhookFailure::Unavailable)
+    }
+}
+
 /// Mount point for the two unauthenticated, provider-signed callback routes.
 pub fn missing_billing_webhooks_router(state: WaffoWebhookState) -> Router {
     Router::new()

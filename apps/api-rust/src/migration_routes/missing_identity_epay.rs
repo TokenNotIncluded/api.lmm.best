@@ -13,7 +13,11 @@
 
 use std::{collections::BTreeMap, sync::Arc};
 
-use crate::{ClientIpKey, RequestContext, auth::CriticalRateLimitOutcome, legacy_empty_response};
+use crate::{
+    ClientIpKey, RequestContext,
+    auth::{CriticalRateLimitOutcome, DashboardAuth},
+    legacy_empty_response,
+};
 use async_trait::async_trait;
 use axum::{
     Json, Router,
@@ -23,6 +27,7 @@ use axum::{
     response::{IntoResponse, Response},
     routing::{get, post},
 };
+use secrecy::SecretString;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -186,6 +191,78 @@ pub trait EpayGateway: Send + Sync {
     /// order API. New ePay adapters must implement `prepare` instead.
     async fn begin(&self, order: &PendingTopup) -> Result<Checkout, TopupError>;
     async fn verify(&self, fields: &EpayCallbackFields) -> Result<EpayCallback, TopupError>;
+}
+
+/// Dashboard-session authorizer for the user ePay surface.
+///
+/// Identity comes only from the listener-owned session authority. Payment
+/// creation still requires a live repository and gateway; this type only
+/// answers who the caller is and whether the critical limiter allows them.
+#[derive(Clone)]
+pub struct DashboardTopupAuthorizer {
+    auth: Arc<dyn DashboardAuth>,
+}
+
+impl DashboardTopupAuthorizer {
+    #[must_use]
+    pub fn new(auth: Arc<dyn DashboardAuth>) -> Self {
+        Self { auth }
+    }
+}
+
+#[async_trait]
+impl TopupAuthorizer for DashboardTopupAuthorizer {
+    async fn user_id(&self, headers: &HeaderMap) -> Result<i64, TopupError> {
+        let token = headers
+            .get(header::AUTHORIZATION)
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.strip_prefix("Bearer "))
+            .filter(|token| !token.is_empty())
+            .ok_or(TopupError::Unauthorized)?;
+        let user = self
+            .auth
+            .self_user(SecretString::from(token.to_owned()))
+            .await
+            .map_err(|_| TopupError::Unauthorized)?;
+        (user.id > 0 && user.status == 1)
+            .then_some(user.id)
+            .ok_or(TopupError::Unauthorized)
+    }
+
+    async fn check_critical_rate_limit(
+        &self,
+        client_ip: &str,
+    ) -> Result<CriticalRateLimitOutcome, TopupError> {
+        self.auth
+            .check_critical_rate_limit(client_ip)
+            .await
+            .map_err(|_| TopupError::Storage)
+    }
+}
+
+/// Fail-closed order store for listeners that have not wired a live ledger.
+pub struct DisabledTopupRepository;
+
+#[async_trait]
+impl TopupRepository for DisabledTopupRepository {
+    async fn minimum_amount(&self) -> Result<i64, TopupError> {
+        Err(TopupError::ProviderFrozen)
+    }
+    async fn payment_method_allowed(&self, _: &str) -> Result<bool, TopupError> {
+        Err(TopupError::ProviderFrozen)
+    }
+    async fn create_pending(&self, _: CreateTopup) -> Result<PendingTopup, TopupError> {
+        Err(TopupError::ProviderFrozen)
+    }
+    async fn complete(
+        &self,
+        _: &str,
+        _: &str,
+        _: Option<&str>,
+        _: &str,
+    ) -> Result<Completion, TopupError> {
+        Err(TopupError::ProviderFrozen)
+    }
 }
 
 /// Safe adapters for test instances and incomplete listener composition.

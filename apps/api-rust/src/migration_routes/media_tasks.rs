@@ -502,6 +502,21 @@ const MJ_FETCH_PATH: &str = "/mj/task/{id}/fetch";
 const MJ_IMAGE_SEED_PATH: &str = "/mj/task/{id}/image-seed";
 const MJ_LIST_PATH: &str = "/mj/task/list-by-condition";
 
+/// Mounts the non-Midjourney static task families.
+///
+/// Midjourney static paths stay on [`media_midjourney_router`]; this sibling
+/// router is the production owner for Suno, Kling, and Jimeng.
+pub fn media_provider_task_router(state: MediaTaskHttpState) -> Router {
+    Router::new()
+        .route("/suno/fetch", post(suno_fetch))
+        .route("/suno/fetch/{id}", get(suno_fetch_by_id))
+        .route("/suno/submit/{action}", post(suno_submit))
+        .route("/kling/v1/videos/image2video", post(kling_image_to_video))
+        .route("/kling/v1/videos/text2video", post(kling_text_to_video))
+        .route("/jimeng/", post(jimeng_submit))
+        .with_state(state)
+}
+
 pub fn media_task_router(state: MediaTaskHttpState) -> Router {
     Router::new()
         .route(MJ_IMAGE_PATH, get(public_image))
@@ -523,13 +538,8 @@ pub fn media_task_router(state: MediaTaskHttpState) -> Router {
         .route(MJ_FETCH_PATH, get(fetch))
         .route(MJ_IMAGE_SEED_PATH, get(image_seed))
         .route(MJ_LIST_PATH, post(list_by_condition))
-        .route("/suno/fetch", post(suno_fetch))
-        .route("/suno/fetch/{id}", get(suno_fetch_by_id))
-        .route("/suno/submit/{action}", post(suno_submit))
-        .route("/kling/v1/videos/image2video", post(kling_image_to_video))
-        .route("/kling/v1/videos/text2video", post(kling_text_to_video))
-        .route("/jimeng/", post(jimeng_submit))
-        .with_state(state)
+        .with_state(state.clone())
+        .merge(media_provider_task_router(state))
 }
 
 async fn public_image(
@@ -779,7 +789,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn unconfigured_provider_fails_closed_without_a_not_implemented_response() {
+    async fn unconfigured_provider_fails_closed_as_unavailable() {
         let response = UnconfiguredTaskRelayProvider
             .relay(
                 MediaTaskOperation::SunoFetch,

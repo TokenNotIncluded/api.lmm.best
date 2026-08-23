@@ -298,8 +298,13 @@ pub fn subscription_balance_pay_router(state: SubscriptionBalancePayState) -> Ro
         .with_state(state)
 }
 
-pub fn billing_payments_router(state: BillingHttpState) -> Router {
-    let protected = Router::new()
+/// Mounts provider checkout and callback routes without the balance-pay path.
+///
+/// The normal listener already owns [`subscription_balance_pay_router`]; this
+/// sibling router keeps those surfaces from overlapping while still letting
+/// the isolated candidate merge both families through [`billing_payments_router`].
+pub fn billing_provider_payments_router(state: BillingHttpState) -> Router {
+    Router::new()
         .route("/api/subscription/epay/pay", post(epay_pay))
         .route("/api/subscription/stripe/pay", post(stripe_pay))
         .route("/api/subscription/creem/pay", post(creem_pay))
@@ -307,7 +312,6 @@ pub fn billing_payments_router(state: BillingHttpState) -> Router {
             "/api/subscription/waffo-pancake/pay",
             post(waffo_pancake_pay),
         )
-        .route(BALANCE_PAY_PATH, post(balance_pay))
         .route(
             "/api/subscription/epay/notify",
             get(epay_notify).post(epay_notify),
@@ -324,8 +328,15 @@ pub fn billing_payments_router(state: BillingHttpState) -> Router {
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
             billing_payment_auth_boundary,
-        ));
-    protected.with_state(state)
+        ))
+        .with_state(state)
+}
+
+pub fn billing_payments_router(state: BillingHttpState) -> Router {
+    Router::new()
+        .route(BALANCE_PAY_PATH, post(balance_pay))
+        .with_state(state.clone())
+        .merge(billing_provider_payments_router(state))
 }
 
 fn is_user_payment_route(path: &str, method: &Method) -> bool {

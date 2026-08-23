@@ -2243,8 +2243,9 @@ pub fn observability_disk_cache_router(state: ObservabilityState) -> Router {
 }
 
 /// Builds the root-only performance routes backed by the Rust process and
-/// PostgreSQL configuration. The force-GC operation stays on the candidate
-/// router because Rust has no Go-style runtime GC contract to invoke.
+/// PostgreSQL configuration. Force-GC is mounted separately through
+/// [`observability_force_gc_router`] so the path exists while the store can
+/// still fail closed.
 pub fn observability_performance_router(state: ObservabilityState) -> Router {
     mount_observability_routes(
         Router::new()
@@ -2258,7 +2259,7 @@ pub fn observability_performance_router(state: ObservabilityState) -> Router {
     )
 }
 
-fn observability_force_gc_router(state: ObservabilityState) -> Router {
+pub fn observability_force_gc_router(state: ObservabilityState) -> Router {
     mount_observability_routes(
         Router::new().route("/api/performance/gc", post(force_gc)),
         state,

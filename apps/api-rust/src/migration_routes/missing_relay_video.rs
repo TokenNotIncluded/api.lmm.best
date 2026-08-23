@@ -77,6 +77,34 @@ impl RelayVideoHttpState {
     }
 }
 
+/// Fail-closed video adapter for listeners without a live video provider.
+///
+/// `authorize` cannot inspect the request body: Axum's `Request<Body>` is not
+/// Sync, so an async-trait future must not capture a shared borrow.
+#[derive(Clone, Default)]
+pub struct FailClosedRelayVideoService;
+
+impl FailClosedRelayVideoService {
+    #[must_use]
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+#[async_trait]
+impl RelayVideoService for FailClosedRelayVideoService {
+    async fn authorize(&self, _: &Request) -> RelayVideoAuthorization {
+        RelayVideoAuthorization::Rejected {
+            status: StatusCode::UNAUTHORIZED,
+            message: "Invalid token".to_owned(),
+        }
+    }
+
+    async fn relay(&self, _: RelayVideoOperation, _: Request) -> Response {
+        StatusCode::SERVICE_UNAVAILABLE.into_response()
+    }
+}
+
 /// Routes migrated from the legacy authenticated relay router.
 ///
 /// They intentionally are not mounted by this module itself: the root router

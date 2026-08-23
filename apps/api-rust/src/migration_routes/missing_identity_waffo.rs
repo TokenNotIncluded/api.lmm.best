@@ -149,6 +149,19 @@ impl WaffoTopUpState {
     }
 }
 
+/// Fail-closed Waffo checkout adapter for listeners without live provider keys.
+pub struct DisabledTopUpGateway;
+
+#[async_trait]
+impl TopUpGateway for DisabledTopUpGateway {
+    async fn create_waffo(&self, _: WaffoCheckout) -> Result<String, ()> {
+        Err(())
+    }
+    async fn create_waffo_pancake(&self, _: PancakeCheckout) -> Result<PancakeSession, ()> {
+        Err(())
+    }
+}
+
 pub fn router(state: WaffoTopUpState) -> Router {
     Router::new()
         .route("/api/user/waffo/amount", post(waffo_amount))
