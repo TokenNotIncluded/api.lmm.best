@@ -408,11 +408,21 @@ func (channel *Channel) Save() error {
 	return DB.Save(channel).Error
 }
 
-func (channel *Channel) SaveWithoutKey() error {
+// saveStatusState persists only the fields owned by the channel status flow.
+// Keeping this allowlist here prevents a stale channel snapshot from
+// overwriting credentials, accounting counters, or channel configuration.
+func (channel *Channel) saveStatusState() error {
 	if channel.Id == 0 {
 		return errors.New("channel ID is 0")
 	}
-	return DB.Omit("key").Save(channel).Error
+	updates := map[string]any{
+		"status":     channel.Status,
+		"other_info": channel.OtherInfo,
+	}
+	if channel.ChannelInfo.IsMultiKey {
+		updates["channel_info"] = channel.ChannelInfo
+	}
+	return DB.Model(&Channel{}).Where("id = ?", channel.Id).Updates(updates).Error
 }
 
 func GetAllChannels(startIdx int, num int, selectAll bool, idSort bool, sortOptions ...ChannelSortOptions) ([]*Channel, error) {
@@ -921,8 +931,17 @@ func hasEnabledMultiKey(keys []string, statusList map[int]int) bool {
 }
 
 func UpdateChannelStatus(channelId int, usingKey string, status int, reason string) bool {
-	channelStatusLock.Lock()
-	defer channelStatusLock.Unlock()
+	if common.MemoryCacheEnabled {
+		channelStatusLock.Lock()
+		defer channelStatusLock.Unlock()
+	}
+
+	// ChannelInfo stores both multi-key status and the polling cursor. Hold the
+	// same per-channel lock from the first read through persistence so neither
+	// writer can save a stale JSON snapshot over the other.
+	pollingLock := GetChannelPollingLock(channelId)
+	pollingLock.Lock()
+	defer pollingLock.Unlock()
 
 	channel, err := GetChannelById(channelId, true)
 	if err != nil {
@@ -934,10 +953,7 @@ func UpdateChannelStatus(channelId int, usingKey string, status int, reason stri
 
 	beforeStatus := channel.Status
 	if channel.ChannelInfo.IsMultiKey {
-		pollingLock := GetChannelPollingLock(channelId)
-		pollingLock.Lock()
 		handlerMultiKeyUpdate(channel, usingKey, status, reason)
-		pollingLock.Unlock()
 	} else {
 		info := channel.GetOtherInfo()
 		info["status_reason"] = reason
@@ -945,7 +961,7 @@ func UpdateChannelStatus(channelId int, usingKey string, status int, reason stri
 		channel.SetOtherInfo(info)
 		channel.Status = status
 	}
-	if err = channel.SaveWithoutKey(); err != nil {
+	if err = channel.saveStatusState(); err != nil {
 		common.SysLog(fmt.Sprintf("failed to update channel status: channel_id=%d, status=%d, error=%v", channel.Id, status, err))
 		return false
 	}

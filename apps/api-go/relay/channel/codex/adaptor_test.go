@@ -8,6 +8,7 @@ import (
 	relaycommon "github.com/LIghtJUNction/api.lmm.best/relay/common"
 	relayconstant "github.com/LIghtJUNction/api.lmm.best/relay/constant"
 	"github.com/LIghtJUNction/api.lmm.best/relaykit/dto"
+	"github.com/samber/lo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -27,7 +28,9 @@ func TestGetRequestURLAlphaSearch(t *testing.T) {
 	assert.Equal(t, "https://chatgpt.com/backend-api/codex/alpha/search", url)
 }
 
-func TestConvertOpenAIResponsesRequestDropsUnsupportedPenalties(t *testing.T) {
+// The Codex backend rejects these fields, so the adaptor clears them rather
+// than forwarding what the client sent.
+func TestConvertOpenAIResponsesRequestDropsPenalties(t *testing.T) {
 	adaptor := &Adaptor{}
 	info := &relaycommon.RelayInfo{
 		ChannelMeta: &relaycommon.ChannelMeta{ChannelType: constant.ChannelTypeCodex},
@@ -37,12 +40,17 @@ func TestConvertOpenAIResponsesRequestDropsUnsupportedPenalties(t *testing.T) {
 	converted, err := adaptor.ConvertOpenAIResponsesRequest(nil, info, dto.OpenAIResponsesRequest{
 		Model:            "gpt-5-codex",
 		Input:            json.RawMessage(`"hello"`),
+		MaxOutputTokens:  lo.ToPtr(uint(128)),
+		Temperature:      lo.ToPtr(1.0),
 		FrequencyPenalty: json.RawMessage(`1.5`),
 		PresencePenalty:  json.RawMessage(`1.5`),
 	})
 	require.NoError(t, err)
+
 	request, ok := converted.(dto.OpenAIResponsesRequest)
 	require.True(t, ok)
-	assert.Empty(t, request.FrequencyPenalty)
-	assert.Empty(t, request.PresencePenalty)
+	assert.Nil(t, request.MaxOutputTokens)
+	assert.Nil(t, request.Temperature)
+	assert.Nil(t, request.FrequencyPenalty)
+	assert.Nil(t, request.PresencePenalty)
 }

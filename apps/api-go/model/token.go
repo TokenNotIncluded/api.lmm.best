@@ -1,7 +1,6 @@
 package model
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -308,23 +307,12 @@ func (token *Token) Insert() error {
 
 // Update Make sure your token's fields is completed, because this will update non-zero values
 func (token *Token) Update() (err error) {
+	// 写库前失效缓存并设置 fence，防止并发读者把过期快照重新写回缓存。
 	if cacheErr := invalidateTokenCacheForMutation(token.Key); cacheErr != nil {
 		common.SysLog("failed to invalidate token cache before update: " + cacheErr.Error())
 	}
-	err = DB.Model(token).Select("name", "status", "expired_time", "remain_quota", "unlimited_quota",
+	return DB.Model(token).Select("name", "status", "expired_time", "remain_quota", "unlimited_quota",
 		"model_limits_enabled", "model_limits", "allow_ips", "group", "cross_group_retry", "auto_groups").Updates(token).Error
-	if err != nil {
-		// The database did not change; do not leave a successful-mutation fence
-		// behind and make subsequent reads fail closed for its whole TTL.
-		if common.RedisEnabled && common.RDB != nil && token.Key != "" {
-			_ = common.RDB.Del(context.Background(), getTokenCacheFenceKey(token.Key)).Err()
-		}
-		return err
-	}
-	if cacheErr := refreshTokenCacheAfterMutation(token.Key); cacheErr != nil {
-		common.SysLog("failed to refresh token cache after update: " + cacheErr.Error())
-	}
-	return err
 }
 
 func (token *Token) SelectUpdate() (err error) {
@@ -333,16 +321,7 @@ func (token *Token) SelectUpdate() (err error) {
 	}
 	// This can update zero values
 	err = DB.Model(token).Select("accessed_time", "status").Updates(token).Error
-	if err != nil {
-		if common.RedisEnabled && common.RDB != nil && token.Key != "" {
-			_ = common.RDB.Del(context.Background(), getTokenCacheFenceKey(token.Key)).Err()
-		}
-		return err
-	}
-	if cacheErr := refreshTokenCacheAfterMutation(token.Key); cacheErr != nil {
-		common.SysLog("failed to refresh token cache after status update: " + cacheErr.Error())
-	}
-	return nil
+	return err
 }
 
 func (token *Token) Delete() (err error) {
@@ -401,6 +380,8 @@ func IncreaseTokenQuota(tokenId int, key string, quota int) (err error) {
 	}
 	if common.RedisEnabled {
 		gopool.Go(func() {
+			// 守卫式增量：哈希不存在时跳过，由下次读取从数据库水合，
+			// 绝不创建只有配额字段的残缺哈希。
 			if _, err := cacheApplyTokenQuotaDelta(tokenId, key, int64(quota)); err != nil {
 				common.SysLog("failed to increase token quota: " + err.Error())
 			}
@@ -473,6 +454,9 @@ func BatchDeleteTokens(ids []int, userId int) (int, error) {
 		tx.Rollback()
 		return 0, err
 	}
+	if err := invalidateTokensCache(tokens); err != nil {
+		common.SysLog("failed to invalidate token cache before batch delete: " + err.Error())
+	}
 
 	if err := tx.Where("user_id = ? AND id IN (?)", userId, ids).Delete(&Token{}).Error; err != nil {
 		tx.Rollback()
@@ -481,12 +465,6 @@ func BatchDeleteTokens(ids []int, userId int) (int, error) {
 
 	if err := tx.Commit().Error; err != nil {
 		return 0, err
-	}
-
-	if common.RedisEnabled {
-		if err := invalidateTokensCache(tokens); err != nil {
-			common.SysLog("failed to invalidate token cache before batch delete: " + err.Error())
-		}
 	}
 
 	return len(tokens), nil

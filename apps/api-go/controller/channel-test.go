@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
@@ -27,7 +28,6 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/relaykit/types"
 	"github.com/LIghtJUNction/api.lmm.best/service"
 	"github.com/LIghtJUNction/api.lmm.best/setting/operation_setting"
-	"github.com/LIghtJUNction/api.lmm.best/setting/ratio_setting"
 	hosttypes "github.com/LIghtJUNction/api.lmm.best/types"
 
 	"github.com/samber/lo"
@@ -42,13 +42,10 @@ type testResult struct {
 	newAPIError *types.NewAPIError
 }
 
-func normalizeChannelTestEndpoint(channel *model.Channel, modelName, endpointType string) string {
+func normalizeChannelTestEndpoint(channel *model.Channel, endpointType string) string {
 	normalized := strings.TrimSpace(endpointType)
 	if normalized != "" {
 		return normalized
-	}
-	if strings.HasSuffix(modelName, ratio_setting.CompactModelSuffix) {
-		return string(constant.EndpointTypeOpenAIResponseCompact)
 	}
 	if channel != nil && channel.Type == constant.ChannelTypeCodex {
 		return string(constant.EndpointTypeOpenAIResponse)
@@ -86,9 +83,6 @@ func resolveChannelTestRequestPath(channel *model.Channel, modelName, endpointTy
 	}
 	if strings.Contains(lowerModelName, "codex") {
 		requestPath = "/v1/responses"
-	}
-	if strings.HasSuffix(modelName, ratio_setting.CompactModelSuffix) {
-		requestPath = "/v1/responses/compact"
 	}
 	return requestPath
 }
@@ -148,7 +142,7 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 		}
 	}
 
-	endpointType = normalizeChannelTestEndpoint(channel, testModel, endpointType)
+	endpointType = normalizeChannelTestEndpoint(channel, endpointType)
 
 	requestPath := resolveChannelTestRequestPath(channel, testModel, endpointType)
 	// Gemini 原生流式通过 URL action（:streamGenerateContent）表达而非请求体字段，
@@ -156,10 +150,6 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 	if isStream && constant.EndpointType(endpointType) == constant.EndpointTypeGemini {
 		requestPath = strings.Replace(requestPath, ":generateContent", ":streamGenerateContent", 1)
 	}
-	if strings.HasPrefix(requestPath, "/v1/responses/compact") {
-		testModel = ratio_setting.WithCompactModelSuffix(testModel)
-	}
-
 	c.Request = httptest.NewRequestWithContext(ctx, http.MethodPost, requestPath, nil)
 
 	cache, err := model.GetUserCache(testUserID)
@@ -277,7 +267,7 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 
 	apiType, _ := common.ChannelType2APIType(channel.Type)
 	if info.RelayMode == relayconstant.RelayModeResponsesCompact &&
-		!common.IsResponsesCompactAPIType(apiType) {
+		!common.SupportsResponsesCompact(channel.Type, apiType) {
 		return testResult{
 			context:     c,
 			localErr:    fmt.Errorf("responses compaction test is not supported for api type %d", apiType),
@@ -815,14 +805,6 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
 		}
 	}
 
-	// Responses compaction models (must use /v1/responses/compact)
-	if strings.HasSuffix(model, ratio_setting.CompactModelSuffix) {
-		return &dto.OpenAIResponsesCompactionRequest{
-			Model: model,
-			Input: testResponsesInput,
-		}
-	}
-
 	// Responses-only models (e.g. codex series)
 	if strings.Contains(strings.ToLower(model), "codex") {
 		return &dto.OpenAIResponsesRequest{
@@ -937,90 +919,165 @@ type channelTestSummary struct {
 	Enabled   int `json:"enabled"`
 }
 
-// performChannelTests runs the channel test loop synchronously, honoring ctx
-// cancellation so a system-task runner that loses its lease stops promptly. When
-// report is non-nil it is called after each channel with (processed, total) so
-// the system task can surface progress.
-func performChannelTests(ctx context.Context, channels []*model.Channel, testUserID int, allowDisable bool, report func(processed, total int)) channelTestSummary {
+func testChannelForHealthCheck(ctx context.Context, channel *model.Channel, testUserID int, allowDisable bool, disableThreshold int64) channelTestSummary {
 	summary := channelTestSummary{}
-	var disableThreshold = int64(common.ChannelDisableThreshold * 1000)
-	if disableThreshold == 0 {
-		disableThreshold = 10000000 // a impossible value
+	isChannelEnabled := channel.Status == common.ChannelStatusEnabled
+	tik := time.Now()
+	result := testChannel(ctx, channel, testUserID, "", "", shouldUseStreamForAutomaticChannelTest(channel))
+	milliseconds := time.Since(tik).Milliseconds()
+	if ctx.Err() != nil {
+		return summary
 	}
 
+	summary.Tested++
+
+	shouldBanChannel := false
+	newAPIError := result.newAPIError
+	if newAPIError != nil {
+		shouldBanChannel = service.ShouldDisableChannel(result.newAPIError)
+	}
+
+	if common.AutomaticDisableChannelEnabled && !shouldBanChannel {
+		if milliseconds > disableThreshold {
+			err := fmt.Errorf("响应时间 %.2fs 超过阈值 %.2fs", float64(milliseconds)/1000.0, float64(disableThreshold)/1000.0)
+			newAPIError = types.NewOpenAIError(err, types.ErrorCodeChannelResponseTimeExceeded, http.StatusRequestTimeout)
+			shouldBanChannel = true
+		}
+	}
+
+	if newAPIError == nil {
+		summary.Succeeded++
+	} else {
+		summary.Failed++
+	}
+
+	if allowDisable && isChannelEnabled && shouldBanChannel && channel.GetAutoBan() {
+		processChannelError(result.context, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(result.context, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError)
+		summary.Disabled++
+	}
+
+	if result.localErr == nil && !isChannelEnabled && service.ShouldEnableChannel(newAPIError, channel.Status) {
+		service.EnableChannel(channel.Id, common.GetContextKeyString(result.context, constant.ContextKeyChannelKey), channel.Name)
+		summary.Enabled++
+	}
+
+	channel.UpdateResponseTime(milliseconds)
+	return summary
+}
+
+// runChannelTestWorkers executes independent channel tests with bounded
+// concurrency. Results and progress are reduced by the caller goroutine, so
+// summary counts and the progress reporter remain serialized.
+func runChannelTestWorkers(
+	ctx context.Context,
+	channels []*model.Channel,
+	concurrency int,
+	run func(context.Context, *model.Channel) channelTestSummary,
+	report func(processed, total int),
+) channelTestSummary {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	total := len(channels)
-	for index, channel := range channels {
-		if ctx != nil && ctx.Err() != nil {
-			break
-		}
-		if report != nil {
-			report(index, total) // channels completed before this one
-		}
-		if channel.Status == common.ChannelStatusManuallyDisabled {
-			continue
-		}
-		isChannelEnabled := channel.Status == common.ChannelStatusEnabled
-		tik := time.Now()
-		result := testChannel(ctx, channel, testUserID, "", "", shouldUseStreamForAutomaticChannelTest(channel))
-		tok := time.Now()
-		milliseconds := tok.Sub(tik).Milliseconds()
-		if ctx != nil && ctx.Err() != nil {
-			break
-		}
+	if report != nil {
+		report(0, total)
+	}
+	if total == 0 {
+		return channelTestSummary{}
+	}
 
-		summary.Tested++
+	workerCount := min(operation_setting.NormalizeChannelTestConcurrency(concurrency), total)
+	jobs := make(chan *model.Channel)
+	results := make(chan channelTestSummary)
 
-		shouldBanChannel := false
-		newAPIError := result.newAPIError
-		// request error disables the channel
-		if newAPIError != nil {
-			shouldBanChannel = service.ShouldDisableChannel(result.newAPIError)
-		}
-
-		// 当错误检查通过，才检查响应时间
-		if common.AutomaticDisableChannelEnabled && !shouldBanChannel {
-			if milliseconds > disableThreshold {
-				err := fmt.Errorf("响应时间 %.2fs 超过阈值 %.2fs", float64(milliseconds)/1000.0, float64(disableThreshold)/1000.0)
-				newAPIError = types.NewOpenAIError(err, types.ErrorCodeChannelResponseTimeExceeded, http.StatusRequestTimeout)
-				shouldBanChannel = true
-			}
-		}
-
-		if newAPIError == nil {
-			summary.Succeeded++
-		} else {
-			summary.Failed++
-		}
-
-		// disable channel
-		if allowDisable && isChannelEnabled && shouldBanChannel && channel.GetAutoBan() {
-			processChannelError(result.context, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(result.context, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError)
-			summary.Disabled++
-		}
-
-		// enable channel
-		if result.localErr == nil && !isChannelEnabled && service.ShouldEnableChannel(newAPIError, channel.Status) {
-			service.EnableChannel(channel.Id, common.GetContextKeyString(result.context, constant.ContextKeyChannelKey), channel.Name)
-			summary.Enabled++
-		}
-
-		channel.UpdateResponseTime(milliseconds)
-		if common.RequestInterval > 0 {
-			if ctx == nil {
-				time.Sleep(common.RequestInterval)
-			} else {
+	var workers sync.WaitGroup
+	workers.Add(workerCount)
+	for range workerCount {
+		go func() {
+			defer workers.Done()
+			for {
 				select {
 				case <-ctx.Done():
-					return summary
-				case <-time.After(common.RequestInterval):
+					return
+				case channel, ok := <-jobs:
+					if !ok {
+						return
+					}
+					if ctx.Err() != nil {
+						return
+					}
+
+					result := channelTestSummary{}
+					if channel != nil && channel.Status != common.ChannelStatusManuallyDisabled {
+						result = run(ctx, channel)
+					}
+
+					results <- result
+
+					if common.RequestInterval > 0 {
+						select {
+						case <-ctx.Done():
+							return
+						case <-time.After(common.RequestInterval):
+						}
+					}
 				}
 			}
+		}()
+	}
+
+	go func() {
+		defer close(jobs)
+		for _, channel := range channels {
+			select {
+			case <-ctx.Done():
+				return
+			case jobs <- channel:
+			}
+		}
+	}()
+
+	go func() {
+		workers.Wait()
+		close(results)
+	}()
+
+	summary := channelTestSummary{}
+	processed := 0
+	for result := range results {
+		summary.Tested += result.Tested
+		summary.Succeeded += result.Succeeded
+		summary.Failed += result.Failed
+		summary.Disabled += result.Disabled
+		summary.Enabled += result.Enabled
+		processed++
+		if report != nil && ctx.Err() == nil {
+			report(processed, total)
 		}
 	}
-	if report != nil && (ctx == nil || ctx.Err() == nil) {
-		report(total, total) // mark complete only when the full set was tested
-	}
 	return summary
+}
+
+// performChannelTests runs channel health checks with the configured bounded
+// concurrency and honors cancellation when a system-task runner loses its
+// lease.
+func performChannelTests(ctx context.Context, channels []*model.Channel, testUserID int, allowDisable bool, concurrency int, report func(processed, total int)) channelTestSummary {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	disableThreshold := int64(common.ChannelDisableThreshold * 1000)
+	if disableThreshold == 0 {
+		disableThreshold = 10000000 // an impossible value
+	}
+	return runChannelTestWorkers(
+		ctx,
+		channels,
+		concurrency,
+		func(ctx context.Context, channel *model.Channel) channelTestSummary {
+			return testChannelForHealthCheck(ctx, channel, testUserID, allowDisable, disableThreshold)
+		},
+		report,
+	)
 }
 
 // runChannelTestTask runs one synchronous channel test cycle for the system task
@@ -1045,7 +1102,8 @@ func runChannelTestTask(ctx context.Context, mode string, notify bool, report fu
 	}
 	selected := selectChannelsForAutomaticTest(channels, mode)
 	allowDisable := mode != operation_setting.ChannelTestModePassiveRecovery
-	summary := performChannelTests(ctx, selected, testUserID, allowDisable, report)
+	concurrency := operation_setting.GetMonitorSetting().ChannelTestConcurrency
+	summary := performChannelTests(ctx, selected, testUserID, allowDisable, concurrency, report)
 	if notify && (ctx == nil || ctx.Err() == nil) {
 		service.NotifyRootUser(dto.NotifyTypeChannelTest, "通道测试完成", "所有通道测试已完成")
 	}

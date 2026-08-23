@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
@@ -39,8 +38,10 @@ func tokenCacheTTLSeconds() int {
 	return ttl
 }
 
-// A short-lived fence prevents a DB snapshot read before a token mutation
-// from being written back after the mutation has invalidated the cache.
+// tokenCacheFenceSeconds must outlive a token mutation's database write plus
+// any in-flight reader's DB-read-to-cache-init gap. The fence expires
+// naturally after commit so a reader holding a pre-mutation snapshot cannot
+// publish it immediately after the mutation cleared the cache.
 const tokenCacheFenceSeconds = 10
 
 func invalidateTokenCacheForMutation(key string) error {
@@ -53,26 +54,6 @@ func invalidateTokenCacheForMutation(key string) error {
 		return err
 	}
 	return common.RDB.Del(ctx, getTokenCacheKey(key)).Err()
-}
-
-// refreshTokenCacheAfterMutation releases the short-lived mutation fence only
-// after the database write has committed, then hydrates a cold cache from the
-// authoritative row. cacheInitToken deliberately preserves an existing hash;
-// this prevents a concurrent atomic quota reserve from being overwritten by a
-// stale post-update snapshot.
-func refreshTokenCacheAfterMutation(key string) error {
-	if !common.RedisEnabled || common.RDB == nil || strings.TrimSpace(key) == "" {
-		return nil
-	}
-	if err := common.RDB.Del(context.Background(), getTokenCacheFenceKey(key)).Err(); err != nil {
-		return err
-	}
-	var token Token
-	if err := DB.Where(commonKeyCol+" = ?", key).First(&token).Error; err != nil {
-		return err
-	}
-	_, err := cacheInitToken(token)
-	return err
 }
 
 // cacheInitToken hydrates only a cold token hash.  If a hash already exists,
@@ -146,7 +127,7 @@ func cacheGetTokenByKey(key string) (*Token, error) {
 	if err := common.RedisHGetObj(getTokenCacheKey(key), &token); err != nil {
 		return nil, err
 	}
-	if token.Id <= 0 || token.RemainQuota < 0 && token.UsedQuota < 0 {
+	if token.Id <= 0 {
 		return nil, fmt.Errorf("token cache is incomplete")
 	}
 	token.Key = key

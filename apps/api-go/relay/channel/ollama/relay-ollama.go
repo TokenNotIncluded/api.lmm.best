@@ -109,12 +109,10 @@ func openAIChatToOllamaChat(c *gin.Context, r *dto.GeneralOpenAIRequest) (*Ollam
 		case []string:
 			chatReq.Options["stop"] = v
 		case []any:
-			arr := make([]string, 0, len(v))
-			for _, i := range v {
-				if s, ok := i.(string); ok {
-					arr = append(arr, s)
-				}
-			}
+			arr := lo.FilterMap(v, func(item any, _ int) (string, bool) {
+				value, ok := item.(string)
+				return value, ok
+			})
 			if len(arr) > 0 {
 				chatReq.Options["stop"] = arr
 			}
@@ -268,12 +266,10 @@ func openAIToGenerate(c *gin.Context, r *dto.GeneralOpenAIRequest) (*OllamaGener
 		case []string:
 			gen.Options["stop"] = v
 		case []any:
-			arr := make([]string, 0, len(v))
-			for _, i := range v {
-				if s, ok := i.(string); ok {
-					arr = append(arr, s)
-				}
-			}
+			arr := lo.FilterMap(v, func(item any, _ int) (string, bool) {
+				value, ok := item.(string)
+				return value, ok
+			})
 			if len(arr) > 0 {
 				gen.Options["stop"] = arr
 			}

@@ -228,6 +228,7 @@ func (p *GitHubProvider) GetProviderPrefix() string {
 	return "github_"
 }
 
+// ProviderUserIDColumn returns the users-table column storing this provider's user ID.
 func (p *GitHubProvider) ProviderUserIDColumn() string {
 	return "github_id"
 }

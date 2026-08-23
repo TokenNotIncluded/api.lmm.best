@@ -2,7 +2,7 @@
 
 LMM API is a maintained fork of [QuantumNous/new-api](https://github.com/QuantumNous/new-api).
 
-- Upstream snapshot: commit `823e26304a396854ace30b52b98ec497c2dd9c36`, dated 2026-08-08
+- Upstream snapshot: commit `2d8e50bf36e94200b809dfb39e73624ec48b1e23`, dated 2026-08-21
 - License: GNU Affero General Public License v3.0 (`AGPL-3.0`)
 - Local user-facing brand: `LMM API`
 - Go module identity: `github.com/LIghtJUNction/api.lmm.best`

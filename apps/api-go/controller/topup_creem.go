@@ -109,7 +109,6 @@ func (*CreemAdaptor) RequestPay(c *gin.Context, req *CreemPayRequest) {
 	}
 
 	id := c.GetInt("id")
-	user, _ := model.GetUserById(id, false)
 	if !requireTopUpCreditCapacity(c, id, selectedProduct.Quota) {
 		return
 	}
@@ -117,6 +116,11 @@ func (*CreemAdaptor) RequestPay(c *gin.Context, req *CreemPayRequest) {
 	if err != nil {
 		logger.LogError(c.Request.Context(), fmt.Sprintf("Creem 产品金额无效 user_id=%d product_id=%s error=%q", id, selectedProduct.ProductId, err.Error()))
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "产品金额无效"})
+		return
+	}
+	user, err := model.GetUserById(id, false)
+	if err != nil || user == nil {
+		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "用户不存在"})
 		return
 	}
 

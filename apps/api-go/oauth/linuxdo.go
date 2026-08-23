@@ -234,6 +234,7 @@ func (p *LinuxDOProvider) GetProviderPrefix() string {
 	return "linuxdo_"
 }
 
+// ProviderUserIDColumn returns the users-table column storing this provider's user ID.
 func (p *LinuxDOProvider) ProviderUserIDColumn() string {
 	return "linux_do_id"
 }

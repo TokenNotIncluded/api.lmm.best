@@ -319,6 +319,7 @@ func (p *GenericOAuthProvider) GetProviderPrefix() string {
 	return p.config.Slug + "_"
 }
 
+// ProviderUserIDColumn returns the users-table column storing this provider's user ID.
 func (p *GenericOAuthProvider) ProviderUserIDColumn() string {
 	return ""
 }

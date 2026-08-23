@@ -74,8 +74,8 @@ func invalidateUserCache(userId int) error {
 	return common.RedisDelKey(getUserCacheKey(userId))
 }
 
-// InvalidateUserCache is the exported version of invalidateUserCache.
-// 供 controller 等上层包在用户状态变更（如禁用、删除、角色变更）后主动清理缓存。
+// InvalidateUserCache lets higher layers evict authorization state after a
+// status, role, or other access-affecting mutation.
 func InvalidateUserCache(userId int) error {
 	return invalidateUserCache(userId)
 }
@@ -165,6 +165,18 @@ func cacheDecrUserQuota(userId int, delta int64) error {
 	return cacheIncrUserQuota(userId, -delta)
 }
 
+// syncCreditUserQuotaCache 在授信事务（充值/兑换等）提交后同步把增量补进缓存
+// 余额。预扣以缓存值为准（存在期间），授信不能绕过它，否则新到账的额度在
+// 缓存过期前不可用；缓存未命中无需处理，下次读取会从已提交的数据库余额水合。
+func syncCreditUserQuotaCache(userId int, quota int, operation string) {
+	if quota <= 0 {
+		return
+	}
+	if err := cacheIncrUserQuota(userId, int64(quota)); err != nil {
+		common.SysLog(fmt.Sprintf("failed to sync %s credit to user quota cache: %s", operation, err.Error()))
+	}
+}
+
 // Helper functions to get individual fields if needed
 func getUserGroupCache(userId int) (string, error) {
 	cache, err := GetUserCache(userId)
@@ -182,12 +194,11 @@ func getUserQuotaCache(userId int) (int, error) {
 	return cache.Quota, nil
 }
 
-func getUserStatusCache(userId int) (int, error) {
-	cache, err := GetUserCache(userId)
-	if err != nil {
-		return 0, err
-	}
-	return cache.Status, nil
+// updateUserQuotaCache invalidates the full hash after an absolute quota
+// rewrite. Writing only Quota could create a partial cache, while overwriting
+// an existing value could race with an atomic reservation.
+func updateUserQuotaCache(userId int, _ int) error {
+	return invalidateUserCache(userId)
 }
 
 func getUserNameCache(userId int) (string, error) {
@@ -204,22 +215,6 @@ func getUserSettingCache(userId int) (dto.UserSetting, error) {
 		return dto.UserSetting{}, err
 	}
 	return cache.GetSetting(), nil
-}
-
-// New functions for individual field updates
-func updateUserStatusCache(userId int, status bool) error {
-	statusInt := common.UserStatusEnabled
-	if !status {
-		statusInt = common.UserStatusDisabled
-	}
-	return updateUserCacheField(userId, "Status", statusInt)
-}
-
-func updateUserQuotaCache(userId int, quota int) error {
-	if !common.RedisEnabled {
-		return nil
-	}
-	return common.RedisHSetField(getUserCacheKey(userId), "Quota", fmt.Sprintf("%d", quota))
 }
 
 // RefreshUserGroupCache writes the database-authoritative group into an
