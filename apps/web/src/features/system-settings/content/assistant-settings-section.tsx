@@ -521,7 +521,20 @@ export function AssistantSettingsSection(props: {
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>{t('Assistant model ID')}</FormLabel>
-                  <Select value={field.value} onValueChange={field.onChange}>
+                  <Select
+                    value={field.value}
+                    onValueChange={(value) => {
+                      if (typeof value !== 'string' || value.trim() === '') {
+                        return
+                      }
+                      form.setValue('AssistantModel', value, {
+                        shouldDirty: true,
+                        shouldTouch: true,
+                        shouldValidate: true,
+                      })
+                      form.clearErrors('AssistantModel')
+                    }}
+                  >
                     <FormControl>
                       <SelectTrigger
                         className='w-full'

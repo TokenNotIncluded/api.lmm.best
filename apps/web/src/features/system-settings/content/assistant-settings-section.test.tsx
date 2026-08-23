@@ -262,11 +262,15 @@ describe('assistant search provider settings', () => {
     const modelRequests: string[] = []
     api.get = (async (url: string) => {
       if (url === '/api/group/') {
-        return { data: { data: ['default', 'premium'] } }
+        return {
+          data: { data: ['default', '国产[Kimi/Deepseek/GLM]'] },
+        }
       }
       if (url === '/api/assistant/models') {
         modelRequests.push(url)
-        return { data: { data: ['model-a', 'model-b'] } }
+        return {
+          data: { data: ['deepseek-v4-flash-0731'] },
+        }
       }
       throw new Error(`unexpected GET ${url}`)
     }) as typeof api.get
@@ -275,6 +279,24 @@ describe('assistant search provider settings', () => {
     try {
       await act(flushEffects)
       assert.equal(modelRequests.length, 0)
+
+      const groupTrigger =
+        rendered.container.querySelectorAll<HTMLButtonElement>(
+          'button[role="combobox"]'
+        )[0]
+      assert.ok(groupTrigger)
+      await act(async () => {
+        groupTrigger.click()
+        await flushEffects()
+      })
+      const domesticOption = [
+        ...document.querySelectorAll('[role="option"]'),
+      ].find((option) => option.textContent?.includes('国产'))
+      assert.ok(domesticOption)
+      await act(async () => {
+        ;(domesticOption as HTMLElement).click()
+        await flushEffects()
+      })
 
       const getModelListButton =
         rendered.container.querySelector<HTMLButtonElement>(
@@ -303,8 +325,19 @@ describe('assistant search provider settings', () => {
       })
       const modelOption = [
         ...document.querySelectorAll('[role="option"]'),
-      ].find((option) => option.textContent?.includes('model-b'))
+      ].find((option) =>
+        option.textContent?.includes('deepseek-v4-flash-0731')
+      )
       assert.ok(modelOption)
+      await act(async () => {
+        ;(modelOption as HTMLElement).click()
+        await flushEffects()
+      })
+      assert.match(
+        modelTrigger.textContent ?? '',
+        /deepseek-v4-flash-0731/
+      )
+      assert.doesNotMatch(rendered.container.textContent ?? '', /Invalid input/)
     } finally {
       api.get = originalGet
       await rendered.cleanup()
