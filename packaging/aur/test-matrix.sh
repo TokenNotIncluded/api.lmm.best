@@ -17,7 +17,10 @@ readonly PACKAGES=(
   lmm-api-web-bin
 )
 
-die() { printf 'test-aur-matrix: %s\n' "$*" >&2; exit 1; }
+die() {
+  printf 'test-aur-matrix: %s\n' "$*" >&2
+  exit 1
+}
 
 contains_srcinfo() {
   local package=$1 expected=$2
@@ -145,7 +148,7 @@ grep -Fqx "_commit=$go_release_commit" "$HERE/lmm-api-go/PKGBUILD" ||
   die 'canonical Go package is not pinned to the reviewed direct-package revision'
 readonly reviewed_go_release_pkgver=0.1.1.r490.g112174124
 if go_release_description=$(git -C "$ROOT" describe --long --tags --exclude='web-v*' --abbrev=9 "$go_release_commit" 2>/dev/null); then
-  go_release_pkgver=$(printf '%s\n' "$go_release_description" | \
+  go_release_pkgver=$(printf '%s\n' "$go_release_description" |
     sed -E 's/^v//; s/([^-]*-g)/r\1/; s/-/./g')
 else
   go_release_pkgver=$reviewed_go_release_pkgver
@@ -162,7 +165,7 @@ expected_memory=$'[Service]\nMemoryAccounting=yes\nMemoryHigh=320M\nMemoryMax=38
 [[ $(<"$SHARED/lmm-api-memory.conf") == "$expected_memory" ]] ||
   die 'package-owned service memory drop-in does not match the production limits'
 if grep -R -Eq 'lmm-api-launcher|backends/(go|rs)' \
-    "$HERE"/*/PKGBUILD "$SHARED/lmm-api.service"; then
+  "$HERE"/*/PKGBUILD "$SHARED/lmm-api.service"; then
   die 'package layout retains a launcher or provider directory'
 fi
 
@@ -318,8 +321,7 @@ for rejected in \
   '--upgrade --noconfirm -- /tmp/lmm-api-go-bin-1-1-x86_64.pkg.tar.zst'; do
   [[ ! $rejected =~ $go_pacman_regex && ! $rejected =~ $web_pacman_regex ]] || die "malicious pacman argv accepted: $rejected"
 done
-[[ $(<"$tmp/pkg-deploy/usr/share/doc/lmm-api-deploy-bin/OPERATOR_SHA256") == \
-   $(sha256sum "$deploy_bundle/lmm-api-go" | cut -d' ' -f1) ]] ||
+[[ $(<"$tmp/pkg-deploy/usr/share/doc/lmm-api-deploy-bin/OPERATOR_SHA256") == $(sha256sum "$deploy_bundle/lmm-api-go" | cut -d' ' -f1) ]] ||
   die 'operator byte hash metadata is incorrect'
 [[ ! -e $tmp/pkg-go-next/usr/share/lmm-api-go/frontend-dist ]] ||
   die 'next Go package owns a bundled frontend'
