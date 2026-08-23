@@ -64,6 +64,7 @@ import { Route as AuthenticatedSubscriptionsIndexRouteImport } from './routes/_a
 import { Route as AuthenticatedSupportIndexRouteImport } from './routes/_authenticated/support/index'
 import { Route as AuthenticatedSystemInfoIndexRouteImport } from './routes/_authenticated/system-info/index'
 import { Route as AuthenticatedSystemSettingsIndexRouteImport } from './routes/_authenticated/system-settings/index'
+import { Route as AuthenticatedTemporaryActivationsIndexRouteImport } from './routes/_authenticated/temporary-activations/index'
 import { Route as AuthenticatedTodosIndexRouteImport } from './routes/_authenticated/todos/index'
 import { Route as AuthenticatedUsageLogsIndexRouteImport } from './routes/_authenticated/usage-logs/index'
 import { Route as AuthenticatedUsageLogsSectionRouteImport } from './routes/_authenticated/usage-logs/$section'
@@ -381,6 +382,12 @@ const AuthenticatedSystemSettingsIndexRoute =
     path: '/',
     getParentRoute: () => AuthenticatedSystemSettingsRouteRoute,
   } as any)
+const AuthenticatedTemporaryActivationsIndexRoute =
+  AuthenticatedTemporaryActivationsIndexRouteImport.update({
+    id: '/temporary-activations/',
+    path: '/temporary-activations/',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedTodosIndexRoute = AuthenticatedTodosIndexRouteImport.update({
   id: '/todos/',
   path: '/todos/',
@@ -560,6 +567,7 @@ export interface FileRoutesByFullPath {
   '/support/': typeof AuthenticatedSupportIndexRoute
   '/system-info/': typeof AuthenticatedSystemInfoIndexRoute
   '/system-settings/': typeof AuthenticatedSystemSettingsIndexRoute
+  '/temporary-activations/': typeof AuthenticatedTemporaryActivationsIndexRoute
   '/todos/': typeof AuthenticatedTodosIndexRoute
   '/usage-logs/': typeof AuthenticatedUsageLogsIndexRoute
   '/users/': typeof AuthenticatedUsersIndexRoute
@@ -635,6 +643,7 @@ export interface FileRoutesByTo {
   '/support': typeof AuthenticatedSupportIndexRoute
   '/system-info': typeof AuthenticatedSystemInfoIndexRoute
   '/system-settings': typeof AuthenticatedSystemSettingsIndexRoute
+  '/temporary-activations': typeof AuthenticatedTemporaryActivationsIndexRoute
   '/todos': typeof AuthenticatedTodosIndexRoute
   '/usage-logs': typeof AuthenticatedUsageLogsIndexRoute
   '/users': typeof AuthenticatedUsersIndexRoute
@@ -714,6 +723,7 @@ export interface FileRoutesById {
   '/_authenticated/support/': typeof AuthenticatedSupportIndexRoute
   '/_authenticated/system-info/': typeof AuthenticatedSystemInfoIndexRoute
   '/_authenticated/system-settings/': typeof AuthenticatedSystemSettingsIndexRoute
+  '/_authenticated/temporary-activations/': typeof AuthenticatedTemporaryActivationsIndexRoute
   '/_authenticated/todos/': typeof AuthenticatedTodosIndexRoute
   '/_authenticated/usage-logs/': typeof AuthenticatedUsageLogsIndexRoute
   '/_authenticated/users/': typeof AuthenticatedUsersIndexRoute
@@ -792,6 +802,7 @@ export interface FileRouteTypes {
     | '/support/'
     | '/system-info/'
     | '/system-settings/'
+    | '/temporary-activations/'
     | '/todos/'
     | '/usage-logs/'
     | '/users/'
@@ -867,6 +878,7 @@ export interface FileRouteTypes {
     | '/support'
     | '/system-info'
     | '/system-settings'
+    | '/temporary-activations'
     | '/todos'
     | '/usage-logs'
     | '/users'
@@ -945,6 +957,7 @@ export interface FileRouteTypes {
     | '/_authenticated/support/'
     | '/_authenticated/system-info/'
     | '/_authenticated/system-settings/'
+    | '/_authenticated/temporary-activations/'
     | '/_authenticated/todos/'
     | '/_authenticated/usage-logs/'
     | '/_authenticated/users/'
@@ -1379,6 +1392,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedSystemSettingsIndexRouteImport
       parentRoute: typeof AuthenticatedSystemSettingsRouteRoute
     }
+    '/_authenticated/temporary-activations/': {
+      id: '/_authenticated/temporary-activations/'
+      path: '/temporary-activations'
+      fullPath: '/temporary-activations/'
+      preLoaderRoute: typeof AuthenticatedTemporaryActivationsIndexRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/todos/': {
       id: '/_authenticated/todos/'
       path: '/todos'
@@ -1640,6 +1660,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedSubscriptionsIndexRoute: typeof AuthenticatedSubscriptionsIndexRoute
   AuthenticatedSupportIndexRoute: typeof AuthenticatedSupportIndexRoute
   AuthenticatedSystemInfoIndexRoute: typeof AuthenticatedSystemInfoIndexRoute
+  AuthenticatedTemporaryActivationsIndexRoute: typeof AuthenticatedTemporaryActivationsIndexRoute
   AuthenticatedTodosIndexRoute: typeof AuthenticatedTodosIndexRoute
   AuthenticatedUsageLogsIndexRoute: typeof AuthenticatedUsageLogsIndexRoute
   AuthenticatedUsersIndexRoute: typeof AuthenticatedUsersIndexRoute
@@ -1678,6 +1699,8 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedSubscriptionsIndexRoute: AuthenticatedSubscriptionsIndexRoute,
   AuthenticatedSupportIndexRoute: AuthenticatedSupportIndexRoute,
   AuthenticatedSystemInfoIndexRoute: AuthenticatedSystemInfoIndexRoute,
+  AuthenticatedTemporaryActivationsIndexRoute:
+    AuthenticatedTemporaryActivationsIndexRoute,
   AuthenticatedTodosIndexRoute: AuthenticatedTodosIndexRoute,
   AuthenticatedUsageLogsIndexRoute: AuthenticatedUsageLogsIndexRoute,
   AuthenticatedUsersIndexRoute: AuthenticatedUsersIndexRoute,

@@ -35,7 +35,7 @@ func setupHeroSMSTestDB(t *testing.T) *gorm.DB {
 	previousDB := DB
 	DB = db
 	t.Cleanup(func() { DB = previousDB })
-	require.NoError(t, db.AutoMigrate(&User{}, &Option{}, &HeroSMSEmailOrder{}, &HeroSMSEmailActivation{}, &HeroSMSEmailQuotaLedger{}, &HeroSMSProviderPurchaseLease{}, &SystemTask{}, &SystemTaskLock{}))
+	require.NoError(t, db.AutoMigrate(&User{}, &Option{}, &HeroSMSEmailOrder{}, &HeroSMSEmailActivation{}, &HeroSMSEmailQuotaLedger{}, &HeroSMSSMSOrder{}, &HeroSMSSMSQuotaLedger{}, &HeroSMSProviderPurchaseLease{}, &SystemTask{}, &SystemTaskLock{}))
 	oldMap := common.OptionMap
 	common.OptionMap = map[string]string{}
 	InitOptionMap()
@@ -71,7 +71,7 @@ func heroSMSTestQuoteID(t *testing.T, cost string) string {
 	t.Helper()
 	parsed, err := decimal.NewFromString(cost)
 	require.NoError(t, err)
-	quoteID, err := encodeHeroSMSQuoteID("demo.com", "mail.test", parsed, decimal.NewFromInt(10))
+	quoteID, err := encodeHeroSMSQuoteID("demo.com", "mail.test", parsed, decimal.NewFromInt(1))
 	require.NoError(t, err)
 	return quoteID
 }
@@ -91,10 +91,10 @@ func testHeroSMSEmailProductsPricing(t *testing.T) {
 	products, err := ListHeroSMSEmailProducts(t.Context(), 1, 10, "demo.com")
 	require.NoError(t, err)
 	require.Len(t, products.Items, 1)
-	require.Equal(t, "10", products.PriceMultiplier)
+	require.Equal(t, "1", products.PriceMultiplier)
 	require.Equal(t, "0.0000011", products.Items[0].CostUSD)
-	require.Equal(t, "0.000011", products.Items[0].CustomerPriceUSD)
-	require.Equal(t, 6, products.Items[0].ChargeQuota)
+	require.Equal(t, "0.0000011", products.Items[0].CustomerPriceUSD)
+	require.Equal(t, 1, products.Items[0].ChargeQuota)
 	require.True(t, products.Items[0].Available)
 	quote, err := decodeHeroSMSQuoteID(products.Items[0].ID)
 	require.NoError(t, err)

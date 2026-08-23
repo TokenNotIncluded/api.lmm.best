@@ -7597,5 +7597,15 @@
   "Use trusted-proxy-aware client IP detection and reject all clients outside the list.": "信頼済みプロキシを考慮してクライアント IP を検出し、リスト外のクライアントを拒否します。",
   "Allowed client IPs / CIDRs": "許可するクライアント IP / CIDR",
   "Enter one IPv4, IPv6, or CIDR per line. Bare addresses are normalized to exact host prefixes.": "1 行に 1 つの IPv4、IPv6、または CIDR を入力してください。単一アドレスは正確なホストプレフィックスに正規化されます。",
-  "At least one IP address or CIDR is required before enabling the whitelist.": "許可リストを有効にする前に、少なくとも 1 つの IP アドレスまたは CIDR が必要です。"
+  "At least one IP address or CIDR is required before enabling the whitelist.": "許可リストを有効にする前に、少なくとも 1 つの IP アドレスまたは CIDR が必要です。",
+  "Add or remove groups here to update every enabled advanced security rule.": "ここでグループを追加または削除すると、有効なすべての高度なセキュリティルールが更新されます。",
+  "Enable at least one advanced security rule before editing groups.": "グループを編集する前に、高度なセキュリティルールを少なくとも 1 件有効にしてください。",
+  "Fix the rules JSON before editing protected groups.": "保護対象グループを編集する前に、ルール JSON を修正してください。",
+  "Select protected groups": "保護対象グループを選択",
+  "Delete subscription plan": "サブスクリプションプランを削除",
+  "Delete subscription plan \"{{name}}\"? Only unused plans can be deleted. This action cannot be undone.": "サブスクリプションプラン「{{name}}」を削除しますか？未使用のプランのみ削除でき、この操作は元に戻せません。",
+  "Subscription plan deleted": "サブスクリプションプランを削除しました",
+  "Temporary activations": "一時認証",
+  "Subscription plan has subscription or order history and cannot be deleted. Disable it instead.": "このプランにはサブスクリプションまたは注文の履歴があるため削除できません。代わりに無効化してください。",
+  "Subscription plan not found": "サブスクリプションプランが見つかりません"
 }

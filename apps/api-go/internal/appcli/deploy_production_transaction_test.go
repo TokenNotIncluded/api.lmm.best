@@ -27,7 +27,7 @@ type fakeProductionRunner struct {
 	oldVersion, newVersion                                      string
 	oldRevision, newRevision                                    string
 	contractRevision, webContractRevision                       string
-	operatorUID, probeVersion                                   string
+	operatorUID, operatorGID, probeVersion                      string
 	installedGoVersion, installedWebVersion                     string
 	installedGoRevision, installedWebRevision                   string
 	goRevisionFile, webRevisionFile                             string
@@ -61,7 +61,11 @@ func (runner *fakeProductionRunner) Run(_ context.Context, command productionCom
 			}
 			return []byte(uid + "\n"), nil
 		}
-		return []byte(strconv.Itoa(os.Getgid()) + "\n"), nil
+		gid := runner.operatorGID
+		if gid == "" {
+			gid = strconv.Itoa(os.Getgid())
+		}
+		return []byte(gid + "\n"), nil
 	case commandRunuser:
 		return runner.runuser(command.Args)
 	}
@@ -1173,6 +1177,21 @@ func TestParseProductionTransactionRejectsNon600WatchdogDefaults(t *testing.T) {
 	}
 	if options.RollbackWindow != 600*time.Second || productionDefaultRollback != 600*time.Second {
 		t.Fatalf("rollback defaults: parsed=%s default=%s", options.RollbackWindow, productionDefaultRollback)
+	}
+}
+
+func TestPrepareOperatorWorkspaceRejectsOversizedGroupID(t *testing.T) {
+	fixture := newProductionFixture(t)
+	fixture.runner.operatorGID = "4294967296"
+
+	err := fixture.runtime.prepareOperatorWorkspace(
+		context.Background(),
+		fixture.workspace,
+		productionOperatorUser,
+		nil,
+	)
+	if err == nil || !strings.Contains(err.Error(), "primary group is invalid") {
+		t.Fatalf("group ID error=%v", err)
 	}
 }
 

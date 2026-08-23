@@ -344,6 +344,7 @@ func SetApiRouter(router *gin.Engine) {
 			subscriptionAdminRoute.GET("/plans", controller.AdminListSubscriptionPlans)
 			subscriptionAdminRoute.POST("/plans", controller.AdminCreateSubscriptionPlan)
 			subscriptionAdminRoute.PUT("/plans/:id", controller.AdminUpdateSubscriptionPlan)
+			subscriptionAdminRoute.DELETE("/plans/:id", controller.AdminDeleteSubscriptionPlan)
 			subscriptionAdminRoute.PATCH("/plans/:id", controller.AdminUpdateSubscriptionPlanStatus)
 			subscriptionAdminRoute.POST("/bind", controller.AdminBindSubscription)
 			subscriptionAdminRoute.POST("/plans/:id/subscriptions/reset", controller.AdminResetPlanSubscriptions)
@@ -401,6 +402,14 @@ func SetApiRouter(router *gin.Engine) {
 			heroSMSRoute.POST("/email/activations/:id/refresh", middleware.DisableCache(), middleware.CriticalRateLimit(), middleware.UserCriticalRateLimit("hero-sms-email-refresh"), middleware.RequestBodyLimit(heroSMSMutationRequestMaxBytes), controller.RefreshHeroSMSEmailActivation)
 			heroSMSRoute.POST("/email/activations/:id/cancel", middleware.DisableCache(), middleware.CriticalRateLimit(), middleware.UserCriticalRateLimit("hero-sms-email-cancel"), middleware.RequestBodyLimit(heroSMSMutationRequestMaxBytes), controller.CancelHeroSMSEmailActivation)
 			heroSMSRoute.POST("/email/activations/:id/reorder", middleware.DisableCache(), middleware.CriticalRateLimit(), middleware.UserCriticalRateLimit("hero-sms-email-reorder"), middleware.RequestBodyLimit(heroSMSMutationRequestMaxBytes), controller.ReorderHeroSMSEmailActivation)
+			heroSMSRoute.GET("/sms/countries", middleware.DisableCache(), controller.ListHeroSMSSMSCountries)
+			heroSMSRoute.GET("/sms/services", middleware.DisableCache(), controller.ListHeroSMSSMSServices)
+			heroSMSRoute.GET("/sms/offer", middleware.DisableCache(), controller.GetHeroSMSSMSOffer)
+			heroSMSRoute.POST("/sms/orders", middleware.DisableCache(), middleware.CriticalRateLimit(), middleware.UserCriticalRateLimit("hero-sms-sms-purchase"), middleware.RequestBodyLimit(heroSMSMutationRequestMaxBytes), controller.CreateHeroSMSSMSOrder)
+			heroSMSRoute.GET("/sms/orders", middleware.DisableCache(), controller.ListHeroSMSSMSOrders)
+			heroSMSRoute.GET("/sms/orders/current", middleware.DisableCache(), controller.GetCurrentHeroSMSSMSOrder)
+			heroSMSRoute.GET("/sms/orders/:id", middleware.DisableCache(), controller.GetHeroSMSSMSOrder)
+			heroSMSRoute.POST("/sms/orders/:id/cancel", middleware.DisableCache(), middleware.CriticalRateLimit(), middleware.UserCriticalRateLimit("hero-sms-sms-cancel"), middleware.RequestBodyLimit(heroSMSMutationRequestMaxBytes), controller.CancelHeroSMSSMSOrder)
 		}
 
 		dynamicPricingRoute := apiRouter.Group("/dynamic_pricing")

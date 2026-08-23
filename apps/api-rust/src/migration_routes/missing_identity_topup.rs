@@ -1281,8 +1281,8 @@ fn neutral_topup_availability(
     add_minimum(stripe, integer(options, "StripeMinTopUp", 1));
     add_minimum(waffo, integer(options, "WaffoMinTopUp", 1));
     add_minimum(pancake, integer(options, "WaffoPancakeMinTopUp", 1));
-    if creem {
-        if let Ok(Value::Array(products)) = serde_json::from_str::<Value>(
+    if creem
+        && let Ok(Value::Array(products)) = serde_json::from_str::<Value>(
             options
                 .get("CreemProducts")
                 .map(String::as_str)
@@ -1296,7 +1296,6 @@ fn neutral_topup_availability(
                 }
             }
         }
-    }
     let available = online || stripe || creem || waffo || pancake;
     let minimum = minimums.into_iter().reduce(f64::min).unwrap_or(0.0);
     (available, minimum)

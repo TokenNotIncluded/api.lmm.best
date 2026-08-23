@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -62,7 +63,7 @@ func (runtime *productionRuntime) prepareOperatorWorkspacePermissions(ctx contex
 		return errors.New("operator primary group is unavailable")
 	}
 	gid, err := strconv.ParseUint(strings.TrimSpace(string(gidOutput)), 10, 32)
-	if err != nil {
+	if err != nil || gid > uint64(math.MaxInt) {
 		return errors.New("operator primary group is invalid")
 	}
 	deployRoot := filepath.Dir(runtime.paths.WorkRoot)
@@ -939,6 +940,7 @@ func parseSystemctlProperties(output []byte) (map[string]string, error) {
 	return properties, nil
 }
 
+// pi-lens-ignore: go-bare-error
 func parseSystemdTimestamp(value string) (time.Time, error) {
 	value = strings.TrimSpace(value)
 	if value == "" || value == "n/a" {

@@ -393,11 +393,10 @@ impl SseFrameParser {
                 frames.push(frame);
             }
         }
-        if !self.line.is_empty() {
-            if let Some(frame) = self.complete_line()? {
+        if !self.line.is_empty()
+            && let Some(frame) = self.complete_line()? {
                 frames.push(frame);
             }
-        }
         if self.eof_mode == SseEofMode::FlushUnterminated && self.has_content {
             if let Some(frame) = self.dispatch_frame() {
                 frames.push(frame);

@@ -4,7 +4,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use axum::{
     Json, Router,
-    extract::{Path, Query, RawQuery, State},
+    extract::{Path, Query, State},
     http::{HeaderMap, StatusCode, header},
     response::{IntoResponse, Response},
     routing::{get, post},
@@ -18,8 +18,7 @@ use sha2::Sha256;
 use sqlx::{PgPool, Row};
 
 use crate::migration_routes::assistant::{
-    AssistantReadState, authenticated_admin, authenticated_user, api_error, assistant_error,
-    assistant_error_owned, assistant_session_required, browser_user, success, with_no_store,
+    AssistantReadState, authenticated_admin, authenticated_user, api_error, assistant_error, assistant_session_required, browser_user, success, with_no_store,
 };
 
 type HmacSha256 = Hmac<Sha256>;
@@ -1053,7 +1052,7 @@ async fn claim_new_user_gift_tx(
         if status == "claimed" {
             let gift = load_new_user_gift(pg, user_id)
                 .await
-                .map_err(|error| ClaimGiftError::Internal(error))?
+                .map_err(ClaimGiftError::Internal)?
                 .unwrap_or(Value::Null);
             return Ok((gift, true));
         }
@@ -1091,7 +1090,7 @@ async fn claim_new_user_gift_tx(
     .await;
     let gift = load_new_user_gift(pg, user_id)
         .await
-        .map_err(|error| ClaimGiftError::Internal(error))?
+        .map_err(ClaimGiftError::Internal)?
         .unwrap_or(Value::Null);
     Ok((gift, false))
 }
@@ -1121,24 +1120,19 @@ async fn load_weekly_discount(pg: &PgPool, user_id: i64) -> Result<Option<Value>
         "created_at": row.try_get::<i64, _>("created_at").unwrap_or_default(),
         "claimed_at": row.try_get::<i64, _>("claimed_at").unwrap_or_default(),
     });
-    if row.try_get::<String, _>("status").unwrap_or_default() == "claimed" {
-        if let Ok(code_id) = row.try_get::<i32, _>("code_id") {
-            if code_id > 0 {
-                if let Ok(code) = sqlx::query_scalar::<_, String>(
+    if row.try_get::<String, _>("status").unwrap_or_default() == "claimed"
+        && let Ok(code_id) = row.try_get::<i32, _>("code_id")
+            && code_id > 0
+                && let Ok(code) = sqlx::query_scalar::<_, String>(
                     "SELECT code FROM discount_codes WHERE id = $1 AND owner_user_id = $2",
                 )
                 .bind(code_id)
                 .bind(user_id)
                 .fetch_optional(pg)
                 .await
-                {
-                    if let Some(code) = code {
+                    && let Some(code) = code {
                         value["code"] = json!(code);
                     }
-                }
-            }
-        }
-    }
     Ok(Some(value))
 }
 
@@ -1165,7 +1159,7 @@ async fn claim_weekly_discount_tx(
         if status == "claimed" {
             let discount = load_weekly_discount(pg, user_id)
                 .await
-                .map_err(|error| ClaimWeeklyError::Internal(error))?
+                .map_err(ClaimWeeklyError::Internal)?
                 .unwrap_or(Value::Null);
             return Ok((discount, true));
         }
@@ -1204,7 +1198,7 @@ async fn claim_weekly_discount_tx(
         .map_err(|error| ClaimWeeklyError::Internal(error.to_string()))?;
     let discount = load_weekly_discount(pg, user_id)
         .await
-        .map_err(|error| ClaimWeeklyError::Internal(error))?
+        .map_err(ClaimWeeklyError::Internal)?
         .unwrap_or(Value::Null);
     Ok((discount, false))
 }

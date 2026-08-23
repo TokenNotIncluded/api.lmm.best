@@ -1,15 +1,13 @@
 //! Streamable HTTP MCP endpoints for open-source bounties and drawing.
 
-use std::sync::Arc;
 
 use axum::{
     Router,
     body::Bytes,
     extract::{Request, State},
-    http::{HeaderMap, Method, StatusCode, header},
+    http::{HeaderMap, StatusCode, header},
     response::{IntoResponse, Response},
-    routing::{connect, delete, get, head, options, patch, post, put, trace},
-    Json,
+    routing::connect,
 };
 use serde_json::json;
 use sha2::{Digest, Sha256};

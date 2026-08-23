@@ -1497,13 +1497,12 @@ fn matching_metadata<'a>(model: &str, metas: &'a [ModelMeta]) -> Option<&'a Mode
 }
 
 fn endpoints_for_ability(ability: &Ability) -> Vec<String> {
-    if ability.channel_type == 58 {
-        if let Some(endpoints) =
+    if ability.channel_type == 58
+        && let Some(endpoints) =
             advanced_custom_endpoints(&ability.channel_settings, &ability.model)
         {
             return endpoints;
         }
-    }
     let mut endpoints = match ability.channel_type {
         38 => vec!["jina-rerank"],
         14 | 33 => vec!["anthropic", "openai"],

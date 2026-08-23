@@ -32,7 +32,7 @@ import {
   ListTodo,
   Medal,
   MessageSquare,
-  Mail,
+  PhoneCall,
   Radio,
   ServerCog,
   Settings,
@@ -192,9 +192,9 @@ export function useSidebarData(): SidebarData {
             icon: Wallet,
           },
           {
-            title: t('Email Activations'),
-            url: '/email-activations',
-            icon: Mail,
+            title: t('Temporary activations'),
+            url: '/temporary-activations',
+            icon: PhoneCall,
           },
           {
             title: t('Profile'),

@@ -6,18 +6,13 @@ it under the terms of the GNU Affero General Public License as published by
 the Free Software Foundation, either version 3 of the License, or
 (at your option) any later version.
 */
-import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
+
+import { registerHeroSmsTranslations } from './i18n.js'
+import { registerTemporaryActivationTranslations } from './temporary-i18n.js'
 
 export function useHeroSmsTranslations() {
-  const [, setRegistered] = useState(false)
-  useEffect(() => {
-    let active = true
-    void import('./i18n.js').then(({ registerHeroSmsTranslations }) => {
-      registerHeroSmsTranslations()
-      if (active) setRegistered(true)
-    })
-    return () => {
-      active = false
-    }
-  }, [])
+  const { i18n } = useTranslation()
+  registerHeroSmsTranslations(i18n)
+  registerTemporaryActivationTranslations(i18n)
 }

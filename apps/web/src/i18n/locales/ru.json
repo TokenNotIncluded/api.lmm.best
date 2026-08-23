@@ -7597,5 +7597,15 @@
   "Use trusted-proxy-aware client IP detection and reject all clients outside the list.": "Определяет IP клиента с учетом доверенных прокси и отклоняет клиентов вне списка.",
   "Allowed client IPs / CIDRs": "Разрешенные IP клиентов / CIDR",
   "Enter one IPv4, IPv6, or CIDR per line. Bare addresses are normalized to exact host prefixes.": "Укажите по одному IPv4, IPv6 или CIDR в строке. Одиночные адреса преобразуются в точные префиксы узлов.",
-  "At least one IP address or CIDR is required before enabling the whitelist.": "Перед включением белого списка необходимо указать хотя бы один IP-адрес или CIDR."
+  "At least one IP address or CIDR is required before enabling the whitelist.": "Перед включением белого списка необходимо указать хотя бы один IP-адрес или CIDR.",
+  "Add or remove groups here to update every enabled advanced security rule.": "Добавление или удаление групп здесь обновляет все включённые правила расширенной безопасности.",
+  "Enable at least one advanced security rule before editing groups.": "Включите хотя бы одно правило расширенной безопасности перед редактированием групп.",
+  "Fix the rules JSON before editing protected groups.": "Исправьте JSON правил перед редактированием защищённых групп.",
+  "Select protected groups": "Выберите защищённые группы",
+  "Delete subscription plan": "Удалить план подписки",
+  "Delete subscription plan \"{{name}}\"? Only unused plans can be deleted. This action cannot be undone.": "Удалить план подписки «{{name}}»? Можно удалить только неиспользуемые планы. Это действие нельзя отменить.",
+  "Subscription plan deleted": "План подписки удалён",
+  "Temporary activations": "Временные активации",
+  "Subscription plan has subscription or order history and cannot be deleted. Disable it instead.": "У плана есть история подписок или заказов, поэтому его нельзя удалить. Отключите его.",
+  "Subscription plan not found": "План подписки не найден"
 }

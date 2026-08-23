@@ -444,16 +444,14 @@ fn parse_dynamic_pricing_setting(options: &HashMap<String, String>) -> DynamicPr
     {
         setting.failover_probability = value;
     }
-    if let Some(raw) = options.get("dynamic_pricing_setting.channel_costs") {
-        if let Ok(value) = serde_json::from_str::<HashMap<String, f64>>(raw) {
+    if let Some(raw) = options.get("dynamic_pricing_setting.channel_costs")
+        && let Ok(value) = serde_json::from_str::<HashMap<String, f64>>(raw) {
             setting.channel_costs = value;
         }
-    }
-    if let Some(raw) = options.get("dynamic_pricing_setting.per_model") {
-        if let Ok(value) = serde_json::from_str::<HashMap<String, ModelPricingOverride>>(raw) {
+    if let Some(raw) = options.get("dynamic_pricing_setting.per_model")
+        && let Ok(value) = serde_json::from_str::<HashMap<String, ModelPricingOverride>>(raw) {
             setting.per_model = value;
         }
-    }
     setting
 }
 
@@ -629,11 +627,10 @@ fn get_multiplier(setting: &DynamicPricingSetting, state: &ModelState) -> f64 {
 
 fn model_base_price(setting: &DynamicPricingSetting, model: &str) -> f64 {
     let mut base = setting.base_price_usd_per_million;
-    if let Some(override_values) = setting.per_model.get(model) {
-        if override_values.base_price_usd_per_million > 0.0 {
+    if let Some(override_values) = setting.per_model.get(model)
+        && override_values.base_price_usd_per_million > 0.0 {
             base = override_values.base_price_usd_per_million;
         }
-    }
     if base <= 0.0 || !base.is_finite() {
         1.0
     } else {
@@ -863,7 +860,7 @@ fn validate_non_negative(name: &str, value: f64) -> Result<(), String> {
 }
 
 fn validate_unit_interval(name: &str, value: f64) -> Result<(), String> {
-    if value < 0.0 || value > 1.0 || !value.is_finite() {
+    if !(0.0..=1.0).contains(&value) || !value.is_finite() {
         return Err(format!("{name} must be finite and in [0, 1]"));
     }
     Ok(())

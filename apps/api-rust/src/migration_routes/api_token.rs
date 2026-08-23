@@ -336,11 +336,10 @@ return 1
                         settings.auto_groups = groups;
                     }
                 } else if key == "MaxTokenAutoGroups" {
-                    if let Ok(max_count) = value.parse::<i64>() {
-                        if max_count > 0 {
+                    if let Ok(max_count) = value.parse::<i64>()
+                        && max_count > 0 {
                             settings.max_token_auto_groups = max_count;
                         }
-                    }
                 } else {
                     // Go uses `strconv.ParseFloat(value, 64)` and deliberately
                     // assigns its zero value on failure.  Preserve that behavior
@@ -1005,11 +1004,10 @@ fn respond_with_options<T: Serialize>(
             } else {
                 serde_json::to_value(value).map_err(|_| TokenError::internal())
             };
-            if omit_auto_groups {
-                if let Ok(value) = &mut value {
+            if omit_auto_groups
+                && let Ok(value) = &mut value {
                     omit_auto_groups_field(value);
                 }
-            }
             match value {
                 Ok(value) => success(value),
                 Err(error) => error.response_for(locale),
@@ -1479,11 +1477,10 @@ impl<'de> Visitor<'de> for TokenWireVisitor {
             } else {
                 Ok(())
             };
-            if let Err(error) = result {
-                if first_error.is_none() {
+            if let Err(error) = result
+                && first_error.is_none() {
                     first_error = Some(error);
                 }
-            }
         }
         first_error.map_or(Ok(wire), |error| Err(A::Error::custom(error)))
     }
@@ -1527,13 +1524,11 @@ impl<'de> Visitor<'de> for TokenBatchWireVisitor {
         let mut first_error = None;
         while let Some(field) = map.next_key::<String>()? {
             let value: Box<serde_json::value::RawValue> = map.next_value()?;
-            if field.eq_ignore_ascii_case("ids") {
-                if let Err(error) = set_batch_ids(&mut wire.ids, &value) {
-                    if first_error.is_none() {
+            if field.eq_ignore_ascii_case("ids")
+                && let Err(error) = set_batch_ids(&mut wire.ids, &value)
+                    && first_error.is_none() {
                         first_error = Some(error);
                     }
-                }
-            }
         }
         first_error.map_or(Ok(wire), |error| Err(A::Error::custom(error)))
     }

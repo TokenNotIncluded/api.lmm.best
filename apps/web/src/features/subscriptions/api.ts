@@ -57,6 +57,11 @@ export async function updatePlan(
   return res.data
 }
 
+export async function deletePlan(id: number): Promise<ApiResponse> {
+  const res = await api.delete(`/api/subscription/admin/plans/${id}`)
+  return res.data
+}
+
 export async function patchPlanStatus(
   id: number,
   enabled: boolean
@@ -198,6 +203,8 @@ export async function paySubscriptionEpay(
   const res = await api.post('/api/subscription/epay/pay', data)
   return {
     ...res.data,
+    // SAFETY: the legacy EPay interceptor can expose `url` on the response
+    // wrapper even though Axios' static type only models the `data` payload.
     url: res.data.url || (res as unknown as { url?: string }).url,
   }
 }

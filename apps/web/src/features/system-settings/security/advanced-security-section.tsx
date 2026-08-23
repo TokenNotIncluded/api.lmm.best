@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { TFunction } from 'i18next'
 import { useEffect, useRef, useState } from 'react'
 import { useForm } from 'react-hook-form'
@@ -45,7 +45,7 @@ import {
 } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 
-import { updateAdvancedSecuritySettings } from '../api'
+import { getSystemGroups, updateAdvancedSecuritySettings } from '../api'
 import {
   SettingsForm,
   SettingsSwitchContent,
@@ -53,6 +53,7 @@ import {
 } from '../components/settings-form-layout'
 import { SettingsPageFormActions } from '../components/settings-page-context'
 import { SettingsSection } from '../components/settings-section'
+import { ProtectedGroupsEditor } from './protected-groups-editor.js'
 import { SecurityAuditPanel } from './security-audit'
 
 const STARTER_RULE_SET = {
@@ -305,6 +306,11 @@ export function AdvancedSecuritySection({
 }: AdvancedSecuritySectionProps) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
+  const groupsQuery = useQuery({
+    queryKey: ['groups'],
+    queryFn: getSystemGroups,
+    staleTime: 5 * 60 * 1000,
+  })
   const updateSettings = useMutation({
     mutationFn: updateAdvancedSecuritySettings,
     onSuccess: (response) => {
@@ -527,6 +533,12 @@ export function AdvancedSecuritySection({
             name='AdvancedSecurityRules'
             render={({ field }) => (
               <FormItem>
+                <ProtectedGroupsEditor
+                  value={field.value}
+                  availableGroups={groupsQuery.data?.data ?? []}
+                  isLoading={groupsQuery.isPending}
+                  onChange={field.onChange}
+                />
                 <FormLabel>{t('Advanced security rules (JSON)')}</FormLabel>
                 <FormControl>
                   <JsonCodeEditor

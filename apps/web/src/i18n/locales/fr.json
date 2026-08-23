@@ -6686,7 +6686,7 @@
     "Today": "Aujourd'hui",
     "Toggle columns": "Basculer les colonnes",
     "Toggle navigation menu": "Basculer le menu de navigation",
-    "Toggle password visibility": "Afficher/masquer le mot de passe",
+    "Toggle password visibility": "Afficher ou masquer le mot de passe",
     "Toggle plan": "Basculer le plan",
     "Toggle Sidebar": "Afficher/masquer la barre latérale",
     "Toggle theme": "Basculer le thème",
@@ -7597,5 +7597,15 @@
   "Use trusted-proxy-aware client IP detection and reject all clients outside the list.": "Détecte l’IP client en tenant compte des proxys de confiance et rejette tous les clients absents de la liste.",
   "Allowed client IPs / CIDRs": "IP clientes / CIDR autorisés",
   "Enter one IPv4, IPv6, or CIDR per line. Bare addresses are normalized to exact host prefixes.": "Saisissez une adresse IPv4, IPv6 ou un CIDR par ligne. Les adresses seules sont normalisées en préfixes d’hôte exacts.",
-  "At least one IP address or CIDR is required before enabling the whitelist.": "Au moins une adresse IP ou un CIDR est requis avant d’activer la liste blanche."
+  "At least one IP address or CIDR is required before enabling the whitelist.": "Au moins une adresse IP ou un CIDR est requis avant d’activer la liste blanche.",
+  "Add or remove groups here to update every enabled advanced security rule.": "Ajoutez ou supprimez des groupes ici pour mettre à jour toutes les règles de sécurité avancées activées.",
+  "Enable at least one advanced security rule before editing groups.": "Activez au moins une règle de sécurité avancée avant de modifier les groupes.",
+  "Fix the rules JSON before editing protected groups.": "Corrigez le JSON des règles avant de modifier les groupes protégés.",
+  "Select protected groups": "Sélectionner les groupes protégés",
+  "Delete subscription plan": "Supprimer le forfait d’abonnement",
+  "Delete subscription plan \"{{name}}\"? Only unused plans can be deleted. This action cannot be undone.": "Supprimer le forfait d’abonnement « {{name}} » ? Seuls les forfaits inutilisés peuvent être supprimés. Cette action est irréversible.",
+  "Subscription plan deleted": "Forfait d’abonnement supprimé",
+  "Temporary activations": "Activations temporaires",
+  "Subscription plan has subscription or order history and cannot be deleted. Disable it instead.": "Le forfait possède un historique d’abonnements ou de commandes et ne peut pas être supprimé. Désactivez-le à la place.",
+  "Subscription plan not found": "Forfait d’abonnement introuvable"
 }

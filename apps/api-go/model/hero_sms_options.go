@@ -61,6 +61,16 @@ func heroSMSPurchasingEnabled() bool {
 	return err == nil && enabled
 }
 
+func heroSMSEmailPurchasingEnabled() bool {
+	enabled, err := strconv.ParseBool(heroSMSOptionValue(setting.HeroSMSOptionEmail, "true"))
+	return err == nil && enabled
+}
+
+func heroSMSSMSPurchasingEnabled() bool {
+	enabled, err := strconv.ParseBool(heroSMSOptionValue(setting.HeroSMSOptionSMS, "false"))
+	return err == nil && enabled
+}
+
 func updateHeroSMSOptionCache(values map[string]string) {
 	common.OptionMapRWMutex.Lock()
 	defer common.OptionMapRWMutex.Unlock()

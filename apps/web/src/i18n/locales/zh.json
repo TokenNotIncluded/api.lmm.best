@@ -7597,5 +7597,15 @@
   "Use trusted-proxy-aware client IP detection and reject all clients outside the list.": "使用可信代理感知的客户端 IP 识别，并拒绝白名单之外的所有客户端。",
   "Allowed client IPs / CIDRs": "允许的客户端 IP / CIDR",
   "Enter one IPv4, IPv6, or CIDR per line. Bare addresses are normalized to exact host prefixes.": "每行填写一个 IPv4、IPv6 或 CIDR。单个地址会自动规范为精确主机前缀。",
-  "At least one IP address or CIDR is required before enabling the whitelist.": "启用白名单前至少需要填写一个 IP 地址或 CIDR。"
+  "At least one IP address or CIDR is required before enabling the whitelist.": "启用白名单前至少需要填写一个 IP 地址或 CIDR。",
+  "Add or remove groups here to update every enabled advanced security rule.": "在此新增或移除分组，以同步更新所有已启用的高级安全规则。",
+  "Enable at least one advanced security rule before editing groups.": "请先启用至少一条高级安全规则，再编辑分组。",
+  "Fix the rules JSON before editing protected groups.": "请先修正规则 JSON，再编辑受保护分组。",
+  "Select protected groups": "选择受保护分组",
+  "Delete subscription plan": "删除订阅套餐",
+  "Delete subscription plan \"{{name}}\"? Only unused plans can be deleted. This action cannot be undone.": "确定删除订阅套餐“{{name}}”吗？仅未使用的套餐可以删除，此操作无法撤销。",
+  "Subscription plan deleted": "订阅套餐已删除",
+  "Temporary activations": "临时接码",
+  "Subscription plan has subscription or order history and cannot be deleted. Disable it instead.": "套餐已有订阅或订单记录，无法删除，请改为停用。",
+  "Subscription plan not found": "订阅套餐不存在"
 }

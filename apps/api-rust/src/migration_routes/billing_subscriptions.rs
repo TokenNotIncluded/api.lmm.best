@@ -208,8 +208,8 @@ async fn expire_due_subscriptions(
         .fetch_one(&mut *tx)
         .await?;
         let mut cache_group = None;
-        if !active_upgrade {
-            if let Some(row) = sqlx::query(
+        if !active_upgrade
+            && let Some(row) = sqlx::query(
                 "SELECT COALESCE(downgrade_group,'') AS downgrade_group, COALESCE(upgrade_group,'') AS upgrade_group, COALESCE(prev_user_group,'') AS prev_user_group FROM user_subscriptions WHERE user_id=$1 AND status='expired' AND (downgrade_group<>'' OR upgrade_group<>'') ORDER BY end_time DESC,id DESC LIMIT 1",
             )
             .bind(user_id)
@@ -244,7 +244,6 @@ async fn expire_due_subscriptions(
                     cache_group = Some(target);
                 }
             }
-        }
         tx.commit().await?;
         if cache_group.is_some() {
             evict_user_cache(valkey, user_id).await;
@@ -358,7 +357,9 @@ pub fn router(state: BillingSubscriptionsState) -> Router {
         )
         .route(
             "/api/subscription/admin/plans/{id}",
-            put(admin_update_plan).patch(admin_update_plan_status),
+            put(admin_update_plan)
+                .delete(admin_delete_plan)
+                .patch(admin_update_plan_status),
         )
         .route(
             "/api/subscription/admin/plans/{id}/subscriptions/reset",
@@ -1049,6 +1050,65 @@ async fn admin_update_plan_status(
         }
         Err(_) => failure(StatusCode::INTERNAL_SERVER_ERROR, "系统错误"),
     }
+}
+
+async fn admin_delete_plan(
+    State(state): State<BillingSubscriptionsState>,
+    headers: HeaderMap,
+    Path(id): Path<i64>,
+) -> Response {
+    if let Err(response) = admin(&state, &headers).await {
+        return response;
+    }
+    if let Err(response) = require_payment_compliance(&state, &headers).await {
+        return with_auth_version(response);
+    }
+    if id <= 0 {
+        return with_auth_version(failure(StatusCode::BAD_REQUEST, "无效的ID"));
+    }
+
+    let mut tx = match state.pg.begin().await {
+        Ok(tx) => tx,
+        Err(_) => return failure(StatusCode::INTERNAL_SERVER_ERROR, "系统错误"),
+    };
+    match sqlx::query_scalar::<_, i64>("SELECT id FROM subscription_plans WHERE id=$1 FOR UPDATE")
+        .bind(id)
+        .fetch_optional(&mut *tx)
+        .await
+    {
+        Ok(Some(_)) => {}
+        Ok(None) => return failure(StatusCode::BAD_REQUEST, "Subscription plan not found"),
+        Err(_) => return failure(StatusCode::INTERNAL_SERVER_ERROR, "系统错误"),
+    }
+
+    match sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS(SELECT 1 FROM user_subscriptions WHERE plan_id=$1) OR EXISTS(SELECT 1 FROM subscription_orders WHERE plan_id=$1)",
+    )
+    .bind(id)
+    .fetch_one(&mut *tx)
+    .await
+    {
+        Ok(true) => {
+            return failure(
+                StatusCode::BAD_REQUEST,
+                "Subscription plan has subscription or order history and cannot be deleted. Disable it instead.",
+            );
+        }
+        Ok(false) => {}
+        Err(_) => return failure(StatusCode::INTERNAL_SERVER_ERROR, "系统错误"),
+    }
+
+    if sqlx::query("DELETE FROM subscription_plans WHERE id=$1")
+        .bind(id)
+        .execute(&mut *tx)
+        .await
+        .is_err()
+        || tx.commit().await.is_err()
+    {
+        return failure(StatusCode::INTERNAL_SERVER_ERROR, "系统错误");
+    }
+    evict_plan(&state, id).await;
+    with_auth_version(empty_ok())
 }
 
 #[derive(Deserialize)]

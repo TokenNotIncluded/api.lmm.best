@@ -13,7 +13,7 @@ use axum::{
     extract::{Path, Query, RawQuery, Request, State},
     http::{HeaderMap, HeaderValue, StatusCode, header},
     response::{IntoResponse, Response},
-    routing::{get, post, put},
+    routing::{get, post},
 };
 use lmm_contracts::LegacySuccessEnvelope;
 use secrecy::SecretString;
@@ -1759,17 +1759,16 @@ fn normalize_public_relay_url(raw: &str) -> Result<String, PublicRelayError> {
     if host.eq_ignore_ascii_case("localhost") {
         return Err(PublicRelayError::invalid_url());
     }
-    if let Ok(ip) = host.parse::<IpAddr>() {
-        if ip.is_loopback()
+    if let Ok(ip) = host.parse::<IpAddr>()
+        && (ip.is_loopback()
             || ip.is_unspecified()
             || match ip {
                 IpAddr::V4(v4) => v4.is_private() || v4.is_link_local(),
                 IpAddr::V6(v6) => v6.is_unique_local() || is_ipv6_link_local(v6),
-            }
+            })
         {
             return Err(PublicRelayError::invalid_url());
         }
-    }
     let path = parsed.path().trim_end_matches('/');
     let host = parsed
         .host()
@@ -1930,7 +1929,7 @@ async fn load_group_options(pg: &PgPool) -> HashMap<String, String> {
 fn json_object(raw: Option<&String>) -> HashMap<String, Value> {
     raw.and_then(|value| serde_json::from_str::<Value>(value).ok())
         .and_then(|value| value.as_object().cloned())
-        .map(|object| object.into_iter().map(|(k, v)| (k, v)).collect())
+        .map(|object| object.into_iter().collect())
         .unwrap_or_default()
 }
 

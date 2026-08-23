@@ -24,6 +24,7 @@ func RegisterScheduledSystemTasks() {
 	service.RegisterSystemTaskHandler(midjourneyPollHandler{})
 	service.RegisterSystemTaskHandler(asyncTaskPollHandler{})
 	service.RegisterSystemTaskHandler(heroSMSEmailReconciliationHandler{})
+	service.RegisterSystemTaskHandler(heroSMSSMSReconciliationHandler{})
 }
 
 // channelTestHandler runs the scheduled "test all channels" job. Enablement and
@@ -172,6 +173,30 @@ func (heroSMSEmailReconciliationHandler) Run(ctx context.Context, task *model.Sy
 	if err != nil {
 		common.SysLog(fmt.Sprintf("HeroSMS reconciliation failed: %T", err))
 		finishSystemTaskHandler(task, runnerID, model.SystemTaskStatusFailed, nil, errors.New("HeroSMS reconciliation failed"))
+		return
+	}
+	finishSystemTaskHandler(task, runnerID, model.SystemTaskStatusSucceeded, map[string]any{"processed": processed}, nil)
+}
+
+type heroSMSSMSReconciliationHandler struct{}
+
+func (heroSMSSMSReconciliationHandler) Type() string { return model.HeroSMSSMSTaskType }
+
+// Enabled keeps uncertain SMS purchases on the durable reconciliation path.
+func (heroSMSSMSReconciliationHandler) Enabled() bool {
+	pending, err := model.HasPendingHeroSMSSMSReconciliationWork()
+	return err == nil && pending
+}
+
+func (heroSMSSMSReconciliationHandler) Interval() time.Duration { return 15 * time.Second }
+
+func (heroSMSSMSReconciliationHandler) NewPayload() any { return nil }
+
+func (heroSMSSMSReconciliationHandler) Run(ctx context.Context, task *model.SystemTask, runnerID string) {
+	processed, err := model.RunHeroSMSSMSReconciliationOnce(ctx, 20)
+	if err != nil {
+		common.SysLog(fmt.Sprintf("HeroSMS SMS reconciliation failed: %T", err))
+		finishSystemTaskHandler(task, runnerID, model.SystemTaskStatusFailed, nil, errors.New("HeroSMS SMS reconciliation failed"))
 		return
 	}
 	finishSystemTaskHandler(task, runnerID, model.SystemTaskStatusSucceeded, map[string]any{"processed": processed}, nil)

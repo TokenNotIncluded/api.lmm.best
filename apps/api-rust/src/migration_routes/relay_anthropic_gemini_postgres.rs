@@ -260,11 +260,10 @@ fn prepare_upstream_request(
     let mut body = request.body.clone();
     let path = match request.protocol {
         RelayProtocol::Anthropic => {
-            if let Some(object) = body.as_object_mut() {
-                if let Some(model) = object.get_mut("model") {
+            if let Some(object) = body.as_object_mut()
+                && let Some(model) = object.get_mut("model") {
                     *model = Value::String(channel.upstream_model.clone());
                 }
-            }
             "/v1/messages".to_owned()
         }
         RelayProtocol::Gemini => {

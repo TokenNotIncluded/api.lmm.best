@@ -44,6 +44,8 @@ const (
 )
 
 var (
+	ErrSubscriptionPlanInUse = errors.New("subscription plan is in use")
+
 	subscriptionPlanCacheOnce     sync.Once
 	subscriptionPlanInfoCacheOnce sync.Once
 
@@ -387,6 +389,37 @@ func calcNextResetTime(base time.Time, plan *SubscriptionPlan, endUnix int64) in
 
 func GetSubscriptionPlanById(id int) (*SubscriptionPlan, error) {
 	return getSubscriptionPlanByIdTx(nil, id)
+}
+
+func AdminDeleteSubscriptionPlan(planId int) error {
+	if planId <= 0 {
+		return errors.New("invalid plan id")
+	}
+
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		var plan SubscriptionPlan
+		if err := lockForUpdate(tx).Where("id = ?", planId).First(&plan).Error; err != nil {
+			return err
+		}
+
+		var subscriptionCount int64
+		if err := tx.Model(&UserSubscription{}).Where("plan_id = ?", planId).Count(&subscriptionCount).Error; err != nil {
+			return err
+		}
+		var orderCount int64
+		if err := tx.Model(&SubscriptionOrder{}).Where("plan_id = ?", planId).Count(&orderCount).Error; err != nil {
+			return err
+		}
+		if subscriptionCount > 0 || orderCount > 0 {
+			return ErrSubscriptionPlanInUse
+		}
+		return tx.Where("id = ?", planId).Delete(&SubscriptionPlan{}).Error
+	})
+	if err != nil {
+		return err
+	}
+	InvalidateSubscriptionPlanCache(planId)
+	return nil
 }
 
 func getSubscriptionPlanByIdTx(tx *gorm.DB, id int) (*SubscriptionPlan, error) {

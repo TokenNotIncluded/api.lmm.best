@@ -9,7 +9,7 @@ use axum::{
     extract::{RawQuery, State},
     http::{HeaderMap, HeaderName, HeaderValue, StatusCode, header},
     response::{IntoResponse, Response},
-    routing::{get as route_get, patch as route_patch, post as route_post},
+    routing::{get as route_get, post as route_post},
 };
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
@@ -326,9 +326,9 @@ impl UnifiedTodoBackend for PgUnifiedTodoBackend {
     ) -> Result<UnifiedTodoPage, UnifiedTodoError> {
         let category = normalize_category(category)?;
         let offset = (page - 1) * page_size;
-        let refs = load_todo_refs(&self.pg, user_id, role, &category, offset, page_size).await?;
+        let refs = load_todo_refs(&self.pg, user_id, role, category, offset, page_size).await?;
         let items = hydrate_todo_items(&self.pg, user_id, role, &refs).await?;
-        let total = count_todo_refs(&self.pg, user_id, role, &category).await?;
+        let total = count_todo_refs(&self.pg, user_id, role, category).await?;
         let unread_by_category = count_unread_by_category(&self.pg, user_id, role).await?;
         let total_unread: i64 = unread_by_category.values().sum();
         let categories = build_category_summaries(&self.pg, user_id, role).await?;
@@ -441,14 +441,13 @@ impl UnifiedTodoBackend for PgUnifiedTodoBackend {
         if client.is_empty() || client.chars().count() > 64 {
             return Err(UnifiedTodoError("invalid onboarding proof".to_owned()));
         }
-        if step == "configure_client" {
-            if proof.base_url.trim().is_empty()
+        if step == "configure_client"
+            && (proof.base_url.trim().is_empty()
                 || proof.group.trim().is_empty()
-                || proof.base_url.chars().count() > 256
+                || proof.base_url.chars().count() > 256)
             {
                 return Err(UnifiedTodoError("invalid onboarding proof".to_owned()));
             }
-        }
         let view = build_onboarding_view(&self.pg, user_id).await?;
         if !view.eligibility.eligible {
             return Err(UnifiedTodoError(
@@ -475,7 +474,7 @@ impl UnifiedTodoBackend for PgUnifiedTodoBackend {
         let now = unix_timestamp();
         ensure_onboarding_row(&self.pg, user_id, now).await?;
         if step == "install_client" {
-            if view.current_step != "install_client" && view.current_step != "" {
+            if view.current_step != "install_client" && !view.current_step.is_empty() {
                 let installed: i64 = sqlx::query_scalar(
                     "SELECT client_installed_at FROM l1_onboarding_todos WHERE user_id = $1",
                 )
@@ -566,8 +565,7 @@ async fn load_todo_refs(
     let mut parts = Vec::new();
     if (category == "all" || category == "developer_access")
         && (is_admin || category != "all" || true)
-    {
-        if is_admin || category == "developer_access" {
+        && (is_admin || category == "developer_access") {
             let clause = if is_admin {
                 "SELECT request.id AS source_id, 'developer_access' AS category, request.created_at AS updated_at \
                  FROM developer_access_requests AS request \
@@ -581,7 +579,6 @@ async fn load_todo_refs(
             };
             parts.push(clause.to_owned());
         }
-    }
     if category == "all" || category == "open_source_bounty" {
         parts.push(
             "SELECT notification.id AS source_id, 'open_source_bounty' AS category, notification.created_at AS updated_at \

@@ -49,10 +49,12 @@ const DEFAULT_QUOTA_PER_UNIT: i64 = 500_000;
 const HERO_SMS_BASE_URL: &str = "https://hero-sms.com/api/v1";
 const HERO_SMS_CURRENCY: &str = "USD";
 const HERO_SMS_CURRENCY_CODE: i32 = 840;
-const DEFAULT_PRICE_MULTIPLIER: &str = "10";
+const DEFAULT_PRICE_MULTIPLIER: &str = "1";
 const PERSISTENT_CIPHER_ENVELOPE: &str = "v1:";
 
 const OPTION_ENABLED: &str = "hero_sms.enabled";
+const OPTION_EMAIL_ENABLED: &str = "hero_sms.email_enabled";
+const OPTION_SMS_ENABLED: &str = "hero_sms.sms_enabled";
 const OPTION_API_KEY: &str = "hero_sms.api_key";
 const OPTION_CURRENCY: &str = "hero_sms.currency";
 const OPTION_CODE: &str = "hero_sms.currency_code";
@@ -124,6 +126,8 @@ pub fn router(state: HeroSmsState) -> Router {
 #[derive(Clone, Debug, Serialize)]
 struct HeroSmsSettingsView {
     enabled: bool,
+    email_enabled: bool,
+    sms_enabled: bool,
     api_key_configured: bool,
     pending_work: bool,
     currency: String,
@@ -134,6 +138,8 @@ struct HeroSmsSettingsView {
 #[derive(Default, Deserialize)]
 struct HeroSmsSettingsUpdate {
     enabled: Option<bool>,
+    email_enabled: Option<bool>,
+    sms_enabled: Option<bool>,
     #[serde(default)]
     api_key: String,
     #[serde(default)]
@@ -1070,7 +1076,7 @@ async fn require_root(state: &HeroSmsState, headers: &HeaderMap) -> Result<(), R
 }
 
 async fn require_user(state: &HeroSmsState, headers: &HeaderMap) -> Result<DashboardUserView, Response> {
-    let credential = dashboard_credential(headers).ok_or_else(|| console_not_found())?;
+    let credential = dashboard_credential(headers).ok_or_else(console_not_found)?;
     let user = state
         .auth
         .self_user_view_for_optional(SecretString::from(credential))
@@ -1232,6 +1238,8 @@ async fn settings_view(pg: &PgPool) -> Result<HeroSmsSettingsView, HeroSmsApiErr
     let api_key = configured_api_key(&options).await?;
     Ok(HeroSmsSettingsView {
         enabled: purchasing_enabled(&options),
+        email_enabled: option_value(&options, OPTION_EMAIL_ENABLED, "true") == "true",
+        sms_enabled: option_value(&options, OPTION_SMS_ENABLED, "false") == "true",
         api_key_configured: !api_key.is_empty(),
         pending_work: pending,
         currency: HERO_SMS_CURRENCY.to_owned(),
@@ -1243,7 +1251,9 @@ async fn settings_view(pg: &PgPool) -> Result<HeroSmsSettingsView, HeroSmsApiErr
 async fn has_pending_work(pg: &PgPool) -> Result<bool, sqlx::Error> {
     sqlx::query_scalar(
         "SELECT EXISTS(SELECT 1 FROM hero_sms_email_activations WHERE status IN \
-         ('pending_provider','active','reconciling','cancel_pending'))",
+         ('pending_provider','active','reconciling','cancel_pending')) OR \
+         EXISTS(SELECT 1 FROM hero_sms_sms_orders WHERE status IN \
+         ('pending_provider','purchase_unknown','active'))",
     )
     .fetch_one(pg)
     .await
@@ -1262,6 +1272,12 @@ async fn update_settings(
     if let Some(value) = update.enabled {
         enabled = value;
     }
+    let email_enabled = update.email_enabled.unwrap_or_else(|| {
+        option_value(&options, OPTION_EMAIL_ENABLED, "true") == "true"
+    });
+    let sms_enabled = update
+        .sms_enabled
+        .unwrap_or_else(|| option_value(&options, OPTION_SMS_ENABLED, "false") == "true");
     let mut effective_key = configured_api_key(&options).await?;
     if !update.api_key.trim().is_empty() {
         let candidate = update.api_key.trim();
@@ -1288,6 +1304,18 @@ async fn update_settings(
     }
     encrypt_persistent("hero_sms.runtime_check", "configured")?;
     upsert_option(pg, OPTION_ENABLED, if enabled { "true" } else { "false" }).await?;
+    upsert_option(
+        pg,
+        OPTION_EMAIL_ENABLED,
+        if email_enabled { "true" } else { "false" },
+    )
+    .await?;
+    upsert_option(
+        pg,
+        OPTION_SMS_ENABLED,
+        if sms_enabled { "true" } else { "false" },
+    )
+    .await?;
     upsert_option(pg, OPTION_CURRENCY, HERO_SMS_CURRENCY).await?;
     upsert_option(pg, OPTION_CODE, &HERO_SMS_CURRENCY_CODE.to_string()).await?;
     upsert_option(pg, OPTION_MULTIPLIER, &multiplier).await?;
@@ -1372,7 +1400,9 @@ async fn operations_api_key(state: &HeroSmsState) -> Result<String, HeroSmsApiEr
 
 async fn purchasing_api_key(state: &HeroSmsState) -> Result<String, HeroSmsApiError> {
     let options = load_options(&state.pg).await?;
-    if !purchasing_enabled(&options) {
+    if !purchasing_enabled(&options)
+        || option_value(&options, OPTION_EMAIL_ENABLED, "true") != "true"
+    {
         return Err(HeroSmsApiError {
             status: StatusCode::SERVICE_UNAVAILABLE,
             code: "NOT_CONFIGURED",
@@ -2180,7 +2210,7 @@ fn charge_quota_from_price(
 }
 
 fn normalize_name(value: &str) -> Option<String> {
-    let mut normalized = value.trim().trim_end_matches('.').to_ascii_lowercase();
+    let normalized = value.trim().trim_end_matches('.').to_ascii_lowercase();
     if normalized.is_empty() || normalized.len() > 253 {
         return None;
     }

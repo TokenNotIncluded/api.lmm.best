@@ -32,7 +32,7 @@ func setupHeroSMSControllerTestDB(t *testing.T) *gorm.DB {
 		model.DB = previousDB
 		common.RedisEnabled = oldRedisEnabled
 	})
-	require.NoError(t, db.AutoMigrate(&model.User{}, &model.Option{}, &model.HeroSMSEmailOrder{}, &model.HeroSMSEmailActivation{}, &model.HeroSMSEmailQuotaLedger{}, &model.HeroSMSProviderPurchaseLease{}))
+	require.NoError(t, db.AutoMigrate(&model.User{}, &model.Option{}, &model.HeroSMSEmailOrder{}, &model.HeroSMSEmailActivation{}, &model.HeroSMSEmailQuotaLedger{}, &model.HeroSMSSMSOrder{}, &model.HeroSMSSMSQuotaLedger{}, &model.HeroSMSProviderPurchaseLease{}))
 	oldMap := common.OptionMap
 	common.OptionMap = map[string]string{}
 	model.InitOptionMap()
@@ -57,7 +57,7 @@ func testHeroSMSOptionEndpointsHideSecretAndRetainAPIKey(t *testing.T) {
 	engine.GET("/option", GetOptions)
 	engine.DELETE("/option/hero-sms/key", DeleteHeroSMSOptionKey)
 
-	request := httptest.NewRequest(http.MethodPut, "/option/hero-sms", strings.NewReader(`{"enabled":true,"api_key":"test-secret-key-12345","price_multiplier":"11"}`))
+	request := httptest.NewRequest(http.MethodPut, "/option/hero-sms", strings.NewReader(`{"enabled":true,"email_enabled":true,"sms_enabled":true,"api_key":"test-secret-key-12345","price_multiplier":"11"}`))
 	request.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()
 	engine.ServeHTTP(response, request)
@@ -70,6 +70,8 @@ func testHeroSMSOptionEndpointsHideSecretAndRetainAPIKey(t *testing.T) {
 	require.Equal(t, http.StatusOK, response.Code)
 	require.NotContains(t, response.Body.String(), "secret-key")
 	require.Contains(t, response.Body.String(), `"api_key_configured":true`)
+	require.Contains(t, response.Body.String(), `"email_enabled":true`)
+	require.Contains(t, response.Body.String(), `"sms_enabled":true`)
 
 	request = httptest.NewRequest(http.MethodGet, "/option", nil)
 	response = httptest.NewRecorder()
@@ -216,7 +218,7 @@ func testHeroSMSGenericOptionWriteRejectsAllProtectedKeys(t *testing.T) {
 	engine.PUT("/option", UpdateOption)
 	engine.POST("/options", UpdateOptionsBulk)
 
-	for _, key := range []string{"hero_sms.api_key", "hero_sms.enabled", "hero_sms.price_multiplier"} {
+	for _, key := range []string{"hero_sms.api_key", "hero_sms.enabled", "hero_sms.email_enabled", "hero_sms.sms_enabled", "hero_sms.price_multiplier"} {
 		request := httptest.NewRequest(http.MethodPut, "/option", strings.NewReader(fmt.Sprintf(`{"key":%q,"value":"nope"}`, key)))
 		request.Header.Set("Content-Type", "application/json")
 		response := httptest.NewRecorder()

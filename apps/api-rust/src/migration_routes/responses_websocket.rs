@@ -578,8 +578,8 @@ async fn handle_client_data(
             if let Some(channel) = refreshed.locked_channel {
                 session.locked_channel = Some(channel);
             }
-            if let Some(locked_model) = session.locked_model.as_deref() {
-                if locked_model != create.model {
+            if let Some(locked_model) = session.locked_model.as_deref()
+                && locked_model != create.model {
                     send_error(
                         client,
                         &create.event_id,
@@ -591,7 +591,6 @@ async fn handle_client_data(
                     .await;
                     return true;
                 }
-            }
             if session.current.is_some() {
                 send_error(
                     client,
@@ -633,8 +632,8 @@ async fn handle_client_data(
                     return true;
                 }
             };
-            if let Some(locked) = session.locked_channel.as_ref() {
-                if locked != &started.channel {
+            if let Some(locked) = session.locked_channel.as_ref()
+                && locked != &started.channel {
                     finish_detached(
                         state,
                         session,
@@ -654,7 +653,6 @@ async fn handle_client_data(
                     .await;
                     return false;
                 }
-            }
             if let Some(existing) = session.upstream.as_ref() {
                 if !Arc::ptr_eq(existing, &started.upstream) {
                     finish_detached(
@@ -806,13 +804,12 @@ async fn handle_upstream_frame(
             }
         }
     }
-    if let Some(message) = frame.into_axum() {
-        if client.send(message).await.is_err() {
+    if let Some(message) = frame.into_axum()
+        && client.send(message).await.is_err() {
             finish_current(state, session, ResponsesTurnFinish::ClientClosed).await;
             close_upstream(session).await;
             return false;
         }
-    }
     true
 }
 
@@ -821,8 +818,8 @@ async fn finish_current(
     session: &mut ActiveSession,
     finish: ResponsesTurnFinish,
 ) {
-    if let Some(turn) = session.current.take() {
-        if state
+    if let Some(turn) = session.current.take()
+        && state
             .service
             .finish_turn(turn.clone(), finish)
             .await
@@ -830,7 +827,6 @@ async fn finish_current(
         {
             session.current = Some(turn);
         }
-    }
 }
 
 async fn finish_detached(

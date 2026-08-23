@@ -68,6 +68,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useDebounce, useMediaQuery } from '@/hooks'
 import { useTableUrlState } from '@/hooks/use-table-url-state'
 import dayjs from '@/lib/dayjs'
@@ -75,6 +76,7 @@ import { formatNumber } from '@/lib/format'
 
 import {
   createHeroSmsIdempotencyKey,
+  formatHeroSmsCNY,
   formatHeroSmsUSD,
   listHeroSmsProducts,
   parseHeroSmsError,
@@ -90,6 +92,7 @@ import {
   useRefreshHeroSmsActivation,
   useReorderHeroSmsActivation,
 } from './hooks'
+import { HeroSmsSmsActivationPanel } from './sms-activation-panel'
 import { HeroSmsStatusBadge } from './status'
 import {
   canCancelHeroSmsActivation,
@@ -121,7 +124,7 @@ type ReorderConfirmation = {
   idempotencyKey: string
 }
 
-const route = getRouteApi('/_authenticated/email-activations/')
+const route = getRouteApi('/_authenticated/temporary-activations/')
 const EMPTY_ACTIVATIONS: HeroSmsActivation[] = []
 
 function formatDateTime(value: string | null | undefined) {
@@ -359,6 +362,7 @@ function MetaItem({ label, value }: { label: string; value: string }) {
 
 export function EmailActivationsPage() {
   const { t } = useTranslation()
+  const [activationKind, setActivationKind] = useState<'sms' | 'email'>('email')
   useHeroSmsTranslations()
   const isMobile = useMediaQuery('(max-width: 640px)')
   const queryClient = useQueryClient()
@@ -772,11 +776,36 @@ export function EmailActivationsPage() {
     productsQuery.isError &&
     !activationsQuery.data &&
     activationsQuery.isError
+  const activationTabs = (
+    <Tabs
+      value={activationKind}
+      onValueChange={(value) => setActivationKind(value as 'sms' | 'email')}
+    >
+      <TabsList aria-label={t('Temporary activation type')}>
+        <TabsTrigger value='sms'>{t('Phone number')}</TabsTrigger>
+        <TabsTrigger value='email'>{t('Email address')}</TabsTrigger>
+      </TabsList>
+    </Tabs>
+  )
+
+  if (activationKind === 'sms') {
+    return (
+      <SectionPageLayout>
+        <SectionPageLayout.Title>
+          {t('Temporary activations')}
+        </SectionPageLayout.Title>
+        <SectionPageLayout.Content>
+          {activationTabs}
+          <HeroSmsSmsActivationPanel />
+        </SectionPageLayout.Content>
+      </SectionPageLayout>
+    )
+  }
 
   return (
     <SectionPageLayout>
       <SectionPageLayout.Title>
-        {t('Email Activations')}
+        {t('Temporary activations')}
       </SectionPageLayout.Title>
       <SectionPageLayout.Actions>
         <Button
@@ -793,6 +822,7 @@ export function EmailActivationsPage() {
         </Button>
       </SectionPageLayout.Actions>
       <SectionPageLayout.Content>
+        {activationTabs}
         {hasHardError ? (
           <ErrorState
             title={t('Unable to load HeroSMS email activations')}
@@ -1126,7 +1156,7 @@ export function EmailActivationsPage() {
                           />
                           <MetaItem
                             label={t('Provider price')}
-                            value={formatHeroSmsUSD(currentActivation.cost_usd)}
+                            value={formatHeroSmsCNY(currentActivation.cost_usd)}
                           />
                         </div>
                       </div>
@@ -1371,7 +1401,7 @@ export function EmailActivationsPage() {
                       />
                       <MetaItem
                         label={t('Provider price')}
-                        value={formatHeroSmsUSD(detailActivation.cost_usd)}
+                        value={formatHeroSmsCNY(detailActivation.cost_usd)}
                       />
                       <MetaItem
                         label={t('Cancellation reason')}

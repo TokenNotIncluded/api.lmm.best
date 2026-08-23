@@ -6,7 +6,7 @@ it under the terms of the GNU Affero General Public License as published by
 the Free Software Foundation, either version 3 of the License, or
 (at your option) any later version.
 */
-import i18next from 'i18next'
+import i18next, { type i18n as I18nInstance } from 'i18next'
 
 export const heroSmsTranslations = {
   en: {
@@ -174,7 +174,7 @@ export const heroSmsTranslations = {
     'The provider purchase failed and the reserved quota was refunded.':
       'The provider purchase failed and the reserved quota was refunded.',
   },
-  zh: {
+  zhCN: {
     'Activation details': '接码详情',
     'Activation refreshed': '已刷新接码状态',
     'Add quota in Wallet, then retry the purchase or reorder action.':
@@ -334,7 +334,7 @@ export const heroSmsTranslations = {
     'The provider purchase failed and the reserved quota was refunded.':
       '服务商购买失败，已退还预留额度。',
   },
-  'zh-TW': {
+  zhTW: {
     'Activation details': '接碼詳情',
     'Activation refreshed': '已重新整理接碼狀態',
     'Add quota in Wallet, then retry the purchase or reorder action.':
@@ -1168,10 +1168,16 @@ export const heroSmsTranslations = {
 
 let registered = false
 
-export function registerHeroSmsTranslations() {
+export function registerHeroSmsTranslations(instance: I18nInstance = i18next) {
   if (registered) return
   for (const [language, translations] of Object.entries(heroSmsTranslations)) {
-    i18next.addResourceBundle(language, 'translation', translations, true, true)
+    instance.addResourceBundle(
+      language,
+      'translation',
+      translations,
+      true,
+      true
+    )
   }
   registered = true
 }

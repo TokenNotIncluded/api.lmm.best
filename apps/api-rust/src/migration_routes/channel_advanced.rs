@@ -733,14 +733,12 @@ impl ReqwestChannelAdvancedUpstream {
             status,
             reqwest::StatusCode::UNAUTHORIZED | reqwest::StatusCode::FORBIDDEN
         ) && !oauth.refresh_token.trim().is_empty()
-        {
-            if let Ok(refreshed) = self.refresh_codex_credential(channel).await {
+            && let Ok(refreshed) = self.refresh_codex_credential(channel).await {
                 oauth = refreshed;
                 if let Ok(retried) = self.codex_wham_request(&oauth, channel, path, method).await {
                     (status, body) = retried;
                 }
             }
-        }
         let payload = serde_json::from_slice(&body)
             .unwrap_or_else(|_| Value::String(String::from_utf8_lossy(&body).into_owned()));
         Ok(json!({
@@ -1552,15 +1550,14 @@ fn validate_channel_kind(
         | ChannelAdvancedOperation::OllamaVersion => Some(ChannelAdvancedKind::Ollama),
         _ => None,
     };
-    if let (Some(required), Some(channel)) = (required, channel) {
-        if channel.kind() != required {
+    if let (Some(required), Some(channel)) = (required, channel)
+        && channel.kind() != required {
             return Err(match required {
                 ChannelAdvancedKind::Codex => ChannelAdvancedError::CodexChannelRequired,
                 ChannelAdvancedKind::Ollama => ChannelAdvancedError::OllamaChannelRequired,
                 ChannelAdvancedKind::Other(_) => ChannelAdvancedError::UnsupportedChannel,
             });
         }
-    }
     if matches!(
         operation,
         ChannelAdvancedOperation::CodexUsage

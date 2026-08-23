@@ -1180,15 +1180,14 @@ impl PgMidjourneyBackend {
         if !self.settings.notify_enabled {
             object.remove("notifyHook");
         }
-        if self.settings.clear_mode_flags {
-            if let Some(prompt) = object.get("prompt").and_then(Value::as_str) {
+        if self.settings.clear_mode_flags
+            && let Some(prompt) = object.get("prompt").and_then(Value::as_str) {
                 let prompt = prompt
                     .replace("--fast", "")
                     .replace("--relax", "")
                     .replace("--turbo", "");
                 object.insert("prompt".to_owned(), Value::String(prompt));
             }
-        }
     }
 }
 

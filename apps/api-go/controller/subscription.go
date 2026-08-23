@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -359,6 +360,30 @@ func AdminUpdateSubscriptionPlanStatus(c *gin.Context) {
 		return
 	}
 	model.InvalidateSubscriptionPlanCache(id)
+	common.ApiSuccess(c, nil)
+}
+
+func AdminDeleteSubscriptionPlan(c *gin.Context) {
+	if !requirePaymentCompliance(c) {
+		return
+	}
+
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil || id <= 0 {
+		common.ApiErrorMsg(c, "无效的ID")
+		return
+	}
+	if err := model.AdminDeleteSubscriptionPlan(id); err != nil {
+		switch {
+		case errors.Is(err, model.ErrSubscriptionPlanInUse):
+			common.ApiErrorMsg(c, "Subscription plan has subscription or order history and cannot be deleted. Disable it instead.")
+		case errors.Is(err, gorm.ErrRecordNotFound):
+			common.ApiErrorMsg(c, "Subscription plan not found")
+		default:
+			common.ApiError(c, err)
+		}
+		return
+	}
 	common.ApiSuccess(c, nil)
 }
 

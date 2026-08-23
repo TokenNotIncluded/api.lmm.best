@@ -1747,14 +1747,12 @@ async fn cached_options(state: &SystemConfigHttpState) -> Result<BTreeMap<String
     if state.runtime_coherent.load(Ordering::Acquire)
         && !state.option_cache_dirty.load(Ordering::Acquire)
         && let Ok(mut connection) = state.valkey.get_multiplexed_async_connection().await
-    {
-        if let Ok(Some(cached)) = connection.get::<_, Option<String>>(OPTIONS_CACHE_KEY).await {
+        && let Ok(Some(cached)) = connection.get::<_, Option<String>>(OPTIONS_CACHE_KEY).await {
             if let Ok(options) = serde_json::from_str(&cached) {
                 return Ok(options);
             }
             tracing::warn!("discarding malformed system-config option cache");
         }
-    }
     let rows = sqlx::query("SELECT key, value FROM options")
         .fetch_all(&state.pg)
         .await

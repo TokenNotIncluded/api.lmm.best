@@ -7597,5 +7597,15 @@
   "Use trusted-proxy-aware client IP detection and reject all clients outside the list.": "Use trusted-proxy-aware client IP detection and reject all clients outside the list.",
   "Allowed client IPs / CIDRs": "Allowed client IPs / CIDRs",
   "Enter one IPv4, IPv6, or CIDR per line. Bare addresses are normalized to exact host prefixes.": "Enter one IPv4, IPv6, or CIDR per line. Bare addresses are normalized to exact host prefixes.",
-  "At least one IP address or CIDR is required before enabling the whitelist.": "At least one IP address or CIDR is required before enabling the whitelist."
+  "At least one IP address or CIDR is required before enabling the whitelist.": "At least one IP address or CIDR is required before enabling the whitelist.",
+  "Add or remove groups here to update every enabled advanced security rule.": "Add or remove groups here to update every enabled advanced security rule.",
+  "Enable at least one advanced security rule before editing groups.": "Enable at least one advanced security rule before editing groups.",
+  "Fix the rules JSON before editing protected groups.": "Fix the rules JSON before editing protected groups.",
+  "Select protected groups": "Select protected groups",
+  "Delete subscription plan": "Delete subscription plan",
+  "Delete subscription plan \"{{name}}\"? Only unused plans can be deleted. This action cannot be undone.": "Delete subscription plan \"{{name}}\"? Only unused plans can be deleted. This action cannot be undone.",
+  "Subscription plan deleted": "Subscription plan deleted",
+  "Temporary activations": "Temporary activations",
+  "Subscription plan has subscription or order history and cannot be deleted. Disable it instead.": "Subscription plan has subscription or order history and cannot be deleted. Disable it instead.",
+  "Subscription plan not found": "Subscription plan not found"
 }

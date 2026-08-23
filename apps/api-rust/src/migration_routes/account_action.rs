@@ -631,8 +631,8 @@ async fn resolve_appeal_user(
     headers: &HeaderMap,
     input: &AppealSubmissionInput,
 ) -> Result<i64, AppealIdentityError> {
-    if let Ok(principal) = authenticated_user(state, headers).await {
-        if dashboard_token_candidate(&principal.credential) {
+    if let Ok(principal) = authenticated_user(state, headers).await
+        && dashboard_token_candidate(&principal.credential) {
             let session = state
                 .auth
                 .current_session(SecretString::from(principal.credential.clone()))
@@ -646,7 +646,6 @@ async fn resolve_appeal_user(
             }
             return Ok(principal.user.id);
         }
-    }
     let username = input.username.trim();
     if username.is_empty() || input.password.is_empty() {
         return Err(AppealIdentityError::Invalid);

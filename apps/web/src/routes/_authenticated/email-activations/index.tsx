@@ -16,18 +16,16 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { createFileRoute } from '@tanstack/react-router'
-import { z } from 'zod'
-
-import { EmailActivationsPage } from '@/features/email-activations'
-
-const emailActivationsSearchSchema = z.object({
-  page: z.number().optional().catch(1),
-  pageSize: z.number().optional().catch(10),
-  status: z.string().optional().catch('all'),
-})
+import { createFileRoute, redirect } from '@tanstack/react-router'
 
 export const Route = createFileRoute('/_authenticated/email-activations/')({
-  validateSearch: emailActivationsSearchSchema,
-  component: EmailActivationsPage,
+  beforeLoad: ({ location }) => {
+    throw redirect({
+      href: location.href.replace(
+        '/email-activations',
+        '/temporary-activations'
+      ),
+      replace: true,
+    })
+  },
 })

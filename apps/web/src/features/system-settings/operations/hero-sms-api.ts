@@ -22,6 +22,8 @@ import { api } from '@/lib/api'
 
 export interface HeroSmsSettingsResponse {
   enabled: boolean
+  email_enabled: boolean
+  sms_enabled: boolean
   api_key_configured: boolean
   pending_work: boolean
   currency: 'USD'
@@ -31,12 +33,16 @@ export interface HeroSmsSettingsResponse {
 
 export interface HeroSmsSettingsFormValues {
   enabled: boolean
+  emailEnabled: boolean
+  smsEnabled: boolean
   apiKey: string
   priceMultiplier: number
 }
 
 export interface HeroSmsSettingsUpdateRequest {
   enabled: boolean
+  email_enabled: boolean
+  sms_enabled: boolean
   price_multiplier: number
   api_key?: string
 }
@@ -65,8 +71,10 @@ export function toHeroSmsSettingsFormValues(
 ): HeroSmsSettingsFormValues {
   return {
     enabled: Boolean(data.enabled),
+    emailEnabled: data.email_enabled !== false,
+    smsEnabled: data.sms_enabled === true,
     apiKey: '',
-    priceMultiplier: Number(data.price_multiplier || 10),
+    priceMultiplier: Number(data.price_multiplier || 1),
   }
 }
 
@@ -76,6 +84,8 @@ export function serializeHeroSmsSettingsUpdate(
   const trimmedApiKey = values.apiKey.trim()
   return {
     enabled: values.enabled,
+    email_enabled: values.emailEnabled,
+    sms_enabled: values.smsEnabled,
     price_multiplier: values.priceMultiplier,
     ...(trimmedApiKey ? { api_key: trimmedApiKey } : {}),
   }

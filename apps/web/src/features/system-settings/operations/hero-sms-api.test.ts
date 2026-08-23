@@ -30,23 +30,31 @@ describe('hero sms settings api helpers', () => {
     assert.deepEqual(
       serializeHeroSmsSettingsUpdate({
         enabled: true,
+        emailEnabled: true,
+        smsEnabled: false,
         apiKey: '   ',
-        priceMultiplier: 10,
+        priceMultiplier: 1,
       }),
       {
         enabled: true,
-        price_multiplier: 10,
+        email_enabled: true,
+        sms_enabled: false,
+        price_multiplier: 1,
       }
     )
 
     assert.deepEqual(
       serializeHeroSmsSettingsUpdate({
         enabled: false,
+        emailEnabled: false,
+        smsEnabled: true,
         apiKey: 'secret-key',
         priceMultiplier: 12,
       }),
       {
         enabled: false,
+        email_enabled: false,
+        sms_enabled: true,
         price_multiplier: 12,
         api_key: 'secret-key',
       }
@@ -57,6 +65,8 @@ describe('hero sms settings api helpers', () => {
     assert.deepEqual(
       toHeroSmsSettingsFormValues({
         enabled: true,
+        email_enabled: true,
+        sms_enabled: true,
         api_key_configured: true,
         pending_work: false,
         currency: 'USD',
@@ -65,12 +75,14 @@ describe('hero sms settings api helpers', () => {
       }),
       {
         enabled: true,
+        emailEnabled: true,
+        smsEnabled: true,
         apiKey: '',
-        priceMultiplier: 10,
+        priceMultiplier: 1,
       }
     )
 
-    assert.equal(getHeroSmsPreviewCustomerPrice(10), 10)
+    assert.equal(getHeroSmsPreviewCustomerPrice(1), 1)
     assert.equal(getHeroSmsPreviewCustomerPrice(12.5), 12.5)
   })
 })

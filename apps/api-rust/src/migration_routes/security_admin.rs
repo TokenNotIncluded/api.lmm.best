@@ -766,7 +766,7 @@ impl SecurityAdminBackend for PgSecurityAdminBackend {
         reason: &str,
     ) -> Result<ViolationFeeAppeal, SecurityAdminError> {
         let chars = reason.chars().count();
-        if record_id <= 0 || chars < 5 || chars > 2000 {
+        if record_id <= 0 || !(5..=2000).contains(&chars) {
             return Err(SecurityAdminError(
                 "申诉说明需要 5 至 2000 个字符".to_owned(),
             ));

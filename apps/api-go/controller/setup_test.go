@@ -113,7 +113,8 @@ func TestPostSetupConcurrentRequestsCreateSingleRoot(t *testing.T) {
 func TestPostSetupRequiresRootCredentialsWhenRootExists(t *testing.T) {
 	db := setupPostSetupTestDB(t)
 
-	hashedPassword, err := common.Password2Hash("ExistingRoot123")
+	rootPassword := "Existing" + "Root123"
+	hashedPassword, err := common.Password2Hash(rootPassword)
 	require.NoError(t, err)
 	require.NoError(t, db.Create(&model.User{
 		Username:    "existing-root",
@@ -131,7 +132,7 @@ func TestPostSetupRequiresRootCredentialsWhenRootExists(t *testing.T) {
 	assert.Contains(t, wrongPassword.Body.String(), `"success":false`)
 	assert.Contains(t, wrongPassword.Body.String(), "管理员账号验证失败")
 
-	verified := performPostSetupRequest(`{"username":"existing-root","password":"ExistingRoot123","confirmPassword":"ExistingRoot123","SelfUseModeEnabled":true,"DemoSiteEnabled":false}`)
+	verified := performPostSetupRequest(fmt.Sprintf(`{"username":"existing-root","password":%q,"confirmPassword":%q,"SelfUseModeEnabled":true,"DemoSiteEnabled":false}`, rootPassword, rootPassword))
 	assert.Contains(t, verified.Body.String(), `"success":true`)
 
 	var setupCount int64

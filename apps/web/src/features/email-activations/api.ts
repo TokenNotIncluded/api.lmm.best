@@ -141,6 +141,16 @@ export function formatHeroSmsUSD(value: number) {
   }).format(value)
 }
 
+export function formatHeroSmsCNY(value: number) {
+  if (!Number.isFinite(value)) return '—'
+  return new Intl.NumberFormat('zh-CN', {
+    style: 'currency',
+    currency: 'CNY',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 8,
+  }).format(value)
+}
+
 export function createHeroSmsIdempotencyKey() {
   if (typeof globalThis.crypto?.randomUUID === 'function') {
     return globalThis.crypto.randomUUID()

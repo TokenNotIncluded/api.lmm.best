@@ -313,6 +313,8 @@ func (c *HTTPClient) doJSON(ctx context.Context, method string, path string, que
 		return nil, err
 	}
 	request.Header.Set("Accept", "application/json")
+	request.Header.Set("Authorization", "ApiKey "+c.apiKey)
+	// Keep the legacy header during the provider's documented auth migration.
 	request.Header.Set("ApiKey", c.apiKey)
 	if payload != nil {
 		request.Header.Set("Content-Type", "application/json")

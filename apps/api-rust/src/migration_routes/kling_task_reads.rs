@@ -283,22 +283,20 @@ async fn read_task(
         return failure_response(invalid_json_failure(&relay_request));
     }
 
-    if let Some(channel_id) = access.specific_channel_id {
-        if let Err(error) = state
+    if let Some(channel_id) = access.specific_channel_id
+        && let Err(error) = state
             .service
             .validate_specific_channel(channel_id, &relay_request)
             .await
         {
             return failure_response(error);
         }
-    }
 
     if conversion == KlingGetConversion::UnconvertedJson {
-        if let Some(limits) = access.model_limits.as_deref() {
-            if !model_is_allowed("", limits) {
+        if let Some(limits) = access.model_limits.as_deref()
+            && !model_is_allowed("", limits) {
                 return failure_response(model_forbidden_failure("", &relay_request));
             }
-        }
         if access.specific_channel_id.is_none() {
             return failure_response(model_required_failure(&relay_request));
         }
@@ -312,8 +310,8 @@ async fn read_task(
         ));
     }
 
-    if access.specific_channel_id.is_none() {
-        if let Some(limits) = access.model_limits.as_deref() {
+    if access.specific_channel_id.is_none()
+        && let Some(limits) = access.model_limits.as_deref() {
             let origin_model = state
                 .service
                 .origin_model_for_owned_task(access.user_id, &task_id)
@@ -323,7 +321,6 @@ async fn read_task(
                 return failure_response(model_forbidden_failure(&origin_model, &relay_request));
             }
         }
-    }
 
     match state.service.owned_task(access.user_id, &task_id).await {
         Ok(Some(task)) => success_response(&task),

@@ -39,6 +39,15 @@ export async function getSystemOptions() {
   return res.data
 }
 
+export async function getSystemGroups() {
+  const res = await api.get<{
+    success: boolean
+    message?: string
+    data: string[]
+  }>('/api/group/')
+  return res.data
+}
+
 export async function updateSystemOption(request: UpdateOptionRequest) {
   const res = await api.put<UpdateOptionResponse>('/api/option/', request)
   return res.data

@@ -1036,8 +1036,8 @@ async fn publish_bounty(
         tracing::error!(%error, viewer_id, project_id, "failed to record bounty escrow");
         return internal_failure();
     }
-    if platform_fee > 0 {
-        if let Err(error) = sqlx::query(
+    if platform_fee > 0
+        && let Err(error) = sqlx::query(
             "INSERT INTO open_source_bounty_ledgers (project_id, user_id, counterparty_user_id, kind, quota, created_at) VALUES ($1,$2,$3,'platform_fee',$4,$5)",
         )
         .bind(project_id)
@@ -1051,7 +1051,6 @@ async fn publish_bounty(
             tracing::error!(%error, viewer_id, project_id, "failed to record bounty platform fee");
             return internal_failure();
         }
-    }
     if let Err(error) = transaction.commit().await {
         tracing::error!(%error, viewer_id, project_id, "failed to commit bounty publication");
         return internal_failure();
@@ -1239,8 +1238,8 @@ async fn close_bounty(
         tracing::error!(%error, viewer_id, project_id, "failed to close bounty project");
         return internal_failure();
     }
-    if refunded_quota > 0 {
-        if let Err(error) = sqlx::query(
+    if refunded_quota > 0
+        && let Err(error) = sqlx::query(
             "INSERT INTO open_source_bounty_ledgers (project_id, user_id, kind, quota, created_at) VALUES ($1,$2,'escrow_refund',$3,$4)",
         )
         .bind(project_id)
@@ -1253,7 +1252,6 @@ async fn close_bounty(
             tracing::error!(%error, viewer_id, project_id, "failed to record bounty escrow refund");
             return internal_failure();
         }
-    }
     if let Err(error) = transaction.commit().await {
         tracing::error!(%error, viewer_id, project_id, "failed to commit bounty close");
         return internal_failure();

@@ -7597,5 +7597,15 @@
   "Use trusted-proxy-aware client IP detection and reject all clients outside the list.": "Nhận diện IP máy khách có xét proxy tin cậy và từ chối mọi máy khách ngoài danh sách.",
   "Allowed client IPs / CIDRs": "IP máy khách / CIDR được phép",
   "Enter one IPv4, IPv6, or CIDR per line. Bare addresses are normalized to exact host prefixes.": "Nhập một IPv4, IPv6 hoặc CIDR trên mỗi dòng. Địa chỉ đơn sẽ được chuẩn hóa thành tiền tố máy chủ chính xác.",
-  "At least one IP address or CIDR is required before enabling the whitelist.": "Cần ít nhất một địa chỉ IP hoặc CIDR trước khi bật danh sách cho phép."
+  "At least one IP address or CIDR is required before enabling the whitelist.": "Cần ít nhất một địa chỉ IP hoặc CIDR trước khi bật danh sách cho phép.",
+  "Add or remove groups here to update every enabled advanced security rule.": "Thêm hoặc xóa nhóm tại đây để cập nhật mọi quy tắc bảo mật nâng cao đang bật.",
+  "Enable at least one advanced security rule before editing groups.": "Hãy bật ít nhất một quy tắc bảo mật nâng cao trước khi chỉnh sửa nhóm.",
+  "Fix the rules JSON before editing protected groups.": "Hãy sửa JSON của quy tắc trước khi chỉnh sửa các nhóm được bảo vệ.",
+  "Select protected groups": "Chọn nhóm được bảo vệ",
+  "Delete subscription plan": "Xóa gói đăng ký",
+  "Delete subscription plan \"{{name}}\"? Only unused plans can be deleted. This action cannot be undone.": "Xóa gói đăng ký “{{name}}”? Chỉ có thể xóa gói chưa được sử dụng. Hành động này không thể hoàn tác.",
+  "Subscription plan deleted": "Đã xóa gói đăng ký",
+  "Temporary activations": "Kích hoạt tạm thời",
+  "Subscription plan has subscription or order history and cannot be deleted. Disable it instead.": "Gói đã có lịch sử đăng ký hoặc đơn hàng nên không thể xóa. Hãy tắt gói thay thế.",
+  "Subscription plan not found": "Không tìm thấy gói đăng ký"
 }

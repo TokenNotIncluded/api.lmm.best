@@ -340,7 +340,7 @@ func mainMigrationModels() []interface{} {
 		&AssistantLead{}, &AssistantProfileBucket{}, &AssistantUserProfile{}, &AssistantUserProfileAudit{}, &AssistantMemory{}, &AssistantFirstQuestionStat{}, &PromptPresetRow{}, &PromptPresetStat{}, &PromptConversionRef{}, &PromptConversationRef{}, &AssistantConversation{}, &AssistantHistoryMessage{}, &AssistantSecureCard{}, &AssistantSecurityIncident{}, &AssistantSecurityReviewNotice{}, &AssistantRequestReview{}, &AssistantReviewReset{}, &AssistantNewUserGift{}, &AssistantWeeklyDiscount{}, &AssistantGiftRiskKey{}, &AssistantGiftRiskMemory{}, &AdvancedSecurityEvent{},
 		&ViolationFeeState{}, &ViolationFeeRecord{}, &ViolationFeeAppeal{},
 		&FinanceLedgerEntry{}, &FinancePaymentMethod{},
-		&HeroSMSEmailOrder{}, &HeroSMSEmailActivation{}, &HeroSMSEmailQuotaLedger{}, &HeroSMSProviderPurchaseLease{},
+		&HeroSMSEmailOrder{}, &HeroSMSEmailActivation{}, &HeroSMSEmailQuotaLedger{}, &HeroSMSSMSOrder{}, &HeroSMSSMSQuotaLedger{}, &HeroSMSProviderPurchaseLease{},
 		&ReleaseNote{}, &ReleaseNoteRead{}, &UnifiedTodoRead{}, &L1OnboardingTodo{},
 		&PublicRelayContribution{}, &PublicRelayReport{}, &PublicRelayTip{}, &PublicRelayReview{}, &PublicRelayPreference{},
 	}
@@ -449,6 +449,8 @@ func migrateDBFast() error {
 		{&HeroSMSEmailOrder{}, "HeroSMSEmailOrder"},
 		{&HeroSMSEmailActivation{}, "HeroSMSEmailActivation"},
 		{&HeroSMSEmailQuotaLedger{}, "HeroSMSEmailQuotaLedger"},
+		{&HeroSMSSMSOrder{}, "HeroSMSSMSOrder"},
+		{&HeroSMSSMSQuotaLedger{}, "HeroSMSSMSQuotaLedger"},
 		{&HeroSMSProviderPurchaseLease{}, "HeroSMSProviderPurchaseLease"},
 		{&SubscriptionPreConsumeRecord{}, "SubscriptionPreConsumeRecord"},
 		{&CustomOAuthProvider{}, "CustomOAuthProvider"},

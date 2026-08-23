@@ -1122,11 +1122,10 @@ impl FinanceAccumulator {
         });
         metric.category = category.to_owned();
         metric.amount_micros += amount;
-        if user_id > 0 {
-            if let Some(user) = self.user_metric(user_id) {
+        if user_id > 0
+            && let Some(user) = self.user_metric(user_id) {
                 user.expense_micros += amount;
             }
-        }
         self.overview.expense_micros += amount;
         self.daily_metric(timestamp).expense_micros += amount;
     }
@@ -1146,11 +1145,10 @@ impl FinanceAccumulator {
         metric.orders += 1;
         self.overview.refund_micros += amount;
         self.daily_metric(timestamp).refund_micros += amount;
-        if user_id > 0 {
-            if let Some(user) = self.user_metric(user_id) {
+        if user_id > 0
+            && let Some(user) = self.user_metric(user_id) {
                 user.refund_micros += amount;
             }
-        }
     }
 
     fn add_usage(
@@ -1910,14 +1908,12 @@ async fn load_usage_logs(
             }
             let mut priced = false;
             let mut price = 0.0f64;
-            if let Ok(value) = serde_json::from_str::<Value>(&other) {
-                if let Some(raw) = value.get("model_price").and_then(Value::as_f64) {
-                    if raw > 0.0 {
+            if let Ok(value) = serde_json::from_str::<Value>(&other)
+                && let Some(raw) = value.get("model_price").and_then(Value::as_f64)
+                    && raw > 0.0 {
                         price = raw;
                         priced = true;
                     }
-                }
-            }
             let prompt: i64 = row_get(row, "prompt_tokens")?;
             let completion: i64 = row_get(row, "completion_tokens")?;
             let total = (prompt + completion).max(0);

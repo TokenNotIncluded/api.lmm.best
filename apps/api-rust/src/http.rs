@@ -1016,11 +1016,9 @@ fn canonical_client_ip_with_key(
         .headers()
         .get("x-forwarded-for")
         .and_then(|value| value.to_str().ok())
-    {
-        if let Some(client) = trusted_forwarded_header(forwarded_for, trusted_proxies) {
+        && let Some(client) = trusted_forwarded_header(forwarded_for, trusted_proxies) {
             return Some(client);
         }
-    }
     if let Some((forwarded_ip, key)) = request
         .headers()
         .get(&REAL_IP_HEADER)

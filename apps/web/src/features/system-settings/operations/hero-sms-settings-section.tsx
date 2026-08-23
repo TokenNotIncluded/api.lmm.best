@@ -88,6 +88,8 @@ import {
 
 const heroSmsSettingsSchema = z.object({
   enabled: z.boolean(),
+  emailEnabled: z.boolean(),
+  smsEnabled: z.boolean(),
   apiKey: z
     .string()
     .max(1024)
@@ -169,6 +171,7 @@ export function HeroSmsSettingsSection() {
   useResetForm(form, formDefaults)
 
   const priceMultiplier = form.watch('priceMultiplier')
+  const serviceEnabled = form.watch('enabled')
 
   const configured = settingsQuery.data?.api_key_configured ?? false
   const pendingWork = settingsQuery.data?.pending_work ?? false
@@ -232,7 +235,7 @@ export function HeroSmsSettingsSection() {
   }
 
   return (
-    <SettingsSection title={t('HeroSMS Email')}>
+    <SettingsSection title={t('HeroSMS temporary activations')}>
       <SettingsPageTitleStatusPortal>
         <div className='flex flex-wrap items-center gap-2'>
           <Badge variant={configured ? 'default' : 'outline'}>
@@ -390,10 +393,10 @@ export function HeroSmsSettingsSection() {
             render={({ field }) => (
               <SettingsSwitchItem>
                 <SettingsSwitchContent>
-                  <FormLabel>{t('Enable HeroSMS email activations')}</FormLabel>
+                  <FormLabel>{t('Enable temporary activations')}</FormLabel>
                   <FormDescription>
                     {t(
-                      'Allow authenticated users to purchase HeroSMS temporary email activations from the console.'
+                      'Allow authenticated users to purchase temporary phone-number and email activations.'
                     )}
                   </FormDescription>
                 </SettingsSwitchContent>
@@ -401,6 +404,54 @@ export function HeroSmsSettingsSection() {
                   <Switch
                     checked={field.value}
                     onCheckedChange={field.onChange}
+                  />
+                </FormControl>
+              </SettingsSwitchItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name='smsEnabled'
+            render={({ field }) => (
+              <SettingsSwitchItem>
+                <SettingsSwitchContent>
+                  <FormLabel>{t('Enable phone-number activations')}</FormLabel>
+                  <FormDescription>
+                    {t(
+                      'Allow users to purchase temporary phone numbers and receive SMS verification codes.'
+                    )}
+                  </FormDescription>
+                </SettingsSwitchContent>
+                <FormControl>
+                  <Switch
+                    checked={field.value}
+                    onCheckedChange={field.onChange}
+                    disabled={!serviceEnabled}
+                  />
+                </FormControl>
+              </SettingsSwitchItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name='emailEnabled'
+            render={({ field }) => (
+              <SettingsSwitchItem>
+                <SettingsSwitchContent>
+                  <FormLabel>{t('Enable email activations')}</FormLabel>
+                  <FormDescription>
+                    {t(
+                      'Allow users to purchase temporary email addresses and receive verification messages.'
+                    )}
+                  </FormDescription>
+                </SettingsSwitchContent>
+                <FormControl>
+                  <Switch
+                    checked={field.value}
+                    onCheckedChange={field.onChange}
+                    disabled={!serviceEnabled}
                   />
                 </FormControl>
               </SettingsSwitchItem>
@@ -461,7 +512,7 @@ export function HeroSmsSettingsSection() {
                     <FormDescription>
                       {t('$1 provider cost → {{price}} customer price', {
                         price: formatHeroSmsUSD(
-                          getHeroSmsPreviewCustomerPrice(priceMultiplier || 10)
+                          getHeroSmsPreviewCustomerPrice(priceMultiplier || 1)
                         ),
                       })}
                     </FormDescription>
@@ -471,26 +522,24 @@ export function HeroSmsSettingsSection() {
               />
             </SettingsFormGridItem>
 
-            <SettingsFormGridItem>
+            <SettingsFormGridItem className='md:col-span-2'>
               <FormItem>
-                <FormLabel>{t('Currency')}</FormLabel>
+                <FormLabel>{t('Charging rule')}</FormLabel>
                 <FormControl>
-                  <Input value='USD' readOnly aria-readonly='true' />
+                  <Input
+                    value={t('HeroSMS ¥1 → platform ${{price}} balance', {
+                      price: getHeroSmsPreviewCustomerPrice(
+                        priceMultiplier || 1
+                      ).toFixed(2),
+                    })}
+                    readOnly
+                    aria-readonly='true'
+                  />
                 </FormControl>
                 <FormDescription>
-                  {t('Fixed provider settlement currency')}
-                </FormDescription>
-              </FormItem>
-            </SettingsFormGridItem>
-
-            <SettingsFormGridItem>
-              <FormItem>
-                <FormLabel>{t('Currency code')}</FormLabel>
-                <FormControl>
-                  <Input value='840' readOnly aria-readonly='true' />
-                </FormControl>
-                <FormDescription>
-                  {t('ISO numeric currency code')}
+                  {t(
+                    'The multiplier is x: each HeroSMS ¥1 of upstream cost charges $x from the user balance. Platform balance and RMB recharge are treated as approximately 1:1 for this simplified calculation.'
+                  )}
                 </FormDescription>
               </FormItem>
             </SettingsFormGridItem>

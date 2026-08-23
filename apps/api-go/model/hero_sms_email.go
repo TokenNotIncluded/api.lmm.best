@@ -78,6 +78,8 @@ func newHeroSMSError(status int, code string, message string) *HeroSMSError {
 
 type HeroSMSSettingsView struct {
 	Enabled          bool   `json:"enabled"`
+	EmailEnabled     bool   `json:"email_enabled"`
+	SMSEnabled       bool   `json:"sms_enabled"`
 	APIKeyConfigured bool   `json:"api_key_configured"`
 	PendingWork      bool   `json:"pending_work"`
 	Currency         string `json:"currency"`
@@ -87,6 +89,8 @@ type HeroSMSSettingsView struct {
 
 type HeroSMSSettingsUpdate struct {
 	Enabled         *bool  `json:"enabled"`
+	EmailEnabled    *bool  `json:"email_enabled"`
+	SMSEnabled      *bool  `json:"sms_enabled"`
 	APIKey          string `json:"api_key"`
 	PriceMultiplier string `json:"price_multiplier"`
 }
@@ -300,8 +304,8 @@ func SetHeroSMSClientFactoryForTest(factory func(baseURL string, apiKey string) 
 
 // pi-lens-ignore: go-bare-error
 func heroSMSClient() (herosms.Client, error) {
-	if !heroSMSPurchasingEnabled() {
-		return nil, newHeroSMSError(http.StatusServiceUnavailable, "NOT_CONFIGURED", "HeroSMS purchasing is disabled")
+	if !heroSMSPurchasingEnabled() || !heroSMSEmailPurchasingEnabled() {
+		return nil, newHeroSMSError(http.StatusServiceUnavailable, "NOT_CONFIGURED", "HeroSMS email purchasing is disabled")
 	}
 	return heroSMSOperationsClient()
 }
@@ -374,7 +378,7 @@ func isProductionEnv() bool {
 }
 
 func GetHeroSMSSettingsView() (HeroSMSSettingsView, error) {
-	pendingWork, err := HasPendingHeroSMSEmailReconciliationWork()
+	pendingWork, err := hasPendingHeroSMSWork()
 	if err != nil {
 		return HeroSMSSettingsView{}, fmt.Errorf("inspect pending HeroSMS work: %w", err)
 	}
@@ -384,6 +388,8 @@ func GetHeroSMSSettingsView() (HeroSMSSettingsView, error) {
 	}
 	return HeroSMSSettingsView{
 		Enabled:          heroSMSPurchasingEnabled(),
+		EmailEnabled:     heroSMSEmailPurchasingEnabled(),
+		SMSEnabled:       heroSMSSMSPurchasingEnabled(),
 		APIKeyConfigured: apiKey != "",
 		PendingWork:      pendingWork,
 		Currency:         setting.HeroSMSCurrency,
@@ -405,6 +411,14 @@ func UpdateHeroSMSSettings(update HeroSMSSettingsUpdate) error {
 	if update.Enabled != nil {
 		enabled = *update.Enabled
 	}
+	emailEnabled := heroSMSEmailPurchasingEnabled()
+	if update.EmailEnabled != nil {
+		emailEnabled = *update.EmailEnabled
+	}
+	smsEnabled := heroSMSSMSPurchasingEnabled()
+	if update.SMSEnabled != nil {
+		smsEnabled = *update.SMSEnabled
+	}
 	encryptedCredential := ""
 	storeAPIKey := false
 	effectiveAPIKey, keyErr := heroSMSConfiguredAPIKey()
@@ -414,7 +428,7 @@ func UpdateHeroSMSSettings(update HeroSMSSettingsUpdate) error {
 	if strings.TrimSpace(update.APIKey) != "" {
 		candidateAPIKey := strings.TrimSpace(update.APIKey)
 		if keyErr != nil || candidateAPIKey != effectiveAPIKey {
-			pending, err := HasPendingHeroSMSEmailReconciliationWork()
+			pending, err := hasPendingHeroSMSWork()
 			if err != nil {
 				return fmt.Errorf("check HeroSMS work before credential rotation: %w", err)
 			}
@@ -444,6 +458,8 @@ func UpdateHeroSMSSettings(update HeroSMSSettingsUpdate) error {
 	}
 	updates := map[string]string{
 		setting.HeroSMSOptionEnabled:    strconv.FormatBool(enabled),
+		setting.HeroSMSOptionEmail:      strconv.FormatBool(emailEnabled),
+		setting.HeroSMSOptionSMS:        strconv.FormatBool(smsEnabled),
 		setting.HeroSMSOptionCurrency:   setting.HeroSMSCurrency,
 		setting.HeroSMSOptionCode:       strconv.Itoa(setting.HeroSMSCurrencyCode),
 		setting.HeroSMSOptionMultiplier: multiplier,
@@ -471,7 +487,7 @@ func ClearHeroSMSAPIKey() error {
 	if heroSMSPurchasingEnabled() {
 		return newHeroSMSError(http.StatusConflict, "INVALID_REQUEST", "disable HeroSMS before clearing the API key")
 	}
-	if pending, err := HasPendingHeroSMSEmailReconciliationWork(); err != nil {
+	if pending, err := hasPendingHeroSMSWork(); err != nil {
 		return err
 	} else if pending {
 		return newHeroSMSError(http.StatusConflict, "ACTIVE_ORDERS", "finish or reconcile active HeroSMS orders before clearing the API key")
@@ -500,12 +516,33 @@ func CheckHeroSMSConfiguration(ctx context.Context, candidateAPIKey string) erro
 		baseURL = heroSMSBaseURL
 	}
 	client := heroSMSClientFactory(baseURL, apiKey)
-	response, err := client.ListDomains(ctx, "")
-	if err != nil {
-		return mapHeroSMSProviderError(err)
+	tested := false
+	if heroSMSEmailPurchasingEnabled() {
+		response, err := client.ListDomains(ctx, "")
+		if err != nil {
+			return mapHeroSMSProviderError(err)
+		}
+		if response == nil {
+			return newHeroSMSError(http.StatusBadGateway, "BAD_UPSTREAM_RESPONSE", "HeroSMS returned an empty email response")
+		}
+		tested = true
 	}
-	if response == nil {
-		return newHeroSMSError(http.StatusBadGateway, "BAD_UPSTREAM_RESPONSE", "HeroSMS returned an empty response")
+	if heroSMSSMSPurchasingEnabled() {
+		smsClient, ok := client.(herosms.SMSClient)
+		if !ok {
+			return newHeroSMSError(http.StatusServiceUnavailable, "NOT_CONFIGURED", "HeroSMS SMS client is unavailable")
+		}
+		countries, err := smsClient.ListSMSCountries(ctx)
+		if err != nil {
+			return mapHeroSMSProviderError(err)
+		}
+		if countries == nil {
+			return newHeroSMSError(http.StatusBadGateway, "BAD_UPSTREAM_RESPONSE", "HeroSMS returned an empty SMS response")
+		}
+		tested = true
+	}
+	if !tested {
+		return newHeroSMSError(http.StatusBadRequest, "NOT_CONFIGURED", "enable at least one HeroSMS activation type")
 	}
 	return nil
 }
@@ -1863,6 +1900,24 @@ func RunHeroSMSEmailReconciliationOnce(ctx context.Context, limit int) (int, err
 	return processed, firstErr
 }
 
+func hasPendingHeroSMSWork() (bool, error) {
+	emailPending, err := HasPendingHeroSMSEmailReconciliationWork()
+	if err != nil {
+		return false, err
+	}
+	smsPending, err := HasPendingHeroSMSSMSWork()
+	if err != nil {
+		return false, err
+	}
+	return emailPending || smsPending, nil
+}
+
+func HasPendingHeroSMSSMSReconciliationWork() (bool, error) {
+	var count int64
+	err := DB.Model(&HeroSMSSMSOrder{}).Where("status = ?", HeroSMSSMSOrderStatusPurchaseUnknown).Count(&count).Error
+	return count > 0, err
+}
+
 func HasPendingHeroSMSEmailReconciliationWork() (bool, error) {
 	var count int64
 	err := DB.Model(&HeroSMSEmailActivation{}).Where("status IN ?", []string{HeroSMSEmailActivationStatusPendingProvider, HeroSMSEmailActivationStatusActive, HeroSMSEmailActivationStatusReconciling, HeroSMSEmailActivationStatusCancelPending}).Count(&count).Error
@@ -2164,6 +2219,10 @@ func mapHeroSMSProviderError(err error) error {
 		return newHeroSMSError(http.StatusServiceUnavailable, "NOT_CONFIGURED", "HeroSMS credentials are invalid")
 	case errors.Is(err, herosms.ErrNotFound):
 		return newHeroSMSError(http.StatusNotFound, "NOT_FOUND", "HeroSMS resource not found")
+	case errors.Is(err, herosms.ErrNoSMSNumbersAvailable):
+		return newHeroSMSError(http.StatusConflict, "PRICE_CHANGED", "HeroSMS has no matching phone numbers")
+	case errors.Is(err, herosms.ErrProviderBalanceInsufficient):
+		return newHeroSMSError(http.StatusServiceUnavailable, "UPSTREAM_BUSY", "HeroSMS provider balance is insufficient")
 	case errors.Is(err, herosms.ErrInvalidRequest):
 		return newHeroSMSError(http.StatusBadRequest, "INVALID_REQUEST", "HeroSMS request was rejected")
 	case errors.Is(err, herosms.ErrRateLimited):
