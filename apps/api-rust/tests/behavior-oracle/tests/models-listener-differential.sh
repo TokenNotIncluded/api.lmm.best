@@ -9,10 +9,20 @@ set +x
 repo_root=$(git rev-parse --show-toplevel)
 legacy_revision=5418ce6b6d45ed69167b0aad53f2f595e5bc8de9
 legacy_root=${LMM_GO_ORACLE_ROOT:-}
-[[ -n $legacy_root ]] || { echo "LMM_GO_ORACLE_ROOT is required; set it to an absolute external immutable Go oracle tree ($legacy_revision)" >&2; exit 2; }
-[[ $legacy_root == /* && -d $legacy_root && ! -L $legacy_root ]] || { echo 'LMM_GO_ORACLE_ROOT must be an absolute, non-symlink directory' >&2; exit 2; }
+[[ -n $legacy_root ]] || {
+  echo "LMM_GO_ORACLE_ROOT is required; set it to an absolute external immutable Go oracle tree ($legacy_revision)" >&2
+  exit 2
+}
+[[ $legacy_root == /* && -d $legacy_root && ! -L $legacy_root ]] || {
+  echo 'LMM_GO_ORACLE_ROOT must be an absolute, non-symlink directory' >&2
+  exit 2
+}
 legacy_root=$(realpath -e -- "$legacy_root")
-case "$legacy_root" in "$repo_root"|"$repo_root"/*) echo 'LMM_GO_ORACLE_ROOT must be external to the current repository' >&2; exit 2 ;; esac
+case "$legacy_root" in "$repo_root" | "$repo_root"/*)
+  echo 'LMM_GO_ORACLE_ROOT must be external to the current repository' >&2
+  exit 2
+  ;;
+esac
 runtime_root=${LMM_MODELS_TEST_RUNTIME_ROOT:-/tmp}
 crypto_secret='models-oracle-crypto-secret-2026'
 session_secret='ModelsListener-2026!FixedSyntheticSecret'
@@ -40,8 +50,16 @@ cleanup_started=false
 go_valkey_password=$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')
 rust_valkey_password=$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')
 
-case "$approval_mode" in 0|1) ;; *) echo 'LMM_MODELS_PARITY_APPROVAL must be 0 or 1' >&2; exit 2 ;; esac
-case "$probe_only" in 0|1) ;; *) echo 'LMM_MODELS_PARITY_PROBE_ONLY must be 0 or 1' >&2; exit 2 ;; esac
+case "$approval_mode" in 0 | 1) ;; *)
+  echo 'LMM_MODELS_PARITY_APPROVAL must be 0 or 1' >&2
+  exit 2
+  ;;
+esac
+case "$probe_only" in 0 | 1) ;; *)
+  echo 'LMM_MODELS_PARITY_PROBE_ONLY must be 0 or 1' >&2
+  exit 2
+  ;;
+esac
 if [[ $approval_mode == 1 && $probe_only == 1 ]]; then
   echo 'approval mode refuses probe-only; run the complete models alias matrix' >&2
   exit 2
@@ -51,8 +69,8 @@ early_runtime_cleanup() {
   # This guard is installed immediately after mktemp. It covers every
   # preflight/hash/probe failure before the full process-aware cleanup exists.
   case "$runtime" in
-    "$runtime_root"/lmm-models-listener.*) rm -rf -- "$runtime" ;;
-    *) echo "refusing unexpected early models runtime: $runtime" >&2 ;;
+  "$runtime_root"/lmm-models-listener.*) rm -rf -- "$runtime" ;;
+  *) echo "refusing unexpected early models runtime: $runtime" >&2 ;;
   esac
 }
 trap early_runtime_cleanup EXIT
@@ -63,7 +81,10 @@ random_free_port() {
   local port
   for _ in {1..100}; do
     port=$(shuf -i 20000-60000 -n 1)
-    [[ -z $(ss -H -ltn "sport = :$port" 2>/dev/null) ]] && { printf '%s\n' "$port"; return 0; }
+    [[ -z $(ss -H -ltn "sport = :$port" 2>/dev/null) ]] && {
+      printf '%s\n' "$port"
+      return 0
+    }
   done
   echo 'unable to select an unused isolated TCP port' >&2
   return 1
@@ -82,7 +103,12 @@ pid_start_time() {
 record_pid() {
   local name=$1 pid=$2 start
   printf -v "$name" '%s' "$pid"
-  start=$(pid_start_time "$pid") || { wait "$pid" 2>/dev/null || true; printf -v "$name" ''; printf -v "${name}_start" ''; return 1; }
+  start=$(pid_start_time "$pid") || {
+    wait "$pid" 2>/dev/null || true
+    printf -v "$name" ''
+    printf -v "${name}_start" ''
+    return 1
+  }
   printf -v "${name}_start" '%s' "$start"
 }
 owned_pid_is_live() {
@@ -95,7 +121,9 @@ owned_pid_is_live() {
 stop_owned_process() {
   local name=$1 port=${2:-} pid=${!1:-}
   if [[ -n $pid ]]; then
-    if owned_pid_is_live "$name"; then kill "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true
+    if owned_pid_is_live "$name"; then
+      kill "$pid" 2>/dev/null || true
+      wait "$pid" 2>/dev/null || true
     else echo "cleanup: $name: refusing to signal state=$(process_state "$name" "$port") pid=$pid" >&2; fi
   fi
   printf -v "$name" ''
@@ -117,42 +145,74 @@ listener_owned_by() {
   local port=$1 expected_pid=$2
   local -a lines pids
   mapfile -t lines < <(ss -H -ltnp "sport = :$port" 2>/dev/null | sed '/^[[:space:]]*$/d' || true)
-  (( ${#lines[@]} == 1 )) || return 1
+  ((${#lines[@]} == 1)) || return 1
   mapfile -t pids < <(grep -oE 'pid=[0-9]+' <<<"${lines[0]}" | sort -u || true)
-  (( ${#pids[@]} == 1 )) || return 1
+  ((${#pids[@]} == 1)) || return 1
   [[ ${pids[0]} == "pid=$expected_pid" ]]
 }
 process_state() {
   local name=$1 port=${2:-} pid actual want line
-  pid=${!name:-}; want=${name}_start; want=${!want:-}
+  pid=${!name:-}
+  want=${name}_start
+  want=${!want:-}
   actual=$(pid_start_time "$pid" 2>/dev/null || true)
-  [[ -z $actual ]] && { echo child-exited; return; }
-  [[ $actual != "$want" ]] && { echo pid-start-time-mismatch; return; }
+  [[ -z $actual ]] && {
+    echo child-exited
+    return
+  }
+  [[ $actual != "$want" ]] && {
+    echo pid-start-time-mismatch
+    return
+  }
   if [[ -n $port ]]; then
     line=$(ss -H -ltnp "sport = :$port" 2>/dev/null || true)
-    if [[ -n $line ]] && ! listener_owned_by "$port" "$pid"; then echo port-owned-by-other; return; fi
+    if [[ -n $line ]] && ! listener_owned_by "$port" "$pid"; then
+      echo port-owned-by-other
+      return
+    fi
   fi
-  [[ -n $port && -z $line ]] && { echo child-not-listening; return; }
+  [[ -n $port && -z $line ]] && {
+    echo child-not-listening
+    return
+  }
   echo child-not-owned
 }
 preflight_port() {
   local label=$1 port=$2
-  [[ -z $(ss -H -ltn "sport = :$port" 2>/dev/null) ]] || { echo "$label port already occupied: 127.0.0.1:$port" >&2; exit 1; }
+  [[ -z $(ss -H -ltn "sport = :$port" 2>/dev/null) ]] || {
+    echo "$label port already occupied: 127.0.0.1:$port" >&2
+    exit 1
+  }
 }
 assert_distinct_ports() {
   local current count
   for current in "$@"; do
-    [[ $current =~ ^[1-9][0-9]{0,4}$ && $current -le 65535 ]] || { echo "invalid port: $current" >&2; exit 1; }
+    [[ $current =~ ^[1-9][0-9]{0,4}$ && $current -le 65535 ]] || {
+      echo "invalid port: $current" >&2
+      exit 1
+    }
   done
   count=$(printf '%s\n' "$@" | LC_ALL=C sort -u | wc -l | tr -d ' ')
-  [[ $count == "$#" ]] || { echo 'ports must be pairwise distinct' >&2; exit 1; }
+  [[ $count == "$#" ]] || {
+    echo 'ports must be pairwise distinct' >&2
+    exit 1
+  }
 }
 assert_frozen_inputs() {
-  [[ -d $legacy_root && -f $legacy_root/SHA256SUMS && -f $legacy_root/GIT-LS-FILES-S.tsv ]] || { echo 'frozen Go archive or manifest missing' >&2; return 1; }
-  (cd "$legacy_root" && sha256sum --check --status SHA256SUMS) || { echo 'frozen Go content hash check failed' >&2; return 1; }
+  [[ -d $legacy_root && -f $legacy_root/SHA256SUMS && -f $legacy_root/GIT-LS-FILES-S.tsv ]] || {
+    echo 'frozen Go archive or manifest missing' >&2
+    return 1
+  }
+  (cd "$legacy_root" && sha256sum --check --status SHA256SUMS) || {
+    echo 'frozen Go content hash check failed' >&2
+    return 1
+  }
   frozen_go_manifest_sha256=$(sha256sum "$legacy_root/SHA256SUMS" "$legacy_root/GIT-LS-FILES-S.tsv" | sha256sum | awk '{print $1}')
   rust_build_input_manifest_sha256=$(rust_build_input_manifest | sha256sum | awk '{print $1}')
-  [[ $frozen_go_manifest_sha256 =~ ^[[:xdigit:]]{64}$ && $rust_build_input_manifest_sha256 =~ ^[[:xdigit:]]{64}$ ]] || { echo 'source hash calculation failed' >&2; return 1; }
+  [[ $frozen_go_manifest_sha256 =~ ^[[:xdigit:]]{64}$ && $rust_build_input_manifest_sha256 =~ ^[[:xdigit:]]{64}$ ]] || {
+    echo 'source hash calculation failed' >&2
+    return 1
+  }
 }
 rust_build_input_manifest() {
   # `find`, not `git ls-files`, is deliberate: a local untracked Rust source,
@@ -171,12 +231,17 @@ rust_build_input_manifest() {
       [[ -f $input ]] && printf '%s\0' "$input"
     done
     for input in "$repo_root/apps/api-rust/.cargo" "$repo_root/apps/api-rust/rust-toolchain.toml" "$repo_root/apps/api-rust/rust-toolchain"; do
-      if [[ -d $input ]]; then find "$input" -type f -print0
-      elif [[ -f $input ]]; then printf '%s\0' "$input"
+      if [[ -d $input ]]; then
+        find "$input" -type f -print0
+      elif [[ -f $input ]]; then
+        printf '%s\0' "$input"
       fi
     done
     for input in "${roots[@]}"; do
-      [[ -d $input ]] || { echo "required Rust build input root missing: $input" >&2; return 1; }
+      [[ -d $input ]] || {
+        echo "required Rust build input root missing: $input" >&2
+        return 1
+      }
       find "$input" -type f ! -path '*/target/*' -print0
     done
   } | LC_ALL=C sort -zu | while IFS= read -r -d '' file; do
@@ -207,14 +272,14 @@ cleanup() {
   stop_owned_process rust_valkey_pid "$rust_valkey_port"
   [[ -d "$runtime/pg" ]] && stop_owned_postgres
   case "$runtime" in
-    "$runtime_root"/lmm-models-listener.*)
-      if [[ $preserve == 1 ]]; then
-        echo "preserved models listener runtime: $runtime" >&2
-      else
-        rm -rf "$runtime"
-      fi
-      ;;
-    *) echo "refusing unexpected models runtime: $runtime" >&2 ;;
+  "$runtime_root"/lmm-models-listener.*)
+    if [[ $preserve == 1 ]]; then
+      echo "preserved models listener runtime: $runtime" >&2
+    else
+      rm -rf "$runtime"
+    fi
+    ;;
+  *) echo "refusing unexpected models runtime: $runtime" >&2 ;;
   esac
   return "$exit_code"
 }
@@ -224,16 +289,28 @@ trap 'exit 143' TERM
 trap 'echo "models listener differential failed at line $LINENO" >&2' ERR
 
 for command in cargo curl git go initdb jq openssl pg_ctl postgres psql sqlite3 ss valkey-cli valkey-server; do
-  command -v "$command" >/dev/null || { echo "required command is unavailable: $command" >&2; exit 1; }
+  command -v "$command" >/dev/null || {
+    echo "required command is unavailable: $command" >&2
+    exit 1
+  }
 done
-[[ $(postgres --version) == *"PostgreSQL) 18."* ]] || { echo "requires PostgreSQL 18" >&2; exit 1; }
+[[ $(postgres --version) == *"PostgreSQL) 18."* ]] || {
+  echo "requires PostgreSQL 18" >&2
+  exit 1
+}
 
 if [[ ${LMM_MODELS_SKIP_BUILD:-0} != 1 ]]; then
   cargo build --manifest-path "$repo_root/apps/api-rust/Cargo.toml" -p lmm-api-rs --locked
 fi
-[[ -x $rust_binary ]] || { echo "Rust listener binary is missing or not executable: $rust_binary" >&2; exit 1; }
+[[ -x $rust_binary ]] || {
+  echo "Rust listener binary is missing or not executable: $rust_binary" >&2
+  exit 1
+}
 rust_binary_sha256=$(sha256sum -- "$rust_binary" | awk '{print $1}')
-[[ $rust_binary_sha256 =~ ^[[:xdigit:]]{64}$ ]] || { echo 'Rust binary hash calculation failed' >&2; exit 1; }
+[[ $rust_binary_sha256 =~ ^[[:xdigit:]]{64}$ ]] || {
+  echo 'Rust binary hash calculation failed' >&2
+  exit 1
+}
 cp -a "$legacy_root/." "$runtime/go-source"
 # The frozen archive is intentionally immutable; the disposable build copy
 # must still be writable so the embedded frontend placeholder can be created.
@@ -250,7 +327,10 @@ preflight_port PostgreSQL "$pg_port"
 pg_ctl -D "$runtime/pg" -l "$runtime/postgres.log" \
   -o "-h 127.0.0.1 -p $pg_port -k $runtime" -w start >/dev/null
 pg_pid=$(sed -n '1p' "$runtime/pg/postmaster.pid")
-[[ $pg_pid =~ ^[1-9][0-9]*$ ]] || { echo 'PostgreSQL did not publish a valid postmaster PID' >&2; exit 1; }
+[[ $pg_pid =~ ^[1-9][0-9]*$ ]] || {
+  echo 'PostgreSQL did not publish a valid postmaster PID' >&2
+  exit 1
+}
 record_pid pg_pid "$pg_pid"
 if ! owned_pid_is_live pg_pid || ! listener_owned_by "$pg_port" "$pg_pid"; then
   echo 'PostgreSQL did not bind as owned child' >&2
@@ -282,12 +362,24 @@ go_valkey() { VALKEYCLI_AUTH="$go_valkey_password" valkey-cli --no-auth-warning 
 rust_valkey() { VALKEYCLI_AUTH="$rust_valkey_password" valkey-cli --no-auth-warning -h 127.0.0.1 -p "$rust_valkey_port" "$@"; }
 valkey_for_port() {
   case "$1" in
-    "$go_valkey_port") shift; go_valkey "$@" ;;
-    "$rust_valkey_port") shift; rust_valkey "$@" ;;
-    *) echo "unknown isolated Valkey port: $1" >&2; return 1 ;;
+  "$go_valkey_port")
+    shift
+    go_valkey "$@"
+    ;;
+  "$rust_valkey_port")
+    shift
+    rust_valkey "$@"
+    ;;
+  *)
+    echo "unknown isolated Valkey port: $1" >&2
+    return 1
+    ;;
   esac
 }
-flush_valkey() { go_valkey FLUSHDB >/dev/null; rust_valkey FLUSHDB >/dev/null; }
+flush_valkey() {
+  go_valkey FLUSHDB >/dev/null
+  rust_valkey FLUSHDB >/dev/null
+}
 go_redis_startup_diagnostics() {
   local ping=failed
   if VALKEYCLI_AUTH="$go_valkey_password" valkey-cli --no-auth-warning --command-timeout 1 -h 127.0.0.1 -p "$go_valkey_port" ping >/dev/null 2>&1; then ping=ok; fi
@@ -519,7 +611,10 @@ jq -e '
   and ($ids | index("gpt-hardcoded-prefix-only") | not)
   and ($ids | index("unavailable-tiered-model") | not)
 ' "$runtime/go.body" >/dev/null
-for engine in go rust; do snapshot_rows "$engine" >"$runtime/$engine.rows.after"; diff -u "$runtime/$engine.rows.before" "$runtime/$engine.rows.after"; done
+for engine in go rust; do
+  snapshot_rows "$engine" >"$runtime/$engine.rows.after"
+  diff -u "$runtime/$engine.rows.before" "$runtime/$engine.rows.after"
+done
 
 # Cold and hot effects must expose identical legacy cache keys/values; TTLs
 # need only be within the configured window because listener scheduling differs.
@@ -532,7 +627,7 @@ done
 for key in "$token_key" "user:42"; do
   for port in "$go_valkey_port" "$rust_valkey_port"; do
     ttl=$(cache_ttl "$port" "$key")
-    (( ttl >= 1 && ttl <= 60 ))
+    ((ttl >= 1 && ttl <= 60))
   done
 done
 cache_hash "$go_valkey_port" "$token_key" >"$runtime/go.token.cache"
@@ -565,8 +660,8 @@ go_hot_ttl=$(cache_ttl "$go_valkey_port" "$token_key")
 rust_hot_ttl=$(cache_ttl "$rust_valkey_port" "$token_key")
 [[ $(request go "http://127.0.0.1:$go_port") == 200 ]]
 [[ $(request rust "http://127.0.0.1:$rust_port") == 200 ]]
-(( $(cache_ttl "$go_valkey_port" "$token_key") <= go_hot_ttl ))
-(( $(cache_ttl "$rust_valkey_port" "$token_key") <= rust_hot_ttl ))
+(($(cache_ttl "$go_valkey_port" "$token_key") <= go_hot_ttl))
+(($(cache_ttl "$rust_valkey_port" "$token_key") <= rust_hot_ttl))
 scenario_total=$((scenario_total + 1))
 
 compare_case() {
@@ -623,29 +718,29 @@ assert_explicit_group_error() {
 assert_explicit_allowed_group() {
   local name=$1 alias=$2
   case "$alias" in
-    openai | gemini_openai)
-      jq -e '
+  openai | gemini_openai)
+    jq -e '
         (.data | type == "array")
         and ([.data[].id] == ["vip-tiered-model"])
         and ([.data[].id] | index("dynamic-tiered-model") | not)
         and ([.data[].id] | index("unavailable-tiered-model") | not)
       ' "$runtime/go.$name" >/dev/null
-      ;;
-    gemini)
-      jq -e '
+    ;;
+  gemini)
+    jq -e '
         (.models | type == "array")
         and ([.models[].name] == ["vip-tiered-model"])
         and ([.models[].name] | index("dynamic-tiered-model") | not)
         and ([.models[].name] | index("unavailable-tiered-model") | not)
       ' "$runtime/go.$name" >/dev/null
-      ;;
+    ;;
   esac
 }
 for alias in openai gemini gemini_openai; do
   case "$alias" in
-    openai) path=/v1/models ;;
-    gemini) path=/v1beta/models ;;
-    gemini_openai) path=/v1beta/openai/models ;;
+  openai) path=/v1/models ;;
+  gemini) path=/v1beta/models ;;
+  gemini_openai) path=/v1beta/openai/models ;;
   esac
   compare_alias_case "explicit_allowed_$alias" 200 "$path" -H 'authorization: Bearer sk-oracleallowedtoken'
   assert_explicit_allowed_group "explicit_allowed_$alias" "$alias"

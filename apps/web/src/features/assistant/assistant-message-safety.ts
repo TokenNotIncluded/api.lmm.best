@@ -135,7 +135,7 @@ export function hasAssistantMessageSubstantialMeaning(
   content: string
 ): boolean {
   const withoutPlaceholders = content
-    .replace(/\[(?:REDACTED_[A-Z0-9_]+)\]/g, '')
+    .replaceAll(/\[(?:REDACTED_[A-Z0-9_]+)\]/g, '')
     .trim()
   return /[\p{L}\p{N}]/u.test(withoutPlaceholders)
 }

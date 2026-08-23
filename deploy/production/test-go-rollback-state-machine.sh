@@ -9,7 +9,10 @@ trap 'rm -rf -- "$tmp"' EXIT
 bin=$tmp/bin
 mkdir -p "$bin"
 
-fail() { printf 'go-rollback-state-test: %s\n' "$*" >&2; exit 1; }
+fail() {
+  printf 'go-rollback-state-test: %s\n' "$*" >&2
+  exit 1
+}
 
 cat >"$bin/hostnamectl" <<'EOF'
 #!/usr/bin/env bash
@@ -427,7 +430,7 @@ chmod 0777 "$LMM_DEPLOY_TEST_WORK_ROOT"
 if activate_case "$insecure_workspace" >"$tmp/activate-insecure.out" 2>"$tmp/activate-insecure.err"; then
   fail 'activation accepted a service-writable deployment root'
 fi
-grep -Fq 'deployment path component is not root-controlled' "$tmp/activate-insecure.err" || \
+grep -Fq 'deployment path component is not root-controlled' "$tmp/activate-insecure.err" ||
   fail 'activation did not identify the unsafe deployment root'
 
 setup_case confirm-case
@@ -435,8 +438,8 @@ confirm_workspace=$CASE_WORKSPACE
 activate_case "$confirm_workspace" >"$tmp/activate-confirm.out"
 grep -Fq 'AWAITING_CONFIRMATION' "$confirm_workspace/state/status" || fail 'activation did not await confirmation'
 [[ -f $LMM_TEST_SERVICE_STATE/core.removed ]] || fail 'activation did not explicitly remove the old core package'
-[[ -f $LMM_TEST_SERVICE_STATE/migrate.apply && -f $LMM_TEST_SERVICE_STATE/migrate.verify && \
-   -f $LMM_TEST_SERVICE_STATE/migrate.rollback.verify ]] || \
+[[ -f $LMM_TEST_SERVICE_STATE/migrate.apply && -f $LMM_TEST_SERVICE_STATE/migrate.verify &&
+  -f $LMM_TEST_SERVICE_STATE/migrate.rollback.verify ]] ||
   fail 'activation did not prove candidate migration and rollback compatibility before package replacement'
 grep -Fqx -- '--setenv=PGOPTIONS=-c search_path=lmm_prod_contract' \
   "$LMM_TEST_SERVICE_STATE/migrate.apply.args" || fail 'migration did not use the captured production schema'
@@ -444,25 +447,25 @@ grep -Fqx -- "--property=WorkingDirectory=$confirm_workspace/tmp/migrations/cand
   "$LMM_TEST_SERVICE_STATE/migrate.apply.args" || fail 'migration did not use its release-scoped disposable directory'
 grep -Fqx -- "--property=WorkingDirectory=$confirm_workspace/tmp/migrations/rollback-verify" \
   "$LMM_TEST_SERVICE_STATE/migrate.rollback.verify.args" || fail 'rollback verification did not use an isolated directory'
-grep -Fqx 'database_schema=lmm_prod_contract' "$confirm_workspace/state/deployment.env" || \
+grep -Fqx 'database_schema=lmm_prod_contract' "$confirm_workspace/state/deployment.env" ||
   fail 'deployment manifest did not freeze the production schema'
 grep -Fqx 'PGOPTIONS="-c search_path=lmm_prod_contract"' \
   "$LMM_DEPLOY_TEST_NEW_CONFIG_DIR/lmm-api-go.env" || fail 'new service config did not preserve the production schema'
-grep -Fqx 'SESSION_COOKIE_SECURE=true' "$LMM_DEPLOY_TEST_NEW_CONFIG_DIR/lmm-api-go.env" || \
+grep -Fqx 'SESSION_COOKIE_SECURE=true' "$LMM_DEPLOY_TEST_NEW_CONFIG_DIR/lmm-api-go.env" ||
   fail 'new service config did not require secure refresh cookies'
-grep -Fqx 'SESSION_COOKIE_TRUSTED_URL=https://api.lmm.best,https://lmm.best' "$LMM_DEPLOY_TEST_NEW_CONFIG_DIR/lmm-api-go.env" || \
+grep -Fqx 'SESSION_COOKIE_TRUSTED_URL=https://api.lmm.best,https://lmm.best' "$LMM_DEPLOY_TEST_NEW_CONFIG_DIR/lmm-api-go.env" ||
   fail 'new service config did not pin the trusted public origin'
-grep -Fqx 'TRUSTED_PROXIES=127.0.0.1/32,::1/128' "$LMM_DEPLOY_TEST_NEW_CONFIG_DIR/lmm-api-go.env" || \
+grep -Fqx 'TRUSTED_PROXIES=127.0.0.1/32,::1/128' "$LMM_DEPLOY_TEST_NEW_CONFIG_DIR/lmm-api-go.env" ||
   fail 'new service config did not restrict trusted proxies to the local reverse proxy'
 [[ $(readlink "$LMM_DEPLOY_TEST_FRONTEND_ROOT/current") == "releases/$LMM_TEST_NEW_VERSION" ]] || fail 'new frontend was not published'
 [[ -f $LMM_TEST_SERVICE_STATE/timer.active ]] || fail 'rollback timer was not armed'
 [[ -f $LMM_DEPLOY_TEST_OLD_CONFIG_DIR/credentials/backup.identity ]] || fail 'auxiliary credentials were removed'
 [[ -f $LMM_DEPLOY_TEST_OLD_CONFIG_DIR/postgresql-backup.env ]] || fail 'auxiliary backup config was removed'
 [[ -f $LMM_DEPLOY_TEST_OLD_CONFIG_DIR/lmm-api.env.before-fixture ]] || fail 'operator config history was removed'
-[[ ! -e $LMM_DEPLOY_TEST_OLD_CONFIG_DIR/lmm-api.env && \
-   ! -e $LMM_DEPLOY_TEST_OLD_CONFIG_DIR/lmm-api.env.pacsave && \
-   ! -e $LMM_DEPLOY_TEST_OLD_CONFIG_DIR/backend.conf && \
-   ! -e $LMM_DEPLOY_TEST_OLD_CONFIG_DIR/backend.conf.pacsave ]] || \
+[[ ! -e $LMM_DEPLOY_TEST_OLD_CONFIG_DIR/lmm-api.env &&
+  ! -e $LMM_DEPLOY_TEST_OLD_CONFIG_DIR/lmm-api.env.pacsave &&
+  ! -e $LMM_DEPLOY_TEST_OLD_CONFIG_DIR/backend.conf &&
+  ! -e $LMM_DEPLOY_TEST_OLD_CONFIG_DIR/backend.conf.pacsave ]] ||
   fail 'old application configuration was retained after cutover'
 "$confirm_workspace/staging/activate-go-release.sh" confirm --workspace "$confirm_workspace" >"$tmp/confirm.out"
 grep -Fq 'CONFIRMED' "$confirm_workspace/state/status" || fail 'confirmation state was not recorded'
@@ -490,23 +493,23 @@ if activate_case "$explicit_die_workspace" >"$tmp/activate-explicit-die.out" 2>"
 fi
 unset LMM_TEST_INJECT_UNSAFE_OLD_CONFIG
 grep -Fq 'ROLLED_BACK' "$explicit_die_workspace/state/status" || fail 'explicit validation failure did not roll back'
-[[ -f $LMM_TEST_SERVICE_STATE/new.active && ! -e $LMM_TEST_SERVICE_STATE/old.active ]] || \
+[[ -f $LMM_TEST_SERVICE_STATE/new.active && ! -e $LMM_TEST_SERVICE_STATE/old.active ]] ||
   fail 'explicit validation failure did not restore the old service'
 [[ ! -e $LMM_TEST_SERVICE_STATE/timer.active ]] || fail 'explicit validation rollback left its timer active'
 
 setup_case direct-confirm-case direct
 direct_confirm_workspace=$CASE_WORKSPACE
 activate_case "$direct_confirm_workspace" >"$tmp/activate-direct-confirm.out"
-grep -Fq 'AWAITING_CONFIRMATION' "$direct_confirm_workspace/state/status" || \
+grep -Fq 'AWAITING_CONFIRMATION' "$direct_confirm_workspace/state/status" ||
   fail 'direct Go upgrade did not await confirmation'
 [[ ! -e $LMM_TEST_SERVICE_STATE/core.removed ]] || fail 'direct Go upgrade removed a nonexistent core package'
-[[ -f $LMM_TEST_SERVICE_STATE/new.active && ! -e $LMM_TEST_SERVICE_STATE/old.active ]] || \
+[[ -f $LMM_TEST_SERVICE_STATE/new.active && ! -e $LMM_TEST_SERVICE_STATE/old.active ]] ||
   fail 'direct Go upgrade did not preserve the Go service architecture'
-grep -Fqx 'SESSION_COOKIE_SECURE=true' "$LMM_DEPLOY_TEST_NEW_CONFIG_DIR/lmm-api-go.env" || \
+grep -Fqx 'SESSION_COOKIE_SECURE=true' "$LMM_DEPLOY_TEST_NEW_CONFIG_DIR/lmm-api-go.env" ||
   fail 'direct Go upgrade did not require secure refresh cookies'
-grep -Fqx 'SESSION_COOKIE_TRUSTED_URL=https://api.lmm.best,https://lmm.best' "$LMM_DEPLOY_TEST_NEW_CONFIG_DIR/lmm-api-go.env" || \
+grep -Fqx 'SESSION_COOKIE_TRUSTED_URL=https://api.lmm.best,https://lmm.best' "$LMM_DEPLOY_TEST_NEW_CONFIG_DIR/lmm-api-go.env" ||
   fail 'direct Go upgrade did not pin the trusted public origin'
-grep -Fqx 'TRUSTED_PROXIES=127.0.0.1/32,::1/128' "$LMM_DEPLOY_TEST_NEW_CONFIG_DIR/lmm-api-go.env" || \
+grep -Fqx 'TRUSTED_PROXIES=127.0.0.1/32,::1/128' "$LMM_DEPLOY_TEST_NEW_CONFIG_DIR/lmm-api-go.env" ||
   fail 'direct Go upgrade did not restrict trusted proxies to the local reverse proxy'
 grep -Fqx -- "--property=EnvironmentFile=$LMM_DEPLOY_TEST_NEW_CONFIG_DIR/lmm-api-go.env" \
   "$LMM_TEST_SERVICE_STATE/migrate.apply.args" || fail 'direct migration did not use the active Go environment'
@@ -524,11 +527,11 @@ if activate_case "$direct_rollback_workspace" >"$tmp/activate-direct-rollback.ou
 fi
 unset LMM_TEST_FAIL_NEW
 grep -Fq 'ROLLED_BACK' "$direct_rollback_workspace/state/status" || fail 'direct probe failure did not roll back'
-[[ $(readlink "$LMM_DEPLOY_TEST_FRONTEND_ROOT/current") == releases/old ]] || \
+[[ $(readlink "$LMM_DEPLOY_TEST_FRONTEND_ROOT/current") == releases/old ]] ||
   fail 'direct rollback did not restore the frontend'
-[[ -f $LMM_TEST_SERVICE_STATE/old.active && ! -e $LMM_TEST_SERVICE_STATE/new.active ]] || \
+[[ -f $LMM_TEST_SERVICE_STATE/old.active && ! -e $LMM_TEST_SERVICE_STATE/new.active ]] ||
   fail 'direct rollback did not restore the Go service'
-[[ $(<"$LMM_TEST_SERVICE_STATE/version") == "$LMM_TEST_OLD_VERSION" ]] || \
+[[ $(<"$LMM_TEST_SERVICE_STATE/version") == "$LMM_TEST_OLD_VERSION" ]] ||
   fail 'direct rollback did not reinstall the old Go package'
 if grep -Eq '^(SESSION_COOKIE_SECURE|SESSION_COOKIE_TRUSTED_URL|TRUSTED_PROXIES)=' \
   "$LMM_DEPLOY_TEST_NEW_CONFIG_DIR/lmm-api-go.env"; then
@@ -544,22 +547,22 @@ ln -s -- "$unsafe_target" "$unsafe_migration_workspace/tmp"
 if activate_case "$unsafe_migration_workspace" >"$tmp/activate-unsafe-migration.out" 2>"$tmp/activate-unsafe-migration.err"; then
   fail 'symlinked migration directory unexpectedly succeeded'
 fi
-grep -Fq 'ROLLED_BACK' "$unsafe_migration_workspace/state/status" || \
+grep -Fq 'ROLLED_BACK' "$unsafe_migration_workspace/state/status" ||
   fail 'unsafe migration directory did not enter the guarded rollback path'
-[[ -z $(find "$unsafe_target" -mindepth 1 -print -quit) ]] || \
+[[ -z $(find "$unsafe_target" -mindepth 1 -print -quit) ]] ||
   fail 'unsafe migration directory wrote outside the deployment workspace'
 
 export LMM_TEST_NEW_PKGREL=2
 setup_case aur-direct-confirm-case direct lmm-api-go-bin
 aur_direct_confirm_workspace=$CASE_WORKSPACE
 activate_case "$aur_direct_confirm_workspace" >"$tmp/activate-aur-direct-confirm.out"
-grep -Fq 'AWAITING_CONFIRMATION' "$aur_direct_confirm_workspace/state/status" || \
+grep -Fq 'AWAITING_CONFIRMATION' "$aur_direct_confirm_workspace/state/status" ||
   fail 'AUR Go upgrade did not await confirmation'
-[[ -f $LMM_TEST_SERVICE_STATE/new.active && ! -e $LMM_TEST_SERVICE_STATE/old.active ]] || \
+[[ -f $LMM_TEST_SERVICE_STATE/new.active && ! -e $LMM_TEST_SERVICE_STATE/old.active ]] ||
   fail 'AUR Go upgrade switched away from lmm-api.service'
-[[ $(readlink "$LMM_DEPLOY_TEST_FRONTEND_ROOT/current") == releases/old ]] || \
+[[ $(readlink "$LMM_DEPLOY_TEST_FRONTEND_ROOT/current") == releases/old ]] ||
   fail 'backend-only AUR upgrade changed the independent frontend'
-[[ -f $LMM_DEPLOY_TEST_NEW_DROPIN_DIR/50-memory.conf ]] || \
+[[ -f $LMM_DEPLOY_TEST_NEW_DROPIN_DIR/50-memory.conf ]] ||
   fail 'AUR Go upgrade replaced the existing lmm-api.service drop-ins'
 "$aur_direct_confirm_workspace/staging/activate-go-release.sh" confirm \
   --workspace "$aur_direct_confirm_workspace" >"$tmp/confirm-aur-direct.out"
@@ -573,13 +576,13 @@ if activate_case "$aur_direct_rollback_workspace" >"$tmp/activate-aur-direct-rol
 fi
 unset LMM_TEST_FAIL_NEW
 grep -Fq 'ROLLED_BACK' "$aur_direct_rollback_workspace/state/status" || fail 'AUR Go probe failure did not roll back'
-[[ -f $LMM_TEST_SERVICE_STATE/new.active && ! -e $LMM_TEST_SERVICE_STATE/old.active ]] || \
+[[ -f $LMM_TEST_SERVICE_STATE/new.active && ! -e $LMM_TEST_SERVICE_STATE/old.active ]] ||
   fail 'AUR Go rollback did not restore lmm-api.service'
-[[ $(<"$LMM_TEST_SERVICE_STATE/version") == "$LMM_TEST_OLD_VERSION" ]] || \
+[[ $(<"$LMM_TEST_SERVICE_STATE/version") == "$LMM_TEST_OLD_VERSION" ]] ||
   fail 'AUR Go rollback did not reinstall the previous lmm-api-go-bin package'
-[[ $(readlink "$LMM_DEPLOY_TEST_FRONTEND_ROOT/current") == releases/old ]] || \
+[[ $(readlink "$LMM_DEPLOY_TEST_FRONTEND_ROOT/current") == releases/old ]] ||
   fail 'AUR Go rollback changed the independent frontend'
-[[ -f $LMM_DEPLOY_TEST_NEW_DROPIN_DIR/50-memory.conf ]] || \
+[[ -f $LMM_DEPLOY_TEST_NEW_DROPIN_DIR/50-memory.conf ]] ||
   fail 'AUR Go rollback removed the existing lmm-api.service drop-ins'
 export LMM_TEST_NEW_PKGREL=1
 
@@ -635,7 +638,7 @@ assert_retryable_confirmation() {
   activate_case "$workspace" >"$tmp/activate-$id.out"
   export "$injection=1"
   if "$workspace/staging/activate-go-release.sh" confirm --workspace "$workspace" \
-      >"$tmp/confirm-$id.out" 2>"$tmp/confirm-$id.err"; then
+    >"$tmp/confirm-$id.out" 2>"$tmp/confirm-$id.err"; then
     fail "$id unexpectedly finalized"
   fi
   unset "$injection"

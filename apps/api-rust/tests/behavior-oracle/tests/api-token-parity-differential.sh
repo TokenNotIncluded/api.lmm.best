@@ -11,10 +11,20 @@ repo_root=$(git rev-parse --show-toplevel)
 legacy_revision=5418ce6b6d45ed69167b0aad53f2f595e5bc8de9
 legacy_root=${LMM_GO_ORACLE_ROOT:-}
 allow_current_oracle=${LMM_API_TOKEN_PARITY_ALLOW_CURRENT_ORACLE:-0}
-[[ -n $legacy_root ]] || { echo "LMM_GO_ORACLE_ROOT is required; set it to an absolute external immutable Go oracle tree ($legacy_revision)" >&2; exit 2; }
-[[ $legacy_root == /* && -d $legacy_root && ! -L $legacy_root ]] || { echo 'LMM_GO_ORACLE_ROOT must be an absolute, non-symlink directory' >&2; exit 2; }
+[[ -n $legacy_root ]] || {
+  echo "LMM_GO_ORACLE_ROOT is required; set it to an absolute external immutable Go oracle tree ($legacy_revision)" >&2
+  exit 2
+}
+[[ $legacy_root == /* && -d $legacy_root && ! -L $legacy_root ]] || {
+  echo 'LMM_GO_ORACLE_ROOT must be an absolute, non-symlink directory' >&2
+  exit 2
+}
 legacy_root=$(realpath -e -- "$legacy_root")
-case "$legacy_root" in "$repo_root"|"$repo_root"/*) echo 'LMM_GO_ORACLE_ROOT must be external to the current repository' >&2; exit 2 ;; esac
+case "$legacy_root" in "$repo_root" | "$repo_root"/*)
+  echo 'LMM_GO_ORACLE_ROOT must be external to the current repository' >&2
+  exit 2
+  ;;
+esac
 # Each invocation owns fresh loopback ports. Every listener is randomized and
 # all five retain two pre-bind checks. The Rust test instance receives its
 # allocated Valkey port through LMM_RS_TEST_VALKEY_PORT.
@@ -29,13 +39,22 @@ approval_mode=${LMM_API_TOKEN_PARITY_APPROVAL:-0}
 probe_only=${LMM_API_TOKEN_PARITY_PROBE_ONLY:-0}
 keep_runtime=${LMM_KEEP_API_TOKEN_PARITY_RUNTIME:-0}
 result_dir=${LMM_API_TOKEN_PARITY_RESULT_DIR:-}
-# The 164 inherited route vectors plus three explicit healthy-cache -> DEL
-# vectors (PUT, single DELETE, and batch DELETE).
+# The 164 inherited route vectors, three explicit healthy-cache -> DEL
+# vectors (PUT, single DELETE, and batch DELETE), and one response-only
+# auto-groups extension vector.
 expected_scenarios=168
-case "$approval_mode" in 0|1) ;; *) echo 'LMM_API_TOKEN_PARITY_APPROVAL must be 0 or 1' >&2; exit 2 ;; esac
-case "$probe_only" in 0|1) ;; *) echo 'LMM_API_TOKEN_PARITY_PROBE_ONLY must be 0 or 1' >&2; exit 2 ;; esac
+case "$approval_mode" in 0 | 1) ;; *)
+  echo 'LMM_API_TOKEN_PARITY_APPROVAL must be 0 or 1' >&2
+  exit 2
+  ;;
+esac
+case "$probe_only" in 0 | 1) ;; *)
+  echo 'LMM_API_TOKEN_PARITY_PROBE_ONLY must be 0 or 1' >&2
+  exit 2
+  ;;
+esac
 if [[ $approval_mode == 1 && $probe_only == 1 ]]; then
-  echo 'approval mode refuses probe-only; run the complete 164-scenario matrix' >&2
+  echo "approval mode refuses probe-only; run the complete $expected_scenarios-scenario matrix" >&2
   exit 2
 fi
 if [[ -n $result_dir ]]; then
@@ -46,7 +65,10 @@ if [[ -n $result_dir ]]; then
   mkdir -p "$result_dir"
 fi
 build_root=${TMPDIR:-/dev/shm}
-[[ -d $build_root && -w $build_root ]] || { echo "temporary build directory is not writable: $build_root" >&2; exit 1; }
+[[ -d $build_root && -w $build_root ]] || {
+  echo "temporary build directory is not writable: $build_root" >&2
+  exit 1
+}
 # PostgreSQL requires a normal filesystem for its data directory on this host;
 # the frozen Go build is the only sizeable transient tree and belongs in RAM.
 runtime_root=${LMM_API_TOKEN_PARITY_RUNTIME_ROOT:-/tmp}
@@ -161,25 +183,25 @@ cleanup() {
   rm -f -- "$go_env_file" "$rust_env_file" "$go_valkey_config" "$rust_valkey_config"
   [[ -d $runtime/pg ]] && pg_ctl -D "$runtime/pg" -m fast -w stop >/dev/null 2>&1 || true
   case "$runtime" in
-    "$runtime_root"/lmm-api-token-parity-current.*)
-      if [[ $keep_runtime == 1 ]]; then
-        echo "preserved API-token parity runtime: $runtime" >&2
-      else
-        rm -rf "$runtime"
-      fi
-      ;;
-    *) echo "refusing unexpected runtime: $runtime" >&2 ;;
+  "$runtime_root"/lmm-api-token-parity-current.*)
+    if [[ $keep_runtime == 1 ]]; then
+      echo "preserved API-token parity runtime: $runtime" >&2
+    else
+      rm -rf "$runtime"
+    fi
+    ;;
+  *) echo "refusing unexpected runtime: $runtime" >&2 ;;
   esac
   case "$go_build" in
-    "$build_root"/lmm-api-token-parity-current-go.*) rm -rf "$go_build" ;;
-    *) echo "refusing unexpected Go build directory: $go_build" >&2 ;;
+  "$build_root"/lmm-api-token-parity-current-go.*) rm -rf "$go_build" ;;
+  *) echo "refusing unexpected Go build directory: $go_build" >&2 ;;
   esac
 }
 on_signal() {
   local signal=$1 exit_code=128
   case "$signal" in
-    INT) exit_code=130 ;;
-    TERM) exit_code=143 ;;
+  INT) exit_code=130 ;;
+  TERM) exit_code=143 ;;
   esac
   echo "API-token parity differential received $signal; exiting $exit_code after cleanup" >&2
   trap '' INT TERM
@@ -193,9 +215,15 @@ trap 'on_signal TERM' TERM
 trap 'echo "API-token parity differential failed at line $LINENO" >&2' ERR
 
 for command in cargo curl createdb git go initdb jq od openssl pg_ctl postgres psql ss valkey-cli valkey-server; do
-  command -v "$command" >/dev/null || { echo "required command unavailable: $command" >&2; exit 1; }
+  command -v "$command" >/dev/null || {
+    echo "required command unavailable: $command" >&2
+    exit 1
+  }
 done
-[[ $(postgres --version) == *"PostgreSQL) 18."* ]] || { echo "requires PostgreSQL 18" >&2; exit 1; }
+[[ $(postgres --version) == *"PostgreSQL) 18."* ]] || {
+  echo "requires PostgreSQL 18" >&2
+  exit 1
+}
 
 write_rust_build_manifest() {
   local destination=$1
@@ -208,7 +236,10 @@ write_rust_build_manifest() {
       find "$directory" -type f \( -path '*/src/*' -o -path '*/assets/*' -o -name Cargo.toml -o -name build.rs \) -print0
     done
   ) | LC_ALL=C sort -z | xargs -0r sha256sum | LC_ALL=C sort >"$destination"
-  [[ -s $destination ]] || { echo 'Rust build-input manifest is empty' >&2; return 1; }
+  [[ -s $destination ]] || {
+    echo 'Rust build-input manifest is empty' >&2
+    return 1
+  }
 }
 rust_manifest_sha256() { sha256sum "$1" | awk '{print $1}'; }
 assert_rust_build_inputs_unchanged() {
@@ -257,11 +288,17 @@ assert_distinct_ports() {
   local label port other_label other_port
   for label in "$@"; do
     port=${label#*:}
-    [[ $port =~ ^[1-9][0-9]{0,4}$ && $port -le 65535 ]] || { echo "invalid port: $label" >&2; exit 1; }
+    [[ $port =~ ^[1-9][0-9]{0,4}$ && $port -le 65535 ]] || {
+      echo "invalid port: $label" >&2
+      exit 1
+    }
     for other_label in "$@"; do
       [[ $label == "$other_label" ]] && continue
       other_port=${other_label#*:}
-      [[ $port != "$other_port" ]] || { echo "ports must be pairwise distinct: $label and $other_label" >&2; exit 1; }
+      [[ $port != "$other_port" ]] || {
+        echo "ports must be pairwise distinct: $label and $other_label" >&2
+        exit 1
+      }
     done
   done
 }
@@ -278,7 +315,7 @@ preflight_port() {
 }
 random_free_port() {
   local label=$1 candidate remaining=256
-  while (( remaining-- > 0 )); do
+  while ((remaining-- > 0)); do
     candidate=$((20000 + (16#$(od -An -N2 -tx2 /dev/urandom | tr -d ' ') % 35000)))
     case " $pg_port $go_port $rust_port $go_valkey_port $rust_valkey_port " in *" $candidate "*) continue ;; esac
     if ! ss -H -ltn "sport = :$candidate" 2>/dev/null | grep -q .; then
@@ -310,9 +347,9 @@ listener_owned_by() {
   # response is accepted only when exactly one listener and one owner PID are
   # reported, and that PID is the child this run started.
   mapfile -t listener_lines < <(ss -H -ltnp "sport = :$port" 2>/dev/null | sed '/^[[:space:]]*$/d' || true)
-  (( ${#listener_lines[@]} == 1 )) || return 1
+  ((${#listener_lines[@]} == 1)) || return 1
   mapfile -t owner_pids < <(grep -oE 'pid=[0-9]+' <<<"${listener_lines[0]}" | sort -u || true)
-  (( ${#owner_pids[@]} == 1 )) || return 1
+  ((${#owner_pids[@]} == 1)) || return 1
   [[ ${owner_pids[0]} == "pid=$expected_pid" ]]
 }
 
@@ -356,16 +393,22 @@ wait_for_go_token_table() {
 }
 key_registry_file() {
   case "$1" in
-    "$go_database") printf '%s\n' "$go_static_keys" ;;
-    "$rust_database") printf '%s\n' "$rust_static_keys" ;;
-    *) echo "unknown API-token database: $1" >&2; return 1 ;;
+  "$go_database") printf '%s\n' "$go_static_keys" ;;
+  "$rust_database") printf '%s\n' "$rust_static_keys" ;;
+  *)
+    echo "unknown API-token database: $1" >&2
+    return 1
+    ;;
   esac
 }
 generated_registry_file() {
   case "$1" in
-    "$go_database") printf '%s\n' "$go_generated_keys" ;;
-    "$rust_database") printf '%s\n' "$rust_generated_keys" ;;
-    *) echo "unknown API-token database: $1" >&2; return 1 ;;
+  "$go_database") printf '%s\n' "$go_generated_keys" ;;
+  "$rust_database") printf '%s\n' "$rust_generated_keys" ;;
+  *)
+    echo "unknown API-token database: $1" >&2
+    return 1
+    ;;
   esac
 }
 remember_static_keys() {
@@ -499,9 +542,12 @@ valkey_cli() {
   local engine=$1
   shift
   case "$engine" in
-    go) VALKEYCLI_AUTH="$go_valkey_password" valkey-cli --no-auth-warning -h 127.0.0.1 -p "$go_valkey_port" "$@" ;;
-    rust) VALKEYCLI_AUTH="$rust_valkey_password" valkey-cli --no-auth-warning -h 127.0.0.1 -p "$rust_valkey_port" "$@" ;;
-    *) echo "unknown Valkey engine: $engine" >&2; return 1 ;;
+  go) VALKEYCLI_AUTH="$go_valkey_password" valkey-cli --no-auth-warning -h 127.0.0.1 -p "$go_valkey_port" "$@" ;;
+  rust) VALKEYCLI_AUTH="$rust_valkey_password" valkey-cli --no-auth-warning -h 127.0.0.1 -p "$rust_valkey_port" "$@" ;;
+  *)
+    echo "unknown Valkey engine: $engine" >&2
+    return 1
+    ;;
   esac
 }
 token_cache_key() {
@@ -573,11 +619,11 @@ tracked_valkey_snapshot() {
   local -r snapshot_lua='local present=redis.call("EXISTS",KEYS[1]); if present==0 then return cjson.encode({exists=false}) end; local kind=redis.call("TYPE",KEYS[1]).ok; local fields={}; if kind=="hash" then fields=redis.call("HKEYS",KEYS[1]) end; return cjson.encode({exists=true,type=kind,ttl=redis.call("TTL",KEYS[1]),fields=fields})'
   while IFS= read -r key; do
     case "$key" in
-      token:*) class=token_hmac ;;
-      rateLimit:v2:ip:GA:*) class=GA ;;
-      rateLimit:v2:ip:CT:*) class=CT ;;
-      rateLimit:v2:user:SR:*) class=SR ;;
-      *) continue ;;
+    token:*) class=token_hmac ;;
+    rateLimit:v2:ip:GA:*) class=GA ;;
+    rateLimit:v2:ip:CT:*) class=CT ;;
+    rateLimit:v2:user:SR:*) class=SR ;;
+    *) continue ;;
     esac
     state=$(valkey_cli "$engine" --raw eval "$snapshot_lua" 1 "$key")
     jq -e . >/dev/null <<<"$state"
@@ -761,24 +807,24 @@ assert_key_shapes() {
   local name=$1 path=$2
   local go_json="$runtime/go.$name.json" rust_json="$runtime/rust.$name.json"
   case "$path" in
-    */key|*/batch/keys)
-      for file in "$go_json" "$rust_json"; do
-        jq -e '
+  */key | */batch/keys)
+    for file in "$go_json" "$rust_json"; do
+      jq -e '
           ([.. | objects | .key? // empty] + [.. | objects | (.keys? // {} | .[])]
             | map(select(type == "string")))
           | all(. | contains("*") | not)
         ' "$file" >/dev/null
-      done
-      ;;
-    *)
-      for file in "$go_json" "$rust_json"; do
-        jq -e '
+    done
+    ;;
+  *)
+    for file in "$go_json" "$rust_json"; do
+      jq -e '
           ([.. | objects | .key? // empty] + [.. | objects | (.keys? // {} | .[])]
             | map(select(type == "string" and contains("*"))))
           | all(. | test("^.{4}\\*{10}.{4}$"))
         ' "$file" >/dev/null
-      done
-      ;;
+    done
+    ;;
   esac
 }
 record_mismatch() {
@@ -867,7 +913,7 @@ assert_no_token_effect() {
   assert_only_tokens_may_change "$name" "$runtime/go.business.before.$name" "$runtime/rust.business.before.$name"
   assert_valkey_contract "$name" "$go_valkey_before" "$rust_valkey_before" no-change
   scenario_total=$((scenario_total + 1))
-  if (( mismatch_count > before_mismatches )); then
+  if ((mismatch_count > before_mismatches)); then
     scenario_mismatch_count=$((scenario_mismatch_count + 1))
     last_scenario_had_mismatch=true
   else
@@ -911,7 +957,7 @@ assert_effect() {
     assert_primed_token_caches_deleted "$name" "$cache_delete_raw_keys"
   fi
   scenario_total=$((scenario_total + 1))
-  if (( mismatch_count > before_mismatches )); then
+  if ((mismatch_count > before_mismatches)); then
     scenario_mismatch_count=$((scenario_mismatch_count + 1))
     last_scenario_had_mismatch=true
   else
@@ -983,13 +1029,14 @@ assert_status_only_update_columns() {
   fi
   # Test-only audit rows must not leak into any later fixture/snapshot.
   clear_status_only_update_audit
-  if (( mismatch_count > before_mismatches )) && [[ $last_scenario_had_mismatch == false ]]; then
+  if ((mismatch_count > before_mismatches)) && [[ $last_scenario_had_mismatch == false ]]; then
     scenario_mismatch_count=$((scenario_mismatch_count + 1))
     last_scenario_had_mismatch=true
   fi
 }
 assert_response_only() {
-  local name=$1; shift
+  local name=$1
+  shift
   local valkey_mode=observe
   if [[ ${!#} == __VALKEY_NO_CHANGE__ ]]; then
     valkey_mode=no-change
@@ -1005,7 +1052,7 @@ assert_response_only() {
   assert_only_tokens_may_change "$name" "$runtime/go.business.before.$name" "$runtime/rust.business.before.$name"
   assert_valkey_contract "$name" "$go_valkey_before" "$rust_valkey_before" "$valkey_mode"
   scenario_total=$((scenario_total + 1))
-  if (( mismatch_count > before_mismatches )); then
+  if ((mismatch_count > before_mismatches)); then
     scenario_mismatch_count=$((scenario_mismatch_count + 1))
     last_scenario_had_mismatch=true
   else
@@ -1037,7 +1084,7 @@ assert_cross_user_no_token_effect() {
   assert_only_tokens_may_change "$name" "$runtime/go.business.before.$name" "$runtime/rust.business.before.$name"
   assert_valkey_contract "$name" "$go_valkey_before" "$rust_valkey_before" no-change
   scenario_total=$((scenario_total + 1))
-  if (( mismatch_count > before_mismatches )); then
+  if ((mismatch_count > before_mismatches)); then
     scenario_mismatch_count=$((scenario_mismatch_count + 1))
     last_scenario_had_mismatch=true
   else
@@ -1069,7 +1116,7 @@ assert_cross_user_mixed_effect() {
   assert_only_tokens_may_change "$name" "$runtime/go.business.before.$name" "$runtime/rust.business.before.$name"
   assert_valkey_contract "$name" "$go_valkey_before" "$rust_valkey_before" mutation
   scenario_total=$((scenario_total + 1))
-  if (( mismatch_count > before_mismatches )); then
+  if ((mismatch_count > before_mismatches)); then
     scenario_mismatch_count=$((scenario_mismatch_count + 1))
     last_scenario_had_mismatch=true
   else
@@ -1189,7 +1236,8 @@ wait_for_valkey() {
 }
 write_valkey_config() {
   local config=$1 port=$2 password=$3
-  (umask 077
+  (
+    umask 077
     # The exhaustive matrix runs longer than the deployed 60-second search
     # window. Keep the counter alive for the whole isolated run so Go and
     # Rust cannot cross the expiry boundary between their paired requests.
@@ -1200,7 +1248,8 @@ write_valkey_config() {
       'appendonly no' \
       'daemonize no' \
       "dir $runtime" \
-      "requirepass $password" >"$config")
+      "requirepass $password" >"$config"
+  )
   chmod 600 "$config"
 }
 start_valkey() {
@@ -1210,7 +1259,10 @@ start_valkey() {
   # SQL fault scenarios below never restart a service. Recovery must stop and
   # clear the owned child before calling this helper; it refuses to overwrite
   # an old PID and records a fresh identity for the new listener.
-  [[ -z ${!pid_name:-} ]] || { echo "refusing to overwrite live PID record: $pid_name" >&2; return 1; }
+  [[ -z ${!pid_name:-} ]] || {
+    echo "refusing to overwrite live PID record: $pid_name" >&2
+    return 1
+  }
   write_valkey_config "$config" "$port" "$password"
   preflight_port "$name" "$port"
   valkey-server "$config" >"$runtime/$name.log" 2>&1 &
@@ -1219,33 +1271,38 @@ start_valkey() {
 }
 write_app_env() {
   local file=$1 redis_variable=$2 redis_url=$3
-  (umask 077
+  (
+    umask 077
     {
-    printf 'export SQL_DSN=%q\n' "$go_dsn"
-    printf 'export DATABASE_URL=%q\n' "$rust_dsn"
-    printf 'export %s=%q\n' "$redis_variable" "$redis_url"
-    # Keep every production limiter enabled in the fixture. The exhaustive
-    # matrix intentionally sends far more than the deployed defaults (GA
-    # 360/180s, CT 20/1200s, SR 10/60s), so use an explicit shared ceiling
-    # rather than disabling middleware or losing the authentication order.
-    printf '%s\n' \
-      'export SESSION_SECRET=ApiTokenParity-2026!Synthetic-LongEnough' \
-      'export CRYPTO_SECRET=ApiTokenParity-Crypto-2026-LongEnough' \
-      'export PASSWORD_LOGIN_ENABLED=true' \
-      'export GLOBAL_API_RATE_LIMIT_ENABLE=true' \
-      'export GLOBAL_API_RATE_LIMIT=100000' \
-      'export GLOBAL_API_RATE_LIMIT_DURATION=180' \
-      'export CRITICAL_RATE_LIMIT_ENABLE=true' \
-      'export CRITICAL_RATE_LIMIT=100000' \
-      'export CRITICAL_RATE_LIMIT_DURATION=1200' \
-      'export SEARCH_RATE_LIMIT_ENABLE=true' \
-      'export SEARCH_RATE_LIMIT=100000' \
-      'export SEARCH_RATE_LIMIT_DURATION=3600'
-    } >"$file")
+      printf 'export SQL_DSN=%q\n' "$go_dsn"
+      printf 'export DATABASE_URL=%q\n' "$rust_dsn"
+      printf 'export %s=%q\n' "$redis_variable" "$redis_url"
+      # Keep every production limiter enabled in the fixture. The exhaustive
+      # matrix intentionally sends far more than the deployed defaults (GA
+      # 360/180s, CT 20/1200s, SR 10/60s), so use an explicit shared ceiling
+      # rather than disabling middleware or losing the authentication order.
+      printf '%s\n' \
+        'export SESSION_SECRET=ApiTokenParity-2026!Synthetic-LongEnough' \
+        'export CRYPTO_SECRET=ApiTokenParity-Crypto-2026-LongEnough' \
+        'export PASSWORD_LOGIN_ENABLED=true' \
+        'export GLOBAL_API_RATE_LIMIT_ENABLE=true' \
+        'export GLOBAL_API_RATE_LIMIT=100000' \
+        'export GLOBAL_API_RATE_LIMIT_DURATION=180' \
+        'export CRITICAL_RATE_LIMIT_ENABLE=true' \
+        'export CRITICAL_RATE_LIMIT=100000' \
+        'export CRITICAL_RATE_LIMIT_DURATION=1200' \
+        'export SEARCH_RATE_LIMIT_ENABLE=true' \
+        'export SEARCH_RATE_LIMIT=100000' \
+        'export SEARCH_RATE_LIMIT_DURATION=3600'
+    } >"$file"
+  )
   chmod 600 "$file"
 }
 start_go() {
-  [[ -z $go_pid ]] || { echo 'refusing to overwrite live PID record: go_pid' >&2; return 1; }
+  [[ -z $go_pid ]] || {
+    echo 'refusing to overwrite live PID record: go_pid' >&2
+    return 1
+  }
   write_app_env "$go_env_file" REDIS_CONN_STRING "redis://:$go_valkey_password@127.0.0.1:$go_valkey_port"
   preflight_port Go_HTTP "$go_port"
   (
@@ -1262,7 +1319,10 @@ start_go() {
   wait_for "$go_port" /api/status go_pid
 }
 start_rust() {
-  [[ -z $rust_pid ]] || { echo 'refusing to overwrite live PID record: rust_pid' >&2; return 1; }
+  [[ -z $rust_pid ]] || {
+    echo 'refusing to overwrite live PID record: rust_pid' >&2
+    return 1
+  }
   write_app_env "$rust_env_file" VALKEY_URL "redis://:$rust_valkey_password@127.0.0.1:$rust_valkey_port"
   preflight_port Rust_HTTP "$rust_port"
   (
@@ -1290,7 +1350,10 @@ assert_static_key_canonicalization_preserves_mismatch
 cargo build --manifest-path "$repo_root/apps/api-rust/Cargo.toml" -p lmm-api-rs --locked
 assert_rust_build_inputs_unchanged 'Rust build'
 rust_binary_sha256=$(sha256sum "$repo_root/apps/api-rust/target/debug/lmm-api-rs" | awk '{print $1}')
-[[ $rust_binary_sha256 =~ ^[[:xdigit:]]{64}$ ]] || { echo 'Rust binary hashing failed' >&2; exit 1; }
+[[ $rust_binary_sha256 =~ ^[[:xdigit:]]{64}$ ]] || {
+  echo 'Rust binary hashing failed' >&2
+  exit 1
+}
 # The immutable oracle is intentionally read-only. A plain recursive copy
 # keeps the source content while making the disposable Go build tree writable
 # for the synthetic web/dist placeholder and compiler cache.
@@ -1532,29 +1595,29 @@ assert_no_token_effect bad-query GET '/api/token/?p=nan&size=wat' __NONE__ none 
 batch_invalid_params_body='{"success":false,"message":"Invalid parameters"}'
 for body in 'null' '[]' 'true' '"token"' '1' '{"IDS":null}' '{"ids":[1.5]}' '{"ids":"1"}' '{'; do
   case "$body" in
-    null) body_name=4 ;;
-    '[]') body_name=top-level-array ;;
-    true) body_name=top-level-bool ;;
-    '"token"') body_name=top-level-string ;;
-    1) body_name=top-level-number ;;
-    *) body_name=${#body} ;;
+  null) body_name=4 ;;
+  '[]') body_name=top-level-array ;;
+  true) body_name=top-level-bool ;;
+  '"token"') body_name=top-level-string ;;
+  1) body_name=top-level-number ;;
+  *) body_name=${#body} ;;
   esac
   assert_no_token_effect "batch-bind-$body_name" POST /api/token/batch "$body" application/json en
   assert_no_token_effect "batch-key-bind-$body_name" POST /api/token/batch/keys "$body" application/json en
   case "$body" in
-    null|'[]'|true|'"token"'|1)
-      assert_exact_json_response "batch-bind-$body_name" 200 "$batch_invalid_params_body"
-      assert_exact_json_response "batch-key-bind-$body_name" 200 "$batch_invalid_params_body"
-      ;;
+  null | '[]' | true | '"token"' | 1)
+    assert_exact_json_response "batch-bind-$body_name" 200 "$batch_invalid_params_body"
+    assert_exact_json_response "batch-key-bind-$body_name" 200 "$batch_invalid_params_body"
+    ;;
   esac
 done
 assert_no_token_effect update-malformed-json PUT /api/token/ '{' application/json en
 for shape in array bool string number; do
   case "$shape" in
-    array) shape_body='[]' ;;
-    bool) shape_body='true' ;;
-    string) shape_body='"token"' ;;
-    number) shape_body='1' ;;
+  array) shape_body='[]' ;;
+  bool) shape_body='true' ;;
+  string) shape_body='"token"' ;;
+  number) shape_body='1' ;;
   esac
   if [[ $allow_current_oracle == 1 ]]; then
     shape_error="json: cannot unmarshal $shape into Go value of type controller.tokenRequest"
@@ -1683,9 +1746,9 @@ for path in /api/token/9223372036854775808 /api/token/-9223372036854775809 /api/
   assert_no_token_effect "key-id-${path##*/}" POST "$path/key" __NONE__ none ''
   assert_no_token_effect "delete-id-${path##*/}" DELETE "$path" __NONE__ none ''
   case "$path" in
-    /api/token/9223372036854775808|/api/token/-9223372036854775809)
-      assert_exact_json_response "delete-id-${path##*/}" 200 '{"success":false,"message":"record not found"}'
-      ;;
+  /api/token/9223372036854775808 | /api/token/-9223372036854775809)
+    assert_exact_json_response "delete-id-${path##*/}" 200 '{"success":false,"message":"record not found"}'
+    ;;
   esac
 done
 assert_effect batch-delete POST /api/token/batch '{"ids":[2]}' application/json '' 1
@@ -1805,7 +1868,7 @@ assert_exact_message search-fuzzy-count-db-failure '获取令牌数量失败' GE
 assert_exact_message search-exact-db-failure '搜索令牌失败' GET '/api/token/search?keyword=db-fault&p=1&size=10' __NONE__ none ''
 sql_both 'ALTER TABLE tokens_unavailable RENAME TO tokens'
 
-if (( scenario_total != expected_scenarios )); then
+if ((scenario_total != expected_scenarios)); then
   echo "scenario contract failed: expected $expected_scenarios, got $scenario_total" >&2
   exit 1
 fi
@@ -1848,7 +1911,7 @@ ROUTES
   fi
   printf '%s\n' "$summary"
 }
-if (( mismatch_count > 0 )); then
+if ((mismatch_count > 0)); then
   emit_evidence failed
   exit 1
 fi

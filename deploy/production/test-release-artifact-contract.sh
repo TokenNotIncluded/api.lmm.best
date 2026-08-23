@@ -10,7 +10,10 @@ readonly GO_PKGBUILD="$ROOT/packaging/aur/lmm-api-go-bin/PKGBUILD"
 readonly WEB_PKGBUILD="$ROOT/packaging/aur/lmm-api-web-bin/PKGBUILD"
 readonly DEPLOY_PKGBUILD="$ROOT/packaging/aur/lmm-api-deploy-bin/PKGBUILD"
 
-fail() { printf 'test-release-artifact-contract: %s\n' "$*" >&2; exit 1; }
+fail() {
+  printf 'test-release-artifact-contract: %s\n' "$*" >&2
+  exit 1
+}
 require_literal() {
   local file=$1 literal=$2 message=$3
   grep -Fq -- "$literal" "$file" || fail "$message"

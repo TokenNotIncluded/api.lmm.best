@@ -24,10 +24,10 @@ bucket_ts=$((seed_epoch - seed_epoch % 3600))
   exit 2
 }
 case "$go_root" in
-  "$repo_root"|"$repo_root"/*)
-    echo 'LMM_GO_ORACLE_ROOT must be external to the Rust repository' >&2
-    exit 2
-    ;;
+"$repo_root" | "$repo_root"/*)
+  echo 'LMM_GO_ORACLE_ROOT must be external to the Rust repository' >&2
+  exit 2
+  ;;
 esac
 if [[ -n $result_dir ]]; then
   [[ $result_dir == /* && $result_dir != *..* ]] || {
@@ -54,8 +54,8 @@ owned_pid_is_live() {
   pid=${!name:-}
   start_name="${name}_start"
   expected=${!start_name:-}
-  [[ -n $pid && -n $expected ]] && kill -0 "$pid" 2>/dev/null \
-    && [[ $(pid_start_time "$pid" 2>/dev/null || true) == "$expected" ]]
+  [[ -n $pid && -n $expected ]] && kill -0 "$pid" 2>/dev/null &&
+    [[ $(pid_start_time "$pid" 2>/dev/null || true) == "$expected" ]]
 }
 
 stop_owned_process() {
@@ -78,14 +78,14 @@ cleanup() {
   stop_owned_process valkey_pid || true
   [[ ! -d $runtime/pg ]] || pg_ctl -D "$runtime/pg" -m fast -w stop >/dev/null 2>&1 || true
   case "$runtime" in
-    /tmp/lmm-observability-metrics-differential.*)
-      if [[ ${LMM_KEEP_OBSERVABILITY_RUNTIME:-0} == 1 ]]; then
-        echo "keeping observability differential runtime: $runtime" >&2
-      else
-        rm -rf -- "$runtime"
-      fi
-      ;;
-    *) echo "refusing unexpected runtime removal: $runtime" >&2 ;;
+  /tmp/lmm-observability-metrics-differential.*)
+    if [[ ${LMM_KEEP_OBSERVABILITY_RUNTIME:-0} == 1 ]]; then
+      echo "keeping observability differential runtime: $runtime" >&2
+    else
+      rm -rf -- "$runtime"
+    fi
+    ;;
+  *) echo "refusing unexpected runtime removal: $runtime" >&2 ;;
   esac
 }
 trap cleanup EXIT INT TERM
@@ -167,7 +167,7 @@ wait_http() {
     owned_pid_is_live "$pid" || return 1
     case $(curl --silent --output /dev/null --write-out '%{http_code}' \
       "http://127.0.0.1:$port$path" || true) in
-      200|204) return 0 ;;
+    200 | 204) return 0 ;;
     esac
     sleep .05
   done

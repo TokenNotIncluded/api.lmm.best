@@ -4,8 +4,14 @@ set -Eeuo pipefail
 HERE=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 SCRIPT="$HERE/import-sanitized-auth-snapshot.sh"
 SCHEMA_CONTRACT="$HERE/sanitized-auth-snapshot-v1.tsv.schema"
-[[ -f $SCRIPT && ! -L $SCRIPT ]] || { echo 'missing auth snapshot importer' >&2; exit 1; }
-[[ -f $SCHEMA_CONTRACT && ! -L $SCHEMA_CONTRACT ]] || { echo 'missing snapshot schema contract' >&2; exit 1; }
+[[ -f $SCRIPT && ! -L $SCRIPT ]] || {
+  echo 'missing auth snapshot importer' >&2
+  exit 1
+}
+[[ -f $SCHEMA_CONTRACT && ! -L $SCHEMA_CONTRACT ]] || {
+  echo 'missing snapshot schema contract' >&2
+  exit 1
+}
 bash -n "$SCRIPT"
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/lmm-auth-snapshot-test.XXXXXXXX")
@@ -40,35 +46,42 @@ args=(--schema lmm_test_auth --expected-database lmm_test_auth --expected-role l
   --public-key "$tmp/public.pem" --allow-user-ids "$tmp/allowlist.txt" --dry-run)
 
 if PATH="$tmp/bin:$PATH" DATABASE_URL='postgres://destination-only' "$SCRIPT" "${args[@]}" >/dev/null 2>&1; then
-  echo 'missing test-instance guard unexpectedly succeeded' >&2; exit 1
+  echo 'missing test-instance guard unexpectedly succeeded' >&2
+  exit 1
 fi
 output=$(LMM_RS_TEST_INSTANCE=1 LMM_SANITIZED_AUTH_IMPORT_TEST_ALLOW_NONROOT=1 PATH="$tmp/bin:$PATH" DATABASE_URL='postgres://destination-only' "$SCRIPT" "${args[@]}")
 grep -Fxq 'DRY_RUN schema=lmm_test_auth database=lmm_test_auth role=lmm_test_auth users=1 source=offline-signed-snapshot credentials=redacted' <<<"$output"
 if grep -Fq "$hash" <<<"$output"; then
-  echo 'password verifier leaked in importer output' >&2; exit 1
+  echo 'password verifier leaked in importer output' >&2
+  exit 1
 fi
 
 printf '8\n' >"$tmp/allowlist.txt"
 if LMM_RS_TEST_INSTANCE=1 LMM_SANITIZED_AUTH_IMPORT_TEST_ALLOW_NONROOT=1 PATH="$tmp/bin:$PATH" DATABASE_URL='postgres://destination-only' "$SCRIPT" "${args[@]}" >/dev/null 2>&1; then
-  echo 'allowlist mismatch unexpectedly succeeded' >&2; exit 1
+  echo 'allowlist mismatch unexpectedly succeeded' >&2
+  exit 1
 fi
 printf '7\n' >"$tmp/allowlist.txt"
 chmod 0644 "$tmp/snapshot.sig"
 if LMM_RS_TEST_INSTANCE=1 LMM_SANITIZED_AUTH_IMPORT_TEST_ALLOW_NONROOT=1 PATH="$tmp/bin:$PATH" DATABASE_URL='postgres://destination-only' "$SCRIPT" "${args[@]}" >/dev/null 2>&1; then
-  echo 'non-0600 signature unexpectedly succeeded' >&2; exit 1
+  echo 'non-0600 signature unexpectedly succeeded' >&2
+  exit 1
 fi
 chmod 0600 "$tmp/snapshot.sig"
 printf '0000000000000000000000000000000000000000000000000000000000000000\n' >"$tmp/snapshot.sha256"
 if LMM_RS_TEST_INSTANCE=1 LMM_SANITIZED_AUTH_IMPORT_TEST_ALLOW_NONROOT=1 PATH="$tmp/bin:$PATH" DATABASE_URL='postgres://destination-only' "$SCRIPT" "${args[@]}" >/dev/null 2>&1; then
-  echo 'checksum mismatch unexpectedly succeeded' >&2; exit 1
+  echo 'checksum mismatch unexpectedly succeeded' >&2
+  exit 1
 fi
 sha256sum "$tmp/snapshot.tsv" | awk '{print $1}' >"$tmp/snapshot.sha256"
 printf 'not a detached signature\n' >"$tmp/snapshot.sig"
 if LMM_RS_TEST_INSTANCE=1 LMM_SANITIZED_AUTH_IMPORT_TEST_ALLOW_NONROOT=1 PATH="$tmp/bin:$PATH" DATABASE_URL='postgres://destination-only' "$SCRIPT" "${args[@]}" >/dev/null 2>&1; then
-  echo 'signature verification failure unexpectedly succeeded' >&2; exit 1
+  echo 'signature verification failure unexpectedly succeeded' >&2
+  exit 1
 fi
 if LMM_RS_TEST_INSTANCE=1 LMM_SANITIZED_AUTH_IMPORT_TEST_ALLOW_NONROOT=1 PATH="$tmp/bin:$PATH" DATABASE_URL='postgres://destination-only' "$SCRIPT" --source-database-url postgres://production.invalid "${args[@]}" >/dev/null 2>&1; then
-  echo 'source database option unexpectedly succeeded' >&2; exit 1
+  echo 'source database option unexpectedly succeeded' >&2
+  exit 1
 fi
 
 grep -Fq 'never reads a source database' "$SCRIPT"

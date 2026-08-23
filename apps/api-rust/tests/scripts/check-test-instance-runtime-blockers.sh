@@ -5,7 +5,10 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
 ledger="${TEST_INSTANCE_RUNTIME_BLOCKERS_LEDGER:-$repo_root/apps/api-rust/tests/fixtures/routes/test-instance-runtime-blockers.tsv}"
 legacy="$repo_root/apps/api-rust/tests/fixtures/routes/legacy-go-routes.tsv"
 
-fail() { echo "test-instance runtime blocker ledger: $*" >&2; exit 1; }
+fail() {
+  echo "test-instance runtime blocker ledger: $*" >&2
+  exit 1
+}
 [[ -f "$ledger" ]] || fail "missing ledger: $ledger"
 [[ -f "$legacy" ]] || fail "missing frozen Go route manifest: $legacy"
 
@@ -80,24 +83,24 @@ actual_inventory_key_digest="$(tail -n +2 "$ledger" | cut -f1-3 | sort | sha256s
 echo "source-derived inventory: $actual_inventory_rows exact rows, $actual_inventory_paths unique frozen paths, $actual_inventory_adapters adapters"
 
 while IFS= read -r evidence; do
-  IFS=';' read -ra references <<< "$evidence"
+  IFS=';' read -ra references <<<"$evidence"
   for reference in "${references[@]}"; do
     source_path="${reference%:*}"
     source_line="${reference##*:}"
     [[ -f "$repo_root/$source_path" ]] || fail "unknown source path: $source_path"
     [[ "$source_line" =~ ^[0-9]+$ ]] || fail "invalid source line: $reference"
-    [[ "$source_line" -le "$(wc -l < "$repo_root/$source_path")" ]] || fail "source line out of range: $reference"
+    [[ "$source_line" -le "$(wc -l <"$repo_root/$source_path")" ]] || fail "source line out of range: $reference"
   done
 done < <(tail -n +2 "$ledger" | awk -F '\t' '{print $9}')
 
 if [[ "${1:-}" == "--self-test" ]]; then
   cp "$ledger" "$tmp_dir/base.tsv"
   TEST_INSTANCE_RUNTIME_BLOCKERS_LEDGER="$tmp_dir/base.tsv" "$0" >/dev/null
-  sed '1s/^method/wrong/' "$tmp_dir/base.tsv" > "$tmp_dir/header.tsv"
+  sed '1s/^method/wrong/' "$tmp_dir/base.tsv" >"$tmp_dir/header.tsv"
   TEST_INSTANCE_RUNTIME_BLOCKERS_LEDGER="$tmp_dir/header.tsv" "$0" >/dev/null 2>&1 && fail "wrong-header self-test passed" || true
-  awk 'NR == 2 {$4=""} {print}' OFS='\t' "$tmp_dir/base.tsv" > "$tmp_dir/empty.tsv"
+  awk 'NR == 2 {$4=""} {print}' OFS='\t' "$tmp_dir/base.tsv" >"$tmp_dir/empty.tsv"
   TEST_INSTANCE_RUNTIME_BLOCKERS_LEDGER="$tmp_dir/empty.tsv" "$0" >/dev/null 2>&1 && fail "empty-field self-test passed" || true
-  awk 'NR == 3 {$1="BOGUS"} {print}' OFS='\t' "$tmp_dir/base.tsv" > "$tmp_dir/method.tsv"
+  awk 'NR == 3 {$1="BOGUS"} {print}' OFS='\t' "$tmp_dir/base.tsv" >"$tmp_dir/method.tsv"
   TEST_INSTANCE_RUNTIME_BLOCKERS_LEDGER="$tmp_dir/method.tsv" "$0" >/dev/null 2>&1 && fail "invalid-method self-test passed" || true
   echo "negative self-tests: passed"
 fi
