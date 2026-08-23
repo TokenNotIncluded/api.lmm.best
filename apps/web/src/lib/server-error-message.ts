@@ -27,6 +27,8 @@ const serverErrorMessageKeys = {
     'The AI recommendation expired. Ask the assistant to prepare it again, or continue editing it yourself.',
   DEVELOPER_ACCESS_AI_CONFIRMATION_MISMATCH:
     'The AI recommendation expired. Ask the assistant to prepare it again, or continue editing it yourself.',
+  SUBSCRIPTION_PLAN_PAYMENT_METHOD_REQUIRED:
+    'Configure at least one available payment method before enabling this plan.',
   TELEGRAM_BIND_DISABLED: 'Telegram binding is disabled.',
   TELEGRAM_BIND_INVALID_REQUEST:
     'The Telegram authorization request is invalid or expired.',

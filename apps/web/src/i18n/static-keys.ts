@@ -58,6 +58,7 @@ export const STATIC_I18N_KEYS = [
   'Blocked matches',
   'Charge unit',
   'Configured rule summaries',
+  'Configure at least one available payment method before enabling this plan.',
   'Effective date',
   'Layer',
   'Live detection totals are shown only when the public statistics endpoint is available.',

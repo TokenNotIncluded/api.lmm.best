@@ -1435,6 +1435,7 @@
     "Configure a predefined chat link for end users.": "Настройте предопределенную ссылку для чата для конечных пользователей.",
     "Configure and deploy a new container instance.": "Настройте и разверните новый экземпляр контейнера.",
     "Configure API documentation links for the dashboard": "Настроить ссылки на документацию API для панели управления",
+    "Configure at least one available payment method before enabling this plan.": "Перед включением этого плана настройте хотя бы один доступный способ оплаты.",
     "Configure at:": "Настроить в:",
     "Configure available payment methods. Provide a JSON array.": "Настроить доступные способы оплаты. Предоставьте JSON-массив.",
     "Configure costs for every active channel before enabling: {{channels}}": "Перед включением укажите себестоимость для каждого активного канала: {{channels}}",

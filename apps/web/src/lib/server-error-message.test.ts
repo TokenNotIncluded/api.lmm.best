@@ -68,6 +68,15 @@ describe('server error message mapping', () => {
     )
   })
 
+  test('maps subscription payment configuration failures to operator guidance', () => {
+    assert.equal(
+      getServerErrorMessageKey({
+        code: 'SUBSCRIPTION_PLAN_PAYMENT_METHOD_REQUIRED',
+      }),
+      'Configure at least one available payment method before enabling this plan.'
+    )
+  })
+
   test('maps an expired AI recommendation to a recoverable edit path', () => {
     assert.match(
       getServerErrorMessageKey({

@@ -25,6 +25,12 @@ export {
   type PlanFormValues,
 } from './plan-form'
 export {
+  SUBSCRIPTION_BALANCE_PAYMENT_METHOD,
+  getAdminPlanPaymentMethods,
+  getSubscriptionPaymentMethodLabel,
+  isPlanBalancePaymentAvailable,
+} from './payment-methods'
+export {
   SUBSCRIPTION_CHECKOUT_POLL_INTERVAL_MS,
   SUBSCRIPTION_CHECKOUT_POLL_TIMEOUT_MS,
   beginSubscriptionCheckoutConfirmation,

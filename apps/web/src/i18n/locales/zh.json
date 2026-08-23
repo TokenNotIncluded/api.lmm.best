@@ -1435,6 +1435,7 @@
     "Configure a predefined chat link for end users.": "为终端用户配置预定义的聊天链接。",
     "Configure and deploy a new container instance.": "配置并部署一个新的容器实例。",
     "Configure API documentation links for the dashboard": "配置仪表板的 API 文档链接",
+    "Configure at least one available payment method before enabling this plan.": "启用该套餐前，请至少配置一种可用的支付方式。",
     "Configure at:": "配置位置：",
     "Configure available payment methods. Provide a JSON array.": "配置可用的支付方式。提供一个 JSON 数组。",
     "Configure costs for every active channel before enabling: {{channels}}": "启用前请为每个活跃渠道配置成本：{{channels}}",

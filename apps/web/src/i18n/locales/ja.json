@@ -1435,6 +1435,7 @@
     "Configure a predefined chat link for end users.": "エンドユーザー向けの事前定義されたチャットリンクを設定します。",
     "Configure and deploy a new container instance.": "新しいコンテナインスタンスを設定してデプロイします。",
     "Configure API documentation links for the dashboard": "ダッシュボード用のAPIドキュメントリンクを設定",
+    "Configure at least one available payment method before enabling this plan.": "このプランを有効にする前に、利用可能な支払い方法を少なくとも1つ設定してください。",
     "Configure at:": "設定場所:",
     "Configure available payment methods. Provide a JSON array.": "利用可能な支払い方法を設定します。JSON配列を提供してください。",
     "Configure costs for every active channel before enabling: {{channels}}": "有効化する前に、すべての有効なチャネルのコストを設定してください：{{channels}}",

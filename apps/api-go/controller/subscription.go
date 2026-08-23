@@ -3,6 +3,7 @@ package controller
 import (
 	"errors"
 	"fmt"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -19,11 +20,9 @@ import (
 
 type SubscriptionPlanDTO struct {
 	Plan model.SubscriptionPlan `json:"plan"`
-	// PaymentMethods is the checkout catalog for this plan and current user.
-	// It is deliberately derived from the plan's provider product IDs and
-	// gateway credentials, rather than from wallet top-up products. A plan may
-	// be external-payment-only even when the operator has not configured a
-	// generic top-up product for that gateway.
+	// PaymentMethods is user-authorized in the public catalog and operator-
+	// configured in the admin catalog. Both views require usable gateway
+	// credentials rather than trusting a bare provider product ID.
 	PaymentMethods []string `json:"payment_methods"`
 }
 
@@ -133,6 +132,20 @@ func SubscriptionRequestBalancePay(c *gin.Context) {
 
 // ---- Admin APIs ----
 
+const enabledSubscriptionPlanPaymentMethodRequiredMessage = "套餐启用前至少需要一种可用支付方式"
+
+func enabledSubscriptionPlanHasConfiguredPaymentMethod(plan *model.SubscriptionPlan) bool {
+	return plan != nil && (!plan.Enabled || len(subscriptionConfiguredPaymentMethods(plan)) > 0)
+}
+
+func subscriptionPlanPaymentMethodRequired(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{
+		"success": false,
+		"code":    "SUBSCRIPTION_PLAN_PAYMENT_METHOD_REQUIRED",
+		"message": enabledSubscriptionPlanPaymentMethodRequiredMessage,
+	})
+}
+
 func AdminListSubscriptionPlans(c *gin.Context) {
 	var plans []model.SubscriptionPlan
 	if err := model.DB.Order("sort_order desc, id desc").Find(&plans).Error; err != nil {
@@ -143,7 +156,8 @@ func AdminListSubscriptionPlans(c *gin.Context) {
 	for _, p := range plans {
 		p.NormalizeDefaults()
 		result = append(result, SubscriptionPlanDTO{
-			Plan: p,
+			Plan:           p,
+			PaymentMethods: subscriptionConfiguredPaymentMethods(&p),
 		})
 	}
 	common.ApiSuccess(c, result)
@@ -219,6 +233,13 @@ func AdminCreateSubscriptionPlan(c *gin.Context) {
 		common.ApiErrorMsg(c, "自定义重置周期需大于0秒")
 		return
 	}
+	req.Plan.StripePriceId = strings.TrimSpace(req.Plan.StripePriceId)
+	req.Plan.CreemProductId = strings.TrimSpace(req.Plan.CreemProductId)
+	req.Plan.WaffoPancakeProductId = strings.TrimSpace(req.Plan.WaffoPancakeProductId)
+	if !enabledSubscriptionPlanHasConfiguredPaymentMethod(&req.Plan) {
+		subscriptionPlanPaymentMethodRequired(c)
+		return
+	}
 	err := model.DB.Create(&req.Plan).Error
 	if err != nil {
 		common.ApiError(c, err)
@@ -238,10 +259,27 @@ func AdminUpdateSubscriptionPlan(c *gin.Context) {
 		common.ApiErrorMsg(c, "无效的ID")
 		return
 	}
+	existingPlan, lookupErr := model.GetSubscriptionPlanById(id)
+	if lookupErr != nil {
+		common.ApiError(c, lookupErr)
+		return
+	}
 	var req AdminUpsertSubscriptionPlanRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		common.ApiErrorMsg(c, "参数错误")
 		return
+	}
+	if req.Plan.AllowBalancePay == nil {
+		req.Plan.AllowBalancePay = existingPlan.AllowBalancePay
+		if req.Plan.AllowBalancePay == nil {
+			req.Plan.AllowBalancePay = common.GetPointer(true)
+		}
+	}
+	if req.Plan.AllowWalletOverflow == nil {
+		req.Plan.AllowWalletOverflow = existingPlan.AllowWalletOverflow
+		if req.Plan.AllowWalletOverflow == nil {
+			req.Plan.AllowWalletOverflow = common.GetPointer(true)
+		}
 	}
 	if strings.TrimSpace(req.Plan.Title) == "" {
 		common.ApiErrorMsg(c, "套餐标题不能为空")
@@ -291,6 +329,13 @@ func AdminUpdateSubscriptionPlan(c *gin.Context) {
 	req.Plan.QuotaResetPeriod = model.NormalizeResetPeriod(req.Plan.QuotaResetPeriod)
 	if req.Plan.QuotaResetPeriod == model.SubscriptionResetCustom && req.Plan.QuotaResetCustomSeconds <= 0 {
 		common.ApiErrorMsg(c, "自定义重置周期需大于0秒")
+		return
+	}
+	req.Plan.StripePriceId = strings.TrimSpace(req.Plan.StripePriceId)
+	req.Plan.CreemProductId = strings.TrimSpace(req.Plan.CreemProductId)
+	req.Plan.WaffoPancakeProductId = strings.TrimSpace(req.Plan.WaffoPancakeProductId)
+	if !enabledSubscriptionPlanHasConfiguredPaymentMethod(&req.Plan) {
+		subscriptionPlanPaymentMethodRequired(c)
 		return
 	}
 
@@ -354,6 +399,18 @@ func AdminUpdateSubscriptionPlanStatus(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil || req.Enabled == nil {
 		common.ApiErrorMsg(c, "参数错误")
 		return
+	}
+	if *req.Enabled {
+		plan, err := model.GetSubscriptionPlanById(id)
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		plan.Enabled = true
+		if !enabledSubscriptionPlanHasConfiguredPaymentMethod(plan) {
+			subscriptionPlanPaymentMethodRequired(c)
+			return
+		}
 	}
 	if err := model.DB.Model(&model.SubscriptionPlan{}).Where("id = ?", id).Update("enabled", *req.Enabled).Error; err != nil {
 		common.ApiError(c, err)

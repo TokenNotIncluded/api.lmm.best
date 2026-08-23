@@ -17,12 +17,19 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
-import { CalendarClock, CreditCard, RefreshCw, Settings2 } from 'lucide-react'
+import {
+  CalendarClock,
+  CreditCard,
+  RefreshCw,
+  Settings2,
+  X,
+} from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useForm, type Resolver } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
+import { BadgeCell } from '@/components/data-table'
 import {
   SideDrawerSection,
   sideDrawerContentClassName,
@@ -31,6 +38,7 @@ import {
   sideDrawerHeaderClassName,
   sideDrawerSwitchItemClassName,
 } from '@/components/drawer-layout'
+import { StatusBadge } from '@/components/status-badge'
 import { Button } from '@/components/ui/button'
 import {
   Form,
@@ -76,6 +84,7 @@ import {
   PLAN_FORM_DEFAULTS,
   planToFormValues,
   formValuesToPlanPayload,
+  getSubscriptionPaymentMethodLabel,
   type PlanFormValues,
 } from '../lib'
 import type { PlanRecord } from '../types'
@@ -107,6 +116,8 @@ export function SubscriptionsMutateDrawer({
 
   const schema = getPlanFormSchema(t)
   const form = useForm<PlanFormValues>({
+    // SAFETY: getPlanFormSchema is the sole runtime schema for PlanFormValues;
+    // the bridge is needed because the installed resolver types erase coerced inputs.
     resolver: zodResolver(schema) as unknown as Resolver<PlanFormValues>,
     defaultValues: PLAN_FORM_DEFAULTS,
   })
@@ -145,6 +156,23 @@ export function SubscriptionsMutateDrawer({
 
   const durationUnit = form.watch('duration_unit')
   const resetPeriod = form.watch('quota_reset_period')
+  const watchedAllowBalancePay = form.watch('allow_balance_pay')
+  const watchedStripePriceId = form.watch('stripe_price_id')
+  const watchedCreemProductId = form.watch('creem_product_id')
+  const watchedPancakeProductId = form.watch('waffo_pancake_product_id')
+  // Generic ePay methods are global rather than plan fields. Preserve the
+  // authoritative admin catalog entries while this existing plan is edited.
+  const inheritedEpayMethods = (currentRow?.payment_methods || []).filter(
+    (method) =>
+      !['balance', 'stripe', 'creem', 'waffo_pancake'].includes(method)
+  )
+  const selectedPaymentMethods = [
+    watchedAllowBalancePay ? 'balance' : null,
+    watchedStripePriceId?.trim() ? 'stripe' : null,
+    watchedCreemProductId?.trim() ? 'creem' : null,
+    watchedPancakeProductId?.trim() ? 'waffo_pancake' : null,
+    ...inheritedEpayMethods,
+  ].filter((method): method is string => !!method)
   // Gate "+ Create on Pancake" on the same checks the mint handler runs.
   const watchedTitle = form.watch('title')
   const watchedPrice = form.watch('price_amount')
@@ -545,24 +573,6 @@ export function SubscriptionsMutateDrawer({
 
                 <FormField
                   control={form.control}
-                  name='allow_balance_pay'
-                  render={({ field }) => (
-                    <FormItem className={sideDrawerSwitchItemClassName()}>
-                      <FormLabel className='!mt-0'>
-                        {t('Allow balance redemption')}
-                      </FormLabel>
-                      <FormControl>
-                        <Switch
-                          checked={field.value}
-                          onCheckedChange={field.onChange}
-                        />
-                      </FormControl>
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
                   name='allow_wallet_overflow'
                   render={({ field }) => (
                     <FormItem className={sideDrawerSwitchItemClassName()}>
@@ -751,8 +761,50 @@ export function SubscriptionsMutateDrawer({
                 <IconBadge tone='warning' size='xs'>
                   <CreditCard />
                 </IconBadge>
-                {t('Third-party Payment Config')}
+                {t('Payment Methods')}
               </h3>
+
+              <div className='flex flex-col gap-2 rounded-md border p-3'>
+                <span className='text-muted-foreground text-xs'>
+                  {t('Payment Channel')}
+                </span>
+                <BadgeCell>
+                  {selectedPaymentMethods.length === 0 ? (
+                    <StatusBadge
+                      label={t('Not configured')}
+                      variant='danger'
+                      copyable={false}
+                    />
+                  ) : (
+                    selectedPaymentMethods.map((method) => (
+                      <StatusBadge
+                        key={method}
+                        label={getSubscriptionPaymentMethodLabel(method, t)}
+                        variant='neutral'
+                        copyable={false}
+                      />
+                    ))
+                  )}
+                </BadgeCell>
+              </div>
+
+              <FormField
+                control={form.control}
+                name='allow_balance_pay'
+                render={({ field }) => (
+                  <FormItem className={sideDrawerSwitchItemClassName()}>
+                    <FormLabel className='!mt-0'>
+                      {t('Allow balance redemption')}
+                    </FormLabel>
+                    <FormControl>
+                      <Switch
+                        checked={field.value}
+                        onCheckedChange={field.onChange}
+                      />
+                    </FormControl>
+                  </FormItem>
+                )}
+              />
 
               <FormField
                 control={form.control}
@@ -803,8 +855,8 @@ export function SubscriptionsMutateDrawer({
                       <div className='flex gap-2'>
                         <Select
                           items={items}
-                          value={field.value || ''}
-                          onValueChange={(v) => field.onChange(v)}
+                          value={field.value || null}
+                          onValueChange={(value) => field.onChange(value ?? '')}
                           disabled={items.length === 0}
                         >
                           <SelectTrigger className='w-full flex-1'>
@@ -818,6 +870,19 @@ export function SubscriptionsMutateDrawer({
                             ))}
                           </SelectContent>
                         </Select>
+                        {field.value ? (
+                          <Button
+                            type='button'
+                            variant='ghost'
+                            size='icon'
+                            aria-label={t('Disable')}
+                            title={t('Disable')}
+                            onClick={() => field.onChange('')}
+                            className='shrink-0'
+                          >
+                            <X />
+                          </Button>
+                        ) : null}
                         <Button
                           type='button'
                           variant='outline'

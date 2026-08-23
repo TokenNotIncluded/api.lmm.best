@@ -56,6 +56,7 @@ import {
   beginSubscriptionCheckoutConfirmation,
   formatDuration,
   formatResetPeriod,
+  isPlanBalancePaymentAvailable,
   shouldContinueSubscriptionCheckoutConfirmation,
   subscriptionCheckoutFingerprint,
   type PendingSubscriptionCheckout,
@@ -705,14 +706,16 @@ export function SubscriptionPlansCard({
               const reached = limit > 0 && count >= limit
               const hasPlanPaymentCatalog = Array.isArray(p.payment_methods)
               const hasPlanCheckout = hasPlanPaymentCatalog
-                ? (p.payment_methods?.length || 0) > 0
+                ? (p.payment_methods || []).some(
+                    (method) => method !== 'balance'
+                  )
                 : !paymentUnavailable &&
                   ((enableStripe && !!plan.stripe_price_id) ||
                     (enableCreem && !!plan.creem_product_id) ||
                     (enableWaffoPancake && !!plan.waffo_pancake_product_id) ||
                     (enableOnlineTopUp && epayMethods.length > 0))
               const canPurchase =
-                plan.allow_balance_pay !== false || hasPlanCheckout
+                isPlanBalancePaymentAvailable(p) || hasPlanCheckout
 
               const benefits = [
                 `${t('Validity Period')}: ${formatDuration(plan, t)}`,

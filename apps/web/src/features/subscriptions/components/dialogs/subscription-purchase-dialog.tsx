@@ -113,8 +113,9 @@ export function SubscriptionPurchaseDialog(props: Props) {
     }
   }, [props.open, props.paymentMethods, props.epayMethods])
 
-  const plan = props.plan?.plan
-  if (!plan) return null
+  const planRecord = props.plan
+  if (!planRecord) return null
+  const plan = planRecord.plan
 
   const hasAuthoritativePaymentCatalog = Array.isArray(props.paymentMethods)
   const paymentMethods = hasAuthoritativePaymentCatalog
@@ -158,7 +159,9 @@ export function SubscriptionPurchaseDialog(props: Props) {
     Math.ceil(Number(plan.price_amount || 0) * quotaPerUnit)
   )
   const userQuota = Math.max(0, Number(props.userQuota || 0))
-  const allowBalancePay = plan.allow_balance_pay !== false
+  const allowBalancePay = hasAuthoritativePaymentCatalog
+    ? paymentMethods.includes('balance')
+    : plan.allow_balance_pay !== false
   const insufficientBalance = userQuota < balanceCost
   const limitReached =
     (props.purchaseLimit || 0) > 0 &&

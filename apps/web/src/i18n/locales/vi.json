@@ -1435,6 +1435,7 @@
     "Configure a predefined chat link for end users.": "Cấu hình một liên kết trò chuyện được xác định trước cho người dùng cuối.",
     "Configure and deploy a new container instance.": "Cấu hình và triển khai một phiên bản container mới.",
     "Configure API documentation links for the dashboard": "Cấu hình các liên kết tài liệu API cho bảng điều khiển",
+    "Configure at least one available payment method before enabling this plan.": "Hãy cấu hình ít nhất một phương thức thanh toán khả dụng trước khi bật gói này.",
     "Configure at:": "Cấu hình tại:",
     "Configure available payment methods. Provide a JSON array.": "Cấu hình các phương thức thanh toán khả dụng. Cung cấp một mảng JSON.",
     "Configure costs for every active channel before enabling: {{channels}}": "Hãy cấu hình chi phí cho mọi kênh đang hoạt động trước khi bật: {{channels}}",

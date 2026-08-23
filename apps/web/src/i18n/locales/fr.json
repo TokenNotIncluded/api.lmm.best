@@ -1435,6 +1435,7 @@
     "Configure a predefined chat link for end users.": "Configurer un lien de chat prédéfini pour les utilisateurs finaux.",
     "Configure and deploy a new container instance.": "Configurer et déployer une nouvelle instance de conteneur.",
     "Configure API documentation links for the dashboard": "Configurer les liens de documentation API pour le tableau de bord",
+    "Configure at least one available payment method before enabling this plan.": "Configurez au moins un moyen de paiement disponible avant d’activer cette offre.",
     "Configure at:": "Configurer à :",
     "Configure available payment methods. Provide a JSON array.": "Configurer les méthodes de paiement disponibles. Fournir un tableau JSON.",
     "Configure costs for every active channel before enabling: {{channels}}": "Configurez les coûts de tous les canaux actifs avant l’activation : {{channels}}",

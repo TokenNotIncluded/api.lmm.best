@@ -26,7 +26,12 @@ import { StatusBadge } from '@/components/status-badge'
 import { TableId } from '@/components/table-id'
 import { formatQuota } from '@/lib/format'
 
-import { formatDuration, formatResetPeriod } from '../lib'
+import {
+  formatDuration,
+  formatResetPeriod,
+  getAdminPlanPaymentMethods,
+  getSubscriptionPaymentMethodLabel,
+} from '../lib'
 import type { PlanRecord } from '../types'
 import { DataTableRowActions } from './data-table-row-actions'
 
@@ -135,25 +140,24 @@ export function useSubscriptionsColumns(): ColumnDef<PlanRecord>[] {
         header: t('Payment Channel'),
         meta: { mobileHidden: true },
         cell: ({ row }) => {
-          const plan = row.original.plan
+          const methods = getAdminPlanPaymentMethods(row.original)
           return (
             <BadgeCell>
-              {plan.stripe_price_id && (
+              {methods.length === 0 ? (
                 <StatusBadge
-                  label='Stripe'
-                  variant='neutral'
+                  label={t('Not configured')}
+                  variant={row.original.plan.enabled ? 'danger' : 'neutral'}
                   copyable={false}
                 />
-              )}
-              {plan.creem_product_id && (
-                <StatusBadge label='Creem' variant='neutral' copyable={false} />
-              )}
-              {plan.waffo_pancake_product_id && (
-                <StatusBadge
-                  label='Waffo Pancake'
-                  variant='neutral'
-                  copyable={false}
-                />
+              ) : (
+                methods.map((method) => (
+                  <StatusBadge
+                    key={method}
+                    label={getSubscriptionPaymentMethodLabel(method, t)}
+                    variant='neutral'
+                    copyable={false}
+                  />
+                ))
               )}
             </BadgeCell>
           )

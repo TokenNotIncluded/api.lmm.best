@@ -12,53 +12,47 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// subscriptionPaymentMethods reports checkout methods for one plan. Wallet
-// top-up availability cannot be reused here: Stripe, Creem and Pancake
-// subscriptions use a product ID stored on the plan, while wallet top-ups
-// have separate global product settings.
-func subscriptionPaymentMethods(user *model.User, plan *model.SubscriptionPlan, now time.Time) []string {
-	if user == nil || plan == nil || !operation_setting.IsPaymentComplianceConfirmed() {
+// subscriptionConfiguredPaymentMethods reports the operator-configured
+// checkout catalog for one plan. It deliberately ignores per-user audience and
+// unlock rules so the admin list can distinguish a usable channel from a bare
+// product ID whose gateway credentials are incomplete.
+func subscriptionConfiguredPaymentMethods(plan *model.SubscriptionPlan) []string {
+	if plan == nil || !operation_setting.IsPaymentComplianceConfirmed() {
 		return []string{}
 	}
 
-	methods := make([]string, 0, 4)
-	// Balance checkout is subject to the same payment restriction gate as its
-	// endpoint. Do not advertise it to an account that the balance route will
-	// reject, while still allowing explicitly-audienced external methods below.
-	if !model.IsPaymentRestricted(user) && (plan.AllowBalancePay == nil || *plan.AllowBalancePay) {
-		methods = append(methods, model.PaymentMethodBalance)
-	}
-
-	appendIfAvailable := func(method string, configured bool) {
-		if configured && isPaymentMethodAvailableForUser(user, method, now) {
-			methods = append(methods, method)
+	methods := make([]string, 0, len(operation_setting.PayMethods)+4)
+	seen := make(map[string]struct{}, cap(methods))
+	appendConfigured := func(method string, configured bool) {
+		if !configured {
+			return
 		}
+		if _, exists := seen[method]; exists {
+			return
+		}
+		methods = append(methods, method)
+		seen[method] = struct{}{}
 	}
 
-	appendIfAvailable(model.PaymentMethodStripe,
+	appendConfigured(model.PaymentMethodBalance, plan.AllowBalancePay == nil || *plan.AllowBalancePay)
+	appendConfigured(model.PaymentMethodStripe,
 		strings.TrimSpace(plan.StripePriceId) != "" &&
 			(strings.HasPrefix(strings.TrimSpace(setting.StripeApiSecret), "sk_") ||
 				strings.HasPrefix(strings.TrimSpace(setting.StripeApiSecret), "rk_")) &&
 			strings.TrimSpace(setting.StripeWebhookSecret) != "")
-	appendIfAvailable(model.PaymentMethodCreem,
+	appendConfigured(model.PaymentMethodCreem,
 		strings.TrimSpace(plan.CreemProductId) != "" &&
 			strings.TrimSpace(setting.CreemApiKey) != "" &&
 			(strings.TrimSpace(setting.CreemWebhookSecret) != "" || setting.CreemTestMode))
 
 	merchantID, privateKey := service.WaffoPancakeCredentials()
-	appendIfAvailable(model.PaymentMethodWaffoPancake,
+	appendConfigured(model.PaymentMethodWaffoPancake,
 		strings.TrimSpace(plan.WaffoPancakeProductId) != "" &&
 			strings.TrimSpace(merchantID) != "" && strings.TrimSpace(privateKey) != "")
 
-	// Generic ePay methods are selected by their configured type. They do
-	// not need a product ID on the plan because the plan amount is sent as the
-	// checkout amount.
-	genericGatewayAvailable := isEpayTopUpEnabled()
-	if genericGatewayAvailable {
-		seen := make(map[string]struct{}, len(methods))
-		for _, method := range methods {
-			seen[method] = struct{}{}
-		}
+	// Generic ePay methods are global and need no product ID on the plan because
+	// checkout sends the plan amount directly.
+	if isEpayTopUpEnabled() {
 		for _, configured := range operation_setting.PayMethods {
 			method := strings.TrimSpace(configured["type"])
 			if method == "" || method == model.PaymentMethodStripe ||
@@ -66,16 +60,35 @@ func subscriptionPaymentMethods(user *model.User, plan *model.SubscriptionPlan, 
 				method == model.PaymentMethodWaffoPancake || method == model.PaymentMethodBalance {
 				continue
 			}
-			if _, ok := seen[method]; ok ||
-				!isEpayTopUpEnabled() ||
-				!isPaymentMethodAvailableForUser(user, method, now) {
-				continue
-			}
-			methods = append(methods, method)
-			seen[method] = struct{}{}
+			appendConfigured(method, true)
 		}
 	}
 
+	return methods
+}
+
+// subscriptionPaymentMethods filters the configured plan catalog through the
+// signed-in user's payment restrictions, audience and unlock rules.
+func subscriptionPaymentMethods(user *model.User, plan *model.SubscriptionPlan, now time.Time) []string {
+	if user == nil || plan == nil {
+		return []string{}
+	}
+
+	configured := subscriptionConfiguredPaymentMethods(plan)
+	methods := make([]string, 0, len(configured))
+	for _, method := range configured {
+		if method == model.PaymentMethodBalance {
+			// Balance checkout is subject to the same payment restriction gate as
+			// its endpoint. Explicitly-audienced external methods remain eligible.
+			if !model.IsPaymentRestricted(user) {
+				methods = append(methods, method)
+			}
+			continue
+		}
+		if isPaymentMethodAvailableForUser(user, method, now) {
+			methods = append(methods, method)
+		}
+	}
 	return methods
 }
 

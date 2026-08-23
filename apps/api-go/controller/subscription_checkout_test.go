@@ -88,6 +88,63 @@ func TestSubscriptionPaymentMethodsUsePlanStripeProductWithoutWalletProduct(t *t
 	require.Equal(t, []string{model.PaymentMethodStripe}, methods)
 }
 
+func TestSubscriptionConfiguredPaymentMethodsRequireUsableGatewayConfiguration(t *testing.T) {
+	confirmPaymentComplianceForTest(t)
+	preservePaymentGatewaySettings(t)
+
+	originalAPISecret := setting.StripeApiSecret
+	originalWebhookSecret := setting.StripeWebhookSecret
+	t.Cleanup(func() {
+		setting.StripeApiSecret = originalAPISecret
+		setting.StripeWebhookSecret = originalWebhookSecret
+	})
+
+	operation_setting.PayAddress = "https://epay.example.test"
+	operation_setting.EpayId = "merchant"
+	operation_setting.EpayKey = "secret"
+	operation_setting.PayMethods = []map[string]string{
+		{"name": "Alipay", "type": "alipay"},
+		{"name": "Duplicate", "type": "alipay"},
+		{"name": "Dedicated", "type": model.PaymentMethodStripe},
+	}
+	setting.StripeApiSecret = "not-a-secret"
+	setting.StripeWebhookSecret = "whsec_subscription"
+
+	allowBalance := false
+	plan := &model.SubscriptionPlan{
+		Enabled:         true,
+		AllowBalancePay: &allowBalance,
+		StripePriceId:   "price_plan_specific",
+	}
+	require.Equal(t, []string{"alipay"}, subscriptionConfiguredPaymentMethods(plan))
+
+	setting.StripeApiSecret = "sk_test_subscription" // gitleaks:allow
+	require.Equal(t,
+		[]string{model.PaymentMethodStripe, "alipay"},
+		subscriptionConfiguredPaymentMethods(plan),
+	)
+}
+
+func TestEnabledSubscriptionPlanRequiresConfiguredPaymentMethod(t *testing.T) {
+	confirmPaymentComplianceForTest(t)
+	preservePaymentGatewaySettings(t)
+	operation_setting.PayAddress = ""
+	operation_setting.EpayId = ""
+	operation_setting.EpayKey = ""
+	operation_setting.PayMethods = nil
+
+	allowBalance := false
+	plan := &model.SubscriptionPlan{Enabled: true, AllowBalancePay: &allowBalance}
+	require.False(t, enabledSubscriptionPlanHasConfiguredPaymentMethod(plan))
+
+	plan.Enabled = false
+	require.True(t, enabledSubscriptionPlanHasConfiguredPaymentMethod(plan))
+
+	plan.Enabled = true
+	allowBalance = true
+	require.True(t, enabledSubscriptionPlanHasConfiguredPaymentMethod(plan))
+}
+
 func TestStripeSubscriptionPersistsOrderBeforeCreatingCheckout(t *testing.T) {
 	db := setupTokenControllerTestDB(t)
 	require.NoError(t, db.AutoMigrate(&model.User{}, &model.SubscriptionPlan{}, &model.SubscriptionOrder{}))
