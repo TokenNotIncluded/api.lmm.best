@@ -21,6 +21,7 @@ import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { BrandLogo } from '@/components/brand-logo'
+import { HtmlContent } from '@/components/html-content'
 import { LMM_BRAND_NAME, LmmBrandMark } from '@/components/lmm-brand-mark'
 import { useSystemConfig } from '@/hooks/use-system-config'
 import { DEFAULT_LOGO, DEFAULT_SYSTEM_NAME } from '@/lib/constants'
@@ -355,9 +356,10 @@ export function Footer(props: FooterProps) {
         <div className='mx-auto w-full max-w-7xl px-5 py-6 sm:px-8'>
           <div className='flex flex-col gap-4'>
             <div className='flex flex-col items-center justify-between gap-3 sm:flex-row'>
-              <div
+              <HtmlContent
+                content={footerHtml}
+                variant='inline'
                 className='custom-footer text-muted-foreground min-w-0 text-center text-sm sm:text-left'
-                dangerouslySetInnerHTML={{ __html: footerHtml }}
               />
               <ProjectAttribution
                 currentYear={currentYear}

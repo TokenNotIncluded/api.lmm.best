@@ -170,6 +170,9 @@ func VideoProxy(c *gin.Context) {
 	}
 
 	for key, values := range resp.Header {
+		if !service.ShouldCopyUpstreamHeader(c, key, values) || strings.EqualFold(key, "Location") {
+			continue
+		}
 		for _, value := range values {
 			c.Writer.Header().Add(key, value)
 		}

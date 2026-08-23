@@ -52,7 +52,11 @@ export function buildSetupPayload(
   }
 
   if (rootInitialized) {
-    return basePayload
+    return {
+      username: rest.username,
+      password: rest.password,
+      ...basePayload,
+    }
   }
 
   return {

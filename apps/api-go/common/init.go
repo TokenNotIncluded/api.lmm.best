@@ -55,6 +55,9 @@ func InitEnv() {
 		} else {
 			SessionSecret = ss
 		}
+	} else {
+		log.Println("WARNING: SESSION_SECRET is unset; sessions will not survive restarts or work across multiple nodes.")
+		log.Println("警告：未设置 SESSION_SECRET，会话无法在重启或多节点之间保持一致。")
 	}
 	if os.Getenv("CRYPTO_SECRET") != "" {
 		CryptoSecret = os.Getenv("CRYPTO_SECRET")
@@ -75,7 +78,7 @@ func InitEnv() {
 			log.Fatal(err)
 		}
 		if _, err := os.Stat(*LogDir); os.IsNotExist(err) {
-			err = os.Mkdir(*LogDir, 0777)
+			err = os.Mkdir(*LogDir, 0750)
 			if err != nil {
 				log.Fatal(err)
 			}

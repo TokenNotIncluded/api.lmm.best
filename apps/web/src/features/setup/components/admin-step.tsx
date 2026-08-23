@@ -42,14 +42,58 @@ export function AdminStep({ form, rootInitialized }: AdminStepProps) {
   const { t } = useTranslation()
   if (rootInitialized) {
     return (
-      <Alert className='console-status-info-surface'>
-        <AlertDescription className='flex items-start gap-2'>
-          <ShieldCheck className='console-status-info-icon mt-0.5 size-4' />
-          {t(
-            'The administrator account is already initialized. You can keep your existing credentials and continue to the next step.'
-          )}
-        </AlertDescription>
-      </Alert>
+      <div className='grid gap-4'>
+        <Alert className='console-status-info-surface'>
+          <AlertDescription className='flex items-start gap-2'>
+            <ShieldCheck className='console-status-info-icon mt-0.5 size-4' />
+            {t('Verify the existing administrator account to finish setup.')}
+          </AlertDescription>
+        </Alert>
+        <div className='grid gap-4 sm:grid-cols-2'>
+          <FormField
+            control={form.control}
+            name='username'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>{t('Administrator username')}</FormLabel>
+                <FormControl>
+                  <Input
+                    {...field}
+                    placeholder={t('Administrator username')}
+                    autoComplete='username'
+                    onChange={(event) => {
+                      form.clearErrors('username')
+                      field.onChange(event)
+                    }}
+                  />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={form.control}
+            name='password'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>{t('Password')}</FormLabel>
+                <FormControl>
+                  <PasswordInput
+                    {...field}
+                    placeholder={t('Enter the existing administrator password')}
+                    autoComplete='current-password'
+                    onChange={(event) => {
+                      form.clearErrors('password')
+                      field.onChange(event)
+                    }}
+                  />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        </div>
+      </div>
     )
   }
 

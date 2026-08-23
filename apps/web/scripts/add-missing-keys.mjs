@@ -4984,6 +4984,66 @@ for (const [locale, translations] of Object.entries(
   Object.assign(newKeys[locale], translations)
 }
 
+const setupRootVerificationTranslations = {
+  en: {
+    'Verify the existing administrator account to finish setup.':
+      'Verify the existing administrator account to finish setup.',
+    'Enter the existing administrator password':
+      'Enter the existing administrator password',
+    'Please enter the existing administrator password':
+      'Please enter the existing administrator password',
+  },
+  zh: {
+    'Verify the existing administrator account to finish setup.':
+      '请验证现有管理员账号以完成初始化。',
+    'Enter the existing administrator password': '输入现有管理员密码',
+    'Please enter the existing administrator password': '请输入现有管理员密码',
+  },
+  'zh-TW': {
+    'Verify the existing administrator account to finish setup.':
+      '請驗證現有管理員帳號以完成初始化。',
+    'Enter the existing administrator password': '輸入現有管理員密碼',
+    'Please enter the existing administrator password': '請輸入現有管理員密碼',
+  },
+  fr: {
+    'Verify the existing administrator account to finish setup.':
+      'Vérifiez le compte administrateur existant pour terminer l’installation.',
+    'Enter the existing administrator password':
+      'Saisissez le mot de passe administrateur existant',
+    'Please enter the existing administrator password':
+      'Veuillez saisir le mot de passe administrateur existant',
+  },
+  ja: {
+    'Verify the existing administrator account to finish setup.':
+      'セットアップを完了するには、既存の管理者アカウントを確認してください。',
+    'Enter the existing administrator password': '既存の管理者パスワードを入力',
+    'Please enter the existing administrator password':
+      '既存の管理者パスワードを入力してください',
+  },
+  ru: {
+    'Verify the existing administrator account to finish setup.':
+      'Подтвердите существующую учётную запись администратора, чтобы завершить установку.',
+    'Enter the existing administrator password':
+      'Введите существующий пароль администратора',
+    'Please enter the existing administrator password':
+      'Введите существующий пароль администратора',
+  },
+  vi: {
+    'Verify the existing administrator account to finish setup.':
+      'Xác minh tài khoản quản trị hiện có để hoàn tất cài đặt.',
+    'Enter the existing administrator password':
+      'Nhập mật khẩu quản trị hiện có',
+    'Please enter the existing administrator password':
+      'Vui lòng nhập mật khẩu quản trị hiện có',
+  },
+}
+
+for (const [locale, translations] of Object.entries(
+  setupRootVerificationTranslations
+)) {
+  Object.assign(newKeys[locale], translations)
+}
+
 async function main() {
   let totalAdded = 0
   for (const [locale, translations] of Object.entries(newKeys)) {

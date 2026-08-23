@@ -3,6 +3,7 @@ package model
 import (
 	"errors"
 	"fmt"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -333,6 +334,27 @@ func validateOptionValue(key string, value string) error {
 	}
 	if key == operation_setting.ViolationFeeOptionKey+".policies" {
 		return operation_setting.ValidateViolationFeeSettingsJSON(`{"enabled":true,"policies":` + value + `}`)
+	}
+	if err := validateAbsoluteHTTPURLOption(key, value); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateAbsoluteHTTPURLOption(key string, value string) error {
+	switch key {
+	case "ServerAddress", "WorkerUrl", "CustomCallbackAddress", "PayAddress",
+		"WaffoNotifyUrl", "WaffoReturnUrl", "WaffoSubscriptionReturnUrl", "WaffoPancakeReturnURL":
+	default:
+		return nil
+	}
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil
+	}
+	parsed, err := url.ParseRequestURI(value)
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" || parsed.User != nil {
+		return errors.New("must be an absolute HTTP or HTTPS URL without embedded credentials")
 	}
 	return nil
 }

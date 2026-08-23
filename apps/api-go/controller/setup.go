@@ -78,8 +78,30 @@ func PostSetup(c *gin.Context) {
 	rootExists := model.RootUserExists()
 
 	var rootUser model.User
-	// If root doesn't exist, validate and create admin account
-	if !rootExists {
+	if rootExists {
+		if strings.TrimSpace(req.Username) == "" || req.Password == "" {
+			c.JSON(200, gin.H{
+				"success": false,
+				"message": "请输入现有管理员账号以完成初始化",
+			})
+			return
+		}
+		var existingRoot model.User
+		if err := model.DB.Where("role = ?", common.RoleRootUser).First(&existingRoot).Error; err != nil {
+			c.JSON(200, gin.H{
+				"success": false,
+				"message": "系统初始化失败: 无法读取管理员账号",
+			})
+			return
+		}
+		if existingRoot.Username != req.Username || !common.ValidatePasswordAndHash(req.Password, existingRoot.Password) {
+			c.JSON(200, gin.H{
+				"success": false,
+				"message": "管理员账号验证失败",
+			})
+			return
+		}
+	} else {
 		// Validate username length: max 12 characters to align with model.User validation
 		if len(req.Username) > 12 {
 			c.JSON(200, gin.H{

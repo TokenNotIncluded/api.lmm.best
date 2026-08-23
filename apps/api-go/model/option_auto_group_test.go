@@ -10,6 +10,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestValidateOptionValueRejectsUnsafePaymentReturnURLs(t *testing.T) {
+	assert.NoError(t, validateOptionValue("WaffoPancakeReturnURL", "https://pay.example.com/return"))
+	assert.NoError(t, validateOptionValue("WaffoPancakeReturnURL", ""))
+	assert.Error(t, validateOptionValue("WaffoPancakeReturnURL", "javascript:alert(1)"))
+	assert.Error(t, validateOptionValue("WaffoPancakeReturnURL", "/wallet"))
+	assert.Error(t, validateOptionValue("WaffoPancakeReturnURL", "https://user:pass@pay.example.com/return"))
+}
+
 func TestValidateOptionValueRejectsInvalidMaxTokenAutoGroups(t *testing.T) {
 	for _, value := range []string{"", "0", "-1", "1.5", "invalid"} {
 		t.Run(value, func(t *testing.T) {

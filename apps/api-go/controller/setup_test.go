@@ -109,3 +109,33 @@ func TestPostSetupConcurrentRequestsCreateSingleRoot(t *testing.T) {
 	assert.Equal(t, int64(1), setupCount)
 	assert.Equal(t, model.SetupSingletonID, setup.ID)
 }
+
+func TestPostSetupRequiresRootCredentialsWhenRootExists(t *testing.T) {
+	db := setupPostSetupTestDB(t)
+
+	hashedPassword, err := common.Password2Hash("ExistingRoot123")
+	require.NoError(t, err)
+	require.NoError(t, db.Create(&model.User{
+		Username:    "existing-root",
+		Password:    hashedPassword,
+		Role:        common.RoleRootUser,
+		Status:      common.UserStatusEnabled,
+		DisplayName: "Existing Root",
+	}).Error)
+
+	unauthenticated := performPostSetupRequest(`{"SelfUseModeEnabled":true,"DemoSiteEnabled":true}`)
+	assert.Contains(t, unauthenticated.Body.String(), `"success":false`)
+	assert.Contains(t, unauthenticated.Body.String(), "请输入现有管理员账号以完成初始化")
+
+	wrongPassword := performPostSetupRequest(`{"username":"existing-root","password":"WrongPassword","confirmPassword":"WrongPassword","SelfUseModeEnabled":true,"DemoSiteEnabled":false}`)
+	assert.Contains(t, wrongPassword.Body.String(), `"success":false`)
+	assert.Contains(t, wrongPassword.Body.String(), "管理员账号验证失败")
+
+	verified := performPostSetupRequest(`{"username":"existing-root","password":"ExistingRoot123","confirmPassword":"ExistingRoot123","SelfUseModeEnabled":true,"DemoSiteEnabled":false}`)
+	assert.Contains(t, verified.Body.String(), `"success":true`)
+
+	var setupCount int64
+	require.NoError(t, db.Model(&model.Setup{}).Count(&setupCount).Error)
+	assert.Equal(t, int64(1), setupCount)
+	assert.True(t, operation_setting.SelfUseModeEnabled)
+}

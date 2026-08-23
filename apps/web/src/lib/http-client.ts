@@ -81,7 +81,12 @@ function redirectToSignIn(): void {
 api.interceptors.response.use(
   (response) => {
     if (response.config.acceptAuthRotation && response.data?.success === true) {
-      applyAuthRotation(response.data.data)
+      try {
+        applyAuthRotation(response.data.data)
+      } catch {
+        clearAuthentication(true)
+        toast.error(t('Session expired!'))
+      }
     }
 
     if (

@@ -1586,9 +1586,12 @@ func DeltaUpdateUserQuota(id int, delta int) (err error) {
 //	return email
 //}
 
-func GetRootUser() (user *User) {
-	DB.Where("role = ?", common.RoleRootUser).First(&user)
-	return user
+func GetRootUser() *User {
+	var user User
+	if err := DB.Where("role = ?", common.RoleRootUser).First(&user).Error; err != nil {
+		return nil
+	}
+	return &user
 }
 
 func UpdateUserLastLoginAt(id int) {

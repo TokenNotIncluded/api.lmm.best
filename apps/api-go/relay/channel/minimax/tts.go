@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 
@@ -15,6 +16,8 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/service"
 	"github.com/gin-gonic/gin"
 )
+
+const maxRemoteTTSAudioBytes = 20 << 20
 
 type MiniMaxTTSRequest struct {
 	Model             string             `json:"model"`
@@ -91,6 +94,54 @@ type MiniMaxBaseResp struct {
 	StatusMsg  string `json:"status_msg"`
 }
 
+func isRemoteAudioURL(audio string) bool {
+	return strings.HasPrefix(audio, "https://") || strings.HasPrefix(audio, "http://")
+}
+
+func writeRemoteTTSAudio(c *gin.Context, audioURL string) *types.NewAPIError {
+	resp, fetchErr := service.DoDownloadRequest(audioURL, "minimax-tts")
+	if fetchErr != nil {
+		return types.NewErrorWithStatusCode(
+			fmt.Errorf("failed to fetch minimax audio: %w", fetchErr),
+			types.ErrorCodeBadResponse,
+			http.StatusBadGateway,
+		)
+	}
+	defer service.CloseResponseBodyGracefully(resp)
+
+	if resp.StatusCode != http.StatusOK {
+		return types.NewErrorWithStatusCode(
+			fmt.Errorf("minimax audio fetch returned status %d", resp.StatusCode),
+			types.ErrorCodeBadResponse,
+			http.StatusBadGateway,
+		)
+	}
+
+	limited := io.LimitReader(resp.Body, maxRemoteTTSAudioBytes+1)
+	audioData, readErr := io.ReadAll(limited)
+	if readErr != nil {
+		return types.NewErrorWithStatusCode(
+			fmt.Errorf("failed to read minimax audio: %w", readErr),
+			types.ErrorCodeReadResponseBodyFailed,
+			http.StatusBadGateway,
+		)
+	}
+	if len(audioData) > maxRemoteTTSAudioBytes {
+		return types.NewErrorWithStatusCode(
+			fmt.Errorf("minimax audio exceeded %d bytes", maxRemoteTTSAudioBytes),
+			types.ErrorCodeBadResponse,
+			http.StatusBadGateway,
+		)
+	}
+
+	contentType := resp.Header.Get("Content-Type")
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	c.Data(http.StatusOK, contentType, audioData)
+	return nil
+}
+
 func getContentTypeByFormat(format string) string {
 	contentTypeMap := map[string]string{
 		"mp3":  "audio/mpeg",
@@ -144,8 +195,10 @@ func handleTTSResponse(c *gin.Context, resp *http.Response, info *relaycommon.Re
 		)
 	}
 
-	if strings.HasPrefix(minimaxResp.Data.Audio, "http") {
-		c.Redirect(http.StatusFound, minimaxResp.Data.Audio)
+	if isRemoteAudioURL(minimaxResp.Data.Audio) {
+		if fetchErr := writeRemoteTTSAudio(c, minimaxResp.Data.Audio); fetchErr != nil {
+			return nil, fetchErr
+		}
 	} else {
 		// Handle hex-encoded audio data
 		audioData, decodeErr := hex.DecodeString(minimaxResp.Data.Audio)

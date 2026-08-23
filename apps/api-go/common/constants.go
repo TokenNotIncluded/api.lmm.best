@@ -98,7 +98,10 @@ var MemoryCacheEnabled bool
 var LogConsumeEnabled = true
 
 var TLSInsecureSkipVerify bool
-var InsecureTLSConfig = &tls.Config{InsecureSkipVerify: true}
+var InsecureTLSConfig = &tls.Config{
+	InsecureSkipVerify: true, //nolint:gosec // G402: only assigned when TLSInsecureSkipVerify is enabled.
+	MinVersion:         tls.VersionTLS12,
+}
 
 var SMTPServer = ""
 var SMTPPort = 587

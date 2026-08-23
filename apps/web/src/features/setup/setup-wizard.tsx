@@ -165,26 +165,13 @@ export function SetupWizard() {
   }, [statusResponse, navigate, form])
 
   useEffect(() => {
-    if (!setupStatus) return
+    if (!setupStatus?.root_init) return
 
-    // Reset admin fields when backend reports they are already initialized
-    if (setupStatus.root_init) {
-      form.setValue('username', '', {
-        shouldDirty: false,
-        shouldTouch: false,
-        shouldValidate: false,
-      })
-      form.setValue('password', '', {
-        shouldDirty: false,
-        shouldTouch: false,
-        shouldValidate: false,
-      })
-      form.setValue('confirmPassword', '', {
-        shouldDirty: false,
-        shouldTouch: false,
-        shouldValidate: false,
-      })
-    }
+    form.setValue('confirmPassword', '', {
+      shouldDirty: false,
+      shouldTouch: false,
+      shouldValidate: false,
+    })
   }, [setupStatus, form])
 
   const currentStepComponent = useMemo(() => {
@@ -206,11 +193,10 @@ export function SetupWizard() {
   }, [currentStep, setupStatus, form, watchedValues])
 
   const validateAdminStep = () => {
-    if (setupStatus?.root_init) return true
-
     const username = form.getValues('username')?.trim()
     const password = form.getValues('password')?.trim()
     const confirmPassword = form.getValues('confirmPassword')?.trim()
+    const rootInitialized = Boolean(setupStatus?.root_init)
 
     if (!username) {
       form.setError('username', {
@@ -219,6 +205,18 @@ export function SetupWizard() {
       })
       toast.error(t('Please enter an administrator username'))
       return false
+    }
+
+    if (rootInitialized) {
+      if (!password) {
+        form.setError('password', {
+          type: 'manual',
+          message: t('Please enter the existing administrator password'),
+        })
+        toast.error(t('Please enter the existing administrator password'))
+        return false
+      }
+      return true
     }
 
     if (!password || password.length < 8) {

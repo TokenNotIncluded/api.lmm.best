@@ -17,12 +17,29 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 export function isHttpUrl(value: string): boolean {
+  return isSafeHttpUrl(value)
+}
+
+export function isSafeHttpUrl(value: string): boolean {
   try {
     const url = new URL(value)
-    return url.protocol === 'http:' || url.protocol === 'https:'
+    return (
+      (url.protocol === 'http:' || url.protocol === 'https:') &&
+      url.hostname !== '' &&
+      !url.username &&
+      !url.password
+    )
   } catch {
     return false
   }
+}
+
+export function isSafeResourceUrl(value: string): boolean {
+  const trimmed = value.trim()
+  if (trimmed.startsWith('/') && !trimmed.startsWith('//')) {
+    return !trimmed.includes('\\') && !trimmed.includes('\0')
+  }
+  return isSafeHttpUrl(trimmed)
 }
 
 export function isLikelyHtml(value: string): boolean {

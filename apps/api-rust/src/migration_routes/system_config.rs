@@ -19,7 +19,7 @@ use axum::{
     routing::{get, post},
 };
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
-use bcrypt::{DEFAULT_COST, hash};
+use bcrypt::{DEFAULT_COST, hash, verify};
 use redis::AsyncCommands;
 use rsa::{
     RsaPrivateKey,
@@ -2807,6 +2807,26 @@ async fn post_setup(State(state): State<SystemConfigHttpState>, body: Bytes) -> 
             .is_err()
         {
             return legacy_error("创建管理员账号失败");
+        }
+    } else {
+        let root = sqlx::query("SELECT username, password FROM users WHERE role = 100 LIMIT 1")
+            .fetch_optional(&mut *tx)
+            .await;
+        match root {
+            Ok(Some(row)) => {
+                let username: String = row.get("username");
+                let password_hash: String = row.get("password");
+                let username_ok = username == input.username;
+                let password_ok = verify(&input.password, &password_hash).unwrap_or(false);
+                if input.username.trim().is_empty()
+                    || input.password.is_empty()
+                    || !username_ok
+                    || !password_ok
+                {
+                    return legacy_error("管理员账号验证失败");
+                }
+            }
+            _ => return legacy_error("系统初始化失败"),
         }
     }
     for (key, value) in &changes {

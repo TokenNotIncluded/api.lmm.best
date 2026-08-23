@@ -82,4 +82,17 @@ describe('BrandLogo', () => {
 
     await act(async () => root.unmount())
   })
+
+  test('rejects unsafe logo URLs and falls back to the inline mark', async () => {
+    const container = document.createElement('div')
+    const root = createRoot(container)
+    await act(async () =>
+      root.render(<BrandLogo src='javascript:alert(1)' alt='Unsafe logo' />)
+    )
+
+    assert.equal(container.querySelector('img'), null)
+    assert.ok(container.querySelector('svg'))
+
+    await act(async () => root.unmount())
+  })
 })

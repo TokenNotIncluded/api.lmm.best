@@ -230,10 +230,14 @@ export const Route = createRootRouteWithContext<{
       )
 
       if (status?.success && status.data && !status.data.status) {
+        setupStatusChecked = false
+        setSetupStatusCache(false)
         throw redirect({ to: '/setup' })
       }
-      setupStatusChecked = true
-      setSetupStatusCache(true)
+      if (status?.success && status.data?.status) {
+        setupStatusChecked = true
+        setSetupStatusCache(true)
+      }
     }
 
     if (authBootstrap) {

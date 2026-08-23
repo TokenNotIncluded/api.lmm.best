@@ -95,10 +95,13 @@ export const useSystemConfigStore = create<SystemConfigState>()(
     }),
     {
       name: 'system-config-storage',
-      partialize: (state) => ({
-        config: state.config,
-        loadedLogoUrl: state.loadedLogoUrl,
-      }),
+      partialize: (state) => {
+        const { footerHtml: _footerHtml, ...persistedConfig } = state.config
+        return {
+          config: persistedConfig,
+          loadedLogoUrl: state.loadedLogoUrl,
+        }
+      },
     }
   )
 )

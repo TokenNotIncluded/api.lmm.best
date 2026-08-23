@@ -38,7 +38,22 @@ func ShouldCopyUpstreamHeader(c *gin.Context, k string, v []string) bool {
 		}
 		return false
 	}
+	if isForbiddenUpstreamHeader(k) {
+		return false
+	}
 	return true
+}
+
+func isForbiddenUpstreamHeader(k string) bool {
+	switch strings.ToLower(k) {
+	case "set-cookie", "set-cookie2",
+		"connection", "keep-alive",
+		"proxy-authenticate", "proxy-authorization",
+		"te", "trailer", "transfer-encoding", "upgrade":
+		return true
+	default:
+		return false
+	}
 }
 
 func IOCopyBytesGracefully(c *gin.Context, src *http.Response, data []byte) {

@@ -85,6 +85,7 @@ import {
   getPaymentSettlementUnit,
   isWaffoPancakeCurrencySupported,
   isWaffoPancakePayment,
+  isSafeHttpCheckoutUrl,
 } from '../lib'
 import { discountCodeSavings } from '../lib/discount-state'
 import type { TopupAvailability } from '../lib/payment'
@@ -949,7 +950,7 @@ export function RechargeFormCard({
               {t('Redeem')}
             </Button>
           </div>
-          {topupLink && (
+          {isSafeHttpCheckoutUrl(topupLink) && (
             <p className='text-muted-foreground text-xs'>
               {t('Need a redemption code?')}{' '}
               <a
