@@ -241,9 +241,11 @@ func claimGiftWithTransaction(claim *GiftClaim, userId int, quota int) error {
 	if err != nil {
 		return err
 	}
-	go func() {
-		_ = cacheIncrUserQuota(userId, int64(quota))
-	}()
+	if common.RedisEnabled {
+		go func() {
+			_ = cacheIncrUserQuota(userId, int64(quota))
+		}()
+	}
 	return nil
 }
 

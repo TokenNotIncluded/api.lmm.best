@@ -187,7 +187,7 @@ func ApplyViolationFee(input ViolationFeeChargeInput) (*ViolationFeeChargeResult
 			return err
 		}
 		result.Record = record
-		if chargedQuota > 0 {
+		if chargedQuota > 0 && common.RedisEnabled {
 			// Keep the Redis wallet counter aligned with the actual deduction only.
 			go func(userID, quota int) {
 				if err := cacheDecrUserQuota(userID, int64(quota)); err != nil {
@@ -315,7 +315,7 @@ func ReviewViolationFeeAppeal(adminUserID int, appealID uint, approve bool, note
 	if err != nil {
 		return nil, err
 	}
-	if reversedQuota > 0 {
+	if reversedQuota > 0 && common.RedisEnabled {
 		go func(userID, quota int) {
 			if err := cacheIncrUserQuota(userID, int64(quota)); err != nil {
 				common.SysLog("failed to restore violation fee quota cache: " + err.Error())

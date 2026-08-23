@@ -149,10 +149,12 @@ func userCheckinWithTransaction(checkin *Checkin, userId int, quotaAwarded int) 
 		return nil, err
 	}
 
-	// 事务成功后，异步更新缓存
-	go func() {
-		_ = cacheIncrUserQuota(userId, int64(quotaAwarded))
-	}()
+	// 事务成功后，异步更新缓存（无 Redis 时跳过，避免空跑并与测试 cleanup 竞态）
+	if common.RedisEnabled {
+		go func() {
+			_ = cacheIncrUserQuota(userId, int64(quotaAwarded))
+		}()
+	}
 
 	return checkin, nil
 }
