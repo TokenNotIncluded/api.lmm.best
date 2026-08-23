@@ -77,22 +77,22 @@ require_literal "$WEB_PKGBUILD" 'API_ROUTE_CONTRACT_REVISION' \
   'future Web package does not install contract metadata'
 
 for immutable in \
-  'pkgver=0.1.50' \
-  "'fb1afd3048cdedc1b652f2c5546f6e91287222f603320f0f8f19522e71bfa662'" \
-  "'b1d9dcbcb0b079cf5707dd074babba19c0494cf787d5347e200a0433c199c8cb'"; do
+  'pkgver=0.1.51' \
+  "'9445d108ca50f37e1d2b32700075107918bb981c90db38c4678c674ee6d95217'" \
+  "'6544b5be7124082f84204fe0be6ee30e5d7f283b23a49be4c932208b099ee677'"; do
   require_literal "$GO_PKGBUILD" "$immutable" \
     'tracked Go PKGBUILD no longer pins the existing immutable release'
 done
 for immutable in \
-  'pkgver=0.1.34' \
-  "'9f911d9ed0d53d5764c532f76cc591ae959c79245c91854c7fac550e723d3ab8'"; do
+  'pkgver=0.1.36' \
+  "'c4a64be412aa2039ad77b7f69760dd459841c050475325187f028dba9bb6bd5b'"; do
   require_literal "$WEB_PKGBUILD" "$immutable" \
     'tracked Web PKGBUILD no longer pins the existing immutable release'
 done
 
-require_literal "$DEPLOY_PKGBUILD" 'pkgver=0.1.49' \
+require_literal "$DEPLOY_PKGBUILD" 'pkgver=0.1.51' \
   'operator bootstrap does not pin the reviewed Go release'
-require_literal "$DEPLOY_PKGBUILD" '_release_revision=148fd59336b25de68742c4c8c499f0b2863ad13b' \
+require_literal "$DEPLOY_PKGBUILD" '_release_revision=e1cbcbe5a5ed63e71a6e835d7c0b736e080376ab' \
   'operator bootstrap does not pin the release Git identity'
 require_literal "$DEPLOY_PKGBUILD" 'usr/lib/lmm-api-deploy/lmm-api-go' \
   'operator payload is not independent from the application package'
