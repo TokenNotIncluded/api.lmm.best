@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/LIghtJUNction/api.lmm.best/internal/agent"
 	"github.com/LIghtJUNction/api.lmm.best/setting"
 	"github.com/gin-gonic/gin"
@@ -60,6 +61,27 @@ func TestAssistantStreamingRelayWriterParsesSplitSSEChunks(t *testing.T) {
 	require.NoError(t, json.Unmarshal(body, &parsed))
 	assert.Equal(t, "hello world", parsed.Choices[0].Message.Content)
 	assert.NotContains(t, recorder.Body.String(), `"content":"hello world"`)
+}
+
+func TestAssistantStreamingRelayWriterTreatsGinRenderSentinelAsOK(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	context, _ := gin.CreateTestContext(recorder)
+	session := newAssistantStreamSession(context.Writer)
+	require.NoError(t, session.start())
+
+	writer := newAssistantStreamingRelayWriter(context.Writer, session)
+	context.Writer = writer
+	context.Render(-1, common.CustomEvent{Data: `data: {"choices":[{"delta":{"content":"rendered answer"}}]}`})
+
+	assert.Equal(t, http.StatusOK, writer.Status())
+	assert.True(t, writer.Written())
+	body, err := writer.responseBody()
+	require.NoError(t, err)
+	response, err := agent.Parse(body)
+	require.NoError(t, err)
+	require.Len(t, response.Choices, 1)
+	assert.Equal(t, "rendered answer", agent.Text(response.Choices[0].Message.Content))
 }
 
 func TestAssistantStreamingRelayWriterResetsFailedChannelBeforeRetry(t *testing.T) {

@@ -63,6 +63,20 @@ func TestAssistantRelayRecorderResetsFailedChannelBeforeRetry(t *testing.T) {
 	assert.NotContains(t, recoveredBody, "stale channel failure")
 }
 
+func TestAssistantRelayRecorderTreatsGinRenderSentinelAsOK(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	httpRecorder := httptest.NewRecorder()
+	context, _ := gin.CreateTestContext(httpRecorder)
+	relayRecorder := newAssistantRelayRecorder(context.Writer)
+	context.Writer = relayRecorder
+
+	context.Render(-1, common.CustomEvent{Data: `data: {"choices":[{"message":{"content":"rendered answer"}}]}`})
+
+	assert.Equal(t, http.StatusOK, relayRecorder.Status())
+	assert.True(t, relayRecorder.Written())
+	assert.Contains(t, string(relayRecorder.body.Bytes()), "rendered answer")
+}
+
 func TestAssistantRelayRetryPolicyClassifiesTransientHTTPAndNetworkErrors(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

@@ -387,6 +387,10 @@ func (r *assistantStreamingRelayWriter) Header() http.Header {
 }
 
 func (r *assistantStreamingRelayWriter) WriteHeader(statusCode int) {
+	if statusCode <= 0 {
+		// gin.Context.Render uses -1 to write content without changing status.
+		return
+	}
 	if r.wroteHeader {
 		return
 	}
