@@ -1,6 +1,6 @@
 pkgbase = lmm-api-web-bin
 	pkgdesc = LMM API production web frontend (prebuilt)
-	pkgver = 0.1.33
+	pkgver = 0.1.34
 	pkgrel = 1
 	url = https://github.com/LIghtJUNction/api.lmm.best
 	install = lmm-api-web.install
@@ -17,16 +17,16 @@ pkgbase = lmm-api-web-bin
 	depends = sed
 	depends = systemd
 	depends = util-linux
-	provides = lmm-api-web=0.1.33
+	provides = lmm-api-web=0.1.34
 	conflicts = lmm-api-web
-	noextract = lmm-api-web-0.1.33.tar.gz
-	source = lmm-api-web-0.1.33.tar.gz::https://github.com/LIghtJUNction/api.lmm.best/releases/download/web-v0.1.33/lmm-api-web-0.1.33.tar.gz
-	source = lmm-api-web-0.1.33.tar.gz.sha256::https://github.com/LIghtJUNction/api.lmm.best/releases/download/web-v0.1.33/lmm-api-web-0.1.33.tar.gz.sha256
-	source = lmm-api-web-0.1.33.tar.gz.sigstore.json::https://github.com/LIghtJUNction/api.lmm.best/releases/download/web-v0.1.33/lmm-api-web-0.1.33.tar.gz.sigstore.json
-	source = lmm-api-web-activate::https://github.com/LIghtJUNction/api.lmm.best/raw/refs/tags/web-v0.1.33/packaging/aur/lmm-api-web-bin/lmm-api-web-activate
-	sha256sums = 934f4963d60a0311c9a6a03734c7263f88579762d8489eeb5ccff453aa7559ec
-	sha256sums = 3d71a4741d50016d86248ad6d098a7e290d21bab47c33a2ae9be95060680452c
-	sha256sums = 642b8a0e8b69ba3cbe6f59f0c6557871dd52c942e69265fa4f39a5499f28bac6
+	noextract = lmm-api-web-0.1.34.tar.gz
+	source = lmm-api-web-0.1.34.tar.gz::https://github.com/LIghtJUNction/api.lmm.best/releases/download/web-v0.1.34/lmm-api-web-0.1.34.tar.gz
+	source = lmm-api-web-0.1.34.tar.gz.sha256::https://github.com/LIghtJUNction/api.lmm.best/releases/download/web-v0.1.34/lmm-api-web-0.1.34.tar.gz.sha256
+	source = lmm-api-web-0.1.34.tar.gz.sigstore.json::https://github.com/LIghtJUNction/api.lmm.best/releases/download/web-v0.1.34/lmm-api-web-0.1.34.tar.gz.sigstore.json
+	source = lmm-api-web-activate::https://github.com/LIghtJUNction/api.lmm.best/raw/refs/tags/web-v0.1.34/packaging/aur/lmm-api-web-bin/lmm-api-web-activate
+	sha256sums = 9f911d9ed0d53d5764c532f76cc591ae959c79245c91854c7fac550e723d3ab8
+	sha256sums = 5d2004ec7c265e03b82d5b4afba0bb06bb07f275e23a5fa8188c0923c4feccaf
+	sha256sums = b1b4525af0b0a8d383117378befbaced89038454c2e3bdcf6a6d79ee6058440e
 	sha256sums = 358f5b958f3520757628d803027dafb1b67ec61b565d00bf4cd4f7927347cf33
 
 pkgname = lmm-api-web-bin
