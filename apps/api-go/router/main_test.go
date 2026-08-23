@@ -63,6 +63,31 @@ func TestPackagedFrontendServesAssetsAndSPAFallback(t *testing.T) {
 	}
 }
 
+func TestPackagedFrontendAcceptsAtomicCurrentReleaseLink(t *testing.T) {
+	frontendRoot := t.TempDir()
+	releaseRoot := filepath.Join(frontendRoot, "releases", "0.1.33-1.gfixture")
+	if err := os.MkdirAll(releaseRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(releaseRoot, "index.html"), []byte("release index"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	current := filepath.Join(frontendRoot, "current")
+	if err := os.Symlink(releaseRoot, current); err != nil {
+		t.Fatal(err)
+	}
+	handler, err := newFrontendHandler(current)
+	if err != nil {
+		t.Fatalf("atomic current release link was rejected: %v", err)
+	}
+	request := httptest.NewRequest(http.MethodGet, "/", nil)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || response.Body.String() != "release index" {
+		t.Fatalf("unexpected response: status=%d body=%q", response.Code, response.Body.String())
+	}
+}
+
 func TestPackagedFrontendRejectsRelativeAndSymlinkedRoots(t *testing.T) {
 	if _, err := newFrontendHandler("relative/frontend"); err == nil {
 		t.Fatal("relative frontend root was accepted")

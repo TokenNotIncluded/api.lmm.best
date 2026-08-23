@@ -89,7 +89,13 @@ func newFrontendHandler(configuredRoot string) (http.Handler, error) {
 		return nil, fmt.Errorf("resolve frontend directory: %w", err)
 	}
 	if evaluatedRoot != cleanRoot {
-		return nil, fmt.Errorf("LMM_API_FRONTEND_DIR must not contain symlinks")
+		frontendRoot := filepath.Dir(cleanRoot)
+		releasesRoot := filepath.Join(frontendRoot, "releases")
+		evaluatedFrontendRoot, rootErr := filepath.EvalSymlinks(frontendRoot)
+		if rootErr != nil || evaluatedFrontendRoot != frontendRoot || filepath.Base(cleanRoot) != "current" || filepath.Dir(evaluatedRoot) != releasesRoot {
+			return nil, fmt.Errorf("LMM_API_FRONTEND_DIR symlink must be an atomic current link into its sibling releases directory")
+		}
+		cleanRoot = evaluatedRoot
 	}
 	if err := filepath.WalkDir(cleanRoot, func(_ string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
