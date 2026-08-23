@@ -518,7 +518,7 @@ func CheckHeroSMSConfiguration(ctx context.Context, candidateAPIKey string) erro
 	client := heroSMSClientFactory(baseURL, apiKey)
 	tested := false
 	if heroSMSEmailPurchasingEnabled() {
-		response, err := client.ListDomains(ctx, "")
+		response, err := client.ListEmails(ctx, 1, 1)
 		if err != nil {
 			return mapHeroSMSProviderError(err)
 		}

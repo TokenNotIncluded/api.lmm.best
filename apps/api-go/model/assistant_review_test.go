@@ -136,6 +136,35 @@ func TestReviewAggregates(t *testing.T) {
 	assert.Less(t, len(encoded), 16*1024)
 }
 
+func TestReviewDistillsFirstQuestionsWithoutHistoricalOtherNoise(t *testing.T) {
+	user := setupAssistantLeadTestDB(t)
+	require.NoError(t, DB.AutoMigrate(&PromptPresetStat{}, &AssistantSecurityIncident{}, &AdvancedSecurityEvent{}, &TopUp{}, &SubscriptionOrder{}, &FinanceLedgerEntry{}, &Log{}))
+	require.NoError(t, DB.Create(&AssistantFirstQuestionStat{
+		QuestionHash: "review-first-question",
+		Question:     "how do i connect a desktop client?",
+		BucketStart:  100,
+		Count:        2,
+		LastAskedAt:  120,
+	}).Error)
+	require.NoError(t, DB.Create(&[]AssistantLead{
+		{UserId: user.Id, Source: AssistantLeadSourceChat, Intent: AssistantIntentOther, Status: AssistantLeadStatusObserved, CreatedAt: 100},
+		{UserId: user.Id, Source: AssistantLeadSourceChat, Intent: AssistantIntentOther, Status: AssistantLeadStatusObserved, CreatedAt: 110},
+		{UserId: user.Id, Source: AssistantLeadSourceChat, Intent: AssistantIntentOther, Status: AssistantLeadStatusObserved, CreatedAt: 120},
+		{UserId: user.Id, Source: AssistantLeadSourceChat, Intent: AssistantIntentAPIKey, Status: AssistantLeadStatusObserved, CreatedAt: 130},
+	}).Error)
+
+	review, err := BuildAssistantReview(context.Background(), 1, 200)
+	require.NoError(t, err)
+	require.NotEmpty(t, review.FirstQuestions)
+	assert.Contains(t, review.FirstQuestions[0].Question, "desktop client")
+	require.Equal(t, []AssistantIntentSummary{{Intent: AssistantIntentClientSetup, Count: 2}}, review.DistilledIntents)
+	codes := make([]string, 0, len(review.Actions))
+	for _, action := range review.Actions {
+		codes = append(codes, action.Code)
+	}
+	assert.NotContains(t, codes, "improve_intent_classification")
+}
+
 func TestReviewInvalidWindow(t *testing.T) {
 	_, err := BuildAssistantReview(context.Background(), 0, 1)
 	require.Error(t, err)

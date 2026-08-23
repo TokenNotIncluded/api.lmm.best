@@ -124,6 +124,7 @@ export type AssistantReviewResult = {
   window_end: number
   observed_at: number
   intents?: Array<{ intent: string; count: number }>
+  distilled_intents?: Array<{ intent: string; count: number }>
   profiles?: Array<{ profile: string; count: number }>
   presets?: Array<{
     preset_id: string
@@ -131,6 +132,11 @@ export type AssistantReviewResult = {
     conversations: number
     recommendations: number
     approvals: number
+  }>
+  first_questions?: Array<{
+    question: string
+    count: number
+    last_asked_at?: number
   }>
   current_pending_support?: number
   current_open_security_incidents?: number

@@ -189,10 +189,12 @@ function ReviewBreakdown({
   title,
   rows,
   valueLabel,
+  limit = 5,
 }: {
   title: string
   rows: Array<{ label: string; count: number }>
   valueLabel?: string
+  limit?: number
 }) {
   const total = reviewCount(rows)
   return (
@@ -209,7 +211,7 @@ function ReviewBreakdown({
         <p className='text-muted-foreground text-xs'>—</p>
       ) : (
         <div className='space-y-1.5'>
-          {rows.slice(0, 5).map((row) => (
+          {rows.slice(0, limit).map((row) => (
             <div key={row.label} className='min-w-0'>
               <div className='flex items-center justify-between gap-2 text-xs'>
                 <span className='min-w-0 truncate'>{row.label}</span>
@@ -267,13 +269,20 @@ function AssistantReviewSummary({
     )
   }
 
+  const hasDistilledIntents = (review.distilled_intents?.length ?? 0) > 0
+  const reviewedIntents = hasDistilledIntents
+    ? review.distilled_intents
+    : review.intents
+  const intentTitle = hasDistilledIntents
+    ? t('Distilled intent themes')
+    : t('Intent signals')
   const metrics = [
-    [t('Intent signals'), reviewCount(review.intents)],
+    [intentTitle, reviewCount(reviewedIntents)],
     [t('Profiles'), reviewCount(review.profiles)],
     [t('Pending support'), review.current_pending_support ?? 0],
     [t('Security incidents'), review.current_open_security_incidents ?? 0],
   ] as const
-  const intentRows = (review.intents ?? []).map((row) => ({
+  const intentRows = (reviewedIntents ?? []).map((row) => ({
     label: reviewLabel(row.intent),
     count: row.count,
   }))
@@ -282,6 +291,10 @@ function AssistantReviewSummary({
     count: row.count,
   }))
   const presetRows = review.presets ?? []
+  const questionRows = (review.first_questions ?? []).map((row) => ({
+    label: row.question,
+    count: row.count,
+  }))
   const actions = review.actions ?? []
 
   return (
@@ -311,7 +324,15 @@ function AssistantReviewSummary({
       </div>
 
       <div className='grid gap-6 lg:grid-cols-3'>
-        <ReviewBreakdown title={t('Intent signals')} rows={intentRows} />
+        <ReviewBreakdown
+          title={intentTitle}
+          rows={intentRows}
+          valueLabel={
+            hasDistilledIntents
+              ? t('Distilled from Other and first-turn questions')
+              : undefined
+          }
+        />
         <ReviewBreakdown title={t('Profiles')} rows={profileRows} />
         <div className='min-w-0 space-y-2'>
           <h5 className='text-xs font-medium'>{t('Chat Presets')}</h5>
@@ -341,6 +362,13 @@ function AssistantReviewSummary({
           )}
         </div>
       </div>
+
+      <ReviewBreakdown
+        title={t('Extracted first questions')}
+        rows={questionRows}
+        limit={10}
+        valueLabel={t('Redacted and aggregated before display')}
+      />
 
       {review.commerce || review.security ? (
         <div className='grid gap-3 border-t pt-4 sm:grid-cols-2'>

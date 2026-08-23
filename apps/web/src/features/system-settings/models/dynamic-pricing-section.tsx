@@ -294,6 +294,7 @@ export function DynamicPricingSection({
     }
   }
   const safetyReady = status?.safety.ready ?? false
+  const missingChannels = status?.safety.missing_channels ?? []
   const livePricingEnabled = status?.enabled === true
 
   return (
@@ -492,8 +493,17 @@ export function DynamicPricingSection({
                 <TriangleAlert />
                 <AlertTitle>{t('Not ready to enable safely')}</AlertTitle>
                 <AlertDescription>
-                  {status?.safety.reason ||
-                    t('Live safety status is currently unavailable.')}
+                  {missingChannels.length > 0
+                    ? t(
+                        'Configure costs for every active channel before enabling: {{channels}}',
+                        {
+                          channels: missingChannels
+                            .map((channel) => channel.name)
+                            .join(', '),
+                        }
+                      )
+                    : status?.safety.reason ||
+                      t('Live safety status is currently unavailable.')}
                 </AlertDescription>
               </Alert>
             )}
@@ -574,7 +584,8 @@ export function DynamicPricingSection({
           <p className='text-muted-foreground text-xs'>
             {t(
               'Enter a conservative upper-bound USD cost per 1M total tokens. Upstream responses provide usage tokens, but generally not the final dollar cost; unknown-cost channels are blocked while this feature is enabled.'
-            )}
+            )}{' '}
+            {t('Fill every active channel cost first, then enable.')}
           </p>
         </div>
         <div className='rounded-lg border'>
@@ -618,7 +629,6 @@ export function DynamicPricingSection({
                             [String(channel.id)]: event.target.value,
                           }))
                         }
-                        disabled={!enabled}
                         aria-label={t('Cost for {{channel}}', {
                           channel: channel.name,
                         })}

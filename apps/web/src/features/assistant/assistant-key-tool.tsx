@@ -140,6 +140,7 @@ export function AssistantKeyTool(props: {
     retry: false,
   })
   const groups = Object.keys(groupsQuery.data?.data ?? {})
+  const groupOptions = groups.includes(group) ? groups : [group, ...groups]
 
   useEffect(() => {
     if (groupsQuery.isLoading || group !== 'auto') return
@@ -302,20 +303,18 @@ export function AssistantKeyTool(props: {
               </div>
               <div className='grid gap-1.5'>
                 <Label htmlFor='assistant-key-group'>{t('Key group')}</Label>
-                <Input
+                <NativeSelect
                   id='assistant-key-group'
-                  list='assistant-key-groups'
                   value={group}
-                  maxLength={64}
-                  autoComplete='off'
+                  disabled={groupsQuery.isLoading || groupOptions.length === 0}
                   onChange={(event) => setGroup(event.target.value)}
-                  placeholder={t('Enter a group name, or use auto')}
-                />
-                <datalist id='assistant-key-groups'>
-                  {groups.map((item) => (
-                    <option key={item} value={item} />
+                >
+                  {groupOptions.map((item) => (
+                    <NativeSelectOption key={item} value={item}>
+                      {item}
+                    </NativeSelectOption>
                   ))}
-                </datalist>
+                </NativeSelect>
                 <p className='text-muted-foreground text-xs'>
                   {groupsQuery.isLoading
                     ? t('Loading available groups...')

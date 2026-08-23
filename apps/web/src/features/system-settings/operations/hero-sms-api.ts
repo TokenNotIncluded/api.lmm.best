@@ -43,7 +43,7 @@ export interface HeroSmsSettingsUpdateRequest {
   enabled: boolean
   email_enabled: boolean
   sms_enabled: boolean
-  price_multiplier: number
+  price_multiplier: string
   api_key?: string
 }
 
@@ -86,7 +86,7 @@ export function serializeHeroSmsSettingsUpdate(
     enabled: values.enabled,
     email_enabled: values.emailEnabled,
     sms_enabled: values.smsEnabled,
-    price_multiplier: values.priceMultiplier,
+    price_multiplier: String(values.priceMultiplier),
     ...(trimmedApiKey ? { api_key: trimmedApiKey } : {}),
   }
 }

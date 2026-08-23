@@ -57,11 +57,27 @@ func TestClassifyAssistantIntent(t *testing.T) {
 		"我想查看高频 API 的用量统计":                        AssistantIntentUsage,
 		"我这个月用了多少 token？":                         AssistantIntentUsage,
 		"How many tokens have I used this month?": AssistantIntentUsage,
-		"hello": AssistantIntentOther,
+		"hello":           AssistantIntentOther,
+		"GPT 5.6 SOL 多少钱": AssistantIntentCost,
+		"我的额度还剩多少":        AssistantIntentUsage,
+		"怎么充值":            AssistantIntentPlanPurchase,
+		"这个接口报错了":         AssistantIntentHumanSupport,
+		"有哪些模型能用":         AssistantIntentModels,
+		"怎么用这个平台":         AssistantIntentOnboarding,
 	}
 	for message, expected := range tests {
 		assert.Equal(t, expected, ClassifyAssistantIntent(message), message)
 	}
+}
+
+func TestShouldRecordAssistantIntentSkipsLowSignalMessagesAndFollowUpOther(t *testing.T) {
+	assert.False(t, ShouldRecordAssistantIntent("hello", true))
+	assert.False(t, ShouldRecordAssistantIntent("谢谢！", false))
+	assert.False(t, ShouldRecordAssistantIntent("好的。", false))
+	assert.True(t, ShouldRecordAssistantIntent("a substantive uncategorized first question", true))
+	assert.False(t, ShouldRecordAssistantIntent("a substantive uncategorized follow-up", false))
+	assert.True(t, ShouldRecordAssistantIntent("How do I create an API key?", false))
+	assert.False(t, ShouldRecordAssistantIntent("   ", true))
 }
 
 func TestRecordAssistantIntentDoesNotPersistChatMessage(t *testing.T) {

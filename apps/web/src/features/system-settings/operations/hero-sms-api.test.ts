@@ -39,7 +39,7 @@ describe('hero sms settings api helpers', () => {
         enabled: true,
         email_enabled: true,
         sms_enabled: false,
-        price_multiplier: 1,
+        price_multiplier: '1',
       }
     )
 
@@ -55,7 +55,7 @@ describe('hero sms settings api helpers', () => {
         enabled: false,
         email_enabled: false,
         sms_enabled: true,
-        price_multiplier: 12,
+        price_multiplier: '12',
         api_key: 'secret-key',
       }
     )

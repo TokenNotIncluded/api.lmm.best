@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"regexp"
+	"sort"
 	"strings"
 	"unicode/utf8"
 
@@ -37,13 +38,14 @@ const (
 	AssistantIntentHumanSupport   = "human_support"
 	AssistantIntentOther          = "other"
 
-	minAssistantHandoffRunes            = 5
-	maxAssistantHandoffRunes            = 2000
-	maxAssistantAdminNoteRunes          = 2000
-	assistantFirstQuestionMaxRunes      = 4000
-	assistantFirstQuestionBucketSeconds = 60 * 60
-	assistantFirstQuestionTopN          = 10
-	assistantSummaryMaxRows             = 64
+	minAssistantHandoffRunes             = 5
+	maxAssistantHandoffRunes             = 2000
+	maxAssistantAdminNoteRunes           = 2000
+	assistantFirstQuestionMaxRunes       = 4000
+	assistantFirstQuestionBucketSeconds  = 60 * 60
+	assistantFirstQuestionTopN           = 10
+	assistantFirstQuestionThemeScanLimit = 512
+	assistantSummaryMaxRows              = 64
 )
 
 var (
@@ -153,6 +155,18 @@ func assistantMessageContains(message string, terms ...string) bool {
 	return false
 }
 
+func isAssistantLowSignalMessage(message string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(message))
+	normalized = strings.Trim(normalized, " \\t\\r\\n,.!?;:，。！？；：~～")
+	switch normalized {
+	case "hi", "hello", "hey", "ok", "okay", "thanks", "thank you", "got it", "continue",
+		"你好", "您好", "哈喽", "嗨", "好的", "好", "行", "可以", "谢谢", "感谢", "收到", "明白", "明白了", "继续", "嗯", "哦":
+		return true
+	default:
+		return false
+	}
+}
+
 // ClassifyAssistantIntent intentionally uses a deterministic, auditable
 // keyword classifier. It is sufficient for product analytics and cannot turn
 // model output into an account action.
@@ -169,23 +183,26 @@ func ClassifyAssistantIntent(message string) string {
 	case explicitAccessRequest:
 		return AssistantIntentOnboarding
 	case assistantMessageContains(normalized,
-		"人工", "客服", "管理员", "工单", "human", "support", "administrator", "agent"):
+		"人工", "客服", "管理员", "工单", "报错", "出错了", "human", "support", "administrator", "agent"):
 		return AssistantIntentHumanSupport
 	case assistantMessageContains(normalized,
 		"用了多少 token", "使用了多少 token", "消耗了多少 token", "本月 token", "这个月 token", "token 用量", "token 使用量",
 		"tokens used", "tokens have i used", "how many tokens", "token usage", "token consumption", "monthly tokens", "usage logs", "request history"):
 		return AssistantIntentUsage
 	case assistantMessageContains(normalized,
-		"成本", "费用", "计费", "消耗", "价格", "单价", "cost", "estimate", "billing", "price", "pricing", "token rate"):
+		"成本", "费用", "计费", "消耗", "价格", "单价", "多少钱", "多少费用", "怎么收费", "收费标准", "报价",
+		"cost", "estimate", "billing", "price", "pricing", "token rate"):
 		return AssistantIntentCost
 	case assistantMessageContains(normalized,
 		"计算", "算一下", "数学", "换算", "百分比", "calculate", "calculator", "math", "percentage", "convert units"):
 		return AssistantIntentMath
 	case assistantMessageContains(normalized,
-		"历史调用", "调用数据", "调用统计", "用量统计", "使用统计", "调用记录", "usage", "statistics"):
+		"历史调用", "调用数据", "调用统计", "用量统计", "使用统计", "调用记录", "余额", "额度", "配额", "还剩多少",
+		"usage", "statistics", "remaining quota", "quota remaining"):
 		return AssistantIntentUsage
 	case assistantMessageContains(normalized,
-		"有哪些模型", "模型列表", "可用模型", "模型清单", "available models", "model list", "model ids"):
+		"有哪些模型", "模型列表", "可用模型", "模型清单", "支持哪些模型", "能用哪些模型",
+		"available models", "model list", "model ids", "which models"):
 		return AssistantIntentModels
 	case assistantMessageContains(normalized,
 		"邀请奖励", "邀请码", "邀请链接", "邀请用户", "affiliate", "referral", "invite reward",
@@ -193,7 +210,9 @@ func ClassifyAssistantIntent(message string) string {
 		"welcome gift", "welcome bonus", "new-user gift", "new user gift", "new user bonus"):
 		return AssistantIntentInvitation
 	case assistantMessageContains(normalized,
-		"claude code", "cc switch", "cc-switch", "chatgpt", "hermes", "windows", "linux", "macos", "mac os", "桌面版", "安装", "配置客户端"):
+		"claude code", "cc switch", "cc-switch", "chatgpt", "hermes", "windows", "linux", "macos", "mac os",
+		"桌面版", "安装", "配置客户端", "客户端", "接入文档",
+		"client setup", "sdk setup", "desktop client", "connect a client", "connect client", "configure a client", "configure client"):
 		return AssistantIntentClientSetup
 	case assistantMessageContains(normalized,
 		"api key", "api-key", "api_key", "apikey", "base url", "base_url", "model id", "模型 id", "模型id", "密钥", "令牌", "access token", "创建 key", "创建key", "create key", "create a key", "create my key"):
@@ -202,10 +221,10 @@ func ClassifyAssistantIntent(message string) string {
 		"开源", "悬赏", "挑战", "小费", "bounty", "tip", "challenge", "任务发布"):
 		return AssistantIntentBounty
 	case assistantMessageContains(normalized,
-		"套餐", "购买", "划算", "优惠", "折扣", "订阅", "plan", "purchase", "discount", "best value"):
+		"套餐", "购买", "划算", "优惠", "折扣", "订阅", "充值", "plan", "purchase", "discount", "best value", "top up", "top-up", "topup"):
 		return AssistantIntentPlanPurchase
 	case assistantMessageContains(normalized,
-		"新手", "入门", "onboarding", "approval", "getting started"):
+		"新手", "入门", "怎么用", "如何使用", "怎么开始", "onboarding", "approval", "getting started", "how to use"):
 		return AssistantIntentOnboarding
 	default:
 		return AssistantIntentOther
@@ -236,6 +255,16 @@ func normalizeAssistantAdminNote(note string) (string, error) {
 		return "", ErrAssistantAdminNoteTooLong
 	}
 	return note, nil
+}
+
+// ShouldRecordAssistantIntent drops greetings and acknowledgements, then keeps
+// substantive first turns plus later turns with a recognized product intent.
+// Unclassified follow-ups previously flooded automatic review with Other.
+func ShouldRecordAssistantIntent(message string, firstUserTurn bool) bool {
+	if strings.TrimSpace(message) == "" || isAssistantLowSignalMessage(message) {
+		return false
+	}
+	return firstUserTurn || ClassifyAssistantIntent(message) != AssistantIntentOther
 }
 
 // RecordAssistantIntent persists only a category, never the raw chat message.
@@ -441,19 +470,58 @@ func listAssistantIntents(ctx context.Context, since, until int64) ([]AssistantI
 }
 
 func ListAssistantFirstQuestionSummary(since int64) ([]AssistantFirstQuestionSummary, error) {
-	query := DB.Model(&AssistantFirstQuestionStat{}).
+	return listAssistantFirstQuestions(context.Background(), since, 0)
+}
+
+func listAssistantFirstQuestions(ctx context.Context, since, until int64) ([]AssistantFirstQuestionSummary, error) {
+	return listAssistantFirstQuestionsWithLimit(ctx, since, until, assistantFirstQuestionTopN)
+}
+
+func listAssistantFirstQuestionsWithLimit(ctx context.Context, since, until int64, limit int) ([]AssistantFirstQuestionSummary, error) {
+	query := DB.WithContext(ctx).Model(&AssistantFirstQuestionStat{}).
 		Select("question, SUM(count) AS count, MAX(last_asked_at) AS last_asked_at").
 		Group("question_hash, question").
 		Order("count DESC, last_asked_at DESC, question ASC").
-		Limit(assistantFirstQuestionTopN)
+		Limit(limit)
 	if since > 0 {
 		query = query.Where("bucket_start >= ?", since)
+	}
+	if until > 0 {
+		query = query.Where("bucket_start <= ?", until)
 	}
 	var summary []AssistantFirstQuestionSummary
 	if err := query.Scan(&summary).Error; err != nil {
 		return nil, err
 	}
 	return summary, nil
+}
+
+// listAssistantFirstQuestionThemes reclassifies redacted first-turn aggregates
+// with the current classifier. This makes automatic review useful immediately
+// after classifier improvements without rewriting historical event rows.
+func listAssistantFirstQuestionThemes(ctx context.Context, since, until int64) ([]AssistantIntentSummary, error) {
+	questions, err := listAssistantFirstQuestionsWithLimit(ctx, since, until, assistantFirstQuestionThemeScanLimit)
+	if err != nil {
+		return nil, err
+	}
+	counts := make(map[string]int64)
+	for _, question := range questions {
+		if question.Count <= 0 || isAssistantLowSignalMessage(question.Question) {
+			continue
+		}
+		counts[ClassifyAssistantIntent(question.Question)] += question.Count
+	}
+	themes := make([]AssistantIntentSummary, 0, len(counts))
+	for intent, count := range counts {
+		themes = append(themes, AssistantIntentSummary{Intent: intent, Count: count})
+	}
+	sort.Slice(themes, func(i, j int) bool {
+		if themes[i].Count != themes[j].Count {
+			return themes[i].Count > themes[j].Count
+		}
+		return themes[i].Intent < themes[j].Intent
+	})
+	return themes, nil
 }
 
 func RecordAssistantProfile(profile string) error {

@@ -176,13 +176,13 @@ export function AssistantLauncher(props: { page?: boolean }) {
     <div className='contents'>
       {/* Mobile floating pill — opens the overlay sheet. */}
       <div
-        className='pointer-events-none fixed inset-x-0 bottom-0 z-40 flex min-h-14 items-center justify-center px-3 py-1.5 pb-[max(0.375rem,env(safe-area-inset-bottom))] xl:hidden'
+        className='pointer-events-none fixed inset-x-0 bottom-0 z-40 flex min-h-14 items-center justify-end px-3 py-1.5 pb-[max(0.375rem,env(safe-area-inset-bottom))] xl:hidden'
         data-testid='assistant-mobile-launcher'
       >
         <Button
           type='button'
           variant='secondary'
-          className='pointer-events-auto h-11 w-full max-w-md justify-start gap-2 rounded-full px-4 shadow-sm md:w-auto md:min-w-44'
+          className='pointer-events-auto h-11 w-auto max-w-[calc(100vw-1.5rem)] justify-start gap-2 rounded-full px-4 shadow-sm md:min-w-44'
           aria-label={accessibleLabel}
           title={accessibleLabel}
           aria-haspopup='dialog'

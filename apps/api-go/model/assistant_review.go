@@ -54,19 +54,23 @@ type AssistantSecurityReview struct {
 }
 
 // AssistantReview is aggregate-only. It deliberately excludes user IDs,
-// questions, transcripts, email addresses, profile strategies, and memory.
+// transcripts, email addresses, profile strategies, and memory. First
+// questions are redacted, normalized aggregates already used for product
+// analytics, not raw chat text.
 type AssistantReview struct {
-	WindowStart      int64                     `json:"window_start"`
-	WindowEnd        int64                     `json:"window_end"`
-	ObservedAt       int64                     `json:"observed_at"`
-	Intents          []AssistantIntentSummary  `json:"intents"`
-	Profiles         []AssistantProfileSummary `json:"profiles"`
-	Presets          []AssistantPresetReview   `json:"presets"`
-	CurrentSupport   int64                     `json:"current_pending_support"`
-	CurrentIncidents int64                     `json:"current_open_security_incidents"`
-	Commerce         AssistantCommerceReview   `json:"commerce"`
-	Security         AssistantSecurityReview   `json:"security"`
-	Actions          []AssistantReviewAction   `json:"actions"`
+	WindowStart      int64                           `json:"window_start"`
+	WindowEnd        int64                           `json:"window_end"`
+	ObservedAt       int64                           `json:"observed_at"`
+	Intents          []AssistantIntentSummary        `json:"intents"`
+	DistilledIntents []AssistantIntentSummary        `json:"distilled_intents"`
+	Profiles         []AssistantProfileSummary       `json:"profiles"`
+	Presets          []AssistantPresetReview         `json:"presets"`
+	FirstQuestions   []AssistantFirstQuestionSummary `json:"first_questions"`
+	CurrentSupport   int64                           `json:"current_pending_support"`
+	CurrentIncidents int64                           `json:"current_open_security_incidents"`
+	Commerce         AssistantCommerceReview         `json:"commerce"`
+	Security         AssistantSecurityReview         `json:"security"`
+	Actions          []AssistantReviewAction         `json:"actions"`
 }
 
 func trimReview[T any](rows []T) []T {
@@ -244,6 +248,21 @@ func reviewActions(review AssistantReview) []AssistantReviewAction {
 		actions = append(actions, AssistantReviewAction{Code: "review_chat_to_purchase_conversion", Count: review.Commerce.ChatUsers - review.Commerce.PaidUsers})
 	}
 
+	intentRows := review.DistilledIntents
+	if len(intentRows) == 0 {
+		intentRows = review.Intents
+	}
+	var intents, other int64
+	for _, row := range intentRows {
+		intents += row.Count
+		if row.Intent == AssistantIntentOther {
+			other = row.Count
+		}
+	}
+	if intents > 0 && other*100 >= intents*40 {
+		actions = append(actions, AssistantReviewAction{Code: "improve_intent_classification", Count: other})
+	}
+
 	sort.SliceStable(actions, func(i, j int) bool {
 		if actions[i].Count != actions[j].Count {
 			return actions[i].Count > actions[j].Count
@@ -271,6 +290,12 @@ func BuildAssistantReview(ctx context.Context, start, end int64) (AssistantRevie
 	}
 	review.Profiles = trimReview(review.Profiles)
 	if review.Presets, err = reviewPresets(ctx, start, end); err != nil {
+		return AssistantReview{}, err
+	}
+	if review.FirstQuestions, err = listAssistantFirstQuestions(ctx, start, end); err != nil {
+		return AssistantReview{}, err
+	}
+	if review.DistilledIntents, err = listAssistantFirstQuestionThemes(ctx, start, end); err != nil {
 		return AssistantReview{}, err
 	}
 	if review.CurrentSupport, err = reviewCount(ctx, &AssistantLead{}, "source = ? AND status = ?", AssistantLeadSourceHandoff, AssistantLeadStatusPending); err != nil {
