@@ -63,12 +63,12 @@ func TestRemoveLegacyDeployPackageRequiresIntegratedT0(t *testing.T) {
 	if err := os.WriteFile(legacy, []byte("legacy"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	runner := &productionCLIRemovalRunner{legacyPath: legacy, goVersion: "0.1.58-1", legacy: true}
+	runner := &productionCLIRemovalRunner{legacyPath: legacy, goVersion: "0.1.59-1", legacy: true}
 	runtime := &productionRuntime{
 		paths:  productionPaths{LegacyDeployBinary: legacy},
 		runner: runner,
 	}
-	candidate := productionPackageMetadata{Name: productionAURPackageName, Version: "0.1.59-1"}
+	candidate := productionPackageMetadata{Name: productionAURPackageName, Version: "0.1.60-1"}
 	if err := runtime.removeLegacyDeployPackageForT1(context.Background(), candidate); err != nil {
 		t.Fatal(err)
 	}
@@ -79,7 +79,7 @@ func TestRemoveLegacyDeployPackageRequiresIntegratedT0(t *testing.T) {
 	if err := os.WriteFile(legacy, []byte("legacy"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	runner = &productionCLIRemovalRunner{legacyPath: legacy, goVersion: "0.1.57-1", legacy: true}
+	runner = &productionCLIRemovalRunner{legacyPath: legacy, goVersion: "0.1.58-1", legacy: true}
 	runtime.runner = runner
 	if err := runtime.removeLegacyDeployPackageForT1(context.Background(), candidate); err == nil || !strings.Contains(err.Error(), "requires a confirmed") {
 		t.Fatalf("pre-T0 removal error=%v", err)
@@ -101,7 +101,7 @@ func TestVerifyTransitionCLIEnforcesT0AndT1CommandSets(t *testing.T) {
 	runtime := &productionRuntime{paths: paths}
 	t1 := productionPackageTransition{
 		CandidatePackageName: productionAURPackageName,
-		CandidateIdentity:    productionAURPackageName + " 0.1.59-1",
+		CandidateIdentity:    productionAURPackageName + " 0.1.60-1",
 	}
 	if err := runtime.verifyTransitionCLI(t1, false); err != nil {
 		t.Fatal(err)
@@ -117,7 +117,7 @@ func TestVerifyTransitionCLIEnforcesT0AndT1CommandSets(t *testing.T) {
 	}
 	t0 := productionPackageTransition{
 		CandidatePackageName: productionAURPackageName,
-		CandidateIdentity:    productionAURPackageName + " 0.1.58-1",
+		CandidateIdentity:    productionAURPackageName + " 0.1.59-1",
 	}
 	if err := runtime.verifyTransitionCLI(t0, false); err == nil || !strings.Contains(err.Error(), "lacks its compatibility") {
 		t.Fatalf("T0 missing-link error=%v", err)

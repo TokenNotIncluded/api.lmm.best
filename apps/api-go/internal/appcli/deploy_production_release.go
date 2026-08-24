@@ -712,6 +712,8 @@ func signedPackageMember(packageName, relative string) (packageRelative string, 
 	}
 }
 
+// The 0.1.58 tag produced no release artifacts. Version 0.1.59 is the
+// compatibility T0 release; the single-CLI T1 contract starts at 0.1.60.
 func isT1SingleCLIPackage(packageName, packageVersion string) (bool, error) {
 	if packageName == productionSourcePackageName {
 		return true, nil
@@ -719,7 +721,7 @@ func isT1SingleCLIPackage(packageName, packageVersion string) (bool, error) {
 	if packageName != productionAURPackageName {
 		return false, errors.New("single-CLI transition check received an unsupported package")
 	}
-	return numericPackageReleaseAtLeast(packageVersion, [3]int{0, 1, 59})
+	return numericPackageReleaseAtLeast(packageVersion, [3]int{0, 1, 60})
 }
 
 func isIntegratedOperatorPackage(packageName, packageVersion string) (bool, error) {
@@ -729,7 +731,7 @@ func isIntegratedOperatorPackage(packageName, packageVersion string) (bool, erro
 	if packageName != productionAURPackageName {
 		return false, nil
 	}
-	return numericPackageReleaseAtLeast(packageVersion, [3]int{0, 1, 58})
+	return numericPackageReleaseAtLeast(packageVersion, [3]int{0, 1, 59})
 }
 
 func numericPackageReleaseAtLeast(packageVersion string, minimum [3]int) (bool, error) {

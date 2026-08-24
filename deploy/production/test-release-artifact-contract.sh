@@ -75,7 +75,7 @@ require_literal "$GO_PKGBUILD" '_legacy_cli_archive_version=0.1.57' \
   'Go package lost the explicit legacy CLI archive boundary'
 require_literal "$GO_PKGBUILD" 'RELEASE_ASSET_SHA256' \
   'Go package does not preserve its signed release-asset digest'
-require_literal "$GO_PKGBUILD" '_t1_cli_version=0.1.59' \
+require_literal "$GO_PKGBUILD" '_t1_cli_version=0.1.60' \
   'Go package lost the explicit T1 single-CLI boundary'
 require_literal "$GO_PKGBUILD" "conflicts+=('lmm-api-deploy' 'lmm-api-deploy-bin')" \
   'T1 Go package does not conflict with legacy deploy packages'
