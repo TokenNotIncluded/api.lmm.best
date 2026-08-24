@@ -8,6 +8,7 @@ on:
 
 permissions:
   actions: write
+  checks: read
   contents: write
 
 concurrency:
@@ -21,7 +22,7 @@ jobs:
       github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.event == 'push'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - name: Checkout the exact CI-verified revision
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -51,6 +52,8 @@ jobs:
             echo 'VERSION did not change in this revision; no release promotion is required.'
             exit 0
           fi
+
+          GITHUB_TOKEN=$GH_TOKEN bash scripts/verify-release-commit-checks.sh "$revision"
 
           version=$(tr -d '[:space:]' < VERSION)
           [[ "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]

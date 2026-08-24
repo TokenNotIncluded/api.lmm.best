@@ -1,0 +1,12 @@
+Workflow and resource-safety contracts|.github/workflows/ci.yml|push|main
+Release artifact contract|.github/workflows/ci.yml|push|main
+Go default backend, relaykit, and static build|.github/workflows/ci.yml|push|main
+Rust backend formatting, lint, and tests|.github/workflows/ci.yml|push|main
+Web checks, route manifest, and production build|.github/workflows/ci.yml|push|main
+AUR direct-backend package contract|.github/workflows/ci.yml|push|main
+Go and Rust route/behavior alignment gates|.github/workflows/ci.yml|push|main
+Analyze (actions)|dynamic/github-code-scanning/codeql|dynamic|main
+Analyze (go)|dynamic/github-code-scanning/codeql|dynamic|main
+Analyze (javascript-typescript)|dynamic/github-code-scanning/codeql|dynamic|main
+Analyze (python)|dynamic/github-code-scanning/codeql|dynamic|main
+Analyze (rust)|dynamic/github-code-scanning/codeql|dynamic|main

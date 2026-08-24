@@ -11,6 +11,7 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/constant"
 	"github.com/LIghtJUNction/api.lmm.best/logger"
 	relaycommon "github.com/LIghtJUNction/api.lmm.best/relay/common"
+	relayconstant "github.com/LIghtJUNction/api.lmm.best/relay/constant"
 	"github.com/LIghtJUNction/api.lmm.best/relay/helper"
 	"github.com/LIghtJUNction/api.lmm.best/relaykit/dto"
 	"github.com/LIghtJUNction/api.lmm.best/relaykit/types"
@@ -21,6 +22,11 @@ import (
 )
 
 func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types.NewAPIError) {
+	if info.RelayMode == relayconstant.RelayModeImagesEdits {
+		if validationErr := helper.ValidateOpenAIImageEditMultipart(c); validationErr != nil {
+			return validationErr
+		}
+	}
 	info.InitChannelMeta(c)
 
 	imageReq, ok := info.Request.(*dto.ImageRequest)

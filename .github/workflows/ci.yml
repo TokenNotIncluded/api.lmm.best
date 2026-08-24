@@ -52,8 +52,43 @@ jobs:
           bash .agents/skills/lmm-deploy-safely/scripts/tests/test-inspect-state.sh
           bash .agents/skills/lmm-deploy-safely/scripts/tests/test-resource-pressure-report.sh
 
-      - name: Test release version and changelog tooling
-        run: node --test scripts/release.test.mjs
+      - name: Test release version, governance, and changelog tooling
+        run: |
+          shellcheck \
+            scripts/verify-release-commit-checks.sh \
+            scripts/test-verify-release-commit-checks.sh \
+            packaging/aur/check-candidate-version.sh \
+            packaging/aur/export-go-package-base.sh \
+            packaging/aur/test-export-go-package-base.sh
+          bash scripts/test-verify-release-commit-checks.sh
+          node --test scripts/release.test.mjs
+
+      - name: Test Nginx API preflight policy
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes nginx
+          shellcheck \
+            deploy/test-nginx-access-policy-preflight.sh \
+            deploy/test-nginx-mime.sh
+          bash deploy/check-frontend-split.sh
+
+  release-artifact-contract:
+    name: Release artifact contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify immutable release and package contracts
+        env:
+          TMPDIR: ${{ runner.temp }}
+        run: |
+          shellcheck deploy/production/test-release-artifact-contract.sh
+          bash deploy/production/test-release-artifact-contract.sh
 
   web:
     name: Web checks, route manifest, and production build
@@ -322,12 +357,12 @@ jobs:
   aur-package-matrix:
     name: AUR direct-backend package contract
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     container: archlinux:base-devel
     steps:
       - name: Install checkout and package validation tools
         run: |
-          pacman --sync --refresh --noconfirm clang curl git jq libarchive rust shellcheck
+          pacman --sync --refresh --noconfirm clang cosign curl git jq libarchive rust shellcheck
           paru_revision=9ac3578807a87858651e81a02586ceb947686e7c
           paru_archive=/tmp/paru.tar.gz
           curl --fail --location --silent --show-error \
@@ -351,6 +386,10 @@ jobs:
         run: |
           chown --recursive package-builder:package-builder "$GITHUB_WORKSPACE"
           runuser --user package-builder -- env TMPDIR=/home/package-builder/lmm-ci-tmp bash packaging/aur/test-matrix.sh
+          runuser --user package-builder -- env \
+            TMPDIR=/home/package-builder/lmm-ci-tmp \
+            GITHUB_TOKEN='${{ github.token }}' \
+            bash packaging/aur/verify-go-release-pins.sh
           runuser --user package-builder -- env TMPDIR=/home/package-builder/lmm-ci-tmp bash packaging/aur/test-bin-makepkg.sh
           runuser --user package-builder -- env TMPDIR=/home/package-builder/lmm-ci-tmp bash packaging/aur/test-web-activation.sh
           runuser --user package-builder -- env TMPDIR=/home/package-builder/lmm-ci-tmp bash deploy/production/test-precutover-packages.sh

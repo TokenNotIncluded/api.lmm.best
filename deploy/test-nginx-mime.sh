@@ -18,7 +18,8 @@ cleanup() {
 }
 trap cleanup EXIT
 
-mkdir -p -- "$work/assets"
+mkdir -p -- "$work/assets" "$work/client_temp" "$work/proxy_temp" \
+  "$work/fastcgi_temp" "$work/uwsgi_temp" "$work/scgi_temp"
 printf 'export const ready = true\n' >"$work/assets/app.js"
 printf 'body { color: black; }\n' >"$work/assets/app.css"
 printf '{"ready":true}\n' >"$work/assets/app.json"
@@ -32,6 +33,12 @@ pid $work/nginx.pid;
 error_log $work/error.log notice;
 events { worker_connections 16; }
 http {
+    access_log $work/access.log;
+    client_body_temp_path $work/client_temp;
+    proxy_temp_path $work/proxy_temp;
+    fastcgi_temp_path $work/fastcgi_temp;
+    uwsgi_temp_path $work/uwsgi_temp;
+    scgi_temp_path $work/scgi_temp;
     # Match production: no global mime.types include.
     default_type application/octet-stream;
     server {

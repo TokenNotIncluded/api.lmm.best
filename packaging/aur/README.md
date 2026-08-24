@@ -10,14 +10,17 @@ versioned application packages.
 | Web frontend | — | `lmm-api-web-bin` | — | `/usr/share/lmm-api-web/frontend-dist` |
 | Rust preview | — | `lmm-api-rs-bin` | `lmm-api-rs-git` | `/usr/bin/lmm-api-rs` |
 
-The historical compatibility release T0 kept a package-owned
-`/usr/bin/lmm-api-go` symlink and did not remove an already-installed
-`lmm-api-deploy-bin`, so a rollback to N-1 could not strand the host. New
+The compatibility release T0 (`lmm-api-go-bin` 0.1.59) keeps a package-owned
+`/usr/bin/lmm-api-go` symlink and does not remove an already-installed
+`lmm-api-deploy-bin`, so a rollback to N-1 cannot strand the host. Stable
+source, `-git`, local, and prebuilt recipes all consume the same canonical
+`lmm-api-cli-phase.sh` contract; they must not enter T1 independently. New
 services, docs, automation, and release archives use `lmm-api`. No new
 deploy-only artifact is published.
 
-T1 removes the alias and declares an exact conflict/replacement for
-`lmm-api-deploy-bin`; the historical T0 Go package is its rollback package and
+T1 starts at `lmm-api-go-bin` 0.1.60, removes the alias, and declares an exact
+conflict/replacement for `lmm-api-deploy-bin`; the historical T0 Go package is
+its rollback package and
 already owns the operator user, sudoers, sysusers, and tmpfiles resources
 needed after rollback. Local `pacman -U` does not apply `replaces`, so the armed
 target controller verifies those T0 resources and the legacy package owner/Qkk,
@@ -50,9 +53,21 @@ Run these checks after changing a recipe:
 
 ```bash
 TMPDIR="${TMPDIR:?marker-owned workspace required}" bash packaging/aur/test-matrix.sh
+TMPDIR="$TMPDIR" bash packaging/aur/verify-go-release-pins.sh
 TMPDIR="$TMPDIR" bash packaging/aur/test-bin-makepkg.sh
 TMPDIR="$TMPDIR" bash deploy/production/test-release-artifact-contract.sh
 ```
 
 Regenerate every changed tracked `.SRCINFO` with
-`makepkg --printsrcinfo > .SRCINFO` and compare it before commit.
+`makepkg --printsrcinfo > .SRCINFO` and compare it before commit. Export a Go
+recipe into a new standalone package-base directory only through the canonical
+stager:
+
+```bash
+packaging/aur/export-go-package-base.sh lmm-api-go-bin "$DESTINATION"
+```
+
+The destination must not already exist. The stager restricts the file
+inventory, verifies the canonical helper digest, and materializes
+`lmm-api-cli-phase.sh` as a regular file. Never copy or publish the monorepo
+symlink directly.

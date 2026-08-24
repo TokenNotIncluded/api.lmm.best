@@ -74,8 +74,19 @@ func TestEdgePolicyInstallBacksUpRemovesLegacyAndRestores(t *testing.T) {
 			candidate += "geoip2 /var/lib/geoip2/DBIP-Country-Lite.mmdb {\n"
 		case "server":
 			candidate += "include /etc/nginx/lmm-api-region-policy.conf;\n"
+		case "locations":
+			candidate += "error_page 418 = @lmm_api_cors_preflight;\n"
+			candidate += "location @lmm_api_cors_preflight {\n"
+			candidate += "auth_request off;\n"
+			candidate += "set $lmm_access_policy_original_uri $uri;\n"
+			candidate += "if ($request_method = OPTIONS) { return 418; }\n"
+			candidate += "add_header Access-Control-Allow-Methods $http_access_control_request_method always;\n"
+			candidate += "add_header Access-Control-Allow-Headers $http_access_control_request_headers always;\n"
+			candidate += "add_header Vary \"Origin, Access-Control-Request-Method, Access-Control-Request-Headers\" always;\n"
 		case "region-policy":
 			candidate += "auth_request /internal/access-ip-policy;\n"
+			candidate += "proxy_set_header X-LMM-Original-URI $lmm_access_policy_original_uri;\n"
+			candidate += "proxy_set_header X-LMM-Original-Accept $http_accept;\n"
 		}
 		if err := os.WriteFile(assetPath, []byte(candidate), 0o644); err != nil {
 			t.Fatal(err)

@@ -45,7 +45,7 @@ export const heroSmsTranslations = {
       'For security, the browser never reads back the saved secret. Enter a new key only when rotating it.',
     'HeroSMS API key cleared': 'HeroSMS API key cleared',
     'HeroSMS connection test passed': 'HeroSMS connection test passed',
-    'HeroSMS Email': 'HeroSMS Email',
+    'HeroSMS temporary activations': 'HeroSMS temporary activations',
     'HeroSMS is temporarily unavailable. Keep this page open and try again shortly.':
       'HeroSMS is temporarily unavailable. Keep this page open and try again shortly.',
     'HeroSMS only returns purchasable email domains after you provide a non-empty target site.':
@@ -210,7 +210,7 @@ export const heroSmsTranslations = {
       '出于安全考虑，浏览器不会读回已保存的密钥。只有在轮换时才输入新密钥。',
     'HeroSMS API key cleared': '已清除 HeroSMS API 密钥',
     'HeroSMS connection test passed': 'HeroSMS 连接测试通过',
-    'HeroSMS Email': 'HeroSMS 邮箱接码',
+    'HeroSMS temporary activations': 'HeroSMS 临时接码',
     'HeroSMS is temporarily unavailable. Keep this page open and try again shortly.':
       'HeroSMS 暂时不可用，请保持页面打开并稍后重试。',
     'HeroSMS only returns purchasable email domains after you provide a non-empty target site.':
@@ -370,7 +370,7 @@ export const heroSmsTranslations = {
       '基於安全考量，瀏覽器不會讀回已儲存的密鑰。只有在輪換時才輸入新金鑰。',
     'HeroSMS API key cleared': '已清除 HeroSMS API 金鑰',
     'HeroSMS connection test passed': 'HeroSMS 連線測試通過',
-    'HeroSMS Email': 'HeroSMS 郵箱接碼',
+    'HeroSMS temporary activations': 'HeroSMS 臨時接碼',
     'HeroSMS is temporarily unavailable. Keep this page open and try again shortly.':
       'HeroSMS 暫時不可用，請保持頁面開啟並稍後重試。',
     'HeroSMS only returns purchasable email domains after you provide a non-empty target site.':
@@ -532,7 +532,7 @@ export const heroSmsTranslations = {
       'Pour des raisons de sécurité, le navigateur ne relit jamais le secret enregistré. Saisissez une nouvelle clé uniquement lors de sa rotation.',
     'HeroSMS API key cleared': 'Clé API HeroSMS effacée',
     'HeroSMS connection test passed': 'Test de connexion HeroSMS réussi',
-    'HeroSMS Email': 'E-mail HeroSMS',
+    'HeroSMS temporary activations': 'Activations temporaires HeroSMS',
     'HeroSMS is temporarily unavailable. Keep this page open and try again shortly.':
       'HeroSMS est temporairement indisponible. Laissez cette page ouverte et réessayez sous peu.',
     'HeroSMS only returns purchasable email domains after you provide a non-empty target site.':
@@ -701,7 +701,7 @@ export const heroSmsTranslations = {
       'セキュリティのため、ブラウザーは保存済みシークレットを読み戻しません。新しいキーはローテーション時のみ入力してください。',
     'HeroSMS API key cleared': 'HeroSMS API キーを消去しました',
     'HeroSMS connection test passed': 'HeroSMS 接続テストに成功しました',
-    'HeroSMS Email': 'HeroSMS メール認証受信',
+    'HeroSMS temporary activations': 'HeroSMS 一時認証',
     'HeroSMS is temporarily unavailable. Keep this page open and try again shortly.':
       'HeroSMS は一時的に利用できません。このページを開いたまま、しばらくしてから再試行してください。',
     'HeroSMS only returns purchasable email domains after you provide a non-empty target site.':
@@ -867,7 +867,7 @@ export const heroSmsTranslations = {
     'HeroSMS API key cleared': 'API-ключ HeroSMS очищен',
     'HeroSMS connection test passed':
       'Проверка подключения HeroSMS прошла успешно',
-    'HeroSMS Email': 'Почта HeroSMS',
+    'HeroSMS temporary activations': 'Временные активации HeroSMS',
     'HeroSMS is temporarily unavailable. Keep this page open and try again shortly.':
       'HeroSMS временно недоступен. Оставьте эту страницу открытой и попробуйте снова чуть позже.',
     'HeroSMS only returns purchasable email domains after you provide a non-empty target site.':
@@ -1034,7 +1034,7 @@ export const heroSmsTranslations = {
       'Vì lý do bảo mật, trình duyệt không bao giờ đọc lại bí mật đã lưu. Chỉ nhập khóa mới khi bạn xoay vòng khóa.',
     'HeroSMS API key cleared': 'Đã xóa API key HeroSMS',
     'HeroSMS connection test passed': 'Kiểm tra kết nối HeroSMS thành công',
-    'HeroSMS Email': 'Email HeroSMS',
+    'HeroSMS temporary activations': 'Kích hoạt tạm thời HeroSMS',
     'HeroSMS is temporarily unavailable. Keep this page open and try again shortly.':
       'HeroSMS tạm thời không khả dụng. Hãy giữ trang này mở và thử lại sau ít phút.',
     'HeroSMS only returns purchasable email domains after you provide a non-empty target site.':

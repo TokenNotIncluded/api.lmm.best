@@ -424,7 +424,11 @@ database/cache.
 3. Build once, record artifact/package/frontend SHA-256, and run Go/frontend
    tests plus the native CLI preflight. Do not build on the production host.
 4. If backups were explicitly requested, create target, controller, and
-   off-host copies, verify encrypted archives offline, and compare checksums.
+off-host copies, verify encrypted archives offline, and compare checksums.
+Before activation, persist the exact transient unit and bounded attempt number.
+After any ambiguous SSH result, reconcile that unit plus the target manifest and
+status. Only three-way absence permits one redispatch of the same plan/workspace;
+any observed evidence means observe the existing job and never resend apply.
 5. Arm the persistent 600-second rollback watchdog, apply the immutable package,
    run migrations only when N/N-1 compatible, and observe for at least 120
    seconds while checking the resource and error-journal gates.

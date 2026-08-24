@@ -6,6 +6,8 @@ on:
       - 'go-v*.*.*'
 
 permissions:
+  actions: read
+  checks: read
   contents: read
 
 concurrency:
@@ -20,7 +22,7 @@ jobs:
   prepare:
     name: Verify immutable Go release identity
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     outputs:
       contract_revision: ${{ steps.identity.outputs.contract_revision }}
       revision: ${{ steps.identity.outputs.revision }}
@@ -68,6 +70,11 @@ jobs:
             echo "version=$version"
             echo "revision=$revision"
           } >>"$GITHUB_OUTPUT"
+
+      - name: Require successful CI, CodeQL, and release contracts
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: bash scripts/verify-release-commit-checks.sh "${GITHUB_SHA}"
 
   test:
     name: Test Go backend

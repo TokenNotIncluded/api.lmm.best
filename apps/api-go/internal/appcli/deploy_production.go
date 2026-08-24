@@ -68,6 +68,8 @@ func runProductionDeploy(args []string, stdout, stderr io.Writer) int {
 		return ExitOK
 	case "edge-policy":
 		return runProductionEdgePolicy(args[1:], stdout, stderr)
+	case "dispatch-evidence":
+		return runProductionDispatchEvidence(args[1:], stdout, stderr)
 	case "apply":
 		return runProductionTransaction(args[0], args[1:], stdout, stderr)
 	case "status", "confirm", "rollback":

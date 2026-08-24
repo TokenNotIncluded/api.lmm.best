@@ -54,6 +54,17 @@ assert_literal 'max-age=31536000, immutable' "$config"
 assert_literal 'no-cache, must-revalidate' "$config"
 assert_literal 'proxy_buffering off' "$config"
 assert_literal 'Connection $connection_upgrade' "$config"
+assert_literal 'error_page 418 = @lmm_api_cors_preflight;' "$config"
+assert_literal 'location @lmm_api_cors_preflight {' "$config"
+assert_literal 'add_header Access-Control-Allow-Origin "*" always;' "$config"
+assert_literal 'add_header Access-Control-Allow-Methods $http_access_control_request_method always;' "$config"
+assert_literal 'add_header Access-Control-Allow-Headers $http_access_control_request_headers always;' "$config"
+assert_literal 'add_header Vary "Origin, Access-Control-Request-Method, Access-Control-Request-Headers" always;' "$config"
+backend_route_count=$(grep -Fc 'try_files /.__lmm_backend__ @lmm_api_backend;' "$config")
+preflight_guard_count=$(grep -Fc 'if ($request_method = OPTIONS) { return 418; }' "$config")
+normalized_uri_capture_count=$(grep -Fc 'set $lmm_access_policy_original_uri $uri;' "$config")
+[[ $backend_route_count -gt 0 && $preflight_guard_count == "$backend_route_count" && $normalized_uri_capture_count == "$backend_route_count" ]] ||
+  fail "every backend API location must capture its normalized URI and have one OPTIONS guard (routes=$backend_route_count captures=$normalized_uri_capture_count guards=$preflight_guard_count)"
 assert_literal 'geoip2 /var/lib/geoip2/DBIP-Country-Lite.mmdb {' "$repo/deploy/nginx/http-map.conf"
 assert_literal 'map $lmm_geoip_country_code $lmm_cn_source {' "$repo/deploy/nginx/http-map.conf"
 
@@ -99,6 +110,10 @@ assert_literal 'auth_request_set $lmm_access_policy_result $upstream_http_x_lmm_
 assert_literal 'X-LMM-CN-Source $lmm_cn_source;' "$region_policy"
 assert_literal 'X-LMM-Access-Policy $lmm_access_policy_result;' "$region_policy"
 assert_literal 'X-LMM-Internal-Error access-policy;' "$region_policy"
+assert_literal 'X-LMM-Original-URI $lmm_access_policy_original_uri;' "$region_policy"
+assert_literal 'X-LMM-Original-Accept $http_accept;' "$region_policy"
+assert_literal 'proxy_set_header Authorization "";' "$region_policy"
+assert_literal 'proxy_set_header Cookie "";' "$region_policy"
 assert_literal 'deploy production edge-policy install|verify' "$repo/apps/api-go/internal/appcli/deploy.go"
 if grep -Fq 'location ^~ /dashboard/' "$config"; then
   fail 'broad /dashboard/ proxy would swallow frontend dashboard routes'
@@ -120,10 +135,12 @@ done < "$route_manifest"
 
 bash -n "$release"
 bash -n "$nginx_installer"
+bash -n "$repo/deploy/test-nginx-access-policy-preflight.sh"
 if command -v nginx >/dev/null; then
   LMM_NGINX_MIME_TYPES="$mime_types" "$repo/deploy/test-nginx-mime.sh"
+  "$repo/deploy/test-nginx-access-policy-preflight.sh"
 else
-  printf 'split-check: nginx not installed; MIME integration test skipped\n' >&2
+  printf 'split-check: nginx not installed; MIME and access-policy integration tests skipped\n' >&2
 fi
 "$repo/deploy/test-nginx-installer.sh"
 

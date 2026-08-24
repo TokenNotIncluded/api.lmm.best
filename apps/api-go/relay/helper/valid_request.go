@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
@@ -184,13 +185,16 @@ func GetAndValidOpenAIImageRequest(c *gin.Context, relayMode int) (*dto.ImageReq
 
 	switch relayMode {
 	case relayconstant.RelayModeImagesEdits:
-		if strings.Contains(c.Request.Header.Get("Content-Type"), "multipart/form-data") {
+		if strings.Contains(strings.ToLower(c.Request.Header.Get("Content-Type")), "multipart/form-data") {
 			form, err := common.ParseMultipartFormReusable(c)
 			if err != nil {
-				return nil, fmt.Errorf("failed to parse image edit form request: %w", err)
+				if common.IsRequestBodyTooLargeError(err) || errors.Is(err, common.ErrRequestBodyTooLarge) {
+					return nil, types.NewErrorWithStatusCode(err, types.ErrorCodeReadRequestBodyFailed, http.StatusRequestEntityTooLarge, types.ErrOptionWithSkipRetry())
+				}
+				return nil, types.NewErrorWithStatusCode(fmt.Errorf("failed to parse image edit form request: %w", err), types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
 			}
-			formData := url.Values(form.Value)
 			c.Request.MultipartForm = form
+			formData := url.Values(form.Value)
 			c.Request.PostForm = formData
 			imageRequest.Prompt = formData.Get("prompt")
 			imageRequest.Model = formData.Get("model")
@@ -227,6 +231,9 @@ func GetAndValidOpenAIImageRequest(c *gin.Context, relayMode int) (*dto.ImageReq
 			if hasWatermark {
 				watermark := formData.Get("watermark") == "true"
 				imageRequest.Watermark = &watermark
+			}
+			if validationErr := ValidateOpenAIImageEditMultipart(c); validationErr != nil {
+				return nil, validationErr
 			}
 			break
 		}

@@ -68,6 +68,11 @@ For a local T1 package, do not assume `replaces` removes an installed package:
 after the watchdog is armed, require package-owned T0 sudoers/sysusers/tmpfiles,
 verify the exact legacy package owner and zero altered files, remove only that
 package, and then install T1.
+- Persist the activation transient-unit identity and bounded attempt count before
+remote dispatch. A transport-ambiguous result must reconcile the unit, target
+manifest, and target status. Only when all three are absent may the exact same
+plan/workspace be redispatched once. If any evidence exists, observe that job;
+never issue another apply.
 - Before any operator invocation, require `pacman -Qo` to identify the approved
   Go package as owner of `/usr/bin/lmm-api`; require a real non-symlink binary
   and zero altered package files. Verify the package payload against the signed

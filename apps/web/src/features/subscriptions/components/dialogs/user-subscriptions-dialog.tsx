@@ -17,7 +17,14 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { Ban, Plus, RotateCcw, Trash2 } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -75,6 +82,20 @@ interface Props {
   onSuccess?: () => void
 }
 
+type DialogRequestScope = Readonly<{
+  open: boolean
+  userId: number | null
+  epoch: number
+  mounted: boolean
+}>
+
+type ActiveDialogRequestScope = DialogRequestScope &
+  Readonly<{
+    open: true
+    userId: number
+    mounted: true
+  }>
+
 function SubscriptionStatusBadge(props: {
   sub: UserSubscriptionRecord['subscription']
   t: (key: string) => string
@@ -112,7 +133,8 @@ function SubscriptionStatusBadge(props: {
 
 export function UserSubscriptionsDialog(props: Props) {
   const { t } = useTranslation()
-  const [loading, setLoading] = useState(false)
+  const userId = props.user?.id ?? null
+  const [loading, setLoading] = useState(props.open && userId !== null)
   const [creating, setCreating] = useState(false)
   const [plans, setPlans] = useState<PlanRecord[]>([])
   const [subs, setSubs] = useState<UserSubscriptionRecord[]>([])
@@ -127,6 +149,69 @@ export function UserSubscriptionsDialog(props: Props) {
     type: 'invalidate' | 'delete'
     subId: number
   } | null>(null)
+  const requestGenerationRef = useRef(0)
+  const currentScopeRef = useRef<DialogRequestScope>({
+    open: props.open,
+    userId,
+    epoch: 0,
+    mounted: true,
+  })
+
+  useLayoutEffect(() => {
+    const currentScope = currentScopeRef.current
+    if (!currentScope.mounted) {
+      currentScopeRef.current = {
+        ...currentScope,
+        epoch: currentScope.epoch + 1,
+        mounted: true,
+      }
+    }
+
+    return () => {
+      const scopeAtUnmount = currentScopeRef.current
+      currentScopeRef.current = {
+        ...scopeAtUnmount,
+        epoch: scopeAtUnmount.epoch + 1,
+        mounted: false,
+      }
+    }
+  }, [])
+
+  useLayoutEffect(() => {
+    const currentScope = currentScopeRef.current
+    if (currentScope.open !== props.open || currentScope.userId !== userId) {
+      currentScopeRef.current = {
+        open: props.open,
+        userId,
+        epoch: currentScope.epoch + 1,
+        mounted: currentScope.mounted,
+      }
+      requestGenerationRef.current += 1
+      setSubs([])
+      setSelectedPlanId('')
+      setCreating(false)
+      setResetting(false)
+      setConfirmAction(null)
+      setResetAction(null)
+      setLoading(props.open && userId !== null)
+    }
+  }, [props.open, userId])
+
+  const isCurrentOpenScope = useCallback(
+    (scope: DialogRequestScope): scope is ActiveDialogRequestScope => {
+      const currentScope = currentScopeRef.current
+      return (
+        scope.mounted &&
+        scope.open &&
+        scope.userId !== null &&
+        currentScope.mounted &&
+        currentScope.open &&
+        currentScope.userId === scope.userId &&
+        currentScope.epoch === scope.epoch
+      )
+    },
+    []
+  )
 
   const planTitleMap = useMemo(() => {
     const map = new Map<number, string>()
@@ -136,100 +221,131 @@ export function UserSubscriptionsDialog(props: Props) {
     return map
   }, [plans])
 
-  const loadData = useCallback(async () => {
-    if (!props.user?.id) return
-    setLoading(true)
-    try {
-      const [plansRes, subsRes] = await Promise.all([
-        getAdminPlans(),
-        getUserSubscriptions(props.user.id),
-      ])
-      if (plansRes.success) setPlans(plansRes.data || [])
-      if (subsRes.success) setSubs(subsRes.data || [])
-    } catch {
-      toast.error(t('Loading failed'))
-    } finally {
-      setLoading(false)
-    }
-  }, [props.user?.id, t])
+  const loadData = useCallback(
+    async (scope: DialogRequestScope) => {
+      if (!isCurrentOpenScope(scope) || scope.userId === null) return
+
+      const requestGeneration = ++requestGenerationRef.current
+      const isCurrentRequest = () =>
+        requestGenerationRef.current === requestGeneration &&
+        isCurrentOpenScope(scope)
+
+      setLoading(true)
+      try {
+        const [plansRes, subsRes] = await Promise.all([
+          getAdminPlans(),
+          getUserSubscriptions(scope.userId),
+        ])
+        if (!isCurrentRequest()) return
+        if (plansRes.success) setPlans(plansRes.data || [])
+        if (subsRes.success) setSubs(subsRes.data || [])
+      } catch {
+        if (isCurrentRequest()) toast.error(t('Loading failed'))
+      } finally {
+        if (isCurrentRequest()) setLoading(false)
+      }
+    },
+    [isCurrentOpenScope, t]
+  )
 
   useEffect(() => {
-    if (props.open && props.user?.id) {
-      setSelectedPlanId('')
-      loadData()
+    const scope = currentScopeRef.current
+    requestGenerationRef.current += 1
+    if (!isCurrentOpenScope(scope)) return
+
+    void loadData(scope)
+
+    return () => {
+      requestGenerationRef.current += 1
     }
-  }, [props.open, props.user?.id, loadData])
+  }, [props.open, userId, isCurrentOpenScope, loadData])
 
   const handleCreate = async () => {
-    if (!props.user?.id || !selectedPlanId) {
-      toast.error(t('Please select a subscription plan'))
+    const scope = currentScopeRef.current
+    if (!isCurrentOpenScope(scope) || !selectedPlanId) {
+      if (isCurrentOpenScope(scope)) {
+        toast.error(t('Please select a subscription plan'))
+      }
       return
     }
+
     setCreating(true)
     try {
-      const res = await createUserSubscription(props.user.id, {
+      const res = await createUserSubscription(scope.userId, {
         plan_id: Number(selectedPlanId),
       })
+      if (!isCurrentOpenScope(scope)) return
       if (res.success) {
         toast.success(res.data?.message || t('Added successfully'))
         setSelectedPlanId('')
-        await loadData()
-        props.onSuccess?.()
+        await loadData(scope)
+        if (isCurrentOpenScope(scope)) props.onSuccess?.()
       }
     } catch {
-      toast.error(t('Request failed'))
+      if (isCurrentOpenScope(scope)) toast.error(t('Request failed'))
     } finally {
-      setCreating(false)
+      if (isCurrentOpenScope(scope)) setCreating(false)
     }
   }
 
   const handleConfirmAction = async () => {
-    if (!confirmAction) return
+    const scope = currentScopeRef.current
+    const action = confirmAction
+    if (!isCurrentOpenScope(scope) || !action) return
+
     try {
-      if (confirmAction.type === 'invalidate') {
-        const res = await invalidateUserSubscription(confirmAction.subId)
+      if (action.type === 'invalidate') {
+        const res = await invalidateUserSubscription(action.subId)
+        if (!isCurrentOpenScope(scope)) return
         if (res.success) {
           toast.success(res.data?.message || t('Has been invalidated'))
-          await loadData()
-          props.onSuccess?.()
+          await loadData(scope)
+          if (isCurrentOpenScope(scope)) props.onSuccess?.()
         }
       } else {
-        const res = await deleteUserSubscription(confirmAction.subId)
+        const res = await deleteUserSubscription(action.subId)
+        if (!isCurrentOpenScope(scope)) return
         if (res.success) {
           toast.success(t('Deleted'))
-          await loadData()
-          props.onSuccess?.()
+          await loadData(scope)
+          if (isCurrentOpenScope(scope)) props.onSuccess?.()
         }
       }
     } catch {
-      toast.error(t('Operation failed'))
+      if (isCurrentOpenScope(scope)) toast.error(t('Operation failed'))
     } finally {
-      setConfirmAction(null)
+      if (isCurrentOpenScope(scope)) setConfirmAction(null)
     }
   }
 
   const handleResetConfirm = async () => {
-    if (!props.user?.id || !resetAction) return
+    const scope = currentScopeRef.current
+    const action = resetAction
+    if (!isCurrentOpenScope(scope) || !action) return
+
     setResetting(true)
     try {
-      const res = await resetUserSubscriptionsByPlan(props.user.id, {
-        plan_id: resetAction.planId,
+      const res = await resetUserSubscriptionsByPlan(scope.userId, {
+        plan_id: action.planId,
         advance_reset_time: advanceResetTime,
       })
+      if (!isCurrentOpenScope(scope)) return
       if (res.success) {
         toast.success(
           t('Reset {{count}} active subscriptions', {
             count: res.data?.reset_count || 0,
           })
         )
-        await loadData()
-        props.onSuccess?.()
+        await loadData(scope)
+        if (isCurrentOpenScope(scope)) props.onSuccess?.()
       }
     } catch {
-      toast.error(t('Operation failed'))
+      if (isCurrentOpenScope(scope)) toast.error(t('Operation failed'))
     } finally {
-      setResetting(false)
-      setResetAction(null)
+      if (isCurrentOpenScope(scope)) {
+        setResetting(false)
+        setResetAction(null)
+      }
     }
   }
 

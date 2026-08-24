@@ -6,6 +6,7 @@ ROOT=$(git -C "$HERE" rev-parse --show-toplevel)
 readonly HERE ROOT
 readonly GO_WORKFLOW="$ROOT/.github/workflows/release-go.yml"
 readonly WEB_WORKFLOW="$ROOT/.github/workflows/release-web.yml"
+readonly PROMOTE_WORKFLOW="$ROOT/.github/workflows/promote-release.yml"
 readonly GO_PKGBUILD="$ROOT/packaging/aur/lmm-api-go-bin/PKGBUILD"
 readonly WEB_PKGBUILD="$ROOT/packaging/aur/lmm-api-web-bin/PKGBUILD"
 
@@ -22,7 +23,7 @@ reject_literal() {
   ! grep -Fq -- "$literal" "$file" || fail "$message"
 }
 
-for file in "$GO_WORKFLOW" "$WEB_WORKFLOW" "$GO_PKGBUILD" "$WEB_PKGBUILD"; do
+for file in "$GO_WORKFLOW" "$WEB_WORKFLOW" "$PROMOTE_WORKFLOW" "$GO_PKGBUILD" "$WEB_PKGBUILD"; do
   [[ -f $file ]] || fail "missing contract input: $file"
 done
 
@@ -53,6 +54,10 @@ for gate in 'git merge-base --is-ancestor' 'git rev-list -n 1' \
   'cosign sign-blob' 'cosign verify-blob' 'sha256sum --check'; do
   require_literal "$GO_WORKFLOW" "$gate" "Go release omits gate: $gate"
 done
+require_literal "$GO_WORKFLOW" 'actions: read' \
+  'Go release verifier cannot read workflow runs'
+require_literal "$PROMOTE_WORKFLOW" 'timeout-minutes: 15' \
+  'promotion job timeout does not cover the full governance poll budget'
 
 # The next Web archive has the same revision generator and remains sole owner
 # of the immutable frontend payload.
@@ -75,12 +80,16 @@ require_literal "$GO_PKGBUILD" '_legacy_cli_archive_version=0.1.57' \
   'Go package lost the explicit legacy CLI archive boundary'
 require_literal "$GO_PKGBUILD" 'RELEASE_ASSET_SHA256' \
   'Go package does not preserve its signed release-asset digest'
-require_literal "$GO_PKGBUILD" '_t1_cli_version=0.1.60' \
-  'Go package lost the explicit T1 single-CLI boundary'
-require_literal "$GO_PKGBUILD" "conflicts+=('lmm-api-deploy' 'lmm-api-deploy-bin')" \
-  'T1 Go package does not conflict with legacy deploy packages'
-require_literal "$GO_PKGBUILD" "replaces+=('lmm-api-deploy-bin')" \
-  'T1 Go package does not replace the legacy deploy package'
+require_literal "$GO_PKGBUILD" 'lmm_cli_phase_for_binary_release' \
+  'Go package does not derive its phase from the shared transition contract'
+require_literal "$ROOT/packaging/common/lmm-api/lmm-api-cli-phase.sh" \
+  'LMM_CLI_T1_RELEASE=0.1.60' 'shared CLI phase helper lost the T1 boundary'
+require_literal "$ROOT/packaging/common/lmm-api/lmm-api-cli-phase.sh" \
+  "conflicts+=('lmm-api-deploy' 'lmm-api-deploy-bin')" \
+  'T1 helper does not conflict with legacy deploy packages'
+require_literal "$ROOT/packaging/common/lmm-api/lmm-api-cli-phase.sh" \
+  "replaces+=('lmm-api-deploy-bin')" \
+  'T1 helper does not replace the legacy deploy package'
 # shellcheck disable=SC2016 # Deliberately inspect PKGBUILD source literals.
 require_literal "$GO_PKGBUILD" '[[ ! -e ${bundle}/frontend-dist ]]' \
   'future Go packages do not reject a bundled frontend'
@@ -94,9 +103,9 @@ require_literal "$WEB_PKGBUILD" 'RELEASE_ASSET_SHA256' \
   'future Web package does not preserve its signed release-asset digest'
 
 for immutable in \
-  'pkgver=0.1.57' \
-  "'b1d80713438868bcab522d9f1f6f7752c93ea4246e9eae1bab49b346b13f8105'" \
-  "'f41ca227ea711f35d864291693d1182684a2db9b9c4f46254f9e6d9bd274cb44'"; do
+  'pkgver=0.1.59' \
+  "'b170e4e4e5a4fe5d18eb78f61d87bbc19b00c1e19578bef234c0f2c4d12103a9'" \
+  "'0f2086563a321fe5cd32d6ae3cebe53ff3f01ac129d7a4d145d2332745a35b1d'"; do
   require_literal "$GO_PKGBUILD" "$immutable" \
     'tracked Go PKGBUILD no longer pins the existing immutable release'
 done
@@ -115,8 +124,8 @@ for pkgbuild in \
   "$ROOT/packaging/aur/lmm-api-go/PKGBUILD" \
   "$ROOT/packaging/aur/lmm-api-go-git/PKGBUILD" \
   "$ROOT/packaging/local/lmm-api-go/PKGBUILD"; do
-  reject_literal "$pkgbuild" 'usr/bin/lmm-api-go' \
-    "final Go package still installs the legacy CLI: $pkgbuild"
+  require_literal "$pkgbuild" 'lmm_cli_phase_install_compatibility_alias' \
+    "T0 Go package does not preserve the compatibility CLI: $pkgbuild"
 done
 
 TMPDIR=${TMPDIR:?set TMPDIR to a marker-owned test workspace} \

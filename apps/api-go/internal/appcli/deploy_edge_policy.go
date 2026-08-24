@@ -165,7 +165,17 @@ func (runtime *productionRuntime) validateEdgePolicyAssets(assetRoot string) err
 	}{
 		{name: "nginx/http-map.conf", need: "geoip2 /var/lib/geoip2/DBIP-Country-Lite.mmdb {"},
 		{name: "nginx/new-api.conf", need: "include /etc/nginx/lmm-api-region-policy.conf;"},
+		{name: "nginx/lmm-api-locations.conf", need: "error_page 418 = @lmm_api_cors_preflight;"},
+		{name: "nginx/lmm-api-locations.conf", need: "location @lmm_api_cors_preflight {"},
+		{name: "nginx/lmm-api-locations.conf", need: "auth_request off;"},
+		{name: "nginx/lmm-api-locations.conf", need: "set $lmm_access_policy_original_uri $uri;"},
+		{name: "nginx/lmm-api-locations.conf", need: "if ($request_method = OPTIONS) { return 418; }"},
+		{name: "nginx/lmm-api-locations.conf", need: "add_header Access-Control-Allow-Methods $http_access_control_request_method always;"},
+		{name: "nginx/lmm-api-locations.conf", need: "add_header Access-Control-Allow-Headers $http_access_control_request_headers always;"},
+		{name: "nginx/lmm-api-locations.conf", need: "add_header Vary \"Origin, Access-Control-Request-Method, Access-Control-Request-Headers\" always;"},
 		{name: "nginx/lmm-api-region-policy.conf", need: "auth_request /internal/access-ip-policy;"},
+		{name: "nginx/lmm-api-region-policy.conf", need: "proxy_set_header X-LMM-Original-URI $lmm_access_policy_original_uri;"},
+		{name: "nginx/lmm-api-region-policy.conf", need: "proxy_set_header X-LMM-Original-Accept $http_accept;"},
 	} {
 		content, err := os.ReadFile(filepath.Join(assetRoot, check.name))
 		if err != nil || !strings.Contains(string(content), check.need) {

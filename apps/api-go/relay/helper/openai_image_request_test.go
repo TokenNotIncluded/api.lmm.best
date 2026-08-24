@@ -32,7 +32,7 @@ func TestGetAndValidOpenAIImageRequestMultipartStream(t *testing.T) {
 		if withImage {
 			part, err := writer.CreateFormFile("image", "input.png")
 			require.NoError(t, err)
-			_, err = part.Write([]byte("fake image"))
+			_, err = part.Write([]byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n', 0, 0, 0, 0})
 			require.NoError(t, err)
 		}
 		require.NoError(t, writer.Close())

@@ -66,6 +66,7 @@ go_artifact="lmm-api-go-${go_pkgver}-linux-amd64"
 go_bundle="$go_work/stage/$go_artifact"
 mkdir -p "$go_bundle/frontend-dist" "$go_bundle/edge-policy/nginx"
 cp "$HERE/lmm-api-go-bin/PKGBUILD" "$go_work/"
+cp -L "$HERE/lmm-api-go-bin/lmm-api-cli-phase.sh" "$go_work/"
 # Exercise the retained bundled-frontend branch independently of the immutable
 # release pinned by the canonical package.
 # shellcheck disable=SC2016 # Deliberately write a PKGBUILD variable reference.
@@ -101,6 +102,7 @@ go_next_work="$tmp/lmm-api-go-bin-next"
 go_next_bundle="$go_next_work/stage/$go_artifact"
 mkdir -p "$go_next_bundle/edge-policy/nginx"
 cp "$HERE/lmm-api-go-bin/PKGBUILD" "$go_next_work/"
+cp -L "$HERE/lmm-api-go-bin/lmm-api-cli-phase.sh" "$go_next_work/"
 printf '#!/bin/sh\nexit 0\n' >"$go_next_bundle/lmm-api"
 chmod 0755 "$go_next_bundle/lmm-api"
 cp "$SHARED/lmm-api.service" "$SHARED/lmm-api-go.env" \
@@ -121,7 +123,12 @@ pin_fixture_hashes "$go_next_work/PKGBUILD" sha256sums_x86_64 \
   "$go_next_work/${go_artifact}.tar.gz" \
   "$go_next_work/${go_artifact}.tar.gz.sha256" \
   "$go_next_work/${go_artifact}.tar.gz.sigstore.json"
-printf '\npkgver=999.0.0\n_set_cli_transition_metadata\n' >>"$go_next_work/PKGBUILD"
+cat >>"$go_next_work/PKGBUILD" <<'PKGBUILD'
+pkgver=999.0.0
+_lmm_cli_phase=$LMM_CLI_PHASE_T1
+lmm_cli_phase_apply_metadata "$_lmm_cli_phase" "$pkgver" \
+  'lmm-api' 'lmm-api-bin' 'lmm-api-git' 'lmm-api-go' 'lmm-api-go-git'
+PKGBUILD
 build_package lmm-api-go-bin-next \
   usr/bin/lmm-api \
   usr/lib/systemd/system/lmm-api.service \

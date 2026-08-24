@@ -32,7 +32,7 @@ func TestConvertImageEditRequestMultipart(t *testing.T) {
 		require.NoError(t, writer.WriteField("partial_images", "3"))
 		part, err := writer.CreateFormFile("image", "input.png")
 		require.NoError(t, err)
-		_, err = part.Write([]byte("fake image"))
+		_, err = part.Write(testPNGBytes)
 		require.NoError(t, err)
 		require.NoError(t, writer.Close())
 
@@ -66,13 +66,14 @@ func TestConvertImageEditRequestMultipart(t *testing.T) {
 		require.Equal(t, "true", replayedRequest.PostForm.Get("stream"))
 		require.Equal(t, "3", replayedRequest.PostForm.Get("partial_images"))
 		require.Len(t, replayedRequest.MultipartForm.File["image"], 1)
+		require.Equal(t, "image/png", replayedRequest.MultipartForm.File["image"][0].Header.Get("Content-Type"))
 
 		file, err := replayedRequest.MultipartForm.File["image"][0].Open()
 		require.NoError(t, err)
 		defer file.Close()
 		fileBytes, err := io.ReadAll(file)
 		require.NoError(t, err)
-		require.Equal(t, []byte("fake image"), fileBytes)
+		require.Equal(t, testPNGBytes, fileBytes)
 	}
 
 	t.Run("with pre-parsed form", func(t *testing.T) {

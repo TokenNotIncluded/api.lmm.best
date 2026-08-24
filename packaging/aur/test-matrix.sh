@@ -40,12 +40,31 @@ for removed in backend.conf lmm-api.install lmm-api-go.service lmm-api.env lmm-a
   [[ ! -e $SHARED/$removed ]] || die "removed launcher/provider asset remains: $removed"
 done
 
+CLI_PHASE_HELPER=$(realpath -e "$SHARED/lmm-api-cli-phase.sh")
+readonly CLI_PHASE_HELPER
+readonly CLI_PHASE_HELPER_SHA256=2b93864b302a7901a4688fd5b7df9b7e262f193a666a915718f434db20054935
+[[ -f $CLI_PHASE_HELPER && ! -L $CLI_PHASE_HELPER ]] || die 'canonical CLI phase helper is missing'
+[[ $(sha256sum "$CLI_PHASE_HELPER") == "$CLI_PHASE_HELPER_SHA256  $CLI_PHASE_HELPER" ]] ||
+  die 'canonical CLI phase helper digest changed without updating package pins'
+for package in lmm-api-go lmm-api-go-bin lmm-api-go-git; do
+  helper="$HERE/$package/lmm-api-cli-phase.sh"
+  [[ -L $helper && $(realpath -e "$helper") == "$CLI_PHASE_HELPER" ]] ||
+    die "$package does not use the canonical CLI phase helper"
+done
+local_helper="$HERE/../local/lmm-api-go/lmm-api-cli-phase.sh"
+[[ -L $local_helper && $(realpath -e "$local_helper") == "$CLI_PHASE_HELPER" ]] ||
+  die 'local Go package does not use the canonical CLI phase helper'
+for script in check-candidate-version.sh export-go-package-base.sh test-export-go-package-base.sh; do
+  bash -n "$HERE/$script"
+done
+"$HERE/test-export-go-package-base.sh"
+
 for package in "${PACKAGES[@]}"; do
   pkgbuild="$HERE/$package/PKGBUILD"
   [[ -f $pkgbuild ]] || die "missing $pkgbuild"
   bash -n "$pkgbuild"
   if command -v shellcheck >/dev/null 2>&1; then
-    shellcheck -s bash -e SC2034,SC2154 "$pkgbuild"
+    shellcheck -s bash -e SC1091,SC2034,SC2154 "$pkgbuild"
   fi
   srcinfo=$(cd -- "$HERE/$package" && makepkg --printsrcinfo)
   cmp -s <(printf '%s\n' "$srcinfo") "$HERE/$package/.SRCINFO" ||
@@ -56,33 +75,31 @@ for package in "${PACKAGES[@]}"; do
   fi
 done
 
-contains_srcinfo_prefix lmm-api-go-bin $'\tprovides = lmm-api-go'
-for package in lmm-api-go-bin lmm-api-go-git; do
+for package in lmm-api-go lmm-api-go-bin lmm-api-go-git; do
   contains_srcinfo_prefix "$package" $'\tprovides = lmm-api'
+  contains_srcinfo_prefix "$package" $'\tprovides = lmm-api-go'
   contains_srcinfo "$package" $'\tbackup = etc/lmm-api-go/lmm-api-go.env'
+  if grep -Fq $'\tconflicts = lmm-api-deploy-bin' "$HERE/$package/.SRCINFO" ||
+    grep -Fq $'\treplaces = lmm-api-deploy-bin' "$HERE/$package/.SRCINFO"; then
+    die "$package applies the T1 deploy-package transition during T0"
+  fi
 done
-if grep -Fq $'\tprovides = lmm-api-go' "$HERE/lmm-api-go-git/.SRCINFO"; then
-  die 'Git Go package still advertises the removed CLI compatibility provider'
+contains_srcinfo lmm-api-go-git $'\tprovides = lmm-api'
+contains_srcinfo lmm-api-go-git $'\tprovides = lmm-api-go'
+if grep -Eq $'^\tprovides = lmm-api(-go)?=' "$HERE/lmm-api-go-git/.SRCINFO"; then
+  die 'Git Go package embeds a stale bootstrap version in provides'
 fi
 contains_srcinfo lmm-api-go-bin $'\tconflicts = lmm-api-go-git'
 contains_srcinfo lmm-api-go-git $'\tconflicts = lmm-api-go-bin'
 for variant in lmm-api-go-bin lmm-api-go-git; do
   contains_srcinfo lmm-api-go $'\tconflicts = '"$variant"
 done
-contains_srcinfo_prefix lmm-api-go $'\tprovides = lmm-api'
-contains_srcinfo lmm-api-go $'\tbackup = etc/lmm-api-go/lmm-api-go.env'
-for package in lmm-api-go lmm-api-go-git; do
-  contains_srcinfo "$package" $'\tconflicts = lmm-api-deploy-bin'
-  contains_srcinfo "$package" $'\treplaces = lmm-api-deploy-bin'
-done
-declare _t1_cli_version
 declare -a conflicts replaces provides
 (
-  CARCH=x86_64
-  # shellcheck disable=SC1091
-  source "$HERE/lmm-api-go-bin/PKGBUILD"
-  pkgver=$_t1_cli_version
-  _set_cli_transition_metadata
+  # shellcheck disable=SC1090
+  source "$CLI_PHASE_HELPER"
+  lmm_cli_phase_apply_metadata "$LMM_CLI_PHASE_T1" "$LMM_CLI_T1_RELEASE" \
+    'lmm-api' 'lmm-api-bin' 'lmm-api-git' 'lmm-api-go' 'lmm-api-go-git'
   [[ " ${conflicts[*]} " == *' lmm-api-deploy-bin '* ]] || die 'T1 Go package does not conflict with the legacy deploy package'
   [[ " ${replaces[*]} " == *' lmm-api-deploy-bin '* ]] || die 'T1 Go package does not replace the legacy deploy package'
   [[ " ${provides[*]} " != *' lmm-api-go='* ]] || die 'T1 Go package still provides the legacy CLI capability'
@@ -149,19 +166,30 @@ contains_srcinfo lmm-api-go-git $'\tmakedepends = go>=1.25.1'
 contains_srcinfo lmm-api-go $'\tmakedepends = bun'
 contains_srcinfo lmm-api-go $'\tmakedepends = git'
 contains_srcinfo lmm-api-go $'\tmakedepends = go>=1.25.1'
-go_release_commit=241aff9d75884fb20a070a6d513e5830a6295b3b
+go_release_commit=1db462ebe08cc99e32014d478eb866e85af3badd
 readonly go_release_commit
 grep -Fqx "_commit=$go_release_commit" "$HERE/lmm-api-go/PKGBUILD" ||
   die 'canonical Go package is not pinned to the reviewed direct-package revision'
-readonly reviewed_go_release_pkgver=0.1.1.r1119.g241aff9d7
-if go_release_description=$(git -C "$ROOT" describe --long --tags --match='v[0-9]*' --abbrev=9 "$go_release_commit" 2>/dev/null); then
-  go_release_pkgver=$(printf '%s\n' "$go_release_description" |
-    sed -E 's/^v//; s/([^-]*-g)/r\1/; s/-/./g')
-else
-  go_release_pkgver=$reviewed_go_release_pkgver
-fi
+git -C "$ROOT" merge-base --is-ancestor "$go_release_commit" origin/main ||
+  die 'canonical Go source pin is not reachable from main'
+readonly go_source_pkgver_epoch=0.1.20
+readonly last_published_go_source_version=0.1.19.r1279.g0c463f094-1
+go_release_pkgver="$go_source_pkgver_epoch.r$(git -C "$ROOT" rev-list --count "$go_release_commit").g$(git -C "$ROOT" rev-parse --short=9 "$go_release_commit")"
+go_release_pkgrel=$(sed -n 's/^pkgrel=//p' "$HERE/lmm-api-go/PKGBUILD")
+[[ $go_release_pkgrel =~ ^[1-9][0-9]*$ ]] || die 'canonical Go package has an invalid pkgrel'
+go_release_version="$go_release_pkgver-$go_release_pkgrel"
 grep -Fqx "pkgver=$go_release_pkgver" "$HERE/lmm-api-go/PKGBUILD" ||
   die "canonical Go package version does not match pinned revision: $go_release_pkgver"
+(( $(vercmp "$last_published_go_source_version" "$go_release_version") < 0 )) ||
+  die "canonical Go package version is not newer than the published floor: $last_published_go_source_version"
+"$HERE/check-candidate-version.sh" lmm-api-go "$go_release_version" "$go_release_version" >/dev/null ||
+  die 'AUR exact source candidate was rejected'
+if "$HERE/check-candidate-version.sh" lmm-api-go "$go_release_version" \
+  "$go_release_pkgver-$((go_release_pkgrel + 1))" >/dev/null 2>&1; then
+  die 'AUR source candidate accepted a strictly newer published pkgrel'
+fi
+grep -Fqx '_source_pkgver_epoch=0.1.20' "$HERE/lmm-api-go-git/PKGBUILD" ||
+  die 'Git Go package lost the monotonic source-version epoch'
 contains_srcinfo lmm-api-rs-git $'\tmakedepends = cargo'
 
 grep -Fqx 'ExecStart=/usr/bin/lmm-api serve' "$SHARED/lmm-api.service" ||
@@ -223,6 +251,7 @@ printf 'fixture archive\n' >"$stage/go-next/lmm-api-go-${go_bin_pkgver}-linux-am
 
 (
   CARCH=x86_64
+  startdir="$HERE/lmm-api-go-bin"
   srcdir="$stage/go"
   pkgdir="$tmp/pkg-go-legacy"
   # shellcheck disable=SC1091
@@ -234,6 +263,7 @@ printf 'fixture archive\n' >"$stage/go-next/lmm-api-go-${go_bin_pkgver}-linux-am
 )
 (
   CARCH=x86_64
+  startdir="$HERE/lmm-api-go-bin"
   srcdir="$stage/go-next"
   pkgdir="$tmp/pkg-go-t0"
   # shellcheck disable=SC1091
@@ -243,11 +273,13 @@ printf 'fixture archive\n' >"$stage/go-next/lmm-api-go-${go_bin_pkgver}-linux-am
 )
 (
   CARCH=x86_64
+  startdir="$HERE/lmm-api-go-bin"
   srcdir="$stage/go-next"
   pkgdir="$tmp/pkg-go-t1"
   # shellcheck disable=SC1091
   source "$HERE/lmm-api-go-bin/PKGBUILD"
-  pkgver=$_t1_cli_version
+  pkgver=$LMM_CLI_T1_RELEASE
+  _lmm_cli_phase=$LMM_CLI_PHASE_T1
   package
 )
 (
@@ -338,8 +370,8 @@ done
   die 'T1 Go package owns a bundled frontend'
 for pkgbuild in "$HERE/lmm-api-go/PKGBUILD" "$HERE/lmm-api-go-git/PKGBUILD" "$HERE/../local/lmm-api-go/PKGBUILD"; do
   # shellcheck disable=SC2016 # Deliberately inspect PKGBUILD source literals.
-  ! grep -Fq 'ln -s lmm-api "${pkgdir}/usr/bin/lmm-api-go"' "$pkgbuild" ||
-    die "final Go package still creates the legacy CLI: $pkgbuild"
+  grep -Fq 'lmm_cli_phase_install_compatibility_alias "$_lmm_cli_phase" "$pkgdir"' "$pkgbuild" ||
+    die "Go package does not apply the shared CLI phase install contract: $pkgbuild"
 done
 [[ ! -e $tmp/pkg-rs/usr/bin/lmm-api && ! -L $tmp/pkg-rs/usr/bin/lmm-api ]] ||
   die 'Rust package exposes the Go provider command'

@@ -39,6 +39,24 @@ interface UserQuotaDialogProps {
   onSuccess: () => void
 }
 
+function getAmountValidation(amount: string, mode: QuotaAdjustMode) {
+  const trimmedAmount = amount.trim()
+  const parsedAmount = trimmedAmount === '' ? null : Number(trimmedAmount)
+  const amountValue =
+    parsedAmount !== null && Number.isFinite(parsedAmount) ? parsedAmount : 0
+  const quotaValue = parseQuotaFromDollars(Math.abs(amountValue))
+
+  return {
+    amountValue,
+    quotaValue,
+    isValid:
+      parsedAmount !== null &&
+      Number.isFinite(parsedAmount) &&
+      Number.isFinite(quotaValue) &&
+      (mode === 'override' || quotaValue > 0),
+  }
+}
+
 export function UserQuotaDialog(props: UserQuotaDialogProps) {
   const { t } = useTranslation()
   const [mode, setMode] = useState<QuotaAdjustMode>('add')
@@ -49,8 +67,11 @@ export function UserQuotaDialog(props: UserQuotaDialogProps) {
   const currencyLabel = getCurrencyLabel()
   const tokensOnly = currencyMeta.kind === 'tokens'
 
-  const amountValue = Number.parseFloat(amount) || 0
-  const quotaValue = parseQuotaFromDollars(Math.abs(amountValue))
+  const {
+    amountValue,
+    quotaValue,
+    isValid: isAmountValid,
+  } = getAmountValidation(amount, mode)
 
   const getPreviewText = () => {
     const current = props.currentQuota
@@ -70,13 +91,19 @@ export function UserQuotaDialog(props: UserQuotaDialogProps) {
   }
 
   const handleConfirm = async () => {
-    if (!amount && mode !== 'override') return
-    if (quotaValue <= 0 && mode !== 'override') return
+    const {
+      amountValue: submittedAmountValue,
+      quotaValue: submittedQuotaValue,
+      isValid,
+    } = getAmountValidation(amount, mode)
+    if (!isValid) return
 
     setLoading(true)
     try {
       const value =
-        mode === 'override' ? parseQuotaFromDollars(amountValue) : quotaValue
+        mode === 'override'
+          ? parseQuotaFromDollars(submittedAmountValue)
+          : submittedQuotaValue
       const result = await adjustUserQuota({
         id: props.userId,
         action: 'add_quota',
@@ -122,7 +149,7 @@ export function UserQuotaDialog(props: UserQuotaDialogProps) {
           <Button variant='outline' onClick={handleCancel}>
             {t('Cancel')}
           </Button>
-          <Button onClick={handleConfirm} disabled={loading}>
+          <Button onClick={handleConfirm} disabled={loading || !isAmountValid}>
             {loading ? t('Processing...') : t('Confirm')}
           </Button>
         </>
@@ -160,10 +187,11 @@ export function UserQuotaDialog(props: UserQuotaDialogProps) {
         </div>
 
         <div className='space-y-2'>
-          <Label>
+          <Label htmlFor='user-quota-amount'>
             {t('Amount')} ({currencyLabel})
           </Label>
           <Input
+            id='user-quota-amount'
             type='number'
             step={tokensOnly ? 1 : 0.000001}
             min={mode === 'override' ? undefined : 0}

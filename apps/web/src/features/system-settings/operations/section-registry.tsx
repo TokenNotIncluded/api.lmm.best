@@ -111,7 +111,7 @@ const OPERATIONS_SECTIONS = [
   },
   {
     id: 'hero-sms',
-    titleKey: 'HeroSMS Email',
+    titleKey: 'HeroSMS temporary activations',
     build: () => <LazyHeroSmsSettingsSection />,
   },
   {
