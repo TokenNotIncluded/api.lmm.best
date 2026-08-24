@@ -1,6 +1,6 @@
 pkgbase = lmm-api-go
 	pkgdesc = LMM API Go backend, native CLI, systemd service, and web frontend
-	pkgver = 0.1.1.r490.g112174124
+	pkgver = 0.1.19.r1279.g0c463f094
 	pkgrel = 1
 	url = https://github.com/LIghtJUNction/api.lmm.best
 	arch = x86_64
@@ -20,7 +20,7 @@ pkgbase = lmm-api-go
 	depends = util-linux
 	optdepends = postgresql: production database
 	optdepends = valkey: cache, rate limiting, and login sessions
-	provides = lmm-api=0.1.1.r490.g112174124
+	provides = lmm-api=0.1.19.r1279.g0c463f094
 	conflicts = lmm-api
 	conflicts = lmm-api-bin
 	conflicts = lmm-api-git
@@ -31,7 +31,7 @@ pkgbase = lmm-api-go
 	replaces = lmm-api-deploy-bin
 	options = !strip
 	backup = etc/lmm-api-go/lmm-api-go.env
-	source = lmm-api-go::git+https://github.com/LIghtJUNction/api.lmm.best.git#commit=11217412480e81b58f96f2b9889bd317120ff8f0
+	source = lmm-api-go::git+https://github.com/LIghtJUNction/api.lmm.best.git#commit=0c463f09409ec7839bf01ba4da8a0a5df0acdb98
 	sha256sums = SKIP
 
 pkgname = lmm-api-go
