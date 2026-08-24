@@ -1233,8 +1233,8 @@ async fn list_conversations_page(
          FROM assistant_conversations WHERE user_id = $1 AND {archive_filter} \
          AND EXISTS (SELECT 1 FROM assistant_history_messages m WHERE m.conversation_id = assistant_conversations.id)"
     );
-    if let Some(cursor) = &cursor {
-        sql.push_str(" AND ((updated_at < $4) OR (updated_at = $4 AND id < $5))");
+    if cursor.is_some() {
+        sql.push_str(" AND ((updated_at < $2) OR (updated_at = $2 AND id < $3))");
     }
     sql.push_str(" ORDER BY updated_at DESC, id DESC LIMIT ");
     sql.push_str(&(limit + 1).to_string());

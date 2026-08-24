@@ -2331,10 +2331,30 @@ async fn search_redemptions(
 #[cfg(test)]
 mod tests {
     use super::{
-        CatalogModel, CatalogRedemption, CatalogVendor, normalize_status_filter,
-        normalize_sync_filter, page,
+        CatalogModel, CatalogRedemption, CatalogVendor, HttpCatalogUpstream,
+        normalize_status_filter, normalize_sync_filter, page,
     };
     use serde_json::{Value, json};
+
+    #[test]
+    fn upstream_urls_map_chinese_aliases_to_published_feed() {
+        let upstream = HttpCatalogUpstream::new(
+            reqwest::Client::new(),
+            reqwest::Url::parse("https://catalog.example/root/").expect("valid base URL"),
+        );
+
+        for locale in ["zh", "zh-CN", "zh-TW"] {
+            let (models, vendors) = upstream.urls(locale).expect("supported locale");
+            assert_eq!(
+                models.as_str(),
+                "https://catalog.example/root/api/i18n/zh/newapi/models.json"
+            );
+            assert_eq!(
+                vendors.as_str(),
+                "https://catalog.example/root/api/i18n/zh/newapi/vendors.json"
+            );
+        }
+    }
 
     #[test]
     fn page_query_preserves_legacy_aliases_and_negative_gorm_controls() {

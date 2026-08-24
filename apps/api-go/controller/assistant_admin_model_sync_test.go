@@ -1,6 +1,9 @@
 package controller
 
 import (
+	"context"
+	"errors"
+	"net/url"
 	"testing"
 
 	"github.com/LIghtJUNction/api.lmm.best/model"
@@ -44,6 +47,41 @@ func TestAssistantAdminModelSyncApplyCreatesMissingMetadataAtomically(t *testing
 	var count int64
 	require.NoError(t, db.Model(&model.Model{}).Count(&count).Error)
 	require.EqualValues(t, 2, count)
+}
+
+func TestAssistantAdminModelSyncPreviewIncludesStagedMetadata(t *testing.T) {
+	change := assistantAdminModelSyncChange{Models: []assistantAdminModelSnapshot{{
+		ModelName: "example-model", Description: "Example description", Icon: "Example",
+		Tags: "chat,reasoning", VendorName: "Example Vendor", NameRule: 1, Status: 1,
+	}}}
+
+	require.Equal(t, []map[string]any{{
+		"model_id": "example-model", "description": "Example description", "icon": "Example",
+		"tags": "chat,reasoning", "vendor": "Example Vendor", "name_rule": 1, "status": 1,
+	}}, assistantAdminModelSyncPreview(change))
+}
+
+func TestAssistantModelSyncFetchErrorDetailRedactsRequestURL(t *testing.T) {
+	err := &url.Error{
+		Op:  "Get",
+		URL: "https://example.invalid/catalog?debug=true",
+		Err: errors.New("connection refused"),
+	}
+
+	require.Equal(t, "connection refused", assistantModelSyncFetchErrorDetail(err))
+}
+
+func TestAssistantModelSyncFetchErrorDetailClassifiesDeadline(t *testing.T) {
+	require.Equal(t, "request timed out", assistantModelSyncFetchErrorDetail(context.DeadlineExceeded))
+}
+
+func TestAssistantModelSyncSourceRedactsCredentialsAndQuery(t *testing.T) {
+	rawSource := (&url.URL{
+		Scheme: "https", Host: "example.invalid", Path: "/catalog",
+		User: url.User("example"), RawQuery: "debug=true", Fragment: "fragment",
+	}).String()
+
+	require.Equal(t, "https://example.invalid/catalog", assistantModelSyncSource(rawSource))
 }
 
 func TestAssistantAdminModelSyncLocaleAndBounds(t *testing.T) {

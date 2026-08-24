@@ -267,7 +267,7 @@ func assistantAdminModelSyncPreview(change assistantAdminModelSyncChange) []map[
 	preview := make([]map[string]any, 0, len(change.Models))
 	for _, item := range change.Models {
 		preview = append(preview, map[string]any{
-			"model_id":   item.ModelName,
+			"model_id":    item.ModelName,
 			"description": item.Description,
 			"icon":        item.Icon,
 			"tags":        item.Tags,
@@ -328,7 +328,7 @@ func executeAssistantAdminModelInventoryTool(userID int) map[string]any {
 		"ok": true, "model_ids": modelIDs, "missing_model_ids": missing,
 		"missing_truncated": truncated, "groups": assistantAdminConfiguredGroups(),
 		"upstream_availability_checked": false,
-		"next_step": "These IDs are missing from local metadata only; do not claim that the upstream catalog contains them until prepare_admin_model_sync returns a preview. Then wait for the administrator to confirm it.",
+		"next_step":                     "These IDs are missing from local metadata only; do not claim that the upstream catalog contains them until prepare_admin_model_sync returns a preview. Then wait for the administrator to confirm it.",
 	}
 }
 

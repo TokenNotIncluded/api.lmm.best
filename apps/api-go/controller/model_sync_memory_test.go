@@ -9,6 +9,16 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+func TestGetUpstreamURLsUsesPublishedChineseFeedPath(t *testing.T) {
+	t.Setenv("SYNC_UPSTREAM_BASE", "https://catalog.example/root/")
+
+	for _, locale := range []string{"zh", "zh-CN", "zh-TW"} {
+		modelsURL, vendorsURL := getUpstreamURLs(locale)
+		assert.Equal(t, "https://catalog.example/root/api/i18n/zh/newapi/models.json", modelsURL)
+		assert.Equal(t, "https://catalog.example/root/api/i18n/zh/newapi/vendors.json", vendorsURL)
+	}
+}
+
 func TestModelSyncCacheEvictsByTotalBytes(t *testing.T) {
 	cache := newModelSyncCache(8, 180)
 	cache.Store("first", modelSyncCacheEntry{ETag: "one", Body: []byte(strings.Repeat("a", 64))})
