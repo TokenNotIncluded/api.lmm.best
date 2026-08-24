@@ -3,7 +3,7 @@
 pkgname=lmm-api-go-bin
 pkgver=0.1.57
 pkgrel=1
-pkgdesc='LMM API Go backend, native CLI, systemd service, and web frontend (prebuilt)'
+pkgdesc='LMM API Go backend, native CLI, and systemd service (prebuilt)'
 arch=('x86_64' 'aarch64')
 url='https://github.com/LIghtJUNction/api.lmm.best'
 license=('AGPL-3.0-only')
@@ -13,13 +13,15 @@ optdepends=(
   'postgresql: production database'
   'valkey: cache, rate limiting, and login sessions'
 )
-provides=("lmm-api-go=${pkgver}")
+provides=("lmm-api=${pkgver}" "lmm-api-go=${pkgver}")
 conflicts=('lmm-api' 'lmm-api-bin' 'lmm-api-git' 'lmm-api-go' 'lmm-api-go-git')
 backup=('etc/lmm-api-go/lmm-api-go.env')
 options=('!strip')
 
 _release_tag="go-v${pkgver}"
 _legacy_bundled_version=0.1.34
+_legacy_cli_archive_version=0.1.57
+_legacy_external_operator_version=0.1.57
 _artifact="lmm-api-go-${pkgver}-linux"
 _release_base="${url}/releases/download/${_release_tag}"
 source_x86_64=(
@@ -67,14 +69,23 @@ prepare() {
   bsdtar -xf "${archive}"
 
   local bundle="${srcdir}/${_artifact}-${_release_arch}"
+  if [[ ${pkgver} == "${_legacy_cli_archive_version}" || ${pkgver} == "${_legacy_bundled_version}" ]]; then
+    [[ -f ${bundle}/lmm-api-go && ! -L ${bundle}/lmm-api-go ]] || return 1
+    [[ ! -e ${bundle}/lmm-api ]] || return 1
+  else
+    [[ -f ${bundle}/lmm-api && ! -L ${bundle}/lmm-api ]] || return 1
+    [[ ! -e ${bundle}/lmm-api-go ]] || return 1
+  fi
   if [[ ${pkgver} == "${_legacy_bundled_version}" ]]; then
     [[ -f ${bundle}/frontend-dist/index.html ]] || return 1
   else
     [[ ! -e ${bundle}/frontend-dist ]] || return 1
     [[ -f ${bundle}/lmm-api-memory.conf && ! -L ${bundle}/lmm-api-memory.conf ]] || return 1
-    for file in lmm-api-operator.sysusers lmm-api-operator.tmpfiles lmm-api-operator.sudoers; do
-      [[ -f ${bundle}/${file} && ! -L ${bundle}/${file} ]] || return 1
-    done
+    if [[ ${pkgver} != "${_legacy_external_operator_version}" ]]; then
+      for file in lmm-api-operator.sysusers lmm-api-operator.tmpfiles lmm-api-operator.sudoers; do
+        [[ -f ${bundle}/${file} && ! -L ${bundle}/${file} ]] || return 1
+      done
+    fi
     [[ -f ${bundle}/API_ROUTE_CONTRACT_REVISION && ! -L ${bundle}/API_ROUTE_CONTRACT_REVISION ]] || return 1
     [[ $(<"${bundle}/API_ROUTE_CONTRACT_REVISION") =~ ^[0-9a-f]{64}$ ]] || return 1
     grep -Fqx 'Environment=LMM_API_FRONTEND_DIR=/srv/lmm-api-frontend/current' \
@@ -83,10 +94,15 @@ prepare() {
 }
 
 package() {
+  local archive="${_artifact}-${_release_arch}.tar.gz"
   local bundle="${srcdir}/${_artifact}-${_release_arch}"
-  local file
+  local cli=lmm-api
+  local file release_asset_sha256
 
-  install -Dm0755 "${bundle}/lmm-api-go" "${pkgdir}/usr/bin/lmm-api"
+  if [[ ${pkgver} == "${_legacy_cli_archive_version}" || ${pkgver} == "${_legacy_bundled_version}" ]]; then
+    cli=lmm-api-go
+  fi
+  install -Dm0755 "${bundle}/${cli}" "${pkgdir}/usr/bin/lmm-api"
   ln -s lmm-api "${pkgdir}/usr/bin/lmm-api-go"
   install -Dm0644 "${bundle}/lmm-api.service" \
     "${pkgdir}/usr/lib/systemd/system/lmm-api.service"
@@ -103,12 +119,14 @@ package() {
   else
     install -Dm0644 "${bundle}/lmm-api-memory.conf" \
       "${pkgdir}/usr/lib/systemd/system/lmm-api.service.d/20-memory.conf"
-    install -Dm0644 "${bundle}/lmm-api-operator.sysusers" \
-      "${pkgdir}/usr/lib/sysusers.d/lmm-api-operator.conf"
-    install -Dm0644 "${bundle}/lmm-api-operator.tmpfiles" \
-      "${pkgdir}/usr/lib/tmpfiles.d/lmm-api-operator.conf"
-    install -Dm0440 "${bundle}/lmm-api-operator.sudoers" \
-      "${pkgdir}/etc/sudoers.d/lmm-api-operator"
+    if [[ ${pkgver} != "${_legacy_external_operator_version}" ]]; then
+      install -Dm0644 "${bundle}/lmm-api-operator.sysusers" \
+        "${pkgdir}/usr/lib/sysusers.d/lmm-api-operator.conf"
+      install -Dm0644 "${bundle}/lmm-api-operator.tmpfiles" \
+        "${pkgdir}/usr/lib/tmpfiles.d/lmm-api-operator.conf"
+      install -Dm0440 "${bundle}/lmm-api-operator.sudoers" \
+        "${pkgdir}/etc/sudoers.d/lmm-api-operator"
+    fi
     install -Dm0644 "${bundle}/API_ROUTE_CONTRACT_REVISION" \
       "${pkgdir}/usr/share/doc/${pkgname}/API_ROUTE_CONTRACT_REVISION"
   fi
@@ -123,4 +141,8 @@ package() {
     install -Dm0644 "${bundle}/${file}" "${pkgdir}/usr/share/licenses/${pkgname}/${file}"
   done
   install -Dm0644 "${bundle}/REVISION" "${pkgdir}/usr/share/doc/${pkgname}/REVISION"
+  release_asset_sha256=$(sha256sum "${srcdir}/${archive}")
+  printf '%s\n' "${release_asset_sha256%% *}" >"${srcdir}/RELEASE_ASSET_SHA256"
+  install -Dm0644 "${srcdir}/RELEASE_ASSET_SHA256" \
+    "${pkgdir}/usr/share/doc/${pkgname}/RELEASE_ASSET_SHA256"
 }

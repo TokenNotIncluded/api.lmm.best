@@ -1,5 +1,5 @@
 [Unit]
-Description=Monthly DB-IP Lite GeoIP2 Country database update for lmm-api-go
+Description=Monthly DB-IP Lite GeoIP2 Country database update for lmm-api
 
 [Timer]
 OnCalendar=*-*-02 03:15:00

@@ -44,6 +44,12 @@ require_literal "$GO_WORKFLOW" '[[ ! -e "$bundle/frontend-dist" ]]' \
 for asset in lmm-api.service lmm-api-go.env edge-policy REVISION API_ROUTE_CONTRACT_REVISION; do
   require_literal "$GO_WORKFLOW" "$asset" "Go release omits $asset"
 done
+# shellcheck disable=SC2016 # Deliberately inspect workflow source literals.
+require_literal "$GO_WORKFLOW" '-o "../../${bundle}/lmm-api"' \
+  'Go release archive does not contain the canonical CLI name'
+# shellcheck disable=SC2016 # Deliberately inspect workflow source literals.
+reject_literal "$GO_WORKFLOW" '-o "../../${bundle}/lmm-api-go"' \
+  'Go release archive still emits the legacy CLI name'
 for gate in 'git merge-base --is-ancestor' 'git rev-list -n 1' \
   'cosign sign-blob' 'cosign verify-blob' 'sha256sum --check'; do
   require_literal "$GO_WORKFLOW" "$gate" "Go release omits gate: $gate"
@@ -66,6 +72,10 @@ require_literal "$WEB_WORKFLOW" "sort -V | tail -n 1" \
 
 require_literal "$GO_PKGBUILD" '_legacy_bundled_version=0.1.34' \
   'Go package lost its explicit immutable legacy compatibility boundary'
+require_literal "$GO_PKGBUILD" '_legacy_cli_archive_version=0.1.57' \
+  'Go package lost the explicit legacy CLI archive boundary'
+require_literal "$GO_PKGBUILD" 'RELEASE_ASSET_SHA256' \
+  'Go package does not preserve its signed release-asset digest'
 # shellcheck disable=SC2016 # Deliberately inspect PKGBUILD source literals.
 require_literal "$GO_PKGBUILD" '[[ ! -e ${bundle}/frontend-dist ]]' \
   'future Go packages do not reject a bundled frontend'
@@ -75,6 +85,8 @@ require_literal "$WEB_PKGBUILD" '_legacy_contractless_version=0.1.31' \
   'Web package lost its explicit immutable legacy compatibility boundary'
 require_literal "$WEB_PKGBUILD" 'API_ROUTE_CONTRACT_REVISION' \
   'future Web package does not install contract metadata'
+require_literal "$WEB_PKGBUILD" 'RELEASE_ASSET_SHA256' \
+  'future Web package does not preserve its signed release-asset digest'
 
 for immutable in \
   'pkgver=0.1.57' \

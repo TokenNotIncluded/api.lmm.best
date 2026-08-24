@@ -10,10 +10,17 @@ pkgbase = lmm-api-go
 	makedepends = git
 	makedepends = go>=1.25.1
 	depends = ca-certificates
+	depends = coreutils
+	depends = libarchive
+	depends = pacman
+	depends = paru
+	depends = sudo
 	depends = systemd
 	depends = tzdata
+	depends = util-linux
 	optdepends = postgresql: production database
 	optdepends = valkey: cache, rate limiting, and login sessions
+	provides = lmm-api=0.1.1.r490.g112174124
 	conflicts = lmm-api
 	conflicts = lmm-api-bin
 	conflicts = lmm-api-git

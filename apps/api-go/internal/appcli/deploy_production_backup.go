@@ -136,48 +136,57 @@ func verifyBackupChecksums(root string) error {
 	})
 }
 
-func verifyNamedChecksums(root string, names []string) error {
+func readNamedChecksums(root string, names []string) (map[string]string, error) {
 	content, err := readPrivateRegularFile(filepath.Join(root, "SHA256SUMS"), 1<<20)
 	if err != nil {
-		return fmt.Errorf("read backup checksums: %w", err)
+		return nil, fmt.Errorf("read backup checksums: %w", err)
 	}
-	required := make(map[string]bool, len(names))
+	required := make(map[string]string, len(names))
 	for _, name := range names {
 		if name == "" || filepath.Base(name) != name {
-			return errors.New("checksum requirement contains an unsafe filename")
+			return nil, errors.New("checksum requirement contains an unsafe filename")
 		}
-		required[name] = false
+		required[name] = ""
 	}
 	scanner := bufio.NewScanner(strings.NewReader(string(content)))
 	for scanner.Scan() {
 		line := scanner.Text()
 		if len(line) < 67 {
-			return errors.New("backup checksum line is malformed")
+			return nil, errors.New("backup checksum line is malformed")
 		}
 		digest := line[:64]
-		name := strings.TrimSpace(line[64:])
-		name = strings.TrimPrefix(name, "*")
+		name := strings.TrimPrefix(strings.TrimSpace(line[64:]), "*")
 		if !productionSHA256Pattern.MatchString(digest) {
-			return errors.New("backup checksum digest is malformed")
+			return nil, errors.New("backup checksum digest is malformed")
 		}
-		if _, recognized := required[name]; !recognized || required[name] {
-			return fmt.Errorf("backup checksum contains an unexpected or duplicate entry: %s", name)
+		if current, recognized := required[name]; !recognized || current != "" {
+			return nil, fmt.Errorf("backup checksum contains an unexpected or duplicate entry: %s", name)
 		}
+		required[name] = digest
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("scan backup checksums: %w", err)
+	}
+	for name, digest := range required {
+		if digest == "" {
+			return nil, fmt.Errorf("backup checksum is missing: %s", name)
+		}
+	}
+	return required, nil
+}
+
+func verifyNamedChecksums(root string, names []string) error {
+	required, err := readNamedChecksums(root, names)
+	if err != nil {
+		return err
+	}
+	for name, digest := range required {
 		actual, err := sha256File(filepath.Join(root, name))
 		if err != nil {
 			return fmt.Errorf("hash backup entry %s: %w", name, err)
 		}
 		if actual != digest {
 			return fmt.Errorf("backup checksum mismatch: %s", name)
-		}
-		required[name] = true
-	}
-	if err := scanner.Err(); err != nil {
-		return fmt.Errorf("scan backup checksums: %w", err)
-	}
-	for name, present := range required {
-		if !present {
-			return fmt.Errorf("backup checksum is missing: %s", name)
 		}
 	}
 	return nil

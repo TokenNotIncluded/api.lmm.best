@@ -404,6 +404,10 @@ type productionReleaseStageFile struct {
 }
 
 func productionReleaseStageFiles(plan productionReleasePlan, planPath string) ([]productionReleaseStageFile, error) {
+	planSHA256, err := sha256File(planPath)
+	if err != nil {
+		return nil, fmt.Errorf("hash release plan: %w", err)
+	}
 	digestPath := filepath.Join(plan.ControllerWorkspace, productionReleasePlanHashFilename)
 	digestSHA256, err := sha256File(digestPath)
 	if err != nil {
@@ -415,7 +419,7 @@ func productionReleaseStageFiles(plan productionReleasePlan, planPath string) ([
 		{plan.WebCandidate.PackagePath, plan.WebCandidate.PackageSHA256, false},
 		{plan.WebRollback.PackagePath, plan.WebRollback.PackageSHA256, false},
 		{plan.ProbeBinary.Path, plan.ProbeBinary.SHA256, true},
-		{planPath, mustSHA256Path(planPath), false},
+		{planPath, planSHA256, false},
 		{digestPath, digestSHA256, false},
 	}
 	if plan.WithBackups {
@@ -435,11 +439,6 @@ func productionReleaseStageFiles(plan productionReleasePlan, planPath string) ([
 		unique = append(unique, file)
 	}
 	return unique, nil
-}
-
-func mustSHA256Path(path string) string {
-	digest, _ := sha256File(path)
-	return digest
 }
 
 func (runtime *productionReleaseRuntime) stageRemoteFile(ctx context.Context, alias, local, remote, expectedSHA256 string, executable bool) error {
@@ -518,7 +517,7 @@ type productionPreparedBackups struct {
 }
 
 func (runtime *productionReleaseRuntime) prepareControllerBackups(ctx context.Context, plan productionReleasePlan, state productionReleaseControllerState, ageIdentityFile string) (productionPreparedBackups, error) {
-	if err := runtime.assertRemoteHost(ctx, productionOffhostAlias, productionOffhostAlias); err != nil {
+	if err := runtime.assertRemoteHost(ctx, productionOffhostAlias, productionOffhostExpectedHost); err != nil {
 		return productionPreparedBackups{}, err
 	}
 	remoteStage := filepath.Join(state.RemoteWorkspace, "staging")
@@ -562,19 +561,46 @@ func (runtime *productionReleaseRuntime) prepareControllerBackups(ctx context.Co
 		}
 	}
 	backupRoot := filepath.Join(plan.ControllerWorkspace, "backups")
-	for _, directory := range []string{backupRoot, filepath.Join(backupRoot, "target"), filepath.Join(backupRoot, "controller"), filepath.Join(backupRoot, "offhost")} {
+	for _, directory := range []string{backupRoot, filepath.Join(backupRoot, "target-proof"), filepath.Join(backupRoot, "offhost")} {
 		if err := ensureRealDirectory(directory, 0o700); err != nil {
 			return productionPreparedBackups{}, err
 		}
 	}
-	targetMirror := filepath.Join(backupRoot, "target", plan.DeploymentID)
-	controllerBackup := filepath.Join(backupRoot, "controller", plan.DeploymentID)
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return productionPreparedBackups{}, fmt.Errorf("resolve controller home: %w", err)
+	}
+	durableControllerRoot := filepath.Join(home, "backup", "lmm-api", plan.ExpectedHost)
+	for _, directory := range []string{home, filepath.Join(home, "backup"), filepath.Join(home, "backup", "lmm-api"), durableControllerRoot} {
+		if directory != home {
+			if err := ensureRealDirectory(directory, 0o700); err != nil {
+				return productionPreparedBackups{}, err
+			}
+		}
+		if err := requireRealDirectory(directory); err != nil {
+			return productionPreparedBackups{}, fmt.Errorf("controller backup path is unsafe: %w", err)
+		}
+	}
+	targetProof := filepath.Join(backupRoot, "target-proof", plan.DeploymentID)
+	if err := ensureRealDirectory(targetProof, 0o700); err != nil {
+		return productionPreparedBackups{}, err
+	}
+	for _, name := range []string{"manifest.env", "SHA256SUMS"} {
+		local := filepath.Join(targetProof, name)
+		if _, err := os.Lstat(local); errors.Is(err, os.ErrNotExist) {
+			if err := runtime.scpFrom(ctx, plan.TargetAlias, filepath.Join(targetBackup, name), local); err != nil {
+				return productionPreparedBackups{}, fmt.Errorf("retrieve target backup proof %s: %w", name, err)
+			}
+		} else if err != nil {
+			return productionPreparedBackups{}, err
+		}
+	}
+	controllerBackup := filepath.Join(durableControllerRoot, plan.DeploymentID)
 	offhostMirror := filepath.Join(backupRoot, "offhost", plan.DeploymentID)
 	transfers := []struct {
 		remote string
 		local  string
 	}{
-		{targetBackup, targetMirror},
 		{remoteControllerCopy, controllerBackup},
 		{remoteOffhostCopy, offhostMirror},
 	}
@@ -587,19 +613,19 @@ func (runtime *productionReleaseRuntime) prepareControllerBackups(ctx context.Co
 		}
 	}
 	if existing != 0 && existing != len(transfers) {
-		return productionPreparedBackups{}, errors.New("partial local backup mirrors already exist; refusing to overwrite")
+		return productionPreparedBackups{}, errors.New("partial encrypted backup mirrors already exist; refusing to overwrite")
 	}
 	if existing == 0 {
 		for _, transfer := range transfers {
 			if err := runtime.scpFrom(ctx, plan.TargetAlias, transfer.remote, transfer.local); err != nil {
-				return productionPreparedBackups{}, fmt.Errorf("retrieve backup %s: %w", filepath.Base(transfer.local), err)
+				return productionPreparedBackups{}, fmt.Errorf("retrieve encrypted backup %s: %w", filepath.Base(transfer.local), err)
 			}
 		}
 	}
 	verificationRuntime := &productionRuntime{runner: runtime.runner, now: runtime.now, effectiveUID: os.Geteuid}
 	verification, err := verificationRuntime.verifyExternalBackups(ctx, productionBackupVerifyOptions{
 		Workspace:       plan.ControllerWorkspace,
-		Target:          targetMirror,
+		Target:          targetProof,
 		Controller:      controllerBackup,
 		Offhost:         offhostMirror,
 		AgeIdentityFile: ageIdentityFile,

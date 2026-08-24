@@ -495,11 +495,7 @@ func (runtime *productionRuntime) packageMetadata(ctx context.Context, packagePa
 	if err != nil {
 		return productionPackageMetadata{}, err
 	}
-	docName := "lmm-api-go"
-	if packageName == productionWebPackageName {
-		docName = "lmm-api-web"
-	}
-	docRoot := "usr/share/doc/" + docName + "/"
+	docRoot := "usr/share/doc/" + packageName + "/"
 	const contractName = "API_ROUTE_CONTRACT_REVISION"
 	readMember := func(member string) (string, error) {
 		output, err := runtime.runner.Run(ctx, productionCommand{Name: commandBsdtar, Args: []string{"-xOf", packagePath, docRoot + member}})

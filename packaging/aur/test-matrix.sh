@@ -67,6 +67,7 @@ fi
 
 for package in lmm-api-go-bin lmm-api-go-git; do
   contains_srcinfo_prefix "$package" $'\tprovides = lmm-api-go'
+  contains_srcinfo_prefix "$package" $'\tprovides = lmm-api'
   contains_srcinfo "$package" $'\tbackup = etc/lmm-api-go/lmm-api-go.env'
 done
 contains_srcinfo lmm-api-go-bin $'\tconflicts = lmm-api-go-git'
@@ -74,6 +75,7 @@ contains_srcinfo lmm-api-go-git $'\tconflicts = lmm-api-go-bin'
 for variant in lmm-api-go-bin lmm-api-go-git; do
   contains_srcinfo lmm-api-go $'\tconflicts = '"$variant"
 done
+contains_srcinfo_prefix lmm-api-go $'\tprovides = lmm-api'
 contains_srcinfo lmm-api-go $'\tbackup = etc/lmm-api-go/lmm-api-go.env'
 
 for package in lmm-api-rs-bin lmm-api-rs-git; do
@@ -188,11 +190,11 @@ rs_bundle="$stage/rs/lmm-api-rs-${rs_bin_pkgver}-linux-amd64"
 mkdir -p "$go_bundle/frontend-dist" "$go_bundle/edge-policy/nginx" \
   "$go_next_bundle/edge-policy/nginx" "$deploy_bundle" "$rs_bundle"
 printf '#!/bin/sh\n' >"$go_bundle/lmm-api-go"
-printf '#!/bin/sh\n' >"$go_next_bundle/lmm-api-go"
+printf '#!/bin/sh\n' >"$go_next_bundle/lmm-api"
 printf '#!/bin/sh\n' >"$deploy_bundle/lmm-api-go"
 printf '#!/bin/sh\n' >"$rs_bundle/lmm-api-rs"
 printf '#!/bin/sh\n' >"$rs_bundle/lmm-db-migrate"
-chmod 0755 "$go_bundle/lmm-api-go" "$go_next_bundle/lmm-api-go" \
+chmod 0755 "$go_bundle/lmm-api-go" "$go_next_bundle/lmm-api" \
   "$deploy_bundle/lmm-api-go" "$rs_bundle/lmm-api-rs" "$rs_bundle/lmm-db-migrate"
 printf '<!doctype html>\n' >"$go_bundle/frontend-dist/index.html"
 for bundle in "$go_bundle" "$go_next_bundle"; do
@@ -217,6 +219,8 @@ for bundle in "$go_bundle" "$go_next_bundle" "$deploy_bundle" "$rs_bundle"; do
 done
 printf '%s\n' "$contract_revision" >"$deploy_bundle/API_ROUTE_CONTRACT_REVISION"
 printf 'fixture archive\n' >"$stage/deploy/lmm-api-go-${deploy_pkgver}-linux-amd64.tar.gz"
+printf 'fixture archive\n' >"$stage/go/lmm-api-go-${go_bin_pkgver}-linux-amd64.tar.gz"
+printf 'fixture archive\n' >"$stage/go-next/lmm-api-go-${go_bin_pkgver}-linux-amd64.tar.gz"
 
 (
   CARCH=x86_64
@@ -263,6 +267,7 @@ chmod 0755 "$web_src/lmm-api-web-activate.local" "$web_src/frontend-release.sh"
 for file in LICENSE NOTICE THIRD-PARTY-LICENSES.md; do printf 'fixture\n' >"$web_src/$file"; done
 printf '%040d\n' 0 >"$web_src/REVISION"
 printf '%s\n' "$contract_revision" >"$web_src/API_ROUTE_CONTRACT_REVISION"
+printf 'fixture archive\n' >"$web_src/lmm-api-web-0.1.41.tar.gz"
 (
   srcdir="$web_src"
   pkgdir="$tmp/pkg-web-next"
@@ -283,6 +288,7 @@ for packaged_path in \
   pkg-go-next/usr/lib/tmpfiles.d/lmm-api-operator.conf \
   pkg-go-next/etc/sudoers.d/lmm-api-operator \
   pkg-go-next/usr/share/doc/lmm-api-go-bin/API_ROUTE_CONTRACT_REVISION \
+  pkg-go-next/usr/share/doc/lmm-api-go-bin/RELEASE_ASSET_SHA256 \
   pkg-go-next/usr/share/lmm-api-go/edge-policy/nginx/http-map.conf \
   pkg-deploy/usr/lib/lmm-api-deploy/lmm-api-go \
   pkg-deploy/usr/share/doc/lmm-api-deploy-bin/OPERATOR_SHA256 \
@@ -293,7 +299,8 @@ for packaged_path in \
   pkg-rs/usr/bin/lmm-api-rs \
   pkg-rs/usr/bin/lmm-db-migrate \
   pkg-web-next/usr/share/lmm-api-web/frontend-dist/index.html \
-  pkg-web-next/usr/share/doc/lmm-api-web-bin/API_ROUTE_CONTRACT_REVISION; do
+  pkg-web-next/usr/share/doc/lmm-api-web-bin/API_ROUTE_CONTRACT_REVISION \
+  pkg-web-next/usr/share/doc/lmm-api-web-bin/RELEASE_ASSET_SHA256; do
   [[ -f $tmp/$packaged_path ]] || die "mock package layout is missing $packaged_path"
 done
 [[ -L $tmp/pkg-go-legacy/usr/bin/lmm-api-go ]] || die 'legacy Go package lacks compatibility symlink'

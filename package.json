@@ -10,7 +10,7 @@
     "dev:go": "cd apps/api-go && go run .",
     "dev:web": "bun run --filter @lmm/web dev",
     "dev:rust": "cargo run --manifest-path apps/api-rust/Cargo.toml --locked --package lmm-api-rs",
-    "build:go": "mkdir -p apps/api-go/out && cd apps/api-go && CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o out/lmm-api-go .",
+    "build:go": "mkdir -p apps/api-go/out && cd apps/api-go && CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o out/lmm-api .",
     "build:web": "bun run --filter @lmm/web build",
     "build:rust": "cargo build --manifest-path apps/api-rust/Cargo.toml --locked --release --package lmm-api-rs",
     "test:go": "cd apps/api-go && go test ./...",

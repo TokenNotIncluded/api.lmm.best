@@ -113,8 +113,9 @@ func WriteUsage(output io.Writer) {
   lmm-api deploy build --repo DIR --workspace DIR [--production]
   lmm-api deploy frontend publish --source DIR --release ID [--root DIR] [--keep N]
   lmm-api deploy frontend rollback [--release ID] [--root DIR] [--keep N]
-  lmm-api deploy production apply [release options]
-  lmm-api deploy production status|confirm|rollback --workspace DIR
+  lmm-api deploy production plan [signed candidate and rollback inputs]
+  lmm-api deploy production stage|promote|status|confirm|rollback \
+    --plan FILE --plan-sha256 HEX --confirm api.lmm.best
   lmm-api deploy production edge-policy install|verify
   lmm-api geoip update
   lmm-api status [request options]

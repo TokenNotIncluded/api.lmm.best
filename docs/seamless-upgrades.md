@@ -1,17 +1,19 @@
 # Frontend and backend upgrades
 
-The installed package exposes one public operator CLI. On the current
-production host (ArchDmit) its exact path is `/usr/bin/lmm-api-go`.
-Serving, health checks, HTTP requests, and deployment are subcommands of that
-CLI; source-tree deployment helpers and a second public deploy command are not
-supported.
+The package exposes one public backend and operator CLI at
+`/usr/bin/lmm-api`. Serving, health checks, HTTP requests, and deployment are
+subcommands of that CLI; source-tree deployment helpers and a second public
+deploy command are not supported. A temporary package-owned
+`/usr/bin/lmm-api-go` compatibility link may exist during the T0 transition,
+but documentation, services, automation, and new releases must use
+`/usr/bin/lmm-api`.
 
 Use the native CLI for application-level server control:
 
 ```bash
-ssh ArchDmit /usr/bin/lmm-api-go status
-ssh ArchDmit /usr/bin/lmm-api-go doctor
-ssh ArchDmit /usr/bin/lmm-api-go request --show-status /api/status
+ssh ArchDmit /usr/bin/lmm-api status
+ssh ArchDmit /usr/bin/lmm-api doctor
+ssh ArchDmit /usr/bin/lmm-api request --show-status /api/status
 ```
 
 SSH is only the transport here. Host-level inspection (systemd, filesystem,
@@ -31,27 +33,29 @@ not own production business traffic.
 
 ## Frontend: zero-downtime static releases
 
-Build the frontend into an immutable `apps/web/dist` directory in CI or a
-marker-owned deployment workspace, then use the installed CLI's production
-frontend-only transaction. The exact package and deployment identity are
-required by the CLI; a frontend publication does not restart the backend
-service or nginx.
+Build the frontend into an immutable signed release in CI, then build the
+exact `lmm-api-web-bin` package from that asset. A production release plan
+pairs candidate and rollback Go/Web packages, their signed release archives
+and Sigstore bundles, and the candidate `lmm-api` probe binary. The controller
+verifies tags, ancestry, signatures, checksums, package payloads, and route
+contract revisions before writing canonical immutable JSON.
+
+Production uses resumable controller phases:
 
 ```bash
-sudo /usr/bin/lmm-api-go deploy production \
-  --frontend-only \
-  --host ArchDmit \
-  --deployment-id <deployment-id> \
-  --core-package /path/to/lmm-api-core.pkg.tar.zst \
-  --execute-remote switch
+/usr/bin/lmm-api deploy production plan ...
+/usr/bin/lmm-api deploy production stage \
+  --plan <release-plan.json> --plan-sha256 <sha256> --confirm api.lmm.best
+/usr/bin/lmm-api deploy production promote \
+  --plan <release-plan.json> --plan-sha256 <sha256> --confirm api.lmm.best
+/usr/bin/lmm-api deploy production status|confirm|rollback \
+  --plan <release-plan.json> --plan-sha256 <sha256> --confirm api.lmm.best
 ```
 
-Use the same CLI transaction phases (`preflight`, `inspect`, `build`,
-`package`, `backup`, `watchdog`, `switch`, `confirm`, `rollback`, and
-`cleanup`) for preview, preparation, confirmation, rollback, and cleanup.
-The default is read-only preflight. Remote mutation requires the explicit
-execution option, verified host identity, all required backup copies, and the
-appropriate current-turn authorization.
+`stage` only creates the marker-owned target workspace and transfers exact
+verified artifacts. `promote` performs the guarded package transaction,
+health observation, watchdog, and optional three-copy backup protocol. Remote
+mutation still requires current-turn authorization and exact host identity.
 
 The frontend transaction validates `index.html` and local asset references,
 copies into same-filesystem staging, and atomically replaces
@@ -94,24 +98,23 @@ Systemd runs the canonical service entry directly:
 ExecStart=/usr/bin/lmm-api serve
 ```
 
-Backend selection and status remain launcher subcommands (`lmm-api-go select`
-and `lmm-api-go status`); deployment phases are invoked as
-`lmm-api-go deploy ...`.
-Production backend changes are autonomous, locked transactions with offline
-backup verification, health validation, persistent audit output, a ten-minute
-rollback watchdog, and explicit confirmation before the transaction is
-considered complete. The transaction continues without the initiating shell
-or API connection, but restarting the only process creates a bounded
-interruption. It is not a zero-downtime or blue/green deployment.
+Status, diagnostics, HTTP probes, deployment, and GeoIP maintenance are all
+`lmm-api` subcommands. Production backend changes are autonomous, locked
+transactions with offline backup verification, health validation, persistent
+audit output, a ten-minute rollback watchdog, and explicit confirmation before
+the transaction is considered complete. The transaction continues without
+the initiating shell or API connection, but restarting the only process
+creates a bounded interruption. It is not a zero-downtime or blue/green
+deployment.
 
-Before invoking a subcommand on an existing target, verify that the installed
-core package actually provides this launcher protocol and that systemd uses
-`ExecStart=/usr/bin/lmm-api-go serve`. Legacy provider binaries may start the
-backend when given an unknown command, so `status`, `deploy`, and `--help` are
-not safe inspection commands until the protocol is proven. Use systemd/package
-metadata, the running PID, sanitized process-environment scheme checks, and
-explicit HTTP probes for a legacy target; upgrade the core package through the
-guarded transaction before using deployment phases.
+Before invoking a subcommand on an unknown historical target, first classify
+the installed package and systemd `ExecStart` without executing an unproven
+legacy binary. The supported service contract is
+`ExecStart=/usr/bin/lmm-api serve`; the canonical path must be owned by an
+approved Go package with zero altered files. Use package/systemd metadata, the
+running PID, sanitized process-environment scheme checks, and explicit HTTP
+probes for legacy classification, then move through the guarded T0 transaction
+before relying on the unified controller.
 
 Always read `apps/api-rust/tests/fixtures/routes/migration-gate.tsv` for the
 current route ownership and approval state; prose is not an authority for

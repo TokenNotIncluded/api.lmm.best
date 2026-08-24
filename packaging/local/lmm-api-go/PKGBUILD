@@ -12,7 +12,7 @@ optdepends=(
   'postgresql: production database'
   'valkey: cache, rate limiting, and login sessions'
 )
-provides=('lmm-api-go')
+provides=('lmm-api' 'lmm-api-go')
 conflicts=('lmm-api' 'lmm-api-bin' 'lmm-api-git' 'lmm-api-go' 'lmm-api-go-git')
 backup=('etc/lmm-api-go/lmm-api-go.env')
 options=('!strip')

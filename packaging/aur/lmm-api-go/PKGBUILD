@@ -13,6 +13,7 @@ optdepends=(
   'postgresql: production database'
   'valkey: cache, rate limiting, and login sessions'
 )
+provides=("lmm-api=${pkgver}")
 conflicts=('lmm-api' 'lmm-api-bin' 'lmm-api-git' 'lmm-api-go-bin' 'lmm-api-go-git')
 backup=('etc/lmm-api-go/lmm-api-go.env')
 options=('!strip')
@@ -42,12 +43,15 @@ package() {
   ln -s lmm-api "${pkgdir}/usr/bin/lmm-api-go"
   install -Dm0644 "${shared}/lmm-api.service" \
     "${pkgdir}/usr/lib/systemd/system/lmm-api.service"
-  install -Dm0644 "${shared}/lmm-api-operator.sysusers" \
-    "${pkgdir}/usr/lib/sysusers.d/lmm-api-operator.conf"
-  install -Dm0644 "${shared}/lmm-api-operator.tmpfiles" \
-    "${pkgdir}/usr/lib/tmpfiles.d/lmm-api-operator.conf"
-  install -Dm0440 "${shared}/lmm-api-operator.sudoers" \
-    "${pkgdir}/etc/sudoers.d/lmm-api-operator"
+  if [[ -f ${shared}/lmm-api-operator.sysusers ]]; then
+    [[ -f ${shared}/lmm-api-operator.tmpfiles && -f ${shared}/lmm-api-operator.sudoers ]] || return 1
+    install -Dm0644 "${shared}/lmm-api-operator.sysusers" \
+      "${pkgdir}/usr/lib/sysusers.d/lmm-api-operator.conf"
+    install -Dm0644 "${shared}/lmm-api-operator.tmpfiles" \
+      "${pkgdir}/usr/lib/tmpfiles.d/lmm-api-operator.conf"
+    install -Dm0440 "${shared}/lmm-api-operator.sudoers" \
+      "${pkgdir}/etc/sudoers.d/lmm-api-operator"
+  fi
   install -Dm0600 "${shared}/lmm-api-go.env" \
     "${pkgdir}/etc/lmm-api-go/lmm-api-go.env"
 

@@ -7,12 +7,13 @@
 - Verify the expected SSH alias, static hostname, role marker, service name,
   installed package identity, current backend artifact, frontend symlink, and
   installed CLI protocol/service entry point.
-- Classify the installed layout before invoking a command. The canonical
-  deployment operator is the tooling-only `lmm-api-deploy-bin` package at
-  `/usr/bin/lmm-api-deploy`, independent of the Go/Web application packages.
-  Already published Go packages may still own a bundled legacy frontend, but
-  the next split Go package must not. Never mix legacy paths, package
-  identities, rollback archives, or state roots with a split transaction.
+- Classify the installed layout before invoking a command. The approved
+  `lmm-api-go-bin` package owns the single canonical backend/operator entry at
+  `/usr/bin/lmm-api`. T0 may retain old command paths only as rollback
+  compatibility; T1 removes them. Already published Go packages may still own
+  a bundled legacy frontend, but the next split Go package must not. Never mix
+  legacy paths, package identities, rollback archives, or state roots with a
+  split transaction.
 - Treat host or role disagreement as a stop condition.
 - Preserve the repository's one-branch, one-worktree, one-diff rules. A deploy
   request does not authorize Git repair, branch switching, commit, or push.
@@ -59,18 +60,15 @@
   `paru` runs as the established unprivileged OS account, never root, and may
   assemble only the exact verified package set. A plain `paru` invocation never
   replaces the watchdog, confirmation, or health gates.
-- Bootstrap may install only tooling-only `lmm-api-deploy-bin` with non-root
-  `paru`. That package owns only `/usr/bin/lmm-api-deploy`, its independent
-  `/usr/lib/lmm-api-deploy/lmm-api-go` payload, licenses, revision, and hash or
-  contract metadata. It must not own or modify the service, environment,
-  database, nginx configuration, Web payload, or active frontend link. Its
-  installation is not an application switch and does not weaken authorization.
-- Before any operator invocation, require `pacman -Qo` to identify
-  `lmm-api-deploy-bin` as owner of both the canonical command and resolved
-  payload. Verify the command resolves to the package payload, compare its
-  bytes, verify `OPERATOR_SHA256` and `RELEASE_ASSET_SHA256`, and match package
-  version, `REVISION`, Sigstore workflow identity, and optional API/route
-  contract metadata. Stop on any mismatch.
+- Do not publish or install a deploy-only bootstrap. Move a pre-T0 target
+  through the exact signed T0 `lmm-api-go-bin` package and immutable controller
+  plan. T0 must establish the unified CLI and integrated operator resources
+  while retaining rollback compatibility; T1 separately removes legacy paths.
+- Before any operator invocation, require `pacman -Qo` to identify the approved
+  Go package as owner of `/usr/bin/lmm-api`; require a real non-symlink binary
+  and zero altered package files. Verify the package payload against the signed
+  release, `RELEASE_ASSET_SHA256`, package version, `REVISION`, Sigstore
+  workflow identity, and API/route contract metadata. Stop on any mismatch.
 
 ### Production resource gates
 
@@ -112,21 +110,21 @@ incident signal and must be recorded before any retry.
 
 ## Canonical operator and legacy CLI safety
 
-- Invoke deployment phases only as `/usr/bin/lmm-api-deploy deploy production
-  ...` after its package-owner, resolved-path, byte, SHA-256, release revision,
-  and command-protocol checks pass. Do not invoke source helpers, copied
-  binaries, shell wrappers, `/tmp` tools, or an improvised command.
-- `/usr/bin/lmm-api-go` and `/usr/bin/lmm-api` are application entries, not the
-  canonical operator. A legacy binary may start the backend for an unknown
-  command, so `status`, `deploy`, `--help`, and no-argument calls are not
-  read-only until the exact protocol is proven.
-- For a legacy target without the package-owned operator, inspect with
+- Invoke public deployment phases only as `/usr/bin/lmm-api deploy production
+  ...` after package-owner, real-path, byte, SHA-256, release revision, and
+  command-protocol checks pass. Do not invoke source helpers, copied binaries,
+  shell wrappers, `/tmp` tools, or an improvised command. The controller may
+  invoke only its digest-verified staged probe for target-private actions.
+- `/usr/bin/lmm-api-go` and `/usr/bin/lmm-api-deploy` are T0 compatibility
+  paths, not public operators. A historical binary may start the backend for an
+  unknown command, so `status`, `deploy`, `--help`, and no-argument calls are
+  not read-only until the exact protocol is proven.
+- For a legacy target without the proven unified operator, inspect with
   `systemctl show`, `readlink`, `pacman -Qo`, sanitized process-environment
-  scheme classification, and explicit health probes only. The one permitted
-  bootstrap is non-root `paru -S lmm-api-deploy-bin`; verify that the package
-  transaction changed no service/database/Web state before using deploy
-  phases. Preserve and report any artifact created by an unsafe probe; remove
-  it only after exact ownership and scope are confirmed.
+  scheme classification, and explicit health probes only. Use the signed T0
+  Go package plan rather than a deploy-only bootstrap. Preserve and report any
+  artifact created by an unsafe probe; remove it only after exact ownership and
+  scope are confirmed.
 
 ## Local acceptance preview override
 
@@ -172,9 +170,11 @@ records:
 - service state and frontend release identity;
 - archive paths, sizes, modes, and UTC timestamps.
 
-The target may retain a root-only plaintext configuration snapshot. Controller
-and off-host configuration or database archives must be encrypted before
-transfer. Checksums cover the encrypted bytes that were actually transferred.
+The target may retain a root-only plaintext configuration snapshot. Only its
+non-secret `manifest.env` and `SHA256SUMS` proof may leave the target in clear
+text. Controller and off-host configuration or database archives must be
+encrypted before transfer. Checksums cover the encrypted bytes that were
+actually transferred.
 
 Default retention is five target, ten controller, and thirty off-host copies.
 Prune only after confirmation or verified rollback. Never remove the active

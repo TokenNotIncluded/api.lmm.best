@@ -180,10 +180,10 @@ jobs:
             cd apps/api-go
             go build -p 2 -trimpath \
               -ldflags="-s -w -X github.com/LIghtJUNction/api.lmm.best/common.Version=${RELEASE_VERSION}" \
-              -o "../../${bundle}/lmm-api-go" .
+              -o "../../${bundle}/lmm-api" .
           )
-          file "$bundle/lmm-api-go"
-          if ldd "$bundle/lmm-api-go" 2>&1 | grep -qvE 'not a dynamic executable|statically linked'; then
+          file "$bundle/lmm-api"
+          if ldd "$bundle/lmm-api" 2>&1 | grep -qvE 'not a dynamic executable|statically linked'; then
             echo 'Go release binary is dynamically linked' >&2
             exit 1
           fi

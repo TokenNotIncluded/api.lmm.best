@@ -1,20 +1,18 @@
 # LMM deployment path map
 
-The tooling-only `lmm-api-deploy-bin` package owns the canonical operator
-`/usr/bin/lmm-api-deploy`, which resolves to its independent signed payload at
-`/usr/lib/lmm-api-deploy/lmm-api-go`. Use `lmm-api-deploy deploy ...` for every
-deployment phase and verify systemd separately uses `/usr/bin/lmm-api serve`.
-Never use the application package's `/usr/bin/lmm-api-go` as the production
-operator after bootstrap.
+The approved Go package owns the single canonical backend/operator entry at
+`/usr/bin/lmm-api`. Use `lmm-api serve` for systemd and `lmm-api deploy ...`
+for deployment. T0 may retain legacy command paths only as rollback
+compatibility; T1 removes them. Never invoke or publish a second deploy CLI.
 
 ## Controller and package inputs
 
 | Purpose | Current path or entry point |
 | --- | --- |
-| Go artifact | `apps/api-go/out/lmm-api-go` |
+| Go artifact | `apps/api-go/out/lmm-api` |
 | Rust artifacts | `apps/api-rust/target/release/lmm-api-rs`, `lmm-db-migrate` |
 | Frontend build | `apps/web/dist` |
-| Deployment operator AUR recipe | `packaging/aur/lmm-api-deploy-bin` |
+| T0 legacy deploy recipe (deleted in T1) | `packaging/aur/lmm-api-deploy-bin` |
 | Go AUR recipe | `packaging/aur/lmm-api-go-bin` |
 | Web AUR recipe | `packaging/aur/lmm-api-web-bin` |
 | API/route compatibility contract | `deploy/production/API_ROUTE_CONTRACT` |
@@ -51,10 +49,9 @@ deployment backup, rollback, or retention requirements.
 
 | Purpose | Current path |
 | --- | --- |
-| Canonical operator CLI | `/usr/bin/lmm-api-deploy` (owned by `lmm-api-deploy-bin`) |
-| Independent operator payload | `/usr/lib/lmm-api-deploy/lmm-api-go` |
-| Operator identity metadata | `/usr/share/doc/lmm-api-deploy-bin/{REVISION,OPERATOR_SHA256,RELEASE_ASSET_SHA256}` |
-| Service entry | `/usr/bin/lmm-api` (owned by `lmm-api-go-bin`) |
+| Canonical service/operator CLI | `/usr/bin/lmm-api` (owned by `lmm-api-go-bin`) |
+| Go release identity metadata | `/usr/share/doc/lmm-api-go-bin/{REVISION,API_ROUTE_CONTRACT_REVISION,RELEASE_ASSET_SHA256}` |
+| T0 compatibility paths | `/usr/bin/lmm-api-go`, `/usr/bin/lmm-api-deploy` (never invoke; removed in T1) |
 | Application environment | `/etc/lmm-api-go/lmm-api-go.env` |
 | systemd unit | `/usr/lib/systemd/system/lmm-api.service` |
 | Package memory drop-in | `/usr/lib/systemd/system/lmm-api.service.d/20-memory.conf` |
@@ -80,7 +77,7 @@ guarded path before calling `deploy` phases.
 
 | Purpose | Current path or entry point |
 | --- | --- |
-| Controller entry point | `/usr/bin/lmm-api-deploy deploy production ...` |
+| Controller entry point | `/usr/bin/lmm-api deploy production plan|stage|promote|status|confirm|rollback` |
 | Target activator | Immutable payload under the marker-owned deployment workspace |
 | Default SSH alias | `ArchDmit` |
 | Required static hostname | `arch-dmit` |
@@ -92,10 +89,11 @@ guarded path before calling `deploy` phases.
 | Active frontend | `/srv/lmm-api-frontend/current` |
 | Backend service | `lmm-api.service` |
 
-The supported phases are `preflight`, `inspect`, `build`, `package`,
-`backup`, `watchdog`, `switch`, `confirm`, `rollback`, and `cleanup`. The
-default is read-only preflight. Remote mutation requires explicit execution,
-verified role/host identity, and current-turn authorization.
+The public controller phases are `plan`, `stage`, `promote`, `status`,
+`confirm`, and `rollback`. The target-only workspace/apply/recovery commands
+are invoked by the controller's immutable staged probe. Remote mutation
+requires an exact plan digest, verified role/host identity, site confirmation,
+and current-turn authorization.
 
 The pressure report is a separate read-only observer, not a deployment phase.
 Run it on `ArchDmit` with the exact `arch-dmit` hostname check; it does not
@@ -104,14 +102,11 @@ uses the 20 GiB root / 951 MiB RAM production profile as a visible reference
 and includes the actual service cgroup memory and restart counters.
 
 The transaction is marker-owned and persistent. Backups are optional and are
-created only with explicit current-turn authorization and `--with-backups`.
-The only pre-transaction bootstrap is a non-root `paru` installation of
-`lmm-api-deploy-bin`. It is tooling-only: installing it must not touch the
-service, database, environment, nginx, Web payload, or active link, and is not
-an application switch. Before invoking it, verify `pacman -Qo` ownership for
-the command and resolved payload, compare the resolved bytes with the package
-payload, and verify `OPERATOR_SHA256`, release-asset hash, package version, and
-`REVISION`.
+created only with explicit current-turn authorization and `--with-backups` in
+the immutable plan. Do not install or publish a deploy-only bootstrap. A
+pre-T0 host must move through the exact signed T0 Go package and controller
+plan; T0 preserves rollback compatibility, and only a separately verified T1
+transaction removes the legacy paths.
 
 Every application switch stages checksum-verified N and N-1 Go and Web package
 pairs, assembles both candidates with non-root `paru`, captures configuration
