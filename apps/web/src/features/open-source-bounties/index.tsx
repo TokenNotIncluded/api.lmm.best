@@ -92,6 +92,7 @@ import {
   getBountyConfig,
   getBountyDetail,
   getMcpTokenStatus,
+  getPendingBountyReviewCount,
   listAcceptedBounties,
   listAdminBountyDisputes,
   listBounties,
@@ -115,6 +116,7 @@ import {
   selectBountyNotificationChallenge,
   type BountyNotificationDetailTarget,
 } from './notification-target'
+import { PendingReviewSuperscript } from './pending-review-superscript'
 import {
   getBountyDisputeEvidenceComparison,
   type BountyChallenge,
@@ -298,6 +300,11 @@ export function OpenSourceBounties({
   const ownedQuery = useQuery({
     queryKey: [...BOUNTY_QUERY_KEYS[1], 'active'],
     queryFn: () => listOwnedBounties(false),
+  })
+  const pendingReviewCountQuery = useQuery({
+    queryKey: [...BOUNTY_QUERY_KEYS[1], 'pending-review-count'],
+    queryFn: getPendingBountyReviewCount,
+    retry: false,
   })
   const archivedOwnedQuery = useQuery({
     queryKey: [...BOUNTY_QUERY_KEYS[1], 'archived'],
@@ -795,6 +802,10 @@ export function OpenSourceBounties({
                 <TabsTrigger value='browse'>{t('Bounty board')}</TabsTrigger>
                 <TabsTrigger value='owned'>
                   {t('My bounty projects')}
+                  <PendingReviewSuperscript
+                    count={pendingReviewCountQuery.data ?? 0}
+                    label={t('Pending review')}
+                  />
                 </TabsTrigger>
                 <TabsTrigger value='accepted'>{t('My challenges')}</TabsTrigger>
                 <TabsTrigger value='disputes'>{t('My disputes')}</TabsTrigger>

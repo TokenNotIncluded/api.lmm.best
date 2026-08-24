@@ -24,6 +24,7 @@ import { api } from '@/lib/api'
 import {
   archiveBounty,
   cancelChallenge,
+  getPendingBountyReviewCount,
   listOwnedBounties,
   listCompatibleBountyNotifications,
   listBountyNotifications,
@@ -73,6 +74,27 @@ describe('open-source bounty lists', () => {
     assert.deepEqual(gets, [
       '/api/open-source-bounties/mine?archived=false',
       '/api/open-source-bounties/mine?archived=true',
+    ])
+  })
+
+  test('loads the current pending challenge review count', async () => {
+    const gets: Array<{ url: string; config: unknown }> = []
+    api.get = (async (url, config) => {
+      gets.push({ url, config })
+      return { data: { success: true, data: { total: 3 } } }
+    }) as typeof api.get
+
+    const count = await getPendingBountyReviewCount()
+
+    assert.equal(count, 3)
+    assert.deepEqual(gets, [
+      {
+        url: '/api/todos?category=open_source_bounty_review&p=1&page_size=1',
+        config: {
+          skipBusinessError: true,
+          skipErrorHandler: true,
+        },
+      },
     ])
   })
 })

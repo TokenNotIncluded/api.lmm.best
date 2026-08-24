@@ -96,6 +96,18 @@ export function listOwnedBounties(archived = false) {
   )
 }
 
+export async function getPendingBountyReviewCount() {
+  const result = await unwrap<{ total: number }>(
+    api.get('/api/todos?category=open_source_bounty_review&p=1&page_size=1', {
+      skipBusinessError: true,
+      skipErrorHandler: true,
+    })
+  )
+  return Number.isSafeInteger(result.total) && result.total > 0
+    ? result.total
+    : 0
+}
+
 export function listAcceptedBounties() {
   return unwrap<BountyChallenge[]>(
     api.get('/api/open-source-bounties/accepted')
