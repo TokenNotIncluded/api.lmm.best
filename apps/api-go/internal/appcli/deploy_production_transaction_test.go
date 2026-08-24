@@ -665,7 +665,7 @@ func TestProductionDualPackageApplyUsesParuAndCanonicalWatchdog(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(unit), "ExecStart=/usr/bin/lmm-api-deploy deploy production rollback") || strings.Contains(string(unit), fixture.options.ProbeBinary) {
+	if !strings.Contains(string(unit), "ExecStart=/usr/bin/lmm-api deploy production rollback") || strings.Contains(string(unit), fixture.options.ProbeBinary) {
 		t.Fatalf("rollback unit=%s", unit)
 	}
 }

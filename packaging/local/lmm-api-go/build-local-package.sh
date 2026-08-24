@@ -58,9 +58,12 @@ trap cleanup EXIT
 mkdir -p -- "$build_dir/makepkg"
 
 install -Dm0644 "$SCRIPT_DIR/PKGBUILD" "$build_dir/PKGBUILD"
-install -Dm0755 "$GO_BINARY" "$build_dir/lmm-api-go"
+install -Dm0755 "$GO_BINARY" "$build_dir/lmm-api"
 install -Dm0644 "$REPO_ROOT/packaging/common/lmm-api/lmm-api.service" "$build_dir/lmm-api.service"
 install -Dm0600 "$REPO_ROOT/packaging/common/lmm-api/lmm-api-go.env" "$build_dir/lmm-api-go.env"
+install -Dm0644 "$REPO_ROOT/packaging/common/lmm-api/lmm-api-operator.sysusers" "$build_dir/lmm-api-operator.sysusers"
+install -Dm0644 "$REPO_ROOT/packaging/common/lmm-api/lmm-api-operator.tmpfiles" "$build_dir/lmm-api-operator.tmpfiles"
+install -Dm0440 "$REPO_ROOT/packaging/common/lmm-api/lmm-api-operator.sudoers" "$build_dir/lmm-api-operator.sudoers"
 install -Dm0644 "$REPO_ROOT/packaging/common/lmm-api/geoip2-country-update.service" "$build_dir/geoip2-country-update.service"
 install -Dm0644 "$REPO_ROOT/packaging/common/lmm-api/geoip2-country-update.timer" "$build_dir/geoip2-country-update.timer"
 install -Dm0644 "$REPO_ROOT/deploy/nginx/http-map.conf" "$build_dir/nginx-http-map.conf"

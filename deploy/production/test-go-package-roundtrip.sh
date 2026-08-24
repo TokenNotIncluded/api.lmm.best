@@ -98,9 +98,9 @@ if "${query_args[@]}" -Q lmm-api >/dev/null 2>&1; then
   exit 1
 fi
 [[ $("${query_args[@]}" -Q lmm-api-go-bin 2>/dev/null) == "lmm-api-go-bin $candidate_version-1" ]]
-[[ -x $pacman_root/usr/bin/lmm-api-go ]]
-[[ -L $pacman_root/usr/bin/lmm-api ]]
-[[ $(readlink -- "$pacman_root/usr/bin/lmm-api") == lmm-api-go ]]
+[[ -x $pacman_root/usr/bin/lmm-api ]]
+[[ -L $pacman_root/usr/bin/lmm-api-go ]]
+[[ $(readlink -- "$pacman_root/usr/bin/lmm-api-go") == lmm-api ]]
 [[ $(stat -c '%a' "$pacman_root/etc/lmm-api-go") == 700 ]]
 [[ $(stat -c '%a' "$pacman_root/etc/lmm-api-go/lmm-api-go.env") == 600 ]]
 
@@ -166,7 +166,7 @@ fakeroot -- "${direct_install[@]}" -U "$old_direct" >/dev/null
 fakeroot -- "${direct_install[@]}" -Rdd lmm-api-go >/dev/null
 fakeroot -- "${direct_install[@]}" -U "$new_go" >/dev/null
 [[ $("${direct_query[@]}" -Q lmm-api-go-bin 2>/dev/null) == "lmm-api-go-bin $candidate_version-1" ]]
-[[ $("$direct_pacman_root/usr/bin/lmm-api-go") == "$candidate_version" ]]
+[[ $("$direct_pacman_root/usr/bin/lmm-api") == "$candidate_version" ]]
 fakeroot -- "${direct_install[@]}" -Rdd lmm-api-go-bin >/dev/null
 fakeroot -- "${direct_install[@]}" -U "$old_direct" >/dev/null
 [[ $("${direct_query[@]}" -Q lmm-api-go 2>/dev/null) == "lmm-api-go $old_go_version" ]]

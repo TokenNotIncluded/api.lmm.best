@@ -25,24 +25,29 @@ func (runner productionPackageQueryRunner) Run(_ context.Context, command produc
 	return []byte(identity + "\n"), nil
 }
 
-func validProductionReleaseArguments(root string) []string {
+func validProductionReleasePlanArguments(root string) []string {
+	path := func(name string) string { return filepath.Join(root, name) }
 	return []string{
-		"--repo", filepath.Join(root, "repo"),
-		"--workspace", filepath.Join(root, "workspace"),
-		"--confirm", "api.lmm.best",
+		"--repo", path("repo"),
+		"--workspace", path("workspace"),
+		"--deployment-id", "release-0.1.58-test",
+		"--go-package", path("go.pkg.tar.zst"),
+		"--go-release-asset", path("go.tar.gz"),
+		"--go-release-bundle", path("go.tar.gz.bundle"),
+		"--go-rollback-package", path("go-old.pkg.tar.zst"),
+		"--go-rollback-release-asset", path("go-old.tar.gz"),
+		"--go-rollback-release-bundle", path("go-old.tar.gz.bundle"),
+		"--web-package", path("web.pkg.tar.zst"),
+		"--web-release-asset", path("web.tar.gz"),
+		"--web-release-bundle", path("web.tar.gz.bundle"),
+		"--web-rollback-package", path("web-old.pkg.tar.zst"),
+		"--web-rollback-release-asset", path("web-old.tar.gz"),
+		"--web-rollback-release-bundle", path("web-old.tar.gz.bundle"),
+		"--probe-binary", path("lmm-api"),
 	}
 }
 
-func TestParseProductionReleaseRequiresExplicitProductionConfirmation(t *testing.T) {
-	arguments := validProductionReleaseArguments(t.TempDir())
-	arguments[len(arguments)-1] = "wrong-host"
-	_, err := parseProductionReleaseOptions(arguments, &bytes.Buffer{})
-	if err == nil || !strings.Contains(err.Error(), "--confirm must equal api.lmm.best") {
-		t.Fatalf("confirmation error=%v", err)
-	}
-}
-
-func TestParseProductionReleaseConstrainsRollbackAndObservationWindows(t *testing.T) {
+func TestParseProductionReleasePlanConstrainsRollbackAndObservationWindows(t *testing.T) {
 	tests := []struct {
 		name  string
 		flags []string
@@ -55,8 +60,8 @@ func TestParseProductionReleaseConstrainsRollbackAndObservationWindows(t *testin
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			arguments := append(validProductionReleaseArguments(t.TempDir()), test.flags...)
-			_, err := parseProductionReleaseOptions(arguments, &bytes.Buffer{})
+			arguments := append(validProductionReleasePlanArguments(t.TempDir()), test.flags...)
+			_, err := parseProductionReleasePlanOptions(arguments, &bytes.Buffer{})
 			if err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("window error=%v", err)
 			}
@@ -64,30 +69,59 @@ func TestParseProductionReleaseConstrainsRollbackAndObservationWindows(t *testin
 	}
 }
 
-func TestParseProductionReleaseAcceptsSafeAbsoluteInputs(t *testing.T) {
-	root := t.TempDir()
-	arguments := append(validProductionReleaseArguments(root),
-		"--rollback-package", filepath.Join(root, "rollback.pkg.tar.zst"),
+func TestParseProductionReleasePlanAcceptsSafeAbsoluteInputs(t *testing.T) {
+	arguments := append(validProductionReleasePlanArguments(t.TempDir()),
 		"--observation-seconds", "240",
 		"--rollback-seconds", "600",
 		"--manual-confirm",
 		"--preserve-edge-policy",
 	)
-	options, err := parseProductionReleaseOptions(arguments, &bytes.Buffer{})
+	options, err := parseProductionReleasePlanOptions(arguments, &bytes.Buffer{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if options.ObservationSeconds != 240 || options.RollbackSeconds != 600 || options.Confirm != "api.lmm.best" ||
+	if options.ObservationSeconds != 240 || options.RollbackSeconds != 600 ||
 		!options.ManualConfirm || !options.PreserveEdgePolicy {
 		t.Fatalf("options=%#v", options)
 	}
 }
 
-func TestParseProductionReleaseRequiresAgeFilesOnlyWithBackups(t *testing.T) {
-	arguments := append(validProductionReleaseArguments(t.TempDir()), "--with-backups")
-	_, err := parseProductionReleaseOptions(arguments, &bytes.Buffer{})
-	if err == nil || !strings.Contains(err.Error(), "required with --with-backups") {
+func TestParseProductionReleasePlanRequiresAgeRecipientWithBackups(t *testing.T) {
+	arguments := append(validProductionReleasePlanArguments(t.TempDir()), "--with-backups")
+	_, err := parseProductionReleasePlanOptions(arguments, &bytes.Buffer{})
+	if err == nil || !strings.Contains(err.Error(), "--age-recipient-file is required") {
 		t.Fatalf("backup input error=%v", err)
+	}
+}
+
+func TestParseProductionReleaseControllerRequiresExactPlanDigestAndConfirmation(t *testing.T) {
+	root := t.TempDir()
+	arguments := []string{
+		"--plan", filepath.Join(root, productionReleasePlanFilename),
+		"--plan-sha256", strings.Repeat("a", 64),
+		"--confirm", "wrong-host",
+	}
+	_, err := parseProductionReleaseControllerOptions("stage", arguments, &bytes.Buffer{})
+	if err == nil || !strings.Contains(err.Error(), "--confirm must equal api.lmm.best") {
+		t.Fatalf("confirmation error=%v", err)
+	}
+	arguments[len(arguments)-1] = "api.lmm.best"
+	options, err := parseProductionReleaseControllerOptions("stage", arguments, &bytes.Buffer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if options.PlanSHA256 != strings.Repeat("a", 64) {
+		t.Fatalf("options=%#v", options)
+	}
+}
+
+func TestPackageReleaseVersionRejectsMissingPkgrel(t *testing.T) {
+	if _, err := packageReleaseVersion("0.1.58"); err == nil {
+		t.Fatal("packageReleaseVersion accepted a version without pkgrel")
+	}
+	got, err := packageReleaseVersion("0.1.58-2")
+	if err != nil || got != "0.1.58" {
+		t.Fatalf("packageReleaseVersion()=(%q, %v)", got, err)
 	}
 }
 

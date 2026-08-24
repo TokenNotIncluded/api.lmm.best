@@ -7,7 +7,7 @@ pkgdesc='LMM API Go backend, native CLI, systemd service, and web frontend (loca
 arch=('x86_64')
 url='https://github.com/LIghtJUNction/api.lmm.best'
 license=('AGPL-3.0-only')
-depends=('ca-certificates' 'systemd' 'tzdata')
+depends=('ca-certificates' 'coreutils' 'libarchive' 'pacman' 'paru' 'sudo' 'systemd' 'tzdata' 'util-linux')
 optdepends=(
   'postgresql: production database'
   'valkey: cache, rate limiting, and login sessions'
@@ -17,10 +17,13 @@ conflicts=('lmm-api' 'lmm-api-bin' 'lmm-api-git' 'lmm-api-go' 'lmm-api-go-git')
 backup=('etc/lmm-api-go/lmm-api-go.env')
 options=('!strip')
 source=(
-  lmm-api-go
+  lmm-api
   frontend-dist.tar
   lmm-api.service
   lmm-api-go.env
+  lmm-api-operator.sysusers
+  lmm-api-operator.tmpfiles
+  lmm-api-operator.sudoers
   REVISION
   LICENSE
   NOTICE
@@ -33,7 +36,7 @@ source=(
   geoip2-country-update.service
   geoip2-country-update.timer
 )
-sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
+sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
 
 prepare() {
   install -d -m0755 "${srcdir}/frontend-dist"
@@ -43,10 +46,16 @@ prepare() {
 package() {
   local file
 
-  install -Dm0755 "${srcdir}/lmm-api-go" "${pkgdir}/usr/bin/lmm-api-go"
-	ln -s lmm-api-go "${pkgdir}/usr/bin/lmm-api"
-	install -Dm0644 "${srcdir}/lmm-api.service" \
-		"${pkgdir}/usr/lib/systemd/system/lmm-api.service"
+  install -Dm0755 "${srcdir}/lmm-api" "${pkgdir}/usr/bin/lmm-api"
+  ln -s lmm-api "${pkgdir}/usr/bin/lmm-api-go"
+  install -Dm0644 "${srcdir}/lmm-api.service" \
+    "${pkgdir}/usr/lib/systemd/system/lmm-api.service"
+  install -Dm0644 "${srcdir}/lmm-api-operator.sysusers" \
+    "${pkgdir}/usr/lib/sysusers.d/lmm-api-operator.conf"
+  install -Dm0644 "${srcdir}/lmm-api-operator.tmpfiles" \
+    "${pkgdir}/usr/lib/tmpfiles.d/lmm-api-operator.conf"
+  install -Dm0440 "${srcdir}/lmm-api-operator.sudoers" \
+    "${pkgdir}/etc/sudoers.d/lmm-api-operator"
   install -Dm0644 "${srcdir}/geoip2-country-update.service" \
     "${pkgdir}/usr/lib/systemd/system/geoip2-country-update.service"
   install -Dm0644 "${srcdir}/geoip2-country-update.timer" \

@@ -205,6 +205,8 @@ for bundle in "$go_bundle" "$go_next_bundle"; do
   done
 done
 cp "$SHARED/lmm-api-memory.conf" "$go_next_bundle/lmm-api-memory.conf"
+cp "$SHARED/lmm-api-operator.sysusers" "$SHARED/lmm-api-operator.tmpfiles" \
+  "$SHARED/lmm-api-operator.sudoers" "$go_next_bundle/"
 contract_revision=$("$ROOT/deploy/production/api-route-contract-revision.sh" print)
 printf '%s\n' "$contract_revision" >"$go_next_bundle/API_ROUTE_CONTRACT_REVISION"
 for bundle in "$go_bundle" "$go_next_bundle" "$deploy_bundle" "$rs_bundle"; do
@@ -271,12 +273,15 @@ printf '%s\n' "$contract_revision" >"$web_src/API_ROUTE_CONTRACT_REVISION"
 )
 
 for packaged_path in \
-  pkg-go-legacy/usr/bin/lmm-api-go \
+  pkg-go-legacy/usr/bin/lmm-api \
   pkg-go-legacy/usr/lib/systemd/system/lmm-api.service \
   pkg-go-legacy/etc/lmm-api-go/lmm-api-go.env \
   pkg-go-legacy/usr/share/lmm-api-go/frontend-dist/index.html \
-  pkg-go-next/usr/bin/lmm-api-go \
+  pkg-go-next/usr/bin/lmm-api \
   pkg-go-next/usr/lib/systemd/system/lmm-api.service.d/20-memory.conf \
+  pkg-go-next/usr/lib/sysusers.d/lmm-api-operator.conf \
+  pkg-go-next/usr/lib/tmpfiles.d/lmm-api-operator.conf \
+  pkg-go-next/etc/sudoers.d/lmm-api-operator \
   pkg-go-next/usr/share/doc/lmm-api-go-bin/API_ROUTE_CONTRACT_REVISION \
   pkg-go-next/usr/share/lmm-api-go/edge-policy/nginx/http-map.conf \
   pkg-deploy/usr/lib/lmm-api-deploy/lmm-api-go \
@@ -291,8 +296,16 @@ for packaged_path in \
   pkg-web-next/usr/share/doc/lmm-api-web-bin/API_ROUTE_CONTRACT_REVISION; do
   [[ -f $tmp/$packaged_path ]] || die "mock package layout is missing $packaged_path"
 done
-[[ -L $tmp/pkg-go-legacy/usr/bin/lmm-api ]] || die 'legacy Go package lacks provider symlink'
-[[ -L $tmp/pkg-go-next/usr/bin/lmm-api ]] || die 'next Go package lacks provider symlink'
+[[ -L $tmp/pkg-go-legacy/usr/bin/lmm-api-go ]] || die 'legacy Go package lacks compatibility symlink'
+[[ $(readlink "$tmp/pkg-go-legacy/usr/bin/lmm-api-go") == lmm-api ]] ||
+  die 'legacy Go compatibility symlink does not resolve to the canonical CLI'
+[[ -L $tmp/pkg-go-next/usr/bin/lmm-api-go ]] || die 'next Go package lacks compatibility symlink'
+[[ $(readlink "$tmp/pkg-go-next/usr/bin/lmm-api-go") == lmm-api ]] ||
+  die 'next Go compatibility symlink does not resolve to the canonical CLI'
+[[ $(stat -c '%a' "$tmp/pkg-go-next/etc/sudoers.d/lmm-api-operator") == 440 ]] ||
+  die 'integrated operator sudoers policy mode is not 0440'
+visudo -cf "$tmp/pkg-go-next/etc/sudoers.d/lmm-api-operator" >/dev/null ||
+  die 'integrated operator sudoers policy fails visudo validation'
 [[ -L $tmp/pkg-deploy/usr/bin/lmm-api-deploy ]] || die 'operator package lacks canonical command'
 [[ $(readlink "$tmp/pkg-deploy/usr/bin/lmm-api-deploy") == ../lib/lmm-api-deploy/lmm-api-go ]] ||
   die 'operator command does not resolve to its independent package payload'
@@ -302,6 +315,9 @@ cmp -s "$tmp/pkg-deploy/usr/lib/lmm-api-deploy/lmm-api-go" "$deploy_bundle/lmm-a
   die 'operator sudoers policy mode is not 0440'
 sudoers="$tmp/pkg-deploy/etc/sudoers.d/lmm-api-deploy"
 visudo -cf "$sudoers" >/dev/null || die 'operator sudoers policy fails visudo validation'
+integrated_sudoers="$tmp/pkg-go-next/etc/sudoers.d/lmm-api-operator"
+cmp -s "$integrated_sudoers" "$SHARED/lmm-api-operator.sudoers" ||
+  die 'integrated operator sudoers policy differs from the shared policy'
 go_pacman_regex='^--upgrade --noconfirm -- /var/lib/lmm-api-go-deploy/work/[A-Za-z0-9][A-Za-z0-9._-]{0,79}/staging/lmm-api-go-bin-[A-Za-z0-9][A-Za-z0-9._+@~-]*\.pkg\.tar\.(zst|xz|gz|bz2|lz4|lrz|lzo|Z)$'
 web_pacman_regex='^--upgrade --noconfirm -- /var/lib/lmm-api-go-deploy/work/[A-Za-z0-9][A-Za-z0-9._-]{0,79}/staging/lmm-api-web-bin-[A-Za-z0-9][A-Za-z0-9._+@~-]*\.pkg\.tar\.(zst|xz|gz|bz2|lz4|lrz|lzo|Z)$'
 grep -Fqx "lmm-api-deploy ALL=(root) NOPASSWD: /usr/bin/pacman $go_pacman_regex" "$sudoers" ||

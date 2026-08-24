@@ -45,15 +45,16 @@ const (
 	productionSourcePackageName    = "lmm-api-go"
 	productionAURPackageName       = "lmm-api-go-bin"
 	productionWebPackageName       = "lmm-api-web-bin"
-	productionOperatorPackageName  = "lmm-api-deploy-bin"
+	productionOperatorPackageName  = productionAURPackageName
 	productionOperatorUser         = "lmm-api-deploy"
-	productionOperatorBinary       = "/usr/bin/lmm-api-deploy"
+	productionOperatorBinary       = "/usr/bin/lmm-api"
 	legacyContractRevision         = "legacy"
 	legacyContractlessGoVersion    = "0.1.34.r1146.gde02fda27-1"
 	legacyContractlessWebVersion   = "0.1.30-1"
 	commandAge                     = "/usr/bin/age"
 	commandBsdtar                  = "/usr/bin/bsdtar"
 	commandBun                     = "/usr/bin/bun"
+	commandCosign                  = "/usr/bin/cosign"
 	commandFile                    = "/usr/bin/file"
 	commandGit                     = "/usr/bin/git"
 	commandGo                      = "/usr/bin/go"
@@ -189,6 +190,8 @@ func (osProductionCommandRunner) Run(parent context.Context, command productionC
 		process = exec.CommandContext(ctx, "/usr/bin/bsdtar", command.Args...)
 	case commandBun:
 		process = exec.CommandContext(ctx, "/usr/bin/bun", command.Args...)
+	case commandCosign:
+		process = exec.CommandContext(ctx, "/usr/bin/cosign", command.Args...)
 	case commandFile:
 		process = exec.CommandContext(ctx, "/usr/bin/file", command.Args...)
 	case commandGit:
@@ -224,7 +227,7 @@ func (osProductionCommandRunner) Run(parent context.Context, command productionC
 	case commandVercmp:
 		process = exec.CommandContext(ctx, "/usr/bin/vercmp", command.Args...)
 	case productionOperatorBinary:
-		process = exec.CommandContext(ctx, "/usr/bin/lmm-api-deploy", command.Args...)
+		process = exec.CommandContext(ctx, productionOperatorBinary, command.Args...)
 	default:
 		return nil, fmt.Errorf("command executable is not allowlisted: %q", command.Name)
 	}
@@ -455,13 +458,14 @@ func packageIntegrityClean(output []byte, name string) bool {
 }
 
 type productionPackageMetadata struct {
-	Name             string
-	Version          string
-	Identity         string
-	GitRevision      string
-	ContractRevision string
-	IndexSHA256      string
-	BinarySHA256     string
+	Name               string
+	Version            string
+	Identity           string
+	GitRevision        string
+	ContractRevision   string
+	IndexSHA256        string
+	BinarySHA256       string
+	ReleaseAssetSHA256 string
 }
 
 func parseNamedPackageIdentity(output []byte, expected string) (productionPackageMetadata, error) {
@@ -491,7 +495,11 @@ func (runtime *productionRuntime) packageMetadata(ctx context.Context, packagePa
 	if err != nil {
 		return productionPackageMetadata{}, err
 	}
-	docRoot := "usr/share/doc/" + packageName + "/"
+	docName := "lmm-api-go"
+	if packageName == productionWebPackageName {
+		docName = "lmm-api-web"
+	}
+	docRoot := "usr/share/doc/" + docName + "/"
 	const contractName = "API_ROUTE_CONTRACT_REVISION"
 	readMember := func(member string) (string, error) {
 		output, err := runtime.runner.Run(ctx, productionCommand{Name: commandBsdtar, Args: []string{"-xOf", packagePath, docRoot + member}})
@@ -513,6 +521,12 @@ func (runtime *productionRuntime) packageMetadata(ctx context.Context, packagePa
 	} else if !productionContractPattern.MatchString(metadata.ContractRevision) {
 		return productionPackageMetadata{}, fmt.Errorf("%s package contract revision is invalid", packageName)
 	}
+	if assetDigest, assetErr := readMember("RELEASE_ASSET_SHA256"); assetErr == nil {
+		if !productionSHA256Pattern.MatchString(assetDigest) {
+			return productionPackageMetadata{}, fmt.Errorf("%s package release-asset digest is invalid", packageName)
+		}
+		metadata.ReleaseAssetSHA256 = assetDigest
+	}
 	if packageName == productionWebPackageName {
 		index, err := runtime.runner.Run(ctx, productionCommand{Name: commandBsdtar, Args: []string{"-xOf", packagePath, "usr/share/lmm-api-web/frontend-dist/index.html"}})
 		if err != nil || len(index) == 0 {
@@ -521,7 +535,10 @@ func (runtime *productionRuntime) packageMetadata(ctx context.Context, packagePa
 		digest := sha256.Sum256(index)
 		metadata.IndexSHA256 = hex.EncodeToString(digest[:])
 	} else {
-		binary, err := runtime.runner.Run(ctx, productionCommand{Name: commandBsdtar, Args: []string{"-xOf", packagePath, "usr/bin/lmm-api-go"}})
+		binary, err := runtime.runner.Run(ctx, productionCommand{Name: commandBsdtar, Args: []string{"-xOf", packagePath, "usr/bin/lmm-api"}})
+		if err != nil || len(binary) == 0 {
+			binary, err = runtime.runner.Run(ctx, productionCommand{Name: commandBsdtar, Args: []string{"-xOf", packagePath, "usr/bin/lmm-api-go"}})
+		}
 		if err != nil || len(binary) == 0 {
 			return productionPackageMetadata{}, errors.New("Go package service binary is missing")
 		}

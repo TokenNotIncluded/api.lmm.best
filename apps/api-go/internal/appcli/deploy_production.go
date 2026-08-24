@@ -38,8 +38,12 @@ func runProductionDeploy(args []string, stdout, stderr io.Writer) int {
 		return ExitUsage
 	}
 	switch args[0] {
-	case "release":
-		return runProductionRelease(args[1:], stdout, stderr)
+	case "plan":
+		return runProductionReleasePlan(args[1:], stdout, stderr)
+	case "stage":
+		return runProductionReleaseStage(args[1:], stdout, stderr)
+	case "promote":
+		return runProductionReleasePromote(args[1:], stdout, stderr)
 	case "package":
 		return runProductionPackage(args[1:], stdout, stderr)
 	case "workspace":
@@ -64,7 +68,12 @@ func runProductionDeploy(args []string, stdout, stderr io.Writer) int {
 		return ExitOK
 	case "edge-policy":
 		return runProductionEdgePolicy(args[1:], stdout, stderr)
-	case "apply", "status", "confirm", "rollback":
+	case "apply":
+		return runProductionTransaction(args[0], args[1:], stdout, stderr)
+	case "status", "confirm", "rollback":
+		if productionControllerPlanMode(args[1:]) {
+			return runProductionReleaseControllerAction(args[0], args[1:], stdout, stderr)
+		}
 		return runProductionTransaction(args[0], args[1:], stdout, stderr)
 	case "help", "--help", "-h":
 		writeProductionDeployUsage(stdout)
@@ -76,8 +85,27 @@ func runProductionDeploy(args []string, stdout, stderr io.Writer) int {
 	}
 }
 
+func productionControllerPlanMode(args []string) bool {
+	for _, argument := range args {
+		if argument == "--plan" || strings.HasPrefix(argument, "--plan=") {
+			return true
+		}
+	}
+	return false
+}
+
 func writeProductionDeployUsage(output io.Writer) {
 	_, _ = fmt.Fprintf(output, `Usage:
+  %s deploy production plan --repo DIR --workspace DIR --deployment-id ID \\
+       --go-package FILE --go-release-asset FILE --go-release-bundle FILE \\
+       --go-rollback-package FILE --go-rollback-release-asset FILE --go-rollback-release-bundle FILE \\
+       --web-package FILE --web-release-asset FILE --web-release-bundle FILE \\
+       --web-rollback-package FILE --web-rollback-release-asset FILE --web-rollback-release-bundle FILE \\
+       --probe-binary FILE [--with-backups --age-recipient-file FILE] [--manual-confirm]
+  %s deploy production stage|promote|status|confirm|rollback \\
+       --plan FILE --plan-sha256 HEX --confirm api.lmm.best
+
+Target-only recovery commands (normally invoked by the controller):
   %s deploy production workspace create --deployment-id ID
   %s deploy production apply --workspace DIR --operator-user USER \\
        --go-package FILE --go-package-sha256 HEX --go-rollback-package FILE --go-rollback-sha256 HEX \\
@@ -85,10 +113,7 @@ func writeProductionDeployUsage(output io.Writer) {
        --probe-binary FILE --probe-binary-sha256 HEX --expected-version VERSION \\
        [--go-changed] [--web-changed] [--with-backups --backup-dir DIR] [--manual-confirm]
   %s deploy production status|confirm|rollback --workspace DIR
-
-The source-build/bundled-frontend release path is disabled. Prepare verified split
-lmm-api-go-bin and lmm-api-web-bin candidate and rollback packages, then use apply.
-`, ProgramName, ProgramName, ProgramName)
+`, ProgramName, ProgramName, ProgramName, ProgramName, ProgramName)
 }
 
 func parseProductionHardenOptions(args []string, stderr io.Writer) (productionHardenOptions, error) {

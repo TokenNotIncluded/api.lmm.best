@@ -7,7 +7,7 @@ pkgdesc='LMM API Go backend, native CLI, systemd service, and web frontend (preb
 arch=('x86_64' 'aarch64')
 url='https://github.com/LIghtJUNction/api.lmm.best'
 license=('AGPL-3.0-only')
-depends=('ca-certificates' 'systemd' 'tzdata')
+depends=('ca-certificates' 'coreutils' 'libarchive' 'pacman' 'paru' 'sudo' 'systemd' 'tzdata' 'util-linux')
 makedepends=('cosign')
 optdepends=(
   'postgresql: production database'
@@ -72,6 +72,9 @@ prepare() {
   else
     [[ ! -e ${bundle}/frontend-dist ]] || return 1
     [[ -f ${bundle}/lmm-api-memory.conf && ! -L ${bundle}/lmm-api-memory.conf ]] || return 1
+    for file in lmm-api-operator.sysusers lmm-api-operator.tmpfiles lmm-api-operator.sudoers; do
+      [[ -f ${bundle}/${file} && ! -L ${bundle}/${file} ]] || return 1
+    done
     [[ -f ${bundle}/API_ROUTE_CONTRACT_REVISION && ! -L ${bundle}/API_ROUTE_CONTRACT_REVISION ]] || return 1
     [[ $(<"${bundle}/API_ROUTE_CONTRACT_REVISION") =~ ^[0-9a-f]{64}$ ]] || return 1
     grep -Fqx 'Environment=LMM_API_FRONTEND_DIR=/srv/lmm-api-frontend/current' \
@@ -83,8 +86,8 @@ package() {
   local bundle="${srcdir}/${_artifact}-${_release_arch}"
   local file
 
-  install -Dm0755 "${bundle}/lmm-api-go" "${pkgdir}/usr/bin/lmm-api-go"
-  ln -s lmm-api-go "${pkgdir}/usr/bin/lmm-api"
+  install -Dm0755 "${bundle}/lmm-api-go" "${pkgdir}/usr/bin/lmm-api"
+  ln -s lmm-api "${pkgdir}/usr/bin/lmm-api-go"
   install -Dm0644 "${bundle}/lmm-api.service" \
     "${pkgdir}/usr/lib/systemd/system/lmm-api.service"
   install -d -m0700 "${pkgdir}/etc/lmm-api-go"
@@ -100,6 +103,12 @@ package() {
   else
     install -Dm0644 "${bundle}/lmm-api-memory.conf" \
       "${pkgdir}/usr/lib/systemd/system/lmm-api.service.d/20-memory.conf"
+    install -Dm0644 "${bundle}/lmm-api-operator.sysusers" \
+      "${pkgdir}/usr/lib/sysusers.d/lmm-api-operator.conf"
+    install -Dm0644 "${bundle}/lmm-api-operator.tmpfiles" \
+      "${pkgdir}/usr/lib/tmpfiles.d/lmm-api-operator.conf"
+    install -Dm0440 "${bundle}/lmm-api-operator.sudoers" \
+      "${pkgdir}/etc/sudoers.d/lmm-api-operator"
     install -Dm0644 "${bundle}/API_ROUTE_CONTRACT_REVISION" \
       "${pkgdir}/usr/share/doc/${pkgname}/API_ROUTE_CONTRACT_REVISION"
   fi

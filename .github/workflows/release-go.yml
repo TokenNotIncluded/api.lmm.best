@@ -190,6 +190,10 @@ jobs:
           cp packaging/common/lmm-api/lmm-api.service "$bundle/"
           cp packaging/common/lmm-api/lmm-api-go.env "$bundle/"
           cp packaging/common/lmm-api/lmm-api-memory.conf "$bundle/"
+          cp packaging/common/lmm-api/lmm-api-operator.sysusers \
+            packaging/common/lmm-api/lmm-api-operator.tmpfiles \
+            packaging/common/lmm-api/lmm-api-operator.sudoers \
+            "$bundle/"
           mkdir -p "$bundle/edge-policy/nginx"
           cp deploy/nginx/http-map.conf \
             deploy/nginx/lmm-api-locations.conf \
