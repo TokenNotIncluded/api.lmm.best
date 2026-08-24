@@ -26,6 +26,9 @@ pkgbase = lmm-api-go
 	conflicts = lmm-api-git
 	conflicts = lmm-api-go-bin
 	conflicts = lmm-api-go-git
+	conflicts = lmm-api-deploy
+	conflicts = lmm-api-deploy-bin
+	replaces = lmm-api-deploy-bin
 	options = !strip
 	backup = etc/lmm-api-go/lmm-api-go.env
 	source = lmm-api-go::git+https://github.com/LIghtJUNction/api.lmm.best.git#commit=11217412480e81b58f96f2b9889bd317120ff8f0

@@ -8,7 +8,6 @@ readonly GO_WORKFLOW="$ROOT/.github/workflows/release-go.yml"
 readonly WEB_WORKFLOW="$ROOT/.github/workflows/release-web.yml"
 readonly GO_PKGBUILD="$ROOT/packaging/aur/lmm-api-go-bin/PKGBUILD"
 readonly WEB_PKGBUILD="$ROOT/packaging/aur/lmm-api-web-bin/PKGBUILD"
-readonly DEPLOY_PKGBUILD="$ROOT/packaging/aur/lmm-api-deploy-bin/PKGBUILD"
 
 fail() {
   printf 'test-release-artifact-contract: %s\n' "$*" >&2
@@ -23,7 +22,7 @@ reject_literal() {
   ! grep -Fq -- "$literal" "$file" || fail "$message"
 }
 
-for file in "$GO_WORKFLOW" "$WEB_WORKFLOW" "$GO_PKGBUILD" "$WEB_PKGBUILD" "$DEPLOY_PKGBUILD"; do
+for file in "$GO_WORKFLOW" "$WEB_WORKFLOW" "$GO_PKGBUILD" "$WEB_PKGBUILD"; do
   [[ -f $file ]] || fail "missing contract input: $file"
 done
 
@@ -76,6 +75,12 @@ require_literal "$GO_PKGBUILD" '_legacy_cli_archive_version=0.1.57' \
   'Go package lost the explicit legacy CLI archive boundary'
 require_literal "$GO_PKGBUILD" 'RELEASE_ASSET_SHA256' \
   'Go package does not preserve its signed release-asset digest'
+require_literal "$GO_PKGBUILD" '_t1_cli_version=0.1.59' \
+  'Go package lost the explicit T1 single-CLI boundary'
+require_literal "$GO_PKGBUILD" "conflicts+=('lmm-api-deploy' 'lmm-api-deploy-bin')" \
+  'T1 Go package does not conflict with legacy deploy packages'
+require_literal "$GO_PKGBUILD" "replaces+=('lmm-api-deploy-bin')" \
+  'T1 Go package does not replace the legacy deploy package'
 # shellcheck disable=SC2016 # Deliberately inspect PKGBUILD source literals.
 require_literal "$GO_PKGBUILD" '[[ ! -e ${bundle}/frontend-dist ]]' \
   'future Go packages do not reject a bundled frontend'
@@ -102,19 +107,18 @@ for immutable in \
     'tracked Web PKGBUILD no longer pins the existing immutable release'
 done
 
-require_literal "$DEPLOY_PKGBUILD" 'pkgver=0.1.51' \
-  'operator bootstrap does not pin the reviewed Go release'
-require_literal "$DEPLOY_PKGBUILD" '_release_revision=e1cbcbe5a5ed63e71a6e835d7c0b736e080376ab' \
-  'operator bootstrap does not pin the release Git identity'
-require_literal "$DEPLOY_PKGBUILD" 'usr/lib/lmm-api-deploy/lmm-api-go' \
-  'operator payload is not independent from the application package'
-require_literal "$DEPLOY_PKGBUILD" 'usr/bin/lmm-api-deploy' \
-  'operator package does not own the canonical command'
-for forbidden in 'lmm-api.service"' 'lmm-api-go.env"' 'frontend-dist/'; do
-  reject_literal "$DEPLOY_PKGBUILD" "$forbidden" \
-    "tooling-only operator recipe owns application payload: $forbidden"
+[[ ! -e $ROOT/packaging/aur/lmm-api-deploy-bin ]] ||
+  fail 'legacy deploy-only AUR recipe remains in the final tree'
+[[ ! -e $ROOT/packaging/common/lmm-api/lmm-api-launcher ]] ||
+  fail 'legacy multi-provider launcher remains in the final tree'
+for pkgbuild in \
+  "$ROOT/packaging/aur/lmm-api-go/PKGBUILD" \
+  "$ROOT/packaging/aur/lmm-api-go-git/PKGBUILD" \
+  "$ROOT/packaging/local/lmm-api-go/PKGBUILD"; do
+  reject_literal "$pkgbuild" 'usr/bin/lmm-api-go' \
+    "final Go package still installs the legacy CLI: $pkgbuild"
 done
 
 TMPDIR=${TMPDIR:?set TMPDIR to a marker-owned test workspace} \
   "$HERE/test-api-route-contract.sh"
-printf '%s\n' 'Go-only, Web-owned frontend, metadata, signature, and operator release contracts verified'
+printf '%s\n' 'single-CLI Go, Web-owned frontend, metadata, and signature release contracts verified'

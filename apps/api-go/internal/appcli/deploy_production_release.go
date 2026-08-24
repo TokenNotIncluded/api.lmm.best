@@ -12,6 +12,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -562,6 +563,7 @@ func (runtime *productionReleaseRuntime) verifySignedPackageLayout(ctx context.C
 		return errors.New("signed release has no package payload")
 	}
 	packageFiles := make(map[string]string)
+	legacyAlias := false
 	if err := filepath.WalkDir(packageRoot, func(path string, entry os.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -588,6 +590,7 @@ func (runtime *productionReleaseRuntime) verifySignedPackageLayout(ctx context.C
 			if err != nil || target != "lmm-api" {
 				return errors.New("legacy CLI compatibility symlink has an unsafe target")
 			}
+			legacyAlias = true
 			return nil
 		}
 		if !info.Mode().IsRegular() || info.Size() == 0 || info.Mode().Perm()&0o022 != 0 {
@@ -629,8 +632,20 @@ func (runtime *productionReleaseRuntime) verifySignedPackageLayout(ctx context.C
 		}
 	}
 	canonicalExecutable := filepath.Join(packageRoot, "usr/bin/lmm-api")
+	if packageName == productionAURPackageName {
+		t1, err := isT1SingleCLIPackage(packageName, packageVersion)
+		if err != nil {
+			return err
+		}
+		if t1 && legacyAlias {
+			return errors.New("T1 package still exposes the legacy CLI compatibility link")
+		}
+		if !t1 && !legacyAlias {
+			return errors.New("T0 rollback package lacks the legacy CLI compatibility link")
+		}
+	}
 	if packageName == productionWebPackageName {
-		canonicalExecutable = filepath.Join(packageRoot, "usr/lib/lmm-api-web/activate")
+		canonicalExecutable = filepath.Join(packageRoot, "usr/lib/lmm-api-web/lmm-api-web-activate")
 	}
 	executableInfo, err := os.Stat(canonicalExecutable)
 	if err != nil || executableInfo.Mode().Perm()&0o111 == 0 {
@@ -658,12 +673,12 @@ func signedPackageMember(packageName, relative string) (packageRelative string, 
 		case strings.HasPrefix(relative, "dist/"):
 			return filepath.Join("usr/share/lmm-api-web/frontend-dist", strings.TrimPrefix(relative, "dist/")), false, nil
 		case relative == "lmm-api-web-activate":
-			return "usr/lib/lmm-api-web/activate", false, nil
+			return "usr/lib/lmm-api-web/lmm-api-web-activate", false, nil
 		case relative == "frontend-release.sh":
-			return "", true, nil
-		case relative == "LICENSE":
-			return "usr/share/licenses/" + packageName + "/LICENSE", false, nil
-		case relative == "NOTICE", relative == "THIRD-PARTY-LICENSES.md", relative == "REVISION", relative == "API_ROUTE_CONTRACT_REVISION":
+			return "usr/lib/lmm-api-web/frontend-release.sh", false, nil
+		case relative == "LICENSE", relative == "NOTICE", relative == "THIRD-PARTY-LICENSES.md":
+			return "usr/share/licenses/" + packageName + "/" + relative, false, nil
+		case relative == "REVISION", relative == "API_ROUTE_CONTRACT_REVISION":
 			return "usr/share/doc/" + packageName + "/" + relative, false, nil
 		default:
 			return "", false, fmt.Errorf("signed Web release contains an unmapped payload: %s", relative)
@@ -688,13 +703,45 @@ func signedPackageMember(packageName, relative string) (packageRelative string, 
 		return "usr/lib/systemd/system/" + relative, false, nil
 	case strings.HasPrefix(relative, "edge-policy/"):
 		return filepath.Join("usr/share/lmm-api-go", relative), false, nil
-	case relative == "LICENSE":
-		return "usr/share/licenses/" + packageName + "/LICENSE", false, nil
-	case relative == "NOTICE", relative == "THIRD-PARTY-LICENSES.md", relative == "REVISION", relative == "API_ROUTE_CONTRACT_REVISION":
+	case relative == "LICENSE", relative == "NOTICE", relative == "THIRD-PARTY-LICENSES.md":
+		return "usr/share/licenses/" + packageName + "/" + relative, false, nil
+	case relative == "REVISION", relative == "API_ROUTE_CONTRACT_REVISION":
 		return "usr/share/doc/" + packageName + "/" + relative, false, nil
 	default:
 		return "", false, fmt.Errorf("signed Go release contains an unmapped payload: %s", relative)
 	}
+}
+
+func isT1SingleCLIPackage(packageName, packageVersion string) (bool, error) {
+	if packageName == productionSourcePackageName {
+		return true, nil
+	}
+	if packageName != productionAURPackageName {
+		return false, errors.New("single-CLI transition check received an unsupported package")
+	}
+	releaseVersion, err := packageReleaseVersion(packageVersion)
+	if err != nil {
+		return false, err
+	}
+	parts := strings.Split(releaseVersion, ".")
+	if len(parts) != 3 {
+		return false, nil
+	}
+	values := make([]int, len(parts))
+	for index, part := range parts {
+		value, err := strconv.Atoi(part)
+		if err != nil || value < 0 {
+			return false, nil
+		}
+		values[index] = value
+	}
+	if values[0] != 0 {
+		return values[0] > 0, nil
+	}
+	if values[1] != 1 {
+		return values[1] > 1, nil
+	}
+	return values[2] >= 59, nil
 }
 
 func packageReleaseVersion(packageVersion string) (string, error) {

@@ -100,6 +100,8 @@ type productionPaths struct {
 	EdgeAssetRoot         string
 	InstalledBinary       string
 	OperatorBinary        string
+	LegacyGoBinary        string
+	LegacyDeployBinary    string
 	RunuserBinary         string
 	ParuBinary            string
 	GoRevisionFile        string
@@ -135,6 +137,8 @@ func defaultProductionPaths() productionPaths {
 		EdgeAssetRoot:         defaultEdgeAssetRoot,
 		InstalledBinary:       "/usr/bin/lmm-api",
 		OperatorBinary:        productionOperatorBinary,
+		LegacyGoBinary:        "/usr/bin/lmm-api-go",
+		LegacyDeployBinary:    "/usr/bin/lmm-api-deploy",
 		RunuserBinary:         "/usr/bin/runuser",
 		ParuBinary:            "/usr/bin/paru",
 		GoRevisionFile:        "/usr/share/doc/lmm-api-go-bin/REVISION",

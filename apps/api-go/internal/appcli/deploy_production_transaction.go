@@ -305,7 +305,48 @@ func (runtime *productionRuntime) verifyManifestInstalled(ctx context.Context, m
 	if err := runtime.verifyTransitionInstalled(ctx, manifest.Go, rollback, true); err != nil {
 		return err
 	}
+	if err := runtime.verifyTransitionCLI(manifest.Go, rollback); err != nil {
+		return err
+	}
 	return runtime.verifyTransitionInstalled(ctx, manifest.Web, rollback, false)
+}
+
+func (runtime *productionRuntime) verifyTransitionCLI(transition productionPackageTransition, rollback bool) error {
+	name, identity := transition.CandidatePackageName, transition.CandidateIdentity
+	if rollback {
+		name, identity = transition.RollbackPackageName, transition.RollbackIdentity
+	}
+	metadata, err := parseNamedPackageIdentity([]byte(identity), name)
+	if err != nil {
+		return fmt.Errorf("parse installed Go CLI transition identity: %w", err)
+	}
+	t1, err := isT1SingleCLIPackage(metadata.Name, metadata.Version)
+	if err != nil {
+		return err
+	}
+	if t1 {
+		for _, path := range []string{runtime.paths.LegacyGoBinary, runtime.paths.LegacyDeployBinary} {
+			if path == "" {
+				return errors.New("legacy CLI removal path is not configured")
+			}
+			if _, err := os.Lstat(path); err == nil || !errors.Is(err, os.ErrNotExist) {
+				return fmt.Errorf("T1 legacy CLI path remains: %s", path)
+			}
+		}
+		return nil
+	}
+	if runtime.paths.LegacyGoBinary == "" {
+		return errors.New("T0 compatibility CLI path is not configured")
+	}
+	info, err := os.Lstat(runtime.paths.LegacyGoBinary)
+	if err != nil || info.Mode()&os.ModeSymlink == 0 {
+		return errors.New("T0 rollback package lacks its compatibility CLI link")
+	}
+	target, err := os.Readlink(runtime.paths.LegacyGoBinary)
+	if err != nil || target != filepath.Base(runtime.paths.InstalledBinary) {
+		return errors.New("T0 compatibility CLI link has an unsafe target")
+	}
+	return nil
 }
 
 func (runtime *productionRuntime) apply(ctx context.Context, workspace productionWorkspace, options productionTransactionOptions) (result productionStatus, returnErr error) {
@@ -592,6 +633,9 @@ func (runtime *productionRuntime) apply(ctx context.Context, workspace productio
 			return productionStatus{}, fmt.Errorf("reload systemd after Go package installation: %w", err)
 		}
 		if err := runtime.verifyTransitionInstalled(ctx, manifest.Go, false, true); err != nil {
+			return productionStatus{}, err
+		}
+		if err := runtime.verifyTransitionCLI(manifest.Go, false); err != nil {
 			return productionStatus{}, err
 		}
 		installedVersion, err := runVerifiedBinary(ctx, runtime.runner, runtime.paths.InstalledBinary, []string{"version"}, nil, "", productionCommandTimeout, false)
@@ -881,6 +925,9 @@ func (runtime *productionRuntime) rollback(ctx context.Context, workspace produc
 			return fail(fmt.Errorf("reload systemd for rollback: %w", err))
 		}
 		if err := runtime.verifyTransitionInstalled(ctx, manifest.Go, true, true); err != nil {
+			return fail(err)
+		}
+		if err := runtime.verifyTransitionCLI(manifest.Go, true); err != nil {
 			return fail(err)
 		}
 		if _, err := runtime.runner.Run(ctx, productionCommand{Name: commandSystemctl, Args: []string{"enable", "--now", runtime.paths.Service}}); err != nil {

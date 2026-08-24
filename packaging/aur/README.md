@@ -9,17 +9,17 @@ versioned application packages.
 | Go backend/operator | `lmm-api-go` | `lmm-api-go-bin` | `lmm-api-go-git` | `/usr/bin/lmm-api` (`serve`, `deploy`, health and maintenance commands) |
 | Web frontend | — | `lmm-api-web-bin` | — | `/usr/share/lmm-api-web/frontend-dist` |
 | Rust preview | — | `lmm-api-rs-bin` | `lmm-api-rs-git` | `/usr/bin/lmm-api-rs` |
-| T0 legacy rollback only | — | `lmm-api-deploy-bin` | — | `/usr/bin/lmm-api-deploy`; removed in T1 |
 
-The compatibility release T0 keeps a package-owned `/usr/bin/lmm-api-go`
-symlink and does not yet remove an already-installed `lmm-api-deploy-bin`, so a
-rollback to N-1 cannot strand the host. New services, docs, automation, and
-release archives use `lmm-api`. No new deploy-only artifact is published.
+The historical compatibility release T0 kept a package-owned
+`/usr/bin/lmm-api-go` symlink and did not remove an already-installed
+`lmm-api-deploy-bin`, so a rollback to N-1 could not strand the host. New
+services, docs, automation, and release archives use `lmm-api`. No new
+deploy-only artifact is published.
 
-The following T1 Go package removes the alias and declares an exact
-conflict/replacement for `lmm-api-deploy-bin`; the historical T0 Go package is
-its rollback package and already owns the operator user, sudoers, sysusers, and
-tmpfiles resources needed after rollback.
+T1 removes the alias and declares an exact conflict/replacement for
+`lmm-api-deploy-bin`; the historical T0 Go package is its rollback package and
+already owns the operator user, sudoers, sysusers, and tmpfiles resources
+needed after rollback.
 
 The next `lmm-api-go-bin` release is Go-only. It owns the backend, stable
 `/usr/bin/lmm-api` service/operator entry, `/etc/lmm-api-go/lmm-api-go.env`,

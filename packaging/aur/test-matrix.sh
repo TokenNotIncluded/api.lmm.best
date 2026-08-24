@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# shellcheck disable=SC2034 # Fixture variables are consumed by sourced PKGBUILDs.
+# shellcheck disable=SC2030,SC2031,SC2034 # Fixture variables are consumed by sourced PKGBUILDs in subshells.
 set -Eeuo pipefail
 
 HERE=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
@@ -8,7 +8,6 @@ ROOT=$(git -C "$HERE" rev-parse --show-toplevel)
 readonly ROOT
 readonly SHARED="$HERE/../common/lmm-api"
 readonly PACKAGES=(
-  lmm-api-deploy-bin
   lmm-api-go
   lmm-api-go-bin
   lmm-api-go-git
@@ -34,10 +33,10 @@ contains_srcinfo_prefix() {
     die "$package .SRCINFO is missing: $expected"
 }
 
-for removed in lmm-api-bin lmm-api-git; do
+for removed in lmm-api-bin lmm-api-git lmm-api-deploy-bin; do
   [[ ! -e $HERE/$removed/PKGBUILD ]] || die "removed core package still has a PKGBUILD: $removed"
 done
-for removed in backend.conf lmm-api.install lmm-api-go.service lmm-api.env; do
+for removed in backend.conf lmm-api.install lmm-api-go.service lmm-api.env lmm-api-launcher; do
   [[ ! -e $SHARED/$removed ]] || die "removed launcher/provider asset remains: $removed"
 done
 
@@ -57,19 +56,14 @@ for package in "${PACKAGES[@]}"; do
   fi
 done
 
-contains_srcinfo_prefix lmm-api-deploy-bin $'\tprovides = lmm-api-deploy='
-contains_srcinfo lmm-api-deploy-bin $'\tconflicts = lmm-api-deploy'
-contains_srcinfo lmm-api-deploy-bin $'\tdepends = sudo'
-if grep -Eq $'\t(depends|optdepends) = (nginx|postgresql|valkey)' \
-  "$HERE/lmm-api-deploy-bin/.SRCINFO"; then
-  die 'deployment operator package has application runtime dependencies'
-fi
-
+contains_srcinfo_prefix lmm-api-go-bin $'\tprovides = lmm-api-go'
 for package in lmm-api-go-bin lmm-api-go-git; do
-  contains_srcinfo_prefix "$package" $'\tprovides = lmm-api-go'
   contains_srcinfo_prefix "$package" $'\tprovides = lmm-api'
   contains_srcinfo "$package" $'\tbackup = etc/lmm-api-go/lmm-api-go.env'
 done
+if grep -Fq $'\tprovides = lmm-api-go' "$HERE/lmm-api-go-git/.SRCINFO"; then
+  die 'Git Go package still advertises the removed CLI compatibility provider'
+fi
 contains_srcinfo lmm-api-go-bin $'\tconflicts = lmm-api-go-git'
 contains_srcinfo lmm-api-go-git $'\tconflicts = lmm-api-go-bin'
 for variant in lmm-api-go-bin lmm-api-go-git; do
@@ -77,6 +71,22 @@ for variant in lmm-api-go-bin lmm-api-go-git; do
 done
 contains_srcinfo_prefix lmm-api-go $'\tprovides = lmm-api'
 contains_srcinfo lmm-api-go $'\tbackup = etc/lmm-api-go/lmm-api-go.env'
+for package in lmm-api-go lmm-api-go-git; do
+  contains_srcinfo "$package" $'\tconflicts = lmm-api-deploy-bin'
+  contains_srcinfo "$package" $'\treplaces = lmm-api-deploy-bin'
+done
+declare _t1_cli_version
+declare -a conflicts replaces provides
+(
+  CARCH=x86_64
+  # shellcheck disable=SC1091
+  source "$HERE/lmm-api-go-bin/PKGBUILD"
+  pkgver=$_t1_cli_version
+  _set_cli_transition_metadata
+  [[ " ${conflicts[*]} " == *' lmm-api-deploy-bin '* ]] || die 'T1 Go package does not conflict with the legacy deploy package'
+  [[ " ${replaces[*]} " == *' lmm-api-deploy-bin '* ]] || die 'T1 Go package does not replace the legacy deploy package'
+  [[ " ${provides[*]} " != *' lmm-api-go='* ]] || die 'T1 Go package still provides the legacy CLI capability'
+)
 
 for package in lmm-api-rs-bin lmm-api-rs-git; do
   contains_srcinfo_prefix "$package" $'\tprovides = lmm-api-rs'
@@ -90,7 +100,7 @@ for package in lmm-api-go lmm-api-go-bin lmm-api-go-git lmm-api-rs-bin lmm-api-r
   done
 done
 
-for package in lmm-api-deploy-bin lmm-api-go-bin lmm-api-rs-bin; do
+for package in lmm-api-go-bin lmm-api-rs-bin; do
   pkgbuild="$HERE/$package/PKGBUILD"
   grep -Fq 'cosign verify-blob' "$pkgbuild" || die "$package lacks Sigstore verification"
   grep -Fq 'sha256sum' "$pkgbuild" || die "$package lacks SHA-256 verification"
@@ -106,11 +116,6 @@ grep -Fq '_release_tag="go-v${pkgver}"' "$HERE/lmm-api-go-bin/PKGBUILD" ||
 grep -Fq '.github/workflows/release-go.yml@refs/tags/${_release_tag}' \
   "$HERE/lmm-api-go-bin/PKGBUILD" ||
   die 'Go binary package does not verify the independent Go release identity'
-# shellcheck disable=SC2016 # Deliberately inspect PKGBUILD source literals.
-grep -Fq '.github/workflows/release-go.yml@refs/tags/${_release_tag}' \
-  "$HERE/lmm-api-deploy-bin/PKGBUILD" ||
-  die 'deployment operator package does not verify the Go release identity'
-
 pkgbuild="$HERE/lmm-api-web-bin/PKGBUILD"
 grep -Fq 'cosign verify-blob' "$pkgbuild" || die 'lmm-api-web-bin lacks Sigstore verification'
 grep -Fq 'sha256sum' "$pkgbuild" || die 'lmm-api-web-bin lacks SHA-256 verification'
@@ -178,24 +183,20 @@ trap cleanup EXIT
 
 stage="$tmp/stage"
 go_bin_pkgver=$(sed -n 's/^pkgver=//p' "$HERE/lmm-api-go-bin/PKGBUILD")
-deploy_pkgver=$(sed -n 's/^pkgver=//p' "$HERE/lmm-api-deploy-bin/PKGBUILD")
 rs_bin_pkgver=$(sed -n 's/^pkgver=//p' "$HERE/lmm-api-rs-bin/PKGBUILD")
 [[ $go_bin_pkgver =~ ^[0-9]+(\.[0-9]+)*$ ]] || die 'Go binary package version is not fixture-safe'
-[[ $deploy_pkgver =~ ^[0-9]+(\.[0-9]+)*$ ]] || die 'operator package version is not fixture-safe'
 [[ $rs_bin_pkgver =~ ^[0-9]+(\.[0-9]+)*$ ]] || die 'Rust binary package version is not fixture-safe'
 go_bundle="$stage/go/lmm-api-go-${go_bin_pkgver}-linux-amd64"
 go_next_bundle="$stage/go-next/lmm-api-go-${go_bin_pkgver}-linux-amd64"
-deploy_bundle="$stage/deploy/lmm-api-go-${deploy_pkgver}-linux-amd64"
 rs_bundle="$stage/rs/lmm-api-rs-${rs_bin_pkgver}-linux-amd64"
 mkdir -p "$go_bundle/frontend-dist" "$go_bundle/edge-policy/nginx" \
-  "$go_next_bundle/edge-policy/nginx" "$deploy_bundle" "$rs_bundle"
+  "$go_next_bundle/edge-policy/nginx" "$rs_bundle"
 printf '#!/bin/sh\n' >"$go_bundle/lmm-api-go"
 printf '#!/bin/sh\n' >"$go_next_bundle/lmm-api"
-printf '#!/bin/sh\n' >"$deploy_bundle/lmm-api-go"
 printf '#!/bin/sh\n' >"$rs_bundle/lmm-api-rs"
 printf '#!/bin/sh\n' >"$rs_bundle/lmm-db-migrate"
 chmod 0755 "$go_bundle/lmm-api-go" "$go_next_bundle/lmm-api" \
-  "$deploy_bundle/lmm-api-go" "$rs_bundle/lmm-api-rs" "$rs_bundle/lmm-db-migrate"
+  "$rs_bundle/lmm-api-rs" "$rs_bundle/lmm-db-migrate"
 printf '<!doctype html>\n' >"$go_bundle/frontend-dist/index.html"
 for bundle in "$go_bundle" "$go_next_bundle"; do
   cp "$SHARED/lmm-api.service" "$SHARED/lmm-api-go.env" "$bundle/"
@@ -211,14 +212,12 @@ cp "$SHARED/lmm-api-operator.sysusers" "$SHARED/lmm-api-operator.tmpfiles" \
   "$SHARED/lmm-api-operator.sudoers" "$go_next_bundle/"
 contract_revision=$("$ROOT/deploy/production/api-route-contract-revision.sh" print)
 printf '%s\n' "$contract_revision" >"$go_next_bundle/API_ROUTE_CONTRACT_REVISION"
-for bundle in "$go_bundle" "$go_next_bundle" "$deploy_bundle" "$rs_bundle"; do
+for bundle in "$go_bundle" "$go_next_bundle" "$rs_bundle"; do
   for file in LICENSE NOTICE THIRD-PARTY-LICENSES.md; do
     printf 'fixture\n' >"$bundle/$file"
   done
   printf '%040d\n' 0 >"$bundle/REVISION"
 done
-printf '%s\n' "$contract_revision" >"$deploy_bundle/API_ROUTE_CONTRACT_REVISION"
-printf 'fixture archive\n' >"$stage/deploy/lmm-api-go-${deploy_pkgver}-linux-amd64.tar.gz"
 printf 'fixture archive\n' >"$stage/go/lmm-api-go-${go_bin_pkgver}-linux-amd64.tar.gz"
 printf 'fixture archive\n' >"$stage/go-next/lmm-api-go-${go_bin_pkgver}-linux-amd64.tar.gz"
 
@@ -236,18 +235,19 @@ printf 'fixture archive\n' >"$stage/go-next/lmm-api-go-${go_bin_pkgver}-linux-am
 (
   CARCH=x86_64
   srcdir="$stage/go-next"
-  pkgdir="$tmp/pkg-go-next"
+  pkgdir="$tmp/pkg-go-t0"
   # shellcheck disable=SC1091
   source "$HERE/lmm-api-go-bin/PKGBUILD"
-  pkgver=999.0.0
+  pkgver=0.1.58
   package
 )
 (
   CARCH=x86_64
-  srcdir="$stage/deploy"
-  pkgdir="$tmp/pkg-deploy"
+  srcdir="$stage/go-next"
+  pkgdir="$tmp/pkg-go-t1"
   # shellcheck disable=SC1091
-  source "$HERE/lmm-api-deploy-bin/PKGBUILD"
+  source "$HERE/lmm-api-go-bin/PKGBUILD"
+  pkgver=$_t1_cli_version
   package
 )
 (
@@ -282,20 +282,16 @@ for packaged_path in \
   pkg-go-legacy/usr/lib/systemd/system/lmm-api.service \
   pkg-go-legacy/etc/lmm-api-go/lmm-api-go.env \
   pkg-go-legacy/usr/share/lmm-api-go/frontend-dist/index.html \
-  pkg-go-next/usr/bin/lmm-api \
-  pkg-go-next/usr/lib/systemd/system/lmm-api.service.d/20-memory.conf \
-  pkg-go-next/usr/lib/sysusers.d/lmm-api-operator.conf \
-  pkg-go-next/usr/lib/tmpfiles.d/lmm-api-operator.conf \
-  pkg-go-next/etc/sudoers.d/lmm-api-operator \
-  pkg-go-next/usr/share/doc/lmm-api-go-bin/API_ROUTE_CONTRACT_REVISION \
-  pkg-go-next/usr/share/doc/lmm-api-go-bin/RELEASE_ASSET_SHA256 \
-  pkg-go-next/usr/share/lmm-api-go/edge-policy/nginx/http-map.conf \
-  pkg-deploy/usr/lib/lmm-api-deploy/lmm-api-go \
-  pkg-deploy/usr/share/doc/lmm-api-deploy-bin/OPERATOR_SHA256 \
-  pkg-deploy/usr/share/doc/lmm-api-deploy-bin/RELEASE_ASSET_SHA256 \
-  pkg-deploy/usr/lib/sysusers.d/lmm-api-deploy.conf \
-  pkg-deploy/usr/lib/tmpfiles.d/lmm-api-deploy.conf \
-  pkg-deploy/etc/sudoers.d/lmm-api-deploy \
+  pkg-go-t0/usr/bin/lmm-api \
+  pkg-go-t0/usr/lib/sysusers.d/lmm-api-operator.conf \
+  pkg-go-t1/usr/bin/lmm-api \
+  pkg-go-t1/usr/lib/systemd/system/lmm-api.service.d/20-memory.conf \
+  pkg-go-t1/usr/lib/sysusers.d/lmm-api-operator.conf \
+  pkg-go-t1/usr/lib/tmpfiles.d/lmm-api-operator.conf \
+  pkg-go-t1/etc/sudoers.d/lmm-api-operator \
+  pkg-go-t1/usr/share/doc/lmm-api-go-bin/API_ROUTE_CONTRACT_REVISION \
+  pkg-go-t1/usr/share/doc/lmm-api-go-bin/RELEASE_ASSET_SHA256 \
+  pkg-go-t1/usr/share/lmm-api-go/edge-policy/nginx/http-map.conf \
   pkg-rs/usr/bin/lmm-api-rs \
   pkg-rs/usr/bin/lmm-db-migrate \
   pkg-web-next/usr/share/lmm-api-web/frontend-dist/index.html \
@@ -303,27 +299,21 @@ for packaged_path in \
   pkg-web-next/usr/share/doc/lmm-api-web-bin/RELEASE_ASSET_SHA256; do
   [[ -f $tmp/$packaged_path ]] || die "mock package layout is missing $packaged_path"
 done
-[[ -L $tmp/pkg-go-legacy/usr/bin/lmm-api-go ]] || die 'legacy Go package lacks compatibility symlink'
-[[ $(readlink "$tmp/pkg-go-legacy/usr/bin/lmm-api-go") == lmm-api ]] ||
-  die 'legacy Go compatibility symlink does not resolve to the canonical CLI'
-[[ -L $tmp/pkg-go-next/usr/bin/lmm-api-go ]] || die 'next Go package lacks compatibility symlink'
-[[ $(readlink "$tmp/pkg-go-next/usr/bin/lmm-api-go") == lmm-api ]] ||
-  die 'next Go compatibility symlink does not resolve to the canonical CLI'
-[[ $(stat -c '%a' "$tmp/pkg-go-next/etc/sudoers.d/lmm-api-operator") == 440 ]] ||
+for root in pkg-go-legacy pkg-go-t0; do
+  [[ -L $tmp/$root/usr/bin/lmm-api-go ]] || die "$root lacks the T0 compatibility symlink"
+  [[ $(readlink "$tmp/$root/usr/bin/lmm-api-go") == lmm-api ]] ||
+    die "$root compatibility symlink does not resolve to the canonical CLI"
+done
+[[ ! -e $tmp/pkg-go-t1/usr/bin/lmm-api-go ]] || die 'T1 Go package still exposes lmm-api-go'
+[[ ! -e $tmp/pkg-go-t1/usr/bin/lmm-api-deploy ]] || die 'T1 Go package exposes lmm-api-deploy'
+[[ $(find "$tmp/pkg-go-t1/usr/bin" -mindepth 1 -maxdepth 1 -printf '%f\n') == lmm-api ]] ||
+  die 'T1 Go package exposes more than one public backend CLI'
+[[ $(stat -c '%a' "$tmp/pkg-go-t1/etc/sudoers.d/lmm-api-operator") == 440 ]] ||
   die 'integrated operator sudoers policy mode is not 0440'
-visudo -cf "$tmp/pkg-go-next/etc/sudoers.d/lmm-api-operator" >/dev/null ||
+visudo -cf "$tmp/pkg-go-t1/etc/sudoers.d/lmm-api-operator" >/dev/null ||
   die 'integrated operator sudoers policy fails visudo validation'
-[[ -L $tmp/pkg-deploy/usr/bin/lmm-api-deploy ]] || die 'operator package lacks canonical command'
-[[ $(readlink "$tmp/pkg-deploy/usr/bin/lmm-api-deploy") == ../lib/lmm-api-deploy/lmm-api-go ]] ||
-  die 'operator command does not resolve to its independent package payload'
-cmp -s "$tmp/pkg-deploy/usr/lib/lmm-api-deploy/lmm-api-go" "$deploy_bundle/lmm-api-go" ||
-  die 'operator package changed the signed Go release bytes'
-[[ $(stat -c '%a' "$tmp/pkg-deploy/etc/sudoers.d/lmm-api-deploy") == 440 ]] ||
-  die 'operator sudoers policy mode is not 0440'
-sudoers="$tmp/pkg-deploy/etc/sudoers.d/lmm-api-deploy"
-visudo -cf "$sudoers" >/dev/null || die 'operator sudoers policy fails visudo validation'
-integrated_sudoers="$tmp/pkg-go-next/etc/sudoers.d/lmm-api-operator"
-cmp -s "$integrated_sudoers" "$SHARED/lmm-api-operator.sudoers" ||
+sudoers="$tmp/pkg-go-t1/etc/sudoers.d/lmm-api-operator"
+cmp -s "$sudoers" "$SHARED/lmm-api-operator.sudoers" ||
   die 'integrated operator sudoers policy differs from the shared policy'
 go_pacman_regex='^--upgrade --noconfirm -- /var/lib/lmm-api-go-deploy/work/[A-Za-z0-9][A-Za-z0-9._-]{0,79}/staging/lmm-api-go-bin-[A-Za-z0-9][A-Za-z0-9._+@~-]*\.pkg\.tar\.(zst|xz|gz|bz2|lz4|lrz|lzo|Z)$'
 web_pacman_regex='^--upgrade --noconfirm -- /var/lib/lmm-api-go-deploy/work/[A-Za-z0-9][A-Za-z0-9._-]{0,79}/staging/lmm-api-web-bin-[A-Za-z0-9][A-Za-z0-9._+@~-]*\.pkg\.tar\.(zst|xz|gz|bz2|lz4|lrz|lzo|Z)$'
@@ -344,18 +334,14 @@ for rejected in \
   '--upgrade --noconfirm -- /tmp/lmm-api-go-bin-1-1-x86_64.pkg.tar.zst'; do
   [[ ! $rejected =~ $go_pacman_regex && ! $rejected =~ $web_pacman_regex ]] || die "malicious pacman argv accepted: $rejected"
 done
-[[ $(<"$tmp/pkg-deploy/usr/share/doc/lmm-api-deploy-bin/OPERATOR_SHA256") == $(sha256sum "$deploy_bundle/lmm-api-go" | cut -d' ' -f1) ]] ||
-  die 'operator byte hash metadata is incorrect'
-[[ ! -e $tmp/pkg-go-next/usr/share/lmm-api-go/frontend-dist ]] ||
-  die 'next Go package owns a bundled frontend'
-for forbidden in \
-  pkg-deploy/usr/lib/systemd/system/lmm-api.service \
-  pkg-deploy/etc/lmm-api-go/lmm-api-go.env \
-  pkg-deploy/usr/share/lmm-api-go/frontend-dist \
-  pkg-deploy/usr/share/lmm-api-web/frontend-dist; do
-  [[ ! -e $tmp/$forbidden ]] || die "tooling-only operator owns application path: $forbidden"
+[[ ! -e $tmp/pkg-go-t1/usr/share/lmm-api-go/frontend-dist ]] ||
+  die 'T1 Go package owns a bundled frontend'
+for pkgbuild in "$HERE/lmm-api-go/PKGBUILD" "$HERE/lmm-api-go-git/PKGBUILD" "$HERE/../local/lmm-api-go/PKGBUILD"; do
+  # shellcheck disable=SC2016 # Deliberately inspect PKGBUILD source literals.
+  ! grep -Fq 'ln -s lmm-api "${pkgdir}/usr/bin/lmm-api-go"' "$pkgbuild" ||
+    die "final Go package still creates the legacy CLI: $pkgbuild"
 done
 [[ ! -e $tmp/pkg-rs/usr/bin/lmm-api && ! -L $tmp/pkg-rs/usr/bin/lmm-api ]] ||
   die 'Rust package exposes the Go provider command'
 
-printf '%s\n' 'seven-package split backend, web, and deployment operator AUR matrix verified'
+printf '%s\n' 'single-CLI split backend and Web AUR matrix verified'

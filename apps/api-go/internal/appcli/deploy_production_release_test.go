@@ -321,25 +321,36 @@ func TestVerifySignedPackageLayoutRejectsUnsignedOperatorMutation(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	packageEntries := func(sudoers string) []testTarEntry {
-		return []testTarEntry{
+	packageEntries := func(sudoers string, legacyAlias bool) []testTarEntry {
+		entries := []testTarEntry{
 			{name: "usr/bin/lmm-api", body: "binary", mode: 0o755},
-			{name: "usr/bin/lmm-api-go", mode: 0o777, linkTo: "lmm-api"},
 			{name: "etc/sudoers.d/lmm-api-operator", body: sudoers, mode: 0o440},
 			{name: "usr/share/licenses/lmm-api-go-bin/LICENSE", body: "license\n", mode: 0o644},
 			{name: "usr/share/doc/lmm-api-go-bin/RELEASE_ASSET_SHA256", body: assetSHA256 + "\n", mode: 0o644},
 		}
+		if legacyAlias {
+			entries = append(entries, testTarEntry{name: "usr/bin/lmm-api-go", mode: 0o777, linkTo: "lmm-api"})
+		}
+		return entries
 	}
 	packagePath := filepath.Join(workspace, "package.tar.gz")
-	writeTestTarGzip(t, packagePath, packageEntries("safe-sudoers\n"))
+	writeTestTarGzip(t, packagePath, packageEntries("safe-sudoers\n", true))
 	runtime := &productionReleaseRuntime{runner: osProductionCommandRunner{}}
 	if err := runtime.verifySignedPackageLayout(context.Background(), workspace, productionAURPackageName, "0.1.58-1", packagePath, asset, assetSHA256); err != nil {
 		t.Fatal(err)
 	}
 	tamperedPackage := filepath.Join(workspace, "tampered.tar.gz")
-	writeTestTarGzip(t, tamperedPackage, packageEntries("unsafe-sudoers\n"))
+	writeTestTarGzip(t, tamperedPackage, packageEntries("unsafe-sudoers\n", true))
 	if err := runtime.verifySignedPackageLayout(context.Background(), workspace, productionAURPackageName, "0.1.58-1", tamperedPackage, asset, assetSHA256); err == nil || !strings.Contains(err.Error(), "differs from signed release") {
 		t.Fatalf("tampered package error=%v", err)
+	}
+	t1Package := filepath.Join(workspace, "t1.tar.gz")
+	writeTestTarGzip(t, t1Package, packageEntries("safe-sudoers\n", false))
+	if err := runtime.verifySignedPackageLayout(context.Background(), workspace, productionAURPackageName, "0.1.59-1", t1Package, asset, assetSHA256); err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.verifySignedPackageLayout(context.Background(), workspace, productionAURPackageName, "0.1.59-1", packagePath, asset, assetSHA256); err == nil || !strings.Contains(err.Error(), "T1 package still exposes") {
+		t.Fatalf("T1 compatibility-link error=%v", err)
 	}
 }
 

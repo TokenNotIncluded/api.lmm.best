@@ -14,7 +14,8 @@ optdepends=(
   'valkey: cache, rate limiting, and login sessions'
 )
 provides=("lmm-api=${pkgver}")
-conflicts=('lmm-api' 'lmm-api-bin' 'lmm-api-git' 'lmm-api-go-bin' 'lmm-api-go-git')
+conflicts=('lmm-api' 'lmm-api-bin' 'lmm-api-git' 'lmm-api-go-bin' 'lmm-api-go-git' 'lmm-api-deploy' 'lmm-api-deploy-bin')
+replaces=('lmm-api-deploy-bin')
 backup=('etc/lmm-api-go/lmm-api-go.env')
 options=('!strip')
 
@@ -40,7 +41,6 @@ package() {
   local file
 
   install -Dm0755 "${srcdir}/lmm-api-cli" "${pkgdir}/usr/bin/lmm-api"
-  ln -s lmm-api "${pkgdir}/usr/bin/lmm-api-go"
   install -Dm0644 "${shared}/lmm-api.service" \
     "${pkgdir}/usr/lib/systemd/system/lmm-api.service"
   if [[ -f ${shared}/lmm-api-operator.sysusers ]]; then

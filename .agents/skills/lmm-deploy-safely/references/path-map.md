@@ -12,7 +12,7 @@ compatibility; T1 removes them. Never invoke or publish a second deploy CLI.
 | Go artifact | `apps/api-go/out/lmm-api` |
 | Rust artifacts | `apps/api-rust/target/release/lmm-api-rs`, `lmm-db-migrate` |
 | Frontend build | `apps/web/dist` |
-| T0 legacy deploy recipe (deleted in T1) | `packaging/aur/lmm-api-deploy-bin` |
+| Legacy deploy-only recipe | none; deleted in T1 and never republished |
 | Go AUR recipe | `packaging/aur/lmm-api-go-bin` |
 | Web AUR recipe | `packaging/aur/lmm-api-web-bin` |
 | API/route compatibility contract | `deploy/production/API_ROUTE_CONTRACT` |
