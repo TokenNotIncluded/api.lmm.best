@@ -238,7 +238,7 @@ printf 'fixture archive\n' >"$stage/go-next/lmm-api-go-${go_bin_pkgver}-linux-am
   pkgdir="$tmp/pkg-go-t0"
   # shellcheck disable=SC1091
   source "$HERE/lmm-api-go-bin/PKGBUILD"
-  pkgver=0.1.58
+  pkgver=0.1.59
   package
 )
 (

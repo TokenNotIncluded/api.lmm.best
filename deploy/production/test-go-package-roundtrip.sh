@@ -236,11 +236,11 @@ package() {
 }
 EOF
 (cd "$legacy_deploy_work" && PKGDEST="$transition_packages" makepkg --force --nodeps --noconfirm >/dev/null)
-build_transition_go_package t0 0.1.58
-build_transition_go_package t1 0.1.59
+build_transition_go_package t0 0.1.59
+build_transition_go_package t1 0.1.60
 
-t0_package=$(find "$transition_packages" -maxdepth 1 -type f -name 'lmm-api-go-bin-0.1.58-1-*.pkg.tar.*' -print -quit)
-t1_package=$(find "$transition_packages" -maxdepth 1 -type f -name 'lmm-api-go-bin-0.1.59-1-*.pkg.tar.*' -print -quit)
+t0_package=$(find "$transition_packages" -maxdepth 1 -type f -name 'lmm-api-go-bin-0.1.59-1-*.pkg.tar.*' -print -quit)
+t1_package=$(find "$transition_packages" -maxdepth 1 -type f -name 'lmm-api-go-bin-0.1.60-1-*.pkg.tar.*' -print -quit)
 legacy_deploy_package=$(find "$transition_packages" -maxdepth 1 -type f -name 'lmm-api-deploy-bin-*.pkg.tar.*' -print -quit)
 [[ -n $t0_package && -n $t1_package && -n $legacy_deploy_package ]] || {
   printf 'go-package-roundtrip: T0/T1 transition package fixture is incomplete\n' >&2
@@ -256,7 +256,7 @@ transition_install=(pacman "${transition_common[@]}" --noconfirm --noscriptlet -
 transition_query=(pacman "${transition_common[@]}")
 
 fakeroot -- "${transition_install[@]}" -U "$legacy_deploy_package" "$t0_package" >/dev/null
-[[ $("${transition_query[@]}" -Q lmm-api-go-bin 2>/dev/null) == 'lmm-api-go-bin 0.1.58-1' ]]
+[[ $("${transition_query[@]}" -Q lmm-api-go-bin 2>/dev/null) == 'lmm-api-go-bin 0.1.59-1' ]]
 [[ $("${transition_query[@]}" -Q lmm-api-deploy-bin 2>/dev/null) == 'lmm-api-deploy-bin 0.1.57-1' ]]
 [[ -x $transition_pacman_root/usr/bin/lmm-api && -L $transition_pacman_root/usr/bin/lmm-api-go ]]
 [[ -x $transition_pacman_root/usr/bin/lmm-api-deploy ]]
@@ -265,7 +265,7 @@ fakeroot -- "${transition_install[@]}" -U "$legacy_deploy_package" "$t0_package"
 # rollback watchdog is armed; pacman -U does not apply replaces to local files.
 fakeroot -- "${transition_install[@]}" --remove -- lmm-api-deploy-bin >/dev/null
 fakeroot -- "${transition_install[@]}" -U "$t1_package" >/dev/null
-[[ $("${transition_query[@]}" -Q lmm-api-go-bin 2>/dev/null) == 'lmm-api-go-bin 0.1.59-1' ]]
+[[ $("${transition_query[@]}" -Q lmm-api-go-bin 2>/dev/null) == 'lmm-api-go-bin 0.1.60-1' ]]
 if "${transition_query[@]}" -Qq | grep -Fxq lmm-api-deploy-bin; then
   printf 'go-package-roundtrip: controller removal left the legacy deploy package installed\n' >&2
   exit 1
@@ -275,7 +275,7 @@ fi
 [[ -f $transition_pacman_root/etc/sudoers.d/lmm-api-operator ]]
 
 fakeroot -- "${transition_install[@]}" -U "$t0_package" >/dev/null
-[[ $("${transition_query[@]}" -Q lmm-api-go-bin 2>/dev/null) == 'lmm-api-go-bin 0.1.58-1' ]]
+[[ $("${transition_query[@]}" -Q lmm-api-go-bin 2>/dev/null) == 'lmm-api-go-bin 0.1.59-1' ]]
 [[ -x $transition_pacman_root/usr/bin/lmm-api && -L $transition_pacman_root/usr/bin/lmm-api-go ]]
 [[ $(readlink "$transition_pacman_root/usr/bin/lmm-api-go") == lmm-api ]]
 [[ ! -e $transition_pacman_root/usr/bin/lmm-api-deploy ]]
