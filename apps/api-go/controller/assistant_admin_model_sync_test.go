@@ -3,10 +3,13 @@ package controller
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"testing"
 
 	"github.com/LIghtJUNction/api.lmm.best/model"
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
 
@@ -47,6 +50,29 @@ func TestAssistantAdminModelSyncApplyCreatesMissingMetadataAtomically(t *testing
 	var count int64
 	require.NoError(t, db.Model(&model.Model{}).Count(&count).Error)
 	require.EqualValues(t, 2, count)
+}
+
+func TestAssistantAdminModelSyncPlanReportsUpstreamHTTPStatus(t *testing.T) {
+	db := setupTokenControllerTestDB(t)
+	require.NoError(t, db.AutoMigrate(&model.Ability{}, &model.Model{}))
+	require.NoError(t, db.Create(&model.Ability{Group: "default", Model: "missing-model", ChannelId: 1, Enabled: true}).Error)
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "catalog unavailable", http.StatusBadGateway)
+	}))
+	defer upstream.Close()
+	t.Setenv("SYNC_UPSTREAM_BASE", upstream.URL)
+	t.Setenv("SYNC_HTTP_RETRY", "1")
+	t.Setenv("SYNC_HTTP_TIMEOUT_SECONDS", "2")
+
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/assistant/chat", nil)
+	_, skipped, err := assistantAdminModelSyncPlan(c, []string{"missing-model"}, "")
+
+	require.ErrorContains(t, err, "upstream model catalog is unavailable")
+	require.ErrorContains(t, err, "source "+upstream.URL+"/api/newapi/models.json")
+	require.ErrorContains(t, err, "502 Bad Gateway")
+	require.Empty(t, skipped)
 }
 
 func TestAssistantAdminModelSyncPreviewIncludesStagedMetadata(t *testing.T) {
