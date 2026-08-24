@@ -139,11 +139,9 @@ jobs:
 
       - name: Install production contract tools
         run: |
-          if ! command -v bsdtar >/dev/null 2>&1; then
-            mkdir -p "$RUNNER_TEMP/compat-tools"
-            ln -s "$(command -v tar)" "$RUNNER_TEMP/compat-tools/bsdtar"
-            echo "$RUNNER_TEMP/compat-tools" >> "$GITHUB_PATH"
-          fi
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes libarchive-tools
+          test "$(command -v bsdtar)" = /usr/bin/bsdtar
           bsdtar --version | head -1
 
       - name: Test default Go module
