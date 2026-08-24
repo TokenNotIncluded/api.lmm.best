@@ -21,8 +21,10 @@ func subscriptionConfiguredPaymentMethods(plan *model.SubscriptionPlan) []string
 		return []string{}
 	}
 
-	methods := make([]string, 0, len(operation_setting.PayMethods)+4)
-	seen := make(map[string]struct{}, cap(methods))
+	// Keep configuration-derived capacity arithmetic overflow-free. The four
+	// built-in methods can grow the slice normally when they are enabled.
+	methods := make([]string, 0, len(operation_setting.PayMethods))
+	seen := make(map[string]struct{}, len(operation_setting.PayMethods))
 	appendConfigured := func(method string, configured bool) {
 		if !configured {
 			return

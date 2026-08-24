@@ -125,6 +125,26 @@ func TestSubscriptionConfiguredPaymentMethodsRequireUsableGatewayConfiguration(t
 	)
 }
 
+func TestSubscriptionConfiguredPaymentMethodsGrowsPastConfigurationCapacity(t *testing.T) {
+	confirmPaymentComplianceForTest(t)
+	preservePaymentGatewaySettings(t)
+
+	operation_setting.PayAddress = "https://epay.example.test"
+	operation_setting.EpayId = "merchant"
+	operation_setting.EpayKey = "secret"
+	const configuredCount = 4096
+	operation_setting.PayMethods = make([]map[string]string, configuredCount)
+	expected := make([]string, 0, configuredCount+1)
+	expected = append(expected, model.PaymentMethodBalance)
+	for index := range configuredCount {
+		method := fmt.Sprintf("custom-%04d", index)
+		operation_setting.PayMethods[index] = map[string]string{"name": method, "type": method}
+		expected = append(expected, method)
+	}
+
+	require.Equal(t, expected, subscriptionConfiguredPaymentMethods(&model.SubscriptionPlan{Enabled: true}))
+}
+
 func TestEnabledSubscriptionPlanRequiresConfiguredPaymentMethod(t *testing.T) {
 	confirmPaymentComplianceForTest(t)
 	preservePaymentGatewaySettings(t)
