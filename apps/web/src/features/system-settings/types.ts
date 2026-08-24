@@ -215,9 +215,12 @@ export const ASSISTANT_SEARCH_PROVIDERS = [
 export const ASSISTANT_REASONING_EFFORTS = [
   'auto',
   'none',
+  'minimal',
   'low',
   'medium',
   'high',
+  'xhigh',
+  'max',
 ] as const
 
 export type AssistantReasoningEffort =
@@ -325,7 +328,9 @@ export type ContentSettings = {
   AssistantReviewWindowDays: number
   AssistantReviewIntervalHours: number
   AssistantReviewProbability: number
+  AssistantReviewGroup: string
   AssistantReviewModel: string
+  AssistantReviewReasoningEffort: AssistantReasoningEffort
   AssistantReviewGroupPolicies: string
   AssistantRetentionEnabled: boolean
   AssistantActiveRetentionDays: number

@@ -62,8 +62,18 @@ const { api } = await import('@/lib/api')
 const { AssistantSettingsSection } =
   await import('./assistant-settings-section')
 const { assistantSettingsSchema } = await import('./assistant-settings-schema')
-const { ASSISTANT_SEARCH_PROVIDERS, normalizeAssistantSearchProvider } =
-  await import('../types')
+const {
+  ASSISTANT_REASONING_EFFORTS,
+  ASSISTANT_SEARCH_PROVIDERS,
+  normalizeAssistantSearchProvider,
+} = await import('../types')
+
+const assistantSearchURLByProvider: Partial<
+  Record<(typeof ASSISTANT_SEARCH_PROVIDERS)[number], string>
+> = {
+  generic_http: 'https://search.example/api/search',
+  mcp_streamable_http: 'https://search.example/mcp',
+}
 
 const reactTestGlobals = globalThis as typeof globalThis & {
   IS_REACT_ACT_ENVIRONMENT?: boolean
@@ -101,7 +111,9 @@ const baseValues = {
   AssistantReviewWindowDays: 30,
   AssistantReviewIntervalHours: 24,
   AssistantReviewProbability: 0,
+  AssistantReviewGroup: 'default',
   AssistantReviewModel: 'deepseek-v4-flash',
+  AssistantReviewReasoningEffort: 'auto',
   AssistantReviewGroupPolicies: '{}',
   AssistantRetentionEnabled: true,
   AssistantActiveRetentionDays: 90,
@@ -128,12 +140,7 @@ async function renderSettings(
             defaultValues={{
               ...baseValues,
               AssistantSearchProvider: provider,
-              AssistantSearchURL:
-                provider === 'mcp_streamable_http'
-                  ? 'https://search.example/mcp'
-                  : provider === 'generic_http'
-                    ? 'https://search.example/api/search'
-                    : '',
+              AssistantSearchURL: assistantSearchURLByProvider[provider] ?? '',
               AssistantSearchMCPTool:
                 provider === 'mcp_streamable_http' ? 'web_search' : '',
             }}
@@ -192,6 +199,37 @@ describe('assistant search provider settings', () => {
     } finally {
       await cleanup()
     }
+  })
+
+  test('accepts every supported reasoning effort for primary and review routes', () => {
+    assert.deepEqual(ASSISTANT_REASONING_EFFORTS, [
+      'auto',
+      'none',
+      'minimal',
+      'low',
+      'medium',
+      'high',
+      'xhigh',
+      'max',
+    ])
+    for (const effort of ASSISTANT_REASONING_EFFORTS) {
+      assert.equal(
+        assistantSettingsSchema.safeParse({
+          ...baseValues,
+          AssistantReasoningEffort: effort,
+          AssistantReviewReasoningEffort: effort,
+        }).success,
+        true,
+        effort
+      )
+    }
+    assert.equal(
+      assistantSettingsSchema.safeParse({
+        ...baseValues,
+        AssistantReviewReasoningEffort: 'ultra',
+      }).success,
+      false
+    )
   })
 
   test('accepts supported providers and rejects unknown values', () => {
@@ -255,6 +293,124 @@ describe('assistant search provider settings', () => {
     )
     assert.match(container.textContent ?? '', /official Exa Search API/)
     await cleanup()
+  })
+
+  test('uses enum controls for the review group, model ID, and reasoning effort', async () => {
+    const originalGet = api.get
+    const requestedGroups: string[] = []
+    api.get = (async (
+      url: string,
+      config?: { params?: { group?: string } }
+    ) => {
+      if (url === '/api/group/') {
+        return { data: { data: ['default', 'review-premium'] } }
+      }
+      if (url === '/api/assistant/models') {
+        requestedGroups.push(config?.params?.group ?? '')
+        return { data: { data: ['review-model-live'] } }
+      }
+      throw new Error(`unexpected GET ${url}`)
+    }) as typeof api.get
+
+    const rendered = await renderSettings('none')
+    try {
+      await act(flushEffects)
+      const routeFields = rendered.container.querySelector<HTMLElement>(
+        '[data-testid="assistant-review-route-fields"]'
+      )
+      assert.ok(routeFields)
+      assert.equal(
+        routeFields.querySelector('input[name="AssistantReviewModel"]'),
+        null
+      )
+
+      const getModelListButton = routeFields.querySelector<HTMLButtonElement>(
+        '[data-testid="assistant-review-get-model-list"]'
+      )
+      assert.ok(getModelListButton)
+      const routeComboboxes = routeFields.querySelectorAll<HTMLButtonElement>(
+        'button[role="combobox"]'
+      )
+      assert.equal(routeComboboxes.length, 3)
+      assert.equal(routeComboboxes[1]?.disabled, true)
+
+      await act(async () => {
+        getModelListButton.click()
+        await flushEffects()
+      })
+
+      assert.deepEqual(requestedGroups, ['default'])
+      assert.equal(routeComboboxes[1]?.disabled, false)
+      await act(async () => {
+        routeComboboxes[2]?.click()
+        await flushEffects()
+      })
+      const effortOptions = new Set(
+        [...document.querySelectorAll('[role="option"]')].map((option) =>
+          option.textContent?.trim()
+        )
+      )
+      for (const effort of ASSISTANT_REASONING_EFFORTS) {
+        assert.ok(effortOptions.has(effort), effort)
+      }
+    } finally {
+      api.get = originalGet
+      await rendered.cleanup()
+    }
+  })
+
+  test('saves changed assistant options through one bulk mutation', async () => {
+    const originalGet = api.get
+    const originalPost = api.post
+    let capturedURL = ''
+    let capturedValues: Record<string, string> | undefined
+    api.get = (async (url: string) => {
+      if (url === '/api/group/') {
+        return { data: { data: ['default'] } }
+      }
+      throw new Error(`unexpected GET ${url}`)
+    }) as typeof api.get
+    api.post = (async (
+      url: string,
+      body: { values?: Record<string, string> }
+    ) => {
+      capturedURL = url
+      capturedValues = body.values
+      return { data: { success: true, message: '' } }
+    }) as typeof api.post
+
+    const rendered = await renderSettings('none')
+    try {
+      const maxStepsInput = rendered.container.querySelector<HTMLInputElement>(
+        'input[name="AssistantMaxSteps"]'
+      )
+      const form = rendered.container.querySelector('form')
+      assert.ok(maxStepsInput)
+      assert.ok(form)
+      await act(async () => {
+        const valueSetter = Object.getOwnPropertyDescriptor(
+          HTMLInputElement.prototype,
+          'value'
+        )?.set
+        assert.ok(valueSetter)
+        valueSetter.call(maxStepsInput, '7')
+        maxStepsInput.dispatchEvent(new Event('input', { bubbles: true }))
+        maxStepsInput.dispatchEvent(new Event('change', { bubbles: true }))
+        form.dispatchEvent(
+          new Event('submit', { bubbles: true, cancelable: true })
+        )
+        await flushEffects()
+        await flushEffects()
+      })
+
+      assert.equal(capturedURL, '/api/option/bulk')
+      assert.equal(capturedValues?.AssistantMaxSteps, '7')
+      assert.equal(Object.keys(capturedValues ?? {}).length, 1)
+    } finally {
+      api.get = originalGet
+      api.post = originalPost
+      await rendered.cleanup()
+    }
   })
 
   test('loads model IDs only after the administrator requests the list', async () => {

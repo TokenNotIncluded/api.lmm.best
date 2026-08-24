@@ -124,7 +124,10 @@ const CONTENT_SECTIONS = [
           AssistantReviewWindowDays: settings.AssistantReviewWindowDays,
           AssistantReviewIntervalHours: settings.AssistantReviewIntervalHours,
           AssistantReviewProbability: settings.AssistantReviewProbability,
+          AssistantReviewGroup: settings.AssistantReviewGroup,
           AssistantReviewModel: settings.AssistantReviewModel,
+          AssistantReviewReasoningEffort:
+            settings.AssistantReviewReasoningEffort,
           AssistantReviewGroupPolicies: settings.AssistantReviewGroupPolicies,
           AssistantRetentionEnabled: settings.AssistantRetentionEnabled,
           AssistantActiveRetentionDays: settings.AssistantActiveRetentionDays,

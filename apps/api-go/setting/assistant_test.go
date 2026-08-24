@@ -8,6 +8,17 @@ import (
 	"testing"
 )
 
+func TestAssistantReasoningEfforts(t *testing.T) {
+	for _, effort := range []string{"auto", "none", "minimal", "low", "medium", "high", "xhigh", "max"} {
+		if !IsAssistantReasoningEffort(effort) {
+			t.Fatalf("expected %q to be a supported assistant reasoning effort", effort)
+		}
+	}
+	if IsAssistantReasoningEffort("ultra") {
+		t.Fatal("unexpected support for unknown assistant reasoning effort")
+	}
+}
+
 func TestAssistantDefaultsAndValidation(t *testing.T) {
 	settings := GetAssistantSettings()
 	if !settings.Enabled {
@@ -31,7 +42,7 @@ func TestAssistantDefaultsAndValidation(t *testing.T) {
 	if !settings.RetentionEnabled || settings.ActiveRetentionDays != 90 || settings.ArchivedRetentionDays != 30 || settings.SecurityRetentionDays != 180 || settings.RetentionIntervalHours != 24 {
 		t.Fatalf("unexpected assistant retention defaults: %+v", settings)
 	}
-	if !settings.ReviewEnabled || settings.ReviewWindowDays != 30 || settings.ReviewIntervalHours != 24 || settings.ReviewProbability != 0 || settings.ReviewModel != DefaultAssistantReviewModel || len(settings.ReviewGroupPolicies) != 0 {
+	if !settings.ReviewEnabled || settings.ReviewWindowDays != 30 || settings.ReviewIntervalHours != 24 || settings.ReviewProbability != 0 || settings.ReviewGroup != DefaultAssistantReviewGroup || settings.ReviewModel != DefaultAssistantReviewModel || settings.ReviewReasoningEffort != DefaultAssistantReviewReasoningEffort || len(settings.ReviewGroupPolicies) != 0 {
 		t.Fatalf("unexpected assistant review defaults: %+v", settings)
 	}
 
@@ -49,7 +60,9 @@ func TestAssistantDefaultsAndValidation(t *testing.T) {
 		AssistantReviewWindowDaysOptionKey:       "0",
 		AssistantReviewIntervalHoursOptionKey:    "169",
 		AssistantReviewProbabilityOptionKey:      "100.1",
+		AssistantReviewGroupOptionKey:            " ",
 		AssistantReviewModelOptionKey:            " ",
+		AssistantReviewReasoningEffortOptionKey:  "extreme",
 		AssistantReviewGroupPoliciesOptionKey:    `{"default":{"probability":1,"intensity":"unknown"}}`,
 		AssistantActiveRetentionDaysOptionKey:    "6",
 		AssistantArchivedRetentionDaysOptionKey:  "0",
@@ -86,7 +99,9 @@ func TestAssistantSettingsUpdates(t *testing.T) {
 		_ = UpdateAssistantReviewWindowDays(strconv.Itoa(original.ReviewWindowDays))
 		_ = UpdateAssistantReviewIntervalHours(strconv.Itoa(original.ReviewIntervalHours))
 		_ = UpdateAssistantReviewProbability(strconv.FormatFloat(original.ReviewProbability, 'f', -1, 64))
+		_ = UpdateAssistantReviewGroup(original.ReviewGroup)
 		_ = UpdateAssistantReviewModel(original.ReviewModel)
+		_ = UpdateAssistantReviewReasoningEffort(original.ReviewReasoningEffort)
 		_ = UpdateAssistantReviewGroupPolicies(AssistantReviewGroupPoliciesJSON(original.ReviewGroupPolicies))
 		SetAssistantRetentionEnabled(original.RetentionEnabled)
 		_ = UpdateAssistantActiveRetentionDays(strconv.Itoa(original.ActiveRetentionDays))
@@ -105,7 +120,7 @@ func TestAssistantSettingsUpdates(t *testing.T) {
 	if err := UpdateAssistantL1AutoApprovalUserIDs("42,7,42"); err != nil {
 		t.Fatal(err)
 	}
-	if err := UpdateAssistantReasoningEffort("HIGH"); err != nil {
+	if err := UpdateAssistantReasoningEffort("MAX"); err != nil {
 		t.Fatal(err)
 	}
 	SetAssistantStreamEnabled(false)
@@ -136,7 +151,13 @@ func TestAssistantSettingsUpdates(t *testing.T) {
 	if err := UpdateAssistantReviewProbability("1.0"); err != nil {
 		t.Fatal(err)
 	}
+	if err := UpdateAssistantReviewGroup(" review-premium "); err != nil {
+		t.Fatal(err)
+	}
 	if err := UpdateAssistantReviewModel("review-model"); err != nil {
+		t.Fatal(err)
+	}
+	if err := UpdateAssistantReviewReasoningEffort("XHIGH"); err != nil {
 		t.Fatal(err)
 	}
 	if err := UpdateAssistantReviewGroupPolicies(`{"free":{"probability":0,"intensity":"off"},"premium":{"probability":25,"intensity":"high"}}`); err != nil {
@@ -157,7 +178,7 @@ func TestAssistantSettingsUpdates(t *testing.T) {
 	}
 
 	settings := GetAssistantSettings()
-	if settings.Enabled || settings.Model != "custom-model" || settings.Group != "premium" || settings.L1AutoApprovalUserIDs != "7,42" || settings.ReasoningEffort != "high" || settings.StreamEnabled || settings.Temperature != 1.1 || settings.MaxTokens != 2048 || settings.AgentLoopEnabled || settings.MaxSteps != 9 || settings.TimeoutSeconds != 60 || settings.CacheEnabled || settings.CacheTTLMinutes != 30 || settings.ReviewEnabled || settings.ReviewWindowDays != 14 || settings.ReviewIntervalHours != 6 || settings.ReviewProbability != 1 || settings.ReviewModel != "review-model" || settings.ReviewGroupPolicies["premium"].Intensity != "high" || settings.RetentionEnabled || settings.ActiveRetentionDays != 120 || settings.ArchivedRetentionDays != 45 || settings.SecurityRetentionDays != 365 || settings.RetentionIntervalHours != 12 {
+	if settings.Enabled || settings.Model != "custom-model" || settings.Group != "premium" || settings.L1AutoApprovalUserIDs != "7,42" || settings.ReasoningEffort != "max" || settings.StreamEnabled || settings.Temperature != 1.1 || settings.MaxTokens != 2048 || settings.AgentLoopEnabled || settings.MaxSteps != 9 || settings.TimeoutSeconds != 60 || settings.CacheEnabled || settings.CacheTTLMinutes != 30 || settings.ReviewEnabled || settings.ReviewWindowDays != 14 || settings.ReviewIntervalHours != 6 || settings.ReviewProbability != 1 || settings.ReviewGroup != "review-premium" || settings.ReviewModel != "review-model" || settings.ReviewReasoningEffort != "xhigh" || settings.ReviewGroupPolicies["premium"].Intensity != "high" || settings.RetentionEnabled || settings.ActiveRetentionDays != 120 || settings.ArchivedRetentionDays != 45 || settings.SecurityRetentionDays != 365 || settings.RetentionIntervalHours != 12 {
 		t.Fatalf("unexpected updated settings: %+v", settings)
 	}
 	if !AssistantL1AutoApprovalUserAllowed(7) || AssistantL1AutoApprovalUserAllowed(8) {

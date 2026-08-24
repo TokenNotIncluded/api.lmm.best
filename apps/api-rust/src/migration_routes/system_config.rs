@@ -881,6 +881,18 @@ mod assistant_group_option_tests {
         assert!(validate_option_update("AssistantGroup", "premium", &options).is_ok());
         assert!(validate_option_update("AssistantGroup", "missing", &options).is_err());
         assert!(validate_option_update("AssistantGroup", "", &options).is_err());
+        assert!(validate_option_update("AssistantReviewGroup", "premium", &options).is_ok());
+        assert!(validate_option_update("AssistantReviewGroup", "missing", &options).is_err());
+        assert!(validate_option_update("AssistantReviewModel", "review-live", &options).is_ok());
+        assert!(validate_option_update("AssistantReviewModel", "", &options).is_err());
+        assert!(
+            validate_option_update("AssistantReviewModel", &"x".repeat(129), &options).is_err()
+        );
+        assert!(validate_option_update("AssistantReasoningEffort", "xhigh", &options).is_ok());
+        assert!(validate_option_update("AssistantReviewReasoningEffort", "max", &options).is_ok());
+        assert!(
+            validate_option_update("AssistantReviewReasoningEffort", "ultra", &options).is_err()
+        );
         assert!(validate_option_update("AssistantL1AutoApprovalUserIDs", "7,42", &options).is_ok());
         assert!(
             validate_option_update("AssistantL1AutoApprovalUserIDs", "7,nope", &options).is_err()
@@ -1888,7 +1900,14 @@ async fn update_option(
         Ok(options) => options,
         Err(()) => return legacy_error("保存设置失败"),
     };
-    if let Err(message) = validate_option_update(&input.key, &value, &options) {
+    let mut candidate_options = options.clone();
+    candidate_options.insert(input.key.clone(), value.clone());
+    if let Err(message) = validate_option_update(&input.key, &value, &candidate_options) {
+        return legacy_error(message);
+    }
+    if let Err(message) =
+        validate_assistant_model_update(&state, &input.key, &value, &candidate_options).await
+    {
         return legacy_error(message);
     }
     let changes = vec![(input.key, value)];
@@ -1913,19 +1932,41 @@ fn validate_option_update(
         {
             Err("请先确认支付合规声明".to_owned())
         }
-        "AssistantGroup" => {
+        "AssistantGroup" | "AssistantReviewGroup" => {
             let group = value.trim();
+            let route_label = if key == "AssistantReviewGroup" {
+                "assistant review routing group"
+            } else {
+                "assistant routing group"
+            };
             if group.is_empty() {
-                return Err("assistant routing group is required".to_owned());
+                return Err(format!("{route_label} is required"));
             }
             let configured = options
                 .get("GroupRatio")
-                .ok_or_else(|| "assistant routing group catalog is unavailable".to_owned())?;
+                .ok_or_else(|| format!("{route_label} catalog is unavailable"))?;
             let groups = parse_json_object(configured, "group ratio")?;
             if groups.contains_key(group) {
                 Ok(())
             } else {
-                Err("assistant routing group must be an existing group".to_owned())
+                Err(format!("{route_label} must be an existing group"))
+            }
+        }
+        "AssistantReasoningEffort" | "AssistantReviewReasoningEffort" => {
+            match value.trim().to_ascii_lowercase().as_str() {
+                "auto" | "none" | "minimal" | "low" | "medium" | "high" | "xhigh"
+                | "max" => Ok(()),
+                _ => Err("assistant reasoning effort must be auto, none, minimal, low, medium, high, xhigh, or max".to_owned()),
+            }
+        }
+        "AssistantReviewModel" => {
+            let model = value.trim();
+            if model.is_empty() {
+                Err("assistant review model is required".to_owned())
+            } else if model.chars().count() > 128 {
+                Err("assistant review model must be at most 128 characters".to_owned())
+            } else {
+                Ok(())
             }
         }
         "AssistantL1AutoApprovalUserIDs" => validate_positive_id_list(value),
@@ -1941,6 +1982,41 @@ fn validate_option_update(
         | "console_setting.faq"
         | "console_setting.uptime_kuma_groups" => validate_console_json(value),
         _ => Ok(()),
+    }
+}
+
+async fn validate_assistant_model_update(
+    state: &SystemConfigHttpState,
+    key: &str,
+    value: &str,
+    options: &BTreeMap<String, String>,
+) -> Result<(), String> {
+    if key != "AssistantReviewModel" {
+        return Ok(());
+    }
+    let group = options
+        .get("AssistantReviewGroup")
+        .map(String::as_str)
+        .map(str::trim)
+        .filter(|group| !group.is_empty())
+        .unwrap_or("default");
+    let enabled = sqlx::query_scalar::<_, bool>(
+        r#"SELECT EXISTS(
+               SELECT 1 FROM abilities
+               WHERE "group" = $1 AND model = $2 AND COALESCE(enabled, TRUE) = TRUE
+           )"#,
+    )
+    .bind(group)
+    .bind(value.trim())
+    .fetch_one(&state.pg)
+    .await
+    .map_err(|_| "assistant review model catalog is unavailable".to_owned())?;
+    if enabled {
+        Ok(())
+    } else {
+        Err(format!(
+            "assistant review model is not enabled in the {group} group; choose a live model from the model list"
+        ))
     }
 }
 
@@ -2486,8 +2562,18 @@ async fn validate_options(
         Ok(options) => options,
         Err(()) => return legacy_error("保存设置失败"),
     };
+    let mut candidate_options = options.clone();
+    candidate_options.extend(values.clone());
     for (key, value) in &values {
-        if let Err(message) = validate_option_update(key, value, &options) {
+        if let Err(message) = validate_option_update(key, value, &candidate_options) {
+            return legacy_json(
+                StatusCode::OK,
+                json!({"success": false, "message": message}),
+            );
+        }
+        if let Err(message) =
+            validate_assistant_model_update(&state, key, value, &candidate_options).await
+        {
             return legacy_json(
                 StatusCode::OK,
                 json!({"success": false, "message": message}),
@@ -2510,8 +2596,18 @@ async fn update_options_bulk(
         Ok(options) => options,
         Err(()) => return legacy_error("保存设置失败"),
     };
+    let mut candidate_options = options.clone();
+    candidate_options.extend(values.clone());
     for (key, value) in &values {
-        if let Err(message) = validate_option_update(key, value, &options) {
+        if let Err(message) = validate_option_update(key, value, &candidate_options) {
+            return legacy_json(
+                StatusCode::OK,
+                json!({"success": false, "message": message}),
+            );
+        }
+        if let Err(message) =
+            validate_assistant_model_update(&state, key, value, &candidate_options).await
+        {
             return legacy_json(
                 StatusCode::OK,
                 json!({"success": false, "message": message}),

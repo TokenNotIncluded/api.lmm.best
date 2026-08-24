@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
-	"github.com/LIghtJUNction/api.lmm.best/constant"
 	"github.com/LIghtJUNction/api.lmm.best/internal/agent"
 	"github.com/LIghtJUNction/api.lmm.best/model"
 	"github.com/LIghtJUNction/api.lmm.best/setting"
@@ -138,19 +137,23 @@ func assistantL1AutoReviewEvidenceAllowed(reason, recommendation string) bool {
 	return false
 }
 
-func runAssistantL1AutoReviewAgent(ctx context.Context, root *model.User, job assistantL1AutoReviewJob, group, reviewModel string, attempt int) (assistantL1AutoReviewDecision, error) {
-	ginContext, _, err := newAssistantReviewContext(ctx, root)
+type assistantAutoReviewRoute struct {
+	Group           string
+	Model           string
+	ReasoningEffort string
+}
+
+func runAssistantL1AutoReviewAgent(ctx context.Context, root *model.User, job assistantL1AutoReviewJob, route assistantAutoReviewRoute, attempt int) (assistantL1AutoReviewDecision, error) {
+	ginContext, _, err := newAssistantReviewContext(ctx, root, route.Group)
 	if err != nil {
 		return assistantL1AutoReviewDecision{}, err
 	}
-	common.SetContextKey(ginContext, constant.ContextKeyUsingGroup, group)
-	ginContext.Set("group", group)
 	systemPrompt, userPrompt := assistantL1AutoReviewPrompt(job)
 	requestPayload := assistantOpenAIRequest{
-		Model: reviewModel, Messages: []assistantOpenAIMessage{
+		Model: route.Model, Messages: []assistantOpenAIMessage{
 			{Role: "system", Content: systemPrompt},
 			{Role: "user", Content: userPrompt},
-		}, Stream: false, Temperature: 0, MaxTokens: 220,
+		}, Stream: false, Temperature: 0, MaxTokens: 220, ReasoningEffort: route.ReasoningEffort,
 	}
 	status, body, relayErr := relayAssistantTurnWithRetryUsing(ginContext, requestPayload, job.RequestRef+"-"+fmt.Sprint(attempt), 0, relayAssistantTurn)
 	if relayErr != nil {
@@ -186,17 +189,31 @@ func runAssistantL1AutoReview(job assistantL1AutoReviewJob) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), assistantL1AutoReviewTimeout)
 	defer cancel()
-	reviewGroup, routeModel, routeErr := assistantConfiguredRouteResolver(settings)
+	primaryGroup, primaryModel, routeErr := assistantConfiguredRouteResolver(settings)
 	if routeErr != nil {
 		return routeErr
 	}
-	reviewModels := []string{strings.TrimSpace(settings.ReviewModel), routeModel}
-	notes := make([]string, 0, len(reviewModels))
-	for index, reviewModel := range reviewModels {
-		if reviewModel == "" || !model.IsModelEnabledForGroup(reviewGroup, reviewModel) {
-			reviewModel = routeModel
-		}
-		decision, reviewErr := runAssistantL1AutoReviewAgent(ctx, root, job, reviewGroup, reviewModel, index+1)
+	primaryRoute := assistantAutoReviewRoute{
+		Group:           primaryGroup,
+		Model:           primaryModel,
+		ReasoningEffort: assistantReasoningEffort(settings),
+	}
+	reviewGroup := strings.TrimSpace(settings.ReviewGroup)
+	if reviewGroup == "" {
+		reviewGroup = setting.DefaultAssistantReviewGroup
+	}
+	reviewRoute := assistantAutoReviewRoute{
+		Group:           reviewGroup,
+		Model:           strings.TrimSpace(settings.ReviewModel),
+		ReasoningEffort: assistantReviewReasoningEffort(settings),
+	}
+	if reviewRoute.Model == "" || !model.IsModelEnabledForGroup(reviewRoute.Group, reviewRoute.Model) {
+		reviewRoute = primaryRoute
+	}
+	reviewRoutes := []assistantAutoReviewRoute{reviewRoute, primaryRoute}
+	notes := make([]string, 0, len(reviewRoutes))
+	for index, route := range reviewRoutes {
+		decision, reviewErr := runAssistantL1AutoReviewAgent(ctx, root, job, route, index+1)
 		if reviewErr != nil {
 			return reviewErr
 		}

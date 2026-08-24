@@ -38,14 +38,16 @@ const (
 )
 
 type assistantRequestReviewJob struct {
-	UserID         int
-	ConversationID int64
-	RequestID      string
-	Group          string
-	Intensity      string
-	Model          string
-	Conversation   []assistantOpenAIMessage
-	Answer         string
+	UserID          int
+	ConversationID  int64
+	RequestID       string
+	Group           string
+	Intensity       string
+	RouteGroup      string
+	Model           string
+	ReasoningEffort string
+	Conversation    []assistantOpenAIMessage
+	Answer          string
 }
 
 var (
@@ -247,15 +249,21 @@ func enqueueAssistantRequestReview(c *gin.Context, settings setting.AssistantSet
 	if answer == "" {
 		return
 	}
+	reviewGroup := strings.TrimSpace(settings.ReviewGroup)
+	if reviewGroup == "" {
+		reviewGroup = setting.DefaultAssistantReviewGroup
+	}
 	job := assistantRequestReviewJob{
-		UserID:         userID,
-		ConversationID: assistantHistoryConversationID(c),
-		RequestID:      strings.TrimSpace(c.GetString(common.RequestIdKey)),
-		Group:          assistantReviewGroup(c),
-		Intensity:      intensity,
-		Model:          strings.TrimSpace(settings.ReviewModel),
-		Conversation:   assistantReviewConversation(conversation),
-		Answer:         answer,
+		UserID:          userID,
+		ConversationID:  assistantHistoryConversationID(c),
+		RequestID:       strings.TrimSpace(c.GetString(common.RequestIdKey)),
+		Group:           assistantReviewGroup(c),
+		Intensity:       intensity,
+		RouteGroup:      reviewGroup,
+		Model:           strings.TrimSpace(settings.ReviewModel),
+		ReasoningEffort: assistantReviewReasoningEffort(settings),
+		Conversation:    assistantReviewConversation(conversation),
+		Answer:          answer,
 	}
 	if job.Model == "" || len(job.Conversation) == 0 {
 		return
@@ -351,17 +359,18 @@ func runAssistantRequestReview(job assistantRequestReviewJob) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), assistantReviewTimeout)
 	defer cancel()
-	ginContext, recorder, err := newAssistantReviewContext(ctx, root)
+	ginContext, recorder, err := newAssistantReviewContext(ctx, root, job.RouteGroup)
 	if err != nil {
 		return err
 	}
 	systemPrompt, userPrompt := reviewPrompt(job)
 	request := assistantOpenAIRequest{
-		Model:       job.Model,
-		Messages:    []assistantOpenAIMessage{{Role: "system", Content: systemPrompt}, {Role: "user", Content: userPrompt}},
-		Stream:      false,
-		Temperature: 0,
-		MaxTokens:   320,
+		Model:           job.Model,
+		Messages:        []assistantOpenAIMessage{{Role: "system", Content: systemPrompt}, {Role: "user", Content: userPrompt}},
+		Stream:          false,
+		Temperature:     0,
+		MaxTokens:       320,
+		ReasoningEffort: job.ReasoningEffort,
 	}
 	status, body, relayErr := relayAssistantTurnWithRetryUsing(ginContext, request, job.RequestID, 0, relayAssistantTurn)
 	if relayErr != nil {
@@ -424,7 +433,11 @@ func saveFailedAssistantRequestReview(job assistantRequestReviewJob, failure err
 	return model.SaveAssistantRequestReview(review, nil)
 }
 
-func newAssistantReviewContext(ctx context.Context, root *model.User) (*gin.Context, *httptest.ResponseRecorder, error) {
+func newAssistantReviewContext(ctx context.Context, root *model.User, routeGroup string) (*gin.Context, *httptest.ResponseRecorder, error) {
+	routeGroup = strings.TrimSpace(routeGroup)
+	if routeGroup == "" {
+		routeGroup = setting.DefaultAssistantReviewGroup
+	}
 	recorder := httptest.NewRecorder()
 	ginContext, _ := gin.CreateTestContext(recorder)
 	ginContext.Request = httptest.NewRequest(http.MethodPost, "http://assistant-review/v1/chat/completions", io.NopCloser(strings.NewReader("{}")))
@@ -433,13 +446,13 @@ func newAssistantReviewContext(ctx context.Context, root *model.User) (*gin.Cont
 	ginContext.Set("id", root.Id)
 	ginContext.Set("username", root.Username)
 	ginContext.Set("role", root.Role)
-	ginContext.Set("group", root.Group)
+	ginContext.Set("group", routeGroup)
 	root.ToBaseUser().WriteContext(ginContext)
-	token := &model.Token{UserId: root.Id, Name: "assistant-review", Group: root.Group, UnlimitedQuota: true}
+	token := &model.Token{UserId: root.Id, Name: "assistant-review", Group: routeGroup, UnlimitedQuota: true}
 	if err := middleware.SetupContextForToken(ginContext, token); err != nil {
 		return nil, nil, err
 	}
-	common.SetContextKey(ginContext, constant.ContextKeyUsingGroup, root.Group)
+	common.SetContextKey(ginContext, constant.ContextKeyUsingGroup, routeGroup)
 	common.SetContextKey(ginContext, constant.ContextKeyRequestStartTime, time.Now())
 	return ginContext, recorder, nil
 }

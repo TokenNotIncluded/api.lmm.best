@@ -132,7 +132,15 @@ type assistantOpenAIMessage = agent.Message
 type assistantOpenAIRequest = agent.Request
 
 func assistantReasoningEffort(settings setting.AssistantSettings) string {
-	effort := strings.ToLower(strings.TrimSpace(settings.ReasoningEffort))
+	return assistantConfiguredReasoningEffort(settings.ReasoningEffort)
+}
+
+func assistantReviewReasoningEffort(settings setting.AssistantSettings) string {
+	return assistantConfiguredReasoningEffort(settings.ReviewReasoningEffort)
+}
+
+func assistantConfiguredReasoningEffort(value string) string {
+	effort := strings.ToLower(strings.TrimSpace(value))
 	if effort == "" || effort == setting.DefaultAssistantReasoningEffort {
 		return ""
 	}

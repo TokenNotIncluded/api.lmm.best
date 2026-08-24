@@ -48,7 +48,9 @@ const (
 	AssistantReviewWindowDaysOptionKey       = "AssistantReviewWindowDays"
 	AssistantReviewIntervalHoursOptionKey    = "AssistantReviewIntervalHours"
 	AssistantReviewProbabilityOptionKey      = "AssistantReviewProbability"
+	AssistantReviewGroupOptionKey            = "AssistantReviewGroup"
 	AssistantReviewModelOptionKey            = "AssistantReviewModel"
+	AssistantReviewReasoningEffortOptionKey  = "AssistantReviewReasoningEffort"
 	AssistantReviewGroupPoliciesOptionKey    = "AssistantReviewGroupPolicies"
 	AssistantRetentionEnabledOptionKey       = "AssistantRetentionEnabled"
 	AssistantActiveRetentionDaysOptionKey    = "AssistantActiveRetentionDays"
@@ -61,7 +63,9 @@ const (
 	DefaultAssistantReasoningEffort          = "auto"
 	DefaultAssistantTemperature              = 0.2
 	DefaultAssistantMaxTokens                = 900
+	DefaultAssistantReviewGroup              = DefaultAssistantGroup
 	DefaultAssistantReviewModel              = "deepseek-v4-flash"
+	DefaultAssistantReviewReasoningEffort    = DefaultAssistantReasoningEffort
 	AssistantReviewDefaultIntensity          = "standard"
 	AssistantReviewMaxGroupPolicies          = 64
 	AssistantSkillFileMaxCount               = 32
@@ -126,7 +130,9 @@ type AssistantSettings struct {
 	ReviewWindowDays       int
 	ReviewIntervalHours    int
 	ReviewProbability      float64
+	ReviewGroup            string
 	ReviewModel            string
+	ReviewReasoningEffort  string
 	ReviewGroupPolicies    map[string]AssistantReviewGroupPolicy
 	RetentionEnabled       bool
 	ActiveRetentionDays    int
@@ -172,7 +178,9 @@ var (
 		ReviewWindowDays:       30,
 		ReviewIntervalHours:    24,
 		ReviewProbability:      0,
+		ReviewGroup:            DefaultAssistantReviewGroup,
 		ReviewModel:            DefaultAssistantReviewModel,
+		ReviewReasoningEffort:  DefaultAssistantReviewReasoningEffort,
 		ReviewGroupPolicies:    map[string]AssistantReviewGroupPolicy{},
 		RetentionEnabled:       true,
 		ActiveRetentionDays:    90,
@@ -281,7 +289,7 @@ func AssistantL1AutoApprovalUserAllowed(userID int) bool {
 func UpdateAssistantReasoningEffort(value string) error {
 	effort := strings.ToLower(strings.TrimSpace(value))
 	if !IsAssistantReasoningEffort(effort) {
-		return errors.New("assistant reasoning effort must be auto, none, low, medium, or high")
+		return errors.New("assistant reasoning effort must be auto, none, minimal, low, medium, high, xhigh, or max")
 	}
 
 	assistantSettingsMutex.Lock()
@@ -610,6 +618,21 @@ func UpdateAssistantReviewProbability(value string) error {
 	return nil
 }
 
+func UpdateAssistantReviewGroup(value string) error {
+	group := strings.TrimSpace(value)
+	if group == "" {
+		return errors.New("assistant review routing group is required")
+	}
+	if len([]rune(group)) > 64 {
+		return errors.New("assistant review routing group must be at most 64 characters")
+	}
+
+	assistantSettingsMutex.Lock()
+	defer assistantSettingsMutex.Unlock()
+	assistantSettings.ReviewGroup = group
+	return nil
+}
+
 func UpdateAssistantReviewModel(value string) error {
 	model := strings.TrimSpace(value)
 	if model == "" {
@@ -621,6 +644,21 @@ func UpdateAssistantReviewModel(value string) error {
 	assistantSettingsMutex.Lock()
 	defer assistantSettingsMutex.Unlock()
 	assistantSettings.ReviewModel = model
+	return nil
+}
+
+// UpdateAssistantReviewReasoningEffort stores the provider-neutral effort hint
+// used by background review requests. "auto" omits the hint so the selected
+// model and channel retain their native default.
+func UpdateAssistantReviewReasoningEffort(value string) error {
+	effort := strings.ToLower(strings.TrimSpace(value))
+	if !IsAssistantReasoningEffort(effort) {
+		return errors.New("assistant review reasoning effort must be auto, none, minimal, low, medium, high, xhigh, or max")
+	}
+
+	assistantSettingsMutex.Lock()
+	defer assistantSettingsMutex.Unlock()
+	assistantSettings.ReviewReasoningEffort = effort
 	return nil
 }
 
@@ -775,7 +813,7 @@ func ValidateAssistantOption(key string, value string) error {
 		return err
 	case AssistantReasoningEffortOptionKey:
 		if !IsAssistantReasoningEffort(strings.TrimSpace(value)) {
-			return errors.New("assistant reasoning effort must be auto, none, low, medium, or high")
+			return errors.New("assistant reasoning effort must be auto, none, minimal, low, medium, high, xhigh, or max")
 		}
 	case AssistantStreamEnabledOptionKey:
 		if _, err := strconv.ParseBool(strings.TrimSpace(value)); err != nil {
@@ -841,6 +879,14 @@ func ValidateAssistantOption(key string, value string) error {
 		if err != nil || math.IsNaN(probability) || math.IsInf(probability, 0) || probability < 0 || probability > 100 {
 			return errors.New("assistant review probability must be between 0 and 100 percent")
 		}
+	case AssistantReviewGroupOptionKey:
+		group := strings.TrimSpace(value)
+		if group == "" {
+			return errors.New("assistant review routing group is required")
+		}
+		if len([]rune(group)) > 64 {
+			return errors.New("assistant review routing group must be at most 64 characters")
+		}
 	case AssistantReviewModelOptionKey:
 		model := strings.TrimSpace(value)
 		if model == "" {
@@ -848,6 +894,10 @@ func ValidateAssistantOption(key string, value string) error {
 		}
 		if len(model) > 128 {
 			return errors.New("assistant review model must be at most 128 characters")
+		}
+	case AssistantReviewReasoningEffortOptionKey:
+		if !IsAssistantReasoningEffort(strings.TrimSpace(value)) {
+			return errors.New("assistant review reasoning effort must be auto, none, minimal, low, medium, high, xhigh, or max")
 		}
 	case AssistantReviewGroupPoliciesOptionKey:
 		_, err := ParseAssistantReviewGroupPolicies(value)
@@ -866,7 +916,7 @@ func ValidateAssistantOption(key string, value string) error {
 
 func IsAssistantReasoningEffort(value string) bool {
 	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "auto", "none", "low", "medium", "high":
+	case "auto", "none", "minimal", "low", "medium", "high", "xhigh", "max":
 		return true
 	default:
 		return false

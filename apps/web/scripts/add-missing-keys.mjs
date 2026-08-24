@@ -2805,6 +2805,12 @@ const requestReviewTranslations = {
     '0 disables sampled reviews. 1.0 means roughly one percent; reviews run in the background and never delay the response.':
       '0 disables sampled reviews. 1.0 means roughly one percent; reviews run in the background and never delay the response.',
     'Review model': 'Review model',
+    'Select the routing group used by automatic reviews, then get its enabled model IDs.':
+      'Select the routing group used by automatic reviews, then get its enabled model IDs.',
+    'Automatic reviews send requests with this exact enabled model ID and the selected routing group.':
+      'Automatic reviews send requests with this exact enabled model ID and the selected routing group.',
+    'Controls the reasoning hint sent with automatic review requests. Auto lets each model use its native default.':
+      'Controls the reasoning hint sent with automatic review requests. Auto lets each model use its native default.',
     'Use an exact billable model ID. The default is deepseek-v4-flash.':
       'Use an exact billable model ID. The default is deepseek-v4-flash.',
     'Per-group review policies': 'Per-group review policies',
@@ -2832,6 +2838,12 @@ const requestReviewTranslations = {
     '0 disables sampled reviews. 1.0 means roughly one percent; reviews run in the background and never delay the response.':
       '0 表示关闭抽样审查；1.0 约等于 1%。审查在后台运行，不会延迟响应。',
     'Review model': '审查模型',
+    'Select the routing group used by automatic reviews, then get its enabled model IDs.':
+      '选择自动审查使用的路由分组，然后获取该分组已启用的模型 ID。',
+    'Automatic reviews send requests with this exact enabled model ID and the selected routing group.':
+      '自动审查将使用这个已启用的准确模型 ID 和所选路由分组发送请求。',
+    'Controls the reasoning hint sent with automatic review requests. Auto lets each model use its native default.':
+      '控制自动审查请求发送的推理提示；auto 会让各模型使用原生默认值。',
     'Use an exact billable model ID. The default is deepseek-v4-flash.':
       '填写准确且已计费的模型 ID，默认使用 deepseek-v4-flash。',
     'Per-group review policies': '分组审查策略',
@@ -2859,6 +2871,12 @@ const requestReviewTranslations = {
     '0 disables sampled reviews. 1.0 means roughly one percent; reviews run in the background and never delay the response.':
       '0 表示停用抽樣審查；1.0 約等於 1%。審查在背景執行，不會延遲回應。',
     'Review model': '審查模型',
+    'Select the routing group used by automatic reviews, then get its enabled model IDs.':
+      '選擇自動審查使用的路由分組，然後取得該分組已啟用的模型 ID。',
+    'Automatic reviews send requests with this exact enabled model ID and the selected routing group.':
+      '自動審查會使用這個已啟用的準確模型 ID 與所選路由分組傳送請求。',
+    'Controls the reasoning hint sent with automatic review requests. Auto lets each model use its native default.':
+      '控制自動審查請求傳送的推理提示；auto 會讓各模型使用原生預設值。',
     'Use an exact billable model ID. The default is deepseek-v4-flash.':
       '請填寫準確且可計費的模型 ID，預設使用 deepseek-v4-flash。',
     'Per-group review policies': '分組審查策略',
@@ -2887,6 +2905,12 @@ const requestReviewTranslations = {
     '0 disables sampled reviews. 1.0 means roughly one percent; reviews run in the background and never delay the response.':
       '0 désactive les contrôles échantillonnés. 1,0 correspond à environ 1 % ; ils s’exécutent en arrière-plan sans retarder la réponse.',
     'Review model': 'Modèle de contrôle',
+    'Select the routing group used by automatic reviews, then get its enabled model IDs.':
+      'Sélectionnez le groupe de routage des contrôles automatiques, puis chargez ses identifiants de modèles actifs.',
+    'Automatic reviews send requests with this exact enabled model ID and the selected routing group.':
+      'Les contrôles automatiques envoient leurs requêtes avec cet identifiant de modèle actif exact et le groupe de routage sélectionné.',
+    'Controls the reasoning hint sent with automatic review requests. Auto lets each model use its native default.':
+      'Contrôle l’indication de raisonnement des requêtes de contrôle automatique ; auto laisse chaque modèle utiliser sa valeur native par défaut.',
     'Use an exact billable model ID. The default is deepseek-v4-flash.':
       'Utilisez un identifiant de modèle facturable exact. La valeur par défaut est deepseek-v4-flash.',
     'Per-group review policies': 'Politiques de contrôle par groupe',
@@ -2914,6 +2938,12 @@ const requestReviewTranslations = {
     '0 disables sampled reviews. 1.0 means roughly one percent; reviews run in the background and never delay the response.':
       '0 で抽出審査を無効にします。1.0 は約 1% です。審査はバックグラウンドで実行され、応答を遅延させません。',
     'Review model': '審査モデル',
+    'Select the routing group used by automatic reviews, then get its enabled model IDs.':
+      '自動審査で使用するルーティンググループを選び、そのグループで有効なモデル ID を取得します。',
+    'Automatic reviews send requests with this exact enabled model ID and the selected routing group.':
+      '自動審査は、この有効な正確なモデル ID と選択したルーティンググループでリクエストを送信します。',
+    'Controls the reasoning hint sent with automatic review requests. Auto lets each model use its native default.':
+      '自動審査リクエストの推論ヒントを制御します。auto では各モデルのネイティブ既定値を使用します。',
     'Use an exact billable model ID. The default is deepseek-v4-flash.':
       '課金対象の正確なモデル ID を指定します。既定値は deepseek-v4-flash です。',
     'Per-group review policies': 'グループ別審査ポリシー',
@@ -2941,6 +2971,12 @@ const requestReviewTranslations = {
     '0 disables sampled reviews. 1.0 means roughly one percent; reviews run in the background and never delay the response.':
       '0 отключает выборочные проверки. 1,0 означает примерно 1%; проверки выполняются в фоне и не задерживают ответ.',
     'Review model': 'Модель проверки',
+    'Select the routing group used by automatic reviews, then get its enabled model IDs.':
+      'Выберите группу маршрутизации для автоматических проверок, затем загрузите включённые в ней идентификаторы моделей.',
+    'Automatic reviews send requests with this exact enabled model ID and the selected routing group.':
+      'Автоматические проверки отправляют запросы с этим точным идентификатором включённой модели и выбранной группой маршрутизации.',
+    'Controls the reasoning hint sent with automatic review requests. Auto lets each model use its native default.':
+      'Управляет подсказкой глубины рассуждений для автоматических проверок; auto оставляет нативное значение модели по умолчанию.',
     'Use an exact billable model ID. The default is deepseek-v4-flash.':
       'Укажите точный идентификатор оплачиваемой модели. По умолчанию используется deepseek-v4-flash.',
     'Per-group review policies': 'Политики проверки по группам',
@@ -2968,6 +3004,12 @@ const requestReviewTranslations = {
     '0 disables sampled reviews. 1.0 means roughly one percent; reviews run in the background and never delay the response.':
       '0 tắt kiểm duyệt lấy mẫu. 1.0 tương đương khoảng 1%; kiểm duyệt chạy nền và không làm chậm phản hồi.',
     'Review model': 'Model kiểm duyệt',
+    'Select the routing group used by automatic reviews, then get its enabled model IDs.':
+      'Chọn nhóm định tuyến dùng cho kiểm duyệt tự động, rồi tải các ID model đang bật của nhóm đó.',
+    'Automatic reviews send requests with this exact enabled model ID and the selected routing group.':
+      'Kiểm duyệt tự động gửi yêu cầu bằng đúng ID model đang bật này và nhóm định tuyến đã chọn.',
+    'Controls the reasoning hint sent with automatic review requests. Auto lets each model use its native default.':
+      'Điều khiển gợi ý mức suy luận cho yêu cầu kiểm duyệt tự động; auto để mỗi model dùng giá trị mặc định gốc.',
     'Use an exact billable model ID. The default is deepseek-v4-flash.':
       'Dùng đúng ID model có tính phí. Mặc định là deepseek-v4-flash.',
     'Per-group review policies': 'Chính sách kiểm duyệt theo nhóm',

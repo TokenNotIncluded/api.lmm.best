@@ -20,7 +20,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import i18next from 'i18next'
 import { toast } from 'sonner'
 
-import { updateSystemOption } from '../api'
+import { updateSystemOption, updateSystemOptions } from '../api'
 import type { UpdateOptionRequest } from '../types'
 
 // Configuration keys that require status refresh
@@ -62,7 +62,9 @@ const STATUS_RELATED_KEYS = new Set([
   'AssistantReviewWindowDays',
   'AssistantReviewIntervalHours',
   'AssistantReviewProbability',
+  'AssistantReviewGroup',
   'AssistantReviewModel',
+  'AssistantReviewReasoningEffort',
   'AssistantReviewGroupPolicies',
   'AssistantRetentionEnabled',
   'AssistantActiveRetentionDays',
@@ -71,6 +73,21 @@ const STATUS_RELATED_KEYS = new Set([
   'AssistantRetentionIntervalHours',
 ])
 
+function invalidateOptionQueries(
+  queryClient: ReturnType<typeof useQueryClient>,
+  keys: Iterable<string>
+) {
+  queryClient.invalidateQueries({ queryKey: ['system-options'] })
+  if ([...keys].some((key) => STATUS_RELATED_KEYS.has(key))) {
+    queryClient.invalidateQueries({ queryKey: ['status'] })
+    try {
+      window.localStorage.removeItem('status')
+    } catch {
+      /* empty */
+    }
+  }
+}
+
 export function useUpdateOption() {
   const queryClient = useQueryClient()
 
@@ -78,19 +95,26 @@ export function useUpdateOption() {
     mutationFn: (request: UpdateOptionRequest) => updateSystemOption(request),
     onSuccess: (data, variables) => {
       if (data.success) {
-        // Always refresh system-options
-        queryClient.invalidateQueries({ queryKey: ['system-options'] })
+        invalidateOptionQueries(queryClient, [variables.key])
+        toast.success(i18next.t('Setting updated successfully'))
+      } else {
+        toast.error(data.message || i18next.t('Failed to update setting'))
+      }
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || i18next.t('Failed to update setting'))
+    },
+  })
+}
 
-        // If updating frontend-display-related config, also refresh status
-        if (STATUS_RELATED_KEYS.has(variables.key)) {
-          queryClient.invalidateQueries({ queryKey: ['status'] })
-          try {
-            window.localStorage.removeItem('status')
-          } catch {
-            /* empty */
-          }
-        }
+export function useUpdateOptions() {
+  const queryClient = useQueryClient()
 
+  return useMutation({
+    mutationFn: (values: Record<string, string>) => updateSystemOptions(values),
+    onSuccess: (data, variables) => {
+      if (data.success) {
+        invalidateOptionQueries(queryClient, Object.keys(variables))
         toast.success(i18next.t('Setting updated successfully'))
       } else {
         toast.error(data.message || i18next.t('Failed to update setting'))

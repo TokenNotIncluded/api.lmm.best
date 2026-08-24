@@ -53,7 +53,7 @@ import {
 } from '../components/settings-form-layout'
 import { SettingsPageFormActions } from '../components/settings-page-context'
 import { SettingsSection } from '../components/settings-section'
-import { useUpdateOption } from '../hooks/use-update-option'
+import { useUpdateOptions } from '../hooks/use-update-option'
 import {
   ASSISTANT_REASONING_EFFORTS,
   ASSISTANT_SEARCH_PROVIDERS,
@@ -73,6 +73,20 @@ type AssistantSkillFile = {
 }
 
 const EMPTY_ASSISTANT_MODEL_IDS: string[] = []
+async function getEnabledAssistantModelIDs(group: string) {
+  const response = await api.get<{ data?: unknown }>('/api/assistant/models', {
+    params: { group },
+    skipBusinessError: true,
+    skipErrorHandler: true,
+  })
+  const models = Array.isArray(response.data.data)
+    ? response.data.data.filter(
+        (modelID): modelID is string =>
+          typeof modelID === 'string' && modelID.trim().length > 0
+      )
+    : []
+  return [...new Set(models)].sort((left, right) => left.localeCompare(right))
+}
 
 function parseSkillFiles(value: string): AssistantSkillFile[] {
   try {
@@ -279,7 +293,7 @@ export function AssistantSettingsSection(props: {
   defaultValues: AssistantSettingsFormValues
 }) {
   const { t } = useTranslation()
-  const updateOption = useUpdateOption()
+  const updateOptions = useUpdateOptions()
   const form = useForm<AssistantSettingsFormValues>({
     resolver: zodResolver(assistantSettingsSchema),
     defaultValues: props.defaultValues,
@@ -290,22 +304,18 @@ export function AssistantSettingsSection(props: {
   }, [form, props.defaultValues])
 
   const onSubmit = async (values: AssistantSettingsFormValues) => {
-    const updates = Object.entries(values)
-      .filter(
-        ([key, value]) =>
-          value !==
-          props.defaultValues[key as keyof AssistantSettingsFormValues]
-      )
-      .sort(([left], [right]) => {
-        if (left === 'AssistantGroup') return -1
-        if (right === 'AssistantGroup') return 1
-        if (left === 'AssistantModel') return -1
-        if (right === 'AssistantModel') return 1
-        return 0
-      })
+    const updates = Object.fromEntries(
+      Object.entries(values)
+        .filter(
+          ([key, value]) =>
+            value !==
+            props.defaultValues[key as keyof AssistantSettingsFormValues]
+        )
+        .map(([key, value]) => [key, String(value)])
+    )
 
-    for (const [key, value] of updates) {
-      await updateOption.mutateAsync({ key, value })
+    if (Object.keys(updates).length > 0) {
+      await updateOptions.mutateAsync(updates)
     }
   }
 
@@ -317,6 +327,8 @@ export function AssistantSettingsSection(props: {
   const searchProvider = form.watch('AssistantSearchProvider')
   const selectedGroup = form.watch('AssistantGroup')
   const selectedModel = form.watch('AssistantModel')
+  const selectedReviewGroup = form.watch('AssistantReviewGroup')
+  const selectedReviewModel = form.watch('AssistantReviewModel')
   const groupsQuery = useQuery({
     queryKey: ['assistant-routing-groups'],
     queryFn: async () => {
@@ -336,30 +348,13 @@ export function AssistantSettingsSection(props: {
   const assistantGroups = [
     ...new Set([
       props.defaultValues.AssistantGroup || 'default',
+      props.defaultValues.AssistantReviewGroup || 'default',
       ...(groupsQuery.data ?? []),
     ]),
   ].sort((left, right) => left.localeCompare(right))
   const assistantModelsQuery = useQuery({
     queryKey: ['assistant-routing-models', selectedGroup],
-    queryFn: async () => {
-      const response = await api.get<{ data?: unknown }>(
-        '/api/assistant/models',
-        {
-          params: { group: selectedGroup },
-          skipBusinessError: true,
-          skipErrorHandler: true,
-        }
-      )
-      const models = Array.isArray(response.data.data)
-        ? response.data.data.filter(
-            (modelID): modelID is string =>
-              typeof modelID === 'string' && modelID.trim().length > 0
-          )
-        : []
-      return [...new Set(models)].sort((left, right) =>
-        left.localeCompare(right)
-      )
-    },
+    queryFn: () => getEnabledAssistantModelIDs(selectedGroup),
     enabled: false,
     staleTime: 60_000,
     retry: false,
@@ -373,6 +368,24 @@ export function AssistantSettingsSection(props: {
     Boolean(selectedModel) &&
     assistantModelListLoaded &&
     !assistantModels.includes(selectedModel)
+  const assistantReviewModelsQuery = useQuery({
+    queryKey: ['assistant-review-routing-models', selectedReviewGroup],
+    queryFn: () => getEnabledAssistantModelIDs(selectedReviewGroup),
+    enabled: false,
+    staleTime: 60_000,
+    retry: false,
+  })
+  const assistantReviewModels =
+    assistantReviewModelsQuery.data ?? EMPTY_ASSISTANT_MODEL_IDS
+  const assistantReviewModelListLoaded =
+    assistantReviewModelsQuery.data !== undefined
+  const assistantReviewModelOptions = [
+    ...new Set([...assistantReviewModels, selectedReviewModel].filter(Boolean)),
+  ]
+  const selectedReviewModelIsUnavailable =
+    Boolean(selectedReviewModel) &&
+    assistantReviewModelListLoaded &&
+    !assistantReviewModels.includes(selectedReviewModel)
 
   let modelDescription = t(
     'Choose a group, then click Get model list to load its enabled model IDs.'
@@ -390,6 +403,25 @@ export function AssistantSettingsSection(props: {
       'The assistant sends requests with this exact enabled model ID and the selected routing group.'
     )
   }
+  let reviewModelDescription = t(
+    'Choose a group, then click Get model list to load its enabled model IDs.'
+  )
+  if (assistantReviewModelsQuery.isError) {
+    reviewModelDescription = t(
+      'The built-in AI assistant is under maintenance. Please try again later.'
+    )
+  } else if (assistantReviewModelsQuery.isFetching) {
+    reviewModelDescription = t('Loading model list...')
+  } else if (
+    assistantReviewModelListLoaded &&
+    assistantReviewModels.length === 0
+  ) {
+    reviewModelDescription = t('This group has no enabled model IDs.')
+  } else if (assistantReviewModelListLoaded) {
+    reviewModelDescription = t(
+      'Automatic reviews send requests with this exact enabled model ID and the selected routing group.'
+    )
+  }
   const searchProviderDescription: Record<AssistantSearchProvider, string> = {
     none: t('Disable assistant web search.'),
     exa: t('Uses the official Exa Search API from the server.'),
@@ -402,13 +434,6 @@ export function AssistantSettingsSection(props: {
       'Connect to an MCP server over Streamable HTTP from the server.'
     ),
   }
-  const reasoningEffortLabels: Record<AssistantReasoningEffort, string> = {
-    auto: t('Auto (model default)'),
-    none: t('None (no reasoning)'),
-    low: t('Low'),
-    medium: t('Medium'),
-    high: t('High'),
-  }
 
   return (
     <SettingsSection title={t('AI assistant settings')}>
@@ -416,7 +441,7 @@ export function AssistantSettingsSection(props: {
         <SettingsForm onSubmit={form.handleSubmit(onSubmit)}>
           <SettingsPageFormActions
             onSave={form.handleSubmit(onSubmit)}
-            isSaving={updateOption.isPending}
+            isSaving={updateOptions.isPending}
             saveLabel='Save assistant settings'
           />
 
@@ -596,7 +621,7 @@ export function AssistantSettingsSection(props: {
                     <SelectContent alignItemWithTrigger={false}>
                       {ASSISTANT_REASONING_EFFORTS.map((effort) => (
                         <SelectItem key={effort} value={effort}>
-                          {reasoningEffortLabels[effort]}
+                          {effort}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -1172,7 +1197,10 @@ export function AssistantSettingsSection(props: {
               />
             </div>
 
-            <div className='grid gap-5 border-t pt-5 sm:grid-cols-2'>
+            <div
+              className='grid gap-5 border-t pt-5 sm:grid-cols-2'
+              data-testid='assistant-review-route-fields'
+            >
               <FormField
                 control={form.control}
                 name='AssistantReviewProbability'
@@ -1203,20 +1231,166 @@ export function AssistantSettingsSection(props: {
 
               <FormField
                 control={form.control}
+                name='AssistantReviewGroup'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('Routing group')}</FormLabel>
+                    <div className='flex flex-col gap-2 sm:flex-row sm:items-center'>
+                      <Select
+                        value={field.value}
+                        onValueChange={(value) => {
+                          field.onChange(value)
+                          form.setValue('AssistantReviewModel', '', {
+                            shouldDirty: true,
+                            shouldValidate: true,
+                          })
+                        }}
+                      >
+                        <FormControl>
+                          <SelectTrigger
+                            className='w-full sm:flex-1'
+                            disabled={!reviewEnabled || groupsQuery.isLoading}
+                          >
+                            <SelectValue placeholder={t('Select a group')} />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent alignItemWithTrigger={false}>
+                          <SelectGroup>
+                            {assistantGroups.map((group) => (
+                              <SelectItem key={group} value={group}>
+                                {group}
+                              </SelectItem>
+                            ))}
+                          </SelectGroup>
+                        </SelectContent>
+                      </Select>
+                      <Button
+                        type='button'
+                        variant='outline'
+                        className='w-full sm:w-auto'
+                        onClick={() => {
+                          void assistantReviewModelsQuery.refetch()
+                        }}
+                        disabled={
+                          !reviewEnabled ||
+                          !selectedReviewGroup ||
+                          assistantReviewModelsQuery.isFetching
+                        }
+                        data-testid='assistant-review-get-model-list'
+                      >
+                        <RefreshCw
+                          data-icon='inline-start'
+                          className={
+                            assistantReviewModelsQuery.isFetching
+                              ? 'animate-spin'
+                              : undefined
+                          }
+                        />
+                        <span>{t('Get model list')}</span>
+                      </Button>
+                    </div>
+                    <FormDescription>
+                      {t(
+                        'Select the routing group used by automatic reviews, then get its enabled model IDs.'
+                      )}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
                 name='AssistantReviewModel'
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>{t('Review model')}</FormLabel>
-                    <FormControl>
-                      <Input
-                        placeholder='deepseek-v4-flash'
-                        {...field}
-                        disabled={!reviewEnabled}
-                      />
-                    </FormControl>
+                    <Select
+                      value={field.value}
+                      onValueChange={(value) => {
+                        if (typeof value !== 'string' || value.trim() === '') {
+                          return
+                        }
+                        form.setValue('AssistantReviewModel', value, {
+                          shouldDirty: true,
+                          shouldTouch: true,
+                          shouldValidate: true,
+                        })
+                        form.clearErrors('AssistantReviewModel')
+                      }}
+                    >
+                      <FormControl>
+                        <SelectTrigger
+                          className='w-full'
+                          disabled={
+                            !reviewEnabled ||
+                            !assistantReviewModelListLoaded ||
+                            assistantReviewModelsQuery.isFetching ||
+                            assistantReviewModelsQuery.isError ||
+                            assistantReviewModels.length === 0
+                          }
+                        >
+                          <SelectValue placeholder={t('Select a model ID')} />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent alignItemWithTrigger={false}>
+                        <SelectGroup>
+                          {assistantReviewModelOptions.map((modelID) => (
+                            <SelectItem key={modelID} value={modelID}>
+                              {modelID}
+                              {modelID === selectedReviewModel &&
+                              selectedReviewModelIsUnavailable
+                                ? ` · ${t('not enabled')}`
+                                : null}
+                            </SelectItem>
+                          ))}
+                        </SelectGroup>
+                      </SelectContent>
+                    </Select>
+                    <FormDescription>{reviewModelDescription}</FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name='AssistantReviewReasoningEffort'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('Reasoning Effort')}</FormLabel>
+                    <Select
+                      value={field.value}
+                      onValueChange={(value) => {
+                        if (
+                          typeof value === 'string' &&
+                          (
+                            ASSISTANT_REASONING_EFFORTS as readonly string[]
+                          ).includes(value)
+                        ) {
+                          field.onChange(value as AssistantReasoningEffort)
+                        }
+                      }}
+                    >
+                      <FormControl>
+                        <SelectTrigger
+                          className='w-full'
+                          disabled={!reviewEnabled}
+                        >
+                          <SelectValue />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent alignItemWithTrigger={false}>
+                        {ASSISTANT_REASONING_EFFORTS.map((effort) => (
+                          <SelectItem key={effort} value={effort}>
+                            {effort}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                     <FormDescription>
                       {t(
-                        'Use an exact billable model ID. The default is deepseek-v4-flash.'
+                        'Controls the reasoning hint sent with automatic review requests. Auto lets each model use its native default.'
                       )}
                     </FormDescription>
                     <FormMessage />

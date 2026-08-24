@@ -164,7 +164,9 @@ func InitOptionMap() {
 	common.OptionMap[setting.AssistantReviewWindowDaysOptionKey] = strconv.Itoa(assistantSettings.ReviewWindowDays)
 	common.OptionMap[setting.AssistantReviewIntervalHoursOptionKey] = strconv.Itoa(assistantSettings.ReviewIntervalHours)
 	common.OptionMap[setting.AssistantReviewProbabilityOptionKey] = strconv.FormatFloat(assistantSettings.ReviewProbability, 'f', -1, 64)
+	common.OptionMap[setting.AssistantReviewGroupOptionKey] = assistantSettings.ReviewGroup
 	common.OptionMap[setting.AssistantReviewModelOptionKey] = assistantSettings.ReviewModel
+	common.OptionMap[setting.AssistantReviewReasoningEffortOptionKey] = assistantSettings.ReviewReasoningEffort
 	common.OptionMap[setting.AssistantReviewGroupPoliciesOptionKey] = setting.AssistantReviewGroupPoliciesJSON(assistantSettings.ReviewGroupPolicies)
 	common.OptionMap[setting.AssistantRetentionEnabledOptionKey] = strconv.FormatBool(assistantSettings.RetentionEnabled)
 	common.OptionMap[setting.AssistantActiveRetentionDaysOptionKey] = strconv.Itoa(assistantSettings.ActiveRetentionDays)
@@ -297,8 +299,17 @@ func validateOptionValue(key string, value string) error {
 	if key == setting.AssistantGroupOptionKey && !ratio_setting.ContainsGroupRatio(strings.TrimSpace(value)) {
 		return errors.New("assistant routing group must be an existing group")
 	}
-	if key == setting.AssistantReviewModelOptionKey && !IsModelEnabledForGroup("default", strings.TrimSpace(value)) {
-		return errors.New("assistant review model is not enabled in the default group; choose a live model from the model list")
+	if key == setting.AssistantReviewModelOptionKey {
+		group := strings.TrimSpace(setting.GetAssistantSettings().ReviewGroup)
+		if group == "" {
+			group = setting.DefaultAssistantReviewGroup
+		}
+		if !IsModelEnabledForGroup(group, strings.TrimSpace(value)) {
+			return fmt.Errorf("assistant review model is not enabled in the %s group; choose a live model from the model list", group)
+		}
+	}
+	if key == setting.AssistantReviewGroupOptionKey && !ratio_setting.ContainsGroupRatio(strings.TrimSpace(value)) {
+		return errors.New("assistant review routing group must be an existing group")
 	}
 	if err := setting.ValidateAdvancedSecurityOption(key, value); err != nil {
 		return err
@@ -403,13 +414,18 @@ func ValidateOptionValues(values map[string]string) error {
 	}
 	dynamicValues := make(map[string]string)
 	assistantRouteChanged := false
+	assistantReviewRouteChanged := false
 	for key, value := range values {
 		if dynamic_pricing_setting.IsOptionKey(key) {
 			dynamicValues[key] = value
 			continue
 		}
-		if key == setting.AssistantGroupOptionKey || key == setting.AssistantModelOptionKey {
+		switch key {
+		case setting.AssistantGroupOptionKey, setting.AssistantModelOptionKey:
 			assistantRouteChanged = true
+			continue
+		case setting.AssistantReviewGroupOptionKey, setting.AssistantReviewModelOptionKey:
+			assistantReviewRouteChanged = true
 			continue
 		}
 		if err := validateOptionValue(key, value); err != nil {
@@ -431,6 +447,24 @@ func ValidateOptionValues(values map[string]string) error {
 			}
 		}
 		if err := validateAssistantRouteValues(values); err != nil {
+			return err
+		}
+	}
+	if assistantReviewRouteChanged {
+		if value, ok := values[setting.AssistantReviewGroupOptionKey]; ok {
+			if err := setting.ValidateAssistantOption(setting.AssistantReviewGroupOptionKey, value); err != nil {
+				return err
+			}
+			if !ratio_setting.ContainsGroupRatio(strings.TrimSpace(value)) {
+				return errors.New("assistant review routing group must be an existing group")
+			}
+		}
+		if value, ok := values[setting.AssistantReviewModelOptionKey]; ok {
+			if err := setting.ValidateAssistantOption(setting.AssistantReviewModelOptionKey, value); err != nil {
+				return err
+			}
+		}
+		if err := validateAssistantReviewRouteValues(values); err != nil {
 			return err
 		}
 	}
@@ -464,6 +498,29 @@ func validateAssistantRouteValues(values map[string]string) error {
 	}
 	if modelID == "" || !IsModelEnabledForGroup(group, modelID) {
 		return fmt.Errorf("assistant model is not enabled in the %s group; choose a live model from the model list", group)
+	}
+	return nil
+}
+
+func validateAssistantReviewRouteValues(values map[string]string) error {
+	settings := setting.GetAssistantSettings()
+	group := strings.TrimSpace(settings.ReviewGroup)
+	if value, ok := values[setting.AssistantReviewGroupOptionKey]; ok {
+		group = strings.TrimSpace(value)
+	}
+	if group == "" {
+		group = setting.DefaultAssistantReviewGroup
+	}
+	if !ratio_setting.ContainsGroupRatio(group) {
+		return errors.New("assistant review routing group must be an existing group")
+	}
+
+	modelID := strings.TrimSpace(settings.ReviewModel)
+	if value, ok := values[setting.AssistantReviewModelOptionKey]; ok {
+		modelID = strings.TrimSpace(value)
+	}
+	if modelID == "" || !IsModelEnabledForGroup(group, modelID) {
+		return fmt.Errorf("assistant review model is not enabled in the %s group; choose a live model from the model list", group)
 	}
 	return nil
 }
@@ -820,8 +877,12 @@ func updateOptionMap(key string, value string) (err error) {
 		err = setting.UpdateAssistantReviewIntervalHours(value)
 	case setting.AssistantReviewProbabilityOptionKey:
 		err = setting.UpdateAssistantReviewProbability(value)
+	case setting.AssistantReviewGroupOptionKey:
+		err = setting.UpdateAssistantReviewGroup(value)
 	case setting.AssistantReviewModelOptionKey:
 		err = setting.UpdateAssistantReviewModel(value)
+	case setting.AssistantReviewReasoningEffortOptionKey:
+		err = setting.UpdateAssistantReviewReasoningEffort(value)
 	case setting.AssistantReviewGroupPoliciesOptionKey:
 		err = setting.UpdateAssistantReviewGroupPolicies(value)
 	case setting.AssistantActiveRetentionDaysOptionKey:

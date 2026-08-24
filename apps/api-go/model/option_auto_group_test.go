@@ -28,6 +28,15 @@ func TestValidateOptionValueRejectsInvalidMaxTokenAutoGroups(t *testing.T) {
 }
 
 func TestValidateOptionValueRejectsUnavailableAssistantReviewModel(t *testing.T) {
+	originalSettings := setting.GetAssistantSettings()
+	originalRatios := ratio_setting.GroupRatio2JSONString()
+	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"default":1,"review-premium":1}`))
+	require.NoError(t, setting.UpdateAssistantReviewGroup("review-premium"))
+	t.Cleanup(func() {
+		require.NoError(t, setting.UpdateAssistantReviewGroup(originalSettings.ReviewGroup))
+		require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(originalRatios))
+	})
+
 	db := setupConsoleActivationTestDB(t)
 	require.NoError(t, db.AutoMigrate(&Ability{}, &Channel{}))
 	require.NoError(t, db.Create(&[]Channel{
@@ -35,13 +44,14 @@ func TestValidateOptionValueRejectsUnavailableAssistantReviewModel(t *testing.T)
 		{Id: 2, Name: "review-disabled", Key: "sk-disabled", Status: common.ChannelStatusManuallyDisabled},
 	}).Error)
 	require.NoError(t, db.Create(&[]Ability{
-		{Group: "default", Model: "review-live", Enabled: true, ChannelId: 1},
-		{Group: "default", Model: "review-disabled", Enabled: true, ChannelId: 2},
+		{Group: "review-premium", Model: "review-live", Enabled: true, ChannelId: 1},
+		{Group: "review-premium", Model: "review-disabled", Enabled: true, ChannelId: 2},
 	}).Error)
 
-	require.NoError(t, validateOptionValue("AssistantReviewModel", "review-live"))
-	require.Error(t, validateOptionValue("AssistantReviewModel", "review-disabled"))
-	require.Error(t, validateOptionValue("AssistantReviewModel", "review-missing"))
+	require.NoError(t, validateOptionValue(setting.AssistantReviewGroupOptionKey, "review-premium"))
+	require.NoError(t, validateOptionValue(setting.AssistantReviewModelOptionKey, "review-live"))
+	require.Error(t, validateOptionValue(setting.AssistantReviewModelOptionKey, "review-disabled"))
+	require.Error(t, validateOptionValue(setting.AssistantReviewModelOptionKey, "review-missing"))
 }
 
 func TestValidateOptionValueAcceptsOnlyExistingAssistantGroup(t *testing.T) {
@@ -69,6 +79,29 @@ func TestValidateOptionValuesChecksAssistantModelAgainstCandidateGroup(t *testin
 	assert.Error(t, ValidateOptionValues(map[string]string{
 		setting.AssistantGroupOptionKey: "premium",
 		setting.AssistantModelOptionKey: "missing-model",
+	}))
+}
+
+func TestValidateOptionValuesChecksAssistantReviewModelAgainstCandidateGroup(t *testing.T) {
+	originalRatios := ratio_setting.GroupRatio2JSONString()
+	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"default":1,"review-premium":1}`))
+	t.Cleanup(func() { require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(originalRatios)) })
+	db := setupConsoleActivationTestDB(t)
+	require.NoError(t, db.AutoMigrate(&Ability{}, &Channel{}))
+	require.NoError(t, db.Create(&Channel{
+		Id: 1, Name: "review-premium", Key: "sk-test", Status: common.ChannelStatusEnabled,
+	}).Error)
+	require.NoError(t, db.Create(&Ability{
+		Group: "review-premium", Model: "review-premium-model", Enabled: true, ChannelId: 1,
+	}).Error)
+
+	require.NoError(t, ValidateOptionValues(map[string]string{
+		setting.AssistantReviewGroupOptionKey: "review-premium",
+		setting.AssistantReviewModelOptionKey: "review-premium-model",
+	}))
+	assert.Error(t, ValidateOptionValues(map[string]string{
+		setting.AssistantReviewGroupOptionKey: "review-premium",
+		setting.AssistantReviewModelOptionKey: "missing-model",
 	}))
 }
 
