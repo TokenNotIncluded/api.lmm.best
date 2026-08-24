@@ -6,7 +6,15 @@
 //! candidate into a test-only root router without granting production
 //! ownership.
 
+#![allow(dead_code, private_interfaces)]
+#![allow(
+    clippy::result_large_err,
+    clippy::result_unit_err,
+    clippy::too_many_arguments
+)]
+
 pub mod access_ip;
+pub mod account_action;
 pub mod admin_catalog;
 pub mod api_token;
 pub mod assistant;
@@ -26,16 +34,15 @@ pub mod finance;
 pub mod finance_export;
 pub mod gifts;
 pub mod hero_sms;
-pub mod account_action;
 pub mod identity_2fa;
 pub mod identity_admin;
 pub mod identity_federation;
 pub mod identity_profile;
 pub mod identity_security;
 pub mod kling_task_reads;
+pub mod mcp;
 pub mod media_midjourney;
 pub mod media_tasks;
-pub mod mcp;
 pub mod missing_billing_dashboard;
 pub mod missing_billing_webhooks;
 pub mod missing_control_public;

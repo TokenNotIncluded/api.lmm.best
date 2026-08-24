@@ -46,7 +46,7 @@ func main() {
 	switch dispatch.Mode {
 	case appcli.ModeServe:
 		// common.InitEnv owns the server flag set. Remove the optional serve word so
-		// `lmm-api-go serve --port ...` and `lmm-api-go --port ...` share one parser.
+		// `lmm-api serve --port ...` and `lmm-api --port ...` share one parser.
 		os.Args = append([]string{os.Args[0]}, dispatch.ServeArgs...)
 		runServer()
 	case appcli.ModeMigrateApply:

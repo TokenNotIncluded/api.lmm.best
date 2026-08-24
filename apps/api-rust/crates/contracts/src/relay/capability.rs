@@ -847,6 +847,7 @@ impl Error for PlanCompileError {}
 
 #[cfg(test)]
 mod tests {
+    use super::super::RouteRegistration;
     use super::*;
 
     #[test]
@@ -919,8 +920,18 @@ mod tests {
         normalized.add_loss(Loss::new(LossCode::LossCitation, Some(Feature::Citations)));
         assert_eq!(normalized.fidelity, Fidelity::Lossy);
 
-        let mut unsupported = ConversionPlan::compile(Protocol::Claude, Protocol::Gemini, "claude")
-            .expect("registered route");
+        let mut unsupported_registry = Registry::default();
+        let unsupported_route = unsupported_registry
+            .route_mut(Protocol::Claude, Protocol::Gemini)
+            .expect("complete matrix route");
+        *unsupported_route = RouteRegistration::unsupported(Protocol::Claude, Protocol::Gemini);
+        let mut unsupported = ConversionPlan::compile_with_registry(
+            Protocol::Claude,
+            Protocol::Gemini,
+            "claude",
+            &unsupported_registry,
+        )
+        .expect("registered unsupported route");
         unsupported.add_loss(Loss::new(LossCode::LossCitation, Some(Feature::Citations)));
         assert_eq!(unsupported.fidelity, Fidelity::Unsupported);
     }
@@ -966,10 +977,16 @@ mod tests {
 
     #[test]
     fn feature_aware_compilation_keeps_unsupported_routes_non_executable() {
-        let plan = ConversionPlan::compile_for_features(
+        let mut registry = Registry::default();
+        let route = registry
+            .route_mut(Protocol::Claude, Protocol::Gemini)
+            .expect("complete matrix route");
+        *route = RouteRegistration::unsupported(Protocol::Claude, Protocol::Gemini);
+        let plan = ConversionPlan::compile_with_registry_for_features(
             Protocol::Claude,
             Protocol::Gemini,
             "claude",
+            &registry,
             std::iter::empty::<Feature>(),
         )
         .expect("registered unsupported route");
@@ -981,8 +998,18 @@ mod tests {
 
     #[test]
     fn unsupported_route_is_rejected_even_when_loss_policy_allows_losses() {
-        let plan = ConversionPlan::compile(Protocol::Claude, Protocol::Gemini, "claude")
-            .expect("all protocol pairs are registered");
+        let mut registry = Registry::default();
+        let route = registry
+            .route_mut(Protocol::Claude, Protocol::Gemini)
+            .expect("complete matrix route");
+        *route = RouteRegistration::unsupported(Protocol::Claude, Protocol::Gemini);
+        let plan = ConversionPlan::compile_with_registry(
+            Protocol::Claude,
+            Protocol::Gemini,
+            "claude",
+            &registry,
+        )
+        .expect("all protocol pairs are registered");
         let error = plan.enforce(LossPolicy::Allow).expect_err("unsupported");
         assert_eq!(error.code, "conversion_unsupported_feature");
     }

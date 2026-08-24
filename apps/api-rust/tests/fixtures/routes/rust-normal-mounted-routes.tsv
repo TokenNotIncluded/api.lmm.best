@@ -329,8 +329,8 @@ GET	/api/user/:id	apps/api-rust/src/main.rs
 DELETE	/api/user/:id/2fa	apps/api-rust/src/main.rs:identity_2fa_router
 GET	/api/user/:id/assistant-memories	apps/api-rust/src/main.rs:user_assistant_admin
 POST	/api/user/:id/assistant-memories	apps/api-rust/src/main.rs:user_assistant_admin
-DELETE	/api/user/:id/assistant-memories/:memory_id	apps/api-rust/src/main.rs:user_assistant_admin
-PUT	/api/user/:id/assistant-memories/:memory_id	apps/api-rust/src/main.rs:user_assistant_admin
+DELETE	/api/user/:id/assistant-memories/:memoryId	apps/api-rust/src/main.rs:user_assistant_admin
+PUT	/api/user/:id/assistant-memories/:memoryId	apps/api-rust/src/main.rs:user_assistant_admin
 GET	/api/user/:id/assistant-profile	apps/api-rust/src/main.rs:user_assistant_admin
 PUT	/api/user/:id/assistant-profile	apps/api-rust/src/main.rs:user_assistant_admin
 DELETE	/api/user/:id/bindings/:binding_type	apps/api-rust/src/main.rs:identity_security

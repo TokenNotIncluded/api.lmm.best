@@ -44,7 +44,7 @@ func RunGeoIP(args []string, stdout, stderr io.Writer) int {
 		return ExitUsage
 	}
 	if os.Geteuid() != 0 {
-		_, _ = fmt.Fprintln(stderr, "lmm-api-go geoip update: must run as root")
+		_, _ = fmt.Fprintf(stderr, "%s geoip update: must run as root\n", ProgramName)
 		return ExitError
 	}
 	if err := updateGeoIPDatabase(context.Background(), options); err != nil {
@@ -93,7 +93,7 @@ func updateGeoIPDatabase(ctx context.Context, options geoIPUpdateOptions) error 
 	if err != nil {
 		return fmt.Errorf("build download request: %w", err)
 	}
-	request.Header.Set("User-Agent", "lmm-api-go/geoip-updater")
+	request.Header.Set("User-Agent", "lmm-api/geoip-updater")
 	client := &http.Client{Timeout: 2 * time.Minute}
 	response, err := client.Do(request)
 	if err != nil {

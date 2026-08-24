@@ -785,7 +785,7 @@ fn pg_canonical(value: Option<String>, column: &Column) -> Result<CanonicalValue
 }
 
 fn decode_hex(value: &str) -> Result<Vec<u8>, MigrationError> {
-    if value.len() % 2 != 0 {
+    if !value.len().is_multiple_of(2) {
         return Err(MigrationError::Canonical("invalid bytea hex".into()));
     }
     (0..value.len())

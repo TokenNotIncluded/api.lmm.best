@@ -451,6 +451,8 @@ func newProductionFixture(t *testing.T) productionFixture {
 	paths.DropInDir = filepath.Join(root, "etc", "systemd", "lmm-api.service.d")
 	paths.PackagedDropInDir = filepath.Join(root, "usr", "lib", "systemd", "lmm-api.service.d")
 	paths.InstalledBinary = filepath.Join(root, "usr", "bin", "lmm-api")
+	paths.LegacyGoBinary = filepath.Join(root, "usr", "bin", "lmm-api-go")
+	paths.LegacyDeployBinary = filepath.Join(root, "usr", "bin", "lmm-api-deploy")
 	paths.GoRevisionFile = filepath.Join(root, "usr", "share", "doc", "lmm-api-go-bin", "REVISION")
 	paths.GoContractFile = filepath.Join(root, "usr", "share", "doc", "lmm-api-go-bin", "API_ROUTE_CONTRACT_REVISION")
 	paths.WebRevisionFile = filepath.Join(root, "usr", "share", "doc", "lmm-api-web-bin", "REVISION")
@@ -476,6 +478,9 @@ func newProductionFixture(t *testing.T) productionFixture {
 	oldRevision := strings.Repeat("1", 40)
 	newRevision := strings.Repeat("2", 40)
 	contract := strings.Repeat("a", 64)
+	if err := os.Symlink(filepath.Base(paths.InstalledBinary), paths.LegacyGoBinary); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(paths.GoRevisionFile, []byte(oldRevision+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -665,7 +670,7 @@ func TestProductionDualPackageApplyUsesParuAndCanonicalWatchdog(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(unit), "ExecStart=/usr/bin/lmm-api-deploy deploy production rollback") || strings.Contains(string(unit), fixture.options.ProbeBinary) {
+	if !strings.Contains(string(unit), "ExecStart=/usr/bin/lmm-api deploy production rollback") || strings.Contains(string(unit), fixture.options.ProbeBinary) {
 		t.Fatalf("rollback unit=%s", unit)
 	}
 }

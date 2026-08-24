@@ -579,8 +579,9 @@ async fn handle_client_data(
                 session.locked_channel = Some(channel);
             }
             if let Some(locked_model) = session.locked_model.as_deref()
-                && locked_model != create.model {
-                    send_error(
+                && locked_model != create.model
+            {
+                send_error(
                         client,
                         &create.event_id,
                         &ResponsesWebSocketFailure::invalid_request(format!(
@@ -589,8 +590,8 @@ async fn handle_client_data(
                         )),
                     )
                     .await;
-                    return true;
-                }
+                return true;
+            }
             if session.current.is_some() {
                 send_error(
                     client,
@@ -633,26 +634,27 @@ async fn handle_client_data(
                 }
             };
             if let Some(locked) = session.locked_channel.as_ref()
-                && locked != &started.channel {
-                    finish_detached(
-                        state,
-                        session,
-                        started.turn,
-                        ResponsesTurnFinish::PolicyClosed,
-                    )
-                    .await;
-                    send_error(
-                        client,
-                        &create.event_id,
-                        &ResponsesWebSocketFailure::new(
-                            StatusCode::FORBIDDEN,
-                            "get_channel_failed",
-                            "locked responses websocket channel changed",
-                        ),
-                    )
-                    .await;
-                    return false;
-                }
+                && locked != &started.channel
+            {
+                finish_detached(
+                    state,
+                    session,
+                    started.turn,
+                    ResponsesTurnFinish::PolicyClosed,
+                )
+                .await;
+                send_error(
+                    client,
+                    &create.event_id,
+                    &ResponsesWebSocketFailure::new(
+                        StatusCode::FORBIDDEN,
+                        "get_channel_failed",
+                        "locked responses websocket channel changed",
+                    ),
+                )
+                .await;
+                return false;
+            }
             if let Some(existing) = session.upstream.as_ref() {
                 if !Arc::ptr_eq(existing, &started.upstream) {
                     finish_detached(
@@ -805,11 +807,12 @@ async fn handle_upstream_frame(
         }
     }
     if let Some(message) = frame.into_axum()
-        && client.send(message).await.is_err() {
-            finish_current(state, session, ResponsesTurnFinish::ClientClosed).await;
-            close_upstream(session).await;
-            return false;
-        }
+        && client.send(message).await.is_err()
+    {
+        finish_current(state, session, ResponsesTurnFinish::ClientClosed).await;
+        close_upstream(session).await;
+        return false;
+    }
     true
 }
 
@@ -824,9 +827,9 @@ async fn finish_current(
             .finish_turn(turn.clone(), finish)
             .await
             .is_err()
-        {
-            session.current = Some(turn);
-        }
+    {
+        session.current = Some(turn);
+    }
 }
 
 async fn finish_detached(

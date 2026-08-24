@@ -5092,7 +5092,11 @@ pub(crate) fn api_error(message: String) -> Response {
     )
 }
 
-pub(crate) fn assistant_error(status: StatusCode, code: &'static str, message: &'static str) -> Response {
+pub(crate) fn assistant_error(
+    status: StatusCode,
+    code: &'static str,
+    message: &'static str,
+) -> Response {
     with_auth_version(
         (
             status,

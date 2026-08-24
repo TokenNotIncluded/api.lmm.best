@@ -10,16 +10,25 @@ pkgbase = lmm-api-go-git
 	makedepends = git
 	makedepends = go>=1.25.1
 	depends = ca-certificates
+	depends = coreutils
+	depends = libarchive
+	depends = pacman
+	depends = paru
+	depends = sudo
 	depends = systemd
 	depends = tzdata
+	depends = util-linux
 	optdepends = postgresql: production database
 	optdepends = valkey: cache, rate limiting, and login sessions
-	provides = lmm-api-go
+	provides = lmm-api
 	conflicts = lmm-api
 	conflicts = lmm-api-bin
 	conflicts = lmm-api-git
 	conflicts = lmm-api-go
 	conflicts = lmm-api-go-bin
+	conflicts = lmm-api-deploy
+	conflicts = lmm-api-deploy-bin
+	replaces = lmm-api-deploy-bin
 	options = !strip
 	backup = etc/lmm-api-go/lmm-api-go.env
 	source = lmm-api-go::git+https://github.com/LIghtJUNction/api.lmm.best.git#branch=main

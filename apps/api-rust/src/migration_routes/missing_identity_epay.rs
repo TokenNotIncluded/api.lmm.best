@@ -543,11 +543,10 @@ fn parse_pay(headers: &HeaderMap, body: &[u8], query: Option<&str>) -> Result<Pa
         .get(header::CONTENT_TYPE)
         .and_then(|v| v.to_str().ok())
         .is_some_and(|v| v.to_ascii_lowercase().contains("application/json"));
-    if json_body
-        && let Ok(parsed) = serde_json::from_slice::<PayJson>(body) {
-            amount = parsed.amount;
-            method = parsed.payment_method;
-        }
+    if json_body && let Ok(parsed) = serde_json::from_slice::<PayJson>(body) {
+        amount = parsed.amount;
+        method = parsed.payment_method;
+    }
     // Gin chooses its binder from Content-Type; an unlabelled JSON-looking
     // body is treated as a form, while an invalid JSON body is not reparsed as
     // form data.

@@ -1104,21 +1104,21 @@ impl Envelope {
         }
         for (index, item) in self.items.iter().enumerate() {
             validate_item(item, index)?;
-            if let Some(id) = item.id.as_ref() {
-                if id.is_empty() {
-                    return Err(IrValidationError::EmptyOpaqueId {
-                        item_index: index,
-                        field: "id".to_owned(),
-                    });
-                }
+            if let Some(id) = item.id.as_ref()
+                && id.is_empty()
+            {
+                return Err(IrValidationError::EmptyOpaqueId {
+                    item_index: index,
+                    field: "id".to_owned(),
+                });
             }
-            if let Some(call_id) = item.call_id.as_ref() {
-                if call_id.is_empty() {
-                    return Err(IrValidationError::EmptyOpaqueId {
-                        item_index: index,
-                        field: "call_id".to_owned(),
-                    });
-                }
+            if let Some(call_id) = item.call_id.as_ref()
+                && call_id.is_empty()
+            {
+                return Err(IrValidationError::EmptyOpaqueId {
+                    item_index: index,
+                    field: "call_id".to_owned(),
+                });
             }
             match &item.kind {
                 ItemKind::ToolCall => {
@@ -1202,24 +1202,22 @@ impl Envelope {
                         part_index,
                     });
                 }
-                if let Some(media) = part.media.as_ref() {
-                    if matches!(&media.kind, MediaKind::Unknown(_))
+                if let Some(media) = part.media.as_ref()
+                    && (matches!(&media.kind, MediaKind::Unknown(_))
                         || media.data.is_some()
-                        || !media.extensions.is_empty()
-                    {
-                        return Err(ExactRoundTripError::UnmodeledField {
-                            path: format!("items[{item_index}].parts[{part_index}].media"),
-                        });
-                    }
+                        || !media.extensions.is_empty())
+                {
+                    return Err(ExactRoundTripError::UnmodeledField {
+                        path: format!("items[{item_index}].parts[{part_index}].media"),
+                    });
                 }
-                if let Some(function) = part.function.as_ref() {
-                    if matches!(&function.kind, FunctionKind::Unknown(_))
-                        || !function.extensions.is_empty()
-                    {
-                        return Err(ExactRoundTripError::UnmodeledField {
-                            path: format!("items[{item_index}].parts[{part_index}].function"),
-                        });
-                    }
+                if let Some(function) = part.function.as_ref()
+                    && (matches!(&function.kind, FunctionKind::Unknown(_))
+                        || !function.extensions.is_empty())
+                {
+                    return Err(ExactRoundTripError::UnmodeledField {
+                        path: format!("items[{item_index}].parts[{part_index}].function"),
+                    });
                 }
             }
         }
@@ -1239,18 +1237,17 @@ impl Envelope {
                 path: "tool_choice.provider".to_owned(),
             });
         }
-        if let Some(usage) = self.usage.as_ref() {
-            if !usage.extensions.is_empty()
+        if let Some(usage) = self.usage.as_ref()
+            && (!usage.extensions.is_empty()
                 || !usage.cache.extensions.is_empty()
                 || usage
                     .billing
                     .as_ref()
-                    .is_some_and(|billing| !billing.extensions.is_empty())
-            {
-                return Err(ExactRoundTripError::UnmodeledField {
-                    path: "usage.extensions".to_owned(),
-                });
-            }
+                    .is_some_and(|billing| !billing.extensions.is_empty()))
+        {
+            return Err(ExactRoundTripError::UnmodeledField {
+                path: "usage.extensions".to_owned(),
+            });
         }
         Ok(())
     }

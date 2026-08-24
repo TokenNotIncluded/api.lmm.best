@@ -1,5 +1,5 @@
 [Unit]
-Description=Update DB-IP Lite GeoIP2 Country database for lmm-api-go
+Description=Update DB-IP Lite GeoIP2 Country database for lmm-api
 After=network-online.target
 Wants=network-online.target
 

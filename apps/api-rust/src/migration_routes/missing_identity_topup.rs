@@ -1287,15 +1287,16 @@ fn neutral_topup_availability(
                 .get("CreemProducts")
                 .map(String::as_str)
                 .unwrap_or("[]"),
-        ) {
-            for product in products {
-                if let Some(price) = product.get("price").and_then(Value::as_f64)
-                    && price > 0.0
-                {
-                    minimums.push(price);
-                }
+        )
+    {
+        for product in products {
+            if let Some(price) = product.get("price").and_then(Value::as_f64)
+                && price > 0.0
+            {
+                minimums.push(price);
             }
         }
+    }
     let available = online || stripe || creem || waffo || pancake;
     let minimum = minimums.into_iter().reduce(f64::min).unwrap_or(0.0);
     (available, minimum)

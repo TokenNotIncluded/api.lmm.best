@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-func TestProductionDeploymentDefaultsUseIndependentOperatorRoot(t *testing.T) {
+func TestProductionDeploymentDefaultsUseCanonicalBackendCLI(t *testing.T) {
 	paths := defaultProductionPaths()
 	if paths.WorkRoot != "/var/lib/lmm-api-go-deploy/work" || paths.BackupRoot != "/var/lib/lmm-api-go-deploy/backups" {
 		t.Fatalf("deployment roots=(%q, %q)", paths.WorkRoot, paths.BackupRoot)
@@ -19,16 +19,18 @@ func TestProductionDeploymentDefaultsUseIndependentOperatorRoot(t *testing.T) {
 	if productionMemoryFileName != "20-memory.conf" || filepath.Join(paths.PackagedDropInDir, productionMemoryFileName) != "/usr/lib/systemd/system/lmm-api.service.d/20-memory.conf" {
 		t.Fatalf("package-owned memory path=%q", filepath.Join(paths.PackagedDropInDir, productionMemoryFileName))
 	}
-	if paths.OperatorBinary != "/usr/bin/lmm-api-deploy" || paths.InstalledBinary != "/usr/bin/lmm-api" || paths.RunuserBinary != "/usr/bin/runuser" || paths.ParuBinary != "/usr/bin/paru" {
+	if paths.OperatorBinary != "/usr/bin/lmm-api" || paths.InstalledBinary != "/usr/bin/lmm-api" ||
+		paths.LegacyGoBinary != "/usr/bin/lmm-api-go" || paths.LegacyDeployBinary != "/usr/bin/lmm-api-deploy" ||
+		paths.RunuserBinary != "/usr/bin/runuser" || paths.ParuBinary != "/usr/bin/paru" {
 		t.Fatalf("production binaries=%#v", paths)
 	}
 }
 
-func TestProductionReleaseSourceBuildPathIsHardDisabled(t *testing.T) {
+func TestProductionReleasePlanRequiresImmutableInputs(t *testing.T) {
 	var stderr bytes.Buffer
-	code := runProductionRelease([]string{"--confirm", productionExpectedHost}, &bytes.Buffer{}, &stderr)
-	if code != ExitUsage || !strings.Contains(stderr.String(), "split lmm-api-go-bin and lmm-api-web-bin") || !strings.Contains(stderr.String(), "deploy production apply") {
-		t.Fatalf("release exit=%d stderr=%q", code, stderr.String())
+	code := runProductionDeploy([]string{"plan"}, &bytes.Buffer{}, &stderr)
+	if code != ExitUsage || !strings.Contains(stderr.String(), "--deployment-id") {
+		t.Fatalf("plan exit=%d stderr=%q", code, stderr.String())
 	}
 }
 

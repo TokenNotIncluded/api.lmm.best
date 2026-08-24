@@ -1,0 +1,2 @@
+d /var/lib/lmm-api-go-deploy 0710 root lmm-api-deploy -
+d /var/lib/lmm-api-go-deploy/operator 0700 lmm-api-deploy lmm-api-deploy -

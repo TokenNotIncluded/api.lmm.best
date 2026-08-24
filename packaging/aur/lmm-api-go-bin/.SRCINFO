@@ -1,5 +1,5 @@
 pkgbase = lmm-api-go-bin
-	pkgdesc = LMM API Go backend, native CLI, systemd service, and web frontend (prebuilt)
+	pkgdesc = LMM API Go backend, native CLI, and systemd service (prebuilt)
 	pkgver = 0.1.57
 	pkgrel = 1
 	url = https://github.com/LIghtJUNction/api.lmm.best
@@ -8,10 +8,17 @@ pkgbase = lmm-api-go-bin
 	license = AGPL-3.0-only
 	makedepends = cosign
 	depends = ca-certificates
+	depends = coreutils
+	depends = libarchive
+	depends = pacman
+	depends = paru
+	depends = sudo
 	depends = systemd
 	depends = tzdata
+	depends = util-linux
 	optdepends = postgresql: production database
 	optdepends = valkey: cache, rate limiting, and login sessions
+	provides = lmm-api=0.1.57
 	provides = lmm-api-go=0.1.57
 	conflicts = lmm-api
 	conflicts = lmm-api-bin

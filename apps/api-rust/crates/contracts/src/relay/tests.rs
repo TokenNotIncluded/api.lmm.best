@@ -2108,10 +2108,10 @@ fn responses_checked_stream_accepts_and_checks_generated_item_identity() {
 
     let mut late_id = snapshot.clone();
     for event in &mut late_id.events {
-        if event.kind == "response.output_item.added" {
-            if let Some(item) = event.payload.item.as_mut() {
-                item.id.clear();
-            }
+        if event.kind == "response.output_item.added"
+            && let Some(item) = event.payload.item.as_mut()
+        {
+            item.id.clear();
         }
         event.payload.item_id = None;
     }
@@ -2140,10 +2140,9 @@ fn responses_checked_stream_accepts_and_checks_generated_item_identity() {
         .events
         .iter_mut()
         .find(|event| event.kind == "response.output_item.done")
+        && let Some(item) = event.payload.item.as_mut()
     {
-        if let Some(item) = event.payload.item.as_mut() {
-            item.status = "incomplete".to_owned();
-        }
+        item.status = "incomplete".to_owned();
     }
     assert!(matches!(
         responses_stream_to_canonical_checked(&incomplete_item),
@@ -2159,13 +2158,12 @@ fn responses_checked_stream_accepts_and_checks_generated_item_identity() {
         .events
         .iter_mut()
         .find(|event| event.kind == "response.completed")
+        && let Some(response) = event.payload.response.as_mut()
     {
-        if let Some(response) = event.payload.response.as_mut() {
-            response.usage = Some(WireUsage {
-                prompt_tokens: 2,
-                ..WireUsage::default()
-            });
-        }
+        response.usage = Some(WireUsage {
+            prompt_tokens: 2,
+            ..WireUsage::default()
+        });
     }
     assert!(matches!(
         responses_stream_to_canonical_checked(&usage_conflict),

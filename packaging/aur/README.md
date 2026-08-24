@@ -1,27 +1,32 @@
 # AUR packages
 
-Production uses one tooling-only deployment operator plus independently owned
-Go backend and Web frontend packages.
+Production converges on one public backend and operator command:
+`/usr/bin/lmm-api`, owned by the Go package. Go and Web remain independently
+versioned application packages.
 
 | Role | Stable source | Prebuilt release | Build from Git | Installed command/payload |
 | --- | --- | --- | --- | --- |
-| Deployment operator | — | `lmm-api-deploy-bin` | — | `/usr/bin/lmm-api-deploy` → `/usr/lib/lmm-api-deploy/lmm-api-go` |
-| Go backend | `lmm-api-go` | `lmm-api-go-bin` | `lmm-api-go-git` | `/usr/bin/lmm-api` → `lmm-api-go` |
+| Go backend/operator | `lmm-api-go` | `lmm-api-go-bin` | `lmm-api-go-git` | `/usr/bin/lmm-api` (`serve`, `deploy`, health and maintenance commands) |
 | Web frontend | — | `lmm-api-web-bin` | — | `/usr/share/lmm-api-web/frontend-dist` |
 | Rust preview | — | `lmm-api-rs-bin` | `lmm-api-rs-git` | `/usr/bin/lmm-api-rs` |
 
-`lmm-api-deploy-bin` is a canonical tooling-only bootstrap. It extracts the
-signed Go release binary into an independent package payload under
-`/usr/lib/lmm-api-deploy`, owns the `/usr/bin/lmm-api-deploy` link, and installs
-license, Git revision, operator-byte hash, release-asset hash, and contract
-metadata when the source release provides it. It must not own a systemd unit,
-application environment, database state, nginx configuration, frontend
-payload, or active frontend link. Installing it with non-root `paru` is not an
-application switch.
+The historical compatibility release T0 kept a package-owned
+`/usr/bin/lmm-api-go` symlink and did not remove an already-installed
+`lmm-api-deploy-bin`, so a rollback to N-1 could not strand the host. New
+services, docs, automation, and release archives use `lmm-api`. No new
+deploy-only artifact is published.
+
+T1 removes the alias and declares an exact conflict/replacement for
+`lmm-api-deploy-bin`; the historical T0 Go package is its rollback package and
+already owns the operator user, sudoers, sysusers, and tmpfiles resources
+needed after rollback. Local `pacman -U` does not apply `replaces`, so the armed
+target controller verifies those T0 resources and the legacy package owner/Qkk,
+removes that exact package, and only then installs T1.
 
 The next `lmm-api-go-bin` release is Go-only. It owns the backend, stable
-`/usr/bin/lmm-api` service entry, `/etc/lmm-api-go/lmm-api-go.env`, edge policy,
-and `/usr/lib/systemd/system/lmm-api.service.d/20-memory.conf`; it does not own
+`/usr/bin/lmm-api` service/operator entry, `/etc/lmm-api-go/lmm-api-go.env`,
+operator policy, edge policy, and
+`/usr/lib/systemd/system/lmm-api.service.d/20-memory.conf`; it does not own
 `frontend-dist`. `lmm-api-web-bin` is the sole owner of immutable production
 frontend bytes and atomically activates them under `/srv/lmm-api-frontend`.
 The shared service resolves frontend files through

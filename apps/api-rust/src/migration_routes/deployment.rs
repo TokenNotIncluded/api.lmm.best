@@ -423,9 +423,10 @@ impl DeploymentJobRunner for IoNetDeploymentJobRunner {
             DeploymentOperation::AvailableReplicas => {
                 let mut query = call.input.clone();
                 if let Some(query) = query.as_object_mut()
-                    && let Some(gpu_count) = query.remove("gpu_count") {
-                        query.insert("hardware_qty".to_owned(), gpu_count);
-                    }
+                    && let Some(gpu_count) = query.remove("gpu_count")
+                {
+                    query.insert("hardware_qty".to_owned(), gpu_count);
+                }
                 Ok(response_data(
                     self.json_request(
                         reqwest::Method::GET,

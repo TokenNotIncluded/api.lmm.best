@@ -603,9 +603,10 @@ impl PgCatalogProvider {
                     "success": success,
                 });
                 if let Some(params) = resource_params.as_object()
-                    && !params.is_empty() {
-                        audit_info["params"] = Value::Object(params.clone());
-                    }
+                    && !params.is_empty()
+                {
+                    audit_info["params"] = Value::Object(params.clone());
+                }
                 (
                     format!("{method} {route}"),
                     resource_params,
@@ -1935,10 +1936,9 @@ async fn execute_json(
             body.insert("status_only".to_owned(), status_only.clone());
         }
     }
-    if requires_id
-        && let Err(error) = require_positive_body_id(&body) {
-            return error.response();
-        }
+    if requires_id && let Err(error) = require_positive_body_id(&body) {
+        return error.response();
+    }
     execute_authorized(&state, actor, operation, None, body).await
 }
 

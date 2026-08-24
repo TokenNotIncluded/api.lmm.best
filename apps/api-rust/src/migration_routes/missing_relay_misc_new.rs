@@ -145,10 +145,7 @@ async fn pg_images_generations(
     relay(state, MissingRelayEndpoint::PgImagesGenerations, request).await
 }
 
-async fn pg_images_edits(
-    State(state): State<MissingRelayMiscState>,
-    request: Request,
-) -> Response {
+async fn pg_images_edits(State(state): State<MissingRelayMiscState>, request: Request) -> Response {
     relay(state, MissingRelayEndpoint::PgImagesEdits, request).await
 }
 
@@ -187,7 +184,10 @@ fn legacy_error(
             );
             response
         }
-        MissingRelayEndpoint::Realtime | MissingRelayEndpoint::Edits | MissingRelayEndpoint::PgImagesGenerations | MissingRelayEndpoint::PgImagesEdits => {
+        MissingRelayEndpoint::Realtime
+        | MissingRelayEndpoint::Edits
+        | MissingRelayEndpoint::PgImagesGenerations
+        | MissingRelayEndpoint::PgImagesEdits => {
             let request_id = request.extensions().get::<RequestContext>().map_or_else(
                 || {
                     request

@@ -238,14 +238,14 @@ func TestStatusShouldNotAllowRouteOrMethodOverride(t *testing.T) {
 	}
 }
 
-func TestUsageNamesTheGoBackendBinary(t *testing.T) {
+func TestUsageNamesTheCanonicalBackendBinary(t *testing.T) {
 	var output bytes.Buffer
 	WriteUsage(&output)
-	if !strings.Contains(output.String(), "lmm-api-go request") {
+	if !strings.Contains(output.String(), "lmm-api request") || !strings.Contains(output.String(), "lmm-api deploy production plan") {
 		t.Fatalf("usage does not name %s: %q", ProgramName, output.String())
 	}
-	if strings.Contains(output.String(), "lmm-api request") {
-		t.Fatalf("usage retained the removed unsuffixed command: %q", output.String())
+	if strings.Contains(output.String(), "lmm-api-go request") || strings.Contains(output.String(), "lmm-api-deploy") {
+		t.Fatalf("usage exposes a second command-line entry point: %q", output.String())
 	}
 }
 

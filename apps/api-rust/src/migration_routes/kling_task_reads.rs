@@ -288,15 +288,16 @@ async fn read_task(
             .service
             .validate_specific_channel(channel_id, &relay_request)
             .await
-        {
-            return failure_response(error);
-        }
+    {
+        return failure_response(error);
+    }
 
     if conversion == KlingGetConversion::UnconvertedJson {
         if let Some(limits) = access.model_limits.as_deref()
-            && !model_is_allowed("", limits) {
-                return failure_response(model_forbidden_failure("", &relay_request));
-            }
+            && !model_is_allowed("", limits)
+        {
+            return failure_response(model_forbidden_failure("", &relay_request));
+        }
         if access.specific_channel_id.is_none() {
             return failure_response(model_required_failure(&relay_request));
         }
@@ -311,16 +312,17 @@ async fn read_task(
     }
 
     if access.specific_channel_id.is_none()
-        && let Some(limits) = access.model_limits.as_deref() {
-            let origin_model = state
-                .service
-                .origin_model_for_owned_task(access.user_id, &task_id)
-                .await
-                .unwrap_or_default();
-            if !model_is_allowed(&origin_model, limits) {
-                return failure_response(model_forbidden_failure(&origin_model, &relay_request));
-            }
+        && let Some(limits) = access.model_limits.as_deref()
+    {
+        let origin_model = state
+            .service
+            .origin_model_for_owned_task(access.user_id, &task_id)
+            .await
+            .unwrap_or_default();
+        if !model_is_allowed(&origin_model, limits) {
+            return failure_response(model_forbidden_failure(&origin_model, &relay_request));
         }
+    }
 
     match state.service.owned_task(access.user_id, &task_id).await {
         Ok(Some(task)) => success_response(&task),

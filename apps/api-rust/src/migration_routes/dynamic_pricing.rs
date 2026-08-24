@@ -340,8 +340,7 @@ async fn apply_setting_update(
     }
     validate_dynamic_pricing_setting(&candidate)?;
     if candidate.enabled && candidate.require_channel_cost {
-        let (_, _, _, missing, err) =
-            active_channel_cost_coverage(&state.pg, &candidate).await?;
+        let (_, _, _, missing, err) = active_channel_cost_coverage(&state.pg, &candidate).await?;
         if err.is_some() {
             return Err(err.unwrap_or_else(|| "coverage check failed".to_owned()));
         }
@@ -352,7 +351,10 @@ async fn apply_setting_update(
                     format!(
                         "{} ({})",
                         channel.get("name").and_then(Value::as_str).unwrap_or(""),
-                        channel.get("id").and_then(Value::as_i64).unwrap_or_default()
+                        channel
+                            .get("id")
+                            .and_then(Value::as_i64)
+                            .unwrap_or_default()
                     )
                 })
                 .collect::<Vec<_>>();
@@ -368,10 +370,11 @@ async fn apply_setting_update(
 }
 
 async fn load_dynamic_pricing_setting(pg: &PgPool) -> Result<DynamicPricingSetting, String> {
-    let rows = sqlx::query("SELECT key, value FROM options WHERE key LIKE 'dynamic_pricing_setting.%'")
-        .fetch_all(pg)
-        .await
-        .map_err(|error| error.to_string())?;
+    let rows =
+        sqlx::query("SELECT key, value FROM options WHERE key LIKE 'dynamic_pricing_setting.%'")
+            .fetch_all(pg)
+            .await
+            .map_err(|error| error.to_string())?;
     let mut options = HashMap::new();
     for row in rows {
         let key: String = row.try_get("key").map_err(|error| error.to_string())?;
@@ -392,7 +395,9 @@ fn parse_dynamic_pricing_setting(options: &HashMap<String, String>) -> DynamicPr
     if let Some(value) = parse_f64_option(options.get("dynamic_pricing_setting.min_factor")) {
         setting.min_factor = value;
     }
-    if let Some(value) = parse_i64_option(options.get("dynamic_pricing_setting.tick_interval_seconds")) {
+    if let Some(value) =
+        parse_i64_option(options.get("dynamic_pricing_setting.tick_interval_seconds"))
+    {
         setting.tick_interval_seconds = value;
     }
     if let Some(value) = parse_i64_option(options.get("dynamic_pricing_setting.window_minutes")) {
@@ -421,7 +426,8 @@ fn parse_dynamic_pricing_setting(options: &HashMap<String, String>) -> DynamicPr
     if let Some(value) = parse_f64_option(options.get("dynamic_pricing_setting.alpha_down")) {
         setting.alpha_down = value;
     }
-    if let Some(value) = parse_f64_option(options.get("dynamic_pricing_setting.cost_floor_factor")) {
+    if let Some(value) = parse_f64_option(options.get("dynamic_pricing_setting.cost_floor_factor"))
+    {
         setting.cost_floor_factor = value;
     }
     if let Some(value) = parse_f64_option(options.get("dynamic_pricing_setting.max_factor")) {
@@ -445,13 +451,15 @@ fn parse_dynamic_pricing_setting(options: &HashMap<String, String>) -> DynamicPr
         setting.failover_probability = value;
     }
     if let Some(raw) = options.get("dynamic_pricing_setting.channel_costs")
-        && let Ok(value) = serde_json::from_str::<HashMap<String, f64>>(raw) {
-            setting.channel_costs = value;
-        }
+        && let Ok(value) = serde_json::from_str::<HashMap<String, f64>>(raw)
+    {
+        setting.channel_costs = value;
+    }
     if let Some(raw) = options.get("dynamic_pricing_setting.per_model")
-        && let Ok(value) = serde_json::from_str::<HashMap<String, ModelPricingOverride>>(raw) {
-            setting.per_model = value;
-        }
+        && let Ok(value) = serde_json::from_str::<HashMap<String, ModelPricingOverride>>(raw)
+    {
+        setting.per_model = value;
+    }
     setting
 }
 
@@ -472,10 +480,15 @@ fn validate_dynamic_pricing_setting(setting: &DynamicPricingSetting) -> Result<(
         return Err("base_price_usd_per_million must be finite and non-negative".to_owned());
     }
     if setting.enabled && setting.base_price_usd_per_million <= 0.0 {
-        return Err("base_price_usd_per_million must be positive while dynamic pricing is enabled".to_owned());
+        return Err(
+            "base_price_usd_per_million must be positive while dynamic pricing is enabled"
+                .to_owned(),
+        );
     }
     if setting.enabled && !setting.require_channel_cost {
-        return Err("require_channel_cost must be true while dynamic pricing is enabled".to_owned());
+        return Err(
+            "require_channel_cost must be true while dynamic pricing is enabled".to_owned(),
+        );
     }
     validate_unit_interval("alpha_load", setting.alpha_load)?;
     validate_unit_interval("alpha_up", setting.alpha_up)?;
@@ -489,7 +502,9 @@ fn validate_dynamic_pricing_setting(setting: &DynamicPricingSetting) -> Result<(
     if setting.min_factor > setting.max_factor {
         return Err("min_factor must not exceed max_factor".to_owned());
     }
-    if setting.load_deadzone < 0.0 || setting.load_deadzone >= 1.0 || !setting.load_deadzone.is_finite()
+    if setting.load_deadzone < 0.0
+        || setting.load_deadzone >= 1.0
+        || !setting.load_deadzone.is_finite()
     {
         return Err("load_deadzone must be finite and in [0, 1)".to_owned());
     }
@@ -501,7 +516,9 @@ fn validate_dynamic_pricing_setting(setting: &DynamicPricingSetting) -> Result<(
     validate_unit_interval("failover_probability", setting.failover_probability)?;
     for (channel_id, cost) in &setting.channel_costs {
         if *cost <= 0.0 || !cost.is_finite() {
-            return Err(format!("channel_costs[{channel_id:?}] must be finite and positive"));
+            return Err(format!(
+                "channel_costs[{channel_id:?}] must be finite and positive"
+            ));
         }
     }
     if setting.enabled && setting.require_channel_cost && setting.channel_costs.is_empty() {
@@ -511,8 +528,14 @@ fn validate_dynamic_pricing_setting(setting: &DynamicPricingSetting) -> Result<(
         );
     }
     for (model, override_values) in &setting.per_model {
-        validate_non_negative(&format!("per_model[{model:?}].target_tpm"), override_values.target_tpm)?;
-        validate_non_negative(&format!("per_model[{model:?}].target_rpm"), override_values.target_rpm)?;
+        validate_non_negative(
+            &format!("per_model[{model:?}].target_tpm"),
+            override_values.target_tpm,
+        )?;
+        validate_non_negative(
+            &format!("per_model[{model:?}].target_rpm"),
+            override_values.target_rpm,
+        )?;
         validate_non_negative(
             &format!("per_model[{model:?}].target_cost_rate"),
             override_values.target_cost_rate,
@@ -628,9 +651,10 @@ fn get_multiplier(setting: &DynamicPricingSetting, state: &ModelState) -> f64 {
 fn model_base_price(setting: &DynamicPricingSetting, model: &str) -> f64 {
     let mut base = setting.base_price_usd_per_million;
     if let Some(override_values) = setting.per_model.get(model)
-        && override_values.base_price_usd_per_million > 0.0 {
-            base = override_values.base_price_usd_per_million;
-        }
+        && override_values.base_price_usd_per_million > 0.0
+    {
+        base = override_values.base_price_usd_per_million;
+    }
     if base <= 0.0 || !base.is_finite() {
         1.0
     } else {
@@ -665,7 +689,11 @@ async fn load_model_states(valkey: &redis::Client) -> HashMap<String, ModelState
         let Some(model) = key.strip_prefix(STATE_KEY_PREFIX) else {
             continue;
         };
-        let Ok(raw): Result<String, _> = redis::cmd("GET").arg(&key).query_async(&mut connection).await else {
+        let Ok(raw): Result<String, _> = redis::cmd("GET")
+            .arg(&key)
+            .query_async(&mut connection)
+            .await
+        else {
             continue;
         };
         if let Ok(state) = serde_json::from_str::<ModelState>(&raw) {
@@ -727,7 +755,10 @@ async fn write_dynamic_pricing_options(
         .await
         .map_err(|error| error.to_string())?;
     }
-    transaction.commit().await.map_err(|error| error.to_string())
+    transaction
+        .commit()
+        .await
+        .map_err(|error| error.to_string())
 }
 
 async fn record_dynamic_pricing_audit(
@@ -785,7 +816,10 @@ struct Principal {
     credential: String,
 }
 
-async fn authenticated_admin(state: &DynamicPricingState, headers: &HeaderMap) -> Result<(), Response> {
+async fn authenticated_admin(
+    state: &DynamicPricingState,
+    headers: &HeaderMap,
+) -> Result<(), Response> {
     let principal = authenticated_user(state, headers).await?;
     if principal.user.role < ADMIN_ROLE {
         return Err(user_auth_error(
@@ -836,7 +870,8 @@ async fn parse_setting_update(request: Request) -> Result<DynamicPricingSettingU
 }
 
 fn parse_f64_option(value: Option<&String>) -> Option<f64> {
-    value.and_then(|value| value.parse::<f64>().ok())
+    value
+        .and_then(|value| value.parse::<f64>().ok())
         .filter(|value| value.is_finite())
 }
 
@@ -1020,9 +1055,11 @@ mod tests {
 
     #[test]
     fn validate_should_reject_enabled_without_positive_base_price() {
-        let mut setting = DynamicPricingSetting::default();
-        setting.enabled = true;
-        setting.base_price_usd_per_million = 0.0;
+        let setting = DynamicPricingSetting {
+            enabled: true,
+            base_price_usd_per_million: 0.0,
+            ..DynamicPricingSetting::default()
+        };
         assert!(validate_dynamic_pricing_setting(&setting).is_err());
     }
 }

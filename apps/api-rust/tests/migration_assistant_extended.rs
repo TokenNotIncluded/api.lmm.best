@@ -33,9 +33,7 @@ async fn assistant_extended_routes_require_dashboard_auth() {
         pg,
         valkey,
         auth,
-        SecretString::from(
-            "assistant-extended-route-test-secret-012345678901234567890123456789",
-        ),
+        SecretString::from("assistant-extended-route-test-secret-012345678901234567890123456789"),
         AssistantRateLimitConfig {
             enabled: false,
             max_requests: 1,

@@ -358,10 +358,7 @@ async fn submit_disable_request(
     with_auth_version(response)
 }
 
-async fn get_appeal(
-    State(state): State<AccountActionState>,
-    headers: HeaderMap,
-) -> Response {
+async fn get_appeal(State(state): State<AccountActionState>, headers: HeaderMap) -> Response {
     let principal = match authenticated_user(&state, &headers).await {
         Ok(principal) => principal,
         Err(response) => return response,
@@ -373,10 +370,7 @@ async fn get_appeal(
     with_auth_version(response)
 }
 
-async fn submit_appeal(
-    State(state): State<AccountActionState>,
-    request: Request,
-) -> Response {
+async fn submit_appeal(State(state): State<AccountActionState>, request: Request) -> Response {
     let headers = request.headers().clone();
     let client_ip = client_ip(&request);
     if let Some(response) = critical_rate_limit(&state, &client_ip).await {
@@ -603,7 +597,8 @@ async fn consume_disable_confirmation(
     if token.is_empty() {
         return Err(ConfirmationError::Invalid);
     }
-    let token_hash = hash_auth_flow(&state.session_secret, token).map_err(|_| ConfirmationError::Internal)?;
+    let token_hash =
+        hash_auth_flow(&state.session_secret, token).map_err(|_| ConfirmationError::Internal)?;
     let payload = sqlx::query_scalar::<_, String>(
         "UPDATE auth_flows SET consumed_at = NOW() \
          WHERE token_hash = $1 AND purpose = $2 AND user_id = $3 AND session_id = $4 \
@@ -632,20 +627,21 @@ async fn resolve_appeal_user(
     input: &AppealSubmissionInput,
 ) -> Result<i64, AppealIdentityError> {
     if let Ok(principal) = authenticated_user(state, headers).await
-        && dashboard_token_candidate(&principal.credential) {
-            let session = state
-                .auth
-                .current_session(SecretString::from(principal.credential.clone()))
-                .await
-                .map_err(|_| AppealIdentityError::Invalid)?;
-            if session.session_id.trim().is_empty() {
-                return Err(AppealIdentityError::Invalid);
-            }
-            if principal.user.status != STATUS_DISABLED {
-                return Err(AppealIdentityError::NotNeeded);
-            }
-            return Ok(principal.user.id);
+        && dashboard_token_candidate(&principal.credential)
+    {
+        let session = state
+            .auth
+            .current_session(SecretString::from(principal.credential.clone()))
+            .await
+            .map_err(|_| AppealIdentityError::Invalid)?;
+        if session.session_id.trim().is_empty() {
+            return Err(AppealIdentityError::Invalid);
         }
+        if principal.user.status != STATUS_DISABLED {
+            return Err(AppealIdentityError::NotNeeded);
+        }
+        return Ok(principal.user.id);
+    }
     let username = input.username.trim();
     if username.is_empty() || input.password.is_empty() {
         return Err(AppealIdentityError::Invalid);
@@ -659,8 +655,12 @@ async fn resolve_appeal_user(
         return Err(AppealIdentityError::Invalid);
     };
     let user_id: i64 = row.try_get("id").map_err(AppealIdentityError::Database)?;
-    let password_hash: String = row.try_get("password").map_err(AppealIdentityError::Database)?;
-    let status: i64 = row.try_get("status").map_err(AppealIdentityError::Database)?;
+    let password_hash: String = row
+        .try_get("password")
+        .map_err(AppealIdentityError::Database)?;
+    let status: i64 = row
+        .try_get("status")
+        .map_err(AppealIdentityError::Database)?;
     if status != STATUS_DISABLED {
         return Err(AppealIdentityError::Invalid);
     }
@@ -835,7 +835,9 @@ async fn list_requests(
     query.push_str(&REQUEST_LIMIT.to_string());
     match (status.is_empty(), kind.is_empty()) {
         (true, true) => {
-            sqlx::query_as::<_, AdminRequestView>(&query).fetch_all(pg).await
+            sqlx::query_as::<_, AdminRequestView>(&query)
+                .fetch_all(pg)
+                .await
         }
         (false, true) => {
             sqlx::query_as::<_, AdminRequestView>(&query)
@@ -917,8 +919,14 @@ async fn review_request_transaction(
         return Err(ReviewStoreError::TargetForbidden);
     }
     if !approve {
-        update_review(&mut transaction, &mut request, admin_user_id, STATUS_REJECTED, note)
-            .await?;
+        update_review(
+            &mut transaction,
+            &mut request,
+            admin_user_id,
+            STATUS_REJECTED,
+            note,
+        )
+        .await?;
         transaction
             .commit()
             .await
@@ -933,15 +941,13 @@ async fn review_request_transaction(
     revoke_active_sessions(&mut transaction, request.target_user_id, &reason, now)
         .await
         .map_err(ReviewStoreError::Database)?;
-    sqlx::query(
-        "UPDATE tokens SET status = $2 WHERE user_id = $1 AND status = $3",
-    )
-    .bind(request.target_user_id)
-    .bind(TOKEN_STATUS_DISABLED)
-    .bind(TOKEN_STATUS_ENABLED)
-    .execute(&mut *transaction)
-    .await
-    .map_err(ReviewStoreError::Database)?;
+    sqlx::query("UPDATE tokens SET status = $2 WHERE user_id = $1 AND status = $3")
+        .bind(request.target_user_id)
+        .bind(TOKEN_STATUS_DISABLED)
+        .bind(TOKEN_STATUS_ENABLED)
+        .execute(&mut *transaction)
+        .await
+        .map_err(ReviewStoreError::Database)?;
     let next_auth_version: i64 = sqlx::query_scalar(
         "UPDATE users SET auth_version = GREATEST(COALESCE(auth_version, 0), 0) + 1 \
          WHERE id = $1 RETURNING auth_version",
@@ -964,7 +970,14 @@ async fn review_request_transaction(
         .execute(&mut *transaction)
         .await
         .map_err(ReviewStoreError::Database)?;
-    update_review(&mut transaction, &mut request, admin_user_id, STATUS_APPROVED, note).await?;
+    update_review(
+        &mut transaction,
+        &mut request,
+        admin_user_id,
+        STATUS_APPROVED,
+        note,
+    )
+    .await?;
     transaction
         .commit()
         .await
@@ -1362,9 +1375,8 @@ fn with_auth_version(mut response: Response) -> Response {
 }
 
 fn disable_cache(mut response: Response) -> Response {
-    response.headers_mut().insert(
-        header::CACHE_CONTROL,
-        HeaderValue::from_static("no-store"),
-    );
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
     response
 }

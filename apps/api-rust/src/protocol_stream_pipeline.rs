@@ -834,10 +834,11 @@ impl StreamSessionTelemetry {
     fn record_downstream_write(&mut self) {
         self.timing.mark_downstream_write();
         if !self.ttft_recorded
-            && let Some(duration) = self.timing.gateway_ttft_tax() {
-                self.observer.record_gateway_ttft(self.labels, duration);
-                self.ttft_recorded = true;
-            }
+            && let Some(duration) = self.timing.gateway_ttft_tax()
+        {
+            self.observer.record_gateway_ttft(self.labels, duration);
+            self.ttft_recorded = true;
+        }
     }
 
     fn record_raw_frame(&self, frame_bytes: usize, duration: std::time::Duration) {
@@ -1142,9 +1143,10 @@ impl StreamSession {
         for item in &items {
             if let StreamAdaptorItem::TargetFramed { event, .. }
             | StreamAdaptorItem::Canonical { event } = item
-                && let Err(failure) = self.apply_canonical_event(event) {
-                    return Err(self.poison(failure));
-                }
+                && let Err(failure) = self.apply_canonical_event(event)
+            {
+                return Err(self.poison(failure));
+            }
         }
 
         let output_items = items

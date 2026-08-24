@@ -183,9 +183,28 @@ func TestNativeProductionBackupCapturesRollbackFrontendConfigAndPostgres(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
+	proof := filepath.Join(fixture.workspace.stagingDir, "target-proof")
+	if err := os.Mkdir(proof, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"manifest.env", "SHA256SUMS"} {
+		if err := copyRegularFile(filepath.Join(result.BackupDir, name), filepath.Join(proof, name), 0o600, true); err != nil {
+			t.Fatal(err)
+		}
+	}
+	proofVerification, err := fixture.runtime.verifyExternalBackups(context.Background(), productionBackupVerifyOptions{
+		Workspace: fixture.workspace.root, Target: proof,
+		Controller: controllerOutput, Offhost: offhostOutput, AgeIdentityFile: identity,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	fixture.runtime.effectiveUID = productionUID
 	if !verification.TargetVerified || !verification.EncryptedCopies || verification.ControllerDigest != controllerCopy.Digest || verification.OffhostDigest != offhostCopy.Digest {
 		t.Fatalf("backup verification=%#v", verification)
+	}
+	if proofVerification != verification {
+		t.Fatalf("proof-only verification=%#v want=%#v", proofVerification, verification)
 	}
 	attestation, err := fixture.runtime.attestBackup(context.Background(), productionBackupAttestOptions{
 		Workspace: fixture.workspace.root, ControllerDigest: verification.ControllerDigest, OffhostDigest: verification.OffhostDigest,

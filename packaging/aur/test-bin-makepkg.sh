@@ -59,58 +59,6 @@ build_package() {
   done
 }
 
-deploy_work="$tmp/lmm-api-deploy-bin"
-deploy_pkgver=$(awk -F= '$1 == "pkgver" { print $2; exit }' "$HERE/lmm-api-deploy-bin/PKGBUILD")
-[[ $deploy_pkgver =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "invalid operator pkgver: $deploy_pkgver"
-deploy_artifact="lmm-api-go-${deploy_pkgver}-linux-amd64"
-deploy_bundle="$deploy_work/stage/$deploy_artifact"
-mkdir -p "$deploy_bundle"
-cp "$HERE/lmm-api-deploy-bin/PKGBUILD" "$deploy_work/"
-printf '#!/bin/sh\nexit 0\n' >"$deploy_bundle/lmm-api-go"
-chmod 0755 "$deploy_bundle/lmm-api-go"
-add_metadata "$deploy_bundle"
-create_archive "$deploy_work" "$deploy_artifact"
-printf '\n_release_revision=%040d\n' 0 >>"$deploy_work/PKGBUILD"
-pin_fixture_hashes "$deploy_work/PKGBUILD" sha256sums_x86_64 \
-  "$deploy_work/${deploy_artifact}.tar.gz" \
-  "$deploy_work/${deploy_artifact}.tar.gz.sha256" \
-  "$deploy_work/${deploy_artifact}.tar.gz.sigstore.json"
-build_package lmm-api-deploy-bin \
-  usr/bin/lmm-api-deploy \
-  usr/lib/lmm-api-deploy/lmm-api-go \
-  usr/share/licenses/lmm-api-deploy-bin/LICENSE \
-  usr/share/doc/lmm-api-deploy-bin/REVISION \
-  usr/share/doc/lmm-api-deploy-bin/OPERATOR_SHA256 \
-  usr/share/doc/lmm-api-deploy-bin/RELEASE_ASSET_SHA256 \
-  usr/lib/sysusers.d/lmm-api-deploy.conf \
-  usr/lib/tmpfiles.d/lmm-api-deploy.conf \
-  etc/sudoers.d/lmm-api-deploy
-operator_archive=$(printf '%s\n' "$deploy_work/packages"/*.pkg.tar.*)
-bsdtar -tvf "$operator_archive" | grep -Eq '^-r--r-----.* etc/sudoers.d/lmm-api-deploy$' ||
-  die 'operator sudoers policy is not packaged with mode 0440'
-operator_sudoers="$tmp/operator-sudoers"
-bsdtar -xOf "$operator_archive" etc/sudoers.d/lmm-api-deploy >"$operator_sudoers"
-visudo -cf "$operator_sudoers" >/dev/null || die 'packaged operator sudoers policy fails visudo validation'
-grep -Fqx \
-  'lmm-api-deploy ALL=(root) NOPASSWD: /usr/bin/pacman ^--upgrade --noconfirm -- /var/lib/lmm-api-go-deploy/work/[A-Za-z0-9][A-Za-z0-9._-]{0,79}/staging/lmm-api-go-bin-[A-Za-z0-9][A-Za-z0-9._+@~-]*\.pkg\.tar\.(zst|xz|gz|bz2|lz4|lrz|lzo|Z)$' \
-  "$operator_sudoers" || die 'operator sudoers policy lacks the exact Go package rule'
-grep -Fqx \
-  'lmm-api-deploy ALL=(root) NOPASSWD: /usr/bin/pacman ^--upgrade --noconfirm -- /var/lib/lmm-api-go-deploy/work/[A-Za-z0-9][A-Za-z0-9._-]{0,79}/staging/lmm-api-web-bin-[A-Za-z0-9][A-Za-z0-9._+@~-]*\.pkg\.tar\.(zst|xz|gz|bz2|lz4|lrz|lzo|Z)$' \
-  "$operator_sudoers" || die 'operator sudoers policy lacks the exact Web package rule'
-mapfile -t paru_sudo_argv < <(paru --sudo printf --sudoflags 'PARU_ARG:%s\n' -U --noconfirm -- "$operator_archive")
-expected_paru_argv=(
-  'PARU_ARG:pacman'
-  'PARU_ARG:--upgrade'
-  'PARU_ARG:--noconfirm'
-  'PARU_ARG:--'
-  "PARU_ARG:$operator_archive"
-)
-[[ ${#paru_sudo_argv[@]} -eq ${#expected_paru_argv[@]} ]] || die 'real paru emitted unexpected sudo argv length'
-for index in "${!expected_paru_argv[@]}"; do
-  [[ ${paru_sudo_argv[$index]} == "${expected_paru_argv[$index]}" ]] ||
-    die "real paru sudo argv mismatch at $index: ${paru_sudo_argv[*]}"
-done
-
 go_work="$tmp/lmm-api-go-bin"
 go_pkgver=$(awk -F= '$1 == "pkgver" { print $2; exit }' "$HERE/lmm-api-go-bin/PKGBUILD")
 [[ $go_pkgver =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "invalid Go binary pkgver: $go_pkgver"
@@ -153,10 +101,12 @@ go_next_work="$tmp/lmm-api-go-bin-next"
 go_next_bundle="$go_next_work/stage/$go_artifact"
 mkdir -p "$go_next_bundle/edge-policy/nginx"
 cp "$HERE/lmm-api-go-bin/PKGBUILD" "$go_next_work/"
-printf '#!/bin/sh\nexit 0\n' >"$go_next_bundle/lmm-api-go"
-chmod 0755 "$go_next_bundle/lmm-api-go"
+printf '#!/bin/sh\nexit 0\n' >"$go_next_bundle/lmm-api"
+chmod 0755 "$go_next_bundle/lmm-api"
 cp "$SHARED/lmm-api.service" "$SHARED/lmm-api-go.env" \
-  "$SHARED/lmm-api-memory.conf" "$go_next_bundle/"
+  "$SHARED/lmm-api-memory.conf" "$SHARED/lmm-api-operator.sysusers" \
+  "$SHARED/lmm-api-operator.tmpfiles" "$SHARED/lmm-api-operator.sudoers" \
+  "$go_next_bundle/"
 for file in http-map.conf lmm-api-locations.conf mime.types new-api.conf lmm-api-region-policy.conf; do
   printf 'fixture\n' >"$go_next_bundle/edge-policy/nginx/$file"
 done
@@ -171,18 +121,23 @@ pin_fixture_hashes "$go_next_work/PKGBUILD" sha256sums_x86_64 \
   "$go_next_work/${go_artifact}.tar.gz" \
   "$go_next_work/${go_artifact}.tar.gz.sha256" \
   "$go_next_work/${go_artifact}.tar.gz.sigstore.json"
-printf '\npkgver=999.0.0\n' >>"$go_next_work/PKGBUILD"
+printf '\npkgver=999.0.0\n_set_cli_transition_metadata\n' >>"$go_next_work/PKGBUILD"
 build_package lmm-api-go-bin-next \
-  usr/bin/lmm-api-go \
   usr/bin/lmm-api \
   usr/lib/systemd/system/lmm-api.service \
   usr/lib/systemd/system/lmm-api.service.d/20-memory.conf \
+  usr/lib/sysusers.d/lmm-api-operator.conf \
+  usr/lib/tmpfiles.d/lmm-api-operator.conf \
+  etc/sudoers.d/lmm-api-operator \
   usr/share/doc/lmm-api-go-bin/API_ROUTE_CONTRACT_REVISION \
+  usr/share/doc/lmm-api-go-bin/RELEASE_ASSET_SHA256 \
   usr/share/lmm-api-go/edge-policy/nginx/http-map.conf
 next_archive=$(printf '%s\n' "$go_next_work/packages"/*.pkg.tar.*)
-if bsdtar -tf "$next_archive" | grep -Fq 'usr/share/lmm-api-go/frontend-dist'; then
-  die 'next Go package archive owns a bundled frontend'
+if bsdtar -tf "$next_archive" | grep -Eq 'usr/bin/lmm-api-(go|deploy)$|usr/share/lmm-api-go/frontend-dist'; then
+  die 'T1 Go package archive retains a second CLI or bundled frontend'
 fi
+bsdtar -xOf "$next_archive" .PKGINFO | grep -Fqx 'replaces = lmm-api-deploy-bin' ||
+  die 'T1 Go package archive does not replace the legacy deploy package'
 
 web_work="$tmp/lmm-api-web-bin"
 web_pkgver=$(awk -F= '$1 == "pkgver" { print $2; exit }' "$HERE/lmm-api-web-bin/PKGBUILD")

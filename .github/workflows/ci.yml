@@ -18,7 +18,7 @@ env:
   CARGO_INCREMENTAL: '0'
   CARGO_PROFILE_DEV_DEBUG: '0'
   CARGO_PROFILE_TEST_DEBUG: '0'
-  RUST_TOOLCHAIN: '1.88.0'
+  RUST_TOOLCHAIN: '1.91.0'
 
 jobs:
   repository-contracts:
@@ -137,6 +137,13 @@ jobs:
           test -z "$(gofmt -l .)"
           go vet ./...
 
+      - name: Install production contract tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes libarchive-tools
+          test "$(command -v bsdtar)" = /usr/bin/bsdtar
+          bsdtar --version | head -1
+
       - name: Test default Go module
         working-directory: apps/api-go
         run: go test -p 2 ./...
@@ -156,9 +163,9 @@ jobs:
           CGO_ENABLED: '0'
         run: |
           mkdir -p out
-          go build -p 2 -trimpath -ldflags="-s -w" -o out/lmm-api-go .
-          file out/lmm-api-go
-          if ldd out/lmm-api-go 2>&1 | grep -qvE 'not a dynamic executable|statically linked'; then
+          go build -p 2 -trimpath -ldflags="-s -w" -o out/lmm-api .
+          file out/lmm-api
+          if ldd out/lmm-api 2>&1 | grep -qvE 'not a dynamic executable|statically linked'; then
             echo 'Go production binary is dynamically linked' >&2
             exit 1
           fi

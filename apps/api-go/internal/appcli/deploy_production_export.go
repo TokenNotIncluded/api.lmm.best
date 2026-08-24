@@ -387,24 +387,7 @@ func (runtime *productionRuntime) verifyExternalBackups(ctx context.Context, opt
 	if !ok || identityInfo.Mode().Perm()&0o077 != 0 || int(identityStat.Uid) != runtime.effectiveUID() {
 		return productionBackupVerificationResult{}, errors.New("age identity must be owner-controlled and inaccessible to group or other users")
 	}
-	if err := verifyNamedChecksums(options.Target, []string{
-		"application.archive", "frontend.archive", "configuration.archive", "database.archive", "rollback.package",
-	}); err != nil {
-		return productionBackupVerificationResult{}, fmt.Errorf("verify target backup: %w", err)
-	}
-	if _, err := runtime.runner.Run(ctx, productionCommand{Name: commandPGRestore, Args: []string{"--list", filepath.Join(options.Target, "database.archive")}}); err != nil {
-		return productionBackupVerificationResult{}, fmt.Errorf("validate target PostgreSQL backup: %w", err)
-	}
-	targetManifest, err := readPrivateRegularFile(filepath.Join(options.Target, "manifest.env"), 64<<10)
-	if err != nil {
-		return productionBackupVerificationResult{}, err
-	}
-	targetValues, err := parseSimpleManifest(targetManifest)
-	if err != nil || !productionIDPattern.MatchString(targetValues["deployment_id"]) {
-		return productionBackupVerificationResult{}, errors.New("target backup manifest has an invalid deployment ID")
-	}
-	deploymentID := targetValues["deployment_id"]
-	targetChecksumDigest, err := sha256File(filepath.Join(options.Target, "SHA256SUMS"))
+	deploymentID, targetChecksumDigest, targetDigests, err := runtime.readTargetBackupProof(ctx, options.Target)
 	if err != nil {
 		return productionBackupVerificationResult{}, err
 	}
@@ -419,7 +402,7 @@ func (runtime *productionRuntime) verifyExternalBackups(ctx context.Context, opt
 	defer os.RemoveAll(verificationRoot)
 	copyDigests := make(map[string]string, 2)
 	for role, root := range map[string]string{"controller": options.Controller, "off-host": options.Offhost} {
-		digest, err := runtime.verifyExternalBackupCopy(ctx, role, root, options.Target, options.AgeIdentityFile, verificationRoot, deploymentID, targetChecksumDigest)
+		digest, err := runtime.verifyExternalBackupCopy(ctx, role, root, options.AgeIdentityFile, verificationRoot, deploymentID, targetChecksumDigest, targetDigests)
 		if err != nil {
 			return productionBackupVerificationResult{}, err
 		}
@@ -431,9 +414,57 @@ func (runtime *productionRuntime) verifyExternalBackups(ctx context.Context, opt
 	}, nil
 }
 
+func (runtime *productionRuntime) readTargetBackupProof(ctx context.Context, root string) (string, string, map[string]string, error) {
+	names := []string{"application.archive", "frontend.archive", "configuration.archive", "database.archive", "rollback.package"}
+	digests, err := readNamedChecksums(root, names)
+	if err != nil {
+		return "", "", nil, fmt.Errorf("read target backup proof: %w", err)
+	}
+	manifest, err := readPrivateRegularFile(filepath.Join(root, "manifest.env"), 64<<10)
+	if err != nil {
+		return "", "", nil, err
+	}
+	values, err := parseSimpleManifest(manifest)
+	if err != nil || !productionIDPattern.MatchString(values["deployment_id"]) {
+		return "", "", nil, errors.New("target backup manifest has an invalid deployment ID")
+	}
+	present := 0
+	for _, name := range names {
+		info, entryErr := os.Lstat(filepath.Join(root, name))
+		if entryErr == nil {
+			if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || info.Size() == 0 {
+				return "", "", nil, fmt.Errorf("target backup entry is unsafe: %s", name)
+			}
+			present++
+		} else if !errors.Is(entryErr, os.ErrNotExist) {
+			return "", "", nil, entryErr
+		}
+	}
+	if present != 0 && present != len(names) {
+		return "", "", nil, errors.New("target backup proof contains a partial plaintext backup")
+	}
+	if present == len(names) {
+		if err := verifyNamedChecksums(root, names); err != nil {
+			return "", "", nil, fmt.Errorf("verify target backup: %w", err)
+		}
+		if _, err := runtime.runner.Run(ctx, productionCommand{Name: commandPGRestore, Args: []string{"--list", filepath.Join(root, "database.archive")}}); err != nil {
+			return "", "", nil, fmt.Errorf("validate target PostgreSQL backup: %w", err)
+		}
+		if _, err := environmentFromConfigurationArchive(filepath.Join(root, "configuration.archive")); err != nil {
+			return "", "", nil, fmt.Errorf("validate target configuration backup: %w", err)
+		}
+	}
+	checksumDigest, err := sha256File(filepath.Join(root, "SHA256SUMS"))
+	if err != nil {
+		return "", "", nil, err
+	}
+	return values["deployment_id"], checksumDigest, digests, nil
+}
+
 func (runtime *productionRuntime) verifyExternalBackupCopy(
 	ctx context.Context,
-	role, root, target, identity, temporaryRoot, deploymentID, targetChecksumDigest string,
+	role, root, identity, temporaryRoot, deploymentID, targetChecksumDigest string,
+	targetDigests map[string]string,
 ) (string, error) {
 	if err := verifyNamedChecksums(root, []string{
 		"application.archive", "frontend.archive", "rollback.package", "configuration.age", "database.age", "manifest.env",
@@ -450,12 +481,8 @@ func (runtime *productionRuntime) verifyExternalBackupCopy(
 		return "", fmt.Errorf("%s backup manifest is incomplete or mismatched", role)
 	}
 	for _, name := range []string{"application.archive", "frontend.archive", "rollback.package"} {
-		targetDigest, err := sha256File(filepath.Join(target, name))
-		if err != nil {
-			return "", err
-		}
 		copyDigest, err := sha256File(filepath.Join(root, name))
-		if err != nil || copyDigest != targetDigest {
+		if err != nil || copyDigest != targetDigests[name] {
 			return "", fmt.Errorf("%s backup plaintext artifact mismatch: %s", role, name)
 		}
 	}
@@ -466,12 +493,15 @@ func (runtime *productionRuntime) verifyExternalBackupCopy(
 			return "", fmt.Errorf("decrypt %s backup %s: %w", role, encrypted, err)
 		}
 		decryptedDigest, err := sha256File(output)
-		if err != nil {
-			return "", err
-		}
-		targetDigest, err := sha256File(filepath.Join(target, plain))
-		if err != nil || decryptedDigest != targetDigest {
+		if err != nil || decryptedDigest != targetDigests[plain] {
 			return "", fmt.Errorf("%s decrypted backup mismatch: %s", role, plain)
+		}
+		if plain == "database.archive" {
+			if _, err := runtime.runner.Run(ctx, productionCommand{Name: commandPGRestore, Args: []string{"--list", output}}); err != nil {
+				return "", fmt.Errorf("validate %s PostgreSQL backup: %w", role, err)
+			}
+		} else if _, err := environmentFromConfigurationArchive(output); err != nil {
+			return "", fmt.Errorf("validate %s configuration backup: %w", role, err)
 		}
 	}
 	return sha256File(filepath.Join(root, "SHA256SUMS"))

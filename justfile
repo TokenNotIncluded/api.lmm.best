@@ -55,12 +55,12 @@ dev-rust:
 
 # Build and run the default static Go production binary.
 run: build
-    exec apps/api-go/out/lmm-api-go
+    exec apps/api-go/out/lmm-api
 
 # Run an already-built Go production binary.
 run-go:
-    @test -x apps/api-go/out/lmm-api-go || { echo "error: apps/api-go/out/lmm-api-go is missing; run 'just build'" >&2; exit 1; }
-    exec apps/api-go/out/lmm-api-go
+    @test -x apps/api-go/out/lmm-api || { echo "error: apps/api-go/out/lmm-api is missing; run 'just build'" >&2; exit 1; }
+    exec apps/api-go/out/lmm-api
 
 # Run the explicit Rust backend with standardized infrastructure.
 run-rust: infra-up
@@ -78,7 +78,7 @@ build-web:
 # Build the static Go production binary independently.
 build-go:
     bun run build:go
-    @test -x apps/api-go/out/lmm-api-go || { echo "error: static Go binary was not produced" >&2; exit 1; }
+    @test -x apps/api-go/out/lmm-api || { echo "error: static Go binary was not produced" >&2; exit 1; }
 
 # Build the explicit Rust backend.
 build-rust:
@@ -180,7 +180,7 @@ docker-rust:
 package: package-go
 
 package-go: build
-    apps/api-go/out/lmm-api-go deploy build \
+    apps/api-go/out/lmm-api deploy build \
       --repo "$(pwd)" \
       --workspace "$LMM_API_BUILD_WORKSPACE"
 
@@ -189,11 +189,17 @@ test-package-bin:
     bash packaging/aur/test-matrix.sh
     bash packaging/aur/test-bin-makepkg.sh
 
-# Deploy Go production only after explicit site confirmation.
+# Stage an already-created immutable production release plan.
+stage-production:
+    apps/api-go/out/lmm-api deploy production stage \
+      --plan "$LMM_API_RELEASE_PLAN" \
+      --plan-sha256 "$LMM_API_RELEASE_PLAN_SHA256" \
+      --confirm "$CONFIRM_PRODUCTION"
+
+# Promote an already-staged immutable production release plan.
 deploy-production:
-    apps/api-go/out/lmm-api-go deploy production release \
-      --repo "$(pwd)" \
-      --workspace "$LMM_API_DEPLOY_WORKSPACE" \
-      --age-recipient-file "$LMM_BACKUP_AGE_RECIPIENT_FILE" \
+    apps/api-go/out/lmm-api deploy production promote \
+      --plan "$LMM_API_RELEASE_PLAN" \
+      --plan-sha256 "$LMM_API_RELEASE_PLAN_SHA256" \
       --age-identity-file "$LMM_BACKUP_AGE_IDENTITY_FILE" \
       --confirm "$CONFIRM_PRODUCTION"

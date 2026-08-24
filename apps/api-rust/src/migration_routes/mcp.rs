@@ -1,6 +1,5 @@
 //! Streamable HTTP MCP endpoints for open-source bounties and drawing.
 
-
 use axum::{
     Router,
     body::Bytes,
@@ -182,7 +181,12 @@ async fn verify_mcp_token(pg: &PgPool, raw_token: &str) -> Result<i64, Response>
 fn is_initialize(body: &Bytes) -> bool {
     serde_json::from_slice::<serde_json::Value>(body)
         .ok()
-        .and_then(|value| value.get("method").and_then(|method| method.as_str()).map(str::to_owned))
+        .and_then(|value| {
+            value
+                .get("method")
+                .and_then(|method| method.as_str())
+                .map(str::to_owned)
+        })
         .is_some_and(|method| method == "initialize")
 }
 
@@ -263,8 +267,14 @@ fn preflight_response() -> Response {
     (
         StatusCode::NO_CONTENT,
         [
-            (header::ACCESS_CONTROL_ALLOW_METHODS, "GET, POST, PUT, PATCH, DELETE, OPTIONS"),
-            (header::ACCESS_CONTROL_ALLOW_HEADERS, "Authorization, Content-Type, MCP-Protocol-Version"),
+            (
+                header::ACCESS_CONTROL_ALLOW_METHODS,
+                "GET, POST, PUT, PATCH, DELETE, OPTIONS",
+            ),
+            (
+                header::ACCESS_CONTROL_ALLOW_HEADERS,
+                "Authorization, Content-Type, MCP-Protocol-Version",
+            ),
         ],
     )
         .into_response()

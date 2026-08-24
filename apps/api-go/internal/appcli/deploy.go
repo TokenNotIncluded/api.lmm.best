@@ -66,28 +66,17 @@ func writeDeployUsage(output io.Writer) {
   %s deploy frontend rollback [--release ID] [--root DIR] [--keep N]
   %s deploy production harden [--env-file FILE] [--drop-in-dir DIR]
   %s deploy production edge-policy install|verify [--asset-root DIR] [--backup-dir DIR]
-  %s deploy production release --repo DIR --workspace DIR --confirm api.lmm.best \
-       [--rollback-package FILE] [--with-backups --age-recipient-file FILE --age-identity-file FILE]
-  %s deploy production workspace create --deployment-id ID
-  %s deploy production workspace abort --workspace DIR
-  %s deploy production workspace cleanup [--older-than 24h] [--execute]
-  %s deploy production package current
-  %s deploy production backup create --workspace DIR --rollback-package FILE --rollback-sha256 HEX \
-       --candidate-sha256 HEX --expected-version VERSION --git-revision REVISION
-  %s deploy production backup export --workspace DIR --role controller|off-host \
-       --output DIR --age-recipient-file FILE
-  %s deploy production backup verify --workspace DIR --target DIR --controller DIR \
-       --offhost DIR --age-identity-file FILE
-  %s deploy production backup attest --workspace DIR --controller-digest HEX --offhost-digest HEX
-  %s deploy production apply --workspace DIR --package FILE --package-sha256 HEX \
-       --rollback-package FILE --rollback-sha256 HEX --probe-binary FILE \
-       --probe-binary-sha256 HEX --expected-version VERSION \
-       --frontend-index-sha256 HEX [--with-backups --backup-dir DIR] [--rollback-seconds 600] \
-       [--observation-seconds 180] [--manual-confirm]
-  %s deploy production status --workspace DIR
-  %s deploy production confirm --workspace DIR
-  %s deploy production rollback --workspace DIR [--reason TEXT]
-`, ProgramName, ProgramName, ProgramName, ProgramName, ProgramName, ProgramName, ProgramName, ProgramName, ProgramName, ProgramName, ProgramName, ProgramName, ProgramName, ProgramName, ProgramName, ProgramName, ProgramName, ProgramName)
+  %s deploy production plan --repo DIR --workspace DIR --deployment-id ID \
+       --go-package FILE --go-release-asset FILE --go-release-bundle FILE \
+       --go-rollback-package FILE --go-rollback-release-asset FILE --go-rollback-release-bundle FILE \
+       --web-package FILE --web-release-asset FILE --web-release-bundle FILE \
+       --web-rollback-package FILE --web-rollback-release-asset FILE --web-rollback-release-bundle FILE \
+       --probe-binary FILE [--with-backups --age-recipient-file FILE] [--manual-confirm]
+  %s deploy production stage|promote|status|confirm|rollback \
+       --plan FILE --plan-sha256 HEX --confirm api.lmm.best
+
+Target-only recovery commands are listed by the production command's usage.
+`, ProgramName, ProgramName, ProgramName, ProgramName, ProgramName, ProgramName, ProgramName)
 }
 
 func runFrontendDeploy(args []string, stdout, stderr io.Writer) int {

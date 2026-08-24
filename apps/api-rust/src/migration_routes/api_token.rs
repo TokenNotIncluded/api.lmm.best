@@ -1004,10 +1004,9 @@ fn respond_with_options<T: Serialize>(
             } else {
                 serde_json::to_value(value).map_err(|_| TokenError::internal())
             };
-            if omit_auto_groups
-                && let Ok(value) = &mut value {
-                    omit_auto_groups_field(value);
-                }
+            if omit_auto_groups && let Ok(value) = &mut value {
+                omit_auto_groups_field(value);
+            }
             match value {
                 Ok(value) => success(value),
                 Err(error) => error.response_for(locale),
@@ -1478,9 +1477,10 @@ impl<'de> Visitor<'de> for TokenWireVisitor {
                 Ok(())
             };
             if let Err(error) = result
-                && first_error.is_none() {
-                    first_error = Some(error);
-                }
+                && first_error.is_none()
+            {
+                first_error = Some(error);
+            }
         }
         first_error.map_or(Ok(wire), |error| Err(A::Error::custom(error)))
     }
@@ -1526,9 +1526,10 @@ impl<'de> Visitor<'de> for TokenBatchWireVisitor {
             let value: Box<serde_json::value::RawValue> = map.next_value()?;
             if field.eq_ignore_ascii_case("ids")
                 && let Err(error) = set_batch_ids(&mut wire.ids, &value)
-                    && first_error.is_none() {
-                        first_error = Some(error);
-                    }
+                && first_error.is_none()
+            {
+                first_error = Some(error);
+            }
         }
         first_error.map_or(Ok(wire), |error| Err(A::Error::custom(error)))
     }

@@ -273,16 +273,15 @@ fn validate_table(table: &Table) -> Result<(), MigrationError> {
             table.name
         )));
     }
-    if let Some(sequence) = &table.sequence {
-        if sequence.name != format!("{}_id_seq", table.name)
+    if let Some(sequence) = &table.sequence
+        && (sequence.name != format!("{}_id_seq", table.name)
             || sequence.owned_column != "id"
-            || sequence.default != format!("nextval('{}_id_seq'::regclass)", table.name)
-        {
-            return Err(MigrationError::Manifest(format!(
-                "{} has an invalid sequence ownership/default contract",
-                table.name
-            )));
-        }
+            || sequence.default != format!("nextval('{}_id_seq'::regclass)", table.name))
+    {
+        return Err(MigrationError::Manifest(format!(
+            "{} has an invalid sequence ownership/default contract",
+            table.name
+        )));
     }
     let primary_indexes: Vec<_> = table
         .postgres_indexes

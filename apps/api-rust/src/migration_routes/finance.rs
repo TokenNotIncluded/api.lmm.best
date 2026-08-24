@@ -80,7 +80,10 @@ pub fn router(state: FinanceState) -> Router {
             "/api/finance/entries/{entry_id}/reverse",
             route_post(reverse_entry),
         )
-        .route("/api/finance/payment-methods", route_get(list_payment_methods))
+        .route(
+            "/api/finance/payment-methods",
+            route_get(list_payment_methods),
+        )
         .route(
             "/api/finance/payment-methods/{method}",
             route_put(update_payment_method),
@@ -306,11 +309,7 @@ async fn get_overview(
                 Err(message) => return with_auth_version(api_error(message)),
             };
             let method = trimmed(&query, "payment_method");
-            match state
-                .backend
-                .overview(start, end, user_id, method)
-                .await
-            {
+            match state.backend.overview(start, end, user_id, method).await {
                 Ok(data) => api_success(json!(data)),
                 Err(error) => api_error(&error.0),
             }
@@ -447,29 +446,35 @@ async fn create_entry(
     let body = match to_bytes(request.into_body(), MAX_BODY_BYTES).await {
         Ok(bytes) => bytes,
         Err(_) => {
-            return with_auth_version((
-                StatusCode::BAD_REQUEST,
-                Json(json!({"success": false, "message": "invalid finance entry"})),
-            )
-                .into_response())
+            return with_auth_version(
+                (
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({"success": false, "message": "invalid finance entry"})),
+                )
+                    .into_response(),
+            );
         }
     };
     let input: CreateEntryInput = match serde_json::from_slice(&body) {
         Ok(input) => input,
         Err(_) => {
-            return with_auth_version((
-                StatusCode::BAD_REQUEST,
-                Json(json!({"success": false, "message": "invalid finance entry"})),
-            )
-                .into_response())
+            return with_auth_version(
+                (
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({"success": false, "message": "invalid finance entry"})),
+                )
+                    .into_response(),
+            );
         }
     };
     if input.entry_type.trim() != FINANCE_ENTRY_EXPENSE {
-        return with_auth_version((
-            StatusCode::UNPROCESSABLE_ENTITY,
-            Json(json!({"success": false, "message": "manual entries must be expenses"})),
-        )
-            .into_response());
+        return with_auth_version(
+            (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                Json(json!({"success": false, "message": "manual entries must be expenses"})),
+            )
+                .into_response(),
+        );
     }
     let response = match state.backend.create_entry(actor.id, input).await {
         Ok(entry) => api_success(json!({"entry": entry})),
@@ -493,11 +498,13 @@ async fn reverse_entry(
     let entry_id = match entry_id.parse::<i64>() {
         Ok(id) if id > 0 => id,
         _ => {
-            return with_auth_version((
-                StatusCode::BAD_REQUEST,
-                Json(json!({"success": false, "message": "invalid entry_id"})),
-            )
-                .into_response())
+            return with_auth_version(
+                (
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({"success": false, "message": "invalid entry_id"})),
+                )
+                    .into_response(),
+            );
         }
     };
     let response = match state
@@ -518,10 +525,7 @@ async fn reverse_entry(
     with_auth_version(response)
 }
 
-async fn list_payment_methods(
-    State(state): State<FinanceState>,
-    headers: HeaderMap,
-) -> Response {
+async fn list_payment_methods(State(state): State<FinanceState>, headers: HeaderMap) -> Response {
     if let Err(response) = authenticated_admin(&state, &headers).await {
         return response;
     }
@@ -544,30 +548,36 @@ async fn update_payment_method(
     };
     let method = method.trim();
     if method.is_empty() || method.len() > 64 {
-        return with_auth_version((
-            StatusCode::BAD_REQUEST,
-            Json(json!({"success": false, "message": "invalid payment method"})),
-        )
-            .into_response());
+        return with_auth_version(
+            (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"success": false, "message": "invalid payment method"})),
+            )
+                .into_response(),
+        );
     }
     let body = match to_bytes(request.into_body(), MAX_BODY_BYTES).await {
         Ok(bytes) => bytes,
         Err(_) => {
-            return with_auth_version((
-                StatusCode::BAD_REQUEST,
-                Json(json!({"success": false, "message": "invalid payment method settings"})),
-            )
-                .into_response())
+            return with_auth_version(
+                (
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({"success": false, "message": "invalid payment method settings"})),
+                )
+                    .into_response(),
+            );
         }
     };
     let input: PaymentMethodInput = match serde_json::from_slice(&body) {
         Ok(input) => input,
         Err(_) => {
-            return with_auth_version((
-                StatusCode::BAD_REQUEST,
-                Json(json!({"success": false, "message": "invalid payment method settings"})),
-            )
-                .into_response())
+            return with_auth_version(
+                (
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({"success": false, "message": "invalid payment method settings"})),
+                )
+                    .into_response(),
+            );
         }
     };
     let response = match state
@@ -686,7 +696,9 @@ fn trimmed<'a>(query: &'a HashMap<String, String>, key: &str) -> &'a str {
 fn unix_timestamp() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map_or(0, |duration| i64::try_from(duration.as_secs()).unwrap_or(i64::MAX))
+        .map_or(0, |duration| {
+            i64::try_from(duration.as_secs()).unwrap_or(i64::MAX)
+        })
 }
 
 fn api_success(data: Value) -> Response {
@@ -886,17 +898,20 @@ fn is_financial_payment_source(method: &str, provider: &str) -> bool {
     if method == "balance" || provider == "balance" {
         return false;
     }
-    if provider == "epay"
-        && matches!(
-            method.as_str(),
-            "linuxdo" | "linux_do" | "linuxdo_credit"
-        )
-    {
+    if provider == "epay" && matches!(method.as_str(), "linuxdo" | "linux_do" | "linuxdo_credit") {
         return false;
     }
     const INTERNAL: [&str; 10] = [
-        "gift", "bonus", "checkin", "invite", "bounty", "linuxdo", "linux_do", "linuxdo_credit",
-        "internal", "admin",
+        "gift",
+        "bonus",
+        "checkin",
+        "invite",
+        "bounty",
+        "linuxdo",
+        "linux_do",
+        "linuxdo_credit",
+        "internal",
+        "admin",
     ];
     !(INTERNAL.contains(&method.as_str()) || INTERNAL.contains(&provider.as_str()))
 }
@@ -909,9 +924,7 @@ fn finance_payment_method_allowed(
     if !is_financial_payment_source(method, provider) {
         return false;
     }
-    let config = configs
-        .get(method)
-        .or_else(|| configs.get(provider));
+    let config = configs.get(method).or_else(|| configs.get(provider));
     config.is_none_or(|c| c.enabled && c.include_revenue)
 }
 
@@ -920,11 +933,7 @@ fn finance_settlement_currency_allowed(currency: &str) -> bool {
     currency.is_empty() || currency == FINANCE_CURRENCY_USD
 }
 
-fn finance_topup_amount(
-    settled: i64,
-    expected: i64,
-    money: f64,
-) -> i64 {
+fn finance_topup_amount(settled: i64, expected: i64, money: f64) -> i64 {
     if settled > 0 {
         settled
     } else if expected > 0 {
@@ -943,8 +952,15 @@ fn finance_usage_is_countable(other: &str) -> bool {
     };
     !matches!(
         source.trim().to_ascii_lowercase().as_str(),
-        "gift" | "bonus" | "checkin" | "invite" | "bounty" | "linuxdo" | "linux_do"
-            | "linuxdo_credit" | "internal"
+        "gift"
+            | "bonus"
+            | "checkin"
+            | "invite"
+            | "bounty"
+            | "linuxdo"
+            | "linux_do"
+            | "linuxdo_credit"
+            | "internal"
     )
 }
 
@@ -1031,17 +1047,21 @@ impl FinanceAccumulator {
     }
 
     fn daily_metric(&mut self, timestamp: i64) -> &mut FinanceDailyMetric {
-        let key = chrono::DateTime::<chrono::Utc>::from_timestamp(timestamp, 0)
-            .map_or_else(|| "1970-01-01".to_owned(), |dt| dt.format("%Y-%m-%d").to_string());
-        self.daily.entry(key.clone()).or_insert_with(|| FinanceDailyMetric {
-            date: key,
-            revenue_micros: 0,
-            refund_micros: 0,
-            expense_micros: 0,
-            profit_micros: 0,
-            token_units: 0,
-            requests: 0,
-        })
+        let key = chrono::DateTime::<chrono::Utc>::from_timestamp(timestamp, 0).map_or_else(
+            || "1970-01-01".to_owned(),
+            |dt| dt.format("%Y-%m-%d").to_string(),
+        );
+        self.daily
+            .entry(key.clone())
+            .or_insert_with(|| FinanceDailyMetric {
+                date: key,
+                revenue_micros: 0,
+                refund_micros: 0,
+                expense_micros: 0,
+                profit_micros: 0,
+                token_units: 0,
+                requests: 0,
+            })
     }
 
     fn user_metric(&mut self, user_id: i64) -> Option<&mut FinanceUserMetric> {
@@ -1066,7 +1086,11 @@ impl FinanceAccumulator {
         if user_id <= 0 {
             return;
         }
-        if self.method_users.get(key).is_some_and(|users| users.contains_key(&user_id)) {
+        if self
+            .method_users
+            .get(key)
+            .is_some_and(|users| users.contains_key(&user_id))
+        {
             return;
         }
         if self.method_user_pairs >= MAX_METHOD_USER_PAIRS {
@@ -1080,16 +1104,26 @@ impl FinanceAccumulator {
         self.method_user_pairs += 1;
     }
 
-    fn add_revenue(&mut self, method: &str, provider: &str, amount: i64, timestamp: i64, user_id: i64) {
+    fn add_revenue(
+        &mut self,
+        method: &str,
+        provider: &str,
+        amount: i64,
+        timestamp: i64,
+        user_id: i64,
+    ) {
         if amount <= 0 {
             return;
         }
         let key = format!("{method}\x00{provider}");
-        let metric = self.methods.entry(key.clone()).or_insert_with(|| FinanceMethodMetric {
-            method: method.to_owned(),
-            provider: provider.to_owned(),
-            ..FinanceMethodMetric::default()
-        });
+        let metric = self
+            .methods
+            .entry(key.clone())
+            .or_insert_with(|| FinanceMethodMetric {
+                method: method.to_owned(),
+                provider: provider.to_owned(),
+                ..FinanceMethodMetric::default()
+            });
         metric.amount_micros += amount;
         metric.orders += 1;
         if user_id > 0 {
@@ -1115,40 +1149,55 @@ impl FinanceAccumulator {
             return;
         }
         let key = format!("{category}\x00{method}\x00{provider}");
-        let metric = self.expenses.entry(key).or_insert_with(|| FinanceMethodMetric {
-            method: method.to_owned(),
-            provider: provider.to_owned(),
-            ..FinanceMethodMetric::default()
-        });
+        let metric = self
+            .expenses
+            .entry(key)
+            .or_insert_with(|| FinanceMethodMetric {
+                method: method.to_owned(),
+                provider: provider.to_owned(),
+                ..FinanceMethodMetric::default()
+            });
         metric.category = category.to_owned();
         metric.amount_micros += amount;
         if user_id > 0
-            && let Some(user) = self.user_metric(user_id) {
-                user.expense_micros += amount;
-            }
+            && let Some(user) = self.user_metric(user_id)
+        {
+            user.expense_micros += amount;
+        }
         self.overview.expense_micros += amount;
         self.daily_metric(timestamp).expense_micros += amount;
     }
 
-    fn add_refund(&mut self, method: &str, provider: &str, amount: i64, timestamp: i64, user_id: i64) {
+    fn add_refund(
+        &mut self,
+        method: &str,
+        provider: &str,
+        amount: i64,
+        timestamp: i64,
+        user_id: i64,
+    ) {
         if amount <= 0 {
             return;
         }
         let key = format!("{method}\x00{provider}");
-        let metric = self.refunds.entry(key).or_insert_with(|| FinanceMethodMetric {
-            method: method.to_owned(),
-            provider: provider.to_owned(),
-            category: "refund".to_owned(),
-            ..FinanceMethodMetric::default()
-        });
+        let metric = self
+            .refunds
+            .entry(key)
+            .or_insert_with(|| FinanceMethodMetric {
+                method: method.to_owned(),
+                provider: provider.to_owned(),
+                category: "refund".to_owned(),
+                ..FinanceMethodMetric::default()
+            });
         metric.amount_micros += amount;
         metric.orders += 1;
         self.overview.refund_micros += amount;
         self.daily_metric(timestamp).refund_micros += amount;
         if user_id > 0
-            && let Some(user) = self.user_metric(user_id) {
-                user.refund_micros += amount;
-            }
+            && let Some(user) = self.user_metric(user_id)
+        {
+            user.refund_micros += amount;
+        }
     }
 
     fn add_usage(
@@ -1257,7 +1306,16 @@ impl FinanceBackend for PgFinanceBackend {
         if !method_filter.is_empty() {
             acc.overview.cost_attribution = "unavailable_for_payment_method".to_owned();
         }
-        load_topups(&self.pg, start, end, user_filter, method_filter, &config_map, &mut acc).await?;
+        load_topups(
+            &self.pg,
+            start,
+            end,
+            user_filter,
+            method_filter,
+            &config_map,
+            &mut acc,
+        )
+        .await?;
         load_subscription_orders(
             &self.pg,
             start,
@@ -1585,7 +1643,13 @@ impl FinanceBackend for PgFinanceBackend {
 
 async fn load_payment_methods(
     pg: &PgPool,
-) -> Result<(Vec<FinancePaymentMethod>, HashMap<String, FinancePaymentMethod>), FinanceError> {
+) -> Result<
+    (
+        Vec<FinancePaymentMethod>,
+        HashMap<String, FinancePaymentMethod>,
+    ),
+    FinanceError,
+> {
     let rows = sqlx::query(
         "SELECT id, method, label, enabled, include_revenue, created_at, updated_at, created_by \
          FROM finance_payment_methods ORDER BY method ASC",
@@ -1603,7 +1667,12 @@ async fn load_payment_methods(
         methods.push(config);
     }
     let known = [
-        "stripe", "creem", "epay", "waffo", "waffo_pancake", "balance",
+        "stripe",
+        "creem",
+        "epay",
+        "waffo",
+        "waffo_pancake",
+        "balance",
     ];
     for source in ["top_ups", "subscription_orders", "finance_ledger_entries"] {
         let table = match source {
@@ -1651,7 +1720,10 @@ async fn load_payment_methods(
     Ok((methods, by_method))
 }
 
-async fn attach_user_labels(pg: &PgPool, overview: &mut FinanceOverview) -> Result<(), FinanceError> {
+async fn attach_user_labels(
+    pg: &PgPool,
+    overview: &mut FinanceOverview,
+) -> Result<(), FinanceError> {
     if overview.users.is_empty() {
         return Ok(());
     }
@@ -1845,7 +1917,13 @@ async fn load_subscription_orders(
             }
             let user_id: i64 = row_get(row, "user_id")?;
             let money: f64 = row_get(row, "money")?;
-            acc.add_revenue(&method, &provider, finance_micros_from_float(money), timestamp, user_id);
+            acc.add_revenue(
+                &method,
+                &provider,
+                finance_micros_from_float(money),
+                timestamp,
+                user_id,
+            );
         }
         processed += rows.len() as i64;
         let last = rows.last().expect("non-empty batch");
@@ -1910,10 +1988,11 @@ async fn load_usage_logs(
             let mut price = 0.0f64;
             if let Ok(value) = serde_json::from_str::<Value>(&other)
                 && let Some(raw) = value.get("model_price").and_then(Value::as_f64)
-                    && raw > 0.0 {
-                        price = raw;
-                        priced = true;
-                    }
+                && raw > 0.0
+            {
+                price = raw;
+                priced = true;
+            }
             let prompt: i64 = row_get(row, "prompt_tokens")?;
             let completion: i64 = row_get(row, "completion_tokens")?;
             let total = (prompt + completion).max(0);
@@ -2028,7 +2107,14 @@ async fn load_ledger_entries(
                     } else {
                         amount
                     };
-                    acc.add_expense_delta(&category, &method, &provider, signed, occurred_at, user_id);
+                    acc.add_expense_delta(
+                        &category,
+                        &method,
+                        &provider,
+                        signed,
+                        occurred_at,
+                        user_id,
+                    );
                 }
                 _ => {}
             }

@@ -75,6 +75,7 @@ use lmm_api_rs::{
         kling_task_reads::{
             KlingTaskReadState, PgKlingTaskReadService, router as kling_task_read_router,
         },
+        mcp::{McpHttpState, mcp_router},
         media_midjourney::{
             MidjourneyHttpState, PgMidjourneyDispatchBackend, media_midjourney_router,
         },
@@ -116,7 +117,6 @@ use lmm_api_rs::{
         missing_relay_misc_new::{
             FailClosedRelayMiscService, MissingRelayMiscState, missing_relay_misc_router,
         },
-        mcp::{McpHttpState, mcp_router},
         missing_relay_models_billing::{ModelLookupState, PgStaticModelLookup},
         missing_relay_video::{
             FailClosedRelayVideoService, RelayVideoHttpState, missing_relay_video_router,
@@ -145,11 +145,11 @@ use lmm_api_rs::{
         relay_openai::{
             OpenAiRelayHttpState, OpenAiUpstreamClient, PgOpenAiRelayService, openai_relay_router,
         },
+        release_notes::{ReleaseNoteState, router as release_note_router},
         responses_websocket::{
             ResponsesWebSocketState, UnconfiguredResponsesWebSocketService,
             router as responses_websocket_router,
         },
-        release_notes::{ReleaseNoteState, router as release_note_router},
         security_admin::{SecurityAdminState, router as security_admin_router},
         security_overview::{SecurityOverviewState, router as security_overview_router},
         system_config::{

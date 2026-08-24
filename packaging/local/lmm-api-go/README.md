@@ -8,7 +8,7 @@ workspace. The package installs `lmm-api.service` and the canonical
 packaged candidate.
 
 ```bash
-apps/api-go/out/lmm-api-go deploy build \
+apps/api-go/out/lmm-api deploy build \
   --repo /absolute/path/to/api.lmm.best \
   --workspace /absolute/marker-owned/workspace
 ```
