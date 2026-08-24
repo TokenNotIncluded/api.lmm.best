@@ -10,7 +10,7 @@ use std::{error::Error, fmt};
 
 use serde::{Deserialize, Serialize};
 
-use super::{Protocol, Registry, RegistryValidationError, RouteRegistration, ValidatedRegistry};
+use super::{Protocol, Registry, RegistryValidationError, ValidatedRegistry};
 
 /// A semantic feature that may be carried by a relay request or response.
 ///
@@ -847,6 +847,7 @@ impl Error for PlanCompileError {}
 
 #[cfg(test)]
 mod tests {
+    use super::super::RouteRegistration;
     use super::*;
 
     #[test]

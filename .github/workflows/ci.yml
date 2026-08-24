@@ -137,6 +137,15 @@ jobs:
           test -z "$(gofmt -l .)"
           go vet ./...
 
+      - name: Install production contract tools
+        run: |
+          if ! command -v bsdtar >/dev/null 2>&1; then
+            mkdir -p "$RUNNER_TEMP/compat-tools"
+            ln -s "$(command -v tar)" "$RUNNER_TEMP/compat-tools/bsdtar"
+            echo "$RUNNER_TEMP/compat-tools" >> "$GITHUB_PATH"
+          fi
+          bsdtar --version | head -1
+
       - name: Test default Go module
         working-directory: apps/api-go
         run: go test -p 2 ./...
