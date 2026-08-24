@@ -16,17 +16,31 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { Download, FileUp, RefreshCw, Sparkles } from 'lucide-react'
+import {
+  AlertCircle,
+  CheckCircle2,
+  Download,
+  FileUp,
+  RefreshCw,
+  Sparkles,
+} from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { ConfirmDialog } from '@/components/confirm-dialog'
+import {
+  Alert,
+  AlertAction,
+  AlertDescription,
+  AlertTitle,
+} from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
   SelectTrigger,
   SelectValue,
@@ -36,9 +50,14 @@ import { SystemJsonCodeEditor } from '@/features/system-settings/components/syst
 import type { SystemJsonConfigurationKey } from '@/features/system-settings/components/system-json-configurations'
 
 import { updateSystemOptions, validateSystemOptions } from '../api'
+import { FormNavigationGuard } from '../components/form-navigation-guard'
 import { SettingsPageActionsPortal } from '../components/settings-page-context'
 import { SettingsSection } from '../components/settings-section'
 import { useSystemOptions } from '../hooks/use-system-options'
+import {
+  hasUnsavedJsonDraft,
+  shouldApplyRawJsonServerValue,
+} from './raw-json-draft-state'
 
 type RawJsonDescriptor = {
   key: SystemJsonConfigurationKey
@@ -149,17 +168,30 @@ export function RawJsonConfigurationSection() {
   const { t } = useTranslation()
   const optionsQuery = useSystemOptions()
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const loadedKeyRef = useRef<RawJsonConfigurationKey | null>(null)
   const [selectedKey, setSelectedKey] = useState<RawJsonConfigurationKey>(
     'group_ratio_setting.group_warnings'
   )
   const [editorValue, setEditorValue] = useState('')
   const [baselineValue, setBaselineValue] = useState('')
-  const [validationMessage, setValidationMessage] = useState<string | null>(
-    null
-  )
+  const [validationFeedback, setValidationFeedback] = useState<{
+    kind: 'success' | 'error'
+    message: string
+  } | null>(null)
+  const [pendingReplacement, setPendingReplacement] = useState<
+    | { kind: 'configuration'; key: RawJsonConfigurationKey }
+    | { kind: 'import'; value: string }
+    | null
+  >(null)
   const [isValidating, setIsValidating] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
+  const editorValueRef = useRef(editorValue)
+  const baselineValueRef = useRef(baselineValue)
   const descriptor = descriptorMap.get(selectedKey)
+  const dirty = hasUnsavedJsonDraft(editorValue, baselineValue)
+  const isBusy = isValidating || isSaving
+  const controlsDisabled =
+    optionsQuery.isLoading || optionsQuery.isError || !descriptor || isBusy
   const availableDescriptors = useMemo(
     () =>
       RAW_JSON_DESCRIPTORS.filter((item) =>
@@ -167,35 +199,91 @@ export function RawJsonConfigurationSection() {
       ),
     [optionsQuery.data?.data]
   )
+  const selectItems = useMemo(
+    () =>
+      availableDescriptors.map((item) => ({
+        value: item.key,
+        label: `${t(item.label)} · ${item.key}`,
+      })),
+    [availableDescriptors, t]
+  )
+
+  editorValueRef.current = editorValue
+  baselineValueRef.current = baselineValue
 
   useEffect(() => {
     if (
+      !dirty &&
       availableDescriptors.length > 0 &&
       !availableDescriptors.some((item) => item.key === selectedKey)
     ) {
       setSelectedKey(availableDescriptors[0].key)
     }
-  }, [availableDescriptors, selectedKey])
+  }, [availableDescriptors, dirty, selectedKey])
 
   useEffect(() => {
     const raw =
       optionsQuery.data?.data?.find((option) => option.key === selectedKey)
         ?.value ?? ''
     const formatted = formatJson(raw)
-    setEditorValue(formatted)
-    setBaselineValue(formatted)
-    setValidationMessage(null)
+
+    if (
+      shouldApplyRawJsonServerValue({
+        loadedKey: loadedKeyRef.current,
+        selectedKey,
+        editorValue: editorValueRef.current,
+        baselineValue: baselineValueRef.current,
+      })
+    ) {
+      setEditorValue(formatted)
+      setBaselineValue(formatted)
+      setValidationFeedback(null)
+    }
+    loadedKeyRef.current = selectedKey
   }, [optionsQuery.data?.data, selectedKey])
+
+  const replaceEditorValue = (value: string) => {
+    setEditorValue(value)
+    setValidationFeedback(null)
+  }
+
+  const requestConfigurationChange = (value: string | null) => {
+    if (!value || !isRawJsonConfigurationKey(value) || value === selectedKey) {
+      return
+    }
+    if (dirty) {
+      setPendingReplacement({ kind: 'configuration', key: value })
+      return
+    }
+    setSelectedKey(value)
+  }
+
+  const confirmPendingReplacement = () => {
+    if (!pendingReplacement) return
+
+    if (pendingReplacement.kind === 'configuration') {
+      setSelectedKey(pendingReplacement.key)
+    } else {
+      replaceEditorValue(pendingReplacement.value)
+    }
+    setPendingReplacement(null)
+  }
 
   const validate = async () => {
     if (!selectedKey || !editorValue.trim()) {
-      setValidationMessage(t('A JSON value is required.'))
+      setValidationFeedback({
+        kind: 'error',
+        message: t('A JSON value is required.'),
+      })
       return false
     }
     try {
       JSON.parse(editorValue)
     } catch {
-      setValidationMessage(t('Invalid JSON. Please fix the syntax first.'))
+      setValidationFeedback({
+        kind: 'error',
+        message: t('Invalid JSON. Please fix the syntax first.'),
+      })
       return false
     }
     setIsValidating(true)
@@ -204,17 +292,25 @@ export function RawJsonConfigurationSection() {
         [selectedKey]: editorValue,
       })
       if (!response.success) {
-        setValidationMessage(response.message || t('Configuration is invalid.'))
+        setValidationFeedback({
+          kind: 'error',
+          message: response.message || t('Configuration is invalid.'),
+        })
         return false
       }
-      setValidationMessage(t('Configuration validated.'))
+      setValidationFeedback({
+        kind: 'success',
+        message: t('Configuration validated.'),
+      })
       return true
     } catch (error) {
-      setValidationMessage(
-        error instanceof Error
-          ? error.message
-          : t('Configuration check failed.')
-      )
+      setValidationFeedback({
+        kind: 'error',
+        message:
+          error instanceof Error
+            ? error.message
+            : t('Configuration check failed.'),
+      })
       return false
     } finally {
       setIsValidating(false)
@@ -247,14 +343,38 @@ export function RawJsonConfigurationSection() {
     const file = event.target.files?.[0]
     event.target.value = ''
     if (!file) return
-    void file.text().then((text) => {
-      try {
-        setEditorValue(parseImport(text))
-        setValidationMessage(null)
-      } catch {
-        setValidationMessage(t('The imported file is not valid JSON.'))
-      }
-    })
+
+    void file
+      .text()
+      .then((text) => {
+        try {
+          const importedValue = parseImport(text)
+          if (
+            hasUnsavedJsonDraft(
+              editorValueRef.current,
+              baselineValueRef.current
+            )
+          ) {
+            setPendingReplacement({ kind: 'import', value: importedValue })
+            return
+          }
+          replaceEditorValue(importedValue)
+        } catch {
+          setValidationFeedback({
+            kind: 'error',
+            message: t('The imported file is not valid JSON.'),
+          })
+        }
+      })
+      .catch((error: unknown) => {
+        setValidationFeedback({
+          kind: 'error',
+          message:
+            error instanceof Error
+              ? error.message
+              : t('Configuration check failed.'),
+        })
+      })
   }
 
   const askAssistant = () => {
@@ -265,36 +385,83 @@ export function RawJsonConfigurationSection() {
     )
   }
 
-  const dirty = editorValue !== baselineValue
-
   return (
     <SettingsSection title={t('Raw JSON Configuration')}>
+      <FormNavigationGuard when={dirty} />
+      <ConfirmDialog
+        open={Boolean(pendingReplacement)}
+        onOpenChange={(open) => {
+          if (!open) setPendingReplacement(null)
+        }}
+        title={t('Discard unsaved JSON changes?')}
+        desc={t(
+          'Continuing will replace the unsaved JSON currently in the editor.'
+        )}
+        confirmText={t('Replace')}
+        destructive
+        handleConfirm={confirmPendingReplacement}
+      />
       <div className='space-y-4'>
-        <p className='text-muted-foreground text-sm'>
+        <p
+          id='raw-json-configuration-description'
+          className='text-muted-foreground text-sm'
+        >
           {t(
             'Edit one safe-listed JSON setting at a time. Imports are checked locally and by the server before any write.'
           )}
         </p>
+        {optionsQuery.isError && (
+          <Alert variant='destructive'>
+            <AlertCircle />
+            <AlertTitle>{t('Failed to load')}</AlertTitle>
+            <AlertDescription>
+              {optionsQuery.error instanceof Error
+                ? optionsQuery.error.message
+                : t('Configuration check failed.')}
+            </AlertDescription>
+            <AlertAction>
+              <Button
+                type='button'
+                variant='outline'
+                size='sm'
+                onClick={() => void optionsQuery.refetch()}
+                disabled={optionsQuery.isFetching}
+              >
+                <RefreshCw
+                  className={optionsQuery.isFetching ? 'animate-spin' : ''}
+                  aria-hidden='true'
+                />
+                {t('Retry')}
+              </Button>
+            </AlertAction>
+          </Alert>
+        )}
         <div className='flex flex-wrap items-end gap-3'>
-          <div className='min-w-56 flex-1 space-y-2'>
-            <Label>{t('Configuration key')}</Label>
+          <div className='min-w-0 flex-1 basis-full space-y-2 sm:basis-64'>
+            <Label htmlFor='raw-json-configuration-key'>
+              {t('Configuration key')}
+            </Label>
             <Select
+              items={selectItems}
               value={selectedKey}
-              onValueChange={(value) => {
-                if (value && isRawJsonConfigurationKey(value)) {
-                  setSelectedKey(value)
-                }
-              }}
+              onValueChange={requestConfigurationChange}
+              disabled={controlsDisabled || availableDescriptors.length === 0}
             >
-              <SelectTrigger>
+              <SelectTrigger
+                id='raw-json-configuration-key'
+                aria-describedby='raw-json-configuration-description'
+                className='w-full max-w-full'
+              >
                 <SelectValue placeholder={t('Select')} />
               </SelectTrigger>
-              <SelectContent>
-                {availableDescriptors.map((item) => (
-                  <SelectItem key={item.key} value={item.key}>
-                    {t(item.label)} · {item.key}
-                  </SelectItem>
-                ))}
+              <SelectContent alignItemWithTrigger={false}>
+                <SelectGroup>
+                  {availableDescriptors.map((item) => (
+                    <SelectItem key={item.key} value={item.key}>
+                      {t(item.label)} · {item.key}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
               </SelectContent>
             </Select>
           </div>
@@ -309,6 +476,7 @@ export function RawJsonConfigurationSection() {
             type='button'
             variant='outline'
             onClick={() => fileInputRef.current?.click()}
+            disabled={controlsDisabled}
           >
             <FileUp data-icon='inline-start' />
             {t('Import JSON')}
@@ -322,7 +490,12 @@ export function RawJsonConfigurationSection() {
             <Download data-icon='inline-start' />
             {t('Export JSON')}
           </Button>
-          <Button type='button' variant='outline' onClick={askAssistant}>
+          <Button
+            type='button'
+            variant='outline'
+            onClick={askAssistant}
+            disabled={isBusy}
+          >
             <Sparkles data-icon='inline-start' />
             {t('Ask AI to edit')}
           </Button>
@@ -331,25 +504,24 @@ export function RawJsonConfigurationSection() {
           configurationKey={selectedKey}
           specificationDefaultOpen
           value={editorValue}
-          onChange={(value) => {
-            setEditorValue(value)
-            setValidationMessage(null)
-          }}
-          disabled={optionsQuery.isLoading || !descriptor}
-          heightClassName='h-[28rem] min-h-[28rem] max-h-[28rem]'
-          ariaLabel={t('JSON')}
+          onChange={replaceEditorValue}
+          disabled={controlsDisabled}
+          heightClassName='h-80 min-h-80 max-h-80 sm:h-[28rem] sm:min-h-[28rem] sm:max-h-[28rem]'
+          ariaLabel={`${t('JSON')} — ${descriptor ? t(descriptor.label) : selectedKey}`}
         />
-        {validationMessage && (
+        {validationFeedback && (
           <Alert
             variant={
-              validationMessage === t('Configuration validated.')
-                ? 'default'
-                : 'destructive'
+              validationFeedback.kind === 'success' ? 'default' : 'destructive'
             }
           >
-            <RefreshCw />
+            {validationFeedback.kind === 'success' ? (
+              <CheckCircle2 />
+            ) : (
+              <AlertCircle />
+            )}
             <AlertTitle>{t('Configuration check')}</AlertTitle>
-            <AlertDescription>{validationMessage}</AlertDescription>
+            <AlertDescription>{validationFeedback.message}</AlertDescription>
           </Alert>
         )}
         <SettingsPageActionsPortal>
@@ -357,14 +529,14 @@ export function RawJsonConfigurationSection() {
             type='button'
             variant='outline'
             onClick={() => void validate()}
-            disabled={isValidating || isSaving || !dirty}
+            disabled={controlsDisabled || !dirty}
           >
             {isValidating ? t('Checking...') : t('Validate configuration')}
           </Button>
           <Button
             type='button'
             onClick={() => void save()}
-            disabled={isValidating || isSaving || !dirty}
+            disabled={controlsDisabled || !dirty}
           >
             {isSaving ? t('Saving...') : t('Save Changes')}
           </Button>

@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { AlertCircle, Braces, CheckCircle2, Code2, Copy } from 'lucide-react'
 import {
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -92,20 +93,54 @@ export function JsonSpecification({
 
   return (
     <details className='bg-muted/10 border-t text-xs' open={defaultOpen}>
-      <summary className='text-muted-foreground hover:text-foreground cursor-pointer px-3 py-2 font-medium select-none'>
-        <span className='ml-1 inline-flex flex-wrap items-center gap-2'>
+      <summary className='text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 cursor-pointer px-3 py-2.5 font-medium select-none focus-visible:ring-[3px] focus-visible:outline-none'>
+        <span className='ml-1 inline-flex max-w-[calc(100%_-_1rem)] flex-wrap items-center gap-2'>
           <span>{t('Field specification')}</span>
-          <Badge variant='outline' className='font-mono font-normal'>
+          <Badge
+            variant='outline'
+            className='max-w-full font-mono font-normal [overflow-wrap:anywhere] whitespace-normal'
+          >
             {specification.rootType}
           </Badge>
         </span>
       </summary>
       <div className='border-t'>
+        <ul
+          className='divide-y sm:hidden'
+          aria-label={t('Field specification')}
+        >
+          {specification.fields.map((field) => (
+            <li key={field.path} className='space-y-2.5 px-3 py-3'>
+              <div className='flex min-w-0 items-start justify-between gap-3'>
+                <code className='text-foreground min-w-0 font-medium [overflow-wrap:anywhere]'>
+                  {field.path}
+                </code>
+                <span className='text-muted-foreground shrink-0'>
+                  {requirementLabel(field.required)}
+                </span>
+              </div>
+              <dl className='grid grid-cols-[4.5rem_minmax(0,1fr)] gap-x-3 gap-y-1.5'>
+                <dt className='text-muted-foreground'>{t('Type')}</dt>
+                <dd className='text-muted-foreground font-mono [overflow-wrap:anywhere]'>
+                  {field.type}
+                </dd>
+                <dt className='text-muted-foreground'>{t('Rules')}</dt>
+                <dd className='text-muted-foreground font-mono [overflow-wrap:anywhere] whitespace-pre-wrap'>
+                  {field.rules || '—'}
+                </dd>
+                <dt className='text-muted-foreground'>{t('Example')}</dt>
+                <dd className='text-muted-foreground font-mono [overflow-wrap:anywhere] whitespace-pre-wrap'>
+                  {field.example || '—'}
+                </dd>
+              </dl>
+            </li>
+          ))}
+        </ul>
         <div
           role='region'
           aria-label={t('Field specification')}
           tabIndex={0}
-          className='focus-visible:ring-ring/50 max-w-full overflow-x-auto focus-visible:ring-[3px] focus-visible:outline-none'
+          className='focus-visible:ring-ring/50 hidden max-w-full overflow-x-auto focus-visible:ring-[3px] focus-visible:outline-none sm:block'
         >
           <table className='w-full min-w-[640px] border-collapse text-left'>
             <caption className='sr-only'>{t('Field specification')}</caption>
@@ -143,10 +178,10 @@ export function JsonSpecification({
                   <td className='text-muted-foreground px-3 py-2'>
                     {requirementLabel(field.required)}
                   </td>
-                  <td className='text-muted-foreground px-3 py-2 font-mono whitespace-normal'>
+                  <td className='text-muted-foreground px-3 py-2 font-mono [overflow-wrap:anywhere] whitespace-normal'>
                     {field.rules || '—'}
                   </td>
-                  <td className='text-muted-foreground px-3 py-2 font-mono whitespace-normal'>
+                  <td className='text-muted-foreground px-3 py-2 font-mono [overflow-wrap:anywhere] whitespace-normal'>
                     {field.example || '—'}
                   </td>
                 </tr>
@@ -161,34 +196,118 @@ export function JsonSpecification({
 
 export function JsonExample({
   example,
+  currentValue = '',
   disabled = false,
   onUseExample,
 }: {
   example: string
+  currentValue?: string
   disabled?: boolean
   onUseExample: (example: string) => void
 }) {
   const { t } = useTranslation()
+  const replacementSignature = `${currentValue}\u0000${example}`
+  const [pendingReplacement, setPendingReplacement] = useState<string | null>(
+    null
+  )
+  const needsConfirmation =
+    Boolean(currentValue.trim()) && currentValue !== example
+  const replacementPending =
+    needsConfirmation && pendingReplacement === replacementSignature
+
+  const handleCopyExample = async () => {
+    const didCopy = await copyToClipboard(example)
+    if (didCopy) {
+      toast.success(t('Copied to clipboard'))
+      return
+    }
+
+    toast.error(t('Failed to copy'))
+  }
+
+  const handleUseExample = () => {
+    if (needsConfirmation) {
+      setPendingReplacement(replacementSignature)
+      return
+    }
+
+    onUseExample(example)
+  }
+
+  const confirmReplacement = () => {
+    onUseExample(example)
+    setPendingReplacement(null)
+  }
 
   return (
     <details className='bg-muted/10 border-t text-xs'>
-      <summary className='text-muted-foreground hover:text-foreground cursor-pointer px-3 py-2 font-medium select-none'>
+      <summary className='text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 cursor-pointer px-3 py-2.5 font-medium select-none focus-visible:ring-[3px] focus-visible:outline-none'>
         <span className='ml-1'>{t('Configuration example')}</span>
       </summary>
       <div className='space-y-2 border-t px-3 py-3'>
-        <pre className='bg-background/70 text-muted-foreground max-h-40 overflow-auto rounded-md border p-2 font-mono whitespace-pre-wrap'>
+        <pre className='bg-background/70 text-muted-foreground max-h-40 overflow-auto rounded-md border p-2 font-mono [overflow-wrap:anywhere] whitespace-pre-wrap'>
           {example}
         </pre>
-        <Button
-          type='button'
-          variant='outline'
-          size='sm'
-          className='h-7 text-xs'
-          onClick={() => onUseExample(example)}
-          disabled={disabled}
-        >
-          {t('Fill Template')}
-        </Button>
+        <div className='flex flex-wrap gap-2'>
+          <Button
+            type='button'
+            variant='outline'
+            size='sm'
+            className='h-7 text-xs'
+            onClick={() => void handleCopyExample()}
+            disabled={disabled}
+          >
+            <Copy className='mr-1 h-3.5 w-3.5' aria-hidden='true' />
+            {t('Copy')}
+          </Button>
+          <Button
+            type='button'
+            variant='outline'
+            size='sm'
+            className='h-7 text-xs'
+            onClick={handleUseExample}
+            disabled={disabled || currentValue === example}
+          >
+            {t('Fill Template')}
+          </Button>
+        </div>
+        {replacementPending && (
+          <div
+            role='alert'
+            className='border-destructive/30 bg-destructive/5 space-y-2 rounded-md border p-2.5'
+          >
+            <p className='text-foreground font-medium'>
+              {t('Discard unsaved JSON changes?')}
+            </p>
+            <p className='text-muted-foreground'>
+              {t(
+                'Continuing will replace the unsaved JSON currently in the editor.'
+              )}
+            </p>
+            <div className='flex flex-wrap gap-2'>
+              <Button
+                type='button'
+                variant='destructive'
+                size='sm'
+                className='h-7 text-xs'
+                onClick={confirmReplacement}
+                disabled={disabled}
+              >
+                {t('Replace')}
+              </Button>
+              <Button
+                type='button'
+                variant='outline'
+                size='sm'
+                className='h-7 text-xs'
+                onClick={() => setPendingReplacement(null)}
+                disabled={disabled}
+              >
+                {t('Cancel')}
+              </Button>
+            </div>
+          </div>
+        )}
       </div>
     </details>
   )
@@ -227,6 +346,7 @@ export function JsonCodeEditor({
   ...rootProps
 }: JsonCodeEditorProps) {
   const { t } = useTranslation()
+  const validationStatusId = useId()
   const resolvedExample = example ?? validJsonExample(placeholder)
   const mountRef = useRef<HTMLDivElement>(null)
   const editorRef = useRef<Yace | null>(null)
@@ -378,11 +498,10 @@ export function JsonCodeEditor({
       editor.textarea.removeAttribute('aria-invalid')
     }
 
-    if (ariaDescribedBy) {
-      editor.textarea.setAttribute('aria-describedby', ariaDescribedBy)
-    } else {
-      editor.textarea.removeAttribute('aria-describedby')
-    }
+    const resolvedAriaDescribedBy = [ariaDescribedBy, validationStatusId]
+      .filter(Boolean)
+      .join(' ')
+    editor.textarea.setAttribute('aria-describedby', resolvedAriaDescribedBy)
   }, [
     ariaDescribedBy,
     ariaInvalid,
@@ -393,6 +512,7 @@ export function JsonCodeEditor({
     jsonStatus.isValid,
     name,
     placeholder,
+    validationStatusId,
   ])
 
   const formatJson = () => {
@@ -424,49 +544,63 @@ export function JsonCodeEditor({
       data-form-root={dataFormRoot}
       {...rootProps}
     >
-      <div className='bg-muted/30 flex h-8 items-center justify-between border-b px-2'>
+      <div className='bg-muted/30 flex min-h-8 flex-wrap items-center justify-between gap-x-2 gap-y-1 border-b px-2 py-1'>
         <div className='text-muted-foreground flex min-w-0 items-center gap-1.5 text-xs font-medium'>
           <Braces className='h-3.5 w-3.5' aria-hidden='true' />
           <span>{t('JSON')}</span>
-          <span className='text-muted-foreground/70 font-mono'>
+          <span className='text-muted-foreground/70 hidden font-mono sm:inline'>
             {cursorText}
           </span>
         </div>
-        <div className='flex items-center gap-2'>
+        <div className='ml-auto flex min-w-0 items-center gap-1 sm:gap-2'>
           <span
+            id={validationStatusId}
+            role='status'
+            aria-live='polite'
+            aria-atomic='true'
             className={cn(
-              'flex items-center gap-1 text-xs',
+              'flex min-w-0 items-center gap-1 text-xs',
               jsonStatus.isValid ? 'text-success' : 'text-destructive'
             )}
           >
             {jsonStatus.isValid ? (
-              <CheckCircle2 className='h-3.5 w-3.5' aria-hidden='true' />
+              <CheckCircle2
+                className='h-3.5 w-3.5 shrink-0'
+                aria-hidden='true'
+              />
             ) : (
-              <AlertCircle className='h-3.5 w-3.5' aria-hidden='true' />
+              <AlertCircle
+                className='h-3.5 w-3.5 shrink-0'
+                aria-hidden='true'
+              />
             )}
-            {statusMessage}
+            <span className='truncate'>{statusMessage}</span>
           </span>
           <Button
             type='button'
             variant='ghost'
             size='sm'
-            className='h-6 px-2 text-xs'
+            className='h-6 px-1.5 text-xs sm:px-2'
             onClick={handleCopy}
             disabled={disabled || !value}
+            aria-label={t('Copy')}
+            title={t('Copy')}
           >
-            <Copy className='mr-1 h-3.5 w-3.5' aria-hidden='true' />
-            {t('Copy')}
+            <Copy className='h-3.5 w-3.5 sm:mr-1' aria-hidden='true' />
+            <span className='sr-only sm:not-sr-only'>{t('Copy')}</span>
           </Button>
           <Button
             type='button'
             variant='ghost'
             size='sm'
-            className='h-6 px-2 text-xs'
+            className='h-6 px-1.5 text-xs sm:px-2'
             onClick={formatJson}
             disabled={disabled || !jsonStatus.isValid || !value.trim()}
+            aria-label={t('Format JSON')}
+            title={t('Format JSON')}
           >
-            <Code2 className='mr-1 h-3.5 w-3.5' aria-hidden='true' />
-            {t('Format JSON')}
+            <Code2 className='h-3.5 w-3.5 sm:mr-1' aria-hidden='true' />
+            <span className='sr-only sm:not-sr-only'>{t('Format JSON')}</span>
           </Button>
         </div>
       </div>
@@ -491,6 +625,7 @@ export function JsonCodeEditor({
       {resolvedExample && (
         <JsonExample
           example={resolvedExample}
+          currentValue={value}
           disabled={disabled}
           onUseExample={onChange}
         />

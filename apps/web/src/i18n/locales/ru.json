@@ -1,4 +1,6 @@
 {
+  "Continuing will replace the unsaved JSON currently in the editor.": "Если продолжить, несохранённый JSON в редакторе будет заменён.",
+  "Discard unsaved JSON changes?": "Отменить несохранённые изменения JSON?",
   "translation": {
     "360": "360",
     "1000": "1000",

@@ -277,6 +277,7 @@ export function JsonEditor({
           {resolvedExample && (
             <JsonExample
               example={resolvedExample}
+              currentValue={jsonValue}
               disabled={disabled}
               onUseExample={handleUseExample}
             />

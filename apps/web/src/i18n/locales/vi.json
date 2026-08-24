@@ -1,4 +1,6 @@
 {
+  "Continuing will replace the unsaved JSON currently in the editor.": "Nếu tiếp tục, JSON chưa lưu trong trình soạn thảo sẽ bị thay thế.",
+  "Discard unsaved JSON changes?": "Hủy các thay đổi JSON chưa lưu?",
   "translation": {
     "360": "360",
     "1000": "1000",

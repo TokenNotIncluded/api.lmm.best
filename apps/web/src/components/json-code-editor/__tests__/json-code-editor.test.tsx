@@ -68,6 +68,12 @@ await i18next.use(initReactI18next).init({
         'Configuration example': 'Configuration example',
         'Field specification': 'Field specification',
         'Fill Template': 'Fill Template',
+        Copy: 'Copy',
+        Cancel: 'Cancel',
+        Replace: 'Replace',
+        'Discard unsaved JSON changes?': 'Discard unsaved JSON changes?',
+        'Continuing will replace the unsaved JSON currently in the editor.':
+          'Continuing will replace the unsaved JSON currently in the editor.',
       },
     },
   },
@@ -130,7 +136,13 @@ describe('JsonCodeEditor component', () => {
     assert.equal(textarea.name, 'model_config')
     assert.equal(textarea.placeholder, '{"model":"gpt"}')
     assert.equal(textarea.disabled, true)
-    assert.equal(textarea.getAttribute('aria-describedby'), 'model-help')
+    const validationStatus = rendered.container.querySelector('[role="status"]')
+    assert.ok(validationStatus)
+    assert.equal(validationStatus.getAttribute('aria-live'), 'polite')
+    assert.deepEqual(textarea.getAttribute('aria-describedby')?.split(' '), [
+      'model-help',
+      validationStatus.id,
+    ])
     assert.equal(textarea.getAttribute('aria-invalid'), 'true')
     assert.equal(textarea.getAttribute('data-form-root'), 'settings-form')
 
@@ -210,6 +222,68 @@ describe('JsonCodeEditor component', () => {
     await unmountEditor(rendered)
   })
 
+  test('copies an example and confirms before replacing populated JSON', async () => {
+    const changes: string[] = []
+    const clipboardWrites: string[] = []
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: {
+        writeText: async (value: string) => {
+          clipboardWrites.push(value)
+        },
+      },
+    })
+    const example = '{\n  "default": 1\n}'
+    const rendered = await renderEditor({
+      value: '{"existing":true}',
+      onChange: (value) => changes.push(value),
+      example,
+    })
+    const details = rendered.container.querySelector('details')
+    assert.ok(details)
+    const buttons = [...details.querySelectorAll('button')]
+    const copyButton = buttons.find((button) => button.textContent === 'Copy')
+    const fillButton = buttons.find((button) =>
+      button.textContent?.includes('Fill Template')
+    )
+    assert.ok(copyButton)
+    assert.ok(fillButton)
+
+    await act(async () => {
+      copyButton.click()
+      await Promise.resolve()
+    })
+    assert.deepEqual(clipboardWrites, [example])
+    assert.deepEqual(changes, [])
+
+    await act(async () => fillButton.click())
+    assert.deepEqual(changes, [])
+    const replacementAlert = details.querySelector('[role="alert"]')
+    assert.ok(replacementAlert)
+    assert.equal(
+      replacementAlert.textContent?.includes('Discard unsaved JSON changes?'),
+      true
+    )
+
+    const cancelButton = [...replacementAlert.querySelectorAll('button')].find(
+      (button) => button.textContent === 'Cancel'
+    )
+    assert.ok(cancelButton)
+    await act(async () => cancelButton.click())
+    assert.equal(details.querySelector('[role="alert"]'), null)
+    assert.deepEqual(changes, [])
+
+    await act(async () => fillButton.click())
+    const confirmButton = [
+      ...details.querySelectorAll<HTMLButtonElement>('[role="alert"] button'),
+    ].find((button) => button.textContent === 'Replace')
+    assert.ok(confirmButton)
+    await act(async () => confirmButton.click())
+    assert.deepEqual(changes, [example])
+
+    await unmountEditor(rendered)
+  })
+
   test('renders an accessible field specification with types and constraints', async () => {
     const rendered = await renderEditor({
       value: '{"enabled":true}',
@@ -256,6 +330,13 @@ describe('JsonCodeEditor component', () => {
       'Field specification'
     )
     assert.equal(table.querySelector('th[scope="row"]')?.textContent, 'enabled')
+
+    const mobileList = details.querySelector(
+      'ul[aria-label="Field specification"]'
+    )
+    assert.ok(mobileList)
+    assert.equal(mobileList.querySelector('li code')?.textContent, 'enabled')
+    assert.equal(mobileList.textContent?.includes('default: false'), true)
 
     await unmountEditor(rendered)
   })
