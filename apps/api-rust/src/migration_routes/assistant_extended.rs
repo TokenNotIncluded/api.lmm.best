@@ -1223,21 +1223,7 @@ async fn list_conversations_page(
     } else {
         None
     };
-    let archive_filter = if archived {
-        "archived_at <> 0"
-    } else {
-        "archived_at = 0"
-    };
-    let mut sql = format!(
-        "SELECT id, title, last_message_preview, created_at, updated_at, archived_at, restricted_at \
-         FROM assistant_conversations WHERE user_id = $1 AND {archive_filter} \
-         AND EXISTS (SELECT 1 FROM assistant_history_messages m WHERE m.conversation_id = assistant_conversations.id)"
-    );
-    if cursor.is_some() {
-        sql.push_str(" AND ((updated_at < $2) OR (updated_at = $2 AND id < $3))");
-    }
-    sql.push_str(" ORDER BY updated_at DESC, id DESC LIMIT ");
-    sql.push_str(&(limit + 1).to_string());
+    let sql = conversation_list_sql(limit, archived, cursor.is_some());
     let mut query = sqlx::query(&sql).bind(owner_user_id);
     if let Some(cursor) = cursor.as_ref() {
         query = query.bind(cursor.updated_at).bind(cursor.id);
@@ -1291,6 +1277,25 @@ async fn list_conversations_page(
         conversations,
         next_cursor,
     })
+}
+
+fn conversation_list_sql(limit: i64, archived: bool, has_cursor: bool) -> String {
+    let archive_filter = if archived {
+        "archived_at <> 0"
+    } else {
+        "archived_at = 0"
+    };
+    let mut sql = format!(
+        "SELECT id, title, last_message_preview, created_at, updated_at, archived_at, restricted_at \
+         FROM assistant_conversations WHERE user_id = $1 AND {archive_filter} \
+         AND EXISTS (SELECT 1 FROM assistant_history_messages m WHERE m.conversation_id = assistant_conversations.id)"
+    );
+    if has_cursor {
+        sql.push_str(" AND ((updated_at < $2) OR (updated_at = $2 AND id < $3))");
+    }
+    sql.push_str(" ORDER BY updated_at DESC, id DESC LIMIT ");
+    sql.push_str(&(limit + 1).to_string());
+    sql
 }
 
 async fn load_conversation_history(
@@ -1913,4 +1918,30 @@ fn unix_seconds() -> i64 {
         .duration_since(UNIX_EPOCH)
         .unwrap_or(Duration::ZERO)
         .as_secs() as i64
+}
+
+#[cfg(test)]
+mod tests {
+    use super::conversation_list_sql;
+
+    #[test]
+    fn conversation_list_sql_uses_contiguous_cursor_bindings() {
+        let sql = conversation_list_sql(25, false, true);
+
+        assert!(sql.contains("user_id = $1"));
+        assert!(sql.contains("updated_at < $2"));
+        assert!(sql.contains("updated_at = $2 AND id < $3"));
+        assert!(!sql.contains("$4"));
+        assert_eq!(sql.matches("$2").count(), 2);
+        assert!(sql.ends_with("LIMIT 26"));
+    }
+
+    #[test]
+    fn conversation_list_sql_omits_cursor_bindings_without_cursor() {
+        let sql = conversation_list_sql(10, true, false);
+
+        assert!(sql.contains("archived_at <> 0"));
+        assert!(!sql.contains("$2"));
+        assert!(sql.ends_with("LIMIT 11"));
+    }
 }
