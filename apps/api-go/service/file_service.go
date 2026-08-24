@@ -556,9 +556,20 @@ func parseHEIFDimensions(data []byte) (int, int, bool) {
 	return 0, 0, false
 }
 
+// Keep metadata parsing bounded; valid HEIF metadata has a shallow container path.
+const maxHEIFBoxDepth = 64
+
 // findISPE recursively searches for the ispe box within container boxes.
 // Path: meta -> iprp -> ipco -> ispe
 func findISPE(data []byte) (int, int, bool) {
+	return findISPEAtDepth(data, 0)
+}
+
+func findISPEAtDepth(data []byte, depth int) (int, int, bool) {
+	if depth > maxHEIFBoxDepth {
+		return 0, 0, false
+	}
+
 	offset := 0
 	size := len(data)
 	for offset+8 <= size {
@@ -570,7 +581,7 @@ func findISPE(data []byte) (int, int, bool) {
 		content := data[offset+8 : offset+boxSize]
 		switch boxType {
 		case "iprp", "ipco":
-			if w, h, ok := findISPE(content); ok {
+			if w, h, ok := findISPEAtDepth(content, depth+1); ok {
 				return w, h, true
 			}
 		case "ispe":
