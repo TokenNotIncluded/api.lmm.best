@@ -46,6 +46,8 @@ async fn account_action_routes_require_dashboard_auth() {
 
     assert!(matches!(
         response.status(),
-        axum::http::StatusCode::UNAUTHORIZED | axum::http::StatusCode::FORBIDDEN | axum::http::StatusCode::NOT_FOUND
+        axum::http::StatusCode::UNAUTHORIZED
+            | axum::http::StatusCode::FORBIDDEN
+            | axum::http::StatusCode::NOT_FOUND
     ));
 }

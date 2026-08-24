@@ -9,7 +9,7 @@ use std::{
 
 use axum::{
     Json, Router,
-    body::{to_bytes},
+    body::to_bytes,
     extract::{Path, Query, RawQuery, Request, State},
     http::{HeaderMap, HeaderValue, StatusCode, header},
     response::{IntoResponse, Response},
@@ -314,13 +314,13 @@ async fn list_public_relays(
         .map(|item| item.public_view(qpu))
         .collect::<Vec<_>>();
     let response = success(json!({"items": items, "group": group}));
-    with_optional_auth_version(response, optional_authenticated(&state, &headers).await.is_ok())
+    with_optional_auth_version(
+        response,
+        optional_authenticated(&state, &headers).await.is_ok(),
+    )
 }
 
-async fn create_contribution(
-    State(state): State<PublicRelayState>,
-    request: Request,
-) -> Response {
+async fn create_contribution(State(state): State<PublicRelayState>, request: Request) -> Response {
     let principal = match authenticated_user(&state, request.headers()).await {
         Ok(principal) => principal,
         Err(response) => return response,
@@ -353,9 +353,7 @@ async fn create_contribution(
         Err(PublicRelayError::Business { code, message }) => with_auth_version(
             public_relay_failure(StatusCode::UNPROCESSABLE_ENTITY, code, &message),
         ),
-        Err(PublicRelayError::Database(message)) => {
-            with_auth_version(api_error(message))
-        }
+        Err(PublicRelayError::Database(message)) => with_auth_version(api_error(message)),
         Err(error) => with_auth_version(api_error(error.to_string())),
     }
 }
@@ -433,7 +431,10 @@ async fn list_reviews(
         .filter_map(|row| review_from_row(row).ok())
         .collect::<Vec<_>>();
     let response = success(json!({"items": items}));
-    with_optional_auth_version(response, optional_authenticated(&state, &headers).await.is_ok())
+    with_optional_auth_version(
+        response,
+        optional_authenticated(&state, &headers).await.is_ok(),
+    )
 }
 
 async fn rate_public_relay(
@@ -532,10 +533,7 @@ async fn tip_public_relay(
     }
 }
 
-async fn get_routing(
-    State(state): State<PublicRelayState>,
-    headers: HeaderMap,
-) -> Response {
+async fn get_routing(State(state): State<PublicRelayState>, headers: HeaderMap) -> Response {
     let principal = match authenticated_user(&state, &headers).await {
         Ok(principal) => principal,
         Err(response) => return response,
@@ -547,10 +545,7 @@ async fn get_routing(
     }
 }
 
-async fn update_routing(
-    State(state): State<PublicRelayState>,
-    request: Request,
-) -> Response {
+async fn update_routing(State(state): State<PublicRelayState>, request: Request) -> Response {
     let principal = match authenticated_user(&state, request.headers()).await {
         Ok(principal) => principal,
         Err(response) => return response,
@@ -615,9 +610,9 @@ async fn report_public_relay(
             "PUBLIC_RELAY_NOT_FOUND",
             "public relay contribution not found",
         )),
-        Err(PublicRelayError::Conflict { code, message }) => with_auth_version(
-            public_relay_failure(StatusCode::CONFLICT, code, &message),
-        ),
+        Err(PublicRelayError::Conflict { code, message }) => {
+            with_auth_version(public_relay_failure(StatusCode::CONFLICT, code, &message))
+        }
         Err(PublicRelayError::Business { code, message }) => with_auth_version(
             public_relay_failure(StatusCode::UNPROCESSABLE_ENTITY, code, &message),
         ),
@@ -655,8 +650,7 @@ async fn withdraw_public_relay(
             "the selected group is not available for this account",
         ));
     }
-    match withdraw_public_relay_tips(&state.pg, contribution_id, principal.user.id, &group).await
-    {
+    match withdraw_public_relay_tips(&state.pg, contribution_id, principal.user.id, &group).await {
         Ok(amount) => with_auth_version(success(json!({"quota": amount, "group": group}))),
         Err(PublicRelayError::Business { code, message }) => with_auth_version(
             public_relay_failure(StatusCode::UNPROCESSABLE_ENTITY, code, &message),
@@ -684,9 +678,7 @@ async fn list_admin(
         .map(|limit| limit.min(100))
         .unwrap_or(100);
     let group = public_relay_group(&state.pg).await;
-    let mut sql = format!(
-        "SELECT {CONTRIBUTION_COLUMNS} FROM public_relay_contributions"
-    );
+    let mut sql = format!("SELECT {CONTRIBUTION_COLUMNS} FROM public_relay_contributions");
     let rows = if let Some(status) = status.as_deref() {
         sql.push_str(" WHERE status = $1 ORDER BY created_at DESC, id DESC LIMIT $2");
         sqlx::query(&sql).bind(status).bind(limit)
@@ -743,9 +735,9 @@ async fn review_admin_contribution(
             "PUBLIC_RELAY_NOT_FOUND",
             "public relay contribution not found",
         )),
-        Err(PublicRelayError::Conflict { code, message }) => with_auth_version(
-            public_relay_failure(StatusCode::CONFLICT, code, &message),
-        ),
+        Err(PublicRelayError::Conflict { code, message }) => {
+            with_auth_version(public_relay_failure(StatusCode::CONFLICT, code, &message))
+        }
         Err(PublicRelayError::Business { code, message }) => with_auth_version(
             public_relay_failure(StatusCode::UNPROCESSABLE_ENTITY, code, &message),
         ),
@@ -786,9 +778,9 @@ async fn link_admin_channel(
             "PUBLIC_RELAY_NOT_FOUND",
             "public relay contribution not found",
         )),
-        Err(PublicRelayError::Conflict { code, message }) => with_auth_version(
-            public_relay_failure(StatusCode::CONFLICT, code, &message),
-        ),
+        Err(PublicRelayError::Conflict { code, message }) => {
+            with_auth_version(public_relay_failure(StatusCode::CONFLICT, code, &message))
+        }
         Err(PublicRelayError::Business { code, message }) => with_auth_version(
             public_relay_failure(StatusCode::UNPROCESSABLE_ENTITY, code, &message),
         ),
@@ -1500,14 +1492,12 @@ async fn link_public_relay_channel(
         });
     }
     let now = unix_now();
-    sqlx::query(
-        "UPDATE channels SET public_relay_contribution_id = $1 WHERE id = $2",
-    )
-    .bind(contribution_id)
-    .bind(channel_id)
-    .execute(&mut *transaction)
-    .await
-    .map_err(db_error)?;
+    sqlx::query("UPDATE channels SET public_relay_contribution_id = $1 WHERE id = $2")
+        .bind(contribution_id)
+        .bind(channel_id)
+        .execute(&mut *transaction)
+        .await
+        .map_err(db_error)?;
     sqlx::query(
         "UPDATE public_relay_contributions SET channel_id = $1, \"group\" = $2, updated_at = $3 \
          WHERE id = $4",
@@ -1585,9 +1575,7 @@ async fn list_public_relay_routing(
         match (left_pos, right_pos) {
             (Some(_), None) => std::cmp::Ordering::Less,
             (None, Some(_)) => std::cmp::Ordering::Greater,
-            (Some(left_pos), Some(right_pos)) if left_pos != right_pos => {
-                left_pos.cmp(right_pos)
-            }
+            (Some(left_pos), Some(right_pos)) if left_pos != right_pos => left_pos.cmp(right_pos),
             _ => right
                 .rating_average
                 .partial_cmp(&left.rating_average)
@@ -1766,13 +1754,11 @@ fn normalize_public_relay_url(raw: &str) -> Result<String, PublicRelayError> {
                 IpAddr::V4(v4) => v4.is_private() || v4.is_link_local(),
                 IpAddr::V6(v6) => v6.is_unique_local() || is_ipv6_link_local(v6),
             })
-        {
-            return Err(PublicRelayError::invalid_url());
-        }
+    {
+        return Err(PublicRelayError::invalid_url());
+    }
     let path = parsed.path().trim_end_matches('/');
-    let host = parsed
-        .host()
-        .ok_or_else(PublicRelayError::invalid_url)?;
+    let host = parsed.host().ok_or_else(PublicRelayError::invalid_url)?;
     if path.is_empty() {
         Ok(format!("{}://{host}", parsed.scheme()))
     } else {
@@ -2047,16 +2033,13 @@ where
 }
 
 fn parse_positive_id(raw: &str) -> Result<i64, Response> {
-    raw.parse::<i64>()
-        .ok()
-        .filter(|id| *id > 0)
-        .ok_or_else(|| {
-            public_relay_failure(
-                StatusCode::BAD_REQUEST,
-                "PUBLIC_RELAY_INVALID_ID",
-                "invalid public relay id",
-            )
-        })
+    raw.parse::<i64>().ok().filter(|id| *id > 0).ok_or_else(|| {
+        public_relay_failure(
+            StatusCode::BAD_REQUEST,
+            "PUBLIC_RELAY_INVALID_ID",
+            "invalid public relay id",
+        )
+    })
 }
 
 fn query_value(raw_query: Option<&str>, key: &str) -> Option<String> {

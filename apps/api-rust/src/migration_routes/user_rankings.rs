@@ -239,9 +239,10 @@ async fn user_usage_rankings(
         return failure(StatusCode::FORBIDDEN, "rankings is disabled");
     }
     if access.require_auth
-        && let Err(error) = enforce_user_auth(&actor) {
-            return user_policy_error(&headers, error);
-        }
+        && let Err(error) = enforce_user_auth(&actor)
+    {
+        return user_policy_error(&headers, error);
+    }
 
     let raw_period = parse_ranking_period(raw_query.as_deref());
     let Some(period) = RankingPeriod::parse(&raw_period) else {

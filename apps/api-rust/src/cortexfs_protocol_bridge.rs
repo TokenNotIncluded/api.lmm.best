@@ -14,7 +14,7 @@ use cortexfs_protocol::{
     transcode_request, transcode_response,
 };
 use lmm_contracts::relay::{
-    CanonicalStreamEvent, Direction, FinishReason, Fidelity, Protocol, TokenUsage, protocols,
+    CanonicalStreamEvent, Direction, Fidelity, FinishReason, Protocol, TokenUsage, protocols,
 };
 
 use crate::{
@@ -44,7 +44,10 @@ impl fmt::Display for CortexFsBridgeError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::UnsupportedProtocol(protocol) => {
-                write!(formatter, "unsupported protocol for cortexfs bridge: {protocol:?}")
+                write!(
+                    formatter,
+                    "unsupported protocol for cortexfs bridge: {protocol:?}"
+                )
             }
             Self::Conversion(error) => write!(formatter, "cortexfs conversion failed: {error}"),
         }
@@ -244,7 +247,8 @@ pub fn model_event_to_canonical(
         }
         ModelEvent::ToolCall { call, .. } => {
             let index = state.next_block_index();
-            let arguments = serde_json::to_string(&call.arguments).unwrap_or_else(|_| "{}".to_owned());
+            let arguments =
+                serde_json::to_string(&call.arguments).unwrap_or_else(|_| "{}".to_owned());
             vec![
                 CanonicalStreamEvent::ToolCallStart {
                     index,
@@ -264,10 +268,7 @@ pub fn model_event_to_canonical(
                 return Vec::new();
             }
             let index = state.ensure_text_block();
-            vec![CanonicalStreamEvent::TextDelta {
-                index,
-                delta: text,
-            }]
+            vec![CanonicalStreamEvent::TextDelta { index, delta: text }]
         }
         ModelEvent::Usage { usage, .. } => {
             state.pending_usage = Some(TokenUsage {
@@ -410,8 +411,8 @@ impl StreamAdaptorSession for CortexFsStreamSession {
         if payload.is_empty() {
             return Ok(StreamAdaptorOutput::empty());
         }
-        let events =
-            decode_provider_events(self.source, payload).map_err(|_| TypedStreamFailure::UnknownEvent)?;
+        let events = decode_provider_events(self.source, payload)
+            .map_err(|_| TypedStreamFailure::UnknownEvent)?;
         let mut items = Vec::new();
         for event in events {
             for canonical in model_event_to_canonical(&event, &mut self.map_state) {
@@ -558,11 +559,7 @@ mod tests {
                 Protocol::Claude,
                 Protocol::Gemini,
             ] {
-                for direction in [
-                    Direction::Request,
-                    Direction::Response,
-                    Direction::Stream,
-                ] {
+                for direction in [Direction::Request, Direction::Response, Direction::Stream] {
                     assert!(seen.insert(converter_id(source, target, direction)));
                 }
                 assert!(seen.insert(stream_finalizer_id(source, target)));
@@ -601,11 +598,15 @@ mod tests {
     #[test]
     fn stream_registry_exposes_only_cross_protocol_pairs() {
         let registry = CortexFsStreamAdaptorRegistry;
-        assert!(registry
-            .for_route(Protocol::OpenAi, Protocol::OpenAi)
-            .is_none());
-        assert!(registry
-            .for_route(Protocol::OpenAi, Protocol::Claude)
-            .is_some());
+        assert!(
+            registry
+                .for_route(Protocol::OpenAi, Protocol::OpenAi)
+                .is_none()
+        );
+        assert!(
+            registry
+                .for_route(Protocol::OpenAi, Protocol::Claude)
+                .is_some()
+        );
     }
 }

@@ -18,7 +18,8 @@ use sha2::Sha256;
 use sqlx::{PgPool, Row};
 
 use crate::migration_routes::assistant::{
-    AssistantReadState, authenticated_admin, authenticated_user, api_error, assistant_error, assistant_session_required, browser_user, success, with_no_store,
+    AssistantReadState, api_error, assistant_error, assistant_session_required,
+    authenticated_admin, authenticated_user, browser_user, success, with_no_store,
 };
 
 type HmacSha256 = Hmac<Sha256>;
@@ -35,9 +36,15 @@ pub fn extended_router() -> Router<AssistantReadState> {
     Router::new()
         .route("/api/assistant/journey", get(get_journey))
         .route("/api/assistant/new-user-gift", get(get_new_user_gift))
-        .route("/api/assistant/new-user-gift/claim", post(claim_new_user_gift))
+        .route(
+            "/api/assistant/new-user-gift/claim",
+            post(claim_new_user_gift),
+        )
         .route("/api/assistant/weekly-discount", get(get_weekly_discount))
-        .route("/api/assistant/weekly-discount/claim", post(claim_weekly_discount))
+        .route(
+            "/api/assistant/weekly-discount/claim",
+            post(claim_weekly_discount),
+        )
         .route("/api/assistant/conversations", get(list_conversations))
         .route("/api/assistant/conversations/{id}", get(get_conversation))
         .route(
@@ -114,10 +121,7 @@ struct DrawingGenerateInput {
     confirmation_token: String,
 }
 
-async fn get_journey(
-    State(state): State<AssistantReadState>,
-    headers: HeaderMap,
-) -> Response {
+async fn get_journey(State(state): State<AssistantReadState>, headers: HeaderMap) -> Response {
     let principal = match authenticated_user(&state, &headers).await {
         Ok(principal) => principal,
         Err(response) => return with_no_store(response),
@@ -216,7 +220,7 @@ async fn list_conversations(
                 StatusCode::BAD_REQUEST,
                 "ASSISTANT_HISTORY_INVALID_USER",
                 "user_id must be a positive integer",
-            ))
+            ));
         }
         None => principal.user.id,
     };
@@ -228,7 +232,12 @@ async fn list_conversations(
             "limit must be a positive integer",
         ));
     }
-    let archived = match query.archived.as_deref().map(str::trim).filter(|v| !v.is_empty()) {
+    let archived = match query
+        .archived
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+    {
         None => false,
         Some(raw) => match raw.parse::<bool>() {
             Ok(value) => value,
@@ -237,7 +246,7 @@ async fn list_conversations(
                     StatusCode::BAD_REQUEST,
                     "ASSISTANT_HISTORY_INVALID_ARCHIVED",
                     "archived must be a boolean",
-                ))
+                ));
             }
         },
     };
@@ -298,7 +307,7 @@ async fn get_conversation(
                 StatusCode::NOT_FOUND,
                 "ASSISTANT_HISTORY_NOT_FOUND",
                 "assistant conversation was not found",
-            ))
+            ));
         }
     };
     let limit = query.limit.unwrap_or(100);
@@ -358,7 +367,7 @@ async fn set_conversation_archived(
                 StatusCode::NOT_FOUND,
                 "ASSISTANT_HISTORY_NOT_FOUND",
                 "assistant conversation was not found",
-            ))
+            ));
         }
     };
     match update_conversation_archive(&state.pg, principal.user.id, conversation_id, archived).await
@@ -556,7 +565,7 @@ async fn admin_apply(
                 StatusCode::FORBIDDEN,
                 "ASSISTANT_ADMIN_SESSION_REQUIRED",
                 "a browser login session is required for administrator changes",
-            ))
+            ));
         }
     };
     match consume_auth_flow(
@@ -647,10 +656,7 @@ async fn admin_funding(
     }
 }
 
-async fn admin_review(
-    State(state): State<AssistantReadState>,
-    headers: HeaderMap,
-) -> Response {
+async fn admin_review(State(state): State<AssistantReadState>, headers: HeaderMap) -> Response {
     if authenticated_admin(&state, &headers).await.is_err() {
         return admin_required(&state, &headers).await;
     }
@@ -660,10 +666,7 @@ async fn admin_review(
     }
 }
 
-async fn admin_run_review(
-    State(state): State<AssistantReadState>,
-    headers: HeaderMap,
-) -> Response {
+async fn admin_run_review(State(state): State<AssistantReadState>, headers: HeaderMap) -> Response {
     if authenticated_admin(&state, &headers).await.is_err() {
         return admin_required(&state, &headers).await;
     }
@@ -688,7 +691,7 @@ async fn admin_request_reviews(
                 StatusCode::BAD_REQUEST,
                 "ASSISTANT_REVIEW_USER_INVALID",
                 "user_id must be a positive integer",
-            ))
+            ));
         }
     };
     if !can_manage_target(&state.pg, principal.user.id, principal.user.role, user_id).await {
@@ -716,15 +719,7 @@ async fn admin_request_reviews(
         .violations_only
         .as_deref()
         .is_some_and(|value| value.eq_ignore_ascii_case("true"));
-    match load_request_reviews(
-        &state.pg,
-        user_id,
-        violations_only,
-        page,
-        page_size,
-    )
-    .await
-    {
+    match load_request_reviews(&state.pg, user_id, violations_only, page, page_size).await {
         Ok(data) => with_no_store(success(json!(data))),
         Err(message) => with_no_store(api_error(message)),
     }
@@ -746,7 +741,7 @@ async fn admin_reset_request_reviews(
                 StatusCode::BAD_REQUEST,
                 "ASSISTANT_REVIEW_USER_INVALID",
                 "user_id must be a positive integer",
-            ))
+            ));
         }
     };
     if !can_manage_target(&state.pg, principal.user.id, principal.user.role, target_id).await {
@@ -922,13 +917,12 @@ struct ArchiveRow {
 }
 
 async fn load_journey(pg: &PgPool, user_id: i64) -> Result<Journey, String> {
-    let conversations: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM assistant_conversations WHERE user_id = $1",
-    )
-    .bind(user_id)
-    .fetch_one(pg)
-    .await
-    .map_err(|error| error.to_string())?;
+    let conversations: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM assistant_conversations WHERE user_id = $1")
+            .bind(user_id)
+            .fetch_one(pg)
+            .await
+            .map_err(|error| error.to_string())?;
     let recommendation: Option<String> = sqlx::query_scalar(
         "SELECT COALESCE(ai_recommendation, '') FROM developer_access_requests \
          WHERE user_id = $1 ORDER BY id DESC LIMIT 1",
@@ -950,13 +944,20 @@ async fn load_journey(pg: &PgPool, user_id: i64) -> Result<Journey, String> {
         .await
         .ok()
         .flatten()
-        .and_then(|value| value.get("status").and_then(Value::as_str).map(str::to_owned));
+        .and_then(|value| {
+            value
+                .get("status")
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+        });
     Ok(Journey {
         main: vec![
             journey_step("ask_ai", conversations > 0),
             journey_step(
                 "get_recommendation",
-                recommendation.as_ref().is_some_and(|v| !v.trim().is_empty()),
+                recommendation
+                    .as_ref()
+                    .is_some_and(|v| !v.trim().is_empty()),
             ),
             journey_step(
                 "create_api_key",
@@ -1035,7 +1036,10 @@ async fn claim_new_user_gift_tx(
     user_id: i64,
     username: &str,
 ) -> Result<(Value, bool), ClaimGiftError> {
-    let mut tx = pg.begin().await.map_err(|error| ClaimGiftError::Internal(error.to_string()))?;
+    let mut tx = pg
+        .begin()
+        .await
+        .map_err(|error| ClaimGiftError::Internal(error.to_string()))?;
     let row = sqlx::query(
         "SELECT id, amount_cents, quota, status FROM assistant_new_user_gifts \
          WHERE user_id = $1 FOR UPDATE",
@@ -1047,7 +1051,9 @@ async fn claim_new_user_gift_tx(
     let Some(row) = row else {
         return Err(ClaimGiftError::Unavailable);
     };
-    let status: String = row.try_get("status").map_err(|error| ClaimGiftError::Internal(error.to_string()))?;
+    let status: String = row
+        .try_get("status")
+        .map_err(|error| ClaimGiftError::Internal(error.to_string()))?;
     if status != "offered" {
         if status == "claimed" {
             let gift = load_new_user_gift(pg, user_id)
@@ -1058,7 +1064,9 @@ async fn claim_new_user_gift_tx(
         }
         return Err(ClaimGiftError::Unavailable);
     }
-    let quota: i32 = row.try_get("quota").map_err(|error| ClaimGiftError::Internal(error.to_string()))?;
+    let quota: i32 = row
+        .try_get("quota")
+        .map_err(|error| ClaimGiftError::Internal(error.to_string()))?;
     let claimed_at = unix_seconds();
     sqlx::query(
         "UPDATE assistant_new_user_gifts SET status = 'claimed', claimed_at = $2 WHERE user_id = $1",
@@ -1122,17 +1130,18 @@ async fn load_weekly_discount(pg: &PgPool, user_id: i64) -> Result<Option<Value>
     });
     if row.try_get::<String, _>("status").unwrap_or_default() == "claimed"
         && let Ok(code_id) = row.try_get::<i32, _>("code_id")
-            && code_id > 0
-                && let Ok(code) = sqlx::query_scalar::<_, String>(
-                    "SELECT code FROM discount_codes WHERE id = $1 AND owner_user_id = $2",
-                )
-                .bind(code_id)
-                .bind(user_id)
-                .fetch_optional(pg)
-                .await
-                    && let Some(code) = code {
-                        value["code"] = json!(code);
-                    }
+        && code_id > 0
+        && let Ok(code) = sqlx::query_scalar::<_, String>(
+            "SELECT code FROM discount_codes WHERE id = $1 AND owner_user_id = $2",
+        )
+        .bind(code_id)
+        .bind(user_id)
+        .fetch_optional(pg)
+        .await
+        && let Some(code) = code
+    {
+        value["code"] = json!(code);
+    }
     Ok(Some(value))
 }
 
@@ -1141,7 +1150,10 @@ async fn claim_weekly_discount_tx(
     user_id: i64,
 ) -> Result<(Value, bool), ClaimWeeklyError> {
     let week_start = assistant_week_start();
-    let mut tx = pg.begin().await.map_err(|error| ClaimWeeklyError::Internal(error.to_string()))?;
+    let mut tx = pg
+        .begin()
+        .await
+        .map_err(|error| ClaimWeeklyError::Internal(error.to_string()))?;
     let row = sqlx::query(
         "SELECT id, discount_percent, status FROM assistant_weekly_discounts \
          WHERE user_id = $1 AND week_start = $2 FOR UPDATE",
@@ -1154,7 +1166,9 @@ async fn claim_weekly_discount_tx(
     let Some(row) = row else {
         return Err(ClaimWeeklyError::Unavailable);
     };
-    let status: String = row.try_get("status").map_err(|error| ClaimWeeklyError::Internal(error.to_string()))?;
+    let status: String = row
+        .try_get("status")
+        .map_err(|error| ClaimWeeklyError::Internal(error.to_string()))?;
     if status != "offered" {
         if status == "claimed" {
             let discount = load_weekly_discount(pg, user_id)
@@ -1304,14 +1318,13 @@ async fn load_conversation_history(
     conversation_id: i64,
     limit: i64,
 ) -> Result<(Value, Vec<Value>), HistoryError> {
-    let owner_user_id: i64 = sqlx::query_scalar(
-        "SELECT user_id FROM assistant_conversations WHERE id = $1",
-    )
-    .bind(conversation_id)
-    .fetch_optional(pg)
-    .await
-    .map_err(|error| HistoryError::Internal(error.to_string()))?
-    .ok_or(HistoryError::NotFound)?;
+    let owner_user_id: i64 =
+        sqlx::query_scalar("SELECT user_id FROM assistant_conversations WHERE id = $1")
+            .bind(conversation_id)
+            .fetch_optional(pg)
+            .await
+            .map_err(|error| HistoryError::Internal(error.to_string()))?
+            .ok_or(HistoryError::NotFound)?;
     authorize_history_viewer(pg, viewer_user_id, owner_user_id).await?;
     let conversation_row = sqlx::query(
         "SELECT id, title, last_message_preview, created_at, updated_at, archived_at, restricted_at \
@@ -1522,16 +1535,17 @@ async fn load_first_question_summary(pg: &PgPool, since: i64) -> Result<Value, S
     .fetch_all(pg)
     .await
     .map_err(|error| error.to_string())?;
-    Ok(json!(rows
-        .into_iter()
-        .map(|row| {
-            json!({
-                "question": row.try_get::<String, _>("question").unwrap_or_default(),
-                "count": row.try_get::<i64, _>("count").unwrap_or_default(),
-                "last_asked_at": row.try_get::<i64, _>("last_asked_at").unwrap_or_default(),
+    Ok(json!(
+        rows.into_iter()
+            .map(|row| {
+                json!({
+                    "question": row.try_get::<String, _>("question").unwrap_or_default(),
+                    "count": row.try_get::<i64, _>("count").unwrap_or_default(),
+                    "last_asked_at": row.try_get::<i64, _>("last_asked_at").unwrap_or_default(),
+                })
             })
-        })
-        .collect::<Vec<_>>()))
+            .collect::<Vec<_>>()
+    ))
 }
 
 async fn load_profile_summary(pg: &PgPool, since: i64) -> Result<Value, String> {
@@ -1543,15 +1557,16 @@ async fn load_profile_summary(pg: &PgPool, since: i64) -> Result<Value, String> 
     .fetch_all(pg)
     .await
     .map_err(|error| error.to_string())?;
-    Ok(json!(rows
-        .into_iter()
-        .map(|row| {
-            json!({
-                "persona": row.try_get::<String, _>("persona").unwrap_or_default(),
-                "count": row.try_get::<i64, _>("count").unwrap_or_default(),
+    Ok(json!(
+        rows.into_iter()
+            .map(|row| {
+                json!({
+                    "persona": row.try_get::<String, _>("persona").unwrap_or_default(),
+                    "count": row.try_get::<i64, _>("count").unwrap_or_default(),
+                })
             })
-        })
-        .collect::<Vec<_>>()))
+            .collect::<Vec<_>>()
+    ))
 }
 
 async fn load_funding_summary(pg: &PgPool, since: i64) -> Result<Value, FundingError> {
@@ -1576,11 +1591,12 @@ async fn load_funding_summary(pg: &PgPool, since: i64) -> Result<Value, FundingE
     .fetch_one(pg)
     .await
     .map_err(|error| FundingError::Internal(error.to_string()))?;
-    let remaining_quota: i64 = sqlx::query_scalar("SELECT COALESCE(quota, 0) FROM users WHERE id = $1")
-        .bind(billing_user_id)
-        .fetch_one(pg)
-        .await
-        .map_err(|error| FundingError::Internal(error.to_string()))?;
+    let remaining_quota: i64 =
+        sqlx::query_scalar("SELECT COALESCE(quota, 0) FROM users WHERE id = $1")
+            .bind(billing_user_id)
+            .fetch_one(pg)
+            .await
+            .map_err(|error| FundingError::Internal(error.to_string()))?;
     Ok(json!({
         "start_timestamp": since,
         "end_timestamp": unix_seconds(),
@@ -1718,14 +1734,13 @@ async fn can_manage_target(pg: &PgPool, viewer_id: i64, viewer_role: i64, target
     if viewer_id == target_id {
         return true;
     }
-    let target_role: Option<i64> = sqlx::query_scalar(
-        "SELECT role FROM users WHERE id = $1 AND deleted_at IS NULL",
-    )
-    .bind(target_id)
-    .fetch_optional(pg)
-    .await
-    .ok()
-    .flatten();
+    let target_role: Option<i64> =
+        sqlx::query_scalar("SELECT role FROM users WHERE id = $1 AND deleted_at IS NULL")
+            .bind(target_id)
+            .fetch_optional(pg)
+            .await
+            .ok()
+            .flatten();
     match target_role {
         Some(role) => conversation_rank(viewer_role) > conversation_rank(role),
         None => false,
@@ -1761,8 +1776,9 @@ fn encode_history_cursor(
         "updated_at": cursor.updated_at,
         "id": cursor.id,
     });
-    let encoded = base64::engine::general_purpose::URL_SAFE_NO_PAD
-        .encode(serde_json::to_vec(&payload).map_err(|error| HistoryError::Internal(error.to_string()))?);
+    let encoded = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(
+        serde_json::to_vec(&payload).map_err(|error| HistoryError::Internal(error.to_string()))?,
+    );
     let signature = history_cursor_mac(session_secret, &encoded);
     Ok(format!("{encoded}.{signature}"))
 }
@@ -1823,7 +1839,8 @@ async fn consume_auth_flow(
     user_id: i64,
     session_id: &str,
 ) -> Result<Option<String>, AuthFlowError> {
-    let token_hash = auth_flow_hash(session_secret, token).map_err(|_| AuthFlowError::Internal("hash failed".to_owned()))?;
+    let token_hash = auth_flow_hash(session_secret, token)
+        .map_err(|_| AuthFlowError::Internal("hash failed".to_owned()))?;
     let row = sqlx::query(
         "UPDATE auth_flows SET consumed_at = NOW() WHERE token_hash = $1 AND purpose = $2 \
          AND user_id = $3 AND session_id = $4 AND consumed_at IS NULL AND expires_at > NOW() \
@@ -1875,8 +1892,10 @@ async fn load_onboarding_step_state(
     .map_err(|error| error.to_string())?;
     let (installed, configured) = todo.map_or((0, 0), |row| {
         (
-            row.try_get::<i64, _>("client_installed_at").unwrap_or_default(),
-            row.try_get::<i64, _>("client_configured_at").unwrap_or_default(),
+            row.try_get::<i64, _>("client_installed_at")
+                .unwrap_or_default(),
+            row.try_get::<i64, _>("client_configured_at")
+                .unwrap_or_default(),
         )
     });
     let last_api: i64 = sqlx::query_scalar(
@@ -1907,7 +1926,8 @@ fn assistant_week_start() -> i64 {
     let weekday = now.weekday().num_days_from_monday();
     let day = now.date_naive();
     let monday = day - chrono::Duration::days(i64::from(weekday));
-    monday.and_hms_opt(0, 0, 0)
+    monday
+        .and_hms_opt(0, 0, 0)
         .expect("midnight exists")
         .and_utc()
         .timestamp()

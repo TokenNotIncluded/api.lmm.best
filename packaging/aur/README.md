@@ -19,7 +19,9 @@ deploy-only artifact is published.
 T1 removes the alias and declares an exact conflict/replacement for
 `lmm-api-deploy-bin`; the historical T0 Go package is its rollback package and
 already owns the operator user, sudoers, sysusers, and tmpfiles resources
-needed after rollback.
+needed after rollback. Local `pacman -U` does not apply `replaces`, so the armed
+target controller verifies those T0 resources and the legacy package owner/Qkk,
+removes that exact package, and only then installs T1.
 
 The next `lmm-api-go-bin` release is Go-only. It owns the backend, stable
 `/usr/bin/lmm-api` service/operator entry, `/etc/lmm-api-go/lmm-api-go.env`,

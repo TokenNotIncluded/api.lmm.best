@@ -311,6 +311,84 @@ func (runtime *productionRuntime) verifyManifestInstalled(ctx context.Context, m
 	return runtime.verifyTransitionInstalled(ctx, manifest.Web, rollback, false)
 }
 
+func (runtime *productionRuntime) removeLegacyDeployPackageForT1(ctx context.Context, candidate productionPackageMetadata) error {
+	t1, err := isT1SingleCLIPackage(candidate.Name, candidate.Version)
+	if err != nil {
+		return err
+	}
+	if !t1 {
+		return nil
+	}
+	installedName, installedIdentity, err := runtime.installedGoPackage(ctx)
+	if err != nil {
+		return fmt.Errorf("query installed T0 Go package: %w", err)
+	}
+	installed, err := parseNamedPackageIdentity([]byte(installedIdentity), installedName)
+	if err != nil {
+		return fmt.Errorf("parse installed T0 Go package: %w", err)
+	}
+	integrated, err := isIntegratedOperatorPackage(installed.Name, installed.Version)
+	if err != nil || !integrated {
+		return errors.New("T1 requires a confirmed integrated-operator T0 Go package")
+	}
+	for _, path := range []string{
+		"/etc/sudoers.d/lmm-api-operator",
+		"/usr/lib/sysusers.d/lmm-api-operator.conf",
+		"/usr/lib/tmpfiles.d/lmm-api-operator.conf",
+	} {
+		ownership, err := runtime.runner.Run(ctx, productionCommand{Name: commandPacman, Args: []string{"-Qo", path}, Env: append(os.Environ(), "LC_ALL=C")})
+		if err != nil || strings.TrimSpace(string(ownership)) != path+" is owned by "+installedIdentity {
+			return errors.New("T1 requires package-owned integrated operator resources")
+		}
+	}
+	listed, err := runtime.runner.Run(ctx, productionCommand{Name: commandPacman, Args: []string{"-Qq"}, Env: append(os.Environ(), "LC_ALL=C")})
+	if err != nil {
+		return fmt.Errorf("list installed packages before T1 transition: %w", err)
+	}
+	legacyNames := map[string]bool{"lmm-api-deploy": true, "lmm-api-deploy-bin": true}
+	installedLegacy := ""
+	for _, name := range strings.Fields(string(listed)) {
+		if !legacyNames[name] {
+			continue
+		}
+		if installedLegacy != "" && installedLegacy != name {
+			return errors.New("multiple legacy deployment packages are installed")
+		}
+		installedLegacy = name
+	}
+	if installedLegacy == "" {
+		if _, err := os.Lstat(runtime.paths.LegacyDeployBinary); err == nil || !errors.Is(err, os.ErrNotExist) {
+			return errors.New("unowned legacy deployment CLI remains before T1 transition")
+		}
+		return nil
+	}
+	ownership, err := runtime.runner.Run(ctx, productionCommand{Name: commandPacman, Args: []string{"-Qo", runtime.paths.LegacyDeployBinary}, Env: append(os.Environ(), "LC_ALL=C")})
+	expectedOwnership := runtime.paths.LegacyDeployBinary + " is owned by " + installedLegacy + " "
+	if err != nil || !strings.HasPrefix(strings.TrimSpace(string(ownership)), expectedOwnership) {
+		return errors.New("legacy deployment CLI ownership is invalid")
+	}
+	integrity, err := runtime.runner.Run(ctx, productionCommand{Name: commandPacman, Args: []string{"-Qkk", installedLegacy}, Env: append(os.Environ(), "LC_ALL=C")})
+	if err != nil || !packageIntegrityClean(integrity, installedLegacy) {
+		return errors.New("legacy deployment package integrity check failed")
+	}
+	if _, err := runtime.runner.Run(ctx, productionCommand{Name: commandPacman, Args: []string{"--remove", "--noconfirm", "--", installedLegacy}, Timeout: 2 * time.Minute}); err != nil {
+		return fmt.Errorf("remove legacy deployment package for T1: %w", err)
+	}
+	if _, err := os.Lstat(runtime.paths.LegacyDeployBinary); err == nil || !errors.Is(err, os.ErrNotExist) {
+		return errors.New("legacy deployment CLI remains after package removal")
+	}
+	listed, err = runtime.runner.Run(ctx, productionCommand{Name: commandPacman, Args: []string{"-Qq"}, Env: append(os.Environ(), "LC_ALL=C")})
+	if err != nil {
+		return fmt.Errorf("verify installed packages after T1 transition cleanup: %w", err)
+	}
+	for _, name := range strings.Fields(string(listed)) {
+		if legacyNames[name] {
+			return errors.New("legacy deployment package remains after removal")
+		}
+	}
+	return nil
+}
+
 func (runtime *productionRuntime) verifyTransitionCLI(transition productionPackageTransition, rollback bool) error {
 	name, identity := transition.CandidatePackageName, transition.CandidateIdentity
 	if rollback {
@@ -610,6 +688,9 @@ func (runtime *productionRuntime) apply(ctx context.Context, workspace productio
 			return productionStatus{}, err
 		}
 		if err := runtime.retireContractlessMemoryDropInForUpgrade(ctx, manifest.Go.RollbackIdentity); err != nil {
+			return productionStatus{}, err
+		}
+		if err := runtime.removeLegacyDeployPackageForT1(ctx, goCandidate); err != nil {
 			return productionStatus{}, err
 		}
 		if err := runtime.paruInstall(ctx, workspace, manifest.OperatorUser, manifest.Go.CandidatePath); err != nil {

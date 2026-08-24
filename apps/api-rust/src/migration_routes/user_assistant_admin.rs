@@ -58,7 +58,7 @@ pub fn router(state: UserAssistantAdminState) -> Router {
             route_get(list_memories).post(create_memory),
         )
         .route(
-            "/api/user/{id}/assistant-memories/{memory_id}",
+            "/api/user/{id}/assistant-memories/{memoryId}",
             route_put(update_memory).delete(delete_memory),
         )
         .route(
@@ -74,7 +74,10 @@ pub struct UserAssistantAdminError(pub String);
 
 #[async_trait]
 pub trait UserAssistantAdminBackend: Send + Sync {
-    async fn get_profile(&self, target_id: i64) -> Result<Option<AssistantProfileView>, UserAssistantAdminError>;
+    async fn get_profile(
+        &self,
+        target_id: i64,
+    ) -> Result<Option<AssistantProfileView>, UserAssistantAdminError>;
 
     async fn set_profile(
         &self,
@@ -83,7 +86,10 @@ pub trait UserAssistantAdminBackend: Send + Sync {
         input: ProfileInput,
     ) -> Result<AssistantProfileView, UserAssistantAdminError>;
 
-    async fn list_memories(&self, target_id: i64) -> Result<Vec<AssistantMemoryView>, UserAssistantAdminError>;
+    async fn list_memories(
+        &self,
+        target_id: i64,
+    ) -> Result<Vec<AssistantMemoryView>, UserAssistantAdminError>;
 
     async fn save_memory(
         &self,
@@ -266,7 +272,7 @@ async fn update_memory(
                 StatusCode::BAD_REQUEST,
                 "ASSISTANT_MEMORY_INVALID",
                 "invalid assistant memory id",
-            ))
+            ));
         }
     };
     save_memory_handler(state, headers, id, memory_id, request).await
@@ -290,7 +296,7 @@ async fn save_memory_handler(
                 StatusCode::BAD_REQUEST,
                 "ASSISTANT_MEMORY_INVALID",
                 "invalid assistant memory payload",
-            ))
+            ));
         }
     };
     let input: MemoryInput = match serde_json::from_slice(&body) {
@@ -300,7 +306,7 @@ async fn save_memory_handler(
                 StatusCode::BAD_REQUEST,
                 "ASSISTANT_MEMORY_INVALID",
                 "invalid assistant memory payload",
-            ))
+            ));
         }
     };
     let response = match state
@@ -337,7 +343,7 @@ async fn delete_memory(
                 StatusCode::BAD_REQUEST,
                 "ASSISTANT_MEMORY_INVALID",
                 "invalid assistant memory id",
-            ))
+            ));
         }
     };
     let response = match state.backend.delete_memory(target_id, memory_id).await {
@@ -513,14 +519,12 @@ impl UserAssistantAdminBackend for PgUserAssistantAdminBackend {
         target_id: i64,
         memory_id: i64,
     ) -> Result<(), UserAssistantAdminError> {
-        let result = sqlx::query(
-            "DELETE FROM assistant_memories WHERE id = $1 AND user_id = $2",
-        )
-        .bind(memory_id)
-        .bind(target_id)
-        .execute(&self.pg)
-        .await
-        .map_err(db_error)?;
+        let result = sqlx::query("DELETE FROM assistant_memories WHERE id = $1 AND user_id = $2")
+            .bind(memory_id)
+            .bind(target_id)
+            .execute(&self.pg)
+            .await
+            .map_err(db_error)?;
         if result.rows_affected() == 0 {
             return Err(UserAssistantAdminError(
                 "assistant memory not found".to_owned(),
@@ -562,13 +566,17 @@ async fn admin_scope(
     raw_id: &str,
 ) -> Result<(DashboardUserView, i64), Response> {
     let actor = authenticated_admin(state, headers).await?;
-    let target_id = raw_id.parse::<i64>().ok().filter(|id| *id > 0).ok_or_else(|| {
-        assistant_error(
-            StatusCode::BAD_REQUEST,
-            "ASSISTANT_PROFILE_INVALID_USER",
-            "invalid user id",
-        )
-    })?;
+    let target_id = raw_id
+        .parse::<i64>()
+        .ok()
+        .filter(|id| *id > 0)
+        .ok_or_else(|| {
+            assistant_error(
+                StatusCode::BAD_REQUEST,
+                "ASSISTANT_PROFILE_INVALID_USER",
+                "invalid user id",
+            )
+        })?;
     let target_role = state
         .backend
         .target_role(target_id)
@@ -679,7 +687,9 @@ fn parse_query(raw: &str) -> Option<std::collections::HashMap<String, String>> {
 fn unix_timestamp() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |duration| i64::try_from(duration.as_secs()).unwrap_or(i64::MAX))
+        .map_or(0, |duration| {
+            i64::try_from(duration.as_secs()).unwrap_or(i64::MAX)
+        })
 }
 
 fn api_success(data: Value) -> Response {

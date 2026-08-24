@@ -61,7 +61,10 @@ else
     done
   done < <(sed -nE 's/.*mcpRoute\.Any\("([^"]*)".*/\1/p' "$mcp_paths")
 fi
-cat "$manifest" "$mcp_inventory" >"$work/go-full.tsv"
+awk -F '\t' '
+  NR == FNR { seen[$1 FS $2] = 1; print; next }
+  !seen[$1 FS $2]++ { print }
+' "$manifest" "$mcp_inventory" >"$work/go-full.tsv"
 
 perl - "$work/go-full.tsv" "$frozen" "$implemented" "$legacy_stubs" "$blockers" "$normal_mounts" "$results_dir" "$strict_classification" <<'PERL'
 use strict;

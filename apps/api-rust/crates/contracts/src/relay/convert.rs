@@ -422,14 +422,14 @@ fn preflight_responses_input_item(
                     ));
                 }
             }
-            if let Some(role) = item.role.as_deref() {
-                if !matches!(role, "system" | "developer" | "user" | "assistant" | "tool") {
-                    return Err(unsupported_responses_feature(
-                        "unknown_input_role",
-                        format!("{path}.role"),
-                        None,
-                    ));
-                }
+            if let Some(role) = item.role.as_deref()
+                && !matches!(role, "system" | "developer" | "user" | "assistant" | "tool")
+            {
+                return Err(unsupported_responses_feature(
+                    "unknown_input_role",
+                    format!("{path}.role"),
+                    None,
+                ));
             }
             if let Some(error) = first_extra_path(&path, &item.extra) {
                 return Err(error);
@@ -707,24 +707,23 @@ pub fn openai_chat_request_to_canonical(
                         None
                     }
                 });
-                if let Some(extension_id) = first_extension_result_id {
-                    if native_tool_call_id.as_deref() != Some(extension_id) {
-                        return Err(RelayConvertError::Unsupported(
-                            "native tool_call_id disagrees with authoritative Anthropic tool result"
-                                .to_owned(),
-                        ));
-                    }
+                if let Some(extension_id) = first_extension_result_id
+                    && native_tool_call_id.as_deref() != Some(extension_id)
+                {
+                    return Err(RelayConvertError::Unsupported(
+                        "native tool_call_id disagrees with authoritative Anthropic tool result"
+                            .to_owned(),
+                    ));
                 }
                 for part in &parts {
-                    if let CanonicalContent::ToolResult { id, output, .. } = part {
-                        if authoritative_tool_result_outputs
+                    if let CanonicalContent::ToolResult { id, output, .. } = part
+                        && authoritative_tool_result_outputs
                             .insert(id.clone(), output.clone())
                             .is_some()
-                        {
-                            return Err(RelayConvertError::Unsupported(format!(
-                                "Anthropic extension repeats tool result id {id:?}"
-                            )));
-                        }
+                    {
+                        return Err(RelayConvertError::Unsupported(format!(
+                            "Anthropic extension repeats tool result id {id:?}"
+                        )));
                     }
                 }
                 if let Some(state) = provider_state_from_extra(message.extra_content.clone())? {
@@ -762,10 +761,8 @@ pub fn openai_chat_request_to_canonical(
         if let Some(state) = provider_state_from_extra(message.extra_content.clone())? {
             parts.push(CanonicalContent::ProviderState { state });
         }
-        if !has_anthropic_parts {
-            if let Some(reasoning) = message.reasoning_content {
-                parts.push(CanonicalContent::Reasoning { text: reasoning });
-            }
+        if !has_anthropic_parts && let Some(reasoning) = message.reasoning_content {
+            parts.push(CanonicalContent::Reasoning { text: reasoning });
         }
         if !has_anthropic_parts {
             for (call_index, call) in message.tool_calls.into_iter().enumerate() {
@@ -1054,19 +1051,16 @@ pub fn canonical_request_to_openai_chat(
                     ),
                 );
             }
-            if !has_anthropic_extension {
-                if let Some(extra) = message_extra_content {
-                    let Some(index) = first_tool_result_message.or(previous_tool_result_message)
-                    else {
-                        return Err(RelayConvertError::Unsupported(
-                            "tool message extension has no generated tool result".to_owned(),
-                        ));
-                    };
-                    messages[index].extra_content = Some(merge_extra_content(
-                        messages[index].extra_content.take(),
-                        extra,
+            if !has_anthropic_extension && let Some(extra) = message_extra_content {
+                let Some(index) = first_tool_result_message.or(previous_tool_result_message) else {
+                    return Err(RelayConvertError::Unsupported(
+                        "tool message extension has no generated tool result".to_owned(),
                     ));
-                }
+                };
+                messages[index].extra_content = Some(merge_extra_content(
+                    messages[index].extra_content.take(),
+                    extra,
+                ));
             }
             continue;
         }
@@ -1521,10 +1515,8 @@ pub fn openai_chat_response_to_canonical(
     if let Some(state) = provider_state_from_extra(message.extra_content.clone())? {
         output.push(CanonicalContent::ProviderState { state });
     }
-    if !has_anthropic_parts {
-        if let Some(reasoning) = message.reasoning_content {
-            output.push(CanonicalContent::Reasoning { text: reasoning });
-        }
+    if !has_anthropic_parts && let Some(reasoning) = message.reasoning_content {
+        output.push(CanonicalContent::Reasoning { text: reasoning });
     }
     if !has_anthropic_parts {
         for call in message.tool_calls {
@@ -1814,10 +1806,10 @@ fn preflight_responses_response_metadata(
             None,
         ));
     }
-    if let Some(details) = response.incomplete_details.as_ref() {
-        if let Some(error) = first_extra_path("incomplete_details", &details.extra) {
-            return Err(error);
-        }
+    if let Some(details) = response.incomplete_details.as_ref()
+        && let Some(error) = first_extra_path("incomplete_details", &details.extra)
+    {
+        return Err(error);
     }
     if response.max_output_tokens.is_some() {
         return Err(unsupported_responses_feature(
@@ -1896,10 +1888,10 @@ fn validate_responses_response_usage(usage: &WireUsage) -> Result<(), RelayConve
         ),
         ("input_tokens_details", usage.input_tokens_details.as_ref()),
     ] {
-        if let Some(details) = details {
-            if let Some(error) = first_extra_path(&format!("usage.{field}"), &details.extra) {
-                return Err(error);
-            }
+        if let Some(details) = details
+            && let Some(error) = first_extra_path(&format!("usage.{field}"), &details.extra)
+        {
+            return Err(error);
         }
     }
     Ok(())
@@ -2406,12 +2398,11 @@ fn validate_openai_stream_usage(usage: &WireUsage, path: &str) -> Result<(), Rel
         ),
         ("input_tokens_details", usage.input_tokens_details.as_ref()),
     ] {
-        if let Some(details) = details {
-            if let Some(error) =
+        if let Some(details) = details
+            && let Some(error) =
                 first_openai_stream_extra_path(&format!("{path}.{field}"), &details.extra)
-            {
-                return Err(error);
-            }
+        {
+            return Err(error);
         }
     }
     Ok(())
@@ -2740,19 +2731,17 @@ pub fn responses_stream_to_canonical_checked(
                         .as_ref()
                         .and_then(|response| response.error.as_ref())
                 });
-                if !response_terminal_emitted {
-                    if let Some(response) = payload.response.as_ref() {
-                        out.push(CanonicalStreamEvent::ResponseEnd {
-                            finish_reason: FinishReason::Error,
-                            usage: response
-                                .usage
-                                .as_ref()
-                                .map(wire_usage)
-                                .or_else(|| Some(wire_usage(&snapshot.usage))),
-                            model: (!response.model.is_empty()).then(|| response.model.clone()),
-                        });
-                        response_terminal_emitted = true;
-                    }
+                if !response_terminal_emitted && let Some(response) = payload.response.as_ref() {
+                    out.push(CanonicalStreamEvent::ResponseEnd {
+                        finish_reason: FinishReason::Error,
+                        usage: response
+                            .usage
+                            .as_ref()
+                            .map(wire_usage)
+                            .or_else(|| Some(wire_usage(&snapshot.usage))),
+                        model: (!response.model.is_empty()).then(|| response.model.clone()),
+                    });
+                    response_terminal_emitted = true;
                 }
                 out.push(CanonicalStreamEvent::Error {
                     code: error.and_then(|value| value.code.clone()),
@@ -3972,14 +3961,14 @@ fn validate_stream_sub_done_state(
                 "content_index",
                 path,
             )?;
-            if let Some(text) = payload.text.as_ref() {
-                if text != &state.text {
-                    return Err(stream_feature_error(
-                        "stream_done_snapshot",
-                        format!("{path}.text"),
-                        Some("LOSS_UNKNOWN_EVENT"),
-                    ));
-                }
+            if let Some(text) = payload.text.as_ref()
+                && text != &state.text
+            {
+                return Err(stream_feature_error(
+                    "stream_done_snapshot",
+                    format!("{path}.text"),
+                    Some("LOSS_UNKNOWN_EVENT"),
+                ));
             }
         }
         ResponsesStreamItemKind::Reasoning => {
@@ -3989,25 +3978,25 @@ fn validate_stream_sub_done_state(
                 "summary_index",
                 path,
             )?;
-            if let Some(text) = payload.text.as_ref() {
-                if text != &state.summary {
-                    return Err(stream_feature_error(
-                        "stream_done_snapshot",
-                        format!("{path}.text"),
-                        Some("LOSS_UNKNOWN_EVENT"),
-                    ));
-                }
+            if let Some(text) = payload.text.as_ref()
+                && text != &state.summary
+            {
+                return Err(stream_feature_error(
+                    "stream_done_snapshot",
+                    format!("{path}.text"),
+                    Some("LOSS_UNKNOWN_EVENT"),
+                ));
             }
         }
         ResponsesStreamItemKind::FunctionCall => {
-            if let Some(arguments) = payload.arguments.as_ref() {
-                if state.arguments.as_ref() != Some(arguments) {
-                    return Err(stream_feature_error(
-                        "stream_done_snapshot",
-                        format!("{path}.arguments"),
-                        Some("LOSS_UNKNOWN_EVENT"),
-                    ));
-                }
+            if let Some(arguments) = payload.arguments.as_ref()
+                && state.arguments.as_ref() != Some(arguments)
+            {
+                return Err(stream_feature_error(
+                    "stream_done_snapshot",
+                    format!("{path}.arguments"),
+                    Some("LOSS_UNKNOWN_EVENT"),
+                ));
             }
         }
     }
@@ -4107,13 +4096,13 @@ fn validate_responses_stream_usage(usage: &WireUsage, path: &str) -> Result<(), 
         ),
         ("input_tokens_details", usage.input_tokens_details.as_ref()),
     ] {
-        if let Some(details) = details {
-            if let Some(error) = first_extra_path(&format!("{path}.{field}"), &details.extra) {
-                return Err(retarget_unsupported_error_format(
-                    error,
-                    "provider_neutral_ir",
-                ));
-            }
+        if let Some(details) = details
+            && let Some(error) = first_extra_path(&format!("{path}.{field}"), &details.extra)
+        {
+            return Err(retarget_unsupported_error_format(
+                error,
+                "provider_neutral_ir",
+            ));
         }
     }
     Ok(())
@@ -4260,14 +4249,14 @@ fn validate_responses_stream_events(
                 }
                 let kind = stream_item_kind(item, &format!("{path}.item"))?;
                 let item_id = stream_item_id(&item.id, &format!("{path}.item.id"))?;
-                if let Some(item_id) = item_id.as_ref() {
-                    if item_id != &expected_stream_item_id(&response_id, kind, output_index) {
-                        return Err(stream_feature_error(
-                            "output_item_id",
-                            format!("{path}.item.id"),
-                            Some("LOSS_UNKNOWN_EVENT"),
-                        ));
-                    }
+                if let Some(item_id) = item_id.as_ref()
+                    && item_id != &expected_stream_item_id(&response_id, kind, output_index)
+                {
+                    return Err(stream_feature_error(
+                        "output_item_id",
+                        format!("{path}.item.id"),
+                        Some("LOSS_UNKNOWN_EVENT"),
+                    ));
                 }
                 states.insert(
                     output_index,
@@ -5019,12 +5008,11 @@ pub fn validate_gemini_stream_snapshot(
         if let Some(error) = first_gemini_stream_extra_path(&event_path, &event.extra) {
             return Err(error);
         }
-        if let Some(usage) = event.usage_metadata.as_ref() {
-            if let Some(error) =
+        if let Some(usage) = event.usage_metadata.as_ref()
+            && let Some(error) =
                 first_gemini_stream_extra_path(&format!("{event_path}.usageMetadata"), &usage.extra)
-            {
-                return Err(error);
-            }
+        {
+            return Err(error);
         }
         for (candidate_index, candidate) in event.candidates.iter().enumerate() {
             let candidate_path = format!("{event_path}.candidates[{candidate_index}]");
@@ -5042,29 +5030,29 @@ pub fn validate_gemini_stream_snapshot(
                 if let Some(error) = first_gemini_stream_extra_path(&part_path, &part.extra) {
                     return Err(error);
                 }
-                if let Some(inline_data) = part.inline_data.as_ref() {
-                    if let Some(error) = first_gemini_stream_extra_path(
+                if let Some(inline_data) = part.inline_data.as_ref()
+                    && let Some(error) = first_gemini_stream_extra_path(
                         &format!("{part_path}.inlineData"),
                         &inline_data.extra,
-                    ) {
-                        return Err(error);
-                    }
+                    )
+                {
+                    return Err(error);
                 }
-                if let Some(function_call) = part.function_call.as_ref() {
-                    if let Some(error) = first_gemini_stream_extra_path(
+                if let Some(function_call) = part.function_call.as_ref()
+                    && let Some(error) = first_gemini_stream_extra_path(
                         &format!("{part_path}.functionCall"),
                         &function_call.extra,
-                    ) {
-                        return Err(error);
-                    }
+                    )
+                {
+                    return Err(error);
                 }
-                if let Some(function_response) = part.function_response.as_ref() {
-                    if let Some(error) = first_gemini_stream_extra_path(
+                if let Some(function_response) = part.function_response.as_ref()
+                    && let Some(error) = first_gemini_stream_extra_path(
                         &format!("{part_path}.functionResponse"),
                         &function_response.extra,
-                    ) {
-                        return Err(error);
-                    }
+                    )
+                {
+                    return Err(error);
                 }
             }
         }
@@ -7025,12 +7013,11 @@ fn validate_claude_wire_usage(usage: &WireUsage, path: &str) -> Result<(), Relay
         ),
         ("input_tokens_details", usage.input_tokens_details.as_ref()),
     ] {
-        if let Some(details) = details {
-            if let Some(error) =
+        if let Some(details) = details
+            && let Some(error) =
                 first_claude_stream_extra_path(&format!("{path}.{field}"), &details.extra)
-            {
-                return Err(error);
-            }
+        {
+            return Err(error);
         }
     }
     Ok(())
@@ -7090,12 +7077,11 @@ pub fn validate_claude_stream_snapshot(
         if let Some(usage) = event.usage.as_ref() {
             validate_claude_event_usage(usage, &format!("{event_path}.usage"))?;
         }
-        if let Some(error_value) = event.error.as_ref() {
-            if let Some(error) =
+        if let Some(error_value) = event.error.as_ref()
+            && let Some(error) =
                 first_claude_stream_extra_path(&format!("{event_path}.error"), &error_value.extra)
-            {
-                return Err(error);
-            }
+        {
+            return Err(error);
         }
     }
     Ok(())
@@ -7607,12 +7593,12 @@ fn append_canonical_gemini_parts(
                         "Gemini functionResponse id {id:?} has no outstanding functionCall"
                     )));
                 };
-                if let Some(name) = name.as_deref() {
-                    if name != expected_name {
-                        return Err(RelayConvertError::Unsupported(format!(
-                            "Gemini functionResponse id {id:?} names {name:?}, expected {expected_name:?}"
-                        )));
-                    }
+                if let Some(name) = name.as_deref()
+                    && name != expected_name
+                {
+                    return Err(RelayConvertError::Unsupported(format!(
+                        "Gemini functionResponse id {id:?} names {name:?}, expected {expected_name:?}"
+                    )));
                 }
                 destination.push(GeminiPart {
                     text: None,

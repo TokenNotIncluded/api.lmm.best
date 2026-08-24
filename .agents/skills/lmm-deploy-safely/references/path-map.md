@@ -106,7 +106,10 @@ created only with explicit current-turn authorization and `--with-backups` in
 the immutable plan. Do not install or publish a deploy-only bootstrap. A
 pre-T0 host must move through the exact signed T0 Go package and controller
 plan; T0 preserves rollback compatibility, and only a separately verified T1
-transaction removes the legacy paths.
+transaction removes the legacy paths. The T1 target controller does not rely
+on local-package `replaces`: after arming rollback it verifies the integrated
+T0 resources and the exact legacy package owner/integrity, removes that package,
+and then installs T1.
 
 Every application switch stages checksum-verified N and N-1 Go and Web package
 pairs, assembles both candidates with non-root `paru`, captures configuration

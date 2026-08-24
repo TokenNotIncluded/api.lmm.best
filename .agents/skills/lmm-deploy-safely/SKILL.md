@@ -276,8 +276,11 @@ independently versioned application packages:
 - `lmm-api-web-bin` owns only the immutable production frontend payload and its
   package-owned atomic activation hook.
 - T0 may retain already-installed legacy command packages only as rollback
-  compatibility. T1 removes those paths through declared package replacement;
-  never publish a new deploy-only package.
+  compatibility. T1 declares package replacement, but local `pacman -U` does
+  not apply `replaces`: after the rollback watchdog is armed, the target
+  controller must verify the integrated T0 resource ownership plus the legacy
+  package owner/integrity, remove that exact package, and only then install T1.
+  Never publish a new deploy-only package.
 
 Do not make a frontend-only release reinstall or restart the Go backend. Do not
 make a backend-only release replace the active frontend. `paru` may assemble a
@@ -323,9 +326,12 @@ Apply this sequence:
    memory limits. Retain terminal marker/status and remove only exact disposable
    staging/cache children.
 9. Only after T0 is confirmed, publish and promote T1. T1 removes the
-   `lmm-api-go` link and replaces `lmm-api-deploy-bin`; its exact T0 Go package
-   is the rollback package. Rehearse T0→T1→T0 with package ownership, watchdog,
-   sudoers, service, health, and no-second-CLI assertions before production.
+`lmm-api-go` link and declares replacement of `lmm-api-deploy-bin`; its exact
+T0 Go package is the rollback package. Because local `pacman -U` does not apply
+`replaces`, the armed target controller must verify and remove the exact clean
+legacy package before installing T1. Rehearse T0→T1→T0 with package ownership,
+watchdog, sudoers, service, health, and no-second-CLI assertions before
+production.
 
 The `paru` path does not weaken the rollback/watchdog or exact-release checks.
 The two packages are live, but `paru` alone is not a deployment transaction.

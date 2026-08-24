@@ -313,9 +313,10 @@ async fn edit_tag_channels(
     // Legacy treats the presence of either override as a sensitive mutation,
     // even when its value is later rejected as invalid JSON.
     if (request.param_override.is_some() || request.header_override.is_some())
-        && let Err(response) = permit(&state, &headers, ChannelAction::SensitiveWrite).await {
-            return response;
-        }
+        && let Err(response) = permit(&state, &headers, ChannelAction::SensitiveWrite).await
+    {
+        return response;
+    }
     let param_override = match validated_json_override(
         request.param_override.take(),
         "参数覆盖必须是合法的 JSON 格式",

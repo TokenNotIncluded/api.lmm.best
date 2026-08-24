@@ -38,8 +38,7 @@ use crate::{
         CriticalRateLimitOutcome, DashboardAuth, DashboardUserView, UserAuthPolicyError,
         enforce_user_auth_view, user_auth_message, user_auth_status,
     },
-    legacy_empty_response,
-    outbound_http,
+    legacy_empty_response, outbound_http,
 };
 
 const AUTH_VERSION: &str = "864b7076dbcd0a3c01b5520316720ebf";
@@ -85,11 +84,7 @@ pub struct HeroSmsState {
 
 impl HeroSmsState {
     #[must_use]
-    pub fn new(
-        pg: PgPool,
-        auth: Arc<dyn DashboardAuth>,
-        gateway: Arc<dyn HeroSmsGateway>,
-    ) -> Self {
+    pub fn new(pg: PgPool, auth: Arc<dyn DashboardAuth>, gateway: Arc<dyn HeroSmsGateway>) -> Self {
         Self {
             pg,
             root: Arc::new(DashboardRootAuthorizer::new(Arc::clone(&auth))),
@@ -105,8 +100,14 @@ pub fn router(state: HeroSmsState) -> Router {
         .route("/api/option/hero-sms/test", post(test_options))
         .route("/api/option/hero-sms/key", delete(delete_api_key))
         .route("/api/hero-sms/email/products", get(list_products))
-        .route("/api/hero-sms/email/activations", get(list_activations).post(create_activations))
-        .route("/api/hero-sms/email/activations/current", get(current_activation))
+        .route(
+            "/api/hero-sms/email/activations",
+            get(list_activations).post(create_activations),
+        )
+        .route(
+            "/api/hero-sms/email/activations/current",
+            get(current_activation),
+        )
         .route("/api/hero-sms/email/activations/{id}", get(get_activation))
         .route(
             "/api/hero-sms/email/activations/{id}/refresh",
@@ -329,7 +330,11 @@ pub struct DisabledHeroSmsGateway;
 
 #[async_trait]
 impl HeroSmsGateway for DisabledHeroSmsGateway {
-    async fn list_domains(&self, _: &str, _: &str) -> Result<Vec<HeroDomain>, HeroSmsProviderError> {
+    async fn list_domains(
+        &self,
+        _: &str,
+        _: &str,
+    ) -> Result<Vec<HeroDomain>, HeroSmsProviderError> {
         Err(HeroSmsProviderError::UpstreamBusy)
     }
     async fn create_email(
@@ -400,7 +405,10 @@ impl HeroSmsGateway for ReqwestHeroSmsGateway {
             .await
             .map_err(map_reqwest_error)?;
         map_status(response.status())?;
-        let body: Value = response.json().await.map_err(|_| HeroSmsProviderError::BadResponse)?;
+        let body: Value = response
+            .json()
+            .await
+            .map_err(|_| HeroSmsProviderError::BadResponse)?;
         let Some(items) = body.get("data").and_then(Value::as_array) else {
             return Err(HeroSmsProviderError::BadResponse);
         };
@@ -435,7 +443,10 @@ impl HeroSmsGateway for ReqwestHeroSmsGateway {
     ) -> Result<Vec<HeroEmailRecord>, HeroSmsProviderError> {
         let response = self
             .client
-            .post(format!("{}/emails/batch", self.base_url.trim_end_matches('/')))
+            .post(format!(
+                "{}/emails/batch",
+                self.base_url.trim_end_matches('/')
+            ))
             .header("Accept", "application/json")
             .header("ApiKey", api_key)
             .header(header::CONTENT_TYPE, "application/json")
@@ -444,7 +455,10 @@ impl HeroSmsGateway for ReqwestHeroSmsGateway {
             .await
             .map_err(map_reqwest_error)?;
         map_status(response.status())?;
-        let body: Value = response.json().await.map_err(|_| HeroSmsProviderError::BadResponse)?;
+        let body: Value = response
+            .json()
+            .await
+            .map_err(|_| HeroSmsProviderError::BadResponse)?;
         let items = body
             .get("data")
             .and_then(Value::as_array)
@@ -481,7 +495,10 @@ impl HeroSmsGateway for ReqwestHeroSmsGateway {
             .await
             .map_err(map_reqwest_error)?;
         map_status(response.status())?;
-        let body: Value = response.json().await.map_err(|_| HeroSmsProviderError::BadResponse)?;
+        let body: Value = response
+            .json()
+            .await
+            .map_err(|_| HeroSmsProviderError::BadResponse)?;
         decode_email_record(body.get("data").unwrap_or(&body))
     }
 
@@ -942,14 +959,8 @@ async fn reorder_activation(
             message: "a fresh HeroSMS reorder quote is required",
         }));
     }
-    match reorder_activation_for_user(
-        &state,
-        user.id,
-        &id,
-        &idempotency,
-        body.domain_id.trim(),
-    )
-    .await
+    match reorder_activation_for_user(&state, user.id, &id, &idempotency, body.domain_id.trim())
+        .await
     {
         Ok((order, status)) => disable_cache(hero_success_status(
             status,
@@ -1075,7 +1086,10 @@ async fn require_root(state: &HeroSmsState, headers: &HeaderMap) -> Result<(), R
         .map(|_| ())
 }
 
-async fn require_user(state: &HeroSmsState, headers: &HeaderMap) -> Result<DashboardUserView, Response> {
+async fn require_user(
+    state: &HeroSmsState,
+    headers: &HeaderMap,
+) -> Result<DashboardUserView, Response> {
     let credential = dashboard_credential(headers).ok_or_else(console_not_found)?;
     let user = state
         .auth
@@ -1189,10 +1203,9 @@ fn disable_cache(mut response: Response) -> Response {
     response
         .headers_mut()
         .insert("auth-version", HeaderValue::from_static(AUTH_VERSION));
-    response.headers_mut().insert(
-        header::CACHE_CONTROL,
-        HeaderValue::from_static("no-store"),
-    );
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
     response
 }
 
@@ -1272,9 +1285,9 @@ async fn update_settings(
     if let Some(value) = update.enabled {
         enabled = value;
     }
-    let email_enabled = update.email_enabled.unwrap_or_else(|| {
-        option_value(&options, OPTION_EMAIL_ENABLED, "true") == "true"
-    });
+    let email_enabled = update
+        .email_enabled
+        .unwrap_or_else(|| option_value(&options, OPTION_EMAIL_ENABLED, "true") == "true");
     let sms_enabled = update
         .sms_enabled
         .unwrap_or_else(|| option_value(&options, OPTION_SMS_ENABLED, "false") == "true");
@@ -1434,7 +1447,12 @@ async fn list_product_page(
             .ok_or_else(|| map_provider_error(HeroSmsProviderError::BadResponse))?;
         let customer_micros = mul_micros(domain.cost_micros, multiplier_micros);
         let charge_quota = charge_quota_from_price(customer_micros, &options)?;
-        let product_id = encode_quote_id(&normalized_site, &normalized_domain, domain.cost_micros, &multiplier)?;
+        let product_id = encode_quote_id(
+            &normalized_site,
+            &normalized_domain,
+            domain.cost_micros,
+            &multiplier,
+        )?;
         products.push(HeroSmsProduct {
             id: product_id,
             site: normalized_site.clone(),
@@ -1895,15 +1913,13 @@ async fn reserve_order(
             message: "insufficient quota balance",
         });
     }
-    let updated = sqlx::query(
-        "UPDATE users SET quota = quota - $2 WHERE id = $1 AND quota >= $2",
-    )
-    .bind(user_id)
-    .bind(charge_quota)
-    .execute(&mut *tx)
-    .await
-    .map_err(|_| internal_error())?
-    .rows_affected();
+    let updated = sqlx::query("UPDATE users SET quota = quota - $2 WHERE id = $1 AND quota >= $2")
+        .bind(user_id)
+        .bind(charge_quota)
+        .execute(&mut *tx)
+        .await
+        .map_err(|_| internal_error())?
+        .rows_affected();
     if updated != 1 {
         return Err(HeroSmsApiError {
             status: StatusCode::PAYMENT_REQUIRED,
@@ -2009,13 +2025,15 @@ async fn finalize_order(
         };
         if let Some(record) = record {
             persist_record(pg, &activation.id, record).await?;
-            sqlx::query("UPDATE hero_sms_email_activations SET status = $2, updated_at = $3 WHERE id = $1")
-                .bind(&activation.id)
-                .bind(status)
-                .bind(now)
-                .execute(pg)
-                .await
-                .map_err(|_| internal_error())?;
+            sqlx::query(
+                "UPDATE hero_sms_email_activations SET status = $2, updated_at = $3 WHERE id = $1",
+            )
+            .bind(&activation.id)
+            .bind(status)
+            .bind(now)
+            .execute(pg)
+            .await
+            .map_err(|_| internal_error())?;
         }
     }
     sqlx::query(
@@ -2147,7 +2165,10 @@ fn encode_quote_id(
     };
     let payload = serde_json::to_string(&token).map_err(|_| internal_error())?;
     let ciphertext = encrypt_persistent("hero_sms.quote", &payload)?;
-    Ok(format!("hsq_{}", URL_SAFE_NO_PAD.encode(ciphertext.as_bytes())))
+    Ok(format!(
+        "hsq_{}",
+        URL_SAFE_NO_PAD.encode(ciphertext.as_bytes())
+    ))
 }
 
 fn decode_quote_id(value: &str) -> Result<QuoteToken, HeroSmsApiError> {
@@ -2157,8 +2178,10 @@ fn decode_quote_id(value: &str) -> Result<QuoteToken, HeroSmsApiError> {
     let encoded = URL_SAFE_NO_PAD
         .decode(value.trim_start_matches("hsq_"))
         .map_err(|_| invalid_request())?;
-    let plaintext =
-        decrypt_persistent("hero_sms.quote", std::str::from_utf8(&encoded).map_err(|_| invalid_request())?)?;
+    let plaintext = decrypt_persistent(
+        "hero_sms.quote",
+        std::str::from_utf8(&encoded).map_err(|_| invalid_request())?,
+    )?;
     let mut token: QuoteToken = serde_json::from_str(&plaintext).map_err(|_| invalid_request())?;
     token.s = normalize_name(&token.s).ok_or(invalid_request())?;
     token.d = normalize_name(&token.d).ok_or(invalid_request())?;
@@ -2347,7 +2370,11 @@ fn weak_key_material(secret: &str) -> bool {
             return true;
         }
     }
-    secret.chars().collect::<std::collections::BTreeSet<_>>().len() < 4
+    secret
+        .chars()
+        .collect::<std::collections::BTreeSet<_>>()
+        .len()
+        < 4
 }
 
 fn encrypt_persistent(purpose: &str, plaintext: &str) -> Result<String, HeroSmsApiError> {

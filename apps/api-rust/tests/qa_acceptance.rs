@@ -3410,27 +3410,25 @@ fn fixed_duration_json_conversion_fuzz_is_panic_free() {
         assert!(input.len() <= MAX_INPUT_BYTES);
 
         let result = catch_unwind(AssertUnwindSafe(|| {
-            if let Ok(request) = serde_json::from_slice::<OpenAiChatRequest>(&input) {
-                if let Ok(converted) = openai_chat_request_to_canonical(request) {
-                    let _ = canonical_request_to_openai_responses(converted.value);
-                }
+            if let Ok(request) = serde_json::from_slice::<OpenAiChatRequest>(&input)
+                && let Ok(converted) = openai_chat_request_to_canonical(request)
+            {
+                let _ = canonical_request_to_openai_responses(converted.value);
             }
-            if let Ok(request) = serde_json::from_slice::<OpenAiResponsesRequest>(&input) {
-                if let Ok(converted) = openai_responses_request_to_canonical(request) {
-                    let _ = canonical_request_to_openai_chat(converted.value);
-                }
+            if let Ok(request) = serde_json::from_slice::<OpenAiResponsesRequest>(&input)
+                && let Ok(converted) = openai_responses_request_to_canonical(request)
+            {
+                let _ = canonical_request_to_openai_chat(converted.value);
             }
-            if let Ok(request) = serde_json::from_slice::<ClaudeRequest>(&input) {
-                if let Ok(converted) = claude_request_to_canonical(request) {
-                    let _ = canonical_request_to_claude(converted.value);
-                }
+            if let Ok(request) = serde_json::from_slice::<ClaudeRequest>(&input)
+                && let Ok(converted) = claude_request_to_canonical(request)
+            {
+                let _ = canonical_request_to_claude(converted.value);
             }
-            if let Ok(request) = serde_json::from_slice::<GeminiRequest>(&input) {
-                if let Ok(converted) = gemini_request_to_canonical_for_model(request, "fuzz-model")
-                {
-                    let _ =
-                        canonical_request_to_gemini_for_model(converted.value, "fuzz-model", false);
-                }
+            if let Ok(request) = serde_json::from_slice::<GeminiRequest>(&input)
+                && let Ok(converted) = gemini_request_to_canonical_for_model(request, "fuzz-model")
+            {
+                let _ = canonical_request_to_gemini_for_model(converted.value, "fuzz-model", false);
             }
 
             if let Ok(response) = serde_json::from_slice::<OpenAiChatResponse>(&input) {

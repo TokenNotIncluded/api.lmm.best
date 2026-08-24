@@ -1001,9 +1001,10 @@ fn add_compat_headers(response: &mut Response, channel_id: i64, request_id: &str
         response.headers_mut().insert(LEGACY_REQUEST_ID, value);
     }
     if channel_id > 0
-        && let Ok(value) = HeaderValue::from_str(&channel_id.to_string()) {
-            response.headers_mut().insert(CHANNEL_ID, value);
-        }
+        && let Ok(value) = HeaderValue::from_str(&channel_id.to_string())
+    {
+        response.headers_mut().insert(CHANNEL_ID, value);
+    }
 }
 
 #[cfg(test)]

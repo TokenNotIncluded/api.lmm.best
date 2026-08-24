@@ -1140,18 +1140,20 @@ impl PostgresObservabilityMetrics {
         for ((group_name, bucket_ts), counters) in merged {
             if current_group.as_deref() != Some(group_name.as_str()) {
                 if let Some(previous) = current_group.take()
-                    && active_groups.contains(&previous) {
-                        groups.push(perf_group_value(&previous, &current_buckets));
-                    }
+                    && active_groups.contains(&previous)
+                {
+                    groups.push(perf_group_value(&previous, &current_buckets));
+                }
                 current_group = Some(group_name);
                 current_buckets.clear();
             }
             current_buckets.push((bucket_ts, counters));
         }
         if let Some(previous) = current_group
-            && active_groups.contains(&previous) {
-                groups.push(perf_group_value(&previous, &current_buckets));
-            }
+            && active_groups.contains(&previous)
+        {
+            groups.push(perf_group_value(&previous, &current_buckets));
+        }
 
         Ok(json!({
             "model_name": model,
@@ -1314,10 +1316,11 @@ impl PostgresObservabilityMetrics {
         let mut groups =
             BTreeSet::from(["default".to_owned(), "vip".to_owned(), "svip".to_owned()]);
         if let Some(raw) = raw
-            && let Ok(Value::Object(object)) = serde_json::from_str::<Value>(&raw) {
-                groups.clear();
-                groups.extend(object.keys().cloned());
-            }
+            && let Ok(Value::Object(object)) = serde_json::from_str::<Value>(&raw)
+        {
+            groups.clear();
+            groups.extend(object.keys().cloned());
+        }
         if include_auto {
             groups.insert("auto".to_owned());
         }

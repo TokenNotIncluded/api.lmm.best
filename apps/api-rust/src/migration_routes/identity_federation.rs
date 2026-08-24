@@ -751,7 +751,10 @@ pub fn provider_router(state: FederationState) -> Router {
 pub fn oauth_login_start_router(state: FederationState) -> Router {
     Router::new()
         .route("/api/oauth/wechat/start", post(wechat_auth_start))
-        .route("/api/oauth/telegram/login/start", post(telegram_login_start))
+        .route(
+            "/api/oauth/telegram/login/start",
+            post(telegram_login_start),
+        )
         .layer(DefaultBodyLimit::max(MAX_IDENTITY_BODY_BYTES))
         .with_state(state)
 }
@@ -763,10 +766,7 @@ struct WeChatAuthStartRequest {
 
 async fn wechat_auth_start(State(state): State<FederationState>, request: Request) -> Response {
     if !state.providers.wechat_enabled() {
-        return failure(
-            StatusCode::OK,
-            "管理员未开启通过微信登录以及注册",
-        );
+        return failure(StatusCode::OK, "管理员未开启通过微信登录以及注册");
     }
     let body = match axum::body::to_bytes(request.into_body(), MAX_IDENTITY_BODY_BYTES).await {
         Ok(body) => body,
@@ -791,10 +791,7 @@ async fn wechat_auth_start(State(state): State<FederationState>, request: Reques
 
 async fn telegram_login_start(State(state): State<FederationState>, _: Request) -> Response {
     if !state.providers.telegram_enabled() {
-        return failure(
-            StatusCode::OK,
-            "管理员未开启通过 Telegram 登录以及注册",
-        );
+        return failure(StatusCode::OK, "管理员未开启通过 Telegram 登录以及注册");
     }
     create_provider_login_flow(
         &state,

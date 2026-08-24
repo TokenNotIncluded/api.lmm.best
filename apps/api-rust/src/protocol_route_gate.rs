@@ -299,8 +299,7 @@ mod tests {
     }
 
     #[test]
-    fn current_sixteen_route_registry_keeps_cross_protocol_closed_without_trusted_evidence(
-    ) {
+    fn current_sixteen_route_registry_keeps_cross_protocol_closed_without_trusted_evidence() {
         let registry = validated_current_registry().expect("current registry validates");
         let config = enabled_config();
         for source in protocols() {
@@ -322,12 +321,10 @@ mod tests {
                     &complete_evidence(scope),
                 );
                 assert!(decision.is_closed(), "{source:?} -> {target:?}");
-                assert!(
-                    decision.blockers().iter().any(|blocker| matches!(
-                        blocker,
-                        RouteGateBlocker::Ownership(OwnershipBlocker::UntrustedEvidence)
-                    ))
-                );
+                assert!(decision.blockers().iter().any(|blocker| matches!(
+                    blocker,
+                    RouteGateBlocker::Ownership(OwnershipBlocker::UntrustedEvidence)
+                )));
             }
         }
     }

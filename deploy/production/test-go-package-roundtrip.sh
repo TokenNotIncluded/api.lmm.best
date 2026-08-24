@@ -93,7 +93,7 @@ fakeroot -- "${install_args[@]}" -U "$old_core" "$old_go" >/dev/null
 
 fakeroot -- "${install_args[@]}" -Rdd lmm-api lmm-api-go >/dev/null
 fakeroot -- "${install_args[@]}" -U "$new_go" >/dev/null
-if "${query_args[@]}" -Q lmm-api >/dev/null 2>&1; then
+if "${query_args[@]}" -Qq | grep -Fxq lmm-api; then
   printf 'go-package-roundtrip: old core package remains installed\n' >&2
   exit 1
 fi
@@ -170,7 +170,7 @@ fakeroot -- "${direct_install[@]}" -U "$new_go" >/dev/null
 fakeroot -- "${direct_install[@]}" -Rdd lmm-api-go-bin >/dev/null
 fakeroot -- "${direct_install[@]}" -U "$old_direct" >/dev/null
 [[ $("${direct_query[@]}" -Q lmm-api-go 2>/dev/null) == "lmm-api-go $old_go_version" ]]
-if "${direct_query[@]}" -Q lmm-api >/dev/null 2>&1; then
+if "${direct_query[@]}" -Qq | grep -Fxq lmm-api; then
   printf 'go-package-roundtrip: direct rollback resurrected the split core package\n' >&2
   exit 1
 fi
@@ -261,10 +261,13 @@ fakeroot -- "${transition_install[@]}" -U "$legacy_deploy_package" "$t0_package"
 [[ -x $transition_pacman_root/usr/bin/lmm-api && -L $transition_pacman_root/usr/bin/lmm-api-go ]]
 [[ -x $transition_pacman_root/usr/bin/lmm-api-deploy ]]
 
+# The target controller removes the clean legacy deploy package after the
+# rollback watchdog is armed; pacman -U does not apply replaces to local files.
+fakeroot -- "${transition_install[@]}" --remove -- lmm-api-deploy-bin >/dev/null
 fakeroot -- "${transition_install[@]}" -U "$t1_package" >/dev/null
 [[ $("${transition_query[@]}" -Q lmm-api-go-bin 2>/dev/null) == 'lmm-api-go-bin 0.1.59-1' ]]
-if "${transition_query[@]}" -Q lmm-api-deploy-bin >/dev/null 2>&1; then
-  printf 'go-package-roundtrip: T1 did not replace the legacy deploy package\n' >&2
+if "${transition_query[@]}" -Qq | grep -Fxq lmm-api-deploy-bin; then
+  printf 'go-package-roundtrip: controller removal left the legacy deploy package installed\n' >&2
   exit 1
 fi
 [[ -x $transition_pacman_root/usr/bin/lmm-api ]]

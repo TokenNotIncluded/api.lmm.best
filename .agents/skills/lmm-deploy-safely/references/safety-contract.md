@@ -62,8 +62,12 @@
   replaces the watchdog, confirmation, or health gates.
 - Do not publish or install a deploy-only bootstrap. Move a pre-T0 target
   through the exact signed T0 `lmm-api-go-bin` package and immutable controller
-  plan. T0 must establish the unified CLI and integrated operator resources
-  while retaining rollback compatibility; T1 separately removes legacy paths.
+plan. T0 must establish the unified CLI and integrated operator resources
+while retaining rollback compatibility; T1 separately removes legacy paths.
+For a local T1 package, do not assume `replaces` removes an installed package:
+after the watchdog is armed, require package-owned T0 sudoers/sysusers/tmpfiles,
+verify the exact legacy package owner and zero altered files, remove only that
+package, and then install T1.
 - Before any operator invocation, require `pacman -Qo` to identify the approved
   Go package as owner of `/usr/bin/lmm-api`; require a real non-symlink binary
   and zero altered package files. Verify the package payload against the signed

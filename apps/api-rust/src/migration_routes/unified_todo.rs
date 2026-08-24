@@ -1,6 +1,10 @@
 //! Unified todo center and L1 onboarding routes.
 
-use std::{collections::HashMap, sync::Arc, time::{SystemTime, UNIX_EPOCH}};
+use std::{
+    collections::HashMap,
+    sync::Arc,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use async_trait::async_trait;
 use axum::{
@@ -41,7 +45,10 @@ impl UnifiedTodoState {
     }
 
     #[must_use]
-    pub fn with_backend(backend: Arc<dyn UnifiedTodoBackend>, auth: Arc<dyn DashboardAuth>) -> Self {
+    pub fn with_backend(
+        backend: Arc<dyn UnifiedTodoBackend>,
+        auth: Arc<dyn DashboardAuth>,
+    ) -> Self {
         Self { backend, auth }
     }
 }
@@ -93,10 +100,7 @@ pub trait UnifiedTodoBackend: Send + Sync {
         proof: L1OnboardingProof,
     ) -> Result<L1OnboardingView, UnifiedTodoError>;
 
-    async fn authenticate_api_token(
-        &self,
-        raw: &str,
-    ) -> Result<(i64, i64), UnifiedTodoError>;
+    async fn authenticate_api_token(&self, raw: &str) -> Result<(i64, i64), UnifiedTodoError>;
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -199,7 +203,11 @@ async fn get_todos(
         Err(response) => return response,
     };
     let query = parse_query(raw.as_deref());
-    let page = query.get("p").and_then(|v| v.parse().ok()).unwrap_or(1).clamp(1, MAX_PAGE);
+    let page = query
+        .get("p")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(1)
+        .clamp(1, MAX_PAGE);
     let page_size = query
         .get("page_size")
         .or_else(|| query.get("size"))
@@ -256,10 +264,7 @@ async fn mark_read(
     with_auth_version(response)
 }
 
-async fn get_onboarding(
-    State(state): State<UnifiedTodoState>,
-    headers: HeaderMap,
-) -> Response {
+async fn get_onboarding(State(state): State<UnifiedTodoState>, headers: HeaderMap) -> Response {
     let user = match authenticated_user(&state, &headers).await {
         Ok(user) => user,
         Err(response) => return response,
@@ -271,10 +276,7 @@ async fn get_onboarding(
     with_auth_version(response)
 }
 
-async fn patch_onboarding(
-    State(state): State<UnifiedTodoState>,
-    headers: HeaderMap,
-) -> Response {
+async fn patch_onboarding(State(state): State<UnifiedTodoState>, headers: HeaderMap) -> Response {
     let user = match authenticated_user(&state, &headers).await {
         Ok(user) => user,
         Err(response) => return response,
@@ -445,9 +447,9 @@ impl UnifiedTodoBackend for PgUnifiedTodoBackend {
             && (proof.base_url.trim().is_empty()
                 || proof.group.trim().is_empty()
                 || proof.base_url.chars().count() > 256)
-            {
-                return Err(UnifiedTodoError("invalid onboarding proof".to_owned()));
-            }
+        {
+            return Err(UnifiedTodoError("invalid onboarding proof".to_owned()));
+        }
         let view = build_onboarding_view(&self.pg, user_id).await?;
         if !view.eligibility.eligible {
             return Err(UnifiedTodoError(
@@ -464,7 +466,9 @@ impl UnifiedTodoBackend for PgUnifiedTodoBackend {
         .fetch_optional(&self.pg)
         .await
         .map_err(db_error)?
-        .ok_or_else(|| UnifiedTodoError("a server-verified onboarding proof is required".to_owned()))?;
+        .ok_or_else(|| {
+            UnifiedTodoError("a server-verified onboarding proof is required".to_owned())
+        })?;
         let token_status: i64 = row_get(&token, "status")?;
         if token_status != 1 {
             return Err(UnifiedTodoError(
@@ -563,22 +567,20 @@ async fn load_todo_refs(
 ) -> Result<Vec<TodoRef>, UnifiedTodoError> {
     let is_admin = role >= ADMIN_ROLE;
     let mut parts = Vec::new();
-    if (category == "all" || category == "developer_access")
-        && (is_admin || category != "all" || true)
-        && (is_admin || category == "developer_access") {
-            let clause = if is_admin {
-                "SELECT request.id AS source_id, 'developer_access' AS category, request.created_at AS updated_at \
+    if category == "developer_access" || (category == "all" && is_admin) {
+        let clause = if is_admin {
+            "SELECT request.id AS source_id, 'developer_access' AS category, request.created_at AS updated_at \
                  FROM developer_access_requests AS request \
                  JOIN users ON users.id = request.user_id AND users.deleted_at IS NULL \
                  WHERE request.status = 'pending' AND request.source <> 'legacy'"
-            } else {
-                "SELECT request.id AS source_id, 'developer_access' AS category, request.created_at AS updated_at \
+        } else {
+            "SELECT request.id AS source_id, 'developer_access' AS category, request.created_at AS updated_at \
                  FROM developer_access_requests AS request \
                  JOIN users ON users.id = request.user_id AND users.deleted_at IS NULL \
                  WHERE request.status = 'pending' AND request.source <> 'legacy' AND request.user_id = $1"
-            };
-            parts.push(clause.to_owned());
-        }
+        };
+        parts.push(clause.to_owned());
+    }
     if category == "all" || category == "open_source_bounty" {
         parts.push(
             "SELECT notification.id AS source_id, 'open_source_bounty' AS category, notification.created_at AS updated_at \
@@ -735,7 +737,10 @@ async fn load_all_source_ids(
         .collect())
 }
 
-async fn build_onboarding_view(pg: &PgPool, user_id: i64) -> Result<L1OnboardingView, UnifiedTodoError> {
+async fn build_onboarding_view(
+    pg: &PgPool,
+    user_id: i64,
+) -> Result<L1OnboardingView, UnifiedTodoError> {
     let user = sqlx::query(
         "SELECT id, COALESCE(console_activated_at, 0) AS console_activated_at, \
          COALESCE(trust_level_override, -1) AS trust_level_override, \
@@ -797,26 +802,29 @@ async fn build_onboarding_view(pg: &PgPool, user_id: i64) -> Result<L1Onboarding
     let last_api: i64 = row_get(&user, "last_api_activity_at")?;
     let install_complete = key_complete && installed > 0;
     let configure_complete = install_complete && configured > 0;
-    let first_response_complete =
-        configure_complete && last_api >= configured && last_api > 0;
+    let first_response_complete = configure_complete && last_api >= configured && last_api > 0;
     let mut completed_at: i64 = row_get(&todo, "completed_at")?;
     if first_response_complete && completed_at == 0 {
         completed_at = now;
-        sqlx::query("UPDATE l1_onboarding_todos SET completed_at = $1, updated_at = $1 WHERE user_id = $2")
-            .bind(now)
-            .bind(user_id)
-            .execute(pg)
-            .await
-            .map_err(db_error)?;
+        sqlx::query(
+            "UPDATE l1_onboarding_todos SET completed_at = $1, updated_at = $1 WHERE user_id = $2",
+        )
+        .bind(now)
+        .bind(user_id)
+        .execute(pg)
+        .await
+        .map_err(db_error)?;
     }
     if completed_at > 0 && !first_response_complete {
         completed_at = 0;
-        sqlx::query("UPDATE l1_onboarding_todos SET completed_at = 0, updated_at = $1 WHERE user_id = $2")
-            .bind(now)
-            .bind(user_id)
-            .execute(pg)
-            .await
-            .map_err(db_error)?;
+        sqlx::query(
+            "UPDATE l1_onboarding_todos SET completed_at = 0, updated_at = $1 WHERE user_id = $2",
+        )
+        .bind(now)
+        .bind(user_id)
+        .execute(pg)
+        .await
+        .map_err(db_error)?;
     }
     let steps = vec![
         step_state("create_api_key", key_complete, now),
@@ -862,7 +870,11 @@ fn step_state(id: &str, complete: bool, timestamp: i64) -> L1OnboardingStepState
     }
 }
 
-async fn ensure_onboarding_row(pg: &PgPool, user_id: i64, now: i64) -> Result<(), UnifiedTodoError> {
+async fn ensure_onboarding_row(
+    pg: &PgPool,
+    user_id: i64,
+    now: i64,
+) -> Result<(), UnifiedTodoError> {
     sqlx::query(
         "INSERT INTO l1_onboarding_todos (user_id, created_at, updated_at) VALUES ($1, $2, $2) \
          ON CONFLICT (user_id) DO NOTHING",
@@ -881,8 +893,12 @@ fn normalize_category(category: &str) -> Result<&str, UnifiedTodoError> {
         return Ok("all");
     }
     match category {
-        "open_source_bounty" | "open_source_bounty_review" | "developer_access"
-        | "account_action" | "security_incident" | "security_review" => Ok(category),
+        "open_source_bounty"
+        | "open_source_bounty_review"
+        | "developer_access"
+        | "account_action"
+        | "security_incident"
+        | "security_review" => Ok(category),
         _ => Err(UnifiedTodoError("待办分类无效".to_owned())),
     }
 }
@@ -933,12 +949,18 @@ fn dashboard_or_token_credential(headers: &HeaderMap) -> Option<String> {
 fn onboarding_error(message: &str) -> Response {
     let (status, code) = match message {
         m if m.contains("only available") => (StatusCode::FORBIDDEN, "L1_ONBOARDING_NOT_ELIGIBLE"),
-        m if m.contains("invalid L1 onboarding step") => {
-            (StatusCode::UNPROCESSABLE_ENTITY, "L1_ONBOARDING_INVALID_STEP")
-        }
+        m if m.contains("invalid L1 onboarding step") => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "L1_ONBOARDING_INVALID_STEP",
+        ),
         m if m.contains("in order") => (StatusCode::CONFLICT, "L1_ONBOARDING_OUT_OF_ORDER"),
-        m if m.contains("proof is required") => (StatusCode::FORBIDDEN, "L1_ONBOARDING_PROOF_REQUIRED"),
-        _ => (StatusCode::UNPROCESSABLE_ENTITY, "L1_ONBOARDING_INVALID_PROOF"),
+        m if m.contains("proof is required") => {
+            (StatusCode::FORBIDDEN, "L1_ONBOARDING_PROOF_REQUIRED")
+        }
+        _ => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "L1_ONBOARDING_INVALID_PROOF",
+        ),
     };
     legacy_json(
         status,
@@ -977,7 +999,9 @@ fn parse_query(raw: Option<&str>) -> HashMap<String, String> {
 fn unix_timestamp() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map_or(0, |duration| i64::try_from(duration.as_secs()).unwrap_or(i64::MAX))
+        .map_or(0, |duration| {
+            i64::try_from(duration.as_secs()).unwrap_or(i64::MAX)
+        })
 }
 
 fn api_success(data: Value) -> Response {

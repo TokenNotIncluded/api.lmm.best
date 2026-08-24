@@ -63,21 +63,19 @@ pub fn router(state: DiscountCodeState) -> Router {
     Router::new()
         .route(
             "/api/discount-code/",
-            get(admin_list)
-                .post(admin_create)
-                .put(admin_update),
+            get(admin_list).post(admin_create).put(admin_update),
         )
         .route("/api/discount-code/search", get(admin_search))
         .route("/api/discount-code/batch", post(admin_batch_create))
-        .route("/api/discount-code/exhausted", delete(admin_delete_exhausted))
+        .route(
+            "/api/discount-code/exhausted",
+            delete(admin_delete_exhausted),
+        )
         .route(
             "/api/discount-code/{id}",
             get(admin_get).delete(admin_delete),
         )
-        .route(
-            "/api/user/discount-code/validate",
-            post(validate_for_user),
-        )
+        .route("/api/user/discount-code/validate", post(validate_for_user))
         .with_state(state)
 }
 
@@ -234,7 +232,12 @@ enum DiscountCodeStoreError {
 
 #[async_trait]
 trait DiscountCodeStore: Send + Sync {
-    async fn list(&self, page: i64, page_size: i64, offset: i64) -> Result<PageResult, DiscountCodeStoreError>;
+    async fn list(
+        &self,
+        page: i64,
+        page_size: i64,
+        offset: i64,
+    ) -> Result<PageResult, DiscountCodeStoreError>;
 
     async fn search(
         &self,
@@ -458,9 +461,8 @@ impl DiscountCodeStore for PgDiscountCodeStore {
             let mut inserted = None;
             let mut last_error = None;
             for _ in 0..5 {
-                let code = generate_discount_code().map_err(|error| {
-                    DiscountCodeStoreError::Database(error.to_string())
-                })?;
+                let code = generate_discount_code()
+                    .map_err(|error| DiscountCodeStoreError::Database(error.to_string()))?;
                 match sqlx::query(&format!(
                     "INSERT INTO discount_codes (code, name, discount_percent, min_amount, status, \
                      used_count, max_uses, created_by, created_time, updated_time, starts_time, \
@@ -657,10 +659,18 @@ fn validate_discount_code_eligibility(
 
 fn validate_discount_code_input(input: &DiscountCodeInput) -> Result<(), DiscountCodeStoreError> {
     validate_discount_code_batch_input(input)?;
-    validate_discount_code_definition(&input.code, input.discount_percent, input.min_amount, input.starts_time, input.expired_time)
+    validate_discount_code_definition(
+        &input.code,
+        input.discount_percent,
+        input.min_amount,
+        input.starts_time,
+        input.expired_time,
+    )
 }
 
-fn validate_discount_code_batch_input(input: &DiscountCodeInput) -> Result<(), DiscountCodeStoreError> {
+fn validate_discount_code_batch_input(
+    input: &DiscountCodeInput,
+) -> Result<(), DiscountCodeStoreError> {
     let name = input.name.trim();
     if name.is_empty() || name.chars().count() > 120 {
         return Err(DiscountCodeStoreError::Validation(
@@ -672,7 +682,12 @@ fn validate_discount_code_batch_input(input: &DiscountCodeInput) -> Result<(), D
             DiscountCodeValidationError::NegativeMaxUses.to_string(),
         ));
     }
-    validate_discount_code_terms(input.discount_percent, input.min_amount, input.starts_time, input.expired_time)
+    validate_discount_code_terms(
+        input.discount_percent,
+        input.min_amount,
+        input.starts_time,
+        input.expired_time,
+    )
 }
 
 fn validate_discount_code_batch_request(
@@ -734,7 +749,8 @@ fn discount_code_pattern_matches(code: &str) -> bool {
         return false;
     }
     let first_valid = |ch: char| ch.is_ascii_uppercase() || ch.is_ascii_digit();
-    let rest_valid = |ch: char| ch.is_ascii_uppercase() || ch.is_ascii_digit() || matches!(ch, '_' | '-');
+    let rest_valid =
+        |ch: char| ch.is_ascii_uppercase() || ch.is_ascii_digit() || matches!(ch, '_' | '-');
     first_valid(chars[0]) && chars[1..].iter().copied().all(rest_valid)
 }
 
@@ -744,7 +760,9 @@ fn normalize_discount_code(value: &str) -> String {
 
 fn generate_discount_code() -> Result<String, &'static str> {
     let mut bytes = [0_u8; 10];
-    rand::rng().try_fill_bytes(&mut bytes).map_err(|_| "randomness unavailable")?;
+    rand::rng()
+        .try_fill_bytes(&mut bytes)
+        .map_err(|_| "randomness unavailable")?;
     Ok(format!("LMM-{}", encode_base32_no_padding(&bytes)))
 }
 
@@ -777,7 +795,10 @@ fn is_unique_violation(error: &sqlx::Error) -> bool {
     error.to_string().to_ascii_lowercase().contains("unique")
 }
 
-fn map_unique_violation(error: sqlx::Error, mapped: DiscountCodeStoreError) -> DiscountCodeStoreError {
+fn map_unique_violation(
+    error: sqlx::Error,
+    mapped: DiscountCodeStoreError,
+) -> DiscountCodeStoreError {
     if is_unique_violation(&error) {
         mapped
     } else {
@@ -790,18 +811,26 @@ fn normalize_page(raw_query: Option<&str>) -> (i64, i64, i64) {
         form_urlencoded::parse(raw_query.unwrap_or_default().as_bytes())
             .find_map(|(candidate, value)| (candidate == key).then(|| value.into_owned()))
     };
-    let raw_page = value("p").and_then(|value| value.parse::<i64>().ok()).unwrap_or(0);
+    let raw_page = value("p")
+        .and_then(|value| value.parse::<i64>().ok())
+        .unwrap_or(0);
     let page = if raw_page < 1 {
         if raw_page == 0 { 1 } else { raw_page }
     } else {
         raw_page
     };
-    let mut page_size = value("page_size").and_then(|value| value.parse::<i64>().ok()).unwrap_or(0);
+    let mut page_size = value("page_size")
+        .and_then(|value| value.parse::<i64>().ok())
+        .unwrap_or(0);
     if page_size <= 0 {
-        page_size = value("ps").and_then(|value| value.parse::<i64>().ok()).unwrap_or(0);
+        page_size = value("ps")
+            .and_then(|value| value.parse::<i64>().ok())
+            .unwrap_or(0);
     }
     if page_size <= 0 {
-        page_size = value("size").and_then(|value| value.parse::<i64>().ok()).unwrap_or(0);
+        page_size = value("size")
+            .and_then(|value| value.parse::<i64>().ok())
+            .unwrap_or(0);
     }
     if page_size <= 0 {
         page_size = 10;
@@ -884,7 +913,8 @@ async fn admin_create(State(state): State<DiscountCodeState>, request: Request) 
         Ok(principal) => principal,
         Err(response) => return response,
     };
-    let audit = discount_code_audit_effect(&principal, &request, "POST", "/api/discount-code/", None);
+    let audit =
+        discount_code_audit_effect(&principal, &request, "POST", "/api/discount-code/", None);
     let client_ip = client_ip(&request);
     if let Some(response) = critical_rate_limit(&state, &client_ip).await {
         return finish_admin_write(&state, audit, with_auth_version(response), false).await;
@@ -951,7 +981,8 @@ async fn admin_update(State(state): State<DiscountCodeState>, request: Request) 
         Ok(principal) => principal,
         Err(response) => return response,
     };
-    let audit = discount_code_audit_effect(&principal, &request, "PUT", "/api/discount-code/", None);
+    let audit =
+        discount_code_audit_effect(&principal, &request, "PUT", "/api/discount-code/", None);
     let client_ip = client_ip(&request);
     if let Some(response) = critical_rate_limit(&state, &client_ip).await {
         return finish_admin_write(&state, audit, with_auth_version(response), false).await;
@@ -1009,13 +1040,18 @@ async fn admin_delete(
     let (response, success) = match state.store.delete(id).await {
         Ok(()) => (api_success(Value::Null), true),
         Err(DiscountCodeStoreError::NotFound) => (api_error("record not found".to_owned()), false),
-        Err(DiscountCodeStoreError::InvalidId) => (api_error("invalid discount code id".to_owned()), false),
+        Err(DiscountCodeStoreError::InvalidId) => {
+            (api_error("invalid discount code id".to_owned()), false)
+        }
         Err(error) => (api_error(error.to_string()), false),
     };
     finish_admin_write(&state, audit, with_auth_version(response), success).await
 }
 
-async fn admin_delete_exhausted(State(state): State<DiscountCodeState>, request: Request) -> Response {
+async fn admin_delete_exhausted(
+    State(state): State<DiscountCodeState>,
+    request: Request,
+) -> Response {
     let principal = match authenticated_admin(&state, request.headers()).await {
         Ok(principal) => principal,
         Err(response) => return response,
@@ -1172,7 +1208,10 @@ async fn record_discount_code_audit(state: &DiscountCodeState, effect: DiscountC
     }
 }
 
-async fn authenticated_user(state: &DiscountCodeState, headers: &HeaderMap) -> Result<Principal, Response> {
+async fn authenticated_user(
+    state: &DiscountCodeState,
+    headers: &HeaderMap,
+) -> Result<Principal, Response> {
     let credential =
         dashboard_credential(headers).ok_or_else(|| dashboard_auth_error(headers, None))?;
     let user = state

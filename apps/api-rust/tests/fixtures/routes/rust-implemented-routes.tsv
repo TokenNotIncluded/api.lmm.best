@@ -329,8 +329,8 @@ GET	/api/user/:id	lmm_api_rs::migration_routes::identity_admin::router
 DELETE	/api/user/:id/2fa	lmm_api_rs::migration_routes::identity_2fa::router
 GET	/api/user/:id/assistant-memories	lmm_api_rs::migration_routes::user_assistant_admin::router
 POST	/api/user/:id/assistant-memories	lmm_api_rs::migration_routes::user_assistant_admin::router
-DELETE	/api/user/:id/assistant-memories/:memory_id	lmm_api_rs::migration_routes::user_assistant_admin::router
-PUT	/api/user/:id/assistant-memories/:memory_id	lmm_api_rs::migration_routes::user_assistant_admin::router
+DELETE	/api/user/:id/assistant-memories/:memoryId	lmm_api_rs::migration_routes::user_assistant_admin::router
+PUT	/api/user/:id/assistant-memories/:memoryId	lmm_api_rs::migration_routes::user_assistant_admin::router
 GET	/api/user/:id/assistant-profile	lmm_api_rs::migration_routes::user_assistant_admin::router
 PUT	/api/user/:id/assistant-profile	lmm_api_rs::migration_routes::user_assistant_admin::router
 DELETE	/api/user/:id/bindings/:binding_type	lmm_api_rs::migration_routes::identity_security::router

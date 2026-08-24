@@ -2201,13 +2201,14 @@ fn chat_message_to_envelope(
         let call_id = OpaqueId::authentic(call.id, source);
         let call_name = call.function.name;
         let mut call_item = tool_call_item(call_id, call_name, arguments, source, &call_path);
-        if call_index == 0 && !message_item_is_emitted {
-            if let Some(name) = message.name.clone() {
-                call_item
-                    .provenance
-                    .extensions
-                    .insert("openai.name".to_owned(), JsonData::String(name));
-            }
+        if call_index == 0
+            && !message_item_is_emitted
+            && let Some(name) = message.name.clone()
+        {
+            call_item
+                .provenance
+                .extensions
+                .insert("openai.name".to_owned(), JsonData::String(name));
         }
         push_item(envelope, call_item, source, target, &call_path)?;
         let state = if call_index == 0 {
@@ -2848,10 +2849,11 @@ pub fn envelope_to_openai_chat_request_v2(
         enable_thinking: controls_extension(&envelope, "enable_thinking"),
         thinking_budget: controls_extension(&envelope, "thinking_budget"),
     };
-    if let Some(max_output_tokens) = envelope.controls.max_output_tokens {
-        if output.max_tokens.is_none() && output.max_completion_tokens.is_none() {
-            output.max_completion_tokens = Some(max_output_tokens);
-        }
+    if let Some(max_output_tokens) = envelope.controls.max_output_tokens
+        && output.max_tokens.is_none()
+        && output.max_completion_tokens.is_none()
+    {
+        output.max_completion_tokens = Some(max_output_tokens);
     }
     for (index, tool) in envelope.tools.iter().enumerate() {
         let name = tool_name_for_target(tool, index, source, target)?;
@@ -7506,15 +7508,14 @@ fn responses_require_request_shape(envelope: &Envelope) -> Result<(), DirectIrEr
     if let (Some(max_tokens), Some(max_completion_tokens)) = (
         envelope.extensions.get("openai.max_tokens"),
         envelope.extensions.get("openai.max_completion_tokens"),
-    ) {
-        if max_tokens != max_completion_tokens {
-            return Err(responses_option_error(
-                source,
-                target,
-                "conflicting_token_limits",
-                "openai.max_tokens",
-            ));
-        }
+    ) && max_tokens != max_completion_tokens
+    {
+        return Err(responses_option_error(
+            source,
+            target,
+            "conflicting_token_limits",
+            "openai.max_tokens",
+        ));
     }
     let allowed = [
         "user",
@@ -7874,14 +7875,14 @@ fn validate_responses_response_surface(response: &ResponsesResponse) -> Result<(
             "incomplete_details",
         ));
     }
-    if let Some(details) = response.incomplete_details.as_ref() {
-        if let Some(field) = details.extra.keys().next() {
-            return Err(responses_unknown_field(
-                source,
-                target,
-                format!("incomplete_details.{field}"),
-            ));
-        }
+    if let Some(details) = response.incomplete_details.as_ref()
+        && let Some(field) = details.extra.keys().next()
+    {
+        return Err(responses_unknown_field(
+            source,
+            target,
+            format!("incomplete_details.{field}"),
+        ));
     }
     if let Some(field) = response.extra.keys().next() {
         return Err(responses_unknown_field(source, target, field.as_str()));

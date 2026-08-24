@@ -632,14 +632,14 @@ impl Registry {
                         actual: actual.map(str::to_owned),
                     });
                 }
-                if let Some(finalizer) = expected {
-                    if !catalog.finalizers.contains(finalizer) {
-                        return Err(RegistryValidationError::UnknownFinalizer {
-                            source: route.source,
-                            target: route.target,
-                            finalizer_id: finalizer.to_owned(),
-                        });
-                    }
+                if let Some(finalizer) = expected
+                    && !catalog.finalizers.contains(finalizer)
+                {
+                    return Err(RegistryValidationError::UnknownFinalizer {
+                        source: route.source,
+                        target: route.target,
+                        finalizer_id: finalizer.to_owned(),
+                    });
                 }
             }
             for adaptor in &route.runtime_adaptors {
@@ -854,14 +854,14 @@ fn validate_direction(
         }
         return Ok(());
     }
-    if let Some(converter) = expected {
-        if !converters.contains(converter) {
-            return Err(RegistryValidationError::UnknownConverter {
-                source: route.source,
-                target: route.target,
-                converter_id: converter.to_owned(),
-            });
-        }
+    if let Some(converter) = expected
+        && !converters.contains(converter)
+    {
+        return Err(RegistryValidationError::UnknownConverter {
+            source: route.source,
+            target: route.target,
+            converter_id: converter.to_owned(),
+        });
     }
     if expected != actual {
         return Err(RegistryValidationError::RuntimeDirectionMismatch {
@@ -1114,10 +1114,12 @@ mod tests {
             .expect("bridge");
         assert_eq!(bridge.quality, Fidelity::Normalized);
         assert!(bridge.supports_any_direction());
-        assert!(bridge
-            .request_converter_id
-            .as_deref()
-            .is_some_and(|id| id.starts_with("cortexfs-")));
+        assert!(
+            bridge
+                .request_converter_id
+                .as_deref()
+                .is_some_and(|id| id.starts_with("cortexfs-"))
+        );
 
         let discouraged = registry
             .route(Protocol::Claude, Protocol::Gemini)
@@ -1187,7 +1189,7 @@ mod tests {
         let mut catalog = runtime_catalog();
         catalog
             .routes
-            .retain(|route| route.source != Protocol::Gemini);
+            .retain(|route| route.source != Protocol::Gemini || route.target != Protocol::Gemini);
         assert!(matches!(
             Registry::default().validate_against_catalog(&catalog),
             Err(RegistryValidationError::MissingRuntimeRoute {
@@ -1203,7 +1205,9 @@ mod tests {
         let bridge = catalog
             .routes
             .iter_mut()
-            .find(|route| route.source == Protocol::OpenAi && route.target == Protocol::OpenAiResponses)
+            .find(|route| {
+                route.source == Protocol::OpenAi && route.target == Protocol::OpenAiResponses
+            })
             .expect("cross route runtime metadata");
         bridge.request_converter_id = Some("raw-openai-chat-v1".to_owned());
         assert!(matches!(
@@ -1291,6 +1295,12 @@ mod tests {
                 routes.push(runtime);
             }
         }
-        RuntimeCatalog::new("test-runtime-v2-cortexfs", converters, finalizers, adaptors, routes)
+        RuntimeCatalog::new(
+            "test-runtime-v2-cortexfs",
+            converters,
+            finalizers,
+            adaptors,
+            routes,
+        )
     }
 }

@@ -15,6 +15,8 @@ func main() {
 	gin.SetMode(gin.ReleaseMode)
 	engine := gin.New()
 	router.SetApiRouter(engine)
+	router.SetOpenSourceBountyMCPRouter(engine)
+	router.SetDrawingMCPRouter(engine)
 	router.SetDashboardRouter(engine)
 	router.SetRelayRouter(engine)
 	router.SetVideoRouter(engine)

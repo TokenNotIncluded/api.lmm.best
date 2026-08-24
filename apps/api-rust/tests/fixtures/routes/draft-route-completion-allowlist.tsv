@@ -158,8 +158,8 @@ GET	/api/token/auto-groups	compatibility	apps/api-rust/src/migration_routes/api_
 OPTIONS	/api/usage/token/	test	apps/api-rust/src/http.rs	cfg(test) CORS preflight fixture for the token-usage boundary
 GET	/api/user/:id/assistant-memories	compatibility	apps/api-rust/src/migration_routes/user_assistant_admin.rs	application route intentionally outside the frozen legacy migration inventory
 POST	/api/user/:id/assistant-memories	compatibility	apps/api-rust/src/migration_routes/user_assistant_admin.rs	application route intentionally outside the frozen legacy migration inventory
-DELETE	/api/user/:id/assistant-memories/:memory_id	compatibility	apps/api-rust/src/migration_routes/user_assistant_admin.rs	application route intentionally outside the frozen legacy migration inventory
-PUT	/api/user/:id/assistant-memories/:memory_id	compatibility	apps/api-rust/src/migration_routes/user_assistant_admin.rs	application route intentionally outside the frozen legacy migration inventory
+DELETE	/api/user/:id/assistant-memories/:memoryId	compatibility	apps/api-rust/src/migration_routes/user_assistant_admin.rs	application route intentionally outside the frozen legacy migration inventory
+PUT	/api/user/:id/assistant-memories/:memoryId	compatibility	apps/api-rust/src/migration_routes/user_assistant_admin.rs	application route intentionally outside the frozen legacy migration inventory
 GET	/api/user/:id/assistant-profile	compatibility	apps/api-rust/src/migration_routes/user_assistant_admin.rs	application route intentionally outside the frozen legacy migration inventory
 PUT	/api/user/:id/assistant-profile	compatibility	apps/api-rust/src/migration_routes/user_assistant_admin.rs	application route intentionally outside the frozen legacy migration inventory
 GET	/api/user/:id/developer-access/archives	compatibility	apps/api-rust/src/migration_routes/user_assistant_admin.rs	application route intentionally outside the frozen legacy migration inventory

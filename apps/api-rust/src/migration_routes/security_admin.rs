@@ -1,6 +1,10 @@
 //! Advanced-security administrator extensions and violation-fee appeal routes.
 
-use std::{collections::HashMap, sync::Arc, time::{SystemTime, UNIX_EPOCH}};
+use std::{
+    collections::HashMap,
+    sync::Arc,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use async_trait::async_trait;
 use axum::{
@@ -41,7 +45,10 @@ impl SecurityAdminState {
     }
 
     #[must_use]
-    pub fn with_backend(backend: Arc<dyn SecurityAdminBackend>, auth: Arc<dyn DashboardAuth>) -> Self {
+    pub fn with_backend(
+        backend: Arc<dyn SecurityAdminBackend>,
+        auth: Arc<dyn DashboardAuth>,
+    ) -> Self {
         Self { backend, auth }
     }
 }
@@ -50,7 +57,10 @@ pub fn router(state: SecurityAdminState) -> Router {
     Router::new()
         .route("/api/security/admin/settings", route_put(update_settings))
         .route("/api/security/admin/ai-reviews", route_get(list_ai_reviews))
-        .route("/api/security/admin/review-runs", route_get(list_review_runs))
+        .route(
+            "/api/security/admin/review-runs",
+            route_get(list_review_runs),
+        )
         .route(
             "/api/security/admin/review-runs/{task_id}",
             route_get(get_review_run),
@@ -64,7 +74,10 @@ pub fn router(state: SecurityAdminState) -> Router {
             route_post(review_admin_appeal),
         )
         .route("/api/user/violation-fee-appeals", route_post(submit_appeal))
-        .route("/api/user/violation-fees", route_get(list_self_violation_fees))
+        .route(
+            "/api/user/violation-fees",
+            route_get(list_self_violation_fees),
+        )
         .with_state(state)
 }
 
@@ -91,9 +104,15 @@ pub trait SecurityAdminBackend: Send + Sync {
         actor_id: i64,
     ) -> Result<(Vec<AiReviewRow>, i64, bool), SecurityAdminError>;
 
-    async fn list_review_runs(&self, limit: i64) -> Result<Vec<SystemTaskSummary>, SecurityAdminError>;
+    async fn list_review_runs(
+        &self,
+        limit: i64,
+    ) -> Result<Vec<SystemTaskSummary>, SecurityAdminError>;
 
-    async fn get_review_run(&self, task_id: &str) -> Result<Option<SystemTaskDetail>, SecurityAdminError>;
+    async fn get_review_run(
+        &self,
+        task_id: &str,
+    ) -> Result<Option<SystemTaskDetail>, SecurityAdminError>;
 
     async fn list_admin_appeals(
         &self,
@@ -244,11 +263,15 @@ async fn update_settings(
     }
     let body = match to_bytes(request.into_body(), MAX_BODY_BYTES).await {
         Ok(bytes) => bytes,
-        Err(_) => return with_auth_version(api_error("invalid advanced security settings payload")),
+        Err(_) => {
+            return with_auth_version(api_error("invalid advanced security settings payload"));
+        }
     };
     let input: SettingsUpdate = match serde_json::from_slice(&body) {
         Ok(input) => input,
-        Err(_) => return with_auth_version(api_error("invalid advanced security settings payload")),
+        Err(_) => {
+            return with_auth_version(api_error("invalid advanced security settings payload"));
+        }
     };
     let Some(enabled) = input.enabled else {
         return with_auth_version(api_error(
@@ -389,7 +412,7 @@ async fn review_admin_appeal(
             return with_auth_version(legacy_json(
                 StatusCode::BAD_REQUEST,
                 json!({"success": false, "code": "VIOLATION_FEE_APPEAL_INVALID_ID", "message": "申诉编号无效"}),
-            ))
+            ));
         }
     };
     let action = action.trim().to_ascii_lowercase();
@@ -399,7 +422,9 @@ async fn review_admin_appeal(
             json!({"success": false, "code": "VIOLATION_FEE_APPEAL_INVALID_ACTION", "message": "审核动作无效"}),
         ));
     }
-    let body = to_bytes(request.into_body(), MAX_BODY_BYTES).await.unwrap_or_default();
+    let body = to_bytes(request.into_body(), MAX_BODY_BYTES)
+        .await
+        .unwrap_or_default();
     let note = if body.is_empty() {
         String::new()
     } else {
@@ -433,7 +458,7 @@ async fn submit_appeal(
             return with_auth_version(legacy_json(
                 StatusCode::BAD_REQUEST,
                 json!({"success": false, "code": "VIOLATION_FEE_APPEAL_INVALID", "message": "申诉格式无效"}),
-            ))
+            ));
         }
     };
     let input: AppealInput = match serde_json::from_slice(&body) {
@@ -442,7 +467,7 @@ async fn submit_appeal(
             return with_auth_version(legacy_json(
                 StatusCode::BAD_REQUEST,
                 json!({"success": false, "code": "VIOLATION_FEE_APPEAL_INVALID", "message": "申诉格式无效"}),
-            ))
+            ));
         }
     };
     let response = match state
@@ -626,7 +651,10 @@ impl SecurityAdminBackend for PgSecurityAdminBackend {
         Ok((items, total, true))
     }
 
-    async fn list_review_runs(&self, limit: i64) -> Result<Vec<SystemTaskSummary>, SecurityAdminError> {
+    async fn list_review_runs(
+        &self,
+        limit: i64,
+    ) -> Result<Vec<SystemTaskSummary>, SecurityAdminError> {
         let rows = sqlx::query(
             "SELECT id, task_id, type, status, active_key, \
              CASE WHEN LENGTH(state) <= 4096 THEN state ELSE '' END AS state, \
@@ -641,7 +669,10 @@ impl SecurityAdminBackend for PgSecurityAdminBackend {
         rows.iter().map(task_summary_from_row).collect()
     }
 
-    async fn get_review_run(&self, task_id: &str) -> Result<Option<SystemTaskDetail>, SecurityAdminError> {
+    async fn get_review_run(
+        &self,
+        task_id: &str,
+    ) -> Result<Option<SystemTaskDetail>, SecurityAdminError> {
         let row = sqlx::query(
             "SELECT id, task_id, type, status, active_key, payload, state, result, error, locked_by, created_at, updated_at \
              FROM system_tasks WHERE task_id = $1 AND type = 'assistant_review'",
@@ -1067,7 +1098,9 @@ fn parse_query(raw: Option<&str>) -> HashMap<String, String> {
 fn unix_timestamp() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map_or(0, |duration| i64::try_from(duration.as_secs()).unwrap_or(i64::MAX))
+        .map_or(0, |duration| {
+            i64::try_from(duration.as_secs()).unwrap_or(i64::MAX)
+        })
 }
 
 fn api_success(data: Value) -> Response {

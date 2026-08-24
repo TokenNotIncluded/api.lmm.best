@@ -719,29 +719,38 @@ func isT1SingleCLIPackage(packageName, packageVersion string) (bool, error) {
 	if packageName != productionAURPackageName {
 		return false, errors.New("single-CLI transition check received an unsupported package")
 	}
+	return numericPackageReleaseAtLeast(packageVersion, [3]int{0, 1, 59})
+}
+
+func isIntegratedOperatorPackage(packageName, packageVersion string) (bool, error) {
+	if packageName == productionSourcePackageName {
+		return true, nil
+	}
+	if packageName != productionAURPackageName {
+		return false, nil
+	}
+	return numericPackageReleaseAtLeast(packageVersion, [3]int{0, 1, 58})
+}
+
+func numericPackageReleaseAtLeast(packageVersion string, minimum [3]int) (bool, error) {
 	releaseVersion, err := packageReleaseVersion(packageVersion)
 	if err != nil {
 		return false, err
 	}
 	parts := strings.Split(releaseVersion, ".")
-	if len(parts) != 3 {
+	if len(parts) != len(minimum) {
 		return false, nil
 	}
-	values := make([]int, len(parts))
 	for index, part := range parts {
 		value, err := strconv.Atoi(part)
 		if err != nil || value < 0 {
 			return false, nil
 		}
-		values[index] = value
+		if value != minimum[index] {
+			return value > minimum[index], nil
+		}
 	}
-	if values[0] != 0 {
-		return values[0] > 0, nil
-	}
-	if values[1] != 1 {
-		return values[1] > 1, nil
-	}
-	return values[2] >= 59, nil
+	return true, nil
 }
 
 func packageReleaseVersion(packageVersion string) (string, error) {
