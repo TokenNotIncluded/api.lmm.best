@@ -1,7 +1,7 @@
 # Maintainer: LIghtJUNction
 
 pkgname=lmm-api-go
-pkgver=0.1.19.r1279.g0c463f094
+pkgver=0.1.1.r1114.ga864eda26
 pkgrel=1
 pkgdesc='LMM API Go backend, native CLI, systemd service, and web frontend'
 arch=('x86_64' 'aarch64')
@@ -19,7 +19,7 @@ replaces=('lmm-api-deploy-bin')
 backup=('etc/lmm-api-go/lmm-api-go.env')
 options=('!strip')
 
-_commit=0c463f09409ec7839bf01ba4da8a0a5df0acdb98
+_commit=a864eda26852940c4e7735c8cde267422798075d
 source=("lmm-api-go::git+${url}.git#commit=${_commit}")
 sha256sums=('SKIP')
 
