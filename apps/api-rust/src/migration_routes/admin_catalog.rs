@@ -339,10 +339,12 @@ impl HttpCatalogUpstream {
     }
 
     fn urls(&self, locale: &str) -> Result<(reqwest::Url, reqwest::Url), CatalogError> {
-        let locale = locale.trim();
-        let prefix = match locale {
+        let locale = locale.trim().to_ascii_lowercase();
+        let prefix = match locale.as_str() {
             "" => "api/newapi/".to_owned(),
-            "en" | "zh-CN" | "zh-TW" | "ja" => format!("api/i18n/{locale}/newapi/"),
+            "en" | "ja" => format!("api/i18n/{locale}/newapi/"),
+            // The upstream feed publishes one Chinese dataset under /i18n/zh/.
+            "zh" | "zh-cn" | "zh-tw" => "api/i18n/zh/newapi/".to_owned(),
             _ => return Err(CatalogError::Invalid("locale 参数错误")),
         };
         let models = self

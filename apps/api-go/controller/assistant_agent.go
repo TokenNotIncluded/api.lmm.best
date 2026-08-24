@@ -515,7 +515,7 @@ func buildAssistantTools() []assistantOpenAIToolDefinition {
 			Type: "function",
 			Function: assistantOpenAIToolFunction{
 				Name:        "get_admin_model_inventory",
-				Description: "For an administrator only, read the live enabled model IDs, configured routing groups, and the bounded list of model IDs referenced by channels but missing metadata. This is read-only and omits provider secrets.",
+				Description: "For an administrator only, read the live enabled model IDs, configured routing groups, and the bounded list of model IDs referenced by channels but missing local metadata. This is read-only, omits provider secrets, and does not verify whether those IDs exist in the upstream catalog.",
 				Parameters:  emptyObjectSchema(),
 			},
 		},
@@ -523,7 +523,7 @@ func buildAssistantTools() []assistantOpenAIToolDefinition {
 			Type: "function",
 			Function: assistantOpenAIToolFunction{
 				Name:        "prepare_admin_model_sync",
-				Description: "For a root administrator only, prepare a confirmation-gated import of exact missing model metadata from the live upstream catalog. Call get_admin_model_inventory first, then pass model_ids only when needed. This never writes immediately; the UI must show the exact models/vendors and the administrator must confirm.",
+				Description: "For a root administrator only, verify selected locally-missing model IDs against the live upstream catalog and prepare a confirmation-gated import for the IDs found there. Call get_admin_model_inventory first; do not claim an ID is available upstream until this tool returns its preview. This never writes immediately; the UI must show the exact metadata and skipped IDs, and the administrator must confirm.",
 				Parameters: objectSchema(map[string]any{
 					"model_ids": map[string]any{"type": "array", "maxItems": assistantAdminMaxModelSyncItems, "items": map[string]any{"type": "string", "maxLength": assistantAdminMaxModelNameRunes}},
 					"locale":    map[string]any{"type": "string", "enum": []string{"en", "zh-CN", "zh-TW", "ja"}},

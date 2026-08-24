@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"sort"
 	"strings"
 	"time"
@@ -95,6 +96,38 @@ func assistantModelSyncContext(c *gin.Context) (context.Context, context.CancelF
 	return context.WithTimeout(parent, time.Duration(seconds)*time.Second)
 }
 
+func assistantModelSyncSource(rawURL string) string {
+	parsed, err := url.Parse(rawURL)
+	if err != nil || parsed.Host == "" {
+		return "configured upstream"
+	}
+	parsed.User = nil
+	parsed.RawQuery = ""
+	parsed.Fragment = ""
+	return parsed.String()
+}
+
+func assistantModelSyncFetchErrorDetail(err error) string {
+	if err == nil {
+		return "unknown error"
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "request timed out"
+	}
+	if errors.Is(err, context.Canceled) {
+		return "request canceled"
+	}
+	var requestErr *url.Error
+	if errors.As(err, &requestErr) && requestErr.Err != nil {
+		err = requestErr.Err
+	}
+	detail := boundedAssistantModelText(err.Error(), 256)
+	if detail == "" {
+		return "unknown error"
+	}
+	return detail
+}
+
 func assistantModelSyncDigest(change assistantAdminModelSyncChange) string {
 	payload := struct {
 		Locale  string                         `json:"locale"`
@@ -160,7 +193,11 @@ func assistantAdminModelSyncPlan(c *gin.Context, requested []string, locale stri
 	var modelsEnvelope upstreamEnvelope[upstreamModel]
 	var vendorsEnvelope upstreamEnvelope[upstreamVendor]
 	if err := fetchJSON(ctx, modelsURL, &modelsEnvelope); err != nil {
-		return assistantAdminModelSyncChange{}, nil, errors.New("upstream model catalog is unavailable")
+		return assistantAdminModelSyncChange{}, nil, fmt.Errorf(
+			"upstream model catalog is unavailable (source %s): %s",
+			assistantModelSyncSource(modelsURL),
+			assistantModelSyncFetchErrorDetail(err),
+		)
 	}
 	// Vendor metadata is optional for the existing sync endpoint, but fetching
 	// it here lets the confirmation show exactly which vendor rows will be new.
@@ -230,9 +267,13 @@ func assistantAdminModelSyncPreview(change assistantAdminModelSyncChange) []map[
 	preview := make([]map[string]any, 0, len(change.Models))
 	for _, item := range change.Models {
 		preview = append(preview, map[string]any{
-			"model_id": item.ModelName,
-			"vendor":   item.VendorName,
-			"status":   item.Status,
+			"model_id":   item.ModelName,
+			"description": item.Description,
+			"icon":        item.Icon,
+			"tags":        item.Tags,
+			"vendor":      item.VendorName,
+			"name_rule":   item.NameRule,
+			"status":      item.Status,
 		})
 	}
 	return preview
@@ -286,7 +327,8 @@ func executeAssistantAdminModelInventoryTool(userID int) map[string]any {
 	return map[string]any{
 		"ok": true, "model_ids": modelIDs, "missing_model_ids": missing,
 		"missing_truncated": truncated, "groups": assistantAdminConfiguredGroups(),
-		"next_step": "Use prepare_admin_model_sync with exact missing model IDs, then wait for the administrator to confirm the preview.",
+		"upstream_availability_checked": false,
+		"next_step": "These IDs are missing from local metadata only; do not claim that the upstream catalog contains them until prepare_admin_model_sync returns a preview. Then wait for the administrator to confirm it.",
 	}
 }
 
@@ -300,6 +342,9 @@ func executeAssistantAdminModelSyncTool(c *gin.Context, userID int, input map[st
 	}
 	change, skipped, err := assistantAdminModelSyncPlan(c, requested, inputString(input, "locale"))
 	if err != nil {
+		if skipped == nil {
+			skipped = []string{}
+		}
 		return map[string]any{"ok": false, "status": "model_sync_unavailable", "error": err.Error(), "skipped_model_ids": skipped}
 	}
 	token, err := createAssistantAdminFlow(c, userID, assistantAdminChangePayload{Kind: assistantAdminModelSyncChangeKind, ModelSync: &change})

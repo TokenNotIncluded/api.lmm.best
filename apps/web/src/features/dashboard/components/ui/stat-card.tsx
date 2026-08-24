@@ -143,6 +143,7 @@ function buildLineSparkline(values?: number[]) {
 
 function LineSparkline(props: { values?: number[]; tone: StatCardTone }) {
   const paths = buildLineSparkline(props.values)
+  const gradId = `sparkline-grad-${props.tone}`
 
   if (!paths) return <div className='h-8' aria-hidden='true' />
 
@@ -157,16 +158,22 @@ function LineSparkline(props: { values?: number[]; tone: StatCardTone }) {
       <svg
         viewBox='0 0 160 36'
         preserveAspectRatio='none'
-        className='size-full'
+        className='size-full overflow-visible'
       >
-        <path d={paths.areaPath} fill='currentColor' fillOpacity='0.1' />
+        <defs>
+          <linearGradient id={gradId} x1='0' y1='0' x2='0' y2='1'>
+            <stop offset='0%' stopColor='currentColor' stopOpacity='0.25' />
+            <stop offset='100%' stopColor='currentColor' stopOpacity='0.02' />
+          </linearGradient>
+        </defs>
+        <path d={paths.areaPath} fill={`url(#${gradId})`} />
         <path
           d={paths.linePath}
           fill='none'
           stroke='currentColor'
           strokeLinecap='round'
           strokeLinejoin='round'
-          strokeWidth='2.25'
+          strokeWidth='2'
           vectorEffect='non-scaling-stroke'
         />
       </svg>
@@ -183,8 +190,8 @@ function BarSparkline(props: { values?: number[]; tone: StatCardTone }) {
         <span
           key={bucket.position}
           className={cn(
-            'flex-1 rounded-t-sm',
-            bucket.height <= 0 && 'opacity-20',
+            'flex-1 rounded-t transition-all duration-150',
+            bucket.height <= 0 ? 'opacity-15' : 'hover:brightness-110',
             TONE_CLASSES[props.tone]
           )}
           style={{ height: `${bucket.height}%` }}
@@ -200,14 +207,14 @@ function StatCardDetails(props: { details: StatCardDetail[] }) {
       {props.details.map((detail) => (
         <div
           key={detail.label}
-          className='bg-muted/40 rounded-lg border border-transparent px-2.5 py-2'
+          className='bg-muted/40 border-border/40 hover:bg-muted/60 rounded-lg border px-2.5 py-1.5 transition-colors'
         >
-          <div className='text-muted-foreground truncate text-[11px] leading-none font-medium'>
+          <div className='text-muted-foreground truncate text-[11px] leading-tight font-medium'>
             {detail.label}
           </div>
           <div
             className={cn(
-              'mt-1.5 truncate text-xs font-semibold tabular-nums',
+              'mt-1 truncate font-mono text-xs font-semibold tabular-nums',
               DETAIL_TONE_CLASSES[detail.tone ?? 'default']
             )}
             title={detail.value}

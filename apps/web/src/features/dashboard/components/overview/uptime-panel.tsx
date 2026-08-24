@@ -145,7 +145,7 @@ export function UptimePanel() {
                   <div
                     key={monitor.name}
                     className={cn(
-                      'hover:bg-muted/40 flex items-center justify-between gap-2 px-3 py-2 transition-colors sm:px-5 sm:py-2.5',
+                      'hover:bg-muted/45 flex items-center justify-between gap-2.5 px-3.5 py-2.5 transition-all sm:px-5 sm:py-3',
                       monitorIdx < (group.monitors?.length || 0) - 1 &&
                         'border-border/40 border-b',
                       groupIdx < groups.length - 1 &&
@@ -155,14 +155,16 @@ export function UptimePanel() {
                   >
                     <div className='flex min-w-0 items-center gap-2.5'>
                       <StatusDot status={monitor.status} />
-                      <span className='truncate text-sm'>{monitor.name}</span>
+                      <span className='text-foreground truncate text-sm font-medium tracking-tight'>
+                        {monitor.name}
+                      </span>
                       {monitor.group && (
-                        <span className='text-muted-foreground/40 shrink-0 text-xs'>
+                        <span className='text-muted-foreground/60 shrink-0 text-xs'>
                           ({monitor.group})
                         </span>
                       )}
                     </div>
-                    <span className='text-foreground shrink-0 font-mono text-sm font-semibold tabular-nums'>
+                    <span className='text-foreground border-border/50 bg-background/80 inline-flex shrink-0 items-center rounded-md border px-2 py-0.5 font-mono text-xs font-semibold tabular-nums shadow-2xs'>
                       {((monitor.uptime ?? 0) * 100).toFixed(2)}%
                     </span>
                   </div>

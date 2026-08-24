@@ -33,10 +33,9 @@ func normalizeLocale(locale string) (string, bool) {
 	switch l {
 	case "en":
 		return "en", true
-	case "zh", "zh-cn":
-		return "zh-CN", true
-	case "zh-tw":
-		return "zh-TW", true
+	case "zh", "zh-cn", "zh-tw":
+		// The upstream feed publishes one Chinese dataset under /i18n/zh/.
+		return "zh", true
 	case "ja":
 		return "ja", true
 	default:

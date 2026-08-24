@@ -84,24 +84,26 @@ export function AnnouncementsPanel() {
                 type='button'
                 onClick={() => handleAnnouncementClick(item)}
                 className={cn(
-                  'group hover:bg-muted/40 w-full px-3 py-3 text-left transition-colors sm:px-5 sm:py-3.5',
+                  'group hover:bg-muted/45 w-full px-3.5 py-3 text-left transition-all sm:px-5 sm:py-3.5',
                   idx < list.length - 1 && 'border-border/60 border-b'
                 )}
               >
-                <div className='flex items-start gap-2.5'>
-                  <AnnouncementStatusDot type={item.type} />
+                <div className='flex items-start gap-3'>
+                  <span className='mt-1 flex size-2 shrink-0 items-center justify-center'>
+                    <AnnouncementStatusDot type={item.type} />
+                  </span>
                   <div className='flex min-w-0 flex-1 flex-col gap-1'>
-                    <p className='line-clamp-1 text-sm font-medium'>
+                    <p className='text-foreground group-hover:text-primary line-clamp-1 text-sm font-medium tracking-tight transition-colors'>
                       {getPreviewText(item.content)}
                     </p>
                     <div className='flex items-center justify-between'>
                       {item.publishDate && (
-                        <time className='text-muted-foreground/60 text-xs'>
+                        <time className='text-muted-foreground/70 font-mono text-[11px] tabular-nums'>
                           {formatDateTimeObject(new Date(item.publishDate))}
                         </time>
                       )}
-                      <span className='text-muted-foreground/40 text-xs opacity-0 transition-opacity group-hover:opacity-100'>
-                        {t('Click for details')}
+                      <span className='text-primary/80 text-xs font-medium opacity-0 transition-opacity group-hover:opacity-100'>
+                        {t('Click for details')} →
                       </span>
                     </div>
                   </div>

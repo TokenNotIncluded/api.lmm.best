@@ -136,20 +136,46 @@ describe('log cost display', () => {
     await unmountCost(rendered)
   })
 
-  test('preserves the subscription badge and adds the same legacy surcharge marker', async () => {
+  test('shows final subscription consumption inline and preserves the surcharge marker', async () => {
     const rendered = await renderCost({
       quota: 5000,
       other: {
         billing_source: 'subscription',
+        subscription_consumed: 2500,
         web_search: true,
         web_search_call_count: 1,
         web_search_price: 10,
       },
     })
 
-    assert.equal(rendered.container.textContent?.includes('Subscription'), true)
+    const subscriptionBadge = rendered.container.querySelector(
+      '[data-slot="tooltip-trigger"], [data-slot="status-badge"]'
+    )
+    assert.ok(subscriptionBadge)
+    assert.equal(
+      normalizedText(subscriptionBadge.textContent),
+      normalizedText(`Subscription (${formatLogQuota(2500)})`)
+    )
     assert.ok(
       rendered.container.querySelector('[data-tool-surcharge-indicator="true"]')
+    )
+
+    await unmountCost(rendered)
+  })
+
+  test('falls back to the logged quota for legacy subscription records', async () => {
+    const rendered = await renderCost({
+      quota: 5000,
+      other: { billing_source: 'subscription' },
+    })
+
+    const subscriptionBadge = rendered.container.querySelector(
+      '[data-slot="tooltip-trigger"], [data-slot="status-badge"]'
+    )
+    assert.ok(subscriptionBadge)
+    assert.equal(
+      normalizedText(subscriptionBadge.textContent),
+      normalizedText(`Subscription (${formatLogQuota(5000)})`)
     )
 
     await unmountCost(rendered)

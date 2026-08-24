@@ -250,24 +250,24 @@ export function SummaryCards() {
   })
 
   return (
-    <div className='dashboard-editorial-panel bg-card overflow-hidden border'>
-      <div className='grid xl:grid-cols-[minmax(0,1fr)_19rem]'>
-        <div className='flex flex-col gap-2.5 p-3 sm:gap-3 sm:p-5'>
+    <div className='bg-card border-border/70 overflow-hidden rounded-2xl border shadow-xs transition-all'>
+      <div className='grid xl:grid-cols-[minmax(0,1fr)_20rem]'>
+        <div className='flex flex-col gap-3 p-3.5 sm:gap-4 sm:p-5'>
           <div className='flex flex-wrap items-start justify-between gap-3'>
-            <div className='flex flex-col gap-1'>
-              <h3 className='text-sm font-semibold sm:text-base'>
+            <div className='flex flex-col gap-0.5'>
+              <h3 className='text-foreground text-sm font-semibold tracking-tight sm:text-base'>
                 {t('Usage at a glance')}
               </h3>
-              <p className='text-muted-foreground text-xs sm:text-sm'>
+              <p className='text-muted-foreground text-xs leading-relaxed sm:text-sm'>
                 {t('Monitor balance, usage, and request volume')}
               </p>
             </div>
           </div>
-          <StaggerContainer className='grid grid-cols-3 gap-1.5 sm:gap-3'>
+          <StaggerContainer className='grid grid-cols-3 gap-2 sm:gap-3.5'>
             {items.map((it) => (
               <StaggerItem
                 key={it.key}
-                className='bg-background/60 rounded-lg border px-2 py-1.5 sm:rounded-xl sm:p-3'
+                className='bg-background/70 hover:bg-background/95 group/stat border-border/60 hover:border-border/90 rounded-xl border px-2.5 py-2 transition-all duration-200 hover:shadow-xs sm:p-3.5'
               >
                 <StatCard
                   title={it.title}
@@ -285,47 +285,53 @@ export function SummaryCards() {
           </StaggerContainer>
         </div>
 
-        <div className='flex flex-col justify-between gap-3 border-t bg-[var(--dashboard-wash)] p-3 sm:gap-4 sm:p-5 xl:border-t-0 xl:border-l'>
-          <div className='flex flex-col gap-2 sm:gap-3'>
+        <div className='border-border/60 bg-muted/20 flex flex-col justify-between gap-3.5 border-t p-3.5 sm:gap-4 sm:p-5 xl:border-t-0 xl:border-l'>
+          <div className='flex flex-col gap-2.5 sm:gap-3'>
             <div className='flex items-center justify-between'>
               <span className='text-muted-foreground text-xs font-medium'>
                 {t('Credit remaining')}
               </span>
-              <span className='flex items-center gap-1.5'>
+              <span className='border-border/60 bg-background/80 inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-medium shadow-2xs'>
                 <span
-                  className={cn('size-1.5 rounded-full', healthCfg.dotClass)}
+                  className={cn(
+                    'size-1.5 rounded-full ring-2 ring-current/20',
+                    healthCfg.dotClass
+                  )}
                   aria-hidden='true'
                 />
-                <span className='text-muted-foreground text-[11px] font-medium'>
+                <span className='text-muted-foreground'>
                   {t(healthCfg.labelKey)}
                 </span>
               </span>
             </div>
 
-            <div className='font-mono text-xl font-semibold tracking-tight sm:text-2xl'>
+            <div className='text-foreground font-mono text-2xl font-bold tracking-tight sm:text-3xl'>
               {formatQuota(remainQuota)}
             </div>
 
             <div className='grid grid-cols-2 gap-2'>
-              <div className='bg-background/60 rounded-lg px-2.5 py-2'>
+              <div className='bg-background/80 border-border/50 hover:border-border/80 rounded-xl border px-3 py-2.5 transition-colors'>
                 <div className='text-muted-foreground flex items-center gap-1 text-[11px] leading-none font-medium'>
-                  <Flame className='size-3 shrink-0' aria-hidden='true' />
+                  <Flame
+                    className='text-chart-4 size-3 shrink-0'
+                    aria-hidden='true'
+                  />
                   <span className='truncate'>{t('Last 24h usage')}</span>
                 </div>
-                <div className='text-foreground mt-1.5 truncate text-xs font-semibold tabular-nums'>
+                <div className='text-foreground mt-1.5 truncate font-mono text-xs font-semibold tabular-nums'>
                   {formatQuota(recentUsage)}
                 </div>
               </div>
-              <div className='bg-background/60 rounded-lg px-2.5 py-2'>
+              <div className='bg-background/80 border-border/50 hover:border-border/80 rounded-xl border px-3 py-2.5 transition-colors'>
                 <div className='text-muted-foreground flex items-center gap-1 text-[11px] leading-none font-medium'>
                   {runwayDays !== null && runwayDays < 3 ? (
                     <TrendingDown
-                      className='size-3 shrink-0'
+                      className='text-warning size-3 shrink-0'
                       aria-hidden='true'
                     />
                   ) : (
                     <ShieldCheck
-                      className='size-3 shrink-0'
+                      className='text-success size-3 shrink-0'
                       aria-hidden='true'
                     />
                   )}
@@ -333,7 +339,7 @@ export function SummaryCards() {
                 </div>
                 <div
                   className={cn(
-                    'mt-1.5 truncate text-xs font-semibold tabular-nums',
+                    'mt-1.5 truncate font-mono text-xs font-semibold tabular-nums',
                     healthLevel === 'critical' && 'text-destructive',
                     healthLevel === 'caution' && 'text-warning'
                   )}
@@ -344,7 +350,10 @@ export function SummaryCards() {
             </div>
           </div>
 
-          <Button className='justify-between' render={<Link to='/wallet' />}>
+          <Button
+            className='justify-between shadow-xs transition-all hover:shadow-sm'
+            render={<Link to='/wallet' />}
+          >
             <span>{t('Wallet')}</span>
             <ArrowRight data-icon='inline-end' />
           </Button>

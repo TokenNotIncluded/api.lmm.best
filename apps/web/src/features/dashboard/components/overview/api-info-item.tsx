@@ -44,25 +44,25 @@ export function ApiInfoItemComponent(props: ApiInfoItemProps) {
   const safeUrl = isSafeHttpUrl(item.url)
 
   return (
-    <div className='group hover:bg-muted/40 flex items-center justify-between gap-2 px-3 py-2.5 transition-colors sm:gap-3 sm:px-5 sm:py-3'>
-      <div className='flex min-w-0 flex-1 items-center gap-2 sm:gap-3'>
+    <div className='group hover:bg-muted/45 flex items-center justify-between gap-2.5 px-3.5 py-2.5 transition-all sm:gap-3.5 sm:px-5 sm:py-3'>
+      <div className='flex min-w-0 flex-1 items-center gap-2.5 sm:gap-3'>
         <span
           className={cn(
-            'inline-block size-2 shrink-0 rounded-full',
+            'inline-block size-2 shrink-0 rounded-full ring-2 ring-current/20',
             getBgColorClass(item.color)
           )}
         />
 
         <div className='flex min-w-0 flex-1 flex-col gap-0.5'>
           <div className='flex items-baseline gap-2'>
-            <span className='font-mono text-sm font-semibold'>
+            <span className='text-foreground font-mono text-sm font-semibold tracking-tight'>
               {item.route}
             </span>
-            <span className='text-muted-foreground/60 hidden truncate text-xs md:inline'>
+            <span className='text-muted-foreground/70 hidden truncate text-xs md:inline'>
               {item.description}
             </span>
           </div>
-          <span className='text-muted-foreground/40 truncate font-mono text-xs'>
+          <span className='text-muted-foreground/50 truncate font-mono text-xs select-all'>
             {item.url}
           </span>
         </div>
@@ -74,7 +74,7 @@ export function ApiInfoItemComponent(props: ApiInfoItemProps) {
             <StatusBadge
               label={t('Testing...')}
               variant='warning'
-              className='animate-pulse'
+              className='animate-pulse shadow-2xs'
               copyable={false}
             />
           )}
@@ -83,18 +83,23 @@ export function ApiInfoItemComponent(props: ApiInfoItemProps) {
               variant='success'
               label={`${status.latency}${t('ms')}`}
               className={cn(
-                'font-mono font-medium',
+                'font-mono font-medium shadow-2xs',
                 getLatencyColorClass(status.latency)
               )}
               copyable={false}
             />
           )}
           {status.error && (
-            <StatusBadge label={t('N/A')} variant='neutral' copyable={false} />
+            <StatusBadge
+              label={t('N/A')}
+              variant='neutral'
+              copyable={false}
+              className='shadow-2xs'
+            />
           )}
         </div>
 
-        <div className='flex items-center gap-0.5'>
+        <div className='border-border/40 bg-background/60 flex items-center gap-0.5 rounded-lg border p-0.5 shadow-2xs'>
           <Button
             variant='ghost'
             size='sm'
@@ -102,11 +107,14 @@ export function ApiInfoItemComponent(props: ApiInfoItemProps) {
               if (safeUrl) props.onTest(item.url)
             }}
             disabled={status.testing || !safeUrl}
-            className='size-7 p-0'
+            className='hover:bg-muted/80 size-7 p-0'
             title={t('Test Latency')}
           >
             <Zap
-              className={cn('size-3.5', status.testing && 'animate-pulse')}
+              className={cn(
+                'size-3.5',
+                status.testing && 'animate-pulse text-warning'
+              )}
             />
           </Button>
 
@@ -115,7 +123,7 @@ export function ApiInfoItemComponent(props: ApiInfoItemProps) {
               variant='ghost'
               size='sm'
               onClick={() => openExternalSpeedTest(item.url)}
-              className='hidden size-7 p-0 sm:inline-flex'
+              className='hover:bg-muted/80 hidden size-7 p-0 sm:inline-flex'
               title={t('External Speed Test')}
             >
               <Gauge className='size-3.5' />
@@ -126,7 +134,7 @@ export function ApiInfoItemComponent(props: ApiInfoItemProps) {
             value={item.url}
             variant='ghost'
             size='sm'
-            className='size-7 p-0'
+            className='hover:bg-muted/80 size-7 p-0'
             iconClassName='size-3.5'
             tooltip={t('Copy URL')}
             aria-label={t('Copy URL')}
@@ -136,7 +144,7 @@ export function ApiInfoItemComponent(props: ApiInfoItemProps) {
             <Button
               variant='ghost'
               size='sm'
-              className='hidden size-7 p-0 sm:inline-flex'
+              className='hover:bg-muted/80 hidden size-7 p-0 sm:inline-flex'
               title={t('Open in New Tab')}
               render={
                 <a href={item.url} target='_blank' rel='noopener noreferrer' />
