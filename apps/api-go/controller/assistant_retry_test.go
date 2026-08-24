@@ -70,11 +70,55 @@ func TestAssistantRelayRecorderTreatsGinRenderSentinelAsOK(t *testing.T) {
 	relayRecorder := newAssistantRelayRecorder(context.Writer)
 	context.Writer = relayRecorder
 
+	relayRecorder.WriteHeader(-1)
+	relayRecorder.WriteHeader(0)
+	assert.Equal(t, http.StatusOK, relayRecorder.Status())
+	assert.Equal(t, -1, relayRecorder.Size())
+	assert.False(t, relayRecorder.Written())
+
 	context.Render(-1, common.CustomEvent{Data: `data: {"choices":[{"message":{"content":"rendered answer"}}]}`})
 
 	assert.Equal(t, http.StatusOK, relayRecorder.Status())
 	assert.True(t, relayRecorder.Written())
 	assert.Contains(t, string(relayRecorder.body.Bytes()), "rendered answer")
+}
+
+func TestAssistantRelayRecorderMatchesGinHeaderCommitSemantics(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	t.Run("positive status can change before body", func(t *testing.T) {
+		relayRecorder := newAssistantRelayRecorder(httptestResponseWriter(t))
+		relayRecorder.WriteHeader(http.StatusServiceUnavailable)
+		assert.Equal(t, http.StatusServiceUnavailable, relayRecorder.Status())
+		assert.False(t, relayRecorder.Written())
+
+		relayRecorder.WriteHeader(http.StatusOK)
+		_, err := relayRecorder.WriteString(`{"choices":[{"message":{"content":"recovered answer"}}]}`)
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusOK, relayRecorder.Status())
+		assert.True(t, relayRecorder.Written())
+
+		relayRecorder.WriteHeader(http.StatusInternalServerError)
+		assert.Equal(t, http.StatusOK, relayRecorder.Status())
+	})
+
+	t.Run("sentinel render preserves positive status", func(t *testing.T) {
+		context, _ := gin.CreateTestContext(httptest.NewRecorder())
+		relayRecorder := newAssistantRelayRecorder(context.Writer)
+		context.Writer = relayRecorder
+		relayRecorder.WriteHeader(http.StatusServiceUnavailable)
+
+		context.Render(-1, common.CustomEvent{Data: `{"error":"upstream unavailable"}`})
+
+		assert.Equal(t, http.StatusServiceUnavailable, relayRecorder.Status())
+		assert.True(t, relayRecorder.Written())
+	})
+}
+
+func httptestResponseWriter(t *testing.T) gin.ResponseWriter {
+	t.Helper()
+	context, _ := gin.CreateTestContext(httptest.NewRecorder())
+	return context.Writer
 }
 
 func TestAssistantRelayRetryPolicyClassifiesTransientHTTPAndNetworkErrors(t *testing.T) {

@@ -72,6 +72,12 @@ func TestAssistantStreamingRelayWriterTreatsGinRenderSentinelAsOK(t *testing.T) 
 
 	writer := newAssistantStreamingRelayWriter(context.Writer, session)
 	context.Writer = writer
+	writer.WriteHeader(-1)
+	writer.WriteHeader(0)
+	assert.Equal(t, http.StatusOK, writer.Status())
+	assert.Equal(t, -1, writer.Size())
+	assert.False(t, writer.Written())
+
 	context.Render(-1, common.CustomEvent{Data: `data: {"choices":[{"delta":{"content":"rendered answer"}}]}`})
 
 	assert.Equal(t, http.StatusOK, writer.Status())
@@ -82,6 +88,44 @@ func TestAssistantStreamingRelayWriterTreatsGinRenderSentinelAsOK(t *testing.T) 
 	require.NoError(t, err)
 	require.Len(t, response.Choices, 1)
 	assert.Equal(t, "rendered answer", agent.Text(response.Choices[0].Message.Content))
+}
+
+func TestAssistantStreamingRelayWriterMatchesGinHeaderCommitSemantics(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	t.Run("positive status can change before body", func(t *testing.T) {
+		context, _ := gin.CreateTestContext(httptest.NewRecorder())
+		session := newAssistantStreamSession(context.Writer)
+		require.NoError(t, session.start())
+		writer := newAssistantStreamingRelayWriter(context.Writer, session)
+
+		writer.WriteHeader(http.StatusServiceUnavailable)
+		assert.Equal(t, http.StatusServiceUnavailable, writer.Status())
+		assert.False(t, writer.Written())
+
+		writer.WriteHeader(http.StatusOK)
+		_, err := writer.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"recovered answer\"}}]}\n\n"))
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusOK, writer.Status())
+		assert.True(t, writer.Written())
+
+		writer.WriteHeader(http.StatusInternalServerError)
+		assert.Equal(t, http.StatusOK, writer.Status())
+	})
+
+	t.Run("sentinel render preserves positive status", func(t *testing.T) {
+		context, _ := gin.CreateTestContext(httptest.NewRecorder())
+		session := newAssistantStreamSession(context.Writer)
+		require.NoError(t, session.start())
+		writer := newAssistantStreamingRelayWriter(context.Writer, session)
+		context.Writer = writer
+		writer.WriteHeader(http.StatusServiceUnavailable)
+
+		context.Render(-1, common.CustomEvent{Data: `data: {"error":"upstream unavailable"}`})
+
+		assert.Equal(t, http.StatusServiceUnavailable, writer.Status())
+		assert.True(t, writer.Written())
+	})
 }
 
 func TestAssistantStreamingRelayWriterResetsFailedChannelBeforeRetry(t *testing.T) {

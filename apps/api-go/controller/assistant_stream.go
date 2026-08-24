@@ -377,6 +377,7 @@ func newAssistantStreamingRelayWriter(writer gin.ResponseWriter, session *assist
 		ResponseWriter: writer,
 		header:         make(http.Header),
 		body:           common.NewLimitBuffer(assistantUpstreamResponseMaxBytes),
+		status:         http.StatusOK,
 		session:        session,
 		toolCalls:      make(map[int]agent.Call),
 	}
@@ -395,12 +396,11 @@ func (r *assistantStreamingRelayWriter) WriteHeader(statusCode int) {
 		return
 	}
 	r.status = statusCode
-	r.wroteHeader = true
 }
 
 func (r *assistantStreamingRelayWriter) WriteHeaderNow() {
 	if !r.wroteHeader {
-		r.WriteHeader(http.StatusOK)
+		r.wroteHeader = true
 	}
 }
 
@@ -426,7 +426,7 @@ func (r *assistantStreamingRelayWriter) Flush() {
 }
 
 func (r *assistantStreamingRelayWriter) Status() int {
-	if !r.wroteHeader {
+	if r.status <= 0 {
 		return http.StatusOK
 	}
 	return r.status
@@ -447,7 +447,7 @@ func (r *assistantStreamingRelayWriter) ResetForRelayRetry() error {
 	sessionErr := r.session.resetContent()
 	clear(r.header)
 	r.body = common.NewLimitBuffer(assistantUpstreamResponseMaxBytes)
-	r.status = 0
+	r.status = http.StatusOK
 	r.wroteHeader = false
 	r.writeErr = nil
 	r.decoder = assistantSSEDecoder{}

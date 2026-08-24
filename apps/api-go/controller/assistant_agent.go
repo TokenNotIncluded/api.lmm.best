@@ -1339,6 +1339,7 @@ func newAssistantRelayRecorder(writer gin.ResponseWriter) *assistantRelayRecorde
 		ResponseWriter: writer,
 		header:         make(http.Header),
 		body:           common.NewLimitBuffer(assistantUpstreamResponseMaxBytes),
+		status:         http.StatusOK,
 	}
 }
 
@@ -1355,12 +1356,11 @@ func (r *assistantRelayRecorder) WriteHeader(statusCode int) {
 		return
 	}
 	r.status = statusCode
-	r.wroteHeader = true
 }
 
 func (r *assistantRelayRecorder) WriteHeaderNow() {
 	if !r.wroteHeader {
-		r.WriteHeader(http.StatusOK)
+		r.wroteHeader = true
 	}
 }
 
@@ -1395,7 +1395,7 @@ func (r *assistantRelayRecorder) Flush() {
 }
 
 func (r *assistantRelayRecorder) Status() int {
-	if !r.wroteHeader {
+	if r.status <= 0 {
 		return http.StatusOK
 	}
 	return r.status
@@ -1416,7 +1416,7 @@ func (r *assistantRelayRecorder) ResetForRelayRetry() error {
 	clear(r.header)
 	r.body = common.NewLimitBuffer(assistantUpstreamResponseMaxBytes)
 	r.writeErr = nil
-	r.status = 0
+	r.status = http.StatusOK
 	r.wroteHeader = false
 	return nil
 }
