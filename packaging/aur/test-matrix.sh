@@ -149,11 +149,11 @@ contains_srcinfo lmm-api-go-git $'\tmakedepends = go>=1.25.1'
 contains_srcinfo lmm-api-go $'\tmakedepends = bun'
 contains_srcinfo lmm-api-go $'\tmakedepends = git'
 contains_srcinfo lmm-api-go $'\tmakedepends = go>=1.25.1'
-go_release_commit=a864eda26852940c4e7735c8cde267422798075d
+go_release_commit=241aff9d75884fb20a070a6d513e5830a6295b3b
 readonly go_release_commit
 grep -Fqx "_commit=$go_release_commit" "$HERE/lmm-api-go/PKGBUILD" ||
   die 'canonical Go package is not pinned to the reviewed direct-package revision'
-readonly reviewed_go_release_pkgver=0.1.1.r1114.ga864eda26
+readonly reviewed_go_release_pkgver=0.1.1.r1119.g241aff9d7
 if go_release_description=$(git -C "$ROOT" describe --long --tags --match='v[0-9]*' --abbrev=9 "$go_release_commit" 2>/dev/null); then
   go_release_pkgver=$(printf '%s\n' "$go_release_description" |
     sed -E 's/^v//; s/([^-]*-g)/r\1/; s/-/./g')
