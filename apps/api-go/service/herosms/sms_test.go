@@ -66,6 +66,30 @@ func TestSMSClientCatalogQuoteAndPurchase(t *testing.T) {
 	require.Equal(t, "1.25", activation.CostValue)
 }
 
+func TestSMSClientServicesAcceptsHeroSMSEnvelope(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "getServicesList", r.URL.Query().Get("action"))
+		_, _ = w.Write([]byte(`{"status":"success","services":[{"code":" tg ","name":" Telegram "},{"code":"","name":"ignored"}]}`))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL+"/api/v1", "test-key")
+	services, err := client.ListSMSServices(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, []SMSService{{Code: "tg", Name: "Telegram"}}, services)
+}
+
+func TestSMSClientServicesRejectsFailedHeroSMSEnvelope(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"status":"error","services":[]}`))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL+"/api/v1", "test-key")
+	_, err := client.ListSMSServices(context.Background())
+	require.ErrorIs(t, err, ErrBadResponse)
+}
+
 func TestSMSClientStatusAndStatusUpdate(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Query().Get("action") {

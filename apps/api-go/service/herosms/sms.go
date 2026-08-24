@@ -129,19 +129,45 @@ func (c *HTTPClient) ListSMSServices(ctx context.Context) ([]SMSService, error) 
 	if err != nil {
 		return nil, err
 	}
+
+	// HeroSMS currently wraps the catalog in
+	// {"status":"success","services":[{"code":"tg","name":"Telegram"}]},
+	// while older SMS-Activate-compatible deployments return {"tg":"Telegram"}.
+	// Accept both documented shapes so a provider-side schema migration does not
+	// make the entire phone-number activation panel unavailable.
+	var envelope struct {
+		Status   string       `json:"status"`
+		Services []SMSService `json:"services"`
+	}
+	if err := json.Unmarshal(body, &envelope); err == nil && envelope.Services != nil {
+		if !strings.EqualFold(strings.TrimSpace(envelope.Status), "success") {
+			return nil, ErrBadResponse
+		}
+		return normalizeSMSServices(envelope.Services), nil
+	}
+
 	payload := make(map[string]string)
 	if err := json.Unmarshal(body, &payload); err != nil {
 		return nil, ErrBadResponse
 	}
 	services := make([]SMSService, 0, len(payload))
 	for code, name := range payload {
-		code = strings.TrimSpace(code)
-		if code == "" {
+		services = append(services, SMSService{Code: code, Name: name})
+	}
+	return normalizeSMSServices(services), nil
+}
+
+func normalizeSMSServices(services []SMSService) []SMSService {
+	normalized := make([]SMSService, 0, len(services))
+	for _, service := range services {
+		service.Code = strings.TrimSpace(service.Code)
+		if service.Code == "" {
 			continue
 		}
-		services = append(services, SMSService{Code: code, Name: strings.TrimSpace(name)})
+		service.Name = strings.TrimSpace(service.Name)
+		normalized = append(normalized, service)
 	}
-	return services, nil
+	return normalized
 }
 
 func (c *HTTPClient) GetSMSOffer(ctx context.Context, countryID int, service string) (*SMSOffer, error) {

@@ -133,8 +133,8 @@ export function HeroSmsSettingsSection() {
       setSaveError(message)
       toast.error(message)
     },
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['hero-sms-settings'] })
+    onSuccess: (settings) => {
+      queryClient.setQueryData(['hero-sms-settings'], settings)
       toast.success(t('HeroSMS settings saved'))
     },
   })
@@ -163,6 +163,8 @@ export function HeroSmsSettingsSection() {
     resolver: zodResolver(heroSmsSettingsSchema),
     defaultValues: {
       enabled: false,
+      emailEnabled: false,
+      smsEnabled: false,
       apiKey: '',
       priceMultiplier: 10,
     },
@@ -194,7 +196,8 @@ export function HeroSmsSettingsSection() {
       return
     }
     try {
-      await updateMutation.mutateAsync(values)
+      const settings = await updateMutation.mutateAsync(values)
+      form.reset(toHeroSmsSettingsFormValues(settings))
     } catch {
       // The mutation's onError handler owns the translated inline feedback.
     }
