@@ -1,10 +1,10 @@
 {
   "translation": {
-    "Continuing will replace the unsaved JSON currently in the editor.": "Si vous continuez, le JSON non enregistré dans l’éditeur sera remplacé.",
-    "Discard unsaved JSON changes?": "Abandonner les modifications JSON non enregistrées ?",
     "360": "360",
     "1000": "1000",
     "10000": "10000",
+    "Continuing will replace the unsaved JSON currently in the editor.": "Si vous continuez, le JSON non enregistré dans l’éditeur sera remplacé.",
+    "Discard unsaved JSON changes?": "Abandonner les modifications JSON non enregistrées ?",
     "_copy": "_copie",
     "，": ", ",
     ", and": ", et",

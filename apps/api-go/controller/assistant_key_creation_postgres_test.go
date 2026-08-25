@@ -199,15 +199,15 @@ func consumeAssistantKeyPostgresFlowWithTwoFactor(token, sessionID, twoFactorCod
 	return err
 }
 
-func waitForAssistantKeyPostgresBlocker(t *testing.T, db *gorm.DB, blockerPID int) {
+func waitForAssistantKeyPostgresBlockedBy(t *testing.T, db *gorm.DB, blockerPID int) {
 	t.Helper()
 	for attempt := 0; attempt < 200; attempt++ {
 		var blocked bool
 		require.NoError(t, db.Raw(`
 			SELECT EXISTS (
 				SELECT 1
-				FROM pg_stat_activity
-				WHERE pid = ? AND wait_event_type = 'Lock'
+				FROM pg_stat_activity activity
+				WHERE ? = ANY(pg_blocking_pids(activity.pid))
 			)`, blockerPID).Scan(&blocked).Error)
 		if blocked {
 			return
@@ -215,7 +215,7 @@ func waitForAssistantKeyPostgresBlocker(t *testing.T, db *gorm.DB, blockerPID in
 		runtime.Gosched()
 		time.Sleep(10 * time.Millisecond)
 	}
-	t.Fatalf("process %d never blocked", blockerPID)
+	t.Fatalf("no PostgreSQL process was blocked by backend %d", blockerPID)
 }
 
 func waitForAssistantKeyPostgresRelationLock(t *testing.T, db *gorm.DB, schema, table, mode string, granted bool) {

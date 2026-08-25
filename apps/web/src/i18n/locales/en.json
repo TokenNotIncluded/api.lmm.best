@@ -1,10 +1,10 @@
 {
   "translation": {
-    "Continuing will replace the unsaved JSON currently in the editor.": "Continuing will replace the unsaved JSON currently in the editor.",
-    "Discard unsaved JSON changes?": "Discard unsaved JSON changes?",
     "360": "360",
     "1000": "1000",
     "10000": "10000",
+    "Continuing will replace the unsaved JSON currently in the editor.": "Continuing will replace the unsaved JSON currently in the editor.",
+    "Discard unsaved JSON changes?": "Discard unsaved JSON changes?",
     "_copy": "_copy",
     "，": ", ",
     ", and": ", and",

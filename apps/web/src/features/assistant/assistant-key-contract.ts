@@ -18,8 +18,6 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { z } from 'zod'
 
-import type { getUserGroups } from '@/lib/api'
-
 import type { AssistantCreateKeyAction } from './api'
 
 export type AssistantGroupWarning = {
@@ -34,8 +32,6 @@ export type AssistantSelectableGroup = {
   warning?: AssistantGroupWarning
 }
 
-type UserGroupsPayload = Awaited<ReturnType<typeof getUserGroups>>
-
 const groupWarningSchema = z.strictObject({
   enabled: z.boolean(),
   message: z.string().trim().min(1),
@@ -43,15 +39,29 @@ const groupWarningSchema = z.strictObject({
   confirmations: z.number().int().min(1).max(3),
 })
 
+const decimalRatioSchema = z.union([
+  // Zod number schemas reject NaN and infinities before range checks.
+  z.number().nonnegative(),
+  z
+    .string()
+    .regex(/^(?:0|[1-9]\d*)(?:\.\d+)?$/)
+    .refine((value) => Number.isFinite(Number(value))),
+])
+
 const groupCatalogueSchema = z.record(
   z.string(),
   z.strictObject({
     desc: z.string().trim().min(1),
-    // Zod number schemas reject NaN and infinities before range checks.
-    ratio: z.number().nonnegative(),
+    ratio: decimalRatioSchema,
     warning: groupWarningSchema.optional(),
   })
 )
+
+const userGroupsResponseSchema = z.strictObject({
+  success: z.literal(true),
+  message: z.string().optional(),
+  data: groupCatalogueSchema,
+})
 
 const exactTrimmedString = (maxLength: number) =>
   z
@@ -74,13 +84,12 @@ const preparedActionSchema = z.strictObject({
 })
 
 export function selectableAssistantKeyGroups(
-  payload: UserGroupsPayload | undefined
+  payload: unknown
 ): AssistantSelectableGroup[] {
-  if (!payload?.success) return []
-  const catalogue = groupCatalogueSchema.safeParse(payload.data)
-  if (!catalogue.success) return []
+  const response = userGroupsResponseSchema.safeParse(payload)
+  if (!response.success) return []
   const groups = new Map<string, AssistantSelectableGroup>()
-  for (const [rawId, details] of Object.entries(catalogue.data)) {
+  for (const [rawId, details] of Object.entries(response.data.data)) {
     const id = rawId.trim()
     if (!id || id !== rawId || id.toLowerCase() === 'auto') continue
     groups.set(

@@ -1,10 +1,10 @@
 {
   "translation": {
-    "Continuing will replace the unsaved JSON currently in the editor.": "繼續操作將取代編輯器中尚未儲存的 JSON。",
-    "Discard unsaved JSON changes?": "放棄尚未儲存的 JSON 變更？",
     "360": "360",
     "1000": "1000",
     "10000": "10000",
+    "Continuing will replace the unsaved JSON currently in the editor.": "繼續操作將取代編輯器中尚未儲存的 JSON。",
+    "Discard unsaved JSON changes?": "放棄尚未儲存的 JSON 變更？",
     "_copy": "_複製",
     "，": "，",
     ", and": "，和",

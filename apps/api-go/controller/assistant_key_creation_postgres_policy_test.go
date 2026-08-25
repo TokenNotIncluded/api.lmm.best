@@ -37,10 +37,12 @@ func TestAssistantKeyPostgresDisabledUserCannotConsumePreparedFlow(t *testing.T)
 	require.NoError(t, harness.db.Model(&model.User{}).Where("id = ?", 7).Update("status", 0).Error)
 
 	err := consumeAssistantKeyPostgresFlow(flow, "disabled-user")
-	require.ErrorIs(t, err, errAssistantKeyAccountUnavailable)
+	require.ErrorIs(t, err, model.ErrAssistantKeyAuthorizationChanged)
+	var authFlow model.AuthFlow
+	require.NoError(t, harness.db.Where("session_id = ?", "disabled-user").First(&authFlow).Error)
+	assert.Nil(t, authFlow.ConsumedAt)
 	assert.EqualValues(t, 0, countAssistantKeyPostgresRows(t, harness.db, "tokens"))
 	assert.EqualValues(t, 0, countAssistantKeyPostgresRows(t, harness.db, "assistant_secure_cards"))
-
 }
 
 func TestAssistantKeyPostgresConcurrentReplayCreatesExactlyOneCredential(t *testing.T) {

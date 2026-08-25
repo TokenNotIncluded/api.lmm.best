@@ -43,6 +43,7 @@ describe('assistant key contract', () => {
         AUTO: { desc: 'virtual', ratio: 1 },
         ' padded ': { desc: 'invalid', ratio: 1 },
         default: { desc: 'Default', ratio: 1 },
+        stringRatio: { desc: 'String ratio', ratio: '0.5' },
         warned: {
           desc: 'Warned',
           ratio: 0,
@@ -69,6 +70,7 @@ describe('assistant key contract', () => {
     assert.deepEqual(groups, [
       { id: 'default' },
       { id: 'disabled' },
+      { id: 'stringRatio' },
       {
         id: 'warned',
         warning: {
@@ -90,7 +92,9 @@ describe('assistant key contract', () => {
       { desc: 'NaN', ratio: Number.NaN },
       { desc: 'Infinity', ratio: Number.POSITIVE_INFINITY },
       { desc: 'Negative', ratio: -1 },
-      { desc: 'String ratio', ratio: '1' },
+      { desc: 'Blank ratio', ratio: '' },
+      { desc: 'Hex ratio', ratio: '0x10' },
+      { desc: 'Infinite ratio', ratio: 'Infinity' },
       {
         desc: 'Invalid warning',
         ratio: 0,
@@ -106,17 +110,22 @@ describe('assistant key contract', () => {
       const payload = {
         success: true,
         data: { default: { desc: 'Default', ratio: 1 }, malformed },
-      } as Parameters<typeof selectableAssistantKeyGroups>[0]
+      }
       assert.deepEqual(selectableAssistantKeyGroups(payload), [])
     }
   })
 
-  test('fails closed when the catalogue itself is not a record', () => {
-    for (const data of [null, 'catalogue', ['group']]) {
-      const payload = {
-        success: true,
-        data,
-      } as unknown as Parameters<typeof selectableAssistantKeyGroups>[0]
+  test('fails closed when the response or catalogue is malformed', () => {
+    const malformedResponses: unknown[] = [
+      null,
+      { success: 'true', data: {} },
+      { success: true },
+      { success: true, data: null },
+      { success: true, data: 'catalogue' },
+      { success: true, data: ['group'] },
+      { success: true, data: {}, unexpected: true },
+    ]
+    for (const payload of malformedResponses) {
       assert.deepEqual(selectableAssistantKeyGroups(payload), [])
     }
   })
