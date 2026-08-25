@@ -432,6 +432,7 @@ func TestVerifySignedPackageLayoutRejectsUnsignedOperatorMutation(t *testing.T) 
 	releasePrefix := "lmm-api-go-0.1.59-linux-amd64/"
 	releaseEntries := []testTarEntry{
 		{name: releasePrefix + "lmm-api", body: "binary", mode: 0o755},
+		{name: releasePrefix + "lmm-api-go.env", body: "safe-env\n", mode: 0o640},
 		{name: releasePrefix + "lmm-api-operator.sudoers", body: "safe-sudoers\n", mode: 0o644},
 		{name: releasePrefix + "LICENSE", body: "license\n", mode: 0o644},
 	}
@@ -446,6 +447,7 @@ func TestVerifySignedPackageLayoutRejectsUnsignedOperatorMutation(t *testing.T) 
 			{name: ".PKGINFO", body: testProductionPackageInfo(t, productionAURPackageName, version, phase), mode: 0o644},
 			{name: ".MTREE", body: testPackageMtree(t, true), mode: 0o644},
 			{name: "usr/bin/lmm-api", body: "binary", mode: 0o755},
+			{name: "etc/lmm-api-go/lmm-api-go.env", body: "safe-env\n", mode: 0o600},
 			{name: "etc/sudoers.d/", mode: sudoersDirectoryMode, directory: true},
 			{name: "etc/sudoers.d/lmm-api-operator", body: sudoers, mode: 0o440},
 			{name: "usr/share/licenses/lmm-api-go-bin/LICENSE", body: "license\n", mode: 0o644},
@@ -517,6 +519,18 @@ func TestVerifySignedPackageLayoutRejectsUnsignedOperatorMutation(t *testing.T) 
 		t.Fatalf("nonroot package error=%v", err)
 	}
 
+	nonHardenedEnvPackage := filepath.Join(workspace, "non-hardened-env-package.tar.gz")
+	nonHardenedEnvEntries := packageEntries("0.1.59-1", productionCLIPhaseT0, "safe-sudoers\n", true, 0o750)
+	for index := range nonHardenedEnvEntries {
+		if nonHardenedEnvEntries[index].name == "etc/lmm-api-go/lmm-api-go.env" {
+			nonHardenedEnvEntries[index].mode = 0o640
+		}
+	}
+	writeTestTarGzip(t, nonHardenedEnvPackage, nonHardenedEnvEntries)
+	if err := runtime.verifySignedPackageLayout(context.Background(), workspace, productionAURPackageName, "0.1.59-1", nonHardenedEnvPackage, asset, assetSHA256, true); err == nil || !strings.Contains(err.Error(), "mode=0640 want=0600") {
+		t.Fatalf("environment hardening mode error=%v", err)
+	}
+
 	mappedModePackage := filepath.Join(workspace, "mapped-mode-package.tar.gz")
 	mappedModeEntries := packageEntries("0.1.59-1", productionCLIPhaseT0, "safe-sudoers\n", true, 0o750)
 	for index := range mappedModeEntries {
@@ -559,6 +573,7 @@ func TestVerifySignedPackageLayoutRejectsUnsignedOperatorMutation(t *testing.T) 
 		{name: ".MTREE", body: testPackageMtree(t, false), mode: 0o644},
 		{name: "usr/bin/lmm-api-go", body: "binary", mode: 0o755},
 		{name: "usr/bin/lmm-api", mode: 0o777, linkTo: "lmm-api-go"},
+		{name: "etc/lmm-api-go/lmm-api-go.env", body: "safe-env\n", mode: 0o600},
 		{name: "etc/sudoers.d/lmm-api-operator", body: "safe-sudoers\n", mode: 0o440},
 		{name: "usr/share/licenses/lmm-api-go-bin/LICENSE", body: "license\n", mode: 0o644},
 	}
@@ -575,6 +590,7 @@ func TestVerifySignedPackageLayoutUsesSignedExplicitT0PhaseForNewRelease(t *test
 	releasePrefix := "lmm-api-go-0.1.63-linux-amd64/"
 	releaseEntries := []testTarEntry{
 		{name: releasePrefix + "lmm-api", body: "binary", mode: 0o755},
+		{name: releasePrefix + "lmm-api-go.env", body: "safe-env\n", mode: 0o640},
 		{name: releasePrefix + "lmm-api-operator.sudoers", body: "safe-sudoers\n", mode: 0o644},
 		{name: releasePrefix + "CLI_TRANSITION_PHASE", body: "t0\n", mode: 0o644},
 	}
@@ -589,6 +605,7 @@ func TestVerifySignedPackageLayoutUsesSignedExplicitT0PhaseForNewRelease(t *test
 		{name: ".MTREE", body: testPackageMtree(t, true), mode: 0o644},
 		{name: "usr/bin/lmm-api", body: "binary", mode: 0o755},
 		{name: "usr/bin/lmm-api-go", mode: 0o777, linkTo: "lmm-api"},
+		{name: "etc/lmm-api-go/lmm-api-go.env", body: "safe-env\n", mode: 0o600},
 		{name: "etc/sudoers.d/", mode: 0o750, directory: true},
 		{name: "etc/sudoers.d/lmm-api-operator", body: "safe-sudoers\n", mode: 0o440},
 		{name: "usr/share/doc/lmm-api-go-bin/CLI_TRANSITION_PHASE", body: "t0\n", mode: 0o644},

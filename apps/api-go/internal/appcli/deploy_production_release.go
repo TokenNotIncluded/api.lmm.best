@@ -992,7 +992,7 @@ func expectedMappedPackageMode(packageName, relative string, signedMode uint64) 
 	if packageName == productionAURPackageName {
 		switch relative {
 		case "etc/lmm-api-go/lmm-api-go.env":
-			return 0o640
+			return 0o600
 		case "etc/sudoers.d/lmm-api-operator":
 			return 0o440
 		}
