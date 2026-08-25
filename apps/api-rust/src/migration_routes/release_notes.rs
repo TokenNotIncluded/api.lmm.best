@@ -951,6 +951,8 @@ mod tests {
                 Ok(DashboardSessionContext {
                     user: self.user.clone(),
                     session_id: "sid-1".to_owned(),
+                    session_version: 1,
+                    user_auth_version: 1,
                     client_ip: String::new(),
                     user_agent: String::new(),
                 })

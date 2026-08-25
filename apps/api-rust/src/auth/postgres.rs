@@ -1,9 +1,10 @@
 use super::token::{AuthIdentity, LegacyTokenCodec, random_refresh_secret, split_refresh_token};
 use super::{
     AuthBundle, AuthError, AuthErrorKind, AuthResponseData, CriticalRateLimitOutcome,
-    DashboardAuth, DashboardSelfUserFacts, DashboardSessionContext, DashboardUser,
-    DashboardUserView, LOGIN_SESSION_TTL_SECONDS, LoginOutcome, LoginRequest, LoginSessionView,
-    LogoutRequest, LogoutResult, REFRESH_REPLAY_WINDOW_SECONDS, RequestMetadata, SecurityProof,
+    DashboardAuth, DashboardDeveloperAccessPolicy, DashboardDeveloperAccessUserFacts,
+    DashboardSelfUserFacts, DashboardSessionContext, DashboardUser, DashboardUserView,
+    LOGIN_SESSION_TTL_SECONDS, LoginOutcome, LoginRequest, LoginSessionView, LogoutRequest,
+    LogoutResult, REFRESH_REPLAY_WINDOW_SECONDS, RequestMetadata, SecurityProof,
     SecuritySessionRotationRequest, TWO_FACTOR_FLOW_TTL_SECONDS, TwoFactorChallenge,
     TwoFactorLoginRequest,
 };
@@ -615,16 +616,14 @@ impl PgValkeyDashboardAuth {
     }
 
     async fn dashboard_self_user_facts(&self, user: &UserRecord) -> DashboardSelfUserFacts {
-        let now = unix_now();
-        if user.role >= 10 {
-            return DashboardSelfUserFacts {
-                local_acceptance: self.local_acceptance,
-                now,
-                ..DashboardSelfUserFacts::default()
-            };
-        }
-
-        let payment = if user.trust_level_override.is_none() {
+        let facts = DashboardDeveloperAccessUserFacts {
+            user_id: user.id,
+            role: user.role,
+            trust_level_override: user.trust_level_override,
+            created_at: user.created_at,
+            last_api_activity_at: user.last_api_activity_at,
+        };
+        let payment = if user.role < 10 && user.trust_level_override.is_none() {
             self.current_user_payment_snapshot(user.id)
                 .await
                 .unwrap_or_default()
@@ -638,21 +637,13 @@ impl PgValkeyDashboardAuth {
         .fetch_one(&self.pool)
         .await
         .unwrap_or(false);
-        let activity_anchor = user
-            .created_at
-            .max(user.last_api_activity_at)
-            .max(payment.last_paid_complete_at);
-
-        DashboardSelfUserFacts {
-            trust_level_override: user.trust_level_override,
-            paid_amount: payment.paid_amount,
-            paid_activation_complete: payment.paid_activation_complete,
-            local_acceptance: self.local_acceptance,
-            activity_anchor,
-            last_api_activity_at: user.last_api_activity_at,
-            now,
+        dashboard_self_user_facts_from_payment(
+            facts,
+            payment,
+            DashboardDeveloperAccessPolicy::new(self.local_acceptance),
+            unix_now(),
             credential_complete,
-        }
+        )
     }
 
     async fn current_user_payment_snapshot(
@@ -1217,8 +1208,10 @@ return {0, ttl}
         let (session, user) = self.validate_identity(&identity).await?;
         let capabilities = self.capabilities(user.id, user.role).await?;
         Ok(DashboardSessionContext {
+            user_auth_version: user.auth_version,
             user: user.dashboard_user(capabilities),
             session_id: session.sid,
+            session_version: session.version,
             client_ip: session.ip,
             user_agent: session.user_agent,
         })
@@ -1648,6 +1641,61 @@ struct PaymentSnapshot {
     paid_amount: f64,
     last_paid_complete_at: i64,
     paid_activation_complete: bool,
+}
+
+fn dashboard_self_user_facts_from_payment(
+    user: DashboardDeveloperAccessUserFacts,
+    payment: PaymentSnapshot,
+    policy: DashboardDeveloperAccessPolicy,
+    now: i64,
+    credential_complete: bool,
+) -> DashboardSelfUserFacts {
+    DashboardSelfUserFacts {
+        trust_level_override: user.trust_level_override,
+        paid_amount: payment.paid_amount,
+        paid_activation_complete: payment.paid_activation_complete,
+        local_acceptance: policy.local_acceptance(),
+        activity_anchor: user
+            .created_at
+            .max(user.last_api_activity_at)
+            .max(payment.last_paid_complete_at),
+        last_api_activity_at: user.last_api_activity_at,
+        now,
+        credential_complete,
+    }
+}
+
+pub(crate) async fn dashboard_self_user_facts_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    user: DashboardDeveloperAccessUserFacts,
+    policy: DashboardDeveloperAccessPolicy,
+) -> Result<DashboardSelfUserFacts, sqlx::Error> {
+    let payment = if user.role < 10 && user.trust_level_override.is_none() {
+        // Payment-policy rows are an authorization fact. A table SHARE lock
+        // makes their snapshot stable through credential commit and serializes
+        // concurrent UPDATE/DELETE/INSERT mutations after this transaction.
+        sqlx::query("LOCK TABLE top_ups IN SHARE MODE")
+            .execute(&mut **transaction)
+            .await?;
+        let row = sqlx::query(CURRENT_USER_PAYMENT_SNAPSHOT)
+            .bind(user.user_id)
+            .fetch_one(&mut **transaction)
+            .await?;
+        PaymentSnapshot {
+            paid_amount: row.try_get("paid_amount")?,
+            last_paid_complete_at: row.try_get("last_paid_complete_at")?,
+            paid_activation_complete: row.try_get("paid_activation_complete")?,
+        }
+    } else {
+        PaymentSnapshot::default()
+    };
+    Ok(dashboard_self_user_facts_from_payment(
+        user,
+        payment,
+        policy,
+        unix_now(),
+        false,
+    ))
 }
 
 impl UserRecord {

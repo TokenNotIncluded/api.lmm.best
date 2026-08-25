@@ -8,7 +8,10 @@ use async_trait::async_trait;
 use config::Config;
 use http::{ApiTokenMount, AppState, RuntimeState};
 use lmm_api_rs::{
-    auth::{AuthConfig, AuthHttpState, DashboardAuth, PgValkeyDashboardAuth},
+    auth::{
+        AuthConfig, AuthHttpState, DashboardAuth, DashboardDeveloperAccessPolicy,
+        PgValkeyDashboardAuth,
+    },
     migration_routes::{
         access_ip::{AccessIpState, router as access_ip_router},
         account_action::{AccountActionState, router as account_action_router},
@@ -597,6 +600,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     window: config.auth_critical_rate_limit_window,
                     dependency_timeout: config.dependency_timeout,
                 },
+                DashboardDeveloperAccessPolicy::new(local_acceptance),
             )
             .with_agent_relay(relay_client.clone(), config.dependency_timeout),
         );

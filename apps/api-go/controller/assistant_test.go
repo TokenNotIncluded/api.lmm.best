@@ -798,111 +798,27 @@ func TestPrepareAssistantRequestRejectsSinglePunctuationButAllowsShortText(t *te
 	}
 }
 
-func createAssistantKeyTestContext(t *testing.T, username string) (*gin.Context, *httptest.ResponseRecorder) {
-	t.Helper()
-	db := setupTokenControllerTestDB(t)
-	require.NoError(t, db.AutoMigrate(&model.User{}, &model.AuthFlow{}))
-	user := &model.User{
-		Username:           username,
-		Password:           "password",
-		Role:               common.RoleCommonUser,
-		Status:             common.UserStatusEnabled,
-		Group:              "default",
-		ConsoleActivatedAt: 1,
-	}
-	require.NoError(t, db.Create(user).Error)
-	response := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(response)
-	c.Set("id", user.Id)
-	c.Set("session_id", "assistant-key-test-session")
-	return c, response
-}
-
-func TestCreateAssistantDefaultKeyRequiresGroupBeforeConfirmation(t *testing.T) {
-	c, response := createAssistantKeyTestContext(t, "assistant-group-user")
-	c.Request = httptest.NewRequest(http.MethodPost, "/api/assistant/tools/create-key", strings.NewReader(`{"name":"my key"}`))
-	c.Request.Header.Set("Content-Type", "application/json")
-	CreateAssistantDefaultKey(c)
-	assert.Equal(t, http.StatusUnprocessableEntity, response.Code)
-	assert.Contains(t, response.Body.String(), "ASSISTANT_KEY_GROUP_REQUIRED")
-	assert.Contains(t, response.Body.String(), `"id":"default"`)
-}
-
-func TestCreateAssistantDefaultKeyRequiresConfirmation(t *testing.T) {
-	c, response := createAssistantKeyTestContext(t, "assistant-confirm-user")
-	c.Request = httptest.NewRequest(http.MethodPost, "/api/assistant/tools/create-key", strings.NewReader(`{"name":"my key","group":"default"}`))
-	c.Request.Header.Set("Content-Type", "application/json")
-	CreateAssistantDefaultKey(c)
-	assert.Equal(t, http.StatusUnprocessableEntity, response.Code)
-	assert.Contains(t, response.Body.String(), "ASSISTANT_CONFIRMATION_REQUIRED")
-}
-
-func TestCreateAssistantDefaultKeyForL1Session(t *testing.T) {
-	db := setupTokenControllerTestDB(t)
-	require.NoError(t, db.AutoMigrate(&model.User{}))
-	user := model.User{
-		Username:           "assistant-key-user",
-		Password:           "password",
-		Role:               common.RoleCommonUser,
-		Status:             common.UserStatusEnabled,
-		Group:              "default",
-		ConsoleActivatedAt: 1,
-	}
-	require.NoError(t, db.Create(&user).Error)
-
-	response := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(response)
-	c.Request = httptest.NewRequest(http.MethodPost, "/api/assistant/tools/create-key", strings.NewReader(`{"confirmed":true,"name":"assistant-created","group":"default"}`))
-	c.Request.Header.Set("Content-Type", "application/json")
-	c.Set("id", user.Id)
-	CreateAssistantDefaultKey(c)
-
-	assert.Equal(t, http.StatusOK, response.Code)
-	var payload struct {
-		Success bool `json:"success"`
-		Data    struct {
-			ID   int `json:"id"`
-			Card struct {
-				ID     string `json:"id"`
-				Type   string `json:"type"`
-				Shield bool   `json:"shield"`
-			} `json:"card"`
-		} `json:"data"`
-	}
-	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &payload))
-	assert.True(t, payload.Success)
-	assert.Positive(t, payload.Data.ID)
-	assert.NotEmpty(t, payload.Data.Card.ID)
-	assert.Equal(t, model.AssistantSecureCardTypeAPIKey, payload.Data.Card.Type)
-	assert.True(t, payload.Data.Card.Shield)
-	assert.NotContains(t, response.Body.String(), `"key":"sk-`)
-	revealed, _, err := model.RevealAssistantSecureCard(user.Id, payload.Data.Card.ID)
-	require.NoError(t, err)
-	revealedPayload, err := model.AssistantSecureCardPayload(revealed)
-	require.NoError(t, err)
-	assert.True(t, strings.HasPrefix(revealedPayload["api_key"], "sk-"))
-	_, _, err = model.RevealAssistantSecureCard(user.Id, payload.Data.Card.ID)
-	assert.ErrorIs(t, err, model.ErrAssistantSecureCardConsumed)
-	var token model.Token
-	require.NoError(t, db.First(&token, payload.Data.ID).Error)
-	assert.Equal(t, user.Id, token.UserId)
-	assert.Equal(t, "default", token.Group)
-	assert.True(t, token.UnlimitedQuota)
-	assert.EqualValues(t, -1, token.ExpiredTime)
-}
-
 func TestAssistantCreateKeyAgentConfirmationIsSessionBoundAndExactlyOnce(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := setupTokenControllerTestDB(t)
 	require.NoError(t, db.AutoMigrate(
 		&model.TopUp{}, &model.UserOAuthBinding{}, &model.AssistantUserProfile{},
-		&model.DeveloperAccessRequest{}, &model.AuthFlow{},
+		&model.DeveloperAccessRequest{}, &model.AuthFlow{}, &model.Option{}, &model.TwoFA{}, &model.TwoFABackupCode{}, &model.UserSession{}, &model.Log{},
 	))
+	configureAssistantKeyGroups(t, db)
 	user := model.User{
 		Username: "assistant-key-agent", Password: "password", Role: common.RoleCommonUser,
-		Status: common.UserStatusEnabled, Group: "default", ConsoleActivatedAt: 1,
+		Status: common.UserStatusEnabled, Group: "default", ConsoleActivatedAt: 1, AuthVersion: 1,
 	}
 	require.NoError(t, db.Create(&user).Error)
+	for _, sid := range []string{"assistant-key-agent-session", "other-browser-session"} {
+		require.NoError(t, db.Create(&model.UserSession{
+			SID: sid, UserID: user.Id, Version: 1, UserAuthVersion: 1,
+			Status: model.UserSessionStatusActive, RefreshHash: strings.Repeat("a", 64),
+			LoginMethod: "password", CreatedAt: time.Now().Unix(), LastActiveAt: time.Now().Unix(),
+			ExpiresAt: time.Now().Add(time.Hour).Unix(),
+		}).Error)
+	}
 
 	initialMessage := "请直接在助手里帮我创建一个 API key"
 	initialConversation := []assistantOpenAIMessage{{Role: "user", Content: initialMessage}}
@@ -991,13 +907,25 @@ func TestAssistantCreateKeyAgentConfirmationIsSessionBoundAndExactlyOnce(t *test
 	require.NotEmpty(t, confirmationToken)
 	assert.NotContains(t, selectionRecorder.Body.String(), `"api_key"`)
 
-	confirmBody := fmt.Sprintf(`{"confirmed":true,"confirmation_token":%q,"name":"tampered","group":"auto","conversation_id":999999}`, confirmationToken)
+	tamperedBody := fmt.Sprintf(`{"confirmation_token":%q,"name":"tampered","group":"auto"}`, confirmationToken)
+	tamperedRecorder := httptest.NewRecorder()
+	tamperedGin, _ := gin.CreateTestContext(tamperedRecorder)
+	tamperedGin.Request = httptest.NewRequest(http.MethodPost, "/api/assistant/tools/create-key", strings.NewReader(tamperedBody))
+	tamperedGin.Request.Header.Set("Content-Type", "application/json")
+	tamperedGin.Set("id", user.Id)
+	tamperedGin.Set("session_id", "assistant-key-agent-session")
+	CreateAssistantDefaultKey(tamperedGin)
+	assert.Equal(t, http.StatusBadRequest, tamperedRecorder.Code)
+
+	confirmBody := fmt.Sprintf(`{"confirmation_token":%q}`, confirmationToken)
 	wrongSessionRecorder := httptest.NewRecorder()
 	wrongSessionGin, _ := gin.CreateTestContext(wrongSessionRecorder)
 	wrongSessionGin.Request = httptest.NewRequest(http.MethodPost, "/api/assistant/tools/create-key", strings.NewReader(confirmBody))
 	wrongSessionGin.Request.Header.Set("Content-Type", "application/json")
 	wrongSessionGin.Set("id", user.Id)
 	wrongSessionGin.Set("session_id", "other-browser-session")
+	wrongSessionGin.Set("session_version", int64(1))
+	wrongSessionGin.Set("auth_version", int64(1))
 	CreateAssistantDefaultKey(wrongSessionGin)
 	assert.Equal(t, http.StatusUnprocessableEntity, wrongSessionRecorder.Code)
 
@@ -1007,6 +935,8 @@ func TestAssistantCreateKeyAgentConfirmationIsSessionBoundAndExactlyOnce(t *test
 	confirmGin.Request.Header.Set("Content-Type", "application/json")
 	confirmGin.Set("id", user.Id)
 	confirmGin.Set("session_id", "assistant-key-agent-session")
+	confirmGin.Set("session_version", int64(1))
+	confirmGin.Set("auth_version", int64(1))
 	CreateAssistantDefaultKey(confirmGin)
 	require.Equal(t, http.StatusOK, confirmRecorder.Code)
 	assert.Contains(t, confirmRecorder.Body.String(), `"name":"chat-created"`)
@@ -1019,6 +949,8 @@ func TestAssistantCreateKeyAgentConfirmationIsSessionBoundAndExactlyOnce(t *test
 	replayGin.Request.Header.Set("Content-Type", "application/json")
 	replayGin.Set("id", user.Id)
 	replayGin.Set("session_id", "assistant-key-agent-session")
+	replayGin.Set("session_version", int64(1))
+	replayGin.Set("auth_version", int64(1))
 	CreateAssistantDefaultKey(replayGin)
 	assert.Equal(t, http.StatusUnprocessableEntity, replayRecorder.Code)
 	assert.Contains(t, replayRecorder.Body.String(), "ASSISTANT_KEY_CONFIRMATION_INVALID")
@@ -1034,26 +966,42 @@ func TestAssistantCreateKeyAgentConfirmationIsSessionBoundAndExactlyOnce(t *test
 	assert.NotContains(t, card.Ciphertext, "sk-")
 }
 
-func TestCreateAssistantDefaultKeyRejectsL0(t *testing.T) {
+func TestCreateAssistantDefaultKeyRejectsL0AtCommitTime(t *testing.T) {
 	db := setupTokenControllerTestDB(t)
-	require.NoError(t, db.AutoMigrate(&model.User{}, &model.TopUp{}))
+	require.NoError(t, db.AutoMigrate(&model.User{}, &model.TopUp{}, &model.Option{}, &model.AuthFlow{}, &model.UserSession{}, &model.TwoFA{}, &model.TwoFABackupCode{}, &model.Log{}, &model.AssistantConversation{}, &model.AssistantHistoryMessage{}, &model.AssistantSecureCard{}))
+	configureAssistantKeyGroups(t, db)
 	user := model.User{
-		Username: "assistant-l0-user",
-		Password: "password",
-		Role:     common.RoleCommonUser,
-		Status:   common.UserStatusEnabled,
-		Group:    "default",
+		Username:    "assistant-l0-user",
+		Password:    "password",
+		Role:        common.RoleCommonUser,
+		Status:      common.UserStatusEnabled,
+		Group:       "default",
+		AuthVersion: 1,
 	}
 	require.NoError(t, db.Create(&user).Error)
+	require.NoError(t, db.Create(&model.UserSession{
+		SID: "assistant-l0-session", UserID: user.Id, Version: 1, UserAuthVersion: 1,
+		Status: model.UserSessionStatusActive, RefreshHash: strings.Repeat("a", 64),
+		LoginMethod: "password", CreatedAt: time.Now().Unix(), LastActiveAt: time.Now().Unix(),
+		ExpiresAt: time.Now().Add(time.Hour).Unix(),
+	}).Error)
+	action, err := prepareAssistantKeyDraft(user.Id, "assistant-l0-session", user.Group, assistantPrepareKeyInput{Name: "l0-key", Group: "default"})
+	require.NoError(t, err)
 
 	response := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(response)
-	c.Request = httptest.NewRequest(http.MethodPost, "/api/assistant/tools/create-key", strings.NewReader(`{"confirmed":true}`))
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/assistant/tools/create-key", strings.NewReader(fmt.Sprintf(`{"confirmation_token":%q}`, action.ConfirmationToken)))
 	c.Request.Header.Set("Content-Type", "application/json")
 	c.Set("id", user.Id)
+	c.Set("session_id", "assistant-l0-session")
+	c.Set("session_version", int64(1))
+	c.Set("auth_version", int64(1))
 	CreateAssistantDefaultKey(c)
-	assert.Equal(t, http.StatusForbidden, response.Code)
-	assert.Contains(t, response.Body.String(), "ASSISTANT_L1_REQUIRED")
+	assert.Equal(t, http.StatusUnprocessableEntity, response.Code)
+	assert.Contains(t, response.Body.String(), "ASSISTANT_KEY_CONFIRMATION_INVALID")
+	var flow model.AuthFlow
+	require.NoError(t, db.Where("session_id = ?", "assistant-l0-session").First(&flow).Error)
+	assert.Nil(t, flow.ConsumedAt)
 }
 
 func TestAssistantPlanOffersExposePublicOffersToL0WithoutInventingCheckout(t *testing.T) {

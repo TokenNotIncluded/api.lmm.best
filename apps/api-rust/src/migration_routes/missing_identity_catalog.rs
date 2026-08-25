@@ -21,7 +21,7 @@ use axum::{
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Number, Value};
-use sqlx::PgPool;
+use sqlx::{PgPool, Postgres, Transaction};
 
 use crate::auth::{
     AuthErrorKind, DashboardAuth, DashboardUserView, UserAuthPolicyError, enforce_user_auth_view,
@@ -411,23 +411,72 @@ fn auto_groups(config: &GroupConfig, usable: &BTreeMap<String, String>) -> Vec<S
         .collect()
 }
 
+pub(crate) async fn user_group_selection_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    user_group: &str,
+) -> Result<UserGroupSelection, String> {
+    // The confirmation transaction holds this lock through credential and
+    // card insertion, so an administrator cannot change group eligibility
+    // between the authoritative check and commit.
+    sqlx::query("LOCK TABLE options IN SHARE MODE")
+        .execute(&mut **transaction)
+        .await
+        .map_err(|error| error.to_string())?;
+    let rows = sqlx::query_as::<_, (String, String)>(
+        "SELECT key, value FROM options WHERE key = ANY($1) FOR SHARE",
+    )
+    .bind(vec![
+        "UserUsableGroups",
+        "GroupRatio",
+        "group_ratio_setting.group_special_usable_group",
+        "group_ratio_setting",
+        "AutoGroups",
+    ])
+    .fetch_all(&mut **transaction)
+    .await
+    .map_err(|error| error.to_string())?;
+    let values = rows.into_iter().collect::<BTreeMap<_, _>>();
+    let usable = string_map(values.get("UserUsableGroups"))
+        .ok_or_else(|| "UserUsableGroups is missing or invalid".to_owned())?;
+    let ratios = number_map(values.get("GroupRatio"))
+        .ok_or_else(|| "GroupRatio is missing or invalid".to_owned())?;
+    let special = nested_string_map(values.get("group_ratio_setting.group_special_usable_group"))
+        .or_else(|| special_from_legacy_setting(values.get("group_ratio_setting")))
+        .unwrap_or_default();
+    let config = GroupConfig {
+        usable,
+        ratios,
+        group_ratios: BTreeMap::new(),
+        special,
+        auto: values
+            .get("AutoGroups")
+            .map(|raw| string_list(Some(raw)))
+            .unwrap_or_default(),
+    };
+    Ok(group_selection_from_config(&config, user_group))
+}
+
 pub(crate) async fn user_group_selection(
     pg: &PgPool,
     user_group: &str,
 ) -> Result<UserGroupSelection, String> {
     let config = group_config(pg).await.map_err(|error| error.message)?;
-    let usable = usable_groups(&config, user_group);
-    let automatic = auto_groups(&config, &usable);
+    Ok(group_selection_from_config(&config, user_group))
+}
+
+fn group_selection_from_config(config: &GroupConfig, user_group: &str) -> UserGroupSelection {
+    let usable = usable_groups(config, user_group);
+    let automatic = auto_groups(config, &usable);
     let selectable = usable
         .into_iter()
         .filter(|(group, _)| {
             !group.is_empty() && group != "auto" && config.ratios.contains_key(group)
         })
         .collect();
-    Ok(UserGroupSelection {
+    UserGroupSelection {
         selectable,
         automatic,
-    })
+    }
 }
 
 fn string_map(raw: Option<&String>) -> Option<BTreeMap<String, String>> {

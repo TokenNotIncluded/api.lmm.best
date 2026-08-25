@@ -216,14 +216,16 @@ func replaceBackupCodesWithTx(tx *gorm.DB, userId int, codes []string) error {
 // credentials and advances the user's authentication version.
 func ReplaceBackupCodesWithAuthVersion(userId int, codes []string) error {
 	if err := DB.Transaction(func(tx *gorm.DB) error {
+		// Authorization mutations and assistant confirmation share the same
+		// user -> factor -> backup-code lock order.
+		if _, err := IncrementUserAuthVersionWithTx(tx, userId); err != nil {
+			return err
+		}
 		var enabled TwoFA
 		if err := lockForUpdate(tx).Where("user_id = ? AND is_enabled = ?", userId, true).First(&enabled).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return ErrTwoFANotEnabled
 			}
-			return err
-		}
-		if _, err := IncrementUserAuthVersionWithTx(tx, userId); err != nil {
 			return err
 		}
 		return replaceBackupCodesWithTx(tx, userId, codes)
@@ -278,14 +280,14 @@ func GetUnusedBackupCodeCount(userId int) (int, error) {
 // every access token issued against the previous security configuration.
 func DisableTwoFAWithAuthVersion(userId int) error {
 	if err := DB.Transaction(func(tx *gorm.DB) error {
+		if _, err := IncrementUserAuthVersionWithTx(tx, userId); err != nil {
+			return err
+		}
 		var twoFA TwoFA
 		if err := lockForUpdate(tx).Where("user_id = ? AND is_enabled = ?", userId, true).First(&twoFA).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return ErrTwoFANotEnabled
 			}
-			return err
-		}
-		if _, err := IncrementUserAuthVersionWithTx(tx, userId); err != nil {
 			return err
 		}
 		if err := tx.Unscoped().Where("user_id = ?", userId).Delete(&TwoFABackupCode{}).Error; err != nil {
@@ -305,14 +307,14 @@ func (t *TwoFA) EnableWithAuthVersion() error {
 		return errors.New("2FA记录ID不能为空")
 	}
 	if err := DB.Transaction(func(tx *gorm.DB) error {
+		if _, err := IncrementUserAuthVersionWithTx(tx, t.UserId); err != nil {
+			return err
+		}
 		var pending TwoFA
 		if err := lockForUpdate(tx).Where("id = ? AND user_id = ? AND is_enabled = ?", t.Id, t.UserId, false).First(&pending).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return ErrTwoFAAlreadyEnabled
 			}
-			return err
-		}
-		if _, err := IncrementUserAuthVersionWithTx(tx, t.UserId); err != nil {
 			return err
 		}
 		result := tx.Model(&pending).
@@ -394,6 +396,82 @@ func (t *TwoFA) ValidateBackupCodeAndUpdateUsage(code string) (bool, error) {
 	}
 
 	return true, nil
+}
+
+// verifyAssistantKeyTwoFactorTx verifies the current factor generation inside
+// the caller's authorization transaction. The factor and every unused backup
+// row are locked before evaluation, so rotation and backup-code consumption
+// serialize with credential creation. A false result is a domain rejection;
+// its failed-attempt update must be committed while the auth flow stays fresh.
+func verifyAssistantKeyTwoFactorTx(tx *gorm.DB, userID int, code string) (bool, error) {
+	var factor TwoFA
+	if err := lockForUpdate(tx).Where("user_id = ?", userID).First(&factor).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return true, nil
+		}
+		return false, err
+	}
+	if !factor.IsEnabled {
+		return true, nil
+	}
+
+	var backupCodes []TwoFABackupCode
+	if err := lockForUpdate(tx).
+		Where("user_id = ? AND is_used = ?", userID, false).
+		Order("id").
+		Find(&backupCodes).Error; err != nil {
+		return false, err
+	}
+
+	now := time.Now()
+	if factor.LockedUntil != nil && now.Before(*factor.LockedUntil) {
+		return false, nil
+	}
+	valid := false
+	if cleanCode, err := common.ValidateNumericCode(code); err == nil {
+		valid = common.ValidateTOTPCode(factor.Secret, cleanCode)
+	}
+	if !valid && common.ValidateBackupCode(code) {
+		normalized := common.NormalizeBackupCode(code)
+		for index := range backupCodes {
+			backup := &backupCodes[index]
+			if !common.ValidatePasswordAndHash(normalized, backup.CodeHash) {
+				continue
+			}
+			result := tx.Model(&TwoFABackupCode{}).
+				Where("id = ? AND is_used = ?", backup.Id, false).
+				Updates(map[string]interface{}{"is_used": true, "used_at": now})
+			if result.Error != nil {
+				return false, result.Error
+			}
+			if result.RowsAffected != 1 {
+				return false, gorm.ErrInvalidData
+			}
+			valid = true
+			break
+		}
+	}
+
+	updates := map[string]interface{}{}
+	if valid {
+		updates["failed_attempts"] = 0
+		updates["locked_until"] = nil
+		updates["last_used_at"] = now
+	} else {
+		nextAttempts := factor.FailedAttempts + 1
+		updates["failed_attempts"] = nextAttempts
+		if nextAttempts >= common.MaxFailAttempts {
+			updates["locked_until"] = now.Add(time.Duration(common.LockoutDuration) * time.Second)
+		}
+	}
+	result := tx.Model(&TwoFA{}).Where("id = ?", factor.Id).Updates(updates)
+	if result.Error != nil {
+		return false, result.Error
+	}
+	if result.RowsAffected != 1 {
+		return false, gorm.ErrInvalidData
+	}
+	return valid, nil
 }
 
 // GetTwoFAStats 获取2FA统计信息（管理员使用）

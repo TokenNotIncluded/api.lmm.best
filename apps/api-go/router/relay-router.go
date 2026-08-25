@@ -112,6 +112,7 @@ func SetRelayRouter(router *gin.Engine) {
 		assistantRouter.GET("/cards/:id/reveal", middleware.CriticalRateLimit(), middleware.DisableCache(), controller.RevealAssistantSecureCard)
 		assistantRouter.GET("/handoffs/self", middleware.DisableCache(), controller.GetAssistantHandoff)
 		assistantRouter.POST("/handoffs", middleware.RequestBodyLimit(assistantMutationRequestMaxBytes), middleware.UserCriticalRateLimit("assistant-handoff"), middleware.DisableCache(), controller.SubmitAssistantHandoff)
+		assistantRouter.POST("/tools/prepare-key", middleware.RequestBodyLimit(assistantMutationRequestMaxBytes), middleware.ConsoleAccessGate(), middleware.UserCriticalRateLimit("assistant-prepare-key"), middleware.DisableCache(), controller.PrepareAssistantDefaultKey)
 		assistantRouter.POST("/tools/create-key", middleware.RequestBodyLimit(assistantMutationRequestMaxBytes), middleware.ConsoleAccessGate(), middleware.UserCriticalRateLimit("assistant-create-key"), middleware.DisableCache(), controller.CreateAssistantDefaultKey)
 		assistantRouter.POST("/drawing/generate", middleware.UserCriticalRateLimit("assistant-drawing"), middleware.RequestBodyLimit(8<<10), middleware.DisableCache(), controller.GenerateAssistantDrawing)
 	}

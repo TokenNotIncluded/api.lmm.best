@@ -17,6 +17,7 @@ use serde_json::{Value, json};
 use sha2::Sha256;
 use sqlx::{PgPool, Row};
 
+use crate::migration_routes::assistant::decrypt_assistant_secure_card_payload;
 use crate::migration_routes::assistant::{
     AssistantReadState, api_error, assistant_error, assistant_session_required,
     authenticated_admin, authenticated_user, browser_user, success, with_no_store,
@@ -409,7 +410,14 @@ async fn reveal_secure_card(
         Ok(principal) => principal,
         Err(response) => return with_no_store(response),
     };
-    match reveal_card(&state.pg, principal.user.id, card_id.trim()).await {
+    match reveal_card(
+        &state.pg,
+        &state.session_secret,
+        principal.user.id,
+        card_id.trim(),
+    )
+    .await
+    {
         Ok((card, payload)) => with_no_store(success(json!({
             "card": card,
             "payload": payload,
@@ -1427,57 +1435,74 @@ async fn update_conversation_archive(
 
 async fn reveal_card(
     pg: &PgPool,
+    session_secret: &SecretString,
     owner_user_id: i64,
     card_id: &str,
 ) -> Result<(Value, Value), RevealError> {
     let now = unix_seconds();
-    let row = sqlx::query(
-        "UPDATE assistant_secure_cards SET revealed_at = $3 \
-         WHERE id = $1 AND owner_user_id = $2 AND revealed_at = 0 AND expires_at > $4 \
-         RETURNING type, summary, ciphertext",
-    )
-    .bind(card_id)
-    .bind(owner_user_id)
-    .bind(now)
-    .bind(now)
-    .fetch_optional(pg)
-    .await
-    .map_err(|error| RevealError::Internal(error.to_string()))?;
-    let Some(row) = row else {
-        let exists = sqlx::query(
-            "SELECT revealed_at, expires_at FROM assistant_secure_cards \
-             WHERE id = $1 AND owner_user_id = $2",
-        )
-        .bind(card_id)
-        .bind(owner_user_id)
-        .fetch_optional(pg)
+    let mut transaction = pg
+        .begin()
         .await
         .map_err(|error| RevealError::Internal(error.to_string()))?;
-        return Err(match exists {
-            None => RevealError::NotFound,
-            Some(row) => {
-                let revealed_at: i64 = row.try_get("revealed_at").unwrap_or_default();
-                let expires_at: i64 = row.try_get("expires_at").unwrap_or_default();
-                if revealed_at != 0 {
-                    RevealError::Consumed
-                } else if expires_at <= now {
-                    RevealError::Expired
-                } else {
-                    RevealError::NotFound
-                }
-            }
-        });
-    };
-    let card = json!({
-        "type": row.try_get::<String, _>("type").unwrap_or_default(),
-        "label": row.try_get::<String, _>("summary").unwrap_or_default(),
-        "owner": "self",
-        "shield": false,
-    });
+    let row = sqlx::query(
+        "SELECT owner_user_id, type, summary, ciphertext, revealed_at, expires_at \
+         FROM assistant_secure_cards WHERE id = $1 FOR UPDATE",
+    )
+    .bind(card_id)
+    .fetch_optional(&mut *transaction)
+    .await
+    .map_err(|error| RevealError::Internal(error.to_string()))?
+    .ok_or(RevealError::NotFound)?;
+    let owner: i64 = row
+        .try_get("owner_user_id")
+        .map_err(|error| RevealError::Internal(error.to_string()))?;
+    if owner != owner_user_id {
+        return Err(RevealError::NotFound);
+    }
+    let revealed_at: i64 = row
+        .try_get("revealed_at")
+        .map_err(|error| RevealError::Internal(error.to_string()))?;
+    if revealed_at != 0 {
+        return Err(RevealError::Consumed);
+    }
+    let expires_at: i64 = row
+        .try_get("expires_at")
+        .map_err(|error| RevealError::Internal(error.to_string()))?;
+    if expires_at <= now {
+        return Err(RevealError::Expired);
+    }
     let ciphertext: String = row
         .try_get("ciphertext")
         .map_err(|error| RevealError::Internal(error.to_string()))?;
-    let payload = decode_secure_card_payload(&ciphertext).map_err(|_| RevealError::Invalid)?;
+    let payload = decrypt_assistant_secure_card_payload(session_secret, &ciphertext)
+        .ok_or(RevealError::Invalid)?;
+    let card = json!({
+        "type": row
+            .try_get::<String, _>("type")
+            .map_err(|error| RevealError::Internal(error.to_string()))?,
+        "label": row
+            .try_get::<String, _>("summary")
+            .map_err(|error| RevealError::Internal(error.to_string()))?,
+        "owner": "self",
+        "shield": false,
+    });
+    let updated = sqlx::query(
+        "UPDATE assistant_secure_cards SET revealed_at = $2 \
+         WHERE id = $1 AND owner_user_id = $3 AND revealed_at = 0",
+    )
+    .bind(card_id)
+    .bind(now)
+    .bind(owner_user_id)
+    .execute(&mut *transaction)
+    .await
+    .map_err(|error| RevealError::Internal(error.to_string()))?;
+    if updated.rows_affected() != 1 {
+        return Err(RevealError::Consumed);
+    }
+    transaction
+        .commit()
+        .await
+        .map_err(|error| RevealError::Internal(error.to_string()))?;
     Ok((card, payload))
 }
 
@@ -1863,13 +1888,6 @@ fn auth_flow_hash(session_secret: &SecretString, token: &str) -> Result<String, 
     Ok(hex::encode(mac.finalize().into_bytes()))
 }
 
-fn decode_secure_card_payload(ciphertext: &str) -> Result<Value, ()> {
-    let decoded = base64::engine::general_purpose::STANDARD
-        .decode(ciphertext.trim())
-        .map_err(|_| ())?;
-    serde_json::from_slice(&decoded).map_err(|_| ())
-}
-
 async fn load_onboarding_step_state(
     pg: &PgPool,
     user_id: i64,
@@ -1939,6 +1957,9 @@ fn unix_seconds() -> i64 {
         .unwrap_or(Duration::ZERO)
         .as_secs() as i64
 }
+
+#[cfg(test)]
+mod pg_tests;
 
 #[cfg(test)]
 mod tests {

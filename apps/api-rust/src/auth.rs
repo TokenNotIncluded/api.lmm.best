@@ -15,6 +15,7 @@ pub use http::{
     anonymous_registration_surface, auth_router, turnstile_failure_response,
     turnstile_missing_response,
 };
+pub(crate) use postgres::dashboard_self_user_facts_in_transaction;
 pub use postgres::{AuthConfig, PgValkeyDashboardAuth};
 pub(crate) use token::dashboard_token_candidate;
 
@@ -111,6 +112,8 @@ pub struct DashboardUser {
 pub struct DashboardSessionContext {
     pub user: DashboardUser,
     pub session_id: String,
+    pub session_version: i64,
+    pub user_auth_version: i64,
     pub client_ip: String,
     pub user_agent: String,
 }
@@ -212,6 +215,31 @@ pub(crate) struct DashboardSelfUserFacts {
     pub credential_complete: bool,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub struct DashboardDeveloperAccessPolicy {
+    local_acceptance: bool,
+}
+
+impl DashboardDeveloperAccessPolicy {
+    #[must_use]
+    pub fn new(local_acceptance: bool) -> Self {
+        Self { local_acceptance }
+    }
+
+    pub(crate) fn local_acceptance(self) -> bool {
+        self.local_acceptance
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct DashboardDeveloperAccessUserFacts {
+    pub(crate) user_id: i64,
+    pub(crate) role: i64,
+    pub(crate) trust_level_override: Option<i64>,
+    pub(crate) created_at: i64,
+    pub(crate) last_api_activity_at: i64,
+}
+
 impl DashboardUserView {
     /// Current Go contract projection for `/api/user/login`, `/api/user/auth/refresh`
     /// and `/api/user/self` parity comparisons.
@@ -308,7 +336,7 @@ impl DashboardUserView {
 /// A present trust override is decisive, including an invalid/denying value;
 /// local acceptance is only an ordinary-user fallback after that decision.
 #[must_use]
-fn dashboard_developer_access_granted(role: i64, facts: DashboardSelfUserFacts) -> bool {
+pub(crate) fn dashboard_developer_access_granted(role: i64, facts: DashboardSelfUserFacts) -> bool {
     if role >= 10 {
         return true;
     }

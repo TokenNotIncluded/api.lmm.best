@@ -693,6 +693,12 @@ async fn enable(
         Ok(tx) => tx,
         Err(_) => return internal(),
     };
+    if lock_user_for_security_mutation(&mut tx, actor.user_id)
+        .await
+        .is_err()
+    {
+        return internal();
+    }
     let row = match factor_for_update(&mut tx, actor.user_id, None).await {
         Ok(Some(row)) => row,
         Ok(None) => return failure("请先完成2FA初始化设置"),
@@ -754,12 +760,18 @@ async fn disable(
         Ok(tx) => tx,
         Err(_) => return internal(),
     };
+    if lock_user_for_security_mutation(&mut tx, actor.user_id)
+        .await
+        .is_err()
+    {
+        return internal();
+    }
     let row = match factor_for_update(&mut tx, actor.user_id, Some(true)).await {
         Ok(Some(row)) => row,
         Ok(None) => return failure("用户未启用2FA"),
         Err(_) => return internal(),
     };
-    if !verify_factor(
+    match verify_factor(
         &mut tx,
         actor.user_id,
         &row,
@@ -768,7 +780,14 @@ async fn disable(
     )
     .await
     {
-        return failure("验证码或备用码错误，请重试");
+        Ok(true) => {}
+        Ok(false) => {
+            if tx.commit().await.is_err() {
+                return internal();
+            }
+            return failure("验证码或备用码错误，请重试");
+        }
+        Err(_) => return internal(),
     }
     let version = match bump_auth_version(&mut tx, actor.user_id).await {
         Ok(version) => version,
@@ -822,6 +841,12 @@ async fn regenerate_backup_codes(
         Ok(tx) => tx,
         Err(_) => return internal(),
     };
+    if lock_user_for_security_mutation(&mut tx, actor.user_id)
+        .await
+        .is_err()
+    {
+        return internal();
+    }
     let row = match factor_for_update(&mut tx, actor.user_id, Some(true)).await {
         Ok(Some(row)) => row,
         Ok(None) => return failure("用户未启用2FA"),
@@ -973,6 +998,32 @@ async fn admin_disable(
     .into_response()
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::migration_routes) enum CriticalTwoFactorVerification {
+    NotRequired,
+    Verified,
+    Rejected,
+}
+
+pub(in crate::migration_routes) async fn verify_critical_mutation_factor(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    user_id: i64,
+    code: &str,
+) -> Result<CriticalTwoFactorVerification, sqlx::Error> {
+    let Some(row) = factor_for_update(tx, user_id, Some(true)).await? else {
+        return Ok(CriticalTwoFactorVerification::NotRequired);
+    };
+    let unix_seconds = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    if verify_factor(tx, user_id, &row, code, unix_seconds).await? {
+        Ok(CriticalTwoFactorVerification::Verified)
+    } else {
+        Ok(CriticalTwoFactorVerification::Rejected)
+    }
+}
+
 async fn factor_for_update(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     user_id: i64,
@@ -991,50 +1042,56 @@ async fn verify_factor(
     row: &sqlx::postgres::PgRow,
     code: &str,
     unix_seconds: u64,
-) -> bool {
-    let Ok(factor_id) = row.try_get::<i64, _>("id") else {
-        return false;
-    };
-    let Ok(secret) = row.try_get::<String, _>("secret") else {
-        return false;
-    };
-    let Ok(locked) = row.try_get::<bool, _>("locked") else {
-        return false;
-    };
+) -> Result<bool, sqlx::Error> {
+    let factor_id = row.try_get::<i64, _>("id")?;
+    let secret = row.try_get::<String, _>("secret")?;
+    let locked = row.try_get::<bool, _>("locked")?;
     if locked {
-        return false;
+        return Ok(false);
     }
     let valid = numeric_code(code).is_some_and(|code| valid_totp(&secret, &code, unix_seconds));
     if valid {
-        return sqlx::query("UPDATE two_fas SET failed_attempts = 0, locked_until = NULL, last_used_at = NOW(), updated_at = NOW() WHERE id = $1").bind(factor_id).execute(&mut **tx).await.is_ok();
+        let updated = sqlx::query("UPDATE two_fas SET failed_attempts = 0, locked_until = NULL, last_used_at = NOW(), updated_at = NOW() WHERE id = $1")
+            .bind(factor_id)
+            .execute(&mut **tx)
+            .await?;
+        return Ok(updated.rows_affected() == 1);
     }
-    let backup_rows = match sqlx::query("SELECT id, code_hash FROM two_fa_backup_codes WHERE user_id = $1 AND is_used = FALSE AND deleted_at IS NULL FOR UPDATE").bind(user_id).fetch_all(&mut **tx).await { Ok(rows) => rows, Err(_) => return false };
+    let backup_rows = sqlx::query("SELECT id, code_hash FROM two_fa_backup_codes WHERE user_id = $1 AND is_used = FALSE AND deleted_at IS NULL FOR UPDATE")
+        .bind(user_id)
+        .fetch_all(&mut **tx)
+        .await?;
+    let canonical_backup = valid_backup_code(code).then(|| canonical_backup_code(code));
     for backup in backup_rows {
         let Ok(hash_value) = backup.try_get::<String, _>("code_hash") else {
             continue;
         };
-        let verified = matches!(verify(canonical_backup_code(code), &hash_value), Ok(true));
-        if valid_backup_code(code) && verified {
-            let Ok(backup_id) = backup.try_get::<i64, _>("id") else {
-                return false;
-            };
-            let claimed = matches!(
-                sqlx::query("UPDATE two_fa_backup_codes SET is_used = TRUE, used_at = NOW() WHERE id = $1 AND is_used = FALSE")
-                    .bind(backup_id)
-                    .execute(&mut **tx)
-                    .await,
-                Ok(done) if done.rows_affected() == 1
-            );
-            if !claimed {
-                return false;
+        let verified = canonical_backup
+            .as_ref()
+            .is_some_and(|candidate| matches!(verify(candidate, &hash_value), Ok(true)));
+        if verified {
+            let backup_id = backup.try_get::<i64, _>("id")?;
+            let claimed = sqlx::query("UPDATE two_fa_backup_codes SET is_used = TRUE, used_at = NOW() WHERE id = $1 AND is_used = FALSE")
+                .bind(backup_id)
+                .execute(&mut **tx)
+                .await?;
+            if claimed.rows_affected() != 1 {
+                return Ok(false);
             }
-            return sqlx::query("UPDATE two_fas SET failed_attempts = 0, locked_until = NULL, last_used_at = NOW(), updated_at = NOW() WHERE id = $1")
-                .bind(factor_id).execute(&mut **tx).await.is_ok();
+            let updated = sqlx::query("UPDATE two_fas SET failed_attempts = 0, locked_until = NULL, last_used_at = NOW(), updated_at = NOW() WHERE id = $1")
+                .bind(factor_id)
+                .execute(&mut **tx)
+                .await?;
+            return Ok(updated.rows_affected() == 1);
         }
     }
-    let _ = sqlx::query("UPDATE two_fas SET failed_attempts = LEAST(COALESCE(failed_attempts, 0) + 1, $2), locked_until = CASE WHEN COALESCE(failed_attempts, 0) + 1 >= $2 THEN NOW() + make_interval(secs => $3) ELSE NULL END, updated_at = NOW() WHERE id = $1")
-        .bind(factor_id).bind(TOTP_MAX_ATTEMPTS).bind(TOTP_LOCK_SECONDS as f64).execute(&mut **tx).await;
-    false
+    sqlx::query("UPDATE two_fas SET failed_attempts = LEAST(COALESCE(failed_attempts, 0) + 1, $2), locked_until = CASE WHEN COALESCE(failed_attempts, 0) + 1 >= $2 THEN NOW() + make_interval(secs => $3) ELSE NULL END, updated_at = NOW() WHERE id = $1")
+        .bind(factor_id)
+        .bind(TOTP_MAX_ATTEMPTS)
+        .bind(TOTP_LOCK_SECONDS as f64)
+        .execute(&mut **tx)
+        .await?;
+    Ok(false)
 }
 
 async fn verify_totp_factor(
@@ -1069,6 +1126,19 @@ async fn verify_totp_factor(
         .execute(&mut **tx)
         .await;
     false
+}
+
+async fn lock_user_for_security_mutation(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    user_id: i64,
+) -> Result<(), sqlx::Error> {
+    sqlx::query_scalar::<_, i64>(
+        "SELECT id FROM users WHERE id = $1 AND deleted_at IS NULL FOR UPDATE",
+    )
+    .bind(user_id)
+    .fetch_one(&mut **tx)
+    .await
+    .map(|_| ())
 }
 
 async fn bump_auth_version(

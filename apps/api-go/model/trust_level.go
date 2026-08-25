@@ -1,6 +1,7 @@
 package model
 
 import (
+	"fmt"
 	"strconv"
 	"sync/atomic"
 	"time"
@@ -453,11 +454,26 @@ func explicitDeveloperAccessDecision(role int, overrideLevel *int) (DeveloperAcc
 	return DeveloperAccessState{Granted: *overrideLevel >= TrustLevelMinUser+1 && *overrideLevel <= TrustLevelMaxUser}, true
 }
 
-func ordinaryDeveloperAccessState(paidActivationComplete bool, consoleActivated bool) DeveloperAccessState {
+// DeveloperAccessPolicy captures the immutable server-side input used by the
+// developer-access decision. Its fields are deliberately private so callers
+// cannot manufacture a client-controlled policy.
+type DeveloperAccessPolicy struct {
+	localAcceptance bool
+}
+
+func CurrentDeveloperAccessPolicy() DeveloperAccessPolicy {
+	return DeveloperAccessPolicy{localAcceptance: LocalAcceptanceDeveloperAccessEnabled()}
+}
+
+func ordinaryDeveloperAccessStateWithPolicy(paidActivationComplete, consoleActivated bool, policy DeveloperAccessPolicy) DeveloperAccessState {
 	return DeveloperAccessState{
-		Granted:                paidActivationComplete || consoleActivated || LocalAcceptanceDeveloperAccessEnabled(),
+		Granted:                paidActivationComplete || consoleActivated || policy.localAcceptance,
 		PaidActivationComplete: paidActivationComplete,
 	}
+}
+
+func ordinaryDeveloperAccessState(paidActivationComplete bool, consoleActivated bool) DeveloperAccessState {
+	return ordinaryDeveloperAccessStateWithPolicy(paidActivationComplete, consoleActivated, CurrentDeveloperAccessPolicy())
 }
 
 // GetFreshUserAccessSnapshot performs at most one bounded aggregate query for
@@ -522,7 +538,7 @@ type DeveloperAccessState struct {
 	PaidActivationComplete bool `json:"paid_activation_complete"`
 }
 
-func GetDeveloperAccessStateForUserBase(user *UserBase) (DeveloperAccessState, error) {
+func developerAccessStateForUserBase(tx *gorm.DB, user *UserBase, policy DeveloperAccessPolicy) (DeveloperAccessState, error) {
 	if user == nil {
 		return DeveloperAccessState{}, gorm.ErrInvalidData
 	}
@@ -532,13 +548,31 @@ func GetDeveloperAccessStateForUserBase(user *UserBase) (DeveloperAccessState, e
 		return state, nil
 	}
 	if user.ConsoleActivatedAt > 0 {
-		return ordinaryDeveloperAccessState(false, true), nil
+		return ordinaryDeveloperAccessStateWithPolicy(false, true, policy), nil
 	}
-	paid, err := HasSuccessfulPaidTopUp(user.Id)
+	if tx == nil {
+		return DeveloperAccessState{}, gorm.ErrInvalidDB
+	}
+	paid, err := HasSuccessfulPaidTopUpWithTx(tx, user.Id, true)
 	if err != nil {
 		return DeveloperAccessState{}, err
 	}
-	return ordinaryDeveloperAccessState(paid, user.ConsoleActivatedAt > 0), nil
+	return ordinaryDeveloperAccessStateWithPolicy(paid, false, policy), nil
+}
+
+func GetDeveloperAccessStateForUserBase(user *UserBase) (DeveloperAccessState, error) {
+	state, err := developerAccessStateForUserBase(DB, user, CurrentDeveloperAccessPolicy())
+	if err != nil {
+		return DeveloperAccessState{}, fmt.Errorf("evaluate developer access: %w", err)
+	}
+	return state, nil
+}
+
+// GetDeveloperAccessStateForUserBaseWithTx evaluates the same authoritative
+// policy as GetDeveloperAccessStateForUserBase while using the caller's
+// transaction. Qualifying payment facts are locked through commit.
+func GetDeveloperAccessStateForUserBaseWithTx(tx *gorm.DB, user *UserBase, policy DeveloperAccessPolicy) (DeveloperAccessState, error) {
+	return developerAccessStateForUserBase(tx, user, policy)
 }
 
 func GetDeveloperAccessStateForUser(user *User) (DeveloperAccessState, error) {

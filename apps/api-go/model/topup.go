@@ -669,22 +669,37 @@ func GetTopUpByProviderTransaction(paymentProvider, providerTransactionID string
 // one real-money recharge. Quota grants, redemption codes, and balance-funded
 // subscription purchases do not unlock paid-only product surfaces.
 func HasSuccessfulPaidTopUp(userId int) (bool, error) {
+	return HasSuccessfulPaidTopUpWithTx(DB, userId, false)
+}
+
+// HasSuccessfulPaidTopUpWithTx applies the same activation predicate as the
+// ordinary access path. The transactional authorization path locks the
+// matching fact rows so a concurrent update or deletion is serialized before
+// credential commit.
+func HasSuccessfulPaidTopUpWithTx(tx *gorm.DB, userId int, lockFacts bool) (bool, error) {
 	if userId <= 0 {
 		return false, nil
 	}
-	if DB == nil {
+	if tx == nil {
 		return false, gorm.ErrInvalidDB
 	}
 
 	creditedQuotaExpression, creditedQuotaArgs := positiveNormalizedCreditedQuotaSQL()
-	var matchingRows int64
-	query := successfulExternalPaidTopUpQuery(DB.Model(&TopUp{})).
+	query := successfulExternalPaidTopUpQuery(tx.Model(&TopUp{})).
 		Where("user_id = ?", userId).
 		Where("("+creditedQuotaExpression+") > 0", creditedQuotaArgs...)
-	if err := query.Count(&matchingRows).Error; err != nil {
+	if !lockFacts {
+		var matchingRows int64
+		if err := query.Count(&matchingRows).Error; err != nil {
+			return false, err
+		}
+		return matchingRows > 0, nil
+	}
+	var matchingIDs []int
+	if err := lockForUpdate(query).Order("id").Pluck("id", &matchingIDs).Error; err != nil {
 		return false, err
 	}
-	return matchingRows > 0, nil
+	return len(matchingIDs) > 0, nil
 }
 
 func positiveNormalizedCreditedQuotaSQL() (string, []interface{}) {

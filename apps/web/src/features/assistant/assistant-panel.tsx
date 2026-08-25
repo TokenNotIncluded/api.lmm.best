@@ -2120,6 +2120,10 @@ export function AssistantPanel(props: {
                           autoConfirmKeyToken ===
                           keyCreationAction?.confirmation_token
                         }
+                        onKeyPreparationInvalid={() => {
+                          setAutoConfirmKeyToken(null)
+                          setKeyCreationAction(null)
+                        }}
                         onKeyCreated={() => {
                           setAutoConfirmKeyToken(null)
                           setKeyCreationAction(null)

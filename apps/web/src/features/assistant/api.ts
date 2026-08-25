@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import axios, { type AxiosResponse } from 'axios'
+import axios, { type AxiosError, type AxiosResponse } from 'axios'
 
 import type { QuotaDataItem } from '@/features/dashboard/types'
 import type { PricingData } from '@/features/pricing/types'
@@ -250,6 +250,8 @@ export type AssistantCreateKeyAction = {
   expires_in_seconds: number
   name: string
   group: string
+  conversation_id?: number
+  ui_path?: string
 }
 
 export type AssistantImageGenerationAction = {
@@ -560,6 +562,17 @@ type AssistantAPIResponse<T> = {
   success: boolean
   data?: T
   message?: string
+  code?: string
+}
+
+export class AssistantRequestError extends Error {
+  readonly code?: string
+
+  constructor(message: string, code?: string) {
+    super(message)
+    this.name = 'AssistantRequestError'
+    this.code = code
+  }
 }
 
 export type AssistantErrorInfo = {
@@ -599,9 +612,17 @@ function requireAssistantData<T>(
   fallback: string
 ): T {
   if (!payload.success || payload.data === undefined) {
-    throw new Error(payload.message || fallback)
+    throw new AssistantRequestError(payload.message || fallback, payload.code)
   }
   return payload.data
+}
+
+function normalizeAssistantRequestError(
+  error: AxiosError<AssistantAPIResponse<never>>,
+  fallback: string
+) {
+  const payload = error.response?.data
+  return new AssistantRequestError(payload?.message || fallback, payload?.code)
 }
 
 export function parseAssistantReply(payload: AssistantChatPayload): string {
@@ -1663,24 +1684,52 @@ export async function getAssistantUsageData(
   return requireAssistantData(response.data, 'Failed to fetch usage')
 }
 
-export async function createAssistantDefaultKey(
+export async function prepareAssistantDefaultKey(
   name: string,
   group: string,
-  confirmationToken?: string
+  groupWarningConfirmations = 0
+): Promise<AssistantCreateKeyAction> {
+  try {
+    const response = await api.post<
+      AssistantAPIResponse<AssistantCreateKeyAction>
+    >(
+      '/api/assistant/tools/prepare-key',
+      {
+        name,
+        group,
+        group_warning_confirmations: groupWarningConfirmations,
+      },
+      { skipBusinessError: true, skipErrorHandler: true }
+    )
+    return requireAssistantData(response.data, 'Unable to prepare API key')
+  } catch (error) {
+    if (axios.isAxiosError<AssistantAPIResponse<never>>(error)) {
+      throw normalizeAssistantRequestError(error, 'Unable to prepare API key')
+    }
+    throw error
+  }
+}
+
+export async function confirmAssistantDefaultKey(
+  confirmationToken: string,
+  twoFactorCode = ''
 ): Promise<AssistantCreatedKey> {
-  const response = await api.post<AssistantAPIResponse<AssistantCreatedKey>>(
-    '/api/assistant/tools/create-key',
-    {
-      confirmed: true,
-      name,
-      group,
-      ...(confirmationToken
-        ? { confirmation_token: confirmationToken }
-        : undefined),
-    },
-    { skipBusinessError: true, skipErrorHandler: true }
-  )
-  return requireAssistantData(response.data, 'Unable to create API key')
+  try {
+    const response = await api.post<AssistantAPIResponse<AssistantCreatedKey>>(
+      '/api/assistant/tools/create-key',
+      {
+        confirmation_token: confirmationToken,
+        two_factor_code: twoFactorCode.trim(),
+      },
+      { skipBusinessError: true, skipErrorHandler: true }
+    )
+    return requireAssistantData(response.data, 'Unable to create API key')
+  } catch (error) {
+    if (axios.isAxiosError<AssistantAPIResponse<never>>(error)) {
+      throw normalizeAssistantRequestError(error, 'Unable to create API key')
+    }
+    throw error
+  }
 }
 
 export async function getL1OnboardingTodo(): Promise<L1OnboardingTodo> {

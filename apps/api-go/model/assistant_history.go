@@ -1292,25 +1292,105 @@ func InsertAssistantTokenAndCreateSecureCard(token *Token, ownerUserID int, conv
 	return card, nil
 }
 
-// ConsumeAssistantKeyFlowAndCreateSecureCard binds the one-time browser
-// confirmation to credential creation in one transaction. A failed insert
-// rolls the flow consumption back, while a replay can never create a second
-// key. The generated credential is written only to the encrypted secure card.
-func ConsumeAssistantKeyFlowAndCreateSecureCard(flowToken string, match AuthFlowMatch, token *Token, ownerUserID int, conversationID int64, summary, payload string, maxUserTokens int) (*AssistantSecureCard, error) {
-	if match.Purpose != AuthFlowPurposeAssistantKey || match.UserId != ownerUserID || strings.TrimSpace(match.SessionId) == "" {
-		return nil, ErrAuthFlowInvalid
+// AssistantKeyMaterial is produced only after the locked auth-flow payload and
+// current account configuration have been validated inside the transaction.
+type AssistantKeyMaterial struct {
+	Token          *Token
+	ConversationID int64
+	Summary        string
+	SecurePayload  string
+}
+
+// AssistantKeyMaterialFactory validates the locked draft and creates the
+// credential material at the final mutation boundary. Returning an error rolls
+// back both flow consumption and every write performed by the factory.
+type AssistantKeyMaterialFactory func(tx *gorm.DB, flow *AuthFlow) (*AssistantKeyMaterial, error)
+
+// ConsumeAssistantKeyFlowAndCreateSecureCard is the sole assistant key
+// mutation entry point. Its PostgreSQL linearization point is the ordered
+// flow -> user -> session -> factor -> paid facts lock sequence. A revocation
+// that acquires the authority rows first is observed and rejected; a key
+// transaction that already owns them may legally commit before the revocation.
+func ConsumeAssistantKeyFlowAndCreateSecureCard(
+	flowToken string,
+	fence AssistantKeyAuthorizationFence,
+	twoFactorCode string,
+	maxUserTokens int,
+	factory AssistantKeyMaterialFactory,
+) (*Token, *AssistantSecureCard, error) {
+	match := fence.authFlowMatch()
+	if flowToken == "" || match.Purpose != AuthFlowPurposeAssistantKey || factory == nil {
+		return nil, nil, ErrAuthFlowInvalid
 	}
-	var card *AssistantSecureCard
-	_, err := ConsumeAuthFlowWithAction(flowToken, match, func(tx *gorm.DB, _ *AuthFlow) error {
-		var insertErr error
-		card, insertErr = insertAssistantTokenAndCreateSecureCardTx(tx, token, ownerUserID, conversationID, summary, payload, maxUserTokens)
-		return insertErr
+	var (
+		material  *AssistantKeyMaterial
+		card      *AssistantSecureCard
+		rejection error
+	)
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		var flow AuthFlow
+		if err := applyAuthFlowMatch(lockForUpdate(tx), flowToken, match).First(&flow).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrAuthFlowInvalid
+			}
+			return err
+		}
+		if flow.ConsumedAt != nil {
+			return ErrAuthFlowConsumed
+		}
+		now := time.Now()
+		if !flow.ExpiresAt.After(now) {
+			return ErrAuthFlowExpired
+		}
+
+		authorized, err := authorizeAssistantKeyCreationTx(tx, fence, twoFactorCode)
+		if err != nil {
+			return err
+		}
+		if !authorized {
+			// Failed-attempt state is authoritative security data. Commit that
+			// update without consuming the confirmation flow or creating secrets.
+			rejection = ErrAssistantKeyTwoFactorInvalid
+			return nil
+		}
+
+		result := tx.Model(&AuthFlow{}).
+			Where("id = ? AND consumed_at IS NULL AND expires_at > ?", flow.Id, now).
+			Update("consumed_at", now)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected != 1 {
+			return ErrAuthFlowConsumed
+		}
+		flow.ConsumedAt = &now
+
+		material, err = factory(tx, &flow)
+		if err != nil {
+			return err
+		}
+		if material == nil || material.Token == nil || material.Token.UserId != fence.userID {
+			return ErrAuthFlowInvalid
+		}
+		card, err = insertAssistantTokenAndCreateSecureCardTx(
+			tx,
+			material.Token,
+			fence.userID,
+			material.ConversationID,
+			material.Summary,
+			material.SecurePayload,
+			maxUserTokens,
+		)
+		return err
 	})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	finalizeAssistantTokenCreation(token)
-	return card, nil
+	if rejection != nil {
+		return nil, nil, rejection
+	}
+	finalizeAssistantTokenCreation(material.Token)
+	return material.Token, card, nil
 }
 
 func assistantSecureCardView(card AssistantSecureCard, isOwner bool) AssistantSecureCardView {

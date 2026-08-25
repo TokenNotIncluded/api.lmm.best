@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use axum::{body::Body, http::Request};
 use lmm_api_rs::{
-    auth::{AuthConfig, PgValkeyDashboardAuth},
+    auth::{AuthConfig, DashboardDeveloperAccessPolicy, PgValkeyDashboardAuth},
     migration_routes::assistant::{AssistantRateLimitConfig, AssistantReadState},
     migration_routes::assistant_extended::extended_router,
 };
@@ -40,6 +40,7 @@ async fn assistant_extended_routes_require_dashboard_auth() {
             window: std::time::Duration::from_secs(1),
             dependency_timeout: std::time::Duration::from_secs(1),
         },
+        DashboardDeveloperAccessPolicy::new(false),
     );
     let app = extended_router().with_state(state);
 

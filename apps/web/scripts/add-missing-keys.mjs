@@ -5026,6 +5026,113 @@ for (const [locale, translations] of Object.entries(
   Object.assign(newKeys[locale], translations)
 }
 
+const assistantKeyCreationTranslations = {
+  en: {
+    'Unable to load selectable key groups. Try again.':
+      'Unable to load selectable key groups. Try again.',
+    'No selectable key groups are available for this account.':
+      'No selectable key groups are available for this account.',
+    'The selected key group is no longer available. Choose a current group and prepare again.':
+      'The selected key group is no longer available. Choose a current group and prepare again.',
+    'The server returned an invalid key preparation. Refresh the page and try again.':
+      'The server returned an invalid key preparation. Refresh the page and try again.',
+    'Unable to prepare API key': 'Unable to prepare API key',
+    'Preparing key creation...': 'Preparing key creation...',
+    'Only required when two-factor authentication is enabled.':
+      'Only required when two-factor authentication is enabled.',
+  },
+  zh: {
+    'Unable to load selectable key groups. Try again.':
+      '无法加载可选密钥分组，请重试。',
+    'No selectable key groups are available for this account.':
+      '当前账户没有可选的密钥分组。',
+    'The selected key group is no longer available. Choose a current group and prepare again.':
+      '所选密钥分组已不可用。请选择当前可用的分组并重新准备。',
+    'The server returned an invalid key preparation. Refresh the page and try again.':
+      '服务端返回了无效的密钥准备结果。请刷新页面后重试。',
+    'Unable to prepare API key': '无法准备 API 密钥',
+    'Preparing key creation...': '正在准备创建密钥……',
+    'Only required when two-factor authentication is enabled.':
+      '仅在已启用双重身份验证时需要。',
+  },
+  'zh-TW': {
+    'Unable to load selectable key groups. Try again.':
+      '無法載入可選的金鑰分組，請重試。',
+    'No selectable key groups are available for this account.':
+      '此帳戶目前沒有可選的金鑰分組。',
+    'The selected key group is no longer available. Choose a current group and prepare again.':
+      '所選的金鑰分組已無法使用。請選擇目前可用的分組並重新準備。',
+    'The server returned an invalid key preparation. Refresh the page and try again.':
+      '伺服器傳回無效的金鑰準備結果。請重新整理頁面後再試一次。',
+    'Unable to prepare API key': '無法準備 API 金鑰',
+    'Preparing key creation...': '正在準備建立金鑰……',
+    'Only required when two-factor authentication is enabled.':
+      '僅在已啟用雙重驗證時需要。',
+  },
+  fr: {
+    'Unable to load selectable key groups. Try again.':
+      'Impossible de charger les groupes de clés sélectionnables. Réessayez.',
+    'No selectable key groups are available for this account.':
+      'Aucun groupe de clés sélectionnable n’est disponible pour ce compte.',
+    'The selected key group is no longer available. Choose a current group and prepare again.':
+      'Le groupe de clés sélectionné n’est plus disponible. Choisissez un groupe actuel et recommencez la préparation.',
+    'The server returned an invalid key preparation. Refresh the page and try again.':
+      'Le serveur a renvoyé une préparation de clé non valide. Actualisez la page et réessayez.',
+    'Unable to prepare API key': 'Impossible de préparer la clé API',
+    'Preparing key creation...': 'Préparation de la création de la clé…',
+    'Only required when two-factor authentication is enabled.':
+      'Requis uniquement lorsque l’authentification à deux facteurs est activée.',
+  },
+  ja: {
+    'Unable to load selectable key groups. Try again.':
+      '選択可能なキーグループを読み込めませんでした。もう一度お試しください。',
+    'No selectable key groups are available for this account.':
+      'このアカウントで選択できるキーグループはありません。',
+    'The selected key group is no longer available. Choose a current group and prepare again.':
+      '選択したキーグループは利用できなくなりました。現在のグループを選び直して、もう一度準備してください。',
+    'The server returned an invalid key preparation. Refresh the page and try again.':
+      'サーバーから無効なキー準備情報が返されました。ページを再読み込みして、もう一度お試しください。',
+    'Unable to prepare API key': 'API キーを準備できません',
+    'Preparing key creation...': 'キー作成を準備しています…',
+    'Only required when two-factor authentication is enabled.':
+      '2 要素認証が有効な場合のみ必要です。',
+  },
+  ru: {
+    'Unable to load selectable key groups. Try again.':
+      'Не удалось загрузить доступные для выбора группы ключей. Повторите попытку.',
+    'No selectable key groups are available for this account.':
+      'Для этой учётной записи нет доступных для выбора групп ключей.',
+    'The selected key group is no longer available. Choose a current group and prepare again.':
+      'Выбранная группа ключей больше недоступна. Выберите актуальную группу и повторите подготовку.',
+    'The server returned an invalid key preparation. Refresh the page and try again.':
+      'Сервер вернул недопустимые данные подготовки ключа. Обновите страницу и повторите попытку.',
+    'Unable to prepare API key': 'Не удалось подготовить API-ключ',
+    'Preparing key creation...': 'Подготовка создания ключа…',
+    'Only required when two-factor authentication is enabled.':
+      'Требуется только при включённой двухфакторной аутентификации.',
+  },
+  vi: {
+    'Unable to load selectable key groups. Try again.':
+      'Không thể tải các nhóm khóa có thể chọn. Hãy thử lại.',
+    'No selectable key groups are available for this account.':
+      'Tài khoản này không có nhóm khóa nào có thể chọn.',
+    'The selected key group is no longer available. Choose a current group and prepare again.':
+      'Nhóm khóa đã chọn không còn khả dụng. Hãy chọn một nhóm hiện có và chuẩn bị lại.',
+    'The server returned an invalid key preparation. Refresh the page and try again.':
+      'Máy chủ trả về dữ liệu chuẩn bị khóa không hợp lệ. Hãy tải lại trang và thử lại.',
+    'Unable to prepare API key': 'Không thể chuẩn bị khóa API',
+    'Preparing key creation...': 'Đang chuẩn bị tạo khóa…',
+    'Only required when two-factor authentication is enabled.':
+      'Chỉ bắt buộc khi xác thực hai yếu tố được bật.',
+  },
+}
+
+for (const [locale, translations] of Object.entries(
+  assistantKeyCreationTranslations
+)) {
+  Object.assign(newKeys[locale], translations)
+}
+
 const setupRootVerificationTranslations = {
   en: {
     'Verify the existing administrator account to finish setup.':

@@ -99,6 +99,8 @@ impl DashboardAuth for PersonalTokenAuth {
         Ok(DashboardSessionContext {
             user: dashboard_user(),
             session_id: "assistant-session".to_owned(),
+            session_version: 1,
+            user_auth_version: 1,
             client_ip: "127.0.0.1".to_owned(),
             user_agent: "assistant-test".to_owned(),
         })
@@ -129,6 +131,7 @@ fn smoke_router() -> axum::Router {
             window: std::time::Duration::from_secs(1),
             dependency_timeout: std::time::Duration::from_secs(1),
         },
+        lmm_api_rs::auth::DashboardDeveloperAccessPolicy::new(false),
     ))
 }
 
