@@ -300,29 +300,31 @@ func defaultProductionRuntime() *productionRuntime {
 }
 
 type productionTransactionOptions struct {
-	Action             string
-	Workspace          string
-	OperatorUser       string
-	GoPackage          string
-	GoPackageSHA256    string
-	GoRollbackPackage  string
-	GoRollbackSHA256   string
-	WebPackage         string
-	WebPackageSHA256   string
-	WebRollbackPackage string
-	WebRollbackSHA256  string
-	GoChanged          bool
-	WebChanged         bool
-	ProbeBinary        string
-	ProbeBinarySHA256  string
-	ExpectedVersion    string
-	BackupDir          string
-	WithBackups        bool
-	RollbackWindow     time.Duration
-	ObservationWindow  time.Duration
-	ManualConfirm      bool
-	PreserveEdgePolicy bool
-	Reason             string
+	Action               string
+	Workspace            string
+	OperatorUser         string
+	GoPackage            string
+	GoPackageSHA256      string
+	GoRollbackPackage    string
+	GoRollbackSHA256     string
+	WebPackage           string
+	WebPackageSHA256     string
+	WebRollbackPackage   string
+	WebRollbackSHA256    string
+	GoChanged            bool
+	WebChanged           bool
+	ProbeBinary          string
+	ProbeBinarySHA256    string
+	OperatorBinary       string
+	OperatorBinarySHA256 string
+	ExpectedVersion      string
+	BackupDir            string
+	WithBackups          bool
+	RollbackWindow       time.Duration
+	ObservationWindow    time.Duration
+	ManualConfirm        bool
+	PreserveEdgePolicy   bool
+	Reason               string
 }
 
 type productionPackageTransition struct {
@@ -357,6 +359,8 @@ type productionManifest struct {
 	Frontend                 productionFrontendTransition `json:"frontend"`
 	ProbeBinary              string                       `json:"probe_binary"`
 	ProbeBinarySHA256        string                       `json:"probe_binary_sha256"`
+	OperatorBinary           string                       `json:"operator_binary,omitempty"`
+	OperatorBinarySHA256     string                       `json:"operator_binary_sha256,omitempty"`
 	ExpectedVersion          string                       `json:"expected_version"`
 	OldVersion               string                       `json:"old_version"`
 	BackupDir                string                       `json:"backup_dir,omitempty"`
@@ -737,6 +741,8 @@ func parseProductionTransactionOptions(action string, args []string, stderr io.W
 		flags.BoolVar(&options.WebChanged, "web-changed", false, "install the candidate Web package")
 		flags.StringVar(&options.ProbeBinary, "probe-binary", "", "candidate Go binary used for migrations and probes")
 		flags.StringVar(&options.ProbeBinarySHA256, "probe-binary-sha256", "", "probe binary SHA-256")
+		flags.StringVar(&options.OperatorBinary, "operator-binary", "", "deployment operator binary")
+		flags.StringVar(&options.OperatorBinarySHA256, "operator-binary-sha256", "", "operator binary SHA-256")
 		flags.StringVar(&options.ExpectedVersion, "expected-version", "", "candidate service version")
 		flags.StringVar(&options.BackupDir, "backup-dir", "", "current-turn-authorized verified target business backup directory")
 		flags.BoolVar(&options.WithBackups, "with-backups", false, "bind an explicitly authorized optional business backup")
@@ -790,10 +796,25 @@ func parseProductionTransactionOptions(action string, args []string, stderr io.W
 				return productionTransactionOptions{}, fmt.Errorf("%s is required", label)
 			}
 		}
-		for _, digest := range []string{options.GoPackageSHA256, options.GoRollbackSHA256, options.WebPackageSHA256, options.WebRollbackSHA256, options.ProbeBinarySHA256} {
+		if options.OperatorBinary == "" {
+			options.OperatorBinary = options.ProbeBinary
+		}
+		if options.OperatorBinarySHA256 == "" {
+			options.OperatorBinarySHA256 = options.ProbeBinarySHA256
+		}
+		for _, digest := range []string{options.GoPackageSHA256, options.GoRollbackSHA256, options.WebPackageSHA256, options.WebRollbackSHA256, options.ProbeBinarySHA256, options.OperatorBinarySHA256} {
 			if !productionSHA256Pattern.MatchString(digest) {
 				return productionTransactionOptions{}, errors.New("all SHA-256 values must be 64 lowercase hexadecimal characters")
 			}
+		}
+		if _, err := cleanAbsoluteNonRoot(options.OperatorBinary); err != nil {
+			return productionTransactionOptions{}, fmt.Errorf("invalid --operator-binary: %w", err)
+		}
+		if options.OperatorBinary == "" || options.ProbeBinary == "" {
+			return productionTransactionOptions{}, errors.New("--operator-binary and --probe-binary are required")
+		}
+		if !productionSHA256Pattern.MatchString(options.OperatorBinarySHA256) {
+			return productionTransactionOptions{}, errors.New("operator binary SHA-256 must be 64 lowercase hexadecimal characters")
 		}
 		if options.OperatorUser != productionOperatorUser {
 			return productionTransactionOptions{}, fmt.Errorf("--operator-user must be the package-owned %s account", productionOperatorUser)
@@ -810,7 +831,7 @@ func parseProductionTransactionOptions(action string, args []string, stderr io.W
 		paths := map[string]*string{
 			"--go-package": &options.GoPackage, "--go-rollback-package": &options.GoRollbackPackage,
 			"--web-package": &options.WebPackage, "--web-rollback-package": &options.WebRollbackPackage,
-			"--probe-binary": &options.ProbeBinary,
+			"--probe-binary": &options.ProbeBinary, "--operator-binary": &options.OperatorBinary,
 		}
 		for label, value := range paths {
 			clean, err := cleanAbsoluteNonRoot(*value)

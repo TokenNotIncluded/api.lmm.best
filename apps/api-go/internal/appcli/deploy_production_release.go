@@ -49,6 +49,7 @@ type productionReleasePlanOptions struct {
 	WebRollbackReleaseAsset  string
 	WebRollbackReleaseBundle string
 	ProbeBinary              string
+	OperatorBinary           string
 	AgeRecipientFile         string
 	ObservationSeconds       int
 	RollbackSeconds          int
@@ -94,6 +95,7 @@ type productionReleasePlan struct {
 	WebCandidate        productionReleasePackagePlan `json:"web_candidate"`
 	WebRollback         productionReleasePackagePlan `json:"web_rollback"`
 	ProbeBinary         productionReleaseFilePlan    `json:"probe_binary"`
+	OperatorBinary      productionReleaseFilePlan    `json:"operator_binary,omitempty"`
 	GoChanged           bool                         `json:"go_changed"`
 	WebChanged          bool                         `json:"web_changed"`
 	ObservationSeconds  int                          `json:"observation_seconds"`
@@ -156,6 +158,7 @@ func parseProductionReleasePlanOptions(args []string, stderr io.Writer) (product
 	flags.StringVar(&options.WebRollbackReleaseAsset, "web-rollback-release-asset", "", "signed rollback Web release archive")
 	flags.StringVar(&options.WebRollbackReleaseBundle, "web-rollback-release-bundle", "", "rollback Web Sigstore bundle")
 	flags.StringVar(&options.ProbeBinary, "probe-binary", "", "candidate lmm-api binary extracted from the signed Go release")
+	flags.StringVar(&options.OperatorBinary, "operator-binary", "", "signed deployment operator binary staged separately from the candidate probe")
 	flags.BoolVar(&options.WithBackups, "with-backups", false, "require target, controller, and off-host backups before promotion")
 	flags.StringVar(&options.AgeRecipientFile, "age-recipient-file", "", "age or SSH public recipient file used when backups are enabled")
 	flags.IntVar(&options.ObservationSeconds, "observation-seconds", options.ObservationSeconds, "automatic stability observation window (120-360)")
@@ -168,6 +171,9 @@ func parseProductionReleasePlanOptions(args []string, stderr io.Writer) (product
 	}
 	if flags.NArg() != 0 {
 		return productionReleasePlanOptions{}, errors.New("unexpected positional arguments")
+	}
+	if options.OperatorBinary == "" {
+		options.OperatorBinary = options.ProbeBinary
 	}
 	if !productionIDPattern.MatchString(options.DeploymentID) {
 		return productionReleasePlanOptions{}, errors.New("valid --deployment-id is required")
@@ -188,6 +194,7 @@ func parseProductionReleasePlanOptions(args []string, stderr io.Writer) (product
 		"--web-rollback-release-asset":  &options.WebRollbackReleaseAsset,
 		"--web-rollback-release-bundle": &options.WebRollbackReleaseBundle,
 		"--probe-binary":                &options.ProbeBinary,
+		"--operator-binary":             &options.OperatorBinary,
 	}
 	if options.WithBackups {
 		paths["--age-recipient-file"] = &options.AgeRecipientFile
@@ -239,6 +246,9 @@ func (runtime *productionReleaseRuntime) createPlan(ctx context.Context, options
 		}
 	}
 	if err := validateControllerArtifact(options.ProbeBinary, "probe binary", true); err != nil {
+		return productionReleasePlanResult{}, err
+	}
+	if err := validateControllerArtifact(options.OperatorBinary, "operator binary", true); err != nil {
 		return productionReleasePlanResult{}, err
 	}
 	if options.WithBackups {
@@ -299,6 +309,10 @@ func (runtime *productionReleaseRuntime) createPlan(ctx context.Context, options
 	if probeSHA256 != goCandidate.PayloadSHA256 {
 		return productionReleasePlanResult{}, errors.New("probe binary is not the binary in the signed candidate Go release and package")
 	}
+	operatorSHA256, err := sha256File(options.OperatorBinary)
+	if err != nil {
+		return productionReleasePlanResult{}, fmt.Errorf("hash operator binary: %w", err)
+	}
 	plan := productionReleasePlan{
 		Format:              productionReleasePlanFormat,
 		DeploymentID:        options.DeploymentID,
@@ -314,6 +328,7 @@ func (runtime *productionReleaseRuntime) createPlan(ctx context.Context, options
 		WebCandidate:        webCandidate,
 		WebRollback:         webRollback,
 		ProbeBinary:         productionReleaseFilePlan{Path: options.ProbeBinary, SHA256: probeSHA256},
+		OperatorBinary:      productionReleaseFilePlan{Path: options.OperatorBinary, SHA256: operatorSHA256},
 		GoChanged:           goChanged,
 		WebChanged:          webChanged,
 		ObservationSeconds:  options.ObservationSeconds,
@@ -926,6 +941,13 @@ func validateProductionReleasePlan(plan productionReleasePlan) error {
 	if err != nil || probe != plan.ProbeBinary.Path || !productionSHA256Pattern.MatchString(plan.ProbeBinary.SHA256) || plan.ProbeBinary.SHA256 != plan.GoCandidate.PayloadSHA256 {
 		return errors.New("release plan probe identity is invalid")
 	}
+	if plan.OperatorBinary.Path == "" {
+		plan.OperatorBinary = plan.ProbeBinary
+	}
+	operator, err := cleanAbsoluteNonRoot(plan.OperatorBinary.Path)
+	if err != nil || operator != plan.OperatorBinary.Path || !productionSHA256Pattern.MatchString(plan.OperatorBinary.SHA256) {
+		return errors.New("release plan operator identity is invalid")
+	}
 	if plan.WithBackups {
 		recipient, err := cleanAbsoluteNonRoot(plan.AgeRecipient.Path)
 		if err != nil || recipient != plan.AgeRecipient.Path || !productionSHA256Pattern.MatchString(plan.AgeRecipient.SHA256) {
@@ -945,6 +967,7 @@ func validateReleaseBasenameCollisions(plan productionReleasePlan) error {
 		{Path: plan.WebCandidate.PackagePath, SHA256: plan.WebCandidate.PackageSHA256},
 		{Path: plan.WebRollback.PackagePath, SHA256: plan.WebRollback.PackageSHA256},
 		plan.ProbeBinary,
+		plan.OperatorBinary,
 	}
 	if plan.WithBackups {
 		files = append(files, plan.AgeRecipient)
@@ -987,6 +1010,7 @@ func validateProductionReleasePlanArtifacts(ctx context.Context, runtime *produc
 		{plan.WebCandidate.SignatureBundle, plan.WebCandidate.SignatureBundleSHA256, "candidate Web signature bundle"},
 		{plan.WebRollback.SignatureBundle, plan.WebRollback.SignatureBundleSHA256, "rollback Web signature bundle"},
 		{plan.ProbeBinary.Path, plan.ProbeBinary.SHA256, "probe binary"},
+		{plan.OperatorBinary.Path, plan.OperatorBinary.SHA256, "operator binary"},
 	}
 	if plan.WithBackups {
 		files = append(files, struct {

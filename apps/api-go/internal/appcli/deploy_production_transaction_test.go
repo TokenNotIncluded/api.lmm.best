@@ -513,7 +513,8 @@ func newProductionFixture(t *testing.T) productionFixture {
 	webCandidate := filepath.Join(staging, "lmm-api-web-bin-new.pkg.tar.zst")
 	webRollback := filepath.Join(staging, "lmm-api-web-bin-old.pkg.tar.zst")
 	probe := filepath.Join(staging, "lmm-api-go")
-	for path, body := range map[string]string{goCandidate: "go-new", goRollback: "go-old", webCandidate: "web-new", webRollback: "web-old", probe: "probe"} {
+	operator := filepath.Join(staging, "lmm-api-operator")
+	for path, body := range map[string]string{goCandidate: "go-new", goRollback: "go-old", webCandidate: "web-new", webRollback: "web-old", probe: "probe", operator: "operator"} {
 		if err := os.WriteFile(path, []byte(body), 0o700); err != nil {
 			t.Fatal(err)
 		}
@@ -546,7 +547,7 @@ func newProductionFixture(t *testing.T) productionFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	options := productionTransactionOptions{Action: "apply", Workspace: workspaceRoot, OperatorUser: productionOperatorUser, GoPackage: goCandidate, GoPackageSHA256: mustHashFile(t, goCandidate), GoRollbackPackage: goRollback, GoRollbackSHA256: mustHashFile(t, goRollback), WebPackage: webCandidate, WebPackageSHA256: mustHashFile(t, webCandidate), WebRollbackPackage: webRollback, WebRollbackSHA256: mustHashFile(t, webRollback), GoChanged: true, WebChanged: true, ProbeBinary: probe, ProbeBinarySHA256: mustHashFile(t, probe), ExpectedVersion: newVersion, BackupDir: backupDir, WithBackups: true, RollbackWindow: 10 * time.Minute, ObservationWindow: 2 * time.Minute, ManualConfirm: true}
+	options := productionTransactionOptions{Action: "apply", Workspace: workspaceRoot, OperatorUser: productionOperatorUser, GoPackage: goCandidate, GoPackageSHA256: mustHashFile(t, goCandidate), GoRollbackPackage: goRollback, GoRollbackSHA256: mustHashFile(t, goRollback), WebPackage: webCandidate, WebPackageSHA256: mustHashFile(t, webCandidate), WebRollbackPackage: webRollback, WebRollbackSHA256: mustHashFile(t, webRollback), GoChanged: true, WebChanged: true, ProbeBinary: probe, ProbeBinarySHA256: mustHashFile(t, probe), OperatorBinary: operator, OperatorBinarySHA256: mustHashFile(t, operator), ExpectedVersion: newVersion, BackupDir: backupDir, WithBackups: true, RollbackWindow: 10 * time.Minute, ObservationWindow: 2 * time.Minute, ManualConfirm: true}
 	return productionFixture{runtime: runtime, runner: runner, workspace: workspace, options: options, environment: environment, clock: &clockValue}
 }
 
@@ -670,7 +671,7 @@ func TestProductionDualPackageApplyUsesParuAndCanonicalWatchdog(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(unit), "ExecStart=/usr/bin/lmm-api deploy production rollback") || strings.Contains(string(unit), fixture.options.ProbeBinary) {
+	if !strings.Contains(string(unit), "ExecStart="+fixture.options.OperatorBinary+" deploy production rollback") || strings.Contains(string(unit), fixture.options.ProbeBinary) {
 		t.Fatalf("rollback unit=%s", unit)
 	}
 }

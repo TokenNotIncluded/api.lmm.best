@@ -416,6 +416,27 @@ func (runtime *productionRuntime) verifyTransitionCLI(transition productionPacka
 	if runtime.paths.LegacyGoBinary == "" {
 		return errors.New("T0 compatibility CLI path is not configured")
 	}
+	if rollback {
+		legacy, err := isPreT0LegacyPackage(metadata.Name, metadata.Version)
+		if err != nil {
+			return err
+		}
+		if legacy {
+			info, err := os.Lstat(runtime.paths.InstalledBinary)
+			if err != nil || info.Mode()&os.ModeSymlink == 0 {
+				return errors.New("pre-T0 rollback package lacks its reverse compatibility CLI link")
+			}
+			target, err := os.Readlink(runtime.paths.InstalledBinary)
+			if err != nil || target != filepath.Base(runtime.paths.LegacyGoBinary) {
+				return errors.New("pre-T0 reverse CLI compatibility link has an unsafe target")
+			}
+			legacyInfo, err := os.Stat(runtime.paths.LegacyGoBinary)
+			if err != nil || !legacyInfo.Mode().IsRegular() || legacyInfo.Mode()&0o111 == 0 {
+				return errors.New("pre-T0 rollback Go binary is not a regular executable")
+			}
+			return nil
+		}
+	}
 	info, err := os.Lstat(runtime.paths.LegacyGoBinary)
 	if err != nil || info.Mode()&os.ModeSymlink == 0 {
 		return errors.New("T0 rollback package lacks its compatibility CLI link")
@@ -468,12 +489,19 @@ func (runtime *productionRuntime) apply(ctx context.Context, workspace productio
 		_ = runtime.releaseTransactionLock(workspace)
 	}()
 
+	if options.OperatorBinary == "" {
+		options.OperatorBinary = options.ProbeBinary
+	}
+	if options.OperatorBinarySHA256 == "" {
+		options.OperatorBinarySHA256 = options.ProbeBinarySHA256
+	}
 	staged := []productionStagedFile{
 		{options.GoPackage, options.GoPackageSHA256, "candidate Go package", false},
 		{options.GoRollbackPackage, options.GoRollbackSHA256, "rollback Go package", false},
 		{options.WebPackage, options.WebPackageSHA256, "candidate Web package", false},
 		{options.WebRollbackPackage, options.WebRollbackSHA256, "rollback Web package", false},
 		{options.ProbeBinary, options.ProbeBinarySHA256, "probe binary", true},
+		{options.OperatorBinary, options.OperatorBinarySHA256, "operator binary", true},
 	}
 	if err := runtime.validateOperatorWorkspace(ctx, workspace, options.OperatorUser, staged); err != nil {
 		return productionStatus{}, err
@@ -643,6 +671,7 @@ func (runtime *productionRuntime) apply(ctx context.Context, workspace productio
 		Web:          transitionFromMetadata(options.WebChanged, options.WebPackage, options.WebRollbackPackage, options.WebPackageSHA256, options.WebRollbackSHA256, webCandidate, webRollback),
 		Frontend:     productionFrontendTransition{OldTarget: oldTarget, NewTarget: newTarget, OldIndexSHA256: oldIndexSHA, NewIndexSHA256: webCandidate.IndexSHA256},
 		ProbeBinary:  options.ProbeBinary, ProbeBinarySHA256: options.ProbeBinarySHA256,
+		OperatorBinary: options.OperatorBinary, OperatorBinarySHA256: options.OperatorBinarySHA256,
 		ExpectedVersion: options.ExpectedVersion, OldVersion: oldVersion, BackupDir: options.BackupDir, BackupsEnabled: options.WithBackups,
 		DatabaseBackupSHA256: databaseBackupSHA256, DatabaseSchema: databaseSchema, ArmedUTC: armedUTC, DeadlineUTC: deadline,
 		ObservationSeconds: int64(options.ObservationWindow / time.Second), ConfigRestorePath: workspace.configRestore, EnvironmentRestoreSHA256: environmentRestoreSHA256,
@@ -673,6 +702,9 @@ func (runtime *productionRuntime) apply(ctx context.Context, workspace productio
 		return productionStatus{}, err
 	}
 	if manifest.Go.Changed {
+		if err := runtime.removeLegacyDeployPackageForT1(ctx, goCandidate); err != nil {
+			return productionStatus{}, err
+		}
 		if _, err := runtime.runner.Run(ctx, productionCommand{Name: commandSystemctl, Args: []string{"stop", runtime.paths.Service}}); err != nil {
 			return productionStatus{}, fmt.Errorf("stop current Go service: %w", err)
 		}
@@ -688,9 +720,6 @@ func (runtime *productionRuntime) apply(ctx context.Context, workspace productio
 			return productionStatus{}, err
 		}
 		if err := runtime.retireContractlessMemoryDropInForUpgrade(ctx, manifest.Go.RollbackIdentity); err != nil {
-			return productionStatus{}, err
-		}
-		if err := runtime.removeLegacyDeployPackageForT1(ctx, goCandidate); err != nil {
 			return productionStatus{}, err
 		}
 		if err := runtime.paruInstall(ctx, workspace, manifest.OperatorUser, manifest.Go.CandidatePath); err != nil {
@@ -1137,6 +1166,10 @@ func (runtime *productionRuntime) armRollbackTimer(ctx context.Context, workspac
 			return false, errors.New("release-scoped rollback unit already exists or is unsafe")
 		}
 	}
+	operatorBinary := manifest.OperatorBinary
+	if operatorBinary == "" {
+		operatorBinary = productionOperatorBinary
+	}
 	rollbackContent := fmt.Sprintf(`[Unit]
 Description=LMM API Go release-scoped automatic rollback (%s)
 
@@ -1146,7 +1179,7 @@ ExecStart=%s deploy production rollback --workspace %s --reason watchdog-deadlin
 TimeoutStartSec=10min
 Restart=on-failure
 RestartSec=10s
-`, workspace.id, productionOperatorBinary, workspace.root)
+`, workspace.id, operatorBinary, workspace.root)
 	timerContent := fmt.Sprintf(`[Unit]
 Description=LMM API Go rollback deadline (%s)
 

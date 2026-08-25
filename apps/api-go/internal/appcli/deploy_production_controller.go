@@ -315,8 +315,8 @@ func (runtime *productionReleaseRuntime) control(ctx context.Context, action str
 		if action == "rollback" {
 			arguments = append(arguments, "--reason", options.Reason)
 		}
-		remoteProbe := filepath.Join(state.RemoteWorkspace, "staging", filepath.Base(plan.ProbeBinary.Path))
-		output, err := runtime.ssh(ctx, plan.TargetAlias, 12*time.Minute, append([]string{remoteProbe}, arguments...)...)
+		remoteOperator := productionRemoteOperatorPath(plan, state)
+		output, err := runtime.ssh(ctx, plan.TargetAlias, 12*time.Minute, append([]string{remoteOperator}, arguments...)...)
 		if err != nil {
 			return productionReleaseControllerResult{}, fmt.Errorf("production %s failed or became transport-ambiguous: %w", action, err)
 		}
@@ -335,6 +335,14 @@ func (runtime *productionReleaseRuntime) control(ctx context.Context, action str
 	return releaseControllerResult(plan, state), nil
 }
 
+func productionRemoteOperatorPath(plan productionReleasePlan, state productionReleaseControllerState) string {
+	operator := plan.OperatorBinary.Path
+	if operator == "" {
+		operator = plan.ProbeBinary.Path
+	}
+	return filepath.Join(state.RemoteWorkspace, "staging", filepath.Base(operator))
+}
+
 func persistRemoteReleaseControllerStatus(plan productionReleasePlan, state *productionReleaseControllerState, status productionStatus, now time.Time) error {
 	state.Phase = status.Phase
 	state.Version = status.Version
@@ -345,11 +353,12 @@ func persistRemoteReleaseControllerStatus(plan productionReleasePlan, state *pro
 
 func (runtime *productionReleaseRuntime) productionApplyArguments(plan productionReleasePlan, state productionReleaseControllerState) []string {
 	remoteStage := filepath.Join(state.RemoteWorkspace, "staging")
+	remoteOperator := productionRemoteOperatorPath(plan, state)
 	remoteProbe := filepath.Join(remoteStage, filepath.Base(plan.ProbeBinary.Path))
 	arguments := []string{
 		"systemd-run", "--quiet", "--wait", "--collect", "--unit", productionActivationUnit(plan.DeploymentID),
 		"--property=Type=oneshot", "--property=TimeoutStartSec=18min",
-		remoteProbe, "deploy", "production", "apply",
+		remoteOperator, "deploy", "production", "apply",
 		"--workspace", state.RemoteWorkspace,
 		"--operator-user", plan.OperatorUser,
 		"--go-package", filepath.Join(remoteStage, filepath.Base(plan.GoCandidate.PackagePath)),
@@ -362,6 +371,8 @@ func (runtime *productionReleaseRuntime) productionApplyArguments(plan productio
 		"--web-rollback-sha256", plan.WebRollback.PackageSHA256,
 		"--probe-binary", remoteProbe,
 		"--probe-binary-sha256", plan.ProbeBinary.SHA256,
+		"--operator-binary", remoteOperator,
+		"--operator-binary-sha256", plan.OperatorBinary.SHA256,
 		"--expected-version", plan.ExpectedVersion,
 		"--rollback-seconds", strconv.Itoa(plan.RollbackSeconds),
 		"--observation-seconds", strconv.Itoa(plan.ObservationSeconds),
@@ -385,9 +396,9 @@ func (runtime *productionReleaseRuntime) productionApplyArguments(plan productio
 }
 
 func (runtime *productionReleaseRuntime) remoteDispatchEvidence(ctx context.Context, plan productionReleasePlan, state productionReleaseControllerState) (productionDispatchEvidence, error) {
-	remoteProbe := filepath.Join(state.RemoteWorkspace, "staging", filepath.Base(plan.ProbeBinary.Path))
+	remoteOperator := productionRemoteOperatorPath(plan, state)
 	output, err := runtime.ssh(ctx, plan.TargetAlias, 30*time.Second,
-		remoteProbe, "deploy", "production", "dispatch-evidence",
+		remoteOperator, "deploy", "production", "dispatch-evidence",
 		"--workspace", state.RemoteWorkspace, "--unit", state.ActivationUnit)
 	if err != nil {
 		return productionDispatchEvidence{}, fmt.Errorf("reconcile production activation dispatch: %w", err)
@@ -526,9 +537,9 @@ func (runtime *productionReleaseRuntime) waitForDispatchObservation(ctx context.
 }
 
 func (runtime *productionReleaseRuntime) readRemoteReleaseStatus(ctx context.Context, plan productionReleasePlan, state productionReleaseControllerState) (productionStatus, error) {
-	remoteProbe := filepath.Join(state.RemoteWorkspace, "staging", filepath.Base(plan.ProbeBinary.Path))
+	remoteOperator := productionRemoteOperatorPath(plan, state)
 	output, err := runtime.ssh(ctx, plan.TargetAlias, 2*time.Minute,
-		remoteProbe, "deploy", "production", "status", "--workspace", state.RemoteWorkspace)
+		remoteOperator, "deploy", "production", "status", "--workspace", state.RemoteWorkspace)
 	if err != nil {
 		return productionStatus{}, fmt.Errorf("read production release status: %w", err)
 	}
@@ -555,12 +566,17 @@ func productionReleaseStageFiles(plan productionReleasePlan, planPath string) ([
 	if err != nil {
 		return nil, fmt.Errorf("hash release plan digest file: %w", err)
 	}
+	operator := plan.OperatorBinary
+	if operator.Path == "" {
+		operator = plan.ProbeBinary
+	}
 	files := []productionReleaseStageFile{
 		{plan.GoCandidate.PackagePath, plan.GoCandidate.PackageSHA256, false},
 		{plan.GoRollback.PackagePath, plan.GoRollback.PackageSHA256, false},
 		{plan.WebCandidate.PackagePath, plan.WebCandidate.PackageSHA256, false},
 		{plan.WebRollback.PackagePath, plan.WebRollback.PackageSHA256, false},
 		{plan.ProbeBinary.Path, plan.ProbeBinary.SHA256, true},
+		{operator.Path, operator.SHA256, true},
 		{planPath, planSHA256, false},
 		{digestPath, digestSHA256, false},
 	}
