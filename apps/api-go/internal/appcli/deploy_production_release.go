@@ -564,7 +564,12 @@ func (runtime *productionReleaseRuntime) verifySignedPackageLayout(ctx context.C
 		return errors.New("signed release has no package payload")
 	}
 	packageFiles := make(map[string]string)
+	preT0Legacy, err := isPreT0LegacyPackage(packageName, packageVersion)
+	if err != nil {
+		return err
+	}
 	legacyAlias := false
+	legacyReverseAlias := false
 	if err := filepath.WalkDir(packageRoot, func(path string, entry os.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -584,20 +589,33 @@ func (runtime *productionReleaseRuntime) verifySignedPackageLayout(ctx context.C
 			return err
 		}
 		if info.Mode()&os.ModeSymlink != 0 {
-			if packageName != productionAURPackageName || relative != "usr/bin/lmm-api-go" {
+			switch {
+			case packageName == productionAURPackageName && relative == "usr/bin/lmm-api-go" && !preT0Legacy:
+				target, err := os.Readlink(path)
+				if err != nil || target != "lmm-api" {
+					return errors.New("legacy CLI compatibility symlink has an unsafe target")
+				}
+				legacyAlias = true
+				return nil
+			case preT0Legacy && relative == "usr/bin/lmm-api":
+				target, err := os.Readlink(path)
+				if err != nil || target != "lmm-api-go" {
+					return errors.New("pre-T0 CLI compatibility symlink has an unsafe target")
+				}
+				legacyReverseAlias = true
+				return nil
+			default:
 				return fmt.Errorf("package contains an unexpected symlink: %s", relative)
 			}
-			target, err := os.Readlink(path)
-			if err != nil || target != "lmm-api" {
-				return errors.New("legacy CLI compatibility symlink has an unsafe target")
-			}
-			legacyAlias = true
-			return nil
 		}
 		if !info.Mode().IsRegular() || info.Size() == 0 || info.Mode().Perm()&0o022 != 0 {
 			return fmt.Errorf("package contains an unsafe payload: %s", relative)
 		}
-		packageFiles[relative] = path
+		if preT0Legacy && relative == "usr/bin/lmm-api-go" {
+			packageFiles["usr/bin/lmm-api"] = path
+		} else {
+			packageFiles[relative] = path
+		}
 		return nil
 	}); err != nil {
 		return err
@@ -638,10 +656,10 @@ func (runtime *productionReleaseRuntime) verifySignedPackageLayout(ctx context.C
 		if err != nil {
 			return err
 		}
-		if t1 && legacyAlias {
+		if t1 && (legacyAlias || legacyReverseAlias) {
 			return errors.New("T1 package still exposes the legacy CLI compatibility link")
 		}
-		if !t1 && !legacyAlias {
+		if !t1 && !legacyAlias && !legacyReverseAlias {
 			return errors.New("T0 rollback package lacks the legacy CLI compatibility link")
 		}
 	}
@@ -653,6 +671,17 @@ func (runtime *productionReleaseRuntime) verifySignedPackageLayout(ctx context.C
 		return errors.New("package canonical executable is missing or not executable")
 	}
 	return nil
+}
+
+func isPreT0LegacyPackage(packageName, packageVersion string) (bool, error) {
+	if packageName != productionAURPackageName {
+		return false, nil
+	}
+	releaseVersion, err := packageReleaseVersion(packageVersion)
+	if err != nil {
+		return false, err
+	}
+	return releaseVersion == "0.1.57", nil
 }
 
 func legacyPackageWithoutEmbeddedReleaseDigest(packageName, packageVersion string) bool {

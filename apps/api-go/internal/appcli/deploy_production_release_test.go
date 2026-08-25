@@ -352,6 +352,17 @@ func TestVerifySignedPackageLayoutRejectsUnsignedOperatorMutation(t *testing.T) 
 	if err := runtime.verifySignedPackageLayout(context.Background(), workspace, productionAURPackageName, "0.1.60-1", packagePath, asset, assetSHA256); err == nil || !strings.Contains(err.Error(), "T1 package still exposes") {
 		t.Fatalf("T1 compatibility-link error=%v", err)
 	}
+
+	legacyPackage := filepath.Join(workspace, "legacy-package.tar.gz")
+	writeTestTarGzip(t, legacyPackage, []testTarEntry{
+		{name: "usr/bin/lmm-api-go", body: "binary", mode: 0o755},
+		{name: "usr/bin/lmm-api", mode: 0o777, linkTo: "lmm-api-go"},
+		{name: "etc/sudoers.d/lmm-api-operator", body: "safe-sudoers\n", mode: 0o440},
+		{name: "usr/share/licenses/lmm-api-go-bin/LICENSE", body: "license\n", mode: 0o644},
+	})
+	if err := runtime.verifySignedPackageLayout(context.Background(), workspace, productionAURPackageName, "0.1.57-1", legacyPackage, asset, assetSHA256); err != nil {
+		t.Fatalf("pre-T0 compatibility-link error=%v", err)
+	}
 }
 
 func TestRemoteGoPackageDeduplicatesPacmanProviderResolution(t *testing.T) {
