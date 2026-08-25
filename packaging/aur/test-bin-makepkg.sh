@@ -70,7 +70,7 @@ cp -L "$HERE/lmm-api-go-bin/lmm-api-cli-phase.sh" "$go_work/"
 # Exercise the retained bundled-frontend branch independently of the immutable
 # release pinned by the canonical package.
 # shellcheck disable=SC2016 # Deliberately write a PKGBUILD variable reference.
-printf '\n_legacy_bundled_version=$pkgver\n' >> "$go_work/PKGBUILD"
+printf '\n_legacy_bundled_version=$pkgver\n_lmm_cli_phase=$LMM_CLI_PHASE_T0\n' >> "$go_work/PKGBUILD"
 printf '#!/bin/sh\nexit 0\n' > "$go_bundle/lmm-api-go"
 chmod 0755 "$go_bundle/lmm-api-go"
 printf '<!doctype html>\n' > "$go_bundle/frontend-dist/index.html"

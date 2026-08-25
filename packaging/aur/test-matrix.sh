@@ -44,6 +44,9 @@ CLI_PHASE_HELPER=$(realpath -e "$SHARED/lmm-api-cli-phase.sh")
 readonly CLI_PHASE_HELPER
 readonly CLI_PHASE_HELPER_SHA256=2b93864b302a7901a4688fd5b7df9b7e262f193a666a915718f434db20054935
 [[ -f $CLI_PHASE_HELPER && ! -L $CLI_PHASE_HELPER ]] || die 'canonical CLI phase helper is missing'
+BINARY_T1_RELEASE=$(sed -n 's/^readonly LMM_CLI_T1_RELEASE=//p' "$CLI_PHASE_HELPER")
+readonly BINARY_T1_RELEASE
+[[ $BINARY_T1_RELEASE =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die 'canonical CLI phase helper has an invalid T1 release'
 [[ $(sha256sum "$CLI_PHASE_HELPER") == "$CLI_PHASE_HELPER_SHA256  $CLI_PHASE_HELPER" ]] ||
   die 'canonical CLI phase helper digest changed without updating package pins'
 for package in lmm-api-go lmm-api-go-bin lmm-api-go-git; do
@@ -77,12 +80,21 @@ done
 
 for package in lmm-api-go lmm-api-go-bin lmm-api-go-git; do
   contains_srcinfo_prefix "$package" $'\tprovides = lmm-api'
-  contains_srcinfo_prefix "$package" $'\tprovides = lmm-api-go'
-  contains_srcinfo "$package" $'\tbackup = etc/lmm-api-go/lmm-api-go.env'
-  if grep -Fq $'\tconflicts = lmm-api-deploy-bin' "$HERE/$package/.SRCINFO" ||
-    grep -Fq $'\treplaces = lmm-api-deploy-bin' "$HERE/$package/.SRCINFO"; then
-    die "$package applies the T1 deploy-package transition during T0"
+  if [[ $package == lmm-api-go-bin ]] &&
+    (( $(vercmp "$(sed -n 's/^pkgver=//p' "$HERE/$package/PKGBUILD")" "$BINARY_T1_RELEASE") >= 0 )); then
+    if grep -Fq $'\tprovides = lmm-api-go' "$HERE/$package/.SRCINFO"; then
+      die "$package retains the removed legacy CLI capability"
+    fi
+    contains_srcinfo "$package" $'\tconflicts = lmm-api-deploy-bin'
+    contains_srcinfo "$package" $'\treplaces = lmm-api-deploy-bin'
+  else
+    contains_srcinfo_prefix "$package" $'\tprovides = lmm-api-go'
+    if grep -Fq $'\tconflicts = lmm-api-deploy-bin' "$HERE/$package/.SRCINFO" ||
+      grep -Fq $'\treplaces = lmm-api-deploy-bin' "$HERE/$package/.SRCINFO"; then
+      die "$package applies the T1 deploy-package transition during T0"
+    fi
   fi
+  contains_srcinfo "$package" $'\tbackup = etc/lmm-api-go/lmm-api-go.env'
 done
 contains_srcinfo lmm-api-go-git $'\tprovides = lmm-api'
 contains_srcinfo lmm-api-go-git $'\tprovides = lmm-api-go'
@@ -259,6 +271,7 @@ printf 'fixture archive\n' >"$stage/go-next/lmm-api-go-${go_bin_pkgver}-linux-am
   # Exercise the retained bundled-frontend branch independently of which
   # immutable release the canonical prebuilt package currently pins.
   _legacy_bundled_version=$pkgver
+  _lmm_cli_phase=$LMM_CLI_PHASE_T0
   package
 )
 (
@@ -269,6 +282,7 @@ printf 'fixture archive\n' >"$stage/go-next/lmm-api-go-${go_bin_pkgver}-linux-am
   # shellcheck disable=SC1091
   source "$HERE/lmm-api-go-bin/PKGBUILD"
   pkgver=0.1.59
+  _lmm_cli_phase=$LMM_CLI_PHASE_T0
   package
 )
 (
@@ -299,7 +313,7 @@ chmod 0755 "$web_src/lmm-api-web-activate.local" "$web_src/frontend-release.sh"
 for file in LICENSE NOTICE THIRD-PARTY-LICENSES.md; do printf 'fixture\n' >"$web_src/$file"; done
 printf '%040d\n' 0 >"$web_src/REVISION"
 printf '%s\n' "$contract_revision" >"$web_src/API_ROUTE_CONTRACT_REVISION"
-printf 'fixture archive\n' >"$web_src/lmm-api-web-0.1.41.tar.gz"
+printf 'fixture archive\n' >"$web_src/lmm-api-web-0.1.42.tar.gz"
 (
   srcdir="$web_src"
   pkgdir="$tmp/pkg-web-next"
