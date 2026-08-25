@@ -397,7 +397,7 @@ mapfile -t candidate_files < <(
     candidate_name=${candidate_file##*/}
     candidate_name=${candidate_name%.rs}
     is_candidate_helper "$candidate_name" || printf '%s\n' "$candidate_file"
-  done < <(rg --files "$candidate_dir")
+  done < <(find "$candidate_dir" -maxdepth 1 -type f -name '*.rs' -print)
 )
 candidate_count=${#candidate_files[@]}
 mapfile -t declared_candidates < <(
