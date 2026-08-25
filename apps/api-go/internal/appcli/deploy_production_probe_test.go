@@ -2,6 +2,26 @@ package appcli
 
 import "testing"
 
+func TestExactPackageNameListedIgnoresProvidersAndPrefixes(t *testing.T) {
+	tests := []struct {
+		name     string
+		output   string
+		expected bool
+	}{
+		{name: "exact split package", output: "lmm-api\n", expected: true},
+		{name: "T0 provider package", output: "lmm-api-go-bin\nlmm-api-web-bin\nlmm-api-deploy-bin\n", expected: false},
+		{name: "source provider package", output: "lmm-api-go\n", expected: false},
+		{name: "whitespace separated exact name", output: "nginx  lmm-api\tpostgresql\n", expected: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := exactPackageNameListed([]byte(test.output), "lmm-api"); got != test.expected {
+				t.Fatalf("exactPackageNameListed()=%v, want %v", got, test.expected)
+			}
+		})
+	}
+}
+
 func TestActionableJournalLineFiltersExpectedProxyDisconnects(t *testing.T) {
 	tests := []struct {
 		name       string

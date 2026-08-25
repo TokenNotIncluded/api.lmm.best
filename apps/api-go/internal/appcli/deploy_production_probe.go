@@ -309,6 +309,15 @@ func (runtime *productionRuntime) checkErrorJournals(ctx context.Context, since 
 	return nil
 }
 
+func exactPackageNameListed(output []byte, expected string) bool {
+	for _, name := range strings.Fields(string(output)) {
+		if name == expected {
+			return true
+		}
+	}
+	return false
+}
+
 func (runtime *productionRuntime) healthCheck(ctx context.Context, workspace productionWorkspace, manifest productionManifest) error {
 	if _, err := runtime.runner.Run(ctx, productionCommand{Name: commandSystemctl, Args: []string{"is-active", "--quiet", runtime.paths.Service}}); err != nil {
 		return errors.New("lmm-api service is not active")
@@ -331,7 +340,11 @@ func (runtime *productionRuntime) healthCheck(ctx context.Context, workspace pro
 	if err := retireKnownMemoryOverrides(runtime.paths.DropInDir); err != nil {
 		return err
 	}
-	if _, err := runtime.runner.Run(ctx, productionCommand{Name: commandPacman, Args: []string{"-Q", "lmm-api"}}); err == nil {
+	installedPackages, err := runtime.runner.Run(ctx, productionCommand{Name: commandPacman, Args: []string{"-Qq"}, Env: append(os.Environ(), "LC_ALL=C")})
+	if err != nil {
+		return fmt.Errorf("list installed packages for split-package verification: %w", err)
+	}
+	if exactPackageNameListed(installedPackages, "lmm-api") {
 		return errors.New("removed split lmm-api package reappeared")
 	}
 	for _, path := range runtime.paths.RemovedPaths {

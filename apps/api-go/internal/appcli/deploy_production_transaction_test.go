@@ -261,11 +261,14 @@ func (runner *fakeProductionRunner) bsdtar(args []string) ([]byte, error) {
 }
 
 func (runner *fakeProductionRunner) pacman(args []string) ([]byte, error) {
-	if len(args) < 2 {
+	if len(args) == 0 {
 		return nil, errors.New("invalid pacman arguments")
 	}
 	switch args[0] {
 	case "-Q":
+		if len(args) != 2 {
+			return nil, errors.New("invalid pacman query arguments")
+		}
 		switch args[1] {
 		case productionAURPackageName:
 			return []byte(productionAURPackageName + " " + runner.installedGoVersion + "-1\n"), nil
@@ -274,6 +277,11 @@ func (runner *fakeProductionRunner) pacman(args []string) ([]byte, error) {
 		default:
 			return nil, errors.New("package not found")
 		}
+	case "-Qq":
+		if len(args) != 1 {
+			return nil, errors.New("invalid pacman package-list arguments")
+		}
+		return []byte(productionAURPackageName + "\n" + productionWebPackageName + "\n" + productionOperatorPackageName + "\n"), nil
 	case "-Qp":
 		name, version, _, _, _, ok := runner.packageData(args[1])
 		if !ok {
