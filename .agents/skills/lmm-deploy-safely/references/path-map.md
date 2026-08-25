@@ -50,7 +50,7 @@ deployment backup, rollback, or retention requirements.
 | Purpose | Current path |
 | --- | --- |
 | Canonical service/operator CLI | `/usr/bin/lmm-api` (owned by `lmm-api-go-bin`) |
-| Go release identity metadata | `/usr/share/doc/lmm-api-go-bin/{REVISION,API_ROUTE_CONTRACT_REVISION,RELEASE_ASSET_SHA256}` |
+| Go release identity metadata | `/usr/share/doc/lmm-api-go-bin/{REVISION,API_ROUTE_CONTRACT_REVISION,CLI_TRANSITION_PHASE,RELEASE_ASSET_SHA256}` (`CLI_TRANSITION_PHASE` required for releases ≥0.1.63) |
 | T0 compatibility paths | `/usr/bin/lmm-api-go`, `/usr/bin/lmm-api-deploy` (never invoke; removed in T1) |
 | Application environment | `/etc/lmm-api-go/lmm-api-go.env` |
 | systemd unit | `/usr/lib/systemd/system/lmm-api.service` |

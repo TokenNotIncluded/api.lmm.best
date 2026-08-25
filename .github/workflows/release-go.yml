@@ -219,6 +219,9 @@ jobs:
             packaging/common/lmm-api/geoip2-country-update.timer \
             "$bundle/edge-policy/"
           cp LICENSE NOTICE THIRD-PARTY-LICENSES.md "$bundle/"
+          cli_phase=$(<deploy/production/CLI_TRANSITION_PHASE)
+          [[ "$cli_phase" == 't0' || "$cli_phase" == 't1' ]]
+          install -m 0644 deploy/production/CLI_TRANSITION_PHASE "$bundle/CLI_TRANSITION_PHASE"
           printf '%s\n' "$RELEASE_REVISION" >"$bundle/REVISION"
           deploy/production/api-route-contract-revision.sh generate \
             "$bundle/API_ROUTE_CONTRACT_REVISION"

@@ -9,6 +9,7 @@ readonly WEB_WORKFLOW="$ROOT/.github/workflows/release-web.yml"
 readonly PROMOTE_WORKFLOW="$ROOT/.github/workflows/promote-release.yml"
 readonly GO_PKGBUILD="$ROOT/packaging/aur/lmm-api-go-bin/PKGBUILD"
 readonly WEB_PKGBUILD="$ROOT/packaging/aur/lmm-api-web-bin/PKGBUILD"
+readonly GO_CLI_PHASE="$ROOT/deploy/production/CLI_TRANSITION_PHASE"
 
 fail() {
   printf 'test-release-artifact-contract: %s\n' "$*" >&2
@@ -23,7 +24,7 @@ reject_literal() {
   ! grep -Fq -- "$literal" "$file" || fail "$message"
 }
 
-for file in "$GO_WORKFLOW" "$WEB_WORKFLOW" "$PROMOTE_WORKFLOW" "$GO_PKGBUILD" "$WEB_PKGBUILD"; do
+for file in "$GO_WORKFLOW" "$WEB_WORKFLOW" "$PROMOTE_WORKFLOW" "$GO_PKGBUILD" "$WEB_PKGBUILD" "$GO_CLI_PHASE"; do
   [[ -f $file ]] || fail "missing contract input: $file"
 done
 
@@ -41,7 +42,7 @@ require_literal "$GO_WORKFLOW" '"$bundle/API_ROUTE_CONTRACT_REVISION"' \
 # shellcheck disable=SC2016 # Deliberately inspect workflow source literals.
 require_literal "$GO_WORKFLOW" '[[ ! -e "$bundle/frontend-dist" ]]' \
   'Go release does not fail closed on bundled frontend ownership'
-for asset in lmm-api.service lmm-api-go.env edge-policy REVISION API_ROUTE_CONTRACT_REVISION; do
+for asset in lmm-api.service lmm-api-go.env edge-policy REVISION API_ROUTE_CONTRACT_REVISION CLI_TRANSITION_PHASE; do
   require_literal "$GO_WORKFLOW" "$asset" "Go release omits $asset"
 done
 # shellcheck disable=SC2016 # Deliberately inspect workflow source literals.
@@ -61,7 +62,7 @@ require_literal "$PROMOTE_WORKFLOW" 'timeout-minutes: 15' \
 
 # The next Web archive has the same revision generator and remains sole owner
 # of the immutable frontend payload.
-for asset in dist REVISION API_ROUTE_CONTRACT_REVISION; do
+for asset in dist REVISION API_ROUTE_CONTRACT_REVISION lmm-api-web.install; do
   require_literal "$WEB_WORKFLOW" "$asset" "Web release omits $asset"
 done
 for gate in 'git merge-base --is-ancestor' 'git rev-list -n 1' \
@@ -81,7 +82,14 @@ require_literal "$GO_PKGBUILD" '_legacy_cli_archive_version=0.1.57' \
 require_literal "$GO_PKGBUILD" 'RELEASE_ASSET_SHA256' \
   'Go package does not preserve its signed release-asset digest'
 require_literal "$GO_PKGBUILD" 'lmm_cli_phase_for_binary_release' \
-  'Go package does not derive its phase from the shared transition contract'
+  'Go package does not derive its legacy phase from the shared transition contract'
+require_literal "$GO_PKGBUILD" 'CLI_TRANSITION_PHASE' \
+  'Go package does not preserve the signed explicit CLI transition phase'
+# shellcheck disable=SC2016 # Deliberately match the literal PKGBUILD variable.
+require_literal "$GO_PKGBUILD" 'install -d -m0750 "${pkgdir}/etc/sudoers.d"' \
+  'Go package changes the canonical sudoers.d directory mode'
+[[ $(<"$GO_CLI_PHASE") == t0 || $(<"$GO_CLI_PHASE") == t1 ]] ||
+  fail 'next Go release CLI transition phase is invalid'
 require_literal "$ROOT/packaging/common/lmm-api/lmm-api-cli-phase.sh" \
   'LMM_CLI_T1_RELEASE=0.1.60' 'shared CLI phase helper lost the T1 boundary'
 require_literal "$ROOT/packaging/common/lmm-api/lmm-api-cli-phase.sh" \
@@ -99,6 +107,9 @@ require_literal "$WEB_PKGBUILD" '_legacy_contractless_version=0.1.31' \
   'Web package lost its explicit immutable legacy compatibility boundary'
 require_literal "$WEB_PKGBUILD" 'API_ROUTE_CONTRACT_REVISION' \
   'future Web package does not install contract metadata'
+# shellcheck disable=SC2016 # Deliberately inspect PKGBUILD source literals.
+require_literal "$WEB_PKGBUILD" 'cmp -s "${startdir}/lmm-api-web.install" "${srcdir}/lmm-api-web.install"' \
+  'Web package does not compare its install hook with signed release evidence'
 require_literal "$WEB_PKGBUILD" 'RELEASE_ASSET_SHA256' \
   'future Web package does not preserve its signed release-asset digest'
 

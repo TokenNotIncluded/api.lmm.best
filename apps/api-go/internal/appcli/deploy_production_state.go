@@ -24,22 +24,23 @@ import (
 )
 
 const (
-	productionServiceName          = "lmm-api.service"
-	productionExpectedHost         = "arch-dmit"
-	productionDefaultRollback      = 10 * time.Minute
-	productionDefaultObservation   = 3 * time.Minute
-	productionObservationInterval  = 10 * time.Second
-	productionConfirmationMargin   = 30 * time.Second
-	productionCommandTimeout       = 2 * time.Minute
-	productionProbeTimeout         = 8 * time.Second
-	productionProbeAttempts        = 45
-	productionTransactionFormat    = 5
-	productionStatusFormat         = 1
-	productionFrontendReleaseKeep  = 3
-	productionTransactionMarker    = "deployment.env"
-	productionWorkspaceMarker      = ".lmm-deploy-workspace"
-	productionManifestFilename     = "deployment.json"
-	productionStatusFilename       = "status.json"
+	productionServiceName         = "lmm-api.service"
+	productionExpectedHost        = "arch-dmit"
+	productionDefaultRollback     = 10 * time.Minute
+	productionDefaultObservation  = 3 * time.Minute
+	productionObservationInterval = 10 * time.Second
+	productionConfirmationMargin  = 30 * time.Second
+	productionCommandTimeout      = 2 * time.Minute
+	productionProbeTimeout        = 8 * time.Second
+	productionProbeAttempts       = 45
+	productionTransactionFormat   = 6
+	productionStatusFormat        = 1
+	productionFrontendReleaseKeep = 3
+	productionTransactionMarker   = "deployment.env"
+	productionWorkspaceMarker     = ".lmm-deploy-workspace"
+	productionManifestFilename    = "deployment.json"
+	productionStatusFilename      = "status.json"
+	// pi-lens-ignore: go-hardcoded-secrets
 	productionProbeTokenFilename   = "probe-token"
 	productionConfigRestoreDirname = "config-restore"
 	productionSourcePackageName    = "lmm-api-go"
@@ -265,6 +266,7 @@ func (osProductionCommandRunner) Run(parent context.Context, command productionC
 	return nil, fmt.Errorf("command %s failed: %w: %s", filepath.Base(command.Name), err, detail)
 }
 
+// pi-lens-ignore: go-bare-error
 func runVerifiedBinary(ctx context.Context, runner productionCommandRunner, binary string, args []string, environment []string, directory string, timeout time.Duration, sensitive bool) ([]byte, error) {
 	if !filepath.IsAbs(binary) {
 		return nil, errors.New("verified binary path must be absolute")
@@ -341,6 +343,8 @@ type productionPackageTransition struct {
 	RollbackGitRevision       string `json:"rollback_git_revision"`
 	CandidateContractRevision string `json:"candidate_contract_revision"`
 	RollbackContractRevision  string `json:"rollback_contract_revision"`
+	CandidateCLIPhase         string `json:"candidate_cli_phase,omitempty"`
+	RollbackCLIPhase          string `json:"rollback_cli_phase,omitempty"`
 }
 
 type productionFrontendTransition struct {
@@ -471,6 +475,7 @@ type productionPackageMetadata struct {
 	Identity           string
 	GitRevision        string
 	ContractRevision   string
+	CLITransitionPhase string
 	IndexSHA256        string
 	BinarySHA256       string
 	ReleaseAssetSHA256 string
@@ -530,6 +535,16 @@ func (runtime *productionRuntime) packageMetadata(ctx context.Context, packagePa
 			return productionPackageMetadata{}, fmt.Errorf("%s package release-asset digest is invalid", packageName)
 		}
 		metadata.ReleaseAssetSHA256 = assetDigest
+	}
+	if packageName != productionWebPackageName {
+		explicitPhase, phaseErr := readMember("CLI_TRANSITION_PHASE")
+		if phaseErr != nil {
+			explicitPhase = ""
+		}
+		metadata.CLITransitionPhase, err = packageCLITransitionPhase(packageName, metadata.Version, explicitPhase)
+		if err != nil {
+			return productionPackageMetadata{}, fmt.Errorf("%s package CLI transition phase is invalid: %w", packageName, err)
+		}
 	}
 	if packageName == productionWebPackageName {
 		index, err := runtime.runner.Run(ctx, productionCommand{Name: commandBsdtar, Args: []string{"-xOf", packagePath, "usr/share/lmm-api-web/frontend-dist/index.html"}})
@@ -653,6 +668,7 @@ func (runtime *productionRuntime) readInstalledReleaseMetadata(name, identity st
 	return revision, contract, nil
 }
 
+// pi-lens-ignore: go-bare-error
 func readSafeRegularFile(path string, maximum int64) ([]byte, error) {
 	info, err := os.Lstat(path)
 	if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || info.Mode().Perm()&0o022 != 0 || info.Size() > maximum {
@@ -1066,6 +1082,10 @@ func (runtime *productionRuntime) validateManifest(workspace productionWorkspace
 		manifest.Go.RollbackContractRevision != manifest.Web.RollbackContractRevision {
 		return errors.New("deployment manifest Go/Web package or contract pair mismatch")
 	}
+	if !validCLITransitionPhase(manifest.Go.CandidateCLIPhase) || !validCLITransitionPhase(manifest.Go.RollbackCLIPhase) ||
+		manifest.Web.CandidateCLIPhase != "" || manifest.Web.RollbackCLIPhase != "" {
+		return errors.New("deployment manifest CLI transition phase is invalid")
+	}
 	for _, transition := range []productionPackageTransition{manifest.Go, manifest.Web} {
 		if !productionRevisionPattern.MatchString(transition.CandidateGitRevision) ||
 			!productionRevisionPattern.MatchString(transition.RollbackGitRevision) ||
@@ -1083,7 +1103,7 @@ func (runtime *productionRuntime) validateManifest(workspace productionWorkspace
 		}
 		if !transition.Changed && (transition.CandidatePackageName != transition.RollbackPackageName || transition.CandidateIdentity != transition.RollbackIdentity ||
 			transition.CandidateSHA256 != transition.RollbackSHA256 || transition.CandidateGitRevision != transition.RollbackGitRevision ||
-			transition.CandidateContractRevision != transition.RollbackContractRevision) {
+			transition.CandidateContractRevision != transition.RollbackContractRevision || transition.CandidateCLIPhase != transition.RollbackCLIPhase) {
 			return errors.New("unchanged package manifest identities differ")
 		}
 		for _, path := range []string{transition.CandidatePath, transition.RollbackPath} {
@@ -1094,7 +1114,7 @@ func (runtime *productionRuntime) validateManifest(workspace productionWorkspace
 	}
 	for _, digest := range []string{
 		manifest.Go.CandidateSHA256, manifest.Go.RollbackSHA256, manifest.Web.CandidateSHA256, manifest.Web.RollbackSHA256,
-		manifest.ProbeBinarySHA256, manifest.Frontend.OldIndexSHA256, manifest.Frontend.NewIndexSHA256, manifest.EnvironmentRestoreSHA256,
+		manifest.ProbeBinarySHA256, manifest.OperatorBinarySHA256, manifest.Frontend.OldIndexSHA256, manifest.Frontend.NewIndexSHA256, manifest.EnvironmentRestoreSHA256,
 	} {
 		if !productionSHA256Pattern.MatchString(digest) {
 			return errors.New("deployment manifest contains an invalid SHA-256")
@@ -1102,6 +1122,9 @@ func (runtime *productionRuntime) validateManifest(workspace productionWorkspace
 	}
 	if !pathWithinRoot(workspace.stagingDir, manifest.ProbeBinary) || filepath.Dir(manifest.ProbeBinary) != workspace.stagingDir {
 		return errors.New("deployment manifest probe binary escapes staging")
+	}
+	if !pathWithinRoot(workspace.stagingDir, manifest.OperatorBinary) || filepath.Dir(manifest.OperatorBinary) != workspace.stagingDir {
+		return errors.New("deployment manifest operator binary escapes staging")
 	}
 	if manifest.ConfigRestorePath != workspace.configRestore {
 		return errors.New("deployment manifest configuration rollback path escapes root-only state")
@@ -1137,6 +1160,7 @@ func (runtime *productionRuntime) validateManifest(workspace productionWorkspace
 		{manifest.Web.CandidatePath, manifest.Web.CandidateSHA256, "candidate Web package"},
 		{manifest.Web.RollbackPath, manifest.Web.RollbackSHA256, "rollback Web package"},
 		{manifest.ProbeBinary, manifest.ProbeBinarySHA256, "probe binary"},
+		{manifest.OperatorBinary, manifest.OperatorBinarySHA256, "operator binary"},
 	}
 	for _, file := range staged {
 		if err := runtime.validateStagedFile(workspace, file.path, file.digest, file.label); err != nil {
@@ -1158,6 +1182,7 @@ func (runtime *productionRuntime) requireOwnedSafePath(path string, directory bo
 	return nil
 }
 
+// pi-lens-ignore: go-bare-error
 func readPrivateRegularFile(path string, maximum int64) ([]byte, error) {
 	info, err := os.Lstat(path)
 	if err != nil {
@@ -1183,6 +1208,7 @@ func requireRealDirectory(path string) error {
 	return nil
 }
 
+// pi-lens-ignore: go-bare-error
 func ensureRealDirectory(path string, mode os.FileMode) error {
 	if info, err := os.Lstat(path); err == nil {
 		if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
@@ -1216,6 +1242,7 @@ func parseSimpleManifest(content []byte) (map[string]string, error) {
 	return values, nil
 }
 
+// pi-lens-ignore: go-bare-error
 func sha256File(path string) (string, error) {
 	file, err := os.Open(path)
 	if err != nil {

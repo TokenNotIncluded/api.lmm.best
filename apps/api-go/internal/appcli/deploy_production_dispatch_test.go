@@ -39,6 +39,8 @@ type productionDispatchFaultRunner struct {
 	evidenceCalls  int
 	statusCalls    int
 	secondAccepted bool
+	remoteDigests  map[string]string
+	digestCalls    map[string]int
 }
 
 func (runner *productionDispatchFaultRunner) Run(_ context.Context, command productionCommand) ([]byte, error) {
@@ -46,6 +48,18 @@ func (runner *productionDispatchFaultRunner) Run(_ context.Context, command prod
 		return nil, errors.New("unexpected dispatch test command")
 	}
 	remote := command.Args[3:]
+	if len(remote) == 3 && remote[0] == "sha256sum" && remote[1] == "--" {
+		path := remote[2]
+		digest, found := runner.remoteDigests[path]
+		if !found {
+			return nil, errors.New("unexpected remote digest path")
+		}
+		if runner.digestCalls == nil {
+			runner.digestCalls = make(map[string]int)
+		}
+		runner.digestCalls[path]++
+		return []byte(digest + "  " + path + "\n"), nil
+	}
 	if remote[0] == "systemd-run" {
 		runner.dispatchCalls++
 		if runner.dispatchCalls == 1 || !runner.secondAccepted {
@@ -63,6 +77,38 @@ func (runner *productionDispatchFaultRunner) Run(_ context.Context, command prod
 		return json.Marshal(productionStatus{Phase: runner.statusPhase})
 	}
 	return nil, errors.New("unexpected remote dispatch test command")
+}
+
+func testProductionDispatchPlan(controllerWorkspace, deploymentID string) productionReleasePlan {
+	file := func(name, digest string) productionReleaseFilePlan {
+		return productionReleaseFilePlan{Path: filepath.Join(controllerWorkspace, name), SHA256: digest}
+	}
+	return productionReleasePlan{
+		Format: productionReleasePlanFormat, DeploymentID: deploymentID,
+		ControllerWorkspace: controllerWorkspace, TargetAlias: productionTargetAlias,
+		GoCandidate:    productionReleasePackagePlan{PackagePath: filepath.Join(controllerWorkspace, "go-candidate.pkg.tar.zst"), PackageSHA256: strings.Repeat("1", 64)},
+		GoRollback:     productionReleasePackagePlan{PackagePath: filepath.Join(controllerWorkspace, "go-rollback.pkg.tar.zst"), PackageSHA256: strings.Repeat("2", 64)},
+		WebCandidate:   productionReleasePackagePlan{PackagePath: filepath.Join(controllerWorkspace, "web-candidate.pkg.tar.zst"), PackageSHA256: strings.Repeat("3", 64)},
+		WebRollback:    productionReleasePackagePlan{PackagePath: filepath.Join(controllerWorkspace, "web-rollback.pkg.tar.zst"), PackageSHA256: strings.Repeat("4", 64)},
+		ProbeBinary:    file("probe", strings.Repeat("5", 64)),
+		OperatorBinary: file("operator", strings.Repeat("5", 64)),
+	}
+}
+
+func productionDispatchRemoteDigests(plan productionReleasePlan, state productionReleaseControllerState) map[string]string {
+	files := []productionReleaseFilePlan{
+		{Path: plan.GoCandidate.PackagePath, SHA256: plan.GoCandidate.PackageSHA256},
+		{Path: plan.GoRollback.PackagePath, SHA256: plan.GoRollback.PackageSHA256},
+		{Path: plan.WebCandidate.PackagePath, SHA256: plan.WebCandidate.PackageSHA256},
+		{Path: plan.WebRollback.PackagePath, SHA256: plan.WebRollback.PackageSHA256},
+		plan.ProbeBinary,
+		plan.OperatorBinary,
+	}
+	digests := make(map[string]string, len(files))
+	for _, file := range files {
+		digests[filepath.Join(state.RemoteWorkspace, "staging", filepath.Base(file.Path))] = file.SHA256
+	}
+	return digests
 }
 
 func TestAwaitRemoteReleaseStatusWaitsForTerminalPhase(t *testing.T) {
@@ -166,12 +212,8 @@ func TestAmbiguousDispatchRemoteAbortedPersistsAcrossStatusAndReload(t *testing.
 	const deploymentID = "prod-20260824T115850Z-aborted-fixture"
 	controllerWorkspace := t.TempDir()
 	planSHA256 := strings.Repeat("d", 64)
-	plan := productionReleasePlan{
-		Format: productionReleasePlanFormat, DeploymentID: deploymentID,
-		ControllerWorkspace: controllerWorkspace, TargetAlias: productionTargetAlias,
-		ExpectedVersion: "0.1.59",
-		ProbeBinary:     productionReleaseFilePlan{Path: filepath.Join(controllerWorkspace, "lmm-api")},
-	}
+	plan := testProductionDispatchPlan(controllerWorkspace, deploymentID)
+	plan.ExpectedVersion = "0.1.59"
 	state := productionReleaseControllerState{
 		Format: productionReleaseStateFormat, DeploymentID: deploymentID,
 		PlanSHA256: planSHA256, Phase: productionReleasePhaseStaged,
@@ -185,6 +227,7 @@ func TestAmbiguousDispatchRemoteAbortedPersistsAcrossStatusAndReload(t *testing.
 		},
 		statusPhase: "ABORTED",
 	}
+	runner.remoteDigests = productionDispatchRemoteDigests(plan, state)
 	now := time.Date(2026, 8, 24, 11, 58, 31, 0, time.UTC)
 	runtime := &productionReleaseRuntime{runner: runner, now: func() time.Time { return now }}
 	if err := runtime.dispatchProductionActivation(context.Background(), plan, &state); err != nil {
@@ -284,11 +327,7 @@ func TestProductionActivationDispatchFaultReconciliation(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			controllerWorkspace := t.TempDir()
 			planSHA256 := strings.Repeat("a", 64)
-			plan := productionReleasePlan{
-				Format: productionReleasePlanFormat, DeploymentID: deploymentID,
-				ControllerWorkspace: controllerWorkspace, TargetAlias: productionTargetAlias,
-				ProbeBinary: productionReleaseFilePlan{Path: filepath.Join(controllerWorkspace, "lmm-api")},
-			}
+			plan := testProductionDispatchPlan(controllerWorkspace, deploymentID)
 			state := productionReleaseControllerState{
 				Format: productionReleaseStateFormat, DeploymentID: deploymentID,
 				PlanSHA256: planSHA256, Phase: productionReleasePhaseStaged,
@@ -296,12 +335,17 @@ func TestProductionActivationDispatchFaultReconciliation(t *testing.T) {
 				UpdatedUTC:      time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC),
 			}
 			runner := &productionDispatchFaultRunner{evidence: test.evidence, secondAccepted: test.secondAccepted}
+			runner.remoteDigests = productionDispatchRemoteDigests(plan, state)
 			runtime := &productionReleaseRuntime{runner: runner, now: func() time.Time { return time.Date(2026, 8, 24, 12, 1, 0, 0, time.UTC) }}
 			if err := runtime.dispatchProductionActivation(context.Background(), plan, &state); err != nil {
 				t.Fatal(err)
 			}
 			if runner.dispatchCalls != test.wantDispatches || state.DispatchAttempts != test.wantAttempts || state.DispatchObserved != test.wantObserved {
 				t.Fatalf("dispatches=%d attempts=%d observed=%t state=%#v", runner.dispatchCalls, state.DispatchAttempts, state.DispatchObserved, state)
+			}
+			operatorRemote := filepath.Join(state.RemoteWorkspace, "staging", filepath.Base(plan.OperatorBinary.Path))
+			if runner.digestCalls[operatorRemote] != test.wantDispatches {
+				t.Fatalf("operator digest checks=%d want=%d", runner.digestCalls[operatorRemote], test.wantDispatches)
 			}
 			persisted, exists, err := loadProductionReleaseControllerState(plan, planSHA256)
 			if err != nil || !exists {
@@ -311,5 +355,29 @@ func TestProductionActivationDispatchFaultReconciliation(t *testing.T) {
 				t.Fatalf("persisted state=%#v", persisted)
 			}
 		})
+	}
+}
+
+func TestProductionActivationRejectsTamperedRemoteOperatorBeforeDispatch(t *testing.T) {
+	const deploymentID = "prod-20260824T120500Z-operator-tamper"
+	controllerWorkspace := t.TempDir()
+	plan := testProductionDispatchPlan(controllerWorkspace, deploymentID)
+	state := productionReleaseControllerState{
+		Format: productionReleaseStateFormat, DeploymentID: deploymentID,
+		PlanSHA256: strings.Repeat("a", 64), Phase: productionReleasePhaseStaged,
+		RemoteWorkspace: filepath.Join(defaultProductionPaths().WorkRoot, deploymentID),
+		UpdatedUTC:      time.Date(2026, 8, 24, 12, 5, 0, 0, time.UTC),
+	}
+	runner := &productionDispatchFaultRunner{}
+	runner.remoteDigests = productionDispatchRemoteDigests(plan, state)
+	operatorRemote := filepath.Join(state.RemoteWorkspace, "staging", filepath.Base(plan.OperatorBinary.Path))
+	runner.remoteDigests[operatorRemote] = strings.Repeat("f", 64)
+	runtime := &productionReleaseRuntime{runner: runner, now: func() time.Time { return time.Date(2026, 8, 24, 12, 5, 1, 0, time.UTC) }}
+	err := runtime.dispatchProductionActivation(context.Background(), plan, &state)
+	if err == nil || !strings.Contains(err.Error(), "verify staged artifacts immediately before activation dispatch") {
+		t.Fatalf("operator tamper error=%v", err)
+	}
+	if runner.dispatchCalls != 0 {
+		t.Fatalf("tampered operator reached dispatch: calls=%d", runner.dispatchCalls)
 	}
 }

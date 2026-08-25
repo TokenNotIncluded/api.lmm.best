@@ -34,8 +34,10 @@ type fakeProductionRunner struct {
 	goContractFile, webContractFile                             string
 	serviceActive, timerActive, rollbackServiceActive           bool
 	migrationFailure, rollbackMigrationFailure, failTimerEnable bool
+	invalidCandidateEdgePolicy, alteredCandidatePackage         bool
 	sudoFailure, restartOnEnable, restartOnWebInstall           bool
 	restartOnRequestAfterBaseline, restartBaselineRead          bool
+	cancelOnStop                                                context.CancelFunc
 	timerDeadline, timerLastTrigger                             time.Time
 	restartCounter                                              int64
 	onlineWriteCount                                            int
@@ -44,7 +46,10 @@ type fakeProductionRunner struct {
 	events                                                      []string
 }
 
-func (runner *fakeProductionRunner) Run(_ context.Context, command productionCommand) ([]byte, error) {
+func (runner *fakeProductionRunner) Run(ctx context.Context, command productionCommand) ([]byte, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	runner.commands = append(runner.commands, command)
 	if command.Name == runner.probeBinary || command.Name == runner.installedBinary {
 		return runner.runNativeBinary(command.Name, command.Args)
@@ -216,11 +221,31 @@ func (runner *fakeProductionRunner) bsdtar(args []string) ([]byte, error) {
 	if len(args) != 3 || args[0] != "-xOf" {
 		return nil, fmt.Errorf("unexpected bsdtar arguments: %v", args)
 	}
-	name, _, revision, contract, index, ok := runner.packageData(args[1])
+	name, version, revision, contract, index, ok := runner.packageData(args[1])
 	if !ok {
 		return nil, errors.New("unknown archive")
 	}
 	member := args[2]
+	if strings.Contains(member, "usr/share/lmm-api-go/edge-policy/") {
+		if name != productionAURPackageName {
+			return nil, errors.New("edge-policy member requested from non-Go package")
+		}
+		if runner.invalidCandidateEdgePolicy && version == runner.newVersion+"-1" && strings.HasSuffix(member, "/nginx/lmm-api-locations.conf") {
+			return []byte("invalid candidate edge policy\n"), nil
+		}
+		switch {
+		case strings.HasSuffix(member, "/nginx/http-map.conf"):
+			return []byte("geoip2 /var/lib/geoip2/DBIP-Country-Lite.mmdb {\n}\n"), nil
+		case strings.HasSuffix(member, "/nginx/new-api.conf"):
+			return []byte("include /etc/nginx/lmm-api-region-policy.conf;\n"), nil
+		case strings.HasSuffix(member, "/nginx/lmm-api-locations.conf"):
+			return []byte("error_page 418 = @lmm_api_cors_preflight;\nlocation @lmm_api_cors_preflight {\nauth_request off;\n}\nset $lmm_access_policy_original_uri $uri;\nif ($request_method = OPTIONS) { return 418; }\nadd_header Access-Control-Allow-Methods $http_access_control_request_method always;\nadd_header Access-Control-Allow-Headers $http_access_control_request_headers always;\nadd_header Vary \"Origin, Access-Control-Request-Method, Access-Control-Request-Headers\" always;\n"), nil
+		case strings.HasSuffix(member, "/nginx/lmm-api-region-policy.conf"):
+			return []byte("auth_request /internal/access-ip-policy;\nproxy_set_header X-LMM-Original-URI $lmm_access_policy_original_uri;\nproxy_set_header X-LMM-Original-Accept $http_accept;\n"), nil
+		default:
+			return []byte("fixture edge-policy asset\n"), nil
+		}
+	}
 	switch {
 	case strings.HasSuffix(member, "/REVISION"):
 		return []byte(revision + "\n"), nil
@@ -256,6 +281,9 @@ func (runner *fakeProductionRunner) pacman(args []string) ([]byte, error) {
 		}
 		return []byte(name + " " + version + "\n"), nil
 	case "-Qkk":
+		if runner.alteredCandidatePackage && args[1] == productionAURPackageName && runner.installedGoVersion == runner.newVersion {
+			return []byte(args[1] + ": 42 total files, 1 altered file\n"), nil
+		}
 		return []byte(args[1] + ": 42 total files, 0 altered files\n"), nil
 	case "-Qo":
 		if args[1] == productionOperatorBinary {
@@ -357,6 +385,9 @@ func (runner *fakeProductionRunner) systemctl(args []string) ([]byte, error) {
 		if !strings.Contains(args[len(args)-1], "rollback-") {
 			runner.serviceActive = false
 			runner.events = append(runner.events, "systemd-stop")
+			if runner.cancelOnStop != nil {
+				runner.cancelOnStop()
+			}
 		}
 		return nil, nil
 	case "enable":
@@ -553,49 +584,52 @@ func newProductionFixture(t *testing.T) productionFixture {
 
 func writeTestBackupSet(root string, environment []byte) error {
 	if err := os.MkdirAll(root, 0o700); err != nil {
-		return err
+		return fmt.Errorf("create test backup root: %w", err)
 	}
 	for _, name := range []string{"application.archive", "frontend.archive", "database.archive", "rollback.package"} {
 		if err := os.WriteFile(filepath.Join(root, name), []byte(name), 0o600); err != nil {
-			return err
+			return fmt.Errorf("write test backup %s: %w", name, err)
 		}
 	}
 	var archive bytes.Buffer
 	writer := tar.NewWriter(&archive)
 	if err := writer.WriteHeader(&tar.Header{Name: "lmm-api-go/", Typeflag: tar.TypeDir, Mode: 0o700}); err != nil {
-		return err
+		return fmt.Errorf("write test configuration directory header: %w", err)
 	}
 	if err := writer.WriteHeader(&tar.Header{Name: "lmm-api-go/lmm-api-go.env", Typeflag: tar.TypeReg, Mode: 0o600, Size: int64(len(environment))}); err != nil {
-		return err
+		return fmt.Errorf("write test environment header: %w", err)
 	}
 	if _, err := writer.Write(environment); err != nil {
-		return err
+		return fmt.Errorf("write test environment: %w", err)
 	}
 	if err := writer.Close(); err != nil {
-		return err
+		return fmt.Errorf("close test configuration archive: %w", err)
 	}
 	if err := os.WriteFile(filepath.Join(root, "configuration.archive"), archive.Bytes(), 0o600); err != nil {
-		return err
+		return fmt.Errorf("write test configuration archive: %w", err)
 	}
 	if err := os.WriteFile(filepath.Join(root, "manifest.env"), []byte("format=1\n"), 0o600); err != nil {
-		return err
+		return fmt.Errorf("write test backup manifest: %w", err)
 	}
 	attestation, err := json.Marshal(productionBackupAttestation{Format: 1, DeploymentID: filepath.Base(root), ControllerDigest: strings.Repeat("c", 64), OffhostDigest: strings.Repeat("d", 64), VerifiedUTC: time.Date(2026, 8, 10, 0, 0, 0, 0, time.UTC)})
 	if err != nil {
-		return err
+		return fmt.Errorf("marshal test backup attestation: %w", err)
 	}
 	if err := os.WriteFile(filepath.Join(root, productionBackupAttestationFilename), append(attestation, '\n'), 0o600); err != nil {
-		return err
+		return fmt.Errorf("write test backup attestation: %w", err)
 	}
 	var sums strings.Builder
 	for _, name := range []string{"application.archive", "frontend.archive", "configuration.archive", "database.archive", "rollback.package"} {
 		digest, err := sha256File(filepath.Join(root, name))
 		if err != nil {
-			return err
+			return fmt.Errorf("hash test backup %s: %w", name, err)
 		}
 		_, _ = fmt.Fprintf(&sums, "%s  %s\n", digest, name)
 	}
-	return os.WriteFile(filepath.Join(root, "SHA256SUMS"), []byte(sums.String()), 0o600)
+	if err := os.WriteFile(filepath.Join(root, "SHA256SUMS"), []byte(sums.String()), 0o600); err != nil {
+		return fmt.Errorf("write test backup checksums: %w", err)
+	}
+	return nil
 }
 
 func mustHashFile(t *testing.T, path string) string {
@@ -936,6 +970,79 @@ func TestProductionSchemaIncompatibilityIsPreflightHardStop(t *testing.T) {
 		if event == "paru-go" || event == "paru-web-hook" || event == "systemd-stop" {
 			t.Fatalf("schema preflight mutated production state: events=%v", fixture.runner.events)
 		}
+	}
+}
+
+func TestProductionRejectsInvalidCandidateEdgePolicyBeforeWatchdogAndStop(t *testing.T) {
+	fixture := newProductionFixture(t)
+	fixture.runner.invalidCandidateEdgePolicy = true
+	if _, err := fixture.runtime.apply(context.Background(), fixture.workspace, fixture.options); err == nil || !strings.Contains(err.Error(), "candidate edge-policy preflight") {
+		t.Fatalf("edge-policy preflight error=%v", err)
+	}
+	if fixture.runner.timerActive || !fixture.runner.serviceActive {
+		t.Fatalf("invalid candidate changed runtime state: timer=%v service=%v", fixture.runner.timerActive, fixture.runner.serviceActive)
+	}
+	for _, event := range fixture.runner.events {
+		if event == "systemd-stop" || strings.HasPrefix(event, "paru-") {
+			t.Fatalf("invalid candidate mutated production state: events=%v", fixture.runner.events)
+		}
+	}
+	status, err := fixture.runtime.readStatus(fixture.workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.Phase != "FAILED_PREARM" {
+		t.Fatalf("status phase=%s want FAILED_PREARM", status.Phase)
+	}
+}
+
+func TestProductionAutomaticRollbackUsesValidatedStagedOperatorWhenCandidatePackageIsAltered(t *testing.T) {
+	fixture := newProductionFixture(t)
+	fixture.runner.alteredCandidatePackage = true
+	_, err := fixture.runtime.apply(context.Background(), fixture.workspace, fixture.options)
+	if err == nil || !strings.Contains(err.Error(), "integrity check failed") {
+		t.Fatalf("candidate integrity error=%v", err)
+	}
+	if strings.Contains(err.Error(), "automatic rollback failed") {
+		t.Fatalf("rollback depended on altered candidate package: %v", err)
+	}
+	status, statusErr := fixture.runtime.readStatus(fixture.workspace)
+	if statusErr != nil {
+		t.Fatal(statusErr)
+	}
+	if status.Phase != "ROLLED_BACK" || fixture.runner.installedGoVersion != fixture.runner.oldVersion || !fixture.runner.serviceActive || fixture.runner.timerActive {
+		t.Fatalf("rollback state=%#v go=%s service=%v timer=%v", status, fixture.runner.installedGoVersion, fixture.runner.serviceActive, fixture.runner.timerActive)
+	}
+}
+
+func TestPersistRollbackFailureReturnsStatusWriteError(t *testing.T) {
+	fixture := newProductionFixture(t)
+	workspace := fixture.workspace
+	workspace.statusPath = filepath.Join(workspace.root, "missing-state", "status.json")
+	operationErr := errors.New("rollback package install failed")
+	err := fixture.runtime.persistRollbackFailure(workspace, productionStatus{Phase: "ROLLING_BACK"}, "test", operationErr)
+	if !errors.Is(err, operationErr) || !strings.Contains(err.Error(), "persist ROLLBACK_FAILED status") {
+		t.Fatalf("rollback failure error=%v", err)
+	}
+}
+
+func TestProductionCancelledActivationUsesDetachedAutomaticRollback(t *testing.T) {
+	fixture := newProductionFixture(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	fixture.runner.cancelOnStop = cancel
+	_, err := fixture.runtime.apply(ctx, fixture.workspace, fixture.options)
+	if err == nil || !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled activation error=%v", err)
+	}
+	if strings.Contains(err.Error(), "automatic rollback failed") {
+		t.Fatalf("cancelled activation reused its failed context: %v", err)
+	}
+	status, statusErr := fixture.runtime.readStatus(fixture.workspace)
+	if statusErr != nil {
+		t.Fatal(statusErr)
+	}
+	if status.Phase != "ROLLED_BACK" || fixture.runner.installedGoVersion != fixture.runner.oldVersion || !fixture.runner.serviceActive || fixture.runner.timerActive {
+		t.Fatalf("rollback state=%#v go=%s service=%v timer=%v", status, fixture.runner.installedGoVersion, fixture.runner.serviceActive, fixture.runner.timerActive)
 	}
 }
 

@@ -30,6 +30,9 @@
 - Build once. Record and verify the same artifact SHA-256 at every promotion
   boundary.
 - Never overwrite an existing immutable release with different bytes.
+- For Go releases at or above 0.1.63, require signed
+  `CLI_TRANSITION_PHASE=t0|t1` metadata in the release and installed package;
+  never infer the transition solely from version ordering.
 - Serialize heavy builds on the small controller (`GOMAXPROCS=2`, Go package
   parallelism `2`, Cargo jobs `2`) unless fresh resource evidence justifies a
   higher limit. Keep all caches in the marker-owned workspace.
@@ -60,6 +63,11 @@
   `paru` runs as the established unprivileged OS account, never root, and may
   assemble only the exact verified package set. A plain `paru` invocation never
   replaces the watchdog, confirmation, or health gates.
+- Validate actual package archive headers—not only extracted bytes or the
+  package-supplied `.MTREE`—for root ownership, safe types/modes, signed-member
+  mode parity, and exact critical `.MTREE` agreement. Re-hash every staged
+  package, probe, and operator immediately before each activation dispatch or
+  permitted redispatch.
 - Do not publish or install a deploy-only bootstrap. Move a pre-T0 target
   through the exact signed T0 `lmm-api-go-bin` package and immutable controller
 plan. T0 must establish the unified CLI and integrated operator resources

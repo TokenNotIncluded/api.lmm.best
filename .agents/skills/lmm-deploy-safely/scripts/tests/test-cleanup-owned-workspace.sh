@@ -15,11 +15,13 @@ trap 'rm -rf -- "$test_root"' EXIT
 deployment_id='cleanup-contract-01'
 readonly deployment_id
 workspace=$root/$deployment_id
-mkdir -p "$workspace"/{state,artifacts,staging,tmp,cache}
+mkdir -p "$workspace"/{state,artifacts,staging,tmp,cache,packages,aur}
 printf 'payload\n' >"$workspace/artifacts/package"
 printf 'payload\n' >"$workspace/staging/package"
 printf 'payload\n' >"$workspace/tmp/file"
 printf 'payload\n' >"$workspace/cache/file"
+printf 'payload\n' >"$workspace/packages/package"
+printf 'payload\n' >"$workspace/aur/checkout"
 mkdir -p "$workspace/cache/read-only/module"
 printf 'module\n' >"$workspace/cache/read-only/module/go.mod"
 chmod -R u-w "$workspace/cache/read-only"
@@ -34,9 +36,9 @@ printf 'ROLLED_BACK reason=test\n' >"$workspace/state/status"
 output=$("$cleanup" --role target --deployment-id "$deployment_id" --root "$root")
 grep -Fq 'final_state=ROLLED_BACK' <<<"$output"
 output=$("$cleanup" --role target --deployment-id "$deployment_id" --root "$root" --execute)
-grep -Fq 'removed=artifacts,staging,tmp,cache' <<<"$output"
+grep -Fq 'removed=artifacts,staging,tmp,cache,packages,aur' <<<"$output"
 [[ -d $workspace && -f $workspace/.lmm-deploy-workspace && -f $workspace/state/status ]]
-[[ ! -e $workspace/artifacts && ! -e $workspace/staging && ! -e $workspace/tmp && ! -e $workspace/cache ]]
+[[ ! -e $workspace/artifacts && ! -e $workspace/staging && ! -e $workspace/tmp && ! -e $workspace/cache && ! -e $workspace/packages && ! -e $workspace/aur ]]
 
 aborted_id='cleanup-contract-aborted'
 aborted=$root/$aborted_id

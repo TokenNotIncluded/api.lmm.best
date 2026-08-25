@@ -49,6 +49,12 @@ prepare() {
   [[ -f ${srcdir}/dist/index.html ]]
   [[ -x ${srcdir}/lmm-api-web-activate.local ]]
   [[ -x ${srcdir}/frontend-release.sh ]]
+  if (( $(vercmp "${pkgver}" 0.1.43) >= 0 )); then
+    [[ -f ${srcdir}/lmm-api-web.install && ! -L ${srcdir}/lmm-api-web.install ]] || return 1
+  fi
+  if [[ -f ${srcdir}/lmm-api-web.install ]]; then
+    cmp -s "${startdir}/lmm-api-web.install" "${srcdir}/lmm-api-web.install" || return 1
+  fi
   ! find "${srcdir}/dist" -type l -print -quit | grep -q .
   if [[ ${pkgver} != "${_legacy_contractless_version}" ]]; then
     [[ -f ${srcdir}/API_ROUTE_CONTRACT_REVISION && ! -L ${srcdir}/API_ROUTE_CONTRACT_REVISION ]]

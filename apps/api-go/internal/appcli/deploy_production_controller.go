@@ -348,7 +348,10 @@ func persistRemoteReleaseControllerStatus(plan productionReleasePlan, state *pro
 	state.Version = status.Version
 	state.RollbackTimer = status.RollbackTimer
 	state.UpdatedUTC = utcSecond(now)
-	return writeProductionReleaseControllerState(plan, *state)
+	if err := writeProductionReleaseControllerState(plan, *state); err != nil {
+		return fmt.Errorf("persist remote release status: %w", err)
+	}
+	return nil
 }
 
 func (runtime *productionReleaseRuntime) productionApplyArguments(plan productionReleasePlan, state productionReleaseControllerState) []string {
@@ -442,6 +445,9 @@ func (runtime *productionReleaseRuntime) dispatchProductionActivation(ctx contex
 		state.UpdatedUTC = utcSecond(runtime.now())
 		if err := writeProductionReleaseControllerState(plan, *state); err != nil {
 			return err
+		}
+		if err := runtime.verifyRemoteStagedRelease(ctx, plan, *state); err != nil {
+			return fmt.Errorf("verify staged artifacts immediately before activation dispatch: %w", err)
 		}
 		applyArgs := runtime.productionApplyArguments(plan, *state)
 		if _, err := runtime.ssh(ctx, plan.TargetAlias, 20*time.Minute, applyArgs...); err == nil {
@@ -645,6 +651,7 @@ func (runtime *productionReleaseRuntime) verifyRemoteStagedRelease(ctx context.C
 		{Path: plan.WebCandidate.PackagePath, SHA256: plan.WebCandidate.PackageSHA256},
 		{Path: plan.WebRollback.PackagePath, SHA256: plan.WebRollback.PackageSHA256},
 		plan.ProbeBinary,
+		plan.OperatorBinary,
 	}
 	if plan.WithBackups {
 		files = append(files, plan.AgeRecipient)
@@ -889,19 +896,23 @@ func loadProductionReleaseControllerState(plan productionReleasePlan, planSHA256
 
 func writeProductionReleaseControllerState(plan productionReleasePlan, state productionReleaseControllerState) error {
 	if err := validateProductionReleaseControllerState(plan, state.PlanSHA256, state); err != nil {
-		return err
+		return fmt.Errorf("validate production release controller state: %w", err)
 	}
 	encoded, err := canonicalProductionReleaseControllerState(state)
 	if err != nil {
-		return err
+		return fmt.Errorf("encode production release controller state: %w", err)
 	}
-	return writeAtomicRegularFile(filepath.Join(plan.ControllerWorkspace, productionReleaseStateFilename), encoded, 0o600)
+	if err := writeAtomicRegularFile(filepath.Join(plan.ControllerWorkspace, productionReleaseStateFilename), encoded, 0o600); err != nil {
+		return fmt.Errorf("write production release controller state: %w", err)
+	}
+	return nil
 }
 
+// pi-lens-ignore: go-bare-error
 func canonicalProductionReleaseControllerState(state productionReleaseControllerState) ([]byte, error) {
 	encoded, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("marshal production release controller state: %w", err)
 	}
 	return append(encoded, '\n'), nil
 }

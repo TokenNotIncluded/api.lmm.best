@@ -292,9 +292,11 @@ Apply this sequence:
 
 1. Freeze a clean `main` revision that equals `origin/main`; run the relevant
    Go, Web, route-contract, and all three AUR package checks.
-2. Publish T0 first when the host still has legacy command paths. T0 installs
-   the unified `/usr/bin/lmm-api`, integrated operator policy, and a temporary
-   `lmm-api-go` compatibility link without removing the old deploy package.
+2. Publish T0 first when the host still has legacy command paths. For Go
+   releases at or above 0.1.63, require signed `CLI_TRANSITION_PHASE=t0`
+   metadata; never infer T0/T1 from version ordering. T0 installs the unified
+   `/usr/bin/lmm-api`, integrated operator policy, and a temporary `lmm-api-go`
+   compatibility link without removing the old deploy package.
    Prove service PID/restarts, database/cache, Web link, and rollback state
    before T1.
 3. Publish immutable, signed GitHub release assets for Go and Web separately.
@@ -303,7 +305,14 @@ Apply this sequence:
    may differ only when the compatibility gate proves that pair is supported.
 4. Update the separate `lmm-api-go-bin` and `lmm-api-web-bin` AUR repositories
    for every changed artifact. Pin exact versions, URLs, checksums, Git identity
-   and Sigstore workflow; regenerate `.SRCINFO`; run
+   and Sigstore workflow. For Go ≥0.1.63 set `_lmm_declared_cli_phase` before
+   package metadata arrays are evaluated and require it to match the signed
+   release. Reject Go `.INSTALL` hooks; verify exact runtime package
+   dependencies/conflicts/replacements; read the real package archive headers
+   to require root ownership, safe modes/types, signed-member mode parity, and
+   exact sudoers header/`.MTREE` agreement. Web ≥0.1.43 must
+   carry its install hook in the signed release and match the AUR hook exactly.
+   Regenerate `.SRCINFO`; run
    `packaging/aur/test-matrix.sh` and clean `makepkg`; then read published
    metadata back. Publish no deploy-only AUR artifact.
 5. On verified `arch-dmit`, run `paru` as the established unprivileged OS
@@ -325,8 +334,9 @@ Apply this sequence:
    database/cache readiness, journals, three status/livez probes, and exact
    memory limits. Retain terminal marker/status and remove only exact disposable
    staging/cache children.
-9. Only after T0 is confirmed, publish and promote T1. T1 removes the
-`lmm-api-go` link and declares replacement of `lmm-api-deploy-bin`; its exact
+9. Only after T0 is confirmed, publish and promote T1. Require signed
+`CLI_TRANSITION_PHASE=t1` metadata. T1 removes the `lmm-api-go` link and
+declares replacement of `lmm-api-deploy-bin`; its exact
 T0 Go package is the rollback package. Because local `pacman -U` does not apply
 `replaces`, the armed target controller must verify and remove the exact clean
 legacy package before installing T1. Rehearse T0→T1→T0 with package ownership,
@@ -426,9 +436,11 @@ database/cache.
 4. If backups were explicitly requested, create target, controller, and
 off-host copies, verify encrypted archives offline, and compare checksums.
 Before activation, persist the exact transient unit and bounded attempt number.
-After any ambiguous SSH result, reconcile that unit plus the target manifest and
-status. Only three-way absence permits one redispatch of the same plan/workspace;
-any observed evidence means observe the existing job and never resend apply.
+Re-hash every staged package, probe, and operator on the target immediately
+before each initial dispatch or permitted redispatch. After any ambiguous SSH
+result, reconcile that unit plus the target manifest and status. Only three-way
+absence permits one redispatch of the same plan/workspace; any observed evidence
+means observe the existing job and never resend apply.
 5. Arm the persistent 600-second rollback watchdog, apply the immutable package,
    run migrations only when N/N-1 compatible, and observe for at least 120
    seconds while checking the resource and error-journal gates.

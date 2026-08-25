@@ -62,18 +62,17 @@ build_package() {
   done
 }
 
+# Exercise the retained bundled-frontend archive and historical T0 metadata at
+# their real immutable boundary rather than overriding phase after PKGBUILD
+# metadata has already been evaluated.
 go_work="$tmp/lmm-api-go-bin"
-go_pkgver=$(awk -F= '$1 == "pkgver" { print $2; exit }' "$HERE/lmm-api-go-bin/PKGBUILD")
-[[ $go_pkgver =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "invalid Go binary pkgver: $go_pkgver"
-go_artifact="lmm-api-go-${go_pkgver}-linux-amd64"
+go_legacy_version=0.1.34
+go_artifact="lmm-api-go-${go_legacy_version}-linux-amd64"
 go_bundle="$go_work/stage/$go_artifact"
 mkdir -p "$go_bundle/frontend-dist" "$go_bundle/edge-policy/nginx"
 cp "$HERE/lmm-api-go-bin/PKGBUILD" "$go_work/"
 cp -L "$HERE/lmm-api-go-bin/lmm-api-cli-phase.sh" "$go_work/"
-# Exercise the retained bundled-frontend branch independently of the immutable
-# release pinned by the canonical package.
-# shellcheck disable=SC2016 # Deliberately write a PKGBUILD variable reference.
-printf '\n_legacy_bundled_version=$pkgver\n_lmm_cli_phase=$LMM_CLI_PHASE_T0\n' >>"$go_work/PKGBUILD"
+sed -i "s/^pkgver=.*/pkgver=${go_legacy_version}/" "$go_work/PKGBUILD"
 printf '#!/bin/sh\nexit 0\n' >"$go_bundle/lmm-api-go"
 chmod 0755 "$go_bundle/lmm-api-go"
 printf '<!doctype html>\n' >"$go_bundle/frontend-dist/index.html"
@@ -99,13 +98,19 @@ build_package lmm-api-go-bin \
   usr/share/lmm-api-go/edge-policy/nginx/http-map.conf \
   usr/share/lmm-api-go/edge-policy/geoip2-country-update.timer
 
-# Exercise the same tracked recipe's strict next-release branch without
-# changing its immutable published version or hashes.
+# Build a real future 0.1.63 package with explicit T0 metadata before the
+# top-level provides/conflicts/replaces arrays are evaluated.
 go_next_work="$tmp/lmm-api-go-bin-next"
-go_next_bundle="$go_next_work/stage/$go_artifact"
+go_next_version=0.1.63
+go_next_artifact="lmm-api-go-${go_next_version}-linux-amd64"
+go_next_bundle="$go_next_work/stage/$go_next_artifact"
 mkdir -p "$go_next_bundle/edge-policy/nginx"
 cp "$HERE/lmm-api-go-bin/PKGBUILD" "$go_next_work/"
 cp -L "$HERE/lmm-api-go-bin/lmm-api-cli-phase.sh" "$go_next_work/"
+sed -i \
+  -e "s/^pkgver=.*/pkgver=${go_next_version}/" \
+  -e "s/^_lmm_declared_cli_phase=.*/_lmm_declared_cli_phase='t0'/" \
+  "$go_next_work/PKGBUILD"
 printf '#!/bin/sh\nexit 0\n' >"$go_next_bundle/lmm-api"
 chmod 0755 "$go_next_bundle/lmm-api"
 cp "$SHARED/lmm-api.service" "$SHARED/lmm-api-go.env" \
@@ -119,35 +124,84 @@ for file in geoip2-country-update.service geoip2-country-update.timer; do
   printf 'fixture\n' >"$go_next_bundle/edge-policy/$file"
 done
 add_metadata "$go_next_bundle"
+printf '%s\n' 't0' >"$go_next_bundle/CLI_TRANSITION_PHASE"
 "$HERE/../../deploy/production/api-route-contract-revision.sh" generate \
   "$go_next_bundle/API_ROUTE_CONTRACT_REVISION"
-create_archive "$go_next_work" "$go_artifact"
+create_archive "$go_next_work" "$go_next_artifact"
 pin_fixture_hashes "$go_next_work/PKGBUILD" sha256sums_x86_64 \
-  "$go_next_work/${go_artifact}.tar.gz" \
-  "$go_next_work/${go_artifact}.tar.gz.sha256" \
-  "$go_next_work/${go_artifact}.tar.gz.sigstore.json"
-cat >>"$go_next_work/PKGBUILD" <<'PKGBUILD'
-pkgver=999.0.0
-_lmm_cli_phase=$LMM_CLI_PHASE_T1
-lmm_cli_phase_apply_metadata "$_lmm_cli_phase" "$pkgver" \
-  'lmm-api' 'lmm-api-bin' 'lmm-api-git' 'lmm-api-go' 'lmm-api-go-git'
-PKGBUILD
+  "$go_next_work/${go_next_artifact}.tar.gz" \
+  "$go_next_work/${go_next_artifact}.tar.gz.sha256" \
+  "$go_next_work/${go_next_artifact}.tar.gz.sigstore.json"
 build_package lmm-api-go-bin-next \
   usr/bin/lmm-api \
+  usr/bin/lmm-api-go \
   usr/lib/systemd/system/lmm-api.service \
   usr/lib/systemd/system/lmm-api.service.d/20-memory.conf \
   usr/lib/sysusers.d/lmm-api-operator.conf \
   usr/lib/tmpfiles.d/lmm-api-operator.conf \
   etc/sudoers.d/lmm-api-operator \
   usr/share/doc/lmm-api-go-bin/API_ROUTE_CONTRACT_REVISION \
+  usr/share/doc/lmm-api-go-bin/CLI_TRANSITION_PHASE \
   usr/share/doc/lmm-api-go-bin/RELEASE_ASSET_SHA256 \
   usr/share/lmm-api-go/edge-policy/nginx/http-map.conf
 next_archive=$(printf '%s\n' "$go_next_work/packages"/*.pkg.tar.*)
-if bsdtar -tf "$next_archive" | grep -Eq 'usr/bin/lmm-api-(go|deploy)$|usr/share/lmm-api-go/frontend-dist'; then
-  die 'T1 Go package archive retains a second CLI or bundled frontend'
+if bsdtar -tf "$next_archive" | grep -Eq 'usr/bin/lmm-api-deploy$|usr/share/lmm-api-go/frontend-dist'; then
+  die 'T0 Go package archive contains deploy-only CLI or bundled frontend content'
 fi
-bsdtar -xOf "$next_archive" .PKGINFO | grep -Fqx 'replaces = lmm-api-deploy-bin' ||
-  die 'T1 Go package archive does not replace the legacy deploy package'
+next_pkginfo=$(bsdtar -xOf "$next_archive" .PKGINFO)
+grep -Fqx 'provides = lmm-api=0.1.63' <<<"$next_pkginfo" || die 'explicit T0 package lacks canonical CLI capability'
+grep -Fqx 'provides = lmm-api-go=0.1.63' <<<"$next_pkginfo" || die 'explicit T0 package lacks compatibility CLI capability'
+if grep -Eq '^(conflict|replaces) = lmm-api-deploy' <<<"$next_pkginfo"; then
+  die 'explicit T0 package removes the legacy deploy package'
+fi
+next_extract="$tmp/lmm-api-go-bin-next-extract"
+mkdir -p "$next_extract"
+bsdtar -xf "$next_archive" -C "$next_extract"
+[[ $(stat -c %a "$next_extract/etc/sudoers.d") == 750 ]] ||
+  die 'Go package archive changes the canonical sudoers.d directory mode'
+if bsdtar -tf "$next_archive" | grep -Fxq '.INSTALL'; then
+  die 'Go package archive contains a root install hook'
+fi
+next_mtree=$(bsdtar -xOf "$next_archive" .MTREE | gzip -dc)
+grep -Eq '^/set .*uid=0( |$)' <<<"$next_mtree" || die 'Go package .MTREE does not default to root UID'
+grep -Eq '^/set .*gid=0( |$)' <<<"$next_mtree" || die 'Go package .MTREE does not default to root GID'
+for spec in \
+  './etc/sudoers.d type=dir mode=750' \
+  './etc/sudoers.d/lmm-api-operator type=file mode=440'; do
+  path=${spec%% *}
+  entry=$(grep -F "$path " <<<"$next_mtree")
+  [[ -n $entry ]] || die "Go package .MTREE lacks $path"
+  read -r -a fields <<<"${spec#* }"
+  for field in "${fields[@]}"; do
+    key=${field%%=*}
+    if [[ " $entry " == *" $key="* ]]; then
+      [[ " $entry " == *" $field "* ]] || die "Go package .MTREE $path overrides $field"
+    else
+      grep -Eq "^/set .*$field( |$)" <<<"$next_mtree" || die "Go package .MTREE $path lacks $field"
+    fi
+  done
+done
+[[ $(readlink "$next_extract/usr/bin/lmm-api-go") == lmm-api ]] ||
+  die 'explicit T0 package has an unsafe compatibility link'
+
+# A package-base declaration that disagrees with the signed release phase must
+# fail in prepare(), before any archive can be promoted.
+go_mismatch_work="$tmp/lmm-api-go-bin-phase-mismatch"
+go_mismatch_bundle="$go_mismatch_work/stage/$go_next_artifact"
+mkdir -p "$go_mismatch_work"
+cp "$go_next_work/PKGBUILD" "$go_mismatch_work/"
+cp -L "$HERE/lmm-api-go-bin/lmm-api-cli-phase.sh" "$go_mismatch_work/"
+cp -a "$go_next_work/stage" "$go_mismatch_work/"
+printf '%s\n' 't1' >"$go_mismatch_bundle/CLI_TRANSITION_PHASE"
+create_archive "$go_mismatch_work" "$go_next_artifact"
+pin_fixture_hashes "$go_mismatch_work/PKGBUILD" sha256sums_x86_64 \
+  "$go_mismatch_work/${go_next_artifact}.tar.gz" \
+  "$go_mismatch_work/${go_next_artifact}.tar.gz.sha256" \
+  "$go_mismatch_work/${go_next_artifact}.tar.gz.sigstore.json"
+if PATH="$tmp/bin:$PATH" BUILDDIR="$go_mismatch_work/build" PKGDEST="$go_mismatch_work/packages" \
+  makepkg --dir "$go_mismatch_work" --force --nodeps --noconfirm --cleanbuild; then
+  die 'mismatched package and signed release CLI phases were accepted'
+fi
 
 web_work="$tmp/lmm-api-web-bin"
 web_pkgver=$(awk -F= '$1 == "pkgver" { print $2; exit }' "$HERE/lmm-api-web-bin/PKGBUILD")
@@ -160,6 +214,7 @@ cp "$HERE/lmm-api-web-bin/lmm-api-web-activate" \
   "$web_work/lmm-api-web-activate"
 printf '<!doctype html>\n' >"$web_work/stage/dist/index.html"
 cp "$HERE/lmm-api-web-bin/lmm-api-web-activate" "$web_work/stage/"
+cp "$HERE/lmm-api-web-bin/lmm-api-web.install" "$web_work/stage/"
 cp "$HERE/../../deploy/frontend-release.sh" "$web_work/stage/frontend-release.sh"
 chmod 0755 "$web_work/stage/lmm-api-web-activate" "$web_work/stage/frontend-release.sh"
 add_metadata "$web_work/stage"
@@ -167,7 +222,7 @@ add_metadata "$web_work/stage"
   "$web_work/stage/API_ROUTE_CONTRACT_REVISION"
 web_artifact="lmm-api-web-${web_pkgver}"
 tar -czf "$web_work/${web_artifact}.tar.gz" -C "$web_work/stage" \
-  dist lmm-api-web-activate frontend-release.sh \
+  dist lmm-api-web-activate lmm-api-web.install frontend-release.sh \
   LICENSE NOTICE THIRD-PARTY-LICENSES.md REVISION API_ROUTE_CONTRACT_REVISION
 (cd "$web_work" && sha256sum "${web_artifact}.tar.gz" >"${web_artifact}.tar.gz.sha256")
 printf '{}\n' >"$web_work/${web_artifact}.tar.gz.sigstore.json"

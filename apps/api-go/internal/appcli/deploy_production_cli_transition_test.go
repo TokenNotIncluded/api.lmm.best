@@ -89,6 +89,38 @@ func TestRemoveLegacyDeployPackageRequiresIntegratedT0(t *testing.T) {
 	}
 }
 
+func TestPackageCLITransitionPhaseRequiresSignedMetadataAtNewBoundary(t *testing.T) {
+	for _, test := range []struct {
+		version, explicit, want string
+		wantError               string
+	}{
+		{version: "0.1.59-1", explicit: productionCLIPhaseT1, wantError: "historical"},
+		{version: "0.1.62-1", explicit: productionCLIPhaseT0, wantError: "historical"},
+		{version: "0.1.63-1", wantError: "signed CLI_TRANSITION_PHASE"},
+		{version: "0.1.63-1", explicit: productionCLIPhaseT0, want: productionCLIPhaseT0},
+		{version: "0.1.63-1", explicit: productionCLIPhaseT1, want: productionCLIPhaseT1},
+	} {
+		got, err := packageCLITransitionPhase(productionAURPackageName, test.version, test.explicit)
+		if test.wantError != "" {
+			if err == nil || !strings.Contains(err.Error(), test.wantError) {
+				t.Fatalf("version=%s explicit=%s error=%v", test.version, test.explicit, err)
+			}
+			continue
+		}
+		if err != nil || got != test.want {
+			t.Fatalf("version=%s explicit=%s phase=%s error=%v", test.version, test.explicit, got, err)
+		}
+	}
+}
+
+func TestExplicitHighVersionT0DoesNotRemoveLegacyDeployPackage(t *testing.T) {
+	runtime := &productionRuntime{runner: &productionCLIRemovalRunner{}}
+	candidate := productionPackageMetadata{Name: productionAURPackageName, Version: "0.1.63-1", CLITransitionPhase: productionCLIPhaseT0}
+	if err := runtime.removeLegacyDeployPackageForT1(context.Background(), candidate); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestVerifyTransitionCLIEnforcesT0AndT1CommandSets(t *testing.T) {
 	root := t.TempDir()
 	paths := defaultProductionPaths()
@@ -127,5 +159,18 @@ func TestVerifyTransitionCLIEnforcesT0AndT1CommandSets(t *testing.T) {
 	}
 	if err := runtime.verifyTransitionCLI(t0, false); err != nil {
 		t.Fatal(err)
+	}
+
+	explicitT0 := productionPackageTransition{
+		CandidatePackageName: productionAURPackageName,
+		CandidateIdentity:    productionAURPackageName + " 0.1.63-1",
+		CandidateCLIPhase:    productionCLIPhaseT0,
+	}
+	if err := runtime.verifyTransitionCLI(explicitT0, false); err != nil {
+		t.Fatal(err)
+	}
+	explicitT0.CandidateCLIPhase = productionCLIPhaseT1
+	if err := runtime.verifyTransitionCLI(explicitT0, false); err == nil || !strings.Contains(err.Error(), "legacy CLI path remains") {
+		t.Fatalf("explicit T1 with compatibility link error=%v", err)
 	}
 }

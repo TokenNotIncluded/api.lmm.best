@@ -78,10 +78,15 @@ for package in "${PACKAGES[@]}"; do
   fi
 done
 
+binary_cli_phase=$(
+  cd -- "$HERE/lmm-api-go-bin"
+  CARCH=x86_64 startdir="$PWD" bash -c 'source ./PKGBUILD; printf "%s\n" "$_lmm_cli_phase"'
+)
+[[ $binary_cli_phase == t0 || $binary_cli_phase == t1 ]] ||
+  die 'Go binary package declares an invalid CLI transition phase'
 for package in lmm-api-go lmm-api-go-bin lmm-api-go-git; do
   contains_srcinfo_prefix "$package" $'\tprovides = lmm-api'
-  if [[ $package == lmm-api-go-bin ]] &&
-    (($(vercmp "$(sed -n 's/^pkgver=//p' "$HERE/$package/PKGBUILD")" "$BINARY_T1_RELEASE") >= 0)); then
+  if [[ $package == lmm-api-go-bin && $binary_cli_phase == t1 ]]; then
     if grep -Fq $'\tprovides = lmm-api-go' "$HERE/$package/.SRCINFO"; then
       die "$package retains the removed legacy CLI capability"
     fi
@@ -115,6 +120,16 @@ declare -a conflicts replaces provides
   [[ " ${conflicts[*]} " == *' lmm-api-deploy-bin '* ]] || die 'T1 Go package does not conflict with the legacy deploy package'
   [[ " ${replaces[*]} " == *' lmm-api-deploy-bin '* ]] || die 'T1 Go package does not replace the legacy deploy package'
   [[ " ${provides[*]} " != *' lmm-api-go='* ]] || die 'T1 Go package still provides the legacy CLI capability'
+)
+(
+  # A newly versioned bootstrap remains T0 when its signed package phase says
+  # so; version ordering must not silently remove the compatibility CLI.
+  # shellcheck disable=SC1090
+  source "$CLI_PHASE_HELPER"
+  lmm_cli_phase_apply_metadata "$LMM_CLI_PHASE_T0" 999.0.0 \
+    'lmm-api' 'lmm-api-bin' 'lmm-api-git' 'lmm-api-go' 'lmm-api-go-git'
+  [[ " ${conflicts[*]} " != *' lmm-api-deploy-bin '* ]] || die 'explicit high-version T0 conflicts with the legacy deploy package'
+  [[ " ${provides[*]} " == *' lmm-api-go=999.0.0 '* ]] || die 'explicit high-version T0 lost its compatibility CLI capability'
 )
 
 for package in lmm-api-rs-bin lmm-api-rs-git; do

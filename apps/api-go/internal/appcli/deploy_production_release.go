@@ -2,6 +2,7 @@ package appcli
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -23,13 +24,14 @@ const (
 	productionOffhostAlias            = "archczy"
 	productionOffhostExpectedHost     = "archczy"
 	productionOffhostRoot             = "/home/arch/.local/state/lmm-api-production-backups"
-	productionReleasePlanFormat       = 1
+	productionReleasePlanFormat       = 3
 	productionReleaseStateFormat      = 2
 	productionReleasePlanFilename     = "release-plan.json"
 	productionReleasePlanHashFilename = "release-plan.sha256"
 	productionReleaseStateFilename    = "release-state.json"
 	productionReleaseRepository       = "https://github.com/LIghtJUNction/api.lmm.best"
 	productionReleaseOIDCIssuer       = "https://token.actions.githubusercontent.com"
+	productionLegacyWebInstallSHA256  = "c9269390c0ea38992db87b524e394095c5758620aa900ae2ce882fe654095d90"
 )
 
 type productionReleasePlanOptions struct {
@@ -66,6 +68,7 @@ type productionReleasePackagePlan struct {
 	Identity              string `json:"identity"`
 	GitRevision           string `json:"git_revision"`
 	ContractRevision      string `json:"contract_revision"`
+	CLITransitionPhase    string `json:"cli_transition_phase,omitempty"`
 	PayloadSHA256         string `json:"payload_sha256"`
 	ReleaseAsset          string `json:"release_asset"`
 	ReleaseAssetSHA256    string `json:"release_asset_sha256"`
@@ -265,19 +268,19 @@ func (runtime *productionReleaseRuntime) createPlan(ctx context.Context, options
 		}
 	}
 	localRuntime := &productionRuntime{runner: runtime.runner}
-	goCandidate, err := runtime.verifyPackageEvidence(ctx, options.Repo, options.Workspace, localRuntime, productionAURPackageName, options.GoPackage, options.GoReleaseAsset, options.GoReleaseBundle)
+	goCandidate, err := runtime.verifyPackageEvidence(ctx, options.Repo, options.Workspace, localRuntime, productionAURPackageName, options.GoPackage, options.GoReleaseAsset, options.GoReleaseBundle, !options.PreserveEdgePolicy)
 	if err != nil {
 		return productionReleasePlanResult{}, fmt.Errorf("candidate Go evidence: %w", err)
 	}
-	goRollback, err := runtime.verifyPackageEvidence(ctx, options.Repo, options.Workspace, localRuntime, productionAURPackageName, options.GoRollbackPackage, options.GoRollbackReleaseAsset, options.GoRollbackReleaseBundle)
+	goRollback, err := runtime.verifyPackageEvidence(ctx, options.Repo, options.Workspace, localRuntime, productionAURPackageName, options.GoRollbackPackage, options.GoRollbackReleaseAsset, options.GoRollbackReleaseBundle, false)
 	if err != nil {
 		return productionReleasePlanResult{}, fmt.Errorf("rollback Go evidence: %w", err)
 	}
-	webCandidate, err := runtime.verifyPackageEvidence(ctx, options.Repo, options.Workspace, localRuntime, productionWebPackageName, options.WebPackage, options.WebReleaseAsset, options.WebReleaseBundle)
+	webCandidate, err := runtime.verifyPackageEvidence(ctx, options.Repo, options.Workspace, localRuntime, productionWebPackageName, options.WebPackage, options.WebReleaseAsset, options.WebReleaseBundle, false)
 	if err != nil {
 		return productionReleasePlanResult{}, fmt.Errorf("candidate Web evidence: %w", err)
 	}
-	webRollback, err := runtime.verifyPackageEvidence(ctx, options.Repo, options.Workspace, localRuntime, productionWebPackageName, options.WebRollbackPackage, options.WebRollbackReleaseAsset, options.WebRollbackReleaseBundle)
+	webRollback, err := runtime.verifyPackageEvidence(ctx, options.Repo, options.Workspace, localRuntime, productionWebPackageName, options.WebRollbackPackage, options.WebRollbackReleaseAsset, options.WebRollbackReleaseBundle, false)
 	if err != nil {
 		return productionReleasePlanResult{}, fmt.Errorf("rollback Web evidence: %w", err)
 	}
@@ -312,6 +315,9 @@ func (runtime *productionReleaseRuntime) createPlan(ctx context.Context, options
 	operatorSHA256, err := sha256File(options.OperatorBinary)
 	if err != nil {
 		return productionReleasePlanResult{}, fmt.Errorf("hash operator binary: %w", err)
+	}
+	if operatorSHA256 != goCandidate.PayloadSHA256 {
+		return productionReleasePlanResult{}, errors.New("operator binary is not the binary in the signed candidate Go release and package")
 	}
 	plan := productionReleasePlan{
 		Format:              productionReleasePlanFormat,
@@ -364,7 +370,7 @@ func (runtime *productionReleaseRuntime) createPlan(ctx context.Context, options
 	return productionReleasePlanResult{DeploymentID: plan.DeploymentID, Plan: planPath, PlanSHA256: planSHA256, Version: expectedVersion, Revision: goCandidate.GitRevision}, nil
 }
 
-func (runtime *productionReleaseRuntime) verifyPackageEvidence(ctx context.Context, repo, workspace string, localRuntime *productionRuntime, expectedName, packagePath, releaseAsset, signatureBundle string) (productionReleasePackagePlan, error) {
+func (runtime *productionReleaseRuntime) verifyPackageEvidence(ctx context.Context, repo, workspace string, localRuntime *productionRuntime, expectedName, packagePath, releaseAsset, signatureBundle string, validateCandidateEdgePolicy bool) (productionReleasePackagePlan, error) {
 	metadata, err := localRuntime.packageMetadata(ctx, packagePath, expectedName)
 	if err != nil {
 		return productionReleasePackagePlan{}, err
@@ -427,7 +433,7 @@ func (runtime *productionReleaseRuntime) verifyPackageEvidence(ctx context.Conte
 	if payloadSHA256 != packagePayloadSHA256 {
 		return productionReleasePackagePlan{}, errors.New("signed release payload does not match package payload")
 	}
-	if err := runtime.verifySignedPackageLayout(ctx, workspace, expectedName, metadata.Version, packagePath, releaseAsset, assetSHA256); err != nil {
+	if err := runtime.verifySignedPackageLayout(ctx, workspace, expectedName, metadata.Version, packagePath, releaseAsset, assetSHA256, validateCandidateEdgePolicy); err != nil {
 		return productionReleasePackagePlan{}, err
 	}
 	return productionReleasePackagePlan{
@@ -438,6 +444,7 @@ func (runtime *productionReleaseRuntime) verifyPackageEvidence(ctx context.Conte
 		Identity:              metadata.Identity,
 		GitRevision:           metadata.GitRevision,
 		ContractRevision:      metadata.ContractRevision,
+		CLITransitionPhase:    metadata.CLITransitionPhase,
 		PayloadSHA256:         payloadSHA256,
 		ReleaseAsset:          releaseAsset,
 		ReleaseAssetSHA256:    assetSHA256,
@@ -513,7 +520,21 @@ func (runtime *productionReleaseRuntime) readSignedReleasePayload(ctx context.Co
 	return revision, contract, payload, nil
 }
 
-func (runtime *productionReleaseRuntime) verifySignedPackageLayout(ctx context.Context, workspace, packageName, packageVersion, packagePath, releaseAsset, releaseAssetSHA256 string) error {
+func (runtime *productionReleaseRuntime) verifySignedPackageLayout(ctx context.Context, workspace, packageName, packageVersion, packagePath, releaseAsset, releaseAssetSHA256 string, validateCandidateEdgePolicy bool) error {
+	signedArchiveHeaders, err := runtime.archiveMembers(ctx, releaseAsset)
+	if err != nil {
+		return err
+	}
+	if err := validateArchiveHeaderSafety("signed release", signedArchiveHeaders, false); err != nil {
+		return err
+	}
+	packageArchiveHeaders, err := runtime.archiveMembers(ctx, packagePath)
+	if err != nil {
+		return err
+	}
+	if err := validateArchiveHeaderSafety("production package", packageArchiveHeaders, true); err != nil {
+		return err
+	}
 	temporaryRoot := filepath.Join(workspace, "tmp")
 	if err := ensureRealDirectory(temporaryRoot, 0o700); err != nil {
 		return err
@@ -537,14 +558,57 @@ func (runtime *productionReleaseRuntime) verifySignedPackageLayout(ctx context.C
 		return fmt.Errorf("extract package for layout verification: %w", err)
 	}
 	signedRoot := assetRoot
+	signedArchivePrefix := ""
+	cliPhase := ""
+	expectedInstallSHA256 := ""
 	if packageName == productionAURPackageName {
 		entries, err := os.ReadDir(assetRoot)
 		if err != nil || len(entries) != 1 || !entries[0].IsDir() || entries[0].Type()&os.ModeSymlink != 0 {
 			return errors.New("signed Go release must contain exactly one real top-level directory")
 		}
-		signedRoot = filepath.Join(assetRoot, entries[0].Name())
+		signedArchivePrefix = entries[0].Name()
+		signedRoot = filepath.Join(assetRoot, signedArchivePrefix)
+		if validateCandidateEdgePolicy {
+			if err := (&productionRuntime{}).validateEdgePolicyAssets(filepath.Join(signedRoot, "edge-policy")); err != nil {
+				return fmt.Errorf("signed Go release edge-policy preflight: %w", err)
+			}
+		}
+		phaseBytes, phaseErr := os.ReadFile(filepath.Join(signedRoot, "CLI_TRANSITION_PHASE"))
+		if phaseErr == nil {
+			cliPhase = strings.TrimSpace(string(phaseBytes))
+		} else if !errors.Is(phaseErr, os.ErrNotExist) {
+			return fmt.Errorf("read signed Go CLI transition phase: %w", phaseErr)
+		}
+		cliPhase, err = packageCLITransitionPhase(packageName, packageVersion, cliPhase)
+		if err != nil {
+			return fmt.Errorf("signed Go CLI transition phase: %w", err)
+		}
+	} else if packageName == productionWebPackageName {
+		signedInstallPath := filepath.Join(signedRoot, "lmm-api-web.install")
+		installInfo, installErr := os.Lstat(signedInstallPath)
+		if installErr == nil {
+			if installInfo.Mode()&os.ModeSymlink != 0 || !installInfo.Mode().IsRegular() || installInfo.Size() <= 0 || installInfo.Size() > 1<<20 || installInfo.Mode().Perm()&0o022 != 0 {
+				return errors.New("signed Web install hook is unsafe")
+			}
+			expectedInstallSHA256, err = sha256File(signedInstallPath)
+			if err != nil {
+				return err
+			}
+		} else if errors.Is(installErr, os.ErrNotExist) {
+			requiresSignedHook, versionErr := numericPackageReleaseAtLeast(packageVersion, [3]int{0, 1, 43})
+			if versionErr != nil {
+				return versionErr
+			}
+			if requiresSignedHook {
+				return errors.New("signed Web release lacks lmm-api-web.install")
+			}
+			expectedInstallSHA256 = productionLegacyWebInstallSHA256
+		} else {
+			return fmt.Errorf("inspect signed Web install hook: %w", installErr)
+		}
 	}
 	expected := make(map[string]string)
+	expectedHeaders := make(map[string]productionArchiveMember)
 	if err := filepath.WalkDir(signedRoot, func(path string, entry os.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -570,7 +634,16 @@ func (runtime *productionReleaseRuntime) verifySignedPackageLayout(ctx context.C
 		if previous, exists := expected[packageRelative]; exists && previous != path {
 			return fmt.Errorf("signed release maps multiple payloads to %s", packageRelative)
 		}
+		archiveName := filepath.ToSlash(relative)
+		if signedArchivePrefix != "" {
+			archiveName = signedArchivePrefix + "/" + archiveName
+		}
+		signedHeader, found := signedArchiveHeaders[archiveName]
+		if !found || signedHeader.Type != "file" {
+			return fmt.Errorf("signed release archive header is missing or unsafe: %s", relative)
+		}
 		expected[packageRelative] = path
+		expectedHeaders[packageRelative] = signedHeader
 		return nil
 	}); err != nil {
 		return err
@@ -578,7 +651,17 @@ func (runtime *productionReleaseRuntime) verifySignedPackageLayout(ctx context.C
 	if len(expected) == 0 {
 		return errors.New("signed release has no package payload")
 	}
+	if packageName == productionWebPackageName {
+		if _, signed := expected[".INSTALL"]; !signed {
+			expected[".INSTALL"] = expectedInstallSHA256
+			expectedHeaders[".INSTALL"] = productionArchiveMember{Type: "file", Mode: 0o644}
+		}
+	}
+	if err := validateProductionPackageArchiveContract(packageRoot, packageName, packageVersion, cliPhase, expectedInstallSHA256, packageArchiveHeaders); err != nil {
+		return fmt.Errorf("production package metadata contract: %w", err)
+	}
 	packageFiles := make(map[string]string)
+	packageFileHeaders := make(map[string]productionArchiveMember)
 	preT0Legacy, err := isPreT0LegacyPackage(packageName, packageVersion)
 	if err != nil {
 		return err
@@ -596,7 +679,12 @@ func (runtime *productionReleaseRuntime) verifySignedPackageLayout(ctx context.C
 		if err != nil || relative == "." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
 			return errors.New("package payload escaped its root")
 		}
-		if !strings.Contains(relative, string(filepath.Separator)) && (relative == ".PKGINFO" || relative == ".BUILDINFO" || relative == ".MTREE" || relative == ".INSTALL") {
+		archiveName := filepath.ToSlash(relative)
+		archiveHeader, found := packageArchiveHeaders[archiveName]
+		if !found {
+			return fmt.Errorf("production package archive header is missing: %s", relative)
+		}
+		if !strings.Contains(relative, string(filepath.Separator)) && (relative == ".PKGINFO" || relative == ".BUILDINFO" || relative == ".MTREE") {
 			return nil
 		}
 		info, err := entry.Info()
@@ -604,17 +692,20 @@ func (runtime *productionReleaseRuntime) verifySignedPackageLayout(ctx context.C
 			return err
 		}
 		if info.Mode()&os.ModeSymlink != 0 {
+			if archiveHeader.Type != "link" {
+				return fmt.Errorf("package symlink header type mismatch: %s", relative)
+			}
 			switch {
 			case packageName == productionAURPackageName && relative == "usr/bin/lmm-api-go" && !preT0Legacy:
 				target, err := os.Readlink(path)
-				if err != nil || target != "lmm-api" {
+				if err != nil || target != "lmm-api" || archiveHeader.Link != target {
 					return errors.New("legacy CLI compatibility symlink has an unsafe target")
 				}
 				legacyAlias = true
 				return nil
 			case preT0Legacy && relative == "usr/bin/lmm-api":
 				target, err := os.Readlink(path)
-				if err != nil || target != "lmm-api-go" {
+				if err != nil || target != "lmm-api-go" || archiveHeader.Link != target {
 					return errors.New("pre-T0 CLI compatibility symlink has an unsafe target")
 				}
 				legacyReverseAlias = true
@@ -623,14 +714,15 @@ func (runtime *productionReleaseRuntime) verifySignedPackageLayout(ctx context.C
 				return fmt.Errorf("package contains an unexpected symlink: %s", relative)
 			}
 		}
-		if !info.Mode().IsRegular() || info.Size() == 0 || info.Mode().Perm()&0o022 != 0 {
+		if !info.Mode().IsRegular() || info.Size() == 0 || info.Mode().Perm()&0o022 != 0 || archiveHeader.Type != "file" || archiveHeader.Mode != uint64(info.Mode().Perm()) {
 			return fmt.Errorf("package contains an unsafe payload: %s", relative)
 		}
+		mappedRelative := relative
 		if preT0Legacy && relative == "usr/bin/lmm-api-go" {
-			packageFiles["usr/bin/lmm-api"] = path
-		} else {
-			packageFiles[relative] = path
+			mappedRelative = "usr/bin/lmm-api"
 		}
+		packageFiles[mappedRelative] = path
+		packageFileHeaders[mappedRelative] = archiveHeader
 		return nil
 	}); err != nil {
 		return err
@@ -643,22 +735,33 @@ func (runtime *productionReleaseRuntime) verifySignedPackageLayout(ctx context.C
 		}
 	} else {
 		releaseDigestBytes, err := os.ReadFile(releaseDigestPath)
-		if err != nil || string(releaseDigestBytes) != releaseAssetSHA256+"\n" {
+		releaseDigestHeader, headerFound := packageFileHeaders[releaseDigestRelative]
+		if err != nil || string(releaseDigestBytes) != releaseAssetSHA256+"\n" || !headerFound || releaseDigestHeader.Type != "file" || releaseDigestHeader.Mode != 0o644 {
 			return errors.New("package release-asset digest evidence is invalid")
 		}
 		delete(packageFiles, releaseDigestRelative)
+		delete(packageFileHeaders, releaseDigestRelative)
 	}
 	if len(packageFiles) != len(expected) {
 		return errors.New("package payload set differs from the signed release")
 	}
 	for relative, signedPath := range expected {
 		packageFile, ok := packageFiles[relative]
-		if !ok {
-			return fmt.Errorf("package omits signed release payload: %s", relative)
+		packageHeader, headerOK := packageFileHeaders[relative]
+		signedHeader, signedHeaderOK := expectedHeaders[relative]
+		if !ok || !headerOK || !signedHeaderOK {
+			return fmt.Errorf("package omits signed release payload or header: %s", relative)
 		}
-		signedDigest, err := sha256File(signedPath)
-		if err != nil {
+		if err := validateMappedPackageHeader(packageName, relative, signedHeader, packageHeader); err != nil {
 			return err
+		}
+		signedDigest := expectedInstallSHA256
+		if relative != ".INSTALL" || signedPath != expectedInstallSHA256 {
+			var err error
+			signedDigest, err = sha256File(signedPath)
+			if err != nil {
+				return err
+			}
 		}
 		packageDigest, err := sha256File(packageFile)
 		if err != nil || packageDigest != signedDigest {
@@ -667,14 +770,10 @@ func (runtime *productionReleaseRuntime) verifySignedPackageLayout(ctx context.C
 	}
 	canonicalExecutable := filepath.Join(packageRoot, "usr/bin/lmm-api")
 	if packageName == productionAURPackageName {
-		t1, err := isT1SingleCLIPackage(packageName, packageVersion)
-		if err != nil {
-			return err
-		}
-		if t1 && (legacyAlias || legacyReverseAlias) {
+		if cliPhase == productionCLIPhaseT1 && (legacyAlias || legacyReverseAlias) {
 			return errors.New("T1 package still exposes the legacy CLI compatibility link")
 		}
-		if !t1 && !legacyAlias && !legacyReverseAlias {
+		if cliPhase == productionCLIPhaseT0 && !legacyAlias && !legacyReverseAlias {
 			return errors.New("T0 rollback package lacks the legacy CLI compatibility link")
 		}
 	}
@@ -709,6 +808,344 @@ func legacyPackageWithoutEmbeddedReleaseDigest(packageName, packageVersion strin
 	}
 }
 
+func parsePackageInfo(path string) (map[string][]string, error) {
+	info, err := os.Lstat(path)
+	if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || info.Size() <= 0 || info.Size() > 1<<20 {
+		return nil, errors.New("package .PKGINFO is missing or unsafe")
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read package .PKGINFO: %w", err)
+	}
+	fields := make(map[string][]string)
+	for _, line := range strings.Split(string(content), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		key, value, found := strings.Cut(line, " = ")
+		if !found || key == "" || value == "" {
+			return nil, errors.New("package .PKGINFO contains a malformed field")
+		}
+		fields[key] = append(fields[key], value)
+	}
+	return fields, nil
+}
+
+func sameStringSet(actual, expected []string) bool {
+	if len(actual) != len(expected) {
+		return false
+	}
+	counts := make(map[string]int, len(expected))
+	for _, value := range expected {
+		counts[value]++
+	}
+	for _, value := range actual {
+		if counts[value] == 0 {
+			return false
+		}
+		counts[value]--
+	}
+	return true
+}
+
+func requirePackageInfoSet(fields map[string][]string, key string, expected ...string) error {
+	if !sameStringSet(fields[key], expected) {
+		return fmt.Errorf("package .PKGINFO %s contract mismatch", key)
+	}
+	return nil
+}
+
+type productionArchiveMember struct {
+	Type string
+	Mode uint64
+	UID  int
+	GID  int
+	Link string
+}
+
+func parseProductionArchiveMtree(content []byte) (map[string]productionArchiveMember, error) {
+	parseFields := func(text string, values map[string]string) {
+		for _, field := range strings.Fields(text) {
+			key, value, found := strings.Cut(field, "=")
+			if found {
+				values[key] = value
+			}
+		}
+	}
+	defaults := make(map[string]string)
+	members := make(map[string]productionArchiveMember)
+	for _, line := range strings.Split(string(content), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if strings.HasPrefix(line, "/set ") {
+			parseFields(strings.TrimPrefix(line, "/set "), defaults)
+			continue
+		}
+		if strings.HasPrefix(line, "/unset ") {
+			for _, key := range strings.Fields(strings.TrimPrefix(line, "/unset ")) {
+				delete(defaults, key)
+			}
+			continue
+		}
+		name, attributes, found := strings.Cut(line, " ")
+		name = strings.TrimPrefix(name, "./")
+		name = strings.TrimSuffix(name, "/")
+		if !found || name == "" || name == "." || filepath.IsAbs(name) || strings.Contains(name, "\\") || !pathWithinRoot("/archive", filepath.Join("/archive", filepath.FromSlash(name))) {
+			return nil, errors.New("archive mtree contains an unsafe member name")
+		}
+		values := make(map[string]string, len(defaults)+6)
+		for key, value := range defaults {
+			values[key] = value
+		}
+		parseFields(attributes, values)
+		mode, err := strconv.ParseUint(values["mode"], 8, 32)
+		if err != nil {
+			return nil, fmt.Errorf("archive mtree %s mode: %w", name, err)
+		}
+		uid, err := strconv.Atoi(values["uid"])
+		if err != nil {
+			return nil, fmt.Errorf("archive mtree %s uid: %w", name, err)
+		}
+		gid, err := strconv.Atoi(values["gid"])
+		if err != nil {
+			return nil, fmt.Errorf("archive mtree %s gid: %w", name, err)
+		}
+		member := productionArchiveMember{Type: values["type"], Mode: mode, UID: uid, GID: gid, Link: values["link"]}
+		if member.Type != "file" && member.Type != "dir" && member.Type != "link" {
+			return nil, fmt.Errorf("archive mtree %s has unsupported type %q", name, member.Type)
+		}
+		if member.Type == "link" && member.Link == "" {
+			return nil, fmt.Errorf("archive mtree %s has an empty link target", name)
+		}
+		if _, duplicate := members[name]; duplicate {
+			return nil, fmt.Errorf("archive mtree duplicates %s", name)
+		}
+		members[name] = member
+	}
+	if len(members) == 0 {
+		return nil, errors.New("archive mtree has no members")
+	}
+	return members, nil
+}
+
+func (runtime *productionReleaseRuntime) archiveMembers(ctx context.Context, archivePath string) (map[string]productionArchiveMember, error) {
+	output, err := runtime.runner.Run(ctx, productionCommand{
+		Name: commandBsdtar,
+		Args: []string{"-cf", "-", "--format=mtree", "@" + archivePath},
+		Env:  append(os.Environ(), "LC_ALL=C"),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("read archive headers for %s: %w", filepath.Base(archivePath), err)
+	}
+	members, err := parseProductionArchiveMtree(output)
+	if err != nil {
+		return nil, fmt.Errorf("parse archive headers for %s: %w", filepath.Base(archivePath), err)
+	}
+	return members, nil
+}
+
+func packageMtreeEntry(path, entryName string) (productionArchiveMember, error) {
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return productionArchiveMember{}, fmt.Errorf("read package .MTREE: %w", err)
+	}
+	reader, err := gzip.NewReader(bytes.NewReader(content))
+	if err != nil {
+		return productionArchiveMember{}, fmt.Errorf("open package .MTREE: %w", err)
+	}
+	decoded, readErr := io.ReadAll(io.LimitReader(reader, 4<<20))
+	closeErr := reader.Close()
+	if readErr != nil || closeErr != nil {
+		return productionArchiveMember{}, fmt.Errorf("decode package .MTREE: %w", errors.Join(readErr, closeErr))
+	}
+	members, err := parseProductionArchiveMtree(decoded)
+	if err != nil {
+		return productionArchiveMember{}, fmt.Errorf("parse package .MTREE: %w", err)
+	}
+	entryName = strings.TrimPrefix(strings.TrimSuffix(entryName, "/"), "./")
+	member, found := members[entryName]
+	if !found {
+		return productionArchiveMember{}, fmt.Errorf("package .MTREE lacks %s", entryName)
+	}
+	return member, nil
+}
+
+func validateArchiveHeaderSafety(label string, members map[string]productionArchiveMember, requireRoot bool) error {
+	for name, member := range members {
+		if requireRoot && (member.UID != 0 || member.GID != 0) {
+			return fmt.Errorf("%s member %s is not root-owned", label, name)
+		}
+		if member.Type == "link" {
+			continue
+		}
+		if member.Mode&0o7000 != 0 || member.Mode&0o022 != 0 {
+			return fmt.Errorf("%s member %s has unsafe mode %04o", label, name, member.Mode)
+		}
+	}
+	return nil
+}
+
+func expectedMappedPackageMode(packageName, relative string, signedMode uint64) uint64 {
+	if packageName == productionAURPackageName {
+		switch relative {
+		case "etc/lmm-api-go/lmm-api-go.env":
+			return 0o640
+		case "etc/sudoers.d/lmm-api-operator":
+			return 0o440
+		}
+	}
+	return signedMode
+}
+
+func validateMappedPackageHeader(packageName, relative string, signed, packaged productionArchiveMember) error {
+	if signed.Type != "file" || packaged.Type != "file" {
+		return fmt.Errorf("mapped package member %s is not a regular file", relative)
+	}
+	expectedMode := expectedMappedPackageMode(packageName, relative, signed.Mode)
+	if packaged.Mode != expectedMode {
+		return fmt.Errorf("mapped package member %s mode=%04o want=%04o", relative, packaged.Mode, expectedMode)
+	}
+	return nil
+}
+
+func requireExtractedPackageMode(root, relative string, directory bool, mode os.FileMode) error {
+	path := filepath.Join(root, filepath.FromSlash(relative))
+	info, err := os.Lstat(path)
+	if err != nil || info.Mode()&os.ModeSymlink != 0 || info.IsDir() != directory || info.Mode().Perm() != mode {
+		return fmt.Errorf("package path %s mode or type mismatch", relative)
+	}
+	return nil
+}
+
+func validateProductionPackageArchiveContract(packageRoot, packageName, packageVersion, cliPhase, expectedInstallSHA256 string, archiveHeaders map[string]productionArchiveMember) error {
+	fields, err := parsePackageInfo(filepath.Join(packageRoot, ".PKGINFO"))
+	if err != nil {
+		return err
+	}
+	for key, expected := range map[string]string{
+		"pkgname": packageName,
+		"pkgbase": packageName,
+		"pkgver":  packageVersion,
+		"license": "AGPL-3.0-only",
+	} {
+		if err := requirePackageInfoSet(fields, key, expected); err != nil {
+			return err
+		}
+	}
+	releaseVersion, err := packageReleaseVersion(packageVersion)
+	if err != nil {
+		return err
+	}
+	installPath := filepath.Join(packageRoot, ".INSTALL")
+	if packageName == productionAURPackageName {
+		if _, err := os.Lstat(installPath); !errors.Is(err, os.ErrNotExist) {
+			return errors.New("Go production package must not contain a root install hook")
+		}
+		if err := requirePackageInfoSet(fields, "arch", "x86_64"); err != nil {
+			return err
+		}
+		conflicts := []string{"lmm-api", "lmm-api-bin", "lmm-api-git", "lmm-api-go", "lmm-api-go-git"}
+		provides := []string{"lmm-api=" + releaseVersion}
+		integrated, err := isIntegratedOperatorPackage(packageName, packageVersion)
+		if err != nil {
+			return err
+		}
+		if cliPhase == productionCLIPhaseT0 {
+			if integrated {
+				provides = append(provides, "lmm-api-go="+releaseVersion)
+			} else {
+				provides = []string{"lmm-api-go=" + releaseVersion}
+			}
+		} else {
+			conflicts = append(conflicts, "lmm-api-deploy", "lmm-api-deploy-bin")
+		}
+		if err := requirePackageInfoSet(fields, "conflict", conflicts...); err != nil {
+			return err
+		}
+		if err := requirePackageInfoSet(fields, "provides", provides...); err != nil {
+			return err
+		}
+		replaces := []string{}
+		if cliPhase == productionCLIPhaseT1 {
+			replaces = append(replaces, "lmm-api-deploy-bin")
+		}
+		if err := requirePackageInfoSet(fields, "replaces", replaces...); err != nil {
+			return err
+		}
+		dependencies := []string{"ca-certificates", "systemd", "tzdata"}
+		if integrated {
+			dependencies = []string{"ca-certificates", "coreutils", "libarchive", "pacman", "paru", "sudo", "systemd", "tzdata", "util-linux"}
+		}
+		if err := requirePackageInfoSet(fields, "depend", dependencies...); err != nil {
+			return err
+		}
+		if err := requirePackageInfoSet(fields, "backup", "etc/lmm-api-go/lmm-api-go.env"); err != nil {
+			return err
+		}
+		if integrated {
+			if err := requireExtractedPackageMode(packageRoot, "etc/sudoers.d", true, 0o750); err != nil {
+				return err
+			}
+			if err := requireExtractedPackageMode(packageRoot, "etc/sudoers.d/lmm-api-operator", false, 0o440); err != nil {
+				return err
+			}
+			for entryName, expected := range map[string]productionArchiveMember{
+				"etc/sudoers.d":                  {Type: "dir", Mode: 0o750, UID: 0, GID: 0},
+				"etc/sudoers.d/lmm-api-operator": {Type: "file", Mode: 0o440, UID: 0, GID: 0},
+			} {
+				header, found := archiveHeaders[entryName]
+				if !found || header != expected {
+					return fmt.Errorf("package archive header %s does not match the root-owned mode contract", entryName)
+				}
+				entry, err := packageMtreeEntry(filepath.Join(packageRoot, ".MTREE"), entryName)
+				if err != nil {
+					return err
+				}
+				if entry != header {
+					return fmt.Errorf("package .MTREE %s disagrees with its archive header", entryName)
+				}
+			}
+		}
+		return nil
+	}
+	if packageName != productionWebPackageName {
+		return errors.New("production package archive contract received an unsupported package")
+	}
+	if err := requirePackageInfoSet(fields, "arch", "any"); err != nil {
+		return err
+	}
+	if err := requirePackageInfoSet(fields, "conflict", "lmm-api-web"); err != nil {
+		return err
+	}
+	if err := requirePackageInfoSet(fields, "provides", "lmm-api-web="+releaseVersion); err != nil {
+		return err
+	}
+	if err := requirePackageInfoSet(fields, "replaces"); err != nil {
+		return err
+	}
+	if err := requirePackageInfoSet(fields, "depend", "bash", "coreutils", "diffutils", "findutils", "gawk", "grep", "nginx", "sed", "systemd", "util-linux"); err != nil {
+		return err
+	}
+	if expectedInstallSHA256 == "" {
+		return errors.New("Web production package lacks trusted install-hook evidence")
+	}
+	info, err := os.Lstat(installPath)
+	if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || info.Size() <= 0 || info.Size() > 1<<20 || info.Mode().Perm()&0o022 != 0 {
+		return errors.New("Web production package install hook is missing or unsafe")
+	}
+	installSHA256, err := sha256File(installPath)
+	if err != nil {
+		return err
+	}
+	if installSHA256 != expectedInstallSHA256 {
+		return errors.New("Web production package install hook does not match trusted evidence")
+	}
+	return nil
+}
+
 func signedPackageMember(packageName, relative string) (packageRelative string, ignored bool, err error) {
 	if filepath.IsAbs(relative) || relative == "." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
 		return "", false, errors.New("signed release member is unsafe")
@@ -721,6 +1158,8 @@ func signedPackageMember(packageName, relative string) (packageRelative string, 
 			return "usr/lib/lmm-api-web/lmm-api-web-activate", false, nil
 		case relative == "frontend-release.sh":
 			return "usr/lib/lmm-api-web/frontend-release.sh", false, nil
+		case relative == "lmm-api-web.install":
+			return ".INSTALL", false, nil
 		case relative == "LICENSE", relative == "NOTICE", relative == "THIRD-PARTY-LICENSES.md":
 			return "usr/share/licenses/" + packageName + "/" + relative, false, nil
 		case relative == "REVISION", relative == "API_ROUTE_CONTRACT_REVISION":
@@ -750,23 +1189,64 @@ func signedPackageMember(packageName, relative string) (packageRelative string, 
 		return filepath.Join("usr/share/lmm-api-go", relative), false, nil
 	case relative == "LICENSE", relative == "NOTICE", relative == "THIRD-PARTY-LICENSES.md":
 		return "usr/share/licenses/" + packageName + "/" + relative, false, nil
-	case relative == "REVISION", relative == "API_ROUTE_CONTRACT_REVISION":
+	case relative == "REVISION", relative == "API_ROUTE_CONTRACT_REVISION", relative == "CLI_TRANSITION_PHASE":
 		return "usr/share/doc/" + packageName + "/" + relative, false, nil
 	default:
 		return "", false, fmt.Errorf("signed Go release contains an unmapped payload: %s", relative)
 	}
 }
 
-// The 0.1.58 tag produced no release artifacts. Version 0.1.59 is the
-// compatibility T0 release; the single-CLI T1 contract starts at 0.1.60.
-func isT1SingleCLIPackage(packageName, packageVersion string) (bool, error) {
+const (
+	productionCLIPhaseT0 = "t0"
+	productionCLIPhaseT1 = "t1"
+)
+
+func validCLITransitionPhase(phase string) bool {
+	return phase == productionCLIPhaseT0 || phase == productionCLIPhaseT1
+}
+
+// packageCLITransitionPhase preserves the immutable historical boundary for
+// already-published packages. New packages must carry a phase in their signed
+// release payload so a higher-version T0 bootstrap is not mistaken for T1.
+func packageCLITransitionPhase(packageName, packageVersion, explicit string) (string, error) {
 	if packageName == productionSourcePackageName {
-		return true, nil
+		if explicit != "" {
+			return "", errors.New("source package must not declare binary CLI transition metadata")
+		}
+		return productionCLIPhaseT1, nil
 	}
 	if packageName != productionAURPackageName {
-		return false, errors.New("single-CLI transition check received an unsupported package")
+		return "", errors.New("CLI transition check received an unsupported package")
 	}
-	return numericPackageReleaseAtLeast(packageVersion, [3]int{0, 1, 60})
+	requiresExplicit, err := numericPackageReleaseAtLeast(packageVersion, [3]int{0, 1, 63})
+	if err != nil {
+		return "", err
+	}
+	if requiresExplicit {
+		if !validCLITransitionPhase(explicit) {
+			return "", errors.New("signed CLI_TRANSITION_PHASE metadata must be t0 or t1")
+		}
+		return explicit, nil
+	}
+	if explicit != "" {
+		return "", errors.New("historical Go package must not override its version-derived CLI transition phase")
+	}
+	t1, err := numericPackageReleaseAtLeast(packageVersion, [3]int{0, 1, 60})
+	if err != nil {
+		return "", err
+	}
+	if t1 {
+		return productionCLIPhaseT1, nil
+	}
+	return productionCLIPhaseT0, nil
+}
+
+// The 0.1.58 tag produced no release artifacts. Version 0.1.59 is the
+// compatibility T0 release; historical packages from 0.1.60 through 0.1.62
+// use the implicit single-CLI T1 contract.
+func isT1SingleCLIPackage(packageName, packageVersion string) (bool, error) {
+	phase, err := packageCLITransitionPhase(packageName, packageVersion, "")
+	return phase == productionCLIPhaseT1, err
 }
 
 func isIntegratedOperatorPackage(packageName, packageVersion string) (bool, error) {
@@ -776,7 +1256,11 @@ func isIntegratedOperatorPackage(packageName, packageVersion string) (bool, erro
 	if packageName != productionAURPackageName {
 		return false, nil
 	}
-	return numericPackageReleaseAtLeast(packageVersion, [3]int{0, 1, 59})
+	integrated, err := numericPackageReleaseAtLeast(packageVersion, [3]int{0, 1, 59})
+	if err != nil {
+		return false, fmt.Errorf("classify integrated operator package: %w", err)
+	}
+	return integrated, nil
 }
 
 func numericPackageReleaseAtLeast(packageVersion string, minimum [3]int) (bool, error) {
@@ -810,11 +1294,12 @@ func packageReleaseVersion(packageVersion string) (string, error) {
 
 func releasePlanMetadata(plan productionReleasePackagePlan) productionPackageMetadata {
 	metadata := productionPackageMetadata{
-		Name:             plan.Name,
-		Version:          plan.Version,
-		Identity:         plan.Identity,
-		GitRevision:      plan.GitRevision,
-		ContractRevision: plan.ContractRevision,
+		Name:               plan.Name,
+		Version:            plan.Version,
+		Identity:           plan.Identity,
+		GitRevision:        plan.GitRevision,
+		ContractRevision:   plan.ContractRevision,
+		CLITransitionPhase: plan.CLITransitionPhase,
 	}
 	if plan.Name == productionWebPackageName {
 		metadata.IndexSHA256 = plan.PayloadSHA256
@@ -824,10 +1309,11 @@ func releasePlanMetadata(plan productionReleasePackagePlan) productionPackageMet
 	return metadata
 }
 
+// pi-lens-ignore: go-bare-error
 func canonicalProductionReleasePlan(plan productionReleasePlan) ([]byte, error) {
 	encoded, err := json.MarshalIndent(plan, "", "  ")
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("marshal canonical production release plan: %w", err)
 	}
 	return append(encoded, '\n'), nil
 }
@@ -870,6 +1356,7 @@ func loadProductionReleasePlan(path, expectedSHA256 string) (productionReleasePl
 	return plan, nil
 }
 
+// pi-lens-ignore: go-bare-error
 func validateProductionReleasePlan(plan productionReleasePlan) error {
 	if plan.Format != productionReleasePlanFormat {
 		return errors.New("unsupported release plan format")
@@ -913,9 +1400,15 @@ func validateProductionReleasePlan(plan productionReleasePlan) error {
 		if item.Name != productionAURPackageName && item.Name != productionWebPackageName {
 			return errors.New("release plan contains an unsupported package")
 		}
+		if item.Name == productionAURPackageName && !validCLITransitionPhase(item.CLITransitionPhase) {
+			return errors.New("release plan Go package lacks a valid CLI transition phase")
+		}
+		if item.Name == productionWebPackageName && item.CLITransitionPhase != "" {
+			return errors.New("release plan Web package declares a CLI transition phase")
+		}
 		releaseVersion, err := packageReleaseVersion(item.Version)
 		if err != nil {
-			return err
+			return fmt.Errorf("release plan package version: %w", err)
 		}
 		prefix, workflow := "go-v", "release-go.yml"
 		if item.Name == productionWebPackageName {
@@ -941,11 +1434,8 @@ func validateProductionReleasePlan(plan productionReleasePlan) error {
 	if err != nil || probe != plan.ProbeBinary.Path || !productionSHA256Pattern.MatchString(plan.ProbeBinary.SHA256) || plan.ProbeBinary.SHA256 != plan.GoCandidate.PayloadSHA256 {
 		return errors.New("release plan probe identity is invalid")
 	}
-	if plan.OperatorBinary.Path == "" {
-		plan.OperatorBinary = plan.ProbeBinary
-	}
 	operator, err := cleanAbsoluteNonRoot(plan.OperatorBinary.Path)
-	if err != nil || operator != plan.OperatorBinary.Path || !productionSHA256Pattern.MatchString(plan.OperatorBinary.SHA256) {
+	if err != nil || operator != plan.OperatorBinary.Path || !productionSHA256Pattern.MatchString(plan.OperatorBinary.SHA256) || plan.OperatorBinary.SHA256 != plan.GoCandidate.PayloadSHA256 {
 		return errors.New("release plan operator identity is invalid")
 	}
 	if plan.WithBackups {
@@ -1031,16 +1521,17 @@ func validateProductionReleasePlanArtifacts(ctx context.Context, runtime *produc
 	}
 	localRuntime := &productionRuntime{runner: runtime.runner}
 	checks := []struct {
-		want        productionReleasePackagePlan
-		packageName string
+		want                        productionReleasePackagePlan
+		packageName                 string
+		validateCandidateEdgePolicy bool
 	}{
-		{plan.GoCandidate, productionAURPackageName},
-		{plan.GoRollback, productionAURPackageName},
-		{plan.WebCandidate, productionWebPackageName},
-		{plan.WebRollback, productionWebPackageName},
+		{plan.GoCandidate, productionAURPackageName, !plan.PreserveEdgePolicy},
+		{plan.GoRollback, productionAURPackageName, false},
+		{plan.WebCandidate, productionWebPackageName, false},
+		{plan.WebRollback, productionWebPackageName, false},
 	}
 	for _, check := range checks {
-		got, err := runtime.verifyPackageEvidence(ctx, plan.Repository, plan.ControllerWorkspace, localRuntime, check.packageName, check.want.PackagePath, check.want.ReleaseAsset, check.want.SignatureBundle)
+		got, err := runtime.verifyPackageEvidence(ctx, plan.Repository, plan.ControllerWorkspace, localRuntime, check.packageName, check.want.PackagePath, check.want.ReleaseAsset, check.want.SignatureBundle, check.validateCandidateEdgePolicy)
 		if err != nil {
 			return err
 		}

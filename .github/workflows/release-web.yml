@@ -125,6 +125,7 @@ jobs:
           mkdir -p "$bundle"
           cp -a apps/web/dist "$bundle/"
           cp packaging/aur/lmm-api-web-bin/lmm-api-web-activate "$bundle/"
+          cp packaging/aur/lmm-api-web-bin/lmm-api-web.install "$bundle/"
           cp deploy/frontend-release.sh "$bundle/"
           cp LICENSE NOTICE THIRD-PARTY-LICENSES.md "$bundle/"
           printf '%s\n' "$RELEASE_REVISION" >"$bundle/REVISION"
@@ -135,7 +136,7 @@ jobs:
           [[ $(<"$bundle/API_ROUTE_CONTRACT_REVISION") == "$EXPECTED_CONTRACT_REVISION" ]]
           archive="release-web/lmm-api-web-${RELEASE_VERSION}.tar.gz"
           tar -czf "$archive" -C "$bundle" \
-            dist lmm-api-web-activate frontend-release.sh \
+            dist lmm-api-web-activate lmm-api-web.install frontend-release.sh \
             LICENSE NOTICE THIRD-PARTY-LICENSES.md REVISION \
             API_ROUTE_CONTRACT_REVISION
           (cd release-web && sha256sum "${archive##*/}" >"${archive##*/}.sha256")

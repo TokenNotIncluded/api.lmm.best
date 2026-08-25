@@ -144,21 +144,7 @@ func (runtime *productionRuntime) captureEdgePolicyBackup(root string) (string, 
 	return digest, nil
 }
 
-func (runtime *productionRuntime) validateEdgePolicyAssets(assetRoot string) error {
-	if assetRoot == "" || !filepath.IsAbs(assetRoot) {
-		return errors.New("edge-policy asset root must be absolute")
-	}
-	info, err := os.Lstat(assetRoot)
-	if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
-		return errors.New("edge-policy asset root is missing or unsafe")
-	}
-	for _, asset := range runtime.edgePolicyAssets() {
-		source := filepath.Join(assetRoot, asset.Source)
-		info, err := os.Lstat(source)
-		if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || info.Size() == 0 {
-			return fmt.Errorf("edge-policy asset is missing or unsafe: %s", asset.Source)
-		}
-	}
+func validateEdgePolicyAssetContents(readAsset func(string) ([]byte, error)) error {
 	for _, check := range []struct {
 		name string
 		need string
@@ -177,12 +163,45 @@ func (runtime *productionRuntime) validateEdgePolicyAssets(assetRoot string) err
 		{name: "nginx/lmm-api-region-policy.conf", need: "proxy_set_header X-LMM-Original-URI $lmm_access_policy_original_uri;"},
 		{name: "nginx/lmm-api-region-policy.conf", need: "proxy_set_header X-LMM-Original-Accept $http_accept;"},
 	} {
-		content, err := os.ReadFile(filepath.Join(assetRoot, check.name))
+		content, err := readAsset(check.name)
 		if err != nil || !strings.Contains(string(content), check.need) {
 			return fmt.Errorf("edge-policy asset %s is missing required directive", check.name)
 		}
 	}
 	return nil
+}
+
+func (runtime *productionRuntime) validateEdgePolicyAssets(assetRoot string) error {
+	if assetRoot == "" || !filepath.IsAbs(assetRoot) {
+		return errors.New("edge-policy asset root must be absolute")
+	}
+	info, err := os.Lstat(assetRoot)
+	if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return errors.New("edge-policy asset root is missing or unsafe")
+	}
+	for _, asset := range runtime.edgePolicyAssets() {
+		source := filepath.Join(assetRoot, asset.Source)
+		info, err := os.Lstat(source)
+		if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || info.Size() == 0 {
+			return fmt.Errorf("edge-policy asset is missing or unsafe: %s", asset.Source)
+		}
+	}
+	return validateEdgePolicyAssetContents(func(name string) ([]byte, error) {
+		return os.ReadFile(filepath.Join(assetRoot, name))
+	})
+}
+
+func (runtime *productionRuntime) validatePackagedEdgePolicyAssets(ctx context.Context, packagePath string) error {
+	const packageAssetRoot = "usr/share/lmm-api-go/edge-policy/"
+	for _, asset := range runtime.edgePolicyAssets() {
+		content, err := runtime.runner.Run(ctx, productionCommand{Name: commandBsdtar, Args: []string{"-xOf", packagePath, packageAssetRoot + asset.Source}})
+		if err != nil || len(content) == 0 {
+			return fmt.Errorf("candidate Go package edge-policy asset is missing: %s", asset.Source)
+		}
+	}
+	return validateEdgePolicyAssetContents(func(name string) ([]byte, error) {
+		return runtime.runner.Run(ctx, productionCommand{Name: commandBsdtar, Args: []string{"-xOf", packagePath, packageAssetRoot + name}})
+	})
 }
 
 func (runtime *productionRuntime) applyEdgePolicyAssets(ctx context.Context, assetRoot, backupDir string, backupAlreadyCaptured bool) (returnErr error) {
@@ -368,7 +387,7 @@ func atomicInstallRegularFile(source, target string, mode os.FileMode) (returnEr
 	}
 	temporary, err := os.CreateTemp(filepath.Dir(target), "."+filepath.Base(target)+".*.new")
 	if err != nil {
-		return err
+		return fmt.Errorf("create temporary edge-policy file: %w", err)
 	}
 	temporaryPath := temporary.Name()
 	defer func() {
@@ -378,34 +397,37 @@ func atomicInstallRegularFile(source, target string, mode os.FileMode) (returnEr
 	}()
 	if err := temporary.Chmod(mode); err != nil {
 		_ = temporary.Close()
-		return err
+		return fmt.Errorf("set temporary edge-policy mode: %w", err)
 	}
 	input, err := os.Open(source)
 	if err != nil {
 		_ = temporary.Close()
-		return err
+		return fmt.Errorf("open edge-policy source: %w", err)
 	}
 	_, copyErr := io.Copy(temporary, input)
 	closeInputErr := input.Close()
 	if copyErr != nil {
 		_ = temporary.Close()
-		return copyErr
+		return fmt.Errorf("copy edge-policy source: %w", copyErr)
 	}
 	if closeInputErr != nil {
 		_ = temporary.Close()
-		return closeInputErr
+		return fmt.Errorf("close edge-policy source: %w", closeInputErr)
 	}
 	if err := temporary.Sync(); err != nil {
 		_ = temporary.Close()
-		return err
+		return fmt.Errorf("sync temporary edge-policy file: %w", err)
 	}
 	if err := temporary.Close(); err != nil {
-		return err
+		return fmt.Errorf("close temporary edge-policy file: %w", err)
 	}
 	if err := os.Rename(temporaryPath, target); err != nil {
-		return err
+		return fmt.Errorf("activate edge-policy file: %w", err)
 	}
-	return syncDirectory(filepath.Dir(target))
+	if err := syncDirectory(filepath.Dir(target)); err != nil {
+		return fmt.Errorf("sync edge-policy directory: %w", err)
+	}
+	return nil
 }
 
 func runProductionEdgePolicy(args []string, stdout, stderr io.Writer) int {

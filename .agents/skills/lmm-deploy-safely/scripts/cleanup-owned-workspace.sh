@@ -199,7 +199,7 @@ case "$final_state" in
 esac
 
 removed=none
-for name in artifacts staging tmp cache; do
+for name in artifacts staging tmp cache packages aur; do
   path="$workspace/$name"
   [[ -e $path || -L $path ]] || continue
   [[ -d $path && ! -L $path ]] || die "disposable child is not a real directory: $name"
