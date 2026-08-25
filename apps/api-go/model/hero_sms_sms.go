@@ -24,6 +24,7 @@ const (
 	HeroSMSSMSOrderStatusPendingProvider = "pending_provider"
 	HeroSMSSMSOrderStatusPurchaseUnknown = "purchase_unknown"
 	HeroSMSSMSOrderStatusActive          = "active"
+	HeroSMSSMSOrderStatusCancelPending   = "cancel_pending"
 	HeroSMSSMSOrderStatusCompleted       = "completed"
 	HeroSMSSMSOrderStatusCancelled       = "cancelled"
 	HeroSMSSMSOrderStatusFailed          = "failed"
@@ -32,8 +33,10 @@ const (
 	HeroSMSSMSLedgerRefund  = "refund"
 	HeroSMSSMSTaskType      = "hero_sms_sms_reconciliation"
 
-	heroSMSSMSQuoteTTL      = 2 * time.Minute
-	heroSMSSMSUnknownWindow = 15 * time.Minute
+	heroSMSSMSQuoteTTL           = 2 * time.Minute
+	heroSMSSMSUnknownWindow      = 15 * time.Minute
+	heroSMSSMSRecentCodeWindow   = 15 * time.Minute
+	heroSMSSMSCurrentOrdersLimit = 20
 )
 
 type HeroSMSSMSOrder struct {
@@ -101,14 +104,30 @@ func (ledger *HeroSMSSMSQuotaLedger) BeforeCreate(_ *gorm.DB) error {
 }
 
 type HeroSMSSMSCountryView struct {
-	ID   int    `json:"id"`
-	Name string `json:"name"`
+	ID          int    `json:"id"`
+	Name        string `json:"name"`
+	EnglishName string `json:"english_name"`
+	ChineseName string `json:"chinese_name"`
+	Popularity  int64  `json:"popularity"`
 }
 
 type HeroSMSSMSServiceView struct {
-	Code string `json:"code"`
-	Name string `json:"name"`
+	Code       string `json:"code"`
+	Name       string `json:"name"`
+	Popularity int64  `json:"popularity"`
 }
+
+type heroSMSSMSCountryPopularity struct {
+	CountryID  int
+	Popularity int64
+}
+
+type heroSMSSMSServicePopularity struct {
+	Service    string
+	Popularity int64
+}
+
+var heroSMSSMSIdempotencyMissHook func()
 
 type HeroSMSSMSOfferView struct {
 	ID               string `json:"id"`
@@ -134,6 +153,7 @@ type HeroSMSSMSOrderView struct {
 	ChargeQuota      int     `json:"charge_quota"`
 	RefundedQuota    int     `json:"refunded_quota"`
 	ProviderID       *string `json:"provider_id"`
+	CanCancel        bool    `json:"can_cancel"`
 	PhoneNumber      string  `json:"phone_number"`
 	Code             string  `json:"code"`
 	Message          string  `json:"message"`
@@ -179,7 +199,11 @@ func heroSMSSMSOperationsClient() (herosms.SMSClient, error) {
 	return smsClient, nil
 }
 
-func GetHeroSMSSMSCountries(ctx context.Context) ([]HeroSMSSMSCountryView, error) {
+func GetHeroSMSSMSCountries(ctx context.Context, service string) ([]HeroSMSSMSCountryView, error) {
+	service = strings.TrimSpace(service)
+	if len(service) > 64 {
+		return nil, newHeroSMSError(http.StatusBadRequest, "INVALID_REQUEST", "invalid HeroSMS service")
+	}
 	client, err := heroSMSSMSClient()
 	if err != nil {
 		return nil, err
@@ -188,14 +212,29 @@ func GetHeroSMSSMSCountries(ctx context.Context) ([]HeroSMSSMSCountryView, error
 	if err != nil {
 		return nil, mapHeroSMSProviderError(err)
 	}
+	popularity, err := heroSMSSMSCountryPopularityCounts(service)
+	if err != nil {
+		return nil, err
+	}
 	views := make([]HeroSMSSMSCountryView, 0, len(countries))
 	for _, country := range countries {
 		if !country.Visible || strings.TrimSpace(country.Name) == "" {
 			continue
 		}
-		views = append(views, HeroSMSSMSCountryView{ID: country.ID, Name: country.Name})
+		views = append(views, HeroSMSSMSCountryView{
+			ID:          country.ID,
+			Name:        strings.TrimSpace(country.Name),
+			EnglishName: strings.TrimSpace(country.EnglishName),
+			ChineseName: strings.TrimSpace(country.ChineseName),
+			Popularity:  popularity[country.ID],
+		})
 	}
-	sort.Slice(views, func(i, j int) bool { return views[i].Name < views[j].Name })
+	sort.SliceStable(views, func(i, j int) bool {
+		if views[i].Popularity != views[j].Popularity {
+			return views[i].Popularity > views[j].Popularity
+		}
+		return views[i].ID < views[j].ID
+	})
 	return views, nil
 }
 
@@ -208,15 +247,65 @@ func GetHeroSMSSMSServices(ctx context.Context) ([]HeroSMSSMSServiceView, error)
 	if err != nil {
 		return nil, mapHeroSMSProviderError(err)
 	}
+	popularity, err := heroSMSSMSServicePopularityCounts()
+	if err != nil {
+		return nil, err
+	}
 	views := make([]HeroSMSSMSServiceView, 0, len(services))
 	for _, service := range services {
 		if strings.TrimSpace(service.Code) == "" || strings.TrimSpace(service.Name) == "" {
 			continue
 		}
-		views = append(views, HeroSMSSMSServiceView{Code: service.Code, Name: service.Name})
+		code := strings.TrimSpace(service.Code)
+		views = append(views, HeroSMSSMSServiceView{
+			Code:       code,
+			Name:       strings.TrimSpace(service.Name),
+			Popularity: popularity[code],
+		})
 	}
-	sort.Slice(views, func(i, j int) bool { return views[i].Name < views[j].Name })
+	sort.SliceStable(views, func(i, j int) bool {
+		if views[i].Popularity != views[j].Popularity {
+			return views[i].Popularity > views[j].Popularity
+		}
+		return views[i].Code < views[j].Code
+	})
 	return views, nil
+}
+
+func heroSMSSMSCountryPopularityCounts(service string) (map[int]int64, error) {
+	var rows []heroSMSSMSCountryPopularity
+	query := DB.Model(&HeroSMSSMSOrder{}).
+		Select("country_id, COUNT(*) AS popularity").
+		Where("status IN ?", []string{HeroSMSSMSOrderStatusActive, HeroSMSSMSOrderStatusCompleted})
+	if normalizedService := strings.TrimSpace(service); normalizedService != "" {
+		query = query.Where("service = ?", normalizedService)
+	}
+	err := query.Group("country_id").Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	counts := make(map[int]int64, len(rows))
+	for _, row := range rows {
+		counts[row.CountryID] = row.Popularity
+	}
+	return counts, nil
+}
+
+func heroSMSSMSServicePopularityCounts() (map[string]int64, error) {
+	var rows []heroSMSSMSServicePopularity
+	err := DB.Model(&HeroSMSSMSOrder{}).
+		Select("service, COUNT(*) AS popularity").
+		Where("status IN ?", []string{HeroSMSSMSOrderStatusActive, HeroSMSSMSOrderStatusCompleted}).
+		Group("service").
+		Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	counts := make(map[string]int64, len(rows))
+	for _, row := range rows {
+		counts[row.Service] = row.Popularity
+	}
+	return counts, nil
 }
 
 func GetHeroSMSSMSOffer(ctx context.Context, countryID int, service string, operator string) (*HeroSMSSMSOfferView, error) {
@@ -264,6 +353,23 @@ func GetHeroSMSSMSOffer(ctx context.Context, countryID int, service string, oper
 	}, nil
 }
 
+// pi-lens-ignore: go-bare-error
+func replayHeroSMSSMSIdempotentOrder(userID int, idempotencyHash string, payloadHash string) (*HeroSMSSMSOrderView, int, int, bool, error) {
+	var existing HeroSMSSMSOrder
+	err := DB.Where("user_id = ? AND idempotency_key_hash = ?", userID, idempotencyHash).First(&existing).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, 0, 0, false, nil
+	}
+	if err != nil {
+		return nil, 0, 0, false, err
+	}
+	if existing.RequestPayloadHash != payloadHash {
+		return nil, 0, 0, true, newHeroSMSError(http.StatusConflict, "IDEMPOTENCY_MISMATCH", "idempotent request payload mismatch")
+	}
+	view, err := heroSMSSMSOrderView(&existing)
+	return view, getUserQuotaValue(userID), statusForHeroSMSSMSOrder(existing.Status), true, err
+}
+
 func CreateHeroSMSSMSOrder(ctx context.Context, userID int, request HeroSMSSMSPurchaseRequest, idempotencyKey string) (*HeroSMSSMSOrderView, int, int, error) {
 	trimmedKey := strings.TrimSpace(idempotencyKey)
 	if userID <= 0 || trimmedKey == "" || len(trimmedKey) > 128 || strings.TrimSpace(request.OfferID) == "" {
@@ -272,15 +378,11 @@ func CreateHeroSMSSMSOrder(ctx context.Context, userID int, request HeroSMSSMSPu
 	idempotencyHash := sha256Hex(trimmedKey)
 	payloadBytes, _ := json.Marshal(request)
 	payloadHash := sha256Hex(string(payloadBytes))
-	var existing HeroSMSSMSOrder
-	if err := DB.Where("user_id = ? AND idempotency_key_hash = ?", userID, idempotencyHash).First(&existing).Error; err == nil {
-		if existing.RequestPayloadHash != payloadHash {
-			return nil, 0, 0, newHeroSMSError(http.StatusConflict, "IDEMPOTENCY_MISMATCH", "idempotent request payload mismatch")
-		}
-		view, viewErr := heroSMSSMSOrderView(&existing)
-		return view, getUserQuotaValue(userID), statusForHeroSMSSMSOrder(existing.Status), viewErr
-	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, 0, 0, err
+	if view, quota, status, found, err := replayHeroSMSSMSIdempotentOrder(userID, idempotencyHash, payloadHash); found || err != nil {
+		return view, quota, status, err
+	}
+	if heroSMSSMSIdempotencyMissHook != nil {
+		heroSMSSMSIdempotencyMissHook()
 	}
 
 	client, err := heroSMSSMSClient()
@@ -317,6 +419,12 @@ func CreateHeroSMSSMSOrder(ctx context.Context, userID int, request HeroSMSSMSPu
 		return nil, 0, 0, err
 	}
 	defer releaseLease()
+	// A transport retry can arrive while the first request is waiting for or
+	// holding the provider lease. Recheck under that lease so the retry replays
+	// the exact order instead of racing the unique idempotency constraint.
+	if view, quota, status, found, replayErr := replayHeroSMSSMSIdempotentOrder(userID, idempotencyHash, payloadHash); found || replayErr != nil {
+		return view, quota, status, replayErr
+	}
 	activeBefore, err := client.ListActiveSMSActivations(ctx)
 	if err != nil {
 		return nil, 0, 0, mapHeroSMSProviderError(err)
@@ -513,13 +621,28 @@ func failHeroSMSSMSOrder(orderID string, code string, message string) error {
 	return refundHeroSMSSMSOrder(orderID, HeroSMSSMSOrderStatusFailed, code, message)
 }
 
-func refundHeroSMSSMSOrder(orderID string, status string, code string, message string) error {
+func heroSMSSMSStatusAllowed(status string, allowed []string) bool {
+	if len(allowed) == 0 {
+		return true
+	}
+	for _, candidate := range allowed {
+		if status == candidate {
+			return true
+		}
+	}
+	return false
+}
+
+func refundHeroSMSSMSOrder(orderID string, status string, code string, message string, expectedStatuses ...string) error {
 	userID := 0
 	newQuota := 0
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		var order HeroSMSSMSOrder
 		if err := lockForUpdate(tx).Where("id = ?", orderID).First(&order).Error; err != nil {
 			return err
+		}
+		if !heroSMSSMSStatusAllowed(order.Status, expectedStatuses) {
+			return newHeroSMSError(http.StatusConflict, "ORDER_STATE_CHANGED", "HeroSMS SMS order state changed")
 		}
 		userID = order.UserID
 		refund := order.ReservedQuota - order.RefundedQuota
@@ -562,6 +685,69 @@ func refundHeroSMSSMSOrder(orderID string, status string, code string, message s
 	return err
 }
 
+func completeHeroSMSSMSCode(ctx context.Context, client herosms.SMSClient, order *HeroSMSSMSOrder, expectedStatus string, code string, message string) (bool, error) {
+	codeCiphertext, err := encryptHeroSMSPayload(code)
+	if err != nil {
+		return false, err
+	}
+	messageCiphertext, err := encryptHeroSMSPayload(message)
+	if err != nil {
+		return false, err
+	}
+	now := time.Now().Unix()
+	result := DB.Model(&HeroSMSSMSOrder{}).
+		Where("id = ? AND status = ?", order.ID, expectedStatus).
+		Updates(map[string]any{
+			"status":             HeroSMSSMSOrderStatusCompleted,
+			"code_ciphertext":    codeCiphertext,
+			"message_ciphertext": messageCiphertext,
+			"completed_at":       now,
+			"updated_at":         now,
+		})
+	if result.Error != nil {
+		return false, result.Error
+	}
+	if result.RowsAffected == 0 {
+		return false, nil
+	}
+	if order.ProviderID != nil {
+		_ = client.SetSMSActivationStatus(ctx, *order.ProviderID, 6)
+	}
+	return true, nil
+}
+
+// pi-lens-ignore: go-bare-error
+func finalizeHeroSMSSMSCancellation(ctx context.Context, client herosms.SMSClient, order *HeroSMSSMSOrder) (*HeroSMSSMSOrderView, int, error) {
+	if order.ProviderID == nil || strings.TrimSpace(*order.ProviderID) == "" {
+		return nil, 0, newHeroSMSError(http.StatusConflict, "RECONCILING", "wait for provider purchase reconciliation before cancelling")
+	}
+	providerStatus, statusErr := client.GetSMSActivationStatus(ctx, *order.ProviderID)
+	if statusErr == nil && providerStatus.Code != "" {
+		completed, err := completeHeroSMSSMSCode(ctx, client, order, HeroSMSSMSOrderStatusCancelPending, providerStatus.Code, providerStatus.Text)
+		if err != nil {
+			return nil, 0, err
+		}
+		if completed {
+			view, viewErr := GetHeroSMSSMSOrder(order.ID, order.UserID)
+			return view, getUserQuotaValue(order.UserID), viewErr
+		}
+	}
+	if err := client.SetSMSActivationStatus(ctx, *order.ProviderID, 8); err != nil {
+		return nil, 0, mapHeroSMSProviderError(err)
+	}
+	if err := refundHeroSMSSMSOrder(
+		order.ID,
+		HeroSMSSMSOrderStatusCancelled,
+		"USER_CANCELLED",
+		"activation cancelled before receiving a code",
+		HeroSMSSMSOrderStatusCancelPending,
+	); err != nil {
+		return nil, 0, err
+	}
+	view, err := GetHeroSMSSMSOrder(order.ID, order.UserID)
+	return view, getUserQuotaValue(order.UserID), err
+}
+
 // pi-lens-ignore: go-bare-error
 func RefreshHeroSMSSMSOrder(ctx context.Context, userID int, orderID string) (*HeroSMSSMSOrderView, error) {
 	client, err := heroSMSSMSOperationsClient()
@@ -575,6 +761,10 @@ func RefreshHeroSMSSMSOrder(ctx context.Context, userID int, orderID string) (*H
 	if order.Status == HeroSMSSMSOrderStatusPurchaseUnknown {
 		return reconcileHeroSMSSMSOrder(ctx, client, order.ID)
 	}
+	if order.Status == HeroSMSSMSOrderStatusCancelPending {
+		view, _, cancelErr := finalizeHeroSMSSMSCancellation(ctx, client, order)
+		return view, cancelErr
+	}
 	if order.Status != HeroSMSSMSOrderStatusActive || order.ProviderID == nil {
 		return heroSMSSMSOrderView(order)
 	}
@@ -585,25 +775,9 @@ func RefreshHeroSMSSMSOrder(ctx context.Context, userID int, orderID string) (*H
 	if status.Code == "" {
 		return heroSMSSMSOrderView(order)
 	}
-	codeCiphertext, err := encryptHeroSMSPayload(status.Code)
-	if err != nil {
+	if _, err := completeHeroSMSSMSCode(ctx, client, order, HeroSMSSMSOrderStatusActive, status.Code, status.Text); err != nil {
 		return nil, err
 	}
-	messageCiphertext, err := encryptHeroSMSPayload(status.Text)
-	if err != nil {
-		return nil, err
-	}
-	now := time.Now().Unix()
-	if err := DB.Model(&HeroSMSSMSOrder{}).Where("id = ? AND status = ?", order.ID, HeroSMSSMSOrderStatusActive).Updates(map[string]any{
-		"status":             HeroSMSSMSOrderStatusCompleted,
-		"code_ciphertext":    codeCiphertext,
-		"message_ciphertext": messageCiphertext,
-		"completed_at":       now,
-		"updated_at":         now,
-	}).Error; err != nil {
-		return nil, err
-	}
-	_ = client.SetSMSActivationStatus(ctx, *order.ProviderID, 6)
 	return GetHeroSMSSMSOrder(order.ID, userID)
 }
 
@@ -617,21 +791,32 @@ func CancelHeroSMSSMSOrder(ctx context.Context, userID int, orderID string) (*He
 	if err != nil {
 		return nil, 0, err
 	}
-	if order.Status == HeroSMSSMSOrderStatusCompleted || order.Status == HeroSMSSMSOrderStatusCancelled || order.Status == HeroSMSSMSOrderStatusFailed {
+	if order.Status == HeroSMSSMSOrderStatusCompleted || order.Status == HeroSMSSMSOrderStatusCancelled || order.Status == HeroSMSSMSOrderStatusFailed || order.Status == HeroSMSSMSOrderStatusCancelPending {
 		view, viewErr := heroSMSSMSOrderView(order)
 		return view, getUserQuotaValue(userID), viewErr
 	}
-	if order.ProviderID == nil || strings.TrimSpace(*order.ProviderID) == "" {
+	if order.Status != HeroSMSSMSOrderStatusActive || order.ProviderID == nil || strings.TrimSpace(*order.ProviderID) == "" {
 		return nil, 0, newHeroSMSError(http.StatusConflict, "RECONCILING", "wait for provider purchase reconciliation before cancelling")
 	}
-	if err := client.SetSMSActivationStatus(ctx, *order.ProviderID, 8); err != nil {
-		return nil, 0, mapHeroSMSProviderError(err)
+	now := time.Now().Unix()
+	claim := DB.Model(&HeroSMSSMSOrder{}).
+		Where("id = ? AND user_id = ? AND status = ?", order.ID, userID, HeroSMSSMSOrderStatusActive).
+		Updates(map[string]any{
+			"status":             HeroSMSSMSOrderStatusCancelPending,
+			"last_error_code":    "CANCEL_PENDING",
+			"last_error_message": "",
+			"updated_at":         now,
+		})
+	if claim.Error != nil {
+		return nil, 0, claim.Error
 	}
-	if err := refundHeroSMSSMSOrder(order.ID, HeroSMSSMSOrderStatusCancelled, "USER_CANCELLED", "activation cancelled before receiving a code"); err != nil {
-		return nil, 0, err
+	if claim.RowsAffected == 0 {
+		view, viewErr := GetHeroSMSSMSOrder(order.ID, userID)
+		return view, getUserQuotaValue(userID), viewErr
 	}
-	view, err := GetHeroSMSSMSOrder(order.ID, userID)
-	return view, getUserQuotaValue(userID), err
+	order.Status = HeroSMSSMSOrderStatusCancelPending
+	order.UpdatedAt = now
+	return finalizeHeroSMSSMSCancellation(ctx, client, order)
 }
 
 // pi-lens-ignore: go-bare-error
@@ -654,6 +839,7 @@ func GetCurrentHeroSMSSMSOrder(ctx context.Context, userID int) (*HeroSMSSMSOrde
 		HeroSMSSMSOrderStatusPendingProvider,
 		HeroSMSSMSOrderStatusPurchaseUnknown,
 		HeroSMSSMSOrderStatusActive,
+		HeroSMSSMSOrderStatusCancelPending,
 	}).Order("created_at DESC").First(&order).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil
@@ -662,6 +848,50 @@ func GetCurrentHeroSMSSMSOrder(ctx context.Context, userID int) (*HeroSMSSMSOrde
 		return nil, err
 	}
 	return RefreshHeroSMSSMSOrder(ctx, userID, order.ID)
+}
+
+func heroSMSSMSCurrentStatus(status string) bool {
+	return status == HeroSMSSMSOrderStatusPendingProvider ||
+		status == HeroSMSSMSOrderStatusPurchaseUnknown ||
+		status == HeroSMSSMSOrderStatusActive ||
+		status == HeroSMSSMSOrderStatusCancelPending ||
+		status == HeroSMSSMSOrderStatusCompleted
+}
+
+func ListCurrentHeroSMSSMSOrders(ctx context.Context, userID int) ([]HeroSMSSMSOrderView, error) {
+	cutoff := time.Now().Add(-heroSMSSMSRecentCodeWindow).Unix()
+	var orders []HeroSMSSMSOrder
+	err := DB.Where(
+		"user_id = ? AND (status IN ? OR (status = ? AND completed_at >= ?))",
+		userID,
+		[]string{
+			HeroSMSSMSOrderStatusPendingProvider,
+			HeroSMSSMSOrderStatusPurchaseUnknown,
+			HeroSMSSMSOrderStatusActive,
+			HeroSMSSMSOrderStatusCancelPending,
+		},
+		HeroSMSSMSOrderStatusCompleted,
+		cutoff,
+	).Order("created_at DESC").Limit(heroSMSSMSCurrentOrdersLimit).Find(&orders).Error
+	if err != nil {
+		return nil, err
+	}
+	views := make([]HeroSMSSMSOrderView, 0, len(orders))
+	for index := range orders {
+		view, refreshErr := RefreshHeroSMSSMSOrder(ctx, userID, orders[index].ID)
+		if refreshErr != nil {
+			common.SysLog(fmt.Sprintf("HeroSMS SMS current-order refresh failed: order=%s error=%T", orders[index].ID, refreshErr))
+			view, refreshErr = heroSMSSMSOrderView(&orders[index])
+		}
+		if refreshErr != nil {
+			return nil, refreshErr
+		}
+		if view != nil && heroSMSSMSCurrentStatus(view.Status) {
+			view.ProviderID = nil
+			views = append(views, *view)
+		}
+	}
+	return views, nil
 }
 
 func ListHeroSMSSMSOrders(userID int, page int, size int) (*HeroSMSSMSOrderPage, error) {
@@ -691,6 +921,75 @@ func ListHeroSMSSMSOrders(userID int, page int, size int) (*HeroSMSSMSOrderPage,
 	return &HeroSMSSMSOrderPage{Items: views, Page: page, Size: size, Total: total}, nil
 }
 
+func maskHeroSMSSMSPhone(phone string) string {
+	runes := []rune(strings.TrimSpace(phone))
+	if len(runes) == 0 {
+		return ""
+	}
+	if len(runes) <= 4 {
+		return "••••"
+	}
+	return "•••• " + string(runes[len(runes)-4:])
+}
+
+func heroSMSSMSOrderSummaryView(order *HeroSMSSMSOrder) (*HeroSMSSMSOrderView, error) {
+	view := &HeroSMSSMSOrderView{
+		ID:               order.ID,
+		CountryID:        order.CountryID,
+		Service:          order.Service,
+		Operator:         order.Operator,
+		Status:           order.Status,
+		CustomerPriceUSD: order.CustomerPriceUSD,
+		ChargeQuota:      order.ChargeQuota,
+		RefundedQuota:    order.RefundedQuota,
+		CreatedAt:        order.CreatedAt,
+		UpdatedAt:        order.UpdatedAt,
+	}
+	if order.PhoneCiphertext == "" {
+		return view, nil
+	}
+	phone, err := decryptHeroSMSPayload(order.PhoneCiphertext)
+	if err != nil {
+		return nil, err
+	}
+	view.PhoneNumber = maskHeroSMSSMSPhone(phone)
+	return view, nil
+}
+
+func ListHeroSMSSMSOrderSummaries(userID int, page int, size int) (*HeroSMSSMSOrderPage, error) {
+	if page < 1 {
+		page = 1
+	}
+	if size < 1 || size > 100 {
+		size = 20
+	}
+	query := DB.Model(&HeroSMSSMSOrder{}).
+		Where("user_id = ?", userID).
+		Where("status NOT IN ?", []string{
+			HeroSMSSMSOrderStatusPendingProvider,
+			HeroSMSSMSOrderStatusPurchaseUnknown,
+			HeroSMSSMSOrderStatusActive,
+			HeroSMSSMSOrderStatusCancelPending,
+		})
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		return nil, err
+	}
+	var orders []HeroSMSSMSOrder
+	if err := query.Order("created_at DESC").Offset((page - 1) * size).Limit(size).Find(&orders).Error; err != nil {
+		return nil, err
+	}
+	views := make([]HeroSMSSMSOrderView, 0, len(orders))
+	for index := range orders {
+		view, err := heroSMSSMSOrderSummaryView(&orders[index])
+		if err != nil {
+			return nil, err
+		}
+		views = append(views, *view)
+	}
+	return &HeroSMSSMSOrderPage{Items: views, Page: page, Size: size, Total: total}, nil
+}
+
 func heroSMSSMSOrderView(order *HeroSMSSMSOrder) (*HeroSMSSMSOrderView, error) {
 	view := &HeroSMSSMSOrderView{
 		ID:               order.ID,
@@ -702,6 +1001,7 @@ func heroSMSSMSOrderView(order *HeroSMSSMSOrder) (*HeroSMSSMSOrderView, error) {
 		ChargeQuota:      order.ChargeQuota,
 		RefundedQuota:    order.RefundedQuota,
 		ProviderID:       order.ProviderID,
+		CanCancel:        order.Status == HeroSMSSMSOrderStatusActive && order.ProviderID != nil,
 		LastErrorCode:    order.LastErrorCode,
 		LastErrorMessage: order.LastErrorMessage,
 		CreatedAt:        order.CreatedAt,
@@ -798,6 +1098,7 @@ func HasPendingHeroSMSSMSWork() (bool, error) {
 		HeroSMSSMSOrderStatusPendingProvider,
 		HeroSMSSMSOrderStatusPurchaseUnknown,
 		HeroSMSSMSOrderStatusActive,
+		HeroSMSSMSOrderStatusCancelPending,
 	}).Count(&count).Error
 	return count > 0, err
 }
@@ -811,15 +1112,23 @@ func RunHeroSMSSMSReconciliationOnce(ctx context.Context, limit int) (int, error
 		return 0, err
 	}
 	var orders []HeroSMSSMSOrder
-	if err := DB.Where("status = ?", HeroSMSSMSOrderStatusPurchaseUnknown).Order("created_at ASC").Limit(limit).Find(&orders).Error; err != nil {
+	if err := DB.Where("status IN ?", []string{
+		HeroSMSSMSOrderStatusPurchaseUnknown,
+		HeroSMSSMSOrderStatusCancelPending,
+	}).Order("created_at ASC").Limit(limit).Find(&orders).Error; err != nil {
 		return 0, err
 	}
 	processed := 0
 	for index := range orders {
-		if _, err := reconcileHeroSMSSMSOrder(ctx, client, orders[index].ID); err != nil {
-			continue
+		var processErr error
+		if orders[index].Status == HeroSMSSMSOrderStatusCancelPending {
+			_, _, processErr = finalizeHeroSMSSMSCancellation(ctx, client, &orders[index])
+		} else {
+			_, processErr = reconcileHeroSMSSMSOrder(ctx, client, orders[index].ID)
 		}
-		processed++
+		if processErr == nil {
+			processed++
+		}
 	}
 	return processed, nil
 }

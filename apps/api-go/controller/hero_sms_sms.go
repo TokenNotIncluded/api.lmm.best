@@ -10,7 +10,10 @@ import (
 )
 
 func ListHeroSMSSMSCountries(c *gin.Context) {
-	countries, err := model.GetHeroSMSSMSCountries(c.Request.Context())
+	countries, err := model.GetHeroSMSSMSCountries(
+		c.Request.Context(),
+		c.Query("service"),
+	)
 	if err != nil {
 		heroSMSError(c, err)
 		return
@@ -74,6 +77,15 @@ func GetCurrentHeroSMSSMSOrder(c *gin.Context) {
 	heroSMSJSON(c, http.StatusOK, gin.H{"order": order})
 }
 
+func ListCurrentHeroSMSSMSOrders(c *gin.Context) {
+	orders, err := model.ListCurrentHeroSMSSMSOrders(c.Request.Context(), c.GetInt("id"))
+	if err != nil {
+		heroSMSError(c, err)
+		return
+	}
+	heroSMSJSON(c, http.StatusOK, gin.H{"items": orders})
+}
+
 func GetHeroSMSSMSOrder(c *gin.Context) {
 	orderID := strings.TrimSpace(c.Param("id"))
 	order, err := model.RefreshHeroSMSSMSOrder(c.Request.Context(), c.GetInt("id"), orderID)
@@ -95,7 +107,13 @@ func CancelHeroSMSSMSOrder(c *gin.Context) {
 
 func ListHeroSMSSMSOrders(c *gin.Context) {
 	page, size := heroSMSPageSize(c)
-	orders, err := model.ListHeroSMSSMSOrders(c.GetInt("id"), page, size)
+	var orders *model.HeroSMSSMSOrderPage
+	var err error
+	if strings.EqualFold(c.Query("summary"), "true") {
+		orders, err = model.ListHeroSMSSMSOrderSummaries(c.GetInt("id"), page, size)
+	} else {
+		orders, err = model.ListHeroSMSSMSOrders(c.GetInt("id"), page, size)
+	}
 	if err != nil {
 		heroSMSError(c, err)
 		return

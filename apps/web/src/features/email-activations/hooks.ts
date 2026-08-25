@@ -75,14 +75,14 @@ export function getHeroSmsPollingInterval(
   return pageVisible ? 5000 : 30000
 }
 
-export function useHeroSmsProducts(site?: string) {
+export function useHeroSmsProducts(site?: string, enabled = true) {
   const normalizedSite = site?.trim() ?? ''
 
   return useQuery({
     queryKey: heroSmsQueryKeys.products(normalizedSite),
     queryFn: () =>
       listHeroSmsProducts({ page: 1, size: 100, site: normalizedSite }),
-    enabled: normalizedSite.length > 0,
+    enabled: enabled && normalizedSite.length > 0,
     staleTime: 20_000,
   })
 }
@@ -92,6 +92,7 @@ export function useHeroSmsActivations(params: {
   size: number
   status?: string
   pollEnabled?: boolean
+  enabled?: boolean
 }) {
   const isPageVisible = usePageVisibility()
 
@@ -108,23 +109,29 @@ export function useHeroSmsActivations(params: {
         status:
           params.status && params.status !== 'all' ? params.status : undefined,
       }),
+    enabled: params.enabled !== false,
     placeholderData: (previousData) => previousData,
     refetchInterval: (query) =>
       getHeroSmsPollingInterval(
         query.state.data?.items,
         isPageVisible,
-        params.pollEnabled !== false
+        params.pollEnabled !== false && params.enabled !== false
       ),
   })
 }
 
-export function useCurrentHeroSmsActivation() {
+export function useCurrentHeroSmsActivation(
+  options: { enabled?: boolean } = {}
+) {
   const pageVisible = usePageVisibility()
+  const enabled = options.enabled !== false
   return useQuery({
     queryKey: heroSmsQueryKeys.current(),
     queryFn: getCurrentHeroSmsActivation,
+    enabled,
     placeholderData: (previousData) => previousData,
     refetchInterval: (query) => {
+      if (!enabled) return false
       if (isHeroSmsActiveStatus(query.state.data?.status)) {
         return pageVisible ? 5000 : 30000
       }

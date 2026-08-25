@@ -33,11 +33,15 @@ interface HeroSmsEnvelope<T> {
 export interface HeroSmsSmsCountry {
   id: number
   name: string
+  english_name: string
+  chinese_name: string
+  popularity: number
 }
 
 export interface HeroSmsSmsService {
   code: string
   name: string
+  popularity: number
 }
 
 export interface HeroSmsSmsOffer {
@@ -60,6 +64,7 @@ export interface HeroSmsSmsOrder {
   charge_quota: number
   refunded_quota: number
   provider_id: string | null
+  can_cancel?: boolean
   phone_number: string
   code: string
   message: string
@@ -91,9 +96,12 @@ const requestOptions = {
   skipErrorHandler: true,
 } as const
 
-export function listHeroSmsSmsCountries() {
+export function listHeroSmsSmsCountries(service?: string) {
   return unwrap<HeroSmsSmsCountry[]>(
-    api.get('/api/hero-sms/sms/countries', requestOptions)
+    api.get('/api/hero-sms/sms/countries', {
+      ...requestOptions,
+      params: service ? { service } : undefined,
+    })
   )
 }
 
@@ -116,14 +124,17 @@ export function getHeroSmsSmsOffer(input: {
   )
 }
 
-export function createHeroSmsSmsOrder(offerId: string) {
+export function createHeroSmsSmsOrder(
+  offerId: string,
+  idempotencyKey = createHeroSmsIdempotencyKey()
+) {
   return unwrap<{ order: HeroSmsSmsOrder; quota: number }>(
     api.post(
       '/api/hero-sms/sms/orders',
       { offer_id: offerId },
       {
         ...requestOptions,
-        headers: { 'Idempotency-Key': createHeroSmsIdempotencyKey() },
+        headers: { 'Idempotency-Key': idempotencyKey },
       }
     )
   )
@@ -154,11 +165,18 @@ export function cancelHeroSmsSmsOrder(orderId: string) {
   )
 }
 
+export async function listCurrentHeroSmsSmsOrders() {
+  const data = await unwrap<{ items: HeroSmsSmsOrder[] }>(
+    api.get('/api/hero-sms/sms/orders/current-list', requestOptions)
+  )
+  return data.items
+}
+
 export function listHeroSmsSmsOrders(page = 1, size = 20) {
   return unwrap<HeroSmsSmsOrderPage>(
     api.get('/api/hero-sms/sms/orders', {
       ...requestOptions,
-      params: { page, size },
+      params: { page, size, summary: true },
     })
   )
 }

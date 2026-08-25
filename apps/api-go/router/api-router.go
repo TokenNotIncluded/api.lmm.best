@@ -408,6 +408,7 @@ func SetApiRouter(router *gin.Engine) {
 			heroSMSRoute.POST("/sms/orders", middleware.DisableCache(), middleware.CriticalRateLimit(), middleware.UserCriticalRateLimit("hero-sms-sms-purchase"), middleware.RequestBodyLimit(heroSMSMutationRequestMaxBytes), controller.CreateHeroSMSSMSOrder)
 			heroSMSRoute.GET("/sms/orders", middleware.DisableCache(), controller.ListHeroSMSSMSOrders)
 			heroSMSRoute.GET("/sms/orders/current", middleware.DisableCache(), controller.GetCurrentHeroSMSSMSOrder)
+			heroSMSRoute.GET("/sms/orders/current-list", middleware.DisableCache(), controller.ListCurrentHeroSMSSMSOrders)
 			heroSMSRoute.GET("/sms/orders/:id", middleware.DisableCache(), controller.GetHeroSMSSMSOrder)
 			heroSMSRoute.POST("/sms/orders/:id/cancel", middleware.DisableCache(), middleware.CriticalRateLimit(), middleware.UserCriticalRateLimit("hero-sms-sms-cancel"), middleware.RequestBodyLimit(heroSMSMutationRequestMaxBytes), controller.CancelHeroSMSSMSOrder)
 		}

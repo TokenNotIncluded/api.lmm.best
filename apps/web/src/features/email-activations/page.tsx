@@ -350,10 +350,11 @@ function MetaItem({ label, value }: { label: string; value: string }) {
 
 export function EmailActivationsPage() {
   const { t } = useTranslation()
-  const [activationKind, setActivationKind] = useState<'sms' | 'email'>('email')
+  const [activationKind, setActivationKind] = useState<'sms' | 'email'>('sms')
   useHeroSmsTranslations()
   const isMobile = useMediaQuery('(max-width: 640px)')
   const queryClient = useQueryClient()
+  const emailMode = activationKind === 'email'
 
   const [selectedSite, setSelectedSite] = useState('')
   const [selectedDomainId, setSelectedDomainId] = useState('')
@@ -399,12 +400,16 @@ export function EmailActivationsPage() {
 
   const trimmedSite = selectedSite.trim()
   const debouncedSite = useDebounce(trimmedSite, 450)
-  const productsQuery = useHeroSmsProducts(debouncedSite)
-  const currentActivationQuery = useCurrentHeroSmsActivation()
+  const productsQuery = useHeroSmsProducts(debouncedSite, emailMode)
+  const currentActivationQuery = useCurrentHeroSmsActivation({
+    enabled: emailMode,
+  })
   const activationsQuery = useHeroSmsActivations({
     page: pagination.pageIndex + 1,
     size: pagination.pageSize,
     status: statusFilterValue,
+    enabled: emailMode,
+    pollEnabled: emailMode,
   })
 
   const createMutation = useCreateHeroSmsActivations()
@@ -413,7 +418,7 @@ export function EmailActivationsPage() {
   const reorderMutation = useReorderHeroSmsActivation()
   const detailQuery = useHeroSmsActivationDetail(
     detailTarget?.id ?? null,
-    !!detailTarget
+    emailMode && !!detailTarget
   )
 
   const productsLoading =
