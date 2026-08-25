@@ -72,7 +72,10 @@ go_bundle="$go_work/stage/$go_artifact"
 mkdir -p "$go_bundle/frontend-dist" "$go_bundle/edge-policy/nginx"
 cp "$HERE/lmm-api-go-bin/PKGBUILD" "$go_work/"
 cp -L "$HERE/lmm-api-go-bin/lmm-api-cli-phase.sh" "$go_work/"
-sed -i "s/^pkgver=.*/pkgver=${go_legacy_version}/" "$go_work/PKGBUILD"
+sed -i \
+  -e "s/^pkgver=.*/pkgver=${go_legacy_version}/" \
+  -e "s/^_lmm_declared_cli_phase=.*/_lmm_declared_cli_phase=''/" \
+  "$go_work/PKGBUILD"
 printf '#!/bin/sh\nexit 0\n' >"$go_bundle/lmm-api-go"
 chmod 0755 "$go_bundle/lmm-api-go"
 printf '<!doctype html>\n' >"$go_bundle/frontend-dist/index.html"

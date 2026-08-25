@@ -320,6 +320,8 @@ printf 'fixture archive\n' >"$stage/go-next/lmm-api-go-${go_bin_pkgver}-linux-am
 )
 
 web_src="$stage/web"
+web_pkgver=$(sed -n 's/^pkgver=//p' "$HERE/lmm-api-web-bin/PKGBUILD")
+[[ $web_pkgver =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die 'canonical Web package has an invalid version'
 mkdir -p "$web_src/dist"
 printf '<!doctype html>\n' >"$web_src/dist/index.html"
 cp "$HERE/lmm-api-web-bin/lmm-api-web-activate" "$web_src/lmm-api-web-activate.local"
@@ -328,7 +330,7 @@ chmod 0755 "$web_src/lmm-api-web-activate.local" "$web_src/frontend-release.sh"
 for file in LICENSE NOTICE THIRD-PARTY-LICENSES.md; do printf 'fixture\n' >"$web_src/$file"; done
 printf '%040d\n' 0 >"$web_src/REVISION"
 printf '%s\n' "$contract_revision" >"$web_src/API_ROUTE_CONTRACT_REVISION"
-printf 'fixture archive\n' >"$web_src/lmm-api-web-0.1.42.tar.gz"
+printf 'fixture archive\n' >"$web_src/lmm-api-web-${web_pkgver}.tar.gz"
 (
   srcdir="$web_src"
   pkgdir="$tmp/pkg-web-next"
