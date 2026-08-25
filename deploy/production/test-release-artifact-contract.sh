@@ -114,9 +114,9 @@ require_literal "$WEB_PKGBUILD" 'RELEASE_ASSET_SHA256' \
   'future Web package does not preserve its signed release-asset digest'
 
 for immutable in \
-  'pkgver=0.1.63' \
-  "'60e2b7757d62778f5e872f25f2ac20527e171508a6902cfad2c6b14fb76202cf'" \
-  "'301d1be7c6c55602e5a26d497b8c4801436a71440fc7e5777419f93bcbfb858d'"; do
+  'pkgver=0.1.64' \
+  "'f08b4f41170e316f03caadfaa6811252b52e53fad46a0800ff8778c90ac5bddd'" \
+  "'302581f3e2ebe5621e797927ce95799d1083c38eda9355b8455184d8eb7485e9'"; do
   require_literal "$GO_PKGBUILD" "$immutable" \
     'tracked Go PKGBUILD no longer pins the existing immutable release'
 done
