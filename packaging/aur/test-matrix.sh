@@ -81,7 +81,7 @@ done
 for package in lmm-api-go lmm-api-go-bin lmm-api-go-git; do
   contains_srcinfo_prefix "$package" $'\tprovides = lmm-api'
   if [[ $package == lmm-api-go-bin ]] &&
-    (( $(vercmp "$(sed -n 's/^pkgver=//p' "$HERE/$package/PKGBUILD")" "$BINARY_T1_RELEASE") >= 0 )); then
+    (($(vercmp "$(sed -n 's/^pkgver=//p' "$HERE/$package/PKGBUILD")" "$BINARY_T1_RELEASE") >= 0)); then
     if grep -Fq $'\tprovides = lmm-api-go' "$HERE/$package/.SRCINFO"; then
       die "$package retains the removed legacy CLI capability"
     fi
@@ -192,7 +192,7 @@ go_release_pkgrel=$(sed -n 's/^pkgrel=//p' "$HERE/lmm-api-go/PKGBUILD")
 go_release_version="$go_release_pkgver-$go_release_pkgrel"
 grep -Fqx "pkgver=$go_release_pkgver" "$HERE/lmm-api-go/PKGBUILD" ||
   die "canonical Go package version does not match pinned revision: $go_release_pkgver"
-(( $(vercmp "$last_published_go_source_version" "$go_release_version") < 0 )) ||
+(($(vercmp "$last_published_go_source_version" "$go_release_version") < 0)) ||
   die "canonical Go package version is not newer than the published floor: $last_published_go_source_version"
 "$HERE/check-candidate-version.sh" lmm-api-go "$go_release_version" "$go_release_version" >/dev/null ||
   die 'AUR exact source candidate was rejected'

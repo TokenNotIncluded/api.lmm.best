@@ -5,7 +5,10 @@ HERE=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 readonly HERE
 readonly SHARED="$HERE/../common/lmm-api"
 
-die() { printf 'test-bin-makepkg: %s\n' "$*" >&2; exit 1; }
+die() {
+  printf 'test-bin-makepkg: %s\n' "$*" >&2
+  exit 1
+}
 
 : "${TMPDIR:?set TMPDIR to a marker-owned build workspace}"
 tmp=$(mktemp -d "$TMPDIR/lmm-bin-makepkg.XXXXXXXX")
@@ -17,16 +20,16 @@ install -Dm0755 /usr/bin/true "$tmp/bin/cosign"
 add_metadata() {
   local bundle=$1 file
   for file in LICENSE NOTICE THIRD-PARTY-LICENSES.md; do
-    printf 'fixture\n' > "$bundle/$file"
+    printf 'fixture\n' >"$bundle/$file"
   done
-  printf '%040d\n' 0 > "$bundle/REVISION"
+  printf '%040d\n' 0 >"$bundle/REVISION"
 }
 
 create_archive() {
   local work=$1 artifact=$2
   tar -czf "$work/${artifact}.tar.gz" -C "$work/stage" "$artifact"
-  (cd "$work" && sha256sum "${artifact}.tar.gz" > "${artifact}.tar.gz.sha256")
-  printf '{}\n' > "$work/${artifact}.tar.gz.sigstore.json"
+  (cd "$work" && sha256sum "${artifact}.tar.gz" >"${artifact}.tar.gz.sha256")
+  printf '{}\n' >"$work/${artifact}.tar.gz.sigstore.json"
 }
 
 # Published binary packages pin the immutable release asset hashes. The
@@ -37,12 +40,12 @@ pin_fixture_hashes() {
   local pkgbuild=$1 sums=$2 source hash
   shift 2
   [[ $sums =~ ^sha256sums(_[[:alnum:]_]+)?$ ]] || die "invalid checksum array: $sums"
-  printf '\n%s=(\n' "$sums" >> "$pkgbuild"
+  printf '\n%s=(\n' "$sums" >>"$pkgbuild"
   for source in "$@"; do
     hash=$(sha256sum "$source")
-    printf "  '%s'\n" "${hash%% *}" >> "$pkgbuild"
+    printf "  '%s'\n" "${hash%% *}" >>"$pkgbuild"
   done
-  printf ')\n' >> "$pkgbuild"
+  printf ')\n' >>"$pkgbuild"
 }
 
 build_package() {
@@ -70,16 +73,16 @@ cp -L "$HERE/lmm-api-go-bin/lmm-api-cli-phase.sh" "$go_work/"
 # Exercise the retained bundled-frontend branch independently of the immutable
 # release pinned by the canonical package.
 # shellcheck disable=SC2016 # Deliberately write a PKGBUILD variable reference.
-printf '\n_legacy_bundled_version=$pkgver\n_lmm_cli_phase=$LMM_CLI_PHASE_T0\n' >> "$go_work/PKGBUILD"
-printf '#!/bin/sh\nexit 0\n' > "$go_bundle/lmm-api-go"
+printf '\n_legacy_bundled_version=$pkgver\n_lmm_cli_phase=$LMM_CLI_PHASE_T0\n' >>"$go_work/PKGBUILD"
+printf '#!/bin/sh\nexit 0\n' >"$go_bundle/lmm-api-go"
 chmod 0755 "$go_bundle/lmm-api-go"
-printf '<!doctype html>\n' > "$go_bundle/frontend-dist/index.html"
+printf '<!doctype html>\n' >"$go_bundle/frontend-dist/index.html"
 cp "$SHARED/lmm-api.service" "$SHARED/lmm-api-go.env" "$go_bundle/"
 for file in http-map.conf lmm-api-locations.conf mime.types new-api.conf lmm-api-region-policy.conf; do
-  printf 'fixture\n' > "$go_bundle/edge-policy/nginx/$file"
+  printf 'fixture\n' >"$go_bundle/edge-policy/nginx/$file"
 done
 for file in geoip2-country-update.service geoip2-country-update.timer; do
-  printf 'fixture\n' > "$go_bundle/edge-policy/$file"
+  printf 'fixture\n' >"$go_bundle/edge-policy/$file"
 done
 add_metadata "$go_bundle"
 create_archive "$go_work" "$go_artifact"
@@ -190,7 +193,7 @@ rs_bundle="$rs_work/stage/$rs_artifact"
 mkdir -p "$rs_bundle"
 cp "$HERE/lmm-api-rs-bin/PKGBUILD" "$rs_work/"
 for binary in lmm-api-rs lmm-db-migrate; do
-  printf '#!/bin/sh\nexit 0\n' > "$rs_bundle/$binary"
+  printf '#!/bin/sh\nexit 0\n' >"$rs_bundle/$binary"
   chmod 0755 "$rs_bundle/$binary"
 done
 add_metadata "$rs_bundle"

@@ -24,12 +24,24 @@ release_revision="${MIGRATION_RELEASE_REVISION:-$(git -C "$repo_root" rev-parse 
 evidence_root="${MIGRATION_EVIDENCE_ROOT:-$repo_root}"
 snapshot_dir=$(mktemp -d "$repo_root/.migration-gate-snapshot.XXXXXXXX")
 asset_manifest=$(mktemp "$repo_root/.migration-gate-assets.XXXXXXXX")
-cleanup() { rm -rf -- "$snapshot_dir"; rm -f -- "$asset_manifest"; }
+cleanup() {
+  rm -rf -- "$snapshot_dir"
+  rm -f -- "$asset_manifest"
+}
 trap cleanup EXIT
 
-[[ -f "$plan" ]] || { echo "missing migration plan: $plan" >&2; exit 1; }
-[[ -f "$legacy" ]] || { echo "missing frozen legacy route ledger: $legacy" >&2; exit 1; }
-[[ $(tsv_first_line "$plan") == "$expected_header" ]] || { echo "invalid migration-plan header" >&2; exit 1; }
+[[ -f "$plan" ]] || {
+  echo "missing migration plan: $plan" >&2
+  exit 1
+}
+[[ -f "$legacy" ]] || {
+  echo "missing frozen legacy route ledger: $legacy" >&2
+  exit 1
+}
+[[ $(tsv_first_line "$plan") == "$expected_header" ]] || {
+  echo "invalid migration-plan header" >&2
+  exit 1
+}
 
 awk -F '\t' '
   function frozen_auth_scope(method, path) {
@@ -95,7 +107,10 @@ diff -u <(tsv_without_crlf "$frozen_contract") <(
   exit 1
 }
 
-[[ -f "$gate" ]] || { echo "missing migration evidence gate: $gate" >&2; exit 1; }
+[[ -f "$gate" ]] || {
+  echo "missing migration evidence gate: $gate" >&2
+  exit 1
+}
 [[ -x $gate_validator && ! -L $gate_validator ]] || {
   echo "missing canonical route-gate validator: $gate_validator" >&2
   exit 1
@@ -111,7 +126,10 @@ asset_manifest_sha=$(sha256sum "$asset_manifest" | awk '{print $1}')
 "$gate_validator" --mode source --snapshot-dir "$snapshot_dir" --gate "$gate" --frozen-contract "$frozen_contract" \
   --assets-manifest "$asset_manifest" --assets-manifest-sha256 "$asset_manifest_sha" \
   --evidence-root "$evidence_root" --revision "$release_revision"
-[[ -f "$review" ]] || { echo "missing integration review: $review" >&2; exit 1; }
+[[ -f "$review" ]] || {
+  echo "missing integration review: $review" >&2
+  exit 1
+}
 [[ $(tsv_first_line "$review") == "$expected_review_header" ]] || {
   echo "invalid integration-review header" >&2
   exit 1
@@ -170,10 +188,10 @@ validate_evidence_keys() {
 
 normalize_ledger_path() {
   case $1 in
-    # The legacy ledger uses :name parameters while Axum source uses
-    # {name}; normalize every path parameter before checking source mounts.
-    *:*) sed -E 's/:([A-Za-z_][A-Za-z0-9_]*)/{\1}/g' <<<"$1" ;;
-    *) printf '%s\n' "$1" ;;
+  # The legacy ledger uses :name parameters while Axum source uses
+  # {name}; normalize every path parameter before checking source mounts.
+  *:*) sed -E 's/:([A-Za-z_][A-Za-z0-9_]*)/{\1}/g' <<<"$1" ;;
+  *) printf '%s\n' "$1" ;;
   esac
 }
 
@@ -188,9 +206,9 @@ require_frozen_model_delete_501_evidence() {
   local handler_count differential_reference differential_path validator
 
   is_frozen_model_delete_501 "$method" "$path" || return 1
-  [[ $source_state == present && $compile_state == verified && $mount_state == mounted \
-    && $differential_state == verified && $approval_state == approved && $owner == go \
-    && $gate_state == verified-approved ]] || {
+  [[ $source_state == present && $compile_state == verified && $mount_state == mounted &&
+    $differential_state == verified && $approval_state == approved && $owner == go &&
+    $gate_state == verified-approved ]] || {
     echo "frozen DELETE /v1/models/:model 501 requires fully verified-approved gate state" >&2
     return 1
   }
@@ -212,7 +230,10 @@ require_frozen_model_delete_501_evidence() {
   }
   differential_path=${differential_reference%@sha256:*}
   validator="$repo_root/apps/api-rust/tests/behavior-oracle/tests/validate-frozen-model-delete-501-evidence.sh"
-  [[ -x $validator ]] || { echo "missing frozen DELETE 501 evidence validator" >&2; return 1; }
+  [[ -x $validator ]] || {
+    echo "missing frozen DELETE 501 evidence validator" >&2
+    return 1
+  }
   "$validator" "$repo_root/$differential_path"
 }
 
@@ -269,7 +290,10 @@ while IFS=$'\t' read -r method path source_state compile_state mount_state diffe
     fi
   fi
   source_file="$repo_root/$router_evidence"
-  [[ -f $source_file ]] || { echo "mounted $method $path names missing router source: $router_evidence" >&2; exit 1; }
+  [[ -f $source_file ]] || {
+    echo "mounted $method $path names missing router source: $router_evidence" >&2
+    exit 1
+  }
   router_path=$(normalize_ledger_path "$path") || {
     echo "mounted $method $path uses an unsupported ledger/router parameter syntax" >&2
     exit 1
@@ -288,12 +312,12 @@ while IFS=$'\t' read -r method path source_state compile_state mount_state diffe
     wildcard_prefix=${path%/*}
     single_path=$(normalize_ledger_path "$wildcard_prefix/{model}")
     tail_path=$(normalize_ledger_path "$wildcard_prefix/{model}/{*tail}")
-    if grep -Fq -- ".route(\"$single_path\"" <<<"$compact_router" && \
-       grep -Fq -- ".route(\"$tail_path\"" <<<"$compact_router"; then
+    if grep -Fq -- ".route(\"$single_path\"" <<<"$compact_router" &&
+      grep -Fq -- ".route(\"$tail_path\"" <<<"$compact_router"; then
       route_found=1
     fi
   fi
-  if (( route_found == 0 )); then
+  if ((route_found == 0)); then
     echo "mounted $method $path lacks exact router mount $router_path in $router_evidence" >&2
     exit 1
   fi
@@ -376,8 +400,8 @@ candidate_mod="$repo_root/apps/api-rust/src/migration_routes.rs"
 # a newly added helper cannot silently evade the module inventory.
 is_candidate_helper() {
   case $1 in
-    relay_anthropic_gemini_postgres|relay_misc_postgres|sse) return 0 ;;
-    *) return 1 ;;
+  relay_anthropic_gemini_postgres | relay_misc_postgres | sse) return 0 ;;
+  *) return 1 ;;
   esac
 }
 
@@ -424,7 +448,10 @@ candidate_router_count=$(rg -l 'pub fn [a-z_]+\([^)]*\) -> Router' "${candidate_
   exit 1
 }
 root_router="${MIGRATION_ROOT_ROUTER_PATH:-$repo_root/apps/api-rust/src/http.rs}"
-[[ -f $root_router ]] || { echo "missing production root router: $root_router" >&2; exit 1; }
+[[ -f $root_router ]] || {
+  echo "missing production root router: $root_router" >&2
+  exit 1
+}
 production_root=$(awk '
   /^[[:space:]]*mod[[:space:]]+tests[[:space:]]*\{/ { boundary=1; exit }
   { print }
@@ -481,7 +508,10 @@ api_token_router_mounts=$(printf '%s\n' "$production_root" | rg -o 'api_token_ro
 }
 root_merge_count=$(printf '%s\n' "$production_root" | rg -n '^[[:space:]]*\.merge\(' | wc -l)
 [[ $root_merge_count -eq 2 ]] ||
-  { echo "production root router must have exactly auth and models merges, found $root_merge_count" >&2; exit 1; }
+  {
+    echo "production root router must have exactly auth and models merges, found $root_merge_count" >&2
+    exit 1
+  }
 if ! grep -Fq '.merge(auth)' <<<"$production_root" ||
   ! grep -Fq '.merge(models_router(models))' <<<"$production_root"; then
   echo "production root router merge topology is not the audited auth-plus-models shape" >&2
