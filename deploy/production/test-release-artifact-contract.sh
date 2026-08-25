@@ -104,7 +104,7 @@ require_literal "$WEB_PKGBUILD" 'RELEASE_ASSET_SHA256' \
 
 for immutable in \
   'pkgver=0.1.62' \
-  "'9ed35773e9e4069ad64d018c550166327ca63df186d01cbf0e15b37e2b327c2f'" \
+  "'0315baff3a3f89d64bdbb5cdb3d6156adf83068c2f8b060f63fc15e02b30429d'" \
   "'04853eb7eced16de97a197e961b71961fabbb7aff4f662743b40ea2fd5547735'"; do
   require_literal "$GO_PKGBUILD" "$immutable" \
     'tracked Go PKGBUILD no longer pins the existing immutable release'
