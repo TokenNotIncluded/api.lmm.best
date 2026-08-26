@@ -19,17 +19,16 @@ For commercial licensing, please contact support@quantumnous.com
 /*
 Copyright (C) 2026 LIghtJUNction
 */
-import { Minus, Phone, Plus, RefreshCw, Star } from 'lucide-react'
-import { useMemo } from 'react'
+import { Phone, RefreshCw, Star } from 'lucide-react'
+import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
-import { formatHeroSmsUSD, parseHeroSmsError } from './api.js'
 import type {
   HeroSmsSmsCountry,
   HeroSmsSmsOffer,
@@ -40,15 +39,18 @@ import {
   type SmsCatalogOption,
 } from './sms-catalog-picker.js'
 import { SmsCountryIdentity, SmsServiceIdentity } from './sms-identities.js'
+import {
+  SmsFavoritesPage,
+  SmsPriceTierPicker,
+  SmsPurchaseDetails,
+  SmsQuoteSummary,
+} from './sms-marketplace-sections.js'
 import type { HeroSmsBatchPurchaseResult } from './sms-purchase.js'
 import {
-  clampHeroSmsQuantity,
   getHeroSmsCountryName,
   getHeroSmsCountrySearchText,
   getHeroSmsQuickIndex,
   hasHeroSmsFavorite,
-  HERO_SMS_MAX_FAVORITES,
-  HERO_SMS_MAX_QUANTITY,
   type HeroSmsFavoritePair,
 } from './sms-selection.js'
 
@@ -69,11 +71,17 @@ interface SmsPurchaseCardProps {
   service: string
   country: string
   operator: string
+  operators: string[]
+  operatorsState: CatalogRequestState
+  selectedTierPrice: string
+  bidEnabled: boolean
+  bidPrice: string
   quantity: number
   selectedService?: HeroSmsSmsService
   selectedCountry?: HeroSmsSmsCountry
   selectedIsFavorite: boolean
   offer?: HeroSmsSmsOffer
+  catalogOffer?: HeroSmsSmsOffer
   offerIsFetching: boolean
   offerIsError: boolean
   offerError: unknown
@@ -85,8 +93,12 @@ interface SmsPurchaseCardProps {
   onServiceChange: (value: string) => void
   onCountryChange: (value: string) => void
   onOperatorChange: (value: string) => void
+  onTierChange: (customerPriceUSD: string) => void
+  onBidEnabledChange: (enabled: boolean) => void
+  onBidPriceChange: (value: string) => void
   onQuantityChange: (value: number) => void
   onSelectFavorite: (favorite: HeroSmsFavoritePair) => void
+  onRemoveFavorite: (favorite: HeroSmsFavoritePair) => void
   onToggleFavorite: () => void
   onRefreshOffer: () => void
   onReconcile: () => void
@@ -104,75 +116,6 @@ function SmsStepLabel({ step, children }: { step: number; children: string }) {
       </span>
       <span>{children}</span>
     </span>
-  )
-}
-
-function SmsFavoriteStrip({
-  favorites,
-  services,
-  countries,
-  language,
-  onSelect,
-}: Pick<
-  SmsPurchaseCardProps,
-  'favorites' | 'services' | 'countries' | 'language'
-> & {
-  onSelect: (favorite: HeroSmsFavoritePair) => void
-}) {
-  const { t } = useTranslation()
-  const serviceMap = useMemo(
-    () => new Map(services.map((item) => [item.code, item] as const)),
-    [services]
-  )
-  const countryMap = useMemo(
-    () => new Map(countries.map((item) => [item.id, item] as const)),
-    [countries]
-  )
-  const resolved = useMemo(
-    () =>
-      favorites.flatMap((favorite) => {
-        const service = serviceMap.get(favorite.serviceCode)
-        const country = countryMap.get(favorite.countryId)
-        return service && country ? [{ favorite, service, country }] : []
-      }),
-    [countryMap, favorites, serviceMap]
-  )
-
-  if (resolved.length === 0) return null
-  return (
-    <div className='space-y-2'>
-      <div className='flex items-center justify-between gap-3'>
-        <p className='text-sm font-medium'>{t('Favorite combinations')}</p>
-        <span className='text-muted-foreground text-xs tabular-nums'>
-          {resolved.length}/{HERO_SMS_MAX_FAVORITES}
-        </span>
-      </div>
-      <div className='no-scrollbar flex gap-2 overflow-x-auto pb-1'>
-        {resolved.map(({ favorite, service, country }) => (
-          <Button
-            key={`${favorite.serviceCode}:${favorite.countryId}`}
-            type='button'
-            variant='outline'
-            size='sm'
-            className='h-auto shrink-0 gap-2 px-2 py-1.5'
-            onClick={() => onSelect(favorite)}
-          >
-            <SmsServiceIdentity
-              service={service}
-              className='size-6 rounded-md'
-            />
-            <SmsCountryIdentity
-              country={country}
-              language={language}
-              className='size-6 rounded-md'
-            />
-            <span className='max-w-40 truncate'>
-              {service.name} · {getHeroSmsCountryName(country, language)}
-            </span>
-          </Button>
-        ))}
-      </div>
-    </div>
   )
 }
 
@@ -292,143 +235,6 @@ function SmsCountryField({
   )
 }
 
-function SmsPurchaseDetails({
-  operator,
-  quantity,
-  offer,
-  country,
-  onOperatorChange,
-  onQuantityChange,
-}: Pick<
-  SmsPurchaseCardProps,
-  | 'operator'
-  | 'quantity'
-  | 'offer'
-  | 'country'
-  | 'onOperatorChange'
-  | 'onQuantityChange'
->) {
-  const { t } = useTranslation()
-  const maximum = Math.min(
-    HERO_SMS_MAX_QUANTITY,
-    offer?.inventory ?? HERO_SMS_MAX_QUANTITY
-  )
-  return (
-    <div className='space-y-3'>
-      <SmsStepLabel step={3}>{t('Purchase details')}</SmsStepLabel>
-      <div className='grid gap-3 sm:grid-cols-2'>
-        <div className='space-y-2'>
-          <Label htmlFor='hero-sms-operator'>{t('Operator')}</Label>
-          <Input
-            id='hero-sms-operator'
-            value={operator}
-            disabled={!country}
-            onChange={(event) => onOperatorChange(event.target.value)}
-            placeholder={t('Any operator')}
-            maxLength={64}
-          />
-        </div>
-        <div className='space-y-2'>
-          <Label htmlFor='hero-sms-quantity'>{t('Quantity')}</Label>
-          <div className='grid grid-cols-[auto_minmax(0,1fr)_auto] gap-1'>
-            <Button
-              type='button'
-              variant='outline'
-              size='icon'
-              aria-label={t('Decrease quantity')}
-              disabled={!offer || quantity <= 1}
-              onClick={() => onQuantityChange(quantity - 1)}
-            >
-              <Minus aria-hidden='true' />
-            </Button>
-            <Input
-              id='hero-sms-quantity'
-              type='number'
-              inputMode='numeric'
-              min={1}
-              max={maximum}
-              value={quantity}
-              disabled={!offer}
-              className='text-center tabular-nums'
-              onChange={(event) =>
-                onQuantityChange(
-                  clampHeroSmsQuantity(
-                    Number(event.target.value),
-                    offer?.inventory ?? HERO_SMS_MAX_QUANTITY
-                  )
-                )
-              }
-              onWheel={(event) => event.currentTarget.blur()}
-            />
-            <Button
-              type='button'
-              variant='outline'
-              size='icon'
-              aria-label={t('Increase quantity')}
-              disabled={!offer || quantity >= maximum}
-              onClick={() => onQuantityChange(quantity + 1)}
-            >
-              <Plus aria-hidden='true' />
-            </Button>
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function SmsQuoteSummary({
-  offer,
-  isFetching,
-  isError,
-  error,
-  quantity,
-  onRefresh,
-}: Pick<SmsPurchaseCardProps, 'offer' | 'quantity'> & {
-  isFetching: boolean
-  isError: boolean
-  error: unknown
-  onRefresh: () => void
-}) {
-  const { t } = useTranslation()
-  if (isFetching) return <Skeleton className='h-24 w-full' />
-  if (offer) {
-    const unitPrice = Number(offer.customer_price_usd)
-    return (
-      <div className='bg-muted/35 grid grid-cols-3 gap-3 rounded-lg border p-3 text-sm'>
-        <div>
-          <p className='text-muted-foreground text-xs'>{t('Inventory')}</p>
-          <p className='mt-1 font-medium tabular-nums'>{offer.inventory}</p>
-        </div>
-        <div>
-          <p className='text-muted-foreground text-xs'>{t('Unit price')}</p>
-          <p className='mt-1 font-medium tabular-nums'>
-            {formatHeroSmsUSD(unitPrice)}
-          </p>
-        </div>
-        <div>
-          <p className='text-muted-foreground text-xs'>{t('Total')}</p>
-          <p className='mt-1 font-semibold tabular-nums'>
-            {formatHeroSmsUSD(unitPrice * quantity)}
-          </p>
-        </div>
-      </div>
-    )
-  }
-  if (!isError) return null
-  return (
-    <div className='space-y-2' role='alert'>
-      <p className='text-destructive text-sm'>
-        {t(parseHeroSmsError(error).message)}
-      </p>
-      <Button type='button' variant='outline' size='sm' onClick={onRefresh}>
-        <RefreshCw data-icon='inline-start' />
-        {t('Refresh quote')}
-      </Button>
-    </div>
-  )
-}
-
 function SmsBatchStatus({
   progress,
   result,
@@ -507,6 +313,7 @@ function purchaseButtonText(
 
 export function SmsPurchaseCard(props: SmsPurchaseCardProps) {
   const { t } = useTranslation()
+  const [page, setPage] = useState<'purchase' | 'favorites'>('purchase')
   const serviceOptions = useMemo<SmsCatalogOption[]>(
     () =>
       props.services.map((item) => ({
@@ -557,66 +364,98 @@ export function SmsPurchaseCard(props: SmsPurchaseCardProps) {
           {t('Purchase temporary phone number')}
         </CardTitle>
       </CardHeader>
-      <CardContent className='space-y-5'>
-        <SmsFavoriteStrip
-          favorites={props.favorites}
-          services={props.services}
-          countries={props.favoriteCountries}
-          language={props.language}
-          onSelect={props.onSelectFavorite}
-        />
-        <SmsServiceField
-          value={props.service}
-          options={serviceOptions}
-          state={props.servicesState}
-          onChange={props.onServiceChange}
-        />
-        <SmsCountryField
-          value={props.country}
-          service={props.service}
-          options={countryOptions}
-          state={props.countriesState}
-          isFavorite={props.selectedIsFavorite}
-          selected={Boolean(props.selectedService && props.selectedCountry)}
-          onChange={props.onCountryChange}
-          onToggleFavorite={props.onToggleFavorite}
-        />
-        <SmsPurchaseDetails
-          operator={props.operator}
-          quantity={props.quantity}
-          offer={props.offer}
-          country={props.country}
-          onOperatorChange={props.onOperatorChange}
-          onQuantityChange={props.onQuantityChange}
-        />
-        <SmsQuoteSummary
-          offer={props.offer}
-          quantity={props.quantity}
-          isFetching={props.offerIsFetching}
-          isError={props.offerIsError}
-          error={props.offerError}
-          onRefresh={props.onRefreshOffer}
-        />
-        <SmsBatchStatus
-          progress={props.batchProgress}
-          result={props.batchResult}
-          feedback={props.batchFeedback}
-          reconciliationPending={props.reconciliationPending}
-          onReconcile={props.onReconcile}
-        />
-        <Button
-          type='button'
-          className='w-full'
-          disabled={!props.canPurchase}
-          onClick={props.onPurchase}
+      <CardContent>
+        <Tabs
+          value={page}
+          onValueChange={(value) =>
+            setPage(value === 'favorites' ? 'favorites' : 'purchase')
+          }
         >
-          {purchaseButtonText(props.quantity, t)}
-        </Button>
-        <p className='text-muted-foreground text-xs leading-relaxed'>
-          {t(
-            'Each number is purchased independently. If the provider stops mid-batch, completed purchases remain available and the rest stop without a hidden retry.'
-          )}
-        </p>
+          <TabsList className='mb-5 grid w-full grid-cols-2'>
+            <TabsTrigger value='purchase'>{t('Purchase')}</TabsTrigger>
+            <TabsTrigger value='favorites'>
+              {t('Favorites')} ({props.favorites.length})
+            </TabsTrigger>
+          </TabsList>
+          <TabsContent value='purchase' className='mt-0 space-y-5'>
+            <SmsServiceField
+              value={props.service}
+              options={serviceOptions}
+              state={props.servicesState}
+              onChange={props.onServiceChange}
+            />
+            <SmsCountryField
+              value={props.country}
+              service={props.service}
+              options={countryOptions}
+              state={props.countriesState}
+              isFavorite={props.selectedIsFavorite}
+              selected={Boolean(props.selectedService && props.selectedCountry)}
+              onChange={props.onCountryChange}
+              onToggleFavorite={props.onToggleFavorite}
+            />
+            <SmsPurchaseDetails
+              operator={props.operator}
+              operators={props.operators}
+              operatorsState={props.operatorsState}
+              quantity={props.quantity}
+              offer={props.offer}
+              country={props.country}
+              onOperatorChange={props.onOperatorChange}
+              onQuantityChange={props.onQuantityChange}
+            />
+            <SmsPriceTierPicker
+              offer={props.catalogOffer}
+              selectedTierPrice={props.selectedTierPrice}
+              bidEnabled={props.bidEnabled}
+              bidPrice={props.bidPrice}
+              onTierChange={props.onTierChange}
+              onBidEnabledChange={props.onBidEnabledChange}
+              onBidPriceChange={props.onBidPriceChange}
+            />
+            <SmsQuoteSummary
+              offer={props.offer}
+              quantity={props.quantity}
+              isFetching={props.offerIsFetching}
+              isError={props.offerIsError}
+              error={props.offerError}
+              onRefresh={props.onRefreshOffer}
+            />
+            <SmsBatchStatus
+              progress={props.batchProgress}
+              result={props.batchResult}
+              feedback={props.batchFeedback}
+              reconciliationPending={props.reconciliationPending}
+              onReconcile={props.onReconcile}
+            />
+            <Button
+              type='button'
+              className='w-full'
+              disabled={!props.canPurchase}
+              onClick={props.onPurchase}
+            >
+              {purchaseButtonText(props.quantity, t)}
+            </Button>
+            <p className='text-muted-foreground text-xs leading-relaxed'>
+              {t(
+                'Each number is purchased independently. If the provider stops mid-batch, completed purchases remain available and the rest stop without a hidden retry.'
+              )}
+            </p>
+          </TabsContent>
+          <TabsContent value='favorites' className='mt-0'>
+            <SmsFavoritesPage
+              favorites={props.favorites}
+              services={props.services}
+              countries={props.favoriteCountries}
+              language={props.language}
+              onSelect={(favorite) => {
+                props.onSelectFavorite(favorite)
+                setPage('purchase')
+              }}
+              onRemove={props.onRemoveFavorite}
+            />
+          </TabsContent>
+        </Tabs>
       </CardContent>
     </Card>
   )

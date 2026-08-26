@@ -21,6 +21,7 @@ import { z } from 'zod'
 import {
   CHANNEL_TYPE_NEW_API,
   CHANNEL_STATUS,
+  isOpenAIChannelType,
   ERROR_MESSAGES,
   MODEL_FETCHABLE_TYPES,
 } from '../constants'
@@ -671,15 +672,19 @@ function buildSettingsJSON(formData: ChannelFormValues): string {
   }
 
   // Field passthrough controls:
-  // - OpenAI (type 1) and Anthropic (type 14): allow_service_tier
-  // - OpenAI only: disable_store, allow_safety_identifier
-  if (formData.type === 1 || formData.type === 14 || formData.type === 57) {
+  // - OpenAI/OpenHuman and Anthropic (type 14): allow_service_tier
+  // - OpenAI/OpenHuman only: disable_store, allow_safety_identifier
+  if (
+    isOpenAIChannelType(formData.type) ||
+    formData.type === 14 ||
+    formData.type === 57
+  ) {
     settingsObj.allow_service_tier = formData.allow_service_tier === true
   } else if ('allow_service_tier' in settingsObj) {
     delete settingsObj.allow_service_tier
   }
 
-  if (formData.type === 1 || formData.type === 57) {
+  if (isOpenAIChannelType(formData.type) || formData.type === 57) {
     settingsObj.disable_store = formData.disable_store === true
     settingsObj.allow_safety_identifier =
       formData.allow_safety_identifier === true

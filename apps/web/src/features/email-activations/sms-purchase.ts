@@ -53,6 +53,36 @@ interface HeroSmsBatchPurchaseDependencies {
   onProgress?: (completed: number, total: number) => void
 }
 
+export function selectHeroSmsPriceTier(
+  offer: HeroSmsSmsOffer,
+  customerPriceUSD: string
+): HeroSmsSmsOffer | undefined {
+  const tiers = offer.tiers?.length
+    ? offer.tiers
+    : [
+        {
+          id: offer.id,
+          inventory: offer.inventory,
+          customer_price_usd: offer.customer_price_usd,
+          charge_quota: offer.charge_quota,
+        },
+      ]
+  const tier = customerPriceUSD
+    ? tiers.find(
+        (candidate) => candidate.customer_price_usd === customerPriceUSD
+      )
+    : tiers[0]
+  if (!tier) return undefined
+  return {
+    ...offer,
+    id: tier.id,
+    inventory: tier.inventory,
+    customer_price_usd: tier.customer_price_usd,
+    charge_quota: tier.charge_quota,
+    bid: false,
+  }
+}
+
 function isSamePurchaseQuote(
   initialOffer: HeroSmsSmsOffer,
   currentOffer: HeroSmsSmsOffer

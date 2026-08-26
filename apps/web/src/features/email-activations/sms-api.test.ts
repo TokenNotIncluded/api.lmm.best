@@ -30,6 +30,7 @@ import {
   getHeroSmsSmsOffer,
   listCurrentHeroSmsSmsOrders,
   listHeroSmsSmsCountries,
+  listHeroSmsSmsOperators,
   listHeroSmsSmsOrders,
 } from './sms-api'
 
@@ -61,11 +62,18 @@ describe('phone activation api', () => {
           },
         }
       }
+      if (url.endsWith('/operators')) {
+        assert.deepEqual(config?.params, { country: 6 })
+        return {
+          data: { success: true, data: ['mts', 'tele2'] },
+        }
+      }
       assert.equal(url, '/api/hero-sms/sms/offer')
       assert.deepEqual(config?.params, {
         country: 6,
         service: 'tg',
         operator: 'any',
+        max_price_usd: '2.5',
       })
       return {
         data: {
@@ -78,6 +86,15 @@ describe('phone activation api', () => {
             inventory: 3,
             customer_price_usd: '2',
             charge_quota: 1_000_000,
+            bid: true,
+            tiers: [
+              {
+                id: 'hssq_tier',
+                inventory: 3,
+                customer_price_usd: '2',
+                charge_quota: 1_000_000,
+              },
+            ],
           },
         },
       }
@@ -86,11 +103,15 @@ describe('phone activation api', () => {
     const countries = await listHeroSmsSmsCountries('tg')
     assert.equal(countries[0]?.english_name, 'Russia')
     assert.equal(countries[0]?.popularity, 12)
+    const operators = await listHeroSmsSmsOperators(6)
+    assert.deepEqual(operators, ['mts', 'tele2'])
     const offer = await getHeroSmsSmsOffer({
       country: 6,
       service: 'tg',
       operator: 'any',
+      maxPriceUSD: '2.5',
     })
+    assert.equal(offer.bid, true)
     assert.equal(offer.customer_price_usd, '2')
   })
 

@@ -41,7 +41,7 @@ func applyUsagePostProcessing(info *relaycommon.RelayInfo, usage *dto.Usage, res
 				usage.PromptTokensDetails.CachedTokens = usage.PromptCacheHitTokens
 			}
 		}
-	case constant.ChannelTypeOpenAI:
+	case constant.ChannelTypeOpenAI, constant.ChannelTypeOpenHuman:
 		if usage.PromptTokensDetails.CachedTokens == 0 {
 			if cachedTokens, ok := extractLlamaCachedTokensFromBody(responseBody); ok {
 				usage.PromptTokensDetails.CachedTokens = cachedTokens

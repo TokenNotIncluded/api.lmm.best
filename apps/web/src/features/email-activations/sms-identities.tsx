@@ -19,26 +19,29 @@ For commercial licensing, please contact support@quantumnous.com
 /*
 Copyright (C) 2026 LIghtJUNction
 */
+import {
+  DiscordIcon,
+  Facebook02Icon,
+  FigmaIcon,
+  GithubIcon,
+  GitlabIcon,
+  GoogleIcon,
+  MediumIcon,
+  Notion02Icon,
+  SkypeIcon,
+  SlackIcon,
+  StripeIcon,
+  TelegramIcon,
+  TrelloIcon,
+  WechatIcon,
+  WhatsappIcon,
+  ZoomIcon,
+} from '@hugeicons/core-free-icons'
+import { HugeiconsIcon, type IconSvgElement } from '@hugeicons/react'
+import OpenAI from '@lobehub/icons/es/OpenAI/components/Mono.js'
 import { Globe2 } from 'lucide-react'
-import type { ComponentType, SVGProps } from 'react'
+import type { ComponentType } from 'react'
 
-import { IconDiscord } from '@/assets/brand-icons/icon-discord'
-import { IconFacebook } from '@/assets/brand-icons/icon-facebook'
-import { IconFigma } from '@/assets/brand-icons/icon-figma'
-import { IconGithub } from '@/assets/brand-icons/icon-github'
-import { IconGitlab } from '@/assets/brand-icons/icon-gitlab'
-import { IconGmail } from '@/assets/brand-icons/icon-gmail'
-import { IconGoogle } from '@/assets/brand-icons/icon-google'
-import { IconMedium } from '@/assets/brand-icons/icon-medium'
-import { IconNotion } from '@/assets/brand-icons/icon-notion'
-import { IconSkype } from '@/assets/brand-icons/icon-skype'
-import { IconSlack } from '@/assets/brand-icons/icon-slack'
-import { IconStripe } from '@/assets/brand-icons/icon-stripe'
-import { IconTelegram } from '@/assets/brand-icons/icon-telegram'
-import { IconTrello } from '@/assets/brand-icons/icon-trello'
-import { IconWeChat } from '@/assets/brand-icons/icon-wechat'
-import { IconWhatsapp } from '@/assets/brand-icons/icon-whatsapp'
-import { IconZoom } from '@/assets/brand-icons/icon-zoom'
 import { cn } from '@/lib/utils'
 
 import type { HeroSmsSmsCountry, HeroSmsSmsService } from './sms-api.js'
@@ -47,30 +50,45 @@ import {
   getHeroSmsCountryName,
 } from './sms-selection.js'
 
-type BrandIcon = ComponentType<SVGProps<SVGSVGElement>>
+type BrandIcon =
+  | { kind: 'hugeicons'; value: IconSvgElement }
+  | {
+      kind: 'component'
+      value: ComponentType<{ className?: string }>
+    }
+
+const hugeicon = (value: IconSvgElement): BrandIcon => ({
+  kind: 'hugeicons',
+  value,
+})
 
 const serviceIconRules: Array<{
   codes: string[]
   names: string[]
   icon: BrandIcon
 }> = [
-  { codes: ['tg'], names: ['telegram'], icon: IconTelegram },
-  { codes: ['wa'], names: ['whatsapp'], icon: IconWhatsapp },
-  { codes: ['go'], names: ['google'], icon: IconGoogle },
-  { codes: [], names: ['gmail'], icon: IconGmail },
-  { codes: ['fb'], names: ['facebook'], icon: IconFacebook },
-  { codes: ['ds'], names: ['discord'], icon: IconDiscord },
-  { codes: ['wb'], names: ['wechat', 'weixin'], icon: IconWeChat },
-  { codes: ['sk'], names: ['skype'], icon: IconSkype },
-  { codes: [], names: ['slack'], icon: IconSlack },
-  { codes: ['gh'], names: ['github'], icon: IconGithub },
-  { codes: [], names: ['gitlab'], icon: IconGitlab },
-  { codes: [], names: ['zoom'], icon: IconZoom },
-  { codes: [], names: ['notion'], icon: IconNotion },
-  { codes: [], names: ['medium'], icon: IconMedium },
-  { codes: [], names: ['trello'], icon: IconTrello },
-  { codes: [], names: ['stripe'], icon: IconStripe },
-  { codes: [], names: ['figma'], icon: IconFigma },
+  { codes: ['tg'], names: ['telegram'], icon: hugeicon(TelegramIcon) },
+  { codes: ['wa'], names: ['whatsapp'], icon: hugeicon(WhatsappIcon) },
+  { codes: ['go'], names: ['google'], icon: hugeicon(GoogleIcon) },
+  {
+    codes: ['dr'],
+    names: ['openai', 'chatgpt'],
+    icon: { kind: 'component', value: OpenAI },
+  },
+  { codes: [], names: ['gmail'], icon: hugeicon(GoogleIcon) },
+  { codes: ['fb'], names: ['facebook'], icon: hugeicon(Facebook02Icon) },
+  { codes: ['ds'], names: ['discord'], icon: hugeicon(DiscordIcon) },
+  { codes: ['wb'], names: ['wechat', 'weixin'], icon: hugeicon(WechatIcon) },
+  { codes: ['sk'], names: ['skype'], icon: hugeicon(SkypeIcon) },
+  { codes: [], names: ['slack'], icon: hugeicon(SlackIcon) },
+  { codes: ['gh'], names: ['github'], icon: hugeicon(GithubIcon) },
+  { codes: [], names: ['gitlab'], icon: hugeicon(GitlabIcon) },
+  { codes: [], names: ['zoom'], icon: hugeicon(ZoomIcon) },
+  { codes: [], names: ['notion'], icon: hugeicon(Notion02Icon) },
+  { codes: [], names: ['medium'], icon: hugeicon(MediumIcon) },
+  { codes: [], names: ['trello'], icon: hugeicon(TrelloIcon) },
+  { codes: [], names: ['stripe'], icon: hugeicon(StripeIcon) },
+  { codes: [], names: ['figma'], icon: hugeicon(FigmaIcon) },
 ]
 
 function getServiceBrandIcon(service: HeroSmsSmsService) {
@@ -90,11 +108,21 @@ export function SmsServiceIdentity({
   service: HeroSmsSmsService
   className?: string
 }) {
-  const Icon = getServiceBrandIcon(service)
+  const brandIcon = getServiceBrandIcon(service)
+  const ComponentIcon =
+    brandIcon?.kind === 'component' ? brandIcon.value : undefined
   const fallback = (service.name || service.code)
     .trim()
     .slice(0, 2)
     .toUpperCase()
+  let content = (
+    <span className='text-[10px] font-semibold tracking-tight'>{fallback}</span>
+  )
+  if (brandIcon?.kind === 'hugeicons') {
+    content = <HugeiconsIcon icon={brandIcon.value} className='size-4' />
+  } else if (ComponentIcon) {
+    content = <ComponentIcon className='size-4' />
+  }
   return (
     <span
       className={cn(
@@ -103,13 +131,7 @@ export function SmsServiceIdentity({
       )}
       aria-hidden='true'
     >
-      {Icon ? (
-        <Icon className='size-4' />
-      ) : (
-        <span className='text-[10px] font-semibold tracking-tight'>
-          {fallback}
-        </span>
-      )}
+      {content}
     </span>
   )
 }

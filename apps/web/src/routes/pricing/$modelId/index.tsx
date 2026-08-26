@@ -20,9 +20,7 @@ import { createFileRoute, redirect } from '@tanstack/react-router'
 import z from 'zod'
 
 import { ModelDetails } from '@/features/pricing/components/model-details'
-import { isConsoleActivated } from '@/lib/console-activation'
-import { getFreshModuleAccess } from '@/lib/nav-modules'
-import { useAuthStore } from '@/stores/auth-store'
+import { resolvePricingRouteAccess } from '@/features/pricing/lib/route-access'
 
 const modelDetailsSearchSchema = z.object({
   search: z.string().optional(),
@@ -40,22 +38,18 @@ const modelDetailsSearchSchema = z.object({
 export const Route = createFileRoute('/pricing/$modelId/')({
   validateSearch: modelDetailsSearchSchema,
   beforeLoad: async ({ location }) => {
-    const { auth } = useAuthStore.getState()
-    if (!isConsoleActivated(auth.user)) {
-      throw redirect({ to: '/pricing' })
-    }
-
-    const access = await getFreshModuleAccess('pricing')
-    if (!access.enabled) {
+    const decision = await resolvePricingRouteAccess(location.href, 'details')
+    if (decision.kind === 'redirect-home') {
       throw redirect({ to: '/' })
     }
-    if (access.requireAuth) {
-      if (!auth.user) {
-        throw redirect({
-          to: '/sign-in',
-          search: { redirect: location.href },
-        })
-      }
+    if (decision.kind === 'redirect-marketplace') {
+      throw redirect({ to: '/pricing' })
+    }
+    if (decision.kind === 'redirect-sign-in') {
+      throw redirect({
+        to: '/sign-in',
+        search: { redirect: decision.redirect },
+      })
     }
   },
   component: ModelDetails,

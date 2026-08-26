@@ -5,7 +5,7 @@ import "github.com/LIghtJUNction/api.lmm.best/constant"
 func ChannelType2APIType(channelType int) (int, bool) {
 	apiType := -1
 	switch channelType {
-	case constant.ChannelTypeOpenAI:
+	case constant.ChannelTypeOpenAI, constant.ChannelTypeOpenHuman:
 		apiType = constant.APITypeOpenAI
 	case constant.ChannelTypeAnthropic:
 		apiType = constant.APITypeAnthropic

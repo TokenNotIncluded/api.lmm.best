@@ -44,6 +44,13 @@ export interface HeroSmsSmsService {
   popularity: number
 }
 
+export interface HeroSmsSmsPriceTier {
+  id: string
+  inventory: number
+  customer_price_usd: string
+  charge_quota: number
+}
+
 export interface HeroSmsSmsOffer {
   id: string
   country_id: number
@@ -52,6 +59,8 @@ export interface HeroSmsSmsOffer {
   inventory: number
   customer_price_usd: string
   charge_quota: number
+  bid?: boolean
+  tiers?: HeroSmsSmsPriceTier[]
 }
 
 export interface HeroSmsSmsOrder {
@@ -111,15 +120,30 @@ export function listHeroSmsSmsServices() {
   )
 }
 
+export function listHeroSmsSmsOperators(country: number) {
+  return unwrap<string[]>(
+    api.get('/api/hero-sms/sms/operators', {
+      ...requestOptions,
+      params: { country },
+    })
+  )
+}
+
 export function getHeroSmsSmsOffer(input: {
   country: number
   service: string
   operator?: string
+  maxPriceUSD?: string
 }) {
   return unwrap<HeroSmsSmsOffer>(
     api.get('/api/hero-sms/sms/offer', {
       ...requestOptions,
-      params: input,
+      params: {
+        country: input.country,
+        service: input.service,
+        operator: input.operator,
+        max_price_usd: input.maxPriceUSD,
+      },
     })
   )
 }

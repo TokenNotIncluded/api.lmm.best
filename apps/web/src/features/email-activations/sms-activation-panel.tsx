@@ -26,6 +26,7 @@ import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
 import { ConfirmDialog } from '@/components/confirm-dialog'
+import { useDebounce } from '@/hooks/use-debounce'
 
 import {
   createHeroSmsIdempotencyKey,
@@ -39,6 +40,7 @@ import {
   getHeroSmsSmsOffer,
   listCurrentHeroSmsSmsOrders,
   listHeroSmsSmsCountries,
+  listHeroSmsSmsOperators,
   listHeroSmsSmsOrders,
   listHeroSmsSmsServices,
   refreshHeroSmsSmsOrder,
@@ -54,6 +56,7 @@ import {
 import { SmsPurchaseCard } from './sms-purchase-card.js'
 import {
   purchaseHeroSmsBatch,
+  selectHeroSmsPriceTier,
   type HeroSmsBatchPurchaseResult,
 } from './sms-purchase.js'
 import {
@@ -72,8 +75,25 @@ const smsKeys = {
   countries: (service = 'all') =>
     ['hero-sms', 'sms', 'countries', service] as const,
   services: ['hero-sms', 'sms', 'services'] as const,
+  operators: (country: string) =>
+    ['hero-sms', 'sms', 'operators', country] as const,
   offer: (country: string, service: string, operator: string) =>
     ['hero-sms', 'sms', 'offer', country, service, operator] as const,
+  bidOffer: (
+    country: string,
+    service: string,
+    operator: string,
+    maxPriceUSD: string
+  ) =>
+    [
+      'hero-sms',
+      'sms',
+      'bid-offer',
+      country,
+      service,
+      operator,
+      maxPriceUSD,
+    ] as const,
   current: ['hero-sms', 'sms', 'current'] as const,
   currentList: ['hero-sms', 'sms', 'current-list'] as const,
   history: ['hero-sms', 'sms', 'history'] as const,
@@ -84,9 +104,7 @@ type Translate = ReturnType<typeof useTranslation>['t']
 interface SmsPurchaseMutationOptions {
   offer?: HeroSmsSmsOffer
   quantity: number
-  country: string
-  service: string
-  operator: string
+  getFreshOffer: () => Promise<HeroSmsSmsOffer>
   t: Translate
   invalidate: () => Promise<void>
   refetchOffer: () => Promise<unknown>
@@ -151,12 +169,7 @@ function useSmsPurchaseMutation(options: SmsPurchaseMutationOptions) {
         initialOffer: options.offer,
         quantity: options.quantity,
         idempotencyKey: createHeroSmsIdempotencyKey(),
-        getFreshOffer: () =>
-          getHeroSmsSmsOffer({
-            country: Number(options.country),
-            service: options.service,
-            operator: options.operator.trim() || undefined,
-          }),
+        getFreshOffer: options.getFreshOffer,
         createOrder: createHeroSmsSmsOrder,
         isAmbiguousNetworkError: (error) =>
           isAxiosError(error) && !error.response,
@@ -234,12 +247,21 @@ function useSmsPurchaseReconciliation({
   return { pending, run }
 }
 
-function useSmsCatalogQueries(
-  country: string,
-  service: string,
-  operator: string,
+interface SmsCatalogQueryOptions {
+  country: string
+  service: string
+  operator: string
+  bidMaxPriceUSD: string
   pageVisible: boolean
-) {
+}
+
+function useSmsCatalogQueries({
+  country,
+  service,
+  operator,
+  bidMaxPriceUSD,
+  pageVisible,
+}: SmsCatalogQueryOptions) {
   const allCountries = useQuery({
     queryKey: smsKeys.countries(),
     queryFn: () => listHeroSmsSmsCountries(),
@@ -256,6 +278,13 @@ function useSmsCatalogQueries(
     queryFn: listHeroSmsSmsServices,
     staleTime: 5 * 60 * 1000,
   })
+  const operators = useQuery({
+    queryKey: smsKeys.operators(country),
+    queryFn: () => listHeroSmsSmsOperators(Number(country)),
+    enabled: country !== '',
+    staleTime: 5 * 60 * 1000,
+    retry: false,
+  })
   const offer = useQuery({
     queryKey: smsKeys.offer(country, service, operator),
     queryFn: () =>
@@ -265,6 +294,22 @@ function useSmsCatalogQueries(
         operator: operator.trim() || undefined,
       }),
     enabled: country !== '' && service !== '',
+    retry: false,
+  })
+  const bidOffer = useQuery({
+    queryKey: smsKeys.bidOffer(country, service, operator, bidMaxPriceUSD),
+    queryFn: () =>
+      getHeroSmsSmsOffer({
+        country: Number(country),
+        service,
+        operator: operator.trim() || undefined,
+        maxPriceUSD: bidMaxPriceUSD,
+      }),
+    enabled:
+      country !== '' &&
+      service !== '' &&
+      Number.isFinite(Number(bidMaxPriceUSD)) &&
+      Number(bidMaxPriceUSD) > 0,
     retry: false,
   })
   const current = useQuery({
@@ -279,13 +324,105 @@ function useSmsCatalogQueries(
     queryKey: smsKeys.history,
     queryFn: () => listHeroSmsSmsOrders(1, 50),
   })
-  return { allCountries, countries, services, offer, current, history }
+  return {
+    allCountries,
+    countries,
+    services,
+    operators,
+    offer,
+    bidOffer,
+    current,
+    history,
+  }
+}
+
+interface SmsMarketplaceQueryOptions {
+  country: string
+  service: string
+  operator: string
+  selectedTierPrice: string
+  bidEnabled: boolean
+  bidPrice: string
+  pageVisible: boolean
+}
+
+function useSmsMarketplaceQueries({
+  country,
+  service,
+  operator,
+  selectedTierPrice,
+  bidEnabled,
+  bidPrice,
+  pageVisible,
+}: SmsMarketplaceQueryOptions) {
+  const normalizedBidPrice = bidEnabled ? bidPrice.trim() : ''
+  const debouncedBidPrice = useDebounce(normalizedBidPrice, 400)
+  const queries = useSmsCatalogQueries({
+    country,
+    service,
+    operator,
+    bidMaxPriceUSD: debouncedBidPrice,
+    pageVisible,
+  })
+  const tierOffer = queries.offer.data
+    ? selectHeroSmsPriceTier(queries.offer.data, selectedTierPrice)
+    : undefined
+  const bidInputReady =
+    normalizedBidPrice !== '' &&
+    normalizedBidPrice === debouncedBidPrice &&
+    Number.isFinite(Number(normalizedBidPrice)) &&
+    Number(normalizedBidPrice) > 0
+  let effectiveOffer = tierOffer
+  if (bidEnabled) {
+    const bidOffer = queries.bidOffer.data
+    effectiveOffer =
+      bidInputReady && bidOffer?.bid === true ? bidOffer : undefined
+  }
+  const effectiveOfferQuery = bidEnabled ? queries.bidOffer : queries.offer
+  const getFreshOffer = useCallback(async () => {
+    const fresh = await getHeroSmsSmsOffer({
+      country: Number(country),
+      service,
+      operator: operator.trim() || undefined,
+      maxPriceUSD: bidEnabled ? normalizedBidPrice : undefined,
+    })
+    if (bidEnabled) {
+      if (fresh.bid !== true) throw new Error('HeroSMS request failed')
+      return fresh
+    }
+    const selected = selectHeroSmsPriceTier(fresh, selectedTierPrice)
+    if (!selected) throw new Error('HeroSMS request failed')
+    return selected
+  }, [
+    bidEnabled,
+    country,
+    normalizedBidPrice,
+    operator,
+    selectedTierPrice,
+    service,
+  ])
+  const refetchBaseOffer = queries.offer.refetch
+  const refetchBidOffer = queries.bidOffer.refetch
+  const refetchEffectiveOffer = useCallback(
+    () => (bidEnabled ? refetchBidOffer() : refetchBaseOffer()),
+    [bidEnabled, refetchBaseOffer, refetchBidOffer]
+  )
+  return {
+    queries,
+    effectiveOffer,
+    effectiveOfferQuery,
+    getFreshOffer,
+    refetchEffectiveOffer,
+  }
 }
 
 function useSmsSelectionState() {
   const [country, setCountry] = useState('')
   const [service, setService] = useState('')
   const [operator, setOperator] = useState('')
+  const [selectedTierPrice, setSelectedTierPrice] = useState('')
+  const [bidEnabled, setBidEnabled] = useState(false)
+  const [bidPrice, setBidPrice] = useState('')
   const [quantity, setQuantity] = useState(1)
   const [favorites, setFavorites] = useState<HeroSmsFavoritePair[]>(() =>
     loadHeroSmsFavorites()
@@ -295,6 +432,9 @@ function useSmsSelectionState() {
 
   const resetSelectionTail = () => {
     setOperator('')
+    setSelectedTierPrice('')
+    setBidEnabled(false)
+    setBidPrice('')
     setQuantity(1)
     setBatchResult(null)
   }
@@ -312,6 +452,14 @@ function useSmsSelectionState() {
     setCountry(String(favorite.countryId))
     resetSelectionTail()
   }
+  const selectOperator = (value: string) => {
+    setOperator(value)
+    setSelectedTierPrice('')
+    setBidEnabled(false)
+    setBidPrice('')
+    setQuantity(1)
+    setBatchResult(null)
+  }
   return {
     country,
     setCountry,
@@ -319,6 +467,13 @@ function useSmsSelectionState() {
     setService,
     operator,
     setOperator,
+    selectedTierPrice,
+    setSelectedTierPrice,
+    bidEnabled,
+    setBidEnabled,
+    bidPrice,
+    setBidPrice,
+    selectOperator,
     quantity,
     setQuantity,
     favorites,
@@ -371,12 +526,8 @@ function createFavoriteController({
     country &&
     hasHeroSmsFavorite(favorites, service.code, country.id)
   )
-  const toggle = () => {
-    if (!service || !country) return
-    const update = toggleHeroSmsFavorite(favorites, {
-      serviceCode: service.code,
-      countryId: country.id,
-    })
+  const updateFavorite = (favorite: HeroSmsFavoritePair) => {
+    const update = toggleHeroSmsFavorite(favorites, favorite)
     if (update.limitReached) {
       toast.error(
         t('You can save up to {{count}} favorite combinations', {
@@ -394,7 +545,21 @@ function createFavoriteController({
       )
     }
   }
-  return { selected, toggle }
+  const toggle = () => {
+    if (!service || !country) return
+    updateFavorite({
+      serviceCode: service.code,
+      countryId: country.id,
+    })
+  }
+  const remove = (favorite: HeroSmsFavoritePair) => {
+    if (
+      hasHeroSmsFavorite(favorites, favorite.serviceCode, favorite.countryId)
+    ) {
+      updateFavorite(favorite)
+    }
+  }
+  return { selected, toggle, remove }
 }
 
 function resolveSmsLanguage(resolved?: string, configured?: string) {
@@ -456,7 +621,13 @@ export function HeroSmsSmsActivationPanel() {
     country,
     service,
     operator,
-    setOperator,
+    selectedTierPrice,
+    setSelectedTierPrice,
+    bidEnabled,
+    setBidEnabled,
+    bidPrice,
+    setBidPrice,
+    selectOperator,
     quantity,
     setQuantity,
     favorites,
@@ -472,7 +643,21 @@ export function HeroSmsSmsActivationPanel() {
     completed: number
     total: number
   } | null>(null)
-  const queries = useSmsCatalogQueries(country, service, operator, pageVisible)
+  const {
+    queries,
+    effectiveOffer,
+    effectiveOfferQuery,
+    getFreshOffer,
+    refetchEffectiveOffer,
+  } = useSmsMarketplaceQueries({
+    country,
+    service,
+    operator,
+    selectedTierPrice,
+    bidEnabled,
+    bidPrice,
+    pageVisible,
+  })
 
   const { serviceMap, countryMap } = useSmsCatalogMaps(
     queries.services.data,
@@ -482,8 +667,7 @@ export function HeroSmsSmsActivationPanel() {
   const selectedCountry = countryMap.get(Number(country))
   const currentOrders = queries.current.data ?? []
   const historyOrders = useSmsHistoryOrders(queries.history.data?.items)
-
-  const effectiveQuantity = resolveSmsQuantity(quantity, queries.offer.data)
+  const effectiveQuantity = resolveSmsQuantity(quantity, effectiveOffer)
   const invalidate = useCallback(async () => {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: smsKeys.current }),
@@ -493,14 +677,12 @@ export function HeroSmsSmsActivationPanel() {
     ])
   }, [queryClient])
   const purchaseMutation = useSmsPurchaseMutation({
-    offer: queries.offer.data,
+    offer: effectiveOffer,
     quantity: effectiveQuantity,
-    country,
-    service,
-    operator,
+    getFreshOffer,
     t,
     invalidate,
-    refetchOffer: queries.offer.refetch,
+    refetchOffer: refetchEffectiveOffer,
     setConfirmOpen,
     setBatchProgress,
     setBatchResult,
@@ -530,13 +712,13 @@ export function HeroSmsSmsActivationPanel() {
     result: batchResult,
     setResult: setBatchResult,
     invalidate,
-    refetchOffer: queries.offer.refetch,
+    refetchOffer: refetchEffectiveOffer,
     t,
   })
 
   const view = createSmsPanelView({
     effectiveQuantity,
-    offer: queries.offer.data,
+    offer: effectiveOffer,
     purchasePending: purchaseMutation.isPending,
     batchResult,
     selectedCountry,
@@ -568,14 +750,24 @@ export function HeroSmsSmsActivationPanel() {
           service={service}
           country={country}
           operator={operator}
+          operators={queries.operators.data ?? []}
+          operatorsState={{
+            isPending: queries.operators.isPending,
+            isError: queries.operators.isError,
+            onRetry: () => void queries.operators.refetch(),
+          }}
+          selectedTierPrice={selectedTierPrice}
+          bidEnabled={bidEnabled}
+          bidPrice={bidPrice}
           quantity={view.effectiveQuantity}
           selectedService={selectedService}
           selectedCountry={selectedCountry}
           selectedIsFavorite={favoriteController.selected}
-          offer={queries.offer.data}
-          offerIsFetching={queries.offer.isFetching}
-          offerIsError={queries.offer.isError}
-          offerError={queries.offer.error}
+          offer={effectiveOffer}
+          catalogOffer={queries.offer.data}
+          offerIsFetching={effectiveOfferQuery.isFetching}
+          offerIsError={effectiveOfferQuery.isError}
+          offerError={effectiveOfferQuery.error}
           batchProgress={batchProgress}
           batchResult={batchResult}
           batchFeedback={view.batchFeedback}
@@ -585,11 +777,21 @@ export function HeroSmsSmsActivationPanel() {
           }
           onServiceChange={selectService}
           onCountryChange={selectCountry}
-          onOperatorChange={setOperator}
+          onOperatorChange={selectOperator}
+          onTierChange={(price) => {
+            setSelectedTierPrice(price)
+            setBidEnabled(false)
+          }}
+          onBidEnabledChange={setBidEnabled}
+          onBidPriceChange={(value) => {
+            setBidPrice(value)
+            setBidEnabled(true)
+          }}
           onQuantityChange={setQuantity}
           onSelectFavorite={selectFavorite}
+          onRemoveFavorite={favoriteController.remove}
           onToggleFavorite={favoriteController.toggle}
-          onRefreshOffer={() => void queries.offer.refetch()}
+          onRefreshOffer={() => void refetchEffectiveOffer()}
           onReconcile={() => void reconciliation.run()}
           onPurchase={() => setConfirmOpen(true)}
         />
@@ -633,7 +835,7 @@ export function HeroSmsSmsActivationPanel() {
         onOpenChange={setConfirmOpen}
         title={t('Confirm phone activation purchase')}
         desc={t(
-          'Quantity: {{quantity}} · Service: {{service}} · Country: {{country}} · Total: {{price}} of platform balance.',
+          'Quantity: {{quantity}} · Service: {{service}} · Country: {{country}} · Maximum reserved total: {{price}}. Any lower settlement is refunded.',
           {
             quantity: view.effectiveQuantity,
             service: selectedService?.name ?? service,

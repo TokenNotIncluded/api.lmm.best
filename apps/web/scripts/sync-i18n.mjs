@@ -68,6 +68,7 @@ const BRAND_AND_LITERAL_KEYS = new Set([
   'OhMyGPT',
   'Ollama',
   'OpenAI',
+  'OpenHuman',
   'OpenAIMax',
   'OpenRouter',
   'Pancake',

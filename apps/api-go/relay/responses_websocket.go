@@ -352,8 +352,8 @@ func (s *responsesWSSession) connectAndSendFirst(create responsesWSCreateRequest
 			break
 		}
 		addResponsesWSUsedChannel(s.c, channel.Id)
-		if channel.Type != appconstant.ChannelTypeOpenAI && channel.Type != appconstant.ChannelTypeCodex {
-			lastErr = types.NewErrorWithStatusCode(fmt.Errorf("responses websocket only supports OpenAI and Codex channels, got channel type %d", channel.Type), types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+		if channel.Type != appconstant.ChannelTypeOpenAI && channel.Type != appconstant.ChannelTypeOpenHuman && channel.Type != appconstant.ChannelTypeCodex {
+			lastErr = types.NewErrorWithStatusCode(fmt.Errorf("responses websocket only supports OpenAI, OpenHuman, and Codex channels, got channel type %d", channel.Type), types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
 			continue
 		}
 
@@ -1105,7 +1105,7 @@ func validateResponsesWSTurnAuthorization(c *gin.Context, modelName string, lock
 	if channel.Status != common.ChannelStatusEnabled {
 		return nil, types.NewErrorWithStatusCode(fmt.Errorf("locked channel %d is disabled", channel.Id), types.ErrorCodeGetChannelFailed, http.StatusForbidden, types.ErrOptionWithSkipRetry())
 	}
-	if channel.Type != appconstant.ChannelTypeOpenAI && channel.Type != appconstant.ChannelTypeCodex {
+	if channel.Type != appconstant.ChannelTypeOpenAI && channel.Type != appconstant.ChannelTypeOpenHuman && channel.Type != appconstant.ChannelTypeCodex {
 		return nil, types.NewErrorWithStatusCode(fmt.Errorf("locked channel %d no longer supports responses websocket", channel.Id), types.ErrorCodeGetChannelFailed, http.StatusForbidden, types.ErrOptionWithSkipRetry())
 	}
 	if channelIDRaw := common.GetContextKeyString(c, appconstant.ContextKeyTokenSpecificChannelId); channelIDRaw != "" {

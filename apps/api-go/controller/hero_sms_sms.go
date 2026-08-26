@@ -30,18 +30,46 @@ func ListHeroSMSSMSServices(c *gin.Context) {
 	heroSMSJSON(c, http.StatusOK, services)
 }
 
+func ListHeroSMSSMSOperators(c *gin.Context) {
+	countryID, err := strconv.Atoi(c.Query("country"))
+	if err != nil || countryID < 0 {
+		heroSMSError(c, model.NewHeroSMSError(http.StatusBadRequest, "INVALID_REQUEST", "invalid HeroSMS country"))
+		return
+	}
+	operators, err := model.ListHeroSMSSMSOperators(c.Request.Context(), countryID)
+	if err != nil {
+		heroSMSError(c, err)
+		return
+	}
+	heroSMSJSON(c, http.StatusOK, operators)
+}
+
 func GetHeroSMSSMSOffer(c *gin.Context) {
 	countryID, err := strconv.Atoi(c.Query("country"))
 	if err != nil || countryID < 0 {
 		heroSMSError(c, model.NewHeroSMSError(http.StatusBadRequest, "INVALID_REQUEST", "invalid HeroSMS country"))
 		return
 	}
-	offer, err := model.GetHeroSMSSMSOffer(
-		c.Request.Context(),
-		countryID,
-		c.Query("service"),
-		c.Query("operator"),
-	)
+	userID := c.GetInt("id")
+	var offer *model.HeroSMSSMSOfferView
+	if maxPriceUSD, hasBid := c.GetQuery("max_price_usd"); hasBid {
+		offer, err = model.GetHeroSMSSMSBidOffer(
+			c.Request.Context(),
+			userID,
+			countryID,
+			c.Query("service"),
+			c.Query("operator"),
+			maxPriceUSD,
+		)
+	} else {
+		offer, err = model.GetHeroSMSSMSOffer(
+			c.Request.Context(),
+			userID,
+			countryID,
+			c.Query("service"),
+			c.Query("operator"),
+		)
+	}
 	if err != nil {
 		heroSMSError(c, err)
 		return

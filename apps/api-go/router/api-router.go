@@ -404,6 +404,7 @@ func SetApiRouter(router *gin.Engine) {
 			heroSMSRoute.POST("/email/activations/:id/reorder", middleware.DisableCache(), middleware.CriticalRateLimit(), middleware.UserCriticalRateLimit("hero-sms-email-reorder"), middleware.RequestBodyLimit(heroSMSMutationRequestMaxBytes), controller.ReorderHeroSMSEmailActivation)
 			heroSMSRoute.GET("/sms/countries", middleware.DisableCache(), controller.ListHeroSMSSMSCountries)
 			heroSMSRoute.GET("/sms/services", middleware.DisableCache(), controller.ListHeroSMSSMSServices)
+			heroSMSRoute.GET("/sms/operators", middleware.DisableCache(), controller.ListHeroSMSSMSOperators)
 			heroSMSRoute.GET("/sms/offer", middleware.DisableCache(), controller.GetHeroSMSSMSOffer)
 			heroSMSRoute.POST("/sms/orders", middleware.DisableCache(), middleware.CriticalRateLimit(), middleware.UserCriticalRateLimit("hero-sms-sms-purchase"), middleware.RequestBodyLimit(heroSMSMutationRequestMaxBytes), controller.CreateHeroSMSSMSOrder)
 			heroSMSRoute.GET("/sms/orders", middleware.DisableCache(), controller.ListHeroSMSSMSOrders)

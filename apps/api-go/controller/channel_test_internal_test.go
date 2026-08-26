@@ -97,6 +97,16 @@ func TestNewAPIChannelRegistration(t *testing.T) {
 	assert.Empty(t, constant.ChannelBaseURLs[constant.ChannelTypeNewAPI])
 }
 
+func TestOpenHumanChannelRegistration(t *testing.T) {
+	apiType, ok := common.ChannelType2APIType(constant.ChannelTypeOpenHuman)
+
+	require.True(t, ok)
+	assert.Equal(t, constant.APITypeOpenAI, apiType)
+	assert.Equal(t, "OpenHuman", constant.GetChannelTypeName(constant.ChannelTypeOpenHuman))
+	require.Greater(t, len(constant.ChannelBaseURLs), constant.ChannelTypeOpenHuman)
+	assert.Equal(t, constant.ChannelBaseURLs[constant.ChannelTypeOpenAI], constant.ChannelBaseURLs[constant.ChannelTypeOpenHuman])
+}
+
 func TestResponsesCompactChannelSupport(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -105,6 +115,7 @@ func TestResponsesCompactChannelSupport(t *testing.T) {
 		want        bool
 	}{
 		{name: "OpenAI", channelType: constant.ChannelTypeOpenAI, apiType: constant.APITypeOpenAI, want: true},
+		{name: "OpenHuman", channelType: constant.ChannelTypeOpenHuman, apiType: constant.APITypeOpenAI, want: true},
 		{name: "Azure", channelType: constant.ChannelTypeAzure, apiType: constant.APITypeOpenAI, want: true},
 		{name: "Codex", channelType: constant.ChannelTypeCodex, apiType: constant.APITypeCodex, want: true},
 		{name: "Advanced Custom", channelType: constant.ChannelTypeAdvancedCustom, apiType: constant.APITypeAdvancedCustom, want: true},

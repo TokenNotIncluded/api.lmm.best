@@ -23,7 +23,7 @@ import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 
 import type { HeroSmsSmsOffer, HeroSmsSmsOrder } from './sms-api'
-import { purchaseHeroSmsBatch } from './sms-purchase'
+import { purchaseHeroSmsBatch, selectHeroSmsPriceTier } from './sms-purchase'
 
 function offer(id: string, chargeQuota = 1_000): HeroSmsSmsOffer {
   return {
@@ -34,6 +34,15 @@ function offer(id: string, chargeQuota = 1_000): HeroSmsSmsOffer {
     inventory: 10,
     customer_price_usd: '2',
     charge_quota: chargeQuota,
+    bid: false,
+    tiers: [
+      {
+        id,
+        inventory: 10,
+        customer_price_usd: '2',
+        charge_quota: chargeQuota,
+      },
+    ],
   }
 }
 
@@ -59,6 +68,24 @@ function order(id: string): HeroSmsSmsOrder {
 }
 
 describe('phone activation quantity purchases', () => {
+  test('selects a displayed price tier without silently falling back', () => {
+    const base = offer('quote-1')
+    base.tiers?.push({
+      id: 'quote-2',
+      inventory: 4,
+      customer_price_usd: '3',
+      charge_quota: 1_500,
+    })
+
+    const selected = selectHeroSmsPriceTier(base, '3')
+    assert.equal(selected?.id, 'quote-2')
+    assert.equal(selected?.inventory, 4)
+    assert.equal(selectHeroSmsPriceTier(base, '4'), undefined)
+
+    const legacy = { ...offer('legacy'), tiers: undefined, bid: undefined }
+    assert.equal(selectHeroSmsPriceTier(legacy, '')?.id, 'legacy')
+  })
+
   test('creates independent orders with deterministic item keys', async () => {
     let nextOffer = 2
     const calls: Array<{ offerId: string; key: string }> = []
