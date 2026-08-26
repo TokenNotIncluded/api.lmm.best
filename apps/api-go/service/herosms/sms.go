@@ -109,18 +109,28 @@ type SMSStatus struct {
 	Text string `json:"text"`
 }
 
+const (
+	SMSActivationStateWaiting = "STATUS_WAIT_CODE"
+	SMSActivationStateRetry   = "STATUS_WAIT_RETRY"
+	SMSActivationStateResend  = "STATUS_WAIT_RESEND"
+	SMSActivationStateOK      = "STATUS_OK"
+	SMSActivationStateCancel  = "STATUS_CANCEL"
+)
+
 type SMSActiveActivation struct {
-	ID             string          `json:"activation_id"`
-	Service        string          `json:"service"`
-	PhoneNumber    string          `json:"phone_number"`
-	ActivationCost decimal.Decimal `json:"-"`
-	CostValue      string          `json:"activation_cost"`
-	CurrencyCode   int             `json:"currency_code"`
-	Status         int             `json:"status"`
-	SMSCode        string          `json:"sms_code"`
-	SMSText        string          `json:"sms_text"`
-	ActivationTime string          `json:"activation_time"`
-	CountryCode    int             `json:"country_code"`
+	ID                 string          `json:"activation_id"`
+	Service            string          `json:"service"`
+	PhoneNumber        string          `json:"phone_number"`
+	ActivationCost     decimal.Decimal `json:"-"`
+	CostValue          string          `json:"activation_cost"`
+	CurrencyCode       int             `json:"currency_code"`
+	Status             int             `json:"status"`
+	SMSCode            string          `json:"sms_code"`
+	SMSText            string          `json:"sms_text"`
+	ActivationTime     string          `json:"activation_time"`
+	ActivationEndTime  string          `json:"activation_end_time"`
+	ActivationOperator string          `json:"activation_operator"`
+	CountryCode        int             `json:"country_code"`
 }
 
 type SMSClient interface {
@@ -130,7 +140,9 @@ type SMSClient interface {
 	GetSMSOffer(ctx context.Context, countryID int, service string) (*SMSOffer, error)
 	PurchaseSMSActivation(ctx context.Context, request SMSPurchaseRequest) (*SMSActivation, error)
 	GetSMSActivationStatus(ctx context.Context, activationID string) (*SMSStatus, error)
+	GetSMSActivationState(ctx context.Context, activationID string) (string, error)
 	SetSMSActivationStatus(ctx context.Context, activationID string, status int) error
+	SubmitSMSActivationComplaint(ctx context.Context, activationID string, complaintType string) error
 	ListActiveSMSActivations(ctx context.Context) ([]SMSActiveActivation, error)
 }
 
@@ -443,16 +455,18 @@ func (c *HTTPClient) ListActiveSMSActivations(ctx context.Context) ([]SMSActiveA
 	}
 	var payload struct {
 		Data []struct {
-			ActivationID   json.Number `json:"activationId"`
-			ServiceCode    string      `json:"serviceCode"`
-			PhoneNumber    string      `json:"phoneNumber"`
-			ActivationCost json.Number `json:"activationCost"`
-			Currency       int         `json:"currency"`
-			Status         int         `json:"activationStatus"`
-			SMSCode        string      `json:"smsCode"`
-			SMSText        string      `json:"smsText"`
-			ActivationTime string      `json:"activationTime"`
-			CountryCode    int         `json:"countryCode"`
+			ActivationID       json.Number `json:"activationId"`
+			ServiceCode        string      `json:"serviceCode"`
+			PhoneNumber        string      `json:"phoneNumber"`
+			ActivationCost     json.Number `json:"activationCost"`
+			Currency           int         `json:"currency"`
+			Status             int         `json:"activationStatus"`
+			SMSCode            string      `json:"smsCode"`
+			SMSText            string      `json:"smsText"`
+			ActivationTime     string      `json:"activationTime"`
+			ActivationEndTime  string      `json:"activationEndTime"`
+			ActivationOperator string      `json:"activationOperator"`
+			CountryCode        int         `json:"countryCode"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(body, &payload); err != nil {
@@ -465,20 +479,44 @@ func (c *HTTPClient) ListActiveSMSActivations(ctx context.Context) ([]SMSActiveA
 			continue
 		}
 		activations = append(activations, SMSActiveActivation{
-			ID:             item.ActivationID.String(),
-			Service:        strings.TrimSpace(item.ServiceCode),
-			PhoneNumber:    strings.TrimSpace(item.PhoneNumber),
-			ActivationCost: cost,
-			CostValue:      cost.String(),
-			CurrencyCode:   item.Currency,
-			Status:         item.Status,
-			SMSCode:        strings.TrimSpace(item.SMSCode),
-			SMSText:        strings.TrimSpace(item.SMSText),
-			ActivationTime: item.ActivationTime,
-			CountryCode:    item.CountryCode,
+			ID:                 item.ActivationID.String(),
+			Service:            strings.TrimSpace(item.ServiceCode),
+			PhoneNumber:        strings.TrimSpace(item.PhoneNumber),
+			ActivationCost:     cost,
+			CostValue:          cost.String(),
+			CurrencyCode:       item.Currency,
+			Status:             item.Status,
+			SMSCode:            strings.TrimSpace(item.SMSCode),
+			SMSText:            strings.TrimSpace(item.SMSText),
+			ActivationTime:     strings.TrimSpace(item.ActivationTime),
+			ActivationEndTime:  strings.TrimSpace(item.ActivationEndTime),
+			ActivationOperator: strings.TrimSpace(item.ActivationOperator),
+			CountryCode:        item.CountryCode,
 		})
 	}
 	return activations, nil
+}
+
+func (c *HTTPClient) GetSMSActivationState(ctx context.Context, activationID string) (string, error) {
+	activationID = strings.TrimSpace(activationID)
+	if activationID == "" {
+		return "", ErrInvalidRequest
+	}
+	body, err := c.doSMSActivate(ctx, "getStatus", url.Values{"id": {activationID}})
+	if err != nil {
+		return "", err
+	}
+	state := strings.TrimSpace(string(body))
+	switch state {
+	case SMSActivationStateWaiting, SMSActivationStateRetry, SMSActivationStateResend, SMSActivationStateOK, SMSActivationStateCancel:
+		return state, nil
+	case "NO_ACTIVATION":
+		return "", ErrNotFound
+	}
+	if strings.HasPrefix(state, SMSActivationStateOK+":") {
+		return SMSActivationStateOK, nil
+	}
+	return "", ErrBadResponse
 }
 
 func (c *HTTPClient) SetSMSActivationStatus(ctx context.Context, activationID string, status int) error {
@@ -502,6 +540,27 @@ func (c *HTTPClient) SetSMSActivationStatus(ctx context.Context, activationID st
 		return ErrBadResponse
 	}
 	return nil
+}
+
+func (c *HTTPClient) SubmitSMSActivationComplaint(ctx context.Context, activationID string, complaintType string) error {
+	activationID = strings.TrimSpace(activationID)
+	complaintType = strings.TrimSpace(complaintType)
+	if activationID == "" || complaintType == "" || len(complaintType) > 64 {
+		return ErrInvalidRequest
+	}
+	for _, character := range complaintType {
+		if character != '_' && (character < 'A' || character > 'Z') {
+			return ErrInvalidRequest
+		}
+	}
+	_, err := c.doJSON(
+		ctx,
+		http.MethodPost,
+		"/complaints/activations/"+url.PathEscape(activationID),
+		nil,
+		map[string]string{"type": complaintType},
+	)
+	return err
 }
 
 func (c *HTTPClient) doSMSAPIv1(ctx context.Context, path string, query url.Values) ([]byte, error) {

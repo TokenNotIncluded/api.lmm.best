@@ -19,7 +19,11 @@ For commercial licensing, please contact support@quantumnous.com
 /*
 Copyright (C) 2026 LIghtJUNction
 */
-import type { HeroSmsSmsCountry, HeroSmsSmsOrder } from './sms-api.js'
+import type {
+  HeroSmsSmsCountry,
+  HeroSmsSmsOrder,
+  HeroSmsSmsService,
+} from './sms-api.js'
 
 export const HERO_SMS_FAVORITES_STORAGE_KEY = 'lmm-hero-sms-favorites:v1'
 export const HERO_SMS_MAX_FAVORITES = 30
@@ -273,6 +277,27 @@ export function hasHeroSmsFavorite(
   return favorites.some((favorite) => favoritePairKey(favorite) === key)
 }
 
+export type HeroSmsReceivingChannel = 'sms' | 'whatsapp'
+
+export function isHeroSmsWhatsAppService(
+  service: string | Pick<HeroSmsSmsService, 'code' | 'name'> | null | undefined
+) {
+  if (!service) return false
+  if (typeof service === 'string') {
+    return service.trim().toLowerCase() === 'wa'
+  }
+  return (
+    service.code.trim().toLowerCase() === 'wa' ||
+    service.name.trim().toLowerCase() === 'whatsapp'
+  )
+}
+
+export function resolveHeroSmsReceivingChannel(
+  service: string | Pick<HeroSmsSmsService, 'code' | 'name'> | null | undefined
+): HeroSmsReceivingChannel {
+  return isHeroSmsWhatsAppService(service) ? 'whatsapp' : 'sms'
+}
+
 export function resolveHeroSmsCountryCode(country: HeroSmsSmsCountry) {
   const englishName = normalizeCountryName(country.english_name || '')
   if (!englishName) return null
@@ -357,4 +382,28 @@ export function isActiveHeroSmsSmsOrder(
   order: HeroSmsSmsOrder | null | undefined
 ) {
   return Boolean(order && activeStatuses.has(order.status))
+}
+
+export function getHeroSmsCurrentOrderPollingInterval(
+  orders: HeroSmsSmsOrder[] | undefined,
+  pageVisible: boolean
+) {
+  if (!orders?.length) return false
+  if (orders.some(isActiveHeroSmsSmsOrder)) {
+    return pageVisible ? 10_000 : 60_000
+  }
+  // Recently completed orders remain in the current list briefly so the code
+  // can be copied. Keep a low-frequency poll running until the server ages
+  // them out instead of leaving sensitive details mounted indefinitely.
+  return 60_000
+}
+
+export function selectHeroSmsHistoryOrders(
+  history: HeroSmsSmsOrder[] | undefined,
+  current: HeroSmsSmsOrder[] | undefined
+) {
+  const currentIds = new Set((current ?? []).map((order) => order.id))
+  return (history ?? []).filter(
+    (order) => !isActiveHeroSmsSmsOrder(order) && !currentIds.has(order.id)
+  )
 }

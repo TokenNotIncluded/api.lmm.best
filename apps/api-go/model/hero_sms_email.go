@@ -1901,7 +1901,14 @@ func hasPendingHeroSMSWork() (bool, error) {
 
 func HasPendingHeroSMSSMSReconciliationWork() (bool, error) {
 	var count int64
-	err := DB.Model(&HeroSMSSMSOrder{}).Where("status = ?", HeroSMSSMSOrderStatusPurchaseUnknown).Count(&count).Error
+	err := DB.Model(&HeroSMSSMSOrder{}).
+		Where(
+			"status IN ? OR (status = ? AND complaint_status IN ?)",
+			[]string{HeroSMSSMSOrderStatusPurchaseUnknown, HeroSMSSMSOrderStatusCancelPending},
+			HeroSMSSMSOrderStatusActive,
+			[]string{HeroSMSSMSComplaintStatusSubmitting, HeroSMSSMSComplaintStatusSubmitted, HeroSMSSMSComplaintStatusSubmitUnknown},
+		).
+		Count(&count).Error
 	return count > 0, err
 }
 

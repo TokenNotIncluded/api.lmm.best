@@ -124,13 +124,35 @@ func GetHeroSMSSMSOrder(c *gin.Context) {
 	heroSMSJSON(c, http.StatusOK, gin.H{"order": order})
 }
 
+type heroSMSSMSComplaintRequest struct {
+	Reason string `json:"reason"`
+}
+
+func SubmitHeroSMSSMSComplaint(c *gin.Context) {
+	var request heroSMSSMSComplaintRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		heroSMSError(c, model.NewHeroSMSError(http.StatusBadRequest, "INVALID_REQUEST", "invalid HeroSMS complaint payload"))
+		return
+	}
+	order, err := model.SubmitHeroSMSSMSComplaint(c.Request.Context(), c.GetInt("id"), c.Param("id"), request.Reason)
+	if err != nil {
+		heroSMSError(c, err)
+		return
+	}
+	heroSMSJSON(c, http.StatusAccepted, gin.H{"order": order})
+}
+
 func CancelHeroSMSSMSOrder(c *gin.Context) {
 	order, quota, err := model.CancelHeroSMSSMSOrder(c.Request.Context(), c.GetInt("id"), c.Param("id"))
 	if err != nil {
 		heroSMSError(c, err)
 		return
 	}
-	heroSMSJSON(c, http.StatusOK, gin.H{"order": order, "quota": quota})
+	status := http.StatusOK
+	if order.Status == model.HeroSMSSMSOrderStatusCancelPending {
+		status = http.StatusAccepted
+	}
+	heroSMSJSON(c, status, gin.H{"order": order, "quota": quota})
 }
 
 func ListHeroSMSSMSOrders(c *gin.Context) {
@@ -147,4 +169,21 @@ func ListHeroSMSSMSOrders(c *gin.Context) {
 		return
 	}
 	heroSMSJSON(c, http.StatusOK, orders)
+}
+
+func HideHeroSMSSMSOrderFromHistory(c *gin.Context) {
+	if err := model.HideHeroSMSSMSOrderFromHistory(c.GetInt("id"), c.Param("id")); err != nil {
+		heroSMSError(c, err)
+		return
+	}
+	heroSMSJSON(c, http.StatusOK, gin.H{"hidden": true})
+}
+
+func ClearHeroSMSSMSOrderHistory(c *gin.Context) {
+	hidden, err := model.ClearHeroSMSSMSOrderHistory(c.GetInt("id"))
+	if err != nil {
+		heroSMSError(c, err)
+		return
+	}
+	heroSMSJSON(c, http.StatusOK, gin.H{"hidden_count": hidden})
 }

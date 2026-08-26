@@ -16,9 +16,11 @@ import (
 // The browser needs to show what happened, but the conversation must never
 // receive raw account data, passwords, OAuth subject IDs, or request content.
 type assistantToolTrace struct {
-	Name   string         `json:"name"`
-	Status string         `json:"status"`
-	Input  map[string]any `json:"input,omitempty"`
+	Name      string         `json:"name"`
+	Status    string         `json:"status"`
+	Input     map[string]any `json:"input,omitempty"`
+	Result    *float64       `json:"result,omitempty"`
+	ErrorCode string         `json:"error_code,omitempty"`
 }
 
 func buildAssistantToolTrace(call assistantOpenAIToolCall, result map[string]any) assistantToolTrace {
@@ -33,17 +35,27 @@ func buildAssistantToolTrace(call assistantOpenAIToolCall, result map[string]any
 	if status, _ := result["status"].(string); status == "confirmation_required" || status == "navigation_ready" {
 		trace.Status = "approval-requested"
 	}
+	if trace.Name == "calculate_math" {
+		if trace.Status == "output-error" {
+			trace.ErrorCode = "invalid_math_expression"
+			if message, _ := result["error"].(string); message == "a math expression is required" {
+				trace.ErrorCode = "missing_math_expression"
+			}
+		} else if value, ok := result["result"].(float64); ok && !math.IsNaN(value) && !math.IsInf(value, 0) {
+			trace.Result = &value
+		}
+	}
 	return trace
 }
 
 func assistantSafeToolInput(arguments string) map[string]any {
-	var input map[string]any
-	if strings.TrimSpace(arguments) == "" || jsonUnmarshalAssistant(arguments, &input) != nil {
+	input := make(map[string]any)
+	if strings.TrimSpace(arguments) == "" || json.Unmarshal([]byte(arguments), &input) != nil {
 		return nil
 	}
 	allowed := map[string]struct{}{
 		"action": {}, "days": {}, "group": {}, "identifier": {}, "model_id": {},
-		"page": {}, "platform": {}, "provider": {}, "query": {}, "section": {},
+		"expression": {}, "page": {}, "platform": {}, "provider": {}, "query": {}, "section": {},
 		"target_user_id": {}, "title": {}, "topic": {},
 	}
 	result := make(map[string]any)
@@ -71,12 +83,6 @@ func assistantSafeToolInput(arguments string) map[string]any {
 		return nil
 	}
 	return result
-}
-
-// Kept behind a tiny wrapper so the trace code cannot accidentally start
-// sharing a mutable request decoder with the tool execution path.
-func jsonUnmarshalAssistant(arguments string, target *map[string]any) error {
-	return json.Unmarshal([]byte(arguments), target)
 }
 
 type assistantUserTarget struct {

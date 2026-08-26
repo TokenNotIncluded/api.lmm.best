@@ -63,6 +63,16 @@ export interface HeroSmsSmsOffer {
   tiers?: HeroSmsSmsPriceTier[]
 }
 
+// typos:ignore DISMATCH -- HeroSMS's official complaint enum uses this spelling.
+export type HeroSmsSmsComplaintReason =
+  | 'NUMBER_BLOCKED'
+  | 'NUMBER_ALREADY_IN_USE'
+  | 'SMS_CODE_DISMATCH'
+  | 'SMS_NOT_RECEIVED'
+  | 'CODE_SENT_TO_APP'
+  | 'INCOMING_CALL_NUMBER'
+  | 'INCOMING_CALL_VOICE'
+
 export interface HeroSmsSmsOrder {
   id: string
   country_id: number
@@ -74,6 +84,10 @@ export interface HeroSmsSmsOrder {
   refunded_quota: number
   provider_id: string | null
   can_cancel?: boolean
+  can_complain?: boolean
+  complaint_type?: HeroSmsSmsComplaintReason | ''
+  complaint_status?: string
+  complaint_submitted_at?: number
   phone_number: string
   code: string
   message: string
@@ -81,6 +95,7 @@ export interface HeroSmsSmsOrder {
   last_error_message: string
   created_at: number
   updated_at: number
+  expires_at?: number
 }
 
 export interface HeroSmsSmsOrderPage {
@@ -179,6 +194,19 @@ export function refreshHeroSmsSmsOrder(orderId: string) {
   )
 }
 
+export function submitHeroSmsSmsComplaint(
+  orderId: string,
+  reason: HeroSmsSmsComplaintReason
+) {
+  return unwrap<{ order: HeroSmsSmsOrder }>(
+    api.post(
+      `/api/hero-sms/sms/orders/${encodeURIComponent(orderId)}/complaints`,
+      { reason },
+      requestOptions
+    )
+  )
+}
+
 export function cancelHeroSmsSmsOrder(orderId: string) {
   return unwrap<{ order: HeroSmsSmsOrder; quota: number }>(
     api.post(
@@ -202,5 +230,20 @@ export function listHeroSmsSmsOrders(page = 1, size = 20) {
       ...requestOptions,
       params: { page, size, summary: true },
     })
+  )
+}
+
+export function hideHeroSmsSmsOrderFromHistory(orderId: string) {
+  return unwrap<{ hidden: boolean }>(
+    api.delete(
+      `/api/hero-sms/sms/history/${encodeURIComponent(orderId)}`,
+      requestOptions
+    )
+  )
+}
+
+export function clearHeroSmsSmsOrderHistory() {
+  return unwrap<{ hidden_count: number }>(
+    api.delete('/api/hero-sms/sms/history', requestOptions)
   )
 }

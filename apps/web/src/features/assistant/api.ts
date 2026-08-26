@@ -384,6 +384,8 @@ export type AssistantToolTrace = {
   name: string
   status: 'output-available' | 'output-error' | 'approval-requested'
   input?: Record<string, string | number | boolean>
+  result?: number
+  errorCode?: 'missing_math_expression' | 'invalid_math_expression'
 }
 
 export type AssistantAction =
@@ -594,13 +596,12 @@ export function getAssistantErrorInfo(error: unknown): AssistantErrorInfo {
     responseData && typeof responseData === 'object'
       ? (responseData as { code?: unknown; message?: unknown })
       : undefined
+  let message: string | undefined
+  if (typeof payload?.message === 'string') message = payload.message
+  else if (typeof candidate.message === 'string') message = candidate.message
   return {
     ...(typeof payload?.code === 'string' ? { code: payload.code } : {}),
-    ...(typeof payload?.message === 'string'
-      ? { message: payload.message }
-      : typeof candidate.message === 'string'
-        ? { message: candidate.message }
-        : {}),
+    ...(message ? { message } : {}),
     ...(typeof candidate.response?.status === 'number'
       ? { status: candidate.response.status }
       : {}),
@@ -900,10 +901,24 @@ export function parseAssistantToolTraces(value: unknown): AssistantToolTrace[] {
           input[key] = rawValue
         }
       }
+      const result =
+        name === 'calculate_math' &&
+        typeof trace.result === 'number' &&
+        Number.isFinite(trace.result)
+          ? trace.result
+          : undefined
+      const errorCode =
+        name === 'calculate_math' &&
+        (trace.error_code === 'missing_math_expression' ||
+          trace.error_code === 'invalid_math_expression')
+          ? trace.error_code
+          : undefined
       return {
         name,
         status: trace.status as AssistantToolTrace['status'],
         ...(input && Object.keys(input).length > 0 ? { input } : {}),
+        ...(result !== undefined ? { result } : {}),
+        ...(errorCode ? { errorCode } : {}),
       }
     })
     .filter((trace): trace is AssistantToolTrace => trace !== null)

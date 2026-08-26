@@ -50,7 +50,7 @@ func TestHeroSMSSMSConflictingReconcilersCannotReactivateRefundedOrder(t *testin
 		if activeCalls.Add(1) == 1 {
 			close(candidateStarted)
 			<-releaseCandidate
-			_, _ = writer.Write([]byte(`{"data":[{"activationId":930,"serviceCode":"tg","phoneNumber":"79000000930","activationCost":0.5,"currency":840,"activationStatus":1,"activationTime":"2026-08-23 10:00:00","countryCode":6}]}`))
+			_, _ = writer.Write([]byte(`{"data":[{"activationId":930,"serviceCode":"tg","phoneNumber":"79000000930","activationCost":0.5,"currency":840,"activationStatus":1,"countryCode":6}]}`))
 			return
 		}
 		_, _ = writer.Write([]byte(`{"data":[]}`))
@@ -111,7 +111,7 @@ func TestHeroSMSSMSPurchaseReconcilesMalformedSuccessWithoutDoubleCharge(t *test
 				_, _ = writer.Write([]byte(`{"data":[]}`))
 				return
 			}
-			_, _ = writer.Write([]byte(`{"data":[{"activationId":916,"serviceCode":"tg","phoneNumber":"79000000916","activationCost":0.5,"currency":840,"activationStatus":1,"smsCode":null,"smsText":null,"activationTime":"2026-08-23 10:00:00","countryCode":6}]}`))
+			_, _ = writer.Write([]byte(`{"data":[{"activationId":916,"serviceCode":"tg","phoneNumber":"79000000916","activationCost":0.5,"currency":840,"activationStatus":1,"smsCode":null,"smsText":null,"countryCode":6}]}`))
 		case "getNumberV2":
 			purchaseCalls.Add(1)
 			_, _ = writer.Write([]byte(`{"activationId":916`))
@@ -174,7 +174,7 @@ func TestHeroSMSSMSPurchaseReconcilesTimeoutWithoutDoubleCharge(t *testing.T) {
 				_, _ = writer.Write([]byte(`{"data":[]}`))
 				return
 			}
-			_, _ = writer.Write([]byte(`{"data":[{"activationId":911,"serviceCode":"tg","phoneNumber":"79000000911","activationCost":0.5,"currency":840,"activationStatus":1,"smsCode":null,"smsText":null,"activationTime":"2026-08-23 10:00:00","countryCode":6}]}`))
+			_, _ = writer.Write([]byte(`{"data":[{"activationId":911,"serviceCode":"tg","phoneNumber":"79000000911","activationCost":0.5,"currency":840,"activationStatus":1,"smsCode":null,"smsText":null,"countryCode":6}]}`))
 		case "getNumberV2":
 			purchaseCalls.Add(1)
 			http.Error(writer, "temporary gateway timeout", http.StatusGatewayTimeout)

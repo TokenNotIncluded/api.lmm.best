@@ -27,10 +27,14 @@ import {
   clampHeroSmsQuantity,
   getHeroSmsCountryFlag,
   getHeroSmsCountryName,
+  getHeroSmsCurrentOrderPollingInterval,
   HERO_SMS_FAVORITES_STORAGE_KEY,
   HERO_SMS_MAX_FAVORITES,
   isActiveHeroSmsSmsOrder,
+  isHeroSmsWhatsAppService,
   loadHeroSmsFavorites,
+  resolveHeroSmsReceivingChannel,
+  selectHeroSmsHistoryOrders,
   toggleHeroSmsFavorite,
 } from './sms-selection'
 
@@ -54,9 +58,9 @@ const russia: HeroSmsSmsCountry = {
   popularity: 12,
 }
 
-function order(status: string): HeroSmsSmsOrder {
+function order(status: string, id = 'hssms_test'): HeroSmsSmsOrder {
   return {
-    id: 'hssms_test',
+    id,
     country_id: 6,
     service: 'tg',
     operator: 'any',
@@ -76,6 +80,16 @@ function order(status: string): HeroSmsSmsOrder {
 }
 
 describe('phone activation selection helpers', () => {
+  test('treats WhatsApp as its dedicated upstream service channel', () => {
+    assert.equal(isHeroSmsWhatsAppService('wa'), true)
+    assert.equal(
+      isHeroSmsWhatsAppService({ code: 'custom', name: 'WhatsApp' }),
+      true
+    )
+    assert.equal(resolveHeroSmsReceivingChannel('wa'), 'whatsapp')
+    assert.equal(resolveHeroSmsReceivingChannel('dr'), 'sms')
+  })
+
   test('resolves an honest localized country identity', () => {
     assert.equal(getHeroSmsCountryFlag(russia), '🇷🇺')
     assert.equal(
@@ -163,6 +177,42 @@ describe('phone activation selection helpers', () => {
     assert.equal(isActiveHeroSmsSmsOrder(order('pending_provider')), true)
     assert.equal(isActiveHeroSmsSmsOrder(order('purchase_unknown')), true)
     assert.equal(isActiveHeroSmsSmsOrder(order('active')), true)
+    assert.equal(isActiveHeroSmsSmsOrder(order('cancel_pending')), true)
     assert.equal(isActiveHeroSmsSmsOrder(order('completed')), false)
+  })
+
+  test('keeps polling until recently completed orders leave the current list', () => {
+    assert.equal(getHeroSmsCurrentOrderPollingInterval(undefined, true), false)
+    assert.equal(getHeroSmsCurrentOrderPollingInterval([], true), false)
+    assert.equal(
+      getHeroSmsCurrentOrderPollingInterval([order('active')], true),
+      10_000
+    )
+    assert.equal(
+      getHeroSmsCurrentOrderPollingInterval([order('active')], false),
+      60_000
+    )
+    assert.equal(
+      getHeroSmsCurrentOrderPollingInterval([order('completed')], true),
+      60_000
+    )
+  })
+
+  test('moves an order to history only after it leaves the current list', () => {
+    const completed = order('completed', 'completed')
+    const failed = order('failed', 'failed')
+    assert.deepEqual(
+      selectHeroSmsHistoryOrders(
+        [completed, failed, order('active', 'active')],
+        [completed]
+      ).map((item) => item.id),
+      ['failed']
+    )
+    assert.deepEqual(
+      selectHeroSmsHistoryOrders([completed, failed], []).map(
+        (item) => item.id
+      ),
+      ['completed', 'failed']
+    )
   })
 })

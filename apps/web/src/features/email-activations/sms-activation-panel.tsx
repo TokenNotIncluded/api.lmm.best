@@ -21,7 +21,7 @@ Copyright (C) 2026 LIghtJUNction
 */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { isAxiosError } from 'axios'
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -36,14 +36,18 @@ import {
 import { usePageVisibility } from './hooks.js'
 import {
   cancelHeroSmsSmsOrder,
+  clearHeroSmsSmsOrderHistory,
   createHeroSmsSmsOrder,
   getHeroSmsSmsOffer,
+  hideHeroSmsSmsOrderFromHistory,
   listCurrentHeroSmsSmsOrders,
   listHeroSmsSmsCountries,
   listHeroSmsSmsOperators,
   listHeroSmsSmsOrders,
   listHeroSmsSmsServices,
   refreshHeroSmsSmsOrder,
+  submitHeroSmsSmsComplaint,
+  type HeroSmsSmsComplaintReason,
   type HeroSmsSmsCountry,
   type HeroSmsSmsOffer,
   type HeroSmsSmsOrder,
@@ -51,6 +55,7 @@ import {
 } from './sms-api.js'
 import {
   SmsActiveOrdersCard,
+  SmsOrderDetailDialog,
   SmsOrderHistoryCard,
 } from './sms-order-sections.js'
 import { SmsPurchaseCard } from './sms-purchase-card.js'
@@ -62,11 +67,14 @@ import {
 import {
   clampHeroSmsQuantity,
   getHeroSmsCountryName,
+  getHeroSmsCurrentOrderPollingInterval,
   hasHeroSmsFavorite,
   HERO_SMS_MAX_FAVORITES,
   HERO_SMS_MAX_QUANTITY,
-  isActiveHeroSmsSmsOrder,
+  isHeroSmsWhatsAppService,
   loadHeroSmsFavorites,
+  resolveHeroSmsReceivingChannel,
+  selectHeroSmsHistoryOrders,
   toggleHeroSmsFavorite,
   type HeroSmsFavoritePair,
 } from './sms-selection.js'
@@ -97,6 +105,7 @@ const smsKeys = {
   current: ['hero-sms', 'sms', 'current'] as const,
   currentList: ['hero-sms', 'sms', 'current-list'] as const,
   history: ['hero-sms', 'sms', 'history'] as const,
+  order: (orderId: string) => ['hero-sms', 'sms', 'order', orderId] as const,
 }
 
 type Translate = ReturnType<typeof useTranslation>['t']
@@ -315,10 +324,8 @@ function useSmsCatalogQueries({
   const current = useQuery({
     queryKey: smsKeys.currentList,
     queryFn: listCurrentHeroSmsSmsOrders,
-    refetchInterval: (query) => {
-      if (!query.state.data?.some(isActiveHeroSmsSmsOrder)) return false
-      return pageVisible ? 10_000 : 60_000
-    },
+    refetchInterval: (query) =>
+      getHeroSmsCurrentOrderPollingInterval(query.state.data, pageVisible),
   })
   const history = useQuery({
     queryKey: smsKeys.history,
@@ -429,6 +436,7 @@ function useSmsSelectionState() {
   )
   const [batchResult, setBatchResult] =
     useState<HeroSmsBatchPurchaseResult | null>(null)
+  const lastSmsServiceRef = useRef('')
 
   const resetSelectionTail = () => {
     setOperator('')
@@ -439,6 +447,9 @@ function useSmsSelectionState() {
     setBatchResult(null)
   }
   const selectService = (value: string) => {
+    if (value && !isHeroSmsWhatsAppService(value)) {
+      lastSmsServiceRef.current = value
+    }
     setService(value)
     setCountry('')
     resetSelectionTail()
@@ -448,6 +459,9 @@ function useSmsSelectionState() {
     resetSelectionTail()
   }
   const selectFavorite = (favorite: HeroSmsFavoritePair) => {
+    if (!isHeroSmsWhatsAppService(favorite.serviceCode)) {
+      lastSmsServiceRef.current = favorite.serviceCode
+    }
     setService(favorite.serviceCode)
     setCountry(String(favorite.countryId))
     resetSelectionTail()
@@ -480,6 +494,7 @@ function useSmsSelectionState() {
     setFavorites,
     batchResult,
     setBatchResult,
+    lastSmsService: lastSmsServiceRef.current,
     selectService,
     selectCountry,
     selectFavorite,
@@ -501,10 +516,13 @@ function useSmsCatalogMaps(
   return { serviceMap, countryMap }
 }
 
-function useSmsHistoryOrders(items: HeroSmsSmsOrder[] | undefined) {
+function useSmsHistoryOrders(
+  items: HeroSmsSmsOrder[] | undefined,
+  current: HeroSmsSmsOrder[]
+) {
   return useMemo(
-    () => (items ?? []).filter((order) => !isActiveHeroSmsSmsOrder(order)),
-    [items]
+    () => selectHeroSmsHistoryOrders(items, current),
+    [current, items]
   )
 }
 
@@ -634,11 +652,21 @@ export function HeroSmsSmsActivationPanel() {
     setFavorites,
     batchResult,
     setBatchResult,
+    lastSmsService,
     selectService,
     selectCountry,
     selectFavorite,
   } = useSmsSelectionState()
   const [confirmOpen, setConfirmOpen] = useState(false)
+  const [historyDetailOrderId, setHistoryDetailOrderId] = useState<
+    string | null
+  >(null)
+  const [historyCleanupTarget, setHistoryCleanupTarget] = useState<
+    { kind: 'one'; orderId: string } | { kind: 'all' } | null
+  >(null)
+  const [cancelConfirmOrderId, setCancelConfirmOrderId] = useState<
+    string | null
+  >(null)
   const [batchProgress, setBatchProgress] = useState<{
     completed: number
     total: number
@@ -659,14 +687,58 @@ export function HeroSmsSmsActivationPanel() {
     pageVisible,
   })
 
+  const historyDetailQuery = useQuery({
+    queryKey: smsKeys.order(historyDetailOrderId ?? 'none'),
+    queryFn: () => refreshHeroSmsSmsOrder(historyDetailOrderId || ''),
+    enabled: historyDetailOrderId !== null,
+    staleTime: 30_000,
+  })
+
   const { serviceMap, countryMap } = useSmsCatalogMaps(
     queries.services.data,
     queries.allCountries.data
   )
   const selectedService = serviceMap.get(service)
   const selectedCountry = countryMap.get(Number(country))
-  const currentOrders = queries.current.data ?? []
-  const historyOrders = useSmsHistoryOrders(queries.history.data?.items)
+  const receivingChannel = resolveHeroSmsReceivingChannel(
+    selectedService ?? service
+  )
+  const whatsappService = (queries.services.data ?? []).find(
+    isHeroSmsWhatsAppService
+  )
+  const firstSmsService = (queries.services.data ?? []).find(
+    (item) => !isHeroSmsWhatsAppService(item)
+  )
+  const selectReceivingChannel = (channel: 'sms' | 'whatsapp') => {
+    selectService(
+      channel === 'whatsapp'
+        ? whatsappService?.code || 'wa'
+        : lastSmsService || firstSmsService?.code || ''
+    )
+  }
+  const currentOrders = useMemo(
+    () => queries.current.data ?? [],
+    [queries.current.data]
+  )
+  const observedCodes = useRef<Map<string, string> | null>(null)
+  useEffect(() => {
+    const nextCodes = new Map(
+      currentOrders.map((order) => [order.id, order.code || ''])
+    )
+    if (observedCodes.current) {
+      for (const order of currentOrders) {
+        const previousCode = observedCodes.current.get(order.id)
+        if (previousCode !== undefined && !previousCode && order.code) {
+          toast.success(t('Verification code received'))
+        }
+      }
+    }
+    observedCodes.current = nextCodes
+  }, [currentOrders, t])
+  const historyOrders = useSmsHistoryOrders(
+    queries.history.data?.items,
+    currentOrders
+  )
   const effectiveQuantity = resolveSmsQuantity(quantity, effectiveOffer)
   const invalidate = useCallback(async () => {
     await Promise.all([
@@ -692,11 +764,67 @@ export function HeroSmsSmsActivationPanel() {
     onSuccess: invalidate,
     onError: (error) => toast.error(t(parseHeroSmsError(error).message)),
   })
+  const complaintMutation = useMutation({
+    mutationFn: (input: {
+      orderId: string
+      reason: HeroSmsSmsComplaintReason
+    }) => submitHeroSmsSmsComplaint(input.orderId, input.reason),
+    onSuccess: async () => {
+      toast.success(t('Complaint submitted to HeroSMS'))
+      await invalidate()
+    },
+    onError: (error) => toast.error(t(parseHeroSmsError(error).message)),
+  })
   const cancelMutation = useMutation({
     mutationFn: (orderId: string) => cancelHeroSmsSmsOrder(orderId),
-    onSuccess: async () => {
-      toast.success(t('Phone activation cancelled and refunded'))
+    onSuccess: async (result) => {
+      if (
+        result.order.status === 'cancelled' &&
+        result.order.refunded_quota > 0
+      ) {
+        toast.success(t('Upstream cancellation confirmed and balance refunded'))
+      } else {
+        toast.info(
+          t(
+            'Cancellation submitted. Your balance is refunded only after HeroSMS confirms the upstream cancellation.'
+          )
+        )
+      }
+      setCancelConfirmOrderId(null)
       await invalidate()
+    },
+    onError: (error) => toast.error(t(parseHeroSmsError(error).message)),
+  })
+  const historyCleanupMutation = useMutation({
+    mutationFn: async (
+      target: { kind: 'one'; orderId: string } | { kind: 'all' }
+    ) => {
+      if (target.kind === 'one') {
+        await hideHeroSmsSmsOrderFromHistory(target.orderId)
+        return target
+      }
+      await clearHeroSmsSmsOrderHistory()
+      return target
+    },
+    onSuccess: async (target) => {
+      toast.success(
+        t(
+          target.kind === 'one'
+            ? 'Phone activation record removed'
+            : 'Phone activation history cleared'
+        )
+      )
+      if (target.kind === 'all') {
+        queryClient.removeQueries({ queryKey: ['hero-sms', 'sms', 'order'] })
+        setHistoryDetailOrderId(null)
+      } else {
+        queryClient.removeQueries({ queryKey: smsKeys.order(target.orderId) })
+        if (target.orderId === historyDetailOrderId) {
+          setHistoryDetailOrderId(null)
+        }
+      }
+      setHistoryCleanupTarget(null)
+      await queryClient.invalidateQueries({ queryKey: smsKeys.history })
     },
     onError: (error) => toast.error(t(parseHeroSmsError(error).message)),
   })
@@ -747,6 +875,7 @@ export function HeroSmsSmsActivationPanel() {
             onRetry: () => void queries.countries.refetch(),
           }}
           favorites={favorites}
+          channel={receivingChannel}
           service={service}
           country={country}
           operator={operator}
@@ -775,6 +904,7 @@ export function HeroSmsSmsActivationPanel() {
           reconciliationPending={
             reconciliation.pending || queries.current.isFetching
           }
+          onChannelChange={selectReceivingChannel}
           onServiceChange={selectService}
           onCountryChange={selectCountry}
           onOperatorChange={selectOperator}
@@ -811,11 +941,18 @@ export function HeroSmsSmsActivationPanel() {
               : undefined,
             onOrder: (orderId) => refreshMutation.mutate(orderId),
           }}
+          complaint={{
+            pendingOrderId: complaintMutation.isPending
+              ? complaintMutation.variables?.orderId
+              : undefined,
+            onOrder: (orderId, reason) =>
+              complaintMutation.mutate({ orderId, reason }),
+          }}
           cancel={{
             pendingOrderId: cancelMutation.isPending
               ? cancelMutation.variables
               : undefined,
-            onOrder: (orderId) => cancelMutation.mutate(orderId),
+            onOrder: setCancelConfirmOrderId,
           }}
         />
       </div>
@@ -829,6 +966,76 @@ export function HeroSmsSmsActivationPanel() {
         errorTitle={t('Unable to load phone activation history')}
         errorDescription={view.historyError}
         onRetry={() => void queries.history.refetch()}
+        onOpenOrder={setHistoryDetailOrderId}
+        onRemoveOrder={(orderId) =>
+          setHistoryCleanupTarget({ kind: 'one', orderId })
+        }
+        onClearHistory={() => setHistoryCleanupTarget({ kind: 'all' })}
+        cleanupPending={historyCleanupMutation.isPending}
+      />
+      <SmsOrderDetailDialog
+        open={historyDetailOrderId !== null}
+        onOpenChange={(open) => {
+          if (!open) setHistoryDetailOrderId(null)
+        }}
+        order={historyDetailQuery.data?.order}
+        countries={countryMap}
+        services={serviceMap}
+        language={language}
+        isPending={historyDetailQuery.isPending}
+        isError={historyDetailQuery.isError}
+        errorDescription={t(
+          parseHeroSmsError(historyDetailQuery.error).message
+        )}
+        onRetry={() => void historyDetailQuery.refetch()}
+      />
+      <ConfirmDialog
+        open={cancelConfirmOrderId !== null}
+        onOpenChange={(open) => {
+          if (!open && !cancelMutation.isPending) {
+            setCancelConfirmOrderId(null)
+          }
+        }}
+        title={t('Cancel this phone activation?')}
+        desc={t(
+          'HeroSMS will be asked to cancel this activation. Your balance is refunded only after HeroSMS confirms cancellation; a verification code received first will complete the order instead.'
+        )}
+        confirmText={t('Cancel and request refund')}
+        destructive
+        handleConfirm={() => {
+          if (cancelConfirmOrderId) {
+            cancelMutation.mutate(cancelConfirmOrderId)
+          }
+        }}
+        isLoading={cancelMutation.isPending}
+      />
+      <ConfirmDialog
+        open={historyCleanupTarget !== null}
+        onOpenChange={(open) => {
+          if (!open && !historyCleanupMutation.isPending) {
+            setHistoryCleanupTarget(null)
+          }
+        }}
+        title={t(
+          historyCleanupTarget?.kind === 'all'
+            ? 'Clear phone activation history?'
+            : 'Remove this phone activation record?'
+        )}
+        desc={t(
+          historyCleanupTarget?.kind === 'all'
+            ? 'All completed, cancelled, and failed records disappear from your history view. Active orders and billing audit data are retained.'
+            : 'The record disappears from your history view. Billing and refund audit data are retained.'
+        )}
+        confirmText={t(
+          historyCleanupTarget?.kind === 'all' ? 'Clear' : 'Remove'
+        )}
+        destructive
+        handleConfirm={() => {
+          if (historyCleanupTarget) {
+            historyCleanupMutation.mutate(historyCleanupTarget)
+          }
+        }}
+        isLoading={historyCleanupMutation.isPending}
       />
       <ConfirmDialog
         open={confirmOpen}

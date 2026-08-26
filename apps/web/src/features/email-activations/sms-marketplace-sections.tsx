@@ -302,7 +302,7 @@ export function SmsPurchaseDetails({
     <div className='space-y-3'>
       <div className='flex items-center gap-2 text-sm font-medium'>
         <span className='bg-muted text-muted-foreground inline-flex size-5 items-center justify-center rounded-full text-[11px] tabular-nums'>
-          3
+          4
         </span>
         <span>{t('Purchase details')}</span>
       </div>

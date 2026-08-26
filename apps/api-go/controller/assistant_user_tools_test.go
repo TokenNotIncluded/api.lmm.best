@@ -60,3 +60,23 @@ func TestAssistantSafeToolInputPreservesConversationTitle(t *testing.T) {
 
 	assert.Equal(t, map[string]any{"title": "配置 API 密钥"}, input)
 }
+
+func TestAssistantMathToolTraceShowsSafeExpressionResultAndActionableErrors(t *testing.T) {
+	success := buildAssistantToolTrace(assistantOpenAIToolCall{
+		Function: assistantOpenAIToolCallFunction{
+			Name:      "calculate_math",
+			Arguments: `{"expression":"6 * 7","variables":{"secret":42}}`,
+		},
+	}, map[string]any{"ok": true, "result": float64(42)})
+	require.NotNil(t, success.Result)
+	assert.Equal(t, float64(42), *success.Result)
+	assert.Equal(t, map[string]any{"expression": "6 * 7"}, success.Input)
+	assert.Empty(t, success.ErrorCode)
+
+	missing := buildAssistantToolTrace(assistantOpenAIToolCall{
+		Function: assistantOpenAIToolCallFunction{Name: "calculate_math", Arguments: `{}`},
+	}, map[string]any{"ok": false, "error": "a math expression is required"})
+	assert.Equal(t, "output-error", missing.Status)
+	assert.Equal(t, "missing_math_expression", missing.ErrorCode)
+	assert.Nil(t, missing.Result)
+}

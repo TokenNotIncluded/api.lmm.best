@@ -19,13 +19,20 @@ For commercial licensing, please contact support@quantumnous.com
 /*
 Copyright (C) 2026 LIghtJUNction
 */
-import { Phone, RefreshCw, Star } from 'lucide-react'
+import {
+  MessageCircle,
+  MessageSquareText,
+  Phone,
+  RefreshCw,
+  Star,
+} from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Label } from '@/components/ui/label'
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
@@ -51,7 +58,9 @@ import {
   getHeroSmsCountrySearchText,
   getHeroSmsQuickIndex,
   hasHeroSmsFavorite,
+  isHeroSmsWhatsAppService,
   type HeroSmsFavoritePair,
+  type HeroSmsReceivingChannel,
 } from './sms-selection.js'
 
 interface CatalogRequestState {
@@ -68,6 +77,7 @@ interface SmsPurchaseCardProps {
   servicesState: CatalogRequestState
   countriesState: CatalogRequestState
   favorites: HeroSmsFavoritePair[]
+  channel: HeroSmsReceivingChannel
   service: string
   country: string
   operator: string
@@ -90,6 +100,7 @@ interface SmsPurchaseCardProps {
   batchFeedback: string
   canPurchase: boolean
   reconciliationPending: boolean
+  onChannelChange: (value: HeroSmsReceivingChannel) => void
   onServiceChange: (value: string) => void
   onCountryChange: (value: string) => void
   onOperatorChange: (value: string) => void
@@ -116,6 +127,46 @@ function SmsStepLabel({ step, children }: { step: number; children: string }) {
       </span>
       <span>{children}</span>
     </span>
+  )
+}
+
+function SmsChannelField({
+  value,
+  onChange,
+}: {
+  value: HeroSmsReceivingChannel
+  onChange: (value: HeroSmsReceivingChannel) => void
+}) {
+  const { t } = useTranslation()
+  return (
+    <div className='space-y-2'>
+      <SmsStepLabel step={1}>{t('Receiving channel')}</SmsStepLabel>
+      <RadioGroup
+        value={value}
+        onValueChange={(next) =>
+          onChange(next === 'whatsapp' ? 'whatsapp' : 'sms')
+        }
+        className='grid grid-cols-2 gap-2'
+        aria-label={t('Receiving channel')}
+      >
+        <Label
+          htmlFor='hero-sms-channel-sms'
+          className='has-[[data-state=checked]]:border-primary has-[[data-state=checked]]:bg-primary/5 flex min-h-12 cursor-pointer items-center gap-3 rounded-lg border px-3 py-2'
+        >
+          <RadioGroupItem id='hero-sms-channel-sms' value='sms' />
+          <MessageSquareText className='size-4' />
+          <span className='font-medium'>{t('SMS')}</span>
+        </Label>
+        <Label
+          htmlFor='hero-sms-channel-whatsapp'
+          className='has-[[data-state=checked]]:border-primary has-[[data-state=checked]]:bg-primary/5 flex min-h-12 cursor-pointer items-center gap-3 rounded-lg border px-3 py-2'
+        >
+          <RadioGroupItem id='hero-sms-channel-whatsapp' value='whatsapp' />
+          <MessageCircle className='size-4' />
+          <span className='font-medium'>{t('WhatsApp')}</span>
+        </Label>
+      </RadioGroup>
+    </div>
   )
 }
 
@@ -155,7 +206,7 @@ function SmsServiceField({
   return (
     <div className='space-y-2'>
       <Label htmlFor='hero-sms-service'>
-        <SmsStepLabel step={1}>{t('Service')}</SmsStepLabel>
+        <SmsStepLabel step={2}>{t('Service')}</SmsStepLabel>
       </Label>
       {control}
     </div>
@@ -228,7 +279,7 @@ function SmsCountryField({
   return (
     <div className='space-y-2'>
       <Label htmlFor='hero-sms-country'>
-        <SmsStepLabel step={2}>{t('Country')}</SmsStepLabel>
+        <SmsStepLabel step={3}>{t('Country')}</SmsStepLabel>
       </Label>
       {control}
     </div>
@@ -305,8 +356,13 @@ function SmsBatchStatus({
 
 function purchaseButtonText(
   quantity: number,
+  channel: HeroSmsReceivingChannel,
   t: ReturnType<typeof useTranslation>['t']
 ) {
+  if (channel === 'whatsapp') {
+    if (quantity === 1) return t('Buy WhatsApp activation')
+    return t('Buy {{count}} WhatsApp activations', { count: quantity })
+  }
   if (quantity === 1) return t('Buy phone activation')
   return t('Buy {{count}} phone activations', { count: quantity })
 }
@@ -314,9 +370,17 @@ function purchaseButtonText(
 export function SmsPurchaseCard(props: SmsPurchaseCardProps) {
   const { t } = useTranslation()
   const [page, setPage] = useState<'purchase' | 'favorites'>('purchase')
-  const serviceOptions = useMemo<SmsCatalogOption[]>(
-    () =>
-      props.services.map((item) => ({
+  const serviceOptions = useMemo<SmsCatalogOption[]>(() => {
+    const options: SmsCatalogOption[] = []
+    for (const item of props.services) {
+      const isWhatsApp = isHeroSmsWhatsAppService(item)
+      if (
+        (props.channel === 'whatsapp' && !isWhatsApp) ||
+        (props.channel === 'sms' && isWhatsApp)
+      ) {
+        continue
+      }
+      options.push({
         value: item.code,
         label: item.name,
         description: item.code,
@@ -327,9 +391,10 @@ export function SmsPurchaseCard(props: SmsPurchaseCardProps) {
           (favorite) => favorite.serviceCode === item.code
         ),
         leading: <SmsServiceIdentity service={item} />,
-      })),
-    [props.favorites, props.services]
-  )
+      })
+    }
+    return options
+  }, [props.channel, props.favorites, props.services])
   const countryOptions = useMemo<SmsCatalogOption[]>(
     () =>
       props.countries.map((item) => {
@@ -378,6 +443,10 @@ export function SmsPurchaseCard(props: SmsPurchaseCardProps) {
             </TabsTrigger>
           </TabsList>
           <TabsContent value='purchase' className='mt-0 space-y-5'>
+            <SmsChannelField
+              value={props.channel}
+              onChange={props.onChannelChange}
+            />
             <SmsServiceField
               value={props.service}
               options={serviceOptions}
@@ -434,7 +503,7 @@ export function SmsPurchaseCard(props: SmsPurchaseCardProps) {
               disabled={!props.canPurchase}
               onClick={props.onPurchase}
             >
-              {purchaseButtonText(props.quantity, t)}
+              {purchaseButtonText(props.quantity, props.channel, t)}
             </Button>
             <p className='text-muted-foreground text-xs leading-relaxed'>
               {t(

@@ -2,6 +2,7 @@ package herosms
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -100,6 +101,8 @@ func TestSMSClientCatalogQuoteAndPurchase(t *testing.T) {
 	require.Equal(t, "79001234567", activation.PhoneNumber)
 	require.Equal(t, "1.25", activation.CostValue)
 	require.Equal(t, 840, activation.CurrencyCode)
+	require.Equal(t, "2026-02-18T18:11:23+00:00", activation.ActivationEndTime)
+	require.Equal(t, "any", activation.ActivationOperator)
 
 	_, err = client.PurchaseSMSActivation(context.Background(), SMSPurchaseRequest{
 		CountryID:    6,
@@ -140,6 +143,9 @@ func TestSMSClientStatusAndStatusUpdate(t *testing.T) {
 		case "getStatusV2":
 			require.Equal(t, "12345", r.URL.Query().Get("id"))
 			_, _ = w.Write([]byte(`{"sms":{"code":"8675309","text":"Your code is 8675309"}}`))
+		case "getStatus":
+			require.Equal(t, "12345", r.URL.Query().Get("id"))
+			_, _ = w.Write([]byte(SMSActivationStateCancel))
 		case "setStatus":
 			require.Equal(t, "8", r.URL.Query().Get("status"))
 			_, _ = w.Write([]byte("ACCESS_CANCEL"))
@@ -154,7 +160,41 @@ func TestSMSClientStatusAndStatusUpdate(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "8675309", status.Code)
 	require.Equal(t, "Your code is 8675309", status.Text)
+	state, err := client.GetSMSActivationState(context.Background(), "12345")
+	require.NoError(t, err)
+	require.Equal(t, SMSActivationStateCancel, state)
 	require.NoError(t, client.SetSMSActivationStatus(context.Background(), "12345", 8))
+}
+
+func TestSMSClientNormalizesCompletedActivationState(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		require.Equal(t, "getStatus", request.URL.Query().Get("action"))
+		_, _ = w.Write([]byte("STATUS_OK:8675309"))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL+"/api/v1", "test-key")
+	state, err := client.GetSMSActivationState(t.Context(), "12345")
+	require.NoError(t, err)
+	require.Equal(t, SMSActivationStateOK, state)
+}
+
+func TestSMSClientSubmitsOfficialComplaintReason(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		require.Equal(t, http.MethodPost, request.Method)
+		require.Equal(t, "/api/v1/complaints/activations/12345", request.URL.Path)
+		require.Equal(t, "ApiKey test-key", request.Header.Get("Authorization"))
+		require.Equal(t, "test-key", request.Header.Get("ApiKey"))
+		var payload map[string]string
+		require.NoError(t, json.NewDecoder(request.Body).Decode(&payload))
+		require.Equal(t, map[string]string{"type": "SMS_NOT_RECEIVED"}, payload)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL+"/api/v1", "test-key")
+	require.NoError(t, client.SubmitSMSActivationComplaint(t.Context(), "12345", "SMS_NOT_RECEIVED"))
+	require.ErrorIs(t, client.SubmitSMSActivationComplaint(t.Context(), "12345", "free text"), ErrInvalidRequest)
 }
 
 func TestSMSClientFallsBackWhenTierMapIsEmpty(t *testing.T) {

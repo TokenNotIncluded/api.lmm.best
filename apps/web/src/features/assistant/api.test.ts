@@ -493,9 +493,21 @@ describe('assistant response parsing', () => {
           input: { days: 30 },
         },
         {
+          name: 'calculate_math',
+          status: 'output-available',
+          input: { expression: '6 * 7' },
+          result: 42,
+        },
+        {
+          name: 'calculate_math',
+          status: 'output-error',
+          error_code: 'missing_math_expression',
+        },
+        {
           name: 'bad',
           status: 'output-available',
           input: { nested: { secret: 'x' } },
+          result: 99,
         },
       ]),
       [
@@ -508,6 +520,17 @@ describe('assistant response parsing', () => {
           name: 'get_user_usage_summary',
           status: 'output-error',
           input: { days: 30 },
+        },
+        {
+          name: 'calculate_math',
+          status: 'output-available',
+          input: { expression: '6 * 7' },
+          result: 42,
+        },
+        {
+          name: 'calculate_math',
+          status: 'output-error',
+          errorCode: 'missing_math_expression',
         },
       ]
     )
