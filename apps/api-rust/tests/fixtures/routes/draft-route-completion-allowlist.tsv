@@ -142,8 +142,10 @@ GET	/api/release-notes/latest	compatibility	apps/api-rust/src/migration_routes/r
 GET	/api/security/admin/ai-reviews	compatibility	apps/api-rust/src/migration_routes/security_admin.rs	application route intentionally outside the frozen legacy migration inventory
 GET	/api/security/admin/events	compatibility	apps/api-rust/src/migration_routes/security_overview.rs	application route intentionally outside the frozen legacy migration inventory
 GET	/api/security/admin/policy	compatibility	apps/api-rust/src/migration_routes/security_overview.rs	application route intentionally outside the frozen legacy migration inventory
+DELETE	/api/security/admin/review-runs	compatibility	apps/api-rust/src/migration_routes/security_admin.rs	application route intentionally outside the frozen legacy migration inventory
 GET	/api/security/admin/review-runs	compatibility	apps/api-rust/src/migration_routes/security_admin.rs	application route intentionally outside the frozen legacy migration inventory
 GET	/api/security/admin/review-runs/:task_id	compatibility	apps/api-rust/src/migration_routes/security_admin.rs	application route intentionally outside the frozen legacy migration inventory
+GET	/api/security/admin/review-runs/cleanup-preview	compatibility	apps/api-rust/src/migration_routes/security_admin.rs	application route intentionally outside the frozen legacy migration inventory
 PUT	/api/security/admin/settings	compatibility	apps/api-rust/src/migration_routes/security_admin.rs	application route intentionally outside the frozen legacy migration inventory
 GET	/api/security/admin/stats	compatibility	apps/api-rust/src/migration_routes/security_overview.rs	application route intentionally outside the frozen legacy migration inventory
 GET	/api/security/admin/violation-fee-appeals	compatibility	apps/api-rust/src/migration_routes/security_admin.rs	application route intentionally outside the frozen legacy migration inventory
