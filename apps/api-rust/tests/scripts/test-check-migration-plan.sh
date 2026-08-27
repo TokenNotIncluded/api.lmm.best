@@ -3,6 +3,7 @@ set -euo pipefail
 
 repo_root=$(git rev-parse --show-toplevel)
 checker="$repo_root/apps/api-rust/tests/scripts/check-migration-plan.sh"
+route_stub_checker="$repo_root/apps/api-rust/tests/scripts/route-local-stub-state.pl"
 # shellcheck source=route-gate-fixture-lib.sh
 # shellcheck disable=SC1091 # Repository root is resolved at runtime.
 source "$repo_root/apps/api-rust/tests/scripts/route-gate-fixture-lib.sh"
@@ -14,6 +15,39 @@ cleanup() {
   rm -rf "$runtime"
 }
 trap cleanup EXIT
+
+route_local_fixture="$runtime/relay-shared.rs"
+cat >"$route_local_fixture" <<'RS'
+use axum::{Router, http::StatusCode, routing::{delete, post}};
+
+fn router() -> Router {
+    Router::new()
+        .route("/v1/engines/{model}/embeddings", post(complete_embedding))
+        .route("/v1/models/{model}", delete(frozen_model_delete))
+}
+
+async fn complete_embedding() -> StatusCode {
+    StatusCode::OK
+}
+
+async fn frozen_model_delete() -> StatusCode {
+    StatusCode::NOT_IMPLEMENTED
+}
+RS
+[[ $(perl "$route_stub_checker" "$route_local_fixture" POST '/v1/engines/{model}/embeddings') == complete ]] || {
+  echo "route-local stub checker confused a normal embedding handler with a sibling 501 route" >&2
+  exit 1
+}
+[[ $(perl "$route_stub_checker" "$route_local_fixture" DELETE '/v1/models/{model}') == stub ]] || {
+  echo "route-local stub checker missed the frozen DELETE 501 handler" >&2
+  exit 1
+}
+route_local_stub_fixture="$runtime/relay-shared-normal-is-stub.rs"
+sed '0,/StatusCode::OK/s//StatusCode::NOT_IMPLEMENTED/' "$route_local_fixture" >"$route_local_stub_fixture"
+[[ $(perl "$route_stub_checker" "$route_local_stub_fixture" POST '/v1/engines/{model}/embeddings') == stub ]] || {
+  echo "route-local stub checker accepted a 501 embedding handler beside a frozen DELETE 501 handler" >&2
+  exit 1
+}
 
 checker_output=$(bash "$checker")
 printf '%s\n' "$checker_output"
