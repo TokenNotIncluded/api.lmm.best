@@ -42,6 +42,12 @@ jobs:
           GOWORK: 'off'
         run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 -color
 
+      - name: Install repository contract tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes nginx ripgrep
+          test "$(command -v rg)" = /usr/bin/rg
+
       - name: Validate read-only production inspectors
         run: |
           shellcheck \
@@ -72,8 +78,6 @@ jobs:
 
       - name: Test Nginx API preflight policy
         run: |
-          sudo apt-get update
-          sudo apt-get install --no-install-recommends --yes nginx
           shellcheck \
             deploy/test-nginx-access-policy-preflight.sh \
             deploy/test-nginx-mime.sh
