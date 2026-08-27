@@ -69,7 +69,7 @@ use axum::{Router, routing::{get, post}};
 
 fn router() -> Router {
     Router::new()
-        .route("/api/widgets/{id}", get(show).post(update))
+        .route("/api/widgets/{id}", get(list_todos).post(update))
         .route(
             "/v1/models/{*request}",
             axum::routing::post(proxy),
@@ -82,7 +82,7 @@ fn router() -> Router {
         .route("/api/legacy-stub", get(relay_not_implemented))
 }
 
-async fn show() {}
+async fn list_todos() {}
 async fn update() {}
 async fn proxy() {}
 async fn health() {}
@@ -94,7 +94,7 @@ async fn relay_not_implemented() -> axum::http::StatusCode {
     axum::http::StatusCode::NOT_IMPLEMENTED
 }
 RS
-printf 'GET\t/api/widgets/:id\thandler.show\nPOST\t/api/widgets/:id\thandler.update\nPOST\t/v1/models/*request\thandler.proxy\nPOST\t/api/draft\thandler.draft\nGET\t/api/todo\thandler.todo\nGET\t/api/panic\thandler.panic\nGET\t/api/placeholder\thandler.placeholder\nGET\t/api/legacy-stub\tcontroller.RelayNotImplemented\n' >"$valid/baseline.tsv"
+printf 'GET\t/api/widgets/:id\thandler.list_todos\nPOST\t/api/widgets/:id\thandler.update\nPOST\t/v1/models/*request\thandler.proxy\nPOST\t/api/draft\thandler.draft\nGET\t/api/todo\thandler.todo\nGET\t/api/panic\thandler.panic\nGET\t/api/placeholder\thandler.placeholder\nGET\t/api/legacy-stub\tcontroller.RelayNotImplemented\n' >"$valid/baseline.tsv"
 write_plan "$valid/plan.tsv" \
   'GET\t/api/widgets/:id\tlmm_api_rs::routes::widgets' \
   'POST\t/api/widgets/:id\tlmm_api_rs::routes::widgets' \
@@ -525,6 +525,6 @@ write_plan "$unparseable/plan.tsv" \
   'GET\t/api/items\tlmm_api_rs::routes::items'
 write_gate "$unparseable/gate.tsv" \
   'GET\t/api/items\tpresent\tunverified\tunmounted\tunverified\tnot-applicable\tgo\tlegacy-go\tfixture'
-assert_rejected unparseable 'route path must be a static string literal'
+assert_rejected unparseable 'route path identifier must use a *_PATH constant'
 
 echo "draft route coverage checker tests passed"

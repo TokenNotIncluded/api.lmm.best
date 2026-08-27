@@ -84,6 +84,7 @@ pub mod cortexfs_protocol_bridge;
 pub mod migration_routes;
 
 /// Focused candidate for the legacy model-deletion boundary.
+#[cfg(test)]
 pub(crate) mod missing_relay_model_delete_candidate;
 
 /// Legacy-compatible public system status route.

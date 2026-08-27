@@ -579,7 +579,9 @@ for my $file (@source_files) {
                     $clean,
                     $handler,
                     $hard_placeholder_pattern,
-                    qr/(?:placeholder|todo|panic)/i,
+                    # `todo` is also a domain noun (`get_todos`). Real `todo!`
+                    # macros are still detected in the handler expression/body.
+                    qr/(?:placeholder|panic)/i,
                 );
             $not_implemented{$key} = 1
                 if $handler =~ $not_implemented_pattern

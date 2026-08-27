@@ -71,15 +71,19 @@ mod tests {
     use std::sync::Arc;
 
     use async_trait::async_trait;
-    use axum::{Router, body::Body, http::Request as HttpRequest};
+    use axum::{
+        Router,
+        body::Body,
+        extract::{Path, State},
+        http::Request as HttpRequest,
+        routing::delete,
+    };
     use serde_json::{Value, json};
     use tower::ServiceExt;
 
     use super::*;
     use crate::{
-        migration_routes::missing_relay_models_billing::{
-            ModelLookupRequest, ModelLookupService, model_lookup_router,
-        },
+        migration_routes::missing_relay_models_billing::{ModelLookupRequest, ModelLookupService},
         models::{ModelView, ModelsError, ModelsErrorKind},
     };
 
@@ -102,11 +106,22 @@ mod tests {
         }
     }
 
+    async fn delete_model_route(
+        State(state): State<ModelLookupState>,
+        Path(model): Path<String>,
+        headers: HeaderMap,
+        request: Request,
+    ) -> Response {
+        delete_model(state, model, headers, request).await
+    }
+
     fn app(authenticated: Result<(), ModelsErrorKind>) -> Router {
-        model_lookup_router(ModelLookupState::new(
-            Arc::new(TestService { authenticated }),
-            "v0.0.0-test",
-        ))
+        Router::new()
+            .route("/v1/models/{model}", delete(delete_model_route))
+            .with_state(ModelLookupState::new(
+                Arc::new(TestService { authenticated }),
+                "v0.0.0-test",
+            ))
     }
 
     async fn json_body(response: Response) -> Value {

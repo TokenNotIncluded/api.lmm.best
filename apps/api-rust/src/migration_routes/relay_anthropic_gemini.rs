@@ -292,7 +292,7 @@ fn router_with_optional_model_lookup(
             "/v1/models/{model}",
             model_methods
                 .post(gemini_content_single)
-                .delete(delete_openai_model),
+                .delete(delete_openai_model_not_implemented),
         )
         .route(
             "/v1/models/{model}/{*tail}",
@@ -375,7 +375,7 @@ async fn gemini_embedding(
 ///
 /// Unlike relay POST routes, the compatibility response stops after the
 /// token-auth middleware and never distributes/selects a channel.
-async fn delete_openai_model(
+async fn delete_openai_model_not_implemented(
     State(state): State<RelayHttpState>,
     Path(model): Path<String>,
     request: Request,
@@ -400,13 +400,13 @@ async fn delete_openai_model(
         return openai_failure(&error, &request_id);
     }
     let mut response = (
-        StatusCode::from_u16(500_u16 + 1).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
+        StatusCode::NOT_IMPLEMENTED,
         Json(LegacyUnavailableEnvelope {
             error: LegacyUnavailableError {
-                message: concat!("API not ", "implemented"),
+                message: "API not implemented",
                 kind: "new_api_error",
                 param: "",
-                code: concat!("api_", "not_", "implemented"),
+                code: "api_not_implemented",
             },
         }),
     )

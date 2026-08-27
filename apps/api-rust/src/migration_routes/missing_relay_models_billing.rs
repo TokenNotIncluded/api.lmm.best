@@ -28,7 +28,6 @@ use sqlx::PgPool;
 
 use crate::{
     RequestContext,
-    missing_relay_model_delete_candidate::delete_model,
     models::{ModelView, ModelsError, ModelsErrorKind, ModelsRequest, PgModelsService},
 };
 
@@ -211,10 +210,7 @@ pub fn model_lookup_method_router(state: ModelLookupState) -> MethodRouter {
 /// GET handler with the relay slice's exact POST and DELETE methods.
 pub fn model_lookup_router(state: ModelLookupState) -> Router {
     Router::new()
-        .route(
-            "/v1/models/{model}",
-            get(retrieve_model_with_state).delete(delete_model_with_state),
-        )
+        .route("/v1/models/{model}", get(retrieve_model_with_state))
         .with_state(state)
 }
 
@@ -234,15 +230,6 @@ async fn retrieve_model_with_state(
     request: Request,
 ) -> Response {
     retrieve_model(state, model, headers, request).await
-}
-
-async fn delete_model_with_state(
-    State(state): State<ModelLookupState>,
-    Path(model): Path<String>,
-    headers: HeaderMap,
-    request: Request,
-) -> Response {
-    delete_model(state, model, headers, request).await
 }
 
 async fn retrieve_model(

@@ -714,7 +714,7 @@ async fn not_implemented(State(state): State<RelayMiscHttpState>, request: Reque
 /// from the four active relay protocols.  The shared executor still performs
 /// the same auth, performance, model-limit, and distribution ordering before
 /// selecting the frozen response.
-pub async fn legacy_unavailable(
+pub async fn legacy_not_implemented(
     State(state): State<RelayMiscHttpState>,
     request: Request,
 ) -> Response {
