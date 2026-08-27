@@ -258,14 +258,46 @@ sub is_models_post_alias {
         || $path eq '/v1beta/models/:model/*tail';
 }
 
-# The shared `/v1/models/:model` method router is composed in three places:
-# the focused compatibility candidate, the normal GET catalogue, and the
-# relay's POST/DELETE method router.  These declarations intentionally describe
-# one Axum method surface rather than three independently mounted endpoints.
-sub is_models_shared_alias {
-    return 1 if $_[1] eq '/v1/models/:model'
-        && ($_[0] eq 'GET' || $_[0] eq 'DELETE');
-    return is_models_post_alias(@_);
+# The shared `/v1/models/:model` method router has a small, audited set of
+# duplicate static declarations.  Do not exempt the path globally: an
+# arbitrary file or handler spelling the same route is a competing owner.
+sub is_known_models_shared_alias {
+    my ($method, $candidate_path, $raw_path, $handler, $source_path, $first) = @_;
+    my $billing = 'apps/api-rust/src/migration_routes/missing_relay_models_billing.rs';
+    my $relay = 'apps/api-rust/src/migration_routes/relay_anthropic_gemini.rs';
+    my $delete_candidate = 'apps/api-rust/src/missing_relay_model_delete_candidate.rs';
+    $handler =~ s/^\s+|\s+$//g;
+
+    if ($method eq 'GET' && $candidate_path eq '/v1/models/:model') {
+        return $source_path eq $billing
+            && $first->{source_path} eq $billing
+            && $handler eq 'retrieve_model_with_state'
+            && $first->{handler} eq 'retrieve_model_with_state'
+            && $raw_path eq '/v1/models/:model'
+            && $first->{raw_path} eq '/v1/models/:model';
+    }
+    if ($method eq 'POST'
+        && ($candidate_path eq '/v1/models/*path' || $candidate_path eq '/v1beta/models/*path')) {
+        my %handlers = map { $_ => 1 } ($handler, $first->{handler});
+        my %paths = map { $_ => 1 } ($raw_path, $first->{raw_path});
+        my $prefix = $candidate_path eq '/v1/models/*path' ? '/v1/models' : '/v1beta/models';
+        return $source_path eq $relay
+            && $first->{source_path} eq $relay
+            && $handlers{gemini_content_single}
+            && $handlers{gemini_content_tail}
+            && $paths{"$prefix/:model"}
+            && $paths{"$prefix/:model/*tail"};
+    }
+    if ($method eq 'DELETE' && $candidate_path eq '/v1/models/:model') {
+        my %owners;
+        $owners{"$first->{source_path}\t$first->{handler}"} = 1;
+        $owners{"$source_path\t$handler"} = 1;
+        return $raw_path eq '/v1/models/:model'
+            && $first->{raw_path} eq '/v1/models/:model'
+            && $owners{"$relay\tdelete_openai_model_not_implemented"}
+            && $owners{"$delete_candidate\tdelete_model_route"};
+    }
+    return 0;
 }
 
 sub method_calls {
@@ -306,7 +338,7 @@ sub function_matches_pattern {
     return 0;
 }
 
-my (%baseline, %baseline_handler, %planned_module, %gate_mount, %gate_retired, %candidates, %placeholders, %hard_placeholders, %not_implemented, %outside_allowlist);
+my (%baseline, %baseline_handler, %planned_module, %gate_mount, %gate_retired, %candidates, %candidate_metadata, %route_aliases, %placeholders, %hard_placeholders, %not_implemented, %outside_allowlist);
 my $failed = 0;
 
 open my $baseline_handle, '<', $baseline_path or die "cannot read $baseline_path: $!\n";
@@ -557,26 +589,44 @@ for my $file (@source_files) {
             next;
         }
         my %declaration_methods;
+        my $source_path = relative_source_path($file);
+        my $source_location = "$source_path:$line";
         for my $call (@$calls) {
             my ($method, $handler) = @$call;
-            # A *_PATH route is an explicitly named non-owning split mount.
-            # Its owning route must still be emitted through a literal path in
-            # this source tree; skipping aliases keeps read-only/state-specific
-            # mounts from being mistaken for duplicate production ownership.
-            next if $route_alias;
             my $candidate_path = normalize_candidate_path($method, $path);
             next if !defined $candidate_path;
+            # A *_PATH route is an explicitly named non-owning split mount.
+            # It may be deduplicated only when a literal declaration owns the
+            # same normalized method/path elsewhere in the scanned tree.
+            if ($route_alias) {
+                my $alias_key = "$method\t$candidate_path";
+                $route_aliases{$alias_key} //= $source_location;
+                next;
+            }
             if ($declaration_methods{$method}++) {
                 $failed |= fail("$file:$line: ambiguous repeated $method method for $candidate_path");
                 next;
             }
             my $key = "$method\t$candidate_path";
             if (exists $candidates{$key}) {
-                next if is_models_shared_alias($method, $path);
+                next if is_known_models_shared_alias(
+                    $method,
+                    $candidate_path,
+                    $path,
+                    $handler,
+                    $source_path,
+                    $candidate_metadata{$key},
+                );
                 $failed |= fail("$file:$line: duplicate normalized route $method $candidate_path (first at $candidates{$key})");
                 next;
             }
-            $candidates{$key} = relative_source_path($file) . ":$line";
+            $handler =~ s/^\s+|\s+$//g;
+            $candidates{$key} = $source_location;
+            $candidate_metadata{$key} = {
+                source_path => $source_path,
+                handler => $handler,
+                raw_path => $path,
+            };
             my $route_source = substr($raw, $route_start, $closing - $route_start + 1);
             $hard_placeholders{$key} = 1
                 if $handler =~ $hard_placeholder_pattern
@@ -604,6 +654,12 @@ for my $file (@source_files) {
         }
         pos($clean) = $closing + 1;
     }
+}
+
+for my $key (sort keys %route_aliases) {
+    next if exists $candidates{$key};
+    my ($method, $path) = split /\t/, $key, 2;
+    $failed |= fail("$route_aliases{$key}: non-owning *_PATH alias has no literal owner for $method $path");
 }
 
 exit 1 if $failed;

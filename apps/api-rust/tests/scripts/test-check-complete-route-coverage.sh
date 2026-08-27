@@ -8,12 +8,20 @@ trap 'rm -rf -- "$runtime"' EXIT
 fail() { printf 'complete route coverage self-test: %s\n' "$*" >&2; exit 1; }
 expect_fail() { "$@" >"$runtime/out" 2>"$runtime/err" && fail "expected failure: $*" || true; }
 
+write_gate() {
+  printf '%s\n' \
+    $'method\tpath\tsource_state\tcompile_state\tmount_state\tdifferential_state\tapproval_state\tproduction_owner\tgate_state\tevidence' \
+    "$@" >"$runtime/gate.tsv"
+}
+
 printf '%s\n' \
   $'GET\t/candidate\tgo.candidate' \
   $'GET\t/stub\tgo.stub' \
   $'POST\t/blocked\tgo.blocked' \
   $'GET\t/static\tgo.static' >"$runtime/manifest.tsv"
-cp "$runtime/manifest.tsv" "$runtime/frozen.tsv"
+cp -- "$runtime/manifest.tsv" "$runtime/frozen.tsv"
+printf '%s\n' $'GET\t/retired\tgo.retired' >>"$runtime/frozen.tsv"
+write_gate $'GET\t/retired\tabsent\tnot-applicable\tunmounted\tnot-applicable\tnot-applicable\tgo\tlegacy-go\tretired=true;fixture=absent'
 printf '%s\n' '# method	path	Rust handler' $'GET\t/candidate\trust.candidate' >"$runtime/implemented.tsv"
 printf '%s\n' \
   $'method\tpath\trust_source\tlegacy_handler\tfrozen_ledger\tbehavior_test\trationale' \
@@ -33,12 +41,23 @@ run() {
   COMPLETE_LEGACY_STUB_LEDGER="$runtime/stubs.tsv" \
   COMPLETE_RUNTIME_BLOCKERS_LEDGER="$runtime/blockers.tsv" \
   COMPLETE_NORMAL_MOUNTS_LEDGER="$runtime/normal.tsv" \
+  COMPLETE_MIGRATION_GATE="$runtime/gate.tsv" \
   COMPLETE_MCP_PATHS="$runtime/mcp.tsv" \
   COMPLETE_DIFFERENTIAL_RESULTS_DIR="$runtime/results" \
   bash "$checker"
 }
 
 bash -n "$checker" "$0"
+# Draft completion may consume the retired set only inside CI/release jobs that
+# have already made the live-manifest complete checker a required result.
+for workflow in "$repo_root/.github/workflows/ci.yml" "$repo_root/.github/workflows/release.yml"; do
+  perl -0777 -e '
+    my $text = <>;
+    my $complete = index($text, "run_check complete-route-coverage ");
+    my $completion = index($text, "run_check draft-route-completion ");
+    exit !($complete >= 0 && $completion > $complete);
+  ' "$workflow" || fail "draft completion is not ordered after complete route coverage in $workflow"
+done
 run >"$runtime/report.jsonl"
 [[ $(wc -l <"$runtime/report.jsonl" | tr -d ' ') == 5 ]] || fail 'expected four route rows and one summary row'
 for class in differential-candidate legacy-501 provider-blocked static-only; do
@@ -54,7 +73,39 @@ rm "$runtime/results/missing.json"
 
 printf '%s\n' $'GET\t/candidate\tgo.candidate' >>"$runtime/manifest.tsv"
 expect_fail run
+grep -Fq 'duplicate Go inventory route: GET /candidate' "$runtime/err" || fail 'duplicate Go route failed for the wrong reason'
 sed -i '$d' "$runtime/manifest.tsv"
+
+# A valid retired entry is accepted only while it remains absent from the live
+# Go manifest and from every Rust ownership/stub ledger.
+printf '%s\n' $'GET\t/retired\tgo.retired' >>"$runtime/manifest.tsv"
+expect_fail run
+grep -Fq 'retired route was reintroduced in current Go manifest: GET /retired' "$runtime/err" || fail 'reintroduced retired Go route was not rejected'
+sed -i '$d' "$runtime/manifest.tsv"
+
+printf '%s\n' $'GET\t/retired\trust.retired' >>"$runtime/implemented.tsv"
+expect_fail run
+grep -Fq 'retired route remains in Rust implemented ledger: GET /retired' "$runtime/err" || fail 'implemented retired route was not rejected'
+sed -i '$d' "$runtime/implemented.tsv"
+
+printf '%s\n' $'GET\t/retired\trust.retired' >>"$runtime/normal.tsv"
+expect_fail run
+grep -Fq 'retired route remains in Rust normal mount ledger: GET /retired' "$runtime/err" || fail 'mounted retired route was not rejected'
+sed -i '$d' "$runtime/normal.tsv"
+
+printf '%s\n' $'GET\t/retired\trust.stub\tgo.retired\tfrozen\ttest\texplicit 501' >>"$runtime/stubs.tsv"
+expect_fail run
+grep -Fq 'retired route remains in legacy stub ledger: GET /retired' "$runtime/err" || fail 'stubbed retired route was not rejected'
+sed -i '$d' "$runtime/stubs.tsv"
+
+write_gate $'GET\t/fake-retired\tabsent\tnot-applicable\tunmounted\tnot-applicable\tnot-applicable\tgo\tlegacy-go\tretired=true;fixture=fake'
+expect_fail run
+grep -Fq 'retired route is not frozen: GET /fake-retired' "$runtime/err" || fail 'non-frozen retired route was not rejected'
+write_gate $'GET\t/retired\tpresent\tnot-applicable\tunmounted\tnot-applicable\tnot-applicable\tgo\tlegacy-go\tretired=true;fixture=invalid'
+expect_fail run
+grep -Fq 'retired migration gate row has invalid state' "$runtime/err" || fail 'invalid retired state tuple was not rejected'
+write_gate $'GET\t/retired\tabsent\tnot-applicable\tunmounted\tnot-applicable\tnot-applicable\tgo\tlegacy-go\tretired=true;fixture=absent'
+
 printf '%s\n' $'GET\t/unclassified\tgo.unclassified' >>"$runtime/manifest.tsv"
 expect_fail env COMPLETE_REQUIRE_EXPLICIT_CLASSIFICATION=1 \
   COMPLETE_GO_MANIFEST="$runtime/manifest.tsv" \
@@ -63,12 +114,16 @@ expect_fail env COMPLETE_REQUIRE_EXPLICIT_CLASSIFICATION=1 \
   COMPLETE_LEGACY_STUB_LEDGER="$runtime/stubs.tsv" \
   COMPLETE_RUNTIME_BLOCKERS_LEDGER="$runtime/blockers.tsv" \
   COMPLETE_NORMAL_MOUNTS_LEDGER="$runtime/normal.tsv" \
+  COMPLETE_MIGRATION_GATE="$runtime/gate.tsv" \
   COMPLETE_MCP_PATHS="$runtime/mcp.tsv" bash "$checker"
 sed -i '$d' "$runtime/manifest.tsv"
 
 # Current repository ledgers are consumable with a safe manifest override; no
-# backend build or listener starts during this self-test.
-COMPLETE_GO_MANIFEST="$repo_root/apps/api-rust/tests/fixtures/routes/legacy-go-routes.tsv" \
+# backend build or listener starts during this self-test. The retired route is
+# removed to model the live manifest rather than the immutable frozen ledger.
+awk -F '\t' '!($1 == "GET" && $2 == "/api/option/waffo-pancake/catalog")' \
+  "$repo_root/apps/api-rust/tests/fixtures/routes/legacy-go-routes.tsv" >"$runtime/current-manifest.tsv"
+COMPLETE_GO_MANIFEST="$runtime/current-manifest.tsv" \
 COMPLETE_MCP_PATHS="$runtime/mcp.tsv" bash "$checker" >"$runtime/current-ledger-report.jsonl"
-grep -Fq '"total":352' "$runtime/current-ledger-report.jsonl" || fail 'current repository ledgers could not be checked'
+grep -Fq '"total":351' "$runtime/current-ledger-report.jsonl" || fail 'current repository ledgers could not be checked'
 echo 'complete route coverage self-test: passed'

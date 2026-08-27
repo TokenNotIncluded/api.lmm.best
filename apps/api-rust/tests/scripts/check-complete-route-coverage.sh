@@ -19,13 +19,14 @@ implemented=${COMPLETE_RUST_IMPLEMENTED_LEDGER:-"$routes_dir/rust-implemented-ro
 legacy_stubs=${COMPLETE_LEGACY_STUB_LEDGER:-"$routes_dir/legacy-equivalent-stubs.tsv"}
 blockers=${COMPLETE_RUNTIME_BLOCKERS_LEDGER:-"$routes_dir/test-instance-runtime-blockers.tsv"}
 normal_mounts=${COMPLETE_NORMAL_MOUNTS_LEDGER:-"$routes_dir/rust-normal-mounted-routes.tsv"}
+migration_gate=${COMPLETE_MIGRATION_GATE:-"$routes_dir/migration-gate.tsv"}
 mcp_paths=${COMPLETE_MCP_PATHS:-"$repo_root/apps/api-go/router/open_source_bounty_mcp_router.go"}
 results_dir=${COMPLETE_DIFFERENTIAL_RESULTS_DIR:-}
 strict_classification=${COMPLETE_REQUIRE_EXPLICIT_CLASSIFICATION:-0}
 
 fail() { printf 'complete route coverage: %s\n' "$*" >&2; exit 1; }
 [[ $strict_classification == 0 || $strict_classification == 1 ]] || fail 'COMPLETE_REQUIRE_EXPLICIT_CLASSIFICATION must be 0 or 1'
-for file in "$frozen" "$implemented" "$legacy_stubs" "$blockers" "$normal_mounts"; do
+for file in "$frozen" "$implemented" "$legacy_stubs" "$blockers" "$normal_mounts" "$migration_gate"; do
   [[ -f $file ]] || fail "missing ledger: $file"
 done
 [[ -z $results_dir || -d $results_dir ]] || fail "COMPLETE_DIFFERENTIAL_RESULTS_DIR is not a directory: $results_dir"
@@ -66,14 +67,14 @@ awk -F '\t' '
   !seen[$1 FS $2]++ { print }
 ' "$manifest" "$mcp_inventory" >"$work/go-full.tsv"
 
-perl - "$work/go-full.tsv" "$frozen" "$implemented" "$legacy_stubs" "$blockers" "$normal_mounts" "$results_dir" "$strict_classification" <<'PERL'
+perl - "$work/go-full.tsv" "$frozen" "$implemented" "$legacy_stubs" "$blockers" "$normal_mounts" "$migration_gate" "$results_dir" "$strict_classification" <<'PERL'
 use strict;
 use warnings;
 use JSON::PP qw(decode_json encode_json);
 sub true { return JSON::PP::true; }
 sub false { return JSON::PP::false; }
 
-my ($inventory_path, $frozen_path, $implemented_path, $stubs_path, $blockers_path, $normal_path, $results_dir, $strict) = @ARGV;
+my ($inventory_path, $frozen_path, $implemented_path, $stubs_path, $blockers_path, $normal_path, $gate_path, $results_dir, $strict) = @ARGV;
 sub fail { die "complete route coverage: $_[0]\n"; }
 sub key { return join("\x1f", @_); }
 sub read_tsv {
@@ -110,6 +111,49 @@ my %implemented = route_map($implemented_path, 'Rust implemented ledger', 3, 1);
 my %stubs = route_map($stubs_path, 'legacy stub ledger', 3, 0);
 my %blockers = route_map($blockers_path, 'runtime blocker ledger', 3, 0, 1);
 my %normal = route_map($normal_path, 'normal mount ledger', 3, 1);
+my %live = route_map($inventory_path, 'Go inventory', 3, 0);
+
+open my $gate, '<', $gate_path or fail("cannot read migration gate: $!");
+my $gate_header = <$gate>;
+fail('migration gate is empty') unless defined $gate_header;
+chomp $gate_header;
+$gate_header =~ s/\r$//;
+my @gate_columns = split /\t/, $gate_header, -1;
+my %gate_column;
+@gate_column{@gate_columns} = (0 .. $#gate_columns);
+for my $required (qw(method path source_state mount_state gate_state evidence)) {
+  fail("migration gate is missing $required column") unless exists $gate_column{$required};
+}
+my (%retired, $gate_line);
+$gate_line = 1;
+while (my $line = <$gate>) {
+  $gate_line++;
+  chomp $line;
+  $line =~ s/\r$//;
+  my @fields = split /\t/, $line, -1;
+  fail("malformed migration gate row at $gate_line") unless @fields == @gate_columns;
+  my ($method, $path, $source, $mount, $state, $evidence) =
+    @fields[@gate_column{qw(method path source_state mount_state gate_state evidence)}];
+  next unless $evidence =~ /(?:^|;)retired=true(?:;|$)/;
+  fail("retired migration gate row has invalid state at $gate_line: $method $path")
+    unless $method =~ /^(?:GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS|TRACE|CONNECT)$/
+      && $path =~ m{^/}
+      && $source eq 'absent'
+      && $mount eq 'unmounted'
+      && $state eq 'legacy-go';
+  my $route = key($method, $path);
+  fail("duplicate retired migration gate route: $method $path") if exists $retired{$route};
+  $retired{$route} = [$method, $path];
+}
+close $gate;
+for my $route (sort keys %retired) {
+  my ($method, $path) = @{$retired{$route}};
+  fail("retired route is not frozen: $method $path") unless exists $frozen{$route};
+  fail("retired route was reintroduced in current Go manifest: $method $path") if exists $live{$route};
+  fail("retired route remains in Rust implemented ledger: $method $path") if exists $implemented{$route};
+  fail("retired route remains in Rust normal mount ledger: $method $path") if exists $normal{$route};
+  fail("retired route remains in legacy stub ledger: $method $path") if exists $stubs{$route};
+}
 # A frozen legacy endpoint may be mounted on the normal listener when the
 # mount is an explicit, audited compatibility boundary.  Keep the stub ledger
 # entry so coverage continues to classify the Go contract as legacy-501, while
