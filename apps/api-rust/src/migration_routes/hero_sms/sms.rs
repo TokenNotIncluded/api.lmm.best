@@ -2372,7 +2372,10 @@ mod tests {
     use axum::body::Body;
     use secrecy::SecretString;
     use sqlx::postgres::PgPoolOptions;
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::{
+        sync::atomic::{AtomicUsize, Ordering},
+        time::Duration,
+    };
     use tower::ServiceExt;
 
     #[derive(Clone)]
@@ -2480,6 +2483,7 @@ mod tests {
         auth_error: Option<AuthErrorKind>,
     ) -> (HeroSmsState, Arc<CountingLimiter>, Arc<AtomicUsize>) {
         let pg = PgPoolOptions::new()
+            .acquire_timeout(Duration::from_millis(100))
             .connect_lazy("postgres://unused:unused@127.0.0.1:1/unused")
             .unwrap();
         let critical = Arc::new(AtomicUsize::new(0));
