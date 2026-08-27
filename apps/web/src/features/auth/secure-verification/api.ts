@@ -38,43 +38,80 @@ import type {
   VerificationMethods,
 } from './types'
 
+const VERIFICATION_PROBE_RETRY_DELAY_MS = 250
+
 /**
  * Fetch available verification methods for the current user.
+ *
+ * Each capability is independent. A transient failure from one endpoint must
+ * not hide methods reported successfully by the other endpoints.
  */
 export async function checkVerificationMethods(): Promise<VerificationMethods> {
+  const [selfResponse, twoFAResponse, passkeyResponse, passkeySupported] =
+    await Promise.all([
+      probeVerificationMethod('account', () => getSelf()),
+      probeVerificationMethod('2FA', () =>
+        get2FAStatus({ skipErrorHandler: true })
+      ),
+      probeVerificationMethod('Passkey', () =>
+        getPasskeyStatus({ skipErrorHandler: true })
+      ),
+      probeVerificationMethod('Passkey support', detectPasskeySupport),
+    ])
+
+  const email = String(selfResponse?.data?.email ?? '').trim()
+  const has2FA =
+    Boolean(twoFAResponse?.success) && Boolean(twoFAResponse?.data?.enabled)
+  const hasPasskey =
+    Boolean(passkeyResponse?.success) && Boolean(passkeyResponse?.data?.enabled)
+
+  return {
+    hasEmail: email.length > 0,
+    emailHint: email ? maskEmail(email) : undefined,
+    has2FA,
+    hasPasskey,
+    passkeySupported: Boolean(passkeySupported),
+  }
+}
+
+async function probeVerificationMethod<T>(
+  method: string,
+  request: () => Promise<T>
+): Promise<T | undefined> {
   try {
-    const [selfResponse, twoFAResponse, passkeyResponse, passkeySupported] =
-      await Promise.all([
-        getSelf(),
-        get2FAStatus(),
-        getPasskeyStatus(),
-        detectPasskeySupport(),
-      ])
-
-    const email = String(selfResponse?.data?.email ?? '').trim()
-    const has2FA =
-      Boolean(twoFAResponse?.success) && Boolean(twoFAResponse?.data?.enabled)
-    const hasPasskey =
-      Boolean(passkeyResponse?.success) &&
-      Boolean(passkeyResponse?.data?.enabled)
-
-    return {
-      hasEmail: email.length > 0,
-      emailHint: email ? maskEmail(email) : undefined,
-      has2FA,
-      hasPasskey,
-      passkeySupported,
+    return await request()
+  } catch (firstError) {
+    if (!isRetryableVerificationError(firstError)) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[Secure Verification] Failed to check ${method}`,
+        firstError
+      )
+      return undefined
     }
-  } catch (error) {
-    // eslint-disable-next-line no-console
-    console.error('[Secure Verification] Failed to check methods', error)
-    return {
-      hasEmail: false,
-      has2FA: false,
-      hasPasskey: false,
-      passkeySupported: false,
+
+    await new Promise((resolve) =>
+      setTimeout(resolve, VERIFICATION_PROBE_RETRY_DELAY_MS)
+    )
+
+    try {
+      return await request()
+    } catch (retryError) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[Secure Verification] Failed to check ${method} after retry`,
+        retryError
+      )
+      return undefined
     }
   }
+}
+
+function isRetryableVerificationError(error: unknown): boolean {
+  const status = (error as { response?: { status?: unknown } })?.response
+    ?.status
+  if (typeof status !== 'number') return true
+  return status === 408 || status === 425 || status === 429 || status >= 500
 }
 
 function maskEmail(email: string): string {

@@ -858,6 +858,30 @@ async fn review_request_transaction(
     .fetch_one(&mut *transaction)
     .await
     .map_err(ReviewStoreError::Database)?;
+    if approve {
+        let recommendation = request.ai_recommendation.trim();
+        if !recommendation.is_empty() {
+            // Keep the immutable recommendation snapshot atomic with approval,
+            // so the user-management archive cannot lag behind the review.
+            sqlx::query(
+                "INSERT INTO developer_access_recommendation_archives \
+                 (user_id, request_id, source, reason, recommendation, admin_user_id, \
+                  admin_note, approved_at, created_at) \
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)",
+            )
+            .bind(request.user_id)
+            .bind(request.id)
+            .bind(&request.source)
+            .bind(&request.reason)
+            .bind(recommendation)
+            .bind(admin_user_id)
+            .bind(note)
+            .bind(reviewed_at)
+            .execute(&mut *transaction)
+            .await
+            .map_err(ReviewStoreError::Database)?;
+        }
+    }
     transaction
         .commit()
         .await
