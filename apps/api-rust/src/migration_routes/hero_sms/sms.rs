@@ -2654,8 +2654,21 @@ mod tests {
             if database_url.contains('?') { "&" } else { "?" }
         );
         let pg = PgPool::connect(&scoped_url).await.unwrap();
-        sqlx::query("CREATE TABLE users(id BIGINT PRIMARY KEY, quota BIGINT NOT NULL); CREATE TABLE hero_sms_sms_orders(id TEXT PRIMARY KEY,user_id BIGINT NOT NULL,status TEXT NOT NULL,reserved_quota BIGINT NOT NULL,charge_quota BIGINT NOT NULL,refunded_quota BIGINT NOT NULL DEFAULT 0,complaint_status TEXT NOT NULL DEFAULT '',last_error_code TEXT NOT NULL DEFAULT '',last_error_message TEXT NOT NULL DEFAULT '',updated_at BIGINT NOT NULL); CREATE TABLE hero_sms_sms_quota_ledgers(id BIGSERIAL PRIMARY KEY,order_id TEXT NOT NULL,user_id BIGINT NOT NULL,entry_type TEXT NOT NULL,amount_quota BIGINT NOT NULL,idempotency_key TEXT NOT NULL UNIQUE,created_at BIGINT NOT NULL);").execute(&pg).await.unwrap();
-        sqlx::query("INSERT INTO users VALUES(7,100); INSERT INTO hero_sms_sms_orders(id,user_id,status,reserved_quota,charge_quota,updated_at) VALUES('order-1',7,'active',50,50,1)").execute(&pg).await.unwrap();
+        for statement in [
+            "CREATE TABLE users(id BIGINT PRIMARY KEY, quota BIGINT NOT NULL)",
+            "CREATE TABLE hero_sms_sms_orders(id TEXT PRIMARY KEY,user_id BIGINT NOT NULL,status TEXT NOT NULL,reserved_quota BIGINT NOT NULL,charge_quota BIGINT NOT NULL,refunded_quota BIGINT NOT NULL DEFAULT 0,complaint_status TEXT NOT NULL DEFAULT '',last_error_code TEXT NOT NULL DEFAULT '',last_error_message TEXT NOT NULL DEFAULT '',updated_at BIGINT NOT NULL)",
+            "CREATE TABLE hero_sms_sms_quota_ledgers(id BIGSERIAL PRIMARY KEY,order_id TEXT NOT NULL,user_id BIGINT NOT NULL,entry_type TEXT NOT NULL,amount_quota BIGINT NOT NULL,idempotency_key TEXT NOT NULL UNIQUE,created_at BIGINT NOT NULL)",
+        ] {
+            sqlx::query(statement).execute(&pg).await.unwrap();
+        }
+        sqlx::query("INSERT INTO users VALUES(7,100)")
+            .execute(&pg)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO hero_sms_sms_orders(id,user_id,status,reserved_quota,charge_quota,updated_at) VALUES('order-1',7,'active',50,50,1)")
+            .execute(&pg)
+            .await
+            .unwrap();
 
         let first_pg = pg.clone();
         let second_pg = pg.clone();
