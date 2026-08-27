@@ -27,6 +27,17 @@ function stableStringify(obj) {
 
 const newKeys = {
   en: {
+    'Clean up review history': 'Clean up review history',
+    'Clean up automatic review history?':
+      'Clean up automatic review history?',
+    'This will permanently delete {{count}} completed or failed automatic review runs while keeping the latest {{keep}}. Active runs and security audit evidence will not be deleted.':
+      'This will permanently delete {{count}} completed or failed automatic review runs while keeping the latest {{keep}}. Active runs and security audit evidence will not be deleted.',
+    'No completed automatic review runs are eligible for cleanup.':
+      'No completed automatic review runs are eligible for cleanup.',
+    'Automatic review history cleanup completed':
+      'Automatic review history cleanup completed',
+    'Failed to clean up automatic review history':
+      'Failed to clean up automatic review history',
     'Clear exhausted codes': 'Clear exhausted codes',
     'Unable to clear exhausted discount codes':
       'Unable to clear exhausted discount codes',
@@ -159,6 +170,14 @@ const newKeys = {
     'I understand, continue': 'I understand, continue',
   },
   zh: {
+    'Clean up review history': '清理复盘历史',
+    'Clean up automatic review history?': '清理自动复盘历史？',
+    'This will permanently delete {{count}} completed or failed automatic review runs while keeping the latest {{keep}}. Active runs and security audit evidence will not be deleted.':
+      '此操作将永久删除 {{count}} 次已完成或失败的自动复盘记录，并保留最近 {{keep}} 次。运行中的任务和安全审计证据不会被删除。',
+    'No completed automatic review runs are eligible for cleanup.':
+      '没有可清理的已完成自动复盘记录。',
+    'Automatic review history cleanup completed': '自动复盘历史清理完成',
+    'Failed to clean up automatic review history': '自动复盘历史清理失败',
     'Clear exhausted codes': '清理已用完优惠码',
     'Unable to clear exhausted discount codes': '无法清理已用完优惠码',
     'Deleted {{count}} exhausted discount codes':
@@ -281,6 +300,14 @@ const newKeys = {
     'I understand, continue': '我已了解，继续',
   },
   'zh-TW': {
+    'Clean up review history': '清理複盤紀錄',
+    'Clean up automatic review history?': '清理自動複盤紀錄？',
+    'This will permanently delete {{count}} completed or failed automatic review runs while keeping the latest {{keep}}. Active runs and security audit evidence will not be deleted.':
+      '此操作將永久刪除 {{count}} 筆已完成或失敗的自動複盤執行紀錄，並保留最近 {{keep}} 筆。執行中的任務與安全稽核證據不會被刪除。',
+    'No completed automatic review runs are eligible for cleanup.':
+      '沒有可清理的已完成自動複盤紀錄。',
+    'Automatic review history cleanup completed': '自動複盤紀錄清理完成',
+    'Failed to clean up automatic review history': '無法清理自動複盤紀錄',
     'Clear exhausted codes': '清理已用完優惠碼',
     'Unable to clear exhausted discount codes': '無法清理已用完優惠碼',
     'Deleted {{count}} exhausted discount codes':
@@ -400,6 +427,17 @@ const newKeys = {
       '沒有符合目前篩選條件的安全稽核事件。',
   },
   fr: {
+    'Clean up review history': 'Nettoyer l’historique des revues',
+    'Clean up automatic review history?':
+      'Nettoyer l’historique des revues automatiques ?',
+    'This will permanently delete {{count}} completed or failed automatic review runs while keeping the latest {{keep}}. Active runs and security audit evidence will not be deleted.':
+      'Cette action supprimera définitivement {{count}} exécutions de revue automatique terminées ou échouées, en conservant les {{keep}} plus récentes. Les exécutions actives et les preuves d’audit de sécurité ne seront pas supprimées.',
+    'No completed automatic review runs are eligible for cleanup.':
+      'Aucune exécution de revue automatique terminée ne peut être nettoyée.',
+    'Automatic review history cleanup completed':
+      'Nettoyage de l’historique des revues automatiques terminé',
+    'Failed to clean up automatic review history':
+      'Échec du nettoyage de l’historique des revues automatiques',
     'Clear exhausted codes': 'Nettoyer les codes épuisés',
     'Unable to clear exhausted discount codes':
       'Impossible de nettoyer les codes de réduction épuisés',
@@ -531,6 +569,15 @@ const newKeys = {
       'Aucun événement d’audit de sécurité ne correspond aux filtres actuels.',
   },
   ja: {
+    'Clean up review history': 'レビュー履歴を整理',
+    'Clean up automatic review history?': '自動レビュー履歴を整理しますか？',
+    'This will permanently delete {{count}} completed or failed automatic review runs while keeping the latest {{keep}}. Active runs and security audit evidence will not be deleted.':
+      '完了または失敗した自動レビュー実行 {{count}} 件を完全に削除し、最新の {{keep}} 件を保持します。実行中の処理とセキュリティ監査証跡は削除されません。',
+    'No completed automatic review runs are eligible for cleanup.':
+      '整理対象となる完了済みの自動レビュー実行はありません。',
+    'Automatic review history cleanup completed': '自動レビュー履歴を整理しました',
+    'Failed to clean up automatic review history':
+      '自動レビュー履歴を整理できませんでした',
     'Clear exhausted codes': '使用済みコードを整理',
     'Unable to clear exhausted discount codes':
       '使用済み割引コードを整理できません',
@@ -658,6 +705,17 @@ const newKeys = {
       '現在のフィルターに一致するセキュリティ監査イベントはありません。',
   },
   ru: {
+    'Clean up review history': 'Очистить историю проверок',
+    'Clean up automatic review history?':
+      'Очистить историю автоматических проверок?',
+    'This will permanently delete {{count}} completed or failed automatic review runs while keeping the latest {{keep}}. Active runs and security audit evidence will not be deleted.':
+      'Будет безвозвратно удалено {{count}} завершённых или завершившихся ошибкой запусков автоматической проверки; последние {{keep}} будут сохранены. Активные запуски и данные аудита безопасности не будут удалены.',
+    'No completed automatic review runs are eligible for cleanup.':
+      'Нет завершённых запусков автоматической проверки, доступных для очистки.',
+    'Automatic review history cleanup completed':
+      'История автоматических проверок очищена',
+    'Failed to clean up automatic review history':
+      'Не удалось очистить историю автоматических проверок',
     'Clear exhausted codes': 'Очистить исчерпанные коды',
     'Unable to clear exhausted discount codes':
       'Не удалось очистить исчерпанные промокоды',
@@ -787,6 +845,16 @@ const newKeys = {
       'Нет событий аудита безопасности, соответствующих текущим фильтрам.',
   },
   vi: {
+    'Clean up review history': 'Dọn lịch sử đánh giá',
+    'Clean up automatic review history?': 'Dọn lịch sử đánh giá tự động?',
+    'This will permanently delete {{count}} completed or failed automatic review runs while keeping the latest {{keep}}. Active runs and security audit evidence will not be deleted.':
+      'Thao tác này sẽ xóa vĩnh viễn {{count}} lượt đánh giá tự động đã hoàn tất hoặc thất bại, đồng thời giữ lại {{keep}} lượt gần nhất. Các lượt đang chạy và bằng chứng kiểm tra bảo mật sẽ không bị xóa.',
+    'No completed automatic review runs are eligible for cleanup.':
+      'Không có lượt đánh giá tự động đã hoàn tất nào đủ điều kiện dọn dẹp.',
+    'Automatic review history cleanup completed':
+      'Đã dọn xong lịch sử đánh giá tự động',
+    'Failed to clean up automatic review history':
+      'Không thể dọn lịch sử đánh giá tự động',
     'Clear exhausted codes': 'Dọn mã đã dùng hết',
     'Unable to clear exhausted discount codes':
       'Không thể dọn các mã giảm giá đã dùng hết',
