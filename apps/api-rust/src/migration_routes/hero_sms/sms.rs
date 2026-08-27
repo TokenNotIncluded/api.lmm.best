@@ -23,7 +23,11 @@ use super::*;
 const QUOTE_VERSION: i32 = 2;
 const QUOTE_TTL_SECONDS: i64 = 120;
 const COMPLAINT_WAIT_SECONDS: i64 = 120;
+const COMPLAINT_RETRY_SECONDS: i64 = 30;
+const COMPLAINT_MAX_ATTEMPTS: i32 = 3;
 const SMS_PURCHASE_LOCK: i64 = 0x4c4d4d534d530001;
+const SMS_STATE_OK: &str = "STATUS_OK";
+const SMS_STATE_CANCEL: &str = "STATUS_CANCEL";
 const ACTIVE_LIMIT: i64 = 20;
 const CURRENT_STATUSES: &[&str] = &[
     "pending_provider",
@@ -321,17 +325,17 @@ async fn authenticated(
 ) -> Result<DashboardUserView, Response> {
     require_user(state, headers).await
 }
-async fn mutation_principal(
+async fn mutation_limit(
     state: &HeroSmsState,
     headers: &HeaderMap,
     scope: &str,
-) -> Result<DashboardUserView, Response> {
-    let user = authenticated(state, headers).await?;
+    user_id: i64,
+) -> Result<(), Response> {
     if let Some(response) = user_critical_limit(state, headers).await {
         return Err(response);
     }
-    match state.sms_user_rate_limiter.check(scope, user.id).await {
-        Ok(CriticalRateLimitOutcome::Allowed) => Ok(user),
+    match state.sms_user_rate_limiter.check(scope, user_id).await {
+        Ok(CriticalRateLimitOutcome::Allowed) => Ok(()),
         Ok(CriticalRateLimitOutcome::Rejected {
             retry_after_seconds,
         }) => Err(legacy_empty_response(
@@ -622,23 +626,23 @@ async fn create_order(
     headers: HeaderMap,
     request: Request,
 ) -> Response {
-    let user = match mutation_principal(&state, &headers, "hero-sms-sms-purchase").await {
+    let user = match authenticated(&state, &headers).await {
         Ok(v) => v,
         Err(r) => return done(r),
     };
+    let input = match parse_json::<CreateInput>(request).await {
+        Ok(v) => v,
+        Err(r) => return done(r),
+    };
+    if let Err(r) = mutation_limit(&state, &headers, "hero-sms-sms-purchase", user.id).await {
+        return done(r);
+    }
     let idem = headers
         .get("Idempotency-Key")
         .and_then(|v| v.to_str().ok())
         .map(str::trim)
         .unwrap_or("");
-    if idem.is_empty() || idem.len() > 128 {
-        return done(hero_error(invalid_request()));
-    }
-    let input = match parse_json::<CreateInput>(request).await {
-        Ok(v) => v,
-        Err(r) => return done(r),
-    };
-    if input.offer_id.trim().is_empty() {
+    if idem.is_empty() || idem.len() > 128 || input.offer_id.trim().is_empty() {
         return done(hero_error(invalid_request()));
     }
     match purchase(&state, user.id, idem, &input).await {
@@ -714,22 +718,39 @@ async fn get_order(
         Err(e) => done(hero_error(e)),
     }
 }
-async fn clear_history(State(state): State<HeroSmsState>, headers: HeaderMap) -> Response {
-    let u = match mutation_principal(&state, &headers, "hero-sms-sms-history-clear").await {
+async fn clear_history(
+    State(state): State<HeroSmsState>,
+    headers: HeaderMap,
+    request: Request,
+) -> Response {
+    let u = match authenticated(&state, &headers).await {
         Ok(v) => v,
         Err(r) => return done(r),
     };
+    if let Err(r) = bounded_body(request).await {
+        return done(r);
+    }
+    if let Err(r) = mutation_limit(&state, &headers, "hero-sms-sms-history-clear", u.id).await {
+        return done(r);
+    }
     match sqlx::query("UPDATE hero_sms_sms_orders SET history_hidden_at=$2 WHERE user_id=$1 AND history_hidden_at=0 AND status=ANY($3)").bind(u.id).bind(now_unix()).bind(TERMINAL_STATUSES).execute(&state.pg).await{Ok(v)=>ok(json!({"hidden_count":v.rows_affected()})),Err(_)=>done(hero_error(internal_error()))}
 }
 async fn hide_history(
     State(state): State<HeroSmsState>,
     Path(id): Path<String>,
     headers: HeaderMap,
+    request: Request,
 ) -> Response {
-    let u = match mutation_principal(&state, &headers, "hero-sms-sms-history-hide").await {
+    let u = match authenticated(&state, &headers).await {
         Ok(v) => v,
         Err(r) => return done(r),
     };
+    if let Err(r) = bounded_body(request).await {
+        return done(r);
+    }
+    if let Err(r) = mutation_limit(&state, &headers, "hero-sms-sms-history-hide", u.id).await {
+        return done(r);
+    }
     match hide_one(&state.pg, u.id, id.trim()).await {
         Ok(()) => ok(json!({"hidden":true})),
         Err(e) => done(hero_error(e)),
@@ -741,7 +762,7 @@ async fn complaint(
     headers: HeaderMap,
     request: Request,
 ) -> Response {
-    let u = match mutation_principal(&state, &headers, "hero-sms-sms-complaint").await {
+    let u = match authenticated(&state, &headers).await {
         Ok(v) => v,
         Err(r) => return done(r),
     };
@@ -749,6 +770,9 @@ async fn complaint(
         Ok(v) => v,
         Err(r) => return done(r),
     };
+    if let Err(r) = mutation_limit(&state, &headers, "hero-sms-sms-complaint", u.id).await {
+        return done(r);
+    }
     match submit_complaint(&state, u.id, id.trim(), body.reason.trim()).await {
         Ok(v) => done(hero_success_status(
             StatusCode::ACCEPTED,
@@ -761,11 +785,18 @@ async fn cancel(
     State(state): State<HeroSmsState>,
     Path(id): Path<String>,
     headers: HeaderMap,
+    request: Request,
 ) -> Response {
-    let u = match mutation_principal(&state, &headers, "hero-sms-sms-cancel").await {
+    let u = match authenticated(&state, &headers).await {
         Ok(v) => v,
         Err(r) => return done(r),
     };
+    if let Err(r) = bounded_body(request).await {
+        return done(r);
+    }
+    if let Err(r) = mutation_limit(&state, &headers, "hero-sms-sms-cancel", u.id).await {
+        return done(r);
+    }
     match cancel_order(&state, u.id, id.trim()).await {
         Ok((v, q)) => {
             let s = if v.status == "cancel_pending" {
@@ -997,6 +1028,37 @@ async fn purchase_locked(
     if let Some(v) = replay(&state.pg, user, idem_hash, payload_hash).await? {
         return Ok(v);
     }
+    if now_unix() - quote.issued_at > QUOTE_TTL_SECONDS {
+        return Err(price_changed());
+    }
+    let locked_options = load_options(&state.pg).await?;
+    if option_value(&locked_options, OPTION_MULTIPLIER, DEFAULT_PRICE_MULTIPLIER)
+        != quote.multiplier
+    {
+        return Err(price_changed());
+    }
+    if !quote.operator.is_empty() {
+        let operators = state
+            .gateway
+            .list_sms_operators(key, quote.country_id)
+            .await
+            .map_err(map_provider_error)?;
+        if !operators
+            .iter()
+            .any(|candidate| candidate.trim().eq_ignore_ascii_case(&quote.operator))
+        {
+            return Err(price_changed());
+        }
+    }
+    let locked_offer = state
+        .gateway
+        .get_sms_offer(key, quote.country_id, &quote.service)
+        .await
+        .map_err(map_provider_error)?;
+    let reserved = Decimal::from_str(&quote.cost_cny).map_err(|_| price_changed())?;
+    if !inventory(&locked_offer, reserved) {
+        return Err(price_changed());
+    }
     let active_before = state
         .gateway
         .list_active_sms_activations(key)
@@ -1006,7 +1068,7 @@ async fn purchase_locked(
         "hero_sms.sms.snapshot",
         &serde_json::to_string(&active_before).map_err(|_| internal_error())?,
     )?;
-    let id = Uuid::new_v4().simple().to_string();
+    let id = format!("hssms_{}", Uuid::new_v4().simple());
     let now = now_unix();
     let mut tx = conn.begin().await.map_err(|_| internal_error())?;
     let quota: i64 = sqlx::query_scalar("SELECT quota FROM users WHERE id=$1 FOR UPDATE")
@@ -1023,7 +1085,15 @@ async fn purchase_locked(
         });
     }
     sqlx::query("INSERT INTO hero_sms_sms_orders(id,user_id,idempotency_key_hash,request_payload_hash,country_id,service,operator,status,price_multiplier,provider_price_cny,customer_price_usd,reserved_quota,charge_quota,refunded_quota,provider_currency_code,provider_snapshot_ciphertext,last_error_code,last_error_message,provider_request_started_at,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,'pending_provider',$8,$9,$10,$11,$11,0,$12,$13,'PROVIDER_INTENT_PENDING','provider purchase intent is reserved but not started',$14,$14,$14)").bind(&id).bind(user).bind(idem_hash).bind(payload_hash).bind(quote.country_id).bind(&quote.service).bind(&quote.operator).bind(&quote.multiplier).bind(&quote.cost_cny).bind(customer.normalize().to_string()).bind(charge).bind(HERO_SMS_CURRENCY_CODE).bind(snapshot).bind(now).execute(&mut *tx).await.map_err(|_|internal_error())?;
-    sqlx::query("INSERT INTO hero_sms_sms_quota_ledgers(id,order_id,user_id,kind,quota,created_at) VALUES($1,$2,$3,'reserve',$4,$5)").bind(Uuid::new_v4().simple().to_string()).bind(&id).bind(user).bind(-charge).bind(now).execute(&mut *tx).await.map_err(|_|internal_error())?;
+    sqlx::query("INSERT INTO hero_sms_sms_quota_ledgers(user_id,order_id,entry_type,amount_quota,idempotency_key,created_at) VALUES($1,$2,'reserve',$3,$4,$5)")
+        .bind(user)
+        .bind(&id)
+        .bind(-charge)
+        .bind(format!("hero_sms:sms:reserve:{id}"))
+        .bind(now)
+        .execute(&mut *tx)
+        .await
+        .map_err(|_| internal_error())?;
     sqlx::query("UPDATE users SET quota=quota-$2 WHERE id=$1")
         .bind(user)
         .bind(charge)
@@ -1048,56 +1118,27 @@ async fn purchase_locked(
     match purchase {
         Ok(a) => complete(state, &id, user, charge, a, StatusCode::CREATED).await,
         Err(HeroSmsProviderError::UpstreamTimeout | HeroSmsProviderError::UpstreamBusy) => {
-            let after = state
-                .gateway
-                .list_active_sms_activations(key)
-                .await
-                .map_err(map_provider_error)?;
-            let before = active_before
-                .into_iter()
-                .map(|v| v.id)
-                .collect::<HashSet<_>>();
-            if let Some(a) = after.into_iter().find(|a| {
-                !before.contains(&a.id)
-                    && a.service == quote.service
-                    && a.country_code == quote.country_id
-                    && (quote.operator.is_empty()
-                        || a.operator.eq_ignore_ascii_case(&quote.operator))
-            }) {
-                complete(
-                    state,
-                    &id,
-                    user,
-                    charge,
-                    SmsActivation {
-                        id: a.id,
-                        phone_number: a.phone_number,
-                        cost: a.cost,
-                        currency_code: a.currency_code,
-                        country_code: a.country_code,
-                        operator: a.operator,
-                        expires_at: a.expires_at,
-                    },
-                    StatusCode::CREATED,
-                )
-                .await
+            let row = fetch_order(&state.pg, user, &id).await?;
+            let view = reconcile_unknown_purchase(state, row).await?;
+            let response_status = if view.status == "active" {
+                StatusCode::CREATED
             } else {
-                let row = fetch_order(&state.pg, user, &id).await?;
-                Ok((to_view(&row, false)?, quota - charge, StatusCode::ACCEPTED))
-            }
+                StatusCode::ACCEPTED
+            };
+            Ok((view, quota - charge, response_status))
         }
         Err(e) => {
+            let mapped = map_provider_error(e);
             refund(
                 &state.pg,
                 &id,
-                user,
-                charge,
                 "failed",
-                "UPSTREAM_BUSY",
-                "HeroSMS SMS purchase failed",
+                mapped.code,
+                mapped.message,
+                &["purchase_unknown"],
             )
             .await?;
-            Err(map_provider_error(e))
+            Err(mapped)
         }
     }
 }
@@ -1105,15 +1146,59 @@ async fn complete(
     state: &HeroSmsState,
     id: &str,
     user: i64,
-    charge: i64,
+    _reserved_charge: i64,
     a: SmsActivation,
     status: StatusCode,
 ) -> Result<(OrderView, i64, StatusCode), HeroSmsApiError> {
+    if a.id.trim().is_empty() || a.phone_number.trim().is_empty() {
+        refund(
+            &state.pg,
+            id,
+            "failed",
+            "BAD_UPSTREAM_RESPONSE",
+            "HeroSMS returned an invalid SMS activation",
+            &["purchase_unknown", "pending_provider"],
+        )
+        .await?;
+        return Err(HeroSmsApiError {
+            status: StatusCode::BAD_GATEWAY,
+            code: "BAD_UPSTREAM_RESPONSE",
+            message: "HeroSMS returned an invalid SMS activation",
+        });
+    }
     let cost = Decimal::from_str(&a.cost).map_err(|_| internal_error())?;
-    let reserved: Decimal =
-        Decimal::from_str(&fetch_order(&state.pg, user, id).await?.provider_price_cny)
-            .map_err(|_| internal_error())?;
-    if cost > reserved || a.currency_code != HERO_SMS_CURRENCY_CODE {
+    let phone = encrypt_payload(&a.phone_number)?;
+    let options = load_options(&state.pg).await?;
+    let mut tx = state.pg.begin().await.map_err(|_| internal_error())?;
+    let sql = format!(
+        "SELECT {ORDER_SELECT} FROM hero_sms_sms_orders WHERE id=$1 AND user_id=$2 FOR UPDATE"
+    );
+    let row = sqlx::query_as::<_, OrderRow>(&sql)
+        .bind(id)
+        .bind(user)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|_| internal_error())?
+        .ok_or_else(order_not_found)?;
+    if row.status == "active" || row.status == "completed" {
+        tx.commit().await.map_err(|_| internal_error())?;
+        return Ok((to_view(&row, false)?, quota(&state.pg, user).await?, status));
+    }
+    if row.status != "purchase_unknown" {
+        return Err(HeroSmsApiError {
+            status: StatusCode::CONFLICT,
+            code: "ORDER_STATE_CHANGED",
+            message: "HeroSMS SMS order state changed",
+        });
+    }
+    let reserved = Decimal::from_str(&row.provider_price_cny).map_err(|_| internal_error())?;
+    let multiplier = Decimal::from_str(&row.price_multiplier).map_err(|_| internal_error())?;
+    let actual_charge = charge_quota_decimal(cost * multiplier, &options)?;
+    if cost > reserved
+        || a.currency_code != HERO_SMS_CURRENCY_CODE
+        || actual_charge > row.charge_quota
+    {
+        tx.rollback().await.map_err(|_| internal_error())?;
         let _ = state
             .gateway
             .set_sms_activation_status(&configured(state).await?, &a.id, 8)
@@ -1121,20 +1206,53 @@ async fn complete(
         refund(
             &state.pg,
             id,
-            user,
-            charge,
             "failed",
-            "PRICE_CHANGED",
-            "provider charged above reserved price",
+            if a.currency_code != HERO_SMS_CURRENCY_CODE {
+                "CURRENCY_MISMATCH"
+            } else {
+                "PRICE_CHANGED"
+            },
+            "provider activation did not match the confirmed quote",
+            &["purchase_unknown"],
         )
         .await?;
         return Err(price_changed());
     }
-    let phone = encrypt_payload(&a.phone_number)?;
-    sqlx::query("UPDATE hero_sms_sms_orders SET status='active',provider_id=$2,provider_currency_code=$3,phone_ciphertext=$4,provider_expires_at=$5,last_error_code='',last_error_message='',updated_at=$6 WHERE id=$1 AND status IN ('pending_provider','purchase_unknown')").bind(id).bind(a.id).bind(a.currency_code).bind(phone).bind(a.expires_at).bind(now_unix()).execute(&state.pg).await.map_err(|_|internal_error())?;
+    let price_refund = row.charge_quota - actual_charge;
+    if price_refund > 0 {
+        sqlx::query("UPDATE users SET quota=quota+$2 WHERE id=$1")
+            .bind(user)
+            .bind(price_refund)
+            .execute(&mut *tx)
+            .await
+            .map_err(|_| internal_error())?;
+        sqlx::query("INSERT INTO hero_sms_sms_quota_ledgers(user_id,order_id,entry_type,amount_quota,idempotency_key,created_at) VALUES($1,$2,'refund',$3,$4,$5) ON CONFLICT(idempotency_key) DO NOTHING")
+            .bind(user)
+            .bind(id)
+            .bind(price_refund)
+            .bind(format!("hero_sms:sms:price_refund:{id}"))
+            .bind(now_unix())
+            .execute(&mut *tx)
+            .await
+            .map_err(|_| internal_error())?;
+    }
+    sqlx::query("UPDATE hero_sms_sms_orders SET status='active',provider_id=$2,provider_currency_code=$3,phone_ciphertext=$4,provider_expires_at=$5,provider_price_cny=$6,customer_price_usd=$7,charge_quota=$8,refunded_quota=refunded_quota+$9,last_error_code='',last_error_message='',updated_at=$10 WHERE id=$1 AND status='purchase_unknown'")
+        .bind(id)
+        .bind(a.id)
+        .bind(a.currency_code)
+        .bind(phone)
+        .bind(a.expires_at)
+        .bind(cost.normalize().to_string())
+        .bind((cost * multiplier).normalize().to_string())
+        .bind(actual_charge)
+        .bind(price_refund)
+        .bind(now_unix())
+        .execute(&mut *tx)
+        .await
+        .map_err(|_| internal_error())?;
+    tx.commit().await.map_err(|_| internal_error())?;
     let row = fetch_order(&state.pg, user, id).await?;
-    let quota = quota(&state.pg, user).await?;
-    Ok((to_view(&row, false)?, quota, status))
+    Ok((to_view(&row, false)?, quota(&state.pg, user).await?, status))
 }
 async fn replay(
     pg: &PgPool,
@@ -1173,68 +1291,127 @@ async fn replay(
 async fn refund(
     pg: &PgPool,
     id: &str,
-    user: i64,
-    amount: i64,
     status: &str,
     code: &str,
     message: &str,
+    expected_statuses: &[&str],
 ) -> Result<(), HeroSmsApiError> {
     let mut tx = pg.begin().await.map_err(|_| internal_error())?;
-    let changed=sqlx::query("UPDATE hero_sms_sms_orders SET status=$2,refunded_quota=charge_quota,last_error_code=$3,last_error_message=$4,completed_at=$5,updated_at=$5 WHERE id=$1 AND refunded_quota=0").bind(id).bind(status).bind(code).bind(message).bind(now_unix()).execute(&mut *tx).await.map_err(|_|internal_error())?.rows_affected();
-    if changed > 0 {
-        sqlx::query("UPDATE users SET quota=quota+$2 WHERE id=$1")
-            .bind(user)
-            .bind(amount)
-            .execute(&mut *tx)
-            .await
-            .map_err(|_| internal_error())?;
-        sqlx::query("INSERT INTO hero_sms_sms_quota_ledgers(id,order_id,user_id,kind,quota,created_at) VALUES($1,$2,$3,'refund',$4,$5) ON CONFLICT(order_id,kind) DO NOTHING").bind(Uuid::new_v4().simple().to_string()).bind(id).bind(user).bind(amount).bind(now_unix()).execute(&mut *tx).await.map_err(|_|internal_error())?;
+    let row: (i64, String, i64, i64) = sqlx::query_as(
+        "SELECT user_id,status,reserved_quota,refunded_quota FROM hero_sms_sms_orders WHERE id=$1 FOR UPDATE",
+    )
+    .bind(id)
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(|_| internal_error())?
+    .ok_or_else(order_not_found)?;
+    let (user, current_status, reserved, already_refunded) = row;
+    if already_refunded >= reserved {
+        tx.commit().await.map_err(|_| internal_error())?;
+        return Ok(());
     }
+    if !expected_statuses.is_empty() && !expected_statuses.contains(&current_status.as_str()) {
+        return Err(HeroSmsApiError {
+            status: StatusCode::CONFLICT,
+            code: "ORDER_STATE_CHANGED",
+            message: "HeroSMS SMS order state changed",
+        });
+    }
+    let amount = reserved - already_refunded;
+    sqlx::query("UPDATE users SET quota=quota+$2 WHERE id=$1")
+        .bind(user)
+        .bind(amount)
+        .execute(&mut *tx)
+        .await
+        .map_err(|_| internal_error())?;
+    sqlx::query("INSERT INTO hero_sms_sms_quota_ledgers(user_id,order_id,entry_type,amount_quota,idempotency_key,created_at) VALUES($1,$2,'refund',$3,$4,$5) ON CONFLICT(idempotency_key) DO NOTHING")
+        .bind(user)
+        .bind(id)
+        .bind(amount)
+        .bind(format!("hero_sms:sms:refund:{id}"))
+        .bind(now_unix())
+        .execute(&mut *tx)
+        .await
+        .map_err(|_| internal_error())?;
+    let complaint_status = if current_status == "active" {
+        Some("closed_refund")
+    } else {
+        None
+    };
+    sqlx::query("UPDATE hero_sms_sms_orders SET status=$2,refunded_quota=reserved_quota,last_error_code=$3,last_error_message=$4,complaint_status=COALESCE($5,complaint_status),updated_at=$6 WHERE id=$1")
+        .bind(id)
+        .bind(status)
+        .bind(code)
+        .bind(message)
+        .bind(complaint_status)
+        .bind(now_unix())
+        .execute(&mut *tx)
+        .await
+        .map_err(|_| internal_error())?;
     tx.commit().await.map_err(|_| internal_error())
 }
 
 async fn refresh(state: &HeroSmsState, user: i64, id: &str) -> Result<OrderView, HeroSmsApiError> {
-    let row = fetch_order(&state.pg, user, id).await?;
+    let mut row = fetch_order(&state.pg, user, id).await?;
     if row.status == "purchase_unknown" {
         return reconcile_unknown_purchase(state, row).await;
     }
-    if row.status == "cancel_pending" {
-        let key = configured(state).await?;
-        let active = state
-            .gateway
-            .list_active_sms_activations(&key)
-            .await
-            .map_err(map_provider_error)?;
-        if !active
-            .iter()
-            .any(|item| Some(item.id.as_str()) == row.provider_id.as_deref())
-        {
-            refund(
-                &state.pg,
-                &row.id,
-                user,
-                row.charge_quota,
-                "cancelled",
-                "USER_CANCELLED",
-                "activation cancelled before receiving a code",
-            )
-            .await?;
-        }
-        return to_view(&fetch_order(&state.pg, user, id).await?, false);
-    }
-    if row.status != "active" || row.provider_id.is_none() {
+    if row.status != "active" && row.status != "cancel_pending" {
         return to_view(&row, false);
     }
     let key = configured(state).await?;
+    if row.status == "active"
+        && row.provider_expires_at > 0
+        && now_unix() >= row.provider_expires_at
+    {
+        sqlx::query("UPDATE hero_sms_sms_orders SET status='cancel_pending',provider_cancel_accepted_at=0,cancel_final_status='cancelled',cancel_error_code='ACTIVATION_EXPIRED',cancel_error_message='activation expired before receiving a code',last_error_code='CANCEL_PENDING',last_error_message='activation expired; awaiting HeroSMS cancellation confirmation',updated_at=$3 WHERE id=$1 AND user_id=$2 AND status='active'")
+            .bind(id)
+            .bind(user)
+            .bind(now_unix())
+            .execute(&state.pg)
+            .await
+            .map_err(|_| internal_error())?;
+        row = fetch_order(&state.pg, user, id).await?;
+    }
+    if row.status == "cancel_pending" {
+        let (view, _) = finalize_cancellation(state, &key, row).await?;
+        return Ok(view);
+    }
+    if complaint_needs_reconciliation(&row.complaint_status) {
+        return reconcile_complaint(state, &key, row).await;
+    }
+    let provider_id = row
+        .provider_id
+        .as_deref()
+        .filter(|id| !id.trim().is_empty())
+        .ok_or(HeroSmsApiError {
+            status: StatusCode::CONFLICT,
+            code: "RECONCILING",
+            message: "wait for provider purchase reconciliation",
+        })?;
     let status = state
         .gateway
-        .get_sms_activation_status(&key, row.provider_id.as_deref().unwrap_or_default())
+        .get_sms_activation_status(&key, provider_id)
         .await
         .map_err(map_provider_error)?;
     if !status.code.is_empty() {
-        let code = encrypt_payload(&status.code)?;
-        let text = encrypt_payload(&status.text)?;
-        sqlx::query("UPDATE hero_sms_sms_orders SET status='completed',code_ciphertext=$2,message_ciphertext=$3,completed_at=$4,updated_at=$4 WHERE id=$1 AND status='active'").bind(id).bind(code).bind(text).bind(now_unix()).execute(&state.pg).await.map_err(|_|internal_error())?;
+        complete_code(state, &key, &row, "active", &status.code, &status.text).await?;
+    } else if row.provider_expires_at == 0
+        && let Ok(provider_state) = state
+            .gateway
+            .get_sms_activation_state(&key, provider_id)
+            .await
+        && provider_state == SMS_STATE_CANCEL
+    {
+        refund(
+            &state.pg,
+            &row.id,
+            "cancelled",
+            "PROVIDER_CANCELLED",
+            "HeroSMS cancelled the activation before a code arrived",
+            &["active"],
+        )
+        .await?;
     }
     to_view(&fetch_order(&state.pg, user, id).await?, false)
 }
@@ -1257,12 +1434,26 @@ async fn reconcile_unknown_purchase(
         .list_active_sms_activations(&key)
         .await
         .map_err(map_provider_error)?;
-    if let Some(item) = active.into_iter().find(|item| {
-        !before_ids.contains(&item.id)
-            && item.service == row.service
-            && item.country_code == row.country_id
-            && (row.operator.is_empty() || item.operator.eq_ignore_ascii_case(&row.operator))
-    }) {
+    let reserved = Decimal::from_str(&row.provider_price_cny).map_err(|_| internal_error())?;
+    let mut candidates = active
+        .into_iter()
+        .filter(|item| {
+            let cost = Decimal::from_str(&item.cost).ok();
+            let operator_matches = row.operator.trim().is_empty()
+                || row.operator.trim().eq_ignore_ascii_case("any")
+                || item.operator.trim().is_empty()
+                || item.operator.trim().eq_ignore_ascii_case(&row.operator);
+            !before_ids.contains(&item.id)
+                && !item.phone_number.trim().is_empty()
+                && item.service == row.service
+                && item.country_code == row.country_id
+                && item.currency_code == HERO_SMS_CURRENCY_CODE
+                && cost.is_some_and(|value| value > Decimal::ZERO && value <= reserved)
+                && operator_matches
+        })
+        .collect::<Vec<_>>();
+    if candidates.len() == 1 {
+        let item = candidates.remove(0);
         let activation = SmsActivation {
             id: item.id,
             phone_number: item.phone_number,
@@ -1283,20 +1474,246 @@ async fn reconcile_unknown_purchase(
         .await?;
         return Ok(view);
     }
+    if candidates.len() > 1 {
+        sqlx::query("UPDATE hero_sms_sms_orders SET last_error_code='RECONCILIATION_AMBIGUOUS',last_error_message='multiple provider activations require manual reconciliation',updated_at=$2 WHERE id=$1 AND status='purchase_unknown'")
+            .bind(&row.id)
+            .bind(now_unix())
+            .execute(&state.pg)
+            .await
+            .map_err(|_| internal_error())?;
+        return to_view(&fetch_order(&state.pg, row.user_id, &row.id).await?, false);
+    }
     if now_unix() >= row.provider_request_started_at + 900 {
         refund(
             &state.pg,
             &row.id,
-            row.user_id,
-            row.charge_quota,
             "failed",
-            "PURCHASE_UNKNOWN_NOT_FOUND",
-            "provider purchase could not be reconciled",
+            "PROVIDER_NOT_FOUND",
+            "provider purchase did not create an activation",
+            &["purchase_unknown"],
         )
         .await?;
         return to_view(&fetch_order(&state.pg, row.user_id, &row.id).await?, false);
     }
     to_view(&row, false)
+}
+
+fn complaint_needs_reconciliation(status: &str) -> bool {
+    matches!(status, "submitting" | "submitted" | "submit_unknown")
+}
+
+async fn complete_code(
+    state: &HeroSmsState,
+    key: &str,
+    row: &OrderRow,
+    expected_status: &str,
+    code: &str,
+    message: &str,
+) -> Result<bool, HeroSmsApiError> {
+    let code = encrypt_payload(code)?;
+    let message = encrypt_payload(message)?;
+    let complaint_status =
+        complaint_needs_reconciliation(&row.complaint_status).then_some("closed_code");
+    let changed = sqlx::query("UPDATE hero_sms_sms_orders SET status='completed',code_ciphertext=$2,message_ciphertext=$3,complaint_status=COALESCE($4,complaint_status),completed_at=$5,updated_at=$5 WHERE id=$1 AND status=$6")
+        .bind(&row.id)
+        .bind(code)
+        .bind(message)
+        .bind(complaint_status)
+        .bind(now_unix())
+        .bind(expected_status)
+        .execute(&state.pg)
+        .await
+        .map_err(|_| internal_error())?
+        .rows_affected();
+    if changed > 0
+        && let Some(provider_id) = row.provider_id.as_deref()
+    {
+        let _ = state
+            .gateway
+            .set_sms_activation_status(key, provider_id, 6)
+            .await;
+    }
+    Ok(changed > 0)
+}
+
+async fn finalize_cancellation(
+    state: &HeroSmsState,
+    key: &str,
+    mut row: OrderRow,
+) -> Result<(OrderView, i64), HeroSmsApiError> {
+    let provider_id = row
+        .provider_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or(HeroSmsApiError {
+            status: StatusCode::CONFLICT,
+            code: "RECONCILING",
+            message: "wait for provider purchase reconciliation before cancelling",
+        })?;
+    let provider_state = state
+        .gateway
+        .get_sms_activation_state(key, provider_id)
+        .await
+        .map_err(map_provider_error)?;
+    if provider_state == SMS_STATE_CANCEL {
+        let status = if row.cancel_final_status.is_empty() {
+            "cancelled"
+        } else {
+            row.cancel_final_status.as_str()
+        };
+        let code = if row.cancel_error_code.is_empty() {
+            "USER_CANCELLED"
+        } else {
+            row.cancel_error_code.as_str()
+        };
+        let message = if row.cancel_error_message.is_empty() {
+            "activation cancelled before receiving a code"
+        } else {
+            row.cancel_error_message.as_str()
+        };
+        refund(
+            &state.pg,
+            &row.id,
+            status,
+            code,
+            message,
+            &["cancel_pending"],
+        )
+        .await?;
+        row = fetch_order(&state.pg, row.user_id, &row.id).await?;
+        return Ok((to_view(&row, false)?, quota(&state.pg, row.user_id).await?));
+    }
+    let provider_status = state
+        .gateway
+        .get_sms_activation_status(key, provider_id)
+        .await
+        .map_err(map_provider_error)?;
+    if !provider_status.code.is_empty()
+        && complete_code(
+            state,
+            key,
+            &row,
+            "cancel_pending",
+            &provider_status.code,
+            &provider_status.text,
+        )
+        .await?
+    {
+        row = fetch_order(&state.pg, row.user_id, &row.id).await?;
+        return Ok((to_view(&row, false)?, quota(&state.pg, row.user_id).await?));
+    }
+    if provider_state == SMS_STATE_OK {
+        return Err(HeroSmsApiError {
+            status: StatusCode::ACCEPTED,
+            code: "RECONCILING",
+            message: "HeroSMS activation completion is pending",
+        });
+    }
+    if row.provider_cancel_accepted_at == 0 {
+        state
+            .gateway
+            .set_sms_activation_status(key, provider_id, 8)
+            .await
+            .map_err(map_provider_error)?;
+        sqlx::query("UPDATE hero_sms_sms_orders SET provider_cancel_accepted_at=$2,updated_at=$2 WHERE id=$1 AND status='cancel_pending' AND provider_cancel_accepted_at=0")
+            .bind(&row.id)
+            .bind(now_unix())
+            .execute(&state.pg)
+            .await
+            .map_err(|_| internal_error())?;
+        row = fetch_order(&state.pg, row.user_id, &row.id).await?;
+    }
+    Ok((to_view(&row, false)?, quota(&state.pg, row.user_id).await?))
+}
+
+async fn reconcile_complaint(
+    state: &HeroSmsState,
+    key: &str,
+    mut row: OrderRow,
+) -> Result<OrderView, HeroSmsApiError> {
+    let provider_id = row
+        .provider_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or(HeroSmsApiError {
+            status: StatusCode::CONFLICT,
+            code: "RECONCILING",
+            message: "wait for provider purchase reconciliation before submitting a complaint",
+        })?;
+    let now = now_unix();
+    if matches!(
+        row.complaint_status.as_str(),
+        "submitting" | "submit_unknown"
+    ) && row.complaint_submit_attempts < COMPLAINT_MAX_ATTEMPTS
+        && (row.complaint_next_retry_at == 0 || row.complaint_next_retry_at <= now)
+    {
+        let result = state
+            .gateway
+            .submit_sms_complaint(key, provider_id, &row.complaint_type)
+            .await;
+        let attempts = row.complaint_submit_attempts + 1;
+        let (status, next_retry) = match &result {
+            Ok(()) => ("submitted", 0),
+            Err(HeroSmsProviderError::UpstreamBusy | HeroSmsProviderError::UpstreamTimeout) => {
+                ("submit_unknown", now + COMPLAINT_RETRY_SECONDS)
+            }
+            Err(_) => ("failed", 0),
+        };
+        sqlx::query("UPDATE hero_sms_sms_orders SET complaint_status=$2,complaint_submit_attempts=$3,complaint_next_retry_at=$4,updated_at=$5 WHERE id=$1 AND status='active' AND complaint_status IN ('submitting','submit_unknown')")
+            .bind(&row.id)
+            .bind(status)
+            .bind(attempts)
+            .bind(next_retry)
+            .bind(now)
+            .execute(&state.pg)
+            .await
+            .map_err(|_| internal_error())?;
+        row.complaint_status = status.to_owned();
+        row.complaint_submit_attempts = attempts;
+        row.complaint_next_retry_at = next_retry;
+        if let Err(error) = result
+            && !matches!(
+                error,
+                HeroSmsProviderError::UpstreamBusy | HeroSmsProviderError::UpstreamTimeout
+            )
+        {
+            return Err(map_provider_error(error));
+        }
+    }
+    let provider_state = state
+        .gateway
+        .get_sms_activation_state(key, provider_id)
+        .await
+        .map_err(map_provider_error)?;
+    if provider_state == SMS_STATE_CANCEL {
+        refund(
+            &state.pg,
+            &row.id,
+            "cancelled",
+            "UPSTREAM_REFUND_CONFIRMED",
+            "HeroSMS confirmed cancellation after the complaint",
+            &["active"],
+        )
+        .await?;
+    } else {
+        let status = state
+            .gateway
+            .get_sms_activation_status(key, provider_id)
+            .await
+            .map_err(map_provider_error)?;
+        if !status.code.is_empty() {
+            complete_code(state, key, &row, "active", &status.code, &status.text).await?;
+        }
+    }
+    sqlx::query("UPDATE hero_sms_sms_orders SET complaint_last_checked_at=$2,updated_at=$2 WHERE id=$1 AND status='active' AND complaint_status IN ('submitting','submitted','submit_unknown')")
+        .bind(&row.id)
+        .bind(now_unix())
+        .execute(&state.pg)
+        .await
+        .map_err(|_| internal_error())?;
+    to_view(&fetch_order(&state.pg, row.user_id, &row.id).await?, false)
 }
 
 async fn cancel_order(
@@ -1305,51 +1722,39 @@ async fn cancel_order(
     id: &str,
 ) -> Result<(OrderView, i64), HeroSmsApiError> {
     let key = configured(state).await?;
-    let row = fetch_order(&state.pg, user, id).await?;
-    if TERMINAL_STATUSES.contains(&row.status.as_str()) || row.status == "cancel_pending" {
+    let mut row = fetch_order(&state.pg, user, id).await?;
+    if TERMINAL_STATUSES.contains(&row.status.as_str()) {
         return Ok((to_view(&row, false)?, quota(&state.pg, user).await?));
     }
-    if row.status != "active" || row.provider_id.is_none() {
+    if row.status != "active" && row.status != "cancel_pending" {
         return Err(HeroSmsApiError {
             status: StatusCode::CONFLICT,
             code: "RECONCILING",
             message: "wait for provider purchase reconciliation before cancelling",
         });
     }
-    let changed=sqlx::query("UPDATE hero_sms_sms_orders SET status='cancel_pending',cancel_final_status='cancelled',cancel_error_code='USER_CANCELLED',cancel_error_message='activation cancelled before receiving a code',last_error_code='CANCEL_PENDING',updated_at=$3 WHERE id=$1 AND user_id=$2 AND status='active'").bind(id).bind(user).bind(now_unix()).execute(&state.pg).await.map_err(|_|internal_error())?.rows_affected();
-    if changed == 0 {
-        return Ok((
-            to_view(&fetch_order(&state.pg, user, id).await?, false)?,
-            quota(&state.pg, user).await?,
-        ));
-    }
-    match state
-        .gateway
-        .set_sms_activation_status(&key, row.provider_id.as_deref().unwrap_or_default(), 8)
-        .await
-    {
-        Ok(()) => {
-            refund(
-                &state.pg,
-                id,
-                user,
-                row.charge_quota,
-                "cancelled",
-                "USER_CANCELLED",
-                "activation cancelled before receiving a code",
-            )
-            .await?;
-            Ok((
-                to_view(&fetch_order(&state.pg, user, id).await?, false)?,
-                quota(&state.pg, user).await?,
-            ))
+    if row.status == "active" {
+        let provider_id_present = row
+            .provider_id
+            .as_deref()
+            .is_some_and(|value| !value.trim().is_empty());
+        if !provider_id_present {
+            return Err(HeroSmsApiError {
+                status: StatusCode::CONFLICT,
+                code: "RECONCILING",
+                message: "wait for provider purchase reconciliation before cancelling",
+            });
         }
-        Err(HeroSmsProviderError::UpstreamTimeout | HeroSmsProviderError::UpstreamBusy) => Ok((
-            to_view(&fetch_order(&state.pg, user, id).await?, false)?,
-            quota(&state.pg, user).await?,
-        )),
-        Err(e) => Err(map_provider_error(e)),
+        sqlx::query("UPDATE hero_sms_sms_orders SET status='cancel_pending',provider_cancel_accepted_at=0,cancel_final_status='cancelled',cancel_error_code='USER_CANCELLED',cancel_error_message='activation cancelled before receiving a code',last_error_code='CANCEL_PENDING',last_error_message='',updated_at=$3 WHERE id=$1 AND user_id=$2 AND status='active'")
+            .bind(id)
+            .bind(user)
+            .bind(now_unix())
+            .execute(&state.pg)
+            .await
+            .map_err(|_| internal_error())?;
+        row = fetch_order(&state.pg, user, id).await?;
     }
+    finalize_cancellation(state, &key, row).await
 }
 async fn submit_complaint(
     state: &HeroSmsState,
@@ -1390,6 +1795,16 @@ async fn submit_complaint(
             message: "wait two minutes before submitting a complaint",
         });
     }
+    if complaint_needs_reconciliation(&row.complaint_status) {
+        if row.complaint_type != reason {
+            return Err(HeroSmsApiError {
+                status: StatusCode::CONFLICT,
+                code: "COMPLAINT_ALREADY_SUBMITTED",
+                message: "a complaint is already pending for this activation",
+            });
+        }
+        return to_view(&row, false);
+    }
     if !row.complaint_status.is_empty() && row.complaint_status != "failed" {
         return Err(HeroSmsApiError {
             status: StatusCode::CONFLICT,
@@ -1398,7 +1813,7 @@ async fn submit_complaint(
         });
     }
     let now = now_unix();
-    let changed=sqlx::query("UPDATE hero_sms_sms_orders SET complaint_type=$3,complaint_status='submitting',complaint_submitted_at=$4,complaint_submit_attempts=complaint_submit_attempts+1,complaint_next_retry_at=$4+30,updated_at=$4 WHERE id=$1 AND user_id=$2 AND status='active' AND (complaint_status='' OR complaint_status='failed')").bind(id).bind(user).bind(&reason).bind(now).execute(&state.pg).await.map_err(|_|internal_error())?.rows_affected();
+    let changed=sqlx::query("UPDATE hero_sms_sms_orders SET complaint_type=$3,complaint_status='submitting',complaint_submitted_at=$4,complaint_submit_attempts=1,complaint_next_retry_at=$4+30,updated_at=$4 WHERE id=$1 AND user_id=$2 AND status='active' AND (complaint_status='' OR complaint_status='failed')").bind(id).bind(user).bind(&reason).bind(now).execute(&state.pg).await.map_err(|_|internal_error())?.rows_affected();
     if changed == 0 {
         return Err(HeroSmsApiError {
             status: StatusCode::CONFLICT,
@@ -1842,22 +2257,55 @@ pub(super) async fn reqwest_status(
     id: &str,
 ) -> Result<SmsStatus, HeroSmsProviderError> {
     let v = activate(g, key, "getStatusV2", &[("id", id.into())]).await?;
-    let s = v.get("sms");
+    let object = v.as_object().ok_or(HeroSmsProviderError::BadResponse)?;
+    let Some(sms) = object.get("sms") else {
+        return Err(HeroSmsProviderError::BadResponse);
+    };
+    if sms.is_null() {
+        return Ok(SmsStatus::default());
+    }
+    let sms = sms.as_object().ok_or(HeroSmsProviderError::BadResponse)?;
+    let string_field = |name: &str| -> Result<String, HeroSmsProviderError> {
+        match sms.get(name) {
+            None | Some(Value::Null) => Ok(String::new()),
+            Some(Value::String(value)) => Ok(value.trim().to_owned()),
+            Some(_) => Err(HeroSmsProviderError::BadResponse),
+        }
+    };
     Ok(SmsStatus {
-        code: s
-            .and_then(|v| v.get("code"))
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .trim()
-            .into(),
-        text: s
-            .and_then(|v| v.get("text"))
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .trim()
-            .into(),
+        code: string_field("code")?,
+        text: string_field("text")?,
     })
 }
+pub(super) async fn reqwest_state(
+    g: &ReqwestHeroSmsGateway,
+    key: &str,
+    id: &str,
+) -> Result<String, HeroSmsProviderError> {
+    let value = activate(g, key, "getStatus", &[("id", id.into())]).await?;
+    let state = value
+        .as_str()
+        .map(str::trim)
+        .ok_or(HeroSmsProviderError::BadResponse)?;
+    if state == "NO_ACTIVATION" {
+        return Err(HeroSmsProviderError::NotFound);
+    }
+    if matches!(
+        state,
+        "STATUS_WAIT_CODE"
+            | "STATUS_WAIT_RETRY"
+            | "STATUS_WAIT_RESEND"
+            | SMS_STATE_OK
+            | SMS_STATE_CANCEL
+    ) {
+        return Ok(state.to_owned());
+    }
+    if state.starts_with("STATUS_OK:") {
+        return Ok(SMS_STATE_OK.to_owned());
+    }
+    Err(HeroSmsProviderError::BadResponse)
+}
+
 pub(super) async fn reqwest_set_status(
     g: &ReqwestHeroSmsGateway,
     key: &str,
@@ -1917,6 +2365,143 @@ fn decimal_value(v: &Value) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::auth::{
+        AuthBundle, AuthError, AuthErrorKind, DashboardUser, LoginOutcome, LoginRequest,
+        LogoutRequest, LogoutResult, RequestMetadata, TwoFactorLoginRequest,
+    };
+    use axum::body::Body;
+    use secrecy::SecretString;
+    use sqlx::postgres::PgPoolOptions;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use tower::ServiceExt;
+
+    #[derive(Clone)]
+    struct FixtureAuth {
+        error: Option<AuthErrorKind>,
+        critical_checks: Arc<AtomicUsize>,
+    }
+
+    #[async_trait]
+    impl DashboardAuth for FixtureAuth {
+        async fn check_critical_rate_limit(
+            &self,
+            _: &str,
+        ) -> Result<CriticalRateLimitOutcome, AuthError> {
+            self.critical_checks.fetch_add(1, Ordering::SeqCst);
+            Ok(CriticalRateLimitOutcome::Allowed)
+        }
+
+        async fn login(
+            &self,
+            _: LoginRequest,
+            _: RequestMetadata,
+        ) -> Result<LoginOutcome, AuthError> {
+            Err(AuthError::new(AuthErrorKind::Internal))
+        }
+
+        async fn login_2fa(
+            &self,
+            _: TwoFactorLoginRequest,
+            _: RequestMetadata,
+        ) -> Result<AuthBundle, AuthError> {
+            Err(AuthError::new(AuthErrorKind::Internal))
+        }
+
+        async fn refresh(
+            &self,
+            _: SecretString,
+            _: Option<String>,
+            _: RequestMetadata,
+        ) -> Result<AuthBundle, AuthError> {
+            Err(AuthError::new(AuthErrorKind::Internal))
+        }
+
+        async fn self_user(&self, _: SecretString) -> Result<DashboardUser, AuthError> {
+            if let Some(error) = self.error {
+                return Err(AuthError::new(error));
+            }
+            Ok(fixture_user())
+        }
+
+        async fn logout(&self, _: LogoutRequest) -> Result<LogoutResult, AuthError> {
+            Err(AuthError::new(AuthErrorKind::Internal))
+        }
+
+        async fn generate_personal_access_token(
+            &self,
+            _: SecretString,
+        ) -> Result<String, AuthError> {
+            Err(AuthError::new(AuthErrorKind::Internal))
+        }
+    }
+
+    #[derive(Default)]
+    struct CountingLimiter(AtomicUsize);
+
+    #[async_trait]
+    impl SmsUserRateLimiter for CountingLimiter {
+        async fn check(&self, _: &str, _: i64) -> Result<CriticalRateLimitOutcome, ()> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Ok(CriticalRateLimitOutcome::Allowed)
+        }
+    }
+
+    fn fixture_user() -> DashboardUser {
+        DashboardUser {
+            id: 7,
+            username: "member".to_owned(),
+            display_name: String::new(),
+            role: 1,
+            status: 1,
+            email: String::new(),
+            github_id: String::new(),
+            discord_id: String::new(),
+            oidc_id: String::new(),
+            wechat_id: String::new(),
+            telegram_id: String::new(),
+            group: "default".to_owned(),
+            quota: 0,
+            used_quota: 0,
+            request_count: 0,
+            aff_code: String::new(),
+            aff_count: 0,
+            aff_quota: 0,
+            aff_history_quota: 0,
+            inviter_id: 0,
+            linux_do_id: String::new(),
+            setting: String::new(),
+            stripe_customer: String::new(),
+            sidebar_modules: Value::Null,
+            permissions: Value::Null,
+        }
+    }
+
+    fn handler_fixture(
+        auth_error: Option<AuthErrorKind>,
+    ) -> (HeroSmsState, Arc<CountingLimiter>, Arc<AtomicUsize>) {
+        let pg = PgPoolOptions::new()
+            .connect_lazy("postgres://unused:unused@127.0.0.1:1/unused")
+            .unwrap();
+        let critical = Arc::new(AtomicUsize::new(0));
+        let auth: Arc<dyn DashboardAuth> = Arc::new(FixtureAuth {
+            error: auth_error,
+            critical_checks: Arc::clone(&critical),
+        });
+        let limiter = Arc::new(CountingLimiter::default());
+        let mut state = HeroSmsState::new(pg, auth, Arc::new(DisabledHeroSmsGateway));
+        state.sms_user_rate_limiter = limiter.clone();
+        (state, limiter, critical)
+    }
+
+    fn authorized_request(method: &str, uri: &str, body: Vec<u8>) -> Request {
+        Request::builder()
+            .method(method)
+            .uri(uri)
+            .header("Authorization", "Bearer fixture")
+            .header("X-Real-IP", "127.0.0.1")
+            .body(Body::from(body))
+            .unwrap()
+    }
 
     #[test]
     fn user_limiter_uses_go_namespace() {
@@ -1943,14 +2528,108 @@ mod tests {
     async fn mutation_body_limit_precedes_payload_validation() {
         let request = Request::builder()
             .method("POST")
-            .body(axum::body::Body::from(vec![
-                b'x';
-                BODY_LIMIT_BYTES
-                    + 1
-            ]))
+            .body(axum::body::Body::from(vec![b'x'; BODY_LIMIT_BYTES + 1]))
             .unwrap();
         let response = parse_json::<CreateInput>(request).await.unwrap_err();
         assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+    }
+
+    #[tokio::test]
+    async fn mutation_handlers_authenticate_and_validate_body_before_rate_limits() {
+        let (state, limiter, critical) = handler_fixture(None);
+        let app = super::routes().with_state(state);
+
+        let oversized = authorized_request(
+            "POST",
+            "/api/hero-sms/sms/orders",
+            vec![b'x'; BODY_LIMIT_BYTES + 1],
+        );
+        let response = app.clone().oneshot(oversized).await.unwrap();
+        assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+        assert_eq!(limiter.0.load(Ordering::SeqCst), 0);
+        assert_eq!(critical.load(Ordering::SeqCst), 0);
+
+        let invalid = authorized_request("POST", "/api/hero-sms/sms/orders", b"not-json".to_vec());
+        let response = app.clone().oneshot(invalid).await.unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(limiter.0.load(Ordering::SeqCst), 0);
+        assert_eq!(critical.load(Ordering::SeqCst), 0);
+
+        let mut exact = b"{}".to_vec();
+        exact.resize(BODY_LIMIT_BYTES, b' ');
+        let response = app
+            .clone()
+            .oneshot(authorized_request(
+                "POST",
+                "/api/hero-sms/sms/orders",
+                exact,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(limiter.0.load(Ordering::SeqCst), 1);
+        assert_eq!(critical.load(Ordering::SeqCst), 1);
+
+        let response = app
+            .oneshot(authorized_request(
+                "DELETE",
+                "/api/hero-sms/sms/history",
+                vec![b'x'; BODY_LIMIT_BYTES + 1],
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+        assert_eq!(limiter.0.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn unauthenticated_oversized_mutation_fails_auth_without_consuming_limits() {
+        let (state, limiter, critical) = handler_fixture(Some(AuthErrorKind::Unauthorized));
+        let response = super::routes()
+            .with_state(state)
+            .oneshot(authorized_request(
+                "POST",
+                "/api/hero-sms/sms/orders",
+                vec![b'x'; BODY_LIMIT_BYTES + 1],
+            ))
+            .await
+            .unwrap();
+        assert!(matches!(
+            response.status(),
+            StatusCode::UNAUTHORIZED | StatusCode::NOT_FOUND
+        ));
+        assert_eq!(limiter.0.load(Ordering::SeqCst), 0);
+        assert_eq!(critical.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn bodyless_delete_accepts_empty_body_and_get_does_not_consume_mutation_limit() {
+        let (state, limiter, _) = handler_fixture(None);
+        let app = super::routes().with_state(state);
+        let response = app
+            .clone()
+            .oneshot(authorized_request(
+                "DELETE",
+                "/api/hero-sms/sms/history/not-owned",
+                Vec::new(),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(limiter.0.load(Ordering::SeqCst), 1);
+        assert!(matches!(
+            response.status(),
+            StatusCode::NOT_FOUND | StatusCode::INTERNAL_SERVER_ERROR
+        ));
+
+        let _ = app
+            .oneshot(authorized_request(
+                "GET",
+                "/api/hero-sms/sms/orders?page=1&size=20",
+                Vec::new(),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(limiter.0.load(Ordering::SeqCst), 1);
     }
 
     #[tokio::test]
@@ -1971,28 +2650,38 @@ mod tests {
             if database_url.contains('?') { "&" } else { "?" }
         );
         let pg = PgPool::connect(&scoped_url).await.unwrap();
-        sqlx::query("CREATE TABLE users(id BIGINT PRIMARY KEY, quota BIGINT NOT NULL); CREATE TABLE hero_sms_sms_orders(id TEXT PRIMARY KEY,user_id BIGINT NOT NULL,status TEXT NOT NULL,charge_quota BIGINT NOT NULL,refunded_quota BIGINT NOT NULL DEFAULT 0,last_error_code TEXT NOT NULL DEFAULT '',last_error_message TEXT NOT NULL DEFAULT '',completed_at BIGINT,updated_at BIGINT NOT NULL); CREATE TABLE hero_sms_sms_quota_ledgers(id TEXT PRIMARY KEY,order_id TEXT NOT NULL,user_id BIGINT NOT NULL,kind TEXT NOT NULL,quota BIGINT NOT NULL,created_at BIGINT NOT NULL,UNIQUE(order_id,kind));").execute(&pg).await.unwrap();
-        sqlx::query("INSERT INTO users VALUES(7,100); INSERT INTO hero_sms_sms_orders(id,user_id,status,charge_quota,updated_at) VALUES('order-1',7,'active',50,1)").execute(&pg).await.unwrap();
+        sqlx::query("CREATE TABLE users(id BIGINT PRIMARY KEY, quota BIGINT NOT NULL); CREATE TABLE hero_sms_sms_orders(id TEXT PRIMARY KEY,user_id BIGINT NOT NULL,status TEXT NOT NULL,reserved_quota BIGINT NOT NULL,charge_quota BIGINT NOT NULL,refunded_quota BIGINT NOT NULL DEFAULT 0,complaint_status TEXT NOT NULL DEFAULT '',last_error_code TEXT NOT NULL DEFAULT '',last_error_message TEXT NOT NULL DEFAULT '',updated_at BIGINT NOT NULL); CREATE TABLE hero_sms_sms_quota_ledgers(id BIGSERIAL PRIMARY KEY,order_id TEXT NOT NULL,user_id BIGINT NOT NULL,entry_type TEXT NOT NULL,amount_quota BIGINT NOT NULL,idempotency_key TEXT NOT NULL UNIQUE,created_at BIGINT NOT NULL);").execute(&pg).await.unwrap();
+        sqlx::query("INSERT INTO users VALUES(7,100); INSERT INTO hero_sms_sms_orders(id,user_id,status,reserved_quota,charge_quota,updated_at) VALUES('order-1',7,'active',50,50,1)").execute(&pg).await.unwrap();
 
+        let first_pg = pg.clone();
+        let second_pg = pg.clone();
+        let (first, second) = tokio::join!(
+            refund(
+                &first_pg,
+                "order-1",
+                "cancelled",
+                "USER_CANCELLED",
+                "cancelled",
+                &["active"],
+            ),
+            refund(
+                &second_pg,
+                "order-1",
+                "cancelled",
+                "USER_CANCELLED",
+                "cancelled",
+                &["active"],
+            )
+        );
+        first.unwrap();
+        second.unwrap();
         refund(
             &pg,
             "order-1",
-            7,
-            50,
             "cancelled",
             "USER_CANCELLED",
             "cancelled",
-        )
-        .await
-        .unwrap();
-        refund(
-            &pg,
-            "order-1",
-            7,
-            50,
-            "cancelled",
-            "USER_CANCELLED",
-            "cancelled",
+            &["active"],
         )
         .await
         .unwrap();

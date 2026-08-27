@@ -402,6 +402,14 @@ pub trait HeroSmsGateway: Send + Sync {
         let _ = (api_key, id);
         Err(HeroSmsProviderError::UpstreamBusy)
     }
+    async fn get_sms_activation_state(
+        &self,
+        api_key: &str,
+        id: &str,
+    ) -> Result<String, HeroSmsProviderError> {
+        let _ = (api_key, id);
+        Err(HeroSmsProviderError::UpstreamBusy)
+    }
     async fn set_sms_activation_status(
         &self,
         api_key: &str,
@@ -679,6 +687,13 @@ impl HeroSmsGateway for ReqwestHeroSmsGateway {
         id: &str,
     ) -> Result<sms::SmsStatus, HeroSmsProviderError> {
         sms::reqwest_status(self, api_key, id).await
+    }
+    async fn get_sms_activation_state(
+        &self,
+        api_key: &str,
+        id: &str,
+    ) -> Result<String, HeroSmsProviderError> {
+        sms::reqwest_state(self, api_key, id).await
     }
     async fn set_sms_activation_status(
         &self,
@@ -1318,10 +1333,7 @@ fn console_not_found() -> Response {
     (StatusCode::NOT_FOUND, Json(json!({"message": "Not Found"}))).into_response()
 }
 
-async fn parse_json<T>(request: Request) -> Result<T, Response>
-where
-    T: for<'de> Deserialize<'de> + Default,
-{
+async fn bounded_body(request: Request) -> Result<axum::body::Bytes, Response> {
     if request
         .headers()
         .get(header::CONTENT_LENGTH)
@@ -1331,9 +1343,16 @@ where
     {
         return Err(legacy_empty_response(StatusCode::PAYLOAD_TOO_LARGE, None));
     }
-    let bytes = to_bytes(request.into_body(), BODY_LIMIT_BYTES)
+    to_bytes(request.into_body(), BODY_LIMIT_BYTES)
         .await
-        .map_err(|_| legacy_empty_response(StatusCode::PAYLOAD_TOO_LARGE, None))?;
+        .map_err(|_| legacy_empty_response(StatusCode::PAYLOAD_TOO_LARGE, None))
+}
+
+async fn parse_json<T>(request: Request) -> Result<T, Response>
+where
+    T: for<'de> Deserialize<'de> + Default,
+{
+    let bytes = bounded_body(request).await?;
     if bytes.is_empty() {
         return Ok(T::default());
     }
