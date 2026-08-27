@@ -58,7 +58,10 @@ export async function updatePlan(
 }
 
 export async function deletePlan(id: number): Promise<ApiResponse> {
-  const res = await api.delete(`/api/subscription/admin/plans/${id}`)
+  const res = await api.delete(`/api/subscription/admin/plans/${id}`, {
+    skipBusinessError: true,
+    skipErrorHandler: true,
+  })
   return res.data
 }
 

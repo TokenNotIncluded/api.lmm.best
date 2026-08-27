@@ -436,6 +436,39 @@ async fn subscription_admin_routes_preserve_tcp_contract_atomicity_and_cache_rec
     );
     assert_eq!(user_group(&pool).await, "default");
     assert_eq!(exists(&mut cache, "user:7").await, 0);
+
+    sqlx::query("INSERT INTO subscription_plans (id,title,price_amount,enabled,total_amount,duration_unit,duration_value,upgrade_group,downgrade_group) VALUES (4,'Disposable',1,TRUE,10,'day',1,'','')")
+        .execute(&pool)
+        .await
+        .expect("unused plan fixture");
+    let deleted = client
+        .delete(format!("http://{address}/api/subscription/admin/plans/4"))
+        .bearer_auth("admin")
+        .send()
+        .await
+        .expect("TCP delete response");
+    assert_eq!(deleted.status(), reqwest::StatusCode::OK);
+    assert_eq!(
+        deleted.headers()["auth-version"],
+        "864b7076dbcd0a3c01b5520316720ebf"
+    );
+    assert_eq!(
+        deleted
+            .json::<serde_json::Value>()
+            .await
+            .expect("delete JSON")["success"],
+        true
+    );
+    let audit: String = sqlx::query_scalar(
+        "SELECT other FROM logs WHERE content='DELETE /api/subscription/admin/plans/4'",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("atomic plan-delete audit");
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&audit).expect("audit JSON")["op"]["action"],
+        "subscription.plan_delete"
+    );
     server.abort();
 }
 
@@ -576,6 +609,8 @@ async fn seed(pool: &PgPool) {
 
 async fn reset_schema(pool: &PgPool) {
     for table in [
+        "logs",
+        "subscription_orders",
         "user_subscriptions",
         "subscription_pre_consume_records",
         "subscription_plans",
@@ -599,4 +634,12 @@ async fn reset_schema(pool: &PgPool) {
         .execute(pool).await.expect("subscriptions schema");
     sqlx::query("CREATE TABLE subscription_pre_consume_records (id BIGSERIAL PRIMARY KEY, request_id TEXT NOT NULL, user_id BIGINT NOT NULL, user_subscription_id BIGINT NOT NULL, pre_consumed BIGINT NOT NULL, status TEXT NOT NULL, created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL)")
         .execute(pool).await.expect("pre-consume schema");
+    sqlx::query(
+        "CREATE TABLE subscription_orders (id BIGSERIAL PRIMARY KEY, plan_id BIGINT NOT NULL)",
+    )
+    .execute(pool)
+    .await
+    .expect("orders schema");
+    sqlx::query("CREATE TABLE logs (user_id BIGINT, created_at BIGINT, type BIGINT, content TEXT, username TEXT, ip TEXT, other TEXT)")
+        .execute(pool).await.expect("logs schema");
 }

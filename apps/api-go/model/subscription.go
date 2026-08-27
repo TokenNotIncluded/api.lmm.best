@@ -44,7 +44,9 @@ const (
 )
 
 var (
-	ErrSubscriptionPlanInUse = errors.New("subscription plan is in use")
+	ErrSubscriptionPlanInUse    = errors.New("subscription plan is in use")
+	ErrSubscriptionPlanChanged  = errors.New("subscription plan changed before persistence")
+	ErrSubscriptionPlanDisabled = errors.New("subscription plan is disabled")
 
 	subscriptionPlanCacheOnce     sync.Once
 	subscriptionPlanInfoCacheOnce sync.Once
@@ -233,10 +235,25 @@ type SubscriptionOrder struct {
 }
 
 func (o *SubscriptionOrder) Insert() error {
+	if o == nil || o.PlanId <= 0 {
+		return errors.New("invalid subscription order plan")
+	}
 	if o.CreateTime == 0 {
 		o.CreateTime = common.GetTimestamp()
 	}
-	return DB.Create(o).Error
+	return DB.Transaction(func(tx *gorm.DB) error {
+		plan, err := getSubscriptionPlanForPersistenceTx(tx, o.PlanId)
+		if err != nil {
+			return err
+		}
+		if !plan.Enabled {
+			return ErrSubscriptionPlanDisabled
+		}
+		if plan.PriceAmount != o.Money {
+			return ErrSubscriptionPlanChanged
+		}
+		return tx.Create(o).Error
+	})
 }
 
 func (o *SubscriptionOrder) Update() error {
@@ -422,6 +439,21 @@ func AdminDeleteSubscriptionPlan(planId int) error {
 	return nil
 }
 
+func getSubscriptionPlanForPersistenceTx(tx *gorm.DB, id int) (*SubscriptionPlan, error) {
+	if tx == nil {
+		return nil, errors.New("tx is nil")
+	}
+	if id <= 0 {
+		return nil, errors.New("invalid plan id")
+	}
+	var plan SubscriptionPlan
+	if err := lockForShare(tx).Where("id = ?", id).First(&plan).Error; err != nil {
+		return nil, err
+	}
+	plan.NormalizeDefaults()
+	return &plan, nil
+}
+
 func getSubscriptionPlanByIdTx(tx *gorm.DB, id int) (*SubscriptionPlan, error) {
 	if id <= 0 {
 		return nil, errors.New("invalid plan id")
@@ -538,7 +570,7 @@ func CreateUserSubscriptionFromPlanTx(tx *gorm.DB, userId int, plan *Subscriptio
 			return nil, errors.New("已达到该套餐购买上限")
 		}
 	}
-	nowUnix := GetDBTimestamp()
+	nowUnix := getDBTimestamp(tx)
 	now := time.Unix(nowUnix, 0)
 	endUnix, err := calcPlanEndTime(now, plan)
 	if err != nil {
@@ -755,13 +787,16 @@ func AdminBindSubscription(userId int, planId int, sourceNote string) (string, e
 	if userId <= 0 || planId <= 0 {
 		return "", errors.New("invalid userId or planId")
 	}
-	plan, err := GetSubscriptionPlanById(planId)
-	if err != nil {
-		return "", err
-	}
+	var plan *SubscriptionPlan
 	groupChanged := false
-	err = DB.Transaction(func(tx *gorm.DB) error {
-		// 与 CompleteSubscriptionOrder 一致：先锁用户行，再做购买次数检查。
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		var err error
+		plan, err = getSubscriptionPlanForPersistenceTx(tx, planId)
+		if err != nil {
+			return err
+		}
+		// Plan locks precede user locks across purchase paths, preventing a
+		// plan-delete/user-update lock inversion.
 		var userRow User
 		if err := lockForUpdate(tx).Select("id").Where("id = ?", userId).First(&userRow).Error; err != nil {
 			return err
@@ -806,7 +841,7 @@ func PurchaseSubscriptionWithBalance(userId int, planId int) error {
 	var chargedQuota int
 	var upgradeGroup string
 	err := DB.Transaction(func(tx *gorm.DB) error {
-		plan, err := getSubscriptionPlanByIdTx(tx, planId)
+		plan, err := getSubscriptionPlanForPersistenceTx(tx, planId)
 		if err != nil {
 			return err
 		}

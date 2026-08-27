@@ -1057,9 +1057,10 @@ async fn admin_delete_plan(
     headers: HeaderMap,
     Path(id): Path<i64>,
 ) -> Response {
-    if let Err(response) = admin(&state, &headers).await {
-        return response;
-    }
+    let administrator = match admin(&state, &headers).await {
+        Ok(administrator) => administrator,
+        Err(response) => return response,
+    };
     if let Err(response) = require_payment_compliance(&state, &headers).await {
         return with_auth_version(response);
     }
@@ -1069,7 +1070,9 @@ async fn admin_delete_plan(
 
     let mut tx = match state.pg.begin().await {
         Ok(tx) => tx,
-        Err(_) => return failure(StatusCode::INTERNAL_SERVER_ERROR, "系统错误"),
+        Err(_) => {
+            return with_auth_version(failure(StatusCode::INTERNAL_SERVER_ERROR, "系统错误"));
+        }
     };
     match sqlx::query_scalar::<_, i64>("SELECT id FROM subscription_plans WHERE id=$1 FOR UPDATE")
         .bind(id)
@@ -1077,8 +1080,15 @@ async fn admin_delete_plan(
         .await
     {
         Ok(Some(_)) => {}
-        Ok(None) => return failure(StatusCode::BAD_REQUEST, "Subscription plan not found"),
-        Err(_) => return failure(StatusCode::INTERNAL_SERVER_ERROR, "系统错误"),
+        Ok(None) => {
+            return with_auth_version(failure(
+                StatusCode::BAD_REQUEST,
+                "Subscription plan not found",
+            ));
+        }
+        Err(_) => {
+            return with_auth_version(failure(StatusCode::INTERNAL_SERVER_ERROR, "系统错误"));
+        }
     }
 
     match sqlx::query_scalar::<_, bool>(
@@ -1089,23 +1099,57 @@ async fn admin_delete_plan(
     .await
     {
         Ok(true) => {
-            return failure(
+            return with_auth_version(failure(
                 StatusCode::BAD_REQUEST,
                 "Subscription plan has subscription or order history and cannot be deleted. Disable it instead.",
-            );
+            ));
         }
         Ok(false) => {}
-        Err(_) => return failure(StatusCode::INTERNAL_SERVER_ERROR, "系统错误"),
+        Err(_) => {
+            return with_auth_version(failure(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "系统错误",
+            ));
+        }
     }
 
-    if sqlx::query("DELETE FROM subscription_plans WHERE id=$1")
+    let audit = json!({
+        "admin_info": {
+            "admin_id": administrator.id,
+            "admin_username": administrator.username,
+            "admin_role": administrator.role,
+            "auth_method": "session",
+        },
+        "audit_info": {
+            "method": "DELETE",
+            "route": "/api/subscription/admin/plans/:id",
+            "path": format!("/api/subscription/admin/plans/{id}"),
+            "status": 200,
+            "success": true,
+            "params": { "id": id.to_string() },
+        },
+        "op": {
+            "action": "subscription.plan_delete",
+            "params": { "plan_id": id },
+        },
+    })
+    .to_string();
+    let deleted = sqlx::query("DELETE FROM subscription_plans WHERE id=$1")
         .bind(id)
         .execute(&mut *tx)
-        .await
-        .is_err()
-        || tx.commit().await.is_err()
-    {
-        return failure(StatusCode::INTERNAL_SERVER_ERROR, "系统错误");
+        .await;
+    let audited = sqlx::query(
+        "INSERT INTO logs (user_id, created_at, type, content, username, ip, other) \
+         VALUES ($1, EXTRACT(EPOCH FROM NOW())::BIGINT, 3, $2, $3, '', $4)",
+    )
+    .bind(administrator.id)
+    .bind(format!("DELETE /api/subscription/admin/plans/{id}"))
+    .bind(&administrator.username)
+    .bind(audit)
+    .execute(&mut *tx)
+    .await;
+    if deleted.is_err() || audited.is_err() || tx.commit().await.is_err() {
+        return with_auth_version(failure(StatusCode::INTERNAL_SERVER_ERROR, "系统错误"));
     }
     evict_plan(&state, id).await;
     with_auth_version(empty_ok())
@@ -1972,11 +2016,13 @@ mod tests {
     };
 
     fn local_timestamp(year: i32, month: u32, day: u32, hour: u32, minute: u32) -> i64 {
-        Local
+        let Some(timestamp) = Local
             .with_ymd_and_hms(year, month, day, hour, minute, 0)
             .single()
-            .expect("test timestamp should be unambiguous")
-            .timestamp()
+        else {
+            panic!("test timestamp should be unambiguous");
+        };
+        timestamp.timestamp()
     }
 
     fn plan() -> Plan {
@@ -2046,7 +2092,9 @@ mod tests {
 
     #[test]
     fn preference_persistence_matches_go_user_setting_json() {
-        let mut setting = serde_json::from_str::<LegacyUserSetting>("{}").expect("empty setting");
+        let Ok(mut setting) = serde_json::from_str::<LegacyUserSetting>("{}") else {
+            panic!("empty legacy user setting fixture should deserialize");
+        };
         setting.billing_preference = "subscription_first".to_owned();
         assert_eq!(
             serde_json::to_string(&setting).expect("setting serializes"),
