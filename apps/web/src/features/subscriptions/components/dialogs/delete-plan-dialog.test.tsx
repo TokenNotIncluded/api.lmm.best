@@ -19,7 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 
-import { getDeletePlanErrorMessage } from './delete-plan-dialog.js'
+import { getDeletePlanErrorMessage } from './delete-plan-error.js'
 
 describe('getDeletePlanErrorMessage', () => {
   test('prefers the backend response message', () => {

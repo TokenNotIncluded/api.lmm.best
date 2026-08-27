@@ -24,33 +24,7 @@ import { ConfirmDialog } from '@/components/confirm-dialog'
 
 import { deletePlan } from '../../api.js'
 import { useSubscriptions } from '../subscriptions-provider.js'
-
-type DeletePlanHttpError = {
-  response?: {
-    status?: number
-    data?: { message?: unknown }
-  }
-  message?: unknown
-}
-
-export function getDeletePlanErrorMessage(
-  error: unknown,
-  fallback: string
-): string {
-  if (typeof error !== 'object' || error === null) return fallback
-
-  const httpError = error as DeletePlanHttpError
-  const backendMessage = httpError.response?.data?.message
-  if (typeof backendMessage === 'string' && backendMessage.trim()) {
-    return backendMessage
-  }
-
-  const status = httpError.response?.status
-  if (typeof status === 'number') return `${fallback} (${status})`
-  return typeof httpError.message === 'string' && httpError.message.trim()
-    ? httpError.message
-    : fallback
-}
+import { getDeletePlanErrorMessage } from './delete-plan-error.js'
 
 export function DeletePlanDialog() {
   const { t } = useTranslation()
