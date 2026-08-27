@@ -162,14 +162,77 @@ jobs:
 
       - name: Enforce Go and Rust alignment contracts
         run: |
-          bash apps/api-rust/tests/scripts/check-go-route-manifest.sh
-          bash apps/api-rust/tests/scripts/check-complete-route-coverage.sh
-          bash apps/api-rust/tests/scripts/test-check-complete-route-coverage.sh
-          bash apps/api-rust/tests/behavior-oracle/tests/check-fixtures.sh
-          bash apps/api-rust/tests/scripts/check-behavior-deviations.sh
-          bash apps/api-rust/tests/scripts/test-check-behavior-deviations.sh
-          bash apps/api-rust/tests/scripts/check-migration-plan.sh
-          bash apps/api-rust/tests/scripts/test-check-migration-plan.sh
+          set -euo pipefail
+          artifact_dir="$RUNNER_TEMP/release-alignment-contract"
+          mkdir -p "$artifact_dir"
+          summary="$artifact_dir/results.jsonl"
+          : > "$summary"
+          overall_status=0
+
+          run_check() {
+            local name=$1
+            shift
+            local output="$artifact_dir/$name.log"
+            local exit_code
+
+            if "$@" >"$output" 2>&1; then
+              exit_code=0
+            else
+              exit_code=$?
+            fi
+            cat "$output"
+
+            if (( exit_code == 0 )); then
+              printf '{"check":"%s","exit_code":0,"status":"passed"}\n' "$name" >> "$summary"
+            else
+              printf '{"check":"%s","exit_code":%d,"status":"failed"}\n' "$name" "$exit_code" >> "$summary"
+              overall_status=1
+            fi
+          }
+
+          run_check go-route-manifest \
+            bash apps/api-rust/tests/scripts/check-go-route-manifest.sh
+          run_check complete-route-coverage \
+            bash apps/api-rust/tests/scripts/check-complete-route-coverage.sh
+          run_check complete-route-coverage-tests \
+            bash apps/api-rust/tests/scripts/test-check-complete-route-coverage.sh
+          run_check fixture-contract \
+            bash apps/api-rust/tests/behavior-oracle/tests/check-fixtures.sh
+          run_check behavior-deviations \
+            bash apps/api-rust/tests/scripts/check-behavior-deviations.sh
+          run_check behavior-deviations-tests \
+            bash apps/api-rust/tests/scripts/test-check-behavior-deviations.sh
+          run_check migration-plan \
+            bash apps/api-rust/tests/scripts/check-migration-plan.sh
+          run_check migration-plan-tests \
+            bash apps/api-rust/tests/scripts/test-check-migration-plan.sh
+          run_check draft-route-coverage \
+            bash apps/api-rust/tests/scripts/check-draft-route-coverage.sh
+          run_check draft-route-completion \
+            bash apps/api-rust/tests/scripts/check-draft-route-completion.sh
+          run_check draft-route-coverage-tests \
+            bash apps/api-rust/tests/scripts/test-check-draft-route-coverage.sh
+
+          {
+            echo "release alignment contract status: $([[ $overall_status == 0 ]] && echo passed || echo failed)"
+            echo "results: $summary"
+          } | tee "$artifact_dir/summary.txt" >> "$GITHUB_STEP_SUMMARY"
+
+          cp "$summary" release-alignment-results.jsonl
+          cp "$artifact_dir/summary.txt" release-alignment-summary.txt
+          cp -r "$artifact_dir" release-alignment-logs
+          exit "$overall_status"
+
+      - name: Upload release alignment evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-alignment-contract-${{ github.run_id }}
+          path: |
+            release-alignment-results.jsonl
+            release-alignment-summary.txt
+            release-alignment-logs/
+          if-no-files-found: error
 
   web:
     name: Build and sign web artifact
