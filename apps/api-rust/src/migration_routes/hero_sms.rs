@@ -32,6 +32,8 @@ use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
 
+mod sms;
+
 use super::system_config::{DashboardRootAuthorizer, SystemConfigAuthorizer};
 use crate::{
     auth::{
@@ -80,6 +82,7 @@ pub struct HeroSmsState {
     auth: Arc<dyn DashboardAuth>,
     root: Arc<DashboardRootAuthorizer>,
     gateway: Arc<dyn HeroSmsGateway>,
+    sms_user_rate_limiter: Arc<dyn sms::SmsUserRateLimiter>,
 }
 
 impl HeroSmsState {
@@ -90,12 +93,25 @@ impl HeroSmsState {
             root: Arc::new(DashboardRootAuthorizer::new(Arc::clone(&auth))),
             auth,
             gateway,
+            sms_user_rate_limiter: Arc::new(sms::AllowSmsUserRateLimiter),
         }
+    }
+
+    /// Enables the Go-compatible per-user critical limiter for SMS mutations.
+    #[must_use]
+    pub fn with_sms_user_rate_limit(
+        mut self,
+        valkey: redis::Client,
+        config: HeroSmsRateLimitConfig,
+    ) -> Self {
+        self.sms_user_rate_limiter = Arc::new(sms::ValkeySmsUserRateLimiter::new(valkey, config));
+        self
     }
 }
 
 pub fn router(state: HeroSmsState) -> Router {
     Router::new()
+        .merge(sms::routes())
         .route("/api/option/hero-sms", get(get_options).put(put_options))
         .route("/api/option/hero-sms/test", post(test_options))
         .route("/api/option/hero-sms/key", delete(delete_api_key))
@@ -248,7 +264,14 @@ struct OrderView {
     activations: Vec<ActivationView>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
+pub struct HeroSmsRateLimitConfig {
+    pub enabled: bool,
+    pub max_requests: u64,
+    pub window: std::time::Duration,
+    pub dependency_timeout: std::time::Duration,
+}
+
 pub struct HeroDomain {
     pub name: String,
     pub count: i32,
@@ -324,6 +347,79 @@ pub trait HeroSmsGateway: Send + Sync {
         api_key: &str,
         id: &str,
     ) -> Result<HeroEmailRecord, HeroSmsProviderError>;
+
+    async fn list_sms_countries(
+        &self,
+        api_key: &str,
+    ) -> Result<Vec<sms::SmsCountry>, HeroSmsProviderError> {
+        let _ = api_key;
+        Err(HeroSmsProviderError::UpstreamBusy)
+    }
+    async fn list_sms_services(
+        &self,
+        api_key: &str,
+    ) -> Result<Vec<sms::SmsService>, HeroSmsProviderError> {
+        let _ = api_key;
+        Err(HeroSmsProviderError::UpstreamBusy)
+    }
+    async fn list_sms_operators(
+        &self,
+        api_key: &str,
+        country_id: i32,
+    ) -> Result<Vec<String>, HeroSmsProviderError> {
+        let _ = (api_key, country_id);
+        Err(HeroSmsProviderError::UpstreamBusy)
+    }
+    async fn get_sms_offer(
+        &self,
+        api_key: &str,
+        country_id: i32,
+        service: &str,
+    ) -> Result<sms::SmsOffer, HeroSmsProviderError> {
+        let _ = (api_key, country_id, service);
+        Err(HeroSmsProviderError::UpstreamBusy)
+    }
+    async fn purchase_sms_activation(
+        &self,
+        api_key: &str,
+        request: sms::SmsPurchase,
+    ) -> Result<sms::SmsActivation, HeroSmsProviderError> {
+        let _ = (api_key, request);
+        Err(HeroSmsProviderError::UpstreamBusy)
+    }
+    async fn list_active_sms_activations(
+        &self,
+        api_key: &str,
+    ) -> Result<Vec<sms::SmsActiveActivation>, HeroSmsProviderError> {
+        let _ = api_key;
+        Err(HeroSmsProviderError::UpstreamBusy)
+    }
+    async fn get_sms_activation_status(
+        &self,
+        api_key: &str,
+        id: &str,
+    ) -> Result<sms::SmsStatus, HeroSmsProviderError> {
+        let _ = (api_key, id);
+        Err(HeroSmsProviderError::UpstreamBusy)
+    }
+    async fn set_sms_activation_status(
+        &self,
+        api_key: &str,
+        id: &str,
+        status: i32,
+    ) -> Result<(), HeroSmsProviderError> {
+        let _ = (api_key, id, status);
+        Err(HeroSmsProviderError::UpstreamBusy)
+    }
+    async fn submit_sms_complaint(
+        &self,
+        api_key: &str,
+        id: &str,
+        reason: &str,
+    ) -> Result<(), HeroSmsProviderError> {
+        let _ = (api_key, id, reason);
+        Err(HeroSmsProviderError::UpstreamBusy)
+    }
 }
 
 pub struct DisabledHeroSmsGateway;
@@ -535,6 +631,70 @@ impl HeroSmsGateway for ReqwestHeroSmsGateway {
             json!({}),
         )
         .await
+    }
+
+    async fn list_sms_countries(
+        &self,
+        api_key: &str,
+    ) -> Result<Vec<sms::SmsCountry>, HeroSmsProviderError> {
+        sms::reqwest_list_countries(self, api_key).await
+    }
+    async fn list_sms_services(
+        &self,
+        api_key: &str,
+    ) -> Result<Vec<sms::SmsService>, HeroSmsProviderError> {
+        sms::reqwest_list_services(self, api_key).await
+    }
+    async fn list_sms_operators(
+        &self,
+        api_key: &str,
+        country_id: i32,
+    ) -> Result<Vec<String>, HeroSmsProviderError> {
+        sms::reqwest_list_operators(self, api_key, country_id).await
+    }
+    async fn get_sms_offer(
+        &self,
+        api_key: &str,
+        country_id: i32,
+        service: &str,
+    ) -> Result<sms::SmsOffer, HeroSmsProviderError> {
+        sms::reqwest_get_offer(self, api_key, country_id, service).await
+    }
+    async fn purchase_sms_activation(
+        &self,
+        api_key: &str,
+        request: sms::SmsPurchase,
+    ) -> Result<sms::SmsActivation, HeroSmsProviderError> {
+        sms::reqwest_purchase(self, api_key, request).await
+    }
+    async fn list_active_sms_activations(
+        &self,
+        api_key: &str,
+    ) -> Result<Vec<sms::SmsActiveActivation>, HeroSmsProviderError> {
+        sms::reqwest_list_active(self, api_key).await
+    }
+    async fn get_sms_activation_status(
+        &self,
+        api_key: &str,
+        id: &str,
+    ) -> Result<sms::SmsStatus, HeroSmsProviderError> {
+        sms::reqwest_status(self, api_key, id).await
+    }
+    async fn set_sms_activation_status(
+        &self,
+        api_key: &str,
+        id: &str,
+        status: i32,
+    ) -> Result<(), HeroSmsProviderError> {
+        sms::reqwest_set_status(self, api_key, id, status).await
+    }
+    async fn submit_sms_complaint(
+        &self,
+        api_key: &str,
+        id: &str,
+        reason: &str,
+    ) -> Result<(), HeroSmsProviderError> {
+        sms::reqwest_complaint(self, api_key, id, reason).await
     }
 }
 
@@ -1162,9 +1322,18 @@ async fn parse_json<T>(request: Request) -> Result<T, Response>
 where
     T: for<'de> Deserialize<'de> + Default,
 {
+    if request
+        .headers()
+        .get(header::CONTENT_LENGTH)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse::<usize>().ok())
+        .is_some_and(|length| length > BODY_LIMIT_BYTES)
+    {
+        return Err(legacy_empty_response(StatusCode::PAYLOAD_TOO_LARGE, None));
+    }
     let bytes = to_bytes(request.into_body(), BODY_LIMIT_BYTES)
         .await
-        .map_err(|_| hero_error(invalid_request()))?;
+        .map_err(|_| legacy_empty_response(StatusCode::PAYLOAD_TOO_LARGE, None))?;
     if bytes.is_empty() {
         return Ok(T::default());
     }

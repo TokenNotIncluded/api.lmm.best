@@ -73,6 +73,19 @@ POST	/api/hero-sms/email/activations/:id/refresh	compatibility	apps/api-rust/src
 POST	/api/hero-sms/email/activations/:id/reorder	compatibility	apps/api-rust/src/migration_routes/hero_sms.rs	application route intentionally outside the frozen legacy migration inventory
 GET	/api/hero-sms/email/activations/current	compatibility	apps/api-rust/src/migration_routes/hero_sms.rs	application route intentionally outside the frozen legacy migration inventory
 GET	/api/hero-sms/email/products	compatibility	apps/api-rust/src/migration_routes/hero_sms.rs	application route intentionally outside the frozen legacy migration inventory
+GET	/api/hero-sms/sms/countries	compatibility	apps/api-rust/src/migration_routes/hero_sms/sms.rs	application route intentionally outside the frozen legacy migration inventory
+DELETE	/api/hero-sms/sms/history	compatibility	apps/api-rust/src/migration_routes/hero_sms/sms.rs	application route intentionally outside the frozen legacy migration inventory
+DELETE	/api/hero-sms/sms/history/:id	compatibility	apps/api-rust/src/migration_routes/hero_sms/sms.rs	application route intentionally outside the frozen legacy migration inventory
+GET	/api/hero-sms/sms/offer	compatibility	apps/api-rust/src/migration_routes/hero_sms/sms.rs	application route intentionally outside the frozen legacy migration inventory
+GET	/api/hero-sms/sms/operators	compatibility	apps/api-rust/src/migration_routes/hero_sms/sms.rs	application route intentionally outside the frozen legacy migration inventory
+GET	/api/hero-sms/sms/orders	compatibility	apps/api-rust/src/migration_routes/hero_sms/sms.rs	application route intentionally outside the frozen legacy migration inventory
+POST	/api/hero-sms/sms/orders	compatibility	apps/api-rust/src/migration_routes/hero_sms/sms.rs	application route intentionally outside the frozen legacy migration inventory
+GET	/api/hero-sms/sms/orders/:id	compatibility	apps/api-rust/src/migration_routes/hero_sms/sms.rs	application route intentionally outside the frozen legacy migration inventory
+POST	/api/hero-sms/sms/orders/:id/cancel	compatibility	apps/api-rust/src/migration_routes/hero_sms/sms.rs	application route intentionally outside the frozen legacy migration inventory
+POST	/api/hero-sms/sms/orders/:id/complaints	compatibility	apps/api-rust/src/migration_routes/hero_sms/sms.rs	application route intentionally outside the frozen legacy migration inventory
+GET	/api/hero-sms/sms/orders/current	compatibility	apps/api-rust/src/migration_routes/hero_sms/sms.rs	application route intentionally outside the frozen legacy migration inventory
+GET	/api/hero-sms/sms/orders/current-list	compatibility	apps/api-rust/src/migration_routes/hero_sms/sms.rs	application route intentionally outside the frozen legacy migration inventory
+GET	/api/hero-sms/sms/services	compatibility	apps/api-rust/src/migration_routes/hero_sms/sms.rs	application route intentionally outside the frozen legacy migration inventory
 GET	/api/internal/access-ip-policy	internal	apps/api-rust/src/migration_routes/access_ip.rs	internal access policy route outside the frozen legacy migration inventory
 GET	/api/livez	health	apps/api-rust/src/http.rs	current Go liveness route outside the frozen migration inventory
 POST	/api/oauth/telegram/login/start	compatibility	apps/api-rust/src/migration_routes/identity_federation.rs	application route intentionally outside the frozen legacy migration inventory

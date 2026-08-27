@@ -34,14 +34,44 @@ async fn hero_sms_routes_require_dashboard_auth() {
         Arc::new(DisabledHeroSmsGateway),
     ));
 
-    let response = app
-        .oneshot(
-            Request::get("/api/hero-sms/email/products")
-                .body(Body::empty())
-                .expect("route request"),
-        )
-        .await
-        .expect("route response");
+    let routes = [
+        ("GET", "/api/hero-sms/email/products"),
+        ("GET", "/api/hero-sms/sms/countries"),
+        ("GET", "/api/hero-sms/sms/services"),
+        ("GET", "/api/hero-sms/sms/operators?country=0"),
+        ("GET", "/api/hero-sms/sms/offer?country=0&service=tg"),
+        ("POST", "/api/hero-sms/sms/orders"),
+        ("GET", "/api/hero-sms/sms/orders"),
+        ("GET", "/api/hero-sms/sms/orders/current"),
+        ("GET", "/api/hero-sms/sms/orders/current-list"),
+        ("DELETE", "/api/hero-sms/sms/history"),
+        ("DELETE", "/api/hero-sms/sms/history/order-1"),
+        ("GET", "/api/hero-sms/sms/orders/order-1"),
+        ("POST", "/api/hero-sms/sms/orders/order-1/complaints"),
+        ("POST", "/api/hero-sms/sms/orders/order-1/cancel"),
+    ];
 
-    assert_eq!(response.status(), axum::http::StatusCode::NOT_FOUND);
+    for (method, path) in routes {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(method)
+                    .uri(path)
+                    .body(Body::empty())
+                    .expect("route request"),
+            )
+            .await
+            .expect("route response");
+        assert_eq!(
+            response.status(),
+            axum::http::StatusCode::NOT_FOUND,
+            "{method} {path}"
+        );
+        assert_eq!(
+            response.headers().get(axum::http::header::CACHE_CONTROL),
+            Some(&axum::http::HeaderValue::from_static("no-store")),
+            "{method} {path}",
+        );
+    }
 }
