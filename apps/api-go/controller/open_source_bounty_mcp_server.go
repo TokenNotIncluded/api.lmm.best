@@ -487,6 +487,15 @@ func registerOpenSourceBountyMCPTools(server *mcp.Server) {
 				err := model.DB.First(&challenge, int(challengeId)).Error
 				return nil, bountyMCPOutput{Message: "Publisher/verifier rating already saved.", Data: &challenge}, bountyMCPError(err)
 			}
+			var participantProof struct {
+				Id int `json:"id"`
+			}
+			if err := model.DB.Table("open_source_bounty_challenges AS challenge").
+				Select("challenge.id").
+				Where("challenge.id = ? AND challenge.participant_user_id = ?", input.ChallengeId, userId).
+				Scan(&participantProof).Error; err != nil || participantProof.Id == 0 {
+				return nil, bountyMCPOutput{}, bountyMCPError(&model.OpenSourceBountyError{Code: "OPEN_SOURCE_BOUNTY_FORBIDDEN", Message: "challenge is unavailable"})
+			}
 			message := fmt.Sprintf("Publish your %d/5 rating for the publisher/verifier of challenge %d? This rating and comment will be visible to both sides.", input.Score, input.ChallengeId)
 			pending, operation, err := bountyMCPConfirmedOperation(request, userId, "open_source_bounties.rate_owner", input, message)
 			if err != nil || pending != nil {
@@ -509,6 +518,16 @@ func registerOpenSourceBountyMCPTools(server *mcp.Server) {
 				var challenge model.OpenSourceBountyChallenge
 				err := model.DB.First(&challenge, int(challengeId)).Error
 				return nil, bountyMCPOutput{Message: "Submission rejection and contributor rating already saved.", Data: &challenge}, bountyMCPError(err)
+			}
+			var ownerProof struct {
+				Id int `json:"id"`
+			}
+			if err := model.DB.Table("open_source_bounty_challenges AS challenge").
+				Joins("JOIN open_source_bounty_projects project ON project.id = challenge.project_id AND project.owner_user_id = ?", userId).
+				Where("challenge.id = ?", input.ChallengeId).
+				Select("challenge.id").
+				Scan(&ownerProof).Error; err != nil || ownerProof.Id == 0 {
+				return nil, bountyMCPOutput{}, bountyMCPError(&model.OpenSourceBountyError{Code: "OPEN_SOURCE_BOUNTY_FORBIDDEN", Message: "challenge is unavailable"})
 			}
 			message := fmt.Sprintf("Reject challenge %d, publicly rate the contributor %d/5, and release the reward slot?", input.ChallengeId, input.RatingScore)
 			pending, operation, err := bountyMCPConfirmedOperation(request, userId, "open_source_bounties.reject", input, message)
@@ -633,6 +652,15 @@ func registerOpenSourceBountyMCPTools(server *mcp.Server) {
 				var challenge model.OpenSourceBountyChallenge
 				err := model.DB.First(&challenge, int(challengeId)).Error
 				return nil, bountyMCPOutput{Message: "Challenge withdrawal already completed.", Data: &challenge}, bountyMCPError(err)
+			}
+			var participantProof struct {
+				Id int `json:"id"`
+			}
+			if err := model.DB.Table("open_source_bounty_challenges AS challenge").
+				Select("challenge.id").
+				Where("challenge.id = ? AND challenge.participant_user_id = ?", input.ChallengeId, userId).
+				Scan(&participantProof).Error; err != nil || participantProof.Id == 0 {
+				return nil, bountyMCPOutput{}, bountyMCPError(&model.OpenSourceBountyError{Code: "OPEN_SOURCE_BOUNTY_FORBIDDEN", Message: "challenge is unavailable"})
 			}
 			pending, operation, err := bountyMCPConfirmedOperation(request, userId, "open_source_bounties.withdraw", input, fmt.Sprintf("Withdraw from challenge %d and release its reward slot?", input.ChallengeId))
 			if err != nil || pending != nil {
