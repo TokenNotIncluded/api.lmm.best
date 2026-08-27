@@ -24,6 +24,7 @@ import {
   extractVerificationInfo,
   isVerificationRequiredError,
 } from '@/lib/secure-verification'
+import { useAuthStore } from '@/stores/auth-store'
 
 import {
   checkVerificationMethods,
@@ -65,6 +66,8 @@ export function useSecureVerification(
   options: UseSecureVerificationOptions = {}
 ) {
   const { onSuccess, onError, successMessage, autoReset = true } = options
+  const authBootstrapState = useAuthStore((state) => state.auth.bootstrapState)
+  const hasAuthenticatedUser = useAuthStore((state) => state.auth.user !== null)
 
   const [methods, setMethods] = useState<VerificationMethods>(defaultMethods)
   const [state, setState] = useState<InternalState>(initialState)
@@ -79,8 +82,9 @@ export function useSecureVerification(
   }, [])
 
   useEffect(() => {
-    fetchVerificationMethods()
-  }, [fetchVerificationMethods])
+    if (authBootstrapState !== 'complete' || !hasAuthenticatedUser) return
+    void fetchVerificationMethods()
+  }, [authBootstrapState, fetchVerificationMethods, hasAuthenticatedUser])
 
   const reset = useCallback(() => {
     setState(initialState)
