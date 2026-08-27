@@ -168,6 +168,23 @@ async fn l0_subscription_plan_reads_are_hidden_before_database_access() {
 }
 
 #[tokio::test]
+async fn l0_subscription_plan_deletes_are_hidden_before_database_access() {
+    let response = console_gate_smoke_router()
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri("/api/subscription/admin/plans/1")
+                .header("authorization", "Bearer user")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    assert_eq!(error_body(response).await, json!({"message": "Not Found"}));
+}
+
+#[tokio::test]
 async fn subscription_admin_routes_should_require_an_administrator() {
     let response = smoke_router()
         .oneshot(

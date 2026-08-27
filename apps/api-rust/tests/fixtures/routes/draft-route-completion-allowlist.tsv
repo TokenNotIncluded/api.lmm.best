@@ -35,6 +35,7 @@ POST	/api/assistant/pre-conversation-presets/:id/click	compatibility	apps/api-ru
 GET	/api/assistant/pricing	compatibility	apps/api-rust/src/migration_routes/missing_control_public.rs	application route intentionally outside the frozen legacy migration inventory
 GET	/api/assistant/status	compatibility	apps/api-rust/src/migration_routes/assistant.rs	application route intentionally outside the frozen legacy migration inventory
 POST	/api/assistant/tools/create-key	compatibility	apps/api-rust/src/migration_routes/assistant.rs	application route intentionally outside the frozen legacy migration inventory
+POST	/api/assistant/tools/prepare-key	compatibility	apps/api-rust/src/migration_routes/assistant.rs	application route intentionally outside the frozen legacy migration inventory
 GET	/api/assistant/weekly-discount	compatibility	apps/api-rust/src/migration_routes/assistant_extended.rs	application route intentionally outside the frozen legacy migration inventory
 POST	/api/assistant/weekly-discount/claim	compatibility	apps/api-rust/src/migration_routes/assistant_extended.rs	application route intentionally outside the frozen legacy migration inventory
 GET	/api/developer-access/requests	compatibility	apps/api-rust/src/migration_routes/developer_access.rs	application route intentionally outside the frozen legacy migration inventory
@@ -152,6 +153,7 @@ GET	/api/security/admin/violation-fee-appeals	compatibility	apps/api-rust/src/mi
 POST	/api/security/admin/violation-fee-appeals/:id/:action	compatibility	apps/api-rust/src/migration_routes/security_admin.rs	application route intentionally outside the frozen legacy migration inventory
 GET	/api/security/policy	compatibility	apps/api-rust/src/migration_routes/security_overview.rs	application route intentionally outside the frozen legacy migration inventory
 GET	/api/security/stats	compatibility	apps/api-rust/src/migration_routes/security_overview.rs	application route intentionally outside the frozen legacy migration inventory
+DELETE	/api/subscription/admin/plans/:id	compatibility	apps/api-rust/src/migration_routes/billing_subscriptions.rs	application route intentionally outside the frozen legacy migration inventory
 GET	/api/task	compatibility	apps/api-rust/src/migration_routes/control_admin.rs	trailing-slash compatibility redirect outside the frozen Go registration
 GET	/api/test-public-rate-limit/:name	test	apps/api-rust/src/http.rs	cfg(test) public rate-limit boundary fixture
 GET	/api/todos	compatibility	apps/api-rust/src/migration_routes/unified_todo.rs	application route intentionally outside the frozen legacy migration inventory

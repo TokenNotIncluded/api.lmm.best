@@ -471,7 +471,7 @@ fn subscription_method_allowed(path: &str, method: &axum::http::Method) -> bool 
         _ if path.ends_with("/subscriptions/reset") => *method == Method::POST,
         _ if path.ends_with("/invalidate") => *method == Method::POST,
         _ if path.starts_with("/api/subscription/admin/plans/") => {
-            *method == Method::PUT || *method == Method::PATCH
+            *method == Method::PUT || *method == Method::DELETE || *method == Method::PATCH
         }
         _ if path.starts_with("/api/subscription/admin/users/") => {
             *method == Method::GET || *method == Method::POST
