@@ -9,7 +9,14 @@ the Free Software Foundation, either version 3 of the License, or
 import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import { ChevronLeft, ChevronRight, Filter, ShieldCheck } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Badge } from '@/components/ui/badge'
@@ -46,6 +53,12 @@ import {
 } from './security-audit-utils'
 
 const PAGE_SIZE = 20
+const AssistantReviewCleanup = lazy(() =>
+  import('./assistant-review-cleanup').then((module) => ({
+    default: module.AssistantReviewCleanup,
+  }))
+)
+
 const ALL = '__all__'
 
 type AuditFilterState = Pick<
@@ -426,11 +439,13 @@ function AssistantReviewHistory({
   tasks,
   selectedTaskId,
   onSelect,
+  onCleaned,
   isLoading,
 }: {
   tasks: SystemTask[]
   selectedTaskId?: string
   onSelect: (taskId: string) => void
+  onCleaned: () => void
   isLoading: boolean
 }) {
   const { t } = useTranslation()
@@ -438,13 +453,21 @@ function AssistantReviewHistory({
 
   return (
     <section className='border-border/70 space-y-3 border-y py-4'>
-      <div className='flex items-baseline justify-between gap-3'>
+      <div className='flex flex-wrap items-center justify-between gap-3'>
         <h3 className='text-sm font-medium'>
           {t('Automatic review')} · {t('System task records')}
         </h3>
-        <span className='text-muted-foreground text-xs tabular-nums'>
-          {reviewTasks.length.toLocaleString()}
-        </span>
+        <div className='flex items-center gap-2'>
+          <Suspense fallback={<Skeleton className='h-8 w-36' />}>
+            <AssistantReviewCleanup
+              disabled={isLoading}
+              onCleaned={onCleaned}
+            />
+          </Suspense>
+          <span className='text-muted-foreground text-xs tabular-nums'>
+            {reviewTasks.length.toLocaleString()}
+          </span>
+        </div>
       </div>
       {isLoading ? (
         <div className='space-y-2'>
@@ -756,6 +779,9 @@ export function SecurityAuditPanel() {
       setSelectedReviewTaskId(reviewTasks[0].task_id)
     }
   }, [reviewTasks, selectedReviewTaskId])
+  const handleReviewHistoryCleaned = useCallback(() => {
+    setSelectedReviewTaskId(undefined)
+  }, [])
   const selectedReviewQuery = useQuery({
     queryKey: ['admin-assistant-review-task', selectedReviewTaskId],
     queryFn: () =>
@@ -911,6 +937,7 @@ export function SecurityAuditPanel() {
         tasks={reviewTasks}
         selectedTaskId={selectedReviewTaskId}
         onSelect={setSelectedReviewTaskId}
+        onCleaned={handleReviewHistoryCleaned}
         isLoading={reviewHistoryQuery.isLoading}
       />
       <ProtectedGroups policy={policy} />

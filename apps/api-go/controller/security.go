@@ -317,8 +317,8 @@ const (
 )
 
 type assistantReviewCleanupResponse struct {
-	TaskType     string `json:"task_type"`
-	Keep         int    `json:"keep"`
+	TaskType      string `json:"task_type"`
+	Keep          int    `json:"keep"`
 	EligibleCount int64  `json:"eligible_count"`
 	DeletedCount  int64  `json:"deleted_count"`
 }

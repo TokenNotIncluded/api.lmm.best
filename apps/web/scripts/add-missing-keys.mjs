@@ -28,8 +28,7 @@ function stableStringify(obj) {
 const newKeys = {
   en: {
     'Clean up review history': 'Clean up review history',
-    'Clean up automatic review history?':
-      'Clean up automatic review history?',
+    'Clean up automatic review history?': 'Clean up automatic review history?',
     'This will permanently delete {{count}} completed or failed automatic review runs while keeping the latest {{keep}}. Active runs and security audit evidence will not be deleted.':
       'This will permanently delete {{count}} completed or failed automatic review runs while keeping the latest {{keep}}. Active runs and security audit evidence will not be deleted.',
     'No completed automatic review runs are eligible for cleanup.':
@@ -575,7 +574,8 @@ const newKeys = {
       '完了または失敗した自動レビュー実行 {{count}} 件を完全に削除し、最新の {{keep}} 件を保持します。実行中の処理とセキュリティ監査証跡は削除されません。',
     'No completed automatic review runs are eligible for cleanup.':
       '整理対象となる完了済みの自動レビュー実行はありません。',
-    'Automatic review history cleanup completed': '自動レビュー履歴を整理しました',
+    'Automatic review history cleanup completed':
+      '自動レビュー履歴を整理しました',
     'Failed to clean up automatic review history':
       '自動レビュー履歴を整理できませんでした',
     'Clear exhausted codes': '使用済みコードを整理',

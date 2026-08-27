@@ -104,7 +104,7 @@ func SetApiRouter(router *gin.Engine) {
 			securityAdminRoute.GET("/events", controller.ListAdminSecurityEvents)
 			securityAdminRoute.GET("/ai-reviews", controller.ListAdminAssistantSecurityReviews)
 			securityAdminRoute.GET("/review-runs", controller.ListAdminAssistantReviewTasks)
-			securityAdminRoute.GET("/review-runs/cleanup-preview", controller.PreviewAdminAssistantReviewTaskCleanup)
+			securityAdminRoute.GET("/review-runs/cleanup-preview", middleware.DisableCache(), controller.PreviewAdminAssistantReviewTaskCleanup)
 			securityAdminRoute.DELETE("/review-runs", middleware.CriticalRateLimit(), middleware.DisableCache(), controller.DeleteAdminAssistantReviewTasks)
 			securityAdminRoute.GET("/review-runs/:task_id", controller.GetAdminAssistantReviewTask)
 			securityAdminRoute.GET("/violation-fee-appeals", middleware.DisableCache(), controller.ListAdminViolationFeeAppeals)

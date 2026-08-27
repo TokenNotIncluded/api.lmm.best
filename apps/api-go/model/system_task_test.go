@@ -394,7 +394,19 @@ func TestTaskHistoryPrune(t *testing.T) {
 		"status": SystemTaskStatusSucceeded,
 	}).Error)
 
+	eligible, err := PreviewTaskHistoryCleanup(SystemTaskTypeAssistantReview, 30)
+	require.NoError(t, err)
+	assert.EqualValues(t, 5, eligible)
+
+	deleted, err := CleanupTaskHistory(SystemTaskTypeAssistantReview, 30)
+	require.NoError(t, err)
+	assert.EqualValues(t, 5, deleted)
+
+	eligible, err = PreviewTaskHistoryCleanup(SystemTaskTypeAssistantReview, 30)
+	require.NoError(t, err)
+	assert.Zero(t, eligible)
 	require.NoError(t, PruneTaskHistory(SystemTaskTypeAssistantReview, 30))
+
 	var terminalCount int64
 	require.NoError(t, DB.Model(&SystemTask{}).
 		Where("type = ? AND status IN ?", SystemTaskTypeAssistantReview, []SystemTaskStatus{SystemTaskStatusSucceeded, SystemTaskStatusFailed}).
