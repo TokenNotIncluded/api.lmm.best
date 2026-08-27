@@ -3,6 +3,8 @@ package controller
 import (
 	"bytes"
 	"errors"
+	"fmt"
+	"net/http"
 	"sort"
 	"strconv"
 	"strings"
@@ -10,6 +12,7 @@ import (
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/LIghtJUNction/api.lmm.best/dto"
+	"github.com/LIghtJUNction/api.lmm.best/middleware"
 	"github.com/LIghtJUNction/api.lmm.best/model"
 	"github.com/LIghtJUNction/api.lmm.best/relaykit/types"
 	"github.com/LIghtJUNction/api.lmm.best/setting"
@@ -308,6 +311,74 @@ func ListAdminAssistantReviewTasks(c *gin.Context) {
 
 // GetAdminAssistantReviewTask returns one assistant-review run, and never a
 // different system task even if a caller guesses its task ID.
+const (
+	assistantReviewCleanupDefaultKeep = 30
+	assistantReviewCleanupMaxKeep     = 100
+)
+
+type assistantReviewCleanupResponse struct {
+	TaskType     string `json:"task_type"`
+	Keep         int    `json:"keep"`
+	EligibleCount int64  `json:"eligible_count"`
+	DeletedCount  int64  `json:"deleted_count"`
+}
+
+// PreviewAdminAssistantReviewTaskCleanup reports only terminal assistant-review
+// runs that are older than the requested retained history.
+func PreviewAdminAssistantReviewTaskCleanup(c *gin.Context) {
+	keep, ok := parseAssistantReviewCleanupKeep(c)
+	if !ok {
+		return
+	}
+	eligible, err := model.PreviewTaskHistoryCleanup(model.SystemTaskTypeAssistantReview, keep)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, assistantReviewCleanupResponse{
+		TaskType: model.SystemTaskTypeAssistantReview, Keep: keep, EligibleCount: eligible,
+	})
+}
+
+// DeleteAdminAssistantReviewTasks removes only terminal assistant-review task
+// history after a proof scoped specifically to this destructive operation.
+func DeleteAdminAssistantReviewTasks(c *gin.Context) {
+	keep, ok := parseAssistantReviewCleanupKeep(c)
+	if !ok {
+		return
+	}
+	if !middleware.RequireSecurityProof(c, securityProofScopeReviewRunsDelete, nil) {
+		return
+	}
+	deleted, err := model.CleanupTaskHistory(model.SystemTaskTypeAssistantReview, keep)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	model.RecordLog(c.GetInt("id"), model.LogTypeSystem,
+		fmt.Sprintf("deleted %d assistant review run history records (keep=%d)", deleted, keep))
+	common.ApiSuccess(c, assistantReviewCleanupResponse{
+		TaskType: model.SystemTaskTypeAssistantReview, Keep: keep,
+		EligibleCount: deleted, DeletedCount: deleted,
+	})
+}
+
+func parseAssistantReviewCleanupKeep(c *gin.Context) (int, bool) {
+	raw := strings.TrimSpace(c.Query("keep"))
+	if raw == "" {
+		return assistantReviewCleanupDefaultKeep, true
+	}
+	keep, err := strconv.Atoi(raw)
+	if err != nil || keep < 1 || keep > assistantReviewCleanupMaxKeep {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": "keep must be an integer between 1 and 100",
+		})
+		return 0, false
+	}
+	return keep, true
+}
+
 func GetAdminAssistantReviewTask(c *gin.Context) {
 	taskID := c.Param("task_id")
 	if taskID == "" {

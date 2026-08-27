@@ -8,6 +8,7 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/common"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type SystemTaskStatus string
@@ -264,24 +265,69 @@ func ListAssistantReviewTaskSummaries(limit int) ([]*SystemTask, error) {
 	return tasks, err
 }
 
-// PruneTaskHistory bounds terminal task history without touching work that can
-// still run. Keeping this policy in the model prevents each scheduled task
-// from growing its own unbounded table history.
-func PruneTaskHistory(taskType string, keep int) error {
+var terminalSystemTaskStatuses = []SystemTaskStatus{SystemTaskStatusSucceeded, SystemTaskStatusFailed}
+
+// PreviewTaskHistoryCleanup returns the number of terminal rows that a cleanup
+// would remove. Active work and other task types are never eligible.
+func PreviewTaskHistoryCleanup(taskType string, keep int) (int64, error) {
 	if taskType == "" || keep < 0 {
-		return gorm.ErrInvalidData
+		return 0, gorm.ErrInvalidData
 	}
-	terminal := []SystemTaskStatus{SystemTaskStatusSucceeded, SystemTaskStatusFailed}
-	query := DB.Where("type = ? AND status IN ?", taskType, terminal)
-	if keep > 0 {
-		retained := DB.Model(&SystemTask{}).
+
+	var eligible int64
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		var terminalCount int64
+		if err := tx.Model(&SystemTask{}).
+			Where("type = ? AND status IN ?", taskType, terminalSystemTaskStatuses).
+			Count(&terminalCount).Error; err != nil {
+			return err
+		}
+		if terminalCount > int64(keep) {
+			eligible = terminalCount - int64(keep)
+		}
+		return nil
+	})
+	return eligible, err
+}
+
+// CleanupTaskHistory reselects eligible IDs in a transaction, locks those rows
+// where supported, and deletes exactly that selection. Keeping the selection
+// separate from the delete avoids dialect-specific DELETE LIMIT behavior.
+func CleanupTaskHistory(taskType string, keep int) (int64, error) {
+	if taskType == "" || keep < 0 {
+		return 0, gorm.ErrInvalidData
+	}
+
+	var deleted int64
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		var ids []int64
+		query := tx.Model(&SystemTask{}).
 			Select("id").
-			Where("type = ? AND status IN ?", taskType, terminal).
+			Where("type = ? AND status IN ?", taskType, terminalSystemTaskStatuses).
 			Order("id DESC").
-			Limit(keep)
-		query = query.Where("id NOT IN (?)", retained)
-	}
-	return query.Delete(&SystemTask{}).Error
+			Offset(keep).
+			Clauses(clause.Locking{Strength: "UPDATE"})
+		if err := query.Find(&ids).Error; err != nil {
+			return err
+		}
+		if len(ids) == 0 {
+			return nil
+		}
+		result := tx.Where("id IN ?", ids).Delete(&SystemTask{})
+		if result.Error != nil {
+			return result.Error
+		}
+		deleted = result.RowsAffected
+		return nil
+	})
+	return deleted, err
+}
+
+// PruneTaskHistory bounds terminal task history without touching work that can
+// still run. It preserves the historical error-only API for scheduled callers.
+func PruneTaskHistory(taskType string, keep int) error {
+	_, err := CleanupTaskHistory(taskType, keep)
+	return err
 }
 
 // GetLatestSystemTask returns the most recent task row of the given type
