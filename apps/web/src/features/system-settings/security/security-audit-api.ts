@@ -22,6 +22,20 @@ export const ADMIN_SECURITY_STATS_ENDPOINT = '/api/security/admin/stats'
 export const ADMIN_SECURITY_EVENTS_ENDPOINT = '/api/security/admin/events'
 export const ADMIN_SECURITY_AI_REVIEWS_ENDPOINT =
   '/api/security/admin/ai-reviews'
+export const ADMIN_ASSISTANT_REVIEW_RUNS_ENDPOINT =
+  '/api/security/admin/review-runs'
+export const ADMIN_ASSISTANT_REVIEW_CLEANUP_PREVIEW_ENDPOINT =
+  `${ADMIN_ASSISTANT_REVIEW_RUNS_ENDPOINT}/cleanup-preview`
+
+export type AssistantReviewRunCleanupData = {
+  task_type: 'assistant_review'
+  keep: number
+  eligible_count: number
+  deleted_count: number
+}
+
+export type AssistantReviewRunCleanupResponse =
+  SecurityAuditEnvelope<AssistantReviewRunCleanupData>
 
 export async function getAdminSecurityPolicy() {
   const response = await api.get<SecurityAuditEnvelope<AdminSecurityPolicy>>(
@@ -67,6 +81,30 @@ export async function listAdminSecurityAIReviews(
     skipBusinessError: true,
     skipErrorHandler: true,
   })
+  return response.data
+}
+
+export async function previewAssistantReviewRunCleanup(
+  keep: number
+): Promise<AssistantReviewRunCleanupResponse> {
+  const response = await api.get<AssistantReviewRunCleanupResponse>(
+    ADMIN_ASSISTANT_REVIEW_CLEANUP_PREVIEW_ENDPOINT,
+    { params: { keep } }
+  )
+  return response.data
+}
+
+export async function deleteAssistantReviewRuns(
+  keep: number,
+  proofToken: string
+): Promise<AssistantReviewRunCleanupResponse> {
+  const response = await api.delete<AssistantReviewRunCleanupResponse>(
+    ADMIN_ASSISTANT_REVIEW_RUNS_ENDPOINT,
+    {
+      params: { keep },
+      headers: { 'X-Security-Proof': proofToken },
+    }
+  )
   return response.data
 }
 
