@@ -14,6 +14,27 @@ GNU Affero General Public License for more details.
 You should have received a copy of the GNU Affero General Public License
 along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+/*
+Copyright (C) 2026 LIghtJUNction
+*/
 import assert from 'node:assert/strict'
 import { afterEach, describe, test } from 'node:test'
 
@@ -86,11 +107,11 @@ describe('assistant review cleanup API', () => {
       })
     }
 
-    const result = await deleteAssistantReviewRuns(30, 'proof-token')
+    const result = await deleteAssistantReviewRuns(30, 5, 'proof-token')
 
     assert.equal(captured?.method, 'delete')
     assert.equal(captured?.url, ADMIN_ASSISTANT_REVIEW_RUNS_ENDPOINT)
-    assert.deepEqual(captured?.params, { keep: 30 })
+    assert.deepEqual(captured?.params, { keep: 30, expected_count: 5 })
     assert.equal(captured?.headers?.['X-Security-Proof'], 'proof-token')
     assert.equal(result.data?.deleted_count, 5)
   })

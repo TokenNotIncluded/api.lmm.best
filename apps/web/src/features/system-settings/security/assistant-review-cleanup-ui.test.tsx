@@ -14,10 +14,31 @@ GNU Affero General Public License for more details.
 You should have received a copy of the GNU Affero General Public License
 along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+/*
+Copyright (C) 2026 LIghtJUNction
+*/
 import assert from 'node:assert/strict'
 import { after, afterEach, describe, test } from 'node:test'
 
-import type { AxiosAdapter, AxiosResponse } from 'axios'
+import { AxiosError, type AxiosAdapter, type AxiosResponse } from 'axios'
 import { Window } from 'happy-dom'
 import type { Root } from 'react-dom/client'
 
@@ -59,6 +80,8 @@ await i18next.use(initReactI18next).init({
   resources: {
     en: {
       translation: {
+        'Automatic review history changed. Review the refreshed preview and confirm again.':
+          'Automatic review history changed. Review the refreshed preview and confirm again.',
         'Automatic review history cleanup completed':
           'Automatic review history cleanup completed',
         Cancel: 'Cancel',
@@ -126,7 +149,7 @@ function authBundle(): AuthBundle {
   }
 }
 
-async function renderCleanup(): Promise<{
+async function renderCleanup(onCleaned = () => undefined): Promise<{
   root: Root
   container: HTMLDivElement
 }> {
@@ -139,7 +162,7 @@ async function renderCleanup(): Promise<{
   await act(async () => {
     root.render(
       <QueryClientProvider client={queryClient}>
-        <AssistantReviewCleanup onCleaned={() => undefined} />
+        <AssistantReviewCleanup onCleaned={onCleaned} />
       </QueryClientProvider>
     )
   })
@@ -202,6 +225,101 @@ describe('AssistantReviewCleanup', () => {
       await act(async () => button('Clean up review history').click())
       assert.equal(requests, 1)
       assert.equal(document.querySelector('[role="alertdialog"]'), null)
+    } finally {
+      await act(async () => root.unmount())
+      container.remove()
+    }
+  })
+
+  test('refreshes and requires confirmation again after a stale delete', async () => {
+    useAuthStore.getState().auth.setBundle(authBundle())
+    let previewRequests = 0
+    let deleteRequests = 0
+    let cleaned = 0
+    let deleteParams: unknown
+    api.defaults.adapter = async (config) => {
+      if (config.url?.endsWith('/cleanup-preview')) {
+        previewRequests += 1
+        return response(config, {
+          success: true,
+          data: {
+            task_type: 'assistant_review',
+            keep: 30,
+            eligible_count: previewRequests === 1 ? 5 : 4,
+            deleted_count: 0,
+          },
+        })
+      }
+      if (config.url === '/api/user/self') {
+        return response(config, { success: true, data: { email: '' } })
+      }
+      if (config.url === '/api/user/2fa/status') {
+        return response(config, { success: true, data: { enabled: true } })
+      }
+      if (config.url === '/api/user/passkey') {
+        return response(config, { success: true, data: { enabled: false } })
+      }
+      if (config.url === '/api/verify') {
+        return response(config, {
+          success: true,
+          data: {
+            proof_token: 'review-cleanup-proof',
+            expires_at: Math.floor(Date.now() / 1000) + 120,
+            method: '2fa',
+            scope: 'security.review_runs.delete',
+          },
+        })
+      }
+      if (config.url === '/api/security/admin/review-runs') {
+        deleteRequests += 1
+        deleteParams = config.params
+        throw new AxiosError(
+          'stale preview',
+          'ERR_BAD_REQUEST',
+          config,
+          undefined,
+          {
+            config,
+            data: {
+              success: false,
+              code: 'STALE_PREVIEW',
+              message: 'cleanup preview is stale; refresh and confirm again',
+            },
+            headers: {},
+            status: 409,
+            statusText: 'Conflict',
+          }
+        )
+      }
+      throw new Error(`unexpected request: ${config.method}:${config.url}`)
+    }
+    const { root, container } = await renderCleanup(() => {
+      cleaned += 1
+    })
+
+    try {
+      await act(async () => button('Clean up review history').click())
+      await act(async () => button('Confirm Cleanup').click())
+
+      const input = document.querySelector('input')
+      assert.ok(input)
+      await act(async () => {
+        const valueSetter = Object.getOwnPropertyDescriptor(
+          domWindow.HTMLInputElement.prototype,
+          'value'
+        )?.set
+        assert.ok(valueSetter)
+        valueSetter.call(input, '123456')
+        input.dispatchEvent(new domWindow.Event('input', { bubbles: true }))
+      })
+      await act(async () => button('Verify').click())
+
+      assert.equal(deleteRequests, 1)
+      assert.deepEqual(deleteParams, { keep: 30, expected_count: 5 })
+      assert.equal(previewRequests, 2)
+      assert.equal(cleaned, 0)
+      assert.match(document.body.textContent ?? '', /permanently delete 4 /)
+      assert.ok(document.querySelector('[role="alertdialog"]'))
     } finally {
       await act(async () => root.unmount())
       container.remove()

@@ -3,7 +3,6 @@ package controller
 import (
 	"bytes"
 	"errors"
-	"fmt"
 	"net/http"
 	"sort"
 	"strconv"
@@ -312,8 +311,9 @@ func ListAdminAssistantReviewTasks(c *gin.Context) {
 // GetAdminAssistantReviewTask returns one assistant-review run, and never a
 // different system task even if a caller guesses its task ID.
 const (
-	assistantReviewCleanupDefaultKeep = 30
-	assistantReviewCleanupMaxKeep     = 100
+	assistantReviewCleanupDefaultKeep      = 30
+	assistantReviewCleanupMaxKeep          = 100
+	assistantReviewCleanupMaxExpectedCount = 100_000
 )
 
 type assistantReviewCleanupResponse struct {
@@ -350,13 +350,25 @@ func DeleteAdminAssistantReviewTasks(c *gin.Context) {
 	if !middleware.RequireSecurityProof(c, securityProofScopeReviewRunsDelete, nil) {
 		return
 	}
-	deleted, err := model.CleanupTaskHistory(model.SystemTaskTypeAssistantReview, keep)
+	expectedCount, ok := parseAssistantReviewCleanupExpectedCount(c)
+	if !ok {
+		return
+	}
+	deleted, err := model.CleanupTaskHistoryWithAudit(
+		model.SystemTaskTypeAssistantReview, keep, expectedCount, c.GetInt("id"),
+	)
+	if errors.Is(err, model.ErrTaskHistoryCleanupStale) {
+		c.JSON(http.StatusConflict, gin.H{
+			"success": false,
+			"code":    "STALE_PREVIEW",
+			"message": "cleanup preview is stale; refresh and confirm again",
+		})
+		return
+	}
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	model.RecordLog(c.GetInt("id"), model.LogTypeSystem,
-		fmt.Sprintf("deleted %d assistant review run history records (keep=%d)", deleted, keep))
 	common.ApiSuccess(c, assistantReviewCleanupResponse{
 		TaskType: model.SystemTaskTypeAssistantReview, Keep: keep,
 		EligibleCount: deleted, DeletedCount: deleted,
@@ -377,6 +389,19 @@ func parseAssistantReviewCleanupKeep(c *gin.Context) (int, bool) {
 		return 0, false
 	}
 	return keep, true
+}
+
+func parseAssistantReviewCleanupExpectedCount(c *gin.Context) (int64, bool) {
+	raw := strings.TrimSpace(c.Query("expected_count"))
+	expectedCount, err := strconv.ParseInt(raw, 10, 64)
+	if raw == "" || err != nil || expectedCount < 0 || expectedCount > assistantReviewCleanupMaxExpectedCount {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": "expected_count must be an integer between 0 and 100000",
+		})
+		return 0, false
+	}
+	return expectedCount, true
 }
 
 func GetAdminAssistantReviewTask(c *gin.Context) {

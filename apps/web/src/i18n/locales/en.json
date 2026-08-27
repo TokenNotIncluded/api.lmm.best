@@ -793,6 +793,7 @@
     "Automatic follows successful paid top-ups and inactivity. An override stays fixed until reset.": "Automatic follows successful paid top-ups and inactivity. An override stays fixed until reset.",
     "Automatic level": "Automatic level",
     "Automatic review": "Automatic review",
+    "Automatic review history changed. Review the refreshed preview and confirm again.": "Automatic review history changed. Review the refreshed preview and confirm again.",
     "Automatic review history cleanup completed": "Automatic review history cleanup completed",
     "Automatic reviews send requests with this exact enabled model ID and the selected routing group.": "Automatic reviews send requests with this exact enabled model ID and the selected routing group.",
     "Automatically disable channel on repeated failures": "Automatically disable channel on repeated failures",

@@ -29,7 +29,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sqlx::{PgPool, Row};
 
-use crate::migration_routes::verify_email::ValkeyVerificationCodeStore;
+use crate::migration_routes::{
+    identity_2fa::{CriticalTwoFactorVerification, verify_critical_mutation_factor},
+    verify_email::ValkeyVerificationCodeStore,
+};
 use crate::{
     ClientIpKey, RequestContext,
     auth::{
@@ -545,6 +548,19 @@ pub struct PgValkeySecurityProvider {
     verification_codes: ValkeyVerificationCodeStore,
 }
 
+fn preferred_security_method_for(
+    normalized_email: &str,
+    two_factor_enabled: bool,
+) -> (String, Option<String>) {
+    if !normalized_email.is_empty() {
+        return ("email".to_owned(), Some(normalized_email.to_owned()));
+    }
+    if two_factor_enabled {
+        return ("2fa".to_owned(), None);
+    }
+    ("passkey".to_owned(), None)
+}
+
 impl PgValkeySecurityProvider {
     #[must_use]
     pub fn new(pool: PgPool, valkey: redis::Client) -> Self {
@@ -647,11 +663,18 @@ impl PgValkeySecurityProvider {
         .map_err(|_| SecurityError::Unavailable)?
         .ok_or(SecurityError::Unauthorized)?;
         let email = email.trim().to_ascii_lowercase();
-        if email.is_empty() {
-            Ok(("passkey".to_owned(), None))
-        } else {
-            Ok(("email".to_owned(), Some(email)))
+        if !email.is_empty() {
+            return Ok(preferred_security_method_for(&email, false));
         }
+        let two_factor_enabled = sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS(SELECT 1 FROM two_fas \
+             WHERE user_id = $1 AND is_enabled = TRUE AND deleted_at IS NULL)",
+        )
+        .bind(actor.user_id)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|_| SecurityError::Unavailable)?;
+        Ok(preferred_security_method_for("", two_factor_enabled))
     }
 
     async fn universal_verify(&self, call: SecurityCall) -> Result<Value, SecurityError> {
@@ -683,7 +706,8 @@ impl PgValkeySecurityProvider {
         let (preferred_method, email) = self.preferred_security_method(actor).await?;
         if method != preferred_method {
             return Err(SecurityError::Rejected(
-                "请绑定邮箱后使用邮箱验证；未绑定邮箱时请使用 Passkey 验证".to_owned(),
+                "请优先使用邮箱验证；未绑定邮箱时请使用已启用的 2FA，否则使用 Passkey 验证"
+                    .to_owned(),
             ));
         }
         match method {
@@ -705,6 +729,43 @@ impl PgValkeySecurityProvider {
                     return Err(SecurityError::Rejected(
                         "验证失败，请检查邮箱验证码".to_owned(),
                     ));
+                }
+            }
+            "2fa" => {
+                let code = call
+                    .input
+                    .get("code")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|code| !code.is_empty() && code.len() <= 64)
+                    .ok_or(SecurityError::Invalid("验证码不能为空"))?;
+                let mut transaction = self
+                    .pool
+                    .begin()
+                    .await
+                    .map_err(|_| SecurityError::Unavailable)?;
+                match verify_critical_mutation_factor(&mut transaction, actor.user_id, code)
+                    .await
+                    .map_err(|_| SecurityError::Unavailable)?
+                {
+                    CriticalTwoFactorVerification::Verified => transaction
+                        .commit()
+                        .await
+                        .map_err(|_| SecurityError::Unavailable)?,
+                    CriticalTwoFactorVerification::Rejected => {
+                        transaction
+                            .commit()
+                            .await
+                            .map_err(|_| SecurityError::Unavailable)?;
+                        return Err(SecurityError::Rejected(
+                            "验证失败，请检查两步验证码或备用码".to_owned(),
+                        ));
+                    }
+                    CriticalTwoFactorVerification::NotRequired => {
+                        return Err(SecurityError::Rejected(
+                            "两步验证未启用，请重新选择安全验证方式".to_owned(),
+                        ));
+                    }
                 }
             }
             "passkey" => {
@@ -1817,6 +1878,22 @@ async fn universal_verify(state: State<IdentitySecurityState>, request: Request)
 mod tests {
     use super::*;
     use axum::body::Body;
+
+    #[test]
+    fn preferred_security_method_matches_email_two_factor_passkey_order() {
+        assert_eq!(
+            preferred_security_method_for("admin@example.com", true),
+            ("email".to_owned(), Some("admin@example.com".to_owned()))
+        );
+        assert_eq!(
+            preferred_security_method_for("", true),
+            ("2fa".to_owned(), None)
+        );
+        assert_eq!(
+            preferred_security_method_for("", false),
+            ("passkey".to_owned(), None)
+        );
+    }
 
     #[tokio::test]
     async fn registration_json_limit_returns_413_before_json_parsing() {

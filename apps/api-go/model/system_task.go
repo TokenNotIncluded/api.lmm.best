@@ -3,6 +3,7 @@ package model
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"unicode/utf8"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
@@ -29,7 +30,10 @@ const (
 	SystemTaskTypeAssistantReview    = "assistant_review"
 )
 
-var ErrSystemTaskLockLost = errors.New("system task lock lost")
+var (
+	ErrSystemTaskLockLost      = errors.New("system task lock lost")
+	ErrTaskHistoryCleanupStale = errors.New("task history cleanup preview is stale")
+)
 
 const (
 	systemTaskJSONMaxBytes  = 1 << 20
@@ -300,27 +304,71 @@ func CleanupTaskHistory(taskType string, keep int) (int64, error) {
 
 	var deleted int64
 	err := DB.Transaction(func(tx *gorm.DB) error {
-		var ids []int64
-		query := tx.Model(&SystemTask{}).
-			Select("id").
-			Where("type = ? AND status IN ?", taskType, terminalSystemTaskStatuses).
-			Order("id DESC").
-			Offset(keep).
-			Clauses(clause.Locking{Strength: "UPDATE"})
-		if err := query.Find(&ids).Error; err != nil {
+		ids, err := selectTaskHistoryCleanupIDs(tx, taskType, keep)
+		if err != nil {
 			return err
 		}
-		if len(ids) == 0 {
-			return nil
-		}
-		result := tx.Where("id IN ?", ids).Delete(&SystemTask{})
-		if result.Error != nil {
-			return result.Error
-		}
-		deleted = result.RowsAffected
-		return nil
+		deleted, err = deleteTaskHistoryCleanupIDs(tx, ids)
+		return err
 	})
 	return deleted, err
+}
+
+// CleanupTaskHistoryWithAudit performs an administrator-confirmed cleanup and
+// its audit insert atomically. A changed candidate count aborts the transaction
+// before either the selected rows or the audit record can be written.
+func CleanupTaskHistoryWithAudit(taskType string, keep int, expectedCount int64, adminUserID int) (int64, error) {
+	if taskType == "" || keep < 0 || expectedCount < 0 || adminUserID <= 0 {
+		return 0, gorm.ErrInvalidData
+	}
+
+	var deleted int64
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		ids, err := selectTaskHistoryCleanupIDs(tx, taskType, keep)
+		if err != nil {
+			return err
+		}
+		if int64(len(ids)) != expectedCount {
+			return ErrTaskHistoryCleanupStale
+		}
+		deleted, err = deleteTaskHistoryCleanupIDs(tx, ids)
+		if err != nil {
+			return err
+		}
+
+		var admin User
+		if err := tx.Select("username").First(&admin, adminUserID).Error; err != nil {
+			return err
+		}
+		log := &Log{
+			UserId: adminUserID, Username: admin.Username,
+			CreatedAt: common.GetTimestamp(), Type: LogTypeSystem,
+			Content: fmt.Sprintf("deleted %d assistant review run history records (keep=%d)", deleted, keep),
+		}
+		ensureLogRequestId(log)
+		return tx.Create(log).Error
+	})
+	return deleted, err
+}
+
+func selectTaskHistoryCleanupIDs(tx *gorm.DB, taskType string, keep int) ([]int64, error) {
+	var ids []int64
+	err := tx.Model(&SystemTask{}).
+		Select("id").
+		Where("type = ? AND status IN ?", taskType, terminalSystemTaskStatuses).
+		Order("id DESC").
+		Offset(keep).
+		Clauses(clause.Locking{Strength: "UPDATE"}).
+		Find(&ids).Error
+	return ids, err
+}
+
+func deleteTaskHistoryCleanupIDs(tx *gorm.DB, ids []int64) (int64, error) {
+	if len(ids) == 0 {
+		return 0, nil
+	}
+	result := tx.Where("id IN ?", ids).Delete(&SystemTask{})
+	return result.RowsAffected, result.Error
 }
 
 // PruneTaskHistory bounds terminal task history without touching work that can

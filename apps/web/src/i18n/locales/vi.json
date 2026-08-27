@@ -793,6 +793,7 @@
     "Automatic follows successful paid top-ups and inactivity. An override stays fixed until reset.": "Cấp độ tự động dựa trên lần nạp tiền thành công và thời gian không hoạt động. Cấp độ chỉ định giữ nguyên đến khi đặt lại.",
     "Automatic level": "Cấp độ tự động",
     "Automatic review": "Tự động tổng kết",
+    "Automatic review history changed. Review the refreshed preview and confirm again.": "Lịch sử đánh giá tự động đã thay đổi. Hãy xem bản xem trước đã cập nhật và xác nhận lại.",
     "Automatic review history cleanup completed": "Đã dọn xong lịch sử đánh giá tự động",
     "Automatic reviews send requests with this exact enabled model ID and the selected routing group.": "Kiểm duyệt tự động gửi yêu cầu bằng đúng ID model đang bật này và nhóm định tuyến đã chọn.",
     "Automatically disable channel on repeated failures": "Tự động vô hiệu hóa kênh khi xảy ra lỗi lặp lại",

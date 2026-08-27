@@ -16,6 +16,9 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+/*
+Copyright (C) 2026 LIghtJUNction
+*/
 import fs from 'node:fs/promises'
 import path from 'node:path'
 
@@ -35,6 +38,8 @@ const newKeys = {
       'No completed automatic review runs are eligible for cleanup.',
     'Automatic review history cleanup completed':
       'Automatic review history cleanup completed',
+    'Automatic review history changed. Review the refreshed preview and confirm again.':
+      'Automatic review history changed. Review the refreshed preview and confirm again.',
     'Failed to clean up automatic review history':
       'Failed to clean up automatic review history',
     'Clear exhausted codes': 'Clear exhausted codes',
@@ -176,6 +181,8 @@ const newKeys = {
     'No completed automatic review runs are eligible for cleanup.':
       '没有可清理的已完成自动复盘记录。',
     'Automatic review history cleanup completed': '自动复盘历史清理完成',
+    'Automatic review history changed. Review the refreshed preview and confirm again.':
+      '自动复盘历史已发生变化。请查看刷新后的预览并重新确认。',
     'Failed to clean up automatic review history': '自动复盘历史清理失败',
     'Clear exhausted codes': '清理已用完优惠码',
     'Unable to clear exhausted discount codes': '无法清理已用完优惠码',
@@ -306,6 +313,8 @@ const newKeys = {
     'No completed automatic review runs are eligible for cleanup.':
       '沒有可清理的已完成自動複盤紀錄。',
     'Automatic review history cleanup completed': '自動複盤紀錄清理完成',
+    'Automatic review history changed. Review the refreshed preview and confirm again.':
+      '自動複盤紀錄已變更。請查看更新後的預覽並重新確認。',
     'Failed to clean up automatic review history': '無法清理自動複盤紀錄',
     'Clear exhausted codes': '清理已用完優惠碼',
     'Unable to clear exhausted discount codes': '無法清理已用完優惠碼',
@@ -435,6 +444,8 @@ const newKeys = {
       'Aucune exécution de revue automatique terminée ne peut être nettoyée.',
     'Automatic review history cleanup completed':
       'Nettoyage de l’historique des revues automatiques terminé',
+    'Automatic review history changed. Review the refreshed preview and confirm again.':
+      'L’historique des revues automatiques a changé. Vérifiez l’aperçu actualisé et confirmez à nouveau.',
     'Failed to clean up automatic review history':
       'Échec du nettoyage de l’historique des revues automatiques',
     'Clear exhausted codes': 'Nettoyer les codes épuisés',
@@ -576,6 +587,8 @@ const newKeys = {
       '整理対象となる完了済みの自動レビュー実行はありません。',
     'Automatic review history cleanup completed':
       '自動レビュー履歴を整理しました',
+    'Automatic review history changed. Review the refreshed preview and confirm again.':
+      '自動レビュー履歴が変更されました。更新されたプレビューを確認し、もう一度確定してください。',
     'Failed to clean up automatic review history':
       '自動レビュー履歴を整理できませんでした',
     'Clear exhausted codes': '使用済みコードを整理',
@@ -714,6 +727,8 @@ const newKeys = {
       'Нет завершённых запусков автоматической проверки, доступных для очистки.',
     'Automatic review history cleanup completed':
       'История автоматических проверок очищена',
+    'Automatic review history changed. Review the refreshed preview and confirm again.':
+      'История автоматических проверок изменилась. Проверьте обновлённый предварительный просмотр и подтвердите действие снова.',
     'Failed to clean up automatic review history':
       'Не удалось очистить историю автоматических проверок',
     'Clear exhausted codes': 'Очистить исчерпанные коды',
@@ -853,6 +868,8 @@ const newKeys = {
       'Không có lượt đánh giá tự động đã hoàn tất nào đủ điều kiện dọn dẹp.',
     'Automatic review history cleanup completed':
       'Đã dọn xong lịch sử đánh giá tự động',
+    'Automatic review history changed. Review the refreshed preview and confirm again.':
+      'Lịch sử đánh giá tự động đã thay đổi. Hãy xem bản xem trước đã cập nhật và xác nhận lại.',
     'Failed to clean up automatic review history':
       'Không thể dọn lịch sử đánh giá tự động',
     'Clear exhausted codes': 'Dọn mã đã dùng hết',

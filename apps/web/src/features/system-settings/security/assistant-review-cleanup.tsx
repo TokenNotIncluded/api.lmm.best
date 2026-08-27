@@ -1,5 +1,3 @@
-import { useQueryClient } from '@tanstack/react-query'
-import { Loader2, Trash2 } from 'lucide-react'
 /*
 Copyright (C) 2023-2026 QuantumNous
 
@@ -16,6 +14,30 @@ GNU Affero General Public License for more details.
 You should have received a copy of the GNU Affero General Public License
 along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+/*
+Copyright (C) 2026 LIghtJUNction
+*/
+import { useQueryClient } from '@tanstack/react-query'
+import { isAxiosError } from 'axios'
+import { Loader2, Trash2 } from 'lucide-react'
 import { useCallback, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -36,6 +58,12 @@ import {
 } from './security-audit-api'
 
 const REVIEW_HISTORY_KEEP = 30
+
+function isStalePreviewError(error: unknown): boolean {
+  if (!isAxiosError(error)) return false
+  const code = (error.response?.data as { code?: unknown } | undefined)?.code
+  return error.response?.status === 409 || code === 'STALE_PREVIEW'
+}
 
 export function AssistantReviewCleanup({
   disabled = false,
@@ -114,12 +142,50 @@ export function AssistantReviewCleanup({
   }
 
   const requestCleanup = async (proofToken?: string) => {
+    if (!preview) {
+      throw new Error(t('Failed to clean up automatic review history'))
+    }
     setDeleting(true)
     try {
-      return await deleteAssistantReviewRuns(REVIEW_HISTORY_KEEP, proofToken)
+      return await deleteAssistantReviewRuns(
+        REVIEW_HISTORY_KEEP,
+        preview.eligible_count,
+        proofToken
+      )
     } catch (error) {
-      toast.error(t('Failed to clean up automatic review history'))
-      throw error
+      if (isStalePreviewError(error)) {
+        setVerificationOpen(false)
+        setPreview(undefined)
+        setPreviewing(true)
+        try {
+          const response =
+            await previewAssistantReviewRunCleanup(REVIEW_HISTORY_KEEP)
+          if (response.success && response.data) {
+            if (response.data.eligible_count === 0) {
+              toast.info(
+                t(
+                  'No completed automatic review runs are eligible for cleanup.'
+                )
+              )
+            } else {
+              setPreview(response.data)
+              setConfirmOpen(true)
+            }
+          }
+        } catch {
+          // The stale-preview message still requires a fresh confirmation.
+        } finally {
+          setPreviewing(false)
+        }
+        throw new Error(
+          t(
+            'Automatic review history changed. Review the refreshed preview and confirm again.'
+          )
+        )
+      }
+      throw new Error(t('Failed to clean up automatic review history'), {
+        cause: error,
+      })
     } finally {
       setDeleting(false)
     }

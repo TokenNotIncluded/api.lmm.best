@@ -12,6 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
 
 func TestAssistantReviewCleanupHandlers(t *testing.T) {
@@ -110,8 +111,33 @@ func TestAssistantReviewCleanupHandlers(t *testing.T) {
 
 	proof, _, err := service.IssueSecurityProof(identity, secureVerificationMethodEmail, []string{securityProofScopeReviewRunsDelete})
 	require.NoError(t, err)
-	t.Run("successful cleanup", func(t *testing.T) {
+	t.Run("missing expected count", func(t *testing.T) {
 		context, response := assistantReviewCleanupTestContext(identity, http.MethodDelete, "/api/security/admin/review-runs?keep=30", proof)
+		DeleteAdminAssistantReviewTasks(context)
+		assert.Equal(t, http.StatusBadRequest, response.Code)
+		assert.Contains(t, response.Body.String(), "expected_count")
+	})
+
+	t.Run("stale preview does not delete", func(t *testing.T) {
+		context, response := assistantReviewCleanupTestContext(identity, http.MethodDelete, "/api/security/admin/review-runs?keep=30&expected_count=4", proof)
+		DeleteAdminAssistantReviewTasks(context)
+		assert.Equal(t, http.StatusConflict, response.Code)
+		assert.Contains(t, response.Body.String(), "STALE_PREVIEW")
+		assert.EqualValues(t, 35, assistantReviewTerminalTaskCount(t, db))
+	})
+
+	t.Run("audit failure rolls back deletion", func(t *testing.T) {
+		require.NoError(t, db.Migrator().DropTable(&model.Log{}))
+		context, response := assistantReviewCleanupTestContext(identity, http.MethodDelete, "/api/security/admin/review-runs?keep=30&expected_count=5", proof)
+		DeleteAdminAssistantReviewTasks(context)
+		assert.Equal(t, http.StatusOK, response.Code)
+		assert.Contains(t, response.Body.String(), `"success":false`)
+		assert.EqualValues(t, 35, assistantReviewTerminalTaskCount(t, db))
+		require.NoError(t, db.AutoMigrate(&model.Log{}))
+	})
+
+	t.Run("successful cleanup", func(t *testing.T) {
+		context, response := assistantReviewCleanupTestContext(identity, http.MethodDelete, "/api/security/admin/review-runs?keep=30&expected_count=5", proof)
 		DeleteAdminAssistantReviewTasks(context)
 
 		assert.Equal(t, http.StatusOK, response.Code)
@@ -123,18 +149,35 @@ func TestAssistantReviewCleanupHandlers(t *testing.T) {
 		assert.True(t, body.Success)
 		assert.EqualValues(t, 5, body.Data.EligibleCount)
 		assert.EqualValues(t, 5, body.Data.DeletedCount)
+		assert.EqualValues(t, 30, assistantReviewTerminalTaskCount(t, db))
 
-		var terminalCount int64
-		require.NoError(t, db.Model(&model.SystemTask{}).
-			Where("type = ? AND status IN ?", model.SystemTaskTypeAssistantReview, []model.SystemTaskStatus{model.SystemTaskStatusSucceeded, model.SystemTaskStatusFailed}).
-			Count(&terminalCount).Error)
-		assert.EqualValues(t, 30, terminalCount)
+		var audit model.Log
+		require.NoError(t, db.Where("user_id = ? AND type = ?", admin.Id, model.LogTypeSystem).First(&audit).Error)
+		assert.Equal(t, admin.Username, audit.Username)
+		assert.Contains(t, audit.Content, "deleted 5 assistant review run history records")
 		for _, taskID := range []string{activeID, otherID} {
 			task, err := model.GetSystemTaskByTaskID(taskID)
 			require.NoError(t, err)
 			require.NotNil(t, task)
 		}
 	})
+
+	t.Run("zero expected count is supported", func(t *testing.T) {
+		context, response := assistantReviewCleanupTestContext(identity, http.MethodDelete, "/api/security/admin/review-runs?keep=30&expected_count=0", proof)
+		DeleteAdminAssistantReviewTasks(context)
+		assert.Equal(t, http.StatusOK, response.Code)
+		assert.Contains(t, response.Body.String(), `"deleted_count":0`)
+		assert.EqualValues(t, 30, assistantReviewTerminalTaskCount(t, db))
+	})
+}
+
+func assistantReviewTerminalTaskCount(t *testing.T, db *gorm.DB) int64 {
+	t.Helper()
+	var count int64
+	require.NoError(t, db.Model(&model.SystemTask{}).
+		Where("type = ? AND status IN ?", model.SystemTaskTypeAssistantReview, []model.SystemTaskStatus{model.SystemTaskStatusSucceeded, model.SystemTaskStatusFailed}).
+		Count(&count).Error)
+	return count
 }
 
 func assistantReviewCleanupTestContext(identity service.AuthIdentity, method, target, proof string) (*gin.Context, *httptest.ResponseRecorder) {

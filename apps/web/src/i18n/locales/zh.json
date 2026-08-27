@@ -793,6 +793,7 @@
     "Automatic follows successful paid top-ups and inactivity. An override stays fixed until reset.": "自动等级依据成功充值和活跃度变化。指定等级会保持不变，直到恢复自动。",
     "Automatic level": "自动等级",
     "Automatic review": "自动复盘",
+    "Automatic review history changed. Review the refreshed preview and confirm again.": "自动复盘历史已发生变化。请查看刷新后的预览并重新确认。",
     "Automatic review history cleanup completed": "自动复盘历史清理完成",
     "Automatic reviews send requests with this exact enabled model ID and the selected routing group.": "自动审查将使用这个已启用的准确模型 ID 和所选路由分组发送请求。",
     "Automatically disable channel on repeated failures": "重复失败时自动禁用渠道",

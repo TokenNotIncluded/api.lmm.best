@@ -793,6 +793,7 @@
     "Automatic follows successful paid top-ups and inactivity. An override stays fixed until reset.": "自動レベルは有料チャージと利用状況に応じて変化します。指定レベルは自動に戻すまで固定されます。",
     "Automatic level": "自動レベル",
     "Automatic review": "自動レビュー",
+    "Automatic review history changed. Review the refreshed preview and confirm again.": "自動レビュー履歴が変更されました。更新されたプレビューを確認し、もう一度確定してください。",
     "Automatic review history cleanup completed": "自動レビュー履歴を整理しました",
     "Automatic reviews send requests with this exact enabled model ID and the selected routing group.": "自動審査は、この有効な正確なモデル ID と選択したルーティンググループでリクエストを送信します。",
     "Automatically disable channel on repeated failures": "繰り返しの失敗でチャネルを自動的に無効にする",
