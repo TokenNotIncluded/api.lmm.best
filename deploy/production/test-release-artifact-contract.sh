@@ -121,8 +121,8 @@ for immutable in \
     'tracked Go PKGBUILD no longer pins the existing immutable release'
 done
 for immutable in \
-  'pkgver=0.1.47' \
-  "'d67b4860b5cf2c278ce8d0e9d5ac84290f17c834531c31180b71247d23ef0c3e'"; do
+  'pkgver=0.1.48' \
+  "'8f4eec83c2752fe19b7757a7ecd39295d7a6aea194103048432ca1400d25cca0'"; do
   require_literal "$WEB_PKGBUILD" "$immutable" \
     'tracked Web PKGBUILD no longer pins the existing immutable release'
 done
