@@ -225,10 +225,14 @@ func (e *WaffoPancakeWebhookEvent) NormalizedEventType() string {
 // yet-saved credentials.
 func newWaffoPancakeClient() (*pancake.Client, error) {
 	merchantID, privateKey := WaffoPancakeCredentials()
-	return pancake.New(pancake.Config{
+	client, err := pancake.New(pancake.Config{
 		MerchantID: merchantID,
 		PrivateKey: privateKey,
 	})
+	if err != nil {
+		return nil, fmt.Errorf("initialize Waffo Pancake client: %w", err)
+	}
+	return client, nil
 }
 
 // WaffoPancakeCredentials resolves persisted settings first, then the two
@@ -251,10 +255,14 @@ func newWaffoPancakeClientFromCreds(merchantID, privateKey string) (*pancake.Cli
 	if strings.TrimSpace(merchantID) == "" || strings.TrimSpace(privateKey) == "" {
 		return nil, fmt.Errorf("merchant id and private key are required")
 	}
-	return pancake.New(pancake.Config{
+	client, err := pancake.New(pancake.Config{
 		MerchantID: merchantID,
 		PrivateKey: privateKey,
 	})
+	if err != nil {
+		return nil, fmt.Errorf("initialize Waffo Pancake client: %w", err)
+	}
+	return client, nil
 }
 
 // NormalizeWaffoPancakeCheckoutRegion accepts only the two regions exposed by
@@ -679,8 +687,77 @@ func CreateWaffoPancakePrimaryStore(ctx context.Context, merchantID, privateKey 
 	return storeRes.Store.ID, nil
 }
 
-// CreateWaffoPancakeProductForPlan mints (and publishes) a Pancake
-// OnetimeProduct priced at `amount` USD, used as a subscription plan's
+type waffoPancakeProductPublication struct {
+	ID             string                       `json:"id"`
+	Status         pancake.ProductVersionStatus `json:"status"`
+	HasProdVersion bool                         `json:"hasProdVersion"`
+}
+
+type waffoPancakeProductPublicationQuery struct {
+	OnetimeProduct *waffoPancakeProductPublication `json:"onetimeProduct"`
+}
+
+// waffoPancakeProductHasLiveVersion distinguishes the two valid API-key
+// workflows. A test key creates a test-only version which still needs Publish;
+// a production key creates the production version directly, so calling the
+// test→production Publish endpoint would incorrectly fail with
+// "No test version found".
+func waffoPancakeProductHasLiveVersion(ctx context.Context, client *pancake.Client, productID string) (bool, error) {
+	response, err := pancake.GraphQLQuery[waffoPancakeProductPublicationQuery](ctx, client, pancake.GraphQLParams{
+		// Pancake's deployed schema currently declares onetimeProduct.id as
+		// String!, despite older SDK documentation showing ID!.
+		Query: `query ($id: String!) {
+			onetimeProduct(id: $id) {
+				id
+				status
+				hasProdVersion
+			}
+		}`,
+		Variables: map[string]any{"id": productID},
+	})
+	if err != nil {
+		return false, fmt.Errorf("query Waffo Pancake product publication: %w", err)
+	}
+	if len(response.Errors) > 0 {
+		return false, fmt.Errorf("waffo pancake product publication query returned %d errors: %s",
+			len(response.Errors), response.Errors[0].Message)
+	}
+	product := response.Data.OnetimeProduct
+	if product == nil || strings.TrimSpace(product.ID) != productID {
+		return false, nil
+	}
+	return product.HasProdVersion && product.Status == pancake.ProductVersionStatusActive, nil
+}
+
+func ensureWaffoPancakeProductPublished(ctx context.Context, client *pancake.Client, productID string) error {
+	if ready, err := waffoPancakeProductHasLiveVersion(ctx, client, productID); err == nil && ready {
+		return nil
+	}
+
+	published, err := client.OnetimeProducts.Publish(ctx, pancake.PublishOnetimeProductParams{ID: productID})
+	if err != nil {
+		// A production-bound API key creates an already-live product. Recheck the
+		// authoritative read model before surfacing Publish's expected
+		// "No test version found" response. The same reconciliation also covers
+		// a lost Publish response after the provider committed it.
+		if ready, verifyErr := waffoPancakeProductHasLiveVersion(ctx, client, productID); verifyErr == nil && ready {
+			return nil
+		} else if verifyErr != nil {
+			return fmt.Errorf("%w (verify published product: %v)", err, verifyErr)
+		}
+		return err
+	}
+	if published == nil || strings.TrimSpace(published.Product.ID) != productID {
+		return fmt.Errorf("published Waffo Pancake product id mismatch")
+	}
+	if published.Product.Status != pancake.ProductVersionStatusActive {
+		return fmt.Errorf("published Waffo Pancake product is not active")
+	}
+	return nil
+}
+
+// CreateWaffoPancakeProductForPlan mints a live Pancake OnetimeProduct priced
+// at `amount` USD, used as a subscription plan's
 // SubscriptionPlan.WaffoPancakeProductId.
 //
 // OnetimeProduct (not SubscriptionProduct) because new-api has no renewal-
@@ -718,13 +795,13 @@ func CreateWaffoPancakeProductForPlan(ctx context.Context, merchantID, privateKe
 		return "", fmt.Errorf("create Waffo Pancake plan product: %w", err)
 	}
 	productID := prodRes.Product.ID
-	if _, err := client.OnetimeProducts.Publish(ctx, pancake.PublishOnetimeProductParams{ID: productID}); err != nil {
+	if err := ensureWaffoPancakeProductPublished(ctx, client, productID); err != nil {
 		return "", fmt.Errorf("publish Waffo Pancake plan product: %w", err)
 	}
 	return productID, nil
 }
 
-// CreateWaffoPancakePrimaryProduct mints (and publishes) the wallet-top-up
+// CreateWaffoPancakePrimaryProduct mints a live wallet-top-up
 // OnetimeProduct under storeID. Per-checkout price overrides via PriceSnapshot
 // are what make the "1.00" seed price irrelevant at runtime.
 func CreateWaffoPancakePrimaryProduct(ctx context.Context, merchantID, privateKey, storeID, returnURL string) (string, error) {
@@ -751,7 +828,7 @@ func CreateWaffoPancakePrimaryProduct(ctx context.Context, merchantID, privateKe
 		return "", fmt.Errorf("create Waffo Pancake product: %w", err)
 	}
 	productID := prodRes.Product.ID
-	if _, err := client.OnetimeProducts.Publish(ctx, pancake.PublishOnetimeProductParams{ID: productID}); err != nil {
+	if err := ensureWaffoPancakeProductPublished(ctx, client, productID); err != nil {
 		return "", fmt.Errorf("publish Waffo Pancake product: %w", err)
 	}
 	return productID, nil
@@ -876,7 +953,7 @@ func listWaffoPancakeCatalogWithClient(ctx context.Context, client *pancake.Clie
 		}
 		productsResponse, err := pancake.GraphQLQuery[waffoPancakeProductsQuery](ctx, client, pancake.GraphQLParams{
 			Query: `query ($storeId: String!) {
-				onetimeProducts(filter: { storeId: { eq: $storeId }, status: { eq: "active" } }) {
+				onetimeProducts(storeId: $storeId, filter: { status: { eq: "active" } }) {
 					id
 					name
 					status
@@ -914,7 +991,11 @@ func listWaffoPancakeCatalogWithClient(ctx context.Context, client *pancake.Clie
 func ListWaffoPancakeCatalog(ctx context.Context, merchantID, privateKey string) (*WaffoPancakeCatalog, error) {
 	client, err := newWaffoPancakeClientFromCreds(merchantID, privateKey)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("prepare Waffo Pancake catalog client: %w", err)
 	}
-	return listWaffoPancakeCatalogWithClient(ctx, client)
+	catalog, err := listWaffoPancakeCatalogWithClient(ctx, client)
+	if err != nil {
+		return nil, fmt.Errorf("list Waffo Pancake catalog: %w", err)
+	}
+	return catalog, nil
 }

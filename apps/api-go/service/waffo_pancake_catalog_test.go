@@ -37,8 +37,9 @@ func TestListWaffoPancakeCatalogUsesRootProductQuery(t *testing.T) {
 			require.NotContains(t, request.Query, "onetimeProducts")
 			_, err = w.Write([]byte(`{"data":{"stores":[{"id":"STO_AbCdEfGhIjKlMnOpQrStUv","name":"main","status":"active","prodEnabled":true}]}}`))
 			require.NoError(t, err)
-		case strings.Contains(request.Query, "onetimeProducts(filter: { storeId: { eq: $storeId }"):
+		case strings.Contains(request.Query, "onetimeProducts(storeId: $storeId, filter: { status: { eq: \"active\" } })"):
 			productQuerySeen = true
+			require.NotContains(t, request.Query, "storeId: { eq:")
 			require.Equal(t, "STO_AbCdEfGhIjKlMnOpQrStUv", request.Variables["storeId"])
 			_, err = w.Write([]byte(`{"data":{"onetimeProducts":[{"id":"PROD_AbCdEfGhIjKlMnOpQrStUv","name":"wallet","status":"active"},{"id":"PROD_Inactive0000000000000000","name":"old","status":"inactive"}]}}`))
 			require.NoError(t, err)
