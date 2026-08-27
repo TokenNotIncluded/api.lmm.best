@@ -216,7 +216,6 @@ POST	/api/option/payment_compliance	lmm_api_rs::migration_routes::system_config:
 GET	/api/option/project-update	lmm_api_rs::migration_routes::system_config::system_config_router
 POST	/api/option/rest_model_ratio	lmm_api_rs::migration_routes::system_config::system_config_router
 POST	/api/option/validate	lmm_api_rs::migration_routes::system_config::system_config_router
-GET	/api/option/waffo-pancake/catalog	lmm_api_rs::migration_routes::system_config::system_config_router
 POST	/api/option/waffo-pancake/catalog	lmm_api_rs::migration_routes::system_config::system_config_router
 POST	/api/option/waffo-pancake/pair	lmm_api_rs::migration_routes::system_config::system_config_router
 POST	/api/option/waffo-pancake/save	lmm_api_rs::migration_routes::system_config::system_config_router

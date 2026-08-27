@@ -1,4 +1,9 @@
-use std::{env, net::SocketAddr, sync::Arc, time::Duration};
+use std::{
+    env,
+    net::SocketAddr,
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 use async_trait::async_trait;
 use axum::{
@@ -64,6 +69,31 @@ impl ProjectUpdateClient for Update {
 
 struct Pancake;
 
+struct CatalogProbe {
+    catalog_calls: Mutex<Vec<(String, String)>>,
+    fail_catalog: bool,
+}
+
+impl CatalogProbe {
+    fn succeeding() -> Self {
+        Self {
+            catalog_calls: Mutex::new(Vec::new()),
+            fail_catalog: false,
+        }
+    }
+
+    fn failing() -> Self {
+        Self {
+            catalog_calls: Mutex::new(Vec::new()),
+            fail_catalog: true,
+        }
+    }
+
+    fn catalog_calls(&self) -> Vec<(String, String)> {
+        self.catalog_calls.lock().expect("catalog calls").clone()
+    }
+}
+
 struct OracleProbeRuntimeWriter;
 
 #[async_trait]
@@ -100,6 +130,37 @@ impl WaffoPancakeGateway for Pancake {
         _: &str,
     ) -> Result<Value, ()> {
         Ok(json!("product-fixture"))
+    }
+}
+
+#[async_trait]
+impl WaffoPancakeGateway for CatalogProbe {
+    async fn catalog(&self, merchant_id: &str, private_key: &str) -> Result<Value, ()> {
+        self.catalog_calls
+            .lock()
+            .expect("catalog calls")
+            .push((merchant_id.to_owned(), private_key.to_owned()));
+        if self.fail_catalog {
+            Err(())
+        } else {
+            Ok(json!({"stores": []}))
+        }
+    }
+
+    async fn create_pair(&self, _: &str, _: &str, _: &str) -> Result<Value, Value> {
+        Err(json!({}))
+    }
+
+    async fn create_product(
+        &self,
+        _: &str,
+        _: &str,
+        _: &str,
+        _: &str,
+        _: &str,
+        _: &str,
+    ) -> Result<Value, ()> {
+        Err(())
     }
 }
 
@@ -172,6 +233,151 @@ async fn option_route_anonymous_contract_is_frozen_over_real_tcp_with_locale() {
         })
     );
     server.abort();
+}
+
+#[tokio::test]
+async fn waffo_catalog_get_is_unavailable_and_never_forwards_query_credentials() {
+    let pool = PgPoolOptions::new()
+        .connect_lazy("postgres://unused:unused@127.0.0.1:1/unused")
+        .expect("valid deferred PostgreSQL URL");
+    let valkey = redis::Client::open("redis://127.0.0.1:1/").expect("valid deferred Valkey URL");
+    let pancake = Arc::new(CatalogProbe::succeeding());
+    let app = system_config_router(SystemConfigHttpState::new(
+        pool,
+        valkey,
+        Arc::new(Root),
+        Arc::new(Update),
+        pancake.clone(),
+    ));
+    let private_key = "url-private-key-must-not-be-read";
+
+    let response = app
+        .oneshot(
+            Request::get(format!(
+                "/api/option/waffo-pancake/catalog?merchant_id=url-merchant&private_key={private_key}&return_url=https%3A%2F%2Fexample.invalid"
+            ))
+            .body(Body::empty())
+            .expect("GET request"),
+        )
+        .await
+        .expect("GET response");
+
+    assert_eq!(response.status(), StatusCode::METHOD_NOT_ALLOWED);
+    assert!(pancake.catalog_calls().is_empty());
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("response body");
+    assert!(!String::from_utf8_lossy(&body).contains(private_key));
+}
+
+#[tokio::test]
+async fn waffo_catalog_post_requires_root_before_parsing_credentials() {
+    let pool = PgPoolOptions::new()
+        .connect_lazy("postgres://unused:unused@127.0.0.1:1/unused")
+        .expect("valid deferred PostgreSQL URL");
+    let valkey = redis::Client::open("redis://127.0.0.1:1/").expect("valid deferred Valkey URL");
+    let pancake = Arc::new(CatalogProbe::succeeding());
+    let app = system_config_router(SystemConfigHttpState::new(
+        pool,
+        valkey,
+        Arc::new(Denied),
+        Arc::new(Update),
+        pancake.clone(),
+    ));
+    let private_key = "body-private-key-must-not-leak";
+
+    let response = app
+        .oneshot(
+            Request::post("/api/option/waffo-pancake/catalog")
+                .header("content-type", "application/json")
+                .body(Body::from(format!(
+                    r#"{{"merchant_id":"merchant","private_key":"{private_key}"}}"#
+                )))
+                .expect("POST request"),
+        )
+        .await
+        .expect("POST response");
+
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    assert!(pancake.catalog_calls().is_empty());
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("response body");
+    assert!(!String::from_utf8_lossy(&body).contains(private_key));
+}
+
+#[tokio::test]
+async fn waffo_catalog_post_uses_only_json_credentials_and_keeps_errors_redacted() {
+    let pool = PgPoolOptions::new()
+        .connect_lazy("postgres://unused:unused@127.0.0.1:1/unused")
+        .expect("valid deferred PostgreSQL URL");
+    let valkey = redis::Client::open("redis://127.0.0.1:1/").expect("valid deferred Valkey URL");
+    let pancake = Arc::new(CatalogProbe::failing());
+    let app = system_config_router(SystemConfigHttpState::new(
+        pool,
+        valkey,
+        Arc::new(Root),
+        Arc::new(Update),
+        pancake.clone(),
+    ));
+    let body_private_key = "body-private-key-must-not-leak";
+    let query_private_key = "query-private-key-must-be-ignored";
+
+    let response = app
+        .oneshot(
+            Request::post(format!(
+                "/api/option/waffo-pancake/catalog?merchant_id=query-merchant&private_key={query_private_key}"
+            ))
+            .header("content-type", "application/json")
+            .body(Body::from(format!(
+                r#"{{"merchant_id":" body-merchant ","private_key":" {body_private_key} "}}"#
+            )))
+            .expect("POST request"),
+        )
+        .await
+        .expect("POST response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        pancake.catalog_calls(),
+        vec![("body-merchant".to_owned(), body_private_key.to_owned())]
+    );
+    let body = serde_json::from_slice::<Value>(
+        &to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("response body"),
+    )
+    .expect("JSON response");
+    assert_eq!(body, json!({"message":"error","data":"拉取目录失败"}));
+    let serialized = body.to_string();
+    assert!(!serialized.contains(body_private_key));
+    assert!(!serialized.contains(query_private_key));
+}
+
+#[tokio::test]
+async fn waffo_catalog_post_enforces_the_go_body_limit_after_root_auth() {
+    let pool = PgPoolOptions::new()
+        .connect_lazy("postgres://unused:unused@127.0.0.1:1/unused")
+        .expect("valid deferred PostgreSQL URL");
+    let valkey = redis::Client::open("redis://127.0.0.1:1/").expect("valid deferred Valkey URL");
+    let app = system_config_router(SystemConfigHttpState::new(
+        pool,
+        valkey,
+        Arc::new(Root),
+        Arc::new(Update),
+        Arc::new(Pancake),
+    ));
+
+    let response = app
+        .oneshot(
+            Request::post("/api/option/waffo-pancake/catalog")
+                .body(Body::from(vec![b'x'; (16 << 10) + 1]))
+                .expect("oversized POST request"),
+        )
+        .await
+        .expect("oversized POST response");
+
+    assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
 }
 
 #[async_trait]
@@ -301,6 +507,11 @@ async fn malformed_protected_payloads_keep_the_frozen_legacy_envelopes() {
             "/api/option/payment_compliance",
             StatusCode::OK,
             json!({"success":false,"message":"参数错误"}),
+        ),
+        (
+            "/api/option/waffo-pancake/catalog",
+            StatusCode::OK,
+            json!({"message":"error","data":"参数错误"}),
         ),
         (
             "/api/option/waffo-pancake/pair",

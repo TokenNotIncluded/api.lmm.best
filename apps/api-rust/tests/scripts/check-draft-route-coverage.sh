@@ -306,7 +306,7 @@ sub function_matches_pattern {
     return 0;
 }
 
-my (%baseline, %baseline_handler, %planned_module, %gate_mount, %candidates, %placeholders, %hard_placeholders, %not_implemented, %outside_allowlist);
+my (%baseline, %baseline_handler, %planned_module, %gate_mount, %gate_retired, %candidates, %placeholders, %hard_placeholders, %not_implemented, %outside_allowlist);
 my $failed = 0;
 
 open my $baseline_handle, '<', $baseline_path or die "cannot read $baseline_path: $!\n";
@@ -394,7 +394,7 @@ if (!defined $header) {
     my @header_fields = split /\t/, $header, -1;
     my %column;
     @column{@header_fields} = (0 .. $#header_fields);
-    for my $required (qw(method path mount_state)) {
+    for my $required (qw(method path source_state mount_state gate_state evidence)) {
         $failed |= fail("migration gate is missing $required column") if !exists $column{$required};
     }
     my (%seen_gate, $gate_line);
@@ -408,16 +408,23 @@ if (!defined $header) {
             $failed |= fail("gate line $gate_line: expected " . scalar(@header_fields) . " fields, got " . scalar(@fields));
             next;
         }
-        next if !exists $column{method} || !exists $column{path} || !exists $column{mount_state};
-        my ($method, $path, $mount) = @fields[@column{qw(method path mount_state)}];
+        next if !exists $column{method} || !exists $column{path} || !exists $column{source_state}
+            || !exists $column{mount_state} || !exists $column{gate_state}
+            || !exists $column{evidence};
+        my ($method, $path, $source, $mount, $state, $evidence) =
+            @fields[@column{qw(method path source_state mount_state gate_state evidence)}];
         my $normalized = normalize_path($path);
-        if (!defined $normalized || $mount !~ /^(?:mounted|unmounted)$/) {
-            $failed |= fail("gate line $gate_line: invalid path or mount state for $method $path");
+        if (!defined $normalized || $source !~ /^(?:absent|present)$/
+            || $mount !~ /^(?:mounted|unmounted)$/ || $state eq '') {
+            $failed |= fail("gate line $gate_line: invalid path or route state for $method $path");
             next;
         }
         my $key = "$method\t$normalized";
         $failed |= fail("gate line $gate_line: duplicate normalized route $method $normalized") if $seen_gate{$key}++;
         $gate_mount{$key} = $mount;
+        $gate_retired{$key} = 1
+            if $source eq 'absent' && $mount eq 'unmounted' && $state eq 'legacy-go'
+            && $evidence =~ /(?:^|;)retired=true(?:;|$)/;
     }
 }
 close $gate_handle;
@@ -604,6 +611,10 @@ exit 1 if $failed;
 my (@outside, @approved_outside, @placeholder_routes, @legacy_stub_routes, @missing_routes);
 my ($frozen_matches, $mounted) = (0, 0);
 for my $key (sort keys %candidates) {
+    if ($gate_retired{$key}) {
+        $failed |= fail("retired frozen route was reintroduced: " . ($key =~ s/\t/ /r));
+        next;
+    }
     if ($baseline{$key}) {
         $frozen_matches++;
         $mounted++ if ($gate_mount{$key} // '') eq 'mounted';
@@ -633,7 +644,8 @@ for my $key (sort keys %candidates) {
     }
 }
 for my $key (sort keys %baseline) {
-    push @missing_routes, "$key\t$baseline_handler{$key}" if !exists $candidates{$key};
+    push @missing_routes, "$key\t$baseline_handler{$key}"
+        if !$gate_retired{$key} && !exists $candidates{$key};
 }
 for my $key (sort keys %outside_allowlist) {
     my $entry = $outside_allowlist{$key};
@@ -680,11 +692,11 @@ if ($require_complete) {
     my $complete = !@missing_routes
         && !@placeholder_routes
         && !@legacy_stub_routes
-        && $mounted == scalar(keys %baseline);
+        && $mounted == scalar(keys %baseline) - scalar(keys %gate_retired);
     if (!$complete) {
         printf STDERR "draft completion gate failed: missing=%d placeholders=%d legacy-stubs=%d mounted=%d required-mounted=%d\n",
             scalar(@missing_routes), scalar(@placeholder_routes), scalar(@legacy_stub_routes),
-            $mounted, scalar(keys %baseline);
+            $mounted, scalar(keys %baseline) - scalar(keys %gate_retired);
         exit 1;
     }
     printf "draft completion gate passed: missing=0 placeholders=0 legacy-stubs=0 mounted=%d\n",

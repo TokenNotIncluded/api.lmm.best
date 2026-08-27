@@ -216,7 +216,6 @@ POST	/api/option/payment_compliance	apps/api-rust/src/main.rs:system_config_rout
 GET	/api/option/project-update	apps/api-rust/src/main.rs:system_config_router
 POST	/api/option/rest_model_ratio	apps/api-rust/src/main.rs:system_config_router
 POST	/api/option/validate	apps/api-rust/src/main.rs:system_config
-GET	/api/option/waffo-pancake/catalog	apps/api-rust/src/main.rs:system_config_router
 POST	/api/option/waffo-pancake/catalog	apps/api-rust/src/main.rs:system_config
 POST	/api/option/waffo-pancake/pair	apps/api-rust/src/main.rs:system_config_router
 POST	/api/option/waffo-pancake/save	apps/api-rust/src/main.rs:system_config_router

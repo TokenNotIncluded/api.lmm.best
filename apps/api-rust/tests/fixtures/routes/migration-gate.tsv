@@ -126,7 +126,7 @@ GET	/api/option/channel_affinity_cache	present	unverified	mounted	unverified	not
 POST	/api/option/payment_compliance	present	unverified	mounted	unverified	not-applicable	go	mounted-unverified	apps/api-rust/src/migration_routes/system_config.rs
 GET	/api/option/project-update	present	unverified	mounted	unverified	not-applicable	go	mounted-unverified	apps/api-rust/src/migration_routes/system_config.rs
 POST	/api/option/rest_model_ratio	present	unverified	mounted	unverified	not-applicable	go	mounted-unverified	apps/api-rust/src/migration_routes/system_config.rs
-GET	/api/option/waffo-pancake/catalog	present	unverified	mounted	unverified	not-applicable	go	mounted-unverified	apps/api-rust/src/migration_routes/system_config.rs
+GET	/api/option/waffo-pancake/catalog	absent	not-applicable	unmounted	not-applicable	not-applicable	go	legacy-go	retired=true;current-go=POST-only-catalog;rust=unmounted-query-credential-route-removed
 POST	/api/option/waffo-pancake/pair	present	unverified	mounted	unverified	not-applicable	go	mounted-unverified	apps/api-rust/src/migration_routes/system_config.rs
 POST	/api/option/waffo-pancake/save	present	unverified	mounted	unverified	not-applicable	go	mounted-unverified	apps/api-rust/src/migration_routes/system_config.rs
 POST	/api/option/waffo-pancake/subscription-product	present	unverified	mounted	unverified	not-applicable	go	mounted-unverified	apps/api-rust/src/migration_routes/system_config.rs

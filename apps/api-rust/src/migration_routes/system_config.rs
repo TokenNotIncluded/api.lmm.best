@@ -49,6 +49,7 @@ const OPTIONS_CACHE_KEY: &str = "lmm:system-config:options";
 const AFFINITY_CACHE_PREFIX: &str = "new-api:channel_affinity:v1:";
 const AUTH_VERSION: &str = "864b7076dbcd0a3c01b5520316720ebf";
 const OPTIONS_CACHE_TTL_SECONDS: u64 = 5;
+const WAFFO_PANCAKE_MUTATION_REQUEST_MAX_BYTES: usize = 16 << 10;
 const MAX_PROJECT_UPDATE_BYTES: usize = 1 << 20;
 const PROJECT_UPDATE_URL: &str =
     "https://api.github.com/repos/LIghtJUNction/api.lmm.best/commits/main";
@@ -1530,8 +1531,16 @@ impl SystemConfigHttpState {
     }
 }
 
-/// All fourteen system-config migration-plan routes.
+/// System-config routes retained by the current Go listener contract.
 pub fn system_config_router(state: SystemConfigHttpState) -> Router {
+    let catalog = Router::new()
+        .route(
+            "/api/option/waffo-pancake/catalog",
+            post(pancake_catalog_post),
+        )
+        .layer(DefaultBodyLimit::max(
+            WAFFO_PANCAKE_MUTATION_REQUEST_MAX_BYTES,
+        ));
     let protected = Router::new()
         .route("/api/option/", get(get_options).put(update_option))
         .route(
@@ -1544,10 +1553,7 @@ pub fn system_config_router(state: SystemConfigHttpState) -> Router {
         )
         .route("/api/option/project-update", get(project_update))
         .route("/api/option/rest_model_ratio", post(reset_model_ratio))
-        .route(
-            "/api/option/waffo-pancake/catalog",
-            get(pancake_catalog).post(pancake_catalog_post),
-        )
+        .merge(catalog)
         .route("/api/option/bulk", post(update_options_bulk))
         .route("/api/option/validate", post(validate_options))
         .route("/api/option/waffo-pancake/pair", post(pancake_pair))
@@ -2483,33 +2489,37 @@ struct SubscriptionProductRequest {
     amount: Option<String>,
 }
 
-fn pancake_query(raw: Option<&str>) -> PancakeCreds {
-    let mut values = query_values(raw);
-    PancakeCreds {
-        merchant_id: values.remove("merchant_id"),
-        private_key: values.remove("private_key"),
-        return_url: values.remove("return_url"),
-        store_id: values.remove("store_id"),
-        product_id: values.remove("product_id"),
-    }
-}
 async fn pancake_values(
     state: &SystemConfigHttpState,
     supplied: &PancakeCreds,
 ) -> Result<(String, String, BTreeMap<String, String>), Response> {
+    let supplied_merchant_id = supplied
+        .merchant_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let supplied_private_key = supplied
+        .private_key
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    if let (Some(merchant_id), Some(private_key)) = (supplied_merchant_id, supplied_private_key) {
+        return Ok((
+            merchant_id.to_owned(),
+            private_key.to_owned(),
+            BTreeMap::new(),
+        ));
+    }
+
     let opts = cached_options(state)
         .await
         .map_err(|_| legacy_error("读取配置失败"))?;
-    let m = supplied
-        .merchant_id
-        .clone()
-        .filter(|x| !x.trim().is_empty())
+    let m = supplied_merchant_id
+        .map(str::to_owned)
         .or_else(|| opts.get("WaffoPancakeMerchantID").cloned())
         .unwrap_or_default();
-    let k = supplied
-        .private_key
-        .clone()
-        .filter(|x| !x.trim().is_empty())
+    let k = supplied_private_key
+        .map(str::to_owned)
         .or_else(|| opts.get("WaffoPancakePrivateKey").cloned())
         .unwrap_or_default();
     if m.is_empty() || k.is_empty() {
@@ -2666,23 +2676,6 @@ fn decode_option_values(body: &Bytes) -> Result<BTreeMap<String, String>, Respon
     Ok(request.values)
 }
 
-async fn pancake_catalog(
-    State(state): State<SystemConfigHttpState>,
-    Extension(_context): Extension<SystemConfigAuthContext>,
-    query: RawQuery,
-) -> Response {
-    let input = pancake_query(query.0.as_deref());
-    let Ok((m, k, _)) = pancake_values(&state, &input).await else {
-        return legacy_error("Waffo Pancake 凭证未配置");
-    };
-    match state.pancake.catalog(&m, &k).await {
-        Ok(data) => legacy_json(StatusCode::OK, json!({"message":"success","data":data})),
-        Err(_) => legacy_json(
-            StatusCode::OK,
-            json!({"message":"error","data":"拉取目录失败"}),
-        ),
-    }
-}
 async fn pancake_pair(
     State(state): State<SystemConfigHttpState>,
     Extension(_context): Extension<SystemConfigAuthContext>,
