@@ -78,6 +78,16 @@ function redirectToSignIn(): void {
   }
 }
 
+function createConfiguredRequestError(
+  message: string,
+  config: ApiRequestConfig,
+  cause?: unknown
+): Error & { config: ApiRequestConfig } {
+  const error =
+    cause === undefined ? new Error(message) : new Error(message, { cause })
+  return Object.assign(error, { config })
+}
+
 api.interceptors.response.use(
   (response) => {
     if (response.config.acceptAuthRotation && response.data?.success === true) {
@@ -162,15 +172,20 @@ api.interceptors.request.use(async (config) => {
     auth = useAuthStore.getState().auth
     if (outcome.kind === 'anonymous' || outcome.kind === 'out_of_sync') {
       redirectToSignIn()
-      throw new Error(t('Session expired!'))
+      throw createConfiguredRequestError(t('Session expired!'), config)
     }
+    const refreshedNow = Math.floor(Date.now() / 1000)
     if (
       outcome.kind === 'transient_error' &&
       (!auth.accessToken ||
         !auth.accessExpiresAt ||
-        auth.accessExpiresAt <= now)
+        auth.accessExpiresAt <= refreshedNow)
     ) {
-      throw new Error(t('Request failed'), { cause: outcome.error })
+      throw createConfiguredRequestError(
+        t('Request failed'),
+        config,
+        outcome.error
+      )
     }
   }
 

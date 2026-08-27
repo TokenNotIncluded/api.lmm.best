@@ -40,24 +40,66 @@ import type {
 
 const VERIFICATION_PROBE_RETRY_DELAY_MS = 250
 
+type VerificationProbeResult<T> = { ok: true; value: T } | { ok: false }
+
+export interface VerificationProbeDependencies {
+  getSelf: () => ReturnType<typeof getSelf>
+  get2FAStatus: () => ReturnType<typeof get2FAStatus>
+  getPasskeyStatus: () => ReturnType<typeof getPasskeyStatus>
+  detectPasskeySupport: () => Promise<boolean>
+  wait: (delay: number) => Promise<void>
+  warn: (message: string, detail: string) => void
+}
+
+const defaultVerificationProbeDependencies: VerificationProbeDependencies = {
+  getSelf: () => getSelf(),
+  get2FAStatus: () => get2FAStatus({ skipErrorHandler: true }),
+  getPasskeyStatus: () => getPasskeyStatus({ skipErrorHandler: true }),
+  detectPasskeySupport,
+  wait: (delay) =>
+    new Promise((resolve) => globalThis.setTimeout(resolve, delay)),
+  // Expected probe failures are surfaced by the action that needs them.
+  // Keep optional capability checks from adding production console noise.
+  warn: () => undefined,
+}
+
 /**
  * Fetch available verification methods for the current user.
  *
  * Each capability is independent. A transient failure from one endpoint must
  * not hide methods reported successfully by the other endpoints.
  */
-export async function checkVerificationMethods(): Promise<VerificationMethods> {
-  const [selfResponse, twoFAResponse, passkeyResponse, passkeySupported] =
+export async function checkVerificationMethods(
+  dependencies: VerificationProbeDependencies = defaultVerificationProbeDependencies
+): Promise<VerificationMethods> {
+  const [selfProbe, twoFAProbe, passkeyProbe, passkeySupportProbe] =
     await Promise.all([
-      probeVerificationMethod('account', () => getSelf()),
-      probeVerificationMethod('2FA', () =>
-        get2FAStatus({ skipErrorHandler: true })
+      probeVerificationMethod('account', dependencies.getSelf, dependencies),
+      probeVerificationMethod('2FA', dependencies.get2FAStatus, dependencies),
+      probeVerificationMethod(
+        'Passkey',
+        dependencies.getPasskeyStatus,
+        dependencies
       ),
-      probeVerificationMethod('Passkey', () =>
-        getPasskeyStatus({ skipErrorHandler: true })
+      probeVerificationMethod(
+        'Passkey support',
+        dependencies.detectPasskeySupport,
+        dependencies
       ),
-      probeVerificationMethod('Passkey support', detectPasskeySupport),
     ])
+
+  const selfResponse = selfProbe.ok ? selfProbe.value : undefined
+  const twoFAResponse = twoFAProbe.ok ? twoFAProbe.value : undefined
+  const passkeyResponse = passkeyProbe.ok ? passkeyProbe.value : undefined
+  const passkeySupported = passkeySupportProbe.ok
+    ? passkeySupportProbe.value
+    : false
+  const completedServerProbes = [selfProbe, twoFAProbe, passkeyProbe].filter(
+    (probe) => probe.ok
+  ).length
+  let availability: VerificationMethods['availability'] = 'partial'
+  if (completedServerProbes === 3) availability = 'complete'
+  if (completedServerProbes === 0) availability = 'unavailable'
 
   const email = String(selfResponse?.data?.email ?? '').trim()
   const has2FA =
@@ -70,39 +112,37 @@ export async function checkVerificationMethods(): Promise<VerificationMethods> {
     emailHint: email ? maskEmail(email) : undefined,
     has2FA,
     hasPasskey,
-    passkeySupported: Boolean(passkeySupported),
+    passkeySupported,
+    availability,
   }
 }
 
 async function probeVerificationMethod<T>(
   method: string,
-  request: () => Promise<T>
-): Promise<T | undefined> {
+  request: () => Promise<T>,
+  dependencies: Pick<VerificationProbeDependencies, 'wait' | 'warn'>
+): Promise<VerificationProbeResult<T>> {
   try {
-    return await request()
+    return { ok: true, value: await request() }
   } catch (firstError) {
     if (!isRetryableVerificationError(firstError)) {
-      // eslint-disable-next-line no-console
-      console.warn(
+      dependencies.warn(
         `[Secure Verification] Failed to check ${method}`,
-        firstError
+        String(firstError)
       )
-      return undefined
+      return { ok: false }
     }
 
-    await new Promise((resolve) =>
-      setTimeout(resolve, VERIFICATION_PROBE_RETRY_DELAY_MS)
-    )
+    await dependencies.wait(VERIFICATION_PROBE_RETRY_DELAY_MS)
 
     try {
-      return await request()
+      return { ok: true, value: await request() }
     } catch (retryError) {
-      // eslint-disable-next-line no-console
-      console.warn(
+      dependencies.warn(
         `[Secure Verification] Failed to check ${method} after retry`,
-        retryError
+        String(retryError)
       )
-      return undefined
+      return { ok: false }
     }
   }
 }

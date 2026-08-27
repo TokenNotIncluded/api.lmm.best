@@ -174,6 +174,32 @@ describe('authentication session coordination', () => {
     assert.equal(transientCount, 1)
   })
 
+  test('timeout-class refresh responses remain retryable', async () => {
+    for (const status of [408, 425]) {
+      let transientCount = 0
+      let clearCount = 0
+      const runtime: AuthRefreshRuntime = {
+        request: async () => ({ status }),
+        getExpectedSID: () => bundle.session.sid,
+        parseBundle: () => null,
+        acceptBundle: () => undefined,
+        clear: () => {
+          clearCount += 1
+        },
+        markTransient: () => {
+          transientCount += 1
+        },
+        wait: async () => undefined,
+      }
+
+      const outcome = await createRefreshRunner(runtime)()
+
+      assert.equal(outcome.kind, 'transient_error')
+      assert.equal(clearCount, 0)
+      assert.equal(transientCount, 1)
+    }
+  })
+
   test('an exhausted refresh race clears the unusable local session', async () => {
     const requestedDelays: number[] = []
     const clears: Array<[boolean, string | undefined]> = []

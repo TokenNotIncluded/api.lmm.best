@@ -80,6 +80,7 @@ export function setDevelopmentAuthRefreshAdapter(adapter: AxiosAdapter): void {
 }
 
 const refreshRaceDelays = [80, 200, 500] as const
+const authRefreshTimeoutMs = 10_000
 let refreshPromise: Promise<RefreshOutcome> | null = null
 let authEpoch = 0
 let authCache: QueryClient | null = null
@@ -271,7 +272,13 @@ export function createRefreshRunner(
       return { kind: 'anonymous' }
     }
 
-    if (!response.status || response.status >= 500 || response.status === 429) {
+    if (
+      !response.status ||
+      response.status === 408 ||
+      response.status === 425 ||
+      response.status === 429 ||
+      response.status >= 500
+    ) {
       runtime.markTransient()
       return {
         kind: 'transient_error',
@@ -298,6 +305,7 @@ async function requestRefresh(
       undefined,
       {
         headers: expectedSID ? { 'X-Auth-Session': expectedSID } : undefined,
+        timeout: authRefreshTimeoutMs,
       }
     )
     return { status: response.status, data: response.data }

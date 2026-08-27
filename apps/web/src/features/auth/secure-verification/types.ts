@@ -18,6 +18,11 @@ For commercial licensing, please contact support@quantumnous.com
 */
 export type VerificationMethod = 'email' | '2fa' | 'passkey'
 
+export type VerificationMethodsAvailability =
+  | 'complete'
+  | 'partial'
+  | 'unavailable'
+
 export type SecurityProofScope =
   | 'channel.key.read'
   | 'passkey.register'
@@ -36,6 +41,7 @@ export interface VerificationMethods {
   has2FA: boolean
   hasPasskey: boolean
   passkeySupported: boolean
+  availability: VerificationMethodsAvailability
 }
 
 /**
@@ -98,4 +104,5 @@ export interface StartVerificationOptions {
   preferredMethod?: VerificationMethod
   title?: string
   description?: string
+  verificationMethods?: VerificationMethods
 }
