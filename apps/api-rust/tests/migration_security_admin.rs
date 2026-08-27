@@ -41,3 +41,39 @@ async fn security_admin_routes_require_dashboard_auth() {
 
     assert_eq!(response.status(), axum::http::StatusCode::NOT_FOUND);
 }
+
+#[tokio::test]
+async fn review_run_cleanup_routes_require_dashboard_auth() {
+    let pg = PgPoolOptions::new()
+        .connect_lazy("postgres://route-test:route-test@127.0.0.1:1/route_test")
+        .expect("lazy PostgreSQL pool");
+    let valkey = redis::Client::open("redis://127.0.0.1:1").expect("lazy Valkey client");
+    let auth = Arc::new(
+        PgValkeyDashboardAuth::new(
+            pg.clone(),
+            valkey,
+            AuthConfig {
+                session_secret: SecretString::from(
+                    "security-admin-cleanup-test-secret-0123456789012345678901234567890123456",
+                ),
+                ..AuthConfig::default()
+            },
+        )
+        .expect("route-test auth adapter"),
+    );
+
+    for request in [
+        Request::get("/api/security/admin/review-runs/cleanup-preview?keep=30")
+            .body(Body::empty())
+            .expect("preview request"),
+        Request::delete("/api/security/admin/review-runs?keep=30")
+            .body(Body::empty())
+            .expect("cleanup request"),
+    ] {
+        let response = router(SecurityAdminState::new(pg.clone(), auth.clone()))
+            .oneshot(request)
+            .await
+            .expect("route response");
+        assert_eq!(response.status(), axum::http::StatusCode::UNAUTHORIZED);
+    }
+}

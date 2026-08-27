@@ -10,7 +10,7 @@ use async_trait::async_trait;
 use axum::{
     Json, Router,
     body::to_bytes,
-    extract::{Path, RawQuery, State},
+    extract::{Path, RawQuery, Request, State},
     http::{HeaderMap, HeaderName, HeaderValue, StatusCode, header},
     response::{IntoResponse, Response},
     routing::{get as route_get, post as route_post, put as route_put},
@@ -20,9 +20,13 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sqlx::{PgPool, Row, postgres::PgRow};
 
-use crate::auth::{
-    AuthErrorKind, DashboardAuth, DashboardUserView, UserAuthPolicyError, enforce_user_auth_view,
-    user_auth_message, user_auth_status,
+use crate::{
+    ClientIpKey,
+    auth::{
+        AuthErrorKind, CriticalRateLimitOutcome, DashboardAuth, DashboardUserView,
+        UserAuthPolicyError, enforce_user_auth_view, user_auth_message, user_auth_status,
+    },
+    legacy_empty_response,
 };
 
 const ADMIN_ROLE: i64 = 10;
@@ -31,6 +35,10 @@ const AUTH_VERSION: &str = "864b7076dbcd0a3c01b5520316720ebf";
 const MAX_BODY_BYTES: usize = 64 * 1024;
 const DEFAULT_PAGE_SIZE: i64 = 10;
 const MAX_PAGE_SIZE: i64 = 100;
+const DEFAULT_REVIEW_HISTORY_KEEP: i64 = 30;
+const MAX_REVIEW_HISTORY_KEEP: i64 = 100;
+const REVIEW_RUN_CLEANUP_SCOPE: &str = "security.review_runs.delete";
+const SECURITY_PROOF_HEADER: &str = "x-security-proof";
 
 #[derive(Clone)]
 pub struct SecurityAdminState {
@@ -58,8 +66,12 @@ pub fn router(state: SecurityAdminState) -> Router {
         .route("/api/security/admin/settings", route_put(update_settings))
         .route("/api/security/admin/ai-reviews", route_get(list_ai_reviews))
         .route(
+            "/api/security/admin/review-runs/cleanup-preview",
+            route_get(preview_review_run_cleanup),
+        )
+        .route(
             "/api/security/admin/review-runs",
-            route_get(list_review_runs),
+            route_get(list_review_runs).delete(delete_review_runs),
         )
         .route(
             "/api/security/admin/review-runs/{task_id}",
@@ -113,6 +125,14 @@ pub trait SecurityAdminBackend: Send + Sync {
         &self,
         task_id: &str,
     ) -> Result<Option<SystemTaskDetail>, SecurityAdminError>;
+
+    async fn preview_review_run_cleanup(&self, keep: i64) -> Result<i64, SecurityAdminError>;
+
+    async fn delete_review_runs(
+        &self,
+        keep: i64,
+        admin_user_id: i64,
+    ) -> Result<i64, SecurityAdminError>;
 
     async fn list_admin_appeals(
         &self,
@@ -355,6 +375,66 @@ async fn list_review_runs(
         Err(error) => api_error(&error.0),
     };
     with_auth_version(response)
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct ReviewRunCleanupResponse {
+    task_type: &'static str,
+    keep: i64,
+    eligible_count: i64,
+    deleted_count: i64,
+}
+
+async fn preview_review_run_cleanup(
+    State(state): State<SecurityAdminState>,
+    headers: HeaderMap,
+    RawQuery(raw): RawQuery,
+) -> Response {
+    if let Err(response) = authenticated_admin(&state, &headers).await {
+        return response;
+    }
+    let keep = match parse_review_history_keep(raw.as_deref()) {
+        Ok(keep) => keep,
+        Err(response) => return with_auth_version(no_store(response)),
+    };
+    let response = match state.backend.preview_review_run_cleanup(keep).await {
+        Ok(eligible_count) => api_success(json!(ReviewRunCleanupResponse {
+            task_type: "assistant_review",
+            keep,
+            eligible_count,
+            deleted_count: 0,
+        })),
+        Err(error) => api_error(&error.0),
+    };
+    with_auth_version(no_store(response))
+}
+
+async fn delete_review_runs(State(state): State<SecurityAdminState>, request: Request) -> Response {
+    let headers = request.headers().clone();
+    let admin = match authenticated_admin(&state, &headers).await {
+        Ok(admin) => admin,
+        Err(response) => return response,
+    };
+    if let Some(response) = critical_rate_limit(&state, client_ip(&request)).await {
+        return with_auth_version(no_store(response));
+    }
+    if let Err(response) = require_cleanup_security_proof(&state, &headers, admin.id).await {
+        return with_auth_version(no_store(response));
+    }
+    let keep = match parse_review_history_keep(request.uri().query()) {
+        Ok(keep) => keep,
+        Err(response) => return with_auth_version(no_store(response)),
+    };
+    let response = match state.backend.delete_review_runs(keep, admin.id).await {
+        Ok(deleted_count) => api_success(json!(ReviewRunCleanupResponse {
+            task_type: "assistant_review",
+            keep,
+            eligible_count: deleted_count,
+            deleted_count,
+        })),
+        Err(error) => api_error(&error.0),
+    };
+    with_auth_version(no_store(response))
 }
 
 async fn get_review_run(
@@ -684,6 +764,64 @@ impl SecurityAdminBackend for PgSecurityAdminBackend {
         row.as_ref().map(task_detail_from_row).transpose()
     }
 
+    async fn preview_review_run_cleanup(&self, keep: i64) -> Result<i64, SecurityAdminError> {
+        sqlx::query_scalar::<_, i64>(
+            "SELECT GREATEST(COUNT(*) - $1::BIGINT, 0)::BIGINT \
+             FROM system_tasks \
+             WHERE type = 'assistant_review' AND status IN ('succeeded', 'failed')",
+        )
+        .bind(keep)
+        .fetch_one(&self.pg)
+        .await
+        .map_err(db_error)
+    }
+
+    async fn delete_review_runs(
+        &self,
+        keep: i64,
+        admin_user_id: i64,
+    ) -> Result<i64, SecurityAdminError> {
+        let mut transaction = self.pg.begin().await.map_err(db_error)?;
+        let ids = sqlx::query_scalar::<_, i64>(
+            "SELECT id FROM system_tasks \
+             WHERE type = 'assistant_review' AND status IN ('succeeded', 'failed') \
+             ORDER BY id DESC OFFSET $1 FOR UPDATE",
+        )
+        .bind(keep)
+        .fetch_all(&mut *transaction)
+        .await
+        .map_err(db_error)?;
+        let deleted_count = if ids.is_empty() {
+            0
+        } else {
+            let result = sqlx::query(
+                "DELETE FROM system_tasks \
+                 WHERE type = 'assistant_review' \
+                 AND status IN ('succeeded', 'failed') AND id = ANY($1)",
+            )
+            .bind(&ids)
+            .execute(&mut *transaction)
+            .await
+            .map_err(db_error)?;
+            i64::try_from(result.rows_affected())
+                .map_err(|_| SecurityAdminError("cleanup row count overflow".to_owned()))?
+        };
+        let content =
+            format!("deleted {deleted_count} assistant review run history records (keep={keep})");
+        sqlx::query(
+            "INSERT INTO logs (user_id, created_at, type, content, username) \
+             SELECT id, EXTRACT(EPOCH FROM NOW())::BIGINT, 4, $2, username \
+             FROM users WHERE id = $1",
+        )
+        .bind(admin_user_id)
+        .bind(content)
+        .execute(&mut *transaction)
+        .await
+        .map_err(db_error)?;
+        transaction.commit().await.map_err(db_error)?;
+        Ok(deleted_count)
+    }
+
     async fn list_admin_appeals(
         &self,
         status: &str,
@@ -947,6 +1085,117 @@ async fn table_exists(pg: &PgPool, table: &str) -> Result<bool, SecurityAdminErr
     Ok(exists)
 }
 
+fn parse_review_history_keep(raw: Option<&str>) -> Result<i64, Response> {
+    let query = parse_query(raw);
+    let keep = match query.get("keep") {
+        Some(value) => value.parse::<i64>().map_err(|_| cleanup_invalid_keep())?,
+        None => DEFAULT_REVIEW_HISTORY_KEEP,
+    };
+    if !(1..=MAX_REVIEW_HISTORY_KEEP).contains(&keep) {
+        return Err(cleanup_invalid_keep());
+    }
+    Ok(keep)
+}
+
+fn cleanup_invalid_keep() -> Response {
+    legacy_json(
+        StatusCode::BAD_REQUEST,
+        json!({
+            "success": false,
+            "code": "INVALID_PARAMS",
+            "message": "keep must be between 1 and 100",
+        }),
+    )
+}
+
+fn client_ip(request: &Request) -> &str {
+    request
+        .extensions()
+        .get::<ClientIpKey>()
+        .map_or("unknown", |key| key.0.as_str())
+}
+
+async fn critical_rate_limit(state: &SecurityAdminState, client_ip: &str) -> Option<Response> {
+    match state.auth.check_critical_rate_limit(client_ip).await {
+        Ok(CriticalRateLimitOutcome::Allowed) => None,
+        Ok(CriticalRateLimitOutcome::Rejected {
+            retry_after_seconds,
+        }) => Some(legacy_empty_response(
+            StatusCode::TOO_MANY_REQUESTS,
+            Some(retry_after_seconds),
+        )),
+        Err(_) => Some(legacy_empty_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            None,
+        )),
+    }
+}
+
+async fn require_cleanup_security_proof(
+    state: &SecurityAdminState,
+    headers: &HeaderMap,
+    admin_id: i64,
+) -> Result<(), Response> {
+    let raw = headers
+        .get(SECURITY_PROOF_HEADER)
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            security_proof_error("SECURITY_PROOF_REQUIRED", "Secure verification is required")
+        })?;
+    let credential = dashboard_credential(headers).ok_or_else(|| {
+        security_proof_error("SECURITY_PROOF_INVALID", "Security proof is invalid")
+    })?;
+    let session = state
+        .auth
+        .current_session(SecretString::from(credential))
+        .await
+        .map_err(|error| security_proof_auth_error(error.kind))?;
+    if session.user.id != admin_id {
+        return Err(security_proof_error(
+            "SECURITY_PROOF_INVALID",
+            "Security proof is invalid",
+        ));
+    }
+    let allowed_methods = vec!["email".to_owned(), "2fa".to_owned(), "passkey".to_owned()];
+    state
+        .auth
+        .verify_security_proof(
+            SecretString::from(raw.to_owned()),
+            admin_id,
+            &session.session_id,
+            REVIEW_RUN_CLEANUP_SCOPE,
+            &allowed_methods,
+        )
+        .await
+        .map_err(|error| security_proof_auth_error(error.kind))?;
+    Ok(())
+}
+
+fn security_proof_auth_error(kind: AuthErrorKind) -> Response {
+    if kind == AuthErrorKind::TokenExpired {
+        security_proof_error("SECURITY_PROOF_EXPIRED", "Security proof has expired")
+    } else {
+        security_proof_error("SECURITY_PROOF_INVALID", "Security proof is invalid")
+    }
+}
+
+fn security_proof_error(code: &str, message: &str) -> Response {
+    legacy_json(
+        StatusCode::FORBIDDEN,
+        json!({"success": false, "code": code, "message": message}),
+    )
+}
+
+fn no_store(mut response: Response) -> Response {
+    response.headers_mut().insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("no-store, no-cache, must-revalidate, private, max-age=0"),
+    );
+    response
+}
+
 fn parse_review_filter(query: &HashMap<String, String>) -> SecurityReviewFilter {
     let start_timestamp = query
         .get("start_timestamp")
@@ -1199,4 +1448,44 @@ fn user_policy_error(headers: &HeaderMap, error: UserAuthPolicyError) -> Respons
             ),
         }),
     )
+}
+
+#[cfg(test)]
+mod cleanup_tests {
+    use super::*;
+
+    #[test]
+    fn cleanup_keep_defaults_and_enforces_bounds() {
+        assert_eq!(
+            parse_review_history_keep(None).expect("default keep"),
+            DEFAULT_REVIEW_HISTORY_KEEP
+        );
+        assert_eq!(
+            parse_review_history_keep(Some("keep=1")).expect("minimum keep"),
+            1
+        );
+        assert_eq!(
+            parse_review_history_keep(Some("keep=100")).expect("maximum keep"),
+            100
+        );
+        for query in ["keep=0", "keep=101", "keep=invalid"] {
+            assert_eq!(
+                parse_review_history_keep(Some(query))
+                    .expect_err("invalid keep")
+                    .status(),
+                StatusCode::BAD_REQUEST
+            );
+        }
+    }
+
+    #[test]
+    fn cleanup_responses_disable_caching() {
+        let response = no_store(api_success(json!({"ok": true})));
+        assert_eq!(
+            response.headers().get(header::CACHE_CONTROL),
+            Some(&HeaderValue::from_static(
+                "no-store, no-cache, must-revalidate, private, max-age=0"
+            ))
+        );
+    }
 }

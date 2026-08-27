@@ -672,7 +672,10 @@ impl PgValkeySecurityProvider {
             .ok_or(SecurityError::Invalid("不支持的安全验证范围"))?;
         if !matches!(
             scope,
-            "channel.key.read" | "passkey.register" | "passkey.delete"
+            "channel.key.read"
+                | "passkey.register"
+                | "passkey.delete"
+                | "security.review_runs.delete"
         ) {
             return Err(SecurityError::Invalid("不支持的安全验证范围"));
         }
