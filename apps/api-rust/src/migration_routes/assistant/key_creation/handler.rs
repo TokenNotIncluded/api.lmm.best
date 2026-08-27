@@ -4,13 +4,13 @@ use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
 use super::super::{
-    ASSISTANT_BODY_LIMIT_BYTES, ASSISTANT_KEY_NAME_MAX_CHARS, AssistantReadState,
-    AssistantToolOutcome, CriticalRateLimitOutcome, DashboardUserView, assistant_console_not_found,
-    assistant_error, assistant_error_owned, assistant_session_required, authenticated_user,
-    input_number, input_string, invalid_assistant_create_key_request, success, tool_result,
-    with_auth_version, with_no_store,
+    ASSISTANT_KEY_NAME_MAX_CHARS, AssistantReadState, AssistantToolOutcome,
+    CriticalRateLimitOutcome, DashboardUserView, assistant_console_not_found, assistant_error,
+    assistant_error_owned, assistant_session_required, authenticated_user, input_number,
+    input_string, invalid_assistant_create_key_request, success, tool_result, with_auth_version,
+    with_no_store,
 };
-use super::domain::*;
+use super::{KEY_MUTATION_BODY_LIMIT_BYTES, domain::*};
 use crate::legacy_empty_response;
 
 #[derive(Debug, Deserialize)]
@@ -42,14 +42,8 @@ struct KeyMutationContext {
 async fn key_mutation_context(
     state: &AssistantReadState,
     headers: &axum::http::HeaderMap,
-    rate_limit_namespace: &'static str,
 ) -> Result<KeyMutationContext, Response> {
     let principal = authenticated_user(state, headers).await?;
-    if let Some(response) =
-        mutation_rate_limit(state, rate_limit_namespace, principal.user.id).await
-    {
-        return Err(response);
-    }
     let session = state
         .auth
         .current_session(SecretString::from(principal.credential))
@@ -79,17 +73,22 @@ pub(in crate::migration_routes::assistant) async fn prepare_key_handler(
     request: axum::extract::Request,
 ) -> Response {
     let headers = request.headers().clone();
-    let context = match key_mutation_context(&state, &headers, "assistant-prepare-key").await {
+    let context = match key_mutation_context(&state, &headers).await {
         Ok(context) => context,
         Err(response) => return response,
     };
-    if !context.user.developer_access_granted {
-        return assistant_console_not_found();
-    }
     let input = match parse_body::<PrepareKeyInput>(request).await {
         Ok(input) => input,
         Err(response) => return response,
     };
+    if !context.user.developer_access_granted {
+        return with_no_store(assistant_console_not_found());
+    }
+    if let Some(response) =
+        mutation_rate_limit(&state, "assistant-prepare-key", context.user.id).await
+    {
+        return response;
+    }
     let result = prepare_for_user(&state, &context.user, &context.session_id, input).await;
     with_no_store(match result {
         Ok(action) => success(json!(action)),
@@ -102,7 +101,7 @@ pub(in crate::migration_routes::assistant) async fn confirm_key_handler(
     request: axum::extract::Request,
 ) -> Response {
     let headers = request.headers().clone();
-    let context = match key_mutation_context(&state, &headers, "assistant-create-key").await {
+    let context = match key_mutation_context(&state, &headers).await {
         Ok(context) => context,
         Err(response) => return response,
     };
@@ -110,6 +109,14 @@ pub(in crate::migration_routes::assistant) async fn confirm_key_handler(
         Ok(input) => input,
         Err(response) => return response,
     };
+    if !context.user.developer_access_granted {
+        return with_no_store(assistant_console_not_found());
+    }
+    if let Some(response) =
+        mutation_rate_limit(&state, "assistant-create-key", context.user.id).await
+    {
+        return response;
+    }
     let token = match ConfirmationToken::parse(&input.confirmation_token) {
         Ok(token) => token,
         Err(error) => return with_no_store(error_response(error)),
@@ -282,27 +289,32 @@ async fn mutation_rate_limit(
         Ok(CriticalRateLimitOutcome::Allowed) => None,
         Ok(CriticalRateLimitOutcome::Rejected {
             retry_after_seconds,
-        }) => Some(with_auth_version(legacy_empty_response(
+        }) => Some(with_no_store(with_auth_version(legacy_empty_response(
             StatusCode::TOO_MANY_REQUESTS,
             Some(retry_after_seconds),
-        ))),
-        Err(()) => Some(with_auth_version(legacy_empty_response(
+        )))),
+        Err(()) => Some(with_no_store(with_auth_version(legacy_empty_response(
             StatusCode::INTERNAL_SERVER_ERROR,
             None,
-        ))),
+        )))),
     }
 }
 
 async fn parse_body<T: for<'de> Deserialize<'de>>(
     request: axum::extract::Request,
 ) -> Result<T, Response> {
-    let body = axum::body::to_bytes(request.into_body(), ASSISTANT_BODY_LIMIT_BYTES)
+    let body = axum::body::to_bytes(request.into_body(), KEY_MUTATION_BODY_LIMIT_BYTES)
         .await
-        .map_err(|_| invalid_assistant_create_key_request())?;
+        .map_err(|_| {
+            with_no_store(with_auth_version(legacy_empty_response(
+                StatusCode::PAYLOAD_TOO_LARGE,
+                None,
+            )))
+        })?;
     if body.is_empty() {
-        return Err(invalid_assistant_create_key_request());
+        return Err(with_no_store(invalid_assistant_create_key_request()));
     }
-    serde_json::from_slice(&body).map_err(|_| invalid_assistant_create_key_request())
+    serde_json::from_slice(&body).map_err(|_| with_no_store(invalid_assistant_create_key_request()))
 }
 
 fn error_response(error: KeyCreationError) -> Response {

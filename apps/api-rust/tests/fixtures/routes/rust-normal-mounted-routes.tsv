@@ -46,6 +46,7 @@ POST	/api/assistant/pre-conversation-presets/:id/click	apps/api-rust/src/main.rs
 GET	/api/assistant/pricing	apps/api-rust/src/migration_routes/missing_control_public.rs
 GET	/api/assistant/status	apps/api-rust/src/main.rs:assistant_reads
 POST	/api/assistant/tools/create-key	apps/api-rust/src/main.rs:assistant_reads
+POST	/api/assistant/tools/prepare-key	apps/api-rust/src/main.rs:assistant_reads
 GET	/api/assistant/weekly-discount	apps/api-rust/src/main.rs:assistant_read
 POST	/api/assistant/weekly-discount/claim	apps/api-rust/src/main.rs:assistant_read
 GET	/api/authz/catalog	apps/api-rust/src/main.rs:identity_security
@@ -255,8 +256,10 @@ GET	/api/reset_password	apps/api-rust/src/main.rs:identity_security
 GET	/api/security/admin/ai-reviews	apps/api-rust/src/main.rs:security_admin
 GET	/api/security/admin/events	apps/api-rust/src/main.rs:security_overview
 GET	/api/security/admin/policy	apps/api-rust/src/main.rs:security_overview
+DELETE	/api/security/admin/review-runs	apps/api-rust/src/main.rs:security_admin
 GET	/api/security/admin/review-runs	apps/api-rust/src/main.rs:security_admin
 GET	/api/security/admin/review-runs/:task_id	apps/api-rust/src/main.rs:security_admin
+GET	/api/security/admin/review-runs/cleanup-preview	apps/api-rust/src/main.rs:security_admin
 PUT	/api/security/admin/settings	apps/api-rust/src/main.rs:security_admin
 GET	/api/security/admin/stats	apps/api-rust/src/main.rs:security_overview
 GET	/api/security/admin/violation-fee-appeals	apps/api-rust/src/main.rs:security_admin
@@ -271,6 +274,7 @@ POST	/api/stripe/webhook	apps/api-rust/src/main.rs:billing_provider_payments
 POST	/api/subscription/admin/bind	apps/api-rust/src/main.rs
 GET	/api/subscription/admin/plans	apps/api-rust/src/main.rs
 POST	/api/subscription/admin/plans	apps/api-rust/src/main.rs
+DELETE	/api/subscription/admin/plans/:id	apps/api-rust/src/main.rs:billing_subscriptions
 PATCH	/api/subscription/admin/plans/:id	apps/api-rust/src/main.rs
 PUT	/api/subscription/admin/plans/:id	apps/api-rust/src/main.rs
 POST	/api/subscription/admin/plans/:id/subscriptions/reset	apps/api-rust/src/main.rs

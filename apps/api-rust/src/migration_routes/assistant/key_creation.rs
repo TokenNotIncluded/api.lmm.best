@@ -8,6 +8,8 @@ mod tests;
 
 use async_trait::async_trait;
 
+const KEY_MUTATION_BODY_LIMIT_BYTES: usize = 16 * 1_024;
+
 pub(super) use domain::{
     AssistantKeyGroupOption, AuthorizationFence, ConfirmationToken, CreatedKey, KeyCreationError,
     PreparedKeyAction, PreparedKeyDraft,

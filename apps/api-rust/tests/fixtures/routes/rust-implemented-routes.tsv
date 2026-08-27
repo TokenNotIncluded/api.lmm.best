@@ -46,6 +46,7 @@ POST	/api/assistant/pre-conversation-presets/:id/click	lmm_api_rs::migration_rou
 GET	/api/assistant/pricing	lmm_api_rs::migration_routes::missing_control_public::missing_control_public_router
 GET	/api/assistant/status	lmm_api_rs::migration_routes::assistant::assistant_read_router
 POST	/api/assistant/tools/create-key	lmm_api_rs::migration_routes::assistant::assistant_read_router
+POST	/api/assistant/tools/prepare-key	lmm_api_rs::migration_routes::assistant::assistant_read_router
 GET	/api/assistant/weekly-discount	lmm_api_rs::migration_routes::assistant::assistant_read_router
 POST	/api/assistant/weekly-discount/claim	lmm_api_rs::migration_routes::assistant::assistant_read_router
 GET	/api/authz/catalog	lmm_api_rs::migration_routes::identity_security::router
@@ -255,8 +256,10 @@ GET	/api/reset_password	lmm_api_rs::migration_routes::identity_security::router
 GET	/api/security/admin/ai-reviews	lmm_api_rs::migration_routes::security_admin::router
 GET	/api/security/admin/events	lmm_api_rs::migration_routes::security_overview::router
 GET	/api/security/admin/policy	lmm_api_rs::migration_routes::security_overview::router
+DELETE	/api/security/admin/review-runs	lmm_api_rs::migration_routes::security_admin::router
 GET	/api/security/admin/review-runs	lmm_api_rs::migration_routes::security_admin::router
 GET	/api/security/admin/review-runs/:task_id	lmm_api_rs::migration_routes::security_admin::router
+GET	/api/security/admin/review-runs/cleanup-preview	lmm_api_rs::migration_routes::security_admin::router
 PUT	/api/security/admin/settings	lmm_api_rs::migration_routes::security_admin::router
 GET	/api/security/admin/stats	lmm_api_rs::migration_routes::security_overview::router
 GET	/api/security/admin/violation-fee-appeals	lmm_api_rs::migration_routes::security_admin::router
@@ -271,6 +274,7 @@ POST	/api/stripe/webhook	lmm_api_rs::migration_routes::billing_payments::billing
 POST	/api/subscription/admin/bind	lmm_api_rs::migration_routes::billing_subscriptions::router
 GET	/api/subscription/admin/plans	lmm_api_rs::migration_routes::billing_subscriptions::router
 POST	/api/subscription/admin/plans	lmm_api_rs::migration_routes::billing_subscriptions::router
+DELETE	/api/subscription/admin/plans/:id	lmm_api_rs::migration_routes::billing_subscriptions::router
 PATCH	/api/subscription/admin/plans/:id	lmm_api_rs::migration_routes::billing_subscriptions::router
 PUT	/api/subscription/admin/plans/:id	lmm_api_rs::migration_routes::billing_subscriptions::router
 POST	/api/subscription/admin/plans/:id/subscriptions/reset	lmm_api_rs::migration_routes::billing_subscriptions::router

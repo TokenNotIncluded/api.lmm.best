@@ -1,15 +1,21 @@
-use std::collections::BTreeMap;
+use std::{
+    collections::BTreeMap,
+    sync::{Arc, Mutex},
+};
 
 use axum::{
+    Router,
     body::Body,
-    http::{Request, StatusCode, header},
+    http::{Request, Response, StatusCode, header},
 };
 use serde_json::{Value, json};
 use tower::ServiceExt;
 
-use super::domain::*;
+use super::{KEY_MUTATION_BODY_LIMIT_BYTES, domain::*};
+use crate::auth::CriticalRateLimitOutcome;
 use crate::migration_routes::assistant::tests::support::{
-    FixtureStore, fixture_router, response_json,
+    FixtureStore, FixtureUserRateLimiter, fixture_router, fixture_router_with_user_rate_limiter,
+    response_json,
 };
 use crate::migration_routes::missing_identity_catalog::UserGroupSelection;
 
@@ -57,6 +63,189 @@ async fn route_json(store: FixtureStore, path: &str, body: Value) -> (StatusCode
         .expect("response");
     let status = response.status();
     (status, response_json(response).await)
+}
+
+async fn raw_route(
+    router: Router,
+    path: &str,
+    authorization: Option<&str>,
+    body: String,
+) -> Response<Body> {
+    let mut request = Request::post(path).header(header::CONTENT_TYPE, "application/json");
+    if let Some(authorization) = authorization {
+        request = request.header(header::AUTHORIZATION, authorization);
+    }
+    router
+        .oneshot(request.body(Body::from(body)).expect("request"))
+        .await
+        .expect("response")
+}
+
+fn json_padded_to_limit(value: Value) -> String {
+    let mut body = value.to_string();
+    assert!(body.len() <= KEY_MUTATION_BODY_LIMIT_BYTES);
+    body.extend(std::iter::repeat_n(
+        ' ',
+        KEY_MUTATION_BODY_LIMIT_BYTES - body.len(),
+    ));
+    body
+}
+
+fn assert_key_mutation_headers(response: &Response<Body>) {
+    assert!(response.headers().contains_key("auth-version"));
+    assert!(
+        response
+            .headers()
+            .get(header::CACHE_CONTROL)
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|value| value.contains("no-store"))
+    );
+}
+
+#[tokio::test]
+async fn anonymous_and_personal_token_requests_authenticate_before_body_validation() {
+    for path in [
+        "/api/assistant/tools/prepare-key",
+        "/api/assistant/tools/create-key",
+    ] {
+        let oversized = "x".repeat(KEY_MUTATION_BODY_LIMIT_BYTES + 1);
+        let anonymous = raw_route(
+            fixture_router(FixtureStore::default()),
+            path,
+            None,
+            oversized.clone(),
+        )
+        .await;
+        assert_eq!(anonymous.status(), StatusCode::UNAUTHORIZED, "{path}");
+
+        let personal_token = raw_route(
+            fixture_router(FixtureStore::default()),
+            path,
+            Some("Bearer user-token"),
+            oversized,
+        )
+        .await;
+        assert_eq!(personal_token.status(), StatusCode::FORBIDDEN, "{path}");
+        assert_key_mutation_headers(&personal_token);
+        let body = response_json(personal_token).await;
+        assert_eq!(body["code"], "ASSISTANT_SESSION_REQUIRED", "{path}");
+    }
+}
+
+#[tokio::test]
+async fn l0_console_gate_runs_after_json_validation_and_before_rate_limit() {
+    for (path, valid_body) in [
+        (
+            "/api/assistant/tools/prepare-key",
+            json!({"name":"key","group":"default"}).to_string(),
+        ),
+        (
+            "/api/assistant/tools/create-key",
+            json!({"confirmation_token":"opaque-flow-token"}).to_string(),
+        ),
+    ] {
+        for (body, expected_status) in [
+            ("not-json".to_owned(), StatusCode::BAD_REQUEST),
+            (valid_body.clone(), StatusCode::NOT_FOUND),
+        ] {
+            let calls = Arc::new(Mutex::new(Vec::new()));
+            let limiter = Arc::new(FixtureUserRateLimiter {
+                outcome: Ok(CriticalRateLimitOutcome::Allowed),
+                calls: Arc::clone(&calls),
+            });
+            let response = raw_route(
+                fixture_router_with_user_rate_limiter(FixtureStore::default(), limiter),
+                path,
+                Some("Bearer browser-session"),
+                body,
+            )
+            .await;
+            assert_eq!(response.status(), expected_status, "{path}");
+            assert_key_mutation_headers(&response);
+            assert!(calls.lock().expect("rate limit calls").is_empty(), "{path}");
+        }
+    }
+}
+
+#[tokio::test]
+async fn invalid_and_oversized_bodies_do_not_consume_key_mutation_rate_limit() {
+    for path in [
+        "/api/assistant/tools/prepare-key",
+        "/api/assistant/tools/create-key",
+    ] {
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let limiter = Arc::new(FixtureUserRateLimiter {
+            outcome: Ok(CriticalRateLimitOutcome::Allowed),
+            calls: Arc::clone(&calls),
+        });
+        let router = fixture_router_with_user_rate_limiter(FixtureStore::default(), limiter);
+
+        let invalid = raw_route(
+            router.clone(),
+            path,
+            Some("Bearer admin-session"),
+            "not-json".to_owned(),
+        )
+        .await;
+        assert_eq!(invalid.status(), StatusCode::BAD_REQUEST, "{path}");
+        assert_key_mutation_headers(&invalid);
+
+        let oversized = raw_route(
+            router,
+            path,
+            Some("Bearer admin-session"),
+            "x".repeat(KEY_MUTATION_BODY_LIMIT_BYTES + 1),
+        )
+        .await;
+        assert_eq!(oversized.status(), StatusCode::PAYLOAD_TOO_LARGE, "{path}");
+        assert_key_mutation_headers(&oversized);
+        assert!(calls.lock().expect("rate limit calls").is_empty(), "{path}");
+    }
+}
+
+#[tokio::test]
+async fn exact_16_kib_body_reaches_rate_limit_but_one_extra_byte_does_not() {
+    for (path, scope, value) in [
+        (
+            "/api/assistant/tools/prepare-key",
+            "assistant-prepare-key",
+            json!({"name":"key","group":"default"}),
+        ),
+        (
+            "/api/assistant/tools/create-key",
+            "assistant-create-key",
+            json!({"confirmation_token":"opaque-flow-token"}),
+        ),
+    ] {
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let limiter = Arc::new(FixtureUserRateLimiter {
+            outcome: Ok(CriticalRateLimitOutcome::Rejected {
+                retry_after_seconds: 17,
+            }),
+            calls: Arc::clone(&calls),
+        });
+        let router = fixture_router_with_user_rate_limiter(FixtureStore::default(), limiter);
+        let at_limit = json_padded_to_limit(value);
+
+        let oversized = raw_route(
+            router.clone(),
+            path,
+            Some("Bearer admin-session"),
+            format!("{at_limit} "),
+        )
+        .await;
+        assert_eq!(oversized.status(), StatusCode::PAYLOAD_TOO_LARGE, "{path}");
+        assert!(calls.lock().expect("rate limit calls").is_empty(), "{path}");
+
+        let accepted = raw_route(router, path, Some("Bearer admin-session"), at_limit).await;
+        assert_eq!(accepted.status(), StatusCode::TOO_MANY_REQUESTS, "{path}");
+        assert_key_mutation_headers(&accepted);
+        assert_eq!(
+            calls.lock().expect("rate limit calls").as_slice(),
+            &[(scope.to_owned(), 10)],
+            "{path}"
+        );
+    }
 }
 
 #[test]
