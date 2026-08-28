@@ -270,7 +270,12 @@ type ExprNode =
   | { kind: 'identifier'; name: string }
   | { kind: 'unary'; op: '+' | '-' | '!'; value: ExprNode }
   | { kind: 'binary'; op: string; left: ExprNode; right: ExprNode }
-  | { kind: 'conditional'; test: ExprNode; consequent: ExprNode; alternate: ExprNode }
+  | {
+      kind: 'conditional'
+      test: ExprNode
+      consequent: ExprNode
+      alternate: ExprNode
+    }
   | { kind: 'call'; name: string; args: ExprNode[] }
 
 type ExprToken = {
@@ -286,9 +291,7 @@ function isDigit(char: string | undefined): boolean {
 function isIdentifierStart(char: string | undefined): boolean {
   if (!char) return false
   return (
-    (char >= 'a' && char <= 'z') ||
-    (char >= 'A' && char <= 'Z') ||
-    char === '_'
+    (char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z') || char === '_'
   )
 }
 
@@ -308,7 +311,8 @@ function decodeStringLiteral(text: string): string {
   for (let index = 1; index < text.length - 1; index += 1) {
     const char = text[index]
     if (char !== '\\') {
-      if (char.charCodeAt(0) < 32) throw new Error('control character in string literal')
+      if (char.charCodeAt(0) < 32)
+        {throw new Error('control character in string literal')}
       decoded += char
       continue
     }
@@ -386,7 +390,8 @@ function tokenizeExpr(source: string): ExprToken[] {
       }
       const text = source.slice(start, index)
       const value = Number(text)
-      if (!Number.isFinite(value)) throw new Error('numeric literal is not finite')
+      if (!Number.isFinite(value))
+        {throw new Error('numeric literal is not finite')}
       push({ kind: 'number', text, value })
       continue
     }
@@ -466,7 +471,8 @@ class RestrictedExprParser {
   }
 
   private parseConditional(depth: number): ExprNode {
-    if (depth > MAX_EXPR_DEPTH) throw new Error('expression nesting is too deep')
+    if (depth > MAX_EXPR_DEPTH)
+      {throw new Error('expression nesting is too deep')}
     const test = this.parseOr(depth)
     if (this.peek().text !== '?') return test
     this.take('?')
@@ -485,7 +491,10 @@ class RestrictedExprParser {
   }
 
   private parseEquality(depth: number): ExprNode {
-    return this.parseBinary(depth, () => this.parseComparison(depth), ['==', '!='])
+    return this.parseBinary(depth, () => this.parseComparison(depth), [
+      '==',
+      '!=',
+    ])
   }
 
   private parseComparison(depth: number): ExprNode {
@@ -498,11 +507,18 @@ class RestrictedExprParser {
   }
 
   private parseAdditive(depth: number): ExprNode {
-    return this.parseBinary(depth, () => this.parseMultiplicative(depth), ['+', '-'])
+    return this.parseBinary(depth, () => this.parseMultiplicative(depth), [
+      '+',
+      '-',
+    ])
   }
 
   private parseMultiplicative(depth: number): ExprNode {
-    return this.parseBinary(depth, () => this.parseUnary(depth), ['*', '/', '%'])
+    return this.parseBinary(depth, () => this.parseUnary(depth), [
+      '*',
+      '/',
+      '%',
+    ])
   }
 
   private parseBinary(
@@ -510,7 +526,8 @@ class RestrictedExprParser {
     next: () => ExprNode,
     operators: string[]
   ): ExprNode {
-    if (depth > MAX_EXPR_DEPTH) throw new Error('expression nesting is too deep')
+    if (depth > MAX_EXPR_DEPTH)
+      {throw new Error('expression nesting is too deep')}
     let node = next()
     while (operators.includes(this.peek().text)) {
       const op = this.take().text
@@ -529,7 +546,11 @@ class RestrictedExprParser {
     }
     let node = this.parsePrimary(depth)
     while (operators.length > 0) {
-      node = { kind: 'unary', op: operators.pop() as '+' | '-' | '!', value: node }
+      node = {
+        kind: 'unary',
+        op: operators.pop() as '+' | '-' | '!',
+        value: node,
+      }
     }
     return node
   }
@@ -545,12 +566,14 @@ class RestrictedExprParser {
       if (token.text === 'true' || token.text === 'false') {
         return { kind: 'literal', value: token.text === 'true' }
       }
-      if (this.peek().text !== '(') return { kind: 'identifier', name: token.text }
+      if (this.peek().text !== '(')
+        {return { kind: 'identifier', name: token.text }}
       this.take('(')
       const args: ExprNode[] = []
       if (this.peek().text !== ')') {
         while (true) {
-          if (args.length >= MAX_CALL_ARGUMENTS) throw new Error('too many call arguments')
+          if (args.length >= MAX_CALL_ARGUMENTS)
+            {throw new Error('too many call arguments')}
           args.push(this.parseConditional(depth + 1))
           if (this.peek().text !== ',') break
           this.take(',')
@@ -570,13 +593,15 @@ class RestrictedExprParser {
 }
 
 function parseRestrictedExpr(exprStr: string): ExprNode {
-  if (exprStr.length > MAX_EXPR_LENGTH) throw new Error('expression is too long')
+  if (exprStr.length > MAX_EXPR_LENGTH)
+    {throw new Error('expression is too long')}
   const { body } = stripExprVersion(exprStr.trim())
   return new RestrictedExprParser(tokenizeExpr(body)).parse()
 }
 
 function numericLiteral(node: ExprNode): number | null {
-  if (node.kind === 'literal' && typeof node.value === 'number') return node.value
+  if (node.kind === 'literal' && typeof node.value === 'number')
+    {return node.value}
   if (
     node.kind === 'unary' &&
     (node.op === '+' || node.op === '-') &&
@@ -660,7 +685,10 @@ function priceCoefficients(node: ExprNode): Record<string, number> | null {
   return coefficients
 }
 
-function parsedTier(node: ExprNode, conditions: TierCondition[]): ParsedTier | null {
+function parsedTier(
+  node: ExprNode,
+  conditions: TierCondition[]
+): ParsedTier | null {
   if (
     node.kind !== 'call' ||
     node.name !== 'tier' ||
@@ -682,7 +710,9 @@ function parsedTier(node: ExprNode, conditions: TierCondition[]): ParsedTier | n
 function collectParsedTiers(node: ExprNode, tiers: ParsedTier[]): void {
   if (node.kind === 'conditional') {
     const conditions = tierConditions(node.test)
-    const consequent = conditions ? parsedTier(node.consequent, conditions) : null
+    const consequent = conditions
+      ? parsedTier(node.consequent, conditions)
+      : null
     if (consequent) tiers.push(consequent)
     else collectParsedTiers(node.consequent, tiers)
     collectParsedTiers(node.alternate, tiers)
@@ -785,9 +815,8 @@ export function evaluateBillingExpression(
             return requireNumber(left) / requireNumber(right)
           case '%':
             return requireNumber(left) % requireNumber(right)
-          default:
-            throw new Error(`operator is not allowed: ${node.op}`)
         }
+        throw new Error(`operator is not allowed: ${node.op}`)
       }
       case 'call': {
         const args = node.args.map(evaluate)
@@ -807,13 +836,16 @@ export function evaluateBillingExpression(
             if (numbers.length === 0) throw new Error('min expects an argument')
             return Math.min(...numbers)
           case 'abs':
-            if (numbers.length !== 1) throw new Error('abs expects one argument')
+            if (numbers.length !== 1)
+              {throw new Error('abs expects one argument')}
             return Math.abs(numbers[0])
           case 'ceil':
-            if (numbers.length !== 1) throw new Error('ceil expects one argument')
+            if (numbers.length !== 1)
+              {throw new Error('ceil expects one argument')}
             return Math.ceil(numbers[0])
           case 'floor':
-            if (numbers.length !== 1) throw new Error('floor expects one argument')
+            if (numbers.length !== 1)
+              {throw new Error('floor expects one argument')}
             return Math.floor(numbers[0])
           default:
             throw new Error(`function is not allowed: ${node.name}`)

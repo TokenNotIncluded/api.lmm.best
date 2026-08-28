@@ -118,7 +118,7 @@ export function getTrustedUrlFromSource(
 }
 
 function escapeRegularExpression(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  return value.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
 function matchesTemplatedPath(pathname: string, templatePathname: string) {
