@@ -1679,6 +1679,8 @@ mod tests {
     use secrecy::ExposeSecret;
     use tower::ServiceExt;
 
+    type TestResult = Result<(), Box<dyn std::error::Error>>;
+
     struct Auth(Option<MissingControlPrincipal>);
     #[async_trait]
     impl MissingControlAuthorizer for Auth {
@@ -1812,7 +1814,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn all_dashboard_routes_use_the_shared_raw_or_bearer_parser() {
+    async fn all_dashboard_routes_use_the_shared_raw_or_bearer_parser() -> TestResult {
         let mut store = MemoryMissingControlStore {
             group_names: vec!["default".into()],
             models: json!({"1": ["gpt"]}),
@@ -1852,17 +1854,16 @@ mod tests {
                 .oneshot(
                     Request::get(uri)
                         .header("authorization", authorization)
-                        .body(Body::empty())
-                        .unwrap(),
+                        .body(Body::empty())?,
                 )
-                .await
-                .unwrap();
+                .await?;
             assert_eq!(
                 response.status(),
                 StatusCode::OK,
                 "{uri} with {authorization}"
             );
         }
+        Ok(())
     }
 
     #[test]
@@ -1886,17 +1887,15 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn group_is_admin_only_and_preserves_legacy_envelope() {
+    async fn group_is_admin_only_and_preserves_legacy_envelope() -> TestResult {
         let unauthorized = app(None)
-            .oneshot(Request::get("/api/group/").body(Body::empty()).unwrap())
-            .await
-            .unwrap();
+            .oneshot(Request::get("/api/group/").body(Body::empty())?)
+            .await?;
         assert_eq!(unauthorized.status(), StatusCode::UNAUTHORIZED);
-        let unauthorized_body = axum::body::to_bytes(unauthorized.into_body(), usize::MAX)
-            .await
-            .unwrap();
+        let unauthorized_body =
+            axum::body::to_bytes(unauthorized.into_body(), usize::MAX).await?;
         assert_eq!(
-            serde_json::from_slice::<Value>(&unauthorized_body).unwrap(),
+            serde_json::from_slice::<Value>(&unauthorized_body)?,
             json!({
                 "success": false,
                 "code": "AUTH_UNAUTHORIZED",
@@ -1907,43 +1906,35 @@ mod tests {
             .oneshot(
                 Request::get("/api/group/")
                     .header("authorization", "Bearer x")
-                    .body(Body::empty())
-                    .unwrap(),
+                    .body(Body::empty())?,
             )
-            .await
-            .unwrap();
+            .await?;
         assert_eq!(denied.status(), StatusCode::FORBIDDEN);
         let ok = app(Some(10))
             .oneshot(
                 Request::get("/api/group/")
                     .header("authorization", "Bearer x")
-                    .body(Body::empty())
-                    .unwrap(),
+                    .body(Body::empty())?,
             )
-            .await
-            .unwrap();
+            .await?;
         assert_eq!(ok.status(), StatusCode::OK);
-        let body = axum::body::to_bytes(ok.into_body(), usize::MAX)
-            .await
-            .unwrap();
+        let body = axum::body::to_bytes(ok.into_body(), usize::MAX).await?;
         assert_eq!(
-            serde_json::from_slice::<Value>(&body).unwrap(),
+            serde_json::from_slice::<Value>(&body)?,
             json!({"success": true, "message": "", "data": ["default"]})
         );
+        Ok(())
     }
 
     #[tokio::test]
-    async fn models_requires_a_server_verified_user() {
+    async fn models_requires_a_server_verified_user() -> TestResult {
         let response = app(None)
-            .oneshot(Request::get("/api/models").body(Body::empty()).unwrap())
-            .await
-            .unwrap();
+            .oneshot(Request::get("/api/models").body(Body::empty())?)
+            .await?;
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-            .await
-            .unwrap();
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await?;
         assert_eq!(
-            serde_json::from_slice::<Value>(&body).unwrap(),
+            serde_json::from_slice::<Value>(&body)?,
             json!({
                 "success": false,
                 "code": "AUTH_UNAUTHORIZED",
@@ -1954,77 +1945,55 @@ mod tests {
             .oneshot(
                 Request::get("/api/models")
                     .header("authorization", "Bearer x")
-                    .body(Body::empty())
-                    .unwrap(),
+                    .body(Body::empty())?,
             )
-            .await
-            .unwrap();
+            .await?;
         assert_eq!(response.status(), StatusCode::OK);
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-            .await
-            .unwrap();
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await?;
         assert_eq!(
-            serde_json::from_slice::<Value>(&body).unwrap(),
+            serde_json::from_slice::<Value>(&body)?,
             json!({"success": true, "data": {"1": ["gpt"]}})
         );
+        Ok(())
     }
 
     #[tokio::test]
-    async fn public_routes_keep_methods_paths_and_bearer_failures() {
+    async fn public_routes_keep_methods_paths_and_bearer_failures() -> TestResult {
         let pricing = app(None)
-            .oneshot(Request::get("/api/pricing").body(Body::empty()).unwrap())
-            .await
-            .unwrap();
+            .oneshot(Request::get("/api/pricing").body(Body::empty())?)
+            .await?;
         assert_eq!(pricing.status(), StatusCode::OK);
         let ranking = app(None)
             .oneshot(
-                Request::get("/api/rankings?period=week")
-                    .body(Body::empty())
-                    .unwrap(),
+                Request::get("/api/rankings?period=week").body(Body::empty())?,
             )
-            .await
-            .unwrap();
+            .await?;
         assert_eq!(ranking.status(), StatusCode::OK);
         let ratio = app(None)
-            .oneshot(
-                Request::get("/api/ratio_config")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
+            .oneshot(Request::get("/api/ratio_config").body(Body::empty())?)
+            .await?;
         assert_eq!(ratio.status(), StatusCode::OK);
         let no_bearer = app(None)
-            .oneshot(
-                Request::get("/api/usage/token/")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
+            .oneshot(Request::get("/api/usage/token/").body(Body::empty())?)
+            .await?;
         assert_eq!(no_bearer.status(), StatusCode::UNAUTHORIZED);
-        let no_bearer_body = axum::body::to_bytes(no_bearer.into_body(), usize::MAX)
-            .await
-            .unwrap();
+        let no_bearer_body =
+            axum::body::to_bytes(no_bearer.into_body(), usize::MAX).await?;
         assert_eq!(
-            serde_json::from_slice::<Value>(&no_bearer_body).unwrap(),
+            serde_json::from_slice::<Value>(&no_bearer_body)?,
             json!({"success": false, "message": "Token not provided"})
         );
         let usage = app(None)
             .oneshot(
                 Request::get("/api/usage/token/")
                     .header("authorization", "Bearer sk-abc")
-                    .body(Body::empty())
-                    .unwrap(),
+                    .body(Body::empty())?,
             )
-            .await
-            .unwrap();
+            .await?;
         assert_eq!(usage.status(), StatusCode::OK);
-        let body = axum::body::to_bytes(usage.into_body(), usize::MAX)
-            .await
-            .unwrap();
+        let body = axum::body::to_bytes(usage.into_body(), usize::MAX).await?;
         assert_eq!(
-            serde_json::from_slice::<Value>(&body).unwrap(),
+            serde_json::from_slice::<Value>(&body)?,
             json!({
                 "code": true,
                 "message": "ok",
@@ -2041,27 +2010,26 @@ mod tests {
                 },
             })
         );
+        Ok(())
     }
 
     #[tokio::test]
-    async fn normal_ratio_config_read_fails_closed_when_options_are_unavailable() {
+    async fn normal_ratio_config_read_fails_closed_when_options_are_unavailable() -> TestResult {
         let pool = sqlx::postgres::PgPoolOptions::new()
             .acquire_timeout(std::time::Duration::from_millis(1))
-            .connect_lazy("postgres://unused:unused@localhost/unused")
-            .expect("valid lazy PostgreSQL URL");
+            .connect_lazy("postgres://unused:unused@localhost/unused")?;
         let response = ratio_config_direct(axum::extract::State(RatioConfigState {
             pg: pool,
             limiter: std::sync::Arc::new(AllowMissingControlRateLimiter),
         }))
         .await;
         assert_eq!(response.status(), StatusCode::FORBIDDEN);
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-            .await
-            .unwrap();
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await?;
         assert_eq!(
-            serde_json::from_slice::<Value>(&body).unwrap(),
+            serde_json::from_slice::<Value>(&body)?,
             json!({"success": false, "message": "倍率配置接口未启用"})
         );
+        Ok(())
     }
 
     #[test]
@@ -2080,39 +2048,30 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn rankings_keeps_the_go_envelope_for_empty_data_and_invalid_periods() {
+    async fn rankings_keeps_the_go_envelope_for_empty_data_and_invalid_periods() -> TestResult {
         let success = app(None)
             .oneshot(
-                Request::get("/api/rankings?period=week")
-                    .body(Body::empty())
-                    .unwrap(),
+                Request::get("/api/rankings?period=week").body(Body::empty())?,
             )
-            .await
-            .unwrap();
+            .await?;
         assert_eq!(success.status(), StatusCode::OK);
-        let success_body = axum::body::to_bytes(success.into_body(), usize::MAX)
-            .await
-            .unwrap();
+        let success_body = axum::body::to_bytes(success.into_body(), usize::MAX).await?;
         assert_eq!(
-            serde_json::from_slice::<Value>(&success_body).unwrap(),
+            serde_json::from_slice::<Value>(&success_body)?,
             json!({"success": true, "data": {"models": []}})
         );
 
         let invalid = app(None)
             .oneshot(
-                Request::get("/api/rankings?period=quarter")
-                    .body(Body::empty())
-                    .unwrap(),
+                Request::get("/api/rankings?period=quarter").body(Body::empty())?,
             )
-            .await
-            .unwrap();
+            .await?;
         assert_eq!(invalid.status(), StatusCode::BAD_REQUEST);
-        let invalid_body = axum::body::to_bytes(invalid.into_body(), usize::MAX)
-            .await
-            .unwrap();
+        let invalid_body = axum::body::to_bytes(invalid.into_body(), usize::MAX).await?;
         assert_eq!(
-            serde_json::from_slice::<Value>(&invalid_body).unwrap(),
+            serde_json::from_slice::<Value>(&invalid_body)?,
             json!({"success": false, "message": "invalid ranking period: quarter"})
         );
+        Ok(())
     }
 }
