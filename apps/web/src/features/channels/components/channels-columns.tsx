@@ -859,8 +859,7 @@ export function useChannelsColumns(
                             )
                             if (targetUrl) {
                               // Invariant: targetUrl is same-origin with the exact deployments path.
-                              // pi-lens-ignore: no-open-redirect
-                              // pi-lens-ignore: ts-open-redirect
+                              // pi-lens-ignore: ts-open-redirect, no-open-redirect
                               window.open(
                                 targetUrl,
                                 '_blank',
