@@ -841,59 +841,52 @@ mod tests {
         ))
     }
 
-    async fn body(response: Response) -> Value {
-        serde_json::from_slice(
-            &to_bytes(response.into_body(), usize::MAX)
-                .await
-                .expect("response body"),
-        )
-        .expect("JSON")
+    type TestResult<T = ()> = Result<T, Box<dyn std::error::Error>>;
+
+    async fn body(response: Response) -> TestResult<Value> {
+        let bytes = to_bytes(response.into_body(), usize::MAX).await?;
+        Ok(serde_json::from_slice(&bytes)?)
     }
 
     #[tokio::test]
-    async fn self_task_lists_are_user_scoped_and_keep_legacy_page_aliases() {
+    async fn self_task_lists_are_user_scoped_and_keep_legacy_page_aliases() -> TestResult {
         let store = Arc::new(CountingStore(AtomicUsize::new(0)));
         let app = router_for(member(), store.clone(), Ok(json!({"requests": 3})));
         let response = app
             .oneshot(
                 Request::get("/api/task/self?p=2&ps=101")
-                    .body(Body::empty())
-                    .unwrap(),
+                    .body(Body::empty())?,
             )
-            .await
-            .unwrap();
+            .await?;
         assert_eq!(response.status(), StatusCode::OK);
-        let payload = body(response).await;
+        let payload = body(response).await?;
         assert_eq!(payload["success"], true);
         assert_eq!(payload["data"]["page"], 2);
         assert_eq!(payload["data"]["page_size"], 100);
         assert_eq!(store.0.load(Ordering::Relaxed), 1);
+        Ok(())
     }
 
     #[tokio::test]
-    async fn member_cannot_read_administrator_midjourney_list_or_status() {
+    async fn member_cannot_read_administrator_midjourney_list_or_status() -> TestResult {
         let store = Arc::new(CountingStore(AtomicUsize::new(0)));
         let app = router_for(member(), store.clone(), Ok(json!({})));
         let mj = app
             .clone()
-            .oneshot(Request::get("/api/mj/").body(Body::empty()).unwrap())
-            .await
-            .unwrap();
+            .oneshot(Request::get("/api/mj/").body(Body::empty())?)
+            .await?;
         assert_eq!(mj.status(), StatusCode::FORBIDDEN);
         let status = app
-            .oneshot(
-                Request::get("/api/status/test")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
+            .oneshot(Request::get("/api/status/test").body(Body::empty())?)
+            .await?;
         assert_eq!(status.status(), StatusCode::FORBIDDEN);
         assert_eq!(store.0.load(Ordering::Relaxed), 0);
+        Ok(())
     }
 
     #[tokio::test]
-    async fn unauthenticated_control_routes_preserve_go_auth_envelope_before_dependencies() {
+    async fn unauthenticated_control_routes_preserve_go_auth_envelope_before_dependencies(
+    ) -> TestResult {
         let store = Arc::new(CountingStore(AtomicUsize::new(0)));
         let status = Arc::new(CountingStatus(AtomicUsize::new(0)));
         let app = missing_control_tasks_router(MissingControlTasksState::new(
@@ -910,9 +903,8 @@ mod tests {
         ] {
             let response = app
                 .clone()
-                .oneshot(Request::get(path).body(Body::empty()).unwrap())
-                .await
-                .unwrap();
+                .oneshot(Request::get(path).body(Body::empty())?)
+                .await?;
             assert_eq!(response.status(), StatusCode::UNAUTHORIZED, "{path}");
             assert_eq!(
                 response
@@ -923,7 +915,7 @@ mod tests {
                 "{path}"
             );
             assert_eq!(
-                body(response).await,
+                body(response).await?,
                 json!({
                     "success": false,
                     "code": "AUTH_UNAUTHORIZED",
@@ -934,10 +926,11 @@ mod tests {
         }
         assert_eq!(store.0.load(Ordering::Relaxed), 0);
         assert_eq!(status.0.load(Ordering::Relaxed), 0);
+        Ok(())
     }
 
     #[tokio::test]
-    async fn console_gate_hides_task_discovery_from_anonymous_and_l0() {
+    async fn console_gate_hides_task_discovery_from_anonymous_and_l0() -> TestResult {
         let store = Arc::new(CountingStore(AtomicUsize::new(0)));
         let status = Arc::new(CountingStatus(AtomicUsize::new(0)));
         let l0_auth: Arc<dyn DashboardAuth> = Arc::new(GateAuth {
@@ -953,19 +946,17 @@ mod tests {
         );
 
         for request in [
-            Request::get("/api/mj/").body(Body::empty()).unwrap(),
+            Request::get("/api/mj/").body(Body::empty())?,
             Request::get("/api/task/self")
                 .header("authorization", "Bearer dashboard")
-                .body(Body::empty())
-                .unwrap(),
+                .body(Body::empty())?,
             Request::get("/api/status/test")
                 .header("authorization", "Bearer dashboard")
-                .body(Body::empty())
-                .unwrap(),
+                .body(Body::empty())?,
         ] {
-            let response = app.clone().oneshot(request).await.unwrap();
+            let response = app.clone().oneshot(request).await?;
             assert_eq!(response.status(), StatusCode::NOT_FOUND);
-            assert_eq!(body(response).await["message"], "Not Found");
+            assert_eq!(body(response).await?["message"], "Not Found");
         }
         assert_eq!(store.0.load(Ordering::Relaxed), 0);
         assert_eq!(status.0.load(Ordering::Relaxed), 0);
@@ -989,17 +980,16 @@ mod tests {
             .oneshot(
                 Request::get("/api/status/test")
                     .header("authorization", "Bearer dashboard")
-                    .body(Body::empty())
-                    .unwrap(),
+                    .body(Body::empty())?,
             )
-            .await
-            .unwrap();
+            .await?;
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(status.0.load(Ordering::Relaxed), 1);
+        Ok(())
     }
 
     #[tokio::test]
-    async fn administrator_status_preserves_go_database_failure_payload() {
+    async fn administrator_status_preserves_go_database_failure_payload() -> TestResult {
         let store = Arc::new(CountingStore(AtomicUsize::new(0)));
         let admin = ObservabilityPrincipal::User {
             user_id: 1,
@@ -1012,23 +1002,19 @@ mod tests {
             Err(ControlTaskStatusError::DatabaseUnavailable),
         );
         let response = app
-            .oneshot(
-                Request::get("/api/status/test")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
+            .oneshot(Request::get("/api/status/test").body(Body::empty())?)
+            .await?;
         assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
-        let payload = body(response).await;
+        let payload = body(response).await?;
         assert_eq!(
             payload,
             json!({"success": false, "message": "数据库连接失败"})
         );
+        Ok(())
     }
 
     #[tokio::test]
-    async fn administrator_status_keeps_http_stats_at_the_legacy_single_level() {
+    async fn administrator_status_keeps_http_stats_at_the_legacy_single_level() -> TestResult {
         let store = Arc::new(CountingStore(AtomicUsize::new(0)));
         let admin = ObservabilityPrincipal::User {
             user_id: 1,
@@ -1041,26 +1027,22 @@ mod tests {
             Ok(json!({"request_count": 3, "error_count": 1})),
         );
         let response = app
-            .oneshot(
-                Request::get("/api/status/test")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
+            .oneshot(Request::get("/api/status/test").body(Body::empty())?)
+            .await?;
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(
-            body(response).await,
+            body(response).await?,
             json!({
                 "success": true,
                 "message": "Server is running",
                 "http_stats": {"request_count": 3, "error_count": 1},
             })
         );
+        Ok(())
     }
 
     #[tokio::test]
-    async fn administrator_status_fails_closed_when_stats_are_unobservable() {
+    async fn administrator_status_fails_closed_when_stats_are_unobservable() -> TestResult {
         let store = Arc::new(CountingStore(AtomicUsize::new(0)));
         let admin = ObservabilityPrincipal::User {
             user_id: 1,
@@ -1073,17 +1055,13 @@ mod tests {
             Err(ControlTaskStatusError::HttpStatsUnavailable),
         );
         let response = app
-            .oneshot(
-                Request::get("/api/status/test")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
+            .oneshot(Request::get("/api/status/test").body(Body::empty())?)
+            .await?;
         assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
         assert_eq!(
-            body(response).await,
+            body(response).await?,
             json!({"success": false, "message": "HTTP统计信息不可用"})
         );
+        Ok(())
     }
 }
