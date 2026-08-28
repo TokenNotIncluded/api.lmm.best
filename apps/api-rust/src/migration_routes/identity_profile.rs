@@ -1234,6 +1234,15 @@ mod tests {
 
     type TestResult = Result<(), Box<dyn std::error::Error>>;
 
+    fn notification_setting_json(
+        current: &str,
+        request: &UserSettingRequest,
+    ) -> Result<Value, Box<dyn std::error::Error>> {
+        let json = build_notification_setting(current, request, 1)
+            .map_err(|error| std::io::Error::other(format!("{error:?}")))?;
+        Ok(serde_json::from_str(&json)?)
+    }
+
     #[test]
     fn self_setting_keeps_sidebar_precedence_when_both_legacy_keys_arrive() {
         let request = Map::from_iter([
@@ -1286,13 +1295,10 @@ mod tests {
             accept_unset_model_ratio_model: false,
             record_ip_log: false,
         };
-        let json = build_notification_setting(
+        let value = notification_setting_json(
             r#"{"language":"zh","gotify_priority":7,"upstream_model_update_notify_enabled":true}"#,
             &request,
-            1,
-        )
-        .map_err(|error| std::io::Error::other(format!("{error:?}")))?;
-        let value: Value = serde_json::from_str(&json)?;
+        )?;
         assert_eq!(
             value,
             serde_json::json!({
@@ -1323,13 +1329,10 @@ mod tests {
             accept_unset_model_ratio_model: false,
             record_ip_log: false,
         };
-        let json = build_notification_setting(
+        let value = notification_setting_json(
             r#"{"language":"zh","billing_preference":"wallet","gotify_priority":7}"#,
             &request,
-            1,
-        )
-        .map_err(|error| std::io::Error::other(format!("{error:?}")))?;
-        let value: Value = serde_json::from_str(&json)?;
+        )?;
         assert_eq!(value["notify_type"], "email");
         assert_eq!(value["notification_email"], "ada@example.test");
         assert_eq!(value["gotify_priority"], 0);
