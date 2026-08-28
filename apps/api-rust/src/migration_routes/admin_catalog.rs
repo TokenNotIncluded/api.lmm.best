@@ -64,7 +64,7 @@ impl AdminCatalogAuthorizer for DashboardAdminCatalogAuthorizer {
         // ConsoleAccessGate.  Anonymous, malformed, expired, revoked, and
         // pre-activation credentials are therefore concealed as a generic
         // route miss before AdminAuth can emit a 401/403 envelope.
-        let token = dashboard_credential(headers).ok_or(CatalogError::ConsoleNotFound)?;
+        let token = dashboard_credential(headers)?;
         let user = self
             .auth
             .self_user_view_for_optional(SecretString::from(token.to_owned()))
@@ -88,21 +88,22 @@ impl AdminCatalogAuthorizer for DashboardAdminCatalogAuthorizer {
     }
 }
 
-fn dashboard_credential(headers: &HeaderMap) -> Option<&str> {
+fn dashboard_credential(headers: &HeaderMap) -> Result<&str, CatalogError> {
     let value = headers
-        .get(axum::http::header::AUTHORIZATION)?
+        .get(axum::http::header::AUTHORIZATION)
+        .ok_or(CatalogError::ConsoleNotFound)?
         .to_str()
-        .ok()?;
+        .map_err(|_| CatalogError::ConsoleNotFound)?;
     let mut parts = value.split_whitespace();
-    let first = parts.next()?;
+    let first = parts.next().ok_or(CatalogError::ConsoleNotFound)?;
     let second = parts.next();
     if parts.next().is_some() {
-        return None;
+        return Err(CatalogError::ConsoleNotFound);
     }
     match second {
-        Some(token) if first.eq_ignore_ascii_case("bearer") && !token.is_empty() => Some(token),
-        None if !first.is_empty() => Some(first),
-        _ => None,
+        Some(token) if first.eq_ignore_ascii_case("bearer") && !token.is_empty() => Ok(token),
+        None if !first.is_empty() => Ok(first),
+        _ => Err(CatalogError::ConsoleNotFound),
     }
 }
 
@@ -2336,15 +2337,24 @@ mod tests {
     };
     use serde_json::{Value, json};
 
+    type TestResult<T = ()> = Result<T, Box<dyn std::error::Error>>;
+
+    fn test_error(message: impl Into<String>) -> Box<dyn std::error::Error> {
+        Box::new(std::io::Error::other(message.into()))
+    }
+
     #[test]
-    fn upstream_urls_map_chinese_aliases_to_published_feed() {
-        let upstream = HttpCatalogUpstream::new(
-            reqwest::Client::new(),
-            reqwest::Url::parse("https://catalog.example/root/").expect("valid base URL"),
-        );
+    fn upstream_urls_map_chinese_aliases_to_published_feed() -> TestResult {
+        let base_url = reqwest::Url::parse("https://catalog.example/root/")
+            .map_err(|error| test_error(format!("parse catalog fixture base URI: {error}")))?;
+        let upstream = HttpCatalogUpstream::new(reqwest::Client::new(), base_url);
 
         for locale in ["zh", "zh-CN", "zh-TW"] {
-            let (models, vendors) = upstream.urls(locale).expect("supported locale");
+            let (models, vendors) = upstream.urls(locale).map_err(|error| {
+                test_error(format!(
+                    "build catalog fixture URIs for locale {locale}: {error:?}"
+                ))
+            })?;
             assert_eq!(
                 models.as_str(),
                 "https://catalog.example/root/api/i18n/zh/newapi/models.json"
@@ -2354,6 +2364,7 @@ mod tests {
                 "https://catalog.example/root/api/i18n/zh/newapi/vendors.json"
             );
         }
+        Ok(())
     }
 
     #[test]
@@ -2380,7 +2391,7 @@ mod tests {
     }
 
     #[test]
-    fn catalog_wire_omits_go_omitempty_fields_and_keeps_redemption_count() {
+    fn catalog_wire_omits_go_omitempty_fields_and_keeps_redemption_count() -> TestResult {
         let model = serde_json::to_value(CatalogModel {
             id: 1,
             model_name: "fixture".to_owned(),
@@ -2400,7 +2411,7 @@ mod tests {
             matched_models: Vec::new(),
             matched_count: 0,
         })
-        .expect("model JSON");
+        .map_err(|error| test_error(format!("serialize catalog model fixture JSON: {error}")))?;
         assert_eq!(
             model,
             json!({
@@ -2423,7 +2434,7 @@ mod tests {
             created_time: 10,
             updated_time: 11,
         })
-        .expect("vendor JSON");
+        .map_err(|error| test_error(format!("serialize catalog vendor fixture JSON: {error}")))?;
         assert_eq!(
             vendor,
             json!({
@@ -2449,8 +2460,19 @@ mod tests {
             expired_time: 0,
             deleted_at: Value::Null,
         })
-        .expect("redemption JSON");
-        assert_eq!(redemption["count"], 0);
-        assert_eq!(redemption["DeletedAt"], Value::Null);
+        .map_err(|error| {
+            test_error(format!(
+                "serialize catalog redemption fixture JSON: {error}"
+            ))
+        })?;
+        let count = redemption
+            .get("count")
+            .ok_or_else(|| test_error("catalog redemption fixture JSON is missing count"))?;
+        let deleted_at = redemption.get("DeletedAt").ok_or_else(|| {
+            test_error("catalog redemption fixture JSON is missing DeletedAt")
+        })?;
+        assert_eq!(count, &json!(0));
+        assert_eq!(deleted_at, &Value::Null);
+        Ok(())
     }
 }
