@@ -72,6 +72,10 @@
         "typos",
         "typos:unknown",
         "knip:file",
+        "knip:export",
+        "knip:devDependency",
+        "knip:dependency",
+        "knip:unlisted",
         "inactive-code"
       ]
     },
