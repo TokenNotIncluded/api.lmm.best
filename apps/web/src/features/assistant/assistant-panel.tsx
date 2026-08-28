@@ -2331,9 +2331,14 @@ export function AssistantPanel(props: {
                     ) && !conversationRestricted
                   }
                   onRetry={() => {
-                    const retryable = [...entries]
-                      .reverse()
-                      .find((entry) => entry.retry !== undefined && entry.error)
+                    let retryable: (typeof entries)[number] | undefined
+                    for (let index = entries.length - 1; index >= 0; index--) {
+                      const entry = entries[index]
+                      if (entry?.retry !== undefined && entry.error) {
+                        retryable = entry
+                        break
+                      }
+                    }
                     if (retryable) void retryMessage(retryable)
                   }}
                   onCopy={() => {

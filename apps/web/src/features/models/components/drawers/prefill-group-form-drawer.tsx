@@ -142,6 +142,9 @@ export function PrefillGroupFormDrawer({
   }
 
   const handleSubmit = async (values: PrefillGroupFormValues) => {
+    const currentGroupId = currentGroup?.id
+    if (isEdit && currentGroupId === undefined) return
+
     setIsSaving(true)
     const payload = {
       name: values.name.trim(),
@@ -158,12 +161,15 @@ export function PrefillGroupFormDrawer({
     }
 
     try {
-      const response = isEdit
-        ? await updatePrefillGroup({
-            id: currentGroup!.id,
-            ...payload,
-          })
-        : await createPrefillGroup(payload)
+      let response
+      if (isEdit && currentGroupId !== undefined) {
+        response = await updatePrefillGroup({
+          id: currentGroupId,
+          ...payload,
+        })
+      } else {
+        response = await createPrefillGroup(payload)
+      }
 
       if (response.success) {
         toast.success(

@@ -244,7 +244,7 @@ export function parseGroupsList(groups: string): string[] {
     .split(',')
     .map((g) => g.trim())
     .filter((g) => g.length > 0)
-  return list.sort((a, b) => {
+  return [...list].sort((a, b) => {
     if (a === 'default') {
       return -1
     }

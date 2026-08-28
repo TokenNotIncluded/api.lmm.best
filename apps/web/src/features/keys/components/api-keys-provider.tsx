@@ -16,7 +16,17 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import React, { useState, useCallback, useRef, useEffect } from 'react'
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  type Dispatch,
+  type ReactNode,
+  type SetStateAction,
+} from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -30,13 +40,13 @@ type ApiKeysContextType = {
   open: ApiKeysDialogType | null
   setOpen: (str: ApiKeysDialogType | null) => void
   currentRow: ApiKey | null
-  setCurrentRow: React.Dispatch<React.SetStateAction<ApiKey | null>>
+  setCurrentRow: Dispatch<SetStateAction<ApiKey | null>>
   refreshTrigger: number
   triggerRefresh: () => void
   resolvedKey: string
-  setResolvedKey: React.Dispatch<React.SetStateAction<string>>
+  setResolvedKey: Dispatch<SetStateAction<string>>
   revealOpenKeyId: number | null
-  setRevealOpenKeyId: React.Dispatch<React.SetStateAction<number | null>>
+  setRevealOpenKeyId: Dispatch<SetStateAction<number | null>>
   resolveRealKey: (id: number) => Promise<string | null>
   resolveRealKeysBatch: (ids: number[]) => Promise<Record<number, string>>
   resolvedKeys: Record<number, string>
@@ -45,9 +55,9 @@ type ApiKeysContextType = {
   markKeyCopied: (id: number) => void
 }
 
-const ApiKeysContext = React.createContext<ApiKeysContextType | null>(null)
+const ApiKeysContext = createContext<ApiKeysContextType | null>(null)
 
-export function ApiKeysProvider({ children }: { children: React.ReactNode }) {
+export function ApiKeysProvider({ children }: { children: ReactNode }) {
   const { t } = useTranslation()
   const [open, setOpen] = useDialogState<ApiKeysDialogType>(null)
   const [currentRow, setCurrentRow] = useState<ApiKey | null>(null)
@@ -120,9 +130,11 @@ export function ApiKeysProvider({ children }: { children: React.ReactNode }) {
         return result
       }
 
-      for (const id of uncachedIds) {
-        setLoadingKeys((prev) => ({ ...prev, [id]: true }))
-      }
+      setLoadingKeys((prev) => {
+        const next = { ...prev }
+        for (const id of uncachedIds) next[id] = true
+        return next
+      })
 
       try {
         const res = await fetchTokenKeysBatch(uncachedIds)
@@ -145,13 +157,11 @@ export function ApiKeysProvider({ children }: { children: React.ReactNode }) {
         toast.error(t(ERROR_MESSAGES.UNEXPECTED))
         return {}
       } finally {
-        for (const id of uncachedIds) {
-          setLoadingKeys((prev) => {
-            const next = { ...prev }
-            delete next[id]
-            return next
-          })
-        }
+        setLoadingKeys((prev) => {
+          const next = { ...prev }
+          for (const id of uncachedIds) delete next[id]
+          return next
+        })
       }
     },
     [resolvedKeys, t]
@@ -185,7 +195,7 @@ export function ApiKeysProvider({ children }: { children: React.ReactNode }) {
 
 // eslint-disable-next-line react-refresh/only-export-components
 export const useApiKeys = () => {
-  const apiKeysContext = React.useContext(ApiKeysContext)
+  const apiKeysContext = useContext(ApiKeysContext)
 
   if (!apiKeysContext) {
     throw new Error('useApiKeys has to be used within <ApiKeysContext>')

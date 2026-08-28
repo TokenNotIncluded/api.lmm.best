@@ -232,8 +232,10 @@ export function processChartData(
     return (array: TooltipLineItem[]) => {
       const modelItems = array.filter((item) => !isOtherTooltipKey(item.key))
       const otherItems = array.filter((item) => isOtherTooltipKey(item.key))
-      modelItems.sort((a, b) => (Number(b.value) || 0) - (Number(a.value) || 0))
-      array = [...modelItems, ...otherItems]
+      const sortedModelItems = [...modelItems].sort(
+        (a, b) => (Number(b.value) || 0) - (Number(a.value) || 0)
+      )
+      array = [...sortedModelItems, ...otherItems]
 
       let sum = 0
       for (let i = 0; i < array.length; i++) {
@@ -249,9 +251,9 @@ export function processChartData(
       }
 
       if (collapseOverflow && array.length > MAX_TOOLTIP_MODELS) {
-        const visible = modelItems.slice(0, MAX_TOOLTIP_MODELS)
+        const visible = sortedModelItems.slice(0, MAX_TOOLTIP_MODELS)
         const otherSum = [
-          ...modelItems.slice(MAX_TOOLTIP_MODELS),
+          ...sortedModelItems.slice(MAX_TOOLTIP_MODELS),
           ...otherItems,
         ].reduce((sum, item) => {
           const raw = item.datum
@@ -373,10 +375,11 @@ export function processChartData(
     const tokens = Number(item.token_used) || 0
 
     // Aggregate by time and model
-    if (!timeModelMap.has(timeKey)) {
-      timeModelMap.set(timeKey, new Map())
+    let modelMap = timeModelMap.get(timeKey)
+    if (!modelMap) {
+      modelMap = new Map()
+      timeModelMap.set(timeKey, modelMap)
     }
-    const modelMap = timeModelMap.get(timeKey)!
     const existing = modelMap.get(model) || { quota: 0, count: 0, tokens: 0 }
     modelMap.set(model, {
       quota: existing.quota + quota,
@@ -466,7 +469,7 @@ export function processChartData(
   }> = []
 
   chartTimes.forEach((time) => {
-    let timeData = sortedModels.map((model) => {
+    const timeData = sortedModels.map((model) => {
       const stats = timeModelMap.get(time)?.get(model)
       const rawQuota = Number(stats?.quota) || 0
       const usd = rawQuota ? rawQuota / quotaPerUnit : 0
@@ -482,11 +485,14 @@ export function processChartData(
     })
 
     const timeSum = timeData.reduce((sum, item) => sum + item.rawQuota, 0)
-    timeData.sort((a, b) => b.rawQuota - a.rawQuota)
-    timeData = timeData.map((item) => ({ ...item, TimeSum: timeSum }))
-    lineValues.push(...timeData)
+    const sortedTimeData = [...timeData]
+      .sort((a, b) => b.rawQuota - a.rawQuota)
+      .map((item) => ({ ...item, TimeSum: timeSum }))
+    lineValues.push(...sortedTimeData)
   })
-  lineValues.sort((a, b) => a.Time.localeCompare(b.Time))
+  const sortedLineValues = [...lineValues].sort((a, b) =>
+    a.Time.localeCompare(b.Time)
+  )
 
   // Area chart: top models by quota + "Other" bucket (too many series = unreadable)
   const MAX_AREA_MODELS = 15
@@ -528,7 +534,9 @@ export function processChartData(
       })
     }
   })
-  areaValues.sort((a, b) => a.Time.localeCompare(b.Time))
+  const sortedAreaValues = [...areaValues].sort((a, b) =>
+    a.Time.localeCompare(b.Time)
+  )
 
   // Line chart: model call trend (top models + "Other" bucket)
   const MAX_TREND_MODELS = 20
@@ -572,7 +580,9 @@ export function processChartData(
     }
     modelLineValues.push(...timeData)
   })
-  modelLineValues.sort((a, b) => a.Time.localeCompare(b.Time))
+  const sortedModelLineValues = [...modelLineValues].sort((a, b) =>
+    a.Time.localeCompare(b.Time)
+  )
 
   // Rank bar: model call count ranking (top 20 + "Other" bucket)
   const MAX_RANK_MODELS = 20
@@ -642,7 +652,7 @@ export function processChartData(
     },
     spec_line: {
       type: 'bar',
-      data: [{ id: 'barData', values: lineValues }],
+      data: [{ id: 'barData', values: sortedLineValues }],
       xField: 'Time',
       yField: 'Usage',
       seriesField: 'Model',
@@ -680,7 +690,7 @@ export function processChartData(
     },
     spec_area: {
       type: 'area',
-      data: [{ id: 'areaData', values: areaValues }],
+      data: [{ id: 'areaData', values: sortedAreaValues }],
       xField: 'Time',
       yField: 'Usage',
       seriesField: 'Model',
@@ -728,7 +738,7 @@ export function processChartData(
     },
     spec_model_line: {
       type: 'area',
-      data: [{ id: 'lineData', values: modelLineValues }],
+      data: [{ id: 'lineData', values: sortedModelLineValues }],
       xField: 'Time',
       yField: 'Count',
       seriesField: 'Model',
@@ -769,10 +779,10 @@ export function processChartData(
             const otherItems = array.filter((item) =>
               isOtherTooltipKey(item.key)
             )
-            modelItems.sort(
+            const sortedModelItems = [...modelItems].sort(
               (a, b) => (Number(b.value) || 0) - (Number(a.value) || 0)
             )
-            array = [...modelItems, ...otherItems]
+            array = [...sortedModelItems, ...otherItems]
 
             let sum = 0
             for (let i = 0; i < array.length; i++) {
@@ -898,7 +908,9 @@ export function processUserChartData(
     userQuotaTotal.set(username, prev + (Number(item.quota) || 0))
   })
 
-  const sorted = [...userQuotaTotal.entries()].sort((a, b) => b[1] - a[1])
+  const sorted = [...userQuotaTotal.entries()].sort(
+    (a, b) => b[1] - a[1]
+  )
   const topUsers = sorted.slice(0, limit).map(([u]) => u)
   const topUserSet = new Set(topUsers)
   const totalQuota = sorted.slice(0, limit).reduce((s, [, q]) => s + q, 0)
@@ -926,9 +938,12 @@ export function processUserChartData(
     allTimePoints.add(timeKey)
     const user = item.username || 'unknown'
     if (!topUserSet.has(user)) return
-    if (!timeUserMap.has(timeKey)) timeUserMap.set(timeKey, new Map())
-    const map = timeUserMap.get(timeKey)!
-    map.set(user, (map.get(user) || 0) + (Number(item.quota) || 0))
+    let userMap = timeUserMap.get(timeKey)
+    if (!userMap) {
+      userMap = new Map()
+      timeUserMap.set(timeKey, userMap)
+    }
+    userMap.set(user, (userMap.get(user) || 0) + (Number(item.quota) || 0))
   })
 
   const sortedTimePoints = [...allTimePoints].sort((left, right) =>
@@ -1059,7 +1074,7 @@ export function processUserChartData(
               value: string | number
             }>
           ) => {
-            array.sort(
+            array = [...array].sort(
               (a, b) => (Number(b.value) || 0) - (Number(a.value) || 0)
             )
             let sum = 0

@@ -16,7 +16,14 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import React, { useState } from 'react'
+import {
+  createContext,
+  useContext,
+  useState,
+  type Dispatch,
+  type ReactNode,
+  type SetStateAction,
+} from 'react'
 
 import useDialogState from '@/hooks/use-dialog'
 
@@ -26,19 +33,17 @@ type RedemptionsContextType = {
   open: RedemptionsDialogType | null
   setOpen: (str: RedemptionsDialogType | null) => void
   currentRow: Redemption | null
-  setCurrentRow: React.Dispatch<React.SetStateAction<Redemption | null>>
+  setCurrentRow: Dispatch<SetStateAction<Redemption | null>>
   refreshTrigger: number
   triggerRefresh: () => void
 }
 
-const RedemptionsContext = React.createContext<RedemptionsContextType | null>(
-  null
-)
+const RedemptionsContext = createContext<RedemptionsContextType | null>(null)
 
 export function RedemptionsProvider({
   children,
 }: {
-  children: React.ReactNode
+  children: ReactNode
 }) {
   const [open, setOpen] = useDialogState<RedemptionsDialogType>(null)
   const [currentRow, setCurrentRow] = useState<Redemption | null>(null)
@@ -64,7 +69,7 @@ export function RedemptionsProvider({
 
 // eslint-disable-next-line react-refresh/only-export-components
 export const useRedemptions = () => {
-  const redemptionsContext = React.useContext(RedemptionsContext)
+  const redemptionsContext = useContext(RedemptionsContext)
 
   if (!redemptionsContext) {
     throw new Error(

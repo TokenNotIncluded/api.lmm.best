@@ -356,8 +356,10 @@ function ComboboxChipsInput({
   )
 }
 
+const { useRef } = React
+
 function useComboboxAnchor() {
-  return React.useRef<HTMLDivElement | null>(null)
+  return useRef<HTMLDivElement | null>(null)
 }
 
 export {
