@@ -2,6 +2,7 @@ package console_setting
 
 import (
 	"fmt"
+	"net"
 	"net/url"
 	"regexp"
 	"sort"
@@ -12,8 +13,9 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/common"
 )
 
+const maxConsoleURLBytes = 2048
+
 var (
-	urlRegex       = regexp.MustCompile(`^https?://(?:(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)*[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?|(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?))(?:\:[0-9]{1,5})?(?:/.*)?$`)
 	dangerousChars = []string{"<script", "<iframe", "javascript:", "onload=", "onerror=", "onclick="}
 	validColors    = map[string]bool{
 		"blue": true, "green": true, "cyan": true, "purple": true, "pink": true,
@@ -40,12 +42,71 @@ func exceedsMaxCharacters(value string, max int) bool {
 	return len(utf16.Encode([]rune(value))) > max
 }
 
+func isURLHostLabel(label string) bool {
+	if len(label) == 0 || len(label) > 63 {
+		return false
+	}
+	for i := range len(label) {
+		char := label[i]
+		isAlphaNumeric := char >= 'a' && char <= 'z' || char >= 'A' && char <= 'Z' || char >= '0' && char <= '9'
+		if !isAlphaNumeric && (char != '-' || i == 0 || i == len(label)-1) {
+			return false
+		}
+	}
+	return true
+}
+
+func isConsoleURLHost(host string) bool {
+	if ip := net.ParseIP(host); ip != nil {
+		return ip.To4() != nil
+	}
+	for _, label := range strings.Split(host, ".") {
+		if !isURLHostLabel(label) {
+			return false
+		}
+	}
+	return true
+}
+
 func validateURL(urlStr string, index int, itemType string) error {
-	if !urlRegex.MatchString(urlStr) {
+	if len(urlStr) == 0 || len(urlStr) > maxConsoleURLBytes {
 		return fmt.Errorf("第%d个%s的URL格式不正确", index, itemType)
 	}
-	if _, err := url.Parse(urlStr); err != nil {
+
+	schemePrefix := ""
+	switch {
+	case strings.HasPrefix(urlStr, "http://"):
+		schemePrefix = "http://"
+	case strings.HasPrefix(urlStr, "https://"):
+		schemePrefix = "https://"
+	default:
+		return fmt.Errorf("第%d个%s的URL格式不正确", index, itemType)
+	}
+
+	remainder := urlStr[len(schemePrefix):]
+	authorityEnd := strings.IndexAny(remainder, "/?#")
+	if authorityEnd == 0 || authorityEnd > 0 && remainder[authorityEnd] != '/' {
+		return fmt.Errorf("第%d个%s的URL格式不正确", index, itemType)
+	}
+
+	parsed, err := url.Parse(urlStr)
+	if err != nil {
 		return fmt.Errorf("第%d个%s的URL无法解析：%s", index, itemType, err.Error())
+	}
+	if parsed.User != nil || parsed.Host == "" || !isConsoleURLHost(parsed.Hostname()) {
+		return fmt.Errorf("第%d个%s的URL格式不正确", index, itemType)
+	}
+
+	port := parsed.Port()
+	expectedAuthority := parsed.Hostname()
+	if port != "" {
+		if len(port) > 5 || strings.IndexFunc(port, func(char rune) bool { return char < '0' || char > '9' }) >= 0 {
+			return fmt.Errorf("第%d个%s的URL格式不正确", index, itemType)
+		}
+		expectedAuthority += ":" + port
+	}
+	if parsed.Host != expectedAuthority {
+		return fmt.Errorf("第%d个%s的URL格式不正确", index, itemType)
 	}
 	return nil
 }
