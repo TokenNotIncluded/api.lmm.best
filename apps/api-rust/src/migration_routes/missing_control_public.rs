@@ -305,6 +305,14 @@ impl MissingControlStoreError {
     }
 }
 
+impl std::fmt::Display for MissingControlStoreError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for MissingControlStoreError {}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MissingControlToken {
     pub user_id: i64,
