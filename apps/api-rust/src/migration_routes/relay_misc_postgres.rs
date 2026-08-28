@@ -2077,8 +2077,10 @@ fn normalized_upstream_error_body_with_context(
         code: Value::String("bad_response_status_code".to_owned()),
         metadata: None,
     });
-    serde_json::to_vec(&NormalizedUpstreamErrorEnvelope { error })
-        .expect("serializing the bounded upstream error envelope cannot fail")
+    match serde_json::to_vec(&NormalizedUpstreamErrorEnvelope { error }) {
+        Ok(encoded) => encoded,
+        Err(_) => br#"{"error":{"message":"openai_error","type":"bad_response_status_code","param":"","code":"bad_response_status_code"}}"#.to_vec(),
+    }
 }
 
 fn open_ai_error_from_object(
@@ -2413,9 +2415,12 @@ struct NormalizedUpstreamError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::http::HeaderValue;
+
+    type TestResult = Result<(), Box<dyn std::error::Error>>;
 
     #[test]
-    fn fixed_price_contract_separates_go_preconsume_and_settlement_rounding() {
+    fn fixed_price_contract_separates_go_preconsume_and_settlement_rounding() -> TestResult {
         let options = HashMap::from([
             (
                 "ModelPrice".to_owned(),
@@ -2424,12 +2429,14 @@ mod tests {
             ("GroupRatio".to_owned(), r#"{"default":1}"#.to_owned()),
             ("QuotaPerUnit".to_owned(), "500000".to_owned()),
         ]);
-        let price = fixed_price("gpt-test", "default", "default", 0.9, &options).unwrap();
+        let price = fixed_price("gpt-test", "default", "default", 0.9, &options)
+            .map_err(|error| std::io::Error::other(format!("{error:?}")))?;
         assert_eq!(price.preconsume_quota, 0);
         assert_eq!(price.settlement_quota, 1);
         assert_eq!(price.model_price, 0.000002);
         assert_eq!(price.group_ratio, 0.9);
         assert_eq!(price.user_group_ratio, -1.0);
+        Ok(())
     }
 
     #[test]
@@ -2457,39 +2464,45 @@ mod tests {
     }
 
     #[test]
-    fn token_parser_keeps_the_legacy_prefix_and_channel_suffix_contract() {
-        let token = relay_token_parts("Bearer sk-relayprobe-17").unwrap();
+    fn token_parser_keeps_the_legacy_prefix_and_channel_suffix_contract() -> TestResult {
+        let token = relay_token_parts("Bearer sk-relayprobe-17")
+            .ok_or_else(|| std::io::Error::other("missing relay token fixture"))?;
         assert_eq!(token.key, "relayprobe");
         assert_eq!(token.channel_suffix.as_deref(), Some("17"));
         assert!(relay_token_parts("Bearer ").is_none());
+        Ok(())
     }
 
     #[test]
-    fn model_mapping_rewrites_only_the_model_and_rejects_cycles() {
-        let mapped = mapped_model("alias", r#"{"alias":"gpt-test"}"#).unwrap();
+    fn model_mapping_rewrites_only_the_model_and_rejects_cycles() -> TestResult {
+        let mapped = mapped_model("alias", r#"{"alias":"gpt-test"}"#)
+            .map_err(|error| std::io::Error::other(error.to_owned()))?;
         assert_eq!(mapped, "gpt-test");
         let body = mapped_body(
             br#"{"input":"hello","model":"alias","vendor":{"keep":true}}"#,
             "alias",
             &mapped,
         )
-        .unwrap();
-        let value: Value = serde_json::from_slice(&body).unwrap();
+        .map_err(|error| std::io::Error::other(error.to_owned()))?;
+        let value: Value = serde_json::from_slice(&body)?;
         assert_eq!(value["model"], "gpt-test");
         assert_eq!(value["vendor"]["keep"], true);
         assert_eq!(
             mapped_model("a", r#"{"a":"b","b":"a"}"#),
             Err("model_mapping_contains_cycle")
         );
+        Ok(())
     }
 
     #[test]
-    fn upstream_url_preserves_an_operator_owned_path_prefix() {
-        let url = upstream_url("https://provider.example/prefix", "/v1/embeddings").unwrap();
+    fn upstream_url_preserves_an_operator_owned_path_prefix() -> TestResult {
+        let url = upstream_url("https://provider.example/prefix", "/v1/embeddings")
+            .map_err(|()| std::io::Error::other("invalid upstream URL fixture"))?;
         assert_eq!(
             url.as_str(),
             "https://provider.example/prefix/v1/embeddings"
         );
+        Ok(())
     }
 
     #[test]
@@ -2533,9 +2546,9 @@ mod tests {
     #[test]
     fn upstream_errors_do_not_forward_provider_headers() {
         let mut headers = HeaderMap::new();
-        headers.insert("retry-after", "7".parse().unwrap());
-        headers.insert("x-request-id", "provider-request".parse().unwrap());
-        headers.insert("server", "provider".parse().unwrap());
+        headers.insert("retry-after", HeaderValue::from_static("7"));
+        headers.insert("x-request-id", HeaderValue::from_static("provider-request"));
+        headers.insert("server", HeaderValue::from_static("provider"));
         let response = upstream_error_response(
             StatusCode::TOO_MANY_REQUESTS,
             headers,
@@ -2545,8 +2558,11 @@ mod tests {
         );
         assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
         assert_eq!(
-            response.headers().get(header::CONTENT_TYPE).unwrap(),
-            "application/json; charset=utf-8"
+            response
+                .headers()
+                .get(header::CONTENT_TYPE)
+                .and_then(|value| value.to_str().ok()),
+            Some("application/json; charset=utf-8")
         );
         assert!(!response.headers().contains_key("retry-after"));
         assert!(!response.headers().contains_key("x-request-id"));
@@ -2636,8 +2652,9 @@ mod tests {
     }
 
     #[test]
-    fn proc_metrics_match_current_go_gopsutil_formulas() {
-        let times = cpu_times_from_stat("cpu 100 10 20 300 40 5 6 7 999 999\n").unwrap();
+    fn proc_metrics_match_current_go_gopsutil_formulas() -> TestResult {
+        let times = cpu_times_from_stat("cpu 100 10 20 300 40 5 6 7 999 999\n")
+            .ok_or_else(|| std::io::Error::other("missing CPU times fixture"))?;
         assert_eq!(
             times,
             CpuTimes {
@@ -2664,6 +2681,7 @@ mod tests {
             ),
             Some(60.0)
         );
+        Ok(())
     }
 
     #[test]
@@ -2718,7 +2736,7 @@ mod tests {
     }
 
     #[test]
-    fn memory_model_rate_limit_separates_attempt_and_success_quotas_like_go() {
+    fn memory_model_rate_limit_separates_attempt_and_success_quotas_like_go() -> TestResult {
         let limiter = MemoryModelRateLimits::default();
         let config = ModelRateLimitConfig {
             enabled: true,
@@ -2726,7 +2744,9 @@ mod tests {
             total_max_count: 2,
             success_max_count: 1,
         };
-        let first = limiter.check(42, &config).unwrap();
+        let first = limiter
+            .check(42, &config)
+            .map_err(|error| std::io::Error::other(format!("{error:?}")))?;
         limiter.commit_success(&first);
         assert!(matches!(
             limiter.check(42, &config),
@@ -2736,6 +2756,7 @@ mod tests {
             limiter.check(42, &config),
             Err(ModelRateLimitFailure::TotalExceeded)
         ));
+        Ok(())
     }
 
     #[test]
