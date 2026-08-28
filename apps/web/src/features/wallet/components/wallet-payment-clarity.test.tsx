@@ -87,6 +87,7 @@ reactTestGlobals.IS_REACT_ACT_ENVIRONMENT = true
 const originalConfig = useSystemConfigStore.getState().config
 const originalGet = api.get
 const originalPost = api.post
+// oxlint-disable-next-line no-console -- The test captures and restores the expected production error log.
 const originalConsoleError = console.error
 
 async function flushEffects() {
@@ -159,6 +160,7 @@ async function unmount(rendered: Rendered) {
 afterEach(() => {
   api.get = originalGet
   api.post = originalPost
+  // oxlint-disable-next-line no-console -- Restore the original logger after every test.
   console.error = originalConsoleError
   useAuthStore.getState().auth.reset('complete')
   latestTopupState = null
@@ -185,6 +187,7 @@ const topupInfo = {
 describe('wallet payment clarity', () => {
   test('clears stale top-up configuration and presets when a refresh fails', async () => {
     const consoleErrors: unknown[][] = []
+    // oxlint-disable-next-line no-console -- Capture and assert the expected failure log.
     console.error = (...args: unknown[]) => consoleErrors.push(args)
     let calls = 0
     api.get = (async (url) => {
