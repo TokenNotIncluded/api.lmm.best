@@ -850,7 +850,9 @@ fn header_text(headers: &HeaderMap, name: &'static str) -> Option<String> {
 }
 
 fn bundle_response(bundle: AuthBundle, cookie_secure: bool) -> Response {
-    let mut data = serde_json::to_value(&bundle.data).expect("serialize auth response data");
+    let Ok(mut data) = serde_json::to_value(&bundle.data) else {
+        return auth_error(AuthError::new(AuthErrorKind::Internal));
+    };
     if let Some(body) = data.as_object_mut()
         && let Some(user) = body.get_mut("user")
     {
@@ -1192,13 +1194,31 @@ mod tests {
     use axum::extract::ConnectInfo;
     use serde_json::Value;
     use std::{
+        error::Error,
         net::SocketAddr,
         sync::{
-            Mutex,
+            Mutex, MutexGuard,
             atomic::{AtomicUsize, Ordering},
         },
     };
     use tower::ServiceExt;
+
+    type TestResult<T = ()> = Result<T, Box<dyn Error>>;
+
+    fn test_error(message: &'static str) -> Box<dyn Error> {
+        Box::new(std::io::Error::other(message))
+    }
+
+    fn required<T>(value: Option<T>, message: &'static str) -> TestResult<T> {
+        value.ok_or_else(|| test_error(message))
+    }
+
+    fn lock_unpoisoned<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+        match mutex.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        }
+    }
 
     struct MockAuth {
         next: Mutex<Option<Result<LoginOutcome, AuthErrorKind>>>,
@@ -1236,9 +1256,7 @@ mod tests {
     #[async_trait]
     impl TurnstileVerifier for MockTurnstile {
         async fn verify(&self, token: &str, remote_ip: &str) -> bool {
-            self.requests
-                .lock()
-                .expect("turnstile requests lock")
+            lock_unpoisoned(&self.requests)
                 .push((token.to_owned(), remote_ip.to_owned()));
             self.allowed
         }
@@ -1302,13 +1320,13 @@ mod tests {
 
         fn with_self_user(user: DashboardUser) -> Self {
             let auth = Self::success();
-            *auth.self_user.lock().expect("self user lock") = Ok(user);
+            *lock_unpoisoned(&auth.self_user) = Ok(user);
             auth
         }
 
         fn with_logout_result(result: LogoutResult) -> Self {
             let auth = Self::success();
-            *auth.logout_result.lock().expect("logout result lock") = result;
+            *lock_unpoisoned(&auth.logout_result) = result;
             auth
         }
     }
@@ -1320,11 +1338,9 @@ mod tests {
             _: &str,
         ) -> Result<CriticalRateLimitOutcome, AuthError> {
             self.rate_limit_checks.fetch_add(1, Ordering::Relaxed);
-            self.events
-                .lock()
-                .expect("events lock")
+            lock_unpoisoned(&self.events)
                 .push("critical_rate_limit");
-            (*self.rate_limit.lock().expect("rate limit lock")).map_err(AuthError::new)
+            (*lock_unpoisoned(&self.rate_limit)).map_err(AuthError::new)
         }
 
         async fn login(
@@ -1332,7 +1348,7 @@ mod tests {
             _: LoginRequest,
             metadata: RequestMetadata,
         ) -> Result<LoginOutcome, AuthError> {
-            self.metadata.lock().expect("metadata lock").push(metadata);
+            lock_unpoisoned(&self.metadata).push(metadata);
             take(self)
         }
 
@@ -1350,7 +1366,7 @@ mod tests {
             _: Option<String>,
             _: RequestMetadata,
         ) -> Result<AuthBundle, AuthError> {
-            self.events.lock().expect("events lock").push("refresh");
+            lock_unpoisoned(&self.events).push("refresh");
             match take(self)? {
                 LoginOutcome::Authenticated(bundle) => Ok(*bundle),
                 LoginOutcome::TwoFactorRequired(_) => Err(AuthError::new(AuthErrorKind::Internal)),
@@ -1358,26 +1374,17 @@ mod tests {
         }
 
         async fn self_user(&self, credential: SecretString) -> Result<DashboardUser, AuthError> {
-            self.self_user_credentials
-                .lock()
-                .expect("self user credentials lock")
+            lock_unpoisoned(&self.self_user_credentials)
                 .push(credential.expose_secret().to_owned());
-            self.self_user
-                .lock()
-                .expect("self user lock")
+            lock_unpoisoned(&self.self_user)
                 .clone()
                 .map_err(AuthError::new)
         }
 
         async fn logout(&self, request: LogoutRequest) -> Result<LogoutResult, AuthError> {
-            self.logout_requests
-                .lock()
-                .expect("logout requests lock")
+            lock_unpoisoned(&self.logout_requests)
                 .push(request);
-            Ok(self
-                .logout_result
-                .lock()
-                .expect("logout result lock")
+            Ok(lock_unpoisoned(&self.logout_result)
                 .clone())
         }
 
@@ -1390,11 +1397,9 @@ mod tests {
     }
 
     fn take(mock: &MockAuth) -> Result<LoginOutcome, AuthError> {
-        mock.next
-            .lock()
-            .expect("mock lock")
+        lock_unpoisoned(&mock.next)
             .take()
-            .expect("one call")
+            .ok_or_else(|| AuthError::new(AuthErrorKind::Internal))?
             .map_err(AuthError::new)
     }
 
@@ -1451,7 +1456,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn login_preserves_legacy_envelope_and_cookie_controls() {
+    async fn login_preserves_legacy_envelope_and_cookie_controls() -> TestResult {
         let router = auth_router(
             AuthHttpState::new(Arc::new(MockAuth::success()), true)
                 .with_password_login_enabled(true)
@@ -1464,30 +1469,26 @@ mod tests {
                     .uri("/api/user/login")
                     .header(header::CONTENT_TYPE, "application/json")
                     .header(header::ORIGIN, "https://dashboard.example")
-                    .body(Body::from(r#"{"username":"alice","password":"pw"}"#))
-                    .expect("request"),
+                    .body(Body::from(r#"{"username":"alice","password":"pw"}"#))?,
             )
-            .await
-            .expect("response");
+            .await?;
         assert_eq!(response.status(), StatusCode::OK);
         let cookie = response.headers()[header::SET_COOKIE]
-            .to_str()
-            .expect("cookie");
+            .to_str()?;
         assert!(cookie.contains("HttpOnly"));
         assert!(cookie.contains("Secure"));
         assert!(cookie.contains("SameSite=Strict"));
         let body: Value = serde_json::from_slice(
             &to_bytes(response.into_body(), usize::MAX)
-                .await
-                .expect("body"),
-        )
-        .expect("json");
+                .await?,
+        )?;
         assert_eq!(body["success"], true);
         assert_eq!(body["data"]["user"]["username"], "alice");
+        Ok(())
     }
 
     #[tokio::test]
-    async fn login_uses_legacy_accept_language_catalog_for_two_factor_challenges() {
+    async fn login_uses_legacy_accept_language_catalog_for_two_factor_challenges() -> TestResult {
         for (language, message) in [
             (
                 "en-US,en;q=0.9",
@@ -1511,22 +1512,21 @@ mod tests {
                         .uri("/api/user/login")
                         .header(header::ACCEPT_LANGUAGE, language)
                         .header(header::CONTENT_TYPE, "application/json")
-                        .body(Body::from(r#"{"username":"alice","password":"pw"}"#))
-                        .expect("request"),
+                        .body(Body::from(r#"{"username":"alice","password":"pw"}"#))?,
                 )
-                .await
-                .expect("response");
+                .await?;
             assert_eq!(response.status(), StatusCode::OK, "{language}");
             assert_eq!(
-                response_json(response).await["message"],
+                response_json(response).await?["message"],
                 message,
                 "{language}"
             );
         }
+        Ok(())
     }
 
     #[tokio::test]
-    async fn login_rejects_missing_turnstile_token_when_enabled() {
+    async fn login_rejects_missing_turnstile_token_when_enabled() -> TestResult {
         let auth = Arc::new(MockAuth::success());
         let response = auth_router(
             AuthHttpState::new(auth.clone(), false)
@@ -1538,20 +1538,19 @@ mod tests {
                 .method("POST")
                 .uri("/api/user/login")
                 .header(header::CONTENT_TYPE, "application/json")
-                .body(Body::from(r#"{"username":"alice","password":"pw"}"#))
-                .expect("request"),
+                .body(Body::from(r#"{"username":"alice","password":"pw"}"#))?,
         )
-        .await
-        .expect("response");
+        .await?;
         assert_eq!(response.status(), StatusCode::OK);
-        let body = response_json(response).await;
+        let body = response_json(response).await?;
         assert_eq!(body["success"], false);
         assert_eq!(body["message"], "Turnstile token 为空");
-        assert!(auth.next.lock().expect("next lock").is_some());
+        assert!(lock_unpoisoned(&auth.next).is_some());
+        Ok(())
     }
 
     #[tokio::test]
-    async fn login_allows_turnstile_token_when_enabled() {
+    async fn login_allows_turnstile_token_when_enabled() -> TestResult {
         let auth = Arc::new(MockAuth::success());
         let response = auth_router(
             AuthHttpState::new(auth.clone(), false)
@@ -1563,20 +1562,19 @@ mod tests {
                 .method("POST")
                 .uri("/api/user/login?turnstile=demo%2Dtoken")
                 .header(header::CONTENT_TYPE, "application/json")
-                .body(Body::from(r#"{"username":"alice","password":"pw"}"#))
-                .expect("request"),
+                .body(Body::from(r#"{"username":"alice","password":"pw"}"#))?,
         )
-        .await
-        .expect("response");
+        .await?;
         assert_eq!(response.status(), StatusCode::OK);
-        let body = response_json(response).await;
+        let body = response_json(response).await?;
         assert_eq!(body["success"], true);
         assert_eq!(body["data"]["user"]["username"], "alice");
-        assert!(auth.next.lock().expect("next lock").is_none());
+        assert!(lock_unpoisoned(&auth.next).is_none());
+        Ok(())
     }
 
     #[tokio::test]
-    async fn login_rejects_turnstile_when_verifier_fails_closed() {
+    async fn login_rejects_turnstile_when_verifier_fails_closed() -> TestResult {
         let auth = Arc::new(MockAuth::success());
         let verifier = Arc::new(MockTurnstile::rejecting());
         let response = auth_router(
@@ -1589,28 +1587,24 @@ mod tests {
                 .method("POST")
                 .uri("/api/user/login?turnstile=demo-token")
                 .header(header::CONTENT_TYPE, "application/json")
-                .body(Body::from(r#"{"username":"alice","password":"pw"}"#))
-                .expect("request"),
+                .body(Body::from(r#"{"username":"alice","password":"pw"}"#))?,
         )
-        .await
-        .expect("response");
+        .await?;
         assert_eq!(response.status(), StatusCode::OK);
-        let body = response_json(response).await;
+        let body = response_json(response).await?;
         assert_eq!(body["success"], false);
         assert_eq!(body["message"], "Turnstile 校验失败，请刷新重试！");
-        assert!(auth.next.lock().expect("next lock").is_some());
+        assert!(lock_unpoisoned(&auth.next).is_some());
         assert_eq!(
-            verifier
-                .requests
-                .lock()
-                .expect("turnstile requests lock")
+            lock_unpoisoned(&verifier.requests)
                 .as_slice(),
             &[("demo-token".to_owned(), "unknown".to_owned())]
         );
+        Ok(())
     }
 
     #[tokio::test]
-    async fn enabled_turnstile_without_secret_rejects_even_with_token() {
+    async fn enabled_turnstile_without_secret_rejects_even_with_token() -> TestResult {
         let auth = Arc::new(MockAuth::success());
         let response = auth_router(
             AuthHttpState::new(auth.clone(), false)
@@ -1622,18 +1616,17 @@ mod tests {
                 .method("POST")
                 .uri("/api/user/login?turnstile=demo-token")
                 .header(header::CONTENT_TYPE, "application/json")
-                .body(Body::from(r#"{"username":"alice","password":"pw"}"#))
-                .expect("request"),
+                .body(Body::from(r#"{"username":"alice","password":"pw"}"#))?,
         )
-        .await
-        .expect("response");
+        .await?;
         assert_eq!(response.status(), StatusCode::OK);
-        assert_eq!(response_json(response).await["success"], false);
-        assert!(auth.next.lock().expect("next lock").is_some());
+        assert_eq!(response_json(response).await?["success"], false);
+        assert!(lock_unpoisoned(&auth.next).is_some());
+        Ok(())
     }
 
     #[tokio::test]
-    async fn unverified_auth_routes_are_not_mounted() {
+    async fn unverified_auth_routes_are_not_mounted() -> TestResult {
         let router = auth_router(AuthHttpState::new(Arc::new(MockAuth::success()), false));
         for (method, path) in [("POST", "/api/user/login/2fa"), ("GET", "/api/user/token")] {
             let response = router
@@ -1642,17 +1635,16 @@ mod tests {
                     Request::builder()
                         .method(method)
                         .uri(path)
-                        .body(Body::empty())
-                        .expect("request"),
+                        .body(Body::empty())?,
                 )
-                .await
-                .expect("response");
+                .await?;
             assert_eq!(response.status(), StatusCode::NOT_FOUND, "{method} {path}");
         }
+        Ok(())
     }
 
     #[tokio::test]
-    async fn self_accepts_legacy_raw_tokens_and_rejects_ambiguous_authorization() {
+    async fn self_accepts_legacy_raw_tokens_and_rejects_ambiguous_authorization() -> TestResult {
         let auth = Arc::new(MockAuth::success());
         let router = auth_router(AuthHttpState::new(auth.clone(), false));
         let response = router
@@ -1661,17 +1653,12 @@ mod tests {
                 Request::builder()
                     .uri("/api/user/self")
                     .header(header::AUTHORIZATION, "token-only")
-                    .body(Body::empty())
-                    .expect("request"),
+                    .body(Body::empty())?,
             )
-            .await
-            .expect("response");
+            .await?;
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(
-            *auth
-                .self_user_credentials
-                .lock()
-                .expect("self user credentials lock"),
+            *lock_unpoisoned(&auth.self_user_credentials),
             ["token-only"]
         );
         let response = router
@@ -1679,16 +1666,15 @@ mod tests {
                 Request::builder()
                     .uri("/api/user/self")
                     .header(header::AUTHORIZATION, "Bearer token extra")
-                    .body(Body::empty())
-                    .expect("request"),
+                    .body(Body::empty())?,
             )
-            .await
-            .expect("response");
+            .await?;
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        Ok(())
     }
 
     #[tokio::test]
-    async fn logout_rejects_a_raw_authorization_token() {
+    async fn logout_rejects_a_raw_authorization_token() -> TestResult {
         let auth = Arc::new(MockAuth::with_logout_result(LogoutResult {
             revoked_sid: None,
             cookie_cleared: None,
@@ -1699,19 +1685,18 @@ mod tests {
                     .method("POST")
                     .uri("/api/user/auth/logout")
                     .header(header::AUTHORIZATION, "raw-token")
-                    .body(Body::empty())
-                    .expect("logout request"),
+                    .body(Body::empty())?,
             )
-            .await
-            .expect("logout response");
+            .await?;
         assert_eq!(response.status(), StatusCode::OK);
-        let requests = auth.logout_requests.lock().expect("logout requests lock");
+        let requests = lock_unpoisoned(&auth.logout_requests);
         assert_eq!(requests.len(), 1);
         assert!(requests[0].access_token.is_none());
+        Ok(())
     }
 
     #[tokio::test]
-    async fn logout_clears_cookie_only_when_the_legacy_contract_requires_it() {
+    async fn logout_clears_cookie_only_when_the_legacy_contract_requires_it() -> TestResult {
         let cases = [
             (
                 "access only",
@@ -1776,9 +1761,8 @@ mod tests {
                 request = request.header(header::COOKIE, cookie);
             }
             let response = auth_router(AuthHttpState::new(auth.clone(), false))
-                .oneshot(request.body(Body::empty()).expect("logout request"))
-                .await
-                .expect("logout response");
+                .oneshot(request.body(Body::empty())?)
+                .await?;
             assert_eq!(response.status(), StatusCode::OK, "{label}");
             assert_eq!(
                 response.headers().contains_key(header::SET_COOKIE),
@@ -1786,37 +1770,35 @@ mod tests {
                 "{label}"
             );
             assert_eq!(
-                auth.logout_requests
-                    .lock()
-                    .expect("logout requests lock")
+                lock_unpoisoned(&auth.logout_requests)
                     .len(),
                 1
             );
         }
+        Ok(())
     }
 
     #[tokio::test]
-    async fn successful_self_emits_legacy_auth_version() {
+    async fn successful_self_emits_legacy_auth_version() -> TestResult {
         let router = auth_router(AuthHttpState::new(Arc::new(MockAuth::success()), false));
         let response = router
             .oneshot(
                 Request::builder()
                     .uri("/api/user/self")
                     .header(header::AUTHORIZATION, "Bearer access")
-                    .body(Body::empty())
-                    .expect("request"),
+                    .body(Body::empty())?,
             )
-            .await
-            .expect("response");
+            .await?;
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(
             response.headers()["auth-version"],
             "864b7076dbcd0a3c01b5520316720ebf"
         );
+        Ok(())
     }
 
     #[tokio::test]
-    async fn self_rejects_resolved_required_user_policy_failures_without_data() {
+    async fn self_rejects_resolved_required_user_policy_failures_without_data() -> TestResult {
         type SelfPolicyCase = (
             &'static str,
             fn(&mut DashboardUser),
@@ -1856,31 +1838,27 @@ mod tests {
                     Request::builder()
                         .uri("/api/user/self")
                         .header(header::AUTHORIZATION, "Bearer resolved-credential")
-                        .body(Body::empty())
-                        .expect("self request"),
+                        .body(Body::empty())?,
                 )
-                .await
-                .expect("self response");
+                .await?;
             assert_eq!(response.status(), status, "{label}");
-            let body = response_json(response).await;
+            let body = response_json(response).await?;
             assert_eq!(body["code"], code, "{label}");
             assert_eq!(body["message"], message, "{label}");
             assert!(body.get("data").is_none(), "{label}");
             assert_eq!(
-                *auth
-                    .self_user_credentials
-                    .lock()
-                    .expect("self user credentials lock"),
+                *lock_unpoisoned(&auth.self_user_credentials),
                 ["resolved-credential"],
                 "{label} must resolve the credential before policy rejection"
             );
         }
+        Ok(())
     }
 
     #[tokio::test]
-    async fn refresh_checks_origin_then_rate_limit_then_cookie() {
+    async fn refresh_checks_origin_then_rate_limit_then_cookie() -> TestResult {
         let auth = Arc::new(MockAuth::success());
-        *auth.rate_limit.lock().expect("rate limit lock") =
+        *lock_unpoisoned(&auth.rate_limit) =
             Ok(CriticalRateLimitOutcome::Rejected {
                 retry_after_seconds: 37,
             });
@@ -1896,14 +1874,12 @@ mod tests {
                     .method("POST")
                     .uri("/api/user/auth/refresh")
                     .header(header::ORIGIN, "https://evil.example")
-                    .body(Body::empty())
-                    .expect("request"),
+                    .body(Body::empty())?,
             )
-            .await
-            .expect("response");
+            .await?;
         assert_eq!(response.status(), StatusCode::FORBIDDEN);
         assert_eq!(auth.rate_limit_checks.load(Ordering::Relaxed), 0);
-        assert!(auth.events.lock().expect("events lock").is_empty());
+        assert!(lock_unpoisoned(&auth.events).is_empty());
 
         let response = router
             .clone()
@@ -1912,15 +1888,13 @@ mod tests {
                     .method("POST")
                     .uri("/api/user/auth/refresh")
                     .header(header::ORIGIN, "https://dashboard.example")
-                    .body(Body::empty())
-                    .expect("request"),
+                    .body(Body::empty())?,
             )
-            .await
-            .expect("response");
+            .await?;
         assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
         assert_eq!(auth.rate_limit_checks.load(Ordering::Relaxed), 1);
         assert_eq!(
-            *auth.events.lock().expect("events lock"),
+            *lock_unpoisoned(&auth.events),
             ["critical_rate_limit"]
         );
         assert!(!response.headers().contains_key(header::SET_COOKIE));
@@ -1933,22 +1907,20 @@ mod tests {
                     .uri("/api/user/auth/refresh")
                     .header(header::ORIGIN, "https://dashboard.example")
                     .header(header::COOKIE, "new_api_refresh=attacker.secret")
-                    .body(Body::empty())
-                    .expect("request"),
+                    .body(Body::empty())?,
             )
-            .await
-            .expect("response");
+            .await?;
         assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
         assert_eq!(auth.rate_limit_checks.load(Ordering::Relaxed), 2);
         assert_eq!(
-            *auth.events.lock().expect("events lock"),
+            *lock_unpoisoned(&auth.events),
             ["critical_rate_limit", "critical_rate_limit"]
         );
         assert!(!response.headers().contains_key(header::SET_COOKIE));
 
-        *auth.rate_limit.lock().expect("rate limit lock") = Ok(CriticalRateLimitOutcome::Allowed);
-        *auth.next.lock().expect("next lock") = Some(Err(AuthErrorKind::TokenExpired));
-        auth.events.lock().expect("events lock").clear();
+        *lock_unpoisoned(&auth.rate_limit) = Ok(CriticalRateLimitOutcome::Allowed);
+        *lock_unpoisoned(&auth.next) = Some(Err(AuthErrorKind::TokenExpired));
+        lock_unpoisoned(&auth.events).clear();
         let response = router
             .clone()
             .oneshot(
@@ -1957,22 +1929,20 @@ mod tests {
                     .uri("/api/user/auth/refresh")
                     .header(header::ORIGIN, "https://dashboard.example")
                     .header(header::COOKIE, "new_api_refresh=expired.secret")
-                    .body(Body::empty())
-                    .expect("request"),
+                    .body(Body::empty())?,
             )
-            .await
-            .expect("response");
+            .await?;
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
         assert_eq!(auth.rate_limit_checks.load(Ordering::Relaxed), 3);
         assert_eq!(
-            *auth.events.lock().expect("events lock"),
+            *lock_unpoisoned(&auth.events),
             ["critical_rate_limit", "refresh"]
         );
-        assert_eq!(response_json(response).await["code"], "AUTH_TOKEN_EXPIRED");
+        assert_eq!(response_json(response).await?["code"], "AUTH_TOKEN_EXPIRED");
 
-        *auth.next.lock().expect("next lock") =
+        *lock_unpoisoned(&auth.next) =
             Some(Ok(LoginOutcome::Authenticated(Box::new(sample_bundle()))));
-        auth.events.lock().expect("events lock").clear();
+        lock_unpoisoned(&auth.events).clear();
         let response = router
             .oneshot(
                 Request::builder()
@@ -1980,30 +1950,28 @@ mod tests {
                     .uri("/api/user/auth/refresh")
                     .header(header::ORIGIN, "https://dashboard.example")
                     .header(header::COOKIE, "new_api_refresh=valid.secret")
-                    .body(Body::empty())
-                    .expect("request"),
+                    .body(Body::empty())?,
             )
-            .await
-            .expect("response");
+            .await?;
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(auth.rate_limit_checks.load(Ordering::Relaxed), 4);
         assert_eq!(
-            *auth.events.lock().expect("events lock"),
+            *lock_unpoisoned(&auth.events),
             ["critical_rate_limit", "refresh"]
         );
 
         assert_eq!(
             response.headers()[header::SET_COOKIE]
-                .to_str()
-                .expect("refresh cookie")
+                .to_str()?
                 .split(';')
                 .next(),
             Some("new_api_refresh=sid-1.secret")
         );
+        Ok(())
     }
 
     #[tokio::test]
-    async fn refresh_missing_cookie_still_passes_rate_limit_before_unauthorized() {
+    async fn refresh_missing_cookie_still_passes_rate_limit_before_unauthorized() -> TestResult {
         let auth = Arc::new(MockAuth::success());
         let router = auth_router(
             AuthHttpState::new(auth.clone(), true)
@@ -2015,15 +1983,13 @@ mod tests {
                     .method("POST")
                     .uri("/api/user/auth/refresh")
                     .header(header::ORIGIN, "https://dashboard.example")
-                    .body(Body::empty())
-                    .expect("request"),
+                    .body(Body::empty())?,
             )
-            .await
-            .expect("response");
+            .await?;
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
         assert_eq!(auth.rate_limit_checks.load(Ordering::Relaxed), 1);
         assert_eq!(
-            *auth.events.lock().expect("events lock"),
+            *lock_unpoisoned(&auth.events),
             ["critical_rate_limit"]
         );
         assert_eq!(
@@ -2031,17 +1997,18 @@ mod tests {
             "new_api_refresh=; Path=/api/user/auth; Expires=Thu, 01 Jan 1970 00:00:01 GMT; Max-Age=0; HttpOnly; Secure; SameSite=Strict"
         );
         assert_eq!(
-            response_json(response).await,
+            response_json(response).await?,
             serde_json::json!({
                 "success": false,
                 "code": "AUTH_UNAUTHORIZED",
                 "message": "Unauthorized"
             })
         );
+        Ok(())
     }
 
     #[tokio::test]
-    async fn password_login_is_fail_closed_until_explicitly_enabled() {
+    async fn password_login_is_fail_closed_until_explicitly_enabled() -> TestResult {
         let router = auth_router(AuthHttpState::new(Arc::new(MockAuth::success()), false));
         let response = router
             .oneshot(
@@ -2049,21 +2016,20 @@ mod tests {
                     .method("POST")
                     .uri("/api/user/login")
                     .header(header::CONTENT_TYPE, "application/json")
-                    .body(Body::from(r#"{"username":"alice","password":"pw"}"#))
-                    .expect("request"),
+                    .body(Body::from(r#"{"username":"alice","password":"pw"}"#))?,
             )
-            .await
-            .expect("response");
+            .await?;
         assert_eq!(response.status(), StatusCode::OK);
-        let body = response_json(response).await;
+        let body = response_json(response).await?;
         assert_eq!(
             body["message"],
             "Password login has been disabled by administrator"
         );
+        Ok(())
     }
 
     #[tokio::test]
-    async fn secure_cookie_routes_require_an_allowed_origin_or_referer() {
+    async fn secure_cookie_routes_require_an_allowed_origin_or_referer() -> TestResult {
         let state = AuthHttpState::new(Arc::new(MockAuth::success()), true)
             .with_password_login_enabled(true)
             .with_trusted_origins(["https://dashboard.example"]);
@@ -2095,9 +2061,8 @@ mod tests {
                 builder = builder.header(name, value);
             }
             let response = auth_router(state.clone())
-                .oneshot(builder.body(Body::empty()).expect("request"))
-                .await
-                .expect("response");
+                .oneshot(builder.body(Body::empty())?)
+                .await?;
             assert_eq!(response.status(), StatusCode::FORBIDDEN);
             for header_name in [header::CACHE_CONTROL, header::EXPIRES, header::PRAGMA] {
                 assert!(
@@ -2106,7 +2071,7 @@ mod tests {
                 );
             }
             assert_eq!(
-                response_json(response).await["code"],
+                response_json(response).await?["code"],
                 "AUTH_ORIGIN_FORBIDDEN"
             );
         }
@@ -2118,16 +2083,15 @@ mod tests {
                     .uri("/api/user/auth/refresh")
                     .header(header::COOKIE, "new_api_refresh=sid.secret")
                     .header(header::REFERER, "https://dashboard.example/settings")
-                    .body(Body::empty())
-                    .expect("request"),
+                    .body(Body::empty())?,
             )
-            .await
-            .expect("response");
+            .await?;
         assert_ne!(response.status(), StatusCode::FORBIDDEN);
+        Ok(())
     }
 
     #[tokio::test]
-    async fn oracle_auth_fixtures_match_status_headers_and_body() {
+    async fn oracle_auth_fixtures_match_status_headers_and_body() -> TestResult {
         let state = AuthHttpState::new(
             Arc::new(MockAuth {
                 next: Mutex::new(Some(Err(AuthErrorKind::InvalidCredentials))),
@@ -2174,9 +2138,8 @@ mod tests {
                 env!("CARGO_MANIFEST_DIR")
             );
             let fixture: Value = serde_json::from_str(
-                &std::fs::read_to_string(fixture_path).expect("Oracle fixture"),
-            )
-            .expect("fixture JSON");
+                &std::fs::read_to_string(fixture_path)?,
+            )?;
             let mut builder = Request::builder().method(method).uri(uri);
             if body.is_some() {
                 builder = builder.header(header::CONTENT_TYPE, "application/json");
@@ -2184,14 +2147,13 @@ mod tests {
             let response = auth_router(state.clone())
                 .oneshot(
                     builder
-                        .body(body.map_or_else(Body::empty, Body::from))
-                        .expect("request"),
+                        .body(body.map_or_else(Body::empty, Body::from))?,
                 )
-                .await
-                .expect("response");
+                .await?;
             assert_eq!(
                 response.status().as_u16(),
-                fixture["response"]["status"].as_u64().expect("status") as u16,
+                required(fixture["response"]["status"].as_u64(), "missing fixture status")?
+                    as u16,
                 "{fixture_name}"
             );
             for name in ["cache-control", "expires", "pragma", "set-cookie"] {
@@ -2208,12 +2170,13 @@ mod tests {
             }
             assert!(response.headers().contains_key("x-oneapi-request-id"));
             assert_eq!(response.headers()["x-new-api-version"], "v0.0.0");
-            assert_eq!(response_json(response).await, fixture["response"]["body"]);
+            assert_eq!(response_json(response).await?, fixture["response"]["body"]);
         }
+        Ok(())
     }
 
     #[tokio::test]
-    async fn response_identity_is_server_generated_and_version_is_build_derived() {
+    async fn response_identity_is_server_generated_and_version_is_build_derived() -> TestResult {
         let router = auth_router(
             AuthHttpState::new(Arc::new(MockAuth::success()), false)
                 .with_password_login_enabled(true),
@@ -2225,25 +2188,23 @@ mod tests {
                     .uri("/api/user/login")
                     .header(header::CONTENT_TYPE, "application/json")
                     .header("x-oneapi-request-id", "attacker-controlled")
-                    .body(Body::from(r#"{"username":"alice","password":"pw"}"#))
-                    .expect("request"),
+                    .body(Body::from(r#"{"username":"alice","password":"pw"}"#))?,
             )
-            .await
-            .expect("response");
+            .await?;
 
         let request_id = response.headers()["x-oneapi-request-id"]
-            .to_str()
-            .expect("request id");
+            .to_str()?;
         assert_ne!(request_id, "attacker-controlled");
-        uuid::Uuid::parse_str(request_id).expect("server UUID request id");
+        uuid::Uuid::parse_str(request_id)?;
         assert_eq!(
             response.headers()["x-new-api-version"],
             concat!("v", env!("CARGO_PKG_VERSION"))
         );
+        Ok(())
     }
 
     #[tokio::test]
-    async fn anonymous_login_body_limit_rejects_before_authentication() {
+    async fn anonymous_login_body_limit_rejects_before_authentication() -> TestResult {
         let auth = Arc::new(MockAuth::success());
         let router = auth_router(
             AuthHttpState::new(auth.clone(), false)
@@ -2255,15 +2216,15 @@ mod tests {
                 "alice",
                 "a password larger than the limit",
                 None,
-            ))
-            .await
-            .expect("response");
+            )?)
+            .await?;
         assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
-        assert!(auth.next.lock().expect("next lock").is_some());
+        assert!(lock_unpoisoned(&auth.next).is_some());
+        Ok(())
     }
 
     #[tokio::test]
-    async fn anonymous_login_body_limit_rejects_before_turnstile() {
+    async fn anonymous_login_body_limit_rejects_before_turnstile() -> TestResult {
         let auth = Arc::new(MockAuth::success());
         let verifier = Arc::new(MockTurnstile::allowing());
         let router = auth_router(
@@ -2280,24 +2241,20 @@ mod tests {
                     .header(header::CONTENT_TYPE, "application/json")
                     .body(Body::from(
                         r#"{"username":"alice","password":"a password larger than the limit"}"#,
-                    ))
-                    .expect("request"),
+                    ))?,
             )
-            .await
-            .expect("response");
+            .await?;
         assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
-        assert!(auth.next.lock().expect("next lock").is_some());
+        assert!(lock_unpoisoned(&auth.next).is_some());
         assert!(
-            verifier
-                .requests
-                .lock()
-                .expect("turnstile requests lock")
+            lock_unpoisoned(&verifier.requests)
                 .is_empty()
         );
+        Ok(())
     }
 
     #[tokio::test]
-    async fn anonymous_registration_middleware_matches_go_guard_order() {
+    async fn anonymous_registration_middleware_matches_go_guard_order() -> TestResult {
         let auth = Arc::new(MockAuth::success());
         let verifier = Arc::new(MockTurnstile::allowing());
         let router = anonymous_registration_surface(
@@ -2313,17 +2270,12 @@ mod tests {
                 Request::builder()
                     .method("POST")
                     .uri("/api/user/register?turnstile=demo-token")
-                    .body(Body::from("012345678901234567"))
-                    .expect("oversized registration request"),
+                    .body(Body::from("012345678901234567"))?,
             )
-            .await
-            .expect("oversized registration response");
+            .await?;
         assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
         assert!(
-            verifier
-                .requests
-                .lock()
-                .expect("turnstile requests lock")
+            lock_unpoisoned(&verifier.requests)
                 .is_empty()
         );
 
@@ -2333,14 +2285,12 @@ mod tests {
                 Request::builder()
                     .method("POST")
                     .uri("/api/user/register")
-                    .body(Body::from("{}"))
-                    .expect("missing-turnstile registration request"),
+                    .body(Body::from("{}"))?,
             )
-            .await
-            .expect("missing-turnstile registration response");
+            .await?;
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(
-            response_json(response).await["message"],
+            response_json(response).await?["message"],
             "Turnstile token 为空"
         );
 
@@ -2349,27 +2299,20 @@ mod tests {
                 Request::builder()
                     .method("POST")
                     .uri("/api/user/register?turnstile=demo-token")
-                    .body(Body::from("{}"))
-                    .expect("verified registration request"),
+                    .body(Body::from("{}"))?,
             )
-            .await
-            .expect("verified registration response");
+            .await?;
         assert_eq!(response.status(), StatusCode::CREATED);
         assert_eq!(
             String::from_utf8(
                 to_bytes(response.into_body(), usize::MAX)
-                    .await
-                    .expect("verified registration body")
+                    .await?
                     .to_vec(),
-            )
-            .expect("verified registration content length"),
+            )?,
             "2"
         );
         assert_eq!(
-            verifier
-                .requests
-                .lock()
-                .expect("turnstile requests lock")
+            lock_unpoisoned(&verifier.requests)
                 .as_slice(),
             &[("demo-token".to_owned(), "unknown".to_owned())]
         );
@@ -2378,12 +2321,13 @@ mod tests {
             3,
             "every registration attempt is rate limited before body or Turnstile"
         );
+        Ok(())
     }
 
     #[tokio::test]
-    async fn anonymous_registration_rate_limit_rejects_before_body_and_turnstile() {
+    async fn anonymous_registration_rate_limit_rejects_before_body_and_turnstile() -> TestResult {
         let auth = Arc::new(MockAuth::success());
-        *auth.rate_limit.lock().expect("rate limit lock") =
+        *lock_unpoisoned(&auth.rate_limit) =
             Ok(CriticalRateLimitOutcome::Rejected {
                 retry_after_seconds: 37,
             });
@@ -2396,66 +2340,59 @@ mod tests {
             Request::builder()
                 .method("POST")
                 .uri("/api/user/register?turnstile=demo-token")
-                .body(Body::from("012345678901234567"))
-                .expect("rate-limited registration request"),
+                .body(Body::from("012345678901234567"))?,
         )
-        .await
-        .expect("rate-limited registration response");
+        .await?;
         assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
         assert_eq!(response.headers()[header::RETRY_AFTER], "37");
         assert!(
             to_bytes(response.into_body(), usize::MAX)
-                .await
-                .expect("rate-limit body")
+                .await?
                 .is_empty()
         );
         assert!(
-            verifier
-                .requests
-                .lock()
-                .expect("turnstile requests lock")
+            lock_unpoisoned(&verifier.requests)
                 .is_empty()
         );
         assert_eq!(auth.rate_limit_checks.load(Ordering::Relaxed), 1);
+        Ok(())
     }
 
     #[tokio::test]
-    async fn critical_rate_limit_returns_empty_429_without_calling_login() {
+    async fn critical_rate_limit_returns_empty_429_without_calling_login() -> TestResult {
         let auth = Arc::new(MockAuth::success());
-        *auth.rate_limit.lock().expect("rate limit lock") =
+        *lock_unpoisoned(&auth.rate_limit) =
             Ok(CriticalRateLimitOutcome::Rejected {
                 retry_after_seconds: 37,
             });
         let response =
             auth_router(AuthHttpState::new(auth.clone(), false).with_password_login_enabled(true))
-                .oneshot(login_request("alice", "pw", None))
-                .await
-                .expect("response");
+                .oneshot(login_request("alice", "pw", None)?)
+                .await?;
         assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
         assert_eq!(response.headers()[header::RETRY_AFTER], "37");
         assert!(!response.headers().contains_key(header::CONTENT_TYPE));
         assert!(
             to_bytes(response.into_body(), usize::MAX)
-                .await
-                .expect("body")
+                .await?
                 .is_empty()
         );
-        assert!(auth.next.lock().expect("next lock").is_some());
+        assert!(lock_unpoisoned(&auth.next).is_some());
+        Ok(())
     }
 
     #[tokio::test]
-    async fn audit_ip_uses_only_trusted_loopback_proxy_headers() {
+    async fn audit_ip_uses_only_trusted_loopback_proxy_headers() -> TestResult {
         let untrusted = Arc::new(MockAuth::success());
         auth_router(AuthHttpState::new(untrusted.clone(), false).with_password_login_enabled(true))
             .oneshot(login_request(
                 "alice",
                 "pw",
                 Some(("198.51.100.20:443", "203.0.113.99")),
-            ))
-            .await
-            .expect("response");
+            )?)
+            .await?;
         assert_eq!(
-            untrusted.metadata.lock().expect("metadata lock")[0].ip,
+            lock_unpoisoned(&untrusted.metadata)[0].ip,
             "198.51.100.20"
         );
 
@@ -2465,20 +2402,20 @@ mod tests {
                 "alice",
                 "pw",
                 Some(("127.0.0.1:443", "203.0.113.99")),
-            ))
-            .await
-            .expect("response");
+            )?)
+            .await?;
         assert_eq!(
-            trusted.metadata.lock().expect("metadata lock")[0].ip,
+            lock_unpoisoned(&trusted.metadata)[0].ip,
             "203.0.113.99"
         );
+        Ok(())
     }
 
     fn login_request(
         username: &str,
         password: &str,
         peer_and_real_ip: Option<(&str, &str)>,
-    ) -> Request {
+    ) -> TestResult<Request> {
         let mut builder = Request::builder()
             .method("POST")
             .uri("/api/user/login")
@@ -2486,20 +2423,18 @@ mod tests {
         if let Some((_, real_ip)) = peer_and_real_ip {
             builder = builder.header("x-real-ip", real_ip);
         }
-        let mut request = builder
-            .body(Body::from(
-                serde_json::json!({"username": username, "password": password}).to_string(),
-            ))
-            .expect("request");
+        let mut request = builder.body(Body::from(
+            serde_json::json!({"username": username, "password": password}).to_string(),
+        ))?;
         if let Some((peer, real_ip)) = peer_and_real_ip {
-            let peer = peer.parse::<SocketAddr>().expect("socket address");
+            let peer = peer.parse::<SocketAddr>()?;
             request.extensions_mut().insert(ConnectInfo(peer));
             // Mirror the listener's default trusted-proxy policy: only a
             // loopback peer may supply the effective client IP via x-real-ip.
             // Untrusted peers retain their socket IP even when that header is
             // present, keeping both audit-IP assertions meaningful.
             let ip = if peer.ip().is_loopback() {
-                real_ip.parse().expect("client IP")
+                real_ip.parse()?
             } else {
                 peer.ip()
             };
@@ -2509,20 +2444,16 @@ mod tests {
             });
             request.extensions_mut().insert(ClientIpKey(ip.to_string()));
         }
-        request
+        Ok(request)
     }
 
-    async fn response_json(response: Response) -> Value {
-        serde_json::from_slice(
-            &to_bytes(response.into_body(), usize::MAX)
-                .await
-                .expect("body"),
-        )
-        .expect("JSON")
+    async fn response_json(response: Response) -> TestResult<Value> {
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
+        Ok(serde_json::from_slice(&body)?)
     }
 
     #[tokio::test]
-    async fn anonymous_request_security_reuses_limit_rate_limit_and_turnstile_policy() {
+    async fn anonymous_request_security_reuses_limit_rate_limit_and_turnstile_policy() -> TestResult {
         let auth = Arc::new(MockAuth::success());
         let verifier = Arc::new(MockTurnstile::allowing());
         let policy = AuthHttpState::new(auth.clone(), false)
@@ -2538,20 +2469,18 @@ mod tests {
         assert_eq!(
             policy
                 .check_turnstile(
-                    &"/api/user/register?turnstile=token".parse().unwrap(),
+                    &"/api/user/register?turnstile=token".parse()?,
                     "203.0.113.9"
                 )
                 .await,
             TurnstileCheckOutcome::Allowed
         );
         assert_eq!(
-            verifier
-                .requests
-                .lock()
-                .expect("turnstile requests lock")
+            lock_unpoisoned(&verifier.requests)
                 .as_slice(),
             &[("token".to_owned(), "203.0.113.9".to_owned())]
         );
         assert_eq!(auth.rate_limit_checks.load(Ordering::Relaxed), 1);
+        Ok(())
     }
 }
