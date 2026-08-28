@@ -511,7 +511,10 @@ impl RelayMediaService for PgRelayMediaService {
             Some(model) => model,
             None => return media_error(StatusCode::BAD_REQUEST, "model is required", &request_id),
         };
-        let body = normalize_media_body(&path_and_query, &headers, body);
+        let body = match normalize_media_body(&path_and_query, &headers, body) {
+            Ok(body) => body,
+            Err(_) => return media_failure(MediaFailure::Storage, &request_id),
+        };
         let channel = match self.select_channel(&identity, &model).await {
             Ok(channel) => channel,
             Err(error) => return media_failure(error, &request_id),
@@ -623,7 +626,34 @@ fn media_default_model(path_and_query: &str) -> Option<&'static str> {
     }
 }
 
-fn normalize_media_body(path_and_query: &str, headers: &HeaderMap, body: Vec<u8>) -> Vec<u8> {
+#[derive(Debug)]
+enum MediaBodyError {
+    Serialization(serde_json::Error),
+}
+
+impl std::fmt::Display for MediaBodyError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Serialization(error) => {
+                write!(formatter, "media body serialization failed: {error}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for MediaBodyError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Serialization(error) => Some(error),
+        }
+    }
+}
+
+fn normalize_media_body(
+    path_and_query: &str,
+    headers: &HeaderMap,
+    body: Vec<u8>,
+) -> Result<Vec<u8>, MediaBodyError> {
     let path = path_and_query
         .split_once('?')
         .map_or(path_and_query, |(path, _)| path);
@@ -632,13 +662,13 @@ fn normalize_media_body(path_and_query: &str, headers: &HeaderMap, body: Vec<u8>
         .and_then(|value| value.to_str().ok())
         .is_some_and(|value| value.starts_with("application/json"));
     if !is_json || !matches!(path, "/v1/images/generations" | "/v1/images/edits") {
-        return body;
+        return Ok(body);
     }
     let Ok(mut value) = serde_json::from_slice::<serde_json::Value>(&body) else {
-        return body;
+        return Ok(body);
     };
     let Some(object) = value.as_object_mut() else {
-        return body;
+        return Ok(body);
     };
     // The Go image adapter applies these defaults while decoding the request,
     // before it forwards JSON to the selected channel.
@@ -650,7 +680,7 @@ fn normalize_media_body(path_and_query: &str, headers: &HeaderMap, body: Vec<u8>
             .entry("prompt")
             .or_insert_with(|| serde_json::Value::String(String::new()));
     }
-    serde_json::to_vec(&value).unwrap_or(body)
+    serde_json::to_vec(&value).map_err(MediaBodyError::Serialization)
 }
 
 fn requires_multipart_audio(path_and_query: &str) -> bool {
@@ -805,22 +835,31 @@ mod tests {
 
     use super::*;
 
+    type TestResult<T = ()> = Result<T, Box<dyn std::error::Error>>;
+
+    fn test_error(context: impl Into<String>) -> Box<dyn std::error::Error> {
+        Box::new(std::io::Error::other(context.into()))
+    }
+
     #[test]
-    fn extracts_model_without_mutating_multipart_bytes() {
+    fn extracts_model_without_mutating_multipart_bytes() -> TestResult {
         let body = b"--boundary\r\nContent-Disposition: form-data; name=\"file\"; filename=\"speech.wav\"\r\n\r\n\x00\xff\r\n--boundary\r\nContent-Disposition: form-data; name=\"model\"\r\n\r\nwhisper-1\r\n--boundary--\r\n";
         assert_eq!(
             media_model("/v1/audio/transcriptions", &HeaderMap::new(), body).as_deref(),
             Some("whisper-1")
         );
         assert!(body.windows(2).any(|bytes| bytes == b"\x00\xff"));
+        Ok(())
     }
 
     #[test]
-    fn json_model_requires_nonempty_value() {
+    fn json_model_requires_nonempty_value() -> TestResult {
         let mut headers = HeaderMap::new();
         headers.insert(
             header::CONTENT_TYPE,
-            "application/json".parse().expect("header"),
+            "application/json".parse().map_err(|error| {
+                test_error(format!("parse request content-type header: {error}"))
+            })?,
         );
         assert_eq!(
             media_model("/v1/audio/speech", &headers, br#"{"model":"tts-1"}"#).as_deref(),
@@ -830,56 +869,68 @@ mod tests {
             media_model("/v1/audio/speech", &headers, br#"{"model":"   "}"#).as_deref(),
             Some("tts-1")
         );
+        Ok(())
     }
 
     #[test]
-    fn image_json_defaults_match_legacy_forwarded_payload() {
+    fn image_json_defaults_match_legacy_forwarded_payload() -> TestResult {
         let mut headers = HeaderMap::new();
         headers.insert(
             header::CONTENT_TYPE,
-            "application/json".parse().expect("header"),
+            "application/json".parse().map_err(|error| {
+                test_error(format!("parse request content-type header: {error}"))
+            })?,
         );
-        let generations: serde_json::Value = serde_json::from_slice(&normalize_media_body(
+        let generations_body = normalize_media_body(
             "/v1/images/generations",
             &headers,
             br#"{"model":"gpt-test","prompt":"hello"}"#.to_vec(),
-        ))
-        .expect("generation JSON");
+        )
+        .map_err(|error| test_error(format!("normalize generation request body: {error}")))?;
+        let generations: serde_json::Value = serde_json::from_slice(&generations_body).map_err(
+            |error| test_error(format!("parse normalized generation body JSON: {error}")),
+        )?;
         assert_eq!(
             generations,
             serde_json::json!({"model":"gpt-test","prompt":"hello","n":1})
         );
-        let edits: serde_json::Value = serde_json::from_slice(&normalize_media_body(
+        let edits_body = normalize_media_body(
             "/v1/images/edits",
             &headers,
             br#"{"model":"gpt-test","image":"fixture-image"}"#.to_vec(),
-        ))
-        .expect("edit JSON");
+        )
+        .map_err(|error| test_error(format!("normalize edit request body: {error}")))?;
+        let edits: serde_json::Value = serde_json::from_slice(&edits_body).map_err(|error| {
+            test_error(format!("parse normalized edit body JSON: {error}"))
+        })?;
         assert_eq!(
             edits,
             serde_json::json!({"model":"gpt-test","image":"fixture-image","n":1,"prompt":""})
         );
+        Ok(())
     }
 
     #[test]
-    fn token_ip_policy_fails_closed_when_an_allow_list_is_present() {
+    fn token_ip_policy_fails_closed_when_an_allow_list_is_present() -> TestResult {
         let localhost = IpAddr::V4(Ipv4Addr::LOCALHOST);
         assert!(ip_is_allowed(Some(localhost), "127.0.0.1\n10.0.0.0/8"));
         assert!(!ip_is_allowed(Some(localhost), "10.0.0.0/8"));
         assert!(!ip_is_allowed(None, "127.0.0.1"));
         assert!(ip_is_allowed(None, ""));
+        Ok(())
     }
 
     #[test]
-    fn only_loopback_targets_are_test_instance_safe() {
-        assert!(is_loopback_mock_target(
-            &reqwest::Url::parse("http://127.0.0.1:18080/v1/audio/speech").expect("url")
-        ));
-        assert!(is_loopback_mock_target(
-            &reqwest::Url::parse("http://localhost:18080/v1/audio/speech").expect("url")
-        ));
-        assert!(!is_loopback_mock_target(
-            &reqwest::Url::parse("https://provider.example/v1/audio/speech").expect("url")
-        ));
+    fn only_loopback_targets_are_test_instance_safe() -> TestResult {
+        let ipv4_url = reqwest::Url::parse("http://127.0.0.1:18080/v1/audio/speech")
+            .map_err(|error| test_error(format!("parse IPv4 loopback provider URL: {error}")))?;
+        assert!(is_loopback_mock_target(&ipv4_url));
+        let localhost_url = reqwest::Url::parse("http://localhost:18080/v1/audio/speech")
+            .map_err(|error| test_error(format!("parse localhost provider URL: {error}")))?;
+        assert!(is_loopback_mock_target(&localhost_url));
+        let remote_url = reqwest::Url::parse("https://provider.example/v1/audio/speech")
+            .map_err(|error| test_error(format!("parse remote provider URL: {error}")))?;
+        assert!(!is_loopback_mock_target(&remote_url));
+        Ok(())
     }
 }
