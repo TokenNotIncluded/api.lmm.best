@@ -591,13 +591,13 @@ mod tests {
     #[test]
     fn json_override_validation_matches_legacy_empty_and_invalid_rules() {
         assert_eq!(
-            validated_json_override(Some("  ".into()), "x").unwrap(),
-            Some(String::new())
+            validated_json_override(Some("  ".into()), "x").ok(),
+            Some(Some(String::new()))
         );
         assert!(validated_json_override(Some("{oops}".into()), "x").is_err());
         assert_eq!(
-            validated_json_override(Some(" {\"x\":1} ".into()), "x").unwrap(),
-            Some("{\"x\":1}".into())
+            validated_json_override(Some(" {\"x\":1} ".into()), "x").ok(),
+            Some(Some("{\"x\":1}".into()))
         );
     }
 }
