@@ -681,6 +681,35 @@ async fn require_payment_compliance(
     }
 }
 
+/// Preserve the mutation gate ordering: console access runs in middleware,
+/// followed by administrator authentication and then payment compliance.
+async fn authorize_admin_write(
+    state: &BillingSubscriptionsState,
+    headers: &HeaderMap,
+) -> Result<DashboardUser, Response> {
+    let administrator = admin(state, headers).await?;
+    require_payment_compliance(state, headers)
+        .await
+        .map_err(with_auth_version)?;
+    Ok(administrator)
+}
+
+async fn authorize_admin_id(
+    state: &BillingSubscriptionsState,
+    headers: &HeaderMap,
+    id: i64,
+    invalid_message: &'static str,
+) -> Result<(), Response> {
+    admin(state, headers).await?;
+    if id <= 0 {
+        return Err(with_auth_version(failure(
+            StatusCode::BAD_REQUEST,
+            invalid_message,
+        )));
+    }
+    Ok(())
+}
+
 #[derive(Clone, Debug, Serialize)]
 struct Plan {
     id: i64,
@@ -830,6 +859,20 @@ impl PlanInput {
     }
 }
 
+async fn validated_plan_input(
+    pg: &PgPool,
+    request: PlanRequest,
+) -> Result<PlanInput, Response> {
+    let input = request
+        .plan
+        .normalize()
+        .map_err(|message| failure(StatusCode::BAD_REQUEST, message))?;
+    validate_plan_groups(pg, &input)
+        .await
+        .map_err(|message| with_auth_version(failure(StatusCode::BAD_REQUEST, message)))?;
+    Ok(input)
+}
+
 async fn validate_plan_groups(pg: &PgPool, input: &PlanInput) -> Result<(), &'static str> {
     if input.upgrade_group.is_empty() && input.downgrade_group.is_empty() {
         return Ok(());
@@ -865,17 +908,7 @@ async fn list_enabled_plans(
         }
         Ok(true) => {}
     }
-    with_auth_version(
-        plans(&state.pg, true)
-            .await
-            .map(|plans| {
-                ok(plans
-                    .into_iter()
-                    .map(|plan| PlanView { plan })
-                    .collect::<Vec<_>>())
-            })
-            .unwrap_or_else(|_| failure(StatusCode::INTERNAL_SERVER_ERROR, "系统错误")),
-    )
+    plan_list_response(plans(&state.pg, true).await)
 }
 async fn admin_list_plans(
     State(state): State<BillingSubscriptionsState>,
@@ -884,15 +917,13 @@ async fn admin_list_plans(
     if let Err(response) = admin(&state, &headers).await {
         return response;
     }
+    plan_list_response(plans(&state.pg, false).await)
+}
+
+fn plan_list_response(result: Result<Vec<Plan>, sqlx::Error>) -> Response {
     with_auth_version(
-        plans(&state.pg, false)
-            .await
-            .map(|plans| {
-                ok(plans
-                    .into_iter()
-                    .map(|plan| PlanView { plan })
-                    .collect::<Vec<_>>())
-            })
+        result
+            .map(|plans| ok(plans.into_iter().map(|plan| PlanView { plan }).collect::<Vec<_>>()))
             .unwrap_or_else(|_| failure(StatusCode::INTERNAL_SERVER_ERROR, "系统错误")),
     )
 }
@@ -917,6 +948,36 @@ pub(crate) async fn enabled_plan_views(pg: &PgPool) -> Result<Vec<PlanView>, sql
         .map(|plans| plans.into_iter().map(|plan| PlanView { plan }).collect())
 }
 const PLAN_SELECT: &str = "SELECT id, title, COALESCE(subtitle, '') subtitle, price_amount::FLOAT8 price_amount, COALESCE(currency, 'USD') currency, COALESCE(duration_unit, 'month') duration_unit, COALESCE(duration_value, 1) duration_value, COALESCE(custom_seconds, 0) custom_seconds, enabled, COALESCE(sort_order, 0) sort_order, COALESCE(allow_balance_pay, TRUE) allow_balance_pay, COALESCE(allow_wallet_overflow, TRUE) allow_wallet_overflow, COALESCE(stripe_price_id, '') stripe_price_id, COALESCE(creem_product_id, '') creem_product_id, COALESCE(waffo_pancake_product_id, '') waffo_pancake_product_id, COALESCE(max_purchase_per_user, 0) max_purchase_per_user, COALESCE(total_amount, 0) total_amount, COALESCE(upgrade_group, '') upgrade_group, COALESCE(downgrade_group, '') downgrade_group, COALESCE(quota_reset_period, 'never') quota_reset_period, COALESCE(quota_reset_custom_seconds, 0) quota_reset_custom_seconds, COALESCE(created_at, 0) created_at, COALESCE(updated_at, 0) updated_at FROM subscription_plans";
+
+fn bind_plan_input<'q>(
+    query: sqlx::query::Query<'q, Postgres, sqlx::postgres::PgArguments>,
+    input: &'q PlanInput,
+    allow_balance_pay: Option<bool>,
+    allow_wallet_overflow: Option<bool>,
+) -> sqlx::query::Query<'q, Postgres, sqlx::postgres::PgArguments> {
+    query
+        .bind(&input.title)
+        .bind(&input.subtitle)
+        .bind(input.price_amount)
+        .bind(&input.currency)
+        .bind(&input.duration_unit)
+        .bind(input.duration_value)
+        .bind(input.custom_seconds)
+        .bind(input.enabled)
+        .bind(input.sort_order)
+        .bind(allow_balance_pay)
+        .bind(allow_wallet_overflow)
+        .bind(&input.stripe_price_id)
+        .bind(&input.creem_product_id)
+        .bind(&input.waffo_pancake_product_id)
+        .bind(input.max_purchase_per_user)
+        .bind(input.total_amount)
+        .bind(&input.upgrade_group)
+        .bind(&input.downgrade_group)
+        .bind(&input.quota_reset_period)
+        .bind(input.quota_reset_custom_seconds)
+}
+
 fn plan_from_row(row: &sqlx::postgres::PgRow) -> Result<Plan, sqlx::Error> {
     Ok(Plan {
         id: row.try_get("id")?,
@@ -950,22 +1011,23 @@ async fn admin_create_plan(
     headers: HeaderMap,
     Json(input): Json<PlanRequest>,
 ) -> Response {
-    if let Err(response) = admin(&state, &headers).await {
+    if let Err(response) = authorize_admin_write(&state, &headers).await {
         return response;
     }
-    if let Err(response) = require_payment_compliance(&state, &headers).await {
-        return with_auth_version(response);
-    }
-    let input = match input.plan.normalize() {
+    let input = match validated_plan_input(&state.pg, input).await {
         Ok(input) => input,
-        Err(message) => return failure(StatusCode::BAD_REQUEST, message),
+        Err(response) => return response,
     };
-    if let Err(message) = validate_plan_groups(&state.pg, &input).await {
-        return with_auth_version(failure(StatusCode::BAD_REQUEST, message));
-    }
     let now = now();
-    let row = sqlx::query("INSERT INTO subscription_plans (title, subtitle, price_amount, currency, duration_unit, duration_value, custom_seconds, enabled, sort_order, allow_balance_pay, allow_wallet_overflow, stripe_price_id, creem_product_id, waffo_pancake_product_id, max_purchase_per_user, total_amount, upgrade_group, downgrade_group, quota_reset_period, quota_reset_custom_seconds, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$21) RETURNING id")
-        .bind(&input.title).bind(&input.subtitle).bind(input.price_amount).bind(&input.currency).bind(&input.duration_unit).bind(input.duration_value).bind(input.custom_seconds).bind(input.enabled).bind(input.sort_order).bind(input.allow_balance_pay.unwrap_or(true)).bind(input.allow_wallet_overflow.unwrap_or(true)).bind(&input.stripe_price_id).bind(&input.creem_product_id).bind(&input.waffo_pancake_product_id).bind(input.max_purchase_per_user).bind(input.total_amount).bind(&input.upgrade_group).bind(&input.downgrade_group).bind(&input.quota_reset_period).bind(input.quota_reset_custom_seconds).bind(now).fetch_one(&state.pg).await;
+    let row = bind_plan_input(
+        sqlx::query("INSERT INTO subscription_plans (title, subtitle, price_amount, currency, duration_unit, duration_value, custom_seconds, enabled, sort_order, allow_balance_pay, allow_wallet_overflow, stripe_price_id, creem_product_id, waffo_pancake_product_id, max_purchase_per_user, total_amount, upgrade_group, downgrade_group, quota_reset_period, quota_reset_custom_seconds, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$21) RETURNING id"),
+        &input,
+        Some(input.allow_balance_pay.unwrap_or(true)),
+        Some(input.allow_wallet_overflow.unwrap_or(true)),
+    )
+    .bind(now)
+    .fetch_one(&state.pg)
+    .await;
     match row {
         Ok(row) => {
             let id: i64 = match row.try_get("id") {
@@ -988,24 +1050,26 @@ async fn admin_update_plan(
     Path(id): Path<i64>,
     Json(input): Json<PlanRequest>,
 ) -> Response {
-    if let Err(response) = admin(&state, &headers).await {
+    if let Err(response) = authorize_admin_write(&state, &headers).await {
         return response;
-    }
-    if let Err(response) = require_payment_compliance(&state, &headers).await {
-        return with_auth_version(response);
     }
     if id <= 0 {
         return failure(StatusCode::BAD_REQUEST, "无效的ID");
     }
-    let input = match input.plan.normalize() {
+    let input = match validated_plan_input(&state.pg, input).await {
         Ok(input) => input,
-        Err(message) => return failure(StatusCode::BAD_REQUEST, message),
+        Err(response) => return response,
     };
-    if let Err(message) = validate_plan_groups(&state.pg, &input).await {
-        return with_auth_version(failure(StatusCode::BAD_REQUEST, message));
-    }
-    let updated = sqlx::query("UPDATE subscription_plans SET title=$2, subtitle=$3, price_amount=$4, currency=$5, duration_unit=$6, duration_value=$7, custom_seconds=$8, enabled=$9, sort_order=$10, allow_balance_pay=COALESCE($11, allow_balance_pay), allow_wallet_overflow=COALESCE($12, allow_wallet_overflow), stripe_price_id=$13, creem_product_id=$14, waffo_pancake_product_id=$15, max_purchase_per_user=$16, total_amount=$17, upgrade_group=$18, downgrade_group=$19, quota_reset_period=$20, quota_reset_custom_seconds=$21, updated_at=$22 WHERE id=$1")
-        .bind(id).bind(&input.title).bind(&input.subtitle).bind(input.price_amount).bind(&input.currency).bind(&input.duration_unit).bind(input.duration_value).bind(input.custom_seconds).bind(input.enabled).bind(input.sort_order).bind(input.allow_balance_pay).bind(input.allow_wallet_overflow).bind(&input.stripe_price_id).bind(&input.creem_product_id).bind(&input.waffo_pancake_product_id).bind(input.max_purchase_per_user).bind(input.total_amount).bind(&input.upgrade_group).bind(&input.downgrade_group).bind(&input.quota_reset_period).bind(input.quota_reset_custom_seconds).bind(now()).execute(&state.pg).await;
+    let updated = bind_plan_input(
+        sqlx::query("UPDATE subscription_plans SET title=$2, subtitle=$3, price_amount=$4, currency=$5, duration_unit=$6, duration_value=$7, custom_seconds=$8, enabled=$9, sort_order=$10, allow_balance_pay=COALESCE($11, allow_balance_pay), allow_wallet_overflow=COALESCE($12, allow_wallet_overflow), stripe_price_id=$13, creem_product_id=$14, waffo_pancake_product_id=$15, max_purchase_per_user=$16, total_amount=$17, upgrade_group=$18, downgrade_group=$19, quota_reset_period=$20, quota_reset_custom_seconds=$21, updated_at=$22 WHERE id=$1")
+            .bind(id),
+        &input,
+        input.allow_balance_pay,
+        input.allow_wallet_overflow,
+    )
+    .bind(now())
+    .execute(&state.pg)
+    .await;
     match updated {
         Ok(_) => {
             evict_plan(&state, id).await;
@@ -1025,11 +1089,8 @@ async fn admin_update_plan_status(
     Path(id): Path<i64>,
     Json(input): Json<StatusRequest>,
 ) -> Response {
-    if let Err(response) = admin(&state, &headers).await {
+    if let Err(response) = authorize_admin_write(&state, &headers).await {
         return response;
-    }
-    if let Err(response) = require_payment_compliance(&state, &headers).await {
-        return with_auth_version(response);
     }
     if id <= 0 {
         return with_auth_version(failure(StatusCode::BAD_REQUEST, "无效的ID"));
@@ -1057,13 +1118,10 @@ async fn admin_delete_plan(
     headers: HeaderMap,
     Path(id): Path<i64>,
 ) -> Response {
-    let administrator = match admin(&state, &headers).await {
+    let administrator = match authorize_admin_write(&state, &headers).await {
         Ok(administrator) => administrator,
         Err(response) => return response,
     };
-    if let Err(response) = require_payment_compliance(&state, &headers).await {
-        return with_auth_version(response);
-    }
     if id <= 0 {
         return with_auth_version(failure(StatusCode::BAD_REQUEST, "无效的ID"));
     }
@@ -1424,11 +1482,8 @@ async fn admin_bind_subscription(
     headers: HeaderMap,
     Json(input): Json<BindRequest>,
 ) -> Response {
-    if let Err(response) = admin(&state, &headers).await {
+    if let Err(response) = authorize_admin_write(&state, &headers).await {
         return response;
-    }
-    if let Err(response) = require_payment_compliance(&state, &headers).await {
-        return with_auth_version(response);
     }
     with_auth_version(bind(&state, input.user_id, input.plan_id).await)
 }
@@ -1438,11 +1493,8 @@ async fn admin_create_user_subscription(
     Path(user_id): Path<i64>,
     Json(input): Json<CreateSubscriptionRequest>,
 ) -> Response {
-    if let Err(response) = admin(&state, &headers).await {
+    if let Err(response) = authorize_admin_write(&state, &headers).await {
         return response;
-    }
-    if let Err(response) = require_payment_compliance(&state, &headers).await {
-        return with_auth_version(response);
     }
     if user_id <= 0 {
         return with_auth_version(failure(StatusCode::BAD_REQUEST, "无效的用户ID"));
@@ -1453,14 +1505,9 @@ async fn bind(state: &BillingSubscriptionsState, user_id: i64, plan_id: i64) -> 
     if user_id <= 0 || plan_id <= 0 {
         return failure(StatusCode::BAD_REQUEST, "参数错误");
     }
-    let mut tx = match state.pg.begin().await {
-        Ok(tx) => tx,
-        Err(_) => return failure(StatusCode::INTERNAL_SERVER_ERROR, "系统错误"),
-    };
-    let plan = match locked_plan(&mut tx, plan_id).await {
-        Ok(Some(plan)) => plan,
-        Ok(None) => return failure(StatusCode::NOT_FOUND, "套餐不存在"),
-        Err(_) => return failure(StatusCode::INTERNAL_SERVER_ERROR, "系统错误"),
+    let (mut tx, plan) = match transaction_with_locked_plan(&state.pg, plan_id).await {
+        Ok(transaction) => transaction,
+        Err(response) => return response,
     };
     match create_subscription(&mut tx, user_id, &plan, "admin").await {
         Ok(message) => match tx.commit().await {
@@ -1496,6 +1543,22 @@ async fn locked_plan(
         .await?
         .map(|row| plan_from_row(&row))
         .transpose()
+}
+
+async fn transaction_with_locked_plan<'a>(
+    pg: &'a PgPool,
+    plan_id: i64,
+) -> Result<(Transaction<'a, Postgres>, Plan), Response> {
+    let mut tx = pg
+        .begin()
+        .await
+        .map_err(|_| failure(StatusCode::INTERNAL_SERVER_ERROR, "系统错误"))?;
+    let plan = match locked_plan(&mut tx, plan_id).await {
+        Ok(Some(plan)) => plan,
+        Ok(None) => return Err(failure(StatusCode::NOT_FOUND, "套餐不存在")),
+        Err(_) => return Err(failure(StatusCode::INTERNAL_SERVER_ERROR, "系统错误")),
+    };
+    Ok((tx, plan))
 }
 async fn create_subscription(
     tx: &mut Transaction<'_, Postgres>,
@@ -1647,11 +1710,10 @@ async fn admin_reset_user_subscriptions(
     Path(user_id): Path<i64>,
     Json(input): Json<ResetRequest>,
 ) -> Response {
-    if let Err(response) = admin(&state, &headers).await {
+    if let Err(response) =
+        authorize_admin_id(&state, &headers, user_id, "无效的用户ID").await
+    {
         return response;
-    }
-    if user_id <= 0 {
-        return with_auth_version(failure(StatusCode::BAD_REQUEST, "无效的用户ID"));
     }
     let Some(plan_id) = input.plan_id else {
         return failure(StatusCode::BAD_REQUEST, "参数错误");
@@ -1672,11 +1734,8 @@ async fn admin_reset_plan(
     Path(plan_id): Path<i64>,
     Json(input): Json<ResetRequest>,
 ) -> Response {
-    if let Err(response) = admin(&state, &headers).await {
+    if let Err(response) = authorize_admin_id(&state, &headers, plan_id, "无效的ID").await {
         return response;
-    }
-    if plan_id <= 0 {
-        return with_auth_version(failure(StatusCode::BAD_REQUEST, "无效的ID"));
     }
     with_auth_version(
         reset(
@@ -1694,14 +1753,9 @@ async fn reset(
     plan_id: i64,
     advance: bool,
 ) -> Response {
-    let mut tx = match state.pg.begin().await {
-        Ok(tx) => tx,
-        Err(_) => return failure(StatusCode::INTERNAL_SERVER_ERROR, "系统错误"),
-    };
-    let plan = match locked_plan(&mut tx, plan_id).await {
-        Ok(Some(plan)) => plan,
-        Ok(None) => return failure(StatusCode::NOT_FOUND, "套餐不存在"),
-        Err(_) => return failure(StatusCode::INTERNAL_SERVER_ERROR, "系统错误"),
+    let (mut tx, plan) = match transaction_with_locked_plan(&state.pg, plan_id).await {
+        Ok(transaction) => transaction,
+        Err(response) => return response,
     };
     let current = now();
     let rows = match user_id { Some(user) => sqlx::query(&format!("{SUB_SELECT} WHERE user_id=$1 AND plan_id=$2 AND status='active' AND end_time>$3 ORDER BY end_time,id FOR UPDATE")).bind(user).bind(plan_id).bind(current).fetch_all(&mut *tx).await, None => sqlx::query(&format!("{SUB_SELECT} WHERE plan_id=$1 AND status='active' AND end_time>$2 ORDER BY user_id,end_time,id FOR UPDATE")).bind(plan_id).bind(current).fetch_all(&mut *tx).await };
@@ -1765,11 +1819,10 @@ async fn admin_list_user_subscriptions(
     headers: HeaderMap,
     Path(user_id): Path<i64>,
 ) -> Response {
-    if let Err(response) = admin(&state, &headers).await {
+    if let Err(response) =
+        authorize_admin_id(&state, &headers, user_id, "无效的用户ID").await
+    {
         return response;
-    }
-    if user_id <= 0 {
-        return with_auth_version(failure(StatusCode::BAD_REQUEST, "无效的用户ID"));
     }
     with_auth_version(
         subscriptions(&state.pg, user_id, false)
@@ -1783,20 +1836,26 @@ async fn admin_invalidate_subscription(
     headers: HeaderMap,
     Path(id): Path<i64>,
 ) -> Response {
-    if let Err(response) = admin(&state, &headers).await {
-        return response;
-    }
-    with_auth_version(change_subscription_status(&state, id, true).await)
+    admin_change_subscription(&state, &headers, id, true).await
 }
 async fn admin_delete_subscription(
     State(state): State<BillingSubscriptionsState>,
     headers: HeaderMap,
     Path(id): Path<i64>,
 ) -> Response {
-    if let Err(response) = admin(&state, &headers).await {
+    admin_change_subscription(&state, &headers, id, false).await
+}
+
+async fn admin_change_subscription(
+    state: &BillingSubscriptionsState,
+    headers: &HeaderMap,
+    id: i64,
+    invalidate: bool,
+) -> Response {
+    if let Err(response) = admin(state, headers).await {
         return response;
     }
-    with_auth_version(change_subscription_status(&state, id, false).await)
+    with_auth_version(change_subscription_status(state, id, invalidate).await)
 }
 async fn change_subscription_status(
     state: &BillingSubscriptionsState,
