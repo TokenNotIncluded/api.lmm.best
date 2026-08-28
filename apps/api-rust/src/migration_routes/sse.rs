@@ -793,10 +793,36 @@ mod tests {
         parse_sse_frames_rejecting_unterminated, unknown_event_decision,
     };
 
+    type TestResult<T = ()> = Result<T, Box<dyn std::error::Error>>;
+
+    fn test_error(message: impl Into<String>) -> Box<dyn std::error::Error> {
+        Box::new(std::io::Error::other(message.into()))
+    }
+
+    fn with_context<T>(result: Result<T, SseError>, context: impl AsRef<str>) -> TestResult<T> {
+        result.map_err(|error| test_error(format!("{}: {error}", context.as_ref())))
+    }
+
+    fn expected_sse_error<T>(
+        result: Result<T, SseError>,
+        context: impl AsRef<str>,
+    ) -> TestResult<SseError> {
+        match result {
+            Ok(_) => Err(test_error(format!(
+                "{}: operation unexpectedly succeeded",
+                context.as_ref()
+            ))),
+            Err(error) => Ok(error),
+        }
+    }
+
     #[test]
-    fn parser_joins_multiple_data_lines_and_preserves_event_metadata() {
+    fn parser_joins_multiple_data_lines_and_preserves_event_metadata() -> TestResult {
         let input = b"event: update\nid: abc\nretry: 1500\n: note\ndata: first\ndata: second\n\n";
-        let frames = parse_sse_frames(input, DEFAULT_MAX_FRAME_BYTES).expect("valid SSE");
+        let frames = with_context(
+            parse_sse_frames(input, DEFAULT_MAX_FRAME_BYTES),
+            "failed to parse the multi-line SSE data frame",
+        )?;
         assert_eq!(frames.len(), 1);
         assert_eq!(frames[0].event.as_deref(), Some("update"));
         assert_eq!(frames[0].id.as_deref(), Some("abc"));
@@ -804,96 +830,137 @@ mod tests {
         assert_eq!(frames[0].comments, vec!["note"]);
         assert_eq!(frames[0].data, "first\nsecond");
         assert_eq!(frames[0].raw, input);
+        Ok(())
     }
 
     #[test]
-    fn parser_accepts_crlf_and_field_values_without_a_space() {
-        let frames = parse_sse_frames(
-            b"event:update\r\ndata:[DONE]\r\n\r\n",
-            DEFAULT_MAX_FRAME_BYTES,
-        )
-        .expect("valid CRLF SSE");
+    fn parser_accepts_crlf_and_field_values_without_a_space() -> TestResult {
+        let frames = with_context(
+            parse_sse_frames(
+                b"event:update\r\ndata:[DONE]\r\n\r\n",
+                DEFAULT_MAX_FRAME_BYTES,
+            ),
+            "failed to parse the CRLF-delimited SSE frame",
+        )?;
         assert_eq!(frames[0].event.as_deref(), Some("update"));
         assert!(frames[0].is_done());
+        Ok(())
     }
 
     #[test]
-    fn parser_accepts_carriage_return_line_endings() {
-        let frames = parse_sse_frames(b"data: {\"ok\":true}\r\r", DEFAULT_MAX_FRAME_BYTES)
-            .expect("valid CR SSE");
+    fn parser_accepts_carriage_return_line_endings() -> TestResult {
+        let frames = with_context(
+            parse_sse_frames(b"data: {\"ok\":true}\r\r", DEFAULT_MAX_FRAME_BYTES),
+            "failed to parse the carriage-return-delimited SSE frame",
+        )?;
         assert_eq!(frames[0].data, "{\"ok\":true}");
+        Ok(())
     }
 
     #[test]
-    fn parser_emits_empty_data_frame() {
-        let frames = parse_sse_frames(b"data:\n\n", DEFAULT_MAX_FRAME_BYTES).expect("valid SSE");
+    fn parser_emits_empty_data_frame() -> TestResult {
+        let frames = with_context(
+            parse_sse_frames(b"data:\n\n", DEFAULT_MAX_FRAME_BYTES),
+            "failed to parse the empty-data SSE frame",
+        )?;
         assert_eq!(frames[0].data, "");
         assert!(frames[0].has_data);
         assert!(!frames[0].is_done());
+        Ok(())
     }
 
     #[test]
-    fn parser_dispatches_comment_only_frames_without_losing_comment_data() {
-        let frames = parse_sse_frames(b": keep-alive\n\n", DEFAULT_MAX_FRAME_BYTES)
-            .expect("valid comment frame");
+    fn parser_dispatches_comment_only_frames_without_losing_comment_data() -> TestResult {
+        let frames = with_context(
+            parse_sse_frames(b": keep-alive\n\n", DEFAULT_MAX_FRAME_BYTES),
+            "failed to parse the comment-only SSE frame",
+        )?;
         assert_eq!(frames[0].comments, vec!["keep-alive"]);
         assert!(!frames[0].has_data);
+        Ok(())
     }
 
     #[test]
-    fn parser_strict_eof_does_not_dispatch_an_unterminated_frame() {
-        let frames = parse_sse_frames(b"data: [DONE]", DEFAULT_MAX_FRAME_BYTES).expect("EOF");
+    fn parser_strict_eof_does_not_dispatch_an_unterminated_frame() -> TestResult {
+        let frames = with_context(
+            parse_sse_frames(b"data: [DONE]", DEFAULT_MAX_FRAME_BYTES),
+            "failed to finish the unterminated strict-mode SSE frame",
+        )?;
         assert!(frames.is_empty());
+        Ok(())
     }
 
     #[test]
-    fn parser_can_explicitly_flush_an_unterminated_legacy_frame() {
+    fn parser_can_explicitly_flush_an_unterminated_legacy_frame() -> TestResult {
         let mut parser = SseFrameParser::new(DEFAULT_MAX_FRAME_BYTES)
             .with_eof_mode(SseEofMode::FlushUnterminated);
-        let frames = parser.feed(b"data: [DONE]").expect("feed");
+        let frames = with_context(
+            parser.feed(b"data: [DONE]"),
+            "failed to feed the unterminated legacy stream item",
+        )?;
         assert!(frames.is_empty());
-        let frames = parser.finish().expect("EOF flush");
+        let frames = with_context(
+            parser.finish(),
+            "failed to flush the unterminated legacy SSE frame at EOF",
+        )?;
         assert_eq!(frames.len(), 1);
         assert!(frames[0].is_done());
+        Ok(())
     }
 
     #[test]
-    fn parser_handles_every_single_byte_chunk_boundary() {
+    fn parser_handles_every_single_byte_chunk_boundary() -> TestResult {
         let input = b"event: update\r\ndata: {\"x\":\"y\"}\r\n\r\ndata: [DONE]\n\n";
         let mut parser = SseFrameParser::new(DEFAULT_MAX_FRAME_BYTES);
         let mut frames = Vec::new();
-        for byte in input {
-            frames.extend(parser.feed(std::slice::from_ref(byte)).expect("byte feed"));
+        for (index, byte) in input.iter().enumerate() {
+            frames.extend(with_context(
+                parser.feed(std::slice::from_ref(byte)),
+                format!("failed to parse SSE stream item byte at offset {index}"),
+            )?);
         }
-        frames.extend(parser.finish().expect("EOF flush"));
+        frames.extend(with_context(
+            parser.finish(),
+            "failed to finish the byte-at-a-time SSE stream",
+        )?);
         assert_eq!(frames.len(), 2);
         assert_eq!(frames[0].data, "{\"x\":\"y\"}");
         assert!(frames[1].is_done());
+        Ok(())
     }
 
     #[test]
-    fn parser_ignores_invalid_retry_without_discarding_the_frame() {
-        let frames = parse_sse_frames(
-            b"retry: 100\nretry: +1\nretry: \xEF\xBC\x91\ndata: {}\n\n",
-            DEFAULT_MAX_FRAME_BYTES,
-        )
-        .expect("invalid retry is ignored");
+    fn parser_ignores_invalid_retry_without_discarding_the_frame() -> TestResult {
+        let frames = with_context(
+            parse_sse_frames(
+                b"retry: 100\nretry: +1\nretry: \xEF\xBC\x91\ndata: {}\n\n",
+                DEFAULT_MAX_FRAME_BYTES,
+            ),
+            "failed to parse the SSE frame containing UTF-8 retry data",
+        )?;
         assert_eq!(frames[0].retry, Some(100));
+        Ok(())
     }
 
     #[test]
-    fn parser_ignores_an_id_containing_nul() {
-        let frames = parse_sse_frames(
-            b"id: retained\nid: bad\x00id\ndata: {}\n\n",
-            DEFAULT_MAX_FRAME_BYTES,
-        )
-        .expect("NUL id is ignored");
+    fn parser_ignores_an_id_containing_nul() -> TestResult {
+        let frames = with_context(
+            parse_sse_frames(
+                b"id: retained\nid: bad\x00id\ndata: {}\n\n",
+                DEFAULT_MAX_FRAME_BYTES,
+            ),
+            "failed to parse the SSE frame containing a NUL id",
+        )?;
         assert_eq!(frames[0].id.as_deref(), Some("retained"));
+        Ok(())
     }
 
     #[test]
-    fn parser_rejects_frames_over_the_configured_limit() {
-        let error = parse_sse_frames(b"data: 123\n\n", 5).unwrap_err();
+    fn parser_rejects_frames_over_the_configured_limit() -> TestResult {
+        let error = expected_sse_error(
+            parse_sse_frames(b"data: 123\n\n", 5),
+            "oversized SSE frame was not rejected",
+        )?;
         assert_eq!(
             error,
             SseError::FrameTooLarge {
@@ -901,112 +968,148 @@ mod tests {
                 observed: 6
             }
         );
+        Ok(())
     }
 
     #[test]
-    fn parser_strict_eof_discards_a_frame_after_a_complete_data_line() {
+    fn parser_strict_eof_discards_a_frame_after_a_complete_data_line() -> TestResult {
         let mut parser = SseFrameParser::new(DEFAULT_MAX_FRAME_BYTES);
-        assert!(parser.feed(b"data: value\n").expect("feed").is_empty());
-        let frames = parser.finish().expect("EOF flush");
+        let frames = with_context(
+            parser.feed(b"data: value\n"),
+            "failed to feed a complete data-line stream item",
+        )?;
         assert!(frames.is_empty());
+        let frames = with_context(
+            parser.finish(),
+            "failed to finish the strict-mode SSE frame at EOF",
+        )?;
+        assert!(frames.is_empty());
+        Ok(())
     }
 
     #[test]
-    fn lossless_adapter_mode_rejects_an_unterminated_frame() {
-        assert_eq!(
-            parse_sse_frames_rejecting_unterminated(b"data: value\n", DEFAULT_MAX_FRAME_BYTES)
-                .unwrap_err(),
-            SseError::UnterminatedFrame
-        );
-        assert_eq!(
-            parse_sse_frames_rejecting_unterminated(b"data: value\r", DEFAULT_MAX_FRAME_BYTES)
-                .unwrap_err(),
-            SseError::UnterminatedFrame
-        );
-        assert_eq!(
-            parse_sse_frames_rejecting_unterminated(b"data: value\r\r", DEFAULT_MAX_FRAME_BYTES)
-                .expect("CR empty-line delimiter")
-                .len(),
-            1
-        );
+    fn lossless_adapter_mode_rejects_an_unterminated_frame() -> TestResult {
+        let lf_error = expected_sse_error(
+            parse_sse_frames_rejecting_unterminated(b"data: value\n", DEFAULT_MAX_FRAME_BYTES),
+            "LF-terminated data line was accepted as a complete lossless SSE frame",
+        )?;
+        assert_eq!(lf_error, SseError::UnterminatedFrame);
+        let cr_error = expected_sse_error(
+            parse_sse_frames_rejecting_unterminated(b"data: value\r", DEFAULT_MAX_FRAME_BYTES),
+            "CR-terminated data line was accepted as a complete lossless SSE frame",
+        )?;
+        assert_eq!(cr_error, SseError::UnterminatedFrame);
+        let frames = with_context(
+            parse_sse_frames_rejecting_unterminated(
+                b"data: value\r\r",
+                DEFAULT_MAX_FRAME_BYTES,
+            ),
+            "failed to parse the CR-empty-line-delimited lossless SSE frame",
+        )?;
+        assert_eq!(frames.len(), 1);
+        Ok(())
     }
 
     #[test]
-    fn lossless_adapter_counts_partial_bom_and_plain_prefix_as_unterminated() {
+    fn lossless_adapter_counts_partial_bom_and_plain_prefix_as_unterminated() -> TestResult {
         for prefix in [b"\xef".as_slice(), b"\xef\xbb".as_slice()] {
             let mut parser = SseFrameParser::new(DEFAULT_MAX_FRAME_BYTES);
-            parser.feed(prefix).expect("partial BOM");
+            with_context(
+                parser.feed(prefix),
+                "failed to feed a partial UTF-8 BOM stream item",
+            )?;
             assert!(parser.has_unfinished_frame());
         }
         for prefix in [b"d".as_slice(), b"da".as_slice()] {
-            assert_eq!(
-                parse_sse_frames_rejecting_unterminated(prefix, DEFAULT_MAX_FRAME_BYTES)
-                    .unwrap_err(),
-                SseError::UnterminatedFrame
-            );
+            let error = expected_sse_error(
+                parse_sse_frames_rejecting_unterminated(prefix, DEFAULT_MAX_FRAME_BYTES),
+                "plain UTF-8 prefix was accepted as a complete lossless SSE frame",
+            )?;
+            assert_eq!(error, SseError::UnterminatedFrame);
         }
+        Ok(())
     }
 
     #[test]
-    fn lossless_adapter_does_not_mistake_short_empty_lines_for_partial_bom() {
+    fn lossless_adapter_does_not_mistake_short_empty_lines_for_partial_bom() -> TestResult {
         for input in [b"\n".as_slice(), b"\r".as_slice(), b"\r\n".as_slice()] {
-            assert!(
-                parse_sse_frames_rejecting_unterminated(input, DEFAULT_MAX_FRAME_BYTES)
-                    .expect("short empty line")
-                    .is_empty()
-            );
+            let frames = with_context(
+                parse_sse_frames_rejecting_unterminated(input, DEFAULT_MAX_FRAME_BYTES),
+                "failed to parse a short empty-line SSE stream item",
+            )?;
+            assert!(frames.is_empty());
         }
+        Ok(())
     }
 
     #[test]
-    fn parser_ignores_a_utf8_bom_once_even_when_split_across_chunks() {
+    fn parser_ignores_a_utf8_bom_once_even_when_split_across_chunks() -> TestResult {
         let mut parser = SseFrameParser::new(DEFAULT_MAX_FRAME_BYTES);
-        assert!(parser.feed(b"\xef").expect("BOM prefix").is_empty());
-        assert!(parser.feed(b"\xbb").expect("BOM prefix").is_empty());
-        let frames = parser.feed(b"\xbfdata: {}\n\n").expect("BOM and frame");
+        let frames = with_context(
+            parser.feed(b"\xef"),
+            "failed to feed the first UTF-8 BOM stream item",
+        )?;
+        assert!(frames.is_empty());
+        let frames = with_context(
+            parser.feed(b"\xbb"),
+            "failed to feed the second UTF-8 BOM stream item",
+        )?;
+        assert!(frames.is_empty());
+        let frames = with_context(
+            parser.feed(b"\xbfdata: {}\n\n"),
+            "failed to parse the SSE frame following a split UTF-8 BOM",
+        )?;
         assert_eq!(frames.len(), 1);
         assert_eq!(frames[0].data, "{}");
         assert_eq!(frames[0].raw, b"\xef\xbb\xbfdata: {}\n\n");
+        Ok(())
     }
 
     #[test]
-    fn parser_active_storage_stays_within_the_frame_limit_during_slow_feed() {
+    fn parser_active_storage_stays_within_the_frame_limit_during_slow_feed() -> TestResult {
         let limit = 64;
         let input = b"data: bounded\n\n";
         let mut parser = SseFrameParser::new(limit);
-        for byte in input {
-            let frames = parser.feed(std::slice::from_ref(byte)).expect("byte feed");
+        for (index, byte) in input.iter().enumerate() {
+            let frames = with_context(
+                parser.feed(std::slice::from_ref(byte)),
+                format!("failed to parse bounded SSE stream item byte at offset {index}"),
+            )?;
             assert!(parser.buffered_frame_bytes() <= limit);
             assert!(parser.line.len() <= limit);
             assert!(frames.len() <= 1);
         }
+        Ok(())
     }
 
     #[test]
-    fn same_protocol_unknown_events_are_preserved() {
+    fn same_protocol_unknown_events_are_preserved() -> TestResult {
         let decision = unknown_event_decision(true, Some("future_event"));
         assert_eq!(decision.class, UnknownEventClass::Content);
         assert_eq!(decision.action, UnknownEventAction::Preserve);
         assert_eq!(decision.loss_code, None);
+        Ok(())
     }
 
     #[test]
-    fn cross_protocol_metadata_unknown_events_record_loss_and_continue() {
+    fn cross_protocol_metadata_unknown_events_record_loss_and_continue() -> TestResult {
         let decision = unknown_event_decision(false, Some("message_metadata"));
         assert_eq!(decision.class, UnknownEventClass::Metadata);
         assert_eq!(decision.action, UnknownEventAction::RecordLossAndContinue);
         assert_eq!(decision.loss_code, Some("LOSS_UNKNOWN_EVENT"));
+        Ok(())
     }
 
     #[test]
-    fn cross_protocol_content_unknown_events_require_degraded_handling() {
+    fn cross_protocol_content_unknown_events_require_degraded_handling() -> TestResult {
         let decision = unknown_event_decision(false, Some("future_content"));
         assert_eq!(decision.class, UnknownEventClass::Content);
         assert_eq!(decision.action, UnknownEventAction::DegradedOrError);
+        Ok(())
     }
 
     #[test]
-    fn cross_protocol_punctuation_delimited_metadata_events_record_loss() {
+    fn cross_protocol_punctuation_delimited_metadata_events_record_loss() -> TestResult {
         for event_name in ["response.metadata", "response-usage", "metadata.update"] {
             let decision = unknown_event_decision(false, Some(event_name));
             assert_eq!(decision.class, UnknownEventClass::Metadata, "{event_name}");
@@ -1016,17 +1119,19 @@ mod tests {
                 "{event_name}"
             );
         }
+        Ok(())
     }
 
     #[test]
-    fn cross_protocol_termination_takes_precedence_over_metadata_name() {
+    fn cross_protocol_termination_takes_precedence_over_metadata_name() -> TestResult {
         let decision = unknown_event_decision(false, Some("metadata.complete"));
         assert_eq!(decision.class, UnknownEventClass::Termination);
         assert_eq!(decision.action, UnknownEventAction::DegradedOrError);
+        Ok(())
     }
 
     #[test]
-    fn unknown_event_words_are_matched_as_tokens_not_substrings() {
+    fn unknown_event_words_are_matched_as_tokens_not_substrings() -> TestResult {
         for event_name in ["abandoned_content", "keepsake_content", "keep_content"] {
             let decision = unknown_event_decision(false, Some(event_name));
             assert_eq!(decision.class, UnknownEventClass::Content, "{event_name}");
@@ -1036,46 +1141,67 @@ mod tests {
                 "{event_name}"
             );
         }
+        Ok(())
     }
 
     #[test]
-    fn legacy_json_adapter_preserves_unknown_event_name() {
-        let frames = parse_sse_frames(
-            b"event: future_event\ndata: {\"value\":1}\n\ndata: [DONE]\n\n",
-            DEFAULT_MAX_FRAME_BYTES,
-        )
-        .expect("valid SSE");
-        let events = json_events_from_frames(&frames).expect("JSON-compatible frames");
+    fn legacy_json_adapter_preserves_unknown_event_name() -> TestResult {
+        let frames = with_context(
+            parse_sse_frames(
+                b"event: future_event\ndata: {\"value\":1}\n\ndata: [DONE]\n\n",
+                DEFAULT_MAX_FRAME_BYTES,
+            ),
+            "failed to parse the unknown-event JSON SSE frames",
+        )?;
+        let events = with_context(
+            json_events_from_frames(&frames),
+            "failed to adapt parsed SSE frames into JSON stream items",
+        )?;
         assert_eq!(events[0].event.as_deref(), Some("future_event"));
         assert_eq!(events[0].payload["value"], 1);
+        Ok(())
     }
 
     #[test]
-    fn legacy_json_adapter_rejects_metadata_instead_of_dropping_it() {
-        let frames = parse_sse_frames(b"id: abc\ndata: {\"value\":1}\n\n", DEFAULT_MAX_FRAME_BYTES)
-            .expect("valid SSE");
+    fn legacy_json_adapter_rejects_metadata_instead_of_dropping_it() -> TestResult {
+        let frames = with_context(
+            parse_sse_frames(b"id: abc\ndata: {\"value\":1}\n\n", DEFAULT_MAX_FRAME_BYTES),
+            "failed to parse the metadata-bearing JSON SSE frame",
+        )?;
+        let error = expected_sse_error(
+            json_events_from_frames(&frames),
+            "JSON adapter accepted an SSE frame with unsupported id metadata",
+        )?;
         assert_eq!(
-            json_events_from_frames(&frames).unwrap_err(),
+            error,
             SseError::UnsupportedMetadata {
                 frame: 0,
                 field: "id"
             }
         );
+        Ok(())
     }
 
     #[test]
-    fn legacy_json_adapter_rejects_an_event_name_on_done() {
-        let frames = parse_sse_frames(
-            b"event: future_terminal\ndata: [DONE]\n\n",
-            DEFAULT_MAX_FRAME_BYTES,
-        )
-        .expect("valid SSE");
+    fn legacy_json_adapter_rejects_an_event_name_on_done() -> TestResult {
+        let frames = with_context(
+            parse_sse_frames(
+                b"event: future_terminal\ndata: [DONE]\n\n",
+                DEFAULT_MAX_FRAME_BYTES,
+            ),
+            "failed to parse the named terminal SSE frame",
+        )?;
+        let error = expected_sse_error(
+            json_events_from_frames(&frames),
+            "JSON adapter accepted event metadata on a terminal SSE frame",
+        )?;
         assert_eq!(
-            json_events_from_frames(&frames).unwrap_err(),
+            error,
             SseError::UnsupportedMetadata {
                 frame: 0,
                 field: "event"
             }
         );
+        Ok(())
     }
 }
