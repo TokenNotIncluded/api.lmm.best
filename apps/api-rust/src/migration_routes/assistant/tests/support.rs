@@ -3,15 +3,26 @@ use super::super::key_creation::{
     PreparedKeyAction, PreparedKeyDraft, Repository,
 };
 use super::super::*;
+use super::{TestResult, test_error};
 use axum::body::to_bytes;
 use secrecy::{ExposeSecret, SecretString};
-use std::{collections::VecDeque, sync::Mutex};
+use std::{
+    collections::VecDeque,
+    sync::{Mutex, MutexGuard},
+};
 
 use crate::auth::{
     AuthBundle, AuthError, CriticalRateLimitOutcome, DashboardSessionContext, DashboardUser,
     LoginOutcome, LoginRequest, LogoutRequest, LogoutResult, RequestMetadata,
     TwoFactorLoginRequest,
 };
+
+fn lock_recover<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    match mutex.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(in crate::migration_routes::assistant) struct FixtureResolveCall {
@@ -189,10 +200,7 @@ impl AssistantReadStore for FixtureStore {
     }
 
     async fn record_intent(&self, user_id: i64, intent: &str) {
-        self.intent_calls
-            .lock()
-            .expect("intent call lock")
-            .push((user_id, intent.to_owned()));
+        lock_recover(&self.intent_calls).push((user_id, intent.to_owned()));
     }
 
     async fn cached_response(&self, _: &str) -> Option<AssistantCachedResponse> {
@@ -205,11 +213,7 @@ impl AssistantReadStore for FixtureStore {
         response: &AssistantCachedResponse,
         ttl: Duration,
     ) {
-        self.stored_cache.lock().expect("stored cache lock").push((
-            key.to_owned(),
-            response.clone(),
-            ttl,
-        ));
+        lock_recover(&self.stored_cache).push((key.to_owned(), response.clone(), ttl));
     }
 
     async fn submit_handoff(
@@ -218,14 +222,11 @@ impl AssistantReadStore for FixtureStore {
         username: &str,
         message: &str,
     ) -> Result<AssistantLead, String> {
-        self.submit_calls
-            .lock()
-            .expect("submit call lock")
-            .push(FixtureSubmitCall {
-                user_id,
-                username: username.to_owned(),
-                message: message.to_owned(),
-            });
+        lock_recover(&self.submit_calls).push(FixtureSubmitCall {
+            user_id,
+            username: username.to_owned(),
+            message: message.to_owned(),
+        });
         self.submit_result
             .clone()
             .unwrap_or_else(|| Err("unexpected submit call".to_owned()))
@@ -238,15 +239,12 @@ impl AssistantReadStore for FixtureStore {
         lead_id: i64,
         note: &str,
     ) -> Result<AssistantLead, ResolveHandoffError> {
-        self.resolve_calls
-            .lock()
-            .expect("resolve call lock")
-            .push(FixtureResolveCall {
-                admin_user_id,
-                admin_username: admin_username.to_owned(),
-                lead_id,
-                note: note.to_owned(),
-            });
+        lock_recover(&self.resolve_calls).push(FixtureResolveCall {
+            admin_user_id,
+            admin_username: admin_username.to_owned(),
+            lead_id,
+            note: note.to_owned(),
+        });
         self.resolve_result.clone().unwrap_or_else(|| {
             Err(ResolveHandoffError::Unavailable(
                 "unexpected resolve call".to_owned(),
@@ -255,7 +253,7 @@ impl AssistantReadStore for FixtureStore {
     }
 
     async fn record_admin_audit(&self, audit: AssistantAdminAudit) {
-        self.audits.lock().expect("audit lock").push(audit);
+        lock_recover(&self.audits).push(audit);
     }
 }
 
@@ -296,10 +294,8 @@ impl AssistantAgentBackend for FixtureAgentBackend {
         &self,
         turn: AssistantAgentTurn,
     ) -> Result<AssistantAgentTurnResponse, String> {
-        self.turns.lock().expect("agent turn lock").push(turn);
-        self.responses
-            .lock()
-            .expect("agent response lock")
+        lock_recover(&self.turns).push(turn);
+        lock_recover(&self.responses)
             .pop_front()
             .unwrap_or_else(|| Err("unexpected agent turn".to_owned()))
     }
@@ -308,10 +304,7 @@ impl AssistantAgentBackend for FixtureAgentBackend {
 #[async_trait]
 impl AssistantUserRateLimiter for FixtureUserRateLimiter {
     async fn check(&self, scope: &str, user_id: i64) -> Result<CriticalRateLimitOutcome, ()> {
-        self.calls
-            .lock()
-            .expect("user rate limit call lock")
-            .push((scope.to_owned(), user_id));
+        lock_recover(&self.calls).push((scope.to_owned(), user_id));
         self.outcome
     }
 }
@@ -459,10 +452,7 @@ impl Repository for FixtureStore {
         &self,
         user_group: &str,
     ) -> Result<Vec<AssistantKeyGroupOption>, String> {
-        self.key_group_calls
-            .lock()
-            .expect("key group call lock")
-            .push(user_group.to_owned());
+        lock_recover(&self.key_group_calls).push(user_group.to_owned());
         self.key_group_options_result
             .clone()
             .unwrap_or_else(|| Err("unexpected key group call".to_owned()))
@@ -474,14 +464,11 @@ impl Repository for FixtureStore {
         session_id: &str,
         draft: PreparedKeyDraft,
     ) -> Result<PreparedKeyAction, KeyCreationError> {
-        self.prepare_key_calls
-            .lock()
-            .expect("prepare key call lock")
-            .push(FixturePrepareKeyCall {
-                user_id,
-                session_id: session_id.to_owned(),
-                draft,
-            });
+        lock_recover(&self.prepare_key_calls).push(FixturePrepareKeyCall {
+            user_id,
+            session_id: session_id.to_owned(),
+            draft,
+        });
         self.prepare_key_result.clone().unwrap_or_else(|| {
             Err(KeyCreationError::Unavailable(
                 "unexpected prepare key call".to_owned(),
@@ -495,17 +482,14 @@ impl Repository for FixtureStore {
         token: ConfirmationToken,
         two_factor_code: &str,
     ) -> Result<CreatedKey, KeyCreationError> {
-        self.confirm_key_calls
-            .lock()
-            .expect("confirm key call lock")
-            .push(FixtureConfirmKeyCall {
-                actor_id: authorization_fence.actor_id(),
-                session_id: authorization_fence.session_id().to_owned(),
-                expected_session_version: authorization_fence.expected_session_version(),
-                expected_user_auth_version: authorization_fence.expected_user_auth_version(),
-                token,
-                two_factor_code: two_factor_code.to_owned(),
-            });
+        lock_recover(&self.confirm_key_calls).push(FixtureConfirmKeyCall {
+            actor_id: authorization_fence.actor_id(),
+            session_id: authorization_fence.session_id().to_owned(),
+            expected_session_version: authorization_fence.expected_session_version(),
+            expected_user_auth_version: authorization_fence.expected_user_auth_version(),
+            token,
+            two_factor_code: two_factor_code.to_owned(),
+        });
         self.confirm_key_result.clone().unwrap_or_else(|| {
             Err(KeyCreationError::Unavailable(
                 "unexpected confirm key call".to_owned(),
@@ -518,21 +502,23 @@ pub(in crate::migration_routes::assistant) fn fixture_key_groups() -> Vec<Assist
     vec![AssistantKeyGroupOption::selectable("default", "默认分组")]
 }
 
-pub(in crate::migration_routes::assistant) fn fixture_router(store: FixtureStore) -> Router {
+pub(in crate::migration_routes::assistant) fn fixture_router(
+    store: FixtureStore,
+) -> TestResult<Router> {
     fixture_router_with_auth(store, FixtureAuth::default())
 }
 
 pub(in crate::migration_routes::assistant) fn fixture_router_with_auth(
     store: FixtureStore,
     auth: FixtureAuth,
-) -> Router {
+) -> TestResult<Router> {
     fixture_router_with_dependencies(store, auth, None)
 }
 
 pub(in crate::migration_routes::assistant) fn fixture_router_with_user_rate_limiter(
     store: FixtureStore,
     limiter: Arc<dyn AssistantUserRateLimiter>,
-) -> Router {
+) -> TestResult<Router> {
     fixture_router_with_dependencies(store, FixtureAuth::default(), Some(limiter))
 }
 
@@ -540,11 +526,20 @@ pub(in crate::migration_routes::assistant) fn fixture_router_with_dependencies(
     store: FixtureStore,
     auth: FixtureAuth,
     limiter: Option<Arc<dyn AssistantUserRateLimiter>>,
-) -> Router {
+) -> TestResult<Router> {
+    const POSTGRES_URI: &str = "postgres://postgres@127.0.0.1:1/assistant";
+    const VALKEY_URI: &str = "redis://127.0.0.1/";
+
     let pg = sqlx::postgres::PgPoolOptions::new()
-        .connect_lazy("postgres://postgres@127.0.0.1:1/assistant")
-        .expect("valid lazy PostgreSQL URL");
-    let valkey = redis::Client::open("redis://127.0.0.1/").expect("valid Valkey URL");
+        .connect_lazy(POSTGRES_URI)
+        .map_err(|error| {
+            test_error(format!(
+                "parse fixture PostgreSQL URI `{POSTGRES_URI}`: {error}"
+            ))
+        })?;
+    let valkey = redis::Client::open(VALKEY_URI).map_err(|error| {
+        test_error(format!("parse fixture Valkey URI `{VALKEY_URI}`: {error}"))
+    })?;
     let mut state = AssistantReadState::new(
         pg,
         valkey,
@@ -562,17 +557,26 @@ pub(in crate::migration_routes::assistant) fn fixture_router_with_dependencies(
     if let Some(limiter) = limiter {
         state = state.with_user_rate_limiter(limiter);
     }
-    assistant_read_router(state)
+    Ok(assistant_read_router(state))
 }
 
 pub(in crate::migration_routes::assistant) fn fixture_router_with_agent(
     store: FixtureStore,
     backend: Arc<dyn AssistantAgentBackend>,
-) -> Router {
+) -> TestResult<Router> {
+    const POSTGRES_URI: &str = "postgres://postgres@127.0.0.1:1/assistant";
+    const VALKEY_URI: &str = "redis://127.0.0.1/";
+
     let pg = sqlx::postgres::PgPoolOptions::new()
-        .connect_lazy("postgres://postgres@127.0.0.1:1/assistant")
-        .expect("valid lazy PostgreSQL URL");
-    let valkey = redis::Client::open("redis://127.0.0.1/").expect("valid Valkey URL");
+        .connect_lazy(POSTGRES_URI)
+        .map_err(|error| {
+            test_error(format!(
+                "parse fixture PostgreSQL URI `{POSTGRES_URI}`: {error}"
+            ))
+        })?;
+    let valkey = redis::Client::open(VALKEY_URI).map_err(|error| {
+        test_error(format!("parse fixture Valkey URI `{VALKEY_URI}`: {error}"))
+    })?;
     let state = AssistantReadState::new(
         pg,
         valkey,
@@ -588,12 +592,23 @@ pub(in crate::migration_routes::assistant) fn fixture_router_with_agent(
     )
     .with_store(Arc::new(store))
     .with_agent_backend(backend);
-    assistant_read_router(state)
+    Ok(assistant_read_router(state))
 }
 
-pub(in crate::migration_routes::assistant) async fn response_json(response: Response) -> Value {
+pub(in crate::migration_routes::assistant) async fn response_json(
+    response: Response,
+) -> TestResult<Value> {
     let bytes = to_bytes(response.into_body(), usize::MAX)
         .await
-        .expect("response body");
-    serde_json::from_slice(&bytes).expect("JSON response")
+        .map_err(|error| test_error(format!("read assistant fixture response body: {error}")))?;
+    let body = std::str::from_utf8(&bytes).map_err(|error| {
+        test_error(format!(
+            "decode assistant fixture response body as UTF-8: {error}"
+        ))
+    })?;
+    serde_json::from_str(body).map_err(|error| {
+        test_error(format!(
+            "decode assistant fixture response body as JSON: {error}; body: {body:?}"
+        ))
+    })
 }
