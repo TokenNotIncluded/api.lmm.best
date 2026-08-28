@@ -2468,9 +2468,9 @@ mod tests {
         let count = redemption
             .get("count")
             .ok_or_else(|| test_error("catalog redemption fixture JSON is missing count"))?;
-        let deleted_at = redemption.get("DeletedAt").ok_or_else(|| {
-            test_error("catalog redemption fixture JSON is missing DeletedAt")
-        })?;
+        let deleted_at = redemption
+            .get("DeletedAt")
+            .ok_or_else(|| test_error("catalog redemption fixture JSON is missing DeletedAt"))?;
         assert_eq!(count, &json!(0));
         assert_eq!(deleted_at, &Value::Null);
         Ok(())

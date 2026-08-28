@@ -845,9 +845,10 @@ fn export_zip(files: &BTreeMap<String, Vec<u8>>) -> Result<Vec<u8>, FinanceExpor
             })?;
         }
     }
-    writer.finish().map(Cursor::into_inner).map_err(|source| {
-        FinanceExportError::from(FinanceExportBuildError::ZipFinish { source })
-    })
+    writer
+        .finish()
+        .map(Cursor::into_inner)
+        .map_err(|source| FinanceExportError::from(FinanceExportBuildError::ZipFinish { source }))
 }
 
 fn text_response(bytes: Vec<u8>) -> Response {
@@ -888,13 +889,12 @@ fn zip_response(bytes: Vec<u8>) -> Result<Response, FinanceExportError> {
 }
 
 fn content_disposition(filename: &str) -> Result<HeaderValue, FinanceExportError> {
-    HeaderValue::from_str(&format!("attachment; filename=\"{filename}\""))
-        .map_err(|source| {
-            FinanceExportError::from(FinanceExportBuildError::Header {
-                name: "content-disposition",
-                source,
-            })
+    HeaderValue::from_str(&format!("attachment; filename=\"{filename}\"")).map_err(|source| {
+        FinanceExportError::from(FinanceExportBuildError::Header {
+            name: "content-disposition",
+            source,
         })
+    })
 }
 
 fn authenticated_handler_response(response: Response) -> Response {

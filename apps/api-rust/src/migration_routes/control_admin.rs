@@ -423,10 +423,7 @@ mod discovery_tests {
         Box::new(io::Error::other(message.into()))
     }
 
-    fn discovery_error(
-        result: Result<Value, String>,
-        context: &'static str,
-    ) -> TestResult<String> {
+    fn discovery_error(result: Result<Value, String>, context: &'static str) -> TestResult<String> {
         match result {
             Ok(_) => Err(test_error(format!(
                 "{context}: discovery succeeded when an error was required"
@@ -435,10 +432,7 @@ mod discovery_tests {
         }
     }
 
-    fn required_json_string<'a>(
-        document: &'a Value,
-        field: &'static str,
-    ) -> TestResult<&'a str> {
+    fn required_json_string<'a>(document: &'a Value, field: &'static str) -> TestResult<&'a str> {
         document
             .get(field)
             .and_then(Value::as_str)
@@ -477,9 +471,7 @@ mod discovery_tests {
         Ok(TestServer { base, task })
     }
 
-    async fn valid_document(
-        headers: HeaderMap,
-    ) -> Result<axum::Json<Value>, StatusCode> {
+    async fn valid_document(headers: HeaderMap) -> Result<axum::Json<Value>, StatusCode> {
         let host = headers
             .get(header::HOST)
             .ok_or(StatusCode::BAD_REQUEST)?
@@ -1332,10 +1324,9 @@ async fn update_oauth(
             return failure(StatusCode::OK, "该 Slug 与内置 OAuth 提供商冲突");
         }
     }
-    let access_policy = request.access_policy.map_or_else(
-        || current.access_policy.clone(),
-        std::convert::identity,
-    );
+    let access_policy = request
+        .access_policy
+        .map_or_else(|| current.access_policy.clone(), std::convert::identity);
     if let Err(message) = validate_access_policy(&access_policy) {
         return failure(StatusCode::OK, message);
     }
@@ -1451,8 +1442,7 @@ async fn oauth_discovery(State(state): State<ControlAdminState>, request: Reques
     };
     match reqwest::Url::parse(url.trim()) {
         Ok(parsed)
-            if parsed.host_str().is_some()
-                && matches!(parsed.scheme(), "http" | "https") => {}
+            if parsed.host_str().is_some() && matches!(parsed.scheme(), "http" | "https") => {}
         Ok(_) | Err(_) => {
             return failure(StatusCode::OK, "Discovery URL 无效，仅支持 http/https");
         }
@@ -1486,8 +1476,8 @@ async fn list_system_tasks(
     if let Err(response) = root(&state, &headers).await {
         return response;
     }
-    let requested_limit = raw_query_i64(query.0.as_deref(), "limit")
-        .map_or(0, std::convert::identity);
+    let requested_limit =
+        raw_query_i64(query.0.as_deref(), "limit").map_or(0, std::convert::identity);
     let limit = if requested_limit <= 0 {
         20
     } else {
@@ -1693,20 +1683,15 @@ async fn list_tasks(
     // as zero.
     let query_limit = (page_size >= 0).then_some(page_size);
     let query_offset = (page - 1).saturating_mul(page_size).max(0);
-    let platform = raw_query_string(raw, "platform")
-        .map_or_else(String::new, std::convert::identity);
-    let task_id = raw_query_string(raw, "task_id")
-        .map_or_else(String::new, std::convert::identity);
-    let status = raw_query_string(raw, "status")
-        .map_or_else(String::new, std::convert::identity);
-    let action = raw_query_string(raw, "action")
-        .map_or_else(String::new, std::convert::identity);
-    let start_timestamp = raw_query_i64(raw, "start_timestamp")
-        .map_or(0, std::convert::identity);
-    let end_timestamp = raw_query_i64(raw, "end_timestamp")
-        .map_or(0, std::convert::identity);
-    let channel_id_text = raw_query_string(raw, "channel_id")
-        .map_or_else(String::new, std::convert::identity);
+    let platform =
+        raw_query_string(raw, "platform").map_or_else(String::new, std::convert::identity);
+    let task_id = raw_query_string(raw, "task_id").map_or_else(String::new, std::convert::identity);
+    let status = raw_query_string(raw, "status").map_or_else(String::new, std::convert::identity);
+    let action = raw_query_string(raw, "action").map_or_else(String::new, std::convert::identity);
+    let start_timestamp = raw_query_i64(raw, "start_timestamp").map_or(0, std::convert::identity);
+    let end_timestamp = raw_query_i64(raw, "end_timestamp").map_or(0, std::convert::identity);
+    let channel_id_text =
+        raw_query_string(raw, "channel_id").map_or_else(String::new, std::convert::identity);
     let channel_id = if channel_id_text.is_empty() {
         None
     } else {

@@ -307,9 +307,12 @@ mod tests {
                 "{path}"
             );
             assert_eq!(response.headers()["x-upstream-id"], "video-1", "{path}");
-            let response_body = to_bytes(response.into_body(), usize::MAX)
-                .await
-                .map_err(|error| test_error(format!("read {method} {path} response body"), error))?;
+            let response_body =
+                to_bytes(response.into_body(), usize::MAX)
+                    .await
+                    .map_err(|error| {
+                        test_error(format!("read {method} {path} response body"), error)
+                    })?;
             assert_eq!(response_body, vec![0, 255, 7], "{path}");
             let recorded_calls = calls
                 .lock()
@@ -363,8 +366,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn rejected_authentication_uses_the_boundary_request_id_in_the_legacy_envelope(
-    ) -> TestResult {
+    async fn rejected_authentication_uses_the_boundary_request_id_in_the_legacy_envelope()
+    -> TestResult {
         let calls = Arc::new(Mutex::new(Vec::new()));
         let mut request = HttpRequest::post("/v1/videos/video-1/remix")
             .body(Body::from("{}"))
@@ -420,11 +423,10 @@ mod tests {
                 .uri(path)
                 .body(Body::empty())
                 .map_err(|error| test_error(format!("build {method} {path} request"), error))?;
-            let response = router
-                .clone()
-                .oneshot(request)
-                .await
-                .map_err(|error| test_error(format!("receive {method} {path} response"), error))?;
+            let response =
+                router.clone().oneshot(request).await.map_err(|error| {
+                    test_error(format!("receive {method} {path} response"), error)
+                })?;
             assert_eq!(response.status(), expected, "{method} {path}");
         }
         assert!(

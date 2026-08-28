@@ -1847,9 +1847,9 @@ async fn load_topups(
             acc.add_revenue(&method, &provider, amount, timestamp, user_id);
         }
         processed += rows.len() as i64;
-        let last = rows.last().ok_or_else(|| {
-            FinanceError("top-up pagination returned an empty batch".to_owned())
-        })?;
+        let last = rows
+            .last()
+            .ok_or_else(|| FinanceError("top-up pagination returned an empty batch".to_owned()))?;
         last_ts = row_get(last, "complete_time")?;
         if last_ts <= 0 {
             last_ts = row_get(last, "create_time")?;
@@ -2016,9 +2016,9 @@ async fn load_usage_logs(
             acc.add_usage(user_id, created_at, prompt, completion, cost, priced);
         }
         processed += rows.len() as i64;
-        let last = rows.last().ok_or_else(|| {
-            FinanceError("usage pagination returned an empty batch".to_owned())
-        })?;
+        let last = rows
+            .last()
+            .ok_or_else(|| FinanceError("usage pagination returned an empty batch".to_owned()))?;
         last_ts = row_get(last, "created_at")?;
         last_request_id = row_get(last, "request_id")?;
         if (rows.len() as i64) < limit {
@@ -2132,9 +2132,9 @@ async fn load_ledger_entries(
             }
         }
         processed += rows.len() as i64;
-        let last = rows.last().ok_or_else(|| {
-            FinanceError("ledger pagination returned an empty batch".to_owned())
-        })?;
+        let last = rows
+            .last()
+            .ok_or_else(|| FinanceError("ledger pagination returned an empty batch".to_owned()))?;
         last_ts = row_get(last, "occurred_at")?;
         last_id = row_get(last, "id")?;
         if (rows.len() as i64) < limit {

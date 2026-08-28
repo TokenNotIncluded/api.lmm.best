@@ -869,9 +869,7 @@ mod tests {
         ] {
             let request = Request::get("/api/rankings/users")
                 .body(Body::empty())
-                .map_err(|error| {
-                    test_error("build concealed user-ranking query request", error)
-                })?;
+                .map_err(|error| test_error("build concealed user-ranking query request", error))?;
             let response = test_app(
                 actor,
                 Ok(HeaderNavAccess {
@@ -881,9 +879,7 @@ mod tests {
             )
             .oneshot(request)
             .await
-            .map_err(|error| {
-                test_error("serve concealed user-ranking query request", error)
-            })?;
+            .map_err(|error| test_error("serve concealed user-ranking query request", error))?;
 
             assert_eq!(response.status(), StatusCode::NOT_FOUND);
         }
