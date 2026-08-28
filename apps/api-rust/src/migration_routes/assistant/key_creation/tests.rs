@@ -1,11 +1,13 @@
 use std::{
     collections::BTreeMap,
-    sync::{Arc, Mutex},
+    error::Error,
+    io,
+    sync::{Arc, Mutex, MutexGuard},
 };
 
 use axum::{
     Router,
-    body::Body,
+    body::{Body, to_bytes},
     http::{Request, Response, StatusCode, header},
 };
 use serde_json::{Value, json};
@@ -15,9 +17,25 @@ use super::{KEY_MUTATION_BODY_LIMIT_BYTES, domain::*};
 use crate::auth::CriticalRateLimitOutcome;
 use crate::migration_routes::assistant::tests::support::{
     FixtureStore, FixtureUserRateLimiter, fixture_router, fixture_router_with_user_rate_limiter,
-    response_json,
 };
 use crate::migration_routes::missing_identity_catalog::UserGroupSelection;
+
+type TestResult<T = ()> = Result<T, Box<dyn Error + Send + Sync>>;
+
+fn test_error(message: impl Into<String>) -> Box<dyn Error + Send + Sync> {
+    Box::new(io::Error::other(message.into()))
+}
+
+fn required<T>(value: Option<T>, context: impl Into<String>) -> TestResult<T> {
+    value.ok_or_else(|| test_error(context))
+}
+
+fn lock_recover<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    match mutex.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    }
+}
 
 fn prepared_action() -> PreparedKeyAction {
     PreparedKeyAction {
@@ -50,19 +68,45 @@ fn created_key() -> CreatedKey {
     }
 }
 
-async fn route_json(store: FixtureStore, path: &str, body: Value) -> (StatusCode, Value) {
-    let response = fixture_router(store)
-        .oneshot(
-            Request::post(path)
-                .header(header::AUTHORIZATION, "Bearer admin-session")
-                .header(header::CONTENT_TYPE, "application/json")
-                .body(Body::from(body.to_string()))
-                .expect("request"),
-        )
+fn build_post_request(
+    path: &str,
+    authorization: Option<&str>,
+    body: String,
+) -> TestResult<Request<Body>> {
+    let mut request = Request::post(path).header(header::CONTENT_TYPE, "application/json");
+    if let Some(authorization) = authorization {
+        request = request.header(header::AUTHORIZATION, authorization);
+    }
+    request.body(Body::from(body)).map_err(|error| {
+        test_error(format!(
+            "build POST request for URI `{path}` with JSON body: {error}"
+        ))
+    })
+}
+
+async fn json_response(response: Response<Body>, path: &str) -> TestResult<Value> {
+    let bytes = to_bytes(response.into_body(), usize::MAX)
         .await
-        .expect("response");
+        .map_err(|error| test_error(format!("read response body for URI `{path}`: {error}")))?;
+    serde_json::from_slice(&bytes)
+        .map_err(|error| test_error(format!("decode response JSON for URI `{path}`: {error}")))
+}
+
+async fn route_json(
+    store: FixtureStore,
+    path: &str,
+    body: Value,
+) -> TestResult<(StatusCode, Value)> {
+    let response = fixture_router(store)
+        .oneshot(build_post_request(
+            path,
+            Some("Bearer admin-session"),
+            body.to_string(),
+        )?)
+        .await
+        .map_err(|error| test_error(format!("send POST request to URI `{path}`: {error}")))?;
     let status = response.status();
-    (status, response_json(response).await)
+    Ok((status, json_response(response, path).await?))
 }
 
 async fn raw_route(
@@ -70,40 +114,48 @@ async fn raw_route(
     path: &str,
     authorization: Option<&str>,
     body: String,
-) -> Response<Body> {
-    let mut request = Request::post(path).header(header::CONTENT_TYPE, "application/json");
-    if let Some(authorization) = authorization {
-        request = request.header(header::AUTHORIZATION, authorization);
-    }
+) -> TestResult<Response<Body>> {
     router
-        .oneshot(request.body(Body::from(body)).expect("request"))
+        .oneshot(build_post_request(path, authorization, body)?)
         .await
-        .expect("response")
+        .map_err(|error| test_error(format!("send POST request to URI `{path}`: {error}")))
 }
 
-fn json_padded_to_limit(value: Value) -> String {
+fn json_padded_to_limit(value: Value) -> TestResult<String> {
     let mut body = value.to_string();
-    assert!(body.len() <= KEY_MUTATION_BODY_LIMIT_BYTES);
-    body.extend(std::iter::repeat_n(
-        ' ',
-        KEY_MUTATION_BODY_LIMIT_BYTES - body.len(),
-    ));
-    body
+    let padding = KEY_MUTATION_BODY_LIMIT_BYTES
+        .checked_sub(body.len())
+        .ok_or_else(|| {
+            test_error(format!(
+                "JSON body is {} bytes, exceeding the {KEY_MUTATION_BODY_LIMIT_BYTES}-byte limit",
+                body.len()
+            ))
+        })?;
+    body.extend(std::iter::repeat_n(' ', padding));
+    Ok(body)
 }
 
-fn assert_key_mutation_headers(response: &Response<Body>) {
-    assert!(response.headers().contains_key("auth-version"));
-    assert!(
-        response
-            .headers()
-            .get(header::CACHE_CONTROL)
-            .and_then(|value| value.to_str().ok())
-            .is_some_and(|value| value.contains("no-store"))
-    );
+fn assert_key_mutation_headers(response: &Response<Body>, path: &str) -> TestResult {
+    required(
+        response.headers().get("auth-version"),
+        format!("response for URI `{path}` is missing auth-version"),
+    )?;
+    let cache_control = required(
+        response.headers().get(header::CACHE_CONTROL),
+        format!("response for URI `{path}` is missing cache-control"),
+    )?
+    .to_str()
+    .map_err(|error| {
+        test_error(format!(
+            "response cache-control for URI `{path}` is not text: {error}"
+        ))
+    })?;
+    assert!(cache_control.contains("no-store"), "{path}");
+    Ok(())
 }
 
 #[tokio::test]
-async fn anonymous_and_personal_token_requests_authenticate_before_body_validation() {
+async fn anonymous_and_personal_token_requests_authenticate_before_body_validation() -> TestResult {
     for path in [
         "/api/assistant/tools/prepare-key",
         "/api/assistant/tools/create-key",
@@ -115,7 +167,7 @@ async fn anonymous_and_personal_token_requests_authenticate_before_body_validati
             None,
             oversized.clone(),
         )
-        .await;
+        .await?;
         assert_eq!(anonymous.status(), StatusCode::UNAUTHORIZED, "{path}");
 
         let personal_token = raw_route(
@@ -124,16 +176,17 @@ async fn anonymous_and_personal_token_requests_authenticate_before_body_validati
             Some("Bearer user-token"),
             oversized,
         )
-        .await;
+        .await?;
         assert_eq!(personal_token.status(), StatusCode::FORBIDDEN, "{path}");
-        assert_key_mutation_headers(&personal_token);
-        let body = response_json(personal_token).await;
+        assert_key_mutation_headers(&personal_token, path)?;
+        let body = json_response(personal_token, path).await?;
         assert_eq!(body["code"], "ASSISTANT_SESSION_REQUIRED", "{path}");
     }
+    Ok(())
 }
 
 #[tokio::test]
-async fn l0_console_gate_runs_after_json_validation_and_before_rate_limit() {
+async fn l0_console_gate_runs_after_json_validation_and_before_rate_limit() -> TestResult {
     for (path, valid_body) in [
         (
             "/api/assistant/tools/prepare-key",
@@ -159,16 +212,17 @@ async fn l0_console_gate_runs_after_json_validation_and_before_rate_limit() {
                 Some("Bearer browser-session"),
                 body,
             )
-            .await;
+            .await?;
             assert_eq!(response.status(), expected_status, "{path}");
-            assert_key_mutation_headers(&response);
-            assert!(calls.lock().expect("rate limit calls").is_empty(), "{path}");
+            assert_key_mutation_headers(&response, path)?;
+            assert!(lock_recover(&calls).is_empty(), "{path}");
         }
     }
+    Ok(())
 }
 
 #[tokio::test]
-async fn invalid_and_oversized_bodies_do_not_consume_key_mutation_rate_limit() {
+async fn invalid_and_oversized_bodies_do_not_consume_key_mutation_rate_limit() -> TestResult {
     for path in [
         "/api/assistant/tools/prepare-key",
         "/api/assistant/tools/create-key",
@@ -186,9 +240,9 @@ async fn invalid_and_oversized_bodies_do_not_consume_key_mutation_rate_limit() {
             Some("Bearer admin-session"),
             "not-json".to_owned(),
         )
-        .await;
+        .await?;
         assert_eq!(invalid.status(), StatusCode::BAD_REQUEST, "{path}");
-        assert_key_mutation_headers(&invalid);
+        assert_key_mutation_headers(&invalid, path)?;
 
         let oversized = raw_route(
             router,
@@ -196,15 +250,16 @@ async fn invalid_and_oversized_bodies_do_not_consume_key_mutation_rate_limit() {
             Some("Bearer admin-session"),
             "x".repeat(KEY_MUTATION_BODY_LIMIT_BYTES + 1),
         )
-        .await;
+        .await?;
         assert_eq!(oversized.status(), StatusCode::PAYLOAD_TOO_LARGE, "{path}");
-        assert_key_mutation_headers(&oversized);
-        assert!(calls.lock().expect("rate limit calls").is_empty(), "{path}");
+        assert_key_mutation_headers(&oversized, path)?;
+        assert!(lock_recover(&calls).is_empty(), "{path}");
     }
+    Ok(())
 }
 
 #[tokio::test]
-async fn exact_16_kib_body_reaches_rate_limit_but_one_extra_byte_does_not() {
+async fn exact_16_kib_body_reaches_rate_limit_but_one_extra_byte_does_not() -> TestResult {
     for (path, scope, value) in [
         (
             "/api/assistant/tools/prepare-key",
@@ -225,7 +280,7 @@ async fn exact_16_kib_body_reaches_rate_limit_but_one_extra_byte_does_not() {
             calls: Arc::clone(&calls),
         });
         let router = fixture_router_with_user_rate_limiter(FixtureStore::default(), limiter);
-        let at_limit = json_padded_to_limit(value);
+        let at_limit = json_padded_to_limit(value)?;
 
         let oversized = raw_route(
             router.clone(),
@@ -233,23 +288,24 @@ async fn exact_16_kib_body_reaches_rate_limit_but_one_extra_byte_does_not() {
             Some("Bearer admin-session"),
             format!("{at_limit} "),
         )
-        .await;
+        .await?;
         assert_eq!(oversized.status(), StatusCode::PAYLOAD_TOO_LARGE, "{path}");
-        assert!(calls.lock().expect("rate limit calls").is_empty(), "{path}");
+        assert!(lock_recover(&calls).is_empty(), "{path}");
 
-        let accepted = raw_route(router, path, Some("Bearer admin-session"), at_limit).await;
+        let accepted = raw_route(router, path, Some("Bearer admin-session"), at_limit).await?;
         assert_eq!(accepted.status(), StatusCode::TOO_MANY_REQUESTS, "{path}");
-        assert_key_mutation_headers(&accepted);
+        assert_key_mutation_headers(&accepted, path)?;
         assert_eq!(
-            calls.lock().expect("rate limit calls").as_slice(),
+            lock_recover(&calls).as_slice(),
             &[(scope.to_owned(), 10)],
             "{path}"
         );
     }
+    Ok(())
 }
 
 #[test]
-fn real_selectable_group_rejects_empty_and_virtual_auto() {
+fn real_selectable_group_rejects_empty_and_virtual_auto() -> TestResult {
     assert_eq!(
         RealSelectableGroup::parse(""),
         Err(KeyCreationError::InvalidGroup)
@@ -262,10 +318,11 @@ fn real_selectable_group_rejects_empty_and_virtual_auto() {
         RealSelectableGroup::parse("vip").map(|group| group.into_inner()),
         Ok("vip".to_owned())
     );
+    Ok(())
 }
 
 #[test]
-fn selectable_projection_never_exposes_automatic_or_malicious_auto() {
+fn selectable_projection_never_exposes_automatic_or_malicious_auto() -> TestResult {
     let options = selectable_group_options(UserGroupSelection {
         selectable: BTreeMap::from([
             ("auto".to_owned(), "must not leak".to_owned()),
@@ -281,10 +338,11 @@ fn selectable_projection_never_exposes_automatic_or_malicious_auto() {
             warning: None,
         }]
     );
+    Ok(())
 }
 
 #[tokio::test]
-async fn prepare_route_returns_only_an_opaque_session_bound_action() {
+async fn prepare_route_returns_only_an_opaque_session_bound_action() -> TestResult {
     let store = FixtureStore::default()
         .with_key_groups(vec![AssistantKeyGroupOption::selectable(
             "default",
@@ -301,22 +359,24 @@ async fn prepare_route_returns_only_an_opaque_session_bound_action() {
             "conversation_id": 91,
         }),
     )
-    .await;
+    .await?;
 
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body["data"], json!(prepared_action()));
     assert!(!body.to_string().contains("sk-"));
-    let calls = calls.lock().expect("prepare key call lock");
+    let calls = lock_recover(&calls);
     assert_eq!(calls.len(), 1);
-    assert_eq!(calls[0].user_id, 10);
-    assert_eq!(calls[0].session_id, "assistant-session");
-    assert_eq!(calls[0].draft.name, "assistant-created");
-    assert_eq!(calls[0].draft.group.as_str(), "default");
-    assert_eq!(calls[0].draft.conversation_id, 91);
+    let call = required(calls.first(), "prepare-key repository call is missing")?;
+    assert_eq!(call.user_id, 10);
+    assert_eq!(call.session_id, "assistant-session");
+    assert_eq!(call.draft.name, "assistant-created");
+    assert_eq!(call.draft.group.as_str(), "default");
+    assert_eq!(call.draft.conversation_id, 91);
+    Ok(())
 }
 
 #[tokio::test]
-async fn prepare_route_rejects_virtual_auto_and_empty_authoritative_options() {
+async fn prepare_route_rejects_virtual_auto_and_empty_authoritative_options() -> TestResult {
     for (options, group) in [
         (
             vec![AssistantKeyGroupOption::selectable(
@@ -334,16 +394,17 @@ async fn prepare_route_rejects_virtual_auto_and_empty_authoritative_options() {
             "/api/assistant/tools/prepare-key",
             json!({"name":"key","group":group}),
         )
-        .await;
+        .await?;
 
         assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
         assert_eq!(body["code"], "ASSISTANT_INVALID_GROUP");
-        assert!(calls.lock().expect("prepare key call lock").is_empty());
+        assert!(lock_recover(&calls).is_empty());
     }
+    Ok(())
 }
 
 #[tokio::test]
-async fn prepare_route_strictly_rejects_client_confirmation_fields() {
+async fn prepare_route_strictly_rejects_client_confirmation_fields() -> TestResult {
     let store = FixtureStore::default().with_key_groups(vec![AssistantKeyGroupOption::selectable(
         "default",
         "默认分组",
@@ -359,14 +420,15 @@ async fn prepare_route_strictly_rejects_client_confirmation_fields() {
             "confirmation_token":"client-token",
         }),
     )
-    .await;
+    .await?;
 
     assert_eq!(status, StatusCode::BAD_REQUEST);
-    assert!(calls.lock().expect("prepare key call lock").is_empty());
+    assert!(lock_recover(&calls).is_empty());
+    Ok(())
 }
 
 #[tokio::test]
-async fn confirm_route_accepts_only_opaque_token_and_forwards_two_factor_code() {
+async fn confirm_route_accepts_only_opaque_token_and_forwards_two_factor_code() -> TestResult {
     let store = FixtureStore::default().with_confirm_result(Ok(created_key()));
     let calls = store.confirm_key_calls();
     let (status, body) = route_json(
@@ -377,24 +439,26 @@ async fn confirm_route_accepts_only_opaque_token_and_forwards_two_factor_code() 
             "two_factor_code":" 123456 ",
         }),
     )
-    .await;
+    .await?;
 
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body["data"], json!(created_key()));
     assert!(!body.to_string().contains("api_key"));
     assert!(!body.to_string().contains("sk-"));
-    let calls = calls.lock().expect("confirm key call lock");
+    let calls = lock_recover(&calls);
     assert_eq!(calls.len(), 1);
-    assert_eq!(calls[0].actor_id, 10);
-    assert_eq!(calls[0].session_id, "assistant-session");
-    assert_eq!(calls[0].expected_session_version, 1);
-    assert_eq!(calls[0].expected_user_auth_version, 1);
-    assert_eq!(calls[0].token.expose(), "opaque-flow-token");
-    assert_eq!(calls[0].two_factor_code, "123456");
+    let call = required(calls.first(), "create-key repository call is missing")?;
+    assert_eq!(call.actor_id, 10);
+    assert_eq!(call.session_id, "assistant-session");
+    assert_eq!(call.expected_session_version, 1);
+    assert_eq!(call.expected_user_auth_version, 1);
+    assert_eq!(call.token.expose(), "opaque-flow-token");
+    assert_eq!(call.two_factor_code, "123456");
+    Ok(())
 }
 
 #[tokio::test]
-async fn confirm_route_rejects_client_mutable_draft_fields_before_repository() {
+async fn confirm_route_rejects_client_mutable_draft_fields_before_repository() -> TestResult {
     for extra in [
         json!({"name":"tampered"}),
         json!({"group":"auto"}),
@@ -403,18 +467,23 @@ async fn confirm_route_rejects_client_mutable_draft_fields_before_repository() {
         let store = FixtureStore::default().with_confirm_result(Ok(created_key()));
         let calls = store.confirm_key_calls();
         let mut body = json!({"confirmation_token":"opaque-flow-token"});
-        body.as_object_mut()
-            .expect("confirmation body object")
-            .extend(extra.as_object().expect("extra object").clone());
-        let (status, _) = route_json(store, "/api/assistant/tools/create-key", body).await;
+        let extra = required(extra.as_object(), "client draft fixture must be a JSON object")?;
+        required(
+            body.as_object_mut(),
+            "confirmation request fixture must be a JSON object",
+        )?
+        .extend(extra.clone());
+        let (status, _) =
+            route_json(store, "/api/assistant/tools/create-key", body).await?;
 
         assert_eq!(status, StatusCode::BAD_REQUEST);
-        assert!(calls.lock().expect("confirm key call lock").is_empty());
+        assert!(lock_recover(&calls).is_empty());
     }
+    Ok(())
 }
 
 #[tokio::test]
-async fn confirm_route_preserves_database_failures_as_internal_errors() {
+async fn confirm_route_preserves_database_failures_as_internal_errors() -> TestResult {
     let store = FixtureStore::default().with_confirm_result(Err(KeyCreationError::Unavailable(
         "database unavailable".to_owned(),
     )));
@@ -423,14 +492,15 @@ async fn confirm_route_preserves_database_failures_as_internal_errors() {
         "/api/assistant/tools/create-key",
         json!({"confirmation_token":"opaque-flow-token"}),
     )
-    .await;
+    .await?;
 
     assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
     assert_ne!(body["code"], "ASSISTANT_KEY_CONFIRMATION_INVALID");
+    Ok(())
 }
 
 #[tokio::test]
-async fn confirm_route_preserves_invalid_replay_and_two_factor_errors() {
+async fn confirm_route_preserves_invalid_replay_and_two_factor_errors() -> TestResult {
     for (error, code) in [
         (
             KeyCreationError::InvalidConfirmation,
@@ -447,9 +517,10 @@ async fn confirm_route_preserves_invalid_replay_and_two_factor_errors() {
             "/api/assistant/tools/create-key",
             json!({"confirmation_token":"opaque-flow-token"}),
         )
-        .await;
+        .await?;
 
         assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
         assert_eq!(body["code"], code);
     }
+    Ok(())
 }
