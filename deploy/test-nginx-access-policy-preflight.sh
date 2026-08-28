@@ -123,9 +123,13 @@ http {
     fastcgi_temp_path $work/fastcgi_temp;
     uwsgi_temp_path $work/uwsgi_temp;
     scgi_temp_path $work/scgi_temp;
-    map \$http_upgrade \$connection_upgrade {
-        default upgrade;
-        '' close;
+    map \$http_upgrade \$websocket_upgrade {
+        default '';
+        ~*^websocket\$ websocket;
+    }
+    map \$websocket_upgrade \$connection_upgrade {
+        default close;
+        websocket upgrade;
     }
     server {
         listen unix:$socket;

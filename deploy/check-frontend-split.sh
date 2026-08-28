@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# This contract test intentionally matches shell/nginx snippets as literal text.
+# shellcheck disable=SC2016
 set -Eeuo pipefail
 
 repo=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
@@ -53,6 +55,7 @@ assert_literal 'jpe?g|js|json|map|png|svg|webp|woff2?' "$config"
 assert_literal 'max-age=31536000, immutable' "$config"
 assert_literal 'no-cache, must-revalidate' "$config"
 assert_literal 'proxy_buffering off' "$config"
+assert_literal 'Upgrade $websocket_upgrade' "$config"
 assert_literal 'Connection $connection_upgrade' "$config"
 assert_literal 'error_page 418 = @lmm_api_cors_preflight;' "$config"
 assert_literal 'location @lmm_api_cors_preflight {' "$config"
