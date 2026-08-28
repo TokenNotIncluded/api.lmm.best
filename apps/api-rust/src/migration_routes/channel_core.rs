@@ -1375,23 +1375,47 @@ fn redact_channel_info(mut value: Value) -> Value {
 
 #[cfg(test)]
 mod tests {
+    use serde::de::DeserializeOwned;
+
     use super::*;
+
+    type TestResult<T = ()> = Result<T, Box<dyn std::error::Error>>;
+
+    fn test_error(message: impl Into<String>) -> Box<dyn std::error::Error> {
+        Box::new(std::io::Error::other(message.into()))
+    }
+
+    fn json_from_value<T: DeserializeOwned>(
+        value: Value,
+        context: &'static str,
+    ) -> TestResult<T> {
+        serde_json::from_value(value)
+            .map_err(|error| test_error(format!("{context}: invalid JSON value: {error}")))
+    }
+
+    fn required<T>(value: Option<T>, context: &'static str) -> TestResult<T> {
+        value.ok_or_else(|| test_error(format!("missing required value: {context}")))
+    }
+
     #[test]
     fn group_normalization_rejects_legacy_all_values() {
         assert_eq!(normalized_group(Some(" all ".into())), None);
     }
+
     #[test]
-    fn status_filter_accepts_legacy_enabled_and_disabled_forms() {
-        assert_eq!(
+    fn status_filter_accepts_legacy_enabled_and_disabled_forms() -> TestResult {
+        let status = required(
             Page {
                 status: Some("enabled".into()),
                 ..Default::default()
             }
-            .status()
-            .expect("valid"),
-            1
-        );
+            .status(),
+            "enabled status filter result",
+        )?;
+        assert_eq!(status, 1);
+        Ok(())
     }
+
     #[test]
     fn unknown_status_matches_the_legacy_all_filter() {
         assert_eq!(
@@ -1403,6 +1427,7 @@ mod tests {
             None
         );
     }
+
     #[test]
     fn group_filter_escapes_like_metacharacters() {
         assert_eq!(
@@ -1410,6 +1435,7 @@ mod tests {
             Some("%,team!_!%!!,%")
         );
     }
+
     #[test]
     fn redact_channel_info_never_returns_multikey_failure_details() {
         let channel = redact_channel_info(
@@ -1421,6 +1447,7 @@ mod tests {
                 .is_none()
         );
     }
+
     #[test]
     fn ordinary_channel_info_is_not_redacted_as_multikey_state() {
         let channel = redact_channel_info(json!({"channel_info":{
@@ -1431,12 +1458,13 @@ mod tests {
             "ordinary metadata"
         );
     }
+
     #[test]
-    fn provider_configuration_validation_matches_frozen_go_boundaries() {
+    fn provider_configuration_validation_matches_frozen_go_boundaries() -> TestResult {
         let new_api = ChannelInput {
             r#type: 60,
             key: "key".into(),
-            ..serde_json::from_value(json!({})).expect("defaults")
+            ..json_from_value(json!({}), "default channel input")?
         };
         assert!(matches!(
             new_api.validate(true),
@@ -1445,11 +1473,13 @@ mod tests {
             ))
         ));
 
-        let codex: ChannelInput = serde_json::from_value(json!({
-            "type":57,
-            "key":"{\"access_token\":\"token\"}"
-        }))
-        .expect("codex input");
+        let codex: ChannelInput = json_from_value(
+            json!({
+                "type":57,
+                "key":"{\"access_token\":\"token\"}"
+            }),
+            "Codex channel input",
+        )?;
         assert!(matches!(
             codex.validate(true),
             Err(ChannelError::Invalid(
@@ -1457,33 +1487,43 @@ mod tests {
             ))
         ));
 
-        let vertex: ChannelInput = serde_json::from_value(json!({
-            "type":41,
-            "key":"key",
-            "other":"{}"
-        }))
-        .expect("vertex input");
+        let vertex: ChannelInput = json_from_value(
+            json!({
+                "type":41,
+                "key":"key",
+                "other":"{}"
+            }),
+            "Vertex channel input",
+        )?;
         assert!(matches!(
             vertex.validate(true),
             Err(ChannelError::Invalid("部署地区必须包含default字段"))
         ));
+        Ok(())
     }
+
     #[test]
-    fn update_fields_fail_closed_for_sensitive_and_unknown_names() {
-        let harmless =
-            serde_json::from_value::<Value>(json!({"id":1,"name":"new"})).expect("object");
-        assert!(!update_requires_sensitive_write(
-            harmless.as_object().expect("map")
-        ));
+    fn update_fields_fail_closed_for_sensitive_and_unknown_names() -> TestResult {
+        let harmless = json_from_value::<Value>(
+            json!({"id":1,"name":"new"}),
+            "non-sensitive update payload",
+        )?;
+        assert!(!update_requires_sensitive_write(required(
+            harmless.as_object(),
+            "non-sensitive update JSON object",
+        )?));
         for value in [
             json!({"id":1,"base_url":"https://upstream"}),
             json!({"id":1,"future_secret":"x"}),
         ] {
-            assert!(update_requires_sensitive_write(
-                value.as_object().expect("map")
-            ));
+            assert!(update_requires_sensitive_write(required(
+                value.as_object(),
+                "sensitive update JSON object",
+            )?));
         }
+        Ok(())
     }
+
     #[test]
     fn missing_multikey_indexes_keep_action_specific_legacy_messages() {
         assert_eq!(
