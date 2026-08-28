@@ -580,22 +580,27 @@ mod protocol_rollout_runtime_tests {
     use super::{ProcessRuntimeOptions, ProtocolRolloutConfig, SystemConfigRuntimeWriter};
     use crate::protocol_rollout::{FlagConfig, ProtocolRolloutSnapshotStatus};
     use serde_json::from_str;
-    use std::collections::BTreeMap;
+    use std::{collections::BTreeMap, io};
+
+    type TestResult<T = ()> = Result<T, Box<dyn std::error::Error>>;
 
     const FLAG_AT_ONE_PERCENT: &str =
         r#"{"enabled":true,"canary_basis_points":100,"overrides":[]}"#;
     const FLAG_AT_FIVE_PERCENT: &str =
         r#"{"enabled":true,"canary_basis_points":500,"overrides":[]}"#;
 
-    async fn runtime_with_control() -> ProcessRuntimeOptions {
-        ProcessRuntimeOptions::new(BTreeMap::new())
+    fn invariant_error(message: &'static str) -> io::Error {
+        io::Error::other(message)
+    }
+
+    async fn runtime_with_control() -> TestResult<ProcessRuntimeOptions> {
+        Ok(ProcessRuntimeOptions::new(BTreeMap::new())
             .with_protocol_rollout(ProtocolRolloutConfig::default())
-            .await
-            .expect("default protocol rollout must validate")
+            .await?)
     }
 
     #[tokio::test]
-    async fn persisted_options_overlay_startup_configuration() {
+    async fn persisted_options_overlay_startup_configuration() -> TestResult {
         let mut initial = BTreeMap::new();
         initial.insert(
             "conversion_engine_v2".to_owned(),
@@ -604,12 +609,11 @@ mod protocol_rollout_runtime_tests {
         initial.insert("conversion_loss_policy".to_owned(), "warn".to_owned());
         let runtime = ProcessRuntimeOptions::new(initial)
             .with_protocol_rollout(ProtocolRolloutConfig::default())
-            .await
-            .expect("persisted rollout options must validate");
+            .await?;
 
         let control = runtime
             .protocol_rollout()
-            .expect("builder must install the shared control");
+            .ok_or_else(|| invariant_error("builder must install the shared control"))?;
         let snapshot = control.snapshot();
         assert_eq!(
             snapshot.config().conversion_engine_v2.canary_basis_points,
@@ -619,14 +623,15 @@ mod protocol_rollout_runtime_tests {
             snapshot.config().loss_policy(),
             lmm_contracts::relay::LossPolicy::Warn
         );
+        Ok(())
     }
 
     #[tokio::test]
-    async fn valid_protocol_change_replaces_immediately_and_advances_generation() {
-        let runtime = runtime_with_control().await;
+    async fn valid_protocol_change_replaces_immediately_and_advances_generation() -> TestResult {
+        let runtime = runtime_with_control().await?;
         let control = runtime
             .protocol_rollout()
-            .expect("builder must install the shared control");
+            .ok_or_else(|| invariant_error("builder must install the shared control"))?;
         let before = control.snapshot();
         let changes = vec![(
             "conversion_engine_v2".to_owned(),
@@ -636,23 +641,24 @@ mod protocol_rollout_runtime_tests {
         runtime
             .preflight(&changes)
             .await
-            .expect("valid protocol changes must pass preflight");
+            .map_err(|()| invariant_error("valid protocol changes must pass preflight"))?;
         runtime
             .apply_committed(&changes)
             .await
-            .expect("valid protocol changes must install");
+            .map_err(|()| invariant_error("valid protocol changes must install"))?;
 
         let after = control.snapshot();
         assert_eq!(after.generation(), before.generation() + 1);
         assert_eq!(after.config().conversion_engine_v2.canary_basis_points, 100);
+        Ok(())
     }
 
     #[tokio::test]
-    async fn invalid_preflight_does_not_mutate_control_or_option_map() {
-        let runtime = runtime_with_control().await;
+    async fn invalid_preflight_does_not_mutate_control_or_option_map() -> TestResult {
+        let runtime = runtime_with_control().await?;
         let control = runtime
             .protocol_rollout()
-            .expect("builder must install the shared control");
+            .ok_or_else(|| invariant_error("builder must install the shared control"))?;
         let before = control.snapshot();
         let changes = vec![(
             "conversion_engine_v2".to_owned(),
@@ -667,25 +673,24 @@ mod protocol_rollout_runtime_tests {
                 .await
                 .contains_key("conversion_engine_v2")
         );
+        Ok(())
     }
 
     #[tokio::test]
-    async fn unrelated_option_does_not_advance_rollout_generation() {
-        let runtime = runtime_with_control().await;
+    async fn unrelated_option_does_not_advance_rollout_generation() -> TestResult {
+        let runtime = runtime_with_control().await?;
         let control = runtime
             .protocol_rollout()
-            .expect("builder must install the shared control");
+            .ok_or_else(|| invariant_error("builder must install the shared control"))?;
         let before = control.snapshot();
         let changes = vec![("unrelated_option".to_owned(), "new-value".to_owned())];
 
-        runtime
-            .preflight(&changes)
-            .await
-            .expect("unrelated options preserve legacy preflight behavior");
-        runtime
-            .apply_committed(&changes)
-            .await
-            .expect("unrelated options must update the option map");
+        runtime.preflight(&changes).await.map_err(|()| {
+            invariant_error("unrelated options preserve legacy preflight behavior")
+        })?;
+        runtime.apply_committed(&changes).await.map_err(|()| {
+            invariant_error("unrelated options must update the option map")
+        })?;
 
         assert_eq!(control.snapshot().generation(), before.generation());
         assert_eq!(
@@ -696,11 +701,12 @@ mod protocol_rollout_runtime_tests {
                 .map(String::as_str),
             Some("new-value")
         );
+        Ok(())
     }
 
     #[tokio::test]
-    async fn emergency_rollback_wins_over_malformed_same_batch_values() {
-        let runtime = runtime_with_control().await;
+    async fn emergency_rollback_wins_over_malformed_same_batch_values() -> TestResult {
+        let runtime = runtime_with_control().await?;
         let changes = vec![
             (
                 "conversion_engine_v2".to_owned(),
@@ -709,25 +715,24 @@ mod protocol_rollout_runtime_tests {
             ("protocol_rollout_rollback".to_owned(), "true".to_owned()),
         ];
 
-        runtime
-            .preflight(&changes)
-            .await
-            .expect("true rollback must fail closed before parsing stale values");
-        runtime
-            .apply_committed(&changes)
-            .await
-            .expect("true rollback must install even with stale values");
+        runtime.preflight(&changes).await.map_err(|()| {
+            invariant_error("true rollback must fail closed before parsing stale values")
+        })?;
+        runtime.apply_committed(&changes).await.map_err(|()| {
+            invariant_error("true rollback must install even with stale values")
+        })?;
         let snapshot = runtime
             .protocol_rollout()
-            .expect("builder must install the shared control")
+            .ok_or_else(|| invariant_error("builder must install the shared control"))?
             .snapshot();
         assert_eq!(snapshot.status(), ProtocolRolloutSnapshotStatus::Rollback);
         assert!(snapshot.is_fail_closed());
+        Ok(())
     }
 
     #[tokio::test]
-    async fn duplicate_rollback_keys_use_only_the_last_value() {
-        let runtime = runtime_with_control().await;
+    async fn duplicate_rollback_keys_use_only_the_last_value() -> TestResult {
+        let runtime = runtime_with_control().await?;
         let changes = vec![
             ("protocol_rollout_rollback".to_owned(), "true".to_owned()),
             (
@@ -740,24 +745,24 @@ mod protocol_rollout_runtime_tests {
         runtime
             .preflight(&changes)
             .await
-            .expect("the final rollback=false must win");
-        runtime
-            .apply_committed(&changes)
-            .await
-            .expect("the final rollback=false must install the candidate");
+            .map_err(|()| invariant_error("the final rollback=false must win"))?;
+        runtime.apply_committed(&changes).await.map_err(|()| {
+            invariant_error("the final rollback=false must install the candidate")
+        })?;
         let snapshot = runtime
             .protocol_rollout()
-            .expect("builder must install the shared control")
+            .ok_or_else(|| invariant_error("builder must install the shared control"))?
             .snapshot();
         assert_eq!(snapshot.status(), ProtocolRolloutSnapshotStatus::Active);
         assert_eq!(
             snapshot.config().conversion_engine_v2.canary_basis_points,
             100
         );
+        Ok(())
     }
 
     #[tokio::test]
-    async fn rollback_false_rebuilds_prior_persisted_flags_from_startup_baseline() {
+    async fn rollback_false_rebuilds_prior_persisted_flags_from_startup_baseline() -> TestResult {
         let mut initial = BTreeMap::new();
         initial.insert(
             "conversion_engine_v2".to_owned(),
@@ -766,41 +771,39 @@ mod protocol_rollout_runtime_tests {
         initial.insert("protocol_rollout_rollback".to_owned(), "true".to_owned());
         let runtime = ProcessRuntimeOptions::new(initial)
             .with_protocol_rollout(ProtocolRolloutConfig::default())
-            .await
-            .expect("rollback startup overlay must be valid");
+            .await?;
         let control = runtime
             .protocol_rollout()
-            .expect("builder must install the shared control");
+            .ok_or_else(|| invariant_error("builder must install the shared control"))?;
         assert!(control.snapshot().is_fail_closed());
 
         let recovery = vec![("protocol_rollout_rollback".to_owned(), "false".to_owned())];
-        runtime
-            .preflight(&recovery)
-            .await
-            .expect("rollback=false must rebuild persisted prior flags");
-        runtime
-            .apply_committed(&recovery)
-            .await
-            .expect("rollback=false must install the rebuilt candidate");
+        runtime.preflight(&recovery).await.map_err(|()| {
+            invariant_error("rollback=false must rebuild persisted prior flags")
+        })?;
+        runtime.apply_committed(&recovery).await.map_err(|()| {
+            invariant_error("rollback=false must install the rebuilt candidate")
+        })?;
         let recovered = control.snapshot();
         assert_eq!(recovered.status(), ProtocolRolloutSnapshotStatus::Active);
         assert_eq!(
             recovered.config().conversion_engine_v2.canary_basis_points,
             100
         );
+        Ok(())
     }
 
     #[tokio::test]
-    async fn rollback_recovery_requires_full_validation() {
-        let runtime = runtime_with_control().await;
+    async fn rollback_recovery_requires_full_validation() -> TestResult {
+        let runtime = runtime_with_control().await?;
         let emergency = vec![("protocol_rollout_rollback".to_owned(), "true".to_owned())];
         runtime
             .apply_committed(&emergency)
             .await
-            .expect("rollback must install");
+            .map_err(|()| invariant_error("rollback must install"))?;
         let control = runtime
             .protocol_rollout()
-            .expect("builder must install the shared control");
+            .ok_or_else(|| invariant_error("builder must install the shared control"))?;
         let before_recovery = control.snapshot();
         let malformed_recovery = vec![
             ("protocol_rollout_rollback".to_owned(), "false".to_owned()),
@@ -816,25 +819,25 @@ mod protocol_rollout_runtime_tests {
                 FLAG_AT_FIVE_PERCENT.to_owned(),
             ),
         ];
-        runtime
-            .preflight(&valid_recovery)
-            .await
-            .expect("recovery must validate every replacement value");
+        runtime.preflight(&valid_recovery).await.map_err(|()| {
+            invariant_error("recovery must validate every replacement value")
+        })?;
         runtime
             .apply_committed(&valid_recovery)
             .await
-            .expect("valid recovery must install");
+            .map_err(|()| invariant_error("valid recovery must install"))?;
         let recovered = control.snapshot();
         assert_eq!(recovered.status(), ProtocolRolloutSnapshotStatus::Active);
         assert_eq!(
             recovered.config().conversion_engine_v2.canary_basis_points,
             500
         );
+        Ok(())
     }
 
     #[tokio::test]
-    async fn concurrent_same_key_replacements_keep_map_and_control_coherent() {
-        let runtime = runtime_with_control().await;
+    async fn concurrent_same_key_replacements_keep_map_and_control_coherent() -> TestResult {
+        let runtime = runtime_with_control().await?;
         let left = runtime.clone();
         let right = runtime.clone();
         let left_change = vec![(
@@ -855,16 +858,21 @@ mod protocol_rollout_runtime_tests {
 
         let control = runtime
             .protocol_rollout()
-            .expect("builder must install the shared control");
+            .ok_or_else(|| invariant_error("builder must install the shared control"))?;
         let snapshot = control.snapshot();
         let values = runtime.snapshot().await;
         let persisted = values
             .get("conversion_engine_v2")
-            .expect("same-key update must remain in the option map");
-        let persisted_flag = from_str::<FlagConfig>(persisted)
-            .expect("the final option map value must remain valid JSON");
+            .ok_or_else(|| invariant_error("same-key update must remain in the option map"))?;
+        let persisted_flag = from_str::<FlagConfig>(persisted).map_err(|error| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("the final option map value must remain valid JSON: {error}"),
+            )
+        })?;
         assert_eq!(snapshot.config().conversion_engine_v2, persisted_flag);
         assert_eq!(snapshot.generation(), 2);
+        Ok(())
     }
 }
 
@@ -1399,7 +1407,9 @@ mod pancake_gateway_tests {
         normalize_pancake_catalog, pancake_idempotency_key, parse_pancake_private_key,
     };
     use serde_json::json;
-    use std::time::Duration;
+    use std::{io, time::Duration};
+
+    type TestResult = Result<(), Box<dyn std::error::Error>>;
 
     #[test]
     fn production_constructor_uses_the_bounded_outbound_policy() {
@@ -1418,16 +1428,13 @@ mod pancake_gateway_tests {
                 .is_err()
         );
         assert_eq!(
-            gateway
-                .create_pair("MER_test", "secret", "")
-                .await
-                .expect_err("test gateway must fail closed"),
-            json!({"error":"Waffo Pancake 在测试实例中已禁用"})
+            gateway.create_pair("MER_test", "secret", "").await,
+            Err(json!({"error":"Waffo Pancake 在测试实例中已禁用"}))
         );
     }
 
     #[test]
-    fn catalog_keeps_only_active_products_in_the_go_shape() {
+    fn catalog_keeps_only_active_products_in_the_go_shape() -> TestResult {
         let catalog = normalize_pancake_catalog(json!({
             "stores": [{
                 "id": "STO_1",
@@ -1440,7 +1447,7 @@ mod pancake_gateway_tests {
                 ]
             }]
         }))
-        .expect("valid Pancake catalog");
+        .map_err(|()| io::Error::new(io::ErrorKind::InvalidData, "valid Pancake catalog"))?;
         assert_eq!(
             catalog,
             json!({"stores":[{
@@ -1451,6 +1458,7 @@ mod pancake_gateway_tests {
                 "onetimeProducts":[{"id":"PROD_active","name":"Active","status":"ACTIVE"}]
             }]})
         );
+        Ok(())
     }
 
     #[test]
