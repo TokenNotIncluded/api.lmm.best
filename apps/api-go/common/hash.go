@@ -14,7 +14,9 @@ func Sha256Raw(data []byte) []byte {
 }
 
 func Sha1Raw(data []byte) []byte {
-	// pi-lens-ignore: go-weak-hash -- SHA-1 is retained for legacy deterministic identifiers and affinity keys, not authentication, signatures, or secrets.
+	// SHA-1 is retained for legacy deterministic identifiers and affinity keys,
+	// not authentication, signatures, or secrets.
+	// pi-lens-ignore: go-weak-hash
 	h := sha1.New()
 	h.Write(data)
 	return h.Sum(nil)
