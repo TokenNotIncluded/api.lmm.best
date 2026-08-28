@@ -21,9 +21,8 @@ import { Window } from 'happy-dom'
 import type React from 'react'
 
 import zhLocale from '@/i18n/locales/zh.json'
-import { useSystemConfigStore } from '@/stores/system-config-store'
 
-const domWindow = new Window()
+const domWindow = new Window({ url: 'https://console.example.test/wallet' })
 domWindow.document.write(
   '<!doctype html><html><head></head><body></body></html>'
 )
@@ -45,6 +44,7 @@ const domGlobals = [
   'requestAnimationFrame',
   'cancelAnimationFrame',
   'getComputedStyle',
+  'localStorage',
 ] as const
 
 for (const key of domGlobals) {
@@ -75,6 +75,7 @@ const { Wallet } = await import('../index')
 const { useTopupInfo } = await import('../hooks/use-topup-info')
 const { api } = await import('@/lib/api')
 const { useAuthStore } = await import('@/stores/auth-store')
+const { useSystemConfigStore } = await import('@/stores/system-config-store')
 const { PaymentConfirmDialog } =
   await import('./dialogs/payment-confirm-dialog')
 const { formatCreditBalance, formatPaymentAmount } = await import('../lib')
