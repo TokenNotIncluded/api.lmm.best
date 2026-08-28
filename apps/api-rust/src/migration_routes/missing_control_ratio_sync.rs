@@ -1241,6 +1241,8 @@ mod tests {
     use axum::{body::Body, http::Request};
     use tower::ServiceExt;
 
+    type TestResult = Result<(), Box<dyn std::error::Error>>;
+
     #[derive(Default)]
     struct AllowRoot;
     #[async_trait]
@@ -1273,61 +1275,44 @@ mod tests {
         }
     }
     #[tokio::test]
-    async fn channels_are_root_gated_and_keep_legacy_presets() {
+    async fn channels_are_root_gated_and_keep_legacy_presets() -> TestResult {
         let app = ratio_sync_router(RatioSyncHttpState::new(
             Arc::new(MemoryRepository),
             Arc::new(TestInstanceDisabledRatioSyncUpstream),
             Arc::new(AllowRoot),
         ));
-        let response = app
-            .oneshot(
-                Request::builder()
-                    .uri("/api/ratio_sync/channels")
-                    .header("authorization", "Bearer test")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
+        let request = Request::builder()
+            .uri("/api/ratio_sync/channels")
+            .header("authorization", "Bearer test")
+            .body(Body::empty())?;
+        let response = app.oneshot(request).await?;
         assert_eq!(response.status(), StatusCode::OK);
-        let body = axum::body::to_bytes(response.into_body(), 4096)
-            .await
-            .unwrap();
-        assert_eq!(
-            serde_json::from_slice::<Value>(&body).unwrap()["data"]
-                .as_array()
-                .unwrap()
-                .len(),
-            3
-        );
+        let body = axum::body::to_bytes(response.into_body(), 4096).await?;
+        let body: Value = serde_json::from_slice(&body)?;
+        assert_eq!(body["data"].as_array().map(Vec::len), Some(3));
+        Ok(())
     }
     #[tokio::test]
-    async fn disabled_test_instance_never_performs_outbound_fetch() {
+    async fn disabled_test_instance_never_performs_outbound_fetch() -> TestResult {
         let app = ratio_sync_router(RatioSyncHttpState::new(
             Arc::new(MemoryRepository),
             Arc::new(TestInstanceDisabledRatioSyncUpstream),
             Arc::new(AllowRoot),
         ));
-        let response = app
-            .oneshot(
-                Request::builder()
-                    .method("POST")
-                    .uri("/api/ratio_sync/fetch")
-                    .header("authorization", "Bearer test")
-                    .header("content-type", "application/json")
-                    .body(Body::from(
-                        r#"{"upstreams":[{"name":"unsafe","base_url":"https://example.invalid"}]}"#,
-                    ))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        let body = axum::body::to_bytes(response.into_body(), 4096)
-            .await
-            .unwrap();
-        let body: Value = serde_json::from_slice(&body).unwrap();
+        let request = Request::builder()
+            .method("POST")
+            .uri("/api/ratio_sync/fetch")
+            .header("authorization", "Bearer test")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                r#"{"upstreams":[{"name":"unsafe","base_url":"https://example.invalid"}]}"#,
+            ))?;
+        let response = app.oneshot(request).await?;
+        let body = axum::body::to_bytes(response.into_body(), 4096).await?;
+        let body: Value = serde_json::from_slice(&body)?;
         assert_eq!(body["success"], true);
         assert_eq!(body["data"]["test_results"][0]["status"], "error");
+        Ok(())
     }
 
     #[derive(Default)]
@@ -1340,24 +1325,20 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn root_auth_precedes_json_rejection() {
+    async fn root_auth_precedes_json_rejection() -> TestResult {
         let app = ratio_sync_router(RatioSyncHttpState::new(
             Arc::new(MemoryRepository),
             Arc::new(TestInstanceDisabledRatioSyncUpstream),
             Arc::new(DenyRoot),
         ));
-        let response = app
-            .oneshot(
-                Request::builder()
-                    .method("POST")
-                    .uri("/api/ratio_sync/fetch")
-                    .header("content-type", "application/json")
-                    .body(Body::from("{not json"))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
+        let request = Request::builder()
+            .method("POST")
+            .uri("/api/ratio_sync/fetch")
+            .header("content-type", "application/json")
+            .body(Body::from("{not json"))?;
+        let response = app.oneshot(request).await?;
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        Ok(())
     }
 
     #[test]
@@ -1420,7 +1401,7 @@ mod tests {
     }
 
     #[test]
-    fn upstream_conversions_use_the_snapshot_ratio_instead_of_a_fixed_constant() {
+    fn upstream_conversions_use_the_snapshot_ratio_instead_of_a_fixed_constant() -> TestResult {
         assert_eq!(
             usd_ratio_from_quota_per_unit("750000"),
             Ok(750.0),
@@ -1432,7 +1413,7 @@ mod tests {
             br#"{"data":[{"id":"or-model","pricing":{"prompt":"0.000002","completion":"0.000004"}}]}"#,
             750.0,
         )
-        .expect("OpenRouter pricing");
+        .map_err(std::io::Error::other)?;
         assert_eq!(openrouter["model_ratio"]["or-model"], json!(1.5));
         assert_eq!(openrouter["completion_ratio"]["or-model"], json!(2.0));
 
@@ -1440,8 +1421,9 @@ mod tests {
             br#"{"provider":{"models":{"dev-model":{"cost":{"input":2.0,"output":4.0}}}}}"#,
             750.0,
         )
-        .expect("models.dev pricing");
+        .map_err(std::io::Error::other)?;
         assert_eq!(models_dev["model_ratio"]["dev-model"], json!(1.5));
         assert_eq!(models_dev["completion_ratio"]["dev-model"], json!(2.0));
+        Ok(())
     }
 }
