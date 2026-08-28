@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 import http.server
 import json
 import pathlib
@@ -19,7 +20,7 @@ HITS_FILE = pathlib.Path(sys.argv[2])
 LOCK = threading.Lock()
 
 
-def response_for(path: str, body: dict[str, object]) -> dict[str, object]:
+def response_for(path: str, body: Mapping[str, object]) -> dict[str, object]:
     if path == "/v1/completions":
         return {
             "id": "cmpl-relay-fixture",
@@ -34,7 +35,13 @@ def response_for(path: str, body: dict[str, object]) -> dict[str, object]:
             "object": "response",
             "model": body.get("model", "gpt-test"),
             "status": "completed",
-            "output": [{"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "hello"}]}],
+            "output": [
+                {
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [{"type": "output_text", "text": "hello"}],
+                }
+            ],
             "usage": {"input_tokens": 1, "output_tokens": 1, "total_tokens": 2},
         }
     if path in {
@@ -57,14 +64,20 @@ def response_for(path: str, body: dict[str, object]) -> dict[str, object]:
     return {
         "id": "chatcmpl-relay-fixture",
         "object": "chat.completion",
-        "choices": [{"index": 0, "message": {"role": "assistant", "content": "hello"}, "finish_reason": "stop"}],
+        "choices": [
+            {
+                "index": 0,
+                "message": {"role": "assistant", "content": "hello"},
+                "finish_reason": "stop",
+            }
+        ],
         "model": body.get("model", "gpt-test"),
         "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
     }
 
 
 class Fixture(http.server.BaseHTTPRequestHandler):
-    def log_message(self, *_args: object) -> None:
+    def log_message(self, format: str, *args: object) -> None:
         return
 
     def do_GET(self) -> None:  # noqa: N802 - stdlib callback name
@@ -89,17 +102,26 @@ class Fixture(http.server.BaseHTTPRequestHandler):
             "authorization": self.headers.get("authorization", ""),
             "body": body,
             "path": self.path,
-            "content_type": self.headers.get("content-type", "").split(";", 1)[0].strip().lower(),
+            "content_type": self.headers.get("content-type", "")
+            .split(";", 1)[0]
+            .strip()
+            .lower(),
         }
-        with LOCK:
-            with HITS_FILE.open("a", encoding="utf-8") as output:
-                output.write(json.dumps(record, sort_keys=True, separators=(",", ":")))
-                output.write("\n")
+        with LOCK, HITS_FILE.open("a", encoding="utf-8") as output:
+            output.write(json.dumps(record, sort_keys=True, separators=(",", ":")))
+            output.write("\n")
         if record["authorization"] != "Bearer provider-owned-secret":
-            payload = {"error": {"message": "credential-boundary", "type": "invalid_request_error"}}
+            payload = {
+                "error": {
+                    "message": "credential-boundary",
+                    "type": "invalid_request_error",
+                }
+            }
             status = 400
         elif not isinstance(body, dict):
-            payload = {"error": {"message": "invalid-json", "type": "invalid_request_error"}}
+            payload = {
+                "error": {"message": "invalid-json", "type": "invalid_request_error"}
+            }
             status = 400
         else:
             payload = response_for(self.path, body)

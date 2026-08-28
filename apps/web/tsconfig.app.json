@@ -8,7 +8,6 @@
     "skipLibCheck": true,
     "types": ["node"],
 
-    /* Bundler mode */
     "moduleResolution": "Bundler",
     "allowImportingTsExtensions": true,
     "resolveJsonModule": true,
@@ -17,12 +16,10 @@
     "noEmit": true,
     "jsx": "react-jsx",
 
-    /* Alias */
     "paths": {
       "@/*": ["./src/*"]
     },
 
-    /* Linting */
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,

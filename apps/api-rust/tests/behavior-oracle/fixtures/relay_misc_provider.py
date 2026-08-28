@@ -27,7 +27,7 @@ ERROR_BODIES = {
         b'{"error":{"message":"fixture-openai","type":"server_error",'
         b'"param":"capacity","code":"busy"}}'
     ),
-    "fail-invalid-json": b'not-json',
+    "fail-invalid-json": b"not-json",
 }
 
 
@@ -39,7 +39,7 @@ class Fixture(http.server.BaseHTTPRequestHandler):
     # error before either relay can compare it.
     protocol_version = "HTTP/1.1"
 
-    def log_message(self, *_args: object) -> None:
+    def log_message(self, format: str, *args: object) -> None:
         return
 
     def do_GET(self) -> None:  # noqa: N802 - stdlib callback name
@@ -61,10 +61,9 @@ class Fixture(http.server.BaseHTTPRequestHandler):
             "content_type": self.headers.get("content-type", ""),
             "path": self.path,
         }
-        with WRITE_LOCK:
-            with HITS_FILE.open("a", encoding="utf-8") as output:
-                output.write(json.dumps(record, sort_keys=True, separators=(",", ":")))
-                output.write("\n")
+        with WRITE_LOCK, HITS_FILE.open("a", encoding="utf-8") as output:
+            output.write(json.dumps(record, sort_keys=True, separators=(",", ":")))
+            output.write("\n")
 
         if not record["authorization_valid"]:
             self.send_response(400)
