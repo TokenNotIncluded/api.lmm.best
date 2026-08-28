@@ -244,7 +244,10 @@ impl DashboardUserView {
     /// Current Go contract projection for `/api/user/login`, `/api/user/auth/refresh`
     /// and `/api/user/self` parity comparisons.
     pub(crate) fn to_legacy_go_shape(&self) -> Value {
-        let mut value = to_value(self).expect("serialize dashboard user view");
+        let mut value = match to_value(self) {
+            Ok(value) => value,
+            Err(_) => return Value::Null,
+        };
         let Some(object) = value.as_object_mut() else {
             return value;
         };
@@ -474,6 +477,8 @@ mod dashboard_user_view_tests {
     use super::*;
     use serde_json::json;
 
+    type TestResult = Result<(), Box<dyn std::error::Error>>;
+
     fn dashboard_user(role: i64) -> DashboardUser {
         DashboardUser {
             id: 7,
@@ -530,12 +535,11 @@ mod dashboard_user_view_tests {
     }
 
     #[test]
-    fn self_user_view_fails_closed_and_excludes_secrets() {
+    fn self_user_view_fails_closed_and_excludes_secrets() -> TestResult {
         let value = serde_json::to_value(DashboardUserView::build(
             dashboard_user(1),
             DashboardSelfUserFacts::default(),
-        ))
-        .expect("serialize dashboard user view");
+        ))?;
 
         assert_eq!(value["developer_access_granted"], false);
         assert_eq!(value["permissions"]["console_activated_at"], 0);
@@ -544,6 +548,7 @@ mod dashboard_user_view_tests {
         assert!(value.get("password").is_none());
         assert!(value.get("access_token").is_none());
         assert!(value.get("remark").is_none());
+        Ok(())
     }
 
     #[test]
