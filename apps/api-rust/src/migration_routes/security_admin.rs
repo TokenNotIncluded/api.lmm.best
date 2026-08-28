@@ -1515,23 +1515,17 @@ mod cleanup_tests {
     #[test]
     fn cleanup_keep_defaults_and_enforces_bounds() {
         assert_eq!(
-            parse_review_history_keep(None).expect("default keep"),
-            DEFAULT_REVIEW_HISTORY_KEEP
+            parse_review_history_keep(None).ok(),
+            Some(DEFAULT_REVIEW_HISTORY_KEEP)
         );
-        assert_eq!(
-            parse_review_history_keep(Some("keep=1")).expect("minimum keep"),
-            1
-        );
-        assert_eq!(
-            parse_review_history_keep(Some("keep=100")).expect("maximum keep"),
-            100
-        );
+        assert_eq!(parse_review_history_keep(Some("keep=1")).ok(), Some(1));
+        assert_eq!(parse_review_history_keep(Some("keep=100")).ok(), Some(100));
         for query in ["keep=0", "keep=101", "keep=invalid"] {
             assert_eq!(
                 parse_review_history_keep(Some(query))
-                    .expect_err("invalid keep")
-                    .status(),
-                StatusCode::BAD_REQUEST
+                    .err()
+                    .map(|response| response.status()),
+                Some(StatusCode::BAD_REQUEST)
             );
         }
     }
@@ -1539,14 +1533,12 @@ mod cleanup_tests {
     #[test]
     fn cleanup_expected_count_requires_a_safe_non_negative_value() {
         assert_eq!(
-            parse_review_history_expected_count(Some("keep=30&expected_count=0"))
-                .expect("zero expected count"),
-            0
+            parse_review_history_expected_count(Some("keep=30&expected_count=0")).ok(),
+            Some(0)
         );
         assert_eq!(
-            parse_review_history_expected_count(Some("expected_count=100000"))
-                .expect("maximum expected count"),
-            MAX_REVIEW_HISTORY_EXPECTED_COUNT
+            parse_review_history_expected_count(Some("expected_count=100000")).ok(),
+            Some(MAX_REVIEW_HISTORY_EXPECTED_COUNT)
         );
         for query in [
             "keep=30",
@@ -1556,9 +1548,9 @@ mod cleanup_tests {
         ] {
             assert_eq!(
                 parse_review_history_expected_count(Some(query))
-                    .expect_err("invalid expected count")
-                    .status(),
-                StatusCode::BAD_REQUEST
+                    .err()
+                    .map(|response| response.status()),
+                Some(StatusCode::BAD_REQUEST)
             );
         }
     }
