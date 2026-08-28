@@ -2072,20 +2072,31 @@ fn now() -> i64 {
 #[cfg(test)]
 mod tests {
     use chrono::{Local, TimeZone};
+    use std::{error::Error, io};
 
     use super::{
         LegacyUserSetting, Plan, end_time, next_reset, normalize_preference,
         parse_preference_request,
     };
 
-    fn local_timestamp(year: i32, month: u32, day: u32, hour: u32, minute: u32) -> i64 {
-        let Some(timestamp) = Local
+    type TestResult<T = ()> = Result<T, Box<dyn Error>>;
+
+    fn test_error(message: impl Into<String>) -> Box<dyn Error> {
+        Box::new(io::Error::other(message.into()))
+    }
+
+    fn local_timestamp(
+        year: i32,
+        month: u32,
+        day: u32,
+        hour: u32,
+        minute: u32,
+    ) -> TestResult<i64> {
+        Local
             .with_ymd_and_hms(year, month, day, hour, minute, 0)
             .single()
-        else {
-            panic!("test timestamp should be unambiguous");
-        };
-        timestamp.timestamp()
+            .map(|timestamp| timestamp.timestamp())
+            .ok_or_else(|| test_error("test timestamp should be a valid, unambiguous local time"))
     }
 
     fn plan() -> Plan {
@@ -2116,7 +2127,7 @@ mod tests {
         }
     }
     #[test]
-    fn preference_matches_go_enum_and_default() {
+    fn preference_matches_go_enum_and_default() -> TestResult {
         for preference in [
             "subscription_first",
             "wallet_first",
@@ -2127,113 +2138,128 @@ mod tests {
         }
         assert_eq!(normalize_preference("unexpected"), "subscription_first");
         assert_eq!(normalize_preference("quota"), "subscription_first");
+        Ok(())
     }
 
     #[test]
-    fn preference_request_binding_matches_gin_zero_value_contract() {
-        assert_eq!(
+    fn preference_request_binding_matches_gin_zero_value_contract() -> TestResult {
+        let explicit =
             parse_preference_request(br#"{"billing_preference":" wallet_only "}"#)
-                .expect("valid preference")
-                .billing_preference,
-            " wallet_only "
-        );
-        assert_eq!(
-            parse_preference_request(br#"{}"#)
-                .expect("omitted field is a zero value")
-                .billing_preference,
-            ""
-        );
-        assert_eq!(
-            parse_preference_request(br#"{"billing_preference":null}"#)
-                .expect("null string is a zero value")
-                .billing_preference,
-            ""
-        );
+                .map_err(|()| test_error("valid billing preference JSON should deserialize"))?;
+        assert_eq!(explicit.billing_preference, " wallet_only ");
+
+        let omitted = parse_preference_request(br#"{}"#)
+            .map_err(|()| test_error("omitted billing preference JSON should deserialize"))?;
+        assert_eq!(omitted.billing_preference, "");
+
+        let null = parse_preference_request(br#"{"billing_preference":null}"#)
+            .map_err(|()| test_error("null billing preference JSON should deserialize"))?;
+        assert_eq!(null.billing_preference, "");
+
         assert!(parse_preference_request(br#"{"billing_preference":7}"#).is_err());
         assert!(parse_preference_request(br#"[]"#).is_err());
+        Ok(())
     }
 
     #[test]
-    fn preference_persistence_matches_go_user_setting_json() {
-        let Ok(mut setting) = serde_json::from_str::<LegacyUserSetting>("{}") else {
-            panic!("empty legacy user setting fixture should deserialize");
-        };
+    fn preference_persistence_matches_go_user_setting_json() -> TestResult {
+        let mut setting = serde_json::from_str::<LegacyUserSetting>("{}").map_err(|error| {
+            test_error(format!(
+                "empty legacy user setting JSON should deserialize: {error}"
+            ))
+        })?;
         setting.billing_preference = "subscription_first".to_owned();
+        let serialized = serde_json::to_string(&setting).map_err(|error| {
+            test_error(format!(
+                "legacy user setting should serialize as JSON: {error}"
+            ))
+        })?;
         assert_eq!(
-            serde_json::to_string(&setting).expect("setting serializes"),
+            serialized,
             r#"{"gotify_priority":0,"billing_preference":"subscription_first"}"#
         );
-    }
-    #[test]
-    fn subscription_end_time_uses_plan_duration() {
-        assert_eq!(end_time(100, &plan()), Ok(86_500));
+        Ok(())
     }
 
     #[test]
-    fn plan_price_wire_number_matches_go_encoding() {
+    fn subscription_end_time_uses_plan_duration() -> TestResult {
+        assert_eq!(end_time(100, &plan()), Ok(86_500));
+        Ok(())
+    }
+
+    #[test]
+    fn plan_price_wire_number_matches_go_encoding() -> TestResult {
         let mut integral = plan();
         integral.price_amount = 10.0;
-        assert_eq!(
-            serde_json::to_value(&integral).expect("plan serializes")["price_amount"],
-            serde_json::json!(10)
-        );
+        let integral_json = serde_json::to_value(&integral).map_err(|error| {
+            test_error(format!(
+                "integral-price plan should serialize as JSON: {error}"
+            ))
+        })?;
+        assert_eq!(integral_json["price_amount"], serde_json::json!(10));
 
         let mut fractional = plan();
         fractional.price_amount = 0.97;
-        assert_eq!(
-            serde_json::to_value(&fractional).expect("plan serializes")["price_amount"],
-            serde_json::json!(0.97)
-        );
+        let fractional_json = serde_json::to_value(&fractional).map_err(|error| {
+            test_error(format!(
+                "fractional-price plan should serialize as JSON: {error}"
+            ))
+        })?;
+        assert_eq!(fractional_json["price_amount"], serde_json::json!(0.97));
+        Ok(())
     }
 
     #[test]
-    fn subscription_month_and_year_use_go_calendar_overflow() {
-        let month_start = local_timestamp(2025, 1, 31, 12, 0);
+    fn subscription_month_and_year_use_go_calendar_overflow() -> TestResult {
+        let month_start = local_timestamp(2025, 1, 31, 12, 0)?;
         let mut month_plan = plan();
         month_plan.duration_unit = "month".into();
         assert_eq!(
             end_time(month_start, &month_plan),
-            Ok(local_timestamp(2025, 3, 3, 12, 0))
+            Ok(local_timestamp(2025, 3, 3, 12, 0)?)
         );
 
-        let year_start = local_timestamp(2024, 2, 29, 12, 0);
+        let year_start = local_timestamp(2024, 2, 29, 12, 0)?;
         let mut year_plan = plan();
         year_plan.duration_unit = "year".into();
         assert_eq!(
             end_time(year_start, &year_plan),
-            Ok(local_timestamp(2025, 3, 1, 12, 0))
+            Ok(local_timestamp(2025, 3, 1, 12, 0)?)
         );
+        Ok(())
     }
 
     #[test]
-    fn subscription_resets_use_local_calendar_boundaries() {
-        let start = local_timestamp(2025, 1, 31, 12, 0);
-        let end = local_timestamp(2025, 3, 4, 0, 0);
+    fn subscription_resets_use_local_calendar_boundaries() -> TestResult {
+        let start = local_timestamp(2025, 1, 31, 12, 0)?;
+        let end = local_timestamp(2025, 3, 4, 0, 0)?;
         let mut reset_plan = plan();
 
         reset_plan.quota_reset_period = "daily".into();
         assert_eq!(
             next_reset(start, end, &reset_plan),
-            local_timestamp(2025, 2, 1, 0, 0)
+            local_timestamp(2025, 2, 1, 0, 0)?
         );
 
         reset_plan.quota_reset_period = "weekly".into();
         assert_eq!(
             next_reset(start, end, &reset_plan),
-            local_timestamp(2025, 2, 3, 0, 0)
+            local_timestamp(2025, 2, 3, 0, 0)?
         );
 
         reset_plan.quota_reset_period = "monthly".into();
         assert_eq!(
             next_reset(start, end, &reset_plan),
-            local_timestamp(2025, 2, 1, 0, 0)
+            local_timestamp(2025, 2, 1, 0, 0)?
         );
+        Ok(())
     }
 
     #[test]
-    fn reset_never_exceeds_subscription_end() {
-        let start = local_timestamp(2025, 1, 31, 12, 0);
-        let before_midnight = local_timestamp(2025, 1, 31, 23, 59);
+    fn reset_never_exceeds_subscription_end() -> TestResult {
+        let start = local_timestamp(2025, 1, 31, 12, 0)?;
+        let before_midnight = local_timestamp(2025, 1, 31, 23, 59)?;
         assert_eq!(next_reset(start, before_midnight, &plan()), 0);
+        Ok(())
     }
 }
