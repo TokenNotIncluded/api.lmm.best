@@ -403,6 +403,8 @@ impl Error for OwnershipEvidenceError {}
 mod tests {
     use super::*;
 
+    type TestResult = Result<(), Box<dyn std::error::Error>>;
+
     fn scope() -> RouteOwnershipScope {
         RouteOwnershipScope {
             source: Protocol::OpenAi,
@@ -411,54 +413,72 @@ mod tests {
         }
     }
 
-    fn complete() -> OwnershipEvidence {
-        let mut evidence = OwnershipEvidence::closed(scope());
+    fn complete_for_scope(
+        scope: RouteOwnershipScope,
+    ) -> Result<OwnershipEvidence, OwnershipEvidenceError> {
+        let mut evidence = OwnershipEvidence::closed(scope);
         for class in DifferentialClass::all() {
             evidence.mark_green(*class);
         }
         evidence.set_shadow_identical(true);
-        evidence
-            .set_canary_basis_points(MIN_REVIEW_CANARY_BASIS_POINTS)
-            .expect("bounded canary");
+        evidence.set_canary_basis_points(MIN_REVIEW_CANARY_BASIS_POINTS)?;
         evidence.approve_rollout();
-        evidence
+        Ok(evidence)
     }
 
-    fn complete_cross_protocol() -> OwnershipEvidence {
-        let cross_scope = RouteOwnershipScope {
+    fn complete() -> Result<OwnershipEvidence, OwnershipEvidenceError> {
+        complete_for_scope(scope())
+    }
+
+    fn complete_cross_protocol() -> Result<OwnershipEvidence, OwnershipEvidenceError> {
+        complete_for_scope(RouteOwnershipScope {
             source: Protocol::OpenAi,
             target: Protocol::Claude,
             stream: true,
-        };
-        let mut evidence = OwnershipEvidence::closed(cross_scope);
-        for class in DifferentialClass::all() {
-            evidence.mark_green(*class);
+        })
+    }
+
+    fn shadow_record(
+        source: Protocol,
+        target: Protocol,
+        old_converter_id: Option<&str>,
+        new_converter_id: Option<&str>,
+        differences: Vec<crate::protocol_rollout::ShadowDifference>,
+    ) -> ShadowRecord {
+        ShadowRecord {
+            source,
+            target,
+            stream: true,
+            old_converter_id: old_converter_id.map(str::to_owned),
+            new_converter_id: new_converter_id.map(str::to_owned),
+            differences,
         }
-        evidence.set_shadow_identical(true);
-        evidence
-            .set_canary_basis_points(MIN_REVIEW_CANARY_BASIS_POINTS)
-            .expect("bounded canary");
-        evidence.approve_rollout();
-        evidence
+    }
+
+    fn evaluate_shadow(record: ShadowRecord) -> Result<OwnershipDecision, OwnershipEvidenceError> {
+        let mut evidence = complete()?;
+        evidence.record_shadow(&record);
+        Ok(OwnershipGate::default().evaluate(&evidence))
     }
 
     #[test]
-    fn default_is_closed_and_complete_evidence_only_opens_review() {
+    fn default_is_closed_and_complete_evidence_only_opens_review() -> TestResult {
         let gate = OwnershipGate::default();
         assert!(matches!(
             gate.evaluate(&OwnershipEvidence::closed(scope())),
             OwnershipDecision::ClosedByDefault { .. }
         ));
         assert_eq!(
-            gate.evaluate(&complete()),
+            gate.evaluate(&complete()?),
             OwnershipDecision::EligibleForOwnershipReview { scope: scope() }
         );
+        Ok(())
     }
 
     #[test]
-    fn cross_protocol_manual_green_evidence_requires_private_seal() {
+    fn cross_protocol_manual_green_evidence_requires_private_seal() -> TestResult {
         let gate = OwnershipGate::default();
-        let mut evidence = complete_cross_protocol();
+        let mut evidence = complete_cross_protocol()?;
         assert!(matches!(
             gate.evaluate(&evidence),
             OwnershipDecision::ClosedByDefault { blockers, .. }
@@ -471,20 +491,19 @@ mod tests {
             OwnershipDecision::EligibleForOwnershipReview { .. }
         ));
 
-        evidence
-            .set_canary_basis_points(MIN_REVIEW_CANARY_BASIS_POINTS + 1)
-            .expect("bounded mutation");
+        evidence.set_canary_basis_points(MIN_REVIEW_CANARY_BASIS_POINTS + 1)?;
         assert!(matches!(
             gate.evaluate(&evidence),
             OwnershipDecision::ClosedByDefault { blockers, .. }
                 if blockers.contains(&OwnershipBlocker::UntrustedEvidence)
         ));
+        Ok(())
     }
 
     #[test]
-    fn invalid_canary_is_rejected_without_opening_review() {
+    fn invalid_canary_is_rejected_without_opening_review() -> TestResult {
         assert!(OwnershipGate::new(MAX_CANARY_BASIS_POINTS + 1).is_err());
-        let mut evidence = complete();
+        let mut evidence = complete()?;
         assert!(
             evidence
                 .set_canary_basis_points(MAX_CANARY_BASIS_POINTS + 1)
@@ -494,14 +513,14 @@ mod tests {
             evidence.canary_basis_points(),
             MIN_REVIEW_CANARY_BASIS_POINTS
         );
+        Ok(())
     }
 
     #[test]
-    fn registry_gate_keeps_cross_protocol_closed_without_trusted_evidence() {
-        let mut evidence = complete();
+    fn registry_gate_keeps_cross_protocol_closed_without_trusted_evidence() -> TestResult {
+        let mut evidence = complete()?;
         evidence.set_shadow_identical(true);
-        let registry = crate::protocol_runtime_registry::validated_current_registry()
-            .expect("native registry validates");
+        let registry = crate::protocol_runtime_registry::validated_current_registry()?;
         let cross_scope = RouteOwnershipScope {
             source: Protocol::OpenAi,
             target: Protocol::Claude,
@@ -515,11 +534,12 @@ mod tests {
             OwnershipDecision::ClosedByDefault { blockers, .. }
                 if blockers.contains(&OwnershipBlocker::UntrustedEvidence)
         ));
+        Ok(())
     }
 
     #[test]
-    fn rollback_marker_closes_even_an_otherwise_complete_native_route() {
-        let mut evidence = complete();
+    fn rollback_marker_closes_even_an_otherwise_complete_native_route() -> TestResult {
+        let mut evidence = complete()?;
         evidence.set_rollback_active(true);
         let decision = OwnershipGate::default().evaluate(&evidence);
         assert!(matches!(
@@ -527,61 +547,45 @@ mod tests {
             OwnershipDecision::ClosedByDefault { blockers, .. }
                 if blockers.contains(&OwnershipBlocker::RollbackActive)
         ));
+        Ok(())
     }
 
     #[test]
-    fn shadow_evidence_from_another_route_fails_closed() {
-        let mut evidence = complete();
-        evidence.record_shadow(&ShadowRecord {
-            source: Protocol::Claude,
-            target: Protocol::Claude,
-            stream: true,
-            old_converter_id: Some("raw-claude-v1".to_owned()),
-            new_converter_id: Some("raw-claude-v1".to_owned()),
-            differences: Vec::new(),
-        });
-
-        assert!(matches!(
-            OwnershipGate::default().evaluate(&evidence),
-            OwnershipDecision::ClosedByDefault { blockers, .. }
-                if blockers.contains(&OwnershipBlocker::ShadowDifference)
-        ));
+    fn mismatched_shadow_evidence_fails_closed() -> TestResult {
+        for record in [
+            shadow_record(
+                Protocol::Claude,
+                Protocol::Claude,
+                Some("raw-claude-v1"),
+                Some("raw-claude-v1"),
+                Vec::new(),
+            ),
+            shadow_record(Protocol::OpenAi, Protocol::OpenAi, None, None, Vec::new()),
+        ] {
+            let decision = evaluate_shadow(record)?;
+            assert!(matches!(
+                decision,
+                OwnershipDecision::ClosedByDefault { blockers, .. }
+                    if blockers.contains(&OwnershipBlocker::ShadowDifference)
+            ));
+        }
+        Ok(())
     }
 
     #[test]
-    fn matching_shadow_failures_do_not_qualify_as_identical_evidence() {
-        let mut evidence = complete();
-        evidence.record_shadow(&ShadowRecord {
-            source: Protocol::OpenAi,
-            target: Protocol::OpenAi,
-            stream: true,
-            old_converter_id: None,
-            new_converter_id: None,
-            differences: Vec::new(),
-        });
+    fn different_converter_versions_can_prove_identical_shadow_semantics() -> TestResult {
+        let decision = evaluate_shadow(shadow_record(
+            Protocol::OpenAi,
+            Protocol::OpenAi,
+            Some("openai-v1"),
+            Some("openai-v2"),
+            vec![crate::protocol_rollout::ShadowDifference::ConverterId],
+        ))?;
 
         assert!(matches!(
-            OwnershipGate::default().evaluate(&evidence),
-            OwnershipDecision::ClosedByDefault { blockers, .. }
-                if blockers.contains(&OwnershipBlocker::ShadowDifference)
-        ));
-    }
-
-    #[test]
-    fn different_converter_versions_can_prove_identical_shadow_semantics() {
-        let mut evidence = complete();
-        evidence.record_shadow(&ShadowRecord {
-            source: Protocol::OpenAi,
-            target: Protocol::OpenAi,
-            stream: true,
-            old_converter_id: Some("openai-v1".to_owned()),
-            new_converter_id: Some("openai-v2".to_owned()),
-            differences: vec![crate::protocol_rollout::ShadowDifference::ConverterId],
-        });
-
-        assert!(matches!(
-            OwnershipGate::default().evaluate(&evidence),
+            decision,
             OwnershipDecision::EligibleForOwnershipReview { .. }
         ));
+        Ok(())
     }
 }
