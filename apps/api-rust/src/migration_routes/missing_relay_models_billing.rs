@@ -322,16 +322,16 @@ fn header_value(headers: &HeaderMap, name: &str) -> Option<String> {
 }
 
 fn client_ip(headers: &HeaderMap, request: &Request) -> IpAddr {
-    request
+    if let Some(client_ip) = request
         .extensions()
         .get::<RequestContext>()
         .and_then(|context| context.client_ip)
-        .or_else(|| {
-            headers
-                .get("x-real-ip")
-                .and_then(|value| value.to_str().ok())
-                .and_then(|value| value.parse().ok())
-        })
+    {
+        return client_ip;
+    }
+
+    header_value(headers, "x-real-ip")
+        .and_then(|value| value.parse().ok())
         .unwrap_or(IpAddr::V4(std::net::Ipv4Addr::LOCALHOST))
 }
 
@@ -461,10 +461,10 @@ mod tests {
     #[async_trait]
     impl ModelLookupService for TestService {
         async fn authenticate(&self, _: ModelLookupRequest) -> Result<(), ModelsError> {
-            self.authenticated
-                .as_ref()
-                .map(|_| ())
-                .map_err(|kind| ModelsError::new(*kind, "Invalid token"))
+            match self.authenticated {
+                Ok(()) => Ok(()),
+                Err(kind) => Err(ModelsError::new(kind, "Invalid token")),
+            }
         }
 
         async fn find_static_model(&self, _: &str) -> Result<Option<ModelView>, ModelsError> {
@@ -542,14 +542,10 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
-    async fn rejected_token_uses_the_legacy_openai_error_envelope() -> TestResult {
-        let response = app(
-            Err(ModelsErrorKind::InvalidToken),
-            Some(ModelView::new("must-not-leak", "openai")),
-        )
-        .oneshot(HttpRequest::get("/v1/models/must-not-leak").body(Body::empty())?)
-        .await?;
+    async fn assert_legacy_auth_error(kind: ModelsErrorKind) -> TestResult {
+        let response = app(Err(kind), Some(ModelView::new("must-not-leak", "openai")))
+            .oneshot(HttpRequest::get("/v1/models/must-not-leak").body(Body::empty())?)
+            .await?;
 
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
         let body = json_body(response).await?;
@@ -561,21 +557,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn missing_token_uses_the_legacy_openai_error_envelope() -> TestResult {
-        let response = app(
-            Err(ModelsErrorKind::MissingToken),
-            Some(ModelView::new("must-not-leak", "openai")),
-        )
-        .oneshot(HttpRequest::get("/v1/models/must-not-leak").body(Body::empty())?)
-        .await?;
+    async fn rejected_token_uses_the_legacy_openai_error_envelope() -> TestResult {
+        assert_legacy_auth_error(ModelsErrorKind::InvalidToken).await
+    }
 
-        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
-        let body = json_body(response).await?;
-        assert_eq!(body["error"]["type"], "new_api_error");
-        assert_eq!(body["error"]["code"], "");
-        let message = body["error"]["message"].as_str().unwrap_or_default();
-        assert!(message.starts_with("Invalid token (request id: "));
-        Ok(())
+    #[tokio::test]
+    async fn missing_token_uses_the_legacy_openai_error_envelope() -> TestResult {
+        assert_legacy_auth_error(ModelsErrorKind::MissingToken).await
     }
 
     #[tokio::test]
