@@ -515,10 +515,7 @@ impl Options {
     }
 
     fn json_or(&self, key: &str, default_json: &str, invalid: Value) -> Value {
-        match self.raw(key) {
-            Some(value) => serde_json::from_str(value).unwrap_or(invalid),
-            None => serde_json::from_str(default_json).expect("built-in JSON must be valid"),
-        }
+        serde_json::from_str(self.raw(key).unwrap_or(default_json)).unwrap_or(invalid)
     }
 }
 
@@ -557,6 +554,8 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    type TestResult = Result<(), Box<dyn std::error::Error>>;
+
     const DEFAULT_VERSION: &str = "v0.0.0";
 
     fn default_snapshot() -> StatusSnapshot {
@@ -567,29 +566,28 @@ mod tests {
         }
     }
 
-    fn oracle_body() -> Value {
+    fn oracle_body() -> Result<Value, serde_json::Error> {
         let fixture: Value = serde_json::from_str(include_str!(
             "../tests/behavior-oracle/fixtures/api-status.json"
-        ))
-        .expect("status oracle fixture");
-        fixture["response"]["body"].clone()
+        ))?;
+        Ok(fixture["response"]["body"].clone())
     }
 
     #[test]
-    fn default_status_body_matches_the_normalized_go_oracle() {
+    fn default_status_body_matches_the_normalized_go_oracle() -> TestResult {
         let actual = serde_json::to_value(StatusEnvelope {
             success: true,
             message: "",
             data: StatusData::from_snapshot(default_snapshot(), DEFAULT_VERSION, 1_700_000_000),
-        })
-        .expect("serialize status");
-        let mut expected = oracle_body();
+        })?;
+        let mut expected = oracle_body()?;
         expected["data"]["start_time"] = json!(1_700_000_000_i64);
         assert_eq!(actual, expected);
+        Ok(())
     }
 
     #[tokio::test]
-    async fn repository_failure_returns_legacy_error_status() {
+    async fn repository_failure_returns_legacy_error_status() -> TestResult {
         struct FailingStatusRepository;
 
         #[async_trait]
@@ -607,16 +605,15 @@ mod tests {
         .response()
         .await;
         assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-            .await
-            .expect("failure body is readable");
-        let body: Value = serde_json::from_slice(&body).expect("failure response is JSON");
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await?;
+        let body: Value = serde_json::from_slice(&body)?;
         assert_eq!(body["success"], false);
         assert_eq!(body["message"], "系统状态暂时不可用");
+        Ok(())
     }
 
     #[test]
-    fn postgres_options_override_types_omissions_and_oauth_projection() {
+    fn postgres_options_override_types_omissions_and_oauth_projection() -> TestResult {
         let options = BTreeMap::from([
             ("SystemName".to_owned(), "Operator API".to_owned()),
             ("GitHubOAuthEnabled".to_owned(), "true".to_owned()),
@@ -651,8 +648,7 @@ mod tests {
             },
             "v1.2.3",
             42,
-        ))
-        .expect("serialize overridden status");
+        ))?;
         assert_eq!(value["system_name"], "Operator API");
         assert_eq!(value["github_oauth"], true);
         assert_eq!(value["quota_per_unit"], 1234.5);
@@ -669,6 +665,7 @@ mod tests {
                 .get("client_secret")
                 .is_none()
         );
+        Ok(())
     }
 
     #[test]
@@ -708,10 +705,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn postgres_repository_reads_authoritative_options_and_enabled_providers() {
+    async fn postgres_repository_reads_authoritative_options_and_enabled_providers() -> TestResult {
         let Some(database_url) = std::env::var("LMM_TEST_DATABASE_URL").ok() else {
             eprintln!("skipping PostgreSQL status test: LMM_TEST_DATABASE_URL is unset");
-            return;
+            return Ok(());
         };
         let schema = format!("status_test_{}", uuid::Uuid::new_v4().simple());
         let pool = sqlx::postgres::PgPoolOptions::new()
@@ -727,50 +724,38 @@ mod tests {
                 }
             })
             .connect(&database_url)
-            .await
-            .expect("connect PostgreSQL");
+            .await?;
         sqlx::query(&format!("CREATE SCHEMA {schema}"))
             .execute(&pool)
-            .await
-            .expect("create isolated schema");
+            .await?;
         sqlx::query("CREATE TABLE options (key TEXT PRIMARY KEY, value TEXT)")
             .execute(&pool)
-            .await
-            .expect("create options");
+            .await?;
         sqlx::query(
             "CREATE TABLE custom_oauth_providers (id BIGINT PRIMARY KEY, name TEXT NOT NULL, slug TEXT NOT NULL, icon TEXT, enabled BOOLEAN, client_id TEXT, authorization_endpoint TEXT, scopes TEXT)",
         )
         .execute(&pool)
-        .await
-        .expect("create providers");
+        .await?;
         sqlx::query("CREATE TABLE setups (id BIGINT PRIMARY KEY)")
             .execute(&pool)
-            .await
-            .expect("create setups");
+            .await?;
         sqlx::query("INSERT INTO options (key, value) VALUES ('SystemName', 'PG authoritative')")
             .execute(&pool)
-            .await
-            .expect("seed option");
+            .await?;
         sqlx::query("INSERT INTO custom_oauth_providers (id, name, slug, enabled, client_id, authorization_endpoint, scopes) VALUES (1, 'Enabled', 'enabled', TRUE, 'id', 'https://id/authorize', 'openid'), (2, 'Disabled', 'disabled', FALSE, 'id2', 'https://id/authorize', 'openid')")
             .execute(&pool)
-            .await
-            .expect("seed providers");
-        let snapshot = PgStatusRepository::new(pool.clone())
-            .snapshot()
-            .await
-            .expect("PostgreSQL snapshot");
+            .await?;
+        let snapshot = PgStatusRepository::new(pool.clone()).snapshot().await?;
         assert_eq!(snapshot.options["SystemName"], "PG authoritative");
         assert_eq!(snapshot.custom_oauth_providers.len(), 1);
         assert_eq!(snapshot.custom_oauth_providers[0].slug, "enabled");
         assert!(!snapshot.setup);
         pool.close().await;
-        let cleanup = sqlx::PgPool::connect(&database_url)
-            .await
-            .expect("cleanup connection");
+        let cleanup = sqlx::PgPool::connect(&database_url).await?;
         sqlx::query(&format!("DROP SCHEMA {schema} CASCADE"))
             .execute(&cleanup)
-            .await
-            .expect("drop isolated schema");
+            .await?;
         cleanup.close().await;
+        Ok(())
     }
 }
