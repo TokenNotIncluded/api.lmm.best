@@ -926,19 +926,20 @@ mod tests {
     }
 
     #[test]
-    fn test_instance_listener_must_be_literal_loopback() {
+    fn test_instance_listener_must_be_literal_loopback() -> TestResult {
         for valid in ["127.0.0.1:3100", "[::1]:3100"] {
             assert!(
-                super::validate_test_listener(valid.parse().expect("socket address")).is_ok(),
+                super::validate_test_listener(valid.parse()?).is_ok(),
                 "{valid}"
             );
         }
         for invalid in ["0.0.0.0:3100", "192.0.2.10:3100", "[::]:3100"] {
             assert!(
-                super::validate_test_listener(invalid.parse().expect("socket address")).is_err(),
+                super::validate_test_listener(invalid.parse()?).is_err(),
                 "{invalid}"
             );
         }
+        Ok(())
     }
 
     #[test]
@@ -965,39 +966,33 @@ mod tests {
     }
 
     #[test]
-    fn test_instance_valkey_port_override_is_nonzero_and_defaults_safely() {
-        assert_eq!(super::parse_test_valkey_port(None).unwrap(), 6380);
-        assert_eq!(super::parse_test_valkey_port(Some("23456")).unwrap(), 23456);
+    fn test_instance_valkey_port_override_is_nonzero_and_defaults_safely() -> TestResult {
+        assert_eq!(super::parse_test_valkey_port(None)?, 6380);
+        assert_eq!(super::parse_test_valkey_port(Some("23456"))?, 23456);
         for invalid in ["", "0", "65536", "23456 "] {
             assert!(
                 super::parse_test_valkey_port(Some(invalid)).is_err(),
                 "{invalid:?}"
             );
         }
+        Ok(())
     }
 
     #[test]
-    fn blue_green_slot_identity_is_strict() {
-        assert_eq!(
-            super::validated_slot("blue".to_owned(), false).expect("blue production slot"),
-            "blue"
-        );
-        assert_eq!(
-            super::validated_slot("green".to_owned(), false).expect("green production slot"),
-            "green"
-        );
+    fn blue_green_slot_identity_is_strict() -> TestResult {
+        assert_eq!(super::validated_slot("blue".to_owned(), false)?, "blue");
+        assert_eq!(super::validated_slot("green".to_owned(), false)?, "green");
         assert!(super::validated_slot("single".to_owned(), false).is_err());
         assert!(super::validated_slot("canary".to_owned(), false).is_err());
+        Ok(())
     }
 
     #[test]
-    fn test_instance_slot_is_single_only() {
-        assert_eq!(
-            super::validated_slot("single".to_owned(), true).expect("single test slot"),
-            "single"
-        );
+    fn test_instance_slot_is_single_only() -> TestResult {
+        assert_eq!(super::validated_slot("single".to_owned(), true)?, "single");
         assert!(super::validated_slot("blue".to_owned(), true).is_err());
         assert!(super::validated_slot("green".to_owned(), true).is_err());
+        Ok(())
     }
 
     #[test]
@@ -1099,14 +1094,14 @@ mod tests {
     }
 
     #[test]
-    fn drain_timeout_must_leave_the_systemd_supervisor_margin() {
+    fn drain_timeout_must_leave_the_systemd_supervisor_margin() -> TestResult {
         assert_eq!(
-            super::bounded_seconds("LMM_DRAIN_TIMEOUT_SECONDS", 30, 40)
-                .expect("default drain timeout is valid"),
+            super::bounded_seconds("LMM_DRAIN_TIMEOUT_SECONDS", 30, 40)?,
             Duration::from_secs(30)
         );
         assert!(super::bounded_seconds_value(0, "LMM_DRAIN_TIMEOUT_SECONDS", 40).is_err());
         assert!(super::bounded_seconds_value(41, "LMM_DRAIN_TIMEOUT_SECONDS", 40).is_err());
+        Ok(())
     }
 
     #[test]
@@ -1120,20 +1115,21 @@ mod tests {
     }
 
     #[test]
-    fn public_content_cache_ttl_should_accept_one_second() {
+    fn public_content_cache_ttl_should_accept_one_second() -> TestResult {
         assert_eq!(
-            super::public_content_cache_ttl_value(1).expect("one second is within the cache bound"),
+            super::public_content_cache_ttl_value(1)?,
             Duration::from_secs(1)
         );
+        Ok(())
     }
 
     #[test]
-    fn public_content_cache_ttl_should_accept_five_seconds() {
+    fn public_content_cache_ttl_should_accept_five_seconds() -> TestResult {
         assert_eq!(
-            super::public_content_cache_ttl_value(5)
-                .expect("five seconds is the maximum cache lifetime"),
+            super::public_content_cache_ttl_value(5)?,
             Duration::from_secs(5)
         );
+        Ok(())
     }
 
     #[test]
