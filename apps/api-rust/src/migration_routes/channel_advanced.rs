@@ -1229,14 +1229,17 @@ fn is_hop_by_hop_header(name: &axum::http::HeaderName) -> bool {
 
 #[cfg(test)]
 mod upstream_tests {
-    use std::sync::{Arc, Mutex};
+    use std::{
+        io,
+        sync::{Arc, Mutex, MutexGuard},
+    };
 
     use axum::{
         Router,
         body::to_bytes,
         extract::{Request, State},
-        http::StatusCode,
-        response::IntoResponse,
+        http::{HeaderMap, StatusCode},
+        response::{IntoResponse, Response},
         routing::any,
     };
     use secrecy::SecretString;
@@ -1246,6 +1249,39 @@ mod upstream_tests {
         ChannelAdvancedCall, ChannelAdvancedChannel, ChannelAdvancedKind, ChannelAdvancedOperation,
         ChannelAdvancedUpstream, ReqwestChannelAdvancedUpstream,
     };
+
+    type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
+    type MockServer = (
+        String,
+        Arc<Mutex<Vec<CapturedRequest>>>,
+        tokio::task::JoinHandle<io::Result<()>>,
+    );
+
+    fn test_error(message: impl Into<String>) -> io::Error {
+        io::Error::other(message.into())
+    }
+
+    fn lock_unpoisoned<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+        match mutex.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        }
+    }
+
+    fn optional_header(headers: &HeaderMap, name: &'static str) -> Result<Option<String>, Response> {
+        headers
+            .get(name)
+            .map(|value| {
+                value.to_str().map(ToOwned::to_owned).map_err(|error| {
+                    (
+                        StatusCode::BAD_REQUEST,
+                        format!("invalid {name} header: {error}"),
+                    )
+                        .into_response()
+                })
+            })
+            .transpose()
+    }
 
     #[derive(Clone, Debug, Eq, PartialEq)]
     struct CapturedRequest {
@@ -1259,38 +1295,35 @@ mod upstream_tests {
     async fn capture(
         State(captured): State<Arc<Mutex<Vec<CapturedRequest>>>>,
         request: Request,
-    ) -> axum::response::Response {
+    ) -> Response {
         let (parts, body) = request.into_parts();
-        let body = to_bytes(body, 64 * 1024)
-            .await
-            .expect("request body")
-            .to_vec();
-        captured
-            .lock()
-            .expect("capture lock")
-            .push(CapturedRequest {
-                method: parts.method.to_string(),
-                path: parts.uri.path().to_owned(),
-                authorization: parts
-                    .headers
-                    .get("authorization")
-                    .and_then(|value| value.to_str().ok())
-                    .map(ToOwned::to_owned),
-                account_id: parts
-                    .headers
-                    .get("chatgpt-account-id")
-                    .and_then(|value| value.to_str().ok())
-                    .map(ToOwned::to_owned),
-                body,
-            });
-        match captured
-            .lock()
-            .expect("capture lock")
-            .last()
-            .expect("request")
-            .path
-            .as_str()
-        {
+        let body = match to_bytes(body, 64 * 1024).await {
+            Ok(body) => body.to_vec(),
+            Err(error) => {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("mock request body error: {error}"),
+                )
+                    .into_response();
+            }
+        };
+        let authorization = match optional_header(&parts.headers, "authorization") {
+            Ok(value) => value,
+            Err(response) => return response,
+        };
+        let account_id = match optional_header(&parts.headers, "chatgpt-account-id") {
+            Ok(value) => value,
+            Err(response) => return response,
+        };
+        let path = parts.uri.path().to_owned();
+        lock_unpoisoned(&captured).push(CapturedRequest {
+            method: parts.method.to_string(),
+            path: path.clone(),
+            authorization,
+            account_id,
+            body,
+        });
+        match path.as_str() {
             "/api/version" => {
                 (StatusCode::OK, axum::Json(json!({"version":"0.9.1"}))).into_response()
             }
@@ -1309,21 +1342,22 @@ mod upstream_tests {
         }
     }
 
-    async fn local_mock() -> (
-        String,
-        Arc<Mutex<Vec<CapturedRequest>>>,
-        tokio::task::JoinHandle<()>,
-    ) {
+    async fn local_mock() -> TestResult<MockServer> {
         let captured = Arc::new(Mutex::new(Vec::new()));
         let app = Router::new()
             .fallback(any(capture))
             .with_state(captured.clone());
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await
-            .expect("listener");
-        let base = format!("http://{}", listener.local_addr().expect("address"));
-        let task = tokio::spawn(async move { axum::serve(listener, app).await.expect("server") });
-        (base, captured, task)
+            .map_err(|error| test_error(format!("mock listener bind error: {error}")))?;
+        let address = listener
+            .local_addr()
+            .map_err(|error| test_error(format!("mock listener address error: {error}")))?;
+        let base = format!("http://{address}");
+        reqwest::Url::parse(&base)
+            .map_err(|error| test_error(format!("mock server URI error: {error}")))?;
+        let task = tokio::spawn(async move { axum::serve(listener, app).await });
+        Ok((base, captured, task))
     }
 
     fn channel(
@@ -1343,10 +1377,10 @@ mod upstream_tests {
     }
 
     #[tokio::test]
-    async fn ollama_operations_use_the_stored_target_and_never_a_request_url() {
-        let (base, captured, task) = local_mock().await;
+    async fn ollama_operations_use_the_stored_target_and_never_a_request_url() -> TestResult {
+        let (base, captured, task) = local_mock().await?;
         let upstream = ReqwestChannelAdvancedUpstream::with_test_client(reqwest::Client::new())
-            .expect("upstream");
+            .map_err(|error| test_error(format!("test upstream URI error: {error:?}")))?;
         let result = upstream
             .execute(
                 ChannelAdvancedCall {
@@ -1357,20 +1391,28 @@ mod upstream_tests {
                 Some(channel(7, ChannelAdvancedKind::Ollama, base, "one\ntwo")),
             )
             .await
-            .expect("version");
+            .map_err(|error| test_error(format!("Ollama version request failed: {error:?}")))?;
         assert_eq!(result, json!({"version":"0.9.1"}));
-        let recorded = captured.lock().expect("capture lock").clone();
+        let recorded = lock_unpoisoned(&captured).clone();
         assert_eq!(recorded.len(), 1);
-        assert_eq!(recorded[0].path, "/api/version");
-        assert_eq!(recorded[0].authorization.as_deref(), Some("Bearer one"));
+        let request = recorded
+            .first()
+            .ok_or_else(|| test_error("Ollama version request was not captured"))?;
+        assert_eq!(request.path, "/api/version");
+        let authorization = request
+            .authorization
+            .as_deref()
+            .ok_or_else(|| test_error("Ollama version authorization header was not captured"))?;
+        assert_eq!(authorization, "Bearer one");
         task.abort();
+        Ok(())
     }
 
     #[tokio::test]
-    async fn codex_usage_preserves_the_wham_method_headers_and_payload() {
-        let (base, captured, task) = local_mock().await;
+    async fn codex_usage_preserves_the_wham_method_headers_and_payload() -> TestResult {
+        let (base, captured, task) = local_mock().await?;
         let upstream = ReqwestChannelAdvancedUpstream::with_test_client(reqwest::Client::new())
-            .expect("upstream");
+            .map_err(|error| test_error(format!("test upstream URI error: {error:?}")))?;
         let credential =
             r#"{"access_token":"access","refresh_token":"refresh","account_id":"account"}"#;
         let result = upstream
@@ -1383,23 +1425,35 @@ mod upstream_tests {
                 Some(channel(9, ChannelAdvancedKind::Codex, base, credential)),
             )
             .await
-            .expect("usage");
+            .map_err(|error| test_error(format!("Codex usage request failed: {error:?}")))?;
         assert_eq!(result["success"], true);
         assert_eq!(result["upstream_status"], 200);
         assert_eq!(result["data"], json!({"used":3}));
-        let recorded = captured.lock().expect("capture lock").clone();
-        assert_eq!(recorded[0].method, "GET");
-        assert_eq!(recorded[0].path, "/backend-api/wham/usage");
-        assert_eq!(recorded[0].authorization.as_deref(), Some("Bearer access"));
-        assert_eq!(recorded[0].account_id.as_deref(), Some("account"));
+        let recorded = lock_unpoisoned(&captured).clone();
+        let request = recorded
+            .first()
+            .ok_or_else(|| test_error("Codex usage request was not captured"))?;
+        assert_eq!(request.method, "GET");
+        assert_eq!(request.path, "/backend-api/wham/usage");
+        let authorization = request
+            .authorization
+            .as_deref()
+            .ok_or_else(|| test_error("Codex usage authorization header was not captured"))?;
+        assert_eq!(authorization, "Bearer access");
+        let account_id = request
+            .account_id
+            .as_deref()
+            .ok_or_else(|| test_error("Codex account header was not captured"))?;
+        assert_eq!(account_id, "account");
         task.abort();
+        Ok(())
     }
 
     #[tokio::test]
-    async fn ollama_pull_uses_legacy_json_shape_and_does_not_forward_hop_headers() {
-        let (base, captured, task) = local_mock().await;
+    async fn ollama_pull_uses_legacy_json_shape_and_does_not_forward_hop_headers() -> TestResult {
+        let (base, captured, task) = local_mock().await?;
         let upstream = ReqwestChannelAdvancedUpstream::with_test_client(reqwest::Client::new())
-            .expect("upstream");
+            .map_err(|error| test_error(format!("test upstream URI error: {error:?}")))?;
         upstream
             .execute(
                 ChannelAdvancedCall {
@@ -1410,15 +1464,18 @@ mod upstream_tests {
                 Some(channel(7, ChannelAdvancedKind::Ollama, base, "secret")),
             )
             .await
-            .expect("pull");
-        let recorded = captured.lock().expect("capture lock").clone();
-        assert_eq!(recorded[0].method, "POST");
-        assert_eq!(recorded[0].path, "/api/pull");
-        assert_eq!(
-            serde_json::from_slice::<serde_json::Value>(&recorded[0].body).expect("json"),
-            json!({"name":"phi4","stream":false})
-        );
+            .map_err(|error| test_error(format!("Ollama pull request failed: {error:?}")))?;
+        let recorded = lock_unpoisoned(&captured).clone();
+        let request = recorded
+            .first()
+            .ok_or_else(|| test_error("Ollama pull request was not captured"))?;
+        assert_eq!(request.method, "POST");
+        assert_eq!(request.path, "/api/pull");
+        let body = serde_json::from_slice::<serde_json::Value>(&request.body)
+            .map_err(|error| test_error(format!("Ollama pull JSON error: {error}")))?;
+        assert_eq!(body, json!({"name":"phi4","stream":false}));
         task.abort();
+        Ok(())
     }
 }
 
