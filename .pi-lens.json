@@ -82,7 +82,21 @@
         "no-chained-type-assertions",
         "no-unsafe-dictionary-any",
         "no-reflect-get",
-        "unchecked-throwing-call"
+        "unchecked-throwing-call",
+        "nil-map-assignment",
+        "mutex-unlock-mismatch",
+        "gorm-find-without-where",
+        "waitgroup-done-scope",
+        "string-concat-in-loop",
+        "modernize:efaceany",
+        "go-insecure-random",
+        "opengrep:go.lang.security.audit.crypto.math_random.math-random-used",
+        "opengrep:go.lang.security.audit.database.string-formatted-query.string-formatted-query",
+        "ast-grep:nil-map-assignment",
+        "ast-grep:mutex-unlock-mismatch",
+        "ast-grep:gorm-find-without-where",
+        "ast-grep:waitgroup-done-scope",
+        "ast-grep:string-concat-in-loop"
       ]
     },
     "architecture-advisories": {
