@@ -1282,16 +1282,19 @@ async fn list_conversations_page(
         })
         .collect();
     let next_cursor = if has_more {
-        let last = rows.last().expect("has_more implies row");
-        Some(encode_history_cursor(
-            &state.session_secret,
-            owner_user_id,
-            archived,
-            HistoryCursor {
-                updated_at: last.try_get("updated_at").unwrap_or_default(),
-                id: last.try_get("id").unwrap_or_default(),
-            },
-        )?)
+        rows.last()
+            .map(|last| {
+                encode_history_cursor(
+                    &state.session_secret,
+                    owner_user_id,
+                    archived,
+                    HistoryCursor {
+                        updated_at: last.try_get("updated_at").unwrap_or_default(),
+                        id: last.try_get("id").unwrap_or_default(),
+                    },
+                )
+            })
+            .transpose()?
     } else {
         None
     };
@@ -1804,7 +1807,7 @@ fn encode_history_cursor(
     let encoded = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(
         serde_json::to_vec(&payload).map_err(|error| HistoryError::Internal(error.to_string()))?,
     );
-    let signature = history_cursor_mac(session_secret, &encoded);
+    let signature = history_cursor_mac(session_secret, &encoded)?;
     Ok(format!("{encoded}.{signature}"))
 }
 
@@ -1818,7 +1821,7 @@ fn decode_history_cursor(
         .split_once('.')
         .filter(|(payload, sig)| !payload.is_empty() && !sig.is_empty())
         .ok_or(HistoryError::InvalidCursor)?;
-    if history_cursor_mac(session_secret, encoded) != signature {
+    if history_cursor_mac(session_secret, encoded)? != signature {
         return Err(HistoryError::InvalidCursor);
     }
     let payload: Value = serde_json::from_slice(
@@ -1846,14 +1849,18 @@ fn decode_history_cursor(
     Ok(HistoryCursor { updated_at, id })
 }
 
-fn history_cursor_mac(session_secret: &SecretString, encoded: &str) -> String {
+fn history_cursor_mac(
+    session_secret: &SecretString,
+    encoded: &str,
+) -> Result<String, HistoryError> {
     let key = format!(
         "assistant-history-cursor-v1:{}",
         session_secret.expose_secret()
     );
-    let mut mac = HmacSha256::new_from_slice(key.as_bytes()).expect("HMAC key");
+    let mut mac = HmacSha256::new_from_slice(key.as_bytes())
+        .map_err(|_| HistoryError::Internal("cursor HMAC initialization failed".to_owned()))?;
     mac.update(encoded.as_bytes());
-    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(mac.finalize().into_bytes())
+    Ok(base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(mac.finalize().into_bytes()))
 }
 
 async fn consume_auth_flow(
@@ -1946,9 +1953,7 @@ fn assistant_week_start() -> i64 {
     let monday = day - chrono::Duration::days(i64::from(weekday));
     monday
         .and_hms_opt(0, 0, 0)
-        .expect("midnight exists")
-        .and_utc()
-        .timestamp()
+        .map_or(0, |midnight| midnight.and_utc().timestamp())
 }
 
 fn unix_seconds() -> i64 {
