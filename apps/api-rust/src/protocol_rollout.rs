@@ -1732,10 +1732,12 @@ mod tests {
         )
     }
 
-    fn fully_enabled_configuration() -> ProtocolRolloutConfig {
+    type TestResult<T = ()> = Result<T, Box<dyn std::error::Error>>;
+
+    fn fully_enabled_configuration() -> Result<ProtocolRolloutConfig, RolloutConfigError> {
         let mut config = ProtocolRolloutConfig::default();
-        config.conversion_engine_v2 = FlagConfig::enabled(MAX_BASIS_POINTS).expect("valid");
-        config
+        config.conversion_engine_v2 = FlagConfig::enabled(MAX_BASIS_POINTS)?;
+        Ok(config)
     }
 
     #[test]
@@ -1748,28 +1750,29 @@ mod tests {
     }
 
     #[test]
-    fn explicit_flag_defaults_to_full_allocation_only_when_enabled() {
+    fn explicit_flag_defaults_to_full_allocation_only_when_enabled() -> TestResult {
         let mut config = ProtocolRolloutConfig::default();
-        config.conversion_engine_v2 = FlagConfig::enabled(MAX_BASIS_POINTS).expect("valid");
+        config.conversion_engine_v2 = FlagConfig::enabled(MAX_BASIS_POINTS)?;
         assert!(
             config
                 .decide(RolloutFlag::ConversionEngineV2, &context("request-1"))
                 .enabled
         );
+        Ok(())
     }
 
     #[test]
-    fn dimension_override_beats_base_configuration() {
+    fn dimension_override_beats_base_configuration() -> TestResult {
         let mut config = ProtocolRolloutConfig::default();
-        config.conversion_engine_v2 = FlagConfig::enabled(0).expect("valid");
+        config.conversion_engine_v2 = FlagConfig::enabled(0)?;
         let selector = RolloutSelector {
             channel: Some("internal".to_owned()),
             ..RolloutSelector::default()
         };
+        let override_rule = FlagOverride::new(selector, true, MAX_BASIS_POINTS)?;
         config
             .conversion_engine_v2
-            .push_override(FlagOverride::new(selector, true, MAX_BASIS_POINTS).expect("valid"))
-            .expect("valid");
+            .push_override(override_rule)?;
         let internal = context("request-1").with_channel("internal");
         let public = context("request-1");
         assert!(
@@ -1782,53 +1785,52 @@ mod tests {
                 .decide(RolloutFlag::ConversionEngineV2, &public)
                 .enabled
         );
+        Ok(())
     }
 
     #[test]
-    fn pair_override_beats_dimension_override() {
+    fn pair_override_beats_dimension_override() -> TestResult {
         let mut config = ProtocolRolloutConfig::default();
-        config.conversion_engine_v2 = FlagConfig::enabled(MAX_BASIS_POINTS).expect("valid");
-        config
-            .push_pair_override(ConverterPairOverride {
-                flag: RolloutFlag::ConversionEngineV2,
-                source: Protocol::OpenAi,
-                target: Protocol::OpenAiResponses,
-                channel: None,
-                model_family: None,
-                stream: None,
-                enabled: false,
-                canary_basis_points: None,
-            })
-            .expect("valid");
+        config.conversion_engine_v2 = FlagConfig::enabled(MAX_BASIS_POINTS)?;
+        config.push_pair_override(ConverterPairOverride {
+            flag: RolloutFlag::ConversionEngineV2,
+            source: Protocol::OpenAi,
+            target: Protocol::OpenAiResponses,
+            channel: None,
+            model_family: None,
+            stream: None,
+            enabled: false,
+            canary_basis_points: None,
+        })?;
         let decision = config.decide(RolloutFlag::ConversionEngineV2, &context("request-1"));
         assert!(!decision.enabled);
         assert!(matches!(
             decision.source,
             DecisionSource::ConverterPairOverride(_)
         ));
+        Ok(())
     }
 
     #[test]
-    fn pair_override_flag_reports_matching_route_scope() {
+    fn pair_override_flag_reports_matching_route_scope() -> TestResult {
         let mut config = ProtocolRolloutConfig::default();
-        config
-            .push_pair_override(ConverterPairOverride {
-                flag: RolloutFlag::ConversionEngineV2,
-                source: Protocol::OpenAi,
-                target: Protocol::OpenAiResponses,
-                channel: None,
-                model_family: None,
-                stream: None,
-                enabled: true,
-                canary_basis_points: None,
-            })
-            .expect("valid");
+        config.push_pair_override(ConverterPairOverride {
+            flag: RolloutFlag::ConversionEngineV2,
+            source: Protocol::OpenAi,
+            target: Protocol::OpenAiResponses,
+            channel: None,
+            model_family: None,
+            stream: None,
+            enabled: true,
+            canary_basis_points: None,
+        })?;
         let decision = config.decide(RolloutFlag::ConverterPairOverrides, &context("request-1"));
         assert!(decision.enabled);
         assert!(matches!(
             decision.source,
             DecisionSource::ConverterPairOverride(_)
         ));
+        Ok(())
     }
 
     #[test]
@@ -1861,7 +1863,7 @@ mod tests {
     }
 
     #[test]
-    fn control_reads_owned_snapshots_while_replacements_advance_generations() {
+    fn control_reads_owned_snapshots_while_replacements_advance_generations() -> TestResult {
         let control = ProtocolRolloutControl::default();
         let initial = control.snapshot();
         let barrier = TestArc::new(TestBarrier::new(5));
@@ -1883,33 +1885,39 @@ mod tests {
 
         let writer = control.clone();
         let writer_start = barrier.clone();
-        let replacement = thread::spawn(move || {
+        let replacement = thread::spawn(move || -> Result<(), ProtocolRolloutControlError> {
             writer_start.wait();
             for index in 0..64 {
                 let config = if index % 2 == 0 {
-                    fully_enabled_configuration()
+                    fully_enabled_configuration()?
                 } else {
                     ProtocolRolloutConfig::default()
                 };
-                let snapshot = writer.replace(config).expect("valid replacement");
+                let snapshot = writer.replace(config)?;
                 assert_eq!(snapshot.generation(), index as u64 + 1);
             }
+            Ok(())
         });
 
         barrier.wait();
-        replacement.join().expect("replacement thread completes");
+        replacement
+            .join()
+            .map_err(|_| std::io::Error::other("replacement thread panicked"))??;
         for reader in readers {
-            reader.join().expect("reader thread completes");
+            reader
+                .join()
+                .map_err(|_| std::io::Error::other("reader thread panicked"))?;
         }
 
         let current = control.snapshot();
         assert_eq!(current.generation(), 64);
         assert_eq!(initial.generation(), 0);
         assert_eq!(initial.status(), ProtocolRolloutSnapshotStatus::Active);
+        Ok(())
     }
 
     #[test]
-    fn invalid_control_replacement_does_not_change_snapshot_or_generation() {
+    fn invalid_control_replacement_does_not_change_snapshot_or_generation() -> TestResult {
         let control = ProtocolRolloutControl::default();
         let before = control.snapshot();
         let mut invalid = ProtocolRolloutConfig::default();
@@ -1917,7 +1925,8 @@ mod tests {
 
         let error = control
             .replace(invalid)
-            .expect_err("invalid config rejected");
+            .err()
+            .ok_or_else(|| std::io::Error::other("invalid config was accepted"))?;
         assert!(matches!(
             error,
             ProtocolRolloutControlError::InvalidConfig(
@@ -1964,35 +1973,37 @@ mod tests {
             ))
         ));
         assert_eq!(control.snapshot(), before);
+        Ok(())
     }
 
     #[test]
-    fn rollback_snapshot_can_be_replaced_immediately_and_gets_new_generation() {
-        let control = ProtocolRolloutControl::new(fully_enabled_configuration()).expect("valid");
+    fn rollback_snapshot_can_be_replaced_immediately_and_gets_new_generation() -> TestResult {
+        let control = ProtocolRolloutControl::new(fully_enabled_configuration()?)?;
         let rollback = control.rollback_snapshot();
         assert_eq!(rollback.status(), ProtocolRolloutSnapshotStatus::Rollback);
         assert!(rollback.config.rollback_enabled());
         assert!(!rollback.is_enabled(RolloutFlag::ConversionEngineV2, &context("rollback")));
 
-        let installed = control
-            .replace_snapshot(&rollback)
-            .expect("rollback replacement succeeds");
+        let installed = control.replace_snapshot(&rollback)?;
         assert_eq!(installed.generation(), 1);
         assert_eq!(installed.status(), ProtocolRolloutSnapshotStatus::Rollback);
         assert!(installed.is_fail_closed());
 
-        let atomically_installed = control
-            .replace_rollback()
-            .expect("second rollback replacement succeeds");
+        let atomically_installed = control.replace_rollback()?;
         assert_eq!(atomically_installed.generation(), 2);
         assert!(atomically_installed.config.rollback_enabled());
+        Ok(())
     }
 
     #[test]
-    fn poisoned_control_reads_and_replacements_fail_closed() {
+    fn poisoned_control_reads_and_replacements_fail_closed() -> TestResult {
         let control = ProtocolRolloutControl::default();
+        let enabled_config = fully_enabled_configuration()?;
         let poison = std::panic::catch_unwind(AssertUnwindSafe(|| {
-            let _guard = control.state.lock().expect("test lock acquired");
+            let _guard = match control.state.lock() {
+                Ok(guard) => guard,
+                Err(poisoned) => poisoned.into_inner(),
+            };
             std::panic::panic_any("poison rollout control mutex");
         }));
         assert!(poison.is_err());
@@ -2009,15 +2020,16 @@ mod tests {
             Err(ProtocolRolloutControlError::LockPoisoned)
         ));
         assert!(matches!(
-            control.replace(fully_enabled_configuration()),
+            control.replace(enabled_config),
             Err(ProtocolRolloutControlError::LockPoisoned)
         ));
+        Ok(())
     }
 
     #[test]
-    fn updated_configuration_snapshot_closes_every_v2_decision() {
+    fn updated_configuration_snapshot_closes_every_v2_decision() -> TestResult {
         let mut config = ProtocolRolloutConfig::default();
-        config.conversion_engine_v2 = FlagConfig::enabled(MAX_BASIS_POINTS).expect("valid");
+        config.conversion_engine_v2 = FlagConfig::enabled(MAX_BASIS_POINTS)?;
         let before = config.decide(RolloutFlag::ConversionEngineV2, &context("request-1"));
         assert!(before.enabled);
         config.apply_rollback(&RollbackDecision {
@@ -2029,12 +2041,13 @@ mod tests {
         assert_eq!(after.source, DecisionSource::ConfigRollback);
         assert!(config.rollback_enabled());
         assert_eq!(config.converter_pair_overrides.len(), 0);
+        Ok(())
     }
 
     #[test]
-    fn invalid_direct_pair_override_fails_closed_at_decision_time() {
+    fn invalid_direct_pair_override_fails_closed_at_decision_time() -> TestResult {
         let mut config = ProtocolRolloutConfig::default();
-        config.conversion_engine_v2 = FlagConfig::enabled(MAX_BASIS_POINTS).expect("valid");
+        config.conversion_engine_v2 = FlagConfig::enabled(MAX_BASIS_POINTS)?;
         config.converter_pair_overrides.push(ConverterPairOverride {
             flag: RolloutFlag::ConversionEngineV2,
             source: Protocol::OpenAi,
@@ -2049,10 +2062,11 @@ mod tests {
         let decision = config.decide(RolloutFlag::ConversionEngineV2, &context("request-1"));
         assert!(!decision.enabled);
         assert_eq!(decision.canary_basis_points, 0);
+        Ok(())
     }
 
     #[test]
-    fn shadow_runner_calls_only_local_converters_once_and_keeps_body_out_of_record() {
+    fn shadow_runner_calls_only_local_converters_once_and_keeps_body_out_of_record() -> TestResult {
         let old_calls = AtomicUsize::new(0);
         let new_calls = AtomicUsize::new(0);
         let old = |request: &LocalRequest<'_>| {
@@ -2083,8 +2097,9 @@ mod tests {
         assert_eq!(new_calls.load(Ordering::SeqCst), 1);
         assert!(record.differences.contains(&ShadowDifference::ConverterId));
         assert!(record.is_identical());
-        let serialized = serde_json::to_string(&record).expect("record serializes");
+        let serialized = serde_json::to_string(&record)?;
         assert!(!serialized.contains("secret prompt"));
+        Ok(())
     }
 
     #[test]
@@ -2119,7 +2134,7 @@ mod tests {
     }
 
     #[test]
-    fn shadow_aggregate_keeps_route_counters_without_request_body_or_key() {
+    fn shadow_aggregate_keeps_route_counters_without_request_body_or_key() -> TestResult {
         let record = compare_local_results(
             Protocol::OpenAi,
             Protocol::Claude,
@@ -2153,11 +2168,12 @@ mod tests {
                     })
             })
             .map(|entry| &entry.aggregate)
-            .expect("route aggregate");
+            .ok_or_else(|| std::io::Error::other("route aggregate fixture is missing"))?;
         assert_eq!(route.total, 1);
         assert_eq!(route.identical, 1);
-        let serialized = serde_json::to_string(&aggregate).expect("aggregate serializes");
+        let serialized = serde_json::to_string(&aggregate)?;
         assert!(!serialized.contains("prompt"));
+        Ok(())
     }
 
     #[test]
