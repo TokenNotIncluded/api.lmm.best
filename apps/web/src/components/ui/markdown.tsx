@@ -768,6 +768,7 @@ function SanitizedHtmlContent(props: {
     <div
       className={props.className}
       // biome-ignore lint/security/noDangerouslySetInnerHtml: SanitizedHtml values can only be created by DOMPurify.
+      // pi-lens-ignore: dangerously-set-inner-html
       dangerouslySetInnerHTML={{ __html: props.html }}
     />
   )

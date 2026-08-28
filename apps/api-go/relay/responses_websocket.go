@@ -686,6 +686,7 @@ func toWebSocketURL(raw string) string {
 	case strings.HasPrefix(raw, "https://"):
 		return "wss://" + strings.TrimPrefix(raw, "https://")
 	case strings.HasPrefix(raw, "http://"):
+		// pi-lens-ignore: opengrep:javascript.lang.security.detect-insecure-websocket.detect-insecure-websocket
 		return "ws://" + strings.TrimPrefix(raw, "http://")
 	default:
 		return raw

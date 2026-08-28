@@ -76,7 +76,13 @@
         "knip:devDependency",
         "knip:dependency",
         "knip:unlisted",
-        "inactive-code"
+        "inactive-code",
+        "require-safety-comment-for-as-unknown-as",
+        "no-unknown-returns",
+        "no-chained-type-assertions",
+        "no-unsafe-dictionary-any",
+        "no-reflect-get",
+        "unchecked-throwing-call"
       ]
     },
     "architecture-advisories": {

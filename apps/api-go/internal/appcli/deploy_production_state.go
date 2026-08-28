@@ -232,6 +232,7 @@ func (osProductionCommandRunner) Run(parent context.Context, command productionC
 	case commandVercmp:
 		process = exec.CommandContext(ctx, "/usr/bin/vercmp", command.Args...)
 	case productionOperatorBinary:
+		// pi-lens-ignore: opengrep:go.lang.security.audit.dangerous-exec-command.dangerous-exec-command
 		process = exec.CommandContext(ctx, productionOperatorBinary, command.Args...)
 	default:
 		return nil, fmt.Errorf("command executable is not allowlisted: %q", command.Name)

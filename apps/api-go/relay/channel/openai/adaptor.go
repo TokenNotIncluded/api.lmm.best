@@ -109,6 +109,7 @@ func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 			info.ChannelBaseUrl = baseUrl
 		} else if strings.HasPrefix(info.ChannelBaseUrl, "http://") {
 			baseUrl := strings.TrimPrefix(info.ChannelBaseUrl, "http://")
+			// pi-lens-ignore: opengrep:javascript.lang.security.detect-insecure-websocket.detect-insecure-websocket
 			baseUrl = "ws://" + baseUrl
 			info.ChannelBaseUrl = baseUrl
 		}

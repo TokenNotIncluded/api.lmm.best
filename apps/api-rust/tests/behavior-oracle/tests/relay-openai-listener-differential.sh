@@ -33,7 +33,9 @@ go_schema=lmm_relay_openai_go
 rust_schema=lmm_relay_openai_rust
 go_role=lmm_relay_openai_go
 rust_role=lmm_relay_openai_rust
+# shellcheck disable=SC2034 # Values are read indirectly by record_pid/owned_live.
 go_pid='' rust_pid='' go_valkey_pid='' rust_valkey_pid='' provider_pid=''
+# shellcheck disable=SC2034 # Values are read indirectly through ${!start_name}.
 go_start='' rust_start='' go_valkey_start='' rust_valkey_start='' provider_start=''
 
 pid_start_time() { [[ -r /proc/$1/stat ]] || return 1; awk '{print $22}' "/proc/$1/stat"; }
@@ -79,8 +81,8 @@ CREATE SCHEMA $rust_schema AUTHORIZATION $rust_role;
 ALTER ROLE $go_role IN DATABASE $database SET search_path TO $go_schema;
 ALTER ROLE $rust_role IN DATABASE $database SET search_path TO $rust_schema;
 SQL
-for schema in "$rust_schema"; do
-  sed "s/public\./$schema./g" "$repo_root/apps/api-rust/crates/lmm-db-migrate/schema/postgresql-baseline.sql" >"$runtime/$schema.sql"
+schema=$rust_schema
+sed "s/public\./$schema./g" "$repo_root/apps/api-rust/crates/lmm-db-migrate/schema/postgresql-baseline.sql" >"$runtime/$schema.sql"
   PGOPTIONS="-c search_path=$schema" psql -h 127.0.0.1 -p "$pg_port" -U "$rust_role" -d "$database" -q -v ON_ERROR_STOP=1 -f "$runtime/$schema.sql" >/dev/null
   PGOPTIONS="-c search_path=$schema" psql -h 127.0.0.1 -p "$pg_port" -U "$rust_role" -d "$database" -v ON_ERROR_STOP=1 -c "CREATE TABLE $schema.lmm_schema_contract (singleton BOOLEAN PRIMARY KEY, min_reader_version BIGINT NOT NULL, max_reader_version BIGINT NOT NULL); INSERT INTO $schema.lmm_schema_contract VALUES (TRUE,1,1);" >/dev/null
   PGOPTIONS="-c search_path=$schema" psql -h 127.0.0.1 -p "$pg_port" -U "$rust_role" -d "$database" -v ON_ERROR_STOP=1 <<'SQL' >/dev/null
@@ -128,7 +130,6 @@ CREATE TABLE IF NOT EXISTS open_source_bounty_disputes (
   created_at BIGINT NOT NULL DEFAULT 0, updated_at BIGINT NOT NULL DEFAULT 0, resolved_at BIGINT NOT NULL DEFAULT 0
 );
 SQL
-done
 
 go_valkey_secret="GoRelayOpenAI-$(openssl rand -hex 24)!"
 rust_valkey_secret="RustRelayOpenAI-$(openssl rand -hex 24)!"
@@ -194,7 +195,7 @@ for _ in {1..6000}; do kill -0 "$rust_pid" 2>/dev/null && [[ $(curl -s -o /dev/n
 [[ $(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$rust_port/readyz") == 200 ]] || { sed -n '1,220p' "$runtime/rust.log" >&2; exit 1; }
 
 call() {
-  local engine=$1 name=$2 path=$3 body=$4 token=${5:-} port prefix status
+  local engine=$1 name=$2 path=$3 body=$4 token=${5:-} port prefix
   [[ $engine == go ]] && port=$go_port || port=$rust_port
   prefix="$runtime/$engine.$name"
   curl -sS -D "$prefix.headers" -o "$prefix.body" -w '%{http_code}' -X POST -H 'content-type: application/json' ${token:+-H "authorization: Bearer $token"} --data-binary "$body" "http://127.0.0.1:$port$path" >"$prefix.status"
