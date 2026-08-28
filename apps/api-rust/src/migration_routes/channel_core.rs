@@ -1385,10 +1385,7 @@ mod tests {
         Box::new(std::io::Error::other(message.into()))
     }
 
-    fn json_from_value<T: DeserializeOwned>(
-        value: Value,
-        context: &'static str,
-    ) -> TestResult<T> {
+    fn json_from_value<T: DeserializeOwned>(value: Value, context: &'static str) -> TestResult<T> {
         serde_json::from_value(value)
             .map_err(|error| test_error(format!("{context}: invalid JSON value: {error}")))
     }
@@ -1504,10 +1501,8 @@ mod tests {
 
     #[test]
     fn update_fields_fail_closed_for_sensitive_and_unknown_names() -> TestResult {
-        let harmless = json_from_value::<Value>(
-            json!({"id":1,"name":"new"}),
-            "non-sensitive update payload",
-        )?;
+        let harmless =
+            json_from_value::<Value>(json!({"id":1,"name":"new"}), "non-sensitive update payload")?;
         assert!(!update_requires_sensitive_write(required(
             harmless.as_object(),
             "non-sensitive update JSON object",

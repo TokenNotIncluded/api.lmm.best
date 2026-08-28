@@ -887,9 +887,10 @@ mod tests {
             br#"{"model":"gpt-test","prompt":"hello"}"#.to_vec(),
         )
         .map_err(|error| test_error(format!("normalize generation request body: {error}")))?;
-        let generations: serde_json::Value = serde_json::from_slice(&generations_body).map_err(
-            |error| test_error(format!("parse normalized generation body JSON: {error}")),
-        )?;
+        let generations: serde_json::Value =
+            serde_json::from_slice(&generations_body).map_err(|error| {
+                test_error(format!("parse normalized generation body JSON: {error}"))
+            })?;
         assert_eq!(
             generations,
             serde_json::json!({"model":"gpt-test","prompt":"hello","n":1})
@@ -900,9 +901,8 @@ mod tests {
             br#"{"model":"gpt-test","image":"fixture-image"}"#.to_vec(),
         )
         .map_err(|error| test_error(format!("normalize edit request body: {error}")))?;
-        let edits: serde_json::Value = serde_json::from_slice(&edits_body).map_err(|error| {
-            test_error(format!("parse normalized edit body JSON: {error}"))
-        })?;
+        let edits: serde_json::Value = serde_json::from_slice(&edits_body)
+            .map_err(|error| test_error(format!("parse normalized edit body JSON: {error}")))?;
         assert_eq!(
             edits,
             serde_json::json!({"model":"gpt-test","image":"fixture-image","n":1,"prompt":""})

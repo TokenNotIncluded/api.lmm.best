@@ -2085,13 +2085,7 @@ mod tests {
         Box::new(io::Error::other(message.into()))
     }
 
-    fn local_timestamp(
-        year: i32,
-        month: u32,
-        day: u32,
-        hour: u32,
-        minute: u32,
-    ) -> TestResult<i64> {
+    fn local_timestamp(year: i32, month: u32, day: u32, hour: u32, minute: u32) -> TestResult<i64> {
         Local
             .with_ymd_and_hms(year, month, day, hour, minute, 0)
             .single()
@@ -2143,9 +2137,8 @@ mod tests {
 
     #[test]
     fn preference_request_binding_matches_gin_zero_value_contract() -> TestResult {
-        let explicit =
-            parse_preference_request(br#"{"billing_preference":" wallet_only "}"#)
-                .map_err(|()| test_error("valid billing preference JSON should deserialize"))?;
+        let explicit = parse_preference_request(br#"{"billing_preference":" wallet_only "}"#)
+            .map_err(|()| test_error("valid billing preference JSON should deserialize"))?;
         assert_eq!(explicit.billing_preference, " wallet_only ");
 
         let omitted = parse_preference_request(br#"{}"#)

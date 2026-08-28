@@ -1715,7 +1715,7 @@ mod tests {
             &self,
             _: &str,
         ) -> Result<CriticalRateLimitOutcome, AuthError> {
-            panic!("not used by public route tests")
+            Err(AuthError::new(AuthErrorKind::Internal))
         }
 
         async fn login(
@@ -1723,7 +1723,7 @@ mod tests {
             _: LoginRequest,
             _: RequestMetadata,
         ) -> Result<LoginOutcome, AuthError> {
-            panic!("not used by public route tests")
+            Err(AuthError::new(AuthErrorKind::Internal))
         }
 
         async fn login_2fa(
@@ -1731,7 +1731,7 @@ mod tests {
             _: TwoFactorLoginRequest,
             _: RequestMetadata,
         ) -> Result<AuthBundle, AuthError> {
-            panic!("not used by public route tests")
+            Err(AuthError::new(AuthErrorKind::Internal))
         }
 
         async fn refresh(
@@ -1740,7 +1740,7 @@ mod tests {
             _: Option<String>,
             _: RequestMetadata,
         ) -> Result<AuthBundle, AuthError> {
-            panic!("not used by public route tests")
+            Err(AuthError::new(AuthErrorKind::Internal))
         }
 
         async fn self_user(&self, access_token: SecretString) -> Result<DashboardUser, AuthError> {
@@ -1777,14 +1777,14 @@ mod tests {
         }
 
         async fn logout(&self, _: LogoutRequest) -> Result<crate::auth::LogoutResult, AuthError> {
-            panic!("not used by public route tests")
+            Err(AuthError::new(AuthErrorKind::Internal))
         }
 
         async fn generate_personal_access_token(
             &self,
             _: SecretString,
         ) -> Result<String, AuthError> {
-            panic!("not used by public route tests")
+            Err(AuthError::new(AuthErrorKind::Internal))
         }
     }
 

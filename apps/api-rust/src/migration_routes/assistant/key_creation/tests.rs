@@ -97,7 +97,7 @@ async fn route_json(
     path: &str,
     body: Value,
 ) -> TestResult<(StatusCode, Value)> {
-    let response = fixture_router(store)
+    let response = fixture_router(store)?
         .oneshot(build_post_request(
             path,
             Some("Bearer admin-session"),
@@ -162,7 +162,7 @@ async fn anonymous_and_personal_token_requests_authenticate_before_body_validati
     ] {
         let oversized = "x".repeat(KEY_MUTATION_BODY_LIMIT_BYTES + 1);
         let anonymous = raw_route(
-            fixture_router(FixtureStore::default()),
+            fixture_router(FixtureStore::default())?,
             path,
             None,
             oversized.clone(),
@@ -171,7 +171,7 @@ async fn anonymous_and_personal_token_requests_authenticate_before_body_validati
         assert_eq!(anonymous.status(), StatusCode::UNAUTHORIZED, "{path}");
 
         let personal_token = raw_route(
-            fixture_router(FixtureStore::default()),
+            fixture_router(FixtureStore::default())?,
             path,
             Some("Bearer user-token"),
             oversized,
@@ -207,7 +207,7 @@ async fn l0_console_gate_runs_after_json_validation_and_before_rate_limit() -> T
                 calls: Arc::clone(&calls),
             });
             let response = raw_route(
-                fixture_router_with_user_rate_limiter(FixtureStore::default(), limiter),
+                fixture_router_with_user_rate_limiter(FixtureStore::default(), limiter)?,
                 path,
                 Some("Bearer browser-session"),
                 body,
@@ -232,7 +232,7 @@ async fn invalid_and_oversized_bodies_do_not_consume_key_mutation_rate_limit() -
             outcome: Ok(CriticalRateLimitOutcome::Allowed),
             calls: Arc::clone(&calls),
         });
-        let router = fixture_router_with_user_rate_limiter(FixtureStore::default(), limiter);
+        let router = fixture_router_with_user_rate_limiter(FixtureStore::default(), limiter)?;
 
         let invalid = raw_route(
             router.clone(),
@@ -279,7 +279,7 @@ async fn exact_16_kib_body_reaches_rate_limit_but_one_extra_byte_does_not() -> T
             }),
             calls: Arc::clone(&calls),
         });
-        let router = fixture_router_with_user_rate_limiter(FixtureStore::default(), limiter);
+        let router = fixture_router_with_user_rate_limiter(FixtureStore::default(), limiter)?;
         let at_limit = json_padded_to_limit(value)?;
 
         let oversized = raw_route(
@@ -467,14 +467,16 @@ async fn confirm_route_rejects_client_mutable_draft_fields_before_repository() -
         let store = FixtureStore::default().with_confirm_result(Ok(created_key()));
         let calls = store.confirm_key_calls();
         let mut body = json!({"confirmation_token":"opaque-flow-token"});
-        let extra = required(extra.as_object(), "client draft fixture must be a JSON object")?;
+        let extra = required(
+            extra.as_object(),
+            "client draft fixture must be a JSON object",
+        )?;
         required(
             body.as_object_mut(),
             "confirmation request fixture must be a JSON object",
         )?
         .extend(extra.clone());
-        let (status, _) =
-            route_json(store, "/api/assistant/tools/create-key", body).await?;
+        let (status, _) = route_json(store, "/api/assistant/tools/create-key", body).await?;
 
         assert_eq!(status, StatusCode::BAD_REQUEST);
         assert!(lock_recover(&calls).is_empty());

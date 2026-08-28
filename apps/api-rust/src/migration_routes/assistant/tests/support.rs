@@ -327,7 +327,7 @@ impl DashboardAuth for FixtureAuth {
     }
 
     async fn login(&self, _: LoginRequest, _: RequestMetadata) -> Result<LoginOutcome, AuthError> {
-        panic!("unused")
+        Err(AuthError::new(AuthErrorKind::Internal))
     }
 
     async fn login_2fa(
@@ -335,7 +335,7 @@ impl DashboardAuth for FixtureAuth {
         _: TwoFactorLoginRequest,
         _: RequestMetadata,
     ) -> Result<AuthBundle, AuthError> {
-        panic!("unused")
+        Err(AuthError::new(AuthErrorKind::Internal))
     }
 
     async fn refresh(
@@ -344,7 +344,7 @@ impl DashboardAuth for FixtureAuth {
         _: Option<String>,
         _: RequestMetadata,
     ) -> Result<AuthBundle, AuthError> {
-        panic!("unused")
+        Err(AuthError::new(AuthErrorKind::Internal))
     }
 
     async fn self_user(&self, token: SecretString) -> Result<DashboardUser, AuthError> {
@@ -389,11 +389,11 @@ impl DashboardAuth for FixtureAuth {
     }
 
     async fn logout(&self, _: LogoutRequest) -> Result<LogoutResult, AuthError> {
-        panic!("unused")
+        Err(AuthError::new(AuthErrorKind::Internal))
     }
 
     async fn generate_personal_access_token(&self, _: SecretString) -> Result<String, AuthError> {
-        panic!("unused")
+        Err(AuthError::new(AuthErrorKind::Internal))
     }
 }
 
@@ -537,9 +537,8 @@ pub(in crate::migration_routes::assistant) fn fixture_router_with_dependencies(
                 "parse fixture PostgreSQL URI `{POSTGRES_URI}`: {error}"
             ))
         })?;
-    let valkey = redis::Client::open(VALKEY_URI).map_err(|error| {
-        test_error(format!("parse fixture Valkey URI `{VALKEY_URI}`: {error}"))
-    })?;
+    let valkey = redis::Client::open(VALKEY_URI)
+        .map_err(|error| test_error(format!("parse fixture Valkey URI `{VALKEY_URI}`: {error}")))?;
     let mut state = AssistantReadState::new(
         pg,
         valkey,
@@ -574,9 +573,8 @@ pub(in crate::migration_routes::assistant) fn fixture_router_with_agent(
                 "parse fixture PostgreSQL URI `{POSTGRES_URI}`: {error}"
             ))
         })?;
-    let valkey = redis::Client::open(VALKEY_URI).map_err(|error| {
-        test_error(format!("parse fixture Valkey URI `{VALKEY_URI}`: {error}"))
-    })?;
+    let valkey = redis::Client::open(VALKEY_URI)
+        .map_err(|error| test_error(format!("parse fixture Valkey URI `{VALKEY_URI}`: {error}")))?;
     let state = AssistantReadState::new(
         pg,
         valkey,

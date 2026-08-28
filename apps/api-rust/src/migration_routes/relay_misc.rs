@@ -1090,7 +1090,10 @@ mod tests {
         }
 
         async fn authorize(&self, _: &Request) -> RelayAuth {
-            panic!("the immutable compatibility hook must not run")
+            RelayAuth::Rejected {
+                status: StatusCode::INTERNAL_SERVER_ERROR,
+                message: "immutable compatibility authorization hook was called".to_owned(),
+            }
         }
 
         async fn authorize_prepared(&self, request: &mut Request) -> RelayAuth {
@@ -1105,12 +1108,20 @@ mod tests {
         }
 
         async fn model_rate_limit_prepared(&self, request: &mut Request) -> RelayAuth {
-            assert!(request.extensions().get::<AuthMarker>().is_some());
+            if request.extensions().get::<AuthMarker>().is_none() {
+                return RelayAuth::Rejected {
+                    status: StatusCode::INTERNAL_SERVER_ERROR,
+                    message: "authenticated request marker is unavailable".to_owned(),
+                };
+            }
             RelayAuth::Authorized
         }
 
         async fn distribute(&self, _: &RelayRequestContext, _: &Request) -> RelayAuth {
-            panic!("the immutable compatibility hook must not run")
+            RelayAuth::Rejected {
+                status: StatusCode::INTERNAL_SERVER_ERROR,
+                message: "immutable compatibility distribution hook was called".to_owned(),
+            }
         }
 
         async fn distribute_prepared(
@@ -1135,7 +1146,7 @@ mod tests {
         }
 
         async fn relay(&self, _: RelayProtocol, _: Request) -> Response {
-            panic!("the composite production hook must run")
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
         }
 
         async fn execute_prepared(&self, _: &RelayRequestContext, request: Request) -> Response {

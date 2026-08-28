@@ -1336,12 +1336,8 @@ mod tests {
             ),
             ShadowOutcome::Skipped(ShadowSkipReason::ScopeNotAllowed)
         );
-        let canary_excluded = ProtocolShadowCoordinator::new(shadow_config(
-            128,
-            Some(1),
-            vec![scope()],
-            0,
-        )?);
+        let canary_excluded =
+            ProtocolShadowCoordinator::new(shadow_config(128, Some(1), vec![scope()], 0)?);
         assert_eq!(
             canary_excluded.shadow_request(
                 &enabled_snapshot(),
@@ -1495,9 +1491,8 @@ mod tests {
         let first = coordinator.check_eligibility(&snapshot, scope(), "same-key");
         let second = coordinator.check_eligibility(&snapshot, scope(), "same-key");
         assert_eq!(first, second);
-        let eligibility = first.ok_or_else(|| {
-            io::Error::other("enabled exact scope was unexpectedly ineligible")
-        })?;
+        let eligibility = first
+            .map_err(|reason| io::Error::other(format!("unexpected shadow skip: {reason:?}")))?;
         assert_eq!(eligibility.rollout_generation, 0);
         Ok(())
     }

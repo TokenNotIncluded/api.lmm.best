@@ -81,7 +81,7 @@ async fn assistant_status_should_match_go_settings_for_personal_token() -> TestR
         },
         ..FixtureStore::default()
     };
-    let response = fixture_router(store)
+    let response = fixture_router(store)?
         .oneshot(build_request(
             Request::get("/api/assistant/status")
                 .header(header::AUTHORIZATION, "Bearer user-token"),
@@ -91,7 +91,7 @@ async fn assistant_status_should_match_go_settings_for_personal_token() -> TestR
         .await?;
     let status = response.status();
     let auth_version = response.headers().get("auth-version").cloned();
-    let body = response_json(response).await;
+    let body = response_json(response).await?;
 
     assert_eq!(
         (status, auth_version.as_ref(), body["data"].clone()),
@@ -187,7 +187,7 @@ async fn assistant_chat_should_own_model_prompt_billing_and_intent() -> TestResu
         })])),
         turns: Arc::clone(&turns),
     });
-    let response = fixture_router_with_agent(store, backend)
+    let response = fixture_router_with_agent(store, backend)?
         .oneshot(build_request(
             Request::post("/api/assistant/chat")
                 .header(header::AUTHORIZATION, "Bearer browser-session"),
@@ -283,7 +283,7 @@ async fn assistant_chat_should_execute_bounded_tool_loop_then_force_final_answer
         ])),
         turns: Arc::clone(&turns),
     });
-    let response = fixture_router_with_agent(store, backend)
+    let response = fixture_router_with_agent(store, backend)?
         .oneshot(build_request(
             Request::post("/api/assistant/chat")
                 .header(header::AUTHORIZATION, "Bearer browser-session"),
@@ -382,7 +382,7 @@ async fn assistant_chat_should_attach_l1_confirmation_action_to_final_response()
             ])),
             turns: Arc::new(Mutex::new(Vec::new())),
         }),
-    )
+    )?
     .oneshot(build_request(
         Request::post("/api/assistant/chat")
             .header(header::AUTHORIZATION, "Bearer browser-session"),
@@ -392,7 +392,7 @@ async fn assistant_chat_should_attach_l1_confirmation_action_to_final_response()
     .await?;
 
     assert_eq!(response.status(), StatusCode::OK);
-    let body = response_json(response).await;
+    let body = response_json(response).await?;
     assert_eq!(body["lmm_assistant_action"]["type"], "l1_recommendation");
     assert_eq!(
         body["lmm_assistant_action"]["confirmation_token"],
@@ -421,7 +421,7 @@ async fn assistant_chat_cache_hit_should_precede_billing_and_relay() -> TestResu
         responses: Mutex::new(VecDeque::new()),
         turns: Arc::clone(&turns),
     });
-    let response = fixture_router_with_agent(store, backend)
+    let response = fixture_router_with_agent(store, backend)?
         .oneshot(build_request(
             Request::post("/api/assistant/chat")
                 .header(header::AUTHORIZATION, "Bearer browser-session"),
@@ -446,7 +446,7 @@ async fn assistant_chat_should_reject_disabled_and_personal_token_before_body() 
             ..AssistantSettingsView::default()
         },
         ..FixtureStore::default()
-    })
+    })?
     .oneshot(build_request(
         Request::post("/api/assistant/chat")
             .header(header::AUTHORIZATION, "Bearer browser-session"),
@@ -455,9 +455,12 @@ async fn assistant_chat_should_reject_disabled_and_personal_token_before_body() 
     )?)
     .await?;
     assert_eq!(disabled.status(), StatusCode::SERVICE_UNAVAILABLE);
-    assert_eq!(response_json(disabled).await["code"], "ASSISTANT_DISABLED");
+    assert_eq!(
+        (response_json(disabled).await?)["code"],
+        "ASSISTANT_DISABLED"
+    );
 
-    let personal = fixture_router(FixtureStore::default())
+    let personal = fixture_router(FixtureStore::default())?
         .oneshot(build_request(
             Request::post("/api/assistant/chat").header(header::AUTHORIZATION, "Bearer user-token"),
             Body::from("not-json"),
@@ -466,7 +469,7 @@ async fn assistant_chat_should_reject_disabled_and_personal_token_before_body() 
         .await?;
     assert_eq!(personal.status(), StatusCode::FORBIDDEN);
     assert_eq!(
-        response_json(personal).await["code"],
+        (response_json(personal).await?)["code"],
         "ASSISTANT_SESSION_REQUIRED"
     );
     Ok(())
@@ -491,7 +494,7 @@ async fn assistant_chat_should_reject_unsafe_and_oversized_conversation() -> Tes
             "ASSISTANT_MESSAGE_TOO_LONG",
         ),
     ] {
-        let response = fixture_router(FixtureStore::default())
+        let response = fixture_router(FixtureStore::default())?
             .oneshot(build_request(
                 Request::post("/api/assistant/chat")
                     .header(header::AUTHORIZATION, "Bearer browser-session"),
@@ -500,7 +503,7 @@ async fn assistant_chat_should_reject_unsafe_and_oversized_conversation() -> Tes
             )?)
             .await?;
         assert_eq!(response.status(), expected_status);
-        assert_eq!(response_json(response).await["code"], expected_code);
+        assert_eq!((response_json(response).await?)["code"], expected_code);
     }
     Ok(())
 }
@@ -564,7 +567,7 @@ async fn self_handoff_should_return_latest_user_lead_for_personal_token() -> Tes
     let response = fixture_router(FixtureStore {
         latest: Some(lead.clone()),
         ..FixtureStore::default()
-    })
+    })?
     .oneshot(build_request(
         Request::get("/api/assistant/handoffs/self").header(header::AUTHORIZATION, "user-token"),
         Body::empty(),
@@ -574,7 +577,7 @@ async fn self_handoff_should_return_latest_user_lead_for_personal_token() -> Tes
     let cache_control = response.headers().get(header::CACHE_CONTROL).cloned();
     let pragma = response.headers().get(header::PRAGMA).cloned();
     let expires = response.headers().get(header::EXPIRES).cloned();
-    let body = response_json(response).await;
+    let body = response_json(response).await?;
 
     assert_eq!(body["data"], json!(lead));
     assert_eq!(
@@ -604,7 +607,7 @@ async fn admin_handoffs_should_forward_resolved_filter_and_flatten_user_view() -
         handoffs: vec![view.clone()],
         expected_handoff_status: ASSISTANT_HANDOFF_RESOLVED,
         ..FixtureStore::default()
-    })
+    })?
     .oneshot(build_request(
         Request::get("/api/assistant/admin/handoffs?status=resolved")
             .header(header::AUTHORIZATION, "Bearer admin-token"),
@@ -612,7 +615,7 @@ async fn admin_handoffs_should_forward_resolved_filter_and_flatten_user_view() -
         "build filtered admin handoffs request",
     )?)
     .await?;
-    let body = response_json(response).await;
+    let body = response_json(response).await?;
 
     assert_eq!(body["data"], json!([view]));
     Ok(())
@@ -620,7 +623,7 @@ async fn admin_handoffs_should_forward_resolved_filter_and_flatten_user_view() -
 
 #[tokio::test]
 async fn admin_intents_should_reject_out_of_range_days_after_admin_auth() -> TestResult {
-    let response = fixture_router(FixtureStore::default())
+    let response = fixture_router(FixtureStore::default())?
         .oneshot(build_request(
             Request::get("/api/assistant/admin/intents?days=366")
                 .header(header::AUTHORIZATION, "Bearer admin-token"),
@@ -629,7 +632,7 @@ async fn admin_intents_should_reject_out_of_range_days_after_admin_auth() -> Tes
         )?)
         .await?;
     let status = response.status();
-    let body = response_json(response).await;
+    let body = response_json(response).await?;
 
     assert_eq!(
         (status, body),
@@ -661,7 +664,7 @@ async fn submit_handoff_should_rate_limit_redact_persist_and_disable_cache() -> 
         outcome: Ok(CriticalRateLimitOutcome::Allowed),
         calls: Arc::clone(&rate_limit_calls),
     });
-    let response = fixture_router_with_user_rate_limiter(store, limiter)
+    let response = fixture_router_with_user_rate_limiter(store, limiter)?
         .oneshot(build_request(
             Request::post("/api/assistant/handoffs")
                 .header(header::AUTHORIZATION, "Bearer browser-session"),
@@ -671,7 +674,7 @@ async fn submit_handoff_should_rate_limit_redact_persist_and_disable_cache() -> 
         .await?;
     let status = response.status();
     let cache_control = response.headers().get(header::CACHE_CONTROL).cloned();
-    let body = response_json(response).await;
+    let body = response_json(response).await?;
 
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body["data"], json!(lead));
@@ -705,7 +708,7 @@ async fn submit_handoff_should_consume_user_limit_before_rejecting_personal_toke
         outcome: Ok(CriticalRateLimitOutcome::Allowed),
         calls: Arc::clone(&rate_limit_calls),
     });
-    let response = fixture_router_with_user_rate_limiter(store, limiter)
+    let response = fixture_router_with_user_rate_limiter(store, limiter)?
         .oneshot(build_request(
             Request::post("/api/assistant/handoffs")
                 .header(header::AUTHORIZATION, "Bearer user-token"),
@@ -715,7 +718,7 @@ async fn submit_handoff_should_consume_user_limit_before_rejecting_personal_toke
         .await?;
     let status = response.status();
     let cache_control = response.headers().get(header::CACHE_CONTROL).cloned();
-    let body = response_json(response).await;
+    let body = response_json(response).await?;
 
     assert_eq!(status, StatusCode::FORBIDDEN);
     assert_eq!(body["code"], "ASSISTANT_SESSION_REQUIRED");
@@ -739,7 +742,7 @@ async fn submit_handoff_rate_limit_should_precede_session_body_and_no_store_midd
         }),
         calls: Arc::new(Mutex::new(Vec::new())),
     });
-    let response = fixture_router_with_user_rate_limiter(store, limiter)
+    let response = fixture_router_with_user_rate_limiter(store, limiter)?
         .oneshot(build_request(
             Request::post("/api/assistant/handoffs")
                 .header(header::AUTHORIZATION, "Bearer user-token"),
@@ -762,7 +765,7 @@ async fn submit_handoff_rate_limit_should_precede_session_body_and_no_store_midd
 
 #[tokio::test]
 async fn submit_handoff_null_json_should_require_confirmation_like_go() -> TestResult {
-    let response = fixture_router(FixtureStore::default())
+    let response = fixture_router(FixtureStore::default())?
         .oneshot(build_request(
             Request::post("/api/assistant/handoffs")
                 .header(header::AUTHORIZATION, "Bearer browser-session"),
@@ -771,7 +774,7 @@ async fn submit_handoff_null_json_should_require_confirmation_like_go() -> TestR
         )?)
         .await?;
     let status = response.status();
-    let body = response_json(response).await;
+    let body = response_json(response).await?;
 
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert_eq!(body["code"], "ASSISTANT_CONFIRMATION_REQUIRED");
@@ -793,7 +796,7 @@ async fn admin_intents_should_return_go_ordered_summary_shape() -> TestResult {
     let response = fixture_router(FixtureStore {
         summary: summary.clone(),
         ..FixtureStore::default()
-    })
+    })?
     .oneshot(build_request(
         Request::get("/api/assistant/admin/intents?days=7")
             .header(header::AUTHORIZATION, "Bearer admin-token"),
@@ -801,7 +804,7 @@ async fn admin_intents_should_return_go_ordered_summary_shape() -> TestResult {
         "build ordered admin intents request",
     )?)
     .await?;
-    let body = response_json(response).await;
+    let body = response_json(response).await?;
 
     assert_eq!(body["data"], json!(summary));
     Ok(())
@@ -809,7 +812,7 @@ async fn admin_intents_should_return_go_ordered_summary_shape() -> TestResult {
 
 #[tokio::test]
 async fn admin_handoffs_should_reject_common_user_without_auth_version() -> TestResult {
-    let response = fixture_router(FixtureStore::default())
+    let response = fixture_router(FixtureStore::default())?
         .oneshot(build_request(
             Request::get("/api/assistant/admin/handoffs")
                 .header(header::AUTHORIZATION, "Bearer user-token"),
@@ -819,7 +822,7 @@ async fn admin_handoffs_should_reject_common_user_without_auth_version() -> Test
         .await?;
     let status = response.status();
     let has_auth_version = response.headers().contains_key("auth-version");
-    let body = response_json(response).await;
+    let body = response_json(response).await?;
 
     assert_eq!(
         (status, has_auth_version, body["code"].clone()),
@@ -845,7 +848,7 @@ async fn admin_resolve_handoff_should_match_go_transaction_and_audit_contract() 
     };
     let resolve_calls = Arc::clone(&store.resolve_calls);
     let audits = Arc::clone(&store.audits);
-    let response = fixture_router(store)
+    let response = fixture_router(store)?
         .oneshot(build_request(
             Request::post("/api/assistant/admin/handoffs/3/resolve")
                 .header(header::AUTHORIZATION, "Bearer admin-session")
@@ -856,7 +859,7 @@ async fn admin_resolve_handoff_should_match_go_transaction_and_audit_contract() 
         .await?;
     let status = response.status();
     let auth_version = response.headers().get("auth-version").cloned();
-    let body = response_json(response).await;
+    let body = response_json(response).await?;
 
     assert_eq!(status, StatusCode::OK);
     assert_eq!(
@@ -898,7 +901,7 @@ async fn admin_resolve_handoff_should_accept_null_body_like_go_json_binding() ->
         ..FixtureStore::default()
     };
     let resolve_calls = Arc::clone(&store.resolve_calls);
-    let response = fixture_router(store)
+    let response = fixture_router(store)?
         .oneshot(build_request(
             Request::post("/api/assistant/admin/handoffs/3/resolve")
                 .header(header::AUTHORIZATION, "Bearer admin-token"),
@@ -924,7 +927,7 @@ async fn admin_resolve_handoff_should_report_go_conflict_and_audit_failure() -> 
         ..FixtureStore::default()
     };
     let audits = Arc::clone(&store.audits);
-    let response = fixture_router(store)
+    let response = fixture_router(store)?
         .oneshot(build_request(
             Request::post("/api/assistant/admin/handoffs/3/resolve")
                 .header(header::AUTHORIZATION, "Bearer admin-token"),
@@ -933,7 +936,7 @@ async fn admin_resolve_handoff_should_report_go_conflict_and_audit_failure() -> 
         )?)
         .await?;
     let status = response.status();
-    let body = response_json(response).await;
+    let body = response_json(response).await?;
 
     assert_eq!(status, StatusCode::CONFLICT);
     assert_eq!(body["code"], "ASSISTANT_HANDOFF_ALREADY_RESOLVED");
@@ -966,7 +969,7 @@ async fn admin_resolve_handoff_should_rate_limit_before_id_and_body_validation()
         let store = FixtureStore::default();
         let resolve_calls = Arc::clone(&store.resolve_calls);
         let audits = Arc::clone(&store.audits);
-        let response = fixture_router_with_auth(store, FixtureAuth { rate_limit })
+        let response = fixture_router_with_auth(store, FixtureAuth { rate_limit })?
             .oneshot(build_request(
                 Request::post("/api/assistant/admin/handoffs/not-an-id/resolve")
                     .header(header::AUTHORIZATION, "Bearer admin-token")

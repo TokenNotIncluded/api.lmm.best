@@ -788,14 +788,15 @@ mod tests {
                     )
                 })?;
             assert_eq!(relay_header, "provider", "{path}");
-            let response_body = to_bytes(response.into_body(), usize::MAX)
-                .await
-                .map_err(|error| {
-                    test_error(
-                        format!("read provider route row {row} response body"),
-                        error,
-                    )
-                })?;
+            let response_body =
+                to_bytes(response.into_body(), usize::MAX)
+                    .await
+                    .map_err(|error| {
+                        test_error(
+                            format!("read provider route row {row} response body"),
+                            error,
+                        )
+                    })?;
             let response_json: Value = serde_json::from_slice(&response_body).map_err(|error| {
                 test_error(
                     format!("decode provider route row {row} response JSON"),
