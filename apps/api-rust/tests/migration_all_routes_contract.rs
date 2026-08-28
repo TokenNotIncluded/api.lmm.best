@@ -24,6 +24,8 @@ fn manifest_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 }
 
+const NON_ROUTE_MODULES: &[&str] = &["legacy_http", "mod", "test_support"];
+
 fn rust_stems(directory: &Path) -> BTreeSet<String> {
     fs::read_dir(directory)
         .expect("migration directory")
@@ -96,7 +98,7 @@ fn every_migration_route_module_should_have_a_router_integration_test() {
     let tests_dir = root.join("tests");
     let modules = rust_stems(&modules_dir)
         .into_iter()
-        .filter(|name| name != "mod")
+        .filter(|name| !NON_ROUTE_MODULES.contains(&name.as_str()))
         .collect::<BTreeSet<_>>();
     let directly_tested_modules = rust_stems(&tests_dir)
         .into_iter()

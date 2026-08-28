@@ -451,17 +451,17 @@ candidate_mod="$repo_root/apps/api-rust/src/migration_routes.rs"
 # a newly added helper cannot silently evade the module inventory.
 is_candidate_helper() {
   case $1 in
-  relay_anthropic_gemini_postgres | relay_misc_postgres | sse) return 0 ;;
+  legacy_http | relay_anthropic_gemini_postgres | relay_misc_postgres | sse | test_support) return 0 ;;
   *) return 1 ;;
   esac
 }
 
-for helper in relay_anthropic_gemini_postgres relay_misc_postgres sse; do
+for helper in legacy_http relay_anthropic_gemini_postgres relay_misc_postgres sse test_support; do
   [[ -f "$candidate_dir/$helper.rs" ]] || {
     echo "declared migration helper is missing: $helper.rs" >&2
     exit 1
   }
-  grep -Eq "^pub mod $helper;$" "$candidate_mod" || {
+  grep -Eq "^pub(\(crate\))? mod $helper;$" "$candidate_mod" || {
     echo "migration helper is not declared: $helper" >&2
     exit 1
   }
