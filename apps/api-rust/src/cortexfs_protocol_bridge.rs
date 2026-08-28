@@ -444,12 +444,26 @@ mod tests {
     use super::*;
     use cortexfs_protocol::BridgePath;
 
+    type TestResult = Result<(), Box<dyn std::error::Error>>;
+
     const CHAT: &[u8] = br#"{"model":"chat-model","messages":[{"role":"user","content":"hi"}]}"#;
     const RESPONSES: &[u8] = br#"{"model":"responses-model","input":"hi"}"#;
     const GEMINI: &[u8] =
         br#"{"model":"gemini-model","contents":[{"role":"user","parts":[{"text":"hi"}]}]}"#;
     const ANTHROPIC: &[u8] =
         br#"{"model":"claude-model","max_tokens":32,"messages":[{"role":"user","content":"hi"}]}"#;
+    const PROTOCOLS: [Protocol; 4] = [
+        Protocol::OpenAi,
+        Protocol::OpenAiResponses,
+        Protocol::Claude,
+        Protocol::Gemini,
+    ];
+
+    fn protocol_pairs() -> impl Iterator<Item = (Protocol, Protocol)> {
+        PROTOCOLS
+            .into_iter()
+            .flat_map(|source| PROTOCOLS.into_iter().map(move |target| (source, target)))
+    }
 
     fn fixture(protocol: Protocol) -> &'static [u8] {
         match protocol {
@@ -461,52 +475,37 @@ mod tests {
     }
 
     #[test]
-    fn protocol_mapping_is_bijective_for_supported_dialects() {
-        for protocol in [
-            Protocol::OpenAi,
-            Protocol::OpenAiResponses,
-            Protocol::Claude,
-            Protocol::Gemini,
-        ] {
-            let wire = protocol_to_wire(protocol).expect("wire dialect");
+    fn protocol_mapping_is_bijective_for_supported_dialects() -> TestResult {
+        for protocol in PROTOCOLS {
+            let wire = protocol_to_wire(protocol)
+                .ok_or_else(|| std::io::Error::other("missing wire dialect"))?;
             assert_eq!(wire_to_protocol(wire), protocol);
         }
+        Ok(())
     }
 
     #[test]
-    fn request_matrix_matches_cortexfs_capabilities() {
-        for source in [
-            Protocol::OpenAi,
-            Protocol::OpenAiResponses,
-            Protocol::Claude,
-            Protocol::Gemini,
-        ] {
-            for target in [
-                Protocol::OpenAi,
-                Protocol::OpenAiResponses,
-                Protocol::Claude,
-                Protocol::Gemini,
-            ] {
-                let converted =
-                    transcode_request_protocol(source, target, fixture(source)).expect("transcode");
-                assert!(serde_json::from_slice::<serde_json::Value>(&converted.bytes).is_ok());
-                if source == target {
-                    assert_eq!(converted.path, BridgePath::Identity);
-                    assert_eq!(converted.bytes, fixture(source));
-                } else if matches!(
-                    (source, target),
-                    (Protocol::OpenAi, Protocol::Gemini) | (Protocol::Gemini, Protocol::OpenAi)
-                ) {
-                    assert_eq!(converted.path, BridgePath::Direct);
-                } else {
-                    assert_eq!(converted.path, BridgePath::ViaIr);
-                }
+    fn request_matrix_matches_cortexfs_capabilities() -> TestResult {
+        for (source, target) in protocol_pairs() {
+            let converted = transcode_request_protocol(source, target, fixture(source))?;
+            assert!(serde_json::from_slice::<serde_json::Value>(&converted.bytes).is_ok());
+            if source == target {
+                assert_eq!(converted.path, BridgePath::Identity);
+                assert_eq!(converted.bytes, fixture(source));
+            } else if matches!(
+                (source, target),
+                (Protocol::OpenAi, Protocol::Gemini) | (Protocol::Gemini, Protocol::OpenAi)
+            ) {
+                assert_eq!(converted.path, BridgePath::Direct);
+            } else {
+                assert_eq!(converted.path, BridgePath::ViaIr);
             }
         }
+        Ok(())
     }
 
     #[test]
-    fn response_matrix_matches_cortexfs_capabilities() {
+    fn response_matrix_matches_cortexfs_capabilities() -> TestResult {
         const CHAT_RESPONSE: &[u8] = br#"{"id":"chat-run","model":"chat-model","choices":[{"message":{"role":"assistant","content":"hello"},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":2}}"#;
         const RESPONSES_RESPONSE: &[u8] = br#"{"id":"responses-run","model":"responses-model","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"hello"}]}],"usage":{"input_tokens":3,"output_tokens":2}}"#;
         const GEMINI_RESPONSE: &[u8] = br#"{"responseId":"gemini-run","modelVersion":"gemini-model","candidates":[{"content":{"role":"model","parts":[{"text":"hello"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":3,"candidatesTokenCount":2}}"#;
@@ -519,52 +518,27 @@ mod tests {
             Protocol::Gemini => GEMINI_RESPONSE,
         };
 
-        for source in [
-            Protocol::OpenAi,
-            Protocol::OpenAiResponses,
-            Protocol::Claude,
-            Protocol::Gemini,
-        ] {
-            for target in [
-                Protocol::OpenAi,
-                Protocol::OpenAiResponses,
-                Protocol::Claude,
-                Protocol::Gemini,
-            ] {
-                let converted =
-                    transcode_response_protocol(source, target, response_fixture(source))
-                        .expect("response transcode");
-                assert!(serde_json::from_slice::<serde_json::Value>(&converted.bytes).is_ok());
-                if source == target {
-                    assert_eq!(converted.path, BridgePath::Identity);
-                } else {
-                    assert_eq!(converted.path, BridgePath::ViaIr);
-                }
+        for (source, target) in protocol_pairs() {
+            let converted = transcode_response_protocol(source, target, response_fixture(source))?;
+            assert!(serde_json::from_slice::<serde_json::Value>(&converted.bytes).is_ok());
+            if source == target {
+                assert_eq!(converted.path, BridgePath::Identity);
+            } else {
+                assert_eq!(converted.path, BridgePath::ViaIr);
             }
         }
+        Ok(())
     }
 
     #[test]
     fn converter_ids_are_stable_and_unique() {
         let mut seen = std::collections::BTreeSet::new();
-        for source in [
-            Protocol::OpenAi,
-            Protocol::OpenAiResponses,
-            Protocol::Claude,
-            Protocol::Gemini,
-        ] {
-            for target in [
-                Protocol::OpenAi,
-                Protocol::OpenAiResponses,
-                Protocol::Claude,
-                Protocol::Gemini,
-            ] {
-                for direction in [Direction::Request, Direction::Response, Direction::Stream] {
-                    assert!(seen.insert(converter_id(source, target, direction)));
-                }
-                assert!(seen.insert(stream_finalizer_id(source, target)));
-                assert!(seen.insert(runtime_adaptor_id(source, target)));
+        for (source, target) in protocol_pairs() {
+            for direction in [Direction::Request, Direction::Response, Direction::Stream] {
+                assert!(seen.insert(converter_id(source, target, direction)));
             }
+            assert!(seen.insert(stream_finalizer_id(source, target)));
+            assert!(seen.insert(runtime_adaptor_id(source, target)));
         }
     }
 
