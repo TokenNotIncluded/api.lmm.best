@@ -3027,6 +3027,8 @@ mod tests {
     };
     use tower::ServiceExt;
 
+    type TestResult<T = ()> = Result<T, Box<dyn std::error::Error>>;
+
     struct StaticDashboardAuth {
         user: DashboardUser,
     }
@@ -3114,7 +3116,11 @@ mod tests {
     #[async_trait]
     impl ObservabilityStore for QueryCapturingStore {
         async fn execute(&self, call: ObservabilityCall) -> Result<Value, ObservabilityStoreError> {
-            *self.0.lock().expect("query capture lock") = Some(call);
+            let mut captured = match self.0.lock() {
+                Ok(guard) => guard,
+                Err(poisoned) => poisoned.into_inner(),
+            };
+            *captured = Some(call);
             Ok(json!([]))
         }
     }
@@ -3157,26 +3163,19 @@ mod tests {
         observability_router(ObservabilityState::new(store, Arc::new(authorizer)))
     }
 
-    async fn response_body(response: Response) -> Value {
-        let body = to_bytes(response.into_body(), usize::MAX)
-            .await
-            .expect("response body");
-        serde_json::from_slice(&body).expect("JSON envelope")
+    async fn response_body(response: Response) -> TestResult<Value> {
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
+        Ok(serde_json::from_slice(&body)?)
     }
 
     #[tokio::test]
-    async fn dashboard_token_public_and_role_matrix_stays_server_authorized() {
+    async fn dashboard_token_public_and_role_matrix_stays_server_authorized() -> TestResult {
         let member_store = Arc::new(CountingStore(AtomicUsize::new(0)));
         let member = router_for(1, member_store.clone());
         let public = member
             .clone()
-            .oneshot(
-                Request::get("/api/perf-metrics/summary")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
+            .oneshot(Request::get("/api/perf-metrics/summary").body(Body::empty())?)
+            .await?;
         assert_eq!(public.status(), StatusCode::OK);
         let forged_admin = member
             .clone()
@@ -3184,69 +3183,54 @@ mod tests {
                 Request::get("/api/log/")
                     .header("authorization", "Bearer dashboard")
                     .header("x-role", "100")
-                    .body(Body::empty())
-                    .unwrap(),
+                    .body(Body::empty())?,
             )
-            .await
-            .unwrap();
+            .await?;
         assert_eq!(forged_admin.status(), StatusCode::FORBIDDEN);
         let token = member
             .oneshot(
                 Request::get("/api/log/token")
                     .header("authorization", "Bearer token")
-                    .body(Body::empty())
-                    .unwrap(),
+                    .body(Body::empty())?,
             )
-            .await
-            .unwrap();
+            .await?;
         assert_eq!(token.status(), StatusCode::OK);
         assert_eq!(member_store.0.load(Ordering::Relaxed), 2);
 
         let admin = router_for(ADMIN_ROLE, Arc::new(CountingStore(AtomicUsize::new(0))));
-        assert_eq!(
-            admin
-                .clone()
-                .oneshot(
-                    Request::get("/api/log/")
-                        .header("authorization", "Bearer dashboard")
-                        .body(Body::empty())
-                        .unwrap(),
-                )
-                .await
-                .unwrap()
-                .status(),
-            StatusCode::OK
-        );
-        assert_eq!(
-            admin
-                .oneshot(
-                    Request::post("/api/performance/gc")
-                        .header("authorization", "Bearer dashboard")
-                        .body(Body::empty())
-                        .unwrap(),
-                )
-                .await
-                .unwrap()
-                .status(),
-            StatusCode::FORBIDDEN
-        );
-        let root = router_for(ROOT_ROLE, Arc::new(CountingStore(AtomicUsize::new(0))));
-        assert_eq!(
-            root.oneshot(
+        let admin_read = admin
+            .clone()
+            .oneshot(
+                Request::get("/api/log/")
+                    .header("authorization", "Bearer dashboard")
+                    .body(Body::empty())?,
+            )
+            .await?;
+        assert_eq!(admin_read.status(), StatusCode::OK);
+        let admin_gc = admin
+            .oneshot(
                 Request::post("/api/performance/gc")
                     .header("authorization", "Bearer dashboard")
-                    .body(Body::empty())
-                    .unwrap(),
+                    .body(Body::empty())?,
             )
-            .await
-            .unwrap()
-            .status(),
-            StatusCode::OK
-        );
+            .await?;
+        assert_eq!(admin_gc.status(), StatusCode::FORBIDDEN);
+
+        let root = router_for(ROOT_ROLE, Arc::new(CountingStore(AtomicUsize::new(0))));
+        let root_gc = root
+            .oneshot(
+                Request::post("/api/performance/gc")
+                    .header("authorization", "Bearer dashboard")
+                    .body(Body::empty())?,
+            )
+            .await?;
+        assert_eq!(root_gc.status(), StatusCode::OK);
+        Ok(())
     }
 
     #[tokio::test]
-    async fn observability_routes_keep_their_go_auth_boundaries_without_a_blanket_gate() {
+    async fn observability_routes_keep_their_go_auth_boundaries_without_a_blanket_gate()
+    -> TestResult {
         let store = Arc::new(CountingStore(AtomicUsize::new(0)));
         let auth: Arc<dyn DashboardAuth> = Arc::new(StaticDashboardAuth { user: user(1) });
         let authorizer =
@@ -3258,26 +3242,21 @@ mod tests {
 
         let user_read = router
             .clone()
-            .oneshot(Request::get("/api/data/self").body(Body::empty()).unwrap())
-            .await
-            .unwrap();
+            .oneshot(Request::get("/api/data/self").body(Body::empty())?)
+            .await?;
         assert_eq!(user_read.status(), StatusCode::UNAUTHORIZED);
         assert_eq!(store.0.load(Ordering::Relaxed), 0);
 
         let public_metric = router
-            .oneshot(
-                Request::get("/api/perf-metrics/summary")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
+            .oneshot(Request::get("/api/perf-metrics/summary").body(Body::empty())?)
+            .await?;
         assert_eq!(public_metric.status(), StatusCode::OK);
         assert_eq!(store.0.load(Ordering::Relaxed), 1);
+        Ok(())
     }
 
     #[tokio::test]
-    async fn token_logs_without_timestamps_keep_the_legacy_unbounded_query() {
+    async fn token_logs_without_timestamps_keep_the_legacy_unbounded_query() -> TestResult {
         let store = Arc::new(QueryCapturingStore::default());
         let authorizer = DashboardObservabilityAuthorizer::new(
             Arc::new(StaticDashboardAuth {
@@ -3290,29 +3269,39 @@ mod tests {
                 .oneshot(
                     Request::get("/api/log/token")
                         .header("authorization", "Bearer token")
-                        .body(Body::empty())
-                        .unwrap(),
+                        .body(Body::empty())?,
                 )
-                .await
-                .unwrap();
+                .await?;
 
         assert_eq!(response.status(), StatusCode::OK);
-        let call = store
-            .0
-            .lock()
-            .expect("query capture lock")
-            .take()
-            .expect("token log storage call");
+        let call = {
+            let mut captured = match store.0.lock() {
+                Ok(guard) => guard,
+                Err(poisoned) => poisoned.into_inner(),
+            };
+            captured
+                .take()
+                .ok_or_else(|| std::io::Error::other("token log storage call was not captured"))?
+        };
         assert_eq!(call.operation, ObservabilityOperation::LogsByToken);
         assert!(call.query.is_empty());
         assert_eq!(
             OPTIONAL_LOG_TIME_RANGE,
             "($2 = 0 OR created_at >= $2) AND ($3 = 0 OR created_at <= $3)"
         );
-        let body = response_body(response).await;
-        assert_eq!(body["success"], true);
-        assert_eq!(body["data"], json!([]));
+        let body = response_body(response).await?;
+        assert_eq!(
+            body.get("success")
+                .ok_or_else(|| std::io::Error::other("JSON envelope missing success"))?,
+            &json!(true)
+        );
+        assert_eq!(
+            body.get("data")
+                .ok_or_else(|| std::io::Error::other("JSON envelope missing data"))?,
+            &json!([])
+        );
         assert!(body.get("page").is_none());
+        Ok(())
     }
 
     #[test]
@@ -3347,7 +3336,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn unavailable_runtime_adapters_fail_closed_without_success_payloads() {
+    async fn unavailable_runtime_adapters_fail_closed_without_success_payloads() -> TestResult {
         let query = BTreeMap::new();
         assert!(
             UnavailableObservabilityMetrics
@@ -3363,7 +3352,7 @@ mod tests {
         );
 
         let store = PgObservabilityStore::new(
-            PgPool::connect_lazy("postgres://unused:unused@localhost/unused").unwrap(),
+            PgPool::connect_lazy("postgres://unused:unused@localhost/unused")?,
             Arc::new(UnavailableObservabilityMetrics),
             Arc::new(UnavailableObservabilityMaintenance),
         );
@@ -3378,8 +3367,12 @@ mod tests {
                 query,
             })
             .await
-            .unwrap_err();
+            .err()
+            .ok_or_else(|| {
+                std::io::Error::other("unavailable maintenance adapter unexpectedly succeeded")
+            })?;
         assert!(matches!(error, ObservabilityStoreError::Unavailable));
+        Ok(())
     }
 
     #[test]
@@ -3408,23 +3401,24 @@ mod tests {
     }
 
     #[test]
-    fn authorization_and_read_only_token_normalization_match_legacy_forms() {
+    fn authorization_and_read_only_token_normalization_match_legacy_forms() -> TestResult {
         let mut headers = HeaderMap::new();
-        headers.insert("authorization", "bearer sk-key-channel".parse().unwrap());
+        headers.insert("authorization", "bearer sk-key-channel".parse()?);
         assert_eq!(
             authorization_credential(&headers).as_deref(),
             Some("sk-key-channel")
         );
         assert_eq!(legacy_read_only_token_key("sk-key-channel"), Some("key"));
-        headers.insert("authorization", "Bearer one two".parse().unwrap());
+        headers.insert("authorization", "Bearer one two".parse()?);
         assert_eq!(authorization_credential(&headers), None);
+        Ok(())
     }
 
     #[tokio::test]
-    async fn unavailable_route_keeps_the_legacy_500_envelope() {
+    async fn unavailable_route_keeps_the_legacy_500_envelope() -> TestResult {
         let state = ObservabilityState::new(
             Arc::new(PgObservabilityStore::new(
-                PgPool::connect_lazy("postgres://unused:unused@localhost/unused").unwrap(),
+                PgPool::connect_lazy("postgres://unused:unused@localhost/unused")?,
                 Arc::new(UnavailableObservabilityMetrics),
                 Arc::new(UnavailableObservabilityMaintenance),
             )),
@@ -3439,16 +3433,17 @@ mod tests {
             .oneshot(
                 Request::post("/api/performance/gc")
                     .header("authorization", "Bearer dashboard")
-                    .body(Body::empty())
-                    .unwrap(),
+                    .body(Body::empty())?,
             )
-            .await
-            .unwrap();
+            .await?;
         assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        let body = response_body(response).await?;
         assert_eq!(
-            response_body(response).await["message"],
-            Value::String("observability backend unavailable".to_owned())
+            body.get("message")
+                .ok_or_else(|| std::io::Error::other("JSON envelope missing message"))?,
+            &Value::String("observability backend unavailable".to_owned())
         );
+        Ok(())
     }
 
     #[test]
@@ -3471,17 +3466,33 @@ mod tests {
     }
 
     #[test]
-    fn performance_metric_hours_use_go_defaults_and_thirty_day_cap() {
-        let default_range = perf_time_range(&BTreeMap::new()).expect("default time range");
+    fn performance_metric_hours_use_go_defaults_and_thirty_day_cap() -> TestResult {
+        let default_range = perf_time_range(&BTreeMap::new()).map_err(|error| {
+            std::io::Error::other(format!(
+                "default performance metric time range failed: {error}"
+            ))
+        })?;
         assert!((default_range.1 - default_range.0) >= 24 * 60 * 60);
         assert!((default_range.1 - default_range.0) <= 24 * 60 * 60 + 1);
 
-        let zero_range = perf_time_range(&BTreeMap::from([("hours".to_owned(), "0".to_owned())]))
-            .expect("zero uses default");
+        let zero_range =
+            perf_time_range(&BTreeMap::from([("hours".to_owned(), "0".to_owned())])).map_err(
+                |error| {
+                    std::io::Error::other(format!(
+                        "zero-hour default performance metric time range failed: {error}"
+                    ))
+                },
+            )?;
         assert!((zero_range.1 - zero_range.0) >= 24 * 60 * 60);
         let capped_range =
-            perf_time_range(&BTreeMap::from([("hours".to_owned(), "9999".to_owned())]))
-                .expect("large range is capped");
+            perf_time_range(&BTreeMap::from([("hours".to_owned(), "9999".to_owned())])).map_err(
+                |error| {
+                    std::io::Error::other(format!(
+                        "capped performance metric time range failed: {error}"
+                    ))
+                },
+            )?;
         assert!((capped_range.1 - capped_range.0) <= 30 * 24 * 60 * 60 + 1);
+        Ok(())
     }
 }
