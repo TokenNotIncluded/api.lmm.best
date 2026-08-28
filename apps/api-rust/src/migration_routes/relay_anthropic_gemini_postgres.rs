@@ -452,48 +452,53 @@ mod tests {
     use crate::migration_routes::sse::SseError;
     use serde_json::json;
 
+    type TestResult = Result<(), Box<dyn std::error::Error>>;
+
     #[test]
-    fn postgres_parser_keeps_unknown_json_event_names_and_multiline_data() {
+    fn postgres_parser_keeps_unknown_json_event_names_and_multiline_data() -> TestResult {
         let events = parse_sse_events(
             b"event: future_event\r\ndata: {\r\ndata: \"value\": 1}\r\n\r\ndata: [DONE]\r\n\r\n",
             1024,
         )
-        .expect("JSON SSE frames");
+        .map_err(|error| std::io::Error::other(format!("{error:?}")))?;
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].kind.as_deref(), Some("future_event"));
         assert_eq!(events[0].payload, json!({"value": 1}));
+        Ok(())
     }
 
     #[test]
     fn postgres_parser_returns_typed_error_for_unrepresentable_metadata() {
-        let error = parse_sse_events(b"id: upstream-id\ndata: {}\n\n", 1024).unwrap_err();
         assert_eq!(
-            error,
-            RelayFailure::Sse(SseError::UnsupportedMetadata {
+            parse_sse_events(b"id: upstream-id\ndata: {}\n\n", 1024).err(),
+            Some(RelayFailure::Sse(SseError::UnsupportedMetadata {
                 frame: 0,
                 field: "id",
-            })
+            }))
         );
     }
 
     #[test]
     fn postgres_parser_returns_typed_error_for_non_json_data() {
-        let error = parse_sse_events(b"data: plain text\n\n", 1024).unwrap_err();
-        assert_eq!(error, RelayFailure::Sse(SseError::InvalidJson { frame: 0 }));
+        assert_eq!(
+            parse_sse_events(b"data: plain text\n\n", 1024).err(),
+            Some(RelayFailure::Sse(SseError::InvalidJson { frame: 0 }))
+        );
     }
 
     #[test]
     fn postgres_parser_rejects_an_unterminated_frame_instead_of_dropping_it() {
-        let error = parse_sse_events(b"data: {}\n", 1024).unwrap_err();
-        assert_eq!(error, RelayFailure::Sse(SseError::UnterminatedFrame));
+        assert_eq!(
+            parse_sse_events(b"data: {}\n", 1024).err(),
+            Some(RelayFailure::Sse(SseError::UnterminatedFrame))
+        );
     }
 
     #[test]
     fn postgres_parser_enforces_independent_frame_limit() {
-        let error = parse_sse_events(b"data: 123456789\n\n", 5).unwrap_err();
         assert!(matches!(
-            error,
-            RelayFailure::Sse(SseError::FrameTooLarge { limit: 5, .. })
+            parse_sse_events(b"data: 123456789\n\n", 5),
+            Err(RelayFailure::Sse(SseError::FrameTooLarge { limit: 5, .. }))
         ));
     }
 }
