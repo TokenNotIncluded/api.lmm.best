@@ -287,9 +287,9 @@ impl GitHubOAuthConfig {
     /// explicitly disabled rather than accepting a callback that cannot be
     /// verified.
     pub fn from_env() -> Result<Option<Self>, FederationProviderError> {
-        let client_id = std::env::var("GITHUB_CLIENT_ID").unwrap_or_default();
-        let client_secret = std::env::var("GITHUB_CLIENT_SECRET").unwrap_or_default();
-        let redirect_uri = std::env::var("GITHUB_REDIRECT_URI").unwrap_or_default();
+        let client_id = optional_env("GITHUB_CLIENT_ID")?;
+        let client_secret = optional_env("GITHUB_CLIENT_SECRET")?;
+        let redirect_uri = optional_env("GITHUB_REDIRECT_URI")?;
         if client_id.trim().is_empty()
             && client_secret.trim().is_empty()
             && redirect_uri.trim().is_empty()
@@ -324,6 +324,14 @@ impl GitHubOAuthConfig {
             timeout: Duration::from_secs(20),
             fetch_policy: ProviderFetchPolicy::PublicHttps,
         })
+    }
+}
+
+fn optional_env(name: &str) -> Result<String, FederationProviderError> {
+    match std::env::var(name) {
+        Ok(value) => Ok(value),
+        Err(std::env::VarError::NotPresent) => Ok(String::new()),
+        Err(std::env::VarError::NotUnicode(_)) => Err(FederationProviderError::Disabled),
     }
 }
 
@@ -1330,6 +1338,20 @@ fn random_urlsafe(bytes: usize) -> String {
     URL_SAFE_NO_PAD.encode(random)
 }
 
+fn request_client_ip(request: &Request) -> String {
+    if let Some(key) = request.extensions().get::<ClientIpKey>() {
+        return key.0.clone();
+    }
+    if let Some(ip) = request
+        .extensions()
+        .get::<RequestContext>()
+        .and_then(|context| context.client_ip)
+    {
+        return ip.to_string();
+    }
+    "unknown".to_owned()
+}
+
 async fn create_oauth_state(State(state): State<FederationState>, request: Request) -> Response {
     create_oauth_state_request(&state, request, MAX_IDENTITY_BODY_BYTES).await
 }
@@ -1338,18 +1360,7 @@ async fn create_oauth_state_with_policy(
     State(route): State<OAuthStateRouteState>,
     request: Request,
 ) -> Response {
-    let client_ip = request
-        .extensions()
-        .get::<ClientIpKey>()
-        .map(|key| key.0.clone())
-        .or_else(|| {
-            request
-                .extensions()
-                .get::<RequestContext>()
-                .and_then(|context| context.client_ip)
-                .map(|ip| ip.to_string())
-        })
-        .unwrap_or_else(|| "unknown".to_owned());
+    let client_ip = request_client_ip(&request);
     match route.auth.check_critical_rate_limit(&client_ip).await {
         Ok(CriticalRateLimitOutcome::Allowed) => {}
         Ok(CriticalRateLimitOutcome::Rejected {
@@ -1513,7 +1524,9 @@ fn oauth_callback_query(raw_query: Option<&str>) -> OAuthCallbackQuery {
     let Some(raw_query) = raw_query else {
         return parsed;
     };
-    let mut url = Url::parse("http://127.0.0.1/").expect("static callback parser URL");
+    let Ok(mut url) = Url::parse("http://127.0.0.1/") else {
+        return parsed;
+    };
     url.set_query(Some(raw_query));
     for (key, value) in url.query_pairs() {
         let target = match key.as_ref() {
@@ -2354,8 +2367,12 @@ pub fn verify_telegram_authorization(
     if bot_token.is_empty() {
         return Err(TelegramAuthorizationError::Invalid);
     }
-    let subject = params.get("id").map(String::as_str).unwrap_or_default();
-    let hash = params.get("hash").map(String::as_str).unwrap_or_default();
+    let Some(subject) = params.get("id").map(String::as_str) else {
+        return Err(TelegramAuthorizationError::Invalid);
+    };
+    let Some(hash) = params.get("hash").map(String::as_str) else {
+        return Err(TelegramAuthorizationError::Invalid);
+    };
     let auth_date = params
         .get("auth_date")
         .and_then(|value| value.parse::<i64>().ok())
@@ -2630,18 +2647,7 @@ async fn bind_email_with_policy(
         Ok(principal) => principal,
         Err(response) => return response,
     };
-    let client_ip = request
-        .extensions()
-        .get::<ClientIpKey>()
-        .map(|key| key.0.clone())
-        .or_else(|| {
-            request
-                .extensions()
-                .get::<RequestContext>()
-                .and_then(|context| context.client_ip)
-                .map(|ip| ip.to_string())
-        })
-        .unwrap_or_else(|| "unknown".to_owned());
+    let client_ip = request_client_ip(&request);
     match route.auth.check_critical_rate_limit(&client_ip).await {
         Ok(CriticalRateLimitOutcome::Allowed) => {}
         Ok(CriticalRateLimitOutcome::Rejected {
@@ -2966,13 +2972,16 @@ async fn record_oauth_unbind_audit(
     status: StatusCode,
     success: bool,
 ) {
-    let username = sqlx::query_scalar::<_, String>("SELECT username FROM users WHERE id = $1")
-        .bind(actor.user_id)
-        .fetch_optional(pool)
-        .await
-        .ok()
-        .flatten()
-        .unwrap_or_default();
+    let username = match sqlx::query_scalar::<_, String>(
+        "SELECT username FROM users WHERE id = $1",
+    )
+    .bind(actor.user_id)
+    .fetch_optional(pool)
+    .await
+    {
+        Ok(Some(username)) => username,
+        Ok(None) | Err(_) => String::new(),
+    };
     let path = format!("/api/user/{user_id}/oauth/bindings/{provider_id}");
     let other = json!({
         "op": {"action": "user.oauth_unbind"},
@@ -3012,6 +3021,42 @@ mod adapter_tests {
     use axum::body::Body;
     use sqlx::postgres::PgPoolOptions;
     use tower::ServiceExt;
+
+    type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
+
+    fn test_error(message: impl Into<String>) -> Box<dyn std::error::Error + Send + Sync> {
+        Box::new(std::io::Error::other(message.into()))
+    }
+
+    fn test_url(raw: &str) -> TestResult<Url> {
+        Ok(Url::parse(raw)?)
+    }
+
+    fn required_json_field<'a>(
+        value: &'a serde_json::Value,
+        field: &str,
+    ) -> TestResult<&'a serde_json::Value> {
+        value
+            .get(field)
+            .ok_or_else(|| test_error(format!("missing JSON field `{field}`")))
+    }
+
+    fn required_header<'a>(
+        headers: &'a HeaderMap,
+        name: &HeaderName,
+    ) -> TestResult<&'a HeaderValue> {
+        headers
+            .get(name)
+            .ok_or_else(|| test_error(format!("missing response header `{name}`")))
+    }
+
+    struct FixtureTask(tokio::task::JoinHandle<Result<(), std::io::Error>>);
+
+    impl Drop for FixtureTask {
+        fn drop(&mut self) {
+            self.0.abort();
+        }
+    }
 
     struct NoIssuer;
 
@@ -3137,7 +3182,7 @@ mod adapter_tests {
     }
 
     #[test]
-    fn github_configuration_rejects_an_insecure_or_credential_bearing_redirect() {
+    fn github_configuration_rejects_an_insecure_or_credential_bearing_redirect() -> TestResult {
         let secret = SecretString::from("client-secret".to_owned());
         assert!(
             GitHubOAuthConfig::new("client", secret.clone(), "http://example.test/callback")
@@ -3151,35 +3196,40 @@ mod adapter_tests {
             )
             .is_err()
         );
+        Ok(())
     }
 
     #[test]
-    fn oauth_login_flow_payload_preserves_accepted_legal_only_for_true() {
+    fn oauth_login_flow_payload_preserves_accepted_legal_only_for_true() -> TestResult {
         let accepted = serde_json::to_value(OAuthFlowPayload {
             affiliate_code: "invite".to_owned(),
             accepted_legal: true,
             pkce_verifier: String::new(),
             nonce: String::new(),
-        })
-        .expect("serialize accepted legal payload");
-        assert_eq!(accepted["accepted_legal"], true);
-        assert_eq!(accepted["affiliate_code"], "invite");
+        })?;
+        assert_eq!(
+            required_json_field(&accepted, "accepted_legal")?.as_bool(),
+            Some(true)
+        );
+        assert_eq!(
+            required_json_field(&accepted, "affiliate_code")?.as_str(),
+            Some("invite")
+        );
 
         let omitted = serde_json::to_value(OAuthFlowPayload {
             affiliate_code: String::new(),
             accepted_legal: false,
             pkce_verifier: String::new(),
             nonce: String::new(),
-        })
-        .expect("serialize omitted legal payload");
+        })?;
         assert!(omitted.get("accepted_legal").is_none());
+        Ok(())
     }
 
     #[tokio::test]
-    async fn oauth_state_critical_limit_runs_before_body_and_cache_policy() {
+    async fn oauth_state_critical_limit_runs_before_body_and_cache_policy() -> TestResult {
         let pool = PgPoolOptions::new()
-            .connect_lazy("postgres://unused:unused@127.0.0.1/unused")
-            .expect("a lazy test pool is valid");
+            .connect_lazy("postgres://unused:unused@127.0.0.1/unused")?;
         let app = oauth_state_router(
             FederationState::new(pool, Arc::new(AnonymousIdentity), "test-secret"),
             Arc::new(CriticalAuth {
@@ -3189,31 +3239,25 @@ mod adapter_tests {
             }),
             8,
         );
-        let response = app
-            .oneshot(
-                axum::http::Request::post(OAUTH_STATE_PATH)
-                    .header("content-type", "application/json")
-                    .body(Body::from("not-json-but-the-limit-must-win"))
-                    .expect("request builds"),
-            )
-            .await
-            .expect("router response");
+        let request = axum::http::Request::post(OAUTH_STATE_PATH)
+            .header("content-type", "application/json")
+            .body(Body::from("not-json-but-the-limit-must-win"))?;
+        let response = app.oneshot(request).await?;
         assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
-        assert_eq!(response.headers()[header::RETRY_AFTER], "7");
+        assert_eq!(required_header(response.headers(), &header::RETRY_AFTER)?, "7");
         assert!(response.headers().get(header::CACHE_CONTROL).is_none());
         assert!(
             axum::body::to_bytes(response.into_body(), 128)
-                .await
-                .expect("body reads")
+                .await?
                 .is_empty()
         );
+        Ok(())
     }
 
     #[tokio::test]
-    async fn oauth_state_allowed_response_has_go_disable_cache_headers() {
+    async fn oauth_state_allowed_response_has_go_disable_cache_headers() -> TestResult {
         let pool = PgPoolOptions::new()
-            .connect_lazy("postgres://unused:unused@127.0.0.1/unused")
-            .expect("a lazy test pool is valid");
+            .connect_lazy("postgres://unused:unused@127.0.0.1/unused")?;
         let app = oauth_state_router(
             FederationState::new(pool, Arc::new(AnonymousIdentity), "test-secret"),
             Arc::new(CriticalAuth {
@@ -3221,29 +3265,25 @@ mod adapter_tests {
             }),
             1024,
         );
-        let response = app
-            .oneshot(
-                axum::http::Request::post(OAUTH_STATE_PATH)
-                    .header("content-type", "application/json")
-                    .body(Body::from("not-json"))
-                    .expect("request builds"),
-            )
-            .await
-            .expect("router response");
+        let request = axum::http::Request::post(OAUTH_STATE_PATH)
+            .header("content-type", "application/json")
+            .body(Body::from("not-json"))?;
+        let response = app.oneshot(request).await?;
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(
-            response.headers()[header::CACHE_CONTROL],
+            required_header(response.headers(), &header::CACHE_CONTROL)?,
             "no-store, no-cache, must-revalidate, private, max-age=0"
         );
-        assert_eq!(response.headers()[header::PRAGMA], "no-cache");
-        assert_eq!(response.headers()[header::EXPIRES], "0");
+        assert_eq!(required_header(response.headers(), &header::PRAGMA)?, "no-cache");
+        assert_eq!(required_header(response.headers(), &header::EXPIRES)?, "0");
+        Ok(())
     }
 
     #[tokio::test]
-    async fn oauth_email_bind_authenticates_before_critical_limit_and_preserves_auth_version() {
+    async fn oauth_email_bind_authenticates_before_critical_limit_and_preserves_auth_version(
+    ) -> TestResult {
         let pool = PgPoolOptions::new()
-            .connect_lazy("postgres://unused:unused@127.0.0.1/unused")
-            .expect("a lazy test pool is valid");
+            .connect_lazy("postgres://unused:unused@127.0.0.1/unused")?;
         let app = oauth_email_bind_router(
             FederationState::new(pool, Arc::new(AuthenticatedIdentity), "test-secret"),
             Arc::new(CriticalAuth {
@@ -3252,32 +3292,30 @@ mod adapter_tests {
                 },
             }),
         );
-        let response = app
-            .oneshot(
-                axum::http::Request::post(OAUTH_EMAIL_BIND_PATH)
-                    .header("content-type", "application/json")
-                    .body(Body::from("not-json-but-the-limit-must-win"))
-                    .expect("request builds"),
-            )
-            .await
-            .expect("router response");
+        let request = axum::http::Request::post(OAUTH_EMAIL_BIND_PATH)
+            .header("content-type", "application/json")
+            .body(Body::from("not-json-but-the-limit-must-win"))?;
+        let response = app.oneshot(request).await?;
         assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
-        assert_eq!(response.headers()[header::RETRY_AFTER], "11");
-        assert_eq!(response.headers()["auth-version"], AUTH_VERSION);
+        assert_eq!(required_header(response.headers(), &header::RETRY_AFTER)?, "11");
+        let auth_version = response
+            .headers()
+            .get("auth-version")
+            .ok_or_else(|| test_error("missing response header `auth-version`"))?;
+        assert_eq!(auth_version, AUTH_VERSION);
         assert!(response.headers().get(header::CACHE_CONTROL).is_none());
         assert!(
             axum::body::to_bytes(response.into_body(), 128)
-                .await
-                .expect("body reads")
+                .await?
                 .is_empty()
         );
+        Ok(())
     }
 
     #[tokio::test]
-    async fn oauth_email_bind_missing_auth_wins_before_critical_limit() {
+    async fn oauth_email_bind_missing_auth_wins_before_critical_limit() -> TestResult {
         let pool = PgPoolOptions::new()
-            .connect_lazy("postgres://unused:unused@127.0.0.1/unused")
-            .expect("a lazy test pool is valid");
+            .connect_lazy("postgres://unused:unused@127.0.0.1/unused")?;
         let app = oauth_email_bind_router(
             FederationState::new(pool, Arc::new(AnonymousIdentity), "test-secret"),
             Arc::new(CriticalAuth {
@@ -3286,32 +3324,28 @@ mod adapter_tests {
                 },
             }),
         );
-        let response = app
-            .oneshot(
-                axum::http::Request::post(OAUTH_EMAIL_BIND_PATH)
-                    .header("content-type", "application/json")
-                    .body(Body::from("not-json"))
-                    .expect("request builds"),
-            )
-            .await
-            .expect("router response");
+        let request = axum::http::Request::post(OAUTH_EMAIL_BIND_PATH)
+            .header("content-type", "application/json")
+            .body(Body::from("not-json"))?;
+        let response = app.oneshot(request).await?;
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
         assert!(response.headers().get("auth-version").is_none());
+        Ok(())
     }
 
     #[test]
-    fn ssrf_guard_rejects_private_and_documentation_addresses() {
-        assert!(!public_ip("127.0.0.1".parse().expect("IP")));
-        assert!(!public_ip("10.0.0.1".parse().expect("IP")));
-        assert!(!public_ip("192.0.2.1".parse().expect("IP")));
-        assert!(!public_ip("::1".parse().expect("IP")));
-        assert!(public_ip("8.8.8.8".parse().expect("IP")));
+    fn ssrf_guard_rejects_private_and_documentation_addresses() -> TestResult {
+        assert!(!public_ip("127.0.0.1".parse()?));
+        assert!(!public_ip("10.0.0.1".parse()?));
+        assert!(!public_ip("192.0.2.1".parse()?));
+        assert!(!public_ip("::1".parse()?));
+        assert!(public_ip("8.8.8.8".parse()?));
+        Ok(())
     }
 
     #[tokio::test]
-    async fn unconfigured_provider_is_explicitly_disabled_and_cannot_fake_a_login() {
-        let providers = ConfiguredFederationProviders::new(None, Arc::new(NoIssuer))
-            .expect("client construction");
+    async fn unconfigured_provider_is_explicitly_disabled_and_cannot_fake_a_login() -> TestResult {
+        let providers = ConfiguredFederationProviders::new(None, Arc::new(NoIssuer))?;
         assert!(!providers.built_in_enabled("github"));
         assert!(matches!(
             providers
@@ -3331,18 +3365,17 @@ mod adapter_tests {
                 .await,
             Err(FederationProviderError::Disabled)
         ));
+        Ok(())
     }
 
     #[tokio::test]
-    async fn configured_provider_rejects_an_oversized_code_without_network_access() {
+    async fn configured_provider_rejects_an_oversized_code_without_network_access() -> TestResult {
         let config = GitHubOAuthConfig::new(
             "client",
             SecretString::from("client-secret".to_owned()),
             "https://app.example.test/api/oauth/github",
-        )
-        .expect("valid config");
-        let providers = ConfiguredFederationProviders::new(Some(config), Arc::new(NoIssuer))
-            .expect("client construction");
+        )?;
+        let providers = ConfiguredFederationProviders::new(Some(config), Arc::new(NoIssuer))?;
         assert!(matches!(
             providers
                 .exchange(
@@ -3361,35 +3394,30 @@ mod adapter_tests {
                 .await,
             Err(FederationProviderError::InvalidCode)
         ));
+        Ok(())
     }
 
     #[tokio::test]
-    async fn configured_github_provider_uses_compile_time_loopback_fixture() {
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-            .await
-            .expect("bind loopback fixture");
-        let address = listener.local_addr().expect("fixture address");
+    async fn configured_github_provider_uses_compile_time_loopback_fixture() -> TestResult {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let address = listener.local_addr()?;
         let fixture = Router::new()
             .route("/token", post(fixture_token))
             .route("/user", get(fixture_user));
-        let task = tokio::spawn(async move {
-            axum::serve(listener, fixture)
-                .await
-                .expect("serve loopback fixture");
-        });
-        let base = Url::parse(&format!("http://{address}/")).expect("fixture base URL");
+        let _fixture_task = FixtureTask(tokio::spawn(async move {
+            axum::serve(listener, fixture).await
+        }));
+        let base = test_url(&format!("http://{address}/"))?;
         let config = GitHubOAuthConfig {
             client_id: "fixture-client".to_owned(),
             client_secret: SecretString::from("fixture-secret".to_owned()),
-            redirect_uri: Url::parse("https://app.example.test/api/oauth/github")
-                .expect("redirect URL"),
-            token_endpoint: base.join("token").expect("token URL"),
-            user_endpoint: base.join("user").expect("user URL"),
+            redirect_uri: test_url("https://app.example.test/api/oauth/github")?,
+            token_endpoint: base.join("token")?,
+            user_endpoint: base.join("user")?,
             timeout: Duration::from_secs(2),
             fetch_policy: ProviderFetchPolicy::LoopbackFixture,
         };
-        let providers = ConfiguredFederationProviders::new(Some(config), Arc::new(NoIssuer))
-            .expect("client construction");
+        let providers = ConfiguredFederationProviders::new(Some(config), Arc::new(NoIssuer))?;
         let user = providers
             .exchange(
                 "github",
@@ -3404,10 +3432,9 @@ mod adapter_tests {
                     nonce: String::new(),
                 },
             )
-            .await
-            .expect("loopback exchange");
+            .await?;
         assert_eq!(user.provider_user_id, "4242");
         assert_eq!(user.username, "fixture-user");
-        task.abort();
+        Ok(())
     }
 }
