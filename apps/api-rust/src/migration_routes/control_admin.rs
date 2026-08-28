@@ -274,12 +274,17 @@ impl HttpOAuthDiscoveryClient {
 
     async fn discovery_document(&self, initial: &str) -> Result<Value, String> {
         let mut url = self.validate_url(initial)?;
+        let maximum_content_length = match u64::try_from(DISCOVERY_MAX_RESPONSE_BYTES) {
+            Ok(maximum_content_length) => maximum_content_length,
+            Err(_) => return Err("Discovery 配置过大".to_owned()),
+        };
         for redirect_count in 0..=DISCOVERY_MAX_REDIRECTS {
             let mut response = self.request(url.clone()).await?;
             if response.status() == StatusCode::OK {
-                if response.content_length().is_some_and(|length| {
-                    length > u64::try_from(DISCOVERY_MAX_RESPONSE_BYTES).unwrap_or(u64::MAX)
-                }) {
+                if response
+                    .content_length()
+                    .is_some_and(|length| length > maximum_content_length)
+                {
                     return Err("Discovery 配置过大".to_owned());
                 }
                 let mut body = Vec::new();
@@ -410,63 +415,122 @@ mod discovery_tests {
         routing::get,
     };
     use serde_json::{Value, json};
+    use std::{error::Error, io};
 
-    async fn server(app: Router) -> String {
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-            .await
-            .expect("test listener binds");
-        let address = listener.local_addr().expect("test listener has an address");
-        tokio::spawn(async move {
-            axum::serve(listener, app)
-                .await
-                .expect("test server exits cleanly");
-        });
-        format!("http://{address}")
+    type TestResult<T = ()> = Result<T, Box<dyn Error + Send + Sync>>;
+
+    fn test_error(message: impl Into<String>) -> Box<dyn Error + Send + Sync> {
+        Box::new(io::Error::other(message.into()))
     }
 
-    async fn valid_document(headers: HeaderMap) -> axum::Json<Value> {
+    fn discovery_error(
+        result: Result<Value, String>,
+        context: &'static str,
+    ) -> TestResult<String> {
+        match result {
+            Ok(_) => Err(test_error(format!(
+                "{context}: discovery succeeded when an error was required"
+            ))),
+            Err(error) => Ok(error),
+        }
+    }
+
+    fn required_json_string<'a>(
+        document: &'a Value,
+        field: &'static str,
+    ) -> TestResult<&'a str> {
+        document
+            .get(field)
+            .and_then(Value::as_str)
+            .ok_or_else(|| test_error(format!("discovery JSON field `{field}` is missing")))
+    }
+
+    struct TestServer {
+        base: reqwest::Url,
+        task: tokio::task::JoinHandle<Result<(), io::Error>>,
+    }
+
+    impl TestServer {
+        fn url(&self, path: &str) -> TestResult<reqwest::Url> {
+            self.base
+                .join(path)
+                .map_err(|error| test_error(format!("build discovery fixture URL: {error}")))
+        }
+    }
+
+    impl Drop for TestServer {
+        fn drop(&mut self) {
+            self.task.abort();
+        }
+    }
+
+    async fn server(app: Router) -> TestResult<TestServer> {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .map_err(|error| test_error(format!("bind discovery fixture listener: {error}")))?;
+        let address = listener
+            .local_addr()
+            .map_err(|error| test_error(format!("read discovery fixture address: {error}")))?;
+        let base = reqwest::Url::parse(&format!("http://{address}/"))
+            .map_err(|error| test_error(format!("parse discovery fixture base URL: {error}")))?;
+        let task = tokio::spawn(async move { axum::serve(listener, app).await });
+        Ok(TestServer { base, task })
+    }
+
+    async fn valid_document(
+        headers: HeaderMap,
+    ) -> Result<axum::Json<Value>, StatusCode> {
         let host = headers
             .get(header::HOST)
-            .and_then(|value| value.to_str().ok())
-            .expect("request contains host");
-        axum::Json(json!({
+            .ok_or(StatusCode::BAD_REQUEST)?
+            .to_str()
+            .map_err(|_| StatusCode::BAD_REQUEST)?;
+        Ok(axum::Json(json!({
             "issuer": format!("http://{host}"),
             "authorization_endpoint": format!("http://{host}/authorize"),
             "token_endpoint": format!("http://{host}/token"),
             "userinfo_endpoint": format!("http://{host}/userinfo"),
-        }))
+        })))
     }
 
     #[tokio::test]
-    async fn discovery_production_client_rejects_loopback_before_connecting() {
-        let client = HttpOAuthDiscoveryClient::production().expect("production client builds");
-        let error = client
-            .discover("http://127.0.0.1/.well-known/openid-configuration")
-            .await
-            .expect_err("plaintext loopback is never a production issuer");
+    async fn discovery_production_client_rejects_loopback_before_connecting() -> TestResult {
+        let client = HttpOAuthDiscoveryClient::production()
+            .map_err(|error| test_error(format!("build production discovery client: {error}")))?;
+        let error = discovery_error(
+            client
+                .discover("http://127.0.0.1/.well-known/openid-configuration")
+                .await,
+            "reject plaintext loopback production issuer",
+        )?;
         assert_eq!(error, "Discovery URL 无效，仅支持 https");
+        Ok(())
     }
 
     #[tokio::test]
-    async fn discovery_rejects_credentials_and_private_literal_endpoints() {
+    async fn discovery_rejects_credentials_and_private_literal_endpoints() -> TestResult {
         let client = HttpOAuthDiscoveryClient::test_loopback();
-        let credential_error = client
-            .discover("http://user:never-log-me@127.0.0.1/document")
-            .await
-            .expect_err("URL credentials are never forwarded");
+        let credential_error = discovery_error(
+            client
+                .discover("http://user:never-log-me@127.0.0.1/document")
+                .await,
+            "reject credential-bearing discovery URL",
+        )?;
         assert_eq!(credential_error, "Discovery URL 无效，仅支持 https");
 
-        let private_error = HttpOAuthDiscoveryClient::production()
-            .expect("production client builds")
-            .discover("https://192.168.1.2/document")
-            .await
-            .expect_err("private literal is blocked before a network call");
+        let production = HttpOAuthDiscoveryClient::production()
+            .map_err(|error| test_error(format!("build production discovery client: {error}")))?;
+        let private_error = discovery_error(
+            production.discover("https://192.168.1.2/document").await,
+            "reject private literal discovery URL",
+        )?;
         assert_eq!(private_error, "Discovery URL 指向了不安全的地址");
+        Ok(())
     }
 
     #[tokio::test]
-    async fn discovery_loopback_contract_follows_only_revalidated_redirects() {
-        let base = server(
+    async fn discovery_loopback_contract_follows_only_revalidated_redirects() -> TestResult {
+        let server = server(
             Router::new()
                 .route(
                     "/loopback-redirect-start",
@@ -474,17 +538,25 @@ mod discovery_tests {
                 )
                 .route("/loopback-redirect-document", get(valid_document)),
         )
-        .await;
+        .await?;
+        let request_url = server.url("loopback-redirect-start")?;
+        let token_url = server.url("token")?;
         let document = HttpOAuthDiscoveryClient::test_loopback()
-            .discover(&format!("{base}/loopback-redirect-start"))
+            .discover(request_url.as_str())
             .await
-            .expect("validated loopback redirect succeeds only in the test harness");
-        assert_eq!(document["token_endpoint"], format!("{base}/token"));
+            .map_err(|error| {
+                test_error(format!("follow revalidated loopback redirect: {error}"))
+            })?;
+        assert_eq!(
+            required_json_string(&document, "token_endpoint")?,
+            token_url.as_str()
+        );
+        Ok(())
     }
 
     #[tokio::test]
-    async fn discovery_rejects_a_redirect_to_private_network() {
-        let base = server(Router::new().route(
+    async fn discovery_rejects_a_redirect_to_private_network() -> TestResult {
+        let server = server(Router::new().route(
             "/private-redirect-start",
             get(|| async {
                 (
@@ -493,48 +565,63 @@ mod discovery_tests {
                 )
             }),
         ))
-        .await;
-        let error = HttpOAuthDiscoveryClient::test_loopback()
-            .discover(&format!("{base}/private-redirect-start"))
-            .await
-            .expect_err("private redirect is blocked before a second request");
+        .await?;
+        let request_url = server.url("private-redirect-start")?;
+        let error = discovery_error(
+            HttpOAuthDiscoveryClient::test_loopback()
+                .discover(request_url.as_str())
+                .await,
+            "reject redirect to private network",
+        )?;
         assert_eq!(error, "Discovery URL 指向了不安全的地址");
+        Ok(())
     }
 
     #[tokio::test]
-    async fn discovery_rejects_oversized_response_without_parsing_it() {
-        let base = server(Router::new().route(
+    async fn discovery_rejects_oversized_response_without_parsing_it() -> TestResult {
+        let server = server(Router::new().route(
             "/oversized-document",
             get(|| async { "x".repeat((1 << 20) + 1) }),
         ))
-        .await;
-        let error = HttpOAuthDiscoveryClient::test_loopback()
-            .discover(&format!("{base}/oversized-document"))
-            .await
-            .expect_err("response cap applies before JSON decoding");
+        .await?;
+        let request_url = server.url("oversized-document")?;
+        let error = discovery_error(
+            HttpOAuthDiscoveryClient::test_loopback()
+                .discover(request_url.as_str())
+                .await,
+            "reject oversized discovery response",
+        )?;
         assert_eq!(error, "Discovery 配置过大");
+        Ok(())
     }
 
     #[tokio::test]
-    async fn discovery_rejects_invalid_json_and_incomplete_endpoints() {
+    async fn discovery_rejects_invalid_json_and_incomplete_endpoints() -> TestResult {
         let invalid_json =
-            server(Router::new().route("/invalid-json-document", get(|| async { "{" }))).await;
-        let invalid_error = HttpOAuthDiscoveryClient::test_loopback()
-            .discover(&format!("{invalid_json}/invalid-json-document"))
-            .await
-            .expect_err("invalid JSON cannot become dashboard configuration");
+            server(Router::new().route("/invalid-json-document", get(|| async { "{" }))).await?;
+        let invalid_url = invalid_json.url("invalid-json-document")?;
+        let invalid_error = discovery_error(
+            HttpOAuthDiscoveryClient::test_loopback()
+                .discover(invalid_url.as_str())
+                .await,
+            "reject invalid discovery JSON",
+        )?;
         assert_eq!(invalid_error, "解析 Discovery 配置失败");
 
         let incomplete = server(Router::new().route(
             "/incomplete-document",
             get(|| async { axum::Json(json!({"issuer": "http://127.0.0.1"})) }),
         ))
-        .await;
-        let incomplete_error = HttpOAuthDiscoveryClient::test_loopback()
-            .discover(&format!("{incomplete}/incomplete-document"))
-            .await
-            .expect_err("required OIDC endpoints are validated exactly");
+        .await?;
+        let incomplete_url = incomplete.url("incomplete-document")?;
+        let incomplete_error = discovery_error(
+            HttpOAuthDiscoveryClient::test_loopback()
+                .discover(incomplete_url.as_str())
+                .await,
+            "reject incomplete discovery JSON",
+        )?;
         assert_eq!(incomplete_error, "Discovery 配置缺少必要字段");
+        Ok(())
     }
 }
 
@@ -741,7 +828,10 @@ async fn parse_json_request<T: DeserializeOwned>(request: Request) -> Result<T, 
 
 fn raw_query_string(raw_query: Option<&str>, wanted: &str) -> Option<String> {
     raw_query?.split('&').find_map(|part| {
-        let (key, value) = part.split_once('=').unwrap_or((part, ""));
+        let (key, value) = match part.split_once('=') {
+            Some(parts) => parts,
+            None => (part, ""),
+        };
         if decode_query_component(key).as_deref() == Some(wanted) {
             decode_query_component(value)
         } else {
@@ -981,7 +1071,7 @@ fn is_builtin_oauth_slug(slug: &str) -> bool {
 fn legacy_oauth_default(value: Option<String>, default: &'static str) -> String {
     value
         .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| default.to_owned())
+        .map_or_else(|| default.to_owned(), std::convert::identity)
 }
 
 #[derive(Deserialize)]
@@ -1166,7 +1256,9 @@ async fn create_oauth(State(state): State<ControlAdminState>, request: Request) 
     if is_builtin_oauth_slug(&slug) {
         return failure(StatusCode::OK, "该 Slug 与内置 OAuth 提供商冲突");
     }
-    let access_policy = request.access_policy.unwrap_or_default();
+    let access_policy = request
+        .access_policy
+        .map_or_else(String::new, std::convert::identity);
     if let Err(message) = validate_access_policy(&access_policy) {
         return failure(StatusCode::OK, message);
     }
@@ -1181,9 +1273,12 @@ async fn create_oauth(State(state): State<ControlAdminState>, request: Request) 
     let display_name_field = legacy_oauth_default(request.display_name_field, "name");
     let email_field = legacy_oauth_default(request.email_field, "email");
     let result = sqlx::query("INSERT INTO custom_oauth_providers (name,slug,icon,enabled,client_id,client_secret,authorization_endpoint,token_endpoint,user_info_endpoint,scopes,user_id_field,username_field,display_name_field,email_field,well_known,auth_style,access_policy,access_denied_message,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,NOW(),NOW()) RETURNING id")
-        .bind(name).bind(&slug).bind(request.icon.unwrap_or_default()).bind(request.enabled.unwrap_or(false)).bind(client_id).bind(client_secret).bind(authorization_endpoint).bind(token_endpoint).bind(user_info_endpoint).bind(scopes).bind(user_id_field).bind(username_field).bind(display_name_field).bind(email_field).bind(request.well_known.unwrap_or_default()).bind(request.auth_style.unwrap_or(0)).bind(access_policy).bind(request.access_denied_message.unwrap_or_default()).fetch_one(&state.pg).await;
+        .bind(name).bind(&slug).bind(request.icon.map_or_else(String::new, std::convert::identity)).bind(request.enabled.map_or(false, std::convert::identity)).bind(client_id).bind(client_secret).bind(authorization_endpoint).bind(token_endpoint).bind(user_info_endpoint).bind(scopes).bind(user_id_field).bind(username_field).bind(display_name_field).bind(email_field).bind(request.well_known.map_or_else(String::new, std::convert::identity)).bind(request.auth_style.map_or(0, std::convert::identity)).bind(access_policy).bind(request.access_denied_message.map_or_else(String::new, std::convert::identity)).fetch_one(&state.pg).await;
     let id = match result {
-        Ok(row) => row.get::<i64, _>("id"),
+        Ok(row) => match row.try_get::<i64, _>("id") {
+            Ok(id) => id,
+            Err(error) => return database_failure(error),
+        },
         Err(error) if is_unique(&error) => return failure(StatusCode::OK, "该 Slug 已被使用"),
         Err(error) => return database_failure(error),
     };
@@ -1237,9 +1332,10 @@ async fn update_oauth(
             return failure(StatusCode::OK, "该 Slug 与内置 OAuth 提供商冲突");
         }
     }
-    let access_policy = request
-        .access_policy
-        .unwrap_or_else(|| current.access_policy.clone());
+    let access_policy = request.access_policy.map_or_else(
+        || current.access_policy.clone(),
+        std::convert::identity,
+    );
     if let Err(message) = validate_access_policy(&access_policy) {
         return failure(StatusCode::OK, message);
     }
@@ -1247,7 +1343,7 @@ async fn update_oauth(
         return response;
     }
     let result = sqlx::query("UPDATE custom_oauth_providers SET name=$1,slug=$2,icon=$3,enabled=$4,client_id=$5,client_secret=CASE WHEN $6 = '' THEN client_secret ELSE $6 END,authorization_endpoint=$7,token_endpoint=$8,user_info_endpoint=$9,scopes=$10,user_id_field=$11,username_field=$12,display_name_field=$13,email_field=$14,well_known=$15,auth_style=$16,access_policy=$17,access_denied_message=$18,updated_at=NOW() WHERE id=$19")
-        .bind(request.name.filter(|v| !v.is_empty()).unwrap_or(current.name)).bind(slug).bind(request.icon.unwrap_or(current.icon)).bind(request.enabled.unwrap_or(current.enabled)).bind(request.client_id.filter(|v| !v.is_empty()).unwrap_or(current.client_id)).bind(request.client_secret.unwrap_or_default()).bind(request.authorization_endpoint.filter(|v| !v.is_empty()).unwrap_or(current.authorization_endpoint)).bind(request.token_endpoint.filter(|v| !v.is_empty()).unwrap_or(current.token_endpoint)).bind(request.user_info_endpoint.filter(|v| !v.is_empty()).unwrap_or(current.user_info_endpoint)).bind(request.scopes.filter(|v| !v.is_empty()).unwrap_or(current.scopes)).bind(request.user_id_field.filter(|v| !v.is_empty()).unwrap_or(current.user_id_field)).bind(request.username_field.filter(|v| !v.is_empty()).unwrap_or(current.username_field)).bind(request.display_name_field.filter(|v| !v.is_empty()).unwrap_or(current.display_name_field)).bind(request.email_field.filter(|v| !v.is_empty()).unwrap_or(current.email_field)).bind(request.well_known.unwrap_or(current.well_known)).bind(request.auth_style.unwrap_or(current.auth_style)).bind(access_policy).bind(request.access_denied_message.unwrap_or(current.access_denied_message)).bind(id).execute(&state.pg).await;
+        .bind(request.name.filter(|value| !value.is_empty()).map_or(current.name, std::convert::identity)).bind(slug).bind(request.icon.map_or(current.icon, std::convert::identity)).bind(request.enabled.map_or(current.enabled, std::convert::identity)).bind(request.client_id.filter(|value| !value.is_empty()).map_or(current.client_id, std::convert::identity)).bind(request.client_secret.map_or_else(String::new, std::convert::identity)).bind(request.authorization_endpoint.filter(|value| !value.is_empty()).map_or(current.authorization_endpoint, std::convert::identity)).bind(request.token_endpoint.filter(|value| !value.is_empty()).map_or(current.token_endpoint, std::convert::identity)).bind(request.user_info_endpoint.filter(|value| !value.is_empty()).map_or(current.user_info_endpoint, std::convert::identity)).bind(request.scopes.filter(|value| !value.is_empty()).map_or(current.scopes, std::convert::identity)).bind(request.user_id_field.filter(|value| !value.is_empty()).map_or(current.user_id_field, std::convert::identity)).bind(request.username_field.filter(|value| !value.is_empty()).map_or(current.username_field, std::convert::identity)).bind(request.display_name_field.filter(|value| !value.is_empty()).map_or(current.display_name_field, std::convert::identity)).bind(request.email_field.filter(|value| !value.is_empty()).map_or(current.email_field, std::convert::identity)).bind(request.well_known.map_or(current.well_known, std::convert::identity)).bind(request.auth_style.map_or(current.auth_style, std::convert::identity)).bind(access_policy).bind(request.access_denied_message.map_or(current.access_denied_message, std::convert::identity)).bind(id).execute(&state.pg).await;
     match result {
         Ok(_) => {}
         Err(error) if is_unique(&error) => return failure(StatusCode::OK, "该 Slug 已被使用"),
@@ -1332,8 +1428,16 @@ async fn oauth_discovery(State(state): State<ControlAdminState>, request: Reques
         Ok(request) => request,
         Err(response) => return *response,
     };
-    let well_known_url = request.well_known_url.unwrap_or_default().trim().to_owned();
-    let issuer_url = request.issuer_url.unwrap_or_default().trim().to_owned();
+    let well_known_url = request
+        .well_known_url
+        .map_or_else(String::new, std::convert::identity)
+        .trim()
+        .to_owned();
+    let issuer_url = request
+        .issuer_url
+        .map_or_else(String::new, std::convert::identity)
+        .trim()
+        .to_owned();
     if well_known_url.is_empty() && issuer_url.is_empty() {
         return failure(StatusCode::OK, "请先填写 Discovery URL 或 Issuer URL");
     }
@@ -1345,11 +1449,13 @@ async fn oauth_discovery(State(state): State<ControlAdminState>, request: Reques
     } else {
         well_known_url
     };
-    let parsed = reqwest::Url::parse(url.trim());
-    if !parsed.as_ref().is_ok_and(|parsed| {
-        parsed.host_str().is_some() && matches!(parsed.scheme(), "http" | "https")
-    }) {
-        return failure(StatusCode::OK, "Discovery URL 无效，仅支持 http/https");
+    match reqwest::Url::parse(url.trim()) {
+        Ok(parsed)
+            if parsed.host_str().is_some()
+                && matches!(parsed.scheme(), "http" | "https") => {}
+        Ok(_) | Err(_) => {
+            return failure(StatusCode::OK, "Discovery URL 无效，仅支持 http/https");
+        }
     }
     match state.discovery.discover(&url).await {
         Ok(discovery) => ok(json!({"well_known_url": url, "discovery": discovery})),
@@ -1380,7 +1486,8 @@ async fn list_system_tasks(
     if let Err(response) = root(&state, &headers).await {
         return response;
     }
-    let requested_limit = raw_query_i64(query.0.as_deref(), "limit").unwrap_or(0);
+    let requested_limit = raw_query_i64(query.0.as_deref(), "limit")
+        .map_or(0, std::convert::identity);
     let limit = if requested_limit <= 0 {
         20
     } else {
@@ -1569,13 +1676,13 @@ async fn list_tasks(
     let raw = query.0.as_deref();
     let page = raw_query_i64(raw, "p")
         .filter(|page| *page != 0)
-        .unwrap_or(1);
-    let mut page_size = raw_query_i64(raw, "page_size").unwrap_or(0);
+        .map_or(1, std::convert::identity);
+    let mut page_size = raw_query_i64(raw, "page_size").map_or(0, std::convert::identity);
     if page_size == 0 {
-        page_size = raw_query_i64(raw, "ps").unwrap_or(0);
+        page_size = raw_query_i64(raw, "ps").map_or(0, std::convert::identity);
     }
     if page_size == 0 {
-        page_size = raw_query_i64(raw, "size").unwrap_or(0);
+        page_size = raw_query_i64(raw, "size").map_or(0, std::convert::identity);
     }
     if page_size == 0 {
         page_size = 10;
@@ -1586,13 +1693,20 @@ async fn list_tasks(
     // as zero.
     let query_limit = (page_size >= 0).then_some(page_size);
     let query_offset = (page - 1).saturating_mul(page_size).max(0);
-    let platform = raw_query_string(raw, "platform").unwrap_or_default();
-    let task_id = raw_query_string(raw, "task_id").unwrap_or_default();
-    let status = raw_query_string(raw, "status").unwrap_or_default();
-    let action = raw_query_string(raw, "action").unwrap_or_default();
-    let start_timestamp = raw_query_i64(raw, "start_timestamp").unwrap_or(0);
-    let end_timestamp = raw_query_i64(raw, "end_timestamp").unwrap_or(0);
-    let channel_id_text = raw_query_string(raw, "channel_id").unwrap_or_default();
+    let platform = raw_query_string(raw, "platform")
+        .map_or_else(String::new, std::convert::identity);
+    let task_id = raw_query_string(raw, "task_id")
+        .map_or_else(String::new, std::convert::identity);
+    let status = raw_query_string(raw, "status")
+        .map_or_else(String::new, std::convert::identity);
+    let action = raw_query_string(raw, "action")
+        .map_or_else(String::new, std::convert::identity);
+    let start_timestamp = raw_query_i64(raw, "start_timestamp")
+        .map_or(0, std::convert::identity);
+    let end_timestamp = raw_query_i64(raw, "end_timestamp")
+        .map_or(0, std::convert::identity);
+    let channel_id_text = raw_query_string(raw, "channel_id")
+        .map_or_else(String::new, std::convert::identity);
     let channel_id = if channel_id_text.is_empty() {
         None
     } else {
@@ -1684,28 +1798,28 @@ fn system_task_from_row(row: sqlx::postgres::PgRow) -> Result<Value, sqlx::Error
             "error".to_owned(),
             json!(
                 row.try_get::<Option<String>, _>("error")?
-                    .unwrap_or_default()
+                    .map_or_else(String::new, std::convert::identity)
             ),
         ),
         (
             "locked_by".to_owned(),
             json!(
                 row.try_get::<Option<String>, _>("locked_by")?
-                    .unwrap_or_default()
+                    .map_or_else(String::new, std::convert::identity)
             ),
         ),
         (
             "created_at".to_owned(),
             json!(
                 row.try_get::<Option<i64>, _>("created_at")?
-                    .unwrap_or_default()
+                    .map_or(0, std::convert::identity)
             ),
         ),
         (
             "updated_at".to_owned(),
             json!(
                 row.try_get::<Option<i64>, _>("updated_at")?
-                    .unwrap_or_default()
+                    .map_or(0, std::convert::identity)
             ),
         ),
     ]);
@@ -1723,16 +1837,18 @@ fn instance_from_row(row: sqlx::postgres::PgRow, now: i64) -> Result<Value, sqlx
 }
 fn task_from_row(row: sqlx::postgres::PgRow) -> Result<Value, sqlx::Error> {
     let fail_reason = row.try_get::<String, _>(11)?;
-    let private_data = row.try_get::<Option<Value>, _>(17)?.unwrap_or(Value::Null);
+    let private_data = row
+        .try_get::<Option<Value>, _>(17)?
+        .map_or(Value::Null, std::convert::identity);
     let result_url = private_data
         .get("result_url")
         .and_then(Value::as_str)
         .filter(|value| !value.is_empty())
-        .unwrap_or(&fail_reason)
+        .map_or(fail_reason.as_str(), std::convert::identity)
         .to_owned();
     let properties = row
         .try_get::<Option<Value>, _>(16)?
-        .unwrap_or_else(|| json!({"input": ""}));
+        .map_or_else(|| json!({"input": ""}), std::convert::identity);
     let username = row.try_get::<String, _>("username")?;
     let mut response = serde_json::Map::from_iter([
         ("id".to_owned(), json!(row.try_get::<i64, _>("id")?)),
@@ -1763,7 +1879,8 @@ fn task_from_row(row: sqlx::postgres::PgRow) -> Result<Value, sqlx::Error> {
         ("properties".to_owned(), properties),
         (
             "data".to_owned(),
-            row.try_get::<Option<Value>, _>(18)?.unwrap_or(Value::Null),
+            row.try_get::<Option<Value>, _>(18)?
+                .map_or(Value::Null, std::convert::identity),
         ),
     ]);
     if !result_url.is_empty() {
@@ -1777,7 +1894,10 @@ fn task_from_row(row: sqlx::postgres::PgRow) -> Result<Value, sqlx::Error> {
 fn json_value(value: Option<String>) -> Value {
     match value {
         Some(value) if value.is_empty() => Value::Null,
-        Some(value) => serde_json::from_str(&value).unwrap_or(Value::String(value)),
+        Some(value) => match serde_json::from_str(&value) {
+            Ok(json) => json,
+            Err(_) => Value::String(value),
+        },
         None => Value::Null,
     }
 }
