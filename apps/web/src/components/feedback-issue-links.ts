@@ -44,7 +44,7 @@ export function getFeedbackIssueUrl(
 ): string {
   const locale = normalizeInterfaceLanguage(language)
   const templateLanguage = locale === 'zhCN' || locale === 'zhTW' ? 'zh' : 'en'
-  const url = new URL(ISSUE_FORM_URL)
-  url.searchParams.set('template', ISSUE_TEMPLATES[category][templateLanguage])
-  return url.toString()
+  const template = ISSUE_TEMPLATES[category]?.[templateLanguage]
+  if (!template) return ISSUE_FORM_URL
+  return `${ISSUE_FORM_URL}?template=${template}`
 }
