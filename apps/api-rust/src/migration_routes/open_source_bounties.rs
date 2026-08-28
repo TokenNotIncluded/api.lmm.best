@@ -2358,8 +2358,8 @@ fn tip_operation_payload_hash(challenge_id: i64, quota: i64, note: &str) -> Stri
         "quota": quota,
         "note": note,
     });
-    let encoded = serde_json::to_vec(&payload).expect("tip payload is serializable");
-    hex::encode(Sha256::digest(encoded))
+    let encoded = payload.to_string();
+    hex::encode(Sha256::digest(encoded.as_bytes()))
 }
 
 async fn replay_tip_operation(
@@ -5087,6 +5087,8 @@ mod tests {
         LogoutRequest, LogoutResult, PgValkeyDashboardAuth, RequestMetadata, TwoFactorLoginRequest,
     };
 
+    type TestResult = Result<(), Box<dyn std::error::Error>>;
+
     #[derive(Clone, Copy)]
     struct StaticBountyAuth {
         developer_access_granted: bool,
@@ -5185,35 +5187,30 @@ mod tests {
         }
     }
 
-    fn access_test_router(developer_access_granted: bool) -> axum::Router {
+    fn access_test_router(developer_access_granted: bool) -> Result<axum::Router, sqlx::Error> {
         let pg = PgPoolOptions::new()
             .acquire_timeout(Duration::from_millis(10))
-            .connect_lazy("postgres://route-test:route-test@127.0.0.1:1/route_test")
-            .expect("lazy PostgreSQL pool");
-        router(OpenSourceBountyState::new(
+            .connect_lazy("postgres://route-test:route-test@127.0.0.1:1/route_test")?;
+        Ok(router(OpenSourceBountyState::new(
             pg,
             Arc::new(StaticBountyAuth {
                 developer_access_granted,
             }),
-        ))
+        )))
     }
 
-    fn archive_test_router() -> axum::Router {
+    fn archive_test_router() -> Result<axum::Router, Box<dyn std::error::Error>> {
         let pg = PgPoolOptions::new()
-            .connect_lazy("postgres://route-test:route-test@127.0.0.1:1/route_test")
-            .expect("lazy PostgreSQL pool");
-        let valkey = redis::Client::open("redis://127.0.0.1:1").expect("lazy Valkey client");
+            .connect_lazy("postgres://route-test:route-test@127.0.0.1:1/route_test")?;
+        let valkey = redis::Client::open("redis://127.0.0.1:1")?;
         let auth_config = AuthConfig {
             session_secret: SecretString::from(
                 "open-source-bounty-archive-route-test-secret-012345678901234567890123456789",
             ),
             ..AuthConfig::default()
         };
-        let auth = Arc::new(
-            PgValkeyDashboardAuth::new(pg.clone(), valkey, auth_config)
-                .expect("route-test auth adapter"),
-        );
-        router(OpenSourceBountyState::new(pg, auth))
+        let auth = Arc::new(PgValkeyDashboardAuth::new(pg.clone(), valkey, auth_config)?);
+        Ok(router(OpenSourceBountyState::new(pg, auth)))
     }
 
     #[test]
@@ -5293,23 +5290,22 @@ mod tests {
     }
 
     #[test]
-    fn fee_rate_json_matches_go_integral_float_wire_shape() {
+    fn fee_rate_json_matches_go_integral_float_wire_shape() -> TestResult {
         let integral = serde_json::to_string(&BountyFeeConfig {
             rate_percent: 1.0,
             rate_basis_points: 100,
-        })
-        .unwrap();
+        })?;
         assert_eq!(integral, r#"{"rate_percent":1,"rate_basis_points":100}"#);
 
         let fractional = serde_json::to_string(&BountyFeeConfig {
             rate_percent: 2.5,
             rate_basis_points: 250,
-        })
-        .unwrap();
+        })?;
         assert_eq!(
             fractional,
             r#"{"rate_percent":2.5,"rate_basis_points":250}"#
         );
+        Ok(())
     }
 
     #[test]
@@ -5318,12 +5314,12 @@ mod tests {
             status: Some(" resolved_paid ".to_owned()),
             limit: Some("101".to_owned()),
         };
-        assert_eq!(query.normalized().unwrap(), (Some("resolved_paid"), 100));
+        assert_eq!(query.normalized().ok(), Some((Some("resolved_paid"), 100)));
         let default = DisputeListQuery {
             status: Some(" ".to_owned()),
             limit: Some("not-a-number".to_owned()),
         };
-        assert_eq!(default.normalized().unwrap(), (None, 50));
+        assert_eq!(default.normalized().ok(), Some((None, 50)));
         let invalid = DisputeListQuery {
             status: Some("pending".to_owned()),
             limit: None,
@@ -5390,55 +5386,38 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn archive_route_requires_auth_before_project_lookup() {
-        let response = archive_test_router()
-            .oneshot(
-                Request::post("/api/open-source-bounties/projects/7/archive")
-                    .body(Body::empty())
-                    .expect("route request"),
-            )
-            .await
-            .expect("route response");
+    async fn archive_route_requires_auth_before_project_lookup() -> TestResult {
+        let request =
+            Request::post("/api/open-source-bounties/projects/7/archive").body(Body::empty())?;
+        let response = archive_test_router()?.oneshot(request).await?;
 
         assert_eq!(response.status(), axum::http::StatusCode::UNAUTHORIZED);
+        Ok(())
     }
 
     #[tokio::test]
-    async fn unarchive_route_requires_auth_before_project_lookup() {
-        let response = archive_test_router()
-            .oneshot(
-                Request::post("/api/open-source-bounties/projects/7/unarchive")
-                    .body(Body::empty())
-                    .expect("route request"),
-            )
-            .await
-            .expect("route response");
+    async fn unarchive_route_requires_auth_before_project_lookup() -> TestResult {
+        let request =
+            Request::post("/api/open-source-bounties/projects/7/unarchive").body(Body::empty())?;
+        let response = archive_test_router()?.oneshot(request).await?;
 
         assert_eq!(response.status(), axum::http::StatusCode::UNAUTHORIZED);
+        Ok(())
     }
 
     #[tokio::test]
-    async fn private_bounty_route_rejects_l0_and_reaches_handler_for_l1() {
-        let l0 = access_test_router(false)
-            .oneshot(
-                Request::post("/api/open-source-bounties/projects/not-an-id/publish")
-                    .header("authorization", "Bearer l0")
-                    .body(Body::empty())
-                    .expect("L0 request"),
-            )
-            .await
-            .expect("L0 response");
+    async fn private_bounty_route_rejects_l0_and_reaches_handler_for_l1() -> TestResult {
+        let l0_request = Request::post("/api/open-source-bounties/projects/not-an-id/publish")
+            .header("authorization", "Bearer l0")
+            .body(Body::empty())?;
+        let l0 = access_test_router(false)?.oneshot(l0_request).await?;
         assert_eq!(l0.status(), axum::http::StatusCode::NOT_FOUND);
 
-        let l1 = access_test_router(true)
-            .oneshot(
-                Request::post("/api/open-source-bounties/projects/not-an-id/publish")
-                    .header("authorization", "Bearer l1")
-                    .body(Body::empty())
-                    .expect("L1 request"),
-            )
-            .await
-            .expect("L1 response");
+        let l1_request = Request::post("/api/open-source-bounties/projects/not-an-id/publish")
+            .header("authorization", "Bearer l1")
+            .body(Body::empty())?;
+        let l1 = access_test_router(true)?.oneshot(l1_request).await?;
         assert_eq!(l1.status(), axum::http::StatusCode::OK);
+        Ok(())
     }
 }
