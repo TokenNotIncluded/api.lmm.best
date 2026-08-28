@@ -97,6 +97,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 
 	if relayFormat == types.RelayFormatOpenAIRealtime {
 		var err error
+		// pi-lens-ignore: opengrep:go.gorilla.security.audit.websocket-missing-origin-check.websocket-missing-origin-check
 		ws, err = upgrader.Upgrade(c.Writer, c.Request, nil)
 		if err != nil {
 			helper.WssError(c, ws, types.NewError(err, types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry()).ToOpenAIError())

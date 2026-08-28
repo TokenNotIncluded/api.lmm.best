@@ -189,6 +189,7 @@ func updateGeoIPDatabase(ctx context.Context, options geoIPUpdateOptions) error 
 	if err := temporary.Chmod(0o644); err != nil {
 		return fmt.Errorf("set database mode: %w", err)
 	}
+	// pi-lens-ignore: opengrep:go.lang.security.decompression_bomb.potential-dos-via-decompression-bomb
 	decompressed, err := io.Copy(temporary, io.LimitReader(reader, geoIPDecompressedDatabaseLimit+1))
 	if err != nil {
 		return fmt.Errorf("decompress database: %w", err)

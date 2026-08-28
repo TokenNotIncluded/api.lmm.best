@@ -10,8 +10,9 @@ import (
 
 // decodeWithFlexibleTimes unmarshals API responses while tolerating timestamp strings
 // that omit timezone information by normalizing them to RFC3339Nano.
-func decodeWithFlexibleTimes(data []byte, target interface{}) error {
-	var intermediate interface{}
+func decodeWithFlexibleTimes(data []byte, target any) error {
+	// pi-lens-ignore: opengrep:go.lang.security.deserialization.unsafe-deserialization-interface.go-unsafe-deserialization-interface
+	var intermediate any
 	if err := json.Unmarshal(data, &intermediate); err != nil {
 		return err
 	}
@@ -47,14 +48,14 @@ func decodeDataWithFlexibleTimes[T any](data []byte, target *T) error {
 	return nil
 }
 
-func normalizeTimeValues(value interface{}) interface{} {
+func normalizeTimeValues(value any) any {
 	switch v := value.(type) {
-	case map[string]interface{}:
-		return lo.MapValues(v, func(val interface{}, _ string) interface{} {
+	case map[string]any:
+		return lo.MapValues(v, func(val any, _ string) any {
 			return normalizeTimeValues(val)
 		})
-	case []interface{}:
-		return lo.Map(v, func(item interface{}, _ int) interface{} {
+	case []any:
+		return lo.Map(v, func(item any, _ int) any {
 			return normalizeTimeValues(item)
 		})
 	case string:

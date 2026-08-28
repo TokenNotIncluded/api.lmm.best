@@ -218,7 +218,7 @@ func environmentFromConfigurationArchive(path string) ([]byte, error) {
 		switch header.Typeflag {
 		case tar.TypeDir:
 			continue
-		case tar.TypeReg, tar.TypeRegA:
+		case tar.TypeReg:
 		default:
 			return nil, fmt.Errorf("configuration backup contains unsupported entry %q", header.Name)
 		}

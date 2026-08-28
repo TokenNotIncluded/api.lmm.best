@@ -127,14 +127,15 @@ func (jar *persistentJar) load() error {
 		if err != nil || origin.Scheme == "" || origin.Host == "" {
 			return fmt.Errorf("cookie file contains an invalid origin")
 		}
+		// pi-lens-ignore: opengrep:go.lang.security.audit.net.cookie-missing-secure.cookie-missing-secure
 		cookie := &http.Cookie{
 			Name:     record.Name,
 			Value:    record.Value,
 			Path:     record.Path,
 			Domain:   record.Domain,
 			Expires:  record.Expires,
-			Secure:   record.Secure,
-			HttpOnly: record.HTTPOnly,
+			Secure:   record.Secure || origin.Scheme == "https",
+			HttpOnly: true,
 			SameSite: record.SameSite,
 		}
 		jar.jar.SetCookies(origin, []*http.Cookie{cookie})

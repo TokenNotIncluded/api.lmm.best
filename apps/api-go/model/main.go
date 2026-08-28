@@ -594,7 +594,7 @@ func clickHouseLogTTLClause(ttlDays int) string {
 
 func clickHouseLogCreateTableSQL(ttlDays int) string {
 	// ttlDays is an integer bounded by configuration parsing; no SQL text is accepted.
-	// pi-lens-ignore: go-sql-injection
+	// pi-lens-ignore: go-sql-injection, opengrep:go.lang.security.audit.database.string-formatted-query.string-formatted-query
 	return fmt.Sprintf(`
 CREATE TABLE IF NOT EXISTS logs (
 	id Int64 DEFAULT 0,
@@ -730,7 +730,7 @@ PRIMARY KEY (` + "`id`" + `)
 		if _, ok := existing[col.Name]; ok {
 			continue
 		}
-		// pi-lens-ignore: ast-grep:gorm-n-plus-one
+		// pi-lens-ignore: ast-grep:gorm-n-plus-one, opengrep:go.lang.security.audit.database.string-formatted-query.string-formatted-query
 		if err := DB.Exec("ALTER TABLE `" + tableName + "` ADD COLUMN " + col.DDL).Error; err != nil {
 			return err
 		}
@@ -770,7 +770,7 @@ func migrateTokenModelLimitsToText() error {
 			return nil
 		}
 		// Both identifiers above are compile-time constants for this migration.
-		// pi-lens-ignore: go-sql-injection
+		// pi-lens-ignore: go-sql-injection, opengrep:go.lang.security.audit.database.string-formatted-query.string-formatted-query
 		alterSQL = fmt.Sprintf(`ALTER TABLE %s ALTER COLUMN %s TYPE text`, tableName, columnName)
 	} else if common.UsingMainDatabase(common.DatabaseTypeMySQL) {
 		var columnType string
@@ -782,7 +782,7 @@ func migrateTokenModelLimitsToText() error {
 			return nil
 		}
 		// Both identifiers above are compile-time constants for this migration.
-		// pi-lens-ignore: go-sql-injection
+		// pi-lens-ignore: go-sql-injection, opengrep:go.lang.security.audit.database.string-formatted-query.string-formatted-query
 		alterSQL = fmt.Sprintf("ALTER TABLE %s MODIFY COLUMN %s text", tableName, columnName)
 	} else {
 		return nil
@@ -833,7 +833,7 @@ func migrateSubscriptionPlanPriceAmount() {
 			return // Already decimal/numeric
 		}
 		// All identifiers above are compile-time constants for this migration.
-		// pi-lens-ignore: go-sql-injection
+		// pi-lens-ignore: go-sql-injection, opengrep:go.lang.security.audit.database.string-formatted-query.string-formatted-query
 		alterSQL = fmt.Sprintf(`ALTER TABLE %s ALTER COLUMN %s TYPE decimal(10,6) USING %s::decimal(10,6)`,
 			tableName, columnName, columnName)
 	} else if common.UsingMainDatabase(common.DatabaseTypeMySQL) {
@@ -847,7 +847,7 @@ func migrateSubscriptionPlanPriceAmount() {
 			return // Already decimal
 		}
 		// Both identifiers above are compile-time constants for this migration.
-		// pi-lens-ignore: go-sql-injection
+		// pi-lens-ignore: go-sql-injection, opengrep:go.lang.security.audit.database.string-formatted-query.string-formatted-query
 		alterSQL = fmt.Sprintf("ALTER TABLE %s MODIFY COLUMN %s decimal(10,6) NOT NULL DEFAULT 0",
 			tableName, columnName)
 	} else {

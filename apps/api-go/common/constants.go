@@ -98,6 +98,8 @@ var MemoryCacheEnabled bool
 var LogConsumeEnabled = true
 
 var TLSInsecureSkipVerify bool
+
+// pi-lens-ignore: opengrep:problem-based-packs.insecure-transport.go-stdlib.bypass-tls-verification.bypass-tls-verification
 var InsecureTLSConfig = &tls.Config{
 	MinVersion: tls.VersionTLS12,
 	// Selected only when the operator explicitly sets TLS_INSECURE_SKIP_VERIFY=true.

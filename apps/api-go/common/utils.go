@@ -7,11 +7,9 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"html/template"
 	"io"
 	"log"
 	"math/big"
-	nonSecureRand "math/rand/v2"
 	"net"
 	"net/url"
 	"os"
@@ -208,10 +206,6 @@ func Interface2String(inter interface{}) string {
 	return fmt.Sprintf("%v", inter)
 }
 
-func UnescapeHTML(x string) interface{} {
-	return template.HTML(x)
-}
-
 func IntMax(a int, b int) int {
 	if a >= b {
 		return a
@@ -322,7 +316,11 @@ func MessageWithRequestId(message string, id string) string {
 
 func RandomSleep() {
 	// Non-security jitter only: spread retries over 0-3000 ms.
-	time.Sleep(time.Duration(nonSecureRand.IntN(3000)) * time.Millisecond)
+	delay, err := cryptorand.Int(cryptorand.Reader, big.NewInt(3000))
+	if err != nil {
+		return
+	}
+	time.Sleep(time.Duration(delay.Int64()) * time.Millisecond)
 }
 
 func GetPointer[T any](v T) *T {
