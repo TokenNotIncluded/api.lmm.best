@@ -795,6 +795,14 @@ mod tests {
         LogoutRequest, LogoutResult, RequestMetadata, TwoFactorLoginRequest,
     };
 
+    type TestResult = Result<(), Box<dyn std::error::Error>>;
+
+    fn test_pool() -> Result<sqlx::PgPool, sqlx::Error> {
+        PgPoolOptions::new()
+            .acquire_timeout(std::time::Duration::from_millis(1))
+            .connect_lazy("postgres://unused:unused@localhost/unused")
+    }
+
     struct RejectingAuth;
 
     struct IssuingAuth;
@@ -915,44 +923,32 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn token_write_error_keeps_legacy_success_status_and_database_message() {
-        let pool = PgPoolOptions::new()
-            .acquire_timeout(std::time::Duration::from_millis(1))
-            .connect_lazy("postgres://unused:unused@localhost/unused")
-            .expect("valid lazy PostgreSQL URL");
+    async fn token_write_error_keeps_legacy_success_status_and_database_message() -> TestResult {
         let app = router(IdentityCatalogState::new(
-            pool,
+            test_pool()?,
             std::sync::Arc::new(FailedTokenWriteAuth),
         ));
-        let response = app
-            .oneshot(
-                Request::builder()
-                    .uri("/api/user/token")
-                    .header("authorization", "Bearer dashboard-session")
-                    .body(axum::body::Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
+        let request = Request::builder()
+            .uri("/api/user/token")
+            .header("authorization", "Bearer dashboard-session")
+            .body(axum::body::Body::empty())?;
+        let response = app.oneshot(request).await?;
         assert_eq!(response.status(), StatusCode::OK);
-        let body = to_bytes(response.into_body(), 1024).await.unwrap();
+        let body = to_bytes(response.into_body(), 1024).await?;
         assert_eq!(
-            serde_json::from_slice::<serde_json::Value>(&body).unwrap(),
+            serde_json::from_slice::<serde_json::Value>(&body)?,
             serde_json::json!({
                 "success": false,
                 "message": "ERROR: transaction fixture injected write failure (SQLSTATE P0001)"
             })
         );
+        Ok(())
     }
 
     #[tokio::test]
-    async fn public_router_does_not_expose_protected_catalogue_or_token_routes() {
-        let pool = PgPoolOptions::new()
-            .acquire_timeout(std::time::Duration::from_millis(1))
-            .connect_lazy("postgres://unused:unused@localhost/unused")
-            .expect("valid lazy PostgreSQL URL");
+    async fn public_router_does_not_expose_protected_catalogue_or_token_routes() -> TestResult {
         let app = public_router(IdentityCatalogState::new(
-            pool,
+            test_pool()?,
             std::sync::Arc::new(RejectingAuth),
         ));
         for path in [
@@ -960,43 +956,29 @@ mod tests {
             "/api/user/models",
             "/api/user/token",
         ] {
-            let response = app
-                .clone()
-                .oneshot(
-                    Request::builder()
-                        .uri(path)
-                        .body(axum::body::Body::empty())
-                        .unwrap(),
-                )
-                .await
-                .unwrap();
+            let request = Request::builder()
+                .uri(path)
+                .body(axum::body::Body::empty())?;
+            let response = app.clone().oneshot(request).await?;
             assert_eq!(response.status(), StatusCode::NOT_FOUND, "{path}");
         }
+        Ok(())
     }
 
     #[tokio::test]
-    async fn protected_read_router_rejects_before_database_access() {
-        let pool = PgPoolOptions::new()
-            .acquire_timeout(std::time::Duration::from_millis(1))
-            .connect_lazy("postgres://unused:unused@localhost/unused")
-            .expect("valid lazy PostgreSQL URL");
+    async fn protected_read_router_rejects_before_database_access() -> TestResult {
         let app = protected_read_router(IdentityCatalogState::new(
-            pool,
+            test_pool()?,
             std::sync::Arc::new(RejectingAuth),
         ));
         for path in ["/api/user/self/groups", "/api/user/models"] {
-            let response = app
-                .clone()
-                .oneshot(
-                    Request::builder()
-                        .uri(path)
-                        .body(axum::body::Body::empty())
-                        .unwrap(),
-                )
-                .await
-                .unwrap();
+            let request = Request::builder()
+                .uri(path)
+                .body(axum::body::Body::empty())?;
+            let response = app.clone().oneshot(request).await?;
             assert_eq!(response.status(), StatusCode::NOT_FOUND, "{path}");
         }
+        Ok(())
     }
 
     #[async_trait]
@@ -1057,13 +1039,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn protected_catalogue_routes_keep_legacy_localized_unauthorized_envelope() {
-        let pool = PgPoolOptions::new()
-            .acquire_timeout(std::time::Duration::from_millis(1))
-            .connect_lazy("postgres://unused:unused@localhost/unused")
-            .expect("valid lazy PostgreSQL URL");
+    async fn protected_catalogue_routes_keep_legacy_localized_unauthorized_envelope() -> TestResult
+    {
         let app = router(IdentityCatalogState::new(
-            pool,
+            test_pool()?,
             std::sync::Arc::new(RejectingAuth),
         ));
         for path in [
@@ -1071,24 +1050,18 @@ mod tests {
             "/api/user/models",
             "/api/user/token",
         ] {
-            let response = app
-                .clone()
-                .oneshot(
-                    Request::builder()
-                        .uri(path)
-                        .header("accept-language", "zh-CN")
-                        .body(axum::body::Body::empty())
-                        .unwrap(),
-                )
-                .await
-                .unwrap();
+            let request = Request::builder()
+                .uri(path)
+                .header("accept-language", "zh-CN")
+                .body(axum::body::Body::empty())?;
+            let response = app.clone().oneshot(request).await?;
             let expected_status = if path == "/api/user/token" {
                 StatusCode::UNAUTHORIZED
             } else {
                 StatusCode::NOT_FOUND
             };
             assert_eq!(response.status(), expected_status, "{path}");
-            let body = to_bytes(response.into_body(), 1024).await.unwrap();
+            let body = to_bytes(response.into_body(), 1024).await?;
             let expected_body = if path == "/api/user/token" {
                 serde_json::json!({
                     "success": false,
@@ -1099,38 +1072,32 @@ mod tests {
                 serde_json::json!({"message":"Not Found"})
             };
             assert_eq!(
-                serde_json::from_slice::<serde_json::Value>(&body).unwrap(),
+                serde_json::from_slice::<serde_json::Value>(&body)?,
                 expected_body
             );
         }
+        Ok(())
     }
 
     #[tokio::test]
-    async fn token_route_delegates_generation_to_dashboard_auth_and_preserves_envelope() {
-        let pool = PgPoolOptions::new()
-            .acquire_timeout(std::time::Duration::from_millis(1))
-            .connect_lazy("postgres://unused:unused@localhost/unused")
-            .expect("valid lazy PostgreSQL URL");
+    async fn token_route_delegates_generation_to_dashboard_auth_and_preserves_envelope()
+    -> TestResult {
         let app = router(IdentityCatalogState::new(
-            pool,
+            test_pool()?,
             std::sync::Arc::new(IssuingAuth),
         ));
-        let response = app
-            .oneshot(
-                Request::builder()
-                    .uri("/api/user/token")
-                    .header("authorization", "Bearer dashboard-session")
-                    .body(axum::body::Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
+        let request = Request::builder()
+            .uri("/api/user/token")
+            .header("authorization", "Bearer dashboard-session")
+            .body(axum::body::Body::empty())?;
+        let response = app.oneshot(request).await?;
         assert_eq!(response.status(), StatusCode::OK);
-        let body = to_bytes(response.into_body(), 1024).await.unwrap();
+        let body = to_bytes(response.into_body(), 1024).await?;
         assert_eq!(
-            serde_json::from_slice::<serde_json::Value>(&body).unwrap(),
+            serde_json::from_slice::<serde_json::Value>(&body)?,
             serde_json::json!({"success":true,"message":"","data":"new-management-token"})
         );
+        Ok(())
     }
 
     #[test]
