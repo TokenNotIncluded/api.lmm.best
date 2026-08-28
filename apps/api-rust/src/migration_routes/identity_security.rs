@@ -59,19 +59,19 @@ enum LegacyLocale {
 
 impl LegacyLocale {
     fn from_headers(headers: &HeaderMap) -> Self {
-        let language = headers
-            .get(header::ACCEPT_LANGUAGE)
-            .and_then(|value| value.to_str().ok())
-            .and_then(|value| value.split(',').next())
-            .map(|value| {
-                value
-                    .split(';')
-                    .next()
-                    .unwrap_or_default()
-                    .trim()
-                    .to_ascii_lowercase()
-            })
-            .unwrap_or_default();
+        let Some(language) = headers.get(header::ACCEPT_LANGUAGE) else {
+            return Self::En;
+        };
+        let Ok(language) = language.to_str() else {
+            return Self::En;
+        };
+        let Some(language) = language.split(',').next() else {
+            return Self::En;
+        };
+        let Some(language) = language.split(';').next() else {
+            return Self::En;
+        };
+        let language = language.trim().to_ascii_lowercase();
         if language.starts_with("zh-tw") {
             Self::ZhTw
         } else if language.starts_with("zh") {
@@ -790,12 +790,11 @@ impl PgValkeySecurityProvider {
     }
 
     async fn option_bool(&self, key: &str, default: bool) -> Result<bool, SecurityError> {
-        Ok(self
-            .option(key)
-            .await?
-            .as_deref()
-            .map(|value| value.trim().eq_ignore_ascii_case("true"))
-            .unwrap_or(default))
+        let value = self.option(key).await?;
+        Ok(match value.as_deref() {
+            Some(value) => value.trim().eq_ignore_ascii_case("true"),
+            None => default,
+        })
     }
 
     async fn register(&self, input: Value) -> Result<Value, SecurityError> {
@@ -827,11 +826,10 @@ impl PgValkeySecurityProvider {
         }
         let username = request.username.trim().to_owned();
         let password = request.password;
-        let email = request
-            .email
-            .unwrap_or_default()
-            .trim()
-            .to_ascii_lowercase();
+        let email = match request.email {
+            Some(email) => email.trim().to_ascii_lowercase(),
+            None => String::new(),
+        };
         if username.is_empty()
             || username.chars().count() > 20
             || username.chars().any(char::is_control)
@@ -873,15 +871,18 @@ impl PgValkeySecurityProvider {
         let inviter_id = if request.aff_code.trim().is_empty() {
             0_i64
         } else {
-            sqlx::query_scalar::<_, Option<i64>>(
+            let inviter = sqlx::query_scalar::<_, Option<i64>>(
                 "SELECT id FROM users WHERE deleted_at IS NULL AND aff_code = $1 LIMIT 1",
             )
             .bind(request.aff_code.trim())
             .fetch_optional(&mut *transaction)
             .await
             .map_err(|_| SecurityError::Unavailable)?
-            .flatten()
-            .unwrap_or(0)
+            .flatten();
+            match inviter {
+                Some(inviter_id) => inviter_id,
+                None => 0,
+            }
         };
 
         let aff_code = new_aff_code();
@@ -1004,25 +1005,34 @@ fn unix_seconds() -> Result<i64, SecurityError> {
 mod provider_tests {
     use super::*;
 
-    fn provider() -> PgValkeySecurityProvider {
+    type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
+
+    fn test_error(message: impl Into<String>) -> Box<dyn std::error::Error + Send + Sync> {
+        Box::new(std::io::Error::other(message.into()))
+    }
+
+    fn provider() -> TestResult<PgValkeySecurityProvider> {
         let pool = sqlx::postgres::PgPoolOptions::new()
-            .connect_lazy("postgres://unused:unused@127.0.0.1/unused")
-            .expect("valid lazy PostgreSQL URL");
-        let valkey = redis::Client::open("redis://127.0.0.1/").expect("valid Valkey URL");
-        PgValkeySecurityProvider::new(pool, valkey)
+            .connect_lazy("postgres://unused:unused@127.0.0.1/unused")?;
+        let valkey = redis::Client::open("redis://127.0.0.1/")?;
+        Ok(PgValkeySecurityProvider::new(pool, valkey))
     }
 
     #[test]
-    fn registration_input_defaults_missing_credentials_like_go() {
-        let request: RegistrationInput = serde_json::from_value(json!({}))
-            .expect("Go decodes an empty object into zero-valued registration fields");
+    fn registration_input_defaults_missing_credentials_like_go() -> TestResult {
+        let request: RegistrationInput = serde_json::from_value(json!({})).map_err(|error| {
+            test_error(format!(
+                "failed to decode zero-valued registration JSON: {error}"
+            ))
+        })?;
         assert!(request.username.is_empty());
         assert!(request.password.is_empty());
+        Ok(())
     }
 
     #[tokio::test]
-    async fn unconfigured_mail_boundary_fails_closed_without_database_or_valkey_io() {
-        let outcome = provider()
+    async fn unconfigured_mail_boundary_fails_closed_without_database_or_valkey_io() -> TestResult {
+        let outcome = provider()?
             .execute(SecurityCall {
                 operation: SecurityOperation::SendEmailVerification,
                 actor: None,
@@ -1030,11 +1040,12 @@ mod provider_tests {
             })
             .await;
         assert_eq!(outcome, Err(SecurityError::Unavailable));
+        Ok(())
     }
 
     #[tokio::test]
-    async fn production_provider_checks_admin_role_before_catalog_storage_access() {
-        let outcome = provider()
+    async fn production_provider_checks_admin_role_before_catalog_storage_access() -> TestResult {
+        let outcome = provider()?
             .execute(SecurityCall {
                 operation: SecurityOperation::AuthzCatalog,
                 actor: Some(SecurityActor {
@@ -1046,6 +1057,7 @@ mod provider_tests {
             })
             .await;
         assert_eq!(outcome, Err(SecurityError::Forbidden));
+        Ok(())
     }
 }
 
@@ -1715,23 +1727,26 @@ async fn passkey_login_finish(state: State<IdentitySecurityState>, request: Requ
     }
     with_no_store(anonymous_json(state, request, SecurityOperation::PasskeyLoginFinish).await)
 }
+fn request_client_ip(request: &Request) -> String {
+    if let Some(key) = request.extensions().get::<ClientIpKey>() {
+        return key.0.clone();
+    }
+    if let Some(ip) = request
+        .extensions()
+        .get::<RequestContext>()
+        .and_then(|context| context.client_ip)
+    {
+        return ip.to_string();
+    }
+    "unknown".to_owned()
+}
+
 async fn register(state: State<IdentitySecurityState>, request: Request) -> Response {
     let locale = LegacyLocale::from_headers(request.headers());
     let Some(security) = state.registration_security.as_ref() else {
         return SecurityError::Unavailable.response(locale);
     };
-    let client_ip = request
-        .extensions()
-        .get::<ClientIpKey>()
-        .map(|key| key.0.clone())
-        .or_else(|| {
-            request
-                .extensions()
-                .get::<RequestContext>()
-                .and_then(|context| context.client_ip)
-                .map(|ip| ip.to_string())
-        })
-        .unwrap_or_else(|| "unknown".to_owned());
+    let client_ip = request_client_ip(&request);
     match security.check_critical_rate_limit(&client_ip).await {
         Ok(CriticalRateLimitOutcome::Allowed) => {}
         Ok(CriticalRateLimitOutcome::Rejected {
@@ -1794,18 +1809,7 @@ async fn universal_verify(state: State<IdentitySecurityState>, request: Request)
         Ok(actor) => actor,
         Err(response) => return response,
     };
-    let client_ip = request
-        .extensions()
-        .get::<ClientIpKey>()
-        .map(|key| key.0.clone())
-        .or_else(|| {
-            request
-                .extensions()
-                .get::<RequestContext>()
-                .and_then(|context| context.client_ip)
-                .map(|ip| ip.to_string())
-        })
-        .unwrap_or_else(|| "unknown".to_owned());
+    let client_ip = request_client_ip(&request);
     match state.authorizer.check_critical_rate_limit(&client_ip).await {
         Ok(CriticalRateLimitOutcome::Allowed) => {}
         Ok(CriticalRateLimitOutcome::Rejected {
@@ -1879,8 +1883,14 @@ mod tests {
     use super::*;
     use axum::body::Body;
 
+    type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
+
+    fn test_error(message: impl Into<String>) -> Box<dyn std::error::Error + Send + Sync> {
+        Box::new(std::io::Error::other(message.into()))
+    }
+
     #[test]
-    fn preferred_security_method_matches_email_two_factor_passkey_order() {
+    fn preferred_security_method_matches_email_two_factor_passkey_order() -> TestResult {
         assert_eq!(
             preferred_security_method_for("admin@example.com", true),
             ("email".to_owned(), Some("admin@example.com".to_owned()))
@@ -1893,20 +1903,18 @@ mod tests {
             preferred_security_method_for("", false),
             ("passkey".to_owned(), None)
         );
+        Ok(())
     }
 
     #[tokio::test]
-    async fn registration_json_limit_returns_413_before_json_parsing() {
-        let response = json_after_auth_with_limit(
-            Request::builder()
-                .body(Body::from("x".repeat(17)))
-                .expect("request"),
-            LegacyLocale::En,
-            16,
-        )
-        .await
-        .expect_err("oversized request must be rejected");
+    async fn registration_json_limit_returns_413_before_json_parsing() -> TestResult {
+        let request = Request::builder().body(Body::from("x".repeat(17)))?;
+        let response = match json_after_auth_with_limit(request, LegacyLocale::En, 16).await {
+            Ok(_) => return Err(test_error("oversized request was accepted")),
+            Err(response) => response,
+        };
 
         assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+        Ok(())
     }
 }
