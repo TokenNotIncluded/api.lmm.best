@@ -1524,10 +1524,12 @@ mod tests {
     use async_trait::async_trait;
     use axum::{
         body::{Body, to_bytes},
-        http::Request,
+        http::{HeaderValue, Request},
     };
     use sqlx::postgres::PgPoolOptions;
     use tower::ServiceExt;
+
+    type TestResult = Result<(), Box<dyn std::error::Error>>;
 
     #[derive(Clone)]
     struct StaticAuth {
@@ -1608,38 +1610,38 @@ mod tests {
             Err(crate::auth::AuthError::new(AuthErrorKind::Unauthorized))
         }
     }
-    fn app(role: i64) -> Router {
-        router(IdentityTopupState::new(
+    fn app(role: i64) -> Result<Router, sqlx::Error> {
+        Ok(router(IdentityTopupState::new(
             PgPoolOptions::new()
                 .acquire_timeout(std::time::Duration::from_millis(10))
-                .connect_lazy("postgres://unused:unused@127.0.0.1:1/unused")
-                .unwrap(),
+                .connect_lazy("postgres://unused:unused@127.0.0.1:1/unused")?,
             Arc::new(StaticAuth { role }),
-        ))
+        )))
     }
 
     #[test]
-    fn bearer_matches_go_bare_and_case_insensitive_forms() {
+    fn bearer_matches_go_bare_and_case_insensitive_forms() -> TestResult {
         for value in ["token", "Bearer token", "bearer token"] {
             let mut headers = HeaderMap::new();
-            headers.insert(header::AUTHORIZATION, value.parse().unwrap());
+            headers.insert(header::AUTHORIZATION, value.parse()?);
             assert_eq!(bearer(&headers).as_deref(), Some("token"), "{value}");
         }
         let mut headers = HeaderMap::new();
-        headers.insert(header::AUTHORIZATION, "Bearer token extra".parse().unwrap());
+        headers.insert(header::AUTHORIZATION, "Bearer token extra".parse()?);
         assert_eq!(bearer(&headers), None);
+        Ok(())
     }
 
-    async fn integration_pools() -> Option<(PgPool, PgPool, String)> {
-        let database_url = std::env::var("LMM_TEST_DATABASE_URL").ok()?;
-        let admin = PgPool::connect(&database_url)
-            .await
-            .expect("connect isolated PostgreSQL test database");
+    async fn integration_pools()
+    -> Result<Option<(PgPool, PgPool, String)>, Box<dyn std::error::Error>> {
+        let Ok(database_url) = std::env::var("LMM_TEST_DATABASE_URL") else {
+            return Ok(None);
+        };
+        let admin = PgPool::connect(&database_url).await?;
         let schema = format!("topup_complete_{}", uuid::Uuid::new_v4().simple());
         sqlx::query(&format!("CREATE SCHEMA {schema}"))
             .execute(&admin)
-            .await
-            .expect("create isolated topup schema");
+            .await?;
         let scoped = PgPoolOptions::new()
             .max_connections(1)
             .after_connect({
@@ -1653,31 +1655,26 @@ mod tests {
                 }
             })
             .connect(&database_url)
-            .await
-            .expect("connect isolated topup schema");
-        Some((admin, scoped, schema))
+            .await?;
+        Ok(Some((admin, scoped, schema)))
     }
 
-    async fn response_json(response: Response) -> Value {
-        serde_json::from_slice(
-            &to_bytes(response.into_body(), usize::MAX)
-                .await
-                .expect("read response body"),
-        )
-        .expect("response is JSON")
+    async fn response_json(response: Response) -> Result<Value, Box<dyn std::error::Error>> {
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
+        Ok(serde_json::from_slice(&body)?)
     }
 
     fn admin_headers() -> HeaderMap {
         let mut headers = HeaderMap::new();
         headers.insert(
             header::AUTHORIZATION,
-            "Bearer administrator".parse().unwrap(),
+            HeaderValue::from_static("Bearer administrator"),
         );
         headers
     }
 
     #[tokio::test]
-    async fn public_topup_reads_retain_the_frozen_unauthorized_envelope() {
+    async fn public_topup_reads_retain_the_frozen_unauthorized_envelope() -> TestResult {
         for (method, uri) in [
             ("GET", "/api/user/topup"),
             ("GET", "/api/user/topup/info"),
@@ -1686,13 +1683,12 @@ mod tests {
             let request = Request::builder()
                 .method(method)
                 .uri(uri)
-                .body(Body::empty())
-                .unwrap();
-            let response = app(1).oneshot(request).await.unwrap();
+                .body(Body::empty())?;
+            let response = app(1)?.oneshot(request).await?;
             assert_eq!(response.status(), StatusCode::UNAUTHORIZED, "{uri}");
             assert_eq!(response.headers()[header::CONTENT_TYPE], "application/json");
             assert_eq!(
-                response_json(response).await,
+                response_json(response).await?,
                 json!({
                     "success": false,
                     "code": "AUTH_UNAUTHORIZED",
@@ -1701,10 +1697,11 @@ mod tests {
                 "{uri}"
             );
         }
+        Ok(())
     }
 
     #[tokio::test]
-    async fn public_topup_writes_require_a_dashboard_credential() {
+    async fn public_topup_writes_require_a_dashboard_credential() -> TestResult {
         for (method, uri) in [
             ("POST", "/api/user/topup"),
             ("POST", "/api/user/topup/complete"),
@@ -1712,18 +1709,18 @@ mod tests {
             let request = Request::builder()
                 .method(method)
                 .uri(uri)
-                .body(Body::empty())
-                .unwrap();
+                .body(Body::empty())?;
             assert_eq!(
-                app(1).oneshot(request).await.unwrap().status(),
+                app(1)?.oneshot(request).await?.status(),
                 StatusCode::UNAUTHORIZED,
                 "{uri}"
             );
         }
+        Ok(())
     }
 
     #[tokio::test]
-    async fn ordinary_users_cannot_reach_administrator_topup_seams() {
+    async fn ordinary_users_cannot_reach_administrator_topup_seams() -> TestResult {
         for (method, uri) in [
             ("GET", "/api/user/topup"),
             ("POST", "/api/user/topup/complete"),
@@ -1732,18 +1729,18 @@ mod tests {
                 .method(method)
                 .uri(uri)
                 .header(header::AUTHORIZATION, "Bearer ordinary")
-                .body(Body::empty())
-                .unwrap();
+                .body(Body::empty())?;
             assert_eq!(
-                app(1).oneshot(request).await.unwrap().status(),
+                app(1)?.oneshot(request).await?.status(),
                 StatusCode::FORBIDDEN,
                 "{uri}"
             );
         }
+        Ok(())
     }
 
     #[tokio::test]
-    async fn raw_pagination_keeps_bad_integer_requests_inside_the_legacy_handler() {
+    async fn raw_pagination_keeps_bad_integer_requests_inside_the_legacy_handler() -> TestResult {
         for uri in [
             "/api/user/topup?p=-1&size=-1",
             "/api/user/topup?p=-1&size=0",
@@ -1754,14 +1751,14 @@ mod tests {
             let request = Request::builder()
                 .uri(uri)
                 .header(header::AUTHORIZATION, "Bearer administrator")
-                .body(Body::empty())
-                .unwrap();
+                .body(Body::empty())?;
             assert_ne!(
-                app(ROLE_ADMIN).oneshot(request).await.unwrap().status(),
+                app(ROLE_ADMIN)?.oneshot(request).await?.status(),
                 StatusCode::BAD_REQUEST,
                 "{uri} must not receive Axum's query-extractor rejection"
             );
         }
+        Ok(())
     }
 
     #[test]
@@ -1798,32 +1795,36 @@ mod tests {
 
     #[test]
     fn topup_search_pattern_matches_go_wildcard_contract() {
-        assert_eq!(like_pattern("trade-42").unwrap(), "trade-42");
-        assert_eq!(like_pattern("%trade-%").unwrap(), "%trade-%");
-        assert_eq!(like_pattern("a_b").unwrap(), "a!_b");
-        assert_eq!(like_pattern("%_").unwrap(), "%!_");
-        assert_eq!(like_pattern("%!").unwrap(), "%!!");
+        for (input, expected) in [
+            ("trade-42", "trade-42"),
+            ("%trade-%", "%trade-%"),
+            ("a_b", "a!_b"),
+            ("%_", "%!_"),
+            ("%!", "%!!"),
+        ] {
+            assert_eq!(like_pattern(input).ok().as_deref(), Some(expected));
+        }
         assert_eq!(
-            like_pattern("a%%b").unwrap_err(),
-            "搜索模式中不允许包含连续的 % 通配符"
+            like_pattern("a%%b").err().as_deref(),
+            Some("搜索模式中不允许包含连续的 % 通配符")
         );
         assert_eq!(
-            like_pattern("%a%b%").unwrap_err(),
-            "搜索模式中最多允许包含 2 个 % 通配符"
+            like_pattern("%a%b%").err().as_deref(),
+            Some("搜索模式中最多允许包含 2 个 % 通配符")
         );
         assert_eq!(
-            like_pattern("%a").unwrap_err(),
-            "使用模糊搜索时，关键词长度至少为 2 个字符"
+            like_pattern("%a").err().as_deref(),
+            Some("使用模糊搜索时，关键词长度至少为 2 个字符")
         );
     }
 
     #[tokio::test]
-    async fn redemption_failure_uses_user_language_then_header_then_english_default() {
+    async fn redemption_failure_uses_user_language_then_header_then_english_default() -> TestResult
+    {
         let auth = StaticAuth { role: 1 };
         let mut user = auth
             .self_user(SecretString::from("test-session".to_owned()))
-            .await
-            .unwrap();
+            .await?;
         let mut headers = HeaderMap::new();
 
         assert_eq!(
@@ -1831,18 +1832,19 @@ mod tests {
             "Redemption failed, please try again later"
         );
 
-        headers.insert(header::ACCEPT_LANGUAGE, "zh-CN".parse().unwrap());
+        headers.insert(header::ACCEPT_LANGUAGE, HeaderValue::from_static("zh-CN"));
         assert_eq!(
             redeem_failure_message(&user, &headers),
             "兑换失败，请稍后重试"
         );
 
         user.setting = r#"{"language":"zh-TW"}"#.to_owned();
-        headers.insert(header::ACCEPT_LANGUAGE, "en".parse().unwrap());
+        headers.insert(header::ACCEPT_LANGUAGE, HeaderValue::from_static("en"));
         assert_eq!(
             redeem_failure_message(&user, &headers),
             "兌換失敗，請稍後重試"
         );
+        Ok(())
     }
 
     #[test]
@@ -1873,11 +1875,15 @@ mod tests {
         ]);
         let enabled = topup_info_data(&options);
         assert_eq!(enabled["developer_access_granted"], true);
-        assert!(enabled["enable_online_topup"].as_bool().unwrap());
-        assert!(enabled["enable_stripe_topup"].as_bool().unwrap());
-        assert!(enabled["enable_creem_topup"].as_bool().unwrap());
-        assert!(enabled["enable_waffo_topup"].as_bool().unwrap());
-        assert!(enabled["enable_waffo_pancake_topup"].as_bool().unwrap());
+        for key in [
+            "enable_online_topup",
+            "enable_stripe_topup",
+            "enable_creem_topup",
+            "enable_waffo_topup",
+            "enable_waffo_pancake_topup",
+        ] {
+            assert_eq!(enabled[key].as_bool(), Some(true), "{key}");
+        }
         assert_eq!(enabled["payment_compliance_terms_version"], "v1");
         assert_eq!(
             enabled["creem_products"],
@@ -2019,7 +2025,7 @@ mod tests {
     }
 
     #[test]
-    fn self_topup_record_keeps_the_go_public_shape() {
+    fn self_topup_record_keeps_the_go_public_shape() -> TestResult {
         let value = serde_json::to_value(TopupSelfRecord::from(TopupRecord {
             id: 7,
             user_id: 11,
@@ -2039,29 +2045,31 @@ mod tests {
             create_time: 100,
             complete_time: 200,
             status: "success".into(),
-        }))
-        .expect("serialize self top-up record");
+        }))?;
         assert_eq!(value["id"], 7);
         assert_eq!(value["money"], 20.0);
         assert_eq!(value["payment_method"], "stripe");
         assert!(value.get("payment_provider").is_none());
+        Ok(())
     }
 
     #[test]
-    fn money_value_matches_go_integral_float_wire_shape() {
-        assert_eq!(serde_json::to_string(&money_value("2.000")).unwrap(), "2");
-        assert_eq!(serde_json::to_string(&money_value("2.5")).unwrap(), "2.5");
+    fn money_value_matches_go_integral_float_wire_shape() -> TestResult {
+        assert_eq!(serde_json::to_string(&money_value("2.000"))?, "2");
+        assert_eq!(serde_json::to_string(&money_value("2.5"))?, "2.5");
         assert_eq!(
-            serde_json::to_string(&money_value("not-a-number")).unwrap(),
+            serde_json::to_string(&money_value("not-a-number"))?,
             "\"not-a-number\""
         );
+        Ok(())
     }
 
     #[tokio::test]
-    async fn complete_topup_uses_authoritative_quota_option_and_is_atomic_and_idempotent() {
-        let Some((admin, pool, schema)) = integration_pools().await else {
+    async fn complete_topup_uses_authoritative_quota_option_and_is_atomic_and_idempotent()
+    -> TestResult {
+        let Some((admin, pool, schema)) = integration_pools().await? else {
             eprintln!("skipping PostgreSQL topup completion test: LMM_TEST_DATABASE_URL is unset");
-            return;
+            return Ok(());
         };
         for statement in [
             "CREATE TABLE options (key TEXT PRIMARY KEY, value TEXT)",
@@ -2070,30 +2078,23 @@ mod tests {
             "CREATE TABLE logs (user_id BIGINT, created_at BIGINT, type BIGINT, content TEXT, username TEXT, token_name TEXT, model_name TEXT, quota BIGINT, prompt_tokens BIGINT, completion_tokens BIGINT, use_time BIGINT, is_stream BOOLEAN, channel_id BIGINT, token_id BIGINT, \"group\" TEXT, ip TEXT, other TEXT)",
             "CREATE TABLE redemptions (id BIGINT PRIMARY KEY, \"key\" TEXT UNIQUE, quota BIGINT, status BIGINT, expired_time BIGINT, deleted_at TIMESTAMPTZ, redeemed_time BIGINT, used_user_id BIGINT)",
         ] {
-            sqlx::query(statement)
-                .execute(&pool)
-                .await
-                .expect("create topup fixture table");
+            sqlx::query(statement).execute(&pool).await?;
         }
         sqlx::query("INSERT INTO options (key, value) VALUES ('QuotaPerUnit', '1234.5'), ('payment_setting.compliance_confirmed', 'true'), ('payment_setting.compliance_terms_version', 'v1')")
             .execute(&pool)
-            .await
-            .expect("seed non-default quota unit");
+            .await?;
         sqlx::query("INSERT INTO users (id, username, quota) VALUES (7, 'ordinary', 0), (11, 'credited-user', 7)")
             .execute(&pool)
-            .await
-            .expect("seed credited user");
+            .await?;
         sqlx::query("INSERT INTO top_ups (id, user_id, amount, money, trade_no, payment_method, payment_provider, create_time, complete_time, status) VALUES (1, 11, 2, 0, 'non-default', 'epay', 'epay', 0, 0, 'pending'), (2, 404, 2, 0, 'rollback', 'epay', 'epay', 0, 0, 'pending')")
             .execute(&pool)
-            .await
-            .expect("seed pending topups");
+            .await?;
         sqlx::query("INSERT INTO top_ups (id, user_id, amount, money, trade_no, payment_method, payment_provider, create_time, complete_time, status) SELECT id, 11, 1, 0, 'bulk-' || id, 'epay', 'epay', 0, 0, 'pending' FROM generate_series(100, 10100) AS id")
             .execute(&pool)
-            .await
-            .expect("seed more than the search count cap");
+            .await?;
 
         let ordinary_history =
-            response_json(list_topups(&pool, &PageQuery::from_raw(None), None).await).await;
+            response_json(list_topups(&pool, &PageQuery::from_raw(None), None).await).await?;
         assert_eq!(ordinary_history["data"]["total"], 10_003);
         let searched_history = response_json(
             list_topups(
@@ -2103,7 +2104,7 @@ mod tests {
             )
             .await,
         )
-        .await;
+        .await?;
         assert_eq!(searched_history["data"]["total"], SEARCH_COUNT_HARD_LIMIT);
 
         let state =
@@ -2117,17 +2118,15 @@ mod tests {
             })),
         )
         .await;
-        assert_eq!(response_json(completed).await["success"], true);
+        assert_eq!(response_json(completed).await?["success"], true);
         let quota: i64 = sqlx::query_scalar("SELECT quota FROM users WHERE id = 11")
             .fetch_one(&pool)
-            .await
-            .expect("read credited quota");
+            .await?;
         assert_eq!(quota, 2_476, "2 * configured 1234.5, truncated like Go");
         let audit: (i64, String, String) =
             sqlx::query_as("SELECT type, content, other FROM logs WHERE user_id = 11")
                 .fetch_one(&pool)
-                .await
-                .expect("manual completion writes its best-effort audit record");
+                .await?;
         assert_eq!(audit.0, 1);
         assert!(audit.1.contains("管理员补单成功"));
         assert!(audit.2.contains("callback_payment_method"));
@@ -2141,11 +2140,10 @@ mod tests {
             })),
         )
         .await;
-        assert_eq!(response_json(duplicate).await["success"], true);
+        assert_eq!(response_json(duplicate).await?["success"], true);
         let quota_after_retry: i64 = sqlx::query_scalar("SELECT quota FROM users WHERE id = 11")
             .fetch_one(&pool)
-            .await
-            .expect("read idempotent quota");
+            .await?;
         assert_eq!(
             quota_after_retry, quota,
             "successful orders are not credited twice"
@@ -2153,8 +2151,7 @@ mod tests {
 
         sqlx::query("INSERT INTO top_ups (id, user_id, amount, money, trade_no, payment_method, payment_provider, create_time, complete_time, status) VALUES (3, 11, 1, 0, ' padded ', 'epay', 'epay', 0, 0, 'pending')")
             .execute(&pool)
-            .await
-            .expect("seed whitespace-sensitive trade number");
+            .await?;
         let whitespace_trade = complete_topup(
             State(state.clone()),
             None,
@@ -2164,7 +2161,7 @@ mod tests {
             })),
         )
         .await;
-        assert_eq!(response_json(whitespace_trade).await["success"], true);
+        assert_eq!(response_json(whitespace_trade).await?["success"], true);
         let trimmed_trade = complete_topup(
             State(state.clone()),
             None,
@@ -2174,12 +2171,11 @@ mod tests {
             })),
         )
         .await;
-        assert_eq!(response_json(trimmed_trade).await["success"], false);
+        assert_eq!(response_json(trimmed_trade).await?["success"], false);
 
         sqlx::query("INSERT INTO redemptions (id, \"key\", quota, status, expired_time) VALUES (1, ' zero-key ', 0, 1, 0)")
             .execute(&pool)
-            .await
-            .expect("seed zero-quota historical redemption");
+            .await?;
         let zero_redemption = redeem(
             State(state.clone()),
             admin_headers(),
@@ -2188,12 +2184,11 @@ mod tests {
             })),
         )
         .await;
-        assert_eq!(response_json(zero_redemption).await["success"], true);
+        assert_eq!(response_json(zero_redemption).await?["success"], true);
         let redemption_status: i64 =
             sqlx::query_scalar("SELECT status FROM redemptions WHERE id = 1")
                 .fetch_one(&pool)
-                .await
-                .expect("read consumed zero-quota redemption");
+                .await?;
         assert_eq!(redemption_status, REDEMPTION_USED);
 
         let rejected = complete_topup(
@@ -2205,11 +2200,10 @@ mod tests {
             })),
         )
         .await;
-        assert_eq!(response_json(rejected).await["success"], false);
+        assert_eq!(response_json(rejected).await?["success"], false);
         let status: String = sqlx::query_scalar("SELECT status FROM top_ups WHERE id = 2")
             .fetch_one(&pool)
-            .await
-            .expect("read rolled-back topup");
+            .await?;
         assert_eq!(
             status, TOPUP_PENDING,
             "failed quota credit rolls back completion"
@@ -2218,8 +2212,8 @@ mod tests {
         pool.close().await;
         sqlx::query(&format!("DROP SCHEMA {schema} CASCADE"))
             .execute(&admin)
-            .await
-            .expect("drop isolated topup schema");
+            .await?;
         admin.close().await;
+        Ok(())
     }
 }
