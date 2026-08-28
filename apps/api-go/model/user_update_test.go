@@ -29,11 +29,14 @@ func setupUserUpdateTestState(t *testing.T) {
 
 func resetBatchUpdateTestState(t *testing.T) {
 	t.Helper()
+	resetStore := func(index int) {
+		batchUpdateLocks[index].Lock()
+		defer batchUpdateLocks[index].Unlock()
+		batchUpdateStores[index] = make(map[int]int)
+	}
 	reset := func() {
 		for i := 0; i < BatchUpdateTypeCount; i++ {
-			batchUpdateLocks[i].Lock()
-			batchUpdateStores[i] = make(map[int]int)
-			batchUpdateLocks[i].Unlock()
+			resetStore(i)
 		}
 	}
 	reset()
