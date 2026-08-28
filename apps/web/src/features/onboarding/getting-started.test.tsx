@@ -15,6 +15,9 @@ import type { ApiRequestConfig } from '@/lib/api'
 import type { AuthUser } from '@/stores/auth-store'
 
 const domWindow = new Window({ url: 'https://console.example.test/' })
+domWindow.document.write(
+  '<!doctype html><html><head></head><body></body></html>'
+)
 for (const key of [
   'window',
   'document',

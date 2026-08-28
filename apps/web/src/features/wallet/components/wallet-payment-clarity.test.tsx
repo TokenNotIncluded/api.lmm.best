@@ -24,6 +24,9 @@ import zhLocale from '@/i18n/locales/zh.json'
 import { useSystemConfigStore } from '@/stores/system-config-store'
 
 const domWindow = new Window()
+domWindow.document.write(
+  '<!doctype html><html><head></head><body></body></html>'
+)
 const domGlobals = [
   'window',
   'document',

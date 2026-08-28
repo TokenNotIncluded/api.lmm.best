@@ -12,6 +12,9 @@ import { after, afterEach, describe, test } from 'node:test'
 import { Window } from 'happy-dom'
 
 const domWindow = new Window()
+domWindow.document.write(
+  '<!doctype html><html><head></head><body></body></html>'
+)
 for (const key of [
   'window',
   'document',
