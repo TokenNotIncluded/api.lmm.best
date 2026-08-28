@@ -996,10 +996,15 @@ fn build_record(
 mod tests {
     use super::*;
     use crate::protocol_rollout::{MAX_BASIS_POINTS, ProtocolRolloutControl};
-    use std::sync::{
-        Arc,
-        atomic::{AtomicUsize, Ordering},
+    use std::{
+        io,
+        sync::{
+            Arc,
+            atomic::{AtomicUsize, Ordering},
+        },
     };
+
+    type TestResult<T = ()> = Result<T, io::Error>;
 
     fn enabled_snapshot() -> ProtocolRolloutSnapshot {
         ProtocolRolloutControl::default().snapshot()
@@ -1017,15 +1022,43 @@ mod tests {
         ShadowScope::new(Protocol::OpenAi, Protocol::OpenAi, false)
     }
 
-    fn config(max_input_bytes: usize, max_concurrency: Option<usize>) -> ShadowConfig {
+    fn shadow_config(
+        max_input_bytes: usize,
+        max_concurrency: Option<usize>,
+        allowed_scopes: Vec<ShadowScope>,
+        canary_basis_points: u16,
+    ) -> TestResult<ShadowConfig> {
         ShadowConfig::new(
             true,
             max_input_bytes,
             max_concurrency.and_then(NonZeroUsize::new),
+            allowed_scopes,
+            canary_basis_points,
+        )
+        .map_err(|error| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("invalid shadow test config: {error:?}"),
+            )
+        })
+    }
+
+    fn config(max_input_bytes: usize, max_concurrency: Option<usize>) -> TestResult<ShadowConfig> {
+        shadow_config(
+            max_input_bytes,
+            max_concurrency,
             vec![scope()],
             MAX_BASIS_POINTS,
         )
-        .expect("valid shadow config")
+    }
+
+    fn recorded(outcome: ShadowOutcome, context: &'static str) -> TestResult<ShadowRecord> {
+        match outcome {
+            ShadowOutcome::Recorded(record) => Ok(record),
+            ShadowOutcome::Skipped(reason) => Err(io::Error::other(format!(
+                "{context}: shadow comparison skipped: {reason:?}"
+            ))),
+        }
     }
 
     fn summary(id: &str) -> LocalConversionSummary {
@@ -1039,7 +1072,7 @@ mod tests {
     }
 
     #[test]
-    fn aggregate_projects_conservative_rollback_and_bounded_metrics() {
+    fn aggregate_projects_conservative_rollback_and_bounded_metrics() -> TestResult {
         let aggregate = ShadowAggregateSnapshot {
             compared: 3,
             identical: 1,
@@ -1084,13 +1117,14 @@ mod tests {
                 == crate::conversion_observability::MetricKind::ConversionUnknownEventsTotal
                 && sample.value == 1
         }));
+        Ok(())
     }
 
     #[test]
-    fn request_calls_each_local_converter_once_and_record_has_no_body() {
+    fn request_calls_each_local_converter_once_and_record_has_no_body() -> TestResult {
         let old_calls = AtomicUsize::new(0);
         let new_calls = AtomicUsize::new(0);
-        let coordinator = ProtocolShadowCoordinator::new(config(128, Some(2)));
+        let coordinator = ProtocolShadowCoordinator::new(config(128, Some(2))?);
         let old = |request: &LocalRequest<'_>| {
             assert_eq!(request.as_bytes(), b"secret prompt");
             old_calls.fetch_add(1, Ordering::SeqCst);
@@ -1109,10 +1143,7 @@ mod tests {
             &old,
             &new,
         );
-        assert!(matches!(outcome, ShadowOutcome::Recorded(_)));
-        let ShadowOutcome::Recorded(record) = outcome else {
-            return;
-        };
+        let record = recorded(outcome, "request comparison")?;
         assert_eq!(old_calls.load(Ordering::SeqCst), 1);
         assert_eq!(new_calls.load(Ordering::SeqCst), 1);
         assert!(matches!(&record.old, ConverterObservation::Summary(_)));
@@ -1124,13 +1155,14 @@ mod tests {
         assert!(!debug.contains("[1"));
         assert_eq!(coordinator.aggregate().compared, 1);
         assert_eq!(coordinator.aggregate().converter_id_differences, 1);
+        Ok(())
     }
 
     #[test]
-    fn response_uses_one_already_obtained_input_without_network_ownership() {
+    fn response_uses_one_already_obtained_input_without_network_ownership() -> TestResult {
         let old_calls = AtomicUsize::new(0);
         let new_calls = AtomicUsize::new(0);
-        let coordinator = ProtocolShadowCoordinator::new(config(128, Some(2)));
+        let coordinator = ProtocolShadowCoordinator::new(config(128, Some(2))?);
         let input = ResponseShadowInput::Bytes(b"response secret");
         let old = |value: &ResponseShadowInput<'_>| {
             assert_eq!(value.bytes(), Some(b"response secret".as_slice()));
@@ -1153,20 +1185,17 @@ mod tests {
         assert!(matches!(outcome, ShadowOutcome::Recorded(_)));
         assert_eq!(old_calls.load(Ordering::SeqCst), 1);
         assert_eq!(new_calls.load(Ordering::SeqCst), 1);
+        Ok(())
     }
 
     #[test]
-    fn stream_uses_source_event_view_and_rejects_bytes_or_native_raw() {
-        let coordinator = ProtocolShadowCoordinator::new(
-            ShadowConfig::new(
-                true,
-                128,
-                NonZeroUsize::new(2),
-                vec![stream_scope()],
-                MAX_BASIS_POINTS,
-            )
-            .expect("valid stream policy"),
-        );
+    fn stream_uses_source_event_view_and_rejects_bytes_or_native_raw() -> TestResult {
+        let coordinator = ProtocolShadowCoordinator::new(shadow_config(
+            128,
+            Some(2),
+            vec![stream_scope()],
+            MAX_BASIS_POINTS,
+        )?);
         let source_events = SourceEventSummary::new(64, 3, true, false, [7; 32]);
         let input = ResponseShadowInput::SourceEvents(&source_events);
         let converter = |value: &ResponseShadowInput<'_>| {
@@ -1208,12 +1237,13 @@ mod tests {
             ),
             ShadowOutcome::Skipped(ShadowSkipReason::NativeRawNotEligible)
         );
+        Ok(())
     }
 
     #[test]
-    fn non_stream_scope_rejects_source_events_before_converter_calls() {
+    fn non_stream_scope_rejects_source_events_before_converter_calls() -> TestResult {
         let calls = AtomicUsize::new(0);
-        let coordinator = ProtocolShadowCoordinator::new(config(128, Some(2)));
+        let coordinator = ProtocolShadowCoordinator::new(config(128, Some(2))?);
         let source_events = SourceEventSummary::new(32, 1, true, false, [9; 32]);
         let input = ResponseShadowInput::SourceEvents(&source_events);
         let converter = |_: &ResponseShadowInput<'_>| {
@@ -1236,16 +1266,17 @@ mod tests {
             coordinator.aggregate().skipped_non_streaming_source_events,
             1
         );
+        Ok(())
     }
 
     #[test]
-    fn oversize_and_unbounded_inputs_skip_before_converter_calls() {
+    fn oversize_and_unbounded_inputs_skip_before_converter_calls() -> TestResult {
         let calls = AtomicUsize::new(0);
         let converter = |_: &LocalRequest<'_>| {
             calls.fetch_add(1, Ordering::SeqCst);
             Ok::<_, LocalConversionError>(summary("unused"))
         };
-        let oversize = ProtocolShadowCoordinator::new(config(4, Some(1)));
+        let oversize = ProtocolShadowCoordinator::new(config(4, Some(1))?);
         assert_eq!(
             oversize.shadow_request(
                 &enabled_snapshot(),
@@ -1257,7 +1288,7 @@ mod tests {
             ),
             ShadowOutcome::Skipped(ShadowSkipReason::InputTooLarge)
         );
-        let unbounded = ProtocolShadowCoordinator::new(config(128, None));
+        let unbounded = ProtocolShadowCoordinator::new(config(128, None)?);
         assert_eq!(
             unbounded.shadow_request(
                 &enabled_snapshot(),
@@ -1270,11 +1301,12 @@ mod tests {
             ShadowOutcome::Skipped(ShadowSkipReason::UnboundedConcurrency)
         );
         assert_eq!(calls.load(Ordering::SeqCst), 0);
+        Ok(())
     }
 
     #[test]
-    fn disabled_scope_canary_and_rollback_skip() {
-        let coordinator = ProtocolShadowCoordinator::new(config(128, Some(1)));
+    fn disabled_scope_canary_and_rollback_skip() -> TestResult {
+        let coordinator = ProtocolShadowCoordinator::new(config(128, Some(1))?);
         let converter = |_: &LocalRequest<'_>| Ok::<_, LocalConversionError>(summary("unused"));
         assert_eq!(
             ProtocolShadowCoordinator::default().shadow_request(
@@ -1287,16 +1319,12 @@ mod tests {
             ),
             ShadowOutcome::Skipped(ShadowSkipReason::FlagDisabled)
         );
-        let scope_not_allowed = ProtocolShadowCoordinator::new(
-            ShadowConfig::new(
-                true,
-                128,
-                NonZeroUsize::new(1),
-                Vec::new(),
-                MAX_BASIS_POINTS,
-            )
-            .expect("valid scope policy"),
-        );
+        let scope_not_allowed = ProtocolShadowCoordinator::new(shadow_config(
+            128,
+            Some(1),
+            Vec::new(),
+            MAX_BASIS_POINTS,
+        )?);
         assert_eq!(
             scope_not_allowed.shadow_request(
                 &enabled_snapshot(),
@@ -1308,10 +1336,12 @@ mod tests {
             ),
             ShadowOutcome::Skipped(ShadowSkipReason::ScopeNotAllowed)
         );
-        let canary_excluded = ProtocolShadowCoordinator::new(
-            ShadowConfig::new(true, 128, NonZeroUsize::new(1), vec![scope()], 0)
-                .expect("valid canary policy"),
-        );
+        let canary_excluded = ProtocolShadowCoordinator::new(shadow_config(
+            128,
+            Some(1),
+            vec![scope()],
+            0,
+        )?);
         assert_eq!(
             canary_excluded.shadow_request(
                 &enabled_snapshot(),
@@ -1334,11 +1364,12 @@ mod tests {
             ),
             ShadowOutcome::Skipped(ShadowSkipReason::RollbackActive)
         );
+        Ok(())
     }
 
     #[test]
-    fn converter_failure_is_explicit_and_typed() {
-        let coordinator = ProtocolShadowCoordinator::new(config(128, Some(2)));
+    fn converter_failure_is_explicit_and_typed() -> TestResult {
+        let coordinator = ProtocolShadowCoordinator::new(config(128, Some(2))?);
         let old = |_: &LocalRequest<'_>| {
             Err::<LocalConversionSummary, _>(LocalConversionError {
                 kind: LocalConversionErrorKind::InvalidInput,
@@ -1357,10 +1388,7 @@ mod tests {
             &old,
             &new,
         );
-        assert!(matches!(outcome, ShadowOutcome::Recorded(_)));
-        let ShadowOutcome::Recorded(record) = outcome else {
-            return;
-        };
+        let record = recorded(outcome, "typed converter failure comparison")?;
         assert!(
             record
                 .differences
@@ -1379,11 +1407,12 @@ mod tests {
                 .iter()
                 .any(|failure| { failure.kind == LocalConversionErrorKind::Unsupported })
         );
+        Ok(())
     }
 
     #[test]
-    fn matching_typed_converter_failures_are_semantically_identical() {
-        let coordinator = ProtocolShadowCoordinator::new(config(128, Some(2)));
+    fn matching_typed_converter_failures_are_semantically_identical() -> TestResult {
+        let coordinator = ProtocolShadowCoordinator::new(config(128, Some(2))?);
         let old = |_: &LocalRequest<'_>| {
             Err::<LocalConversionSummary, _>(LocalConversionError {
                 kind: LocalConversionErrorKind::InvalidInput,
@@ -1402,30 +1431,24 @@ mod tests {
             &old,
             &new,
         );
-        assert!(matches!(outcome, ShadowOutcome::Recorded(_)));
-        let ShadowOutcome::Recorded(record) = outcome else {
-            return;
-        };
+        let record = recorded(outcome, "matching converter failure comparison")?;
         assert!(record.semantic_identical());
         assert!(record.differences.is_empty());
         assert_eq!(record.failures.len(), 2);
         assert_eq!(coordinator.aggregate().identical, 1);
         assert_eq!(coordinator.aggregate().converter_failures, 1);
+        Ok(())
     }
 
     #[test]
-    fn same_protocol_native_scope_skips_request_before_any_converter_call() {
+    fn same_protocol_native_scope_skips_request_before_any_converter_call() -> TestResult {
         let calls = AtomicUsize::new(0);
-        let coordinator = ProtocolShadowCoordinator::new(
-            ShadowConfig::new(
-                true,
-                128,
-                NonZeroUsize::new(2),
-                vec![native_scope()],
-                MAX_BASIS_POINTS,
-            )
-            .expect("valid native scope policy"),
-        );
+        let coordinator = ProtocolShadowCoordinator::new(shadow_config(
+            128,
+            Some(2),
+            vec![native_scope()],
+            MAX_BASIS_POINTS,
+        )?);
         let converter = |_: &LocalRequest<'_>| {
             calls.fetch_add(1, Ordering::SeqCst);
             Ok::<_, LocalConversionError>(summary("must-not-run"))
@@ -1462,23 +1485,28 @@ mod tests {
         );
         assert_eq!(calls.load(Ordering::SeqCst), 0);
         assert_eq!(coordinator.aggregate().skipped_native_raw, 2);
+        Ok(())
     }
 
     #[test]
-    fn exact_scope_decision_is_stable_for_one_snapshot() {
-        let coordinator = ProtocolShadowCoordinator::new(config(128, Some(1)));
+    fn exact_scope_decision_is_stable_for_one_snapshot() -> TestResult {
+        let coordinator = ProtocolShadowCoordinator::new(config(128, Some(1))?);
         let snapshot = enabled_snapshot();
         let first = coordinator.check_eligibility(&snapshot, scope(), "same-key");
         let second = coordinator.check_eligibility(&snapshot, scope(), "same-key");
         assert_eq!(first, second);
-        assert_eq!(first.expect("enabled scope").rollout_generation, 0);
+        let eligibility = first.ok_or_else(|| {
+            io::Error::other("enabled exact scope was unexpectedly ineligible")
+        })?;
+        assert_eq!(eligibility.rollout_generation, 0);
+        Ok(())
     }
 
     #[test]
-    fn concurrency_limit_skips_a_second_in_flight_comparison() {
+    fn concurrency_limit_skips_a_second_in_flight_comparison() -> TestResult {
         use std::{sync::Barrier, thread};
 
-        let coordinator = ProtocolShadowCoordinator::new(config(128, Some(1)));
+        let coordinator = ProtocolShadowCoordinator::new(config(128, Some(1))?);
         let entered = Arc::new(Barrier::new(2));
         let release = Arc::new(Barrier::new(2));
         let thread_coordinator = coordinator.clone();
@@ -1516,9 +1544,10 @@ mod tests {
             ShadowOutcome::Skipped(ShadowSkipReason::ConcurrencyLimit)
         );
         release.wait();
-        assert!(matches!(
-            handle.join().expect("shadow thread"),
-            ShadowOutcome::Recorded(_)
-        ));
+        let thread_outcome = handle
+            .join()
+            .map_err(|_| io::Error::other("shadow comparison thread panicked"))?;
+        assert!(matches!(thread_outcome, ShadowOutcome::Recorded(_)));
+        Ok(())
     }
 }
