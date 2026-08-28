@@ -701,8 +701,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn all_billing_aliases_return_legacy_token_auth_failure_before_store_reads(
-    ) -> TestResult {
+    async fn all_billing_aliases_return_legacy_token_auth_failure_before_store_reads() -> TestResult
+    {
         let store = CountingStore::default();
         let settings_calls = Arc::clone(&store.settings_calls);
         let quota_calls = Arc::clone(&store.quota_calls);
@@ -714,34 +714,27 @@ mod tests {
             "/v1/dashboard/billing/subscription",
             "/v1/dashboard/billing/usage",
         ] {
-            let mut request = Request::builder()
-                .uri(path)
-                .body(Body::empty())
-                .map_err(|error| {
-                    test_error(format!("build billing auth request for {path}: {error}"))
-                })?;
+            let mut request =
+                Request::builder()
+                    .uri(path)
+                    .body(Body::empty())
+                    .map_err(|error| {
+                        test_error(format!("build billing auth request for {path}: {error}"))
+                    })?;
             request.extensions_mut().insert(RequestContext {
                 request_id: "billing-fixture-request-id".to_owned(),
                 client_ip: None,
             });
-            let response = app
-                .clone()
-                .oneshot(request)
-                .await
-                .map_err(|error| {
-                    test_error(format!("dispatch billing auth request for {path}: {error}"))
-                })?;
+            let response = app.clone().oneshot(request).await.map_err(|error| {
+                test_error(format!("dispatch billing auth request for {path}: {error}"))
+            })?;
 
             assert_eq!(response.status(), StatusCode::NOT_FOUND, "{path}");
             let content_type = response
                 .headers()
                 .get(header::CONTENT_TYPE)
                 .ok_or_else(|| test_error(format!("missing content-type header for {path}")))?;
-            assert_eq!(
-                content_type,
-                "application/json; charset=utf-8",
-                "{path}"
-            );
+            assert_eq!(content_type, "application/json; charset=utf-8", "{path}");
             assert_eq!(
                 response_json(response, path).await?,
                 json!({"message": "Not Found"}),

@@ -1604,9 +1604,7 @@ mod tests {
             request_id: "request-1".to_owned(),
             headers,
             request: with_context(
-                completion_request_to_canonical(
-                    br#"{"model":"mock-model","prompt":"hello"}"#,
-                ),
+                completion_request_to_canonical(br#"{"model":"mock-model","prompt":"hello"}"#),
                 "build canonical relay test request",
             )?,
             raw_body: raw_body.to_vec(),
@@ -1630,8 +1628,7 @@ mod tests {
     }
 
     #[test]
-    fn native_openai_parse_extracts_metadata_without_filtering_unknown_wire_fields()
-    -> TestResult {
+    fn native_openai_parse_extracts_metadata_without_filtering_unknown_wire_fields() -> TestResult {
         let body = br#"{"model":"gpt-future","stream":true,"tools":[{"type":"future_tool","opaque":{"x":1}}],"future_request_field":[1,2,3]}"#;
         let canonical = with_context(
             parse_request(OpenAiRelayEndpoint::ChatCompletions, body),
@@ -1664,13 +1661,7 @@ mod tests {
     fn default_http_state_admits_validated_native_raw_route() -> TestResult {
         let state = test_state();
         let admission = with_context(
-            native_route_admission(
-                &state,
-                "request-1",
-                Protocol::OpenAi,
-                "gpt-future",
-                false,
-            ),
+            native_route_admission(&state, "request-1", Protocol::OpenAi, "gpt-future", false),
             "admit the validated native route in the default state",
         )?;
 
@@ -1688,13 +1679,7 @@ mod tests {
     fn default_http_state_admits_validated_native_stream_route() -> TestResult {
         let state = test_state();
         let admission = with_context(
-            native_route_admission(
-                &state,
-                "request-1",
-                Protocol::OpenAi,
-                "gpt-future",
-                true,
-            ),
+            native_route_admission(&state, "request-1", Protocol::OpenAi, "gpt-future", true),
             "admit the validated native stream route in the default state",
         )?;
 
@@ -1767,22 +1752,14 @@ mod tests {
         )?);
         let state = test_state().with_protocol_runtime(control.clone(), registry);
         let initial = with_context(
-            native_route_admission(
-                &state,
-                "request-1",
-                Protocol::OpenAi,
-                "gpt-future",
-                false,
-            ),
+            native_route_admission(&state, "request-1", Protocol::OpenAi, "gpt-future", false),
             "admit the default native route",
         )?;
         assert!(!initial.details.flag_decision.enabled);
 
         let mut enabled = crate::protocol_rollout::ProtocolRolloutConfig::default();
         enabled.conversion_engine_v2 = with_context(
-            crate::protocol_rollout::FlagConfig::enabled(
-                crate::protocol_rollout::MAX_BASIS_POINTS,
-            ),
+            crate::protocol_rollout::FlagConfig::enabled(crate::protocol_rollout::MAX_BASIS_POINTS),
             "construct a bounded full rollout",
         )?;
         with_context(
@@ -1790,13 +1767,7 @@ mod tests {
             "install the replacement rollout configuration",
         )?;
         let replaced = with_context(
-            native_route_admission(
-                &state,
-                "request-1",
-                Protocol::OpenAi,
-                "gpt-future",
-                false,
-            ),
+            native_route_admission(&state, "request-1", Protocol::OpenAi, "gpt-future", false),
             "admit the native route after rollout replacement",
         )?;
         assert!(replaced.details.flag_decision.enabled);
@@ -1806,13 +1777,7 @@ mod tests {
             "install the rollback configuration",
         )?;
         let rolled_back = with_context(
-            native_route_admission(
-                &state,
-                "request-1",
-                Protocol::OpenAi,
-                "gpt-future",
-                false,
-            ),
+            native_route_admission(&state, "request-1", Protocol::OpenAi, "gpt-future", false),
             "admit the native raw route during rollback",
         )?;
         assert_eq!(
@@ -1824,8 +1789,8 @@ mod tests {
     }
 
     #[test]
-    fn upstream_header_copy_strips_client_credentials_and_injects_channel_credential()
-    -> TestResult {
+    fn upstream_header_copy_strips_client_credentials_and_injects_channel_credential() -> TestResult
+    {
         let mut inbound = HeaderMap::new();
         inbound.insert(header::ACCEPT, HeaderValue::from_static("application/json"));
         inbound.insert("x-trace-id", HeaderValue::from_static("trace-123"));
@@ -1883,8 +1848,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn upstream_adapter_replays_raw_json_and_replaces_tenant_credentials()
-    -> TestResult {
+    async fn upstream_adapter_replays_raw_json_and_replaces_tenant_credentials() -> TestResult {
         let mut headers = HeaderMap::new();
         headers.insert(
             header::CONTENT_TYPE,
@@ -1967,10 +1931,7 @@ mod tests {
                         base_url,
                         api_key: String::new(),
                     },
-                    &relay_request(
-                        OpenAiRelayEndpoint::Responses,
-                        br#"{"model":"mock-model"}"#,
-                    )?,
+                    &relay_request(OpenAiRelayEndpoint::Responses, br#"{"model":"mock-model"}"#)?,
                 )
                 .await,
             "forward the SSE request to the mock upstream",
@@ -2013,10 +1974,7 @@ mod tests {
                     base_url,
                     api_key: String::new(),
                 },
-                &relay_request(
-                    OpenAiRelayEndpoint::Responses,
-                    br#"{"model":"mock-model"}"#,
-                )?,
+                &relay_request(OpenAiRelayEndpoint::Responses, br#"{"model":"mock-model"}"#)?,
             )
             .await;
         let error = match result {
@@ -2050,10 +2008,7 @@ mod tests {
     fn ip_allow_list_fails_closed_when_listener_has_no_canonical_ip() -> TestResult {
         assert!(ip_is_allowed(None, ""));
         assert!(!ip_is_allowed(None, "127.0.0.1"));
-        let loopback = with_context(
-            "127.0.0.1".parse(),
-            "parse the canonical loopback IP",
-        )?;
+        let loopback = with_context("127.0.0.1".parse(), "parse the canonical loopback IP")?;
         assert!(ip_is_allowed(Some(loopback), "127.0.0.0/8"));
         Ok(())
     }

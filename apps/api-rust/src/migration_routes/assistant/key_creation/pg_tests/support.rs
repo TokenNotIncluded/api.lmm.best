@@ -281,10 +281,7 @@ pub(super) async fn count(pool: &PgPool, table: &str) -> TestResult<i64> {
     Ok(count)
 }
 
-pub(super) async fn flow_consumed(
-    pool: &PgPool,
-    action: &PreparedKeyAction,
-) -> TestResult<bool> {
+pub(super) async fn flow_consumed(pool: &PgPool, action: &PreparedKeyAction) -> TestResult<bool> {
     let consumed = sqlx::query_scalar::<_, bool>(
         "SELECT consumed_at IS NOT NULL FROM auth_flows WHERE payload::jsonb->>'name' = $1 ORDER BY id DESC LIMIT 1",
     )

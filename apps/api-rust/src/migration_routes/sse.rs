@@ -1000,10 +1000,7 @@ mod tests {
         )?;
         assert_eq!(cr_error, SseError::UnterminatedFrame);
         let frames = with_context(
-            parse_sse_frames_rejecting_unterminated(
-                b"data: value\r\r",
-                DEFAULT_MAX_FRAME_BYTES,
-            ),
+            parse_sse_frames_rejecting_unterminated(b"data: value\r\r", DEFAULT_MAX_FRAME_BYTES),
             "failed to parse the CR-empty-line-delimited lossless SSE frame",
         )?;
         assert_eq!(frames.len(), 1);

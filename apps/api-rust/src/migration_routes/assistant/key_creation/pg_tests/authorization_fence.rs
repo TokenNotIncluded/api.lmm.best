@@ -113,7 +113,11 @@ async fn pg_commit_time_authorization_fence_rejects_completed_security_mutations
                 .execute(&mut *mutation)
                 .await?;
             }
-            _ => return Err(test_error("authorization mutation case is outside the fixture")),
+            _ => {
+                return Err(test_error(
+                    "authorization mutation case is outside the fixture",
+                ));
+            }
         }
 
         let confirm_store = store.clone();

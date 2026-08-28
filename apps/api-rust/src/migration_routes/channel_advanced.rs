@@ -1268,7 +1268,10 @@ mod upstream_tests {
         }
     }
 
-    fn optional_header(headers: &HeaderMap, name: &'static str) -> Result<Option<String>, Response> {
+    fn optional_header(
+        headers: &HeaderMap,
+        name: &'static str,
+    ) -> Result<Option<String>, Response> {
         headers
             .get(name)
             .map(|value| {

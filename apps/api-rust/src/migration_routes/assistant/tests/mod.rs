@@ -303,10 +303,14 @@ async fn assistant_chat_should_execute_bounded_tool_loop_then_force_final_answer
         "bounded tool loop must record the forced final agent turn",
     )?;
     assert_eq!(turns.len(), 2);
-    let first_request: Value =
-        json_from_slice(&first_turn.body, "deserialize first bounded tool-loop request")?;
-    let second_request: Value =
-        json_from_slice(&second_turn.body, "deserialize second bounded tool-loop request")?;
+    let first_request: Value = json_from_slice(
+        &first_turn.body,
+        "deserialize first bounded tool-loop request",
+    )?;
+    let second_request: Value = json_from_slice(
+        &second_turn.body,
+        "deserialize second bounded tool-loop request",
+    )?;
     assert_eq!(first_request["tools"].as_array().map(Vec::len), Some(14));
     assert_eq!(first_request["tool_choice"], "auto");
     assert!(second_request.get("tools").is_none());
@@ -455,8 +459,7 @@ async fn assistant_chat_should_reject_disabled_and_personal_token_before_body() 
 
     let personal = fixture_router(FixtureStore::default())
         .oneshot(build_request(
-            Request::post("/api/assistant/chat")
-                .header(header::AUTHORIZATION, "Bearer user-token"),
+            Request::post("/api/assistant/chat").header(header::AUTHORIZATION, "Bearer user-token"),
             Body::from("not-json"),
             "build personal-token assistant chat request",
         )?)
@@ -563,8 +566,7 @@ async fn self_handoff_should_return_latest_user_lead_for_personal_token() -> Tes
         ..FixtureStore::default()
     })
     .oneshot(build_request(
-        Request::get("/api/assistant/handoffs/self")
-            .header(header::AUTHORIZATION, "user-token"),
+        Request::get("/api/assistant/handoffs/self").header(header::AUTHORIZATION, "user-token"),
         Body::empty(),
         "build self handoff request",
     )?)
@@ -727,8 +729,8 @@ async fn submit_handoff_should_consume_user_limit_before_rejecting_personal_toke
 }
 
 #[tokio::test]
-async fn submit_handoff_rate_limit_should_precede_session_body_and_no_store_middleware(
-) -> TestResult {
+async fn submit_handoff_rate_limit_should_precede_session_body_and_no_store_middleware()
+-> TestResult {
     let store = FixtureStore::default();
     let submit_calls = Arc::clone(&store.submit_calls);
     let limiter = Arc::new(FixtureUserRateLimiter {

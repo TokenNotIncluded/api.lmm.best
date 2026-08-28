@@ -1147,11 +1147,15 @@ mod tests {
         let request = HttpRequest::post("/api/release-notes/admin")
             .header(header::AUTHORIZATION, "token")
             .body(Body::from("not-json"))
-            .map_err(|error| test_error("build rate-limited release-note publish request", error))?;
+            .map_err(|error| {
+                test_error("build rate-limited release-note publish request", error)
+            })?;
         let response = test_router(FixtureStore::default(), auth)
             .oneshot(request)
             .await
-            .map_err(|error| test_error("serve rate-limited release-note publish request", error))?;
+            .map_err(|error| {
+                test_error("serve rate-limited release-note publish request", error)
+            })?;
         assert_eq!(
             (
                 response.status(),

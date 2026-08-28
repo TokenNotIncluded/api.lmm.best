@@ -2972,12 +2972,10 @@ async fn record_oauth_unbind_audit(
     status: StatusCode,
     success: bool,
 ) {
-    let username = match sqlx::query_scalar::<_, String>(
-        "SELECT username FROM users WHERE id = $1",
-    )
-    .bind(actor.user_id)
-    .fetch_optional(pool)
-    .await
+    let username = match sqlx::query_scalar::<_, String>("SELECT username FROM users WHERE id = $1")
+        .bind(actor.user_id)
+        .fetch_optional(pool)
+        .await
     {
         Ok(Some(username)) => username,
         Ok(None) | Err(_) => String::new(),
@@ -3228,8 +3226,8 @@ mod adapter_tests {
 
     #[tokio::test]
     async fn oauth_state_critical_limit_runs_before_body_and_cache_policy() -> TestResult {
-        let pool = PgPoolOptions::new()
-            .connect_lazy("postgres://unused:unused@127.0.0.1/unused")?;
+        let pool =
+            PgPoolOptions::new().connect_lazy("postgres://unused:unused@127.0.0.1/unused")?;
         let app = oauth_state_router(
             FederationState::new(pool, Arc::new(AnonymousIdentity), "test-secret"),
             Arc::new(CriticalAuth {
@@ -3244,7 +3242,10 @@ mod adapter_tests {
             .body(Body::from("not-json-but-the-limit-must-win"))?;
         let response = app.oneshot(request).await?;
         assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
-        assert_eq!(required_header(response.headers(), &header::RETRY_AFTER)?, "7");
+        assert_eq!(
+            required_header(response.headers(), &header::RETRY_AFTER)?,
+            "7"
+        );
         assert!(response.headers().get(header::CACHE_CONTROL).is_none());
         assert!(
             axum::body::to_bytes(response.into_body(), 128)
@@ -3256,8 +3257,8 @@ mod adapter_tests {
 
     #[tokio::test]
     async fn oauth_state_allowed_response_has_go_disable_cache_headers() -> TestResult {
-        let pool = PgPoolOptions::new()
-            .connect_lazy("postgres://unused:unused@127.0.0.1/unused")?;
+        let pool =
+            PgPoolOptions::new().connect_lazy("postgres://unused:unused@127.0.0.1/unused")?;
         let app = oauth_state_router(
             FederationState::new(pool, Arc::new(AnonymousIdentity), "test-secret"),
             Arc::new(CriticalAuth {
@@ -3274,16 +3275,19 @@ mod adapter_tests {
             required_header(response.headers(), &header::CACHE_CONTROL)?,
             "no-store, no-cache, must-revalidate, private, max-age=0"
         );
-        assert_eq!(required_header(response.headers(), &header::PRAGMA)?, "no-cache");
+        assert_eq!(
+            required_header(response.headers(), &header::PRAGMA)?,
+            "no-cache"
+        );
         assert_eq!(required_header(response.headers(), &header::EXPIRES)?, "0");
         Ok(())
     }
 
     #[tokio::test]
-    async fn oauth_email_bind_authenticates_before_critical_limit_and_preserves_auth_version(
-    ) -> TestResult {
-        let pool = PgPoolOptions::new()
-            .connect_lazy("postgres://unused:unused@127.0.0.1/unused")?;
+    async fn oauth_email_bind_authenticates_before_critical_limit_and_preserves_auth_version()
+    -> TestResult {
+        let pool =
+            PgPoolOptions::new().connect_lazy("postgres://unused:unused@127.0.0.1/unused")?;
         let app = oauth_email_bind_router(
             FederationState::new(pool, Arc::new(AuthenticatedIdentity), "test-secret"),
             Arc::new(CriticalAuth {
@@ -3297,7 +3301,10 @@ mod adapter_tests {
             .body(Body::from("not-json-but-the-limit-must-win"))?;
         let response = app.oneshot(request).await?;
         assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
-        assert_eq!(required_header(response.headers(), &header::RETRY_AFTER)?, "11");
+        assert_eq!(
+            required_header(response.headers(), &header::RETRY_AFTER)?,
+            "11"
+        );
         let auth_version = response
             .headers()
             .get("auth-version")
@@ -3314,8 +3321,8 @@ mod adapter_tests {
 
     #[tokio::test]
     async fn oauth_email_bind_missing_auth_wins_before_critical_limit() -> TestResult {
-        let pool = PgPoolOptions::new()
-            .connect_lazy("postgres://unused:unused@127.0.0.1/unused")?;
+        let pool =
+            PgPoolOptions::new().connect_lazy("postgres://unused:unused@127.0.0.1/unused")?;
         let app = oauth_email_bind_router(
             FederationState::new(pool, Arc::new(AnonymousIdentity), "test-secret"),
             Arc::new(CriticalAuth {
@@ -3404,9 +3411,10 @@ mod adapter_tests {
         let fixture = Router::new()
             .route("/token", post(fixture_token))
             .route("/user", get(fixture_user));
-        let _fixture_task = FixtureTask(tokio::spawn(async move {
-            axum::serve(listener, fixture).await
-        }));
+        let _fixture_task =
+            FixtureTask(tokio::spawn(
+                async move { axum::serve(listener, fixture).await },
+            ));
         let base = test_url(&format!("http://{address}/"))?;
         let config = GitHubOAuthConfig {
             client_id: "fixture-client".to_owned(),
