@@ -1515,8 +1515,18 @@ mod tests {
         protocol_runtime_registry::validated_current_registry,
     };
 
-    fn registry() -> ValidatedRegistry {
-        validated_current_registry().expect("current registry validates")
+    type TestResult<T = ()> = Result<T, Box<dyn std::error::Error>>;
+
+    fn test_error(message: impl Into<String>) -> Box<dyn std::error::Error> {
+        Box::new(std::io::Error::other(message.into()))
+    }
+
+    fn registry() -> TestResult<ValidatedRegistry> {
+        validated_current_registry().map_err(|error| {
+            test_error(format!(
+                "protocol stream pipeline test registry failed validation: {error}"
+            ))
+        })
     }
 
     fn spec<'a>(
@@ -1545,17 +1555,28 @@ mod tests {
         })
     }
 
-    fn frame(input: &[u8]) -> SseFrame {
-        parse_sse_frames(input, DEFAULT_MAX_FRAME_BYTES)
-            .expect("valid frame")
-            .into_iter()
-            .next()
-            .expect("one frame")
+    fn frame(input: &[u8]) -> TestResult<SseFrame> {
+        let mut frames = parse_sse_frames(input, DEFAULT_MAX_FRAME_BYTES)
+            .map_err(|error| {
+                test_error(format!(
+                    "SSE fixture did not parse as a complete bounded frame: {error}"
+                ))
+            })?
+            .into_iter();
+        let frame = frames.next().ok_or_else(|| {
+            test_error("SSE fixture parsed successfully but yielded no complete frame")
+        })?;
+        if frames.next().is_some() {
+            return Err(test_error(
+                "SSE fixture yielded more than one frame where exactly one was required",
+            ));
+        }
+        Ok(frame)
     }
 
     #[test]
-    fn native_is_zero_conversion_and_opaque_even_for_done_and_repeated_frames() {
-        let registry = registry();
+    fn native_is_zero_conversion_and_opaque_even_for_done_and_repeated_frames() -> TestResult {
+        let registry = registry()?;
         let rollout = ProtocolRolloutControl::default().snapshot();
         let evidence = ownership(Protocol::Claude, Protocol::Claude);
         let compiler = CountingCompiler::default();
@@ -1573,29 +1594,32 @@ mod tests {
             &compiler,
             &adaptors,
             &admission,
-        )
-        .expect("native route admits raw passthrough");
+        )?;
         assert!(session.decision().is_raw_passthrough());
         assert!(session.plan().is_none());
         assert_eq!(compiler.calls.load(Ordering::Relaxed), 0);
 
-        let done = frame(b"data: [DONE]\n\n");
-        let future = frame(b"event: future\ndata: opaque\n\n");
+        let done = frame(b"data: [DONE]\n\n")?;
+        let future = frame(b"event: future\ndata: opaque\n\n")?;
         for input in [&done, &done, &future] {
-            let output = session
-                .process_frame(input)
-                .expect("raw bytes remain opaque");
-            let StreamFrameOutput::RawPassthrough { bytes } = output else {
-                panic!("native route returned a typed output");
+            let output = session.process_frame(input)?;
+            let bytes = match output {
+                StreamFrameOutput::RawPassthrough { bytes } => bytes,
+                typed => {
+                    return Err(test_error(format!(
+                        "native route returned typed output instead of opaque bytes: {typed:?}"
+                    )));
+                }
             };
             assert!(std::ptr::eq(bytes.as_ptr(), input.raw.as_ptr()));
             assert_eq!(bytes, input.raw.as_slice());
         }
+        Ok(())
     }
 
     #[test]
-    fn current_validated_registry_keeps_every_cross_stream_closed_before_plan_compile() {
-        let registry = registry();
+    fn current_validated_registry_keeps_every_cross_stream_closed_before_plan_compile() -> TestResult {
+        let registry = registry()?;
         let rollout = ProtocolRolloutControl::default().snapshot();
         let compiler = CountingCompiler::default();
         let adaptors = EmptyStreamAdaptorRegistry;
@@ -1621,19 +1645,19 @@ mod tests {
                     &compiler,
                     &adaptors,
                     &admission,
-                )
-                .expect("closed route returns a diagnostic session");
+                )?;
                 assert!(session.decision().is_closed());
                 assert!(session.typed_state().is_none());
                 assert!(session.plan().is_none());
             }
         }
         assert_eq!(compiler.calls.load(Ordering::Relaxed), 0);
+        Ok(())
     }
 
     #[test]
-    fn fake_open_without_adaptor_is_closed_with_typed_adaptor_reason() {
-        let registry = registry();
+    fn fake_open_without_adaptor_is_closed_with_typed_adaptor_reason() -> TestResult {
+        let registry = registry()?;
         let rollout = ProtocolRolloutControl::default().snapshot();
         let evidence = ownership(Protocol::Claude, Protocol::OpenAi);
         let compiler = CountingCompiler::default();
@@ -1650,19 +1674,19 @@ mod tests {
             &compiler,
             &adaptors,
             &admission,
-        )
-        .expect("missing adaptor is a closed diagnostic");
+        )?;
         assert!(session.decision().is_closed());
         assert_eq!(
             session.decision().close_reason(),
             Some(StreamCloseReason::TypedAdaptorUnavailable)
         );
         assert_eq!(compiler.calls.load(Ordering::Relaxed), 0);
+        Ok(())
     }
 
     #[test]
-    fn native_shape_mismatch_is_closed_before_plan_compile() {
-        let registry = registry();
+    fn native_shape_mismatch_is_closed_before_plan_compile() -> TestResult {
+        let registry = registry()?;
         let rollout = ProtocolRolloutControl::default().snapshot();
         let evidence = ownership(Protocol::Claude, Protocol::OpenAi);
         let compiler = CountingCompiler::default();
@@ -1680,8 +1704,7 @@ mod tests {
                 kind: AdmissionShape::Native,
                 wrong_scope: false,
             },
-        )
-        .expect("invalid native shape is a closed diagnostic");
+        )?;
         assert!(session.decision().is_closed());
         assert_eq!(
             session.decision().close_reason(),
@@ -1694,11 +1717,12 @@ mod tests {
                 .contains(&RouteGateBlocker::OwnershipScopeMismatch)
         );
         assert_eq!(compiler.calls.load(Ordering::Relaxed), 0);
+        Ok(())
     }
 
     #[test]
-    fn cross_shape_mismatch_is_closed_before_plan_compile() {
-        let registry = registry();
+    fn cross_shape_mismatch_is_closed_before_plan_compile() -> TestResult {
+        let registry = registry()?;
         let rollout = ProtocolRolloutControl::default().snapshot();
         let evidence = ownership(Protocol::Claude, Protocol::Claude);
         let compiler = CountingCompiler::default();
@@ -1716,8 +1740,7 @@ mod tests {
                 kind: AdmissionShape::Cross,
                 wrong_scope: false,
             },
-        )
-        .expect("invalid cross shape is a closed diagnostic");
+        )?;
         assert!(session.decision().is_closed());
         assert!(
             session
@@ -1726,11 +1749,12 @@ mod tests {
                 .contains(&RouteGateBlocker::OwnershipScopeMismatch)
         );
         assert_eq!(compiler.calls.load(Ordering::Relaxed), 0);
+        Ok(())
     }
 
     #[test]
-    fn admission_scope_mismatch_is_closed_before_plan_compile() {
-        let registry = registry();
+    fn admission_scope_mismatch_is_closed_before_plan_compile() -> TestResult {
+        let registry = registry()?;
         let rollout = ProtocolRolloutControl::default().snapshot();
         let evidence = ownership(Protocol::Claude, Protocol::Claude);
         let compiler = CountingCompiler::default();
@@ -1748,8 +1772,7 @@ mod tests {
                 kind: AdmissionShape::Native,
                 wrong_scope: true,
             },
-        )
-        .expect("scope mismatch is a closed diagnostic");
+        )?;
         assert!(session.decision().is_closed());
         assert!(
             session
@@ -1758,11 +1781,12 @@ mod tests {
                 .contains(&RouteGateBlocker::OwnershipScopeMismatch)
         );
         assert_eq!(compiler.calls.load(Ordering::Relaxed), 0);
+        Ok(())
     }
 
     #[test]
-    fn native_multiline_data_is_forwarded_from_the_single_parsed_frame() {
-        let registry = registry();
+    fn native_multiline_data_is_forwarded_from_the_single_parsed_frame() -> TestResult {
+        let registry = registry()?;
         let rollout = ProtocolRolloutControl::default().snapshot();
         let evidence = ownership(Protocol::Gemini, Protocol::Gemini);
         let mut session = compile_stream_session(spec(
@@ -1771,21 +1795,25 @@ mod tests {
             Protocol::Gemini,
             Protocol::Gemini,
             &evidence,
-        ))
-        .expect("native route admits raw passthrough");
-        let input = frame(b"data: first\ndata: second\n\n");
+        ))?;
+        let input = frame(b"data: first\ndata: second\n\n")?;
         assert_eq!(input.data, "first\nsecond");
-        let StreamFrameOutput::RawPassthrough { bytes } =
-            session.process_frame(&input).expect("raw multiline frame")
-        else {
-            panic!("expected raw output");
+        let output = session.process_frame(&input)?;
+        let bytes = match output {
+            StreamFrameOutput::RawPassthrough { bytes } => bytes,
+            typed => {
+                return Err(test_error(format!(
+                    "multiline native frame returned typed output instead of raw bytes: {typed:?}"
+                )));
+            }
         };
         assert_eq!(bytes, input.raw.as_slice());
+        Ok(())
     }
 
     #[test]
-    fn observer_tracks_stream_lifecycle_without_counting_completed_abort() {
-        let registry = registry();
+    fn observer_tracks_stream_lifecycle_without_counting_completed_abort() -> TestResult {
+        let registry = registry()?;
         let rollout = ProtocolRolloutControl::default().snapshot();
         let evidence = ownership(Protocol::Gemini, Protocol::Gemini);
         let observer = ConversionObserver::default();
@@ -1795,13 +1823,11 @@ mod tests {
             Protocol::Gemini,
             Protocol::Gemini,
             &evidence,
-        ))
-        .expect("native route admits raw passthrough")
+        ))?
         .with_observer(&observer);
 
-        session
-            .process_frame(&frame(b"data: telemetry\n\n"))
-            .expect("raw frame is observed");
+        let telemetry_frame = frame(b"data: telemetry\n\n")?;
+        session.process_frame(&telemetry_frame)?;
         session.mark_downstream_write();
         session.complete();
         drop(session);
@@ -1827,10 +1853,11 @@ mod tests {
                 .iter()
                 .any(|sample| { sample.metric == MetricKind::StreamClientAbortTotal })
         );
+        Ok(())
     }
 
     #[test]
-    fn unknown_event_policy_covers_metadata_content_and_termination() {
+    fn unknown_event_policy_covers_metadata_content_and_termination() -> TestResult {
         let metadata = unknown_stream_event_policy(false, Some("message_metadata"));
         assert_eq!(metadata.class, UnknownEventClass::Metadata);
         assert_eq!(metadata.action, UnknownEventAction::RecordLossAndContinue);
@@ -1843,10 +1870,11 @@ mod tests {
         let termination = unknown_stream_event_policy(false, Some("metadata.complete"));
         assert_eq!(termination.class, UnknownEventClass::Termination);
         assert_eq!(termination.action, UnknownEventAction::DegradedOrError);
+        Ok(())
     }
 
     #[test]
-    fn canonical_state_supports_parallel_blocks_and_rejects_bad_order_or_duplicate_terminal() {
+    fn canonical_state_supports_parallel_blocks_and_rejects_bad_order_or_duplicate_terminal() -> TestResult {
         let mut state = TypedStreamState::new(Protocol::Claude, Protocol::OpenAi);
         let start = CanonicalStreamEvent::ResponseStart {
             id: "response".to_owned(),
@@ -1859,39 +1887,27 @@ mod tests {
             }),
             Err(TypedStreamFailure::OutOfOrder)
         );
-        state.apply(&start).expect("response start");
-        state
-            .apply(&CanonicalStreamEvent::ContentStart {
-                index: 0,
-                kind: lmm_contracts::relay::StreamContentKind::Text,
-            })
-            .expect("first block start");
-        state
-            .apply(&CanonicalStreamEvent::ContentStart {
-                index: 1,
-                kind: lmm_contracts::relay::StreamContentKind::Reasoning,
-            })
-            .expect("parallel block start");
-        state
-            .apply(&CanonicalStreamEvent::TextDelta {
-                index: 0,
-                delta: "one".to_owned(),
-            })
-            .expect("first delta");
-        state
-            .apply(&CanonicalStreamEvent::ContentEnd { index: 0 })
-            .expect("first block end");
+        state.apply(&start)?;
+        state.apply(&CanonicalStreamEvent::ContentStart {
+            index: 0,
+            kind: lmm_contracts::relay::StreamContentKind::Text,
+        })?;
+        state.apply(&CanonicalStreamEvent::ContentStart {
+            index: 1,
+            kind: lmm_contracts::relay::StreamContentKind::Reasoning,
+        })?;
+        state.apply(&CanonicalStreamEvent::TextDelta {
+            index: 0,
+            delta: "one".to_owned(),
+        })?;
+        state.apply(&CanonicalStreamEvent::ContentEnd { index: 0 })?;
         assert_eq!(state.open_block_count(), 1);
-        state
-            .apply(&CanonicalStreamEvent::ContentEnd { index: 1 })
-            .expect("second block end");
-        state
-            .apply(&CanonicalStreamEvent::ResponseEnd {
-                finish_reason: lmm_contracts::relay::FinishReason::Stop,
-                usage: None,
-                model: None,
-            })
-            .expect("response end");
+        state.apply(&CanonicalStreamEvent::ContentEnd { index: 1 })?;
+        state.apply(&CanonicalStreamEvent::ResponseEnd {
+            finish_reason: lmm_contracts::relay::FinishReason::Stop,
+            usage: None,
+            model: None,
+        })?;
         assert!(state.terminal());
         assert!(state.usage_finalized());
         assert_eq!(
@@ -1902,33 +1918,26 @@ mod tests {
             }),
             Err(TypedStreamFailure::DuplicateTerminal)
         );
+        Ok(())
     }
 
     #[test]
-    fn canonical_terminal_postludes_are_bounded_and_content_stays_closed() {
+    fn canonical_terminal_postludes_are_bounded_and_content_stays_closed() -> TestResult {
         let mut state = TypedStreamState::new(Protocol::Claude, Protocol::OpenAi);
-        state
-            .apply(&CanonicalStreamEvent::ResponseStart {
-                id: "response".to_owned(),
-                model: "model".to_owned(),
-            })
-            .expect("response start");
-        state
-            .apply(&CanonicalStreamEvent::ResponseEnd {
-                finish_reason: lmm_contracts::relay::FinishReason::Error,
-                usage: None,
-                model: None,
-            })
-            .expect("error response end");
-        state
-            .apply(&CanonicalStreamEvent::Error {
-                code: Some("upstream".to_owned()),
-                message: "failed".to_owned(),
-            })
-            .expect("one checked error postlude");
-        state
-            .apply(&CanonicalStreamEvent::Cancelled)
-            .expect("one checked cancellation postlude");
+        state.apply(&CanonicalStreamEvent::ResponseStart {
+            id: "response".to_owned(),
+            model: "model".to_owned(),
+        })?;
+        state.apply(&CanonicalStreamEvent::ResponseEnd {
+            finish_reason: lmm_contracts::relay::FinishReason::Error,
+            usage: None,
+            model: None,
+        })?;
+        state.apply(&CanonicalStreamEvent::Error {
+            code: Some("upstream".to_owned()),
+            message: "failed".to_owned(),
+        })?;
+        state.apply(&CanonicalStreamEvent::Cancelled)?;
         assert!(state.terminal());
         assert!(state.cancelled());
         assert_eq!(
@@ -1949,23 +1958,20 @@ mod tests {
             }),
             Err(TypedStreamFailure::AfterTerminal)
         );
+        Ok(())
     }
 
     #[test]
-    fn independent_error_and_cancellation_are_terminal_without_success_usage() {
+    fn independent_error_and_cancellation_are_terminal_without_success_usage() -> TestResult {
         let mut error = TypedStreamState::new(Protocol::Claude, Protocol::OpenAi);
-        error
-            .apply(&CanonicalStreamEvent::ResponseStart {
-                id: "error-response".to_owned(),
-                model: "model".to_owned(),
-            })
-            .expect("response start");
-        error
-            .apply(&CanonicalStreamEvent::Error {
-                code: None,
-                message: "failed".to_owned(),
-            })
-            .expect("standalone error");
+        error.apply(&CanonicalStreamEvent::ResponseStart {
+            id: "error-response".to_owned(),
+            model: "model".to_owned(),
+        })?;
+        error.apply(&CanonicalStreamEvent::Error {
+            code: None,
+            message: "failed".to_owned(),
+        })?;
         assert!(error.terminal());
         assert!(!error.usage_finalized());
         assert_eq!(
@@ -1978,15 +1984,11 @@ mod tests {
         );
 
         let mut cancelled = TypedStreamState::new(Protocol::Claude, Protocol::OpenAi);
-        cancelled
-            .apply(&CanonicalStreamEvent::ResponseStart {
-                id: "cancelled-response".to_owned(),
-                model: "model".to_owned(),
-            })
-            .expect("response start");
-        cancelled
-            .apply(&CanonicalStreamEvent::Cancelled)
-            .expect("standalone cancellation");
+        cancelled.apply(&CanonicalStreamEvent::ResponseStart {
+            id: "cancelled-response".to_owned(),
+            model: "model".to_owned(),
+        })?;
+        cancelled.apply(&CanonicalStreamEvent::Cancelled)?;
         assert!(cancelled.terminal());
         assert!(cancelled.cancelled());
         assert!(!cancelled.usage_finalized());
@@ -1998,28 +2000,28 @@ mod tests {
             }),
             Err(TypedStreamFailure::DuplicateTerminal)
         );
+        Ok(())
     }
 
     #[test]
-    fn cancellation_and_drop_do_not_finalize_successful_usage() {
+    fn cancellation_and_drop_do_not_finalize_successful_usage() -> TestResult {
         let mut state = TypedStreamState::new(Protocol::Claude, Protocol::OpenAi);
-        state
-            .apply(&CanonicalStreamEvent::ResponseStart {
-                id: "response".to_owned(),
-                model: "model".to_owned(),
-            })
-            .expect("start");
-        state.cancel().expect("cancel");
+        state.apply(&CanonicalStreamEvent::ResponseStart {
+            id: "response".to_owned(),
+            model: "model".to_owned(),
+        })?;
+        state.cancel()?;
         assert!(state.cancelled());
         assert!(!state.terminal());
         assert!(!state.usage_finalized());
         let dropped = TypedStreamState::new(Protocol::Claude, Protocol::OpenAi);
         drop(dropped);
+        Ok(())
     }
 
     #[test]
-    fn injected_adaptor_emits_one_frame_as_ordered_multi_event_batch() {
-        let registry = registry();
+    fn injected_adaptor_emits_one_frame_as_ordered_multi_event_batch() -> TestResult {
+        let registry = registry()?;
         let rollout = ProtocolRolloutControl::default().snapshot();
         let evidence = ownership(Protocol::Claude, Protocol::OpenAi);
         let compiler = CountingCompiler::default();
@@ -2043,17 +2045,21 @@ mod tests {
             &compiler,
             &adaptors,
             &AlwaysOpenAdmission,
-        )
-        .expect("injected adaptor route");
+        )?;
         assert!(session.decision().is_typed());
         assert!(session.plan().is_some());
         assert_eq!(compiler.calls.load(Ordering::Relaxed), 1);
         assert_eq!(compile_calls.load(Ordering::Relaxed), 1);
 
-        let input = frame(b"data: source-event\n\n");
-        let output = session.process_frame(&input).expect("target output batch");
-        let StreamFrameOutput::Typed { batch } = output else {
-            panic!("typed adaptor did not return a typed batch");
+        let input = frame(b"data: source-event\n\n")?;
+        let output = session.process_frame(&input)?;
+        let batch = match output {
+            StreamFrameOutput::Typed { batch } => batch,
+            raw => {
+                return Err(test_error(format!(
+                    "typed adaptor returned raw output instead of an ordered typed batch: {raw:?}"
+                )));
+            }
         };
         assert_eq!(batch.len(), 3);
         assert!(batch.aggregate_bytes() > 0);
@@ -2069,11 +2075,12 @@ mod tests {
                 .map(TypedStreamState::open_block_count),
             Some(1)
         );
+        Ok(())
     }
 
     #[test]
-    fn terminal_postludes_are_admitted_across_frames_but_late_content_poisoned() {
-        let registry = registry();
+    fn terminal_postludes_are_admitted_across_frames_but_late_content_poisoned() -> TestResult {
+        let registry = registry()?;
         let rollout = ProtocolRolloutControl::default().snapshot();
         let evidence = ownership(Protocol::Claude, Protocol::OpenAi);
 
@@ -2096,23 +2103,20 @@ mod tests {
             &CountingCompiler::default(),
             &error_adaptors,
             &AlwaysOpenAdmission,
-        )
-        .expect("error postlude route");
-        let input = frame(b"data: first\n\n");
-        error_session
-            .process_frame(&input)
-            .expect("terminal error batch");
-        error_session
-            .process_frame(&frame(b"data: error\n\n"))
-            .expect("error postlude on the next frame");
+        )?;
+        let input = frame(b"data: first\n\n")?;
+        error_session.process_frame(&input)?;
+        let error_postlude = frame(b"data: error\n\n")?;
+        error_session.process_frame(&error_postlude)?;
         assert!(
             error_session
                 .typed_state()
                 .is_some_and(TypedStreamState::terminal)
         );
         assert_eq!(error_process_calls.load(Ordering::Relaxed), 2);
+        let duplicate_error = frame(b"data: duplicate-error\n\n")?;
         assert_eq!(
-            error_session.process_frame(&frame(b"data: duplicate-error\n\n")),
+            error_session.process_frame(&duplicate_error),
             Err(StreamProcessError::Stream(
                 TypedStreamFailure::DuplicateTerminal
             ))
@@ -2136,14 +2140,10 @@ mod tests {
             &CountingCompiler::default(),
             &cancelled_adaptors,
             &AlwaysOpenAdmission,
-        )
-        .expect("cancellation postlude route");
-        cancelled_session
-            .process_frame(&input)
-            .expect("terminal response batch");
-        cancelled_session
-            .process_frame(&frame(b"data: cancelled\n\n"))
-            .expect("cancellation postlude on the next frame");
+        )?;
+        cancelled_session.process_frame(&input)?;
+        let cancellation_postlude = frame(b"data: cancelled\n\n")?;
+        cancelled_session.process_frame(&cancellation_postlude)?;
         assert!(
             cancelled_session
                 .typed_state()
@@ -2168,30 +2168,30 @@ mod tests {
             &CountingCompiler::default(),
             &late_content_adaptors,
             &AlwaysOpenAdmission,
-        )
-        .expect("late content route");
-        late_content_session
-            .process_frame(&input)
-            .expect("terminal response batch");
+        )?;
+        late_content_session.process_frame(&input)?;
+        let late_content = frame(b"data: late\n\n")?;
         assert_eq!(
-            late_content_session.process_frame(&frame(b"data: late\n\n")),
+            late_content_session.process_frame(&late_content),
             Err(StreamProcessError::Stream(
                 TypedStreamFailure::AfterTerminal
             ))
         );
         assert!(late_content_session.is_poisoned());
+        let later_content = frame(b"data: later\n\n")?;
         assert_eq!(
-            late_content_session.process_frame(&frame(b"data: later\n\n")),
+            late_content_session.process_frame(&later_content),
             Err(StreamProcessError::Stream(TypedStreamFailure::Poisoned))
         );
+        Ok(())
     }
 
     #[test]
-    fn terminal_frames_reject_empty_or_loss_only_adaptor_batches() {
-        let registry = registry();
+    fn terminal_frames_reject_empty_or_loss_only_adaptor_batches() -> TestResult {
+        let registry = registry()?;
         let rollout = ProtocolRolloutControl::default().snapshot();
         let evidence = ownership(Protocol::Claude, Protocol::OpenAi);
-        let input = frame(b"data: first\n\n");
+        let input = frame(b"data: first\n\n")?;
 
         for mode in [
             MockBatchMode::EmptyAfterTerminal,
@@ -2215,24 +2215,23 @@ mod tests {
                 &CountingCompiler::default(),
                 &adaptors,
                 &AlwaysOpenAdmission,
-            )
-            .expect("terminal batch route");
-            session
-                .process_frame(&input)
-                .expect("initial terminal batch");
+            )?;
+            session.process_frame(&input)?;
+            let postlude = frame(b"data: postlude\n\n")?;
             assert_eq!(
-                session.process_frame(&frame(b"data: postlude\n\n")),
+                session.process_frame(&postlude),
                 Err(StreamProcessError::Stream(
                     TypedStreamFailure::AfterTerminal
                 ))
             );
             assert!(session.is_poisoned());
         }
+        Ok(())
     }
 
     #[test]
-    fn empty_typed_batch_does_not_start_output_or_poison_session() {
-        let registry = registry();
+    fn empty_typed_batch_does_not_start_output_or_poison_session() -> TestResult {
+        let registry = registry()?;
         let rollout = ProtocolRolloutControl::default().snapshot();
         let evidence = ownership(Protocol::Claude, Protocol::OpenAi);
         let compiler = CountingCompiler::default();
@@ -2255,23 +2254,28 @@ mod tests {
             &compiler,
             &adaptors,
             &AlwaysOpenAdmission,
-        )
-        .expect("empty batch adaptor route");
-        let input = frame(b"data: source-event\n\n");
-        let output = session.process_frame(&input).expect("empty typed batch");
-        let StreamFrameOutput::Typed { batch } = output else {
-            panic!("expected typed batch");
+        )?;
+        let input = frame(b"data: source-event\n\n")?;
+        let output = session.process_frame(&input)?;
+        let batch = match output {
+            StreamFrameOutput::Typed { batch } => batch,
+            raw => {
+                return Err(test_error(format!(
+                    "empty typed adaptor returned raw output instead of a typed batch: {raw:?}"
+                )));
+            }
         };
         assert!(batch.is_empty());
         assert_eq!(batch.aggregate_bytes(), 0);
         assert!(!session.output_started());
         assert!(!session.is_poisoned());
         assert_eq!(process_calls.load(Ordering::Relaxed), 1);
+        Ok(())
     }
 
     #[test]
-    fn typed_output_item_limit_poison_is_setup_then_fail_closed() {
-        let registry = registry();
+    fn typed_output_item_limit_poison_is_setup_then_fail_closed() -> TestResult {
+        let registry = registry()?;
         let rollout = ProtocolRolloutControl::default().snapshot();
         let evidence = ownership(Protocol::Claude, Protocol::OpenAi);
         let compiler = CountingCompiler::default();
@@ -2295,10 +2299,10 @@ mod tests {
             &compiler,
             &adaptors,
             &AlwaysOpenAdmission,
-        )
-        .expect("limited adaptor route");
+        )?;
+        let source_event = frame(b"data: source-event\n\n")?;
         assert_eq!(
-            session.process_frame(&frame(b"data: source-event\n\n")),
+            session.process_frame(&source_event),
             Err(StreamProcessError::Setup(
                 StreamSetupFailure::OutputItemsExceeded {
                     limit: 2,
@@ -2307,16 +2311,18 @@ mod tests {
             ))
         );
         assert!(session.is_poisoned());
+        let later = frame(b"data: later\n\n")?;
         assert_eq!(
-            session.process_frame(&frame(b"data: later\n\n")),
+            session.process_frame(&later),
             Err(StreamProcessError::Setup(StreamSetupFailure::Poisoned))
         );
         assert_eq!(process_calls.load(Ordering::Relaxed), 1);
+        Ok(())
     }
 
     #[test]
-    fn typed_output_byte_limit_poison_is_setup_then_fail_closed() {
-        let registry = registry();
+    fn typed_output_byte_limit_poison_is_setup_then_fail_closed() -> TestResult {
+        let registry = registry()?;
         let rollout = ProtocolRolloutControl::default().snapshot();
         let evidence = ownership(Protocol::Claude, Protocol::OpenAi);
         let compiler = CountingCompiler::default();
@@ -2341,9 +2347,8 @@ mod tests {
             &compiler,
             &adaptors,
             &AlwaysOpenAdmission,
-        )
-        .expect("limited adaptor route");
-        let input = frame(b"data: source-event\n\n");
+        )?;
+        let input = frame(b"data: source-event\n\n")?;
         let error = session.process_frame(&input);
         assert!(matches!(
             error,
@@ -2352,16 +2357,18 @@ mod tests {
             )) if limit == max_bytes && observed > max_bytes
         ));
         assert!(session.is_poisoned());
+        let later = frame(b"data: later\n\n")?;
         assert_eq!(
-            session.process_frame(&frame(b"data: later\n\n")),
+            session.process_frame(&later),
             Err(StreamProcessError::Setup(StreamSetupFailure::Poisoned))
         );
         assert_eq!(process_calls.load(Ordering::Relaxed), 1);
+        Ok(())
     }
 
     #[test]
-    fn canonical_string_bytes_are_counted_and_poison_on_limit() {
-        let registry = registry();
+    fn canonical_string_bytes_are_counted_and_poison_on_limit() -> TestResult {
+        let registry = registry()?;
         let rollout = ProtocolRolloutControl::default().snapshot();
         let evidence = ownership(Protocol::Claude, Protocol::OpenAi);
         let compiler = CountingCompiler::default();
@@ -2386,10 +2393,9 @@ mod tests {
             &compiler,
             &adaptors,
             &AlwaysOpenAdmission,
-        )
-        .expect("canonical adaptor route");
+        )?;
 
-        let input = frame(b"data: source-event\n\n");
+        let input = frame(b"data: source-event\n\n")?;
         let error = session.process_frame(&input);
         assert!(matches!(
             error,
@@ -2398,16 +2404,18 @@ mod tests {
             )) if limit == max_bytes && observed > max_bytes
         ));
         assert!(session.is_poisoned());
+        let later = frame(b"data: later\n\n")?;
         assert_eq!(
-            session.process_frame(&frame(b"data: later\n\n")),
+            session.process_frame(&later),
             Err(StreamProcessError::Setup(StreamSetupFailure::Poisoned))
         );
         assert_eq!(process_calls.load(Ordering::Relaxed), 1);
+        Ok(())
     }
 
     #[test]
-    fn transition_error_after_first_batch_is_stream_stage_and_poisoned() {
-        let registry = registry();
+    fn transition_error_after_first_batch_is_stream_stage_and_poisoned() -> TestResult {
+        let registry = registry()?;
         let rollout = ProtocolRolloutControl::default().snapshot();
         let evidence = ownership(Protocol::Claude, Protocol::OpenAi);
         let compiler = CountingCompiler::default();
@@ -2430,22 +2438,24 @@ mod tests {
             &compiler,
             &adaptors,
             &AlwaysOpenAdmission,
-        )
-        .expect("poison test adaptor route");
-        let first_input = frame(b"data: first\n\n");
-        let first = session.process_frame(&first_input).expect("first batch");
+        )?;
+        let first_input = frame(b"data: first\n\n")?;
+        let first = session.process_frame(&first_input)?;
         assert!(matches!(first, StreamFrameOutput::Typed { .. }));
         assert!(session.output_started());
+        let second_input = frame(b"data: second\n\n")?;
         assert_eq!(
-            session.process_frame(&frame(b"data: second\n\n")),
+            session.process_frame(&second_input),
             Err(StreamProcessError::Stream(TypedStreamFailure::OutOfOrder))
         );
         assert!(session.is_poisoned());
+        let third_input = frame(b"data: third\n\n")?;
         assert_eq!(
-            session.process_frame(&frame(b"data: third\n\n")),
+            session.process_frame(&third_input),
             Err(StreamProcessError::Stream(TypedStreamFailure::Poisoned))
         );
         assert_eq!(process_calls.load(Ordering::Relaxed), 2);
+        Ok(())
     }
 
     struct CountingCompiler {
