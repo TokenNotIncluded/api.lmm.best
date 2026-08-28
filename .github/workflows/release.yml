@@ -557,12 +557,29 @@ jobs:
           path: release-metadata
 
       - name: Publish immutable tag and signed artifacts
-        uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b # v3.0.1
-        with:
-          tag_name: ${{ needs.prepare.outputs.tag_name }}
-          target_commitish: ${{ needs.prepare.outputs.revision }}
-          name: LMM API ${{ needs.prepare.outputs.tag_name }}
-          body_path: release-metadata/release-notes.md
-          files: release-assets/*
-          fail_on_unmatched_files: true
-          make_latest: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_REVISION: ${{ needs.prepare.outputs.revision }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag_name }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          assets=(release-assets/*)
+          (( ${#assets[@]} > 0 )) || {
+            echo 'No signed release assets were downloaded.' >&2
+            exit 1
+          }
+
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+              --verify-tag --target "$RELEASE_REVISION" \
+              --title "LMM API $RELEASE_TAG" \
+              --notes-file release-metadata/release-notes.md --latest
+            gh release upload "$RELEASE_TAG" "${assets[@]}" \
+              --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$RELEASE_TAG" "${assets[@]}" \
+              --repo "$GITHUB_REPOSITORY" --verify-tag \
+              --target "$RELEASE_REVISION" --title "LMM API $RELEASE_TAG" \
+              --notes-file release-metadata/release-notes.md --latest
+          fi

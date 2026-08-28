@@ -161,16 +161,34 @@ jobs:
             "$archive"
 
       - name: Publish immutable web release
-        uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b # v3.0.1
-        with:
-          tag_name: ${{ github.ref_name }}
-          target_commitish: ${{ steps.identity.outputs.revision }}
-          name: LMM web ${{ github.ref_name }}
-          body: |
-            Independent production web frontend release.
+        env:
+          CONTRACT_REVISION: ${{ steps.identity.outputs.contract_revision }}
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_REVISION: ${{ steps.identity.outputs.revision }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          assets=(release-web/*)
+          (( ${#assets[@]} > 0 )) || {
+            echo 'No signed web release assets were produced.' >&2
+            exit 1
+          }
+          notes="$RUNNER_TEMP/web-release-notes.md"
+          printf '%s\n\nRevision: `%s`\nAPI/route contract revision: `%s`\n' \
+            'Independent production web frontend release.' \
+            "$RELEASE_REVISION" "$CONTRACT_REVISION" > "$notes"
 
-            Revision: `${{ steps.identity.outputs.revision }}`
-            API/route contract revision: `${{ steps.identity.outputs.contract_revision }}`
-          files: release-web/*
-          fail_on_unmatched_files: true
-          make_latest: false
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+              --verify-tag --target "$RELEASE_REVISION" \
+              --title "LMM web $RELEASE_TAG" \
+              --notes-file "$notes" --latest=false
+            gh release upload "$RELEASE_TAG" "${assets[@]}" \
+              --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$RELEASE_TAG" "${assets[@]}" \
+              --repo "$GITHUB_REPOSITORY" --verify-tag \
+              --target "$RELEASE_REVISION" --title "LMM web $RELEASE_TAG" \
+              --notes-file "$notes" --latest=false
+          fi

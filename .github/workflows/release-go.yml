@@ -94,13 +94,6 @@ jobs:
           go-version-file: apps/api-go/go.mod
           cache: false
 
-      - name: Install production contract tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install --no-install-recommends --yes libarchive-tools
-          test "$(command -v bsdtar)" = /usr/bin/bsdtar
-          bsdtar --version | head -1
-
       - name: Check and test default Go module
         working-directory: apps/api-go
         run: |
@@ -274,16 +267,35 @@ jobs:
           merge-multiple: true
 
       - name: Publish immutable Go release
-        uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b # v3.0.1
-        with:
-          tag_name: ${{ github.ref_name }}
-          target_commitish: ${{ needs.prepare.outputs.revision }}
-          name: LMM Go backend ${{ github.ref_name }}
-          body: |
-            Independent production Go-only backend release.
+        env:
+          CONTRACT_REVISION: ${{ needs.prepare.outputs.contract_revision }}
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_REVISION: ${{ needs.prepare.outputs.revision }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          assets=(release-assets/*)
+          (( ${#assets[@]} > 0 )) || {
+            echo 'No signed Go release assets were downloaded.' >&2
+            exit 1
+          }
+          notes="$RUNNER_TEMP/go-release-notes.md"
+          printf '%s\n\nRevision: `%s`\nAPI/route contract revision: `%s`\n' \
+            'Independent production Go-only backend release.' \
+            "$RELEASE_REVISION" "$CONTRACT_REVISION" > "$notes"
 
-            Revision: `${{ needs.prepare.outputs.revision }}`
-            API/route contract revision: `${{ needs.prepare.outputs.contract_revision }}`
-          files: release-assets/*
-          fail_on_unmatched_files: true
-          make_latest: true
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+              --verify-tag --target "$RELEASE_REVISION" \
+              --title "LMM Go backend $RELEASE_TAG" \
+              --notes-file "$notes" --latest
+            gh release upload "$RELEASE_TAG" "${assets[@]}" \
+              --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$RELEASE_TAG" "${assets[@]}" \
+              --repo "$GITHUB_REPOSITORY" --verify-tag \
+              --target "$RELEASE_REVISION" \
+              --title "LMM Go backend $RELEASE_TAG" \
+              --notes-file "$notes" --latest
+          fi

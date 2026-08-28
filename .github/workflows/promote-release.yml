@@ -7,38 +7,93 @@ on:
     branches: [main]
 
 permissions:
-  actions: write
-  checks: read
-  contents: write
+  contents: read
 
 concurrency:
   group: promote-release-${{ github.event.workflow_run.head_sha }}
   cancel-in-progress: false
 
 jobs:
+  verify-source:
+    name: Verify trusted workflow_run source
+    if: >-
+      github.event.workflow_run.repository.full_name == github.repository &&
+      github.event.workflow_run.head_repository.full_name == github.repository &&
+      github.event.workflow_run.name == 'CI' &&
+      github.event.workflow_run.path == '.github/workflows/ci.yml' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.repository.default_branch == 'main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    outputs:
+      revision: ${{ steps.source.outputs.revision }}
+    steps:
+      - name: Match the completed run to the current trusted branch commit
+        id: source
+        env:
+          CANDIDATE_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          CANDIDATE_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          CANDIDATE_EVENT: ${{ github.event.workflow_run.event }}
+          CANDIDATE_HEAD_COMMIT: ${{ github.event.workflow_run.head_commit.id }}
+          CANDIDATE_HEAD_REPOSITORY: ${{ github.event.workflow_run.head_repository.full_name }}
+          CANDIDATE_PATH: ${{ github.event.workflow_run.path }}
+          CANDIDATE_REPOSITORY: ${{ github.event.workflow_run.repository.full_name }}
+          CANDIDATE_REVISION: ${{ github.event.workflow_run.head_sha }}
+          CANDIDATE_WORKFLOW: ${{ github.event.workflow_run.name }}
+          EXPECTED_BRANCH: ${{ github.event.repository.default_branch }}
+          EXPECTED_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          [[ "$CANDIDATE_REPOSITORY" == "$EXPECTED_REPOSITORY" ]]
+          [[ "$CANDIDATE_HEAD_REPOSITORY" == "$EXPECTED_REPOSITORY" ]]
+          [[ "$CANDIDATE_WORKFLOW" == CI ]]
+          [[ "$CANDIDATE_PATH" == '.github/workflows/ci.yml' ]]
+          [[ "$CANDIDATE_EVENT" == push ]]
+          [[ "$CANDIDATE_CONCLUSION" == success ]]
+          [[ "$CANDIDATE_BRANCH" == main ]]
+          [[ "$EXPECTED_BRANCH" == main ]]
+          [[ "$CANDIDATE_REVISION" == "$CANDIDATE_HEAD_COMMIT" ]]
+          [[ "$CANDIDATE_REVISION" =~ ^[0-9a-f]{40}$ ]]
+
+          trusted_revision=$(git ls-remote --exit-code \
+            "https://github.com/${EXPECTED_REPOSITORY}.git" \
+            "refs/heads/${EXPECTED_BRANCH}" | awk 'NR == 1 { print $1 }')
+          [[ "$trusted_revision" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$CANDIDATE_REVISION" == "$trusted_revision" ]] || {
+            echo 'The completed CI run is not for the current trusted main commit.' >&2
+            exit 1
+          }
+          echo "revision=$trusted_revision" >> "$GITHUB_OUTPUT"
+
   promote:
     name: Tag the CI-verified version and dispatch release
-    if: >-
-      github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.event == 'push'
+    needs: verify-source
+    if: needs.verify-source.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      actions: write
+      checks: read
+      contents: write
     steps:
-      - name: Checkout the exact CI-verified revision
+      - name: Checkout the verified trusted revision
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 2
           fetch-tags: true
           persist-credentials: false
-          ref: ${{ github.event.workflow_run.head_sha }}
+          ref: ${{ needs.verify-source.outputs.revision }}
 
-      - name: Promote a changed version only from current main
-        id: release
+      - name: Revalidate the release candidate before granting write credentials
+        id: candidate
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VERIFIED_REVISION: ${{ github.event.workflow_run.head_sha }}
+          VERIFIED_REVISION: ${{ needs.verify-source.outputs.revision }}
         run: |
           set -euo pipefail
+          echo 'promote=false' >> "$GITHUB_OUTPUT"
           revision=$(git rev-parse HEAD)
           [[ "$revision" == "$VERIFIED_REVISION" ]]
 
@@ -53,32 +108,46 @@ jobs:
             exit 0
           fi
 
-          GITHUB_TOKEN=$GH_TOKEN bash scripts/verify-release-commit-checks.sh "$revision"
-
           version=$(tr -d '[:space:]' < VERSION)
           [[ "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
           tag="v$version"
           node scripts/release.mjs verify --version "$version"
+          {
+            echo 'promote=true'
+            echo "revision=$revision"
+            echo "tag=$tag"
+          } >> "$GITHUB_OUTPUT"
 
-          if git ls-remote --exit-code --tags origin "refs/tags/$tag" >tag-ref; then
+      - name: Tag and dispatch the verified release
+        id: release
+        if: steps.candidate.outputs.promote == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ steps.candidate.outputs.tag }}
+          VERIFIED_REVISION: ${{ steps.candidate.outputs.revision }}
+        run: |
+          set -euo pipefail
+          GITHUB_TOKEN=$GH_TOKEN bash scripts/verify-release-commit-checks.sh "$VERIFIED_REVISION"
+
+          if git ls-remote --exit-code --tags origin "refs/tags/$RELEASE_TAG" >tag-ref; then
             tag_revision=$(awk 'NR == 1 { print $1 }' tag-ref)
-            [[ "$tag_revision" == "$revision" ]] || {
-              echo "$tag already points to $tag_revision, not $revision" >&2
+            [[ "$tag_revision" == "$VERIFIED_REVISION" ]] || {
+              echo "$RELEASE_TAG already points to $tag_revision, not $VERIFIED_REVISION" >&2
               exit 1
             }
           else
             gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
-              -f ref="refs/tags/$tag" \
-              -f sha="$revision" >/dev/null
+              -f ref="refs/tags/$RELEASE_TAG" \
+              -f sha="$VERIFIED_REVISION" >/dev/null
           fi
 
-          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "$tag is already published; no release dispatch is required."
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "$RELEASE_TAG is already published; no release dispatch is required."
             exit 0
           fi
           gh workflow run release.yml --repo "$GITHUB_REPOSITORY" \
-            --ref "$tag" -f publish=true
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+            --ref "$RELEASE_TAG" -f publish=true
+          echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
 
       - name: Summarize promotion
         if: steps.release.outputs.tag != ''
