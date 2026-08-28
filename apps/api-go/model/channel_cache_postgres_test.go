@@ -13,6 +13,7 @@ import (
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/LIghtJUNction/api.lmm.best/constant"
+	"github.com/jackc/pgx/v5"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
@@ -54,8 +55,9 @@ func openIsolatedPostgresCacheTestDB(t *testing.T, models ...any) *gorm.DB {
 	}
 
 	schema := fmt.Sprintf("lmm_cache_test_%d_%d", os.Getpid(), time.Now().UnixNano())
+	quotedSchema := pgx.Identifier{schema}.Sanitize()
 	createCtx, cancelCreate := context.WithTimeout(context.Background(), 5*time.Second)
-	if err := base.WithContext(createCtx).Exec(fmt.Sprintf(`CREATE SCHEMA "%s"`, schema)).Error; err != nil {
+	if err := base.WithContext(createCtx).Exec("CREATE SCHEMA " + quotedSchema).Error; err != nil {
 		cancelCreate()
 		_ = baseSQL.Close()
 		t.Fatalf("create isolated PostgreSQL schema: %v", err)
@@ -64,7 +66,7 @@ func openIsolatedPostgresCacheTestDB(t *testing.T, models ...any) *gorm.DB {
 	t.Cleanup(func() {
 		dropCtx, cancelDrop := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancelDrop()
-		if err := base.WithContext(dropCtx).Exec(fmt.Sprintf(`DROP SCHEMA IF EXISTS "%s" CASCADE`, schema)).Error; err != nil {
+		if err := base.WithContext(dropCtx).Exec("DROP SCHEMA IF EXISTS " + quotedSchema + " CASCADE").Error; err != nil {
 			t.Errorf("drop isolated PostgreSQL schema: %v", err)
 		}
 		_ = baseSQL.Close()
