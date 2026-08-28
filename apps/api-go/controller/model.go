@@ -28,8 +28,8 @@ import (
 // https://platform.openai.com/docs/api-reference/models/list
 
 var openAIModels []dto.OpenAIModels
-var openAIModelsMap map[string]dto.OpenAIModels
-var channelId2Models map[int][]string
+var openAIModelsMap = make(map[string]dto.OpenAIModels)
+var channelId2Models = make(map[int][]string)
 
 func init() {
 	// https://platform.openai.com/docs/models/model-endpoint-compatibility
@@ -89,11 +89,9 @@ func init() {
 			OwnedBy: "midjourney",
 		})
 	}
-	openAIModelsMap = make(map[string]dto.OpenAIModels)
 	for _, aiModel := range openAIModels {
 		openAIModelsMap[aiModel.Id] = aiModel
 	}
-	channelId2Models = make(map[int][]string)
 	for i := 1; i <= constant.ChannelTypeDummy; i++ {
 		apiType, success := common.ChannelType2APIType(i)
 		if !success || apiType == constant.APITypeAIProxyLibrary {
@@ -235,14 +233,11 @@ func ListModels(c *gin.Context, modelType int) {
 	}
 	ownerGroups := groups.ownerGroups
 	modelLimitEnable := common.GetContextKeyBool(c, constant.ContextKeyTokenModelLimitEnabled)
-	var tokenModelLimit map[string]bool
+	tokenModelLimit := make(map[string]bool)
 	if modelLimitEnable {
 		s, ok := common.GetContextKey(c, constant.ContextKeyTokenModelLimit)
 		if ok {
 			tokenModelLimit, _ = s.(map[string]bool)
-		}
-		if tokenModelLimit == nil {
-			tokenModelLimit = map[string]bool{}
 		}
 	}
 	models := service.GetGroupsEnabledModels(ownerGroups)

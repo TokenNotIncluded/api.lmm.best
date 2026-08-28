@@ -68,7 +68,7 @@ func IsJsonArray(str string) bool {
 }
 
 func IsJsonObject(str string) bool {
-	var js map[string]interface{}
+	js := make(map[string]interface{})
 	return json.Unmarshal([]byte(str), &js) == nil
 }
 

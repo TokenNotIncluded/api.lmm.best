@@ -27,9 +27,7 @@ func TestResolveAssistantUserTargetFiltersHigherRoleCandidates(t *testing.T) {
 		Username: "assistant-search-root", Password: "password", AffCode: "assistant-search-root-aff",
 		Role: common.RoleRootUser, Status: common.UserStatusEnabled, Group: "default",
 	}
-	for _, user := range []*model.User{operator, manageable, higher, root} {
-		require.NoError(t, db.Create(user).Error)
-	}
+	require.NoError(t, db.Create([]*model.User{operator, manageable, higher, root}).Error)
 
 	// The substring matches both a permitted user and a root user.  The
 	// lower-level administrator must receive only the permitted identity and

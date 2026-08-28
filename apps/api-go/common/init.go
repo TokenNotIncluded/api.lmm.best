@@ -28,7 +28,7 @@ func printHelp() {
 	fmt.Println("Usage: lmm-api-go [--port <port>] [--log-dir <log directory>] [--version] [--help]")
 }
 
-func InitEnv() {
+func InitEnv() error {
 	flag.Parse()
 
 	envVersion := os.Getenv("VERSION")
@@ -51,7 +51,7 @@ func InitEnv() {
 		if ss == "random_string" {
 			log.Println("WARNING: SESSION_SECRET is set to the default value 'random_string', please change it to a random string.")
 			log.Println("警告：SESSION_SECRET被设置为默认值'random_string'，请修改为随机字符串。")
-			log.Fatal("Please set SESSION_SECRET to a random string.")
+			return fmt.Errorf("SESSION_SECRET must not use the default value random_string")
 		} else {
 			SessionSecret = ss
 		}
@@ -65,7 +65,7 @@ func InitEnv() {
 		CryptoSecret = SessionSecret
 	}
 	if err := InitSessionCookieSettings(); err != nil {
-		log.Fatal(err)
+		return fmt.Errorf("initialize session cookie settings: %w", err)
 	}
 	initUserSessionSettings()
 	if os.Getenv("SQLITE_PATH") != "" {
@@ -75,12 +75,12 @@ func InitEnv() {
 		var err error
 		*LogDir, err = filepath.Abs(*LogDir)
 		if err != nil {
-			log.Fatal(err)
+			return fmt.Errorf("resolve log directory: %w", err)
 		}
 		if _, err := os.Stat(*LogDir); os.IsNotExist(err) {
 			err = os.Mkdir(*LogDir, 0750)
 			if err != nil {
-				log.Fatal(err)
+				return fmt.Errorf("create log directory: %w", err)
 			}
 		}
 	}
@@ -136,6 +136,7 @@ func InitEnv() {
 	SearchRateLimitNum = GetEnvOrDefault("SEARCH_RATE_LIMIT", 10)
 	SearchRateLimitDuration = int64(GetEnvOrDefault("SEARCH_RATE_LIMIT_DURATION", 60))
 	initConstantEnv()
+	return nil
 }
 
 func initUserSessionSettings() {

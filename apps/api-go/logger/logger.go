@@ -40,7 +40,7 @@ func GetCurrentLogPath() string {
 	return currentLogPath
 }
 
-func SetupLogger() {
+func SetupLogger() error {
 	defer func() {
 		setupLogWorking.Store(false)
 	}()
@@ -48,7 +48,7 @@ func SetupLogger() {
 		ok := setupLogLock.TryLock()
 		if !ok {
 			log.Println("setup log is already working")
-			return
+			return nil
 		}
 		defer func() {
 			setupLogLock.Unlock()
@@ -56,7 +56,7 @@ func SetupLogger() {
 		logPath := filepath.Join(*common.LogDir, fmt.Sprintf("oneapi-%s.log", time.Now().Format("20060102150405")))
 		fd, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 		if err != nil {
-			log.Fatal("failed to open log file")
+			return fmt.Errorf("open log file: %w", err)
 		}
 		currentLogPathMu.Lock()
 		oldFile := currentLogFile
@@ -72,6 +72,7 @@ func SetupLogger() {
 		}
 		common.LogWriterMu.Unlock()
 	}
+	return nil
 }
 
 func LogInfo(ctx context.Context, msg string) {
@@ -116,7 +117,9 @@ func logHelper(ctx context.Context, level string, msg string) {
 	if logCount.Add(1) > maxLogCount && setupLogWorking.CompareAndSwap(false, true) {
 		logCount.Store(0)
 		gopool.Go(func() {
-			SetupLogger()
+			if err := SetupLogger(); err != nil {
+				log.Printf("rotate log file: %v", err)
+			}
 		})
 	}
 }

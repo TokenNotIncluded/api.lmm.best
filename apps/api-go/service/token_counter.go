@@ -201,12 +201,15 @@ func EstimateRequestToken(c *gin.Context, meta *types.TokenCountMeta, info *rela
 			if err != nil {
 				return 0, fmt.Errorf("error opening audio file: %v", err)
 			}
-			defer file.Close()
 			// get ext and io.seeker
 			ext := filepath.Ext(fileHeader.Filename)
-			duration, err := common.GetAudioDuration(c.Request.Context(), file, ext)
-			if err != nil {
-				return 0, fmt.Errorf("error getting audio duration: %v", err)
+			duration, durationErr := common.GetAudioDuration(c.Request.Context(), file, ext)
+			closeErr := file.Close()
+			if durationErr != nil {
+				return 0, fmt.Errorf("error getting audio duration: %v", durationErr)
+			}
+			if closeErr != nil {
+				return 0, fmt.Errorf("error closing audio file: %v", closeErr)
 			}
 			// duration 来自用户上传文件的元数据，可被伪造成天文数字或负数。
 			// 负值会让 token 估算变成负数（低估预扣费），先钳到 0 再转换。

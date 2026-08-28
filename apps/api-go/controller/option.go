@@ -2,6 +2,7 @@ package controller
 
 import (
 	"fmt"
+	"maps"
 	"net/http"
 	"sort"
 	"strconv"
@@ -49,12 +50,15 @@ func collectModelNamesFromOptionValue(raw string, modelNames map[string]struct{}
 		return
 	}
 
-	var parsed map[string]any
+	parsed := make(map[string]any)
 	if err := common.UnmarshalJsonStr(raw, &parsed); err != nil {
 		return
 	}
+	if len(parsed) == 0 {
+		return
+	}
 
-	for modelName := range parsed {
+	for modelName := range maps.Keys(parsed) {
 		modelNames[modelName] = struct{}{}
 	}
 }
@@ -64,9 +68,12 @@ func buildCompletionRatioMetaValue(optionValues map[string]string) string {
 	for _, key := range completionRatioMetaOptionKeys {
 		collectModelNamesFromOptionValue(optionValues[key], modelNames)
 	}
+	if len(modelNames) == 0 {
+		return "{}"
+	}
 
 	meta := make(map[string]ratio_setting.CompletionRatioInfo, len(modelNames))
-	for modelName := range modelNames {
+	for modelName := range maps.Keys(modelNames) {
 		meta[modelName] = ratio_setting.GetCompletionRatioInfo(modelName)
 	}
 

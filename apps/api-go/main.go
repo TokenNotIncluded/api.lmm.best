@@ -359,12 +359,16 @@ func InitResources() (returnErr error) {
 	}
 
 	// 加载环境变量
-	common.InitEnv()
+	if err := common.InitEnv(); err != nil {
+		return fmt.Errorf("initialize environment: %w", err)
+	}
 	if err := system_setting.InitServerAddressFromEnv(); err != nil {
 		return fmt.Errorf("failed to configure server address: %w", err)
 	}
 
-	logger.SetupLogger()
+	if err := logger.SetupLogger(); err != nil {
+		return fmt.Errorf("initialize logger: %w", err)
+	}
 
 	// Initialize model settings
 	ratio_setting.InitRatioSettings()
