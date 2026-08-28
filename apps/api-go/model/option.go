@@ -281,6 +281,9 @@ func validateOptionValue(key string, value string) error {
 		_, err := common.ParseRegistrationDisabledMethods(value)
 		return err
 	}
+	if key == "general_setting.custom_currency_code" {
+		return operation_setting.ValidateCustomCurrencyCode(value)
+	}
 	if dynamic_pricing_setting.IsOptionKey(key) {
 		return dynamic_pricing_setting.ValidateOptionValues(map[string]string{key: value})
 	}

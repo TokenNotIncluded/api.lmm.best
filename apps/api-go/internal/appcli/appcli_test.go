@@ -2,6 +2,7 @@ package appcli
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -114,8 +115,15 @@ func TestRequestShouldSendNativeHTTPAndPersistOutputs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Contains(cookies, []byte("cookie-secret")) || bytes.Contains(cookies, []byte("secret-token")) {
-		t.Fatalf("cookie store did not preserve only the response cookie")
+	if bytes.Contains(cookies, []byte("cookie-secret")) || bytes.Contains(cookies, []byte("secret-token")) {
+		t.Fatalf("cookie store persisted plaintext credentials")
+	}
+	var encrypted encryptedCookieFile
+	if err := json.Unmarshal(cookies, &encrypted); err != nil {
+		t.Fatalf("decode encrypted cookie envelope: %v", err)
+	}
+	if encrypted.Format != encryptedCookieFileFormat || encrypted.Nonce == "" || encrypted.Ciphertext == "" {
+		t.Fatalf("invalid encrypted cookie envelope: %#v", encrypted)
 	}
 	info, err := os.Stat(cookieFile)
 	if err != nil {
