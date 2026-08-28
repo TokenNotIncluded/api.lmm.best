@@ -1179,8 +1179,14 @@ mod tests {
     use tower::ServiceExt;
     use uuid::Uuid;
 
+    type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
+
+    fn test_error(message: &'static str) -> std::io::Error {
+        std::io::Error::other(message)
+    }
+
     #[tokio::test]
-    async fn anonymous_api_token_auth_uses_the_go_unauthorized_envelope() {
+    async fn anonymous_api_token_auth_uses_the_go_unauthorized_envelope() -> TestResult {
         let response = discovery_unauthorized();
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
         assert_eq!(
@@ -1190,9 +1196,9 @@ mod tests {
         let body: Value = serde_json::from_slice(
             &axum::body::to_bytes(response.into_body(), usize::MAX)
                 .await
-                .expect("response body is readable"),
+                ?,
         )
-        .expect("response body is JSON");
+        ?;
         assert_eq!(
             body,
             serde_json::json!({
@@ -1201,10 +1207,11 @@ mod tests {
                 "success": false
             })
         );
+        Ok(())
     }
 
     #[tokio::test]
-    async fn dashboard_auth_error_codes_match_the_go_envelopes() {
+    async fn dashboard_auth_error_codes_match_the_go_envelopes() -> TestResult {
         for (kind, code, message) in [
             (
                 AuthErrorKind::Unauthorized,
@@ -1237,19 +1244,20 @@ mod tests {
             let body: Value = serde_json::from_slice(
                 &axum::body::to_bytes(response.into_body(), usize::MAX)
                     .await
-                    .expect("response body is readable"),
+                    ?,
             )
-            .expect("response body is JSON");
+            ?;
             assert_eq!(
                 body,
                 serde_json::json!({"code": code, "message": message, "success": false}),
                 "{code}"
             );
         }
+        Ok(())
     }
 
     #[tokio::test]
-    async fn current_go_discovery_auth_classification_failures_are_hidden() {
+    async fn current_go_discovery_auth_classification_failures_are_hidden() -> TestResult {
         for kind in [
             AuthErrorKind::InvalidCredentials,
             AuthErrorKind::Unauthorized,
@@ -1263,15 +1271,16 @@ mod tests {
             let body: Value = serde_json::from_slice(
                 &axum::body::to_bytes(response.into_body(), usize::MAX)
                     .await
-                    .expect("response body is readable"),
+                    ?,
             )
-            .expect("response body is JSON");
+            ?;
             assert_eq!(
                 body,
                 serde_json::json!({"message": "Not Found"}),
                 "{kind:?}"
             );
         }
+        Ok(())
     }
 
     struct RootRelayBackend {
@@ -1306,8 +1315,7 @@ mod tests {
             request: UpstreamRequest,
         ) -> Result<UpstreamReply, RelayFailure> {
             self.request_ids
-                .lock()
-                .expect("test mutex is healthy")
+                .lock().unwrap_or_else(|poisoned| poisoned.into_inner())
                 .push(request.request_id.clone());
             Err(RelayFailure::Provider {
                 status: StatusCode::TOO_MANY_REQUESTS,
@@ -1526,24 +1534,27 @@ mod tests {
         ModelsHttpState::new(Arc::new(UnavailableModels), "v0.0.0")
     }
 
-    fn open_source_bounty_test_surface() -> Router {
+    fn open_source_bounty_test_surface() -> TestResult<Router> {
         let pg = PgPoolOptions::new()
             .acquire_timeout(std::time::Duration::from_millis(10))
             .connect_lazy("postgres://unused:unused@127.0.0.1:1/unused")
-            .expect("lazy PostgreSQL pool");
-        open_source_bounty_router(OpenSourceBountyState::new(pg, Arc::new(UnavailableAuth)))
+            ?;
+        Ok(open_source_bounty_router(OpenSourceBountyState::new(
+            pg,
+            Arc::new(UnavailableAuth),
+        )))
     }
 
     #[tokio::test]
-    async fn final_candidate_listener_keeps_both_topup_reads_reachable() {
+    async fn final_candidate_listener_keeps_both_topup_reads_reachable() -> TestResult {
         let pg = PgPoolOptions::new()
             .acquire_timeout(std::time::Duration::from_millis(10))
             .connect_lazy("postgres://unused:unused@127.0.0.1:1/unused")
-            .expect("a lazy test pool is valid");
+            ?;
         let valkey =
-            redis::Client::open("redis://127.0.0.1:1").expect("a lazy Valkey client is valid");
+            redis::Client::open("redis://127.0.0.1:1")?;
         let auth: Arc<dyn DashboardAuth> = Arc::new(UnavailableAuth);
-        let app_state = state(None);
+        let app_state = state(None)?;
         let candidates = migration_candidate_test_surface(
             &app_state,
             crate::test_instance::safe_candidate_surface(pg, valkey, Arc::clone(&auth)),
@@ -1562,19 +1573,20 @@ mod tests {
         ] {
             let mut request = Request::get(path)
                 .body(Body::empty())
-                .expect("request is valid");
+                ?;
             request.extensions_mut().insert(ConnectInfo(
                 "127.0.0.1:12345"
                     .parse::<SocketAddr>()
-                    .expect("test socket address is valid"),
+                    ?,
             ));
             let response = app
                 .clone()
                 .oneshot(request)
                 .await
-                .expect("router is infallible");
+                ?;
             assert_eq!(response.status(), StatusCode::UNAUTHORIZED, "{path}");
         }
+        Ok(())
     }
 
     fn dashboard_user(id: i64, role: i64, status: i64) -> DashboardUser {
@@ -1607,14 +1619,14 @@ mod tests {
         }
     }
 
-    fn mounted_api_token_router_for(user: DashboardUser) -> axum::Router {
+    fn mounted_api_token_router_for(user: DashboardUser) -> TestResult<axum::Router> {
         mounted_api_token_router_for_with_discovery(user, None)
     }
 
     fn mounted_api_token_router_for_with_discovery(
         user: DashboardUser,
         discovery_service: Option<Arc<dyn ModelsService>>,
-    ) -> axum::Router {
+    ) -> TestResult<axum::Router> {
         mounted_api_token_router_for_with_services(
             user,
             discovery_service,
@@ -1626,14 +1638,14 @@ mod tests {
         user: DashboardUser,
         discovery_service: Option<Arc<dyn ModelsService>>,
         models_service: Arc<dyn ModelsService>,
-    ) -> axum::Router {
+    ) -> TestResult<axum::Router> {
         let auth: Arc<dyn DashboardAuth> = Arc::new(TokenRouteAuth { user });
         let pool = PgPoolOptions::new()
             .acquire_timeout(std::time::Duration::from_millis(10))
             .connect_lazy("postgres://unused:unused@127.0.0.1:1/unused")
-            .expect("a lazy test pool is valid");
+            ?;
         let valkey =
-            redis::Client::open("redis://127.0.0.1:1").expect("a lazy test Valkey client is valid");
+            redis::Client::open("redis://127.0.0.1:1")?;
         let token_state =
             ApiTokenHttpState::new(Arc::new(PgValkeyApiTokenService::new(pool, valkey.clone())));
         let mount = ApiTokenMount::new(
@@ -1650,32 +1662,33 @@ mod tests {
             Some(service) => mount.with_current_dashboard_discovery_policy(service),
             None => mount,
         };
-        router_with_api_token(
-            state(None),
+        Ok(router_with_api_token(
+            state(None)?,
             AuthHttpState::new(Arc::clone(&auth), false),
             ModelsHttpState::new(models_service, "v0.0.0"),
             Some(mount),
-        )
+        ))
     }
 
     async fn mounted_api_token_call(
-        router: axum::Router,
+        router: TestResult<axum::Router>,
         method: &str,
         uri: &str,
         body: Option<&str>,
         forged_principal: bool,
-    ) -> axum::response::Response {
+    ) -> TestResult<axum::response::Response> {
         mounted_api_token_call_with_locale(router, method, uri, body, forged_principal, None).await
     }
 
     async fn mounted_api_token_call_with_locale(
-        router: axum::Router,
+        router: TestResult<axum::Router>,
         method: &str,
         uri: &str,
         body: Option<&str>,
         forged_principal: bool,
         accept_language: Option<&str>,
-    ) -> axum::response::Response {
+    ) -> TestResult<axum::response::Response> {
+        let router = router?;
         let mut builder = Request::builder()
             .method(method)
             .uri(uri)
@@ -1688,11 +1701,11 @@ mod tests {
         }
         let mut request = builder
             .body(body.map_or_else(Body::empty, |value| Body::from(value.to_owned())))
-            .expect("token request is valid");
+            ?;
         request.extensions_mut().insert(ConnectInfo(
             "127.0.0.1:12345"
                 .parse::<SocketAddr>()
-                .expect("test socket address is valid"),
+                ?,
         ));
         if forged_principal {
             request.extensions_mut().insert(ApiTokenPrincipal {
@@ -1701,27 +1714,28 @@ mod tests {
                 preferred_language: None,
             });
         }
-        router.oneshot(request).await.expect("router is infallible")
+        Ok(router.oneshot(request).await?)
     }
 
     async fn mounted_api_token_call_without_credential(
-        router: axum::Router,
-    ) -> axum::response::Response {
+        router: TestResult<axum::Router>,
+    ) -> TestResult<axum::response::Response> {
+        let router = router?;
         let mut request = Request::builder()
             .method("GET")
             .uri("/api/token/")
             .body(Body::empty())
-            .expect("anonymous token request is valid");
+            ?;
         request.extensions_mut().insert(ConnectInfo(
             "127.0.0.1:12345"
                 .parse::<SocketAddr>()
-                .expect("test socket address is valid"),
+                ?,
         ));
-        router.oneshot(request).await.expect("router is infallible")
+        Ok(router.oneshot(request).await?)
     }
 
     #[tokio::test]
-    async fn mounted_api_token_routes_reject_disabled_dashboard_users_before_token_access() {
+    async fn mounted_api_token_routes_reject_disabled_dashboard_users_before_token_access() -> TestResult {
         let response = mounted_api_token_call(
             mounted_api_token_router_for(dashboard_user(7, 1, 2)),
             "GET",
@@ -1729,20 +1743,21 @@ mod tests {
             None,
             false,
         )
-        .await;
+        .await?;
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
         let body: Value = serde_json::from_slice(
             &axum::body::to_bytes(response.into_body(), usize::MAX)
                 .await
-                .expect("body is readable"),
+                ?,
         )
-        .expect("auth error is JSON");
+        ?;
         assert_eq!(body["code"], "AUTH_USER_DISABLED");
         assert_eq!(body["success"], false);
+        Ok(())
     }
 
     #[tokio::test]
-    async fn mounted_api_token_routes_share_the_models_discovery_gate() {
+    async fn mounted_api_token_routes_share_the_models_discovery_gate() -> TestResult {
         for (allow, expected_status) in [(true, StatusCode::OK), (false, StatusCode::NOT_FOUND)] {
             let calls = Arc::new(AtomicUsize::new(0));
             let service: Arc<dyn ModelsService> = Arc::new(DiscoveryGateModels {
@@ -1756,14 +1771,15 @@ mod tests {
                 Some("{"),
                 false,
             )
-            .await;
+            .await?;
             assert_eq!(response.status(), expected_status, "allow={allow}");
             assert_eq!(calls.load(Ordering::Relaxed), 1, "allow={allow}");
         }
+        Ok(())
     }
 
     #[tokio::test]
-    async fn current_go_api_token_policy_hides_anonymous_and_unactivated_users() {
+    async fn current_go_api_token_policy_hides_anonymous_and_unactivated_users() -> TestResult {
         let calls = Arc::new(AtomicUsize::new(0));
         let service: Arc<dyn ModelsService> = Arc::new(DiscoveryGateModels {
             allow: false,
@@ -1774,7 +1790,7 @@ mod tests {
                 dashboard_user(7, 1, 1),
                 Some(Arc::clone(&service)),
             ))
-            .await;
+            .await?;
         assert_eq!(anonymous.status(), StatusCode::NOT_FOUND);
         assert_eq!(calls.load(Ordering::Relaxed), 0);
 
@@ -1785,13 +1801,14 @@ mod tests {
             None,
             false,
         )
-        .await;
+        .await?;
         assert_eq!(unactivated.status(), StatusCode::NOT_FOUND);
         assert_eq!(calls.load(Ordering::Relaxed), 1);
+        Ok(())
     }
 
     #[tokio::test]
-    async fn current_go_api_token_policy_hides_discovery_lookup_failure() {
+    async fn current_go_api_token_policy_hides_discovery_lookup_failure() -> TestResult {
         let response = mounted_api_token_call(
             mounted_api_token_router_for_with_discovery(
                 dashboard_user(7, 1, 1),
@@ -1802,19 +1819,20 @@ mod tests {
             None,
             false,
         )
-        .await;
+        .await?;
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
         let body: Value = serde_json::from_slice(
             &axum::body::to_bytes(response.into_body(), usize::MAX)
                 .await
-                .expect("body is readable"),
+                ?,
         )
-        .expect("auth error is JSON");
+        ?;
         assert_eq!(body, serde_json::json!({"message": "Not Found"}));
+        Ok(())
     }
 
     #[tokio::test]
-    async fn current_go_api_token_policy_preserves_disabled_credential_401() {
+    async fn current_go_api_token_policy_preserves_disabled_credential_401() -> TestResult {
         let calls = Arc::new(AtomicUsize::new(0));
         let response = mounted_api_token_call(
             mounted_api_token_router_for_with_discovery(
@@ -1826,19 +1844,20 @@ mod tests {
             None,
             false,
         )
-        .await;
+        .await?;
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
         let body: Value = serde_json::from_slice(
             &axum::body::to_bytes(response.into_body(), usize::MAX)
                 .await
-                .expect("body is readable"),
+                ?,
         )
-        .expect("auth error is JSON");
+        ?;
         assert_eq!(body["code"], "AUTH_USER_DISABLED");
+        Ok(())
     }
 
     #[tokio::test]
-    async fn current_go_api_token_policy_exposes_user_auth_only_after_discovery() {
+    async fn current_go_api_token_policy_exposes_user_auth_only_after_discovery() -> TestResult {
         for (user, expected_status, expected_code) in [
             (
                 dashboard_user(7, 0, 1),
@@ -1869,21 +1888,22 @@ mod tests {
                 None,
                 false,
             )
-            .await;
+            .await?;
             assert_eq!(response.status(), expected_status, "{expected_code}");
             let body: Value = serde_json::from_slice(
                 &axum::body::to_bytes(response.into_body(), usize::MAX)
                     .await
-                    .expect("body is readable"),
+                    ?,
             )
-            .expect("auth error is JSON");
+            ?;
             assert_eq!(body["code"], expected_code);
             assert_eq!(body["success"], false);
         }
+        Ok(())
     }
 
     #[tokio::test]
-    async fn frozen_api_token_parity_path_does_not_query_model_discovery_policy() {
+    async fn frozen_api_token_parity_path_does_not_query_model_discovery_policy() -> TestResult {
         let calls = Arc::new(AtomicUsize::new(0));
         let service: Arc<dyn ModelsService> = Arc::new(DiscoveryGateModels {
             allow: false,
@@ -1896,13 +1916,14 @@ mod tests {
             Some("{"),
             false,
         )
-        .await;
+        .await?;
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(calls.load(Ordering::Relaxed), 0);
+        Ok(())
     }
 
     #[tokio::test]
-    async fn mounted_api_token_routes_reject_low_role_and_invalid_dashboard_users() {
+    async fn mounted_api_token_routes_reject_low_role_and_invalid_dashboard_users() -> TestResult {
         let mut blank_username = dashboard_user(7, 1, 1);
         blank_username.username.clear();
         for (user, expected_status, expected_code) in [
@@ -1929,21 +1950,22 @@ mod tests {
                 None,
                 false,
             )
-            .await;
+            .await?;
             assert_eq!(response.status(), expected_status);
             let body: Value = serde_json::from_slice(
                 &axum::body::to_bytes(response.into_body(), usize::MAX)
                     .await
-                    .expect("body is readable"),
+                    ?,
             )
-            .expect("auth error is JSON");
+            ?;
             assert_eq!(body["code"], expected_code);
             assert_eq!(body["success"], false);
         }
+        Ok(())
     }
 
     #[tokio::test]
-    async fn mounted_api_token_routes_validate_dashboard_users_in_go_order() {
+    async fn mounted_api_token_routes_validate_dashboard_users_in_go_order() -> TestResult {
         for (user, expected_status, expected_code) in [
             (
                 dashboard_user(7, 2, 2),
@@ -1968,21 +1990,22 @@ mod tests {
                 None,
                 false,
             )
-            .await;
+            .await?;
             assert_eq!(response.status(), expected_status);
             let body: Value = serde_json::from_slice(
                 &axum::body::to_bytes(response.into_body(), usize::MAX)
                     .await
-                    .expect("body is readable"),
+                    ?,
             )
-            .expect("auth error is JSON");
+            ?;
             assert_eq!(body["code"], expected_code);
             assert_eq!(body["success"], false);
         }
+        Ok(())
     }
 
     #[tokio::test]
-    async fn mounted_api_token_routes_reject_each_noncanonical_dashboard_role() {
+    async fn mounted_api_token_routes_reject_each_noncanonical_dashboard_role() -> TestResult {
         for role in [2, 9, 11] {
             let response = mounted_api_token_call(
                 mounted_api_token_router_for(dashboard_user(7, role, 1)),
@@ -1991,21 +2014,22 @@ mod tests {
                 None,
                 false,
             )
-            .await;
+            .await?;
             assert_eq!(response.status(), StatusCode::UNAUTHORIZED, "role {role}");
             let body: Value = serde_json::from_slice(
                 &axum::body::to_bytes(response.into_body(), usize::MAX)
                     .await
-                    .expect("body is readable"),
+                    ?,
             )
-            .expect("auth error is JSON");
+            ?;
             assert_eq!(body["code"], "AUTH_USER_INVALID", "role {role}");
             assert_eq!(body["success"], false, "role {role}");
         }
+        Ok(())
     }
 
     #[tokio::test]
-    async fn mounted_api_token_routes_keep_root_dashboard_role_valid() {
+    async fn mounted_api_token_routes_keep_root_dashboard_role_valid() -> TestResult {
         let response = mounted_api_token_call(
             mounted_api_token_router_for(dashboard_user(7, 100, 1)),
             "POST",
@@ -2013,20 +2037,21 @@ mod tests {
             Some("{"),
             false,
         )
-        .await;
+        .await?;
         assert_eq!(response.status(), StatusCode::OK);
         let body: Value = serde_json::from_slice(
             &axum::body::to_bytes(response.into_body(), usize::MAX)
                 .await
-                .expect("body is readable"),
+                ?,
         )
-        .expect("token route error is JSON");
+        ?;
         assert_eq!(body["success"], false);
         assert!(body.get("code").is_none());
+        Ok(())
     }
 
     #[tokio::test]
-    async fn mounted_api_token_routes_preserve_invalid_dashboard_role_errors() {
+    async fn mounted_api_token_routes_preserve_invalid_dashboard_role_errors() -> TestResult {
         for accept_language in ["en-US", "zh-CN", "zh-TW"] {
             let response = mounted_api_token_call_with_locale(
                 mounted_api_token_router_for(dashboard_user(7, 9, 1)),
@@ -2036,7 +2061,7 @@ mod tests {
                 false,
                 Some(accept_language),
             )
-            .await;
+            .await?;
             assert_eq!(
                 response.status(),
                 StatusCode::UNAUTHORIZED,
@@ -2045,46 +2070,48 @@ mod tests {
             let body: Value = serde_json::from_slice(
                 &axum::body::to_bytes(response.into_body(), usize::MAX)
                     .await
-                    .expect("body is readable"),
+                    ?,
             )
-            .expect("auth error is JSON");
+            ?;
             assert_eq!(body["code"], "AUTH_USER_INVALID", "{accept_language}");
             assert_eq!(body["success"], false, "{accept_language}");
         }
+        Ok(())
     }
 
     #[tokio::test]
-    async fn mounted_api_token_routes_do_not_trust_a_forged_principal_extension() {
-        let router = mounted_api_token_router_for(dashboard_user(7, 100, 1));
+    async fn mounted_api_token_routes_do_not_trust_a_forged_principal_extension() -> TestResult {
+        let router = mounted_api_token_router_for(dashboard_user(7, 100, 1))?;
         let mut request = Request::builder()
             .method("GET")
             .uri("/api/token/")
             .body(Body::empty())
-            .expect("request is valid");
+            ?;
         request.extensions_mut().insert(ConnectInfo(
             "127.0.0.1:12345"
                 .parse::<SocketAddr>()
-                .expect("test socket address is valid"),
+                ?,
         ));
         request.extensions_mut().insert(ApiTokenPrincipal {
             user_id: 999,
             role: 10,
             preferred_language: None,
         });
-        let response = router.oneshot(request).await.expect("router is infallible");
+        let response = router.oneshot(request).await?;
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
         let body: Value = serde_json::from_slice(
             &axum::body::to_bytes(response.into_body(), usize::MAX)
                 .await
-                .expect("body is readable"),
+                ?,
         )
-        .expect("auth error is JSON");
+        ?;
         assert_eq!(body["code"], "AUTH_UNAUTHORIZED");
         assert_eq!(body["success"], false);
+        Ok(())
     }
 
     #[tokio::test]
-    async fn mounted_api_token_malformed_json_and_query_use_legacy_success_envelopes() {
+    async fn mounted_api_token_malformed_json_and_query_use_legacy_success_envelopes() -> TestResult {
         for (method, uri, body) in [
             ("POST", "/api/token/", Some("{")),
             ("GET", "/api/token/?p=not-an-integer", None),
@@ -2096,20 +2123,21 @@ mod tests {
                 body,
                 false,
             )
-            .await;
+            .await?;
             assert_eq!(response.status(), StatusCode::OK, "{method} {uri}");
             let body: Value = serde_json::from_slice(
                 &axum::body::to_bytes(response.into_body(), usize::MAX)
                     .await
-                    .expect("body is readable"),
+                    ?,
             )
-            .expect("legacy error is JSON");
+            ?;
             assert_eq!(body["success"], false, "{method} {uri}");
         }
+        Ok(())
     }
 
     #[tokio::test]
-    async fn mounted_api_token_validation_prefers_user_setting_language() {
+    async fn mounted_api_token_validation_prefers_user_setting_language() -> TestResult {
         let mut user = dashboard_user(7, 1, 1);
         user.setting = r#"{"language":"zh-TW"}"#.to_owned();
         let response = mounted_api_token_call_with_locale(
@@ -2120,15 +2148,16 @@ mod tests {
             false,
             Some("en-US"),
         )
-        .await;
+        .await?;
         assert_eq!(response.status(), StatusCode::OK);
         let body: Value = serde_json::from_slice(
             &axum::body::to_bytes(response.into_body(), usize::MAX)
                 .await
-                .expect("body is readable"),
+                ?,
         )
-        .expect("legacy error is JSON");
+        ?;
         assert_eq!(body["message"], "無效的參數");
+        Ok(())
     }
 
     #[derive(Clone, Copy)]
@@ -2153,8 +2182,7 @@ mod tests {
     impl GlobalApiRateLimiter for MockRateLimiter {
         async fn check(&self, client_ip: &str) -> Result<RateLimitOutcome, RateLimitError> {
             self.client_ips
-                .lock()
-                .expect("test mutex is healthy")
+                .lock().unwrap_or_else(|poisoned| poisoned.into_inner())
                 .push(client_ip.to_owned());
             match self.mode {
                 MockLimitMode::Reject(retry_after_seconds) => Ok(RateLimitOutcome::Rejected {
@@ -2185,14 +2213,14 @@ mod tests {
         }
     }
 
-    fn state(failing: Option<&'static str>) -> AppState {
+    fn state(failing: Option<&'static str>) -> TestResult<AppState> {
         state_with_rate_limiter(failing, Arc::new(AllowAllRateLimiter))
     }
 
     fn state_with_rate_limiter(
         failing: Option<&'static str>,
         global_api_rate_limiter: Arc<dyn GlobalApiRateLimiter>,
-    ) -> AppState {
+    ) -> TestResult<AppState> {
         state_with_rate_limiter_and_policy(
             failing,
             global_api_rate_limiter,
@@ -2204,8 +2232,8 @@ mod tests {
         failing: Option<&'static str>,
         global_api_rate_limiter: Arc<dyn GlobalApiRateLimiter>,
         valkey_readiness_policy: ValkeyReadinessPolicy,
-    ) -> AppState {
-        AppState {
+    ) -> TestResult<AppState> {
+        Ok(AppState {
             readiness: Arc::new(MockProbe(failing)),
             valkey_readiness_policy,
             global_api_rate_limiter,
@@ -2218,9 +2246,9 @@ mod tests {
             slot: "blue".to_owned(),
             runtime: RuntimeState::default(),
             trusted_proxies: TrustedProxyPolicy::Explicit(vec![
-                "127.0.0.0/8".parse().expect("test proxy CIDR is valid"),
+                "127.0.0.0/8".parse()?,
             ]),
-        }
+        })
     }
 
     #[async_trait]
@@ -2251,7 +2279,7 @@ mod tests {
         uri: &str,
         client_id: Option<&str>,
         failing: Option<&'static str>,
-    ) -> (StatusCode, String, Value) {
+    ) -> TestResult<(StatusCode, String, Value)> {
         call_with_policy(
             method,
             uri,
@@ -2268,41 +2296,40 @@ mod tests {
         client_id: Option<&str>,
         failing: Option<&'static str>,
         valkey_readiness_policy: ValkeyReadinessPolicy,
-    ) -> (StatusCode, String, Value) {
+    ) -> TestResult<(StatusCode, String, Value)> {
         let mut builder = Request::builder().method(method).uri(uri);
         if let Some(value) = client_id {
             builder = builder.header("x-request-id", value);
         }
-        let mut request = builder.body(Body::empty()).expect("test request is valid");
+        let mut request = builder.body(Body::empty())?;
         request.extensions_mut().insert(ConnectInfo(
             "127.0.0.1:12345"
                 .parse::<SocketAddr>()
-                .expect("test socket address is valid"),
+                ?,
         ));
         let response = router(state_with_rate_limiter_and_policy(
             failing,
             Arc::new(AllowAllRateLimiter),
             valkey_readiness_policy,
-        ))
+        )?)
         .oneshot(request)
         .await
-        .expect("router is infallible");
+        ?;
         let status = response.status();
         let id = response
             .headers()
             .get("x-request-id")
-            .expect("server id exists")
-            .to_str()
-            .expect("server id is ASCII")
+            .ok_or_else(|| test_error("server id exists"))?
+            .to_str()?
             .to_owned();
         let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
-            .expect("test body is readable");
-        let body = serde_json::from_slice(&bytes).expect("response is JSON");
-        (status, id, body)
+            ?;
+        let body = serde_json::from_slice(&bytes)?;
+        Ok((status, id, body))
     }
 
-    async fn auth_call(method: &str, uri: &str, body: Option<&str>) -> axum::response::Response {
+    async fn auth_call(method: &str, uri: &str, body: Option<&str>) -> TestResult<axum::response::Response> {
         auth_call_with_limiter(method, uri, body, Arc::new(AllowAllRateLimiter)).await
     }
 
@@ -2311,27 +2338,26 @@ mod tests {
         uri: &str,
         body: Option<&str>,
         limiter: Arc<dyn GlobalApiRateLimiter>,
-    ) -> axum::response::Response {
+    ) -> TestResult<axum::response::Response> {
         let mut builder = Request::builder().method(method).uri(uri);
         if body.is_some() {
             builder = builder.header(header::CONTENT_TYPE, "application/json");
         }
         let mut request = builder
             .body(body.map_or_else(Body::empty, |value| Body::from(value.to_owned())))
-            .expect("auth request is valid");
+            ?;
         request.extensions_mut().insert(ConnectInfo(
             "127.0.0.1:12345"
                 .parse::<SocketAddr>()
-                .expect("test socket address is valid"),
+                ?,
         ));
-        router(state_with_rate_limiter(None, limiter))
+        Ok(router(state_with_rate_limiter(None, limiter)?)
             .oneshot(request)
-            .await
-            .expect("router is infallible")
+            .await?)
     }
 
     #[tokio::test]
-    async fn global_rate_limit_should_fail_closed_before_auth_login() {
+    async fn global_rate_limit_should_fail_closed_before_auth_login() -> TestResult {
         let response = auth_call_with_limiter(
             "POST",
             "/api/user/login",
@@ -2341,26 +2367,27 @@ mod tests {
                 client_ips: Mutex::new(Vec::new()),
             }),
         )
-        .await;
+        .await?;
         assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
         assert_eq!(response.headers()[header::RETRY_AFTER], "37");
         assert!(response.headers().get(header::CONTENT_TYPE).is_none());
         assert_eq!(response.headers()["x-new-api-version"], "v0.0.0");
         let request_id = response.headers()["x-request-id"]
             .to_str()
-            .expect("request id is ASCII");
+            ?;
         assert_eq!(response.headers()["x-oneapi-request-id"], request_id);
-        Uuid::parse_str(request_id).expect("legacy limiter response uses the boundary UUID");
+        Uuid::parse_str(request_id)?;
         assert!(
             axum::body::to_bytes(response.into_body(), usize::MAX)
                 .await
-                .expect("body is readable")
+                ?
                 .is_empty()
         );
+        Ok(())
     }
 
     #[tokio::test]
-    async fn migration_candidate_root_should_rate_limit_before_candidate_execution() {
+    async fn migration_candidate_root_should_rate_limit_before_candidate_execution() -> TestResult {
         let calls = Arc::new(AtomicUsize::new(0));
         let handler_calls = Arc::clone(&calls);
         let candidates = axum::Router::new().route_service(
@@ -2377,18 +2404,18 @@ mod tests {
             mode: MockLimitMode::Reject(19),
             client_ips: Mutex::new(Vec::new()),
         });
-        let state = state_with_rate_limiter(None, limiter.clone());
+        let state = state_with_rate_limiter(None, limiter.clone())?;
         let app = finalize_listener(migration_candidate_test_surface(&state, candidates), state);
         let mut request = Request::get("/api/candidate-probe")
             .body(Body::empty())
-            .expect("candidate request is valid");
+            ?;
         request.extensions_mut().insert(ConnectInfo(
             "127.0.0.1:12345"
                 .parse::<SocketAddr>()
-                .expect("test socket address is valid"),
+                ?,
         ));
 
-        let response = app.oneshot(request).await.expect("router is infallible");
+        let response = app.oneshot(request).await?;
 
         assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
         assert_eq!(response.headers()[header::RETRY_AFTER], "19");
@@ -2397,20 +2424,20 @@ mod tests {
         assert_eq!(
             limiter
                 .client_ips
-                .lock()
-                .expect("test mutex is healthy")
+                .lock().unwrap_or_else(|poisoned| poisoned.into_inner())
                 .as_slice(),
             ["127.0.0.1"]
         );
+        Ok(())
     }
 
     #[tokio::test]
-    async fn public_extra_api_routes_use_one_global_limit_with_the_trusted_client_ip() {
+    async fn public_extra_api_routes_use_one_global_limit_with_the_trusted_client_ip() -> TestResult {
         let limiter = Arc::new(MockRateLimiter {
             mode: MockLimitMode::Reject(19),
             client_ips: Mutex::new(Vec::new()),
         });
-        let state = state_with_rate_limiter(None, limiter.clone());
+        let state = state_with_rate_limiter(None, limiter.clone())?;
         let public_routes = Router::new().route(
             "/api/test-public-rate-limit/{name}",
             get(|| async { StatusCode::NO_CONTENT }),
@@ -2428,18 +2455,18 @@ mod tests {
             let mut request = Request::get(uri)
                 .header("x-forwarded-for", "203.0.113.10, 127.0.0.2")
                 .body(Body::empty())
-                .expect("public request is valid");
+                ?;
             request.extensions_mut().insert(ConnectInfo(
                 "127.0.0.1:12345"
                     .parse::<SocketAddr>()
-                    .expect("test socket address is valid"),
+                    ?,
             ));
 
             let response = app
                 .clone()
                 .oneshot(request)
                 .await
-                .expect("router is infallible");
+                ?;
             assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS, "{uri}");
             assert_eq!(response.headers()[header::RETRY_AFTER], "19", "{uri}");
         }
@@ -2447,73 +2474,73 @@ mod tests {
         assert_eq!(
             limiter
                 .client_ips
-                .lock()
-                .expect("test mutex is healthy")
+                .lock().unwrap_or_else(|poisoned| poisoned.into_inner())
                 .as_slice(),
             ["203.0.113.10", "203.0.113.10", "203.0.113.10"]
         );
+        Ok(())
     }
 
     #[tokio::test]
-    async fn production_open_source_bounty_surface_is_rate_limited_and_public_get_remains_reachable()
-     {
+    async fn production_open_source_bounty_surface_is_rate_limited_and_public_get_remains_reachable() -> TestResult
+    {
         let limiter = Arc::new(MockRateLimiter {
             mode: MockLimitMode::Reject(23),
             client_ips: Mutex::new(Vec::new()),
         });
-        let state = state_with_rate_limiter(None, limiter.clone());
-        let extra = api_global_rate_limited_surface(&state, open_source_bounty_test_surface());
+        let state = state_with_rate_limiter(None, limiter.clone())?;
+        let extra = api_global_rate_limited_surface(&state, open_source_bounty_test_surface()?);
         let app =
             router_with_api_token_and_extra(state, auth_state(), models_state(), None, Some(extra));
 
         let mut request = Request::get("/api/open-source-bounties/projects/not-an-id")
             .header("x-forwarded-for", "203.0.113.11, 127.0.0.2")
             .body(Body::empty())
-            .expect("public bounty request is valid");
+            ?;
         request.extensions_mut().insert(ConnectInfo(
             "127.0.0.1:12345"
                 .parse::<SocketAddr>()
-                .expect("test socket address is valid"),
+                ?,
         ));
 
-        let response = app.oneshot(request).await.expect("router is infallible");
+        let response = app.oneshot(request).await?;
         assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
         assert_eq!(response.headers()[header::RETRY_AFTER], "23");
         assert_eq!(
             limiter
                 .client_ips
-                .lock()
-                .expect("test mutex is healthy")
+                .lock().unwrap_or_else(|poisoned| poisoned.into_inner())
                 .as_slice(),
             ["203.0.113.11"]
         );
 
-        let state = state_with_rate_limiter(None, Arc::new(AllowAllRateLimiter));
-        let extra = api_global_rate_limited_surface(&state, open_source_bounty_test_surface());
+        let state = state_with_rate_limiter(None, Arc::new(AllowAllRateLimiter))?;
+        let extra = api_global_rate_limited_surface(&state, open_source_bounty_test_surface()?);
         let app =
             router_with_api_token_and_extra(state, auth_state(), models_state(), None, Some(extra));
         let mut request = Request::get("/api/open-source-bounties/projects/not-an-id")
             .body(Body::empty())
-            .expect("public bounty request is valid");
+            ?;
         request.extensions_mut().insert(ConnectInfo(
             "127.0.0.1:12345"
                 .parse::<SocketAddr>()
-                .expect("test socket address is valid"),
+                ?,
         ));
 
-        let response = app.oneshot(request).await.expect("router is infallible");
+        let response = app.oneshot(request).await?;
         assert_eq!(response.status(), StatusCode::OK);
         let body: Value = serde_json::from_slice(
             &axum::body::to_bytes(response.into_body(), usize::MAX)
                 .await
-                .expect("public bounty response is readable"),
+                ?,
         )
-        .expect("public bounty response is JSON");
+        ?;
         assert_eq!(body["code"], "OPEN_SOURCE_BOUNTY_INVALID_ID");
+        Ok(())
     }
 
     #[tokio::test]
-    async fn migration_candidate_token_preflight_bypasses_rejecting_global_limiter() {
+    async fn migration_candidate_token_preflight_bypasses_rejecting_global_limiter() -> TestResult {
         let limiter = Arc::new(MockRateLimiter {
             mode: MockLimitMode::Reject(19),
             client_ips: Mutex::new(Vec::new()),
@@ -2522,54 +2549,55 @@ mod tests {
             "/api/usage/token/",
             axum::routing::options(|| async { StatusCode::NO_CONTENT }),
         );
-        let state = state_with_rate_limiter(None, limiter.clone());
+        let state = state_with_rate_limiter(None, limiter.clone())?;
         let app = finalize_listener(migration_candidate_test_surface(&state, candidates), state);
         let mut request = Request::builder()
             .method("OPTIONS")
             .uri("/api/usage/token/")
             .header(header::ORIGIN, "https://browser.example")
             .body(Body::empty())
-            .expect("preflight request is valid");
+            ?;
         request.extensions_mut().insert(ConnectInfo(
             "127.0.0.1:12345"
                 .parse::<SocketAddr>()
-                .expect("test socket address is valid"),
+                ?,
         ));
 
-        let response = app.oneshot(request).await.expect("router is infallible");
+        let response = app.oneshot(request).await?;
 
         assert_eq!(response.status(), StatusCode::NO_CONTENT);
         assert!(
             limiter
                 .client_ips
-                .lock()
-                .expect("test mutex is healthy")
+                .lock().unwrap_or_else(|poisoned| poisoned.into_inner())
                 .is_empty()
         );
+        Ok(())
     }
 
     async fn extra_probe(request: Request<Body>) -> axum::response::Response {
-        let request_id = request
+        let Some(request_id) = request
             .extensions()
             .get::<super::ServerRequestId>()
-            .expect("listener boundary inserts a request ID")
-            .0
-            .clone();
+            .map(|request_id| request_id.0.clone())
+        else {
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        };
+        let Ok(request_id_header) = request_id.parse() else {
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        };
         let mut response = StatusCode::NO_CONTENT.into_response();
-        response.headers_mut().insert(
-            "x-extra-seen-request-id",
-            request_id
-                .parse()
-                .expect("request ID is a valid header value"),
-        );
+        response
+            .headers_mut()
+            .insert("x-extra-seen-request-id", request_id_header);
         response
     }
 
     #[tokio::test]
-    async fn extra_surface_shares_one_listener_boundary_and_fallback() {
+    async fn extra_surface_shares_one_listener_boundary_and_fallback() -> TestResult {
         let extra = Router::new().route("/api/extra-probe", get(extra_probe));
         let app = router_with_api_token_and_extra(
-            state(None),
+            state(None)?,
             auth_state(),
             models_state(),
             None,
@@ -2579,17 +2607,17 @@ mod tests {
         let mut request = Request::get("/api/extra-probe")
             .header(REQUEST_ID_HEADER, "attacker-controlled")
             .body(Body::empty())
-            .expect("extra request is valid");
+            ?;
         request.extensions_mut().insert(ConnectInfo(
             "127.0.0.1:12345"
                 .parse::<SocketAddr>()
-                .expect("test socket address is valid"),
+                ?,
         ));
         let response = app
             .clone()
             .oneshot(request)
             .await
-            .expect("router is infallible");
+            ?;
         assert_eq!(response.status(), StatusCode::NO_CONTENT);
         assert_eq!(
             response.headers()["x-extra-seen-request-id"],
@@ -2602,34 +2630,35 @@ mod tests {
             .oneshot(
                 Request::post("/api/extra-probe")
                     .body(Body::empty())
-                    .expect("extra wrong-method request is valid"),
+                    ?,
             )
             .await
-            .expect("router is infallible");
+            ?;
         assert_eq!(wrong_method.status(), StatusCode::NOT_FOUND);
 
         let backend_miss = app
             .oneshot(
                 Request::get("/api/extra-missing")
                     .body(Body::empty())
-                    .expect("backend request is valid"),
+                    ?,
             )
             .await
-            .expect("router is infallible");
+            ?;
         assert_eq!(backend_miss.status(), StatusCode::NOT_FOUND);
         let backend_miss_body = axum::body::to_bytes(backend_miss.into_body(), usize::MAX)
             .await
-            .expect("backend 404 body is readable");
+            ?;
         let backend_miss: Value =
-            serde_json::from_slice(&backend_miss_body).expect("fallback body is JSON");
+            serde_json::from_slice(&backend_miss_body)?;
         assert_eq!(backend_miss, serde_json::json!({"message": "Not Found"}));
+        Ok(())
     }
 
     #[tokio::test]
-    async fn extra_surface_can_supply_a_complementary_method_without_route_conflict() {
+    async fn extra_surface_can_supply_a_complementary_method_without_route_conflict() -> TestResult {
         let extra = Router::new().route("/livez", axum::routing::post(StatusCode::NO_CONTENT));
         let app = router_with_api_token_and_extra(
-            state(None),
+            state(None)?,
             auth_state(),
             models_state(),
             None,
@@ -2643,59 +2672,60 @@ mod tests {
                         .method(method)
                         .uri("/livez")
                         .body(Body::empty())
-                        .expect("request is valid"),
+                        ?,
                 )
                 .await
-                .expect("router is infallible");
+                ?;
             assert_eq!(response.status(), expected, "{method} /livez");
         }
+        Ok(())
     }
 
     #[tokio::test]
-    async fn hidden_auth_surfaces_remain_not_found_before_global_rate_limit() {
+    async fn hidden_auth_surfaces_remain_not_found_before_global_rate_limit() -> TestResult {
         let limiter = Arc::new(MockRateLimiter {
             mode: MockLimitMode::Reject(37),
             client_ips: Mutex::new(Vec::new()),
         });
         for (method, path) in [("POST", "/api/user/login/2fa"), ("GET", "/api/user/token")] {
-            let response = auth_call_with_limiter(method, path, None, limiter.clone()).await;
+            let response = auth_call_with_limiter(method, path, None, limiter.clone()).await?;
             assert_eq!(response.status(), StatusCode::NOT_FOUND, "{method} {path}");
         }
         assert!(
             limiter
                 .client_ips
-                .lock()
-                .expect("test mutex is healthy")
+                .lock().unwrap_or_else(|poisoned| poisoned.into_inner())
                 .is_empty()
         );
 
-        let (status, _, body) = call("GET", "/api/user/token", None, None).await;
+        let (status, _, body) = call("GET", "/api/user/token", None, None).await?;
         assert_eq!(status, StatusCode::NOT_FOUND);
         assert_eq!(
             body,
             serde_json::json!({"message": "Not Found"}),
             "listener-wide concealment keeps the current Go root 404 envelope"
         );
+        Ok(())
     }
 
     #[tokio::test]
-    async fn boundary_should_replace_untrusted_request_id_and_echo_server_id() {
+    async fn boundary_should_replace_untrusted_request_id_and_echo_server_id() -> TestResult {
         let mut request = Request::get("/missing")
             .header(REQUEST_ID_HEADER, "attacker-controlled")
             .body(Body::empty())
-            .expect("request is valid");
+            ?;
         request.extensions_mut().insert(ConnectInfo(
             "127.0.0.1:12345"
                 .parse::<SocketAddr>()
-                .expect("test socket address is valid"),
+                ?,
         ));
-        let response = router(state(None))
+        let response = router(state(None)?)
             .oneshot(request)
             .await
-            .expect("router is infallible");
+            ?;
         let id = response.headers()[REQUEST_ID_HEADER]
             .to_str()
-            .expect("request id is ASCII")
+            ?
             .to_owned();
         assert_ne!(id, "attacker-controlled");
         assert_eq!(response.headers()[LEGACY_REQUEST_ID_HEADER], id);
@@ -2703,18 +2733,19 @@ mod tests {
         let body: Value = serde_json::from_slice(
             &axum::body::to_bytes(response.into_body(), usize::MAX)
                 .await
-                .expect("body is readable"),
+                ?,
         )
-        .expect("fallback body is JSON");
+        ?;
         assert_eq!(body, serde_json::json!({"message": "Not Found"}));
         assert!(body.get("request_id").is_none());
+        Ok(())
     }
 
     #[tokio::test]
-    async fn root_boundary_should_share_one_request_id_with_relay_and_provider_error_body() {
+    async fn root_boundary_should_share_one_request_id_with_relay_and_provider_error_body() -> TestResult {
         let request_ids = Arc::new(Mutex::new(Vec::new()));
         let app = router_with_api_token_and_extra(
-            state(None),
+            state(None)?,
             auth_state(),
             models_state(),
             None,
@@ -2729,14 +2760,14 @@ mod tests {
             .header("x-api-key", "root-relay-token")
             .header(header::CONTENT_TYPE, "application/json")
             .body(Body::from(r#"{"model":"claude-test"}"#))
-            .expect("relay request is valid");
+            ?;
         request.extensions_mut().insert(ConnectInfo(
             "127.0.0.1:12345"
                 .parse::<SocketAddr>()
-                .expect("test socket address is valid"),
+                ?,
         ));
 
-        let response = app.oneshot(request).await.expect("router is infallible");
+        let response = app.oneshot(request).await?;
         assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
         assert_eq!(
             response.headers()[header::CONTENT_TYPE],
@@ -2744,17 +2775,17 @@ mod tests {
         );
         let request_id = response.headers()[REQUEST_ID_HEADER]
             .to_str()
-            .expect("request id is ASCII")
+            ?
             .to_owned();
-        Uuid::parse_str(&request_id).expect("root boundary request id is a UUID");
+        Uuid::parse_str(&request_id)?;
         assert_ne!(request_id, "attacker-controlled");
         assert_eq!(response.headers()[LEGACY_REQUEST_ID_HEADER], request_id);
         let body: Value = serde_json::from_slice(
             &axum::body::to_bytes(response.into_body(), usize::MAX)
                 .await
-                .expect("provider error body is readable"),
+                ?,
         )
-        .expect("provider error body is JSON");
+        ?;
         assert_eq!(
             body,
             serde_json::json!({
@@ -2766,21 +2797,21 @@ mod tests {
         );
         assert_eq!(
             request_ids
-                .lock()
-                .expect("test mutex is healthy")
+                .lock().unwrap_or_else(|poisoned| poisoned.into_inner())
                 .as_slice(),
             [request_id.as_str()]
         );
+        Ok(())
     }
 
     #[tokio::test]
-    async fn fallback_and_wrong_method_share_the_go_not_found_contract() {
+    async fn fallback_and_wrong_method_share_the_go_not_found_contract() -> TestResult {
         for (method, uri) in [
             ("GET", "/missing"),
             ("POST", "/livez"),
             ("GET", "/api/user/login"),
         ] {
-            let (status, _, body) = call(method, uri, None, None).await;
+            let (status, _, body) = call(method, uri, None, None).await?;
             assert_eq!(status, StatusCode::NOT_FOUND, "{method} {uri}");
             assert_eq!(
                 body,
@@ -2788,38 +2819,42 @@ mod tests {
                 "{method} {uri}"
             );
         }
+        Ok(())
     }
 
     #[tokio::test]
-    async fn non_fallback_errors_keep_the_shared_json_envelope() {
+    async fn non_fallback_errors_keep_the_shared_json_envelope() -> TestResult {
         for (method, uri, failing, expected) in [("GET", "/readyz", Some("postgres"), 503)] {
-            let (status, id, body) = call(method, uri, None, failing).await;
+            let (status, id, body) = call(method, uri, None, failing).await?;
             assert_eq!(status.as_u16(), expected);
             assert_eq!(body["request_id"], id);
             assert!(body["error"]["code"].is_string());
         }
+        Ok(())
     }
 
     #[tokio::test]
-    async fn wrong_method_on_a_mounted_auth_route_uses_the_go_404_envelope() {
-        let response = auth_call("GET", "/api/user/login", None).await;
+    async fn wrong_method_on_a_mounted_auth_route_uses_the_go_404_envelope() -> TestResult {
+        let response = auth_call("GET", "/api/user/login", None).await?;
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
-            .expect("method-not-allowed body is readable");
-        let body: Value = serde_json::from_slice(&body).expect("method-not-allowed body is JSON");
+            ?;
+        let body: Value = serde_json::from_slice(&body)?;
         assert_eq!(body, serde_json::json!({"message": "Not Found"}));
+        Ok(())
     }
 
     #[tokio::test]
-    async fn wrong_method_on_a_mounted_models_route_uses_the_go_404_envelope() {
-        let (status, _, body) = call("POST", "/v1/models", None, None).await;
+    async fn wrong_method_on_a_mounted_models_route_uses_the_go_404_envelope() -> TestResult {
+        let (status, _, body) = call("POST", "/v1/models", None, None).await?;
         assert_eq!(status, StatusCode::NOT_FOUND);
         assert_eq!(body, serde_json::json!({"message": "Not Found"}));
+        Ok(())
     }
 
     #[tokio::test]
-    async fn models_cors_matches_legacy_preflight_and_actual_response_headers() {
+    async fn models_cors_matches_legacy_preflight_and_actual_response_headers() -> TestResult {
         for path in ["/v1/models", "/v1beta/models", "/v1beta/openai/models"] {
             let mut preflight = Request::builder()
                 .method("OPTIONS")
@@ -2827,16 +2862,16 @@ mod tests {
                 .header(header::ORIGIN, "https://browser.example")
                 .header("access-control-request-method", "GET")
                 .body(Body::empty())
-                .expect("preflight request is valid");
+                ?;
             preflight.extensions_mut().insert(ConnectInfo(
                 "127.0.0.1:12345"
                     .parse::<SocketAddr>()
-                    .expect("test socket address is valid"),
+                    ?,
             ));
-            let preflight = router(state(None))
+            let preflight = router(state(None)?)
                 .oneshot(preflight)
                 .await
-                .expect("router is infallible");
+                ?;
             assert_eq!(preflight.status(), StatusCode::NO_CONTENT, "{path}");
             assert_eq!(
                 preflight.headers()["access-control-allow-origin"],
@@ -2870,16 +2905,16 @@ mod tests {
             .uri("/v1/models")
             .header(header::ORIGIN, "https://browser.example")
             .body(Body::empty())
-            .expect("models request is valid");
+            ?;
         actual.extensions_mut().insert(ConnectInfo(
             "127.0.0.1:12345"
                 .parse::<SocketAddr>()
-                .expect("test socket address is valid"),
+                ?,
         ));
-        let actual = router(state(None))
+        let actual = router(state(None)?)
             .oneshot(actual)
             .await
-            .expect("router is infallible");
+            ?;
         assert_eq!(actual.headers()["access-control-allow-origin"], "*");
         assert_eq!(actual.headers()["access-control-allow-credentials"], "true");
         assert!(actual.headers().get("access-control-max-age").is_none());
@@ -2891,16 +2926,16 @@ mod tests {
                 .header(header::ORIGIN, "https://browser.example")
                 .header("access-control-request-method", "GET")
                 .body(Body::empty())
-                .expect("non-models preflight request is valid");
+                ?;
             non_models.extensions_mut().insert(ConnectInfo(
                 "127.0.0.1:12345"
                     .parse::<SocketAddr>()
-                    .expect("test socket address is valid"),
+                    ?,
             ));
-            let response = router(state(None))
+            let response = router(state(None)?)
                 .oneshot(non_models)
                 .await
-                .expect("router is infallible");
+                ?;
             assert!(
                 response
                     .headers()
@@ -2913,94 +2948,99 @@ mod tests {
                 "preflight cache policy must not leak to {path}"
             );
         }
+        Ok(())
     }
 
     #[test]
-    fn client_ip_ignores_spoofed_forwarding_from_an_untrusted_peer() {
+    fn client_ip_ignores_spoofed_forwarding_from_an_untrusted_peer() -> TestResult {
         let mut request = Request::builder()
             .uri("/v1/models")
             .header("x-forwarded-for", "203.0.113.10")
             .body(Body::empty())
-            .expect("request is valid");
+            ?;
         request.extensions_mut().insert(ConnectInfo(
             "198.51.100.10:12345"
                 .parse::<SocketAddr>()
-                .expect("test socket address is valid"),
+                ?,
         ));
         let policy = TrustedProxyPolicy::Default(vec![
-            "127.0.0.0/8".parse().expect("test proxy CIDR is valid"),
+            "127.0.0.0/8".parse()?,
         ]);
         assert_eq!(
             canonical_client_ip(&request, &policy),
-            Some("198.51.100.10".parse().expect("public IP is valid"))
+            Some("198.51.100.10".parse()?)
         );
+        Ok(())
     }
 
     #[test]
-    fn client_ip_uses_the_rightmost_untrusted_hop_from_a_trusted_cidr() {
+    fn client_ip_uses_the_rightmost_untrusted_hop_from_a_trusted_cidr() -> TestResult {
         let mut request = Request::builder()
             .uri("/v1/models")
             .header("x-forwarded-for", "192.0.2.99, 203.0.113.10")
             .body(Body::empty())
-            .expect("request is valid");
+            ?;
         request.extensions_mut().insert(ConnectInfo(
             "172.20.0.2:12345"
                 .parse::<SocketAddr>()
-                .expect("test socket address is valid"),
+                ?,
         ));
         let policy = TrustedProxyPolicy::Explicit(vec![
-            "172.16.0.0/12".parse().expect("test proxy CIDR is valid"),
+            "172.16.0.0/12".parse()?,
         ]);
         assert_eq!(
             canonical_client_ip(&request, &policy),
-            Some("203.0.113.10".parse().expect("forwarded IP is valid"))
+            Some("203.0.113.10".parse()?)
         );
+        Ok(())
     }
 
     #[test]
-    fn client_ip_uses_a_valid_rightmost_hop_before_a_bad_left_segment() {
+    fn client_ip_uses_a_valid_rightmost_hop_before_a_bad_left_segment() -> TestResult {
         let mut request = Request::builder()
             .uri("/v1/models")
             .header("x-forwarded-for", "bad, 203.0.113.10")
             .body(Body::empty())
-            .expect("request is valid");
+            ?;
         request.extensions_mut().insert(ConnectInfo(
             "172.20.0.2:12345"
                 .parse::<SocketAddr>()
-                .expect("test socket address is valid"),
+                ?,
         ));
         let policy = TrustedProxyPolicy::Explicit(vec![
-            "172.16.0.0/12".parse().expect("test proxy CIDR is valid"),
+            "172.16.0.0/12".parse()?,
         ]);
         assert_eq!(
             canonical_client_ip(&request, &policy),
-            Some("203.0.113.10".parse().expect("forwarded IP is valid"))
+            Some("203.0.113.10".parse()?)
         );
+        Ok(())
     }
 
     #[test]
-    fn client_ip_falls_back_after_a_bad_hop_before_a_usable_hop() {
+    fn client_ip_falls_back_after_a_bad_hop_before_a_usable_hop() -> TestResult {
         let mut request = Request::builder()
             .uri("/v1/models")
             .header("x-forwarded-for", "203.0.113.10, bad, 172.20.0.3")
             .body(Body::empty())
-            .expect("request is valid");
+            ?;
         request.extensions_mut().insert(ConnectInfo(
             "172.20.0.2:12345"
                 .parse::<SocketAddr>()
-                .expect("test socket address is valid"),
+                ?,
         ));
         let policy = TrustedProxyPolicy::Explicit(vec![
-            "172.16.0.0/12".parse().expect("test proxy CIDR is valid"),
+            "172.16.0.0/12".parse()?,
         ]);
         assert_eq!(
             canonical_client_ip(&request, &policy),
-            Some("172.20.0.2".parse().expect("peer IP is valid"))
+            Some("172.20.0.2".parse()?)
         );
+        Ok(())
     }
 
     #[tokio::test]
-    async fn listener_rate_limit_key_preserves_trimmed_raw_ipv6_text() {
+    async fn listener_rate_limit_key_preserves_trimmed_raw_ipv6_text() -> TestResult {
         let limiter = Arc::new(MockRateLimiter {
             mode: MockLimitMode::Reject(1),
             client_ips: Mutex::new(Vec::new()),
@@ -3008,68 +3048,71 @@ mod tests {
         let mut request = Request::get("/api/status")
             .header("x-forwarded-for", " 2001:0db8:0:0:0:0:0:1 , 172.20.0.3")
             .body(Body::empty())
-            .expect("request is valid");
+            ?;
         request.extensions_mut().insert(ConnectInfo(
             "172.20.0.2:12345"
                 .parse::<SocketAddr>()
-                .expect("test socket address is valid"),
+                ?,
         ));
-        let mut state = state_with_rate_limiter(None, limiter.clone());
+        let mut state = state_with_rate_limiter(None, limiter.clone())?;
         state.trusted_proxies = TrustedProxyPolicy::Explicit(vec![
-            "172.16.0.0/12".parse().expect("test proxy CIDR is valid"),
+            "172.16.0.0/12".parse()?,
         ]);
         let response = router(state)
             .oneshot(request)
             .await
-            .expect("router is infallible");
+            ?;
 
         assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
         assert_eq!(
             limiter
                 .client_ips
-                .lock()
-                .expect("test mutex is healthy")
+                .lock().unwrap_or_else(|poisoned| poisoned.into_inner())
                 .as_slice(),
             ["2001:0db8:0:0:0:0:0:1"]
         );
+        Ok(())
     }
 
     #[tokio::test]
-    async fn extractor_rejection_should_use_the_json_envelope() {
+    async fn extractor_rejection_should_use_the_json_envelope() -> TestResult {
         let mut request = Request::builder()
             .method("POST")
             .uri("/_test/json")
             .header("content-type", "application/json")
             .body(Body::from("{"))
-            .expect("test request is valid");
+            ?;
         request.extensions_mut().insert(ConnectInfo(
             "127.0.0.1:12345"
                 .parse::<SocketAddr>()
-                .expect("test socket address is valid"),
+                ?,
         ));
-        let response = router(state(None))
+        let response = router(state(None)?)
             .oneshot(request)
             .await
-            .expect("router is infallible");
+            ?;
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
         assert_eq!(response.headers()["content-type"], "application/json");
+        Ok(())
     }
 
     #[tokio::test]
-    async fn build_should_report_runtime_slot_identity() {
-        let (_, _, body) = call("GET", "/_internal/build", None, None).await;
+    async fn build_should_report_runtime_slot_identity() -> TestResult {
+        let (_, _, body) = call("GET", "/_internal/build", None, None).await?;
         assert_eq!(body["slot"], "blue");
+        Ok(())
     }
 
     #[tokio::test]
-    async fn valkey_failure_should_reject_traffic_when_rate_limiting_is_enabled() {
-        let (status, _, body) = call("GET", "/readyz", None, Some("valkey")).await;
+    async fn valkey_failure_should_reject_traffic_when_rate_limiting_is_enabled() -> TestResult {
+        let (status, _, body) = call("GET", "/readyz", None, Some("valkey")).await?;
         assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
         assert_eq!(body["error"]["code"], "not_ready");
+        Ok(())
     }
 
     #[tokio::test]
-    async fn valkey_failure_should_degrade_when_rate_limiting_is_disabled() {
+    async fn valkey_failure_should_degrade_when_rate_limiting_is_disabled() -> TestResult {
         let (status, _, body) = call_with_policy(
             "GET",
             "/readyz",
@@ -3077,33 +3120,34 @@ mod tests {
             Some("valkey"),
             ValkeyReadinessPolicy::OptionalCacheOnly,
         )
-        .await;
+        .await?;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body["status"], "degraded");
+        Ok(())
     }
 
     #[tokio::test]
-    async fn drain_should_finish_an_inflight_request_then_reject_new_work() {
+    async fn drain_should_finish_an_inflight_request_then_reject_new_work() -> TestResult {
         let runtime = RuntimeState::default();
-        let mut draining_state = state(None);
+        let mut draining_state = state(None)?;
         draining_state.runtime = runtime.clone();
         let service = router(draining_state);
         let mut held_request = Request::builder()
             .method("GET")
             .uri("/_test/hold")
             .body(Body::empty())
-            .expect("held request is valid");
+            ?;
         held_request.extensions_mut().insert(ConnectInfo(
             "127.0.0.1:12345"
                 .parse::<SocketAddr>()
-                .expect("test socket address is valid"),
+                ?,
         ));
 
         let held = tokio::spawn(async move {
-            service
-                .oneshot(held_request)
-                .await
-                .expect("router is infallible")
+            match service.oneshot(held_request).await {
+                Ok(response) => response,
+                Err(error) => match error {},
+            }
         });
         for _ in 0..10 {
             if runtime.inflight() == 1 {
@@ -3115,7 +3159,7 @@ mod tests {
 
         runtime.begin_drain();
         let response = router({
-            let mut state = state(None);
+            let mut state = state(None)?;
             state.runtime = runtime.clone();
             state
         })
@@ -3124,37 +3168,35 @@ mod tests {
                 .method("GET")
                 .uri("/readyz")
                 .body(Body::empty())
-                .expect("readiness request is valid"),
+                ?,
         )
         .await
-        .expect("router is infallible");
+        ?;
         assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
 
-        let completed = tokio::time::timeout(std::time::Duration::from_secs(1), held)
-            .await
-            .expect("inflight request drains within its bound")
-            .expect("request task joins");
+        let completed = tokio::time::timeout(std::time::Duration::from_secs(1), held).await??;
         assert_eq!(completed.status(), StatusCode::NO_CONTENT);
         assert_eq!(runtime.inflight(), 0, "drain has no remaining requests");
+        Ok(())
     }
 
     #[tokio::test]
-    async fn public_content_should_match_the_go_success_envelope() {
+    async fn public_content_should_match_the_go_success_envelope() -> TestResult {
         for uri in ["/api/notice", "/api/about", "/api/home_page_content"] {
             let mut request = Request::builder()
                 .method("GET")
                 .uri(uri)
                 .body(Body::empty())
-                .expect("public content request is valid");
+                ?;
             request.extensions_mut().insert(ConnectInfo(
                 "127.0.0.1:12345"
                     .parse::<SocketAddr>()
-                    .expect("test socket address is valid"),
+                    ?,
             ));
-            let response = router(state(None))
+            let response = router(state(None)?)
                 .oneshot(request)
                 .await
-                .expect("router is infallible");
+                ?;
             let status = response.status();
             assert_eq!(status, StatusCode::OK);
             assert_eq!(
@@ -3168,16 +3210,17 @@ mod tests {
             );
             let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
                 .await
-                .expect("public content body is readable");
-            let body: Value = serde_json::from_slice(&bytes).expect("response is JSON");
+                ?;
+            let body: Value = serde_json::from_slice(&bytes)?;
             assert_eq!(body["success"], true);
             assert_eq!(body["message"], "");
             assert_eq!(body["data"], "configured content");
         }
+        Ok(())
     }
 
     #[tokio::test]
-    async fn root_router_should_expose_only_the_four_p0_auth_routes() {
+    async fn root_router_should_expose_only_the_four_p0_auth_routes() -> TestResult {
         for (method, path, body, expected) in [
             (
                 "POST",
@@ -3194,7 +3237,7 @@ mod tests {
             ("GET", "/api/user/self", None, StatusCode::UNAUTHORIZED),
             ("POST", "/api/user/auth/logout", Some("{}"), StatusCode::OK),
         ] {
-            let response = auth_call(method, path, body).await;
+            let response = auth_call(method, path, body).await?;
             assert_eq!(response.status(), expected, "{method} {path}");
             assert_eq!(
                 response.headers()[LEGACY_REQUEST_ID_HEADER],
@@ -3204,31 +3247,32 @@ mod tests {
         }
 
         for (method, path) in [("POST", "/api/user/login/2fa"), ("GET", "/api/user/token")] {
-            let response = auth_call(method, path, None).await;
+            let response = auth_call(method, path, None).await?;
             assert_eq!(
                 response.status(),
                 StatusCode::NOT_FOUND,
                 "{method} {path} must remain outside production ownership"
             );
         }
+        Ok(())
     }
 
     #[tokio::test]
-    async fn status_should_match_the_current_go_shape_through_the_real_router() {
+    async fn status_should_match_the_current_go_shape_through_the_real_router() -> TestResult {
         let mut request = Request::builder()
             .method("GET")
             .uri("/api/status")
             .body(Body::empty())
-            .expect("status request is valid");
+            ?;
         request.extensions_mut().insert(ConnectInfo(
             "127.0.0.1:12345"
                 .parse::<SocketAddr>()
-                .expect("test socket address is valid"),
+                ?,
         ));
-        let response = router(state(None))
+        let response = router(state(None)?)
             .oneshot(request)
             .await
-            .expect("router is infallible");
+            ?;
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(
             response.headers()[header::CONTENT_TYPE],
@@ -3241,8 +3285,8 @@ mod tests {
         );
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
-            .expect("status body is readable");
-        let actual: Value = serde_json::from_slice(&body).expect("status response is JSON");
+            ?;
+        let actual: Value = serde_json::from_slice(&body)?;
         assert_eq!(actual["success"], true);
         assert_eq!(actual["message"], "");
         assert_eq!(actual["data"]["version"], "v0.0.0");
@@ -3258,36 +3302,36 @@ mod tests {
         assert_eq!(actual["data"]["passkey_rp_id"], "localhost:3000");
         assert!(actual["data"].get("turnstile_secret_key").is_none());
         assert!(actual["data"].get("client_secret").is_none());
+        Ok(())
     }
 
     async fn limited_response(
         limiter: Arc<dyn GlobalApiRateLimiter>,
         peer: &str,
         real_ip: &str,
-    ) -> axum::response::Response {
+    ) -> TestResult<axum::response::Response> {
         let mut request = Request::builder()
             .method("GET")
             .uri("/api/notice")
             .header("x-real-ip", real_ip)
             .body(Body::empty())
-            .expect("test request is valid");
+            ?;
         request.extensions_mut().insert(ConnectInfo(
             peer.parse::<SocketAddr>()
-                .expect("test socket address is valid"),
+                ?,
         ));
-        router(state_with_rate_limiter(None, limiter))
+        Ok(router(state_with_rate_limiter(None, limiter)?)
             .oneshot(request)
-            .await
-            .expect("router is infallible")
+            .await?)
     }
 
     #[tokio::test]
-    async fn rate_limit_should_match_go_empty_429_and_trust_only_loopback_proxy() {
+    async fn rate_limit_should_match_go_empty_429_and_trust_only_loopback_proxy() -> TestResult {
         let limiter = Arc::new(MockRateLimiter {
             mode: MockLimitMode::Reject(37),
             client_ips: Mutex::new(Vec::new()),
         });
-        let response = limited_response(limiter.clone(), "127.0.0.1:12345", "192.0.2.10").await;
+        let response = limited_response(limiter.clone(), "127.0.0.1:12345", "192.0.2.10").await?;
         assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
         assert_eq!(response.headers()["retry-after"], "37");
         assert!(response.headers().get("content-type").is_none());
@@ -3298,10 +3342,15 @@ mod tests {
         );
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
-            .expect("body is readable");
+            ?;
         assert!(body.is_empty());
         assert_eq!(
-            limiter.client_ips.lock().expect("test mutex is healthy")[0],
+            limiter
+                .client_ips
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .first()
+                .ok_or_else(|| test_error("trusted limiter records one client IP"))?,
             "192.0.2.10"
         );
 
@@ -3309,15 +3358,21 @@ mod tests {
             mode: MockLimitMode::Reject(37),
             client_ips: Mutex::new(Vec::new()),
         });
-        let _ = limited_response(untrusted.clone(), "198.51.100.20:12345", "192.0.2.99").await;
+        let _ = limited_response(untrusted.clone(), "198.51.100.20:12345", "192.0.2.99").await?;
         assert_eq!(
-            untrusted.client_ips.lock().expect("test mutex is healthy")[0],
+            untrusted
+                .client_ips
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .first()
+                .ok_or_else(|| test_error("untrusted limiter records one client IP"))?,
             "198.51.100.20"
         );
+        Ok(())
     }
 
     #[tokio::test]
-    async fn rate_limit_backend_failure_should_match_go_empty_500() {
+    async fn rate_limit_backend_failure_should_match_go_empty_500() -> TestResult {
         let limiter = Arc::new(MockRateLimiter {
             mode: MockLimitMode::Fail,
             client_ips: Mutex::new(Vec::new()),
@@ -3328,19 +3383,20 @@ mod tests {
             Some(r#"{"username":"alice","password":"wrong"}"#),
             limiter,
         )
-        .await;
+        .await?;
         assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
         assert!(response.headers().get("retry-after").is_none());
         assert!(response.headers().get("content-type").is_none());
         assert_eq!(response.headers()["x-new-api-version"], "v0.0.0");
         let request_id = response.headers()["x-request-id"]
             .to_str()
-            .expect("request id is ASCII");
+            ?;
         assert_eq!(response.headers()["x-oneapi-request-id"], request_id);
-        Uuid::parse_str(request_id).expect("legacy failure response uses the boundary UUID");
+        Uuid::parse_str(request_id)?;
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
-            .expect("body is readable");
+            ?;
         assert!(body.is_empty());
+        Ok(())
     }
 }
