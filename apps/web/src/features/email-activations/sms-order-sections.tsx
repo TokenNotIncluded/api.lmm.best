@@ -38,7 +38,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton'
 import { formatTimestampToDate } from '@/lib/format'
 
-import { formatHeroSmsUSD } from './api.js'
+import { formatHeroSmsPlatformAmount } from './api.js'
 import type {
   HeroSmsSmsCountry,
   HeroSmsSmsComplaintReason,
@@ -468,7 +468,7 @@ export function SmsOrderHistoryCard({
                 {t(order.status)}
               </Badge>
               <span className='font-medium tabular-nums'>
-                {formatHeroSmsUSD(Number(order.customer_price_usd))}
+                {formatHeroSmsPlatformAmount(Number(order.customer_price_usd))}
               </span>
               <div className='flex items-center gap-1 justify-self-start sm:justify-self-end'>
                 <Button
@@ -619,7 +619,7 @@ export function SmsOrderDetailDialog({
               />
               <SmsOrderDetailMeta
                 label={t('Price')}
-                value={formatHeroSmsUSD(Number(order.customer_price_usd))}
+                value={formatHeroSmsPlatformAmount(Number(order.customer_price_usd))}
               />
               <SmsOrderDetailMeta
                 label={t('Created')}

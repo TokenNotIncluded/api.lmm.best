@@ -30,6 +30,7 @@ import type {
   UpdateAdvancedSecuritySettingsRequest,
   UpdateOptionRequest,
   UpdateOptionResponse,
+  UsdExchangeRateResponse,
   UpstreamChannelsResponse,
   UpstreamRatiosResponse,
 } from './types'
@@ -50,6 +51,19 @@ export async function getSystemGroups() {
 
 export async function updateSystemOption(request: UpdateOptionRequest) {
   const res = await api.put<UpdateOptionResponse>('/api/option/', request)
+  return res.data
+}
+
+export async function getUsdExchangeRate(currency: string) {
+  const code = currency.trim().toUpperCase()
+  if (!/^[A-Z]{3}$/.test(code)) {
+    throw new Error('Currency must be a three-letter ISO 4217 code')
+  }
+
+  const res = await api.get<UsdExchangeRateResponse>(
+    `/api/option/exchange-rate?currency=${encodeURIComponent(code)}`,
+    { skipErrorHandler: true }
+  )
   return res.data
 }
 

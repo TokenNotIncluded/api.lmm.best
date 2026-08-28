@@ -373,6 +373,7 @@ func SetApiRouter(router *gin.Engine) {
 		optionRoute.Use(middleware.RootAuth())
 		{
 			optionRoute.GET("/", controller.GetOptions)
+			optionRoute.GET("/exchange-rate", middleware.DisableCache(), controller.GetUsdExchangeRate)
 			optionRoute.PUT("/", controller.UpdateOption)
 			optionRoute.POST("/validate", middleware.RequestBodyLimit(rawOptionMutationRequestMaxBytes), controller.ValidateOptions)
 			optionRoute.POST("/bulk", middleware.RequestBodyLimit(rawOptionMutationRequestMaxBytes), controller.UpdateOptionsBulk)

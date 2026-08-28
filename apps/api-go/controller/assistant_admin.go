@@ -188,6 +188,7 @@ var assistantAdminConfigAllowlist = map[string]string{
 	"AutomaticRetryStatusCodes":                     "Automatic retry status codes",
 	"general_setting.quota_display_type":            "Quota display type",
 	"general_setting.custom_currency_symbol":        "Custom currency symbol",
+	"general_setting.custom_currency_code":          "Custom currency ISO code",
 	"general_setting.custom_currency_exchange_rate": "Custom currency exchange rate",
 }
 
@@ -1218,6 +1219,8 @@ func validateAssistantAdminConfigValue(key, value string) error {
 		if len([]rune(value)) > 8 {
 			return errors.New("custom currency symbol must be at most 8 characters")
 		}
+	case "general_setting.custom_currency_code":
+		return operation_setting.ValidateCustomCurrencyCode(value)
 	case "HeaderNavModules", "SidebarModulesAdmin":
 		if strings.TrimSpace(value) != "" {
 			var decoded map[string]any

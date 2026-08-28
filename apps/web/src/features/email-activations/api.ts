@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { isAxiosError } from 'axios'
 
 import { api } from '@/lib/api'
+import { formatPlatformAmount } from '@/lib/currency'
 
 import type {
   HeroSmsActivation,
@@ -128,14 +129,14 @@ function normalizeCreateResult(raw: unknown): HeroSmsCreateActivationsResult {
   }
 }
 
-export function formatHeroSmsUSD(value: number) {
+export function formatHeroSmsPlatformAmount(value: number) {
   if (!Number.isFinite(value)) return '—'
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 8,
-  }).format(value)
+  return formatPlatformAmount(value, {
+    locale: 'en-US',
+    abbreviate: false,
+    digitsLarge: 2,
+    digitsSmall: 8,
+  })
 }
 
 export function createHeroSmsIdempotencyKey() {

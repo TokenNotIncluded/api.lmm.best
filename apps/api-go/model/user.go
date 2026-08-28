@@ -97,16 +97,18 @@ func (options UserSortOptions) Apply(query *gorm.DB) *gorm.DB {
 // payment method/provider pair. The values are populated only for
 // administrator-facing user lists.
 type UserTopupMethod struct {
-	Method      string `json:"method"`
-	Provider    string `json:"provider,omitempty"`
-	Quota       int64  `json:"quota"`
-	MoneyMicros int64  `json:"money_micros"`
-	Orders      int64  `json:"orders"`
+	Method             string `json:"method"`
+	Provider           string `json:"provider,omitempty"`
+	SettlementCurrency string `json:"settlement_currency"`
+	Quota              int64  `json:"quota"`
+	MoneyMicros        int64  `json:"money_micros"`
+	Orders             int64  `json:"orders"`
 }
 
 type UserTopupSummary struct {
 	Quota       int64             `json:"quota"`
 	MoneyMicros int64             `json:"money_micros"`
+	Currency    string            `json:"currency,omitempty"`
 	Orders      int64             `json:"orders"`
 	Methods     []UserTopupMethod `json:"methods"`
 }
@@ -119,12 +121,13 @@ func resolveUserSortOptions(sortOptions []UserSortOptions) UserSortOptions {
 }
 
 type userTopupAggregate struct {
-	UserID          int    `gorm:"column:user_id"`
-	PaymentMethod   string `gorm:"column:payment_method"`
-	PaymentProvider string `gorm:"column:payment_provider"`
-	CreditedQuota   int64  `gorm:"column:credited_quota"`
-	MoneyMicros     int64  `gorm:"column:money_micros"`
-	Orders          int64  `gorm:"column:orders"`
+	UserID             int    `gorm:"column:user_id"`
+	PaymentMethod      string `gorm:"column:payment_method"`
+	PaymentProvider    string `gorm:"column:payment_provider"`
+	SettlementCurrency string `gorm:"column:settlement_currency"`
+	CreditedQuota      int64  `gorm:"column:credited_quota"`
+	MoneyMicros        int64  `gorm:"column:money_micros"`
+	Orders             int64  `gorm:"column:orders"`
 }
 
 // userTopupMoneyMicrosSQL prefers the immutable settlement amount recorded by
@@ -142,8 +145,10 @@ func userTopupMoneyMicrosSQL(db *gorm.DB) string {
 func userTopupTotals(tx *gorm.DB) *gorm.DB {
 	creditedQuotaExpression, creditedQuotaArgs := positiveNormalizedCreditedQuotaSQL()
 	moneyMicrosExpression := userTopupMoneyMicrosSQL(tx)
+	settlementCurrencyExpression := "COALESCE(NULLIF(UPPER(TRIM(settlement_currency)), ''), 'UNKNOWN')"
+	moneyTotalExpression := "CASE WHEN COUNT(DISTINCT " + settlementCurrencyExpression + ") = 1 THEN COALESCE(SUM(" + moneyMicrosExpression + "), 0) ELSE 0 END"
 	return successfulExternalPaidTopUpQuery(tx.Model(&TopUp{})).
-		Select("user_id, COALESCE(SUM("+creditedQuotaExpression+"), 0) AS credited_quota, COALESCE(SUM("+moneyMicrosExpression+"), 0) AS money_micros", creditedQuotaArgs...).
+		Select("user_id, COALESCE(SUM("+creditedQuotaExpression+"), 0) AS credited_quota, "+moneyTotalExpression+" AS money_micros", creditedQuotaArgs...).
 		// Subscription completion mirrors have no credited quota or amount. Keep
 		// this aggregate independent of the optional subscription table so user
 		// list queries remain usable during partial migrations.
@@ -187,12 +192,13 @@ func PopulateUserTopups(users []*User) error {
 	var rows []userTopupAggregate
 	creditedQuotaExpression, creditedQuotaArgs := positiveNormalizedCreditedQuotaSQL()
 	moneyMicrosExpression := userTopupMoneyMicrosSQL(DB)
+	settlementCurrencyExpression := "COALESCE(NULLIF(UPPER(TRIM(settlement_currency)), ''), 'UNKNOWN')"
 	if err := successfulExternalPaidTopUpQuery(DB.Model(&TopUp{})).
-		Select("user_id, payment_method, payment_provider, COALESCE(SUM("+creditedQuotaExpression+"), 0) AS credited_quota, COALESCE(SUM("+moneyMicrosExpression+"), 0) AS money_micros, COUNT(*) AS orders", creditedQuotaArgs...).
+		Select("user_id, payment_method, payment_provider, "+settlementCurrencyExpression+" AS settlement_currency, COALESCE(SUM("+creditedQuotaExpression+"), 0) AS credited_quota, COALESCE(SUM("+moneyMicrosExpression+"), 0) AS money_micros, COUNT(*) AS orders", creditedQuotaArgs...).
 		Where("user_id IN ?", ids).
 		Where("(credited_quota <> 0 OR amount <> 0)").
-		Group("user_id, payment_method, payment_provider").
-		Order("user_id ASC, payment_method ASC, payment_provider ASC").
+		Group("user_id, payment_method, payment_provider, " + settlementCurrencyExpression).
+		Order("user_id ASC, payment_method ASC, payment_provider ASC, settlement_currency ASC").
 		Scan(&rows).Error; err != nil {
 		return err
 	}
@@ -203,22 +209,46 @@ func PopulateUserTopups(users []*User) error {
 			byID[user.Id] = user.TopupSummary
 		}
 	}
+	currencyTotals := make(map[int]map[string]int64, len(ids))
 	for _, row := range rows {
 		summary := byID[row.UserID]
 		if summary == nil {
 			continue
 		}
+		currency := strings.ToUpper(strings.TrimSpace(row.SettlementCurrency))
+		if currency == "" {
+			currency = "UNKNOWN"
+		}
 		method := UserTopupMethod{
-			Method:      strings.TrimSpace(row.PaymentMethod),
-			Provider:    strings.TrimSpace(row.PaymentProvider),
-			Quota:       row.CreditedQuota,
-			MoneyMicros: row.MoneyMicros,
-			Orders:      row.Orders,
+			Method:             strings.TrimSpace(row.PaymentMethod),
+			Provider:           strings.TrimSpace(row.PaymentProvider),
+			SettlementCurrency: currency,
+			Quota:              row.CreditedQuota,
+			MoneyMicros:        row.MoneyMicros,
+			Orders:             row.Orders,
 		}
 		summary.Quota += method.Quota
-		summary.MoneyMicros += method.MoneyMicros
 		summary.Orders += method.Orders
 		summary.Methods = append(summary.Methods, method)
+		if currencyTotals[row.UserID] == nil {
+			currencyTotals[row.UserID] = make(map[string]int64)
+		}
+		currencyTotals[row.UserID][currency] += method.MoneyMicros
+	}
+	for userID, totals := range currencyTotals {
+		summary := byID[userID]
+		if summary == nil {
+			continue
+		}
+		if len(totals) != 1 {
+			summary.Currency = "MULTIPLE"
+			summary.MoneyMicros = 0
+			continue
+		}
+		for currency, total := range totals {
+			summary.Currency = currency
+			summary.MoneyMicros = total
+		}
 	}
 	return nil
 }

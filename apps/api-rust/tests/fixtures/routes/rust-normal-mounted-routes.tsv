@@ -212,6 +212,7 @@ PUT	/api/option/	apps/api-rust/src/main.rs:system_config_router
 POST	/api/option/bulk	apps/api-rust/src/main.rs:system_config
 DELETE	/api/option/channel_affinity_cache	apps/api-rust/src/main.rs:system_config_router
 GET	/api/option/channel_affinity_cache	apps/api-rust/src/main.rs:system_config_router
+GET	/api/option/exchange-rate	apps/api-rust/src/main.rs:system_config_router
 POST	/api/option/payment_compliance	apps/api-rust/src/main.rs:system_config_router
 GET	/api/option/project-update	apps/api-rust/src/main.rs:system_config_router
 POST	/api/option/rest_model_ratio	apps/api-rust/src/main.rs:system_config_router

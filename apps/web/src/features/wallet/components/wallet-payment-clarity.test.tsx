@@ -178,7 +178,14 @@ after(() => {
 const topupInfo = {
   enable_online_topup: true,
   enable_stripe_topup: false,
-  pay_methods: [{ name: 'Alipay', type: 'alipay' }],
+  pay_methods: [
+    {
+      name: 'Alipay',
+      type: 'alipay',
+      settlement_unit: 'CNY',
+      unit_price: '5.4',
+    },
+  ],
   min_topup: 10,
   stripe_min_topup: 10,
   amount_options: [100],
@@ -301,11 +308,131 @@ describe('wallet payment clarity', () => {
     queryClient.clear()
   })
 
-  test('distinguishes USD API credits from CNY payment amounts', () => {
+  test('distinguishes platform credits from CNY payment amounts', () => {
     setCnyBillingCurrency()
 
-    assert.equal(formatCreditBalance(100), '$100 USD')
-    assert.equal(formatPaymentAmount(540), '¥540 CNY')
+    assert.equal(formatCreditBalance(6.8), '$6.8 (Platform)')
+    assert.equal(formatPaymentAmount(1, 'USD'), '1 USD')
+    assert.equal(formatPaymentAmount(6.8, 'CNY'), '6.8 CNY')
+  })
+
+  test('applies explicit USD bridge rates to preset, custom preview, and confirmation', async () => {
+    await i18n.changeLanguage('en')
+    setCnyBillingCurrency()
+    const paymentMethod = {
+      name: 'USD card',
+      type: 'card',
+      settlement_currency: 'USD',
+      platform_units_per_usd: '6.8',
+      settlement_units_per_usd: '1',
+      min_topup: 6.8,
+      max_topup: '68',
+    }
+    const recharge = await render(
+      <RechargeFormCard
+        topupInfo={{
+          ...topupInfo,
+          min_topup: 6.8,
+          pay_methods: [paymentMethod],
+        }}
+        presetAmounts={[{ value: 6.8 }]}
+        selectedPreset={6.8}
+        onSelectPreset={() => undefined}
+        topupAmount={6.8}
+        onTopupAmountChange={() => undefined}
+        paymentAmount={1}
+        selectedPaymentMethod={paymentMethod}
+        calculating={false}
+        onPaymentMethodSelect={() => undefined}
+        paymentLoading={null}
+        redemptionCode=''
+        onRedemptionCodeChange={() => undefined}
+        onRedeem={() => undefined}
+        redeeming={false}
+        priceRatio={99}
+      />
+    )
+
+    const text = recharge.container.textContent ?? ''
+    assert.ok(
+      recharge.container.querySelector(
+        '[aria-label="Preset amount: $6.8 (Platform). Actual payment: 1 USD. Original payment: 1 USD. Platform discount 0%"]'
+      )
+    )
+    assert.equal(text.includes('$6.8 (Platform)'), true)
+    assert.equal(text.includes('Estimated payment: 1 USD'), true)
+    assert.equal(text.includes('Amount due: 1 USD (actual payment)'), true)
+    assert.equal(text.includes('$1'), false)
+    assert.equal(
+      recharge.container.querySelector('#topup-amount')?.getAttribute('min'),
+      '6.8'
+    )
+    assert.equal(text.includes('1 USD / 6.8 $ (Platform)'), true)
+    await unmount(recharge)
+
+    const confirmation = await render(
+      <PaymentConfirmDialog
+        open
+        onOpenChange={() => undefined}
+        onConfirm={() => undefined}
+        topupAmount={6.8}
+        paymentAmount={1}
+        paymentMethod={paymentMethod}
+        calculating={false}
+        processing={false}
+        discountRate={1}
+      />
+    )
+    assert.equal(
+      document.body.textContent?.includes('Credit $6.8 (Platform); pay 1 USD'),
+      true
+    )
+    assert.equal(document.body.textContent?.includes('$1'), false)
+    await unmount(confirmation)
+  })
+
+  test('applies explicit CNY bridge rates instead of the global display currency', async () => {
+    await i18n.changeLanguage('en')
+    setUsdBillingCurrency()
+    const paymentMethod = {
+      name: 'CNY gateway',
+      type: 'card',
+      settlement_currency: 'CNY',
+      platform_units_per_usd: '6.8',
+      settlement_units_per_usd: '6.8',
+    }
+    const rendered = await render(
+      <RechargeFormCard
+        topupInfo={{ ...topupInfo, pay_methods: [paymentMethod] }}
+        presetAmounts={[{ value: 6.8 }]}
+        selectedPreset={6.8}
+        onSelectPreset={() => undefined}
+        topupAmount={6.8}
+        onTopupAmountChange={() => undefined}
+        paymentAmount={6.8}
+        selectedPaymentMethod={paymentMethod}
+        calculating={false}
+        onPaymentMethodSelect={() => undefined}
+        paymentLoading={null}
+        redemptionCode=''
+        onRedemptionCodeChange={() => undefined}
+        onRedeem={() => undefined}
+        redeeming={false}
+        priceRatio={99}
+      />
+    )
+
+    const text = rendered.container.textContent ?? ''
+    assert.ok(
+      rendered.container.querySelector(
+        '[aria-label="Preset amount: $6.8 (Platform). Actual payment: 6.8 CNY. Original payment: 6.8 CNY. Platform discount 0%"]'
+      )
+    )
+    assert.equal(text.includes('$6.8 (Platform)'), true)
+    assert.equal(text.includes('Estimated payment: 6.8 CNY'), true)
+    assert.equal(text.includes('Amount due: 6.8 CNY (actual payment)'), true)
+    assert.equal(text.includes('6.8 CNY / 6.8 $ (Platform)'), true)
+    await unmount(rendered)
   })
 
   test('labels preset credits, payment, discount, and the custom-account destination', async () => {
@@ -332,13 +459,11 @@ describe('wallet payment clarity', () => {
     )
 
     const noDiscountPreset = rendered.container.querySelector(
-      '[aria-label="Preset amount: $100 USD. Actual payment: ¥540 CNY. Original payment: ¥540 CNY. Platform discount 0%"]'
+      '[aria-label="Preset amount: $100 (Platform). Actual payment: 540 CNY. Original payment: 540 CNY. Platform discount 0%"]'
     )
     assert.ok(noDiscountPreset)
     assert.equal(
-      noDiscountPreset?.textContent?.includes(
-        '100(Platform amount, unit: USD)'
-      ),
+      noDiscountPreset?.textContent?.includes('$100 (Platform)'),
       true
     )
     assert.equal(
@@ -347,7 +472,7 @@ describe('wallet payment clarity', () => {
     )
 
     const discountPreset = rendered.container.querySelector(
-      '[aria-label="Preset amount: $200 USD. Actual payment: ¥864 CNY. Original payment: ¥1,080 CNY. Platform discount 20%. Discount applied ¥216 CNY"]'
+      '[aria-label="Preset amount: $200 (Platform). Actual payment: 864 CNY. Original payment: 1,080 CNY. Platform discount 20%. Discount applied 216 CNY"]'
     )
     assert.ok(discountPreset)
     assert.equal(
@@ -364,7 +489,7 @@ describe('wallet payment clarity', () => {
     assert.equal(
       rendered.container.querySelector('label[for="topup-amount"]')
         ?.textContent,
-      'Custom credited amount'
+      'Custom platform credit'
     )
     assert.equal(
       rendered.container.querySelector('#topup-amount-description')
@@ -377,7 +502,7 @@ describe('wallet payment clarity', () => {
     )
     assert.equal(
       rendered.container.textContent?.includes(
-        'Selected method: Alipay · Amount due: ¥540 CNY (actual payment)'
+        'Selected method: Alipay · Amount due: 540 CNY (actual payment)'
       ),
       true
     )
@@ -413,20 +538,20 @@ describe('wallet payment clarity', () => {
     )
 
     const text = rendered.container.textContent ?? ''
-    assert.equal(text.includes('100(Platform amount, unit: USD)'), true)
+    assert.equal(text.includes('$100 (Platform)'), true)
     assert.equal(
       text.includes(
-        'Selected method: Alipay · Estimated payment: ¥80 CNY (original ¥100 CNY)'
+        'Selected method: Alipay · Estimated payment: 432 CNY (original 540 CNY)'
       ),
       true
     )
     assert.equal(text.includes('Platform discount 20%'), true)
-    assert.equal(text.includes('Discount applied ¥20 CNY'), true)
+    assert.equal(text.includes('Discount applied 108 CNY'), true)
 
     await unmount(rendered)
   })
 
-  test('shows USD prefix and suffix for the custom credited amount', async () => {
+  test('shows the platform symbol and localized marker for custom credit', async () => {
     await i18n.changeLanguage('en')
     setUsdBillingCurrency()
     const rendered = await render(
@@ -452,7 +577,7 @@ describe('wallet payment clarity', () => {
     assert.equal(
       rendered.container.querySelector('label[for="topup-amount"]')
         ?.textContent,
-      'Custom credited amount'
+      'Custom platform credit'
     )
     assert.equal(
       rendered.container.querySelector('#topup-amount')?.getAttribute('value'),
@@ -466,11 +591,11 @@ describe('wallet payment clarity', () => {
       ]
         .map((addon) => addon.textContent)
         .slice(0, 2),
-      ['$', 'USD']
+      ['$', '(Platform)']
     )
     assert.equal(
       rendered.container.textContent?.includes(
-        'Selected method: Alipay · Amount due: $0.14 USD (actual payment)'
+        'Selected method: Alipay · Amount due: 0.14 CNY (actual payment)'
       ),
       true
     )
@@ -524,7 +649,10 @@ describe('wallet payment clarity', () => {
       ),
       true
     )
-    assert.equal(recharge.container.textContent?.includes('10 LDC / USD'), true)
+    assert.equal(
+      recharge.container.textContent?.includes('10 LDC / $ (Platform)'),
+      true
+    )
     assert.equal(
       recharge.container.textContent?.includes('Channel multiplier ×0.5'),
       true
@@ -546,7 +674,7 @@ describe('wallet payment clarity', () => {
     )
 
     assert.equal(
-      document.body.textContent?.includes('Top up 1 USD; pay 0.56 LDC'),
+      document.body.textContent?.includes('Credit $1 (Platform); pay 0.56 LDC'),
       true
     )
     await unmount(confirmation)
@@ -588,12 +716,12 @@ describe('wallet payment clarity', () => {
     ].find((button) => button.textContent?.includes('LINUX DO Credit'))
     assert.equal(methodButton?.disabled, true)
     assert.equal(
-      methodButton?.textContent?.includes('Maximum: 20 USD credited'),
+      methodButton?.textContent?.includes('Maximum: $20 (Platform)'),
       true
     )
     assert.equal(
       methodButton?.getAttribute('title'),
-      'Maximum top-up amount: 20 USD credited'
+      'Maximum platform credit per payment: $20 (Platform)'
     )
 
     await unmount(rendered)
@@ -624,12 +752,12 @@ describe('wallet payment clarity', () => {
 
     assert.equal(
       rendered.container.textContent?.includes(
-        'Selected method: Alipay · Estimated payment: $0.14 USD (original $0.14 USD)'
+        'Selected method: Alipay · Estimated payment: 0.756 CNY (original 0.756 CNY)'
       ),
       true
     )
     assert.equal(
-      rendered.container.textContent?.includes('Global settlement'),
+      rendered.container.textContent?.includes('5.4 CNY / $ (Platform)'),
       true
     )
     await unmount(rendered)
@@ -660,8 +788,8 @@ describe('wallet payment clarity', () => {
     assert.equal(pageText.includes('Destination'), true)
     assert.equal(pageText.includes('Balance credited'), true)
     assert.equal(pageText.includes('You top up'), true)
-    assert.equal(pageText.includes('$1 USD'), true)
-    assert.equal(pageText.includes('$0.15 USD'), true)
+    assert.equal(pageText.includes('$1 (Platform)'), true)
+    assert.equal(pageText.includes('0.15 USD'), true)
     assert.equal(pageText.includes('Alipay'), true)
     const confirmationContent = document.querySelector(
       '[data-slot="alert-dialog-content"]'
@@ -722,10 +850,7 @@ describe('wallet payment clarity', () => {
       cards.every((card) => card.scrollWidth <= card.clientWidth),
       true
     )
-    assert.equal(
-      rendered.container.textContent?.includes('100（平台金额，单位：美元）'),
-      true
-    )
+    assert.equal(rendered.container.textContent?.includes('$100 (平台)'), true)
     assert.equal(
       rendered.container.textContent?.includes(
         '卡片中的金额是平台到账金额，实际支付金额和优惠会根据所选支付方式计算。'
@@ -734,18 +859,18 @@ describe('wallet payment clarity', () => {
     )
     assert.equal(
       rendered.container.textContent?.includes(
-        '所选方式：Alipay · 预计支付：¥80 CNY（原价 ¥100 CNY）'
+        '所选方式：Alipay · 预计支付：432 CNY（原价 540 CNY）'
       ),
       true
     )
     assert.equal(rendered.container.textContent?.includes('平台优惠 20%'), true)
     assert.equal(
-      rendered.container.textContent?.includes('已优惠 ¥20 CNY'),
+      rendered.container.textContent?.includes('已优惠 108 CNY'),
       true
     )
     assert.equal(
       rendered.container.textContent?.includes(
-        '所选方式：Alipay · 待支付金额：¥0.14 CNY（实际付款）'
+        '所选方式：Alipay · 待支付金额：0.14 CNY（实际付款）'
       ),
       true
     )
@@ -758,20 +883,20 @@ describe('wallet payment clarity', () => {
       rendered.container
         .querySelector('#topup-amount')
         ?.getAttribute('aria-label'),
-      '自定义到账金额（美元）'
+      '自定义平台金额（$（平台））'
     )
     assert.equal(
       rendered.container.textContent?.includes(
         'Waffo Pancake 当前仅支持 USD，请将该网关货币设为 USD。'
       ),
-      true
+      false
     )
 
     await unmount(rendered)
     await i18n.changeLanguage('en')
   })
 
-  test('keeps Chinese preset payment and original-price units dynamic for USD', async () => {
+  test('keeps Chinese payment units bound to the selected gateway', async () => {
     await i18n.changeLanguage('zh')
     setUsdBillingCurrency()
     const rendered = await render(
@@ -800,7 +925,7 @@ describe('wallet payment clarity', () => {
       false
     )
     assert.equal(
-      text.includes('所选方式：Alipay · 预计支付：$80 USD（原价 $100 USD）'),
+      text.includes('所选方式：Alipay · 预计支付：432 CNY（原价 540 CNY）'),
       true
     )
     assert.equal(text.includes('人民币'), false)

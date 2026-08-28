@@ -59,9 +59,9 @@ import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
 import { formatDuration, formatResetPeriod } from '@/features/subscriptions/lib'
-import { formatCreditBalance } from '@/features/wallet/lib/format'
+import { formatCreditBalance as formatCreditBalanceBase } from '@/features/wallet/lib/format'
 import { toIntlLocale } from '@/i18n/languages'
-import { getCurrencyDisplay } from '@/lib/currency'
+import { formatFiatCurrencyAmount, getCurrencyDisplay } from '@/lib/currency'
 
 import { getAssistantPlanOffers } from './api'
 import {
@@ -70,15 +70,12 @@ import {
 } from './plan-recommender'
 
 function formatPlanPrice(amount: number, currency: string, locale?: string) {
-  try {
-    return new Intl.NumberFormat(locale, {
-      style: 'currency',
-      currency: currency || 'USD',
-      maximumFractionDigits: 2,
-    }).format(amount)
-  } catch {
-    return `${amount.toFixed(2)} ${currency}`
-  }
+  return formatFiatCurrencyAmount(amount, currency || 'USD', {
+    locale,
+    abbreviate: false,
+    digitsLarge: 2,
+    digitsSmall: 2,
+  })
 }
 
 function getRecommendationMessage(
@@ -110,6 +107,8 @@ export function AssistantPlanTool(props: {
   onRequestAccess: () => void
 }) {
   const { t, i18n } = useTranslation()
+  const formatCreditBalance = (amount: number) =>
+    formatCreditBalanceBase(amount, t('Platform'))
   const [expectedCredit, setExpectedCredit] = useState('20')
   const [topupCredit, setTopupCredit] = useState('100')
   const offersQuery = useQuery({
@@ -304,8 +303,9 @@ export function AssistantPlanTool(props: {
         </div>
         <div className='grid gap-1.5'>
           <Label htmlFor='assistant-topup-credit'>
-            {t('Top-up credit to compare (USD)')}
+            {t('Platform credit to compare')}
           </Label>
+
           <Input
             id='assistant-topup-credit'
             type='number'
@@ -333,7 +333,7 @@ export function AssistantPlanTool(props: {
             </div>
             <dl className='grid grid-cols-2 gap-x-4 gap-y-2 text-xs'>
               <dt className='text-muted-foreground'>
-                {t('Credited API balance')}
+                {t('Credited platform balance')}
               </dt>
               <dd className='text-right font-medium'>
                 {formatCreditBalance(recommendedTopupOffer.amount)}
@@ -462,7 +462,7 @@ export function AssistantPlanTool(props: {
       <CardContent className='grid gap-4'>
         <div className='grid gap-1.5'>
           <Label htmlFor='assistant-expected-credit'>
-            {t('Expected monthly API credit (USD)')}
+            {t('Expected monthly platform credit')}
           </Label>
           <Input
             id='assistant-expected-credit'

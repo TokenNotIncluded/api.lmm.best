@@ -129,6 +129,36 @@ func TestUserListsSortByActualTopUpMoney(t *testing.T) {
 	assert.EqualValues(t, 2_000_000, users[2].TopupSummary.MoneyMicros)
 }
 
+func TestPopulateUserTopupsDoesNotAddDifferentFiatCurrencies(t *testing.T) {
+	truncateTables(t)
+	insertUsersForPaginationTest(t, 1)
+	require.NoError(t, DB.Create(&[]TopUp{
+		{
+			UserId: 1, TradeNo: "usd-order", Amount: 1,
+			CreditedQuota: int64(common.QuotaPerUnit), SettledAmountMicros: 1_000_000,
+			SettlementCurrency: "USD", Status: common.TopUpStatusSuccess,
+			PaymentMethod: PaymentMethodStripe, PaymentProvider: PaymentProviderStripe,
+		},
+		{
+			UserId: 1, TradeNo: "cny-order", Amount: 1,
+			CreditedQuota: int64(common.QuotaPerUnit), SettledAmountMicros: 6_800_000,
+			SettlementCurrency: "CNY", Status: common.TopUpStatusSuccess,
+			PaymentMethod: "alipay", PaymentProvider: PaymentProviderEpay,
+		},
+	}).Error)
+
+	users := []*User{{Id: 1}}
+	require.NoError(t, PopulateUserTopups(users))
+	require.NotNil(t, users[0].TopupSummary)
+	assert.Equal(t, "MULTIPLE", users[0].TopupSummary.Currency)
+	assert.Zero(t, users[0].TopupSummary.MoneyMicros)
+	require.Len(t, users[0].TopupSummary.Methods, 2)
+	assert.ElementsMatch(t, []string{"USD", "CNY"}, []string{
+		users[0].TopupSummary.Methods[0].SettlementCurrency,
+		users[0].TopupSummary.Methods[1].SettlementCurrency,
+	})
+}
+
 func TestUserTopupSummaryExcludesLinuxDOCredit(t *testing.T) {
 	truncateTables(t)
 	insertUsersForPaginationTest(t, 2)

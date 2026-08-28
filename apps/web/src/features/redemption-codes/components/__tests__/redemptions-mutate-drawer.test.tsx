@@ -167,6 +167,7 @@ async function renderDrawer(
       quotaPerUnit: 500000,
       usdExchangeRate: currency.usdExchangeRate,
       customCurrencySymbol: '¤',
+      customCurrencyCode: 'USD',
       customCurrencyExchangeRate: 1,
     },
   })
@@ -301,7 +302,10 @@ test('redemption drawer shows the reported CNY quota without floating-point nois
   })
   await waitForLoadedForm()
 
-  assert.equal(getControlByLabel<HTMLInputElement>('Quota (CNY)').value, '200')
+  assert.equal(
+    getControlByLabel<HTMLInputElement>('Quota ($ (Platform))').value,
+    '200'
+  )
 })
 
 test('redemption drawer blocks updates and reports an error when loading rejects', async () => {
@@ -358,7 +362,10 @@ test('redemption drawer keeps the original quota when another field changes', as
 
   await renderDrawer(original)
   await waitForLoadedForm()
-  assert.equal(getControlByLabel<HTMLInputElement>('Quota (USD)').value, '1')
+  assert.equal(
+    getControlByLabel<HTMLInputElement>('Quota ($ (Platform))').value,
+    '1'
+  )
 
   await changeInput(getControlByLabel<HTMLInputElement>('Name'), 'renamed')
   await submitForm()
@@ -382,7 +389,10 @@ test('redemption drawer recalculates quota when the quota field changes', async 
 
   await renderDrawer(original)
   await waitForLoadedForm()
-  await changeInput(getControlByLabel<HTMLInputElement>('Quota (USD)'), '2')
+  await changeInput(
+    getControlByLabel<HTMLInputElement>('Quota ($ (Platform))'),
+    '2'
+  )
   await submitForm()
   await act(async () =>
     waitForCondition(() => updates.length === 1, 'update was not submitted')

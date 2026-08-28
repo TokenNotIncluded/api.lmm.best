@@ -46,6 +46,7 @@ interface StatusApiResponse {
     quota_per_unit?: number
     usd_exchange_rate?: number
     custom_currency_symbol?: string
+    custom_currency_code?: string
     custom_currency_exchange_rate?: number
   }
 }
@@ -57,6 +58,13 @@ function toNumber(value: unknown, fallback: number): number {
     if (!Number.isNaN(parsed)) return parsed
   }
   return fallback
+}
+
+function normalizeIsoCurrencyCode(value: unknown): string {
+  if (typeof value !== 'string') return ''
+
+  const code = value.trim().toUpperCase()
+  return /^[A-Z]{3}$/.test(code) ? code : ''
 }
 
 /**
@@ -86,6 +94,9 @@ export function mapStatusDataToConfig(
     customCurrencySymbol:
       data.custom_currency_symbol?.trim() ||
       DEFAULT_CURRENCY_CONFIG.customCurrencySymbol,
+    customCurrencyCode:
+      normalizeIsoCurrencyCode(data.custom_currency_code) ||
+      DEFAULT_CURRENCY_CONFIG.customCurrencyCode,
     customCurrencyExchangeRate: toNumber(
       data.custom_currency_exchange_rate,
       DEFAULT_CURRENCY_CONFIG.customCurrencyExchangeRate

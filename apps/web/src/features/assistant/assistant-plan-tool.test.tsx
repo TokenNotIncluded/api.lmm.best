@@ -203,7 +203,7 @@ describe('AssistantPlanTool', () => {
     await i18n.changeLanguage('zhTW')
     const rendered = await renderTool(true)
     try {
-      assert.match(rendered.container.textContent ?? '', /US\$8\.00/)
+      assert.match(rendered.container.textContent ?? '', /8 USD/)
       assert.match(rendered.container.textContent ?? '', /save 20%/)
     } finally {
       await unmount(rendered)
@@ -236,7 +236,7 @@ describe('AssistantPlanTool', () => {
     assert.match(rendered.container.textContent ?? '', /save 20%/)
     assert.match(
       rendered.container.textContent ?? '',
-      /Estimated discounted base amount\$80 USD/
+      /Estimated discounted base amount\$80 \(Platform\)/
     )
     assert.ok(rendered.container.querySelector('#assistant-expected-credit'))
     assert.ok(rendered.container.querySelector('#assistant-topup-credit'))
@@ -315,7 +315,7 @@ describe('AssistantPlanTool', () => {
     assert.match(rendered.container.textContent ?? '', /Closest fit/)
     assert.match(
       rendered.container.textContent ?? '',
-      /smallest available capacity that covers your \$20 USD monthly estimate/
+      /smallest available capacity that covers your \$20 \(Platform\) monthly estimate/
     )
     assert.match(rendered.container.textContent ?? '', /save 20%/)
     assert.equal(calls, 2)
@@ -336,7 +336,7 @@ describe('AssistantPlanTool', () => {
     })
     assert.match(
       rendered.container.textContent ?? '',
-      /No plan fully covers your \$40 USD monthly estimate/
+      /No plan fully covers your \$40 \(Platform\) monthly estimate/
     )
 
     await unmount(rendered)

@@ -38,7 +38,7 @@ import {
 } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
 
-import { formatHeroSmsUSD, parseHeroSmsError } from './api.js'
+import { formatHeroSmsPlatformAmount, parseHeroSmsError } from './api.js'
 import type {
   HeroSmsSmsCountry,
   HeroSmsSmsOffer,
@@ -226,7 +226,7 @@ export function SmsPriceTierPicker({
             >
               <RadioGroupItem id={id} value={tier.customer_price_usd} />
               <span className='min-w-0 flex-1 text-sm font-medium tabular-nums'>
-                ≤ {formatHeroSmsUSD(Number(tier.customer_price_usd))}
+                ≤ {formatHeroSmsPlatformAmount(Number(tier.customer_price_usd))}
               </span>
               <span className='text-muted-foreground text-xs tabular-nums'>
                 {t('{{count}} available', { count: tier.inventory })}
@@ -423,13 +423,13 @@ export function SmsQuoteSummary({
             {t('Maximum unit price')}
           </p>
           <p className='mt-1 font-medium tabular-nums'>
-            {formatHeroSmsUSD(unitPrice)}
+            {formatHeroSmsPlatformAmount(unitPrice)}
           </p>
         </div>
         <div>
           <p className='text-muted-foreground text-xs'>{t('Maximum total')}</p>
           <p className='mt-1 font-semibold tabular-nums'>
-            {formatHeroSmsUSD(unitPrice * quantity)}
+            {formatHeroSmsPlatformAmount(unitPrice * quantity)}
           </p>
         </div>
       </div>

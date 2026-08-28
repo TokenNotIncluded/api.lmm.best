@@ -24,7 +24,8 @@ describe('UsersMobileList email presentation', () => {
 
   test('exposes payment-method top-up details on touch devices', () => {
     assert.match(source, /topup\.methods\.map\(\(method\)/)
-    assert.match(source, /formatBillingCurrencyFromUSD\(/)
+    assert.match(source, /formatFiatCurrencyAmount\(/)
+    assert.match(source, /settlement_currency/)
     assert.match(source, /formatQuota\(method\.quota\)/)
     assert.match(source, /min-h-11 cursor-pointer/)
   })

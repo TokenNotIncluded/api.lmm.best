@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { formatCurrencyFromUSD, formatQuotaWithCurrency } from '@/lib/currency'
+import { formatQuotaWithCurrency } from '@/lib/currency'
 import { formatTimestampToDate } from '@/lib/format'
 
 import {
@@ -324,18 +324,12 @@ export function validateChannelSettings(settings: string): boolean {
 // Balance Formatting
 // ============================================================================
 
-/**
- * Format balance with currency symbol
- */
+/** Format a provider-reported balance without guessing its currency. */
 export function formatBalance(balance: number | null | undefined): string {
-  if (balance == null || Number.isNaN(balance)) {
-    return '-'
-  }
-  return formatCurrencyFromUSD(balance, {
-    digitsLarge: 2,
-    digitsSmall: 4,
-    abbreviate: false,
-  })
+  if (balance == null || Number.isNaN(balance)) return '-'
+  return new Intl.NumberFormat(undefined, {
+    maximumFractionDigits: Math.abs(balance) >= 1 ? 2 : 4,
+  }).format(balance)
 }
 
 /**
@@ -645,15 +639,19 @@ export function aggregateChannelsByTag(
       const tagRow = {
         ...channel,
         key: tag,
+        // SAFETY: aggregate tag rows reuse Channel's id slot for their string key.
         id: tag as unknown as number,
         tag,
         name: tag,
         type: 0,
+        // SAFETY: status remains unset until the first child is aggregated.
         status: undefined as unknown as number,
         group: '',
         used_quota: 0,
         response_time: 0,
+        // SAFETY: -1 is the pre-aggregation sentinel, replaced by a child value.
         priority: -1 as unknown as number | null,
+        // SAFETY: -1 is the pre-aggregation sentinel, replaced by a child value.
         weight: -1 as unknown as number | null,
         balance: 0,
         test_time: 0,

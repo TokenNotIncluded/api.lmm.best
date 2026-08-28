@@ -128,15 +128,15 @@ export const heroSmsTranslations = {
     'No matching HeroSMS inventory is available for this activation.':
       'No matching HeroSMS inventory is available for this activation.',
     'Confirm paid purchase': 'Confirm paid purchase',
-    'Purchase {{quantity}} × {{domain}} for {{quota}} quota ({{price}} customer price)?':
-      'Purchase {{quantity}} × {{domain}} for {{quota}} quota ({{price}} customer price)?',
+    'Purchase {{quantity}} × {{domain}} for {{quota}} quota ({{price}} platform price)?':
+      'Purchase {{quantity}} × {{domain}} for {{quota}} quota ({{price}} platform price)?',
     'Confirm purchase': 'Confirm purchase',
     'Cancel this activation to stop waiting for a code. Voluntary cancellation does not guarantee or issue a local quota refund.':
       'Cancel this activation to stop waiting for a code. Voluntary cancellation does not guarantee or issue a local quota refund.',
-    'Reorder {{domain}} for {{quota}} quota ({{price}} customer price)? This creates a new paid activation.':
-      'Reorder {{domain}} for {{quota}} quota ({{price}} customer price)? This creates a new paid activation.',
-    '$1 provider cost → {{price}} customer price':
-      '$1 provider cost → {{price}} customer price',
+    'Reorder {{domain}} for {{quota}} quota ({{price}} platform price)? This creates a new paid activation.':
+      'Reorder {{domain}} for {{quota}} quota ({{price}} platform price)? This creates a new paid activation.',
+    '1 USD provider cost → {{price}} platform price':
+      '1 USD provider cost → {{price}} platform price',
     'API key must contain at least 16 characters':
       'API key must contain at least 16 characters',
     'Use at most 6 decimal places': 'Use at most 6 decimal places',
@@ -290,15 +290,15 @@ export const heroSmsTranslations = {
     'No matching HeroSMS inventory is available for this activation.':
       'HeroSMS 当前没有与此接码记录匹配的库存。',
     'Confirm paid purchase': '确认付费购买',
-    'Purchase {{quantity}} × {{domain}} for {{quota}} quota ({{price}} customer price)?':
-      '确认购买 {{quantity}} 个 {{domain}}，扣除 {{quota}} 额度（用户价格 {{price}}）？',
+    'Purchase {{quantity}} × {{domain}} for {{quota}} quota ({{price}} platform price)?':
+      '确认购买 {{quantity}} 个 {{domain}}，扣除 {{quota}} 额度（平台价格 {{price}}）？',
     'Confirm purchase': '确认购买',
     'Cancel this activation to stop waiting for a code. Voluntary cancellation does not guarantee or issue a local quota refund.':
       '取消后将停止等待验证码。主动取消不保证退款，也不会自动退还本站额度。',
-    'Reorder {{domain}} for {{quota}} quota ({{price}} customer price)? This creates a new paid activation.':
-      '确认以 {{quota}} 额度（用户价格 {{price}}）重购 {{domain}}？这会创建一笔新的付费接码订单。',
-    '$1 provider cost → {{price}} customer price':
-      '服务商成本 $1 → 用户价格 {{price}}',
+    'Reorder {{domain}} for {{quota}} quota ({{price}} platform price)? This creates a new paid activation.':
+      '确认以 {{quota}} 额度（平台价格 {{price}}）重购 {{domain}}？这会创建一笔新的付费接码订单。',
+    '1 USD provider cost → {{price}} platform price':
+      '提供商成本 1 USD → 平台价格 {{price}}',
     'API key must contain at least 16 characters': 'API Key 至少需要 16 个字符',
     'Use at most 6 decimal places': '最多保留 6 位小数',
     'Unable to save HeroSMS settings': '无法保存 HeroSMS 设置',
@@ -450,15 +450,15 @@ export const heroSmsTranslations = {
     'No matching HeroSMS inventory is available for this activation.':
       'HeroSMS 目前沒有與此接碼記錄相符的庫存。',
     'Confirm paid purchase': '確認付費購買',
-    'Purchase {{quantity}} × {{domain}} for {{quota}} quota ({{price}} customer price)?':
-      '確認購買 {{quantity}} 個 {{domain}}，扣除 {{quota}} 額度（使用者價格 {{price}}）？',
+    'Purchase {{quantity}} × {{domain}} for {{quota}} quota ({{price}} platform price)?':
+      '確認購買 {{quantity}} 個 {{domain}}，扣除 {{quota}} 額度（平台價格 {{price}}）？',
     'Confirm purchase': '確認購買',
     'Cancel this activation to stop waiting for a code. Voluntary cancellation does not guarantee or issue a local quota refund.':
       '取消後將停止等待驗證碼。主動取消不保證退款，也不會自動退還本站額度。',
-    'Reorder {{domain}} for {{quota}} quota ({{price}} customer price)? This creates a new paid activation.':
-      '確認以 {{quota}} 額度（使用者價格 {{price}}）重新購買 {{domain}}？這會建立一筆新的付費接碼訂單。',
-    '$1 provider cost → {{price}} customer price':
-      '服務商成本 $1 → 使用者價格 {{price}}',
+    'Reorder {{domain}} for {{quota}} quota ({{price}} platform price)? This creates a new paid activation.':
+      '確認以 {{quota}} 額度（平台價格 {{price}}）重新購買 {{domain}}？這會建立一筆新的付費接碼訂單。',
+    '1 USD provider cost → {{price}} platform price':
+      '供應商成本 1 USD → 平台價格 {{price}}',
     'API key must contain at least 16 characters': 'API Key 至少需要 16 個字元',
     'Use at most 6 decimal places': '最多保留 6 位小數',
     'Unable to save HeroSMS settings': '無法儲存 HeroSMS 設定',
@@ -617,15 +617,15 @@ export const heroSmsTranslations = {
     'No matching HeroSMS inventory is available for this activation.':
       'Aucun stock HeroSMS correspondant à cette activation n’est disponible.',
     'Confirm paid purchase': 'Confirmer l’achat payant',
-    'Purchase {{quantity}} × {{domain}} for {{quota}} quota ({{price}} customer price)?':
-      'Acheter {{quantity}} × {{domain}} pour {{quota}} de quota (prix client : {{price}}) ?',
+    'Purchase {{quantity}} × {{domain}} for {{quota}} quota ({{price}} platform price)?':
+      'Acheter {{quantity}} × {{domain}} pour {{quota}} de quota (prix plateforme : {{price}}) ?',
     'Confirm purchase': 'Confirmer l’achat',
     'Cancel this activation to stop waiting for a code. Voluntary cancellation does not guarantee or issue a local quota refund.':
       'Annulez cette activation pour ne plus attendre de code. Une annulation volontaire ne garantit ni ne déclenche un remboursement du quota local.',
-    'Reorder {{domain}} for {{quota}} quota ({{price}} customer price)? This creates a new paid activation.':
-      'Commander à nouveau {{domain}} pour {{quota}} de quota (prix client : {{price}}) ? Cela crée une nouvelle activation payante.',
-    '$1 provider cost → {{price}} customer price':
-      'Coût fournisseur de 1 $ → prix client {{price}}',
+    'Reorder {{domain}} for {{quota}} quota ({{price}} platform price)? This creates a new paid activation.':
+      'Commander à nouveau {{domain}} pour {{quota}} de quota (prix plateforme : {{price}}) ? Cela crée une nouvelle activation payante.',
+    '1 USD provider cost → {{price}} platform price':
+      'Coût fournisseur de 1 USD → prix plateforme {{price}}',
     'API key must contain at least 16 characters':
       'La clé API doit contenir au moins 16 caractères',
     'Use at most 6 decimal places': 'Utilisez au maximum 6 décimales',
@@ -784,15 +784,15 @@ export const heroSmsTranslations = {
     'No matching HeroSMS inventory is available for this activation.':
       'このアクティベーションに一致する HeroSMS の在庫がありません。',
     'Confirm paid purchase': '有料購入を確認',
-    'Purchase {{quantity}} × {{domain}} for {{quota}} quota ({{price}} customer price)?':
-      '{{domain}} を {{quantity}} 件、{{quota}} クォータ（顧客価格 {{price}}）で購入しますか？',
+    'Purchase {{quantity}} × {{domain}} for {{quota}} quota ({{price}} platform price)?':
+      '{{domain}} を {{quantity}} 件、{{quota}} クォータ（プラットフォーム価格 {{price}}）で購入しますか？',
     'Confirm purchase': '購入を確定',
     'Cancel this activation to stop waiting for a code. Voluntary cancellation does not guarantee or issue a local quota refund.':
       'このアクティベーションをキャンセルするとコード待機を停止します。任意キャンセルではローカルクォータの返金は保証・実行されません。',
-    'Reorder {{domain}} for {{quota}} quota ({{price}} customer price)? This creates a new paid activation.':
-      '{{domain}} を {{quota}} クォータ（顧客価格 {{price}}）で再注文しますか？新しい有料アクティベーションが作成されます。',
-    '$1 provider cost → {{price}} customer price':
-      'プロバイダー原価 $1 → 顧客価格 {{price}}',
+    'Reorder {{domain}} for {{quota}} quota ({{price}} platform price)? This creates a new paid activation.':
+      '{{domain}} を {{quota}} クォータ（プラットフォーム価格 {{price}}）で再注文しますか？新しい有料アクティベーションが作成されます。',
+    '1 USD provider cost → {{price}} platform price':
+      'プロバイダー原価 1 USD → プラットフォーム価格 {{price}}',
     'API key must contain at least 16 characters':
       'API キーは16文字以上で入力してください',
     'Use at most 6 decimal places': '小数点以下は最大6桁にしてください',
@@ -950,15 +950,15 @@ export const heroSmsTranslations = {
     'No matching HeroSMS inventory is available for this activation.':
       'Для этой активации нет подходящего запаса HeroSMS.',
     'Confirm paid purchase': 'Подтвердить платную покупку',
-    'Purchase {{quantity}} × {{domain}} for {{quota}} quota ({{price}} customer price)?':
-      'Купить {{quantity}} × {{domain}} за {{quota}} квоты (цена для клиента: {{price}})?',
+    'Purchase {{quantity}} × {{domain}} for {{quota}} quota ({{price}} platform price)?':
+      'Купить {{quantity}} × {{domain}} за {{quota}} квоты (цена платформы: {{price}})?',
     'Confirm purchase': 'Подтвердить покупку',
     'Cancel this activation to stop waiting for a code. Voluntary cancellation does not guarantee or issue a local quota refund.':
       'Отмените активацию, чтобы прекратить ожидание кода. Добровольная отмена не гарантирует и не выполняет возврат локальной квоты.',
-    'Reorder {{domain}} for {{quota}} quota ({{price}} customer price)? This creates a new paid activation.':
-      'Заказать {{domain}} повторно за {{quota}} квоты (цена для клиента: {{price}})? Будет создана новая платная активация.',
-    '$1 provider cost → {{price}} customer price':
-      'Стоимость провайдера $1 → цена для клиента {{price}}',
+    'Reorder {{domain}} for {{quota}} quota ({{price}} platform price)? This creates a new paid activation.':
+      'Заказать {{domain}} повторно за {{quota}} квоты (цена платформы: {{price}})? Будет создана новая платная активация.',
+    '1 USD provider cost → {{price}} platform price':
+      'Стоимость провайдера 1 USD → цена платформы {{price}}',
     'API key must contain at least 16 characters':
       'Ключ API должен содержать не менее 16 символов',
     'Use at most 6 decimal places':
@@ -1118,15 +1118,15 @@ export const heroSmsTranslations = {
     'No matching HeroSMS inventory is available for this activation.':
       'Hiện không có tồn kho HeroSMS phù hợp với lượt kích hoạt này.',
     'Confirm paid purchase': 'Xác nhận giao dịch trả phí',
-    'Purchase {{quantity}} × {{domain}} for {{quota}} quota ({{price}} customer price)?':
-      'Mua {{quantity}} × {{domain}} với {{quota}} quota (giá khách hàng {{price}})?',
+    'Purchase {{quantity}} × {{domain}} for {{quota}} quota ({{price}} platform price)?':
+      'Mua {{quantity}} × {{domain}} với {{quota}} quota (giá nền tảng {{price}})?',
     'Confirm purchase': 'Xác nhận mua',
     'Cancel this activation to stop waiting for a code. Voluntary cancellation does not guarantee or issue a local quota refund.':
       'Hủy lượt kích hoạt để ngừng chờ mã. Việc tự nguyện hủy không đảm bảo và không tự động hoàn quota nội bộ.',
-    'Reorder {{domain}} for {{quota}} quota ({{price}} customer price)? This creates a new paid activation.':
-      'Mua lại {{domain}} với {{quota}} quota (giá khách hàng {{price}})? Thao tác này tạo một lượt kích hoạt trả phí mới.',
-    '$1 provider cost → {{price}} customer price':
-      'Chi phí nhà cung cấp $1 → giá khách hàng {{price}}',
+    'Reorder {{domain}} for {{quota}} quota ({{price}} platform price)? This creates a new paid activation.':
+      'Mua lại {{domain}} với {{quota}} quota (giá nền tảng {{price}})? Thao tác này tạo một lượt kích hoạt trả phí mới.',
+    '1 USD provider cost → {{price}} platform price':
+      'Chi phí nhà cung cấp 1 USD → giá nền tảng {{price}}',
     'API key must contain at least 16 characters':
       'Khóa API phải có ít nhất 16 ký tự',
     'Use at most 6 decimal places': 'Chỉ dùng tối đa 6 chữ số thập phân',

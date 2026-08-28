@@ -332,6 +332,14 @@ func updateChannelOpenRouterBalance(channel *model.Channel) (float64, error) {
 	return balance, nil
 }
 
+func convertCNYBalanceToUSD(balanceCNY, cnyPerUSD float64) (float64, error) {
+	exchangeRate := decimal.NewFromFloat(cnyPerUSD)
+	if !exchangeRate.IsPositive() {
+		return 0, fmt.Errorf("USD exchange rate must be positive")
+	}
+	return decimal.NewFromFloat(balanceCNY).Div(exchangeRate).InexactFloat64(), nil
+}
+
 func updateChannelMoonshotBalance(channel *model.Channel) (float64, error) {
 	url := "https://api.moonshot.cn/v1/users/me/balance"
 	body, err := GetResponseBody("GET", url, channel, GetAuthHeader(channel.Key))
@@ -361,7 +369,13 @@ func updateChannelMoonshotBalance(channel *model.Channel) (float64, error) {
 		return 0, fmt.Errorf("failed to update moonshot balance, status: %v, code: %d, scode: %s", response.Status, response.Code, response.Scode)
 	}
 	availableBalanceCny := response.Data.AvailableBalance
-	availableBalanceUsd := decimal.NewFromFloat(availableBalanceCny).Div(decimal.NewFromFloat(operation_setting.Price)).InexactFloat64()
+	availableBalanceUsd, err := convertCNYBalanceToUSD(
+		availableBalanceCny,
+		operation_setting.USDExchangeRate,
+	)
+	if err != nil {
+		return 0, err
+	}
 	channel.UpdateBalance(availableBalanceUsd)
 	return availableBalanceUsd, nil
 }

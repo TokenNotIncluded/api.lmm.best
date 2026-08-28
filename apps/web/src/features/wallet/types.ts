@@ -120,9 +120,20 @@ export interface PaymentMethod {
   max_topup?: string | number
   /** Optional react-icons component name or safe icon URL */
   icon?: string
-  /** Settlement unit shown for this gateway, for example LDC. */
+  /** Explicit ISO/code unit charged by the gateway, for example USD or CNY. */
+  settlement_currency?: string
+  /** Platform credit units represented by 1 real USD in the settlement contract. */
+  platform_units_per_usd?: string | number
+  /** Gateway settlement units represented by 1 real USD. */
+  settlement_units_per_usd?: string | number
+  /** Explicit direct rate for legacy gateways that do not use the USD bridge. */
+  settlement_units_per_platform_unit?: string | number
+  /** @deprecated Legacy gateway settlement unit; use settlement_currency. */
   settlement_unit?: string
-  /** Configured gateway price for one credited USD. The server remains authoritative. */
+  /**
+   * @deprecated Legacy settlement units per platform unit. Kept only as an
+   * explicit compatibility fallback when the two USD-based rates are absent.
+   */
   unit_price?: string | number
   /** Per-method payment multiplier combined with the user's group multiplier. */
   topup_ratio?: string | number
@@ -176,6 +187,10 @@ export interface TopupInfo {
   creem_products?: CreemProduct[]
   /** Whether Waffo topup is enabled */
   enable_waffo_topup?: boolean
+  /** Fiat settlement currency used by Waffo. */
+  waffo_currency?: string
+  /** Fiat amount charged for one platform dollar by Waffo. */
+  waffo_unit_price?: number | string
   /** Available Waffo payment methods */
   waffo_pay_methods?: WaffoPayMethod[]
   /** Minimum topup amount for Waffo */
@@ -313,8 +328,10 @@ export interface TopupRecord {
   user_id: number
   /** Topup amount (quota) */
   amount: number
-  /** Payment amount (actual money paid) */
+  /** Payment amount (actual fiat money paid) */
   money: number
+  /** Fiat currency used by the selected payment gateway. */
+  currency?: string
   /** Trade/order number */
   trade_no: string
   /** Payment method type */

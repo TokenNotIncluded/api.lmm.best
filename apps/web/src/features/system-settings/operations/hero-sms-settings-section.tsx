@@ -61,7 +61,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
 
-import { formatHeroSmsUSD } from '../../email-activations/api.js'
+import { formatHeroSmsPlatformAmount } from '../../email-activations/api.js'
 import { useHeroSmsTranslations } from '../../email-activations/use-hero-sms-translations.js'
 import {
   SettingsForm,
@@ -513,8 +513,8 @@ export function HeroSmsSettingsSection() {
                       />
                     </FormControl>
                     <FormDescription>
-                      {t('$1 provider cost → {{price}} customer price', {
-                        price: formatHeroSmsUSD(
+                      {t('1 USD provider cost → {{price}} platform price', {
+                        price: formatHeroSmsPlatformAmount(
                           getHeroSmsPreviewCustomerPrice(priceMultiplier || 1)
                         ),
                       })}
@@ -530,7 +530,7 @@ export function HeroSmsSettingsSection() {
                 <FormLabel>{t('Charging rule')}</FormLabel>
                 <FormControl>
                   <Input
-                    value={t('HeroSMS ¥1 → platform ${{price}} balance', {
+                    value={t('1 CNY provider cost → {{price}} platform price', {
                       price: getHeroSmsPreviewCustomerPrice(
                         priceMultiplier || 1
                       ).toFixed(2),
@@ -541,7 +541,7 @@ export function HeroSmsSettingsSection() {
                 </FormControl>
                 <FormDescription>
                   {t(
-                    'The multiplier is x: each HeroSMS ¥1 of upstream cost charges $x from the user balance. Platform balance and RMB recharge are treated as approximately 1:1 for this simplified calculation.'
+                    'The multiplier is applied to provider cost to calculate platform price. Provider money and platform credit are distinct units; verify the preview before saving.'
                   )}
                 </FormDescription>
               </FormItem>

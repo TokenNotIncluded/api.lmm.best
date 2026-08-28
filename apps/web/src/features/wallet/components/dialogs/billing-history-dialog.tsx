@@ -45,8 +45,7 @@ import {
 } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
-import { formatCurrencyFromUSD } from '@/lib/currency'
-import { formatNumber } from '@/lib/format'
+import { formatFiatCurrencyAmount, formatPlatformAmount } from '@/lib/currency'
 
 import { useBillingHistory } from '../../hooks/use-billing-history'
 import {
@@ -241,11 +240,15 @@ export function BillingHistoryDialog({
                             {t('Amount')}
                           </Label>
                           <div className='text-sm font-semibold'>
-                            {formatCurrencyFromUSD(record.amount, {
-                              digitsLarge: 2,
-                              digitsSmall: 2,
-                              abbreviate: false,
-                            })}
+                            {formatPlatformAmount(
+                              record.amount,
+                              {
+                                digitsLarge: 2,
+                                digitsSmall: 2,
+                                abbreviate: false,
+                              },
+                              t('Platform')
+                            )}
                           </div>
                         </div>
                         <div className='space-y-1'>
@@ -253,7 +256,21 @@ export function BillingHistoryDialog({
                             {t('Payment')}
                           </Label>
                           <div className='text-destructive text-sm font-semibold'>
-                            {formatNumber(record.money)}
+                            {record.currency
+                              ? formatFiatCurrencyAmount(
+                                  record.money,
+                                  record.currency,
+                                  {
+                                    digitsLarge: 2,
+                                    digitsSmall: 2,
+                                    abbreviate: false,
+                                  }
+                                )
+                              : `${new Intl.NumberFormat(undefined, {
+                                  maximumFractionDigits: 6,
+                                }).format(
+                                  record.money
+                                )} (${t('Currency unavailable')})`}
                           </div>
                         </div>
                       </div>

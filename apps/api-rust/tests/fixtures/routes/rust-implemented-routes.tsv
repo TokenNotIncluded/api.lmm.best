@@ -212,6 +212,7 @@ PUT	/api/option/	lmm_api_rs::migration_routes::system_config::system_config_rout
 POST	/api/option/bulk	lmm_api_rs::migration_routes::system_config::system_config_router
 DELETE	/api/option/channel_affinity_cache	lmm_api_rs::migration_routes::system_config::system_config_router
 GET	/api/option/channel_affinity_cache	lmm_api_rs::migration_routes::system_config::system_config_router
+GET	/api/option/exchange-rate	lmm_api_rs::migration_routes::system_config::system_config_router
 POST	/api/option/payment_compliance	lmm_api_rs::migration_routes::system_config::system_config_router
 GET	/api/option/project-update	lmm_api_rs::migration_routes::system_config::system_config_router
 POST	/api/option/rest_model_ratio	lmm_api_rs::migration_routes::system_config::system_config_router

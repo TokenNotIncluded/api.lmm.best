@@ -175,6 +175,8 @@ func GetTopUpInfo(c *gin.Context) {
 			EnableStripeTopUp:              gatewayAvailability.Stripe,
 			EnableCreemTopUp:               gatewayAvailability.Creem,
 			EnableWaffoTopUp:               gatewayAvailability.Waffo,
+			WaffoCurrency:                  waffoSettlementCurrency(),
+			WaffoUnitPrice:                 setting.WaffoUnitPrice,
 			EnableWaffoPancakeTopUp:        gatewayAvailability.WaffoPancake,
 			EnableStripeSubscription:       subscriptionAvailability.Stripe,
 			EnableCreemSubscription:        subscriptionAvailability.Creem,
@@ -214,6 +216,8 @@ func GetTopUpInfo(c *gin.Context) {
 		"enable_stripe_topup":               gatewayAvailability.Stripe,
 		"enable_creem_topup":                gatewayAvailability.Creem,
 		"enable_waffo_topup":                gatewayAvailability.Waffo,
+		"waffo_currency":                    waffoSettlementCurrency(),
+		"waffo_unit_price":                  setting.WaffoUnitPrice,
 		"enable_waffo_pancake_topup":        gatewayAvailability.WaffoPancake,
 		"enable_stripe_subscription":        subscriptionAvailability.Stripe,
 		"enable_creem_subscription":         subscriptionAvailability.Creem,
@@ -250,6 +254,8 @@ type neutralTopUpInfo struct {
 	EnableStripeTopUp              bool                `json:"enable_stripe_topup"`
 	EnableCreemTopUp               bool                `json:"enable_creem_topup"`
 	EnableWaffoTopUp               bool                `json:"enable_waffo_topup"`
+	WaffoCurrency                  string              `json:"waffo_currency,omitempty"`
+	WaffoUnitPrice                 float64             `json:"waffo_unit_price,omitempty"`
 	EnableWaffoPancakeTopUp        bool                `json:"enable_waffo_pancake_topup"`
 	EnableStripeSubscription       bool                `json:"enable_stripe_subscription"`
 	EnableCreemSubscription        bool                `json:"enable_creem_subscription"`
@@ -302,7 +308,11 @@ func availablePaymentMethods(complianceConfirmed bool) []map[string]string {
 		return []map[string]string{}
 	}
 
-	payMethods := append([]map[string]string(nil), operation_setting.PayMethods...)
+	payMethods := make([]map[string]string, 0, len(operation_setting.PayMethods)+3)
+	for _, method := range operation_setting.PayMethods {
+		// Clone the operator catalog before adding server-owned metadata.
+		payMethods = append(payMethods, clonePaymentMethod(method))
+	}
 	appendIfMissing := func(method map[string]string) {
 		for _, existing := range payMethods {
 			if existing["type"] == method["type"] {
@@ -336,13 +346,69 @@ func availablePaymentMethods(complianceConfirmed bool) []map[string]string {
 			"min_topup": strconv.Itoa(setting.WaffoMinTopUp),
 		})
 	}
+
+	// Dedicated gateway UnitPrice settings are used by their checkout handlers
+	// as settlement units per platform unit. Publish that exact meaning instead
+	// of presenting the values as USD exchange rates. Operator-configured ePay
+	// methods may use the explicit FX pair below or the legacy unit_price alias.
+	for _, method := range payMethods {
+		switch method["type"] {
+		case "stripe":
+			setPaymentMethodPerPlatformUnitPricing(method, "USD", setting.StripeUnitPrice)
+		case model.PaymentMethodWaffoPancake:
+			setPaymentMethodPerPlatformUnitPricing(method, "USD", setting.WaffoPancakeUnitPrice)
+		case model.PaymentMethodWaffo:
+			setPaymentMethodPerPlatformUnitPricing(method, waffoSettlementCurrency(), setting.WaffoUnitPrice)
+		case "alipay", "wxpay":
+			if strings.TrimSpace(method["settlement_unit"]) == "" {
+				method["settlement_unit"] = "CNY"
+			}
+		}
+		if legacyPrice := strings.TrimSpace(method["unit_price"]); legacyPrice != "" && strings.TrimSpace(method["settlement_units_per_platform_unit"]) == "" {
+			method["settlement_units_per_platform_unit"] = legacyPrice
+		}
+		if strings.TrimSpace(method["settlement_units_per_usd"]) != "" && strings.TrimSpace(method["platform_units_per_usd"]) == "" {
+			if platformRate, err := configuredPlatformUnitsPerUSD(); err == nil {
+				method["platform_units_per_usd"] = platformRate.String()
+			}
+		}
+	}
 	return payMethods
+}
+
+func clonePaymentMethod(method map[string]string) map[string]string {
+	clone := make(map[string]string, len(method)+2)
+	for key, value := range method {
+		clone[key] = value
+	}
+	return clone
+}
+
+func waffoSettlementCurrency() string {
+	currency := strings.ToUpper(strings.TrimSpace(setting.WaffoCurrency))
+	if currency == "" {
+		return "USD"
+	}
+	return currency
+}
+
+func setPaymentMethodPerPlatformUnitPricing(method map[string]string, currency string, unitPrice float64) {
+	if strings.TrimSpace(method["settlement_currency"]) == "" {
+		method["settlement_currency"] = currency
+	}
+	if strings.TrimSpace(method["settlement_unit"]) == "" {
+		method["settlement_unit"] = method["settlement_currency"]
+	}
+	if strings.TrimSpace(method["settlement_units_per_platform_unit"]) == "" && unitPrice > 0 {
+		method["settlement_units_per_platform_unit"] = strconv.FormatFloat(unitPrice, 'f', -1, 64)
+	}
 }
 
 func sanitizedPaymentMethods(methods []map[string]string) []map[string]string {
 	allowed := map[string]struct{}{
 		"name": {}, "type": {}, "icon": {}, "color": {}, "min_topup": {},
-		"max_topup": {}, "description": {}, "settlement_unit": {}, "unit_price": {}, "topup_ratio": {},
+		"max_topup": {}, "description": {}, "settlement_currency": {}, "settlement_unit": {}, "unit_price": {}, "topup_ratio": {},
+		"platform_units_per_usd": {}, "settlement_units_per_usd": {}, "settlement_units_per_platform_unit": {},
 	}
 	result := make([]map[string]string, 0, len(methods))
 	for _, method := range methods {
@@ -479,6 +545,18 @@ var positiveDecimalPattern = regexp.MustCompile(`^[0-9]+(?:\.[0-9]+)?$`)
 var nonNegativeDecimalPattern = regexp.MustCompile(`^[0-9]+(?:\.[0-9]+)?$`)
 var settlementUnitPattern = regexp.MustCompile(`^[A-Za-z0-9._-]{1,16}$`)
 
+func integerPlatformAmount(value float64) (int64, error) {
+	decimalAmount := decimal.NewFromFloat(value)
+	if !decimalAmount.Equal(decimalAmount.Truncate(0)) {
+		return 0, fmt.Errorf("platform amount must be an integer")
+	}
+	converted, ok := decimalInt64Truncated(decimalAmount)
+	if !ok {
+		return 0, fmt.Errorf("platform amount is out of range")
+	}
+	return converted, nil
+}
+
 func parsePayRequest(c *gin.Context, amount *float64, paymentMethod, discountCode *string) error {
 	if value, exists := c.Get("parsed_amount"); exists {
 		if parsed, ok := value.(float64); ok && parsed > 0 {
@@ -550,34 +628,167 @@ func getPayMethod(paymentMethod string) (map[string]string, error) {
 	return nil, fmt.Errorf("payment method %q does not exist", paymentMethod)
 }
 
-// getPayMethodUnitPrice returns the settlement price configured for a payment
-// method. The optional unit_price is deliberately strict: an invalid configured
-// value must not silently fall back to the global Price, otherwise a typo could
-// create underpriced orders.
-func getPayMethodUnitPrice(paymentMethod string) (decimal.Decimal, error) {
+// getPayMethodSettlementUnit returns the currency used by the selected
+// gateway. Legacy Epay methods default to CNY; newer methods publish this
+// metadata explicitly.
+func getPayMethodSettlementUnit(paymentMethod string) (string, error) {
 	payMethod, err := getPayMethod(paymentMethod)
 	if err != nil {
-		return decimal.Zero, err
+		return "", err
 	}
-	unitPrice, hasUnitPrice := payMethod["unit_price"]
-	settlementUnit, hasSettlementUnit := payMethod["settlement_unit"]
-	if hasUnitPrice != hasSettlementUnit {
-		return decimal.Zero, fmt.Errorf("payment method %q must configure settlement_unit and unit_price together", paymentMethod)
+	settlementUnit := strings.ToUpper(strings.TrimSpace(payMethod["settlement_currency"]))
+	if settlementUnit == "" {
+		settlementUnit = strings.ToUpper(strings.TrimSpace(payMethod["settlement_unit"]))
 	}
-	if !hasUnitPrice {
-		return decimal.NewFromFloat(operation_setting.Price), nil
+	if settlementUnit == "" {
+		// Legacy Epay methods settle in CNY and predate per-method metadata.
+		if paymentMethod == "alipay" || paymentMethod == "wxpay" {
+			return "CNY", nil
+		}
+		return "USD", nil
 	}
 	if !settlementUnitPattern.MatchString(settlementUnit) {
-		return decimal.Zero, fmt.Errorf("payment method %q has invalid settlement_unit", paymentMethod)
+		return "", fmt.Errorf("payment method %q has invalid settlement_unit", paymentMethod)
 	}
-	if !positiveDecimalPattern.MatchString(unitPrice) {
-		return decimal.Zero, fmt.Errorf("payment method %q has invalid unit_price", paymentMethod)
+	return settlementUnit, nil
+}
+
+type payMethodSettlementPricing struct {
+	platformUnitsPerUSD                decimal.Decimal
+	settlementUnitsPerUSD              decimal.Decimal
+	settlementUnitsPerPlatformUnit     decimal.Decimal
+	usesSettlementUnitsPerPlatformUnit bool
+}
+
+func parsePositivePaymentRate(paymentMethod, field, raw string) (decimal.Decimal, error) {
+	if !positiveDecimalPattern.MatchString(raw) {
+		return decimal.Zero, fmt.Errorf("payment method %q has invalid %s", paymentMethod, field)
 	}
-	price, err := decimal.NewFromString(unitPrice)
-	if err != nil || !price.IsPositive() {
-		return decimal.Zero, fmt.Errorf("payment method %q has invalid unit_price", paymentMethod)
+	rate, err := decimal.NewFromString(raw)
+	if err != nil || !rate.IsPositive() {
+		return decimal.Zero, fmt.Errorf("payment method %q has invalid %s", paymentMethod, field)
 	}
-	return price, nil
+	return rate, nil
+}
+
+// getPayMethodSettlementPricing accepts two unambiguous pricing contracts:
+//
+//   - FX: settlement_units_per_usd plus platform_units_per_usd, which
+//     defaults to the synchronized global USDExchangeRate when omitted
+//   - direct: settlement_units_per_platform_unit
+//
+// unit_price remains a deprecated alias for the direct rate so existing
+// operator-configured methods keep their historical checkout amount. It is
+// never interpreted as settlement units per USD, and the removed global Price
+// option is deliberately not used as a fallback.
+func configuredPlatformUnitsPerUSD() (decimal.Decimal, error) {
+	generalSetting := operation_setting.GetGeneralSetting()
+	switch generalSetting.QuotaDisplayType {
+	case operation_setting.QuotaDisplayTypeUSD:
+		return decimal.NewFromInt(1), nil
+	case operation_setting.QuotaDisplayTypeCNY:
+		rate := decimal.NewFromFloat(operation_setting.USDExchangeRate)
+		if rate.IsPositive() {
+			return rate, nil
+		}
+	case operation_setting.QuotaDisplayTypeCustom:
+		rate := decimal.NewFromFloat(generalSetting.CustomCurrencyExchangeRate)
+		if rate.IsPositive() {
+			return rate, nil
+		}
+	case operation_setting.QuotaDisplayTypeTokens:
+		return decimal.Zero, fmt.Errorf("token display mode has no platform units per USD")
+	default:
+		return decimal.Zero, fmt.Errorf("unsupported platform currency mode %q", generalSetting.QuotaDisplayType)
+	}
+	return decimal.Zero, fmt.Errorf("platform units per USD must be positive")
+}
+
+func getPayMethodSettlementPricing(paymentMethod string) (payMethodSettlementPricing, error) {
+	payMethod, err := getPayMethod(paymentMethod)
+	if err != nil {
+		return payMethodSettlementPricing{}, err
+	}
+	settlementUnit := strings.TrimSpace(payMethod["settlement_currency"])
+	if settlementUnit == "" {
+		settlementUnit = strings.TrimSpace(payMethod["settlement_unit"])
+	}
+	if !settlementUnitPattern.MatchString(settlementUnit) {
+		return payMethodSettlementPricing{}, fmt.Errorf("payment method %q has invalid settlement currency", paymentMethod)
+	}
+
+	platformRaw, hasPlatformRate := payMethod["platform_units_per_usd"]
+	settlementRaw, hasSettlementRate := payMethod["settlement_units_per_usd"]
+	directRaw, hasDirectRate := payMethod["settlement_units_per_platform_unit"]
+	legacyRaw, hasLegacyRate := payMethod["unit_price"]
+	if hasPlatformRate && !hasSettlementRate {
+		return payMethodSettlementPricing{}, fmt.Errorf("payment method %q configures platform_units_per_usd without settlement_units_per_usd", paymentMethod)
+	}
+	if hasSettlementRate && (hasDirectRate || hasLegacyRate) {
+		return payMethodSettlementPricing{}, fmt.Errorf("payment method %q mixes FX and per-platform-unit pricing", paymentMethod)
+	}
+
+	if hasSettlementRate {
+		var platformRate decimal.Decimal
+		if hasPlatformRate {
+			platformRate, err = parsePositivePaymentRate(paymentMethod, "platform_units_per_usd", platformRaw)
+		} else {
+			platformRate, err = configuredPlatformUnitsPerUSD()
+			if err != nil {
+				return payMethodSettlementPricing{}, fmt.Errorf("payment method %q requires a configured platform USD rate: %w", paymentMethod, err)
+			}
+		}
+		settlementRate, err := parsePositivePaymentRate(paymentMethod, "settlement_units_per_usd", settlementRaw)
+		if err != nil {
+			return payMethodSettlementPricing{}, err
+		}
+		return payMethodSettlementPricing{
+			platformUnitsPerUSD:   platformRate,
+			settlementUnitsPerUSD: settlementRate,
+		}, nil
+	}
+
+	if !hasDirectRate && !hasLegacyRate {
+		return payMethodSettlementPricing{}, fmt.Errorf("payment method %q has no explicit settlement pricing", paymentMethod)
+	}
+	if !hasDirectRate {
+		directRaw = legacyRaw
+	}
+	directRate, err := parsePositivePaymentRate(paymentMethod, "settlement_units_per_platform_unit", directRaw)
+	if err != nil {
+		return payMethodSettlementPricing{}, err
+	}
+	if hasDirectRate && hasLegacyRate {
+		legacyRate, err := parsePositivePaymentRate(paymentMethod, "unit_price", legacyRaw)
+		if err != nil {
+			return payMethodSettlementPricing{}, err
+		}
+		if !directRate.Equal(legacyRate) {
+			return payMethodSettlementPricing{}, fmt.Errorf("payment method %q has conflicting per-platform-unit rates", paymentMethod)
+		}
+	}
+	return payMethodSettlementPricing{
+		settlementUnitsPerPlatformUnit:     directRate,
+		usesSettlementUnitsPerPlatformUnit: true,
+	}, nil
+}
+
+func settlementAmountForPlatformAmount(platformAmount decimal.Decimal, pricing payMethodSettlementPricing) (decimal.Decimal, error) {
+	if !platformAmount.IsPositive() {
+		return decimal.Zero, fmt.Errorf("platform amount must be positive")
+	}
+	if pricing.usesSettlementUnitsPerPlatformUnit {
+		if !pricing.settlementUnitsPerPlatformUnit.IsPositive() {
+			return decimal.Zero, fmt.Errorf("settlement units per platform unit must be positive")
+		}
+		return platformAmount.Mul(pricing.settlementUnitsPerPlatformUnit), nil
+	}
+	if !pricing.platformUnitsPerUSD.IsPositive() || !pricing.settlementUnitsPerUSD.IsPositive() {
+		return decimal.Zero, fmt.Errorf("USD settlement rates must be positive")
+	}
+	return platformAmount.
+		Div(pricing.platformUnitsPerUSD).
+		Mul(pricing.settlementUnitsPerUSD), nil
 }
 
 // getPayMethodTopupRatio returns the optional payment-method multiplier. It is
@@ -603,12 +814,15 @@ func getPayMethodTopupRatio(paymentMethod string) (decimal.Decimal, error) {
 
 // quoteTopUp is the single server-authoritative online-top-up quote. It is
 // intentionally shared by quote and checkout endpoints so a client cannot see
-// one amount and create an order at another amount. Calculation order is:
-// platform amount × payment-method unit_price (or global Price) × group ratio
-// × payment-method topup_ratio × amount discount. settlement_unit is
-// presentation metadata only.
+// one amount and create an order at another amount. FX pricing follows:
+//
+// settlement = platform amount / platform units per USD * settlement units per USD
+//
+// The group ratio, optional payment-method ratio, and amount discount are then
+// applied to the settlement amount. Legacy unit_price is direct pricing and is
+// accepted only as settlement units per platform unit.
 func quoteTopUp(amount int64, group, paymentMethod string) (decimal.Decimal, error) {
-	dPrice, err := getPayMethodUnitPrice(paymentMethod)
+	pricing, err := getPayMethodSettlementPricing(paymentMethod)
 	if err != nil {
 		return decimal.Zero, err
 	}
@@ -616,16 +830,10 @@ func quoteTopUp(amount int64, group, paymentMethod string) (decimal.Decimal, err
 	if err != nil {
 		return decimal.Zero, err
 	}
-	return quoteTopUpWithPricing(amount, group, dPrice, dTopupRatio), nil
+	return quoteTopUpWithSettlementPricing(amount, group, pricing, dTopupRatio)
 }
 
-// getPayMoney keeps legacy FAST callers on the global price while sharing the
-// same calculation order as the ePay method-aware quote.
-func getPayMoney(amount int64, group string) float64 {
-	return quoteTopUpWithPricing(amount, group, decimal.NewFromFloat(operation_setting.Price), decimal.NewFromInt(1)).InexactFloat64()
-}
-
-func quoteTopUpWithPricing(amount int64, group string, dPrice, dPaymentRatio decimal.Decimal) decimal.Decimal {
+func quoteTopUpWithSettlementPricing(amount int64, group string, pricing payMethodSettlementPricing, dPaymentRatio decimal.Decimal) (decimal.Decimal, error) {
 	dAmount := decimal.NewFromInt(amount)
 	// 充值金额以“展示类型”为准：
 	// - USD/CNY: 前端传 amount 为金额单位；TOKENS: 前端传 tokens，需要换成 USD 金额
@@ -649,7 +857,15 @@ func quoteTopUpWithPricing(amount int64, group string, dPrice, dPaymentRatio dec
 	}
 	dDiscount := decimal.NewFromFloat(discount)
 
-	return dAmount.Mul(dPrice).Mul(dTopupGroupRatio).Mul(dPaymentRatio).Mul(dDiscount).Round(2)
+	settlementAmount, err := settlementAmountForPlatformAmount(dAmount, pricing)
+	if err != nil {
+		return decimal.Zero, err
+	}
+	return settlementAmount.
+		Mul(dTopupGroupRatio).
+		Mul(dPaymentRatio).
+		Mul(dDiscount).
+		Round(2), nil
 }
 
 func getMinTopup() int64 {
@@ -752,7 +968,11 @@ func RequestEpay(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": fmt.Sprintf("参数错误: %s", err.Error())})
 		return
 	}
-	int64Amount := int64(req.Amount)
+	int64Amount, err := integerPlatformAmount(req.Amount)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "平台充值金额必须为整数"})
+		return
+	}
 	if int64Amount < getMinTopup() {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": fmt.Sprintf("充值数量不能小于 %d", getMinTopup())})
 		return
@@ -761,6 +981,11 @@ func RequestEpay(c *gin.Context) {
 		return
 	}
 	if !requirePaymentMethodTopUpWithinLimit(c, req.PaymentMethod, int64Amount) {
+		return
+	}
+	settlementCurrency, err := getPayMethodSettlementUnit(req.PaymentMethod)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "支付方式配置无效"})
 		return
 	}
 
@@ -826,6 +1051,7 @@ func RequestEpay(c *gin.Context) {
 		TradeNo:              tradeNo,
 		PaymentMethod:        req.PaymentMethod,
 		PaymentProvider:      model.PaymentProviderEpay,
+		SettlementCurrency:   settlementCurrency,
 		DiscountCodeId:       discountCodeID(discountCode),
 		DiscountPercent:      discountPercent(discountCode),
 		CreateTime:           time.Now().Unix(),
@@ -972,6 +1198,7 @@ func EpayNotify(c *gin.Context) {
 			TradeNo:               verifyInfo.ServiceTradeNo,
 			PaymentProvider:       model.PaymentProviderEpay,
 			PaymentMethod:         verifyInfo.Type,
+			SettlementCurrency:    topUp.SettlementCurrency,
 			SettledAmountMicros:   settledAmountMicros,
 			ProviderTransactionId: verifyInfo.TradeNo,
 		})
@@ -1042,21 +1269,13 @@ func RequestAmount(c *gin.Context) {
 	if !requireTopUpCreditCapacity(c, id, creditedQuota) {
 		return
 	}
-	var payMoney decimal.Decimal
 	if req.PaymentMethod == "" {
-		// Older clients did not send payment_method to the quote endpoint.
-		// Keep their global Price behavior while new clients use the selected
-		// payment method's server-authoritative settlement price.
-		payMoney, _, err = quoteLegacyTopUpWithDiscount(req.Amount, group, req.DiscountCode, id)
-	} else {
-		payMoney, _, err = quoteTopUpWithDiscount(req.Amount, group, req.PaymentMethod, req.DiscountCode, id)
+		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "payment_method is required"})
+		return
 	}
+	payMoney, _, err := quoteTopUpWithDiscount(req.Amount, group, req.PaymentMethod, req.DiscountCode, id)
 	if err != nil {
-		message := "优惠码无效"
-		if req.PaymentMethod != "" {
-			message = "支付方式配置无效"
-		}
-		c.JSON(http.StatusOK, gin.H{"message": "error", "data": message})
+		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "支付方式配置无效"})
 		return
 	}
 	if payMoney.LessThanOrEqual(decimal.NewFromFloat(0.01)) {
@@ -1103,6 +1322,7 @@ type topUpSelfRecord struct {
 	UserId        int     `json:"user_id"`
 	Amount        int64   `json:"amount"`
 	Money         float64 `json:"money"`
+	Currency      string  `json:"currency,omitempty"`
 	TradeNo       string  `json:"trade_no"`
 	PaymentMethod string  `json:"payment_method"`
 	CreateTime    int64   `json:"create_time"`
@@ -1116,6 +1336,7 @@ func newTopUpSelfRecord(topUp *model.TopUp) topUpSelfRecord {
 		UserId:        topUp.UserId,
 		Amount:        topUp.Amount,
 		Money:         topUp.Money,
+		Currency:      topUp.SettlementCurrency,
 		TradeNo:       topUp.TradeNo,
 		PaymentMethod: topUp.PaymentMethod,
 		CreateTime:    topUp.CreateTime,

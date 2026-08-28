@@ -17,7 +17,7 @@ use lmm_api_rs::{
         TwoFactorLoginRequest,
     },
     migration_routes::system_config::{
-        DashboardRootAuthorizer, ProjectUpdateClient, SystemConfigAuthorizer,
+        DashboardRootAuthorizer, ExchangeRateProvider, ProjectUpdateClient, SystemConfigAuthorizer,
         SystemConfigHttpState, SystemConfigIdentity, SystemConfigRuntimeWriter,
         WaffoPancakeGateway, system_config_router,
     },
@@ -68,6 +68,42 @@ impl ProjectUpdateClient for Update {
 }
 
 struct Pancake;
+
+struct ExchangeRateProbe {
+    calls: Mutex<Vec<String>>,
+    result: Result<f64, ()>,
+}
+
+impl ExchangeRateProbe {
+    fn succeeding(rate: f64) -> Self {
+        Self {
+            calls: Mutex::new(Vec::new()),
+            result: Ok(rate),
+        }
+    }
+
+    fn failing() -> Self {
+        Self {
+            calls: Mutex::new(Vec::new()),
+            result: Err(()),
+        }
+    }
+
+    fn calls(&self) -> Vec<String> {
+        self.calls.lock().expect("exchange-rate calls").clone()
+    }
+}
+
+#[async_trait]
+impl ExchangeRateProvider for ExchangeRateProbe {
+    async fn settlement_units_per_usd(&self, currency: &str) -> Result<f64, ()> {
+        self.calls
+            .lock()
+            .expect("exchange-rate calls")
+            .push(currency.to_owned());
+        self.result
+    }
+}
 
 struct CatalogProbe {
     catalog_calls: Mutex<Vec<(String, String)>>,
@@ -179,6 +215,143 @@ async fn spawn_tcp_router(app: axum::Router) -> (String, tokio::task::JoinHandle
             .expect("test server");
     });
     (format!("http://{address}"), server)
+}
+
+fn exchange_rate_app(
+    authorizer: Arc<dyn SystemConfigAuthorizer>,
+    provider: Arc<dyn ExchangeRateProvider>,
+) -> axum::Router {
+    let pool = PgPoolOptions::new()
+        .connect_lazy("postgres://unused:unused@127.0.0.1:1/unused")
+        .expect("valid deferred PostgreSQL URL");
+    let valkey = redis::Client::open("redis://127.0.0.1:1/").expect("valid deferred Valkey URL");
+    system_config_router(
+        SystemConfigHttpState::new(
+            pool,
+            valkey,
+            authorizer,
+            Arc::new(Update),
+            Arc::new(Pancake),
+        )
+        .with_exchange_rate_provider(provider),
+    )
+}
+
+async fn response_json(response: axum::response::Response) -> Value {
+    serde_json::from_slice(
+        &to_bytes(response.into_body(), 16 * 1024)
+            .await
+            .expect("bounded response body"),
+    )
+    .expect("JSON response")
+}
+
+#[tokio::test]
+async fn exchange_rate_requires_root_auth_before_query_validation() {
+    let provider = Arc::new(ExchangeRateProbe::succeeding(6.8));
+    let response = exchange_rate_app(Arc::new(Denied), provider.clone())
+        .oneshot(
+            Request::builder()
+                .uri("/api/option/exchange-rate?currency=CNY")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    assert!(provider.calls().is_empty());
+}
+
+#[tokio::test]
+async fn exchange_rate_validates_iso_code_normalizes_case_and_bypasses_provider_for_usd() {
+    let provider = Arc::new(ExchangeRateProbe::succeeding(6.8));
+    let app = exchange_rate_app(Arc::new(Root), provider.clone());
+
+    for uri in [
+        "/api/option/exchange-rate",
+        "/api/option/exchange-rate?currency=CN",
+        "/api/option/exchange-rate?currency=C%24Y",
+        "/api/option/exchange-rate?currency=CNY1",
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(uri)
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST, "{uri}");
+        assert_eq!(
+            response_json(response).await,
+            json!({"success": false, "message": "currency must be a three-letter ISO code"}),
+            "{uri}"
+        );
+    }
+
+    let usd = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/option/exchange-rate?currency=usd")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    assert_eq!(usd.status(), StatusCode::OK);
+    let usd_body = response_json(usd).await;
+    assert_eq!(usd_body["success"], true);
+    assert_eq!(usd_body["message"], "");
+    assert_eq!(usd_body["data"]["base_currency"], "USD");
+    assert_eq!(usd_body["data"]["quote_currency"], "USD");
+    assert_eq!(usd_body["data"]["rate"], 1.0);
+    assert_eq!(usd_body["data"]["provider"], "base");
+    assert!(usd_body["data"]["fetched_at"].is_string());
+    assert!(provider.calls().is_empty());
+
+    let cny = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/option/exchange-rate?currency=cny")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    assert_eq!(cny.status(), StatusCode::OK);
+    let cny_body = response_json(cny).await;
+    assert_eq!(cny_body["success"], true);
+    assert_eq!(cny_body["data"]["base_currency"], "USD");
+    assert_eq!(cny_body["data"]["quote_currency"], "CNY");
+    assert_eq!(cny_body["data"]["rate"], 6.8);
+    assert_eq!(cny_body["data"]["provider"], "pinned-providers");
+    assert!(cny_body["data"]["fetched_at"].is_string());
+    assert_eq!(provider.calls(), vec!["CNY"]);
+}
+
+#[tokio::test]
+async fn exchange_rate_fails_closed_when_both_pinned_providers_are_unavailable() {
+    let provider = Arc::new(ExchangeRateProbe::failing());
+    let response = exchange_rate_app(Arc::new(Root), provider.clone())
+        .oneshot(
+            Request::builder()
+                .uri("/api/option/exchange-rate?currency=CNY")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+
+    assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+    assert_eq!(
+        response_json(response).await,
+        json!({"success": false, "message": "failed to fetch the latest USD exchange rate"})
+    );
+    assert_eq!(provider.calls(), vec!["CNY"]);
 }
 
 #[tokio::test]

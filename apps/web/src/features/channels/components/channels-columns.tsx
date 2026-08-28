@@ -49,11 +49,7 @@ import {
 } from '@/components/ui/tooltip'
 import { getSecurityPolicy } from '@/features/security/api'
 import { toIntlLocale } from '@/i18n/languages'
-import {
-  formatCurrencyFromUSD,
-  formatQuotaWithCurrency,
-  getCurrencyLabel,
-} from '@/lib/currency'
+import { formatQuotaWithCurrency } from '@/lib/currency'
 import { formatTimestampToDate } from '@/lib/format'
 import { truncateText } from '@/lib/utils'
 import { validatedExternalUrl } from '@/lib/validated-external-url'
@@ -61,6 +57,7 @@ import { validatedExternalUrl } from '@/lib/validated-external-url'
 import { getCodexUsage } from '../api'
 import { CHANNEL_STATUS_CONFIG, MODEL_FETCHABLE_TYPES } from '../constants'
 import {
+  formatBalance,
   formatRelativeTime,
   formatResponseTime,
   getBalanceVariant,
@@ -340,49 +337,29 @@ function BalanceCell({ channel }: { channel: Channel }) {
   const [codexUsageOpen, setCodexUsageOpen] = useState(false)
   const [codexUsageResponse, setCodexUsageResponse] =
     useState<CodexUsageDialogData | null>(null)
-  const currencyLabel = getCurrencyLabel()
-  const tokenSuffix = currencyLabel === 'Tokens' ? ' Tokens' : ''
-  const withSuffix = (value: string) =>
-    tokenSuffix && value !== '-' ? `${value}${tokenSuffix}` : value
-
   const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
-  const balanceFormatOptions = {
+  // Precise values are kept for the tooltip; long values are shown compactly inline.
+  const usedFull = formatQuotaWithCurrency(usedQuota, {
     digitsLarge: 2,
     digitsSmall: 4,
-    abbreviate: false,
+    abbreviate: true,
     showSymbol: layout !== 'card',
-  } as const
-  // Precise values are kept for the tooltip; long values are shown compactly inline.
-  const usedFull = withSuffix(
-    formatQuotaWithCurrency(usedQuota, {
-      digitsLarge: 2,
-      digitsSmall: 4,
-      abbreviate: true,
-      showSymbol: layout !== 'card',
-    })
-  )
-  const remainingFull = withSuffix(
-    formatCurrencyFromUSD(balance, balanceFormatOptions)
-  )
+  })
+  const remainingFull = formatBalance(balance)
   const usedDisplay =
     usedFull.length > MAX_INLINE_BALANCE_CHARS
-      ? withSuffix(
-          formatQuotaWithCurrency(usedQuota, {
-            compact: true,
-            locale,
-            showSymbol: layout !== 'card',
-          })
-        )
+      ? formatQuotaWithCurrency(usedQuota, {
+          compact: true,
+          locale,
+          showSymbol: layout !== 'card',
+        })
       : usedFull
   const remainingDisplay =
     remainingFull.length > MAX_INLINE_BALANCE_CHARS
-      ? withSuffix(
-          formatCurrencyFromUSD(balance, {
-            compact: true,
-            locale,
-            showSymbol: layout !== 'card',
-          })
-        )
+      ? new Intl.NumberFormat(locale, {
+          notation: 'compact',
+          maximumFractionDigits: 1,
+        }).format(balance)
       : remainingFull
   const usedLabel = `${t('Used:')} ${usedFull}`
   const remainingLabel = `${t('Remaining:')} ${remainingFull}`

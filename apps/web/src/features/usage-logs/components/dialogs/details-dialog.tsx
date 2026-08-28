@@ -59,7 +59,7 @@ import { IconBadge, type IconBadgeTone } from '@/components/ui/icon-badge'
 import { Label } from '@/components/ui/label'
 import { DynamicPricingBreakdown } from '@/features/pricing/components/dynamic-pricing-breakdown'
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
-import { formatBillingCurrencyFromUSD } from '@/lib/currency'
+import { formatPlatformAmount } from '@/lib/currency'
 import { formatLogQuota, formatTokens, formatUseTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
@@ -227,7 +227,7 @@ function BillingBreakdown(props: {
 
   const rows: Array<{ label: string; value: string }> = []
   const priceOpts = { digitsLarge: 4, digitsSmall: 6, abbreviate: false }
-  const fmtPrice = (usd: number) => formatBillingCurrencyFromUSD(usd, priceOpts)
+  const fmtPrice = (amount: number) => formatPlatformAmount(amount, priceOpts)
   const baseInputUSD = other.model_ratio != null ? other.model_ratio * 2.0 : 0
 
   if (isTieredExpr) {

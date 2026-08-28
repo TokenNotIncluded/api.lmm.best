@@ -24,6 +24,7 @@ import { BadgeCell } from '@/components/data-table'
 import { GroupBadge } from '@/components/group-badge'
 import { StatusBadge } from '@/components/status-badge'
 import { TableId } from '@/components/table-id'
+import { formatFiatCurrencyAmount } from '@/lib/currency'
 import { formatQuota } from '@/lib/format'
 
 import {
@@ -74,7 +75,11 @@ export function useSubscriptionsColumns(): ColumnDef<PlanRecord>[] {
         header: t('Price'),
         cell: ({ row }) => (
           <span className='text-success font-semibold'>
-            ${Number(row.original.plan.price_amount || 0).toFixed(2)}
+            {formatFiatCurrencyAmount(
+              Number(row.original.plan.price_amount || 0),
+              row.original.plan.currency || 'USD',
+              { abbreviate: false, digitsLarge: 2, digitsSmall: 2 }
+            )}
           </span>
         ),
         size: 100,

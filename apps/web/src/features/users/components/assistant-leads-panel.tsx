@@ -67,6 +67,7 @@ import {
   type AssistantProfileSummary,
 } from '@/features/assistant/api'
 import { toIntlLocale } from '@/i18n/languages'
+import { formatPlatformAmount } from '@/lib/currency'
 
 const PENDING_HANDOFFS_QUERY_KEY = [
   'assistant-admin-handoffs',
@@ -214,15 +215,17 @@ export function AssistantLeadsPanel() {
     () => new Intl.NumberFormat(intlLocale),
     [intlLocale]
   )
-  const currencyFormatter = useMemo(
-    () =>
-      new Intl.NumberFormat(intlLocale, {
-        style: 'currency',
-        currency: 'USD',
-        maximumFractionDigits: 4,
-      }),
-    [intlLocale]
-  )
+  const formatPlatformCost = (amount: number) =>
+    formatPlatformAmount(
+      amount,
+      {
+        locale: intlLocale,
+        abbreviate: false,
+        digitsLarge: 2,
+        digitsSmall: 4,
+      },
+      t('Platform')
+    )
   const totalIntents = useMemo(
     () => intents.reduce((total, item) => total + item.count, 0),
     [intents]
@@ -581,7 +584,7 @@ export function AssistantLeadsPanel() {
         <div className='bg-muted/20 min-w-0 rounded-md p-2.5'>
           <dt className='text-muted-foreground text-xs'>{t('Cost')}</dt>
           <dd className='mt-1 truncate text-sm font-semibold'>
-            {currencyFormatter.format(funding.cost_usd)}
+            {formatPlatformCost(funding.cost_usd)}
           </dd>
         </div>
         <div className='bg-muted/20 min-w-0 rounded-md p-2.5'>
@@ -601,7 +604,7 @@ export function AssistantLeadsPanel() {
             {t('Remaining quota')}
           </dt>
           <dd className='mt-1 truncate text-sm font-semibold'>
-            {currencyFormatter.format(funding.remaining_usd)}
+            {formatPlatformCost(funding.remaining_usd)}
           </dd>
           <dd className='text-muted-foreground truncate text-xs'>
             {numberFormatter.format(funding.remaining_quota)}{' '}

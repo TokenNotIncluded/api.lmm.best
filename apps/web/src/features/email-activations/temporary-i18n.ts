@@ -37,10 +37,10 @@ export const temporaryActivationTranslations = {
     'Allow users to purchase temporary email addresses and receive verification messages.':
       'Allow users to purchase temporary email addresses and receive verification messages.',
     'Charging rule': 'Charging rule',
-    'HeroSMS ¥1 → platform ${{price}} balance':
-      'HeroSMS ¥1 → platform ${{price}} balance',
-    'The multiplier is x: each HeroSMS ¥1 of upstream cost charges $x from the user balance. Platform balance and RMB recharge are treated as approximately 1:1 for this simplified calculation.':
-      'The multiplier is x: each HeroSMS ¥1 of upstream cost charges $x from the user balance. Platform balance and RMB recharge are treated as approximately 1:1 for this simplified calculation.',
+    '1 CNY provider cost → {{price}} platform price':
+      '1 CNY provider cost → {{price}} platform price',
+    'The multiplier is applied to provider cost to calculate platform price. Provider money and platform credit are distinct units; verify the preview before saving.':
+      'The multiplier is applied to provider cost to calculate platform price. Provider money and platform credit are distinct units; verify the preview before saving.',
     'HeroSMS temporary activations': 'HeroSMS temporary activations',
     'Phone number purchased': 'Phone number purchased',
     'Phone activation cancelled and refunded':
@@ -92,10 +92,10 @@ export const temporaryActivationTranslations = {
     'Allow users to purchase temporary email addresses and receive verification messages.':
       '允许用户购买临时邮箱并接收验证邮件。',
     'Charging rule': '收费规则',
-    'HeroSMS ¥1 → platform ${{price}} balance':
-      'HeroSMS ¥1 → 平台 ${{price}} 余额',
-    'The multiplier is x: each HeroSMS ¥1 of upstream cost charges $x from the user balance. Platform balance and RMB recharge are treated as approximately 1:1 for this simplified calculation.':
-      '倍率为 x：HeroSMS 上游每 ¥1，用户支付 $x 平台余额。为简化计算，平台美元余额与人民币充值按约 1:1 处理。',
+    '1 CNY provider cost → {{price}} platform price':
+      '提供商成本 1 CNY → 平台价格 {{price}}',
+    'The multiplier is applied to provider cost to calculate platform price. Provider money and platform credit are distinct units; verify the preview before saving.':
+      '倍率用于根据提供商成本计算平台价格。提供商法币与平台金额是不同单位，请在保存前核对预览。',
     'HeroSMS temporary activations': 'HeroSMS 临时接码',
     'Phone number purchased': '手机号购买成功',
     'Phone activation cancelled and refunded': '手机号接码已取消并退款',
@@ -142,10 +142,10 @@ export const temporaryActivationTranslations = {
     'Allow users to purchase temporary email addresses and receive verification messages.':
       '允許使用者購買臨時信箱並接收驗證郵件。',
     'Charging rule': '收費規則',
-    'HeroSMS ¥1 → platform ${{price}} balance':
-      'HeroSMS ¥1 → 平台 ${{price}} 餘額',
-    'The multiplier is x: each HeroSMS ¥1 of upstream cost charges $x from the user balance. Platform balance and RMB recharge are treated as approximately 1:1 for this simplified calculation.':
-      '倍率為 x：HeroSMS 上游每 ¥1，使用者支付 $x 平台餘額。為簡化計算，平台美元餘額與人民幣儲值按約 1:1 處理。',
+    '1 CNY provider cost → {{price}} platform price':
+      '供應商成本 1 CNY → 平台價格 {{price}}',
+    'The multiplier is applied to provider cost to calculate platform price. Provider money and platform credit are distinct units; verify the preview before saving.':
+      '倍率用於根據供應商成本計算平台價格。供應商法幣與平台金額是不同單位，請在儲存前核對預覽。',
     'HeroSMS temporary activations': 'HeroSMS 臨時接碼',
     'Phone number purchased': '手機號碼購買成功',
     'Phone activation cancelled and refunded': '手機號碼接碼已取消並退款',
@@ -192,10 +192,10 @@ export const temporaryActivationTranslations = {
     'Allow users to purchase temporary email addresses and receive verification messages.':
       'Autoriser l’achat d’adresses e-mail temporaires et la réception de messages de vérification.',
     'Charging rule': 'Règle de facturation',
-    'HeroSMS ¥1 → platform ${{price}} balance':
-      'HeroSMS ¥1 → solde plateforme ${{price}}',
-    'The multiplier is x: each HeroSMS ¥1 of upstream cost charges $x from the user balance. Platform balance and RMB recharge are treated as approximately 1:1 for this simplified calculation.':
-      'Le multiplicateur est x : chaque ¥1 facturé par HeroSMS débite $x du solde utilisateur. Pour simplifier, le solde en dollars et la recharge en RMB sont traités approximativement à 1:1.',
+    '1 CNY provider cost → {{price}} platform price':
+      'Coût fournisseur 1 CNY → prix plateforme {{price}}',
+    'The multiplier is applied to provider cost to calculate platform price. Provider money and platform credit are distinct units; verify the preview before saving.':
+      'Le multiplicateur calcule le prix plateforme à partir du coût fournisseur. La monnaie du fournisseur et le crédit plateforme sont des unités distinctes ; vérifiez l’aperçu.',
     'HeroSMS temporary activations': 'Activations temporaires HeroSMS',
     'Phone number purchased': 'Numéro de téléphone acheté',
     'Phone activation cancelled and refunded':
@@ -247,10 +247,10 @@ export const temporaryActivationTranslations = {
     'Allow users to purchase temporary email addresses and receive verification messages.':
       '一時メールアドレスを購入して認証メッセージを受信できるようにします。',
     'Charging rule': '課金ルール',
-    'HeroSMS ¥1 → platform ${{price}} balance':
-      'HeroSMS ¥1 → プラットフォーム残高 ${{price}}',
-    'The multiplier is x: each HeroSMS ¥1 of upstream cost charges $x from the user balance. Platform balance and RMB recharge are treated as approximately 1:1 for this simplified calculation.':
-      '倍率を x とすると、HeroSMS の上流コスト ¥1 ごとにユーザー残高から $x を請求します。簡略化のため、ドル残高と人民元チャージはおよそ 1:1 として扱います。',
+    '1 CNY provider cost → {{price}} platform price':
+      'プロバイダー原価 1 CNY → プラットフォーム価格 {{price}}',
+    'The multiplier is applied to provider cost to calculate platform price. Provider money and platform credit are distinct units; verify the preview before saving.':
+      '倍率でプロバイダー原価からプラットフォーム価格を計算します。プロバイダー通貨とプラットフォーム残高は別の単位です。保存前にプレビューを確認してください。',
     'HeroSMS temporary activations': 'HeroSMS 一時認証',
     'Phone number purchased': '電話番号を購入しました',
     'Phone activation cancelled and refunded':
@@ -299,10 +299,10 @@ export const temporaryActivationTranslations = {
     'Allow users to purchase temporary email addresses and receive verification messages.':
       'Разрешить покупку временных адресов и получение проверочных сообщений.',
     'Charging rule': 'Правило оплаты',
-    'HeroSMS ¥1 → platform ${{price}} balance':
-      'HeroSMS ¥1 → ${{price}} баланса платформы',
-    'The multiplier is x: each HeroSMS ¥1 of upstream cost charges $x from the user balance. Platform balance and RMB recharge are treated as approximately 1:1 for this simplified calculation.':
-      'Множитель x означает, что за каждый ¥1 цены HeroSMS списывается $x баланса пользователя. Для упрощения долларовый баланс и пополнение в RMB считаются примерно 1:1.',
+    '1 CNY provider cost → {{price}} platform price':
+      'Стоимость провайдера 1 CNY → цена платформы {{price}}',
+    'The multiplier is applied to provider cost to calculate platform price. Provider money and platform credit are distinct units; verify the preview before saving.':
+      'Множитель рассчитывает цену платформы из стоимости провайдера. Валюта провайдера и платформенный кредит — разные единицы; проверьте предпросмотр перед сохранением.',
     'HeroSMS temporary activations': 'Временные активации HeroSMS',
     'Phone number purchased': 'Номер телефона приобретён',
     'Phone activation cancelled and refunded':
@@ -354,10 +354,10 @@ export const temporaryActivationTranslations = {
     'Allow users to purchase temporary email addresses and receive verification messages.':
       'Cho phép mua địa chỉ email tạm thời và nhận thư xác minh.',
     'Charging rule': 'Quy tắc tính phí',
-    'HeroSMS ¥1 → platform ${{price}} balance':
-      'HeroSMS ¥1 → ${{price}} số dư nền tảng',
-    'The multiplier is x: each HeroSMS ¥1 of upstream cost charges $x from the user balance. Platform balance and RMB recharge are treated as approximately 1:1 for this simplified calculation.':
-      'Hệ số x nghĩa là mỗi ¥1 chi phí HeroSMS sẽ trừ $x khỏi số dư người dùng. Để đơn giản, số dư USD và nạp RMB được tính xấp xỉ 1:1.',
+    '1 CNY provider cost → {{price}} platform price':
+      'Chi phí nhà cung cấp 1 CNY → giá nền tảng {{price}}',
+    'The multiplier is applied to provider cost to calculate platform price. Provider money and platform credit are distinct units; verify the preview before saving.':
+      'Hệ số được áp dụng cho chi phí nhà cung cấp để tính giá nền tảng. Tiền của nhà cung cấp và tín dụng nền tảng là hai đơn vị khác nhau; hãy kiểm tra bản xem trước trước khi lưu.',
     'HeroSMS temporary activations': 'Kích hoạt tạm thời HeroSMS',
     'Phone number purchased': 'Đã mua số điện thoại',
     'Phone activation cancelled and refunded':

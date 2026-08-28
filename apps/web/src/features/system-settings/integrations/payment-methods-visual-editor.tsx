@@ -31,6 +31,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover'
+import { getPlatformCurrencyLabel } from '@/lib/currency'
 
 import { safeJsonParseWithValidation } from '../utils/json-parser'
 import { isArray } from '../utils/json-validators'
@@ -47,7 +48,6 @@ import { isValidPaymentMethodData } from './payment-method-validation'
 type PaymentMethodsVisualEditorProps = {
   value: string
   onChange: (value: string) => void
-  globalPrice: number
 }
 
 const PAYMENT_TYPE_ICON_NAMES: Record<string, string> = {
@@ -65,12 +65,32 @@ function getEffectiveIconName(method: PaymentMethodData) {
   return method.icon || getDefaultIconName(method.type)
 }
 
+function formatSettlementRule(
+  method: PaymentMethodData,
+  platformCurrencyLabel: string
+): string | null {
+  const settlementCurrency = method.settlement_currency?.trim()
+  const settlementRate = method.settlement_units_per_usd?.trim()
+  if (settlementCurrency && settlementRate) {
+    return `${settlementRate} ${settlementCurrency.toUpperCase()}/USD`
+  }
+
+  const legacyCurrency = method.settlement_unit?.trim()
+  const legacyRate =
+    method.settlement_units_per_platform_unit?.trim() ||
+    method.unit_price?.trim()
+  if (legacyCurrency && legacyRate) {
+    return `${legacyRate} ${legacyCurrency}/${platformCurrencyLabel}`
+  }
+  return settlementCurrency || legacyCurrency || null
+}
+
 export function PaymentMethodsVisualEditor({
   value,
   onChange,
-  globalPrice,
 }: PaymentMethodsVisualEditorProps) {
   const { t } = useTranslation()
+  const platformCurrencyLabel = getPlatformCurrencyLabel(t('Platform'))
   const [searchText, setSearchText] = useState('')
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editData, setEditData] = useState<PaymentMethodData | null>(null)
@@ -241,8 +261,11 @@ export function PaymentMethodsVisualEditor({
                         <span className='truncate'>{t(item.labelKey)}</span>
                         <span className='text-muted-foreground font-mono text-[11px]'>
                           {item.method.type}
-                          {item.method.unit_price && item.method.settlement_unit
-                            ? ` · ${item.method.unit_price} ${item.method.settlement_unit}/USD`
+                          {formatSettlementRule(
+                            item.method,
+                            platformCurrencyLabel
+                          )
+                            ? ` · ${formatSettlementRule(item.method, platformCurrencyLabel)}`
                             : ''}
                         </span>
                       </span>
@@ -367,16 +390,17 @@ export function PaymentMethodsVisualEditor({
               {
                 id: 'settlement',
                 header: t('Settlement'),
-                cell: (method) =>
-                  method.settlement_unit ? (
-                    <span className='font-mono text-sm'>
-                      {method.unit_price
-                        ? `${method.unit_price} ${method.settlement_unit}/USD`
-                        : method.settlement_unit}
-                    </span>
+                cell: (method) => {
+                  const settlementRule = formatSettlementRule(
+                    method,
+                    platformCurrencyLabel
+                  )
+                  return settlementRule ? (
+                    <span className='font-mono text-sm'>{settlementRule}</span>
                   ) : (
                     <span className='text-muted-foreground text-sm'>—</span>
-                  ),
+                  )
+                },
               },
               {
                 id: 'topup-ratio',
@@ -442,7 +466,10 @@ export function PaymentMethodsVisualEditor({
                 method.audience_linuxdo_score_min,
                 method.audience_linuxdo_score_max,
                 method.topup_ratio,
+                method.settlement_currency,
+                method.settlement_units_per_usd,
                 method.settlement_unit,
+                method.settlement_units_per_platform_unit,
                 method.unit_price,
                 method.color,
                 method.enabled,
@@ -539,15 +566,13 @@ export function PaymentMethodsVisualEditor({
                         <span className='font-mono'>{method.min_topup}</span>
                       </div>
                     )}
-                    {method.settlement_unit && (
+                    {formatSettlementRule(method, platformCurrencyLabel) && (
                       <div className='flex items-center gap-2'>
                         <span className='text-muted-foreground min-w-20'>
                           {t('Settlement:')}
                         </span>
                         <span className='font-mono'>
-                          {method.unit_price
-                            ? `${method.unit_price} ${method.settlement_unit}/USD`
-                            : method.settlement_unit}
+                          {formatSettlementRule(method, platformCurrencyLabel)}
                         </span>
                       </div>
                     )}
@@ -583,7 +608,6 @@ export function PaymentMethodsVisualEditor({
         onOpenChange={setDialogOpen}
         onSave={handleSave}
         editData={editData}
-        globalPrice={globalPrice}
       />
     </div>
   )

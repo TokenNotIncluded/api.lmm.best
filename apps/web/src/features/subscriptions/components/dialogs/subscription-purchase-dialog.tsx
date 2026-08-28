@@ -36,12 +36,13 @@ import {
 import { Separator } from '@/components/ui/separator'
 import {
   cancelPaymentCheckout,
-  isSafeHttpCheckoutUrl,
+  redirectCurrentWindowToPaymentCheckout,
   redirectToPaymentCheckout,
   reservePaymentCheckout,
   submitPaymentForm,
 } from '@/features/wallet/lib'
 import { useSystemConfig } from '@/hooks/use-system-config'
+import { formatFiatCurrencyAmount } from '@/lib/currency'
 import { formatQuota } from '@/lib/format'
 import {
   getDefaultWaffoPancakeCheckoutRegion,
@@ -149,7 +150,11 @@ export function SubscriptionPurchaseDialog(props: Props) {
     selectedEpayMethod ||
     t('Select payment method')
   const totalAmount = Number(plan.total_amount || 0)
-  const price = Number(plan.price_amount || 0).toFixed(2)
+  const price = formatFiatCurrencyAmount(
+    Number(plan.price_amount || 0),
+    plan.currency || 'USD',
+    { abbreviate: false, digitsLarge: 2, digitsSmall: 2 }
+  )
   const quotaPerUnit =
     currency?.quotaPerUnit && currency.quotaPerUnit > 0
       ? currency.quotaPerUnit
@@ -240,13 +245,12 @@ export function SubscriptionPurchaseDialog(props: Props) {
         checkout_language: waffoPancakeCheckoutLanguage,
       })
       if (res.message === 'success' && res.data?.checkout_url) {
-        if (!isSafeHttpCheckoutUrl(res.data.checkout_url)) {
+        if (!redirectCurrentWindowToPaymentCheckout(res.data.checkout_url)) {
           toast.error(t('Invalid payment redirect URL'))
           return
         }
         props.onCheckoutStarted?.()
         toast.success(t('Redirecting to payment page...'))
-        window.location.href = res.data.checkout_url
       } else {
         toast.error(
           res.message && res.message !== 'success'
@@ -387,7 +391,7 @@ export function SubscriptionPurchaseDialog(props: Props) {
           <Separator />
           <div className='flex items-center justify-between'>
             <span className='text-sm font-medium'>{t('Amount Due')}</span>
-            <span className='text-primary text-lg font-bold'>${price}</span>
+            <span className='text-primary text-lg font-bold'>{price}</span>
           </div>
         </div>
 

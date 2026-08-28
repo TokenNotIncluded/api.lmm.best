@@ -36,7 +36,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { getUserAvatarFallback, getUserAvatarStyle } from '@/lib/avatar'
-import { formatBillingCurrencyFromUSD } from '@/lib/currency'
+import { formatPlatformAmount } from '@/lib/currency'
 import { formatLogQuota, formatTimestampToDate } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
@@ -167,9 +167,9 @@ function buildTypeDetailSegments(
 
   const priceOpts = { digitsLarge: 4, digitsSmall: 6, abbreviate: false }
   const formatPrice = (price: number) =>
-    `${formatBillingCurrencyFromUSD(price, priceOpts)}/M`
+    `${formatPlatformAmount(price, priceOpts)}/M`
   const formatPriceCompact = (price: number) =>
-    formatBillingCurrencyFromUSD(price, priceOpts)
+    formatPlatformAmount(price, priceOpts)
   const formatPriceList = (prices: string[], showUnit: boolean) => {
     const text = prices.join(' / ')
     return showUnit ? `${text}/M` : text
@@ -233,7 +233,7 @@ function buildTypeDetailSegments(
     const isPerCall = isPerCallBilling(modelPrice)
     if (isPerCall && modelPrice != null) {
       segments.push({
-        text: `${t('Per-call')} · ${formatBillingCurrencyFromUSD(modelPrice, priceOpts)}`,
+        text: `${t('Per-call')} · ${formatPlatformAmount(modelPrice, priceOpts)}`,
       })
     } else if (other.model_ratio != null) {
       const inputPriceUSD = other.model_ratio * 2.0

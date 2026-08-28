@@ -20,7 +20,7 @@ import { toIntlLocale } from '@/i18n/languages'
 import dayjs from '@/lib/dayjs'
 
 import {
-  formatCurrencyFromUSD,
+  formatFiatCurrencyAmount,
   formatQuotaWithCurrency,
   getCurrencyDisplay,
   getCurrencyFractionDigits,
@@ -72,7 +72,7 @@ export function formatPercent(value: number | null | undefined): string {
 }
 
 export function formatCurrencyUSD(value: number | null | undefined): string {
-  return formatCurrencyFromUSD(value == null ? null : (value as number))
+  return formatFiatCurrencyAmount(value == null ? null : value, 'USD')
 }
 
 // ============================================================================

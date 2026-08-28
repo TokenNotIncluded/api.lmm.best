@@ -25,11 +25,10 @@ import { toast } from 'sonner'
 import { Dialog } from '@/components/dialog'
 import { Button } from '@/components/ui/button'
 import { IconBadge } from '@/components/ui/icon-badge'
-import { formatCurrencyFromUSD } from '@/lib/currency'
 import { formatTimestampToDate } from '@/lib/format'
 
 import { getCodexUsage, updateChannelBalance } from '../../api'
-import { channelsQueryKeys } from '../../lib'
+import { channelsQueryKeys, formatBalance } from '../../lib'
 import { useChannels } from '../channels-provider'
 import {
   CodexUsageDialog,
@@ -127,13 +126,6 @@ export function BalanceQueryDialog({
     setCodexUsageResponse(null)
     onOpenChange(false)
   }
-
-  const formatBalance = (bal: number) =>
-    formatCurrencyFromUSD(bal, {
-      digitsLarge: 2,
-      digitsSmall: 4,
-      abbreviate: false,
-    })
 
   const formatDate = (timestamp: number) => {
     if (!timestamp) return 'Never'

@@ -23,9 +23,38 @@ import type { PaymentMethod } from '../types'
 const SETTLEMENT_UNIT_PATTERN = /^[A-Za-z0-9._-]{1,16}$/
 const POSITIVE_DECIMAL_PATTERN = /^[0-9]+(?:\.[0-9]+)?$/
 
+export type PaymentSettlementMetadata = {
+  currencyCode: string
+  platformUnitsPerUsd: number
+  settlementUnitsPerUsd: number
+  source: 'explicit-usd-rates' | 'legacy-unit-price' | 'legacy-usd-price-ratio'
+}
+
+/** @deprecated Use PaymentSettlementMetadata in new wallet code. */
 export type PaymentSettlementUnit = {
   label: string
   unitPrice: number
+}
+
+function parsePositiveDecimal(value: unknown): number | null {
+  if (typeof value === 'string') {
+    if (!POSITIVE_DECIMAL_PATTERN.test(value)) return null
+    const parsed = Number(value)
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null
+  }
+
+  return typeof value === 'number' && Number.isFinite(value) && value > 0
+    ? value
+    : null
+}
+
+function formatRate(value: string | number | undefined, normalized: number) {
+  return typeof value === 'string'
+    ? value
+    : new Intl.NumberFormat('en-US', {
+        maximumFractionDigits: 20,
+        useGrouping: false,
+      }).format(normalized)
 }
 
 /**
@@ -71,55 +100,146 @@ export function getPaymentTopupRatio(paymentMethod?: PaymentMethod): number {
 }
 
 /**
- * Normalize optional gateway pricing metadata from a server-owned payment
- * method. Invalid values deliberately fall back to the standard currency UI.
+ * Normalize server-owned gateway settlement metadata. The preferred contract
+ * carries both sides of the USD bridge explicitly:
+ * settlement = platform / platformUnitsPerUsd * settlementUnitsPerUsd.
+ *
+ * Older servers may send settlement_unit + unit_price. That fallback is
+ * deliberately isolated and interprets unit_price as settlement units per
+ * platform unit; incomplete preferred metadata never falls through to it.
  */
-export function getPaymentSettlementUnit(
-  paymentMethod?: PaymentMethod
-): PaymentSettlementUnit | null {
-  if (usesDedicatedPaymentPricing(paymentMethod?.type)) return null
-
-  const label = paymentMethod?.settlement_unit
-  if (!label || !SETTLEMENT_UNIT_PATTERN.test(label)) return null
-
-  const rawPrice = paymentMethod?.unit_price
-  if (typeof rawPrice === 'string') {
-    if (!POSITIVE_DECIMAL_PATTERN.test(rawPrice)) return null
-    const parsedPrice = Number(rawPrice)
-    if (!Number.isFinite(parsedPrice) || parsedPrice <= 0) return null
-    return { label, unitPrice: parsedPrice }
+export function getPaymentSettlementMetadata(
+  paymentMethod?: PaymentMethod,
+  includeDedicated = false
+): PaymentSettlementMetadata | null {
+  if (!includeDedicated && usesDedicatedPaymentPricing(paymentMethod?.type)) {
+    return null
   }
 
+  const hasPreferredMetadata =
+    paymentMethod?.platform_units_per_usd !== undefined ||
+    paymentMethod?.settlement_units_per_usd !== undefined
+  const currencyCode =
+    paymentMethod?.settlement_currency ?? paymentMethod?.settlement_unit
+
+  if (hasPreferredMetadata) {
+    const platformUnitsPerUsd = parsePositiveDecimal(
+      paymentMethod?.platform_units_per_usd
+    )
+    const settlementUnitsPerUsd = parsePositiveDecimal(
+      paymentMethod?.settlement_units_per_usd
+    )
+    if (
+      !currencyCode ||
+      !SETTLEMENT_UNIT_PATTERN.test(currencyCode) ||
+      platformUnitsPerUsd === null ||
+      settlementUnitsPerUsd === null
+    ) {
+      return null
+    }
+
+    return {
+      currencyCode: currencyCode.toUpperCase(),
+      platformUnitsPerUsd,
+      settlementUnitsPerUsd,
+      source: 'explicit-usd-rates',
+    }
+  }
+
+  const explicitDirectRate = parsePositiveDecimal(
+    paymentMethod?.settlement_units_per_platform_unit
+  )
+  const legacyDirectRate = parsePositiveDecimal(paymentMethod?.unit_price)
   if (
-    typeof rawPrice !== 'number' ||
-    !Number.isFinite(rawPrice) ||
-    rawPrice <= 0
+    explicitDirectRate !== null &&
+    legacyDirectRate !== null &&
+    explicitDirectRate !== legacyDirectRate
   ) {
     return null
   }
-  return { label, unitPrice: rawPrice }
+  const settlementUnitsPerPlatformUnit = explicitDirectRate ?? legacyDirectRate
+  if (
+    !currencyCode ||
+    !SETTLEMENT_UNIT_PATTERN.test(currencyCode) ||
+    settlementUnitsPerPlatformUnit === null
+  ) {
+    return null
+  }
+
+  return {
+    currencyCode: currencyCode.toUpperCase(),
+    platformUnitsPerUsd: 1,
+    settlementUnitsPerUsd: settlementUnitsPerPlatformUnit,
+    source: 'legacy-unit-price',
+  }
+}
+
+export function calculateSettlementAmount(
+  platformAmount: number,
+  metadata: PaymentSettlementMetadata
+): number {
+  return (
+    (platformAmount / metadata.platformUnitsPerUsd) *
+    metadata.settlementUnitsPerUsd
+  )
 }
 
 /**
- * Formats the configured rate itself, not a calculated monetary amount. String
- * rates are kept byte-for-byte so small valid decimals never render as zero.
+ * Last-resort contract for old top-up responses that publish no gateway
+ * metadata. It is intentionally fixed to real USD and never reads the global
+ * display-currency setting.
  */
+export function createLegacyUsdSettlementMetadata(
+  settlementUnitsPerPlatformUnit: number
+): PaymentSettlementMetadata {
+  const normalizedRate =
+    Number.isFinite(settlementUnitsPerPlatformUnit) &&
+    settlementUnitsPerPlatformUnit > 0
+      ? settlementUnitsPerPlatformUnit
+      : 1
+  return {
+    currencyCode: 'USD',
+    platformUnitsPerUsd: 1,
+    settlementUnitsPerUsd: normalizedRate,
+    source: 'legacy-usd-price-ratio',
+  }
+}
+
+/** @deprecated Compatibility adapter for older wallet imports. */
+export function getPaymentSettlementUnit(
+  paymentMethod?: PaymentMethod,
+  includeDedicated = false
+): PaymentSettlementUnit | null {
+  const metadata = getPaymentSettlementMetadata(paymentMethod, includeDedicated)
+  if (!metadata) return null
+  return {
+    label: metadata.currencyCode,
+    unitPrice: metadata.settlementUnitsPerUsd / metadata.platformUnitsPerUsd,
+  }
+}
+
+/** Format both sides of the configured settlement contract. */
 export function formatPaymentSettlementRate(
-  paymentMethod?: PaymentMethod
+  paymentMethod?: PaymentMethod,
+  platformCurrencyLabel = 'USD',
+  includeDedicated = false
 ): string | null {
-  const settlementUnit = getPaymentSettlementUnit(paymentMethod)
-  if (!settlementUnit) return null
+  const metadata = getPaymentSettlementMetadata(paymentMethod, includeDedicated)
+  if (!metadata) return null
 
-  const rawPrice = paymentMethod?.unit_price
-  const price =
-    typeof rawPrice === 'string'
-      ? rawPrice
-      : new Intl.NumberFormat('en-US', {
-          maximumFractionDigits: 20,
-          useGrouping: false,
-        }).format(settlementUnit.unitPrice)
+  if (metadata.source !== 'explicit-usd-rates') {
+    return `${formatRate(paymentMethod?.unit_price, metadata.settlementUnitsPerUsd)} ${metadata.currencyCode} / ${platformCurrencyLabel}`
+  }
 
-  return `${price} ${settlementUnit.label} / USD`
+  const platformRate = formatRate(
+    paymentMethod?.platform_units_per_usd,
+    metadata.platformUnitsPerUsd
+  )
+  const settlementRate = formatRate(
+    paymentMethod?.settlement_units_per_usd,
+    metadata.settlementUnitsPerUsd
+  )
+  return `${settlementRate} ${metadata.currencyCode} / ${platformRate} ${platformCurrencyLabel}`
 }
 
 export function formatSettlementAmount(amount: number, unit: string): string {
@@ -127,5 +247,6 @@ export function formatSettlementAmount(amount: number, unit: string): string {
   const formatted = new Intl.NumberFormat(undefined, {
     maximumFractionDigits,
   }).format(amount)
-  return `${formatted} ${unit}`
+  const settlementUnit = unit.trim().toUpperCase() || 'USD'
+  return `${formatted} ${settlementUnit}`
 }

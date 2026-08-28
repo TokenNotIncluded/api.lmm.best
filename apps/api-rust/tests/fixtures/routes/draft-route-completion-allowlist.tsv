@@ -126,6 +126,7 @@ POST	/api/open-source-bounties/tips/:tip_id/thank	compatibility	apps/api-rust/sr
 GET	/api/open-source-bounties/tips/received	compatibility	apps/api-rust/src/migration_routes/open_source_bounties.rs	application route intentionally outside the frozen legacy migration inventory
 POST	/api/open-source-bounties/tips/received/read	compatibility	apps/api-rust/src/migration_routes/open_source_bounties.rs	application route intentionally outside the frozen legacy migration inventory
 POST	/api/option/bulk	compatibility	apps/api-rust/src/migration_routes/system_config.rs	application route intentionally outside the frozen legacy migration inventory
+GET	/api/option/exchange-rate	compatibility	apps/api-rust/src/migration_routes/system_config.rs	root-authenticated live USD exchange-rate route intentionally outside the frozen legacy migration inventory
 GET	/api/option/hero-sms	compatibility	apps/api-rust/src/migration_routes/hero_sms.rs	application route intentionally outside the frozen legacy migration inventory
 PUT	/api/option/hero-sms	compatibility	apps/api-rust/src/migration_routes/hero_sms.rs	application route intentionally outside the frozen legacy migration inventory
 DELETE	/api/option/hero-sms/key	compatibility	apps/api-rust/src/migration_routes/hero_sms.rs	application route intentionally outside the frozen legacy migration inventory

@@ -26,7 +26,7 @@ const journeyLabels: Record<AssistantJourneyStepId, string> = {
   install_client: 'Install a client',
   configure_client: 'Configure the API key',
   first_api_call: 'Complete a real API call',
-  earn_ai_gift: 'Chat with AI to earn a $0–$10 new-user gift',
+  earn_ai_gift: 'Chat with AI to earn a $0–$10 (Platform) new-user gift',
   accept_bounty: 'Accept an open-source bounty',
 }
 

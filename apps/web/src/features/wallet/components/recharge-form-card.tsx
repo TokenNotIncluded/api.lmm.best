@@ -62,7 +62,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
-import { usesDedicatedPaymentPricing } from '@/lib/payment-pricing'
+import { getPlatformCurrencyLabel } from '@/lib/currency'
 import { cn } from '@/lib/utils'
 import {
   getDefaultWaffoPancakeCheckoutRegion,
@@ -77,8 +77,7 @@ import {
   getTopupAvailability,
   getMinTopupAmount,
   calculatePresetPricing,
-  formatCreditBalance,
-  formatCreditValue,
+  formatPlatformCreditBalance as formatPlatformCreditBalanceBase,
   formatPaymentAmount,
   formatPaymentSettlementRate,
   formatSettlementAmount,
@@ -172,6 +171,8 @@ export function RechargeFormCard({
   neutralMode = false,
 }: RechargeFormCardProps) {
   const { t, i18n } = useTranslation()
+  const formatPlatformCreditBalance = (amount: number) =>
+    formatPlatformCreditBalanceBase(amount, t('Platform'))
   const [localAmount, setLocalAmount] = useState(topupAmount.toString())
   const [localWaffoPancakeRegionOverride, setLocalWaffoPancakeRegion] =
     useState<WaffoPancakeCheckoutRegion | null>(null)
@@ -185,9 +186,11 @@ export function RechargeFormCard({
 
   const handleAmountChange = (value: string) => {
     setLocalAmount(value)
-    const numValue = Number.parseInt(value) || 0
-    if (numValue >= 0) {
-      onTopupAmountChange(numValue)
+    const parsedValue = Number.parseInt(value, 10)
+    if (Number.isFinite(parsedValue) && parsedValue >= 0) {
+      onTopupAmountChange(parsedValue)
+    } else if (value === '') {
+      onTopupAmountChange(0)
     }
   }
 
@@ -220,28 +223,28 @@ export function RechargeFormCard({
   const effectivePaymentMethod =
     selectedPaymentMethod ??
     standardMethods.find((method) => method.type === defaultPaymentType)
-  const settlementUnit = getPaymentSettlementUnit(effectivePaymentMethod)
+  const settlementUnit = getPaymentSettlementUnit(effectivePaymentMethod, true)
   const paymentTopupRatio = getPaymentTopupRatio(effectivePaymentMethod)
   const selectedPaymentMethodName =
     neutralMode || !effectivePaymentMethod?.name
       ? t('Payment Method')
       : effectivePaymentMethod.name
   const shouldShowSettlementRule = (paymentMethod: PaymentMethod) =>
-    !usesDedicatedPaymentPricing(paymentMethod.type)
-  const getSettlementRule = (paymentMethod: PaymentMethod) => {
-    const configuredRate = formatPaymentSettlementRate(paymentMethod)
-    if (configuredRate) return configuredRate
-
-    return t('Global settlement')
-  }
+    getPaymentSettlementUnit(paymentMethod, true) !== null
+  const getSettlementRule = (paymentMethod: PaymentMethod) =>
+    formatPaymentSettlementRate(
+      paymentMethod,
+      getPlatformCurrencyLabel(t('Platform')),
+      true
+    )
   const formatSelectedPaymentAmount = (amount: number) =>
     settlementUnit
       ? formatSettlementAmount(amount, settlementUnit.label)
-      : formatPaymentAmount(amount)
+      : formatPaymentAmount(amount, 'USD')
   const formatPresetPaymentAmount = (amount: number) =>
     settlementUnit
       ? formatSettlementAmount(amount, settlementUnit.label)
-      : formatPaymentAmount(amount)
+      : formatPaymentAmount(amount, 'USD')
   const pancakeCurrencySupported = isWaffoPancakeCurrencySupported()
   const interfaceLanguage = i18n.resolvedLanguage || i18n.language
   const effectiveWaffoPancakeCheckoutRegion =
@@ -399,7 +402,7 @@ export function RechargeFormCard({
                     <FieldLabel>
                       {neutralMode
                         ? t('Current account balance')
-                        : t('Credited amount (unit: USD)')}
+                        : t('Platform credit')}
                     </FieldLabel>
                     <FieldDescription>
                       {neutralMode
@@ -441,7 +444,9 @@ export function RechargeFormCard({
                               hasDiscount: discount < 1,
                             }
                           : defaultPricing
-                        const credits = formatCreditBalance(preset.value)
+                        const credits = formatPlatformCreditBalance(
+                          preset.value
+                        )
                         const payment = formatPresetPaymentAmount(actualPrice)
                         const originalPayment =
                           formatPresetPaymentAmount(originalPrice)
@@ -477,10 +482,7 @@ export function RechargeFormCard({
                           >
                             <div className='flex w-full min-w-0 flex-col items-start gap-1 sm:flex-row sm:items-center sm:justify-between'>
                               <div className='min-w-0 text-base font-semibold sm:text-lg'>
-                                {formatCreditValue(preset.value)}
-                                <span className='text-muted-foreground text-xs font-normal sm:text-sm'>
-                                  {t('(Platform amount, unit: USD)')}
-                                </span>
+                                {credits}
                               </div>
                               {hasDiscount && (
                                 <Badge variant='secondary'>
@@ -544,7 +546,7 @@ export function RechargeFormCard({
                   <FieldLabel htmlFor='topup-amount'>
                     {neutralMode
                       ? t('Current account balance')
-                      : t('Custom credited amount')}
+                      : t('Custom platform credit')}
                   </FieldLabel>
                   <FieldDescription id='topup-amount-description'>
                     {neutralMode
@@ -561,18 +563,19 @@ export function RechargeFormCard({
                       <InputGroupInput
                         id='topup-amount'
                         type='number'
+                        step='1'
                         value={localAmount}
                         onChange={(e) => handleAmountChange(e.target.value)}
                         min={minTopup}
                         placeholder={t('Minimum {{amount}}', {
-                          amount: minTopup,
+                          amount: formatPlatformCreditBalance(minTopup),
                         })}
                         aria-describedby='topup-amount-description'
-                        aria-label={t('Custom credited amount in US dollars')}
+                        aria-label={t('Custom platform credit')}
                         className='text-base sm:text-lg'
                       />
                       <InputGroupAddon align='inline-end' aria-hidden='true'>
-                        USD
+                        ({t('Platform')})
                       </InputGroupAddon>
                     </InputGroup>
                     <div className='bg-muted flex min-h-9 min-w-0 items-center justify-between gap-2 rounded-md border px-3 lg:min-w-52'>
@@ -634,19 +637,18 @@ export function RechargeFormCard({
                           disabledReason = t(
                             'Minimum topup amount: {{amount}}',
                             {
-                              amount: minTopup,
+                              amount: formatPlatformCreditBalance(minTopup),
                             }
                           )
-                          disabledLabel = `${t('Minimum:')} ${minTopup}`
+                          disabledLabel = `${t('Minimum:')} ${formatPlatformCreditBalance(minTopup)}`
                         } else if (aboveMaximum) {
                           disabledReason = t(
-                            'Maximum top-up amount: {{amount}} USD credited',
-                            { amount: maxTopup }
+                            'Maximum platform credit per payment: {{amount}}',
+                            { amount: formatPlatformCreditBalance(maxTopup) }
                           )
-                          disabledLabel = t(
-                            'Maximum: {{amount}} USD credited',
-                            { amount: maxTopup }
-                          )
+                          disabledLabel = t('Maximum: {{amount}}', {
+                            amount: formatPlatformCreditBalance(maxTopup),
+                          })
                         }
                         const settlementRule = shouldShowSettlementRule(method)
                           ? getSettlementRule(method)
@@ -808,11 +810,11 @@ export function RechargeFormCard({
                       const belowMin = waffoMin > topupAmount
                       const disabledReason = belowMin
                         ? t('Minimum topup amount: {{amount}}', {
-                            amount: waffoMin,
+                            amount: formatPlatformCreditBalance(waffoMin),
                           })
                         : undefined
                       const disabledLabel = belowMin
-                        ? `${t('Minimum:')} ${waffoMin}`
+                        ? `${t('Minimum:')} ${formatPlatformCreditBalance(waffoMin)}`
                         : undefined
                       const paymentMethodLabel = neutralMode
                         ? t('Payment option {{number}}', {

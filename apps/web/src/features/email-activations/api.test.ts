@@ -23,7 +23,7 @@ import { api } from '@/lib/api'
 
 import {
   createHeroSmsActivations,
-  formatHeroSmsUSD,
+  formatHeroSmsPlatformAmount,
   getCurrentHeroSmsActivation,
   getHeroSmsActivationDetail,
   listHeroSmsActivations,
@@ -40,9 +40,9 @@ afterEach(() => {
 })
 
 describe('email activation api', () => {
-  test('formats small USD prices without rounding them to zero', () => {
-    assert.equal(formatHeroSmsUSD(0.000011), '$0.000011')
-    assert.equal(formatHeroSmsUSD(1.8), '$1.80')
+  test('formats small platform prices without rounding them to zero', () => {
+    assert.equal(formatHeroSmsPlatformAmount(0.000011), '$0.000011 (Platform)')
+    assert.equal(formatHeroSmsPlatformAmount(1.8), '$1.8 (Platform)')
   })
 
   test('lists products with requested filters', async () => {

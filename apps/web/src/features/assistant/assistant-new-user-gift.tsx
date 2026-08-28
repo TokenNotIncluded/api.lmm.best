@@ -14,6 +14,7 @@ import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
+import { formatPlatformAmount } from '@/lib/currency'
 
 import { claimAssistantNewUserGift, getAssistantNewUserGift } from './api'
 
@@ -112,7 +113,12 @@ export function AssistantNewUserGift(props: { enabled: boolean }) {
         />
         <div className='min-w-0'>
           <p className='text-sm font-medium'>
-            {giftTitle} · ${(gift.amount_cents / 100).toFixed(2)}
+            {giftTitle} ·{' '}
+            {formatPlatformAmount(
+              gift.amount_cents / 100,
+              { abbreviate: false, digitsLarge: 2, digitsSmall: 2 },
+              t('Platform')
+            )}
           </p>
           <p className='text-muted-foreground mt-1 text-xs leading-5'>
             {gift.reason}

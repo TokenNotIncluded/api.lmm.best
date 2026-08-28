@@ -76,7 +76,7 @@ import { formatNumber } from '@/lib/format'
 
 import {
   createHeroSmsIdempotencyKey,
-  formatHeroSmsUSD,
+  formatHeroSmsPlatformAmount,
   listHeroSmsProducts,
   parseHeroSmsError,
 } from './api'
@@ -976,7 +976,7 @@ export function EmailActivationsPage() {
                         />
                         <MetaItem
                           label={t('Quote')}
-                          value={formatHeroSmsUSD(
+                          value={formatHeroSmsPlatformAmount(
                             selectedProduct?.customer_price_usd ?? 0
                           )}
                         />
@@ -1398,7 +1398,7 @@ export function EmailActivationsPage() {
           desc={
             purchaseTarget
               ? t(
-                  'Purchase {{quantity}} × {{domain}} for {{quota}} quota ({{price}} customer price)?',
+                  'Purchase {{quantity}} × {{domain}} for {{quota}} quota ({{price}} platform price)?',
                   {
                     quantity: purchaseTarget.quantity,
                     domain: purchaseTarget.product.domain,
@@ -1406,7 +1406,7 @@ export function EmailActivationsPage() {
                       purchaseTarget.product.charge_quota *
                         purchaseTarget.quantity
                     ),
-                    price: formatHeroSmsUSD(
+                    price: formatHeroSmsPlatformAmount(
                       purchaseTarget.product.customer_price_usd *
                         purchaseTarget.quantity
                     ),
@@ -1441,11 +1441,11 @@ export function EmailActivationsPage() {
           desc={
             reorderTarget
               ? t(
-                  'Reorder {{domain}} for {{quota}} quota ({{price}} customer price)? This creates a new paid activation.',
+                  'Reorder {{domain}} for {{quota}} quota ({{price}} platform price)? This creates a new paid activation.',
                   {
                     domain: reorderTarget.product.domain,
                     quota: formatNumber(reorderTarget.product.charge_quota),
-                    price: formatHeroSmsUSD(
+                    price: formatHeroSmsPlatformAmount(
                       reorderTarget.product.customer_price_usd
                     ),
                   }

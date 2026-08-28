@@ -24,6 +24,7 @@ import { StatusBadge } from '@/components/status-badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { formatPlatformAmount } from '@/lib/currency'
 
 import { safeJsonParseWithValidation } from '../utils/json-parser'
 import { isArray } from '../utils/json-validators'
@@ -49,14 +50,14 @@ export function AmountOptionsVisualEditor({
     })
 
     return parsed
-      .filter((item) => typeof item === 'number' || !isNaN(Number(item)))
+      .filter((item) => typeof item === 'number' || !Number.isNaN(Number(item)))
       .map(Number)
       .sort((a, b) => a - b)
   }, [value, t])
 
   const handleAdd = () => {
     const amount = Number.parseFloat(newAmount)
-    if (isNaN(amount) || amount <= 0) {
+    if (Number.isNaN(amount) || amount <= 0) {
       return
     }
 
@@ -112,7 +113,9 @@ export function AmountOptionsVisualEditor({
                 className='text-base'
                 copyable={false}
               >
-                <span className='font-mono'>${amount}</span>
+                <span className='font-mono'>
+                  {formatPlatformAmount(amount)}
+                </span>
                 <Button
                   type='button'
                   variant='ghost'

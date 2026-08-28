@@ -5474,12 +5474,989 @@ for (const [locale, translations] of Object.entries(
   Object.assign(newKeys[locale], translations)
 }
 
+const profileActivityTranslations = {
+  en: {
+    Cumulative: 'Cumulative',
+    'Daily activity': 'Daily',
+    'Current streak': 'Current streak',
+    'Longest streak this year': 'Longest streak this year',
+    'No token activity in the past year': 'No token activity in the past year',
+    'Peak daily tokens': 'Peak daily tokens',
+    'Token activity': 'Token activity',
+    'Token activity for the past year, with {{count}} active days':
+      'Token activity for the past year, with {{count}} active days',
+    'Tokens in the past year': 'Tokens in the past year',
+    'Try loading the activity again.': 'Try loading the activity again.',
+    'Unable to load token activity': 'Unable to load token activity',
+  },
+  zh: {
+    Cumulative: '累计',
+    'Daily activity': '每日',
+    'Current streak': '当前连续天数',
+    'Longest streak this year': '近一年最长连续天数',
+    'No token activity in the past year': '过去一年暂无 Token 活动',
+    'Peak daily tokens': '单日峰值 Token 数',
+    'Token activity': 'Token 活动',
+    'Token activity for the past year, with {{count}} active days':
+      '过去一年的 Token 活动，共活跃 {{count}} 天',
+    'Tokens in the past year': '近一年 Token 数',
+    'Try loading the activity again.': '请重试加载活动数据。',
+    'Unable to load token activity': '无法加载 Token 活动',
+  },
+  'zh-TW': {
+    Cumulative: '累計',
+    'Daily activity': '每日',
+    'Current streak': '目前連續天數',
+    'Longest streak this year': '近一年最長連續天數',
+    'No token activity in the past year': '過去一年暫無 Token 活動',
+    'Peak daily tokens': '單日峰值 Token 數',
+    'Token activity': 'Token 活動',
+    'Token activity for the past year, with {{count}} active days':
+      '過去一年的 Token 活動，共活躍 {{count}} 天',
+    'Tokens in the past year': '近一年 Token 數',
+    'Try loading the activity again.': '請重試載入活動資料。',
+    'Unable to load token activity': '無法載入 Token 活動',
+  },
+  fr: {
+    Cumulative: 'Cumul',
+    'Daily activity': 'Quotidien',
+    'Current streak': 'Série actuelle',
+    'Longest streak this year': 'Plus longue série de l’année',
+    'No token activity in the past year':
+      'Aucune activité de jetons au cours de l’année écoulée',
+    'Peak daily tokens': 'Pic quotidien de jetons',
+    'Token activity': 'Activité des jetons',
+    'Token activity for the past year, with {{count}} active days':
+      'Activité des jetons sur l’année écoulée, avec {{count}} jours actifs',
+    'Tokens in the past year': 'Jetons sur l’année écoulée',
+    'Try loading the activity again.':
+      'Réessayez de charger les données d’activité.',
+    'Unable to load token activity':
+      'Impossible de charger l’activité des jetons',
+  },
+  ja: {
+    Cumulative: '累計',
+    'Daily activity': '日別',
+    'Current streak': '現在の連続日数',
+    'Longest streak this year': '過去1年の最長連続日数',
+    'No token activity in the past year': '過去1年間のトークン利用はありません',
+    'Peak daily tokens': '1日の最大トークン数',
+    'Token activity': 'トークンアクティビティ',
+    'Token activity for the past year, with {{count}} active days':
+      '過去1年間のトークンアクティビティ（アクティブ {{count}} 日）',
+    'Tokens in the past year': '過去1年のトークン数',
+    'Try loading the activity again.':
+      'アクティビティを再読み込みしてください。',
+    'Unable to load token activity': 'トークンアクティビティを読み込めません',
+  },
+  ru: {
+    Cumulative: 'Накопительно',
+    'Daily activity': 'По дням',
+    'Current streak': 'Текущая серия',
+    'Longest streak this year': 'Самая длинная серия за год',
+    'No token activity in the past year':
+      'За прошедший год активности токенов нет',
+    'Peak daily tokens': 'Пиковое число токенов за день',
+    'Token activity': 'Активность токенов',
+    'Token activity for the past year, with {{count}} active days':
+      'Активность токенов за прошедший год: активных дней — {{count}}',
+    'Tokens in the past year': 'Токены за прошедший год',
+    'Try loading the activity again.':
+      'Попробуйте загрузить активность ещё раз.',
+    'Unable to load token activity': 'Не удалось загрузить активность токенов',
+  },
+  vi: {
+    Cumulative: 'Tích lũy',
+    'Daily activity': 'Hằng ngày',
+    'Current streak': 'Chuỗi hiện tại',
+    'Longest streak this year': 'Chuỗi dài nhất trong năm qua',
+    'No token activity in the past year':
+      'Không có hoạt động token trong năm qua',
+    'Peak daily tokens': 'Lượng token cao nhất trong ngày',
+    'Token activity': 'Hoạt động token',
+    'Token activity for the past year, with {{count}} active days':
+      'Hoạt động token trong năm qua, với {{count}} ngày hoạt động',
+    'Tokens in the past year': 'Token trong năm qua',
+    'Try loading the activity again.': 'Hãy thử tải lại dữ liệu hoạt động.',
+    'Unable to load token activity': 'Không thể tải hoạt động token',
+  },
+}
+for (const [locale, translations] of Object.entries(
+  profileActivityTranslations
+)) {
+  Object.assign(newKeys[locale], translations)
+}
+
+const currencyTerminologyTranslations = {
+  en: {
+    '(Platform amount, unit: USD)': '($ (Platform))',
+    'Credited amount (unit: USD)': 'Platform credit ($ (Platform))',
+    'Custom credited amount': 'Custom platform credit ($ (Platform))',
+    'Custom credited amount in US dollars': 'Custom platform credit',
+    'Gateway price per 1 USD (optional)':
+      'Gateway price per 1 platform dollar (optional)',
+    'Gateway price per 1 platform dollar (optional)':
+      'Gateway price per 1 platform dollar (optional)',
+    'The server uses this rate to quote and verify payment. It is the settlement-currency amount for one $ (Platform).':
+      'The server uses this rate to quote and verify payment. It is the settlement-currency amount for one $ (Platform).',
+    'Enter the settlement-currency amount charged for one $ (Platform). The displayed payment is the platform amount multiplied by this rate.':
+      'Enter the settlement-currency amount charged for one $ (Platform). The displayed payment is the platform amount multiplied by this rate.',
+    'Settlement preview: 1 platform USD = {{price}} {{unit}}':
+      'Settlement preview: 1 $ (Platform) = {{price}} {{unit}}',
+    'Settlement preview: 1 $ (Platform) = {{price}} {{unit}}':
+      'Settlement preview: 1 $ (Platform) = {{price}} {{unit}}',
+    'Top up {{amount}}; pay {{payment}}': 'Credit {{amount}}; pay {{payment}}',
+    'Maximum top-up amount: {{amount}} USD credited':
+      'Maximum top-up amount: {{amount}}',
+    'Maximum: {{amount}} USD credited': 'Maximum: {{amount}}',
+  },
+  zh: {
+    '(Platform amount, unit: USD)': '（$（平台））',
+    'Credited amount (unit: USD)': '平台金额（$（平台））',
+    'Custom credited amount': '自定义平台金额（$（平台））',
+    'Custom credited amount in US dollars': '自定义平台金额',
+    'Gateway price per 1 USD (optional)': '每 1 个平台美元的网关单价（可选）',
+    'Gateway price per 1 platform dollar (optional)':
+      '每 1 个平台美元的网关单价（可选）',
+    'The server uses this rate to quote and verify payment. It is the settlement-currency amount for one $ (Platform).':
+      '服务器使用此汇率计算并校验支付金额。它表示 1 个 $（平台）对应的结算货币金额。',
+    'Enter the settlement-currency amount charged for one $ (Platform). The displayed payment is the platform amount multiplied by this rate.':
+      '请输入 1 个 $（平台）所收取的结算货币金额。页面显示的实际支付金额等于平台金额乘以此单价。',
+    'Settlement preview: 1 platform USD = {{price}} {{unit}}':
+      '结算预览：1 个 $（平台）= {{price}} {{unit}}',
+    'Settlement preview: 1 $ (Platform) = {{price}} {{unit}}':
+      '结算预览：1 个 $（平台）= {{price}} {{unit}}',
+    'Top up {{amount}}; pay {{payment}}':
+      '到账 {{amount}}；实际支付 {{payment}}',
+    'Maximum top-up amount: {{amount}} USD credited': '充值上限：{{amount}}',
+    'Maximum: {{amount}} USD credited': '上限：{{amount}}',
+  },
+  'zh-TW': {
+    '(Platform amount, unit: USD)': '（$（平台））',
+    'Credited amount (unit: USD)': '平台金額（$（平台））',
+    'Custom credited amount': '自訂平台金額（$（平台））',
+    'Custom credited amount in US dollars': '自訂平台金額',
+    'Gateway price per 1 USD (optional)': '每 1 個平台美元的閘道單價（可選）',
+    'Gateway price per 1 platform dollar (optional)':
+      '每 1 個平台美元的閘道單價（可選）',
+    'The server uses this rate to quote and verify payment. It is the settlement-currency amount for one $ (Platform).':
+      '伺服器使用此匯率計算並驗證付款金額。這是 1 個 $（平台）對應的結算貨幣金額。',
+    'Enter the settlement-currency amount charged for one $ (Platform). The displayed payment is the platform amount multiplied by this rate.':
+      '請輸入 1 個 $（平台）所收取的結算貨幣金額。頁面顯示的實際支付金額等於平台金額乘以此單價。',
+    'Settlement preview: 1 platform USD = {{price}} {{unit}}':
+      '結算預覽：1 個 $（平台）= {{price}} {{unit}}',
+    'Settlement preview: 1 $ (Platform) = {{price}} {{unit}}':
+      '結算預覽：1 個 $（平台）= {{price}} {{unit}}',
+    'Top up {{amount}}; pay {{payment}}':
+      '入帳 {{amount}}；實際支付 {{payment}}',
+    'Maximum top-up amount: {{amount}} USD credited': '儲值上限：{{amount}}',
+    'Maximum: {{amount}} USD credited': '上限：{{amount}}',
+  },
+  fr: {
+    '(Platform amount, unit: USD)': '($ (Plateforme))',
+    'Credited amount (unit: USD)': 'Crédit de plateforme ($ (Plateforme))',
+    'Custom credited amount':
+      'Crédit de plateforme personnalisé ($ (Plateforme))',
+    'Custom credited amount in US dollars': 'Crédit de plateforme personnalisé',
+    'Gateway price per 1 USD (optional)':
+      'Prix du canal par dollar de plateforme (facultatif)',
+    'Gateway price per 1 platform dollar (optional)':
+      'Prix du canal par dollar de plateforme (facultatif)',
+    'The server uses this rate to quote and verify payment. It is the settlement-currency amount for one $ (Platform).':
+      'Le serveur utilise ce taux pour calculer et vérifier le paiement. Il s’agit du montant dans la devise de règlement pour 1 $ (Plateforme).',
+    'Enter the settlement-currency amount charged for one $ (Platform). The displayed payment is the platform amount multiplied by this rate.':
+      'Saisissez le montant dans la devise de règlement pour 1 $ (Plateforme). Le paiement affiché correspond au montant de la plateforme multiplié par ce taux.',
+    'Settlement preview: 1 platform USD = {{price}} {{unit}}':
+      'Aperçu du règlement : 1 $ (Plateforme) = {{price}} {{unit}}',
+    'Settlement preview: 1 $ (Platform) = {{price}} {{unit}}':
+      'Aperçu du règlement : 1 $ (Plateforme) = {{price}} {{unit}}',
+    'Top up {{amount}}; pay {{payment}}':
+      'Crédit {{amount}} ; paiement {{payment}}',
+    'Maximum top-up amount: {{amount}} USD credited':
+      'Montant maximal rechargé : {{amount}}',
+    'Maximum: {{amount}} USD credited': 'Maximum : {{amount}}',
+  },
+  ja: {
+    '(Platform amount, unit: USD)': '（$（プラットフォーム））',
+    'Credited amount (unit: USD)':
+      'プラットフォーム残高（$（プラットフォーム））',
+    'Custom credited amount':
+      'カスタムのプラットフォーム残高（$（プラットフォーム））',
+    'Custom credited amount in US dollars': 'カスタムのプラットフォーム残高',
+    'Gateway price per 1 USD (optional)':
+      'プラットフォーム 1 ドルあたりの決済チャネル単価（任意）',
+    'Gateway price per 1 platform dollar (optional)':
+      'プラットフォーム 1 ドルあたりの決済チャネル単価（任意）',
+    'The server uses this rate to quote and verify payment. It is the settlement-currency amount for one $ (Platform).':
+      'サーバーはこのレートで支払額を計算・検証します。$（プラットフォーム）1 単位に対する決済通貨の金額です。',
+    'Enter the settlement-currency amount charged for one $ (Platform). The displayed payment is the platform amount multiplied by this rate.':
+      '$（プラットフォーム）1 単位に対する決済通貨の金額を入力してください。表示される支払額はプラットフォーム金額にこのレートを掛けた値です。',
+    'Settlement preview: 1 platform USD = {{price}} {{unit}}':
+      '決済プレビュー：$（プラットフォーム）1 単位 = {{price}} {{unit}}',
+    'Settlement preview: 1 $ (Platform) = {{price}} {{unit}}':
+      '決済プレビュー：$（プラットフォーム）1 単位 = {{price}} {{unit}}',
+    'Top up {{amount}}; pay {{payment}}':
+      '付与額 {{amount}}；支払額 {{payment}}',
+    'Maximum top-up amount: {{amount}} USD credited':
+      'チャージ上限：{{amount}}',
+    'Maximum: {{amount}} USD credited': '上限：{{amount}}',
+  },
+  ru: {
+    '(Platform amount, unit: USD)': '($ (Платформа))',
+    'Credited amount (unit: USD)': 'Платформенный кредит ($ (Платформа))',
+    'Custom credited amount':
+      'Пользовательский платформенный кредит ($ (Платформа))',
+    'Custom credited amount in US dollars':
+      'Пользовательский платформенный кредит',
+    'Gateway price per 1 USD (optional)':
+      'Цена шлюза за 1 платформенный доллар (необязательно)',
+    'Gateway price per 1 platform dollar (optional)':
+      'Цена шлюза за 1 платформенный доллар (необязательно)',
+    'The server uses this rate to quote and verify payment. It is the settlement-currency amount for one $ (Platform).':
+      'Сервер использует этот курс для расчёта и проверки платежа. Это сумма в валюте расчёта за 1 $ (Платформа).',
+    'Enter the settlement-currency amount charged for one $ (Platform). The displayed payment is the platform amount multiplied by this rate.':
+      'Укажите сумму в валюте расчёта за 1 $ (Платформа). Отображаемый платёж равен платформенной сумме, умноженной на этот курс.',
+    'Settlement preview: 1 platform USD = {{price}} {{unit}}':
+      'Предпросмотр расчёта: 1 $ (Платформа) = {{price}} {{unit}}',
+    'Settlement preview: 1 $ (Platform) = {{price}} {{unit}}':
+      'Предпросмотр расчёта: 1 $ (Платформа) = {{price}} {{unit}}',
+    'Top up {{amount}}; pay {{payment}}':
+      'Зачисление {{amount}}; оплата {{payment}}',
+    'Maximum top-up amount: {{amount}} USD credited':
+      'Максимальная сумма пополнения: {{amount}}',
+    'Maximum: {{amount}} USD credited': 'Максимум: {{amount}}',
+  },
+  vi: {
+    '(Platform amount, unit: USD)': '($ (Nền tảng))',
+    'Credited amount (unit: USD)': 'Tín dụng nền tảng ($ (Nền tảng))',
+    'Custom credited amount': 'Tín dụng nền tảng tùy chỉnh ($ (Nền tảng))',
+    'Custom credited amount in US dollars': 'Tín dụng nền tảng tùy chỉnh',
+    'Gateway price per 1 USD (optional)':
+      'Đơn giá cổng thanh toán cho 1 đô la nền tảng (tùy chọn)',
+    'Gateway price per 1 platform dollar (optional)':
+      'Đơn giá cổng thanh toán cho 1 đô la nền tảng (tùy chọn)',
+    'The server uses this rate to quote and verify payment. It is the settlement-currency amount for one $ (Platform).':
+      'Máy chủ dùng tỷ giá này để báo giá và xác minh thanh toán. Đây là số tiền theo đơn vị quyết toán cho 1 $ (Nền tảng).',
+    'Enter the settlement-currency amount charged for one $ (Platform). The displayed payment is the platform amount multiplied by this rate.':
+      'Nhập số tiền quyết toán cho 1 $ (Nền tảng). Khoản thanh toán hiển thị bằng số tiền nền tảng nhân với tỷ giá này.',
+    'Settlement preview: 1 platform USD = {{price}} {{unit}}':
+      'Xem trước quyết toán: 1 $ (Nền tảng) = {{price}} {{unit}}',
+    'Settlement preview: 1 $ (Platform) = {{price}} {{unit}}':
+      'Xem trước quyết toán: 1 $ (Nền tảng) = {{price}} {{unit}}',
+    'Top up {{amount}}; pay {{payment}}':
+      'Được cộng {{amount}}; thanh toán {{payment}}',
+    'Maximum top-up amount: {{amount}} USD credited':
+      'Số tiền nạp tối đa: {{amount}}',
+    'Maximum: {{amount}} USD credited': 'Tối đa: {{amount}}',
+  },
+}
+for (const [locale, translations] of Object.entries(
+  currencyTerminologyTranslations
+)) {
+  Object.assign(newKeys[locale], translations)
+}
+
+const exchangeRateTranslations = {
+  en: {
+    Sync: 'Sync',
+    'Sync USD exchange rate': 'Sync USD exchange rate',
+    'Set a supported local currency before syncing the rate':
+      'Set a supported local currency before syncing the rate',
+    'Failed to sync exchange rate': 'Failed to sync exchange rate',
+    'The exchange-rate provider returned an invalid rate':
+      'The exchange-rate provider returned an invalid rate',
+    'Exchange rate synced: 1 USD = {{rate}} {{currency}}':
+      'Exchange rate synced: 1 USD = {{rate}} {{currency}}',
+    'Multiple fiat currencies': 'Multiple fiat currencies',
+    'Custom Currency Code': 'Custom Currency Code',
+    'ISO 4217 code used for live exchange-rate sync':
+      'ISO 4217 code used for live exchange-rate sync',
+    'Custom currency ISO code is required':
+      'Custom currency ISO code is required',
+  },
+  zh: {
+    Sync: '同步',
+    'Sync USD exchange rate': '同步美元汇率',
+    'Set a supported local currency before syncing the rate':
+      '请先设置受支持的本地货币，再同步汇率',
+    'Failed to sync exchange rate': '同步汇率失败',
+    'The exchange-rate provider returned an invalid rate':
+      '汇率服务返回了无效汇率',
+    'Exchange rate synced: 1 USD = {{rate}} {{currency}}':
+      '汇率已同步：1 USD = {{rate}} {{currency}}',
+    'Multiple fiat currencies': '多种法币',
+    'Custom Currency Code': '自定义货币代码',
+    'ISO 4217 code used for live exchange-rate sync':
+      '用于实时同步汇率的 ISO 4217 代码',
+    'Custom currency ISO code is required': '必须填写自定义货币 ISO 代码',
+  },
+  'zh-TW': {
+    Sync: '同步',
+    'Sync USD exchange rate': '同步美元匯率',
+    'Set a supported local currency before syncing the rate':
+      '請先設定支援的本地貨幣，再同步匯率',
+    'Failed to sync exchange rate': '同步匯率失敗',
+    'The exchange-rate provider returned an invalid rate':
+      '匯率服務回傳了無效匯率',
+    'Exchange rate synced: 1 USD = {{rate}} {{currency}}':
+      '匯率已同步：1 USD = {{rate}} {{currency}}',
+    'Multiple fiat currencies': '多種法幣',
+    'Custom Currency Code': '自訂貨幣代碼',
+    'ISO 4217 code used for live exchange-rate sync':
+      '用於即時同步匯率的 ISO 4217 代碼',
+    'Custom currency ISO code is required': '必須填寫自訂貨幣 ISO 代碼',
+  },
+  fr: {
+    Sync: 'Synchroniser',
+    'Sync USD exchange rate': 'Synchroniser le taux USD',
+    'Set a supported local currency before syncing the rate':
+      'Définissez une devise locale prise en charge avant la synchronisation',
+    'Failed to sync exchange rate': 'Échec de la synchronisation du taux',
+    'The exchange-rate provider returned an invalid rate':
+      'Le fournisseur de taux a renvoyé un taux invalide',
+    'Exchange rate synced: 1 USD = {{rate}} {{currency}}':
+      'Taux synchronisé : 1 USD = {{rate}} {{currency}}',
+    'Multiple fiat currencies': 'Plusieurs devises fiduciaires',
+    'Custom Currency Code': 'Code de devise personnalisé',
+    'ISO 4217 code used for live exchange-rate sync':
+      'Code ISO 4217 utilisé pour synchroniser le taux en direct',
+    'Custom currency ISO code is required':
+      'Le code ISO de la devise personnalisée est requis',
+  },
+  ja: {
+    Sync: '同期',
+    'Sync USD exchange rate': '米ドル為替レートを同期',
+    'Set a supported local currency before syncing the rate':
+      '同期する前に対応する現地通貨を設定してください',
+    'Failed to sync exchange rate': '為替レートの同期に失敗しました',
+    'The exchange-rate provider returned an invalid rate':
+      '為替レートサービスが無効なレートを返しました',
+    'Exchange rate synced: 1 USD = {{rate}} {{currency}}':
+      'レートを同期しました：1 USD = {{rate}} {{currency}}',
+    'Multiple fiat currencies': '複数の法定通貨',
+    'Custom Currency Code': 'カスタム通貨コード',
+    'ISO 4217 code used for live exchange-rate sync':
+      '最新の為替レート同期に使用する ISO 4217 コード',
+    'Custom currency ISO code is required':
+      'カスタム通貨の ISO コードを入力してください',
+  },
+  ru: {
+    Sync: 'Синхронизировать',
+    'Sync USD exchange rate': 'Синхронизировать курс USD',
+    'Set a supported local currency before syncing the rate':
+      'Перед синхронизацией укажите поддерживаемую местную валюту',
+    'Failed to sync exchange rate': 'Не удалось синхронизировать курс',
+    'The exchange-rate provider returned an invalid rate':
+      'Поставщик курсов вернул недействительный курс',
+    'Exchange rate synced: 1 USD = {{rate}} {{currency}}':
+      'Курс синхронизирован: 1 USD = {{rate}} {{currency}}',
+    'Multiple fiat currencies': 'Несколько фиатных валют',
+    'Custom Currency Code': 'Код пользовательской валюты',
+    'ISO 4217 code used for live exchange-rate sync':
+      'Код ISO 4217 для синхронизации актуального курса',
+    'Custom currency ISO code is required':
+      'Требуется код ISO пользовательской валюты',
+  },
+  vi: {
+    Sync: 'Đồng bộ',
+    'Sync USD exchange rate': 'Đồng bộ tỷ giá USD',
+    'Set a supported local currency before syncing the rate':
+      'Hãy đặt loại tiền địa phương được hỗ trợ trước khi đồng bộ tỷ giá',
+    'Failed to sync exchange rate': 'Không thể đồng bộ tỷ giá',
+    'The exchange-rate provider returned an invalid rate':
+      'Nhà cung cấp tỷ giá trả về tỷ giá không hợp lệ',
+    'Exchange rate synced: 1 USD = {{rate}} {{currency}}':
+      'Đã đồng bộ tỷ giá: 1 USD = {{rate}} {{currency}}',
+    'Multiple fiat currencies': 'Nhiều loại tiền pháp định',
+    'Custom Currency Code': 'Mã tiền tệ tùy chỉnh',
+    'ISO 4217 code used for live exchange-rate sync':
+      'Mã ISO 4217 dùng để đồng bộ tỷ giá trực tiếp',
+    'Custom currency ISO code is required':
+      'Cần nhập mã ISO của tiền tệ tùy chỉnh',
+  },
+}
+for (const [locale, translations] of Object.entries(exchangeRateTranslations)) {
+  Object.assign(newKeys[locale], translations)
+}
+
+const platformAmountTranslations = {
+  en: {
+    'Recharge Amount': 'Platform credit ($ (Platform))',
+    'Recharge Amount (USD)': 'Platform credit ($ (Platform))',
+    'Maximum credited amount per payment (USD, optional)':
+      'Maximum platform credit per payment ($ (Platform), optional)',
+    'Minimum top-up (USD)': 'Minimum platform credit ($ (Platform))',
+    'Minimum recharge amount in USD': 'Minimum platform credit ($ (Platform))',
+    'Smallest USD amount users can recharge (Epay)':
+      'Smallest platform credit users can receive ($ (Platform), Epay)',
+    'Expected monthly API credit (USD)':
+      'Expected monthly platform credit ($ (Platform))',
+    'Top-up credit to compare (USD)':
+      'Platform credit to compare ($ (Platform))',
+    'Credited API balance': 'Credited platform balance ($ (Platform))',
+    'Expected monthly platform credit':
+      'Expected monthly platform credit ($ (Platform))',
+    'Platform credit to compare': 'Platform credit to compare ($ (Platform))',
+    'Credited platform balance': 'Credited platform balance ($ (Platform))',
+  },
+  zh: {
+    'Recharge Amount': '平台金额（$（平台））',
+    'Recharge Amount (USD)': '平台金额（$（平台））',
+    'Maximum credited amount per payment (USD, optional)':
+      '单笔最高平台金额（$（平台），可选）',
+    'Minimum top-up (USD)': '最低平台金额（$（平台））',
+    'Minimum recharge amount in USD': '最低平台金额（$（平台））',
+    'Smallest USD amount users can recharge (Epay)':
+      '用户可获得的最低平台金额（$（平台），Epay）',
+    'Expected monthly API credit (USD)': '预计每月平台金额（$（平台））',
+    'Top-up credit to compare (USD)': '要对比的平台金额（$（平台））',
+    'Credited API balance': '到账平台金额（$（平台））',
+    'Expected monthly platform credit': '预计每月平台金额（$（平台））',
+    'Platform credit to compare': '要对比的平台金额（$（平台））',
+    'Credited platform balance': '到账平台金额（$（平台））',
+  },
+  'zh-TW': {
+    'Recharge Amount': '平台金額（$（平台））',
+    'Recharge Amount (USD)': '平台金額（$（平台））',
+    'Maximum credited amount per payment (USD, optional)':
+      '單筆最高平台金額（$（平台），選填）',
+    'Minimum top-up (USD)': '最低平台金額（$（平台））',
+    'Minimum recharge amount in USD': '最低平台金額（$（平台））',
+    'Smallest USD amount users can recharge (Epay)':
+      '使用者可獲得的最低平台金額（$（平台），Epay）',
+    'Expected monthly API credit (USD)': '預計每月平台金額（$（平台））',
+    'Top-up credit to compare (USD)': '要比較的平台金額（$（平台））',
+    'Credited API balance': '入帳平台金額（$（平台））',
+    'Expected monthly platform credit': '預計每月平台金額（$（平台））',
+    'Platform credit to compare': '要比較的平台金額（$（平台））',
+    'Credited platform balance': '入帳平台金額（$（平台））',
+  },
+  fr: {
+    'Recharge Amount': 'Crédit de plateforme ($ (Plateforme))',
+    'Recharge Amount (USD)': 'Crédit de plateforme ($ (Plateforme))',
+    'Maximum credited amount per payment (USD, optional)':
+      'Crédit de plateforme maximal par paiement ($ (Plateforme), facultatif)',
+    'Minimum top-up (USD)': 'Crédit de plateforme minimal ($ (Plateforme))',
+    'Minimum recharge amount in USD':
+      'Crédit de plateforme minimal ($ (Plateforme))',
+    'Smallest USD amount users can recharge (Epay)':
+      'Crédit de plateforme minimal reçu ($ (Plateforme), Epay)',
+    'Expected monthly API credit (USD)':
+      'Crédit de plateforme mensuel prévu ($ (Plateforme))',
+    'Top-up credit to compare (USD)':
+      'Crédit de plateforme à comparer ($ (Plateforme))',
+    'Credited API balance': 'Solde de plateforme crédité ($ (Plateforme))',
+    'Expected monthly platform credit':
+      'Crédit de plateforme mensuel prévu ($ (Plateforme))',
+    'Platform credit to compare':
+      'Crédit de plateforme à comparer ($ (Plateforme))',
+    'Credited platform balance': 'Solde de plateforme crédité ($ (Plateforme))',
+  },
+  ja: {
+    'Recharge Amount': 'プラットフォーム残高（$（プラットフォーム））',
+    'Recharge Amount (USD)': 'プラットフォーム残高（$（プラットフォーム））',
+    'Maximum credited amount per payment (USD, optional)':
+      '1回あたりの最大プラットフォーム残高（$（プラットフォーム）、任意）',
+    'Minimum top-up (USD)': '最小プラットフォーム残高（$（プラットフォーム））',
+    'Minimum recharge amount in USD':
+      '最小プラットフォーム残高（$（プラットフォーム））',
+    'Smallest USD amount users can recharge (Epay)':
+      'ユーザーが受け取れる最小プラットフォーム残高（$（プラットフォーム）、Epay）',
+    'Expected monthly API credit (USD)':
+      '月間プラットフォーム残高の見込み（$（プラットフォーム））',
+    'Top-up credit to compare (USD)':
+      '比較するプラットフォーム残高（$（プラットフォーム））',
+    'Credited API balance':
+      '付与されるプラットフォーム残高（$（プラットフォーム））',
+    'Expected monthly platform credit':
+      '月間プラットフォーム残高の見込み（$（プラットフォーム））',
+    'Platform credit to compare':
+      '比較するプラットフォーム残高（$（プラットフォーム））',
+    'Credited platform balance':
+      '付与されるプラットフォーム残高（$（プラットフォーム））',
+  },
+  ru: {
+    'Recharge Amount': 'Платформенный кредит ($ (Платформа))',
+    'Recharge Amount (USD)': 'Платформенный кредит ($ (Платформа))',
+    'Maximum credited amount per payment (USD, optional)':
+      'Максимальный платформенный кредит за платёж ($ (Платформа), необязательно)',
+    'Minimum top-up (USD)': 'Минимальный платформенный кредит ($ (Платформа))',
+    'Minimum recharge amount in USD':
+      'Минимальный платформенный кредит ($ (Платформа))',
+    'Smallest USD amount users can recharge (Epay)':
+      'Минимальный получаемый платформенный кредит ($ (Платформа), Epay)',
+    'Expected monthly API credit (USD)':
+      'Ожидаемый месячный платформенный кредит ($ (Платформа))',
+    'Top-up credit to compare (USD)':
+      'Платформенный кредит для сравнения ($ (Платформа))',
+    'Credited API balance': 'Зачисленный платформенный баланс ($ (Платформа))',
+    'Expected monthly platform credit':
+      'Ожидаемый месячный платформенный кредит ($ (Платформа))',
+    'Platform credit to compare':
+      'Платформенный кредит для сравнения ($ (Платформа))',
+    'Credited platform balance':
+      'Зачисленный платформенный баланс ($ (Платформа))',
+  },
+  vi: {
+    'Recharge Amount': 'Tín dụng nền tảng ($ (Nền tảng))',
+    'Recharge Amount (USD)': 'Tín dụng nền tảng ($ (Nền tảng))',
+    'Maximum credited amount per payment (USD, optional)':
+      'Tín dụng nền tảng tối đa mỗi lần thanh toán ($ (Nền tảng), tùy chọn)',
+    'Minimum top-up (USD)': 'Tín dụng nền tảng tối thiểu ($ (Nền tảng))',
+    'Minimum recharge amount in USD':
+      'Tín dụng nền tảng tối thiểu ($ (Nền tảng))',
+    'Smallest USD amount users can recharge (Epay)':
+      'Tín dụng nền tảng tối thiểu người dùng nhận được ($ (Nền tảng), Epay)',
+    'Expected monthly API credit (USD)':
+      'Tín dụng nền tảng dự kiến mỗi tháng ($ (Nền tảng))',
+    'Top-up credit to compare (USD)':
+      'Tín dụng nền tảng để so sánh ($ (Nền tảng))',
+    'Credited API balance': 'Số dư nền tảng được cộng ($ (Nền tảng))',
+    'Expected monthly platform credit':
+      'Tín dụng nền tảng dự kiến mỗi tháng ($ (Nền tảng))',
+    'Platform credit to compare': 'Tín dụng nền tảng để so sánh ($ (Nền tảng))',
+    'Credited platform balance': 'Số dư nền tảng được cộng ($ (Nền tảng))',
+  },
+}
+for (const [locale, translations] of Object.entries(
+  platformAmountTranslations
+)) {
+  Object.assign(newKeys[locale], translations)
+}
+
+const auditedCurrencyTranslations = {
+  en: {
+    'Currency unavailable': 'Currency unavailable',
+    '1 USD provider cost → {{price}} platform price':
+      '1 USD provider cost → {{price}} platform price',
+    'Chat with AI to earn a $0–$10 (Platform) new-user gift':
+      'Chat with AI to earn a $0–$10 (Platform) new-user gift',
+    'Valid reports earn at least 5 USD after review. Submission does not guarantee a reward.':
+      'Valid reports earn at least 5 USD after review. Submission does not guarantee a reward.',
+    'The bound Product powers wallet top-ups: when a user enters any amount, this platform runs the checkout against this single Pancake product and overrides the price per session — no need to pre-create 1 USD / 5 USD / 10 USD SKUs.':
+      'The bound Product powers wallet top-ups: when a user enters any amount, this platform runs the checkout against this single Pancake product and overrides the price per session — no need to pre-create 1 USD / 5 USD / 10 USD SKUs.',
+  },
+  zh: {
+    'Currency unavailable': '币种不可用',
+    '1 USD provider cost → {{price}} platform price':
+      '提供商成本 1 USD → 平台价格 {{price}}',
+    'Chat with AI to earn a $0–$10 (Platform) new-user gift':
+      '与 AI 对话，赢取 $0–$10（平台）新用户礼金',
+    'Valid reports earn at least 5 USD after review. Submission does not guarantee a reward.':
+      '有效报告通过审核后至少可获得 5 USD；提交报告不保证一定获得奖励。',
+    'The bound Product powers wallet top-ups: when a user enters any amount, this platform runs the checkout against this single Pancake product and overrides the price per session — no need to pre-create 1 USD / 5 USD / 10 USD SKUs.':
+      '绑定的产品用于钱包充值：用户输入任意金额后，平台会使用同一个 Pancake 产品结账，并为本次会话覆盖价格，无需预先创建 1 USD / 5 USD / 10 USD SKU。',
+  },
+  'zh-TW': {
+    'Currency unavailable': '幣種不可用',
+    '1 USD provider cost → {{price}} platform price':
+      '供應商成本 1 USD → 平台價格 {{price}}',
+    'Chat with AI to earn a $0–$10 (Platform) new-user gift':
+      '與 AI 對話，獲得 $0–$10（平台）新使用者禮金',
+    'Valid reports earn at least 5 USD after review. Submission does not guarantee a reward.':
+      '有效回報通過審核後至少可獲得 5 USD；提交回報不保證一定獲得獎勵。',
+    'The bound Product powers wallet top-ups: when a user enters any amount, this platform runs the checkout against this single Pancake product and overrides the price per session — no need to pre-create 1 USD / 5 USD / 10 USD SKUs.':
+      '綁定的產品用於錢包儲值：使用者輸入任意金額後，平台會使用同一個 Pancake 產品結帳，並為本次工作階段覆寫價格，無需預先建立 1 USD / 5 USD / 10 USD SKU。',
+  },
+  fr: {
+    'Currency unavailable': 'Devise indisponible',
+    '1 USD provider cost → {{price}} platform price':
+      'Coût fournisseur de 1 USD → prix plateforme {{price}}',
+    'Chat with AI to earn a $0–$10 (Platform) new-user gift':
+      'Discutez avec l’IA pour gagner un cadeau de 0 à 10 $ (Plateforme)',
+    'Valid reports earn at least 5 USD after review. Submission does not guarantee a reward.':
+      'Les rapports valides rapportent au moins 5 USD après examen. Aucun gain n’est garanti.',
+    'The bound Product powers wallet top-ups: when a user enters any amount, this platform runs the checkout against this single Pancake product and overrides the price per session — no need to pre-create 1 USD / 5 USD / 10 USD SKUs.':
+      'Le produit lié alimente les recharges : le paiement utilise ce produit Pancake et remplace son prix pour la session, sans créer de SKU à 1 USD, 5 USD ou 10 USD.',
+  },
+  ja: {
+    'Currency unavailable': '通貨情報なし',
+    '1 USD provider cost → {{price}} platform price':
+      'プロバイダー原価 1 USD → プラットフォーム価格 {{price}}',
+    'Chat with AI to earn a $0–$10 (Platform) new-user gift':
+      'AI と対話して $0〜$10（プラットフォーム）の新規特典を獲得',
+    'Valid reports earn at least 5 USD after review. Submission does not guarantee a reward.':
+      '有効な報告は審査後に最低 5 USD の対象です。報告しても報酬は保証されません。',
+    'The bound Product powers wallet top-ups: when a user enters any amount, this platform runs the checkout against this single Pancake product and overrides the price per session — no need to pre-create 1 USD / 5 USD / 10 USD SKUs.':
+      '紐付けた製品でウォレットをチャージします。任意額の入力時に同じ Pancake 製品を使い、セッションごとに価格を上書きするため、1 USD / 5 USD / 10 USD の SKU は不要です。',
+  },
+  ru: {
+    'Currency unavailable': 'Валюта недоступна',
+    '1 USD provider cost → {{price}} platform price':
+      'Стоимость провайдера 1 USD → цена платформы {{price}}',
+    'Chat with AI to earn a $0–$10 (Platform) new-user gift':
+      'Общайтесь с ИИ и получите подарок $0–$10 (Платформа)',
+    'Valid reports earn at least 5 USD after review. Submission does not guarantee a reward.':
+      'За подтверждённые отчёты начисляется не менее 5 USD. Награда не гарантируется.',
+    'The bound Product powers wallet top-ups: when a user enters any amount, this platform runs the checkout against this single Pancake product and overrides the price per session — no need to pre-create 1 USD / 5 USD / 10 USD SKUs.':
+      'Привязанный продукт используется для пополнений: платформа оформляет платёж через один продукт Pancake и переопределяет цену на сеанс, поэтому SKU на 1 USD, 5 USD и 10 USD не нужны.',
+  },
+  vi: {
+    'Currency unavailable': 'Không có thông tin tiền tệ',
+    '1 USD provider cost → {{price}} platform price':
+      'Chi phí nhà cung cấp 1 USD → giá nền tảng {{price}}',
+    'Chat with AI to earn a $0–$10 (Platform) new-user gift':
+      'Trò chuyện với AI để nhận quà người dùng mới $0–$10 (Nền tảng)',
+    'Valid reports earn at least 5 USD after review. Submission does not guarantee a reward.':
+      'Báo cáo hợp lệ nhận ít nhất 5 USD sau khi duyệt. Gửi báo cáo không đảm bảo có thưởng.',
+    'The bound Product powers wallet top-ups: when a user enters any amount, this platform runs the checkout against this single Pancake product and overrides the price per session — no need to pre-create 1 USD / 5 USD / 10 USD SKUs.':
+      'Sản phẩm đã liên kết dùng cho nạp ví: nền tảng thanh toán qua cùng một sản phẩm Pancake và ghi đè giá theo phiên, không cần tạo trước SKU 1 USD / 5 USD / 10 USD.',
+  },
+}
+for (const [locale, translations] of Object.entries(
+  auditedCurrencyTranslations
+)) {
+  Object.assign(newKeys[locale], translations)
+}
+
+const walletTerminologyTranslations = {
+  en: {
+    'Platform credit': 'Platform credit ($ (Platform))',
+    'Custom platform credit': 'Custom platform credit ($ (Platform))',
+    'Maximum platform credit per payment: {{amount}}':
+      'Maximum platform credit per payment: {{amount}}',
+    'Maximum: {{amount}}': 'Maximum: {{amount}}',
+    'Credit {{amount}}; pay {{payment}}': 'Credit {{amount}}; pay {{payment}}',
+  },
+  zh: {
+    'Platform credit': '平台金额（$（平台））',
+    'Custom platform credit': '自定义平台金额（$（平台））',
+    'Maximum platform credit per payment: {{amount}}':
+      '单笔最高平台金额：{{amount}}',
+    'Maximum: {{amount}}': '上限：{{amount}}',
+    'Credit {{amount}}; pay {{payment}}':
+      '到账 {{amount}}；实际支付 {{payment}}',
+  },
+  'zh-TW': {
+    'Platform credit': '平台金額（$（平台））',
+    'Custom platform credit': '自訂平台金額（$（平台））',
+    'Maximum platform credit per payment: {{amount}}':
+      '單筆最高平台金額：{{amount}}',
+    'Maximum: {{amount}}': '上限：{{amount}}',
+    'Credit {{amount}}; pay {{payment}}':
+      '入帳 {{amount}}；實際支付 {{payment}}',
+  },
+  fr: {
+    'Platform credit': 'Crédit de plateforme ($ (Plateforme))',
+    'Custom platform credit':
+      'Crédit de plateforme personnalisé ($ (Plateforme))',
+    'Maximum platform credit per payment: {{amount}}':
+      'Crédit de plateforme maximal par paiement : {{amount}}',
+    'Maximum: {{amount}}': 'Maximum : {{amount}}',
+    'Credit {{amount}}; pay {{payment}}':
+      'Crédit {{amount}} ; paiement {{payment}}',
+  },
+  ja: {
+    'Platform credit': 'プラットフォーム残高（$（プラットフォーム））',
+    'Custom platform credit':
+      'カスタムのプラットフォーム残高（$（プラットフォーム））',
+    'Maximum platform credit per payment: {{amount}}':
+      '1回あたりの最大プラットフォーム残高：{{amount}}',
+    'Maximum: {{amount}}': '上限：{{amount}}',
+    'Credit {{amount}}; pay {{payment}}':
+      '付与額 {{amount}}；支払額 {{payment}}',
+  },
+  ru: {
+    'Platform credit': 'Платформенный кредит ($ (Платформа))',
+    'Custom platform credit':
+      'Пользовательский платформенный кредит ($ (Платформа))',
+    'Maximum platform credit per payment: {{amount}}':
+      'Максимальный платформенный кредит за платёж: {{amount}}',
+    'Maximum: {{amount}}': 'Максимум: {{amount}}',
+    'Credit {{amount}}; pay {{payment}}':
+      'Зачисление {{amount}}; оплата {{payment}}',
+  },
+  vi: {
+    'Platform credit': 'Tín dụng nền tảng ($ (Nền tảng))',
+    'Custom platform credit': 'Tín dụng nền tảng tùy chỉnh ($ (Nền tảng))',
+    'Maximum platform credit per payment: {{amount}}':
+      'Tín dụng nền tảng tối đa mỗi lần thanh toán: {{amount}}',
+    'Maximum: {{amount}}': 'Tối đa: {{amount}}',
+    'Credit {{amount}}; pay {{payment}}':
+      'Được cộng {{amount}}; thanh toán {{payment}}',
+  },
+}
+for (const [locale, translations] of Object.entries(
+  walletTerminologyTranslations
+)) {
+  Object.assign(newKeys[locale], translations)
+}
+
+const exchangeRateLoadTranslations = {
+  en: {
+    'Enter a three-letter ISO 4217 currency code':
+      'Enter a three-letter ISO 4217 currency code',
+    'Failed to load exchange rate': 'Failed to load exchange rate',
+    'Latest exchange rate loaded: 1 USD = {{rate}} {{currency}}. Save changes to apply it.':
+      'Latest exchange rate loaded: 1 USD = {{rate}} {{currency}}. Save changes to apply it.',
+  },
+  zh: {
+    'Enter a three-letter ISO 4217 currency code':
+      '请输入三字母 ISO 4217 货币代码',
+    'Failed to load exchange rate': '加载汇率失败',
+    'Latest exchange rate loaded: 1 USD = {{rate}} {{currency}}. Save changes to apply it.':
+      '已加载最新汇率：1 USD = {{rate}} {{currency}}。保存更改后生效。',
+  },
+  'zh-TW': {
+    'Enter a three-letter ISO 4217 currency code':
+      '請輸入三字母 ISO 4217 貨幣代碼',
+    'Failed to load exchange rate': '載入匯率失敗',
+    'Latest exchange rate loaded: 1 USD = {{rate}} {{currency}}. Save changes to apply it.':
+      '已載入最新匯率：1 USD = {{rate}} {{currency}}。儲存變更後生效。',
+  },
+  fr: {
+    'Enter a three-letter ISO 4217 currency code':
+      'Saisissez un code de devise ISO 4217 à trois lettres',
+    'Failed to load exchange rate': 'Échec du chargement du taux de change',
+    'Latest exchange rate loaded: 1 USD = {{rate}} {{currency}}. Save changes to apply it.':
+      'Dernier taux chargé : 1 USD = {{rate}} {{currency}}. Enregistrez pour l’appliquer.',
+  },
+  ja: {
+    'Enter a three-letter ISO 4217 currency code':
+      '3文字の ISO 4217 通貨コードを入力してください',
+    'Failed to load exchange rate': '為替レートの読み込みに失敗しました',
+    'Latest exchange rate loaded: 1 USD = {{rate}} {{currency}}. Save changes to apply it.':
+      '最新レートを読み込みました：1 USD = {{rate}} {{currency}}。保存すると適用されます。',
+  },
+  ru: {
+    'Enter a three-letter ISO 4217 currency code':
+      'Введите трёхбуквенный код валюты ISO 4217',
+    'Failed to load exchange rate': 'Не удалось загрузить курс валют',
+    'Latest exchange rate loaded: 1 USD = {{rate}} {{currency}}. Save changes to apply it.':
+      'Загружен актуальный курс: 1 USD = {{rate}} {{currency}}. Сохраните изменения для применения.',
+  },
+  vi: {
+    'Enter a three-letter ISO 4217 currency code':
+      'Nhập mã tiền tệ ISO 4217 gồm ba chữ cái',
+    'Failed to load exchange rate': 'Không thể tải tỷ giá',
+    'Latest exchange rate loaded: 1 USD = {{rate}} {{currency}}. Save changes to apply it.':
+      'Đã tải tỷ giá mới nhất: 1 USD = {{rate}} {{currency}}. Hãy lưu để áp dụng.',
+  },
+}
+for (const [locale, translations] of Object.entries(
+  exchangeRateLoadTranslations
+)) {
+  Object.assign(newKeys[locale], translations)
+}
+
+const settlementContractTranslations = {
+  en: {
+    'Settlement currency must be a three-letter ISO code':
+      'Settlement currency must be a three-letter ISO code',
+    'USD settlement rate must be a positive decimal number':
+      'USD settlement rate must be a positive decimal number',
+    'Legacy direct rate must be a positive decimal number':
+      'Legacy direct rate must be a positive decimal number',
+    'Set the amount charged for each real USD':
+      'Set the amount charged for each real USD',
+    'Set the ISO settlement currency for this USD rate':
+      'Set the ISO settlement currency for this USD rate',
+    'Remove legacy direct pricing before using a real-USD rate':
+      'Remove legacy direct pricing before using a real-USD rate',
+    'Legacy direct-rate fields must match':
+      'Legacy direct-rate fields must match',
+    'Settlement currency (ISO code)': 'Settlement currency (ISO code)',
+    'The actual fiat currency charged by this gateway.':
+      'The actual fiat currency charged by this gateway.',
+    'Settlement amount per 1 real USD': 'Settlement amount per 1 real USD',
+    'Example: enter 1 for USD or 6.8 when 1 USD equals 6.8 CNY.':
+      'Example: enter 1 for USD or 6.8 when 1 USD equals 6.8 CNY.',
+    'Checkout first converts the platform amount to real USD using the synchronized USD rate, then converts USD to the gateway settlement currency.':
+      'Checkout first converts the platform amount to real USD using the synchronized USD rate, then converts USD to the gateway settlement currency.',
+    'Settlement preview: 1 USD = {{rate}} {{currency}}':
+      'Settlement preview: 1 USD = {{rate}} {{currency}}',
+    'Legacy direct pricing is preserved until you enter and save the real-USD settlement fields above.':
+      'Legacy direct pricing is preserved until you enter and save the real-USD settlement fields above.',
+  },
+  zh: {
+    'Settlement currency must be a three-letter ISO code':
+      '结算货币必须是三字母 ISO 代码',
+    'USD settlement rate must be a positive decimal number':
+      '每 USD 结算金额必须为正小数',
+    'Legacy direct rate must be a positive decimal number':
+      '旧版直连单价必须为正小数',
+    'Set the amount charged for each real USD': '请填写每 1 USD 的实际扣款金额',
+    'Set the ISO settlement currency for this USD rate':
+      '请填写此美元汇率对应的 ISO 结算货币',
+    'Remove legacy direct pricing before using a real-USD rate':
+      '使用真实 USD 汇率前，请先移除旧版直连计价',
+    'Legacy direct-rate fields must match': '旧版直连计价字段必须一致',
+    'Settlement currency (ISO code)': '结算货币（ISO 代码）',
+    'The actual fiat currency charged by this gateway.':
+      '此网关实际扣款使用的法币。',
+    'Settlement amount per 1 real USD': '每 1 USD 的结算金额',
+    'Example: enter 1 for USD or 6.8 when 1 USD equals 6.8 CNY.':
+      '示例：USD 填 1；若 1 USD = 6.8 CNY，则填 6.8。',
+    'Checkout first converts the platform amount to real USD using the synchronized USD rate, then converts USD to the gateway settlement currency.':
+      '结账时先按已同步的美元汇率把平台金额换算为真实 USD，再换算为网关结算货币。',
+    'Settlement preview: 1 USD = {{rate}} {{currency}}':
+      '结算预览：1 USD = {{rate}} {{currency}}',
+    'Legacy direct pricing is preserved until you enter and save the real-USD settlement fields above.':
+      '在填写并保存上方真实 USD 结算字段前，系统会继续保留旧版直连计价。',
+  },
+  'zh-TW': {
+    'Settlement currency must be a three-letter ISO code':
+      '結算貨幣必須是三字母 ISO 代碼',
+    'USD settlement rate must be a positive decimal number':
+      '每 USD 結算金額必須為正小數',
+    'Legacy direct rate must be a positive decimal number':
+      '舊版直連單價必須為正小數',
+    'Set the amount charged for each real USD': '請填寫每 1 USD 的實際扣款金額',
+    'Set the ISO settlement currency for this USD rate':
+      '請填寫此美元匯率對應的 ISO 結算貨幣',
+    'Remove legacy direct pricing before using a real-USD rate':
+      '使用真實 USD 匯率前，請先移除舊版直連計價',
+    'Legacy direct-rate fields must match': '舊版直連計價欄位必須一致',
+    'Settlement currency (ISO code)': '結算貨幣（ISO 代碼）',
+    'The actual fiat currency charged by this gateway.':
+      '此閘道實際扣款使用的法幣。',
+    'Settlement amount per 1 real USD': '每 1 USD 的結算金額',
+    'Example: enter 1 for USD or 6.8 when 1 USD equals 6.8 CNY.':
+      '範例：USD 填 1；若 1 USD = 6.8 CNY，則填 6.8。',
+    'Checkout first converts the platform amount to real USD using the synchronized USD rate, then converts USD to the gateway settlement currency.':
+      '結帳時先按已同步的美元匯率把平台金額換算為真實 USD，再換算為閘道結算貨幣。',
+    'Settlement preview: 1 USD = {{rate}} {{currency}}':
+      '結算預覽：1 USD = {{rate}} {{currency}}',
+    'Legacy direct pricing is preserved until you enter and save the real-USD settlement fields above.':
+      '在填寫並儲存上方真實 USD 結算欄位前，系統會繼續保留舊版直連計價。',
+  },
+  fr: {
+    'Settlement currency must be a three-letter ISO code':
+      'La devise de règlement doit être un code ISO à trois lettres',
+    'USD settlement rate must be a positive decimal number':
+      'Le taux de règlement USD doit être un nombre décimal positif',
+    'Legacy direct rate must be a positive decimal number':
+      'L’ancien taux direct doit être un nombre décimal positif',
+    'Set the amount charged for each real USD':
+      'Indiquez le montant facturé pour chaque USD réel',
+    'Set the ISO settlement currency for this USD rate':
+      'Indiquez la devise ISO correspondant à ce taux USD',
+    'Remove legacy direct pricing before using a real-USD rate':
+      'Supprimez l’ancien tarif direct avant d’utiliser un taux USD réel',
+    'Legacy direct-rate fields must match':
+      'Les anciens champs de taux direct doivent correspondre',
+    'Settlement currency (ISO code)': 'Devise de règlement (code ISO)',
+    'The actual fiat currency charged by this gateway.':
+      'La devise fiduciaire réellement facturée par cette passerelle.',
+    'Settlement amount per 1 real USD': 'Montant de règlement pour 1 USD réel',
+    'Example: enter 1 for USD or 6.8 when 1 USD equals 6.8 CNY.':
+      'Exemple : saisissez 1 pour USD, ou 6,8 si 1 USD = 6,8 CNY.',
+    'Checkout first converts the platform amount to real USD using the synchronized USD rate, then converts USD to the gateway settlement currency.':
+      'Le paiement convertit d’abord le montant de plateforme en USD réels avec le taux synchronisé, puis dans la devise de règlement.',
+    'Settlement preview: 1 USD = {{rate}} {{currency}}':
+      'Aperçu du règlement : 1 USD = {{rate}} {{currency}}',
+    'Legacy direct pricing is preserved until you enter and save the real-USD settlement fields above.':
+      'L’ancien tarif direct est conservé jusqu’à l’enregistrement des champs USD réels ci-dessus.',
+  },
+  ja: {
+    'Settlement currency must be a three-letter ISO code':
+      '決済通貨は3文字の ISO コードで指定してください',
+    'USD settlement rate must be a positive decimal number':
+      'USD 決済レートは正の小数で指定してください',
+    'Legacy direct rate must be a positive decimal number':
+      '旧形式の直接レートは正の小数で指定してください',
+    'Set the amount charged for each real USD':
+      '実 USD 1 単位あたりの請求額を入力してください',
+    'Set the ISO settlement currency for this USD rate':
+      'この USD レートに対応する ISO 決済通貨を入力してください',
+    'Remove legacy direct pricing before using a real-USD rate':
+      '実 USD レートを使う前に旧形式の直接価格を削除してください',
+    'Legacy direct-rate fields must match':
+      '旧形式の直接レート項目を一致させてください',
+    'Settlement currency (ISO code)': '決済通貨（ISO コード）',
+    'The actual fiat currency charged by this gateway.':
+      'このゲートウェイが実際に請求する法定通貨です。',
+    'Settlement amount per 1 real USD': '実 USD 1 単位あたりの決済額',
+    'Example: enter 1 for USD or 6.8 when 1 USD equals 6.8 CNY.':
+      '例：USD は 1、1 USD = 6.8 CNY の場合は 6.8 を入力します。',
+    'Checkout first converts the platform amount to real USD using the synchronized USD rate, then converts USD to the gateway settlement currency.':
+      '決済時は同期済み USD レートでプラットフォーム金額を実 USD に換算し、さらにゲートウェイの決済通貨へ換算します。',
+    'Settlement preview: 1 USD = {{rate}} {{currency}}':
+      '決済プレビュー：1 USD = {{rate}} {{currency}}',
+    'Legacy direct pricing is preserved until you enter and save the real-USD settlement fields above.':
+      '上記の実 USD 決済項目を保存するまで、旧形式の直接価格は保持されます。',
+  },
+  ru: {
+    'Settlement currency must be a three-letter ISO code':
+      'Валюта расчёта должна быть трёхбуквенным кодом ISO',
+    'USD settlement rate must be a positive decimal number':
+      'Курс расчёта USD должен быть положительным десятичным числом',
+    'Legacy direct rate must be a positive decimal number':
+      'Старый прямой курс должен быть положительным десятичным числом',
+    'Set the amount charged for each real USD':
+      'Укажите сумму списания за каждый реальный USD',
+    'Set the ISO settlement currency for this USD rate':
+      'Укажите ISO-код валюты расчёта для этого курса USD',
+    'Remove legacy direct pricing before using a real-USD rate':
+      'Удалите старую прямую цену перед использованием курса реального USD',
+    'Legacy direct-rate fields must match':
+      'Поля старого прямого курса должны совпадать',
+    'Settlement currency (ISO code)': 'Валюта расчёта (код ISO)',
+    'The actual fiat currency charged by this gateway.':
+      'Фиатная валюта, фактически списываемая этим шлюзом.',
+    'Settlement amount per 1 real USD': 'Сумма расчёта за 1 реальный USD',
+    'Example: enter 1 for USD or 6.8 when 1 USD equals 6.8 CNY.':
+      'Пример: для USD укажите 1; если 1 USD = 6,8 CNY, укажите 6,8.',
+    'Checkout first converts the platform amount to real USD using the synchronized USD rate, then converts USD to the gateway settlement currency.':
+      'Сначала платёж переводит платформенную сумму в реальные USD по синхронизированному курсу, затем — в валюту расчёта шлюза.',
+    'Settlement preview: 1 USD = {{rate}} {{currency}}':
+      'Предпросмотр расчёта: 1 USD = {{rate}} {{currency}}',
+    'Legacy direct pricing is preserved until you enter and save the real-USD settlement fields above.':
+      'Старая прямая цена сохраняется до ввода и сохранения полей расчёта в реальных USD.',
+  },
+  vi: {
+    'Settlement currency must be a three-letter ISO code':
+      'Tiền tệ quyết toán phải là mã ISO gồm ba chữ cái',
+    'USD settlement rate must be a positive decimal number':
+      'Tỷ giá quyết toán USD phải là số thập phân dương',
+    'Legacy direct rate must be a positive decimal number':
+      'Tỷ giá trực tiếp cũ phải là số thập phân dương',
+    'Set the amount charged for each real USD':
+      'Nhập số tiền tính cho mỗi USD thực',
+    'Set the ISO settlement currency for this USD rate':
+      'Nhập tiền tệ ISO cho tỷ giá USD này',
+    'Remove legacy direct pricing before using a real-USD rate':
+      'Xóa giá trực tiếp cũ trước khi dùng tỷ giá USD thực',
+    'Legacy direct-rate fields must match':
+      'Các trường tỷ giá trực tiếp cũ phải khớp',
+    'Settlement currency (ISO code)': 'Tiền tệ quyết toán (mã ISO)',
+    'The actual fiat currency charged by this gateway.':
+      'Tiền pháp định mà cổng thanh toán này thực sự tính.',
+    'Settlement amount per 1 real USD': 'Số tiền quyết toán cho 1 USD thực',
+    'Example: enter 1 for USD or 6.8 when 1 USD equals 6.8 CNY.':
+      'Ví dụ: nhập 1 cho USD, hoặc 6,8 khi 1 USD = 6,8 CNY.',
+    'Checkout first converts the platform amount to real USD using the synchronized USD rate, then converts USD to the gateway settlement currency.':
+      'Thanh toán trước tiên đổi số tiền nền tảng sang USD thực theo tỷ giá đã đồng bộ, rồi đổi sang tiền tệ quyết toán của cổng.',
+    'Settlement preview: 1 USD = {{rate}} {{currency}}':
+      'Xem trước quyết toán: 1 USD = {{rate}} {{currency}}',
+    'Legacy direct pricing is preserved until you enter and save the real-USD settlement fields above.':
+      'Giá trực tiếp cũ được giữ lại cho đến khi bạn nhập và lưu các trường quyết toán USD thực ở trên.',
+  },
+}
+for (const [locale, translations] of Object.entries(
+  settlementContractTranslations
+)) {
+  Object.assign(newKeys[locale], translations)
+}
+
+const deprecatedCurrencyKeys = new Set([
+  'Price (local currency / USD)',
+  'Use global price',
+  'Use global price reciprocal',
+])
+
 async function main() {
   let totalAdded = 0
   for (const [locale, translations] of Object.entries(newKeys)) {
     const filePath = path.join(LOCALES_DIR, `${locale}.json`)
     const json = JSON.parse(await fs.readFile(filePath, 'utf8'))
     let count = 0
+    for (const key of deprecatedCurrencyKeys) {
+      if (Object.hasOwn(json.translation, key)) {
+        delete json.translation[key]
+        count++
+      }
+    }
     if ('Routing rules cannot exceed 16384 characters.' in json.translation) {
       delete json.translation['Routing rules cannot exceed 16384 characters.']
       count++

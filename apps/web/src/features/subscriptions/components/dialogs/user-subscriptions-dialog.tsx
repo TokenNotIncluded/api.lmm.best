@@ -62,6 +62,7 @@ import {
   SheetDescription,
 } from '@/components/ui/sheet'
 import { Switch } from '@/components/ui/switch'
+import { formatFiatCurrencyAmount } from '@/lib/currency'
 import { formatQuota } from '@/lib/format'
 
 import {
@@ -367,8 +368,13 @@ export function UserSubscriptionsDialog(props: Props) {
                   value: String(p.plan.id),
                   label: (
                     <>
-                      {p.plan.title}($
-                      {Number(p.plan.price_amount || 0).toFixed(2)})
+                      {p.plan.title} (
+                      {formatFiatCurrencyAmount(
+                        Number(p.plan.price_amount || 0),
+                        p.plan.currency || 'USD',
+                        { abbreviate: false, digitsLarge: 2, digitsSmall: 2 }
+                      )}
+                      )
                     </>
                   ),
                 }))}
@@ -382,8 +388,13 @@ export function UserSubscriptionsDialog(props: Props) {
                   <SelectGroup>
                     {plans.map((p) => (
                       <SelectItem key={p.plan.id} value={String(p.plan.id)}>
-                        {p.plan.title} ($
-                        {Number(p.plan.price_amount || 0).toFixed(2)})
+                        {p.plan.title} (
+                        {formatFiatCurrencyAmount(
+                          Number(p.plan.price_amount || 0),
+                          p.plan.currency || 'USD',
+                          { abbreviate: false, digitsLarge: 2, digitsSmall: 2 }
+                        )}
+                        )
                       </SelectItem>
                     ))}
                   </SelectGroup>

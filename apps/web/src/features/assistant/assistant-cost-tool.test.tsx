@@ -150,7 +150,7 @@ describe('AssistantCostTool', () => {
     await i18n.changeLanguage('zhCN')
     const rendered = await renderTool(true)
     try {
-      assert.match(rendered.container.textContent ?? '', /US\$0\.3600/)
+      assert.match(rendered.container.textContent ?? '', /\$0\.36 \(Platform\)/)
     } finally {
       await unmount(rendered)
       await i18n.changeLanguage('en')
@@ -204,14 +204,14 @@ describe('AssistantCostTool', () => {
       [...groupSelect.options].map((option) => option.textContent),
       ['Default', 'VIP']
     )
-    assert.match(rendered.container.textContent ?? '', /\$0\.3600/)
+    assert.match(rendered.container.textContent ?? '', /\$0\.36 \(Platform\)/)
 
     await act(async () => {
       groupSelect.value = 'vip'
       groupSelect.dispatchEvent(new Event('change', { bubbles: true }))
       await flushQueries()
     })
-    assert.match(rendered.container.textContent ?? '', /\$0\.1800/)
+    assert.match(rendered.container.textContent ?? '', /\$0\.18 \(Platform\)/)
     assert.equal(calls, 2)
     await unmount(rendered)
   })

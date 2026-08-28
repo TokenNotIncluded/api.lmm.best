@@ -14,7 +14,6 @@ import (
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/LIghtJUNction/api.lmm.best/model"
-	"github.com/LIghtJUNction/api.lmm.best/setting/operation_setting"
 	"github.com/shopspring/decimal"
 )
 
@@ -57,15 +56,4 @@ func quoteTopUpWithDiscount(amount int64, group, paymentMethod, rawCode string, 
 		return decimal.Zero, nil, err
 	}
 	return applyDiscountCodeQuote(base, amount, rawCode, userIDs...)
-}
-
-func quoteLegacyTopUpWithDiscount(amount int64, group, rawCode string, userIDs ...int) (decimal.Decimal, *model.DiscountCode, error) {
-	base := quoteTopUpWithPricing(amount, group, decimal.NewFromFloat(operationPrice()), decimal.NewFromInt(1))
-	return applyDiscountCodeQuote(base, amount, rawCode, userIDs...)
-}
-
-// operationPrice is kept as a tiny seam for tests and to avoid duplicating
-// the legacy pricing expression at each payment adapter.
-func operationPrice() float64 {
-	return operation_setting.Price
 }

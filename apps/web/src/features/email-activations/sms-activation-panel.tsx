@@ -30,7 +30,7 @@ import { useDebounce } from '@/hooks/use-debounce'
 
 import {
   createHeroSmsIdempotencyKey,
-  formatHeroSmsUSD,
+  formatHeroSmsPlatformAmount,
   parseHeroSmsError,
 } from './api.js'
 import { usePageVisibility } from './hooks.js'
@@ -1047,7 +1047,7 @@ export function HeroSmsSmsActivationPanel() {
             quantity: view.effectiveQuantity,
             service: selectedService?.name ?? service,
             country: view.selectedCountryName,
-            price: formatHeroSmsUSD(view.totalPrice),
+            price: formatHeroSmsPlatformAmount(view.totalPrice),
           }
         )}
         confirmText={t('Confirm purchase')}

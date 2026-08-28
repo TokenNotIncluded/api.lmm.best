@@ -46,8 +46,6 @@ import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { usesDedicatedPaymentPricing } from '@/lib/payment-pricing'
 
-import { getPaymentMethodRatePresets } from './payment-method-rate-presets'
-
 const SETTLEMENT_UNIT_PATTERN = /^[A-Za-z0-9._-]{1,16}$/
 const POSITIVE_DECIMAL_PATTERN = /^[0-9]+(?:\.[0-9]+)?$/
 const NON_NEGATIVE_INTEGER_PATTERN = /^(?:0|[1-9][0-9]*)$/
@@ -145,6 +143,40 @@ const createPaymentMethodDialogSchema = (t: (key: string) => string) =>
             message: t('Payment multiplier must be a positive decimal number'),
           }
         ),
+      settlement_currency: z
+        .string()
+        .optional()
+        .refine(
+          (value) => !value?.trim() || /^[A-Za-z]{3}$/.test(value.trim()),
+          {
+            message: t('Settlement currency must be a three-letter ISO code'),
+          }
+        ),
+      settlement_units_per_usd: z
+        .string()
+        .optional()
+        .refine(
+          (value) => {
+            if (!value?.trim()) return true
+            const trimmed = value.trim()
+            return POSITIVE_DECIMAL_PATTERN.test(trimmed) && Number(trimmed) > 0
+          },
+          {
+            message: t('USD settlement rate must be a positive decimal number'),
+          }
+        ),
+      platform_units_per_usd: z.string().optional(),
+      settlement_units_per_platform_unit: z
+        .string()
+        .optional()
+        .refine(
+          (value) => {
+            if (!value?.trim()) return true
+            const trimmed = value.trim()
+            return POSITIVE_DECIMAL_PATTERN.test(trimmed) && Number(trimmed) > 0
+          },
+          { message: t('Legacy direct rate must be a positive decimal number') }
+        ),
       settlement_unit: z
         .string()
         .optional()
@@ -170,21 +202,52 @@ const createPaymentMethodDialogSchema = (t: (key: string) => string) =>
         ),
     })
     .superRefine((values, ctx) => {
+      const hasSettlementCurrency = !!values.settlement_currency?.trim()
+      const hasSettlementRate = !!values.settlement_units_per_usd?.trim()
       const hasSettlementUnit = !!values.settlement_unit?.trim()
-      const hasUnitPrice = !!values.unit_price?.trim()
+      const directRate =
+        values.settlement_units_per_platform_unit?.trim() ||
+        values.unit_price?.trim()
+      const hasDirectRate = !!directRate
 
-      if (hasSettlementUnit && !hasUnitPrice) {
+      if (hasSettlementCurrency && !hasSettlementRate) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: t('Set the amount charged for each real USD'),
+          path: ['settlement_units_per_usd'],
+        })
+      }
+      if (hasSettlementRate && !hasSettlementCurrency) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: t('Set the ISO settlement currency for this USD rate'),
+          path: ['settlement_currency'],
+        })
+      }
+      if (hasSettlementUnit && !hasDirectRate) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           message: t('Set a valid gateway price when a settlement unit is set'),
           path: ['unit_price'],
         })
       }
-      if (hasUnitPrice && !hasSettlementUnit) {
+      if (hasDirectRate && !hasSettlementUnit) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           message: t('Set a settlement unit when a gateway price is set'),
           path: ['settlement_unit'],
+        })
+      }
+      if (
+        values.settlement_units_per_platform_unit?.trim() &&
+        values.unit_price?.trim() &&
+        values.settlement_units_per_platform_unit.trim() !==
+          values.unit_price.trim()
+      ) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: t('Legacy direct-rate fields must match'),
+          path: ['unit_price'],
         })
       }
 
@@ -259,7 +322,13 @@ export type PaymentMethodData = {
   audience_linuxdo_score_min?: string
   audience_linuxdo_score_max?: string
   topup_ratio?: string
+  settlement_currency?: string
+  settlement_units_per_usd?: string
+  platform_units_per_usd?: string
+  settlement_units_per_platform_unit?: string
+  /** @deprecated Direct-rate compatibility fields. */
   settlement_unit?: string
+  /** @deprecated Direct-rate compatibility fields. */
   unit_price?: string
 }
 
@@ -268,7 +337,6 @@ type PaymentMethodDialogProps = {
   onOpenChange: (open: boolean) => void
   onSave: (data: PaymentMethodData) => void
   editData?: PaymentMethodData | null
-  globalPrice: number
 }
 
 const PAYMENT_TYPE_ICON_NAMES: Record<string, string> = {
@@ -285,7 +353,6 @@ export function PaymentMethodDialog({
   onOpenChange,
   onSave,
   editData,
-  globalPrice,
 }: PaymentMethodDialogProps) {
   const { t } = useTranslation()
   const isEditMode = !!editData
@@ -358,6 +425,10 @@ export function PaymentMethodDialog({
       audience_linuxdo_score_min: '',
       audience_linuxdo_score_max: '',
       topup_ratio: '',
+      settlement_currency: '',
+      settlement_units_per_usd: '',
+      platform_units_per_usd: '',
+      settlement_units_per_platform_unit: '',
       settlement_unit: '',
       unit_price: '',
     },
@@ -365,11 +436,14 @@ export function PaymentMethodDialog({
 
   const iconValue = form.watch('icon')
   const selectedType = form.watch('type')
-  const settlementUnitValue = form.watch('settlement_unit')?.trim()
-  const unitPriceValue = form.watch('unit_price')?.trim()
+  const settlementCurrencyValue = form.watch('settlement_currency')?.trim()
+  const settlementRateValue = form.watch('settlement_units_per_usd')?.trim()
+  const legacySettlementUnit = form.watch('settlement_unit')?.trim()
+  const legacyDirectRate =
+    form.watch('settlement_units_per_platform_unit')?.trim() ||
+    form.watch('unit_price')?.trim()
   const usesDedicatedPricing = usesDedicatedPaymentPricing(selectedType)
   const audienceMode = form.watch('audience_mode')
-  const ratePresets = getPaymentMethodRatePresets(globalPrice)
 
   useEffect(() => {
     if (editData) {
@@ -392,6 +466,11 @@ export function PaymentMethodDialog({
         audience_linuxdo_score_min: editData.audience_linuxdo_score_min ?? '',
         audience_linuxdo_score_max: editData.audience_linuxdo_score_max ?? '',
         topup_ratio: editData.topup_ratio ?? '',
+        settlement_currency: editData.settlement_currency ?? '',
+        settlement_units_per_usd: editData.settlement_units_per_usd ?? '',
+        platform_units_per_usd: editData.platform_units_per_usd ?? '',
+        settlement_units_per_platform_unit:
+          editData.settlement_units_per_platform_unit ?? '',
         settlement_unit: editData.settlement_unit ?? '',
         unit_price: editData.unit_price ?? '',
       })
@@ -415,6 +494,10 @@ export function PaymentMethodDialog({
         audience_linuxdo_score_min: '',
         audience_linuxdo_score_max: '',
         topup_ratio: '',
+        settlement_currency: '',
+        settlement_units_per_usd: '',
+        platform_units_per_usd: '',
+        settlement_units_per_platform_unit: '',
         settlement_unit: '',
         unit_price: '',
       })
@@ -483,19 +566,29 @@ export function PaymentMethodDialog({
     ) {
       data.topup_ratio = values.topup_ratio.trim()
     }
-    if (
-      !usesDedicatedPaymentPricing(values.type) &&
-      values.settlement_unit &&
-      values.settlement_unit.trim() !== ''
-    ) {
-      data.settlement_unit = values.settlement_unit.trim()
-    }
-    if (
-      !usesDedicatedPaymentPricing(values.type) &&
-      values.unit_price &&
-      values.unit_price.trim() !== ''
-    ) {
-      data.unit_price = values.unit_price.trim()
+    if (!usesDedicatedPaymentPricing(values.type)) {
+      const settlementCurrency = values.settlement_currency?.trim()
+      const settlementRate = values.settlement_units_per_usd?.trim()
+      if (settlementCurrency && settlementRate) {
+        data.settlement_currency = settlementCurrency.toUpperCase()
+        data.settlement_units_per_usd = settlementRate
+        if (values.platform_units_per_usd?.trim()) {
+          data.platform_units_per_usd = values.platform_units_per_usd.trim()
+        }
+      } else {
+        // Preserve an existing direct-rate configuration until the operator
+        // explicitly migrates it to the real-USD bridge above.
+        if (values.settlement_unit?.trim()) {
+          data.settlement_unit = values.settlement_unit.trim()
+        }
+        if (values.settlement_units_per_platform_unit?.trim()) {
+          data.settlement_units_per_platform_unit =
+            values.settlement_units_per_platform_unit.trim()
+        }
+        if (values.unit_price?.trim()) {
+          data.unit_price = values.unit_price.trim()
+        }
+      }
     }
     onSave(data)
     form.reset()
@@ -595,14 +688,19 @@ export function PaymentMethodDialog({
                           shouldDirty: true,
                           shouldValidate: true,
                         })
-                        form.setValue('settlement_unit', '', {
-                          shouldDirty: true,
-                          shouldValidate: true,
-                        })
-                        form.setValue('unit_price', '', {
-                          shouldDirty: true,
-                          shouldValidate: true,
-                        })
+                        for (const key of [
+                          'settlement_currency',
+                          'settlement_units_per_usd',
+                          'platform_units_per_usd',
+                          'settlement_units_per_platform_unit',
+                          'settlement_unit',
+                          'unit_price',
+                        ] as const) {
+                          form.setValue(key, '', {
+                            shouldDirty: true,
+                            shouldValidate: true,
+                          })
+                        }
                       }
                       if (
                         nextOption?.iconName &&
@@ -1087,17 +1185,25 @@ export function PaymentMethodDialog({
             <>
               <FormField
                 control={form.control}
-                name='settlement_unit'
+                name='settlement_currency'
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>{t('Settlement unit (optional)')}</FormLabel>
+                    <FormLabel>{t('Settlement currency (ISO code)')}</FormLabel>
                     <FormControl>
-                      <Input placeholder='LDC' {...field} />
+                      <Input
+                        placeholder='CNY'
+                        maxLength={3}
+                        value={field.value ?? ''}
+                        onChange={(event) =>
+                          field.onChange(event.target.value.toUpperCase())
+                        }
+                        onBlur={field.onBlur}
+                        name={field.name}
+                        ref={field.ref}
+                      />
                     </FormControl>
                     <FormDescription>
-                      {t(
-                        'The gateway currency label shown to users, for example LDC.'
-                      )}
+                      {t('The actual fiat currency charged by this gateway.')}
                     </FormDescription>
                     <FormMessage />
                   </FormItem>
@@ -1106,24 +1212,24 @@ export function PaymentMethodDialog({
 
               <FormField
                 control={form.control}
-                name='unit_price'
+                name='settlement_units_per_usd'
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>
-                      {t('Gateway price per 1 USD (optional)')}
+                      {t('Settlement amount per 1 real USD')}
                     </FormLabel>
                     <FormControl>
                       <Input
                         type='number'
                         min='0.000000000001'
                         step='any'
-                        placeholder='10'
+                        placeholder='6.8'
                         {...field}
                       />
                     </FormControl>
                     <FormDescription>
                       {t(
-                        'The server uses this price to quote and verify payment. Example: 10 means 10 LDC for 1 USD.'
+                        'Example: enter 1 for USD or 6.8 when 1 USD equals 6.8 CNY.'
                       )}
                     </FormDescription>
                     <FormMessage />
@@ -1132,77 +1238,23 @@ export function PaymentMethodDialog({
               />
 
               <div className='bg-muted/30 space-y-2 rounded-md border p-3'>
-                <div>
+                <p className='text-muted-foreground text-xs leading-relaxed'>
+                  {t(
+                    'Checkout first converts the platform amount to real USD using the synchronized USD rate, then converts USD to the gateway settlement currency.'
+                  )}
+                </p>
+                {settlementCurrencyValue && settlementRateValue ? (
                   <p className='text-sm font-medium'>
-                    {t('Channel price presets')}
+                    {t('Settlement preview: 1 USD = {{rate}} {{currency}}', {
+                      rate: settlementRateValue,
+                      currency: settlementCurrencyValue,
+                    })}
                   </p>
-                  <p className='text-muted-foreground text-xs leading-relaxed'>
+                ) : null}
+                {legacySettlementUnit && legacyDirectRate ? (
+                  <p className='text-warning text-xs leading-relaxed'>
                     {t(
-                      'Choose a preset or enter any positive decimal. The settlement unit and price must be configured together.'
-                    )}
-                  </p>
-                </div>
-                <div className='grid gap-2 sm:grid-cols-2'>
-                  <Button
-                    type='button'
-                    size='sm'
-                    variant='outline'
-                    disabled={!ratePresets}
-                    onClick={() => {
-                      if (!ratePresets) return
-                      form.setValue(
-                        'unit_price',
-                        ratePresets.currentGlobalPrice,
-                        { shouldDirty: true, shouldValidate: true }
-                      )
-                    }}
-                  >
-                    {t('Use global price')}
-                    {ratePresets ? ` · ${ratePresets.currentGlobalPrice}` : ''}
-                  </Button>
-                  <Button
-                    type='button'
-                    size='sm'
-                    variant='outline'
-                    disabled={!ratePresets}
-                    onClick={() => {
-                      if (!ratePresets) return
-                      form.setValue(
-                        'unit_price',
-                        ratePresets.reciprocalGlobalPrice,
-                        { shouldDirty: true, shouldValidate: true }
-                      )
-                    }}
-                  >
-                    {t('Use global price reciprocal')}
-                    {ratePresets
-                      ? ` · ${ratePresets.reciprocalGlobalPrice}`
-                      : ''}
-                  </Button>
-                </div>
-                {ratePresets ? (
-                  <p className='text-muted-foreground text-xs leading-relaxed'>
-                    {t(
-                      'Reciprocal preview: 1 ÷ {{price}} = {{reciprocal}}. This reverses the configured price direction; verify the settlement preview before saving.',
-                      {
-                        price: ratePresets.currentGlobalPrice,
-                        reciprocal: ratePresets.reciprocalGlobalPrice,
-                      }
-                    )}
-                  </p>
-                ) : (
-                  <p className='text-destructive text-xs'>
-                    {t('Set a positive global price to use rate presets.')}
-                  </p>
-                )}
-                {settlementUnitValue && unitPriceValue ? (
-                  <p className='text-sm font-medium'>
-                    {t(
-                      'Settlement preview: 1 platform USD = {{price}} {{unit}}',
-                      {
-                        price: unitPriceValue,
-                        unit: settlementUnitValue,
-                      }
+                      'Legacy direct pricing is preserved until you enter and save the real-USD settlement fields above.'
                     )}
                   </p>
                 ) : null}

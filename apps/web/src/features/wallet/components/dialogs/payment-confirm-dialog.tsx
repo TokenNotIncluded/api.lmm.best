@@ -35,7 +35,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 
 import { DEFAULT_DISCOUNT_RATE } from '../../constants'
 import {
-  formatCreditBalance,
+  formatPlatformCreditBalance as formatPlatformCreditBalanceBase,
   formatPaymentAmount,
   formatSettlementAmount,
   getPaymentIcon,
@@ -74,15 +74,17 @@ export function PaymentConfirmDialog({
   neutralMode = false,
 }: PaymentConfirmDialogProps) {
   const { t } = useTranslation()
+  const formatPlatformCreditBalance = (amount: number) =>
+    formatPlatformCreditBalanceBase(amount, t('Platform'))
   const hasDiscount = discountRate > 0 && discountRate < 1 && paymentAmount > 0
   const originalAmount = hasDiscount ? paymentAmount / discountRate : 0
   const discountAmount = hasDiscount ? originalAmount - paymentAmount : 0
   const codeSavings = discountCodeSavings(paymentAmount, discountPercent)
-  const settlementUnit = getPaymentSettlementUnit(paymentMethod)
+  const settlementUnit = getPaymentSettlementUnit(paymentMethod, true)
   const formatSelectedPaymentAmount = (amount: number) =>
     settlementUnit
       ? formatSettlementAmount(amount, settlementUnit.label)
-      : formatPaymentAmount(amount)
+      : formatPaymentAmount(amount, 'USD')
   const paymentMethodLabel = neutralMode
     ? t('Payment Method')
     : paymentMethod?.name
@@ -116,7 +118,7 @@ export function PaymentConfirmDialog({
               {t('Balance credited')}
             </span>
             <span className='text-lg font-semibold'>
-              {formatCreditBalance(topupAmount)}
+              {formatPlatformCreditBalance(topupAmount)}
             </span>
           </div>
 
@@ -168,12 +170,9 @@ export function PaymentConfirmDialog({
 
           {settlementUnit && !calculating && (
             <div className='bg-muted/50 rounded-lg border p-3 text-sm'>
-              {t('Top up {{amount}} USD; pay {{payment}} {{unit}}', {
-                amount: topupAmount,
-                payment: new Intl.NumberFormat(undefined, {
-                  maximumFractionDigits: paymentAmount >= 1 ? 2 : 4,
-                }).format(paymentAmount),
-                unit: settlementUnit.label,
+              {t('Credit {{amount}}; pay {{payment}}', {
+                amount: formatPlatformCreditBalance(topupAmount),
+                payment: formatSelectedPaymentAmount(paymentAmount),
               })}
             </div>
           )}

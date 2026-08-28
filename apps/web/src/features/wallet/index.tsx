@@ -522,6 +522,8 @@ export function Wallet(props: WalletProps) {
       name: method.name,
       type: PAYMENT_TYPES.WAFFO,
       icon: method.icon,
+      settlement_unit: topupInfo?.waffo_currency || 'USD',
+      unit_price: topupInfo?.waffo_unit_price,
     })
     setSelectedWaffoMethodIndex(index)
     setPaymentLoading(loadingKey)

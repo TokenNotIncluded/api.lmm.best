@@ -20,14 +20,91 @@ import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 
 import {
+  calculateSettlementAmount,
+  createLegacyUsdSettlementMetadata,
   formatPaymentSettlementRate,
   formatSettlementAmount,
   getPaymentMaxTopup,
   getPaymentTopupRatio,
+  getPaymentSettlementMetadata,
   getPaymentSettlementUnit,
 } from './payment-unit'
 
 describe('payment settlement units', () => {
+  test('uses the two-rate settlement contract for real USD and CNY examples', () => {
+    const platformAmount = 6.8
+    const usdMetadata = getPaymentSettlementMetadata({
+      name: 'USD card',
+      type: 'card',
+      settlement_currency: 'USD',
+      platform_units_per_usd: '6.8',
+      settlement_units_per_usd: '1',
+    })
+    const cnyMetadata = getPaymentSettlementMetadata({
+      name: 'CNY card',
+      type: 'card',
+      settlement_currency: 'CNY',
+      platform_units_per_usd: '6.8',
+      settlement_units_per_usd: '6.8',
+    })
+
+    assert.ok(usdMetadata)
+    assert.ok(cnyMetadata)
+    assert.equal(calculateSettlementAmount(platformAmount, usdMetadata), 1)
+    assert.equal(formatSettlementAmount(1, usdMetadata.currencyCode), '1 USD')
+    assert.equal(calculateSettlementAmount(platformAmount, cnyMetadata), 6.8)
+    assert.equal(
+      formatSettlementAmount(6.8, cnyMetadata.currencyCode),
+      '6.8 CNY'
+    )
+  })
+
+  test('accepts catalog aliases and explicit direct legacy pricing', () => {
+    const fxMetadata = getPaymentSettlementMetadata({
+      name: 'CNY catalog method',
+      type: 'epay',
+      settlement_unit: 'CNY',
+      platform_units_per_usd: '6.8',
+      settlement_units_per_usd: '6.8',
+    })
+    const directMetadata = getPaymentSettlementMetadata({
+      name: 'LDC direct method',
+      type: 'epay',
+      settlement_unit: 'LDC',
+      settlement_units_per_platform_unit: '10',
+    })
+
+    assert.ok(fxMetadata)
+    assert.equal(calculateSettlementAmount(6.8, fxMetadata), 6.8)
+    assert.ok(directMetadata)
+    assert.equal(directMetadata.source, 'legacy-unit-price')
+    assert.equal(calculateSettlementAmount(2, directMetadata), 20)
+  })
+
+  test('isolates the no-metadata fallback as real USD settlement', () => {
+    const fallback = createLegacyUsdSettlementMetadata(0.14)
+
+    assert.equal(fallback.currencyCode, 'USD')
+    assert.equal(fallback.source, 'legacy-usd-price-ratio')
+    assert.ok(
+      Math.abs(calculateSettlementAmount(6.8, fallback) - 0.952) < 1e-12
+    )
+  })
+
+  test('does not fall through to legacy fields when preferred metadata is incomplete', () => {
+    assert.equal(
+      getPaymentSettlementMetadata({
+        name: 'Broken preferred contract',
+        type: 'card',
+        settlement_currency: 'CNY',
+        platform_units_per_usd: '6.8',
+        settlement_unit: 'LDC',
+        unit_price: '10',
+      }),
+      null
+    )
+  })
+
   test('normalizes the per-payment maximum credited USD', () => {
     assert.equal(
       getPaymentMaxTopup({
