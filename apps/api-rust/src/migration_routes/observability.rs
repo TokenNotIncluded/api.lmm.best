@@ -3475,14 +3475,12 @@ mod tests {
         assert!((default_range.1 - default_range.0) >= 24 * 60 * 60);
         assert!((default_range.1 - default_range.0) <= 24 * 60 * 60 + 1);
 
-        let zero_range =
-            perf_time_range(&BTreeMap::from([("hours".to_owned(), "0".to_owned())])).map_err(
-                |error| {
-                    std::io::Error::other(format!(
-                        "zero-hour default performance metric time range failed: {error}"
-                    ))
-                },
-            )?;
+        let zero_range = perf_time_range(&BTreeMap::from([("hours".to_owned(), "0".to_owned())]))
+            .map_err(|error| {
+            std::io::Error::other(format!(
+                "zero-hour default performance metric time range failed: {error}"
+            ))
+        })?;
         assert!((zero_range.1 - zero_range.0) >= 24 * 60 * 60);
         let capped_range =
             perf_time_range(&BTreeMap::from([("hours".to_owned(), "9999".to_owned())])).map_err(

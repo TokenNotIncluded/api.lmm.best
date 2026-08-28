@@ -1207,8 +1207,7 @@ mod tests {
         Ok(())
     }
     #[tokio::test]
-    async fn authenticated_quote_keeps_should_bind_json_content_type_independence(
-    ) -> TestResult {
+    async fn authenticated_quote_keeps_should_bind_json_content_type_independence() -> TestResult {
         let response = app(Arc::new(Store::default()))
             .oneshot(request_without_content_type(
                 "/api/user/stripe/amount",
@@ -1403,9 +1402,7 @@ mod tests {
             "https://console.example.test/usage-logs".into(),
             "https://console.example.test/wallet".into(),
         )
-        .map_err(|_| {
-            test_error("empty Creem credentials should not invalidate the fixture URL")
-        })?;
+        .map_err(|_| test_error("empty Creem credentials should not invalidate the fixture URL"))?;
         assert_eq!(
             empty_creem
                 .creem_checkout(CreemCheckoutRequest {
@@ -1455,11 +1452,7 @@ mod tests {
     }
     #[tokio::test]
     async fn stripe_quote_http_seam_preserves_usd_cny_and_tokens_display_rules() -> TestResult {
-        let cases = [
-            ("USD", "1200.00"),
-            ("CNY", "1200.00"),
-            ("TOKENS", "48.00"),
-        ];
+        let cases = [("USD", "1200.00"), ("CNY", "1200.00"), ("TOKENS", "48.00")];
         for (display_type, expected) in cases {
             let settings = StripeSettings {
                 min_topup: 2,

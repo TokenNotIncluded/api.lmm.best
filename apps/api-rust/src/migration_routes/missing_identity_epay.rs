@@ -1052,7 +1052,9 @@ mod tests {
         let status = response.status();
         let bytes = to_bytes(response.into_body(), 1024)
             .await
-            .map_err(|error| test_error(format!("failed to read ePay notify response body: {error}")))?;
+            .map_err(|error| {
+                test_error(format!("failed to read ePay notify response body: {error}"))
+            })?;
         let body = String::from_utf8(bytes.to_vec()).map_err(|error| {
             test_error(format!(
                 "ePay notify response body was not valid UTF-8: {error}"
@@ -1167,7 +1169,10 @@ mod tests {
                 Some(&HeaderValue::from_static("37")),
                 "{uri}"
             );
-            assert!(to_bytes(response.into_body(), 1024).await?.is_empty(), "{uri}");
+            assert!(
+                to_bytes(response.into_body(), 1024).await?.is_empty(),
+                "{uri}"
+            );
         }
         assert!(recover_lock(&events).is_empty());
         assert_eq!(*recover_lock(&pending_writes), 0);
@@ -1308,17 +1313,22 @@ mod tests {
                 )
                 .await?;
             assert_eq!(response.status(), StatusCode::UNAUTHORIZED, "{uri}");
-            let content_type = response.headers().get(header::CONTENT_TYPE).ok_or_else(|| {
-                test_error(format!(
-                    "unauthorized ePay response for {uri} omitted Content-Type"
-                ))
-            })?;
+            let content_type = response
+                .headers()
+                .get(header::CONTENT_TYPE)
+                .ok_or_else(|| {
+                    test_error(format!(
+                        "unauthorized ePay response for {uri} omitted Content-Type"
+                    ))
+                })?;
             assert_eq!(content_type, "application/json", "{uri}");
-            let bytes = to_bytes(response.into_body(), 1024).await.map_err(|error| {
-                test_error(format!(
-                    "failed to read unauthorized ePay response body for {uri}: {error}"
-                ))
-            })?;
+            let bytes = to_bytes(response.into_body(), 1024)
+                .await
+                .map_err(|error| {
+                    test_error(format!(
+                        "failed to read unauthorized ePay response body for {uri}: {error}"
+                    ))
+                })?;
             let body = serde_json::from_slice::<Value>(&bytes).map_err(|error| {
                 test_error(format!(
                     "unauthorized ePay response body for {uri} was not valid JSON: {error}"
@@ -1343,11 +1353,13 @@ mod tests {
                 )
                 .await?;
             assert_eq!(response.status(), StatusCode::OK, "{method} {uri}");
-            let bytes = to_bytes(response.into_body(), 1024).await.map_err(|error| {
-                test_error(format!(
-                    "failed to read ePay callback response body for {method} {uri}: {error}"
-                ))
-            })?;
+            let bytes = to_bytes(response.into_body(), 1024)
+                .await
+                .map_err(|error| {
+                    test_error(format!(
+                        "failed to read ePay callback response body for {method} {uri}: {error}"
+                    ))
+                })?;
             let body = std::str::from_utf8(&bytes).map_err(|error| {
                 test_error(format!(
                     "ePay callback response body for {method} {uri} was not UTF-8: {error}"
@@ -1379,8 +1391,10 @@ mod tests {
 
     #[test]
     fn epay_query_preserves_non_utf8_bytes_while_dropping_only_bad_pairs() -> TestResult {
-        let fields = parse_epay_query_fields(b"sign=%FF&bad=%ZZ&trade_no=order-1")
-            .ok_or_else(|| test_error("ePay query parser rejected its valid byte-level invariant"))?;
+        let fields =
+            parse_epay_query_fields(b"sign=%FF&bad=%ZZ&trade_no=order-1").ok_or_else(|| {
+                test_error("ePay query parser rejected its valid byte-level invariant")
+            })?;
         assert_eq!(fields.values()[b"sign".as_slice()], [0xff]);
         assert_eq!(fields.values()[b"trade_no".as_slice()], b"order-1");
         Ok(())

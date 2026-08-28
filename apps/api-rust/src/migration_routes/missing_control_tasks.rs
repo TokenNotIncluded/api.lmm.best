@@ -853,10 +853,7 @@ mod tests {
         let store = Arc::new(CountingStore(AtomicUsize::new(0)));
         let app = router_for(member(), store.clone(), Ok(json!({"requests": 3})));
         let response = app
-            .oneshot(
-                Request::get("/api/task/self?p=2&ps=101")
-                    .body(Body::empty())?,
-            )
+            .oneshot(Request::get("/api/task/self?p=2&ps=101").body(Body::empty())?)
             .await?;
         assert_eq!(response.status(), StatusCode::OK);
         let payload = body(response).await?;
@@ -885,8 +882,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn unauthenticated_control_routes_preserve_go_auth_envelope_before_dependencies(
-    ) -> TestResult {
+    async fn unauthenticated_control_routes_preserve_go_auth_envelope_before_dependencies()
+    -> TestResult {
         let store = Arc::new(CountingStore(AtomicUsize::new(0)));
         let status = Arc::new(CountingStatus(AtomicUsize::new(0)));
         let app = missing_control_tasks_router(MissingControlTasksState::new(

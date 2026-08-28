@@ -1892,8 +1892,7 @@ mod tests {
             .oneshot(Request::get("/api/group/").body(Body::empty())?)
             .await?;
         assert_eq!(unauthorized.status(), StatusCode::UNAUTHORIZED);
-        let unauthorized_body =
-            axum::body::to_bytes(unauthorized.into_body(), usize::MAX).await?;
+        let unauthorized_body = axum::body::to_bytes(unauthorized.into_body(), usize::MAX).await?;
         assert_eq!(
             serde_json::from_slice::<Value>(&unauthorized_body)?,
             json!({
@@ -1964,9 +1963,7 @@ mod tests {
             .await?;
         assert_eq!(pricing.status(), StatusCode::OK);
         let ranking = app(None)
-            .oneshot(
-                Request::get("/api/rankings?period=week").body(Body::empty())?,
-            )
+            .oneshot(Request::get("/api/rankings?period=week").body(Body::empty())?)
             .await?;
         assert_eq!(ranking.status(), StatusCode::OK);
         let ratio = app(None)
@@ -1977,8 +1974,7 @@ mod tests {
             .oneshot(Request::get("/api/usage/token/").body(Body::empty())?)
             .await?;
         assert_eq!(no_bearer.status(), StatusCode::UNAUTHORIZED);
-        let no_bearer_body =
-            axum::body::to_bytes(no_bearer.into_body(), usize::MAX).await?;
+        let no_bearer_body = axum::body::to_bytes(no_bearer.into_body(), usize::MAX).await?;
         assert_eq!(
             serde_json::from_slice::<Value>(&no_bearer_body)?,
             json!({"success": false, "message": "Token not provided"})
@@ -2050,9 +2046,7 @@ mod tests {
     #[tokio::test]
     async fn rankings_keeps_the_go_envelope_for_empty_data_and_invalid_periods() -> TestResult {
         let success = app(None)
-            .oneshot(
-                Request::get("/api/rankings?period=week").body(Body::empty())?,
-            )
+            .oneshot(Request::get("/api/rankings?period=week").body(Body::empty())?)
             .await?;
         assert_eq!(success.status(), StatusCode::OK);
         let success_body = axum::body::to_bytes(success.into_body(), usize::MAX).await?;
@@ -2062,9 +2056,7 @@ mod tests {
         );
 
         let invalid = app(None)
-            .oneshot(
-                Request::get("/api/rankings?period=quarter").body(Body::empty())?,
-            )
+            .oneshot(Request::get("/api/rankings?period=quarter").body(Body::empty())?)
             .await?;
         assert_eq!(invalid.status(), StatusCode::BAD_REQUEST);
         let invalid_body = axum::body::to_bytes(invalid.into_body(), usize::MAX).await?;

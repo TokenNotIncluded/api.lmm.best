@@ -570,8 +570,7 @@ mod tests {
     #[tokio::test]
     async fn pancake_rejects_unsigned_before_settlement() -> TestResult {
         let processor = Arc::new(Processor::default());
-        let request = Request::post("/api/waffo-pancake/webhook/test")
-            .body(Body::from("{}"))?;
+        let request = Request::post("/api/waffo-pancake/webhook/test").body(Body::from("{}"))?;
         let response = app(processor.clone()).oneshot(request).await?;
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
         let body = to_bytes(response.into_body(), usize::MAX).await?;
@@ -584,8 +583,8 @@ mod tests {
     async fn disabled_webhooks_preserve_the_legacy_403_response_shapes() -> TestResult {
         let processor = Arc::new(Processor::default());
         let app = disabled_app(processor.clone());
-        let pancake_request = Request::post("/api/waffo-pancake/webhook/test")
-            .body(Body::from("{}"))?;
+        let pancake_request =
+            Request::post("/api/waffo-pancake/webhook/test").body(Body::from("{}"))?;
         let pancake = app.clone().oneshot(pancake_request).await?;
         assert_eq!(pancake.status(), StatusCode::FORBIDDEN);
         assert_eq!(
@@ -616,8 +615,8 @@ mod tests {
     async fn availability_failure_preserves_the_legacy_403_response_shapes() -> TestResult {
         let processor = Arc::new(Processor::default());
         let app = failing_availability_app(processor.clone());
-        let pancake_request = Request::post("/api/waffo-pancake/webhook/test")
-            .body(Body::from("{}"))?;
+        let pancake_request =
+            Request::post("/api/waffo-pancake/webhook/test").body(Body::from("{}"))?;
         let pancake = app.clone().oneshot(pancake_request).await?;
         assert_eq!(pancake.status(), StatusCode::FORBIDDEN);
         assert_eq!(
@@ -696,8 +695,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn signed_waffo_malformed_json_returns_a_signed_failure_without_settlement()
-    -> TestResult {
+    async fn signed_waffo_malformed_json_returns_a_signed_failure_without_settlement() -> TestResult
+    {
         let processor = Arc::new(Processor::default());
         let request = Request::post("/api/waffo/webhook")
             .header("x-signature", "valid-waffo")
