@@ -501,19 +501,13 @@ impl HeroSmsGateway for ReqwestHeroSmsGateway {
             url.push_str("?site=");
             url.push_str(&urlencoding(site.trim()));
         }
-        let response = self
-            .client
-            .get(url)
-            .header("Accept", "application/json")
-            .header("ApiKey", api_key)
-            .send()
-            .await
-            .map_err(map_reqwest_error)?;
-        map_status(response.status())?;
-        let body: Value = response
-            .json()
-            .await
-            .map_err(|_| HeroSmsProviderError::BadResponse)?;
+        let body = send_provider_json(
+            self.client
+                .get(url)
+                .header("Accept", "application/json")
+                .header("ApiKey", api_key),
+        )
+        .await?;
         let Some(items) = body.get("data").and_then(Value::as_array) else {
             return Err(HeroSmsProviderError::BadResponse);
         };
@@ -546,24 +540,18 @@ impl HeroSmsGateway for ReqwestHeroSmsGateway {
         domain: &str,
         count: i32,
     ) -> Result<Vec<HeroEmailRecord>, HeroSmsProviderError> {
-        let response = self
-            .client
-            .post(format!(
-                "{}/emails/batch",
-                self.base_url.trim_end_matches('/')
-            ))
-            .header("Accept", "application/json")
-            .header("ApiKey", api_key)
-            .header(header::CONTENT_TYPE, "application/json")
-            .json(&json!({"site": site, "domain": domain, "count": count}))
-            .send()
-            .await
-            .map_err(map_reqwest_error)?;
-        map_status(response.status())?;
-        let body: Value = response
-            .json()
-            .await
-            .map_err(|_| HeroSmsProviderError::BadResponse)?;
+        let body = send_provider_json(
+            self.client
+                .post(format!(
+                    "{}/emails/batch",
+                    self.base_url.trim_end_matches('/')
+                ))
+                .header("Accept", "application/json")
+                .header("ApiKey", api_key)
+                .header(header::CONTENT_TYPE, "application/json")
+                .json(&json!({"site": site, "domain": domain, "count": count})),
+        )
+        .await?;
         let items = body
             .get("data")
             .and_then(Value::as_array)
@@ -587,23 +575,17 @@ impl HeroSmsGateway for ReqwestHeroSmsGateway {
         api_key: &str,
         id: &str,
     ) -> Result<HeroEmailRecord, HeroSmsProviderError> {
-        let response = self
-            .client
-            .get(format!(
-                "{}/emails/{}",
-                self.base_url.trim_end_matches('/'),
-                urlencoding(id)
-            ))
-            .header("Accept", "application/json")
-            .header("ApiKey", api_key)
-            .send()
-            .await
-            .map_err(map_reqwest_error)?;
-        map_status(response.status())?;
-        let body: Value = response
-            .json()
-            .await
-            .map_err(|_| HeroSmsProviderError::BadResponse)?;
+        let body = send_provider_json(
+            self.client
+                .get(format!(
+                    "{}/emails/{}",
+                    self.base_url.trim_end_matches('/'),
+                    urlencoding(id)
+                ))
+                .header("Accept", "application/json")
+                .header("ApiKey", api_key),
+        )
+        .await?;
         decode_email_record(body.get("data").unwrap_or(&body))
     }
 
@@ -721,21 +703,27 @@ async fn post_email_record(
     path: &str,
     payload: Value,
 ) -> Result<HeroEmailRecord, HeroSmsProviderError> {
-    let response = client
-        .post(format!("{}{}", base_url.trim_end_matches('/'), path))
-        .header("Accept", "application/json")
-        .header("ApiKey", api_key)
-        .header(header::CONTENT_TYPE, "application/json")
-        .json(&payload)
-        .send()
-        .await
-        .map_err(map_reqwest_error)?;
+    let body = send_provider_json(
+        client
+            .post(format!("{}{}", base_url.trim_end_matches('/'), path))
+            .header("Accept", "application/json")
+            .header("ApiKey", api_key)
+            .header(header::CONTENT_TYPE, "application/json")
+            .json(&payload),
+    )
+    .await?;
+    decode_email_record(body.get("data").unwrap_or(&body))
+}
+
+async fn send_provider_json(
+    request: reqwest::RequestBuilder,
+) -> Result<Value, HeroSmsProviderError> {
+    let response = request.send().await.map_err(map_reqwest_error)?;
     map_status(response.status())?;
-    let body: Value = response
+    response
         .json()
         .await
-        .map_err(|_| HeroSmsProviderError::BadResponse)?;
-    decode_email_record(body.get("data").unwrap_or(&body))
+        .map_err(|_| HeroSmsProviderError::BadResponse)
 }
 
 fn decode_domain(value: &Value) -> Result<HeroDomain, HeroSmsProviderError> {
