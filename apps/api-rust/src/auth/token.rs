@@ -71,7 +71,7 @@ impl LegacyTokenCodec {
         })
     }
 
-    pub fn issue(&self, identity: &AuthIdentity) -> Result<(String, i64), AuthError> {
+    fn validate_identity(identity: &AuthIdentity) -> Result<(), AuthError> {
         if identity.user_id <= 0
             || identity.session_id.is_empty()
             || identity.user_auth_version <= 0
@@ -79,10 +79,19 @@ impl LegacyTokenCodec {
         {
             return Err(AuthError::new(AuthErrorKind::Unauthorized));
         }
-        let now = unix_now();
-        let expires_at = now + ACCESS_TOKEN_TTL_SECONDS;
-        let claims = Claims {
-            token_use: TOKEN_USE.to_owned(),
+        Ok(())
+    }
+
+    fn claims(
+        identity: &AuthIdentity,
+        token_use: &str,
+        now: i64,
+        expires_at: i64,
+        method: Option<String>,
+        scopes: Option<Vec<String>>,
+    ) -> Claims {
+        Claims {
+            token_use: token_use.to_owned(),
             sid: identity.session_id.clone(),
             uv: identity.user_auth_version,
             sv: identity.session_version,
@@ -93,9 +102,31 @@ impl LegacyTokenCodec {
             nbf: now - 5,
             iat: now,
             jti: uuid::Uuid::new_v4().to_string(),
-            method: None,
-            scopes: None,
-        };
+            method,
+            scopes,
+        }
+    }
+
+    fn decode_claims(raw: &str, key: &[u8], required_claims: &[&str]) -> Result<Claims, AuthError> {
+        let mut validation = Validation::new(Algorithm::HS256);
+        validation.leeway = 5;
+        validation.validate_nbf = true;
+        validation.set_audience(&[AUDIENCE]);
+        validation.set_issuer(&[ISSUER]);
+        validation.set_required_spec_claims(required_claims);
+        decode::<Claims>(raw, &DecodingKey::from_secret(key), &validation)
+            .map(|data| data.claims)
+            .map_err(|error| match error.kind() {
+                ErrorKind::ExpiredSignature => AuthError::new(AuthErrorKind::TokenExpired),
+                _ => AuthError::new(AuthErrorKind::Unauthorized),
+            })
+    }
+
+    pub fn issue(&self, identity: &AuthIdentity) -> Result<(String, i64), AuthError> {
+        Self::validate_identity(identity)?;
+        let now = unix_now();
+        let expires_at = now + ACCESS_TOKEN_TTL_SECONDS;
+        let claims = Self::claims(identity, TOKEN_USE, now, expires_at, None, None);
         let token = encode(
             &Header::new(Algorithm::HS256),
             &claims,
@@ -106,22 +137,11 @@ impl LegacyTokenCodec {
     }
 
     pub fn parse(&self, raw: &SecretString) -> Result<AuthIdentity, AuthError> {
-        let mut validation = Validation::new(Algorithm::HS256);
-        validation.leeway = 5;
-        validation.validate_nbf = true;
-        validation.set_audience(&[AUDIENCE]);
-        validation.set_issuer(&[ISSUER]);
-        validation.set_required_spec_claims(&["exp", "nbf", "iss", "aud", "sub"]);
-        let data = decode::<Claims>(
+        let claims = Self::decode_claims(
             raw.expose_secret(),
-            &DecodingKey::from_secret(self.access_key.expose_secret()),
-            &validation,
-        )
-        .map_err(|error| match error.kind() {
-            ErrorKind::ExpiredSignature => AuthError::new(AuthErrorKind::TokenExpired),
-            _ => AuthError::new(AuthErrorKind::Unauthorized),
-        })?;
-        let claims = data.claims;
+            self.access_key.expose_secret(),
+            &["exp", "nbf", "iss", "aud", "sub"],
+        )?;
         let user_id = claims
             .sub
             .parse::<i64>()
@@ -151,11 +171,8 @@ impl LegacyTokenCodec {
         method: &str,
         scopes: &[String],
     ) -> Result<(String, i64), AuthError> {
-        if identity.user_id <= 0
-            || identity.session_id.is_empty()
-            || identity.user_auth_version <= 0
-            || identity.session_version <= 0
-            || method.trim().is_empty()
+        Self::validate_identity(identity)?;
+        if method.trim().is_empty()
             || scopes.is_empty()
             || scopes.iter().any(|scope| scope.trim().is_empty())
         {
@@ -163,21 +180,14 @@ impl LegacyTokenCodec {
         }
         let now = unix_now();
         let expires_at = now + SECURITY_PROOF_TTL_SECONDS;
-        let claims = Claims {
-            token_use: SECURITY_PROOF_TOKEN_USE.to_owned(),
-            sid: identity.session_id.clone(),
-            uv: identity.user_auth_version,
-            sv: identity.session_version,
-            iss: ISSUER.to_owned(),
-            sub: identity.user_id.to_string(),
-            aud: vec![AUDIENCE.to_owned()],
-            exp: expires_at,
-            nbf: now - 5,
-            iat: now,
-            jti: uuid::Uuid::new_v4().to_string(),
-            method: Some(method.trim().to_owned()),
-            scopes: Some(scopes.iter().map(|scope| scope.trim().to_owned()).collect()),
-        };
+        let claims = Self::claims(
+            identity,
+            SECURITY_PROOF_TOKEN_USE,
+            now,
+            expires_at,
+            Some(method.trim().to_owned()),
+            Some(scopes.iter().map(|scope| scope.trim().to_owned()).collect()),
+        );
         let token = encode(
             &Header::new(Algorithm::HS256),
             &claims,
@@ -197,22 +207,11 @@ impl LegacyTokenCodec {
         required_scope: &str,
         allowed_methods: &[String],
     ) -> Result<String, AuthError> {
-        let mut validation = Validation::new(Algorithm::HS256);
-        validation.leeway = 5;
-        validation.validate_nbf = true;
-        validation.set_audience(&[AUDIENCE]);
-        validation.set_issuer(&[ISSUER]);
-        validation.set_required_spec_claims(&["exp", "nbf", "iss", "aud", "sub", "iat"]);
-        let data = decode::<Claims>(
+        let claims = Self::decode_claims(
             raw.expose_secret().trim(),
-            &DecodingKey::from_secret(self.security_proof_key()),
-            &validation,
-        )
-        .map_err(|error| match error.kind() {
-            ErrorKind::ExpiredSignature => AuthError::new(AuthErrorKind::TokenExpired),
-            _ => AuthError::new(AuthErrorKind::Unauthorized),
-        })?;
-        let claims = data.claims;
+            self.security_proof_key(),
+            &["exp", "nbf", "iss", "aud", "sub", "iat"],
+        )?;
         let user_id = claims
             .sub
             .parse::<i64>()
@@ -437,6 +436,8 @@ fn unix_now() -> i64 {
 mod tests {
     use super::*;
 
+    type TestResult = Result<(), Box<dyn std::error::Error>>;
+
     fn identity() -> AuthIdentity {
         AuthIdentity {
             user_id: 42,
@@ -447,60 +448,48 @@ mod tests {
     }
 
     #[test]
-    fn access_token_round_trips_legacy_claims() {
+    fn access_token_round_trips_legacy_claims() -> TestResult {
         let codec = LegacyTokenCodec::new(SecretString::from(
             "0123456789abcdef-SESSION-SECRET!".to_owned(),
-        ))
-        .expect("codec");
+        ))?;
         let expected = identity();
-        let (token, expires_at) = codec.issue(&expected).expect("issue");
+        let (token, expires_at) = codec.issue(&expected)?;
         assert!(expires_at > unix_now());
-        assert_eq!(
-            codec
-                .parse(&SecretString::from(token))
-                .expect("valid token"),
-            expected
-        );
+        assert_eq!(codec.parse(&SecretString::from(token))?, expected);
+        Ok(())
     }
 
     #[test]
-    fn access_token_rejects_signature_tampering() {
+    fn access_token_rejects_signature_tampering() -> TestResult {
         let codec = LegacyTokenCodec::new(SecretString::from(
             "0123456789abcdef-SESSION-SECRET!".to_owned(),
-        ))
-        .expect("codec");
-        let (mut token, _) = codec.issue(&identity()).expect("issue");
+        ))?;
+        let (mut token, _) = codec.issue(&identity())?;
         token.push('x');
-        assert_eq!(
-            codec
-                .parse(&SecretString::from(token))
-                .expect_err("tamper must fail")
-                .kind,
-            AuthErrorKind::Unauthorized
-        );
+        let error = codec
+            .parse(&SecretString::from(token))
+            .err()
+            .ok_or_else(|| std::io::Error::other("tampered token was accepted"))?;
+        assert_eq!(error.kind, AuthErrorKind::Unauthorized);
+        Ok(())
     }
 
     #[test]
-    fn security_proof_round_trips_with_session_scope_and_method_binding() {
+    fn security_proof_round_trips_with_session_scope_and_method_binding() -> TestResult {
         let codec = LegacyTokenCodec::new(SecretString::from(
             "0123456789abcdef-SESSION-SECRET!".to_owned(),
-        ))
-        .expect("codec");
+        ))?;
         let identity = identity();
         let scopes = vec!["channel.key.read".to_owned()];
-        let (token, expires_at) = codec
-            .issue_security_proof(&identity, "email", &scopes)
-            .expect("issue proof");
+        let (token, expires_at) = codec.issue_security_proof(&identity, "email", &scopes)?;
         assert!(expires_at > unix_now());
         assert_eq!(
-            codec
-                .verify_security_proof(
-                    &SecretString::from(token.clone()),
-                    &identity,
-                    "channel.key.read",
-                    &["email".to_owned()],
-                )
-                .expect("verify proof"),
+            codec.verify_security_proof(
+                &SecretString::from(token.clone()),
+                &identity,
+                "channel.key.read",
+                &["email".to_owned()],
+            )?,
             "email"
         );
         assert!(
@@ -523,15 +512,15 @@ mod tests {
                 )
                 .is_err()
         );
+        Ok(())
     }
 
     #[test]
-    fn dashboard_jwt_candidates_never_be_reclassified_as_opaque_credentials() {
+    fn dashboard_jwt_candidates_never_be_reclassified_as_opaque_credentials() -> TestResult {
         let codec = LegacyTokenCodec::new(SecretString::from(
             "0123456789abcdef-SESSION-SECRET!".to_owned(),
-        ))
-        .expect("codec");
-        let (token, _) = codec.issue(&identity()).expect("issue");
+        ))?;
+        let (token, _) = codec.issue(&identity())?;
         let mut tampered = token.clone();
         tampered.push('x');
         assert!(codec.is_dashboard_token_candidate(&SecretString::from(token)));
@@ -563,13 +552,10 @@ mod tests {
                 scopes: None,
             },
             &EncodingKey::from_secret(codec.access_key.expose_secret()),
-        )
-        .expect("expired fixture");
+        )?;
         assert!(codec.is_dashboard_token_candidate(&SecretString::from(expired)));
 
-        let encode_segment = |value: serde_json::Value| {
-            URL_SAFE_NO_PAD.encode(serde_json::to_vec(&value).expect("JSON fixture"))
-        };
+        let encode_segment = |value: serde_json::Value| URL_SAFE_NO_PAD.encode(value.to_string());
         let es512 = format!(
             "{}.{}.signature",
             encode_segment(serde_json::json!({"alg": "ES512", "typ": "JWT"})),
@@ -619,25 +605,20 @@ mod tests {
                 }))
             )))
         );
+        Ok(())
     }
 
     #[test]
-    fn refresh_derivation_is_deterministic_for_retry_recovery() {
+    fn refresh_derivation_is_deterministic_for_retry_recovery() -> TestResult {
         let codec = LegacyTokenCodec::new(SecretString::from(
             "0123456789abcdef-SESSION-SECRET!".to_owned(),
-        ))
-        .expect("codec");
+        ))?;
         let current = SecretString::from("current".to_owned());
         assert_eq!(
-            codec
-                .derive_next_refresh("sid", &current)
-                .expect("derive")
-                .expose_secret(),
-            codec
-                .derive_next_refresh("sid", &current)
-                .expect("derive")
-                .expose_secret()
+            codec.derive_next_refresh("sid", &current)?.expose_secret(),
+            codec.derive_next_refresh("sid", &current)?.expose_secret()
         );
+        Ok(())
     }
 
     #[test]
