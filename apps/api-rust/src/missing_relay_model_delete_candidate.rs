@@ -81,6 +81,8 @@ mod tests {
     use serde_json::{Value, json};
     use tower::ServiceExt;
 
+    type TestResult = Result<(), Box<dyn std::error::Error>>;
+
     use super::*;
     use crate::{
         migration_routes::missing_relay_models_billing::{ModelLookupRequest, ModelLookupService},
@@ -124,46 +126,40 @@ mod tests {
             ))
     }
 
-    async fn json_body(response: Response) -> Value {
-        serde_json::from_slice(
-            &axum::body::to_bytes(response.into_body(), usize::MAX)
-                .await
-                .expect("body is readable"),
-        )
-        .expect("body is JSON")
+    async fn response_json(response: Response) -> Result<Value, Box<dyn std::error::Error>> {
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await?;
+        serde_json::from_slice(&bytes).map_err(Into::into)
     }
 
     #[tokio::test]
-    async fn model_delete_returns_the_frozen_501_shape_after_authentication() {
+    async fn model_delete_returns_the_frozen_501_shape_after_authentication() -> TestResult {
         let response = app(Ok(()))
             .oneshot(
                 HttpRequest::delete("/v1/models/gpt-4o")
                     .header("authorization", "Bearer test-token")
-                    .body(Body::empty())
-                    .expect("request is valid"),
+                    .body(Body::empty())?,
             )
-            .await
-            .expect("router responds");
+            .await?;
 
         assert_eq!(response.status(), StatusCode::NOT_IMPLEMENTED);
         assert_eq!(
-            json_body(response).await,
+            response_json(response).await?,
             json!({"error":{"message":"API not implemented","type":"new_api_error","param":"","code":"api_not_implemented"}})
         );
+        Ok(())
     }
 
     #[tokio::test]
-    async fn model_delete_rejects_missing_auth_before_returning_the_frozen_shape() {
+    async fn model_delete_rejects_missing_auth_before_returning_the_frozen_shape() -> TestResult {
         let response = app(Err(ModelsErrorKind::MissingToken))
-            .oneshot(
-                HttpRequest::delete("/v1/models/gpt-4o")
-                    .body(Body::empty())
-                    .expect("request is valid"),
-            )
-            .await
-            .expect("router responds");
+            .oneshot(HttpRequest::delete("/v1/models/gpt-4o").body(Body::empty())?)
+            .await?;
 
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
-        assert_eq!(json_body(response).await["error"]["type"], "new_api_error");
+        assert_eq!(
+            response_json(response).await?["error"]["type"],
+            "new_api_error"
+        );
+        Ok(())
     }
 }

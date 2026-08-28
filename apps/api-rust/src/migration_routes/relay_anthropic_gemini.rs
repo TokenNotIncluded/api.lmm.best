@@ -649,6 +649,12 @@ fn token_from_request(request: &Request, protocol: RelayProtocol) -> Option<Stri
         .get(header::AUTHORIZATION)
         .and_then(|value| value.to_str().ok())
         .and_then(bearer_token);
+    let google = headers
+        .get("x-goog-api-key")
+        .and_then(|value| value.to_str().ok())
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned)
+        .or_else(|| query_value(request.uri().query(), "key").filter(|value| !value.is_empty()));
     match protocol {
         RelayProtocol::Anthropic => headers
             .get("x-api-key")
@@ -656,19 +662,8 @@ fn token_from_request(request: &Request, protocol: RelayProtocol) -> Option<Stri
             .filter(|value| !value.is_empty())
             .or(bearer)
             .map(str::to_owned),
-        RelayProtocol::Gemini => headers
-            .get("x-goog-api-key")
-            .and_then(|value| value.to_str().ok())
-            .filter(|value| !value.is_empty())
-            .map(str::to_owned)
-            .or_else(|| query_value(request.uri().query(), "key").filter(|value| !value.is_empty()))
-            .or_else(|| bearer.map(str::to_owned)),
-        RelayProtocol::OpenAi => headers
-            .get("x-goog-api-key")
-            .and_then(|value| value.to_str().ok())
-            .filter(|value| !value.is_empty())
-            .map(str::to_owned)
-            .or_else(|| query_value(request.uri().query(), "key").filter(|value| !value.is_empty()))
+        RelayProtocol::Gemini => google.or_else(|| bearer.map(str::to_owned)),
+        RelayProtocol::OpenAi => google
             .or_else(|| {
                 headers
                     .get("x-api-key")
@@ -725,25 +720,18 @@ fn openai_failure(error: &RelayFailure, request_id: &str) -> Response {
     let message = match error {
         RelayFailure::Unauthorized => "Invalid token",
         RelayFailure::ConcealedNotFound => "Not Found",
-        RelayFailure::NoChannel | RelayFailure::RouteUnavailable => {
-            "relay request could not be completed"
-        }
-        RelayFailure::Upstream | RelayFailure::Provider { .. } | RelayFailure::Sse(_) => {
-            "relay request could not be completed"
-        }
+        RelayFailure::NoChannel
+        | RelayFailure::RouteUnavailable
+        | RelayFailure::Upstream
+        | RelayFailure::Provider { .. }
+        | RelayFailure::Sse(_) => "relay request could not be completed",
     };
     let body = if matches!(error, RelayFailure::Unauthorized) {
         json!({"error":{"code":"","message":format!("{message} (request id: {request_id})"),"type":"new_api_error"}})
     } else {
         json!({"error":{"message":format!("{message} (request id: {request_id})"),"type":"new_api_error","param":"","code":""}})
     };
-    let mut response = (status, Json(body)).into_response();
-    response.headers_mut().insert(
-        header::CONTENT_TYPE,
-        HeaderValue::from_static("application/json; charset=utf-8"),
-    );
-    add_compat_headers(&mut response, 0, request_id);
-    response
+    error_response(status, body, request_id)
 }
 
 fn openai_not_found(request_id: &str, path: &str) -> Response {
@@ -1030,6 +1018,15 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use tower::ServiceExt;
 
+    type TestResult = Result<(), Box<dyn std::error::Error>>;
+
+    fn lock_unpoisoned<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+        match mutex.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        }
+    }
+
     #[derive(Default)]
     struct RecordingBackend {
         tokens: Mutex<Vec<String>>,
@@ -1040,7 +1037,7 @@ mod tests {
     #[async_trait]
     impl RelayBackend for RecordingBackend {
         async fn authenticate(&self, token: &str) -> Result<RelayIdentity, RelayFailure> {
-            self.tokens.lock().unwrap().push(token.to_owned());
+            lock_unpoisoned(&self.tokens).push(token.to_owned());
             if token == "invalid" {
                 Err(RelayFailure::ConcealedNotFound)
             } else {
@@ -1056,7 +1053,7 @@ mod tests {
             _protocol: RelayProtocol,
             model: &str,
         ) -> Result<RelayChannel, RelayFailure> {
-            self.selected_models.lock().unwrap().push(model.to_owned());
+            lock_unpoisoned(&self.selected_models).push(model.to_owned());
             Ok(RelayChannel {
                 id: 7,
                 upstream_model: model.to_owned(),
@@ -1068,10 +1065,7 @@ mod tests {
             _channel: &RelayChannel,
             request: UpstreamRequest,
         ) -> Result<UpstreamReply, RelayFailure> {
-            self.request_ids
-                .lock()
-                .unwrap()
-                .push(request.request_id.clone());
+            lock_unpoisoned(&self.request_ids).push(request.request_id.clone());
             Ok(UpstreamReply::Json(json!({
                 "request_id": request.request_id,
             })))
@@ -1086,28 +1080,27 @@ mod tests {
         }
     }
 
-    async fn response_body(response: axum::response::Response) -> String {
-        String::from_utf8(
-            to_bytes(response.into_body(), usize::MAX)
-                .await
-                .unwrap()
-                .to_vec(),
-        )
-        .unwrap()
+    async fn response_body(
+        response: axum::response::Response,
+    ) -> Result<String, Box<dyn std::error::Error>> {
+        let bytes = to_bytes(response.into_body(), usize::MAX).await?;
+        Ok(String::from_utf8(bytes.to_vec())?)
     }
 
-    fn request_with_context(uri: &str, body: &str) -> Request<axum::body::Body> {
+    fn request_with_context(
+        uri: &str,
+        body: &str,
+    ) -> Result<Request<axum::body::Body>, axum::http::Error> {
         let mut request = Request::builder()
             .method("POST")
             .uri(uri)
             .header(header::CONTENT_TYPE, "application/json")
-            .body(axum::body::Body::from(body.to_owned()))
-            .unwrap();
+            .body(axum::body::Body::from(body.to_owned()))?;
         request.extensions_mut().insert(RequestContext {
             request_id: "fixed-request-id".to_owned(),
             client_ip: None,
         });
-        request
+        Ok(request)
     }
 
     #[test]
@@ -1143,22 +1136,23 @@ mod tests {
     }
 
     #[test]
-    fn runtime_builder_replaces_the_default_registry() {
-        let registry = Arc::new(validated_current_registry().expect("current registry validates"));
+    fn runtime_builder_replaces_the_default_registry() -> TestResult {
+        let registry = Arc::new(validated_current_registry()?);
         let state = RelayHttpState::new(Arc::new(RecordingBackend::default()))
             .with_protocol_runtime(ProtocolRolloutControl::default(), registry.clone());
 
-        assert!(Arc::ptr_eq(
+        assert!(
             state
                 .validated_registry
                 .as_ref()
-                .expect("builder installs registry"),
-            &registry,
-        ));
+                .is_some_and(|installed| Arc::ptr_eq(installed, &registry))
+        );
+        Ok(())
     }
 
     #[tokio::test]
-    async fn missing_registry_fails_closed_after_authentication_before_channel_selection() {
+    async fn missing_registry_fails_closed_after_authentication_before_channel_selection()
+    -> TestResult {
         let backend = Arc::new(RecordingBackend::default());
         let state = RelayHttpState {
             backend: backend.clone(),
@@ -1166,26 +1160,24 @@ mod tests {
             validated_registry: None,
         };
         let mut request =
-            request_with_context("/v1/messages", r#"{"model":"claude-test","stream":false}"#);
-        request
-            .headers_mut()
-            .insert("x-api-key", "valid".parse().unwrap());
+            request_with_context("/v1/messages", r#"{"model":"claude-test","stream":false}"#)?;
+        request.headers_mut().insert("x-api-key", "valid".parse()?);
 
-        let response = router(state).oneshot(request).await.unwrap();
+        let response = router(state).oneshot(request).await?;
 
         assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
-        assert_eq!(backend.tokens.lock().unwrap().as_slice(), ["valid"]);
-        assert!(backend.selected_models.lock().unwrap().is_empty());
-        assert!(backend.request_ids.lock().unwrap().is_empty());
+        assert_eq!(lock_unpoisoned(&backend.tokens).as_slice(), ["valid"]);
+        assert!(lock_unpoisoned(&backend.selected_models).is_empty());
+        assert!(lock_unpoisoned(&backend.request_ids).is_empty());
+        Ok(())
     }
 
     #[test]
-    fn provider_credentials_should_override_bearer_in_go_order() {
+    fn provider_credentials_should_override_bearer_in_go_order() -> TestResult {
         let anthropic = Request::builder()
             .header(header::AUTHORIZATION, "Bearer bearer")
             .header("x-api-key", "anthropic")
-            .body(axum::body::Body::empty())
-            .unwrap();
+            .body(axum::body::Body::empty())?;
         assert_eq!(
             token_from_request(&anthropic, RelayProtocol::Anthropic).as_deref(),
             Some("anthropic")
@@ -1194,8 +1186,7 @@ mod tests {
         let gemini = Request::builder()
             .uri("/v1beta/models/gemini:generateContent?key=query")
             .header(header::AUTHORIZATION, "Bearer bearer")
-            .body(axum::body::Body::empty())
-            .unwrap();
+            .body(axum::body::Body::empty())?;
         assert_eq!(
             token_from_request(&gemini, RelayProtocol::Gemini).as_deref(),
             Some("query")
@@ -1205,8 +1196,7 @@ mod tests {
             .uri("/v1beta/models/gemini:generateContent?key=query")
             .header(header::AUTHORIZATION, "Bearer bearer")
             .header("x-goog-api-key", "google")
-            .body(axum::body::Body::empty())
-            .unwrap();
+            .body(axum::body::Body::empty())?;
         assert_eq!(
             token_from_request(&gemini_header, RelayProtocol::Gemini).as_deref(),
             Some("google")
@@ -1217,8 +1207,7 @@ mod tests {
             .header(header::AUTHORIZATION, "Bearer bearer")
             .header("x-api-key", "anthropic")
             .header("x-goog-api-key", "google")
-            .body(axum::body::Body::empty())
-            .unwrap();
+            .body(axum::body::Body::empty())?;
         assert_eq!(
             token_from_request(&openai_model_delete, RelayProtocol::OpenAi).as_deref(),
             Some("google")
@@ -1228,26 +1217,23 @@ mod tests {
             .uri("/v1beta/models/gemini:generateContent?key=")
             .header(header::AUTHORIZATION, "Bearer bearer")
             .header("x-goog-api-key", "")
-            .body(axum::body::Body::empty())
-            .unwrap();
+            .body(axum::body::Body::empty())?;
         assert_eq!(
             token_from_request(&empty_overrides, RelayProtocol::Gemini).as_deref(),
             Some("bearer")
         );
+        Ok(())
     }
 
     #[tokio::test]
-    async fn fixed_request_context_id_should_match_body_response_and_upstream() {
+    async fn fixed_request_context_id_should_match_body_response_and_upstream() -> TestResult {
         let backend = Arc::new(RecordingBackend::default());
         let mut request =
-            request_with_context("/v1/messages", r#"{"model":"claude-test","stream":false}"#);
-        request
-            .headers_mut()
-            .insert("x-api-key", "valid".parse().unwrap());
+            request_with_context("/v1/messages", r#"{"model":"claude-test","stream":false}"#)?;
+        request.headers_mut().insert("x-api-key", "valid".parse()?);
         let response = router(RelayHttpState::new(backend.clone()))
             .oneshot(request)
-            .await
-            .unwrap();
+            .await?;
 
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(
@@ -1255,54 +1241,52 @@ mod tests {
             "fixed-request-id"
         );
         assert_eq!(
-            response_body(response).await,
+            response_body(response).await?,
             r#"{"request_id":"fixed-request-id"}"#
         );
         assert_eq!(
-            backend.request_ids.lock().unwrap().as_slice(),
+            lock_unpoisoned(&backend.request_ids).as_slice(),
             ["fixed-request-id"]
         );
+        Ok(())
     }
 
-    #[tokio::test]
-    async fn anthropic_missing_and_invalid_credentials_should_use_go_concealed_not_found() {
+    async fn assert_concealed_credentials(
+        uri: &str,
+        body: &str,
+        header_name: &'static str,
+    ) -> TestResult {
         let backend = Arc::new(RecordingBackend::default());
         for credential in [None, Some("invalid")] {
-            let mut request = request_with_context("/v1/messages", r#"{"model":"claude-test"}"#);
+            let mut request = request_with_context(uri, body)?;
             if let Some(token) = credential {
-                request
-                    .headers_mut()
-                    .insert("x-api-key", token.parse().unwrap());
+                request.headers_mut().insert(header_name, token.parse()?);
             }
             let response = router(RelayHttpState::new(backend.clone()))
                 .oneshot(request)
-                .await
-                .unwrap();
+                .await?;
             assert_eq!(response.status(), StatusCode::NOT_FOUND);
-            assert_eq!(response_body(response).await, r#"{"message":"Not Found"}"#);
+            assert_eq!(response_body(response).await?, r#"{"message":"Not Found"}"#);
         }
+        Ok(())
     }
 
     #[tokio::test]
-    async fn gemini_missing_and_invalid_credentials_should_use_go_concealed_not_found() {
-        let backend = Arc::new(RecordingBackend::default());
-        for credential in [None, Some("invalid")] {
-            let mut request = request_with_context(
-                "/v1beta/models/gemini-test:generateContent",
-                r#"{"contents":[]}"#,
-            );
-            if let Some(token) = credential {
-                request
-                    .headers_mut()
-                    .insert("x-goog-api-key", token.parse().unwrap());
-            }
-            let response = router(RelayHttpState::new(backend.clone()))
-                .oneshot(request)
-                .await
-                .unwrap();
-            assert_eq!(response.status(), StatusCode::NOT_FOUND);
-            assert_eq!(response_body(response).await, r#"{"message":"Not Found"}"#);
-        }
+    async fn anthropic_missing_and_invalid_credentials_should_use_go_concealed_not_found()
+    -> TestResult {
+        assert_concealed_credentials("/v1/messages", r#"{"model":"claude-test"}"#, "x-api-key")
+            .await
+    }
+
+    #[tokio::test]
+    async fn gemini_missing_and_invalid_credentials_should_use_go_concealed_not_found() -> TestResult
+    {
+        assert_concealed_credentials(
+            "/v1beta/models/gemini-test:generateContent",
+            r#"{"contents":[]}"#,
+            "x-goog-api-key",
+        )
+        .await
     }
 
     #[test]
@@ -1354,7 +1338,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn native_sse_observation_preserves_raw_body_and_stream_metrics() {
+    async fn native_sse_observation_preserves_raw_body_and_stream_metrics() -> TestResult {
         let observer = ConversionObserver::default();
         let labels =
             relay_observation_labels(RelayProtocol::Anthropic, true, ConversionResult::Success);
@@ -1364,7 +1348,7 @@ mod tests {
             observer.clone(),
             labels,
         );
-        let bytes = to_bytes(body, usize::MAX).await.unwrap();
+        let bytes = to_bytes(body, usize::MAX).await?;
         assert_eq!(bytes.as_ref(), raw);
 
         let snapshot = observer.snapshot();
@@ -1383,10 +1367,11 @@ mod tests {
                 .iter()
                 .any(|sample| sample.metric == MetricKind::StreamClientAbortTotal)
         );
+        Ok(())
     }
 
     #[tokio::test]
-    async fn buffered_replies_record_wire_output_bytes() {
+    async fn buffered_replies_record_wire_output_bytes() -> TestResult {
         let json_observer = ConversionObserver::default();
         let json_body = json!({"ok":true});
         let json_bytes = json_body.to_string().len() as u64;
@@ -1398,9 +1383,7 @@ mod tests {
             &json_observer,
         );
         assert_eq!(json_response.status(), StatusCode::OK);
-        let json_wire = to_bytes(json_response.into_body(), usize::MAX)
-            .await
-            .unwrap();
+        let json_wire = to_bytes(json_response.into_body(), usize::MAX).await?;
         assert_eq!(json_wire.len() as u64, json_bytes);
         assert!(json_observer.snapshot().samples.iter().any(|sample| {
             sample.metric == MetricKind::ConversionOutputBytes && sample.value == json_bytes
@@ -1419,18 +1402,17 @@ mod tests {
             &sse_observer,
         );
         assert_eq!(sse_response.status(), StatusCode::OK);
-        let sse_wire = to_bytes(sse_response.into_body(), usize::MAX)
-            .await
-            .unwrap();
+        let sse_wire = to_bytes(sse_response.into_body(), usize::MAX).await?;
         assert_eq!(sse_wire.len(), sse_bytes.len());
         assert!(sse_observer.snapshot().samples.iter().any(|sample| {
             sample.metric == MetricKind::ConversionOutputBytes
                 && sample.value == sse_bytes.len() as u64
         }));
+        Ok(())
     }
 
     #[test]
-    fn query_credentials_should_use_form_urlencoding_and_first_value() {
+    fn query_credentials_should_use_form_urlencoding_and_first_value() -> TestResult {
         assert_eq!(
             query_value(Some("key=encoded%2Ftoken%2Bvalue&key=second"), "key"),
             Some("encoded/token+value".to_owned())
@@ -1443,30 +1425,30 @@ mod tests {
 
         let request = Request::builder()
             .uri("/v1beta/models/gemini:generateContent?key=encoded%2Ftoken%2Bvalue&key=second")
-            .body(axum::body::Body::empty())
-            .unwrap();
+            .body(axum::body::Body::empty())?;
         assert_eq!(
             token_from_request(&request, RelayProtocol::Gemini).as_deref(),
             Some("encoded/token+value")
         );
+        Ok(())
     }
 
     #[test]
-    fn gemini_header_should_override_decoded_query_and_bearer() {
+    fn gemini_header_should_override_decoded_query_and_bearer() -> TestResult {
         let request = Request::builder()
             .uri("/v1beta/models/gemini:generateContent?key=query")
             .header(header::AUTHORIZATION, "Bearer bearer")
             .header("x-goog-api-key", "header")
-            .body(axum::body::Body::empty())
-            .unwrap();
+            .body(axum::body::Body::empty())?;
         assert_eq!(
             token_from_request(&request, RelayProtocol::Gemini).as_deref(),
             Some("header")
         );
+        Ok(())
     }
 
     #[tokio::test]
-    async fn provider_failures_should_preserve_body_status_and_request_ids() {
+    async fn provider_failures_should_preserve_body_status_and_request_ids() -> TestResult {
         let body = json!({
             "error": {
                 "code": "provider_code",
@@ -1490,9 +1472,10 @@ mod tests {
                 response.headers()["x-oneapi-request-id"],
                 "provider-request-id"
             );
-            assert_eq!(response_body(response).await, body.to_string());
+            assert_eq!(response_body(response).await?, body.to_string());
             assert_eq!(outcome_for(&error), RelayOutcome::UpstreamFailure);
         }
+        Ok(())
     }
 
     #[test]
@@ -1509,22 +1492,19 @@ mod tests {
     }
 
     #[test]
-    fn gemini_stream_detection_should_accept_native_action_or_alt_sse() {
-        let action: Uri = "/v1beta/models/gemini:streamGenerateContent"
-            .parse()
-            .unwrap();
-        let query: Uri = "/v1beta/models/gemini:generateContent?alt=sse"
-            .parse()
-            .unwrap();
-        let ordinary: Uri = "/v1beta/models/gemini:generateContent".parse().unwrap();
+    fn gemini_stream_detection_should_accept_native_action_or_alt_sse() -> TestResult {
+        let action: Uri = "/v1beta/models/gemini:streamGenerateContent".parse()?;
+        let query: Uri = "/v1beta/models/gemini:generateContent?alt=sse".parse()?;
+        let ordinary: Uri = "/v1beta/models/gemini:generateContent".parse()?;
 
         assert!(gemini_is_streaming(&action));
         assert!(gemini_is_streaming(&query));
         assert!(!gemini_is_streaming(&ordinary));
+        Ok(())
     }
 
     #[tokio::test]
-    async fn gemini_unauthorized_should_use_openai_invalid_token_envelope() {
+    async fn gemini_unauthorized_should_use_openai_invalid_token_envelope() -> TestResult {
         let response = failure(
             super::RelayProtocol::Gemini,
             &RelayFailure::Unauthorized,
@@ -1538,13 +1518,14 @@ mod tests {
         );
         assert_eq!(response.headers()["x-request-id"], "request-123");
         assert_eq!(
-            response_body(response).await,
+            response_body(response).await?,
             r#"{"error":{"code":"","message":"Invalid token (request id: request-123)","type":"new_api_error"}}"#
         );
+        Ok(())
     }
 
     #[tokio::test]
-    async fn openai_unauthorized_should_omit_param_from_invalid_token_envelope() {
+    async fn openai_unauthorized_should_omit_param_from_invalid_token_envelope() -> TestResult {
         let response = openai_failure(&RelayFailure::Unauthorized, "request-456");
 
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
@@ -1554,8 +1535,9 @@ mod tests {
         );
         assert_eq!(response.headers()["x-request-id"], "request-456");
         assert_eq!(
-            response_body(response).await,
+            response_body(response).await?,
             r#"{"error":{"code":"","message":"Invalid token (request id: request-456)","type":"new_api_error"}}"#
         );
+        Ok(())
     }
 }

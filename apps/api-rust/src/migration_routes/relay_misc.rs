@@ -53,11 +53,15 @@ pub enum RelayBodyEncoding {
     Zstd,
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq, thiserror::Error)]
 enum DecodeBodyError {
+    #[error("invalid body encoding")]
     Invalid,
+    #[error("decoded body exceeds the configured limit")]
     TooLarge,
+    #[error("brotli decode failed: {0}")]
     Brotli(String),
+    #[error("zstd decode failed: {0}")]
     Zstd(String),
 }
 
@@ -489,7 +493,7 @@ fn go_zstd_decode_error(input: &[u8], rust_error: &str) -> String {
             return "unexpected EOF".to_owned();
         }
 
-        let magic = u32::from_le_bytes(remaining[..4].try_into().expect("four-byte prefix"));
+        let magic = u32::from_le_bytes([remaining[0], remaining[1], remaining[2], remaining[3]]);
         if magic == 0xfd2f_b528 {
             break;
         }
@@ -497,11 +501,9 @@ fn go_zstd_decode_error(input: &[u8], rust_error: &str) -> String {
             if remaining.len() < 8 {
                 return "unexpected EOF".to_owned();
             }
-            let payload_len = u32::from_le_bytes(
-                remaining[4..8]
-                    .try_into()
-                    .expect("four-byte skippable-frame length"),
-            ) as usize;
+            let payload_len =
+                u32::from_le_bytes([remaining[4], remaining[5], remaining[6], remaining[7]])
+                    as usize;
             let Some(frame_len) = 8_usize.checked_add(payload_len) else {
                 return "unexpected EOF".to_owned();
             };
@@ -896,6 +898,8 @@ mod tests {
     };
     use tower::ServiceExt;
 
+    type TestResult = Result<(), Box<dyn std::error::Error>>;
+
     #[cfg(test)]
     use axum::http::header;
 
@@ -907,19 +911,25 @@ mod tests {
         body: Vec<u8>,
     }
 
+    impl TestService {
+        fn allowed() -> RelayAuth {
+            RelayAuth::Authorized
+        }
+    }
+
     #[async_trait]
     impl RelayMiscService for TestService {
         async fn system_performance(&self, _: &Request) -> RelayAuth {
-            RelayAuth::Authorized
+            Self::allowed()
         }
         async fn authorize(&self, _: &Request) -> RelayAuth {
             self.auth.clone()
         }
         async fn model_rate_limit(&self, _: &Request) -> RelayAuth {
-            RelayAuth::Authorized
+            Self::allowed()
         }
         async fn distribute(&self, _: &RelayRequestContext, _: &Request) -> RelayAuth {
-            RelayAuth::Authorized
+            Self::allowed()
         }
         async fn provider_headers(
             &self,
@@ -966,28 +976,28 @@ mod tests {
     }
 
     #[test]
-    fn request_decoder_supports_legacy_encodings_and_rejects_invalid_input() {
+    fn request_decoder_supports_legacy_encodings_and_rejects_invalid_input() -> TestResult {
         let plain = Bytes::from_static(br#"{"model":"fixture"}"#);
 
         let mut gzip = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
-        gzip.write_all(&plain).unwrap();
-        let gzip = gzip.finish().unwrap();
+        gzip.write_all(&plain)?;
+        let gzip = gzip.finish()?;
         assert_eq!(
-            decode_body_bytes(RelayBodyEncoding::Gzip, gzip.into()).unwrap(),
+            decode_body_bytes(RelayBodyEncoding::Gzip, gzip.into())?,
             plain
         );
 
         let mut brotli = brotli::CompressorWriter::new(Vec::new(), 4096, 5, 22);
-        brotli.write_all(&plain).unwrap();
+        brotli.write_all(&plain)?;
         let brotli = brotli.into_inner();
         assert_eq!(
-            decode_body_bytes(RelayBodyEncoding::Brotli, brotli.into()).unwrap(),
+            decode_body_bytes(RelayBodyEncoding::Brotli, brotli.into())?,
             plain
         );
 
-        let zstd = zstd::stream::encode_all(plain.as_ref(), 0).unwrap();
+        let zstd = zstd::stream::encode_all(plain.as_ref(), 0)?;
         assert_eq!(
-            decode_body_bytes(RelayBodyEncoding::Zstd, zstd.into()).unwrap(),
+            decode_body_bytes(RelayBodyEncoding::Zstd, zstd.into())?,
             plain
         );
         assert!(
@@ -1009,10 +1019,11 @@ mod tests {
                 "invalid input: magic number mismatch".to_owned()
             ))
         );
+        Ok(())
     }
 
     #[tokio::test]
-    async fn malformed_lazy_decoders_keep_current_go_distributor_error_shape() {
+    async fn malformed_lazy_decoders_keep_current_go_distributor_error_shape() -> TestResult {
         for (encoding, message) in [
             ("br", "brotli: PADDING_2"),
             ("zstd", "invalid input: magic number mismatch"),
@@ -1023,28 +1034,25 @@ mod tests {
                         .header(header::CONTENT_TYPE, "application/json")
                         .header(header::CONTENT_ENCODING, encoding)
                         .header("x-oneapi-request-id", "fixture-request")
-                        .body(Body::from("not-a-valid-compressed-stream"))
-                        .unwrap(),
+                        .body(Body::from("not-a-valid-compressed-stream"))?,
                 )
-                .await
-                .unwrap();
+                .await?;
             assert_eq!(response.status(), StatusCode::BAD_REQUEST);
             assert_eq!(
                 response.headers()[header::CONTENT_TYPE],
                 "application/json; charset=utf-8"
             );
-            let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-                .await
-                .unwrap();
+            let body = axum::body::to_bytes(response.into_body(), usize::MAX).await?;
             let expected = format!(
                 r#"{{"error":{{"code":"","message":"Invalid request: Invalid request: {message} (request id: fixture-request)","type":"new_api_error"}}}}"#
             );
             assert_eq!(body.as_ref(), expected.as_bytes(),);
         }
+        Ok(())
     }
 
     #[tokio::test]
-    async fn malformed_lazy_decoders_run_after_authentication_like_current_go() {
+    async fn malformed_lazy_decoders_run_after_authentication_like_current_go() -> TestResult {
         for encoding in ["br", "zstd"] {
             let response = app(
                 RelayAuth::Rejected {
@@ -1059,13 +1067,12 @@ mod tests {
                 HttpRequest::post("/v1/embeddings")
                     .header(header::CONTENT_TYPE, "application/json")
                     .header(header::CONTENT_ENCODING, encoding)
-                    .body(Body::from("not-a-valid-compressed-stream"))
-                    .unwrap(),
+                    .body(Body::from("not-a-valid-compressed-stream"))?,
             )
-            .await
-            .unwrap();
+            .await?;
             assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
         }
+        Ok(())
     }
 
     #[derive(Clone)]
@@ -1111,12 +1118,16 @@ mod tests {
             context: &RelayRequestContext,
             request: &mut Request,
         ) -> RelayAuth {
-            let auth = request
+            let Some(auth) = request
                 .extensions()
                 .get::<AuthMarker>()
-                .expect("authenticated request marker")
-                .0
-                .clone();
+                .map(|marker| marker.0.clone())
+            else {
+                return RelayAuth::Rejected {
+                    status: StatusCode::INTERNAL_SERVER_ERROR,
+                    message: "authenticated request marker is unavailable".to_owned(),
+                };
+            };
             request
                 .extensions_mut()
                 .insert(ChannelMarker(format!("{auth}:{}", context.path)));
@@ -1128,74 +1139,66 @@ mod tests {
         }
 
         async fn execute_prepared(&self, _: &RelayRequestContext, request: Request) -> Response {
-            Response::new(Body::from(
-                request
-                    .extensions()
-                    .get::<ChannelMarker>()
-                    .expect("request-local selected channel")
-                    .0
-                    .clone(),
-            ))
+            let Some(channel) = request
+                .extensions()
+                .get::<ChannelMarker>()
+                .map(|marker| marker.0.clone())
+            else {
+                return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+            };
+            Response::new(Body::from(channel))
         }
     }
 
     #[tokio::test]
-    async fn mutable_hooks_keep_authenticated_and_selected_state_request_local() {
+    async fn mutable_hooks_keep_authenticated_and_selected_state_request_local() -> TestResult {
         let app = routes(RelayMiscHttpState::new(Arc::new(RequestLocalStateService)));
         let request = |marker: &'static str| {
             HttpRequest::post("/v1/embeddings")
                 .header("x-auth-marker", marker)
                 .header(header::CONTENT_TYPE, "application/json")
                 .body(Body::from(r#"{"model":"fixture"}"#))
-                .unwrap()
         };
 
+        let first_request = request("principal-a")?;
+        let second_request = request("principal-b")?;
         let (first, second) = tokio::join!(
-            app.clone().oneshot(request("principal-a")),
-            app.oneshot(request("principal-b")),
+            app.clone().oneshot(first_request),
+            app.oneshot(second_request),
         );
-        let first = first.unwrap();
-        let second = second.unwrap();
+        let first = first?;
+        let second = second?;
         assert_eq!(
-            axum::body::to_bytes(first.into_body(), usize::MAX)
-                .await
-                .unwrap(),
+            axum::body::to_bytes(first.into_body(), usize::MAX).await?,
             "principal-a:/v1/embeddings"
         );
         assert_eq!(
-            axum::body::to_bytes(second.into_body(), usize::MAX)
-                .await
-                .unwrap(),
+            axum::body::to_bytes(second.into_body(), usize::MAX).await?,
             "principal-b:/v1/embeddings"
         );
+        Ok(())
     }
 
     #[tokio::test]
-    async fn unsupported_routes_keep_legacy_501_json_after_authentication() {
+    async fn unsupported_routes_keep_legacy_501_json_after_authentication() -> TestResult {
         let response = app(RelayAuth::Authorized, StatusCode::OK, vec![], vec![])
-            .oneshot(
-                HttpRequest::delete("/v1/files/file-1")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
+            .oneshot(HttpRequest::delete("/v1/files/file-1").body(Body::empty())?)
+            .await?;
         assert_eq!(response.status(), StatusCode::NOT_IMPLEMENTED);
         assert_eq!(
             response.headers()[header::CONTENT_TYPE],
             "application/json; charset=utf-8"
         );
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-            .await
-            .unwrap();
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await?;
         assert_eq!(
             body,
             r#"{"error":{"message":"API not implemented","type":"new_api_error","param":"","code":"api_not_implemented"}}"#
         );
+        Ok(())
     }
 
     #[tokio::test]
-    async fn performance_errors_keep_current_go_param_and_field_order() {
+    async fn performance_errors_keep_current_go_param_and_field_order() -> TestResult {
         let response = rejected(RelayAuth::RejectedOpenAiWithParam {
             status: StatusCode::SERVICE_UNAVAILABLE,
             message: "system memory overloaded (current: 91.2%, threshold: 90%)".to_owned(),
@@ -1207,15 +1210,14 @@ mod tests {
             "application/json; charset=utf-8"
         );
         assert_eq!(
-            axum::body::to_bytes(response.into_body(), usize::MAX)
-                .await
-                .unwrap(),
+            axum::body::to_bytes(response.into_body(), usize::MAX).await?,
             r#"{"error":{"message":"system memory overloaded (current: 91.2%, threshold: 90%)","type":"new_api_error","param":"","code":"system_memory_overloaded"}}"#
         );
+        Ok(())
     }
 
     #[tokio::test]
-    async fn authorization_failure_prevents_an_upstream_call() {
+    async fn authorization_failure_prevents_an_upstream_call() -> TestResult {
         let response = app(
             RelayAuth::Rejected {
                 status: StatusCode::UNAUTHORIZED,
@@ -1225,22 +1227,16 @@ mod tests {
             vec![],
             b"must not be forwarded".to_vec(),
         )
-        .oneshot(HttpRequest::post("/v1/rerank").body(Body::empty()).unwrap())
-        .await
-        .unwrap();
+        .oneshot(HttpRequest::post("/v1/rerank").body(Body::empty())?)
+        .await?;
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-            .await
-            .unwrap();
-        assert!(
-            std::str::from_utf8(&body)
-                .unwrap()
-                .contains("Invalid token")
-        );
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await?;
+        assert!(std::str::from_utf8(&body)?.contains("Invalid token"));
+        Ok(())
     }
 
     #[tokio::test]
-    async fn upstream_error_binary_body_and_headers_are_untouched() {
+    async fn upstream_error_binary_body_and_headers_are_untouched() -> TestResult {
         let response = app(
             RelayAuth::Authorized,
             StatusCode::BAD_GATEWAY,
@@ -1250,22 +1246,16 @@ mod tests {
             ],
             vec![0, 255, 7],
         )
-        .oneshot(
-            HttpRequest::post("/v1/embeddings")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
+        .oneshot(HttpRequest::post("/v1/embeddings").body(Body::empty())?)
+        .await?;
         assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
         assert_eq!(response.headers()[header::CONTENT_TYPE], "audio/mpeg");
         assert_eq!(response.headers()["x-upstream-request-id"], "up-1");
         assert_eq!(
-            axum::body::to_bytes(response.into_body(), usize::MAX)
-                .await
-                .unwrap(),
+            axum::body::to_bytes(response.into_body(), usize::MAX).await?,
             vec![0, 255, 7]
         );
+        Ok(())
     }
 
     #[test]
@@ -1373,11 +1363,9 @@ mod tests {
         }
 
         async fn relay(&self, _: RelayProtocol, request: Request) -> Response {
-            let context = request
-                .extensions()
-                .get::<RelayRequestContext>()
-                .expect("relay context")
-                .clone();
+            let Some(context) = request.extensions().get::<RelayRequestContext>().cloned() else {
+                return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+            };
             let (parts, body) = request.into_parts();
             let body = match to_bytes(body, MAX_RELAY_BODY_BYTES).await {
                 Ok(body) => body,
@@ -1412,9 +1400,8 @@ mod tests {
     /// provider. It is ignored so ordinary unit tests never perform network I/O.
     #[tokio::test]
     #[ignore = "requires the differential runner's loopback provider"]
-    async fn loopback_provider_contract() {
-        let base_url = std::env::var("LMM_RELAY_MISC_PROVIDER_URL")
-            .expect("LMM_RELAY_MISC_PROVIDER_URL is required");
+    async fn loopback_provider_contract() -> TestResult {
+        let base_url = std::env::var("LMM_RELAY_MISC_PROVIDER_URL")?;
         assert!(base_url.starts_with("http://127.0.0.1:"));
         let service = Arc::new(LoopbackService {
             base_url,
@@ -1454,11 +1441,9 @@ mod tests {
                     HttpRequest::post(path)
                         .header(header::AUTHORIZATION, "Bearer caller-secret")
                         .header(header::CONTENT_TYPE, "application/json")
-                        .body(Body::from(body))
-                        .unwrap(),
+                        .body(Body::from(body))?,
                 )
-                .await
-                .unwrap();
+                .await?;
             assert_eq!(response.status(), expected_status, "{path}");
             assert_eq!(
                 response
@@ -1468,10 +1453,9 @@ mod tests {
                 expected_content_type,
                 "{path}",
             );
-            let _body = to_bytes(response.into_body(), MAX_RELAY_BODY_BYTES)
-                .await
-                .unwrap();
+            let _body = to_bytes(response.into_body(), MAX_RELAY_BODY_BYTES).await?;
         }
         assert_eq!(service.accounted.load(Ordering::SeqCst), cases.len());
+        Ok(())
     }
 }

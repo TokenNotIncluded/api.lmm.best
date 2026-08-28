@@ -1724,6 +1724,15 @@ mod tests {
 
     use super::*;
 
+    type TestResult = Result<(), Box<dyn std::error::Error>>;
+
+    fn lock_unpoisoned<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+        match mutex.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        }
+    }
+
     struct StubService;
 
     #[async_trait]
@@ -1791,23 +1800,21 @@ mod tests {
     #[async_trait]
     impl ModelsService for CaptureService {
         async fn list(&self, request: ModelsRequest) -> Result<Vec<ModelView>, ModelsError> {
-            self.0.lock().expect("capture lock").push(request);
+            lock_unpoisoned(&self.0).push(request);
             Ok(vec![ModelView::new("gpt-4o", "openai")])
         }
     }
 
     #[tokio::test]
-    async fn matches_frozen_legacy_success_contract() {
+    async fn matches_frozen_legacy_success_contract() -> TestResult {
         let response = models_router(ModelsHttpState::new(Arc::new(StubService), "v0.0.0"))
             .oneshot(
                 Request::builder()
                     .uri("/v1/models")
                     .header(header::AUTHORIZATION, "Bearer sk-oraclemodelstoken")
-                    .body(Body::empty())
-                    .expect("request"),
+                    .body(Body::empty())?,
             )
-            .await
-            .expect("response");
+            .await?;
 
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(
@@ -1816,12 +1823,8 @@ mod tests {
         );
         assert_eq!(response.headers()["x-new-api-version"], "v0.0.0");
         assert!(response.headers().contains_key("x-oneapi-request-id"));
-        let body: Value = serde_json::from_slice(
-            &to_bytes(response.into_body(), usize::MAX)
-                .await
-                .expect("body"),
-        )
-        .expect("json");
+        let body: Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await?)?;
         assert_eq!(
             body,
             json!({
@@ -1833,6 +1836,7 @@ mod tests {
                 "success":true
             })
         );
+        Ok(())
     }
 
     #[test]
@@ -1878,41 +1882,33 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn gemini_credentials_prefer_header_query_then_bearer() {
-        let captured = Arc::new(Mutex::new(Vec::new()));
-        let router = models_router(ModelsHttpState::new(
-            Arc::new(CaptureService(captured.clone())),
-            "v0.0.0",
-        ));
+    async fn gemini_credentials_prefer_header_query_then_bearer() -> TestResult {
+        let (router, captured) = capture_router();
 
         for request in [
             Request::builder()
                 .uri("/v1beta/models?key=query-token")
                 .header("x-goog-api-key", "header-token")
                 .header(header::AUTHORIZATION, "Bearer plainbearer")
-                .body(Body::empty())
-                .expect("header priority request"),
+                .body(Body::empty())?,
             Request::builder()
                 .uri("/v1beta/models?key=query-token")
                 .header(header::AUTHORIZATION, "Bearer plainbearer")
-                .body(Body::empty())
-                .expect("query priority request"),
+                .body(Body::empty())?,
             Request::builder()
                 .uri("/v1beta/models?key=query-token")
                 .header("x-goog-api-key", "")
                 .header(header::AUTHORIZATION, "Bearer plainbearer")
-                .body(Body::empty())
-                .expect("empty header request"),
+                .body(Body::empty())?,
             Request::builder()
                 .uri("/v1beta/models?key=&key=second-token")
                 .header(header::AUTHORIZATION, "Bearer plainbearer")
-                .body(Body::empty())
-                .expect("empty query request"),
+                .body(Body::empty())?,
         ] {
-            router.clone().oneshot(request).await.expect("response");
+            router.clone().oneshot(request).await?;
         }
 
-        let requests = captured.lock().expect("capture lock");
+        let requests = lock_unpoisoned(&captured);
         assert_eq!(requests[0].gemini_key.as_deref(), Some("header-token"));
         assert_eq!(requests[1].gemini_key.as_deref(), Some("query-token"));
         assert_eq!(requests[2].gemini_key.as_deref(), Some("query-token"));
@@ -1933,10 +1929,12 @@ mod tests {
             legacy_token_key(&anthropic).as_deref(),
             Some("anthropictoken")
         );
+        Ok(())
     }
 
     #[tokio::test]
-    async fn dispatches_anthropic_and_gemini_list_envelopes_from_legacy_credentials() {
+    async fn dispatches_anthropic_and_gemini_list_envelopes_from_legacy_credentials() -> TestResult
+    {
         let router = models_router(ModelsHttpState::new(Arc::new(EnvelopeService), "v0.0.0"));
         let anthropic = router
             .clone()
@@ -1945,13 +1943,11 @@ mod tests {
                     .uri("/v1/models")
                     .header("x-api-key", "sk-oraclemodelstoken")
                     .header("anthropic-version", "2023-06-01")
-                    .body(Body::empty())
-                    .expect("anthropic request"),
+                    .body(Body::empty())?,
             )
-            .await
-            .expect("anthropic response");
+            .await?;
         assert_eq!(
-            json_body(anthropic).await,
+            json_body(anthropic).await?,
             json!({
                 "data":[{"id":"gpt-4o","created_at":"2021-07-20T10:40:00Z","display_name":"gpt-4o","type":"model"}],
                 "first_id":"gpt-4o", "has_more":false, "last_id":"gpt-4o"
@@ -1961,24 +1957,19 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .uri("/v1beta/models?key=sk-oraclemodelstoken")
-                    .body(Body::empty())
-                    .expect("gemini request"),
+                    .body(Body::empty())?,
             )
-            .await
-            .expect("gemini response");
+            .await?;
         assert_eq!(
-            json_body(gemini).await,
+            json_body(gemini).await?,
             json!({"models":[{"name":"gpt-4o","displayName":"gpt-4o","baseModelId":null,"description":null,"inputTokenLimit":null,"maxTemperature":null,"outputTokenLimit":null,"supportedGenerationMethods":null,"temperature":null,"thinking":null,"topK":null,"topP":null,"version":null}],"nextPageToken":null})
         );
+        Ok(())
     }
 
     #[tokio::test]
-    async fn credential_aliases_match_legacy_tokenauth_routing() {
-        let captured = Arc::new(Mutex::new(Vec::new()));
-        let router = models_router(ModelsHttpState::new(
-            Arc::new(CaptureService(captured.clone())),
-            "v0.0.0",
-        ));
+    async fn credential_aliases_match_legacy_tokenauth_routing() -> TestResult {
+        let (router, captured) = capture_router();
 
         let bare_google = router
             .clone()
@@ -1986,13 +1977,11 @@ mod tests {
                 Request::builder()
                     .uri("/v1/models?key=sk-google-is-not-tokenauth-here")
                     .header(header::AUTHORIZATION, "Bearer sk-oraclemodelstoken")
-                    .body(Body::empty())
-                    .expect("bare google request"),
+                    .body(Body::empty())?,
             )
-            .await
-            .expect("bare google response");
+            .await?;
         assert_eq!(
-            json_body(bare_google).await,
+            json_body(bare_google).await?,
             json!({"error":{"message":"The model '' does not exist","type":"invalid_request_error","param":"model","code":"model_not_found"}})
         );
 
@@ -2003,11 +1992,9 @@ mod tests {
                     .uri("/v1beta/models?key=sk-gemini-token")
                     .header("x-api-key", "sk-must-be-ignored")
                     .header(header::AUTHORIZATION, "Bearer sk-also-ignored")
-                    .body(Body::empty())
-                    .expect("gemini request"),
+                    .body(Body::empty())?,
             )
-            .await
-            .expect("gemini response");
+            .await?;
         assert_eq!(gemini.status(), StatusCode::OK);
 
         let gemini_openai = router
@@ -2016,17 +2003,15 @@ mod tests {
                     .uri("/v1beta/openai/models")
                     .header("x-goog-api-key", "sk-google-openai-token")
                     .header("x-api-key", "sk-must-be-ignored")
-                    .body(Body::empty())
-                    .expect("gemini OpenAI request"),
+                    .body(Body::empty())?,
             )
-            .await
-            .expect("gemini OpenAI response");
+            .await?;
         assert_eq!(
-            json_body(gemini_openai).await,
+            json_body(gemini_openai).await?,
             json!({"data":[{"id":"gpt-4o","object":"model","created":1626777600,"owned_by":"openai","supported_endpoint_types":[]}],"object":"list","success":true})
         );
 
-        let requests = captured.lock().expect("capture lock");
+        let requests = lock_unpoisoned(&captured);
         assert_eq!(requests.len(), 3);
         assert_eq!(
             requests[0].authorization.as_deref(),
@@ -2044,16 +2029,18 @@ mod tests {
             requests[2].gemini_key,
             Some("sk-google-openai-token".to_owned())
         );
+        Ok(())
     }
 
     #[tokio::test]
-    async fn preserves_legacy_anthropic_empty_models_panic_envelope() {
+    async fn preserves_legacy_anthropic_empty_models_panic_envelope() -> TestResult {
         let response = success_response(Vec::new(), ModelsFormat::Anthropic);
         assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
         assert_eq!(
-            json_body(response).await,
+            json_body(response).await?,
             json!({"error":{"message":"Panic detected, error: runtime error: index out of range [0] with length 0. Please submit a issue here: https://github.com/Calcium-Ion/new-api","type":"new_api_panic"}})
         );
+        Ok(())
     }
 
     #[test]
@@ -2158,29 +2145,28 @@ mod tests {
     }
 
     #[test]
-    fn parses_legacy_group_special_usable_group_setting() {
+    fn parses_legacy_group_special_usable_group_setting() -> TestResult {
         let special = group_special_groups_from_setting(Some(
             r#"{"group_special_usable_group":{"default":{"+:vip":"VIP","-:unavailable":""}}}"#
                 .to_owned(),
         ))
-        .expect("group special setting");
+        .ok_or_else(|| std::io::Error::other("group special setting is unavailable"))?;
         assert_eq!(special["default"]["+:vip"], "VIP");
         assert_eq!(special["default"]["-:unavailable"], "");
+        Ok(())
     }
 
     #[test]
-    fn cidr_and_exact_ip_limits_are_enforced() {
-        assert!(ip_is_allowed("10.2.3.4".parse().expect("ip"), "10.0.0.0/8"));
-        assert!(ip_is_allowed("127.0.0.1".parse().expect("ip"), "127.0.0.1"));
-        assert!(!ip_is_allowed(
-            "192.0.2.1".parse().expect("ip"),
-            "10.0.0.0/8"
-        ));
-        assert!(ip_is_allowed("192.0.2.1".parse().expect("ip"), ""));
+    fn cidr_and_exact_ip_limits_are_enforced() -> TestResult {
+        assert!(ip_is_allowed("10.2.3.4".parse()?, "10.0.0.0/8"));
+        assert!(ip_is_allowed("127.0.0.1".parse()?, "127.0.0.1"));
+        assert!(!ip_is_allowed("192.0.2.1".parse()?, "10.0.0.0/8"));
+        assert!(ip_is_allowed("192.0.2.1".parse()?, ""));
+        Ok(())
     }
 
     #[tokio::test]
-    async fn emits_legacy_error_envelope_and_statuses() {
+    async fn emits_legacy_error_envelope_and_statuses() -> TestResult {
         for (kind, expected) in [
             (ModelsErrorKind::MissingToken, StatusCode::UNAUTHORIZED),
             (ModelsErrorKind::InvalidToken, StatusCode::UNAUTHORIZED),
@@ -2191,16 +2177,10 @@ mod tests {
         ] {
             let response =
                 models_router(ModelsHttpState::new(Arc::new(ErrorService(kind)), "v0.0.0"))
-                    .oneshot(
-                        Request::builder()
-                            .uri("/v1/models")
-                            .body(Body::empty())
-                            .expect("request"),
-                    )
-                    .await
-                    .expect("response");
+                    .oneshot(Request::builder().uri("/v1/models").body(Body::empty())?)
+                    .await?;
             assert_eq!(response.status(), expected);
-            let body = json_body(response).await;
+            let body = json_body(response).await?;
             if kind == ModelsErrorKind::DiscoveryHidden {
                 assert_eq!(body, json!({"message":"Not Found"}));
             } else {
@@ -2223,23 +2203,18 @@ mod tests {
                 }));
             }
         }
+        Ok(())
     }
 
     #[tokio::test]
-    async fn frozen_5418ce6_mode_keeps_tokenauth_separate_from_current_policy() {
+    async fn frozen_5418ce6_mode_keeps_tokenauth_separate_from_current_policy() -> TestResult {
         let frozen = models_router(ModelsHttpState::new(
             Arc::new(ListenerModeService),
             "v0.0.0",
         ));
         let frozen_response = frozen
-            .oneshot(
-                Request::builder()
-                    .uri("/v1/models")
-                    .body(Body::empty())
-                    .expect("request"),
-            )
-            .await
-            .expect("response");
+            .oneshot(Request::builder().uri("/v1/models").body(Body::empty())?)
+            .await?;
         assert_eq!(frozen_response.status(), StatusCode::UNAUTHORIZED);
 
         let current = models_router(
@@ -2247,41 +2222,36 @@ mod tests {
                 .with_listener_mode(ModelsListenerMode::CurrentTrustPolicy),
         );
         let current_response = current
-            .oneshot(
-                Request::builder()
-                    .uri("/v1/models")
-                    .body(Body::empty())
-                    .expect("request"),
-            )
-            .await
-            .expect("response");
+            .oneshot(Request::builder().uri("/v1/models").body(Body::empty())?)
+            .await?;
         assert_eq!(current_response.status(), StatusCode::NOT_FOUND);
+        Ok(())
     }
 
     #[tokio::test]
-    async fn current_policy_keeps_model_backend_database_failure_visible() {
+    async fn current_policy_keeps_model_backend_database_failure_visible() -> TestResult {
         let response = models_router(
             ModelsHttpState::new(Arc::new(ErrorService(ModelsErrorKind::Database)), "v0.0.0")
                 .with_listener_mode(ModelsListenerMode::CurrentTrustPolicy),
         )
-        .oneshot(
-            Request::builder()
-                .uri("/v1/models")
-                .body(Body::empty())
-                .expect("request"),
-        )
-        .await
-        .expect("response");
+        .oneshot(Request::builder().uri("/v1/models").body(Body::empty())?)
+        .await?;
 
         assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        Ok(())
     }
 
-    async fn json_body(response: Response) -> Value {
-        serde_json::from_slice(
-            &to_bytes(response.into_body(), usize::MAX)
-                .await
-                .expect("body"),
-        )
-        .expect("json")
+    async fn json_body(response: Response) -> Result<Value, Box<dyn std::error::Error>> {
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
+        Ok(serde_json::from_slice(&body)?)
+    }
+
+    fn capture_router() -> (axum::Router, Arc<Mutex<Vec<ModelsRequest>>>) {
+        let captured = Arc::new(Mutex::new(Vec::new()));
+        let router = models_router(ModelsHttpState::new(
+            Arc::new(CaptureService(captured.clone())),
+            "v0.0.0",
+        ));
+        (router, captured)
     }
 }

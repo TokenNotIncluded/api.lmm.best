@@ -859,10 +859,7 @@ impl PlanInput {
     }
 }
 
-async fn validated_plan_input(
-    pg: &PgPool,
-    request: PlanRequest,
-) -> Result<PlanInput, Response> {
+async fn validated_plan_input(pg: &PgPool, request: PlanRequest) -> Result<PlanInput, Response> {
     let input = request
         .plan
         .normalize()
@@ -923,7 +920,12 @@ async fn admin_list_plans(
 fn plan_list_response(result: Result<Vec<Plan>, sqlx::Error>) -> Response {
     with_auth_version(
         result
-            .map(|plans| ok(plans.into_iter().map(|plan| PlanView { plan }).collect::<Vec<_>>()))
+            .map(|plans| {
+                ok(plans
+                    .into_iter()
+                    .map(|plan| PlanView { plan })
+                    .collect::<Vec<_>>())
+            })
             .unwrap_or_else(|_| failure(StatusCode::INTERNAL_SERVER_ERROR, "系统错误")),
     )
 }
@@ -1710,8 +1712,7 @@ async fn admin_reset_user_subscriptions(
     Path(user_id): Path<i64>,
     Json(input): Json<ResetRequest>,
 ) -> Response {
-    if let Err(response) =
-        authorize_admin_id(&state, &headers, user_id, "无效的用户ID").await
+    if let Err(response) = authorize_admin_id(&state, &headers, user_id, "无效的用户ID").await
     {
         return response;
     }
@@ -1819,8 +1820,7 @@ async fn admin_list_user_subscriptions(
     headers: HeaderMap,
     Path(user_id): Path<i64>,
 ) -> Response {
-    if let Err(response) =
-        authorize_admin_id(&state, &headers, user_id, "无效的用户ID").await
+    if let Err(response) = authorize_admin_id(&state, &headers, user_id, "无效的用户ID").await
     {
         return response;
     }
@@ -1960,9 +1960,14 @@ async fn downgrade_user_group(
     Ok(Some(target.to_owned()))
 }
 
+async fn valkey_connection(
+    client: Option<&redis::Client>,
+) -> Option<redis::aio::MultiplexedConnection> {
+    client?.get_multiplexed_async_connection().await.ok()
+}
+
 async fn evict_plan(state: &BillingSubscriptionsState, plan_id: i64) {
-    let Some(client) = &state.valkey else { return };
-    let Ok(mut connection) = client.get_multiplexed_async_connection().await else {
+    let Some(mut connection) = valkey_connection(state.valkey.as_ref()).await else {
         return;
     };
     let _: Result<(), _> = redis::cmd("DEL")
@@ -2001,8 +2006,7 @@ async fn evict_user(state: &BillingSubscriptionsState, user_id: i64) {
 }
 
 async fn evict_user_cache(valkey: Option<&redis::Client>, user_id: i64) {
-    let Some(client) = valkey else { return };
-    let Ok(mut connection) = client.get_multiplexed_async_connection().await else {
+    let Some(mut connection) = valkey_connection(valkey).await else {
         return;
     };
     let _: Result<(), _> = redis::cmd("DEL")
