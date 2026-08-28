@@ -1193,12 +1193,8 @@ mod tests {
             response.headers()[header::CONTENT_TYPE],
             "application/json; charset=utf-8"
         );
-        let body: Value = serde_json::from_slice(
-            &axum::body::to_bytes(response.into_body(), usize::MAX)
-                .await
-                ?,
-        )
-        ?;
+        let body: Value =
+            serde_json::from_slice(&axum::body::to_bytes(response.into_body(), usize::MAX).await?)?;
         assert_eq!(
             body,
             serde_json::json!({
@@ -1242,11 +1238,8 @@ mod tests {
                 "{code}"
             );
             let body: Value = serde_json::from_slice(
-                &axum::body::to_bytes(response.into_body(), usize::MAX)
-                    .await
-                    ?,
-            )
-            ?;
+                &axum::body::to_bytes(response.into_body(), usize::MAX).await?,
+            )?;
             assert_eq!(
                 body,
                 serde_json::json!({"code": code, "message": message, "success": false}),
@@ -1269,11 +1262,8 @@ mod tests {
             let response = discovery_auth_error(AuthError::new(kind), true);
             assert_eq!(response.status(), StatusCode::NOT_FOUND, "{kind:?}");
             let body: Value = serde_json::from_slice(
-                &axum::body::to_bytes(response.into_body(), usize::MAX)
-                    .await
-                    ?,
-            )
-            ?;
+                &axum::body::to_bytes(response.into_body(), usize::MAX).await?,
+            )?;
             assert_eq!(
                 body,
                 serde_json::json!({"message": "Not Found"}),
@@ -1315,7 +1305,8 @@ mod tests {
             request: UpstreamRequest,
         ) -> Result<UpstreamReply, RelayFailure> {
             self.request_ids
-                .lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
                 .push(request.request_id.clone());
             Err(RelayFailure::Provider {
                 status: StatusCode::TOO_MANY_REQUESTS,
@@ -1537,8 +1528,7 @@ mod tests {
     fn open_source_bounty_test_surface() -> TestResult<Router> {
         let pg = PgPoolOptions::new()
             .acquire_timeout(std::time::Duration::from_millis(10))
-            .connect_lazy("postgres://unused:unused@127.0.0.1:1/unused")
-            ?;
+            .connect_lazy("postgres://unused:unused@127.0.0.1:1/unused")?;
         Ok(open_source_bounty_router(OpenSourceBountyState::new(
             pg,
             Arc::new(UnavailableAuth),
@@ -1549,10 +1539,8 @@ mod tests {
     async fn final_candidate_listener_keeps_both_topup_reads_reachable() -> TestResult {
         let pg = PgPoolOptions::new()
             .acquire_timeout(std::time::Duration::from_millis(10))
-            .connect_lazy("postgres://unused:unused@127.0.0.1:1/unused")
-            ?;
-        let valkey =
-            redis::Client::open("redis://127.0.0.1:1")?;
+            .connect_lazy("postgres://unused:unused@127.0.0.1:1/unused")?;
+        let valkey = redis::Client::open("redis://127.0.0.1:1")?;
         let auth: Arc<dyn DashboardAuth> = Arc::new(UnavailableAuth);
         let app_state = state(None)?;
         let candidates = migration_candidate_test_surface(
@@ -1571,19 +1559,11 @@ mod tests {
             "/api/user/topup/self",
             "/api/user/checkin?month=2026-08",
         ] {
-            let mut request = Request::get(path)
-                .body(Body::empty())
-                ?;
-            request.extensions_mut().insert(ConnectInfo(
-                "127.0.0.1:12345"
-                    .parse::<SocketAddr>()
-                    ?,
-            ));
-            let response = app
-                .clone()
-                .oneshot(request)
-                .await
-                ?;
+            let mut request = Request::get(path).body(Body::empty())?;
+            request
+                .extensions_mut()
+                .insert(ConnectInfo("127.0.0.1:12345".parse::<SocketAddr>()?));
+            let response = app.clone().oneshot(request).await?;
             assert_eq!(response.status(), StatusCode::UNAUTHORIZED, "{path}");
         }
         Ok(())
@@ -1642,10 +1622,8 @@ mod tests {
         let auth: Arc<dyn DashboardAuth> = Arc::new(TokenRouteAuth { user });
         let pool = PgPoolOptions::new()
             .acquire_timeout(std::time::Duration::from_millis(10))
-            .connect_lazy("postgres://unused:unused@127.0.0.1:1/unused")
-            ?;
-        let valkey =
-            redis::Client::open("redis://127.0.0.1:1")?;
+            .connect_lazy("postgres://unused:unused@127.0.0.1:1/unused")?;
+        let valkey = redis::Client::open("redis://127.0.0.1:1")?;
         let token_state =
             ApiTokenHttpState::new(Arc::new(PgValkeyApiTokenService::new(pool, valkey.clone())));
         let mount = ApiTokenMount::new(
@@ -1699,14 +1677,11 @@ mod tests {
         if body.is_some() {
             builder = builder.header(header::CONTENT_TYPE, "application/json");
         }
-        let mut request = builder
-            .body(body.map_or_else(Body::empty, |value| Body::from(value.to_owned())))
-            ?;
-        request.extensions_mut().insert(ConnectInfo(
-            "127.0.0.1:12345"
-                .parse::<SocketAddr>()
-                ?,
-        ));
+        let mut request =
+            builder.body(body.map_or_else(Body::empty, |value| Body::from(value.to_owned())))?;
+        request
+            .extensions_mut()
+            .insert(ConnectInfo("127.0.0.1:12345".parse::<SocketAddr>()?));
         if forged_principal {
             request.extensions_mut().insert(ApiTokenPrincipal {
                 user_id: 999,
@@ -1724,18 +1699,16 @@ mod tests {
         let mut request = Request::builder()
             .method("GET")
             .uri("/api/token/")
-            .body(Body::empty())
-            ?;
-        request.extensions_mut().insert(ConnectInfo(
-            "127.0.0.1:12345"
-                .parse::<SocketAddr>()
-                ?,
-        ));
+            .body(Body::empty())?;
+        request
+            .extensions_mut()
+            .insert(ConnectInfo("127.0.0.1:12345".parse::<SocketAddr>()?));
         Ok(router.oneshot(request).await?)
     }
 
     #[tokio::test]
-    async fn mounted_api_token_routes_reject_disabled_dashboard_users_before_token_access() -> TestResult {
+    async fn mounted_api_token_routes_reject_disabled_dashboard_users_before_token_access()
+    -> TestResult {
         let response = mounted_api_token_call(
             mounted_api_token_router_for(dashboard_user(7, 1, 2)),
             "GET",
@@ -1745,12 +1718,8 @@ mod tests {
         )
         .await?;
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
-        let body: Value = serde_json::from_slice(
-            &axum::body::to_bytes(response.into_body(), usize::MAX)
-                .await
-                ?,
-        )
-        ?;
+        let body: Value =
+            serde_json::from_slice(&axum::body::to_bytes(response.into_body(), usize::MAX).await?)?;
         assert_eq!(body["code"], "AUTH_USER_DISABLED");
         assert_eq!(body["success"], false);
         Ok(())
@@ -1821,12 +1790,8 @@ mod tests {
         )
         .await?;
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
-        let body: Value = serde_json::from_slice(
-            &axum::body::to_bytes(response.into_body(), usize::MAX)
-                .await
-                ?,
-        )
-        ?;
+        let body: Value =
+            serde_json::from_slice(&axum::body::to_bytes(response.into_body(), usize::MAX).await?)?;
         assert_eq!(body, serde_json::json!({"message": "Not Found"}));
         Ok(())
     }
@@ -1846,12 +1811,8 @@ mod tests {
         )
         .await?;
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
-        let body: Value = serde_json::from_slice(
-            &axum::body::to_bytes(response.into_body(), usize::MAX)
-                .await
-                ?,
-        )
-        ?;
+        let body: Value =
+            serde_json::from_slice(&axum::body::to_bytes(response.into_body(), usize::MAX).await?)?;
         assert_eq!(body["code"], "AUTH_USER_DISABLED");
         Ok(())
     }
@@ -1891,11 +1852,8 @@ mod tests {
             .await?;
             assert_eq!(response.status(), expected_status, "{expected_code}");
             let body: Value = serde_json::from_slice(
-                &axum::body::to_bytes(response.into_body(), usize::MAX)
-                    .await
-                    ?,
-            )
-            ?;
+                &axum::body::to_bytes(response.into_body(), usize::MAX).await?,
+            )?;
             assert_eq!(body["code"], expected_code);
             assert_eq!(body["success"], false);
         }
@@ -1953,11 +1911,8 @@ mod tests {
             .await?;
             assert_eq!(response.status(), expected_status);
             let body: Value = serde_json::from_slice(
-                &axum::body::to_bytes(response.into_body(), usize::MAX)
-                    .await
-                    ?,
-            )
-            ?;
+                &axum::body::to_bytes(response.into_body(), usize::MAX).await?,
+            )?;
             assert_eq!(body["code"], expected_code);
             assert_eq!(body["success"], false);
         }
@@ -1993,11 +1948,8 @@ mod tests {
             .await?;
             assert_eq!(response.status(), expected_status);
             let body: Value = serde_json::from_slice(
-                &axum::body::to_bytes(response.into_body(), usize::MAX)
-                    .await
-                    ?,
-            )
-            ?;
+                &axum::body::to_bytes(response.into_body(), usize::MAX).await?,
+            )?;
             assert_eq!(body["code"], expected_code);
             assert_eq!(body["success"], false);
         }
@@ -2017,11 +1969,8 @@ mod tests {
             .await?;
             assert_eq!(response.status(), StatusCode::UNAUTHORIZED, "role {role}");
             let body: Value = serde_json::from_slice(
-                &axum::body::to_bytes(response.into_body(), usize::MAX)
-                    .await
-                    ?,
-            )
-            ?;
+                &axum::body::to_bytes(response.into_body(), usize::MAX).await?,
+            )?;
             assert_eq!(body["code"], "AUTH_USER_INVALID", "role {role}");
             assert_eq!(body["success"], false, "role {role}");
         }
@@ -2039,12 +1988,8 @@ mod tests {
         )
         .await?;
         assert_eq!(response.status(), StatusCode::OK);
-        let body: Value = serde_json::from_slice(
-            &axum::body::to_bytes(response.into_body(), usize::MAX)
-                .await
-                ?,
-        )
-        ?;
+        let body: Value =
+            serde_json::from_slice(&axum::body::to_bytes(response.into_body(), usize::MAX).await?)?;
         assert_eq!(body["success"], false);
         assert!(body.get("code").is_none());
         Ok(())
@@ -2068,11 +2013,8 @@ mod tests {
                 "{accept_language}"
             );
             let body: Value = serde_json::from_slice(
-                &axum::body::to_bytes(response.into_body(), usize::MAX)
-                    .await
-                    ?,
-            )
-            ?;
+                &axum::body::to_bytes(response.into_body(), usize::MAX).await?,
+            )?;
             assert_eq!(body["code"], "AUTH_USER_INVALID", "{accept_language}");
             assert_eq!(body["success"], false, "{accept_language}");
         }
@@ -2085,13 +2027,10 @@ mod tests {
         let mut request = Request::builder()
             .method("GET")
             .uri("/api/token/")
-            .body(Body::empty())
-            ?;
-        request.extensions_mut().insert(ConnectInfo(
-            "127.0.0.1:12345"
-                .parse::<SocketAddr>()
-                ?,
-        ));
+            .body(Body::empty())?;
+        request
+            .extensions_mut()
+            .insert(ConnectInfo("127.0.0.1:12345".parse::<SocketAddr>()?));
         request.extensions_mut().insert(ApiTokenPrincipal {
             user_id: 999,
             role: 10,
@@ -2099,19 +2038,16 @@ mod tests {
         });
         let response = router.oneshot(request).await?;
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
-        let body: Value = serde_json::from_slice(
-            &axum::body::to_bytes(response.into_body(), usize::MAX)
-                .await
-                ?,
-        )
-        ?;
+        let body: Value =
+            serde_json::from_slice(&axum::body::to_bytes(response.into_body(), usize::MAX).await?)?;
         assert_eq!(body["code"], "AUTH_UNAUTHORIZED");
         assert_eq!(body["success"], false);
         Ok(())
     }
 
     #[tokio::test]
-    async fn mounted_api_token_malformed_json_and_query_use_legacy_success_envelopes() -> TestResult {
+    async fn mounted_api_token_malformed_json_and_query_use_legacy_success_envelopes() -> TestResult
+    {
         for (method, uri, body) in [
             ("POST", "/api/token/", Some("{")),
             ("GET", "/api/token/?p=not-an-integer", None),
@@ -2126,11 +2062,8 @@ mod tests {
             .await?;
             assert_eq!(response.status(), StatusCode::OK, "{method} {uri}");
             let body: Value = serde_json::from_slice(
-                &axum::body::to_bytes(response.into_body(), usize::MAX)
-                    .await
-                    ?,
-            )
-            ?;
+                &axum::body::to_bytes(response.into_body(), usize::MAX).await?,
+            )?;
             assert_eq!(body["success"], false, "{method} {uri}");
         }
         Ok(())
@@ -2150,12 +2083,8 @@ mod tests {
         )
         .await?;
         assert_eq!(response.status(), StatusCode::OK);
-        let body: Value = serde_json::from_slice(
-            &axum::body::to_bytes(response.into_body(), usize::MAX)
-                .await
-                ?,
-        )
-        ?;
+        let body: Value =
+            serde_json::from_slice(&axum::body::to_bytes(response.into_body(), usize::MAX).await?)?;
         assert_eq!(body["message"], "無效的參數");
         Ok(())
     }
@@ -2182,7 +2111,8 @@ mod tests {
     impl GlobalApiRateLimiter for MockRateLimiter {
         async fn check(&self, client_ip: &str) -> Result<RateLimitOutcome, RateLimitError> {
             self.client_ips
-                .lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
                 .push(client_ip.to_owned());
             match self.mode {
                 MockLimitMode::Reject(retry_after_seconds) => Ok(RateLimitOutcome::Rejected {
@@ -2245,9 +2175,7 @@ mod tests {
             status: StatusHttpState::new(Arc::new(MockStatusRepository), "v0.0.0", 1_700_000_000),
             slot: "blue".to_owned(),
             runtime: RuntimeState::default(),
-            trusted_proxies: TrustedProxyPolicy::Explicit(vec![
-                "127.0.0.0/8".parse()?,
-            ]),
+            trusted_proxies: TrustedProxyPolicy::Explicit(vec!["127.0.0.0/8".parse()?]),
         })
     }
 
@@ -2302,19 +2230,16 @@ mod tests {
             builder = builder.header("x-request-id", value);
         }
         let mut request = builder.body(Body::empty())?;
-        request.extensions_mut().insert(ConnectInfo(
-            "127.0.0.1:12345"
-                .parse::<SocketAddr>()
-                ?,
-        ));
+        request
+            .extensions_mut()
+            .insert(ConnectInfo("127.0.0.1:12345".parse::<SocketAddr>()?));
         let response = router(state_with_rate_limiter_and_policy(
             failing,
             Arc::new(AllowAllRateLimiter),
             valkey_readiness_policy,
         )?)
         .oneshot(request)
-        .await
-        ?;
+        .await?;
         let status = response.status();
         let id = response
             .headers()
@@ -2322,14 +2247,16 @@ mod tests {
             .ok_or_else(|| test_error("server id exists"))?
             .to_str()?
             .to_owned();
-        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
-            .await
-            ?;
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await?;
         let body = serde_json::from_slice(&bytes)?;
         Ok((status, id, body))
     }
 
-    async fn auth_call(method: &str, uri: &str, body: Option<&str>) -> TestResult<axum::response::Response> {
+    async fn auth_call(
+        method: &str,
+        uri: &str,
+        body: Option<&str>,
+    ) -> TestResult<axum::response::Response> {
         auth_call_with_limiter(method, uri, body, Arc::new(AllowAllRateLimiter)).await
     }
 
@@ -2343,14 +2270,11 @@ mod tests {
         if body.is_some() {
             builder = builder.header(header::CONTENT_TYPE, "application/json");
         }
-        let mut request = builder
-            .body(body.map_or_else(Body::empty, |value| Body::from(value.to_owned())))
-            ?;
-        request.extensions_mut().insert(ConnectInfo(
-            "127.0.0.1:12345"
-                .parse::<SocketAddr>()
-                ?,
-        ));
+        let mut request =
+            builder.body(body.map_or_else(Body::empty, |value| Body::from(value.to_owned())))?;
+        request
+            .extensions_mut()
+            .insert(ConnectInfo("127.0.0.1:12345".parse::<SocketAddr>()?));
         Ok(router(state_with_rate_limiter(None, limiter)?)
             .oneshot(request)
             .await?)
@@ -2372,15 +2296,12 @@ mod tests {
         assert_eq!(response.headers()[header::RETRY_AFTER], "37");
         assert!(response.headers().get(header::CONTENT_TYPE).is_none());
         assert_eq!(response.headers()["x-new-api-version"], "v0.0.0");
-        let request_id = response.headers()["x-request-id"]
-            .to_str()
-            ?;
+        let request_id = response.headers()["x-request-id"].to_str()?;
         assert_eq!(response.headers()["x-oneapi-request-id"], request_id);
         Uuid::parse_str(request_id)?;
         assert!(
             axum::body::to_bytes(response.into_body(), usize::MAX)
-                .await
-                ?
+                .await?
                 .is_empty()
         );
         Ok(())
@@ -2406,14 +2327,10 @@ mod tests {
         });
         let state = state_with_rate_limiter(None, limiter.clone())?;
         let app = finalize_listener(migration_candidate_test_surface(&state, candidates), state);
-        let mut request = Request::get("/api/candidate-probe")
-            .body(Body::empty())
-            ?;
-        request.extensions_mut().insert(ConnectInfo(
-            "127.0.0.1:12345"
-                .parse::<SocketAddr>()
-                ?,
-        ));
+        let mut request = Request::get("/api/candidate-probe").body(Body::empty())?;
+        request
+            .extensions_mut()
+            .insert(ConnectInfo("127.0.0.1:12345".parse::<SocketAddr>()?));
 
         let response = app.oneshot(request).await?;
 
@@ -2424,7 +2341,8 @@ mod tests {
         assert_eq!(
             limiter
                 .client_ips
-                .lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
                 .as_slice(),
             ["127.0.0.1"]
         );
@@ -2432,7 +2350,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn public_extra_api_routes_use_one_global_limit_with_the_trusted_client_ip() -> TestResult {
+    async fn public_extra_api_routes_use_one_global_limit_with_the_trusted_client_ip() -> TestResult
+    {
         let limiter = Arc::new(MockRateLimiter {
             mode: MockLimitMode::Reject(19),
             client_ips: Mutex::new(Vec::new()),
@@ -2454,19 +2373,12 @@ mod tests {
         ] {
             let mut request = Request::get(uri)
                 .header("x-forwarded-for", "203.0.113.10, 127.0.0.2")
-                .body(Body::empty())
-                ?;
-            request.extensions_mut().insert(ConnectInfo(
-                "127.0.0.1:12345"
-                    .parse::<SocketAddr>()
-                    ?,
-            ));
+                .body(Body::empty())?;
+            request
+                .extensions_mut()
+                .insert(ConnectInfo("127.0.0.1:12345".parse::<SocketAddr>()?));
 
-            let response = app
-                .clone()
-                .oneshot(request)
-                .await
-                ?;
+            let response = app.clone().oneshot(request).await?;
             assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS, "{uri}");
             assert_eq!(response.headers()[header::RETRY_AFTER], "19", "{uri}");
         }
@@ -2474,7 +2386,8 @@ mod tests {
         assert_eq!(
             limiter
                 .client_ips
-                .lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
                 .as_slice(),
             ["203.0.113.10", "203.0.113.10", "203.0.113.10"]
         );
@@ -2482,8 +2395,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn production_open_source_bounty_surface_is_rate_limited_and_public_get_remains_reachable() -> TestResult
-    {
+    async fn production_open_source_bounty_surface_is_rate_limited_and_public_get_remains_reachable()
+    -> TestResult {
         let limiter = Arc::new(MockRateLimiter {
             mode: MockLimitMode::Reject(23),
             client_ips: Mutex::new(Vec::new()),
@@ -2495,13 +2408,10 @@ mod tests {
 
         let mut request = Request::get("/api/open-source-bounties/projects/not-an-id")
             .header("x-forwarded-for", "203.0.113.11, 127.0.0.2")
-            .body(Body::empty())
-            ?;
-        request.extensions_mut().insert(ConnectInfo(
-            "127.0.0.1:12345"
-                .parse::<SocketAddr>()
-                ?,
-        ));
+            .body(Body::empty())?;
+        request
+            .extensions_mut()
+            .insert(ConnectInfo("127.0.0.1:12345".parse::<SocketAddr>()?));
 
         let response = app.oneshot(request).await?;
         assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
@@ -2509,7 +2419,8 @@ mod tests {
         assert_eq!(
             limiter
                 .client_ips
-                .lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
                 .as_slice(),
             ["203.0.113.11"]
         );
@@ -2518,23 +2429,16 @@ mod tests {
         let extra = api_global_rate_limited_surface(&state, open_source_bounty_test_surface()?);
         let app =
             router_with_api_token_and_extra(state, auth_state(), models_state(), None, Some(extra));
-        let mut request = Request::get("/api/open-source-bounties/projects/not-an-id")
-            .body(Body::empty())
-            ?;
-        request.extensions_mut().insert(ConnectInfo(
-            "127.0.0.1:12345"
-                .parse::<SocketAddr>()
-                ?,
-        ));
+        let mut request =
+            Request::get("/api/open-source-bounties/projects/not-an-id").body(Body::empty())?;
+        request
+            .extensions_mut()
+            .insert(ConnectInfo("127.0.0.1:12345".parse::<SocketAddr>()?));
 
         let response = app.oneshot(request).await?;
         assert_eq!(response.status(), StatusCode::OK);
-        let body: Value = serde_json::from_slice(
-            &axum::body::to_bytes(response.into_body(), usize::MAX)
-                .await
-                ?,
-        )
-        ?;
+        let body: Value =
+            serde_json::from_slice(&axum::body::to_bytes(response.into_body(), usize::MAX).await?)?;
         assert_eq!(body["code"], "OPEN_SOURCE_BOUNTY_INVALID_ID");
         Ok(())
     }
@@ -2555,13 +2459,10 @@ mod tests {
             .method("OPTIONS")
             .uri("/api/usage/token/")
             .header(header::ORIGIN, "https://browser.example")
-            .body(Body::empty())
-            ?;
-        request.extensions_mut().insert(ConnectInfo(
-            "127.0.0.1:12345"
-                .parse::<SocketAddr>()
-                ?,
-        ));
+            .body(Body::empty())?;
+        request
+            .extensions_mut()
+            .insert(ConnectInfo("127.0.0.1:12345".parse::<SocketAddr>()?));
 
         let response = app.oneshot(request).await?;
 
@@ -2569,7 +2470,8 @@ mod tests {
         assert!(
             limiter
                 .client_ips
-                .lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
                 .is_empty()
         );
         Ok(())
@@ -2606,18 +2508,11 @@ mod tests {
 
         let mut request = Request::get("/api/extra-probe")
             .header(REQUEST_ID_HEADER, "attacker-controlled")
-            .body(Body::empty())
-            ?;
-        request.extensions_mut().insert(ConnectInfo(
-            "127.0.0.1:12345"
-                .parse::<SocketAddr>()
-                ?,
-        ));
-        let response = app
-            .clone()
-            .oneshot(request)
-            .await
-            ?;
+            .body(Body::empty())?;
+        request
+            .extensions_mut()
+            .insert(ConnectInfo("127.0.0.1:12345".parse::<SocketAddr>()?));
+        let response = app.clone().oneshot(request).await?;
         assert_eq!(response.status(), StatusCode::NO_CONTENT);
         assert_eq!(
             response.headers()["x-extra-seen-request-id"],
@@ -2627,35 +2522,23 @@ mod tests {
 
         let wrong_method = app
             .clone()
-            .oneshot(
-                Request::post("/api/extra-probe")
-                    .body(Body::empty())
-                    ?,
-            )
-            .await
-            ?;
+            .oneshot(Request::post("/api/extra-probe").body(Body::empty())?)
+            .await?;
         assert_eq!(wrong_method.status(), StatusCode::NOT_FOUND);
 
         let backend_miss = app
-            .oneshot(
-                Request::get("/api/extra-missing")
-                    .body(Body::empty())
-                    ?,
-            )
-            .await
-            ?;
+            .oneshot(Request::get("/api/extra-missing").body(Body::empty())?)
+            .await?;
         assert_eq!(backend_miss.status(), StatusCode::NOT_FOUND);
-        let backend_miss_body = axum::body::to_bytes(backend_miss.into_body(), usize::MAX)
-            .await
-            ?;
-        let backend_miss: Value =
-            serde_json::from_slice(&backend_miss_body)?;
+        let backend_miss_body = axum::body::to_bytes(backend_miss.into_body(), usize::MAX).await?;
+        let backend_miss: Value = serde_json::from_slice(&backend_miss_body)?;
         assert_eq!(backend_miss, serde_json::json!({"message": "Not Found"}));
         Ok(())
     }
 
     #[tokio::test]
-    async fn extra_surface_can_supply_a_complementary_method_without_route_conflict() -> TestResult {
+    async fn extra_surface_can_supply_a_complementary_method_without_route_conflict() -> TestResult
+    {
         let extra = Router::new().route("/livez", axum::routing::post(StatusCode::NO_CONTENT));
         let app = router_with_api_token_and_extra(
             state(None)?,
@@ -2671,11 +2554,9 @@ mod tests {
                     Request::builder()
                         .method(method)
                         .uri("/livez")
-                        .body(Body::empty())
-                        ?,
+                        .body(Body::empty())?,
                 )
-                .await
-                ?;
+                .await?;
             assert_eq!(response.status(), expected, "{method} /livez");
         }
         Ok(())
@@ -2694,7 +2575,8 @@ mod tests {
         assert!(
             limiter
                 .client_ips
-                .lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
                 .is_empty()
         );
 
@@ -2712,37 +2594,25 @@ mod tests {
     async fn boundary_should_replace_untrusted_request_id_and_echo_server_id() -> TestResult {
         let mut request = Request::get("/missing")
             .header(REQUEST_ID_HEADER, "attacker-controlled")
-            .body(Body::empty())
-            ?;
-        request.extensions_mut().insert(ConnectInfo(
-            "127.0.0.1:12345"
-                .parse::<SocketAddr>()
-                ?,
-        ));
-        let response = router(state(None)?)
-            .oneshot(request)
-            .await
-            ?;
-        let id = response.headers()[REQUEST_ID_HEADER]
-            .to_str()
-            ?
-            .to_owned();
+            .body(Body::empty())?;
+        request
+            .extensions_mut()
+            .insert(ConnectInfo("127.0.0.1:12345".parse::<SocketAddr>()?));
+        let response = router(state(None)?).oneshot(request).await?;
+        let id = response.headers()[REQUEST_ID_HEADER].to_str()?.to_owned();
         assert_ne!(id, "attacker-controlled");
         assert_eq!(response.headers()[LEGACY_REQUEST_ID_HEADER], id);
         assert_eq!(response.headers()[LEGACY_VERSION_HEADER], "v0.0.0");
-        let body: Value = serde_json::from_slice(
-            &axum::body::to_bytes(response.into_body(), usize::MAX)
-                .await
-                ?,
-        )
-        ?;
+        let body: Value =
+            serde_json::from_slice(&axum::body::to_bytes(response.into_body(), usize::MAX).await?)?;
         assert_eq!(body, serde_json::json!({"message": "Not Found"}));
         assert!(body.get("request_id").is_none());
         Ok(())
     }
 
     #[tokio::test]
-    async fn root_boundary_should_share_one_request_id_with_relay_and_provider_error_body() -> TestResult {
+    async fn root_boundary_should_share_one_request_id_with_relay_and_provider_error_body()
+    -> TestResult {
         let request_ids = Arc::new(Mutex::new(Vec::new()));
         let app = router_with_api_token_and_extra(
             state(None)?,
@@ -2759,13 +2629,10 @@ mod tests {
             .header("x-request-id", "attacker-controlled")
             .header("x-api-key", "root-relay-token")
             .header(header::CONTENT_TYPE, "application/json")
-            .body(Body::from(r#"{"model":"claude-test"}"#))
-            ?;
-        request.extensions_mut().insert(ConnectInfo(
-            "127.0.0.1:12345"
-                .parse::<SocketAddr>()
-                ?,
-        ));
+            .body(Body::from(r#"{"model":"claude-test"}"#))?;
+        request
+            .extensions_mut()
+            .insert(ConnectInfo("127.0.0.1:12345".parse::<SocketAddr>()?));
 
         let response = app.oneshot(request).await?;
         assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
@@ -2773,19 +2640,12 @@ mod tests {
             response.headers()[header::CONTENT_TYPE],
             "application/json; charset=utf-8"
         );
-        let request_id = response.headers()[REQUEST_ID_HEADER]
-            .to_str()
-            ?
-            .to_owned();
+        let request_id = response.headers()[REQUEST_ID_HEADER].to_str()?.to_owned();
         Uuid::parse_str(&request_id)?;
         assert_ne!(request_id, "attacker-controlled");
         assert_eq!(response.headers()[LEGACY_REQUEST_ID_HEADER], request_id);
-        let body: Value = serde_json::from_slice(
-            &axum::body::to_bytes(response.into_body(), usize::MAX)
-                .await
-                ?,
-        )
-        ?;
+        let body: Value =
+            serde_json::from_slice(&axum::body::to_bytes(response.into_body(), usize::MAX).await?)?;
         assert_eq!(
             body,
             serde_json::json!({
@@ -2797,7 +2657,8 @@ mod tests {
         );
         assert_eq!(
             request_ids
-                .lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
                 .as_slice(),
             [request_id.as_str()]
         );
@@ -2837,9 +2698,7 @@ mod tests {
     async fn wrong_method_on_a_mounted_auth_route_uses_the_go_404_envelope() -> TestResult {
         let response = auth_call("GET", "/api/user/login", None).await?;
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-            .await
-            ?;
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await?;
         let body: Value = serde_json::from_slice(&body)?;
         assert_eq!(body, serde_json::json!({"message": "Not Found"}));
         Ok(())
@@ -2861,17 +2720,11 @@ mod tests {
                 .uri(path)
                 .header(header::ORIGIN, "https://browser.example")
                 .header("access-control-request-method", "GET")
-                .body(Body::empty())
-                ?;
-            preflight.extensions_mut().insert(ConnectInfo(
-                "127.0.0.1:12345"
-                    .parse::<SocketAddr>()
-                    ?,
-            ));
-            let preflight = router(state(None)?)
-                .oneshot(preflight)
-                .await
-                ?;
+                .body(Body::empty())?;
+            preflight
+                .extensions_mut()
+                .insert(ConnectInfo("127.0.0.1:12345".parse::<SocketAddr>()?));
+            let preflight = router(state(None)?).oneshot(preflight).await?;
             assert_eq!(preflight.status(), StatusCode::NO_CONTENT, "{path}");
             assert_eq!(
                 preflight.headers()["access-control-allow-origin"],
@@ -2904,17 +2757,11 @@ mod tests {
             .method("GET")
             .uri("/v1/models")
             .header(header::ORIGIN, "https://browser.example")
-            .body(Body::empty())
-            ?;
-        actual.extensions_mut().insert(ConnectInfo(
-            "127.0.0.1:12345"
-                .parse::<SocketAddr>()
-                ?,
-        ));
-        let actual = router(state(None)?)
-            .oneshot(actual)
-            .await
-            ?;
+            .body(Body::empty())?;
+        actual
+            .extensions_mut()
+            .insert(ConnectInfo("127.0.0.1:12345".parse::<SocketAddr>()?));
+        let actual = router(state(None)?).oneshot(actual).await?;
         assert_eq!(actual.headers()["access-control-allow-origin"], "*");
         assert_eq!(actual.headers()["access-control-allow-credentials"], "true");
         assert!(actual.headers().get("access-control-max-age").is_none());
@@ -2925,17 +2772,11 @@ mod tests {
                 .uri(path)
                 .header(header::ORIGIN, "https://browser.example")
                 .header("access-control-request-method", "GET")
-                .body(Body::empty())
-                ?;
-            non_models.extensions_mut().insert(ConnectInfo(
-                "127.0.0.1:12345"
-                    .parse::<SocketAddr>()
-                    ?,
-            ));
-            let response = router(state(None)?)
-                .oneshot(non_models)
-                .await
-                ?;
+                .body(Body::empty())?;
+            non_models
+                .extensions_mut()
+                .insert(ConnectInfo("127.0.0.1:12345".parse::<SocketAddr>()?));
+            let response = router(state(None)?).oneshot(non_models).await?;
             assert!(
                 response
                     .headers()
@@ -2956,16 +2797,11 @@ mod tests {
         let mut request = Request::builder()
             .uri("/v1/models")
             .header("x-forwarded-for", "203.0.113.10")
-            .body(Body::empty())
-            ?;
-        request.extensions_mut().insert(ConnectInfo(
-            "198.51.100.10:12345"
-                .parse::<SocketAddr>()
-                ?,
-        ));
-        let policy = TrustedProxyPolicy::Default(vec![
-            "127.0.0.0/8".parse()?,
-        ]);
+            .body(Body::empty())?;
+        request
+            .extensions_mut()
+            .insert(ConnectInfo("198.51.100.10:12345".parse::<SocketAddr>()?));
+        let policy = TrustedProxyPolicy::Default(vec!["127.0.0.0/8".parse()?]);
         assert_eq!(
             canonical_client_ip(&request, &policy),
             Some("198.51.100.10".parse()?)
@@ -2978,16 +2814,11 @@ mod tests {
         let mut request = Request::builder()
             .uri("/v1/models")
             .header("x-forwarded-for", "192.0.2.99, 203.0.113.10")
-            .body(Body::empty())
-            ?;
-        request.extensions_mut().insert(ConnectInfo(
-            "172.20.0.2:12345"
-                .parse::<SocketAddr>()
-                ?,
-        ));
-        let policy = TrustedProxyPolicy::Explicit(vec![
-            "172.16.0.0/12".parse()?,
-        ]);
+            .body(Body::empty())?;
+        request
+            .extensions_mut()
+            .insert(ConnectInfo("172.20.0.2:12345".parse::<SocketAddr>()?));
+        let policy = TrustedProxyPolicy::Explicit(vec!["172.16.0.0/12".parse()?]);
         assert_eq!(
             canonical_client_ip(&request, &policy),
             Some("203.0.113.10".parse()?)
@@ -3000,16 +2831,11 @@ mod tests {
         let mut request = Request::builder()
             .uri("/v1/models")
             .header("x-forwarded-for", "bad, 203.0.113.10")
-            .body(Body::empty())
-            ?;
-        request.extensions_mut().insert(ConnectInfo(
-            "172.20.0.2:12345"
-                .parse::<SocketAddr>()
-                ?,
-        ));
-        let policy = TrustedProxyPolicy::Explicit(vec![
-            "172.16.0.0/12".parse()?,
-        ]);
+            .body(Body::empty())?;
+        request
+            .extensions_mut()
+            .insert(ConnectInfo("172.20.0.2:12345".parse::<SocketAddr>()?));
+        let policy = TrustedProxyPolicy::Explicit(vec!["172.16.0.0/12".parse()?]);
         assert_eq!(
             canonical_client_ip(&request, &policy),
             Some("203.0.113.10".parse()?)
@@ -3022,16 +2848,11 @@ mod tests {
         let mut request = Request::builder()
             .uri("/v1/models")
             .header("x-forwarded-for", "203.0.113.10, bad, 172.20.0.3")
-            .body(Body::empty())
-            ?;
-        request.extensions_mut().insert(ConnectInfo(
-            "172.20.0.2:12345"
-                .parse::<SocketAddr>()
-                ?,
-        ));
-        let policy = TrustedProxyPolicy::Explicit(vec![
-            "172.16.0.0/12".parse()?,
-        ]);
+            .body(Body::empty())?;
+        request
+            .extensions_mut()
+            .insert(ConnectInfo("172.20.0.2:12345".parse::<SocketAddr>()?));
+        let policy = TrustedProxyPolicy::Explicit(vec!["172.16.0.0/12".parse()?]);
         assert_eq!(
             canonical_client_ip(&request, &policy),
             Some("172.20.0.2".parse()?)
@@ -3047,27 +2868,20 @@ mod tests {
         });
         let mut request = Request::get("/api/status")
             .header("x-forwarded-for", " 2001:0db8:0:0:0:0:0:1 , 172.20.0.3")
-            .body(Body::empty())
-            ?;
-        request.extensions_mut().insert(ConnectInfo(
-            "172.20.0.2:12345"
-                .parse::<SocketAddr>()
-                ?,
-        ));
+            .body(Body::empty())?;
+        request
+            .extensions_mut()
+            .insert(ConnectInfo("172.20.0.2:12345".parse::<SocketAddr>()?));
         let mut state = state_with_rate_limiter(None, limiter.clone())?;
-        state.trusted_proxies = TrustedProxyPolicy::Explicit(vec![
-            "172.16.0.0/12".parse()?,
-        ]);
-        let response = router(state)
-            .oneshot(request)
-            .await
-            ?;
+        state.trusted_proxies = TrustedProxyPolicy::Explicit(vec!["172.16.0.0/12".parse()?]);
+        let response = router(state).oneshot(request).await?;
 
         assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
         assert_eq!(
             limiter
                 .client_ips
-                .lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
                 .as_slice(),
             ["2001:0db8:0:0:0:0:0:1"]
         );
@@ -3080,17 +2894,11 @@ mod tests {
             .method("POST")
             .uri("/_test/json")
             .header("content-type", "application/json")
-            .body(Body::from("{"))
-            ?;
-        request.extensions_mut().insert(ConnectInfo(
-            "127.0.0.1:12345"
-                .parse::<SocketAddr>()
-                ?,
-        ));
-        let response = router(state(None)?)
-            .oneshot(request)
-            .await
-            ?;
+            .body(Body::from("{"))?;
+        request
+            .extensions_mut()
+            .insert(ConnectInfo("127.0.0.1:12345".parse::<SocketAddr>()?));
+        let response = router(state(None)?).oneshot(request).await?;
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
         assert_eq!(response.headers()["content-type"], "application/json");
         Ok(())
@@ -3135,13 +2943,10 @@ mod tests {
         let mut held_request = Request::builder()
             .method("GET")
             .uri("/_test/hold")
-            .body(Body::empty())
-            ?;
-        held_request.extensions_mut().insert(ConnectInfo(
-            "127.0.0.1:12345"
-                .parse::<SocketAddr>()
-                ?,
-        ));
+            .body(Body::empty())?;
+        held_request
+            .extensions_mut()
+            .insert(ConnectInfo("127.0.0.1:12345".parse::<SocketAddr>()?));
 
         let held = tokio::spawn(async move {
             match service.oneshot(held_request).await {
@@ -3167,11 +2972,9 @@ mod tests {
             Request::builder()
                 .method("GET")
                 .uri("/readyz")
-                .body(Body::empty())
-                ?,
+                .body(Body::empty())?,
         )
-        .await
-        ?;
+        .await?;
         assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
 
         let completed = tokio::time::timeout(std::time::Duration::from_secs(1), held).await??;
@@ -3186,17 +2989,11 @@ mod tests {
             let mut request = Request::builder()
                 .method("GET")
                 .uri(uri)
-                .body(Body::empty())
-                ?;
-            request.extensions_mut().insert(ConnectInfo(
-                "127.0.0.1:12345"
-                    .parse::<SocketAddr>()
-                    ?,
-            ));
-            let response = router(state(None)?)
-                .oneshot(request)
-                .await
-                ?;
+                .body(Body::empty())?;
+            request
+                .extensions_mut()
+                .insert(ConnectInfo("127.0.0.1:12345".parse::<SocketAddr>()?));
+            let response = router(state(None)?).oneshot(request).await?;
             let status = response.status();
             assert_eq!(status, StatusCode::OK);
             assert_eq!(
@@ -3208,9 +3005,7 @@ mod tests {
                 response.headers()["x-oneapi-request-id"],
                 response.headers()["x-request-id"]
             );
-            let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
-                .await
-                ?;
+            let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await?;
             let body: Value = serde_json::from_slice(&bytes)?;
             assert_eq!(body["success"], true);
             assert_eq!(body["message"], "");
@@ -3262,17 +3057,11 @@ mod tests {
         let mut request = Request::builder()
             .method("GET")
             .uri("/api/status")
-            .body(Body::empty())
-            ?;
-        request.extensions_mut().insert(ConnectInfo(
-            "127.0.0.1:12345"
-                .parse::<SocketAddr>()
-                ?,
-        ));
-        let response = router(state(None)?)
-            .oneshot(request)
-            .await
-            ?;
+            .body(Body::empty())?;
+        request
+            .extensions_mut()
+            .insert(ConnectInfo("127.0.0.1:12345".parse::<SocketAddr>()?));
+        let response = router(state(None)?).oneshot(request).await?;
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(
             response.headers()[header::CONTENT_TYPE],
@@ -3283,9 +3072,7 @@ mod tests {
             response.headers()["x-oneapi-request-id"],
             response.headers()["x-request-id"]
         );
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-            .await
-            ?;
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await?;
         let actual: Value = serde_json::from_slice(&body)?;
         assert_eq!(actual["success"], true);
         assert_eq!(actual["message"], "");
@@ -3314,12 +3101,10 @@ mod tests {
             .method("GET")
             .uri("/api/notice")
             .header("x-real-ip", real_ip)
-            .body(Body::empty())
-            ?;
-        request.extensions_mut().insert(ConnectInfo(
-            peer.parse::<SocketAddr>()
-                ?,
-        ));
+            .body(Body::empty())?;
+        request
+            .extensions_mut()
+            .insert(ConnectInfo(peer.parse::<SocketAddr>()?));
         Ok(router(state_with_rate_limiter(None, limiter)?)
             .oneshot(request)
             .await?)
@@ -3340,9 +3125,7 @@ mod tests {
             response.headers()["x-oneapi-request-id"],
             response.headers()["x-request-id"]
         );
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-            .await
-            ?;
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await?;
         assert!(body.is_empty());
         assert_eq!(
             limiter
@@ -3388,14 +3171,10 @@ mod tests {
         assert!(response.headers().get("retry-after").is_none());
         assert!(response.headers().get("content-type").is_none());
         assert_eq!(response.headers()["x-new-api-version"], "v0.0.0");
-        let request_id = response.headers()["x-request-id"]
-            .to_str()
-            ?;
+        let request_id = response.headers()["x-request-id"].to_str()?;
         assert_eq!(response.headers()["x-oneapi-request-id"], request_id);
         Uuid::parse_str(request_id)?;
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-            .await
-            ?;
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await?;
         assert!(body.is_empty());
         Ok(())
     }

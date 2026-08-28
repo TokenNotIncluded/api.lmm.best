@@ -1744,16 +1744,14 @@ mod tests {
         document.shadow.scope = scope;
         document.model_family = "claude".to_owned();
         sign_document(&mut document)?;
-        document
-            .verify(&registry, &trusted_policy())?;
+        document.verify(&registry, &trusted_policy())?;
         Ok(())
     }
 
     #[test]
     fn complete_fixture_only_yields_review_eligibility() -> TestResult {
         let registry = validated_current_registry()?;
-        let verified = valid_document()?
-            .verify(&registry, &trusted_policy())?;
+        let verified = valid_document()?.verify(&registry, &trusted_policy())?;
         assert!(verified.eligible_for_review());
         assert_eq!(
             verified.review_decision(),
@@ -1767,19 +1765,17 @@ mod tests {
     #[test]
     fn atomic_consumption_returns_only_bound_admission_view() -> TestResult {
         let registry = validated_current_registry()?;
-        let verified = valid_document()?
-            .verify(&registry, &trusted_policy())?;
+        let verified = valid_document()?.verify(&registry, &trusted_policy())?;
         let feature_classes = verified.document().feature_classes.clone();
         let guard = TestOnlyReplayGuard::new();
-        let admission = verified
-            .consume_for_route_admission(
-                &guard,
-                &registry,
-                &trusted_policy(),
-                "gpt-4o",
-                &feature_classes,
-                1_500,
-            )?;
+        let admission = verified.consume_for_route_admission(
+            &guard,
+            &registry,
+            &trusted_policy(),
+            "gpt-4o",
+            &feature_classes,
+            1_500,
+        )?;
 
         assert_eq!(admission.evidence_id(), "evidence-1");
         assert_eq!(admission.scope(), verified.document().scope);
@@ -1809,19 +1805,17 @@ mod tests {
     #[test]
     fn replay_guard_allows_one_admission_only() -> TestResult {
         let registry = validated_current_registry()?;
-        let verified = valid_document()?
-            .verify(&registry, &trusted_policy())?;
+        let verified = valid_document()?.verify(&registry, &trusted_policy())?;
         let feature_classes = verified.document().feature_classes.clone();
         let guard = TestOnlyReplayGuard::new();
-        verified
-            .consume_for_route_admission(
-                &guard,
-                &registry,
-                &trusted_policy(),
-                "gpt-4o",
-                &feature_classes,
-                1_500,
-            )?;
+        verified.consume_for_route_admission(
+            &guard,
+            &registry,
+            &trusted_policy(),
+            "gpt-4o",
+            &feature_classes,
+            1_500,
+        )?;
         assert_eq!(
             verified.consume_for_route_admission(
                 &guard,
@@ -1839,8 +1833,7 @@ mod tests {
     #[test]
     fn admission_rechecks_not_before_and_expiry_before_consuming() -> TestResult {
         let registry = validated_current_registry()?;
-        let verified = valid_document()?
-            .verify(&registry, &trusted_policy())?;
+        let verified = valid_document()?.verify(&registry, &trusted_policy())?;
         let feature_classes = verified.document().feature_classes.clone();
         let guard = TestOnlyReplayGuard::new();
 
@@ -1867,23 +1860,21 @@ mod tests {
             Err(DifferentialEvidenceError::EvidenceExpired)
         );
 
-        verified
-            .consume_for_route_admission(
-                &guard,
-                &registry,
-                &trusted_policy(),
-                "gpt-4o",
-                &feature_classes,
-                1_500,
-            )?;
+        verified.consume_for_route_admission(
+            &guard,
+            &registry,
+            &trusted_policy(),
+            "gpt-4o",
+            &feature_classes,
+            1_500,
+        )?;
         Ok(())
     }
 
     #[test]
     fn admission_rechecks_model_and_complete_feature_binding() -> TestResult {
         let registry = validated_current_registry()?;
-        let verified = valid_document()?
-            .verify(&registry, &trusted_policy())?;
+        let verified = valid_document()?.verify(&registry, &trusted_policy())?;
         let feature_classes = verified.document().feature_classes.clone();
         let guard = TestOnlyReplayGuard::new();
 
@@ -1910,23 +1901,21 @@ mod tests {
             Err(DifferentialEvidenceError::FeatureClassSetMismatch)
         );
 
-        verified
-            .consume_for_route_admission(
-                &guard,
-                &registry,
-                &trusted_policy(),
-                "gpt-4o",
-                &feature_classes,
-                1_500,
-            )?;
+        verified.consume_for_route_admission(
+            &guard,
+            &registry,
+            &trusted_policy(),
+            "gpt-4o",
+            &feature_classes,
+            1_500,
+        )?;
         Ok(())
     }
 
     #[test]
     fn admission_rejects_changed_registry_snapshot() -> TestResult {
         let original_registry = validated_current_registry()?;
-        let verified = valid_document()?
-            .verify(&original_registry, &trusted_policy())?;
+        let verified = valid_document()?.verify(&original_registry, &trusted_policy())?;
         let mut registry_definition = Registry::current();
         registry_definition.version = "relay-capabilities-test-v2".to_owned();
         let changed_registry = validate_explicit_registry_against_catalog(
@@ -1953,8 +1942,7 @@ mod tests {
     #[test]
     fn unavailable_replay_store_stays_closed() -> TestResult {
         let registry = validated_current_registry()?;
-        let verified = valid_document()?
-            .verify(&registry, &trusted_policy())?;
+        let verified = valid_document()?.verify(&registry, &trusted_policy())?;
         let feature_classes = verified.document().feature_classes.clone();
 
         assert_eq!(

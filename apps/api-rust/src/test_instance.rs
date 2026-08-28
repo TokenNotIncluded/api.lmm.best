@@ -2418,7 +2418,10 @@ mod tests {
     #[test]
     fn dashboard_models_use_the_frozen_go_catalogue_shape() -> TestResult {
         let models = load_frozen_dashboard_models().map_err(test_error)?;
-        let object = required(models.as_object(), "dashboard model fixture must be an object")?;
+        let object = required(
+            models.as_object(),
+            "dashboard model fixture must be an object",
+        )?;
         let advanced = required(
             object.get("58").and_then(serde_json::Value::as_array),
             "dashboard model fixture must contain an array for channel type 58",
@@ -2460,8 +2463,8 @@ mod tests {
 
     #[tokio::test]
     #[ignore = "requires an isolated PostgreSQL database; set LMM_CONTROL_PUBLIC_TEST_DATABASE_URL"]
-    async fn token_auth_pg_lookup_requires_an_active_owner_and_carries_owner_context(
-    ) -> TestResult {
+    async fn token_auth_pg_lookup_requires_an_active_owner_and_carries_owner_context() -> TestResult
+    {
         let database_url = env::var("LMM_CONTROL_PUBLIC_TEST_DATABASE_URL").map_err(|error| {
             test_error(format!(
                 "LMM_CONTROL_PUBLIC_TEST_DATABASE_URL is required for the isolated PostgreSQL harness: {error}"
@@ -2760,14 +2763,14 @@ mod tests {
     }
 
     fn media_backend() -> TestResult<Arc<TestInstanceMidjourneyBackend>> {
-        Ok(Arc::new(TestInstanceMidjourneyBackend::new(
-            lazy_pg_pool()?,
-        )))
+        Ok(Arc::new(
+            TestInstanceMidjourneyBackend::new(lazy_pg_pool()?),
+        ))
     }
 
     #[tokio::test]
-    async fn media_candidate_routes_are_reachable_and_reject_unauthenticated_requests(
-    ) -> TestResult {
+    async fn media_candidate_routes_are_reachable_and_reject_unauthenticated_requests() -> TestResult
+    {
         let backend = media_backend()?;
         let dynamic_backend: Arc<dyn MidjourneyBackend> = backend.clone();
         // Building the combined surface also detects duplicate Axum route
@@ -2789,9 +2792,7 @@ mod tests {
         assert_eq!(dynamic.status(), StatusCode::UNAUTHORIZED);
 
         let static_request = request(
-            Request::builder()
-                .method("POST")
-                .uri("/mj/submit/imagine"),
+            Request::builder().method("POST").uri("/mj/submit/imagine"),
             Body::from(r#"{"prompt":"test"}"#),
             "build static Midjourney route request",
         )?;
@@ -2801,8 +2802,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn relay_misc_routes_are_auth_gated_fail_closed_and_do_not_shadow_model_delete(
-    ) -> TestResult {
+    async fn relay_misc_routes_are_auth_gated_fail_closed_and_do_not_shadow_model_delete()
+    -> TestResult {
         let app = relay_misc_candidate_router().merge(relay_anthropic_gemini_router(
             RelayHttpState::new(Arc::new(TestInstanceRelayBackend)),
         ));
@@ -2828,8 +2829,7 @@ mod tests {
         // the fixture credential passes every relay gate. They never select an
         // upstream or enter the fail-closed provider adapter.
         let frozen_request = request(
-            Request::get("/v1/files")
-                .header("authorization", "Bearer lmm-test-relay-fixture"),
+            Request::get("/v1/files").header("authorization", "Bearer lmm-test-relay-fixture"),
             Body::empty(),
             "build frozen files request",
         )?;
@@ -2866,8 +2866,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn complete_test_surface_mounts_observability_routes_before_authentication(
-    ) -> TestResult {
+    async fn complete_test_surface_mounts_observability_routes_before_authentication() -> TestResult
+    {
         let pg = lazy_pg_pool()?;
         let valkey = lazy_valkey_client()?;
         let auth = test_dashboard_auth(&pg, &valkey)?;
@@ -2904,8 +2904,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn complete_test_surface_mounts_checkin_read_route_before_authentication(
-    ) -> TestResult {
+    async fn complete_test_surface_mounts_checkin_read_route_before_authentication() -> TestResult {
         let pg = lazy_pg_pool()?;
         let valkey = lazy_valkey_client()?;
         let auth = test_dashboard_auth(&pg, &valkey)?;
@@ -2923,8 +2922,7 @@ mod tests {
 
     #[tokio::test]
     #[ignore = "requires an isolated PostgreSQL database; set LMM_RANKINGS_TEST_DATABASE_URL"]
-    async fn rankings_pg_snapshot_keeps_history_previous_rank_and_vendor_metadata(
-    ) -> TestResult {
+    async fn rankings_pg_snapshot_keeps_history_previous_rank_and_vendor_metadata() -> TestResult {
         let database_url = env::var("LMM_RANKINGS_TEST_DATABASE_URL").map_err(|error| {
             test_error(format!(
                 "LMM_RANKINGS_TEST_DATABASE_URL is required for the isolated PostgreSQL harness: {error}"
@@ -3086,8 +3084,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn anthropic_gemini_candidate_is_fail_closed_and_keeps_authenticated_delete_frozen(
-    ) -> TestResult {
+    async fn anthropic_gemini_candidate_is_fail_closed_and_keeps_authenticated_delete_frozen()
+    -> TestResult {
         let app =
             relay_anthropic_gemini_router(RelayHttpState::new(Arc::new(TestInstanceRelayBackend)));
 

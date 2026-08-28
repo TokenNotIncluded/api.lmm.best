@@ -1770,9 +1770,7 @@ mod tests {
             ..RolloutSelector::default()
         };
         let override_rule = FlagOverride::new(selector, true, MAX_BASIS_POINTS)?;
-        config
-            .conversion_engine_v2
-            .push_override(override_rule)?;
+        config.conversion_engine_v2.push_override(override_rule)?;
         let internal = context("request-1").with_channel("internal");
         let public = context("request-1");
         assert!(

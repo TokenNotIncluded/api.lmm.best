@@ -688,9 +688,10 @@ mod protocol_rollout_runtime_tests {
         runtime.preflight(&changes).await.map_err(|()| {
             invariant_error("unrelated options preserve legacy preflight behavior")
         })?;
-        runtime.apply_committed(&changes).await.map_err(|()| {
-            invariant_error("unrelated options must update the option map")
-        })?;
+        runtime
+            .apply_committed(&changes)
+            .await
+            .map_err(|()| invariant_error("unrelated options must update the option map"))?;
 
         assert_eq!(control.snapshot().generation(), before.generation());
         assert_eq!(
@@ -718,9 +719,10 @@ mod protocol_rollout_runtime_tests {
         runtime.preflight(&changes).await.map_err(|()| {
             invariant_error("true rollback must fail closed before parsing stale values")
         })?;
-        runtime.apply_committed(&changes).await.map_err(|()| {
-            invariant_error("true rollback must install even with stale values")
-        })?;
+        runtime
+            .apply_committed(&changes)
+            .await
+            .map_err(|()| invariant_error("true rollback must install even with stale values"))?;
         let snapshot = runtime
             .protocol_rollout()
             .ok_or_else(|| invariant_error("builder must install the shared control"))?
@@ -746,9 +748,10 @@ mod protocol_rollout_runtime_tests {
             .preflight(&changes)
             .await
             .map_err(|()| invariant_error("the final rollback=false must win"))?;
-        runtime.apply_committed(&changes).await.map_err(|()| {
-            invariant_error("the final rollback=false must install the candidate")
-        })?;
+        runtime
+            .apply_committed(&changes)
+            .await
+            .map_err(|()| invariant_error("the final rollback=false must install the candidate"))?;
         let snapshot = runtime
             .protocol_rollout()
             .ok_or_else(|| invariant_error("builder must install the shared control"))?
@@ -778,12 +781,14 @@ mod protocol_rollout_runtime_tests {
         assert!(control.snapshot().is_fail_closed());
 
         let recovery = vec![("protocol_rollout_rollback".to_owned(), "false".to_owned())];
-        runtime.preflight(&recovery).await.map_err(|()| {
-            invariant_error("rollback=false must rebuild persisted prior flags")
-        })?;
-        runtime.apply_committed(&recovery).await.map_err(|()| {
-            invariant_error("rollback=false must install the rebuilt candidate")
-        })?;
+        runtime
+            .preflight(&recovery)
+            .await
+            .map_err(|()| invariant_error("rollback=false must rebuild persisted prior flags"))?;
+        runtime
+            .apply_committed(&recovery)
+            .await
+            .map_err(|()| invariant_error("rollback=false must install the rebuilt candidate"))?;
         let recovered = control.snapshot();
         assert_eq!(recovered.status(), ProtocolRolloutSnapshotStatus::Active);
         assert_eq!(
@@ -819,9 +824,10 @@ mod protocol_rollout_runtime_tests {
                 FLAG_AT_FIVE_PERCENT.to_owned(),
             ),
         ];
-        runtime.preflight(&valid_recovery).await.map_err(|()| {
-            invariant_error("recovery must validate every replacement value")
-        })?;
+        runtime
+            .preflight(&valid_recovery)
+            .await
+            .map_err(|()| invariant_error("recovery must validate every replacement value"))?;
         runtime
             .apply_committed(&valid_recovery)
             .await

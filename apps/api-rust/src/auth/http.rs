@@ -1256,8 +1256,7 @@ mod tests {
     #[async_trait]
     impl TurnstileVerifier for MockTurnstile {
         async fn verify(&self, token: &str, remote_ip: &str) -> bool {
-            lock_unpoisoned(&self.requests)
-                .push((token.to_owned(), remote_ip.to_owned()));
+            lock_unpoisoned(&self.requests).push((token.to_owned(), remote_ip.to_owned()));
             self.allowed
         }
     }
@@ -1338,8 +1337,7 @@ mod tests {
             _: &str,
         ) -> Result<CriticalRateLimitOutcome, AuthError> {
             self.rate_limit_checks.fetch_add(1, Ordering::Relaxed);
-            lock_unpoisoned(&self.events)
-                .push("critical_rate_limit");
+            lock_unpoisoned(&self.events).push("critical_rate_limit");
             (*lock_unpoisoned(&self.rate_limit)).map_err(AuthError::new)
         }
 
@@ -1382,10 +1380,8 @@ mod tests {
         }
 
         async fn logout(&self, request: LogoutRequest) -> Result<LogoutResult, AuthError> {
-            lock_unpoisoned(&self.logout_requests)
-                .push(request);
-            Ok(lock_unpoisoned(&self.logout_result)
-                .clone())
+            lock_unpoisoned(&self.logout_requests).push(request);
+            Ok(lock_unpoisoned(&self.logout_result).clone())
         }
 
         async fn generate_personal_access_token(
@@ -1473,15 +1469,12 @@ mod tests {
             )
             .await?;
         assert_eq!(response.status(), StatusCode::OK);
-        let cookie = response.headers()[header::SET_COOKIE]
-            .to_str()?;
+        let cookie = response.headers()[header::SET_COOKIE].to_str()?;
         assert!(cookie.contains("HttpOnly"));
         assert!(cookie.contains("Secure"));
         assert!(cookie.contains("SameSite=Strict"));
-        let body: Value = serde_json::from_slice(
-            &to_bytes(response.into_body(), usize::MAX)
-                .await?,
-        )?;
+        let body: Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await?)?;
         assert_eq!(body["success"], true);
         assert_eq!(body["data"]["user"]["username"], "alice");
         Ok(())
@@ -1596,8 +1589,7 @@ mod tests {
         assert_eq!(body["message"], "Turnstile 校验失败，请刷新重试！");
         assert!(lock_unpoisoned(&auth.next).is_some());
         assert_eq!(
-            lock_unpoisoned(&verifier.requests)
-                .as_slice(),
+            lock_unpoisoned(&verifier.requests).as_slice(),
             &[("demo-token".to_owned(), "unknown".to_owned())]
         );
         Ok(())
@@ -1769,11 +1761,7 @@ mod tests {
                 should_clear,
                 "{label}"
             );
-            assert_eq!(
-                lock_unpoisoned(&auth.logout_requests)
-                    .len(),
-                1
-            );
+            assert_eq!(lock_unpoisoned(&auth.logout_requests).len(), 1);
         }
         Ok(())
     }
@@ -1858,10 +1846,9 @@ mod tests {
     #[tokio::test]
     async fn refresh_checks_origin_then_rate_limit_then_cookie() -> TestResult {
         let auth = Arc::new(MockAuth::success());
-        *lock_unpoisoned(&auth.rate_limit) =
-            Ok(CriticalRateLimitOutcome::Rejected {
-                retry_after_seconds: 37,
-            });
+        *lock_unpoisoned(&auth.rate_limit) = Ok(CriticalRateLimitOutcome::Rejected {
+            retry_after_seconds: 37,
+        });
         let router = auth_router(
             AuthHttpState::new(auth.clone(), true)
                 .with_trusted_origins(["https://dashboard.example"]),
@@ -1893,10 +1880,7 @@ mod tests {
             .await?;
         assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
         assert_eq!(auth.rate_limit_checks.load(Ordering::Relaxed), 1);
-        assert_eq!(
-            *lock_unpoisoned(&auth.events),
-            ["critical_rate_limit"]
-        );
+        assert_eq!(*lock_unpoisoned(&auth.events), ["critical_rate_limit"]);
         assert!(!response.headers().contains_key(header::SET_COOKIE));
 
         let response = router
@@ -1988,10 +1972,7 @@ mod tests {
             .await?;
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
         assert_eq!(auth.rate_limit_checks.load(Ordering::Relaxed), 1);
-        assert_eq!(
-            *lock_unpoisoned(&auth.events),
-            ["critical_rate_limit"]
-        );
+        assert_eq!(*lock_unpoisoned(&auth.events), ["critical_rate_limit"]);
         assert_eq!(
             response.headers()[header::SET_COOKIE],
             "new_api_refresh=; Path=/api/user/auth; Expires=Thu, 01 Jan 1970 00:00:01 GMT; Max-Age=0; HttpOnly; Secure; SameSite=Strict"
@@ -2137,23 +2118,20 @@ mod tests {
                 "{}/tests/behavior-oracle/fixtures/{fixture_name}",
                 env!("CARGO_MANIFEST_DIR")
             );
-            let fixture: Value = serde_json::from_str(
-                &std::fs::read_to_string(fixture_path)?,
-            )?;
+            let fixture: Value = serde_json::from_str(&std::fs::read_to_string(fixture_path)?)?;
             let mut builder = Request::builder().method(method).uri(uri);
             if body.is_some() {
                 builder = builder.header(header::CONTENT_TYPE, "application/json");
             }
             let response = auth_router(state.clone())
-                .oneshot(
-                    builder
-                        .body(body.map_or_else(Body::empty, Body::from))?,
-                )
+                .oneshot(builder.body(body.map_or_else(Body::empty, Body::from))?)
                 .await?;
             assert_eq!(
                 response.status().as_u16(),
-                required(fixture["response"]["status"].as_u64(), "missing fixture status")?
-                    as u16,
+                required(
+                    fixture["response"]["status"].as_u64(),
+                    "missing fixture status"
+                )? as u16,
                 "{fixture_name}"
             );
             for name in ["cache-control", "expires", "pragma", "set-cookie"] {
@@ -2192,8 +2170,7 @@ mod tests {
             )
             .await?;
 
-        let request_id = response.headers()["x-oneapi-request-id"]
-            .to_str()?;
+        let request_id = response.headers()["x-oneapi-request-id"].to_str()?;
         assert_ne!(request_id, "attacker-controlled");
         uuid::Uuid::parse_str(request_id)?;
         assert_eq!(
@@ -2246,10 +2223,7 @@ mod tests {
             .await?;
         assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
         assert!(lock_unpoisoned(&auth.next).is_some());
-        assert!(
-            lock_unpoisoned(&verifier.requests)
-                .is_empty()
-        );
+        assert!(lock_unpoisoned(&verifier.requests).is_empty());
         Ok(())
     }
 
@@ -2274,10 +2248,7 @@ mod tests {
             )
             .await?;
         assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
-        assert!(
-            lock_unpoisoned(&verifier.requests)
-                .is_empty()
-        );
+        assert!(lock_unpoisoned(&verifier.requests).is_empty());
 
         let response = router
             .clone()
@@ -2304,16 +2275,11 @@ mod tests {
             .await?;
         assert_eq!(response.status(), StatusCode::CREATED);
         assert_eq!(
-            String::from_utf8(
-                to_bytes(response.into_body(), usize::MAX)
-                    .await?
-                    .to_vec(),
-            )?,
+            String::from_utf8(to_bytes(response.into_body(), usize::MAX).await?.to_vec(),)?,
             "2"
         );
         assert_eq!(
-            lock_unpoisoned(&verifier.requests)
-                .as_slice(),
+            lock_unpoisoned(&verifier.requests).as_slice(),
             &[("demo-token".to_owned(), "unknown".to_owned())]
         );
         assert_eq!(
@@ -2327,10 +2293,9 @@ mod tests {
     #[tokio::test]
     async fn anonymous_registration_rate_limit_rejects_before_body_and_turnstile() -> TestResult {
         let auth = Arc::new(MockAuth::success());
-        *lock_unpoisoned(&auth.rate_limit) =
-            Ok(CriticalRateLimitOutcome::Rejected {
-                retry_after_seconds: 37,
-            });
+        *lock_unpoisoned(&auth.rate_limit) = Ok(CriticalRateLimitOutcome::Rejected {
+            retry_after_seconds: 37,
+        });
         let verifier = Arc::new(MockTurnstile::allowing());
         let response = anonymous_registration_surface(
             AuthHttpState::new(auth.clone(), false).with_turnstile_verifier(verifier.clone()),
@@ -2345,15 +2310,8 @@ mod tests {
         .await?;
         assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
         assert_eq!(response.headers()[header::RETRY_AFTER], "37");
-        assert!(
-            to_bytes(response.into_body(), usize::MAX)
-                .await?
-                .is_empty()
-        );
-        assert!(
-            lock_unpoisoned(&verifier.requests)
-                .is_empty()
-        );
+        assert!(to_bytes(response.into_body(), usize::MAX).await?.is_empty());
+        assert!(lock_unpoisoned(&verifier.requests).is_empty());
         assert_eq!(auth.rate_limit_checks.load(Ordering::Relaxed), 1);
         Ok(())
     }
@@ -2361,10 +2319,9 @@ mod tests {
     #[tokio::test]
     async fn critical_rate_limit_returns_empty_429_without_calling_login() -> TestResult {
         let auth = Arc::new(MockAuth::success());
-        *lock_unpoisoned(&auth.rate_limit) =
-            Ok(CriticalRateLimitOutcome::Rejected {
-                retry_after_seconds: 37,
-            });
+        *lock_unpoisoned(&auth.rate_limit) = Ok(CriticalRateLimitOutcome::Rejected {
+            retry_after_seconds: 37,
+        });
         let response =
             auth_router(AuthHttpState::new(auth.clone(), false).with_password_login_enabled(true))
                 .oneshot(login_request("alice", "pw", None)?)
@@ -2372,11 +2329,7 @@ mod tests {
         assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
         assert_eq!(response.headers()[header::RETRY_AFTER], "37");
         assert!(!response.headers().contains_key(header::CONTENT_TYPE));
-        assert!(
-            to_bytes(response.into_body(), usize::MAX)
-                .await?
-                .is_empty()
-        );
+        assert!(to_bytes(response.into_body(), usize::MAX).await?.is_empty());
         assert!(lock_unpoisoned(&auth.next).is_some());
         Ok(())
     }
@@ -2391,10 +2344,7 @@ mod tests {
                 Some(("198.51.100.20:443", "203.0.113.99")),
             )?)
             .await?;
-        assert_eq!(
-            lock_unpoisoned(&untrusted.metadata)[0].ip,
-            "198.51.100.20"
-        );
+        assert_eq!(lock_unpoisoned(&untrusted.metadata)[0].ip, "198.51.100.20");
 
         let trusted = Arc::new(MockAuth::success());
         auth_router(AuthHttpState::new(trusted.clone(), false).with_password_login_enabled(true))
@@ -2404,10 +2354,7 @@ mod tests {
                 Some(("127.0.0.1:443", "203.0.113.99")),
             )?)
             .await?;
-        assert_eq!(
-            lock_unpoisoned(&trusted.metadata)[0].ip,
-            "203.0.113.99"
-        );
+        assert_eq!(lock_unpoisoned(&trusted.metadata)[0].ip, "203.0.113.99");
         Ok(())
     }
 
@@ -2453,7 +2400,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn anonymous_request_security_reuses_limit_rate_limit_and_turnstile_policy() -> TestResult {
+    async fn anonymous_request_security_reuses_limit_rate_limit_and_turnstile_policy() -> TestResult
+    {
         let auth = Arc::new(MockAuth::success());
         let verifier = Arc::new(MockTurnstile::allowing());
         let policy = AuthHttpState::new(auth.clone(), false)
@@ -2476,8 +2424,7 @@ mod tests {
             TurnstileCheckOutcome::Allowed
         );
         assert_eq!(
-            lock_unpoisoned(&verifier.requests)
-                .as_slice(),
+            lock_unpoisoned(&verifier.requests).as_slice(),
             &[("token".to_owned(), "203.0.113.9".to_owned())]
         );
         assert_eq!(auth.rate_limit_checks.load(Ordering::Relaxed), 1);

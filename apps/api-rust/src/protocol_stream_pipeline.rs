@@ -1618,7 +1618,8 @@ mod tests {
     }
 
     #[test]
-    fn current_validated_registry_keeps_every_cross_stream_closed_before_plan_compile() -> TestResult {
+    fn current_validated_registry_keeps_every_cross_stream_closed_before_plan_compile() -> TestResult
+    {
         let registry = registry()?;
         let rollout = ProtocolRolloutControl::default().snapshot();
         let compiler = CountingCompiler::default();
@@ -1874,7 +1875,8 @@ mod tests {
     }
 
     #[test]
-    fn canonical_state_supports_parallel_blocks_and_rejects_bad_order_or_duplicate_terminal() -> TestResult {
+    fn canonical_state_supports_parallel_blocks_and_rejects_bad_order_or_duplicate_terminal()
+    -> TestResult {
         let mut state = TypedStreamState::new(Protocol::Claude, Protocol::OpenAi);
         let start = CanonicalStreamEvent::ResponseStart {
             id: "response".to_owned(),

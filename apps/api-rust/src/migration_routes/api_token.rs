@@ -2449,8 +2449,7 @@ mod tests {
             error.message,
             "json: cannot unmarshal string into Go struct field tokenRequest.Token.remain_quota of type int"
         );
-        let input =
-            decode_legacy_json::<TokenInput>(br#"{"name":null,"expired_time":null}"#)?;
+        let input = decode_legacy_json::<TokenInput>(br#"{"name":null,"expired_time":null}"#)?;
         assert_eq!(input.name, "");
         assert_eq!(input.expired_time, None);
         Ok(())
@@ -2521,9 +2520,7 @@ mod tests {
     #[test]
     fn token_wire_retains_the_first_type_error_after_later_duplicates() -> TestResult {
         let error = require_token_error(
-            decode_legacy_json::<TokenInput>(
-                br#"{"remain_quota":1.5,"Remain_Quota":7}"#,
-            ),
+            decode_legacy_json::<TokenInput>(br#"{"remain_quota":1.5,"Remain_Quota":7}"#),
             "the first type error must be retained",
         )?;
         assert_eq!(
@@ -2545,8 +2542,7 @@ mod tests {
 
     #[test]
     fn batch_wire_only_validates_ids_and_accepts_null_elements_as_zero() -> TestResult {
-        let batch =
-            decode_legacy_json::<TokenBatch>(br#"{"unknown":"ignored","ids":[null,2]}"#)?;
+        let batch = decode_legacy_json::<TokenBatch>(br#"{"unknown":"ignored","ids":[null,2]}"#)?;
         assert_eq!(batch.ids, vec![0, 2]);
 
         let error = require_token_error(
