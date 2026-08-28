@@ -383,7 +383,7 @@ async fn list_entries(
     let limit = query
         .get("limit")
         .and_then(|v| v.parse::<i64>().ok())
-        .unwrap_or(50)
+        .map_or(50, std::convert::identity)
         .clamp(1, MAX_ENTRIES);
     let (before_occurred_at, before_id) = match parse_entry_cursor(&query) {
         Ok(cursor) => cursor,
@@ -681,7 +681,8 @@ fn parse_entry_cursor(query: &HashMap<String, String>) -> Result<(i64, i64), &'s
 
 fn parse_query(raw: Option<&str>) -> HashMap<String, String> {
     let mut query = HashMap::new();
-    for (key, value) in form_urlencoded::parse(raw.unwrap_or_default().as_bytes()) {
+    let raw = raw.map_or("", std::convert::identity);
+    for (key, value) in form_urlencoded::parse(raw.as_bytes()) {
         query
             .entry(key.into_owned())
             .or_insert_with(|| value.into_owned());
@@ -697,7 +698,7 @@ fn unix_timestamp() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |duration| {
-            i64::try_from(duration.as_secs()).unwrap_or(i64::MAX)
+            i64::try_from(duration.as_secs()).map_or(i64::MAX, std::convert::identity)
         })
 }
 
@@ -800,7 +801,8 @@ fn user_policy_error(headers: &HeaderMap, error: UserAuthPolicyError) -> Respons
         UserAuthPolicyError::InvalidUserInfo => "AUTH_USER_INVALID",
     };
     legacy_json(
-        StatusCode::from_u16(user_auth_status(error)).unwrap_or(StatusCode::UNAUTHORIZED),
+        StatusCode::from_u16(user_auth_status(error))
+            .map_or(StatusCode::UNAUTHORIZED, std::convert::identity),
         json!({
             "success": false,
             "code": code,
@@ -825,7 +827,7 @@ fn token_locale(headers: &HeaderMap) -> TokenLocale {
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.split(',').next())
         .and_then(|value| value.split(';').next())
-        .unwrap_or_default()
+        .map_or("", std::convert::identity)
         .trim()
         .to_ascii_lowercase();
     if language.starts_with("zh-tw") {
@@ -1250,7 +1252,7 @@ impl FinanceAccumulator {
             .date_naive()
             .and_hms_opt(0, 0, 0)
             .map(|dt| dt.and_utc().timestamp())
-            .unwrap_or(start);
+            .map_or(start, std::convert::identity);
         while day < end {
             self.daily_metric(day);
             day += 24 * 60 * 60;
@@ -1415,8 +1417,10 @@ impl FinanceBackend for PgFinanceBackend {
             .iter()
             .map(ledger_entry_from_row)
             .collect::<Result<Vec<_>, _>>()?;
-        let next = if has_more && !entries.is_empty() {
-            let last = entries.last().expect("non-empty");
+        let next = if has_more {
+            let last = entries.last().ok_or_else(|| {
+                FinanceError("finance ledger pagination produced no cursor row".to_owned())
+            })?;
             Some((last.occurred_at, last.id))
         } else {
             None
@@ -1597,14 +1601,16 @@ impl FinanceBackend for PgFinanceBackend {
             .as_ref()
             .map(|v| v.trim().to_owned())
             .filter(|v| !v.is_empty())
-            .unwrap_or_else(|| label.clone());
+            .map_or_else(|| label.clone(), std::convert::identity);
         let label = if label.is_empty() {
             method.to_owned()
         } else {
             label
         };
-        let enabled = input.enabled.unwrap_or(enabled);
-        let include_revenue = input.include_revenue.unwrap_or(include_revenue);
+        let enabled = input.enabled.map_or(enabled, std::convert::identity);
+        let include_revenue = input
+            .include_revenue
+            .map_or(include_revenue, std::convert::identity);
         let row = if id > 0 {
             sqlx::query(
                 "UPDATE finance_payment_methods SET label = $1, enabled = $2, include_revenue = $3, \
@@ -1841,8 +1847,10 @@ async fn load_topups(
             acc.add_revenue(&method, &provider, amount, timestamp, user_id);
         }
         processed += rows.len() as i64;
-        let last = rows.last().expect("non-empty batch");
-        last_ts = row_get(last, "complete_time").unwrap_or(0);
+        let last = rows.last().ok_or_else(|| {
+            FinanceError("top-up pagination returned an empty batch".to_owned())
+        })?;
+        last_ts = row_get(last, "complete_time")?;
         if last_ts <= 0 {
             last_ts = row_get(last, "create_time")?;
         }
@@ -1926,8 +1934,10 @@ async fn load_subscription_orders(
             );
         }
         processed += rows.len() as i64;
-        let last = rows.last().expect("non-empty batch");
-        last_ts = row_get(last, "complete_time").unwrap_or(0);
+        let last = rows.last().ok_or_else(|| {
+            FinanceError("subscription pagination returned an empty batch".to_owned())
+        })?;
+        last_ts = row_get(last, "complete_time")?;
         if last_ts <= 0 {
             last_ts = row_get(last, "create_time")?;
         }
@@ -2006,7 +2016,9 @@ async fn load_usage_logs(
             acc.add_usage(user_id, created_at, prompt, completion, cost, priced);
         }
         processed += rows.len() as i64;
-        let last = rows.last().expect("non-empty batch");
+        let last = rows.last().ok_or_else(|| {
+            FinanceError("usage pagination returned an empty batch".to_owned())
+        })?;
         last_ts = row_get(last, "created_at")?;
         last_request_id = row_get(last, "request_id")?;
         if (rows.len() as i64) < limit {
@@ -2085,7 +2097,7 @@ async fn load_ledger_entries(
                 &row_get::<String>(row, "payment_provider")?,
             );
             let user_id: Option<i64> = row_get(row, "user_id")?;
-            let user_id = user_id.unwrap_or(0);
+            let user_id = user_id.map_or(0, std::convert::identity);
             let occurred_at: i64 = row_get(row, "occurred_at")?;
             let category: String = row_get(row, "category")?;
             match entry_type.as_str() {
@@ -2120,7 +2132,9 @@ async fn load_ledger_entries(
             }
         }
         processed += rows.len() as i64;
-        let last = rows.last().expect("non-empty batch");
+        let last = rows.last().ok_or_else(|| {
+            FinanceError("ledger pagination returned an empty batch".to_owned())
+        })?;
         last_ts = row_get(last, "occurred_at")?;
         last_id = row_get(last, "id")?;
         if (rows.len() as i64) < limit {
