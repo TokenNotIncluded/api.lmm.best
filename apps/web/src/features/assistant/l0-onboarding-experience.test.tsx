@@ -51,6 +51,13 @@ const { act } = await import('react')
 const { createRoot } = await import('react-dom/client')
 const { QueryClient, QueryClientProvider } =
   await import('@tanstack/react-query')
+const {
+  RouterProvider,
+  createMemoryHistory,
+  createRootRoute,
+  createRoute,
+  createRouter,
+} = await import('@tanstack/react-router')
 const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { api } = await import('@/lib/api')
@@ -111,18 +118,30 @@ async function renderPanel() {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
-  const container = document.createElement('div')
-  document.body.append(container)
-  const root = createRoot(container)
-
-  await act(async () => {
-    root.render(
+  const rootRoute = createRootRoute({
+    component: () => (
       <QueryClientProvider client={queryClient}>
         <I18nextProvider i18n={i18n}>
           <AssistantPanel mode='rail' open onOpenChange={() => {}} />
         </I18nextProvider>
       </QueryClientProvider>
-    )
+    ),
+  })
+  const indexRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/',
+    component: () => null,
+  })
+  const router = createRouter({
+    routeTree: rootRoute.addChildren([indexRoute]),
+    history: createMemoryHistory({ initialEntries: ['/'] }),
+  })
+  const container = document.createElement('div')
+  document.body.append(container)
+  const root = createRoot(container)
+
+  await act(async () => {
+    root.render(<RouterProvider router={router} />)
     await flushEffects()
   })
   await act(flushEffects)
@@ -133,18 +152,30 @@ async function renderLauncher() {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
-  const container = document.createElement('div')
-  document.body.append(container)
-  const root = createRoot(container)
-
-  await act(async () => {
-    root.render(
+  const rootRoute = createRootRoute({
+    component: () => (
       <QueryClientProvider client={queryClient}>
         <I18nextProvider i18n={i18n}>
           <AssistantLauncher />
         </I18nextProvider>
       </QueryClientProvider>
-    )
+    ),
+  })
+  const indexRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/',
+    component: () => null,
+  })
+  const router = createRouter({
+    routeTree: rootRoute.addChildren([indexRoute]),
+    history: createMemoryHistory({ initialEntries: ['/'] }),
+  })
+  const container = document.createElement('div')
+  document.body.append(container)
+  const root = createRoot(container)
+
+  await act(async () => {
+    root.render(<RouterProvider router={router} />)
     await flushEffects()
   })
   await act(flushEffects)

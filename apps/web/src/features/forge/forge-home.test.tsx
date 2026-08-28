@@ -24,6 +24,10 @@ import { Window } from 'happy-dom'
 import type { AuthUser } from '@/stores/auth-store'
 
 const domWindow = new Window({ url: 'https://console.example.test/' })
+Object.defineProperty(domWindow.document, 'compatMode', {
+  configurable: true,
+  value: 'CSS1Compat',
+})
 for (const key of [
   'window',
   'document',

@@ -11,6 +11,10 @@ const domWindow = new Window({
   width: 390,
   height: 844,
 })
+Object.defineProperty(domWindow.document, 'compatMode', {
+  configurable: true,
+  value: 'CSS1Compat',
+})
 for (const key of [
   'window',
   'document',

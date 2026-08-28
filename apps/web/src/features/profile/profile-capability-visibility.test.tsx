@@ -15,6 +15,10 @@ const domWindow = new Window()
 domWindow.document.write(
   '<!doctype html><html><head></head><body></body></html>'
 )
+Object.defineProperty(domWindow.document, 'compatMode', {
+  configurable: true,
+  value: 'CSS1Compat',
+})
 for (const key of [
   'window',
   'document',

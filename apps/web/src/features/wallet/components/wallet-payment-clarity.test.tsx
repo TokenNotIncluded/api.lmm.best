@@ -27,6 +27,10 @@ const domWindow = new Window()
 domWindow.document.write(
   '<!doctype html><html><head></head><body></body></html>'
 )
+Object.defineProperty(domWindow.document, 'compatMode', {
+  configurable: true,
+  value: 'CSS1Compat',
+})
 const domGlobals = [
   'window',
   'document',
@@ -83,6 +87,7 @@ reactTestGlobals.IS_REACT_ACT_ENVIRONMENT = true
 const originalConfig = useSystemConfigStore.getState().config
 const originalGet = api.get
 const originalPost = api.post
+const originalConsoleError = console.error
 
 async function flushEffects() {
   await new Promise((resolve) => setTimeout(resolve, 20))
@@ -154,6 +159,7 @@ async function unmount(rendered: Rendered) {
 afterEach(() => {
   api.get = originalGet
   api.post = originalPost
+  console.error = originalConsoleError
   useAuthStore.getState().auth.reset('complete')
   latestTopupState = null
 })
@@ -178,6 +184,8 @@ const topupInfo = {
 
 describe('wallet payment clarity', () => {
   test('clears stale top-up configuration and presets when a refresh fails', async () => {
+    const consoleErrors: unknown[][] = []
+    console.error = (...args: unknown[]) => consoleErrors.push(args)
     let calls = 0
     api.get = (async (url) => {
       if (url !== '/api/user/topup/info') {
@@ -207,6 +215,9 @@ describe('wallet payment clarity', () => {
     })
     assert.equal(rendered.container.textContent, 'error:0:0')
     assert.equal(calls, 2)
+    assert.deepEqual(consoleErrors, [
+      ['Failed to fetch topup info:', 'offline'],
+    ])
     await unmount(rendered)
   })
 
