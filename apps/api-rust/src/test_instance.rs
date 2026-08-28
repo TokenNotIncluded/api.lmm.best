@@ -258,6 +258,22 @@ pub fn safe_candidate_surface(
         Arc::new(PgReadOnlyObservabilityTokenAuthorizer::new(pg.clone())),
     ));
 
+    let federation_identity: Arc<dyn FederationIdentity> = match DashboardFederationIdentity::new(
+        Arc::clone(&auth),
+        pg.clone(),
+        &SecretString::from("test-federation-session-secret"),
+        Arc::new(DisabledEmailCodeVerifier),
+    ) {
+        Ok(identity) => Arc::new(identity),
+        Err(error) => {
+            tracing::error!(
+                ?error,
+                "test-instance federation identity setup failed; bindings remain fail-closed"
+            );
+            Arc::new(DenyFederationIdentity)
+        }
+    };
+
     Router::new()
         .merge(billing_payments_router(BillingHttpState::new(
             BillingDependencies {
@@ -310,15 +326,7 @@ pub fn safe_candidate_surface(
         )))
         .merge(identity_federation_bindings_router(FederationState::new(
             pg.clone(),
-            Arc::new(
-                DashboardFederationIdentity::new(
-                    Arc::clone(&auth),
-                    pg.clone(),
-                    &SecretString::from("test-federation-session-secret"),
-                    Arc::new(DisabledEmailCodeVerifier),
-                )
-                .expect("test federation identity secret"),
-            ),
+            federation_identity,
             b"test-federation-flow-key",
         )))
         .merge(observability_router(
@@ -663,16 +671,28 @@ impl PgMissingControlStore {
 const FROZEN_DASHBOARD_CHANNEL_MODELS_SHA256: &str =
     "cb4e3e3eac50b4f9d251d8768bb2e8e6e347dcd4da6be55bdb6a70a51e2b270e";
 
-fn frozen_dashboard_models() -> Value {
+fn load_frozen_dashboard_models() -> Result<Value, String> {
     let fixture = include_str!("../assets/channel-id2models-go-v1.json");
-    let digest = Sha256::digest(fixture.as_bytes());
-    assert_eq!(
-        format!("{digest:x}"),
-        FROZEN_DASHBOARD_CHANNEL_MODELS_SHA256,
-        "pinned Go channelId2Models fixture changed"
-    );
-    serde_json::from_str(fixture)
-        .expect("checked-in frozen dashboard model catalogue is valid JSON")
+    let actual_digest = format!("{:x}", Sha256::digest(fixture.as_bytes()));
+    if actual_digest != FROZEN_DASHBOARD_CHANNEL_MODELS_SHA256 {
+        return Err(format!(
+            "pinned Go channelId2Models fixture digest mismatch: expected \
+             {FROZEN_DASHBOARD_CHANNEL_MODELS_SHA256}, got {actual_digest}"
+        ));
+    }
+    serde_json::from_str(fixture).map_err(|error| {
+        format!("checked-in frozen dashboard model catalogue is invalid JSON: {error}")
+    })
+}
+
+fn frozen_dashboard_models() -> Value {
+    match load_frozen_dashboard_models() {
+        Ok(models) => models,
+        Err(error) => {
+            tracing::error!(%error, "frozen dashboard model catalogue is unavailable");
+            Value::Object(Map::new())
+        }
+    }
 }
 
 fn object_option<'a>(
@@ -2074,14 +2094,10 @@ struct TestInstanceMidjourneyBackend {
 
 impl TestInstanceMidjourneyBackend {
     fn new(pg: PgPool) -> Self {
-        let client = reqwest::Client::builder()
-            .no_proxy()
-            .build()
-            .unwrap_or_default();
         Self {
             authentication: PgMidjourneyBackend::new(
                 pg,
-                client,
+                reqwest::Client::new(),
                 MidjourneyChannel {
                     id: 0,
                     base_url: "http://127.0.0.1:9/".to_owned(),
@@ -2257,7 +2273,7 @@ impl ProjectUpdateClient for DenyProjectUpdate {
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::BTreeMap, env, sync::Arc};
+    use std::{collections::BTreeMap, env, error::Error, io, sync::Arc};
 
     use axum::{
         body::Body,
@@ -2288,9 +2304,55 @@ mod tests {
         LEGACY_PRICING_RESPONSE_VERSION, PgMissingControlStore, PricingAbility,
         PricingModelMetadata, PricingVendor, TestInstanceMidjourneyBackend,
         TestInstanceRelayBackend, TestInstanceSetupRuntimeWriter, build_pricing_snapshot,
-        frozen_dashboard_models, relay_misc_candidate_router, safe_candidate_surface,
+        load_frozen_dashboard_models, relay_misc_candidate_router, safe_candidate_surface,
     };
     use lmm_api_rs::migration_routes::missing_control_public::MissingControlStore;
+
+    type TestResult<T = ()> = Result<T, Box<dyn Error>>;
+
+    fn test_error(message: impl Into<String>) -> Box<dyn Error> {
+        Box::new(io::Error::other(message.into()))
+    }
+
+    fn required<T>(value: Option<T>, context: &'static str) -> TestResult<T> {
+        value.ok_or_else(|| test_error(context))
+    }
+
+    fn request(
+        builder: axum::http::request::Builder,
+        body: Body,
+        context: &'static str,
+    ) -> TestResult<Request<Body>> {
+        builder
+            .body(body)
+            .map_err(|error| test_error(format!("{context}: {error}")))
+    }
+
+    fn lazy_pg_pool() -> TestResult<PgPool> {
+        PgPoolOptions::new()
+            .acquire_timeout(Duration::from_millis(10))
+            .connect_lazy("postgres://unused:unused@127.0.0.1:1/unused")
+            .map_err(|error| test_error(format!("build deferred PostgreSQL fixture pool: {error}")))
+    }
+
+    fn lazy_valkey_client() -> TestResult<redis::Client> {
+        redis::Client::open("redis://127.0.0.1:1/")
+            .map_err(|error| test_error(format!("build deferred Valkey fixture client: {error}")))
+    }
+
+    fn test_dashboard_auth(
+        pg: &PgPool,
+        valkey: &redis::Client,
+    ) -> TestResult<Arc<dyn DashboardAuth>> {
+        Ok(Arc::new(PgValkeyDashboardAuth::new(
+            pg.clone(),
+            valkey.clone(),
+            AuthConfig {
+                session_secret: SecretString::from("TestR5!session-secret-with-entropy-123456"),
+                ..AuthConfig::default()
+            },
+        )?))
+    }
 
     fn config_change(key: &str, value: &str) -> (String, String) {
         (key.to_owned(), value.to_owned())
@@ -2354,13 +2416,13 @@ mod tests {
     }
 
     #[test]
-    fn dashboard_models_use_the_frozen_go_catalogue_shape() {
-        let models = frozen_dashboard_models();
-        let object = models.as_object().expect("channel-type map");
-        let advanced = object
-            .get("58")
-            .and_then(serde_json::Value::as_array)
-            .expect("advanced custom channel list");
+    fn dashboard_models_use_the_frozen_go_catalogue_shape() -> TestResult {
+        let models = load_frozen_dashboard_models().map_err(test_error)?;
+        let object = required(models.as_object(), "dashboard model fixture must be an object")?;
+        let advanced = required(
+            object.get("58").and_then(serde_json::Value::as_array),
+            "dashboard model fixture must contain an array for channel type 58",
+        )?;
         assert!(!advanced.is_empty());
         assert!(advanced.iter().all(|model| model.is_string()));
         assert_eq!(
@@ -2393,19 +2455,22 @@ mod tests {
         );
         assert_ne!(object.get("46"), object.get("45"));
         assert!(!object.contains_key("999"));
+        Ok(())
     }
 
     #[tokio::test]
     #[ignore = "requires an isolated PostgreSQL database; set LMM_CONTROL_PUBLIC_TEST_DATABASE_URL"]
-    async fn token_auth_pg_lookup_requires_an_active_owner_and_carries_owner_context() {
-        let database_url = env::var("LMM_CONTROL_PUBLIC_TEST_DATABASE_URL").expect(
-            "LMM_CONTROL_PUBLIC_TEST_DATABASE_URL is required for the isolated PostgreSQL harness",
-        );
+    async fn token_auth_pg_lookup_requires_an_active_owner_and_carries_owner_context(
+    ) -> TestResult {
+        let database_url = env::var("LMM_CONTROL_PUBLIC_TEST_DATABASE_URL").map_err(|error| {
+            test_error(format!(
+                "LMM_CONTROL_PUBLIC_TEST_DATABASE_URL is required for the isolated PostgreSQL harness: {error}"
+            ))
+        })?;
         let pool = PgPoolOptions::new()
             .max_connections(2)
             .connect(&database_url)
-            .await
-            .expect("isolated PostgreSQL must be reachable");
+            .await?;
         let suffix = Uuid::new_v4().simple().to_string();
         let username = format!("control-token-owner-{suffix}");
         let key = format!("control-token-{suffix}");
@@ -2415,8 +2480,7 @@ mod tests {
         )
         .bind(&username)
         .fetch_one(&pool)
-        .await
-        .expect("owner fixture");
+        .await?;
         sqlx::query(
             "INSERT INTO tokens (user_id, key, status, name, created_time, accessed_time, \
              expired_time, remain_quota, unlimited_quota, model_limits_enabled, model_limits, \
@@ -2426,60 +2490,57 @@ mod tests {
         .bind(user_id)
         .bind(&key)
         .execute(&pool)
-        .await
-        .expect("token fixture");
+        .await?;
 
         let store = PgMissingControlStore::new(pool.clone());
-        let prefix = key.split('-').next().expect("token prefix");
-        let active = store
-            .token_auth_read_only(prefix)
-            .await
-            .expect("active owner lookup")
-            .expect("token");
+        let prefix = required(
+            key.split('-').next(),
+            "generated control token must contain a prefix",
+        )?;
+        let active = required(
+            store.token_auth_read_only(prefix).await?,
+            "active owner token lookup must return the fixture token",
+        )?;
         assert_eq!(active.user_id, user_id);
         assert_eq!(active.user_status, 1);
         assert_eq!(active.saved_language.as_deref(), Some("zh-TW"));
         assert!(
             store
                 .token_usage_for_owner(&key, user_id + 1)
-                .await
-                .expect("owner-bound usage lookup")
+                .await?
                 .is_none()
         );
 
         sqlx::query("UPDATE users SET status = 2 WHERE id = $1")
             .bind(user_id)
             .execute(&pool)
-            .await
-            .expect("disable owner");
-        let disabled = store
-            .token_auth_read_only(&key)
-            .await
-            .expect("disabled owner lookup")
-            .expect("token");
+            .await?;
+        let disabled = required(
+            store.token_auth_read_only(&key).await?,
+            "disabled owner lookup must return the fixture token",
+        )?;
         assert_eq!(disabled.user_status, 2);
 
         sqlx::query("UPDATE users SET deleted_at = NOW() WHERE id = $1")
             .bind(user_id)
             .execute(&pool)
-            .await
-            .expect("soft delete owner");
-        let missing_owner = store
-            .token_auth_read_only(&key)
-            .await
-            .expect_err("soft-deleted owner must fail closed");
+            .await?;
+        let Err(missing_owner) = store.token_auth_read_only(&key).await else {
+            return Err(test_error(
+                "soft-deleted owner token lookup must fail closed",
+            ));
+        };
         assert!(missing_owner.0.contains(&user_id.to_string()));
 
         sqlx::query("DELETE FROM tokens WHERE key = $1")
             .bind(&key)
             .execute(&pool)
-            .await
-            .expect("remove token fixture");
+            .await?;
         sqlx::query("DELETE FROM users WHERE id = $1")
             .bind(user_id)
             .execute(&pool)
-            .await
-            .expect("remove owner fixture");
+            .await?;
+        Ok(())
     }
 
     #[tokio::test]
@@ -2698,16 +2759,16 @@ mod tests {
         );
     }
 
-    fn media_backend() -> Arc<TestInstanceMidjourneyBackend> {
-        Arc::new(TestInstanceMidjourneyBackend::new(
-            PgPool::connect_lazy("postgres://unused:unused@127.0.0.1:1/unused")
-                .expect("a lazy PostgreSQL URL is valid"),
-        ))
+    fn media_backend() -> TestResult<Arc<TestInstanceMidjourneyBackend>> {
+        Ok(Arc::new(TestInstanceMidjourneyBackend::new(
+            lazy_pg_pool()?,
+        )))
     }
 
     #[tokio::test]
-    async fn media_candidate_routes_are_reachable_and_reject_unauthenticated_requests() {
-        let backend = media_backend();
+    async fn media_candidate_routes_are_reachable_and_reject_unauthenticated_requests(
+    ) -> TestResult {
+        let backend = media_backend()?;
         let dynamic_backend: Arc<dyn MidjourneyBackend> = backend.clone();
         // Building the combined surface also detects duplicate Axum route
         // registrations before a test instance can start.
@@ -2717,226 +2778,162 @@ mod tests {
             ))),
         );
 
-        let dynamic = app
-            .clone()
-            .oneshot(
-                Request::builder()
-                    .method("POST")
-                    .uri("/proxy/mj/submit/imagine")
-                    .body(Body::from(r#"{"prompt":"test"}"#))
-                    .expect("dynamic request is valid"),
-            )
-            .await
-            .expect("router is infallible");
+        let dynamic_request = request(
+            Request::builder()
+                .method("POST")
+                .uri("/proxy/mj/submit/imagine"),
+            Body::from(r#"{"prompt":"test"}"#),
+            "build dynamic Midjourney route request",
+        )?;
+        let dynamic = app.clone().oneshot(dynamic_request).await?;
         assert_eq!(dynamic.status(), StatusCode::UNAUTHORIZED);
 
-        let static_route = app
-            .oneshot(
-                Request::builder()
-                    .method("POST")
-                    .uri("/mj/submit/imagine")
-                    .body(Body::from(r#"{"prompt":"test"}"#))
-                    .expect("static request is valid"),
-            )
-            .await
-            .expect("router is infallible");
+        let static_request = request(
+            Request::builder()
+                .method("POST")
+                .uri("/mj/submit/imagine"),
+            Body::from(r#"{"prompt":"test"}"#),
+            "build static Midjourney route request",
+        )?;
+        let static_route = app.oneshot(static_request).await?;
         assert_eq!(static_route.status(), StatusCode::UNAUTHORIZED);
+        Ok(())
     }
 
     #[tokio::test]
-    async fn relay_misc_routes_are_auth_gated_fail_closed_and_do_not_shadow_model_delete() {
+    async fn relay_misc_routes_are_auth_gated_fail_closed_and_do_not_shadow_model_delete(
+    ) -> TestResult {
         let app = relay_misc_candidate_router().merge(relay_anthropic_gemini_router(
             RelayHttpState::new(Arc::new(TestInstanceRelayBackend)),
         ));
 
-        let anonymous = app
-            .clone()
-            .oneshot(
-                Request::post("/v1/alpha/search")
-                    .body(Body::from("{}"))
-                    .expect("relay request is valid"),
-            )
-            .await
-            .expect("router is infallible");
+        let anonymous_request = request(
+            Request::post("/v1/alpha/search"),
+            Body::from("{}"),
+            "build anonymous relay request",
+        )?;
+        let anonymous = app.clone().oneshot(anonymous_request).await?;
         assert_eq!(anonymous.status(), StatusCode::UNAUTHORIZED);
 
-        let unavailable = app
-            .clone()
-            .oneshot(
-                Request::post("/v1/alpha/search")
-                    .header("authorization", "Bearer lmm-test-relay-fixture")
-                    .body(Body::from("{}"))
-                    .expect("fixture relay request is valid"),
-            )
-            .await
-            .expect("router is infallible");
+        let unavailable_request = request(
+            Request::post("/v1/alpha/search")
+                .header("authorization", "Bearer lmm-test-relay-fixture"),
+            Body::from("{}"),
+            "build authenticated relay request",
+        )?;
+        let unavailable = app.clone().oneshot(unavailable_request).await?;
         assert_eq!(unavailable.status(), StatusCode::SERVICE_UNAVAILABLE);
 
         // Frozen Go routes owned by RelayNotImplemented return 501 only after
         // the fixture credential passes every relay gate. They never select an
         // upstream or enter the fail-closed provider adapter.
-        let frozen = app
-            .clone()
-            .oneshot(
-                Request::get("/v1/files")
-                    .header("authorization", "Bearer lmm-test-relay-fixture")
-                    .body(Body::empty())
-                    .expect("frozen request is valid"),
-            )
-            .await
-            .expect("router is infallible");
+        let frozen_request = request(
+            Request::get("/v1/files")
+                .header("authorization", "Bearer lmm-test-relay-fixture"),
+            Body::empty(),
+            "build frozen files request",
+        )?;
+        let frozen = app.clone().oneshot(frozen_request).await?;
         assert_eq!(frozen.status(), StatusCode::NOT_IMPLEMENTED);
 
-        let model_delete = app
-            .oneshot(
-                Request::delete("/v1/models/model-a")
-                    .header("authorization", "Bearer lmm-test-relay-fixture")
-                    .body(Body::empty())
-                    .expect("model deletion request is valid"),
-            )
-            .await
-            .expect("router is infallible");
+        let model_delete_request = request(
+            Request::delete("/v1/models/model-a")
+                .header("authorization", "Bearer lmm-test-relay-fixture"),
+            Body::empty(),
+            "build frozen model deletion request",
+        )?;
+        let model_delete = app.oneshot(model_delete_request).await?;
         assert_eq!(model_delete.status(), StatusCode::NOT_IMPLEMENTED);
+        Ok(())
     }
 
     #[tokio::test]
-    async fn setup_route_is_mounted_without_enabling_remote_dependencies() {
-        let pg = PgPoolOptions::new()
-            .acquire_timeout(Duration::from_millis(10))
-            .connect_lazy("postgres://unused:unused@127.0.0.1:1/unused")
-            .expect("a lazy PostgreSQL URL is valid");
-        let valkey =
-            redis::Client::open("redis://127.0.0.1:1/").expect("a lazy Valkey URL is valid");
-        let auth: Arc<dyn DashboardAuth> = Arc::new(
-            PgValkeyDashboardAuth::new(
-                pg.clone(),
-                valkey.clone(),
-                AuthConfig {
-                    session_secret: SecretString::from("TestR5!session-secret-with-entropy-123456"),
-                    ..AuthConfig::default()
-                },
-            )
-            .expect("test auth config is valid"),
-        );
+    async fn setup_route_is_mounted_without_enabling_remote_dependencies() -> TestResult {
+        let pg = lazy_pg_pool()?;
+        let valkey = lazy_valkey_client()?;
+        let auth = test_dashboard_auth(&pg, &valkey)?;
+        let setup_request = request(
+            Request::get("/api/setup"),
+            Body::empty(),
+            "build setup route request",
+        )?;
         let response = safe_candidate_surface(pg, valkey, auth)
-            .oneshot(
-                Request::get("/api/setup")
-                    .body(Body::empty())
-                    .expect("request is valid"),
-            )
-            .await
-            .expect("router is infallible");
+            .oneshot(setup_request)
+            .await?;
         assert_ne!(response.status(), StatusCode::NOT_FOUND);
         assert!(DenyProjectUpdate.latest_main_commit().await.is_err());
+        Ok(())
     }
 
     #[tokio::test]
-    async fn complete_test_surface_mounts_observability_routes_before_authentication() {
-        let pg = PgPoolOptions::new()
-            .acquire_timeout(Duration::from_millis(10))
-            .connect_lazy("postgres://unused:unused@127.0.0.1:1/unused")
-            .expect("a lazy PostgreSQL URL is valid");
-        let valkey =
-            redis::Client::open("redis://127.0.0.1:1/").expect("a lazy Valkey URL is valid");
-        let auth: Arc<dyn DashboardAuth> = Arc::new(
-            PgValkeyDashboardAuth::new(
-                pg.clone(),
-                valkey.clone(),
-                AuthConfig {
-                    session_secret: SecretString::from("TestR5!session-secret-with-entropy-123456"),
-                    ..AuthConfig::default()
-                },
-            )
-            .expect("test auth config is valid"),
-        );
+    async fn complete_test_surface_mounts_observability_routes_before_authentication(
+    ) -> TestResult {
+        let pg = lazy_pg_pool()?;
+        let valkey = lazy_valkey_client()?;
+        let auth = test_dashboard_auth(&pg, &valkey)?;
         let app = safe_candidate_surface(pg, valkey, auth);
         for path in ["/api/data/self", "/api/perf-metrics/summary"] {
-            let response = app
-                .clone()
-                .oneshot(
-                    Request::get(path)
-                        .body(Body::empty())
-                        .expect("request is valid"),
-                )
-                .await
-                .expect("router is infallible");
+            let route_request = request(
+                Request::get(path),
+                Body::empty(),
+                "build observability route request",
+            )?;
+            let response = app.clone().oneshot(route_request).await?;
             assert_ne!(response.status(), StatusCode::NOT_FOUND, "{path}");
         }
+        Ok(())
     }
 
     #[tokio::test]
-    async fn complete_test_surface_mounts_topup_read_routes_before_authentication() {
-        let pg = PgPoolOptions::new()
-            .acquire_timeout(Duration::from_millis(10))
-            .connect_lazy("postgres://unused:unused@127.0.0.1:1/unused")
-            .expect("a lazy PostgreSQL URL is valid");
-        let valkey =
-            redis::Client::open("redis://127.0.0.1:1/").expect("a lazy Valkey URL is valid");
-        let auth: Arc<dyn DashboardAuth> = Arc::new(
-            PgValkeyDashboardAuth::new(
-                pg.clone(),
-                valkey.clone(),
-                AuthConfig {
-                    session_secret: SecretString::from("TestR5!session-secret-with-entropy-123456"),
-                    ..AuthConfig::default()
-                },
-            )
-            .expect("test auth config is valid"),
-        );
+    async fn complete_test_surface_mounts_topup_read_routes_before_authentication() -> TestResult {
+        let pg = lazy_pg_pool()?;
+        let valkey = lazy_valkey_client()?;
+        let auth = test_dashboard_auth(&pg, &valkey)?;
         for path in ["/api/user/topup/info", "/api/user/topup/self"] {
+            let route_request = request(
+                Request::get(path),
+                Body::empty(),
+                "build top-up route request",
+            )?;
             let response = safe_candidate_surface(pg.clone(), valkey.clone(), Arc::clone(&auth))
-                .oneshot(
-                    Request::get(path)
-                        .body(Body::empty())
-                        .expect("request is valid"),
-                )
-                .await
-                .expect("router is infallible");
+                .oneshot(route_request)
+                .await?;
             assert_eq!(response.status(), StatusCode::UNAUTHORIZED, "{path}");
         }
+        Ok(())
     }
 
     #[tokio::test]
-    async fn complete_test_surface_mounts_checkin_read_route_before_authentication() {
-        let pg = PgPoolOptions::new()
-            .acquire_timeout(Duration::from_millis(10))
-            .connect_lazy("postgres://unused:unused@127.0.0.1:1/unused")
-            .expect("a lazy PostgreSQL URL is valid");
-        let valkey =
-            redis::Client::open("redis://127.0.0.1:1/").expect("a lazy Valkey URL is valid");
-        let auth: Arc<dyn DashboardAuth> = Arc::new(
-            PgValkeyDashboardAuth::new(
-                pg.clone(),
-                valkey.clone(),
-                AuthConfig {
-                    session_secret: SecretString::from("TestR5!session-secret-with-entropy-123456"),
-                    ..AuthConfig::default()
-                },
-            )
-            .expect("test auth config is valid"),
-        );
+    async fn complete_test_surface_mounts_checkin_read_route_before_authentication(
+    ) -> TestResult {
+        let pg = lazy_pg_pool()?;
+        let valkey = lazy_valkey_client()?;
+        let auth = test_dashboard_auth(&pg, &valkey)?;
+        let checkin_request = request(
+            Request::get("/api/user/checkin?month=2026-08"),
+            Body::empty(),
+            "build check-in route request",
+        )?;
         let response = safe_candidate_surface(pg, valkey, auth)
-            .oneshot(
-                Request::get("/api/user/checkin?month=2026-08")
-                    .body(Body::empty())
-                    .expect("request is valid"),
-            )
-            .await
-            .expect("router is infallible");
+            .oneshot(checkin_request)
+            .await?;
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        Ok(())
     }
 
     #[tokio::test]
     #[ignore = "requires an isolated PostgreSQL database; set LMM_RANKINGS_TEST_DATABASE_URL"]
-    async fn rankings_pg_snapshot_keeps_history_previous_rank_and_vendor_metadata() {
-        let database_url = env::var("LMM_RANKINGS_TEST_DATABASE_URL").expect(
-            "LMM_RANKINGS_TEST_DATABASE_URL is required for the isolated PostgreSQL harness",
-        );
+    async fn rankings_pg_snapshot_keeps_history_previous_rank_and_vendor_metadata(
+    ) -> TestResult {
+        let database_url = env::var("LMM_RANKINGS_TEST_DATABASE_URL").map_err(|error| {
+            test_error(format!(
+                "LMM_RANKINGS_TEST_DATABASE_URL is required for the isolated PostgreSQL harness: {error}"
+            ))
+        })?;
         let pool = PgPoolOptions::new()
             .max_connections(3)
             .connect(&database_url)
-            .await
-            .expect("isolated PostgreSQL must be reachable");
+            .await?;
         let prefix = format!("rankings-parity-{}", Uuid::new_v4().simple());
         let models = [
             format!("{prefix}-alpha"),
@@ -3003,57 +3000,62 @@ mod tests {
             let snapshot = PgMissingControlStore::new(pool.clone())
                 .rankings("week")
                 .await
-                .map_err(|_| sqlx::Error::Protocol("rankings store unavailable".to_owned()))?;
-            let rows = snapshot["models"].as_array().expect("models array");
-            let alpha = rows
-                .iter()
-                .find(|row| row["model_name"] == models[0])
-                .expect("current alpha model");
+                .map_err(|error| test_error(format!("rankings store unavailable: {error}")))?;
+            let rows = required(
+                snapshot["models"].as_array(),
+                "rankings response must contain a models array",
+            )?;
+            let alpha = required(
+                rows.iter().find(|row| row["model_name"] == models[0]),
+                "rankings response must contain the current alpha model",
+            )?;
             assert_eq!(alpha["rank"], 1);
             assert_eq!(alpha["previous_rank"], 2);
             assert_eq!(alpha["vendor"], vendor_name);
             assert_eq!(alpha["vendor_icon"], "https://example.test/vendor.svg");
             assert_eq!(snapshot["top_movers"][0]["model_name"], models[0]);
             assert_eq!(snapshot["top_droppers"][0]["model_name"], models[1]);
-            assert!(snapshot["models_history"]["buckets"].as_u64().unwrap_or_default() >= 2);
-            assert!(snapshot["vendor_share_history"]["points"]
-                .as_array()
-                .is_some_and(|points| !points.is_empty()));
-            Ok::<(), sqlx::Error>(())
+            let history_buckets = required(
+                snapshot["models_history"]["buckets"].as_u64(),
+                "rankings response must contain a numeric model-history bucket count",
+            )?;
+            assert!(history_buckets >= 2);
+            let vendor_share_points = required(
+                snapshot["vendor_share_history"]["points"].as_array(),
+                "rankings response must contain a vendor-share points array",
+            )?;
+            assert!(!vendor_share_points.is_empty());
+            Ok::<(), Box<dyn Error>>(())
         }
         .await;
 
         sqlx::query("DELETE FROM quota_data WHERE model_name = ANY($1)")
             .bind(models.to_vec())
             .execute(&pool)
-            .await
-            .expect("remove quota fixture");
+            .await?;
         sqlx::query("DELETE FROM abilities WHERE \"group\" = $1")
             .bind(&group)
             .execute(&pool)
-            .await
-            .expect("remove ability fixture");
+            .await?;
         sqlx::query("DELETE FROM models WHERE model_name = ANY($1)")
             .bind(models.to_vec())
             .execute(&pool)
-            .await
-            .expect("remove model fixture");
+            .await?;
         sqlx::query("DELETE FROM channels WHERE key = $1")
             .bind(&prefix)
             .execute(&pool)
-            .await
-            .expect("remove channel fixture");
+            .await?;
         sqlx::query("DELETE FROM vendors WHERE name = $1")
             .bind(&vendor_name)
             .execute(&pool)
-            .await
-            .expect("remove vendor fixture");
-        test.expect("ranking snapshot should preserve the frozen Go contract");
+            .await?;
+        test?;
+        Ok(())
     }
 
     #[tokio::test]
-    async fn media_candidate_deny_adapter_never_attempts_upstream_egress() {
-        let backend = media_backend();
+    async fn media_candidate_deny_adapter_never_attempts_upstream_egress() -> TestResult {
+        let backend = media_backend()?;
         let identity = lmm_api_rs::migration_routes::media_midjourney::MidjourneyIdentity {
             user_id: 1,
             token_id: "1".to_owned(),
@@ -3080,36 +3082,34 @@ mod tests {
                 .await,
             Err(MidjourneyFailure::BlockedImage)
         ));
+        Ok(())
     }
 
     #[tokio::test]
-    async fn anthropic_gemini_candidate_is_fail_closed_and_keeps_authenticated_delete_frozen() {
+    async fn anthropic_gemini_candidate_is_fail_closed_and_keeps_authenticated_delete_frozen(
+    ) -> TestResult {
         let app =
             relay_anthropic_gemini_router(RelayHttpState::new(Arc::new(TestInstanceRelayBackend)));
 
-        let anonymous_post = app
-            .clone()
-            .oneshot(
-                Request::post("/v1/messages")
-                    .body(Body::from(r#"{\"model\":\"claude-test\"}"#))
-                    .expect("request is valid"),
-            )
-            .await
-            .expect("router is infallible");
+        let anonymous_request = request(
+            Request::post("/v1/messages"),
+            Body::from(r#"{\"model\":\"claude-test\"}"#),
+            "build anonymous Anthropic request",
+        )?;
+        let anonymous_post = app.clone().oneshot(anonymous_request).await?;
         // The production Go compatibility boundary conceals missing relay
         // credentials behind the generic public 404 response.  Keep the
         // isolated candidate surface aligned with that contract.
         assert_eq!(anonymous_post.status(), StatusCode::NOT_FOUND);
 
-        let frozen_delete = app
-            .oneshot(
-                Request::delete("/v1/models/gpt-test")
-                    .header("authorization", "Bearer lmm-test-relay-fixture")
-                    .body(Body::empty())
-                    .expect("request is valid"),
-            )
-            .await
-            .expect("router is infallible");
+        let frozen_delete_request = request(
+            Request::delete("/v1/models/gpt-test")
+                .header("authorization", "Bearer lmm-test-relay-fixture"),
+            Body::empty(),
+            "build authenticated frozen model deletion request",
+        )?;
+        let frozen_delete = app.oneshot(frozen_delete_request).await?;
         assert_eq!(frozen_delete.status(), StatusCode::NOT_IMPLEMENTED);
+        Ok(())
     }
 }
