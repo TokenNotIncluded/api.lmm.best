@@ -1117,15 +1117,15 @@ mod tests {
     #[tokio::test]
     async fn bounded_drain_should_complete_finished_work() {
         let result = bounded_drain(Duration::from_secs(1), future::ready(7)).await;
-        assert_eq!(result.expect("ready work completes"), 7);
+        assert_eq!(result.ok(), Some(7));
     }
 
     #[tokio::test]
     async fn bounded_drain_should_time_out_stuck_work() {
         let result = bounded_drain(Duration::from_millis(1), future::pending::<()>()).await;
         assert_eq!(
-            result.expect_err("stuck work times out").kind(),
-            io::ErrorKind::TimedOut
+            result.err().map(|error| error.kind()),
+            Some(io::ErrorKind::TimedOut)
         );
     }
 }
