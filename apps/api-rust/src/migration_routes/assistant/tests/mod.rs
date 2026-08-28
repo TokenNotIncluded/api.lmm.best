@@ -2,14 +2,72 @@ pub(super) mod support;
 
 use super::*;
 use axum::{body::Body, http::Request};
-use std::{collections::VecDeque, sync::Mutex};
+use serde::de::DeserializeOwned;
+use std::{
+    collections::VecDeque,
+    error::Error,
+    io,
+    sync::{Mutex, MutexGuard},
+};
 use support::*;
 use tower::ServiceExt;
 
 use crate::auth::CriticalRateLimitOutcome;
 
+type TestResult<T = ()> = Result<T, Box<dyn Error + Send + Sync>>;
+
+fn test_error(message: impl Into<String>) -> Box<dyn Error + Send + Sync> {
+    Box::new(io::Error::other(message.into()))
+}
+
+fn required<T>(value: Option<T>, context: &'static str) -> TestResult<T> {
+    value.ok_or_else(|| test_error(context))
+}
+
+fn build_request(
+    builder: axum::http::request::Builder,
+    body: Body,
+    context: &'static str,
+) -> TestResult<Request<Body>> {
+    builder
+        .body(body)
+        .map_err(|error| test_error(format!("{context}: {error}")))
+}
+
+fn json_from_value<T: DeserializeOwned>(value: Value, context: &'static str) -> TestResult<T> {
+    serde_json::from_value(value).map_err(|error| test_error(format!("{context}: {error}")))
+}
+
+fn json_from_slice<T: DeserializeOwned>(value: &[u8], context: &'static str) -> TestResult<T> {
+    serde_json::from_slice(value).map_err(|error| test_error(format!("{context}: {error}")))
+}
+
+fn json_from_str<T: DeserializeOwned>(value: &str, context: &'static str) -> TestResult<T> {
+    serde_json::from_str(value).map_err(|error| test_error(format!("{context}: {error}")))
+}
+
+fn optional_header_str<'a>(
+    value: Option<&'a axum::http::HeaderValue>,
+    context: &'static str,
+) -> TestResult<Option<&'a str>> {
+    value
+        .map(|value| {
+            value
+                .to_str()
+                .map_err(|error| test_error(format!("{context}: {error}")))
+        })
+        .transpose()
+}
+
+fn lock_recover<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    match mutex.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    }
+}
+
 #[tokio::test]
-async fn assistant_status_should_match_go_settings_for_personal_token() {
+async fn assistant_status_should_match_go_settings_for_personal_token() -> TestResult {
     let store = FixtureStore {
         settings: AssistantSettingsView {
             enabled: false,
@@ -24,14 +82,13 @@ async fn assistant_status_should_match_go_settings_for_personal_token() {
         ..FixtureStore::default()
     };
     let response = fixture_router(store)
-        .oneshot(
+        .oneshot(build_request(
             Request::get("/api/assistant/status")
-                .header(header::AUTHORIZATION, "Bearer user-token")
-                .body(Body::empty())
-                .expect("request"),
-        )
-        .await
-        .expect("response");
+                .header(header::AUTHORIZATION, "Bearer user-token"),
+            Body::empty(),
+            "build assistant status request",
+        )?)
+        .await?;
     let status = response.status();
     let auth_version = response.headers().get("auth-version").cloned();
     let body = response_json(response).await;
@@ -58,20 +115,23 @@ async fn assistant_status_should_match_go_settings_for_personal_token() {
             }),
         )
     );
+    Ok(())
 }
 
 #[test]
-fn assistant_setup_tool_should_describe_cc_switch_deep_link_import() {
+fn assistant_setup_tool_should_describe_cc_switch_deep_link_import() -> TestResult {
     let settings = AssistantSettingsView {
         server_address: "https://api.example.com/".to_owned(),
         ..AssistantSettingsView::default()
     };
-    let input = serde_json::from_value::<Map<String, Value>>(json!({
-        "platform": "windows",
-        "topic": "cc-switch",
-        "model_id": "deepseek-v4-flash",
-    }))
-    .expect("setup input");
+    let input = json_from_value::<Map<String, Value>>(
+        json!({
+            "platform": "windows",
+            "topic": "cc-switch",
+            "model_id": "deepseek-v4-flash",
+        }),
+        "deserialize assistant setup input",
+    )?;
 
     let result = assistant_setup_tool(&settings, &input);
     assert_eq!(result["ok"], true);
@@ -92,10 +152,11 @@ fn assistant_setup_tool_should_describe_cc_switch_deep_link_import() {
     assert!(result["steps"]
         .as_array()
         .is_some_and(|steps| steps.iter().any(|step| step == "Use Import to CC Switch from that private card (or the key's CC Switch action on /keys). The UI constructs the ccswitch:// link and CC Switch shows an import confirmation.")));
+    Ok(())
 }
 
 #[tokio::test]
-async fn assistant_chat_should_own_model_prompt_billing_and_intent() {
+async fn assistant_chat_should_own_model_prompt_billing_and_intent() -> TestResult {
     let upstream_body = json!({
         "choices": [{"message": {"role": "assistant", "content": "Use the key page."}}]
     })
@@ -127,21 +188,16 @@ async fn assistant_chat_should_own_model_prompt_billing_and_intent() {
         turns: Arc::clone(&turns),
     });
     let response = fixture_router_with_agent(store, backend)
-        .oneshot(
+        .oneshot(build_request(
             Request::post("/api/assistant/chat")
-                .header(header::AUTHORIZATION, "Bearer browser-session")
-                .body(Body::from(
-                    r#"{"message":"How do I create a key?","model":"client-model"}"#,
-                ))
-                .expect("request"),
-        )
-        .await
-        .expect("response");
+                .header(header::AUTHORIZATION, "Bearer browser-session"),
+            Body::from(r#"{"message":"How do I create a key?","model":"client-model"}"#),
+            "build assistant chat ownership request",
+        )?)
+        .await?;
     let status = response.status();
     let intent = response.headers().get("x-lmm-assistant-intent").cloned();
-    let body = to_bytes(response.into_body(), usize::MAX)
-        .await
-        .expect("response body");
+    let body = to_bytes(response.into_body(), usize::MAX).await?;
 
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body.as_ref(), upstream_body);
@@ -150,13 +206,17 @@ async fn assistant_chat_should_own_model_prompt_billing_and_intent() {
         Some(axum::http::HeaderValue::from_static("api_key"))
     );
     assert_eq!(
-        *intent_calls.lock().expect("intent call lock"),
+        *lock_recover(&intent_calls),
         vec![(7, "api_key".to_owned())]
     );
-    let turns = turns.lock().expect("agent turn lock");
+    let turns = lock_recover(&turns);
+    let turn = required(
+        turns.first(),
+        "assistant ownership request must record one agent turn",
+    )?;
     assert_eq!(turns.len(), 1);
-    assert_eq!(turns[0].billing.id, 987);
-    let request: Value = serde_json::from_slice(&turns[0].body).expect("agent request JSON");
+    assert_eq!(turn.billing.id, 987);
+    let request: Value = json_from_slice(&turn.body, "deserialize agent ownership request")?;
     assert_eq!(request["model"], "server-owned-model");
     assert_eq!(request["messages"][1]["content"], "How do I create a key?");
     assert!(
@@ -170,10 +230,11 @@ async fn assistant_chat_should_own_model_prompt_billing_and_intent() {
             .is_some_and(|prompt| prompt.contains("ccswitch://v1/import"))
     );
     assert!(request.get("tools").is_none());
+    Ok(())
 }
 
 #[tokio::test]
-async fn assistant_chat_should_execute_bounded_tool_loop_then_force_final_answer() {
+async fn assistant_chat_should_execute_bounded_tool_loop_then_force_final_answer() -> TestResult {
     let first = json!({
         "choices": [{"message": {
             "role": "assistant",
@@ -223,36 +284,48 @@ async fn assistant_chat_should_execute_bounded_tool_loop_then_force_final_answer
         turns: Arc::clone(&turns),
     });
     let response = fixture_router_with_agent(store, backend)
-        .oneshot(
+        .oneshot(build_request(
             Request::post("/api/assistant/chat")
-                .header(header::AUTHORIZATION, "Bearer browser-session")
-                .body(Body::from(r#"{"message":"estimate cost"}"#))
-                .expect("request"),
-        )
-        .await
-        .expect("response");
+                .header(header::AUTHORIZATION, "Bearer browser-session"),
+            Body::from(r#"{"message":"estimate cost"}"#),
+            "build bounded tool-loop request",
+        )?)
+        .await?;
 
     assert_eq!(response.status(), StatusCode::OK);
-    let turns = turns.lock().expect("agent turn lock");
+    let turns = lock_recover(&turns);
+    let first_turn = required(
+        turns.first(),
+        "bounded tool loop must record the initial agent turn",
+    )?;
+    let second_turn = required(
+        turns.get(1),
+        "bounded tool loop must record the forced final agent turn",
+    )?;
     assert_eq!(turns.len(), 2);
-    let first_request: Value = serde_json::from_slice(&turns[0].body).expect("first request JSON");
+    let first_request: Value =
+        json_from_slice(&first_turn.body, "deserialize first bounded tool-loop request")?;
     let second_request: Value =
-        serde_json::from_slice(&turns[1].body).expect("second request JSON");
+        json_from_slice(&second_turn.body, "deserialize second bounded tool-loop request")?;
     assert_eq!(first_request["tools"].as_array().map(Vec::len), Some(14));
     assert_eq!(first_request["tool_choice"], "auto");
     assert!(second_request.get("tools").is_none());
     assert!(second_request.get("tool_choice").is_none());
-    let tool_result = second_request["messages"]
-        .as_array()
-        .and_then(|messages| messages.last())
-        .and_then(|message| message["content"].as_str())
-        .and_then(|content| serde_json::from_str::<Value>(content).ok())
-        .expect("tool result");
+    let tool_result_content = required(
+        second_request["messages"]
+            .as_array()
+            .and_then(|messages| messages.last())
+            .and_then(|message| message["content"].as_str()),
+        "final bounded tool-loop request must contain a string tool result",
+    )?;
+    let tool_result: Value =
+        json_from_str(tool_result_content, "deserialize bounded tool-loop result")?;
     assert_eq!(tool_result["total_cost_usd"], 0.003);
+    Ok(())
 }
 
 #[tokio::test]
-async fn assistant_chat_should_attach_l1_confirmation_action_to_final_response() {
+async fn assistant_chat_should_attach_l1_confirmation_action_to_final_response() -> TestResult {
     let first = json!({
         "choices": [{"message": {
             "role": "assistant",
@@ -306,14 +379,13 @@ async fn assistant_chat_should_attach_l1_confirmation_action_to_final_response()
             turns: Arc::new(Mutex::new(Vec::new())),
         }),
     )
-    .oneshot(
+    .oneshot(build_request(
         Request::post("/api/assistant/chat")
-            .header(header::AUTHORIZATION, "Bearer browser-session")
-            .body(Body::from(r#"{"message":"Please request L1"}"#))
-            .expect("request"),
-    )
-    .await
-    .expect("response");
+            .header(header::AUTHORIZATION, "Bearer browser-session"),
+        Body::from(r#"{"message":"Please request L1"}"#),
+        "build L1 confirmation action request",
+    )?)
+    .await?;
 
     assert_eq!(response.status(), StatusCode::OK);
     let body = response_json(response).await;
@@ -327,10 +399,11 @@ async fn assistant_chat_should_attach_l1_confirmation_action_to_final_response()
             .as_str()
             .is_some_and(|value| value.contains("concrete development workflow"))
     );
+    Ok(())
 }
 
 #[tokio::test]
-async fn assistant_chat_cache_hit_should_precede_billing_and_relay() {
+async fn assistant_chat_cache_hit_should_precede_billing_and_relay() -> TestResult {
     let cached_body = br#"{"choices":[{"message":{"content":"cached"}}]}"#.to_vec();
     let store = FixtureStore {
         cached_response: Some(AssistantCachedResponse {
@@ -345,26 +418,24 @@ async fn assistant_chat_cache_hit_should_precede_billing_and_relay() {
         turns: Arc::clone(&turns),
     });
     let response = fixture_router_with_agent(store, backend)
-        .oneshot(
+        .oneshot(build_request(
             Request::post("/api/assistant/chat")
-                .header(header::AUTHORIZATION, "Bearer browser-session")
-                .body(Body::from(r#"{"message":"hello"}"#))
-                .expect("request"),
-        )
-        .await
-        .expect("response");
+                .header(header::AUTHORIZATION, "Bearer browser-session"),
+            Body::from(r#"{"message":"hello"}"#),
+            "build assistant cache-hit request",
+        )?)
+        .await?;
     let cache = response.headers().get("x-lmm-assistant-cache").cloned();
-    let body = to_bytes(response.into_body(), usize::MAX)
-        .await
-        .expect("response body");
+    let body = to_bytes(response.into_body(), usize::MAX).await?;
 
     assert_eq!(body.as_ref(), cached_body);
     assert_eq!(cache, Some(axum::http::HeaderValue::from_static("HIT")));
-    assert!(turns.lock().expect("agent turn lock").is_empty());
+    assert!(lock_recover(&turns).is_empty());
+    Ok(())
 }
 
 #[tokio::test]
-async fn assistant_chat_should_reject_disabled_and_personal_token_before_body() {
+async fn assistant_chat_should_reject_disabled_and_personal_token_before_body() -> TestResult {
     let disabled = fixture_router(FixtureStore {
         settings: AssistantSettingsView {
             enabled: false,
@@ -372,35 +443,34 @@ async fn assistant_chat_should_reject_disabled_and_personal_token_before_body() 
         },
         ..FixtureStore::default()
     })
-    .oneshot(
+    .oneshot(build_request(
         Request::post("/api/assistant/chat")
-            .header(header::AUTHORIZATION, "Bearer browser-session")
-            .body(Body::from("not-json"))
-            .expect("request"),
-    )
-    .await
-    .expect("response");
+            .header(header::AUTHORIZATION, "Bearer browser-session"),
+        Body::from("not-json"),
+        "build disabled assistant chat request",
+    )?)
+    .await?;
     assert_eq!(disabled.status(), StatusCode::SERVICE_UNAVAILABLE);
     assert_eq!(response_json(disabled).await["code"], "ASSISTANT_DISABLED");
 
     let personal = fixture_router(FixtureStore::default())
-        .oneshot(
+        .oneshot(build_request(
             Request::post("/api/assistant/chat")
-                .header(header::AUTHORIZATION, "Bearer user-token")
-                .body(Body::from("not-json"))
-                .expect("request"),
-        )
-        .await
-        .expect("response");
+                .header(header::AUTHORIZATION, "Bearer user-token"),
+            Body::from("not-json"),
+            "build personal-token assistant chat request",
+        )?)
+        .await?;
     assert_eq!(personal.status(), StatusCode::FORBIDDEN);
     assert_eq!(
         response_json(personal).await["code"],
         "ASSISTANT_SESSION_REQUIRED"
     );
+    Ok(())
 }
 
 #[tokio::test]
-async fn assistant_chat_should_reject_unsafe_and_oversized_conversation() {
+async fn assistant_chat_should_reject_unsafe_and_oversized_conversation() -> TestResult {
     for (body, expected_status, expected_code) in [
         (
             "null".to_owned(),
@@ -419,29 +489,32 @@ async fn assistant_chat_should_reject_unsafe_and_oversized_conversation() {
         ),
     ] {
         let response = fixture_router(FixtureStore::default())
-            .oneshot(
+            .oneshot(build_request(
                 Request::post("/api/assistant/chat")
-                    .header(header::AUTHORIZATION, "Bearer browser-session")
-                    .body(Body::from(body))
-                    .expect("request"),
-            )
-            .await
-            .expect("response");
+                    .header(header::AUTHORIZATION, "Bearer browser-session"),
+                Body::from(body),
+                "build unsafe or oversized assistant chat request",
+            )?)
+            .await?;
         assert_eq!(response.status(), expected_status);
         assert_eq!(response_json(response).await["code"], expected_code);
     }
+    Ok(())
 }
 
 #[test]
-fn assistant_messages_should_accept_nullable_tool_calls_like_go_json() {
-    let message: AssistantOpenAiMessage = serde_json::from_value(json!({
-        "role": "user",
-        "content": "hello",
-        "tool_calls": null,
-    }))
-    .expect("nullable tool calls");
+fn assistant_messages_should_accept_nullable_tool_calls_like_go_json() -> TestResult {
+    let message: AssistantOpenAiMessage = json_from_value(
+        json!({
+            "role": "user",
+            "content": "hello",
+            "tool_calls": null,
+        }),
+        "deserialize nullable assistant tool calls",
+    )?;
 
     assert!(message.tool_calls.is_empty());
+    Ok(())
 }
 
 #[test]
@@ -483,20 +556,19 @@ fn assistant_model_pricing_should_apply_live_group_rates_once() {
 }
 
 #[tokio::test]
-async fn self_handoff_should_return_latest_user_lead_for_personal_token() {
+async fn self_handoff_should_return_latest_user_lead_for_personal_token() -> TestResult {
     let lead = fixture_lead();
     let response = fixture_router(FixtureStore {
         latest: Some(lead.clone()),
         ..FixtureStore::default()
     })
-    .oneshot(
+    .oneshot(build_request(
         Request::get("/api/assistant/handoffs/self")
-            .header(header::AUTHORIZATION, "user-token")
-            .body(Body::empty())
-            .expect("request"),
-    )
-    .await
-    .expect("response");
+            .header(header::AUTHORIZATION, "user-token"),
+        Body::empty(),
+        "build self handoff request",
+    )?)
+    .await?;
     let cache_control = response.headers().get(header::CACHE_CONTROL).cloned();
     let pragma = response.headers().get(header::PRAGMA).cloned();
     let expires = response.headers().get(header::EXPIRES).cloned();
@@ -514,10 +586,11 @@ async fn self_handoff_should_return_latest_user_lead_for_personal_token() {
         Some(axum::http::HeaderValue::from_static("no-cache"))
     );
     assert_eq!(expires, Some(axum::http::HeaderValue::from_static("0")));
+    Ok(())
 }
 
 #[tokio::test]
-async fn admin_handoffs_should_forward_resolved_filter_and_flatten_user_view() {
+async fn admin_handoffs_should_forward_resolved_filter_and_flatten_user_view() -> TestResult {
     let mut lead = fixture_lead();
     lead.status = ASSISTANT_HANDOFF_RESOLVED.to_owned();
     let view = AssistantLeadView {
@@ -530,30 +603,29 @@ async fn admin_handoffs_should_forward_resolved_filter_and_flatten_user_view() {
         expected_handoff_status: ASSISTANT_HANDOFF_RESOLVED,
         ..FixtureStore::default()
     })
-    .oneshot(
+    .oneshot(build_request(
         Request::get("/api/assistant/admin/handoffs?status=resolved")
-            .header(header::AUTHORIZATION, "Bearer admin-token")
-            .body(Body::empty())
-            .expect("request"),
-    )
-    .await
-    .expect("response");
+            .header(header::AUTHORIZATION, "Bearer admin-token"),
+        Body::empty(),
+        "build filtered admin handoffs request",
+    )?)
+    .await?;
     let body = response_json(response).await;
 
     assert_eq!(body["data"], json!([view]));
+    Ok(())
 }
 
 #[tokio::test]
-async fn admin_intents_should_reject_out_of_range_days_after_admin_auth() {
+async fn admin_intents_should_reject_out_of_range_days_after_admin_auth() -> TestResult {
     let response = fixture_router(FixtureStore::default())
-        .oneshot(
+        .oneshot(build_request(
             Request::get("/api/assistant/admin/intents?days=366")
-                .header(header::AUTHORIZATION, "Bearer admin-token")
-                .body(Body::empty())
-                .expect("request"),
-        )
-        .await
-        .expect("response");
+                .header(header::AUTHORIZATION, "Bearer admin-token"),
+            Body::empty(),
+            "build out-of-range admin intents request",
+        )?)
+        .await?;
     let status = response.status();
     let body = response_json(response).await;
 
@@ -568,10 +640,11 @@ async fn admin_intents_should_reject_out_of_range_days_after_admin_auth() {
             }),
         )
     );
+    Ok(())
 }
 
 #[tokio::test]
-async fn submit_handoff_should_rate_limit_redact_persist_and_disable_cache() {
+async fn submit_handoff_should_rate_limit_redact_persist_and_disable_cache() -> TestResult {
     let raw_message = "password: hunter2 api_key=sk-secret-token-123 Bearer abcdefgh==";
     let redacted_message = redact_assistant_handoff_message(raw_message);
     let mut lead = fixture_lead();
@@ -587,16 +660,13 @@ async fn submit_handoff_should_rate_limit_redact_persist_and_disable_cache() {
         calls: Arc::clone(&rate_limit_calls),
     });
     let response = fixture_router_with_user_rate_limiter(store, limiter)
-        .oneshot(
+        .oneshot(build_request(
             Request::post("/api/assistant/handoffs")
-                .header(header::AUTHORIZATION, "Bearer browser-session")
-                .body(Body::from(
-                    json!({"confirmed": true, "message": raw_message}).to_string(),
-                ))
-                .expect("request"),
-        )
-        .await
-        .expect("response");
+                .header(header::AUTHORIZATION, "Bearer browser-session"),
+            Body::from(json!({"confirmed": true, "message": raw_message}).to_string()),
+            "build confirmed handoff request",
+        )?)
+        .await?;
     let status = response.status();
     let cache_control = response.headers().get(header::CACHE_CONTROL).cloned();
     let body = response_json(response).await;
@@ -604,11 +674,11 @@ async fn submit_handoff_should_rate_limit_redact_persist_and_disable_cache() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body["data"], json!(lead));
     assert_eq!(
-        *rate_limit_calls.lock().expect("rate limit call lock"),
+        *lock_recover(&rate_limit_calls),
         vec![("assistant-handoff".to_owned(), 7)]
     );
     assert_eq!(
-        *submit_calls.lock().expect("submit call lock"),
+        *lock_recover(&submit_calls),
         vec![FixtureSubmitCall {
             user_id: 7,
             username: "assistant-user".to_owned(),
@@ -621,10 +691,11 @@ async fn submit_handoff_should_rate_limit_redact_persist_and_disable_cache() {
             "no-store, no-cache, must-revalidate, private, max-age=0"
         ))
     );
+    Ok(())
 }
 
 #[tokio::test]
-async fn submit_handoff_should_consume_user_limit_before_rejecting_personal_token() {
+async fn submit_handoff_should_consume_user_limit_before_rejecting_personal_token() -> TestResult {
     let store = FixtureStore::default();
     let submit_calls = Arc::clone(&store.submit_calls);
     let rate_limit_calls = Arc::new(Mutex::new(Vec::new()));
@@ -633,14 +704,13 @@ async fn submit_handoff_should_consume_user_limit_before_rejecting_personal_toke
         calls: Arc::clone(&rate_limit_calls),
     });
     let response = fixture_router_with_user_rate_limiter(store, limiter)
-        .oneshot(
+        .oneshot(build_request(
             Request::post("/api/assistant/handoffs")
-                .header(header::AUTHORIZATION, "Bearer user-token")
-                .body(Body::from("not-json"))
-                .expect("request"),
-        )
-        .await
-        .expect("response");
+                .header(header::AUTHORIZATION, "Bearer user-token"),
+            Body::from("not-json"),
+            "build personal-token handoff request",
+        )?)
+        .await?;
     let status = response.status();
     let cache_control = response.headers().get(header::CACHE_CONTROL).cloned();
     let body = response_json(response).await;
@@ -648,15 +718,17 @@ async fn submit_handoff_should_consume_user_limit_before_rejecting_personal_toke
     assert_eq!(status, StatusCode::FORBIDDEN);
     assert_eq!(body["code"], "ASSISTANT_SESSION_REQUIRED");
     assert_eq!(
-        *rate_limit_calls.lock().expect("rate limit call lock"),
+        *lock_recover(&rate_limit_calls),
         vec![("assistant-handoff".to_owned(), 7)]
     );
-    assert!(submit_calls.lock().expect("submit call lock").is_empty());
+    assert!(lock_recover(&submit_calls).is_empty());
     assert!(cache_control.is_some());
+    Ok(())
 }
 
 #[tokio::test]
-async fn submit_handoff_rate_limit_should_precede_session_body_and_no_store_middleware() {
+async fn submit_handoff_rate_limit_should_precede_session_body_and_no_store_middleware(
+) -> TestResult {
     let store = FixtureStore::default();
     let submit_calls = Arc::clone(&store.submit_calls);
     let limiter = Arc::new(FixtureUserRateLimiter {
@@ -666,14 +738,13 @@ async fn submit_handoff_rate_limit_should_precede_session_body_and_no_store_midd
         calls: Arc::new(Mutex::new(Vec::new())),
     });
     let response = fixture_router_with_user_rate_limiter(store, limiter)
-        .oneshot(
+        .oneshot(build_request(
             Request::post("/api/assistant/handoffs")
-                .header(header::AUTHORIZATION, "Bearer user-token")
-                .body(Body::from("not-json"))
-                .expect("request"),
-        )
-        .await
-        .expect("response");
+                .header(header::AUTHORIZATION, "Bearer user-token"),
+            Body::from("not-json"),
+            "build rate-limited handoff request",
+        )?)
+        .await?;
 
     assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
     assert_eq!(
@@ -681,33 +752,32 @@ async fn submit_handoff_rate_limit_should_precede_session_body_and_no_store_midd
         Some(&axum::http::HeaderValue::from_static("23"))
     );
     assert!(!response.headers().contains_key(header::CACHE_CONTROL));
-    let bytes = to_bytes(response.into_body(), usize::MAX)
-        .await
-        .expect("response body");
+    let bytes = to_bytes(response.into_body(), usize::MAX).await?;
     assert!(bytes.is_empty());
-    assert!(submit_calls.lock().expect("submit call lock").is_empty());
+    assert!(lock_recover(&submit_calls).is_empty());
+    Ok(())
 }
 
 #[tokio::test]
-async fn submit_handoff_null_json_should_require_confirmation_like_go() {
+async fn submit_handoff_null_json_should_require_confirmation_like_go() -> TestResult {
     let response = fixture_router(FixtureStore::default())
-        .oneshot(
+        .oneshot(build_request(
             Request::post("/api/assistant/handoffs")
-                .header(header::AUTHORIZATION, "Bearer browser-session")
-                .body(Body::from("null"))
-                .expect("request"),
-        )
-        .await
-        .expect("response");
+                .header(header::AUTHORIZATION, "Bearer browser-session"),
+            Body::from("null"),
+            "build null handoff request",
+        )?)
+        .await?;
     let status = response.status();
     let body = response_json(response).await;
 
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert_eq!(body["code"], "ASSISTANT_CONFIRMATION_REQUIRED");
+    Ok(())
 }
 
 #[tokio::test]
-async fn admin_intents_should_return_go_ordered_summary_shape() {
+async fn admin_intents_should_return_go_ordered_summary_shape() -> TestResult {
     let summary = vec![
         AssistantIntentSummary {
             intent: "plan_purchase".to_owned(),
@@ -722,30 +792,29 @@ async fn admin_intents_should_return_go_ordered_summary_shape() {
         summary: summary.clone(),
         ..FixtureStore::default()
     })
-    .oneshot(
+    .oneshot(build_request(
         Request::get("/api/assistant/admin/intents?days=7")
-            .header(header::AUTHORIZATION, "Bearer admin-token")
-            .body(Body::empty())
-            .expect("request"),
-    )
-    .await
-    .expect("response");
+            .header(header::AUTHORIZATION, "Bearer admin-token"),
+        Body::empty(),
+        "build ordered admin intents request",
+    )?)
+    .await?;
     let body = response_json(response).await;
 
     assert_eq!(body["data"], json!(summary));
+    Ok(())
 }
 
 #[tokio::test]
-async fn admin_handoffs_should_reject_common_user_without_auth_version() {
+async fn admin_handoffs_should_reject_common_user_without_auth_version() -> TestResult {
     let response = fixture_router(FixtureStore::default())
-        .oneshot(
+        .oneshot(build_request(
             Request::get("/api/assistant/admin/handoffs")
-                .header(header::AUTHORIZATION, "Bearer user-token")
-                .body(Body::empty())
-                .expect("request"),
-        )
-        .await
-        .expect("response");
+                .header(header::AUTHORIZATION, "Bearer user-token"),
+            Body::empty(),
+            "build common-user admin handoffs request",
+        )?)
+        .await?;
     let status = response.status();
     let has_auth_version = response.headers().contains_key("auth-version");
     let body = response_json(response).await;
@@ -758,10 +827,11 @@ async fn admin_handoffs_should_reject_common_user_without_auth_version() {
             json!("AUTH_INSUFFICIENT_PRIVILEGE"),
         )
     );
+    Ok(())
 }
 
 #[tokio::test]
-async fn admin_resolve_handoff_should_match_go_transaction_and_audit_contract() {
+async fn admin_resolve_handoff_should_match_go_transaction_and_audit_contract() -> TestResult {
     let mut resolved = fixture_lead();
     resolved.status = ASSISTANT_HANDOFF_RESOLVED.to_owned();
     resolved.admin_user_id = 10;
@@ -774,15 +844,14 @@ async fn admin_resolve_handoff_should_match_go_transaction_and_audit_contract() 
     let resolve_calls = Arc::clone(&store.resolve_calls);
     let audits = Arc::clone(&store.audits);
     let response = fixture_router(store)
-        .oneshot(
+        .oneshot(build_request(
             Request::post("/api/assistant/admin/handoffs/3/resolve")
                 .header(header::AUTHORIZATION, "Bearer admin-session")
-                .extension(ClientIpKey("203.0.113.9".to_owned()))
-                .body(Body::from(r#"{"note":"  contacted user  "}"#))
-                .expect("request"),
-        )
-        .await
-        .expect("response");
+                .extension(ClientIpKey("203.0.113.9".to_owned())),
+            Body::from(r#"{"note":"  contacted user  "}"#),
+            "build successful admin handoff resolution request",
+        )?)
+        .await?;
     let status = response.status();
     let auth_version = response.headers().get("auth-version").cloned();
     let body = response_json(response).await;
@@ -794,7 +863,7 @@ async fn admin_resolve_handoff_should_match_go_transaction_and_audit_contract() 
     );
     assert_eq!(body["data"], json!(resolved));
     assert_eq!(
-        *resolve_calls.lock().expect("resolve call lock"),
+        *lock_recover(&resolve_calls),
         vec![FixtureResolveCall {
             admin_user_id: 10,
             admin_username: "assistant-admin".to_owned(),
@@ -803,7 +872,7 @@ async fn admin_resolve_handoff_should_match_go_transaction_and_audit_contract() 
         }]
     );
     assert_eq!(
-        *audits.lock().expect("audit lock"),
+        *lock_recover(&audits),
         vec![AssistantAdminAudit {
             actor_id: 10,
             actor_username: "assistant-admin".to_owned(),
@@ -815,10 +884,11 @@ async fn admin_resolve_handoff_should_match_go_transaction_and_audit_contract() 
             success: true,
         }]
     );
+    Ok(())
 }
 
 #[tokio::test]
-async fn admin_resolve_handoff_should_accept_null_body_like_go_json_binding() {
+async fn admin_resolve_handoff_should_accept_null_body_like_go_json_binding() -> TestResult {
     let mut resolved = fixture_lead();
     resolved.status = ASSISTANT_HANDOFF_RESOLVED.to_owned();
     let store = FixtureStore {
@@ -827,49 +897,58 @@ async fn admin_resolve_handoff_should_accept_null_body_like_go_json_binding() {
     };
     let resolve_calls = Arc::clone(&store.resolve_calls);
     let response = fixture_router(store)
-        .oneshot(
+        .oneshot(build_request(
             Request::post("/api/assistant/admin/handoffs/3/resolve")
-                .header(header::AUTHORIZATION, "Bearer admin-token")
-                .body(Body::from("null"))
-                .expect("request"),
-        )
-        .await
-        .expect("response");
+                .header(header::AUTHORIZATION, "Bearer admin-token"),
+            Body::from("null"),
+            "build null-body admin handoff resolution request",
+        )?)
+        .await?;
 
     assert_eq!(response.status(), StatusCode::OK);
-    assert_eq!(resolve_calls.lock().expect("resolve call lock")[0].note, "");
+    let resolve_calls = lock_recover(&resolve_calls);
+    let resolve_call = required(
+        resolve_calls.first(),
+        "null-body handoff resolution must record a resolve call",
+    )?;
+    assert_eq!(resolve_call.note, "");
+    Ok(())
 }
 
 #[tokio::test]
-async fn admin_resolve_handoff_should_report_go_conflict_and_audit_failure() {
+async fn admin_resolve_handoff_should_report_go_conflict_and_audit_failure() -> TestResult {
     let store = FixtureStore {
         resolve_result: Some(Err(ResolveHandoffError::AlreadyResolved)),
         ..FixtureStore::default()
     };
     let audits = Arc::clone(&store.audits);
     let response = fixture_router(store)
-        .oneshot(
+        .oneshot(build_request(
             Request::post("/api/assistant/admin/handoffs/3/resolve")
-                .header(header::AUTHORIZATION, "Bearer admin-token")
-                .body(Body::empty())
-                .expect("request"),
-        )
-        .await
-        .expect("response");
+                .header(header::AUTHORIZATION, "Bearer admin-token"),
+            Body::empty(),
+            "build conflicting admin handoff resolution request",
+        )?)
+        .await?;
     let status = response.status();
     let body = response_json(response).await;
 
     assert_eq!(status, StatusCode::CONFLICT);
     assert_eq!(body["code"], "ASSISTANT_HANDOFF_ALREADY_RESOLVED");
-    let audit = audits.lock().expect("audit lock")[0].clone();
+    let audits = lock_recover(&audits);
+    let audit = required(
+        audits.first(),
+        "conflicting handoff resolution must record an audit",
+    )?;
     assert_eq!(
         (audit.auth_method, audit.status, audit.success),
         ("access_token", StatusCode::CONFLICT, false)
     );
+    Ok(())
 }
 
 #[tokio::test]
-async fn admin_resolve_handoff_should_rate_limit_before_id_and_body_validation() {
+async fn admin_resolve_handoff_should_rate_limit_before_id_and_body_validation() -> TestResult {
     for (rate_limit, expected_status, expected_retry_after) in [
         (
             FixtureRateLimit::Rejected(37),
@@ -886,36 +965,36 @@ async fn admin_resolve_handoff_should_rate_limit_before_id_and_body_validation()
         let resolve_calls = Arc::clone(&store.resolve_calls);
         let audits = Arc::clone(&store.audits);
         let response = fixture_router_with_auth(store, FixtureAuth { rate_limit })
-            .oneshot(
+            .oneshot(build_request(
                 Request::post("/api/assistant/admin/handoffs/not-an-id/resolve")
                     .header(header::AUTHORIZATION, "Bearer admin-token")
-                    .extension(ClientIpKey("198.51.100.8".to_owned()))
-                    .body(Body::from("not-json"))
-                    .expect("request"),
-            )
-            .await
-            .expect("response");
+                    .extension(ClientIpKey("198.51.100.8".to_owned())),
+                Body::from("not-json"),
+                "build rate-limited admin handoff resolution request",
+            )?)
+            .await?;
 
         assert_eq!(response.status(), expected_status);
-        assert_eq!(
-            response
-                .headers()
-                .get(header::RETRY_AFTER)
-                .and_then(|value| value.to_str().ok()),
-            expected_retry_after
-        );
+        let retry_after = optional_header_str(
+            response.headers().get(header::RETRY_AFTER),
+            "decode rate-limit retry-after header as UTF-8",
+        )?;
+        assert_eq!(retry_after, expected_retry_after);
         assert_eq!(
             response.headers().get("auth-version"),
             Some(&axum::http::HeaderValue::from_static(AUTH_VERSION))
         );
-        let bytes = to_bytes(response.into_body(), usize::MAX)
-            .await
-            .expect("response body");
+        let bytes = to_bytes(response.into_body(), usize::MAX).await?;
         assert!(bytes.is_empty());
-        assert!(resolve_calls.lock().expect("resolve call lock").is_empty());
-        let audit = audits.lock().expect("audit lock")[0].clone();
+        assert!(lock_recover(&resolve_calls).is_empty());
+        let audits = lock_recover(&audits);
+        let audit = required(
+            audits.first(),
+            "rate-limited handoff resolution must record an audit",
+        )?;
         assert_eq!((audit.status, audit.success), (expected_status, false));
     }
+    Ok(())
 }
 
 #[test]
