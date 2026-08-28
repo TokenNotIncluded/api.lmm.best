@@ -1269,14 +1269,18 @@ fn percent_encode(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    type TestResult = Result<(), Box<dyn std::error::Error>>;
+
     #[test]
     fn backup_codes_are_normalized_without_changing_their_shape() {
-        let code = generate_backup_codes().pop().expect("a recovery code");
-        assert!(
+        let codes = generate_backup_codes();
+        assert_eq!(codes.len(), BACKUP_CODE_COUNT);
+        assert!(codes.iter().all(|code| {
             code.len() == 9
-                && code.as_bytes()[4] == b'-'
-                && normalize_backup_code(&code).len() == 8
-        );
+                && code.as_bytes().get(4) == Some(&b'-')
+                && normalize_backup_code(code).len() == 8
+        }));
     }
     #[test]
     fn numeric_totp_requires_exactly_six_ascii_digits() {
@@ -1292,25 +1296,18 @@ mod tests {
     }
 
     #[test]
-    fn totp_validation_uses_the_supplied_system_boundary_time() {
+    fn totp_validation_uses_the_supplied_system_boundary_time() -> TestResult {
         let secret = concat!("JBSWY3DP", "EHPK3PXP", "JBSWY3DP", "EHPK3PXP");
         let unix_seconds = 1_700_000_000;
-        let totp = TOTP::new(
-            Algorithm::SHA1,
-            6,
-            1,
-            30,
-            Secret::Encoded(secret.to_owned())
-                .to_bytes()
-                .expect("fixed Base32 secret"),
-        )
-        .expect("fixed TOTP configuration");
+        let secret_bytes = Secret::Encoded(secret.to_owned()).to_bytes()?;
+        let totp = TOTP::new(Algorithm::SHA1, 6, 1, 30, secret_bytes)?;
 
         assert!(valid_totp(
             secret,
             &totp.generate(unix_seconds),
             unix_seconds
         ));
+        Ok(())
     }
 
     #[test]
