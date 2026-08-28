@@ -61,17 +61,23 @@ impl UserRankingsState {
     async fn header_nav(&self) -> HeaderNavAccess {
         match self.store.header_nav().await {
             Ok(access) => {
-                *self
-                    .last_good_nav
-                    .write()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(access);
+                let mut last_good_nav = match self.last_good_nav.write() {
+                    Ok(guard) => guard,
+                    Err(poisoned) => poisoned.into_inner(),
+                };
+                *last_good_nav = Some(access);
                 access
             }
-            Err(_) => self
-                .last_good_nav
-                .read()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .unwrap_or_default(),
+            Err(_) => {
+                let last_good_nav = match self.last_good_nav.read() {
+                    Ok(guard) => guard,
+                    Err(poisoned) => poisoned.into_inner(),
+                };
+                last_good_nav
+                    .as_ref()
+                    .copied()
+                    .map_or_else(HeaderNavAccess::default, std::convert::identity)
+            }
         }
     }
 }
@@ -149,7 +155,7 @@ impl UserRankingsStore for PgUserRankingsStore {
         )
         .fetch_optional(&self.pg)
         .await
-        .map_err(database_error)?;
+        .map_err(|error| database_error("query HeaderNavModules option row", error))?;
         let access = raw
             .filter(|value| !value.trim().is_empty())
             .and_then(|value| serde_json::from_str::<Value>(&value).ok())
@@ -181,7 +187,7 @@ impl UserRankingsStore for PgUserRankingsStore {
         .bind(updated_at)
         .fetch_all(&self.pg)
         .await
-        .map_err(database_error)?
+        .map_err(|error| database_error("query usage ranking aggregate rows", error))?
         .into_iter()
         .map(|(user_id, requests, total_tokens)| UserRankingTotal {
             user_id,
@@ -206,7 +212,7 @@ impl UserRankingsStore for PgUserRankingsStore {
             .bind(&user_ids)
             .fetch_all(&self.pg)
             .await
-            .map_err(database_error)?
+            .map_err(|error| database_error("query ranking user projection rows", error))?
             .into_iter()
             .map(
                 |(id, username, display_name, status, setting)| RankingUser {
@@ -467,7 +473,7 @@ fn usage_visibility(setting: &str) -> UsageVisibility {
                 .and_then(Value::as_str)
                 .map(str::to_owned)
         })
-        .unwrap_or_default();
+        .map_or_else(String::new, std::convert::identity);
     match raw.trim().to_ascii_lowercase().as_str() {
         "public" => UsageVisibility::Public,
         "hidden" => UsageVisibility::Hidden,
@@ -498,7 +504,9 @@ fn parse_ranking_period(raw_query: Option<&str>) -> String {
         if pair.contains(';') {
             continue;
         }
-        let (raw_key, raw_value) = pair.split_once('=').unwrap_or((pair, ""));
+        let (raw_key, raw_value) = pair
+            .split_once('=')
+            .map_or((pair, ""), std::convert::identity);
         let (Ok(key), Ok(value)) = (
             percent_decode_query(raw_key),
             percent_decode_query(raw_value),
@@ -577,7 +585,8 @@ fn user_policy_error(headers: &HeaderMap, error: UserAuthPolicyError) -> Respons
         UserAuthPolicyError::InvalidUserInfo => "AUTH_USER_INVALID",
     };
     legacy_json(
-        StatusCode::from_u16(user_auth_status(error)).unwrap_or(StatusCode::UNAUTHORIZED),
+        StatusCode::from_u16(user_auth_status(error))
+            .map_or(StatusCode::UNAUTHORIZED, std::convert::identity),
         json!({
             "success": false,
             "code": code,
@@ -620,8 +629,8 @@ fn legacy_json(status: StatusCode, value: Value) -> Response {
     response
 }
 
-fn database_error(error: sqlx::Error) -> UserRankingsError {
-    UserRankingsError(error.to_string())
+fn database_error(context: &'static str, error: sqlx::Error) -> UserRankingsError {
+    UserRankingsError(format!("{context}: {error}"))
 }
 
 #[cfg(test)]
@@ -636,6 +645,15 @@ mod tests {
     use tower::ServiceExt;
 
     use super::*;
+
+    type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
+
+    fn test_error(
+        context: &'static str,
+        error: impl std::fmt::Display,
+    ) -> Box<dyn std::error::Error + Send + Sync> {
+        Box::new(std::io::Error::other(format!("{context}: {error}")))
+    }
 
     #[derive(Clone)]
     struct FixedAuthorizer(Result<RankingActor, ()>);
@@ -707,15 +725,16 @@ mod tests {
         ))
     }
 
-    async fn response_json(response: Response) -> Value {
+    async fn response_json(response: Response) -> TestResult<Value> {
         let body = to_bytes(response.into_body(), usize::MAX)
             .await
-            .expect("response body");
-        serde_json::from_slice(&body).expect("JSON response")
+            .map_err(|error| test_error("read user-ranking response body", error))?;
+        serde_json::from_slice(&body)
+            .map_err(|error| test_error("decode user-ranking response JSON", error))
     }
 
     #[test]
-    fn build_snapshot_should_match_go_visibility_aggregation_and_sorting() {
+    fn build_snapshot_should_match_go_visibility_aggregation_and_sorting() -> TestResult {
         let totals = vec![
             UserRankingTotal {
                 user_id: 1,
@@ -795,8 +814,10 @@ mod tests {
 
         let snapshot = build_snapshot(RankingPeriod::Week, 123, &totals, users);
 
+        let snapshot_json = serde_json::to_value(snapshot)
+            .map_err(|error| test_error("serialize user-ranking rows as JSON", error))?;
         assert_eq!(
-            serde_json::to_value(snapshot).expect("serialize snapshot"),
+            snapshot_json,
             json!({
                 "period": "week",
                 "updated_at": 123,
@@ -810,10 +831,11 @@ mod tests {
                 ]
             })
         );
+        Ok(())
     }
 
     #[test]
-    fn parse_ranking_period_should_keep_go_defaults_and_first_value() {
+    fn parse_ranking_period_should_keep_go_defaults_and_first_value() -> TestResult {
         let periods = [
             (None, "week"),
             (Some("period="), "week"),
@@ -833,10 +855,11 @@ mod tests {
                 .map(|(_, expected)| expected.to_owned())
                 .collect::<Vec<_>>()
         );
+        Ok(())
     }
 
     #[tokio::test]
-    async fn route_should_conceal_anonymous_and_l0_requests_before_header_nav() {
+    async fn route_should_conceal_anonymous_and_l0_requests_before_header_nav() -> TestResult {
         for actor in [
             Err(()),
             Ok(RankingActor {
@@ -844,6 +867,11 @@ mod tests {
                 ..activated_actor()
             }),
         ] {
+            let request = Request::get("/api/rankings/users")
+                .body(Body::empty())
+                .map_err(|error| {
+                    test_error("build concealed user-ranking query request", error)
+                })?;
             let response = test_app(
                 actor,
                 Ok(HeaderNavAccess {
@@ -851,20 +879,22 @@ mod tests {
                     require_auth: false,
                 }),
             )
-            .oneshot(
-                Request::get("/api/rankings/users")
-                    .body(Body::empty())
-                    .expect("request"),
-            )
+            .oneshot(request)
             .await
-            .expect("response");
+            .map_err(|error| {
+                test_error("serve concealed user-ranking query request", error)
+            })?;
 
             assert_eq!(response.status(), StatusCode::NOT_FOUND);
         }
+        Ok(())
     }
 
     #[tokio::test]
-    async fn route_should_reject_disabled_header_nav_without_auth_version() {
+    async fn route_should_reject_disabled_header_nav_without_auth_version() -> TestResult {
+        let request = Request::get("/api/rankings/users")
+            .body(Body::empty())
+            .map_err(|error| test_error("build disabled user-ranking query request", error))?;
         let response = test_app(
             Ok(activated_actor()),
             Ok(HeaderNavAccess {
@@ -872,22 +902,23 @@ mod tests {
                 require_auth: false,
             }),
         )
-        .oneshot(
-            Request::get("/api/rankings/users")
-                .body(Body::empty())
-                .expect("request"),
-        )
+        .oneshot(request)
         .await
-        .expect("response");
+        .map_err(|error| test_error("serve disabled user-ranking query request", error))?;
 
         assert_eq!(
             (response.status(), response.headers().get("auth-version")),
             (StatusCode::FORBIDDEN, None)
         );
+        Ok(())
     }
 
     #[tokio::test]
-    async fn route_should_use_go_envelope_and_auth_version_for_valid_actor() {
+    async fn route_should_use_go_envelope_and_auth_version_for_valid_actor() -> TestResult {
+        let request = Request::get("/api/rankings/users?period=year")
+            .header(header::AUTHORIZATION, "Bearer dashboard")
+            .body(Body::empty())
+            .map_err(|error| test_error("build valid user-ranking query request", error))?;
         let response = test_app(
             Ok(activated_actor()),
             Ok(HeaderNavAccess {
@@ -895,17 +926,12 @@ mod tests {
                 require_auth: true,
             }),
         )
-        .oneshot(
-            Request::get("/api/rankings/users?period=year")
-                .header(header::AUTHORIZATION, "Bearer dashboard")
-                .body(Body::empty())
-                .expect("request"),
-        )
+        .oneshot(request)
         .await
-        .expect("response");
+        .map_err(|error| test_error("serve valid user-ranking query request", error))?;
         let status = response.status();
         let auth_version = response.headers().get("auth-version").cloned();
-        let body = response_json(response).await;
+        let body = response_json(response).await?;
 
         assert_eq!(
             (
@@ -921,5 +947,6 @@ mod tests {
                 json!("year")
             )
         );
+        Ok(())
     }
 }
