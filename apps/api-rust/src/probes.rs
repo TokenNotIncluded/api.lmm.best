@@ -195,7 +195,14 @@ fn failed(dependency: &'static str) -> ProbeError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Mutex;
+    use std::sync::{Mutex, MutexGuard};
+
+    fn lock_unpoisoned<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+        match mutex.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        }
+    }
 
     struct MockSchemaBackend {
         range: (i64, i64),
@@ -210,7 +217,7 @@ mod tests {
         }
 
         async fn verify_select(&self, query: &'static str) -> Result<(), ProbeError> {
-            self.seen.lock().expect("mock schema lock").push(query);
+            lock_unpoisoned(&self.seen).push(query);
             if self.failing_query == Some(query) {
                 Err(failed("schema"))
             } else {
@@ -230,11 +237,9 @@ mod tests {
     #[tokio::test]
     async fn schema_readiness_verifies_every_mounted_route_select() {
         let backend = backend(None);
-        schema_compatible_with(&backend, 2)
-            .await
-            .expect("compatible status schema");
+        assert!(schema_compatible_with(&backend, 2).await.is_ok());
         assert_eq!(
-            backend.seen.lock().expect("mock schema lock").as_slice(),
+            lock_unpoisoned(&backend.seen).as_slice(),
             [
                 STATUS_SCHEMA_SELECTS,
                 AUTH_SCHEMA_SELECTS,
@@ -254,23 +259,25 @@ mod tests {
             .chain(OPEN_SOURCE_BOUNTY_SCHEMA_SELECTS)
         {
             let backend = backend(Some(query));
-            let error = schema_compatible_with(&backend, 2)
+            let dependency = schema_compatible_with(&backend, 2)
                 .await
-                .expect_err("missing table, column, or SELECT grant must fail readiness");
-            assert_eq!(error.dependency, "schema", "query: {query}");
+                .err()
+                .map(|error| error.dependency);
+            assert_eq!(dependency, Some("schema"), "query: {query}");
         }
     }
 
     #[tokio::test]
     async fn contract_three_requires_the_bounty_archive_column() {
         let backend = backend(Some(CURRENT_DASHBOARD_SCHEMA_SELECTS[0]));
-        let error = schema_compatible_with(&backend, 3)
+        let dependency = schema_compatible_with(&backend, 3)
             .await
-            .expect_err("contract 3 must fail closed without archived_at");
+            .err()
+            .map(|error| error.dependency);
 
-        assert_eq!(error.dependency, "schema");
+        assert_eq!(dependency, Some("schema"));
         assert_eq!(
-            backend.seen.lock().expect("mock schema lock").last(),
+            lock_unpoisoned(&backend.seen).last(),
             Some(&CURRENT_DASHBOARD_SCHEMA_SELECTS[0])
         );
     }
@@ -282,10 +289,11 @@ mod tests {
             failing_query: None,
             seen: Mutex::new(Vec::new()),
         };
-        let error = schema_compatible_with(&backend, 2)
+        let dependency = schema_compatible_with(&backend, 2)
             .await
-            .expect_err("reader version outside contract must fail");
-        assert_eq!(error.dependency, "schema");
-        assert!(backend.seen.lock().expect("mock schema lock").is_empty());
+            .err()
+            .map(|error| error.dependency);
+        assert_eq!(dependency, Some("schema"));
+        assert!(lock_unpoisoned(&backend.seen).is_empty());
     }
 }
