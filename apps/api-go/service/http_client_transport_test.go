@@ -304,22 +304,23 @@ func TestHTTPClientCacheConcurrentGetOrCreate(t *testing.T) {
 
 	proxyURL := "http://concurrent-proxy.example:9090"
 	const workers = 32
-	results := make([]*http.Client, workers)
-	errs := make([]error, workers)
-	var wg sync.WaitGroup
-	wg.Add(workers)
+	type clientResult struct {
+		client *http.Client
+		err    error
+	}
+	resultCh := make(chan clientResult, workers)
 	for i := 0; i < workers; i++ {
-		i := i
 		go func() {
-			defer wg.Done()
 			client, err := GetHttpClientWithProxySettings(proxyURL, dto.ChannelSettings{HTTP2ConnectionShards: 3})
-			errs[i] = err
-			results[i] = client
+			resultCh <- clientResult{client: client, err: err}
 		}()
 	}
-	wg.Wait()
+
+	results := make([]*http.Client, 0, workers)
 	for i := 0; i < workers; i++ {
-		require.NoError(t, errs[i])
+		result := <-resultCh
+		require.NoError(t, result.err)
+		results = append(results, result.client)
 	}
 	for i := 1; i < workers; i++ {
 		assert.Same(t, results[0], results[i])
