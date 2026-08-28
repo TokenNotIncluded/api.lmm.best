@@ -16,7 +16,7 @@ use async_trait::async_trait;
 use axum::{
     Json, Router,
     extract::{Request, State},
-    http::{StatusCode, header},
+    http::{HeaderValue, StatusCode, header},
     response::{IntoResponse, Response},
     routing::get,
 };
@@ -412,19 +412,16 @@ fn auth_failure(error: BillingDashboardAuthError, request: &Request) -> Response
         || uuid::Uuid::new_v4().to_string(),
         |context| context.request_id.clone(),
     );
-    if matches!(error, BillingDashboardAuthError::Unauthorized) {
-        let mut response =
-            (StatusCode::NOT_FOUND, Json(json!({"message": "Not Found"}))).into_response();
-        response.headers_mut().insert(
-            header::CONTENT_TYPE,
-            "application/json; charset=utf-8"
-                .parse()
-                .expect("static content type is valid"),
-        );
-        return response;
-    }
     let (status, message, code) = match error {
-        BillingDashboardAuthError::Unauthorized => unreachable!("handled above"),
+        BillingDashboardAuthError::Unauthorized => {
+            let mut response =
+                (StatusCode::NOT_FOUND, Json(json!({"message": "Not Found"}))).into_response();
+            response.headers_mut().insert(
+                header::CONTENT_TYPE,
+                HeaderValue::from_static("application/json; charset=utf-8"),
+            );
+            return response;
+        }
         BillingDashboardAuthError::Forbidden => (
             StatusCode::FORBIDDEN,
             "您的 IP 不在令牌允许访问的列表中",
@@ -434,6 +431,13 @@ fn auth_failure(error: BillingDashboardAuthError, request: &Request) -> Response
             StatusCode::INTERNAL_SERVER_ERROR,
             "Database error, please contact the administrator",
             "",
+        ),
+    };
+    let (request_id, request_id_header) = match HeaderValue::from_str(&request_id) {
+        Ok(value) => (request_id, value),
+        Err(_) => (
+            "request-id-unavailable".to_owned(),
+            HeaderValue::from_static("request-id-unavailable"),
         ),
     };
     let mut response = (
@@ -447,16 +451,11 @@ fn auth_failure(error: BillingDashboardAuthError, request: &Request) -> Response
         .into_response();
     response.headers_mut().insert(
         header::CONTENT_TYPE,
-        "application/json; charset=utf-8"
-            .parse()
-            .expect("static content type is valid"),
+        HeaderValue::from_static("application/json; charset=utf-8"),
     );
-    response.headers_mut().insert(
-        "x-oneapi-request-id",
-        request_id
-            .parse()
-            .expect("UUID request ID is a valid header value"),
-    );
+    response
+        .headers_mut()
+        .insert("x-oneapi-request-id", request_id_header);
     response
 }
 
@@ -465,9 +464,11 @@ fn legacy_token_key(value: &str) -> Option<&str> {
     let value = value
         .strip_prefix("Bearer ")
         .or_else(|| value.strip_prefix("bearer "))
-        .unwrap_or(value)
+        .map_or(value, std::convert::identity)
         .trim();
-    let value = value.strip_prefix("sk-").unwrap_or(value);
+    let value = value
+        .strip_prefix("sk-")
+        .map_or(value, std::convert::identity);
     let key = value.split('-').next()?;
     (!key.is_empty()).then_some(key)
 }
@@ -489,7 +490,7 @@ fn request_context(request: &Request) -> BillingDashboardRequest {
                 .and_then(|value| value.to_str().ok())
                 .and_then(|value| value.parse().ok())
         })
-        .unwrap_or(IpAddr::V4(Ipv4Addr::LOCALHOST));
+        .map_or(IpAddr::V4(Ipv4Addr::UNSPECIFIED), std::convert::identity);
     BillingDashboardRequest {
         authorization,
         client_ip,
@@ -520,7 +521,9 @@ fn positive_finite(value: &str) -> Option<f64> {
 fn unix_seconds() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |duration| duration.as_secs() as i64)
+        .map_or(i64::MAX, |duration| {
+            i64::try_from(duration.as_secs()).map_or(i64::MAX, std::convert::identity)
+        })
 }
 
 #[cfg(test)]
@@ -530,8 +533,26 @@ mod tests {
         body::{Body, to_bytes},
         http::Request,
     };
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::{
+        error::Error,
+        io,
+        sync::atomic::{AtomicUsize, Ordering},
+    };
     use tower::ServiceExt;
+
+    type TestResult<T = ()> = Result<T, Box<dyn Error>>;
+
+    fn test_error(message: impl Into<String>) -> Box<dyn Error> {
+        Box::new(io::Error::other(message.into()))
+    }
+
+    async fn response_json(response: Response, context: &'static str) -> TestResult<Value> {
+        let body = to_bytes(response.into_body(), usize::MAX)
+            .await
+            .map_err(|error| test_error(format!("read {context} response body: {error}")))?;
+        serde_json::from_slice::<Value>(&body)
+            .map_err(|error| test_error(format!("decode {context} response JSON: {error}")))
+    }
 
     #[derive(Clone)]
     struct StaticAuthorizer(BillingDashboardPrincipal);
@@ -614,25 +635,21 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn subscription_preserves_legacy_token_quota_shape() {
+    async fn subscription_preserves_legacy_token_quota_shape() -> TestResult {
+        let request = Request::builder()
+            .uri("/dashboard/billing/subscription")
+            .body(Body::empty())
+            .map_err(|error| test_error(format!("build subscription request: {error}")))?;
         let response = router(BillingDashboardSettings {
             quota_per_unit: 500.0,
             ..BillingDashboardSettings::default()
         })
-        .oneshot(
-            Request::builder()
-                .uri("/dashboard/billing/subscription")
-                .body(Body::empty())
-                .expect("request"),
-        )
+        .oneshot(request)
         .await
-        .expect("response");
+        .map_err(|error| test_error(format!("dispatch subscription request: {error}")))?;
         assert_eq!(response.status(), StatusCode::OK);
-        let body = to_bytes(response.into_body(), usize::MAX)
-            .await
-            .expect("body");
         assert_eq!(
-            serde_json::from_slice::<Value>(&body).expect("json"),
+            response_json(response, "subscription").await?,
             json!({
                 "object": "billing_subscription",
                 "has_payment_method": true,
@@ -642,36 +659,34 @@ mod tests {
                 "access_until": 0
             })
         );
+        Ok(())
     }
 
     #[tokio::test]
-    async fn usage_preserves_cny_and_versioned_alias() {
+    async fn usage_preserves_cny_and_versioned_alias() -> TestResult {
+        let request = Request::builder()
+            .uri("/v1/dashboard/billing/usage")
+            .body(Body::empty())
+            .map_err(|error| test_error(format!("build usage request: {error}")))?;
         let response = router(BillingDashboardSettings {
             quota_display: QuotaDisplay::Cny,
             quota_per_unit: 500.0,
             usd_exchange_rate: 2.0,
             ..BillingDashboardSettings::default()
         })
-        .oneshot(
-            Request::builder()
-                .uri("/v1/dashboard/billing/usage")
-                .body(Body::empty())
-                .expect("request"),
-        )
+        .oneshot(request)
         .await
-        .expect("response");
+        .map_err(|error| test_error(format!("dispatch usage request: {error}")))?;
         assert_eq!(response.status(), StatusCode::OK);
-        let body = to_bytes(response.into_body(), usize::MAX)
-            .await
-            .expect("body");
         assert_eq!(
-            serde_json::from_slice::<Value>(&body).expect("json"),
+            response_json(response, "usage").await?,
             json!({"object": "list", "total_usage": 100.0})
         );
+        Ok(())
     }
 
     #[test]
-    fn billing_display_type_prefers_registered_dotted_option() {
+    fn billing_display_type_prefers_registered_dotted_option() -> TestResult {
         assert_eq!(
             parse_quota_display_type("TOKENS"),
             Some(QuotaDisplay::Tokens)
@@ -682,10 +697,12 @@ mod tests {
         );
         assert_eq!(parse_quota_display_type("CUSTOM"), Some(QuotaDisplay::Usd));
         assert_eq!(parse_quota_display_type("invalid"), None);
+        Ok(())
     }
 
     #[tokio::test]
-    async fn all_billing_aliases_return_legacy_token_auth_failure_before_store_reads() {
+    async fn all_billing_aliases_return_legacy_token_auth_failure_before_store_reads(
+    ) -> TestResult {
         let store = CountingStore::default();
         let settings_calls = Arc::clone(&store.settings_calls);
         let quota_calls = Arc::clone(&store.quota_calls);
@@ -700,24 +717,33 @@ mod tests {
             let mut request = Request::builder()
                 .uri(path)
                 .body(Body::empty())
-                .expect("request");
+                .map_err(|error| {
+                    test_error(format!("build billing auth request for {path}: {error}"))
+                })?;
             request.extensions_mut().insert(RequestContext {
                 request_id: "billing-fixture-request-id".to_owned(),
                 client_ip: None,
             });
-            let response = app.clone().oneshot(request).await.expect("response");
+            let response = app
+                .clone()
+                .oneshot(request)
+                .await
+                .map_err(|error| {
+                    test_error(format!("dispatch billing auth request for {path}: {error}"))
+                })?;
 
             assert_eq!(response.status(), StatusCode::NOT_FOUND, "{path}");
+            let content_type = response
+                .headers()
+                .get(header::CONTENT_TYPE)
+                .ok_or_else(|| test_error(format!("missing content-type header for {path}")))?;
             assert_eq!(
-                response.headers()[header::CONTENT_TYPE],
+                content_type,
                 "application/json; charset=utf-8",
                 "{path}"
             );
-            let body = to_bytes(response.into_body(), usize::MAX)
-                .await
-                .expect("body");
             assert_eq!(
-                serde_json::from_slice::<Value>(&body).expect("json"),
+                response_json(response, path).await?,
                 json!({"message": "Not Found"}),
                 "{path}"
             );
@@ -725,12 +751,14 @@ mod tests {
 
         assert_eq!(settings_calls.load(Ordering::SeqCst), 0);
         assert_eq!(quota_calls.load(Ordering::SeqCst), 0);
+        Ok(())
     }
 
     #[test]
-    fn token_normalization_matches_legacy_suffix_handling() {
+    fn token_normalization_matches_legacy_suffix_handling() -> TestResult {
         assert_eq!(legacy_token_key("Bearer sk-key-channel"), Some("key"));
         assert_eq!(legacy_token_key("bearer key-channel"), Some("key"));
         assert_eq!(legacy_token_key("Bearer "), None);
+        Ok(())
     }
 }
