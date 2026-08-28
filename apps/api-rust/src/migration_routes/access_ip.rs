@@ -127,7 +127,8 @@ impl AccessIpIdentityResolver for DashboardAccessIpIdentityResolver {
         &self,
         headers: &HeaderMap,
     ) -> Result<Option<AccessIpIdentity>, AccessIpAuthError> {
-        let Some(credential) = dashboard_credential(headers) else {
+        let Some(credential) = crate::migration_routes::legacy_http::dashboard_credential(headers)
+        else {
             return Ok(None);
         };
         let internal = dashboard_token_candidate(&credential);
@@ -812,23 +813,6 @@ fn trimmed_header<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
         .and_then(|value| value.to_str().ok())
         .map(str::trim)
         .filter(|value| !value.is_empty())
-}
-
-fn dashboard_credential(headers: &HeaderMap) -> Option<String> {
-    let value = headers.get(header::AUTHORIZATION)?.to_str().ok()?.trim();
-    let mut fields = value.split_whitespace();
-    let first = fields.next()?;
-    let second = fields.next();
-    if fields.next().is_some() {
-        return None;
-    }
-    match second {
-        Some(token) if first.eq_ignore_ascii_case("bearer") && !token.is_empty() => {
-            Some(token.to_owned())
-        }
-        None if !first.is_empty() => Some(first.to_owned()),
-        _ => None,
-    }
 }
 
 fn dashboard_auth_error(headers: &HeaderMap, error: AccessIpAuthError) -> Response {

@@ -531,8 +531,8 @@ async fn authenticated_user(
     state: &DeveloperAccessState,
     headers: &HeaderMap,
 ) -> Result<Principal, Response> {
-    let credential =
-        dashboard_credential(headers).ok_or_else(|| dashboard_auth_error(headers, None))?;
+    let credential = crate::migration_routes::legacy_http::dashboard_credential(headers)
+        .ok_or_else(|| dashboard_auth_error(headers, None))?;
     let user = state
         .auth
         .self_user_view_for_optional(SecretString::from(credential.clone()))
@@ -546,8 +546,8 @@ async fn authenticated_admin(
     state: &DeveloperAccessState,
     headers: &HeaderMap,
 ) -> Result<Principal, Response> {
-    let credential =
-        dashboard_credential(headers).ok_or_else(|| dashboard_auth_error(headers, None))?;
+    let credential = crate::migration_routes::legacy_http::dashboard_credential(headers)
+        .ok_or_else(|| dashboard_auth_error(headers, None))?;
     let user = state
         .auth
         .self_user_view_for_optional(SecretString::from(credential.clone()))
@@ -992,23 +992,6 @@ fn query_value(query: Option<&str>, key: &str) -> String {
     form_urlencoded::parse(query.unwrap_or_default().as_bytes())
         .find_map(|(candidate, value)| (candidate == key).then(|| value.into_owned()))
         .unwrap_or_default()
-}
-
-fn dashboard_credential(headers: &HeaderMap) -> Option<String> {
-    let value = headers.get(header::AUTHORIZATION)?.to_str().ok()?.trim();
-    let mut fields = value.split_whitespace();
-    let first = fields.next()?;
-    let second = fields.next();
-    if fields.next().is_some() {
-        return None;
-    }
-    match second {
-        Some(token) if first.eq_ignore_ascii_case("bearer") && !token.is_empty() => {
-            Some(token.to_owned())
-        }
-        None if !first.is_empty() => Some(first.to_owned()),
-        _ => None,
-    }
 }
 
 fn dashboard_auth_error(headers: &HeaderMap, kind: Option<AuthErrorKind>) -> Response {

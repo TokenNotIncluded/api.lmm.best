@@ -31,10 +31,7 @@ use zip::{CompressionMethod, ZipWriter, write::SimpleFileOptions};
 
 use crate::{
     ClientIpKey, RequestContext,
-    auth::{
-        AuthErrorKind, DashboardAuth, DashboardUserView, UserAuthPolicyError,
-        enforce_user_auth_view, user_auth_message, user_auth_status,
-    },
+    auth::{DashboardAuth, DashboardUserView, UserAuthPolicyError, enforce_user_auth_view},
 };
 
 const ADMIN_ROLE: i64 = 10;
@@ -747,23 +744,35 @@ async fn authenticated_admin(
     state: &FinanceExportState,
     headers: &HeaderMap,
 ) -> Result<DashboardUserView, Response> {
-    let Some(credential) = dashboard_credential(headers) else {
-        return Err(dashboard_auth_error(headers, None));
+    let Some(credential) = crate::migration_routes::legacy_http::dashboard_credential(headers)
+    else {
+        return Err(
+            crate::migration_routes::legacy_http::localized_dashboard_auth_error(headers, None),
+        );
     };
     let user = state
         .auth
         .self_user_view_for_optional(SecretString::from(credential))
         .await
-        .map_err(|error| dashboard_auth_error(headers, Some(error.kind)))?;
+        .map_err(|error| {
+            crate::migration_routes::legacy_http::localized_dashboard_auth_error(
+                headers,
+                Some(error.kind),
+            )
+        })?;
     if !user.developer_access_granted {
         return Err(console_not_found());
     }
-    enforce_user_auth_view(&user).map_err(|error| user_policy_error(headers, error))?;
+    enforce_user_auth_view(&user).map_err(|error| {
+        crate::migration_routes::legacy_http::localized_user_policy_error(headers, error)
+    })?;
     if user.role < ADMIN_ROLE {
-        return Err(user_policy_error(
-            headers,
-            UserAuthPolicyError::InsufficientPrivilege,
-        ));
+        return Err(
+            crate::migration_routes::legacy_http::localized_user_policy_error(
+                headers,
+                UserAuthPolicyError::InsufficientPrivilege,
+            ),
+        );
     }
     Ok(user)
 }
@@ -945,124 +954,6 @@ fn legacy_json(status: StatusCode, body: Value) -> Response {
         HeaderValue::from_static("application/json; charset=utf-8"),
     );
     response
-}
-
-fn dashboard_credential(headers: &HeaderMap) -> Option<String> {
-    let value = headers.get(header::AUTHORIZATION)?.to_str().ok()?.trim();
-    let mut fields = value.split_whitespace();
-    let first = fields.next()?;
-    let second = fields.next();
-    if fields.next().is_some() {
-        return None;
-    }
-    match second {
-        Some(token) if first.eq_ignore_ascii_case("bearer") && !token.is_empty() => {
-            Some(token.to_owned())
-        }
-        None if !first.is_empty() => Some(first.to_owned()),
-        _ => None,
-    }
-}
-
-fn dashboard_auth_error(headers: &HeaderMap, kind: Option<AuthErrorKind>) -> Response {
-    if kind == Some(AuthErrorKind::UserDisabled) {
-        return user_policy_error(headers, UserAuthPolicyError::UserDisabled);
-    }
-    let (status, code, message) = match kind {
-        Some(AuthErrorKind::TokenExpired) => (
-            StatusCode::UNAUTHORIZED,
-            "AUTH_TOKEN_EXPIRED",
-            auth_not_logged_in(headers),
-        ),
-        Some(AuthErrorKind::SessionRevoked) => (
-            StatusCode::UNAUTHORIZED,
-            "AUTH_SESSION_REVOKED",
-            auth_not_logged_in(headers),
-        ),
-        Some(AuthErrorKind::Internal) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "AUTH_INTERNAL_ERROR",
-            auth_database_error(headers),
-        ),
-        _ => (
-            StatusCode::UNAUTHORIZED,
-            "AUTH_UNAUTHORIZED",
-            auth_invalid_access_token(headers),
-        ),
-    };
-    legacy_json(
-        status,
-        json!({"success": false, "code": code, "message": message}),
-    )
-}
-
-fn user_policy_error(headers: &HeaderMap, error: UserAuthPolicyError) -> Response {
-    let code = match error {
-        UserAuthPolicyError::UserDisabled => "AUTH_USER_DISABLED",
-        UserAuthPolicyError::InsufficientPrivilege => "AUTH_INSUFFICIENT_PRIVILEGE",
-        UserAuthPolicyError::InvalidUserInfo => "AUTH_USER_INVALID",
-    };
-    legacy_json(
-        StatusCode::from_u16(user_auth_status(error))
-            .map_or(StatusCode::UNAUTHORIZED, |status| status),
-        json!({
-            "success": false,
-            "code": code,
-            "message": user_auth_message(
-                error,
-                headers.get(header::ACCEPT_LANGUAGE).and_then(|value| value.to_str().ok()),
-            ),
-        }),
-    )
-}
-
-#[derive(Clone, Copy)]
-enum TokenLocale {
-    En,
-    ZhCn,
-    ZhTw,
-}
-
-fn token_locale(headers: &HeaderMap) -> TokenLocale {
-    let language = headers
-        .get(header::ACCEPT_LANGUAGE)
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.split(',').next())
-        .and_then(|value| value.split(';').next())
-        .map_or("", |value| value)
-        .trim()
-        .to_ascii_lowercase();
-    if language.starts_with("zh-tw") {
-        TokenLocale::ZhTw
-    } else if language.starts_with("zh") {
-        TokenLocale::ZhCn
-    } else {
-        TokenLocale::En
-    }
-}
-
-fn auth_not_logged_in(headers: &HeaderMap) -> &'static str {
-    match token_locale(headers) {
-        TokenLocale::En => "Unauthorized, not logged in and no access token provided",
-        TokenLocale::ZhCn => "无权进行此操作，未登录且未提供 access token",
-        TokenLocale::ZhTw => "無權進行此操作，未登入且未提供 access token",
-    }
-}
-
-fn auth_invalid_access_token(headers: &HeaderMap) -> &'static str {
-    match token_locale(headers) {
-        TokenLocale::En => "Unauthorized, invalid access token",
-        TokenLocale::ZhCn => "无权进行此操作，access token 无效",
-        TokenLocale::ZhTw => "無權進行此操作，access token 無效",
-    }
-}
-
-fn auth_database_error(headers: &HeaderMap) -> &'static str {
-    match token_locale(headers) {
-        TokenLocale::En => "Database error, please contact the administrator",
-        TokenLocale::ZhCn => "数据库出错，请联系管理员",
-        TokenLocale::ZhTw => "資料庫出錯，請聯繫管理員",
-    }
 }
 
 async fn load_options(pg: &PgPool) -> Result<BTreeMap<String, String>, FinanceExportError> {

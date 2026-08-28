@@ -111,7 +111,8 @@ struct DashboardUserRankingsAuthorizer {
 #[async_trait]
 impl UserRankingsAuthorizer for DashboardUserRankingsAuthorizer {
     async fn actor(&self, headers: &HeaderMap) -> Result<RankingActor, ()> {
-        let credential = dashboard_credential(headers).ok_or(())?;
+        let credential =
+            crate::migration_routes::legacy_http::dashboard_credential(headers).ok_or(())?;
         let user = self
             .auth
             .self_user_view_for_optional(SecretString::from(credential))
@@ -558,23 +559,6 @@ const fn hex_value(value: u8) -> Result<u8, ()> {
         b'a'..=b'f' => Ok(value - b'a' + 10),
         b'A'..=b'F' => Ok(value - b'A' + 10),
         _ => Err(()),
-    }
-}
-
-fn dashboard_credential(headers: &HeaderMap) -> Option<String> {
-    let value = headers.get(header::AUTHORIZATION)?.to_str().ok()?.trim();
-    let mut fields = value.split_whitespace();
-    let first = fields.next()?;
-    let second = fields.next();
-    if fields.next().is_some() {
-        return None;
-    }
-    match second {
-        Some(token) if first.eq_ignore_ascii_case("bearer") && !token.is_empty() => {
-            Some(token.to_owned())
-        }
-        None if !first.is_empty() => Some(first.to_owned()),
-        _ => None,
     }
 }
 

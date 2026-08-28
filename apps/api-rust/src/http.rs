@@ -628,7 +628,7 @@ fn discovery_auth_error(error: AuthError, current_go_policy: bool) -> Response {
     }
 }
 
-fn dashboard_credential(headers: &axum::http::HeaderMap) -> Option<String> {
+pub(crate) fn dashboard_credential(headers: &axum::http::HeaderMap) -> Option<String> {
     let value = headers.get(header::AUTHORIZATION)?.to_str().ok()?.trim();
     let mut fields = value.split_whitespace();
     let first = fields.next()?;

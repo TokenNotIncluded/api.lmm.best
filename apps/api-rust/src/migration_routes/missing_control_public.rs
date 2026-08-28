@@ -102,7 +102,8 @@ impl MissingControlAuthorizer for DashboardMissingControlAuthorizer {
         &self,
         headers: &HeaderMap,
     ) -> Result<MissingControlPrincipal, MissingControlAuthError> {
-        let token = dashboard_credential(headers).ok_or(MissingControlAuthError::Unauthorized)?;
+        let token = crate::migration_routes::legacy_http::dashboard_credential(headers)
+            .ok_or(MissingControlAuthError::Unauthorized)?;
         let internal = dashboard_token_candidate(&token);
         match self.auth.self_user(SecretString::from(token)).await {
             Ok(user) => {
@@ -144,7 +145,8 @@ impl MissingControlAuthorizer for DashboardMissingControlAuthorizer {
         &self,
         headers: &HeaderMap,
     ) -> Result<MissingControlPrincipal, MissingControlAuthError> {
-        let token = dashboard_credential(headers).ok_or(MissingControlAuthError::Unauthorized)?;
+        let token = crate::migration_routes::legacy_http::dashboard_credential(headers)
+            .ok_or(MissingControlAuthError::Unauthorized)?;
         let internal = dashboard_token_candidate(&token);
         match self
             .auth
@@ -190,7 +192,8 @@ impl MissingControlAuthorizer for DashboardMissingControlAuthorizer {
         &self,
         headers: &HeaderMap,
     ) -> Result<Option<MissingControlPrincipal>, MissingControlAuthError> {
-        let token = dashboard_credential(headers).ok_or(MissingControlAuthError::Unauthorized)?;
+        let token = crate::migration_routes::legacy_http::dashboard_credential(headers)
+            .ok_or(MissingControlAuthError::Unauthorized)?;
         let principal = self.principal(headers).await?;
         match self.auth.current_session(SecretString::from(token)).await {
             Ok(_) => Ok(Some(principal)),
@@ -636,7 +639,8 @@ async fn console_access_boundary(
     let Some(auth) = state.console_access_auth.as_ref() else {
         return next.run(request).await;
     };
-    let Some(token) = dashboard_credential(request.headers()) else {
+    let Some(token) = crate::migration_routes::legacy_http::dashboard_credential(request.headers())
+    else {
         return console_not_found();
     };
     let user = match auth
@@ -1468,25 +1472,8 @@ fn user_auth_body(headers: &HeaderMap, error: UserAuthPolicyError) -> Value {
     })
 }
 
-fn dashboard_credential(headers: &HeaderMap) -> Option<String> {
-    let value = headers.get(header::AUTHORIZATION)?.to_str().ok()?.trim();
-    let mut fields = value.split_whitespace();
-    let first = fields.next()?;
-    let second = fields.next();
-    if fields.next().is_some() {
-        return None;
-    }
-    match second {
-        Some(token) if first.eq_ignore_ascii_case("bearer") && !token.is_empty() => {
-            Some(token.to_owned())
-        }
-        None if !first.is_empty() => Some(first.to_owned()),
-        _ => None,
-    }
-}
-
 fn dashboard_credential_present(headers: &HeaderMap) -> bool {
-    dashboard_credential(headers).is_some()
+    crate::migration_routes::legacy_http::dashboard_credential(headers).is_some()
 }
 
 fn dashboard_unauthorized(headers: &HeaderMap) -> Response {
@@ -1887,7 +1874,7 @@ mod tests {
             let mut headers = HeaderMap::new();
             headers.insert(header::AUTHORIZATION, HeaderValue::from_static(raw));
             assert_eq!(
-                dashboard_credential(&headers).as_deref(),
+                crate::migration_routes::legacy_http::dashboard_credential(&headers).as_deref(),
                 expected,
                 "{raw:?}"
             );

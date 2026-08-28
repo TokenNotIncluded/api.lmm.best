@@ -1093,6 +1093,7 @@ fn default_waffo_methods() -> Vec<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::migration_routes::test_support::RejectingDashboardAuth;
     use async_trait::async_trait;
     use axum::{
         body::{Body, to_bytes},
@@ -1105,58 +1106,6 @@ mod tests {
     fn decimal(raw: &str) -> Result<FixedDecimal, std::io::Error> {
         FixedDecimal::parse(raw)
             .ok_or_else(|| std::io::Error::other(format!("invalid decimal fixture: {raw}")))
-    }
-
-    struct RejectingAuth;
-
-    #[async_trait]
-    impl DashboardAuth for RejectingAuth {
-        async fn check_critical_rate_limit(
-            &self,
-            _: &str,
-        ) -> Result<crate::auth::CriticalRateLimitOutcome, crate::auth::AuthError> {
-            Ok(crate::auth::CriticalRateLimitOutcome::Allowed)
-        }
-        async fn login(
-            &self,
-            _: crate::auth::LoginRequest,
-            _: crate::auth::RequestMetadata,
-        ) -> Result<crate::auth::LoginOutcome, crate::auth::AuthError> {
-            Err(crate::auth::AuthError::new(AuthErrorKind::Unauthorized))
-        }
-        async fn login_2fa(
-            &self,
-            _: crate::auth::TwoFactorLoginRequest,
-            _: crate::auth::RequestMetadata,
-        ) -> Result<crate::auth::AuthBundle, crate::auth::AuthError> {
-            Err(crate::auth::AuthError::new(AuthErrorKind::Unauthorized))
-        }
-        async fn refresh(
-            &self,
-            _: SecretString,
-            _: Option<String>,
-            _: crate::auth::RequestMetadata,
-        ) -> Result<crate::auth::AuthBundle, crate::auth::AuthError> {
-            Err(crate::auth::AuthError::new(AuthErrorKind::Unauthorized))
-        }
-        async fn self_user(
-            &self,
-            _: SecretString,
-        ) -> Result<DashboardUser, crate::auth::AuthError> {
-            Err(crate::auth::AuthError::new(AuthErrorKind::Unauthorized))
-        }
-        async fn logout(
-            &self,
-            _: crate::auth::LogoutRequest,
-        ) -> Result<crate::auth::LogoutResult, crate::auth::AuthError> {
-            Err(crate::auth::AuthError::new(AuthErrorKind::Unauthorized))
-        }
-        async fn generate_personal_access_token(
-            &self,
-            _: SecretString,
-        ) -> Result<String, crate::auth::AuthError> {
-            Err(crate::auth::AuthError::new(AuthErrorKind::Unauthorized))
-        }
     }
 
     struct NoopGateway;
@@ -1174,7 +1123,7 @@ mod tests {
     fn app() -> Result<Router, sqlx::Error> {
         Ok(router(WaffoTopUpState::new(
             PgPool::connect_lazy("postgres://unused:unused@127.0.0.1:1/unused")?,
-            Arc::new(RejectingAuth),
+            Arc::new(RejectingDashboardAuth),
             Arc::new(NoopGateway),
         )))
     }

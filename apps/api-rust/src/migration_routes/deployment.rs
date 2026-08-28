@@ -1218,7 +1218,8 @@ async fn deployment_admin_guard(
         }
     };
 
-    let Some(token) = dashboard_credential(request.headers()) else {
+    let Some(token) = crate::migration_routes::legacy_http::dashboard_credential(request.headers())
+    else {
         return deployment_auth_rejection(
             request.headers(),
             DeploymentAuthRejection::ConsoleNotFound,
@@ -1267,23 +1268,6 @@ async fn deployment_admin_guard(
         role: user.role,
     });
     next.run(request).await
-}
-
-fn dashboard_credential(headers: &HeaderMap) -> Option<String> {
-    let value = headers.get(header::AUTHORIZATION)?.to_str().ok()?.trim();
-    let mut fields = value.split_whitespace();
-    let first = fields.next()?;
-    let second = fields.next();
-    if fields.next().is_some() {
-        return None;
-    }
-    match second {
-        Some(token) if first.eq_ignore_ascii_case("bearer") && !token.is_empty() => {
-            Some(token.to_owned())
-        }
-        None if !first.is_empty() => Some(first.to_owned()),
-        _ => None,
-    }
 }
 
 fn token_locale(headers: &HeaderMap) -> (bool, bool) {

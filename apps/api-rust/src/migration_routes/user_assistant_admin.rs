@@ -603,7 +603,8 @@ async fn authenticated_admin(
     state: &UserAssistantAdminState,
     headers: &HeaderMap,
 ) -> Result<DashboardUserView, Response> {
-    let Some(credential) = dashboard_credential(headers) else {
+    let Some(credential) = crate::migration_routes::legacy_http::dashboard_credential(headers)
+    else {
         return Err(dashboard_auth_error(headers, None));
     };
     let user = state
@@ -736,23 +737,6 @@ fn with_auth_version(mut response: Response) -> Response {
         HeaderValue::from_static(AUTH_VERSION),
     );
     response
-}
-
-fn dashboard_credential(headers: &HeaderMap) -> Option<String> {
-    let value = headers.get(header::AUTHORIZATION)?.to_str().ok()?.trim();
-    let mut fields = value.split_whitespace();
-    let first = fields.next()?;
-    let second = fields.next();
-    if fields.next().is_some() {
-        return None;
-    }
-    match second {
-        Some(token) if first.eq_ignore_ascii_case("bearer") && !token.is_empty() => {
-            Some(token.to_owned())
-        }
-        None if !first.is_empty() => Some(first.to_owned()),
-        _ => None,
-    }
 }
 
 fn dashboard_auth_error(headers: &HeaderMap, kind: Option<AuthErrorKind>) -> Response {

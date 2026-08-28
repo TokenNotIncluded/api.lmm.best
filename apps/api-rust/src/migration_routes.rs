@@ -40,6 +40,7 @@ pub mod identity_federation;
 pub mod identity_profile;
 pub mod identity_security;
 pub mod kling_task_reads;
+pub(crate) mod legacy_http;
 pub mod mcp;
 pub mod media_midjourney;
 pub mod media_tasks;
@@ -74,6 +75,8 @@ pub mod security_admin;
 pub mod security_overview;
 pub mod sse;
 pub mod system_config;
+#[cfg(test)]
+pub(crate) mod test_support;
 pub mod unified_todo;
 pub mod user_assistant_admin;
 pub mod user_rankings;

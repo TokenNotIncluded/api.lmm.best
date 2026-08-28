@@ -12,7 +12,7 @@ use async_trait::async_trait;
 use axum::{
     Json, Router,
     extract::{RawQuery, Request, State},
-    http::{HeaderMap, StatusCode, header},
+    http::{HeaderMap, StatusCode},
     middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::get,
@@ -344,7 +344,8 @@ async fn console_access_boundary(
     let Some(auth) = state.console_access_auth.as_ref() else {
         return next.run(request).await;
     };
-    let Some(token) = dashboard_credential(request.headers()) else {
+    let Some(token) = crate::migration_routes::legacy_http::dashboard_credential(request.headers())
+    else {
         return console_not_found();
     };
     let user = match auth
@@ -369,23 +370,6 @@ fn control_task_discovery_route(path: &str) -> bool {
                     .strip_prefix(prefix)
                     .is_some_and(|suffix| suffix.starts_with('/'))
         })
-}
-
-fn dashboard_credential(headers: &HeaderMap) -> Option<String> {
-    let value = headers.get(header::AUTHORIZATION)?.to_str().ok()?.trim();
-    let mut fields = value.split_whitespace();
-    let first = fields.next()?;
-    let second = fields.next();
-    if fields.next().is_some() {
-        return None;
-    }
-    match second {
-        Some(token) if first.eq_ignore_ascii_case("bearer") && !token.is_empty() => {
-            Some(token.to_owned())
-        }
-        None if !first.is_empty() => Some(first.to_owned()),
-        _ => None,
-    }
 }
 
 fn console_not_found() -> Response {

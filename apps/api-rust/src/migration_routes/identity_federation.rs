@@ -586,7 +586,7 @@ pub trait FederationIdentity: Send + Sync {
         &self,
         headers: &HeaderMap,
     ) -> Result<Option<FederationPrincipal>, FederationError> {
-        if dashboard_credential(headers).is_none() {
+        if crate::migration_routes::legacy_http::dashboard_credential(headers).is_none() {
             return Ok(None);
         }
         self.principal(headers).await.map(Some)
@@ -1046,7 +1046,8 @@ struct FederationAccessClaims {
 #[async_trait]
 impl FederationIdentity for DashboardFederationIdentity {
     async fn principal(&self, headers: &HeaderMap) -> Result<FederationPrincipal, FederationError> {
-        let token = dashboard_credential(headers).ok_or(FederationError::Unauthorized)?;
+        let token = crate::migration_routes::legacy_http::dashboard_credential(headers)
+            .ok_or(FederationError::Unauthorized)?;
         let user = self
             .auth
             .self_user(SecretString::from(token.clone()))
@@ -1087,7 +1088,8 @@ impl FederationIdentity for DashboardFederationIdentity {
         &self,
         headers: &HeaderMap,
     ) -> Result<Option<FederationPrincipal>, FederationError> {
-        let Some(token) = dashboard_credential(headers) else {
+        let Some(token) = crate::migration_routes::legacy_http::dashboard_credential(headers)
+        else {
             return Ok(None);
         };
         let user = self
@@ -1146,23 +1148,6 @@ impl FederationIdentity for DashboardFederationIdentity {
         .await
         .map_err(|_| FederationError::Internal)?;
         valid.then_some(()).ok_or(FederationError::Unauthorized)
-    }
-}
-
-fn dashboard_credential(headers: &HeaderMap) -> Option<String> {
-    let value = headers.get(header::AUTHORIZATION)?.to_str().ok()?.trim();
-    let mut fields = value.split_whitespace();
-    let first = fields.next()?;
-    let second = fields.next();
-    if fields.next().is_some() {
-        return None;
-    }
-    match second {
-        Some(token) if first.eq_ignore_ascii_case("bearer") && !token.is_empty() => {
-            Some(token.to_owned())
-        }
-        None if !first.is_empty() => Some(first.to_owned()),
-        _ => None,
     }
 }
 

@@ -23,9 +23,8 @@ use sqlx::{PgPool, Row, postgres::PgRow};
 use crate::{
     ClientIpKey,
     auth::{
-        AuthErrorKind, CriticalRateLimitOutcome, DashboardAuth, DashboardUserView,
-        UserAuthPolicyError, dashboard_token_candidate, enforce_user_auth_view, user_auth_message,
-        user_auth_status,
+        CriticalRateLimitOutcome, DashboardAuth, DashboardUserView, UserAuthPolicyError,
+        dashboard_token_candidate, enforce_user_auth_view,
     },
     legacy_empty_response,
 };
@@ -1212,17 +1211,26 @@ async fn authenticated_user(
     state: &DiscountCodeState,
     headers: &HeaderMap,
 ) -> Result<Principal, Response> {
-    let credential =
-        dashboard_credential(headers).ok_or_else(|| dashboard_auth_error(headers, None))?;
+    let credential = crate::migration_routes::legacy_http::dashboard_credential(headers)
+        .ok_or_else(|| {
+            crate::migration_routes::legacy_http::simple_dashboard_auth_error(headers, None)
+        })?;
     let user = state
         .auth
         .self_user_view_for_optional(SecretString::from(credential.clone()))
         .await
-        .map_err(|error| dashboard_auth_error(headers, Some(error.kind)))?;
+        .map_err(|error| {
+            crate::migration_routes::legacy_http::simple_dashboard_auth_error(
+                headers,
+                Some(error.kind),
+            )
+        })?;
     if !user.developer_access_granted {
         return Err(console_not_found());
     }
-    enforce_user_auth_view(&user).map_err(|error| user_auth_error(headers, error))?;
+    enforce_user_auth_view(&user).map_err(|error| {
+        crate::migration_routes::legacy_http::simple_user_auth_error(headers, error)
+    })?;
     Ok(Principal { user, credential })
 }
 
@@ -1232,10 +1240,12 @@ async fn authenticated_admin(
 ) -> Result<Principal, Response> {
     let principal = authenticated_user(state, headers).await?;
     if principal.user.role < ADMIN_ROLE {
-        return Err(user_auth_error(
-            headers,
-            UserAuthPolicyError::InsufficientPrivilege,
-        ));
+        return Err(
+            crate::migration_routes::legacy_http::simple_user_auth_error(
+                headers,
+                UserAuthPolicyError::InsufficientPrivilege,
+            ),
+        );
     }
     Ok(principal)
 }
@@ -1306,85 +1316,6 @@ where
     D: serde::Deserializer<'de>,
 {
     Option::<i64>::deserialize(deserializer).map(Option::unwrap_or_default)
-}
-
-fn dashboard_credential(headers: &HeaderMap) -> Option<String> {
-    let value = headers.get(header::AUTHORIZATION)?.to_str().ok()?.trim();
-    let mut fields = value.split_whitespace();
-    let first = fields.next()?;
-    let second = fields.next();
-    if fields.next().is_some() {
-        return None;
-    }
-    match second {
-        Some(token) if first.eq_ignore_ascii_case("bearer") && !token.is_empty() => {
-            Some(token.to_owned())
-        }
-        None if !first.is_empty() => Some(first.to_owned()),
-        _ => None,
-    }
-}
-
-fn dashboard_auth_error(headers: &HeaderMap, kind: Option<AuthErrorKind>) -> Response {
-    let (status, code, english) = match kind {
-        Some(AuthErrorKind::TokenExpired) => (
-            StatusCode::UNAUTHORIZED,
-            "AUTH_TOKEN_EXPIRED",
-            "Unauthorized, not logged in and no access token provided",
-        ),
-        Some(AuthErrorKind::SessionRevoked) => (
-            StatusCode::UNAUTHORIZED,
-            "AUTH_SESSION_REVOKED",
-            "Unauthorized, not logged in and no access token provided",
-        ),
-        Some(AuthErrorKind::Internal) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "AUTH_INTERNAL_ERROR",
-            "Database error, please contact the administrator",
-        ),
-        Some(AuthErrorKind::UserDisabled) => (
-            StatusCode::UNAUTHORIZED,
-            "AUTH_USER_DISABLED",
-            "User has been banned",
-        ),
-        _ => (
-            StatusCode::UNAUTHORIZED,
-            "AUTH_UNAUTHORIZED",
-            "Unauthorized, invalid access token",
-        ),
-    };
-    let message = if accepts_chinese(headers) {
-        match code {
-            "AUTH_INTERNAL_ERROR" => "数据库出错，请联系管理员",
-            "AUTH_TOKEN_EXPIRED" | "AUTH_SESSION_REVOKED" => {
-                "无权进行此操作，未登录且未提供 access token"
-            }
-            "AUTH_USER_DISABLED" => "用户已被封禁",
-            _ => "无权进行此操作，access token 无效",
-        }
-    } else {
-        english
-    };
-    coded_error(status, code, message)
-}
-
-fn user_auth_error(headers: &HeaderMap, error: UserAuthPolicyError) -> Response {
-    let code = match error {
-        UserAuthPolicyError::UserDisabled => "AUTH_USER_DISABLED",
-        UserAuthPolicyError::InsufficientPrivilege => "AUTH_INSUFFICIENT_PRIVILEGE",
-        UserAuthPolicyError::InvalidUserInfo => "AUTH_USER_INVALID",
-    };
-    let status = StatusCode::from_u16(user_auth_status(error)).unwrap_or(StatusCode::UNAUTHORIZED);
-    coded_error(
-        status,
-        code,
-        user_auth_message(
-            error,
-            headers
-                .get(header::ACCEPT_LANGUAGE)
-                .and_then(|value| value.to_str().ok()),
-        ),
-    )
 }
 
 fn invalid_parameters(headers: &HeaderMap) -> Response {

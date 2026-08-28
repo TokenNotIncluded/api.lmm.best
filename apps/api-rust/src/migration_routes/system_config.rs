@@ -1,6 +1,6 @@
 //! Legacy-compatible system configuration migration routes.
 //!
-//! This module deliberately owns only the fourteen `system-config` rows in
+//! This module deliberately owns only the current `system-config` rows in
 //! `migration-plan.tsv`.  In particular it does not claim any route merely
 //! because it happens to start with `/api/option`.
 
@@ -11,7 +11,7 @@ use crate::protocol_rollout::{
 use async_trait::async_trait;
 use axum::{
     Extension, Json, Router,
-    body::Bytes,
+    body::{Body, Bytes, to_bytes},
     extract::{DefaultBodyLimit, RawQuery, Request, State},
     http::{HeaderMap, HeaderValue, StatusCode, header},
     middleware::{self, Next},
@@ -51,6 +51,10 @@ const AUTH_VERSION: &str = "864b7076dbcd0a3c01b5520316720ebf";
 const OPTIONS_CACHE_TTL_SECONDS: u64 = 5;
 const WAFFO_PANCAKE_MUTATION_REQUEST_MAX_BYTES: usize = 16 << 10;
 const MAX_PROJECT_UPDATE_BYTES: usize = 1 << 20;
+const MAX_EXCHANGE_RATE_BYTES: usize = 256 << 10;
+const EXCHANGE_RATE_TIMEOUT: Duration = Duration::from_secs(10);
+const FRANKFURTER_URL_PREFIX: &str = "https://api.frankfurter.app/latest?from=USD&to=";
+const ER_API_URL: &str = "https://open.er-api.com/v6/latest/USD";
 const PROJECT_UPDATE_URL: &str =
     "https://api.github.com/repos/LIghtJUNction/api.lmm.best/commits/main";
 const PANCAKE_API_BASE_URL: &str = "https://api.waffo.ai";
@@ -186,6 +190,72 @@ pub trait ProjectUpdateClient: Send + Sync {
     async fn latest_main_commit(&self) -> Result<Value, ()>;
 }
 
+/// Resolves the number of settlement-currency units represented by one USD.
+/// Implementations must not infer a currency from a display symbol.
+#[async_trait]
+pub trait ExchangeRateProvider: Send + Sync {
+    /// Returns a positive finite rate for a validated ISO 4217-style code.
+    async fn settlement_units_per_usd(&self, currency: &str) -> Result<f64, ()>;
+}
+
+struct PinnedExchangeRateProvider {
+    client: Option<reqwest::Client>,
+}
+
+impl PinnedExchangeRateProvider {
+    fn production() -> Self {
+        Self {
+            client: crate::outbound_http::client(EXCHANGE_RATE_TIMEOUT).ok(),
+        }
+    }
+
+    async fn fetch_rate(&self, url: &str, currency: &str) -> Result<f64, ()> {
+        let client = self.client.as_ref().ok_or(())?;
+        let response = client.get(url).send().await.map_err(|_| ())?;
+        if !response.status().is_success() {
+            return Err(());
+        }
+        let body = to_bytes(
+            Body::from_stream(response.bytes_stream()),
+            MAX_EXCHANGE_RATE_BYTES,
+        )
+        .await
+        .map_err(|_| ())?;
+        let payload: Value = serde_json::from_slice(&body).map_err(|_| ())?;
+        if payload
+            .get("result")
+            .and_then(Value::as_str)
+            .is_some_and(|result| result != "success")
+        {
+            return Err(());
+        }
+        payload
+            .get("rates")
+            .and_then(|rates| rates.get(currency))
+            .and_then(Value::as_f64)
+            .filter(|rate| rate.is_finite() && *rate > 0.0)
+            .ok_or(())
+    }
+}
+
+#[async_trait]
+impl ExchangeRateProvider for PinnedExchangeRateProvider {
+    async fn settlement_units_per_usd(&self, currency: &str) -> Result<f64, ()> {
+        let currency = normalize_currency_code(currency).ok_or(())?;
+        if currency == "USD" {
+            return Ok(1.0);
+        }
+        // Both destinations are compile-time constants. The validated currency
+        // can only occupy Frankfurter's `to` value, so callers cannot select a
+        // host, scheme, port, path, or redirect target.
+        let primary = format!("{FRANKFURTER_URL_PREFIX}{currency}");
+        if let Ok(rate) = self.fetch_rate(&primary, &currency).await {
+            return Ok(rate);
+        }
+        self.fetch_rate(ER_API_URL, &currency).await
+    }
+}
+
 /// Authentication boundary supplied by the dashboard-auth migration.
 ///
 /// The legacy routes require a root dashboard session, not a bearer API key.
@@ -212,7 +282,8 @@ pub trait SystemConfigAuthorizer: Send + Sync {
                 credential: SystemConfigCredential::DashboardSession,
             })
             .map_err(|_| SystemConfigAuthRejection::Unauthorized {
-                supplied: dashboard_credential(headers).is_some(),
+                supplied: crate::migration_routes::legacy_http::dashboard_credential(headers)
+                    .is_some(),
             })
     }
 }
@@ -984,8 +1055,8 @@ impl SystemConfigAuthorizer for DashboardRootAuthorizer {
     ) -> Result<SystemConfigAuthContext, SystemConfigAuthRejection> {
         use crate::auth::{UserAuthPolicyError, enforce_user_auth_view};
 
-        let token =
-            dashboard_credential(headers).ok_or(SystemConfigAuthRejection::ConsoleNotFound)?;
+        let token = crate::migration_routes::legacy_http::dashboard_credential(headers)
+            .ok_or(SystemConfigAuthRejection::ConsoleNotFound)?;
         let credential = if crate::auth::dashboard_token_candidate(&token) {
             SystemConfigCredential::DashboardSession
         } else {
@@ -1484,6 +1555,7 @@ pub struct SystemConfigHttpState {
     pub valkey: redis::Client,
     pub authorizer: Arc<dyn SystemConfigAuthorizer>,
     pub project_update: Arc<dyn ProjectUpdateClient>,
+    pub exchange_rate: Arc<dyn ExchangeRateProvider>,
     pub pancake: Arc<dyn WaffoPancakeGateway>,
     anonymous_body_limit_bytes: usize,
     runtime_writer: Arc<dyn SystemConfigRuntimeWriter>,
@@ -1507,6 +1579,7 @@ impl SystemConfigHttpState {
             valkey,
             authorizer,
             project_update,
+            exchange_rate: Arc::new(PinnedExchangeRateProvider::production()),
             pancake,
             anonymous_body_limit_bytes: 512 * 1024,
             runtime_writer: Arc::new(MissingSystemConfigRuntimeWriter),
@@ -1526,6 +1599,17 @@ impl SystemConfigHttpState {
         runtime_writer: Arc<dyn SystemConfigRuntimeWriter>,
     ) -> Self {
         self.runtime_writer = runtime_writer;
+        self
+    }
+
+    /// Replaces the pinned exchange-rate client. This seam exists for bounded
+    /// deterministic tests; production composition uses the fixed providers.
+    #[must_use]
+    pub fn with_exchange_rate_provider(
+        mut self,
+        exchange_rate: Arc<dyn ExchangeRateProvider>,
+    ) -> Self {
+        self.exchange_rate = exchange_rate;
         self
     }
 
@@ -1566,6 +1650,7 @@ pub fn system_config_router(state: SystemConfigHttpState) -> Router {
             post(confirm_payment_compliance),
         )
         .route("/api/option/project-update", get(project_update))
+        .route("/api/option/exchange-rate", get(exchange_rate))
         .route("/api/option/rest_model_ratio", post(reset_model_ratio))
         .merge(catalog)
         .route("/api/option/bulk", post(update_options_bulk))
@@ -1627,23 +1712,6 @@ fn legacy_json(status: StatusCode, body: impl Serialize) -> Response {
         HeaderValue::from_static("application/json; charset=utf-8"),
     );
     response
-}
-
-fn dashboard_credential(headers: &HeaderMap) -> Option<String> {
-    let value = headers.get(header::AUTHORIZATION)?.to_str().ok()?.trim();
-    let mut fields = value.split_whitespace();
-    let first = fields.next()?;
-    let second = fields.next();
-    if fields.next().is_some() {
-        return None;
-    }
-    match second {
-        Some(token) if first.eq_ignore_ascii_case("bearer") && !token.is_empty() => {
-            Some(token.to_owned())
-        }
-        None if !first.is_empty() => Some(first.to_owned()),
-        _ => None,
-    }
 }
 
 fn token_locale(headers: &HeaderMap) -> (bool, bool) {
@@ -2471,6 +2539,62 @@ async fn project_update(
         Err(()) => legacy_error("Failed to check for updates"),
     }
 }
+
+fn normalize_currency_code(raw: &str) -> Option<String> {
+    let code = raw.trim().to_ascii_uppercase();
+    (code.len() == 3 && code.bytes().all(|byte| byte.is_ascii_uppercase())).then_some(code)
+}
+
+async fn exchange_rate(
+    State(state): State<SystemConfigHttpState>,
+    Extension(_context): Extension<SystemConfigAuthContext>,
+    query: RawQuery,
+) -> Response {
+    let currency = query_values(query.0.as_deref())
+        .remove("currency")
+        .and_then(|value| normalize_currency_code(&value));
+    let Some(currency) = currency else {
+        return legacy_json(
+            StatusCode::BAD_REQUEST,
+            json!({"success": false, "message": "currency must be a three-letter ISO code"}),
+        );
+    };
+    let (provider, rate) = if currency == "USD" {
+        ("base", Ok(1.0))
+    } else {
+        (
+            "pinned-providers",
+            state
+                .exchange_rate
+                .settlement_units_per_usd(&currency)
+                .await,
+        )
+    };
+    match rate {
+        Ok(rate) if rate.is_finite() && rate > 0.0 => legacy_json(
+            StatusCode::OK,
+            json!({
+                "success": true,
+                "message": "",
+                "data": {
+                    "base_currency": "USD",
+                    "quote_currency": currency,
+                    "rate": rate,
+                    "fetched_at": chrono::Utc::now().to_rfc3339_opts(
+                        chrono::SecondsFormat::Secs,
+                        true,
+                    ),
+                    "provider": provider,
+                },
+            }),
+        ),
+        _ => legacy_json(
+            StatusCode::BAD_GATEWAY,
+            json!({"success": false, "message": "failed to fetch the latest USD exchange rate"}),
+        ),
+    }
+}
+
 async fn reset_model_ratio(
     State(state): State<SystemConfigHttpState>,
     Extension(context): Extension<SystemConfigAuthContext>,

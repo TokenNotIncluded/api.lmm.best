@@ -847,7 +847,7 @@ async fn option_f64(pg: &PgPool, key: &str, default: f64) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use async_trait::async_trait;
+    use crate::migration_routes::test_support::RejectingDashboardAuth;
     use axum::{
         body::{Body, to_bytes},
         http::Request,
@@ -860,69 +860,17 @@ mod tests {
         PgPool::connect_lazy("postgres://unused:unused@127.0.0.1:1/unused")
     }
 
-    struct RejectingAuth;
-
-    #[async_trait]
-    impl DashboardAuth for RejectingAuth {
-        async fn check_critical_rate_limit(
-            &self,
-            _: &str,
-        ) -> Result<crate::auth::CriticalRateLimitOutcome, crate::auth::AuthError> {
-            Ok(crate::auth::CriticalRateLimitOutcome::Allowed)
-        }
-        async fn login(
-            &self,
-            _: crate::auth::LoginRequest,
-            _: crate::auth::RequestMetadata,
-        ) -> Result<crate::auth::LoginOutcome, crate::auth::AuthError> {
-            Err(crate::auth::AuthError::new(AuthErrorKind::Unauthorized))
-        }
-        async fn login_2fa(
-            &self,
-            _: crate::auth::TwoFactorLoginRequest,
-            _: crate::auth::RequestMetadata,
-        ) -> Result<crate::auth::AuthBundle, crate::auth::AuthError> {
-            Err(crate::auth::AuthError::new(AuthErrorKind::Unauthorized))
-        }
-        async fn refresh(
-            &self,
-            _: SecretString,
-            _: Option<String>,
-            _: crate::auth::RequestMetadata,
-        ) -> Result<crate::auth::AuthBundle, crate::auth::AuthError> {
-            Err(crate::auth::AuthError::new(AuthErrorKind::Unauthorized))
-        }
-        async fn self_user(
-            &self,
-            _: SecretString,
-        ) -> Result<DashboardUser, crate::auth::AuthError> {
-            Err(crate::auth::AuthError::new(AuthErrorKind::Unauthorized))
-        }
-        async fn logout(
-            &self,
-            _: crate::auth::LogoutRequest,
-        ) -> Result<crate::auth::LogoutResult, crate::auth::AuthError> {
-            Err(crate::auth::AuthError::new(AuthErrorKind::Unauthorized))
-        }
-        async fn generate_personal_access_token(
-            &self,
-            _: SecretString,
-        ) -> Result<String, crate::auth::AuthError> {
-            Err(crate::auth::AuthError::new(AuthErrorKind::Unauthorized))
-        }
-    }
-
     fn app() -> Result<Router, sqlx::Error> {
         Ok(router(IdentityCheckinAffState::new(
             test_pool()?,
-            Arc::new(RejectingAuth),
+            Arc::new(RejectingDashboardAuth),
         )))
     }
 
     fn read_app() -> Result<Router, sqlx::Error> {
         Ok(read_router(IdentityCheckinAffState::new(
             test_pool()?,
-            Arc::new(RejectingAuth),
+            Arc::new(RejectingDashboardAuth),
         )))
     }
 

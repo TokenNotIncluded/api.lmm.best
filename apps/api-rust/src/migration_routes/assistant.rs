@@ -4491,8 +4491,8 @@ pub(crate) async fn authenticated_user(
     state: &AssistantReadState,
     headers: &HeaderMap,
 ) -> Result<AssistantPrincipal, Response> {
-    let credential =
-        dashboard_credential(headers).ok_or_else(|| dashboard_auth_error(headers, None))?;
+    let credential = crate::migration_routes::legacy_http::dashboard_credential(headers)
+        .ok_or_else(|| dashboard_auth_error(headers, None))?;
     let user = state
         .auth
         .self_user_view_for_optional(SecretString::from(credential.clone()))
@@ -4634,23 +4634,6 @@ fn access_denied_offer_payload() -> Value {
         "error": "L1 access is required to view plans and top-up discounts",
         "next_step": "Ask the user to submit an administrator L1 access request from the onboarding assistant."
     })
-}
-
-fn dashboard_credential(headers: &HeaderMap) -> Option<String> {
-    let value = headers.get(header::AUTHORIZATION)?.to_str().ok()?.trim();
-    let mut fields = value.split_whitespace();
-    let first = fields.next()?;
-    let second = fields.next();
-    if fields.next().is_some() {
-        return None;
-    }
-    match second {
-        Some(token) if first.eq_ignore_ascii_case("bearer") && !token.is_empty() => {
-            Some(token.to_owned())
-        }
-        None if !first.is_empty() => Some(first.to_owned()),
-        _ => None,
-    }
 }
 
 fn dashboard_auth_error(headers: &HeaderMap, kind: Option<AuthErrorKind>) -> Response {
