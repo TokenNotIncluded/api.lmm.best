@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import type { PingStatus } from '@/features/dashboard/types'
+import { validatedExternalUrl } from '@/lib/validated-external-url'
 
 /**
  * Get color class for latency status
@@ -56,8 +57,21 @@ export async function testUrlLatency(url: string): Promise<PingStatus> {
  */
 export function openExternalSpeedTest(url: string): void {
   const encodedUrl = encodeURIComponent(url)
-  const speedTestUrl = `https://www.tcptest.cn/http/${encodedUrl}`
-  window.open(speedTestUrl, '_blank', 'noopener,noreferrer')
+  const speedTestUrl = validatedExternalUrl(
+    `https://www.tcptest.cn/http/${encodedUrl}`,
+    {
+      protocols: ['https:'],
+      origins: ['https://www.tcptest.cn'],
+      hosts: ['www.tcptest.cn'],
+      paths: { prefixes: ['/http/'] },
+    }
+  )
+  if (speedTestUrl) {
+    // Invariant: speedTestUrl is HTTPS on www.tcptest.cn under /http/.
+    // pi-lens-ignore: no-open-redirect
+    // pi-lens-ignore: ts-open-redirect
+    window.open(speedTestUrl, '_blank', 'noopener,noreferrer')
+  }
 }
 
 /**

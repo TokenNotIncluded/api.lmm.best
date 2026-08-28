@@ -42,6 +42,7 @@ import { useDialogs } from '@/hooks/use-dialog'
 import { useStatus } from '@/hooks/use-status'
 import { api } from '@/lib/api'
 import { getBackendCapabilities } from '@/lib/backend-capabilities'
+import { getTrustedUrlFromSource } from '@/lib/validated-external-url'
 import {
   buildDiscordOAuthUrl,
   buildGitHubOAuthUrl,
@@ -71,6 +72,17 @@ interface AccountBindingsTabProps {
 }
 
 type DialogKey = 'email' | 'wechat' | 'telegram'
+
+type TrustedOAuthDestination = {
+  url: string
+  source: string
+}
+
+const GITHUB_AUTHORIZATION_ENDPOINT =
+  'https://github.com/login/oauth/authorize'
+const DISCORD_AUTHORIZATION_ENDPOINT = 'https://discord.com/oauth2/authorize'
+const LINUX_DO_AUTHORIZATION_ENDPOINT =
+  'https://connect.linux.do/oauth2/authorize'
 
 interface PendingOAuthBinding {
   provider: string
@@ -170,7 +182,10 @@ export function AccountBindingsTab({
   }
 
   const startOAuthBinding = useCallback(
-    async (provider: string, buildUrl: (state: string) => string) => {
+    async (
+      provider: string,
+      buildUrl: (state: string) => TrustedOAuthDestination
+    ) => {
       const previous = pendingOAuthBinding.current
       if (previous) {
         clearPendingOAuthBinding(previous)
@@ -201,7 +216,19 @@ export function AccountBindingsTab({
           throw new Error('OAuth bind popup storage is unavailable')
         }
         pending.state = state
-        popup.location.replace(buildUrl(state))
+        const destination = buildUrl(state)
+        const trustedUrl = getTrustedUrlFromSource(
+          destination.url,
+          destination.source,
+          ['https:']
+        )
+        if (!trustedUrl) {
+          throw new Error('Untrusted OAuth authorization endpoint')
+        }
+        // Invariant: trustedUrl preserves the configured HTTPS OAuth origin, host, and path.
+        // pi-lens-ignore: no-open-redirect
+        // pi-lens-ignore: ts-open-redirect
+        popup.location.replace(trustedUrl)
       } catch {
         const isCurrent = pendingOAuthBinding.current === pending
         clearPendingOAuthBinding(pending)
@@ -221,7 +248,10 @@ export function AccountBindingsTab({
       url.searchParams.set('response_type', 'code')
       url.searchParams.set('state', state)
       if (provider.scopes) url.searchParams.set('scope', provider.scopes)
-      return url.toString()
+      return {
+        url: url.toString(),
+        source: provider.authorization_endpoint,
+      }
     })
   }
 
@@ -349,9 +379,10 @@ export function AccountBindingsTab({
         onBind: () => {
           const clientId = status?.github_client_id
           if (clientId) {
-            void startOAuthBinding('github', (state) =>
-              buildGitHubOAuthUrl(clientId, state)
-            )
+            void startOAuthBinding('github', (state) => ({
+              url: buildGitHubOAuthUrl(clientId, state),
+              source: GITHUB_AUTHORIZATION_ENDPOINT,
+            }))
           }
         },
         onUnbind: canUnbindBuiltInOAuth
@@ -377,9 +408,10 @@ export function AccountBindingsTab({
         onBind: () => {
           const clientId = status?.discord_client_id
           if (clientId) {
-            void startOAuthBinding('discord', (state) =>
-              buildDiscordOAuthUrl(clientId, state)
-            )
+            void startOAuthBinding('discord', (state) => ({
+              url: buildDiscordOAuthUrl(clientId, state),
+              source: DISCORD_AUTHORIZATION_ENDPOINT,
+            }))
           }
         },
         onUnbind: canUnbindBuiltInOAuth
@@ -406,9 +438,10 @@ export function AccountBindingsTab({
           const authorizationEndpoint = status?.oidc_authorization_endpoint
           const clientId = status?.oidc_client_id
           if (authorizationEndpoint && clientId) {
-            void startOAuthBinding('oidc', (state) =>
-              buildOIDCOAuthUrl(authorizationEndpoint, clientId, state)
-            )
+            void startOAuthBinding('oidc', (state) => ({
+              url: buildOIDCOAuthUrl(authorizationEndpoint, clientId, state),
+              source: authorizationEndpoint,
+            }))
           }
         },
         onUnbind: canUnbindBuiltInOAuth
@@ -455,9 +488,10 @@ export function AccountBindingsTab({
         onBind: () => {
           const clientId = status?.linuxdo_client_id
           if (clientId) {
-            void startOAuthBinding('linuxdo', (state) =>
-              buildLinuxDOOAuthUrl(clientId, state)
-            )
+            void startOAuthBinding('linuxdo', (state) => ({
+              url: buildLinuxDOOAuthUrl(clientId, state),
+              source: LINUX_DO_AUTHORIZATION_ENDPOINT,
+            }))
           }
         },
         onUnbind: canUnbindBuiltInOAuth

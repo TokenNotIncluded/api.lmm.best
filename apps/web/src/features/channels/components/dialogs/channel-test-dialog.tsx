@@ -86,6 +86,7 @@ import {
 } from '@/components/ui/tooltip'
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
 import { useIsMobile } from '@/hooks/use-mobile'
+import { validatedExternalUrl } from '@/lib/validated-external-url'
 
 import { updateChannel } from '../../api'
 import {
@@ -1291,9 +1292,26 @@ function FailureResultContent({
             variant='outline'
             size='sm'
             className='h-7 w-fit px-2 text-xs'
-            onClick={() =>
-              window.open('/system-settings/billing/model-pricing', '_blank')
-            }
+            onClick={() => {
+              const targetUrl = validatedExternalUrl(
+                '/system-settings/billing/model-pricing',
+                {
+                  protocols: [window.location.protocol],
+                  origins: [window.location.origin],
+                  hosts: [window.location.host],
+                  paths: {
+                    exact: ['/system-settings/billing/model-pricing'],
+                  },
+                },
+                window.location.origin
+              )
+              if (targetUrl) {
+                // Invariant: targetUrl is same-origin with the exact pricing path.
+                // pi-lens-ignore: no-open-redirect
+                // pi-lens-ignore: ts-open-redirect
+                window.open(targetUrl, '_blank', 'noopener,noreferrer')
+              }
+            }}
           >
             <Settings className='mr-1 h-3 w-3 shrink-0' />
             {t('Go to Settings')}

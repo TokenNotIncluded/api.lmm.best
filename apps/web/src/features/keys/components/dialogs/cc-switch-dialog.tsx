@@ -28,6 +28,7 @@ import { Label } from '@/components/ui/label'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { getUserModels } from '@/lib/api'
 import { buildCCSwitchProviderURL } from '@/lib/cc-switch-deep-link'
+import { validatedExternalUrl } from '@/lib/validated-external-url'
 
 const APP_CONFIGS = {
   claude: {
@@ -121,16 +122,29 @@ export function CCSwitchDialog(props: Props) {
       : `sk-${props.tokenKey}`
     const serverAddress = getServerAddress()
     const endpoint = app === 'codex' ? `${serverAddress}/v1` : serverAddress
-    const url = buildCCSwitchProviderURL({
-      app,
-      name,
-      endpoint,
-      apiKey: key,
-      models,
-      homepage: serverAddress,
-      enabled: true,
-    })
-    window.open(url, '_blank')
+    const url = validatedExternalUrl(
+      buildCCSwitchProviderURL({
+        app,
+        name,
+        endpoint,
+        apiKey: key,
+        models,
+        homepage: serverAddress,
+        enabled: true,
+      }),
+      {
+        protocols: ['ccswitch:'],
+        origins: 'any',
+        hosts: ['v1'],
+        paths: { exact: ['/import'] },
+        allowHash: false,
+      }
+    )
+    if (!url) return
+    // Invariant: url is ccswitch://v1/import with no credentials or fragment.
+    // pi-lens-ignore: no-open-redirect
+    // pi-lens-ignore: ts-open-redirect
+    window.open(url, '_blank', 'noopener,noreferrer')
     props.onOpenChange(false)
   }
 

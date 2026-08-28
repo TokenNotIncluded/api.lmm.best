@@ -52,6 +52,7 @@ import { resolveChatUrl, type ChatPreset } from '@/features/chat/lib/chat-links'
 import { sendToFluent } from '@/features/chat/lib/send-to-fluent'
 import { encodeChannelConnectionInfo } from '@/lib/channel-connection-info'
 import { copyToClipboard } from '@/lib/copy-to-clipboard'
+import { getTrustedTemplatedUrl } from '@/lib/validated-external-url'
 
 import { updateApiKeyStatus } from '../api'
 import { API_KEY_STATUS, ERROR_MESSAGES, SUCCESS_MESSAGES } from '../constants'
@@ -70,6 +71,16 @@ function getServerAddress(): string {
   }
   return window.location.origin
 }
+
+const ALLOWED_CHAT_PROTOCOLS = [
+  'https:',
+  'aionui:',
+  'ama:',
+  'ccswitch:',
+  'cherrystudio:',
+  'deepchat:',
+  'opencat:',
+] as const
 
 type DataTableRowActionsProps<TData> = {
   row: Row<TData>
@@ -139,18 +150,21 @@ export function DataTableRowActions<TData>({
         serverAddress,
       })
 
-      if (!resolvedUrl) {
+      const trustedUrl = getTrustedTemplatedUrl(
+        resolvedUrl,
+        preset.url,
+        ALLOWED_CHAT_PROTOCOLS
+      )
+      if (!trustedUrl) {
         toast.error(t('Invalid chat link. Please contact your administrator.'))
         return
       }
 
       if (typeof window === 'undefined') return
-
-      try {
-        window.open(resolvedUrl, '_blank', 'noopener')
-      } catch {
-        window.location.href = resolvedUrl
-      }
+      // Invariant: trustedUrl matches the configured chat template scheme, origin, host, and path.
+      // pi-lens-ignore: no-open-redirect
+      // pi-lens-ignore: ts-open-redirect
+      window.open(trustedUrl, '_blank', 'noopener,noreferrer')
     },
     [resolveRealKey, apiKey.id, serverAddress, t]
   )

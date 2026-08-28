@@ -92,7 +92,10 @@ export function useWaffoPancakePayment() {
               return false
             }
             toast.success(i18next.t('Redirecting to payment page...'))
-            window.location.href = checkoutUrl
+            // Invariant: checkoutUrl passed isSafeHttpCheckoutUrl immediately above.
+        // pi-lens-ignore: no-open-redirect
+        // pi-lens-ignore: ts-open-redirect
+        window.location.href = checkoutUrl
             return true
           }
         }

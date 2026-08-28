@@ -26,6 +26,7 @@ import { Button } from '@/components/ui/button'
 import { Markdown } from '@/components/ui/markdown'
 import { api } from '@/lib/api'
 import { formatTimestamp, formatTimestampToDate } from '@/lib/format'
+import { validatedExternalUrl } from '@/lib/validated-external-url'
 
 import { SettingsSection } from '../components/settings-section'
 
@@ -108,8 +109,19 @@ export function UpdateCheckerSection({
   }
 
   const goToRelease = () => {
-    if (release?.html_url) {
-      window.open(release.html_url, '_blank', 'noopener,noreferrer')
+    if (!release?.html_url) return
+
+    const releaseUrl = validatedExternalUrl(release.html_url, {
+      protocols: ['https:'],
+      origins: ['https://github.com'],
+      hosts: ['github.com'],
+      paths: { prefixes: ['/LIghtJUNction/api.lmm.best/commit/'] },
+    })
+    if (releaseUrl) {
+      // Invariant: releaseUrl is HTTPS on github.com under this repository's commit path.
+      // pi-lens-ignore: no-open-redirect
+      // pi-lens-ignore: ts-open-redirect
+      window.open(releaseUrl, '_blank', 'noopener,noreferrer')
     }
   }
 

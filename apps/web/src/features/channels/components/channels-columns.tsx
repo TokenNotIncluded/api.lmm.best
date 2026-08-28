@@ -56,6 +56,7 @@ import {
 } from '@/lib/currency'
 import { formatTimestampToDate } from '@/lib/format'
 import { truncateText } from '@/lib/utils'
+import { validatedExternalUrl } from '@/lib/validated-external-url'
 
 import { getCodexUsage } from '../api'
 import { CHANNEL_STATUS_CONFIG, MODEL_FETCHABLE_TYPES } from '../constants'
@@ -846,8 +847,26 @@ export function useChannelsColumns(
                             if (!deploymentId) {
                               return
                             }
-                            const targetUrl = `/models/deployments?dFilter=${encodeURIComponent(String(deploymentId))}`
-                            window.open(targetUrl, '_blank', 'noopener')
+                            const targetUrl = validatedExternalUrl(
+                              `/models/deployments?dFilter=${encodeURIComponent(String(deploymentId))}`,
+                              {
+                                protocols: [window.location.protocol],
+                                origins: [window.location.origin],
+                                hosts: [window.location.host],
+                                paths: { exact: ['/models/deployments'] },
+                              },
+                              window.location.origin
+                            )
+                            if (targetUrl) {
+                              // Invariant: targetUrl is same-origin with the exact deployments path.
+                              // pi-lens-ignore: no-open-redirect
+                              // pi-lens-ignore: ts-open-redirect
+                              window.open(
+                                targetUrl,
+                                '_blank',
+                                'noopener,noreferrer'
+                              )
+                            }
                           }}
                         />
                       }
