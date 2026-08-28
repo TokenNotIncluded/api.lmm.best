@@ -253,6 +253,15 @@ mod tests {
     };
     use tower::ServiceExt;
 
+    type TestResult = Result<(), Box<dyn std::error::Error>>;
+
+    fn lock_unpoisoned<T>(mutex: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+        match mutex.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        }
+    }
+
     #[derive(Clone)]
     struct TestService {
         authorization: MissingRelayAuthorization,
@@ -270,12 +279,12 @@ mod tests {
             endpoint: MissingRelayEndpoint,
             _: &Request,
         ) -> MissingRelayAuthorization {
-            self.seen.lock().unwrap().push(endpoint);
+            lock_unpoisoned(&self.seen).push(endpoint);
             self.authorization.clone()
         }
 
         async fn relay(&self, endpoint: MissingRelayEndpoint, request: Request) -> Response {
-            self.seen.lock().unwrap().push(endpoint);
+            lock_unpoisoned(&self.seen).push(endpoint);
             self.relays.fetch_add(1, Ordering::SeqCst);
             let body = self
                 .relay_body
@@ -344,20 +353,23 @@ mod tests {
         })
     }
 
-    async fn assert_json_response(response: Response, status: StatusCode, expected_body: &str) {
+    async fn assert_json_response(
+        response: Response,
+        status: StatusCode,
+        expected_body: &str,
+    ) -> TestResult {
         assert_eq!(response.status(), status);
         assert_eq!(
             response.headers()[header::CONTENT_TYPE],
             "application/json; charset=utf-8"
         );
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-            .await
-            .unwrap();
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await?;
         assert_eq!(body, expected_body.as_bytes());
+        Ok(())
     }
 
     #[tokio::test]
-    async fn all_public_paths_preserve_method_path_and_selected_endpoint() {
+    async fn all_public_paths_preserve_method_path_and_selected_endpoint() -> TestResult {
         let cases = [
             (
                 "GET",
@@ -377,46 +389,43 @@ mod tests {
                 .method(method)
                 .uri(uri)
                 .header(header::CONTENT_TYPE, "application/json")
-                .body(Body::from(r#"{"unknown_provider_field":true}"#))
-                .unwrap();
-            let response = router.oneshot(request).await.unwrap();
+                .body(Body::from(r#"{"unknown_provider_field":true}"#))?;
+            let response = router.oneshot(request).await?;
             assert_eq!(response.status(), StatusCode::OK);
             assert_eq!(response.headers()["x-upstream-id"], "relay-1");
-            let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-                .await
-                .unwrap();
-            assert!(std::str::from_utf8(&body).unwrap().contains(uri));
-            assert_eq!(*seen.lock().unwrap(), vec![endpoint, endpoint]);
+            let body = axum::body::to_bytes(response.into_body(), usize::MAX).await?;
+            assert!(std::str::from_utf8(&body)?.contains(uri));
+            assert_eq!(*lock_unpoisoned(&seen), vec![endpoint, endpoint]);
         }
+        Ok(())
     }
 
     #[tokio::test]
-    async fn failed_authorization_is_fail_closed_and_never_calls_upstream() {
+    async fn failed_authorization_is_fail_closed_and_never_calls_upstream() -> TestResult {
         let (router, seen, relays) = app(rejected(
             StatusCode::UNAUTHORIZED,
             "AUTH_UNAUTHORIZED",
             "invalid API key",
         ));
-        let mut request = HttpRequest::post("/v1/edits")
-            .body(Body::from("{}"))
-            .unwrap();
+        let mut request = HttpRequest::post("/v1/edits").body(Body::from("{}"))?;
         request.extensions_mut().insert(RequestContext {
             request_id: "edits-auth-request-id".into(),
             client_ip: None,
         });
-        let response = router.oneshot(request).await.unwrap();
+        let response = router.oneshot(request).await?;
         assert_eq!(relays.load(Ordering::SeqCst), 0);
-        assert_eq!(*seen.lock().unwrap(), vec![MissingRelayEndpoint::Edits]);
+        assert_eq!(*lock_unpoisoned(&seen), vec![MissingRelayEndpoint::Edits]);
         assert_json_response(
             response,
             StatusCode::UNAUTHORIZED,
             r#"{"error":{"message":"invalid API key (request id: edits-auth-request-id)","type":"new_api_error","code":""}}"#,
         )
-        .await;
+        .await?;
+        Ok(())
     }
 
     #[tokio::test]
-    async fn pg_rejection_serializes_typed_dashboard_auth_without_request_id() {
+    async fn pg_rejection_serializes_typed_dashboard_auth_without_request_id() -> TestResult {
         let cases = [
             (
                 StatusCode::UNAUTHORIZED,
@@ -440,22 +449,21 @@ mod tests {
 
         for (status, code, message, expected_body) in cases {
             let (router, _, relays) = app(rejected(status, code, message));
-            let mut request = HttpRequest::post("/pg/chat/completions")
-                .body(Body::empty())
-                .unwrap();
+            let mut request = HttpRequest::post("/pg/chat/completions").body(Body::empty())?;
             request.extensions_mut().insert(RequestContext {
                 request_id: "pg-request-id".into(),
                 client_ip: None,
             });
 
-            let response = router.oneshot(request).await.unwrap();
-            assert_json_response(response, status, expected_body).await;
+            let response = router.oneshot(request).await?;
+            assert_json_response(response, status, expected_body).await?;
             assert_eq!(relays.load(Ordering::SeqCst), 0);
         }
+        Ok(())
     }
 
     #[tokio::test]
-    async fn realtime_and_edits_keep_openai_token_auth_shape() {
+    async fn realtime_and_edits_keep_openai_token_auth_shape() -> TestResult {
         let cases = [
             (
                 "GET",
@@ -477,66 +485,54 @@ mod tests {
             let mut request = HttpRequest::builder()
                 .method(method)
                 .uri(path)
-                .body(Body::empty())
-                .unwrap();
+                .body(Body::empty())?;
             request.extensions_mut().insert(RequestContext {
                 request_id: "anonymous-request-id".into(),
                 client_ip: None,
             });
-            let response = router.oneshot(request).await.unwrap();
-            assert_json_response(response, StatusCode::UNAUTHORIZED, expected_body).await;
+            let response = router.oneshot(request).await?;
+            assert_json_response(response, StatusCode::UNAUTHORIZED, expected_body).await?;
         }
+        Ok(())
     }
 
     #[tokio::test]
-    async fn authorized_relay_preserves_provider_response_opaque() {
+    async fn authorized_relay_preserves_provider_response_opaque() -> TestResult {
         let (router, _, relays) = app_with_relay(
             MissingRelayAuthorization::Authorized,
             StatusCode::TOO_MANY_REQUESTS,
             Some(r#"{"provider":"rate_limited"}"#.to_owned()),
             HeaderValue::from_static("provider-limit"),
         );
-        let response = router
-            .oneshot(
-                HttpRequest::post("/pg/chat/completions")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
+        let request = HttpRequest::post("/pg/chat/completions").body(Body::empty())?;
+        let response = router.oneshot(request).await?;
         assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
         assert_eq!(response.headers()["x-upstream-id"], "provider-limit");
         assert_eq!(
-            axum::body::to_bytes(response.into_body(), usize::MAX)
-                .await
-                .unwrap(),
+            axum::body::to_bytes(response.into_body(), usize::MAX).await?,
             &br#"{"provider":"rate_limited"}"#[..]
         );
         assert_eq!(relays.load(Ordering::SeqCst), 1);
+        Ok(())
     }
 
     #[tokio::test]
-    async fn wrong_methods_and_unknown_paths_do_not_relay() {
+    async fn wrong_methods_and_unknown_paths_do_not_relay() -> TestResult {
         let (router, seen, relays) = app(MissingRelayAuthorization::Authorized);
         for (method, path, expected) in [
             ("POST", "/v1/realtime", StatusCode::METHOD_NOT_ALLOWED),
             ("GET", "/v1/edits", StatusCode::METHOD_NOT_ALLOWED),
             ("POST", "/v1/not-a-route", StatusCode::NOT_FOUND),
         ] {
-            let response = router
-                .clone()
-                .oneshot(
-                    HttpRequest::builder()
-                        .method(method)
-                        .uri(path)
-                        .body(Body::empty())
-                        .expect("request"),
-                )
-                .await
-                .expect("response");
+            let request = HttpRequest::builder()
+                .method(method)
+                .uri(path)
+                .body(Body::empty())?;
+            let response = router.clone().oneshot(request).await?;
             assert_eq!(response.status(), expected, "{method} {path}");
         }
-        assert!(seen.lock().unwrap().is_empty());
+        assert!(lock_unpoisoned(&seen).is_empty());
         assert_eq!(relays.load(Ordering::SeqCst), 0);
+        Ok(())
     }
 }
