@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -17,9 +18,11 @@ import (
 )
 
 const (
-	defaultGeoIPDatabasePath = "/var/lib/geoip2/DBIP-Country-Lite.mmdb"
-	defaultGeoIPSourceHost   = "download.db-ip.com"
-	geoIPDownloadLimit       = 64 << 20
+	defaultGeoIPDatabasePath       = "/var/lib/geoip2/DBIP-Country-Lite.mmdb"
+	defaultGeoIPSourceHost         = "download.db-ip.com"
+	geoIPCompressedDownloadLimit   = 32 << 20
+	geoIPDecompressedDatabaseLimit = 128 << 20
+	geoIPMaximumCompressionRatio   = 100
 )
 
 type geoIPUpdateOptions struct {
@@ -71,18 +74,68 @@ func parseGeoIPUpdateOptions(args []string, stderr io.Writer) (geoIPUpdateOption
 	if err != nil {
 		return geoIPUpdateOptions{}, fmt.Errorf("invalid --database-path: %w", err)
 	}
+	if filepath.Ext(clean) != ".mmdb" {
+		return geoIPUpdateOptions{}, errors.New("--database-path must name an .mmdb file")
+	}
 	options.DatabasePath = clean
-	if options.SourceURL != "" && !strings.HasPrefix(options.SourceURL, "https://"+defaultGeoIPSourceHost+"/") {
-		return geoIPUpdateOptions{}, errors.New("--source-url must use the DB-IP HTTPS host")
+	if options.SourceURL != "" {
+		if err := validateGeoIPSourceURL(options.SourceURL); err != nil {
+			return geoIPUpdateOptions{}, fmt.Errorf("invalid --source-url: %w", err)
+		}
 	}
 	return options, nil
+}
+
+func validateGeoIPSourceURL(raw string) error {
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return err
+	}
+	if parsed.Scheme != "https" || !strings.EqualFold(parsed.Hostname(), defaultGeoIPSourceHost) {
+		return errors.New("source must use the DB-IP HTTPS host")
+	}
+	if parsed.User != nil || (parsed.Port() != "" && parsed.Port() != "443") {
+		return errors.New("source must not contain credentials or a non-HTTPS port")
+	}
+	if parsed.RawQuery != "" || parsed.Fragment != "" || !strings.HasSuffix(parsed.EscapedPath(), ".mmdb.gz") {
+		return errors.New("source must name a DB-IP .mmdb.gz object without query or fragment")
+	}
+	return nil
+}
+
+func ensureGeoIPDirectory(path string) error {
+	clean := filepath.Clean(path)
+	if !filepath.IsAbs(clean) {
+		return errors.New("database directory must be absolute")
+	}
+	current := string(filepath.Separator)
+	for _, component := range strings.Split(strings.TrimPrefix(clean, string(filepath.Separator)), string(filepath.Separator)) {
+		if component == "" {
+			continue
+		}
+		current = filepath.Join(current, component)
+		info, err := os.Lstat(current)
+		if errors.Is(err, os.ErrNotExist) {
+			if err := os.Mkdir(current, 0o755); err != nil {
+				return err
+			}
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+			return fmt.Errorf("database path component %q is not a real directory", current)
+		}
+	}
+	return nil
 }
 
 func updateGeoIPDatabase(ctx context.Context, options geoIPUpdateOptions) error {
 	if options.DatabasePath == "" {
 		return errors.New("database path is empty")
 	}
-	if err := ensureRealDirectory(filepath.Dir(options.DatabasePath), 0o755); err != nil {
+	if err := ensureGeoIPDirectory(filepath.Dir(options.DatabasePath)); err != nil {
 		return fmt.Errorf("prepare database directory: %w", err)
 	}
 	sourceURL := options.SourceURL
@@ -94,7 +147,15 @@ func updateGeoIPDatabase(ctx context.Context, options geoIPUpdateOptions) error 
 		return fmt.Errorf("build download request: %w", err)
 	}
 	request.Header.Set("User-Agent", "lmm-api/geoip-updater")
-	client := &http.Client{Timeout: 2 * time.Minute}
+	client := &http.Client{
+		Timeout: 2 * time.Minute,
+		CheckRedirect: func(request *http.Request, via []*http.Request) error {
+			if len(via) >= 3 {
+				return errors.New("too many GeoIP download redirects")
+			}
+			return validateGeoIPSourceURL(request.URL.String())
+		},
+	}
 	response, err := client.Do(request)
 	if err != nil {
 		return fmt.Errorf("download database: %w", err)
@@ -103,11 +164,11 @@ func updateGeoIPDatabase(ctx context.Context, options geoIPUpdateOptions) error 
 	if response.StatusCode != http.StatusOK {
 		return fmt.Errorf("download database: HTTP %s", response.Status)
 	}
-	compressed, err := io.ReadAll(io.LimitReader(response.Body, geoIPDownloadLimit))
+	compressed, err := io.ReadAll(io.LimitReader(response.Body, geoIPCompressedDownloadLimit+1))
 	if err != nil {
 		return fmt.Errorf("read compressed database: %w", err)
 	}
-	if len(compressed) == 0 || len(compressed) >= geoIPDownloadLimit {
+	if len(compressed) == 0 || len(compressed) > geoIPCompressedDownloadLimit {
 		return errors.New("compressed database is empty or too large")
 	}
 	reader, err := gzip.NewReader(bytes.NewReader(compressed))
@@ -128,12 +189,15 @@ func updateGeoIPDatabase(ctx context.Context, options geoIPUpdateOptions) error 
 	if err := temporary.Chmod(0o644); err != nil {
 		return fmt.Errorf("set database mode: %w", err)
 	}
-	decompressed, err := io.Copy(temporary, io.LimitReader(reader, geoIPDownloadLimit+1))
+	decompressed, err := io.Copy(temporary, io.LimitReader(reader, geoIPDecompressedDatabaseLimit+1))
 	if err != nil {
 		return fmt.Errorf("decompress database: %w", err)
 	}
-	if decompressed == 0 || decompressed > geoIPDownloadLimit {
+	if decompressed == 0 || decompressed > geoIPDecompressedDatabaseLimit {
 		return errors.New("decompressed database is empty or too large")
+	}
+	if decompressed > int64(len(compressed))*geoIPMaximumCompressionRatio {
+		return errors.New("compressed database exceeds the safe expansion ratio")
 	}
 	if err := temporary.Sync(); err != nil {
 		return fmt.Errorf("sync database: %w", err)
@@ -153,10 +217,15 @@ func updateGeoIPDatabase(ctx context.Context, options geoIPUpdateOptions) error 
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	if _, err := os.Lstat(options.DatabasePath); err == nil {
+	if info, err := os.Lstat(options.DatabasePath); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+			return errors.New("existing database file is unsafe")
+		}
 		if err := os.Rename(options.DatabasePath, previousPath); err != nil {
 			return fmt.Errorf("preserve previous database: %w", err)
 		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
 	}
 	if err := os.Rename(temporaryPath, options.DatabasePath); err != nil {
 		_ = os.Rename(previousPath, options.DatabasePath)

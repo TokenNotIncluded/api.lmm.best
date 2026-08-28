@@ -99,8 +99,9 @@ var LogConsumeEnabled = true
 
 var TLSInsecureSkipVerify bool
 var InsecureTLSConfig = &tls.Config{
-	InsecureSkipVerify: true, //nolint:gosec // G402: only assigned when TLSInsecureSkipVerify is enabled.
-	MinVersion:         tls.VersionTLS12,
+	MinVersion: tls.VersionTLS12,
+	// Selected only when the operator explicitly sets TLS_INSECURE_SKIP_VERIFY=true.
+	InsecureSkipVerify: true, // #nosec G402 -- compatibility escape hatch; TLS 1.2 remains mandatory.
 }
 
 var SMTPServer = ""

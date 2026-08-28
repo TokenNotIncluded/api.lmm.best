@@ -66,8 +66,10 @@ func shouldAuthenticateSMTP() bool {
 
 func smtpTLSConfig() *tls.Config {
 	return &tls.Config{
-		ServerName:         SMTPServer,
-		InsecureSkipVerify: SMTPInsecureSkipVerify, // #nosec G402 -- admin-controlled SMTP compatibility option.
+		ServerName: SMTPServer,
+		MinVersion: tls.VersionTLS12,
+		// Disabled by default; SMTP_INSECURE_SKIP_VERIFY is an explicit compatibility escape hatch.
+		InsecureSkipVerify: SMTPInsecureSkipVerify, // #nosec G402 -- TLS 1.2 remains mandatory.
 	}
 }
 

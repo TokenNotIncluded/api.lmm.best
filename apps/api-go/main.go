@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/http/pprof"
 	"net/netip"
 	"os"
 	"os/signal"
@@ -37,8 +38,6 @@ import (
 	"github.com/bytedance/gopkg/util/gopool"
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
-
-	_ "net/http/pprof"
 )
 
 func main() {
@@ -189,7 +188,12 @@ func runServer() {
 			return
 		}
 		gopool.Go(func() {
-			if err := http.ListenAndServe(pprofAddress, nil); err != nil {
+			profileServer := &http.Server{
+				Addr:              pprofAddress,
+				Handler:           pprofHandler(),
+				ReadHeaderTimeout: 5 * time.Second,
+			}
+			if err := profileServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 				common.SysError(fmt.Sprintf("pprof server stopped: %v", err))
 			}
 		})
@@ -465,6 +469,10 @@ func pprofListenAddress(bindAddress, port string) (string, error) {
 	if strings.TrimSpace(bindAddress) == "" {
 		bindAddress = defaultPprofBindAddress
 	}
+	bindAddress = strings.TrimSpace(bindAddress)
+	if !isExactLoopbackHost(bindAddress) {
+		return "", fmt.Errorf("PPROF_BIND_ADDRESS must be exactly 127.0.0.1 or ::1")
+	}
 	if strings.TrimSpace(port) == "" {
 		port = defaultPprofPort
 	}
@@ -473,5 +481,15 @@ func pprofListenAddress(bindAddress, port string) (string, error) {
 	if err != nil || portNumber < 1 || portNumber > 65535 {
 		return "", fmt.Errorf("PPROF_PORT must be a numeric TCP port between 1 and 65535")
 	}
-	return buildListenAddress(bindAddress, port)
+	return net.JoinHostPort(bindAddress, port), nil
+}
+
+func pprofHandler() http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/debug/pprof/", pprof.Index)
+	mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+	mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+	mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+	mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+	return mux
 }

@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
@@ -322,9 +324,56 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 
 var upgrader = websocket.Upgrader{
 	Subprotocols: []string{"realtime", "responses"}, // WS 握手支持的协议，如果有使用 Sec-WebSocket-Protocol，则必须在此声明对应的 Protocol
-	CheckOrigin: func(r *http.Request) bool {
-		return true // 允许跨域
-	},
+	CheckOrigin:  checkWebSocketOrigin,
+}
+
+func checkWebSocketOrigin(request *http.Request) bool {
+	origins := request.Header.Values("Origin")
+	if len(origins) == 0 {
+		// API clients are not browsers and normally omit Origin.
+		return true
+	}
+	if len(origins) != 1 {
+		return false
+	}
+	origin, err := common.NormalizeOrigin(origins[0])
+	if err != nil {
+		return false
+	}
+
+	scheme := "http"
+	if request.TLS != nil {
+		scheme = "https"
+	}
+	if forwardedScheme := strings.TrimSpace(request.Header.Get("X-Forwarded-Proto")); forwardedScheme == "http" || forwardedScheme == "https" {
+		scheme = forwardedScheme
+	}
+	requestOrigin, err := common.NormalizeOrigin(scheme + "://" + request.Host)
+	if err == nil && strings.EqualFold(origin, requestOrigin) {
+		return true
+	}
+	for _, trustedOrigin := range common.SessionCookieTrustedURLs {
+		if strings.EqualFold(origin, trustedOrigin) {
+			return true
+		}
+	}
+
+	// Preserve the local frontend/backend split across development ports without
+	// allowing an arbitrary public web origin to open an authenticated socket.
+	parsedOrigin, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+	requestHost := (&url.URL{Host: request.Host}).Hostname()
+	return isWebSocketLoopbackHost(parsedOrigin.Hostname()) && isWebSocketLoopbackHost(requestHost)
+}
+
+func isWebSocketLoopbackHost(host string) bool {
+	if strings.EqualFold(strings.TrimSuffix(host, "."), "localhost") {
+		return true
+	}
+	address := net.ParseIP(host)
+	return address != nil && address.IsLoopback()
 }
 
 func addUsedChannel(c *gin.Context, channelId int) {
