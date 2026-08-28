@@ -1,0 +1,30 @@
+{
+  "threshold": 0,
+  "minLines": 50,
+  "minTokens": 300,
+  "gitignore": true,
+  "ignore": [
+    "**/.git/**",
+    "**/node_modules/**",
+    "**/target/**",
+    "**/vendor/**",
+    "**/dist/**",
+    "**/build/**",
+    "**/coverage/**",
+    "**/*.min.*",
+    "**/*.map",
+    "**/*.md",
+    "**/*.txt",
+    "**/*.json",
+    "**/*.yaml",
+    "**/*.yml",
+    "**/*.toml",
+    "**/*.lock",
+    "**/*.test.*",
+    "**/*.spec.*",
+    "**/*.poc.test.*",
+    "**/__tests__/**",
+    "**/tests/**",
+    "**/fixtures/**"
+  ]
+}
