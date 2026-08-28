@@ -41,25 +41,38 @@ struct FrozenModel {
     supported_endpoint_types: Option<Vec<String>>,
 }
 
-fn static_catalog() -> &'static HashMap<String, ModelView> {
-    static CATALOG: OnceLock<HashMap<String, ModelView>> = OnceLock::new();
-    CATALOG.get_or_init(|| {
-        serde_json::from_str::<Vec<FrozenModel>>(FROZEN_CATALOG)
-            .expect("checked-in legacy static model catalogue is valid JSON")
-            .into_iter()
-            .map(|model| {
-                let id = model.id;
-                let view = ModelView {
-                    id: id.clone(),
-                    object: "model",
-                    created: 1_626_777_600,
-                    owned_by: model.owned_by,
-                    supported_endpoint_types: model.supported_endpoint_types.unwrap_or_default(),
-                };
-                (id, view)
-            })
-            .collect()
-    })
+fn static_catalog() -> Result<&'static HashMap<String, ModelView>, ModelsError> {
+    static CATALOG: OnceLock<Option<HashMap<String, ModelView>>> = OnceLock::new();
+    CATALOG
+        .get_or_init(|| {
+            serde_json::from_str::<Vec<FrozenModel>>(FROZEN_CATALOG)
+                .ok()
+                .map(|models| {
+                    models
+                        .into_iter()
+                        .map(|model| {
+                            let id = model.id;
+                            let view = ModelView {
+                                id: id.clone(),
+                                object: "model",
+                                created: 1_626_777_600,
+                                owned_by: model.owned_by,
+                                supported_endpoint_types: model
+                                    .supported_endpoint_types
+                                    .unwrap_or_default(),
+                            };
+                            (id, view)
+                        })
+                        .collect()
+                })
+        })
+        .as_ref()
+        .ok_or_else(|| {
+            ModelsError::new(
+                ModelsErrorKind::Database,
+                "Static model catalogue is unavailable",
+            )
+        })
 }
 
 /// PostgreSQL token authentication with the frozen Go static model map.
@@ -125,7 +138,7 @@ impl ModelLookupService for PgStaticModelLookup {
     }
 
     async fn find_static_model(&self, model: &str) -> Result<Option<ModelView>, ModelsError> {
-        Ok(static_catalog().get(model).cloned())
+        Ok(static_catalog()?.get(model).cloned())
     }
 }
 
@@ -437,6 +450,8 @@ mod tests {
     use serde_json::{Value, json};
     use tower::ServiceExt;
 
+    type TestResult = Result<(), Box<dyn std::error::Error>>;
+
     #[derive(Clone)]
     struct TestService {
         authenticated: Result<(), ModelsErrorKind>,
@@ -467,119 +482,104 @@ mod tests {
         ))
     }
 
-    async fn json_body(response: Response) -> Value {
-        serde_json::from_slice(
-            &axum::body::to_bytes(response.into_body(), usize::MAX)
-                .await
-                .expect("body is readable"),
-        )
-        .expect("body is JSON")
+    async fn json_body(response: Response) -> Result<Value, Box<dyn std::error::Error>> {
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await?;
+        Ok(serde_json::from_slice(&body)?)
     }
 
     #[tokio::test]
-    async fn openai_lookup_returns_the_legacy_static_model_shape() {
+    async fn openai_lookup_returns_the_legacy_static_model_shape() -> TestResult {
         let response = app(Ok(()), Some(ModelView::new("gpt-4o", "openai")))
             .oneshot(
                 HttpRequest::get("/v1/models/gpt-4o")
                     .header("authorization", "Bearer test-token")
-                    .body(Body::empty())
-                    .expect("request is valid"),
+                    .body(Body::empty())?,
             )
-            .await
-            .expect("router responds");
+            .await?;
 
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(response.headers()["x-new-api-version"], "v0.0.0-test");
         assert_eq!(
-            json_body(response).await,
+            json_body(response).await?,
             json!({"id":"gpt-4o","object":"model","created":1626777600,"owned_by":"openai","supported_endpoint_types":[]})
         );
+        Ok(())
     }
 
     #[tokio::test]
-    async fn anthropic_lookup_uses_its_distinct_legacy_shape() {
+    async fn anthropic_lookup_uses_its_distinct_legacy_shape() -> TestResult {
         let response = app(Ok(()), Some(ModelView::new("claude-test", "claude")))
             .oneshot(
                 HttpRequest::get("/v1/models/claude-test")
                     .header("x-api-key", "test-token")
                     .header("anthropic-version", "2023-06-01")
-                    .body(Body::empty())
-                    .expect("request is valid"),
+                    .body(Body::empty())?,
             )
-            .await
-            .expect("router responds");
+            .await?;
 
         assert_eq!(
-            json_body(response).await,
+            json_body(response).await?,
             json!({"id":"claude-test","created_at":"2021-07-20T10:40:00Z","display_name":"claude-test","type":"model"})
         );
+        Ok(())
     }
 
     #[tokio::test]
-    async fn unknown_model_is_a_success_status_with_the_frozen_error_body() {
+    async fn unknown_model_is_a_success_status_with_the_frozen_error_body() -> TestResult {
         let response = app(Ok(()), None)
             .oneshot(
                 HttpRequest::get("/v1/models/missing")
                     .header("authorization", "Bearer test-token")
-                    .body(Body::empty())
-                    .expect("request is valid"),
+                    .body(Body::empty())?,
             )
-            .await
-            .expect("router responds");
+            .await?;
 
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(
-            json_body(response).await,
+            json_body(response).await?,
             json!({"error":{"message":"The model 'missing' does not exist","type":"invalid_request_error","param":"model","code":"model_not_found"}})
         );
+        Ok(())
     }
 
     #[tokio::test]
-    async fn rejected_token_uses_the_legacy_openai_error_envelope() {
+    async fn rejected_token_uses_the_legacy_openai_error_envelope() -> TestResult {
         let response = app(
             Err(ModelsErrorKind::InvalidToken),
             Some(ModelView::new("must-not-leak", "openai")),
         )
-        .oneshot(
-            HttpRequest::get("/v1/models/must-not-leak")
-                .body(Body::empty())
-                .expect("request is valid"),
-        )
-        .await
-        .expect("router responds");
+        .oneshot(HttpRequest::get("/v1/models/must-not-leak").body(Body::empty())?)
+        .await?;
 
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
-        let body = json_body(response).await;
+        let body = json_body(response).await?;
         assert_eq!(body["error"]["type"], "new_api_error");
         assert_eq!(body["error"]["code"], "");
         let message = body["error"]["message"].as_str().unwrap_or_default();
         assert!(message.starts_with("Invalid token (request id: "));
+        Ok(())
     }
 
     #[tokio::test]
-    async fn missing_token_uses_the_legacy_openai_error_envelope() {
+    async fn missing_token_uses_the_legacy_openai_error_envelope() -> TestResult {
         let response = app(
             Err(ModelsErrorKind::MissingToken),
             Some(ModelView::new("must-not-leak", "openai")),
         )
-        .oneshot(
-            HttpRequest::get("/v1/models/must-not-leak")
-                .body(Body::empty())
-                .expect("request is valid"),
-        )
-        .await
-        .expect("router responds");
+        .oneshot(HttpRequest::get("/v1/models/must-not-leak").body(Body::empty())?)
+        .await?;
 
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
-        let body = json_body(response).await;
+        let body = json_body(response).await?;
         assert_eq!(body["error"]["type"], "new_api_error");
         assert_eq!(body["error"]["code"], "");
         let message = body["error"]["message"].as_str().unwrap_or_default();
         assert!(message.starts_with("Invalid token (request id: "));
+        Ok(())
     }
 
     #[tokio::test]
-    async fn discovery_hidden_token_is_not_leaked_as_auth_error() {
+    async fn discovery_hidden_token_is_not_leaked_as_auth_error() -> TestResult {
         let response = app(
             Err(ModelsErrorKind::DiscoveryHidden),
             Some(ModelView::new("must-not-leak", "openai")),
@@ -587,13 +587,12 @@ mod tests {
         .oneshot(
             HttpRequest::get("/v1/models/must-not-leak")
                 .header("authorization", "Bearer test-token")
-                .body(Body::empty())
-                .expect("request is valid"),
+                .body(Body::empty())?,
         )
-        .await
-        .expect("router responds");
+        .await?;
 
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
-        assert_eq!(json_body(response).await, json!({"message":"Not Found"}));
+        assert_eq!(json_body(response).await?, json!({"message":"Not Found"}));
+        Ok(())
     }
 }

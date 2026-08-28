@@ -1762,6 +1762,7 @@ async fn submit_complaint(
     id: &str,
     reason: &str,
 ) -> Result<OrderView, HeroSmsApiError> {
+    // typos:ignore DISMATCH -- HeroSMS's official complaint enum uses this spelling.
     const REASONS: &[&str] = &[
         "NUMBER_BLOCKED",
         "NUMBER_ALREADY_IN_USE",
@@ -2378,6 +2379,8 @@ mod tests {
     };
     use tower::ServiceExt;
 
+    type TestResult = Result<(), Box<dyn std::error::Error>>;
+
     #[derive(Clone)]
     struct FixtureAuth {
         error: Option<AuthErrorKind>,
@@ -2481,11 +2484,10 @@ mod tests {
 
     fn handler_fixture(
         auth_error: Option<AuthErrorKind>,
-    ) -> (HeroSmsState, Arc<CountingLimiter>, Arc<AtomicUsize>) {
+    ) -> Result<(HeroSmsState, Arc<CountingLimiter>, Arc<AtomicUsize>), sqlx::Error> {
         let pg = PgPoolOptions::new()
             .acquire_timeout(Duration::from_millis(100))
-            .connect_lazy("postgres://unused:unused@127.0.0.1:1/unused")
-            .unwrap();
+            .connect_lazy("postgres://unused:unused@127.0.0.1:1/unused")?;
         let critical = Arc::new(AtomicUsize::new(0));
         let auth: Arc<dyn DashboardAuth> = Arc::new(FixtureAuth {
             error: auth_error,
@@ -2494,17 +2496,20 @@ mod tests {
         let limiter = Arc::new(CountingLimiter::default());
         let mut state = HeroSmsState::new(pg, auth, Arc::new(DisabledHeroSmsGateway));
         state.sms_user_rate_limiter = limiter.clone();
-        (state, limiter, critical)
+        Ok((state, limiter, critical))
     }
 
-    fn authorized_request(method: &str, uri: &str, body: Vec<u8>) -> Request {
+    fn authorized_request(
+        method: &str,
+        uri: &str,
+        body: Vec<u8>,
+    ) -> Result<Request, axum::http::Error> {
         Request::builder()
             .method(method)
             .uri(uri)
             .header("Authorization", "Bearer fixture")
             .header("X-Real-IP", "127.0.0.1")
             .body(Body::from(body))
-            .unwrap()
     }
 
     #[test]
@@ -2516,45 +2521,51 @@ mod tests {
     }
 
     #[test]
-    fn quota_charge_is_authoritative_and_rounded_up() {
+    fn quota_charge_is_authoritative_and_rounded_up() -> TestResult {
         let options = BTreeMap::from([("QuotaPerUnit".to_owned(), "500000".to_owned())]);
         assert_eq!(
-            charge_quota_decimal(Decimal::from_str("0.000001").unwrap(), &options).unwrap(),
+            charge_quota_decimal(Decimal::from_str("0.000001")?, &options)?,
             1
         );
         assert_eq!(
-            charge_quota_decimal(Decimal::from_str("1.25").unwrap(), &options).unwrap(),
+            charge_quota_decimal(Decimal::from_str("1.25")?, &options)?,
             625_000
         );
+        Ok(())
     }
 
     #[tokio::test]
-    async fn mutation_body_limit_precedes_payload_validation() {
+    async fn mutation_body_limit_precedes_payload_validation() -> TestResult {
         let request = Request::builder()
             .method("POST")
-            .body(axum::body::Body::from(vec![b'x'; BODY_LIMIT_BYTES + 1]))
-            .unwrap();
-        let response = parse_json::<CreateInput>(request).await.unwrap_err();
+            .body(axum::body::Body::from(vec![b'x'; BODY_LIMIT_BYTES + 1]))?;
+        let response = match parse_json::<CreateInput>(request).await {
+            Ok(_) => {
+                return Err(std::io::Error::other("oversized body was accepted").into());
+            }
+            Err(response) => response,
+        };
         assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+        Ok(())
     }
 
     #[tokio::test]
-    async fn mutation_handlers_authenticate_and_validate_body_before_rate_limits() {
-        let (state, limiter, critical) = handler_fixture(None);
+    async fn mutation_handlers_authenticate_and_validate_body_before_rate_limits() -> TestResult {
+        let (state, limiter, critical) = handler_fixture(None)?;
         let app = super::routes().with_state(state);
 
         let oversized = authorized_request(
             "POST",
             "/api/hero-sms/sms/orders",
             vec![b'x'; BODY_LIMIT_BYTES + 1],
-        );
-        let response = app.clone().oneshot(oversized).await.unwrap();
+        )?;
+        let response = app.clone().oneshot(oversized).await?;
         assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
         assert_eq!(limiter.0.load(Ordering::SeqCst), 0);
         assert_eq!(critical.load(Ordering::SeqCst), 0);
 
-        let invalid = authorized_request("POST", "/api/hero-sms/sms/orders", b"not-json".to_vec());
-        let response = app.clone().oneshot(invalid).await.unwrap();
+        let invalid = authorized_request("POST", "/api/hero-sms/sms/orders", b"not-json".to_vec())?;
+        let response = app.clone().oneshot(invalid).await?;
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
         assert_eq!(limiter.0.load(Ordering::SeqCst), 0);
         assert_eq!(critical.load(Ordering::SeqCst), 0);
@@ -2567,9 +2578,8 @@ mod tests {
                 "POST",
                 "/api/hero-sms/sms/orders",
                 exact,
-            ))
-            .await
-            .unwrap();
+            )?)
+            .await?;
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
         assert_eq!(limiter.0.load(Ordering::SeqCst), 1);
         assert_eq!(critical.load(Ordering::SeqCst), 1);
@@ -2579,36 +2589,38 @@ mod tests {
                 "DELETE",
                 "/api/hero-sms/sms/history",
                 vec![b'x'; BODY_LIMIT_BYTES + 1],
-            ))
-            .await
-            .unwrap();
+            )?)
+            .await?;
         assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
         assert_eq!(limiter.0.load(Ordering::SeqCst), 1);
+        Ok(())
     }
 
     #[tokio::test]
-    async fn unauthenticated_oversized_mutation_fails_auth_without_consuming_limits() {
-        let (state, limiter, critical) = handler_fixture(Some(AuthErrorKind::Unauthorized));
+    async fn unauthenticated_oversized_mutation_fails_auth_without_consuming_limits() -> TestResult
+    {
+        let (state, limiter, critical) = handler_fixture(Some(AuthErrorKind::Unauthorized))?;
         let response = super::routes()
             .with_state(state)
             .oneshot(authorized_request(
                 "POST",
                 "/api/hero-sms/sms/orders",
                 vec![b'x'; BODY_LIMIT_BYTES + 1],
-            ))
-            .await
-            .unwrap();
+            )?)
+            .await?;
         assert!(matches!(
             response.status(),
             StatusCode::UNAUTHORIZED | StatusCode::NOT_FOUND
         ));
         assert_eq!(limiter.0.load(Ordering::SeqCst), 0);
         assert_eq!(critical.load(Ordering::SeqCst), 0);
+        Ok(())
     }
 
     #[tokio::test]
-    async fn bodyless_delete_accepts_empty_body_and_get_does_not_consume_mutation_limit() {
-        let (state, limiter, _) = handler_fixture(None);
+    async fn bodyless_delete_accepts_empty_body_and_get_does_not_consume_mutation_limit()
+    -> TestResult {
+        let (state, limiter, _) = handler_fixture(None)?;
         let app = super::routes().with_state(state);
         let response = app
             .clone()
@@ -2616,9 +2628,8 @@ mod tests {
                 "DELETE",
                 "/api/hero-sms/sms/history/not-owned",
                 Vec::new(),
-            ))
-            .await
-            .unwrap();
+            )?)
+            .await?;
         assert_eq!(limiter.0.load(Ordering::SeqCst), 1);
         assert!(matches!(
             response.status(),
@@ -2630,45 +2641,40 @@ mod tests {
                 "GET",
                 "/api/hero-sms/sms/orders?page=1&size=20",
                 Vec::new(),
-            ))
-            .await
-            .unwrap();
+            )?)
+            .await?;
         assert_eq!(limiter.0.load(Ordering::SeqCst), 1);
+        Ok(())
     }
 
     #[tokio::test]
-    async fn postgres_refund_is_transactional_and_idempotent() {
+    async fn postgres_refund_is_transactional_and_idempotent() -> TestResult {
         let Ok(database_url) = std::env::var("LMM_TEST_POSTGRES_URL") else {
-            return;
+            return Ok(());
         };
-        let admin = PgPool::connect(&database_url)
-            .await
-            .expect("test PostgreSQL");
+        let admin = PgPool::connect(&database_url).await?;
         let schema = format!("hero_sms_sms_test_{}", Uuid::new_v4().simple());
         sqlx::query(&format!("CREATE SCHEMA {schema}"))
             .execute(&admin)
-            .await
-            .unwrap();
+            .await?;
         let scoped_url = format!(
             "{database_url}{}options=-csearch_path%3D{schema}",
             if database_url.contains('?') { "&" } else { "?" }
         );
-        let pg = PgPool::connect(&scoped_url).await.unwrap();
+        let pg = PgPool::connect(&scoped_url).await?;
         for statement in [
             "CREATE TABLE users(id BIGINT PRIMARY KEY, quota BIGINT NOT NULL)",
             "CREATE TABLE hero_sms_sms_orders(id TEXT PRIMARY KEY,user_id BIGINT NOT NULL,status TEXT NOT NULL,reserved_quota BIGINT NOT NULL,charge_quota BIGINT NOT NULL,refunded_quota BIGINT NOT NULL DEFAULT 0,complaint_status TEXT NOT NULL DEFAULT '',last_error_code TEXT NOT NULL DEFAULT '',last_error_message TEXT NOT NULL DEFAULT '',updated_at BIGINT NOT NULL)",
             "CREATE TABLE hero_sms_sms_quota_ledgers(id BIGSERIAL PRIMARY KEY,order_id TEXT NOT NULL,user_id BIGINT NOT NULL,entry_type TEXT NOT NULL,amount_quota BIGINT NOT NULL,idempotency_key TEXT NOT NULL UNIQUE,created_at BIGINT NOT NULL)",
         ] {
-            sqlx::query(statement).execute(&pg).await.unwrap();
+            sqlx::query(statement).execute(&pg).await?;
         }
         sqlx::query("INSERT INTO users VALUES(7,100)")
             .execute(&pg)
-            .await
-            .unwrap();
+            .await?;
         sqlx::query("INSERT INTO hero_sms_sms_orders(id,user_id,status,reserved_quota,charge_quota,updated_at) VALUES('order-1',7,'active',50,50,1)")
             .execute(&pg)
-            .await
-            .unwrap();
+            .await?;
 
         let first_pg = pg.clone();
         let second_pg = pg.clone();
@@ -2690,8 +2696,8 @@ mod tests {
                 &["active"],
             )
         );
-        first.unwrap();
-        second.unwrap();
+        first?;
+        second?;
         refund(
             &pg,
             "order-1",
@@ -2700,22 +2706,19 @@ mod tests {
             "cancelled",
             &["active"],
         )
-        .await
-        .unwrap();
+        .await?;
         let quota: i64 = sqlx::query_scalar("SELECT quota FROM users WHERE id=7")
             .fetch_one(&pg)
-            .await
-            .unwrap();
+            .await?;
         let ledgers: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM hero_sms_sms_quota_ledgers")
             .fetch_one(&pg)
-            .await
-            .unwrap();
+            .await?;
         assert_eq!(quota, 150);
         assert_eq!(ledgers, 1);
         pg.close().await;
         sqlx::query(&format!("DROP SCHEMA {schema} CASCADE"))
             .execute(&admin)
-            .await
-            .unwrap();
+            .await?;
+        Ok(())
     }
 }

@@ -309,7 +309,8 @@ pub enum HeroSmsProviderError {
     BatchCountMismatch,
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
+#[error("{code}: {message}")]
 struct HeroSmsApiError {
     status: StatusCode,
     code: &'static str,
