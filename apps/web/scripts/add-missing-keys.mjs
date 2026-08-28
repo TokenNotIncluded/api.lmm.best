@@ -5352,6 +5352,128 @@ for (const [locale, translations] of Object.entries(
   Object.assign(newKeys[locale], translations)
 }
 
+const affiliateInvitationTranslations = {
+  en: {
+    'Invite friends': 'Invite friends',
+    'Invite friends and earn account credit when they join.':
+      'Invite friends and earn account credit when they join.',
+    'Invite friends to {{systemName}}': 'Invite friends to {{systemName}}',
+    "Enter a friend's email and we'll send your personal invitation link through the configured mail server.":
+      "Enter a friend's email and we'll send your personal invitation link through the configured mail server.",
+    "Friend's email": "Friend's email",
+    'Invitation sent to {{email}}': 'Invitation sent to {{email}}',
+    'Invitation not sent': 'Invitation not sent',
+    'The invitation email could not be sent. Try again later or copy your invitation link.':
+      'The invitation email could not be sent. Try again later or copy your invitation link.',
+    'Copy invitation link': 'Copy invitation link',
+    'Sending invitation...': 'Sending invitation...',
+    'Send invitation': 'Send invitation',
+  },
+  zh: {
+    'Invite friends': '邀请好友',
+    'Invite friends and earn account credit when they join.':
+      '邀请好友注册，成功后可获得账户额度奖励。',
+    'Invite friends to {{systemName}}': '邀请好友加入 {{systemName}}',
+    "Enter a friend's email and we'll send your personal invitation link through the configured mail server.":
+      '输入好友邮箱，我们将通过已配置的邮件服务器发送你的专属邀请链接。',
+    "Friend's email": '好友邮箱',
+    'Invitation sent to {{email}}': '邀请邮件已发送至 {{email}}',
+    'Invitation not sent': '邀请未发送',
+    'The invitation email could not be sent. Try again later or copy your invitation link.':
+      '邀请邮件发送失败。请稍后重试，或复制邀请链接。',
+    'Copy invitation link': '复制邀请链接',
+    'Sending invitation...': '正在发送邀请…',
+    'Send invitation': '发送邀请',
+  },
+  'zh-TW': {
+    'Invite friends': '邀請好友',
+    'Invite friends and earn account credit when they join.':
+      '邀請好友註冊，成功後可獲得帳戶額度獎勵。',
+    'Invite friends to {{systemName}}': '邀請好友加入 {{systemName}}',
+    "Enter a friend's email and we'll send your personal invitation link through the configured mail server.":
+      '輸入好友的電子郵件，我們會透過已設定的郵件伺服器傳送你的專屬邀請連結。',
+    "Friend's email": '好友的電子郵件',
+    'Invitation sent to {{email}}': '邀請郵件已傳送至 {{email}}',
+    'Invitation not sent': '邀請未傳送',
+    'The invitation email could not be sent. Try again later or copy your invitation link.':
+      '邀請郵件無法傳送。請稍後再試，或複製邀請連結。',
+    'Copy invitation link': '複製邀請連結',
+    'Sending invitation...': '正在傳送邀請…',
+    'Send invitation': '傳送邀請',
+  },
+  fr: {
+    'Invite friends': 'Inviter des amis',
+    'Invite friends and earn account credit when they join.':
+      'Invitez des amis et recevez du crédit sur votre compte lorsqu’ils nous rejoignent.',
+    'Invite friends to {{systemName}}':
+      'Inviter des amis à rejoindre {{systemName}}',
+    "Enter a friend's email and we'll send your personal invitation link through the configured mail server.":
+      'Saisissez l’adresse e-mail d’un ami et nous lui enverrons votre lien d’invitation personnel via le serveur de messagerie configuré.',
+    "Friend's email": 'Adresse e-mail de votre ami',
+    'Invitation sent to {{email}}': 'Invitation envoyée à {{email}}',
+    'Invitation not sent': 'Invitation non envoyée',
+    'The invitation email could not be sent. Try again later or copy your invitation link.':
+      'L’e-mail d’invitation n’a pas pu être envoyé. Réessayez plus tard ou copiez votre lien d’invitation.',
+    'Copy invitation link': 'Copier le lien d’invitation',
+    'Sending invitation...': 'Envoi de l’invitation…',
+    'Send invitation': 'Envoyer l’invitation',
+  },
+  ja: {
+    'Invite friends': '友だちを招待',
+    'Invite friends and earn account credit when they join.':
+      '友だちを招待すると、参加後にアカウントクレジットを獲得できます。',
+    'Invite friends to {{systemName}}': '{{systemName}} に友だちを招待',
+    "Enter a friend's email and we'll send your personal invitation link through the configured mail server.":
+      '友だちのメールアドレスを入力すると、設定済みのメールサーバーからあなた専用の招待リンクを送信します。',
+    "Friend's email": '友だちのメールアドレス',
+    'Invitation sent to {{email}}': '{{email}} に招待メールを送信しました',
+    'Invitation not sent': '招待を送信できませんでした',
+    'The invitation email could not be sent. Try again later or copy your invitation link.':
+      '招待メールを送信できませんでした。後でもう一度試すか、招待リンクをコピーしてください。',
+    'Copy invitation link': '招待リンクをコピー',
+    'Sending invitation...': '招待を送信中…',
+    'Send invitation': '招待を送信',
+  },
+  ru: {
+    'Invite friends': 'Пригласить друзей',
+    'Invite friends and earn account credit when they join.':
+      'Приглашайте друзей и получайте средства на баланс после их регистрации.',
+    'Invite friends to {{systemName}}': 'Пригласить друзей в {{systemName}}',
+    "Enter a friend's email and we'll send your personal invitation link through the configured mail server.":
+      'Введите адрес электронной почты друга, и мы отправим вашу личную ссылку через настроенный почтовый сервер.',
+    "Friend's email": 'Электронная почта друга',
+    'Invitation sent to {{email}}': 'Приглашение отправлено на {{email}}',
+    'Invitation not sent': 'Приглашение не отправлено',
+    'The invitation email could not be sent. Try again later or copy your invitation link.':
+      'Не удалось отправить письмо с приглашением. Повторите попытку позже или скопируйте ссылку.',
+    'Copy invitation link': 'Скопировать ссылку-приглашение',
+    'Sending invitation...': 'Отправка приглашения…',
+    'Send invitation': 'Отправить приглашение',
+  },
+  vi: {
+    'Invite friends': 'Mời bạn bè',
+    'Invite friends and earn account credit when they join.':
+      'Mời bạn bè và nhận tín dụng tài khoản khi họ tham gia.',
+    'Invite friends to {{systemName}}': 'Mời bạn bè tham gia {{systemName}}',
+    "Enter a friend's email and we'll send your personal invitation link through the configured mail server.":
+      'Nhập email của bạn bè, chúng tôi sẽ gửi liên kết mời riêng của bạn qua máy chủ thư đã cấu hình.',
+    "Friend's email": 'Email của bạn bè',
+    'Invitation sent to {{email}}': 'Đã gửi lời mời tới {{email}}',
+    'Invitation not sent': 'Chưa gửi được lời mời',
+    'The invitation email could not be sent. Try again later or copy your invitation link.':
+      'Không thể gửi email mời. Hãy thử lại sau hoặc sao chép liên kết mời của bạn.',
+    'Copy invitation link': 'Sao chép liên kết mời',
+    'Sending invitation...': 'Đang gửi lời mời…',
+    'Send invitation': 'Gửi lời mời',
+  },
+}
+
+for (const [locale, translations] of Object.entries(
+  affiliateInvitationTranslations
+)) {
+  Object.assign(newKeys[locale], translations)
+}
+
 async function main() {
   let totalAdded = 0
   for (const [locale, translations] of Object.entries(newKeys)) {

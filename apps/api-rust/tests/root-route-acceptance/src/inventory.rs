@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-const EXPECTED_ROUTE_COUNT: usize = 352;
+const EXPECTED_ROUTE_COUNT: usize = 353;
 const LEGACY_ROUTES: &str = include_str!("../../fixtures/routes/legacy-go-routes.tsv");
 const MIGRATION_PLAN: &str = include_str!("../../fixtures/routes/migration-plan.tsv");
 const PLAN_HEADER: &str = "method\tpath\tlegacy_handler\tdomain\tauth_scope\tdata_access\tstreaming\tpriority\tplanned_rust_module\tjob_dependency";
@@ -154,12 +154,12 @@ pub fn load_routes() -> Result<Vec<RouteCase>, String> {
     let expected_auth_counts = BTreeMap::from([
         (AuthClass::Public, 21usize),
         (AuthClass::PublicOrUser, 14usize),
-        (AuthClass::User, 81usize),
+        (AuthClass::User, 80usize),
         (AuthClass::UserOrToken, 40usize),
         (AuthClass::Token, 47usize),
         (AuthClass::Admin, 141usize),
         (AuthClass::Root, 2usize),
-        (AuthClass::Webhook, 10usize),
+        (AuthClass::Webhook, 8usize),
     ]);
     if auth_counts != expected_auth_counts {
         return Err(format!(
@@ -267,9 +267,9 @@ mod tests {
     use super::{AuthClass, axum_path, concrete_path, load_routes, pattern_matches, wrong_method};
 
     #[test]
-    fn frozen_inventory_and_auth_classes_cover_exactly_356_routes() {
+    fn frozen_inventory_and_auth_classes_cover_exactly_353_routes() {
         let routes = load_routes().expect("frozen route inventory is valid");
-        assert_eq!(routes.len(), 352);
+        assert_eq!(routes.len(), 353);
         assert_eq!(
             routes
                 .iter()
@@ -289,7 +289,7 @@ mod tests {
                 .iter()
                 .filter(|route| route.auth == AuthClass::User)
                 .count(),
-            81
+            80
         );
         assert_eq!(
             routes

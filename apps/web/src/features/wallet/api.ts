@@ -30,6 +30,8 @@ import type {
   PaymentResponse,
   StripePaymentResponse,
   AffiliateCodeResponse,
+  AffiliateInvitationRequest,
+  AffiliateInvitationResponse,
   AffiliateTransferResponse,
   BillingHistoryResponse,
   CompleteOrderRequest,
@@ -135,9 +137,11 @@ export async function requestPayment(
   const res = await api.post('/api/user/pay', request, {
     skipBusinessError: true,
   } as Record<string, unknown>)
+  const legacyUrl = Reflect.get(res, 'url')
   return {
     ...res.data,
-    url: res.data.url || (res as unknown as { url?: string }).url,
+    url:
+      res.data.url || (typeof legacyUrl === 'string' ? legacyUrl : undefined),
   }
 }
 
@@ -206,6 +210,18 @@ export async function requestWaffoPancakePayment(
  */
 export async function getAffiliateCode(): Promise<AffiliateCodeResponse> {
   const res = await api.get('/api/user/aff')
+  return res.data
+}
+
+/**
+ * Send the current user's affiliate link through the configured SMTP server.
+ */
+export async function sendAffiliateInvitation(
+  request: AffiliateInvitationRequest
+): Promise<AffiliateInvitationResponse> {
+  const res = await api.post('/api/user/aff/invite', request, {
+    skipBusinessError: true,
+  } as Record<string, unknown>)
   return res.data
 }
 

@@ -58,8 +58,8 @@ if [[ "${actual_hash}" != "${expected_hash}" ]]; then
 fi
 
 route_count="$(wc -l <"${legacy_manifest}")"
-if [[ "${route_count}" -ne 352 ]]; then
-  echo "frozen legacy route manifest contains ${route_count} routes; expected 352" >&2
+if [[ "${route_count}" -ne 353 ]]; then
+  echo "frozen legacy route manifest contains ${route_count} routes; expected 353" >&2
   exit 1
 fi
 

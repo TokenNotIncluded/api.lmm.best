@@ -174,7 +174,7 @@ awk -F '\t' '
   $2 !~ /^\// { printf "frozen contract line %d: invalid path\n", NR > "/dev/stderr"; failed=1 }
   $3 !~ /^(public|webhook|token|public-or-user|admin|root|user|user-or-token)$/ { printf "frozen contract line %d: invalid auth scope\n", NR > "/dev/stderr"; failed=1 }
   { key=$1 "\t" $2; if (seen[key]++) { printf "frozen contract line %d: duplicate route\n", NR > "/dev/stderr"; failed=1 } }
-  END { if (NR != 353) { printf "expected 352 frozen routes, got %d\n", NR - 1 > "/dev/stderr"; failed=1 }; exit failed }
+  END { if (NR != 354) { printf "expected 353 frozen routes, got %d\n", NR - 1 > "/dev/stderr"; failed=1 }; exit failed }
 ' < <(sed 's/\r$//' -- "$frozen_snapshot") || die 'frozen route/auth contract is invalid'
 
 awk -F '\t' -v mode="$mode" '
@@ -199,7 +199,7 @@ awk -F '\t' -v mode="$mode" '
     if ($9 == "verified-approved" && !eligible) reject("verified-approved state mismatch")
     if (mode == "activate" && !($8 == "rs" && eligible)) reject("activation requires every route to be independently verified-approved and Rust-owned")
   }
-  END { if (NR != 353) { printf "expected 352 gate rows, got %d\n", NR - 1 > "/dev/stderr"; failed=1 }; exit failed }
+  END { if (NR != 354) { printf "expected 353 gate rows, got %d\n", NR - 1 > "/dev/stderr"; failed=1 }; exit failed }
 ' < <(sed 's/\r$//' -- "$gate_snapshot") || die "route gate failed $mode policy"
 
 diff -u \

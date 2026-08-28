@@ -55,7 +55,7 @@ printf '%s\n' "$checker_output"
 # The deployed Rust archive intentionally has no .git directory.  The checker
 # must resolve its repository root from the script location instead of Git.
 no_git_output=$(cd "$runtime" && bash "$checker")
-[[ $no_git_output == *"migration plan valid: 352 frozen legacy routes covered exactly; route ownership policy satisfied"* ]] || {
+[[ $no_git_output == *"migration plan valid: 353 frozen legacy routes covered exactly; route ownership policy satisfied"* ]] || {
   echo "migration plan checker requires Git metadata when launched outside the checkout" >&2
   exit 1
 }
@@ -74,7 +74,7 @@ crlf_output=$(cd "$runtime" && \
   MIGRATION_GATE_PATH="$crlf_gate" \
   MIGRATION_INTEGRATION_REVIEW_PATH="$crlf_review" \
   bash "$checker")
-[[ $crlf_output == *"migration plan valid: 352 frozen legacy routes covered exactly; route ownership policy satisfied"* ]] || {
+[[ $crlf_output == *"migration plan valid: 353 frozen legacy routes covered exactly; route ownership policy satisfied"* ]] || {
   echo "migration plan checker did not normalize CRLF across all ledgers" >&2
   exit 1
 }

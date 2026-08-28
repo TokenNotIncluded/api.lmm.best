@@ -50,6 +50,7 @@ export type PaymentResponse = ApiResponse<Record<string, unknown>> & {
 }
 export type StripePaymentResponse = ApiResponse<{ pay_link: string }>
 export type AffiliateCodeResponse = ApiResponse<string>
+export type AffiliateInvitationResponse = ApiResponse
 export type AffiliateTransferResponse = ApiResponse
 export type CreemPaymentResponse = ApiResponse<{ checkout_url: string }>
 export type WaffoPaymentResponse = ApiResponse<
@@ -89,6 +90,11 @@ export interface CreemProduct {
 /**
  * Creem payment request
  */
+export interface AffiliateInvitationRequest {
+  /** Recipient address; the backend constructs the trusted affiliate URL. */
+  email: string
+}
+
 export interface CreemPaymentRequest {
   /** Creem product ID */
   product_id: string

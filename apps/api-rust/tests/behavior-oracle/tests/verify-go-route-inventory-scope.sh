@@ -106,8 +106,8 @@ LC_ALL=C awk -F '\t' '
 
 inventory_count="$(<"${runtime_dir}/inventory-count")"
 ledger_count="$(wc -l <"${legacy_manifest}" | tr -d ' ')"
-[[ "${ledger_count}" -eq 352 ]] || \
-  fail "frozen ledger contains ${ledger_count} rows; expected 352"
+[[ "${ledger_count}" -eq 353 ]] || \
+  fail "frozen ledger contains ${ledger_count} rows; expected 353"
 
 cut -f1-2 "${runtime_dir}/manifest-with-mcp.tsv" | LC_ALL=C sort -u >"${runtime_dir}/inventory-identities"
 cut -f1-2 "${legacy_manifest}" | LC_ALL=C sort -u >"${runtime_dir}/ledger-identities"
@@ -161,7 +161,7 @@ echo "405 behavior: no production HandleMethodNotAllowed=true or NoMethod regist
 echo "Inventory derivation: route-manifest (SetApiRouter, SetDashboardRouter, SetRelayRouter, SetVideoRouter) plus source-registered SetOpenSourceBountyMCPRouter"
 
 if [[ -s "${extra_identities}" || -s "${missing_identities}" || -s "${extra_paths}" || -s "${missing_paths}" ]]; then
-  echo "inventory exceeds migration scope: authoritative Go registration is not exactly the frozen 352-route ledger" >&2
+  echo "inventory exceeds migration scope: authoritative Go registration is not exactly the frozen 353-route ledger" >&2
   echo "extra method/path identities: $(wc -l <"${extra_identities}" | tr -d ' ')" >&2
   sed 's/\t/ /' "${extra_identities}" >&2
   echo "missing method/path identities: $(wc -l <"${missing_identities}" | tr -d ' ')" >&2

@@ -25,6 +25,10 @@ const (
 	// Self updates only contain profile fields and console preferences. Keep the
 	// decoded request bounded before UpdateSelf streams it into a map.
 	userSelfMutationRequestMaxBytes = 16 << 10
+	// Affiliate invitations contain one recipient address. Bound the payload
+	// before JSON decoding and SMTP work so the authenticated route cannot be
+	// used as an oversized-body sink.
+	affiliateInvitationRequestMaxBytes = 4 << 10
 	// Token mutation payloads contain only bounded metadata (name, group,
 	// optional model/IP limits, or at most 100 IDs).  Keep these key-management
 	// endpoints from handing an unbounded JSON stream to encoding/json.
@@ -224,6 +228,7 @@ func SetApiRouter(router *gin.Engine) {
 				selfRoute.POST("/passkey/verify/finish", middleware.DisableCache(), middleware.RequestBodyLimit(passkeyFinishRequestMaxBytes), controller.PasskeyVerifyFinish)
 				selfRoute.DELETE("/passkey", middleware.DisableCache(), controller.PasskeyDelete)
 				selfRoute.GET("/aff", controller.GetAffCode)
+				selfRoute.POST("/aff/invite", middleware.RequestBodyLimit(affiliateInvitationRequestMaxBytes), middleware.UserCriticalRateLimit("aff-invite-email"), controller.SendAffiliateInvitation)
 				selfRoute.GET("/topup/info", controller.GetTopUpInfo)
 				selfRoute.GET("/topup/self", controller.GetUserTopUps)
 				selfRoute.POST("/discount-code/validate", middleware.RequestBodyLimit(topUpMutationRequestMaxBytes), middleware.DisableCache(), controller.ValidateDiscountCode)

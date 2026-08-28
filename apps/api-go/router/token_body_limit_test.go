@@ -87,6 +87,15 @@ func TestProtectedMutationRoutesRejectOversizedJSONBeforeBinding(t *testing.T) {
 	engine.ServeHTTP(affTransferResponse, affTransferRequest)
 
 	require.Equal(t, http.StatusRequestEntityTooLarge, affTransferResponse.Code)
+
+	inviteBody := `{"email":"` + strings.Repeat("x", affiliateInvitationRequestMaxBytes) + `"}`
+	inviteRequest := httptest.NewRequest(http.MethodPost, "/api/user/aff/invite", strings.NewReader(inviteBody))
+	inviteRequest.Header.Set("Authorization", "Bearer "+accessToken)
+	inviteResponse := httptest.NewRecorder()
+
+	engine.ServeHTTP(inviteResponse, inviteRequest)
+
+	require.Equal(t, http.StatusRequestEntityTooLarge, inviteResponse.Code)
 }
 
 func TestEmailBindRouteRejectsOversizedJSONBeforeAuthentication(t *testing.T) {

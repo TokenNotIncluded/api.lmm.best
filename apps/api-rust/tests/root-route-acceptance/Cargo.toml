@@ -7,7 +7,7 @@ publish = false
 
 # Keep this opt-in acceptance harness outside the application workspace. The
 # normal workspace test suite stays green while this gate deliberately remains
-# red until all 352 frozen routes are mounted on the real Rust root router.
+# red until all 353 frozen routes are mounted on the real Rust root router.
 [workspace]
 
 [features]

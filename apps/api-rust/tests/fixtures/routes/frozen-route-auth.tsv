@@ -223,6 +223,7 @@ GET	/api/user/:id/oauth/bindings	user
 DELETE	/api/user/:id/oauth/bindings/:provider_id	user
 DELETE	/api/user/:id/reset_passkey	user
 GET	/api/user/aff	user
+POST	/api/user/aff/invite	user
 POST	/api/user/aff_transfer	user
 POST	/api/user/amount	user
 POST	/api/user/auth/logout	public

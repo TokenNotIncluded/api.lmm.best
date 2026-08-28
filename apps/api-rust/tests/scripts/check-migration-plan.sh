@@ -88,7 +88,7 @@ awk -F '\t' '
     }
   }
   END {
-    if (NR != 353) { printf "expected 352 routes, got %d\n", NR - 1 > "/dev/stderr"; failed=1 }
+    if (NR != 354) { printf "expected 353 routes, got %d\n", NR - 1 > "/dev/stderr"; failed=1 }
     if (api_token_routes != 9) { printf "expected 9 exact API-token authorization rows, got %d\n", api_token_routes > "/dev/stderr"; failed=1 }
     exit failed
   }
@@ -588,4 +588,4 @@ awk -F '\t' '
   }
 ' <(tsv_without_crlf "$gate")
 
-echo "migration plan valid: 352 frozen legacy routes covered exactly; route ownership policy satisfied"
+echo "migration plan valid: 353 frozen legacy routes covered exactly; route ownership policy satisfied"
