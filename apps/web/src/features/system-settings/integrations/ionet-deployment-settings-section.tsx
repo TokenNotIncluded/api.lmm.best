@@ -235,8 +235,7 @@ export function IoNetDeploymentSettingsSection({
                         )
                         if (documentationUrl) {
                           // Invariant: documentationUrl is the exact HTTPS ai.io.net API-key page.
-                          // pi-lens-ignore: no-open-redirect
-                          // pi-lens-ignore: ts-open-redirect
+                          // pi-lens-ignore: ts-open-redirect, no-open-redirect
                           window.open(
                             documentationUrl,
                             '_blank',

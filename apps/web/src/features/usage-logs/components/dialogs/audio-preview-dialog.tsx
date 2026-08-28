@@ -138,8 +138,7 @@ function AudioClipCard({ clip }: { clip: AudioClip }) {
               className='h-7 gap-1 text-xs'
               onClick={() =>
                 // Invariant: audioUrl is credential-free HTTPS or a tracked local object URL.
-                // pi-lens-ignore: no-open-redirect
-                // pi-lens-ignore: ts-open-redirect
+                // pi-lens-ignore: ts-open-redirect, no-open-redirect
                 window.open(audioUrl, '_blank', 'noopener,noreferrer')
               }
             >

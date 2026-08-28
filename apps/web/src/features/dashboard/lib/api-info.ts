@@ -68,8 +68,7 @@ export function openExternalSpeedTest(url: string): void {
   )
   if (speedTestUrl) {
     // Invariant: speedTestUrl is HTTPS on www.tcptest.cn under /http/.
-    // pi-lens-ignore: no-open-redirect
-    // pi-lens-ignore: ts-open-redirect
+    // pi-lens-ignore: ts-open-redirect, no-open-redirect
     window.open(speedTestUrl, '_blank', 'noopener,noreferrer')
   }
 }

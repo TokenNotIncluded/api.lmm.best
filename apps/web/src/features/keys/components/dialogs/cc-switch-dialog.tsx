@@ -142,8 +142,7 @@ export function CCSwitchDialog(props: Props) {
     )
     if (!url) return
     // Invariant: url is ccswitch://v1/import with no credentials or fragment.
-    // pi-lens-ignore: no-open-redirect
-    // pi-lens-ignore: ts-open-redirect
+    // pi-lens-ignore: ts-open-redirect, no-open-redirect
     window.open(url, '_blank', 'noopener,noreferrer')
     props.onOpenChange(false)
   }

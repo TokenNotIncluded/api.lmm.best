@@ -162,8 +162,7 @@ export function DataTableRowActions<TData>({
 
       if (typeof window === 'undefined') return
       // Invariant: trustedUrl matches the configured chat template scheme, origin, host, and path.
-      // pi-lens-ignore: no-open-redirect
-      // pi-lens-ignore: ts-open-redirect
+      // pi-lens-ignore: ts-open-redirect, no-open-redirect
       window.open(trustedUrl, '_blank', 'noopener,noreferrer')
     },
     [resolveRealKey, apiKey.id, serverAddress, t]

@@ -287,8 +287,7 @@ export function ViewDetailsDialog({
                             size='sm'
                             onClick={() =>
                               // Invariant: url is a credential-free HTTPS URL with a valid host and path.
-                              // pi-lens-ignore: no-open-redirect
-                              // pi-lens-ignore: ts-open-redirect
+                              // pi-lens-ignore: ts-open-redirect, no-open-redirect
                               window.open(
                                 url,
                                 '_blank',

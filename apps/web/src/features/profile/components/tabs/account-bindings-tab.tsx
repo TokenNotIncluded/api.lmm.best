@@ -226,8 +226,7 @@ export function AccountBindingsTab({
           throw new Error('Untrusted OAuth authorization endpoint')
         }
         // Invariant: trustedUrl preserves the configured HTTPS OAuth origin, host, and path.
-        // pi-lens-ignore: no-open-redirect
-        // pi-lens-ignore: ts-open-redirect
+        // pi-lens-ignore: ts-open-redirect, no-open-redirect
         popup.location.replace(trustedUrl)
       } catch {
         const isCurrent = pendingOAuthBinding.current === pending

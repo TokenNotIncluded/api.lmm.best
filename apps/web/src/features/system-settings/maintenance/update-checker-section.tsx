@@ -119,8 +119,7 @@ export function UpdateCheckerSection({
     })
     if (releaseUrl) {
       // Invariant: releaseUrl is HTTPS on github.com under this repository's commit path.
-      // pi-lens-ignore: no-open-redirect
-      // pi-lens-ignore: ts-open-redirect
+      // pi-lens-ignore: ts-open-redirect, no-open-redirect
       window.open(releaseUrl, '_blank', 'noopener,noreferrer')
     }
   }
