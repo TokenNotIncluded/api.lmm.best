@@ -2271,37 +2271,56 @@ fn unix_now() -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
+
+    fn test_error(message: impl Into<String>) -> Box<dyn std::error::Error + Send + Sync> {
+        Box::new(std::io::Error::other(message.into()))
+    }
+
+    fn require_token_error<T>(
+        result: Result<T, TokenError>,
+        context: &'static str,
+    ) -> TestResult<TokenError> {
+        match result {
+            Ok(_) => Err(test_error(context)),
+            Err(error) => Ok(error),
+        }
+    }
+
     #[test]
     fn masks_only_presentation_key() {
         assert_eq!(mask_key("abcdefghij"), "abcd**********ghij");
     }
     #[test]
-    fn search_pattern_escapes_like_metacharacters() {
-        assert_eq!(like_pattern("a_b").unwrap(), "a!_b");
-        assert_eq!(like_pattern("%_").unwrap(), "%!_");
-        assert_eq!(like_pattern("%!").unwrap(), "%!!");
+    fn search_pattern_escapes_like_metacharacters() -> TestResult {
+        assert_eq!(like_pattern("a_b")?, "a!_b");
+        assert_eq!(like_pattern("%_")?, "%!_");
+        assert_eq!(like_pattern("%!")?, "%!!");
         assert!(like_pattern("%").is_err());
+        Ok(())
     }
 
     #[test]
-    fn search_pattern_preserves_frozen_go_error_messages_and_byte_length() {
+    fn search_pattern_preserves_frozen_go_error_messages_and_byte_length() -> TestResult {
         assert_eq!(
-            like_pattern("a%%b").unwrap_err().message,
+            require_token_error(like_pattern("a%%b"), "consecutive wildcards must fail")?.message,
             "搜索模式中不允许包含连续的 % 通配符"
         );
         assert_eq!(
-            like_pattern("%a%b%").unwrap_err().message,
+            require_token_error(like_pattern("%a%b%"), "too many wildcards must fail")?.message,
             "搜索模式中最多允许包含 2 个 % 通配符"
         );
         assert_eq!(
-            like_pattern("%a").unwrap_err().message,
+            require_token_error(like_pattern("%a"), "short fuzzy literal must fail")?.message,
             "使用模糊搜索时，关键词长度至少为 2 个字符"
         );
         // Go's len(string) counts UTF-8 bytes.  A single `é` is therefore a
         // valid fuzzy-search literal after `%` is removed, unlike a one-byte
         // ASCII character.
-        assert_eq!(like_pattern("%é").unwrap(), "%é");
-        assert_eq!(like_pattern("%中").unwrap(), "%中");
+        assert_eq!(like_pattern("%é")?, "%é");
+        assert_eq!(like_pattern("%中")?, "%中");
+        Ok(())
     }
 
     #[test]
@@ -2389,12 +2408,10 @@ mod tests {
     }
 
     #[test]
-    fn omitted_token_fields_keep_the_go_zero_defaults() {
-        let created: TokenInput = serde_json::from_str(r#"{"name":"zero"}"#)
-            .expect("minimal Go-compatible token body deserializes");
+    fn omitted_token_fields_keep_the_go_zero_defaults() -> TestResult {
+        let created: TokenInput = serde_json::from_str(r#"{"name":"zero"}"#)?;
         assert_eq!(created.expired_time, None);
-        let updated: TokenUpdate = serde_json::from_str(r#"{"name":"zero"}"#)
-            .expect("minimal Go-compatible update body deserializes");
+        let updated: TokenUpdate = serde_json::from_str(r#"{"name":"zero"}"#)?;
         assert_eq!(updated.id, 0);
         assert_eq!(updated.status, 0);
         assert_eq!(updated.token.expired_time, None);
@@ -2405,6 +2422,7 @@ mod tests {
         assert!(updated.token.allow_ips.is_none());
         assert_eq!(updated.token.group, "");
         assert!(!updated.token.cross_group_retry);
+        Ok(())
     }
 
     #[test]
@@ -2415,28 +2433,31 @@ mod tests {
     }
 
     #[test]
-    fn token_wire_preserves_go_zero_for_an_omitted_expiration() {
-        let created: TokenInput =
-            serde_json::from_str(r#"{"name":"zero"}"#).expect("minimal token body deserializes");
+    fn token_wire_preserves_go_zero_for_an_omitted_expiration() -> TestResult {
+        let created: TokenInput = serde_json::from_str(r#"{"name":"zero"}"#)?;
         assert_eq!(created.expired_time.unwrap_or_default(), 0);
+        Ok(())
     }
 
     #[test]
-    fn token_wire_reports_go_field_type_errors_and_accepts_null_scalars() {
-        let error = decode_legacy_json::<TokenInput>(br#"{"remain_quota":"100"}"#)
-            .expect_err("wrong quota type must fail");
+    fn token_wire_reports_go_field_type_errors_and_accepts_null_scalars() -> TestResult {
+        let error = require_token_error(
+            decode_legacy_json::<TokenInput>(br#"{"remain_quota":"100"}"#),
+            "wrong quota type must fail",
+        )?;
         assert_eq!(
             error.message,
             "json: cannot unmarshal string into Go struct field tokenRequest.Token.remain_quota of type int"
         );
-        let input = decode_legacy_json::<TokenInput>(br#"{"name":null,"expired_time":null}"#)
-            .expect("Go accepts null scalar fields");
+        let input =
+            decode_legacy_json::<TokenInput>(br#"{"name":null,"expired_time":null}"#)?;
         assert_eq!(input.name, "");
         assert_eq!(input.expired_time, None);
+        Ok(())
     }
 
     #[test]
-    fn token_wire_reports_go_top_level_shape_errors_for_create_and_update() {
+    fn token_wire_reports_go_top_level_shape_errors_for_create_and_update() -> TestResult {
         for (shape, body) in [
             ("array", br#"[]"#.as_slice()),
             ("bool", br#"true"#.as_slice()),
@@ -2447,38 +2468,44 @@ mod tests {
                 "json: cannot unmarshal {shape} into Go value of type controller.tokenRequest"
             );
             assert_eq!(
-                decode_legacy_json::<TokenInput>(body)
-                    .expect_err("create shape error")
-                    .message,
+                require_token_error(
+                    decode_legacy_json::<TokenInput>(body),
+                    "create shape must fail",
+                )?
+                .message,
                 expected,
                 "create top-level {shape}"
             );
             assert_eq!(
-                decode_legacy_json::<TokenUpdate>(body)
-                    .expect_err("update shape error")
-                    .message,
+                require_token_error(
+                    decode_legacy_json::<TokenUpdate>(body),
+                    "update shape must fail",
+                )?
+                .message,
                 expected,
                 "update top-level {shape}"
             );
         }
+        Ok(())
     }
 
     #[test]
-    fn token_batch_wire_keeps_empty_batch_as_a_handler_level_invalid_params() {
-        let batch =
-            decode_legacy_json::<TokenBatch>(br#"{}"#).expect("missing ids decodes as empty");
+    fn token_batch_wire_keeps_empty_batch_as_a_handler_level_invalid_params() -> TestResult {
+        let batch = decode_legacy_json::<TokenBatch>(br#"{}"#)?;
         assert!(batch.ids.is_empty());
-        let batch = decode_legacy_json::<TokenBatch>(br#"{"ids":null}"#)
-            .expect("null ids decodes as empty");
+        let batch = decode_legacy_json::<TokenBatch>(br#"{"ids":null}"#)?;
         assert!(batch.ids.is_empty());
+        Ok(())
     }
 
     #[test]
-    fn token_wire_checks_unused_fields_and_keeps_last_valid_duplicate() {
-        let error = decode_legacy_json::<TokenInput>(
-            br#"{"created_time":"bad","name":"ignored-after-error"}"#,
-        )
-        .expect_err("known unused fields still bind");
+    fn token_wire_checks_unused_fields_and_keeps_last_valid_duplicate() -> TestResult {
+        let error = require_token_error(
+            decode_legacy_json::<TokenInput>(
+                br#"{"created_time":"bad","name":"ignored-after-error"}"#,
+            ),
+            "known unused fields must still bind",
+        )?;
         assert_eq!(
             error.message,
             "json: cannot unmarshal string into Go struct field tokenRequest.Token.created_time of type int64"
@@ -2486,41 +2513,51 @@ mod tests {
 
         let input = decode_legacy_json::<TokenInput>(
             br#"{"Name":"first","name":"last"} {"name":"trailing"}"#,
-        )
-        .expect("the one-shot decoder accepts a trailing JSON value");
+        )?;
         assert_eq!(input.name, "last");
+        Ok(())
     }
 
     #[test]
-    fn token_wire_retains_the_first_type_error_after_later_duplicates() {
-        let error = decode_legacy_json::<TokenInput>(br#"{"remain_quota":1.5,"Remain_Quota":7}"#)
-            .expect_err("the first type error is retained");
+    fn token_wire_retains_the_first_type_error_after_later_duplicates() -> TestResult {
+        let error = require_token_error(
+            decode_legacy_json::<TokenInput>(
+                br#"{"remain_quota":1.5,"Remain_Quota":7}"#,
+            ),
+            "the first type error must be retained",
+        )?;
         assert_eq!(
             error.message,
             "json: cannot unmarshal number 1.5 into Go struct field tokenRequest.Token.remain_quota of type int"
         );
 
         for number in ["1e-1", "9223372036854775808"] {
-            let error = decode_legacy_json::<TokenInput>(
-                format!(r#"{{"remain_quota":{number}}}"#).as_bytes(),
-            )
-            .expect_err("non-integer and overflowing numbers must fail");
+            let error = require_token_error(
+                decode_legacy_json::<TokenInput>(
+                    format!(r#"{{"remain_quota":{number}}}"#).as_bytes(),
+                ),
+                "non-integer and overflowing numbers must fail",
+            )?;
             assert!(error.message.contains(&format!("number {number}")));
         }
+        Ok(())
     }
 
     #[test]
-    fn batch_wire_only_validates_ids_and_accepts_null_elements_as_zero() {
-        let batch = decode_legacy_json::<TokenBatch>(br#"{"unknown":"ignored","ids":[null,2]}"#)
-            .expect("unknown fields and null scalar elements are ignored/zero");
+    fn batch_wire_only_validates_ids_and_accepts_null_elements_as_zero() -> TestResult {
+        let batch =
+            decode_legacy_json::<TokenBatch>(br#"{"unknown":"ignored","ids":[null,2]}"#)?;
         assert_eq!(batch.ids, vec![0, 2]);
 
-        let error = decode_legacy_json::<TokenBatch>(br#"{"ids":[1.5]}"#)
-            .expect_err("fractional batch ids must fail");
+        let error = require_token_error(
+            decode_legacy_json::<TokenBatch>(br#"{"ids":[1.5]}"#),
+            "fractional batch ids must fail",
+        )?;
         assert_eq!(
             error.message,
             "json: cannot unmarshal number 1.5 into Go struct field TokenBatch.ids of type []int"
         );
+        Ok(())
     }
 
     #[test]
@@ -2611,7 +2648,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn unmounted_http_router_preserves_malformed_json_errors_after_userauth() {
+    async fn unmounted_http_router_preserves_malformed_json_errors_after_userauth() -> TestResult {
         use axum::{
             body::{Body, to_bytes},
             http::{Request, StatusCode},
@@ -2619,8 +2656,8 @@ mod tests {
         use tower::ServiceExt;
 
         let service = Arc::new(PgValkeyApiTokenService::new(
-            PgPool::connect_lazy("postgres://127.0.0.1:1/unused").expect("lazy pool"),
-            redis::Client::open("redis://127.0.0.1/").expect("Valkey URL"),
+            PgPool::connect_lazy("postgres://127.0.0.1:1/unused")?,
+            redis::Client::open("redis://127.0.0.1/")?,
         ));
         let router = api_token_router(ApiTokenHttpState::new(service));
         for (language, message) in [
@@ -2644,31 +2681,23 @@ mod tests {
             }
             let response = router
                 .clone()
-                .oneshot(
-                    request
-                        .body(Body::from("{"))
-                        .expect("valid malformed-body request"),
-                )
-                .await
-                .expect("router is infallible");
+                .oneshot(request.body(Body::from("{"))?)
+                .await?;
 
             assert_eq!(response.status(), StatusCode::OK, "{language:?}");
-            let body: serde_json::Value = serde_json::from_slice(
-                &to_bytes(response.into_body(), usize::MAX)
-                    .await
-                    .expect("response body"),
-            )
-            .expect("legacy JSON envelope");
+            let body_bytes = to_bytes(response.into_body(), usize::MAX).await?;
+            let body: serde_json::Value = serde_json::from_slice(&body_bytes)?;
             assert_eq!(
                 body,
                 serde_json::json!({"success": false, "message": message}),
                 "{language:?}"
             );
         }
+        Ok(())
     }
 
     #[tokio::test]
-    async fn unmounted_http_router_rejects_oversized_bytes_before_decode() {
+    async fn unmounted_http_router_rejects_oversized_bytes_before_decode() -> TestResult {
         use axum::{
             body::Body,
             http::{Request, StatusCode},
@@ -2676,30 +2705,26 @@ mod tests {
         use tower::ServiceExt;
 
         let service = Arc::new(PgValkeyApiTokenService::new(
-            PgPool::connect_lazy("postgres://127.0.0.1:1/unused").expect("lazy pool"),
-            redis::Client::open("redis://127.0.0.1/").expect("Valkey URL"),
+            PgPool::connect_lazy("postgres://127.0.0.1:1/unused")?,
+            redis::Client::open("redis://127.0.0.1/")?,
         ));
         let router = api_token_router(ApiTokenHttpState::new(service));
-        let response = router
-            .oneshot(
-                Request::post("/api/token/")
-                    .extension(ApiTokenPrincipal {
-                        user_id: 7,
-                        role: 1,
-                        preferred_language: None,
-                    })
-                    .header("content-type", "application/json")
-                    .body(Body::from(vec![b'x'; API_TOKEN_REQUEST_MAX_BYTES + 1]))
-                    .expect("oversized request"),
-            )
-            .await
-            .expect("router is infallible");
+        let request = Request::post("/api/token/")
+            .extension(ApiTokenPrincipal {
+                user_id: 7,
+                role: 1,
+                preferred_language: None,
+            })
+            .header("content-type", "application/json")
+            .body(Body::from(vec![b'x'; API_TOKEN_REQUEST_MAX_BYTES + 1]))?;
+        let response = router.oneshot(request).await?;
 
         assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+        Ok(())
     }
 
     #[tokio::test]
-    async fn unmounted_http_router_localizes_parameter_validation_after_userauth() {
+    async fn unmounted_http_router_localizes_parameter_validation_after_userauth() -> TestResult {
         use axum::{
             body::{Body, to_bytes},
             http::{Request, StatusCode},
@@ -2707,8 +2732,8 @@ mod tests {
         use tower::ServiceExt;
 
         let service = Arc::new(PgValkeyApiTokenService::new(
-            PgPool::connect_lazy("postgres://127.0.0.1:1/unused").expect("lazy pool"),
-            redis::Client::open("redis://127.0.0.1/").expect("Valkey URL"),
+            PgPool::connect_lazy("postgres://127.0.0.1:1/unused")?,
+            redis::Client::open("redis://127.0.0.1/")?,
         ));
         let router = api_token_router(ApiTokenHttpState::new(service));
         for (language, message) in [
@@ -2730,39 +2755,32 @@ mod tests {
             }
             let response = router
                 .clone()
-                .oneshot(
-                    request
-                        .body(Body::from(r#"{"ids":[]}"#))
-                        .expect("valid empty-batch request"),
-                )
-                .await
-                .expect("router is infallible");
+                .oneshot(request.body(Body::from(r#"{"ids":[]}"#))?)
+                .await?;
 
             assert_eq!(response.status(), StatusCode::OK, "{language:?}");
-            let body: serde_json::Value = serde_json::from_slice(
-                &to_bytes(response.into_body(), usize::MAX)
-                    .await
-                    .expect("response body"),
-            )
-            .expect("legacy JSON envelope");
+            let body_bytes = to_bytes(response.into_body(), usize::MAX).await?;
+            let body: serde_json::Value = serde_json::from_slice(&body_bytes)?;
             assert_eq!(
                 body,
                 serde_json::json!({"success": false, "message": message}),
                 "{language:?}"
             );
         }
+        Ok(())
     }
 
     #[tokio::test]
-    async fn cache_key_uses_the_legacy_crypto_secret_hmac_namespace() {
+    async fn cache_key_uses_the_legacy_crypto_secret_hmac_namespace() -> TestResult {
         let service = PgValkeyApiTokenService::new(
-            PgPool::connect_lazy("postgres://127.0.0.1:1/unused").expect("lazy pool"),
-            redis::Client::open("redis://127.0.0.1/").expect("Valkey URL"),
+            PgPool::connect_lazy("postgres://127.0.0.1:1/unused")?,
+            redis::Client::open("redis://127.0.0.1/")?,
         )
         .with_crypto_secret("secret");
         assert_eq!(
-            service.cache_key("key").expect("HMAC cache key"),
+            service.cache_key("key")?,
             "token:96de09a0f8699191b28587118ac57df88bbf6c2d0c131d196dcd90f7efd68c93" // gitleaks:allow -- deterministic HMAC fixture
         );
+        Ok(())
     }
 }
