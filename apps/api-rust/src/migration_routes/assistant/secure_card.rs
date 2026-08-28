@@ -62,24 +62,18 @@ mod tests {
     use super::*;
 
     #[test]
-    fn ciphertext_is_opaque_and_authenticated() {
+    fn ciphertext_is_opaque_and_authenticated() -> Result<(), Box<dyn std::error::Error>> {
         let secret = SecretString::from("test-session-secret".to_owned());
         let ciphertext = encrypt_payload(&secret, br#"{"api_key":"sk-secret"}"#)
-            .expect("test encryption should succeed");
+            .map_err(|()| std::io::Error::other("test encryption failed"))?;
         assert!(!ciphertext.contains("sk-secret"));
-        assert_eq!(
-            decrypt_payload(&secret, &ciphertext).expect("test decryption should succeed")["api_key"],
-            "sk-secret"
-        );
+        let decrypted = decrypt_payload(&secret, &ciphertext)
+            .map_err(|()| std::io::Error::other("test decryption failed"))?;
+        assert_eq!(decrypted["api_key"], "sk-secret");
         let mut tampered = ciphertext.into_bytes();
         let last = tampered.len() - 1;
         tampered[last] = if tampered[last] == b'A' { b'B' } else { b'A' };
-        assert!(
-            decrypt_payload(
-                &secret,
-                std::str::from_utf8(&tampered).expect("base64 remains utf8"),
-            )
-            .is_err()
-        );
+        assert!(decrypt_payload(&secret, std::str::from_utf8(&tampered)?).is_err());
+        Ok(())
     }
 }
