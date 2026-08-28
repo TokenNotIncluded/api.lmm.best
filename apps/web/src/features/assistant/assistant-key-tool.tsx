@@ -32,6 +32,70 @@ import {
 } from './assistant-key-ui'
 import { useAssistantKeyCreation } from './use-assistant-key-creation'
 
+const LOOPBACK_HOSTNAMES = new Set([
+  'localhost',
+  '127.0.0.1',
+  '::1',
+  '[::1]',
+])
+
+function trustedServiceRoot(value: string): string | null {
+  if (typeof window === 'undefined') return null
+
+  try {
+    const url = new URL(value)
+    const isSecure = url.protocol === 'https:'
+    const isLocalDevelopment =
+      import.meta.env.DEV &&
+      url.protocol === 'http:' &&
+      LOOPBACK_HOSTNAMES.has(window.location.hostname) &&
+      LOOPBACK_HOSTNAMES.has(url.hostname)
+
+    if (
+      (!isSecure && !isLocalDevelopment) ||
+      url.origin !== window.location.origin ||
+      url.username ||
+      url.password ||
+      url.search ||
+      url.hash
+    ) {
+      return null
+    }
+
+    url.pathname = url.pathname.replace(/\/v1\/?$/, '').replace(/\/+$/, '')
+    return url.toString().replace(/\/$/, '')
+  } catch {
+    return null
+  }
+}
+
+function validateCCSwitchImportUrl(
+  value: string,
+  serviceRoot: string
+): string | null {
+  try {
+    const url = new URL(value)
+    if (
+      url.protocol !== 'ccswitch:' ||
+      url.hostname !== 'v1' ||
+      url.port ||
+      url.pathname !== '/import' ||
+      url.username ||
+      url.password ||
+      url.hash ||
+      url.searchParams.get('resource') !== 'provider' ||
+      url.searchParams.get('app') !== 'claude' ||
+      url.searchParams.get('endpoint') !== serviceRoot ||
+      url.searchParams.get('homepage') !== serviceRoot
+    ) {
+      return null
+    }
+    return url.toString()
+  } catch {
+    return null
+  }
+}
+
 function selectedConnectionModel(
   developerAccessGranted: boolean,
   availableModels: string[],
@@ -73,20 +137,25 @@ export function AssistantKeyTool(props: {
 
   const importToCCSwitch = (apiKey: string) => {
     if (model === '<MODEL_ID>' || typeof window === 'undefined') return
-    const serviceRoot = props.baseUrl
-      .replace(/\/v1\/?$/, '')
-      .replace(/\/+$/, '')
+    const serviceRoot = trustedServiceRoot(props.baseUrl)
+    if (!serviceRoot) return
+
     const normalizedKey = apiKey.startsWith('sk-') ? apiKey : `sk-${apiKey}`
-    const url = buildCCSwitchProviderURL({
-      app: 'claude',
-      name: 'LMM',
-      endpoint: serviceRoot,
-      apiKey: normalizedKey,
-      models: { model },
-      homepage: serviceRoot,
-      enabled: true,
-    })
-    window.open(url, '_blank')
+    const url = validateCCSwitchImportUrl(
+      buildCCSwitchProviderURL({
+        app: 'claude',
+        name: 'LMM',
+        endpoint: serviceRoot,
+        apiKey: normalizedKey,
+        models: { model },
+        homepage: serviceRoot,
+        enabled: true,
+      }),
+      serviceRoot
+    )
+    if (!url) return
+
+    window.open(url, '_blank', 'noopener,noreferrer')
   }
 
   if (creation.state.phase.kind === 'created') {

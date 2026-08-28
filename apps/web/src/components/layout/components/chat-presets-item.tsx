@@ -52,6 +52,47 @@ import {
 import { normalizeHref } from '../lib/url-utils'
 import type { NavChatPresets } from '../types'
 
+const ALLOWED_CHAT_APP_PROTOCOLS = new Set([
+  'aionui:',
+  'ama:',
+  'ccswitch:',
+  'cherrystudio:',
+  'deepchat:',
+  'opencat:',
+])
+
+function validateExternalChatUrl(
+  value: string,
+  configuredTemplate: string
+): string | null {
+  try {
+    const target = new URL(value)
+    const configured = new URL(configuredTemplate)
+
+    if (
+      target.username ||
+      target.password ||
+      configured.username ||
+      configured.password ||
+      target.protocol !== configured.protocol ||
+      target.host !== configured.host ||
+      target.pathname !== configured.pathname
+    ) {
+      return null
+    }
+
+    if (target.protocol === 'https:') {
+      return target.origin === configured.origin ? target.toString() : null
+    }
+
+    return ALLOWED_CHAT_APP_PROTOCOLS.has(target.protocol)
+      ? target.toString()
+      : null
+  } catch {
+    return null
+  }
+}
+
 /**
  * Sub-menu item for a single chat preset
  */
@@ -211,14 +252,17 @@ export function ChatPresetsItem({ item }: { item: NavChatPresets }) {
         serverAddress,
       })
 
-      if (!url) {
+      const safeUrl = url
+        ? validateExternalChatUrl(url, preset.url)
+        : null
+      if (!safeUrl) {
         toast.error(t('Invalid chat link. Please contact the administrator.'))
         return
       }
 
       if (typeof window === 'undefined') return
 
-      window.open(url, '_blank', 'noopener')
+      window.open(safeUrl, '_blank', 'noopener,noreferrer')
       setOpenMobile(false)
     },
     [serverAddress, setOpenMobile, t]
