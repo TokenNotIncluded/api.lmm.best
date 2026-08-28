@@ -758,10 +758,22 @@ mod tests {
         body::{Body, to_bytes},
         http::{HeaderValue, Request},
     };
-    use std::sync::Mutex;
+    use std::sync::{Mutex, MutexGuard};
     use tower::ServiceExt;
 
     type EpayApp = (Router, Arc<Mutex<Vec<&'static str>>>, Arc<Mutex<usize>>);
+    type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
+
+    fn recover_lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+        match mutex.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        }
+    }
+
+    fn test_error(message: impl Into<String>) -> Box<dyn std::error::Error + Send + Sync> {
+        Box::new(std::io::Error::other(message.into()))
+    }
 
     struct RejectingAuthorizer;
 
@@ -884,11 +896,11 @@ mod tests {
         }
 
         async fn insert_prepared_pending(&self, _: PendingTopup) -> Result<(), TopupError> {
-            self.events.lock().unwrap().push("insert");
+            recover_lock(&self.events).push("insert");
             if self.fail_insert {
                 return Err(TopupError::Storage);
             }
-            *self.pending_writes.lock().unwrap() += 1;
+            *recover_lock(&self.pending_writes) += 1;
             Ok(())
         }
 
@@ -915,7 +927,7 @@ mod tests {
         }
 
         async fn prepare(&self, input: &QuotedTopup) -> Result<PreparedEpay, TopupError> {
-            self.events.lock().unwrap().push("prepare");
+            recover_lock(&self.events).push("prepare");
             if self.fail_prepare {
                 return Err(TopupError::Provider);
             }
@@ -969,7 +981,7 @@ mod tests {
             _: Option<&str>,
             _: &str,
         ) -> Result<Completion, TopupError> {
-            *self.completions.lock().unwrap() += 1;
+            *recover_lock(&self.completions) += 1;
             Ok(Completion::Completed)
         }
     }
@@ -991,7 +1003,7 @@ mod tests {
         }
 
         async fn verify(&self, fields: &EpayCallbackFields) -> Result<EpayCallback, TopupError> {
-            *self.calls.lock().unwrap() += 1;
+            *recover_lock(&self.calls) += 1;
             if fields != &self.expected {
                 return Err(TopupError::Provider);
             }
@@ -1032,12 +1044,21 @@ mod tests {
         (router, verify_calls, completions)
     }
 
-    async fn notify_response(router: Router, request: Request<Body>) -> (StatusCode, String) {
-        let response = router.oneshot(request).await.unwrap();
+    async fn notify_response(
+        router: Router,
+        request: Request<Body>,
+    ) -> TestResult<(StatusCode, String)> {
+        let response = router.oneshot(request).await?;
         let status = response.status();
-        let body = String::from_utf8(to_bytes(response.into_body(), 1024).await.unwrap().to_vec())
-            .unwrap();
-        (status, body)
+        let bytes = to_bytes(response.into_body(), 1024)
+            .await
+            .map_err(|error| test_error(format!("failed to read ePay notify response body: {error}")))?;
+        let body = String::from_utf8(bytes.to_vec()).map_err(|error| {
+            test_error(format!(
+                "ePay notify response body was not valid UTF-8: {error}"
+            ))
+        })?;
+        Ok((status, body))
     }
 
     fn epay_app(fail_prepare: bool, fail_insert: bool) -> EpayApp {
@@ -1058,59 +1079,65 @@ mod tests {
         (router, events, pending_writes)
     }
 
-    async fn post_epay(router: Router) -> (StatusCode, Value) {
+    async fn post_epay(router: Router) -> TestResult<(StatusCode, Value)> {
         let mut request = Request::post("/api/user/pay")
             .header(header::CONTENT_TYPE, "application/json")
-            .body(Body::from(r#"{"amount":1,"payment_method":"alipay"}"#))
-            .unwrap();
+            .body(Body::from(r#"{"amount":1,"payment_method":"alipay"}"#))?;
         request
             .extensions_mut()
             .insert(ClientIpKey("203.0.113.9".into()));
-        let response = router.oneshot(request).await.unwrap();
+        let response = router.oneshot(request).await?;
         let status = response.status();
-        let body =
-            serde_json::from_slice(&to_bytes(response.into_body(), 1024).await.unwrap()).unwrap();
-        (status, body)
+        let bytes = to_bytes(response.into_body(), 1024)
+            .await
+            .map_err(|error| test_error(format!("failed to read ePay response body: {error}")))?;
+        let body = serde_json::from_slice(&bytes).map_err(|error| {
+            test_error(format!("ePay response body was not valid JSON: {error}"))
+        })?;
+        Ok((status, body))
     }
 
     #[tokio::test]
-    async fn epay_prepare_failure_leaves_no_pending_order() {
+    async fn epay_prepare_failure_leaves_no_pending_order() -> TestResult {
         let (router, events, pending_writes) = epay_app(true, false);
-        let (status, body) = post_epay(router).await;
+        let (status, body) = post_epay(router).await?;
 
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body, json!({"message":"error","data":"拉起支付失败"}));
-        assert_eq!(&*events.lock().unwrap(), &["prepare"]);
-        assert_eq!(*pending_writes.lock().unwrap(), 0);
+        assert_eq!(&*recover_lock(&events), &["prepare"]);
+        assert_eq!(*recover_lock(&pending_writes), 0);
+        Ok(())
     }
 
     #[tokio::test]
-    async fn epay_insert_failure_keeps_legacy_response_after_local_prepare() {
+    async fn epay_insert_failure_keeps_legacy_response_after_local_prepare() -> TestResult {
         let (router, events, pending_writes) = epay_app(false, true);
-        let (status, body) = post_epay(router).await;
+        let (status, body) = post_epay(router).await?;
 
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body, json!({"message":"error","data":"创建订单失败"}));
-        assert_eq!(&*events.lock().unwrap(), &["prepare", "insert"]);
-        assert_eq!(*pending_writes.lock().unwrap(), 0);
+        assert_eq!(&*recover_lock(&events), &["prepare", "insert"]);
+        assert_eq!(*recover_lock(&pending_writes), 0);
+        Ok(())
     }
 
     #[tokio::test]
-    async fn epay_success_prepares_then_inserts_before_responding() {
+    async fn epay_success_prepares_then_inserts_before_responding() -> TestResult {
         let (router, events, pending_writes) = epay_app(false, false);
-        let (status, body) = post_epay(router).await;
+        let (status, body) = post_epay(router).await?;
 
         assert_eq!(status, StatusCode::OK);
         assert_eq!(
             body,
             json!({"message":"success","data":{"out_trade_no":"USR42NOsigned"},"url":"https://epay.example/checkout"})
         );
-        assert_eq!(&*events.lock().unwrap(), &["prepare", "insert"]);
-        assert_eq!(*pending_writes.lock().unwrap(), 1);
+        assert_eq!(&*recover_lock(&events), &["prepare", "insert"]);
+        assert_eq!(*recover_lock(&pending_writes), 1);
+        Ok(())
     }
 
     #[tokio::test]
-    async fn payment_critical_limiter_rejects_before_body_or_repository_work() {
+    async fn payment_critical_limiter_rejects_before_body_or_repository_work() -> TestResult {
         let events = Arc::new(Mutex::new(Vec::new()));
         let pending_writes = Arc::new(Mutex::new(0));
         let router = router(UserTopupState::new(
@@ -1129,69 +1156,56 @@ mod tests {
         for uri in ["/api/user/pay"] {
             let mut request = Request::post(uri)
                 .header(header::CONTENT_TYPE, "application/json")
-                .body(Body::from(r#"{"amount":1,"payment_method":"alipay"}"#))
-                .unwrap();
+                .body(Body::from(r#"{"amount":1,"payment_method":"alipay"}"#))?;
             request
                 .extensions_mut()
                 .insert(ClientIpKey("203.0.113.9".into()));
-            let response = router.clone().oneshot(request).await.unwrap();
+            let response = router.clone().oneshot(request).await?;
             assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS, "{uri}");
             assert_eq!(
                 response.headers().get(header::RETRY_AFTER),
                 Some(&HeaderValue::from_static("37")),
                 "{uri}"
             );
-            assert!(
-                to_bytes(response.into_body(), 1024)
-                    .await
-                    .unwrap()
-                    .is_empty(),
-                "{uri}"
-            );
+            assert!(to_bytes(response.into_body(), 1024).await?.is_empty(), "{uri}");
         }
-        assert!(events.lock().unwrap().is_empty());
-        assert_eq!(*pending_writes.lock().unwrap(), 0);
+        assert!(recover_lock(&events).is_empty());
+        assert_eq!(*recover_lock(&pending_writes), 0);
+        Ok(())
     }
 
     #[tokio::test]
-    async fn payment_critical_limiter_fails_closed_without_trusted_client_ip() {
+    async fn payment_critical_limiter_fails_closed_without_trusted_client_ip() -> TestResult {
         let (router, events, pending_writes) = epay_app(false, false);
         let response = router
             .oneshot(
                 Request::post("/api/user/pay")
                     .header(header::CONTENT_TYPE, "application/json")
-                    .body(Body::from(r#"{"amount":1,"payment_method":"alipay"}"#))
-                    .unwrap(),
+                    .body(Body::from(r#"{"amount":1,"payment_method":"alipay"}"#))?,
             )
-            .await
-            .unwrap();
+            .await?;
         assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
-        assert!(
-            to_bytes(response.into_body(), 1024)
-                .await
-                .unwrap()
-                .is_empty()
-        );
-        assert!(events.lock().unwrap().is_empty());
-        assert_eq!(*pending_writes.lock().unwrap(), 0);
+        assert!(to_bytes(response.into_body(), 1024).await?.is_empty());
+        assert!(recover_lock(&events).is_empty());
+        assert_eq!(*recover_lock(&pending_writes), 0);
+        Ok(())
     }
 
     #[tokio::test]
-    async fn epay_notify_uses_only_the_source_selected_by_its_method() {
+    async fn epay_notify_uses_only_the_source_selected_by_its_method() -> TestResult {
         let query_fields = notify_fields(&[("trade_no", "query"), ("sign", "query-sign")]);
         let (router, verify_calls, completions) = notify_app(query_fields, true);
         let (status, body) = notify_response(
             router,
             Request::get("/api/user/epay/notify?trade_no=query&sign=query-sign")
-                .body(Body::from("trade_no=body&sign=body-sign"))
-                .unwrap(),
+                .body(Body::from("trade_no=body&sign=body-sign"))?,
         )
-        .await;
+        .await?;
 
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body, "success");
-        assert_eq!(*verify_calls.lock().unwrap(), 1);
-        assert_eq!(*completions.lock().unwrap(), 1);
+        assert_eq!(*recover_lock(&verify_calls), 1);
+        assert_eq!(*recover_lock(&completions), 1);
 
         let body_fields = notify_fields(&[("trade_no", "body"), ("sign", "body-sign")]);
         let (router, verify_calls, completions) = notify_app(body_fields, true);
@@ -1202,62 +1216,61 @@ mod tests {
                     header::CONTENT_TYPE,
                     "application/x-www-form-urlencoded; charset=utf-8",
                 )
-                .body(Body::from("trade_no=body&sign=body-sign"))
-                .unwrap(),
+                .body(Body::from("trade_no=body&sign=body-sign"))?,
         )
-        .await;
+        .await?;
 
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body, "success");
-        assert_eq!(*verify_calls.lock().unwrap(), 1);
-        assert_eq!(*completions.lock().unwrap(), 1);
+        assert_eq!(*recover_lock(&verify_calls), 1);
+        assert_eq!(*recover_lock(&completions), 1);
+        Ok(())
     }
 
     #[tokio::test]
-    async fn epay_notify_rejects_malformed_or_wrong_transport_before_verification() {
+    async fn epay_notify_rejects_malformed_or_wrong_transport_before_verification() -> TestResult {
         for request in [
             Request::post("/api/user/epay/notify?trade_no=order-1&sign=valid")
                 .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
-                .body(Body::from("trade_no=order-1&sign=%"))
-                .unwrap(),
+                .body(Body::from("trade_no=order-1&sign=%"))?,
             Request::post("/api/user/epay/notify?trade_no=order-1&sign=valid")
                 .header(header::CONTENT_TYPE, "application/json")
-                .body(Body::from(r#"{"trade_no":"order-1","sign":"valid"}"#))
-                .unwrap(),
+                .body(Body::from(r#"{"trade_no":"order-1","sign":"valid"}"#))?,
         ] {
             let (router, verify_calls, completions) = notify_app(
                 notify_fields(&[("trade_no", "order-1"), ("sign", "valid")]),
                 true,
             );
-            let (status, body) = notify_response(router, request).await;
+            let (status, body) = notify_response(router, request).await?;
 
             assert_eq!(status, StatusCode::OK);
             assert_eq!(body, "fail");
-            assert_eq!(*verify_calls.lock().unwrap(), 0);
-            assert_eq!(*completions.lock().unwrap(), 0);
+            assert_eq!(*recover_lock(&verify_calls), 0);
+            assert_eq!(*recover_lock(&completions), 0);
         }
+        Ok(())
     }
 
     #[tokio::test]
-    async fn epay_get_query_discards_only_malformed_pairs_before_verification() {
+    async fn epay_get_query_discards_only_malformed_pairs_before_verification() -> TestResult {
         let expected = notify_fields(&[("trade_no", "order-1"), ("sign", "valid")]);
         let (router, verify_calls, completions) = notify_app(expected, true);
         let (status, body) = notify_response(
             router,
             Request::get("/api/user/epay/notify?trade_no=order-1&bad=%ZZ&sign=valid")
-                .body(Body::empty())
-                .unwrap(),
+                .body(Body::empty())?,
         )
-        .await;
+        .await?;
 
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body, "success");
-        assert_eq!(*verify_calls.lock().unwrap(), 1);
-        assert_eq!(*completions.lock().unwrap(), 1);
+        assert_eq!(*recover_lock(&verify_calls), 1);
+        assert_eq!(*recover_lock(&completions), 1);
+        Ok(())
     }
 
     #[tokio::test]
-    async fn epay_notify_invalid_signature_fails_without_completing() {
+    async fn epay_notify_invalid_signature_fails_without_completing() -> TestResult {
         let (router, verify_calls, completions) = notify_app(
             notify_fields(&[("trade_no", "order-1"), ("sign", "invalid")]),
             false,
@@ -1265,15 +1278,15 @@ mod tests {
         let (status, body) = notify_response(
             router,
             Request::get("/api/user/epay/notify?trade_no=order-1&sign=invalid")
-                .body(Body::empty())
-                .unwrap(),
+                .body(Body::empty())?,
         )
-        .await;
+        .await?;
 
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body, "fail");
-        assert_eq!(*verify_calls.lock().unwrap(), 1);
-        assert_eq!(*completions.lock().unwrap(), 0);
+        assert_eq!(*recover_lock(&verify_calls), 1);
+        assert_eq!(*recover_lock(&completions), 0);
+        Ok(())
     }
 
     fn app() -> Router {
@@ -1285,28 +1298,34 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn epay_public_http_methods_keep_their_auth_and_callback_contracts() {
+    async fn epay_public_http_methods_keep_their_auth_and_callback_contracts() -> TestResult {
         for uri in ["/api/user/pay"] {
             let response = app()
                 .oneshot(
                     Request::post(uri)
                         .header(header::CONTENT_TYPE, "application/json")
-                        .body(Body::from(r#"{"amount":10,"payment_method":"alipay"}"#))
-                        .unwrap(),
+                        .body(Body::from(r#"{"amount":10,"payment_method":"alipay"}"#))?,
                 )
-                .await
-                .unwrap();
+                .await?;
             assert_eq!(response.status(), StatusCode::UNAUTHORIZED, "{uri}");
+            let content_type = response.headers().get(header::CONTENT_TYPE).ok_or_else(|| {
+                test_error(format!(
+                    "unauthorized ePay response for {uri} omitted Content-Type"
+                ))
+            })?;
+            assert_eq!(content_type, "application/json", "{uri}");
+            let bytes = to_bytes(response.into_body(), 1024).await.map_err(|error| {
+                test_error(format!(
+                    "failed to read unauthorized ePay response body for {uri}: {error}"
+                ))
+            })?;
+            let body = serde_json::from_slice::<Value>(&bytes).map_err(|error| {
+                test_error(format!(
+                    "unauthorized ePay response body for {uri} was not valid JSON: {error}"
+                ))
+            })?;
             assert_eq!(
-                response.headers().get(header::CONTENT_TYPE).unwrap(),
-                "application/json",
-                "{uri}"
-            );
-            assert_eq!(
-                serde_json::from_slice::<Value>(
-                    &to_bytes(response.into_body(), 1024).await.unwrap()
-                )
-                .unwrap(),
+                body,
                 json!({"success":false,"code":"AUTH_UNAUTHORIZED","message":"Unauthorized, invalid access token"}),
                 "{uri}"
             );
@@ -1320,18 +1339,23 @@ mod tests {
                     Request::builder()
                         .method(method)
                         .uri(uri)
-                        .body(Body::empty())
-                        .unwrap(),
+                        .body(Body::empty())?,
                 )
-                .await
-                .unwrap();
+                .await?;
             assert_eq!(response.status(), StatusCode::OK, "{method} {uri}");
-            assert_eq!(
-                std::str::from_utf8(&to_bytes(response.into_body(), 1024).await.unwrap()).unwrap(),
-                "fail",
-                "{method} {uri}"
-            );
+            let bytes = to_bytes(response.into_body(), 1024).await.map_err(|error| {
+                test_error(format!(
+                    "failed to read ePay callback response body for {method} {uri}: {error}"
+                ))
+            })?;
+            let body = std::str::from_utf8(&bytes).map_err(|error| {
+                test_error(format!(
+                    "ePay callback response body for {method} {uri} was not UTF-8: {error}"
+                ))
+            })?;
+            assert_eq!(body, "fail", "{method} {uri}");
         }
+        Ok(())
     }
 
     #[test]
@@ -1354,9 +1378,11 @@ mod tests {
     }
 
     #[test]
-    fn epay_query_preserves_non_utf8_bytes_while_dropping_only_bad_pairs() {
-        let fields = parse_epay_query_fields(b"sign=%FF&bad=%ZZ&trade_no=order-1").unwrap();
+    fn epay_query_preserves_non_utf8_bytes_while_dropping_only_bad_pairs() -> TestResult {
+        let fields = parse_epay_query_fields(b"sign=%FF&bad=%ZZ&trade_no=order-1")
+            .ok_or_else(|| test_error("ePay query parser rejected its valid byte-level invariant"))?;
         assert_eq!(fields.values()[b"sign".as_slice()], [0xff]);
         assert_eq!(fields.values()[b"trade_no".as_slice()], b"order-1");
+        Ok(())
     }
 }
