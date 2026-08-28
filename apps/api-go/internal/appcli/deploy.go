@@ -14,8 +14,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-
-	"golang.org/x/sys/unix"
 )
 
 const (
@@ -169,7 +167,7 @@ func executeFrontendDeploy(options frontendDeployOptions) error {
 		return err
 	}
 	defer func() {
-		_ = unix.Flock(int(lock.Fd()), unix.LOCK_UN)
+		_ = unlockDeploymentFile(lock)
 		_ = lock.Close()
 	}()
 
@@ -240,7 +238,12 @@ func lockFrontendRelease(root string) (*os.File, error) {
 		_ = lock.Close()
 		return nil, fmt.Errorf("protect release lock: %w", err)
 	}
-	if err := unix.Flock(int(lock.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
+	acquired, err := tryDeploymentFileLock(lock)
+	if err != nil {
+		_ = lock.Close()
+		return nil, fmt.Errorf("lock frontend release: %w", err)
+	}
+	if !acquired {
 		_ = lock.Close()
 		return nil, errors.New("another frontend release operation is running")
 	}

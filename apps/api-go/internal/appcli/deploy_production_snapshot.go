@@ -14,8 +14,6 @@ import (
 	"sort"
 	"strings"
 	"time"
-
-	"golang.org/x/sys/unix"
 )
 
 type productionWorkspaceResult struct {
@@ -256,7 +254,7 @@ func (runtime *productionRuntime) withGlobalLock(ctx context.Context, operation 
 		return err
 	}
 	defer func() {
-		_ = unix.Flock(int(lock.Fd()), unix.LOCK_UN)
+		_ = unlockDeploymentFile(lock)
 		_ = lock.Close()
 	}()
 	return operation()

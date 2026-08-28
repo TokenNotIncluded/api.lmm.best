@@ -14,7 +14,6 @@ import (
 	"regexp"
 	"sort"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -76,7 +75,8 @@ func (runtime *productionRuntime) validateStagedFile(workspace productionWorkspa
 	if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || info.Size() == 0 || info.Mode().Perm()&0o022 != 0 {
 		return fmt.Errorf("%s is missing, empty, writable, or unsafe", label)
 	}
-	if stat, ok := info.Sys().(*syscall.Stat_t); !ok || stat.Nlink != 1 {
+	_, linkCount, ok := deploymentFileOwnership(info)
+	if !ok || linkCount != 1 {
 		return fmt.Errorf("%s must not be hard-linked", label)
 	}
 	if !productionSHA256Pattern.MatchString(expectedSHA256) {

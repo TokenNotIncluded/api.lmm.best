@@ -15,7 +15,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -1547,8 +1546,8 @@ func validateControllerArtifact(path, label string, executable bool) error {
 	if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || info.Size() == 0 || info.Mode().Perm()&0o022 != 0 {
 		return fmt.Errorf("%s is missing, empty, writable, or unsafe", label)
 	}
-	stat, ok := info.Sys().(*syscall.Stat_t)
-	if !ok || stat.Nlink != 1 || stat.Uid != uint32(os.Geteuid()) {
+	uid, linkCount, ok := deploymentFileOwnership(info)
+	if !ok || linkCount != 1 || uid != uint32(os.Geteuid()) {
 		return fmt.Errorf("%s ownership or link count is unsafe", label)
 	}
 	canonical, err := filepath.EvalSymlinks(path)

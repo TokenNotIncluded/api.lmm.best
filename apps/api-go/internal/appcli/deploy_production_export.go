@@ -10,7 +10,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -383,8 +382,8 @@ func (runtime *productionRuntime) verifyExternalBackups(ctx context.Context, opt
 	if err != nil || identityInfo.Mode()&os.ModeSymlink != 0 || !identityInfo.Mode().IsRegular() || identityInfo.Size() == 0 {
 		return productionBackupVerificationResult{}, errors.New("age identity is missing, empty, or unsafe")
 	}
-	identityStat, ok := identityInfo.Sys().(*syscall.Stat_t)
-	if !ok || identityInfo.Mode().Perm()&0o077 != 0 || int(identityStat.Uid) != runtime.effectiveUID() {
+	identityUID, _, ok := deploymentFileOwnership(identityInfo)
+	if !ok || identityInfo.Mode().Perm()&0o077 != 0 || int(identityUID) != runtime.effectiveUID() {
 		return productionBackupVerificationResult{}, errors.New("age identity must be owner-controlled and inaccessible to group or other users")
 	}
 	deploymentID, targetChecksumDigest, targetDigests, err := runtime.readTargetBackupProof(ctx, options.Target)

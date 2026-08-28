@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -95,8 +94,8 @@ func (runtime *productionRuntime) prepareOperatorWorkspacePermissions(ctx contex
 		if err != nil || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0o022 != 0 || item.directory != info.IsDir() {
 			return fmt.Errorf("operator payload path is missing, writable, or unsafe: %s", item.path)
 		}
-		stat, ok := info.Sys().(*syscall.Stat_t)
-		if !ok || stat.Uid != runtime.requiredOwnerUID || (!item.directory && stat.Nlink != 1) {
+		uid, linkCount, ok := deploymentFileOwnership(info)
+		if !ok || uid != runtime.requiredOwnerUID || (!item.directory && linkCount != 1) {
 			return fmt.Errorf("operator payload path ownership or link count is unsafe: %s", item.path)
 		}
 		canonical, err := filepath.EvalSymlinks(item.path)
@@ -109,9 +108,9 @@ func (runtime *productionRuntime) prepareOperatorWorkspacePermissions(ctx contex
 		if err != nil || !info.IsDir() || info.Mode().Perm() != 0o700 {
 			return fmt.Errorf("deployment %s directory must remain root-only", label)
 		}
-		stat, ok := info.Sys().(*syscall.Stat_t)
+		uid, _, ok := deploymentFileOwnership(info)
 		canonical, canonicalErr := filepath.EvalSymlinks(path)
-		if !ok || stat.Uid != runtime.requiredOwnerUID || canonicalErr != nil || filepath.Clean(canonical) != filepath.Clean(path) {
+		if !ok || uid != runtime.requiredOwnerUID || canonicalErr != nil || filepath.Clean(canonical) != filepath.Clean(path) {
 			return fmt.Errorf("deployment %s directory ownership or path is unsafe", label)
 		}
 	}
@@ -200,8 +199,8 @@ func (runtime *productionRuntime) validateParuPackagePath(workspace productionWo
 	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0o022 != 0 {
 		return errors.New("paru package must be a non-writable regular file")
 	}
-	stat, ok := info.Sys().(*syscall.Stat_t)
-	if !ok || stat.Uid != runtime.requiredOwnerUID || stat.Nlink != 1 {
+	uid, linkCount, ok := deploymentFileOwnership(info)
+	if !ok || uid != runtime.requiredOwnerUID || linkCount != 1 {
 		return errors.New("paru package must be root-owned with exactly one link")
 	}
 	canonical, err := filepath.EvalSymlinks(packagePath)

@@ -17,10 +17,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
-
-	"golang.org/x/sys/unix"
 )
 
 const (
@@ -896,7 +893,7 @@ func (runtime *productionRuntime) executeTransaction(ctx context.Context, option
 		return productionStatus{}, err
 	}
 	defer func() {
-		_ = unix.Flock(int(lock.Fd()), unix.LOCK_UN)
+		_ = unlockDeploymentFile(lock)
 		_ = lock.Close()
 	}()
 
@@ -997,11 +994,13 @@ func (runtime *productionRuntime) acquireGlobalLock(ctx context.Context) (*os.Fi
 	}
 	deadline := runtime.now().Add(2 * time.Minute)
 	for {
-		if err := unix.Flock(int(lock.Fd()), unix.LOCK_EX|unix.LOCK_NB); err == nil {
-			return lock, nil
-		} else if !errors.Is(err, unix.EWOULDBLOCK) && !errors.Is(err, unix.EAGAIN) {
+		acquired, err := tryDeploymentFileLock(lock)
+		if err != nil {
 			_ = lock.Close()
 			return nil, fmt.Errorf("lock production deployment: %w", err)
+		}
+		if acquired {
+			return lock, nil
 		}
 		if runtime.now().After(deadline) {
 			_ = lock.Close()
@@ -1176,8 +1175,8 @@ func (runtime *productionRuntime) requireOwnedSafePath(path string, directory bo
 	if err != nil || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0o022 != 0 || (directory && !info.IsDir()) || (!directory && !info.Mode().IsRegular()) {
 		return errors.New("path is missing, writable, or unsafe")
 	}
-	stat, ok := info.Sys().(*syscall.Stat_t)
-	if !ok || stat.Uid != runtime.requiredOwnerUID || (!directory && stat.Nlink != 1) {
+	uid, linkCount, ok := deploymentFileOwnership(info)
+	if !ok || uid != runtime.requiredOwnerUID || (!directory && linkCount != 1) {
 		return errors.New("path ownership or link count is unsafe")
 	}
 	return nil
