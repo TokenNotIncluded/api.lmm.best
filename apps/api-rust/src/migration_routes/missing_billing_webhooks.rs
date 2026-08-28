@@ -402,10 +402,19 @@ mod tests {
         http::Request,
     };
     use std::sync::{
-        Mutex,
+        Mutex, MutexGuard,
         atomic::{AtomicBool, Ordering},
     };
     use tower::ServiceExt;
+
+    type TestResult = Result<(), Box<dyn std::error::Error>>;
+
+    fn lock_recover<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+        match mutex.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        }
+    }
 
     struct Availability {
         pancake: AtomicBool,
@@ -486,10 +495,7 @@ mod tests {
             _: &str,
             _: &[u8],
         ) -> Result<Settlement, WebhookFailure> {
-            self.calls
-                .lock()
-                .unwrap()
-                .push(format!("pancake-topup:{trade}"));
+            lock_recover(&self.calls).push(format!("pancake-topup:{trade}"));
             Ok(Settlement::Completed)
         }
         async fn complete_pancake_subscription(
@@ -498,10 +504,7 @@ mod tests {
             _: &str,
             _: &[u8],
         ) -> Result<Settlement, WebhookFailure> {
-            self.calls
-                .lock()
-                .unwrap()
-                .push(format!("pancake-sub:{trade}"));
+            lock_recover(&self.calls).push(format!("pancake-sub:{trade}"));
             Ok(Settlement::AlreadySettled)
         }
         async fn complete_waffo_top_up(
@@ -510,15 +513,12 @@ mod tests {
             caller_ip: Option<&str>,
             _: &[u8],
         ) -> Result<Settlement, WebhookFailure> {
-            self.calls.lock().unwrap().push(format!("waffo:{trade}"));
-            self.client_ips
-                .lock()
-                .unwrap()
-                .push(caller_ip.map(str::to_owned));
+            lock_recover(&self.calls).push(format!("waffo:{trade}"));
+            lock_recover(&self.client_ips).push(caller_ip.map(str::to_owned));
             Ok(Settlement::Completed)
         }
         async fn mark_waffo_top_up_failed(&self, trade: &str) -> Result<(), WebhookFailure> {
-            self.calls.lock().unwrap().push(format!("failed:{trade}"));
+            lock_recover(&self.calls).push(format!("failed:{trade}"));
             Ok(())
         }
     }
@@ -568,43 +568,25 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn pancake_rejects_unsigned_before_settlement() {
+    async fn pancake_rejects_unsigned_before_settlement() -> TestResult {
         let processor = Arc::new(Processor::default());
-        let response = app(processor.clone())
-            .oneshot(
-                Request::post("/api/waffo-pancake/webhook/test")
-                    .body(Body::from("{}"))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
+        let request = Request::post("/api/waffo-pancake/webhook/test")
+            .body(Body::from("{}"))?;
+        let response = app(processor.clone()).oneshot(request).await?;
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
-        assert_eq!(
-            String::from_utf8(
-                to_bytes(response.into_body(), usize::MAX)
-                    .await
-                    .unwrap()
-                    .to_vec()
-            )
-            .unwrap(),
-            "invalid signature"
-        );
-        assert!(processor.calls.lock().unwrap().is_empty());
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
+        assert_eq!(String::from_utf8(body.to_vec())?, "invalid signature");
+        assert!(lock_recover(&processor.calls).is_empty());
+        Ok(())
     }
 
     #[tokio::test]
-    async fn disabled_webhooks_preserve_the_legacy_403_response_shapes() {
+    async fn disabled_webhooks_preserve_the_legacy_403_response_shapes() -> TestResult {
         let processor = Arc::new(Processor::default());
         let app = disabled_app(processor.clone());
-        let pancake = app
-            .clone()
-            .oneshot(
-                Request::post("/api/waffo-pancake/webhook/test")
-                    .body(Body::from("{}"))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
+        let pancake_request = Request::post("/api/waffo-pancake/webhook/test")
+            .body(Body::from("{}"))?;
+        let pancake = app.clone().oneshot(pancake_request).await?;
         assert_eq!(pancake.status(), StatusCode::FORBIDDEN);
         assert_eq!(
             pancake
@@ -614,50 +596,29 @@ mod tests {
             Some("text/plain; charset=utf-8")
         );
         assert!(pancake.headers().get("x-signature").is_none());
+        let pancake_body = to_bytes(pancake.into_body(), usize::MAX).await?;
         assert_eq!(
-            String::from_utf8(
-                to_bytes(pancake.into_body(), usize::MAX)
-                    .await
-                    .unwrap()
-                    .to_vec()
-            )
-            .unwrap(),
+            String::from_utf8(pancake_body.to_vec())?,
             "webhook disabled"
         );
 
-        let waffo = app
-            .oneshot(
-                Request::post("/api/waffo/webhook")
-                    .body(Body::from("{}"))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
+        let waffo_request = Request::post("/api/waffo/webhook").body(Body::from("{}"))?;
+        let waffo = app.oneshot(waffo_request).await?;
         assert_eq!(waffo.status(), StatusCode::FORBIDDEN);
         assert!(waffo.headers().get(header::CONTENT_TYPE).is_none());
         assert!(waffo.headers().get("x-signature").is_none());
-        assert!(
-            to_bytes(waffo.into_body(), usize::MAX)
-                .await
-                .unwrap()
-                .is_empty()
-        );
-        assert!(processor.calls.lock().unwrap().is_empty());
+        assert!(to_bytes(waffo.into_body(), usize::MAX).await?.is_empty());
+        assert!(lock_recover(&processor.calls).is_empty());
+        Ok(())
     }
 
     #[tokio::test]
-    async fn availability_failure_preserves_the_legacy_403_response_shapes() {
+    async fn availability_failure_preserves_the_legacy_403_response_shapes() -> TestResult {
         let processor = Arc::new(Processor::default());
         let app = failing_availability_app(processor.clone());
-        let pancake = app
-            .clone()
-            .oneshot(
-                Request::post("/api/waffo-pancake/webhook/test")
-                    .body(Body::from("{}"))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
+        let pancake_request = Request::post("/api/waffo-pancake/webhook/test")
+            .body(Body::from("{}"))?;
+        let pancake = app.clone().oneshot(pancake_request).await?;
         assert_eq!(pancake.status(), StatusCode::FORBIDDEN);
         assert_eq!(
             pancake
@@ -667,165 +628,117 @@ mod tests {
             Some("text/plain; charset=utf-8")
         );
         assert_eq!(
-            to_bytes(pancake.into_body(), usize::MAX)
-                .await
-                .unwrap()
-                .as_ref(),
+            to_bytes(pancake.into_body(), usize::MAX).await?.as_ref(),
             b"webhook disabled"
         );
 
-        let waffo = app
-            .oneshot(
-                Request::post("/api/waffo/webhook")
-                    .body(Body::from("{}"))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
+        let waffo_request = Request::post("/api/waffo/webhook").body(Body::from("{}"))?;
+        let waffo = app.oneshot(waffo_request).await?;
         assert_eq!(waffo.status(), StatusCode::FORBIDDEN);
         assert!(waffo.headers().get(header::CONTENT_TYPE).is_none());
-        assert!(
-            to_bytes(waffo.into_body(), usize::MAX)
-                .await
-                .unwrap()
-                .is_empty()
-        );
-        assert!(processor.calls.lock().unwrap().is_empty());
+        assert!(to_bytes(waffo.into_body(), usize::MAX).await?.is_empty());
+        assert!(lock_recover(&processor.calls).is_empty());
+        Ok(())
     }
 
     #[tokio::test]
-    async fn pancake_malformed_payload_is_an_unauthorized_ack_without_settlement() {
+    async fn pancake_malformed_payload_is_an_unauthorized_ack_without_settlement() -> TestResult {
         let processor = Arc::new(Processor::default());
+        let request = Request::post("/api/waffo-pancake/webhook/test")
+            .header("x-waffo-signature", "syntactically-valid")
+            .body(Body::from("{not json"))?;
         let response = malformed_pancake_app(processor.clone())
-            .oneshot(
-                Request::post("/api/waffo-pancake/webhook/test")
-                    .header("x-waffo-signature", "syntactically-valid")
-                    .body(Body::from("{not json"))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
+            .oneshot(request)
+            .await?;
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
-        assert_eq!(
-            String::from_utf8(
-                to_bytes(response.into_body(), usize::MAX)
-                    .await
-                    .unwrap()
-                    .to_vec()
-            )
-            .unwrap(),
-            "invalid signature"
-        );
-        assert!(processor.calls.lock().unwrap().is_empty());
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
+        assert_eq!(String::from_utf8(body.to_vec())?, "invalid signature");
+        assert!(lock_recover(&processor.calls).is_empty());
+        Ok(())
     }
 
     #[tokio::test]
-    async fn pancake_completed_subscription_acknowledges_idempotent_settlement() {
+    async fn pancake_completed_subscription_acknowledges_idempotent_settlement() -> TestResult {
         let processor = Arc::new(Processor::default());
-        let response = app(processor.clone())
-            .oneshot(
-                Request::post("/api/waffo-pancake/webhook/test")
-                    .header("x-waffo-signature", "valid-pancake")
-                    .body(Body::from("{\"signed\":true}"))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
+        let request = Request::post("/api/waffo-pancake/webhook/test")
+            .header("x-waffo-signature", "valid-pancake")
+            .body(Body::from("{\"signed\":true}"))?;
+        let response = app(processor.clone()).oneshot(request).await?;
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(
-            processor.calls.lock().unwrap().as_slice(),
+            lock_recover(&processor.calls).as_slice(),
             ["pancake-sub:WAFFO_PANCAKE_SUB-1"]
         );
+        Ok(())
     }
 
     #[tokio::test]
-    async fn waffo_invalid_signature_does_not_parse_or_settle() {
+    async fn waffo_invalid_signature_does_not_parse_or_settle() -> TestResult {
         let processor = Arc::new(Processor::default());
-        let response = app(processor.clone())
-            .oneshot(
-                Request::post("/api/waffo/webhook")
-                    .header("x-signature", "wrong")
-                    .body(Body::from("not json"))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
+        let request = Request::post("/api/waffo/webhook")
+            .header("x-signature", "wrong")
+            .body(Body::from("not json"))?;
+        let response = app(processor.clone()).oneshot(request).await?;
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
-        assert!(processor.calls.lock().unwrap().is_empty());
+        assert!(lock_recover(&processor.calls).is_empty());
+        Ok(())
     }
 
     #[tokio::test]
-    async fn waffo_missing_signature_is_a_bodyless_400_without_side_effects() {
+    async fn waffo_missing_signature_is_a_bodyless_400_without_side_effects() -> TestResult {
         let processor = Arc::new(Processor::default());
-        let response = app(processor.clone())
-            .oneshot(
-                Request::post("/api/waffo/webhook")
-                    .body(Body::from("{}"))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
+        let request = Request::post("/api/waffo/webhook").body(Body::from("{}"))?;
+        let response = app(processor.clone()).oneshot(request).await?;
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
-        assert!(
-            to_bytes(response.into_body(), usize::MAX)
-                .await
-                .unwrap()
-                .is_empty()
-        );
-        assert!(processor.calls.lock().unwrap().is_empty());
+        assert!(to_bytes(response.into_body(), usize::MAX).await?.is_empty());
+        assert!(lock_recover(&processor.calls).is_empty());
+        Ok(())
     }
 
     #[tokio::test]
-    async fn signed_waffo_malformed_json_returns_a_signed_failure_without_settlement() {
+    async fn signed_waffo_malformed_json_returns_a_signed_failure_without_settlement()
+    -> TestResult {
         let processor = Arc::new(Processor::default());
-        let response = app(processor.clone())
-            .oneshot(
-                Request::post("/api/waffo/webhook")
-                    .header("x-signature", "valid-waffo")
-                    .body(Body::from("{not json"))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
+        let request = Request::post("/api/waffo/webhook")
+            .header("x-signature", "valid-waffo")
+            .body(Body::from("{not json"))?;
+        let response = app(processor.clone()).oneshot(request).await?;
         assert_eq!(response.status(), StatusCode::OK);
-        assert_eq!(response.headers().get("x-signature").unwrap(), "signed");
+        let response_signature = response
+            .headers()
+            .get("x-signature")
+            .ok_or_else(|| std::io::Error::other("signed Waffo failure is missing x-signature"))?;
+        assert_eq!(response_signature, "signed");
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
         assert_eq!(
-            String::from_utf8(
-                to_bytes(response.into_body(), usize::MAX)
-                    .await
-                    .unwrap()
-                    .to_vec()
-            )
-            .unwrap(),
+            String::from_utf8(body.to_vec())?,
             r#"{"success":false,"message":"invalid payload"}"#
         );
-        assert!(processor.calls.lock().unwrap().is_empty());
+        assert!(lock_recover(&processor.calls).is_empty());
+        Ok(())
     }
 
     #[tokio::test]
-    async fn waffo_success_returns_provider_signed_ack_after_processor_commit() {
+    async fn waffo_success_returns_provider_signed_ack_after_processor_commit() -> TestResult {
         let processor = Arc::new(Processor::default());
-        let response = app(processor.clone())
-            .oneshot(
-                Request::post("/api/waffo/webhook")
-                    .header("x-signature", "valid-waffo")
-                    .body(Body::from(r#"{"eventType":"PAYMENT_NOTIFICATION","result":{"merchantOrderId":"trade-1","orderStatus":"PAY_SUCCESS"}}"#))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
+        let request = Request::post("/api/waffo/webhook")
+            .header("x-signature", "valid-waffo")
+            .body(Body::from(r#"{"eventType":"PAYMENT_NOTIFICATION","result":{"merchantOrderId":"trade-1","orderStatus":"PAY_SUCCESS"}}"#))?;
+        let response = app(processor.clone()).oneshot(request).await?;
         assert_eq!(response.status(), StatusCode::OK);
-        assert_eq!(response.headers().get("x-signature").unwrap(), "signed");
-        assert_eq!(
-            processor.calls.lock().unwrap().as_slice(),
-            ["waffo:trade-1"]
-        );
+        let response_signature = response
+            .headers()
+            .get("x-signature")
+            .ok_or_else(|| std::io::Error::other("successful Waffo ack is missing x-signature"))?;
+        assert_eq!(response_signature, "signed");
+        assert_eq!(lock_recover(&processor.calls).as_slice(), ["waffo:trade-1"]);
+        Ok(())
     }
 
     #[tokio::test]
-    async fn waffo_settlement_uses_canonical_client_ip_not_raw_header() {
+    async fn waffo_settlement_uses_canonical_client_ip_not_raw_header() -> TestResult {
         let processor = Arc::new(Processor::default());
-        let canonical_ip = "203.0.113.7".parse().unwrap();
+        let canonical_ip: std::net::IpAddr = "203.0.113.7".parse()?;
         let payload = r#"{"eventType":"PAYMENT_NOTIFICATION","result":{"merchantOrderId":"trade-1","orderStatus":"PAY_SUCCESS"}}"#;
 
         for raw_ip in [Some("198.51.100.9"), None, Some("not-an-ip")] {
@@ -834,23 +747,24 @@ mod tests {
             if let Some(raw_ip) = raw_ip {
                 request = request.header("x-real-ip", raw_ip);
             }
-            let mut request = request.body(Body::from(payload)).unwrap();
+            let mut request = request.body(Body::from(payload))?;
             request.extensions_mut().insert(RequestContext {
                 request_id: "request-1".into(),
                 client_ip: Some(canonical_ip),
             });
 
-            let response = app(processor.clone()).oneshot(request).await.unwrap();
+            let response = app(processor.clone()).oneshot(request).await?;
             assert_eq!(response.status(), StatusCode::OK);
         }
 
         assert_eq!(
-            processor.client_ips.lock().unwrap().as_slice(),
+            lock_recover(&processor.client_ips).as_slice(),
             [
                 Some("203.0.113.7".to_owned()),
                 Some("203.0.113.7".to_owned()),
                 Some("203.0.113.7".to_owned()),
             ]
         );
+        Ok(())
     }
 }
