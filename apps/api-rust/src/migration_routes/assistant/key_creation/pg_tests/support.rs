@@ -1,12 +1,18 @@
-use std::{ops::Deref, time::Duration};
+use std::{error::Error, fmt::Display, io, ops::Deref, time::Duration};
 
 use secrecy::SecretString;
-use sqlx::PgPool;
+use sqlx::{PgPool, postgres::PgPoolOptions};
 use tokio::time::timeout;
 
 use super::super::{domain::*, repository::*};
 use crate::auth::DashboardDeveloperAccessPolicy;
 use crate::migration_routes::assistant::{PgAssistantReadStore, pg_test_support::IsolatedPgSchema};
+
+pub(super) type TestResult<T = ()> = Result<T, Box<dyn Error + Send + Sync>>;
+
+pub(super) fn test_error(error: impl Display) -> Box<dyn Error + Send + Sync> {
+    Box::new(io::Error::other(error.to_string()))
+}
 
 pub(super) struct PgHarness(IsolatedPgSchema);
 
@@ -19,13 +25,59 @@ impl Deref for PgHarness {
 }
 
 impl PgHarness {
-    pub(super) async fn new() -> Option<Self> {
-        let harness = Self(IsolatedPgSchema::new("assistant_key", 12).await?);
-        harness.create_schema().await;
-        Some(harness)
+    pub(super) async fn new() -> TestResult<Option<Self>> {
+        let database_url = match std::env::var("LMM_TEST_DATABASE_URL") {
+            Ok(database_url) => database_url,
+            Err(std::env::VarError::NotPresent) => return Ok(None),
+            Err(error) => return Err(error.into()),
+        };
+        let admin = PgPool::connect(&database_url).await?;
+        let schema = format!("assistant_key_{}", uuid::Uuid::new_v4().simple());
+        sqlx::query(&format!("CREATE SCHEMA {schema}"))
+            .execute(&admin)
+            .await?;
+        let pool = match PgPoolOptions::new()
+            .max_connections(12)
+            .after_connect({
+                let schema = schema.clone();
+                move |connection, _metadata| {
+                    let statement = format!("SET search_path TO {schema}");
+                    Box::pin(async move {
+                        sqlx::query(&statement).execute(connection).await?;
+                        Ok(())
+                    })
+                }
+            })
+            .connect(&database_url)
+            .await
+        {
+            Ok(pool) => pool,
+            Err(error) => {
+                let cleanup = sqlx::query(&format!("DROP SCHEMA {schema} CASCADE"))
+                    .execute(&admin)
+                    .await;
+                admin.close().await;
+                cleanup?;
+                return Err(error.into());
+            }
+        };
+        let harness = Self(IsolatedPgSchema {
+            admin,
+            pool,
+            schema,
+        });
+        if let Err(error) = harness.create_schema().await {
+            if let Err(cleanup_error) = harness.cleanup().await {
+                return Err(test_error(format!(
+                    "{error}; additionally failed to clean the test schema: {cleanup_error}"
+                )));
+            }
+            return Err(error);
+        }
+        Ok(Some(harness))
     }
 
-    async fn create_schema(&self) {
+    async fn create_schema(&self) -> TestResult {
         for statement in [
             "CREATE TABLE users (id BIGINT PRIMARY KEY, username TEXT NOT NULL, role BIGINT NOT NULL DEFAULT 1, status INTEGER NOT NULL, auth_version BIGINT NOT NULL DEFAULT 1, trust_level_override BIGINT, created_at BIGINT NOT NULL DEFAULT 1, last_api_activity_at BIGINT NOT NULL DEFAULT 0, deleted_at TIMESTAMPTZ, \"group\" TEXT NOT NULL, console_activated_at BIGINT NOT NULL DEFAULT 0)",
             "CREATE TABLE user_sessions (sid TEXT PRIMARY KEY, user_id BIGINT NOT NULL, status TEXT NOT NULL, version BIGINT NOT NULL, user_auth_version BIGINT NOT NULL, expires_at BIGINT NOT NULL, revoked_at BIGINT NOT NULL DEFAULT 0)",
@@ -38,17 +90,13 @@ impl PgHarness {
             "CREATE TABLE two_fas (id BIGSERIAL PRIMARY KEY, user_id BIGINT NOT NULL, secret TEXT NOT NULL, is_enabled BOOLEAN NOT NULL, locked_until TIMESTAMPTZ, deleted_at TIMESTAMPTZ, failed_attempts BIGINT NOT NULL DEFAULT 0, last_used_at TIMESTAMPTZ, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())",
             "CREATE TABLE two_fa_backup_codes (id BIGSERIAL PRIMARY KEY, user_id BIGINT NOT NULL, code_hash TEXT NOT NULL, is_used BOOLEAN NOT NULL DEFAULT FALSE, used_at TIMESTAMPTZ, deleted_at TIMESTAMPTZ)",
         ] {
-            sqlx::query(statement)
-                .execute(&self.pool)
-                .await
-                .expect("create assistant-key test table");
+            sqlx::query(statement).execute(&self.pool).await?;
         }
         sqlx::query(
             "INSERT INTO users (id, username, status, auth_version, trust_level_override, \"group\") VALUES (7, 'assistant-user', 1, 1, 1, 'default')",
         )
         .execute(&self.pool)
-        .await
-        .expect("seed assistant-key user");
+        .await?;
         for (key, value) in [
             ("UserUsableGroups", r#"{"default":"Default","vip":"VIP"}"#),
             ("GroupRatio", r#"{"default":1,"vip":2}"#),
@@ -60,23 +108,33 @@ impl PgHarness {
                 .bind(key)
                 .bind(value)
                 .execute(&self.pool)
-                .await
-                .expect("seed assistant-key option");
+                .await?;
         }
+        Ok(())
     }
 
-    pub(super) fn store(&self) -> PgAssistantReadStore {
-        PgAssistantReadStore {
+    pub(super) fn store(&self) -> TestResult<PgAssistantReadStore> {
+        Ok(PgAssistantReadStore {
             pg: self.pool.clone(),
-            valkey: redis::Client::open("redis://127.0.0.1:1/")
-                .expect("valid unavailable test Valkey URL"),
+            valkey: redis::Client::open("redis://127.0.0.1:1/")?,
             session_secret: SecretString::from("assistant-key-pg-test-secret"),
             developer_access_policy: DashboardDeveloperAccessPolicy::new(false),
-        }
+        })
     }
 
-    pub(super) async fn cleanup(self) {
-        self.0.cleanup().await;
+    pub(super) async fn cleanup(self) -> TestResult {
+        let IsolatedPgSchema {
+            admin,
+            pool,
+            schema,
+        } = self.0;
+        pool.close().await;
+        let cleanup = sqlx::query(&format!("DROP SCHEMA {schema} CASCADE"))
+            .execute(&admin)
+            .await;
+        admin.close().await;
+        cleanup?;
+        Ok(())
     }
 }
 
@@ -84,7 +142,7 @@ pub(super) async fn prepare(
     store: &PgAssistantReadStore,
     session_id: &str,
     group: &str,
-) -> PreparedKeyAction {
+) -> TestResult<PreparedKeyAction> {
     sqlx::query(
         "INSERT INTO user_sessions (sid, user_id, status, version, user_auth_version, expires_at) \
          VALUES ($1, 7, 'active', 1, 1, EXTRACT(EPOCH FROM NOW())::BIGINT + 3600) \
@@ -92,15 +150,14 @@ pub(super) async fn prepare(
     )
     .bind(session_id)
     .execute(&store.pg)
-    .await
-    .expect("seed assistant-key session");
+    .await?;
     let options = load_pg_options(store, "default")
         .await
-        .expect("load authoritative group options");
+        .map_err(test_error)?;
     let warning = options
         .iter()
         .find(|option| option.id() == group)
-        .expect("requested test group is selectable")
+        .ok_or_else(|| test_error("requested test group is not selectable"))?
         .warning
         .clone();
     prepare_pg(
@@ -110,20 +167,20 @@ pub(super) async fn prepare(
         PreparedKeyDraft {
             version: DRAFT_VERSION,
             name: "assistant-created".to_owned(),
-            group: RealSelectableGroup::parse(group).expect("real selectable test group"),
+            group: RealSelectableGroup::parse(group).map_err(test_error)?,
             conversation_id: 0,
             warning,
         },
     )
     .await
-    .expect("prepare assistant key")
+    .map_err(test_error)
 }
 
-pub(super) fn confirmation(action: &PreparedKeyAction) -> ConfirmationToken {
-    ConfirmationToken::parse(&action.confirmation_token).expect("opaque confirmation token")
+pub(super) fn confirmation(action: &PreparedKeyAction) -> TestResult<ConfirmationToken> {
+    ConfirmationToken::parse(&action.confirmation_token).map_err(test_error)
 }
 
-pub(super) fn authorization_fence(session_id: &str) -> AuthorizationFence {
+pub(super) fn authorization_fence(session_id: &str) -> TestResult<AuthorizationFence> {
     AuthorizationFence::capture(
         7,
         "assistant-user",
@@ -132,7 +189,7 @@ pub(super) fn authorization_fence(session_id: &str) -> AuthorizationFence {
         1,
         DashboardDeveloperAccessPolicy::new(false),
     )
-    .expect("capture test authorization fence")
+    .map_err(test_error)
 }
 
 pub(super) async fn confirm_action(
@@ -140,17 +197,18 @@ pub(super) async fn confirm_action(
     session_id: &str,
     action: &PreparedKeyAction,
     two_factor_code: &str,
-) -> Result<CreatedKey, KeyCreationError> {
-    confirm_pg(
+) -> TestResult<Result<CreatedKey, KeyCreationError>> {
+    let result = confirm_pg(
         store,
-        authorization_fence(session_id),
-        confirmation(action),
+        authorization_fence(session_id)?,
+        confirmation(action)?,
         two_factor_code,
     )
-    .await
+    .await;
+    Ok(result)
 }
 
-pub(super) async fn wait_until_blocked_by(pool: &PgPool, blocker_pid: i32) {
+pub(super) async fn wait_until_blocked_by(pool: &PgPool, blocker_pid: i32) -> TestResult {
     timeout(Duration::from_secs(5), async {
         loop {
             let blocked = sqlx::query_scalar::<_, bool>(
@@ -159,19 +217,18 @@ pub(super) async fn wait_until_blocked_by(pool: &PgPool, blocker_pid: i32) {
             )
             .bind(blocker_pid)
             .fetch_one(pool)
-            .await
-            .expect("observe PostgreSQL lock waiter");
+            .await?;
             if blocked {
-                return;
+                return Ok::<(), sqlx::Error>(());
             }
             tokio::task::yield_now().await;
         }
     })
-    .await
-    .expect("authorization confirmation must reach the deterministic user lock barrier");
+    .await??;
+    Ok(())
 }
 
-pub(super) async fn wait_for_granted_option_share(pool: &PgPool, schema: &str) {
+pub(super) async fn wait_for_granted_option_share(pool: &PgPool, schema: &str) -> TestResult {
     timeout(Duration::from_secs(5), async {
         loop {
             let locked = sqlx::query_scalar::<_, bool>(
@@ -183,19 +240,18 @@ pub(super) async fn wait_for_granted_option_share(pool: &PgPool, schema: &str) {
             )
             .bind(schema)
             .fetch_one(pool)
-            .await
-            .expect("observe option policy lock");
+            .await?;
             if locked {
-                return;
+                return Ok::<(), sqlx::Error>(());
             }
             tokio::task::yield_now().await;
         }
     })
-    .await
-    .expect("confirmation must acquire the option-table policy lock");
+    .await??;
+    Ok(())
 }
 
-pub(super) async fn wait_for_option_update_lock(pool: &PgPool, schema: &str) {
+pub(super) async fn wait_for_option_update_lock(pool: &PgPool, schema: &str) -> TestResult {
     timeout(Duration::from_secs(5), async {
         loop {
             let blocked = sqlx::query_scalar::<_, bool>(
@@ -207,31 +263,33 @@ pub(super) async fn wait_for_option_update_lock(pool: &PgPool, schema: &str) {
             )
             .bind(schema)
             .fetch_one(pool)
-            .await
-            .expect("observe blocked option update");
+            .await?;
             if blocked {
-                return;
+                return Ok::<(), sqlx::Error>(());
             }
             tokio::task::yield_now().await;
         }
     })
-    .await
-    .expect("option update must wait for the confirmation policy lock");
+    .await??;
+    Ok(())
 }
 
-pub(super) async fn count(pool: &PgPool, table: &str) -> i64 {
-    sqlx::query_scalar::<_, i64>(&format!("SELECT COUNT(*) FROM {table}"))
+pub(super) async fn count(pool: &PgPool, table: &str) -> TestResult<i64> {
+    let count = sqlx::query_scalar::<_, i64>(&format!("SELECT COUNT(*) FROM {table}"))
         .fetch_one(pool)
-        .await
-        .expect("count test rows")
+        .await?;
+    Ok(count)
 }
 
-pub(super) async fn flow_consumed(pool: &PgPool, action: &PreparedKeyAction) -> bool {
-    sqlx::query_scalar::<_, bool>(
+pub(super) async fn flow_consumed(
+    pool: &PgPool,
+    action: &PreparedKeyAction,
+) -> TestResult<bool> {
+    let consumed = sqlx::query_scalar::<_, bool>(
         "SELECT consumed_at IS NOT NULL FROM auth_flows WHERE payload::jsonb->>'name' = $1 ORDER BY id DESC LIMIT 1",
     )
     .bind(&action.name)
     .fetch_one(pool)
-    .await
-    .expect("read flow consumption state")
+    .await?;
+    Ok(consumed)
 }
