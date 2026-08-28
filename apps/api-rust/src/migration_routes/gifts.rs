@@ -1345,6 +1345,28 @@ mod tests {
         LogoutResult, RequestMetadata, TwoFactorLoginRequest,
     };
 
+    type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
+
+    fn test_error(
+        context: &'static str,
+        error: impl std::fmt::Display,
+    ) -> Box<dyn std::error::Error + Send + Sync> {
+        Box::new(std::io::Error::other(format!("{context}: {error}")))
+    }
+
+    fn required<T>(value: Option<T>, context: &'static str) -> TestResult<T> {
+        value.ok_or_else(|| test_error(context, "missing value"))
+    }
+
+    fn required_header<'a>(
+        headers: &'a HeaderMap,
+        name: &'static str,
+    ) -> TestResult<&'a HeaderValue> {
+        headers
+            .get(name)
+            .ok_or_else(|| test_error("required response header is absent", name))
+    }
+
     struct UnauthorizedAuth;
 
     #[async_trait]
@@ -1500,7 +1522,7 @@ mod tests {
     }
 
     #[test]
-    fn gift_status_should_omit_zero_claim_time_and_empty_reason() {
+    fn gift_status_should_omit_zero_claim_time_and_empty_reason() -> TestResult {
         let value = serde_json::to_value(GiftWithClaimStatus {
             gift: fixture_gift(),
             claimed: false,
@@ -1508,9 +1530,14 @@ mod tests {
             eligible: true,
             reason: String::new(),
         })
-        .expect("serialize gift status");
+        .map_err(|error| test_error("serialize gift status JSON", error))?;
 
         assert_eq!(value.get("claimed_at"), None);
+        assert_eq!(
+            required(value.get("id"), "gift status JSON must contain an id")?,
+            8
+        );
+        Ok(())
     }
 
     #[test]
@@ -1551,23 +1578,55 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn admin_claims_should_authenticate_before_parsing_malformed_query() {
+    async fn admin_claims_should_authenticate_before_parsing_malformed_query() -> TestResult {
         let pg = PgPoolOptions::new()
             .connect_lazy("postgres://postgres:postgres@127.0.0.1/gifts")
-            .expect("lazy PostgreSQL fixture");
-        let valkey = redis::Client::open("redis://127.0.0.1/").expect("Valkey fixture");
+            .map_err(|error| test_error("create lazy PostgreSQL gift fixture", error))?;
+        let valkey = redis::Client::open("redis://127.0.0.1/")
+            .map_err(|error| test_error("create Valkey gift fixture", error))?;
         let app = router(GiftState::new(pg, valkey, Arc::new(UnauthorizedAuth)));
+        let uri = "/api/gift/claims?p=%ZZ&page_size=invalid"
+            .parse::<axum::http::Uri>()
+            .map_err(|error| test_error("parse malformed gift claims fixture URI", error))?;
+        let accept_language = HeaderValue::from_str("zh-TW")
+            .map_err(|error| test_error("parse gift claims locale header", error))?;
+        let request = Request::builder()
+            .uri(uri)
+            .header(header::ACCEPT_LANGUAGE, accept_language)
+            .body(Body::empty())
+            .map_err(|error| test_error("build malformed gift claims request", error))?;
 
         let response = app
-            .oneshot(
-                Request::builder()
-                    .uri("/api/gift/claims?p=%ZZ&page_size=invalid")
-                    .body(Body::empty())
-                    .expect("request fixture"),
-            )
+            .oneshot(request)
             .await
-            .expect("route response");
+            .map_err(|error| test_error("serve malformed gift claims request", error))?;
 
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(
+            required_header(response.headers(), "auth-version")?
+                .to_str()
+                .map_err(|error| test_error("decode gift auth-version header", error))?,
+            AUTH_VERSION
+        );
+        let body = to_bytes(response.into_body(), usize::MAX)
+            .await
+            .map_err(|error| test_error("read gift authentication error body", error))?;
+        let body: Value = serde_json::from_slice(&body)
+            .map_err(|error| test_error("decode gift authentication error JSON", error))?;
+        assert_eq!(
+            required(
+                body.get("code").and_then(Value::as_str),
+                "gift authentication error JSON must contain a string code",
+            )?,
+            "AUTH_UNAUTHORIZED"
+        );
+        assert_eq!(
+            required(
+                body.get("message").and_then(Value::as_str),
+                "gift authentication error JSON must contain a string message",
+            )?,
+            "无权进行此操作，access token 无效"
+        );
+        Ok(())
     }
 }
