@@ -479,18 +479,23 @@ impl IntoResponse for ProfileError {
     }
 }
 
+async fn find_aff_code(pg: &PgPool, user_id: i64) -> Result<Option<String>, ProfileError> {
+    Ok(
+        sqlx::query_scalar::<_, Option<String>>("SELECT aff_code FROM users WHERE id = $1")
+            .bind(user_id)
+            .fetch_optional(pg)
+            .await
+            .map_err(|_| ProfileError::internal())?
+            .flatten()
+            .filter(|code| !code.is_empty()),
+    )
+}
+
 async fn get_aff_code(
     State(state): State<ProfileState>,
     Extension(identity): Extension<ProfileIdentity>,
 ) -> Result<Json<Success<String>>, ProfileError> {
-    let existing =
-        sqlx::query_scalar::<_, Option<String>>("SELECT aff_code FROM users WHERE id = $1")
-            .bind(identity.user_id)
-            .fetch_optional(&state.pg)
-            .await
-            .map_err(|_| ProfileError::internal())?
-            .flatten()
-            .filter(|code| !code.is_empty());
+    let existing = find_aff_code(&state.pg, identity.user_id).await?;
     if let Some(code) = existing {
         return Ok(success(Some(code)));
     }
@@ -503,13 +508,8 @@ async fn get_aff_code(
         .map_err(|_| ProfileError::internal())?;
     let code = match assigned {
         Some(code) => code,
-        None => sqlx::query_scalar::<_, Option<String>>("SELECT aff_code FROM users WHERE id = $1")
-            .bind(identity.user_id)
-            .fetch_optional(&state.pg)
-            .await
-            .map_err(|_| ProfileError::internal())?
-            .flatten()
-            .filter(|code| !code.is_empty())
+        None => find_aff_code(&state.pg, identity.user_id)
+            .await?
             .ok_or_else(ProfileError::not_found)?,
     };
     clear_user_cache(&state, identity.user_id).await;
