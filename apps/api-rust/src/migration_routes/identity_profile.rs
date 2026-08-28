@@ -1232,6 +1232,8 @@ mod tests {
     };
     use serde_json::{Map, Value};
 
+    type TestResult = Result<(), Box<dyn std::error::Error>>;
+
     #[test]
     fn self_setting_keeps_sidebar_precedence_when_both_legacy_keys_arrive() {
         let request = Map::from_iter([
@@ -1269,7 +1271,7 @@ mod tests {
     }
 
     #[test]
-    fn notification_setting_serialization_matches_go_dto_and_priority_fallback() {
+    fn notification_setting_serialization_matches_go_dto_and_priority_fallback() -> TestResult {
         let request = UserSettingRequest {
             notify_type: "gotify".to_owned(),
             quota_warning_threshold: 2.5,
@@ -1289,8 +1291,8 @@ mod tests {
             &request,
             1,
         )
-        .expect("notification setting should serialize");
-        let value: Value = serde_json::from_str(&json).expect("serialized setting JSON");
+        .map_err(|error| std::io::Error::other(format!("{error:?}")))?;
+        let value: Value = serde_json::from_str(&json)?;
         assert_eq!(
             value,
             serde_json::json!({
@@ -1302,10 +1304,11 @@ mod tests {
                 "upstream_model_update_notify_enabled": true,
             })
         );
+        Ok(())
     }
 
     #[test]
-    fn notification_setting_drops_fields_go_fresh_dto_drops() {
+    fn notification_setting_drops_fields_go_fresh_dto_drops() -> TestResult {
         let request = UserSettingRequest {
             notify_type: "email".to_owned(),
             quota_warning_threshold: 1.0,
@@ -1325,17 +1328,18 @@ mod tests {
             &request,
             1,
         )
-        .expect("notification setting should serialize");
-        let value: Value = serde_json::from_str(&json).expect("serialized setting JSON");
+        .map_err(|error| std::io::Error::other(format!("{error:?}")))?;
+        let value: Value = serde_json::from_str(&json)?;
         assert_eq!(value["notify_type"], "email");
         assert_eq!(value["notification_email"], "ada@example.test");
         assert_eq!(value["gotify_priority"], 0);
         assert!(value.get("language").is_none());
         assert!(value.get("billing_preference").is_none());
+        Ok(())
     }
 
     #[test]
-    fn setting_validation_matches_go_legacy_http_status_messages() {
+    fn setting_validation_matches_go_legacy_http_status_messages() -> TestResult {
         let request = UserSettingRequest {
             notify_type: String::new(),
             quota_warning_threshold: 0.0,
@@ -1350,11 +1354,14 @@ mod tests {
             accept_unset_model_ratio_model: false,
             record_ip_log: false,
         };
-        let error = validate_user_setting(&request, LegacyLocale::En).expect_err("invalid type");
+        let error = validate_user_setting(&request, LegacyLocale::En)
+            .err()
+            .ok_or_else(|| std::io::Error::other("invalid warning type was accepted"))?;
         assert_eq!(error.status, axum::http::StatusCode::OK);
         assert_eq!(error.message, "Invalid warning type");
         assert!(is_request_uri("/webhook"));
         assert!(is_request_uri("https://example.test/hook"));
         assert!(!is_request_uri("relative/path"));
+        Ok(())
     }
 }
