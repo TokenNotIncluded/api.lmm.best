@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+/* oxlint-disable react/no-danger -- SanitizedHtml is branded only after DOMPurify and post-mutation sanitization. */
 import DOMPurify, { type Config } from 'dompurify'
 import { useEffect, useMemo, useRef } from 'react'
 

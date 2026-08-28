@@ -250,7 +250,7 @@ export function FetchModelsDialog({
   const getSortedCategoryEntries = (
     categories: Record<string, string[]>
   ): [string, string[]][] =>
-    [...Object.entries(categories)].sort(([a], [b]) => {
+    Object.entries(categories).sort(([a], [b]) => {
       if (a === 'Other') return 1
       if (b === 'Other') return -1
       return a.localeCompare(b, undefined, { sensitivity: 'base' })

@@ -153,7 +153,7 @@ describe('payment type classification', () => {
     }
   })
 
-  test('rejects a configured Waffo Pancake method under an unsupported currency', () => {
+  test('keeps a configured Waffo Pancake method under a different display currency', () => {
     const originalConfig = useSystemConfigStore.getState().config
     try {
       useSystemConfigStore.setState((state) => ({
@@ -170,8 +170,11 @@ describe('payment type classification', () => {
           ],
         })
       )
-      assert.equal(availability.hasPaymentMethod, false)
-      assert.equal(availability.defaultQuotedType, null)
+      assert.equal(availability.hasPaymentMethod, true)
+      assert.equal(
+        availability.defaultQuotedType,
+        PAYMENT_TYPES.WAFFO_PANCAKE
+      )
     } finally {
       useSystemConfigStore.setState((state) => ({
         ...state,
@@ -209,7 +212,7 @@ describe('payment type classification', () => {
     assert.deepEqual(getEpayMethods([]), [])
   })
 
-  test('fails closed only for Waffo Pancake when the configured gateway currency is CNY', () => {
+  test('uses the provider-owned Waffo Pancake currency under every display currency', () => {
     const originalConfig = useSystemConfigStore.getState().config
     try {
       useSystemConfigStore.setState((state) => ({
@@ -220,7 +223,7 @@ describe('payment type classification', () => {
       }))
       assert.equal(
         isPaymentMethodCurrencySupported(PAYMENT_TYPES.WAFFO_PANCAKE),
-        false
+        true
       )
       assert.equal(isPaymentMethodCurrencySupported('alipay'), true)
 

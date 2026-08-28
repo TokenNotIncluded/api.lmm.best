@@ -784,8 +784,12 @@ export function SecurityAuditPanel() {
   }, [])
   const selectedReviewQuery = useQuery({
     queryKey: ['admin-assistant-review-task', selectedReviewTaskId],
-    queryFn: () =>
-      getAssistantReviewRun<AssistantReviewTask>(selectedReviewTaskId!),
+    queryFn: () => {
+      if (!selectedReviewTaskId) {
+        throw new Error('A review task must be selected before loading details.')
+      }
+      return getAssistantReviewRun<AssistantReviewTask>(selectedReviewTaskId)
+    },
     enabled: Boolean(selectedReviewTaskId),
     retry: false,
     refetchOnWindowFocus: false,

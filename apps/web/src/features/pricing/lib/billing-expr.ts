@@ -788,7 +788,6 @@ export function evaluateBillingExpression(
           default:
             throw new Error(`operator is not allowed: ${node.op}`)
         }
-        throw new Error('unreachable binary operator')
       }
       case 'call': {
         const args = node.args.map(evaluate)
