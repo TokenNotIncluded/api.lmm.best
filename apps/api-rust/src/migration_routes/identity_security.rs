@@ -879,10 +879,7 @@ impl PgValkeySecurityProvider {
             .await
             .map_err(|_| SecurityError::Unavailable)?
             .flatten();
-            match inviter {
-                Some(inviter_id) => inviter_id,
-                None => 0,
-            }
+            inviter.unwrap_or_default()
         };
 
         let aff_code = new_aff_code();

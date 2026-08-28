@@ -1776,7 +1776,7 @@ fn apply_user_ratios(users: &mut [FinanceUser], options: &BTreeMap<String, Strin
 
 fn decode_option(options: &BTreeMap<String, String>, key: &str) -> Value {
     let raw = options.get(key).map_or("", String::as_str);
-    serde_json::from_str(raw).map_or_else(|_| Value::String(raw.to_owned()), |value| value)
+    serde_json::from_str(raw).unwrap_or_else(|_| Value::String(raw.to_owned()))
 }
 
 fn float_map(options: &BTreeMap<String, String>, key: &str) -> BTreeMap<String, f64> {
@@ -1803,18 +1803,18 @@ fn sanitize_base_url(value: &str) -> Result<Option<String>, FinanceExportError> 
             value: value.to_owned(),
         })
     };
-    let (scheme, remainder) = value.split_once("://").ok_or_else(|| invalid_uri())?;
+    let (scheme, remainder) = value.split_once("://").ok_or_else(invalid_uri)?;
     if scheme.is_empty() {
         return Err(invalid_uri());
     }
     let authority_with_credentials = remainder
         .split(['/', '?', '#'])
         .next()
-        .ok_or_else(|| invalid_uri())?;
+        .ok_or_else(&invalid_uri)?;
     let authority = authority_with_credentials
         .rsplit('@')
         .next()
-        .ok_or_else(|| invalid_uri())?;
+        .ok_or_else(&invalid_uri)?;
     if authority.is_empty() {
         Err(invalid_uri())
     } else {
