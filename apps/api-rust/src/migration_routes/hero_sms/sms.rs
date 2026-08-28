@@ -127,34 +127,45 @@ impl SmsUserRateLimiter for ValkeySmsUserRateLimiter {
         if !self.config.enabled {
             return Ok(CriticalRateLimitOutcome::Allowed);
         }
-        let mut connection = tokio::time::timeout(
-            self.config.dependency_timeout,
-            self.valkey.get_multiplexed_async_connection(),
-        )
+        let counter = increment_sms_rate_limit(self, scope, user_id).await?;
+        Ok(sms_rate_limit_outcome(counter, self.config.max_requests))
+    }
+}
+
+async fn increment_sms_rate_limit(
+    limiter: &ValkeySmsUserRateLimiter,
+    scope: &str,
+    user_id: i64,
+) -> Result<(u64, i64), ()> {
+    let timeout = limiter.config.dependency_timeout;
+    let connection = limiter.valkey.get_multiplexed_async_connection();
+    let mut connection = tokio::time::timeout(timeout, connection)
         .await
         .map_err(|_| ())?
         .map_err(|_| ())?;
-        let key = sms_user_rate_limit_key(scope, user_id);
-        let script = redis::Script::new(
-            "local c=redis.call('INCR',KEYS[1]); if c==1 then redis.call('EXPIRE',KEYS[1],ARGV[2]) end; local t=redis.call('TTL',KEYS[1]); return {c,t}",
-        );
-        let result: (u64, i64) = tokio::time::timeout(
-            self.config.dependency_timeout,
-            script
-                .key(key)
-                .arg(self.config.max_requests)
-                .arg(self.config.window.as_secs().max(1))
-                .invoke_async(&mut connection),
-        )
+    let script = redis::Script::new(
+        "local c=redis.call('INCR',KEYS[1]); if c==1 then redis.call('EXPIRE',KEYS[1],ARGV[2]) end; local t=redis.call('TTL',KEYS[1]); return {c,t}",
+    );
+    let invocation = script
+        .key(sms_user_rate_limit_key(scope, user_id))
+        .arg(limiter.config.max_requests)
+        .arg(limiter.config.window.as_secs().max(1))
+        .invoke_async(&mut connection);
+    tokio::time::timeout(timeout, invocation)
         .await
         .map_err(|_| ())?
-        .map_err(|_| ())?;
-        if result.0 > self.config.max_requests {
-            Ok(CriticalRateLimitOutcome::Rejected {
-                retry_after_seconds: u64::try_from(result.1.max(1)).unwrap_or(1),
-            })
-        } else {
-            Ok(CriticalRateLimitOutcome::Allowed)
+        .map_err(|_| ())
+}
+
+fn sms_rate_limit_outcome(
+    (requests, ttl): (u64, i64),
+    maximum: u64,
+) -> CriticalRateLimitOutcome {
+    if requests <= maximum {
+        CriticalRateLimitOutcome::Allowed
+    } else {
+        CriticalRateLimitOutcome::Rejected {
+            retry_after_seconds: u64::try_from(ttl.max(1)).unwrap_or(1),
         }
     }
 }
@@ -325,6 +336,38 @@ async fn authenticated(
 ) -> Result<DashboardUserView, Response> {
     require_user(state, headers).await
 }
+
+async fn authenticated_user_id(
+    state: &HeroSmsState,
+    headers: &HeaderMap,
+) -> Result<i64, Response> {
+    authenticated(state, headers).await.map(|user| user.id)
+}
+
+async fn prepare_empty_mutation(
+    state: &HeroSmsState,
+    headers: &HeaderMap,
+    request: Request,
+    scope: &str,
+) -> Result<i64, Response> {
+    let user_id = authenticated_user_id(state, headers).await?;
+    bounded_body(request).await?;
+    mutation_limit(state, headers, scope, user_id).await?;
+    Ok(user_id)
+}
+
+async fn prepare_json_mutation<T: serde::de::DeserializeOwned>(
+    state: &HeroSmsState,
+    headers: &HeaderMap,
+    request: Request,
+    scope: &str,
+) -> Result<(i64, T), Response> {
+    let user_id = authenticated_user_id(state, headers).await?;
+    let input = parse_json::<T>(request).await?;
+    mutation_limit(state, headers, scope, user_id).await?;
+    Ok((user_id, input))
+}
+
 async fn mutation_limit(
     state: &HeroSmsState,
     headers: &HeaderMap,
@@ -626,17 +669,17 @@ async fn create_order(
     headers: HeaderMap,
     request: Request,
 ) -> Response {
-    let user = match authenticated(&state, &headers).await {
-        Ok(v) => v,
-        Err(r) => return done(r),
+    let (user_id, input) = match prepare_json_mutation::<CreateInput>(
+        &state,
+        &headers,
+        request,
+        "hero-sms-sms-purchase",
+    )
+    .await
+    {
+        Ok(prepared) => prepared,
+        Err(response) => return done(response),
     };
-    let input = match parse_json::<CreateInput>(request).await {
-        Ok(v) => v,
-        Err(r) => return done(r),
-    };
-    if let Err(r) = mutation_limit(&state, &headers, "hero-sms-sms-purchase", user.id).await {
-        return done(r);
-    }
     let idem = headers
         .get("Idempotency-Key")
         .and_then(|v| v.to_str().ok())
@@ -645,7 +688,7 @@ async fn create_order(
     if idem.is_empty() || idem.len() > 128 || input.offer_id.trim().is_empty() {
         return done(hero_error(invalid_request()));
     }
-    match purchase(&state, user.id, idem, &input).await {
+    match purchase(&state, user_id, idem, &input).await {
         Ok((view, quota, status)) => done(hero_success_status(
             status,
             json!({"order":view,"quota":quota}),
@@ -672,11 +715,11 @@ async fn list_orders(
     }
 }
 async fn current_order(State(state): State<HeroSmsState>, headers: HeaderMap) -> Response {
-    let u = match authenticated(&state, &headers).await {
-        Ok(v) => v,
-        Err(r) => return done(r),
+    let user_id = match authenticated_user_id(&state, &headers).await {
+        Ok(user_id) => user_id,
+        Err(response) => return done(response),
     };
-    match current_rows(&state.pg, u.id, 1).await {
+    match current_rows(&state.pg, user_id, 1).await {
         Ok(mut v) => {
             let order = if v.is_empty() {
                 Value::Null
@@ -689,11 +732,11 @@ async fn current_order(State(state): State<HeroSmsState>, headers: HeaderMap) ->
     }
 }
 async fn current_list(State(state): State<HeroSmsState>, headers: HeaderMap) -> Response {
-    let u = match authenticated(&state, &headers).await {
-        Ok(v) => v,
-        Err(r) => return done(r),
+    let user_id = match authenticated_user_id(&state, &headers).await {
+        Ok(user_id) => user_id,
+        Err(response) => return done(response),
     };
-    match current_rows(&state.pg, u.id, ACTIVE_LIMIT).await {
+    match current_rows(&state.pg, user_id, ACTIVE_LIMIT).await {
         Ok(v) => {
             let items = v
                 .iter()
@@ -723,17 +766,18 @@ async fn clear_history(
     headers: HeaderMap,
     request: Request,
 ) -> Response {
-    let u = match authenticated(&state, &headers).await {
-        Ok(v) => v,
-        Err(r) => return done(r),
+    let user_id = match prepare_empty_mutation(
+        &state,
+        &headers,
+        request,
+        "hero-sms-sms-history-clear",
+    )
+    .await
+    {
+        Ok(user_id) => user_id,
+        Err(response) => return done(response),
     };
-    if let Err(r) = bounded_body(request).await {
-        return done(r);
-    }
-    if let Err(r) = mutation_limit(&state, &headers, "hero-sms-sms-history-clear", u.id).await {
-        return done(r);
-    }
-    match sqlx::query("UPDATE hero_sms_sms_orders SET history_hidden_at=$2 WHERE user_id=$1 AND history_hidden_at=0 AND status=ANY($3)").bind(u.id).bind(now_unix()).bind(TERMINAL_STATUSES).execute(&state.pg).await{Ok(v)=>ok(json!({"hidden_count":v.rows_affected()})),Err(_)=>done(hero_error(internal_error()))}
+    match sqlx::query("UPDATE hero_sms_sms_orders SET history_hidden_at=$2 WHERE user_id=$1 AND history_hidden_at=0 AND status=ANY($3)").bind(user_id).bind(now_unix()).bind(TERMINAL_STATUSES).execute(&state.pg).await{Ok(v)=>ok(json!({"hidden_count":v.rows_affected()})),Err(_)=>done(hero_error(internal_error()))}
 }
 async fn hide_history(
     State(state): State<HeroSmsState>,
@@ -741,17 +785,18 @@ async fn hide_history(
     headers: HeaderMap,
     request: Request,
 ) -> Response {
-    let u = match authenticated(&state, &headers).await {
-        Ok(v) => v,
-        Err(r) => return done(r),
+    let user_id = match prepare_empty_mutation(
+        &state,
+        &headers,
+        request,
+        "hero-sms-sms-history-hide",
+    )
+    .await
+    {
+        Ok(user_id) => user_id,
+        Err(response) => return done(response),
     };
-    if let Err(r) = bounded_body(request).await {
-        return done(r);
-    }
-    if let Err(r) = mutation_limit(&state, &headers, "hero-sms-sms-history-hide", u.id).await {
-        return done(r);
-    }
-    match hide_one(&state.pg, u.id, id.trim()).await {
+    match hide_one(&state.pg, user_id, id.trim()).await {
         Ok(()) => ok(json!({"hidden":true})),
         Err(e) => done(hero_error(e)),
     }
@@ -762,18 +807,18 @@ async fn complaint(
     headers: HeaderMap,
     request: Request,
 ) -> Response {
-    let u = match authenticated(&state, &headers).await {
-        Ok(v) => v,
-        Err(r) => return done(r),
+    let (user_id, body) = match prepare_json_mutation::<ComplaintInput>(
+        &state,
+        &headers,
+        request,
+        "hero-sms-sms-complaint",
+    )
+    .await
+    {
+        Ok(prepared) => prepared,
+        Err(response) => return done(response),
     };
-    let body = match parse_json::<ComplaintInput>(request).await {
-        Ok(v) => v,
-        Err(r) => return done(r),
-    };
-    if let Err(r) = mutation_limit(&state, &headers, "hero-sms-sms-complaint", u.id).await {
-        return done(r);
-    }
-    match submit_complaint(&state, u.id, id.trim(), body.reason.trim()).await {
+    match submit_complaint(&state, user_id, id.trim(), body.reason.trim()).await {
         Ok(v) => done(hero_success_status(
             StatusCode::ACCEPTED,
             json!({"order":v}),
@@ -787,17 +832,18 @@ async fn cancel(
     headers: HeaderMap,
     request: Request,
 ) -> Response {
-    let u = match authenticated(&state, &headers).await {
-        Ok(v) => v,
-        Err(r) => return done(r),
+    let user_id = match prepare_empty_mutation(
+        &state,
+        &headers,
+        request,
+        "hero-sms-sms-cancel",
+    )
+    .await
+    {
+        Ok(user_id) => user_id,
+        Err(response) => return done(response),
     };
-    if let Err(r) = bounded_body(request).await {
-        return done(r);
-    }
-    if let Err(r) = mutation_limit(&state, &headers, "hero-sms-sms-cancel", u.id).await {
-        return done(r);
-    }
-    match cancel_order(&state, u.id, id.trim()).await {
+    match cancel_order(&state, user_id, id.trim()).await {
         Ok((v, q)) => {
             let s = if v.status == "cancel_pending" {
                 StatusCode::ACCEPTED
@@ -1351,6 +1397,31 @@ async fn refund(
     tx.commit().await.map_err(|_| internal_error())
 }
 
+struct CancellationTransition<'a> {
+    error_code: &'a str,
+    error_message: &'a str,
+    pending_message: &'a str,
+}
+
+async fn mark_cancel_pending(
+    pg: &PgPool,
+    id: &str,
+    user_id: i64,
+    transition: CancellationTransition<'_>,
+) -> Result<(), HeroSmsApiError> {
+    sqlx::query("UPDATE hero_sms_sms_orders SET status='cancel_pending',provider_cancel_accepted_at=0,cancel_final_status='cancelled',cancel_error_code=$3,cancel_error_message=$4,last_error_code='CANCEL_PENDING',last_error_message=$5,updated_at=$6 WHERE id=$1 AND user_id=$2 AND status='active'")
+        .bind(id)
+        .bind(user_id)
+        .bind(transition.error_code)
+        .bind(transition.error_message)
+        .bind(transition.pending_message)
+        .bind(now_unix())
+        .execute(pg)
+        .await
+        .map_err(|_| internal_error())?;
+    Ok(())
+}
+
 async fn refresh(state: &HeroSmsState, user: i64, id: &str) -> Result<OrderView, HeroSmsApiError> {
     let mut row = fetch_order(&state.pg, user, id).await?;
     if row.status == "purchase_unknown" {
@@ -1364,13 +1435,17 @@ async fn refresh(state: &HeroSmsState, user: i64, id: &str) -> Result<OrderView,
         && row.provider_expires_at > 0
         && now_unix() >= row.provider_expires_at
     {
-        sqlx::query("UPDATE hero_sms_sms_orders SET status='cancel_pending',provider_cancel_accepted_at=0,cancel_final_status='cancelled',cancel_error_code='ACTIVATION_EXPIRED',cancel_error_message='activation expired before receiving a code',last_error_code='CANCEL_PENDING',last_error_message='activation expired; awaiting HeroSMS cancellation confirmation',updated_at=$3 WHERE id=$1 AND user_id=$2 AND status='active'")
-            .bind(id)
-            .bind(user)
-            .bind(now_unix())
-            .execute(&state.pg)
-            .await
-            .map_err(|_| internal_error())?;
+        mark_cancel_pending(
+            &state.pg,
+            id,
+            user,
+            CancellationTransition {
+                error_code: "ACTIVATION_EXPIRED",
+                error_message: "activation expired before receiving a code",
+                pending_message: "activation expired; awaiting HeroSMS cancellation confirmation",
+            },
+        )
+        .await?;
         row = fetch_order(&state.pg, user, id).await?;
     }
     if row.status == "cancel_pending" {
@@ -1536,21 +1611,30 @@ async fn complete_code(
     Ok(changed > 0)
 }
 
-async fn finalize_cancellation(
-    state: &HeroSmsState,
-    key: &str,
-    mut row: OrderRow,
-) -> Result<(OrderView, i64), HeroSmsApiError> {
-    let provider_id = row
-        .provider_id
+fn provider_id_for_reconciliation<'a>(
+    row: &'a OrderRow,
+    missing_message: &'static str,
+) -> Result<&'a str, HeroSmsApiError> {
+    row.provider_id
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .ok_or(HeroSmsApiError {
             status: StatusCode::CONFLICT,
             code: "RECONCILING",
-            message: "wait for provider purchase reconciliation before cancelling",
-        })?;
+            message: missing_message,
+        })
+}
+
+async fn finalize_cancellation(
+    state: &HeroSmsState,
+    key: &str,
+    mut row: OrderRow,
+) -> Result<(OrderView, i64), HeroSmsApiError> {
+    let provider_id = provider_id_for_reconciliation(
+        &row,
+        "wait for provider purchase reconciliation before cancelling",
+    )?;
     let provider_state = state
         .gateway
         .get_sms_activation_state(key, provider_id)
@@ -1632,16 +1716,10 @@ async fn reconcile_complaint(
     key: &str,
     mut row: OrderRow,
 ) -> Result<OrderView, HeroSmsApiError> {
-    let provider_id = row
-        .provider_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .ok_or(HeroSmsApiError {
-            status: StatusCode::CONFLICT,
-            code: "RECONCILING",
-            message: "wait for provider purchase reconciliation before submitting a complaint",
-        })?;
+    let provider_id = provider_id_for_reconciliation(
+        &row,
+        "wait for provider purchase reconciliation before submitting a complaint",
+    )?;
     let now = now_unix();
     if matches!(
         row.complaint_status.as_str(),
@@ -1745,13 +1823,17 @@ async fn cancel_order(
                 message: "wait for provider purchase reconciliation before cancelling",
             });
         }
-        sqlx::query("UPDATE hero_sms_sms_orders SET status='cancel_pending',provider_cancel_accepted_at=0,cancel_final_status='cancelled',cancel_error_code='USER_CANCELLED',cancel_error_message='activation cancelled before receiving a code',last_error_code='CANCEL_PENDING',last_error_message='',updated_at=$3 WHERE id=$1 AND user_id=$2 AND status='active'")
-            .bind(id)
-            .bind(user)
-            .bind(now_unix())
-            .execute(&state.pg)
-            .await
-            .map_err(|_| internal_error())?;
+        mark_cancel_pending(
+            &state.pg,
+            id,
+            user,
+            CancellationTransition {
+                error_code: "USER_CANCELLED",
+                error_message: "activation cancelled before receiving a code",
+                pending_message: "",
+            },
+        )
+        .await?;
         row = fetch_order(&state.pg, user, id).await?;
     }
     finalize_cancellation(state, &key, row).await
@@ -2387,8 +2469,27 @@ mod tests {
         critical_checks: Arc<AtomicUsize>,
     }
 
+    fn fixture_auth_failure<T>() -> Result<T, AuthError> {
+        Err(AuthError::new(AuthErrorKind::Internal))
+    }
+
     #[async_trait]
     impl DashboardAuth for FixtureAuth {
+        async fn login_2fa(
+            &self,
+            _: TwoFactorLoginRequest,
+            _: RequestMetadata,
+        ) -> Result<AuthBundle, AuthError> {
+            fixture_auth_failure()
+        }
+
+        async fn generate_personal_access_token(
+            &self,
+            _: SecretString,
+        ) -> Result<String, AuthError> {
+            fixture_auth_failure()
+        }
+
         async fn check_critical_rate_limit(
             &self,
             _: &str,
@@ -2397,47 +2498,32 @@ mod tests {
             Ok(CriticalRateLimitOutcome::Allowed)
         }
 
-        async fn login(
-            &self,
-            _: LoginRequest,
-            _: RequestMetadata,
-        ) -> Result<LoginOutcome, AuthError> {
-            Err(AuthError::new(AuthErrorKind::Internal))
-        }
-
-        async fn login_2fa(
-            &self,
-            _: TwoFactorLoginRequest,
-            _: RequestMetadata,
-        ) -> Result<AuthBundle, AuthError> {
-            Err(AuthError::new(AuthErrorKind::Internal))
-        }
-
         async fn refresh(
             &self,
             _: SecretString,
             _: Option<String>,
             _: RequestMetadata,
         ) -> Result<AuthBundle, AuthError> {
-            Err(AuthError::new(AuthErrorKind::Internal))
-        }
-
-        async fn self_user(&self, _: SecretString) -> Result<DashboardUser, AuthError> {
-            if let Some(error) = self.error {
-                return Err(AuthError::new(error));
-            }
-            Ok(fixture_user())
+            fixture_auth_failure()
         }
 
         async fn logout(&self, _: LogoutRequest) -> Result<LogoutResult, AuthError> {
-            Err(AuthError::new(AuthErrorKind::Internal))
+            fixture_auth_failure()
         }
 
-        async fn generate_personal_access_token(
+        async fn login(
             &self,
-            _: SecretString,
-        ) -> Result<String, AuthError> {
-            Err(AuthError::new(AuthErrorKind::Internal))
+            _: LoginRequest,
+            _: RequestMetadata,
+        ) -> Result<LoginOutcome, AuthError> {
+            fixture_auth_failure()
+        }
+
+        async fn self_user(&self, _: SecretString) -> Result<DashboardUser, AuthError> {
+            match self.error {
+                Some(error) => Err(AuthError::new(error)),
+                None => Ok(fixture_user()),
+            }
         }
     }
 
@@ -2453,32 +2539,33 @@ mod tests {
     }
 
     fn fixture_user() -> DashboardUser {
+        let empty = String::new;
         DashboardUser {
-            id: 7,
             username: "member".to_owned(),
-            display_name: String::new(),
+            group: "default".to_owned(),
+            id: 7,
             role: 1,
             status: 1,
-            email: String::new(),
-            github_id: String::new(),
-            discord_id: String::new(),
-            oidc_id: String::new(),
-            wechat_id: String::new(),
-            telegram_id: String::new(),
-            group: "default".to_owned(),
             quota: 0,
             used_quota: 0,
             request_count: 0,
-            aff_code: String::new(),
             aff_count: 0,
             aff_quota: 0,
             aff_history_quota: 0,
             inviter_id: 0,
-            linux_do_id: String::new(),
-            setting: String::new(),
-            stripe_customer: String::new(),
-            sidebar_modules: Value::Null,
             permissions: Value::Null,
+            sidebar_modules: Value::Null,
+            display_name: empty(),
+            email: empty(),
+            github_id: empty(),
+            discord_id: empty(),
+            oidc_id: empty(),
+            wechat_id: empty(),
+            telegram_id: empty(),
+            aff_code: empty(),
+            linux_do_id: empty(),
+            setting: empty(),
+            stripe_customer: empty(),
         }
     }
 
