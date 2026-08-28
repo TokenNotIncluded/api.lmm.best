@@ -242,7 +242,12 @@ impl ReleaseNoteStore for PgReleaseNoteStore {
         .fetch_optional(&mut *transaction)
         .await
         .map_err(database_error)?;
-        let revision = latest_revision.map_or(1, |revision| revision + 1);
+        let revision = match latest_revision {
+            Some(revision) => revision.checked_add(1).ok_or_else(|| {
+                ReleaseNoteStoreError::Database("release note revision overflow".to_owned())
+            })?,
+            None => 1,
+        };
         let row = sqlx::query(
             "INSERT INTO release_notes \
              (version, revision, content, published_at, published_by) \
@@ -468,7 +473,7 @@ async fn parse_publish_input(request: Request) -> Result<PublishInput, Response>
         .await
         .map_err(|_| invalid_publish_request())?;
     deserialize_one_nullable::<PublishInput>(&body)
-        .map(Option::unwrap_or_default)
+        .map(|input| input.map_or_else(PublishInput::default, std::convert::identity))
         .map_err(|_| invalid_publish_request())
 }
 
@@ -484,7 +489,8 @@ fn deserialize_nullable_string<'de, D>(deserializer: D) -> Result<String, D::Err
 where
     D: serde::Deserializer<'de>,
 {
-    Option::<String>::deserialize(deserializer).map(Option::unwrap_or_default)
+    Option::<String>::deserialize(deserializer)
+        .map(|value| value.map_or_else(String::new, std::convert::identity))
 }
 
 fn normalize_release_note(version: &str, content: &str) -> Result<(String, String), &'static str> {
@@ -525,7 +531,7 @@ fn release_note_limit(raw_query: Option<&str>) -> i64 {
                 .find(|(key, _)| key == "limit")
                 .and_then(|(_, value)| value.parse::<i64>().ok())
         })
-        .unwrap_or_default();
+        .map_or(0, std::convert::identity);
     if parsed <= 0 || parsed > MAX_LIST_LIMIT {
         DEFAULT_LIST_LIMIT
     } else {
@@ -630,7 +636,8 @@ fn user_policy_error(headers: &HeaderMap, error: UserAuthPolicyError) -> Respons
         UserAuthPolicyError::InvalidUserInfo => "AUTH_USER_INVALID",
     };
     legacy_json(
-        StatusCode::from_u16(user_auth_status(error)).unwrap_or(StatusCode::UNAUTHORIZED),
+        StatusCode::from_u16(user_auth_status(error))
+            .map_or(StatusCode::UNAUTHORIZED, std::convert::identity),
         json!({
             "success": false,
             "code": code,
@@ -648,7 +655,7 @@ fn token_locale(headers: &HeaderMap) -> TokenLocale {
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.split(',').next())
         .and_then(|value| value.split(';').next())
-        .unwrap_or_default()
+        .map_or("", std::convert::identity)
         .trim()
         .to_ascii_lowercase();
     if language.starts_with("zh-tw") {
@@ -825,7 +832,7 @@ async fn record_publish_audit(
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{Arc, Mutex};
+    use std::sync::{Arc, Mutex, MutexGuard};
 
     use axum::{
         body::{Body, to_bytes},
@@ -838,6 +845,22 @@ mod tests {
         AuthBundle, AuthError, DashboardSessionContext, DashboardUser, LoginOutcome, LoginRequest,
         LogoutRequest, LogoutResult, RequestMetadata, TwoFactorLoginRequest,
     };
+
+    type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
+
+    fn test_error(
+        context: &'static str,
+        error: impl std::fmt::Display,
+    ) -> Box<dyn std::error::Error + Send + Sync> {
+        Box::new(std::io::Error::other(format!("{context}: {error}")))
+    }
+
+    fn lock_unpoisoned<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+        match mutex.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        }
+    }
 
     #[derive(Clone)]
     struct FixtureStore {
@@ -871,10 +894,7 @@ mod tests {
             _: i64,
             session_created_at: i64,
         ) -> Result<Option<ReleaseNote>, ReleaseNoteStoreError> {
-            self.observed_session_times
-                .lock()
-                .expect("session observations")
-                .push(session_created_at);
+            lock_unpoisoned(&self.observed_session_times).push(session_created_at);
             Ok(self.latest.clone())
         }
 
@@ -1030,11 +1050,12 @@ mod tests {
         ))
     }
 
-    async fn response_json(response: Response) -> Value {
+    async fn response_json(response: Response) -> TestResult<Value> {
         let bytes = to_bytes(response.into_body(), 1024 * 1024)
             .await
-            .expect("response body");
-        serde_json::from_slice(&bytes).expect("response json")
+            .map_err(|error| test_error("read release-note response body", error))?;
+        serde_json::from_slice(&bytes)
+            .map_err(|error| test_error("decode release-note response JSON", error))
     }
 
     #[test]
@@ -1059,7 +1080,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn latest_should_use_browser_session_creation_time() {
+    async fn latest_should_use_browser_session_creation_time() -> TestResult {
         let store = FixtureStore {
             latest: Some(note(1, 1)),
             ..FixtureStore::default()
@@ -1067,18 +1088,18 @@ mod tests {
         let observations = Arc::clone(&store.observed_session_times);
         let mut auth = fixture_auth(1);
         auth.browser_session = true;
+        let request = HttpRequest::get("/api/release-notes/latest")
+            .header(header::AUTHORIZATION, "Bearer token")
+            .body(Body::empty())
+            .map_err(|error| test_error("build latest release-note request", error))?;
         let response = test_router(store, auth)
-            .oneshot(
-                HttpRequest::get("/api/release-notes/latest")
-                    .header(header::AUTHORIZATION, "Bearer token")
-                    .body(Body::empty())
-                    .expect("request"),
-            )
+            .oneshot(request)
             .await
-            .expect("response");
-        let body = response_json(response).await;
+            .map_err(|error| test_error("serve latest release-note request", error))?;
+        let body = response_json(response).await?;
+        let observed_session_times = lock_unpoisoned(&observations).clone();
         assert_eq!(
-            (observations.lock().expect("observations").clone(), body),
+            (observed_session_times, body),
             (
                 vec![80],
                 json!({
@@ -1095,40 +1116,42 @@ mod tests {
                 })
             )
         );
+        Ok(())
     }
 
     #[tokio::test]
-    async fn admin_list_should_hide_from_authenticated_l0_user() {
+    async fn admin_list_should_hide_from_authenticated_l0_user() -> TestResult {
+        let request = HttpRequest::get("/api/release-notes/admin")
+            .header(header::AUTHORIZATION, "token")
+            .body(Body::empty())
+            .map_err(|error| test_error("build administrator release-note list request", error))?;
         let response = test_router(FixtureStore::default(), fixture_auth(1))
-            .oneshot(
-                HttpRequest::get("/api/release-notes/admin")
-                    .header(header::AUTHORIZATION, "token")
-                    .body(Body::empty())
-                    .expect("request"),
-            )
+            .oneshot(request)
             .await
-            .expect("response");
+            .map_err(|error| test_error("serve administrator release-note list request", error))?;
+        let status = response.status();
+        let body = response_json(response).await?;
         assert_eq!(
-            (response.status(), response_json(response).await),
+            (status, body),
             (StatusCode::NOT_FOUND, json!({"message": "Not Found"}))
         );
+        Ok(())
     }
 
     #[tokio::test]
-    async fn publish_rate_limit_should_precede_disable_cache() {
+    async fn publish_rate_limit_should_precede_disable_cache() -> TestResult {
         let mut auth = fixture_auth(10);
         auth.critical = CriticalRateLimitOutcome::Rejected {
             retry_after_seconds: 17,
         };
+        let request = HttpRequest::post("/api/release-notes/admin")
+            .header(header::AUTHORIZATION, "token")
+            .body(Body::from("not-json"))
+            .map_err(|error| test_error("build rate-limited release-note publish request", error))?;
         let response = test_router(FixtureStore::default(), auth)
-            .oneshot(
-                HttpRequest::post("/api/release-notes/admin")
-                    .header(header::AUTHORIZATION, "token")
-                    .body(Body::from("not-json"))
-                    .expect("request"),
-            )
+            .oneshot(request)
             .await
-            .expect("response");
+            .map_err(|error| test_error("serve rate-limited release-note publish request", error))?;
         assert_eq!(
             (
                 response.status(),
@@ -1141,21 +1164,23 @@ mod tests {
                 None,
             )
         );
+        Ok(())
     }
 
     #[tokio::test]
-    async fn publish_null_body_should_reach_validation() {
+    async fn publish_null_body_should_reach_validation() -> TestResult {
+        let request = HttpRequest::post("/api/release-notes/admin")
+            .header(header::AUTHORIZATION, "token")
+            .body(Body::from("null"))
+            .map_err(|error| test_error("build null release-note publish request", error))?;
         let response = test_router(FixtureStore::default(), fixture_auth(10))
-            .oneshot(
-                HttpRequest::post("/api/release-notes/admin")
-                    .header(header::AUTHORIZATION, "token")
-                    .body(Body::from("null"))
-                    .expect("request"),
-            )
+            .oneshot(request)
             .await
-            .expect("response");
+            .map_err(|error| test_error("serve null release-note publish request", error))?;
+        let status = response.status();
+        let body = response_json(response).await?;
         assert_eq!(
-            (response.status(), response_json(response).await),
+            (status, body),
             (
                 StatusCode::UNPROCESSABLE_ENTITY,
                 json!({
@@ -1165,25 +1190,27 @@ mod tests {
                 })
             )
         );
+        Ok(())
     }
 
     #[tokio::test]
-    async fn mark_read_should_return_named_not_found_error() {
+    async fn mark_read_should_return_named_not_found_error() -> TestResult {
         let store = FixtureStore {
             mark_result: Err(ReleaseNoteStoreError::NotFound),
             ..FixtureStore::default()
         };
+        let request = HttpRequest::post("/api/release-notes/42/read")
+            .header(header::AUTHORIZATION, "token")
+            .body(Body::empty())
+            .map_err(|error| test_error("build mark-release-note-read request", error))?;
         let response = test_router(store, fixture_auth(1))
-            .oneshot(
-                HttpRequest::post("/api/release-notes/42/read")
-                    .header(header::AUTHORIZATION, "token")
-                    .body(Body::empty())
-                    .expect("request"),
-            )
+            .oneshot(request)
             .await
-            .expect("response");
+            .map_err(|error| test_error("serve mark-release-note-read request", error))?;
+        let status = response.status();
+        let body = response_json(response).await?;
         assert_eq!(
-            (response.status(), response_json(response).await),
+            (status, body),
             (
                 StatusCode::NOT_FOUND,
                 json!({
@@ -1193,5 +1220,6 @@ mod tests {
                 })
             )
         );
+        Ok(())
     }
 }
