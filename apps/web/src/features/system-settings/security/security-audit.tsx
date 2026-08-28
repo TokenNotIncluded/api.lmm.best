@@ -806,7 +806,7 @@ export function SecurityAuditPanel() {
       ]
         .concat('assistant_review')
         .filter((value, index, values) => values.indexOf(value) === index)
-        .sort(),
+        .sort((left, right) => left.localeCompare(right)),
     [policy]
   )
   const sources = useMemo(
@@ -818,7 +818,7 @@ export function SecurityAuditPanel() {
             .filter(Boolean),
           'ai_review',
         ]),
-      ].sort(),
+      ].sort((left, right) => left.localeCompare(right)),
     [policy]
   )
 

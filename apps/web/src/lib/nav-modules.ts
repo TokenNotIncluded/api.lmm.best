@@ -77,6 +77,10 @@ export function parseHeaderNavBoolean(
   return fallback
 }
 
+function isUnknownRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
 function parseAccess(raw: unknown, fallback: ModuleAccess): ModuleAccess {
   if (
     typeof raw === 'boolean' ||
@@ -88,22 +92,25 @@ function parseAccess(raw: unknown, fallback: ModuleAccess): ModuleAccess {
       requireAuth: fallback.requireAuth,
     }
   }
-  if (raw && typeof raw === 'object') {
-    const r = raw as Record<string, unknown>
+  if (isUnknownRecord(raw)) {
     return {
-      enabled: parseHeaderNavBoolean(r.enabled, fallback.enabled),
-      requireAuth: parseHeaderNavBoolean(r.requireAuth, fallback.requireAuth),
+      enabled: parseHeaderNavBoolean(raw.enabled, fallback.enabled),
+      requireAuth: parseHeaderNavBoolean(
+        raw.requireAuth,
+        fallback.requireAuth
+      ),
     }
   }
   return { ...fallback }
 }
 
 function parseHeaderNavRecord(raw: unknown): Record<string, unknown> | null {
-  if (!raw || String(raw).trim() === '') return null
-  if (raw && typeof raw === 'object') return raw as Record<string, unknown>
+  if (isUnknownRecord(raw)) return raw
+  if (raw == null || String(raw).trim() === '') return null
 
   try {
-    return JSON.parse(String(raw)) as Record<string, unknown>
+    const parsed: unknown = JSON.parse(String(raw))
+    return isUnknownRecord(parsed) ? parsed : null
   } catch {
     return null
   }
@@ -155,7 +162,9 @@ function getCachedStatus(): Record<string, unknown> | null {
   try {
     if (typeof window === 'undefined') return null
     const raw = window.localStorage.getItem('status')
-    return raw ? (JSON.parse(raw) as Record<string, unknown>) : null
+    if (!raw) return null
+    const parsed: unknown = JSON.parse(raw)
+    return isUnknownRecord(parsed) ? parsed : null
   } catch {
     return null
   }
@@ -191,7 +200,7 @@ export async function getFreshModuleAccess(
   module: HeaderNavModule
 ): Promise<ModuleAccess> {
   try {
-    const status = (await getStatus()) as Record<string, unknown> | null
+    const status = await getStatus()
     cacheStatus(status)
     return getModuleAccessFromStatus(status, module)
   } catch {

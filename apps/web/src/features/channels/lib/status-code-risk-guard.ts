@@ -86,7 +86,9 @@ export function collectDisallowedStatusCodeRedirects(
     riskyMappings.push(`${fromCode} -> ${toCode}`)
   }
 
-  return [...new Set(riskyMappings)].sort()
+  return [...new Set(riskyMappings)].sort((left, right) =>
+    left.localeCompare(right)
+  )
 }
 
 export function collectNewDisallowedStatusCodeRedirects(

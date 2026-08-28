@@ -31,7 +31,7 @@ export function subscriptionCheckoutFingerprint(
         subscription.next_reset_time ?? 0,
       ].join(':')
     )
-    .sort()
+    .sort((left, right) => left.localeCompare(right))
     .join('|')
 }
 

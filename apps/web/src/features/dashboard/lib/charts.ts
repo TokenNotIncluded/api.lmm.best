@@ -398,8 +398,12 @@ export function processChartData(
   })
 
   const allModels = [...modelTotalsMap.keys()]
-  const sortedTimes = [...timeModelMap.keys()].sort()
-  const sortedModels = [...allModels].sort()
+  const sortedTimes = [...timeModelMap.keys()].sort((left, right) =>
+    left.localeCompare(right)
+  )
+  const sortedModels = [...allModels].sort((left, right) =>
+    left.localeCompare(right)
+  )
   const modelColorDomain = [...new Set([...sortedModels, otherLabel])]
   const modelColorRange = getDashboardChartColors(modelColorDomain.length)
   const chartHoverColor = getDashboardChartHoverColor()
@@ -927,7 +931,9 @@ export function processUserChartData(
     map.set(user, (map.get(user) || 0) + (Number(item.quota) || 0))
   })
 
-  const sortedTimePoints = [...allTimePoints].sort()
+  const sortedTimePoints = [...allTimePoints].sort((left, right) =>
+    left.localeCompare(right)
+  )
   const trendValues: Array<{
     Time: string
     User: string
