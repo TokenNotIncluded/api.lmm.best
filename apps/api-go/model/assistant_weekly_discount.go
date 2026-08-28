@@ -10,7 +10,7 @@ the Free Software Foundation, either version 3 of the License, or
 package model
 
 import (
-	"crypto/rand"
+	cryptorand "crypto/rand"
 	"encoding/hex"
 	"errors"
 	"strings"
@@ -165,7 +165,7 @@ func DecideAssistantWeeklyDiscount(userID int, conversationID int64, percent int
 
 func newAssistantWeeklyDiscountCode() (string, error) {
 	raw := make([]byte, 8)
-	if _, err := rand.Read(raw); err != nil {
+	if _, err := cryptorand.Read(raw); err != nil {
 		return "", err
 	}
 	return "AIWEEK-" + strings.ToUpper(hex.EncodeToString(raw)), nil

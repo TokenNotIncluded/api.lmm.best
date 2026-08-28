@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"math/rand"
+	nonSecureRand "math/rand/v2"
 	"sort"
 	"strings"
 	"sync"
@@ -306,8 +306,8 @@ func GetRandomSatisfiedChannelExcluding(group string, model string, retry int, r
 	// Calculate the total weight of all channels up to endIdx
 	totalWeight := sumWeight * smoothingFactor
 
-	// Generate a random value in the range [0, totalWeight)
-	randomWeight := rand.Intn(totalWeight)
+	// Non-security weighted sampling balances requests across upstream channels.
+	randomWeight := nonSecureRand.IntN(totalWeight)
 
 	// Find a channel based on its weight
 	for _, channelID := range channels {

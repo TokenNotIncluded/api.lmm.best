@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math/rand"
+	nonSecureRand "math/rand/v2"
 	"strings"
 	"sync"
 
@@ -306,7 +306,8 @@ func (channel *Channel) GetNextEnabledKey() (string, int, *types.NewAPIError) {
 				continue
 			}
 			seen++
-			if rand.Intn(seen) == 0 {
+			// Non-security reservoir sampling balances enabled upstream keys.
+			if nonSecureRand.IntN(seen) == 0 {
 				selected = index
 			}
 		}

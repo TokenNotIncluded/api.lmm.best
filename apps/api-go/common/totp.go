@@ -1,8 +1,9 @@
 package common
 
 import (
-	"crypto/rand"
+	cryptorand "crypto/rand"
 	"fmt"
+	"math/big"
 	"os"
 	"strconv"
 	"strings"
@@ -65,13 +66,13 @@ func generateRandomBackupCode() (string, error) {
 	const charset = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 	code := make([]byte, BackupCodeLength)
 
+	charsetSize := big.NewInt(int64(len(charset)))
 	for i := range code {
-		randomBytes := make([]byte, 1)
-		_, err := rand.Read(randomBytes)
+		value, err := cryptorand.Int(cryptorand.Reader, charsetSize)
 		if err != nil {
 			return "", err
 		}
-		code[i] = charset[int(randomBytes[0])%len(charset)]
+		code[i] = charset[value.Int64()]
 	}
 
 	// 格式化为 XXXX-XXXX 格式

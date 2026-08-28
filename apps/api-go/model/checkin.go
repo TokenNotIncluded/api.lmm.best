@@ -1,8 +1,9 @@
 package model
 
 import (
+	cryptorand "crypto/rand"
 	"errors"
-	"math/rand"
+	"math/big"
 	"time"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
@@ -103,10 +104,15 @@ func UserCheckin(userId int) (*Checkin, error) {
 		return nil, errors.New("今日已签到")
 	}
 
-	// 计算随机额度奖励
+	// 计算随机额度奖励。奖励结果影响用户余额，必须使用系统 CSPRNG。
 	quotaAwarded := rewardRange.MinQuota
 	if rewardRange.MaxQuota > rewardRange.MinQuota {
-		quotaAwarded = rewardRange.MinQuota + rand.Intn(rewardRange.MaxQuota-rewardRange.MinQuota+1)
+		rangeSize := int64(rewardRange.MaxQuota) - int64(rewardRange.MinQuota) + 1
+		draw, err := cryptorand.Int(cryptorand.Reader, big.NewInt(rangeSize))
+		if err != nil {
+			return nil, errors.New("签到失败：无法生成随机奖励")
+		}
+		quotaAwarded += int(draw.Int64())
 	}
 
 	today := time.Now().Format("2006-01-02")

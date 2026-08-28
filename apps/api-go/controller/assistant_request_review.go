@@ -2,7 +2,7 @@ package controller
 
 import (
 	"context"
-	"crypto/rand"
+	cryptorand "crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -156,7 +156,7 @@ func sampleAssistantReview(probability float64) bool {
 	// Draw in basis points to avoid a floating-point comparison at the
 	// boundary. crypto/rand makes the decision independent of request order.
 	limit := int64(probability * 100)
-	draw, err := rand.Int(rand.Reader, big.NewInt(10000))
+	draw, err := cryptorand.Int(cryptorand.Reader, big.NewInt(10000))
 	return err == nil && draw.Int64() < limit
 }
 

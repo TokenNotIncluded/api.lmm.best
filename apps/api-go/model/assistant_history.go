@@ -4,7 +4,7 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/hmac"
-	"crypto/rand"
+	cryptorand "crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
@@ -1113,7 +1113,7 @@ func encryptAssistantSecureCardPayload(payload string) (string, error) {
 		return "", err
 	}
 	nonce := make([]byte, gcm.NonceSize())
-	if _, err := rand.Read(nonce); err != nil {
+	if _, err := cryptorand.Read(nonce); err != nil {
 		return "", err
 	}
 	ciphertext := gcm.Seal(nil, nonce, []byte(payload), nil)
@@ -1146,7 +1146,7 @@ func decryptAssistantSecureCardPayload(ciphertext string) (string, error) {
 
 func newAssistantSecureCardID() (string, error) {
 	random := make([]byte, 24)
-	if _, err := rand.Read(random); err != nil {
+	if _, err := cryptorand.Read(random); err != nil {
 		return "", err
 	}
 	return base64.RawURLEncoding.EncodeToString(random), nil
