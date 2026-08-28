@@ -658,6 +658,18 @@ mod tests {
     use tower::ServiceExt;
 
     type Calls = Arc<Mutex<Vec<(MediaTaskOperation, String, Vec<u8>)>>>;
+    type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
+
+    fn test_error(
+        context: impl std::fmt::Display,
+        error: impl std::fmt::Display,
+    ) -> Box<dyn std::error::Error + Send + Sync> {
+        Box::new(std::io::Error::other(format!("{context}: {error}")))
+    }
+
+    fn test_message(context: impl Into<String>) -> Box<dyn std::error::Error + Send + Sync> {
+        Box::new(std::io::Error::other(context.into()))
+    }
 
     #[derive(Clone)]
     struct CapturingService {
@@ -668,13 +680,16 @@ mod tests {
     impl MediaTaskService for CapturingService {
         async fn protected(&self, operation: MediaTaskOperation, request: Request) -> Response {
             let path = request.uri().path().to_owned();
-            let body = to_bytes(request.into_body(), usize::MAX)
-                .await
-                .expect("test request body");
-            self.calls
-                .lock()
-                .expect("test calls lock")
-                .push((operation, path, body.to_vec()));
+            let body = match to_bytes(request.into_body(), usize::MAX).await {
+                Ok(body) => body,
+                Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+            };
+            let mut calls = match self.calls.lock() {
+                Ok(calls) => calls,
+                Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+            };
+            calls.push((operation, path, body.to_vec()));
+            drop(calls);
             (
                 StatusCode::ACCEPTED,
                 [
@@ -698,7 +713,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn provider_routes_select_the_matching_task_operation_and_preserve_the_request() {
+    async fn provider_routes_select_the_matching_task_operation_and_preserve_the_request()
+    -> TestResult {
         let cases = [
             (
                 "POST",
@@ -738,68 +754,107 @@ mod tests {
             ),
         ];
 
-        for (method, path, operation, body) in cases {
+        for (row, (method, path, operation, body)) in cases.into_iter().enumerate() {
+            let uri = path.parse::<axum::http::Uri>().map_err(|error| {
+                test_error(format!("parse provider route row {row} URI {path}"), error)
+            })?;
+            let request = HttpRequest::builder()
+                .method(method)
+                .uri(uri)
+                .header(header::AUTHORIZATION, "Bearer test-token")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(body.to_vec()))
+                .map_err(|error| {
+                    test_error(format!("build provider route row {row} request"), error)
+                })?;
             let calls = Arc::new(Mutex::new(Vec::new()));
             let response = app(calls.clone())
-                .oneshot(
-                    HttpRequest::builder()
-                        .method(method)
-                        .uri(path)
-                        .header(header::AUTHORIZATION, "Bearer test-token")
-                        .header(header::CONTENT_TYPE, "application/json")
-                        .body(Body::from(body.to_vec()))
-                        .expect("test request"),
-                )
+                .oneshot(request)
                 .await
-                .expect("router is infallible");
+                .map_err(|error| test_error(format!("serve provider route row {row}"), error))?;
 
             assert_eq!(response.status(), StatusCode::ACCEPTED, "{path}");
-            assert_eq!(response.headers()["x-relay"], "provider", "{path}");
+            let relay_header = response
+                .headers()
+                .get("x-relay")
+                .ok_or_else(|| {
+                    test_message(format!("provider route row {row} missing x-relay header"))
+                })?
+                .to_str()
+                .map_err(|error| {
+                    test_error(
+                        format!("decode provider route row {row} x-relay header"),
+                        error,
+                    )
+                })?;
+            assert_eq!(relay_header, "provider", "{path}");
+            let response_body = to_bytes(response.into_body(), usize::MAX)
+                .await
+                .map_err(|error| {
+                    test_error(
+                        format!("read provider route row {row} response body"),
+                        error,
+                    )
+                })?;
+            let response_json: Value = serde_json::from_slice(&response_body).map_err(|error| {
+                test_error(
+                    format!("decode provider route row {row} response JSON"),
+                    error,
+                )
+            })?;
+            assert_eq!(response_json, json!({"provider": "received"}), "{path}");
+            let recorded_calls = calls.lock().map_err(|error| {
+                test_error(format!("lock provider route row {row} calls"), error)
+            })?;
             assert_eq!(
-                to_bytes(response.into_body(), usize::MAX)
-                    .await
-                    .expect("test response body"),
-                br#"{"provider":"received"}"#.as_slice(),
-                "{path}"
-            );
-            assert_eq!(
-                calls.lock().expect("test calls lock").as_slice(),
+                recorded_calls.as_slice(),
                 &[(operation, path.to_owned(), body.to_vec())],
                 "{path}"
             );
         }
+        Ok(())
     }
 
     #[tokio::test]
-    async fn provider_routes_reject_missing_bearer_credentials_before_relaying() {
+    async fn provider_routes_reject_missing_bearer_credentials_before_relaying() -> TestResult {
+        let uri = "/suno/fetch"
+            .parse::<axum::http::Uri>()
+            .map_err(|error| test_error("parse missing-credential request URI", error))?;
+        let request = HttpRequest::builder()
+            .method("POST")
+            .uri(uri)
+            .body(Body::from(br#"{"ids":["suno-1"]}"#.as_slice()))
+            .map_err(|error| test_error("build missing-credential request", error))?;
         let calls = Arc::new(Mutex::new(Vec::new()));
         let response = app(calls.clone())
-            .oneshot(
-                HttpRequest::builder()
-                    .method("POST")
-                    .uri("/suno/fetch")
-                    .body(Body::from(br#"{"ids":["suno-1"]}"#.as_slice()))
-                    .expect("test request"),
-            )
+            .oneshot(request)
             .await
-            .expect("router is infallible");
+            .map_err(|error| test_error("serve missing-credential request", error))?;
 
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
-        assert!(calls.lock().expect("test calls lock").is_empty());
+        assert!(
+            calls
+                .lock()
+                .map_err(|error| test_error("lock missing-credential call rows", error))?
+                .is_empty()
+        );
+        Ok(())
     }
 
     #[tokio::test]
-    async fn unconfigured_provider_fails_closed_as_unavailable() {
+    async fn unconfigured_provider_fails_closed_as_unavailable() -> TestResult {
+        let uri = "/suno/fetch"
+            .parse::<axum::http::Uri>()
+            .map_err(|error| test_error("parse unconfigured-provider request URI", error))?;
+        let request = HttpRequest::builder()
+            .uri(uri)
+            .body(Body::empty())
+            .map_err(|error| test_error("build unconfigured-provider request", error))?;
         let response = UnconfiguredTaskRelayProvider
-            .relay(
-                MediaTaskOperation::SunoFetch,
-                HttpRequest::builder()
-                    .uri("/suno/fetch")
-                    .body(Body::empty())
-                    .expect("test request"),
-            )
+            .relay(MediaTaskOperation::SunoFetch, request)
             .await;
 
         assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        Ok(())
     }
 }
