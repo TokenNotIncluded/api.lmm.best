@@ -277,14 +277,12 @@ pub fn current_route_capability(
     route_capability_from_validated(&registry, source, target, model_family, direction)
 }
 
-/// Selects one route capability from an already validated registry snapshot.
-pub fn route_capability_from_validated(
-    registry: &ValidatedRegistry,
+fn route_for_model<'a>(
+    registry: &'a ValidatedRegistry,
     source: Protocol,
     target: Protocol,
     model_family: &str,
-    direction: Direction,
-) -> Result<RuntimeRouteCapability, RuntimeCapabilityError> {
+) -> Result<&'a RouteRegistration, RuntimeCapabilityError> {
     let route = registry
         .route(source, target)
         .ok_or(RuntimeCapabilityError::MissingRoute { source, target })?;
@@ -295,6 +293,18 @@ pub fn route_capability_from_validated(
             model_family: model_family.to_owned(),
         });
     }
+    Ok(route)
+}
+
+/// Selects one route capability from an already validated registry snapshot.
+pub fn route_capability_from_validated(
+    registry: &ValidatedRegistry,
+    source: Protocol,
+    target: Protocol,
+    model_family: &str,
+    direction: Direction,
+) -> Result<RuntimeRouteCapability, RuntimeCapabilityError> {
+    let route = route_for_model(registry, source, target, model_family)?;
     let direction_supported = match direction {
         Direction::Request => route.request_supported,
         Direction::Response => route.response_supported,
@@ -321,16 +331,7 @@ pub fn current_route_projection(
     model_family: &str,
 ) -> Result<RuntimeRouteCapability, RuntimeCapabilityError> {
     let registry = validated_current_registry().map_err(RuntimeCapabilityError::Registry)?;
-    let route = registry
-        .route(source, target)
-        .ok_or(RuntimeCapabilityError::MissingRoute { source, target })?;
-    if !route.matches_model_family(model_family) {
-        return Err(RuntimeCapabilityError::ModelConstraint {
-            source,
-            target,
-            model_family: model_family.to_owned(),
-        });
-    }
+    let route = route_for_model(&registry, source, target, model_family)?;
     Ok(capability_from_route(route, model_family))
 }
 
@@ -391,10 +392,13 @@ pub fn current_model_constraints(
 mod tests {
     use super::*;
 
+    type TestResult = Result<(), Box<dyn std::error::Error>>;
+
     #[test]
-    fn current_catalog_validates_a_complete_sixteen_route_matrix() {
-        let registry = validated_current_registry().expect("runtime catalog validates");
+    fn current_catalog_validates_a_complete_sixteen_route_matrix() -> TestResult {
+        let registry = validated_current_registry()?;
         assert_eq!(registry.support_matrix().routes.len(), 16);
+        Ok(())
     }
 
     #[test]
@@ -420,22 +424,22 @@ mod tests {
     }
 
     #[test]
-    fn openai_chat_to_responses_is_supported_with_cortexfs_converters() {
-        let registry = validated_current_registry().expect("runtime catalog validates");
+    fn openai_chat_to_responses_is_supported_with_cortexfs_converters() -> TestResult {
+        let registry = validated_current_registry()?;
         let route = registry
             .route(Protocol::OpenAi, Protocol::OpenAiResponses)
-            .expect("complete matrix route");
+            .ok_or_else(|| std::io::Error::other("missing complete matrix route"))?;
         assert!(route.request_supported);
         assert!(route.response_supported);
         assert!(route.stream_supported);
         assert_eq!(route.quality, Fidelity::Normalized);
+        Ok(())
     }
 
     #[test]
-    fn native_route_capability_exposes_all_directions_and_raw_quality() {
+    fn native_route_capability_exposes_all_directions_and_raw_quality() -> TestResult {
         let capability =
-            current_route_capability(Protocol::OpenAi, Protocol::OpenAi, "gpt", Direction::Stream)
-                .expect("native route is executable");
+            current_route_capability(Protocol::OpenAi, Protocol::OpenAi, "gpt", Direction::Stream)?;
         assert_eq!(capability.quality, Fidelity::Exact);
         assert!(capability.raw_passthrough);
         assert!(capability.is_executable(Direction::Request));
@@ -445,36 +449,38 @@ mod tests {
             capability.request_converter_id.as_deref(),
             Some(OPENAI_CHAT_RAW_CONVERTER)
         );
+        Ok(())
     }
 
     #[test]
-    fn cross_protocol_capability_is_executable_when_registry_and_runtime_agree() {
+    fn cross_protocol_capability_is_executable_when_registry_and_runtime_agree() -> TestResult {
         let capability = current_route_capability(
             Protocol::OpenAi,
             Protocol::Claude,
             "claude",
             Direction::Request,
-        )
-        .expect("cross route is executable");
+        )?;
         assert_eq!(capability.quality, Fidelity::Normalized);
         assert!(!capability.raw_passthrough);
         assert!(capability.is_executable(Direction::Request));
+        Ok(())
     }
 
     #[test]
-    fn explicit_registry_validation_rejects_raw_converter_on_cross_route() {
+    fn explicit_registry_validation_rejects_raw_converter_on_cross_route() -> TestResult {
         let registry = Registry::current();
         let mut catalog = current_runtime_catalog();
         let route = catalog
             .routes
             .iter_mut()
             .find(|route| route.source == Protocol::OpenAi && route.target == Protocol::Claude)
-            .expect("cross runtime route");
+            .ok_or_else(|| std::io::Error::other("missing cross runtime route"))?;
         route.request_converter_id = Some(OPENAI_RESPONSES_RAW_CONVERTER.to_owned());
         let result = validate_explicit_registry_against_catalog(&registry, &catalog);
         assert!(matches!(
             result,
             Err(RegistryValidationError::RuntimeDirectionMismatch { .. })
         ));
+        Ok(())
     }
 }
