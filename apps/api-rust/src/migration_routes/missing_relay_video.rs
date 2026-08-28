@@ -206,6 +206,14 @@ mod tests {
 
     type RelayCall = (RelayVideoOperation, String, Vec<u8>);
     type RelayCalls = Arc<Mutex<Vec<RelayCall>>>;
+    type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
+
+    fn test_error(
+        context: impl std::fmt::Display,
+        error: impl std::fmt::Display,
+    ) -> Box<dyn std::error::Error + Send + Sync> {
+        Box::new(std::io::Error::other(format!("{context}: {error}")))
+    }
 
     #[derive(Clone)]
     struct TestService {
@@ -224,14 +232,15 @@ mod tests {
 
         async fn relay(&self, operation: RelayVideoOperation, request: Request) -> Response {
             let path = request.uri().path().to_owned();
-            let body = to_bytes(request.into_body(), usize::MAX)
-                .await
-                .expect("test body")
-                .to_vec();
-            self.calls
-                .lock()
-                .expect("calls lock")
-                .push((operation, path, body));
+            let Ok(body) = to_bytes(request.into_body(), usize::MAX).await else {
+                return StatusCode::BAD_GATEWAY.into_response();
+            };
+            let Ok(mut calls) = self.calls.lock() else {
+                return StatusCode::SERVICE_UNAVAILABLE.into_response();
+            };
+            calls.push((operation, path, body.to_vec()));
+            drop(calls);
+
             let mut response = Response::new(Body::from(self.response_body.clone()));
             *response.status_mut() = self.status;
             for (name, value) in &self.response_headers {
@@ -254,7 +263,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn public_routes_select_the_legacy_handler_and_preserve_opaque_bodies() {
+    async fn public_routes_select_the_legacy_handler_and_preserve_opaque_bodies() -> TestResult {
         let cases = [
             (
                 "POST",
@@ -286,11 +295,11 @@ mod tests {
                 .uri(path)
                 .header(header::CONTENT_TYPE, "application/octet-stream")
                 .body(Body::from(vec![0, 255, 1]))
-                .expect("request");
+                .map_err(|error| test_error(format!("build {method} {path} request"), error))?;
             let response = app(RelayVideoAuthorization::Authorized, calls.clone())
                 .oneshot(request)
                 .await
-                .expect("response");
+                .map_err(|error| test_error(format!("receive {method} {path} response"), error))?;
             assert_eq!(response.status(), StatusCode::ACCEPTED, "{path}");
             assert_eq!(
                 response.headers()[header::CONTENT_TYPE],
@@ -298,24 +307,28 @@ mod tests {
                 "{path}"
             );
             assert_eq!(response.headers()["x-upstream-id"], "video-1", "{path}");
+            let response_body = to_bytes(response.into_body(), usize::MAX)
+                .await
+                .map_err(|error| test_error(format!("read {method} {path} response body"), error))?;
+            assert_eq!(response_body, vec![0, 255, 7], "{path}");
+            let recorded_calls = calls
+                .lock()
+                .map_err(|error| test_error(format!("lock {method} {path} relay calls"), error))?;
             assert_eq!(
-                to_bytes(response.into_body(), usize::MAX)
-                    .await
-                    .expect("body"),
-                vec![0, 255, 7],
-                "{path}"
-            );
-            assert_eq!(
-                calls.lock().expect("calls lock").as_slice(),
+                recorded_calls.as_slice(),
                 &[(operation, path.to_owned(), vec![0, 255, 1])],
                 "{path}"
             );
         }
+        Ok(())
     }
 
     #[tokio::test]
-    async fn rejected_authentication_fails_closed_without_upstream_call() {
+    async fn rejected_authentication_fails_closed_without_upstream_call() -> TestResult {
         let calls = Arc::new(Mutex::new(Vec::new()));
+        let request = HttpRequest::post("/v1/videos/video-1/remix")
+            .body(Body::from("{}"))
+            .map_err(|error| test_error("build rejected-auth request", error))?;
         let response = app(
             RelayVideoAuthorization::Rejected {
                 status: StatusCode::UNAUTHORIZED,
@@ -323,33 +336,39 @@ mod tests {
             },
             calls.clone(),
         )
-        .oneshot(
-            HttpRequest::post("/v1/videos/video-1/remix")
-                .body(Body::from("{}"))
-                .expect("request"),
-        )
+        .oneshot(request)
         .await
-        .expect("response");
+        .map_err(|error| test_error("receive rejected-auth response", error))?;
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
         assert_eq!(
             response.headers()[header::CONTENT_TYPE],
             "application/json; charset=utf-8"
         );
+        let response_body = to_bytes(response.into_body(), usize::MAX)
+            .await
+            .map_err(|error| test_error("read rejected-auth response body", error))?;
+        let response_text = std::str::from_utf8(&response_body)
+            .map_err(|error| test_error("decode rejected-auth response body as UTF-8", error))?;
         assert_eq!(
-            to_bytes(response.into_body(), usize::MAX)
-                .await
-                .expect("body"),
-            &br#"{"error":{"message":"Invalid token (request id: unknown)","type":"new_api_error","code":""}}"#[..]
+            response_text,
+            r#"{"error":{"message":"Invalid token (request id: unknown)","type":"new_api_error","code":""}}"#
         );
-        assert!(calls.lock().expect("calls lock").is_empty());
+        assert!(
+            calls
+                .lock()
+                .map_err(|error| test_error("lock rejected-auth relay calls", error))?
+                .is_empty()
+        );
+        Ok(())
     }
 
     #[tokio::test]
-    async fn rejected_authentication_uses_the_boundary_request_id_in_the_legacy_envelope() {
+    async fn rejected_authentication_uses_the_boundary_request_id_in_the_legacy_envelope(
+    ) -> TestResult {
         let calls = Arc::new(Mutex::new(Vec::new()));
         let mut request = HttpRequest::post("/v1/videos/video-1/remix")
             .body(Body::from("{}"))
-            .expect("request");
+            .map_err(|error| test_error("build request-id auth request", error))?;
         request.extensions_mut().insert(crate::RequestContext {
             request_id: "video-auth-request-id".to_owned(),
             client_ip: None,
@@ -363,48 +382,62 @@ mod tests {
         )
         .oneshot(request)
         .await
-        .expect("response");
+        .map_err(|error| test_error("receive request-id auth response", error))?;
 
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
         assert_eq!(
             response.headers()[header::CONTENT_TYPE],
             "application/json; charset=utf-8"
         );
+        let response_body = to_bytes(response.into_body(), usize::MAX)
+            .await
+            .map_err(|error| test_error("read request-id auth response body", error))?;
+        let response_text = std::str::from_utf8(&response_body)
+            .map_err(|error| test_error("decode request-id auth response body as UTF-8", error))?;
         assert_eq!(
-            to_bytes(response.into_body(), usize::MAX)
-                .await
-                .expect("body"),
-            &br#"{"error":{"message":"Invalid token (request id: video-auth-request-id)","type":"new_api_error","code":""}}"#[..]
+            response_text,
+            r#"{"error":{"message":"Invalid token (request id: video-auth-request-id)","type":"new_api_error","code":""}}"#
         );
-        assert!(calls.lock().expect("calls lock").is_empty());
+        assert!(
+            calls
+                .lock()
+                .map_err(|error| test_error("lock request-id auth relay calls", error))?
+                .is_empty()
+        );
+        Ok(())
     }
 
     #[tokio::test]
-    async fn wrong_methods_and_unknown_paths_do_not_reach_the_relay_boundary() {
+    async fn wrong_methods_and_unknown_paths_do_not_reach_the_relay_boundary() -> TestResult {
         let calls = Arc::new(Mutex::new(Vec::new()));
         let router = app(RelayVideoAuthorization::Authorized, Arc::clone(&calls));
         for (method, path, expected) in [
             ("GET", "/v1/videos", StatusCode::NOT_FOUND),
             ("POST", "/v1/videos/not-a-route", StatusCode::NOT_FOUND),
         ] {
+            let request = HttpRequest::builder()
+                .method(method)
+                .uri(path)
+                .body(Body::empty())
+                .map_err(|error| test_error(format!("build {method} {path} request"), error))?;
             let response = router
                 .clone()
-                .oneshot(
-                    HttpRequest::builder()
-                        .method(method)
-                        .uri(path)
-                        .body(Body::empty())
-                        .expect("request"),
-                )
+                .oneshot(request)
                 .await
-                .expect("response");
+                .map_err(|error| test_error(format!("receive {method} {path} response"), error))?;
             assert_eq!(response.status(), expected, "{method} {path}");
         }
-        assert!(calls.lock().expect("calls lock").is_empty());
+        assert!(
+            calls
+                .lock()
+                .map_err(|error| test_error("lock method-boundary relay calls", error))?
+                .is_empty()
+        );
+        Ok(())
     }
 
     #[test]
-    fn route_construction_has_no_duplicate_paths() {
+    fn route_construction_has_no_duplicate_paths() -> TestResult {
         let calls = Arc::new(Mutex::new(Vec::new()));
         assert!(
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -412,5 +445,6 @@ mod tests {
             }))
             .is_ok()
         );
+        Ok(())
     }
 }
