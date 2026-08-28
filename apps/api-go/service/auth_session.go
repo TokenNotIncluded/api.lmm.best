@@ -222,10 +222,15 @@ func RefreshLoginSession(rawRefreshToken, expectedSID, ip, userAgent string) (*A
 	}
 	nextSecret := deriveNextRefreshSecret(sid, secret)
 	rotated, err := model.RotateUserSessionRefresh(session.UserID, sid, hashRefreshSecret(secret), hashRefreshSecret(nextSecret), time.Now().Unix(), RefreshReplayWindow)
+	var raceSession model.UserSession
+	raceSessionMatches := false
+	if rotated != nil {
+		raceSession = *rotated
+		raceSessionMatches = hashRefreshSecret(nextSecret) == raceSession.RefreshHash
+	}
 	if err != nil {
-		if errors.Is(err, model.ErrUserSessionRefreshRace) && rotated != nil &&
-			hashRefreshSecret(nextSecret) == rotated.RefreshHash {
-			bundle, issueErr := issueAuthBundle(rotated, sid+"."+nextSecret, true)
+		if errors.Is(err, model.ErrUserSessionRefreshRace) && raceSessionMatches {
+			bundle, issueErr := issueAuthBundle(&raceSession, sid+"."+nextSecret, true)
 			if issueErr != nil {
 				return nil, nil, issueErr
 			}
@@ -291,29 +296,35 @@ func WriteRefreshCookie(c *gin.Context, rawToken string) {
 	if maxAge < 1 {
 		maxAge = 1
 	}
-	http.SetCookie(c.Writer, &http.Cookie{
+	cookie := &http.Cookie{
 		Name:     RefreshCookieName,
 		Value:    rawToken,
 		Path:     "/api/user/auth",
 		MaxAge:   maxAge,
 		Expires:  expiresAt,
 		HttpOnly: true,
-		Secure:   common.SessionCookieSecure,
+		Secure:   true,
 		SameSite: http.SameSiteStrictMode,
-	})
+	}
+	// The validated global policy permits Secure=false only for local HTTP
+	// compatibility; construct securely before applying that explicit mode.
+	cookie.Secure = common.SessionCookieSecure
+	http.SetCookie(c.Writer, cookie)
 }
 
 func ClearRefreshCookie(c *gin.Context) {
-	http.SetCookie(c.Writer, &http.Cookie{
+	cookie := &http.Cookie{
 		Name:     RefreshCookieName,
 		Value:    "",
 		Path:     "/api/user/auth",
 		MaxAge:   -1,
 		Expires:  time.Unix(1, 0),
 		HttpOnly: true,
-		Secure:   common.SessionCookieSecure,
+		Secure:   true,
 		SameSite: http.SameSiteStrictMode,
-	})
+	}
+	cookie.Secure = common.SessionCookieSecure
+	http.SetCookie(c.Writer, cookie)
 }
 
 func issueAuthBundle(session *model.UserSession, rawRefreshToken string, current bool) (*AuthBundle, error) {

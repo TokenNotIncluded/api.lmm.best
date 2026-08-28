@@ -3137,21 +3137,25 @@ func executeAssistantSearchTool(c *gin.Context, input map[string]any) map[string
 		ctx = c.Request.Context()
 	}
 	response, err := ExecuteAssistantSearch(ctx, query)
+	configured := response.Configured
+	responseQuery := response.Query
+	status := response.Status
+	results := response.Results
 	if err != nil {
 		return map[string]any{
 			"ok":         false,
-			"configured": response.Configured,
-			"query":      response.Query,
-			"status":     response.Status,
+			"configured": configured,
+			"query":      responseQuery,
+			"status":     status,
 			"error":      err.Error(),
 		}
 	}
 	return map[string]any{
 		"ok":         true,
-		"configured": response.Configured,
-		"query":      response.Query,
-		"status":     response.Status,
-		"results":    response.Results,
+		"configured": configured,
+		"query":      responseQuery,
+		"status":     status,
+		"results":    results,
 	}
 }
 

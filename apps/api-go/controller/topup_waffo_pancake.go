@@ -213,33 +213,39 @@ func CreateWaffoPancakePair(c *gin.Context) {
 	result, err := service.CreateWaffoPancakePrimaryPair(
 		c.Request.Context(), merchantID, privateKey, req.ReturnURL,
 	)
+	var resultValue service.WaffoPancakePairResult
+	hasResult := result != nil
+	if hasResult {
+		resultValue = *result
+	}
 	if err != nil {
-		orphan := result != nil && result.OrphanStore
+		orphan := hasResult && resultValue.OrphanStore
 		logger.LogError(c.Request.Context(), fmt.Sprintf(
 			"Waffo Pancake 创建店铺与产品失败 orphan_store=%t store_id=%q error=%q",
-			orphan, func() string {
-				if result == nil {
-					return ""
-				}
-				return result.StoreID
-			}(), err.Error(),
+			orphan, resultValue.StoreID, err.Error(),
 		))
 		data := gin.H{"error": err.Error()}
 		if orphan {
-			data["store_id"] = result.StoreID
-			data["store_name"] = result.StoreName
+			data["store_id"] = resultValue.StoreID
+			data["store_name"] = resultValue.StoreName
 			data["orphan_store"] = true
 		}
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": data})
 		return
 	}
+	if !hasResult {
+		const message = "Waffo Pancake 创建店铺与产品失败：响应为空"
+		logger.LogError(c.Request.Context(), message)
+		c.JSON(http.StatusOK, gin.H{"message": "error", "data": gin.H{"error": message}})
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"message": "success",
 		"data": gin.H{
-			"store_id":     result.StoreID,
-			"store_name":   result.StoreName,
-			"product_id":   result.ProductID,
-			"product_name": result.ProductName,
+			"store_id":     resultValue.StoreID,
+			"store_name":   resultValue.StoreName,
+			"product_id":   resultValue.ProductID,
+			"product_name": resultValue.ProductName,
 		},
 	})
 }

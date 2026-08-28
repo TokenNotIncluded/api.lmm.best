@@ -124,7 +124,16 @@ func RelayMidjourneyImage(c *gin.Context) {
 
 func midjourneyImageSignature(userID int, taskID string) string {
 	mac := hmac.New(sha256.New, []byte(common.SessionSecret))
-	_, _ = mac.Write([]byte(fmt.Sprintf("midjourney-image-v1:%d:%s", userID, taskID)))
+	payload := []byte(fmt.Sprintf("midjourney-image-v1:%d:%s", userID, taskID))
+	written, err := mac.Write(payload)
+	if err != nil {
+		common.SysLog("failed to sign Midjourney image URL: " + err.Error())
+		return ""
+	}
+	if written != len(payload) {
+		common.SysLog(fmt.Sprintf("failed to sign Midjourney image URL: short write (%d/%d)", written, len(payload)))
+		return ""
+	}
 	return hex.EncodeToString(mac.Sum(nil))
 }
 
@@ -133,6 +142,9 @@ func verifyMidjourneyImageSignature(userID int, taskID, signature string) bool {
 		return false
 	}
 	expected := midjourneyImageSignature(userID, taskID)
+	if expected == "" {
+		return false
+	}
 	provided, err := hex.DecodeString(signature)
 	if err != nil {
 		return false
@@ -290,10 +302,15 @@ func RelaySwapFace(c *gin.Context, info *relaycommon.RelayInfo) *dto.MidjourneyR
 	baseURL := c.GetString("base_url")
 	fullRequestURL := fmt.Sprintf("%s%s", baseURL, requestURL)
 	mjResp, _, err := service.DoMidjourneyHttpRequest(c, time.Second*60, fullRequestURL)
-	if err != nil {
-		return &mjResp.Response
+	if mjResp == nil {
+		return service.MidjourneyErrorWrapper(constant.MjErrorUnknown, "do_request_failed")
 	}
-	midjResponse := &mjResp.Response
+	midjResponseValue := mjResp.Response
+	statusCode := mjResp.StatusCode
+	if err != nil {
+		return &midjResponseValue
+	}
+	midjResponse := &midjResponseValue
 	midjourneyTask := &model.Midjourney{
 		UserId:      info.UserId,
 		Code:        midjResponse.Code,
@@ -316,7 +333,7 @@ func RelaySwapFace(c *gin.Context, info *relaycommon.RelayInfo) *dto.MidjourneyR
 		info,
 		midjourneyTask,
 		priceData.Quota,
-		mjResp.StatusCode == http.StatusOK && midjResponse.Code == 1,
+		statusCode == http.StatusOK && midjResponse.Code == 1,
 	)
 	if billingErr != nil {
 		common.SysLog("error consuming Midjourney quota: " + billingErr.Error())
@@ -347,7 +364,7 @@ func RelaySwapFace(c *gin.Context, info *relaycommon.RelayInfo) *dto.MidjourneyR
 		model.UpdateUserUsedQuotaAndRequestCount(info.UserId, midjourneyTask.Quota)
 		model.UpdateChannelUsedQuota(billingChannelId, midjourneyTask.Quota)
 	}
-	c.Writer.WriteHeader(mjResp.StatusCode)
+	c.Writer.WriteHeader(statusCode)
 	respBody, err := json.Marshal(midjResponse)
 	if err != nil {
 		return service.MidjourneyErrorWrapper(constant.MjRequestError, "unmarshal_response_body_failed")
@@ -379,11 +396,16 @@ func RelayMidjourneyTaskImageSeed(c *gin.Context) *dto.MidjourneyResponse {
 	requestURL := getMjRequestPath(c.Request.URL.String())
 	fullRequestURL := fmt.Sprintf("%s%s", channel.GetBaseURL(), requestURL)
 	midjResponseWithStatus, _, err := service.DoMidjourneyHttpRequest(c, time.Second*30, fullRequestURL)
-	if err != nil {
-		return &midjResponseWithStatus.Response
+	if midjResponseWithStatus == nil {
+		return service.MidjourneyErrorWrapper(constant.MjErrorUnknown, "do_request_failed")
 	}
-	midjResponse := &midjResponseWithStatus.Response
-	c.Writer.WriteHeader(midjResponseWithStatus.StatusCode)
+	midjResponseValue := midjResponseWithStatus.Response
+	statusCode := midjResponseWithStatus.StatusCode
+	if err != nil {
+		return &midjResponseValue
+	}
+	midjResponse := &midjResponseValue
+	c.Writer.WriteHeader(statusCode)
 	respBody, err := json.Marshal(midjResponse)
 	if err != nil {
 		return service.MidjourneyErrorWrapper(constant.MjRequestError, "unmarshal_response_body_failed")
@@ -613,10 +635,15 @@ func RelayMidjourneySubmit(c *gin.Context, relayInfo *relaycommon.RelayInfo) *dt
 	}
 
 	midjResponseWithStatus, responseBody, err := service.DoMidjourneyHttpRequest(c, time.Second*60, fullRequestURL)
-	if err != nil {
-		return &midjResponseWithStatus.Response
+	if midjResponseWithStatus == nil {
+		return service.MidjourneyErrorWrapper(constant.MjErrorUnknown, "do_request_failed")
 	}
-	midjResponse := &midjResponseWithStatus.Response
+	midjResponseValue := midjResponseWithStatus.Response
+	statusCode := midjResponseWithStatus.StatusCode
+	if err != nil {
+		return &midjResponseValue
+	}
+	midjResponse := &midjResponseValue
 
 	// 文档：https://github.com/novicezk/midjourney-proxy/blob/main/docs/api.md
 	//1-提交成功
@@ -692,7 +719,7 @@ func RelayMidjourneySubmit(c *gin.Context, relayInfo *relaycommon.RelayInfo) *dt
 		relayInfo,
 		midjourneyTask,
 		priceData.Quota,
-		consumeQuota && midjResponseWithStatus.StatusCode == http.StatusOK,
+		consumeQuota && statusCode == http.StatusOK,
 	)
 	if billingErr != nil {
 		common.SysLog("error consuming Midjourney quota: " + billingErr.Error())
@@ -738,7 +765,7 @@ func RelayMidjourneySubmit(c *gin.Context, relayInfo *relaycommon.RelayInfo) *dt
 	//for k, v := range resp.Header {
 	//	c.Writer.Header().Set(k, v[0])
 	//}
-	c.Writer.WriteHeader(midjResponseWithStatus.StatusCode)
+	c.Writer.WriteHeader(statusCode)
 
 	_, err = io.Copy(c.Writer, bodyReader)
 	if err != nil {
