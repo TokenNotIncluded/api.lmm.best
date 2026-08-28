@@ -1476,6 +1476,23 @@ mod tests {
 
     use super::*;
 
+    type TestResult<T = ()> = Result<T, Box<dyn std::error::Error>>;
+
+    fn test_error(message: impl Into<String>) -> Box<dyn std::error::Error> {
+        Box::new(std::io::Error::other(message.into()))
+    }
+
+    fn with_context<T, E: std::fmt::Debug>(
+        result: Result<T, E>,
+        context: &'static str,
+    ) -> TestResult<T> {
+        result.map_err(|error| test_error(format!("{context}: {error:?}")))
+    }
+
+    fn required<T>(value: Option<T>, context: &'static str) -> TestResult<T> {
+        value.ok_or_else(|| test_error(context))
+    }
+
     struct TestRelayService;
 
     #[async_trait]
@@ -1545,13 +1562,16 @@ mod tests {
 
     async fn mock_server(
         response: MockUpstreamResponse,
-    ) -> (
+    ) -> TestResult<(
         String,
         mpsc::Receiver<CapturedUpstreamRequest>,
         JoinHandle<()>,
-    ) {
-        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind mock");
-        let address = listener.local_addr().expect("mock address");
+    )> {
+        let listener = with_context(
+            TcpListener::bind("127.0.0.1:0").await,
+            "bind mock upstream listener",
+        )?;
+        let address = with_context(listener.local_addr(), "read mock upstream address")?;
         let (sender, receiver) = mpsc::channel(1);
         let app = Router::new()
             .fallback(post(mock_upstream))
@@ -1562,10 +1582,13 @@ mod tests {
         let task = tokio::spawn(async move {
             let _ = axum::serve(listener, app).await;
         });
-        (format!("http://{address}/channel/"), receiver, task)
+        Ok((format!("http://{address}/channel/"), receiver, task))
     }
 
-    fn relay_request(endpoint: OpenAiRelayEndpoint, raw_body: &[u8]) -> OpenAiRelayRequest {
+    fn relay_request(
+        endpoint: OpenAiRelayEndpoint,
+        raw_body: &[u8],
+    ) -> TestResult<OpenAiRelayRequest> {
         let mut headers = HeaderMap::new();
         headers.insert(
             header::AUTHORIZATION,
@@ -1575,43 +1598,56 @@ mod tests {
             header::CONTENT_TYPE,
             HeaderValue::from_static("application/json"),
         );
-        OpenAiRelayRequest {
+        Ok(OpenAiRelayRequest {
             endpoint,
             protocol: Protocol::OpenAi,
             request_id: "request-1".to_owned(),
             headers,
-            request: completion_request_to_canonical(br#"{"model":"mock-model","prompt":"hello"}"#)
-                .expect("canonical request"),
+            request: with_context(
+                completion_request_to_canonical(
+                    br#"{"model":"mock-model","prompt":"hello"}"#,
+                ),
+                "build canonical relay test request",
+            )?,
             raw_body: raw_body.to_vec(),
-        }
+        })
     }
 
     #[test]
-    fn upstream_url_preserves_channel_path_prefix() {
-        let url = upstream_url(
-            "https://upstream.example/channel-prefix",
-            OpenAiRelayEndpoint::ResponsesCompact,
-        )
-        .expect("valid selected target");
+    fn upstream_url_preserves_channel_path_prefix() -> TestResult {
+        let url = with_context(
+            upstream_url(
+                "https://upstream.example/channel-prefix",
+                OpenAiRelayEndpoint::ResponsesCompact,
+            ),
+            "build selected upstream URL",
+        )?;
         assert_eq!(
             url.as_str(),
             "https://upstream.example/channel-prefix/v1/responses/compact"
         );
+        Ok(())
     }
 
     #[test]
-    fn native_openai_parse_extracts_metadata_without_filtering_unknown_wire_fields() {
+    fn native_openai_parse_extracts_metadata_without_filtering_unknown_wire_fields()
+    -> TestResult {
         let body = br#"{"model":"gpt-future","stream":true,"tools":[{"type":"future_tool","opaque":{"x":1}}],"future_request_field":[1,2,3]}"#;
-        let canonical = parse_request(OpenAiRelayEndpoint::ChatCompletions, body)
-            .expect("minimal native metadata");
+        let canonical = with_context(
+            parse_request(OpenAiRelayEndpoint::ChatCompletions, body),
+            "parse native Chat Completions metadata",
+        )?;
         assert_eq!(canonical.model, "gpt-future");
         assert!(canonical.stream);
         assert!(canonical.messages.is_empty());
 
-        let responses = parse_request(OpenAiRelayEndpoint::Responses, body)
-            .expect("Responses uses the same native metadata path");
+        let responses = with_context(
+            parse_request(OpenAiRelayEndpoint::Responses, body),
+            "parse native Responses metadata",
+        )?;
         assert_eq!(responses.model, "gpt-future");
         assert!(responses.stream);
+        Ok(())
     }
 
     #[test]
@@ -1625,11 +1661,18 @@ mod tests {
     }
 
     #[test]
-    fn default_http_state_admits_validated_native_raw_route() {
+    fn default_http_state_admits_validated_native_raw_route() -> TestResult {
         let state = test_state();
-        let admission =
-            native_route_admission(&state, "request-1", Protocol::OpenAi, "gpt-future", false)
-                .expect("default state should admit the validated native route");
+        let admission = with_context(
+            native_route_admission(
+                &state,
+                "request-1",
+                Protocol::OpenAi,
+                "gpt-future",
+                false,
+            ),
+            "admit the validated native route in the default state",
+        )?;
 
         assert!(
             admission
@@ -1638,14 +1681,22 @@ mod tests {
                 .as_ref()
                 .is_some_and(|capability| capability.raw_passthrough)
         );
+        Ok(())
     }
 
     #[test]
-    fn default_http_state_admits_validated_native_stream_route() {
+    fn default_http_state_admits_validated_native_stream_route() -> TestResult {
         let state = test_state();
-        let admission =
-            native_route_admission(&state, "request-1", Protocol::OpenAi, "gpt-future", true)
-                .expect("default state should admit the validated native stream route");
+        let admission = with_context(
+            native_route_admission(
+                &state,
+                "request-1",
+                Protocol::OpenAi,
+                "gpt-future",
+                true,
+            ),
+            "admit the validated native stream route in the default state",
+        )?;
 
         assert!(
             admission
@@ -1654,23 +1705,24 @@ mod tests {
                 .as_ref()
                 .is_some_and(|capability| capability.stream_supported)
         );
+        Ok(())
     }
 
     #[test]
-    fn runtime_builder_installs_the_shared_validated_registry() {
-        let registry = Arc::new(
-            validated_current_registry().expect("built-in runtime registry should validate"),
-        );
+    fn runtime_builder_installs_the_shared_validated_registry() -> TestResult {
+        let registry = Arc::new(with_context(
+            validated_current_registry(),
+            "validate the built-in runtime registry",
+        )?);
         let state =
             test_state().with_protocol_runtime(ProtocolRolloutControl::default(), registry.clone());
+        let installed = required(
+            state.validated_registry.as_ref(),
+            "runtime builder did not install the validated registry",
+        )?;
 
-        assert!(Arc::ptr_eq(
-            state
-                .validated_registry
-                .as_ref()
-                .expect("builder installs registry"),
-            &registry,
-        ));
+        assert!(Arc::ptr_eq(installed, &registry));
+        Ok(())
     }
 
     #[test]
@@ -1685,61 +1737,95 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn missing_registry_returns_safe_server_error() {
+    async fn missing_registry_returns_safe_server_error() -> TestResult {
         let mut state = test_state();
         state.validated_registry = None;
-        let request = Request::builder()
-            .method("POST")
-            .uri("/v1/chat/completions")
-            .header(header::AUTHORIZATION, "Bearer tenant-token")
-            .body(Body::from(r#"{"model":"gpt-future"}"#))
-            .expect("valid test request");
+        let request = with_context(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/chat/completions")
+                .header(header::AUTHORIZATION, "Bearer tenant-token")
+                .body(Body::from(r#"{"model":"gpt-future"}"#)),
+            "build missing-registry relay request",
+        )?;
 
-        let response = openai_relay_router(state)
-            .oneshot(request)
-            .await
-            .expect("router response");
+        let response = with_context(
+            openai_relay_router(state).oneshot(request).await,
+            "dispatch missing-registry relay request",
+        )?;
 
         assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        Ok(())
     }
 
     #[test]
-    fn builder_observes_shared_rollout_replacement_and_rollback() {
+    fn builder_observes_shared_rollout_replacement_and_rollback() -> TestResult {
         let control = ProtocolRolloutControl::default();
-        let registry = Arc::new(
-            validated_current_registry().expect("built-in runtime registry should validate"),
-        );
+        let registry = Arc::new(with_context(
+            validated_current_registry(),
+            "validate the built-in runtime registry",
+        )?);
         let state = test_state().with_protocol_runtime(control.clone(), registry);
-        let initial =
-            native_route_admission(&state, "request-1", Protocol::OpenAi, "gpt-future", false)
-                .expect("default native route should remain open");
+        let initial = with_context(
+            native_route_admission(
+                &state,
+                "request-1",
+                Protocol::OpenAi,
+                "gpt-future",
+                false,
+            ),
+            "admit the default native route",
+        )?;
         assert!(!initial.details.flag_decision.enabled);
 
         let mut enabled = crate::protocol_rollout::ProtocolRolloutConfig::default();
-        enabled.conversion_engine_v2 =
-            crate::protocol_rollout::FlagConfig::enabled(crate::protocol_rollout::MAX_BASIS_POINTS)
-                .expect("full rollout is bounded");
-        control
-            .replace(enabled)
-            .expect("replacement should install");
-        let replaced =
-            native_route_admission(&state, "request-1", Protocol::OpenAi, "gpt-future", false)
-                .expect("replacement must be visible to the next request");
+        enabled.conversion_engine_v2 = with_context(
+            crate::protocol_rollout::FlagConfig::enabled(
+                crate::protocol_rollout::MAX_BASIS_POINTS,
+            ),
+            "construct a bounded full rollout",
+        )?;
+        with_context(
+            control.replace(enabled),
+            "install the replacement rollout configuration",
+        )?;
+        let replaced = with_context(
+            native_route_admission(
+                &state,
+                "request-1",
+                Protocol::OpenAi,
+                "gpt-future",
+                false,
+            ),
+            "admit the native route after rollout replacement",
+        )?;
         assert!(replaced.details.flag_decision.enabled);
 
-        control.replace_rollback().expect("rollback should install");
-        let rolled_back =
-            native_route_admission(&state, "request-1", Protocol::OpenAi, "gpt-future", false)
-                .expect("native raw route remains available during rollback");
+        with_context(
+            control.replace_rollback(),
+            "install the rollback configuration",
+        )?;
+        let rolled_back = with_context(
+            native_route_admission(
+                &state,
+                "request-1",
+                Protocol::OpenAi,
+                "gpt-future",
+                false,
+            ),
+            "admit the native raw route during rollback",
+        )?;
         assert_eq!(
             rolled_back.details.flag_decision.source,
             crate::protocol_rollout::DecisionSource::ConfigRollback
         );
         assert!(!rolled_back.details.flag_decision.enabled);
+        Ok(())
     }
 
     #[test]
-    fn upstream_header_copy_strips_client_credentials_and_injects_channel_credential() {
+    fn upstream_header_copy_strips_client_credentials_and_injects_channel_credential()
+    -> TestResult {
         let mut inbound = HeaderMap::new();
         inbound.insert(header::ACCEPT, HeaderValue::from_static("application/json"));
         inbound.insert("x-trace-id", HeaderValue::from_static("trace-123"));
@@ -1764,13 +1850,15 @@ mod tests {
             inbound.insert(name, HeaderValue::from_static(value));
         }
 
-        let request = copy_upstream_headers(
-            reqwest::Client::new().post("https://upstream.example/v1/responses"),
-            &inbound,
-            "channel-secret",
-        )
-        .build()
-        .expect("valid upstream request");
+        let request = with_context(
+            copy_upstream_headers(
+                reqwest::Client::new().post("https://upstream.example/v1/responses"),
+                &inbound,
+                "channel-secret",
+            )
+            .build(),
+            "build the upstream header passthrough request",
+        )?;
 
         assert_eq!(
             request.headers()[header::AUTHORIZATION],
@@ -1791,10 +1879,12 @@ mod tests {
                 "sensitive inbound header leaked upstream: {name}"
             );
         }
+        Ok(())
     }
 
     #[tokio::test]
-    async fn upstream_adapter_replays_raw_json_and_replaces_tenant_credentials() {
+    async fn upstream_adapter_replays_raw_json_and_replaces_tenant_credentials()
+    -> TestResult {
         let mut headers = HeaderMap::new();
         headers.insert(
             header::CONTENT_TYPE,
@@ -1806,24 +1896,29 @@ mod tests {
             headers,
             body: br#"{"opaque_provider_field":true}"#.to_vec(),
         })
-        .await;
+        .await?;
         let request = relay_request(
             OpenAiRelayEndpoint::ChatCompletions,
             br#"{"model":"mock-model","messages":[{"role":"user","content":"hello"}],"provider_option":true}"#,
-        );
+        )?;
         let client = OpenAiUpstreamClient::new(reqwest::Client::new(), Duration::from_secs(1));
-        let result = client
-            .forward(
-                &OpenAiUpstreamTarget {
-                    base_url,
-                    api_key: "channel-secret".to_owned(),
-                },
-                &request,
-            )
-            .await
-            .expect("successful upstream response");
+        let result = with_context(
+            client
+                .forward(
+                    &OpenAiUpstreamTarget {
+                        base_url,
+                        api_key: "channel-secret".to_owned(),
+                    },
+                    &request,
+                )
+                .await,
+            "forward raw JSON to the mock upstream",
+        )?;
 
-        let captured = received.recv().await.expect("captured request");
+        let captured = required(
+            received.recv().await,
+            "mock upstream did not capture the request",
+        )?;
         assert_eq!(captured.path, "/channel/v1/chat/completions");
         assert_eq!(
             captured.authorization.as_deref(),
@@ -1831,22 +1926,27 @@ mod tests {
         );
         assert_eq!(captured.body.as_ref(), request.raw_body.as_slice());
         assert_eq!(result.headers["x-upstream-trace"], "mock-json");
-        let OpenAiRelayBody::Upstream { body, content_type } = result.body else {
-            panic!("expected passthrough body");
+        let (body, content_type) = match result.body {
+            OpenAiRelayBody::Upstream { body, content_type } => (body, content_type),
+            unexpected => {
+                return Err(test_error(format!(
+                    "expected passthrough upstream body, got {unexpected:?}"
+                )));
+            }
         };
-        assert_eq!(content_type.expect("content type"), "application/json");
-        assert_eq!(
-            to_bytes(body, usize::MAX)
-                .await
-                .expect("upstream body")
-                .as_ref(),
-            br#"{"opaque_provider_field":true}"#
-        );
+        let content_type = required(content_type, "upstream response omitted content-type")?;
+        assert_eq!(content_type, "application/json");
+        let body = with_context(
+            to_bytes(body, usize::MAX).await,
+            "read the upstream passthrough body",
+        )?;
+        assert_eq!(body.as_ref(), br#"{"opaque_provider_field":true}"#);
         task.abort();
+        Ok(())
     }
 
     #[tokio::test]
-    async fn upstream_adapter_preserves_sse_wire_stream_without_reencoding() {
+    async fn upstream_adapter_preserves_sse_wire_stream_without_reencoding() -> TestResult {
         let mut headers = HeaderMap::new();
         headers.insert(
             header::CONTENT_TYPE,
@@ -1858,35 +1958,42 @@ mod tests {
             headers,
             body: expected.to_vec(),
         })
-        .await;
+        .await?;
         let client = OpenAiUpstreamClient::new(reqwest::Client::new(), Duration::from_secs(1));
-        let result = client
-            .forward(
-                &OpenAiUpstreamTarget {
-                    base_url,
-                    api_key: String::new(),
-                },
-                &relay_request(OpenAiRelayEndpoint::Responses, br#"{"model":"mock-model"}"#),
-            )
-            .await
-            .expect("streaming upstream response");
+        let result = with_context(
+            client
+                .forward(
+                    &OpenAiUpstreamTarget {
+                        base_url,
+                        api_key: String::new(),
+                    },
+                    &relay_request(
+                        OpenAiRelayEndpoint::Responses,
+                        br#"{"model":"mock-model"}"#,
+                    )?,
+                )
+                .await,
+            "forward the SSE request to the mock upstream",
+        )?;
 
-        let OpenAiRelayBody::Upstream { body, content_type } = result.body else {
-            panic!("expected passthrough SSE body");
+        let (body, content_type) = match result.body {
+            OpenAiRelayBody::Upstream { body, content_type } => (body, content_type),
+            unexpected => {
+                return Err(test_error(format!(
+                    "expected passthrough SSE body, got {unexpected:?}"
+                )));
+            }
         };
-        assert_eq!(
-            content_type.expect("content type"),
-            "text/event-stream; charset=utf-8"
-        );
-        assert_eq!(
-            to_bytes(body, usize::MAX).await.expect("SSE body").as_ref(),
-            expected
-        );
+        let content_type = required(content_type, "SSE response omitted content-type")?;
+        assert_eq!(content_type, "text/event-stream; charset=utf-8");
+        let body = with_context(to_bytes(body, usize::MAX).await, "read the SSE body")?;
+        assert_eq!(body.as_ref(), expected);
         task.abort();
+        Ok(())
     }
 
     #[tokio::test]
-    async fn upstream_adapter_maps_openai_error_and_retains_retry_header() {
+    async fn upstream_adapter_maps_openai_error_and_retains_retry_header() -> TestResult {
         let mut headers = HeaderMap::new();
         headers.insert(header::RETRY_AFTER, HeaderValue::from_static("2"));
         headers.insert(
@@ -1898,24 +2005,35 @@ mod tests {
             headers,
             body: br#"{"error":{"message":"rate limited","code":"rate_limit_exceeded"}}"#.to_vec(),
         })
-        .await;
+        .await?;
         let client = OpenAiUpstreamClient::new(reqwest::Client::new(), Duration::from_secs(1));
-        let error = client
+        let result = client
             .forward(
                 &OpenAiUpstreamTarget {
                     base_url,
                     api_key: String::new(),
                 },
-                &relay_request(OpenAiRelayEndpoint::Responses, br#"{"model":"mock-model"}"#),
+                &relay_request(
+                    OpenAiRelayEndpoint::Responses,
+                    br#"{"model":"mock-model"}"#,
+                )?,
             )
-            .await
-            .expect_err("upstream error");
+            .await;
+        let error = match result {
+            Ok(response) => {
+                return Err(test_error(format!(
+                    "expected an upstream error, got {response:?}"
+                )));
+            }
+            Err(error) => error,
+        };
 
         assert_eq!(error.status, StatusCode::TOO_MANY_REQUESTS);
         assert_eq!(error.code, "rate_limit_exceeded");
         assert_eq!(error.message, "rate limited");
         assert_eq!(error.headers[header::RETRY_AFTER], "2");
         task.abort();
+        Ok(())
     }
 
     #[test]
@@ -1929,12 +2047,14 @@ mod tests {
     }
 
     #[test]
-    fn ip_allow_list_fails_closed_when_listener_has_no_canonical_ip() {
+    fn ip_allow_list_fails_closed_when_listener_has_no_canonical_ip() -> TestResult {
         assert!(ip_is_allowed(None, ""));
         assert!(!ip_is_allowed(None, "127.0.0.1"));
-        assert!(ip_is_allowed(
-            Some("127.0.0.1".parse().expect("valid IP")),
-            "127.0.0.0/8"
-        ));
+        let loopback = with_context(
+            "127.0.0.1".parse(),
+            "parse the canonical loopback IP",
+        )?;
+        assert!(ip_is_allowed(Some(loopback), "127.0.0.0/8"));
+        Ok(())
     }
 }
