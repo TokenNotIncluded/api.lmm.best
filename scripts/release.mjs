@@ -253,23 +253,23 @@ export function updateCargoLock(content, version) {
 }
 
 function replaceOnce(content, pattern, replacement, description) {
-  const matches = content.match(new RegExp(pattern.source, pattern.flags.includes('g') ? pattern.flags : `${pattern.flags}g`))
-  if (matches?.length !== 1) fail(`expected one ${description}, found ${matches?.length ?? 0}`)
+  const matches = [...content.matchAll(pattern)]
+  if (matches.length !== 1) fail(`expected one ${description}, found ${matches.length}`)
   return content.replace(pattern, replacement)
 }
 
 function updateJsonVersion(content, version) {
-  return replaceOnce(content, /^  "version": "[^"]+",$/m, `  "version": "${version}",`, 'JSON version')
+  return replaceOnce(content, /^  "version": "[^"]+",$/gm, `  "version": "${version}",`, 'JSON version')
 }
 
 function updatePkgbuildVersion(content, version) {
-  return replaceOnce(content, /^pkgver=.*$/m, `pkgver=${version}`, 'PKGBUILD pkgver')
+  return replaceOnce(content, /^pkgver=.*$/gm, `pkgver=${version}`, 'PKGBUILD pkgver')
 }
 
 function updateLocalPkgbuildVersion(content, version) {
   return replaceOnce(
     content,
-    /^pkgver="\$\{LMM_API_PKGVER:-[^}]+\}"$/m,
+    /^pkgver="\$\{LMM_API_PKGVER:-[^}]+\}"$/gm,
     `pkgver="\${LMM_API_PKGVER:-${version}}"`,
     'local PKGBUILD fallback version'
   )
@@ -338,7 +338,9 @@ export function prepareRelease({ root, bump, explicitVersion, date, tagValues })
 }
 
 function jsonVersion(root, file) {
-  return JSON.parse(read(root, file)).version
+  const match = /^  "version": "([^"]+)",$/m.exec(read(root, file))
+  if (!match) fail(`missing JSON version in ${file}`)
+  return match[1]
 }
 
 function cargoTomlVersion(content) {

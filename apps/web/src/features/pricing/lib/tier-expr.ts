@@ -16,7 +16,12 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { BILLING_CACHE_VAR_MAP } from './billing-expr'
+import {
+  BILLING_CACHE_VAR_MAP,
+  BILLING_VARS,
+  evaluateBillingExpression,
+  parseTiersFromExpr,
+} from './billing-expr'
 
 export const CACHE_MODE_TIMED = 'timed'
 export const CACHE_MODE_GENERIC = 'generic'
@@ -106,10 +111,21 @@ export function normalizeVisualConfig(
 
 function buildConditionStr(conditions: TierConditionInput[]): string {
   if (!conditions || conditions.length === 0) return ''
-  return conditions
-    .filter((c) => c.var && c.op && c.value != null && c.value !== '')
-    .map((c) => `${c.var} ${c.op} ${c.value}`)
-    .join(' && ')
+  const allowedVars = new Set(['p', 'c', 'len'])
+  const allowedOps = new Set(['<', '<=', '>', '>='])
+  const parts: string[] = []
+  for (const condition of conditions) {
+    const value = Number(condition.value)
+    if (
+      !allowedVars.has(condition.var) ||
+      !allowedOps.has(condition.op) ||
+      !Number.isFinite(value)
+    ) {
+      continue
+    }
+    parts.push(`${condition.var} ${condition.op} ${value}`)
+  }
+  return parts.join(' && ')
 }
 
 function buildTierBodyExpr(tier: VisualTier): string {
@@ -136,7 +152,7 @@ export function generateExprFromVisualConfig(
   if (tiers.length === 1) {
     const tier = tiers[0]
     const label = tier.label || 'default'
-    const body = `tier("${label}", ${buildTierBodyExpr(tier)})`
+    const body = `tier(${JSON.stringify(label)}, ${buildTierBodyExpr(tier)})`
     const cond = buildConditionStr(tier.conditions)
     if (cond) {
       return `${cond} ? ${body} : p * 0 + c * 0`
@@ -148,7 +164,7 @@ export function generateExprFromVisualConfig(
   for (let i = 0; i < tiers.length; i++) {
     const tier = tiers[i]
     const label = tier.label || `tier_${i + 1}`
-    const body = `tier("${label}", ${buildTierBodyExpr(tier)})`
+    const body = `tier(${JSON.stringify(label)}, ${buildTierBodyExpr(tier)})`
     const cond = buildConditionStr(tier.conditions)
 
     if (i < tiers.length - 1 && cond) {
@@ -165,79 +181,36 @@ export function tryParseVisualConfig(
 ): VisualConfig | null {
   if (!exprStr) return null
   try {
-    let body = exprStr
-    const versionMatch = body.match(/^v\d+:([\s\S]*)$/)
+    let body = exprStr.trim()
+    const versionMatch = /^v\d+:([\s\S]*)$/.exec(body)
     if (versionMatch) body = versionMatch[1]
-    const cacheVarNames = BILLING_CACHE_VAR_MAP.map((cv) => cv.exprVar)
-    const optCacheStr = cacheVarNames
-      .map((v) => `(?:\\s*\\+\\s*${v}\\s*\\*\\s*([\\d.eE+-]+))?`)
-      .join('')
 
-    const bodyPat = `p\\s*\\*\\s*([\\d.eE+-]+)\\s*\\+\\s*c\\s*\\*\\s*([\\d.eE+-]+)${optCacheStr}`
-
-    const singleRe = new RegExp(`^tier\\("([^"]*)",\\s*${bodyPat}\\)$`)
-    const simple = body.match(singleRe)
-    if (simple) {
-      const tier: Record<string, unknown> = {
-        conditions: [],
-        input_unit_cost: Number(simple[2]),
-        output_unit_cost: Number(simple[3]),
-        label: simple[1],
+    const parsedTiers = parseTiersFromExpr(body)
+    if (parsedTiers.length === 0) return null
+    const tiers = parsedTiers.map((parsed) => {
+      const tier: Partial<VisualTier> = {
+        label: parsed.label,
+        conditions: parsed.conditions,
+        input_unit_cost: Number(parsed.inputPrice) || 0,
+        output_unit_cost: Number(parsed.outputPrice) || 0,
       }
-      BILLING_CACHE_VAR_MAP.forEach((cv, i) => {
-        const val = simple[4 + i]
-        if (val != null) tier[cv.field] = Number(val)
-      })
-      return normalizeVisualConfig({
-        tiers: [normalizeVisualTier(tier as Partial<VisualTier>)],
-      })
-    }
-
-    const condGroup =
-      `((?:(?:p|c|len)\\s*(?:<|<=|>|>=)\\s*[\\d.eE+]+)` +
-      `(?:\\s*&&\\s*(?:p|c|len)\\s*(?:<|<=|>|>=)\\s*[\\d.eE+]+)*)`
-    const tierRe = new RegExp(
-      `(?:${condGroup}\\s*\\?\\s*)?tier\\("([^"]*)",\\s*${bodyPat}\\)`,
-      'g'
-    )
-    const tiers: VisualTier[] = []
-    let match: RegExpExecArray | null
-    while ((match = tierRe.exec(body)) !== null) {
-      const condStr = match[1] || ''
-      const conditions: TierConditionInput[] = []
-      if (condStr) {
-        for (const cp of condStr.split(/\s*&&\s*/)) {
-          const cm = cp.trim().match(/^(p|c|len)\s*(<|<=|>|>=)\s*([\d.eE+]+)$/)
-          if (cm) {
-            conditions.push({
-              var: cm[1] as TierConditionInput['var'],
-              op: cm[2] as TierConditionInput['op'],
-              value: Number(cm[3]),
-            })
-          }
+      for (const cacheVar of BILLING_CACHE_VAR_MAP) {
+        const billingVar = BILLING_VARS.find(
+          (candidate) => candidate.key === cacheVar.exprVar
+        )
+        if (billingVar?.field) {
+          tier[cacheVar.field] = Number(parsed[billingVar.field]) || 0
         }
       }
-      const tier: Record<string, unknown> = {
-        conditions,
-        input_unit_cost: Number(match[3]),
-        output_unit_cost: Number(match[4]),
-        label: match[2],
-      }
-      const m = match
-      BILLING_CACHE_VAR_MAP.forEach((cv, i) => {
-        const val = m[5 + i]
-        if (val != null) tier[cv.field] = Number(val)
-      })
-      tiers.push(normalizeVisualTier(tier as Partial<VisualTier>))
-    }
-    if (tiers.length === 0) return null
+      return normalizeVisualTier(tier)
+    })
 
-    const cfg = normalizeVisualConfig({ tiers })
-    const regenerated = generateExprFromVisualConfig(cfg)
+    const config = normalizeVisualConfig({ tiers })
+    const regenerated = generateExprFromVisualConfig(config)
     if (regenerated.replaceAll(/\s+/g, '') !== body.replaceAll(/\s+/g, '')) {
       return null
     }
-    return cfg
+    return config
   } catch {
     return null
   }
@@ -278,36 +251,25 @@ export function evalExprLocally(
     if (!exprStr || !exprStr.trim()) {
       return { cost: 0, matchedTier: '', error: null }
     }
-    let matchedTier = ''
-    const tierFn = (name: string, value: number) => {
-      matchedTier = name
-      return value
-    }
     const cacheReadTokens = extraTokenValues.cacheReadTokens || 0
     const cacheCreateTokens = extraTokenValues.cacheCreateTokens || 0
     const cacheCreate1hTokens = extraTokenValues.cacheCreate1hTokens || 0
     const len =
       promptTokens + cacheReadTokens + cacheCreateTokens + cacheCreate1hTokens
-    const env: Record<string, unknown> = {
+    const variables: Record<string, number> = {
       p: promptTokens,
       c: completionTokens,
       len,
-      tier: tierFn,
-      max: Math.max,
-      min: Math.min,
-      abs: Math.abs,
-      ceil: Math.ceil,
-      floor: Math.floor,
     }
     for (const field of ESTIMATOR_VARS) {
-      env[field.var] = extraTokenValues[field.stateKey] || 0
+      variables[field.var] = extraTokenValues[field.stateKey] || 0
     }
-    const fn = new Function(
-      ...Object.keys(env),
-      `"use strict"; return (${exprStr});`
-    )
-    const cost = Number(fn(...Object.values(env))) || 0
-    return { cost, matchedTier, error: null }
+    const evaluated = evaluateBillingExpression(exprStr, variables)
+    return {
+      cost: evaluated.value || 0,
+      matchedTier: evaluated.matchedTier,
+      error: null,
+    }
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e)
     return { cost: 0, matchedTier: '', error: message }
@@ -316,8 +278,33 @@ export function evalExprLocally(
 
 export function exprUsesExtraVars(exprStr: string): boolean {
   if (!exprStr) return false
-  const varNames = ESTIMATOR_VARS.map((f) => f.var).join('|')
-  return new RegExp(`\\b(${varNames})\\b`).test(exprStr)
+  const names = new Set<string>(ESTIMATOR_VARS.map((field) => field.var))
+  let index = 0
+  while (index < exprStr.length) {
+    const char = exprStr[index]
+    const startsIdentifier =
+      char === '_' ||
+      (char >= 'a' && char <= 'z') ||
+      (char >= 'A' && char <= 'Z')
+    if (!startsIdentifier) {
+      index += 1
+      continue
+    }
+    const start = index
+    index += 1
+    while (index < exprStr.length) {
+      const next = exprStr[index]
+      const continuesIdentifier =
+        next === '_' ||
+        (next >= 'a' && next <= 'z') ||
+        (next >= 'A' && next <= 'Z') ||
+        (next >= '0' && next <= '9')
+      if (!continuesIdentifier) break
+      index += 1
+    }
+    if (names.has(exprStr.slice(start, index))) return true
+  }
+  return false
 }
 
 export const ESTIMATOR_EXTRA_FIELDS = ESTIMATOR_VARS
