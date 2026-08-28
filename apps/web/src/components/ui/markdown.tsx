@@ -180,12 +180,9 @@ type SequenceMessage = {
 }
 
 function escapeHtml(value: string): string {
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#39;')
+  const element = document.createElement('span')
+  element.textContent = value
+  return element.innerHTML
 }
 
 function normalizeMathSource(source: string): string {
@@ -768,7 +765,7 @@ function SanitizedHtmlContent(props: {
     <div
       className={props.className}
       // biome-ignore lint/security/noDangerouslySetInnerHtml: SanitizedHtml values can only be created by DOMPurify.
-      // pi-lens-ignore: dangerously-set-inner-html
+      // pi-lens-ignore: dangerously-set-inner-html, opengrep:typescript.react.security.audit.react-dangerouslysetinnerhtml.react-dangerouslysetinnerhtml
       dangerouslySetInnerHTML={{ __html: props.html }}
     />
   )

@@ -33,7 +33,8 @@ export type TrustedUrlPolicy = {
 }
 
 const localObjectUrls = new Set<string>()
-const TEMPLATE_TOKEN_PATTERN = /%7B(?:key|address|cherryConfig|aionuiConfig|deepchatConfig)%7D/gi
+const TEMPLATE_TOKEN_SEGMENT_PATTERN =
+  /^(?:%7B(?:key|address|cherryConfig|aionuiConfig|deepchatConfig)%7D)$/i
 
 function matches(value: string, allowed: TrustedUrlMatch): boolean {
   return allowed === 'any' || allowed.includes(value)
@@ -117,16 +118,18 @@ export function getTrustedUrlFromSource(
   return target.toString()
 }
 
-function escapeRegularExpression(value: string): string {
-  return value.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&')
-}
-
 function matchesTemplatedPath(pathname: string, templatePathname: string) {
-  const expression = escapeRegularExpression(templatePathname).replace(
-    TEMPLATE_TOKEN_PATTERN,
-    '[^/]*'
-  )
-  return new RegExp(`^${expression}$`, 'i').test(pathname)
+  const pathSegments = pathname.split('/')
+  const templateSegments = templatePathname.split('/')
+  if (pathSegments.length !== templateSegments.length) return false
+
+  return templateSegments.every((segment, index) => {
+    const pathSegment = pathSegments[index]
+    if (TEMPLATE_TOKEN_SEGMENT_PATTERN.test(segment)) {
+      return typeof pathSegment === 'string' && pathSegment.length > 0
+    }
+    return pathSegment === segment
+  })
 }
 
 export function getTrustedTemplatedUrl(

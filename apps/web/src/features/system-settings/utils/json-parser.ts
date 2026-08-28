@@ -132,7 +132,7 @@ export function safeJsonParse<T = unknown>(
         : 'Invalid JSON format'
       const description = formatErrorDescription(error, trimmedValue)
       // eslint-disable-next-line no-console
-      console.error(`[JSON Parse Error] ${message}:`, description)
+      console.error('[JSON Parse Error] %s:', message, description)
     }
     return (fallback ?? null) as T
   }
@@ -158,7 +158,7 @@ export function safeJsonParseWithValidation<T>(
         validatorMessage ??
         (context ? `Invalid ${context} structure` : 'Invalid data structure')
       // eslint-disable-next-line no-console
-      console.error(`[JSON Validation Error] ${message}`, { parsed })
+      console.error('[JSON Validation Error] %s', message, { parsed })
     }
     return fallback
   }

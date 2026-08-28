@@ -114,6 +114,8 @@ function setDeepValue(
   value: unknown
 ) {
   const segments = path.split('.')
+  const blockedSegments = new Set(['__proto__', 'prototype', 'constructor'])
+  if (segments.some((segment) => blockedSegments.has(segment))) return
   let current: Record<string, unknown> = target
 
   segments.forEach((segment, index) => {
@@ -129,8 +131,9 @@ function setDeepValue(
       return
     }
 
-    current[segment] = {}
-    current = current[segment] as Record<string, unknown>
+    const child: Record<string, unknown> = Object.create(null)
+    current[segment] = child
+    current = child
   })
 }
 
