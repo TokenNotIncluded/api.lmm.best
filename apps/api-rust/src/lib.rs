@@ -1,5 +1,16 @@
 //! Reusable HTTP slices for the Rust control-plane binary.
 
+/// Native public command dispatch, run before service configuration.
+pub mod cli;
+/// Manual-only production deployment schemas and target recovery.
+pub mod deployment;
+/// Immutable frontend release publication.
+pub mod frontend_deploy;
+/// Strict generic-provider link management.
+pub mod provider_link;
+/// API-route contract revision generation and verification.
+pub mod route_contract;
+
 use std::net::IpAddr;
 
 use axum::{
