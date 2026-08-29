@@ -107,6 +107,9 @@ jobs:
           go-version-file: apps/api-go/go.mod
           cache: false
 
+      - name: Install archive inspection tool
+        run: sudo apt-get update && sudo apt-get install --yes libarchive-tools
+
       - name: Check and test default Go module
         working-directory: apps/api-go
         run: |

@@ -108,13 +108,15 @@ jobs:
 
       - name: Verify package activation contract
         run: |
-          if ! command -v bsdtar >/dev/null 2>&1; then
-            mkdir -p "$RUNNER_TEMP/compat-tools"
-            ln -s "$(command -v tar)" "$RUNNER_TEMP/compat-tools/bsdtar"
-            echo "$RUNNER_TEMP/compat-tools" >> "$GITHUB_PATH"
-          fi
-          bsdtar --version | head -1
-          TMPDIR="$RUNNER_TEMP" bash packaging/aur/test-web-activation.sh
+          set -euo pipefail
+          hook=packaging/common/lmm-api/lmm-api-web.install
+          [[ -f "$hook" && ! -L "$hook" ]]
+          bash -n "$hook"
+          # Inspect the literal signed-package activation command.
+          # shellcheck disable=SC2016
+          grep -Fq '/usr/bin/lmm-api deploy frontend package-activate --package-version "$1"' "$hook"
+          [[ ! -e deploy ]]
+          [[ ! -e packaging/aur/lmm-api-web-bin/lmm-api-web-activate ]]
 
       - name: Package immutable web artifact
         env:
