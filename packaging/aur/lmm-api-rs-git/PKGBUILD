@@ -3,15 +3,15 @@
 pkgname=lmm-api-rs-git
 pkgver=0.1.1.r7.g24093b139
 pkgrel=1
-pkgdesc='LMM API Rust backend and database migrator (source preview)'
+pkgdesc='LMM API Rust backend provider (source preview)'
 arch=('x86_64')
 url='https://github.com/LIghtJUNction/api.lmm.best'
 license=('AGPL-3.0-or-later')
-depends=('gcc-libs' 'glibc' 'sqlite')
+depends=('gcc-libs' 'glibc')
 makedepends=('cargo' 'git')
 optdepends=('postgresql: PostgreSQL database' 'valkey: cache and rate-limit service')
 provides=('lmm-api-rs')
-conflicts=('lmm-api' 'lmm-api-bin' 'lmm-api-git' 'lmm-api-rs' 'lmm-api-rs-bin')
+conflicts=('lmm-api-rs')
 options=('!strip')
 source=('lmm-api-rs::git+https://github.com/LIghtJUNction/api.lmm.best.git#branch=main')
 sha256sums=('SKIP')
@@ -28,15 +28,15 @@ build() {
   unset CC CFLAGS CXXFLAGS
   LMM_BUILD_REVISION="$(git rev-parse HEAD)" \
     cargo build --manifest-path apps/api-rust/Cargo.toml --release --locked \
-      --package lmm-api-rs --package lmm-db-migrate
+      --package lmm-api-rs --bin lmm-api-rs
 }
 
 package() {
   local root="${srcdir}/lmm-api-rs"
   install -Dm0755 "${root}/apps/api-rust/target/release/lmm-api-rs" \
     "${pkgdir}/usr/bin/lmm-api-rs"
-  install -Dm0755 "${root}/apps/api-rust/target/release/lmm-db-migrate" \
-    "${pkgdir}/usr/bin/lmm-db-migrate"
+  install -Dm0644 "${root}/contracts/api-route/VERSION" \
+    "${pkgdir}/usr/share/lmm-api/contracts/api-route/VERSION"
   for file in LICENSE NOTICE THIRD-PARTY-LICENSES.md; do
     install -Dm0644 "${root}/${file}" "${pkgdir}/usr/share/licenses/${pkgname}/${file}"
   done

@@ -260,8 +260,11 @@ impl Config {
         let config = Self {
             slot: validated_slot(read("LMM_RS_SLOT")?, test_instance)?,
             listen_addr,
-            database_url: read("DATABASE_URL")?,
-            valkey_url: read("VALKEY_URL")?,
+            // Provider packages coexist behind `/usr/bin/lmm-api`; prefer
+            // Rust-native names, then consume the production Go-compatible
+            // environment without copying or re-encoding any credential.
+            database_url: read_compatible("DATABASE_URL", &["SQL_DSN"])?,
+            valkey_url: read_compatible("VALKEY_URL", &["REDIS_CONN_STRING"])?,
             schema_contract: read("LMM_SCHEMA_CONTRACT")?
                 .parse()
                 .map_err(|_| ConfigError::Invalid("LMM_SCHEMA_CONTRACT"))?,
@@ -537,6 +540,26 @@ fn read(name: &'static str) -> Result<String, ConfigError> {
     env::var(name).map_err(|_| ConfigError::Missing(name))
 }
 
+fn read_compatible(
+    primary: &'static str,
+    aliases: &'static [&'static str],
+) -> Result<String, ConfigError> {
+    let primary_value = match env::var(primary) {
+        Ok(value) => Some(value),
+        Err(env::VarError::NotPresent) => None,
+        Err(env::VarError::NotUnicode(_)) => return Err(ConfigError::Invalid(primary)),
+    };
+    let alias_values = aliases
+        .iter()
+        .map(|alias| env::var(alias).ok())
+        .collect::<Vec<_>>();
+    select_compatible_value(primary_value, &alias_values).ok_or(ConfigError::Missing(primary))
+}
+
+fn select_compatible_value(primary: Option<String>, aliases: &[Option<String>]) -> Option<String> {
+    primary.or_else(|| aliases.iter().find_map(Clone::clone))
+}
+
 /// Accepts the explicit secret first, while preserving the deployed legacy
 /// `SESSION_SECRET` contract until all blue/green slots have been migrated.
 fn crypto_secret() -> Result<SecretString, ConfigError> {
@@ -769,7 +792,7 @@ fn boolean_with_legacy(
 
 #[cfg(test)]
 mod tests {
-    use super::{Config, TrustedProxyPolicy, TurnstileConfig};
+    use super::{Config, TrustedProxyPolicy, TurnstileConfig, select_compatible_value};
     use lmm_api_rs::protocol_rollout::ProtocolRolloutConfig;
     use lmm_api_rs::status::TurnstilePublicConfig;
     use lmm_application::ValkeyReadinessPolicy;
@@ -789,6 +812,25 @@ mod tests {
             options.insert("TurnstileSiteKey".to_owned(), site_key.to_owned());
         }
         options
+    }
+
+    #[test]
+    fn generic_environment_prefers_native_names_over_go_aliases() {
+        assert_eq!(
+            select_compatible_value(
+                Some("native".to_owned()),
+                &[Some("go-compatible".to_owned())],
+            ),
+            Some("native".to_owned()),
+        );
+    }
+
+    #[test]
+    fn generic_environment_uses_go_aliases_when_native_names_are_absent() {
+        assert_eq!(
+            select_compatible_value(None, &[None, Some("go-compatible".to_owned())]),
+            Some("go-compatible".to_owned()),
+        );
     }
 
     #[test]

@@ -214,6 +214,12 @@ impl ControlTaskStatusProbe for ListenerControlTaskStatusProbe {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    match lmm_api_rs::cli::dispatch_environment().await {
+        lmm_api_rs::cli::DispatchOutcome::Serve => {}
+        lmm_api_rs::cli::DispatchOutcome::Exit(0) => return Ok(()),
+        lmm_api_rs::cli::DispatchOutcome::Exit(code) => std::process::exit(code),
+    }
+
     lmm_observability::init()?;
     let config = Config::from_env()?;
     let protocol_registry = Arc::new(validated_current_registry().map_err(|error| {
