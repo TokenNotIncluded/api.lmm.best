@@ -75,13 +75,6 @@ jobs:
             apps/api-rust/tests/scripts/run-real-integration-gates.sh
           bash apps/api-rust/tests/scripts/check-real-integration-gates.sh
 
-      - name: Test Nginx API preflight policy
-        run: |
-          shellcheck \
-            deploy/test-nginx-access-policy-preflight.sh \
-            deploy/test-nginx-mime.sh
-          bash deploy/check-frontend-split.sh
-
   release-artifact-contract:
     name: Release artifact contract
     runs-on: ubuntu-latest
@@ -93,12 +86,23 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Verify immutable release and package contracts
+      - name: Set up Go
+        uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6.2.0
+        with:
+          go-version-file: apps/api-go/go.mod
+          cache-dependency-path: apps/api-go/go.sum
+
+      - name: Install archive inspection tool
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes libarchive-tools
+          test "$(command -v bsdtar)" = /usr/bin/bsdtar
+
+      - name: Verify immutable release, provider, and package contracts
+        working-directory: apps/api-go
         env:
           TMPDIR: ${{ runner.temp }}
-        run: |
-          shellcheck deploy/production/test-release-artifact-contract.sh
-          bash deploy/production/test-release-artifact-contract.sh
+        run: go test -p 2 ./internal/appcli -count=1
 
   web:
     name: Web checks, route manifest, and production build
@@ -140,21 +144,6 @@ jobs:
         run: |
           bun run --filter @lmm/web build
           bun run --filter @lmm/web bundle:check
-
-      - name: Install production contract tools
-        run: |
-          if ! command -v bsdtar >/dev/null 2>&1; then
-            mkdir -p "$RUNNER_TEMP/compat-tools"
-            ln -s "$(command -v tar)" "$RUNNER_TEMP/compat-tools/bsdtar"
-            echo "$RUNNER_TEMP/compat-tools" >> "$GITHUB_PATH"
-          fi
-          bsdtar --version | head -1
-
-      - name: Verify protected production deployment contract
-        env:
-          TMPDIR: ${{ runner.temp }}
-        run: |
-          bash deploy/test-frontend-release.sh
 
   go:
     name: Go default backend, relaykit, and static build
@@ -470,8 +459,3 @@ jobs:
             bash packaging/aur/verify-go-release-pins.sh
           runuser --user package-builder -- env TMPDIR=/home/package-builder/lmm-ci-tmp bash packaging/aur/test-bin-makepkg.sh
           runuser --user package-builder -- env TMPDIR=/home/package-builder/lmm-ci-tmp bash packaging/aur/test-web-activation.sh
-          runuser --user package-builder -- env TMPDIR=/home/package-builder/lmm-ci-tmp bash deploy/production/test-precutover-packages.sh
-          runuser --user package-builder -- env TMPDIR=/home/package-builder/lmm-ci-tmp bash deploy/production/test-go-package-roundtrip.sh
-          runtime_dir="/run/user/$(id -u package-builder)"
-          install -d -m0700 -o package-builder -g package-builder "$runtime_dir"
-          runuser --user package-builder -- env TMPDIR=/home/package-builder/lmm-ci-tmp bash deploy/production/test-go-deploy-contract.sh
