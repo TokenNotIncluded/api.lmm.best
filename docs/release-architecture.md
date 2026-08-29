@@ -4,9 +4,9 @@ Production release identities are component-scoped:
 
 | Component | Tag | Workflow | Published artifact |
 | --- | --- | --- | --- |
-| Go backend/operator | `go-vX.Y.Z` | `release-go.yml` | signed Go archives and package contracts |
+| Go provider | `go-vX.Y.Z` | `release-go.yml` | signed archives containing real `lmm-api-go` plus package contracts |
 | Web frontend | `web-vX.Y.Z` | `release-web.yml` | signed immutable frontend archive |
-| Rust candidate | none | CI only | short-lived preview/test artifacts, never production evidence |
+| Rust provider candidate | none | CI only | real `lmm-api-rs` test artifacts, never production ownership evidence |
 
 The historical root `VERSION`, `prepare-release.yml`, `promote-release.yml`,
 `release.yml`, and `scripts/release.mjs` coupled three independently moving
@@ -33,7 +33,7 @@ Semantic versions remain independent. Compatibility is established by the
 content hash emitted by:
 
 ```bash
-deploy/production/api-route-contract-revision.sh print
+/usr/bin/lmm-api deploy contract route print --contract contracts/api-route/VERSION
 ```
 
 Both candidate packages must carry the expected
@@ -52,6 +52,8 @@ approved route-ownership cutover.
 
 ## Rollback
 
-Rollback selects previously verified component packages by their own versions
-and matching route-contract revision. Never translate a historical generic
-`vX.Y.Z` into assumed Go, Web, or Rust component versions.
+Rollback is explicit and selects previously verified component packages by
+their own versions and matching route-contract revision. Provider restoration
+also restores the verified one-hop `/usr/bin/lmm-api` target. There is no timed
+or automatic rollback. Never translate a historical generic `vX.Y.Z` into
+assumed Go, Web, or Rust component versions.

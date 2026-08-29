@@ -1,48 +1,36 @@
-# Isolated Rust single-instance test host
+# Isolated Rust provider test host
 
-This path is only for the separately approved `fallback.lmm.best` test host.
-It does not authorize routing, deployment, or configuration changes on
-`api.lmm.best`.
+This path is only for an explicitly approved non-production test host. It does
+not authorize routing, package, provider-link, deployment, or configuration
+changes on `api.lmm.best`.
 
-The Arch package supplies two binaries, a frontend distribution, migration
-rehearsal inputs, and the following explicit assets:
+The package installs a real `/usr/bin/lmm-api-rs`. Test-host service and
+operator actions still enter through a one-hop `/usr/bin/lmm-api -> lmm-api-rs`
+symlink. Do not install a regular generic binary, reverse alias, or shell
+deployment wrapper.
 
-- `lmm-api-rs-single.service`, using `/opt/lmm-api-rs-single` and
-  `/etc/lmm-api-rs-single` rather than the blue/green production-candidate
-  paths;
-- a test-only deploy script that requires `LMM_RS_TEST_INSTANCE=1` and only
-  restarts the service with explicit `--activate`;
-- the `fallback.lmm.best` nginx template, which is never installed or reloaded
-  by package installation or the deploy script. Its accompanying
-  `lmm-api-http-map.conf` and `lmm-api-mime.types` are installed beside the
-  template and must be copied into nginx's `http` and server include paths by
-  an explicit test-host operation;
-- `test-instance.env.example` as the configuration entry for PostgreSQL and dedicated
-  Valkey. Real DSNs and secrets must be created directly as mode-0600 test-host
-  configuration and never committed or packaged. The test-only template also
-  explicitly sets `PASSWORD_LOGIN_ENABLED=true`; the installer preserves an
-  existing `common.env` but refuses to continue unless that exact setting is
-  present, so an older file cannot silently disable dashboard password login.
-- the reviewed dedicated-Valkey 6380 assets under
-  `/usr/lib/lmm-api-rs/deploy/valkey`. This includes its loopback-only
-  configuration, unit template, deployer, checker, and rollback test. Package
-  installation does not invoke the deployer, enable or start the Valkey unit,
-  or alter sysctl/tmpfiles state; those remain explicit test-host operations.
+Use provider-owned CLI commands for version, status, health, migration,
+deployment status, confirmation, and manual rollback. CLI dispatch occurs
+before server configuration/database initialization. Missing production-only
+environment must not break read-only CLI commands.
 
-The fallback vhost intentionally sends dynamic requests to the single Rust
-listener at `127.0.0.1:3100`. It is a test surface: incomplete route migration
-must be treated as expected failures during parity testing, never as permission
-to transfer `api.lmm.best` traffic.
+Real PostgreSQL/Valkey URLs and secrets are created directly as mode-0600
+configuration on the test host and never committed, packaged, logged, or passed
+on command lines. The test uses fresh isolated PostgreSQL and dedicated Valkey,
+not production data or snapshots.
 
-Build after a clean checkpoint for a commit-bound artifact:
+The test surface may expose incomplete Rust routes. Expected parity failures are
+not permission to transfer production traffic. Rust business ownership remains
+controlled by `apps/api-rust/tests/fixtures/routes/migration-gate.tsv`.
+
+Build a commit-bound provider package from a clean checkout:
 
 ```bash
-packaging/local/lmm-api-rs-fallback-bin/build-local-package.sh
+cd apps/api-rust
+LMM_BUILD_REVISION="$(git rev-parse HEAD)" cargo build --release --locked --bin lmm-api-rs
 ```
 
-For an explicitly labelled dirty test build, use a unique reviewed label:
-
-```bash
-packaging/local/lmm-api-rs-fallback-bin/build-local-package.sh \
-  --revision test-<commit>-<scope>
-```
+Before activation verify package ownership/hash/revision, provider-link safety,
+PostgreSQL/Valkey identity, isolated ports, and manual rollback evidence. A
+healthy activation stops at `AWAITING_CONFIRMATION`; explicitly confirm or roll
+back through `/usr/bin/lmm-api`.
