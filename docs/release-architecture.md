@@ -33,7 +33,8 @@ Semantic versions remain independent. Compatibility is established by the
 content hash emitted by:
 
 ```bash
-/usr/bin/lmm-api deploy contract route print --contract contracts/api-route/VERSION
+cd /path/to/api.lmm.best
+/usr/bin/lmm-api deploy contract route print
 ```
 
 Both candidate packages must carry the expected
