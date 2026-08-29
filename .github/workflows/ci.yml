@@ -197,9 +197,13 @@ jobs:
           CGO_ENABLED: "0"
         run: |
           mkdir -p out
-          go build -p 2 -trimpath -ldflags="-s -w" -o out/lmm-api .
-          file out/lmm-api
-          if ldd out/lmm-api 2>&1 | grep -qvE 'not a dynamic executable|statically linked'; then
+          go build -p 2 -trimpath -ldflags="-s -w" -o out/lmm-api-go .
+          rm -f out/.lmm-api.next
+          ln -s lmm-api-go out/.lmm-api.next
+          mv -Tf out/.lmm-api.next out/lmm-api
+          [[ -L out/lmm-api && $(readlink out/lmm-api) == lmm-api-go ]]
+          file out/lmm-api-go
+          if ldd out/lmm-api-go 2>&1 | grep -qvE 'not a dynamic executable|statically linked'; then
             echo 'Go production binary is dynamically linked' >&2
             exit 1
           fi

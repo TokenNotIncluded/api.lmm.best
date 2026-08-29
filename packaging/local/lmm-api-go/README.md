@@ -1,11 +1,11 @@
 # Local `lmm-api-go` package
 
-The Go backend binary owns the local build and packaging workflow. It builds the
-frontend, produces the static backend binary, validates both artifacts, and
-creates a single `lmm-api-go` Arch package inside an explicit marker-owned
-workspace. The package installs `lmm-api.service` and the canonical
-`/usr/bin/lmm-api` symlink to the Go provider; Rust remains an independently
-packaged candidate.
+The Go backend CLI owns the local build and packaging workflow. It builds the
+frontend, produces the real static `lmm-api-go` provider, validates both
+artifacts, and creates a Go Arch package inside an explicit marker-owned
+workspace. The package installs the provider and current shared service assets,
+but does not own `/usr/bin/lmm-api`; the verified CLI selects providers by
+atomically managing that one-hop symlink. Rust remains independently packaged.
 
 ```bash
 apps/api-go/out/lmm-api deploy build \
