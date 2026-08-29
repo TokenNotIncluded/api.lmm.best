@@ -41,12 +41,12 @@ Key differentiators:
 | Concern | Status |
 | --- | --- |
 | Frontend | Shared React application in `apps/web` |
-| Default backend | Go service in `apps/api-go` |
-| Preview backend | Rust service in `apps/api-rust` (not default production traffic)
-| Deployment | Shell-driven operations in `deploy/` and workflow automation in `.github/workflows` |
-| Packaging | Local/release packaging in `packaging/` |
+| Default backend | Go provider CLI/service in `apps/api-go` |
+| Preview backend | Rust provider CLI/service in `apps/api-rust` (not default production traffic) |
+| Deployment | Backend-native `lmm-api deploy …` commands plus workflow automation in `.github/workflows` |
+| Packaging | Provider binaries and immutable runtime assets in `packaging/` |
 
-The production path compiles frontend assets, embeds verified assets into Go service output, and builds the standalone Go API binary.
+Providers install real `lmm-api-go` or `lmm-api-rs` binaries. Production and operator actions always enter through the one-hop `lmm-api` provider symlink. The frontend is released independently.
 
 ## Quick start
 
