@@ -1694,7 +1694,6 @@ dependencies = [
  "tokio-tungstenite",
  "totp-rs",
  "tower",
- "tower-http",
  "tracing",
  "uuid",
  "zip",
@@ -3348,9 +3347,7 @@ dependencies = [
  "tower",
  "tower-layer",
  "tower-service",
- "tracing",
  "url",
- "uuid",
 ]
 
 [[package]]

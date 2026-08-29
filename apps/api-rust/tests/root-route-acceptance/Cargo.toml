@@ -25,7 +25,6 @@ runtime = [
   "dep:sqlx",
   "dep:tokio",
   "dep:tower",
-  "dep:tower-http",
   "dep:tracing",
   "dep:uuid",
 ]
@@ -44,7 +43,6 @@ serde_json = { version = "1.0.142", optional = true }
 sqlx = { version = "0.8.6", default-features = false, features = ["runtime-tokio-rustls", "postgres"], optional = true }
 tokio = { version = "1.47.1", features = ["macros", "rt-multi-thread", "time"], optional = true }
 tower = { version = "0.5.2", features = ["util"], optional = true }
-tower-http = { version = "0.6.6", features = ["fs"], optional = true }
 tracing = { version = "0.1.41", optional = true }
 uuid = { version = "1.17.0", features = ["v4"], optional = true }
 

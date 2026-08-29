@@ -437,9 +437,6 @@ export function formatPlatformAmount(
   return `${sign}$${number} (${label})`
 }
 
-/** @deprecated Use formatPlatformAmount; the input was never real USD. */
-export const formatPlatformCurrencyFromUSD = formatPlatformAmount
-
 /**
  * Format an amount in a fiat settlement currency. USD is deliberately written
  * as the ISO code instead of relying on the ambiguous `$` symbol.

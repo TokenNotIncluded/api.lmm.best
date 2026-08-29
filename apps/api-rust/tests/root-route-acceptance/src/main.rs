@@ -416,13 +416,15 @@ mod runtime {
                     .map_err(|error| {
                         format!("{} {path} error body failed: {error}", method.as_str())
                     })?;
-            serde_json::from_slice::<serde_json::Value>(&bytes).ok().and_then(|value| {
-                if value["message"] == "Not Found" {
-                    Some("not_found".to_owned())
-                } else {
-                    value["error"]["code"].as_str().map(ToOwned::to_owned)
-                }
-            })
+            serde_json::from_slice::<serde_json::Value>(&bytes)
+                .ok()
+                .and_then(|value| {
+                    if value["message"] == "Not Found" {
+                        Some("not_found".to_owned())
+                    } else {
+                        value["error"]["code"].as_str().map(ToOwned::to_owned)
+                    }
+                })
         } else {
             None
         };

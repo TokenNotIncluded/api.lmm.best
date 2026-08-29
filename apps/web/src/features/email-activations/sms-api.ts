@@ -179,12 +179,6 @@ export function createHeroSmsSmsOrder(
   )
 }
 
-export function getCurrentHeroSmsSmsOrder() {
-  return unwrap<{ order: HeroSmsSmsOrder | null }>(
-    api.get('/api/hero-sms/sms/orders/current', requestOptions)
-  )
-}
-
 export function refreshHeroSmsSmsOrder(orderId: string) {
   return unwrap<{ order: HeroSmsSmsOrder }>(
     api.get(
