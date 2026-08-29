@@ -144,7 +144,7 @@ func RequestWaffoAmount(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": fmt.Sprintf("充值数量不能小于 %d", waffoMinTopup)})
 		return
 	}
-	if !requirePaymentMethodTopUpWithinLimit(c, model.PaymentMethodWaffo, req.Amount) {
+	if !requirePaymentMethodTopUpDecimalWithinLimit(c, model.PaymentMethodWaffo, requestedAmount) {
 		return
 	}
 
@@ -198,7 +198,7 @@ func RequestWaffoPay(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": fmt.Sprintf("充值数量不能小于 %d", waffoMinTopup)})
 		return
 	}
-	if !requirePaymentMethodTopUpWithinLimit(c, model.PaymentMethodWaffo, req.Amount) {
+	if !requirePaymentMethodTopUpDecimalWithinLimit(c, model.PaymentMethodWaffo, requestedAmount) {
 		return
 	}
 
