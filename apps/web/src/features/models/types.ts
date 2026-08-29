@@ -292,11 +292,6 @@ export type QuotaType = 0 | 1 // usage-based, per-call
  */
 export type SyncLocale = 'zh' | 'en' | 'ja'
 
-/**
- * Sync upstream source
- */
-export type SyncSource = 'official' | 'config'
-
 // ============================================================================
 // Model Deployments Types
 // ============================================================================

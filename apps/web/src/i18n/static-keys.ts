@@ -371,10 +371,6 @@ export const STATIC_I18N_KEYS = [
   'Chinese',
   'English',
   'Japanese',
-  'Official Repository',
-  'Configuration File',
-  'Sync from the public upstream metadata repository.',
-  'Upload or reference a local configuration file.',
 
   // Subscription constants (dynamic labelKey)
   'years',

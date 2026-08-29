@@ -410,7 +410,6 @@ export function UpstreamConflictDialog({
       const response = await applyUpstreamOverwrite({
         overwrite: payload,
         locale: syncWizardOptions.locale,
-        source: syncWizardOptions.source,
       })
 
       if (response.success) {

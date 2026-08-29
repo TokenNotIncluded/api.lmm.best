@@ -32,7 +32,6 @@ import type {
   MissingModelsResponse,
   PrefillGroupsResponse,
   SyncLocale,
-  SyncSource,
   SyncOverwritePayload,
   DeploymentSettingsResponse,
   ListDeploymentsResponse,
@@ -187,7 +186,6 @@ export async function deleteVendor(
  */
 export async function syncUpstream(params?: {
   locale?: SyncLocale
-  source?: SyncSource
   overwrite?: SyncOverwritePayload[]
 }): Promise<SyncUpstreamResponse> {
   const res = await api.post('/api/models/sync_upstream', params)
@@ -199,14 +197,10 @@ export async function syncUpstream(params?: {
  */
 export async function previewUpstreamDiff(params?: {
   locale?: SyncLocale
-  source?: SyncSource
 }): Promise<PreviewUpstreamDiffResponse> {
   const searchParams = new URLSearchParams()
   if (params?.locale) {
     searchParams.set('locale', params.locale)
-  }
-  if (params?.source) {
-    searchParams.set('source', params.source)
   }
   const queryString = searchParams.toString()
   const url = queryString
@@ -222,7 +216,6 @@ export async function previewUpstreamDiff(params?: {
 export async function applyUpstreamOverwrite(params: {
   overwrite: SyncOverwritePayload[]
   locale?: SyncLocale
-  source?: SyncSource
 }): Promise<SyncUpstreamResponse> {
   return syncUpstream(params)
 }
