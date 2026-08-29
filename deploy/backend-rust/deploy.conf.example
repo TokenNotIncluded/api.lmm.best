@@ -1,6 +1,0 @@
-# Install as /etc/lmm-api-rs/deploy.conf. It must not contain application secrets.
-# These settings force a real TLS request through the production server_name
-# while resolving only this request to loopback.
-CANARY_ORIGIN=https://api.lmm.best
-CANARY_RESOLVE=api.lmm.best:443:127.0.0.1
-CANARY_CA=/etc/ssl/certs/ca-certificates.crt

@@ -1,7 +1,0 @@
-# Non-secret fixed paths installed as /etc/lmm-api-cutover/cutover.conf.
-GO_UNIT=lmm-api.service
-GO_ENV=/etc/lmm-api/lmm-api.env
-SQLITE_SOURCE=/var/lib/private/lmm-api/one-api.db
-CANARY_ORIGIN=http://127.0.0.1:3000
-CANARY_TOKEN_FILE=/etc/lmm-api-cutover/admin-canary.token
-MIGRATION_ENV=/etc/lmm-api-cutover/migration.env
