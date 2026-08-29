@@ -75,11 +75,17 @@ func TestBackendSelectRejectsNonRootAndUnsafeProviderEvidence(t *testing.T) {
 	}{
 		{name: "non-root", mutate: func(_ *testing.T, runtime *backendRuntime) { runtime.effectiveID = func() int { return 1000 } }, want: "must run as root"},
 		{name: "symlink provider", mutate: func(t *testing.T, runtime *backendRuntime) {
-			if err := os.Remove(runtime.paths.Go); err != nil { t.Fatal(err) }
-			if err := os.Symlink(backendRustName, runtime.paths.Go); err != nil { t.Fatal(err) }
+			if err := os.Remove(runtime.paths.Go); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(backendRustName, runtime.paths.Go); err != nil {
+				t.Fatal(err)
+			}
 		}, want: "safe"},
 		{name: "writable provider", mutate: func(t *testing.T, runtime *backendRuntime) {
-			if err := os.Chmod(runtime.paths.Go, 0o775); err != nil { t.Fatal(err) }
+			if err := os.Chmod(runtime.paths.Go, 0o775); err != nil {
+				t.Fatal(err)
+			}
 		}, want: "non-writable"},
 		{name: "unowned provider", mutate: func(_ *testing.T, runtime *backendRuntime) {
 			runtime.owner = fakeBackendOwner{}
@@ -104,10 +110,16 @@ func TestBackendStatusRejectsWrongAbsoluteAndChainedLinks(t *testing.T) {
 		t.Run(strings.ReplaceAll(target, "/", "_"), func(t *testing.T) {
 			runtime, _ := testBackendRuntime(t)
 			if target == backendGoName {
-				if err := os.Remove(runtime.paths.Go); err != nil { t.Fatal(err) }
-				if err := os.Symlink(backendRustName, runtime.paths.Go); err != nil { t.Fatal(err) }
+				if err := os.Remove(runtime.paths.Go); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(backendRustName, runtime.paths.Go); err != nil {
+					t.Fatal(err)
+				}
 			}
-			if err := os.Symlink(target, runtime.paths.Canonical); err != nil { t.Fatal(err) }
+			if err := os.Symlink(target, runtime.paths.Canonical); err != nil {
+				t.Fatal(err)
+			}
 			if _, err := runtime.status(); err == nil {
 				t.Fatalf("status accepted unsafe target %q", target)
 			}
