@@ -3,7 +3,9 @@ set -Eeuo pipefail
 
 HERE=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 readonly HERE
-readonly CONTRACT="$HERE/API_ROUTE_CONTRACT"
+REPO_ROOT=$(cd -- "$HERE/../.." && pwd -P)
+readonly REPO_ROOT
+readonly CONTRACT="$REPO_ROOT/contracts/api-route/VERSION"
 
 fail() { printf 'api-route-contract-revision: %s\n' "$*" >&2; exit 1; }
 usage() {

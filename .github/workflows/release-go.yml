@@ -202,11 +202,11 @@ jobs:
             packaging/common/lmm-api/lmm-api-operator.sudoers \
             "$bundle/"
           mkdir -p "$bundle/edge-policy/nginx"
-          cp deploy/nginx/http-map.conf \
-            deploy/nginx/lmm-api-locations.conf \
-            deploy/nginx/mime.types \
-            deploy/nginx/new-api.conf \
-            deploy/nginx/lmm-api-region-policy.conf \
+          cp packaging/common/lmm-api/edge-policy/nginx/http-map.conf \
+            packaging/common/lmm-api/edge-policy/nginx/lmm-api-locations.conf \
+            packaging/common/lmm-api/edge-policy/nginx/mime.types \
+            packaging/common/lmm-api/edge-policy/nginx/new-api.conf \
+            packaging/common/lmm-api/edge-policy/nginx/lmm-api-region-policy.conf \
             "$bundle/edge-policy/nginx/"
           cp packaging/common/lmm-api/geoip2-country-update.service \
             packaging/common/lmm-api/geoip2-country-update.timer \
