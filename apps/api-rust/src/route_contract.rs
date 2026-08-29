@@ -32,9 +32,6 @@ pub enum RouteContractError {
 
 #[must_use]
 pub fn default_contract_path() -> PathBuf {
-    if let Some(path) = std::env::var_os("LMM_API_ROUTE_CONTRACT") {
-        return PathBuf::from(path);
-    }
     let repository = PathBuf::from("contracts/api-route/VERSION");
     if repository.exists() {
         return repository;

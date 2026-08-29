@@ -317,9 +317,13 @@ func (runtime *productionRuntime) verifyTransitionCLI(transition productionPacka
 	}
 	metadata, err := parseNamedPackageIdentity([]byte(identity), name)
 	if err != nil {
-		return fmt.Errorf("parse installed Go provider identity: %w", err)
+		return fmt.Errorf("parse installed backend provider identity: %w", err)
 	}
-	if rollback && metadata.Version == "0.1.69-1" {
+	expectedTarget, err := providerTargetForPackage(name)
+	if err != nil {
+		return err
+	}
+	if rollback && name == productionAURPackageName && metadata.Version == "0.1.69-1" {
 		// The signed N-1 package is the sole permitted old-layout rollback:
 		// a regular lmm-api payload with lmm-api-go -> lmm-api.
 		canonical, canonicalErr := os.Lstat(runtime.paths.InstalledBinary)
@@ -332,18 +336,19 @@ func (runtime *productionRuntime) verifyTransitionCLI(transition productionPacka
 		}
 		return nil
 	}
-	provider, err := os.Lstat(runtime.paths.LegacyGoBinary)
+	providerPath := filepath.Join(filepath.Dir(runtime.paths.InstalledBinary), expectedTarget)
+	provider, err := os.Lstat(providerPath)
 	if err != nil || provider.Mode()&os.ModeSymlink != 0 || !provider.Mode().IsRegular() ||
 		provider.Mode()&0o111 == 0 || provider.Mode().Perm()&0o022 != 0 {
-		return errors.New("installed Go provider is not a safe real executable")
+		return errors.New("installed backend provider is not a safe real executable")
 	}
 	canonical, err := os.Lstat(runtime.paths.InstalledBinary)
 	if err != nil || canonical.Mode()&os.ModeSymlink == 0 {
 		return errors.New("canonical backend path is not a provider-selection symlink")
 	}
 	target, err := os.Readlink(runtime.paths.InstalledBinary)
-	if err != nil || target != filepath.Base(runtime.paths.LegacyGoBinary) {
-		return errors.New("canonical backend link does not select lmm-api-go")
+	if err != nil || target != expectedTarget {
+		return errors.New("canonical backend link does not select the expected provider")
 	}
 	if _, err := os.Lstat(runtime.paths.LegacyDeployBinary); err == nil || !errors.Is(err, os.ErrNotExist) {
 		return errors.New("legacy deployment CLI remains installed")
@@ -361,14 +366,42 @@ func (owner productionBackendOwner) Owner(path string) (string, error) {
 	return strings.TrimSpace(string(output)), err
 }
 
-func (runtime *productionRuntime) selectInstalledGoProvider(ctx context.Context) error {
+func (runtime *productionRuntime) prepareLegacyProviderRollback(manifest productionManifest) error {
+	if manifest.PreviousProviderTarget != "legacy-regular" {
+		return nil
+	}
+	if manifest.Go.RollbackPackageName != productionAURPackageName || manifest.Go.RollbackIdentity != productionAURPackageName+" 0.1.69-1" {
+		return errors.New("legacy rollback package identity is invalid")
+	}
+	currentTarget, err := providerLinkState(runtime.paths.InstalledBinary)
+	if err != nil || currentTarget != manifest.NewProviderTarget {
+		return errors.New("active provider link changed before legacy rollback")
+	}
+	if err := os.Remove(runtime.paths.InstalledBinary); err != nil {
+		return fmt.Errorf("remove provider link before legacy rollback: %w", err)
+	}
+	directory, err := os.Open(filepath.Dir(runtime.paths.InstalledBinary))
+	if err != nil {
+		return fmt.Errorf("open provider directory after legacy unlink: %w", err)
+	}
+	defer directory.Close()
+	if err := directory.Sync(); err != nil {
+		return fmt.Errorf("sync provider directory after legacy unlink: %w", err)
+	}
+	return nil
+}
+
+func (runtime *productionRuntime) selectInstalledProvider(ctx context.Context, target string) error {
 	selector := backendRuntime{
 		paths: backendPaths{Canonical: runtime.paths.InstalledBinary, Go: runtime.paths.LegacyGoBinary, Rust: filepath.Join(filepath.Dir(runtime.paths.InstalledBinary), backendRustName)},
 		owner: productionBackendOwner{ctx: ctx, runner: runtime.runner}, effectiveID: runtime.effectiveUID,
 		requiredUID: runtime.requiredOwnerUID,
 	}
-	if _, err := selector.selectProvider("go"); err != nil {
-		return fmt.Errorf("select installed Go provider: %w", err)
+	if target != backendGoName && target != backendRustName {
+		return errors.New("installed provider target is unsupported")
+	}
+	if _, err := selector.selectProvider(target); err != nil {
+		return fmt.Errorf("select installed backend provider: %w", err)
 	}
 	return nil
 }
@@ -690,7 +723,7 @@ func (runtime *productionRuntime) apply(ctx context.Context, workspace productio
 		if err := runtime.verifyTransitionInstalled(ctx, manifest.Go, false, true); err != nil {
 			return productionStatus{}, err
 		}
-		if err := runtime.selectInstalledGoProvider(ctx); err != nil {
+		if err := runtime.selectInstalledProvider(ctx, manifest.NewProviderTarget); err != nil {
 			return productionStatus{}, err
 		}
 		if err := runtime.verifyTransitionCLI(manifest.Go, false); err != nil {
@@ -934,8 +967,11 @@ func (runtime *productionRuntime) rollback(ctx context.Context, workspace produc
 	}
 	if manifest.Go.Changed {
 		_, _ = runtime.runner.Run(ctx, productionCommand{Name: commandSystemctl, Args: []string{"stop", runtime.paths.Service}})
+		if err := runtime.prepareLegacyProviderRollback(manifest); err != nil {
+			return fail(err)
+		}
 		if err := runtime.paruInstall(ctx, workspace, manifest.OperatorUser, manifest.Go.RollbackPath); err != nil {
-			return fail(fmt.Errorf("install rollback Go package: %w", err))
+			return fail(fmt.Errorf("install rollback backend package: %w", err))
 		}
 		if err := runtime.restoreConfiguration(workspace, manifest); err != nil {
 			return fail(err)
@@ -945,8 +981,10 @@ func (runtime *productionRuntime) rollback(ctx context.Context, workspace produc
 				return fail(fmt.Errorf("restore nginx edge policy: %w", err))
 			}
 		}
-		if err := hardenProductionConfiguration(productionHardenOptions{EnvFile: filepath.Join(runtime.paths.ConfigDir, "lmm-api-go.env"), DropInDir: runtime.paths.PackagedDropInDir, OverrideDropInDir: runtime.paths.DropInDir}); err != nil {
-			return fail(err)
+		if manifest.PreviousProviderTarget == backendGoName || manifest.PreviousProviderTarget == "legacy-regular" {
+			if err := hardenProductionConfiguration(productionHardenOptions{EnvFile: filepath.Join(runtime.paths.ConfigDir, "lmm-api-go.env"), DropInDir: runtime.paths.PackagedDropInDir, OverrideDropInDir: runtime.paths.DropInDir}); err != nil {
+				return fail(err)
+			}
 		}
 		if _, err := runtime.runner.Run(ctx, productionCommand{Name: commandSystemctl, Args: []string{"daemon-reload"}}); err != nil {
 			return fail(fmt.Errorf("reload systemd for rollback: %w", err))
@@ -958,8 +996,8 @@ func (runtime *productionRuntime) rollback(ctx context.Context, workspace produc
 		if err != nil {
 			return fail(err)
 		}
-		if rollbackMetadata.Version != "0.1.69-1" {
-			if err := runtime.selectInstalledGoProvider(ctx); err != nil {
+		if !(manifest.Go.RollbackPackageName == productionAURPackageName && rollbackMetadata.Version == "0.1.69-1") {
+			if err := runtime.selectInstalledProvider(ctx, manifest.PreviousProviderTarget); err != nil {
 				return fail(err)
 			}
 		}
@@ -967,7 +1005,7 @@ func (runtime *productionRuntime) rollback(ctx context.Context, workspace produc
 			return fail(err)
 		}
 		if _, err := runtime.runner.Run(ctx, productionCommand{Name: commandSystemctl, Args: []string{"enable", "--now", runtime.paths.Service}}); err != nil {
-			return fail(fmt.Errorf("start rolled-back Go service: %w", err))
+			return fail(fmt.Errorf("start rolled-back backend service: %w", err))
 		}
 		if err := runtime.probeBackendLocalEventually(ctx, manifest, manifest.OldVersion); err != nil {
 			return fail(fmt.Errorf("rolled-back local backend health gate failed: %w", err))

@@ -551,8 +551,12 @@ fn read_compatible(
     };
     let alias_values = aliases
         .iter()
-        .map(|alias| env::var(alias).ok())
-        .collect::<Vec<_>>();
+        .map(|alias| match env::var(alias) {
+            Ok(value) => Ok(Some(value)),
+            Err(env::VarError::NotPresent) => Ok(None),
+            Err(env::VarError::NotUnicode(_)) => Err(ConfigError::Invalid(alias)),
+        })
+        .collect::<Result<Vec<_>, _>>()?;
     select_compatible_value(primary_value, &alias_values).ok_or(ConfigError::Missing(primary))
 }
 

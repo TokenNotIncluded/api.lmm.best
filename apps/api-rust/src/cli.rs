@@ -227,7 +227,7 @@ where
         return DispatchOutcome::Serve;
     }
     let command = values[1].to_string_lossy();
-    if command == "serve" || command.starts_with('-') {
+    if command == "serve" {
         return DispatchOutcome::Serve;
     }
     if matches!(command.as_ref(), "help" | "--help" | "-h") {
@@ -581,6 +581,24 @@ mod tests {
         );
         assert!(!stdout.is_empty());
         assert!(stderr.is_empty());
+    }
+
+    #[tokio::test]
+    async fn help_and_unknown_flags_never_start_the_server() {
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+        assert_eq!(
+            dispatch(["lmm-api", "--help"], &mut stdout, &mut stderr).await,
+            DispatchOutcome::Exit(EXIT_OK)
+        );
+        assert!(String::from_utf8_lossy(&stdout).contains("Usage:"));
+        stdout.clear();
+        stderr.clear();
+        assert_eq!(
+            dispatch(["lmm-api", "--unknown"], &mut stdout, &mut stderr).await,
+            DispatchOutcome::Exit(EXIT_USAGE)
+        );
+        assert!(String::from_utf8_lossy(&stderr).contains("unexpected argument"));
     }
 
     #[tokio::test]

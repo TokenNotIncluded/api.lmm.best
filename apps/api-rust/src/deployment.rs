@@ -19,11 +19,13 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
-use crate::provider_link::{Provider, ProviderLinkError, ProviderLinkStatus, os_manager};
+use crate::provider_link::{
+    GENERIC_BINARY, GO_PROVIDER, Provider, ProviderLinkError, ProviderLinkStatus, os_manager,
+};
 
-pub const MANIFEST_FORMAT: u32 = 7;
+pub const MANIFEST_FORMAT: u32 = 8;
 pub const STATUS_FORMAT: u32 = 2;
-pub const RELEASE_PLAN_FORMAT: u32 = 4;
+pub const RELEASE_PLAN_FORMAT: u32 = 5;
 pub const RELEASE_STATE_FORMAT: u32 = 3;
 pub const MINIMUM_OBSERVATION_SECONDS: i64 = 120;
 const MAXIMUM_OBSERVATION_SECONDS: i64 = 360;
@@ -34,6 +36,7 @@ const SERVICE: &str = "lmm-api.service";
 const FRONTEND_ROOT: &str = "/srv/lmm-api-frontend";
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct PackageTransition {
     pub candidate_package_name: String,
     pub rollback_package_name: String,
@@ -48,13 +51,10 @@ pub struct PackageTransition {
     pub rollback_git_revision: String,
     pub candidate_contract_revision: String,
     pub rollback_contract_revision: String,
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub candidate_cli_phase: String,
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub rollback_cli_phase: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct FrontendTransition {
     pub old_target: String,
     pub new_target: String,
@@ -63,6 +63,7 @@ pub struct FrontendTransition {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct ProductionManifest {
     pub format: u32,
     pub deployment_id: String,
@@ -79,6 +80,10 @@ pub struct ProductionManifest {
     pub operator_binary_sha256: String,
     pub expected_version: String,
     pub old_version: String,
+    #[serde(default)]
+    pub previous_provider_target: String,
+    #[serde(default)]
+    pub new_provider_target: String,
     #[serde(default)]
     pub backup_dir: PathBuf,
     pub backups_enabled: bool,
@@ -98,6 +103,7 @@ pub struct ProductionManifest {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct ProductionStatus {
     pub format: u32,
     pub deployment_id: String,
@@ -124,12 +130,14 @@ const fn is_zero(value: &i64) -> bool {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct ReleaseFilePlan {
     pub path: PathBuf,
     pub sha256: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct ReleasePackagePlan {
     pub package_path: PathBuf,
     pub package_sha256: String,
@@ -138,8 +146,6 @@ pub struct ReleasePackagePlan {
     pub identity: String,
     pub git_revision: String,
     pub contract_revision: String,
-    #[serde(default)]
-    pub cli_transition_phase: String,
     pub payload_sha256: String,
     pub release_asset: PathBuf,
     pub release_asset_sha256: String,
@@ -150,6 +156,7 @@ pub struct ReleasePackagePlan {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct ReleasePlan {
     pub format: u32,
     pub deployment_id: String,
@@ -224,6 +231,7 @@ pub struct Workspace {
     pub staging: PathBuf,
     pub manifest: PathBuf,
     pub status: PathBuf,
+    pub probe_token: PathBuf,
 }
 
 impl Workspace {
@@ -268,6 +276,7 @@ impl Workspace {
             id,
             manifest: state.join("deployment.json"),
             status: state.join("status.json"),
+            probe_token: state.join("probe-token"),
             state,
             staging,
         })
@@ -384,6 +393,7 @@ pub async fn target_confirm(workspace_path: &Path) -> Result<ProductionStatus, D
     verify_manifest_evidence(&workspace, &manifest, true)?;
     let status = workspace.read_status(true)?;
     if status.phase == "CONFIRMED" {
+        finalize_transaction(&workspace)?;
         return Ok(status);
     }
     if status.phase != "AWAITING_CONFIRMATION" && status.phase != "CONFIRMING" {
@@ -397,7 +407,10 @@ pub async fn target_confirm(workspace_path: &Path) -> Result<ProductionStatus, D
     {
         return Err(DeploymentError::ObservationIncomplete);
     }
-    verify_active_provider(&manifest.go.candidate_package_name)?;
+    verify_active_provider(
+        &manifest.go.candidate_package_name,
+        &manifest.new_provider_target,
+    )?;
     health_check(&manifest, false).await?;
     let confirming = ProductionStatus {
         format: STATUS_FORMAT,
@@ -412,7 +425,10 @@ pub async fn target_confirm(workspace_path: &Path) -> Result<ProductionStatus, D
     };
     workspace.write_status(confirming)?;
     verify_manifest_evidence(&workspace, &manifest, true)?;
-    verify_active_provider(&manifest.go.candidate_package_name)?;
+    verify_active_provider(
+        &manifest.go.candidate_package_name,
+        &manifest.new_provider_target,
+    )?;
     health_check(&manifest, false).await?;
     let confirmed = ProductionStatus {
         format: STATUS_FORMAT,
@@ -426,6 +442,7 @@ pub async fn target_confirm(workspace_path: &Path) -> Result<ProductionStatus, D
         observation_seconds: manifest.observation_seconds,
     };
     workspace.write_status(confirmed.clone())?;
+    finalize_transaction(&workspace)?;
     Ok(confirmed)
 }
 
@@ -445,6 +462,7 @@ pub async fn target_rollback(
     verify_manifest_evidence(&workspace, &manifest, true)?;
     let status = workspace.read_status(true)?;
     if status.phase == "CONFIRMED" || status.phase == "ROLLED_BACK" {
+        finalize_transaction(&workspace)?;
         return Ok(status);
     }
     const ELIGIBLE: &[&str] = &[
@@ -478,7 +496,7 @@ pub async fn target_rollback(
     if let Err(error) = perform_rollback(&manifest).await {
         let mut failed = rolling;
         failed.phase = "ROLLBACK_REQUIRED".to_owned();
-        failed.failure = error.to_string();
+        failed.failure = rollback_failure_code(&error).to_owned();
         workspace.write_status(failed)?;
         return Err(error);
     }
@@ -494,16 +512,17 @@ pub async fn target_rollback(
         observation_seconds: 0,
     };
     workspace.write_status(rolled_back.clone())?;
+    finalize_transaction(&workspace)?;
     Ok(rolled_back)
 }
 
 async fn perform_rollback(manifest: &ProductionManifest) -> Result<(), DeploymentError> {
     if manifest.go.changed {
         run("/usr/bin/systemctl", &["stop", SERVICE])?;
+        prepare_provider_rollback(manifest)?;
         install_package(&manifest.go.rollback_path)?;
         restore_environment(manifest)?;
-        let provider = provider_for_package(&manifest.go.rollback_package_name)?;
-        os_manager().select(provider)?;
+        restore_provider_link(manifest)?;
         run("/usr/bin/systemctl", &["daemon-reload"])?;
         run("/usr/bin/systemctl", &["enable", "--now", SERVICE])?;
     }
@@ -512,6 +531,119 @@ async fn perform_rollback(manifest: &ProductionManifest) -> Result<(), Deploymen
     }
     verify_manifest_evidence_for_rollback(manifest, true)?;
     health_check(manifest, true).await
+}
+
+fn rollback_failure_code(error: &DeploymentError) -> &'static str {
+    match error {
+        DeploymentError::ProviderLink(_) => "provider-link",
+        DeploymentError::Health(_) => "health-identity",
+        DeploymentError::InvalidEvidence(_) => "invalid-evidence",
+        DeploymentError::UnsafePath(_) => "unsafe-path",
+        DeploymentError::Command(_) => "package-or-service-command",
+        DeploymentError::Io(_) => "filesystem",
+        DeploymentError::Json(_) | DeploymentError::InvalidSchema(_) => "invalid-schema",
+        DeploymentError::InvalidPhase(_) => "invalid-phase",
+        DeploymentError::RootRequired | DeploymentError::HostMismatch(_) => "host-identity",
+        DeploymentError::ObservationIncomplete => "observation-incomplete",
+        DeploymentError::UnsupportedController(_) => "unsupported-controller",
+    }
+}
+
+fn legacy_go_rollback(manifest: &ProductionManifest) -> bool {
+    manifest.previous_provider_target == "legacy-regular"
+        && manifest.go.rollback_package_name == "lmm-api-go-bin"
+        && manifest.go.rollback_identity == "lmm-api-go-bin 0.1.69-1"
+}
+
+fn prepare_provider_rollback(manifest: &ProductionManifest) -> Result<(), DeploymentError> {
+    if !legacy_go_rollback(manifest) {
+        return Ok(());
+    }
+    let status = verify_active_provider(
+        &manifest.go.candidate_package_name,
+        &manifest.new_provider_target,
+    )?;
+    if status.target != manifest.new_provider_target {
+        return Err(DeploymentError::InvalidEvidence(
+            "active provider changed before legacy rollback".to_owned(),
+        ));
+    }
+    fs::remove_file(GENERIC_BINARY)?;
+    File::open("/usr/bin")?.sync_all()?;
+    Ok(())
+}
+
+fn restore_provider_link(manifest: &ProductionManifest) -> Result<(), DeploymentError> {
+    if legacy_go_rollback(manifest) {
+        let generic = Path::new(GENERIC_BINARY);
+        let metadata = fs::symlink_metadata(generic)?;
+        if metadata.file_type().is_symlink()
+            || !metadata.is_file()
+            || metadata.uid() != 0
+            || metadata.permissions().mode() & 0o111 == 0
+            || metadata.permissions().mode() & 0o022 != 0
+        {
+            return Err(DeploymentError::InvalidEvidence(
+                "legacy generic provider payload is unsafe".to_owned(),
+            ));
+        }
+        if package_owner(generic)? != manifest.go.rollback_package_name {
+            return Err(DeploymentError::InvalidEvidence(
+                "legacy generic provider package does not match manifest".to_owned(),
+            ));
+        }
+        let reverse = Path::new("/usr/bin").join(GO_PROVIDER);
+        if !fs::symlink_metadata(&reverse)?.file_type().is_symlink()
+            || fs::read_link(&reverse)? != Path::new("lmm-api")
+        {
+            return Err(DeploymentError::InvalidEvidence(
+                "legacy Go reverse alias is invalid".to_owned(),
+            ));
+        }
+        return Ok(());
+    }
+    let provider = manifest
+        .previous_provider_target
+        .parse::<Provider>()
+        .map_err(|_| {
+            DeploymentError::InvalidSchema(
+                "previous provider target cannot be restored safely".to_owned(),
+            )
+        })?;
+    if provider_for_package(&manifest.go.rollback_package_name)? != provider {
+        return Err(DeploymentError::InvalidSchema(
+            "rollback package and previous provider target disagree".to_owned(),
+        ));
+    }
+    let status = os_manager().select(provider)?;
+    if status.target != manifest.previous_provider_target
+        || status.package != manifest.go.rollback_package_name
+    {
+        return Err(DeploymentError::InvalidEvidence(
+            "restored provider link does not match rollback manifest".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+fn package_owner(path: &Path) -> Result<String, DeploymentError> {
+    let output = Command::new("/usr/bin/pacman")
+        .args(["-Qqo", "--"])
+        .arg(path)
+        .env("LC_ALL", "C")
+        .output()?;
+    if !output.status.success() {
+        return Err(DeploymentError::InvalidEvidence(
+            "provider package ownership query failed".to_owned(),
+        ));
+    }
+    let owner = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+    if owner.is_empty() || owner.lines().count() != 1 {
+        return Err(DeploymentError::InvalidEvidence(
+            "provider package ownership is ambiguous".to_owned(),
+        ));
+    }
+    Ok(owner)
 }
 
 fn install_package(path: &Path) -> Result<(), DeploymentError> {
@@ -546,16 +678,16 @@ fn restore_environment(manifest: &ProductionManifest) -> Result<(), DeploymentEr
 }
 
 fn run(program: &str, args: &[&str]) -> Result<(), DeploymentError> {
-    const ALLOWLIST: &[&str] = &["/usr/bin/systemctl", "/usr/bin/runuser"];
-    if !ALLOWLIST.contains(&program) {
-        return Err(DeploymentError::Command(format!(
-            "executable is not allowlisted: {program}"
-        )));
-    }
-    let output = Command::new(program)
-        .args(args)
-        .env("LC_ALL", "C")
-        .output()?;
+    let mut command = match program {
+        "/usr/bin/systemctl" => Command::new("/usr/bin/systemctl"),
+        "/usr/bin/runuser" => Command::new("/usr/bin/runuser"),
+        _ => {
+            return Err(DeploymentError::Command(format!(
+                "executable is not allowlisted: {program}"
+            )));
+        }
+    };
+    let output = command.args(args).env("LC_ALL", "C").output()?;
     if output.status.success() {
         return Ok(());
     }
@@ -601,10 +733,13 @@ async fn health_check(
             .json()
             .await
             .map_err(|error| DeploymentError::Health(error.to_string()))?;
-        let encoded = value.to_string();
-        if !encoded.contains(expected) {
+        if value
+            .pointer("/data/version")
+            .and_then(serde_json::Value::as_str)
+            != Some(expected.as_str())
+        {
             return Err(DeploymentError::Health(
-                "status identity does not contain expected version".to_owned(),
+                "status identity does not match expected version".to_owned(),
             ));
         }
     }
@@ -664,6 +799,17 @@ fn validate_manifest(
     }
     for transition in [&manifest.go, &manifest.web] {
         validate_transition(workspace, transition, require_root_owner)?;
+    }
+    let candidate_provider = provider_for_package(&manifest.go.candidate_package_name)?;
+    if manifest.new_provider_target != candidate_provider.filename()
+        || !matches!(
+            manifest.previous_provider_target.as_str(),
+            "lmm-api-go" | "lmm-api-rs" | "legacy-regular" | "missing"
+        )
+    {
+        return Err(DeploymentError::InvalidSchema(
+            "provider-link transition is invalid".to_owned(),
+        ));
     }
     if manifest.go.candidate_contract_revision != manifest.web.candidate_contract_revision
         || manifest.go.rollback_contract_revision != manifest.web.rollback_contract_revision
@@ -798,6 +944,29 @@ fn verify_manifest_evidence_for_rollback(
     Ok(())
 }
 
+fn finalize_transaction(workspace: &Workspace) -> Result<(), DeploymentError> {
+    match fs::symlink_metadata(&workspace.probe_token) {
+        Ok(metadata) => {
+            if metadata.file_type().is_symlink() || !metadata.is_file() || metadata.uid() != 0 {
+                return Err(DeploymentError::UnsafePath(
+                    "production probe token is unsafe".to_owned(),
+                ));
+            }
+            fs::remove_file(&workspace.probe_token)?;
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.into()),
+    }
+    validate_transaction_lock(workspace)?;
+    let lock = Path::new(TRANSACTION_LOCK);
+    fs::remove_file(lock.join("deployment.env"))?;
+    fs::remove_dir(lock)?;
+    if let Some(parent) = lock.parent() {
+        File::open(parent)?.sync_all()?;
+    }
+    Ok(())
+}
+
 fn validate_transaction_lock(workspace: &Workspace) -> Result<(), DeploymentError> {
     let root = Path::new(TRANSACTION_LOCK);
     require_real(root, true, true)?;
@@ -831,13 +1000,15 @@ fn require_production_identity() -> Result<(), DeploymentError> {
     Ok(())
 }
 
-fn verify_active_provider(package: &str) -> Result<ProviderLinkStatus, DeploymentError> {
+fn verify_active_provider(
+    package: &str,
+    expected_target: &str,
+) -> Result<ProviderLinkStatus, DeploymentError> {
     let expected = provider_for_package(package)?;
     let status = os_manager().status()?;
-    let expected_name = expected.package_prefix();
-    if status.package != package
-        && !(status.package.starts_with(expected_name)
-            && package.starts_with(expected_name))
+    if status.target != expected_target
+        || status.package != package
+        || !expected.accepts_package(&status.package)
     {
         return Err(DeploymentError::InvalidEvidence(
             "active provider package does not match deployment manifest".to_owned(),
@@ -847,13 +1018,13 @@ fn verify_active_provider(package: &str) -> Result<ProviderLinkStatus, Deploymen
 }
 
 fn provider_for_package(name: &str) -> Result<Provider, DeploymentError> {
-    if name.starts_with("lmm-api-go") {
+    if Provider::Go.accepts_package(name) {
         Ok(Provider::Go)
-    } else if name.starts_with("lmm-api-rs") {
+    } else if Provider::Rust.accepts_package(name) {
         Ok(Provider::Rust)
     } else {
         Err(DeploymentError::InvalidSchema(format!(
-            "rollback backend package {name:?} has no safe provider mapping"
+            "backend package {name:?} has no safe provider mapping"
         )))
     }
 }
@@ -1017,8 +1188,8 @@ mod tests {
 
     #[test]
     fn formats_match_manual_only_go_contract() {
-        assert_eq!((MANIFEST_FORMAT, STATUS_FORMAT), (7, 2));
-        assert_eq!((RELEASE_PLAN_FORMAT, RELEASE_STATE_FORMAT), (4, 3));
+        assert_eq!((MANIFEST_FORMAT, STATUS_FORMAT), (8, 2));
+        assert_eq!((RELEASE_PLAN_FORMAT, RELEASE_STATE_FORMAT), (5, 3));
     }
 
     #[test]

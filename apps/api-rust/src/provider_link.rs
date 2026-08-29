@@ -40,6 +40,14 @@ impl Provider {
             Self::Rust => "lmm-api-rs",
         }
     }
+
+    #[must_use]
+    pub fn accepts_package(self, package: &str) -> bool {
+        match self {
+            Self::Go => matches!(package, "lmm-api-go" | "lmm-api-go-bin" | "lmm-api-go-git"),
+            Self::Rust => matches!(package, "lmm-api-rs" | "lmm-api-rs-bin" | "lmm-api-rs-git"),
+        }
+    }
 }
 
 impl std::str::FromStr for Provider {
@@ -88,6 +96,7 @@ pub trait ProviderLinkSystem {
     fn effective_uid(&self) -> u32;
     fn symlink_metadata(&self, path: &Path) -> io::Result<Metadata>;
     fn metadata(&self, path: &Path) -> io::Result<Metadata>;
+    fn owner_uid(&self, metadata: &Metadata) -> u32;
     fn read_link(&self, path: &Path) -> io::Result<PathBuf>;
     fn canonicalize(&self, path: &Path) -> io::Result<PathBuf>;
     fn remove_file(&self, path: &Path) -> io::Result<()>;
@@ -111,6 +120,10 @@ impl ProviderLinkSystem for OsProviderLinkSystem {
 
     fn metadata(&self, path: &Path) -> io::Result<Metadata> {
         fs::metadata(path)
+    }
+
+    fn owner_uid(&self, metadata: &Metadata) -> u32 {
+        metadata.uid()
     }
 
     fn read_link(&self, path: &Path) -> io::Result<PathBuf> {
@@ -187,7 +200,7 @@ impl<S: ProviderLinkSystem> ProviderLinkManager<S> {
         let provider_metadata = self.system.symlink_metadata(&provider_path)?;
         if provider_metadata.file_type().is_symlink()
             || !provider_metadata.is_file()
-            || provider_metadata.uid() != 0
+            || self.system.owner_uid(&provider_metadata) != 0
             || provider_metadata.permissions().mode() & 0o111 == 0
             || provider_metadata.permissions().mode() & 0o022 != 0
         {
@@ -205,9 +218,7 @@ impl<S: ProviderLinkSystem> ProviderLinkManager<S> {
             return Err(ProviderLinkError::UnsafeProvider);
         }
         let package = self.system.package_owner(&provider_path)?;
-        if package != provider.package_prefix()
-            && !package.starts_with(&format!("{}-", provider.package_prefix()))
-        {
+        if !provider.accepts_package(&package) {
             return Err(ProviderLinkError::InvalidPackageOwner(package));
         }
         Ok(ProviderLinkStatus {
@@ -262,7 +273,7 @@ impl<S: ProviderLinkSystem> ProviderLinkManager<S> {
         let metadata = self.system.symlink_metadata(provider_path)?;
         if metadata.file_type().is_symlink()
             || !metadata.is_file()
-            || metadata.uid() != 0
+            || self.system.owner_uid(&metadata) != 0
             || metadata.permissions().mode() & 0o111 == 0
             || metadata.permissions().mode() & 0o022 != 0
         {
@@ -275,9 +286,7 @@ impl<S: ProviderLinkSystem> ProviderLinkManager<S> {
             return Err(ProviderLinkError::ProviderEscapesDirectory);
         }
         let package = self.system.package_owner(provider_path)?;
-        if package != provider.package_prefix()
-            && !package.starts_with(&format!("{}-", provider.package_prefix()))
-        {
+        if !provider.accepts_package(&package) {
             return Err(ProviderLinkError::InvalidPackageOwner(package));
         }
         Ok(())
@@ -309,6 +318,10 @@ mod tests {
 
         fn metadata(&self, path: &Path) -> io::Result<Metadata> {
             fs::metadata(path)
+        }
+
+        fn owner_uid(&self, _metadata: &Metadata) -> u32 {
+            0
         }
 
         fn read_link(&self, path: &Path) -> io::Result<PathBuf> {
@@ -391,6 +404,15 @@ mod tests {
         );
         fs::remove_dir_all(root)?;
         Ok(())
+    }
+
+    #[test]
+    fn provider_package_allowlist_rejects_prefix_spoofing() {
+        assert!(Provider::Go.accepts_package("lmm-api-go-bin"));
+        assert!(Provider::Rust.accepts_package("lmm-api-rs-git"));
+        assert!(!Provider::Go.accepts_package("lmm-api-go-evil"));
+        assert!(!Provider::Rust.accepts_package("lmm-api-rs-git-evil"));
+        assert!(!Provider::Go.accepts_package("lmm-api-rs-git"));
     }
 
     #[test]

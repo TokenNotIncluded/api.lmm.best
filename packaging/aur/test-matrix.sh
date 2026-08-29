@@ -108,10 +108,14 @@ declare -a conflicts replaces provides
 )
 
 contains_srcinfo_prefix lmm-api-rs-git $'\tprovides = lmm-api-rs'
+contains_srcinfo lmm-api-rs-git $'\tprovides = lmm-api-provider'
 # Keep the historical package conflict until the remote AUR package has been
 # separately retired; otherwise an existing binary package can overwrite the
-# same preview executables during the repository-side compatibility window.
+# same preview executable during the repository-side compatibility window.
 contains_srcinfo lmm-api-rs-git $'\tconflicts = lmm-api-rs-bin'
+if grep -Eq $'^\t(provides|conflicts|replaces) = lmm-api($|=)' "$HERE/lmm-api-rs-git/.SRCINFO"; then
+  die 'Rust provider package claims the generic lmm-api identity'
+fi
 
 
 pkgbuild="$HERE/lmm-api-go-bin/PKGBUILD"

@@ -227,8 +227,7 @@ func (osProductionCommandRunner) Run(parent context.Context, command productionC
 	case commandVercmp:
 		process = exec.CommandContext(ctx, "/usr/bin/vercmp", command.Args...)
 	case productionOperatorBinary:
-		// pi-lens-ignore: opengrep:go.lang.security.audit.dangerous-exec-command.dangerous-exec-command
-		process = exec.CommandContext(ctx, productionOperatorBinary, command.Args...)
+		process = exec.CommandContext(ctx, "/usr/bin/lmm-api", command.Args...)
 	default:
 		return nil, fmt.Errorf("command executable is not allowlisted: %q", command.Name)
 	}
@@ -535,13 +534,17 @@ func (runtime *productionRuntime) packageMetadata(ctx context.Context, packagePa
 		digest := sha256.Sum256(index)
 		metadata.IndexSHA256 = hex.EncodeToString(digest[:])
 	} else {
-		binaryMember := "usr/bin/lmm-api-go"
+		providerTarget, providerErr := providerTargetForPackage(packageName)
+		if providerErr != nil {
+			return productionPackageMetadata{}, providerErr
+		}
+		binaryMember := "usr/bin/" + providerTarget
 		if packageName == productionAURPackageName && metadata.Version == "0.1.69-1" {
 			binaryMember = "usr/bin/lmm-api"
 		}
 		binary, err := runtime.runner.Run(ctx, productionCommand{Name: commandBsdtar, Args: []string{"-xOf", packagePath, binaryMember}})
 		if err != nil || len(binary) == 0 {
-			return productionPackageMetadata{}, errors.New("Go package provider binary is missing")
+			return productionPackageMetadata{}, errors.New("backend package provider binary is missing")
 		}
 		digest := sha256.Sum256(binary)
 		metadata.BinarySHA256 = hex.EncodeToString(digest[:])
@@ -550,17 +553,29 @@ func (runtime *productionRuntime) packageMetadata(ctx context.Context, packagePa
 }
 
 func (runtime *productionRuntime) verifyCanonicalOperator(ctx context.Context) error {
-	output, err := runtime.runner.Run(ctx, productionCommand{Name: commandPacman, Args: []string{"-Qo", productionOperatorBinary}, Env: append(os.Environ(), "LC_ALL=C")})
-	prefix := productionOperatorBinary + " is owned by "
-	if err != nil || !strings.HasPrefix(strings.TrimSpace(string(output)), prefix) {
-		return errors.New("canonical deployment operator is not package-owned")
+	selector := backendRuntime{
+		paths: backendPaths{
+			Canonical: runtime.paths.InstalledBinary,
+			Go:        runtime.paths.LegacyGoBinary,
+			Rust:      filepath.Join(filepath.Dir(runtime.paths.InstalledBinary), backendRustName),
+		},
+		owner:       productionBackendOwner{ctx: ctx, runner: runtime.runner},
+		effectiveID: runtime.effectiveUID,
+		requiredUID: runtime.requiredOwnerUID,
 	}
-	identity := strings.TrimPrefix(strings.TrimSpace(string(output)), prefix)
-	if _, err := parseNamedPackageIdentity([]byte(identity), productionOperatorPackageName); err != nil {
+	provider, err := selector.status()
+	if err != nil {
+		return fmt.Errorf("canonical deployment operator link is invalid: %w", err)
+	}
+	identity, err := runtime.runner.Run(ctx, productionCommand{Name: commandPacman, Args: []string{"-Q", provider.Package}, Env: append(os.Environ(), "LC_ALL=C")})
+	if err != nil {
+		return errors.New("canonical deployment operator package identity is unavailable")
+	}
+	if _, err := parseNamedPackageIdentity(identity, provider.Package); err != nil {
 		return errors.New("canonical deployment operator package identity is invalid")
 	}
-	integrity, err := runtime.runner.Run(ctx, productionCommand{Name: commandPacman, Args: []string{"-Qkk", productionOperatorPackageName}, Env: append(os.Environ(), "LC_ALL=C")})
-	if err != nil || !packageIntegrityClean(integrity, productionOperatorPackageName) {
+	integrity, err := runtime.runner.Run(ctx, productionCommand{Name: commandPacman, Args: []string{"-Qkk", provider.Package}, Env: append(os.Environ(), "LC_ALL=C")})
+	if err != nil || !packageIntegrityClean(integrity, provider.Package) {
 		return errors.New("canonical deployment operator package integrity check failed")
 	}
 	return nil
@@ -1039,17 +1054,45 @@ func (runtime *productionRuntime) readManifest(workspace productionWorkspace) (p
 	return manifest, nil
 }
 
+func providerTargetForPackage(name string) (string, error) {
+	switch name {
+	case "lmm-api-go", "lmm-api-go-bin", "lmm-api-go-git":
+		return backendGoName, nil
+	case "lmm-api-rs", "lmm-api-rs-bin", "lmm-api-rs-git":
+		return backendRustName, nil
+	default:
+		return "", fmt.Errorf("unsupported backend provider package %q", name)
+	}
+}
+
 func (runtime *productionRuntime) validateManifest(workspace productionWorkspace, manifest productionManifest) error {
 	if !productionVersionPattern.MatchString(manifest.ExpectedVersion) || !productionVersionPattern.MatchString(manifest.OldVersion) ||
 		manifest.OperatorUser != productionOperatorUser {
 		return errors.New("deployment manifest contains invalid release or operator identity")
 	}
-	if manifest.Go.CandidatePackageName != productionAURPackageName ||
-		(manifest.Go.RollbackPackageName != productionAURPackageName && manifest.Go.RollbackPackageName != productionSourcePackageName) ||
+	candidateProviderTarget, candidateProviderErr := providerTargetForPackage(manifest.Go.CandidatePackageName)
+	rollbackProviderTarget, rollbackProviderErr := providerTargetForPackage(manifest.Go.RollbackPackageName)
+	if candidateProviderErr != nil || rollbackProviderErr != nil ||
 		manifest.Web.CandidatePackageName != productionWebPackageName || manifest.Web.RollbackPackageName != productionWebPackageName ||
 		manifest.Go.CandidateContractRevision != manifest.Web.CandidateContractRevision ||
 		manifest.Go.RollbackContractRevision != manifest.Web.RollbackContractRevision {
-		return errors.New("deployment manifest Go/Web package or contract pair mismatch")
+		return errors.New("deployment manifest backend/Web package or contract pair mismatch")
+	}
+	if manifest.NewProviderTarget != candidateProviderTarget {
+		return errors.New("deployment manifest candidate provider target is invalid")
+	}
+	switch manifest.PreviousProviderTarget {
+	case backendGoName, backendRustName:
+		if manifest.PreviousProviderTarget != rollbackProviderTarget {
+			return errors.New("deployment manifest rollback provider target is invalid")
+		}
+	case "legacy-regular":
+		if manifest.Go.RollbackPackageName != productionAURPackageName || manifest.Go.RollbackIdentity != productionAURPackageName+" 0.1.69-1" {
+			return errors.New("deployment manifest legacy provider evidence is invalid")
+		}
+	case "missing":
+	default:
+		return errors.New("deployment manifest previous provider target is invalid")
 	}
 	for _, transition := range []productionPackageTransition{manifest.Go, manifest.Web} {
 		if !productionRevisionPattern.MatchString(transition.CandidateGitRevision) ||

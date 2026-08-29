@@ -8,8 +8,10 @@ use std::{
     time::SystemTime,
 };
 
+use chrono::{DateTime, Utc};
 use fs2::FileExt;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -127,15 +129,20 @@ pub fn rollback(
     Ok(release)
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 struct PackageActivationStatus {
     format: u32,
-    phase: String,
-    package_version: String,
     release: String,
-    previous_release: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    previous: String,
+    package_version: String,
     revision: String,
+    source_sha256: String,
+    phase: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     failure: String,
+    updated_utc: DateTime<Utc>,
 }
 
 /// Activates the frontend tree installed by `lmm-api-web-bin`.
@@ -147,20 +154,10 @@ pub fn package_activate(package_version: &str) -> Result<String, FrontendDeployE
     if rustix::process::geteuid().as_raw() != 0 {
         return Err(FrontendDeployError::RootRequired);
     }
-    let root = PathBuf::from(
-        std::env::var_os("LMM_API_WEB_ROOT").unwrap_or_else(|| "/srv/lmm-api-frontend".into()),
-    );
-    let source = PathBuf::from(
-        std::env::var_os("LMM_API_WEB_SOURCE")
-            .unwrap_or_else(|| "/usr/share/lmm-api-web/frontend-dist".into()),
-    );
-    let revision_file = PathBuf::from(
-        std::env::var_os("LMM_API_WEB_REVISION_FILE")
-            .unwrap_or_else(|| "/usr/share/doc/lmm-api-web-bin/REVISION".into()),
-    );
-    let keep = std::env::var("LMM_API_WEB_KEEP")
-        .map_or(Ok(3), |value| value.parse::<usize>())
-        .map_err(|_| FrontendDeployError::InvalidTree("retention must be positive".to_owned()))?;
+    let root = PathBuf::from("/srv/lmm-api-frontend");
+    let source = PathBuf::from("/usr/share/lmm-api-web/frontend-dist");
+    let revision_file = PathBuf::from("/usr/share/doc/lmm-api-web-bin/REVISION");
+    let keep = 3;
     if keep == 0 {
         return Err(FrontendDeployError::InvalidTree(
             "retention must be positive".to_owned(),
@@ -169,6 +166,7 @@ pub fn package_activate(package_version: &str) -> Result<String, FrontendDeployE
     let revision = installed_revision(&revision_file)?;
     let release = package_release_id(package_version, &revision)?;
     validate_tree(&source)?;
+    let source_sha256 = tree_sha256(&source)?;
     prepare(&root)?;
     run_command("/usr/bin/nginx", &["-t"])?;
 
@@ -182,19 +180,48 @@ pub fn package_activate(package_version: &str) -> Result<String, FrontendDeployE
         Err(error) if error.kind() == io::ErrorKind::NotFound => String::new(),
         Err(error) => return Err(error.into()),
     };
-    let state_dir = root.join(".activation-state");
+    let state_dir = root.join(".deployment-transactions");
     fs::create_dir_all(&state_dir)?;
     fs::set_permissions(&state_dir, fs::Permissions::from_mode(0o700))?;
     let state_path = state_dir.join(format!("{release}.json"));
     let mut status = PackageActivationStatus {
         format: 1,
-        phase: "MUTATION_PENDING".to_owned(),
-        package_version: package_version.to_owned(),
         release: release.clone(),
-        previous_release: previous,
+        previous,
+        package_version: package_version.to_owned(),
         revision,
+        source_sha256,
+        phase: "MUTATION_PENDING".to_owned(),
         failure: String::new(),
+        updated_utc: Utc::now(),
     };
+    match read_activation_status(&state_path) {
+        Ok(existing)
+            if existing.release == status.release
+                && existing.package_version == status.package_version
+                && existing.revision == status.revision
+                && existing.source_sha256 == status.source_sha256 =>
+        {
+            if existing.phase == "CONFIRMED" && current(&root).ok().as_deref() == Some(&release) {
+                return Ok(release);
+            }
+            if existing.phase == "ROLLBACK_REQUIRED" {
+                return Err(FrontendDeployError::Command(
+                    "frontend transaction requires explicit rollback".to_owned(),
+                ));
+            }
+            return Err(FrontendDeployError::Command(
+                "frontend transaction is already nonterminal".to_owned(),
+            ));
+        }
+        Ok(_) => {
+            return Err(FrontendDeployError::Command(
+                "frontend transaction identity differs".to_owned(),
+            ));
+        }
+        Err(FrontendDeployError::Io(error)) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error),
+    }
     write_activation_status(&state_path, &status)?;
 
     let result = (|| {
@@ -227,13 +254,15 @@ pub fn package_activate(package_version: &str) -> Result<String, FrontendDeployE
     })();
     match result {
         Ok(()) => {
-            status.phase = "ACTIVATED".to_owned();
+            status.phase = "CONFIRMED".to_owned();
+            status.updated_utc = Utc::now();
             write_activation_status(&state_path, &status)?;
             Ok(release)
         }
         Err(error) => {
             status.phase = "ROLLBACK_REQUIRED".to_owned();
-            status.failure = error.to_string();
+            status.failure = "frontend-activation".to_owned();
+            status.updated_utc = Utc::now();
             if let Err(state_error) = write_activation_status(&state_path, &status) {
                 return Err(FrontendDeployError::Command(format!(
                     "{error}; preserve ROLLBACK_REQUIRED state: {state_error}"
@@ -323,22 +352,23 @@ fn package_release_id(
     package_version: &str,
     revision: &str,
 ) -> Result<String, FrontendDeployError> {
-    let normalized = package_version.replace(':', "-");
+    let normalized = package_version.replace(':', "-").replace('+', "_");
     let release = format!("{normalized}.g{}", &revision[..12]);
     validate_release(&release)?;
     Ok(release)
 }
 
 fn run_command(program: &str, args: &[&str]) -> Result<(), FrontendDeployError> {
-    if !matches!(program, "/usr/bin/nginx" | "/usr/bin/systemctl") {
-        return Err(FrontendDeployError::Command(
-            "executable is not allowlisted".to_owned(),
-        ));
-    }
-    let output = std::process::Command::new(program)
-        .args(args)
-        .env("LC_ALL", "C")
-        .output()?;
+    let mut command = match program {
+        "/usr/bin/nginx" => std::process::Command::new("/usr/bin/nginx"),
+        "/usr/bin/systemctl" => std::process::Command::new("/usr/bin/systemctl"),
+        _ => {
+            return Err(FrontendDeployError::Command(
+                "executable is not allowlisted".to_owned(),
+            ));
+        }
+    };
+    let output = command.args(args).env("LC_ALL", "C").output()?;
     if output.status.success() {
         return Ok(());
     }
@@ -351,6 +381,64 @@ fn run_command(program: &str, args: &[&str]) -> Result<(), FrontendDeployError> 
             .unwrap_or_default()
             .to_string_lossy()
     )))
+}
+
+fn read_activation_status(path: &Path) -> Result<PackageActivationStatus, FrontendDeployError> {
+    let metadata = fs::symlink_metadata(path)?;
+    if metadata.file_type().is_symlink() || !metadata.is_file() || metadata.len() > 64 * 1024 {
+        return Err(FrontendDeployError::UnsafePath(path.display().to_string()));
+    }
+    let bytes = fs::read(path)?;
+    serde_json::from_slice(&bytes).map_err(FrontendDeployError::Json)
+}
+
+fn tree_sha256(root: &Path) -> Result<String, FrontendDeployError> {
+    let mut files = Vec::new();
+    collect_tree_files(root, root, &mut files)?;
+    files.sort();
+    let mut digest = Sha256::new();
+    for relative in files {
+        let bytes = fs::read(root.join(&relative))?;
+        digest.update(relative.to_string_lossy().replace('\\', "/").as_bytes());
+        digest.update([0]);
+        digest.update(bytes);
+        digest.update([0]);
+    }
+    Ok(hex::encode(digest.finalize()))
+}
+
+fn collect_tree_files(
+    root: &Path,
+    directory: &Path,
+    files: &mut Vec<PathBuf>,
+) -> Result<(), FrontendDeployError> {
+    for entry in fs::read_dir(directory)? {
+        let entry = entry?;
+        let metadata = fs::symlink_metadata(entry.path())?;
+        if metadata.file_type().is_symlink() {
+            return Err(FrontendDeployError::InvalidTree(
+                entry.path().display().to_string(),
+            ));
+        }
+        if metadata.is_dir() {
+            collect_tree_files(root, &entry.path(), files)?;
+        } else if metadata.is_file() {
+            files.push(
+                entry
+                    .path()
+                    .strip_prefix(root)
+                    .map_err(|_| {
+                        FrontendDeployError::InvalidTree(entry.path().display().to_string())
+                    })?
+                    .to_path_buf(),
+            );
+        } else {
+            return Err(FrontendDeployError::InvalidTree(
+                entry.path().display().to_string(),
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn write_activation_status(
@@ -556,7 +644,7 @@ fn validate_release(value: &str) -> Result<(), FrontendDeployError> {
         || !value.as_bytes()[0].is_ascii_alphanumeric()
         || !value
             .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || b"._+-".contains(&byte))
+            .all(|byte| byte.is_ascii_alphanumeric() || b"._-".contains(&byte))
     {
         return Err(FrontendDeployError::UnsafePath(value.to_owned()));
     }
@@ -586,12 +674,34 @@ mod tests {
     }
 
     #[test]
-    fn package_release_id_is_deterministic_and_colon_safe() -> Result<(), FrontendDeployError> {
+    fn package_release_id_is_deterministic_and_pacman_safe() -> Result<(), FrontendDeployError> {
         let revision = "0123456789abcdef0123456789abcdef01234567";
         assert_eq!(
-            package_release_id("2:1.2.3-1", revision)?,
-            "2-1.2.3-1.g0123456789ab",
+            package_release_id("2:1.2.3+build-1", revision)?,
+            "2-1.2.3_build-1.g0123456789ab",
         );
+        Ok(())
+    }
+
+    #[test]
+    fn package_state_matches_the_shared_strict_schema() -> Result<(), Box<dyn std::error::Error>> {
+        let state = PackageActivationStatus {
+            format: 1,
+            release: "0.1.52-1.g0123456789ab".to_owned(),
+            previous: "0.1.51-1.gabcdef012345".to_owned(),
+            package_version: "0.1.52-1".to_owned(),
+            revision: "0123456789abcdef0123456789abcdef01234567".to_owned(),
+            source_sha256: "a".repeat(64),
+            phase: "CONFIRMED".to_owned(),
+            failure: String::new(),
+            updated_utc: "2026-08-29T16:00:00Z".parse()?,
+        };
+        let encoded = serde_json::to_value(&state)?;
+        assert_eq!(encoded["previous"], state.previous);
+        assert!(encoded.get("previous_release").is_none());
+        let mut unknown = encoded;
+        unknown["automatic_rollback"] = serde_json::Value::Bool(true);
+        assert!(serde_json::from_value::<PackageActivationStatus>(unknown).is_err());
         Ok(())
     }
 }
