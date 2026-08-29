@@ -754,6 +754,25 @@ func TestProductionConfirmRequiresObservationAndExactIdentities(t *testing.T) {
 	}
 }
 
+func TestProductionConfirmingStateRemainsManuallyRollbackEligible(t *testing.T) {
+	fixture := newProductionFixture(t)
+	if _, err := fixture.runtime.apply(context.Background(), fixture.workspace, fixture.options); err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.runtime.writeStatus(fixture.workspace, productionStatus{
+		Phase: "CONFIRMING", Version: fixture.runner.newVersion, Previous: fixture.runner.oldVersion,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	status, err := fixture.runtime.rollback(context.Background(), fixture.workspace, "operator-confirm-failure")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.Phase != "ROLLED_BACK" || fixture.runner.installedGoVersion != fixture.runner.oldVersion {
+		t.Fatalf("manual rollback=%#v installed=%q", status, fixture.runner.installedGoVersion)
+	}
+}
+
 func TestProductionManifestTamperRejectsConfirmationAndKeepsRecoveryEvidence(t *testing.T) {
 	fixture := newProductionFixture(t)
 	if _, err := fixture.runtime.apply(context.Background(), fixture.workspace, fixture.options); err != nil {
@@ -785,25 +804,25 @@ func TestProductionWorkspaceRejectsWritablePayload(t *testing.T) {
 	}
 }
 
-func TestProductionRejectsRootOperatorBeforeWatchdog(t *testing.T) {
+func TestProductionRejectsRootOperatorBeforeMutation(t *testing.T) {
 	fixture := newProductionFixture(t)
 	fixture.runner.operatorUID = "0"
 	if _, err := fixture.runtime.apply(context.Background(), fixture.workspace, fixture.options); err == nil || !strings.Contains(err.Error(), "uid greater than zero") {
 		t.Fatalf("root operator error=%v", err)
 	}
 	if fixture.runner.timerActive {
-		t.Fatal("root operator armed watchdog")
+		t.Fatal("root operator failure created a rollback timer")
 	}
 }
 
-func TestProductionRejectsContractMismatchBeforeWatchdog(t *testing.T) {
+func TestProductionRejectsContractMismatchBeforeMutation(t *testing.T) {
 	fixture := newProductionFixture(t)
 	fixture.runner.webContractRevision = "other-contract"
 	if _, err := fixture.runtime.apply(context.Background(), fixture.workspace, fixture.options); err == nil || !strings.Contains(err.Error(), "contract revisions differ") {
 		t.Fatalf("contract mismatch error=%v", err)
 	}
 	if fixture.runner.timerActive {
-		t.Fatal("contract mismatch armed watchdog")
+		t.Fatal("contract mismatch created a rollback timer")
 	}
 }
 
@@ -937,7 +956,7 @@ func TestProductionSchemaIncompatibilityIsPreflightHardStop(t *testing.T) {
 		t.Fatalf("schema incompatibility error=%v", err)
 	}
 	if fixture.runner.timerActive {
-		t.Fatal("schema incompatibility armed watchdog instead of hard stopping")
+		t.Fatal("schema incompatibility created a rollback timer instead of hard stopping")
 	}
 	for _, event := range fixture.runner.events {
 		if event == "paru-go" || event == "paru-web-hook" || event == "systemd-stop" {
@@ -946,14 +965,14 @@ func TestProductionSchemaIncompatibilityIsPreflightHardStop(t *testing.T) {
 	}
 }
 
-func TestProductionRejectsInvalidCandidateEdgePolicyBeforeWatchdogAndStop(t *testing.T) {
+func TestProductionRejectsInvalidCandidateEdgePolicyBeforeMutation(t *testing.T) {
 	fixture := newProductionFixture(t)
 	fixture.runner.invalidCandidateEdgePolicy = true
 	if _, err := fixture.runtime.apply(context.Background(), fixture.workspace, fixture.options); err == nil || !strings.Contains(err.Error(), "candidate edge-policy preflight") {
 		t.Fatalf("edge-policy preflight error=%v", err)
 	}
 	if fixture.runner.timerActive || !fixture.runner.serviceActive {
-		t.Fatalf("invalid candidate changed runtime state: timer=%v service=%v", fixture.runner.timerActive, fixture.runner.serviceActive)
+		t.Fatalf("invalid candidate changed runtime state: rollback_timer=%v service=%v", fixture.runner.timerActive, fixture.runner.serviceActive)
 	}
 	for _, event := range fixture.runner.events {
 		if event == "systemd-stop" || strings.HasPrefix(event, "paru-") {
@@ -1019,7 +1038,7 @@ func TestProductionCancelledActivationRetainsManualRecovery(t *testing.T) {
 	}
 }
 
-func TestProductionAutomaticRollbackNeverRestoresDatabaseAndPreservesOnlineWrites(t *testing.T) {
+func TestProductionManualRollbackNeverRestoresDatabaseAndPreservesOnlineWrites(t *testing.T) {
 	fixture := newProductionFixture(t)
 	if _, err := fixture.runtime.apply(context.Background(), fixture.workspace, fixture.options); err != nil {
 		t.Fatal(err)
@@ -1029,15 +1048,15 @@ func TestProductionAutomaticRollbackNeverRestoresDatabaseAndPreservesOnlineWrite
 		t.Fatal("fixture did not simulate an online write after the optional backup")
 	}
 	commandsBeforeRollback := len(fixture.runner.commands)
-	if _, err := fixture.runtime.rollback(context.Background(), fixture.workspace, "watchdog-deadline"); err != nil {
+	if _, err := fixture.runtime.rollback(context.Background(), fixture.workspace, "operator-request"); err != nil {
 		t.Fatal(err)
 	}
 	if fixture.runner.onlineWriteCount != writesAfterBackup {
-		t.Fatalf("automatic rollback lost online writes: got=%d want=%d", fixture.runner.onlineWriteCount, writesAfterBackup)
+		t.Fatalf("manual rollback lost online writes: got=%d want=%d", fixture.runner.onlineWriteCount, writesAfterBackup)
 	}
 	for _, command := range fixture.runner.commands[commandsBeforeRollback:] {
 		if filepath.Base(command.Name) == "pg_restore" {
-			t.Fatalf("automatic rollback invoked pg_restore: %#v", command)
+			t.Fatalf("manual rollback invoked pg_restore: %#v", command)
 		}
 	}
 }
@@ -1086,19 +1105,19 @@ func TestProductionBackupsMayBeOmittedOnlyForWebOnlyTransactions(t *testing.T) {
 			t.Fatal("unsafe authorized backup was accepted")
 		}
 		if fixture.runner.timerActive {
-			t.Fatal("unsafe authorized backup armed watchdog")
+			t.Fatal("unsafe authorized backup created a rollback timer")
 		}
 	})
 }
 
-func TestProductionRejectsMissingSudoPrivilegeBeforeWatchdog(t *testing.T) {
+func TestProductionRejectsMissingSudoPrivilegeBeforeMutation(t *testing.T) {
 	fixture := newProductionFixture(t)
 	fixture.runner.sudoFailure = true
 	if _, err := fixture.runtime.apply(context.Background(), fixture.workspace, fixture.options); err == nil || !strings.Contains(err.Error(), "exact non-interactive pacman") {
 		t.Fatalf("sudo preflight error=%v", err)
 	}
 	if fixture.runner.timerActive {
-		t.Fatal("failed sudo preflight armed watchdog")
+		t.Fatal("failed sudo preflight created a rollback timer")
 	}
 }
 

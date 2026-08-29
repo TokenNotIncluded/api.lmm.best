@@ -989,7 +989,7 @@ func (runtime *productionRuntime) rollback(ctx context.Context, workspace produc
 		return status, nil
 	}
 	switch status.Phase {
-	case "MUTATION_PENDING", "MIGRATING", "DEPLOYING", "DEPLOYING_GO", "DEPLOYING_WEB", "OBSERVING", "AWAITING_CONFIRMATION", "ROLLBACK_REQUIRED", "ROLLING_BACK":
+	case "MUTATION_PENDING", "MIGRATING", "DEPLOYING", "DEPLOYING_GO", "DEPLOYING_WEB", "OBSERVING", "AWAITING_CONFIRMATION", "CONFIRMING", "ROLLBACK_REQUIRED", "ROLLING_BACK":
 	default:
 		return productionStatus{}, fmt.Errorf("deployment phase %s is not rollback-eligible", status.Phase)
 	}
