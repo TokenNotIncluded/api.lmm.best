@@ -93,6 +93,7 @@ Transitive dependencies should be audited before a final external release.
 | web | production | npm | `i18next-browser-languagedetector` | `8.2.1` | MIT |
 | web | production | npm | `input-otp` | `1.4.2` | MIT |
 | web | production | npm | `katex` | `0.17.0` | MIT |
+| web | production | npm | `liquid-gooey` | `0.2.1` | MIT |
 | web | production | npm | `lucide-react` | `1.25.0` | ISC |
 | web | production | npm | `marked` | `18.0.6` | MIT |
 | web | production | npm | `motion` | `12.42.2` | MIT |
@@ -132,6 +133,10 @@ Transitive dependencies should be audited before a final external release.
 | electron | development | npm | `cross-env` | `7.0.3` | MIT |
 | electron | development | npm | `electron` | `39.8.5` | MIT |
 | electron | development | npm | `electron-builder` | `26.7.0` | MIT |
+
+## Package-specific attributions
+
+- `liquid-gooey`: Copyright (c) 2026 Jakub Antalik. Licensed under MIT.
 
 ## License Texts
 

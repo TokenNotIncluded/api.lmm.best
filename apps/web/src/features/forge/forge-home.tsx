@@ -55,6 +55,7 @@ import { useStatus } from '@/hooks/use-status'
 import { isConsoleActivated } from '@/lib/console-activation'
 import { useAuthStore } from '@/stores/auth-store'
 
+import { ForgeLiquidAccent } from './forge-liquid-accent'
 import { ForgePublicShell } from './forge-public-shell'
 import { useTypewriterPlaceholder } from './use-typewriter-placeholder'
 
@@ -358,6 +359,7 @@ export function ForgeHome() {
             className='forge-home-orb forge-home-orb-right'
             aria-hidden='true'
           />
+          <ForgeLiquidAccent />
           <div className='forge-home-hero-content'>
             <div className='forge-home-model-badge'>
               <span className='forge-home-badge-label'>

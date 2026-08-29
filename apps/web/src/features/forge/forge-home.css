@@ -105,6 +105,7 @@ For commercial licensing, please contact support@quantumnous.com
 .forge-home-hero {
   position: relative;
   display: flex;
+  isolation: isolate;
   min-height: min(42rem, calc(100svh - 4rem));
   align-items: center;
   justify-content: center;
@@ -239,6 +240,8 @@ For commercial licensing, please contact support@quantumnous.com
 }
 
 .forge-home-hero-content {
+  position: relative;
+  z-index: 1;
   display: flex;
   width: 100%;
   max-width: 80rem;
