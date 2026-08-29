@@ -252,9 +252,7 @@ export function ChatPresetsItem({ item }: { item: NavChatPresets }) {
         serverAddress,
       })
 
-      const safeUrl = url
-        ? validateExternalChatUrl(url, preset.url)
-        : null
+      const safeUrl = url ? validateExternalChatUrl(url, preset.url) : null
       if (!safeUrl) {
         toast.error(t('Invalid chat link. Please contact the administrator.'))
         return

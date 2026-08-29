@@ -42,7 +42,6 @@ import { useDialogs } from '@/hooks/use-dialog'
 import { useStatus } from '@/hooks/use-status'
 import { api } from '@/lib/api'
 import { getBackendCapabilities } from '@/lib/backend-capabilities'
-import { getTrustedUrlFromSource } from '@/lib/validated-external-url'
 import {
   buildDiscordOAuthUrl,
   buildGitHubOAuthUrl,
@@ -51,6 +50,7 @@ import {
   indexCustomOAuthBindings,
   type CustomOAuthBinding,
 } from '@/lib/oauth'
+import { getTrustedUrlFromSource } from '@/lib/validated-external-url'
 
 import {
   getSelfOAuthBindings,
@@ -78,8 +78,7 @@ type TrustedOAuthDestination = {
   source: string
 }
 
-const GITHUB_AUTHORIZATION_ENDPOINT =
-  'https://github.com/login/oauth/authorize'
+const GITHUB_AUTHORIZATION_ENDPOINT = 'https://github.com/login/oauth/authorize'
 const DISCORD_AUTHORIZATION_ENDPOINT = 'https://discord.com/oauth2/authorize'
 const LINUX_DO_AUTHORIZATION_ENDPOINT =
   'https://connect.linux.do/oauth2/authorize'

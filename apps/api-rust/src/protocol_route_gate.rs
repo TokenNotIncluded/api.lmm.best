@@ -11,7 +11,7 @@ use lmm_contracts::relay::{Direction, Fidelity, LossPolicy, Protocol, ValidatedR
 use crate::{
     protocol_rollout::{FlagDecision, ProtocolRolloutConfig, RolloutContext, RolloutFlag},
     protocol_runtime_registry::{
-        route_capability_from_validated, RuntimeCapabilityError, RuntimeRouteCapability,
+        RuntimeCapabilityError, RuntimeRouteCapability, route_capability_from_validated,
     },
     route_ownership::{
         OwnershipBlocker, OwnershipDecision, OwnershipEvidence, OwnershipGate, RouteOwnershipScope,
@@ -260,9 +260,9 @@ fn push_unique(blockers: &mut Vec<RouteGateBlocker>, blocker: RouteGateBlocker) 
 mod tests {
     use super::*;
     use crate::{
-        protocol_rollout::{FlagConfig, ShadowDifference, ShadowRecord, MAX_BASIS_POINTS},
+        protocol_rollout::{FlagConfig, MAX_BASIS_POINTS, ShadowDifference, ShadowRecord},
         protocol_runtime_registry::validated_current_registry,
-        route_ownership::{DifferentialClass, OwnershipBlocker, MIN_REVIEW_CANARY_BASIS_POINTS},
+        route_ownership::{DifferentialClass, MIN_REVIEW_CANARY_BASIS_POINTS, OwnershipBlocker},
     };
     use lmm_contracts::relay::protocols;
 
@@ -344,8 +344,8 @@ mod tests {
     }
 
     #[test]
-    fn current_sixteen_route_registry_keeps_cross_protocol_closed_without_trusted_evidence(
-    ) -> TestResult {
+    fn current_sixteen_route_registry_keeps_cross_protocol_closed_without_trusted_evidence()
+    -> TestResult {
         let registry = current_registry()?;
         let config = enabled_config()?;
         for source in protocols() {
@@ -401,10 +401,12 @@ mod tests {
                 .into());
             };
             assert_eq!(details.scope, scope);
-            assert!(details
-                .capability
-                .as_ref()
-                .is_some_and(|capability| capability.raw_passthrough));
+            assert!(
+                details
+                    .capability
+                    .as_ref()
+                    .is_some_and(|capability| capability.raw_passthrough)
+            );
         }
         Ok(())
     }
@@ -424,9 +426,11 @@ mod tests {
             &complete_evidence(wrong_scope)?,
         );
         assert!(decision.is_closed());
-        assert!(decision
-            .blockers()
-            .contains(&RouteGateBlocker::OwnershipScopeMismatch));
+        assert!(
+            decision
+                .blockers()
+                .contains(&RouteGateBlocker::OwnershipScopeMismatch)
+        );
         Ok(())
     }
 
@@ -441,12 +445,16 @@ mod tests {
             &complete_evidence(scope)?,
         );
         assert!(decision.is_closed());
-        assert!(decision
-            .blockers()
-            .contains(&RouteGateBlocker::RolloutRollbackActive));
-        assert!(decision
-            .blockers()
-            .contains(&RouteGateBlocker::ConversionEngineDisabled));
+        assert!(
+            decision
+                .blockers()
+                .contains(&RouteGateBlocker::RolloutRollbackActive)
+        );
+        assert!(
+            decision
+                .blockers()
+                .contains(&RouteGateBlocker::ConversionEngineDisabled)
+        );
         Ok(())
     }
 
@@ -511,9 +519,11 @@ mod tests {
         );
 
         assert!(decision.is_closed());
-        assert!(decision
-            .blockers()
-            .contains(&RouteGateBlocker::RolloutConfigInvalid));
+        assert!(
+            decision
+                .blockers()
+                .contains(&RouteGateBlocker::RolloutConfigInvalid)
+        );
         Ok(())
     }
 }

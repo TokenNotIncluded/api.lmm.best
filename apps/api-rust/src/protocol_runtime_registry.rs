@@ -9,8 +9,8 @@
 use std::collections::BTreeSet;
 
 use lmm_contracts::relay::{
-    protocols, Direction, Fidelity, ModelConstraint, Protocol, Registry, RegistryValidationError,
-    RouteRegistration, RuntimeCatalog, RuntimeRoute, SupportMatrix, ValidatedRegistry,
+    Direction, Fidelity, ModelConstraint, Protocol, Registry, RegistryValidationError,
+    RouteRegistration, RuntimeCatalog, RuntimeRoute, SupportMatrix, ValidatedRegistry, protocols,
 };
 
 use crate::cortexfs_protocol_bridge::{converter_id, runtime_adaptor_id, stream_finalizer_id};

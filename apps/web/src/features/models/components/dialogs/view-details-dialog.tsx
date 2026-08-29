@@ -288,11 +288,7 @@ export function ViewDetailsDialog({
                             onClick={() =>
                               // Invariant: url is a credential-free HTTPS URL with a valid host and path.
                               // pi-lens-ignore: ts-open-redirect, no-open-redirect
-                              window.open(
-                                url,
-                                '_blank',
-                                'noopener,noreferrer'
-                              )
+                              window.open(url, '_blank', 'noopener,noreferrer')
                             }
                           >
                             <ExternalLink className='mr-2 h-4 w-4' />

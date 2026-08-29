@@ -40,11 +40,7 @@ type RedemptionsContextType = {
 
 const RedemptionsContext = createContext<RedemptionsContextType | null>(null)
 
-export function RedemptionsProvider({
-  children,
-}: {
-  children: ReactNode
-}) {
+export function RedemptionsProvider({ children }: { children: ReactNode }) {
   const [open, setOpen] = useDialogState<RedemptionsDialogType>(null)
   const [currentRow, setCurrentRow] = useState<Redemption | null>(null)
   const [refreshTrigger, setRefreshTrigger] = useState(0)

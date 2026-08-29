@@ -223,7 +223,7 @@ GET	/api/user/:id/oauth/bindings	present	unverified	mounted	unverified	not-appli
 DELETE	/api/user/:id/oauth/bindings/:provider_id	present	unverified	mounted	unverified	not-applicable	go	mounted-unverified	source=apps/api-rust/src/migration_routes/identity_federation.rs;mount=apps/api-rust/src/migration_routes/identity_federation.rs;provider=apps/api-rust/src/test_instance.rs:DenyFederationIdentity
 DELETE	/api/user/:id/reset_passkey	present	unverified	mounted	unverified	not-applicable	go	mounted-unverified	apps/api-rust/src/migration_routes/identity_security.rs
 GET	/api/user/aff	present	unverified	mounted	unverified	not-applicable	go	mounted-unverified	source=apps/api-rust/src/migration_routes/identity_profile.rs;mount=apps/api-rust/src/migration_routes/identity_profile.rs
-POST	/api/user/aff/invite	absent	not-applicable	unmounted	not-applicable	not-applicable	go	legacy-go	status=frozen-go-only;external=smtp
+POST	/api/user/aff/invite	present	unverified	mounted	unverified	not-applicable	go	mounted-unverified	source=apps/api-rust/src/migration_routes/missing_identity_checkin_aff.rs;mount=apps/api-rust/src/migration_routes/missing_identity_checkin_aff.rs;listener=apps/api-rust/src/main.rs;external=smtp;rust=fail-closed
 POST	/api/user/aff_transfer	present	unverified	mounted	unverified	not-applicable	go	mounted-unverified	apps/api-rust/src/migration_routes/missing_identity_checkin_aff.rs
 POST	/api/user/amount	present	unverified	mounted	unverified	not-applicable	go	mounted-unverified	apps/api-rust/src/migration_routes/missing_identity_checkin_aff.rs
 POST	/api/user/auth/logout	present	unverified	mounted	unverified	not-applicable	go	mounted-unverified	source=apps/api-rust/src/auth/http.rs;mount=apps/api-rust/src/auth/http.rs

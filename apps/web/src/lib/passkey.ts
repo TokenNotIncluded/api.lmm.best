@@ -27,10 +27,7 @@ type NodeBufferCtor = {
   from(input: string, encoding: string): { toString(encoding: string): string }
 }
 
-type EncodedCredentialDescriptor = Omit<
-  PublicKeyCredentialDescriptor,
-  'id'
-> & {
+type EncodedCredentialDescriptor = Omit<PublicKeyCredentialDescriptor, 'id'> & {
   id: string
 }
 
@@ -209,13 +206,8 @@ export function prepareCredentialCreationOptions(
     )
   }
 
-  const {
-    attestationFormats,
-    challenge,
-    excludeCredentials,
-    user,
-    ...rest
-  } = options
+  const { attestationFormats, challenge, excludeCredentials, user, ...rest } =
+    options
 
   const publicKey: CredentialCreationOptionsWithFormats = {
     ...rest,

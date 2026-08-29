@@ -346,6 +346,7 @@ DELETE	/api/user/access-ip	apps/api-rust/src/main.rs:access_ip
 GET	/api/user/access-ip	apps/api-rust/src/main.rs:access_ip
 PUT	/api/user/access-ip	apps/api-rust/src/main.rs:access_ip
 GET	/api/user/aff	apps/api-rust/src/main.rs
+POST	/api/user/aff/invite	apps/api-rust/src/main.rs:identity_checkin_aff_router
 POST	/api/user/aff_transfer	apps/api-rust/src/main.rs:identity_checkin_aff_router
 POST	/api/user/amount	apps/api-rust/src/main.rs:identity_checkin_aff_router
 POST	/api/user/auth/logout	apps/api-rust/src/auth/http.rs

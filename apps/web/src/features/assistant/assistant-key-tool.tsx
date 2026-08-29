@@ -32,12 +32,7 @@ import {
 } from './assistant-key-ui'
 import { useAssistantKeyCreation } from './use-assistant-key-creation'
 
-const LOOPBACK_HOSTNAMES = new Set([
-  'localhost',
-  '127.0.0.1',
-  '::1',
-  '[::1]',
-])
+const LOOPBACK_HOSTNAMES = new Set(['localhost', '127.0.0.1', '::1', '[::1]'])
 
 function trustedServiceRoot(value: string): string | null {
   if (typeof window === 'undefined') return null

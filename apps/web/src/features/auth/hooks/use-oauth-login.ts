@@ -38,17 +38,11 @@ import { pickTelegramAuthorization } from '../lib/telegram-login'
 import type { SystemStatus, CustomOAuthProviderInfo } from '../types'
 import { useAuthRedirect } from './use-auth-redirect'
 
-const GITHUB_AUTHORIZATION_ENDPOINT =
-  'https://github.com/login/oauth/authorize'
+const GITHUB_AUTHORIZATION_ENDPOINT = 'https://github.com/login/oauth/authorize'
 const DISCORD_AUTHORIZATION_ENDPOINT = 'https://discord.com/oauth2/authorize'
 const LINUX_DO_AUTHORIZATION_ENDPOINT =
   'https://connect.linux.do/oauth2/authorize'
-const LOOPBACK_HOSTNAMES = new Set([
-  'localhost',
-  '127.0.0.1',
-  '::1',
-  '[::1]',
-])
+const LOOPBACK_HOSTNAMES = new Set(['localhost', '127.0.0.1', '::1', '[::1]'])
 
 function trustedOAuthEndpoint(value: string): URL | null {
   try {
@@ -197,10 +191,7 @@ export function useOAuthLogin(
         status.oidc_client_id,
         state
       )
-      navigateToTrustedOAuthEndpoint(
-        url,
-        status.oidc_authorization_endpoint
-      )
+      navigateToTrustedOAuthEndpoint(url, status.oidc_authorization_endpoint)
     } catch {
       toast.error(t('Failed to start OIDC login'))
     } finally {

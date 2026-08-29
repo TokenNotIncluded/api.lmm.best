@@ -95,10 +95,7 @@ function parseAccess(raw: unknown, fallback: ModuleAccess): ModuleAccess {
   if (isUnknownRecord(raw)) {
     return {
       enabled: parseHeaderNavBoolean(raw.enabled, fallback.enabled),
-      requireAuth: parseHeaderNavBoolean(
-        raw.requireAuth,
-        fallback.requireAuth
-      ),
+      requireAuth: parseHeaderNavBoolean(raw.requireAuth, fallback.requireAuth),
     }
   }
   return { ...fallback }

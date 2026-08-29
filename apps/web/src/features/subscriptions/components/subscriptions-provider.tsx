@@ -45,14 +45,11 @@ type SubscriptionsContextType = {
   complianceConfirmed: boolean
 }
 
-const SubscriptionsContext =
-  createContext<SubscriptionsContextType | null>(null)
+const SubscriptionsContext = createContext<SubscriptionsContextType | null>(
+  null
+)
 
-export function SubscriptionsProvider({
-  children,
-}: {
-  children: ReactNode
-}) {
+export function SubscriptionsProvider({ children }: { children: ReactNode }) {
   const [open, setOpen] = useDialogState<SubscriptionsDialogType>(null)
   const [currentRow, setCurrentRow] = useState<PlanRecord | null>(null)
   const [refreshTrigger, setRefreshTrigger] = useState(0)

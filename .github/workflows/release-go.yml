@@ -281,7 +281,7 @@ jobs:
             exit 1
           }
           notes="$RUNNER_TEMP/go-release-notes.md"
-          printf '%s\n\nRevision: `%s`\nAPI/route contract revision: `%s`\n' \
+          printf "%s\n\nRevision: \`%s\`\nAPI/route contract revision: \`%s\`\n" \
             'Independent production Go-only backend release.' \
             "$RELEASE_REVISION" "$CONTRACT_REVISION" > "$notes"
 

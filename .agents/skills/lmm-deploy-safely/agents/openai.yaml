@@ -1,0 +1,4 @@
+interface:
+  display_name: "LMM Safe Deployment"
+  short_description: "Safely release LMM through AUR/paru with rollback and memory gates"
+  default_prompt: "Use $lmm-deploy-safely to reconcile the current package layout, state budget, and authorized AUR/production release workflow before changing LMM."

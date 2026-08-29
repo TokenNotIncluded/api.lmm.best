@@ -3,6 +3,8 @@
 //! The database is the source of truth: all balance-changing operations use a
 //! PostgreSQL transaction and lock the user row.  The small [`Clock`] and
 //! [`Awarder`] seams keep the calendar and random reward boundary testable.
+//! SMTP-backed affiliate invitations are mounted but explicitly fail closed
+//! until the isolated Rust candidate receives a real mailer adapter.
 
 use std::{
     collections::BTreeMap,
@@ -202,6 +204,7 @@ impl IdentityCheckinAffState {
 pub fn router(state: IdentityCheckinAffState) -> Router {
     checkin_read_routes()
         .route("/api/user/checkin", post(checkin))
+        .route("/api/user/aff/invite", post(send_affiliate_invitation))
         .route("/api/user/aff_transfer", post(aff_transfer))
         .route("/api/user/amount", post(amount))
         .with_state(state)
@@ -324,6 +327,64 @@ fn user_auth_error(headers: &HeaderMap, error: UserAuthPolicyError) -> Response 
         })),
     )
         .into_response()
+}
+
+#[derive(Deserialize)]
+struct AffiliateInvitationRequest {
+    email: String,
+}
+
+fn normalize_invitation_email(value: &str) -> Option<String> {
+    let email = value.trim().to_ascii_lowercase();
+    if email.is_empty()
+        || email.len() > 254
+        || email
+            .chars()
+            .any(|character| character.is_control() || character.is_whitespace())
+    {
+        return None;
+    }
+    let (local, domain) = email.split_once('@')?;
+    if local.is_empty()
+        || local.len() > 64
+        || domain.is_empty()
+        || domain.starts_with('.')
+        || domain.ends_with('.')
+        || domain.contains("..")
+        || domain.contains('@')
+    {
+        return None;
+    }
+    Some(email)
+}
+
+async fn send_affiliate_invitation(
+    State(state): State<IdentityCheckinAffState>,
+    headers: HeaderMap,
+    request: Request,
+) -> Response {
+    let actor = match user(&state, &headers).await {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
+    let body = match to_bytes(request.into_body(), 2 * 1024).await {
+        Ok(value) => value,
+        Err(_) => return fail("请求体过大"),
+    };
+    let request: AffiliateInvitationRequest = match serde_json::from_slice(&body) {
+        Ok(value) => value,
+        Err(_) => return fail("参数无效"),
+    };
+    let Some(recipient) = normalize_invitation_email(&request.email) else {
+        return fail("参数无效");
+    };
+    if recipient == actor.email.trim().to_ascii_lowercase() {
+        return fail("不能向自己的邮箱发送邀请。");
+    }
+    // The normal Rust listener deliberately has no SMTP credentials. Keep the
+    // frozen path visible for migration coverage without pretending delivery
+    // succeeded or allowing a request to escape the isolated candidate.
+    fail("邀请邮件暂时无法发送，请稍后重试。")
 }
 
 #[derive(Default, Deserialize)]
@@ -880,6 +941,7 @@ mod tests {
         for (method, uri) in [
             ("GET", "/api/user/checkin"),
             ("POST", "/api/user/checkin"),
+            ("POST", "/api/user/aff/invite"),
             ("POST", "/api/user/aff_transfer"),
             ("POST", "/api/user/amount"),
         ] {
@@ -907,6 +969,7 @@ mod tests {
     async fn read_router_does_not_expose_quota_changing_methods() -> TestResult {
         for (method, uri, expected_status) in [
             ("POST", "/api/user/checkin", StatusCode::METHOD_NOT_ALLOWED),
+            ("POST", "/api/user/aff/invite", StatusCode::NOT_FOUND),
             ("POST", "/api/user/aff_transfer", StatusCode::NOT_FOUND),
             ("POST", "/api/user/amount", StatusCode::NOT_FOUND),
         ] {
@@ -1089,6 +1152,25 @@ mod tests {
             "劃轉失敗 邀请额度不足！"
         );
         Ok(())
+    }
+
+    #[test]
+    fn affiliate_invitation_email_normalization_rejects_ambiguous_recipients() {
+        assert_eq!(
+            normalize_invitation_email(" Friend@Example.COM "),
+            Some("friend@example.com".to_owned())
+        );
+        for invalid in [
+            "",
+            "missing-at.example.com",
+            "two@@example.com",
+            "space @example.com",
+            "local@.example.com",
+            "local@example.com.",
+            "local@example..com",
+        ] {
+            assert_eq!(normalize_invitation_email(invalid), None, "{invalid}");
+        }
     }
 
     #[test]

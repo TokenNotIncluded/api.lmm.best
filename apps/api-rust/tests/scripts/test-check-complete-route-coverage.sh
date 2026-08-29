@@ -125,5 +125,5 @@ awk -F '\t' '!($1 == "GET" && $2 == "/api/option/waffo-pancake/catalog")' \
   "$repo_root/apps/api-rust/tests/fixtures/routes/legacy-go-routes.tsv" >"$runtime/current-manifest.tsv"
 COMPLETE_GO_MANIFEST="$runtime/current-manifest.tsv" \
 COMPLETE_MCP_PATHS="$runtime/mcp.tsv" bash "$checker" >"$runtime/current-ledger-report.jsonl"
-grep -Fq '"total":351' "$runtime/current-ledger-report.jsonl" || fail 'current repository ledgers could not be checked'
+grep -Fq '"total":352' "$runtime/current-ledger-report.jsonl" || fail 'current repository ledgers could not be checked'
 echo 'complete route coverage self-test: passed'

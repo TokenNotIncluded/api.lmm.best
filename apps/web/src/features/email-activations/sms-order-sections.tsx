@@ -619,7 +619,9 @@ export function SmsOrderDetailDialog({
               />
               <SmsOrderDetailMeta
                 label={t('Price')}
-                value={formatHeroSmsPlatformAmount(Number(order.customer_price_usd))}
+                value={formatHeroSmsPlatformAmount(
+                  Number(order.customer_price_usd)
+                )}
               />
               <SmsOrderDetailMeta
                 label={t('Created')}

@@ -346,6 +346,7 @@ DELETE	/api/user/access-ip	lmm_api_rs::migration_routes::access_ip::router
 GET	/api/user/access-ip	lmm_api_rs::migration_routes::access_ip::router
 PUT	/api/user/access-ip	lmm_api_rs::migration_routes::access_ip::router
 GET	/api/user/aff	lmm_api_rs::migration_routes::identity_profile::router
+POST	/api/user/aff/invite	lmm_api_rs::migration_routes::missing_identity_checkin_aff::router
 POST	/api/user/aff_transfer	lmm_api_rs::migration_routes::missing_identity_checkin_aff::router
 POST	/api/user/amount	lmm_api_rs::migration_routes::missing_identity_checkin_aff::router
 POST	/api/user/auth/logout	lmm_api_rs::auth::http::logout
