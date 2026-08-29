@@ -13,13 +13,12 @@ optdepends=(
   'valkey: cache, rate limiting, and login sessions'
 )
 source "${startdir:?}/lmm-api-cli-phase.sh"
-_lmm_cli_phase=${LMM_API_CLI_PHASE:-$LMM_CLI_SOURCE_PHASE}
-lmm_cli_phase_apply_metadata "$_lmm_cli_phase" "$pkgver" \
-  'lmm-api' 'lmm-api-bin' 'lmm-api-git' 'lmm-api-go' 'lmm-api-go-git'
+lmm_go_provider_apply_metadata "$pkgver" "$pkgname" \
+  'lmm-api-go' 'lmm-api-go-bin' 'lmm-api-go-git'
 backup=('etc/lmm-api-go/lmm-api-go.env')
 options=('!strip')
 source=(
-  lmm-api
+  lmm-api-go
   lmm-api-cli-phase.sh
   frontend-dist.tar
   lmm-api.service
@@ -39,7 +38,7 @@ source=(
   geoip2-country-update.service
   geoip2-country-update.timer
 )
-sha256sums=('SKIP' '2b93864b302a7901a4688fd5b7df9b7e262f193a666a915718f434db20054935' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
+sha256sums=('SKIP' 'aec051c3b12a86a228f92651865e16b309f36a9071dcf02e28edd9e18d3b4e19' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
 
 prepare() {
   install -d -m0755 "${srcdir}/frontend-dist"
@@ -49,8 +48,8 @@ prepare() {
 package() {
   local file
 
-  install -Dm0755 "${srcdir}/lmm-api" "${pkgdir}/usr/bin/lmm-api"
-  lmm_cli_phase_install_compatibility_alias "$_lmm_cli_phase" "$pkgdir"
+  install -Dm0755 "${srcdir}/lmm-api-go" "${pkgdir}/usr/bin/lmm-api-go"
+  lmm_go_provider_assert_payload "$pkgdir"
   install -Dm0644 "${srcdir}/lmm-api.service" \
     "${pkgdir}/usr/lib/systemd/system/lmm-api.service"
   install -Dm0644 "${srcdir}/lmm-api-operator.sysusers" \

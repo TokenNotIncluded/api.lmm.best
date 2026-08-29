@@ -154,7 +154,7 @@ func (buildRuntime *buildDeployRuntime) build(ctx context.Context, options build
 		return buildDeployResult{}, fmt.Errorf("hash built frontend index: %w", err)
 	}
 
-	binary := filepath.Join(outputDir, ProgramName+"-"+version)
+	binary := filepath.Join(outputDir, backendGoName+"-"+version)
 	if _, err := os.Lstat(binary); !errors.Is(err, os.ErrNotExist) {
 		return buildDeployResult{}, errors.New("versioned Go binary output already exists")
 	}
@@ -415,7 +415,7 @@ func (buildRuntime *buildDeployRuntime) buildPackage(
 		mode        fs.FileMode
 	}{
 		{filepath.Join(options.Repo, "packaging/local/lmm-api-go/PKGBUILD"), filepath.Join(buildDir, "PKGBUILD"), 0o644},
-		{binary, filepath.Join(buildDir, ProgramName), 0o755},
+		{binary, filepath.Join(buildDir, backendGoName), 0o755},
 		{filepath.Join(options.Repo, "packaging/common/lmm-api/lmm-api.service"), filepath.Join(buildDir, "lmm-api.service"), 0o644},
 		{filepath.Join(options.Repo, "packaging/common/lmm-api/lmm-api-go.env"), filepath.Join(buildDir, "lmm-api-go.env"), 0o600},
 		{filepath.Join(options.Repo, "packaging/common/lmm-api/lmm-api-operator.sysusers"), filepath.Join(buildDir, "lmm-api-operator.sysusers"), 0o644},

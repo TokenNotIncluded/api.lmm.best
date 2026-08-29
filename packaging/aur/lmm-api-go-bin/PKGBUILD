@@ -14,16 +14,8 @@ optdepends=(
   'valkey: cache, rate limiting, and login sessions'
 )
 source "${startdir:?}/lmm-api-cli-phase.sh"
-_lmm_declared_cli_phase='t0'
-if (( $(vercmp "$pkgver" 0.1.63) >= 0 )); then
-  lmm_cli_phase_validate "$_lmm_declared_cli_phase" || return 1
-  _lmm_cli_phase=$_lmm_declared_cli_phase
-else
-  [[ -z $_lmm_declared_cli_phase ]] || return 1
-  _lmm_cli_phase=$(lmm_cli_phase_for_binary_release "$pkgver")
-fi
-lmm_cli_phase_apply_metadata "$_lmm_cli_phase" "$pkgver" \
-  'lmm-api' 'lmm-api-bin' 'lmm-api-git' 'lmm-api-go' 'lmm-api-go-git'
+lmm_go_provider_apply_metadata "$pkgver" "$pkgname" \
+  'lmm-api-go' 'lmm-api-go-bin' 'lmm-api-go-git'
 backup=('etc/lmm-api-go/lmm-api-go.env')
 options=('!strip')
 
@@ -46,7 +38,7 @@ source_aarch64=(
   "${_artifact}-arm64.tar.gz.sigstore.json::${_release_base}/${_artifact}-arm64.tar.gz.sigstore.json"
 )
 noextract=("${_artifact}-amd64.tar.gz" "${_artifact}-arm64.tar.gz")
-sha256sums=('2b93864b302a7901a4688fd5b7df9b7e262f193a666a915718f434db20054935')
+sha256sums=('aec051c3b12a86a228f92651865e16b309f36a9071dcf02e28edd9e18d3b4e19')
 sha256sums_x86_64=(
   'b5f7e5347ce60c30f4a462e5904ef24b39bc9bd2c6e5c5b681d529915ca34d88'
   '36f124b8ba97da51a7946cf4d9aa0c6796c6bfea72392ea19735cc680f4bde72'
@@ -81,12 +73,14 @@ prepare() {
   bsdtar -xf "${archive}"
 
   local bundle="${srcdir}/${_artifact}-${_release_arch}"
-  if [[ ${pkgver} == "${_legacy_cli_archive_version}" || ${pkgver} == "${_legacy_bundled_version}" ]]; then
-    [[ -f ${bundle}/lmm-api-go && ! -L ${bundle}/lmm-api-go ]] || return 1
-    [[ ! -e ${bundle}/lmm-api ]] || return 1
-  else
+  if lmm_go_provider_is_verified_legacy_release "$pkgver"; then
+    # Explicit N-1 migration evidence: go-v0.1.69 shipped the provider payload
+    # as lmm-api. Only this signed release may be remapped to lmm-api-go.
     [[ -f ${bundle}/lmm-api && ! -L ${bundle}/lmm-api ]] || return 1
-    [[ ! -e ${bundle}/lmm-api-go ]] || return 1
+    [[ ! -e ${bundle}/lmm-api-go && ! -L ${bundle}/lmm-api-go ]] || return 1
+  else
+    [[ -f ${bundle}/lmm-api-go && ! -L ${bundle}/lmm-api-go ]] || return 1
+    [[ ! -e ${bundle}/lmm-api && ! -L ${bundle}/lmm-api ]] || return 1
   fi
   if [[ ${pkgver} == "${_legacy_bundled_version}" ]]; then
     [[ -f ${bundle}/frontend-dist/index.html ]] || return 1
@@ -107,21 +101,21 @@ prepare() {
     [[ -f ${bundle}/CLI_TRANSITION_PHASE && ! -L ${bundle}/CLI_TRANSITION_PHASE ]] || return 1
   fi
   if [[ -f ${bundle}/CLI_TRANSITION_PHASE ]]; then
-    [[ $(<"${bundle}/CLI_TRANSITION_PHASE") == "${_lmm_cli_phase}" ]] || return 1
+    [[ $(<"${bundle}/CLI_TRANSITION_PHASE") == t0 ]] || return 1
   fi
 }
 
 package() {
   local archive="${_artifact}-${_release_arch}.tar.gz"
   local bundle="${srcdir}/${_artifact}-${_release_arch}"
-  local cli=lmm-api
+  local cli=lmm-api-go
   local file release_asset_sha256
 
-  if [[ ${pkgver} == "${_legacy_cli_archive_version}" || ${pkgver} == "${_legacy_bundled_version}" ]]; then
-    cli=lmm-api-go
+  if lmm_go_provider_is_verified_legacy_release "$pkgver"; then
+    cli=lmm-api
   fi
-  install -Dm0755 "${bundle}/${cli}" "${pkgdir}/usr/bin/lmm-api"
-  lmm_cli_phase_install_compatibility_alias "$_lmm_cli_phase" "$pkgdir"
+  install -Dm0755 "${bundle}/${cli}" "${pkgdir}/usr/bin/lmm-api-go"
+  lmm_go_provider_assert_payload "$pkgdir"
   install -Dm0644 "${bundle}/lmm-api.service" \
     "${pkgdir}/usr/lib/systemd/system/lmm-api.service"
   install -d -m0700 "${pkgdir}/etc/lmm-api-go"

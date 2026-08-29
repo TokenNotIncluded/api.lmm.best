@@ -45,6 +45,8 @@ func RunDeploy(args []string, stdout, stderr io.Writer) int {
 		return runBuildDeploy(args[1:], stdout, stderr)
 	case "frontend":
 		return runFrontendDeploy(args[1:], stdout, stderr)
+	case "contract":
+		return runDeployContract(args[1:], stdout, stderr)
 	case "production":
 		return runProductionDeploy(args[1:], stdout, stderr)
 	case "help", "--help", "-h":
@@ -62,6 +64,7 @@ func writeDeployUsage(output io.Writer) {
   %s deploy build --repo DIR --workspace DIR [--output-dir DIR] [--version VERSION] [--production]
   %s deploy frontend publish --source DIR --release ID [--root DIR] [--keep N]
   %s deploy frontend rollback [--release ID] [--root DIR] [--keep N]
+  %s deploy contract route print|generate|verify [REVISION_FILE]
   %s deploy production harden [--env-file FILE] [--drop-in-dir DIR]
   %s deploy production edge-policy install|verify [--asset-root DIR] [--backup-dir DIR]
   %s deploy production plan --repo DIR --workspace DIR --deployment-id ID \
@@ -76,7 +79,7 @@ func writeDeployUsage(output io.Writer) {
 Production Go changes require --with-backups and the verified target, controller, and off-host copies.
 Web-only releases may omit backups.
 Target-only recovery commands are listed by the production command's usage.
-`, ProgramName, ProgramName, ProgramName, ProgramName, ProgramName, ProgramName, ProgramName)
+`, ProgramName, ProgramName, ProgramName, ProgramName, ProgramName, ProgramName, ProgramName, ProgramName)
 }
 
 func runFrontendDeploy(args []string, stdout, stderr io.Writer) int {
