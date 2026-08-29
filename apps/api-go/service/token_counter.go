@@ -19,6 +19,10 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+func imageTokenQuota(imageTokens int, multiplier float64) int {
+	return common.QuotaRound(float64(imageTokens) * multiplier)
+}
+
 func getImageToken(c *gin.Context, fileMeta *types.FileMeta, model string, stream bool) (int, error) {
 	if fileMeta == nil || fileMeta.Source == nil {
 		return 0, fmt.Errorf("image_url_is_nil")
@@ -140,11 +144,11 @@ func getImageToken(c *gin.Context, fileMeta *types.FileMeta, model string, strea
 			if imageTokens > 1536 {
 				imageTokens = 1536
 			}
-			return int(math.Round(float64(imageTokens) * multiplier)), nil
+			return imageTokenQuota(imageTokens, multiplier), nil
 		}
 		// below cap
 		imageTokens := rawPatches
-		return int(math.Round(float64(imageTokens) * multiplier)), nil
+		return imageTokenQuota(imageTokens, multiplier), nil
 	}
 
 	// Tile-based calculation for 4o/4.1/4.5/o1/o3/etc.

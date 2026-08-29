@@ -76,15 +76,40 @@ func (s *textQuotaSummary) hasBillableUsage() bool {
 	return s.TotalTokens > 0 || !s.ToolCallSurchargeQuota.IsZero()
 }
 
+func nonNegativeTokenCount(value int) int {
+	if value < 0 {
+		return 0
+	}
+	return value
+}
+
+func saturatingTokenCountAdd(left, right int) int {
+	left = nonNegativeTokenCount(left)
+	right = nonNegativeTokenCount(right)
+	if right > math.MaxInt-left {
+		return math.MaxInt
+	}
+	return left + right
+}
+
+func subtractTokenCountFloorZero(total, part int) int {
+	total = nonNegativeTokenCount(total)
+	part = nonNegativeTokenCount(part)
+	if part >= total {
+		return 0
+	}
+	return total - part
+}
+
 func cacheWriteTokensTotal(summary textQuotaSummary) int {
 	if summary.CacheCreationTokens5m > 0 || summary.CacheCreationTokens1h > 0 {
-		splitCacheWriteTokens := summary.CacheCreationTokens5m + summary.CacheCreationTokens1h
+		splitCacheWriteTokens := saturatingTokenCountAdd(summary.CacheCreationTokens5m, summary.CacheCreationTokens1h)
 		if summary.CacheCreationTokens > splitCacheWriteTokens {
 			return summary.CacheCreationTokens
 		}
 		return splitCacheWriteTokens
 	}
-	return summary.CacheCreationTokens
+	return nonNegativeTokenCount(summary.CacheCreationTokens)
 }
 
 func isLegacyClaudeDerivedOpenAIUsage(relayInfo *relaycommon.RelayInfo, usage *dto.Usage) bool {
@@ -257,22 +282,26 @@ func calculateTextQuotaSummary(ctx *gin.Context, relayInfo *relaycommon.RelayInf
 		}
 	}
 
-	summary.PromptTokens = usage.PromptTokens
-	summary.CompletionTokens = usage.CompletionTokens
-	summary.TotalTokens = usage.PromptTokens + usage.CompletionTokens
-	summary.CacheTokens = usage.PromptTokensDetails.CachedTokens
-	summary.CacheCreationTokens = usage.PromptTokensDetails.CacheCreationTokensTotal()
-	summary.CacheCreationTokens5m = usage.ClaudeCacheCreation5mTokens
-	summary.CacheCreationTokens1h = usage.ClaudeCacheCreation1hTokens
-	summary.ImageTokens = usage.PromptTokensDetails.ImageTokens
-	summary.AudioTokens = usage.PromptTokensDetails.AudioTokens
+	summary.PromptTokens = nonNegativeTokenCount(usage.PromptTokens)
+	summary.CompletionTokens = nonNegativeTokenCount(usage.CompletionTokens)
+	summary.TotalTokens = saturatingTokenCountAdd(summary.PromptTokens, summary.CompletionTokens)
+	summary.CacheTokens = nonNegativeTokenCount(usage.PromptTokensDetails.CachedTokens)
+	summary.CacheCreationTokens5m = nonNegativeTokenCount(usage.ClaudeCacheCreation5mTokens)
+	summary.CacheCreationTokens1h = nonNegativeTokenCount(usage.ClaudeCacheCreation1hTokens)
+	summary.CacheCreationTokens = cacheWriteTokensTotal(textQuotaSummary{
+		CacheCreationTokens:   nonNegativeTokenCount(usage.PromptTokensDetails.CacheCreationTokensTotal()),
+		CacheCreationTokens5m: summary.CacheCreationTokens5m,
+		CacheCreationTokens1h: summary.CacheCreationTokens1h,
+	})
+	summary.ImageTokens = nonNegativeTokenCount(usage.PromptTokensDetails.ImageTokens)
+	summary.AudioTokens = nonNegativeTokenCount(usage.PromptTokensDetails.AudioTokens)
 	legacyClaudeDerived := isLegacyClaudeDerivedOpenAIUsage(relayInfo, usage)
 	isOpenRouterClaudeBilling := relayInfo.ChannelMeta != nil &&
 		relayInfo.ChannelType == constant.ChannelTypeOpenRouter &&
 		summary.IsClaudeUsageSemantic
 
 	if isOpenRouterClaudeBilling {
-		summary.PromptTokens -= summary.CacheTokens
+		summary.PromptTokens = subtractTokenCountFloorZero(summary.PromptTokens, summary.CacheTokens)
 		isUsingCustomSettings := relayInfo.PriceData.UsePrice || hasCustomModelRatio(summary.ModelName, relayInfo.PriceData.ModelRatio)
 		if summary.CacheCreationTokens == 0 && relayInfo.PriceData.CacheCreationRatio != 1 && usage.Cost != 0 && !isUsingCustomSettings {
 			maybeCacheCreationTokens := CalcOpenRouterCacheCreateTokens(*usage, relayInfo.PriceData)
@@ -280,7 +309,7 @@ func calculateTextQuotaSummary(ctx *gin.Context, relayInfo *relaycommon.RelayInf
 				summary.CacheCreationTokens = maybeCacheCreationTokens
 			}
 		}
-		summary.PromptTokens -= summary.CacheCreationTokens
+		summary.PromptTokens = subtractTokenCountFloorZero(summary.PromptTokens, summary.CacheCreationTokens)
 	}
 
 	dPromptTokens := decimal.NewFromInt(int64(summary.PromptTokens))
@@ -322,10 +351,8 @@ func calculateTextQuotaSummary(ctx *gin.Context, relayInfo *relaycommon.RelayInf
 				baseTokens = baseTokens.Sub(dCachedCreationTokens)
 				cachedCreationTokensWithRatio = dCachedCreationTokens.Mul(dCacheCreationRatio)
 			} else {
-				remaining := summary.CacheCreationTokens - summary.CacheCreationTokens5m - summary.CacheCreationTokens1h
-				if remaining < 0 {
-					remaining = 0
-				}
+				remaining := subtractTokenCountFloorZero(summary.CacheCreationTokens, summary.CacheCreationTokens5m)
+				remaining = subtractTokenCountFloorZero(remaining, summary.CacheCreationTokens1h)
 				cachedCreationTokensWithRatio = decimal.NewFromInt(int64(remaining)).Mul(dCacheCreationRatio)
 				cachedCreationTokensWithRatio = cachedCreationTokensWithRatio.Add(decimal.NewFromInt(int64(summary.CacheCreationTokens5m)).Mul(dCacheCreationRatio5m))
 				cachedCreationTokensWithRatio = cachedCreationTokensWithRatio.Add(decimal.NewFromInt(int64(summary.CacheCreationTokens1h)).Mul(dCacheCreationRatio1h))

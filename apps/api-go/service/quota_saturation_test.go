@@ -1,12 +1,15 @@
 package service
 
 import (
+	"math"
 	"net/http"
 	"testing"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	relaycommon "github.com/LIghtJUNction/api.lmm.best/relay/common"
-	"github.com/LIghtJUNction/api.lmm.best/relaykit/types"
+	"github.com/LIghtJUNction/api.lmm.best/relaykit/dto"
+	relaytypes "github.com/LIghtJUNction/api.lmm.best/relaykit/types"
+	hosttypes "github.com/LIghtJUNction/api.lmm.best/types"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -90,7 +93,7 @@ func TestPreConsumeBillingRejectsSaturatedQuotaBeforeDeduction(t *testing.T) {
 	apiErr := PreConsumeBilling(c, common.MaxQuota, info)
 
 	require.NotNil(t, apiErr)
-	require.Equal(t, types.ErrorCodeModelPriceError, apiErr.GetErrorCode())
+	require.Equal(t, relaytypes.ErrorCodeModelPriceError, apiErr.GetErrorCode())
 	require.Equal(t, http.StatusBadRequest, apiErr.StatusCode)
 	require.Same(t, info.QuotaClamp, apiErr.Err)
 	var clamp *common.QuotaClamp
@@ -107,7 +110,28 @@ func TestPreConsumeBillingRejectsNegativeQuotaBeforeDeduction(t *testing.T) {
 	apiErr := PreConsumeBilling(c, -1, info)
 
 	require.NotNil(t, apiErr)
-	require.Equal(t, types.ErrorCodeModelPriceError, apiErr.GetErrorCode())
+	require.Equal(t, relaytypes.ErrorCodeModelPriceError, apiErr.GetErrorCode())
 	require.Equal(t, http.StatusBadRequest, apiErr.StatusCode)
 	require.Nil(t, info.Billing)
+}
+
+func TestCalcOpenRouterCacheCreateTokensRejectsNonFiniteAndOverflow(t *testing.T) {
+	priceData := hosttypes.PriceData{
+		ModelRatio:         500,
+		CompletionRatio:    1,
+		CacheRatio:         0.1,
+		CacheCreationRatio: 2,
+	}
+
+	valid := dto.Usage{Cost: float64(1)}
+	require.Equal(t, 1000, CalcOpenRouterCacheCreateTokens(valid, priceData))
+
+	for _, cost := range []float64{math.MaxFloat64, math.Inf(1), math.Inf(-1), math.NaN()} {
+		usage := dto.Usage{Cost: cost}
+		require.Equal(t, -1, CalcOpenRouterCacheCreateTokens(usage, priceData), "cost=%v must fail safe", cost)
+	}
+
+	invalidRatio := priceData
+	invalidRatio.CacheCreationRatio = math.NaN()
+	require.Equal(t, -1, CalcOpenRouterCacheCreateTokens(valid, invalidRatio))
 }

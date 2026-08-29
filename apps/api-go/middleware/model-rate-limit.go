@@ -226,7 +226,7 @@ func redisRateLimitHandler(duration int64, totalMaxCount, successMaxCount int) g
 			allowed, err = tb.Allow(
 				ctx,
 				totalKey,
-				limiter.WithCapacity(int64(totalMaxCount)*duration),
+				limiter.WithCapacity(rateLimitCapacity(totalMaxCount, duration)),
 				limiter.WithRate(int64(totalMaxCount)),
 				limiter.WithRequested(duration),
 			)

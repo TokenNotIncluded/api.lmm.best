@@ -103,7 +103,7 @@ func calcViolationFeeQuota(amount, groupRatio float64) int {
 	if groupRatio <= 0 {
 		return 0
 	}
-	quota := common.QuotaFromFloat(amount * common.QuotaPerUnit * groupRatio)
+	quota := common.QuotaRound(amount * common.QuotaPerUnit * groupRatio)
 	if quota <= 0 {
 		return 0
 	}

@@ -7,6 +7,30 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestBatchQuotaAccumulatorNeverWraps(t *testing.T) {
+	resetBatchUpdateTestState(t)
+
+	addNewRecord(BatchUpdateTypeUserQuota, 1, common.MaxQuota)
+	addNewRecord(BatchUpdateTypeUserQuota, 1, common.MaxQuota)
+	batchUpdateLocks[BatchUpdateTypeUserQuota].Lock()
+	require.Equal(t, common.MaxQuota*2, batchUpdateStores[BatchUpdateTypeUserQuota][1])
+	batchUpdateLocks[BatchUpdateTypeUserQuota].Unlock()
+
+	resetBatchUpdateTestState(t)
+	addNewRecord(BatchUpdateTypeUserQuota, 1, common.MaxWalletQuota)
+	addNewRecord(BatchUpdateTypeUserQuota, 1, 1)
+	batchUpdateLocks[BatchUpdateTypeUserQuota].Lock()
+	require.Equal(t, common.MaxWalletQuota, batchUpdateStores[BatchUpdateTypeUserQuota][1])
+	batchUpdateLocks[BatchUpdateTypeUserQuota].Unlock()
+
+	resetBatchUpdateTestState(t)
+	addNewRecord(BatchUpdateTypeUserQuota, 1, common.MinWalletQuota)
+	addNewRecord(BatchUpdateTypeUserQuota, 1, -1)
+	batchUpdateLocks[BatchUpdateTypeUserQuota].Lock()
+	require.Equal(t, common.MinWalletQuota, batchUpdateStores[BatchUpdateTypeUserQuota][1])
+	batchUpdateLocks[BatchUpdateTypeUserQuota].Unlock()
+}
+
 func TestQuotaReserveFallsBackToConditionalDatabaseBalance(t *testing.T) {
 	truncateTables(t)
 	previousRedis := common.RedisEnabled
