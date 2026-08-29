@@ -35,6 +35,13 @@ func PreConsumeBilling(c *gin.Context, preConsumedQuota int, relayInfo *relaycom
 			types.ErrOptionWithSkipRetry(),
 		)
 	}
+	// A zero estimate may bypass both token and funding authorization. Only a
+	// server-derived FreeModel contract may retain zero; every other request
+	// reserves at least one quota unit and settles the actual amount later.
+	if preConsumedQuota == 0 && relayInfo != nil && !relayInfo.PriceData.FreeModel {
+		preConsumedQuota = 1
+		relayInfo.PriceData.QuotaToPreConsume = 1
+	}
 	var session *BillingSession
 	var apiErr *types.NewAPIError
 	if relayInfo != nil && relayInfo.IsAssistant {

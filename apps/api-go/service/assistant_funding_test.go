@@ -3,11 +3,14 @@ package service
 import (
 	"errors"
 	"fmt"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/LIghtJUNction/api.lmm.best/model"
+	relaycommon "github.com/LIghtJUNction/api.lmm.best/relay/common"
+	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -38,6 +41,22 @@ func setupAssistantFundingTestDB(t *testing.T, quota int) (*gorm.DB, int) {
 		}
 	})
 	return db, user.Id
+}
+
+func TestPreConsumeBillingPromotesAssistantZeroEstimate(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, rootUserID := setupAssistantFundingTestDB(t, 1)
+	info := &relaycommon.RelayInfo{UserId: rootUserID, IsAssistant: true}
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+
+	apiErr := PreConsumeBilling(ctx, 0, info)
+
+	require.Nil(t, apiErr)
+	require.NotNil(t, info.Billing)
+	require.Equal(t, 1, info.Billing.GetPreConsumedQuota())
+	var root model.User
+	require.NoError(t, db.First(&root, rootUserID).Error)
+	require.Zero(t, root.Quota)
 }
 
 func TestAssistantFundingChargesSuperAdministratorWallet(t *testing.T) {

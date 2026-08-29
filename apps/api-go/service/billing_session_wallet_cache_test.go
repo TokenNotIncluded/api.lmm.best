@@ -34,7 +34,7 @@ func setupBillingSessionWalletCacheTest(t *testing.T) *gorm.DB {
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	require.NoError(t, err)
 	model.DB = db
-	require.NoError(t, db.AutoMigrate(&model.User{}))
+	require.NoError(t, db.AutoMigrate(&model.User{}, &model.Token{}))
 
 	t.Cleanup(func() {
 		_ = common.RDB.Close()
@@ -57,6 +57,20 @@ func cacheWalletQuotaForBillingTest(t *testing.T, userID int, quota int) {
 	require.NoError(t, err)
 }
 
+func cacheBillingTokenForTest(t *testing.T, token model.Token) {
+	t.Helper()
+	key := fmt.Sprintf("token:%s", common.GenerateHMAC(token.Key))
+	err := common.RDB.HSet(context.Background(), key,
+		"Id", token.Id,
+		"UserId", token.UserId,
+		"Status", token.Status,
+		"RemainQuota", token.RemainQuota,
+		"UsedQuota", token.UsedQuota,
+		"UnlimitedQuota", token.UnlimitedQuota,
+	).Err()
+	require.NoError(t, err)
+}
+
 func walletBillingRelayInfo(userID int) *relaycommon.RelayInfo {
 	return &relaycommon.RelayInfo{
 		UserId:         userID,
@@ -66,6 +80,56 @@ func walletBillingRelayInfo(userID int) *relaycommon.RelayInfo {
 			BillingPreference: "wallet_only",
 		},
 	}
+}
+
+func TestPreConsumeBillingPromotesUnverifiedZeroEstimate(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupBillingSessionWalletCacheTest(t)
+	user := model.User{
+		Username: "billing-zero-estimate",
+		Password: "password",
+		Status:   common.UserStatusEnabled,
+		Quota:    1,
+	}
+	require.NoError(t, db.Create(&user).Error)
+	info := walletBillingRelayInfo(user.Id)
+
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	apiErr := PreConsumeBilling(ctx, 0, info)
+
+	require.Nil(t, apiErr)
+	require.NotNil(t, info.Billing)
+	require.Equal(t, 1, info.Billing.GetPreConsumedQuota())
+	require.Equal(t, 1, info.PriceData.QuotaToPreConsume)
+
+	var stored model.User
+	require.NoError(t, db.First(&stored, user.Id).Error)
+	require.Zero(t, stored.Quota)
+}
+
+func TestPreConsumeBillingAllowsVerifiedFreeModelZero(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupBillingSessionWalletCacheTest(t)
+	user := model.User{
+		Username: "billing-verified-free",
+		Password: "password",
+		Status:   common.UserStatusEnabled,
+		Quota:    1,
+	}
+	require.NoError(t, db.Create(&user).Error)
+	info := walletBillingRelayInfo(user.Id)
+	info.PriceData.FreeModel = true
+
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	apiErr := PreConsumeBilling(ctx, 0, info)
+
+	require.Nil(t, apiErr)
+	require.NotNil(t, info.Billing)
+	require.Zero(t, info.Billing.GetPreConsumedQuota())
+
+	var stored model.User
+	require.NoError(t, db.First(&stored, user.Id).Error)
+	require.Equal(t, 1, stored.Quota)
 }
 
 func TestNewBillingSessionRejectsStaleHighWalletCache(t *testing.T) {
@@ -90,6 +154,62 @@ func TestNewBillingSessionRejectsStaleHighWalletCache(t *testing.T) {
 	var stored model.User
 	require.NoError(t, db.First(&stored, user.Id).Error)
 	require.Zero(t, stored.Quota)
+}
+
+func TestNewBillingSessionReservesFiniteTokenAndWallet(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupBillingSessionWalletCacheTest(t)
+	user := model.User{Username: "billing-finite-token", Password: "password", Status: common.UserStatusEnabled, Quota: 100}
+	require.NoError(t, db.Create(&user).Error)
+	token := model.Token{UserId: user.Id, Key: "billing-finite-token-key", Name: "billing finite", RemainQuota: 100}
+	require.NoError(t, db.Create(&token).Error)
+	cacheBillingTokenForTest(t, token)
+	info := walletBillingRelayInfo(user.Id)
+	info.IsPlayground = false
+	info.TokenUnlimited = false
+	info.TokenId = token.Id
+	info.TokenKey = token.Key
+
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	session, apiErr := NewBillingSession(ctx, info, 10)
+
+	require.Nil(t, apiErr)
+	require.NotNil(t, session)
+	var storedUser model.User
+	require.NoError(t, db.First(&storedUser, user.Id).Error)
+	require.Equal(t, 90, storedUser.Quota)
+	var storedToken model.Token
+	require.NoError(t, db.First(&storedToken, token.Id).Error)
+	require.Equal(t, 90, storedToken.RemainQuota)
+}
+
+func TestBillingSessionRollsBackFiniteTokenWhenWalletReserveFails(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupBillingSessionWalletCacheTest(t)
+	user := model.User{Username: "billing-token-rollback", Password: "password", Status: common.UserStatusEnabled, Quota: 5}
+	require.NoError(t, db.Create(&user).Error)
+	token := model.Token{UserId: user.Id, Key: "billing-token-rollback-key", Name: "billing rollback", RemainQuota: 100}
+	require.NoError(t, db.Create(&token).Error)
+	cacheBillingTokenForTest(t, token)
+	info := walletBillingRelayInfo(user.Id)
+	info.IsPlayground = false
+	info.TokenUnlimited = false
+	info.TokenId = token.Id
+	info.TokenKey = token.Key
+	info.UserQuota = 100
+	session := &BillingSession{relayInfo: info, funding: &WalletFunding{userId: user.Id}}
+
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	apiErr := session.preConsume(ctx, 10)
+
+	require.NotNil(t, apiErr)
+	require.Equal(t, types.ErrorCodeInsufficientUserQuota, apiErr.GetErrorCode())
+	var storedUser model.User
+	require.NoError(t, db.First(&storedUser, user.Id).Error)
+	require.Equal(t, 5, storedUser.Quota)
+	var storedToken model.Token
+	require.NoError(t, db.First(&storedToken, token.Id).Error)
+	require.Equal(t, 100, storedToken.RemainQuota)
 }
 
 func TestNewBillingSessionAlwaysReservesTrustedWalletBalance(t *testing.T) {
