@@ -995,11 +995,25 @@ func getTopUpQuota(amount int64) (int, error) {
 	quotaPerUnit := decimal.NewFromFloat(common.QuotaPerUnit)
 	quota := decimal.NewFromInt(amount)
 	if operation_setting.GetQuotaDisplayType() == operation_setting.QuotaDisplayTypeTokens {
-		quota = decimal.NewFromInt(quota.Div(quotaPerUnit).IntPart()).Mul(quotaPerUnit)
+		quota = quota.Div(quotaPerUnit).Truncate(0).Mul(quotaPerUnit)
 	} else {
 		quota = quota.Mul(quotaPerUnit)
 	}
 	return common.WalletQuotaFromDecimalStrict(quota)
+}
+
+func nonNegativeDecimalInt64OrMax(value decimal.Decimal) int64 {
+	converted, ok := decimalInt64Truncated(value)
+	if ok {
+		if converted < 0 {
+			return 0
+		}
+		return converted
+	}
+	if value.IsPositive() {
+		return math.MaxInt64
+	}
+	return 0
 }
 
 func getMaxTopUpAmount() int64 {
@@ -1011,13 +1025,14 @@ func getMaxTopUpAmount() int64 {
 		Div(quotaPerUnit).
 		Floor()
 	if operation_setting.GetQuotaDisplayType() == operation_setting.QuotaDisplayTypeTokens {
-		return maxStoredAmount.Add(decimal.NewFromInt(1)).
-			Mul(quotaPerUnit).
-			Ceil().
-			Sub(decimal.NewFromInt(1)).
-			IntPart()
+		return nonNegativeDecimalInt64OrMax(
+			maxStoredAmount.Add(decimal.NewFromInt(1)).
+				Mul(quotaPerUnit).
+				Ceil().
+				Sub(decimal.NewFromInt(1)),
+		)
 	}
-	return maxStoredAmount.IntPart()
+	return nonNegativeDecimalInt64OrMax(maxStoredAmount)
 }
 
 func validateCreditedQuota(quota decimal.Decimal) (int, error) {

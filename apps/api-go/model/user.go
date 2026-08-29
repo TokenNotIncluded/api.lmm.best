@@ -1674,7 +1674,7 @@ func updateUserUsedQuotaAndRequestCount(id int, quota int, count int) {
 	err := DB.Model(&User{}).Where("id = ?", id).Updates(
 		map[string]interface{}{
 			"used_quota":           boundedQuotaCounterExpr("used_quota", quota),
-			"request_count":        boundedQuotaCounterExpr("request_count", count),
+			"request_count":        boundedInt32CounterExpr(count),
 			"last_api_activity_at": common.GetTimestamp(),
 		},
 	).Error
@@ -1705,7 +1705,7 @@ func updateUserQuotaUsedQuotaAndRequestCount(id int, quota int, usedQuota int, r
 	}
 	updates := map[string]interface{}{
 		"used_quota":           boundedQuotaCounterExpr("used_quota", usedQuota),
-		"request_count":        boundedQuotaCounterExpr("request_count", requestCount),
+		"request_count":        boundedInt32CounterExpr(requestCount),
 		"last_api_activity_at": common.GetTimestamp(),
 	}
 	if quota != 0 {

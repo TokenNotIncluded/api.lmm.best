@@ -2,6 +2,7 @@ package model
 
 import (
 	"errors"
+	"math"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"gorm.io/gorm"
@@ -50,21 +51,43 @@ func UpdateWalletQuotaByDelta(query *gorm.DB, delta int) *gorm.DB {
 	return guarded.UpdateColumn("quota", gorm.Expr("quota + ?", delta))
 }
 
+func currentWalletQuota(tx *gorm.DB, userID int) (int, error) {
+	var quota int
+	err := tx.Model(&User{}).Select("quota").Where("id = ?", userID).Take(&quota).Error
+	if err != nil {
+		return 0, err
+	}
+	return quota, nil
+}
+
 // ApplyWalletQuotaDelta updates one user's wallet and turns a failed boundary
 // predicate into a stable error. It does not touch Redis; callers must update
 // or invalidate cache only after the surrounding database transaction commits.
 func ApplyWalletQuotaDelta(tx *gorm.DB, userID int, delta int) error {
+	if tx == nil || userID <= 0 {
+		return gorm.ErrInvalidData
+	}
 	if delta == 0 {
+		quota, err := currentWalletQuota(tx, userID)
+		if err != nil {
+			return err
+		}
+		if err := common.ValidateWalletQuota(quota); err != nil {
+			return ErrWalletQuotaOutOfRange
+		}
 		return nil
 	}
 	result := UpdateWalletQuotaByDelta(tx.Model(&User{}).Where("id = ?", userID), delta)
 	if result.Error != nil {
 		return result.Error
 	}
-	if result.RowsAffected != 1 {
-		return ErrWalletQuotaOutOfRange
+	if result.RowsAffected == 1 {
+		return nil
 	}
-	return nil
+	if _, err := currentWalletQuota(tx, userID); err != nil {
+		return err
+	}
+	return ErrWalletQuotaOutOfRange
 }
 
 // boundedQuotaCounterExpr saturates cumulative non-wallet counters at the
@@ -72,7 +95,7 @@ func ApplyWalletQuotaDelta(tx *gorm.DB, userID int, delta int) error {
 // so they can be embedded portably in a CASE expression.
 func boundedQuotaCounterExpr(column string, delta int) clause.Expr {
 	switch column {
-	case "used_quota", "request_count", "aff_quota", "aff_history":
+	case "used_quota", "aff_quota", "aff_history":
 	default:
 		panic("unsupported bounded quota counter column")
 	}
@@ -85,5 +108,26 @@ func boundedQuotaCounterExpr(column string, delta int) clause.Expr {
 	return gorm.Expr(
 		"CASE WHEN "+column+" < ? THEN ? WHEN "+column+" > ? THEN ? ELSE "+column+" + ? END",
 		common.MinWalletQuota-delta, common.MinWalletQuota, common.MaxWalletQuota, common.MaxWalletQuota, delta,
+	)
+}
+
+// boundedInt32CounterExpr protects request_count's legacy INT column on
+// MySQL/PostgreSQL instead of applying the wider wallet bounds.
+func boundedInt32CounterExpr(delta int) clause.Expr {
+	if delta > math.MaxInt32 {
+		return gorm.Expr("?", math.MaxInt32)
+	}
+	if delta < math.MinInt32 {
+		return gorm.Expr("?", math.MinInt32)
+	}
+	if delta >= 0 {
+		return gorm.Expr(
+			"CASE WHEN request_count < ? THEN ? WHEN request_count > ? THEN ? ELSE request_count + ? END",
+			math.MinInt32, math.MinInt32, math.MaxInt32-delta, math.MaxInt32, delta,
+		)
+	}
+	return gorm.Expr(
+		"CASE WHEN request_count < ? THEN ? WHEN request_count > ? THEN ? ELSE request_count + ? END",
+		math.MinInt32-delta, math.MinInt32, math.MaxInt32, math.MaxInt32, delta,
 	)
 }

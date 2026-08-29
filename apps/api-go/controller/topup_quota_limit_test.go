@@ -87,6 +87,25 @@ func TestTopUpQuotaValidationRejectsNonFiniteQuotaPerUnit(t *testing.T) {
 	}
 }
 
+func TestTopUpQuotaAvoidsDecimalInt64Truncation(t *testing.T) {
+	oldQuotaPerUnit := common.QuotaPerUnit
+	oldDisplayType := operation_setting.GetGeneralSetting().QuotaDisplayType
+	common.QuotaPerUnit = 1e-20
+	t.Cleanup(func() {
+		common.QuotaPerUnit = oldQuotaPerUnit
+		operation_setting.GetGeneralSetting().QuotaDisplayType = oldDisplayType
+	})
+
+	operation_setting.GetGeneralSetting().QuotaDisplayType = operation_setting.QuotaDisplayTypeTokens
+	quota, err := getTopUpQuota(1)
+	require.NoError(t, err)
+	require.Equal(t, 1, quota)
+	require.Equal(t, int64(common.MaxWalletQuota), getMaxTopUpAmount())
+
+	operation_setting.GetGeneralSetting().QuotaDisplayType = operation_setting.QuotaDisplayTypeUSD
+	require.Equal(t, int64(math.MaxInt64), getMaxTopUpAmount())
+}
+
 func TestValidateTopUpQuotaReturnsMaximumAmount(t *testing.T) {
 	oldQuotaPerUnit := common.QuotaPerUnit
 	oldDisplayType := operation_setting.GetGeneralSetting().QuotaDisplayType

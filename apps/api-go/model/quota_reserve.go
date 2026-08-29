@@ -30,10 +30,16 @@ if tonumber(redis.call('HGET', KEYS[1], 'Id') or '0') ~= tonumber(ARGV[2])
   return -1
 end
 local quota = tonumber(redis.call('HGET', KEYS[1], 'Quota'))
-if quota == nil or quota < tonumber(ARGV[1]) then
+local amount = tonumber(ARGV[1])
+local minQuota = tonumber(ARGV[4])
+local maxQuota = tonumber(ARGV[5])
+if quota == nil or quota < minQuota or quota > maxQuota then
+  return -1
+end
+if quota < amount or quota - amount < minQuota then
   return 0
 end
-redis.call('HINCRBY', KEYS[1], 'Quota', -tonumber(ARGV[1]))
+redis.call('HINCRBY', KEYS[1], 'Quota', -amount)
 return 1`
 
 const userQuotaDeltaScript = `
@@ -42,7 +48,15 @@ if tonumber(redis.call('HGET', KEYS[1], 'Id') or '0') ~= tonumber(ARGV[2])
   or redis.call('HEXISTS', KEYS[1], 'Quota') == 0 then
   return -1
 end
-redis.call('HINCRBY', KEYS[1], 'Quota', tonumber(ARGV[1]))
+local quota = tonumber(redis.call('HGET', KEYS[1], 'Quota'))
+local delta = tonumber(ARGV[1])
+local minQuota = tonumber(ARGV[4])
+local maxQuota = tonumber(ARGV[5])
+if quota == nil or quota < minQuota or quota > maxQuota
+  or quota + delta < minQuota or quota + delta > maxQuota then
+  return -1
+end
+redis.call('HINCRBY', KEYS[1], 'Quota', delta)
 return 1`
 
 // Token hashes do not carry the user-cache schema, but they must contain the
@@ -89,13 +103,15 @@ func quotaResultFromLua(result int, err error) (cacheQuotaResult, error) {
 
 func cacheTryReserveUserQuota(userID int, amount int64) (cacheQuotaResult, error) {
 	result, err := common.RDB.Eval(context.Background(), userQuotaReserveScript,
-		[]string{getUserCacheKey(userID)}, amount, userID, userCacheSchemaVersion).Int()
+		[]string{getUserCacheKey(userID)}, amount, userID, userCacheSchemaVersion,
+		common.MinWalletQuota, common.MaxWalletQuota).Int()
 	return quotaResultFromLua(result, err)
 }
 
 func cacheApplyUserQuotaDelta(userID int, delta int64) (cacheQuotaResult, error) {
 	result, err := common.RDB.Eval(context.Background(), userQuotaDeltaScript,
-		[]string{getUserCacheKey(userID)}, delta, userID, userCacheSchemaVersion).Int()
+		[]string{getUserCacheKey(userID)}, delta, userID, userCacheSchemaVersion,
+		common.MinWalletQuota, common.MaxWalletQuota).Int()
 	return quotaResultFromLua(result, err)
 }
 
@@ -112,18 +128,27 @@ func cacheApplyTokenQuotaDelta(id int, key string, delta int64) (cacheQuotaResul
 }
 
 func persistUserQuotaDelta(id int, delta int) error {
-	// A successful reservation authorizes work immediately.  Unlike usage
-	// counters, it must survive a process restart before the batch updater
-	// runs; otherwise Redis can retain the reservation while the database loses
-	// its matching debit (and a later refund can no longer be reconciled).
-	result := DB.Model(&User{}).Where("id = ?", id).Update("quota", gorm.Expr("quota + ?", delta))
+	// Redis is only a fast reservation hint. The durable update repeats both
+	// the sufficient-balance predicate and the wallet bounds, so a stale cache
+	// fill can never authorize an overdraft.
+	query := DB.Model(&User{}).Where("id = ?", id)
+	if delta < 0 {
+		if err := common.ValidateWalletQuota(delta); err != nil {
+			return err
+		}
+		query = query.Where("quota >= ?", -delta)
+	}
+	result := UpdateWalletQuotaByDelta(query, delta)
 	if result.Error != nil {
 		return result.Error
 	}
-	if result.RowsAffected != 1 {
-		return gorm.ErrRecordNotFound
+	if result.RowsAffected == 1 {
+		return nil
 	}
-	return nil
+	if _, err := currentWalletQuota(DB, id); err != nil {
+		return err
+	}
+	return ErrWalletQuotaOutOfRange
 }
 
 func persistTokenQuotaDelta(id int, delta int) error {
@@ -146,9 +171,10 @@ func persistTokenQuotaDelta(id int, delta int) error {
 }
 
 func reserveUserQuotaDB(id int, quota int) (bool, error) {
-	result := DB.Model(&User{}).
-		Where("id = ? AND quota >= ?", id, quota).
-		Update("quota", gorm.Expr("quota - ?", quota))
+	result := UpdateWalletQuotaByDelta(
+		DB.Model(&User{}).Where("id = ? AND quota >= ?", id, quota),
+		-quota,
+	)
 	return result.RowsAffected == 1, result.Error
 }
 
@@ -170,6 +196,9 @@ func TryReserveUserQuota(id int, quota int) (bool, error) {
 	if quota < 0 {
 		return false, errors.New("quota 不能为负数！")
 	}
+	if err := common.ValidateWalletQuota(quota); err != nil {
+		return false, err
+	}
 	if quota == 0 {
 		return true, nil
 	}
@@ -190,9 +219,23 @@ func TryReserveUserQuota(id int, quota int) (bool, error) {
 		return reserveUserQuotaDB(id, quota)
 	}
 	if result == cacheQuotaInsufficient {
-		return false, nil
+		// A delayed cache fill can be lower than the committed balance after a
+		// credit. Recheck the authoritative conditional UPDATE before denying.
+		reserved, reserveErr := reserveUserQuotaDB(id, quota)
+		if reserved {
+			if invalidateErr := invalidateUserCache(id); invalidateErr != nil {
+				common.SysLog("failed to invalidate stale user quota cache: " + invalidateErr.Error())
+			}
+		}
+		return reserved, reserveErr
 	}
 	if err = persistUserQuotaDelta(id, -quota); err != nil {
+		if errors.Is(err, ErrWalletQuotaOutOfRange) || errors.Is(err, gorm.ErrRecordNotFound) {
+			if invalidateErr := invalidateUserCache(id); invalidateErr != nil {
+				common.SysLog("failed to invalidate stale user quota cache: " + invalidateErr.Error())
+			}
+			return false, nil
+		}
 		compensated, compensateErr := cacheApplyUserQuotaDelta(id, int64(quota))
 		if compensateErr != nil || compensated != cacheQuotaOK {
 			common.SysError(fmt.Sprintf("failed to compensate reserved user quota: result=%d error=%v", compensated, compensateErr))

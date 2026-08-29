@@ -1,6 +1,7 @@
 package model
 
 import (
+	"math"
 	"testing"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
@@ -62,6 +63,43 @@ func TestUpdateWalletQuotaByDeltaKeepsCallerPredicates(t *testing.T) {
 	assert.Zero(t, result.RowsAffected)
 	require.NoError(t, db.First(&user, user.Id).Error)
 	assert.Equal(t, 10, user.Quota)
+}
+
+func TestApplyWalletQuotaDeltaDistinguishesMissingUserAndValidatesZeroDelta(t *testing.T) {
+	db := openWalletQuotaTestDB(t)
+
+	err := ApplyWalletQuotaDelta(db, 91999, 1)
+	require.ErrorIs(t, err, gorm.ErrRecordNotFound)
+	err = ApplyWalletQuotaDelta(db, 91999, 0)
+	require.ErrorIs(t, err, gorm.ErrRecordNotFound)
+
+	user := User{Id: 91003, Username: "wallet-zero-delta", Status: common.UserStatusEnabled, Quota: 7}
+	require.NoError(t, db.Create(&user).Error)
+	require.NoError(t, ApplyWalletQuotaDelta(db, user.Id, 0))
+
+	require.NoError(t, db.Model(&User{}).Where("id = ?", user.Id).Update("quota", common.MaxWalletQuota+1).Error)
+	require.ErrorIs(t, ApplyWalletQuotaDelta(db, user.Id, 0), ErrWalletQuotaOutOfRange)
+}
+
+func TestRequestCountExpressionUsesLegacyInt32Bounds(t *testing.T) {
+	db := openWalletQuotaTestDB(t)
+	user := User{
+		Id:           91004,
+		Username:     "request-count-boundary",
+		Status:       common.UserStatusEnabled,
+		RequestCount: math.MaxInt32,
+	}
+	require.NoError(t, db.Create(&user).Error)
+
+	require.NoError(t, db.Model(&User{}).Where("id = ?", user.Id).
+		UpdateColumn("request_count", boundedInt32CounterExpr(1)).Error)
+	require.NoError(t, db.First(&user, user.Id).Error)
+	assert.Equal(t, math.MaxInt32, user.RequestCount)
+
+	require.NoError(t, db.Model(&User{}).Where("id = ?", user.Id).
+		UpdateColumn("request_count", boundedInt32CounterExpr(-math.MaxInt32-1)).Error)
+	require.NoError(t, db.First(&user, user.Id).Error)
+	assert.Equal(t, -1, user.RequestCount)
 }
 
 func TestSaturatingAddUsesWalletBoundsWithoutNativeIntWrap(t *testing.T) {
