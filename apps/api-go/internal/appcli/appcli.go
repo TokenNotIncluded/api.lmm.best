@@ -50,6 +50,8 @@ func Dispatch(args []string, version string, stdout, stderr io.Writer) Result {
 		return Result{ExitCode: RunRequest(args[1:], version, stdout, stderr)}
 	case "deploy":
 		return Result{ExitCode: RunDeploy(args[1:], stdout, stderr)}
+	case "backend":
+		return Result{ExitCode: runBackend(args[1:], stdout, stderr)}
 	case "geoip":
 		return Result{ExitCode: RunGeoIP(args[1:], stdout, stderr)}
 	case "status":
@@ -118,13 +120,17 @@ func WriteUsage(output io.Writer) {
     --plan FILE --plan-sha256 HEX --confirm api.lmm.best
   lmm-api deploy production edge-policy install|verify
   lmm-api geoip update
+  lmm-api backend status
+  lmm-api backend select go|rust
   lmm-api status [request options]
   lmm-api doctor [request options]
   lmm-api version
   lmm-api help
 
-The lmm-api executable is the Go backend itself. Migration mode is explicit:
---apply may change the database, while --verify is read-only. The request, status,
+The lmm-api invocation is a one-hop provider-selection symlink. This Go build is
+installed as lmm-api-go; backend status/select validates and atomically manages
+the canonical link. Migration mode is explicit: --apply may change the database,
+while --verify is read-only. The request, status,
 and doctor commands use the binary's native HTTP client and do not initialize the
 server, database, or cache. Deployment commands are implemented by this binary;
 they do not delegate release state to shell scripts.`)

@@ -361,6 +361,8 @@ type productionManifest struct {
 	OperatorBinarySHA256     string                       `json:"operator_binary_sha256,omitempty"`
 	ExpectedVersion          string                       `json:"expected_version"`
 	OldVersion               string                       `json:"old_version"`
+	PreviousProviderTarget   string                       `json:"previous_provider_target,omitempty"`
+	NewProviderTarget        string                       `json:"new_provider_target,omitempty"`
 	BackupDir                string                       `json:"backup_dir,omitempty"`
 	BackupsEnabled           bool                         `json:"backups_enabled"`
 	DatabaseBackupSHA256     string                       `json:"database_backup_sha256,omitempty"`

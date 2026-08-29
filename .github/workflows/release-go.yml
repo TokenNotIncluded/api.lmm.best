@@ -35,6 +35,12 @@ jobs:
           persist-credentials: false
           ref: ${{ github.sha }}
 
+      - name: Set up Go for the native deployment contract CLI
+        uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6.2.0
+        with:
+          go-version-file: apps/api-go/go.mod
+          cache: false
+
       - name: Verify version, ancestry, tag, and contract
         id: identity
         env:
@@ -64,7 +70,14 @@ jobs:
           [[ "$aur_version" != "$version" ]]
           [[ $(printf '%s\n%s\n' "$aur_version" "$version" | sort -V | tail -n 1) == "$version" ]]
 
-          contract_revision=$(deploy/production/api-route-contract-revision.sh print)
+          contract_cli_dir="$RUNNER_TEMP/lmm-api-route-contract"
+          mkdir -p "$contract_cli_dir"
+          (cd apps/api-go && go build -p 2 -trimpath -o "$contract_cli_dir/lmm-api-go" .)
+          ln -s lmm-api-go "$contract_cli_dir/lmm-api"
+          [[ $(readlink "$contract_cli_dir/lmm-api") == lmm-api-go ]]
+          [[ $(sha256sum "$contract_cli_dir/lmm-api" | cut -d' ' -f1) == \
+             $(sha256sum "$contract_cli_dir/lmm-api-go" | cut -d' ' -f1) ]]
+          contract_revision=$("$contract_cli_dir/lmm-api" deploy contract route print)
           {
             echo "contract_revision=$contract_revision"
             echo "version=$version"
@@ -187,10 +200,10 @@ jobs:
             cd apps/api-go
             go build -p 2 -trimpath \
               -ldflags="-s -w -X github.com/LIghtJUNction/api.lmm.best/common.Version=${RELEASE_VERSION}" \
-              -o "../../${bundle}/lmm-api" .
+              -o "../../${bundle}/lmm-api-go" .
           )
-          file "$bundle/lmm-api"
-          if ldd "$bundle/lmm-api" 2>&1 | grep -qvE 'not a dynamic executable|statically linked'; then
+          file "$bundle/lmm-api-go"
+          if ldd "$bundle/lmm-api-go" 2>&1 | grep -qvE 'not a dynamic executable|statically linked'; then
             echo 'Go release binary is dynamically linked' >&2
             exit 1
           fi
@@ -216,11 +229,17 @@ jobs:
           [[ "$cli_phase" == 't0' || "$cli_phase" == 't1' ]]
           install -m 0644 deploy/production/CLI_TRANSITION_PHASE "$bundle/CLI_TRANSITION_PHASE"
           printf '%s\n' "$RELEASE_REVISION" >"$bundle/REVISION"
-          deploy/production/api-route-contract-revision.sh generate \
+          provider_sha256=$(sha256sum "$bundle/lmm-api-go" | cut -d' ' -f1)
+          ln -s lmm-api-go "$bundle/lmm-api"
+          [[ $(readlink "$bundle/lmm-api") == lmm-api-go ]]
+          [[ $(sha256sum "$bundle/lmm-api" | cut -d' ' -f1) == "$provider_sha256" ]]
+          "$bundle/lmm-api" deploy contract route generate \
             "$bundle/API_ROUTE_CONTRACT_REVISION"
-          deploy/production/api-route-contract-revision.sh verify \
+          "$bundle/lmm-api" deploy contract route verify \
             "$bundle/API_ROUTE_CONTRACT_REVISION"
           [[ $(<"$bundle/API_ROUTE_CONTRACT_REVISION") == "$EXPECTED_CONTRACT_REVISION" ]]
+          rm -- "$bundle/lmm-api"
+          [[ ! -e "$bundle/lmm-api" && ! -L "$bundle/lmm-api" ]]
           [[ ! -e "$bundle/frontend-dist" ]]
           tar -czf "release-go/${artifact}.tar.gz" -C release-go "$artifact"
           (cd release-go && sha256sum "${artifact}.tar.gz" >"${artifact}.tar.gz.sha256")

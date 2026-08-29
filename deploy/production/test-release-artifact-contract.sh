@@ -103,11 +103,15 @@ for asset in lmm-api.service lmm-api-go.env edge-policy REVISION API_ROUTE_CONTR
   require_literal "$GO_WORKFLOW" "$asset" "Go release omits $asset"
 done
 # shellcheck disable=SC2016 # Deliberately inspect workflow source literals.
-require_literal "$GO_WORKFLOW" '-o "../../${bundle}/lmm-api"' \
-  'Go release archive does not contain the canonical CLI name'
+require_literal "$GO_WORKFLOW" '-o "../../${bundle}/lmm-api-go"' \
+  'Go release archive does not contain the real Go provider executable'
 # shellcheck disable=SC2016 # Deliberately inspect workflow source literals.
-reject_literal "$GO_WORKFLOW" '-o "../../${bundle}/lmm-api-go"' \
-  'Go release archive still emits the legacy CLI name'
+require_literal "$GO_WORKFLOW" 'ln -s lmm-api-go "$bundle/lmm-api"' \
+  'Go release does not construct the release-scoped canonical CLI symlink'
+require_literal "$GO_WORKFLOW" '"$bundle/lmm-api" deploy contract route generate' \
+  'Go release does not use the canonical CLI for contract generation'
+reject_literal "$GO_WORKFLOW" 'deploy/production/api-route-contract-revision.sh' \
+  'Go release still depends on the legacy route-contract script'
 for gate in 'git merge-base --is-ancestor' 'git rev-list -n 1' \
   'cosign sign-blob' 'cosign verify-blob' 'sha256sum --check'; do
   require_literal "$GO_WORKFLOW" "$gate" "Go release omits gate: $gate"
@@ -153,23 +157,20 @@ require_literal "$GO_PKGBUILD" '_legacy_cli_archive_version=0.1.57' \
   'Go package lost the explicit legacy CLI archive boundary'
 require_literal "$GO_PKGBUILD" 'RELEASE_ASSET_SHA256' \
   'Go package does not preserve its signed release-asset digest'
-require_literal "$GO_PKGBUILD" 'lmm_cli_phase_for_binary_release' \
-  'Go package does not derive its legacy phase from the shared transition contract'
-require_literal "$GO_PKGBUILD" 'CLI_TRANSITION_PHASE' \
-  'Go package does not preserve the signed explicit CLI transition phase'
+require_literal "$GO_PKGBUILD" 'lmm_go_provider_is_verified_legacy_release "$pkgver"' \
+  'Go package lost explicit verified 0.1.69 migration evidence'
+require_literal "$GO_PKGBUILD" 'usr/bin/lmm-api-go' \
+  'Go package does not install the real Go provider executable'
 # shellcheck disable=SC2016 # Deliberately match the literal PKGBUILD variable.
 require_literal "$GO_PKGBUILD" 'install -d -m0750 "${pkgdir}/etc/sudoers.d"' \
   'Go package changes the canonical sudoers.d directory mode'
-[[ $(<"$GO_CLI_PHASE") == t0 || $(<"$GO_CLI_PHASE") == t1 ]] ||
-  fail 'next Go release CLI transition phase is invalid'
 require_literal "$ROOT/packaging/common/lmm-api/lmm-api-cli-phase.sh" \
-  'LMM_CLI_T1_RELEASE=0.1.60' 'shared CLI phase helper lost the T1 boundary'
-require_literal "$ROOT/packaging/common/lmm-api/lmm-api-cli-phase.sh" \
-  "conflicts+=('lmm-api-deploy' 'lmm-api-deploy-bin')" \
-  'T1 helper does not conflict with legacy deploy packages'
-require_literal "$ROOT/packaging/common/lmm-api/lmm-api-cli-phase.sh" \
-  "replaces+=('lmm-api-deploy-bin')" \
-  'T1 helper does not replace the legacy deploy package'
+  'LMM_GO_LEGACY_MIGRATION_VERSION=0.1.69' \
+  'shared Go provider helper lost the explicit N-1 boundary'
+reject_literal "$ROOT/packaging/common/lmm-api/lmm-api-cli-phase.sh" \
+  "ln -s lmm-api" 'Go provider helper retains the reverse compatibility alias'
+reject_literal "$ROOT/packaging/common/lmm-api/lmm-api-cli-phase.sh" \
+  "lmm-api-deploy" 'Go provider helper still claims deploy package identities'
 # shellcheck disable=SC2016 # Deliberately inspect PKGBUILD source literals.
 require_literal "$GO_PKGBUILD" '[[ ! -e ${bundle}/frontend-dist ]]' \
   'future Go packages do not reject a bundled frontend'
@@ -207,8 +208,10 @@ for pkgbuild in \
   "$ROOT/packaging/aur/lmm-api-go/PKGBUILD" \
   "$ROOT/packaging/aur/lmm-api-go-git/PKGBUILD" \
   "$ROOT/packaging/local/lmm-api-go/PKGBUILD"; do
-  require_literal "$pkgbuild" 'lmm_cli_phase_install_compatibility_alias' \
-    "T0 Go package does not preserve the compatibility CLI: $pkgbuild"
+  require_literal "$pkgbuild" 'usr/bin/lmm-api-go"' \
+    "Go package omits its real provider executable: $pkgbuild"
+  reject_literal "$pkgbuild" 'usr/bin/lmm-api"' \
+    "Go package owns the canonical provider-selection link: $pkgbuild"
 done
 
 TMPDIR=${TMPDIR:?set TMPDIR to a marker-owned test workspace} \
