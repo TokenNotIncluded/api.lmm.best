@@ -691,11 +691,7 @@ export async function handleUpdateAllBalances(
   try {
     const response = await updateAllChannelsBalance()
     if (response.success) {
-      toast.success(
-        i18next.t(
-          'Updating all channel balances. This may take a while. Please refresh to see results.'
-        )
-      )
+      toast.success(i18next.t('Balance updated successfully'))
       queryClient?.invalidateQueries({ queryKey: channelsQueryKeys.lists() })
       onSuccess?.()
     } else {

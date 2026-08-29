@@ -568,18 +568,80 @@ export async function testAllChannels(): Promise<{
   return res.data
 }
 
-/**
- * Update balance for all enabled channels
- */
-export async function updateAllChannelsBalance(): Promise<{
+export interface ChannelBalanceRefreshFailure {
+  channel_id: number
+  code:
+    | 'provider_error'
+    | 'database_error'
+    | 'provider_response_unsupported'
+    | 'canceled'
+  message: string
+}
+
+export interface ChannelBalanceRefreshSummary {
+  attempted: number
+  updated: number
+  failed: number
+  failures: ChannelBalanceRefreshFailure[]
+  failures_omitted: number
+}
+
+export interface ChannelBalanceRefreshResponse {
   success: boolean
-  message?: string
-}> {
-  const res = await api.get(
-    '/api/channel/update_balance',
-    channelActionConfig()
+  degraded?: boolean
+  message: string
+  data: ChannelBalanceRefreshSummary
+}
+
+interface AxiosLikeError {
+  isAxiosError: true
+  response?: { data?: unknown }
+}
+
+function isAxiosLikeError(value: unknown): value is AxiosLikeError {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    Reflect.get(value, 'isAxiosError') === true
   )
-  return res.data
+}
+
+function isChannelBalanceRefreshResponse(
+  value: unknown
+): value is ChannelBalanceRefreshResponse {
+  if (typeof value !== 'object' || value === null) return false
+  const response = value as Partial<ChannelBalanceRefreshResponse>
+  return (
+    typeof response.success === 'boolean' &&
+    typeof response.message === 'string' &&
+    typeof response.data?.attempted === 'number' &&
+    typeof response.data.updated === 'number' &&
+    typeof response.data.failed === 'number' &&
+    Array.isArray(response.data.failures) &&
+    typeof response.data.failures_omitted === 'number'
+  )
+}
+
+/**
+ * Update balance for all enabled channels. Full refresh failures use an HTTP
+ * error status but still carry the same stable summary envelope.
+ */
+export async function updateAllChannelsBalance(): Promise<ChannelBalanceRefreshResponse> {
+  try {
+    const res = await api.get<ChannelBalanceRefreshResponse>(
+      '/api/channel/update_balance',
+      channelActionConfig()
+    )
+    return res.data
+  } catch (error) {
+    if (
+      isAxiosLikeError(error) &&
+      isChannelBalanceRefreshResponse(error.response?.data)
+    ) {
+      return error.response.data
+    }
+    throw error
+  }
 }
 
 /**

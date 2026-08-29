@@ -51,14 +51,26 @@ type OpenAIUsageDailyCost struct {
 	}
 }
 
-type OpenAICreditGrants struct {
-	Object         string  `json:"object"`
-	TotalGranted   float64 `json:"total_granted"`
-	TotalUsed      float64 `json:"total_used"`
-	TotalAvailable float64 `json:"total_available"`
+const (
+	maxAdvancedCustomBalanceResponseBytes = 256 << 10
+	maxChannelBalanceRefreshFailures      = 20
+)
+
+var errChannelBalanceNotUpdated = errors.New("provider response did not contain an updateable balance")
+
+type channelBalanceRefreshFailure struct {
+	ChannelID int    `json:"channel_id"`
+	Code      string `json:"code"`
+	Message   string `json:"message"`
 }
 
-const maxAdvancedCustomBalanceResponseBytes = 256 << 10
+type channelBalanceRefreshSummary struct {
+	Attempted       int                            `json:"attempted"`
+	Updated         int                            `json:"updated"`
+	Failed          int                            `json:"failed"`
+	Failures        []channelBalanceRefreshFailure `json:"failures"`
+	FailuresOmitted int                            `json:"failures_omitted"`
+}
 
 type channelBalanceResult struct {
 	Balance     float64
@@ -69,13 +81,6 @@ type OpenAIUsageResponse struct {
 	Object string `json:"object"`
 	//DailyCosts []OpenAIUsageDailyCost `json:"daily_costs"`
 	TotalUsage float64 `json:"total_usage"` // unit: 0.01 dollar
-}
-
-type OpenAISBUsageResponse struct {
-	Msg  string `json:"msg"`
-	Data *struct {
-		Credit string `json:"credit"`
-	} `json:"data"`
 }
 
 type AIProxyUserOverviewResponse struct {
@@ -183,48 +188,6 @@ func GetResponseBodyWithContext(ctx context.Context, method, url string, channel
 		return nil, err
 	}
 	return body, nil
-}
-
-func updateChannelCloseAIBalance(ctx context.Context, channel *model.Channel) (float64, error) {
-	url := fmt.Sprintf("%s/dashboard/billing/credit_grants", channel.GetBaseURL())
-	body, err := GetResponseBodyWithContext(ctx, "GET", url, channel, GetAuthHeader(channel.Key))
-
-	if err != nil {
-		return 0, err
-	}
-	response := OpenAICreditGrants{}
-	err = common.Unmarshal(body, &response)
-	if err != nil {
-		return 0, err
-	}
-	if err := channel.UpdateBalanceContext(ctx, response.TotalAvailable); err != nil {
-		return 0, err
-	}
-	return response.TotalAvailable, nil
-}
-
-func updateChannelOpenAISBBalance(ctx context.Context, channel *model.Channel) (float64, error) {
-	url := fmt.Sprintf("https://api.openai-sb.com/sb-api/user/status?api_key=%s", channel.Key)
-	body, err := GetResponseBodyWithContext(ctx, "GET", url, channel, GetAuthHeader(channel.Key))
-	if err != nil {
-		return 0, err
-	}
-	response := OpenAISBUsageResponse{}
-	err = common.Unmarshal(body, &response)
-	if err != nil {
-		return 0, err
-	}
-	if response.Data == nil {
-		return 0, errors.New(response.Msg)
-	}
-	balance, err := strconv.ParseFloat(response.Data.Credit, 64)
-	if err != nil {
-		return 0, err
-	}
-	if err := channel.UpdateBalanceContext(ctx, balance); err != nil {
-		return 0, err
-	}
-	return balance, nil
 }
 
 func updateChannelAIProxyBalance(ctx context.Context, channel *model.Channel) (float64, error) {
@@ -520,8 +483,6 @@ func updateStandardChannelBalance(ctx context.Context, channel *model.Channel) (
 		return 0, errors.New("尚未实现")
 	case constant.ChannelTypeCustom:
 		baseURL = channel.GetBaseURL()
-	//case common.ChannelTypeOpenAISB:
-	//	return updateChannelOpenAISBBalance(channel)
 	case constant.ChannelTypeAIProxy:
 		return updateChannelAIProxyBalance(ctx, channel)
 	case constant.ChannelTypeAPI2GPT:
@@ -608,66 +569,120 @@ func UpdateChannelBalance(c *gin.Context) {
 	c.JSON(http.StatusOK, response)
 }
 
-func updateAllChannelsBalance() error {
-	return updateAllChannelsBalanceContext(context.Background())
+type channelBalanceUpdater func(context.Context, *model.Channel) (channelBalanceResult, error)
+
+func channelBalanceRefreshFailureFor(channelID int, err error) channelBalanceRefreshFailure {
+	failure := channelBalanceRefreshFailure{
+		ChannelID: channelID,
+		Code:      "provider_error",
+		Message:   "provider balance refresh failed",
+	}
+	switch {
+	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
+		failure.Code = "canceled"
+		failure.Message = "channel balance refresh was canceled"
+	case errors.Is(err, model.ErrChannelBalanceUpdate):
+		failure.Code = "database_error"
+		failure.Message = "channel balance could not be saved"
+	case errors.Is(err, errChannelBalanceNotUpdated):
+		failure.Code = "provider_response_unsupported"
+		failure.Message = "provider response did not contain an updateable balance"
+	}
+	return failure
 }
 
-func updateAllChannelsBalanceContext(ctx context.Context) error {
-	channels, err := model.GetAllChannelsContext(ctx, 0, 0, true, false)
-	if err != nil {
-		return err
+func (summary *channelBalanceRefreshSummary) addFailure(channelID int, err error) {
+	summary.Failed++
+	if len(summary.Failures) < maxChannelBalanceRefreshFailures {
+		summary.Failures = append(summary.Failures, channelBalanceRefreshFailureFor(channelID, err))
+		return
 	}
+	summary.FailuresOmitted++
+}
+
+func refreshChannelBalancesContext(
+	ctx context.Context,
+	channels []*model.Channel,
+	updater channelBalanceUpdater,
+	requestInterval time.Duration,
+) (channelBalanceRefreshSummary, error) {
+	summary := channelBalanceRefreshSummary{Failures: make([]channelBalanceRefreshFailure, 0)}
 	for _, channel := range channels {
 		if err := ctx.Err(); err != nil {
-			return err
+			return summary, err
 		}
-		if channel.Status != common.ChannelStatusEnabled {
+		if channel.Status != common.ChannelStatusEnabled || channel.ChannelInfo.IsMultiKey {
 			continue
 		}
-		if channel.ChannelInfo.IsMultiKey {
-			continue // skip multi-key channels
+
+		summary.Attempted++
+		result, err := updater(ctx, channel)
+		if err == nil && result.RawResponse != "" {
+			err = errChannelBalanceNotUpdated
 		}
-		// TODO: support Azure
-		//if channel.Type != common.ChannelTypeOpenAI && channel.Type != common.ChannelTypeCustom {
-		//	continue
-		//}
-		result, err := updateChannelBalanceContext(ctx, channel)
 		if err != nil {
+			summary.addFailure(channel.Id, err)
 			if ctx.Err() != nil {
-				return ctx.Err()
+				return summary, ctx.Err()
 			}
-			continue
-		} else if result.RawResponse == "" {
-			// err is nil & balance <= 0 means quota is used up
-			if result.Balance <= 0 && ctx.Err() == nil {
+		} else {
+			summary.Updated++
+			if result.Balance <= 0 {
 				service.DisableChannel(*types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, "", channel.GetAutoBan()), "余额不足")
 			}
 		}
-		timer := time.NewTimer(common.RequestInterval)
+
+		if requestInterval <= 0 {
+			continue
+		}
+		timer := time.NewTimer(requestInterval)
 		select {
 		case <-ctx.Done():
 			if !timer.Stop() {
 				<-timer.C
 			}
-			return ctx.Err()
+			return summary, ctx.Err()
 		case <-timer.C:
 		}
 	}
-	return nil
+	return summary, nil
+}
+
+func updateAllChannelsBalanceContext(ctx context.Context) (channelBalanceRefreshSummary, error) {
+	channels, err := model.GetAllChannelsContext(ctx, 0, 0, true, false)
+	if err != nil {
+		return channelBalanceRefreshSummary{Failures: make([]channelBalanceRefreshFailure, 0)}, err
+	}
+	return refreshChannelBalancesContext(ctx, channels, updateChannelBalanceContext, common.RequestInterval)
+}
+
+func writeChannelBalanceRefreshResponse(c *gin.Context, summary channelBalanceRefreshSummary, err error) {
+	response := gin.H{"success": false, "data": summary}
+	if err != nil {
+		response["message"] = "channel balance refresh could not be completed"
+		c.JSON(http.StatusInternalServerError, response)
+		return
+	}
+	if summary.Failed == 0 {
+		response["success"] = true
+		response["message"] = "channel balance refresh completed"
+		c.JSON(http.StatusOK, response)
+		return
+	}
+
+	response["degraded"] = true
+	response["message"] = "channel balance refresh completed with failures"
+	status := http.StatusOK
+	if summary.Updated == 0 {
+		status = http.StatusBadGateway
+		response["message"] = "channel balance refresh failed"
+	}
+	c.JSON(status, response)
 }
 
 func UpdateAllChannelsBalance(c *gin.Context) {
-	// TODO: make it async
-	err := updateAllChannelsBalance()
-	if err != nil {
-		common.ApiError(c, err)
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "",
-	})
-	return
+	summary, err := updateAllChannelsBalanceContext(c.Request.Context())
+	writeChannelBalanceRefreshResponse(c, summary, err)
 }
 
 func automaticChannelBalanceLeadershipConfig(ctx context.Context, frequency int) (*sql.DB, time.Duration, error) {
@@ -729,6 +744,34 @@ func StartAutomaticChannelBalanceUpdateWithContext(ctx context.Context, frequenc
 	return nil
 }
 
+func channelBalanceRefreshLogMessage(source string, summary channelBalanceRefreshSummary, scanError bool) string {
+	message := fmt.Sprintf(
+		"%s: attempted=%d updated=%d failed=%d failure_details_omitted=%d",
+		source,
+		summary.Attempted,
+		summary.Updated,
+		summary.Failed,
+		summary.FailuresOmitted,
+	)
+	if scanError {
+		message += " scan_error=true"
+	}
+	return message
+}
+
+func logChannelBalanceRefreshResult(ctx context.Context, source string, summary channelBalanceRefreshSummary, err error) {
+	message := channelBalanceRefreshLogMessage(source, summary, err != nil)
+	if err != nil {
+		logger.LogError(ctx, message)
+		return
+	}
+	if summary.Failed > 0 {
+		logger.LogWarn(ctx, message)
+		return
+	}
+	logger.LogInfo(ctx, message)
+}
+
 func runAutomaticChannelBalanceUpdates(ctx context.Context, interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -737,8 +780,8 @@ func runAutomaticChannelBalanceUpdates(ctx context.Context, interval time.Durati
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			logger.LogInfo(ctx, "updating all channel balances as PostgreSQL leader")
-			_ = updateAllChannelsBalanceContext(ctx)
+			summary, err := updateAllChannelsBalanceContext(ctx)
+			logChannelBalanceRefreshResult(ctx, "automatic channel balance refresh", summary, err)
 		}
 	}
 }
@@ -759,9 +802,8 @@ func AutomaticallyUpdateChannelsContext(ctx context.Context, frequency int) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			common.SysLog("updating all channels")
-			_ = updateAllChannelsBalance()
-			common.SysLog("channels update done")
+			summary, err := updateAllChannelsBalanceContext(ctx)
+			logChannelBalanceRefreshResult(ctx, "legacy automatic channel balance refresh", summary, err)
 		}
 	}
 }
