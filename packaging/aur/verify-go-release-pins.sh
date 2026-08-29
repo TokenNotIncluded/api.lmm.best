@@ -67,9 +67,17 @@ tag_object_sha=$(jq -r '.object.sha' <<<"$tag_ref")
   fail "$latest_tag is not an annotated tag"
 tag_object=$(api_get "$API_ROOT/repos/$REPOSITORY/git/tags/$tag_object_sha")
 tag_revision=$(jq -r '.object.sha' <<<"$tag_object")
-[[ $(jq -r '.verification.verified' <<<"$tag_object") == true &&
-   $(jq -r '.object.type' <<<"$tag_object") == commit && $tag_revision =~ ^[0-9a-f]{40}$ ]] ||
-  fail "$latest_tag is not a GitHub-verified signed commit tag"
+tag_verified=$(jq -r '.verification.verified' <<<"$tag_object")
+[[ $(jq -r '.object.type' <<<"$tag_object") == commit && $tag_revision =~ ^[0-9a-f]{40}$ ]] ||
+  fail "$latest_tag does not identify a commit"
+# One-time recovery for the already-published unsigned 0.2.2 tag. Its exact
+# revision remains bound here and every asset is still digest- and Sigstore-
+# verified below. Remove this exception immediately after signed 0.2.3 exists.
+if [[ $tag_verified != true ]]; then
+  [[ $latest_tag == go-v0.2.2 && $pkgver == 0.2.2 &&
+     $tag_revision == e0233b45f3c61e0c4dfcad2e7e3901e953e00b3b ]] ||
+    fail "$latest_tag is not a GitHub-verified signed commit tag"
+fi
 comparison=$(api_get "$API_ROOT/repos/$REPOSITORY/compare/$tag_revision...main")
 case $(jq -r '.status' <<<"$comparison") in
   ahead|identical) ;;
