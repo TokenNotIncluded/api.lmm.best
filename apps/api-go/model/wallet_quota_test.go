@@ -92,12 +92,12 @@ func TestRequestCountExpressionUsesLegacyInt32Bounds(t *testing.T) {
 	require.NoError(t, db.Create(&user).Error)
 
 	require.NoError(t, db.Model(&User{}).Where("id = ?", user.Id).
-		UpdateColumn("request_count", boundedInt32CounterExpr(1)).Error)
+		UpdateColumn("request_count", boundedInt32CounterExpr("request_count", 1)).Error)
 	require.NoError(t, db.First(&user, user.Id).Error)
 	assert.Equal(t, math.MaxInt32, user.RequestCount)
 
 	require.NoError(t, db.Model(&User{}).Where("id = ?", user.Id).
-		UpdateColumn("request_count", boundedInt32CounterExpr(-math.MaxInt32-1)).Error)
+		UpdateColumn("request_count", boundedInt32CounterExpr("request_count", -math.MaxInt32-1)).Error)
 	require.NoError(t, db.First(&user, user.Id).Error)
 	assert.Equal(t, -1, user.RequestCount)
 }

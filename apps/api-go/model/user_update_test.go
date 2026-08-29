@@ -2,6 +2,7 @@ package model
 
 import (
 	"errors"
+	"math"
 	"testing"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
@@ -122,6 +123,30 @@ func TestTransferAffQuotaToQuotaRejectsFinalWalletOverflowAtomically(t *testing.
 	require.NoError(t, DB.First(&stored, user.Id).Error)
 	require.Equal(t, common.MaxWalletQuota, stored.Quota)
 	require.Equal(t, transferQuota, stored.AffQuota)
+}
+
+func TestInviteRewardSaturatesAffiliateBalancesAtJSSafeBounds(t *testing.T) {
+	setupUserUpdateTestState(t)
+	oldInviterQuota := common.QuotaForInviter
+	common.QuotaForInviter = 10
+	t.Cleanup(func() { common.QuotaForInviter = oldInviterQuota })
+
+	inviter := User{
+		Username:        "affiliate-js-safe-bound",
+		Status:          common.UserStatusEnabled,
+		AffCount:        math.MaxInt32,
+		AffQuota:        common.MaxWalletQuota - 5,
+		AffHistoryQuota: common.MaxWalletQuota - 5,
+	}
+	require.NoError(t, DB.Create(&inviter).Error)
+
+	require.NoError(t, inviteUser(inviter.Id))
+
+	var stored User
+	require.NoError(t, DB.First(&stored, inviter.Id).Error)
+	require.Equal(t, math.MaxInt32, stored.AffCount)
+	require.Equal(t, common.MaxWalletQuota, stored.AffQuota)
+	require.Equal(t, common.MaxWalletQuota, stored.AffHistoryQuota)
 }
 
 func TestBatchWalletAccountingRejectsOverflowWithoutApplyingCounters(t *testing.T) {

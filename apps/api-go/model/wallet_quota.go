@@ -111,9 +111,14 @@ func boundedQuotaCounterExpr(column string, delta int) clause.Expr {
 	)
 }
 
-// boundedInt32CounterExpr protects request_count's legacy INT column on
-// MySQL/PostgreSQL instead of applying the wider wallet bounds.
-func boundedInt32CounterExpr(delta int) clause.Expr {
+// boundedInt32CounterExpr protects legacy INT counters on MySQL/PostgreSQL
+// instead of applying the wider wallet bounds.
+func boundedInt32CounterExpr(column string, delta int) clause.Expr {
+	switch column {
+	case "request_count", "aff_count":
+	default:
+		panic("unsupported bounded int32 counter column")
+	}
 	if delta > math.MaxInt32 {
 		return gorm.Expr("?", math.MaxInt32)
 	}
@@ -122,12 +127,12 @@ func boundedInt32CounterExpr(delta int) clause.Expr {
 	}
 	if delta >= 0 {
 		return gorm.Expr(
-			"CASE WHEN request_count < ? THEN ? WHEN request_count > ? THEN ? ELSE request_count + ? END",
+			"CASE WHEN "+column+" < ? THEN ? WHEN "+column+" > ? THEN ? ELSE "+column+" + ? END",
 			math.MinInt32, math.MinInt32, math.MaxInt32-delta, math.MaxInt32, delta,
 		)
 	}
 	return gorm.Expr(
-		"CASE WHEN request_count < ? THEN ? WHEN request_count > ? THEN ? ELSE request_count + ? END",
+		"CASE WHEN "+column+" < ? THEN ? WHEN "+column+" > ? THEN ? ELSE "+column+" + ? END",
 		math.MinInt32-delta, math.MinInt32, math.MaxInt32, math.MaxInt32, delta,
 	)
 }

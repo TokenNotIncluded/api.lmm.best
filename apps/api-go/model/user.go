@@ -800,15 +800,20 @@ func HardDeleteUserById(id int) error {
 
 func inviteUser(inviterId int) error {
 	result := DB.Model(&User{}).Where("id = ?", inviterId).Updates(map[string]interface{}{
-		"aff_count":   gorm.Expr("aff_count + ?", 1),
-		"aff_quota":   gorm.Expr("aff_quota + ?", common.QuotaForInviter),
-		"aff_history": gorm.Expr("aff_history + ?", common.QuotaForInviter),
+		"aff_count":   boundedInt32CounterExpr("aff_count", 1),
+		"aff_quota":   boundedQuotaCounterExpr("aff_quota", common.QuotaForInviter),
+		"aff_history": boundedQuotaCounterExpr("aff_history", common.QuotaForInviter),
 	})
 	if result.Error != nil {
 		return result.Error
 	}
 	if result.RowsAffected == 0 {
 		return gorm.ErrRecordNotFound
+	}
+	if common.RedisEnabled {
+		if err := invalidateUserCache(inviterId); err != nil {
+			common.SysLog("failed to invalidate inviter cache: " + err.Error())
+		}
 	}
 	return nil
 }
@@ -1675,7 +1680,7 @@ func updateUserUsedQuotaAndRequestCount(id int, quota int, count int) {
 	err := DB.Model(&User{}).Where("id = ?", id).Updates(
 		map[string]interface{}{
 			"used_quota":           boundedQuotaCounterExpr("used_quota", quota),
-			"request_count":        boundedInt32CounterExpr(count),
+			"request_count":        boundedInt32CounterExpr("request_count", count),
 			"last_api_activity_at": common.GetTimestamp(),
 		},
 	).Error
@@ -1708,7 +1713,7 @@ func updateUserQuotaUsedQuotaAndRequestCount(id int, quota int, usedQuota int, r
 	}
 	updates := map[string]interface{}{
 		"used_quota":           boundedQuotaCounterExpr("used_quota", usedQuota),
-		"request_count":        boundedInt32CounterExpr(requestCount),
+		"request_count":        boundedInt32CounterExpr("request_count", requestCount),
 		"last_api_activity_at": common.GetTimestamp(),
 	}
 	if quota != 0 {
