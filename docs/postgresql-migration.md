@@ -91,32 +91,22 @@ COPY, catalog, sequence, or verification failure rolls back the complete target 
 
 Success and failure reports are created with mode `0600`, written through a same-directory temporary file, fsynced, atomically renamed, and followed by a parent-directory fsync. Reports contain no DSN, row value, primary-key value, financial value, or underlying error text. Failure reports contain only a stable stage and error category. Standard error uses the same classifications and does not print conversion values or PostgreSQL/SQLite error details.
 
-## Production cutover transaction
+## Production transaction
 
-The autonomous transaction is now implemented under `deploy/backend-cutover/`
-and documented in `docs/postgresql-cutover.md`. It provides write freeze,
-offline backup and verification, a root-owned hash-verified candidate artifact,
-a forward-only PostgreSQL-write boundary written before PostgreSQL environment
-publication, authenticated canaries, an idempotent manual reconciler, and a
-systemd boot gate. A killed coordinator restores the exact saved SQLite
-environment only before the boundary; marker-, journal-, or candidate-hash
-evidence of possible PostgreSQL activation permits only forward reconciliation.
+The retired shell coordinator is not a production entry point. Provider-native
+migration and deployment operations are invoked only through `/usr/bin/lmm-api`
+and follow [`postgresql-cutover.md`](postgresql-cutover.md) plus the normative
+[`backend-cli-deployment-contract.md`](backend-cli-deployment-contract.md).
 
-The migration CLI still only creates a fresh isolated/versioned schema or
-verifies one, or applies an explicitly bound forward contract step; it does not
-stop a service, publish configuration, or switch traffic without the separate
-cutover coordinator. If a live target is already
-PostgreSQL-backed, first verify the active schema, durable `PG_WRITE_BOUNDARY`,
-candidate/environment hashes, and authenticated canaries. A missing boundary or
-failed post-cutover verification is an unverified state that must be reconciled
-before another migration attempt or backend switch. PostgreSQL 18 is the
-persistent authority only after that evidence is accepted; Valkey remains
-reconstructable cache, session/revocation, and rate-limit state rather than a
-database of record.
+A migration command may create or verify an isolated schema or apply an
+explicitly bound forward contract, but it cannot silently authorize traffic or
+provider ownership. If a live target is PostgreSQL-backed, first verify the
+active schema, durable write boundary, candidate/package hashes, and
+authenticated canaries. Missing or failed evidence blocks migration and backend
+selection.
 
-This one-time offline source freeze is bounded maintenance downtime, not a
-zero-downtime migration. Detaching it into systemd survives loss of the
-initiating SSH/API channel, but stopping the sole Go process disconnects active
-HTTP, SSE, and WebSocket clients. Production execution remains prohibited until
-the full isolated rehearsal and explicit operator approval described in the
-cutover runbook are complete.
+After the PostgreSQL write boundary may have been crossed, application rollback
+is manual and restores only N-1 code, provider link, frontend, and configuration
+that remain compatible with the current schema. It never restores SQLite or a
+database snapshot. PostgreSQL remains the persistent authority; Valkey carries
+reconstructable cache, session/revocation, and rate-limit state.
