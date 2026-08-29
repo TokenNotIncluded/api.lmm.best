@@ -126,6 +126,21 @@ func TestCalcOpenRouterCacheCreateTokensRejectsNonFiniteAndOverflow(t *testing.T
 	valid := dto.Usage{Cost: float64(1)}
 	require.Equal(t, 1000, CalcOpenRouterCacheCreateTokens(valid, priceData))
 
+	largeTokenCount := common.MaxQuota + 12_345
+	largePriceData := hosttypes.PriceData{
+		ModelRatio:         0.1,
+		CompletionRatio:    1,
+		CacheRatio:         0.1,
+		CacheCreationRatio: 2,
+	}
+	quotaPrice := largePriceData.ModelRatio / common.QuotaPerUnit
+	largeUsage := dto.Usage{
+		PromptTokens: largeTokenCount,
+		Cost:         float64(largeTokenCount) * quotaPrice * largePriceData.CacheCreationRatio,
+	}
+	require.Equal(t, largeTokenCount, CalcOpenRouterCacheCreateTokens(largeUsage, largePriceData),
+		"derived token counts above the per-request quota bound must remain billable")
+
 	for _, cost := range []float64{math.MaxFloat64, math.Inf(1), math.Inf(-1), math.NaN()} {
 		usage := dto.Usage{Cost: cost}
 		require.Equal(t, -1, CalcOpenRouterCacheCreateTokens(usage, priceData), "cost=%v must fail safe", cost)

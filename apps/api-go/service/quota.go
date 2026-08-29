@@ -3,6 +3,7 @@ package service
 import (
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -268,6 +269,20 @@ func PostWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, mod
 	})
 }
 
+func roundDerivedTokenCount(value float64) int {
+	if math.IsNaN(value) || math.IsInf(value, 0) || value < 0 {
+		return -1
+	}
+	rounded := math.Round(value)
+	if rounded > float64(math.MaxInt) {
+		return -1
+	}
+	if rounded == float64(math.MaxInt) {
+		return math.MaxInt
+	}
+	return int(rounded)
+}
+
 func CalcOpenRouterCacheCreateTokens(usage dto.Usage, priceData types.PriceData) int {
 	if priceData.CacheCreationRatio == 1 {
 		return 0
@@ -287,11 +302,7 @@ func CalcOpenRouterCacheCreateTokens(usage dto.Usage, priceData types.PriceData)
 		promptCacheReadTokens*(quotaPrice-promptCacheReadPrice) -
 		completionTokens*completionPrice) /
 		(promptCacheCreatePrice - quotaPrice)
-	quota, clamp := common.QuotaRoundChecked(value)
-	if clamp != nil {
-		return -1
-	}
-	return quota
+	return roundDerivedTokenCount(value)
 }
 
 func PostAudioConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usage *dto.Usage, extraContent string) {

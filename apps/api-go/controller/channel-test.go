@@ -529,6 +529,12 @@ func attachTestBillingRequestInput(info *relaycommon.RelayInfo, request dto.Requ
 	return nil
 }
 
+func noteChannelTestQuotaClamp(info *relaycommon.RelayInfo, clamp *common.QuotaClamp) {
+	if info != nil && clamp != nil && info.QuotaClamp == nil {
+		info.QuotaClamp = clamp
+	}
+}
+
 func settleTestQuota(info *relaycommon.RelayInfo, priceData hosttypes.PriceData, usage *dto.Usage) (int, *billingexpr.TieredResult) {
 	if usage != nil && info != nil && info.TieredBillingSnapshot != nil {
 		isClaudeUsageSemantic := usage.UsageSemantic == "anthropic" || info.GetFinalRequestRelayFormat() == types.RelayFormatClaude
@@ -540,16 +546,21 @@ func settleTestQuota(info *relaycommon.RelayInfo, priceData hosttypes.PriceData,
 
 	quota := 0
 	if !priceData.UsePrice {
-		completionQuota := common.QuotaRound(float64(usage.CompletionTokens) * priceData.CompletionRatio)
-		quota = common.QuotaRound(float64(usage.PromptTokens) + float64(completionQuota))
-		quota = common.QuotaRound(float64(quota) * priceData.ModelRatio)
+		completionQuota, clamp := common.QuotaRoundChecked(float64(usage.CompletionTokens) * priceData.CompletionRatio)
+		noteChannelTestQuotaClamp(info, clamp)
+		quota, clamp = common.QuotaRoundChecked(float64(usage.PromptTokens) + float64(completionQuota))
+		noteChannelTestQuotaClamp(info, clamp)
+		quota, clamp = common.QuotaRoundChecked(float64(quota) * priceData.ModelRatio)
+		noteChannelTestQuotaClamp(info, clamp)
 		if priceData.ModelRatio != 0 && quota <= 0 {
 			quota = 1
 		}
 		return quota, nil
 	}
 
-	return common.QuotaFromFloat(priceData.ModelPrice * common.QuotaPerUnit), nil
+	quota, clamp := common.QuotaFromFloatChecked(priceData.ModelPrice * common.QuotaPerUnit)
+	noteChannelTestQuotaClamp(info, clamp)
+	return quota, nil
 }
 
 func buildTestLogOther(c *gin.Context, info *relaycommon.RelayInfo, priceData hosttypes.PriceData, usage *dto.Usage, tieredResult *billingexpr.TieredResult) map[string]interface{} {
@@ -558,6 +569,7 @@ func buildTestLogOther(c *gin.Context, info *relaycommon.RelayInfo, priceData ho
 	if tieredResult != nil {
 		service.InjectTieredBillingInfo(other, info, tieredResult)
 	}
+	service.AttachQuotaSaturation(c, info, other)
 	return other
 }
 
