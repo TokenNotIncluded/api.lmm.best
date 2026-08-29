@@ -204,15 +204,15 @@ func TryReserveUserQuota(id int, quota int) (bool, error) {
 		return true, nil
 	}
 	reserved, err := reserveUserQuotaDB(id, quota)
-	if err != nil || !reserved {
-		return reserved, err
+	if err != nil {
+		return false, err
 	}
 	if common.RedisEnabled && common.RDB != nil {
 		if cacheErr := invalidateUserCache(id); cacheErr != nil {
-			common.SysLog("failed to invalidate reserved user quota cache: " + cacheErr.Error())
+			common.SysLog("failed to invalidate user quota cache after reserve decision: " + cacheErr.Error())
 		}
 	}
-	return true, nil
+	return reserved, nil
 }
 
 // TryReserveTokenQuota atomically checks and deducts a token balance. Unlimited
