@@ -40,6 +40,12 @@ package() {
   for file in LICENSE NOTICE THIRD-PARTY-LICENSES.md; do
     install -Dm0644 "${root}/${file}" "${pkgdir}/usr/share/licenses/${pkgname}/${file}"
   done
-  git -C "${root}" rev-parse HEAD > "${srcdir}/REVISION"
+  git -C "${root}" rev-parse HEAD >"${srcdir}/REVISION"
+  sha256sum "${root}/contracts/api-route/VERSION" | awk '{print $1}' >"${srcdir}/API_ROUTE_CONTRACT_REVISION"
+  sha256sum "${root}/apps/api-rust/target/release/lmm-api-rs" | awk '{print $1}' >"${srcdir}/RELEASE_ASSET_SHA256"
   install -Dm0644 "${srcdir}/REVISION" "${pkgdir}/usr/share/doc/${pkgname}/REVISION"
+  install -Dm0644 "${srcdir}/API_ROUTE_CONTRACT_REVISION" \
+    "${pkgdir}/usr/share/doc/${pkgname}/API_ROUTE_CONTRACT_REVISION"
+  install -Dm0644 "${srcdir}/RELEASE_ASSET_SHA256" \
+    "${pkgdir}/usr/share/doc/${pkgname}/RELEASE_ASSET_SHA256"
 }
