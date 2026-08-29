@@ -52,6 +52,31 @@ func TestGeneralOpenAIRequestPreserveExplicitZeroValues(t *testing.T) {
 	require.True(t, gjson.GetBytes(encoded, "return_related_questions").Exists())
 }
 
+func TestGeneralOpenAIRequestThinkingTokenBudgetJSONRoundTrip(t *testing.T) {
+	raw := []byte(`{
+		"model":"vllm-reasoning-model",
+		"thinking_token_budget":0
+	}`)
+
+	var req GeneralOpenAIRequest
+	require.NoError(t, json.Unmarshal(raw, &req))
+	assert.Equal(t, json.RawMessage(`0`), req.ThinkingTokenBudget)
+
+	encoded, err := json.Marshal(req)
+	require.NoError(t, err)
+
+	value := gjson.GetBytes(encoded, "thinking_token_budget")
+	assert.True(t, value.Exists())
+	assert.Equal(t, int64(0), value.Int())
+}
+
+func TestGeneralOpenAIRequestOmitsEmptyThinkingTokenBudget(t *testing.T) {
+	encoded, err := json.Marshal(GeneralOpenAIRequest{Model: "vllm-reasoning-model"})
+	require.NoError(t, err)
+
+	assert.False(t, gjson.GetBytes(encoded, "thinking_token_budget").Exists())
+}
+
 func TestGeneralOpenAIRequestPreserveQwenThinkingBudget(t *testing.T) {
 	raw := []byte(`{
 		"model":"qwen-plus",
