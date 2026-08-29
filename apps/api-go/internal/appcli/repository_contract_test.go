@@ -54,7 +54,7 @@ func TestRepositoryDeploymentBehaviorLivesInBackendCLIs(t *testing.T) {
 		"ExecStart=/usr/bin/lmm-api serve",
 	)
 	assertContains(
-		"packaging/aur/lmm-api-web-bin/lmm-api-web.install",
+		"packaging/common/lmm-api/lmm-api-web.install",
 		`/usr/bin/lmm-api deploy frontend package-activate --package-version "$1"`,
 	)
 	assertContains(

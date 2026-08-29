@@ -531,7 +531,7 @@ func TestVerifySignedPackageLayoutAcceptsOnlyProviderLayoutAndExactLegacyRollbac
 }
 
 func TestVerifySignedWebPackageLayoutRequiresNativeCLIActivationHook(t *testing.T) {
-	installHook, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "packaging", "aur", "lmm-api-web-bin", "lmm-api-web.install"))
+	installHook, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "packaging", "common", "lmm-api", "lmm-api-web.install"))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -137,13 +137,25 @@ grep -Fq 'cosign verify-blob' "$pkgbuild" || die 'lmm-api-web-bin lacks Sigstore
 grep -Fq 'sha256sum' "$pkgbuild" || die 'lmm-api-web-bin lacks SHA-256 verification'
 grep -Fq 'noextract=(' "$pkgbuild" || die 'lmm-api-web-bin extracts before verification'
 contains_srcinfo_prefix lmm-api-web-bin $'\tprovides = lmm-api-web'
-contains_srcinfo lmm-api-web-bin $'\tdepends = lmm-api-provider'
+web_pkgver=$(sed -n 's/^pkgver=//p' "$HERE/lmm-api-web-bin/PKGBUILD")
+if (( $(vercmp "$web_pkgver" 0.1.52) >= 0 )); then
+  contains_srcinfo lmm-api-web-bin $'\tdepends = lmm-api-provider'
+  # shellcheck disable=SC2016 # Deliberately inspect the literal package-hook argument.
+  grep -Fq '/usr/bin/lmm-api deploy frontend package-activate --package-version "$1"' \
+    "$HERE/lmm-api-web-bin/lmm-api-web.install" ||
+    die 'Web package install hook does not use the public backend CLI'
+else
+  # shellcheck disable=SC2016 # Deliberately inspect the literal legacy hook argument.
+  grep -Fq '/usr/lib/lmm-api-web/lmm-api-web-activate "$1"' \
+    "$HERE/lmm-api-web-bin/lmm-api-web.install" ||
+    die 'pinned legacy Web recipe no longer reproduces its signed install hook'
+fi
 [[ ! -e $HERE/lmm-api-web-bin/lmm-api-web-activate && ! -L $HERE/lmm-api-web-bin/lmm-api-web-activate ]] ||
-  die 'Web package retains a shell activation wrapper'
-# shellcheck disable=SC2016 # Deliberately inspect the literal package-hook argument.
+  die 'repository retains an unsigned local Web activation wrapper'
+# shellcheck disable=SC2016 # Deliberately inspect the future signed package hook.
 grep -Fq '/usr/bin/lmm-api deploy frontend package-activate --package-version "$1"' \
-  "$HERE/lmm-api-web-bin/lmm-api-web.install" ||
-  die 'Web package install hook does not use the public backend CLI'
+  "$SHARED/lmm-api-web.install" ||
+  die 'future Web release hook does not use the public backend CLI'
 web_release_workflow="$ROOT/.github/workflows/release-web.yml"
 [[ -f $web_release_workflow ]] || die 'web release workflow is missing'
 grep -Fq '  workflow_dispatch:' "$web_release_workflow" ||

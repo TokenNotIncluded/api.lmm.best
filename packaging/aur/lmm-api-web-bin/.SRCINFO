@@ -7,8 +7,16 @@ pkgbase = lmm-api-web-bin
 	arch = any
 	license = AGPL-3.0-only
 	makedepends = cosign
-	depends = lmm-api-provider
 	depends = nginx
+	depends = bash
+	depends = coreutils
+	depends = diffutils
+	depends = findutils
+	depends = gawk
+	depends = grep
+	depends = sed
+	depends = systemd
+	depends = util-linux
 	provides = lmm-api-web=0.1.51
 	conflicts = lmm-api-web
 	noextract = lmm-api-web-0.1.51.tar.gz

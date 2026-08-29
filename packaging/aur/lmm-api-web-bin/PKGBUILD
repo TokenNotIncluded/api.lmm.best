@@ -7,7 +7,12 @@ pkgdesc='LMM API production web frontend (prebuilt)'
 arch=('any')
 url='https://github.com/LIghtJUNction/api.lmm.best'
 license=('AGPL-3.0-only')
-depends=('lmm-api-provider' 'nginx')
+depends=('nginx')
+if (( $(vercmp "${pkgver}" 0.1.52) >= 0 )); then
+  depends+=('lmm-api-provider')
+else
+  depends+=('bash' 'coreutils' 'diffutils' 'findutils' 'gawk' 'grep' 'sed' 'systemd' 'util-linux')
+fi
 makedepends=('cosign')
 provides=("lmm-api-web=${pkgver}")
 conflicts=('lmm-api-web')
@@ -70,6 +75,12 @@ package() {
   for file in LICENSE NOTICE THIRD-PARTY-LICENSES.md; do
     install -Dm0644 "${srcdir}/${file}" "${pkgdir}/usr/share/licenses/${pkgname}/${file}"
   done
+  if (( $(vercmp "${pkgver}" 0.1.52) < 0 )); then
+    install -Dm0755 "${srcdir}/lmm-api-web-activate" \
+      "${pkgdir}/usr/lib/lmm-api-web/lmm-api-web-activate"
+    install -Dm0755 "${srcdir}/frontend-release.sh" \
+      "${pkgdir}/usr/lib/lmm-api-web/frontend-release.sh"
+  fi
   install -Dm0644 "${srcdir}/REVISION" "${pkgdir}/usr/share/doc/${pkgname}/REVISION"
   release_asset_sha256=$(sha256sum "${srcdir}/${_artifact}")
   printf '%s\n' "${release_asset_sha256%% *}" >"${srcdir}/RELEASE_ASSET_SHA256"

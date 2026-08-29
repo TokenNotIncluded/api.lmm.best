@@ -86,6 +86,9 @@ prepare_go_fixture() {
   sed -i "s/^pkgver=.*/pkgver=${version}/" "$work/PKGBUILD"
   printf '#!/bin/sh\nexit 0\n' >"$bundle/$payload"
   chmod 0755 "$bundle/$payload"
+  if [[ $version == 0.1.69 ]]; then
+    printf 't0\n' >"$bundle/CLI_TRANSITION_PHASE"
+  fi
   add_go_runtime "$bundle"
   create_archive "$work" "$artifact"
   pin_fixture_hashes "$work/PKGBUILD" sha256sums_x86_64 \
@@ -129,12 +132,13 @@ if bsdtar -tf "$next_archive" | grep -Fxq '.INSTALL'; then
 fi
 
 web_work="$tmp/web"
-web_pkgver=$(awk -F= '$1 == "pkgver" { print $2; exit }' "$HERE/lmm-api-web-bin/PKGBUILD")
-[[ $web_pkgver =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "invalid Web pkgver: $web_pkgver"
+web_pkgver=0.1.52
 mkdir -p "$web_work/stage/dist"
-cp "$HERE/lmm-api-web-bin/PKGBUILD" "$HERE/lmm-api-web-bin/lmm-api-web.install" "$web_work/"
+cp "$HERE/lmm-api-web-bin/PKGBUILD" "$web_work/"
+sed -i "s/^pkgver=.*/pkgver=${web_pkgver}/" "$web_work/PKGBUILD"
+cp "$SHARED/lmm-api-web.install" "$web_work/lmm-api-web.install"
 printf '<!doctype html>\n' >"$web_work/stage/dist/index.html"
-cp "$HERE/lmm-api-web-bin/lmm-api-web.install" "$web_work/stage/"
+cp "$SHARED/lmm-api-web.install" "$web_work/stage/lmm-api-web.install"
 add_metadata "$web_work/stage"
 web_artifact="lmm-api-web-${web_pkgver}"
 tar -czf "$web_work/${web_artifact}.tar.gz" -C "$web_work/stage" \

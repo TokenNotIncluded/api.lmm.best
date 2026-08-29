@@ -42,16 +42,19 @@ The service always executes `/usr/bin/lmm-api serve`. Rust may coexist for CLI
 and parity work but may not own production business traffic until the route
 migration gate and provider handover are explicitly approved.
 
-`lmm-api-web-bin` solely owns immutable frontend bytes. Its signed install hook
-calls:
+`lmm-api-web-bin` solely owns immutable frontend bytes. Releases at or above
+0.1.52 use the signed hook in `packaging/common/lmm-api/lmm-api-web.install`,
+which calls:
 
 ```text
 /usr/bin/lmm-api deploy frontend package-activate --package-version <version>
 ```
 
-It does not package `frontend-release.sh`, `lmm-api-web-activate`, or any other
-shell publisher. Frontend activation and explicit rollback are provider CLI
-operations with shared state contracts.
+Those releases do not package `frontend-release.sh`, `lmm-api-web-activate`, or
+another shell publisher. The pinned 0.1.51 recipe remains an explicit immutable
+legacy reproduction until 0.1.52 is published; the post-release pin commit then
+replaces its local hook and removes its legacy publishers. Frontend activation
+and explicit rollback otherwise belong to provider CLIs with shared contracts.
 
 Go production packages must not contain `.INSTALL`. Web releases include
 `lmm-api-web.install` in the signed release and the local AUR hook must match it

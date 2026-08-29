@@ -126,7 +126,7 @@ jobs:
           bundle=release-web/bundle
           mkdir -p "$bundle"
           cp -a apps/web/dist "$bundle/"
-          cp packaging/aur/lmm-api-web-bin/lmm-api-web.install "$bundle/"
+          cp packaging/common/lmm-api/lmm-api-web.install "$bundle/lmm-api-web.install"
           cp LICENSE NOTICE THIRD-PARTY-LICENSES.md "$bundle/"
           printf '%s\n' "$RELEASE_REVISION" >"$bundle/REVISION"
           printf '%s\n' "$EXPECTED_CONTRACT_REVISION" >"$bundle/API_ROUTE_CONTRACT_REVISION"

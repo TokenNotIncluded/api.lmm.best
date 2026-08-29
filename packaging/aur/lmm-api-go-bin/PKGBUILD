@@ -97,7 +97,12 @@ prepare() {
     grep -Fqx 'Environment=LMM_API_FRONTEND_DIR=/srv/lmm-api-frontend/current' \
       "${bundle}/lmm-api.service"
   fi
-  [[ ! -e ${bundle}/CLI_TRANSITION_PHASE && ! -L ${bundle}/CLI_TRANSITION_PHASE ]] || return 1
+  if lmm_go_package_is_verified_legacy "$pkgname" "$pkgver"; then
+    [[ -f ${bundle}/CLI_TRANSITION_PHASE && ! -L ${bundle}/CLI_TRANSITION_PHASE ]] || return 1
+    [[ $(<"${bundle}/CLI_TRANSITION_PHASE") == t0 ]] || return 1
+  else
+    [[ ! -e ${bundle}/CLI_TRANSITION_PHASE && ! -L ${bundle}/CLI_TRANSITION_PHASE ]] || return 1
+  fi
 }
 
 package() {
@@ -154,6 +159,10 @@ package() {
     install -Dm0644 "${bundle}/${file}" "${pkgdir}/usr/share/licenses/${pkgname}/${file}"
   done
   install -Dm0644 "${bundle}/REVISION" "${pkgdir}/usr/share/doc/${pkgname}/REVISION"
+  if lmm_go_package_is_verified_legacy "$pkgname" "$pkgver"; then
+    install -Dm0644 "${bundle}/CLI_TRANSITION_PHASE" \
+      "${pkgdir}/usr/share/doc/${pkgname}/CLI_TRANSITION_PHASE"
+  fi
   release_asset_sha256=$(sha256sum "${srcdir}/${archive}")
   printf '%s\n' "${release_asset_sha256%% *}" >"${srcdir}/RELEASE_ASSET_SHA256"
   install -Dm0644 "${srcdir}/RELEASE_ASSET_SHA256" \

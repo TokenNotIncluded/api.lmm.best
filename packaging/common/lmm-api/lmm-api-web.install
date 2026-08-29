@@ -1,0 +1,11 @@
+post_install() {
+  /usr/bin/lmm-api deploy frontend package-activate --package-version "$1"
+}
+
+post_upgrade() {
+  /usr/bin/lmm-api deploy frontend package-activate --package-version "$1"
+}
+
+post_remove() {
+  printf '%s\n' 'The active LMM frontend release was retained for explicit manual rollback.'
+}
