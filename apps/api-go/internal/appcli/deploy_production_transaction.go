@@ -458,7 +458,7 @@ func (runtime *productionRuntime) selectInstalledGoProvider(ctx context.Context)
 	selector := backendRuntime{
 		paths: backendPaths{Canonical: runtime.paths.InstalledBinary, Go: runtime.paths.LegacyGoBinary, Rust: filepath.Join(filepath.Dir(runtime.paths.InstalledBinary), backendRustName)},
 		owner: productionBackendOwner{ctx: ctx, runner: runtime.runner}, effectiveID: runtime.effectiveUID,
-		requiredUID: uint32(runtime.effectiveUID()),
+		requiredUID: runtime.requiredOwnerUID,
 	}
 	if _, err := selector.selectProvider("go"); err != nil {
 		return fmt.Errorf("select installed Go provider: %w", err)

@@ -9,7 +9,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"syscall"
 )
 
 const (
@@ -31,7 +30,7 @@ type backendOwnershipRunner interface {
 type pacmanBackendOwnershipRunner struct{}
 
 func (pacmanBackendOwnershipRunner) Owner(path string) (string, error) {
-	output, err := exec.Command(commandPacman, "-Qqo", "--", path).Output()
+	output, err := exec.Command("/usr/bin/pacman", "-Qqo", "--", path).Output()
 	if err != nil {
 		return "", err
 	}
@@ -65,7 +64,7 @@ func defaultBackendRuntime() *backendRuntime {
 	}
 }
 
-func runBackend(args []string, stdout, stderr io.Writer) int {
+func RunBackend(args []string, stdout, stderr io.Writer) int {
 	return defaultBackendRuntime().run(args, stdout, stderr)
 }
 
@@ -150,8 +149,8 @@ func (runtime *backendRuntime) validateProvider(provider backendProvider) (backe
 	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || info.Mode().Perm()&0o111 == 0 || info.Mode().Perm()&0o022 != 0 {
 		return backendProvider{}, errors.New("provider executable is not a safe, non-writable regular executable")
 	}
-	stat, ok := info.Sys().(*syscall.Stat_t)
-	if !ok || stat.Uid != runtime.requiredUID {
+	uid, ok := backendFileOwnerUID(info)
+	if !ok || uid != runtime.requiredUID {
 		return backendProvider{}, errors.New("provider executable has an unsafe owner")
 	}
 	owner, err := runtime.owner.Owner(provider.Path)

@@ -759,7 +759,6 @@ func (runtime *productionReleaseRuntime) verifySignedPackageLayout(ctx context.C
 			return fmt.Errorf("package payload differs from signed release: %s", relative)
 		}
 	}
-	canonicalExecutable := filepath.Join(packageRoot, "usr/bin/lmm-api")
 	if packageName == productionAURPackageName {
 		if cliPhase == productionCLIPhaseT1 && (legacyAlias || legacyReverseAlias) {
 			return errors.New("T1 package still exposes the legacy CLI compatibility link")
@@ -767,13 +766,19 @@ func (runtime *productionReleaseRuntime) verifySignedPackageLayout(ctx context.C
 		if cliPhase == productionCLIPhaseT0 && !legacyAlias && !legacyReverseAlias {
 			return errors.New("T0 rollback package lacks the legacy CLI compatibility link")
 		}
-	}
-	if packageName == productionWebPackageName {
-		canonicalExecutable = filepath.Join(packageRoot, "usr/lib/lmm-api-web/lmm-api-web-activate")
-	}
-	executableInfo, err := os.Stat(canonicalExecutable)
-	if err != nil || executableInfo.Mode().Perm()&0o111 == 0 {
-		return errors.New("package canonical executable is missing or not executable")
+		providerExecutable := filepath.Join(packageRoot, "usr/bin/lmm-api-go")
+		executableInfo, executableErr := os.Stat(providerExecutable)
+		if executableErr != nil || executableInfo.Mode().Perm()&0o111 == 0 {
+			providerLayoutRequired, versionErr := numericPackageReleaseAtLeast(packageVersion, [3]int{0, 2, 0})
+			if versionErr != nil {
+				return versionErr
+			}
+			legacyExecutable := filepath.Join(packageRoot, "usr/bin/lmm-api")
+			legacyInfo, legacyErr := os.Stat(legacyExecutable)
+			if providerLayoutRequired || legacyErr != nil || legacyInfo.Mode().Perm()&0o111 == 0 {
+				return errors.New("package Go provider executable is missing or not executable")
+			}
+		}
 	}
 	return nil
 }

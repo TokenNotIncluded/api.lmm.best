@@ -51,7 +51,7 @@ func Dispatch(args []string, version string, stdout, stderr io.Writer) Result {
 	case "deploy":
 		return Result{ExitCode: RunDeploy(args[1:], stdout, stderr)}
 	case "backend":
-		return Result{ExitCode: runBackend(args[1:], stdout, stderr)}
+		return Result{ExitCode: RunBackend(args[1:], stdout, stderr)}
 	case "geoip":
 		return Result{ExitCode: RunGeoIP(args[1:], stdout, stderr)}
 	case "status":

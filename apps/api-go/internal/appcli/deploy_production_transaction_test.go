@@ -1,3 +1,5 @@
+//go:build !windows
+
 package appcli
 
 import (
@@ -282,6 +284,11 @@ func (runner *fakeProductionRunner) pacman(args []string) ([]byte, error) {
 			return nil, errors.New("invalid pacman package-list arguments")
 		}
 		return []byte(productionAURPackageName + "\n" + productionWebPackageName + "\n" + productionOperatorPackageName + "\n"), nil
+	case "-Qqo":
+		if len(args) != 3 || args[1] != "--" {
+			return nil, errors.New("invalid pacman owner arguments")
+		}
+		return []byte(productionAURPackageName + "\n"), nil
 	case "-Qp":
 		name, version, _, _, _, ok := runner.packageData(args[1])
 		if !ok {
@@ -343,6 +350,13 @@ func (runner *fakeProductionRunner) runuser(args []string) ([]byte, error) {
 	case productionAURPackageName:
 		runner.events = append(runner.events, "paru-go")
 		runner.installedGoVersion, runner.installedGoRevision = version, revision
+		providerPath := filepath.Join(filepath.Dir(runner.installedBinary), backendGoName)
+		if err := os.RemoveAll(providerPath); err != nil {
+			return nil, err
+		}
+		if err := os.WriteFile(providerPath, []byte("installed "+version+"\n"), 0o755); err != nil {
+			return nil, err
+		}
 		if err := os.WriteFile(runner.goRevisionFile, []byte(revision+"\n"), 0o644); err != nil {
 			return nil, err
 		}
@@ -517,7 +531,10 @@ func newProductionFixture(t *testing.T) productionFixture {
 	oldRevision := strings.Repeat("1", 40)
 	newRevision := strings.Repeat("2", 40)
 	contract := strings.Repeat("a", 64)
-	if err := os.Symlink(filepath.Base(paths.InstalledBinary), paths.LegacyGoBinary); err != nil {
+	if err := os.WriteFile(paths.LegacyGoBinary, []byte("installed "+oldVersion+"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Base(paths.LegacyGoBinary), paths.InstalledBinary); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(paths.GoRevisionFile, []byte(oldRevision+"\n"), 0o644); err != nil {

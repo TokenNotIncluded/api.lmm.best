@@ -655,41 +655,46 @@ func TestVerifySignedPackageLayoutUsesSignedExplicitT0PhaseForNewRelease(t *test
 	}
 }
 
-func TestVerifySignedWebPackageLayoutPinsInstallHook(t *testing.T) {
+func TestVerifySignedWebPackageLayoutMigratesActivationIntoBackendCLI(t *testing.T) {
 	installHook, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "packaging", "aur", "lmm-api-web-bin", "lmm-api-web.install"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if digest := sha256.Sum256(installHook); hex.EncodeToString(digest[:]) != productionLegacyWebInstallSHA256 {
+	legacyInstallHook := []byte("post_install() {\n  /usr/lib/lmm-api-web/lmm-api-web-activate \"$1\"\n}\n\npost_upgrade() {\n  /usr/lib/lmm-api-web/lmm-api-web-activate \"$1\"\n}\n\npost_remove() {\n  printf '%s\\n' 'The active LMM frontend release was retained for safe rollback.'\n}\n")
+	if digest := sha256.Sum256(legacyInstallHook); hex.EncodeToString(digest[:]) != productionLegacyWebInstallSHA256 {
 		t.Fatal("legacy Web install-hook fixture no longer matches the pinned digest")
 	}
-	assetEntries := []testTarEntry{
-		{name: "dist/index.html", body: "<!doctype html>\n", mode: 0o644},
-		{name: "lmm-api-web-activate", body: "#!/bin/sh\nexit 0\n", mode: 0o755},
-		{name: "frontend-release.sh", body: "#!/bin/sh\nexit 0\n", mode: 0o755},
-	}
-	verify := func(version string, signedHook bool, packageHook []byte, wantError string) {
+	verify := func(version string, signedHook bool, packageHook []byte, legacyPublisher bool, wantError string) {
 		t.Helper()
 		caseRoot := t.TempDir()
 		asset := filepath.Join(caseRoot, "web-"+version+".tar.gz")
-		entries := append([]testTarEntry(nil), assetEntries...)
-		if signedHook {
-			entries = append(entries, testTarEntry{name: "lmm-api-web.install", body: string(installHook), mode: 0o644})
+		assetEntries := []testTarEntry{{name: "dist/index.html", body: "<!doctype html>\n", mode: 0o644}}
+		packageEntries := []testTarEntry{
+			{name: ".PKGINFO", body: testProductionPackageInfo(t, productionWebPackageName, version+"-1", ""), mode: 0o644},
+			{name: ".INSTALL", body: string(packageHook), mode: 0o644},
+			{name: "usr/share/lmm-api-web/frontend-dist/index.html", body: "<!doctype html>\n", mode: 0o644},
 		}
-		writeTestTarGzip(t, asset, entries)
+		if legacyPublisher {
+			assetEntries = append(assetEntries,
+				testTarEntry{name: "lmm-api-web-activate", body: "#!/bin/sh\nexit 0\n", mode: 0o755},
+				testTarEntry{name: "frontend-release.sh", body: "#!/bin/sh\nexit 0\n", mode: 0o755},
+			)
+			packageEntries = append(packageEntries,
+				testTarEntry{name: "usr/lib/lmm-api-web/lmm-api-web-activate", body: "#!/bin/sh\nexit 0\n", mode: 0o755},
+				testTarEntry{name: "usr/lib/lmm-api-web/frontend-release.sh", body: "#!/bin/sh\nexit 0\n", mode: 0o755},
+			)
+		}
+		if signedHook {
+			assetEntries = append(assetEntries, testTarEntry{name: "lmm-api-web.install", body: string(installHook), mode: 0o644})
+		}
+		writeTestTarGzip(t, asset, assetEntries)
 		assetSHA256, err := sha256File(asset)
 		if err != nil {
 			t.Fatal(err)
 		}
+		packageEntries = append(packageEntries, testTarEntry{name: "usr/share/doc/lmm-api-web-bin/RELEASE_ASSET_SHA256", body: assetSHA256 + "\n", mode: 0o644})
 		packagePath := filepath.Join(caseRoot, "web-package-"+version+".tar.gz")
-		writeTestTarGzip(t, packagePath, []testTarEntry{
-			{name: ".PKGINFO", body: testProductionPackageInfo(t, productionWebPackageName, version+"-1", ""), mode: 0o644},
-			{name: ".INSTALL", body: string(packageHook), mode: 0o644},
-			{name: "usr/share/lmm-api-web/frontend-dist/index.html", body: "<!doctype html>\n", mode: 0o644},
-			{name: "usr/lib/lmm-api-web/lmm-api-web-activate", body: "#!/bin/sh\nexit 0\n", mode: 0o755},
-			{name: "usr/lib/lmm-api-web/frontend-release.sh", body: "#!/bin/sh\nexit 0\n", mode: 0o755},
-			{name: "usr/share/doc/lmm-api-web-bin/RELEASE_ASSET_SHA256", body: assetSHA256 + "\n", mode: 0o644},
-		})
+		writeTestTarGzip(t, packagePath, packageEntries)
 		runtime := &productionReleaseRuntime{runner: osProductionCommandRunner{}}
 		err = runtime.verifySignedPackageLayout(context.Background(), caseRoot, productionWebPackageName, version+"-1", packagePath, asset, assetSHA256, false)
 		if wantError == "" {
@@ -702,10 +707,10 @@ func TestVerifySignedWebPackageLayoutPinsInstallHook(t *testing.T) {
 			t.Fatalf("version=%s error=%v want %q", version, err, wantError)
 		}
 	}
-	verify("0.1.42", false, installHook, "")
-	verify("0.1.42", false, append([]byte(nil), []byte("#!/bin/sh\nexit 1\n")...), "install hook")
-	verify("0.1.43", true, installHook, "")
-	verify("0.1.43", false, installHook, "lacks lmm-api-web.install")
+	verify("0.1.42", false, legacyInstallHook, true, "")
+	verify("0.1.42", false, []byte("#!/bin/sh\nexit 1\n"), true, "install hook")
+	verify("0.1.52", true, installHook, false, "")
+	verify("0.1.52", false, installHook, false, "lacks lmm-api-web.install")
 }
 
 func TestRemoteGoPackageDeduplicatesPacmanProviderResolution(t *testing.T) {

@@ -121,7 +121,7 @@ func TestExplicitHighVersionT0DoesNotRemoveLegacyDeployPackage(t *testing.T) {
 	}
 }
 
-func TestVerifyTransitionCLIEnforcesT0AndT1CommandSets(t *testing.T) {
+func TestVerifyTransitionCLIEnforcesProviderLinkAndLegacyRollbackLayouts(t *testing.T) {
 	root := t.TempDir()
 	paths := defaultProductionPaths()
 	paths.InstalledBinary = filepath.Join(root, "usr", "bin", "lmm-api")
@@ -130,47 +130,46 @@ func TestVerifyTransitionCLIEnforcesT0AndT1CommandSets(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(paths.InstalledBinary), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(paths.LegacyGoBinary, []byte("provider\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Base(paths.LegacyGoBinary), paths.InstalledBinary); err != nil {
+		t.Fatal(err)
+	}
 	runtime := &productionRuntime{paths: paths}
-	t1 := productionPackageTransition{
+	current := productionPackageTransition{
 		CandidatePackageName: productionAURPackageName,
-		CandidateIdentity:    productionAURPackageName + " 0.1.60-1",
+		CandidateIdentity:    productionAURPackageName + " 0.2.0-1",
 	}
-	if err := runtime.verifyTransitionCLI(t1, false); err != nil {
+	if err := runtime.verifyTransitionCLI(current, false); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink("lmm-api", paths.LegacyGoBinary); err != nil {
+	if err := os.WriteFile(paths.LegacyDeployBinary, []byte("legacy\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := runtime.verifyTransitionCLI(t1, false); err == nil || !strings.Contains(err.Error(), "legacy CLI path remains") {
-		t.Fatalf("T1 legacy-path error=%v", err)
+	if err := runtime.verifyTransitionCLI(current, false); err == nil || !strings.Contains(err.Error(), "legacy deployment CLI remains") {
+		t.Fatalf("legacy deploy path error=%v", err)
+	}
+	if err := os.Remove(paths.LegacyDeployBinary); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(paths.InstalledBinary); err != nil {
+		t.Fatal(err)
 	}
 	if err := os.Remove(paths.LegacyGoBinary); err != nil {
 		t.Fatal(err)
 	}
-	t0 := productionPackageTransition{
-		CandidatePackageName: productionAURPackageName,
-		CandidateIdentity:    productionAURPackageName + " 0.1.59-1",
-	}
-	if err := runtime.verifyTransitionCLI(t0, false); err == nil || !strings.Contains(err.Error(), "lacks its compatibility") {
-		t.Fatalf("T0 missing-link error=%v", err)
-	}
-	if err := os.Symlink("lmm-api", paths.LegacyGoBinary); err != nil {
+	if err := os.WriteFile(paths.InstalledBinary, []byte("legacy provider\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := runtime.verifyTransitionCLI(t0, false); err != nil {
+	if err := os.Symlink(filepath.Base(paths.InstalledBinary), paths.LegacyGoBinary); err != nil {
 		t.Fatal(err)
 	}
-
-	explicitT0 := productionPackageTransition{
-		CandidatePackageName: productionAURPackageName,
-		CandidateIdentity:    productionAURPackageName + " 0.1.63-1",
-		CandidateCLIPhase:    productionCLIPhaseT0,
+	legacy := productionPackageTransition{
+		RollbackPackageName: productionAURPackageName,
+		RollbackIdentity:    productionAURPackageName + " 0.1.69-1",
 	}
-	if err := runtime.verifyTransitionCLI(explicitT0, false); err != nil {
+	if err := runtime.verifyTransitionCLI(legacy, true); err != nil {
 		t.Fatal(err)
-	}
-	explicitT0.CandidateCLIPhase = productionCLIPhaseT1
-	if err := runtime.verifyTransitionCLI(explicitT0, false); err == nil || !strings.Contains(err.Error(), "legacy CLI path remains") {
-		t.Fatalf("explicit T1 with compatibility link error=%v", err)
 	}
 }
