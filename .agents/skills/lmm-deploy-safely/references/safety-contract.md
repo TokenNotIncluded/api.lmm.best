@@ -2,328 +2,239 @@
 
 ## Authorization and identity
 
-- Default to `local`.
-- Require explicit current-turn authorization for `test` or `production`.
-- Verify the expected SSH alias, static hostname, role marker, service name,
-  installed package identity, current backend artifact, frontend symlink, and
-  installed CLI protocol/service entry point.
-- Classify the installed layout before invoking a command. The approved
-  `lmm-api-go-bin` package owns the single canonical backend/operator entry at
-  `/usr/bin/lmm-api`. T0 may retain old command paths only as rollback
-  compatibility; T1 removes them. Already published Go packages may still own
-  a bundled legacy frontend, but the next split Go package must not. Never mix
-  legacy paths, package identities, rollback archives, or state roots with a
-  split transaction.
-- Treat host or role disagreement as a stop condition.
-- Preserve the repository's one-branch, one-worktree, one-diff rules. A deploy
-  request does not authorize Git repair, branch switching, commit, or push.
+- Default to `local`. Require explicit current-turn authorization for `test` or
+  `production` and verify the exact SSH alias, static hostname, role marker,
+  service name, package identities, active provider link, frontend link, and
+  CLI protocol before mutation.
+- The real providers are `/usr/bin/lmm-api-go` and `/usr/bin/lmm-api-rs`.
+  `/usr/bin/lmm-api` is a one-hop relative symlink to exactly one provider.
+  Production services and operator actions invoke only `/usr/bin/lmm-api`.
+- Verify the symlink with `lstat` and `readlink`, the real target with
+  `realpath`, `pacman -Qo`, package integrity, mode/owner checks, signed release
+  metadata, SHA-256, Git revision, and API/route contract revision. Reject a
+  regular `/usr/bin/lmm-api`, reverse alias, chain, absolute target, missing
+  provider, unowned/writable provider, or identity mismatch.
+- A verified legacy Go `0.1.x` regular `/usr/bin/lmm-api` is accepted only as
+  explicit N-1 migration/rollback evidence. Never publish that layout again.
+- Host, role, package, protocol, link, or route-ownership disagreement is a
+  hard stop.
+- A deploy request does not implicitly authorize Git repair, branch switching,
+  commits, pushes, tags, release publication, AUR publication, backups, or
+  provider ownership transfer. Obtain explicit authorization for each class.
 
 ## Workspace and build contract
 
 - Create one deployment ID matching `[A-Za-z0-9][A-Za-z0-9._-]{0,127}`.
-- Use marker-owned persistent storage, never `/tmp` or `/var/tmp`.
-- Place `TMPDIR`, Go build cache, Go module cache, Cargo target output, Bun
-  cache, package staging, manifests, and logs under that deployment directory.
-- The controller workspace is
-  `${XDG_STATE_HOME:-$HOME/.local/state}/lmm-api/deploy-work/<deployment-id>`;
-  do not leave build or package bytes in the repository or in `/tmp`.
-- Build once. Record and verify the same artifact SHA-256 at every promotion
-  boundary.
-- Never overwrite an existing immutable release with different bytes.
-- For Go releases at or above 0.1.63, require signed
-  `CLI_TRANSITION_PHASE=t0|t1` metadata in the release and installed package;
-  never infer the transition solely from version ordering.
+- Use marker-owned persistent workspaces, never `/tmp` or `/var/tmp`:
+  - controller: `${XDG_STATE_HOME:-$HOME/.local/state}/lmm-api/deploy-work/<id>`;
+  - production target: `/var/lib/lmm-api-go-deploy/work/<id>` until a separately
+    rehearsed generic-state migration.
+- Put `TMPDIR`, Go/Cargo/Bun caches, dependency trees, packages, manifests, and
+  logs beneath that exact workspace. Private directories are `0700`; manifests,
+  status, configuration evidence, and secret-bearing files are `0600`.
+- Build once from one frozen clean revision. Record and verify the same artifact
+  SHA-256 at every release, package, staging, and activation boundary. Never
+  overwrite an immutable release with different bytes.
 - Serialize heavy builds on the small controller (`GOMAXPROCS=2`, Go package
-  parallelism `2`, Cargo jobs `2`) unless fresh resource evidence justifies a
-  higher limit. Keep all caches in the marker-owned workspace.
+  parallelism `2`, Cargo jobs `2`) unless fresh resource evidence permits more.
+- The root `deploy/` directory is retired. Deployment behavior belongs in both
+  provider CLIs; immutable assets live under `packaging/`; language tests replace
+  shell-only deployment tests.
 
 ### Bounded state
 
-- Treat `${XDG_STATE_HOME:-$HOME/.local/state}/lmm-api` and any deployment-side
-  alias such as `states/api.lmm.best` as bounded operational state. Measure the
-  resolved root with `du -sx --bytes` before a build and after terminal cleanup.
-- Warn at `256 MiB`; stop new builds at `512 MiB` or earlier when the storage
-  gate is yellow. Keep only the marker/status in terminal workspaces and remove
-  exact `staging`, `tmp`, build-cache, `node_modules`, `dist`, and package
-  archive children after `CONFIRMED` or `ROLLED_BACK`.
-- Never prune application history, PostgreSQL/Valkey data, active releases,
-  backups, or another deployment's workspace to satisfy the budget. A large or
-  unexplained state root is a stop-and-report condition, not permission for a
-  broad deletion.
+- Measure `${XDG_STATE_HOME:-$HOME/.local/state}/lmm-api` before builds and after
+  terminal cleanup. Warn at 256 MiB and stop new builds at 512 MiB or earlier
+  when the storage gate is yellow.
+- Remove only exact disposable children of marker-owned terminal workspaces.
+  Never prune active/nonterminal workspaces, transaction locks, application or
+  database history, active releases, backups, or another deployment.
+- A large or unexplained state root is a stop-and-report condition, not
+  permission for broad deletion.
 
-### Release and AUR identity
+## Release and package identity
 
-- Reconcile the release workflow tag pattern, artifact names, each changed
-  `PKGBUILD`/`.SRCINFO` source URL, Sigstore identity, and
-  `packaging/aur/README.md` from one frozen revision before publishing.
-- A `vX.Y.Z` workflow cannot satisfy a `web-vX.Y.Z` AUR source (or the reverse)
-  without an explicit compatibility/release asset. Treat that mismatch as a
-  hard stop; never retag, reuse, or hand-edit around it.
-- Push package metadata only to the matching AUR repository. Production
-  `paru` runs as the established unprivileged OS account, never root, and may
-  assemble only the exact verified package set. A plain `paru` invocation never
-  replaces the watchdog, confirmation, or health gates.
-- Validate actual package archive headers—not only extracted bytes or the
-  package-supplied `.MTREE`—for root ownership, safe types/modes, signed-member
-  mode parity, and exact critical `.MTREE` agreement. Re-hash every staged
-  package, probe, and operator immediately before each activation dispatch or
-  permitted redispatch.
-- Do not publish or install a deploy-only bootstrap. Move a pre-T0 target
-  through the exact signed T0 `lmm-api-go-bin` package and immutable controller
-plan. T0 must establish the unified CLI and integrated operator resources
-while retaining rollback compatibility; T1 separately removes legacy paths.
-For a local T1 package, do not assume `replaces` removes an installed package:
-after the watchdog is armed, require package-owned T0 sudoers/sysusers/tmpfiles,
-verify the exact legacy package owner and zero altered files, remove only that
-package, and then install T1.
-- Persist the activation transient-unit identity and bounded attempt count before
-remote dispatch. A transport-ambiguous result must reconcile the unit, target
-manifest, and target status. Only when all three are absent may the exact same
-plan/workspace be redispatched once. If any evidence exists, observe that job;
-never issue another apply.
-- Before any operator invocation, require `pacman -Qo` to identify the approved
-  Go package as owner of `/usr/bin/lmm-api`; require a real non-symlink binary
-  and zero altered package files. Verify the package payload against the signed
-  release, `RELEASE_ASSET_SHA256`, package version, `REVISION`, Sigstore
-  workflow identity, and API/route contract metadata. Stop on any mismatch.
+- Reconcile tag patterns, artifact/provider filenames, `PKGBUILD`/`.SRCINFO`
+  URLs and hashes, Sigstore workflow identities, package metadata, and
+  `packaging/aur/README.md` from one frozen revision before publication.
+- Go release/package payloads install a real `lmm-api-go`; Rust payloads install
+  a real `lmm-api-rs`. New provider packages do not own `/usr/bin/lmm-api` and
+  do not conflict with the other provider merely for existing.
+- A candidate operator is invoked through a release-scoped one-hop symlink named
+  `lmm-api`; validate its target name and hash before every dispatch. Package
+  inspection may name provider files, but deployment commands never execute a
+  provider filename directly.
+- Production `paru` runs as the established unprivileged account, never root,
+  and assembles only the pinned verified package set. `pacman -U` may run only
+  through the exact reviewed privilege path.
+- Validate package archive headers and `.MTREE` for root ownership, safe
+  types/modes, signed-member parity, exact critical files, provider layout, and
+  absence of forbidden generic/reverse aliases.
+- Persist transient-unit identity and bounded attempt count before remote
+  dispatch. On transport ambiguity, reconcile the unit, manifest, and status.
+  Redispatch the exact plan at most once and only when all three are absent.
 
-### Production resource gates
+## Production resource gates
 
-The production root filesystem is 20 GiB and the service cgroup is bounded by
-`MemoryHigh=320M`, `MemoryMax=384M`, and `MemorySwapMax=256M`. Before a
-mutation, during every build/backup transfer, and throughout the watchdog
-window, record `df -h /`, `df -i /`, `free -h`, `vmstat 1 5`, the service
-`NRestarts`/memory counters, PostgreSQL readiness, Valkey readiness, and native
-CLI `/api/status` plus `/api/livez` probes.
+The production root is 20 GiB and `lmm-api.service` is bounded by
+`MemoryHigh=320M`, `MemoryMax=384M`, and `MemorySwapMax=256M`. Before mutation,
+during transfers, throughout observation, and before confirmation record:
 
-- Green: root and inode use `<70%`, `MemAvailable >=30%`, swap `<10%`, CPU
-  `<70%` for 5 minutes, and at least 4 GiB free before a production package.
-- Warning: root/inode use `70-80%`, `MemAvailable 20-30%`, swap `10-25%`, or
-  CPU `70-85%`; serialize heavy work and prune only measured terminal work.
-- Stop: root/inode `>=80%`, root free space below the known package plus three
-  backup copies and 1 GiB headroom, `MemAvailable <20%`, swap `>25%` with
-  churn, CPU `>85%` for 5 minutes, repeated restart/OOM, or a required probe
-  timeout. At `>=90%` storage use, treat the host as an emergency and clean
-  storage before touching application state.
+- `df -h /`, `df -i /`, `free -h`, and `vmstat 1 5`;
+- service `MainPID`, `NRestarts`, memory/swap limits and counters;
+- PostgreSQL and Valkey readiness;
+- `/api/status`, `/api/livez`, provider link, package, process executable, and
+  frontend-link identities;
+- relevant error journal entries.
 
-Do not clear swap, journals, caches, or the database to make a metric green.
-Do not kill unrelated processes. A failed resource or health check is an
-incident signal and must be recorded before any retry.
+Thresholds:
 
-## Database detection
+- Green: root/inodes `<70%`, `MemAvailable >=30%`, swap `<10%`, CPU `<70%`
+  for five minutes, and at least 4 GiB free before production packages/backups.
+- Warning: root/inodes `70-80%`, memory `20-30%`, swap `10-25%`, or CPU
+  `70-85%`; serialize work and prune only measured terminal state.
+- Stop: root/inodes `>=80%`, insufficient package + requested backup + 1 GiB
+  headroom, memory `<20%`, swap `>25%` with churn, CPU `>85%` for five minutes,
+  restart/OOM evidence, write failures, or required-probe timeout. At `>=90%`
+  storage treat the host as an incident.
+
+Do not clear swap, journals, caches, or databases to make a gate green. Do not
+kill unrelated processes or hide failed checks with blind restarts.
+
+## Database and cache identity
 
 - Inspect configuration without sourcing it and without printing values.
-- Classify only SQLite, PostgreSQL, or MySQL from recognized configuration
-  keys and safe value prefixes.
-- Fail when multiple engines are present, when the deployer and live engine
-  disagree, or when the engine is unknown for a database-changing release.
-- Never put a DSN in command output, a manifest, `SWAP.md`, or a process title.
-- Treat the running service environment and active listeners as current
-  evidence; historical prose or a previous cutover result is not enough.
-- If the live process uses PostgreSQL but the current `PG_WRITE_BOUNDARY`,
-  cutover journal, or post-cutover verification is missing or failed, stop and
-  reconcile through the coordinator before migration, backend selection, or
-  rollback. Do not silently classify that state as a fresh SQLite migration.
-
-## Canonical operator and legacy CLI safety
-
-- Invoke public deployment phases only as `/usr/bin/lmm-api deploy production
-  ...` after package-owner, real-path, byte, SHA-256, release revision, and
-  command-protocol checks pass. Do not invoke source helpers, copied binaries,
-  shell wrappers, `/tmp` tools, or an improvised command. The controller may
-  invoke only its digest-verified staged probe for target-private actions.
-- `/usr/bin/lmm-api-go` and `/usr/bin/lmm-api-deploy` are T0 compatibility
-  paths, not public operators. A historical binary may start the backend for an
-  unknown command, so `status`, `deploy`, `--help`, and no-argument calls are
-  not read-only until the exact protocol is proven.
-- For a legacy target without the proven unified operator, inspect with
-  `systemctl show`, `readlink`, `pacman -Qo`, sanitized process-environment
-  scheme classification, and explicit health probes only. Use the signed T0
-  Go package plan rather than a deploy-only bootstrap. Preserve and report any
-  artifact created by an unsafe probe; remove it only after exact ownership and
-  scope are confirmed.
-
-## Local acceptance preview override
-
-For this repository's local acceptance preview, SQLite is unconditionally
-forbidden, including fallback, autodetection, and default behavior. Require a
-fresh marker-owned local PostgreSQL database and role plus a fresh isolated
-marker-owned Valkey instance, both initialized with zero production or
-business data. Do not use production DSNs, snapshots, or cache dumps. Bind
-both to loopback or Unix sockets only; do not reuse an existing database,
-schema, role, cache namespace, or port. Verify database and cache identities
-before startup. Missing or ambiguous configuration, an unexpected engine, a
-nonempty target, or inability to verify identity is an immediate `STOP`, never
-a fallback. This override applies only to local acceptance previews; generic
-engine detection above remains applicable to other deployment roles.
+- Classify only recognized SQLite, PostgreSQL, or MySQL settings; fail on
+  disagreement, ambiguity, or unknown engines for database-changing releases.
+- Never place DSNs, credentials, tokens, or private configuration in command
+  output, manifests, process titles, logs, or off-host plaintext.
+- Live process environment and listeners are current evidence. Historical
+  cutover prose is not.
+- Production PostgreSQL and dedicated Valkey identities, schema boundary, and
+  N/N-1 migration compatibility must be proven before backend mutation.
+- Local acceptance uses fresh marker-owned PostgreSQL and Valkey instances only;
+  SQLite fallback and production data are forbidden.
 
 ## Optional backup copies
 
-Backups are not a deployment prerequisite. Do not create, transfer, verify, or
-prune them unless the user explicitly requests backups in the current turn.
-When the opt-in backup path is selected, require:
+Backups are optional and require explicit current-turn authorization. When
+selected, require verified copies:
 
-| Role | Required verified copies |
+| Role | Required copies |
 | --- | --- |
 | local | controller |
 | test | target, controller |
 | production | target, controller, off-host |
 
-The production controller copy lives at
-`$HOME/backup/lmm-api/<verified-host>/<deployment-id>`. The off-host copy lives
-on the ArchCzy host, reached through the case-sensitive SSH alias `archczy`,
-under a fixed root or in explicitly configured object storage. Verify that
-`ssh archczy` resolves to static hostname `archczy`; do not assume the display
-name `ArchCzy` is a configured SSH alias.
+Production roots:
 
-Each copy contains `manifest.env`, `SHA256SUMS`, a nonempty application archive,
-frontend archive, configuration archive, and database backup. The manifest
-records:
+- target: `/var/lib/lmm-api-go-deploy/backups/<id>`;
+- controller: `$HOME/backup/lmm-api/<verified-host>/<id>`;
+- off-host: `/home/arch/.local/state/lmm-api-production-backups/<id>` on the
+  verified `archczy` host.
 
-- format and deployment ID;
-- copy role, deployment role, and verified host;
-- release ID, artifact SHA-256, and Git revision;
-- database engine;
-- service state and frontend release identity;
-- archive paths, sizes, modes, and UTC timestamps.
+Each copy contains a manifest, `SHA256SUMS`, nonempty application/frontend/
+configuration archives, and a database backup when applicable. Controller and
+off-host secret-bearing archives are encrypted before transfer; checksums cover
+the transferred encrypted bytes. Never prune an active/unconfirmed release,
+latest-known-good backup, or a copy whose remaining peers are unverified.
 
-The target may retain a root-only plaintext configuration snapshot. Only its
-non-secret `manifest.env` and `SHA256SUMS` proof may leave the target in clear
-text. Controller and off-host configuration or database archives must be
-encrypted before transfer. Checksums cover the encrypted bytes that were
-actually transferred.
+## Manual rollback state machine
 
-Default retention is five target, ten controller, and thirty off-host copies.
-Prune only after confirmation or verified rollback. Never remove the active
-release, an unconfirmed deployment, the latest known-good backup, or a copy
-whose remaining peers have not been verified.
+There is no scheduled rollback service/timer and no automatic rollback on
+activation failure, observation failure, cancellation, process exit, or reboot.
 
-Canonical roots are fixed:
+Before the first live mutation:
 
-- controller workspace: `${XDG_STATE_HOME:-$HOME/.local/state}/lmm-api/deploy-work/<deployment-id>`;
-- durable controller copy: `$HOME/backup/lmm-api/<verified-host>/<deployment-id>`;
-- production target workspace: `/var/lib/lmm-api-go-deploy/work/<deployment-id>`
-  (root-owned and outside the service-writable StateDirectory);
-- guarded core target workspace: `/var/lib/lmm-api/deploy-work/<deployment-id>`
-  when the installed core contract selects the guarded layout;
-- production target backup: `/var/lib/lmm-api-go-deploy/backups/<deployment-id>`;
-- off-host copy: `/home/arch/.local/state/lmm-api-production-backups/<deployment-id>`
-  on the ArchCzy host through SSH alias `archczy`.
+1. Verify and persist immutable N/N-1 provider, package, frontend, configuration,
+   schema, and optional-backup evidence.
+2. Persist a rollback-eligible state while holding the transaction lock.
+3. Re-hash all artifacts and provider-link targets.
 
-Only the exact workspace's `staging`, `tmp`, and cache children are disposable.
-After terminal state, retain its marker/status audit record and any explicitly
-requested durable copies; remove staging by exact path. Never recursively clean a backup
-root, release root, home/root, `/tmp`, `/var/tmp`, an unresolved variable, or a
-glob. A terminal workspace older than 24 hours may be pruned oldest first only
-after checksum/decryption verification and only while the storage gate remains
-green.
+Failure semantics:
 
-## Rollback watchdog
+- Before the mutation boundary: write `FAILED_PREARM`, release the lock, and
+  retain bounded audit evidence.
+- At or after the boundary: write `ROLLBACK_REQUIRED`, keep the lock and all
+  rollback evidence, and stop further mutation.
+- If the status write itself fails after mutation, the previously persisted
+  rollback-eligible state and lock remain authoritative.
+- Failed rollback remains retryable, retains evidence, and never reports a
+  terminal success.
 
-- Install a persistent systemd watchdog before the first switch.
-- Store a root-only, checksum-verified guard containing the exact deployment,
-  old/new backend identities, old/new frontend identities, rollback artifacts,
-  status, and deadline.
-- Arm the watchdog before switching application or frontend state.
-- After successful identity and health probes, set a ten-minute deadline and
-  return `AWAITING_CONFIRMATION`.
-- Manual confirmation must name the exact deployment and re-verify backend
-  checksum/version, frontend symlink, relevant services, and health identity.
-- Confirmation writes `CONFIRMED` durably before stopping and disabling the
-  timer.
-- Expiry restores the prior application package, frontend link, and approved
-  configuration snapshot, verifies health, writes `ROLLED_BACK`, and preserves
-  evidence for review.
-- Automatic rollback never restores a database. Block the release unless its
-  migrations are compatible with both N and N-1 during the confirmation
-  window.
+A healthy switch observes for at least 120 seconds and ends in
+`AWAITING_CONFIRMATION`. Only these explicit commands make progress:
 
-## Go/Web AUR migration order
+```text
+/usr/bin/lmm-api deploy production confirm ...
+/usr/bin/lmm-api deploy production rollback ...
+```
 
-- Require separately signed immutable Go-only and Web release assets, matching
-  API/route contract revisions, and pinned AUR hashes before target package
-  assembly. The Go package owns the service, environment, edge policy, exact
-  memory drop-in, and backend only; it must not contain `frontend-dist`. The Web
-  package owns the immutable frontend and activation hook.
-- With the canonical operator already verified, use non-root `paru` to assemble
-  both exact candidate packages and both checksum-verified N-1 rollback
-  packages. Record Go/Web package versions, package SHA-256, Git revisions,
-  contract revisions, binary hash, and frontend link for N and N-1. Do not
-  compile or replace signed bytes, install one half of an unsupported pair, or
-  use root `paru`.
-- Arm the persistent 600-second watchdog before stopping Go or changing the Web
-  link. Its guard must contain both N and N-1 package/link identities and the
-  configuration restore state. Run the candidate binary as a root transient
-  unit with the production environment file; do not use the stopped service's
-  `DynamicUser` identity.
-- Run `migrate --apply` and then `migrate --verify` before the split `paru -U`
-  install. A failed verification blocks both package installations. Never
-  repair the gate with ad-hoc production SQL. Migrations must be compatible
-  with both N and N-1 for the complete watchdog window.
-- Apply the package-owned memory drop-in and start Go before final Web
-  activation. A local Web activation probe avoids a DNS-only package-hook
-  failure; public status remains a confirmation gate.
-- Observe at least 120 seconds with the watchdog armed. Confirm only the exact
-  Go/Web package versions and hashes, Git and contract revisions, binary,
-  frontend link, unchanged restart count, database/cache readiness, journals,
-  three native status/livez probes, and exact memory limits. Generic health or
-  confirmation of only one package is insufficient.
+Confirmation names the exact deployment, verifies completed observation,
+provider symlink/target/package/hash, backend process identity, frontend link,
+service restart baseline, PostgreSQL/Valkey, health canaries, journals, memory
+limits, and immutable archives before writing `CONFIRMED` and releasing the
+lock.
+
+Rollback names the exact deployment, re-verifies untampered N-1 evidence,
+restores only the approved provider package/link, frontend link, and
+configuration snapshot, verifies health/identity, writes `ROLLED_BACK`, and
+then releases the lock. It never restores a database automatically.
+
+## Go/Web update order
+
+1. Freeze a clean revision equal to `origin/main`; pass Go, Web, route-contract,
+   package, and provider-link checks.
+2. Publish immutable signed Go and Web assets with matching API/route contract
+   revisions and provider-correct filenames.
+3. Update, test, commit, and publish exact pinned AUR metadata; read it back.
+4. Assemble exact candidate and N-1 Go/Web packages as non-root and verify
+   package/archive/provider identities.
+5. Create requested backup copies, when authorized, and persist manual rollback
+   evidence before mutation.
+6. Run candidate `migrate --apply` and `migrate --verify` through a validated
+   candidate symlink named `lmm-api`; migrations must remain N/N-1 compatible.
+7. Install exact packages, atomically establish/verify `/usr/bin/lmm-api ->
+   lmm-api-go`, start the service, activate Web, and verify local/public probes.
+8. Observe at least 120 seconds. Stop at `AWAITING_CONFIRMATION` and perform
+   explicit confirmation or rollback.
+
+A Web-only publication must not reinstall/restart Go. A Go-only publication
+must not replace the active Web payload. A Rust provider install does not grant
+Rust route ownership.
 
 ## Rust ownership gate
 
-- The Rust blue/green slots own internal GET/HEAD probes only until the route
-  gate and independent business differential evidence approve production
-  ownership.
-- `migration-gate.tsv` must pass source-mode validation before packaging and
-  activation-mode validation before a Rust switch. Reject inconsistent
-  `legacy-go`/mounted rows, unresolved routes, unverified auth/quota/billing or
-  streaming behavior, and any route without independent approval.
-- PostgreSQL and dedicated Valkey identity, shared rate-limit/session state,
-  background-job singleton behavior, and SSE/WebSocket drain/reconnect are
-  required evidence; a mounted slot, active symlink, or `/readyz` response is
-  not production proof.
+- `migration-gate.tsv` is authoritative for route ownership. Reject unresolved,
+  inconsistent, unverified, or unapproved auth/quota/billing/streaming routes.
+- Rust CLI/package parity, a provider symlink, health probes, mounted routes, or
+  historical rehearsals do not transfer business ownership.
+- PostgreSQL/Valkey identity, shared session/rate-limit semantics, singleton
+  jobs, SSE/WebSocket drain/reconnect, N/N-1 migration compatibility, and
+  explicit route-by-route approval are required before a Rust production switch.
 
 ## Cleanup
 
-- Clean only the exact deployment workspace carrying the expected marker and
-  matching deployment ID.
-- Require a durable `CONFIRMED`, `ROLLED_BACK`, controller-only pre-switch
-  `VALIDATED`, or pre-switch `ABORTED` final state. Use `VALIDATED` for
-  completed pre-release checks and `ABORTED` for an interrupted attempt, only
-  after proving no switch occurred and stopping every workspace-owned process.
-- Reject `/`, home roots, workspace roots, `/tmp`, `/var/tmp`, backup roots,
-  release roots, unresolved variables, tildes, globs, symlinks, and paths not
-  owned by the marker.
-- Preview cleanup before execution.
-- Remove release artifacts together with staging, temporary files, and build
-  caches; durable releases and rollback packages belong outside deploy-work.
-- Never implement “clear tmp” as a broad directory deletion. Identify and
-  remove only stale, inactive, marker-owned LMM deployment workspaces.
-- Re-run disk/inode/RAM/swap, service state, PostgreSQL/Valkey readiness, and
-  native CLI status/livez checks after cleanup; record exact paths removed and
-  the remaining free-space margin.
-- Re-run the bounded-state measurement after cleanup and record the remaining
-  bytes. Do not report success if the state root still exceeds the warning
-  budget without an owner and an explicit follow-up.
+- Clean only an exact marker-owned workspace whose state is `CONFIRMED`,
+  `ROLLED_BACK`, controller-only `VALIDATED`, or verified pre-switch `ABORTED`.
+- Preview first. Reject roots, home, `/tmp`, `/var/tmp`, backup/release roots,
+  unresolved variables, globs, tildes, symlinks, and paths outside the marker.
+- Remove only disposable staging, temporary files, dependencies, caches, and
+  package archives. Retain marker/status audit evidence and durable releases,
+  rollback packages, and requested backups.
+- Re-run resource, service, database/cache, provider-link, and health checks and
+  measure the bounded state root after cleanup.
 
-## Minimum validation before production enablement
+## Minimum validation before production
 
-- Skill validation and shell syntax checks pass.
-- Release workflow, AUR source tags, package identities, and Sigstore
-  identities are mutually consistent for the exact frozen revision.
-- Offline tests cover safe IDs and paths, host mismatch, database disagreement,
-  optional-backup selection and verification, timer
-  arming, exact-release confirmation, expiry rollback, reboot recovery, and
-  scoped cleanup.
-- Existing production contract tests require watchdog state and
-  `AWAITING_CONFIRMATION`; opted-in backup tests require all requested copies.
-- A fresh runtime audit reconciles any historical PostgreSQL cutover result and
-  proves the active schema, Valkey endpoint, and forward-only boundary.
-- Frontend-only publication is proven compatible with the current Go API before
-  it is promoted independently of Rust.
-- A local deployment of the identical artifact passes application and frontend
-  checks before any test or production promotion.
-- Authenticated canaries and representative business requests pass in addition
-  to generic health checks; browser, SSE, and WebSocket behavior is reviewed
-  when affected by the release.
-- An independent Reviewer approves the deployment behavior and residual risk.
+- Go and Rust tests cover provider-link safety, shared command/schema parity,
+  safe IDs/paths, host mismatch, optional backups, manual rollback states,
+  interruption/reboot recovery, explicit confirmation/rollback, tampered
+  evidence, retryable rollback, and exact cleanup.
+- No tracked runtime, workflow, package, test, or documentation depends on the
+  removed root `deploy/` directory.
+- Release/AUR/Sigstore/provider identities are consistent for the frozen
+  revision and identical bytes pass local PostgreSQL/Valkey acceptance.
+- Authenticated canaries and representative business requests pass; affected
+  browser, SSE, and WebSocket behavior is reviewed.
+- An independent reviewer approves deployment behavior and residual risk.
