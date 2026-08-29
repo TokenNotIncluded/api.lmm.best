@@ -64,6 +64,7 @@ func writeDeployUsage(output io.Writer) {
   %s deploy build --repo DIR --workspace DIR [--output-dir DIR] [--version VERSION] [--production]
   %s deploy frontend publish --source DIR --release ID [--root DIR] [--keep N]
   %s deploy frontend rollback [--release ID] [--root DIR] [--keep N]
+  %s deploy frontend package-activate --package-version VERSION [--root DIR] [--source DIR] [--revision-file FILE] [--keep N]
   %s deploy contract route print|generate|verify [REVISION_FILE]
   %s deploy production harden [--env-file FILE] [--drop-in-dir DIR]
   %s deploy production edge-policy install|verify [--asset-root DIR] [--backup-dir DIR]
@@ -79,10 +80,13 @@ func writeDeployUsage(output io.Writer) {
 Production Go changes require --with-backups and the verified target, controller, and off-host copies.
 Web-only releases may omit backups.
 Target-only recovery commands are listed by the production command's usage.
-`, ProgramName, ProgramName, ProgramName, ProgramName, ProgramName, ProgramName, ProgramName, ProgramName)
+`, ProgramName, ProgramName, ProgramName, ProgramName, ProgramName, ProgramName, ProgramName, ProgramName, ProgramName)
 }
 
 func runFrontendDeploy(args []string, stdout, stderr io.Writer) int {
+	if len(args) != 0 && args[0] == "package-activate" {
+		return runFrontendPackageActivate(args[1:], stdout, stderr)
+	}
 	options, err := parseFrontendDeployOptions(args, stderr)
 	if errors.Is(err, flag.ErrHelp) {
 		return ExitOK
