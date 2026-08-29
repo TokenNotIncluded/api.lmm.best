@@ -490,7 +490,7 @@ func TestCompleteExternalTopUpRejectsProductMismatchAndEvidenceReuse(t *testing.
 	assert.Equal(t, common.TopUpStatusPending, reloaded.Status)
 }
 
-func TestManualCompleteTopUpConsumesOneTimeDiscountCode(t *testing.T) {
+func TestPaidTopUpsAlwaysCreditAfterDiscountCapacityChanges(t *testing.T) {
 	db := setupExternalTopUpSettlementDB(t, 1)
 	previousLogDB := LOG_DB
 	previousRedisEnabled := common.RedisEnabled
@@ -500,7 +500,7 @@ func TestManualCompleteTopUpConsumesOneTimeDiscountCode(t *testing.T) {
 		LOG_DB = previousLogDB
 		common.RedisEnabled = previousRedisEnabled
 	})
-	require.NoError(t, db.AutoMigrate(&DiscountCode{}, &Log{}))
+	require.NoError(t, db.AutoMigrate(&DiscountCode{}, &DiscountCodeReservation{}, &Log{}))
 
 	code := DiscountCode{
 		Code:            "MANUAL-ONCE",
@@ -518,13 +518,17 @@ func TestManualCompleteTopUpConsumesOneTimeDiscountCode(t *testing.T) {
 	require.NoError(t, db.First(&consumed, code.Id).Error)
 	assert.EqualValues(t, 1, consumed.UsedCount)
 
-	assert.ErrorIs(t, ManualCompleteTopUp(secondTopUp.TradeNo, "127.0.0.1"), ErrDiscountCodeExhausted)
-	var pending TopUp
-	require.NoError(t, db.First(&pending, secondTopUp.Id).Error)
-	assert.Equal(t, common.TopUpStatusPending, pending.Status)
+	// This models a legacy/raced order that already reached the provider before
+	// the final coupon slot was consumed. Payment settlement must still credit.
+	require.NoError(t, ManualCompleteTopUp(secondTopUp.TradeNo, "127.0.0.1"))
+	require.NoError(t, db.First(&consumed, code.Id).Error)
+	assert.EqualValues(t, 2, consumed.UsedCount)
+	var settled TopUp
+	require.NoError(t, db.First(&settled, secondTopUp.Id).Error)
+	assert.Equal(t, common.TopUpStatusSuccess, settled.Status)
 	var reloadedFirstUser, reloadedSecondUser User
 	require.NoError(t, db.First(&reloadedFirstUser, firstUser.Id).Error)
 	require.NoError(t, db.First(&reloadedSecondUser, secondUser.Id).Error)
 	assert.Equal(t, 100+1_234, reloadedFirstUser.Quota)
-	assert.Equal(t, 100, reloadedSecondUser.Quota)
+	assert.Equal(t, 100+1_234, reloadedSecondUser.Quota)
 }

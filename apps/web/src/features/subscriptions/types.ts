@@ -60,6 +60,8 @@ export interface PlanRecord {
    * Admin API: configured methods whose gateway credentials are usable.
    */
   payment_methods?: string[]
+  /** Server-authoritative platform quota debited for a wallet purchase. */
+  balance_price_quota?: number
 }
 
 // ============================================================================

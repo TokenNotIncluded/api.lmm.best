@@ -6,7 +6,10 @@ locations_source=$repo/deploy/nginx/lmm-api-locations.conf
 region_policy_source=$repo/deploy/nginx/lmm-api-region-policy.conf
 mime_source=$repo/deploy/nginx/mime.types
 
-fail() { printf 'nginx-preflight-test: %s\n' "$*" >&2; exit 1; }
+fail() {
+  printf 'nginx-preflight-test: %s\n' "$*" >&2
+  exit 1
+}
 for command in curl nginx python3 sed; do
   command -v "$command" >/dev/null 2>&1 || fail "required command is unavailable: $command"
 done

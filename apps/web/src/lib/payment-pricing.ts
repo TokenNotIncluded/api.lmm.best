@@ -20,6 +20,8 @@ const DEDICATED_PAYMENT_PRICING_TYPES = new Set([
   'stripe',
   'waffo',
   'waffo_pancake',
+  'alipay',
+  'wxpay',
 ])
 
 export function usesDedicatedPaymentPricing(type?: string): boolean {

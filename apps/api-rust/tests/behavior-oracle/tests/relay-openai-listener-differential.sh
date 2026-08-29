@@ -7,10 +7,20 @@ set -euo pipefail
 repo_root=$(git rev-parse --show-toplevel)
 legacy_revision=5418ce6b6d45ed69167b0aad53f2f595e5bc8de9
 legacy_root=${LMM_GO_ORACLE_ROOT:-}
-[[ -n $legacy_root ]] || { echo "LMM_GO_ORACLE_ROOT is required ($legacy_revision)" >&2; exit 2; }
-[[ $legacy_root == /* && -d $legacy_root && ! -L $legacy_root ]] || { echo 'LMM_GO_ORACLE_ROOT must be an absolute non-symlink directory' >&2; exit 2; }
+[[ -n $legacy_root ]] || {
+  echo "LMM_GO_ORACLE_ROOT is required ($legacy_revision)" >&2
+  exit 2
+}
+[[ $legacy_root == /* && -d $legacy_root && ! -L $legacy_root ]] || {
+  echo 'LMM_GO_ORACLE_ROOT must be an absolute non-symlink directory' >&2
+  exit 2
+}
 legacy_root=$(realpath -e -- "$legacy_root")
-case "$legacy_root" in "$repo_root"|"$repo_root"/*) echo 'Go oracle must be external to the repository' >&2; exit 2 ;; esac
+case "$legacy_root" in "$repo_root" | "$repo_root"/*)
+  echo 'Go oracle must be external to the repository' >&2
+  exit 2
+  ;;
+esac
 
 runtime_base=${LMM_RELAY_OPENAI_RUNTIME_BASE:-/home/lightjunction/.cache}
 runtime=$(mktemp -d "$runtime_base/lmm-relay-openai-differential.XXXXXX")
@@ -38,24 +48,62 @@ go_pid='' rust_pid='' go_valkey_pid='' rust_valkey_pid='' provider_pid=''
 # shellcheck disable=SC2034 # Values are read indirectly through ${!start_name}.
 go_start='' rust_start='' go_valkey_start='' rust_valkey_start='' provider_start=''
 
-pid_start_time() { [[ -r /proc/$1/stat ]] || return 1; awk '{print $22}' "/proc/$1/stat"; }
-record_pid() { local name=$1 pid=$2 start; printf -v "$name" '%s' "$pid"; start=$(pid_start_time "$pid") || return 1; printf -v "${name}_start" '%s' "$start"; }
-owned_live() { local name=$1 pid start_name expected; pid=${!name:-}; start_name="${name}_start"; expected=${!start_name:-}; [[ -n $pid && -n $expected ]] && kill -0 "$pid" 2>/dev/null && [[ $(pid_start_time "$pid" 2>/dev/null || true) == "$expected" ]]; }
-stop_owned() { local name=$1 pid=${!1:-}; if [[ -n $pid ]] && owned_live "$name"; then kill "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true; fi; printf -v "$name" ''; printf -v "${name}_start" ''; }
+pid_start_time() {
+  [[ -r /proc/$1/stat ]] || return 1
+  awk '{print $22}' "/proc/$1/stat"
+}
+record_pid() {
+  local name=$1 pid=$2 start
+  printf -v "$name" '%s' "$pid"
+  start=$(pid_start_time "$pid") || return 1
+  printf -v "${name}_start" '%s' "$start"
+}
+owned_live() {
+  local name=$1 pid start_name expected
+  pid=${!name:-}
+  start_name="${name}_start"
+  expected=${!start_name:-}
+  [[ -n $pid && -n $expected ]] && kill -0 "$pid" 2>/dev/null && [[ $(pid_start_time "$pid" 2>/dev/null || true) == "$expected" ]]
+}
+stop_owned() {
+  local name=$1 pid=${!1:-}
+  if [[ -n $pid ]] && owned_live "$name"; then
+    kill "$pid" 2>/dev/null || true
+    wait "$pid" 2>/dev/null || true
+  fi
+  printf -v "$name" ''
+  printf -v "${name}_start" ''
+}
 cleanup() {
-  stop_owned go_pid || true; stop_owned rust_pid || true; stop_owned go_valkey_pid || true; stop_owned rust_valkey_pid || true; stop_owned provider_pid || true
+  stop_owned go_pid || true
+  stop_owned rust_pid || true
+  stop_owned go_valkey_pid || true
+  stop_owned rust_valkey_pid || true
+  stop_owned provider_pid || true
   [[ ! -d $runtime/pg ]] || pg_ctl -D "$runtime/pg" -m fast -w stop >/dev/null 2>&1 || true
-  if [[ ${LMM_RELAY_OPENAI_KEEP_RUNTIME:-0} == 1 ]]; then echo "retaining runtime: $runtime" >&2; return; fi
+  if [[ ${LMM_RELAY_OPENAI_KEEP_RUNTIME:-0} == 1 ]]; then
+    echo "retaining runtime: $runtime" >&2
+    return
+  fi
   case "$runtime" in "$runtime_base"/lmm-relay-openai-differential.*) find "$runtime" -depth -delete ;; *) echo 'refusing unexpected runtime cleanup target' >&2 ;; esac
 }
 trap cleanup EXIT INT TERM
 
 for command in awk cargo createdb createuser curl ffmpeg go initdb jq pg_ctl postgres psql python3 ss valkey-cli valkey-server; do
-  command -v "$command" >/dev/null || { echo "required command unavailable: $command" >&2; exit 127; }
+  command -v "$command" >/dev/null || {
+    echo "required command unavailable: $command" >&2
+    exit 127
+  }
 done
-[[ $(postgres --version) == *"PostgreSQL) 18."* ]] || { echo 'requires PostgreSQL 18' >&2; exit 1; }
+[[ $(postgres --version) == *"PostgreSQL) 18."* ]] || {
+  echo 'requires PostgreSQL 18' >&2
+  exit 1
+}
 for port in "$pg_port" "$go_port" "$rust_port" "$go_valkey_port" "$rust_valkey_port" "$provider_port"; do
-  [[ -z $(ss -H -ltn "sport = :$port" 2>/dev/null) ]] || { echo "occupied port: $port" >&2; exit 2; }
+  [[ -z $(ss -H -ltn "sport = :$port" 2>/dev/null) ]] || {
+    echo "occupied port: $port" >&2
+    exit 2
+  }
 done
 
 rust_target=${LMM_RELAY_OPENAI_CARGO_TARGET_DIR:-"$runtime/cargo-target"}
@@ -63,7 +111,10 @@ rust_binary=${LMM_RELAY_OPENAI_RUST_BINARY:-"$rust_target/debug/lmm-api-rs"}
 if [[ ${LMM_RELAY_OPENAI_SKIP_RUST_BUILD:-0} != 1 ]]; then
   CARGO_TARGET_DIR="$rust_target" CARGO_BUILD_JOBS=2 cargo build --manifest-path "$repo_root/apps/api-rust/Cargo.toml" -p lmm-api-rs --locked
 fi
-[[ -x $rust_binary ]] || { echo "missing Rust binary: $rust_binary" >&2; exit 1; }
+[[ -x $rust_binary ]] || {
+  echo "missing Rust binary: $rust_binary" >&2
+  exit 1
+}
 
 mkdir -p "$runtime/go-source/web/dist"
 cp -a "$legacy_root/." "$runtime/go-source/"
@@ -83,9 +134,9 @@ ALTER ROLE $rust_role IN DATABASE $database SET search_path TO $rust_schema;
 SQL
 schema=$rust_schema
 sed "s/public\./$schema./g" "$repo_root/apps/api-rust/crates/lmm-db-migrate/schema/postgresql-baseline.sql" >"$runtime/$schema.sql"
-  PGOPTIONS="-c search_path=$schema" psql -h 127.0.0.1 -p "$pg_port" -U "$rust_role" -d "$database" -q -v ON_ERROR_STOP=1 -f "$runtime/$schema.sql" >/dev/null
-  PGOPTIONS="-c search_path=$schema" psql -h 127.0.0.1 -p "$pg_port" -U "$rust_role" -d "$database" -v ON_ERROR_STOP=1 -c "CREATE TABLE $schema.lmm_schema_contract (singleton BOOLEAN PRIMARY KEY, min_reader_version BIGINT NOT NULL, max_reader_version BIGINT NOT NULL); INSERT INTO $schema.lmm_schema_contract VALUES (TRUE,1,1);" >/dev/null
-  PGOPTIONS="-c search_path=$schema" psql -h 127.0.0.1 -p "$pg_port" -U "$rust_role" -d "$database" -v ON_ERROR_STOP=1 <<'SQL' >/dev/null
+PGOPTIONS="-c search_path=$schema" psql -h 127.0.0.1 -p "$pg_port" -U "$rust_role" -d "$database" -q -v ON_ERROR_STOP=1 -f "$runtime/$schema.sql" >/dev/null
+PGOPTIONS="-c search_path=$schema" psql -h 127.0.0.1 -p "$pg_port" -U "$rust_role" -d "$database" -v ON_ERROR_STOP=1 -c "CREATE TABLE $schema.lmm_schema_contract (singleton BOOLEAN PRIMARY KEY, min_reader_version BIGINT NOT NULL, max_reader_version BIGINT NOT NULL); INSERT INTO $schema.lmm_schema_contract VALUES (TRUE,1,1);" >/dev/null
+PGOPTIONS="-c search_path=$schema" psql -h 127.0.0.1 -p "$pg_port" -U "$rust_role" -d "$database" -v ON_ERROR_STOP=1 <<'SQL' >/dev/null
 CREATE TABLE IF NOT EXISTS open_source_bounty_projects (
   id BIGSERIAL PRIMARY KEY, owner_user_id BIGINT NOT NULL, repository_url TEXT NOT NULL,
   title TEXT NOT NULL, description TEXT NOT NULL, rules TEXT NOT NULL,
@@ -133,10 +184,18 @@ SQL
 
 go_valkey_secret="GoRelayOpenAI-$(openssl rand -hex 24)!"
 rust_valkey_secret="RustRelayOpenAI-$(openssl rand -hex 24)!"
-valkey-server --bind 127.0.0.1 --port "$go_valkey_port" --save '' --appendonly no --requirepass "$go_valkey_secret" --dir "$runtime" --logfile "$runtime/go-valkey.log" >/dev/null 2>&1 & record_pid go_valkey_pid "$!"
-valkey-server --bind 127.0.0.1 --port "$rust_valkey_port" --save '' --appendonly no --requirepass "$rust_valkey_secret" --dir "$runtime" --logfile "$runtime/rust-valkey.log" >/dev/null 2>&1 & record_pid rust_valkey_pid "$!"
-for _ in {1..200}; do VALKEYCLI_AUTH="$go_valkey_secret" valkey-cli -h 127.0.0.1 -p "$go_valkey_port" ping >/dev/null 2>&1 && break; sleep .05; done
-for _ in {1..200}; do VALKEYCLI_AUTH="$rust_valkey_secret" valkey-cli -h 127.0.0.1 -p "$rust_valkey_port" ping >/dev/null 2>&1 && break; sleep .05; done
+valkey-server --bind 127.0.0.1 --port "$go_valkey_port" --save '' --appendonly no --requirepass "$go_valkey_secret" --dir "$runtime" --logfile "$runtime/go-valkey.log" >/dev/null 2>&1 &
+record_pid go_valkey_pid "$!"
+valkey-server --bind 127.0.0.1 --port "$rust_valkey_port" --save '' --appendonly no --requirepass "$rust_valkey_secret" --dir "$runtime" --logfile "$runtime/rust-valkey.log" >/dev/null 2>&1 &
+record_pid rust_valkey_pid "$!"
+for _ in {1..200}; do
+  VALKEYCLI_AUTH="$go_valkey_secret" valkey-cli -h 127.0.0.1 -p "$go_valkey_port" ping >/dev/null 2>&1 && break
+  sleep .05
+done
+for _ in {1..200}; do
+  VALKEYCLI_AUTH="$rust_valkey_secret" valkey-cli -h 127.0.0.1 -p "$rust_valkey_port" ping >/dev/null 2>&1 && break
+  sleep .05
+done
 
 go_dsn="postgresql://$go_role@127.0.0.1:$pg_port/$database?sslmode=disable&options=-csearch_path%3D$go_schema"
 rust_dsn="postgresql://$rust_role@127.0.0.1:$pg_port/$database?options=-csearch_path%3D$rust_schema"
@@ -164,9 +223,16 @@ ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value;
 SQL
 }
 
-PGOPTIONS="-c search_path=$go_schema" SQL_DSN="$go_dsn" PORT="$go_port" REDIS_CONN_STRING="redis://:$go_valkey_secret@127.0.0.1:$go_valkey_port/5" SESSION_SECRET='GoRelayOpenAI-Session-2026-0123456789' CRYPTO_SECRET='GoRelayOpenAI-Crypto-2026-0123456789' PASSWORD_LOGIN_ENABLED=true GLOBAL_API_RATE_LIMIT_ENABLE=false CRITICAL_RATE_LIMIT_ENABLE=false MODEL_REQUEST_RATE_LIMIT_ENABLE=false TRUSTED_PROXIES=none GIN_MODE=release "$runtime/legacy-go" >"$runtime/go.log" 2>&1 & record_pid go_pid "$!"
-for _ in {1..6000}; do kill -0 "$go_pid" 2>/dev/null && [[ $(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$go_port/api/status" || true) == 200 ]] && break; sleep .05; done
-[[ $(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$go_port/api/status") == 200 ]] || { sed -n '1,220p' "$runtime/go.log" >&2; exit 1; }
+PGOPTIONS="-c search_path=$go_schema" SQL_DSN="$go_dsn" PORT="$go_port" REDIS_CONN_STRING="redis://:$go_valkey_secret@127.0.0.1:$go_valkey_port/5" SESSION_SECRET='GoRelayOpenAI-Session-2026-0123456789' CRYPTO_SECRET='GoRelayOpenAI-Crypto-2026-0123456789' PASSWORD_LOGIN_ENABLED=true GLOBAL_API_RATE_LIMIT_ENABLE=false CRITICAL_RATE_LIMIT_ENABLE=false MODEL_REQUEST_RATE_LIMIT_ENABLE=false TRUSTED_PROXIES=none GIN_MODE=release "$runtime/legacy-go" >"$runtime/go.log" 2>&1 &
+record_pid go_pid "$!"
+for _ in {1..6000}; do
+  kill -0 "$go_pid" 2>/dev/null && [[ $(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$go_port/api/status" || true) == 200 ]] && break
+  sleep .05
+done
+[[ $(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$go_port/api/status") == 200 ]] || {
+  sed -n '1,220p' "$runtime/go.log" >&2
+  exit 1
+}
 
 stop_owned go_pid
 seed "$go_role" "$go_schema" "$provider_port"
@@ -174,7 +240,8 @@ seed "$rust_role" "$rust_schema" "$provider_port"
 
 hits="$runtime/provider-hits.jsonl"
 : >"$hits"
-python3 -u "$repo_root/apps/api-rust/tests/behavior-oracle/fixtures/relay_openai_provider.py" "$provider_port" "$hits" >"$runtime/provider.log" 2>&1 & record_pid provider_pid "$!"
+python3 -u "$repo_root/apps/api-rust/tests/behavior-oracle/fixtures/relay_openai_provider.py" "$provider_port" "$hits" >"$runtime/provider.log" 2>&1 &
+record_pid provider_pid "$!"
 provider_ready=0
 for _ in {1..200}; do
   if curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$provider_port/health" 2>/dev/null | grep -qx 204; then
@@ -184,15 +251,32 @@ for _ in {1..200}; do
   owned_live provider_pid || break
   sleep .05
 done
-((provider_ready == 1)) || { cat "$runtime/provider.log" >&2; exit 1; }
+((provider_ready == 1)) || {
+  cat "$runtime/provider.log" >&2
+  exit 1
+}
 
-PGOPTIONS="-c search_path=$go_schema" SQL_DSN="$go_dsn" PORT="$go_port" REDIS_CONN_STRING="redis://:$go_valkey_secret@127.0.0.1:$go_valkey_port/5" SESSION_SECRET='GoRelayOpenAI-Session-2026-0123456789' CRYPTO_SECRET='GoRelayOpenAI-Crypto-2026-0123456789' PASSWORD_LOGIN_ENABLED=true GLOBAL_API_RATE_LIMIT_ENABLE=false CRITICAL_RATE_LIMIT_ENABLE=false MODEL_REQUEST_RATE_LIMIT_ENABLE=false TRUSTED_PROXIES=none GIN_MODE=release "$runtime/legacy-go" >"$runtime/go.log" 2>&1 & record_pid go_pid "$!"
-for _ in {1..6000}; do kill -0 "$go_pid" 2>/dev/null && [[ $(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$go_port/api/status" || true) == 200 ]] && break; sleep .05; done
-[[ $(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$go_port/api/status") == 200 ]] || { sed -n '1,220p' "$runtime/go.log" >&2; exit 1; }
+PGOPTIONS="-c search_path=$go_schema" SQL_DSN="$go_dsn" PORT="$go_port" REDIS_CONN_STRING="redis://:$go_valkey_secret@127.0.0.1:$go_valkey_port/5" SESSION_SECRET='GoRelayOpenAI-Session-2026-0123456789' CRYPTO_SECRET='GoRelayOpenAI-Crypto-2026-0123456789' PASSWORD_LOGIN_ENABLED=true GLOBAL_API_RATE_LIMIT_ENABLE=false CRITICAL_RATE_LIMIT_ENABLE=false MODEL_REQUEST_RATE_LIMIT_ENABLE=false TRUSTED_PROXIES=none GIN_MODE=release "$runtime/legacy-go" >"$runtime/go.log" 2>&1 &
+record_pid go_pid "$!"
+for _ in {1..6000}; do
+  kill -0 "$go_pid" 2>/dev/null && [[ $(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$go_port/api/status" || true) == 200 ]] && break
+  sleep .05
+done
+[[ $(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$go_port/api/status") == 200 ]] || {
+  sed -n '1,220p' "$runtime/go.log" >&2
+  exit 1
+}
 
-PGOPTIONS="-c search_path=$rust_schema" DATABASE_URL="$rust_dsn" VALKEY_URL="redis://:$rust_valkey_secret@127.0.0.1:$rust_valkey_port/6" LMM_SCHEMA_CONTRACT=1 LMM_RS_SLOT=blue LMM_RS_LISTEN_ADDR="127.0.0.1:$rust_port" SESSION_SECRET='RustRelayOpenAI-Session-2026-0123456789' CRYPTO_SECRET='RustRelayOpenAI-Crypto-2026-0123456789' PASSWORD_LOGIN_ENABLED=true GLOBAL_API_RATE_LIMIT_ENABLE=false CRITICAL_RATE_LIMIT_ENABLE=false MODEL_REQUEST_RATE_LIMIT_ENABLE=false TRUSTED_PROXIES=none VERSION=v0.0.0 "$rust_binary" >"$runtime/rust.log" 2>&1 & record_pid rust_pid "$!"
-for _ in {1..6000}; do kill -0 "$rust_pid" 2>/dev/null && [[ $(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$rust_port/readyz" || true) == 200 ]] && break; sleep .05; done
-[[ $(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$rust_port/readyz") == 200 ]] || { sed -n '1,220p' "$runtime/rust.log" >&2; exit 1; }
+PGOPTIONS="-c search_path=$rust_schema" DATABASE_URL="$rust_dsn" VALKEY_URL="redis://:$rust_valkey_secret@127.0.0.1:$rust_valkey_port/6" LMM_SCHEMA_CONTRACT=1 LMM_RS_SLOT=blue LMM_RS_LISTEN_ADDR="127.0.0.1:$rust_port" SESSION_SECRET='RustRelayOpenAI-Session-2026-0123456789' CRYPTO_SECRET='RustRelayOpenAI-Crypto-2026-0123456789' PASSWORD_LOGIN_ENABLED=true GLOBAL_API_RATE_LIMIT_ENABLE=false CRITICAL_RATE_LIMIT_ENABLE=false MODEL_REQUEST_RATE_LIMIT_ENABLE=false TRUSTED_PROXIES=none VERSION=v0.0.0 "$rust_binary" >"$runtime/rust.log" 2>&1 &
+record_pid rust_pid "$!"
+for _ in {1..6000}; do
+  kill -0 "$rust_pid" 2>/dev/null && [[ $(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$rust_port/readyz" || true) == 200 ]] && break
+  sleep .05
+done
+[[ $(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$rust_port/readyz") == 200 ]] || {
+  sed -n '1,220p' "$runtime/rust.log" >&2
+  exit 1
+}
 
 call() {
   local engine=$1 name=$2 path=$3 body=$4 token=${5:-} port prefix

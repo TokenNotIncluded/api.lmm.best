@@ -11,6 +11,7 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/logger"
 	"github.com/LIghtJUNction/api.lmm.best/model"
 	"github.com/LIghtJUNction/api.lmm.best/service"
+	"github.com/LIghtJUNction/api.lmm.best/setting"
 	"github.com/gin-gonic/gin"
 	"github.com/shopspring/decimal"
 	"github.com/thanhpk/randstr"
@@ -51,8 +52,19 @@ func SubscriptionRequestWaffoPancakePay(c *gin.Context) {
 	// Plan targets its own Pancake product, so we only require credentials
 	// here — not the gateway-level WaffoPancakeProductID.
 	merchantID, privateKey := service.WaffoPancakeCredentials()
-	if merchantID == "" || privateKey == "" {
+	storeID := strings.TrimSpace(setting.WaffoPancakeStoreID)
+	if merchantID == "" || privateKey == "" || storeID == "" {
 		common.ApiErrorMsg(c, "Waffo Pancake 未配置或密钥无效")
+		return
+	}
+	catalog, err := service.ListWaffoPancakeCatalog(c.Request.Context(), merchantID, privateKey)
+	if err != nil {
+		logger.LogError(c.Request.Context(), fmt.Sprintf("Waffo Pancake 订阅产品核验失败 plan_id=%d product_id=%s error=%q", plan.Id, plan.WaffoPancakeProductId, err.Error()))
+		common.ApiErrorMsg(c, "无法核验 Waffo Pancake 订阅产品")
+		return
+	}
+	if !service.WaffoPancakeCatalogHasActiveSubscriptionProduct(catalog, storeID, plan.WaffoPancakeProductId) {
+		common.ApiErrorMsg(c, "套餐绑定的不是有效订阅产品，请重新创建并绑定")
 		return
 	}
 
@@ -79,19 +91,35 @@ func SubscriptionRequestWaffoPancakePay(c *gin.Context) {
 		}
 	}
 
+	expectedAmountMicros, settlementCurrency, err := subscriptionSettlementSnapshot(plan, "USD")
+	if err != nil {
+		common.ApiErrorMsg(c, "套餐结算金额无效")
+		return
+	}
+	settlementAmount := decimal.NewFromInt(expectedAmountMicros).Shift(-6)
+	if !settlementAmount.IsPositive() {
+		common.ApiErrorMsg(c, "套餐结算金额无效")
+		return
+	}
+
 	// WAFFO_PANCAKE_SUB- prefix (vs. wallet's WAFFO_PANCAKE-) drives webhook
 	// dispatch in WaffoPancakeWebhook.
 	tradeNo := fmt.Sprintf("WAFFO_PANCAKE_SUB-%d-%d-%s", userId, time.Now().UnixMilli(), randstr.String(6))
 
 	order := &model.SubscriptionOrder{
-		UserId:          userId,
-		PlanId:          plan.Id,
-		Money:           plan.PriceAmount,
-		TradeNo:         tradeNo,
-		PaymentMethod:   model.PaymentMethodWaffoPancake,
-		PaymentProvider: model.PaymentProviderWaffoPancake,
-		CreateTime:      time.Now().Unix(),
-		Status:          common.TopUpStatusPending,
+		UserId:               userId,
+		PlanId:               plan.Id,
+		Money:                plan.PriceAmount,
+		TradeNo:              tradeNo,
+		PaymentMethod:        model.PaymentMethodWaffoPancake,
+		PaymentProvider:      model.PaymentProviderWaffoPancake,
+		CreateTime:           time.Now().Unix(),
+		Status:               common.TopUpStatusPending,
+		PlanSnapshot:         common.GetJsonString(plan),
+		ExpectedAmountMicros: expectedAmountMicros,
+		SettlementCurrency:   settlementCurrency,
+		ProviderProductId:    strings.TrimSpace(plan.WaffoPancakeProductId),
+		ProviderStoreId:      storeID,
 	}
 	if err := order.Insert(); err != nil {
 		logger.LogError(c.Request.Context(), fmt.Sprintf("Waffo Pancake 订阅订单创建失败 user_id=%d plan_id=%d trade_no=%s error=%q", userId, plan.Id, tradeNo, err.Error()))
@@ -104,7 +132,7 @@ func SubscriptionRequestWaffoPancakePay(c *gin.Context) {
 		ProductID:     plan.WaffoPancakeProductId,
 		BuyerIdentity: service.WaffoPancakeBuyerIdentityFromUserID(user.Id),
 		PriceSnapshot: &service.WaffoPancakePriceSnapshot{
-			Amount:      decimal.NewFromFloat(plan.PriceAmount).StringFixed(2),
+			Amount:      settlementAmount.StringFixed(2),
 			TaxCategory: "saas",
 		},
 		OrderMetadata: map[string]string{
@@ -119,12 +147,12 @@ func SubscriptionRequestWaffoPancakePay(c *gin.Context) {
 	})
 	if err != nil {
 		logger.LogError(c.Request.Context(), fmt.Sprintf("Waffo Pancake 订阅结账会话创建失败 user_id=%d plan_id=%d trade_no=%s error=%q", userId, plan.Id, tradeNo, err.Error()))
-		order.Status = common.TopUpStatusFailed
-		_ = order.Update()
+		// A transport timeout can happen after Pancake accepted the session.
+		// Keep the durable order pending so a later signed webhook can settle it.
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "拉起支付失败"})
 		return
 	}
-	logger.LogInfo(c.Request.Context(), fmt.Sprintf("Waffo Pancake 订阅订单创建成功 user_id=%d plan_id=%d trade_no=%s session_id=%s money=%.2f", userId, plan.Id, tradeNo, session.SessionID, plan.PriceAmount))
+	logger.LogInfo(c.Request.Context(), fmt.Sprintf("Waffo Pancake 订阅订单创建成功 user_id=%d plan_id=%d trade_no=%s session_id=%s plan_price=%.2f plan_currency=%s settlement_amount=%s settlement_currency=USD", userId, plan.Id, tradeNo, session.SessionID, plan.PriceAmount, plan.Currency, settlementAmount.StringFixed(2)))
 
 	c.JSON(http.StatusOK, gin.H{
 		"message": "success",

@@ -311,8 +311,9 @@ function decodeStringLiteral(text: string): string {
   for (let index = 1; index < text.length - 1; index += 1) {
     const char = text[index]
     if (char !== '\\') {
-      if (char.charCodeAt(0) < 32)
-        {throw new Error('control character in string literal')}
+      if (char.charCodeAt(0) < 32) {
+        throw new Error('control character in string literal')
+      }
       decoded += char
       continue
     }
@@ -390,8 +391,9 @@ function tokenizeExpr(source: string): ExprToken[] {
       }
       const text = source.slice(start, index)
       const value = Number(text)
-      if (!Number.isFinite(value))
-        {throw new Error('numeric literal is not finite')}
+      if (!Number.isFinite(value)) {
+        throw new Error('numeric literal is not finite')
+      }
       push({ kind: 'number', text, value })
       continue
     }
@@ -471,8 +473,9 @@ class RestrictedExprParser {
   }
 
   private parseConditional(depth: number): ExprNode {
-    if (depth > MAX_EXPR_DEPTH)
-      {throw new Error('expression nesting is too deep')}
+    if (depth > MAX_EXPR_DEPTH) {
+      throw new Error('expression nesting is too deep')
+    }
     const test = this.parseOr(depth)
     if (this.peek().text !== '?') return test
     this.take('?')
@@ -526,8 +529,9 @@ class RestrictedExprParser {
     next: () => ExprNode,
     operators: string[]
   ): ExprNode {
-    if (depth > MAX_EXPR_DEPTH)
-      {throw new Error('expression nesting is too deep')}
+    if (depth > MAX_EXPR_DEPTH) {
+      throw new Error('expression nesting is too deep')
+    }
     let node = next()
     while (operators.includes(this.peek().text)) {
       const op = this.take().text
@@ -566,14 +570,16 @@ class RestrictedExprParser {
       if (token.text === 'true' || token.text === 'false') {
         return { kind: 'literal', value: token.text === 'true' }
       }
-      if (this.peek().text !== '(')
-        {return { kind: 'identifier', name: token.text }}
+      if (this.peek().text !== '(') {
+        return { kind: 'identifier', name: token.text }
+      }
       this.take('(')
       const args: ExprNode[] = []
       if (this.peek().text !== ')') {
         while (true) {
-          if (args.length >= MAX_CALL_ARGUMENTS)
-            {throw new Error('too many call arguments')}
+          if (args.length >= MAX_CALL_ARGUMENTS) {
+            throw new Error('too many call arguments')
+          }
           args.push(this.parseConditional(depth + 1))
           if (this.peek().text !== ',') break
           this.take(',')
@@ -593,15 +599,17 @@ class RestrictedExprParser {
 }
 
 function parseRestrictedExpr(exprStr: string): ExprNode {
-  if (exprStr.length > MAX_EXPR_LENGTH)
-    {throw new Error('expression is too long')}
+  if (exprStr.length > MAX_EXPR_LENGTH) {
+    throw new Error('expression is too long')
+  }
   const { body } = stripExprVersion(exprStr.trim())
   return new RestrictedExprParser(tokenizeExpr(body)).parse()
 }
 
 function numericLiteral(node: ExprNode): number | null {
-  if (node.kind === 'literal' && typeof node.value === 'number')
-    {return node.value}
+  if (node.kind === 'literal' && typeof node.value === 'number') {
+    return node.value
+  }
   if (
     node.kind === 'unary' &&
     (node.op === '+' || node.op === '-') &&
@@ -836,16 +844,19 @@ export function evaluateBillingExpression(
             if (numbers.length === 0) throw new Error('min expects an argument')
             return Math.min(...numbers)
           case 'abs':
-            if (numbers.length !== 1)
-              {throw new Error('abs expects one argument')}
+            if (numbers.length !== 1) {
+              throw new Error('abs expects one argument')
+            }
             return Math.abs(numbers[0])
           case 'ceil':
-            if (numbers.length !== 1)
-              {throw new Error('ceil expects one argument')}
+            if (numbers.length !== 1) {
+              throw new Error('ceil expects one argument')
+            }
             return Math.ceil(numbers[0])
           case 'floor':
-            if (numbers.length !== 1)
-              {throw new Error('floor expects one argument')}
+            if (numbers.length !== 1) {
+              throw new Error('floor expects one argument')
+            }
             return Math.floor(numbers[0])
           default:
             throw new Error(`function is not allowed: ${node.name}`)

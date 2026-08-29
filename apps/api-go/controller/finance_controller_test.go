@@ -22,8 +22,8 @@ func TestFinanceOverviewAggregatesPaymentMethodsUsersAndTokenCost(t *testing.T) 
 	users := []model.User{{Username: "finance-a", Password: "password", Role: common.RoleCommonUser, Status: common.UserStatusEnabled, Group: "default", AffCode: "finance-a"}, {Username: "finance-b", Password: "password", Role: common.RoleCommonUser, Status: common.UserStatusEnabled, Group: "default", AffCode: "finance-b"}}
 	require.NoError(t, db.Create(&users).Error)
 	require.NoError(t, db.Create(&[]model.TopUp{
-		{UserId: users[0].Id, TradeNo: "finance-topup-a", Amount: 100, Money: 10, Status: common.TopUpStatusSuccess, PaymentMethod: "stripe", PaymentProvider: "stripe", CompleteTime: now - 10},
-		{UserId: users[1].Id, TradeNo: "finance-topup-b", Amount: 250, Money: 25, Status: common.TopUpStatusSuccess, PaymentMethod: "creem", PaymentProvider: "creem", CompleteTime: now - 20},
+		{UserId: users[0].Id, TradeNo: "finance-topup-a", Amount: 100, Money: 10, SettledAmountMicros: 10_000_000, SettlementCurrency: "USD", Status: common.TopUpStatusSuccess, PaymentMethod: "stripe", PaymentProvider: "stripe", CompleteTime: now - 10},
+		{UserId: users[1].Id, TradeNo: "finance-topup-b", Amount: 250, Money: 25, SettledAmountMicros: 25_000_000, SettlementCurrency: "USD", Status: common.TopUpStatusSuccess, PaymentMethod: "creem", PaymentProvider: "creem", CompleteTime: now - 20},
 	}).Error)
 	require.NoError(t, db.Create(&model.Log{UserId: users[0].Id, CreatedAt: now - 5, Type: model.LogTypeConsume, PromptTokens: 1000, CompletionTokens: 500, ModelName: "priced", Other: `{"model_price":0.02}`}).Error)
 	_, err := model.AppendFinanceLedgerEntry(&model.FinanceLedgerEntry{EntryType: model.FinanceEntryExpense, Category: "hosting", AmountMicros: 3_000_000, Currency: "USD", Direction: model.FinanceDirectionDebit, SourceType: model.FinanceSourceManual, Note: "monthly host", OccurredAt: now - 30, CreatedBy: users[0].Id, IdempotencyKey: "hosting-1"})
@@ -86,8 +86,8 @@ func TestFinanceOverviewDoesNotAttributeUsageCostToPaymentMethod(t *testing.T) {
 	}
 	require.NoError(t, db.Create(&users).Error)
 	require.NoError(t, db.Create(&[]model.TopUp{
-		{UserId: users[0].Id, TradeNo: "finance-method-stripe", Money: 10, Status: common.TopUpStatusSuccess, PaymentMethod: "stripe", PaymentProvider: "stripe", CompleteTime: now - 10},
-		{UserId: users[1].Id, TradeNo: "finance-method-creem", Money: 20, Status: common.TopUpStatusSuccess, PaymentMethod: "creem", PaymentProvider: "creem", CompleteTime: now - 9},
+		{UserId: users[0].Id, TradeNo: "finance-method-stripe", Money: 10, SettledAmountMicros: 10_000_000, SettlementCurrency: "USD", Status: common.TopUpStatusSuccess, PaymentMethod: "stripe", PaymentProvider: "stripe", CompleteTime: now - 10},
+		{UserId: users[1].Id, TradeNo: "finance-method-creem", Money: 20, SettledAmountMicros: 20_000_000, SettlementCurrency: "USD", Status: common.TopUpStatusSuccess, PaymentMethod: "creem", PaymentProvider: "creem", CompleteTime: now - 9},
 	}).Error)
 	require.NoError(t, db.Create(&[]model.Log{
 		{UserId: users[0].Id, CreatedAt: now - 8, Type: model.LogTypeConsume, PromptTokens: 100, CompletionTokens: 100, Other: `{"model_price":0.10}`},
@@ -121,6 +121,7 @@ func TestFinanceOverviewDoesNotDoubleCountSubscriptionTopUpMirror(t *testing.T) 
 	require.NoError(t, db.Create(&model.SubscriptionOrder{
 		UserId: user.Id, PlanId: 1, Money: 10, TradeNo: tradeNo,
 		PaymentMethod: model.PaymentMethodStripe, PaymentProvider: model.PaymentProviderStripe,
+		ExpectedAmountMicros: 10_000_000, SettlementCurrency: "USD",
 		Status: common.TopUpStatusSuccess, CreateTime: now - 20, CompleteTime: now - 10,
 	}).Error)
 
@@ -140,7 +141,7 @@ func TestFinanceOverviewExcludesInternalCreditsAndSubtractsRefunds(t *testing.T)
 	user := model.User{Username: "finance-refund", Password: "password", Role: common.RoleCommonUser, Status: common.UserStatusEnabled, Group: "default", AffCode: "finance-refund"}
 	require.NoError(t, db.Create(&user).Error)
 	require.NoError(t, db.Create(&[]model.TopUp{
-		{UserId: user.Id, TradeNo: "finance-paid", Money: 10, SettledAmountMicros: 10_000_000, Status: common.TopUpStatusSuccess, PaymentMethod: model.PaymentMethodStripe, PaymentProvider: model.PaymentProviderStripe, CompleteTime: now - 20},
+		{UserId: user.Id, TradeNo: "finance-paid", Money: 10, SettledAmountMicros: 10_000_000, SettlementCurrency: "USD", Status: common.TopUpStatusSuccess, PaymentMethod: model.PaymentMethodStripe, PaymentProvider: model.PaymentProviderStripe, CompleteTime: now - 20},
 		{UserId: user.Id, TradeNo: "finance-linuxdo", Money: 100, Status: common.TopUpStatusSuccess, PaymentMethod: "epay", PaymentProvider: model.PaymentProviderEpay, CompleteTime: now - 19},
 	}).Error)
 	_, err := model.AppendFinanceLedgerEntry(&model.FinanceLedgerEntry{
@@ -317,13 +318,15 @@ func TestFinanceOverviewStreamsSourcesAcrossBatchBoundary(t *testing.T) {
 	rows := make([]model.TopUp, financeDashboardBatchSize+1)
 	for index := range rows {
 		rows[index] = model.TopUp{
-			UserId:          user.Id,
-			TradeNo:         "finance-batch-" + strconv.Itoa(index),
-			Money:           1,
-			Status:          common.TopUpStatusSuccess,
-			PaymentMethod:   "stripe",
-			PaymentProvider: "stripe",
-			CompleteTime:    now - int64(index),
+			UserId:              user.Id,
+			TradeNo:             "finance-batch-" + strconv.Itoa(index),
+			Money:               1,
+			SettledAmountMicros: 1_000_000,
+			SettlementCurrency:  "USD",
+			Status:              common.TopUpStatusSuccess,
+			PaymentMethod:       "stripe",
+			PaymentProvider:     "stripe",
+			CompleteTime:        now - int64(index),
 		}
 	}
 	require.NoError(t, db.Create(&rows).Error)
@@ -437,7 +440,7 @@ func TestFinanceHandlersRequireAdminRouteContractAndReturnUserDetail(t *testing.
 	user := model.User{Username: "finance-detail", Password: "password", Role: common.RoleCommonUser, Status: common.UserStatusEnabled, Group: "default", AffCode: "finance-detail"}
 	require.NoError(t, db.Create(&user).Error)
 	now := time.Now().Unix()
-	require.NoError(t, db.Create(&model.TopUp{UserId: user.Id, TradeNo: "finance-detail-topup", Money: 3.5, Amount: 35, Status: common.TopUpStatusSuccess, PaymentMethod: "stripe", PaymentProvider: "stripe", CompleteTime: now - 1}).Error)
+	require.NoError(t, db.Create(&model.TopUp{UserId: user.Id, TradeNo: "finance-detail-topup", Money: 3.5, Amount: 35, SettledAmountMicros: 3_500_000, SettlementCurrency: "USD", Status: common.TopUpStatusSuccess, PaymentMethod: "stripe", PaymentProvider: "stripe", CompleteTime: now - 1}).Error)
 	recorder := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(recorder)
 	c.Request = httptest.NewRequest(http.MethodGet, "/api/finance/users/"+stringInt(user.Id), nil)
@@ -461,6 +464,7 @@ func TestFinanceUsersExposeBoundedMetricsMetadata(t *testing.T) {
 	now := time.Now().Unix()
 	require.NoError(t, db.Create(&model.TopUp{
 		UserId: user.Id, TradeNo: "finance-users-metadata-topup", Money: 1,
+		SettledAmountMicros: 1_000_000, SettlementCurrency: "USD",
 		Status: common.TopUpStatusSuccess, PaymentMethod: model.PaymentMethodStripe,
 		PaymentProvider: model.PaymentProviderStripe, CompleteTime: now - 1,
 	}).Error)

@@ -17,6 +17,34 @@ import (
 	pancake "github.com/waffo-com/waffo-pancake-sdk-go"
 )
 
+func TestWaffoPancakeBillingPeriodForDuration(t *testing.T) {
+	tests := []struct {
+		unit      string
+		value     int
+		want      pancake.BillingPeriod
+		wantError bool
+	}{
+		{unit: "day", value: 7, want: pancake.BillingPeriodWeekly},
+		{unit: "month", value: 1, want: pancake.BillingPeriodMonthly},
+		{unit: "month", value: 3, want: pancake.BillingPeriodQuarterly},
+		{unit: "month", value: 12, want: pancake.BillingPeriodYearly},
+		{unit: "year", value: 1, want: pancake.BillingPeriodYearly},
+		{unit: "day", value: 30, wantError: true},
+		{unit: "month", value: 6, wantError: true},
+		{unit: "custom", value: 1, wantError: true},
+	}
+
+	for _, tt := range tests {
+		period, err := WaffoPancakeBillingPeriodForDuration(tt.unit, tt.value)
+		if tt.wantError {
+			require.Error(t, err)
+			continue
+		}
+		require.NoError(t, err)
+		require.Equal(t, tt.want, period)
+	}
+}
+
 func TestEnsureWaffoPancakeProductPublishedHandlesKeyEnvironment(t *testing.T) {
 	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	require.NoError(t, err)

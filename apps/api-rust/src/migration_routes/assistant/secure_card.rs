@@ -1,9 +1,9 @@
 use aes_gcm::{
-    Aes256Gcm, Nonce,
     aead::{Aead, KeyInit},
+    Aes256Gcm, Nonce,
 };
-use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
-use rand::{RngCore, rng};
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+use rand::{rng, RngCore};
 use secrecy::{ExposeSecret, SecretString};
 use serde_json::Value;
 use sha2::{Digest, Sha256};

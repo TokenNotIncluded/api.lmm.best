@@ -27,7 +27,7 @@ use secrecy::{ExposeSecret, SecretString};
 use serde_json::{Value, json};
 use tower::ServiceExt;
 
-const FILE_NAMES: [&str; 14] = [
+const FILE_NAMES: [&str; 15] = [
     "manifest.json",
     "financial-options.json",
     "model-prices-and-ratios.json",
@@ -37,6 +37,7 @@ const FILE_NAMES: [&str; 14] = [
     "subscription-plans.json",
     "topups.json",
     "subscription-orders.json",
+    "subscription-payment-events.json",
     "usage-billing-records.json",
     "bounty-ledger.json",
     "checkins.json",
@@ -314,7 +315,7 @@ async fn text_export_should_have_stable_sections_headers_and_audit() {
 }
 
 #[tokio::test]
-async fn default_zip_should_contain_fourteen_stable_entries_and_zip_headers() {
+async fn default_zip_should_contain_fifteen_stable_entries_and_zip_headers() {
     let backend = Arc::new(RecordingBackend::default());
     let response = app(Arc::clone(&backend))
         .oneshot(

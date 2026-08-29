@@ -447,7 +447,7 @@ export function PaymentSettingsSection({
       WaffoEnabled: values.WaffoEnabled,
       WaffoSandbox: values.WaffoSandbox,
       WaffoMerchantId: values.WaffoMerchantId.trim(),
-      WaffoCurrency: values.WaffoCurrency.trim() || 'USD',
+      WaffoCurrency: 'USD',
       WaffoUnitPrice: values.WaffoUnitPrice,
       WaffoMinTopUp: values.WaffoMinTopUp,
       WaffoNotifyUrl: values.WaffoNotifyUrl.trim(),
@@ -1371,14 +1371,14 @@ export function PaymentSettingsSection({
                   />
                 </div>
 
-                <div className='grid gap-6 md:grid-cols-3'>
+                <div className='grid gap-6 md:grid-cols-2'>
                   <FormField
                     control={form.control}
-                    name='StripeUnitPrice'
+                    name='StripeMinTopUp'
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>
-                          {t('Unit price (local currency / USD)')}
+                          {t('Minimum platform top-up amount')}
                         </FormLabel>
                         <FormControl>
                           <Input
@@ -1389,29 +1389,9 @@ export function PaymentSettingsSection({
                           />
                         </FormControl>
                         <FormDescription>
-                          {t('e.g., 8 means 8 local currency per USD')}
-                        </FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <FormField
-                    control={form.control}
-                    name='StripeMinTopUp'
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>{t('Minimum top-up (USD)')}</FormLabel>
-                        <FormControl>
-                          <Input
-                            type='number'
-                            step='0.01'
-                            min={0}
-                            {...safeNumberFieldProps(field)}
-                          />
-                        </FormControl>
-                        <FormDescription>
-                          {t('Minimum recharge amount in USD')}
+                          {t(
+                            'Minimum platform amount a user may add before fiat conversion'
+                          )}
                         </FormDescription>
                         <FormMessage />
                       </FormItem>

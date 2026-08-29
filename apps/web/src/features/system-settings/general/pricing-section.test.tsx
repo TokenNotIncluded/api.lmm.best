@@ -108,6 +108,7 @@ function pricingDefaults(
   return {
     QuotaPerUnit: 500_000,
     USDExchangeRate: 7,
+    TopUpPlatformUnitsPerCNY: 1,
     DisplayInCurrencyEnabled: true,
     DisplayTokenStatEnabled: true,
     general_setting: {
@@ -189,10 +190,10 @@ async function renderPricing(defaultValues: PricingDefaults) {
   }
 }
 
-async function clickSync(container: HTMLElement) {
-  const button = container.querySelector<HTMLButtonElement>(
+async function clickSync(container: HTMLElement, index = 0) {
+  const button = container.querySelectorAll<HTMLButtonElement>(
     'button[aria-label="Sync USD exchange rate"]'
-  )
+  )[index]
   assert.ok(button)
   await act(async () => {
     button.dispatchEvent(new MouseEvent('click', { bubbles: true }))
@@ -202,6 +203,21 @@ async function clickSync(container: HTMLElement) {
 
 async function flushAsyncWork() {
   await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 20))
+  })
+}
+
+async function setNumberInput(input: HTMLInputElement, value: number) {
+  const setValue = Object.getOwnPropertyDescriptor(
+    HTMLInputElement.prototype,
+    'value'
+  )?.set
+  assert.ok(setValue)
+
+  await act(async () => {
+    setValue.call(input, String(value))
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    input.dispatchEvent(new Event('change', { bubbles: true }))
     await new Promise((resolve) => setTimeout(resolve, 20))
   })
 }
@@ -250,27 +266,63 @@ test('loads CNY 6.8, exposes loading state, and marks the form dirty', async () 
   }
 })
 
-test('syncs USD to exactly 1', async () => {
+test('reads a second live FX rate and saves B independently in USD display mode', async () => {
   const originalGet = api.get
+  const originalPut = api.put
+  const updates: Array<{ key: string; value: string }> = []
   api.get = (async (url: string) => {
-    assert.equal(url, '/api/option/exchange-rate?currency=USD')
-    return exchangeRatePayload('USD', 1)
+    assert.equal(url, '/api/option/exchange-rate?currency=CNY')
+    return exchangeRatePayload('CNY', 7.2)
   }) as typeof api.get
+  api.put = (async (url: string, request: { key: string; value: string }) => {
+    assert.equal(url, '/api/option/')
+    updates.push(request)
+    return { data: { success: true, message: '' } }
+  }) as typeof api.put
 
   const rendered = await renderPricing(
-    pricingDefaults('USD', { USDExchangeRate: 1.25 })
+    pricingDefaults('USD', {
+      USDExchangeRate: 1.25,
+      TopUpPlatformUnitsPerCNY: 1.1,
+    })
   )
   try {
     await clickSync(rendered.container)
     await flushAsyncWork()
 
-    const input = rendered.container.querySelector<HTMLInputElement>(
-      'input[name="USDExchangeRate"]'
-    )
-    assert.ok(input)
-    assert.equal(input.value, '1')
+    const exchangeRateInput =
+      rendered.container.querySelector<HTMLInputElement>(
+        'input[name="USDExchangeRate"]'
+      )
+    const rechargeRatioInput =
+      rendered.container.querySelector<HTMLInputElement>(
+        'input[name="TopUpPlatformUnitsPerCNY"]'
+      )
+    const form = rendered.container.querySelector('form')
+    assert.ok(exchangeRateInput)
+    assert.ok(rechargeRatioInput)
+    assert.ok(form)
+    assert.equal(exchangeRateInput.value, '7.2')
+    assert.equal(rechargeRatioInput.value, '1.1')
+
+    await setNumberInput(rechargeRatioInput, 1.35)
+    assert.equal(exchangeRateInput.value, '7.2')
+    assert.equal(rechargeRatioInput.value, '1.35')
+
+    await act(async () => {
+      form.dispatchEvent(
+        new Event('submit', { bubbles: true, cancelable: true })
+      )
+      await new Promise((resolve) => setTimeout(resolve, 40))
+    })
+
+    assert.deepEqual(updates, [
+      { key: 'USDExchangeRate', value: '7.2' },
+      { key: 'TopUpPlatformUnitsPerCNY', value: '1.35' },
+    ])
   } finally {
     api.get = originalGet
+    api.put = originalPut
     await rendered.cleanup()
   }
 })
@@ -293,7 +345,7 @@ test('uses the explicit CUSTOM ISO code instead of guessing from its symbol', as
     })
   )
   try {
-    await clickSync(rendered.container)
+    await clickSync(rendered.container, 1)
     await flushAsyncWork()
 
     const input = rendered.container.querySelector<HTMLInputElement>(

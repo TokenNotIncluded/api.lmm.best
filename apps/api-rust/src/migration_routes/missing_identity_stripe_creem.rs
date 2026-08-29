@@ -19,6 +19,7 @@ use axum::{
     response::{IntoResponse, Response},
     routing::post,
 };
+use rust_decimal::{Decimal, prelude::ToPrimitive};
 use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::{Value, json};
@@ -28,6 +29,8 @@ use uuid::Uuid;
 use crate::auth::{
     AuthErrorKind, DashboardAuth, UserAuthPolicyError, enforce_user_auth, user_auth_message,
 };
+
+use super::missing_identity_topup::standard_topup_settlement;
 
 const STRIPE: &str = "stripe";
 const CREEM: &str = "creem";
@@ -121,7 +124,8 @@ pub struct TopupUser {
 #[derive(Clone, Debug, PartialEq)]
 pub struct StripeSettings {
     pub min_topup: i64,
-    pub unit_price: f64,
+    pub cny_per_usd: f64,
+    pub platform_units_per_cny: f64,
     pub quota_display_type: String,
     /// Mirrors Go's `common.QuotaPerUnit`, which is a float and may be
     /// configured independently of the display type.
@@ -135,7 +139,8 @@ impl Default for StripeSettings {
     fn default() -> Self {
         Self {
             min_topup: 1,
-            unit_price: 8.0,
+            cny_per_usd: 7.3,
+            platform_units_per_cny: 1.0,
             quota_display_type: "USD".to_owned(),
             quota_per_unit: 500_000.0,
             group_ratios: BTreeMap::new(),
@@ -277,7 +282,8 @@ impl StripeCreemStore for PgStripeCreemStore {
         let rows = sqlx::query("SELECT key, value FROM options WHERE key = ANY($1)")
             .bind(vec![
                 "StripeMinTopUp",
-                "StripeUnitPrice",
+                "USDExchangeRate",
+                "TopUpPlatformUnitsPerCNY",
                 // `general_setting.quota_display_type` is the registered
                 // operation-setting field used by Go at runtime.  The old
                 // standalone `QuotaDisplayType` option is not authoritative.
@@ -355,7 +361,8 @@ fn stripe_settings_from_options(
         .unwrap_or_default();
     StripeSettings {
         min_topup: parsed_i64(options.get("StripeMinTopUp"), 1),
-        unit_price: finite_f64(options.get("StripeUnitPrice"), 8.0),
+        cny_per_usd: finite_f64(options.get("USDExchangeRate"), 7.3),
+        platform_units_per_cny: finite_f64(options.get("TopUpPlatformUnitsPerCNY"), 1.0),
         quota_display_type: options
             .get("general_setting.quota_display_type")
             .cloned()
@@ -731,8 +738,10 @@ async fn stripe_amount(
         Ok(user) => user,
         Err(_) => return legacy("error", "获取用户分组失败"),
     };
-    let money = stripe_money(request.amount, &user.group, &settings);
-    if money <= 0.01 {
+    let Some(money) = stripe_money(request.amount, &user.group, &settings) else {
+        return legacy("error", "充值汇率配置无效");
+    };
+    if money <= Decimal::new(1, 2) {
         return legacy("error", "充值金额过低");
     }
     legacy("success", format!("{money:.2}"))
@@ -782,6 +791,15 @@ async fn stripe_pay(State(state): State<IdentityStripeCreemState>, request: Requ
         Ok(user) => user,
         Err(_) => return legacy("error", "拉起支付失败"),
     };
+    let Some(money) = stripe_money(request.amount, &user.group, &settings) else {
+        return legacy("error", "充值汇率配置无效");
+    };
+    if money <= Decimal::new(1, 2) {
+        return legacy("error", "充值金额过低");
+    }
+    let Some(money_f64) = money.to_f64() else {
+        return legacy("error", "充值金额无效");
+    };
     let trade_no = legacy_trade_no("new-api-ref", actor.user_id);
     let link = match state
         .gateway
@@ -798,12 +816,11 @@ async fn stripe_pay(State(state): State<IdentityStripeCreemState>, request: Requ
         Ok(link) if !link.trim().is_empty() => link,
         _ => return legacy("error", "拉起支付失败"),
     };
-    let ratio = group_ratio(&user.group, &settings);
     let order = PendingTopup {
         trade_no,
         user_id: actor.user_id,
         amount: request.amount,
-        money: (request.amount as f64) * ratio,
+        money: money_f64,
         payment_method: STRIPE.to_owned(),
         payment_provider: STRIPE.to_owned(),
     };
@@ -1019,19 +1036,32 @@ fn group_ratio(group: &str, settings: &StripeSettings) -> f64 {
         .filter(|ratio| ratio.is_finite() && *ratio != 0.0)
         .unwrap_or(1.0)
 }
-fn stripe_money(amount: i64, group: &str, settings: &StripeSettings) -> f64 {
-    let displayed = if settings.quota_display_type == "TOKENS" {
-        (amount as f64) / settings.quota_per_unit
-    } else {
-        amount as f64
-    };
-    let discount = settings
-        .amount_discounts
-        .get(&amount)
-        .copied()
-        .filter(|discount| discount.is_finite() && *discount > 0.0)
-        .unwrap_or(1.0);
-    displayed * settings.unit_price * group_ratio(group, settings) * discount
+fn stripe_money(amount: i64, group: &str, settings: &StripeSettings) -> Option<Decimal> {
+    let mut platform_amount = Decimal::from(amount);
+    if settings.quota_display_type == "TOKENS" {
+        let quota_per_unit = Decimal::from_f64_retain(settings.quota_per_unit)?;
+        platform_amount = platform_amount.checked_div(quota_per_unit)?;
+    }
+    let cny_per_usd = Decimal::from_f64_retain(settings.cny_per_usd)?;
+    let platform_units_per_cny = Decimal::from_f64_retain(settings.platform_units_per_cny)?;
+    let group_multiplier = Decimal::from_f64_retain(group_ratio(group, settings))?;
+    let discount_multiplier = Decimal::from_f64_retain(
+        settings
+            .amount_discounts
+            .get(&amount)
+            .copied()
+            .filter(|discount| discount.is_finite() && *discount > 0.0)
+            .unwrap_or(1.0),
+    )?;
+    standard_topup_settlement(
+        platform_amount,
+        "USD",
+        cny_per_usd,
+        platform_units_per_cny,
+        group_multiplier,
+        discount_multiplier,
+    )
+    .map(|value| value.round_dp(2))
 }
 fn redirect_allowed(raw: &str, trusted: &[String]) -> bool {
     if raw.is_empty() {
@@ -1202,7 +1232,7 @@ mod tests {
         let body = axum::body::to_bytes(response.into_body(), usize::MAX).await?;
         assert_eq!(
             json_value(&body)?,
-            json!({"message":"success","data":"768.00"})
+            json!({"message":"success","data":"13.15"})
         );
         Ok(())
     }
@@ -1219,7 +1249,7 @@ mod tests {
         let body = axum::body::to_bytes(response.into_body(), usize::MAX).await?;
         assert_eq!(
             json_value(&body)?,
-            json!({"message":"success","data":"768.00"})
+            json!({"message":"success","data":"13.15"})
         );
         Ok(())
     }
@@ -1426,6 +1456,8 @@ mod tests {
     fn stripe_settings_read_registered_display_type_and_fractional_quota_per_unit() {
         let options = BTreeMap::from([
             ("QuotaDisplayType".into(), "TOKENS".into()),
+            ("USDExchangeRate".into(), "6.8".into()),
+            ("TopUpPlatformUnitsPerCNY".into(), "1.25".into()),
             ("general_setting.quota_display_type".into(), "CNY".into()),
             ("QuotaPerUnit".into(), "12.5".into()),
             (
@@ -1437,6 +1469,8 @@ mod tests {
         let settings = stripe_settings_from_options(&options, Vec::new());
 
         assert_eq!(settings.quota_display_type, "CNY");
+        assert_eq!(settings.cny_per_usd, 6.8);
+        assert_eq!(settings.platform_units_per_cny, 1.25);
         assert_eq!(settings.quota_per_unit, 12.5);
         assert_eq!(settings.amount_discounts.get(&100), Some(&0.8));
     }
@@ -1452,11 +1486,12 @@ mod tests {
     }
     #[tokio::test]
     async fn stripe_quote_http_seam_preserves_usd_cny_and_tokens_display_rules() -> TestResult {
-        let cases = [("USD", "1200.00"), ("CNY", "1200.00"), ("TOKENS", "48.00")];
+        let cases = [("USD", "12.00"), ("CNY", "12.00"), ("TOKENS", "0.48")];
         for (display_type, expected) in cases {
             let settings = StripeSettings {
                 min_topup: 2,
-                unit_price: 10.0,
+                cny_per_usd: 10.0,
+                platform_units_per_cny: 1.0,
                 quota_display_type: display_type.into(),
                 quota_per_unit: 25.0,
                 group_ratios: BTreeMap::from([("vip".into(), 1.5)]),
@@ -1520,7 +1555,7 @@ mod tests {
         assert_eq!(message, "success");
         let orders = lock_unpoisoned(&store.orders);
         assert_eq!(orders.len(), 1);
-        assert_eq!(orders[0].money, 2.4);
+        assert_eq!(orders[0].money, 0.33);
         Ok(())
     }
     #[tokio::test]

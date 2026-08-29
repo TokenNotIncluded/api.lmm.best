@@ -1,10 +1,10 @@
-use crate::auth::{AuthErrorKind, UserAuthPolicyError, user_auth_message, user_auth_status};
+use crate::auth::{user_auth_message, user_auth_status, AuthErrorKind, UserAuthPolicyError};
 use axum::{
-    Json,
-    http::{HeaderMap, HeaderValue, StatusCode, header},
+    http::{header, HeaderMap, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
+    Json,
 };
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 
 pub(crate) fn legacy_json(status: StatusCode, body: Value) -> Response {
     let mut response = (status, Json(body)).into_response();

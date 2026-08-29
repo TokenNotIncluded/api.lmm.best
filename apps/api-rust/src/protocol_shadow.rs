@@ -21,8 +21,8 @@ use std::{
     fmt,
     num::NonZeroUsize,
     sync::{
-        Arc,
         atomic::{AtomicU64, AtomicUsize, Ordering},
+        Arc,
     },
 };
 
@@ -30,9 +30,9 @@ use lmm_contracts::relay::Protocol;
 use sha2::{Digest, Sha256};
 
 use crate::protocol_rollout::{
-    LocalConversionError, LocalConversionErrorKind, LocalConversionSummary, LocalConverter,
-    LocalRequest, MAX_BASIS_POINTS, ProtocolRolloutSnapshot, ProtocolRolloutSnapshotStatus,
-    ShadowDifference, bucket_is_in_rollout,
+    bucket_is_in_rollout, LocalConversionError, LocalConversionErrorKind, LocalConversionSummary,
+    LocalConverter, LocalRequest, ProtocolRolloutSnapshot, ProtocolRolloutSnapshotStatus,
+    ShadowDifference, MAX_BASIS_POINTS,
 };
 
 const SHADOW_HASH_DOMAIN: &[u8] = b"lmm-protocol-shadow-v1\0";
@@ -995,12 +995,12 @@ fn build_record(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol_rollout::{MAX_BASIS_POINTS, ProtocolRolloutControl};
+    use crate::protocol_rollout::{ProtocolRolloutControl, MAX_BASIS_POINTS};
     use std::{
         io,
         sync::{
-            Arc,
             atomic::{AtomicUsize, Ordering},
+            Arc,
         },
     };
 
@@ -1385,24 +1385,18 @@ mod tests {
             &new,
         );
         let record = recorded(outcome, "typed converter failure comparison")?;
-        assert!(
-            record
-                .differences
-                .contains(&ShadowDifference::ConversionFailure)
-        );
+        assert!(record
+            .differences
+            .contains(&ShadowDifference::ConversionFailure));
         assert_eq!(record.failures.len(), 2);
-        assert!(
-            record
-                .failures
-                .iter()
-                .any(|failure| { failure.kind == LocalConversionErrorKind::InvalidInput })
-        );
-        assert!(
-            record
-                .failures
-                .iter()
-                .any(|failure| { failure.kind == LocalConversionErrorKind::Unsupported })
-        );
+        assert!(record
+            .failures
+            .iter()
+            .any(|failure| { failure.kind == LocalConversionErrorKind::InvalidInput }));
+        assert!(record
+            .failures
+            .iter()
+            .any(|failure| { failure.kind == LocalConversionErrorKind::Unsupported }));
         Ok(())
     }
 

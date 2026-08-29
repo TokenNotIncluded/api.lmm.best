@@ -39,9 +39,11 @@ func TestListWaffoPancakeCatalogUsesRootProductQuery(t *testing.T) {
 			require.NoError(t, err)
 		case strings.Contains(request.Query, "onetimeProducts(storeId: $storeId, filter: { status: { eq: \"active\" } })"):
 			productQuerySeen = true
+			require.Contains(t, request.Query, "subscriptionProducts(storeId: $storeId")
+			require.Contains(t, request.Query, "billingPeriod")
 			require.NotContains(t, request.Query, "storeId: { eq:")
 			require.Equal(t, "STO_AbCdEfGhIjKlMnOpQrStUv", request.Variables["storeId"])
-			_, err = w.Write([]byte(`{"data":{"onetimeProducts":[{"id":"PROD_AbCdEfGhIjKlMnOpQrStUv","name":"wallet","status":"active"},{"id":"PROD_Inactive0000000000000000","name":"old","status":"inactive"}]}}`))
+			_, err = w.Write([]byte(`{"data":{"onetimeProducts":[{"id":"PROD_AbCdEfGhIjKlMnOpQrStUv","name":"wallet","status":"active"},{"id":"PROD_Inactive0000000000000000","name":"old","status":"inactive"}],"subscriptionProducts":[{"id":"PROD_Subscription000000000001","name":"monthly","status":"active","billingPeriod":"monthly"},{"id":"PROD_SubscriptionInactive000002","name":"legacy","status":"inactive","billingPeriod":"monthly"}]}}`))
 			require.NoError(t, err)
 		default:
 			http.Error(w, "unexpected GraphQL query", http.StatusBadRequest)
@@ -64,4 +66,17 @@ func TestListWaffoPancakeCatalogUsesRootProductQuery(t *testing.T) {
 	require.Len(t, catalog.Stores, 1)
 	require.Len(t, catalog.Stores[0].OnetimeProducts, 1)
 	require.Equal(t, "PROD_AbCdEfGhIjKlMnOpQrStUv", catalog.Stores[0].OnetimeProducts[0].ID)
+	require.Len(t, catalog.Stores[0].SubscriptionProducts, 1)
+	require.Equal(t, "PROD_Subscription000000000001", catalog.Stores[0].SubscriptionProducts[0].ID)
+	require.Equal(t, "monthly", catalog.Stores[0].SubscriptionProducts[0].BillingPeriod)
+	require.True(t, WaffoPancakeCatalogHasActiveSubscriptionProduct(
+		catalog,
+		"STO_AbCdEfGhIjKlMnOpQrStUv",
+		"PROD_Subscription000000000001",
+	))
+	require.False(t, WaffoPancakeCatalogHasActiveSubscriptionProduct(
+		catalog,
+		"STO_AbCdEfGhIjKlMnOpQrStUv",
+		"PROD_AbCdEfGhIjKlMnOpQrStUv", // wallet one-time product
+	))
 }

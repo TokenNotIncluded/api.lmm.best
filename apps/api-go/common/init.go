@@ -139,6 +139,11 @@ func InitEnv() error {
 	return nil
 }
 
+// InitializeEnvironment is the error-returning process startup entry point.
+func InitializeEnvironment() error {
+	return InitEnv()
+}
+
 func initUserSessionSettings() {
 	UserSessionActiveLimit = positiveUserSessionEnv("USER_SESSION_ACTIVE_LIMIT", DefaultUserSessionActiveLimit)
 	UserSessionIssuanceLimit = positiveUserSessionEnv("USER_SESSION_ISSUANCE_LIMIT", DefaultUserSessionIssuanceLimit)

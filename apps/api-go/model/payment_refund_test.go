@@ -31,14 +31,15 @@ func TestApplyWaffoPancakeRefundAccumulatesSubscriptionPartialRefunds(t *testing
 	order := SubscriptionOrder{
 		UserId: user.Id, TradeNo: "refund-subscription-partial",
 		PaymentProvider: PaymentProviderWaffoPancake, PaymentMethod: PaymentMethodWaffoPancake,
-		UserSubscriptionId: subscription.Id, Money: 10,
+		UserSubscriptionId: subscription.Id, Money: 6.8, PlanCurrency: "CNY",
+		ExpectedAmountMicros: 1_000_000, SettlementCurrency: "USD",
 		Status: common.TopUpStatusSuccess,
 	}
 	require.NoError(t, db.Create(&order).Error)
 
 	for _, eventID := range []string{"subscription-refund-event-1", "subscription-refund-event-2"} {
 		result, err := ApplyWaffoPancakeRefund(
-			order.TradeNo, true, 2_500_000, FinanceCurrencyUSD,
+			order.TradeNo, true, 250_000, FinanceCurrencyUSD,
 			eventID,
 			PaymentMethodWaffoPancake, PaymentProviderWaffoPancake, "test refund", user.Id,
 		)
@@ -52,7 +53,7 @@ func TestApplyWaffoPancakeRefundAccumulatesSubscriptionPartialRefunds(t *testing
 
 	var refreshedOrder SubscriptionOrder
 	require.NoError(t, db.First(&refreshedOrder, order.Id).Error)
-	assert.Equal(t, int64(5_000_000), refreshedOrder.RefundedAmountMicros)
+	assert.Equal(t, int64(500_000), refreshedOrder.RefundedAmountMicros)
 	assert.Equal(t, int64(50_000), refreshedOrder.RefundedQuota)
 
 	var refreshedUser User

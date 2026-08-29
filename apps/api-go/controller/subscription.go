@@ -18,12 +18,54 @@ import (
 
 // ---- Shared types ----
 
+func waffoPancakeProductMustBeRecreated(existing, next *model.SubscriptionPlan) bool {
+	if existing == nil || next == nil {
+		return false
+	}
+	existingProductID := strings.TrimSpace(existing.WaffoPancakeProductId)
+	nextProductID := strings.TrimSpace(next.WaffoPancakeProductId)
+	if existingProductID == "" || existingProductID != nextProductID {
+		return false
+	}
+	return existing.PriceAmount != next.PriceAmount ||
+		!strings.EqualFold(strings.TrimSpace(existing.Currency), strings.TrimSpace(next.Currency)) ||
+		existing.DurationUnit != next.DurationUnit ||
+		existing.DurationValue != next.DurationValue ||
+		existing.CustomSeconds != next.CustomSeconds
+}
+
 type SubscriptionPlanDTO struct {
 	Plan model.SubscriptionPlan `json:"plan"`
 	// PaymentMethods is user-authorized in the public catalog and operator-
 	// configured in the admin catalog. Both views require usable gateway
 	// credentials rather than trusting a bare provider product ID.
-	PaymentMethods []string `json:"payment_methods"`
+	PaymentMethods    []string `json:"payment_methods"`
+	BalancePriceQuota int64    `json:"balance_price_quota"`
+}
+
+func normalizeSubscriptionFiatCurrency(value string) (string, error) {
+	currency := strings.ToUpper(strings.TrimSpace(value))
+	if currency == "" {
+		currency = "CNY"
+	}
+	if currency != "CNY" && currency != "USD" {
+		return "", fmt.Errorf("subscription plan currency must be CNY or USD")
+	}
+	return currency, nil
+}
+
+func subscriptionPaymentMethodsWithBalanceQuote(plan *model.SubscriptionPlan, methods []string) ([]string, int64) {
+	quota, err := model.SubscriptionBalanceQuota(plan)
+	if err == nil && quota > 0 {
+		return methods, quota
+	}
+	filtered := make([]string, 0, len(methods))
+	for _, method := range methods {
+		if method != model.PaymentMethodBalance {
+			filtered = append(filtered, method)
+		}
+	}
+	return filtered, 0
 }
 
 type BillingPreferenceRequest struct {
@@ -56,9 +98,14 @@ func GetSubscriptionPlans(c *gin.Context) {
 	result := make([]SubscriptionPlanDTO, 0, len(plans))
 	for _, p := range plans {
 		p.NormalizeDefaults()
+		methods, balancePriceQuota := subscriptionPaymentMethodsWithBalanceQuote(
+			&p,
+			subscriptionPaymentMethods(user, &p, time.Now()),
+		)
 		result = append(result, SubscriptionPlanDTO{
-			Plan:           p,
-			PaymentMethods: subscriptionPaymentMethods(user, &p, time.Now()),
+			Plan:              p,
+			PaymentMethods:    methods,
+			BalancePriceQuota: balancePriceQuota,
 		})
 	}
 	common.ApiSuccess(c, result)
@@ -155,9 +202,14 @@ func AdminListSubscriptionPlans(c *gin.Context) {
 	result := make([]SubscriptionPlanDTO, 0, len(plans))
 	for _, p := range plans {
 		p.NormalizeDefaults()
+		methods, balancePriceQuota := subscriptionPaymentMethodsWithBalanceQuote(
+			&p,
+			subscriptionConfiguredPaymentMethods(&p),
+		)
 		result = append(result, SubscriptionPlanDTO{
-			Plan:           p,
-			PaymentMethods: subscriptionConfiguredPaymentMethods(&p),
+			Plan:              p,
+			PaymentMethods:    methods,
+			BalancePriceQuota: balancePriceQuota,
 		})
 	}
 	common.ApiSuccess(c, result)
@@ -190,10 +242,13 @@ func AdminCreateSubscriptionPlan(c *gin.Context) {
 		common.ApiErrorMsg(c, "价格不能超过9999")
 		return
 	}
-	if req.Plan.Currency == "" {
-		req.Plan.Currency = "USD"
+	planCurrency, currencyErr := normalizeSubscriptionFiatCurrency(req.Plan.Currency)
+	if currencyErr != nil {
+		common.ApiErrorMsg(c, "套餐价格币种必须为 CNY 或 USD")
+		return
 	}
-	req.Plan.Currency = "USD"
+	req.Plan.Currency = planCurrency
+	req.Plan.PriceCurrencyVersion = 1
 	if req.Plan.AllowBalancePay == nil {
 		req.Plan.AllowBalancePay = common.GetPointer(true)
 	}
@@ -294,10 +349,13 @@ func AdminUpdateSubscriptionPlan(c *gin.Context) {
 		return
 	}
 	req.Plan.Id = id
-	if req.Plan.Currency == "" {
-		req.Plan.Currency = "USD"
+	planCurrency, currencyErr := normalizeSubscriptionFiatCurrency(req.Plan.Currency)
+	if currencyErr != nil {
+		common.ApiErrorMsg(c, "套餐价格币种必须为 CNY 或 USD")
+		return
 	}
-	req.Plan.Currency = "USD"
+	req.Plan.Currency = planCurrency
+	req.Plan.PriceCurrencyVersion = 1
 	if req.Plan.DurationUnit == "" {
 		req.Plan.DurationUnit = model.SubscriptionDurationMonth
 	}
@@ -334,6 +392,10 @@ func AdminUpdateSubscriptionPlan(c *gin.Context) {
 	req.Plan.StripePriceId = strings.TrimSpace(req.Plan.StripePriceId)
 	req.Plan.CreemProductId = strings.TrimSpace(req.Plan.CreemProductId)
 	req.Plan.WaffoPancakeProductId = strings.TrimSpace(req.Plan.WaffoPancakeProductId)
+	if waffoPancakeProductMustBeRecreated(existingPlan, &req.Plan) {
+		common.ApiErrorMsg(c, "套餐价格、币种或周期已变化，请重新创建并绑定 Waffo Pancake 订阅产品")
+		return
+	}
 	if !enabledSubscriptionPlanHasConfiguredPaymentMethod(&req.Plan) {
 		subscriptionPlanPaymentMethodRequired(c)
 		return

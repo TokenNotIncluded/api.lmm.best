@@ -108,6 +108,13 @@ struct FinanceMethodMetric {
     token_units: i64,
 }
 
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize)]
+struct FinanceCurrencyMetric {
+    currency: String,
+    amount_micros: i64,
+    orders: i64,
+}
+
 #[derive(Clone, Debug, Serialize)]
 struct FinanceDailyMetric {
     date: String,
@@ -173,6 +180,8 @@ struct FinanceOverview {
     daily: Vec<FinanceDailyMetric>,
     users: Vec<FinanceUserMetric>,
     payment_methods: Vec<FinancePaymentMethod>,
+    settlement_revenue_by_currency: Vec<FinanceCurrencyMetric>,
+    unclassified_settlement_orders: i64,
     sources_bounded: bool,
     user_metrics_truncated: bool,
     user_metrics_complete: bool,
@@ -822,8 +831,7 @@ fn finance_payment_method_allowed(
 }
 
 fn finance_settlement_currency_allowed(currency: &str) -> bool {
-    let currency = currency.trim().to_ascii_uppercase();
-    currency.is_empty() || currency == FINANCE_CURRENCY_USD
+    matches!(currency.trim().to_ascii_uppercase().as_str(), "USD" | "CNY")
 }
 
 fn finance_topup_amount(settled: i64, expected: i64, money: f64) -> i64 {
@@ -900,6 +908,7 @@ struct FinanceAccumulator {
     daily: BTreeMap<String, FinanceDailyMetric>,
     users: HashMap<i64, FinanceUserMetric>,
     method_users: HashMap<String, HashMap<i64, ()>>,
+    settlement_revenue: BTreeMap<String, FinanceCurrencyMetric>,
     method_user_pairs: i64,
 }
 
@@ -911,6 +920,8 @@ impl FinanceAccumulator {
                 currency: FINANCE_CURRENCY_USD.to_owned(),
                 cost_attribution: "complete".to_owned(),
                 payment_methods,
+                settlement_revenue_by_currency: Vec::new(),
+                unclassified_settlement_orders: 0,
                 sources_bounded: true,
                 user_metrics_complete: true,
                 user_metrics_limit: MAX_USER_METRICS as i64,
@@ -935,6 +946,7 @@ impl FinanceAccumulator {
             daily: BTreeMap::new(),
             users: HashMap::new(),
             method_users: HashMap::new(),
+            settlement_revenue: BTreeMap::new(),
             method_user_pairs: 0,
         }
     }
@@ -1027,6 +1039,34 @@ impl FinanceAccumulator {
         }
         self.overview.revenue_micros += amount;
         self.daily_metric(timestamp).revenue_micros += amount;
+    }
+
+    fn add_settlement_revenue(
+        &mut self,
+        currency: &str,
+        method: &str,
+        provider: &str,
+        amount: i64,
+        timestamp: i64,
+        user_id: i64,
+    ) {
+        let currency = currency.trim().to_ascii_uppercase();
+        if amount <= 0 || !finance_settlement_currency_allowed(&currency) {
+            self.overview.unclassified_settlement_orders += 1;
+            return;
+        }
+        let metric = self
+            .settlement_revenue
+            .entry(currency.clone())
+            .or_insert_with(|| FinanceCurrencyMetric {
+                currency: currency.clone(),
+                ..FinanceCurrencyMetric::default()
+            });
+        metric.amount_micros += amount;
+        metric.orders += 1;
+        if currency == FINANCE_CURRENCY_USD {
+            self.add_revenue(method, provider, amount, timestamp, user_id);
+        }
     }
 
     fn add_expense_delta(
@@ -1127,6 +1167,11 @@ impl FinanceAccumulator {
     }
 
     fn finish(mut self, start: i64, end: i64) -> FinanceOverview {
+        self.overview.settlement_revenue_by_currency =
+            self.settlement_revenue.values().cloned().collect();
+        self.overview
+            .settlement_revenue_by_currency
+            .sort_by(|left, right| left.currency.cmp(&right.currency));
         for (key, metric) in &self.methods {
             let mut copy = metric.clone();
             copy.users = self.method_users.get(key).map_or(0, |m| m.len() as i64);
@@ -1210,6 +1255,16 @@ impl FinanceBackend for PgFinanceBackend {
         )
         .await?;
         load_subscription_orders(
+            &self.pg,
+            start,
+            end,
+            user_filter,
+            method_filter,
+            &config_map,
+            &mut acc,
+        )
+        .await?;
+        load_subscription_payment_events(
             &self.pg,
             start,
             end,
@@ -1675,7 +1730,6 @@ async fn load_topups(
              FROM top_ups WHERE status = $1 \
              AND COALESCE(NULLIF(complete_time, 0), create_time) >= $2 \
              AND COALESCE(NULLIF(complete_time, 0), create_time) < $3 \
-             AND (settlement_currency IS NULL OR settlement_currency = '' OR UPPER(settlement_currency) = 'USD') \
              AND NOT EXISTS (SELECT 1 FROM subscription_orders so WHERE so.trade_no = top_ups.trade_no AND so.status = $1) \
              AND (COALESCE(NULLIF(complete_time, 0), create_time) > $4 OR (COALESCE(NULLIF(complete_time, 0), create_time) = $4 AND id > $5)) \
              ORDER BY COALESCE(NULLIF(complete_time, 0), create_time) ASC, id ASC LIMIT $6",
@@ -1693,7 +1747,6 @@ async fn load_topups(
                  FROM top_ups WHERE status = $1 AND user_id = $7 \
                  AND COALESCE(NULLIF(complete_time, 0), create_time) >= $2 \
                  AND COALESCE(NULLIF(complete_time, 0), create_time) < $3 \
-                 AND (settlement_currency IS NULL OR settlement_currency = '' OR UPPER(settlement_currency) = 'USD') \
                  AND NOT EXISTS (SELECT 1 FROM subscription_orders so WHERE so.trade_no = top_ups.trade_no AND so.status = $1) \
                  AND (COALESCE(NULLIF(complete_time, 0), create_time) > $4 OR (COALESCE(NULLIF(complete_time, 0), create_time) = $4 AND id > $5)) \
                  ORDER BY COALESCE(NULLIF(complete_time, 0), create_time) ASC, id ASC LIMIT $6",
@@ -1735,7 +1788,7 @@ async fn load_topups(
                 row_get(row, "expected_amount_micros")?,
                 row_get(row, "money")?,
             );
-            acc.add_revenue(&method, &provider, amount, timestamp, user_id);
+            acc.add_settlement_revenue(&currency, &method, &provider, amount, timestamp, user_id);
         }
         processed += rows.len() as i64;
         let last = rows
@@ -1771,17 +1824,19 @@ async fn load_subscription_orders(
             break;
         }
         let sql = if user_filter > 0 {
-            "SELECT id, user_id, money, payment_method, payment_provider, create_time, complete_time \
+            "SELECT id, user_id, expected_amount_micros, settlement_currency, payment_method, payment_provider, create_time, complete_time \
              FROM subscription_orders WHERE status = $1 AND user_id = $7 \
              AND COALESCE(NULLIF(complete_time, 0), create_time) >= $2 \
              AND COALESCE(NULLIF(complete_time, 0), create_time) < $3 \
+             AND NOT EXISTS (SELECT 1 FROM subscription_payment_events spe WHERE spe.subscription_order_id = subscription_orders.id) \
              AND (COALESCE(NULLIF(complete_time, 0), create_time) > $4 OR (COALESCE(NULLIF(complete_time, 0), create_time) = $4 AND id > $5)) \
              ORDER BY COALESCE(NULLIF(complete_time, 0), create_time) ASC, id ASC LIMIT $6"
         } else {
-            "SELECT id, user_id, money, payment_method, payment_provider, create_time, complete_time \
+            "SELECT id, user_id, expected_amount_micros, settlement_currency, payment_method, payment_provider, create_time, complete_time \
              FROM subscription_orders WHERE status = $1 \
              AND COALESCE(NULLIF(complete_time, 0), create_time) >= $2 \
              AND COALESCE(NULLIF(complete_time, 0), create_time) < $3 \
+             AND NOT EXISTS (SELECT 1 FROM subscription_payment_events spe WHERE spe.subscription_order_id = subscription_orders.id) \
              AND (COALESCE(NULLIF(complete_time, 0), create_time) > $4 OR (COALESCE(NULLIF(complete_time, 0), create_time) = $4 AND id > $5)) \
              ORDER BY COALESCE(NULLIF(complete_time, 0), create_time) ASC, id ASC LIMIT $6"
         };
@@ -1815,14 +1870,9 @@ async fn load_subscription_orders(
                 timestamp = row_get(row, "create_time")?;
             }
             let user_id: i64 = row_get(row, "user_id")?;
-            let money: f64 = row_get(row, "money")?;
-            acc.add_revenue(
-                &method,
-                &provider,
-                finance_micros_from_float(money),
-                timestamp,
-                user_id,
-            );
+            let currency: String = row_get(row, "settlement_currency")?;
+            let amount: i64 = row_get(row, "expected_amount_micros")?;
+            acc.add_settlement_revenue(&currency, &method, &provider, amount, timestamp, user_id);
         }
         processed += rows.len() as i64;
         let last = rows.last().ok_or_else(|| {
@@ -1832,6 +1882,89 @@ async fn load_subscription_orders(
         if last_ts <= 0 {
             last_ts = row_get(last, "create_time")?;
         }
+        last_id = row_get(last, "id")?;
+        if (rows.len() as i64) < limit {
+            break;
+        }
+    }
+    Ok(())
+}
+
+async fn load_subscription_payment_events(
+    pg: &PgPool,
+    start: i64,
+    end: i64,
+    user_filter: i64,
+    method_filter: &str,
+    configs: &HashMap<String, FinancePaymentMethod>,
+    acc: &mut FinanceAccumulator,
+) -> Result<(), FinanceError> {
+    let mut last_ts = 0i64;
+    let mut last_id = 0i64;
+    let mut processed = 0i64;
+    loop {
+        let limit = batch_limit(processed);
+        if limit == 0 {
+            break;
+        }
+        let sql = if user_filter > 0 {
+            "SELECT spe.id, so.user_id, spe.settlement_amount_micros, spe.settlement_currency, \
+             so.payment_method, spe.payment_provider, spe.created_time \
+             FROM subscription_payment_events spe \
+             JOIN subscription_orders so ON so.id = spe.subscription_order_id \
+             WHERE so.status = $1 AND so.user_id = $7 \
+             AND spe.created_time >= $2 AND spe.created_time < $3 \
+             AND (spe.created_time > $4 OR (spe.created_time = $4 AND spe.id > $5)) \
+             ORDER BY spe.created_time ASC, spe.id ASC LIMIT $6"
+        } else {
+            "SELECT spe.id, so.user_id, spe.settlement_amount_micros, spe.settlement_currency, \
+             so.payment_method, spe.payment_provider, spe.created_time \
+             FROM subscription_payment_events spe \
+             JOIN subscription_orders so ON so.id = spe.subscription_order_id \
+             WHERE so.status = $1 \
+             AND spe.created_time >= $2 AND spe.created_time < $3 \
+             AND (spe.created_time > $4 OR (spe.created_time = $4 AND spe.id > $5)) \
+             ORDER BY spe.created_time ASC, spe.id ASC LIMIT $6"
+        };
+        let mut query = sqlx::query(sql)
+            .bind(TOPUP_STATUS_SUCCESS)
+            .bind(start)
+            .bind(end)
+            .bind(last_ts)
+            .bind(last_id)
+            .bind(limit);
+        if user_filter > 0 {
+            query = query.bind(user_filter);
+        }
+        let rows = query.fetch_all(pg).await.map_err(db_error)?;
+        if rows.is_empty() {
+            break;
+        }
+        for row in &rows {
+            let (method, provider) = normalize_payment_source(
+                &row_get::<String>(row, "payment_method")?,
+                &row_get::<String>(row, "payment_provider")?,
+            );
+            if !method_filter.is_empty() && method != method_filter {
+                continue;
+            }
+            if !finance_payment_method_allowed(&method, &provider, configs) {
+                continue;
+            }
+            acc.add_settlement_revenue(
+                &row_get::<String>(row, "settlement_currency")?,
+                &method,
+                &provider,
+                row_get(row, "settlement_amount_micros")?,
+                row_get(row, "created_time")?,
+                row_get(row, "user_id")?,
+            );
+        }
+        processed += rows.len() as i64;
+        let last = rows.last().ok_or_else(|| {
+            FinanceError("subscription payment pagination returned an empty batch".to_owned())
+        })?;
+        last_ts = row_get(last, "created_time")?;
         last_id = row_get(last, "id")?;
         if (rows.len() as i64) < limit {
             break;
@@ -2041,5 +2174,42 @@ fn batch_limit(processed: i64) -> i64 {
         0
     } else {
         remaining.min(BATCH_SIZE)
+    }
+}
+
+#[cfg(test)]
+mod unit_tests {
+    use super::{FinanceAccumulator, FinanceCurrencyMetric, FinanceOverview};
+
+    #[test]
+    fn settlement_totals_keep_real_currencies_separate() {
+        let mut accumulator = FinanceAccumulator::new(0, 86_400, Vec::new());
+        accumulator.add_settlement_revenue("USD", "stripe", "stripe", 1_000_000, 1, 1);
+        accumulator.add_settlement_revenue("CNY", "alipay", "epay", 6_800_000, 1, 2);
+        accumulator.add_settlement_revenue("", "legacy", "", 9_000_000, 1, 3);
+
+        let FinanceOverview {
+            revenue_micros,
+            settlement_revenue_by_currency,
+            unclassified_settlement_orders,
+            ..
+        } = accumulator.finish(0, 86_400);
+        assert_eq!(revenue_micros, 1_000_000);
+        assert_eq!(unclassified_settlement_orders, 1);
+        assert_eq!(
+            settlement_revenue_by_currency,
+            vec![
+                FinanceCurrencyMetric {
+                    currency: "CNY".to_owned(),
+                    amount_micros: 6_800_000,
+                    orders: 1,
+                },
+                FinanceCurrencyMetric {
+                    currency: "USD".to_owned(),
+                    amount_micros: 1_000_000,
+                    orders: 1,
+                },
+            ]
+        );
     }
 }

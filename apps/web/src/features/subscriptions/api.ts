@@ -171,13 +171,22 @@ export async function paySubscriptionBalance(
   return res.data
 }
 
-// Mints a Pancake OnetimeProduct (see controller for the OnetimeProduct vs
-// SubscriptionProduct rationale) using persisted creds + StoreID.
+// Mints a recurring Pancake SubscriptionProduct. amount and currency are the
+// plan's real ISO-fiat list price; the server converts it to Pancake USD.
 export async function createWaffoPancakeSubscriptionProduct(data: {
   name: string
   amount: string
+  currency: string
+  duration_unit: string
+  duration_value: number
 }): Promise<
-  ApiResponse<{ product_id: string; product_name: string; store_id: string }>
+  ApiResponse<{
+    product_id: string
+    product_name: string
+    store_id: string
+    settlement_currency: 'USD'
+    settlement_amount: string
+  }>
 > {
   const res = await api.post(
     '/api/option/waffo-pancake/subscription-product',
@@ -186,12 +195,17 @@ export async function createWaffoPancakeSubscriptionProduct(data: {
   return res.data
 }
 
-// Returns the OnetimeProducts in the saved Pancake store; empty when the
-// gateway isn't fully configured.
+// Returns recurring products in the saved Pancake store; one-time wallet
+// products are deliberately excluded.
 export async function listWaffoPancakeSubscriptionProductOptions(): Promise<
   ApiResponse<{
     store_id: string
-    products: { id: string; name: string; status: string }[]
+    products: {
+      id: string
+      name: string
+      status: string
+      billingPeriod?: string
+    }[]
   }>
 > {
   const res = await api.get(

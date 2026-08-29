@@ -164,13 +164,16 @@ func TestUpsertSubscriptionTopUpPersistsPaymentProviderOnTopUpMirror(t *testing.
 	truncateTables(t)
 
 	order := &SubscriptionOrder{
-		UserId:          204,
-		Money:           9.99,
-		TradeNo:         "sub-waffo-provider",
-		PaymentMethod:   PaymentMethodWaffoPancake,
-		PaymentProvider: PaymentProviderWaffoPancake,
-		Status:          common.TopUpStatusPending,
-		CreateTime:      time.Now().Unix(),
+		UserId:               204,
+		Money:                6.8,
+		PlanCurrency:         "CNY",
+		ExpectedAmountMicros: 1_000_000,
+		SettlementCurrency:   "USD",
+		TradeNo:              "sub-waffo-provider",
+		PaymentMethod:        PaymentMethodWaffoPancake,
+		PaymentProvider:      PaymentProviderWaffoPancake,
+		Status:               common.TopUpStatusPending,
+		CreateTime:           time.Now().Unix(),
 	}
 	require.NoError(t, DB.Transaction(func(tx *gorm.DB) error {
 		return upsertSubscriptionTopUpTx(tx, order)
@@ -179,6 +182,10 @@ func TestUpsertSubscriptionTopUpPersistsPaymentProviderOnTopUpMirror(t *testing.
 	require.NotNil(t, topUp)
 	assert.Equal(t, PaymentProviderWaffoPancake, topUp.PaymentProvider)
 	assert.Equal(t, PaymentMethodWaffoPancake, topUp.PaymentMethod)
+	assert.Equal(t, 1.0, topUp.Money)
+	assert.Equal(t, int64(1_000_000), topUp.ExpectedAmountMicros)
+	assert.Equal(t, int64(1_000_000), topUp.SettledAmountMicros)
+	assert.Equal(t, "USD", topUp.SettlementCurrency)
 
 	// A pre-existing legacy mirror with no provider should be backfilled, but a
 	// mirror bound to another provider must never be overwritten.
@@ -219,17 +226,44 @@ func TestExpireSubscriptionOrder_RejectsMismatchedPaymentProvider(t *testing.T) 
 func createEpayTestOrder(t *testing.T, userId int, tradeNo string, provider string, status string) TopUp {
 	t.Helper()
 	topUp := TopUp{
-		UserId:          userId,
-		Amount:          2,
-		Money:           10.0,
-		TradeNo:         tradeNo,
-		PaymentMethod:   "alipay",
-		PaymentProvider: provider,
-		CreateTime:      common.GetTimestamp(),
-		Status:          status,
+		UserId:               userId,
+		Amount:               2,
+		CreditedQuota:        int64(common.QuotaPerUnit * 2),
+		Money:                10.0,
+		ExpectedAmountMicros: 10_000_000,
+		SettlementCurrency:   "CNY",
+		TradeNo:              tradeNo,
+		PaymentMethod:        "alipay",
+		PaymentProvider:      provider,
+		CreateTime:           common.GetTimestamp(),
+		Status:               status,
 	}
 	require.NoError(t, DB.Create(&topUp).Error)
 	return topUp
+}
+
+func TestRechargeEpayRejectsLegacyOrderWithoutImmutableCNYSnapshot(t *testing.T) {
+	truncateTables(t)
+	oldQuotaPerUnit := common.QuotaPerUnit
+	common.QuotaPerUnit = 500000
+	t.Cleanup(func() { common.QuotaPerUnit = oldQuotaPerUnit })
+
+	user := insertUserForPaymentGuardTest(t, 500, 0)
+	legacy := TopUp{
+		UserId:          user.Id,
+		Amount:          2,
+		Money:           10,
+		TradeNo:         "EPAYLEGACYAMBIGUOUS",
+		PaymentMethod:   "alipay",
+		PaymentProvider: PaymentProviderEpay,
+		CreateTime:      common.GetTimestamp(),
+		Status:          common.TopUpStatusPending,
+	}
+	require.NoError(t, DB.Create(&legacy).Error)
+
+	_, err := RechargeEpay(legacy.TradeNo, "alipay", "127.0.0.1")
+	require.ErrorIs(t, err, ErrPaymentEvidenceConflict)
+	assert.Equal(t, 0, getUserQuotaForPaymentGuardTest(t, user.Id))
 }
 
 func TestRechargeEpayCreditsQuotaExactlyOnce(t *testing.T) {

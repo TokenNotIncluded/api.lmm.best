@@ -115,11 +115,10 @@ var assistantAdminConfigAllowlist = map[string]string{
 	"SMTPServer":                                    "SMTP server host",
 	"SMTPPort":                                      "SMTP server port",
 	"SMTPFrom":                                      "SMTP sender address",
-	"Price":                                         "Global top-up unit price",
-	"USDExchangeRate":                               "USD exchange rate",
+	"USDExchangeRate":                               "Real CNY per USD exchange rate",
+	"TopUpPlatformUnitsPerCNY":                      "Wallet platform units purchased per CNY",
 	"MinTopUp":                                      "Minimum top-up amount",
 	"PayAddress":                                    "Public payment address",
-	"StripeUnitPrice":                               "Stripe unit price",
 	"StripeMinTopUp":                                "Stripe minimum top-up amount",
 	"StripePriceId":                                 "Stripe public price ID",
 	"StripePromotionCodesEnabled":                   "Enable Stripe promotion codes",
@@ -127,17 +126,14 @@ var assistantAdminConfigAllowlist = map[string]string{
 	"CreemProducts":                                 "Creem public product mapping",
 	"WaffoEnabled":                                  "Enable Waffo payments",
 	"WaffoSandbox":                                  "Enable Waffo sandbox mode",
-	"WaffoCurrency":                                 "Waffo currency",
 	"WaffoNotifyUrl":                                "Waffo payment callback URL",
 	"WaffoReturnUrl":                                "Waffo payment return URL",
 	"WaffoSubscriptionReturnUrl":                    "Waffo subscription return URL",
-	"WaffoUnitPrice":                                "Waffo unit price",
 	"WaffoMinTopUp":                                 "Waffo minimum top-up amount",
 	"WaffoPancakeReturnURL":                         "Waffo Pancake return URL",
 	"WaffoPancakeMerchantID":                        "Waffo Pancake merchant ID",
 	"WaffoPancakeStoreID":                           "Waffo Pancake public store ID",
 	"WaffoPancakeProductID":                         "Waffo Pancake public product ID",
-	"WaffoPancakeUnitPrice":                         "Waffo Pancake unit price",
 	"WaffoPancakeMinTopUp":                          "Waffo Pancake minimum top-up amount",
 	"PayMethods":                                    "Legacy payment methods",
 	"QuotaPerUnit":                                  "Quota-to-currency conversion unit",
@@ -959,15 +955,10 @@ func validateAssistantAdminConfigValue(key, value string) error {
 		if err != nil || port < 1 || port > 65535 {
 			return errors.New("SMTP port must be between 1 and 65535")
 		}
-	case "Price", "USDExchangeRate", "StripeUnitPrice", "WaffoUnitPrice", "WaffoPancakeUnitPrice":
+	case "USDExchangeRate", "TopUpPlatformUnitsPerCNY":
 		amount, err := strconv.ParseFloat(value, 64)
 		if err != nil || amount <= 0 || amount > 1_000_000_000 || math.IsNaN(amount) || math.IsInf(amount, 0) {
 			return errors.New("payment price must be a positive finite number no greater than 1000000000")
-		}
-	case "WaffoCurrency":
-		currency := strings.TrimSpace(value)
-		if len([]rune(currency)) < 3 || len([]rune(currency)) > 8 {
-			return errors.New("Waffo currency must be between 3 and 8 characters")
 		}
 	case "SMTPServer", "SMTPFrom", "StripePriceId", "WaffoPancakeMerchantID", "WaffoPancakeStoreID", "WaffoPancakeProductID":
 		if len([]rune(value)) > 512 {

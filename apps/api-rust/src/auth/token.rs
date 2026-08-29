@@ -1,10 +1,10 @@
-use super::{ACCESS_TOKEN_TTL_SECONDS, AuthError, AuthErrorKind};
-use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+use super::{AuthError, AuthErrorKind, ACCESS_TOKEN_TTL_SECONDS};
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use hmac::{Hmac, Mac};
 use jsonwebtoken::{
-    Algorithm, DecodingKey, EncodingKey, Header, Validation, decode, encode, errors::ErrorKind,
+    decode, encode, errors::ErrorKind, Algorithm, DecodingKey, EncodingKey, Header, Validation,
 };
-use rand::{Rng, distr::Alphanumeric};
+use rand::{distr::Alphanumeric, Rng};
 use secrecy::{ExposeSecret, SecretSlice, SecretString};
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
@@ -492,26 +492,22 @@ mod tests {
             )?,
             "email"
         );
-        assert!(
-            codec
-                .verify_security_proof(
-                    &SecretString::from(token.clone()),
-                    &identity,
-                    "passkey.delete",
-                    &["email".to_owned()],
-                )
-                .is_err()
-        );
-        assert!(
-            codec
-                .verify_security_proof(
-                    &SecretString::from(token),
-                    &identity,
-                    "channel.key.read",
-                    &["passkey".to_owned()],
-                )
-                .is_err()
-        );
+        assert!(codec
+            .verify_security_proof(
+                &SecretString::from(token.clone()),
+                &identity,
+                "passkey.delete",
+                &["email".to_owned()],
+            )
+            .is_err());
+        assert!(codec
+            .verify_security_proof(
+                &SecretString::from(token),
+                &identity,
+                "channel.key.read",
+                &["passkey".to_owned()],
+            )
+            .is_err());
         Ok(())
     }
 
@@ -528,11 +524,8 @@ mod tests {
             codec.is_dashboard_token_candidate(&SecretString::from(tampered)),
             "a signature-invalid dashboard JWT is still internal"
         );
-        assert!(
-            !codec.is_dashboard_token_candidate(&SecretString::from(
-                "opaque.key.with-dots".to_owned()
-            ))
-        );
+        assert!(!codec
+            .is_dashboard_token_candidate(&SecretString::from("opaque.key.with-dots".to_owned())));
 
         let expired = encode(
             &Header::new(Algorithm::HS256),
@@ -634,11 +627,9 @@ mod tests {
                 "weak secret must be rejected: {weak}"
             );
         }
-        assert!(
-            LegacyTokenCodec::new(SecretString::from(
-                "correct-horse-battery-staple-2026!".to_owned()
-            ))
-            .is_ok()
-        );
+        assert!(LegacyTokenCodec::new(SecretString::from(
+            "correct-horse-battery-staple-2026!".to_owned()
+        ))
+        .is_ok());
     }
 }

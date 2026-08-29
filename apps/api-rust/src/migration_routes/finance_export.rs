@@ -41,7 +41,7 @@ const MAX_WINDOW_SECONDS: i64 = 90 * 24 * 60 * 60;
 const MAX_ROWS: i64 = 200_000;
 const PRICING_VERSION: &str = "5a90f2b86c08bd983a9a2e6d66c255f4eaef9c4bc934386d2b6ae84ef0ff1f1f";
 
-const FILE_NAMES: [&str; 14] = [
+const FILE_NAMES: [&str; 15] = [
     "manifest.json",
     "financial-options.json",
     "model-prices-and-ratios.json",
@@ -51,6 +51,7 @@ const FILE_NAMES: [&str; 14] = [
     "subscription-plans.json",
     "topups.json",
     "subscription-orders.json",
+    "subscription-payment-events.json",
     "usage-billing-records.json",
     "bounty-ledger.json",
     "checkins.json",
@@ -257,6 +258,8 @@ impl FinanceExportBackend for PgFinanceExportBackend {
         let plans = load_plans(&self.pg).await?;
         let topups = load_topups(&self.pg, start_timestamp, end_timestamp).await?;
         let orders = load_subscription_orders(&self.pg, start_timestamp, end_timestamp).await?;
+        let subscription_payments =
+            load_subscription_payments(&self.pg, start_timestamp, end_timestamp).await?;
         let usage = load_usage(&self.pg, start_timestamp, end_timestamp).await?;
         let bounty_ledger = load_bounty_ledger(&self.pg, start_timestamp, end_timestamp).await?;
         let checkins = load_checkins(&self.pg, start_timestamp, end_timestamp).await?;
@@ -274,6 +277,10 @@ impl FinanceExportBackend for PgFinanceExportBackend {
             ("plans".to_owned(), usize_to_i64(plans.len())),
             ("topups".to_owned(), usize_to_i64(topups.len())),
             ("subscription_orders".to_owned(), usize_to_i64(orders.len())),
+            (
+                "subscription_payment_events".to_owned(),
+                usize_to_i64(subscription_payments.len()),
+            ),
             ("usage".to_owned(), usize_to_i64(usage.len())),
             (
                 "bounty_ledger".to_owned(),
@@ -291,6 +298,10 @@ impl FinanceExportBackend for PgFinanceExportBackend {
             (
                 "subscription_orders".to_owned(),
                 usize_to_i64(orders.len()) == MAX_ROWS,
+            ),
+            (
+                "subscription_payment_events".to_owned(),
+                usize_to_i64(subscription_payments.len()) == MAX_ROWS,
             ),
             ("usage".to_owned(), usize_to_i64(usage.len()) == MAX_ROWS),
             (
@@ -369,6 +380,10 @@ impl FinanceExportBackend for PgFinanceExportBackend {
             (
                 "subscription-orders.json".to_owned(),
                 go_pretty_json(&orders)?,
+            ),
+            (
+                "subscription-payment-events.json".to_owned(),
+                go_pretty_json(&subscription_payments)?,
             ),
             (
                 "usage-billing-records.json".to_owned(),
@@ -539,12 +554,33 @@ struct FinanceSubscriptionOrder {
     order_id: i64,
     user_id: i64,
     plan_id: i64,
+    #[serde(rename = "plan_price")]
     money: f64,
+    plan_currency: String,
+    expected_amount_micros: i64,
+    settlement_currency: String,
     payment_method: String,
     payment_provider: String,
+    provider_product_id: String,
+    provider_subscription_state: String,
+    current_period_start: i64,
+    current_period_end: i64,
+    refunded_amount_micros: i64,
     status: String,
     create_time: i64,
     complete_time: i64,
+}
+
+#[derive(Debug, Serialize)]
+struct FinanceSubscriptionPayment {
+    payment_event_id: i64,
+    subscription_order_id: i64,
+    payment_provider: String,
+    settlement_currency: String,
+    settlement_amount_micros: i64,
+    period_start: i64,
+    period_end: i64,
+    created_time: i64,
 }
 
 #[derive(Debug, Serialize)]
@@ -1152,7 +1188,15 @@ async fn load_subscription_orders(
     let rows = sqlx::query(
         "SELECT id::BIGINT AS order_id, COALESCE(user_id, 0)::BIGINT AS user_id, \
          COALESCE(plan_id, 0)::BIGINT AS plan_id, COALESCE(money, 0)::DOUBLE PRECISION AS money, \
+         COALESCE(plan_currency, '') AS plan_currency, \
+         COALESCE(expected_amount_micros, 0)::BIGINT AS expected_amount_micros, \
+         COALESCE(settlement_currency, '') AS settlement_currency, \
          COALESCE(payment_method, '') AS payment_method, COALESCE(payment_provider, '') AS payment_provider, \
+         COALESCE(provider_product_id, '') AS provider_product_id, \
+         COALESCE(provider_subscription_state, '') AS provider_subscription_state, \
+         COALESCE(current_period_start, 0)::BIGINT AS current_period_start, \
+         COALESCE(current_period_end, 0)::BIGINT AS current_period_end, \
+         COALESCE(refunded_amount_micros, 0)::BIGINT AS refunded_amount_micros, \
          COALESCE(status, '') AS status, COALESCE(create_time, 0)::BIGINT AS create_time, \
          COALESCE(complete_time, 0)::BIGINT AS complete_time FROM subscription_orders \
          WHERE create_time >= $1 AND create_time <= $2 ORDER BY create_time ASC, id ASC LIMIT 200000",
@@ -1171,12 +1215,57 @@ fn order_from_row(row: PgRow) -> Result<FinanceSubscriptionOrder, FinanceExportE
         user_id: get(&row, "user_id")?,
         plan_id: get(&row, "plan_id")?,
         money: get(&row, "money")?,
+        plan_currency: get(&row, "plan_currency")?,
+        expected_amount_micros: get(&row, "expected_amount_micros")?,
+        settlement_currency: get(&row, "settlement_currency")?,
         payment_method: get(&row, "payment_method")?,
         payment_provider: get(&row, "payment_provider")?,
+        provider_product_id: get(&row, "provider_product_id")?,
+        provider_subscription_state: get(&row, "provider_subscription_state")?,
+        current_period_start: get(&row, "current_period_start")?,
+        current_period_end: get(&row, "current_period_end")?,
+        refunded_amount_micros: get(&row, "refunded_amount_micros")?,
         status: get(&row, "status")?,
         create_time: get(&row, "create_time")?,
         complete_time: get(&row, "complete_time")?,
     })
+}
+
+async fn load_subscription_payments(
+    pg: &PgPool,
+    start: i64,
+    end: i64,
+) -> Result<Vec<FinanceSubscriptionPayment>, FinanceExportError> {
+    let rows = sqlx::query(
+        "SELECT id::BIGINT AS payment_event_id, COALESCE(subscription_order_id, 0)::BIGINT AS subscription_order_id, \
+         COALESCE(payment_provider, '') AS payment_provider, \
+         COALESCE(settlement_currency, '') AS settlement_currency, \
+         COALESCE(settlement_amount_micros, 0)::BIGINT AS settlement_amount_micros, \
+         COALESCE(period_start, 0)::BIGINT AS period_start, \
+         COALESCE(period_end, 0)::BIGINT AS period_end, \
+         COALESCE(created_time, 0)::BIGINT AS created_time \
+         FROM subscription_payment_events WHERE created_time >= $1 AND created_time <= $2 \
+         ORDER BY created_time ASC, id ASC LIMIT 200000",
+    )
+    .bind(start)
+    .bind(end)
+    .fetch_all(pg)
+    .await
+    .map_err(|source| database_error("load finance subscription payments", source))?;
+    rows.into_iter()
+        .map(|row| {
+            Ok(FinanceSubscriptionPayment {
+                payment_event_id: get(&row, "payment_event_id")?,
+                subscription_order_id: get(&row, "subscription_order_id")?,
+                payment_provider: get(&row, "payment_provider")?,
+                settlement_currency: get(&row, "settlement_currency")?,
+                settlement_amount_micros: get(&row, "settlement_amount_micros")?,
+                period_start: get(&row, "period_start")?,
+                period_end: get(&row, "period_end")?,
+                created_time: get(&row, "created_time")?,
+            })
+        })
+        .collect()
 }
 
 async fn load_usage(

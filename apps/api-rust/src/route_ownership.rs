@@ -504,11 +504,9 @@ mod tests {
     fn invalid_canary_is_rejected_without_opening_review() -> TestResult {
         assert!(OwnershipGate::new(MAX_CANARY_BASIS_POINTS + 1).is_err());
         let mut evidence = complete()?;
-        assert!(
-            evidence
-                .set_canary_basis_points(MAX_CANARY_BASIS_POINTS + 1)
-                .is_err()
-        );
+        assert!(evidence
+            .set_canary_basis_points(MAX_CANARY_BASIS_POINTS + 1)
+            .is_err());
         assert_eq!(
             evidence.canary_basis_points(),
             MIN_REVIEW_CANARY_BASIS_POINTS

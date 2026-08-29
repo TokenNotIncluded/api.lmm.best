@@ -28,6 +28,7 @@ use rsa::{
     pkcs8::DecodePrivateKey,
     signature::{SignatureEncoding as _, Signer as _},
 };
+use rust_decimal::Decimal;
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -62,6 +63,10 @@ const PANCAKE_GRAPHQL_PATH: &str = "/v1/graphql";
 const PANCAKE_CREATE_STORE_PATH: &str = "/v1/actions/store/create-store";
 const PANCAKE_CREATE_PRODUCT_PATH: &str = "/v1/actions/onetime-product/create-product";
 const PANCAKE_PUBLISH_PRODUCT_PATH: &str = "/v1/actions/onetime-product/publish-product";
+const PANCAKE_CREATE_SUBSCRIPTION_PRODUCT_PATH: &str =
+    "/v1/actions/subscription-product/create-product";
+const PANCAKE_PUBLISH_SUBSCRIPTION_PRODUCT_PATH: &str =
+    "/v1/actions/subscription-product/publish-product";
 const MAX_PANCAKE_RESPONSE_BYTES: usize = 1 << 20;
 const PANCAKE_STORE_NAME: &str = "lmm-forge-store";
 const PANCAKE_PRIMARY_PRODUCT_NAME: &str = "lmm-forge-wallet-topup";
@@ -1108,6 +1113,16 @@ pub trait WaffoPancakeGateway: Send + Sync {
         amount: &str,
         return_url: &str,
     ) -> Result<Value, ()>;
+    async fn create_subscription_product(
+        &self,
+        merchant_id: &str,
+        private_key: &str,
+        store_id: &str,
+        name: &str,
+        amount: &str,
+        billing_period: &str,
+        return_url: &str,
+    ) -> Result<Value, ()>;
 }
 
 /// Concrete Waffo Pancake merchant adapter.
@@ -1254,21 +1269,128 @@ impl HttpWaffoPancakeGateway {
         .ok_or(())?;
         Ok(product)
     }
+
+    async fn create_and_publish_subscription_product(
+        &self,
+        merchant_id: &str,
+        private_key: &str,
+        store_id: &str,
+        name: &str,
+        amount: &str,
+        billing_period: &str,
+        return_url: &str,
+    ) -> Result<Value, ()> {
+        let store_id = nonempty(store_id)?;
+        let name = nonempty(name)?;
+        let amount = nonempty(amount)?;
+        let billing_period = match billing_period {
+            "weekly" | "monthly" | "quarterly" | "yearly" => billing_period,
+            _ => return Err(()),
+        };
+        let mut body = json!({
+            "storeId": store_id,
+            "name": name,
+            "billingPeriod": billing_period,
+            "prices": {"USD": {"amount": amount, "taxCategory": PANCAKE_TAX_CATEGORY}},
+        });
+        if let Some(object) = body.as_object_mut()
+            && let Some(return_url) = nonempty_optional(return_url)
+        {
+            object.insert("successUrl".to_owned(), json!(return_url));
+        }
+        let product = self
+            .post(
+                merchant_id,
+                private_key,
+                PANCAKE_CREATE_SUBSCRIPTION_PRODUCT_PATH,
+                body,
+                true,
+            )
+            .await?
+            .success_data()
+            .ok_or(())?
+            .get("product")
+            .ok_or(())?
+            .clone();
+        let product_id = required_string(&product, "id").ok_or(())?;
+        if !required_string(&product, "status")
+            .is_some_and(|status| status.eq_ignore_ascii_case("active"))
+        {
+            let published = self
+                .post(
+                    merchant_id,
+                    private_key,
+                    PANCAKE_PUBLISH_SUBSCRIPTION_PRODUCT_PATH,
+                    json!({"id": product_id}),
+                    true,
+                )
+                .await?
+                .success_data()
+                .ok_or(())?
+                .get("product")
+                .cloned()
+                .ok_or(())?;
+            if !required_string(&published, "status")
+                .is_some_and(|status| status.eq_ignore_ascii_case("active"))
+            {
+                return Err(());
+            }
+            return Ok(published);
+        }
+        Ok(product)
+    }
 }
 
 #[async_trait]
 impl WaffoPancakeGateway for HttpWaffoPancakeGateway {
     async fn catalog(&self, merchant_id: &str, private_key: &str) -> Result<Value, ()> {
-        let envelope = self
+        let stores_envelope = self
             .post(
                 merchant_id,
                 private_key,
                 PANCAKE_GRAPHQL_PATH,
-                json!({"query": "query { stores(limit: 100) { id name status prodEnabled onetimeProducts { id name status } } }"}),
+                json!({"query": "query { stores(limit: 100) { id name status prodEnabled } }"}),
                 false,
             )
             .await?;
-        normalize_pancake_catalog(envelope.success_data().ok_or(())?)
+        let stores_data = stores_envelope.success_data().ok_or(())?;
+        let mut stores = stores_data
+            .get("stores")
+            .and_then(Value::as_array)
+            .cloned()
+            .ok_or(())?;
+        for store in &mut stores {
+            let store_id = required_string(store, "id").ok_or(())?;
+            let products_envelope = self
+                .post(
+                    merchant_id,
+                    private_key,
+                    PANCAKE_GRAPHQL_PATH,
+                    json!({
+                        "query": "query ($storeId: String!) { onetimeProducts(storeId: $storeId, filter: { status: { eq: \"active\" } }) { id name status } subscriptionProducts(storeId: $storeId, filter: { status: { eq: \"active\" } }) { id name status billingPeriod } }",
+                        "variables": {"storeId": store_id},
+                    }),
+                    false,
+                )
+                .await?;
+            let products = products_envelope.success_data().ok_or(())?;
+            let store_object = store.as_object_mut().ok_or(())?;
+            store_object.insert(
+                "onetimeProducts".to_owned(),
+                products
+                    .get("onetimeProducts")
+                    .cloned()
+                    .unwrap_or_else(|| json!([])),
+            );
+            store_object.insert(
+                "subscriptionProducts".to_owned(),
+                products
+                    .get("subscriptionProducts")
+                    .cloned()
+                    .unwrap_or_else(|| json!([])),
+            );
+        }
+        normalize_pancake_catalog(json!({"stores": stores}))
     }
 
     async fn create_pair(
@@ -1326,6 +1448,28 @@ impl WaffoPancakeGateway for HttpWaffoPancakeGateway {
         )
         .await
     }
+
+    async fn create_subscription_product(
+        &self,
+        merchant_id: &str,
+        private_key: &str,
+        store_id: &str,
+        name: &str,
+        amount: &str,
+        billing_period: &str,
+        return_url: &str,
+    ) -> Result<Value, ()> {
+        self.create_and_publish_subscription_product(
+            merchant_id,
+            private_key,
+            store_id,
+            name,
+            amount,
+            billing_period,
+            return_url,
+        )
+        .await
+    }
 }
 
 /// Explicit no-egress adapter for the public test instance.
@@ -1348,6 +1492,19 @@ impl WaffoPancakeGateway for TestInstanceDisabledWaffoPancakeGateway {
 
     async fn create_product(
         &self,
+        _: &str,
+        _: &str,
+        _: &str,
+        _: &str,
+        _: &str,
+        _: &str,
+    ) -> Result<Value, ()> {
+        Err(())
+    }
+
+    async fn create_subscription_product(
+        &self,
+        _: &str,
         _: &str,
         _: &str,
         _: &str,
@@ -1432,18 +1589,36 @@ fn normalize_pancake_catalog(data: Value) -> Result<Value, ()> {
     let stores = data.get("stores").and_then(Value::as_array).ok_or(())?;
     let mut normalized = Vec::with_capacity(stores.len());
     for store in stores {
-        let products = store
+        let mut active_one_time = Vec::new();
+        for product in store
             .get("onetimeProducts")
             .and_then(Value::as_array)
-            .ok_or(())?;
-        let mut active_products = Vec::new();
-        for product in products {
+            .map(Vec::as_slice)
+            .unwrap_or_default()
+        {
             let status = required_string(product, "status").ok_or(())?;
             if status.eq_ignore_ascii_case("active") {
-                active_products.push(json!({
+                active_one_time.push(json!({
                     "id": required_string(product, "id").ok_or(())?,
                     "name": required_string(product, "name").ok_or(())?,
                     "status": status,
+                }));
+            }
+        }
+        let mut active_subscriptions = Vec::new();
+        for product in store
+            .get("subscriptionProducts")
+            .and_then(Value::as_array)
+            .map(Vec::as_slice)
+            .unwrap_or_default()
+        {
+            let status = required_string(product, "status").ok_or(())?;
+            if status.eq_ignore_ascii_case("active") {
+                active_subscriptions.push(json!({
+                    "id": required_string(product, "id").ok_or(())?,
+                    "name": required_string(product, "name").ok_or(())?,
+                    "status": status,
+                    "billingPeriod": required_string(product, "billingPeriod").ok_or(())?,
                 }));
             }
         }
@@ -1452,7 +1627,8 @@ fn normalize_pancake_catalog(data: Value) -> Result<Value, ()> {
             "name": required_string(store, "name").ok_or(())?,
             "status": required_string(store, "status").ok_or(())?,
             "prodEnabled": store.get("prodEnabled").and_then(Value::as_bool).unwrap_or(false),
-            "onetimeProducts": active_products,
+            "onetimeProducts": active_one_time,
+            "subscriptionProducts": active_subscriptions,
         }));
     }
     Ok(json!({"stores": normalized}))
@@ -1481,7 +1657,8 @@ fn nonempty_optional(value: &str) -> Option<&str> {
 mod pancake_gateway_tests {
     use super::{
         HttpWaffoPancakeGateway, TestInstanceDisabledWaffoPancakeGateway, WaffoPancakeGateway,
-        normalize_pancake_catalog, pancake_idempotency_key, parse_pancake_private_key,
+        normalize_pancake_catalog, pancake_billing_period, pancake_idempotency_key,
+        parse_pancake_private_key, subscription_price_in_usd,
     };
     use serde_json::json;
     use std::{io, time::Duration};
@@ -1504,6 +1681,14 @@ mod pancake_gateway_tests {
                 .await
                 .is_err()
         );
+        assert!(
+            gateway
+                .create_subscription_product(
+                    "MER_test", "secret", "STO_test", "plan", "1.00", "monthly", "",
+                )
+                .await
+                .is_err()
+        );
         assert_eq!(
             gateway.create_pair("MER_test", "secret", "").await,
             Err(json!({"error":"Waffo Pancake 在测试实例中已禁用"}))
@@ -1521,6 +1706,10 @@ mod pancake_gateway_tests {
                 "onetimeProducts": [
                     {"id":"PROD_active","name":"Active","status":"ACTIVE"},
                     {"id":"PROD_draft","name":"Draft","status":"draft"}
+                ],
+                "subscriptionProducts": [
+                    {"id":"PROD_monthly","name":"Monthly","status":"active","billingPeriod":"monthly"},
+                    {"id":"PROD_subscription_draft","name":"Draft","status":"draft","billingPeriod":"monthly"}
                 ]
             }]
         }))
@@ -1532,10 +1721,29 @@ mod pancake_gateway_tests {
                 "name":"Store",
                 "status":"active",
                 "prodEnabled":true,
-                "onetimeProducts":[{"id":"PROD_active","name":"Active","status":"ACTIVE"}]
+                "onetimeProducts":[{"id":"PROD_active","name":"Active","status":"ACTIVE"}],
+                "subscriptionProducts":[{"id":"PROD_monthly","name":"Monthly","status":"active","billingPeriod":"monthly"}]
             }]})
         );
         Ok(())
+    }
+
+    #[test]
+    fn recurring_cadence_and_fiat_conversion_are_explicit() {
+        let mut options = std::collections::BTreeMap::new();
+        options.insert("USDExchangeRate".to_owned(), "6.8".to_owned());
+        assert_eq!(pancake_billing_period("day", 7), Ok("weekly"));
+        assert_eq!(pancake_billing_period("month", 3), Ok("quarterly"));
+        assert_eq!(pancake_billing_period("custom", 1), Err(()));
+        assert_eq!(
+            subscription_price_in_usd("6.8", "CNY", &options),
+            Ok("1.00".to_owned())
+        );
+        assert_eq!(
+            subscription_price_in_usd("6.8", "USD", &options),
+            Ok("6.80".to_owned())
+        );
+        assert!(subscription_price_in_usd("6.8", "EUR", &options).is_err());
     }
 
     #[test]
@@ -2625,6 +2833,50 @@ struct PancakeCreds {
 struct SubscriptionProductRequest {
     name: Option<String>,
     amount: Option<String>,
+    currency: Option<String>,
+    duration_unit: Option<String>,
+    duration_value: Option<i64>,
+}
+
+fn pancake_billing_period(duration_unit: &str, duration_value: i64) -> Result<&'static str, ()> {
+    match (
+        duration_unit.trim().to_ascii_lowercase().as_str(),
+        duration_value,
+    ) {
+        ("day", 7) => Ok("weekly"),
+        ("month", 1) => Ok("monthly"),
+        ("month", 3) => Ok("quarterly"),
+        ("month", 12) | ("year", 1) => Ok("yearly"),
+        _ => Err(()),
+    }
+}
+
+fn subscription_price_in_usd(
+    amount: &str,
+    currency: &str,
+    options: &BTreeMap<String, String>,
+) -> Result<String, ()> {
+    let amount = Decimal::from_str_exact(amount.trim()).map_err(|_| ())?;
+    if amount <= Decimal::ZERO {
+        return Err(());
+    }
+    let usd = match currency.trim().to_ascii_uppercase().as_str() {
+        "USD" => amount,
+        "CNY" => {
+            let cny_per_usd = options
+                .get("USDExchangeRate")
+                .and_then(|value| Decimal::from_str_exact(value.trim()).ok())
+                .filter(|value| *value > Decimal::ZERO)
+                .ok_or(())?;
+            amount.checked_div(cny_per_usd).ok_or(())?
+        }
+        _ => return Err(()),
+    }
+    .round_dp(2);
+    if usd < Decimal::new(1, 2) {
+        return Err(());
+    }
+    Ok(format!("{usd:.2}"))
 }
 
 async fn pancake_values(
@@ -2900,6 +3152,9 @@ async fn pancake_subscription_product(
         SubscriptionProductRequest {
             name: None,
             amount: None,
+            currency: None,
+            duration_unit: None,
+            duration_value: None,
         }
     } else {
         match serde_json::from_slice::<SubscriptionProductRequest>(&body) {
@@ -2923,6 +3178,20 @@ async fn pancake_subscription_product(
             json!({"message":"error","data":"套餐价格不能为空"}),
         );
     }
+    let currency = input
+        .currency
+        .unwrap_or_else(|| "CNY".to_owned())
+        .trim()
+        .to_ascii_uppercase();
+    let duration_unit = input.duration_unit.unwrap_or_default();
+    let Ok(billing_period) =
+        pancake_billing_period(&duration_unit, input.duration_value.unwrap_or_default())
+    else {
+        return legacy_json(
+            StatusCode::OK,
+            json!({"message":"error","data":"Waffo Pancake recurring billing supports exactly 7 days, 1 month, 3 months, 12 months, or 1 year"}),
+        );
+    };
     let creds = PancakeCreds {
         merchant_id: None,
         private_key: None,
@@ -2947,18 +3216,25 @@ async fn pancake_subscription_product(
             json!({"message":"error","data":"Waffo Pancake 未完成配置，请先在支付设置中完成网关绑定"}),
         );
     }
+    let Ok(settlement_amount) = subscription_price_in_usd(&amount, &currency, &options) else {
+        return legacy_json(
+            StatusCode::OK,
+            json!({"message":"error","data":"套餐结算金额或币种无效"}),
+        );
+    };
     let return_url = options
         .get("WaffoPancakeReturnURL")
         .map(String::as_str)
         .unwrap_or_default();
     match state
         .pancake
-        .create_product(
+        .create_subscription_product(
             &merchant_id,
             &private_key,
             store_id,
             &name,
-            &amount,
+            &settlement_amount,
+            billing_period,
             return_url,
         )
         .await
@@ -2971,7 +3247,7 @@ async fn pancake_subscription_product(
                 .unwrap_or(product);
             legacy_json(
                 StatusCode::OK,
-                json!({"message":"success","data":{"product_id":product_id,"product_name":name,"store_id":store_id}}),
+                json!({"message":"success","data":{"product_id":product_id,"product_name":name,"store_id":store_id,"settlement_currency":"USD","settlement_amount":settlement_amount}}),
             )
         }
         Err(()) => legacy_json(
@@ -3020,8 +3296,8 @@ async fn pancake_subscription_product_options(
                 })
                 .and_then(|store| {
                     store
-                        .get("onetime_products")
-                        .or_else(|| store.get("onetimeProducts"))
+                        .get("subscription_products")
+                        .or_else(|| store.get("subscriptionProducts"))
                 })
                 .cloned()
                 .unwrap_or_else(|| json!([]));

@@ -68,12 +68,12 @@ sed 's/$/\r/' "$repo_root/apps/api-rust/tests/fixtures/routes/legacy-go-routes.t
 sed 's/$/\r/' "$plan" >"$crlf_plan"
 sed 's/$/\r/' "$gate" >"$crlf_gate"
 sed 's/$/\r/' "$repo_root/apps/api-rust/tests/fixtures/routes/integration-review.tsv" >"$crlf_review"
-crlf_output=$(cd "$runtime" && \
+crlf_output=$(cd "$runtime" &&
   MIGRATION_LEGACY_PATH="$crlf_legacy" \
-  MIGRATION_PLAN_PATH="$crlf_plan" \
-  MIGRATION_GATE_PATH="$crlf_gate" \
-  MIGRATION_INTEGRATION_REVIEW_PATH="$crlf_review" \
-  bash "$checker")
+    MIGRATION_PLAN_PATH="$crlf_plan" \
+    MIGRATION_GATE_PATH="$crlf_gate" \
+    MIGRATION_INTEGRATION_REVIEW_PATH="$crlf_review" \
+    bash "$checker")
 [[ $crlf_output == *"migration plan valid: 353 frozen legacy routes covered exactly; route ownership policy satisfied"* ]] || {
   echo "migration plan checker did not normalize CRLF across all ledgers" >&2
   exit 1
@@ -165,7 +165,7 @@ awk -F '\t' 'BEGIN { OFS=FS }
   END { if (!changed) exit 1 }
 ' "$approved_gate" >"$owner_mismatch_gate"
 if MIGRATION_GATE_PATH="$owner_mismatch_gate" MIGRATION_INTEGRATION_REVIEW_PATH="$approved_review" \
-    bash "$checker" >/dev/null 2>&1; then
+  bash "$checker" >/dev/null 2>&1; then
   echo "migration gate checker accepted Rust ownership without independent eligibility" >&2
   exit 1
 fi
@@ -173,7 +173,7 @@ fi
 missing_approval_evidence_gate="$runtime/missing-approval-evidence.tsv"
 sed 's/;approval=[^;]*$//' "$approved_gate" >"$missing_approval_evidence_gate"
 if MIGRATION_GATE_PATH="$missing_approval_evidence_gate" \
-    MIGRATION_INTEGRATION_REVIEW_PATH="$approved_review" bash "$checker" >/dev/null 2>&1; then
+  MIGRATION_INTEGRATION_REVIEW_PATH="$approved_review" bash "$checker" >/dev/null 2>&1; then
   echo "migration gate checker accepted Rust ownership with missing approval evidence" >&2
   exit 1
 fi

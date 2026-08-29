@@ -26,6 +26,7 @@ import (
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/LIghtJUNction/api.lmm.best/model"
+	"github.com/LIghtJUNction/api.lmm.best/pkg/paymentpricing"
 	"github.com/LIghtJUNction/api.lmm.best/setting/operation_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/shopspring/decimal"
@@ -105,24 +106,57 @@ func configuredPaymentMethodMaxTopUp(paymentType string) (decimal.Decimal, bool,
 	return limit, configured, nil
 }
 
-func requestedTopUpUSD(amount int64) decimal.Decimal {
-	requested := decimal.NewFromInt(amount)
-	if operation_setting.GetQuotaDisplayType() == operation_setting.QuotaDisplayTypeTokens {
-		return requested.Div(decimal.NewFromFloat(common.QuotaPerUnit))
-	}
-	return requested
+func requestedTopUpUSD(amount int64) (decimal.Decimal, error) {
+	return requestedTopUpUSDDecimal(decimal.NewFromInt(amount))
 }
 
-func creditedQuotaUSD(quota int64) decimal.Decimal {
-	return decimal.NewFromInt(quota).Div(decimal.NewFromFloat(common.QuotaPerUnit))
+func requestedTopUpUSDDecimal(amount decimal.Decimal) (decimal.Decimal, error) {
+	platformAmount := amount
+	if operation_setting.GetQuotaDisplayType() == operation_setting.QuotaDisplayTypeTokens {
+		if !validQuotaPerUnit() {
+			return decimal.Zero, fmt.Errorf("quota per unit must be positive")
+		}
+		platformAmount = platformAmount.Div(decimal.NewFromFloat(common.QuotaPerUnit))
+	}
+	rates, err := paymentpricing.CurrentRates()
+	if err != nil {
+		return decimal.Zero, err
+	}
+	return rates.FiatForPlatformUnits(platformAmount, paymentpricing.CurrencyUSD)
+}
+
+func creditedQuotaUSD(quota int64) (decimal.Decimal, error) {
+	if !validQuotaPerUnit() {
+		return decimal.Zero, fmt.Errorf("quota per unit must be positive")
+	}
+	platformAmount := decimal.NewFromInt(quota).Div(decimal.NewFromFloat(common.QuotaPerUnit))
+	rates, err := paymentpricing.CurrentRates()
+	if err != nil {
+		return decimal.Zero, err
+	}
+	return rates.FiatForPlatformUnits(platformAmount, paymentpricing.CurrencyUSD)
 }
 
 func requirePaymentMethodTopUpWithinLimit(c *gin.Context, paymentType string, amount int64) bool {
-	return requirePaymentMethodUSDWithinLimit(c, paymentType, requestedTopUpUSD(amount))
+	return requirePaymentMethodTopUpDecimalWithinLimit(c, paymentType, decimal.NewFromInt(amount))
+}
+
+func requirePaymentMethodTopUpDecimalWithinLimit(c *gin.Context, paymentType string, amount decimal.Decimal) bool {
+	amountUSD, err := requestedTopUpUSDDecimal(amount)
+	if err != nil {
+		common.ApiErrorMsg(c, "充值汇率配置无效")
+		return false
+	}
+	return requirePaymentMethodUSDWithinLimit(c, paymentType, amountUSD)
 }
 
 func requirePaymentMethodCreditedQuotaWithinLimit(c *gin.Context, paymentType string, quota int64) bool {
-	return requirePaymentMethodUSDWithinLimit(c, paymentType, creditedQuotaUSD(quota))
+	amountUSD, err := creditedQuotaUSD(quota)
+	if err != nil {
+		common.ApiErrorMsg(c, "充值汇率配置无效")
+		return false
+	}
+	return requirePaymentMethodUSDWithinLimit(c, paymentType, amountUSD)
 }
 
 // requireTopUpCreditCapacity rejects a checkout before contacting a payment

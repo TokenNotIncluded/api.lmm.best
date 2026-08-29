@@ -932,7 +932,7 @@ async fn admin_list_claims(
     headers: HeaderMap,
 ) -> Response {
     if let Err(response) = authenticated_admin(&state, &headers).await {
-        return response;
+        return with_auth_version(response);
     }
     let page = normalize_claims_page(raw_query.as_deref());
     let response = match state.store.claims(page).await {

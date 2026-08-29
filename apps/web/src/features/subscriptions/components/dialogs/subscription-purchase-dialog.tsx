@@ -41,7 +41,6 @@ import {
   reservePaymentCheckout,
   submitPaymentForm,
 } from '@/features/wallet/lib'
-import { useSystemConfig } from '@/hooks/use-system-config'
 import { formatFiatCurrencyAmount } from '@/lib/currency'
 import { formatQuota } from '@/lib/format'
 import {
@@ -49,7 +48,6 @@ import {
   getWaffoPancakeCheckoutLanguage,
   type WaffoPancakeCheckoutRegion,
 } from '@/lib/waffo-pancake-checkout'
-import { DEFAULT_CURRENCY_CONFIG } from '@/stores/system-config-store'
 
 import {
   paySubscriptionStripe,
@@ -96,7 +94,6 @@ interface Props {
 
 export function SubscriptionPurchaseDialog(props: Props) {
   const { t, i18n } = useTranslation()
-  const { currency } = useSystemConfig()
   const [paying, setPaying] = useState(false)
   const [selectedEpayMethod, setSelectedEpayMethod] = useState('')
   const [waffoPancakeCheckoutRegionOverride, setWaffoPancakeCheckoutRegion] =
@@ -155,18 +152,14 @@ export function SubscriptionPurchaseDialog(props: Props) {
     plan.currency || 'USD',
     { abbreviate: false, digitsLarge: 2, digitsSmall: 2 }
   )
-  const quotaPerUnit =
-    currency?.quotaPerUnit && currency.quotaPerUnit > 0
-      ? currency.quotaPerUnit
-      : DEFAULT_CURRENCY_CONFIG.quotaPerUnit
   const balanceCost = Math.max(
     0,
-    Math.ceil(Number(plan.price_amount || 0) * quotaPerUnit)
+    Math.ceil(Number(planRecord.balance_price_quota || 0))
   )
   const userQuota = Math.max(0, Number(props.userQuota || 0))
   const allowBalancePay = hasAuthoritativePaymentCatalog
-    ? paymentMethods.includes('balance')
-    : plan.allow_balance_pay !== false
+    ? paymentMethods.includes('balance') && balanceCost > 0
+    : plan.allow_balance_pay !== false && balanceCost > 0
   const insufficientBalance = userQuota < balanceCost
   const limitReached =
     (props.purchaseLimit || 0) > 0 &&

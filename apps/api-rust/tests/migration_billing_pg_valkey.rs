@@ -351,7 +351,7 @@ async fn reset_schema(pool: &PgPool) {
         .execute(pool)
         .await
         .expect("users schema");
-    sqlx::query("CREATE TABLE subscription_plans (id BIGINT PRIMARY KEY, price_amount NUMERIC(18, 6) NOT NULL, currency TEXT NOT NULL DEFAULT 'USD', enabled BOOLEAN NOT NULL, allow_balance_pay BOOLEAN, max_purchase_per_user BIGINT, total_amount BIGINT, duration_unit TEXT, duration_value BIGINT, custom_seconds BIGINT, upgrade_group TEXT, downgrade_group TEXT, allow_wallet_overflow BOOLEAN, quota_reset_period TEXT, quota_reset_custom_seconds BIGINT)")
+    sqlx::query("CREATE TABLE subscription_plans (id BIGINT PRIMARY KEY, price_amount NUMERIC(18, 6) NOT NULL, currency TEXT NOT NULL DEFAULT 'CNY', price_currency_version BIGINT NOT NULL DEFAULT 0, enabled BOOLEAN NOT NULL, allow_balance_pay BOOLEAN, max_purchase_per_user BIGINT, total_amount BIGINT, duration_unit TEXT, duration_value BIGINT, custom_seconds BIGINT, upgrade_group TEXT, downgrade_group TEXT, allow_wallet_overflow BOOLEAN, quota_reset_period TEXT, quota_reset_custom_seconds BIGINT)")
         .execute(pool)
         .await
         .expect("plans schema");
@@ -359,7 +359,7 @@ async fn reset_schema(pool: &PgPool) {
         .execute(pool)
         .await
         .expect("subscriptions schema");
-    sqlx::query("CREATE TABLE subscription_orders (id BIGSERIAL PRIMARY KEY, user_id BIGINT NOT NULL, plan_id BIGINT NOT NULL, money NUMERIC(18, 6) NOT NULL, trade_no TEXT UNIQUE NOT NULL, payment_method TEXT NOT NULL, payment_provider TEXT NOT NULL, status TEXT NOT NULL, create_time BIGINT NOT NULL, complete_time BIGINT, provider_payload TEXT)")
+    sqlx::query("CREATE TABLE subscription_orders (id BIGSERIAL PRIMARY KEY, user_id BIGINT NOT NULL, plan_id BIGINT NOT NULL, money NUMERIC(18, 6) NOT NULL, plan_currency TEXT, trade_no TEXT UNIQUE NOT NULL, payment_method TEXT NOT NULL, payment_provider TEXT NOT NULL, status TEXT NOT NULL, create_time BIGINT NOT NULL, complete_time BIGINT, provider_payload TEXT)")
         .execute(pool)
         .await
         .expect("orders schema");

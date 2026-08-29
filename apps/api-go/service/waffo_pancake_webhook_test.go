@@ -10,11 +10,14 @@ import (
 func TestWaffoPancakeWebhookActionForEvent(t *testing.T) {
 	tests := map[string]WaffoPancakeWebhookAction{
 		"order.completed":                WaffoPancakeWebhookActionOrderCompleted,
-		"subscription.activated":         WaffoPancakeWebhookActionIgnore,
+		"subscription.activated":         WaffoPancakeWebhookActionSubscriptionStateChanged,
+		"subscription.canceling":         WaffoPancakeWebhookActionSubscriptionStateChanged,
+		"subscription.uncanceled":        WaffoPancakeWebhookActionSubscriptionStateChanged,
+		"subscription.past_due":          WaffoPancakeWebhookActionSubscriptionStateChanged,
 		"subscription.payment_succeeded": WaffoPancakeWebhookActionSubscriptionPaymentSucceeded,
+		"subscription.canceled":          WaffoPancakeWebhookActionSubscriptionStateChanged,
 		"refund.succeeded":               WaffoPancakeWebhookActionRefundSucceeded,
 		"refund.failed":                  WaffoPancakeWebhookActionRefundFailed,
-		"subscription.canceled":          WaffoPancakeWebhookActionIgnore,
 		"":                               WaffoPancakeWebhookActionIgnore,
 	}
 	for eventType, expected := range tests {

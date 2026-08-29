@@ -363,14 +363,14 @@ func InitResources() (returnErr error) {
 	}
 
 	// 加载环境变量
-	if err := common.InitEnv(); err != nil {
+	if err := common.InitializeEnvironment(); err != nil {
 		return fmt.Errorf("initialize environment: %w", err)
 	}
 	if err := system_setting.InitServerAddressFromEnv(); err != nil {
 		return fmt.Errorf("failed to configure server address: %w", err)
 	}
 
-	if err := logger.SetupLogger(); err != nil {
+	if err := logger.InitializeLogger(); err != nil {
 		return fmt.Errorf("initialize logger: %w", err)
 	}
 

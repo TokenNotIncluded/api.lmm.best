@@ -7,7 +7,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/LIghtJUNction/api.lmm.best/logger"
@@ -237,6 +236,23 @@ type CreemWebhookEvent struct {
 			UpdatedAt         string  `json:"updated_at"`
 			Mode              string  `json:"mode"`
 		} `json:"product"`
+		LastTransactionId      string  `json:"last_transaction_id"`
+		LastTransactionDate    string  `json:"last_transaction_date"`
+		NextTransactionDate    string  `json:"next_transaction_date"`
+		CurrentPeriodStartDate string  `json:"current_period_start_date"`
+		CurrentPeriodEndDate   string  `json:"current_period_end_date"`
+		CanceledAt             *string `json:"canceled_at"`
+		LastTransaction        struct {
+			Id           string `json:"id"`
+			Amount       int64  `json:"amount"`
+			AmountPaid   int64  `json:"amount_paid"`
+			Currency     string `json:"currency"`
+			Status       string `json:"status"`
+			Order        string `json:"order"`
+			Subscription string `json:"subscription"`
+			PeriodStart  int64  `json:"period_start"`
+			PeriodEnd    int64  `json:"period_end"`
+		} `json:"last_transaction"`
 		Units    int `json:"units"`
 		Customer struct {
 			Id        string `json:"id"`
@@ -316,6 +332,12 @@ func CreemWebhook(c *gin.Context) {
 	switch webhookEvent.EventType {
 	case "checkout.completed":
 		handleCheckoutCompleted(c, &webhookEvent)
+	case "subscription.paid":
+		handleCreemSubscriptionPaid(c, &webhookEvent)
+	case "subscription.active", "subscription.update", "subscription.scheduled_cancel",
+		"subscription.past_due", "subscription.unpaid", "subscription.expired",
+		"subscription.paused", "subscription.canceled":
+		handleCreemSubscriptionState(c, &webhookEvent)
 	default:
 		logger.LogInfo(c.Request.Context(), fmt.Sprintf("Creem webhook 忽略事件 event_type=%s event_id=%s", webhookEvent.EventType, webhookEvent.Id))
 		c.Status(http.StatusOK)
@@ -323,6 +345,151 @@ func CreemWebhook(c *gin.Context) {
 }
 
 // 处理支付完成事件
+func creemSubscriptionTradeNo(event *CreemWebhookEvent) string {
+	if event == nil {
+		return ""
+	}
+	if tradeNo := strings.TrimSpace(event.Object.Metadata["reference_id"]); tradeNo != "" {
+		return tradeNo
+	}
+	return strings.TrimSpace(event.Object.RequestId)
+}
+
+func parseCreemSubscriptionTime(raw string) (int64, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 0, nil
+	}
+	parsed, err := time.Parse(time.RFC3339Nano, raw)
+	if err != nil {
+		return 0, err
+	}
+	return parsed.Unix(), nil
+}
+
+func validateCreemSubscriptionPaymentEvent(order *model.SubscriptionOrder, event *CreemWebhookEvent) (int64, int64, error) {
+	if order == nil || event == nil {
+		return 0, 0, fmt.Errorf("Creem subscription evidence is required")
+	}
+	if order.PaymentProvider != model.PaymentProviderCreem {
+		return 0, 0, fmt.Errorf("Creem subscription provider mismatch")
+	}
+	if event.Object.Object != "subscription" || event.Object.Product.BillingType != "recurring" {
+		return 0, 0, fmt.Errorf("Creem product is not recurring")
+	}
+	if strings.TrimSpace(event.Object.Product.Id) != strings.TrimSpace(order.ProviderProductId) {
+		return 0, 0, fmt.Errorf("Creem subscription product mismatch")
+	}
+	currency := strings.ToUpper(strings.TrimSpace(event.Object.LastTransaction.Currency))
+	if currency == "" {
+		currency = strings.ToUpper(strings.TrimSpace(event.Object.Product.Currency))
+	}
+	if currency != strings.ToUpper(strings.TrimSpace(order.SettlementCurrency)) {
+		return 0, 0, fmt.Errorf("Creem subscription currency mismatch")
+	}
+	if strings.ToLower(strings.TrimSpace(event.Object.LastTransaction.Status)) != "paid" {
+		return 0, 0, fmt.Errorf("Creem subscription transaction is not paid")
+	}
+	amountMicros, err := minorCurrencyUnitsToMicros(event.Object.LastTransaction.AmountPaid, currency)
+	if err != nil || amountMicros != order.ExpectedAmountMicros {
+		return 0, 0, fmt.Errorf("Creem subscription amount mismatch")
+	}
+	periodStart, err := parseCreemSubscriptionTime(event.Object.CurrentPeriodStartDate)
+	if err != nil {
+		return 0, 0, fmt.Errorf("invalid Creem subscription period start: %w", err)
+	}
+	periodEnd, err := parseCreemSubscriptionTime(event.Object.CurrentPeriodEndDate)
+	if err != nil {
+		return 0, 0, fmt.Errorf("invalid Creem subscription period end: %w", err)
+	}
+	if periodEnd <= periodStart {
+		return 0, 0, fmt.Errorf("Creem subscription period is invalid")
+	}
+	return periodStart, periodEnd, nil
+}
+
+func handleCreemSubscriptionPaid(c *gin.Context, event *CreemWebhookEvent) {
+	tradeNo := creemSubscriptionTradeNo(event)
+	order := model.GetSubscriptionOrderByTradeNo(tradeNo)
+	if tradeNo == "" || order == nil {
+		logger.LogWarn(c.Request.Context(), fmt.Sprintf("Creem 订阅付款找不到本地订单 event_id=%s trade_no=%s", event.Id, tradeNo))
+		c.Status(http.StatusOK)
+		return
+	}
+	periodStart, periodEnd, err := validateCreemSubscriptionPaymentEvent(order, event)
+	if err != nil {
+		logger.LogError(c.Request.Context(), fmt.Sprintf("Creem 订阅付款证据不匹配 event_id=%s trade_no=%s error=%q", event.Id, tradeNo, err.Error()))
+		c.Status(http.StatusOK)
+		return
+	}
+	if strings.TrimSpace(event.Id) == "" || strings.TrimSpace(event.Object.Id) == "" || strings.TrimSpace(event.Object.LastTransaction.Id) == "" {
+		logger.LogError(c.Request.Context(), fmt.Sprintf("Creem 订阅付款身份缺失 trade_no=%s", tradeNo))
+		c.Status(http.StatusOK)
+		return
+	}
+	LockOrder(tradeNo)
+	defer UnlockOrder(tradeNo)
+	if err := model.CompleteSubscriptionOrder(tradeNo, common.GetJsonString(event), model.PaymentProviderCreem, ""); err != nil {
+		logger.LogError(c.Request.Context(), fmt.Sprintf("Creem 订阅付款结算失败 trade_no=%s error=%q", tradeNo, err.Error()))
+		c.AbortWithStatus(http.StatusInternalServerError)
+		return
+	}
+	settlementCurrency := strings.ToUpper(strings.TrimSpace(event.Object.LastTransaction.Currency))
+	if settlementCurrency == "" {
+		settlementCurrency = strings.ToUpper(strings.TrimSpace(event.Object.Product.Currency))
+	}
+	amountMicros, err := minorCurrencyUnitsToMicros(event.Object.LastTransaction.AmountPaid, settlementCurrency)
+	if err != nil {
+		c.Status(http.StatusOK)
+		return
+	}
+	if err := model.ApplySubscriptionPaymentEvent(tradeNo, &model.SubscriptionPaymentEvent{
+		PaymentProvider:        model.PaymentProviderCreem,
+		ProviderEventId:        event.Id,
+		ProviderTransactionId:  event.Object.LastTransaction.Id,
+		SettlementCurrency:     settlementCurrency,
+		SettlementAmountMicros: amountMicros,
+		PeriodStart:            periodStart,
+		PeriodEnd:              periodEnd,
+	}, event.Object.Id, "active"); err != nil {
+		logger.LogError(c.Request.Context(), fmt.Sprintf("Creem 订阅周期结算失败 trade_no=%s event_id=%s error=%q", tradeNo, event.Id, err.Error()))
+		c.AbortWithStatus(http.StatusInternalServerError)
+		return
+	}
+	c.Status(http.StatusOK)
+}
+
+func handleCreemSubscriptionState(c *gin.Context, event *CreemWebhookEvent) {
+	tradeNo := creemSubscriptionTradeNo(event)
+	if tradeNo == "" || model.GetSubscriptionOrderByTradeNo(tradeNo) == nil {
+		c.Status(http.StatusOK)
+		return
+	}
+	periodStart, startErr := parseCreemSubscriptionTime(event.Object.CurrentPeriodStartDate)
+	periodEnd, endErr := parseCreemSubscriptionTime(event.Object.CurrentPeriodEndDate)
+	if startErr != nil || endErr != nil {
+		logger.LogError(c.Request.Context(), fmt.Sprintf("Creem 订阅状态周期无效 trade_no=%s event_id=%s", tradeNo, event.Id))
+		c.Status(http.StatusOK)
+		return
+	}
+	var canceledAt int64
+	if event.Object.CanceledAt != nil {
+		canceledAt, _ = parseCreemSubscriptionTime(*event.Object.CanceledAt)
+	}
+	state := strings.ToLower(strings.TrimSpace(event.Object.Status))
+	if event.EventType == "subscription.scheduled_cancel" {
+		state = "canceling"
+	} else if state == "" {
+		state = strings.TrimPrefix(event.EventType, "subscription.")
+	}
+	if err := model.UpdateSubscriptionProviderState(tradeNo, model.PaymentProviderCreem, event.Object.Id, state, periodStart, periodEnd, canceledAt); err != nil {
+		logger.LogError(c.Request.Context(), fmt.Sprintf("Creem 订阅状态同步失败 trade_no=%s event_id=%s error=%q", tradeNo, event.Id, err.Error()))
+		c.AbortWithStatus(http.StatusInternalServerError)
+		return
+	}
+	c.Status(http.StatusOK)
+}
+
 func handleCheckoutCompleted(c *gin.Context, event *CreemWebhookEvent) {
 	// 验证订单状态
 	if event.Object.Order.Status != "paid" {
@@ -339,16 +506,34 @@ func handleCheckoutCompleted(c *gin.Context, event *CreemWebhookEvent) {
 		return
 	}
 
-	// Try complete subscription order first
 	LockOrder(referenceId)
 	defer UnlockOrder(referenceId)
-	if err := model.CompleteSubscriptionOrder(referenceId, common.GetJsonString(event), model.PaymentProviderCreem, ""); err == nil {
+	if subscriptionOrder := model.GetSubscriptionOrderByTradeNo(referenceId); subscriptionOrder != nil {
+		if err := validateCreemSubscriptionCheckoutEvidence(subscriptionOrder, event); err != nil {
+			logger.LogError(c.Request.Context(), fmt.Sprintf("Creem 订阅结算证据不匹配 trade_no=%s event_id=%s error=%q", referenceId, event.Id, err.Error()))
+			c.Status(http.StatusOK)
+			return
+		}
+		if err := model.CompleteSubscriptionOrder(referenceId, common.GetJsonString(event), model.PaymentProviderCreem, ""); err != nil {
+			logger.LogError(c.Request.Context(), fmt.Sprintf("Creem 订阅订单处理失败 trade_no=%s creem_order_id=%s error=%q", referenceId, event.Object.Order.Id, err.Error()))
+			c.AbortWithStatus(http.StatusInternalServerError)
+			return
+		}
+		if err := model.UpdateSubscriptionProviderState(
+			referenceId,
+			model.PaymentProviderCreem,
+			strings.TrimSpace(event.Object.Order.Id),
+			"active",
+			0,
+			0,
+			0,
+		); err != nil {
+			logger.LogError(c.Request.Context(), fmt.Sprintf("Creem 订阅标识保存失败 trade_no=%s error=%q", referenceId, err.Error()))
+			c.AbortWithStatus(http.StatusInternalServerError)
+			return
+		}
 		logger.LogInfo(c.Request.Context(), fmt.Sprintf("Creem 订阅订单处理成功 trade_no=%s creem_order_id=%s", referenceId, event.Object.Order.Id))
 		c.Status(http.StatusOK)
-		return
-	} else if err != nil && !errors.Is(err, model.ErrSubscriptionOrderNotFound) {
-		logger.LogError(c.Request.Context(), fmt.Sprintf("Creem 订阅订单处理失败 trade_no=%s creem_order_id=%s error=%q", referenceId, event.Object.Order.Id, err.Error()))
-		c.AbortWithStatus(http.StatusInternalServerError)
 		return
 	}
 

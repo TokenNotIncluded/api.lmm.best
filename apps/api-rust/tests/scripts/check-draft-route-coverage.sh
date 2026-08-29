@@ -12,33 +12,51 @@ report_missing=${DRAFT_REPORT_MISSING:-0}
 require_complete=${DRAFT_REQUIRE_COMPLETE:-0}
 outside_allowlist=${DRAFT_OUTSIDE_BASELINE_ALLOWLIST-"$repo_root/apps/api-rust/tests/fixtures/routes/draft-route-completion-allowlist.tsv"}
 
-[[ -d $router_root ]] || { echo "missing Rust router source root: $router_root" >&2; exit 1; }
-[[ -f $baseline ]] || { echo "missing frozen legacy route baseline: $baseline" >&2; exit 1; }
-[[ -f $gate ]] || { echo "missing migration gate: $gate" >&2; exit 1; }
-[[ -f $plan ]] || { echo "missing migration plan: $plan" >&2; exit 1; }
+[[ -d $router_root ]] || {
+    echo "missing Rust router source root: $router_root" >&2
+    exit 1
+}
+[[ -f $baseline ]] || {
+    echo "missing frozen legacy route baseline: $baseline" >&2
+    exit 1
+}
+[[ -f $gate ]] || {
+    echo "missing migration gate: $gate" >&2
+    exit 1
+}
+[[ -f $plan ]] || {
+    echo "missing migration plan: $plan" >&2
+    exit 1
+}
 [[ $expected_baseline_count =~ ^[0-9]+$ ]] || {
-  echo "DRAFT_EXPECT_BASELINE_COUNT must be a non-negative integer" >&2
-  exit 1
+    echo "DRAFT_EXPECT_BASELINE_COUNT must be a non-negative integer" >&2
+    exit 1
 }
 [[ $report_missing == 0 || $report_missing == 1 ]] || {
-  echo "DRAFT_REPORT_MISSING must be 0 or 1" >&2
-  exit 1
+    echo "DRAFT_REPORT_MISSING must be 0 or 1" >&2
+    exit 1
 }
 [[ $require_complete == 0 || $require_complete == 1 ]] || {
-  echo "DRAFT_REQUIRE_COMPLETE must be 0 or 1" >&2
-  exit 1
+    echo "DRAFT_REQUIRE_COMPLETE must be 0 or 1" >&2
+    exit 1
 }
 [[ -z $outside_allowlist || -f $outside_allowlist ]] || {
-  echo "DRAFT_OUTSIDE_BASELINE_ALLOWLIST must name an existing TSV file" >&2
-  exit 1
+    echo "DRAFT_OUTSIDE_BASELINE_ALLOWLIST must name an existing TSV file" >&2
+    exit 1
 }
-command -v rg >/dev/null || { echo "ripgrep is required" >&2; exit 1; }
-command -v perl >/dev/null || { echo "perl is required" >&2; exit 1; }
+command -v rg >/dev/null || {
+    echo "ripgrep is required" >&2
+    exit 1
+}
+command -v perl >/dev/null || {
+    echo "perl is required" >&2
+    exit 1
+}
 
 mapfile -t router_files < <(rg --files -g '*.rs' "$router_root" | LC_ALL=C sort)
 [[ ${#router_files[@]} -gt 0 ]] || {
-  echo "no Rust source files found below $router_root" >&2
-  exit 1
+    echo "no Rust source files found below $router_root" >&2
+    exit 1
 }
 
 perl - "$repo_root" "$baseline" "$gate" "$plan" "$outside_allowlist" "$expected_baseline_count" "$report_missing" "$require_complete" "${router_files[@]}" <<'PERL'

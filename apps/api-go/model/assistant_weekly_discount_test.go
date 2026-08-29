@@ -20,7 +20,7 @@ import (
 
 func TestAssistantWeeklyDiscountIsOnePerWeekAndClaimIsIdempotent(t *testing.T) {
 	db := setupConsoleActivationTestDB(t)
-	require.NoError(t, db.AutoMigrate(&DiscountCode{}, &AssistantWeeklyDiscount{}))
+	require.NoError(t, db.AutoMigrate(&DiscountCode{}, &DiscountCodeReservation{}, &AssistantWeeklyDiscount{}))
 	user := User{Username: "weekly-discount-user", Email: "weekly@example.com", Role: common.RoleCommonUser, Status: common.UserStatusEnabled}
 	require.NoError(t, db.Create(&user).Error)
 

@@ -76,14 +76,10 @@ function normalizeCurrencyCode(value: string | undefined): string | null {
   return ISO_CURRENCY_CODE_PATTERN.test(code) ? code : null
 }
 
-function resolveExchangeRateTarget(
+function resolveCustomExchangeRateTarget(
   displayType: PricingFormValues['general_setting']['quota_display_type'],
   customCurrencyCode: string | undefined
 ): ExchangeRateTarget | null {
-  if (displayType === 'USD' || displayType === 'CNY') {
-    return { currency: displayType, field: 'USDExchangeRate' }
-  }
-
   if (displayType !== 'CUSTOM') return null
 
   const currency = normalizeCurrencyCode(customCurrencyCode)
@@ -135,7 +131,12 @@ const createPricingSchema = (t: (key: string) => string) =>
       QuotaPerUnit: z.coerce.number().min(0, t('Value must be at least 0')),
       USDExchangeRate: z.coerce
         .number()
+        .finite(t('Payment rate must be finite'))
         .min(0.0001, t('Exchange rate must be greater than 0')),
+      TopUpPlatformUnitsPerCNY: z.coerce
+        .number()
+        .finite(t('Payment rate must be finite'))
+        .min(0.0001, t('Recharge ratio must be greater than 0')),
       DisplayInCurrencyEnabled: z.boolean(),
       DisplayTokenStatEnabled: z.boolean(),
       general_setting: z.object({
@@ -144,6 +145,7 @@ const createPricingSchema = (t: (key: string) => string) =>
         custom_currency_code: z.string().max(3).optional(),
         custom_currency_exchange_rate: z.coerce
           .number()
+          .finite(t('Payment rate must be finite'))
           .min(0.0001, t('Exchange rate must be greater than 0'))
           .optional(),
       }),
@@ -222,17 +224,15 @@ export function PricingSection({ defaultValues }: PricingSectionProps) {
 
   const displayType = form.watch('general_setting.quota_display_type') ?? 'USD'
   const customCurrencyCode = form.watch('general_setting.custom_currency_code')
-  const exchangeRateTarget = resolveExchangeRateTarget(
+  const customExchangeRateTarget = resolveCustomExchangeRateTarget(
     displayType,
     customCurrencyCode
   )
 
-  const handleSyncExchangeRate = async () => {
-    if (!exchangeRateTarget) return
-
+  const handleSyncExchangeRate = async (target: ExchangeRateTarget) => {
     setIsSyncingExchangeRate(true)
     try {
-      const response = await getUsdExchangeRate(exchangeRateTarget.currency)
+      const response = await getUsdExchangeRate(target.currency)
       if (!response.success || !response.data) {
         throw new Error(response.message || t('Failed to load exchange rate'))
       }
@@ -241,7 +241,7 @@ export function PricingSection({ defaultValues }: PricingSectionProps) {
       const receivedRate = Number(response.data.rate)
       const responseIsInvalid =
         response.data.base_currency !== 'USD' ||
-        quoteCurrency !== exchangeRateTarget.currency ||
+        quoteCurrency !== target.currency ||
         !Number.isFinite(receivedRate) ||
         receivedRate <= 0
       if (responseIsInvalid) {
@@ -250,8 +250,8 @@ export function PricingSection({ defaultValues }: PricingSectionProps) {
         )
       }
 
-      const rate = exchangeRateTarget.currency === 'USD' ? 1 : receivedRate
-      form.setValue(exchangeRateTarget.field, rate, {
+      const rate = target.currency === 'USD' ? 1 : receivedRate
+      form.setValue(target.field, rate, {
         shouldDirty: true,
         shouldValidate: true,
       })
@@ -260,7 +260,7 @@ export function PricingSection({ defaultValues }: PricingSectionProps) {
           'Latest exchange rate loaded: 1 USD = {{rate}} {{currency}}. Save changes to apply it.',
           {
             rate: rate.toString(),
-            currency: exchangeRateTarget.currency,
+            currency: target.currency,
           }
         )
       )
@@ -366,17 +366,13 @@ export function PricingSection({ defaultValues }: PricingSectionProps) {
               )}
             />
 
-            {displayType !== 'TOKENS' && displayType !== 'CUSTOM' && (
+            <div className='grid gap-4 sm:grid-cols-2'>
               <FormField
                 control={form.control}
                 name='USDExchangeRate'
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>
-                      {displayType === 'CNY'
-                        ? t('CNY per USD')
-                        : t('USD Exchange Rate')}
-                    </FormLabel>
+                    <FormLabel>{t('CNY per real USD')}</FormLabel>
                     <div className='flex items-center gap-2'>
                       <FormControl>
                         <Input
@@ -386,21 +382,49 @@ export function PricingSection({ defaultValues }: PricingSectionProps) {
                         />
                       </FormControl>
                       <ExchangeRateSyncButton
-                        currency={exchangeRateTarget?.currency ?? null}
+                        currency='CNY'
                         isPending={isSyncingExchangeRate}
-                        onSync={handleSyncExchangeRate}
+                        onSync={() =>
+                          void handleSyncExchangeRate({
+                            currency: 'CNY',
+                            field: 'USDExchangeRate',
+                          })
+                        }
                       />
                     </div>
                     <FormDescription>
                       {t(
-                        'Real exchange rate between USD and your payment gateway currency'
+                        'Real CNY/USD rate used to convert platform amounts for fiat payment gateways; it is not a platform balance.'
                       )}
                     </FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
               />
-            )}
+
+              <FormField
+                control={form.control}
+                name='TopUpPlatformUnitsPerCNY'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('Platform units per CNY')}</FormLabel>
+                    <FormControl>
+                      <Input
+                        type='number'
+                        step='0.01'
+                        {...safeNumberFieldProps(field)}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {t(
+                        'Base recharge ratio before group, channel, amount-tier, or coupon discounts. Set 1 for 1 CNY to buy 1 platform unit.'
+                      )}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
 
             {displayType === 'CUSTOM' && (
               <div className='grid gap-4 sm:grid-cols-3'>
@@ -489,9 +513,15 @@ export function PricingSection({ defaultValues }: PricingSectionProps) {
                           />
                         </FormControl>
                         <ExchangeRateSyncButton
-                          currency={exchangeRateTarget?.currency ?? null}
+                          currency={customExchangeRateTarget?.currency ?? null}
                           isPending={isSyncingExchangeRate}
-                          onSync={handleSyncExchangeRate}
+                          onSync={() => {
+                            if (customExchangeRateTarget) {
+                              void handleSyncExchangeRate(
+                                customExchangeRateTarget
+                              )
+                            }
+                          }}
                         />
                       </div>
                       <FormDescription>

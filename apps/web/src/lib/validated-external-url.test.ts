@@ -104,27 +104,21 @@ describe('trusted URL comparisons', () => {
   test('matches only escaped template paths on the trusted origin', () => {
     const template = 'https://chat.example/session/%7Bkey%7D'
     assert.equal(
-      getTrustedTemplatedUrl(
-        'https://chat.example/session/sk-safe',
-        template,
-        ['https:']
-      ),
+      getTrustedTemplatedUrl('https://chat.example/session/sk-safe', template, [
+        'https:',
+      ]),
       'https://chat.example/session/sk-safe'
     )
     assert.equal(
-      getTrustedTemplatedUrl(
-        'https://chat.example/session/a/b',
-        template,
-        ['https:']
-      ),
+      getTrustedTemplatedUrl('https://chat.example/session/a/b', template, [
+        'https:',
+      ]),
       null
     )
     assert.equal(
-      getTrustedTemplatedUrl(
-        'https://evil.example/session/sk-safe',
-        template,
-        ['https:']
-      ),
+      getTrustedTemplatedUrl('https://evil.example/session/sk-safe', template, [
+        'https:',
+      ]),
       null
     )
   })

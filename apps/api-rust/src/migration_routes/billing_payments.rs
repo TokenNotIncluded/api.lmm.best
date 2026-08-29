@@ -15,6 +15,7 @@ use axum::{
     routing::{get, post},
 };
 use hmac::{Hmac, Mac};
+use rust_decimal::{Decimal, prelude::ToPrimitive};
 use secrecy::SecretString;
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -799,7 +800,7 @@ pub struct StripeEvent {
     pub complete: bool,
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug, Eq, Error, PartialEq)]
 pub enum BillingError {
     #[error("unauthorized")]
     Unauthorized,
@@ -1414,14 +1415,19 @@ impl PgBillingRepository {
         // An absent option retains Go's 500k/default supplied by the listener;
         // malformed configured values fail closed before the wallet is locked.
         let quota_per_unit = configured_quota_per_unit(&self.pg, quota_per_unit).await?;
+        let (cny_per_usd, platform_units_per_cny) =
+            configured_subscription_pricing(&self.pg).await?;
         let mut tx = self.pg.begin().await.map_err(|_| BillingError::Storage)?;
-        let plan = sqlx::query("SELECT price_amount::text AS money, enabled, COALESCE(allow_balance_pay, TRUE) allow_balance_pay, COALESCE(max_purchase_per_user, 0) max_purchase_per_user, COALESCE(total_amount, 0) total_amount, COALESCE(duration_unit, 'month') duration_unit, COALESCE(duration_value, 1) duration_value, COALESCE(custom_seconds, 0) custom_seconds, COALESCE(upgrade_group, '') upgrade_group, COALESCE(downgrade_group, '') downgrade_group, COALESCE(allow_wallet_overflow, TRUE) allow_wallet_overflow FROM subscription_plans WHERE id = $1 FOR SHARE")
+        let plan = sqlx::query("SELECT price_amount::text AS money, COALESCE(NULLIF(currency, ''), 'CNY') currency, enabled, COALESCE(allow_balance_pay, TRUE) allow_balance_pay, COALESCE(max_purchase_per_user, 0) max_purchase_per_user, COALESCE(total_amount, 0) total_amount, COALESCE(duration_unit, 'month') duration_unit, COALESCE(duration_value, 1) duration_value, COALESCE(custom_seconds, 0) custom_seconds, COALESCE(upgrade_group, '') upgrade_group, COALESCE(downgrade_group, '') downgrade_group, COALESCE(allow_wallet_overflow, TRUE) allow_wallet_overflow FROM subscription_plans WHERE id = $1 FOR SHARE")
             .bind(plan_id)
             .fetch_optional(&mut *tx)
             .await
             .map_err(|_| BillingError::Storage)?
             .ok_or(BillingError::Rejected)?;
         let money: String = plan.try_get("money").map_err(|_| BillingError::Storage)?;
+        let currency: String = plan
+            .try_get("currency")
+            .map_err(|_| BillingError::Storage)?;
         let enabled: bool = plan.try_get("enabled").map_err(|_| BillingError::Storage)?;
         let allows_balance: bool = plan
             .try_get("allow_balance_pay")
@@ -1429,7 +1435,13 @@ impl PgBillingRepository {
         if !enabled || !allows_balance {
             return Err(BillingError::Rejected);
         }
-        let charge = balance_charge_decimal(&money, &quota_per_unit)?;
+        let charge = subscription_balance_charge(
+            &money,
+            &currency,
+            quota_per_unit,
+            cny_per_usd,
+            platform_units_per_cny,
+        )?;
         let maximum: i64 = plan
             .try_get("max_purchase_per_user")
             .map_err(|_| BillingError::Storage)?;
@@ -1498,10 +1510,11 @@ impl PgBillingRepository {
             .await
             .map_err(|_| BillingError::Storage)?;
         let trade_no = format!("SUBBALUSR{user_id}NO{}", Uuid::new_v4().simple());
-        sqlx::query("INSERT INTO subscription_orders (user_id, plan_id, money, trade_no, payment_method, payment_provider, status, create_time, complete_time, provider_payload) VALUES ($1,$2,CAST($3 AS NUMERIC),$4,'balance','balance','success',$5,$5,$6)")
+        sqlx::query("INSERT INTO subscription_orders (user_id, plan_id, money, plan_currency, trade_no, payment_method, payment_provider, status, create_time, complete_time, provider_payload) VALUES ($1,$2,CAST($3 AS NUMERIC),$4,$5,'balance','balance','success',$6,$6,$7)")
             .bind(user_id)
             .bind(plan_id)
             .bind(&money)
+            .bind(&currency)
             .bind(&trade_no)
             .bind(now)
             .bind(format!("charged_quota={charge}"))
@@ -1837,6 +1850,65 @@ async fn configured_quota_per_unit(pg: &PgPool, fallback: i64) -> Result<String,
     Ok(configured.unwrap_or_else(|| fallback.to_string()))
 }
 
+async fn configured_positive_decimal(
+    pg: &PgPool,
+    key: &str,
+    fallback: &str,
+) -> Result<Decimal, BillingError> {
+    let configured =
+        sqlx::query_scalar::<_, String>("SELECT COALESCE(value, '') FROM options WHERE key = $1")
+            .bind(key)
+            .fetch_optional(pg)
+            .await;
+    let raw = match configured {
+        Ok(value) => value.unwrap_or_else(|| fallback.to_owned()),
+        Err(sqlx::Error::Database(error)) if error.code().as_deref() == Some("42P01") => {
+            fallback.to_owned()
+        }
+        Err(_) => return Err(BillingError::Storage),
+    };
+    Decimal::from_str_exact(raw.trim())
+        .ok()
+        .filter(|value| *value > Decimal::ZERO)
+        .ok_or(BillingError::Rejected)
+}
+
+async fn configured_subscription_pricing(pg: &PgPool) -> Result<(Decimal, Decimal), BillingError> {
+    let cny_per_usd = configured_positive_decimal(pg, "USDExchangeRate", "7.3").await?;
+    let platform_units_per_cny =
+        configured_positive_decimal(pg, "TopUpPlatformUnitsPerCNY", "1").await?;
+    Ok((cny_per_usd, platform_units_per_cny))
+}
+
+fn subscription_balance_charge(
+    money: &str,
+    currency: &str,
+    quota_per_unit: String,
+    cny_per_usd: Decimal,
+    platform_units_per_cny: Decimal,
+) -> Result<i64, BillingError> {
+    let money = Decimal::from_str_exact(money.trim()).map_err(|_| BillingError::Rejected)?;
+    let quota_per_unit =
+        Decimal::from_str_exact(quota_per_unit.trim()).map_err(|_| BillingError::Rejected)?;
+    if money < Decimal::ZERO
+        || quota_per_unit <= Decimal::ZERO
+        || cny_per_usd <= Decimal::ZERO
+        || platform_units_per_cny <= Decimal::ZERO
+    {
+        return Err(BillingError::Rejected);
+    }
+    let platform_units = match currency.trim().to_ascii_uppercase().as_str() {
+        "CNY" => money * platform_units_per_cny,
+        "USD" => money * cny_per_usd * platform_units_per_cny,
+        _ => return Err(BillingError::Rejected),
+    };
+    (platform_units * quota_per_unit)
+        .ceil()
+        .to_i64()
+        .filter(|charge| *charge >= 0)
+        .ok_or(BillingError::Rejected)
+}
+
 fn decimal_units(value: &str) -> Result<(i128, i128), BillingError> {
     let value = value.trim();
     if value.starts_with('-') || value.is_empty() {
@@ -1885,4 +1957,48 @@ fn balance_charge_decimal(money: &str, quota_per_unit: &str) -> Result<i64, Bill
         .ok_or(BillingError::Rejected)?
         / denominator;
     i64::try_from(charge).map_err(|_| BillingError::Rejected)
+}
+
+#[cfg(test)]
+mod unit_tests {
+    use super::*;
+
+    #[test]
+    fn subscription_balance_charge_uses_fiat_fx_and_recharge_ratio() {
+        let cny_per_usd = Decimal::new(68, 1);
+        assert_eq!(
+            subscription_balance_charge(
+                "6.8",
+                "CNY",
+                "500000".to_owned(),
+                cny_per_usd,
+                Decimal::ONE,
+            ),
+            Ok(3_400_000),
+        );
+        assert_eq!(
+            subscription_balance_charge("1", "USD", "500000".to_owned(), cny_per_usd, Decimal::ONE,),
+            Ok(3_400_000),
+        );
+        assert_eq!(
+            subscription_balance_charge(
+                "6.8",
+                "CNY",
+                "500000".to_owned(),
+                cny_per_usd,
+                Decimal::new(2, 0),
+            ),
+            Ok(6_800_000),
+        );
+        assert!(
+            subscription_balance_charge(
+                "1",
+                "EUR",
+                "500000".to_owned(),
+                cny_per_usd,
+                Decimal::ONE,
+            )
+            .is_err()
+        );
+    }
 }

@@ -43,3 +43,31 @@ export function getUserAvatarStyle(name: string): UserAvatarStyle {
 export function getUserAvatarFallback(name: string): string {
   return name.trim().charAt(0).toUpperCase() || '?'
 }
+
+export function normalizeGravatarEmail(email: string): string {
+  return email.trim().toLowerCase()
+}
+
+/**
+ * Build a Gravatar URL without adding an MD5 dependency. Gravatar accepts the
+ * browser-native SHA-256 digest and returns 404 when the email has no avatar,
+ * allowing the local AvatarFallback to remain authoritative.
+ */
+export async function getGravatarUrl(
+  email: string | null | undefined,
+  size = 192
+): Promise<string | null> {
+  const normalizedEmail = normalizeGravatarEmail(email ?? '')
+  if (!normalizedEmail || !globalThis.crypto?.subtle) return null
+
+  const digest = await globalThis.crypto.subtle.digest(
+    'SHA-256',
+    new TextEncoder().encode(normalizedEmail)
+  )
+  const hash = Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, '0')
+  ).join('')
+  const normalizedSize = Math.min(2048, Math.max(1, Math.round(size)))
+
+  return `https://gravatar.com/avatar/${hash}?d=404&r=g&s=${normalizedSize}`
+}

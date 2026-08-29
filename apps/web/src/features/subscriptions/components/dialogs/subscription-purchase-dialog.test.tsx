@@ -59,6 +59,7 @@ await i18n.use(initReactI18next).init({
 })
 
 const plan: PlanRecord = {
+  balance_price_quota: 17_000_000,
   plan: {
     id: 7,
     title: 'Mobile Starter',

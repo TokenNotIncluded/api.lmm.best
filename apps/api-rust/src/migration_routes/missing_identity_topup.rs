@@ -19,6 +19,7 @@ use axum::{
     response::{IntoResponse, Response},
     routing::{get, post},
 };
+use rust_decimal::Decimal;
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use serde_json::{Number, Value, json};
@@ -33,6 +34,97 @@ use crate::auth::{
 const ROLE_ADMIN: i64 = 10;
 const REDEMPTION_ENABLED: i64 = 1;
 const REDEMPTION_USED: i64 = 3;
+
+/// Converts platform-accounting units into a standard fiat settlement amount.
+///
+/// `cny_per_usd` (R) and `platform_units_per_cny` (B) are independent runtime
+/// facts. Group pricing and the amount-tier discount are dimensionless and are
+/// applied only after the currency conversion. Display mode and legacy
+/// provider unit-price settings are deliberately not inputs to this contract.
+pub(crate) fn standard_topup_settlement(
+    platform_amount: Decimal,
+    settlement_currency: &str,
+    cny_per_usd: Decimal,
+    platform_units_per_cny: Decimal,
+    group_multiplier: Decimal,
+    discount_multiplier: Decimal,
+) -> Option<Decimal> {
+    if [
+        platform_amount,
+        cny_per_usd,
+        platform_units_per_cny,
+        group_multiplier,
+        discount_multiplier,
+    ]
+    .iter()
+    .any(|value| *value <= Decimal::ZERO)
+    {
+        return None;
+    }
+
+    let base = match settlement_currency.trim().to_ascii_uppercase().as_str() {
+        "CNY" => platform_amount.checked_div(platform_units_per_cny)?,
+        "USD" => platform_amount.checked_div(platform_units_per_cny.checked_mul(cny_per_usd)?)?,
+        _ => return None,
+    };
+    base.checked_mul(group_multiplier)?
+        .checked_mul(discount_multiplier)
+        .filter(|value| *value > Decimal::ZERO)
+}
+
+fn runtime_topup_rates(options: &HashMap<String, String>) -> Option<(Decimal, Decimal)> {
+    let cny_per_usd = options
+        .get("USDExchangeRate")
+        .and_then(|value| Decimal::from_str_exact(value.trim()).ok())?;
+    let platform_units_per_cny = options
+        .get("TopUpPlatformUnitsPerCNY")
+        .and_then(|value| Decimal::from_str_exact(value.trim()).ok())
+        .unwrap_or(Decimal::ONE);
+    (cny_per_usd > Decimal::ZERO && platform_units_per_cny > Decimal::ZERO)
+        .then_some((cny_per_usd, platform_units_per_cny))
+}
+
+fn apply_standard_payment_pricing(
+    method: &mut Value,
+    settlement_currency: &str,
+    cny_per_usd: Decimal,
+    platform_units_per_cny: Decimal,
+) {
+    let Some(object) = method.as_object_mut() else {
+        return;
+    };
+    for legacy in [
+        "unit_price",
+        "settlement_units_per_platform_unit",
+        "platform_units_per_usd",
+        "settlement_units_per_usd",
+    ] {
+        object.remove(legacy);
+    }
+    let platform_units_per_usd = cny_per_usd * platform_units_per_cny;
+    let settlement_units_per_usd = if settlement_currency.eq_ignore_ascii_case("CNY") {
+        cny_per_usd
+    } else {
+        Decimal::ONE
+    };
+    object.insert(
+        "settlement_currency".to_owned(),
+        json!(settlement_currency.to_ascii_uppercase()),
+    );
+    object.insert(
+        "settlement_unit".to_owned(),
+        json!(settlement_currency.to_ascii_uppercase()),
+    );
+    object.insert(
+        "platform_units_per_usd".to_owned(),
+        json!(platform_units_per_usd.normalize().to_string()),
+    );
+    object.insert(
+        "settlement_units_per_usd".to_owned(),
+        json!(settlement_units_per_usd.normalize().to_string()),
+    );
+}
+
 const TOPUP_PENDING: &str = "pending";
 const TOPUP_SUCCESS: &str = "success";
 const DEFAULT_QUOTA_PER_UNIT: f64 = 500_000.0;
@@ -1208,6 +1300,29 @@ fn topup_info_data_for_user(
         "#3B82F6",
         integer(options, "WaffoMinTopUp", 1),
     );
+    if let Some((cny_per_usd, platform_units_per_cny)) = runtime_topup_rates(options) {
+        for method in &mut pay_methods {
+            let kind = method
+                .get("type")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            match kind {
+                "stripe" | "waffo" | "waffo_pancake" => apply_standard_payment_pricing(
+                    method,
+                    "USD",
+                    cny_per_usd,
+                    platform_units_per_cny,
+                ),
+                "alipay" | "wxpay" => apply_standard_payment_pricing(
+                    method,
+                    "CNY",
+                    cny_per_usd,
+                    platform_units_per_cny,
+                ),
+                _ => {}
+            }
+        }
+    }
     let (payment_available, min_payment) =
         neutral_topup_availability(options, epay, stripe, creem, waffo, pancake);
     let amount_options = payment_field(
@@ -1253,6 +1368,8 @@ fn topup_info_data_for_user(
         "creem_products": creem_products,
         "pay_methods": pay_methods,
         "topup_group_ratio": legacy_number(topup_group_ratio(options, group)),
+        "cny_per_usd": options.get("USDExchangeRate").cloned().unwrap_or_default(),
+        "topup_platform_units_per_cny": options.get("TopUpPlatformUnitsPerCNY").cloned().unwrap_or_else(|| "1".to_owned()),
         "min_topup": integer(options, "MinTopUp", 1),
         "stripe_min_topup": integer(options, "StripeMinTopUp", 1),
         "waffo_min_topup": integer(options, "WaffoMinTopUp", 1),
@@ -1530,6 +1647,83 @@ mod tests {
     use tower::ServiceExt;
 
     type TestResult = Result<(), Box<dyn std::error::Error>>;
+
+    #[test]
+    fn standard_topup_settlement_keeps_fx_base_and_discount_independent() {
+        let cny = standard_topup_settlement(
+            Decimal::new(90, 0),
+            "CNY",
+            Decimal::new(72, 1),
+            Decimal::new(125, 2),
+            Decimal::new(15, 1),
+            Decimal::new(8, 1),
+        );
+        let usd = standard_topup_settlement(
+            Decimal::new(90, 0),
+            "USD",
+            Decimal::new(72, 1),
+            Decimal::new(125, 2),
+            Decimal::new(15, 1),
+            Decimal::new(8, 1),
+        );
+
+        assert_eq!(cny, Some(Decimal::new(864, 1)));
+        assert_eq!(usd, Some(Decimal::new(12, 0)));
+    }
+
+    #[test]
+    fn dedicated_gateway_metadata_discards_legacy_unit_price() {
+        let mut method = json!({
+            "type": "waffo_pancake",
+            "unit_price": "6.8",
+            "settlement_units_per_platform_unit": "6.8",
+        });
+        apply_standard_payment_pricing(&mut method, "USD", Decimal::new(68, 1), Decimal::ONE);
+        assert_eq!(method["settlement_currency"], "USD");
+        assert_eq!(method["platform_units_per_usd"], "6.8");
+        assert_eq!(method["settlement_units_per_usd"], "1");
+        assert!(method.get("unit_price").is_none());
+        assert!(method.get("settlement_units_per_platform_unit").is_none());
+    }
+
+    #[test]
+    fn standard_topup_settlement_rejects_invalid_runtime_facts() {
+        for invalid in [Decimal::ZERO, Decimal::NEGATIVE_ONE] {
+            assert_eq!(
+                standard_topup_settlement(
+                    Decimal::new(90, 0),
+                    "USD",
+                    invalid,
+                    Decimal::new(125, 2),
+                    Decimal::ONE,
+                    Decimal::ONE,
+                ),
+                None
+            );
+            assert_eq!(
+                standard_topup_settlement(
+                    Decimal::new(90, 0),
+                    "CNY",
+                    Decimal::new(72, 1),
+                    invalid,
+                    Decimal::ONE,
+                    Decimal::ONE,
+                ),
+                None
+            );
+        }
+        assert_eq!(
+            standard_topup_settlement(
+                Decimal::new(90, 0),
+                "EUR",
+                Decimal::new(72, 1),
+                Decimal::new(125, 2),
+                Decimal::ONE,
+                Decimal::ONE,
+            ),
+            None
+        );
+    }
 
     #[derive(Clone)]
     struct StaticAuth {

@@ -846,13 +846,11 @@ mod tests {
         assert!(super::validated_secret("x".repeat(31), "CRYPTO_SECRET").is_err());
         assert!(super::validated_secret(" ".repeat(32), "CRYPTO_SECRET").is_err());
         assert!(super::validated_secret("x".repeat(32), "CRYPTO_SECRET").is_ok());
-        assert!(
-            super::validated_secret(
-                "REPLACE_WITH_AT_LEAST_32_RANDOM_BYTES".to_owned(),
-                "CRYPTO_SECRET"
-            )
-            .is_err()
-        );
+        assert!(super::validated_secret(
+            "REPLACE_WITH_AT_LEAST_32_RANDOM_BYTES".to_owned(),
+            "CRYPTO_SECRET"
+        )
+        .is_err());
     }
 
     #[test]
@@ -945,14 +943,16 @@ mod tests {
     #[test]
     fn test_instance_valkey_must_be_loopback_and_dedicated_port() {
         assert!(super::validate_test_valkey_url("redis://:secret@127.0.0.1:6380/0").is_ok());
-        assert!(
-            super::validate_test_valkey_url_with_port("redis://:secret@127.0.0.1:23456/0", 23456)
-                .is_ok()
-        );
-        assert!(
-            super::validate_test_valkey_url_with_port("redis://:secret@127.0.0.1:23456/0", 6380)
-                .is_err()
-        );
+        assert!(super::validate_test_valkey_url_with_port(
+            "redis://:secret@127.0.0.1:23456/0",
+            23456
+        )
+        .is_ok());
+        assert!(super::validate_test_valkey_url_with_port(
+            "redis://:secret@127.0.0.1:23456/0",
+            6380
+        )
+        .is_err());
         for invalid in [
             "redis://:secret@127.0.0.1:6379/0",
             "redis://:secret@10.0.0.12:6380/0",

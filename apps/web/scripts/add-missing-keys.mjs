@@ -5773,6 +5773,7 @@ const exchangeRateTranslations = {
       'ISO 4217 code used for live exchange-rate sync',
     'Custom currency ISO code is required':
       'Custom currency ISO code is required',
+    'Payment rate must be finite': 'Payment rate must be finite',
   },
   zh: {
     Sync: '同步',
@@ -5789,6 +5790,7 @@ const exchangeRateTranslations = {
     'ISO 4217 code used for live exchange-rate sync':
       '用于实时同步汇率的 ISO 4217 代码',
     'Custom currency ISO code is required': '必须填写自定义货币 ISO 代码',
+    'Payment rate must be finite': '支付汇率和充值比例必须是有限数值',
   },
   'zh-TW': {
     Sync: '同步',
@@ -5805,6 +5807,7 @@ const exchangeRateTranslations = {
     'ISO 4217 code used for live exchange-rate sync':
       '用於即時同步匯率的 ISO 4217 代碼',
     'Custom currency ISO code is required': '必須填寫自訂貨幣 ISO 代碼',
+    'Payment rate must be finite': '支付匯率與儲值比例必須是有限數值',
   },
   fr: {
     Sync: 'Synchroniser',
@@ -5822,6 +5825,8 @@ const exchangeRateTranslations = {
       'Code ISO 4217 utilisé pour synchroniser le taux en direct',
     'Custom currency ISO code is required':
       'Le code ISO de la devise personnalisée est requis',
+    'Payment rate must be finite':
+      'Le taux de paiement doit être un nombre fini',
   },
   ja: {
     Sync: '同期',
@@ -5839,6 +5844,8 @@ const exchangeRateTranslations = {
       '最新の為替レート同期に使用する ISO 4217 コード',
     'Custom currency ISO code is required':
       'カスタム通貨の ISO コードを入力してください',
+    'Payment rate must be finite':
+      '支払いレートは有限の数値である必要があります',
   },
   ru: {
     Sync: 'Синхронизировать',
@@ -5856,6 +5863,8 @@ const exchangeRateTranslations = {
       'Код ISO 4217 для синхронизации актуального курса',
     'Custom currency ISO code is required':
       'Требуется код ISO пользовательской валюты',
+    'Payment rate must be finite':
+      'Платёжный коэффициент должен быть конечным числом',
   },
   vi: {
     Sync: 'Đồng bộ',
@@ -5873,6 +5882,7 @@ const exchangeRateTranslations = {
       'Mã ISO 4217 dùng để đồng bộ tỷ giá trực tiếp',
     'Custom currency ISO code is required':
       'Cần nhập mã ISO của tiền tệ tùy chỉnh',
+    'Payment rate must be finite': 'Tỷ lệ thanh toán phải là một số hữu hạn',
   },
 }
 for (const [locale, translations] of Object.entries(exchangeRateTranslations)) {

@@ -10,11 +10,11 @@
 use std::fmt;
 
 use cortexfs_protocol::{
-    BridgePath, ConversionError, EventStatus, ModelEvent, WireProtocol, decode_response_events,
-    transcode_request, transcode_response,
+    decode_response_events, transcode_request, transcode_response, BridgePath, ConversionError,
+    EventStatus, ModelEvent, WireProtocol,
 };
 use lmm_contracts::relay::{
-    CanonicalStreamEvent, Direction, Fidelity, FinishReason, Protocol, TokenUsage, protocols,
+    protocols, CanonicalStreamEvent, Direction, Fidelity, FinishReason, Protocol, TokenUsage,
 };
 
 use crate::{
@@ -572,15 +572,11 @@ mod tests {
     #[test]
     fn stream_registry_exposes_only_cross_protocol_pairs() {
         let registry = CortexFsStreamAdaptorRegistry;
-        assert!(
-            registry
-                .for_route(Protocol::OpenAi, Protocol::OpenAi)
-                .is_none()
-        );
-        assert!(
-            registry
-                .for_route(Protocol::OpenAi, Protocol::Claude)
-                .is_some()
-        );
+        assert!(registry
+            .for_route(Protocol::OpenAi, Protocol::OpenAi)
+            .is_none());
+        assert!(registry
+            .for_route(Protocol::OpenAi, Protocol::Claude)
+            .is_some());
     }
 }

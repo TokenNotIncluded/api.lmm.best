@@ -12,7 +12,10 @@ release=$repo/deploy/frontend-release.sh
 nginx_installer=$repo/deploy/nginx/install-nginx-split.sh
 route_manifest=$repo/apps/api-rust/tests/fixtures/routes/legacy-go-routes.tsv
 
-fail() { printf 'split-check: %s\n' "$*" >&2; exit 1; }
+fail() {
+  printf 'split-check: %s\n' "$*" >&2
+  exit 1
+}
 assert_literal() { grep -Fq -- "$1" "$2" || fail "$2 is missing: $1"; }
 
 for route in '/api/' '/v1/' '/v1beta/' '/pg/' '/mj/' '/suno/' '/kling/v1/' '/jimeng' '/dashboard/'; do
@@ -131,10 +134,10 @@ while IFS=$'\t' read -r method route handler; do
   [[ -n $method && -n $route && -n $handler ]] ||
     fail "malformed frozen backend route: $method $route $handler"
   case $route in
-    /|/api|/api/*|/v1|/v1/*|/v1beta|/v1beta/*|/pg|/pg/*|/mj|/mj/*|/suno|/suno/*|/kling/v1|/kling/v1/*|jimeng|/jimeng|/jimeng/*|/dashboard|/dashboard/*|/:mode/mj|/:mode/mj/*) ;;
-    *) fail "unclassified backend router family: $route" ;;
+  / | /api | /api/* | /v1 | /v1/* | /v1beta | /v1beta/* | /pg | /pg/* | /mj | /mj/* | /suno | /suno/* | /kling/v1 | /kling/v1/* | jimeng | /jimeng | /jimeng/* | /dashboard | /dashboard/* | /:mode/mj | /:mode/mj/*) ;;
+  *) fail "unclassified backend router family: $route" ;;
   esac
-done < "$route_manifest"
+done <"$route_manifest"
 
 bash -n "$release"
 bash -n "$nginx_installer"
@@ -154,7 +157,7 @@ trap 'rm -rf -- "$mime_test_root"' EXIT
 cp -- "$mime_types" "$mime_test_root/mime.types"
 printf 'this is not nginx syntax\n' >>"$mime_test_root/mime.types"
 if command -v nginx >/dev/null &&
-   LMM_NGINX_MIME_TYPES="$mime_test_root/mime.types" "$repo/deploy/test-nginx-mime.sh" >/dev/null 2>&1; then
+  LMM_NGINX_MIME_TYPES="$mime_test_root/mime.types" "$repo/deploy/test-nginx-mime.sh" >/dev/null 2>&1; then
   fail 'corrupted tracked MIME map unexpectedly passed nginx validation'
 fi
 printf 'frontend/backend split checks passed\n'

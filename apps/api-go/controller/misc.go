@@ -179,8 +179,10 @@ func GetStatus(c *gin.Context) {
 		},
 
 		"usd_exchange_rate": operation_setting.USDExchangeRate,
-		"price":             operation_setting.Price,
-		"stripe_unit_price": setting.StripeUnitPrice,
+		// Legacy clients read price as platform units per real USD and
+		// stripe_unit_price as real USD per platform unit.
+		"price":             operation_setting.USDExchangeRate * operation_setting.TopUpPlatformUnitsPerCNY,
+		"stripe_unit_price": standardUSDPerPlatformUnit(),
 
 		// 面板启用开关
 		"api_info_enabled":      cs.ApiInfoEnabled,

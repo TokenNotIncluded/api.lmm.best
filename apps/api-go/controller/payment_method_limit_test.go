@@ -66,8 +66,21 @@ func TestConfiguredPaymentMethodMinTopUpUsesStrictestDuplicate(t *testing.T) {
 	assert.Equal(t, "7.5", minimum.String())
 }
 
+func withTopUpPricing(t *testing.T, cnyPerUSD, platformUnitsPerCNY float64) {
+	t.Helper()
+	originalCNYPerUSD := operation_setting.USDExchangeRate
+	originalPlatformUnitsPerCNY := operation_setting.TopUpPlatformUnitsPerCNY
+	operation_setting.USDExchangeRate = cnyPerUSD
+	operation_setting.TopUpPlatformUnitsPerCNY = platformUnitsPerCNY
+	t.Cleanup(func() {
+		operation_setting.USDExchangeRate = originalCNYPerUSD
+		operation_setting.TopUpPlatformUnitsPerCNY = originalPlatformUnitsPerCNY
+	})
+}
+
 func TestRequirePaymentMethodTopUpWithinLimitEnforcesMinimum(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	withTopUpPricing(t, 1, 1)
 	withPaymentMethods(t, []map[string]string{{
 		"name": "LinuxDO", "type": "epay", "min_topup": "5",
 	}})
@@ -80,6 +93,7 @@ func TestRequirePaymentMethodTopUpWithinLimitEnforcesMinimum(t *testing.T) {
 
 func TestRequirePaymentMethodTopUpWithinLimitUsesCreditedUSD(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	withTopUpPricing(t, 6.8, 1)
 	withPaymentMethods(t, []map[string]string{{
 		"name": "LinuxDO", "type": "epay", "max_topup": "2.5",
 	}})
@@ -91,22 +105,23 @@ func TestRequirePaymentMethodTopUpWithinLimitUsesCreditedUSD(t *testing.T) {
 	operation_setting.GetGeneralSetting().QuotaDisplayType = operation_setting.QuotaDisplayTypeUSD
 	allowedResponse := httptest.NewRecorder()
 	allowedContext, _ := gin.CreateTestContext(allowedResponse)
-	assert.True(t, requirePaymentMethodTopUpWithinLimit(allowedContext, "epay", 2))
+	assert.True(t, requirePaymentMethodTopUpWithinLimit(allowedContext, "epay", 17))
 
 	blockedResponse := httptest.NewRecorder()
 	blockedContext, _ := gin.CreateTestContext(blockedResponse)
-	assert.False(t, requirePaymentMethodTopUpWithinLimit(blockedContext, "epay", 3))
+	assert.False(t, requirePaymentMethodTopUpWithinLimit(blockedContext, "epay", 18))
 	assert.Contains(t, blockedResponse.Body.String(), "2.5")
 
 	operation_setting.GetGeneralSetting().QuotaDisplayType = operation_setting.QuotaDisplayTypeTokens
 	tokenResponse := httptest.NewRecorder()
 	tokenContext, _ := gin.CreateTestContext(tokenResponse)
-	overLimitTokens := int64(3 * common.QuotaPerUnit)
+	overLimitTokens := int64(18 * common.QuotaPerUnit)
 	assert.False(t, requirePaymentMethodTopUpWithinLimit(tokenContext, "epay", overLimitTokens))
 }
 
 func TestRequirePaymentMethodCreditedQuotaWithinLimit(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	withTopUpPricing(t, 6.8, 1)
 	withPaymentMethods(t, []map[string]string{{
 		"name": "Creem", "type": "creem", "max_topup": "5",
 	}})
@@ -116,7 +131,7 @@ func TestRequirePaymentMethodCreditedQuotaWithinLimit(t *testing.T) {
 	assert.False(t, requirePaymentMethodCreditedQuotaWithinLimit(
 		context,
 		"creem",
-		int64(6*common.QuotaPerUnit),
+		int64(35*common.QuotaPerUnit),
 	))
 	assert.Contains(t, response.Body.String(), "5")
 }

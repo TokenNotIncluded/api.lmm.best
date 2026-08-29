@@ -171,10 +171,7 @@ describe('payment type classification', () => {
         })
       )
       assert.equal(availability.hasPaymentMethod, true)
-      assert.equal(
-        availability.defaultQuotedType,
-        PAYMENT_TYPES.WAFFO_PANCAKE
-      )
+      assert.equal(availability.defaultQuotedType, PAYMENT_TYPES.WAFFO_PANCAKE)
     } finally {
       useSystemConfigStore.setState((state) => ({
         ...state,

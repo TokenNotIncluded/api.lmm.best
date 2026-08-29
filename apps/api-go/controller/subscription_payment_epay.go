@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"strconv"
+	"strings"
 	"time"
 
 	"github.com/Calcium-Ion/go-epay/epay"
@@ -14,6 +14,7 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/setting/operation_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/samber/lo"
+	"github.com/shopspring/decimal"
 )
 
 type SubscriptionEpayPayRequest struct {
@@ -79,6 +80,17 @@ func SubscriptionRequestEpay(c *gin.Context) {
 		return
 	}
 
+	expectedAmountMicros, settlementCurrency, err := subscriptionSettlementSnapshot(plan, "CNY")
+	if err != nil {
+		common.ApiErrorMsg(c, "套餐结算金额无效")
+		return
+	}
+	settlementAmount := decimal.NewFromInt(expectedAmountMicros).Shift(-6)
+	if !settlementAmount.IsPositive() {
+		common.ApiErrorMsg(c, "套餐结算金额无效")
+		return
+	}
+
 	tradeNo := fmt.Sprintf("%s%d", common.GetRandomString(6), time.Now().Unix())
 	tradeNo = fmt.Sprintf("SUBUSR%dNO%s", userId, tradeNo)
 
@@ -89,14 +101,17 @@ func SubscriptionRequestEpay(c *gin.Context) {
 	}
 
 	order := &model.SubscriptionOrder{
-		UserId:          userId,
-		PlanId:          plan.Id,
-		Money:           plan.PriceAmount,
-		TradeNo:         tradeNo,
-		PaymentMethod:   req.PaymentMethod,
-		PaymentProvider: model.PaymentProviderEpay,
-		CreateTime:      time.Now().Unix(),
-		Status:          common.TopUpStatusPending,
+		UserId:               userId,
+		PlanId:               plan.Id,
+		Money:                plan.PriceAmount,
+		TradeNo:              tradeNo,
+		PaymentMethod:        req.PaymentMethod,
+		PaymentProvider:      model.PaymentProviderEpay,
+		CreateTime:           time.Now().Unix(),
+		Status:               common.TopUpStatusPending,
+		PlanSnapshot:         common.GetJsonString(plan),
+		ExpectedAmountMicros: expectedAmountMicros,
+		SettlementCurrency:   settlementCurrency,
 	}
 	if err := order.Insert(); err != nil {
 		common.ApiErrorMsg(c, "创建订单失败")
@@ -106,17 +121,46 @@ func SubscriptionRequestEpay(c *gin.Context) {
 		Type:           req.PaymentMethod,
 		ServiceTradeNo: tradeNo,
 		Name:           fmt.Sprintf("SUB:%s", plan.Title),
-		Money:          strconv.FormatFloat(plan.PriceAmount, 'f', 2, 64),
+		Money:          settlementAmount.StringFixed(2),
 		Device:         epay.PC,
 		NotifyUrl:      notifyUrl,
 		ReturnUrl:      returnUrl,
 	})
 	if err != nil {
-		_ = model.ExpireSubscriptionOrder(tradeNo, model.PaymentProviderEpay)
+		// Keep the order pending: an I/O failure can occur after the gateway
+		// accepted the request, and a signed callback must still be recoverable.
 		common.ApiErrorMsg(c, "拉起支付失败")
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "success", "data": params, "url": uri})
+}
+
+func validateSubscriptionEpaySettlement(tradeNo string, verifyInfo *epay.VerifyRes) error {
+	if verifyInfo == nil {
+		return fmt.Errorf("missing Epay settlement evidence")
+	}
+	order := model.GetSubscriptionOrderByTradeNo(tradeNo)
+	if order == nil {
+		return fmt.Errorf("subscription order not found")
+	}
+	if currency := strings.ToUpper(strings.TrimSpace(order.SettlementCurrency)); currency != "" && currency != "CNY" {
+		return fmt.Errorf("Epay subscription must settle in CNY, got %q", currency)
+	}
+	expectedMicros := order.ExpectedAmountMicros
+	if expectedMicros <= 0 || strings.TrimSpace(order.SettlementCurrency) == "" {
+		// Old pending orders did not snapshot fiat amount/currency and may have
+		// been quoted with the historical unit confusion. Fail closed rather
+		// than crediting an unverifiable payment at today's configuration.
+		return fmt.Errorf("legacy Epay subscription order has no immutable settlement snapshot")
+	}
+	actualMicros, err := monetaryStringToMicros(verifyInfo.Money)
+	if err != nil {
+		return err
+	}
+	if actualMicros != expectedMicros {
+		return fmt.Errorf("Epay subscription amount mismatch: expected_micros=%d actual_micros=%d", expectedMicros, actualMicros)
+	}
+	return nil
 }
 
 func SubscriptionEpayNotify(c *gin.Context) {
@@ -164,6 +208,10 @@ func SubscriptionEpayNotify(c *gin.Context) {
 	LockOrder(verifyInfo.ServiceTradeNo)
 	defer UnlockOrder(verifyInfo.ServiceTradeNo)
 
+	if err := validateSubscriptionEpaySettlement(verifyInfo.ServiceTradeNo, verifyInfo); err != nil {
+		_, _ = c.Writer.Write([]byte("fail"))
+		return
+	}
 	if err := model.CompleteSubscriptionOrder(verifyInfo.ServiceTradeNo, common.GetJsonString(verifyInfo), model.PaymentProviderEpay, verifyInfo.Type); err != nil {
 		_, _ = c.Writer.Write([]byte("fail"))
 		return
@@ -213,6 +261,10 @@ func SubscriptionEpayReturn(c *gin.Context) {
 	if verifyInfo.TradeStatus == epay.StatusTradeSuccess {
 		LockOrder(verifyInfo.ServiceTradeNo)
 		defer UnlockOrder(verifyInfo.ServiceTradeNo)
+		if err := validateSubscriptionEpaySettlement(verifyInfo.ServiceTradeNo, verifyInfo); err != nil {
+			c.Redirect(http.StatusFound, paymentReturnPath("/wallet?pay=fail"))
+			return
+		}
 		if err := model.CompleteSubscriptionOrder(verifyInfo.ServiceTradeNo, common.GetJsonString(verifyInfo), model.PaymentProviderEpay, verifyInfo.Type); err != nil {
 			c.Redirect(http.StatusFound, paymentReturnPath("/wallet?pay=fail"))
 			return

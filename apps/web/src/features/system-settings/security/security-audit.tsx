@@ -786,7 +786,9 @@ export function SecurityAuditPanel() {
     queryKey: ['admin-assistant-review-task', selectedReviewTaskId],
     queryFn: () => {
       if (!selectedReviewTaskId) {
-        throw new Error('A review task must be selected before loading details.')
+        throw new Error(
+          'A review task must be selected before loading details.'
+        )
       }
       return getAssistantReviewRun<AssistantReviewTask>(selectedReviewTaskId)
     },

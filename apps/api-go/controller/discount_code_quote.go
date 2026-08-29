@@ -18,9 +18,9 @@ import (
 )
 
 // applyDiscountCodeQuote layers a discount code on top of the existing
-// amount/group/payment pricing. The server re-runs this exact calculation at
-// checkout, so the browser can only preview a price and never set the amount.
-func applyDiscountCodeQuote(base decimal.Decimal, amount int64, rawCode string, userIDs ...int) (decimal.Decimal, *model.DiscountCode, error) {
+// amount/group/payment pricing. The server re-runs this decimal-safe calculation at
+// checkout, so the browser can only preview a price and never authoritatively set the amount.
+func applyDiscountCodeQuoteDecimal(base decimal.Decimal, amount decimal.Decimal, rawCode string, userIDs ...int) (decimal.Decimal, *model.DiscountCode, error) {
 	if strings.TrimSpace(rawCode) == "" {
 		return base, nil, nil
 	}
@@ -28,12 +28,16 @@ func applyDiscountCodeQuote(base decimal.Decimal, amount int64, rawCode string, 
 	if len(userIDs) > 0 {
 		userID = userIDs[0]
 	}
-	code, err := model.ValidateDiscountCodeForUser(rawCode, amount, common.GetTimestamp(), userID)
+	code, err := model.ValidateDiscountCodeForUserDecimal(rawCode, amount, common.GetTimestamp(), userID)
 	if err != nil {
 		return decimal.Zero, nil, err
 	}
 	multiplier := decimal.NewFromInt(int64(100 - code.DiscountPercent)).Div(decimal.NewFromInt(100))
 	return base.Mul(multiplier).Round(2), code, nil
+}
+
+func applyDiscountCodeQuote(base decimal.Decimal, amount int64, rawCode string, userIDs ...int) (decimal.Decimal, *model.DiscountCode, error) {
+	return applyDiscountCodeQuoteDecimal(base, decimal.NewFromInt(amount), rawCode, userIDs...)
 }
 
 func discountCodeID(code *model.DiscountCode) int {
@@ -51,9 +55,13 @@ func discountPercent(code *model.DiscountCode) int {
 }
 
 func quoteTopUpWithDiscount(amount int64, group, paymentMethod, rawCode string, userIDs ...int) (decimal.Decimal, *model.DiscountCode, error) {
-	base, err := quoteTopUp(amount, group, paymentMethod)
+	return quoteTopUpDecimalWithDiscount(decimal.NewFromInt(amount), group, paymentMethod, rawCode, userIDs...)
+}
+
+func quoteTopUpDecimalWithDiscount(amount decimal.Decimal, group, paymentMethod, rawCode string, userIDs ...int) (decimal.Decimal, *model.DiscountCode, error) {
+	base, err := quoteTopUpDecimal(amount, group, paymentMethod)
 	if err != nil {
 		return decimal.Zero, nil, err
 	}
-	return applyDiscountCodeQuote(base, amount, rawCode, userIDs...)
+	return applyDiscountCodeQuoteDecimal(base, amount, rawCode, userIDs...)
 }

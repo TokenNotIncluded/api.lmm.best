@@ -264,7 +264,7 @@ fn pattern_matches(pattern: &str, concrete: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{AuthClass, axum_path, concrete_path, load_routes, pattern_matches, wrong_method};
+    use super::{axum_path, concrete_path, load_routes, pattern_matches, wrong_method, AuthClass};
 
     #[test]
     fn frozen_inventory_and_auth_classes_cover_exactly_353_routes() {

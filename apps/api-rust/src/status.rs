@@ -389,6 +389,22 @@ impl StatusData {
             }
         };
         let oidc_display_name = options.string("oidc.display_name", "");
+        let cny_per_usd = options.number("USDExchangeRate", 7.3);
+        let platform_units_per_cny = options.number("TopUpPlatformUnitsPerCNY", 1.0);
+        let platform_units_per_usd = if cny_per_usd.is_finite()
+            && cny_per_usd > 0.0
+            && platform_units_per_cny.is_finite()
+            && platform_units_per_cny > 0.0
+        {
+            cny_per_usd * platform_units_per_cny
+        } else {
+            0.0
+        };
+        let usd_per_platform_unit = if platform_units_per_usd > 0.0 {
+            1.0 / platform_units_per_usd
+        } else {
+            0.0
+        };
         Self {
             version: version.to_owned(),
             start_time,
@@ -432,9 +448,9 @@ impl StatusData {
             password_login_enabled: options.boolean("PasswordLoginEnabled", true),
             password_register_enabled: options.boolean("PasswordRegisterEnabled", true),
             default_use_auto_group: options.boolean("DefaultUseAutoGroup", false),
-            usd_exchange_rate: options.number("USDExchangeRate", 7.3),
-            price: options.number("Price", 7.3),
-            stripe_unit_price: options.number("StripeUnitPrice", 8.0),
+            usd_exchange_rate: cny_per_usd,
+            price: platform_units_per_usd,
+            stripe_unit_price: usd_per_platform_unit,
             api_info_enabled,
             uptime_kuma_enabled: options.boolean("console_setting.uptime_kuma_enabled", true),
             announcements_enabled,
@@ -582,6 +598,10 @@ mod tests {
         })?;
         let mut expected = oracle_body()?;
         expected["data"]["start_time"] = json!(1_700_000_000_i64);
+        // Payment unit prices are intentionally normalized away from the
+        // historical provider-specific value in the frozen fixture.
+        expected["data"]["price"] = json!(7.3_f64);
+        expected["data"]["stripe_unit_price"] = json!(1.0_f64 / 7.3_f64);
         assert_eq!(actual, expected);
         Ok(())
     }

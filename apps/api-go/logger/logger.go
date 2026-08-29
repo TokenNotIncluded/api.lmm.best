@@ -75,6 +75,11 @@ func SetupLogger() error {
 	return nil
 }
 
+// InitializeLogger is the error-returning process startup entry point.
+func InitializeLogger() error {
+	return SetupLogger()
+}
+
 func LogInfo(ctx context.Context, msg string) {
 	logHelper(ctx, loggerINFO, msg)
 }

@@ -2,6 +2,7 @@ package controller
 
 import (
 	"testing"
+	"time"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/LIghtJUNction/api.lmm.best/model"
@@ -31,6 +32,8 @@ func TestFormatWaffoPancakeAmount_UsesDisplayPriceString(t *testing.T) {
 
 func TestGetWaffoPancakePayMoney(t *testing.T) {
 	originalUnitPrice := setting.WaffoPancakeUnitPrice
+	originalUSDExchangeRate := operation_setting.USDExchangeRate
+	originalPlatformUnitsPerCNY := operation_setting.TopUpPlatformUnitsPerCNY
 	originalQuotaDisplayType := operation_setting.GetGeneralSetting().QuotaDisplayType
 	originalDiscounts := make(map[int]float64, len(operation_setting.GetPaymentSetting().AmountDiscount))
 	for k, v := range operation_setting.GetPaymentSetting().AmountDiscount {
@@ -40,12 +43,17 @@ func TestGetWaffoPancakePayMoney(t *testing.T) {
 
 	t.Cleanup(func() {
 		setting.WaffoPancakeUnitPrice = originalUnitPrice
+		operation_setting.USDExchangeRate = originalUSDExchangeRate
+		operation_setting.TopUpPlatformUnitsPerCNY = originalPlatformUnitsPerCNY
 		operation_setting.GetGeneralSetting().QuotaDisplayType = originalQuotaDisplayType
 		operation_setting.GetPaymentSetting().AmountDiscount = originalDiscounts
 		require.NoError(t, common.UpdateTopupGroupRatioByJSONString(originalTopupGroupRatio))
 	})
 
-	setting.WaffoPancakeUnitPrice = 2.5
+	// Provider-specific UnitPrice is deprecated and must not affect settlement.
+	setting.WaffoPancakeUnitPrice = 999
+	operation_setting.USDExchangeRate = 6.8
+	operation_setting.TopUpPlatformUnitsPerCNY = 1
 	operation_setting.GetPaymentSetting().AmountDiscount = map[int]float64{
 		10:                           0.8,
 		int(common.QuotaPerUnit * 3): 0.5,
@@ -61,25 +69,25 @@ func TestGetWaffoPancakePayMoney(t *testing.T) {
 		expected         float64
 	}{
 		{
-			name:             "currency display applies unit price group ratio and discount",
+			name:             "USD settlement uses global FX group ratio and discount",
 			amount:           10,
 			group:            "vip",
 			quotaDisplayType: operation_setting.QuotaDisplayTypeUSD,
-			expected:         24,
+			expected:         1.41,
 		},
 		{
-			name:             "tokens display converts quota to display units before pricing",
+			name:             "tokens display normalizes before standard USD settlement",
 			amount:           int64(common.QuotaPerUnit * 3),
 			group:            "vip",
 			quotaDisplayType: operation_setting.QuotaDisplayTypeTokens,
-			expected:         4.5,
+			expected:         0.26,
 		},
 		{
 			name:             "non-positive discount falls back to no discount",
 			amount:           20,
 			group:            "default",
 			quotaDisplayType: operation_setting.QuotaDisplayTypeUSD,
-			expected:         50,
+			expected:         2.94,
 		},
 	}
 
@@ -92,22 +100,55 @@ func TestGetWaffoPancakePayMoney(t *testing.T) {
 	}
 }
 
+func TestWaffoPancakeSubscriptionPeriodRequiresAuthoritativeWindow(t *testing.T) {
+	start := time.Now().UTC().Truncate(time.Second)
+	end := start.AddDate(0, 1, 0)
+	event := &service.WaffoPancakeWebhookEvent{Data: service.WaffoPancakeWebhookData{
+		CurrentPeriodStart: start.Format(time.RFC3339),
+		CurrentPeriodEnd:   end.Format(time.RFC3339),
+	}}
+
+	actualStart, actualEnd, err := waffoPancakeSubscriptionPeriod(event, true)
+	require.NoError(t, err)
+	require.Equal(t, start.Unix(), actualStart)
+	require.Equal(t, end.Unix(), actualEnd)
+
+	event.Data.CurrentPeriodEnd = ""
+	_, _, err = waffoPancakeSubscriptionPeriod(event, true)
+	require.ErrorContains(t, err, "currentPeriodEnd")
+}
+
 func TestValidateWaffoPancakeSubscriptionEventBindsSettlementEvidence(t *testing.T) {
 	originalStoreID := setting.WaffoPancakeStoreID
+	originalUSDExchangeRate := operation_setting.USDExchangeRate
+	originalPlatformUnitsPerCNY := operation_setting.TopUpPlatformUnitsPerCNY
 	setting.WaffoPancakeStoreID = "STO_expected"
-	t.Cleanup(func() { setting.WaffoPancakeStoreID = originalStoreID })
+	operation_setting.USDExchangeRate = 6.8
+	operation_setting.TopUpPlatformUnitsPerCNY = 99 // must not affect fiat subscription settlement
+	t.Cleanup(func() {
+		setting.WaffoPancakeStoreID = originalStoreID
+		operation_setting.USDExchangeRate = originalUSDExchangeRate
+		operation_setting.TopUpPlatformUnitsPerCNY = originalPlatformUnitsPerCNY
+	})
 
 	plan := &model.SubscriptionPlan{
 		Id:                    42,
-		PriceAmount:           9.99,
-		Currency:              "USD",
+		PriceAmount:           6.8,
+		Currency:              "CNY",
 		WaffoPancakeProductId: "PROD_expected",
 	}
-	order := &model.SubscriptionOrder{PlanId: plan.Id, Money: plan.PriceAmount}
+	order := &model.SubscriptionOrder{
+		PlanId:               plan.Id,
+		Money:                plan.PriceAmount,
+		ExpectedAmountMicros: 1_000_000,
+		SettlementCurrency:   "USD",
+		ProviderProductId:    "PROD_expected",
+		ProviderStoreId:      "STO_expected",
+	}
 	valid := &service.WaffoPancakeWebhookEvent{
 		StoreID: "STO_expected",
 		Data: service.WaffoPancakeWebhookData{
-			Amount:   "9.99",
+			Amount:   "1.00",
 			Currency: "usd",
 			OrderMetadata: map[string]string{
 				service.WaffoPancakeOrderMetadataProductID: "PROD_expected",

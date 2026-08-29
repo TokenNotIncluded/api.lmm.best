@@ -18,11 +18,51 @@ import (
 	"github.com/stripe/stripe-go/v81/form"
 )
 
+func TestWaffoPancakeProductBindingMustMatchPlanPriceAndCadence(t *testing.T) {
+	existing := &model.SubscriptionPlan{
+		PriceAmount:           6.8,
+		Currency:              "CNY",
+		DurationUnit:          model.SubscriptionDurationMonth,
+		DurationValue:         1,
+		WaffoPancakeProductId: "PROD_monthly",
+	}
+	next := *existing
+	require.False(t, waffoPancakeProductMustBeRecreated(existing, &next))
+
+	next.PriceAmount = 7.8
+	require.True(t, waffoPancakeProductMustBeRecreated(existing, &next))
+
+	next.WaffoPancakeProductId = "PROD_monthly_new_price"
+	require.False(t, waffoPancakeProductMustBeRecreated(existing, &next))
+}
+
+func TestNormalizeSubscriptionFiatCurrency(t *testing.T) {
+	currency, err := normalizeSubscriptionFiatCurrency(" cny ")
+	require.NoError(t, err)
+	require.Equal(t, "CNY", currency)
+	currency, err = normalizeSubscriptionFiatCurrency("USD")
+	require.NoError(t, err)
+	require.Equal(t, "USD", currency)
+	currency, err = normalizeSubscriptionFiatCurrency("")
+	require.NoError(t, err)
+	require.Equal(t, "CNY", currency)
+	_, err = normalizeSubscriptionFiatCurrency("EUR")
+	require.Error(t, err)
+}
+
 type subscriptionStripeCheckoutBackend struct {
 	orderVisibleDuringCall bool
 }
 
 func (b *subscriptionStripeCheckoutBackend) Call(_ string, _ string, _ string, _ stripe.ParamsContainer, v stripe.LastResponseSetter) error {
+	if providerPrice, ok := v.(*stripe.Price); ok {
+		providerPrice.ID = "price_order_first"
+		providerPrice.Active = true
+		providerPrice.Currency = stripe.CurrencyUSD
+		providerPrice.UnitAmount = 1000
+		providerPrice.Recurring = &stripe.PriceRecurring{}
+		return nil
+	}
 	checkout, ok := v.(*stripe.CheckoutSession)
 	if !ok {
 		return nil
@@ -195,6 +235,7 @@ func TestStripeSubscriptionPersistsOrderBeforeCreatingCheckout(t *testing.T) {
 	plan := model.SubscriptionPlan{
 		Title:         "Order-first Stripe plan",
 		PriceAmount:   10,
+		Currency:      "USD",
 		Enabled:       true,
 		StripePriceId: "price_order_first",
 	}

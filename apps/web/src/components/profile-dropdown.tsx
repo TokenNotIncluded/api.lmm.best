@@ -18,11 +18,9 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useNavigate } from '@tanstack/react-router'
 import { LayoutDashboard, User, Wallet, LogOut, Settings } from 'lucide-react'
-import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { SignOutDialog } from '@/components/sign-out-dialog'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -31,18 +29,16 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { UserAvatar } from '@/components/user-avatar'
 import useDialogState from '@/hooks/use-dialog'
 import { useIsSidebarModuleVisible } from '@/hooks/use-sidebar-config'
 import { useUserDisplay } from '@/hooks/use-user-display'
-import { getUserAvatarFallback, getUserAvatarStyle } from '@/lib/avatar'
 import {
   getAuthenticatedLandingRoute,
   isConsoleActivated,
 } from '@/lib/console-activation'
 import { ROLE } from '@/lib/roles'
 import { useAuthStore } from '@/stores/auth-store'
-
-const avatarFallbackClassName = 'font-semibold text-white'
 
 export function ProfileDropdown() {
   const { t } = useTranslation()
@@ -54,11 +50,6 @@ export function ProfileDropdown() {
   const isSuperAdmin = user?.role === ROLE.SUPER_ADMIN
   const isWalletVisible = useIsSidebarModuleVisible('/wallet')
   const avatarName = user?.username || displayName
-  const avatarFallback = getUserAvatarFallback(avatarName)
-  const avatarFallbackStyle = useMemo(
-    () => getUserAvatarStyle(avatarName),
-    [avatarName]
-  )
 
   return (
     <>
@@ -66,25 +57,25 @@ export function ProfileDropdown() {
         <DropdownMenuTrigger
           render={<Button variant='ghost' className='relative size-8 p-0' />}
         >
-          <Avatar className='size-7'>
-            <AvatarFallback
-              className={`${avatarFallbackClassName} text-[11px]`}
-              style={avatarFallbackStyle}
-            >
-              {avatarFallback}
-            </AvatarFallback>
-          </Avatar>
+          <UserAvatar
+            name={avatarName}
+            email={user?.email}
+            alt={displayName}
+            className='size-7'
+            fallbackClassName='text-[11px]'
+            gravatarSize={64}
+          />
         </DropdownMenuTrigger>
         <DropdownMenuContent align='end' sideOffset={8} className='w-56'>
           <div className='flex items-center gap-2 px-1.5 py-1.5'>
-            <Avatar className='size-8'>
-              <AvatarFallback
-                className={`${avatarFallbackClassName} text-xs`}
-                style={avatarFallbackStyle}
-              >
-                {avatarFallback}
-              </AvatarFallback>
-            </Avatar>
+            <UserAvatar
+              name={avatarName}
+              email={user?.email}
+              alt={displayName}
+              className='size-8'
+              fallbackClassName='text-xs'
+              gravatarSize={64}
+            />
             <div className='flex flex-1 flex-col gap-0.5 overflow-hidden'>
               <p className='text-foreground truncate text-sm font-medium'>
                 {displayName}

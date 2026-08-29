@@ -10,6 +10,7 @@ import (
 	"github.com/Calcium-Ion/go-epay/epay"
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/LIghtJUNction/api.lmm.best/model"
+	"github.com/LIghtJUNction/api.lmm.best/setting"
 	"github.com/LIghtJUNction/api.lmm.best/setting/operation_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
@@ -22,19 +23,27 @@ func preserveChannelPricing(t *testing.T) {
 	t.Helper()
 	originalPrice := operation_setting.Price
 	originalUSDExchangeRate := operation_setting.USDExchangeRate
+	originalPlatformUnitsPerCNY := operation_setting.TopUpPlatformUnitsPerCNY
 	generalSetting := operation_setting.GetGeneralSetting()
 	originalDisplayType := generalSetting.QuotaDisplayType
 	originalCustomExchangeRate := generalSetting.CustomCurrencyExchangeRate
 	originalMethods := operation_setting.PayMethods
 	originalDiscounts := operation_setting.GetPaymentSetting().AmountDiscount
 	originalRatios := common.TopupGroupRatio2JSONString()
+	originalStripeUnitPrice := setting.StripeUnitPrice
+	originalWaffoUnitPrice := setting.WaffoUnitPrice
+	originalPancakeUnitPrice := setting.WaffoPancakeUnitPrice
 	t.Cleanup(func() {
 		operation_setting.Price = originalPrice
 		operation_setting.USDExchangeRate = originalUSDExchangeRate
+		operation_setting.TopUpPlatformUnitsPerCNY = originalPlatformUnitsPerCNY
 		generalSetting.QuotaDisplayType = originalDisplayType
 		generalSetting.CustomCurrencyExchangeRate = originalCustomExchangeRate
 		operation_setting.PayMethods = originalMethods
 		operation_setting.GetPaymentSetting().AmountDiscount = originalDiscounts
+		setting.StripeUnitPrice = originalStripeUnitPrice
+		setting.WaffoUnitPrice = originalWaffoUnitPrice
+		setting.WaffoPancakeUnitPrice = originalPancakeUnitPrice
 		require.NoError(t, common.UpdateTopupGroupRatioByJSONString(originalRatios))
 	})
 }
@@ -75,6 +84,41 @@ func TestIntegerPlatformAmountRejectsFractionalInput(t *testing.T) {
 	amount, err = integerPlatformAmount(68)
 	require.NoError(t, err)
 	require.EqualValues(t, 68, amount)
+}
+
+func TestDedicatedUSDGatewaysShareOneStandardQuote(t *testing.T) {
+	preserveChannelPricing(t)
+	operation_setting.USDExchangeRate = 6.8
+	operation_setting.TopUpPlatformUnitsPerCNY = 1
+	operation_setting.GetPaymentSetting().AmountDiscount = map[int]float64{}
+	require.NoError(t, common.UpdateTopupGroupRatioByJSONString(`{"default":1}`))
+	setting.StripeUnitPrice = 99
+	setting.WaffoUnitPrice = 88
+	setting.WaffoPancakeUnitPrice = 77
+
+	require.InDelta(t, 10.0, getStripePayMoney(68, "default"), 0.000001)
+	require.InDelta(t, 10.0, getWaffoPayMoney(68, "default"), 0.000001)
+	require.True(t, getWaffoPancakePayMoneyDecimal(68, "default").Equal(decimal.RequireFromString("10.00")))
+}
+
+func TestDedicatedGatewayMetadataCannotLeakLegacyUnitPrice(t *testing.T) {
+	preserveChannelPricing(t)
+	operation_setting.USDExchangeRate = 6.8
+	operation_setting.TopUpPlatformUnitsPerCNY = 1
+	method := map[string]string{
+		"type":                               "waffo_pancake",
+		"unit_price":                         "6.8",
+		"settlement_units_per_platform_unit": "6.8",
+		"platform_units_per_usd":             "1",
+		"settlement_units_per_usd":           "6.8",
+	}
+
+	setPaymentMethodStandardPricing(method, "USD")
+	require.Equal(t, "USD", method["settlement_currency"])
+	require.Equal(t, "6.8", method["platform_units_per_usd"])
+	require.Equal(t, "1", method["settlement_units_per_usd"])
+	require.NotContains(t, method, "unit_price")
+	require.NotContains(t, method, "settlement_units_per_platform_unit")
 }
 
 func TestSettlementAmountUsesTwoRateCurrencyContract(t *testing.T) {
@@ -132,15 +176,59 @@ func TestQuoteTopUpSupportsExplicitFXAndLegacyDirectPricing(t *testing.T) {
 	require.True(t, grouped.Equal(decimal.RequireFromString("0.70")))
 }
 
-func TestConfiguredPlatformRateUsesCustomLocalCurrency(t *testing.T) {
+func TestConfiguredPlatformRateUsesCNYBaseIndependentlyOfDisplay(t *testing.T) {
 	preserveChannelPricing(t)
+	operation_setting.USDExchangeRate = 6.8
+	operation_setting.TopUpPlatformUnitsPerCNY = 1
 	generalSetting := operation_setting.GetGeneralSetting()
 	generalSetting.QuotaDisplayType = operation_setting.QuotaDisplayTypeCustom
 	generalSetting.CustomCurrencyExchangeRate = 0.92
 
 	rate, err := configuredPlatformUnitsPerUSD()
 	require.NoError(t, err)
-	require.True(t, rate.Equal(decimal.RequireFromString("0.92")))
+	require.True(t, rate.Equal(decimal.RequireFromString("6.8")))
+
+	operation_setting.TopUpPlatformUnitsPerCNY = 1.1
+	rate, err = configuredPlatformUnitsPerUSD()
+	require.NoError(t, err)
+	require.True(t, rate.Equal(decimal.RequireFromString("7.48")))
+}
+
+func TestEpayAlwaysUsesCNYSettlementContract(t *testing.T) {
+	preserveChannelPricing(t)
+	operation_setting.USDExchangeRate = 6.8
+	operation_setting.TopUpPlatformUnitsPerCNY = 1
+	operation_setting.GetPaymentSetting().AmountDiscount = map[int]float64{}
+	require.NoError(t, common.UpdateTopupGroupRatioByJSONString(`{"default":1}`))
+	operation_setting.PayMethods = []map[string]string{
+		{"name": "支付宝", "type": "alipay", "settlement_currency": "CNY", "unit_price": "0.1470588235"},
+		{"name": "微信", "type": "wxpay"},
+		{"name": "Custom Epay", "type": "epay-default"},
+	}
+
+	alipay, err := quoteTopUp(68, "default", "alipay")
+	require.NoError(t, err)
+	require.True(t, alipay.Equal(decimal.RequireFromString("68.00")))
+
+	wxpay, err := quoteTopUp(68, "default", "wxpay")
+	require.NoError(t, err)
+	require.True(t, wxpay.Equal(decimal.RequireFromString("68.00")))
+
+	customEpay, err := quoteTopUp(68, "default", "epay-default")
+	require.NoError(t, err)
+	require.True(t, customEpay.Equal(decimal.RequireFromString("68.00")))
+	publicMethods := sanitizedPaymentMethods(operation_setting.PayMethods)
+	require.Equal(t, "CNY", publicMethods[1]["settlement_currency"])
+	require.Equal(t, "6.8", publicMethods[1]["platform_units_per_usd"])
+	require.Equal(t, "6.8", publicMethods[1]["settlement_units_per_usd"])
+	require.Equal(t, "CNY", publicMethods[2]["settlement_currency"])
+	require.Equal(t, "6.8", publicMethods[2]["platform_units_per_usd"])
+	require.Equal(t, "6.8", publicMethods[2]["settlement_units_per_usd"])
+
+	operation_setting.PayMethods[0]["settlement_currency"] = "USD"
+	migratedLegacy, err := quoteTopUp(68, "default", "alipay")
+	require.NoError(t, err)
+	require.True(t, migratedLegacy.Equal(decimal.RequireFromString("68.00")))
 }
 
 func TestQuoteTopUpRejectsAmbiguousOrInvalidPricing(t *testing.T) {
@@ -157,13 +245,21 @@ func TestQuoteTopUpRejectsAmbiguousOrInvalidPricing(t *testing.T) {
 		{"name": "invalid topup ratio", "type": "invalid-topup-ratio", "settlement_unit": "USD", "settlement_units_per_platform_unit": "1", "topup_ratio": "0"},
 	}
 
+	standardCNY, err := quoteTopUp(1, "default", "missing-pricing")
+	require.NoError(t, err)
+	require.True(t, standardCNY.Equal(decimal.RequireFromString("1.00")))
+
 	for _, paymentMethod := range []string{
-		"unknown", "missing-pricing", "missing-settlement-fx", "zero-platform-fx",
-		"mixed-pricing", "conflicting-direct", "missing-unit", "invalid-unit", "invalid-topup-ratio",
+		"unknown", "missing-settlement-fx", "zero-platform-fx",
+		"mixed-pricing", "conflicting-direct", "invalid-unit", "invalid-topup-ratio",
 	} {
 		_, err := quoteTopUp(1, "default", paymentMethod)
 		require.Error(t, err, paymentMethod)
 	}
+
+	defaultCNYDirect, err := quoteTopUp(1, "default", "missing-unit")
+	require.NoError(t, err)
+	require.True(t, defaultCNYDirect.Equal(decimal.RequireFromString("10.00")))
 
 	punctuated, err := quoteTopUp(1, "default", "safe-direct")
 	require.NoError(t, err)
@@ -260,10 +356,13 @@ func TestRequestAmountWithoutPaymentMethodDoesNotUseGlobalPrice(t *testing.T) {
 
 func TestValidateEpayCallbackRejectsSignedTypeOrMoneyMismatchAndIsIdempotent(t *testing.T) {
 	pending := &model.TopUp{
-		PaymentMethod:   "epay",
-		PaymentProvider: model.PaymentProviderEpay,
-		Money:           1.4,
-		Status:          common.TopUpStatusPending,
+		PaymentMethod:        "epay",
+		PaymentProvider:      model.PaymentProviderEpay,
+		Money:                1.4,
+		ExpectedAmountMicros: 1_400_000,
+		CreditedQuota:        2 * int64(common.QuotaPerUnit),
+		SettlementCurrency:   "CNY",
+		Status:               common.TopUpStatusPending,
 	}
 
 	shouldCredit, err := validateEpayCallback(pending, &epay.VerifyRes{Type: "wxpay", Money: "1.40"})

@@ -20,6 +20,7 @@ import { api } from '@/lib/api'
 import type { CustomOAuthBinding } from '@/lib/oauth'
 import type { LoginSession } from '@/stores/auth-store'
 
+import type { ProfileUsageQueryRange, ProfileUsageRow } from './lib/activity'
 import type {
   ApiResponse,
   UserProfile,
@@ -42,6 +43,24 @@ import type {
 export async function getUserProfile(): Promise<ApiResponse<UserProfile>> {
   const res = await api.get('/api/user/self')
   return res.data
+}
+
+/**
+ * Fetch one bounded window of the current user's token activity.
+ */
+export async function getProfileUsageWindow(
+  params: ProfileUsageQueryRange
+): Promise<ProfileUsageRow[]> {
+  const res = await api.get<ApiResponse<ProfileUsageRow[]>>('/api/data/self', {
+    params: { ...params, default_time: 'day' },
+    skipBusinessError: true,
+    skipErrorHandler: true,
+  })
+
+  if (!res.data.success) {
+    throw new Error(res.data.message || 'Unable to load profile activity')
+  }
+  return res.data.data ?? []
 }
 
 /**

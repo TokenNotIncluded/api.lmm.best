@@ -25,19 +25,19 @@ fail() {
 # this guard aligned with router.SetRouter: any dropped registration must stop
 # the gate instead of silently shrinking the observed inventory.
 for registration in SetApiRouter SetDashboardRouter SetRelayRouter SetVideoRouter; do
-  grep -Fq "router.${registration}(engine)" "${manifest_source}" || \
+  grep -Fq "router.${registration}(engine)" "${manifest_source}" ||
     fail "route-manifest no longer registers ${registration}"
 done
 
 mcp_source="${router_dir}/open_source_bounty_mcp_router.go"
 [[ -f "${mcp_source}" ]] || fail "missing MCP router registration: ${mcp_source}"
-grep -Fq 'router.Group("/mcp")' "${mcp_source}" || \
+grep -Fq 'router.Group("/mcp")' "${mcp_source}" ||
   fail "MCP router group is no longer rooted at /mcp"
 
 mapfile -t mcp_relative_paths < <(
   sed -nE 's/.*mcpRoute\.Any\("([^"]*)".*/\1/p' "${mcp_source}"
 )
-[[ "${#mcp_relative_paths[@]}" -gt 0 ]] || \
+[[ "${#mcp_relative_paths[@]}" -gt 0 ]] ||
   fail "MCP router exposes no Any registration"
 
 # Gin's RouterGroup.Any expands exactly these nine methods (including HEAD and
@@ -47,9 +47,9 @@ mapfile -t mcp_relative_paths < <(
 any_methods=(GET POST PUT PATCH HEAD OPTIONS DELETE CONNECT TRACE)
 gin_routergroup="$(cd "${go_root}" && go list -m -f '{{.Dir}}' github.com/gin-gonic/gin)/routergroup.go"
 grep -Fq 'GET, POST, PUT, PATCH, HEAD, OPTIONS, CONNECT, TRACE, DELETE' \
-  "${gin_routergroup}" 2>/dev/null || \
+  "${gin_routergroup}" 2>/dev/null ||
   grep -Fq 'GET, POST, PUT, PATCH, HEAD, OPTIONS, DELETE, CONNECT, TRACE' \
-    "${gin_routergroup}" 2>/dev/null || \
+    "${gin_routergroup}" 2>/dev/null ||
   fail "unable to verify Gin Any method expansion"
 
 runtime_dir="$(mktemp -d "${TMPDIR:-/tmp}/lmm-go-route-inventory.XXXXXX")"
@@ -67,9 +67,9 @@ trap 'rm -rf "${runtime_dir}"' EXIT
 
 while IFS= read -r relative_path; do
   case "${relative_path}" in
-    "") mcp_path="/mcp" ;;
-    "/") mcp_path="/mcp/" ;;
-    *) fail "unexpected MCP Any relative path: ${relative_path}" ;;
+  "") mcp_path="/mcp" ;;
+  "/") mcp_path="/mcp/" ;;
+  *) fail "unexpected MCP Any relative path: ${relative_path}" ;;
   esac
   for method in "${any_methods[@]}"; do
     printf '%s\t%s\t%s\n' "${method}" "${mcp_path}" 'gin.RouterGroup.Any' \
@@ -106,7 +106,7 @@ LC_ALL=C awk -F '\t' '
 
 inventory_count="$(<"${runtime_dir}/inventory-count")"
 ledger_count="$(wc -l <"${legacy_manifest}" | tr -d ' ')"
-[[ "${ledger_count}" -eq 353 ]] || \
+[[ "${ledger_count}" -eq 353 ]] ||
   fail "frozen ledger contains ${ledger_count} rows; expected 353"
 
 cut -f1-2 "${runtime_dir}/manifest-with-mcp.tsv" | LC_ALL=C sort -u >"${runtime_dir}/inventory-identities"
@@ -132,7 +132,7 @@ for required_identity in \
   $'GET\t/api/open-source-bounties/mcp-token' \
   $'POST\t/api/open-source-bounties/mcp-token' \
   $'DELETE\t/api/open-source-bounties/mcp-token'; do
-  grep -Fqx -- "${required_identity}" "${runtime_dir}/inventory-identities" || \
+  grep -Fqx -- "${required_identity}" "${runtime_dir}/inventory-identities" ||
     fail "authoritative inventory is missing required registration: ${required_identity//$'\t'/ }"
 done
 
@@ -142,7 +142,7 @@ done
 for method in HEAD OPTIONS; do
   count="$(awk -v method="${method}" '$1 == method { count++ } END { print count + 0 }' \
     "${runtime_dir}/manifest-with-mcp.tsv")"
-  [[ "${count}" -eq "${#mcp_relative_paths[@]}" ]] || \
+  [[ "${count}" -eq "${#mcp_relative_paths[@]}" ]] ||
     fail "${method} inventory count ${count} does not match MCP Any registrations ${#mcp_relative_paths[@]}"
 done
 

@@ -164,7 +164,15 @@ func ApplyPaymentRefund(
 				return ErrPaymentRefundOrderConflict
 			}
 			alreadyApplied := ledgerExists && order.RefundedAmountMicros > 0
-			paidMicros := moneyToMicros(order.Money)
+			paidMicros := order.ExpectedAmountMicros
+			if paidMicros <= 0 {
+				// Legacy fallback only. New subscription orders snapshot the real
+				// provider amount independently from their plan list currency.
+				paidMicros = moneyToMicros(order.Money)
+			}
+			if expectedCurrency := strings.ToUpper(strings.TrimSpace(order.SettlementCurrency)); expectedCurrency != "" && expectedCurrency != currency {
+				return fmt.Errorf("%w: subscription refund currency mismatch", ErrPaymentEvidenceConflict)
+			}
 			if paidMicros > 0 && !alreadyApplied {
 				remaining := paidMicros - order.RefundedAmountMicros
 				if remaining < 0 || appliedAmount > remaining {

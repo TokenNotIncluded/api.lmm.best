@@ -258,25 +258,15 @@ export function WaffoSettingsSection({
           </div>
         </div>
 
-        <div className='grid grid-cols-3 gap-4'>
+        <div className='grid grid-cols-2 gap-4'>
           <div className='grid gap-1.5'>
-            <Label>{t('Currency')}</Label>
-            <Input value={values.WaffoCurrency} disabled />
-          </div>
-          <div className='grid gap-1.5'>
-            <Label>{t('Unit price (USD)')}</Label>
-            <Input
-              type='number'
-              step={0.1}
-              min={0}
-              value={values.WaffoUnitPrice}
-              onChange={(event) =>
-                onValueChange(
-                  'WaffoUnitPrice',
-                  event.target.value === '' ? 0 : event.target.valueAsNumber
-                )
-              }
-            />
+            <Label>{t('Settlement currency')}</Label>
+            <Input value='USD' disabled />
+            <p className='text-muted-foreground text-xs'>
+              {t(
+                'Waffo always settles in real USD; configure CNY/USD and the wallet recharge ratio in Currency & Display.'
+              )}
+            </p>
           </div>
           <div className='grid gap-1.5'>
             <Label>{t('Minimum top-up quantity')}</Label>

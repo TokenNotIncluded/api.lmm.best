@@ -102,6 +102,8 @@ func migrateTokenControllerTestDB(t *testing.T, db *gorm.DB) {
 	if err := db.AutoMigrate(
 		&model.User{},
 		&model.Token{},
+		&model.SubscriptionOrder{},
+		&model.SubscriptionPaymentEvent{},
 		&model.AssistantConversation{},
 		&model.AssistantHistoryMessage{},
 		&model.AssistantSecureCard{},

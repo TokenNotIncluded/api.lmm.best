@@ -207,12 +207,14 @@ export function SubscriptionsMutateDrawer({
     }
   }
 
-  // Mints a Pancake OnetimeProduct (not SubscriptionProduct — see
-  // controller) using persisted creds + the form's title/price, then
-  // pins the returned PROD_ ID into the form field.
+  // Mints a recurring Pancake SubscriptionProduct using the form's explicit
+  // fiat price and exact local cadence, then pins the returned PROD_ ID.
   const handleCreatePancakeProduct = async () => {
     const title = form.getValues('title').trim()
     const priceAmount = Number(form.getValues('price_amount') || 0)
+    const currency = form.getValues('currency')
+    const durationUnit = form.getValues('duration_unit')
+    const durationValue = Number(form.getValues('duration_value') || 0)
     if (!title) {
       toast.error(t('Plan title is required'))
       return
@@ -226,6 +228,9 @@ export function SubscriptionsMutateDrawer({
       const res = await createWaffoPancakeSubscriptionProduct({
         name: title,
         amount: priceAmount.toFixed(2),
+        currency,
+        duration_unit: durationUnit,
+        duration_value: durationValue,
       })
       if (
         res.message === 'success' &&
@@ -345,7 +350,7 @@ export function SubscriptionsMutateDrawer({
                 )}
               />
 
-              <div className='grid grid-cols-1 gap-3 sm:grid-cols-2'>
+              <div className='grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3'>
                 <FormField
                   control={form.control}
                   name='price_amount'
@@ -367,7 +372,37 @@ export function SubscriptionsMutateDrawer({
                       </FormControl>
                       <FormDescription>
                         {t(
-                          'Amount the user pays to purchase this plan; the actual currency depends on the payment gateway.'
+                          'Real fiat list price; gateways convert it to their settlement currency and wallet payments debit the equivalent platform units.'
+                        )}
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name='currency'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t('Plan Price Currency')}</FormLabel>
+                      <Select
+                        value={field.value}
+                        onValueChange={field.onChange}
+                      >
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value='CNY'>CNY · 人民币</SelectItem>
+                          <SelectItem value='USD'>USD</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <FormDescription>
+                        {t(
+                          'This is real fiat, not the dollar-like platform balance unit.'
                         )}
                       </FormDescription>
                       <FormMessage />

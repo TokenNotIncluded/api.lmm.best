@@ -167,6 +167,19 @@ impl WaffoPancakeGateway for Pancake {
     ) -> Result<Value, ()> {
         Ok(json!("product-fixture"))
     }
+
+    async fn create_subscription_product(
+        &self,
+        _: &str,
+        _: &str,
+        _: &str,
+        _: &str,
+        _: &str,
+        _: &str,
+        _: &str,
+    ) -> Result<Value, ()> {
+        Ok(json!("subscription-product-fixture"))
+    }
 }
 
 #[async_trait]
@@ -189,6 +202,19 @@ impl WaffoPancakeGateway for CatalogProbe {
 
     async fn create_product(
         &self,
+        _: &str,
+        _: &str,
+        _: &str,
+        _: &str,
+        _: &str,
+        _: &str,
+    ) -> Result<Value, ()> {
+        Err(())
+    }
+
+    async fn create_subscription_product(
+        &self,
+        _: &str,
         _: &str,
         _: &str,
         _: &str,
