@@ -20,6 +20,17 @@ func TestDispatchShouldServeWhenNoCommandIsProvided(t *testing.T) {
 	}
 }
 
+func TestDispatchShouldRejectUnknownFlagsWithoutStartingServer(t *testing.T) {
+	var stderr bytes.Buffer
+	result := Dispatch([]string{"--port", "3100"}, "1.2.3", io.Discard, &stderr)
+	if result.Mode == ModeServe || result.ExitCode != ExitUsage {
+		t.Fatalf("Dispatch() = %#v, want usage error without server mode", result)
+	}
+	if !strings.Contains(stderr.String(), `unknown command "--port"`) {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
+
 func TestDispatchShouldStripServeCommandFromServerArguments(t *testing.T) {
 	result := Dispatch([]string{"serve", "--port", "3100"}, "1.2.3", io.Discard, io.Discard)
 	if result.Mode != ModeServe || strings.Join(result.ServeArgs, " ") != "--port 3100" {

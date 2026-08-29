@@ -6,7 +6,6 @@ package appcli
 import (
 	"fmt"
 	"io"
-	"strings"
 )
 
 const (
@@ -65,11 +64,8 @@ func Dispatch(args []string, version string, stdout, stderr io.Writer) Result {
 		WriteUsage(stdout)
 		return Result{ExitCode: ExitOK}
 	default:
-		// Server flags may be passed without spelling out the optional serve
-		// command. Unknown words fail instead of starting a service unexpectedly.
-		if strings.HasPrefix(command, "-") {
-			return Result{Mode: ModeServe, ServeArgs: append([]string(nil), args...)}
-		}
+		// The service unit spells out `serve`; unknown flags must never start a
+		// backend process as a side effect of a mistyped client command.
 		_, _ = fmt.Fprintf(stderr, "%s: unknown command %q\n", ProgramName, command)
 		WriteUsage(stderr)
 		return Result{ExitCode: ExitUsage}

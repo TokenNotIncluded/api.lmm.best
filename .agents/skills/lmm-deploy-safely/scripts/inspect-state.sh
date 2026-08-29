@@ -4,7 +4,6 @@ set -euo pipefail
 umask 077
 
 readonly HOST_PATTERN='^[A-Za-z0-9][A-Za-z0-9.-]{0,252}$'
-readonly BACKEND_ASSIGNMENT_PATTERN="^[[:space:]]*(export[[:space:]]+)?LMM_API_BACKEND[[:space:]]*=[[:space:]]*['\"]?(go|rs)['\"]?[[:space:]]*$"
 readonly DSN_ASSIGNMENT_PATTERN="^[[:space:]]*(export[[:space:]]+)?(SQL_DSN|DATABASE_URL|DB_DSN|DATABASE_DSN)[[:space:]]*=[[:space:]]*['\"]?([^'\"[:space:]]+)"
 readonly SQLITE_ASSIGNMENT_PATTERN="^[[:space:]]*(export[[:space:]]+)?(SQLITE_PATH|SQLITE_FILE|SQLITE_DATABASE)[[:space:]]*=[[:space:]]*['\"]?[^'\"[:space:]]+"
 
@@ -98,25 +97,31 @@ safe_release_identity() {
 }
 
 read_backend_selection() {
-  local file=$1
-  local line value
-  local found=''
+  local link=$1 target provider
 
-  [[ -f $file && ! -L $file ]] || {
-    printf 'unknown\n'
-    return
-  }
-  while IFS= read -r line || [[ -n $line ]]; do
-    if [[ $line =~ $BACKEND_ASSIGNMENT_PATTERN ]]; then
-      value=${BASH_REMATCH[2]}
-      if [[ -n $found && $found != "$value" ]]; then
-        printf 'disagreement\n'
-        return
-      fi
-      found=$value
+  if [[ -L $link ]]; then
+    target=$(readlink -- "$link") || {
+      printf 'unsafe\n'
+      return
+    }
+    case "$target" in
+      lmm-api-go) provider=go ;;
+      lmm-api-rs) provider=rust ;;
+      *) printf 'unsafe\n'; return ;;
+    esac
+    target=$(rooted "/usr/bin/$target")
+    if [[ ! -f $target || -L $target || ! -x $target ]]; then
+      printf 'unsafe\n'
+      return
     fi
-  done < "$file"
-  printf '%s\n' "${found:-unknown}"
+    printf '%s\n' "$provider"
+  elif [[ -f $link ]]; then
+    printf 'legacy-regular\n'
+  elif [[ -e $link ]]; then
+    printf 'unsafe\n'
+  else
+    printf 'missing\n'
+  fi
 }
 
 read_kv_token() {
@@ -395,7 +400,7 @@ if [[ -n $expected_host && $expected_host != "$observed_host" ]]; then
 fi
 
 db_engine=$(classify_database)
-backend_selection=$(read_backend_selection "$(rooted /etc/lmm-api/backend.conf)")
+backend_selection=$(read_backend_selection "$(rooted /usr/bin/lmm-api)")
 package_id=$(package_identity)
 service=$(service_state)
 frontend_release=$(safe_release_identity "$(rooted /srv/lmm-api-frontend/current)")
@@ -403,18 +408,18 @@ cutover_state=$(read_cutover_state "$db_engine")
 
 declare -a keys=(
   role observed_host expected_host host_match db_engine backend_selection package_identity service_state
-  launcher_present selector_present backend_config_present app_config_present service_unit_present
-  go_backend_present rust_backend_present frontend_root_present frontend_current_present
+  public_cli_present provider_link_state app_config_present service_unit_present
+  go_provider_present rust_provider_present frontend_root_present frontend_current_present
   frontend_release cutover_state pg_write_boundary_present cutover_journal_present
   post_cutover_verify_present deploy_work_root_present staging_root_present backup_root_present
 )
 declare -a values=(
   "$role" "$observed_host" "${expected_host:-none}" "$host_match" "$db_engine" "$backend_selection" "$package_id" "$service"
-  "$(present "$(rooted /usr/bin/lmm-api-go)")" "$(present "$(rooted /usr/bin/lmm-api-select)")" \
-  "$(present "$(rooted /etc/lmm-api/backend.conf)")" "$(present "$(rooted /etc/lmm-api-go/lmm-api-go.env)")" \
+  "$(present "$(rooted /usr/bin/lmm-api)")" "$backend_selection" \
+  "$(present "$(rooted /etc/lmm-api-go/lmm-api-go.env)")" \
   "$(present "$(rooted /usr/lib/systemd/system/lmm-api.service)")" \
-  "$(present "$(rooted /usr/bin/lmm-api)")" \
-  "$(present "$(rooted /usr/lib/lmm-api/backends/rs/lmm-api-rs)")" \
+  "$(present "$(rooted /usr/bin/lmm-api-go)")" \
+  "$(present "$(rooted /usr/bin/lmm-api-rs)")" \
   "$(present "$(rooted /srv/lmm-api-frontend)")" "$(present "$(rooted /srv/lmm-api-frontend/current)")" \
   "$frontend_release" "$cutover_state" \
   "$(present "$(rooted /var/lib/lmm-api-cutover/pg-write-boundary)")" \
