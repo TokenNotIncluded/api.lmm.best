@@ -6,6 +6,7 @@ import (
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
 
 func TestBatchQuotaAccumulatorNeverWraps(t *testing.T) {
@@ -58,6 +59,21 @@ func TestQuotaReserveFallsBackToConditionalDatabaseBalance(t *testing.T) {
 	var stored User
 	require.NoError(t, DB.First(&stored, user.Id).Error)
 	require.Equal(t, 40, stored.Quota)
+}
+
+func TestTryReserveUserQuotaDistinguishesMissingUser(t *testing.T) {
+	truncateTables(t)
+	previousRedis := common.RedisEnabled
+	common.RedisEnabled = false
+	t.Cleanup(func() { common.RedisEnabled = previousRedis })
+
+	reserved, err := TryReserveUserQuota(987654, 0)
+	require.False(t, reserved)
+	require.ErrorIs(t, err, gorm.ErrRecordNotFound)
+
+	reserved, err = TryReserveUserQuota(987654, 1)
+	require.False(t, reserved)
+	require.ErrorIs(t, err, gorm.ErrRecordNotFound)
 }
 
 func TestQuotaReserveRejectsStaleHighRedisBalance(t *testing.T) {

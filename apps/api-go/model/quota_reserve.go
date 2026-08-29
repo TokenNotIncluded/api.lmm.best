@@ -175,7 +175,20 @@ func reserveUserQuotaDB(id int, quota int) (bool, error) {
 		DB.Model(&User{}).Where("id = ? AND quota >= ?", id, quota),
 		-quota,
 	)
-	return result.RowsAffected == 1, result.Error
+	if result.Error != nil {
+		return false, result.Error
+	}
+	if result.RowsAffected == 1 {
+		return true, nil
+	}
+	current, err := currentWalletQuota(DB, id)
+	if err != nil {
+		return false, err
+	}
+	if err := common.ValidateWalletQuota(current); err != nil {
+		return false, ErrWalletQuotaOutOfRange
+	}
+	return false, nil
 }
 
 func reserveTokenQuotaDB(id int, quota int) (bool, error) {
@@ -201,7 +214,8 @@ func TryReserveUserQuota(id int, quota int) (bool, error) {
 		return false, err
 	}
 	if quota == 0 {
-		return true, nil
+		_, err := currentWalletQuota(DB, id)
+		return err == nil, err
 	}
 	reserved, err := reserveUserQuotaDB(id, quota)
 	if err != nil {
