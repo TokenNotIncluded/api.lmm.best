@@ -12,14 +12,14 @@ optdepends=(
   'postgresql: production database'
   'valkey: cache, rate limiting, and login sessions'
 )
-source "${startdir:?}/lmm-api-cli-phase.sh"
-lmm_go_provider_apply_metadata "$pkgver" "$pkgname" \
+source "${startdir:?}/lmm-api-go-package.sh"
+lmm_go_package_apply_metadata "$pkgver" "$pkgname" \
   'lmm-api-go' 'lmm-api-go-bin' 'lmm-api-go-git'
 backup=('etc/lmm-api-go/lmm-api-go.env')
 options=('!strip')
 source=(
   lmm-api-go
-  lmm-api-cli-phase.sh
+  lmm-api-go-package.sh
   frontend-dist.tar
   lmm-api.service
   lmm-api-go.env
@@ -38,7 +38,7 @@ source=(
   geoip2-country-update.service
   geoip2-country-update.timer
 )
-sha256sums=('SKIP' 'aec051c3b12a86a228f92651865e16b309f36a9071dcf02e28edd9e18d3b4e19' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
+sha256sums=('SKIP' '655e9346a6d87baa1cb81d97dcc412243d7ee305f90371b99d89033ea0e99bb1' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
 
 prepare() {
   install -d -m0755 "${srcdir}/frontend-dist"
@@ -49,7 +49,7 @@ package() {
   local file
 
   install -Dm0755 "${srcdir}/lmm-api-go" "${pkgdir}/usr/bin/lmm-api-go"
-  lmm_go_provider_assert_payload "$pkgdir"
+  lmm_go_package_assert_payload "$pkgdir" "$pkgname" "$pkgver"
   install -Dm0644 "${srcdir}/lmm-api.service" \
     "${pkgdir}/usr/lib/systemd/system/lmm-api.service"
   install -Dm0644 "${srcdir}/lmm-api-operator.sysusers" \

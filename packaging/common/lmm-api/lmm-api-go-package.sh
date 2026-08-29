@@ -15,7 +15,7 @@ lmm_go_package_apply_metadata() {
   local variant
 
   if lmm_go_package_is_verified_legacy "$current_package" "$version"; then
-    provides=("lmm-api=${version}" "lmm-api-go=${version}")
+    provides=("lmm-api=${version}" "lmm-api-go=${version}" 'lmm-api-provider')
     conflicts=('lmm-api' 'lmm-api-bin' 'lmm-api-git' 'lmm-api-go' 'lmm-api-go-git')
     replaces=()
     return 0

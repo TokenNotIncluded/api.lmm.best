@@ -39,22 +39,22 @@ for removed in backend.conf lmm-api.install lmm-api-go.service lmm-api.env lmm-a
   [[ ! -e $SHARED/$removed ]] || die "removed launcher/provider asset remains: $removed"
 done
 
-CLI_PHASE_HELPER=$(realpath -e "$SHARED/lmm-api-cli-phase.sh")
-readonly CLI_PHASE_HELPER
-readonly CLI_PHASE_HELPER_SHA256=aec051c3b12a86a228f92651865e16b309f36a9071dcf02e28edd9e18d3b4e19
-[[ -f $CLI_PHASE_HELPER && ! -L $CLI_PHASE_HELPER ]] || die 'canonical Go provider helper is missing'
-grep -Fqx 'readonly LMM_GO_LEGACY_MIGRATION_VERSION=0.1.69' "$CLI_PHASE_HELPER" ||
-  die 'Go provider helper lost the explicit N-1 migration boundary'
-[[ $(sha256sum "$CLI_PHASE_HELPER") == "$CLI_PHASE_HELPER_SHA256  $CLI_PHASE_HELPER" ]] ||
-  die 'canonical CLI phase helper digest changed without updating package pins'
+GO_PACKAGE_HELPER=$(realpath -e "$SHARED/lmm-api-go-package.sh")
+readonly GO_PACKAGE_HELPER
+readonly GO_PACKAGE_HELPER_SHA256=655e9346a6d87baa1cb81d97dcc412243d7ee305f90371b99d89033ea0e99bb1
+[[ -f $GO_PACKAGE_HELPER && ! -L $GO_PACKAGE_HELPER ]] || die 'canonical Go package helper is missing'
+grep -Fqx 'readonly LMM_GO_VERIFIED_LEGACY_VERSION=0.1.69' "$GO_PACKAGE_HELPER" ||
+  die 'Go package helper lost the explicit N-1 migration boundary'
+[[ $(sha256sum "$GO_PACKAGE_HELPER") == "$GO_PACKAGE_HELPER_SHA256  $GO_PACKAGE_HELPER" ]] ||
+  die 'canonical Go package helper digest changed without updating package pins'
 for package in lmm-api-go lmm-api-go-bin lmm-api-go-git; do
-  helper="$HERE/$package/lmm-api-cli-phase.sh"
-  [[ -L $helper && $(realpath -e "$helper") == "$CLI_PHASE_HELPER" ]] ||
-    die "$package does not use the canonical CLI phase helper"
+  helper="$HERE/$package/lmm-api-go-package.sh"
+  [[ -L $helper && $(realpath -e "$helper") == "$GO_PACKAGE_HELPER" ]] ||
+    die "$package does not use the canonical Go package helper"
 done
-local_helper="$HERE/../local/lmm-api-go/lmm-api-cli-phase.sh"
-[[ -L $local_helper && $(realpath -e "$local_helper") == "$CLI_PHASE_HELPER" ]] ||
-  die 'local Go package does not use the canonical CLI phase helper'
+local_helper="$HERE/../local/lmm-api-go/lmm-api-go-package.sh"
+[[ -L $local_helper && $(realpath -e "$local_helper") == "$GO_PACKAGE_HELPER" ]] ||
+  die 'local Go package does not use the canonical Go package helper'
 for script in check-candidate-version.sh export-go-package-base.sh test-export-go-package-base.sh; do
   bash -n "$HERE/$script"
 done
@@ -71,15 +71,18 @@ for package in "${PACKAGES[@]}"; do
   cmp -s <(printf '%s\n' "$srcinfo") "$HERE/$package/.SRCINFO" ||
     die "$package .SRCINFO is stale"
   contains_srcinfo "$package" $'pkgbase = '"$package"
-  if grep -Fq $'\tdepends = lmm-api' "$HERE/$package/.SRCINFO"; then
+  if grep -Fqx $'\tdepends = lmm-api' "$HERE/$package/.SRCINFO"; then
     die "$package retains the removed shared launcher dependency"
   fi
 done
 
 for package in lmm-api-go lmm-api-go-bin lmm-api-go-git; do
   contains_srcinfo_prefix "$package" $'\tprovides = lmm-api-go'
+  contains_srcinfo "$package" $'\tprovides = lmm-api-provider'
   contains_srcinfo "$package" $'\tbackup = etc/lmm-api-go/lmm-api-go.env'
-  if grep -Eq $'^\t(provides|conflicts|replaces) = lmm-api($|=)|^\t(conflicts|replaces) = lmm-api-(bin|git|deploy)' \
+  if [[ $package == lmm-api-go-bin && $(sed -n 's/^pkgver=//p' "$HERE/$package/PKGBUILD") == 0.1.69 ]]; then
+    contains_srcinfo_prefix "$package" $'\tprovides = lmm-api='
+  elif grep -Eq $'^\t(provides|conflicts|replaces) = lmm-api($|=)|^\t(conflicts|replaces) = lmm-api-(bin|git|deploy)' \
       "$HERE/$package/.SRCINFO"; then
     die "$package claims a generic/core/deploy package identity"
   fi
@@ -95,8 +98,8 @@ done
 declare -a conflicts replaces provides
 (
   # shellcheck disable=SC1090
-  source "$CLI_PHASE_HELPER"
-  lmm_go_provider_apply_metadata 999.0.0 lmm-api-go-bin \
+  source "$GO_PACKAGE_HELPER"
+  lmm_go_package_apply_metadata 999.0.0 lmm-api-go-bin \
     lmm-api-go lmm-api-go-bin lmm-api-go-git
   [[ " ${provides[*]} " == *' lmm-api-go=999.0.0 '* ]] || die 'provider capability is missing'
   [[ " ${conflicts[*]} " == *' lmm-api-go '* && " ${conflicts[*]} " == *' lmm-api-go-git '* ]] ||
@@ -111,15 +114,13 @@ contains_srcinfo_prefix lmm-api-rs-git $'\tprovides = lmm-api-rs'
 contains_srcinfo lmm-api-rs-git $'\tconflicts = lmm-api-rs-bin'
 
 
-for package in lmm-api-go-bin; do
-  pkgbuild="$HERE/$package/PKGBUILD"
-  grep -Fq 'cosign verify-blob' "$pkgbuild" || die "$package lacks Sigstore verification"
-  grep -Fq 'sha256sum' "$pkgbuild" || die "$package lacks SHA-256 verification"
-  grep -Fq 'noextract=(' "$pkgbuild" || die "$package extracts before verification"
-  if grep -Eq '(^|[[:space:]])(go|bun|cargo)([[:space:]]|$)' "$pkgbuild"; then
-    die "$package invokes a project compiler"
-  fi
-done
+pkgbuild="$HERE/lmm-api-go-bin/PKGBUILD"
+grep -Fq 'cosign verify-blob' "$pkgbuild" || die 'lmm-api-go-bin lacks Sigstore verification'
+grep -Fq 'sha256sum' "$pkgbuild" || die 'lmm-api-go-bin lacks SHA-256 verification'
+grep -Fq 'noextract=(' "$pkgbuild" || die 'lmm-api-go-bin extracts before verification'
+if grep -Eq '(^|[[:space:]])(go|bun|cargo)([[:space:]]|$)' "$pkgbuild"; then
+  die 'lmm-api-go-bin invokes a project compiler'
+fi
 # shellcheck disable=SC2016 # Deliberately inspect PKGBUILD source literals.
 grep -Fq '_release_tag="go-v${pkgver}"' "$HERE/lmm-api-go-bin/PKGBUILD" ||
   die 'Go binary package does not use the independent Go release tag'
@@ -132,14 +133,13 @@ grep -Fq 'cosign verify-blob' "$pkgbuild" || die 'lmm-api-web-bin lacks Sigstore
 grep -Fq 'sha256sum' "$pkgbuild" || die 'lmm-api-web-bin lacks SHA-256 verification'
 grep -Fq 'noextract=(' "$pkgbuild" || die 'lmm-api-web-bin extracts before verification'
 contains_srcinfo_prefix lmm-api-web-bin $'\tprovides = lmm-api-web'
-grep -Fq 'systemctl reload nginx.service' "$HERE/lmm-api-web-bin/lmm-api-web-activate" ||
-  die 'web package activation does not reload nginx'
-if grep -Eq '(^|[[:space:]])curl([[:space:]]|$)' "$HERE/lmm-api-web-bin/lmm-api-web-activate"; then
-  die 'web package activation performs a network probe inside the package transaction'
-fi
-if grep -Eq 'systemctl (restart|reload) lmm-api' "$HERE/lmm-api-web-bin/lmm-api-web-activate"; then
-  die 'web package activation controls the backend service'
-fi
+contains_srcinfo lmm-api-web-bin $'\tdepends = lmm-api-provider'
+[[ ! -e $HERE/lmm-api-web-bin/lmm-api-web-activate && ! -L $HERE/lmm-api-web-bin/lmm-api-web-activate ]] ||
+  die 'Web package retains a shell activation wrapper'
+# shellcheck disable=SC2016 # Deliberately inspect the literal package-hook argument.
+grep -Fq '/usr/bin/lmm-api deploy frontend package-activate --package-version "$1"' \
+  "$HERE/lmm-api-web-bin/lmm-api-web.install" ||
+  die 'Web package install hook does not use the public backend CLI'
 web_release_workflow="$ROOT/.github/workflows/release-web.yml"
 [[ -f $web_release_workflow ]] || die 'web release workflow is missing'
 grep -Fq '  workflow_dispatch:' "$web_release_workflow" ||
@@ -203,115 +203,8 @@ tmp=$(mktemp -d "$TMPDIR/lmm-aur-matrix.XXXXXXXX")
 cleanup() { rm -rf -- "$tmp"; }
 trap cleanup EXIT
 
-stage="$tmp/stage"
-go_bin_pkgver=$(sed -n 's/^pkgver=//p' "$HERE/lmm-api-go-bin/PKGBUILD")
-[[ $go_bin_pkgver =~ ^[0-9]+(\.[0-9]+)*$ ]] || die 'Go binary package version is not fixture-safe'
-go_bundle="$stage/go/lmm-api-go-${go_bin_pkgver}-linux-amd64"
-go_next_bundle="$stage/go-next/lmm-api-go-${go_bin_pkgver}-linux-amd64"
-mkdir -p "$go_bundle/frontend-dist" "$go_bundle/edge-policy/nginx" \
-  "$go_next_bundle/edge-policy/nginx"
-printf '#!/bin/sh\n' >"$go_bundle/lmm-api"
-printf '#!/bin/sh\n' >"$go_next_bundle/lmm-api-go"
-chmod 0755 "$go_bundle/lmm-api" "$go_next_bundle/lmm-api-go"
-printf '<!doctype html>\n' >"$go_bundle/frontend-dist/index.html"
-for bundle in "$go_bundle" "$go_next_bundle"; do
-  cp "$SHARED/lmm-api.service" "$SHARED/lmm-api-go.env" "$bundle/"
-  for file in http-map.conf lmm-api-locations.conf mime.types new-api.conf lmm-api-region-policy.conf; do
-    printf 'fixture\n' >"$bundle/edge-policy/nginx/$file"
-  done
-  for file in geoip2-country-update.service geoip2-country-update.timer; do
-    printf 'fixture\n' >"$bundle/edge-policy/$file"
-  done
-done
-cp "$SHARED/lmm-api-memory.conf" "$go_next_bundle/lmm-api-memory.conf"
-cp "$SHARED/lmm-api-operator.sysusers" "$SHARED/lmm-api-operator.tmpfiles" \
-  "$SHARED/lmm-api-operator.sudoers" "$go_next_bundle/"
-contract_revision=$(sha256sum "$ROOT/contracts/api-route/VERSION")
-contract_revision=${contract_revision%% *}
-printf '%s\n' "$contract_revision" >"$go_next_bundle/API_ROUTE_CONTRACT_REVISION"
-for bundle in "$go_bundle" "$go_next_bundle"; do
-  for file in LICENSE NOTICE THIRD-PARTY-LICENSES.md; do
-    printf 'fixture\n' >"$bundle/$file"
-  done
-  printf '%040d\n' 0 >"$bundle/REVISION"
-done
-printf 'fixture archive\n' >"$stage/go/lmm-api-go-${go_bin_pkgver}-linux-amd64.tar.gz"
-printf 'fixture archive\n' >"$stage/go-next/lmm-api-go-${go_bin_pkgver}-linux-amd64.tar.gz"
-
-(
-  CARCH=x86_64
-  startdir="$HERE/lmm-api-go-bin"
-  srcdir="$stage/go"
-  pkgdir="$tmp/pkg-go-legacy"
-  # shellcheck disable=SC1091
-  source "$HERE/lmm-api-go-bin/PKGBUILD"
-  # Exercise the retained bundled-frontend branch independently of which
-  # immutable release the canonical prebuilt package currently pins.
-  _legacy_bundled_version=$pkgver
-  package
-)
-(
-  CARCH=x86_64
-  startdir="$HERE/lmm-api-go-bin"
-  srcdir="$stage/go-next"
-  pkgdir="$tmp/pkg-go-next"
-  # shellcheck disable=SC1091
-  source "$HERE/lmm-api-go-bin/PKGBUILD"
-  pkgver=999.0.0
-  package
-)
-web_src="$stage/web"
-web_pkgver=$(sed -n 's/^pkgver=//p' "$HERE/lmm-api-web-bin/PKGBUILD")
-[[ $web_pkgver =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die 'canonical Web package has an invalid version'
-mkdir -p "$web_src/dist"
-printf '<!doctype html>\n' >"$web_src/dist/index.html"
-cp "$HERE/lmm-api-web-bin/lmm-api-web-activate" "$web_src/lmm-api-web-activate.local"
-cp "$ROOT/deploy/frontend-release.sh" "$web_src/"
-chmod 0755 "$web_src/lmm-api-web-activate.local" "$web_src/frontend-release.sh"
-for file in LICENSE NOTICE THIRD-PARTY-LICENSES.md; do printf 'fixture\n' >"$web_src/$file"; done
-printf '%040d\n' 0 >"$web_src/REVISION"
-printf '%s\n' "$contract_revision" >"$web_src/API_ROUTE_CONTRACT_REVISION"
-printf 'fixture archive\n' >"$web_src/lmm-api-web-${web_pkgver}.tar.gz"
-(
-  srcdir="$web_src"
-  pkgdir="$tmp/pkg-web-next"
-  # shellcheck disable=SC1091
-  source "$HERE/lmm-api-web-bin/PKGBUILD"
-  pkgver=999.0.0
-  package
-)
-
-for packaged_path in \
-  pkg-go-legacy/usr/bin/lmm-api-go \
-  pkg-go-legacy/usr/lib/systemd/system/lmm-api.service \
-  pkg-go-legacy/etc/lmm-api-go/lmm-api-go.env \
-  pkg-go-legacy/usr/share/lmm-api-go/frontend-dist/index.html \
-  pkg-go-next/usr/bin/lmm-api-go \
-  pkg-go-next/usr/lib/systemd/system/lmm-api.service.d/20-memory.conf \
-  pkg-go-next/usr/lib/sysusers.d/lmm-api-operator.conf \
-  pkg-go-next/usr/lib/tmpfiles.d/lmm-api-operator.conf \
-  pkg-go-next/etc/sudoers.d/lmm-api-operator \
-  pkg-go-next/usr/share/doc/lmm-api-go-bin/API_ROUTE_CONTRACT_REVISION \
-  pkg-go-next/usr/share/doc/lmm-api-go-bin/RELEASE_ASSET_SHA256 \
-  pkg-go-next/usr/share/lmm-api-go/edge-policy/nginx/http-map.conf \
-  pkg-web-next/usr/share/lmm-api-web/frontend-dist/index.html \
-  pkg-web-next/usr/share/doc/lmm-api-web-bin/API_ROUTE_CONTRACT_REVISION \
-  pkg-web-next/usr/share/doc/lmm-api-web-bin/RELEASE_ASSET_SHA256; do
-  [[ -f $tmp/$packaged_path && ! -L $tmp/$packaged_path ]] || die "mock package layout is missing a real file: $packaged_path"
-done
-for root in pkg-go-legacy pkg-go-next; do
-  [[ ! -e $tmp/$root/usr/bin/lmm-api && ! -L $tmp/$root/usr/bin/lmm-api ]] ||
-    die "$root package owns the canonical provider-selection link"
-  [[ $(find "$tmp/$root/usr/bin" -mindepth 1 -maxdepth 1 -printf '%f\n') == lmm-api-go ]] ||
-    die "$root package exposes a non-provider backend payload"
-done
-[[ $(stat -c '%a' "$tmp/pkg-go-next/etc/sudoers.d/lmm-api-operator") == 440 ]] ||
-  die 'integrated operator sudoers policy mode is not 0440'
-visudo -cf "$tmp/pkg-go-next/etc/sudoers.d/lmm-api-operator" >/dev/null ||
-  die 'integrated operator sudoers policy fails visudo validation'
-sudoers="$tmp/pkg-go-next/etc/sudoers.d/lmm-api-operator"
-cmp -s "$sudoers" "$SHARED/lmm-api-operator.sudoers" ||
-  die 'integrated operator sudoers policy differs from the shared policy'
+sudoers="$SHARED/lmm-api-operator.sudoers"
+visudo -cf "$sudoers" >/dev/null || die 'operator sudoers policy fails visudo validation'
 go_pacman_regex='^--upgrade --noconfirm -- /var/lib/lmm-api-go-deploy/work/[A-Za-z0-9][A-Za-z0-9._-]{0,79}/staging/lmm-api-go-bin-[A-Za-z0-9][A-Za-z0-9._+@~-]*\.pkg\.tar\.(zst|xz|gz|bz2|lz4|lrz|lzo|Z)$'
 web_pacman_regex='^--upgrade --noconfirm -- /var/lib/lmm-api-go-deploy/work/[A-Za-z0-9][A-Za-z0-9._-]{0,79}/staging/lmm-api-web-bin-[A-Za-z0-9][A-Za-z0-9._+@~-]*\.pkg\.tar\.(zst|xz|gz|bz2|lz4|lrz|lzo|Z)$'
 grep -Fqx "lmm-api-deploy ALL=(root) NOPASSWD: /usr/bin/pacman $go_pacman_regex" "$sudoers" ||
@@ -331,11 +224,11 @@ for rejected in \
   '--upgrade --noconfirm -- /tmp/lmm-api-go-bin-1-1-x86_64.pkg.tar.zst'; do
   [[ ! $rejected =~ $go_pacman_regex && ! $rejected =~ $web_pacman_regex ]] || die "malicious pacman argv accepted: $rejected"
 done
-[[ ! -e $tmp/pkg-go-next/usr/share/lmm-api-go/frontend-dist ]] ||
-  die 'future Go package owns a bundled frontend'
+
 for pkgbuild in "$HERE/lmm-api-go/PKGBUILD" "$HERE/lmm-api-go-git/PKGBUILD" "$HERE/../local/lmm-api-go/PKGBUILD"; do
   grep -Fq 'usr/bin/lmm-api-go"' "$pkgbuild" || die "Go package omits real provider payload: $pkgbuild"
   if grep -Fq 'usr/bin/lmm-api"' "$pkgbuild"; then die "Go package owns canonical selection link: $pkgbuild"; fi
+  if grep -Fq 'CLI_TRANSITION_PHASE' "$pkgbuild"; then die "Go package retains CLI phase metadata: $pkgbuild"; fi
 done
 
 printf '%s\n' 'single-CLI Go, source-built Rust preview, and Web AUR matrix verified'

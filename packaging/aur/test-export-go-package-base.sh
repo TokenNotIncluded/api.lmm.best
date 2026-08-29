@@ -25,7 +25,7 @@ mkdir -p "$work/exported"
 for package in "${PACKAGES[@]}"; do
   destination="$work/exported/$package"
   "$EXPORTER" "$package" "$destination" >/dev/null
-  [[ -f $destination/lmm-api-cli-phase.sh && ! -L $destination/lmm-api-cli-phase.sh ]] ||
+  [[ -f $destination/lmm-api-go-package.sh && ! -L $destination/lmm-api-go-package.sh ]] ||
     fail "$package export did not materialize the shared helper"
   [[ -z $(find "$destination" -type l -print -quit) ]] || fail "$package export contains a symlink"
   generated=$(cd -- "$destination" && makepkg --printsrcinfo)
@@ -36,7 +36,7 @@ done
 fixture="$work/fixture"
 mkdir -p "$fixture/aur" "$fixture/common/lmm-api" "$fixture/output"
 cp "$EXPORTER" "$fixture/aur/export-go-package-base.sh"
-cp "$HERE/../common/lmm-api/lmm-api-cli-phase.sh" "$fixture/common/lmm-api/"
+cp "$HERE/../common/lmm-api/lmm-api-go-package.sh" "$fixture/common/lmm-api/"
 for package in "${PACKAGES[@]}"; do
   cp -a "$HERE/$package" "$fixture/aur/"
 done
@@ -51,8 +51,8 @@ grep -Fq 'unexpected package-base entry: external-link' "$work/unexpected-link.o
   fail 'unexpected external symlink rejection was not explicit'
 rm -- "$fixture/aur/lmm-api-go/external-link"
 
-rm -- "$fixture/aur/lmm-api-go/lmm-api-cli-phase.sh"
-ln -s /etc/passwd "$fixture/aur/lmm-api-go/lmm-api-cli-phase.sh"
+rm -- "$fixture/aur/lmm-api-go/lmm-api-go-package.sh"
+ln -s /etc/passwd "$fixture/aur/lmm-api-go/lmm-api-go-package.sh"
 if "$fixture/aur/export-go-package-base.sh" lmm-api-go "$fixture/output/escaped-helper" \
   >"$work/escaped-helper.out" 2>&1; then
   fail 'exporter accepted a helper symlink outside the canonical source'

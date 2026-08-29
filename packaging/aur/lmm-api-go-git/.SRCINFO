@@ -20,18 +20,15 @@ pkgbase = lmm-api-go-git
 	depends = util-linux
 	optdepends = postgresql: production database
 	optdepends = valkey: cache, rate limiting, and login sessions
-	provides = lmm-api
 	provides = lmm-api-go
-	conflicts = lmm-api
-	conflicts = lmm-api-bin
-	conflicts = lmm-api-git
+	provides = lmm-api-provider
 	conflicts = lmm-api-go
 	conflicts = lmm-api-go-bin
 	options = !strip
 	backup = etc/lmm-api-go/lmm-api-go.env
 	source = lmm-api-go::git+https://github.com/LIghtJUNction/api.lmm.best.git#branch=main
-	source = lmm-api-cli-phase.sh
+	source = lmm-api-go-package.sh
 	sha256sums = SKIP
-	sha256sums = 2b93864b302a7901a4688fd5b7df9b7e262f193a666a915718f434db20054935
+	sha256sums = 655e9346a6d87baa1cb81d97dcc412243d7ee305f90371b99d89033ea0e99bb1
 
 pkgname = lmm-api-go-git
