@@ -58,7 +58,7 @@ func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 	case relayconstant.RelayModeResponses:
 		return info.ChannelBaseUrl + "/v1/responses", nil
 	case relayconstant.RelayModeResponsesCompact:
-		return info.ChannelBaseUrl + "/v1/responses/compact", nil
+		return "", errors.New("Ollama does not support /v1/responses/compact")
 	case relayconstant.RelayModeEmbeddings:
 		return info.ChannelBaseUrl + "/api/embed", nil
 	}
@@ -115,7 +115,7 @@ func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, request
 
 func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (usage any, err *types.NewAPIError) {
 	switch info.RelayMode {
-	case relayconstant.RelayModeResponses, relayconstant.RelayModeResponsesCompact:
+	case relayconstant.RelayModeResponses:
 		openaiAdaptor := openai.Adaptor{}
 		return openaiAdaptor.DoResponse(c, resp, info)
 	case relayconstant.RelayModeEmbeddings:

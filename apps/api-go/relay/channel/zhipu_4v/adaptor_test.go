@@ -12,16 +12,40 @@ import (
 )
 
 func TestGetRequestURLUsesGLMResponsesEndpoint(t *testing.T) {
-	info := &relaycommon.RelayInfo{
-		ChannelMeta: &relaycommon.ChannelMeta{
-			ChannelBaseUrl: "https://glm.example.com",
+	tests := []struct {
+		name    string
+		baseURL string
+		want    string
+	}{
+		{
+			name:    "custom base",
+			baseURL: "https://glm.example.com",
+			want:    "https://glm.example.com/api/v1/responses",
 		},
-		RelayMode: relayconstant.RelayModeResponses,
+		{
+			name:    "domestic coding plan",
+			baseURL: "glm-coding-plan",
+			want:    "https://open.bigmodel.cn/api/v1/responses",
+		},
+		{
+			name:    "international coding plan",
+			baseURL: "glm-coding-plan-international",
+			want:    "https://api.z.ai/api/v1/responses",
+		},
 	}
 
-	requestURL, err := (&Adaptor{}).GetRequestURL(info)
-	require.NoError(t, err)
-	assert.Equal(t, "https://glm.example.com/api/v1/responses", requestURL)
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			info := &relaycommon.RelayInfo{
+				ChannelMeta: &relaycommon.ChannelMeta{ChannelBaseUrl: test.baseURL},
+				RelayMode:   relayconstant.RelayModeResponses,
+			}
+
+			requestURL, err := (&Adaptor{}).GetRequestURL(info)
+			require.NoError(t, err)
+			assert.Equal(t, test.want, requestURL)
+		})
+	}
 }
 
 func TestConvertOpenAIResponsesRequestReturnsCompatibleRequest(t *testing.T) {

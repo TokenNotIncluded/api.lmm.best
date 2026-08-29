@@ -62,11 +62,6 @@ func TestAdaptorRequestURLs(t *testing.T) {
 			want: "http://ollama.test/v1/responses",
 		},
 		{
-			name: "responses compact with pass-through",
-			info: ollamaTestRelayInfo(relayconstant.RelayModeResponsesCompact, types.RelayFormatOpenAIResponses, true),
-			want: "http://ollama.test/v1/responses/compact",
-		},
-		{
 			name: "claude legacy by default",
 			info: ollamaTestRelayInfo(relayconstant.RelayModeChatCompletions, types.RelayFormatClaude, false),
 			want: "http://ollama.test/api/chat",
@@ -189,12 +184,6 @@ func TestAdaptorResponseDispatch(t *testing.T) {
 			body:     `{"id":"resp_1","object":"response","status":"completed","output":[],"usage":{"input_tokens":2,"output_tokens":3,"total_tokens":5}}`,
 			contains: `"id":"resp_1"`,
 		},
-		{
-			name:     "responses compact uses OpenAI response handling",
-			info:     ollamaTestRelayInfo(relayconstant.RelayModeResponsesCompact, types.RelayFormatOpenAIResponses, false),
-			body:     `{"id":"resp_compact_1","object":"response.compaction","output":[],"usage":{"input_tokens":2,"output_tokens":3,"total_tokens":5}}`,
-			contains: `"id":"resp_compact_1"`,
-		},
 	}
 
 	for _, test := range tests {
@@ -212,6 +201,12 @@ func TestAdaptorResponseDispatch(t *testing.T) {
 	}
 }
 
-func TestOllamaSupportsResponsesCompact(t *testing.T) {
-	assert.True(t, common.SupportsResponsesCompact(constant.ChannelTypeOllama, constant.APITypeOllama))
+func TestOllamaRejectsResponsesCompact(t *testing.T) {
+	assert.False(t, common.SupportsResponsesCompact(constant.ChannelTypeOllama, constant.APITypeOllama))
+
+	info := ollamaTestRelayInfo(relayconstant.RelayModeResponsesCompact, types.RelayFormatOpenAIResponses, false)
+	requestURL, err := (&Adaptor{}).GetRequestURL(info)
+	require.Error(t, err)
+	assert.Empty(t, requestURL)
+	assert.Contains(t, err.Error(), "/v1/responses/compact")
 }
