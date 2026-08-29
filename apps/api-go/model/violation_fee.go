@@ -95,6 +95,7 @@ func ApplyViolationFee(input ViolationFeeChargeInput) (*ViolationFeeChargeResult
 	}
 	policyKey := input.Policy.Key()
 	result := &ViolationFeeChargeResult{}
+	walletDelta := 0
 
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		var existing ViolationFeeRecord
@@ -163,11 +164,14 @@ func ApplyViolationFee(input ViolationFeeChargeInput) (*ViolationFeeChargeResult
 		if chargedQuota < 0 {
 			chargedQuota = 0
 		}
-		remainingQuota := user.Quota - chargedQuota
-		if remainingQuota < 0 {
-			remainingQuota = 0
+		walletDelta = -chargedQuota
+		if user.Quota < 0 {
+			if err := common.ValidateWalletQuota(user.Quota); err != nil {
+				return ErrWalletQuotaOutOfRange
+			}
+			walletDelta = -user.Quota
 		}
-		if err := tx.Model(&User{}).Where("id = ?", input.UserID).Update("quota", remainingQuota).Error; err != nil {
+		if err := ApplyWalletQuotaDelta(tx, input.UserID, walletDelta); err != nil {
 			return err
 		}
 
@@ -187,18 +191,24 @@ func ApplyViolationFee(input ViolationFeeChargeInput) (*ViolationFeeChargeResult
 			return err
 		}
 		result.Record = record
-		if chargedQuota > 0 && common.RedisEnabled {
-			// Keep the Redis wallet counter aligned with the actual deduction only.
-			go func(userID, quota int) {
-				if err := cacheDecrUserQuota(userID, int64(quota)); err != nil {
-					common.SysLog("failed to decrease violation fee quota cache: " + err.Error())
-				}
-			}(input.UserID, chargedQuota)
-		}
 		return nil
 	})
 	if err != nil {
 		return nil, err
+	}
+	if !result.AlreadyExist && walletDelta != 0 && common.RedisEnabled {
+		// Keep the Redis wallet counter aligned only after the database commits.
+		go func(userID, delta int) {
+			if delta < 0 {
+				if err := cacheDecrUserQuota(userID, int64(-delta)); err != nil {
+					common.SysLog("failed to decrease violation fee quota cache: " + err.Error())
+				}
+				return
+			}
+			if err := invalidateUserCache(userID); err != nil {
+				common.SysLog("failed to invalidate normalized violation fee quota cache: " + err.Error())
+			}
+		}(result.Record.UserID, walletDelta)
 	}
 	return result, nil
 }
@@ -293,7 +303,7 @@ func ReviewViolationFeeAppeal(adminUserID int, appealID uint, approve bool, note
 		if approve {
 			status = ViolationFeeAppealStatusApproved
 			if record.Status == ViolationFeeRecordStatusCharged && record.ChargedQuota > 0 {
-				if err := tx.Model(&User{}).Where("id = ?", record.UserID).Update("quota", gorm.Expr("quota + ?", record.ChargedQuota)).Error; err != nil {
+				if err := ApplyWalletQuotaDelta(tx, record.UserID, record.ChargedQuota); err != nil {
 					return err
 				}
 				if err := tx.Model(&ViolationFeeRecord{}).Where("id = ? AND status = ?", record.ID, ViolationFeeRecordStatusCharged).Updates(map[string]interface{}{

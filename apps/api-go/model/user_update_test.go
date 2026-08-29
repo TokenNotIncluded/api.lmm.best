@@ -105,6 +105,44 @@ func TestUserUpdateDoesNotOverwriteConcurrentAccountingOrTokenChanges(t *testing
 	assert.Equal(t, "rotated-token", got.GetAccessToken())
 }
 
+func TestTransferAffQuotaToQuotaRejectsFinalWalletOverflowAtomically(t *testing.T) {
+	setupUserUpdateTestState(t)
+	transferQuota := common.QuotaFromFloat(common.QuotaPerUnit)
+	user := User{
+		Id: 11, Username: "affiliate-wallet-boundary", Password: "password",
+		Status: common.UserStatusEnabled, AffCode: "affiliate-wallet-boundary-code",
+		Quota: common.MaxWalletQuota, AffQuota: transferQuota,
+	}
+	require.NoError(t, DB.Create(&user).Error)
+
+	err := user.TransferAffQuotaToQuota(transferQuota)
+	require.ErrorIs(t, err, ErrWalletQuotaOutOfRange)
+
+	var stored User
+	require.NoError(t, DB.First(&stored, user.Id).Error)
+	require.Equal(t, common.MaxWalletQuota, stored.Quota)
+	require.Equal(t, transferQuota, stored.AffQuota)
+}
+
+func TestBatchWalletAccountingRejectsOverflowWithoutApplyingCounters(t *testing.T) {
+	setupUserUpdateTestState(t)
+	user := User{
+		Id: 12, Username: "batch-wallet-boundary", Password: "password",
+		Status: common.UserStatusEnabled, AffCode: "batch-wallet-boundary-code",
+		Quota: common.MaxWalletQuota, UsedQuota: 7, RequestCount: 3,
+	}
+	require.NoError(t, DB.Create(&user).Error)
+
+	err := updateUserQuotaUsedQuotaAndRequestCount(user.Id, 1, 5, 1)
+	require.ErrorIs(t, err, ErrWalletQuotaOutOfRange)
+
+	var stored User
+	require.NoError(t, DB.First(&stored, user.Id).Error)
+	require.Equal(t, common.MaxWalletQuota, stored.Quota)
+	require.Equal(t, 7, stored.UsedQuota)
+	require.Equal(t, 3, stored.RequestCount)
+}
+
 func TestUsageAccountingSupportsSignedDirectAndBatchDeltas(t *testing.T) {
 	setupUserUpdateTestState(t)
 	resetBatchUpdateTestState(t)

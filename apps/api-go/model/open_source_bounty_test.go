@@ -612,6 +612,31 @@ func TestOpenSourceBountyRootPublisherReceivesItsPlatformFee(t *testing.T) {
 	assert.Equal(t, root.Id, feeLedger.CounterpartyUserId)
 }
 
+func TestOpenSourceBountyPublicationRollsBackWhenFeeRecipientWalletWouldOverflow(t *testing.T) {
+	db := setupOpenSourceBountyTestDB(t)
+	setOpenSourceBountyFeeRateForTest("1")
+	root := createOpenSourceBountyUser(t, db, "overflow-fee-recipient-root", common.MaxWalletQuota, common.RoleRootUser)
+	owner := createOpenSourceBountyUser(t, db, "overflow-fee-owner", 2_000, common.RoleCommonUser)
+	project, err := CreateOpenSourceBountyDraft(owner.Id, openSourceBountyInput("https://github.com/example/overflow-fee", 1_000, 1))
+	require.NoError(t, err)
+
+	_, _, err = PublishOpenSourceBounty(owner.Id, project.Id)
+	require.Error(t, err)
+
+	var storedOwner, storedRoot User
+	require.NoError(t, db.First(&storedOwner, owner.Id).Error)
+	require.NoError(t, db.First(&storedRoot, root.Id).Error)
+	assert.Equal(t, 2_000, storedOwner.Quota)
+	assert.Equal(t, common.MaxWalletQuota, storedRoot.Quota)
+	var storedProject OpenSourceBountyProject
+	require.NoError(t, db.First(&storedProject, project.Id).Error)
+	assert.Equal(t, OpenSourceBountyStatusDraft, storedProject.Status)
+	assert.Zero(t, storedProject.EscrowQuota)
+	var ledgerCount int64
+	require.NoError(t, db.Model(&OpenSourceBountyLedger{}).Where("project_id = ?", project.Id).Count(&ledgerCount).Error)
+	assert.Zero(t, ledgerCount)
+}
+
 func TestOpenSourceBountyPublicationRollsBackWithoutFeeRecipient(t *testing.T) {
 	db := setupOpenSourceBountyTestDB(t)
 	setOpenSourceBountyFeeRateForTest("1")

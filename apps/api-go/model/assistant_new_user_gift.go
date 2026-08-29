@@ -371,9 +371,10 @@ func ClaimAssistantNewUserGift(userID int) (*AssistantNewUserGift, bool, error) 
 		if gift.Status != AssistantGiftOffered || gift.AmountCents <= 0 || gift.Quota <= 0 {
 			return ErrAssistantGiftUnavailable
 		}
-		result := tx.Model(&User{}).
-			Where("id = ? AND status = ?", userID, common.UserStatusEnabled).
-			Update("quota", gorm.Expr("quota + ?", gift.Quota))
+		result := UpdateWalletQuotaByDelta(
+			tx.Model(&User{}).Where("id = ? AND status = ?", userID, common.UserStatusEnabled),
+			gift.Quota,
+		)
 		if result.Error != nil {
 			return result.Error
 		}

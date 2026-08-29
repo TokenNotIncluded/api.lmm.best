@@ -488,8 +488,10 @@ func publishOpenSourceBounty(ownerUserId int, projectId int, operation *OpenSour
 			return err
 		}
 		chargedQuota = charge.TotalQuota
-		result := tx.Model(&User{}).Where("id = ? AND deleted_at IS NULL AND quota >= ?", ownerUserId, chargedQuota).
-			Update("quota", gorm.Expr("quota - ?", chargedQuota))
+		result := UpdateWalletQuotaByDelta(
+			tx.Model(&User{}).Where("id = ? AND deleted_at IS NULL AND quota >= ?", ownerUserId, chargedQuota),
+			-chargedQuota,
+		)
 		if result.Error != nil {
 			return result.Error
 		}
@@ -504,9 +506,10 @@ func publishOpenSourceBounty(ownerUserId int, projectId int, operation *OpenSour
 			if operation != nil && operation.PlatformFeeRecipientUserId != recipient.Id {
 				return bountyError("OPEN_SOURCE_BOUNTY_MCP_CONFIRMATION_INVALID", "the platform fee recipient changed; request a new confirmation")
 			}
-			result := tx.Model(&User{}).
-				Where("id = ? AND role = ? AND status = ? AND deleted_at IS NULL", recipient.Id, common.RoleRootUser, common.UserStatusEnabled).
-				Update("quota", gorm.Expr("quota + ?", charge.PlatformFeeQuota))
+			result := UpdateWalletQuotaByDelta(
+				tx.Model(&User{}).Where("id = ? AND role = ? AND status = ? AND deleted_at IS NULL", recipient.Id, common.RoleRootUser, common.UserStatusEnabled),
+				charge.PlatformFeeQuota,
+			)
 			if result.Error != nil {
 				return result.Error
 			}
@@ -645,8 +648,10 @@ func closeOpenSourceBounty(ownerUserId int, projectId int, operation *OpenSource
 		}
 		refundedQuota = project.EscrowQuota
 		if refundedQuota > 0 {
-			result := tx.Model(&User{}).Where("id = ? AND deleted_at IS NULL", ownerUserId).
-				Update("quota", gorm.Expr("quota + ?", refundedQuota))
+			result := UpdateWalletQuotaByDelta(
+				tx.Model(&User{}).Where("id = ? AND deleted_at IS NULL", ownerUserId),
+				refundedQuota,
+			)
 			if result.Error != nil {
 				return result.Error
 			}
@@ -1412,8 +1417,10 @@ func reviewOpenSourceBountyChallenge(ownerUserId int, challengeId int, approve b
 			return bountyError("OPEN_SOURCE_BOUNTY_ESCROW_INSUFFICIENT", "bounty escrow is insufficient")
 		}
 		participantUserId = challenge.ParticipantUserId
-		result := tx.Model(&User{}).Where("id = ? AND deleted_at IS NULL", participantUserId).
-			Update("quota", gorm.Expr("quota + ?", challenge.RewardQuota))
+		result := UpdateWalletQuotaByDelta(
+			tx.Model(&User{}).Where("id = ? AND deleted_at IS NULL", participantUserId),
+			challenge.RewardQuota,
+		)
 		if result.Error != nil {
 			return result.Error
 		}
@@ -1602,17 +1609,20 @@ func tipOpenSourceBountyChallenge(ownerUserId int, challengeId int, quota int, n
 		if participantUserId == ownerUserId {
 			return bountyError("OPEN_SOURCE_BOUNTY_SELF_TIP", "bounty owners cannot tip themselves")
 		}
-		debit := tx.Model(&User{}).
-			Where("id = ? AND deleted_at IS NULL AND quota >= ?", ownerUserId, quota).
-			Update("quota", gorm.Expr("quota - ?", quota))
+		debit := UpdateWalletQuotaByDelta(
+			tx.Model(&User{}).Where("id = ? AND deleted_at IS NULL AND quota >= ?", ownerUserId, quota),
+			-quota,
+		)
 		if debit.Error != nil {
 			return debit.Error
 		}
 		if debit.RowsAffected != 1 {
 			return bountyError("OPEN_SOURCE_BOUNTY_INSUFFICIENT_BALANCE", "insufficient balance to send this tip")
 		}
-		credit := tx.Model(&User{}).Where("id = ? AND deleted_at IS NULL", participantUserId).
-			Update("quota", gorm.Expr("quota + ?", quota))
+		credit := UpdateWalletQuotaByDelta(
+			tx.Model(&User{}).Where("id = ? AND deleted_at IS NULL", participantUserId),
+			quota,
+		)
 		if credit.Error != nil {
 			return credit.Error
 		}

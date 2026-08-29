@@ -837,6 +837,7 @@ func (user *User) TransferAffQuotaToQuota(quota int) error {
 		return errors.New("邀请额度不足！")
 	}
 
+	// Keep the affiliate debit and the final wallet ceiling in the same UPDATE.
 	query, err := GuardWalletQuotaDelta(
 		tx.Model(&User{}).Where("id = ? AND aff_quota >= ?", user.Id, quota),
 		quota,
@@ -1697,6 +1698,8 @@ func updateUserQuotaUsedQuotaAndRequestCount(id int, quota int, usedQuota int, r
 	query := DB.Model(&User{}).Where("id = ?", id)
 	var err error
 	if quota != 0 {
+		// The batch flush applies wallet, usage, and request deltas together; the
+		// final wallet predicate therefore belongs on this combined UPDATE.
 		query, err = GuardWalletQuotaDelta(query, quota)
 		if err != nil {
 			common.SysLog("failed to batch update user quota, used quota and request count: " + err.Error())

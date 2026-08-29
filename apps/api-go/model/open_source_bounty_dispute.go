@@ -345,7 +345,10 @@ func resolveOpenSourceBountyDispute(adminUserId int, disputeId int, action strin
 				return bountyError("OPEN_SOURCE_BOUNTY_ESCROW_INSUFFICIENT", "bounty escrow is insufficient")
 			}
 			participantUserId = challenge.ParticipantUserId
-			credit := tx.Model(&User{}).Where("id = ? AND deleted_at IS NULL", participantUserId).Update("quota", gorm.Expr("quota + ?", dispute.RewardQuotaSnapshot))
+			credit := UpdateWalletQuotaByDelta(
+				tx.Model(&User{}).Where("id = ? AND deleted_at IS NULL", participantUserId),
+				dispute.RewardQuotaSnapshot,
+			)
 			if credit.Error != nil {
 				return credit.Error
 			}

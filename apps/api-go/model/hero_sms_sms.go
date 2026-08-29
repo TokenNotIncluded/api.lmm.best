@@ -768,7 +768,10 @@ func reserveHeroSMSSMSQuota(order *HeroSMSSMSOrder) (int, error) {
 		if user.Quota < order.ChargeQuota {
 			return newHeroSMSError(http.StatusPaymentRequired, "INSUFFICIENT_BALANCE", "insufficient quota balance")
 		}
-		update := tx.Model(&User{}).Where("id = ? AND quota >= ?", order.UserID, order.ChargeQuota).UpdateColumn("quota", gorm.Expr("quota - ?", order.ChargeQuota))
+		update := UpdateWalletQuotaByDelta(
+			tx.Model(&User{}).Where("id = ? AND quota >= ?", order.UserID, order.ChargeQuota),
+			-order.ChargeQuota,
+		)
 		if update.Error != nil || update.RowsAffected != 1 {
 			return newHeroSMSError(http.StatusPaymentRequired, "INSUFFICIENT_BALANCE", "insufficient quota balance")
 		}
@@ -887,7 +890,7 @@ func completeHeroSMSSMSOrder(ctx context.Context, client herosms.SMSClient, orde
 		}
 		refund := order.ChargeQuota - actualCharge
 		if refund > 0 {
-			if err := tx.Model(&User{}).Where("id = ?", order.UserID).UpdateColumn("quota", gorm.Expr("quota + ?", refund)).Error; err != nil {
+			if err := ApplyWalletQuotaDelta(tx, order.UserID, refund); err != nil {
 				return err
 			}
 			if err := tx.Create(&HeroSMSSMSQuotaLedger{
@@ -1018,7 +1021,7 @@ func refundHeroSMSSMSOrder(orderID string, status string, code string, message s
 		userID = order.UserID
 		refund := order.ReservedQuota - order.RefundedQuota
 		if refund > 0 {
-			if err := tx.Model(&User{}).Where("id = ?", order.UserID).UpdateColumn("quota", gorm.Expr("quota + ?", refund)).Error; err != nil {
+			if err := ApplyWalletQuotaDelta(tx, order.UserID, refund); err != nil {
 				return err
 			}
 			if err := tx.Create(&HeroSMSSMSQuotaLedger{

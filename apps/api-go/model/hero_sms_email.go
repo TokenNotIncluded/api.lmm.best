@@ -876,7 +876,10 @@ func reserveHeroSMSEmailQuota(order *HeroSMSEmailOrder, activations []HeroSMSEma
 				return newHeroSMSError(http.StatusPaymentRequired, "INSUFFICIENT_BALANCE", "insufficient quota balance")
 			}
 			// pi-lens-ignore: ast-grep:gorm-n-plus-one
-			update := tx.Model(&User{}).Where("id = ? AND quota >= ?", order.UserID, order.ChargeQuota).UpdateColumn("quota", gorm.Expr("quota - ?", order.ChargeQuota))
+			update := UpdateWalletQuotaByDelta(
+				tx.Model(&User{}).Where("id = ? AND quota >= ?", order.UserID, order.ChargeQuota),
+				-order.ChargeQuota,
+			)
 			if update.Error != nil {
 				return update.Error
 			}
@@ -1239,7 +1242,7 @@ func heroSMSRefundOrderTx(tx *gorm.DB, order *HeroSMSEmailOrder, quota int, refu
 	if orderUpdate.RowsAffected != 1 {
 		return errors.New("HeroSMS refund exceeds reserved quota")
 	}
-	return tx.Model(&User{}).Where("id = ?", order.UserID).UpdateColumn("quota", gorm.Expr("quota + ?", quota)).Error
+	return ApplyWalletQuotaDelta(tx, order.UserID, quota)
 }
 
 func heroSMSRefundActivationTx(tx *gorm.DB, order *HeroSMSEmailOrder, activation *HeroSMSEmailActivation, quota int, refundKey string) error {
@@ -1266,7 +1269,7 @@ func heroSMSRefundActivationTx(tx *gorm.DB, order *HeroSMSEmailOrder, activation
 	if orderUpdate.RowsAffected != 1 {
 		return errors.New("HeroSMS refund exceeds reserved quota")
 	}
-	return tx.Model(&User{}).Where("id = ?", order.UserID).UpdateColumn("quota", gorm.Expr("quota + ?", quota)).Error
+	return ApplyWalletQuotaDelta(tx, order.UserID, quota)
 }
 
 func markHeroSMSEmailOrderStatus(orderID string, status string, errorCode string, errorMessage string, activationStatus string) error {

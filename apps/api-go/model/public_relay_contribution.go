@@ -616,8 +616,15 @@ func TipPublicRelayContribution(contributionID, tipperID int, quota int64, messa
 		if int64(tipper.Quota) < quota {
 			return ErrPublicRelayInvalidInput
 		}
-		if err := tx.Model(&tipper).UpdateColumn("quota", gorm.Expr("quota - ?", quota)).Error; err != nil {
-			return err
+		debit := UpdateWalletQuotaByDelta(
+			tx.Model(&tipper).Where("quota >= ?", int(quota)),
+			-int(quota),
+		)
+		if debit.Error != nil {
+			return debit.Error
+		}
+		if debit.RowsAffected != 1 {
+			return ErrPublicRelayInvalidInput
 		}
 		// Tips remain in the contribution ledger until the owner explicitly
 		// withdraws them into a selectable group. Crediting the owner's quota
@@ -653,8 +660,11 @@ func WithdrawPublicRelayTips(contributionID, userID int, targetGroup string) (in
 		if available < int64(common.QuotaPerUnit*10) {
 			return ErrPublicRelayInvalidInput
 		}
+		if available > int64(common.MaxWalletQuota) {
+			return ErrWalletQuotaOutOfRange
+		}
 		amount = available
-		if err := tx.Model(&User{}).Where("id = ?", userID).UpdateColumn("quota", gorm.Expr("quota + ?", amount)).Error; err != nil {
+		if err := ApplyWalletQuotaDelta(tx, userID, int(amount)); err != nil {
 			return err
 		}
 		return tx.Model(&item).UpdateColumns(map[string]interface{}{"withdrawn_quota": gorm.Expr("withdrawn_quota + ?", amount), "updated_at": common.GetTimestamp()}).Error

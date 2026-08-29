@@ -125,9 +125,13 @@ func ApplyPaymentRefund(
 					// successful provider refund into an untracked debt. Returning
 					// an error rolls back the cumulative refund and ledger rows,
 					// allowing the webhook provider to retry after reconciliation.
-					debit := tx.Model(&User{}).
-						Where("id = ? AND quota >= ?", topUp.UserId, refundQuota).
-						Update("quota", gorm.Expr("quota - ?", refundQuota))
+					if refundQuota > int64(common.MaxWalletQuota) {
+						return fmt.Errorf("%w: refund quota exceeds the wallet safe range", ErrRefundAmountInvalid)
+					}
+					debit := UpdateWalletQuotaByDelta(
+						tx.Model(&User{}).Where("id = ? AND quota >= ?", topUp.UserId, refundQuota),
+						-int(refundQuota),
+					)
 					if debit.Error != nil {
 						return debit.Error
 					}

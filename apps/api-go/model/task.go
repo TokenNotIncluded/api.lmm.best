@@ -618,9 +618,7 @@ func ApplyPreparedTaskRefund(id int64) (int, bool, error) {
 				return err
 			}
 		} else if userID > 0 {
-			if err := tx.Model(&User{}).
-				Where("id = ?", userID).
-				Update("quota", gorm.Expr("quota + ?", quota)).Error; err != nil {
+			if err := ApplyWalletQuotaDelta(tx, userID, quota); err != nil {
 				return err
 			}
 		}

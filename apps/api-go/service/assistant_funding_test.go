@@ -91,6 +91,20 @@ func TestAssistantFundingRefundsSuperAdministratorWallet(t *testing.T) {
 	assert.Equal(t, 100, quota)
 }
 
+func TestAssistantFundingRefundOverflowLeavesWalletAndSettlementStateUnchanged(t *testing.T) {
+	db, userId := setupAssistantFundingTestDB(t, common.MaxWalletQuota)
+	funding := NewAssistantFunding(userId)
+	require.NoError(t, funding.PreConsume(1))
+	require.NoError(t, db.Model(&model.User{}).Where("id = ?", userId).Update("quota", common.MaxWalletQuota).Error)
+
+	err := funding.Refund()
+	require.Error(t, err)
+	assert.Equal(t, 1, funding.consumed)
+	quota, quotaErr := model.GetUserQuota(userId, true)
+	require.NoError(t, quotaErr)
+	assert.Equal(t, common.MaxWalletQuota, quota)
+}
+
 func TestAssistantFundingRejectsNonRootOrDisabledAccount(t *testing.T) {
 	db, userId := setupAssistantFundingTestDB(t, 100)
 	funding := NewAssistantFunding(userId)

@@ -595,6 +595,8 @@ func creditTopUpQuota(tx *gorm.DB, userId int, creditedQuota int64, updates map[
 	if int64(quotaDelta) != creditedQuota {
 		return ErrInvalidTopUpQuota
 	}
+	// Keep this guarded multi-column UPDATE: using ApplyWalletQuotaDelta here
+	// would split the wallet credit from provider metadata stored in updates.
 	query, err := GuardWalletQuotaDelta(tx.Model(&User{}).Where("id = ?", userId), quotaDelta)
 	if err != nil {
 		return ErrInvalidTopUpQuota

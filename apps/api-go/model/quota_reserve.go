@@ -189,9 +189,10 @@ func reserveTokenQuotaDB(id int, quota int) (bool, error) {
 	return result.RowsAffected == 1, result.Error
 }
 
-// TryReserveUserQuota atomically checks and deducts a wallet balance. Redis is
-// an acceleration layer only: when it is disabled or unavailable, the same
-// insufficient-balance predicate is enforced by the database UPDATE.
+// TryReserveUserQuota atomically checks and deducts a wallet balance. The
+// database conditional UPDATE is the sole authorization decision; Redis is
+// invalidated only after that durable update succeeds. This fail-closed order
+// prevents a delayed cache fill from authorizing an overdraft.
 func TryReserveUserQuota(id int, quota int) (bool, error) {
 	if quota < 0 {
 		return false, errors.New("quota 不能为负数！")
@@ -202,45 +203,14 @@ func TryReserveUserQuota(id int, quota int) (bool, error) {
 	if quota == 0 {
 		return true, nil
 	}
-	if !common.RedisEnabled || common.RDB == nil {
-		return reserveUserQuotaDB(id, quota)
+	reserved, err := reserveUserQuotaDB(id, quota)
+	if err != nil || !reserved {
+		return reserved, err
 	}
-
-	result, err := cacheTryReserveUserQuota(id, int64(quota))
-	if err == nil && result == cacheQuotaMiss {
-		if _, hydrateErr := GetUserCache(id); hydrateErr == nil {
-			result, err = cacheTryReserveUserQuota(id, int64(quota))
+	if common.RedisEnabled && common.RDB != nil {
+		if cacheErr := invalidateUserCache(id); cacheErr != nil {
+			common.SysLog("failed to invalidate reserved user quota cache: " + cacheErr.Error())
 		}
-	}
-	if err != nil || result == cacheQuotaMiss {
-		if err != nil {
-			common.SysLog("user quota cache reserve unavailable, falling back to database: " + err.Error())
-		}
-		return reserveUserQuotaDB(id, quota)
-	}
-	if result == cacheQuotaInsufficient {
-		// A delayed cache fill can be lower than the committed balance after a
-		// credit. Recheck the authoritative conditional UPDATE before denying.
-		reserved, reserveErr := reserveUserQuotaDB(id, quota)
-		if reserved {
-			if invalidateErr := invalidateUserCache(id); invalidateErr != nil {
-				common.SysLog("failed to invalidate stale user quota cache: " + invalidateErr.Error())
-			}
-		}
-		return reserved, reserveErr
-	}
-	if err = persistUserQuotaDelta(id, -quota); err != nil {
-		if errors.Is(err, ErrWalletQuotaOutOfRange) || errors.Is(err, gorm.ErrRecordNotFound) {
-			if invalidateErr := invalidateUserCache(id); invalidateErr != nil {
-				common.SysLog("failed to invalidate stale user quota cache: " + invalidateErr.Error())
-			}
-			return false, nil
-		}
-		compensated, compensateErr := cacheApplyUserQuotaDelta(id, int64(quota))
-		if compensateErr != nil || compensated != cacheQuotaOK {
-			common.SysError(fmt.Sprintf("failed to compensate reserved user quota: result=%d error=%v", compensated, compensateErr))
-		}
-		return false, err
 	}
 	return true, nil
 }
