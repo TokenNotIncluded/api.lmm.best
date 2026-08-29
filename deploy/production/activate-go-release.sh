@@ -96,7 +96,10 @@ CANDIDATE_PACKAGE_NAME=''
 ROLLBACK_PACKAGE_NAME=''
 CANDIDATE_PACKAGE_VERSION=''
 ROLLBACK_PACKAGE_VERSION=''
-ROLLBACK_SECONDS=600
+OBSERVATION_SECONDS=120
+if [[ ${LMM_DEPLOY_TEST_MODE:-0} == 1 ]]; then
+  OBSERVATION_SECONDS=${LMM_TEST_OBSERVATION_SECONDS:-0}
+fi
 while (($#)); do
   case $1 in
     --workspace) (($# >= 2)) || die '--workspace requires a value'; WORKSPACE=$2; shift 2 ;;
@@ -114,7 +117,6 @@ while (($#)); do
     --frontend-release-script) (($# >= 2)) || die '--frontend-release-script requires a value'; FRONTEND_RELEASE_SCRIPT=$2; shift 2 ;;
     --backup-dir) (($# >= 2)) || die '--backup-dir requires a value'; BACKUP_DIR=$2; shift 2 ;;
     --rollback-layout) (($# >= 2)) || die '--rollback-layout requires a value'; ROLLBACK_LAYOUT=$2; shift 2 ;;
-    --rollback-seconds) (($# >= 2)) || die '--rollback-seconds requires a value'; ROLLBACK_SECONDS=$2; shift 2 ;;
     *) die "unknown argument: $1" ;;
   esac
 done
@@ -139,10 +141,6 @@ staging_dir=$WORKSPACE/staging
 status_file=$state_dir/status
 manifest=$state_dir/deployment.env
 probe_token=$state_dir/probe-token
-timer_unit="lmm-api-go-rollback-$deployment_id.timer"
-rollback_unit="lmm-api-go-rollback-$deployment_id.service"
-timer_path="$SYSTEMD_UNIT_ROOT/$timer_unit"
-rollback_path="$SYSTEMD_UNIT_ROOT/$rollback_unit"
 install -d -m0700 "$state_dir" "${LOCK_FILE%/*}"
 exec 9>"$LOCK_FILE"
 flock -w 120 9 || die 'another Go deployment holds the global lock'
@@ -498,12 +496,6 @@ run_migration() {
 		"$binary" migrate "--$mode"
 }
 
-disable_rollback_timer() {
-  systemctl disable --now "$timer_unit" >/dev/null 2>&1 || return 1
-  systemctl reset-failed "$timer_unit" >/dev/null 2>&1 || true
-  ! systemctl is-active --quiet "$timer_unit" 2>/dev/null
-}
-
 release_transaction_lock() {
   local lock_marker=$TRANSACTION_LOCK/deployment.env
   [[ ${LMM_DEPLOY_TEST_MODE:-0} != 1 || ${LMM_TEST_FAIL_ROLLBACK_UNLOCK:-0} != 1 ]] || return 88
@@ -523,8 +515,7 @@ cleanup_probe_token() {
 
 finalize_transaction() {
   cleanup_probe_token || return $?
-  release_transaction_lock || return $?
-  disable_rollback_timer
+  release_transaction_lock
 }
 
 cleanup_failed_prearm() {
@@ -532,30 +523,18 @@ cleanup_failed_prearm() {
   ((rc != 0)) || return 0
   current=$(status_word)
   case $current in
-    ROLLED_BACK|CONFIRMED) return 0 ;;
-    ROLLBACK_FAILED) return 0 ;;
-    ARMED|MIGRATING|DEPLOYING|AWAITING_CONFIRMATION|ROLLING_BACK)
-      if systemctl is-active --quiet "$timer_unit" 2>/dev/null; then
-        if ! perform_rollback "activation-exit-$rc"; then
-          printf 'activate-go-release: automatic rollback failed; watchdog remains armed\n' >&2
-        fi
-      fi
+    MUTATION_PENDING|MIGRATING|DEPLOYING|OBSERVING|AWAITING_CONFIRMATION|ROLLBACK_REQUIRED|ROLLING_BACK|CONFIRMED|ROLLED_BACK)
       return 0
       ;;
   esac
-  if [[ $current == PREPARED ]] && systemctl is-active --quiet "$timer_unit" 2>/dev/null; then
-    return 0
-  fi
-  if ! systemctl is-active --quiet "$timer_unit" 2>/dev/null; then
-    rm -f -- "$probe_token"
-    [[ $current != PREPARED ]] || write_status 'FAILED_PREARM rollback-timer-not-active'
-    release_transaction_lock
-  fi
+  rm -f -- "$probe_token"
+  write_status "FAILED_PREARM rc=$rc" || true
+  release_transaction_lock || true
 }
 
 rollback_failed() {
   local reason=$1 step=$2 rc=$3
-  write_status "ROLLBACK_FAILED reason=$reason step=$step rc=$rc" || true
+  write_status "ROLLBACK_REQUIRED reason=$reason failure_step=$step failure_rc=$rc" || true
   return "$rc"
 }
 
@@ -615,26 +594,19 @@ perform_rollback() {
   write_status "ROLLED_BACK $OLD_VERSION $reason" || {
     rc=$?; rollback_failed "$reason" terminal-status "$rc"; return $?
   }
-  finalize_transaction
+  rollback_step "$reason" finalize finalize_transaction
 }
 
 activation_error() {
-  local rc=$? failure_line=${BASH_LINENO[0]:-unknown} rollback_rc
+  local rc=$? failure_line=${BASH_LINENO[0]:-unknown}
   trap - ERR
-  if [[ $(status_word) != CONFIRMED ]]; then
-    if perform_rollback "activation-error-line-$failure_line"; then
-      :
-    else
-      rollback_rc=$?
-      printf 'activate-go-release: rollback failed after activation error\n' >&2
-      exit "$rollback_rc"
-    fi
-  fi
+  write_status "ROLLBACK_REQUIRED reason=activation-or-observation-failure failure_line=$failure_line rc=$rc" || true
   exit "$rc"
 }
 
 load_manifest() {
   [[ -f $manifest && ! -L $manifest ]] || die 'deployment manifest is missing'
+  [[ $(manifest_value format) == 2 ]] || die 'deployment manifest format is incompatible'
   ROLLBACK_LAYOUT=$(manifest_value rollback_layout)
   case $ROLLBACK_LAYOUT in split|direct) ;; *) die 'deployment manifest rollback layout is invalid' ;; esac
   PACKAGE=$(manifest_value package)
@@ -666,6 +638,14 @@ load_manifest() {
   [[ $EXPECTED_VERSION =~ ^[0-9][0-9A-Za-z._+]*$ && $OLD_VERSION =~ ^[0-9][0-9A-Za-z._+]*$ ]] || die 'invalid release version'
   is_database_schema "$DATABASE_SCHEMA" || die 'deployment manifest database schema is unsafe'
   is_sha256 "$FRONTEND_INDEX_SHA256" || die 'frontend checksum is invalid'
+  if [[ $ACTION == confirm ]]; then
+    OBSERVATION_SECONDS=$(manifest_value observation_seconds)
+    OBSERVATION_STARTED_EPOCH=$(manifest_value observation_started_epoch)
+    [[ $OBSERVATION_SECONDS =~ ^[0-9]+$ && $OBSERVATION_STARTED_EPOCH =~ ^[0-9]+$ ]] || die 'observation evidence is invalid'
+    if [[ ${LMM_DEPLOY_TEST_MODE:-0} != 1 ]]; then
+      ((OBSERVATION_SECONDS >= 120)) || die 'confirmation requires at least 120 seconds of observation'
+    fi
+  fi
 }
 
 case $ACTION in
@@ -731,7 +711,7 @@ case $ACTION in
     probe_status https://api.lmm.best "$OLD_VERSION" || die 'pre-cutover public status probe failed'
     probe_authenticated_models || die 'pre-cutover authenticated business probe failed'
 		{
-      printf 'format=1\ndeployment_id=%s\npackage=%s\npackage_sha256=%s\n' "$deployment_id" "$PACKAGE" "$PACKAGE_SHA256"
+      printf 'format=2\ndeployment_id=%s\npackage=%s\npackage_sha256=%s\n' "$deployment_id" "$PACKAGE" "$PACKAGE_SHA256"
       printf 'rollback_layout=%s\n' "$ROLLBACK_LAYOUT"
       printf 'rollback_core=%s\nrollback_core_sha256=%s\n' "$ROLLBACK_CORE" "$ROLLBACK_CORE_SHA256"
       printf 'rollback_go=%s\nrollback_go_sha256=%s\n' "$ROLLBACK_GO" "$ROLLBACK_GO_SHA256"
@@ -740,54 +720,22 @@ case $ACTION in
       printf 'frontend_index_sha256=%s\nold_frontend_release=%s\nold_frontend_index_sha256=%s\n' \
         "$FRONTEND_INDEX_SHA256" "$old_frontend_release" "$old_frontend_index_sha256"
       printf 'frontend_release_script=%s\nbackup_dir=%s\n' "$FRONTEND_RELEASE_SCRIPT" "$BACKUP_DIR"
-      printf 'database_schema=%s\n' "$DATABASE_SCHEMA"
+      printf 'database_schema=%s\nobservation_seconds=%s\n' "$DATABASE_SCHEMA" "$OBSERVATION_SECONDS"
     } >"$manifest.new"
     chmod 0600 "$manifest.new"
     mv -T "$manifest.new" "$manifest"
-    deadline_epoch=$(( $(date +%s) + ROLLBACK_SECONDS ))
-    deadline_utc=$(date -u -d "@$deadline_epoch" +%FT%TZ)
-    write_status "PREPARED deadline=$deadline_utc"
-    cat >"$rollback_path.new" <<EOF
-[Unit]
-Description=LMM API Go release-scoped automatic rollback ($deployment_id)
-
-[Service]
-Type=oneshot
-ExecStart=$WORKSPACE/staging/activate-go-release.sh rollback --workspace $WORKSPACE
-TimeoutStartSec=5min
-Restart=on-failure
-RestartSec=10s
-EOF
-    cat >"$timer_path.new" <<EOF
-[Unit]
-Description=LMM API Go rollback deadline ($deployment_id)
-
-[Timer]
-OnCalendar=@$deadline_epoch
-AccuracySec=1s
-Persistent=true
-Unit=$rollback_unit
-
-[Install]
-WantedBy=timers.target
-EOF
-    install -m0644 "$rollback_path.new" "$rollback_path"
-    install -m0644 "$timer_path.new" "$timer_path"
-    rm -f -- "$rollback_path.new" "$timer_path.new"
-    systemctl daemon-reload
-    systemctl enable --now "$timer_unit"
-    systemctl is-active --quiet "$timer_unit" || die 'rollback timer did not arm'
-    write_status "ARMED deadline=$deadline_utc"
+    # This rollback-capable status is durable before the first live mutation.
+    write_status "MUTATION_PENDING version=$EXPECTED_VERSION"
 		trap activation_error ERR
     if uses_legacy_direct_layout; then
       copy_old_dropins_for_new_service
     fi
     systemctl disable --now "$(old_service)"
-		write_status "MIGRATING deadline=$deadline_utc version=$EXPECTED_VERSION"
+		write_status "MIGRATING version=$EXPECTED_VERSION"
 		run_migration apply candidate-apply "$PROBE_BINARY"
 		run_migration verify candidate-verify "$PROBE_BINARY"
 		run_migration verify rollback-verify "$INSTALLED_BINARY"
-		write_status "DEPLOYING deadline=$deadline_utc version=$EXPECTED_VERSION"
+		write_status "DEPLOYING version=$EXPECTED_VERSION"
     if [[ $ROLLBACK_LAYOUT == split ]]; then
       # pacman does not resolve a local package's conflict with an explicitly
       # installed package when --noconfirm is used. Remove the captured core
@@ -817,20 +765,31 @@ EOF
       "$FRONTEND_RELEASE_SCRIPT" publish --root "$FRONTEND_ROOT" \
         --source "$PACKAGED_FRONTEND_DIR" --release "$EXPECTED_VERSION" --keep 3
     fi
-    probe_release "$EXPECTED_VERSION" "$FRONTEND_INDEX_SHA256"
+    observation_started_epoch=$(date +%s)
+    printf 'observation_started_epoch=%s\n' "$observation_started_epoch" >>"$manifest"
+    write_status "OBSERVING version=$EXPECTED_VERSION seconds=$OBSERVATION_SECONDS"
+    observation_end=$((observation_started_epoch + OBSERVATION_SECONDS))
+    while :; do
+      probe_release "$EXPECTED_VERSION" "$FRONTEND_INDEX_SHA256"
+      now_epoch=$(date +%s)
+      ((now_epoch >= observation_end)) && break
+      sleep_seconds=$((observation_end - now_epoch))
+      ((sleep_seconds > 10)) && sleep_seconds=10
+      sleep "$sleep_seconds"
+    done
     trap - ERR
-    write_status "AWAITING_CONFIRMATION deadline=$deadline_utc version=$EXPECTED_VERSION"
+    write_status "AWAITING_CONFIRMATION version=$EXPECTED_VERSION observation_seconds=$OBSERVATION_SECONDS"
     trap - EXIT
-    printf 'rollback_timer=%s\nrollback_deadline=%s\nstatus=%s\n' "$timer_unit" "$deadline_utc" "$(<"$status_file")"
+    printf 'status=%s\n' "$(<"$status_file")"
     ;;
   rollback)
     load_manifest
     case $(status_word) in
       CONFIRMED|ROLLED_BACK) finalize_transaction; exit $? ;;
-		PREPARED|ARMED|MIGRATING|DEPLOYING|AWAITING_CONFIRMATION|ROLLING_BACK|ROLLBACK_FAILED) ;;
+		MUTATION_PENDING|MIGRATING|DEPLOYING|OBSERVING|AWAITING_CONFIRMATION|ROLLBACK_REQUIRED|ROLLING_BACK) ;;
       *) die 'rollback state is not eligible' ;;
     esac
-    perform_rollback watchdog-deadline
+    perform_rollback explicit-operator-request
     ;;
   confirm)
     load_manifest
@@ -839,14 +798,12 @@ EOF
       exit $?
     fi
     [[ $(status_word) == AWAITING_CONFIRMATION ]] || die 'deployment is not awaiting confirmation'
+    now_epoch=$(date +%s)
+    ((now_epoch >= OBSERVATION_STARTED_EPOCH + OBSERVATION_SECONDS)) || die 'configured observation window has not completed'
     systemctl is-active --quiet "$NEW_SERVICE" || die 'new service is not active'
-    probe_release "$EXPECTED_VERSION" "$FRONTEND_INDEX_SHA256" || die 'final native CLI probes failed'
-    cleanup_probe_token || die 'probe token cleanup failed before confirmation'
-    systemctl stop "$rollback_unit" >/dev/null 2>&1 || die 'rollback service could not be stopped before confirmation'
-    systemctl reset-failed "$rollback_unit" >/dev/null 2>&1 || true
-    ! systemctl is-active --quiet "$rollback_unit" || die 'rollback service remains active before confirmation'
+    probe_release "$EXPECTED_VERSION" "$FRONTEND_INDEX_SHA256" || die 'final native CLI health and identity probes failed'
     write_status "CONFIRMED version=$EXPECTED_VERSION"
     finalize_transaction
-    printf 'confirmed=%s\nrollback_timer=%s\n' "$EXPECTED_VERSION" "$timer_unit"
+    printf 'confirmed=%s\n' "$EXPECTED_VERSION"
     ;;
 esac

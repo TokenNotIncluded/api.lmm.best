@@ -103,7 +103,7 @@ func writeProductionDeployUsage(output io.Writer) {
        --go-rollback-package FILE --go-rollback-release-asset FILE --go-rollback-release-bundle FILE \\
        --web-package FILE --web-release-asset FILE --web-release-bundle FILE \\
        --web-rollback-package FILE --web-rollback-release-asset FILE --web-rollback-release-bundle FILE \\
-       --probe-binary FILE [--operator-binary FILE] [--with-backups --age-recipient-file FILE] [--manual-confirm]
+       --probe-binary FILE [--operator-binary FILE] [--with-backups --age-recipient-file FILE]
   %s deploy production stage|promote|status|confirm|rollback \\
        --plan FILE --plan-sha256 HEX --confirm api.lmm.best
 
@@ -113,7 +113,7 @@ Target-only recovery commands (normally invoked by the controller):
        --go-package FILE --go-package-sha256 HEX --go-rollback-package FILE --go-rollback-sha256 HEX \\
        --web-package FILE --web-package-sha256 HEX --web-rollback-package FILE --web-rollback-sha256 HEX \\
        --probe-binary FILE --probe-binary-sha256 HEX --operator-binary FILE --operator-binary-sha256 HEX \\
-       --expected-version VERSION [--go-changed] [--web-changed] [--with-backups --backup-dir DIR] [--manual-confirm]
+       --expected-version VERSION [--go-changed] [--web-changed] [--with-backups --backup-dir DIR]
   %s deploy production status|confirm|rollback --workspace DIR
 
 Production Go changes require --with-backups and the verified target, controller, and off-host copies.

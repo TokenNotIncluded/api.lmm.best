@@ -69,7 +69,7 @@ func writeDeployUsage(output io.Writer) {
        --go-rollback-package FILE --go-rollback-release-asset FILE --go-rollback-release-bundle FILE \
        --web-package FILE --web-release-asset FILE --web-release-bundle FILE \
        --web-rollback-package FILE --web-rollback-release-asset FILE --web-rollback-release-bundle FILE \
-       --probe-binary FILE [--with-backups --age-recipient-file FILE] [--manual-confirm]
+       --probe-binary FILE [--with-backups --age-recipient-file FILE]
   %s deploy production stage|promote|status|confirm|rollback \
        --plan FILE --plan-sha256 HEX --confirm api.lmm.best
 

@@ -419,7 +419,7 @@ activate_case() {
     --expected-version "$LMM_TEST_NEW_VERSION" --old-version "$LMM_TEST_OLD_VERSION" \
     --frontend-index-sha256 "$frontend_sha" \
     --frontend-release-script "$workspace/staging/frontend-release.sh" \
-    --backup-dir "$LMM_DEPLOY_TEST_BACKUP_ROOT/$id" --rollback-seconds 600 \
+    --backup-dir "$LMM_DEPLOY_TEST_BACKUP_ROOT/$id" \
     "${layout_args[@]}"
 }
 

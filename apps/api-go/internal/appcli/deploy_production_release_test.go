@@ -53,7 +53,7 @@ func validProductionReleasePlanArguments(root string) []string {
 	}
 }
 
-func TestParseProductionReleasePlanConstrainsRollbackAndObservationWindows(t *testing.T) {
+func TestParseProductionReleasePlanConstrainsObservationWindowAndRemovesAutomaticRollbackFlags(t *testing.T) {
 	tests := []struct {
 		name  string
 		flags []string
@@ -61,8 +61,8 @@ func TestParseProductionReleasePlanConstrainsRollbackAndObservationWindows(t *te
 	}{
 		{name: "short observation", flags: []string{"--observation-seconds", "119"}, want: "between 120 and 360"},
 		{name: "long observation", flags: []string{"--observation-seconds", "361"}, want: "between 120 and 360"},
-		{name: "short rollback", flags: []string{"--rollback-seconds", "599"}, want: "exactly 600"},
-		{name: "long rollback", flags: []string{"--rollback-seconds", "601"}, want: "exactly 600"},
+		{name: "rollback seconds removed", flags: []string{"--rollback-seconds", "600"}, want: "flag provided but not defined"},
+		{name: "manual confirm removed because confirmation is always manual", flags: []string{"--manual-confirm"}, want: "flag provided but not defined"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -78,16 +78,13 @@ func TestParseProductionReleasePlanConstrainsRollbackAndObservationWindows(t *te
 func TestParseProductionReleasePlanAcceptsSafeAbsoluteInputs(t *testing.T) {
 	arguments := append(validProductionReleasePlanArguments(t.TempDir()),
 		"--observation-seconds", "240",
-		"--rollback-seconds", "600",
-		"--manual-confirm",
 		"--preserve-edge-policy",
 	)
 	options, err := parseProductionReleasePlanOptions(arguments, &bytes.Buffer{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if options.ObservationSeconds != 240 || options.RollbackSeconds != 600 ||
-		!options.ManualConfirm || !options.PreserveEdgePolicy {
+	if options.ObservationSeconds != 240 || !options.PreserveEdgePolicy {
 		t.Fatalf("options=%#v", options)
 	}
 }
@@ -235,7 +232,6 @@ func testProductionReleasePlan(t *testing.T, root string) productionReleasePlan 
 		OperatorBinary:      productionReleaseFilePlan{Path: filepath.Join(root, "lmm-api"), SHA256: goCandidate.PayloadSHA256},
 		GoChanged:           true,
 		ObservationSeconds:  180,
-		RollbackSeconds:     600,
 		WithBackups:         true,
 		AgeRecipient:        productionReleaseFilePlan{Path: filepath.Join(root, "age-recipient.txt"), SHA256: strings.Repeat("f", 64)},
 	}

@@ -23,8 +23,8 @@ const (
 	productionOffhostAlias            = "archczy"
 	productionOffhostExpectedHost     = "archczy"
 	productionOffhostRoot             = "/home/arch/.local/state/lmm-api-production-backups"
-	productionReleasePlanFormat       = 3
-	productionReleaseStateFormat      = 2
+	productionReleasePlanFormat       = 4
+	productionReleaseStateFormat      = 3
 	productionReleasePlanFilename     = "release-plan.json"
 	productionReleasePlanHashFilename = "release-plan.sha256"
 	productionReleaseStateFilename    = "release-state.json"
@@ -53,8 +53,6 @@ type productionReleasePlanOptions struct {
 	OperatorBinary           string
 	AgeRecipientFile         string
 	ObservationSeconds       int
-	RollbackSeconds          int
-	ManualConfirm            bool
 	PreserveEdgePolicy       bool
 	WithBackups              bool
 }
@@ -101,8 +99,6 @@ type productionReleasePlan struct {
 	GoChanged           bool                         `json:"go_changed"`
 	WebChanged          bool                         `json:"web_changed"`
 	ObservationSeconds  int                          `json:"observation_seconds"`
-	RollbackSeconds     int                          `json:"rollback_seconds"`
-	ManualConfirm       bool                         `json:"manual_confirm"`
 	PreserveEdgePolicy  bool                         `json:"preserve_edge_policy"`
 	WithBackups         bool                         `json:"with_backups"`
 	AgeRecipient        productionReleaseFilePlan    `json:"age_recipient,omitempty"`
@@ -141,7 +137,7 @@ func runProductionReleasePlan(args []string, stdout, stderr io.Writer) int {
 }
 
 func parseProductionReleasePlanOptions(args []string, stderr io.Writer) (productionReleasePlanOptions, error) {
-	options := productionReleasePlanOptions{ObservationSeconds: 180, RollbackSeconds: 600}
+	options := productionReleasePlanOptions{ObservationSeconds: 180}
 	flags := flag.NewFlagSet("deploy production plan", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	flags.StringVar(&options.Repo, "repo", "", "clean api.lmm.best source checkout with fetched release tags")
@@ -163,9 +159,7 @@ func parseProductionReleasePlanOptions(args []string, stderr io.Writer) (product
 	flags.StringVar(&options.OperatorBinary, "operator-binary", "", "signed deployment operator binary staged separately from the candidate probe")
 	flags.BoolVar(&options.WithBackups, "with-backups", false, "require verified target, controller, and off-host backups (mandatory for Go changes)")
 	flags.StringVar(&options.AgeRecipientFile, "age-recipient-file", "", "age or SSH public recipient file used when backups are enabled")
-	flags.IntVar(&options.ObservationSeconds, "observation-seconds", options.ObservationSeconds, "automatic stability observation window (120-360)")
-	flags.IntVar(&options.RollbackSeconds, "rollback-seconds", options.RollbackSeconds, "fixed automatic rollback deadline (must be 600)")
-	flags.BoolVar(&options.ManualConfirm, "manual-confirm", false, "leave a healthy release awaiting an explicit confirm command")
+	flags.IntVar(&options.ObservationSeconds, "observation-seconds", options.ObservationSeconds, "stability observation window (120-360)")
 	flags.BoolVar(&options.PreserveEdgePolicy, "preserve-edge-policy", false, "preserve the active nginx edge policy during activation")
 	flags.Usage = func() { writeProductionDeployUsage(stderr) }
 	if err := flags.Parse(args); err != nil {
@@ -215,9 +209,6 @@ func parseProductionReleasePlanOptions(args []string, stderr io.Writer) (product
 	}
 	if options.ObservationSeconds < 120 || options.ObservationSeconds > 360 {
 		return productionReleasePlanOptions{}, errors.New("--observation-seconds must be between 120 and 360")
-	}
-	if options.RollbackSeconds != 600 {
-		return productionReleasePlanOptions{}, errors.New("--rollback-seconds must be exactly 600")
 	}
 	return options, nil
 }
@@ -340,8 +331,6 @@ func (runtime *productionReleaseRuntime) createPlan(ctx context.Context, options
 		GoChanged:           goChanged,
 		WebChanged:          webChanged,
 		ObservationSeconds:  options.ObservationSeconds,
-		RollbackSeconds:     options.RollbackSeconds,
-		ManualConfirm:       options.ManualConfirm,
 		PreserveEdgePolicy:  options.PreserveEdgePolicy,
 		WithBackups:         options.WithBackups,
 	}
@@ -1372,7 +1361,7 @@ func validateProductionReleasePlan(plan productionReleasePlan) error {
 	if plan.TargetAlias != productionTargetAlias || plan.ExpectedHost != productionExpectedHost || plan.OperatorUser != productionOperatorUser {
 		return errors.New("release plan target identity is invalid")
 	}
-	if !productionVersionPattern.MatchString(plan.ExpectedVersion) || plan.ObservationSeconds < 120 || plan.ObservationSeconds > 360 || plan.RollbackSeconds != 600 {
+	if !productionVersionPattern.MatchString(plan.ExpectedVersion) || plan.ObservationSeconds < 120 || plan.ObservationSeconds > 360 {
 		return errors.New("release plan timing or version contract is invalid")
 	}
 	if plan.GoChanged && !plan.WithBackups {

@@ -37,8 +37,10 @@ contains 'readonly NEW_SERVICE=lmm-api.service' "$here/activate-go-release.sh"
 contains 'readonly LEGACY_SERVICE=lmm-api-go.service' "$here/activate-go-release.sh"
 contains 'readlink -- "$CANONICAL_LAUNCHER"' "$here/activate-go-release.sh"
 for literal in \
-  'lmm-api-go-rollback-$deployment_id.timer' \
-  'Persistent=true' \
+  'format=2\ndeployment_id=%s' \
+  'write_status "MUTATION_PENDING' \
+  'write_status "OBSERVING' \
+  'write_status "ROLLBACK_REQUIRED' \
 	'write_status "AWAITING_CONFIRMATION' \
 	'write_status "CONFIRMED' \
 	'write_status "MIGRATING' \
@@ -59,6 +61,9 @@ for literal in \
   'release_transaction_lock'; do
   contains "$literal" "$here/activate-go-release.sh"
 done
+if grep -Eq 'rollback-seconds|rollback[_-](timer|deadline|unit)|Persistent=true|automatic rollback' "$here/activate-go-release.sh"; then
+  fail 'activation script still creates or exposes an automatic rollback timer'
+fi
 contains 'WORK_ROOT=/var/lib/lmm-api-go-deploy/work' "$here/activate-go-release.sh"
 contains 'assert_root_only_path "$WORKSPACE"' "$here/activate-go-release.sh"
 if rg -n '/var/lib/lmm-api-go/(deploy-work|deploy-backups|deploy-transaction)' "$here"; then

@@ -23,15 +23,13 @@ import (
 const (
 	productionServiceName         = "lmm-api.service"
 	productionExpectedHost        = "arch-dmit"
-	productionDefaultRollback     = 10 * time.Minute
 	productionDefaultObservation  = 3 * time.Minute
 	productionObservationInterval = 10 * time.Second
-	productionConfirmationMargin  = 30 * time.Second
 	productionCommandTimeout      = 2 * time.Minute
 	productionProbeTimeout        = 8 * time.Second
 	productionProbeAttempts       = 45
-	productionTransactionFormat   = 6
-	productionStatusFormat        = 1
+	productionTransactionFormat   = 7
+	productionStatusFormat        = 2
 	productionFrontendReleaseKeep = 3
 	productionTransactionMarker   = "deployment.env"
 	productionWorkspaceMarker     = ".lmm-deploy-workspace"
@@ -320,9 +318,7 @@ type productionTransactionOptions struct {
 	ExpectedVersion      string
 	BackupDir            string
 	WithBackups          bool
-	RollbackWindow       time.Duration
 	ObservationWindow    time.Duration
-	ManualConfirm        bool
 	PreserveEdgePolicy   bool
 	Reason               string
 }
@@ -369,8 +365,6 @@ type productionManifest struct {
 	BackupsEnabled           bool                         `json:"backups_enabled"`
 	DatabaseBackupSHA256     string                       `json:"database_backup_sha256,omitempty"`
 	DatabaseSchema           string                       `json:"database_schema"`
-	ArmedUTC                 time.Time                    `json:"armed_utc"`
-	DeadlineUTC              time.Time                    `json:"deadline_utc"`
 	ObservationStartedUTC    time.Time                    `json:"observation_started_utc,omitempty"`
 	ObservationSeconds       int64                        `json:"observation_seconds"`
 	ServiceRestartBaseline   int64                        `json:"service_restart_baseline"`
@@ -682,10 +676,8 @@ type productionStatus struct {
 	Version        string    `json:"version,omitempty"`
 	Previous       string    `json:"previous_version,omitempty"`
 	Reason         string    `json:"reason,omitempty"`
-	RollbackTimer  string    `json:"rollback_timer,omitempty"`
-	DeadlineUTC    time.Time `json:"deadline_utc,omitempty"`
+	Failure        string    `json:"failure,omitempty"`
 	UpdatedUTC     time.Time `json:"updated_utc"`
-	AutoConfirm    bool      `json:"auto_confirm,omitempty"`
 	ObservationSec int64     `json:"observation_seconds,omitempty"`
 }
 
@@ -697,10 +689,6 @@ type productionWorkspace struct {
 	manifestPath  string
 	statusPath    string
 	probeToken    string
-	timerUnit     string
-	rollbackUnit  string
-	timerPath     string
-	rollbackPath  string
 	configRestore string
 }
 
@@ -735,8 +723,7 @@ func runProductionTransaction(action string, args []string, stdout, stderr io.Wr
 
 func parseProductionTransactionOptions(action string, args []string, stderr io.Writer) (productionTransactionOptions, error) {
 	options := productionTransactionOptions{
-		Action: action, RollbackWindow: productionDefaultRollback,
-		ObservationWindow: productionDefaultObservation, Reason: "operator-request",
+		Action: action, ObservationWindow: productionDefaultObservation, Reason: "operator-request",
 	}
 	flags := flag.NewFlagSet("deploy production "+action, flag.ContinueOnError)
 	flags.SetOutput(stderr)
@@ -760,16 +747,12 @@ func parseProductionTransactionOptions(action string, args []string, stderr io.W
 		flags.StringVar(&options.ExpectedVersion, "expected-version", "", "candidate service version")
 		flags.StringVar(&options.BackupDir, "backup-dir", "", "verified target copy from the production three-copy backup set")
 		flags.BoolVar(&options.WithBackups, "with-backups", false, "bind verified production backups (mandatory for Go changes)")
-		rollbackSeconds := int(options.RollbackWindow / time.Second)
 		observationSeconds := int(options.ObservationWindow / time.Second)
-		flags.IntVar(&rollbackSeconds, "rollback-seconds", rollbackSeconds, "fixed automatic rollback window (must be 600)")
 		flags.IntVar(&observationSeconds, "observation-seconds", observationSeconds, "stability observation window (120-360)")
-		flags.BoolVar(&options.ManualConfirm, "manual-confirm", false, "leave a healthy release awaiting explicit confirmation")
 		flags.BoolVar(&options.PreserveEdgePolicy, "preserve-edge-policy", false, "preserve the active nginx edge policy")
 		if err := flags.Parse(args); err != nil {
 			return productionTransactionOptions{}, err
 		}
-		options.RollbackWindow = time.Duration(rollbackSeconds) * time.Second
 		options.ObservationWindow = time.Duration(observationSeconds) * time.Second
 	} else if action == "rollback" {
 		flags.StringVar(&options.Reason, "reason", options.Reason, "audit-safe rollback reason")
@@ -835,9 +818,6 @@ func parseProductionTransactionOptions(action string, args []string, stderr io.W
 		}
 		if !productionVersionPattern.MatchString(options.ExpectedVersion) {
 			return productionTransactionOptions{}, errors.New("invalid --expected-version")
-		}
-		if options.RollbackWindow != productionDefaultRollback {
-			return productionTransactionOptions{}, errors.New("--rollback-seconds must be exactly 600")
 		}
 		if options.ObservationWindow < 2*time.Minute || options.ObservationWindow > 6*time.Minute {
 			return productionTransactionOptions{}, errors.New("--observation-seconds must be between 120 and 360")
@@ -974,10 +954,6 @@ func (runtime *productionRuntime) openWorkspace(root string) (productionWorkspac
 		manifestPath:  filepath.Join(stateDir, productionManifestFilename),
 		statusPath:    filepath.Join(stateDir, productionStatusFilename),
 		probeToken:    filepath.Join(stateDir, productionProbeTokenFilename),
-		timerUnit:     "lmm-api-go-rollback-" + id + ".timer",
-		rollbackUnit:  "lmm-api-go-rollback-" + id + ".service",
-		timerPath:     filepath.Join(runtime.paths.SystemdUnitRoot, "lmm-api-go-rollback-"+id+".timer"),
-		rollbackPath:  filepath.Join(runtime.paths.SystemdUnitRoot, "lmm-api-go-rollback-"+id+".service"),
 		configRestore: filepath.Join(stateDir, productionConfigRestoreDirname),
 	}, nil
 }
@@ -1139,8 +1115,8 @@ func (runtime *productionRuntime) validateManifest(workspace productionWorkspace
 	} else if manifest.BackupDir != "" || manifest.DatabaseBackupSHA256 != "" {
 		return errors.New("deployment manifest contains unauthorized optional backup state")
 	}
-	if manifest.ArmedUTC.IsZero() || !manifest.DeadlineUTC.Equal(manifest.ArmedUTC.Add(productionDefaultRollback)) || manifest.ObservationSeconds < 120 {
-		return errors.New("deployment manifest fixed deadline or observation window is invalid")
+	if manifest.ObservationSeconds < 120 || manifest.ObservationSeconds > 360 {
+		return errors.New("deployment manifest observation window is invalid")
 	}
 	webCandidate, candidateErr := parseNamedPackageIdentity([]byte(manifest.Web.CandidateIdentity), productionWebPackageName)
 	webRollback, rollbackErr := parseNamedPackageIdentity([]byte(manifest.Web.RollbackIdentity), productionWebPackageName)

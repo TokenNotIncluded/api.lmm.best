@@ -10,7 +10,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -40,7 +39,6 @@ type productionReleaseControllerState struct {
 	ControllerBackup string    `json:"controller_backup,omitempty"`
 	OffhostBackup    string    `json:"offhost_backup,omitempty"`
 	Version          string    `json:"version,omitempty"`
-	RollbackTimer    string    `json:"rollback_timer,omitempty"`
 	ActivationUnit   string    `json:"activation_unit,omitempty"`
 	DispatchAttempts int       `json:"dispatch_attempts,omitempty"`
 	DispatchObserved bool      `json:"dispatch_observed,omitempty"`
@@ -56,7 +54,6 @@ type productionReleaseControllerResult struct {
 	TargetBackup     string `json:"target_backup,omitempty"`
 	ControllerBackup string `json:"controller_backup,omitempty"`
 	OffhostBackup    string `json:"offhost_backup,omitempty"`
-	RollbackTimer    string `json:"rollback_timer,omitempty"`
 	ActivationUnit   string `json:"activation_unit,omitempty"`
 	DispatchAttempts int    `json:"dispatch_attempts,omitempty"`
 	Workspace        string `json:"workspace"`
@@ -285,12 +282,8 @@ func (runtime *productionReleaseRuntime) promote(ctx context.Context, options pr
 	if err := persistRemoteReleaseControllerStatus(plan, &state, status, runtime.now()); err != nil {
 		return productionReleaseControllerResult{}, err
 	}
-	expected := "CONFIRMED"
-	if plan.ManualConfirm {
-		expected = "AWAITING_CONFIRMATION"
-	}
-	if status.Phase != expected {
-		return productionReleaseControllerResult{}, fmt.Errorf("production release did not finish in %s: phase=%s", expected, status.Phase)
+	if status.Phase != "AWAITING_CONFIRMATION" {
+		return productionReleaseControllerResult{}, fmt.Errorf("production release requires operator recovery or did not reach explicit confirmation: phase=%s", status.Phase)
 	}
 	return releaseControllerResult(plan, state), nil
 }
@@ -346,7 +339,6 @@ func productionRemoteOperatorPath(plan productionReleasePlan, state productionRe
 func persistRemoteReleaseControllerStatus(plan productionReleasePlan, state *productionReleaseControllerState, status productionStatus, now time.Time) error {
 	state.Phase = status.Phase
 	state.Version = status.Version
-	state.RollbackTimer = status.RollbackTimer
 	state.UpdatedUTC = utcSecond(now)
 	if err := writeProductionReleaseControllerState(plan, *state); err != nil {
 		return fmt.Errorf("persist remote release status: %w", err)
@@ -377,8 +369,7 @@ func (runtime *productionReleaseRuntime) productionApplyArguments(plan productio
 		"--operator-binary", remoteOperator,
 		"--operator-binary-sha256", plan.OperatorBinary.SHA256,
 		"--expected-version", plan.ExpectedVersion,
-		"--rollback-seconds", strconv.Itoa(plan.RollbackSeconds),
-		"--observation-seconds", strconv.Itoa(plan.ObservationSeconds),
+		"--observation-seconds", fmt.Sprintf("%d", plan.ObservationSeconds),
 	}
 	if plan.GoChanged {
 		arguments = append(arguments, "--go-changed")
@@ -388,9 +379,6 @@ func (runtime *productionReleaseRuntime) productionApplyArguments(plan productio
 	}
 	if plan.WithBackups {
 		arguments = append(arguments, "--with-backups", "--backup-dir", state.TargetBackup)
-	}
-	if plan.ManualConfirm {
-		arguments = append(arguments, "--manual-confirm")
 	}
 	if plan.PreserveEdgePolicy {
 		arguments = append(arguments, "--preserve-edge-policy")
@@ -512,16 +500,13 @@ func (runtime *productionReleaseRuntime) awaitRemoteReleaseStatus(ctx context.Co
 	}
 }
 
-func productionActivationStatusTerminalForPlan(plan productionReleasePlan, status productionStatus) bool {
-	if status.Phase == "AWAITING_CONFIRMATION" && !plan.ManualConfirm && status.AutoConfirm {
-		return false
-	}
+func productionActivationStatusTerminalForPlan(_ productionReleasePlan, status productionStatus) bool {
 	return productionActivationStatusTerminal(status.Phase)
 }
 
 func productionActivationStatusTerminal(phase string) bool {
 	switch phase {
-	case "AWAITING_CONFIRMATION", "CONFIRMED", "ROLLED_BACK", "FAILED_PREARM", "ROLLBACK_FAILED", "ABORTED":
+	case "AWAITING_CONFIRMATION", "ROLLBACK_REQUIRED", "CONFIRMED", "ROLLED_BACK", "FAILED_PREARM", "ABORTED":
 		return true
 	default:
 		return false
@@ -936,7 +921,7 @@ func validateProductionReleaseControllerState(plan productionReleasePlan, planSH
 		"CONFIRMED":             true,
 		"ROLLED_BACK":           true,
 		"FAILED_PREARM":         true,
-		"ROLLBACK_FAILED":       true,
+		"ROLLBACK_REQUIRED":     true,
 		"ABORTED":               true,
 	}
 	if !phases[state.Phase] {
@@ -980,7 +965,6 @@ func releaseControllerResult(plan productionReleasePlan, state productionRelease
 		TargetBackup:     state.TargetBackup,
 		ControllerBackup: state.ControllerBackup,
 		OffhostBackup:    state.OffhostBackup,
-		RollbackTimer:    state.RollbackTimer,
 		ActivationUnit:   state.ActivationUnit,
 		DispatchAttempts: state.DispatchAttempts,
 		Workspace:        state.RemoteWorkspace,
