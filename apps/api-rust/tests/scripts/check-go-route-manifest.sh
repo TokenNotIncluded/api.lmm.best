@@ -6,10 +6,12 @@ routes_dir="${repo_root}/apps/api-rust/tests/fixtures/routes"
 golden_hash_file="${repo_root}/apps/api-rust/tests/fixtures/routes/go-routes.sha256"
 legacy_manifest="${routes_dir}/legacy-go-routes.tsv"
 rust_manifest="${routes_dir}/rust-implemented-routes.tsv"
+normal_manifest="${routes_dir}/rust-normal-mounted-routes.tsv"
+fail_closed_shells="${routes_dir}/rust-mounted-fail-closed-shells.tsv"
 current_manifest_source="${repo_root}/apps/api-go/cmd/route-manifest/main.go"
 
 for required_file in "${golden_hash_file}" "${legacy_manifest}" "${rust_manifest}" \
-  "${routes_dir}/ownership.tsv"; do
+  "${normal_manifest}" "${fail_closed_shells}" "${routes_dir}/ownership.tsv"; do
   if [[ ! -f "${required_file}" ]]; then
     echo "missing route contract file: ${required_file}" >&2
     exit 1
@@ -178,6 +180,10 @@ rust_report="$(awk -F '\t' -v current_routes="${current_runtime}/identities.tsv"
       print "duplicate Rust implementation route: " $1 " " $2 > "/dev/stderr"
       failures++
     }
+    if ($3 ~ /(^|::)(Disabled|FailClosed|Unconfigured)[A-Za-z0-9_]*/) {
+      print "known blocker adapter cannot qualify as a Rust implementation: " $1 " " $2 > "/dev/stderr"
+      failures++
+    }
     if (!(identity in legacy) && !(identity in current)) {
       print "Rust implementation is absent from frozen and current Go route inventories: " $1 " " $2 > "/dev/stderr"
       failures++
@@ -193,6 +199,93 @@ rust_report="$(awk -F '\t' -v current_routes="${current_runtime}/identities.tsv"
 ' "${legacy_manifest}" "${rust_manifest}")"
 IFS=$'\t' read -r rust_count frozen_implementation_count current_only_count <<<"${rust_report}"
 
+shell_report="$(awk -F '\t' \
+  -v current_routes="${current_runtime}/identities.tsv" \
+  -v legacy_routes="${legacy_manifest}" \
+  -v implemented_routes="${rust_manifest}" \
+  -v normal_routes="${normal_manifest}" '
+  function load_routes(file, target, line, fields, identity) {
+    while ((getline line < file) > 0) {
+      if (line ~ /^#/ || line == "") continue
+      split(line, fields, "\t")
+      identity = fields[1] SUBSEP fields[2]
+      if (target == "current") current[identity] = 1
+      else if (target == "legacy") legacy[identity] = 1
+      else if (target == "implemented") implemented[identity] = 1
+      else if (target == "normal") normal[identity] = 1
+    }
+    close(file)
+  }
+  BEGIN {
+    load_routes(current_routes, "current")
+    load_routes(legacy_routes, "legacy")
+    load_routes(implemented_routes, "implemented")
+    load_routes(normal_routes, "normal")
+    representative["POST" SUBSEP "/api/subscription/stripe/pay"] = "DisabledCheckoutProvider"
+    representative["POST" SUBSEP "/api/user/creem/pay"] = "DisabledStripeCreemGateway"
+    representative["POST" SUBSEP "/api/user/pay"] = "DisabledTopupRepository+DisabledEpayGateway"
+    representative["POST" SUBSEP "/api/user/waffo/pay"] = "DisabledTopUpGateway"
+    representative["POST" SUBSEP "/pg/chat/completions"] = "FailClosedRelayMiscService"
+    representative["POST" SUBSEP "/v1/video/generations"] = "FailClosedRelayVideoService"
+    representative["GET" SUBSEP "/v1/responses"] = "UnconfiguredResponsesWebSocketService"
+  }
+  $0 ~ /^#/ || NF == 0 { next }
+  NF != 6 || $1 == "" || $2 == "" || $3 == "" || $4 == "" || $5 == "" || $6 == "" {
+    print "malformed mounted fail-closed shell at line " FNR > "/dev/stderr"
+    failures++
+    next
+  }
+  {
+    identity = $1 SUBSEP $2
+    if (shell[identity]++) {
+      print "duplicate mounted fail-closed shell: " $1 " " $2 > "/dev/stderr"
+      failures++
+    }
+    if (identity in implemented) {
+      print "mounted fail-closed shell is incorrectly counted as implemented: " $1 " " $2 > "/dev/stderr"
+      failures++
+    }
+    if (identity in normal) {
+      print "mounted fail-closed shell is incorrectly counted as a normal mount: " $1 " " $2 > "/dev/stderr"
+      failures++
+    }
+    if (!(identity in current)) {
+      print "mounted fail-closed shell is absent from current Go inventory: " $1 " " $2 > "/dev/stderr"
+      failures++
+    }
+    if ($3 !~ /^lmm_api_rs::/ || $4 !~ /^apps\/api-rust\/src\/main\.rs:/ ||
+        $5 !~ /(^|\+)(Disabled|FailClosed|Unconfigured)[A-Za-z0-9_]*(\+|$)/ ||
+        $6 != "requires-real-adapter-and-capability-test") {
+      print "invalid mounted fail-closed shell evidence: " $1 " " $2 > "/dev/stderr"
+      failures++
+    }
+    if (identity in representative && $5 != representative[identity]) {
+      print "representative shell has unexpected blocker adapter: " $1 " " $2 > "/dev/stderr"
+      failures++
+    }
+    if (identity in legacy) frozen_count++
+    else current_only_count++
+    count++
+  }
+  END {
+    for (identity in representative) {
+      if (!(identity in shell)) {
+        split(identity, fields, SUBSEP)
+        print "missing representative mounted fail-closed shell: " fields[1] " " fields[2] > "/dev/stderr"
+        failures++
+      }
+    }
+    if (count != 31) {
+      print "mounted fail-closed shell ledger contains " count " routes; expected 31" > "/dev/stderr"
+      failures++
+    }
+    if (failures) exit 1
+    printf "%d\t%d\t%d\n", count, frozen_count, current_only_count
+  }
+' "${fail_closed_shells}")"
+IFS=$'\t' read -r shell_count frozen_shell_count current_only_shell_count <<<"${shell_report}"
+
 echo "verified immutable legacy Go route baseline: ${route_count} routes (${actual_hash})"
 echo "current Go route inventory: ${current_route_count} identities"
 echo "Rust implementation coverage: ${rust_count} routes (${frozen_implementation_count}/${route_count} frozen + ${current_only_count} current-only); implementation does not imply production ownership"
+echo "Mounted fail-closed compatibility shells: ${shell_count} routes (${frozen_shell_count} frozen + ${current_only_shell_count} current-only); no implementation or ownership credit"

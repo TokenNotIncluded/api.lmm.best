@@ -90,7 +90,6 @@ POST	/api/channel/upstream_updates/apply	lmm_api_rs::migration_routes::channel_a
 POST	/api/channel/upstream_updates/apply_all	lmm_api_rs::migration_routes::channel_advanced::channel_advanced_router
 POST	/api/channel/upstream_updates/detect	lmm_api_rs::migration_routes::channel_advanced::channel_advanced_router
 POST	/api/channel/upstream_updates/detect_all	lmm_api_rs::migration_routes::channel_advanced::channel_advanced_router
-POST	/api/creem/webhook	lmm_api_rs::migration_routes::billing_payments::billing_provider_payments_router
 GET	/api/custom-oauth-provider/	lmm_api_rs::migration_routes::control_admin::control_admin_router
 POST	/api/custom-oauth-provider/	lmm_api_rs::migration_routes::control_admin::control_admin_router
 DELETE	/api/custom-oauth-provider/:id	lmm_api_rs::migration_routes::control_admin::control_admin_router
@@ -270,7 +269,6 @@ GET	/api/setup	lmm_api_rs::migration_routes::system_config::system_config_router
 POST	/api/setup	lmm_api_rs::migration_routes::system_config::system_config_router
 GET	/api/status	lmm_api_rs::http::status
 GET	/api/status/test	lmm_api_rs::migration_routes::missing_control_tasks::missing_control_tasks_router
-POST	/api/stripe/webhook	lmm_api_rs::migration_routes::billing_payments::billing_provider_payments_router
 POST	/api/subscription/admin/bind	lmm_api_rs::migration_routes::billing_subscriptions::router
 GET	/api/subscription/admin/plans	lmm_api_rs::migration_routes::billing_subscriptions::router
 POST	/api/subscription/admin/plans	lmm_api_rs::migration_routes::billing_subscriptions::router
@@ -284,17 +282,9 @@ GET	/api/subscription/admin/users/:id/subscriptions	lmm_api_rs::migration_routes
 POST	/api/subscription/admin/users/:id/subscriptions	lmm_api_rs::migration_routes::billing_subscriptions::router
 POST	/api/subscription/admin/users/:id/subscriptions/reset	lmm_api_rs::migration_routes::billing_subscriptions::router
 POST	/api/subscription/balance/pay	lmm_api_rs::migration_routes::billing_payments::subscription_balance_pay_router
-POST	/api/subscription/creem/pay	lmm_api_rs::migration_routes::billing_payments::billing_provider_payments_router
-GET	/api/subscription/epay/notify	lmm_api_rs::migration_routes::billing_payments::billing_provider_payments_router
-POST	/api/subscription/epay/notify	lmm_api_rs::migration_routes::billing_payments::billing_provider_payments_router
-POST	/api/subscription/epay/pay	lmm_api_rs::migration_routes::billing_payments::billing_provider_payments_router
-GET	/api/subscription/epay/return	lmm_api_rs::migration_routes::billing_payments::billing_provider_payments_router
-POST	/api/subscription/epay/return	lmm_api_rs::migration_routes::billing_payments::billing_provider_payments_router
 GET	/api/subscription/plans	lmm_api_rs::migration_routes::billing_subscriptions::router
 GET	/api/subscription/self	lmm_api_rs::migration_routes::billing_subscriptions::router
 PUT	/api/subscription/self/preference	lmm_api_rs::migration_routes::billing_subscriptions::router
-POST	/api/subscription/stripe/pay	lmm_api_rs::migration_routes::billing_payments::billing_provider_payments_router
-POST	/api/subscription/waffo-pancake/pay	lmm_api_rs::migration_routes::billing_payments::billing_provider_payments_router
 GET	/api/system-info/instances	lmm_api_rs::migration_routes::control_admin::control_admin_router
 DELETE	/api/system-info/instances/:node_name	lmm_api_rs::migration_routes::control_admin::control_admin_router
 DELETE	/api/system-info/stale-instances	lmm_api_rs::migration_routes::control_admin::control_admin_router
@@ -354,11 +344,8 @@ POST	/api/user/auth/refresh	lmm_api_rs::auth::http::refresh
 DELETE	/api/user/bindings/:binding_type	lmm_api_rs::migration_routes::identity_profile::router
 GET	/api/user/checkin	lmm_api_rs::migration_routes::missing_identity_checkin_aff::read_router
 POST	/api/user/checkin	lmm_api_rs::migration_routes::missing_identity_checkin_aff::router
-POST	/api/user/creem/pay	lmm_api_rs::migration_routes::missing_identity_stripe_creem::pay_router
 GET	/api/user/developer-access/request	lmm_api_rs::migration_routes::developer_access::router
 POST	/api/user/developer-access/request	lmm_api_rs::migration_routes::developer_access::router
-GET	/api/user/epay/notify	lmm_api_rs::migration_routes::missing_identity_epay::router
-POST	/api/user/epay/notify	lmm_api_rs::migration_routes::missing_identity_epay::router
 GET	/api/user/gift	lmm_api_rs::migration_routes::gifts::router
 POST	/api/user/gift/:id/claim	lmm_api_rs::migration_routes::gifts::router
 GET	/api/user/groups	lmm_api_rs::migration_routes::missing_identity_catalog::public_router
@@ -376,7 +363,6 @@ POST	/api/user/passkey/register/begin	lmm_api_rs::migration_routes::identity_sec
 POST	/api/user/passkey/register/finish	lmm_api_rs::migration_routes::identity_security::router
 POST	/api/user/passkey/verify/begin	lmm_api_rs::migration_routes::identity_security::router
 POST	/api/user/passkey/verify/finish	lmm_api_rs::migration_routes::identity_security::router
-POST	/api/user/pay	lmm_api_rs::migration_routes::missing_identity_epay::router
 POST	/api/user/register	lmm_api_rs::migration_routes::identity_security::registration_router
 POST	/api/user/reset	lmm_api_rs::migration_routes::identity_security::router
 GET	/api/user/search	lmm_api_rs::migration_routes::identity_admin::router
@@ -391,7 +377,6 @@ DELETE	/api/user/sessions/:sid	lmm_api_rs::migration_routes::identity_security::
 POST	/api/user/sessions/revoke-others	lmm_api_rs::migration_routes::identity_security::router
 PUT	/api/user/setting	lmm_api_rs::migration_routes::identity_profile::router
 POST	/api/user/stripe/amount	lmm_api_rs::migration_routes::missing_identity_stripe_creem::amount_router
-POST	/api/user/stripe/pay	lmm_api_rs::migration_routes::missing_identity_stripe_creem::pay_router
 GET	/api/user/token	lmm_api_rs::migration_routes::missing_identity_catalog::router
 GET	/api/user/topup	lmm_api_rs::migration_routes::missing_identity_topup::router
 POST	/api/user/topup	lmm_api_rs::migration_routes::missing_identity_topup::router
@@ -401,9 +386,7 @@ GET	/api/user/topup/self	lmm_api_rs::migration_routes::missing_identity_topup::r
 POST	/api/user/violation-fee-appeals	lmm_api_rs::migration_routes::security_admin::router
 GET	/api/user/violation-fees	lmm_api_rs::migration_routes::security_admin::router
 POST	/api/user/waffo-pancake/amount	lmm_api_rs::migration_routes::missing_identity_waffo::router
-POST	/api/user/waffo-pancake/pay	lmm_api_rs::migration_routes::missing_identity_waffo::router
 POST	/api/user/waffo/amount	lmm_api_rs::migration_routes::missing_identity_waffo::router
-POST	/api/user/waffo/pay	lmm_api_rs::migration_routes::missing_identity_waffo::router
 GET	/api/vendors/	lmm_api_rs::migration_routes::admin_catalog::router
 POST	/api/vendors/	lmm_api_rs::migration_routes::admin_catalog::router
 PUT	/api/vendors/	lmm_api_rs::migration_routes::admin_catalog::router
@@ -413,8 +396,6 @@ GET	/api/vendors/search	lmm_api_rs::migration_routes::admin_catalog::router
 GET	/api/verification	lmm_api_rs::migration_routes::identity_security::router
 POST	/api/verify	lmm_api_rs::migration_routes::identity_security::router
 POST	/api/verify/email	lmm_api_rs::migration_routes::verify_email::router
-POST	/api/waffo-pancake/webhook/:env	lmm_api_rs::migration_routes::missing_billing_webhooks::missing_billing_webhooks_router
-POST	/api/waffo/webhook	lmm_api_rs::migration_routes::missing_billing_webhooks::missing_billing_webhooks_router
 GET	/dashboard/billing/subscription	lmm_api_rs::migration_routes::missing_billing_dashboard::billing_dashboard_router
 GET	/dashboard/billing/usage	lmm_api_rs::migration_routes::missing_billing_dashboard::billing_dashboard_router
 POST	/jimeng/	lmm_api_rs::migration_routes::media_tasks::media_provider_task_router
@@ -474,9 +455,6 @@ POST	/mj/submit/video	lmm_api_rs::migration_routes::media_midjourney::media_midj
 GET	/mj/task/:id/fetch	lmm_api_rs::migration_routes::media_midjourney::media_midjourney_router
 GET	/mj/task/:id/image-seed	lmm_api_rs::migration_routes::media_midjourney::media_midjourney_router
 POST	/mj/task/list-by-condition	lmm_api_rs::migration_routes::media_midjourney::media_midjourney_router
-POST	/pg/chat/completions	lmm_api_rs::migration_routes::missing_relay_misc_new::missing_relay_misc_router
-POST	/pg/images/edits	lmm_api_rs::migration_routes::missing_relay_misc_new::missing_relay_misc_router
-POST	/pg/images/generations	lmm_api_rs::migration_routes::missing_relay_misc_new::missing_relay_misc_router
 POST	/suno/fetch	lmm_api_rs::migration_routes::media_tasks::media_provider_task_router
 GET	/suno/fetch/:id	lmm_api_rs::migration_routes::media_tasks::media_provider_task_router
 POST	/suno/submit/:action	lmm_api_rs::migration_routes::media_tasks::media_provider_task_router
@@ -488,7 +466,6 @@ POST	/v1/chat/completions	lmm_api_rs::migration_routes::relay_openai::openai_rel
 POST	/v1/completions	lmm_api_rs::migration_routes::relay_openai::openai_relay_router
 GET	/v1/dashboard/billing/subscription	lmm_api_rs::migration_routes::missing_billing_dashboard::billing_dashboard_router
 GET	/v1/dashboard/billing/usage	lmm_api_rs::migration_routes::missing_billing_dashboard::billing_dashboard_router
-POST	/v1/edits	lmm_api_rs::migration_routes::missing_relay_misc_new::missing_relay_misc_router
 POST	/v1/embeddings	lmm_api_rs::migration_routes::relay_misc_active::router
 POST	/v1/engines/:model/embeddings	lmm_api_rs::migration_routes::relay_anthropic_gemini::router_with_model_lookup
 GET	/v1/files	lmm_api_rs::migration_routes::relay_misc_frozen::router
@@ -510,17 +487,9 @@ POST	/v1/models/*path	lmm_api_rs::migration_routes::relay_anthropic_gemini::rout
 DELETE	/v1/models/:model	lmm_api_rs::migration_routes::relay_anthropic_gemini::router_with_model_lookup
 GET	/v1/models/:model	lmm_api_rs::migration_routes::missing_relay_models_billing::model_lookup_router
 POST	/v1/moderations	lmm_api_rs::migration_routes::relay_misc_active::router
-GET	/v1/realtime	lmm_api_rs::migration_routes::missing_relay_misc_new::missing_relay_misc_router
 POST	/v1/rerank	lmm_api_rs::migration_routes::relay_misc_active::router
-GET	/v1/responses	lmm_api_rs::migration_routes::responses_websocket::router
 POST	/v1/responses	lmm_api_rs::migration_routes::relay_openai::openai_relay_router
 POST	/v1/responses/compact	lmm_api_rs::migration_routes::relay_openai::openai_relay_router
-POST	/v1/video/generations	lmm_api_rs::migration_routes::missing_relay_video::missing_relay_video_router
-GET	/v1/video/generations/:task_id	lmm_api_rs::migration_routes::missing_relay_video::missing_relay_video_router
-POST	/v1/videos	lmm_api_rs::migration_routes::missing_relay_video::missing_relay_video_router
-GET	/v1/videos/:task_id	lmm_api_rs::migration_routes::missing_relay_video::missing_relay_video_router
-GET	/v1/videos/:task_id/content	lmm_api_rs::migration_routes::missing_relay_video::missing_relay_video_router
-POST	/v1/videos/:video_id/remix	lmm_api_rs::migration_routes::missing_relay_video::missing_relay_video_router
 GET	/v1beta/models	lmm_api_rs::models::list_gemini_models
 POST	/v1beta/models/*path	lmm_api_rs::migration_routes::relay_anthropic_gemini::router_with_model_lookup
 GET	/v1beta/openai/models	lmm_api_rs::models::list_gemini_openai_models

@@ -90,7 +90,6 @@ POST	/api/channel/upstream_updates/apply	apps/api-rust/src/main.rs:channel_advan
 POST	/api/channel/upstream_updates/apply_all	apps/api-rust/src/main.rs:channel_advanced_router
 POST	/api/channel/upstream_updates/detect	apps/api-rust/src/main.rs:channel_advanced_router
 POST	/api/channel/upstream_updates/detect_all	apps/api-rust/src/main.rs:channel_advanced_router
-POST	/api/creem/webhook	apps/api-rust/src/main.rs:billing_provider_payments
 GET	/api/custom-oauth-provider/	apps/api-rust/src/main.rs:control_admin
 POST	/api/custom-oauth-provider/	apps/api-rust/src/main.rs:control_admin
 DELETE	/api/custom-oauth-provider/:id	apps/api-rust/src/main.rs:control_admin
@@ -270,7 +269,6 @@ GET	/api/setup	apps/api-rust/src/main.rs:system_config_router
 POST	/api/setup	apps/api-rust/src/main.rs:system_config_router
 GET	/api/status	apps/api-rust/src/http.rs:192
 GET	/api/status/test	apps/api-rust/src/main.rs:missing_control_tasks_router
-POST	/api/stripe/webhook	apps/api-rust/src/main.rs:billing_provider_payments
 POST	/api/subscription/admin/bind	apps/api-rust/src/main.rs
 GET	/api/subscription/admin/plans	apps/api-rust/src/main.rs
 POST	/api/subscription/admin/plans	apps/api-rust/src/main.rs
@@ -284,17 +282,9 @@ GET	/api/subscription/admin/users/:id/subscriptions	apps/api-rust/src/main.rs
 POST	/api/subscription/admin/users/:id/subscriptions	apps/api-rust/src/main.rs
 POST	/api/subscription/admin/users/:id/subscriptions/reset	apps/api-rust/src/main.rs
 POST	/api/subscription/balance/pay	apps/api-rust/src/main.rs:subscription_balance_pay
-POST	/api/subscription/creem/pay	apps/api-rust/src/main.rs:billing_provider_payments
-GET	/api/subscription/epay/notify	apps/api-rust/src/main.rs:billing_provider_payments
-POST	/api/subscription/epay/notify	apps/api-rust/src/main.rs:billing_provider_payments
-POST	/api/subscription/epay/pay	apps/api-rust/src/main.rs:billing_provider_payments
-GET	/api/subscription/epay/return	apps/api-rust/src/main.rs:billing_provider_payments
-POST	/api/subscription/epay/return	apps/api-rust/src/main.rs:billing_provider_payments
 GET	/api/subscription/plans	apps/api-rust/src/main.rs
 GET	/api/subscription/self	apps/api-rust/src/main.rs
 PUT	/api/subscription/self/preference	apps/api-rust/src/main.rs
-POST	/api/subscription/stripe/pay	apps/api-rust/src/main.rs:billing_provider_payments
-POST	/api/subscription/waffo-pancake/pay	apps/api-rust/src/main.rs:billing_provider_payments
 GET	/api/system-info/instances	apps/api-rust/src/main.rs:control_admin
 DELETE	/api/system-info/instances/:node_name	apps/api-rust/src/main.rs:control_admin
 DELETE	/api/system-info/stale-instances	apps/api-rust/src/main.rs:control_admin
@@ -354,11 +344,8 @@ POST	/api/user/auth/refresh	apps/api-rust/src/auth/http.rs
 DELETE	/api/user/bindings/:binding_type	apps/api-rust/src/main.rs
 GET	/api/user/checkin	apps/api-rust/src/main.rs;apps/api-rust/src/migration_routes/missing_identity_checkin_aff.rs
 POST	/api/user/checkin	apps/api-rust/src/main.rs:identity_checkin_aff_router
-POST	/api/user/creem/pay	apps/api-rust/src/main.rs:identity_stripe_pay
 GET	/api/user/developer-access/request	apps/api-rust/src/main.rs:developer_access
 POST	/api/user/developer-access/request	apps/api-rust/src/main.rs:developer_access
-GET	/api/user/epay/notify	apps/api-rust/src/main.rs:identity_epay
-POST	/api/user/epay/notify	apps/api-rust/src/main.rs:identity_epay
 GET	/api/user/gift	apps/api-rust/src/main.rs:gifts
 POST	/api/user/gift/:id/claim	apps/api-rust/src/main.rs:gifts
 GET	/api/user/groups	apps/api-rust/src/main.rs;apps/api-rust/src/migration_routes/missing_identity_catalog.rs
@@ -376,7 +363,6 @@ POST	/api/user/passkey/register/begin	apps/api-rust/src/main.rs:identity_securit
 POST	/api/user/passkey/register/finish	apps/api-rust/src/main.rs:identity_security
 POST	/api/user/passkey/verify/begin	apps/api-rust/src/main.rs:identity_security
 POST	/api/user/passkey/verify/finish	apps/api-rust/src/main.rs:identity_security
-POST	/api/user/pay	apps/api-rust/src/main.rs:identity_epay
 POST	/api/user/register	apps/api-rust/src/migration_routes/identity_security.rs
 POST	/api/user/reset	apps/api-rust/src/main.rs:identity_security
 GET	/api/user/search	apps/api-rust/src/main.rs
@@ -391,7 +377,6 @@ DELETE	/api/user/sessions/:sid	apps/api-rust/src/main.rs:identity_security
 POST	/api/user/sessions/revoke-others	apps/api-rust/src/main.rs:identity_security
 PUT	/api/user/setting	apps/api-rust/src/main.rs
 POST	/api/user/stripe/amount	apps/api-rust/src/main.rs;apps/api-rust/src/migration_routes/missing_identity_stripe_creem.rs
-POST	/api/user/stripe/pay	apps/api-rust/src/main.rs:identity_stripe_pay
 GET	/api/user/token	apps/api-rust/src/main.rs;apps/api-rust/src/migration_routes/missing_identity_catalog.rs
 GET	/api/user/topup	apps/api-rust/src/main.rs:identity_topup_router
 POST	/api/user/topup	apps/api-rust/src/main.rs:identity_topup_router
@@ -401,9 +386,7 @@ GET	/api/user/topup/self	apps/api-rust/src/main.rs:221;apps/api-rust/src/migrati
 POST	/api/user/violation-fee-appeals	apps/api-rust/src/main.rs:security_admin
 GET	/api/user/violation-fees	apps/api-rust/src/main.rs:security_admin
 POST	/api/user/waffo-pancake/amount	apps/api-rust/src/main.rs:identity_waffo
-POST	/api/user/waffo-pancake/pay	apps/api-rust/src/main.rs:identity_waffo
 POST	/api/user/waffo/amount	apps/api-rust/src/main.rs:identity_waffo
-POST	/api/user/waffo/pay	apps/api-rust/src/main.rs:identity_waffo
 GET	/api/vendors/	apps/api-rust/src/main.rs
 POST	/api/vendors/	apps/api-rust/src/main.rs
 PUT	/api/vendors/	apps/api-rust/src/main.rs
@@ -413,8 +396,6 @@ GET	/api/vendors/search	apps/api-rust/src/main.rs
 GET	/api/verification	apps/api-rust/src/main.rs:identity_security
 POST	/api/verify	apps/api-rust/src/main.rs:identity_security
 POST	/api/verify/email	apps/api-rust/src/main.rs:verify_email
-POST	/api/waffo-pancake/webhook/:env	apps/api-rust/src/main.rs:billing_webhooks
-POST	/api/waffo/webhook	apps/api-rust/src/main.rs:billing_webhooks
 GET	/dashboard/billing/subscription	apps/api-rust/src/main.rs:billing_dashboard_router
 GET	/dashboard/billing/usage	apps/api-rust/src/main.rs:billing_dashboard_router
 POST	/jimeng/	apps/api-rust/src/main.rs:relay_media_tasks
@@ -474,9 +455,6 @@ POST	/mj/submit/video	apps/api-rust/src/main.rs:relay_midjourney
 GET	/mj/task/:id/fetch	apps/api-rust/src/main.rs:relay_midjourney
 GET	/mj/task/:id/image-seed	apps/api-rust/src/main.rs:relay_midjourney
 POST	/mj/task/list-by-condition	apps/api-rust/src/main.rs:relay_midjourney
-POST	/pg/chat/completions	apps/api-rust/src/main.rs:relay_misc_new
-POST	/pg/images/edits	apps/api-rust/src/main.rs:relay_misc_new
-POST	/pg/images/generations	apps/api-rust/src/main.rs:relay_misc_new
 POST	/suno/fetch	apps/api-rust/src/main.rs:relay_media_tasks
 GET	/suno/fetch/:id	apps/api-rust/src/main.rs:relay_media_tasks
 POST	/suno/submit/:action	apps/api-rust/src/main.rs:relay_media_tasks
@@ -488,7 +466,6 @@ POST	/v1/chat/completions	apps/api-rust/src/main.rs:relay_openai
 POST	/v1/completions	apps/api-rust/src/main.rs:relay_openai
 GET	/v1/dashboard/billing/subscription	apps/api-rust/src/main.rs:billing_dashboard_router
 GET	/v1/dashboard/billing/usage	apps/api-rust/src/main.rs:billing_dashboard_router
-POST	/v1/edits	apps/api-rust/src/main.rs:relay_misc_new
 POST	/v1/embeddings	apps/api-rust/src/main.rs;apps/api-rust/src/migration_routes/relay_misc_active.rs
 POST	/v1/engines/:model/embeddings	apps/api-rust/src/main.rs;apps/api-rust/src/migration_routes/relay_anthropic_gemini.rs
 GET	/v1/files	apps/api-rust/src/main.rs;apps/api-rust/src/migration_routes/relay_misc_frozen.rs
@@ -510,17 +487,9 @@ POST	/v1/models/*path	apps/api-rust/src/main.rs;apps/api-rust/src/migration_rout
 DELETE	/v1/models/:model	apps/api-rust/src/main.rs;apps/api-rust/src/migration_routes/relay_anthropic_gemini.rs
 GET	/v1/models/:model	apps/api-rust/src/main.rs;apps/api-rust/src/migration_routes/missing_relay_models_billing.rs
 POST	/v1/moderations	apps/api-rust/src/main.rs;apps/api-rust/src/migration_routes/relay_misc_active.rs
-GET	/v1/realtime	apps/api-rust/src/main.rs:relay_misc_new
 POST	/v1/rerank	apps/api-rust/src/main.rs;apps/api-rust/src/migration_routes/relay_misc_active.rs
-GET	/v1/responses	apps/api-rust/src/main.rs:responses_websocket
 POST	/v1/responses	apps/api-rust/src/main.rs:relay_openai
 POST	/v1/responses/compact	apps/api-rust/src/main.rs:relay_openai
-POST	/v1/video/generations	apps/api-rust/src/main.rs:relay_video
-GET	/v1/video/generations/:task_id	apps/api-rust/src/main.rs:relay_video
-POST	/v1/videos	apps/api-rust/src/main.rs:relay_video
-GET	/v1/videos/:task_id	apps/api-rust/src/main.rs:relay_video
-GET	/v1/videos/:task_id/content	apps/api-rust/src/main.rs:relay_video
-POST	/v1/videos/:video_id/remix	apps/api-rust/src/main.rs:relay_video
 GET	/v1beta/models	apps/api-rust/src/models.rs
 POST	/v1beta/models/*path	apps/api-rust/src/main.rs;apps/api-rust/src/migration_routes/relay_anthropic_gemini.rs
 GET	/v1beta/openai/models	apps/api-rust/src/models.rs

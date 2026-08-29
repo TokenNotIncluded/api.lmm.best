@@ -19,6 +19,7 @@ implemented=${COMPLETE_RUST_IMPLEMENTED_LEDGER:-"$routes_dir/rust-implemented-ro
 legacy_stubs=${COMPLETE_LEGACY_STUB_LEDGER:-"$routes_dir/legacy-equivalent-stubs.tsv"}
 blockers=${COMPLETE_RUNTIME_BLOCKERS_LEDGER:-"$routes_dir/test-instance-runtime-blockers.tsv"}
 normal_mounts=${COMPLETE_NORMAL_MOUNTS_LEDGER:-"$routes_dir/rust-normal-mounted-routes.tsv"}
+compatibility_shells=${COMPLETE_FAIL_CLOSED_SHELLS_LEDGER:-"$routes_dir/rust-mounted-fail-closed-shells.tsv"}
 migration_gate=${COMPLETE_MIGRATION_GATE:-"$routes_dir/migration-gate.tsv"}
 mcp_paths=${COMPLETE_MCP_PATHS:-"$repo_root/apps/api-go/router/open_source_bounty_mcp_router.go"}
 results_dir=${COMPLETE_DIFFERENTIAL_RESULTS_DIR:-}
@@ -26,7 +27,7 @@ strict_classification=${COMPLETE_REQUIRE_EXPLICIT_CLASSIFICATION:-0}
 
 fail() { printf 'complete route coverage: %s\n' "$*" >&2; exit 1; }
 [[ $strict_classification == 0 || $strict_classification == 1 ]] || fail 'COMPLETE_REQUIRE_EXPLICIT_CLASSIFICATION must be 0 or 1'
-for file in "$frozen" "$implemented" "$legacy_stubs" "$blockers" "$normal_mounts" "$migration_gate"; do
+for file in "$frozen" "$implemented" "$legacy_stubs" "$blockers" "$normal_mounts" "$compatibility_shells" "$migration_gate"; do
   [[ -f $file ]] || fail "missing ledger: $file"
 done
 [[ -z $results_dir || -d $results_dir ]] || fail "COMPLETE_DIFFERENTIAL_RESULTS_DIR is not a directory: $results_dir"
@@ -67,14 +68,14 @@ awk -F '\t' '
   !seen[$1 FS $2]++ { print }
 ' "$manifest" "$mcp_inventory" >"$work/go-full.tsv"
 
-perl - "$work/go-full.tsv" "$frozen" "$implemented" "$legacy_stubs" "$blockers" "$normal_mounts" "$migration_gate" "$results_dir" "$strict_classification" <<'PERL'
+perl - "$work/go-full.tsv" "$frozen" "$implemented" "$legacy_stubs" "$blockers" "$normal_mounts" "$compatibility_shells" "$migration_gate" "$results_dir" "$strict_classification" <<'PERL'
 use strict;
 use warnings;
 use JSON::PP qw(decode_json encode_json);
 sub true { return JSON::PP::true; }
 sub false { return JSON::PP::false; }
 
-my ($inventory_path, $frozen_path, $implemented_path, $stubs_path, $blockers_path, $normal_path, $gate_path, $results_dir, $strict) = @ARGV;
+my ($inventory_path, $frozen_path, $implemented_path, $stubs_path, $blockers_path, $normal_path, $shells_path, $gate_path, $results_dir, $strict) = @ARGV;
 sub fail { die "complete route coverage: $_[0]\n"; }
 sub key { return join("\x1f", @_); }
 sub read_tsv {
@@ -111,6 +112,7 @@ my %implemented = route_map($implemented_path, 'Rust implemented ledger', 3, 1);
 my %stubs = route_map($stubs_path, 'legacy stub ledger', 3, 0);
 my %blockers = route_map($blockers_path, 'runtime blocker ledger', 3, 0, 1);
 my %normal = route_map($normal_path, 'normal mount ledger', 3, 1);
+my %shells = route_map($shells_path, 'mounted fail-closed shell ledger', 6, 1);
 my %live = route_map($inventory_path, 'Go inventory', 3, 0);
 
 open my $gate, '<', $gate_path or fail("cannot read migration gate: $!");
@@ -177,7 +179,25 @@ for my $route (keys %stubs) {
   fail("route is both legacy stub and provider-blocked: $route") if exists $blockers{$route};
 }
 for my $route (keys %blockers) { fail("runtime blocker is not frozen: $route") unless exists $frozen{$route}; }
+for my $route (keys %shells) {
+  my ($method, $path, $handler, $mount, $adapter, $promotion) = @{$shells{$route}};
+  fail("mounted fail-closed shell is absent from current Go inventory: $method $path") unless exists $live{$route};
+  fail("mounted fail-closed shell has invalid Rust handler evidence: $method $path")
+    unless $handler =~ /^lmm_api_rs::/;
+  fail("mounted fail-closed shell has invalid ordinary-listener evidence: $method $path")
+    unless $mount =~ m{^apps/api-rust/src/main\.rs:};
+  fail("mounted fail-closed shell lacks an explicit blocker adapter: $method $path")
+    unless $adapter =~ /(?:^|\+)(?:Disabled|FailClosed|Unconfigured)[A-Za-z0-9_]*(?:\+|$)/;
+  fail("mounted fail-closed shell lacks the real-adapter capability promotion gate: $method $path")
+    unless $promotion eq 'requires-real-adapter-and-capability-test';
+  fail("mounted fail-closed shell is incorrectly counted as implemented: $method $path") if exists $implemented{$route};
+  fail("mounted fail-closed shell is incorrectly counted as a normal mount: $method $path") if exists $normal{$route};
+  fail("mounted fail-closed shell is also a legacy stub: $method $path") if exists $stubs{$route};
+}
 for my $route (keys %implemented) {
+  my ($method, $path, $handler) = @{$implemented{$route}};
+  fail("known blocker adapter cannot qualify as implemented: $method $path")
+    if $handler =~ /(?:^|::)(?:Disabled|FailClosed|Unconfigured)[A-Za-z0-9_]*/;
   fail("route is both implemented and legacy stub: $route")
     if exists $stubs{$route}
       && !(exists $mounted_frozen_compatibility{$route}
@@ -236,6 +256,10 @@ while (my $line = <$inventory>) {
   fail("duplicate Go route identity: $method $path") if $seen{$route}++;
   my ($class, $reason);
   if (exists $stubs{$route}) { $class = 'legacy-501'; $reason = $stubs{$route}->[6] // 'legacy explicit 501 stub'; }
+  elsif (exists $shells{$route}) {
+    $class = 'mounted-fail-closed-shell';
+    $reason = 'ordinary-listener compatibility shell; production adapter is ' . $shells{$route}->[4] . '; real adapter and capability test required for implementation credit';
+  }
   elsif (exists $implemented{$route}) {
     $class = 'differential-candidate';
     $reason = 'Rust implementation ledger entry; scenario differential evidence required';
@@ -247,8 +271,8 @@ while (my $line = <$inventory>) {
     $class = 'static-only';
     $reason = exists $frozen{$route} ? 'frozen Go route without a Rust implementation ledger entry' : 'current Go route outside frozen migration ledger';
   }
-  my $rust_normal = exists $normal{$route} ? 'mounted' : 'unmounted';
-  my $rust_test = $class eq 'provider-blocked' ? 'fail-closed' : $class eq 'legacy-501' ? 'legacy-501' :
+  my $rust_normal = exists $shells{$route} ? 'fail-closed-compatibility-shell' : exists $normal{$route} ? 'mounted' : 'unmounted';
+  my $rust_test = ($class eq 'provider-blocked' || $class eq 'mounted-fail-closed-shell') ? 'fail-closed' : $class eq 'legacy-501' ? 'legacy-501' :
     $class eq 'differential-candidate' ? ($rust_normal eq 'mounted' ? 'also-normal-mounted' : 'candidate-only') :
     exists $frozen{$route} ? 'static-source-candidate-unverified' : 'absent';
   my $diff = $differential{$route};
@@ -262,7 +286,7 @@ while (my $line = <$inventory>) {
   print encode_json({
     record_type => 'route', method => $method, path => $path, go_handler => $handler, class => $class,
     rust_normal => $rust_normal, rust_test_instance => $rust_test, result => $result,
-    evidence => { frozen_go => exists $frozen{$route} ? true : false, rust_implemented => exists $implemented{$route} ? $implemented{$route}->[2] : undef, normal_mount => exists $normal{$route} ? $normal{$route}->[2] : undef, provider_blocked_test_instance => exists $blockers{$route} ? true : false, reason => $reason },
+    evidence => { frozen_go => exists $frozen{$route} ? true : false, rust_implemented => exists $implemented{$route} ? $implemented{$route}->[2] : undef, normal_mount => exists $normal{$route} ? $normal{$route}->[2] : undef, mounted_fail_closed_shell => exists $shells{$route} ? $shells{$route}->[3] : undef, production_blocker_adapter => exists $shells{$route} ? $shells{$route}->[4] : undef, provider_blocked_test_instance => exists $blockers{$route} ? true : false, reason => $reason },
     differential_verified => $is_verified ? true : false,
     transport_boundary_verified => $is_transport_boundary_verified ? true : false,
     differential_scope => $diff && exists $diff->{differential_scope} ? $diff->{differential_scope} : undef,
