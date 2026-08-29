@@ -98,7 +98,11 @@ func (a *Adaptor) ConvertOpenAIRequest(c *gin.Context, info *relaycommon.RelayIn
 }
 
 func (a *Adaptor) ConvertRerankRequest(c *gin.Context, relayMode int, request dto.RerankRequest) (any, error) {
-	return nil, errors.New("not implemented")
+	return nil, channel.NewUnsupportedEndpointError(a.GetChannelName(), channel.EndpointRerank)
+}
+
+func (a *Adaptor) SupportsEndpoint(endpoint channel.Endpoint) bool {
+	return endpoint != channel.EndpointRerank
 }
 
 func (a *Adaptor) ConvertEmbeddingRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.EmbeddingRequest) (any, error) {

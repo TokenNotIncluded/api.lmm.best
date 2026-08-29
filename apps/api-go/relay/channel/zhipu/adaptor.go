@@ -24,8 +24,11 @@ func (a *Adaptor) ConvertGeminiRequest(*gin.Context, *relaycommon.RelayInfo, *dt
 }
 
 func (a *Adaptor) ConvertClaudeRequest(*gin.Context, *relaycommon.RelayInfo, *dto.ClaudeRequest) (any, error) {
-	//TODO implement me
-	panic("implement me")
+	return nil, channel.NewUnsupportedEndpointError(a.GetChannelName(), channel.EndpointClaudeMessages)
+}
+
+func (a *Adaptor) SupportsEndpoint(endpoint channel.Endpoint) bool {
+	return endpoint != channel.EndpointClaudeMessages && endpoint != channel.EndpointRerank
 }
 
 func (a *Adaptor) ConvertAudioRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.AudioRequest) (io.Reader, error) {
@@ -67,7 +70,7 @@ func (a *Adaptor) ConvertOpenAIRequest(c *gin.Context, info *relaycommon.RelayIn
 }
 
 func (a *Adaptor) ConvertRerankRequest(c *gin.Context, relayMode int, request dto.RerankRequest) (any, error) {
-	return nil, nil
+	return nil, channel.NewUnsupportedEndpointError(a.GetChannelName(), channel.EndpointRerank)
 }
 
 func (a *Adaptor) ConvertEmbeddingRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.EmbeddingRequest) (any, error) {

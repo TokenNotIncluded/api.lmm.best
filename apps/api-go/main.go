@@ -339,7 +339,7 @@ func runServer() {
 			return nil
 		},
 		waitLoops: func(ctx context.Context) error {
-			return errors.Join(loops.Wait(ctx), model.WaitForCacheWarm(ctx))
+			return errors.Join(loops.Wait(ctx), model.WaitForCacheWarm(ctx), middleware.WaitAdminAudits(ctx))
 		},
 		flushQuota: func() {
 			if common.DataExportEnabled {

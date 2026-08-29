@@ -963,7 +963,14 @@ func TestAssistantCreateKeyAgentConfirmationIsSessionBoundAndExactlyOnce(t *test
 	var card model.AssistantSecureCard
 	require.NoError(t, db.Where("owner_user_id = ?", user.Id).First(&card).Error)
 	assert.Equal(t, conversationRecord.Id, card.ConversationId)
-	assert.NotContains(t, card.Ciphertext, "sk-")
+	revealed, _, err := model.RevealAssistantSecureCard(user.Id, card.Id)
+	require.NoError(t, err)
+	payload, err := model.AssistantSecureCardPayload(revealed)
+	require.NoError(t, err)
+	plaintextKey := payload["api_key"]
+	require.NotEmpty(t, plaintextKey)
+	assert.NotEqual(t, plaintextKey, card.Ciphertext)
+	assert.NotContains(t, card.Ciphertext, plaintextKey)
 }
 
 func TestCreateAssistantDefaultKeyRejectsL0AtCommitTime(t *testing.T) {

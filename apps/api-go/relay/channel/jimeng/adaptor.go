@@ -26,7 +26,11 @@ func (a *Adaptor) ConvertGeminiRequest(*gin.Context, *relaycommon.RelayInfo, *dt
 }
 
 func (a *Adaptor) ConvertClaudeRequest(*gin.Context, *relaycommon.RelayInfo, *dto.ClaudeRequest) (any, error) {
-	return nil, errors.New("not implemented")
+	return nil, channel.NewUnsupportedEndpointError(a.GetChannelName(), channel.EndpointClaudeMessages)
+}
+
+func (a *Adaptor) SupportsEndpoint(endpoint channel.Endpoint) bool {
+	return endpoint != channel.EndpointClaudeMessages && endpoint != channel.EndpointRerank
 }
 
 func (a *Adaptor) Init(info *relaycommon.RelayInfo) {
@@ -88,7 +92,7 @@ func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInf
 }
 
 func (a *Adaptor) ConvertRerankRequest(c *gin.Context, relayMode int, request dto.RerankRequest) (any, error) {
-	return nil, errors.New("not implemented")
+	return nil, channel.NewUnsupportedEndpointError(a.GetChannelName(), channel.EndpointRerank)
 }
 
 func (a *Adaptor) ConvertEmbeddingRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.EmbeddingRequest) (any, error) {

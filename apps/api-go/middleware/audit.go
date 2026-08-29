@@ -2,6 +2,8 @@ package middleware
 
 import (
 	"bytes"
+	"context"
+	"sync"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/LIghtJUNction/api.lmm.best/constant"
@@ -40,6 +42,8 @@ func (w *auditResponseWriter) WriteString(s string) (int, error) {
 // auditRouteActions 将「METHOD + 路由模板」映射为语言无关的操作标识 action。
 // 这些是未被 handler 手动埋点的写操作，由中间件兜底记录；前端依据 action 用 i18n 本地化展示。
 // 未命中的写操作回退为 action="generic"，前端展示 "METHOD route"。
+var adminAuditTasks sync.WaitGroup
+
 var auditRouteActions = map[string]string{
 	// 用户管理
 	"POST /api/user/topup/complete":                    "user.topup_complete",
@@ -176,9 +180,37 @@ func finishAdminAudit(c *gin.Context, writer *auditResponseWriter) {
 		auditInfo["params"] = routeParams
 	}
 
-	gopool.Go(func() {
+	record := func() {
 		model.RecordOperationAuditLog(operatorId, content, ip, action, opParams, adminInfo, auditInfo)
+	}
+	// Tests replace global DB/Valkey handles during cleanup. Recording inline in
+	// gin test mode keeps those lifetimes deterministic and exercises the same
+	// persistence path without a detached race.
+	if gin.Mode() == gin.TestMode {
+		record()
+		return
+	}
+	adminAuditTasks.Add(1)
+	gopool.Go(func() {
+		defer adminAuditTasks.Done()
+		record()
 	})
+}
+
+// WaitAdminAudits waits for accepted asynchronous audit writes. Call only
+// after HTTP admission has stopped so no new tasks can be added concurrently.
+func WaitAdminAudits(ctx context.Context) error {
+	done := make(chan struct{})
+	go func() {
+		adminAuditTasks.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func auditAuthMethod(c *gin.Context) string {

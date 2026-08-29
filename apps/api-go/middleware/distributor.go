@@ -15,6 +15,8 @@ import (
 	taskdto "github.com/LIghtJUNction/api.lmm.best/dto"
 	"github.com/LIghtJUNction/api.lmm.best/i18n"
 	"github.com/LIghtJUNction/api.lmm.best/model"
+	relaychannel "github.com/LIghtJUNction/api.lmm.best/relay/channel"
+	"github.com/LIghtJUNction/api.lmm.best/relay/channel/factory"
 	relayconstant "github.com/LIghtJUNction/api.lmm.best/relay/constant"
 	"github.com/LIghtJUNction/api.lmm.best/relaykit/dto"
 	"github.com/LIghtJUNction/api.lmm.best/relaykit/types"
@@ -52,6 +54,10 @@ func Distribute() func(c *gin.Context) {
 			}
 			if channel.Status != common.ChannelStatusEnabled {
 				abortWithOpenAiMessage(c, http.StatusForbidden, i18n.T(c, i18n.MsgDistributorChannelDisabled))
+				return
+			}
+			if !channelSupportsRequestPath(channel, c.Request.URL.Path, modelRequest.Model) {
+				abortWithOpenAiMessage(c, http.StatusBadRequest, "selected channel does not support requested endpoint", types.ErrorCodeChannelUnsupportedEndpoint)
 				return
 			}
 		} else {
@@ -133,28 +139,41 @@ func Distribute() func(c *gin.Context) {
 				}
 
 				if channel == nil {
-					channel, selectGroup, err = service.CacheGetRandomSatisfiedChannel(&service.RetryParam{
+					retryParam := &service.RetryParam{
 						Ctx:         c,
 						ModelName:   modelRequest.Model,
 						TokenGroup:  usingGroup,
 						RequestPath: c.Request.URL.Path,
 						Retry:       common.GetPointer(0),
-					})
+					}
+					rejectedUnsupported := false
+					for {
+						channel, selectGroup, err = service.CacheGetRandomSatisfiedChannel(retryParam)
+						if err != nil || channel == nil || channelSupportsRequestPath(channel, c.Request.URL.Path, modelRequest.Model) {
+							break
+						}
+						rejectedUnsupported = true
+						retryParam.ExcludeChannel(channel.Id)
+						channel = nil
+					}
 					if err != nil {
+						if rejectedUnsupported {
+							abortWithOpenAiMessage(c, http.StatusBadRequest, "no channel supports requested endpoint", types.ErrorCodeChannelUnsupportedEndpoint)
+							return
+						}
 						showGroup := usingGroup
 						if usingGroup == "auto" {
 							showGroup = fmt.Sprintf("auto(%s)", selectGroup)
 						}
 						message := i18n.T(c, i18n.MsgDistributorGetChannelFailed, map[string]any{"Group": showGroup, "Model": modelRequest.Model, "Error": err.Error()})
-						// 如果错误，但是渠道不为空，说明是数据库一致性问题
-						//if channel != nil {
-						//	common.SysError(fmt.Sprintf("渠道不存在：%d", channel.Id))
-						//	message = "数据库一致性已被破坏，请联系管理员"
-						//}
 						abortWithOpenAiMessage(c, http.StatusServiceUnavailable, message, types.ErrorCodeModelNotFound)
 						return
 					}
 					if channel == nil {
+						if rejectedUnsupported {
+							abortWithOpenAiMessage(c, http.StatusBadRequest, "no channel supports requested endpoint", types.ErrorCodeChannelUnsupportedEndpoint)
+							return
+						}
 						abortWithOpenAiMessage(c, http.StatusServiceUnavailable, i18n.T(c, i18n.MsgDistributorNoAvailableChannel, map[string]any{"Group": usingGroup, "Model": modelRequest.Model}), types.ErrorCodeModelNotFound)
 						return
 					}
@@ -171,17 +190,32 @@ func Distribute() func(c *gin.Context) {
 }
 
 // channelSupportsRequestPath reports whether a channel can serve the request path.
-// Only Advanced Custom (type 58) channels are path-checked; all other channel types
-// always pass. A type-58 channel is usable only when one of its routes matches.
-func channelSupportsRequestPath(channel *model.Channel, requestPath string, requestModel string) bool {
-	if channel == nil {
+// Advanced Custom channels must have a matching route. Claude Messages and rerank
+// additionally use the selected adaptor's declared endpoint capability.
+func channelSupportsRequestPath(selected *model.Channel, requestPath string, requestModel string) bool {
+	if selected == nil {
 		return false
 	}
-	if channel.Type != constant.ChannelTypeAdvancedCustom {
+	if selected.Type == constant.ChannelTypeAdvancedCustom {
+		config := selected.GetOtherSettings().AdvancedCustom
+		if config == nil || !config.SupportsPathForModel(requestPath, requestModel) {
+			return false
+		}
+	}
+	endpoint, targeted := relaychannel.EndpointForRequestPath(requestPath)
+	if !targeted {
 		return true
 	}
-	config := channel.GetOtherSettings().AdvancedCustom
-	return config != nil && config.SupportsPathForModel(requestPath, requestModel)
+	apiType, ok := common.ChannelType2APIType(selected.Type)
+	if !ok {
+		return false
+	}
+	// A multi-key Tencent channel may contain both native and TokenHub keys.
+	// Let the handler validate the actual rotated key rather than blocking it.
+	if apiType == constant.APITypeTencent && selected.ChannelInfo.IsMultiKey {
+		return true
+	}
+	return factory.SupportsEndpoint(apiType, selected.Key, endpoint)
 }
 
 // getModelFromRequest 从请求中读取模型信息

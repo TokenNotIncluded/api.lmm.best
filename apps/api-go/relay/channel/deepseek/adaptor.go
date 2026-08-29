@@ -152,7 +152,11 @@ func applyDeepSeekV4ClaudeThinkingSuffix(info *relaycommon.RelayInfo, request *d
 }
 
 func (a *Adaptor) ConvertRerankRequest(c *gin.Context, relayMode int, request dto.RerankRequest) (any, error) {
-	return nil, nil
+	return nil, channel.NewUnsupportedEndpointError(a.GetChannelName(), channel.EndpointRerank)
+}
+
+func (a *Adaptor) SupportsEndpoint(endpoint channel.Endpoint) bool {
+	return endpoint != channel.EndpointRerank
 }
 
 func (a *Adaptor) ConvertEmbeddingRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.EmbeddingRequest) (any, error) {

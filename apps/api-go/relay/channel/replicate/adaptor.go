@@ -507,7 +507,7 @@ func (a *Adaptor) ConvertOpenAIRequest(*gin.Context, *relaycommon.RelayInfo, *dt
 }
 
 func (a *Adaptor) ConvertRerankRequest(*gin.Context, int, dto.RerankRequest) (any, error) {
-	return nil, errors.New("replicate adaptor: ConvertRerankRequest is not implemented")
+	return nil, channel.NewUnsupportedEndpointError(a.GetChannelName(), channel.EndpointRerank)
 }
 
 func (a *Adaptor) ConvertEmbeddingRequest(*gin.Context, *relaycommon.RelayInfo, dto.EmbeddingRequest) (any, error) {
@@ -523,7 +523,11 @@ func (a *Adaptor) ConvertOpenAIResponsesRequest(*gin.Context, *relaycommon.Relay
 }
 
 func (a *Adaptor) ConvertClaudeRequest(*gin.Context, *relaycommon.RelayInfo, *dto.ClaudeRequest) (any, error) {
-	return nil, errors.New("replicate adaptor: ConvertClaudeRequest is not implemented")
+	return nil, channel.NewUnsupportedEndpointError(a.GetChannelName(), channel.EndpointClaudeMessages)
+}
+
+func (a *Adaptor) SupportsEndpoint(endpoint channel.Endpoint) bool {
+	return endpoint != channel.EndpointClaudeMessages && endpoint != channel.EndpointRerank
 }
 
 func (a *Adaptor) ConvertGeminiRequest(*gin.Context, *relaycommon.RelayInfo, *dto.GeminiChatRequest) (any, error) {

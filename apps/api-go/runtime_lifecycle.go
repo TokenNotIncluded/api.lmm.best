@@ -115,7 +115,8 @@ type shutdownSteps struct {
 
 // shutdownRuntime makes the process unavailable first, stops background work
 // before draining HTTP, then persists in-memory state before closing its data
-// stores. HTTP and loop waits have independent finite deadlines.
+// stores. Every drain shares one process-wide deadline; bounded substeps may
+// use a shorter cap but can never extend the supervisor-safe total budget.
 func shutdownRuntime(steps shutdownSteps, totalTimeout, waitTimeout time.Duration) error {
 	if steps.markUnready != nil {
 		steps.markUnready()

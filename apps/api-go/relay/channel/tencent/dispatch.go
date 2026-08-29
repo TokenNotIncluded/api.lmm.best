@@ -28,6 +28,10 @@ func (a *DispatchAdaptor) Init(info *relaycommon.RelayInfo) {
 	a.Adaptor.Init(info)
 }
 
+func (a *DispatchAdaptor) SupportsEndpoint(endpoint channel.Endpoint) bool {
+	return channel.SupportsEndpoint(a.Adaptor, endpoint)
+}
+
 func (a *DispatchAdaptor) GetModelList() []string {
 	return ModelList
 }
