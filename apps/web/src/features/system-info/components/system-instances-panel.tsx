@@ -128,7 +128,9 @@ function getInstanceSlot(instance: SystemInstance) {
 
 function getInstanceDisplayName(instance: SystemInstance) {
   const slot = getInstanceSlot(instance)
-  return slot ? `${getPhysicalNodeName(instance)} (${slot})` : getPhysicalNodeName(instance)
+  return slot
+    ? `${getPhysicalNodeName(instance)} (${slot})`
+    : getPhysicalNodeName(instance)
 }
 
 function formatPercent(value?: number) {

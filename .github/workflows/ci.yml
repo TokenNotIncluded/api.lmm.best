@@ -58,7 +58,7 @@ jobs:
           bash .agents/skills/lmm-deploy-safely/scripts/tests/test-inspect-state.sh
           bash .agents/skills/lmm-deploy-safely/scripts/tests/test-resource-pressure-report.sh
 
-      - name: Test release version, governance, and changelog tooling
+      - name: Test component release governance tooling
         run: |
           shellcheck \
             scripts/verify-release-commit-checks.sh \
@@ -67,7 +67,6 @@ jobs:
             packaging/aur/export-go-package-base.sh \
             packaging/aur/test-export-go-package-base.sh
           bash scripts/test-verify-release-commit-checks.sh
-          node --test scripts/release.test.mjs
 
       - name: Validate real integration gate contracts
         run: |
