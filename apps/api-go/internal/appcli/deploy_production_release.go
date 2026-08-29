@@ -161,7 +161,7 @@ func parseProductionReleasePlanOptions(args []string, stderr io.Writer) (product
 	flags.StringVar(&options.WebRollbackReleaseBundle, "web-rollback-release-bundle", "", "rollback Web Sigstore bundle")
 	flags.StringVar(&options.ProbeBinary, "probe-binary", "", "candidate lmm-api binary extracted from the signed Go release")
 	flags.StringVar(&options.OperatorBinary, "operator-binary", "", "signed deployment operator binary staged separately from the candidate probe")
-	flags.BoolVar(&options.WithBackups, "with-backups", false, "require target, controller, and off-host backups before promotion")
+	flags.BoolVar(&options.WithBackups, "with-backups", false, "require verified target, controller, and off-host backups (mandatory for Go changes)")
 	flags.StringVar(&options.AgeRecipientFile, "age-recipient-file", "", "age or SSH public recipient file used when backups are enabled")
 	flags.IntVar(&options.ObservationSeconds, "observation-seconds", options.ObservationSeconds, "automatic stability observation window (120-360)")
 	flags.IntVar(&options.RollbackSeconds, "rollback-seconds", options.RollbackSeconds, "fixed automatic rollback deadline (must be 600)")
@@ -287,6 +287,9 @@ func (runtime *productionReleaseRuntime) createPlan(ctx context.Context, options
 	webChanged := webCandidate.PackageSHA256 != webRollback.PackageSHA256
 	if !goChanged && !webChanged {
 		return productionReleasePlanResult{}, errors.New("candidate release is byte-identical to both rollback packages")
+	}
+	if goChanged && !options.WithBackups {
+		return productionReleasePlanResult{}, errors.New("production Go releases require verified three-copy backups; supply --with-backups and --age-recipient-file")
 	}
 	if err := validateChangedIdentity(goChanged, releasePlanMetadata(goCandidate), releasePlanMetadata(goRollback), goCandidate.PackageSHA256, goRollback.PackageSHA256); err != nil {
 		return productionReleasePlanResult{}, fmt.Errorf("Go package pair: %w", err)
@@ -1371,6 +1374,9 @@ func validateProductionReleasePlan(plan productionReleasePlan) error {
 	}
 	if !productionVersionPattern.MatchString(plan.ExpectedVersion) || plan.ObservationSeconds < 120 || plan.ObservationSeconds > 360 || plan.RollbackSeconds != 600 {
 		return errors.New("release plan timing or version contract is invalid")
+	}
+	if plan.GoChanged && !plan.WithBackups {
+		return errors.New("production release plans with Go changes require verified three-copy backups")
 	}
 	workspace, err := cleanAbsoluteNonRoot(plan.ControllerWorkspace)
 	if err != nil || workspace != plan.ControllerWorkspace {

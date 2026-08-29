@@ -115,6 +115,9 @@ Target-only recovery commands (normally invoked by the controller):
        --probe-binary FILE --probe-binary-sha256 HEX --operator-binary FILE --operator-binary-sha256 HEX \\
        --expected-version VERSION [--go-changed] [--web-changed] [--with-backups --backup-dir DIR] [--manual-confirm]
   %s deploy production status|confirm|rollback --workspace DIR
+
+Production Go changes require --with-backups and the verified target, controller, and off-host copies.
+Web-only releases may omit backups.
 `, ProgramName, ProgramName, ProgramName, ProgramName, ProgramName)
 }
 

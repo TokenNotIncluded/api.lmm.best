@@ -1,5 +1,5 @@
 pkgbase = lmm-api-rs-git
-	pkgdesc = LMM API Rust backend and database migrator (git)
+	pkgdesc = LMM API Rust backend and database migrator (source preview)
 	pkgver = 0.1.1.r7.g24093b139
 	pkgrel = 1
 	url = https://github.com/LIghtJUNction/api.lmm.best

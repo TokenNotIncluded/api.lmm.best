@@ -1094,11 +1094,16 @@ func TestProductionAutomaticRollbackNeverRestoresDatabaseAndPreservesOnlineWrite
 	}
 }
 
-func TestProductionBusinessBackupIsOptionalButValidatedWhenAuthorized(t *testing.T) {
-	t.Run("omitted", func(t *testing.T) {
+func TestProductionBackupsMayBeOmittedOnlyForWebOnlyTransactions(t *testing.T) {
+	t.Run("Web-only omitted", func(t *testing.T) {
 		fixture := newProductionFixture(t)
+		fixture.options.GoChanged = false
+		fixture.options.GoPackage = fixture.options.GoRollbackPackage
+		fixture.options.GoPackageSHA256 = fixture.options.GoRollbackSHA256
+		fixture.options.ExpectedVersion = fixture.runner.oldVersion
 		fixture.options.BackupDir = ""
 		fixture.options.WithBackups = false
+		fixture.runner.probeVersion = fixture.runner.oldVersion
 		if _, err := fixture.runtime.apply(context.Background(), fixture.workspace, fixture.options); err != nil {
 			t.Fatal(err)
 		}
@@ -1107,7 +1112,21 @@ func TestProductionBusinessBackupIsOptionalButValidatedWhenAuthorized(t *testing
 			t.Fatal(err)
 		}
 		if manifest.BackupsEnabled || manifest.BackupDir != "" || manifest.DatabaseBackupSHA256 != "" {
-			t.Fatalf("unauthorized optional backup state persisted: %#v", manifest)
+			t.Fatalf("backup state persisted for Web-only release without backups: %#v", manifest)
+		}
+	})
+	t.Run("Go change omitted", func(t *testing.T) {
+		fixture := newProductionFixture(t)
+		fixture.options.BackupDir = ""
+		fixture.options.WithBackups = false
+		if _, err := fixture.runtime.apply(context.Background(), fixture.workspace, fixture.options); err == nil || !strings.Contains(err.Error(), "Go transactions require verified three-copy backups") {
+			t.Fatalf("Go backup requirement error=%v", err)
+		}
+		if _, err := os.Lstat(fixture.workspace.statusPath); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("rejected Go transaction wrote status: %v", err)
+		}
+		if _, err := os.Lstat(fixture.workspace.manifestPath); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("rejected Go transaction wrote manifest: %v", err)
 		}
 	})
 	t.Run("authorized-empty-database", func(t *testing.T) {
@@ -1284,6 +1303,7 @@ func TestParseProductionTransactionRejectsNon600WatchdogDefaults(t *testing.T) {
 		"--web-rollback-package", fixture.options.WebRollbackPackage, "--web-rollback-sha256", fixture.options.WebRollbackSHA256,
 		"--probe-binary", fixture.options.ProbeBinary, "--probe-binary-sha256", fixture.options.ProbeBinarySHA256,
 		"--expected-version", fixture.options.ExpectedVersion, "--go-changed", "--web-changed",
+		"--with-backups", "--backup-dir", fixture.options.BackupDir,
 	}
 	for _, seconds := range []string{"599", "601", "3600"} {
 		arguments := append(slices.Clone(base), "--rollback-seconds", seconds)
@@ -1298,6 +1318,31 @@ func TestParseProductionTransactionRejectsNon600WatchdogDefaults(t *testing.T) {
 	}
 	if options.RollbackWindow != 600*time.Second || productionDefaultRollback != 600*time.Second {
 		t.Fatalf("rollback defaults: parsed=%s default=%s", options.RollbackWindow, productionDefaultRollback)
+	}
+}
+
+func TestParseProductionTransactionRequiresBackupsForGoChanges(t *testing.T) {
+	fixture := newProductionFixture(t)
+	base := []string{
+		"--workspace", fixture.workspace.root, "--operator-user", productionOperatorUser,
+		"--go-package", fixture.options.GoPackage, "--go-package-sha256", fixture.options.GoPackageSHA256,
+		"--go-rollback-package", fixture.options.GoRollbackPackage, "--go-rollback-sha256", fixture.options.GoRollbackSHA256,
+		"--web-package", fixture.options.WebPackage, "--web-package-sha256", fixture.options.WebPackageSHA256,
+		"--web-rollback-package", fixture.options.WebRollbackPackage, "--web-rollback-sha256", fixture.options.WebRollbackSHA256,
+		"--probe-binary", fixture.options.ProbeBinary, "--probe-binary-sha256", fixture.options.ProbeBinarySHA256,
+		"--expected-version", fixture.options.ExpectedVersion,
+	}
+	_, err := parseProductionTransactionOptions("apply", append(slices.Clone(base), "--go-changed"), &bytes.Buffer{})
+	if err == nil || !strings.Contains(err.Error(), "--go-changed requires verified three-copy backups") {
+		t.Fatalf("Go backup parse error=%v", err)
+	}
+
+	webOnly, err := parseProductionTransactionOptions("apply", append(slices.Clone(base), "--web-changed"), &bytes.Buffer{})
+	if err != nil {
+		t.Fatalf("Web-only transaction without backups rejected: %v", err)
+	}
+	if webOnly.WithBackups || webOnly.BackupDir != "" {
+		t.Fatalf("Web-only backup options=%#v", webOnly)
 	}
 }
 

@@ -243,23 +243,4 @@ build_package lmm-api-web-bin \
   usr/share/doc/lmm-api-web-bin/API_ROUTE_CONTRACT_REVISION \
   .INSTALL
 
-rs_work="$tmp/lmm-api-rs-bin"
-rs_pkgver=$(awk -F= '$1 == "pkgver" { print $2; exit }' "$HERE/lmm-api-rs-bin/PKGBUILD")
-[[ $rs_pkgver =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "invalid Rust binary pkgver: $rs_pkgver"
-rs_artifact="lmm-api-rs-${rs_pkgver}-linux-amd64"
-rs_bundle="$rs_work/stage/$rs_artifact"
-mkdir -p "$rs_bundle"
-cp "$HERE/lmm-api-rs-bin/PKGBUILD" "$rs_work/"
-for binary in lmm-api-rs lmm-db-migrate; do
-  printf '#!/bin/sh\nexit 0\n' >"$rs_bundle/$binary"
-  chmod 0755 "$rs_bundle/$binary"
-done
-add_metadata "$rs_bundle"
-create_archive "$rs_work" "$rs_artifact"
-pin_fixture_hashes "$rs_work/PKGBUILD" sha256sums \
-  "$rs_work/${rs_artifact}.tar.gz" \
-  "$rs_work/${rs_artifact}.tar.gz.sha256" \
-  "$rs_work/${rs_artifact}.tar.gz.sigstore.json"
-build_package lmm-api-rs-bin usr/bin/lmm-api-rs usr/bin/lmm-db-migrate
-
-printf '%s\n' 'prebuilt operator, direct-backend, and web AUR packages built with makepkg'
+printf '%s\n' 'prebuilt Go operator and Web packages built with makepkg'

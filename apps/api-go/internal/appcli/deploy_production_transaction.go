@@ -481,7 +481,10 @@ func (runtime *productionRuntime) apply(ctx context.Context, workspace productio
 		return productionStatus{}, errors.New("at least one of --go-changed or --web-changed is required")
 	}
 	if options.WithBackups != (options.BackupDir != "") {
-		return productionStatus{}, errors.New("optional business backups require both --with-backups and --backup-dir")
+		return productionStatus{}, errors.New("production backups require both --with-backups and --backup-dir")
+	}
+	if options.GoChanged && !options.WithBackups {
+		return productionStatus{}, errors.New("production Go transactions require verified three-copy backups via --with-backups and --backup-dir")
 	}
 	if _, err := os.Lstat(workspace.manifestPath); !errors.Is(err, os.ErrNotExist) {
 		return productionStatus{}, errors.New("deployment manifest already exists")
@@ -561,7 +564,7 @@ func (runtime *productionRuntime) apply(ctx context.Context, workspace productio
 	if options.BackupDir != "" {
 		databaseBackupSHA256, err = sha256File(filepath.Join(options.BackupDir, "database.archive"))
 		if err != nil || !productionSHA256Pattern.MatchString(databaseBackupSHA256) {
-			return productionStatus{}, errors.New("authorized optional database backup is missing or empty")
+			return productionStatus{}, errors.New("authorized database backup is missing or empty")
 		}
 	}
 	if _, err := runtime.runner.Run(ctx, productionCommand{Name: commandSystemctl, Args: []string{"is-active", "--quiet", runtime.paths.Service}}); err != nil {

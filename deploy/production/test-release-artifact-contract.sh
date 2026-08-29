@@ -4,9 +4,11 @@ set -Eeuo pipefail
 HERE=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 ROOT=$(git -C "$HERE" rev-parse --show-toplevel)
 readonly HERE ROOT
+readonly CI_WORKFLOW="$ROOT/.github/workflows/ci.yml"
 readonly GO_WORKFLOW="$ROOT/.github/workflows/release-go.yml"
 readonly WEB_WORKFLOW="$ROOT/.github/workflows/release-web.yml"
-readonly PROMOTE_WORKFLOW="$ROOT/.github/workflows/promote-release.yml"
+readonly RUST_MANIFEST="$ROOT/apps/api-rust/Cargo.toml"
+readonly RUST_TOOLCHAIN_FILE="$ROOT/apps/api-rust/rust-toolchain.toml"
 readonly GO_PKGBUILD="$ROOT/packaging/aur/lmm-api-go-bin/PKGBUILD"
 readonly WEB_PKGBUILD="$ROOT/packaging/aur/lmm-api-web-bin/PKGBUILD"
 readonly GO_CLI_PHASE="$ROOT/deploy/production/CLI_TRANSITION_PHASE"
@@ -23,10 +25,65 @@ reject_literal() {
   local file=$1 literal=$2 message=$3
   ! grep -Fq -- "$literal" "$file" || fail "$message"
 }
+workflow_rust_toolchain() {
+  local file=$1
+  local -a definitions=()
+  mapfile -t definitions < <(grep -E '^[[:space:]]*RUST_TOOLCHAIN:' "$file" || true)
+  ((${#definitions[@]} == 1)) ||
+    fail "workflow must define RUST_TOOLCHAIN exactly once: $file"
+  printf '%s\n' "${definitions[0]#*:}" | tr -d "[:space:]'\""
+}
 
-for file in "$GO_WORKFLOW" "$WEB_WORKFLOW" "$PROMOTE_WORKFLOW" "$GO_PKGBUILD" "$WEB_PKGBUILD" "$GO_CLI_PHASE"; do
+for file in \
+  "$CI_WORKFLOW" \
+  "$GO_WORKFLOW" \
+  "$WEB_WORKFLOW" \
+  "$RUST_MANIFEST" \
+  "$RUST_TOOLCHAIN_FILE" \
+  "$GO_PKGBUILD" \
+  "$WEB_PKGBUILD" \
+  "$GO_CLI_PHASE"; do
   [[ -f $file ]] || fail "missing contract input: $file"
 done
+
+# Rust release builds must use the same patch-level toolchain as CI, while the
+# workspace's Cargo MSRV remains the matching major/minor contract.
+readonly EXPECTED_RUST_TOOLCHAIN=1.91.0
+readonly EXPECTED_RUST_VERSION=1.91
+ci_rust_toolchain=$(workflow_rust_toolchain "$CI_WORKFLOW")
+[[ $ci_rust_toolchain == "$EXPECTED_RUST_TOOLCHAIN" ]] ||
+  fail "CI Rust toolchain must remain $EXPECTED_RUST_TOOLCHAIN, got $ci_rust_toolchain"
+mapfile -t cargo_rust_versions < <(
+  sed -nE 's/^[[:space:]]*rust-version[[:space:]]*=[[:space:]]*"([^"]+)"[[:space:]]*$/\1/p' \
+    "$RUST_MANIFEST"
+)
+((${#cargo_rust_versions[@]} == 1)) ||
+  fail 'Cargo workspace must define rust-version exactly once'
+[[ ${cargo_rust_versions[0]} == "$EXPECTED_RUST_VERSION" ]] ||
+  fail "Cargo rust-version must remain $EXPECTED_RUST_VERSION, got ${cargo_rust_versions[0]}"
+mapfile -t rust_toolchain_channels < <(
+  sed -nE 's/^[[:space:]]*channel[[:space:]]*=[[:space:]]*"([^"]+)"[[:space:]]*$/\1/p' \
+    "$RUST_TOOLCHAIN_FILE"
+)
+((${#rust_toolchain_channels[@]} == 1)) ||
+  fail 'rust-toolchain.toml must define channel exactly once'
+[[ ${rust_toolchain_channels[0]} == "$ci_rust_toolchain" ]] ||
+  fail "rust-toolchain.toml must match CI ($ci_rust_toolchain), got ${rust_toolchain_channels[0]}"
+
+rust_workflow_count=0
+for workflow in "$ROOT"/.github/workflows/*.yml "$ROOT"/.github/workflows/*.yaml; do
+  [[ -f $workflow ]] || continue
+  if grep -Eq \
+    'working-directory:[[:space:]]*apps/api-rust([[:space:]]|$)|--manifest-path[[:space:]]+apps/api-rust/Cargo\.toml' \
+    "$workflow"; then
+    ((rust_workflow_count += 1))
+    workflow_toolchain=$(workflow_rust_toolchain "$workflow")
+    [[ $workflow_toolchain == "$ci_rust_toolchain" ]] ||
+      fail "Rust workflow toolchain drift in $workflow: expected $ci_rust_toolchain, got $workflow_toolchain"
+  fi
+done
+((rust_workflow_count >= 1)) ||
+  fail "expected at least the CI Rust workflow, found $rust_workflow_count"
 
 # The next Go release is backend-only and includes every package-owned runtime
 # contract needed by the split transaction.
@@ -57,8 +114,23 @@ for gate in 'git merge-base --is-ancestor' 'git rev-list -n 1' \
 done
 require_literal "$GO_WORKFLOW" 'actions: read' \
   'Go release verifier cannot read workflow runs'
-require_literal "$PROMOTE_WORKFLOW" 'timeout-minutes: 15' \
-  'promotion job timeout does not cover the full governance poll budget'
+require_literal "$GO_WORKFLOW" "- 'go-v*.*.*'" \
+  'Go release is not scoped to component tags'
+require_literal "$WEB_WORKFLOW" "- 'web-v*.*.*'" \
+  'Web release is not scoped to component tags'
+
+# The generic coupled release control plane and stable Rust binary publication
+# are retired. Their absence is a fail-closed contract, not optional cleanup.
+for retired_path in \
+  "$ROOT/.github/workflows/release.yml" \
+  "$ROOT/.github/workflows/prepare-release.yml" \
+  "$ROOT/.github/workflows/promote-release.yml" \
+  "$ROOT/scripts/release.mjs" \
+  "$ROOT/scripts/release.test.mjs" \
+  "$ROOT/VERSION" \
+  "$ROOT/packaging/aur/lmm-api-rs-bin"; do
+  [[ ! -e $retired_path ]] || fail "retired generic release surface remains: $retired_path"
+done
 
 # The next Web archive has the same revision generator and remains sole owner
 # of the immutable frontend payload.

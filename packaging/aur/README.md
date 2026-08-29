@@ -8,7 +8,7 @@ versioned application packages.
 | --- | --- | --- | --- | --- |
 | Go backend/operator | `lmm-api-go` | `lmm-api-go-bin` | `lmm-api-go-git` | `/usr/bin/lmm-api` (`serve`, `deploy`, health and maintenance commands) |
 | Web frontend | — | `lmm-api-web-bin` | — | `/usr/share/lmm-api-web/frontend-dist` |
-| Rust preview | — | `lmm-api-rs-bin` | `lmm-api-rs-git` | `/usr/bin/lmm-api-rs` |
+| Rust preview | — | — | `lmm-api-rs-git` | `/usr/bin/lmm-api-rs` |
 
 The historical compatibility release T0 (`lmm-api-go-bin` 0.1.59) keeps a
 package-owned `/usr/bin/lmm-api-go` symlink and does not remove an
@@ -60,9 +60,14 @@ asset SHA-256 values, release revision metadata where applicable, descriptions
 that still mention legacy ownership, and regenerated `.SRCINFO`. Never use
 `SKIP`, a placeholder hash, or unverified metadata for that pin.
 
-The Rust packages remain separate until the Rust backend satisfies the same
-production route and ownership gates. A Rust cutover is not part of a Go/Web
-release.
+Rust remains a source-built preview through `lmm-api-rs-git` only. The retired
+repository recipe `lmm-api-rs-bin` did not point to a real immutable release and
+must not return until Rust has an independent, signed binary-release workflow
+with published assets and pinned checksums. Until the separately managed remote
+AUR package is confirmed retired, the source preview keeps a compatibility
+conflict with `lmm-api-rs-bin` so both cannot overwrite the same executables.
+Rust preview builds are not publication or production-cutover evidence, and a
+Rust cutover is not part of a Go/Web release.
 
 Run these checks after changing a recipe:
 

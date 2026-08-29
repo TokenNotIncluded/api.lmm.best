@@ -1,92 +1,41 @@
-# SQLite online backup to archczy
+# Legacy SQLite backup bundle
 
-This is an inert deployment bundle for the current production SQLite database.
-The job uses SQLite's online `.backup` API into a private `mktemp` directory,
-requires `PRAGMA quick_check` to return `ok`, validates the zstd archive, then
-ships an archive/checksum pair through a pinned SSH identity. Remote retention
-only counts SHA-256-valid snapshots and retains exactly the newest three.
+This directory is retained for forensic review and offline regression testing of
+the historical SQLite-to-ArchCzy backup mechanism. It is **not** the current
+production backup or installation path. Do not install or enable
+`lmm-api-sqlite-backup.service` or `lmm-api-sqlite-backup.timer` from this
+directory on production.
 
-The remote destination is deliberately fixed to:
+Current production runs PostgreSQL with dedicated Valkey. When an operator
+explicitly opts into business backups, use the package-owned production
+controller:
 
-```
-/var/backups/lmm-api/sqlite/<instance>
-```
-
-`<instance>` defaults to `production` and is restricted to one safe path
-component. `/`, `/etc`, traversal, and arbitrary remote directories cannot be
-configured. The script performs a pinned-SSH preflight before either SCP:
-the fixed root and instance directory are created/verified as `root:root 0700`.
-The dedicated remote backup account must therefore run the backup command as
-root (for example through a narrowly constrained forced command or dedicated
-root-only key). Archive files are mode `0600`; the instance directory is mode
-`0700`. The checksum is the publication marker: the archive is atomically
-renamed first and the checksum is renamed last. A failed transfer or validation
-never runs retention and cannot remove the three last known-good snapshots.
-
-`pgBackRest` is intentionally deferred. The business database is currently
-SQLite; configure pgBackRest with `repo1-retention-full=3` only after
-PostgreSQL has formally become the production database.
-
-## Required configuration
-
-Create `/etc/lmm-api/sqlite-backup.env` with mode `0600`:
-
-```sh
-SQLITE_BACKUP_SOURCE_DB=/var/lib/private/lmm-api/one-api.db
-SQLITE_BACKUP_REMOTE_HOST=archczy
-SQLITE_BACKUP_REMOTE_INSTANCE=production
+```text
+/usr/bin/lmm-api deploy production plan ... --with-backups --age-recipient-file FILE
+/usr/bin/lmm-api deploy production stage|promote|status|confirm|rollback ...
 ```
 
-The source database must be an explicit absolute path. No discovery or globbing
-is performed.
+The controller requires the production three-copy protocol:
 
-Create dedicated, root-readable credentials (not `/root/.ssh`) with mode
-`0600`:
+- a root-only target copy under
+  `/var/lib/lmm-api-go-deploy/backups/<deployment-id>`;
+- an encrypted durable controller copy under
+  `$HOME/backup/lmm-api/<verified-host>/<deployment-id>`;
+- an encrypted off-host copy under
+  `/home/arch/.local/state/lmm-api-production-backups/<deployment-id>` on the
+  ArchCzy host through the case-sensitive SSH alias `archczy`.
 
-```
-/etc/lmm-api/credentials/archczy-backup.identity
-/etc/lmm-api/credentials/archczy-backup.known_hosts
-```
+Backup work remains optional and requires explicit current-turn authorization.
+Follow `.agents/skills/lmm-deploy-safely/references/path-map.md` and
+`.agents/skills/lmm-deploy-safely/references/safety-contract.md`; do not infer
+current database or host state from this legacy directory.
 
-The identity must be a backup-only key accepted by `archczy`; its known-hosts
-file must pin archczy's host key. `LoadCredential=` copies both into systemd's
-per-service `CREDENTIALS_DIRECTORY`. The script explicitly supplies `-i`,
-`UserKnownHostsFile`, `StrictHostKeyChecking=yes`, `IdentitiesOnly=yes`, and
-`BatchMode=yes` to both `ssh` and `scp`, so it never falls back to
-`/root/.ssh`.
+The historical script, unit, timer, and their test remain tracked because they
+can still provide forensic evidence for old SQLite archives and rollback
+investigations. Their presence does not authorize installation or execution
+against a live host.
 
-Bootstrap the target directory once using the same restricted remote identity
-before enabling the timer (the scheduled script repeats this check):
-
-```sh
-ssh -i /etc/lmm-api/credentials/archczy-backup.identity \
-  -o UserKnownHostsFile=/etc/lmm-api/credentials/archczy-backup.known_hosts \
-  -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -o BatchMode=yes archczy \
-  'install -d -o root -g root -m 0700 /var/backups/lmm-api/sqlite/production'
-```
-
-Then verify on archczy: `stat -c '%U:%G:%a' /var/backups/lmm-api/sqlite/production`
-must print `root:root:700`.
-
-## Approved installation change
-
-Do this only in an approved maintenance window; this repository task does not
-install or enable it:
-
-```sh
-install -d -m 0755 /usr/local/lib/lmm-api /etc/lmm-api/credentials
-install -m 0750 deploy/backup/backup-sqlite-to-archczy.sh /usr/local/lib/lmm-api/
-install -m 0644 deploy/backup/lmm-api-sqlite-backup.service /etc/systemd/system/
-install -m 0644 deploy/backup/lmm-api-sqlite-backup.timer /etc/systemd/system/
-systemctl daemon-reload
-systemctl enable --now lmm-api-sqlite-backup.timer
-```
-
-The timer runs daily at **03:30 Asia/Shanghai**. Before enabling, make one
-approved manual run and verify that `archczy` has the expected safe instance
-directory, pinned key access, and at most three valid archive/checksum pairs.
-
-## Offline verification
+## Offline historical regression test
 
 ```sh
 bash deploy/backup/test-backup-sqlite-to-archczy.sh

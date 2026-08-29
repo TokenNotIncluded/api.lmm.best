@@ -758,8 +758,8 @@ func parseProductionTransactionOptions(action string, args []string, stderr io.W
 		flags.StringVar(&options.OperatorBinary, "operator-binary", "", "deployment operator binary")
 		flags.StringVar(&options.OperatorBinarySHA256, "operator-binary-sha256", "", "operator binary SHA-256")
 		flags.StringVar(&options.ExpectedVersion, "expected-version", "", "candidate service version")
-		flags.StringVar(&options.BackupDir, "backup-dir", "", "current-turn-authorized verified target business backup directory")
-		flags.BoolVar(&options.WithBackups, "with-backups", false, "bind an explicitly authorized optional business backup")
+		flags.StringVar(&options.BackupDir, "backup-dir", "", "verified target copy from the production three-copy backup set")
+		flags.BoolVar(&options.WithBackups, "with-backups", false, "bind verified production backups (mandatory for Go changes)")
 		rollbackSeconds := int(options.RollbackWindow / time.Second)
 		observationSeconds := int(options.ObservationWindow / time.Second)
 		flags.IntVar(&rollbackSeconds, "rollback-seconds", rollbackSeconds, "fixed automatic rollback window (must be 600)")
@@ -856,6 +856,9 @@ func parseProductionTransactionOptions(action string, args []string, stderr io.W
 		}
 		if options.WithBackups != (options.BackupDir != "") {
 			return productionTransactionOptions{}, errors.New("--with-backups and --backup-dir must be supplied together")
+		}
+		if options.GoChanged && !options.WithBackups {
+			return productionTransactionOptions{}, errors.New("--go-changed requires verified three-copy backups via --with-backups and --backup-dir")
 		}
 		if options.BackupDir != "" {
 			clean, err := cleanAbsoluteNonRoot(options.BackupDir)

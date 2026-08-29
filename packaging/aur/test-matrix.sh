@@ -11,7 +11,6 @@ readonly PACKAGES=(
   lmm-api-go
   lmm-api-go-bin
   lmm-api-go-git
-  lmm-api-rs-bin
   lmm-api-rs-git
   lmm-api-web-bin
 )
@@ -33,8 +32,8 @@ contains_srcinfo_prefix() {
     die "$package .SRCINFO is missing: $expected"
 }
 
-for removed in lmm-api-bin lmm-api-git lmm-api-deploy-bin; do
-  [[ ! -e $HERE/$removed/PKGBUILD ]] || die "removed core package still has a PKGBUILD: $removed"
+for removed in lmm-api-bin lmm-api-git lmm-api-deploy-bin lmm-api-rs-bin; do
+  [[ ! -e $HERE/$removed ]] || die "retired package remains tracked: $removed"
 done
 for removed in backend.conf lmm-api.install lmm-api-go.service lmm-api.env lmm-api-launcher; do
   [[ ! -e $SHARED/$removed ]] || die "removed launcher/provider asset remains: $removed"
@@ -132,19 +131,19 @@ declare -a conflicts replaces provides
   [[ " ${provides[*]} " == *' lmm-api-go=999.0.0 '* ]] || die 'explicit high-version T0 lost its compatibility CLI capability'
 )
 
-for package in lmm-api-rs-bin lmm-api-rs-git; do
-  contains_srcinfo_prefix "$package" $'\tprovides = lmm-api-rs'
-done
-contains_srcinfo lmm-api-rs-bin $'\tconflicts = lmm-api-rs-git'
+contains_srcinfo_prefix lmm-api-rs-git $'\tprovides = lmm-api-rs'
+# Keep the historical package conflict until the remote AUR package has been
+# separately retired; otherwise an existing binary package can overwrite the
+# same preview executables during the repository-side compatibility window.
 contains_srcinfo lmm-api-rs-git $'\tconflicts = lmm-api-rs-bin'
 
-for package in lmm-api-go lmm-api-go-bin lmm-api-go-git lmm-api-rs-bin lmm-api-rs-git; do
+for package in lmm-api-go lmm-api-go-bin lmm-api-go-git lmm-api-rs-git; do
   for removed_core in lmm-api lmm-api-bin lmm-api-git; do
     contains_srcinfo "$package" $'\tconflicts = '"$removed_core"
   done
 done
 
-for package in lmm-api-go-bin lmm-api-rs-bin; do
+for package in lmm-api-go-bin; do
   pkgbuild="$HERE/$package/PKGBUILD"
   grep -Fq 'cosign verify-blob' "$pkgbuild" || die "$package lacks Sigstore verification"
   grep -Fq 'sha256sum' "$pkgbuild" || die "$package lacks SHA-256 verification"
@@ -238,20 +237,14 @@ trap cleanup EXIT
 
 stage="$tmp/stage"
 go_bin_pkgver=$(sed -n 's/^pkgver=//p' "$HERE/lmm-api-go-bin/PKGBUILD")
-rs_bin_pkgver=$(sed -n 's/^pkgver=//p' "$HERE/lmm-api-rs-bin/PKGBUILD")
 [[ $go_bin_pkgver =~ ^[0-9]+(\.[0-9]+)*$ ]] || die 'Go binary package version is not fixture-safe'
-[[ $rs_bin_pkgver =~ ^[0-9]+(\.[0-9]+)*$ ]] || die 'Rust binary package version is not fixture-safe'
 go_bundle="$stage/go/lmm-api-go-${go_bin_pkgver}-linux-amd64"
 go_next_bundle="$stage/go-next/lmm-api-go-${go_bin_pkgver}-linux-amd64"
-rs_bundle="$stage/rs/lmm-api-rs-${rs_bin_pkgver}-linux-amd64"
 mkdir -p "$go_bundle/frontend-dist" "$go_bundle/edge-policy/nginx" \
-  "$go_next_bundle/edge-policy/nginx" "$rs_bundle"
+  "$go_next_bundle/edge-policy/nginx"
 printf '#!/bin/sh\n' >"$go_bundle/lmm-api-go"
 printf '#!/bin/sh\n' >"$go_next_bundle/lmm-api"
-printf '#!/bin/sh\n' >"$rs_bundle/lmm-api-rs"
-printf '#!/bin/sh\n' >"$rs_bundle/lmm-db-migrate"
-chmod 0755 "$go_bundle/lmm-api-go" "$go_next_bundle/lmm-api" \
-  "$rs_bundle/lmm-api-rs" "$rs_bundle/lmm-db-migrate"
+chmod 0755 "$go_bundle/lmm-api-go" "$go_next_bundle/lmm-api"
 printf '<!doctype html>\n' >"$go_bundle/frontend-dist/index.html"
 for bundle in "$go_bundle" "$go_next_bundle"; do
   cp "$SHARED/lmm-api.service" "$SHARED/lmm-api-go.env" "$bundle/"
@@ -267,7 +260,7 @@ cp "$SHARED/lmm-api-operator.sysusers" "$SHARED/lmm-api-operator.tmpfiles" \
   "$SHARED/lmm-api-operator.sudoers" "$go_next_bundle/"
 contract_revision=$("$ROOT/deploy/production/api-route-contract-revision.sh" print)
 printf '%s\n' "$contract_revision" >"$go_next_bundle/API_ROUTE_CONTRACT_REVISION"
-for bundle in "$go_bundle" "$go_next_bundle" "$rs_bundle"; do
+for bundle in "$go_bundle" "$go_next_bundle"; do
   for file in LICENSE NOTICE THIRD-PARTY-LICENSES.md; do
     printf 'fixture\n' >"$bundle/$file"
   done
@@ -311,14 +304,6 @@ printf 'fixture archive\n' >"$stage/go-next/lmm-api-go-${go_bin_pkgver}-linux-am
   _lmm_cli_phase=$LMM_CLI_PHASE_T1
   package
 )
-(
-  srcdir="$stage/rs"
-  pkgdir="$tmp/pkg-rs"
-  # shellcheck disable=SC1091
-  source "$HERE/lmm-api-rs-bin/PKGBUILD"
-  package
-)
-
 web_src="$stage/web"
 web_pkgver=$(sed -n 's/^pkgver=//p' "$HERE/lmm-api-web-bin/PKGBUILD")
 [[ $web_pkgver =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die 'canonical Web package has an invalid version'
@@ -355,8 +340,6 @@ for packaged_path in \
   pkg-go-t1/usr/share/doc/lmm-api-go-bin/API_ROUTE_CONTRACT_REVISION \
   pkg-go-t1/usr/share/doc/lmm-api-go-bin/RELEASE_ASSET_SHA256 \
   pkg-go-t1/usr/share/lmm-api-go/edge-policy/nginx/http-map.conf \
-  pkg-rs/usr/bin/lmm-api-rs \
-  pkg-rs/usr/bin/lmm-db-migrate \
   pkg-web-next/usr/share/lmm-api-web/frontend-dist/index.html \
   pkg-web-next/usr/share/doc/lmm-api-web-bin/API_ROUTE_CONTRACT_REVISION \
   pkg-web-next/usr/share/doc/lmm-api-web-bin/RELEASE_ASSET_SHA256; do
@@ -404,7 +387,5 @@ for pkgbuild in "$HERE/lmm-api-go/PKGBUILD" "$HERE/lmm-api-go-git/PKGBUILD" "$HE
   grep -Fq 'lmm_cli_phase_install_compatibility_alias "$_lmm_cli_phase" "$pkgdir"' "$pkgbuild" ||
     die "Go package does not apply the shared CLI phase install contract: $pkgbuild"
 done
-[[ ! -e $tmp/pkg-rs/usr/bin/lmm-api && ! -L $tmp/pkg-rs/usr/bin/lmm-api ]] ||
-  die 'Rust package exposes the Go provider command'
 
-printf '%s\n' 'single-CLI split backend and Web AUR matrix verified'
+printf '%s\n' 'single-CLI Go, source-built Rust preview, and Web AUR matrix verified'

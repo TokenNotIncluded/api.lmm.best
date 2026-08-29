@@ -1,5 +1,10 @@
 # Changelog
 
+> This is the historical combined changelog. Production artifacts are now
+> versioned independently as `go-v*` and `web-v*`; their immutable GitHub
+> release notes are authoritative. Do not use this file to create a generic
+> `v*` tag or infer compatibility between component versions.
+
 All notable user-facing and operational changes are recorded here. The
 administrator can publish the matching release note from system settings;
 authenticated users then see it once after their next login.

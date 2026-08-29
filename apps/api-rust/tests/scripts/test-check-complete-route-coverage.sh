@@ -48,9 +48,10 @@ run() {
 }
 
 bash -n "$checker" "$0"
-# Draft completion may consume the retired set only inside CI/release jobs that
-# have already made the live-manifest complete checker a required result.
-for workflow in "$repo_root/.github/workflows/ci.yml" "$repo_root/.github/workflows/release.yml"; do
+# Draft completion may consume the retired set only inside CI jobs that have
+# already made the live-manifest complete checker a required result. Stable
+# Rust binary publication is retired, so no release workflow is an owner.
+for workflow in "$repo_root/.github/workflows/ci.yml"; do
   perl -0777 -e '
     my $text = <>;
     my $complete = index($text, "run_check complete-route-coverage ");

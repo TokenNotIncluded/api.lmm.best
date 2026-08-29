@@ -73,6 +73,8 @@ func writeDeployUsage(output io.Writer) {
   %s deploy production stage|promote|status|confirm|rollback \
        --plan FILE --plan-sha256 HEX --confirm api.lmm.best
 
+Production Go changes require --with-backups and the verified target, controller, and off-host copies.
+Web-only releases may omit backups.
 Target-only recovery commands are listed by the production command's usage.
 `, ProgramName, ProgramName, ProgramName, ProgramName, ProgramName, ProgramName, ProgramName)
 }

@@ -236,6 +236,8 @@ func testProductionReleasePlan(t *testing.T, root string) productionReleasePlan 
 		GoChanged:           true,
 		ObservationSeconds:  180,
 		RollbackSeconds:     600,
+		WithBackups:         true,
+		AgeRecipient:        productionReleaseFilePlan{Path: filepath.Join(root, "age-recipient.txt"), SHA256: strings.Repeat("f", 64)},
 	}
 }
 
@@ -275,6 +277,31 @@ func TestValidateProductionReleasePlanRejectsCandidateContractMismatch(t *testin
 	plan.WebCandidate.ContractRevision = strings.Repeat("c", 64)
 	if err := validateProductionReleasePlan(plan); err == nil || !strings.Contains(err.Error(), "route-contract") {
 		t.Fatalf("contract mismatch error=%v", err)
+	}
+}
+
+func TestValidateProductionReleasePlanRequiresBackupsForGoChanges(t *testing.T) {
+	plan := testProductionReleasePlan(t, t.TempDir())
+	plan.WithBackups = false
+	plan.AgeRecipient = productionReleaseFilePlan{}
+	if err := validateProductionReleasePlan(plan); err == nil || !strings.Contains(err.Error(), "Go changes require verified three-copy backups") {
+		t.Fatalf("Go backup requirement error=%v", err)
+	}
+}
+
+func TestValidateProductionReleasePlanAllowsWebOnlyWithoutBackups(t *testing.T) {
+	plan := testProductionReleasePlan(t, t.TempDir())
+	plan.GoCandidate = plan.GoRollback
+	plan.GoChanged = false
+	plan.ExpectedVersion = "0.1.57"
+	plan.ProbeBinary.SHA256 = plan.GoCandidate.PayloadSHA256
+	plan.OperatorBinary.SHA256 = plan.GoCandidate.PayloadSHA256
+	plan.WebCandidate = testProductionReleasePackage(t, plan.ControllerWorkspace, productionWebPackageName, "0.1.42-1", strings.Repeat("7", 64), strings.Repeat("8", 64))
+	plan.WebChanged = true
+	plan.WithBackups = false
+	plan.AgeRecipient = productionReleaseFilePlan{}
+	if err := validateProductionReleasePlan(plan); err != nil {
+		t.Fatalf("Web-only plan without backups rejected: %v", err)
 	}
 }
 

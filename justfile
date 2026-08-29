@@ -71,7 +71,7 @@ build: build-web build-go
 
 # Build the shared web frontend.
 build-web:
-    VITE_REACT_APP_VERSION="$(cat VERSION)" bun run build:web
+    VITE_REACT_APP_VERSION="$(git rev-parse --short=12 HEAD)" bun run build:web
     @test -f apps/web/dist/index.html || { echo "error: apps/web/dist/index.html was not produced" >&2; exit 1; }
     bun run --filter @lmm/web bundle:check
 

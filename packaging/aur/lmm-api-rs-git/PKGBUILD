@@ -3,7 +3,7 @@
 pkgname=lmm-api-rs-git
 pkgver=0.1.1.r7.g24093b139
 pkgrel=1
-pkgdesc='LMM API Rust backend and database migrator (git)'
+pkgdesc='LMM API Rust backend and database migrator (source preview)'
 arch=('x86_64')
 url='https://github.com/LIghtJUNction/api.lmm.best'
 license=('AGPL-3.0-or-later')

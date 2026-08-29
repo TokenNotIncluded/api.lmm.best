@@ -10,7 +10,6 @@ fail() { printf 'go-deploy-contract: %s\n' "$*" >&2; exit 1; }
 contains() { grep -Fq -- "$1" "$2" || fail "$2 is missing: $1"; }
 
 scripts=(
-  "$here/deploy-go.sh"
   "$here/activate-go-release.sh"
   "$here/build-go-binary.sh"
   "$here/build-go-package.sh"
@@ -37,7 +36,6 @@ done
 contains 'readonly NEW_SERVICE=lmm-api.service' "$here/activate-go-release.sh"
 contains 'readonly LEGACY_SERVICE=lmm-api-go.service' "$here/activate-go-release.sh"
 contains 'readlink -- "$CANONICAL_LAUNCHER"' "$here/activate-go-release.sh"
-contains 'readlink -- /usr/bin/lmm-api' "$here/deploy-go.sh"
 for literal in \
   'lmm-api-go-rollback-$deployment_id.timer' \
   'Persistent=true' \
@@ -71,24 +69,6 @@ if grep -Fq 'search_path=public' "$here/activate-go-release.sh" \
   fail 'production activation or service unit still hard-codes the public schema'
 fi
 contains 'PGOPTIONS="-c search_path=public"' "$repo/packaging/common/lmm-api/lmm-api-go.env"
-for literal in \
-  'origin/main' \
-  'backup-target-$deployment_id' \
-  'old_version=$(ssh -o BatchMode=yes "$HOST" cat --' \
-  'select(.success == true and .ready == true and (.data.version | type == "string")) | .data.version' \
-  'pg_restore --list' \
-  'LMM_BACKUP_AGE_IDENTITY_FILE' \
-  'decrypted database backup does not match the target copy' \
-  'case $rollback_layout in split|direct)' \
-  'release_controller_owned_transaction_lock' \
-  'controller_transaction_lock_owned=1' \
-  'activation dispatch failed; transaction lock retained for audit' \
-  'observation_epoch=$(ssh -o BatchMode=yes "$HOST" date +%s)' \
-  'nginx_observation_is_clean' \
-  'production observation detected an anomaly; rollback timer remains armed' \
-  'activate-go-release.sh" confirm'; do
-  contains "$literal" "$here/deploy-go.sh"
-done
 contains 'direct:lmm-api-go:/usr/bin/lmm-api-go' "$here/capture-precutover-payload.sh"
 contains '--rollback-layout "$ROLLBACK_LAYOUT"' "$here/promote-production-backups.sh"
 [[ -f $here/precutover-lmm-api-go-direct.PKGBUILD && ! -L $here/precutover-lmm-api-go-direct.PKGBUILD ]] || \
@@ -100,22 +80,8 @@ for literal in \
   'chmod 0755 "$capture_root/core-root/usr/bin/lmm-api"'; do
   contains "$literal" "$here/capture-precutover-payload.sh"
 done
-if grep -Fq 'old_version=$(ssh -o BatchMode=yes "$HOST" jq' "$here/deploy-go.sh"; then
-  fail 'pre-cutover version parsing still sends a jq filter through the remote shell'
-fi
-if grep -Fq 'activation_epoch' "$here/deploy-go.sh"; then
-  fail 'stable observation still includes the activation transition window'
-fi
-if grep -Fq '[[ -z $(journalctl --quiet -u nginx.service' "$here/deploy-go.sh"; then
-  fail 'stable observation still treats every public static-file miss as an application failure'
-fi
-if grep -Fq '| pg_restore --list' "$here/deploy-go.sh" || \
-  grep -Fq '| tar -tf -' "$here/deploy-go.sh"; then
-  fail 'encrypted backup verification still risks truncating the age stream'
-fi
-
 if grep -R -nE '(^|[^[:alnum:]_])(curl|wget)([^[:alnum:]_]|$)|SIGKILL|mktemp[^\n]*(/tmp|TMPDIR:-/tmp)' \
-  "$here/deploy-go.sh" "$here/activate-go-release.sh" "$here/build-go-package.sh" \
+  "$here/activate-go-release.sh" "$here/build-go-package.sh" \
   "$here/capture-precutover-payload.sh" "$here/prepare-production-backup.sh"; then
   fail 'Go production path retains a browser-style client, SIGKILL fallback, or /tmp artifact path'
 fi
@@ -151,4 +117,4 @@ fi
 "$here/test-backup-promotion-contract.sh"
 "$repo/deploy/test-frontend-release.sh"
 
-printf 'canonical lmm-api production deployment contract verified\n'
+printf 'canonical lmm-api production support contract verified\n'
