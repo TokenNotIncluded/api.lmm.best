@@ -28,7 +28,7 @@ const (
 	productionCommandTimeout      = 2 * time.Minute
 	productionProbeTimeout        = 8 * time.Second
 	productionProbeAttempts       = 45
-	productionTransactionFormat   = 7
+	productionTransactionFormat   = 8
 	productionStatusFormat        = 2
 	productionFrontendReleaseKeep = 3
 	productionTransactionMarker   = "deployment.env"
@@ -337,8 +337,6 @@ type productionPackageTransition struct {
 	RollbackGitRevision       string `json:"rollback_git_revision"`
 	CandidateContractRevision string `json:"candidate_contract_revision"`
 	RollbackContractRevision  string `json:"rollback_contract_revision"`
-	CandidateCLIPhase         string `json:"candidate_cli_phase,omitempty"`
-	RollbackCLIPhase          string `json:"rollback_cli_phase,omitempty"`
 }
 
 type productionFrontendTransition struct {
@@ -469,7 +467,6 @@ type productionPackageMetadata struct {
 	Identity           string
 	GitRevision        string
 	ContractRevision   string
-	CLITransitionPhase string
 	IndexSHA256        string
 	BinarySHA256       string
 	ReleaseAssetSHA256 string
@@ -530,16 +527,6 @@ func (runtime *productionRuntime) packageMetadata(ctx context.Context, packagePa
 		}
 		metadata.ReleaseAssetSHA256 = assetDigest
 	}
-	if packageName != productionWebPackageName {
-		explicitPhase, phaseErr := readMember("CLI_TRANSITION_PHASE")
-		if phaseErr != nil {
-			explicitPhase = ""
-		}
-		metadata.CLITransitionPhase, err = packageCLITransitionPhase(packageName, metadata.Version, explicitPhase)
-		if err != nil {
-			return productionPackageMetadata{}, fmt.Errorf("%s package CLI transition phase is invalid: %w", packageName, err)
-		}
-	}
 	if packageName == productionWebPackageName {
 		index, err := runtime.runner.Run(ctx, productionCommand{Name: commandBsdtar, Args: []string{"-xOf", packagePath, "usr/share/lmm-api-web/frontend-dist/index.html"}})
 		if err != nil || len(index) == 0 {
@@ -548,12 +535,13 @@ func (runtime *productionRuntime) packageMetadata(ctx context.Context, packagePa
 		digest := sha256.Sum256(index)
 		metadata.IndexSHA256 = hex.EncodeToString(digest[:])
 	} else {
-		binary, err := runtime.runner.Run(ctx, productionCommand{Name: commandBsdtar, Args: []string{"-xOf", packagePath, "usr/bin/lmm-api"}})
-		if err != nil || len(binary) == 0 {
-			binary, err = runtime.runner.Run(ctx, productionCommand{Name: commandBsdtar, Args: []string{"-xOf", packagePath, "usr/bin/lmm-api-go"}})
+		binaryMember := "usr/bin/lmm-api-go"
+		if packageName == productionAURPackageName && metadata.Version == "0.1.69-1" {
+			binaryMember = "usr/bin/lmm-api"
 		}
+		binary, err := runtime.runner.Run(ctx, productionCommand{Name: commandBsdtar, Args: []string{"-xOf", packagePath, binaryMember}})
 		if err != nil || len(binary) == 0 {
-			return productionPackageMetadata{}, errors.New("Go package service binary is missing")
+			return productionPackageMetadata{}, errors.New("Go package provider binary is missing")
 		}
 		digest := sha256.Sum256(binary)
 		metadata.BinarySHA256 = hex.EncodeToString(digest[:])
@@ -1063,10 +1051,6 @@ func (runtime *productionRuntime) validateManifest(workspace productionWorkspace
 		manifest.Go.RollbackContractRevision != manifest.Web.RollbackContractRevision {
 		return errors.New("deployment manifest Go/Web package or contract pair mismatch")
 	}
-	if !validCLITransitionPhase(manifest.Go.CandidateCLIPhase) || !validCLITransitionPhase(manifest.Go.RollbackCLIPhase) ||
-		manifest.Web.CandidateCLIPhase != "" || manifest.Web.RollbackCLIPhase != "" {
-		return errors.New("deployment manifest CLI transition phase is invalid")
-	}
 	for _, transition := range []productionPackageTransition{manifest.Go, manifest.Web} {
 		if !productionRevisionPattern.MatchString(transition.CandidateGitRevision) ||
 			!productionRevisionPattern.MatchString(transition.RollbackGitRevision) ||
@@ -1084,7 +1068,7 @@ func (runtime *productionRuntime) validateManifest(workspace productionWorkspace
 		}
 		if !transition.Changed && (transition.CandidatePackageName != transition.RollbackPackageName || transition.CandidateIdentity != transition.RollbackIdentity ||
 			transition.CandidateSHA256 != transition.RollbackSHA256 || transition.CandidateGitRevision != transition.RollbackGitRevision ||
-			transition.CandidateContractRevision != transition.RollbackContractRevision || transition.CandidateCLIPhase != transition.RollbackCLIPhase) {
+			transition.CandidateContractRevision != transition.RollbackContractRevision) {
 			return errors.New("unchanged package manifest identities differ")
 		}
 		for _, path := range []string{transition.CandidatePath, transition.RollbackPath} {
