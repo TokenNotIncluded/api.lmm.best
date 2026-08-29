@@ -234,9 +234,9 @@ jobs:
           ln -s lmm-api-go "$bundle/lmm-api"
           [[ $(readlink "$bundle/lmm-api") == lmm-api-go ]]
           [[ $(sha256sum "$bundle/lmm-api" | cut -d' ' -f1) == "$provider_sha256" ]]
-          "$bundle/lmm-api" deploy contract route generate \
-            "$bundle/API_ROUTE_CONTRACT_REVISION"
-          "$bundle/lmm-api" deploy contract route verify \
+          # Cross-compiled providers cannot execute on the x86_64 runner. The
+          # prepare job derives this revision through the native public CLI.
+          printf '%s\n' "$EXPECTED_CONTRACT_REVISION" > \
             "$bundle/API_ROUTE_CONTRACT_REVISION"
           [[ $(<"$bundle/API_ROUTE_CONTRACT_REVISION") == "$EXPECTED_CONTRACT_REVISION" ]]
           rm -- "$bundle/lmm-api"
