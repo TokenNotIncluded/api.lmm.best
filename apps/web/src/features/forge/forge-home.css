@@ -585,14 +585,6 @@ For commercial licensing, please contact support@quantumnous.com
   margin-bottom: 0.75rem;
 }
 
-.forge-home-window-bar span {
-  width: 0.5rem;
-  height: 0.5rem;
-  border: 1px solid color-mix(in oklch, var(--foreground) 14%, transparent);
-  border-radius: 999px;
-  background: color-mix(in oklch, var(--foreground) 7%, transparent);
-}
-
 .forge-home-code-tabs {
   display: flex;
   flex-wrap: wrap;

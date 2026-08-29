@@ -15,6 +15,27 @@ const source = readFileSync(
   'utf8'
 )
 
+describe('Forge home window ornament integration', () => {
+  test('mounts the ornament exactly once as a sibling before the tablist', () => {
+    assert.equal(source.match(/<ForgeMetalWindowOrnament\s*\/>/g)?.length, 1)
+    assert.match(
+      source,
+      /<div className='forge-home-window-bar'>\s*<ForgeMetalWindowOrnament\s*\/>\s*<\/div>\s*<div className='forge-home-code-tabs' role='tablist'>/
+    )
+  })
+
+  test('keeps metal-fx behind the ornament component boundary', () => {
+    assert.match(
+      source,
+      /import \{ ForgeMetalWindowOrnament \} from '\.\/forge-metal-window-ornament'/
+    )
+    assert.doesNotMatch(
+      source,
+      /(?:\bfrom\s+|\bimport\s*\()\s*['"]metal-fx(?:\/[^'"]*)?['"]/
+    )
+  })
+})
+
 describe('Forge home mobile controls', () => {
   test('keeps the centered hero and compact assistant submit control', () => {
     assert.match(source, /<section className='forge-home-hero'/)

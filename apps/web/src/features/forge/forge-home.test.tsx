@@ -257,6 +257,31 @@ afterEach(() => {
 
 after(() => domWindow.close())
 
+describe('ForgeHome code preview ornament', () => {
+  test('renders one ornament outside the tablist and buttons', async () => {
+    const rendered = await renderHome(null)
+    const windowBars = rendered.container.querySelectorAll(
+      '.forge-home-window-bar'
+    )
+
+    assert.equal(windowBars.length, 1)
+    const windowBar = windowBars[0]
+    assert.ok(windowBar)
+    assert.equal(windowBar.childElementCount, 1)
+    const ornament = windowBar.firstElementChild
+    assert.ok(ornament)
+
+    const tablist = rendered.container.querySelector('[role="tablist"]')
+    assert.ok(tablist)
+    assert.equal(tablist.contains(ornament), false)
+    for (const button of rendered.container.querySelectorAll('button')) {
+      assert.equal(button.contains(ornament), false)
+    }
+
+    await unmountHome(rendered)
+  })
+})
+
 describe('ForgeHome assistant entry', () => {
   test('animates server-generated prompts and stops when the visitor interacts', async () => {
     const rendered = await renderHome(null)

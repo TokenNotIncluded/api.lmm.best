@@ -56,6 +56,7 @@ import { isConsoleActivated } from '@/lib/console-activation'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { ForgeLiquidAccent } from './forge-liquid-accent'
+import { ForgeMetalWindowOrnament } from './forge-metal-window-ornament'
 import { ForgePublicShell } from './forge-public-shell'
 import { useTypewriterPlaceholder } from './use-typewriter-placeholder'
 
@@ -225,9 +226,7 @@ function CodePreview(props: {
   return (
     <div className='forge-home-code-card'>
       <div className='forge-home-window-bar'>
-        <span />
-        <span />
-        <span />
+        <ForgeMetalWindowOrnament />
       </div>
       <div className='forge-home-code-tabs' role='tablist'>
         {CODE_TABS.map((tab) => (
