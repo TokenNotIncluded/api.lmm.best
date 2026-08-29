@@ -121,7 +121,7 @@ func TestCompleteExternalTopUpRejectsWalletQuotaOverflow(t *testing.T) {
 	db := setupExternalTopUpSettlementDB(t, 1)
 	user, topUp, settlement := createSettlementFixture(t, db, "wallet-overflow")
 	require.NoError(t, db.Model(&User{}).Where("id = ?", user.Id).
-		Update("quota", common.MaxQuota-500).Error)
+		Update("quota", common.MaxWalletQuota-500).Error)
 
 	_, err := CompleteExternalTopUp(settlement)
 	require.ErrorIs(t, err, ErrTopUpQuotaLimitExceeded)
@@ -131,7 +131,70 @@ func TestCompleteExternalTopUpRejectsWalletQuotaOverflow(t *testing.T) {
 	assert.Equal(t, common.TopUpStatusPending, reloadedTopUp.Status)
 	var reloadedUser User
 	require.NoError(t, db.First(&reloadedUser, user.Id).Error)
-	assert.Equal(t, common.MaxQuota-500, reloadedUser.Quota)
+	assert.Equal(t, common.MaxWalletQuota-500, reloadedUser.Quota)
+}
+
+func TestCompleteExternalTopUpWalletGuardCoversEveryProvider(t *testing.T) {
+	providers := []struct {
+		name     string
+		provider string
+		method   string
+		currency string
+	}{
+		{name: "epay", provider: PaymentProviderEpay, method: "alipay", currency: "CNY"},
+		{name: "stripe", provider: PaymentProviderStripe, method: PaymentMethodStripe, currency: "USD"},
+		{name: "creem", provider: PaymentProviderCreem, method: PaymentMethodCreem, currency: "USD"},
+		{name: "waffo", provider: PaymentProviderWaffo, method: PaymentMethodWaffo, currency: "USD"},
+		{name: "waffo pancake", provider: PaymentProviderWaffoPancake, method: PaymentMethodWaffoPancake, currency: "USD"},
+	}
+	for _, tc := range providers {
+		t.Run(tc.name, func(t *testing.T) {
+			db := setupExternalTopUpSettlementDB(t, 1)
+			user, topUp, settlement := createSettlementFixture(t, db, "provider-boundary-"+tc.name)
+			require.NoError(t, db.Model(&topUp).Updates(map[string]interface{}{
+				"payment_provider":    tc.provider,
+				"payment_method":      tc.method,
+				"settlement_currency": tc.currency,
+			}).Error)
+			settlement.PaymentProvider = tc.provider
+			settlement.PaymentMethod = tc.method
+			settlement.SettlementCurrency = tc.currency
+			if tc.provider != PaymentProviderStripe {
+				settlement.ProviderQuotedAmountMicros = 0
+			}
+			overflowingCurrent := common.MaxWalletQuota - int(topUp.CreditedQuota) + 1
+			require.NoError(t, db.Model(&User{}).Where("id = ?", user.Id).Update("quota", overflowingCurrent).Error)
+
+			_, err := CompleteExternalTopUp(settlement)
+			require.ErrorIs(t, err, ErrTopUpQuotaLimitExceeded)
+
+			var reloadedTopUp TopUp
+			require.NoError(t, db.First(&reloadedTopUp, topUp.Id).Error)
+			assert.Equal(t, common.TopUpStatusPending, reloadedTopUp.Status)
+			assert.Zero(t, reloadedTopUp.CompleteTime)
+			var reloadedUser User
+			require.NoError(t, db.First(&reloadedUser, user.Id).Error)
+			assert.Equal(t, overflowingCurrent, reloadedUser.Quota)
+		})
+	}
+}
+
+func TestManualCompleteTopUpRollsBackStatusAtWalletBoundary(t *testing.T) {
+	db := setupExternalTopUpSettlementDB(t, 1)
+	user, topUp, _ := createSettlementFixture(t, db, "manual-wallet-boundary")
+	overflowingCurrent := common.MaxWalletQuota - int(topUp.CreditedQuota) + 1
+	require.NoError(t, db.Model(&User{}).Where("id = ?", user.Id).Update("quota", overflowingCurrent).Error)
+
+	err := ManualCompleteTopUp(topUp.TradeNo, "127.0.0.1")
+	require.ErrorIs(t, err, ErrTopUpQuotaLimitExceeded)
+
+	var reloadedTopUp TopUp
+	require.NoError(t, db.First(&reloadedTopUp, topUp.Id).Error)
+	assert.Equal(t, common.TopUpStatusPending, reloadedTopUp.Status)
+	assert.Zero(t, reloadedTopUp.CompleteTime)
+	var reloadedUser User
+	require.NoError(t, db.First(&reloadedUser, user.Id).Error)
+	assert.Equal(t, overflowingCurrent, reloadedUser.Quota)
 }
 
 func TestCompleteExternalTopUpRollsBackOrderWhenUserCreditFails(t *testing.T) {

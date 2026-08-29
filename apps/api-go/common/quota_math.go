@@ -8,12 +8,16 @@ import (
 )
 
 // Quota conversions are centralized here so every billing path shares one
-// saturation + logging policy. Quota columns (user/token/log) are 32-bit
-// integers in the database, so an oversized product must clamp to the int32
-// range instead of wrapping around and turning a charge into a credit.
+// saturation + logging policy. Per-request quota remains a signed 32-bit
+// domain so an oversized product clamps instead of wrapping into a credit.
+// Wallet values use a wider, symmetric domain capped at JavaScript's largest
+// exactly representable integer because these values are exposed as JSON
+// numbers by the Go API.
 const (
-	MaxQuota = math.MaxInt32
-	MinQuota = math.MinInt32
+	MaxQuota       = math.MaxInt32
+	MinQuota       = math.MinInt32
+	MaxWalletQuota = 1<<53 - 1
+	MinWalletQuota = -MaxWalletQuota
 )
 
 // QuotaClampKind identifies why a quota conversion had to be saturated.
@@ -74,9 +78,9 @@ func saturateQuota(value float64, op string) (int, *QuotaClamp) {
 	switch {
 	case math.IsNaN(value):
 		clamp = &QuotaClamp{Op: op, Kind: QuotaClampNaN, Original: value, Clamped: 0}
-	case value >= MaxQuota:
+	case value > MaxQuota:
 		clamp = &QuotaClamp{Op: op, Kind: QuotaClampOverflow, Original: value, Clamped: MaxQuota}
-	case value <= MinQuota:
+	case value < MinQuota:
 		clamp = &QuotaClamp{Op: op, Kind: QuotaClampUnderflow, Original: value, Clamped: MinQuota}
 	default:
 		return int(value), nil
@@ -153,4 +157,32 @@ func QuotaFromDecimalChecked(d decimal.Decimal) (int, *QuotaClamp) {
 // max-balance grant.
 func QuotaFromDecimalStrict(d decimal.Decimal) (int, error) {
 	return strictQuota(QuotaFromDecimalChecked(d))
+}
+
+// ValidateWalletQuota rejects values outside the symmetric JavaScript-safe
+// wallet domain. External wallet inputs (including administrator overrides)
+// must pass through this function before being persisted or returned as JSON.
+func ValidateWalletQuota(quota int) error {
+	if quota > MaxWalletQuota || quota < MinWalletQuota {
+		return fmt.Errorf("wallet quota %d is outside safe range [%d, %d]", quota, MinWalletQuota, MaxWalletQuota)
+	}
+	return nil
+}
+
+// WalletQuotaFromDecimalStrict rounds a decimal using the historical
+// half-away-from-zero rule, then validates it against the wallet domain before
+// converting to int. The decimal comparison happens before IntPart so a value
+// that cannot fit int64 can never wrap into an apparently valid wallet value.
+func WalletQuotaFromDecimalStrict(d decimal.Decimal) (int, error) {
+	rounded := d.Round(0)
+	max := decimal.NewFromInt(MaxWalletQuota)
+	min := decimal.NewFromInt(MinWalletQuota)
+	if rounded.GreaterThan(max) || rounded.LessThan(min) {
+		return 0, fmt.Errorf("wallet quota %s is outside safe range [%d, %d]", rounded.String(), MinWalletQuota, MaxWalletQuota)
+	}
+	quota := int(rounded.IntPart())
+	if err := ValidateWalletQuota(quota); err != nil {
+		return 0, err
+	}
+	return quota, nil
 }

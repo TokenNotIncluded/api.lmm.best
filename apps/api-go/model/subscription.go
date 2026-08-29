@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"sync"
@@ -1106,10 +1107,13 @@ func AdminBindSubscription(userId int, planId int, sourceNote string) (string, e
 }
 
 func calcSubscriptionBalanceQuota(priceAmount float64, currency string) (int, error) {
+	if math.IsNaN(priceAmount) || math.IsInf(priceAmount, 0) {
+		return 0, errors.New("套餐价格超出钱包安全范围")
+	}
 	if priceAmount <= 0 {
 		return 0, nil
 	}
-	if common.QuotaPerUnit <= 0 {
+	if common.QuotaPerUnit <= 0 || math.IsNaN(common.QuotaPerUnit) || math.IsInf(common.QuotaPerUnit, 0) {
 		return 0, errors.New("额度单位配置错误")
 	}
 	currency = strings.ToUpper(strings.TrimSpace(currency))
@@ -1125,7 +1129,7 @@ func calcSubscriptionBalanceQuota(priceAmount float64, currency string) (int, er
 		return 0, err
 	}
 	quota := platformUnits.Mul(decimal.NewFromFloat(common.QuotaPerUnit)).Ceil()
-	return common.QuotaFromDecimalStrict(quota)
+	return common.WalletQuotaFromDecimalStrict(quota)
 }
 
 // SubscriptionBalanceQuota returns the server-authoritative wallet debit for a
@@ -1159,8 +1163,8 @@ func PurchaseSubscriptionWithBalance(userId int, planId int) error {
 		if !plan.Enabled {
 			return errors.New("套餐未启用")
 		}
-		if plan.PriceAmount < 0 {
-			return errors.New("套餐价格不能为负数")
+		if plan.PriceAmount < 0 || math.IsNaN(plan.PriceAmount) || math.IsInf(plan.PriceAmount, 0) {
+			return errors.New("套餐价格不能为负数或非有限值")
 		}
 		if plan.AllowBalancePay != nil && !*plan.AllowBalancePay {
 			return errors.New("该套餐不允许使用余额兑换")
@@ -1179,9 +1183,15 @@ func PurchaseSubscriptionWithBalance(userId int, planId int) error {
 			return errors.New("余额不足")
 		}
 		if requiredQuota > 0 {
-			if err := tx.Model(&User{}).Where("id = ?", userId).
-				Update("quota", gorm.Expr("quota - ?", requiredQuota)).Error; err != nil {
-				return err
+			result := UpdateWalletQuotaByDelta(
+				tx.Model(&User{}).Where("id = ? AND quota >= ?", userId, requiredQuota),
+				-requiredQuota,
+			)
+			if result.Error != nil {
+				return result.Error
+			}
+			if result.RowsAffected != 1 {
+				return errors.New("余额不足或钱包额度超出安全范围")
 			}
 		}
 

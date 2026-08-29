@@ -152,7 +152,7 @@ func TestRequireTopUpAmountCapacityUsesStoredCreditConversion(t *testing.T) {
 	require.NoError(t, db.Create(&model.User{
 		Id:       7001,
 		Username: "topup-capacity-preview",
-		Quota:    common.MaxQuota - 1,
+		Quota:    common.MaxWalletQuota,
 		Status:   common.UserStatusEnabled,
 	}).Error)
 

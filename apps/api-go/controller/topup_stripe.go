@@ -834,15 +834,15 @@ func getStripeMinTopup() int64 {
 	minTopup := int64(setting.StripeMinTopUp)
 	if operation_setting.GetQuotaDisplayType() == operation_setting.QuotaDisplayTypeTokens {
 		if !validQuotaPerUnit() {
-			return int64(common.MaxQuota)
+			return int64(common.MaxWalletQuota)
 		}
 		quotaPerUnit, ok := decimalInt64Truncated(decimal.NewFromFloat(common.QuotaPerUnit))
 		if !ok || quotaPerUnit < 0 {
-			return int64(common.MaxQuota)
+			return int64(common.MaxWalletQuota)
 		}
 		converted, ok := decimalInt64Truncated(decimal.NewFromInt(minTopup).Mul(decimal.NewFromInt(quotaPerUnit)))
-		if !ok || converted < 0 || converted > int64(common.MaxQuota) {
-			return int64(common.MaxQuota)
+		if !ok || converted < 0 || converted > int64(common.MaxWalletQuota) {
+			return int64(common.MaxWalletQuota)
 		}
 		minTopup = converted
 	}

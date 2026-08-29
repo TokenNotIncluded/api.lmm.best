@@ -975,13 +975,13 @@ func getMinTopup() int64 {
 	minTopup := operation_setting.MinTopUp
 	if operation_setting.GetQuotaDisplayType() == operation_setting.QuotaDisplayTypeTokens {
 		if !validQuotaPerUnit() {
-			return int64(common.MaxQuota)
+			return int64(common.MaxWalletQuota)
 		}
 		dMinTopup := decimal.NewFromInt(int64(minTopup))
 		dQuotaPerUnit := decimal.NewFromFloat(common.QuotaPerUnit)
 		converted, ok := decimalInt64Truncated(dMinTopup.Mul(dQuotaPerUnit))
-		if !ok || converted < 0 || converted > int64(common.MaxQuota) {
-			return int64(common.MaxQuota)
+		if !ok || converted < 0 || converted > int64(common.MaxWalletQuota) {
+			return int64(common.MaxWalletQuota)
 		}
 		minTopup = int(converted)
 	}
@@ -989,22 +989,25 @@ func getMinTopup() int64 {
 }
 
 func getTopUpQuota(amount int64) (int, error) {
+	if !validQuotaPerUnit() {
+		return 0, errors.New("QuotaPerUnit 必须为有限正数")
+	}
+	quotaPerUnit := decimal.NewFromFloat(common.QuotaPerUnit)
 	quota := decimal.NewFromInt(amount)
 	if operation_setting.GetQuotaDisplayType() == operation_setting.QuotaDisplayTypeTokens {
-		quotaPerUnit := decimal.NewFromFloat(common.QuotaPerUnit)
 		quota = decimal.NewFromInt(quota.Div(quotaPerUnit).IntPart()).Mul(quotaPerUnit)
 	} else {
-		quota = quota.Mul(decimal.NewFromFloat(common.QuotaPerUnit))
+		quota = quota.Mul(quotaPerUnit)
 	}
-	return common.QuotaFromDecimalStrict(quota)
+	return common.WalletQuotaFromDecimalStrict(quota)
 }
 
 func getMaxTopUpAmount() int64 {
-	if common.QuotaPerUnit <= 0 {
+	if !validQuotaPerUnit() {
 		return 0
 	}
 	quotaPerUnit := decimal.NewFromFloat(common.QuotaPerUnit)
-	maxStoredAmount := decimal.NewFromInt(common.MaxQuota - 1).
+	maxStoredAmount := decimal.NewFromInt(common.MaxWalletQuota).
 		Div(quotaPerUnit).
 		Floor()
 	if operation_setting.GetQuotaDisplayType() == operation_setting.QuotaDisplayTypeTokens {
@@ -1018,7 +1021,7 @@ func getMaxTopUpAmount() int64 {
 }
 
 func validateCreditedQuota(quota decimal.Decimal) (int, error) {
-	value, err := common.QuotaFromDecimalStrict(quota)
+	value, err := common.WalletQuotaFromDecimalStrict(quota)
 	if err != nil {
 		return 0, errors.New("充值额度超出系统可表示范围")
 	}

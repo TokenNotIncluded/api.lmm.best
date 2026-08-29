@@ -236,6 +236,12 @@ func initDBWithMigrationSession(chooser databaseChooser) (*StartupMigrationSessi
 		sqlDB.SetMaxOpenConns(common.GetEnvOrDefault("SQL_MAX_OPEN_CONNS", 1000))
 		sqlDB.SetConnMaxLifetime(time.Second * time.Duration(common.GetEnvOrDefault("SQL_MAX_LIFETIME", 60)))
 
+		// Verify an existing production schema before AutoMigrate can inspect
+		// the new bigint tags. This check never performs ALTER TABLE.
+		if err := check64BitQuotaSchema(DB, dbType); err != nil {
+			return nil, errors.Join(session.closeOnFailure(err), closeDB(DB))
+		}
+
 		if mode == DBMigrationModeApply && !common.IsMasterNode {
 			// Register before the master migration finishes so relevant writes
 			// fail closed until the shared revision singleton exists.

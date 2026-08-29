@@ -39,14 +39,20 @@ func InitBatchUpdater() {
 	})
 }
 
+func saturatingAdd(a, b int) int {
+	if b > 0 && a > common.MaxWalletQuota-b {
+		return common.MaxWalletQuota
+	}
+	if b < 0 && a < common.MinWalletQuota-b {
+		return common.MinWalletQuota
+	}
+	return a + b
+}
+
 func addNewRecord(type_ int, id int, value int) {
 	batchUpdateLocks[type_].Lock()
 	defer batchUpdateLocks[type_].Unlock()
-	if _, ok := batchUpdateStores[type_][id]; !ok {
-		batchUpdateStores[type_][id] = value
-	} else {
-		batchUpdateStores[type_][id] += value
-	}
+	batchUpdateStores[type_][id] = saturatingAdd(batchUpdateStores[type_][id], value)
 }
 
 func batchUpdate() {
@@ -107,7 +113,13 @@ func batchUpdate() {
 		userIDs[key] = struct{}{}
 	}
 	for key := range userIDs {
-		updateUserQuotaUsedQuotaAndRequestCount(key, userQuotaStore[key], usedQuotaStore[key], requestCountStore[key])
+		quotaDelta := userQuotaStore[key]
+		if err := updateUserQuotaUsedQuotaAndRequestCount(key, quotaDelta, usedQuotaStore[key], requestCountStore[key]); err == nil {
+			// A queued wallet mutation reaches Redis only after its database
+			// UPDATE has succeeded. This avoids exposing credits from a batch
+			// that was rejected by the final wallet boundary predicate.
+			syncUserQuotaDeltaCacheAsync(key, quotaDelta, "sync batched user quota")
+		}
 	}
 	common.SysLog("batch update finished")
 }

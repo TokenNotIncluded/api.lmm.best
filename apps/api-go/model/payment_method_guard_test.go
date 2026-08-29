@@ -373,7 +373,7 @@ func TestRechargeEpayRejectsQuotaOverflowBeforeCompletingOrder(t *testing.T) {
 	truncateTables(t)
 
 	oldQuotaPerUnit := common.QuotaPerUnit
-	common.QuotaPerUnit = float64(common.MaxQuota)
+	common.QuotaPerUnit = float64(common.MaxWalletQuota)
 	t.Cleanup(func() { common.QuotaPerUnit = oldQuotaPerUnit })
 
 	user := insertUserForPaymentGuardTest(t, 505, 3)
@@ -382,6 +382,27 @@ func TestRechargeEpayRejectsQuotaOverflowBeforeCompletingOrder(t *testing.T) {
 	_, err := RechargeEpay(order.TradeNo, "alipay", "127.0.0.1")
 	require.Error(t, err)
 	assert.Equal(t, 3, getUserQuotaForPaymentGuardTest(t, user.Id))
+	assert.Equal(t, common.TopUpStatusPending, getTopUpStatusForPaymentGuardTest(t, order.TradeNo))
+}
+
+func TestRechargeEpayDoesNotChangeRedisWhenDatabaseCreditFails(t *testing.T) {
+	truncateTables(t)
+	useUserCacheMiniRedis(t)
+	oldQuotaPerUnit := common.QuotaPerUnit
+	common.QuotaPerUnit = 500000
+	t.Cleanup(func() { common.QuotaPerUnit = oldQuotaPerUnit })
+
+	initialQuota := common.MaxWalletQuota - 1_000_000 + 1
+	user := insertUserForPaymentGuardTest(t, 507, initialQuota)
+	require.NoError(t, populateUserCache(*user))
+	order := createEpayTestOrder(t, user.Id, "EPAYTESTCACHEFAIL", PaymentProviderEpay, common.TopUpStatusPending)
+
+	_, err := RechargeEpay(order.TradeNo, "alipay", "127.0.0.1")
+	require.ErrorIs(t, err, ErrTopUpQuotaLimitExceeded)
+	cached, err := cacheGetUserBase(user.Id)
+	require.NoError(t, err)
+	assert.Equal(t, initialQuota, cached.Quota)
+	assert.Equal(t, initialQuota, getUserQuotaForPaymentGuardTest(t, user.Id))
 	assert.Equal(t, common.TopUpStatusPending, getTopUpStatusForPaymentGuardTest(t, order.TradeNo))
 }
 
@@ -398,16 +419,16 @@ func TestRechargeEpayEnforcesFinalWalletQuotaLimit(t *testing.T) {
 		wantStatus   string
 	}{
 		{
-			name:         "allows exact highest representable wallet balance",
-			currentQuota: common.MaxQuota - 1 - 1_000_000,
-			wantQuota:    common.MaxQuota - 1,
+			name:         "allows exact JavaScript safe maximum",
+			currentQuota: common.MaxWalletQuota - 1_000_000,
+			wantQuota:    common.MaxWalletQuota,
 			wantStatus:   common.TopUpStatusSuccess,
 		},
 		{
-			name:         "rejects balance above int32 quota domain",
-			currentQuota: common.MaxQuota - 1_000_000,
+			name:         "rejects balance above JavaScript safe maximum",
+			currentQuota: common.MaxWalletQuota - 1_000_000 + 1,
 			wantErr:      true,
-			wantQuota:    common.MaxQuota - 1_000_000,
+			wantQuota:    common.MaxWalletQuota - 1_000_000 + 1,
 			wantStatus:   common.TopUpStatusPending,
 		},
 	}

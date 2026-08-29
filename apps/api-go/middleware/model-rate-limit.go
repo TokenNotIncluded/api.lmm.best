@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"fmt"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -59,7 +60,7 @@ func checkRedisRateLimit(ctx context.Context, rdb *redis.Client, key string, max
 	// 如果在时间窗口内已达到限制，拒绝请求
 	subTime := nowTime.Sub(oldTime).Seconds()
 	if int64(subTime) < duration {
-		rdb.Expire(ctx, key, time.Duration(setting.ModelRequestRateLimitDurationMinutes)*time.Minute)
+		rdb.Expire(ctx, key, rateLimitWindowDuration(setting.ModelRequestRateLimitDurationMinutes))
 		return false, nil
 	}
 
@@ -76,11 +77,11 @@ func recordRedisRequest(ctx context.Context, rdb *redis.Client, key string, maxC
 	now := time.Now().UTC().Format(modelRateLimitTimeFormat)
 	rdb.LPush(ctx, key, now)
 	rdb.LTrim(ctx, key, 0, int64(maxCount-1))
-	rdb.Expire(ctx, key, time.Duration(setting.ModelRequestRateLimitDurationMinutes)*time.Minute)
+	rdb.Expire(ctx, key, rateLimitWindowDuration(setting.ModelRequestRateLimitDurationMinutes))
 }
 
 func modelRequestRateLimitConfig(c *gin.Context) (duration int64, totalMaxCount int, successMaxCount int) {
-	duration = int64(setting.ModelRequestRateLimitDurationMinutes * 60)
+	duration = rateLimitDurationSeconds(setting.ModelRequestRateLimitDurationMinutes)
 	totalMaxCount = setting.ModelRequestRateLimitCount
 	successMaxCount = setting.ModelRequestRateLimitSuccessCount
 	group := common.GetContextKeyString(c, constant.ContextKeyTokenGroup)
@@ -127,7 +128,7 @@ func CheckModelRequestRateLimit(c *gin.Context) (ModelRequestRateLimitCommit, *t
 		if totalMaxCount > 0 {
 			totalKey := fmt.Sprintf("rateLimit:%s", userID)
 			allowed, err = limiter.New(ctx, rdb).Allow(ctx, totalKey,
-				limiter.WithCapacity(int64(totalMaxCount)*duration),
+				limiter.WithCapacity(rateLimitCapacity(totalMaxCount, duration)),
 				limiter.WithRate(int64(totalMaxCount)),
 				limiter.WithRequested(duration),
 			)
@@ -145,7 +146,7 @@ func CheckModelRequestRateLimit(c *gin.Context) (ModelRequestRateLimitCommit, *t
 		}, nil
 	}
 
-	inMemoryRateLimiter.Init(time.Duration(setting.ModelRequestRateLimitDurationMinutes) * time.Minute)
+	inMemoryRateLimiter.Init(rateLimitWindowDuration(setting.ModelRequestRateLimitDurationMinutes))
 	totalKey := ModelRequestRateLimitCountMark + userID
 	successKey := ModelRequestRateLimitSuccessCountMark + userID
 	if totalMaxCount > 0 && !inMemoryRateLimiter.Request(totalKey, totalMaxCount, duration) {
@@ -159,6 +160,36 @@ func CheckModelRequestRateLimit(c *gin.Context) (ModelRequestRateLimitCommit, *t
 			inMemoryRateLimiter.Request(successKey, successMaxCount, duration)
 		}
 	}, nil
+}
+
+func rateLimitDurationSeconds(durationMinutes int) int64 {
+	if durationMinutes <= 0 {
+		return 0
+	}
+	minutes := int64(durationMinutes)
+	if minutes > math.MaxInt64/60 {
+		return math.MaxInt64
+	}
+	return minutes * 60
+}
+
+func rateLimitCapacity(count int, durationSeconds int64) int64 {
+	if count <= 0 || durationSeconds <= 0 {
+		return 0
+	}
+	c := int64(count)
+	if c > math.MaxInt64/durationSeconds {
+		return math.MaxInt64
+	}
+	return c * durationSeconds
+}
+
+func rateLimitWindowDuration(durationMinutes int) time.Duration {
+	seconds := rateLimitDurationSeconds(durationMinutes)
+	if seconds > math.MaxInt64/int64(time.Second) {
+		return time.Duration(math.MaxInt64)
+	}
+	return time.Duration(seconds) * time.Second
 }
 
 func isResponsesWebSocketHandshake(c *gin.Context) bool {
@@ -223,7 +254,7 @@ func redisRateLimitHandler(duration int64, totalMaxCount, successMaxCount int) g
 
 // 内存限流处理器
 func memoryRateLimitHandler(duration int64, totalMaxCount, successMaxCount int) gin.HandlerFunc {
-	inMemoryRateLimiter.Init(time.Duration(setting.ModelRequestRateLimitDurationMinutes) * time.Minute)
+	inMemoryRateLimiter.Init(rateLimitWindowDuration(setting.ModelRequestRateLimitDurationMinutes))
 
 	return func(c *gin.Context) {
 		userId := strconv.Itoa(c.GetInt("id"))
