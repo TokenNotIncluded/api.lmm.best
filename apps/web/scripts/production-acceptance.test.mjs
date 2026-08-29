@@ -40,7 +40,7 @@ const TEST_ACCESS = 'test-access-secret-123456'
 const FRONTEND_INDEX = '<!doctype html><script src="/static/app.js"></script>'
 const FRONTEND_ASSET = 'globalThis.__acceptanceAsset = true'
 const DEADLINE_EPOCH = Math.floor(Date.now() / 1000) + 300
-const WATCHDOG_DEADLINE_EPOCH = DEADLINE_EPOCH + 300
+const CLEANUP_DEADLINE_EPOCH = DEADLINE_EPOCH + 300
 const FRONTEND_DIGEST = frontendManifestDigest([
   { path: '/', bytes: Buffer.from(FRONTEND_INDEX) },
   { path: '/static/app.js', bytes: Buffer.from(FRONTEND_ASSET) },
@@ -51,7 +51,7 @@ const BINDINGS = {
   frontend_release: 'release-42',
   frontend_digest: FRONTEND_DIGEST,
   deadline_epoch: DEADLINE_EPOCH,
-  watchdog_deadline_epoch: WATCHDOG_DEADLINE_EPOCH,
+  cleanup_deadline_epoch: CLEANUP_DEADLINE_EPOCH,
 }
 
 function json(status, body, headers = {}) {
@@ -384,7 +384,7 @@ function runProductionAcceptance(options) {
     bindings: BINDINGS,
     baseline: mode === 'verify' ? completeBaseline() : undefined,
     deadlineEpochMs: BINDINGS.deadline_epoch * 1000,
-    watchdogDeadlineEpochMs: BINDINGS.watchdog_deadline_epoch * 1000,
+    cleanupDeadlineEpochMs: BINDINGS.cleanup_deadline_epoch * 1000,
     ...options,
   })
 }
@@ -749,14 +749,14 @@ test('verify rejects channel and frontend identity mismatches', async () => {
   )
 })
 
-test('absolute global deadline expires strictly before watchdog', async () => {
+test('absolute global deadline expires strictly before cleanup window', async () => {
   const fixture = fixtureFetch({ timeoutStage: '/v1/models' })
   const deadlineEpoch = Math.ceil(Date.now() / 1000) + 1
-  const watchdogDeadlineEpoch = deadlineEpoch + 5
+  const cleanupDeadlineEpoch = deadlineEpoch + 5
   const bindings = {
     ...BINDINGS,
     deadline_epoch: deadlineEpoch,
-    watchdog_deadline_epoch: watchdogDeadlineEpoch,
+    cleanup_deadline_epoch: cleanupDeadlineEpoch,
   }
   const summary = await runProductionAcceptance({
     bindings,
@@ -769,7 +769,7 @@ test('absolute global deadline expires strictly before watchdog', async () => {
     fetchImpl: fixture.fetchImpl,
     timeoutMs: 10_000,
     deadlineEpochMs: deadlineEpoch * 1000,
-    watchdogDeadlineEpochMs: watchdogDeadlineEpoch * 1000,
+    cleanupDeadlineEpochMs: cleanupDeadlineEpoch * 1000,
   })
   assert.equal(summary.success, false)
   assert.equal(
@@ -794,7 +794,7 @@ test('absolute global deadline expires strictly before watchdog', async () => {
   const unsafeBindings = {
     ...BINDINGS,
     deadline_epoch: unsafeDeadline,
-    watchdog_deadline_epoch: unsafeDeadline + 1,
+    cleanup_deadline_epoch: unsafeDeadline + 1,
   }
   await assert.rejects(
     runProductionAcceptanceRaw({
@@ -807,9 +807,9 @@ test('absolute global deadline expires strictly before watchdog', async () => {
       },
       fetchImpl: fixture.fetchImpl,
       deadlineEpochMs: unsafeDeadline * 1000,
-      watchdogDeadlineEpochMs: (unsafeDeadline + 1) * 1000,
+      cleanupDeadlineEpochMs: (unsafeDeadline + 1) * 1000,
     }),
-    (error) => error.code === 'UNSAFE_WATCHDOG_DEADLINE'
+    (error) => error.code === 'UNSAFE_CLEANUP_DEADLINE'
   )
 })
 

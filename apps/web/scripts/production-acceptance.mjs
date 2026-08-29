@@ -43,7 +43,7 @@ async function main() {
     '--frontend-release',
     '--frontend-digest',
     '--deadline-epoch',
-    '--watchdog-deadline-epoch',
+    '--cleanup-deadline-epoch',
     '--baseline-file',
   ])
   while (args.length > 0) {
@@ -59,7 +59,7 @@ async function main() {
     '--frontend-release',
     '--frontend-digest',
     '--deadline-epoch',
-    '--watchdog-deadline-epoch',
+    '--cleanup-deadline-epoch',
   ]) {
     if (!values.has(key)) throw new Error(`required option is missing: ${key}`)
   }
@@ -70,10 +70,10 @@ async function main() {
     throw new Error('verify mode requires --baseline-file')
   }
   const deadlineEpoch = Number(values.get('--deadline-epoch'))
-  const watchdogDeadlineEpoch = Number(values.get('--watchdog-deadline-epoch'))
+  const cleanupDeadlineEpoch = Number(values.get('--cleanup-deadline-epoch'))
   if (
     !Number.isSafeInteger(deadlineEpoch) ||
-    !Number.isSafeInteger(watchdogDeadlineEpoch)
+    !Number.isSafeInteger(cleanupDeadlineEpoch)
   ) {
     throw new Error('deadline epochs must be integer seconds')
   }
@@ -95,10 +95,10 @@ async function main() {
       frontend_release: values.get('--frontend-release'),
       frontend_digest: values.get('--frontend-digest'),
       deadline_epoch: deadlineEpoch,
-      watchdog_deadline_epoch: watchdogDeadlineEpoch,
+      cleanup_deadline_epoch: cleanupDeadlineEpoch,
     },
     deadlineEpochMs: deadlineEpoch * 1000,
-    watchdogDeadlineEpochMs: watchdogDeadlineEpoch * 1000,
+    cleanupDeadlineEpochMs: cleanupDeadlineEpoch * 1000,
   })
 }
 

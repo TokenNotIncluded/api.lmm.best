@@ -32,8 +32,8 @@ const MAX_RESPONSE_BYTES = 1024 * 1024
 const MAX_PAGES = 1000
 const MAX_FRONTEND_ASSETS = 128
 const MAX_INPUT_BYTES = 64 * 1024
-const CLEANUP_WATCHDOG_MARGIN_MS = 1000
-export const EVIDENCE_SCHEMA_VERSION = 2
+const CLEANUP_DEADLINE_MARGIN_MS = 1000
+export const EVIDENCE_SCHEMA_VERSION = 3
 export const MAX_EVIDENCE_BYTES = 64 * 1024
 
 const fstatAsync = promisify(fstat)
@@ -729,11 +729,11 @@ function normalizeBindings(bindings) {
   const value = assertObject(bindings, 'bindings', 'MISSING_BINDINGS')
   const expectedKeys = [
     'backend_revision',
+    'cleanup_deadline_epoch',
     'deadline_epoch',
     'deployment_id',
     'frontend_digest',
     'frontend_release',
-    'watchdog_deadline_epoch',
   ]
   if (Object.keys(value).sort().join(',') !== expectedKeys.join(',')) {
     fail(
@@ -770,14 +770,14 @@ function normalizeBindings(bindings) {
   }
   if (
     !Number.isSafeInteger(value.deadline_epoch) ||
-    !Number.isSafeInteger(value.watchdog_deadline_epoch) ||
+    !Number.isSafeInteger(value.cleanup_deadline_epoch) ||
     value.deadline_epoch <= 0 ||
-    value.deadline_epoch >= value.watchdog_deadline_epoch
+    value.deadline_epoch >= value.cleanup_deadline_epoch
   ) {
     fail(
       'bindings',
       'INVALID_DEADLINE_BINDING',
-      'deadline bindings must be positive integer epochs ordered before the watchdog'
+      'deadline bindings must be positive integer epochs ordered before the cleanup window'
     )
   }
   return {
@@ -786,7 +786,7 @@ function normalizeBindings(bindings) {
     frontend_release: frontendRelease,
     frontend_digest: frontendDigest,
     deadline_epoch: value.deadline_epoch,
-    watchdog_deadline_epoch: value.watchdog_deadline_epoch,
+    cleanup_deadline_epoch: value.cleanup_deadline_epoch,
   }
 }
 
@@ -1067,7 +1067,7 @@ export async function runProductionAcceptance({
   bindings: rawBindings,
   baseline: rawBaseline,
   deadlineEpochMs,
-  watchdogDeadlineEpochMs,
+  cleanupDeadlineEpochMs,
 } = {}) {
   if (!credentials) {
     fail('credentials', 'MISSING_CREDENTIALS', 'credentials are required')
@@ -1105,10 +1105,10 @@ export async function runProductionAcceptance({
   }
   const now = Date.now()
   const deadlineAt = deadlineEpochMs
-  const watchdogDeadlineAt = watchdogDeadlineEpochMs
+  const cleanupDeadlineBoundAt = cleanupDeadlineEpochMs
   if (
     deadlineAt !== bindings.deadline_epoch * 1000 ||
-    watchdogDeadlineAt !== bindings.watchdog_deadline_epoch * 1000
+    cleanupDeadlineBoundAt !== bindings.cleanup_deadline_epoch * 1000
   ) {
     fail(
       'bindings',
@@ -1123,15 +1123,15 @@ export async function runProductionAcceptance({
       'global deadline must be in the future'
     )
   }
-  const cleanupDeadlineAt = watchdogDeadlineAt - CLEANUP_WATCHDOG_MARGIN_MS
+  const cleanupDeadlineAt = cleanupDeadlineBoundAt - CLEANUP_DEADLINE_MARGIN_MS
   if (
-    !Number.isSafeInteger(watchdogDeadlineAt) ||
+    !Number.isSafeInteger(cleanupDeadlineBoundAt) ||
     deadlineAt + 1000 > cleanupDeadlineAt
   ) {
     fail(
       'startup',
-      'UNSAFE_WATCHDOG_DEADLINE',
-      'global deadline must reserve bounded cleanup time before watchdog expiry'
+      'UNSAFE_CLEANUP_DEADLINE',
+      'global deadline must reserve bounded cleanup time before cleanup deadline'
     )
   }
   const cleanupTimeoutMs = Math.max(
