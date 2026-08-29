@@ -1,93 +1,96 @@
 # AUR packages
 
-Production converges on one public backend and operator command:
-`/usr/bin/lmm-api`, owned by the Go package. Go and Web remain independently
-versioned application packages.
+The backend providers are independently versioned real executables. Production
+and operator actions enter through a separately managed one-hop provider link.
 
-| Role | Stable source | Prebuilt release | Build from Git | Installed command/payload |
+| Role | Stable source | Prebuilt release | Build from Git | Installed payload |
 | --- | --- | --- | --- | --- |
-| Go backend/operator | `lmm-api-go` | `lmm-api-go-bin` | `lmm-api-go-git` | `/usr/bin/lmm-api` (`serve`, `deploy`, health and maintenance commands) |
-| Web frontend | — | `lmm-api-web-bin` | — | `/usr/share/lmm-api-web/frontend-dist` |
-| Rust preview | — | — | `lmm-api-rs-git` | `/usr/bin/lmm-api-rs` |
+| Go provider | `lmm-api-go` | `lmm-api-go-bin` | `lmm-api-go-git` | real `/usr/bin/lmm-api-go` plus current shared runtime assets |
+| Rust provider | — | — | `lmm-api-rs-git` | real `/usr/bin/lmm-api-rs` |
+| Web frontend | — | `lmm-api-web-bin` | — | `/usr/share/lmm-api-web/frontend-dist` and signed CLI install hook |
 
-The historical compatibility release T0 (`lmm-api-go-bin` 0.1.59) keeps a
-package-owned `/usr/bin/lmm-api-go` symlink and does not remove an
-already-installed `lmm-api-deploy-bin`, so a rollback to N-1 cannot strand the
-host. Releases 0.1.60 through 0.1.62 use the historical implicit T1 boundary.
-Releases from 0.1.63 onward must include signed `CLI_TRANSITION_PHASE` metadata
-(`t0` or `t1`); version ordering no longer selects the transition. Stable
-source, `-git`, local, and prebuilt recipes all consume the same canonical
-`lmm-api-cli-phase.sh` contract; they must not enter T1 independently. New
-services, docs, automation, and release archives use `lmm-api`. No new
-deploy-only artifact is published. For a binary release at or above 0.1.63,
-the post-release pin must set `_lmm_declared_cli_phase` before the PKGBUILD's
-top-level provides/conflicts/replaces arrays are evaluated, and `prepare()`
-must match that declaration byte-for-byte with the signed release metadata.
-Late variable overrides are invalid.
+`/usr/bin/lmm-api` is not a regular provider payload and is not a reverse alias.
+It is a one-hop relative link to exactly `lmm-api-go` or `lmm-api-rs`, selected
+atomically by the already verified public CLI. New provider packages do not own
+the link and do not conflict merely because the other provider is installed.
+They provide the virtual `lmm-api-provider` capability for packages that require
+a working backend CLI.
 
-An explicit T1 package removes the alias and declares an exact
-conflict/replacement for `lmm-api-deploy-bin`; its confirmed T0 Go package is
-its rollback package and
-already owns the operator user, sudoers, sysusers, and tmpfiles resources
-needed after rollback. Local `pacman -U` does not apply `replaces`, so the armed
-target controller verifies those T0 resources and the legacy package owner/Qkk,
-removes that exact package, and only then installs T1.
+Production services, package hooks, and operator commands invoke only
+`/usr/bin/lmm-api`. Package inspection may name provider files, and a release
+candidate may construct a verified workspace symlink named `lmm-api`, but no
+deployment command directly executes `lmm-api-go` or `lmm-api-rs`.
 
-The next `lmm-api-go-bin` release is Go-only. It owns the backend, stable
-`/usr/bin/lmm-api` service/operator entry, `/etc/lmm-api-go/lmm-api-go.env`,
-operator policy, edge policy, and
-`/usr/lib/systemd/system/lmm-api.service.d/20-memory.conf`; it does not own
-`frontend-dist`. `lmm-api-web-bin` is the sole owner of immutable production
-frontend bytes and atomically activates them under `/srv/lmm-api-frontend`.
-The shared service resolves frontend files through
-`/srv/lmm-api-frontend/current`.
+## Legacy migration
 
-Tracked Go/Web binary recipes intentionally remain pinned to their already
-published immutable assets until the next signed releases exist. Their
-explicit legacy branches keep those old archives verifiable and buildable;
-future versions fail closed unless split ownership and
-`API_ROUTE_CONTRACT_REVISION` metadata are present. Go production packages
-must not contain `.INSTALL`; their runtime dependency/provides/conflicts/
-replaces contract is verified before promotion. The verifier reads actual
-archive headers to require root ownership, reject setuid/setgid or writable
-payloads, match signed-member modes, and cross-check sudoers headers with
-`.MTREE`. Web
-0.1.41/0.1.42 retain one pinned install-hook digest for compatibility; Web
-releases from 0.1.43 onward must include `lmm-api-web.install` in the signed
-release, and the local AUR hook must match it exactly. After publication, a
-separate post-release pin commit must update only the exact `pkgver`, immutable
-asset SHA-256 values, release revision metadata where applicable, descriptions
-that still mention legacy ownership, and regenerated `.SRCINFO`. Never use
-`SKIP`, a placeholder hash, or unverified metadata for that pin.
+The signed `lmm-api-go-bin 0.1.69-1` layout may own a real
+`/usr/bin/lmm-api` and expose `lmm-api-go -> lmm-api`. Accept that exact layout
+only as N-1 migration or rollback evidence. A package at or above 0.2.0 must
+contain only the real provider executable and must not contain
+`CLI_TRANSITION_PHASE`, a generic executable, reverse alias, or deploy-only CLI.
 
-Rust remains a source-built preview through `lmm-api-rs-git` only. The retired
-repository recipe `lmm-api-rs-bin` did not point to a real immutable release and
-must not return until Rust has an independent, signed binary-release workflow
-with published assets and pinned checksums. Until the separately managed remote
-AUR package is confirmed retired, the source preview keeps a compatibility
-conflict with `lmm-api-rs-bin` so both cannot overwrite the same executables.
-Rust preview builds are not publication or production-cutover evidence, and a
-Rust cutover is not part of a Go/Web release.
+The first 0.2.x upgrade runs from a signed workspace symlink, upgrades the Go
+package, then atomically creates `/usr/bin/lmm-api -> lmm-api-go` before service
+start. Explicit rollback removes that verified link before reinstalling the
+exact legacy package. There is no timed or automatic rollback.
 
-Run these checks after changing a recipe:
+## Package ownership
+
+Go currently owns the shared systemd service, operator policy, protected Go
+environment, memory limits, and edge-policy assets; it does not own Web bytes.
+The service always executes `/usr/bin/lmm-api serve`. Rust may coexist for CLI
+and parity work but may not own production business traffic until the route
+migration gate and provider handover are explicitly approved.
+
+`lmm-api-web-bin` solely owns immutable frontend bytes. Its signed install hook
+calls:
+
+```text
+/usr/bin/lmm-api deploy frontend package-activate --package-version <version>
+```
+
+It does not package `frontend-release.sh`, `lmm-api-web-activate`, or any other
+shell publisher. Frontend activation and explicit rollback are provider CLI
+operations with shared state contracts.
+
+Go production packages must not contain `.INSTALL`. Web releases include
+`lmm-api-web.install` in the signed release and the local AUR hook must match it
+exactly. Archive verification requires root ownership, safe file types/modes,
+no setuid/setgid or writable payloads, signed-member parity, immutable release
+SHA-256 metadata, provider-correct filenames, and exact route-contract revision.
+
+## Immutable release pins
+
+Tracked binary recipes remain pinned to already published immutable assets until
+a new signed release exists. After publication, a separate authorized pin commit
+updates only exact `pkgver`, asset/checksum/revision metadata, descriptions, and
+regenerated `.SRCINFO`. Never use `SKIP`, placeholders, mutable URLs, or
+unverified metadata.
+
+Rust remains source-built through `lmm-api-rs-git` until an independent signed
+Rust binary-release workflow and pinned `lmm-api-rs-bin` recipe exist. A Rust
+package or provider link is not production ownership evidence.
+
+## Validation
+
+Run from a marker-owned workspace:
 
 ```bash
 TMPDIR="${TMPDIR:?marker-owned workspace required}" bash packaging/aur/test-matrix.sh
 TMPDIR="$TMPDIR" bash packaging/aur/verify-go-release-pins.sh
 TMPDIR="$TMPDIR" bash packaging/aur/test-bin-makepkg.sh
-TMPDIR="$TMPDIR" bash deploy/production/test-release-artifact-contract.sh
+cd apps/api-go && go test ./internal/appcli
+cd apps/api-rust && cargo test --locked
 ```
 
-Regenerate every changed tracked `.SRCINFO` with
-`makepkg --printsrcinfo > .SRCINFO` and compare it before commit. Export a Go
-recipe into a new standalone package-base directory only through the canonical
-stager:
+Regenerate every changed `.SRCINFO` with:
 
 ```bash
-packaging/aur/export-go-package-base.sh lmm-api-go-bin "$DESTINATION"
+makepkg --printsrcinfo > .SRCINFO
 ```
 
-The destination must not already exist. The stager restricts the file
-inventory, verifies the canonical helper digest, and materializes
-`lmm-api-cli-phase.sh` as a regular file. Never copy or publish the monorepo
-symlink directly.
+Export a Go recipe into a new standalone package-base directory only through
+`packaging/aur/export-go-package-base.sh`; the destination must not already
+exist. The export verifies a bounded file inventory and copies regular package
+inputs. It must not materialize the retired CLI phase helper or a provider-link
+payload.
