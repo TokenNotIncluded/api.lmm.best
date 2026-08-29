@@ -13,7 +13,6 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/model"
 	"github.com/LIghtJUNction/api.lmm.best/service"
 	"github.com/LIghtJUNction/api.lmm.best/setting"
-	"github.com/LIghtJUNction/api.lmm.best/setting/operation_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/shopspring/decimal"
 	"github.com/thanhpk/randstr"
@@ -21,10 +20,10 @@ import (
 )
 
 type WaffoPancakePayRequest struct {
-	Amount           int64  `json:"amount"`
-	DiscountCode     string `json:"discount_code,omitempty"`
-	CheckoutRegion   string `json:"checkout_region"`
-	CheckoutLanguage string `json:"checkout_language"`
+	Amount           float64 `json:"amount"`
+	DiscountCode     string  `json:"discount_code,omitempty"`
+	CheckoutRegion   string  `json:"checkout_region"`
+	CheckoutLanguage string  `json:"checkout_language"`
 }
 
 func RequestWaffoPancakeAmount(c *gin.Context) {
@@ -33,20 +32,30 @@ func RequestWaffoPancakeAmount(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "参数错误"})
 		return
 	}
+	requestedAmount, err := parseRequestedTopUpAmount(req.Amount)
+	if err != nil {
+		common.ApiErrorMsg(c, err.Error())
+		return
+	}
 	if !requirePaymentMethodAvailable(c, model.PaymentMethodWaffoPancake) {
 		return
 	}
 
-	if req.Amount < int64(setting.WaffoPancakeMinTopUp) {
+	if requestedAmount.LessThan(decimal.NewFromInt(int64(setting.WaffoPancakeMinTopUp))) {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": fmt.Sprintf("充值数量不能小于 %d", setting.WaffoPancakeMinTopUp)})
 		return
 	}
-	if !requirePaymentMethodTopUpWithinLimit(c, model.PaymentMethodWaffoPancake, req.Amount) {
+	if !requirePaymentMethodTopUpDecimalWithinLimit(c, model.PaymentMethodWaffoPancake, requestedAmount) {
 		return
 	}
 
 	id := c.GetInt("id")
-	if !requireTopUpAmountCapacity(c, id, req.Amount) {
+	_, _, creditedQuota, err := topUpOrderAmountsDecimal(requestedAmount)
+	if err != nil {
+		common.ApiErrorMsg(c, err.Error())
+		return
+	}
+	if !requireTopUpCreditCapacity(c, id, creditedQuota) {
 		return
 	}
 	group, err := model.GetUserGroup(id, true)
@@ -55,18 +64,17 @@ func RequestWaffoPancakeAmount(c *gin.Context) {
 		return
 	}
 
-	payMoneyDecimal, _, err := applyDiscountCodeQuote(getWaffoPancakePayMoneyDecimal(req.Amount, group), req.Amount, req.DiscountCode, id)
+	payMoneyDecimal, _, err := applyDiscountCodeQuoteDecimal(getWaffoPancakePayMoneyForAmount(requestedAmount, group), requestedAmount, req.DiscountCode, id)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "优惠码无效"})
 		return
 	}
-	payMoney := payMoneyDecimal.InexactFloat64()
-	if payMoney <= 0.01 {
+	if payMoneyDecimal.LessThanOrEqual(decimal.NewFromFloat(0.01)) {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "充值金额过低"})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "success", "data": fmt.Sprintf("%.2f", payMoney)})
+	c.JSON(http.StatusOK, gin.H{"message": "success", "data": payMoneyDecimal.StringFixed(2)})
 }
 
 func getWaffoPancakePayMoney(amount int64, group string) float64 {
@@ -74,34 +82,19 @@ func getWaffoPancakePayMoney(amount int64, group string) float64 {
 }
 
 func getWaffoPancakePayMoneyDecimal(amount int64, group string) decimal.Decimal {
+	return getWaffoPancakePayMoneyForAmount(decimal.NewFromInt(amount), group)
+}
+
+func getWaffoPancakePayMoneyForAmount(amount decimal.Decimal, group string) decimal.Decimal {
 	pricing, err := standardSettlementPricing("USD")
 	if err != nil {
 		return decimal.Zero
 	}
-	quoted, err := quoteTopUpWithSettlementPricing(
-		amount,
-		group,
-		pricing,
-		decimal.NewFromInt(1),
-	)
+	quoted, err := quoteTopUpDecimalWithSettlementPricing(amount, group, pricing, decimal.NewFromInt(1))
 	if err != nil {
 		return decimal.Zero
 	}
 	return quoted
-}
-
-func normalizeWaffoPancakeTopUpAmount(amount int64) int64 {
-	if operation_setting.GetQuotaDisplayType() != operation_setting.QuotaDisplayTypeTokens {
-		return amount
-	}
-
-	normalized := decimal.NewFromInt(amount).
-		Div(decimal.NewFromFloat(common.QuotaPerUnit)).
-		IntPart()
-	if normalized < 1 {
-		return 1
-	}
-	return normalized
 }
 
 func formatWaffoPancakeAmount(payMoney float64) string {
@@ -406,19 +399,29 @@ func RequestWaffoPancakePay(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "参数错误"})
 		return
 	}
+	requestedAmount, err := parseRequestedTopUpAmount(req.Amount)
+	if err != nil {
+		common.ApiErrorMsg(c, err.Error())
+		return
+	}
 	if !requirePaymentMethodAvailable(c, model.PaymentMethodWaffoPancake) {
 		return
 	}
-	if req.Amount < int64(setting.WaffoPancakeMinTopUp) {
+	if requestedAmount.LessThan(decimal.NewFromInt(int64(setting.WaffoPancakeMinTopUp))) {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": fmt.Sprintf("充值数量不能小于 %d", setting.WaffoPancakeMinTopUp)})
 		return
 	}
-	if !requirePaymentMethodTopUpWithinLimit(c, model.PaymentMethodWaffoPancake, req.Amount) {
+	if !requirePaymentMethodTopUpDecimalWithinLimit(c, model.PaymentMethodWaffoPancake, requestedAmount) {
 		return
 	}
 
 	id := c.GetInt("id")
-	if rejectInvalidTopUpQuota(c, id, req.Amount) {
+	storedAmount, platformAmountMicros, creditedQuota, err := topUpOrderAmountsDecimal(requestedAmount)
+	if err != nil {
+		common.ApiErrorMsg(c, err.Error())
+		return
+	}
+	if !requireTopUpCreditCapacity(c, id, creditedQuota) {
 		return
 	}
 
@@ -434,23 +437,18 @@ func RequestWaffoPancakePay(c *gin.Context) {
 		return
 	}
 
-	payMoneyDecimal, discountCode, err := applyDiscountCodeQuote(getWaffoPancakePayMoneyDecimal(req.Amount, group), req.Amount, req.DiscountCode, id)
+	payMoneyDecimal, discountCode, err := applyDiscountCodeQuoteDecimal(getWaffoPancakePayMoneyForAmount(requestedAmount, group), requestedAmount, req.DiscountCode, id)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "优惠码无效"})
 		return
 	}
-	payMoney := payMoneyDecimal.InexactFloat64()
-	if payMoney < 0.01 {
+	if payMoneyDecimal.LessThan(decimal.NewFromFloat(0.01)) {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "充值金额过低"})
 		return
 	}
 
 	tradeNo := fmt.Sprintf("WAFFO_PANCAKE-%d-%d-%s", id, time.Now().UnixMilli(), randstr.String(6))
-	storedAmount, creditedQuota := topUpOrderAmounts(req.Amount)
-	if !requireTopUpCreditCapacity(c, id, creditedQuota) {
-		return
-	}
-	paymentAmount := formatWaffoPancakeAmount(payMoney)
+	paymentAmount := payMoneyDecimal.StringFixed(2)
 	expectedAmountMicros, err := monetaryStringToMicros(paymentAmount)
 	if err != nil {
 		logger.LogError(c.Request.Context(), fmt.Sprintf("Waffo Pancake 结算金额无效 user_id=%d trade_no=%s error=%q", id, tradeNo, err.Error()))
@@ -460,6 +458,7 @@ func RequestWaffoPancakePay(c *gin.Context) {
 	topUp := &model.TopUp{
 		UserId:               id,
 		Amount:               storedAmount,
+		PlatformAmountMicros: platformAmountMicros,
 		CreditedQuota:        creditedQuota,
 		ExpectedAmountMicros: expectedAmountMicros,
 		SettlementCurrency:   "USD",
@@ -475,7 +474,7 @@ func RequestWaffoPancakePay(c *gin.Context) {
 		Status:               common.TopUpStatusPending,
 	}
 	if err := topUp.Insert(); err != nil {
-		logger.LogError(c.Request.Context(), fmt.Sprintf("Waffo Pancake 创建充值订单失败 user_id=%d trade_no=%s amount=%d error=%q", id, tradeNo, req.Amount, err.Error()))
+		logger.LogError(c.Request.Context(), fmt.Sprintf("Waffo Pancake 创建充值订单失败 user_id=%d trade_no=%s amount=%s error=%q", id, tradeNo, requestedAmount.String(), err.Error()))
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "创建订单失败"})
 		return
 	}
@@ -504,7 +503,7 @@ func RequestWaffoPancakePay(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "拉起支付失败"})
 		return
 	}
-	logger.LogInfo(c.Request.Context(), fmt.Sprintf("Waffo Pancake 充值订单创建成功 user_id=%d trade_no=%s session_id=%s amount=%d money=%.2f", id, tradeNo, session.SessionID, req.Amount, payMoney))
+	logger.LogInfo(c.Request.Context(), fmt.Sprintf("Waffo Pancake 充值订单创建成功 user_id=%d trade_no=%s session_id=%s amount=%s money=%s", id, tradeNo, session.SessionID, requestedAmount.String(), paymentAmount))
 
 	c.JSON(http.StatusOK, gin.H{
 		"message": "success",

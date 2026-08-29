@@ -2,6 +2,7 @@ package controller
 
 import (
 	"encoding/json"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -76,14 +77,55 @@ func setupTopupInfoUser(t *testing.T, id int, group string) {
 	})
 }
 
-func TestIntegerPlatformAmountRejectsFractionalInput(t *testing.T) {
-	amount, err := integerPlatformAmount(6.8)
-	require.Error(t, err)
-	require.Zero(t, amount)
-
-	amount, err = integerPlatformAmount(68)
+func TestRequestedTopUpAmountPreservesFractionalInput(t *testing.T) {
+	amount, err := parseRequestedTopUpAmount(6.8)
 	require.NoError(t, err)
-	require.EqualValues(t, 68, amount)
+	require.True(t, amount.Equal(decimal.RequireFromString("6.8")))
+
+	for _, invalid := range []float64{0, -1, math.NaN(), math.Inf(1)} {
+		_, err := parseRequestedTopUpAmount(invalid)
+		require.Error(t, err)
+	}
+}
+
+func TestTopUpOrderSnapshotsExactFractionalPlatformAmount(t *testing.T) {
+	preserveChannelPricing(t)
+	originalQuotaPerUnit := common.QuotaPerUnit
+	common.QuotaPerUnit = 100
+	t.Cleanup(func() { common.QuotaPerUnit = originalQuotaPerUnit })
+
+	for _, tc := range []struct {
+		name        string
+		displayType string
+		requested   string
+	}{
+		{name: "platform units", displayType: operation_setting.QuotaDisplayTypeUSD, requested: "6.8"},
+		{name: "tokens", displayType: operation_setting.QuotaDisplayTypeTokens, requested: "680"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			operation_setting.GetGeneralSetting().QuotaDisplayType = tc.displayType
+			stored, micros, credited, err := topUpOrderAmountsDecimal(decimal.RequireFromString(tc.requested))
+			require.NoError(t, err)
+			require.EqualValues(t, 6, stored)
+			require.EqualValues(t, 6_800_000, micros)
+			require.EqualValues(t, 680, credited)
+		})
+	}
+}
+
+func TestDedicatedUSDGatewaysUseConfiguredRateForFractionalAmounts(t *testing.T) {
+	preserveChannelPricing(t)
+	operation_setting.TopUpPlatformUnitsPerCNY = 1
+	operation_setting.GetPaymentSetting().AmountDiscount = map[int]float64{}
+	require.NoError(t, common.UpdateTopupGroupRatioByJSONString(`{"default":1}`))
+
+	for _, configuredRate := range []string{"6.8", "7.25"} {
+		rate := decimal.RequireFromString(configuredRate)
+		operation_setting.USDExchangeRate = rate.InexactFloat64()
+		require.True(t, getStripePayMoneyDecimal(rate, "default").Equal(decimal.NewFromInt(1)), configuredRate)
+		require.True(t, getWaffoPayMoneyForAmount(rate, "default").Equal(decimal.NewFromInt(1)), configuredRate)
+		require.True(t, getWaffoPancakePayMoneyForAmount(rate, "default").Equal(decimal.NewFromInt(1)), configuredRate)
+	}
 }
 
 func TestDedicatedUSDGatewaysShareOneStandardQuote(t *testing.T) {

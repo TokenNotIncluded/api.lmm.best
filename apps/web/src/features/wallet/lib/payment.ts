@@ -28,6 +28,7 @@ import type {
   PaymentMethod,
   PresetAmount,
   TopupInfo,
+  TopupRecord,
   WaffoPayMethod,
 } from '../types'
 
@@ -393,6 +394,15 @@ export function getMinTopupAmount(topupInfo: TopupInfo | null): number {
   if (paymentType) return topupInfo.min_topup
 
   return DEFAULT_MIN_TOPUP
+}
+
+export function getTopupRecordPlatformAmount(
+  record: Pick<TopupRecord, 'amount' | 'platform_amount_micros'>
+): number {
+  const micros = record.platform_amount_micros
+  return Number.isSafeInteger(micros) && Number(micros) > 0
+    ? Number(micros) / 1_000_000
+    : record.amount
 }
 
 /**

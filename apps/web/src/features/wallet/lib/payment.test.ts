@@ -28,6 +28,7 @@ import {
   dispatchSelectedPayment,
   getEpayMethods,
   getTopupAvailability,
+  getTopupRecordPlatformAmount,
   isSafeHttpCheckoutUrl,
   isPaymentMethodCurrencySupported,
   isStripePayment,
@@ -50,6 +51,26 @@ function topupInfo(overrides: Partial<TopupInfo> = {}): TopupInfo {
     ...overrides,
   }
 }
+
+describe('billing history platform amounts', () => {
+  test('prefers the exact fractional platform snapshot over the legacy integer projection', () => {
+    assert.equal(
+      getTopupRecordPlatformAmount({
+        amount: 6,
+        platform_amount_micros: 6_800_000,
+      }),
+      6.8
+    )
+    assert.equal(getTopupRecordPlatformAmount({ amount: 68 }), 68)
+    assert.equal(
+      getTopupRecordPlatformAmount({
+        amount: 68,
+        platform_amount_micros: Number.MAX_SAFE_INTEGER + 1,
+      }),
+      68
+    )
+  })
+})
 
 describe('payment type classification', () => {
   test('normalizes provider flags and concrete methods into usable payment availability', () => {

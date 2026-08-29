@@ -53,6 +53,7 @@ import {
   getPaymentMethodName,
   formatTimestamp,
 } from '../../lib/billing'
+import { getTopupRecordPlatformAmount } from '../../lib/payment'
 
 interface BillingHistoryDialogProps {
   open: boolean
@@ -240,8 +241,9 @@ export function BillingHistoryDialog({
                             {t('Amount')}
                           </Label>
                           <div className='text-sm font-semibold'>
+                            {/* Prefer the immutable micros snapshot for fractional orders. */}
                             {formatPlatformAmount(
-                              record.amount,
+                              getTopupRecordPlatformAmount(record),
                               {
                                 digitsLarge: 2,
                                 digitsSmall: 2,

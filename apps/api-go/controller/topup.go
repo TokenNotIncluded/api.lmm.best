@@ -616,18 +616,6 @@ var positiveDecimalPattern = regexp.MustCompile(`^[0-9]+(?:\.[0-9]+)?$`)
 var nonNegativeDecimalPattern = regexp.MustCompile(`^[0-9]+(?:\.[0-9]+)?$`)
 var settlementUnitPattern = regexp.MustCompile(`^[A-Za-z0-9._-]{1,16}$`)
 
-func integerPlatformAmount(value float64) (int64, error) {
-	decimalAmount := decimal.NewFromFloat(value)
-	if !decimalAmount.Equal(decimalAmount.Truncate(0)) {
-		return 0, fmt.Errorf("platform amount must be an integer")
-	}
-	converted, ok := decimalInt64Truncated(decimalAmount)
-	if !ok {
-		return 0, fmt.Errorf("platform amount is out of range")
-	}
-	return converted, nil
-}
-
 func parsePayRequest(c *gin.Context, amount *float64, paymentMethod, discountCode *string) error {
 	if value, exists := c.Get("parsed_amount"); exists {
 		if parsed, ok := value.(float64); ok && parsed > 0 {

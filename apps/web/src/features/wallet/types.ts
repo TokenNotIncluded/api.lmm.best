@@ -326,8 +326,10 @@ export interface TopupRecord {
   id: number
   /** User ID */
   user_id: number
-  /** Topup amount (quota) */
+  /** Deprecated integer projection of the platform amount. */
   amount: number
+  /** Exact platform amount snapshot in millionths for fractional top-ups. */
+  platform_amount_micros?: number
   /** Payment amount (actual fiat money paid) */
   money: number
   /** Fiat currency used by the selected payment gateway. */

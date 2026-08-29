@@ -537,6 +537,7 @@ struct FinanceTopup {
     topup_id: i64,
     user_id: i64,
     amount: i64,
+    platform_amount_micros: i64,
     credited_quota: i64,
     expected_amount_micros: i64,
     settled_amount_micros: i64,
@@ -1144,7 +1145,10 @@ async fn load_topups(
 ) -> Result<Vec<FinanceTopup>, FinanceExportError> {
     let rows = sqlx::query(
         "SELECT id::BIGINT AS topup_id, COALESCE(user_id, 0)::BIGINT AS user_id, \
-         COALESCE(amount, 0)::BIGINT AS amount, COALESCE(credited_quota, 0)::BIGINT AS credited_quota, \
+         COALESCE(amount, 0)::BIGINT AS amount, \
+         CASE WHEN COALESCE(to_jsonb(top_ups)->>'platform_amount_micros', '') ~ '^-?[0-9]+$' \
+              THEN (to_jsonb(top_ups)->>'platform_amount_micros')::BIGINT ELSE 0 END AS platform_amount_micros, \
+         COALESCE(credited_quota, 0)::BIGINT AS credited_quota, \
          COALESCE(expected_amount_micros, 0)::BIGINT AS expected_amount_micros, \
          COALESCE(settled_amount_micros, 0)::BIGINT AS settled_amount_micros, \
          COALESCE(settlement_currency, '') AS settlement_currency, \
@@ -1167,6 +1171,7 @@ fn topup_from_row(row: PgRow) -> Result<FinanceTopup, FinanceExportError> {
         topup_id: get(&row, "topup_id")?,
         user_id: get(&row, "user_id")?,
         amount: get(&row, "amount")?,
+        platform_amount_micros: get(&row, "platform_amount_micros")?,
         credited_quota: get(&row, "credited_quota")?,
         expected_amount_micros: get(&row, "expected_amount_micros")?,
         settled_amount_micros: get(&row, "settled_amount_micros")?,
@@ -1960,6 +1965,29 @@ mod tests {
             .read_to_string(&mut contents)
             .map_err(|source| test_error(format!("ZIP entry byte error: {source}")))?;
         assert_eq!(contents, "user-subscriptions.json");
+        Ok(())
+    }
+
+    #[test]
+    fn fractional_topup_export_should_include_exact_platform_micros() -> TestResult {
+        let value = serde_json::to_value(FinanceTopup {
+            topup_id: 1,
+            user_id: 2,
+            amount: 6,
+            platform_amount_micros: 6_800_000,
+            credited_quota: 680,
+            expected_amount_micros: 1_000_000,
+            settled_amount_micros: 1_000_000,
+            settlement_currency: "USD".to_owned(),
+            money: 1.0,
+            payment_method: "waffo_pancake".to_owned(),
+            payment_provider: "waffo_pancake".to_owned(),
+            create_time: 10,
+            complete_time: 11,
+            status: "success".to_owned(),
+        })?;
+        assert_eq!(value["amount"], json!(6));
+        assert_eq!(value["platform_amount_micros"], json!(6_800_000));
         Ok(())
     }
 
