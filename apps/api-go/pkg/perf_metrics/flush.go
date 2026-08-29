@@ -1,6 +1,7 @@
 package perfmetrics
 
 import (
+	"context"
 	"fmt"
 	"strconv"
 	"time"
@@ -10,10 +11,18 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/setting/perf_metrics_setting"
 )
 
-func flushLoop() {
+func flushLoop(ctx context.Context) {
 	for {
 		interval := perf_metrics_setting.GetFlushIntervalMinutes()
-		time.Sleep(time.Duration(interval) * time.Minute)
+		timer := time.NewTimer(time.Duration(interval) * time.Minute)
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				<-timer.C
+			}
+			return
+		case <-timer.C:
+		}
 		setting := perf_metrics_setting.GetSetting()
 		if !setting.Enabled {
 			continue
@@ -24,13 +33,23 @@ func flushLoop() {
 }
 
 func flushCompletedBuckets() {
+	flushBuckets(false)
+}
+
+// Flush persists all process-local buckets, including the current interval.
+// It is safe after HTTP drain, when no new relay samples are being admitted.
+func Flush() {
+	flushBuckets(true)
+}
+
+func flushBuckets(includeCurrent bool) {
 	if dropped := hotBucketDropped.Swap(0); dropped > 0 {
 		common.SysError(fmt.Sprintf("perf metric hot-bucket budget dropped %d local samples", dropped))
 	}
 	currentBucket := bucketStart(time.Now().Unix())
 	hotBuckets.Range(func(key, value any) bool {
 		k := key.(bucketKey)
-		if k.bucketTs >= currentBucket {
+		if !includeCurrent && k.bucketTs >= currentBucket {
 			return true
 		}
 

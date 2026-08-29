@@ -162,6 +162,10 @@ var NodeNameSource = NodeNameSourceHostname
 
 var NodeNameManuallyConfigured bool
 
+// APIInstanceSlot optionally distinguishes multiple Go API runtimes that share
+// the same physical NodeName (for example, blue and green slots).
+var APIInstanceSlot string
+
 var requestInterval int
 var RequestInterval time.Duration
 

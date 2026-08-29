@@ -5858,6 +5858,7 @@
     "running": "en cours",
     "Running": "En cours",
     "Runtime": "Environnement",
+    "Runtime instances reporting from this deployment; slots on the same node are listed separately.": "Instances d’exécution signalées par ce déploiement ; les slots d’un même nœud sont affichés séparément.",
     "Runway": "Durée restante",
     "s": "s",
     "Safety center": "Centre de sécurité",

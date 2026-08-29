@@ -43,13 +43,15 @@ func DeleteStaleSystemInstances(c *gin.Context) {
 }
 
 func DeleteStaleSystemInstance(c *gin.Context) {
-	nodeName := c.Param("node_name")
-	if strings.TrimSpace(nodeName) == "" {
-		common.ApiErrorMsg(c, "node name is required")
+	// The route parameter keeps its legacy name for compatibility, but its value
+	// is the reporter identity returned by node_name/reporter_id in the list API.
+	reporterID := c.Param("node_name")
+	if strings.TrimSpace(reporterID) == "" {
+		common.ApiErrorMsg(c, "instance reporter identity is required")
 		return
 	}
 
-	deleted, err := model.DeleteStaleSystemInstance(nodeName, common.GetTimestamp())
+	deleted, err := model.DeleteStaleSystemInstance(reporterID, common.GetTimestamp())
 	if err != nil {
 		common.ApiError(c, err)
 		return

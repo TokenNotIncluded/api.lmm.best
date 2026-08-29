@@ -1,6 +1,7 @@
 package model
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sync"
@@ -40,6 +41,11 @@ type QuotaDataLogParams struct {
 }
 
 func UpdateQuotaData() {
+	UpdateQuotaDataContext(context.Background())
+}
+
+// UpdateQuotaDataContext runs the dashboard flush loop until ctx is cancelled.
+func UpdateQuotaDataContext(ctx context.Context) {
 	for {
 		interval := time.Duration(common.DataExportInterval) * time.Minute
 		if interval < time.Minute {
@@ -47,6 +53,14 @@ func UpdateQuotaData() {
 		}
 		timer := time.NewTimer(interval)
 		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			return
 		case <-timer.C:
 		case <-quotaDataFlushWake:
 			if !timer.Stop() {

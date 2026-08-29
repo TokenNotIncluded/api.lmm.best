@@ -1,6 +1,7 @@
 package model
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -1537,12 +1538,17 @@ type SubscriptionPreConsumeResult struct {
 
 // ExpireDueSubscriptions marks expired subscriptions and handles group downgrade.
 func ExpireDueSubscriptions(limit int) (int, error) {
+	return ExpireDueSubscriptionsContext(context.Background(), limit)
+}
+
+func ExpireDueSubscriptionsContext(ctx context.Context, limit int) (int, error) {
 	if limit <= 0 {
 		limit = 200
 	}
-	now := GetDBTimestamp()
+	db := DB.WithContext(ctx)
+	now := getDBTimestamp(db)
 	var subs []UserSubscription
-	if err := DB.Where("status = ? AND end_time > 0 AND end_time <= ?", "active", now).
+	if err := db.Where("status = ? AND end_time > 0 AND end_time <= ?", "active", now).
 		Order("end_time asc, id asc").
 		Limit(limit).
 		Find(&subs).Error; err != nil {
@@ -1560,7 +1566,7 @@ func ExpireDueSubscriptions(limit int) (int, error) {
 	}
 	for userId := range userIds {
 		cacheGroup := ""
-		err := DB.Transaction(func(tx *gorm.DB) error {
+		err := db.Transaction(func(tx *gorm.DB) error {
 			res := tx.Model(&UserSubscription{}).
 				Where("user_id = ? AND status = ? AND end_time > 0 AND end_time <= ?", userId, "active", now).
 				Updates(map[string]interface{}{
@@ -1825,12 +1831,17 @@ func RefundSubscriptionPreConsume(requestId string) error {
 
 // ResetDueSubscriptions resets subscriptions whose next_reset_time has passed.
 func ResetDueSubscriptions(limit int) (int, error) {
+	return ResetDueSubscriptionsContext(context.Background(), limit)
+}
+
+func ResetDueSubscriptionsContext(ctx context.Context, limit int) (int, error) {
 	if limit <= 0 {
 		limit = 200
 	}
-	now := GetDBTimestamp()
+	db := DB.WithContext(ctx)
+	now := getDBTimestamp(db)
 	var subs []UserSubscription
-	if err := DB.Where("next_reset_time > 0 AND next_reset_time <= ? AND status = ?", now, "active").
+	if err := db.Where("next_reset_time > 0 AND next_reset_time <= ? AND status = ?", now, "active").
 		Order("next_reset_time asc").
 		Limit(limit).
 		Find(&subs).Error; err != nil {
@@ -1842,11 +1853,11 @@ func ResetDueSubscriptions(limit int) (int, error) {
 	resetCount := 0
 	for _, sub := range subs {
 		subCopy := sub
-		plan, err := getSubscriptionPlanByIdTx(nil, sub.PlanId)
+		plan, err := getSubscriptionPlanByIdTx(db, sub.PlanId)
 		if err != nil || plan == nil {
 			continue
 		}
-		err = DB.Transaction(func(tx *gorm.DB) error {
+		err = db.Transaction(func(tx *gorm.DB) error {
 			var locked UserSubscription
 			if err := lockForUpdate(tx).
 				Where("id = ? AND next_reset_time > 0 AND next_reset_time <= ?", subCopy.Id, now).
@@ -1868,11 +1879,16 @@ func ResetDueSubscriptions(limit int) (int, error) {
 
 // CleanupSubscriptionPreConsumeRecords removes old idempotency records to keep table small.
 func CleanupSubscriptionPreConsumeRecords(olderThanSeconds int64) (int64, error) {
+	return CleanupSubscriptionPreConsumeRecordsContext(context.Background(), olderThanSeconds)
+}
+
+func CleanupSubscriptionPreConsumeRecordsContext(ctx context.Context, olderThanSeconds int64) (int64, error) {
 	if olderThanSeconds <= 0 {
 		olderThanSeconds = 7 * 24 * 3600
 	}
-	cutoff := GetDBTimestamp() - olderThanSeconds
-	res := DB.Where("updated_at < ?", cutoff).Delete(&SubscriptionPreConsumeRecord{})
+	db := DB.WithContext(ctx)
+	cutoff := getDBTimestamp(db) - olderThanSeconds
+	res := db.Where("updated_at < ?", cutoff).Delete(&SubscriptionPreConsumeRecord{})
 	return res.RowsAffected, res.Error
 }
 

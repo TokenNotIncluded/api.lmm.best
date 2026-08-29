@@ -1,6 +1,7 @@
 package model
 
 import (
+	"context"
 	"errors"
 	"sync"
 	"time"
@@ -22,6 +23,7 @@ const (
 
 var batchUpdateStores []map[int]int
 var batchUpdateLocks []sync.Mutex
+var batchUpdateFlushLock sync.Mutex
 
 func init() {
 	for i := 0; i < BatchUpdateTypeCount; i++ {
@@ -31,12 +33,31 @@ func init() {
 }
 
 func InitBatchUpdater() {
-	gopool.Go(func() {
-		for {
-			time.Sleep(time.Duration(common.BatchUpdateInterval) * time.Second)
+	gopool.Go(func() { RunBatchUpdater(context.Background()) })
+}
+
+// RunBatchUpdater periodically persists queued updates until ctx is cancelled.
+// InitBatchUpdater remains as a source-compatible background wrapper.
+func RunBatchUpdater(ctx context.Context) {
+	interval := time.Duration(common.BatchUpdateInterval) * time.Second
+	if interval <= 0 {
+		interval = time.Second
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
 			batchUpdate()
 		}
-	})
+	}
+}
+
+// FlushBatchUpdates synchronously persists all updates queued before the call.
+func FlushBatchUpdates() {
+	batchUpdate()
 }
 
 func saturatingAdd(a, b int) int {
@@ -56,6 +77,9 @@ func addNewRecord(type_ int, id int, value int) {
 }
 
 func batchUpdate() {
+	batchUpdateFlushLock.Lock()
+	defer batchUpdateFlushLock.Unlock()
+
 	// check if there's any data to update
 	hasData := false
 	for i := 0; i < BatchUpdateTypeCount; i++ {

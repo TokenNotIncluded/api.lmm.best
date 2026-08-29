@@ -5858,6 +5858,7 @@
     "running": "đang chạy",
     "Running": "Đang chạy",
     "Runtime": "Môi trường chạy",
+    "Runtime instances reporting from this deployment; slots on the same node are listed separately.": "Các phiên bản runtime đang báo cáo từ bản triển khai này; các slot trên cùng một nút được liệt kê riêng.",
     "Runway": "Thời gian còn lại",
     "s": "s",
     "Safety center": "Trung tâm an toàn",

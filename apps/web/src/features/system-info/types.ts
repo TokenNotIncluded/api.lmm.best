@@ -20,6 +20,11 @@ export type SystemInstanceStatus = 'online' | 'stale'
 
 export type SystemInstanceInfo = {
   schema_version?: number
+  reporter?: {
+    id?: string
+    slot?: string
+    [key: string]: unknown
+  }
   node?: {
     name?: string
     source?: string
@@ -36,6 +41,7 @@ export type SystemInstanceInfo = {
     goos?: string
     goarch?: string
     started_at?: number
+    instance_slot?: string
     [key: string]: unknown
   }
   host?: {
@@ -64,7 +70,11 @@ export type SystemInstanceInfo = {
 }
 
 export type SystemInstance = {
+  // node_name is the legacy reporter key; reporter_id is its explicit alias.
   node_name: string
+  reporter_id?: string
+  physical_node_name?: string
+  instance_slot?: string
   status: SystemInstanceStatus
   stale_after_seconds: number
   started_at: number

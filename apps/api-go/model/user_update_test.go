@@ -59,6 +59,36 @@ func createUserBindTestUser(t *testing.T) User {
 	return user
 }
 
+func TestFlushBatchUpdatesPersistsAllQueuedUserCounters(t *testing.T) {
+	setupUserUpdateTestState(t)
+	resetBatchUpdateTestState(t)
+
+	user := User{
+		Username:     "shutdown-batch-flush-user",
+		Password:     "unused-password-hash",
+		Role:         common.RoleCommonUser,
+		Status:       common.UserStatusEnabled,
+		Quota:        1000,
+		UsedQuota:    20,
+		RequestCount: 3,
+	}
+	require.NoError(t, DB.Create(&user).Error)
+
+	addNewRecord(BatchUpdateTypeUserQuota, user.Id, -100)
+	addNewRecord(BatchUpdateTypeUsedQuota, user.Id, 100)
+	addNewRecord(BatchUpdateTypeRequestCount, user.Id, 1)
+	FlushBatchUpdates()
+
+	var got User
+	require.NoError(t, DB.First(&got, user.Id).Error)
+	assert.Equal(t, 900, got.Quota)
+	assert.Equal(t, 120, got.UsedQuota)
+	assert.Equal(t, 4, got.RequestCount)
+	for i := 0; i < BatchUpdateTypeCount; i++ {
+		assert.Empty(t, batchUpdateStores[i])
+	}
+}
+
 func TestUserUpdateDoesNotOverwriteConcurrentAccountingOrTokenChanges(t *testing.T) {
 	setupUserUpdateTestState(t)
 

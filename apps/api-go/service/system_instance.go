@@ -21,13 +21,19 @@ const systemInstanceReportInterval = 30 * time.Second
 var systemInstanceReporterOnce sync.Once
 
 type SystemInstanceInfo struct {
-	SchemaVersion int                       `json:"schema_version"`
-	Node          common.NodeIdentity       `json:"node"`
-	Role          SystemInstanceRoleInfo    `json:"role"`
-	Runtime       SystemInstanceRuntimeInfo `json:"runtime"`
-	Host          SystemInstanceHostInfo    `json:"host"`
-	Resources     SystemInstanceResources   `json:"resources,omitempty"`
-	Extra         map[string]any            `json:"extra,omitempty"`
+	SchemaVersion int                        `json:"schema_version"`
+	Reporter      SystemInstanceReporterInfo `json:"reporter"`
+	Node          common.NodeIdentity        `json:"node"`
+	Role          SystemInstanceRoleInfo     `json:"role"`
+	Runtime       SystemInstanceRuntimeInfo  `json:"runtime"`
+	Host          SystemInstanceHostInfo     `json:"host"`
+	Resources     SystemInstanceResources    `json:"resources,omitempty"`
+	Extra         map[string]any             `json:"extra,omitempty"`
+}
+
+type SystemInstanceReporterInfo struct {
+	ID   string `json:"id"`
+	Slot string `json:"slot,omitempty"`
 }
 
 type SystemInstanceRoleInfo struct {
@@ -35,10 +41,11 @@ type SystemInstanceRoleInfo struct {
 }
 
 type SystemInstanceRuntimeInfo struct {
-	Version   string `json:"version"`
-	GOOS      string `json:"goos"`
-	GOARCH    string `json:"goarch"`
-	StartedAt int64  `json:"started_at"`
+	Version      string `json:"version"`
+	GOOS         string `json:"goos"`
+	GOARCH       string `json:"goarch"`
+	StartedAt    int64  `json:"started_at"`
+	InstanceSlot string `json:"instance_slot,omitempty"`
 }
 
 type SystemInstanceHostInfo struct {
@@ -64,16 +71,22 @@ type SystemInstanceStorageMetrics struct {
 
 func StartSystemInstanceReporter() {
 	systemInstanceReporterOnce.Do(func() {
-		gopool.Go(func() {
-			reportSystemInstanceWithLog()
-
-			ticker := time.NewTicker(systemInstanceReportInterval)
-			defer ticker.Stop()
-			for range ticker.C {
-				reportSystemInstanceWithLog()
-			}
-		})
+		gopool.Go(func() { RunSystemInstanceReporter(context.Background()) })
 	})
+}
+
+func RunSystemInstanceReporter(ctx context.Context) {
+	reportSystemInstanceWithLog()
+	ticker := time.NewTicker(systemInstanceReportInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			reportSystemInstanceWithLog()
+		}
+	}
 }
 
 func ReportCurrentSystemInstance() error {
@@ -88,19 +101,29 @@ func ReportCurrentSystemInstance() error {
 		identity.ManuallyConfigured = false
 		identity.ShouldConfigureManually = true
 	}
+	reporterID, err := common.DeriveSystemInstanceReporterID(identity.Name, common.APIInstanceSlot)
+	if err != nil {
+		return fmt.Errorf("derive system instance reporter identity: %w", err)
+	}
+
 	systemStatus := common.GetSystemStatus()
 	diskInfo := common.GetDiskSpaceInfo()
 	info := SystemInstanceInfo{
-		SchemaVersion: 1,
-		Node:          identity,
+		SchemaVersion: 2,
+		Reporter: SystemInstanceReporterInfo{
+			ID:   reporterID,
+			Slot: common.APIInstanceSlot,
+		},
+		Node: identity,
 		Role: SystemInstanceRoleInfo{
 			IsMaster: common.IsMasterNode,
 		},
 		Runtime: SystemInstanceRuntimeInfo{
-			Version:   common.Version,
-			GOOS:      runtime.GOOS,
-			GOARCH:    runtime.GOARCH,
-			StartedAt: common.StartTime,
+			Version:      common.Version,
+			GOOS:         runtime.GOOS,
+			GOARCH:       runtime.GOARCH,
+			StartedAt:    common.StartTime,
+			InstanceSlot: common.APIInstanceSlot,
 		},
 		Host: SystemInstanceHostInfo{
 			Hostname: hostname,
@@ -120,7 +143,7 @@ func ReportCurrentSystemInstance() error {
 			},
 		},
 	}
-	return model.UpsertSystemInstance(identity.Name, info, common.StartTime, common.GetTimestamp())
+	return model.UpsertSystemInstance(reporterID, info, common.StartTime, common.GetTimestamp())
 }
 
 func reportSystemInstanceWithLog() {

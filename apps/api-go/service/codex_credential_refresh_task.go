@@ -10,6 +10,7 @@ import (
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/LIghtJUNction/api.lmm.best/constant"
+	"github.com/LIghtJUNction/api.lmm.best/leadership"
 	"github.com/LIghtJUNction/api.lmm.best/logger"
 	"github.com/LIghtJUNction/api.lmm.best/model"
 
@@ -34,31 +35,72 @@ func shouldAutoRefreshCodexChannelStatus(status int) bool {
 
 func StartCodexCredentialAutoRefreshTask() {
 	codexCredentialRefreshOnce.Do(func() {
-		if !common.IsMasterNode {
-			return
+		if common.IsMasterNode {
+			gopool.Go(func() { RunCodexCredentialAutoRefreshTask(context.Background()) })
 		}
-
-		gopool.Go(func() {
-			logger.LogInfo(context.Background(), fmt.Sprintf("codex credential auto-refresh task started: tick=%s threshold=%s", codexCredentialRefreshTickInterval, codexCredentialRefreshThreshold))
-
-			ticker := time.NewTicker(codexCredentialRefreshTickInterval)
-			defer ticker.Stop()
-
-			runCodexCredentialAutoRefreshOnce()
-			for range ticker.C {
-				runCodexCredentialAutoRefreshOnce()
-			}
-		})
 	})
 }
 
+// StartCodexCredentialAutoRefreshTaskWithContext starts a PostgreSQL-guarded
+// refresh scanner. Every new leader obtains a fresh session lock; followers
+// retry without executing the scanner.
+func StartCodexCredentialAutoRefreshTaskWithContext(ctx context.Context) error {
+	return startPostgresLeaderTask(ctx, leadership.CodexCredentialRefreshNamespace,
+		"codex credential auto-refresh", runCodexCredentialAutoRefreshAsLeader)
+}
+
+// RunCodexCredentialAutoRefreshTaskWithLeadership runs synchronously so the
+// process lifecycle can wait for lease release before closing PostgreSQL.
+func RunCodexCredentialAutoRefreshTaskWithLeadership(ctx context.Context) error {
+	if !common.IsMasterNode {
+		return nil
+	}
+	return runPostgresLeaderTask(ctx, leadership.CodexCredentialRefreshNamespace,
+		"codex credential auto-refresh", runCodexCredentialAutoRefreshAsLeader)
+}
+
+func runCodexCredentialAutoRefreshAsLeader(ctx context.Context) {
+	logger.LogInfo(ctx, fmt.Sprintf("codex credential auto-refresh leader started: tick=%s threshold=%s", codexCredentialRefreshTickInterval, codexCredentialRefreshThreshold))
+	runCodexCredentialAutoRefreshLoop(ctx)
+}
+
+// RunCodexCredentialAutoRefreshTask is the cancellable single-instance loop.
+// Multi-slot deployments must use StartCodexCredentialAutoRefreshTaskWithContext.
+func RunCodexCredentialAutoRefreshTask(ctx context.Context) {
+	if !common.IsMasterNode {
+		return
+	}
+	logger.LogInfo(ctx, fmt.Sprintf("codex credential auto-refresh task started: tick=%s threshold=%s", codexCredentialRefreshTickInterval, codexCredentialRefreshThreshold))
+	runCodexCredentialAutoRefreshLoop(ctx)
+}
+
+func runCodexCredentialAutoRefreshLoop(ctx context.Context) {
+	runCodexCredentialAutoRefreshOnceContext(ctx)
+	ticker := time.NewTicker(codexCredentialRefreshTickInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			runCodexCredentialAutoRefreshOnceContext(ctx)
+		}
+	}
+}
+
 func runCodexCredentialAutoRefreshOnce() {
+	runCodexCredentialAutoRefreshOnceContext(context.Background())
+}
+
+func runCodexCredentialAutoRefreshOnceContext(ctx context.Context) {
 	if !codexCredentialRefreshRunning.CompareAndSwap(false, true) {
 		return
 	}
 	defer codexCredentialRefreshRunning.Store(false)
+	if err := ctx.Err(); err != nil {
+		return
+	}
 
-	ctx := context.Background()
 	now := time.Now()
 
 	var refreshed int
@@ -67,7 +109,7 @@ func runCodexCredentialAutoRefreshOnce() {
 	offset := 0
 	for {
 		var channels []*model.Channel
-		err := model.DB.
+		err := model.DB.WithContext(ctx).
 			Select("id", "name", "key", "status", "channel_info").
 			Where("type = ? AND (status = ? OR status = ?)",
 				constant.ChannelTypeCodex,
@@ -88,6 +130,9 @@ func runCodexCredentialAutoRefreshOnce() {
 		offset += codexCredentialRefreshBatchSize
 
 		for _, ch := range channels {
+			if ctx.Err() != nil {
+				return
+			}
 			if ch == nil {
 				continue
 			}
@@ -130,7 +175,7 @@ func runCodexCredentialAutoRefreshOnce() {
 		}
 	}
 
-	if refreshed > 0 {
+	if refreshed > 0 && ctx.Err() == nil {
 		func() {
 			defer func() {
 				if r := recover(); r != nil {

@@ -5858,6 +5858,7 @@
     "running": "実行中",
     "Running": "実行中",
     "Runtime": "実行環境",
+    "Runtime instances reporting from this deployment; slots on the same node are listed separately.": "このデプロイから報告されるランタイムインスタンスです。同じノードのスロットは個別に表示されます。",
     "Runway": "残り期間",
     "s": "s",
     "Safety center": "セーフティセンター",

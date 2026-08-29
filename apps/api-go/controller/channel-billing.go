@@ -1,6 +1,8 @@
 package controller
 
 import (
+	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,6 +15,8 @@ import (
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/LIghtJUNction/api.lmm.best/constant"
+	"github.com/LIghtJUNction/api.lmm.best/leadership"
+	"github.com/LIghtJUNction/api.lmm.best/logger"
 	"github.com/LIghtJUNction/api.lmm.best/model"
 	"github.com/LIghtJUNction/api.lmm.best/relay/channel/advancedcustom"
 	relaycommon "github.com/LIghtJUNction/api.lmm.best/relay/common"
@@ -24,6 +28,7 @@ import (
 
 	"github.com/shopspring/decimal"
 
+	"github.com/bytedance/gopkg/util/gopool"
 	"github.com/gin-gonic/gin"
 )
 
@@ -150,7 +155,11 @@ func GetClaudeAuthHeader(token string) http.Header {
 }
 
 func GetResponseBody(method, url string, channel *model.Channel, headers http.Header) ([]byte, error) {
-	req, err := http.NewRequest(method, url, nil)
+	return GetResponseBodyWithContext(context.Background(), method, url, channel, headers)
+}
+
+func GetResponseBodyWithContext(ctx context.Context, method, url string, channel *model.Channel, headers http.Header) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, method, url, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -176,9 +185,9 @@ func GetResponseBody(method, url string, channel *model.Channel, headers http.He
 	return body, nil
 }
 
-func updateChannelCloseAIBalance(channel *model.Channel) (float64, error) {
+func updateChannelCloseAIBalance(ctx context.Context, channel *model.Channel) (float64, error) {
 	url := fmt.Sprintf("%s/dashboard/billing/credit_grants", channel.GetBaseURL())
-	body, err := GetResponseBody("GET", url, channel, GetAuthHeader(channel.Key))
+	body, err := GetResponseBodyWithContext(ctx, "GET", url, channel, GetAuthHeader(channel.Key))
 
 	if err != nil {
 		return 0, err
@@ -188,13 +197,15 @@ func updateChannelCloseAIBalance(channel *model.Channel) (float64, error) {
 	if err != nil {
 		return 0, err
 	}
-	channel.UpdateBalance(response.TotalAvailable)
+	if err := channel.UpdateBalanceContext(ctx, response.TotalAvailable); err != nil {
+		return 0, err
+	}
 	return response.TotalAvailable, nil
 }
 
-func updateChannelOpenAISBBalance(channel *model.Channel) (float64, error) {
+func updateChannelOpenAISBBalance(ctx context.Context, channel *model.Channel) (float64, error) {
 	url := fmt.Sprintf("https://api.openai-sb.com/sb-api/user/status?api_key=%s", channel.Key)
-	body, err := GetResponseBody("GET", url, channel, GetAuthHeader(channel.Key))
+	body, err := GetResponseBodyWithContext(ctx, "GET", url, channel, GetAuthHeader(channel.Key))
 	if err != nil {
 		return 0, err
 	}
@@ -210,15 +221,17 @@ func updateChannelOpenAISBBalance(channel *model.Channel) (float64, error) {
 	if err != nil {
 		return 0, err
 	}
-	channel.UpdateBalance(balance)
+	if err := channel.UpdateBalanceContext(ctx, balance); err != nil {
+		return 0, err
+	}
 	return balance, nil
 }
 
-func updateChannelAIProxyBalance(channel *model.Channel) (float64, error) {
+func updateChannelAIProxyBalance(ctx context.Context, channel *model.Channel) (float64, error) {
 	url := "https://aiproxy.io/api/report/getUserOverview"
 	headers := http.Header{}
 	headers.Add("Api-Key", channel.Key)
-	body, err := GetResponseBody("GET", url, channel, headers)
+	body, err := GetResponseBodyWithContext(ctx, "GET", url, channel, headers)
 	if err != nil {
 		return 0, err
 	}
@@ -230,13 +243,15 @@ func updateChannelAIProxyBalance(channel *model.Channel) (float64, error) {
 	if !response.Success {
 		return 0, fmt.Errorf("code: %d, message: %s", response.ErrorCode, response.Message)
 	}
-	channel.UpdateBalance(response.Data.TotalPoints)
+	if err := channel.UpdateBalanceContext(ctx, response.Data.TotalPoints); err != nil {
+		return 0, err
+	}
 	return response.Data.TotalPoints, nil
 }
 
-func updateChannelAPI2GPTBalance(channel *model.Channel) (float64, error) {
+func updateChannelAPI2GPTBalance(ctx context.Context, channel *model.Channel) (float64, error) {
 	url := "https://api.api2gpt.com/dashboard/billing/credit_grants"
-	body, err := GetResponseBody("GET", url, channel, GetAuthHeader(channel.Key))
+	body, err := GetResponseBodyWithContext(ctx, "GET", url, channel, GetAuthHeader(channel.Key))
 
 	if err != nil {
 		return 0, err
@@ -246,13 +261,15 @@ func updateChannelAPI2GPTBalance(channel *model.Channel) (float64, error) {
 	if err != nil {
 		return 0, err
 	}
-	channel.UpdateBalance(response.TotalRemaining)
+	if err := channel.UpdateBalanceContext(ctx, response.TotalRemaining); err != nil {
+		return 0, err
+	}
 	return response.TotalRemaining, nil
 }
 
-func updateChannelSiliconFlowBalance(channel *model.Channel) (float64, error) {
+func updateChannelSiliconFlowBalance(ctx context.Context, channel *model.Channel) (float64, error) {
 	url := "https://api.siliconflow.cn/v1/user/info"
-	body, err := GetResponseBody("GET", url, channel, GetAuthHeader(channel.Key))
+	body, err := GetResponseBodyWithContext(ctx, "GET", url, channel, GetAuthHeader(channel.Key))
 	if err != nil {
 		return 0, err
 	}
@@ -268,13 +285,15 @@ func updateChannelSiliconFlowBalance(channel *model.Channel) (float64, error) {
 	if err != nil {
 		return 0, err
 	}
-	channel.UpdateBalance(balance)
+	if err := channel.UpdateBalanceContext(ctx, balance); err != nil {
+		return 0, err
+	}
 	return balance, nil
 }
 
-func updateChannelDeepSeekBalance(channel *model.Channel) (float64, error) {
+func updateChannelDeepSeekBalance(ctx context.Context, channel *model.Channel) (float64, error) {
 	url := "https://api.deepseek.com/user/balance"
-	body, err := GetResponseBody("GET", url, channel, GetAuthHeader(channel.Key))
+	body, err := GetResponseBodyWithContext(ctx, "GET", url, channel, GetAuthHeader(channel.Key))
 	if err != nil {
 		return 0, err
 	}
@@ -297,13 +316,15 @@ func updateChannelDeepSeekBalance(channel *model.Channel) (float64, error) {
 	if err != nil {
 		return 0, err
 	}
-	channel.UpdateBalance(balance)
+	if err := channel.UpdateBalanceContext(ctx, balance); err != nil {
+		return 0, err
+	}
 	return balance, nil
 }
 
-func updateChannelAIGC2DBalance(channel *model.Channel) (float64, error) {
+func updateChannelAIGC2DBalance(ctx context.Context, channel *model.Channel) (float64, error) {
 	url := "https://api.aigc2d.com/dashboard/billing/credit_grants"
-	body, err := GetResponseBody("GET", url, channel, GetAuthHeader(channel.Key))
+	body, err := GetResponseBodyWithContext(ctx, "GET", url, channel, GetAuthHeader(channel.Key))
 	if err != nil {
 		return 0, err
 	}
@@ -312,13 +333,15 @@ func updateChannelAIGC2DBalance(channel *model.Channel) (float64, error) {
 	if err != nil {
 		return 0, err
 	}
-	channel.UpdateBalance(response.TotalAvailable)
+	if err := channel.UpdateBalanceContext(ctx, response.TotalAvailable); err != nil {
+		return 0, err
+	}
 	return response.TotalAvailable, nil
 }
 
-func updateChannelOpenRouterBalance(channel *model.Channel) (float64, error) {
+func updateChannelOpenRouterBalance(ctx context.Context, channel *model.Channel) (float64, error) {
 	url := "https://openrouter.ai/api/v1/credits"
-	body, err := GetResponseBody("GET", url, channel, GetAuthHeader(channel.Key))
+	body, err := GetResponseBodyWithContext(ctx, "GET", url, channel, GetAuthHeader(channel.Key))
 	if err != nil {
 		return 0, err
 	}
@@ -328,7 +351,9 @@ func updateChannelOpenRouterBalance(channel *model.Channel) (float64, error) {
 		return 0, err
 	}
 	balance := response.Data.TotalCredits - response.Data.TotalUsage
-	channel.UpdateBalance(balance)
+	if err := channel.UpdateBalanceContext(ctx, balance); err != nil {
+		return 0, err
+	}
 	return balance, nil
 }
 
@@ -340,9 +365,9 @@ func convertCNYBalanceToUSD(balanceCNY, cnyPerUSD float64) (float64, error) {
 	return decimal.NewFromFloat(balanceCNY).Div(exchangeRate).InexactFloat64(), nil
 }
 
-func updateChannelMoonshotBalance(channel *model.Channel) (float64, error) {
+func updateChannelMoonshotBalance(ctx context.Context, channel *model.Channel) (float64, error) {
 	url := "https://api.moonshot.cn/v1/users/me/balance"
-	body, err := GetResponseBody("GET", url, channel, GetAuthHeader(channel.Key))
+	body, err := GetResponseBodyWithContext(ctx, "GET", url, channel, GetAuthHeader(channel.Key))
 	if err != nil {
 		return 0, err
 	}
@@ -376,11 +401,13 @@ func updateChannelMoonshotBalance(channel *model.Channel) (float64, error) {
 	if err != nil {
 		return 0, err
 	}
-	channel.UpdateBalance(availableBalanceUsd)
+	if err := channel.UpdateBalanceContext(ctx, availableBalanceUsd); err != nil {
+		return 0, err
+	}
 	return availableBalanceUsd, nil
 }
 
-func fetchAdvancedCustomBalance(channel *model.Channel) (channelBalanceResult, error) {
+func fetchAdvancedCustomBalance(ctx context.Context, channel *model.Channel) (channelBalanceResult, error) {
 	key := strings.TrimSpace(channel.Key)
 	info := &relaycommon.RelayInfo{
 		RelayFormat:    types.RelayFormatOpenAI,
@@ -401,7 +428,7 @@ func fetchAdvancedCustomBalance(channel *model.Channel) (channelBalanceResult, e
 		return channelBalanceResult{}, sanitizeFetchModelsError(err, key)
 	}
 
-	request, err := http.NewRequest(http.MethodGet, requestURL, nil)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
 	if err != nil {
 		return channelBalanceResult{}, sanitizeFetchModelsError(err, key)
 	}
@@ -452,7 +479,9 @@ func fetchAdvancedCustomBalance(channel *model.Channel) (channelBalanceResult, e
 				balance >= 0 &&
 				!math.IsNaN(balance) &&
 				!math.IsInf(balance, 0) {
-				channel.UpdateBalance(balance)
+				if err := channel.UpdateBalanceContext(ctx, balance); err != nil {
+					return channelBalanceResult{}, err
+				}
 				return channelBalanceResult{Balance: balance}, nil
 			}
 		}
@@ -466,14 +495,18 @@ func fetchAdvancedCustomBalance(channel *model.Channel) (channelBalanceResult, e
 }
 
 func updateChannelBalance(channel *model.Channel) (channelBalanceResult, error) {
+	return updateChannelBalanceContext(context.Background(), channel)
+}
+
+func updateChannelBalanceContext(ctx context.Context, channel *model.Channel) (channelBalanceResult, error) {
 	if channel.Type == constant.ChannelTypeAdvancedCustom {
-		return fetchAdvancedCustomBalance(channel)
+		return fetchAdvancedCustomBalance(ctx, channel)
 	}
-	balance, err := updateStandardChannelBalance(channel)
+	balance, err := updateStandardChannelBalance(ctx, channel)
 	return channelBalanceResult{Balance: balance}, err
 }
 
-func updateStandardChannelBalance(channel *model.Channel) (float64, error) {
+func updateStandardChannelBalance(ctx context.Context, channel *model.Channel) (float64, error) {
 	baseURL := constant.ChannelBaseURLs[channel.Type]
 	if channel.GetBaseURL() == "" {
 		channel.BaseURL = &baseURL
@@ -490,25 +523,25 @@ func updateStandardChannelBalance(channel *model.Channel) (float64, error) {
 	//case common.ChannelTypeOpenAISB:
 	//	return updateChannelOpenAISBBalance(channel)
 	case constant.ChannelTypeAIProxy:
-		return updateChannelAIProxyBalance(channel)
+		return updateChannelAIProxyBalance(ctx, channel)
 	case constant.ChannelTypeAPI2GPT:
-		return updateChannelAPI2GPTBalance(channel)
+		return updateChannelAPI2GPTBalance(ctx, channel)
 	case constant.ChannelTypeAIGC2D:
-		return updateChannelAIGC2DBalance(channel)
+		return updateChannelAIGC2DBalance(ctx, channel)
 	case constant.ChannelTypeSiliconFlow:
-		return updateChannelSiliconFlowBalance(channel)
+		return updateChannelSiliconFlowBalance(ctx, channel)
 	case constant.ChannelTypeDeepSeek:
-		return updateChannelDeepSeekBalance(channel)
+		return updateChannelDeepSeekBalance(ctx, channel)
 	case constant.ChannelTypeOpenRouter:
-		return updateChannelOpenRouterBalance(channel)
+		return updateChannelOpenRouterBalance(ctx, channel)
 	case constant.ChannelTypeMoonshot:
-		return updateChannelMoonshotBalance(channel)
+		return updateChannelMoonshotBalance(ctx, channel)
 	default:
 		return 0, errors.New("尚未实现")
 	}
 	url := fmt.Sprintf("%s/v1/dashboard/billing/subscription", baseURL)
 
-	body, err := GetResponseBody("GET", url, channel, GetAuthHeader(channel.Key))
+	body, err := GetResponseBodyWithContext(ctx, "GET", url, channel, GetAuthHeader(channel.Key))
 	if err != nil {
 		return 0, err
 	}
@@ -524,7 +557,7 @@ func updateStandardChannelBalance(channel *model.Channel) (float64, error) {
 		startDate = now.AddDate(0, 0, -100).Format("2006-01-02")
 	}
 	url = fmt.Sprintf("%s/v1/dashboard/billing/usage?start_date=%s&end_date=%s", baseURL, startDate, endDate)
-	body, err = GetResponseBody("GET", url, channel, GetAuthHeader(channel.Key))
+	body, err = GetResponseBodyWithContext(ctx, "GET", url, channel, GetAuthHeader(channel.Key))
 	if err != nil {
 		return 0, err
 	}
@@ -534,7 +567,9 @@ func updateStandardChannelBalance(channel *model.Channel) (float64, error) {
 		return 0, err
 	}
 	balance := subscription.HardLimitUSD - usage.TotalUsage/100
-	channel.UpdateBalance(balance)
+	if err := channel.UpdateBalanceContext(ctx, balance); err != nil {
+		return 0, err
+	}
 	return balance, nil
 }
 
@@ -574,11 +609,18 @@ func UpdateChannelBalance(c *gin.Context) {
 }
 
 func updateAllChannelsBalance() error {
-	channels, err := model.GetAllChannels(0, 0, true, false)
+	return updateAllChannelsBalanceContext(context.Background())
+}
+
+func updateAllChannelsBalanceContext(ctx context.Context) error {
+	channels, err := model.GetAllChannelsContext(ctx, 0, 0, true, false)
 	if err != nil {
 		return err
 	}
 	for _, channel := range channels {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if channel.Status != common.ChannelStatusEnabled {
 			continue
 		}
@@ -589,16 +631,27 @@ func updateAllChannelsBalance() error {
 		//if channel.Type != common.ChannelTypeOpenAI && channel.Type != common.ChannelTypeCustom {
 		//	continue
 		//}
-		result, err := updateChannelBalance(channel)
+		result, err := updateChannelBalanceContext(ctx, channel)
 		if err != nil {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
 			continue
 		} else if result.RawResponse == "" {
 			// err is nil & balance <= 0 means quota is used up
-			if result.Balance <= 0 {
+			if result.Balance <= 0 && ctx.Err() == nil {
 				service.DisableChannel(*types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, "", channel.GetAutoBan()), "余额不足")
 			}
 		}
-		time.Sleep(common.RequestInterval)
+		timer := time.NewTimer(common.RequestInterval)
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				<-timer.C
+			}
+			return ctx.Err()
+		case <-timer.C:
+		}
 	}
 	return nil
 }
@@ -617,11 +670,98 @@ func UpdateAllChannelsBalance(c *gin.Context) {
 	return
 }
 
-func AutomaticallyUpdateChannels(frequency int) {
+func automaticChannelBalanceLeadershipConfig(ctx context.Context, frequency int) (*sql.DB, time.Duration, error) {
+	if ctx == nil {
+		return nil, 0, errors.New("automatic channel balance context is nil")
+	}
+	if frequency <= 0 {
+		return nil, 0, errors.New("automatic channel balance frequency must be positive")
+	}
+	interval := time.Duration(frequency) * time.Minute
+	if interval <= 0 {
+		return nil, 0, errors.New("automatic channel balance frequency is too large")
+	}
+	if !common.UsingMainDatabase(common.DatabaseTypePostgreSQL) {
+		return nil, 0, fmt.Errorf("automatic channel balance leadership requires PostgreSQL; current primary database is %s", common.MainDatabaseType())
+	}
+	if model.DB == nil {
+		return nil, 0, errors.New("automatic channel balance leadership requires an initialized primary database")
+	}
+	sqlDB, err := model.DB.DB()
+	if err != nil {
+		return nil, 0, fmt.Errorf("open automatic channel balance leadership pool: %w", err)
+	}
+	return sqlDB, interval, nil
+}
+
+func runAutomaticChannelBalanceLeadership(ctx context.Context, sqlDB *sql.DB, interval time.Duration) error {
+	return leadership.Run(ctx, sqlDB, leadership.AutomaticChannelBalanceNamespace, leadership.RunOptions{
+		OnRetryable: func(err error) {
+			logger.LogWarn(ctx, fmt.Sprintf("automatic channel balance leadership retry: %v", err))
+		},
+	}, func(leaderCtx context.Context) {
+		runAutomaticChannelBalanceUpdates(leaderCtx, interval)
+	})
+}
+
+// RunAutomaticChannelBalanceUpdateWithLeadership runs synchronously so the
+// process lifecycle can wait for lease release before closing PostgreSQL.
+func RunAutomaticChannelBalanceUpdateWithLeadership(ctx context.Context, frequency int) error {
+	sqlDB, interval, err := automaticChannelBalanceLeadershipConfig(ctx, frequency)
+	if err != nil {
+		return err
+	}
+	return runAutomaticChannelBalanceLeadership(ctx, sqlDB, interval)
+}
+
+// StartAutomaticChannelBalanceUpdateWithContext preserves the detached API.
+func StartAutomaticChannelBalanceUpdateWithContext(ctx context.Context, frequency int) error {
+	sqlDB, interval, err := automaticChannelBalanceLeadershipConfig(ctx, frequency)
+	if err != nil {
+		return err
+	}
+	gopool.Go(func() {
+		err := runAutomaticChannelBalanceLeadership(ctx, sqlDB, interval)
+		if err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
+			logger.LogError(context.Background(), fmt.Sprintf("automatic channel balance leadership stopped: %v", err))
+		}
+	})
+	return nil
+}
+
+func runAutomaticChannelBalanceUpdates(ctx context.Context, interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
 	for {
-		time.Sleep(time.Duration(frequency) * time.Minute)
-		common.SysLog("updating all channels")
-		_ = updateAllChannelsBalance()
-		common.SysLog("channels update done")
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			logger.LogInfo(ctx, "updating all channel balances as PostgreSQL leader")
+			_ = updateAllChannelsBalanceContext(ctx)
+		}
+	}
+}
+
+// AutomaticallyUpdateChannels preserves the legacy single-instance API.
+func AutomaticallyUpdateChannels(frequency int) {
+	AutomaticallyUpdateChannelsContext(context.Background(), frequency)
+}
+
+func AutomaticallyUpdateChannelsContext(ctx context.Context, frequency int) {
+	if frequency <= 0 {
+		return
+	}
+	ticker := time.NewTicker(time.Duration(frequency) * time.Minute)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			common.SysLog("updating all channels")
+			_ = updateAllChannelsBalance()
+			common.SysLog("channels update done")
+		}
 	}
 }

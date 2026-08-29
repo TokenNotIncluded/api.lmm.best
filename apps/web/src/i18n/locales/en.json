@@ -5858,6 +5858,7 @@
     "running": "running",
     "Running": "Running",
     "Runtime": "Runtime",
+    "Runtime instances reporting from this deployment; slots on the same node are listed separately.": "Runtime instances reporting from this deployment; slots on the same node are listed separately.",
     "Runway": "Runway",
     "s": "s",
     "Safety center": "Safety center",

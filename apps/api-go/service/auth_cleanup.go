@@ -19,17 +19,26 @@ const (
 // StartAuthArtifactCleanup removes expired dashboard Sessions and old
 // one-time authentication flows. Only the master instance performs cleanup.
 func StartAuthArtifactCleanup() {
+	if common.IsMasterNode {
+		go RunAuthArtifactCleanup(context.Background())
+	}
+}
+
+func RunAuthArtifactCleanup(ctx context.Context) {
 	if !common.IsMasterNode {
 		return
 	}
-	go func() {
-		cleanupAuthArtifacts()
-		ticker := time.NewTicker(authArtifactCleanupInterval)
-		defer ticker.Stop()
-		for range ticker.C {
+	cleanupAuthArtifacts()
+	ticker := time.NewTicker(authArtifactCleanupInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
 			cleanupAuthArtifacts()
 		}
-	}()
+	}
 }
 
 func cleanupAuthArtifacts() {

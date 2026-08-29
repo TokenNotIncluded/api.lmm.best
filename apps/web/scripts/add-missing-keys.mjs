@@ -30,6 +30,8 @@ function stableStringify(obj) {
 
 const newKeys = {
   en: {
+    'Runtime instances reporting from this deployment; slots on the same node are listed separately.':
+      'Runtime instances reporting from this deployment; slots on the same node are listed separately.',
     'Clean up review history': 'Clean up review history',
     'Clean up automatic review history?': 'Clean up automatic review history?',
     'This will permanently delete {{count}} completed or failed automatic review runs while keeping the latest {{keep}}. Active runs and security audit evidence will not be deleted.':
@@ -174,6 +176,8 @@ const newKeys = {
     'I understand, continue': 'I understand, continue',
   },
   zh: {
+    'Runtime instances reporting from this deployment; slots on the same node are listed separately.':
+      '此部署中正在上报的运行实例；同一节点上的不同槽位会分开列出。',
     'Clean up review history': '清理复盘历史',
     'Clean up automatic review history?': '清理自动复盘历史？',
     'This will permanently delete {{count}} completed or failed automatic review runs while keeping the latest {{keep}}. Active runs and security audit evidence will not be deleted.':
@@ -306,6 +310,8 @@ const newKeys = {
     'I understand, continue': '我已了解，继续',
   },
   'zh-TW': {
+    'Runtime instances reporting from this deployment; slots on the same node are listed separately.':
+      '此部署中正在回報的執行個體；同一節點上的不同槽位會分開列出。',
     'Clean up review history': '清理複盤紀錄',
     'Clean up automatic review history?': '清理自動複盤紀錄？',
     'This will permanently delete {{count}} completed or failed automatic review runs while keeping the latest {{keep}}. Active runs and security audit evidence will not be deleted.':
@@ -435,6 +441,8 @@ const newKeys = {
       '沒有符合目前篩選條件的安全稽核事件。',
   },
   fr: {
+    'Runtime instances reporting from this deployment; slots on the same node are listed separately.':
+      'Instances d’exécution signalées par ce déploiement ; les slots d’un même nœud sont affichés séparément.',
     'Clean up review history': 'Nettoyer l’historique des revues',
     'Clean up automatic review history?':
       'Nettoyer l’historique des revues automatiques ?',
@@ -579,6 +587,8 @@ const newKeys = {
       'Aucun événement d’audit de sécurité ne correspond aux filtres actuels.',
   },
   ja: {
+    'Runtime instances reporting from this deployment; slots on the same node are listed separately.':
+      'このデプロイから報告されるランタイムインスタンスです。同じノードのスロットは個別に表示されます。',
     'Clean up review history': 'レビュー履歴を整理',
     'Clean up automatic review history?': '自動レビュー履歴を整理しますか？',
     'This will permanently delete {{count}} completed or failed automatic review runs while keeping the latest {{keep}}. Active runs and security audit evidence will not be deleted.':
@@ -718,6 +728,8 @@ const newKeys = {
       '現在のフィルターに一致するセキュリティ監査イベントはありません。',
   },
   ru: {
+    'Runtime instances reporting from this deployment; slots on the same node are listed separately.':
+      'Экземпляры среды выполнения этого развёртывания; слоты одного узла отображаются отдельно.',
     'Clean up review history': 'Очистить историю проверок',
     'Clean up automatic review history?':
       'Очистить историю автоматических проверок?',
@@ -860,6 +872,8 @@ const newKeys = {
       'Нет событий аудита безопасности, соответствующих текущим фильтрам.',
   },
   vi: {
+    'Runtime instances reporting from this deployment; slots on the same node are listed separately.':
+      'Các phiên bản runtime đang báo cáo từ bản triển khai này; các slot trên cùng một nút được liệt kê riêng.',
     'Clean up review history': 'Dọn lịch sử đánh giá',
     'Clean up automatic review history?': 'Dọn lịch sử đánh giá tự động?',
     'This will permanently delete {{count}} completed or failed automatic review runs while keeping the latest {{keep}}. Active runs and security audit evidence will not be deleted.':

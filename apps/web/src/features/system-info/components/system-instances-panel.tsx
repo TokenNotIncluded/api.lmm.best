@@ -106,8 +106,29 @@ function runtimeLabel(instance: SystemInstance) {
   return parts.join(' · ')
 }
 
-function getNodeName(instance: SystemInstance) {
-  return instance.info?.node?.name || instance.node_name
+function getReporterId(instance: SystemInstance) {
+  return instance.reporter_id || instance.node_name
+}
+
+function getPhysicalNodeName(instance: SystemInstance) {
+  return (
+    instance.physical_node_name ||
+    instance.info?.node?.name ||
+    instance.node_name
+  )
+}
+
+function getInstanceSlot(instance: SystemInstance) {
+  return (
+    instance.instance_slot ||
+    instance.info?.reporter?.slot ||
+    instance.info?.runtime?.instance_slot
+  )
+}
+
+function getInstanceDisplayName(instance: SystemInstance) {
+  const slot = getInstanceSlot(instance)
+  return slot ? `${getPhysicalNodeName(instance)} (${slot})` : getPhysicalNodeName(instance)
 }
 
 function formatPercent(value?: number) {
@@ -226,7 +247,7 @@ function ResourceCell(props: ResourceCellProps) {
 
 type SystemInstancesTableProps = {
   instances: SystemInstance[]
-  deletingNodeName: string | null
+  deletingReporterId: string | null
   isDeletingInstance: boolean
   onDeleteStaleInstance: (instance: SystemInstance) => void
 }
@@ -272,15 +293,18 @@ function SystemInstancesList(props: SystemInstancesTableProps) {
         </TableHeader>
         <TableBody>
           {props.instances.map((instance) => {
+            const reporterId = getReporterId(instance)
+            const instanceSlot = getInstanceSlot(instance)
             const shouldConfigure =
-              instance.info?.node?.should_configure_manually === true
+              instance.info?.node?.should_configure_manually === true &&
+              !instanceSlot
             const resources = instance.info?.resources
             const storage = resources?.storage
             const isDeletingThisInstance =
               props.isDeletingInstance &&
-              props.deletingNodeName === instance.node_name
+              props.deletingReporterId === reporterId
             return (
-              <TableRow key={instance.node_name} className='hover:bg-muted/30'>
+              <TableRow key={reporterId} className='hover:bg-muted/30'>
                 <TableCell className='px-4 py-2.5 align-middle'>
                   <div className='flex min-w-0 items-center gap-2'>
                     <span
@@ -293,8 +317,17 @@ function SystemInstancesList(props: SystemInstancesTableProps) {
                     <div className='min-w-0'>
                       <div className='flex min-w-0 items-center gap-1.5'>
                         <span className='truncate text-sm font-medium'>
-                          {getNodeName(instance)}
+                          {getPhysicalNodeName(instance)}
                         </span>
+                        {instanceSlot && (
+                          <Badge
+                            variant='outline'
+                            className='shrink-0 font-mono text-[10px]'
+                            aria-label={`${t('Runtime')}: ${instanceSlot}`}
+                          >
+                            {instanceSlot}
+                          </Badge>
+                        )}
                         {shouldConfigure && (
                           <Popover>
                             <PopoverTrigger
@@ -344,6 +377,14 @@ function SystemInstancesList(props: SystemInstancesTableProps) {
                       <div className='text-muted-foreground truncate font-mono text-[11px]'>
                         {instance.info?.host?.hostname || '-'}
                       </div>
+                      {instanceSlot && (
+                        <div
+                          className='text-muted-foreground/80 truncate font-mono text-[10px]'
+                          title={reporterId}
+                        >
+                          {reporterId}
+                        </div>
+                      )}
                     </div>
                   </div>
                 </TableCell>
@@ -493,7 +534,9 @@ export function SystemInstancesPanel() {
   const queryClient = useQueryClient()
   const [deleteTarget, setDeleteTarget] = useState<SystemInstance | null>(null)
   const [deleteAllConfirmOpen, setDeleteAllConfirmOpen] = useState(false)
-  const [deletingNodeName, setDeletingNodeName] = useState<string | null>(null)
+  const [deletingReporterId, setDeletingReporterId] = useState<string | null>(
+    null
+  )
   const instancesQuery = useQuery({
     queryKey: ['system-info', 'instances'],
     queryFn: async () => {
@@ -523,15 +566,15 @@ export function SystemInstancesPanel() {
   }
 
   const deleteStaleInstanceMutation = useMutation({
-    mutationFn: async (nodeName: string) => {
-      const res = await deleteStaleSystemInstance(nodeName)
+    mutationFn: async (reporterId: string) => {
+      const res = await deleteStaleSystemInstance(reporterId)
       if (!res.success) {
         throw new Error(res.message || t('Delete failed'))
       }
       return res
     },
-    onMutate: (nodeName) => {
-      setDeletingNodeName(nodeName)
+    onMutate: (reporterId) => {
+      setDeletingReporterId(reporterId)
     },
     onSuccess: async () => {
       toast.success(t('Deleted stale instance'))
@@ -543,7 +586,7 @@ export function SystemInstancesPanel() {
       void invalidateInstances()
     },
     onSettled: () => {
-      setDeletingNodeName(null)
+      setDeletingReporterId(null)
     },
   })
 
@@ -570,7 +613,7 @@ export function SystemInstancesPanel() {
   })
 
   const isMutatingInstance =
-    deletingNodeName !== null || deleteStaleInstanceMutation.isPending
+    deletingReporterId !== null || deleteStaleInstanceMutation.isPending
 
   let instancesContent: ReactNode
   if (loading) {
@@ -615,7 +658,7 @@ export function SystemInstancesPanel() {
       <div className='p-4 sm:p-5'>
         <SystemInstancesList
           instances={instances}
-          deletingNodeName={deletingNodeName}
+          deletingReporterId={deletingReporterId}
           isDeletingInstance={
             isMutatingInstance || deleteStaleInstancesMutation.isPending
           }
@@ -638,7 +681,7 @@ export function SystemInstancesPanel() {
                 <h3 className='text-sm font-semibold'>{t('Instances')}</h3>
                 <p className='text-muted-foreground mt-0.5 text-xs'>
                   {t(
-                    'Nodes reporting from this deployment and their latest heartbeat.'
+                    'Runtime instances reporting from this deployment; slots on the same node are listed separately.'
                   )}
                 </p>
               </div>
@@ -725,7 +768,7 @@ export function SystemInstancesPanel() {
           deleteTarget
             ? t(
                 'Delete stale instance "{{name}}"? If it has reported again, it will not be deleted.',
-                { name: getNodeName(deleteTarget) }
+                { name: getInstanceDisplayName(deleteTarget) }
               )
             : ''
         }
@@ -736,7 +779,7 @@ export function SystemInstancesPanel() {
         }
         handleConfirm={() => {
           if (!deleteTarget) return
-          deleteStaleInstanceMutation.mutate(deleteTarget.node_name)
+          deleteStaleInstanceMutation.mutate(getReporterId(deleteTarget))
         }}
       />
     </>

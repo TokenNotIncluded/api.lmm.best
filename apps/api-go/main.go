@@ -70,8 +70,8 @@ func runMigrationCommand(mode model.DBMigrationMode) {
 		_, _ = fmt.Fprintf(os.Stderr, "%s migrate --%s: %v\n", appcli.ProgramName, mode, err)
 		os.Exit(appcli.ExitError)
 	}
-	if err := model.CloseDB(); err != nil {
-		_, _ = fmt.Fprintf(os.Stderr, "%s migrate --%s: close database: %v\n", appcli.ProgramName, mode, err)
+	if err := errors.Join(common.CloseRedis(), model.CloseDB()); err != nil {
+		_, _ = fmt.Fprintf(os.Stderr, "%s migrate --%s: close resources: %v\n", appcli.ProgramName, mode, err)
 		os.Exit(appcli.ExitError)
 	}
 	_, _ = fmt.Fprintf(os.Stdout, "database migration %s completed\n", mode)
@@ -79,6 +79,20 @@ func runMigrationCommand(mode model.DBMigrationMode) {
 
 func runServer() {
 	startTime := time.Now()
+	loops := newRuntimeLoops(context.Background())
+	resourcesOpen := false
+	defer func() {
+		model.MarkCacheReadinessUnavailable()
+		loops.Stop()
+		waitCtx, cancel := context.WithTimeout(context.Background(), loopShutdownTimeout)
+		defer cancel()
+		_ = errors.Join(loops.Wait(waitCtx), model.WaitForCacheWarm(waitCtx))
+		if resourcesOpen {
+			if err := errors.Join(common.CloseRedis(), model.CloseDB()); err != nil {
+				common.SysError("failed to close resources: " + err.Error())
+			}
+		}
+	}()
 	kitutil.SetLogging(common.SysLog, func(message string) {
 		logger.LogError(context.TODO(), message)
 	})
@@ -86,9 +100,11 @@ func runServer() {
 
 	err := InitResources()
 	if err != nil {
+		_ = errors.Join(common.CloseRedis(), model.CloseDB())
 		common.FatalLog("failed to initialize resources: " + err.Error())
 		return
 	}
+	resourcesOpen = true
 
 	common.SysLog(common.SystemName + " " + common.Version + " started")
 	if os.Getenv("GIN_MODE") != "debug" {
@@ -100,12 +116,30 @@ func runServer() {
 
 	kitutil.Debug.Store(common.DebugEnabled)
 
-	defer func() {
-		err := model.CloseDB()
-		if err != nil {
-			common.FatalLog("failed to close database: " + err.Error())
+	multiSlotRuntime := strings.TrimSpace(common.APIInstanceSlot) != ""
+	if multiSlotRuntime {
+		if !common.UsingMainDatabase(common.DatabaseTypePostgreSQL) || model.DB == nil {
+			common.FatalLog("LMM_API_INSTANCE_SLOT requires an initialized PostgreSQL primary database")
+			return
 		}
-	}()
+		if _, err := model.DB.DB(); err != nil {
+			common.FatalLog("LMM_API_INSTANCE_SLOT cannot open the PostgreSQL leadership pool: " + err.Error())
+			return
+		}
+	}
+	runCriticalLoop := func(label string, run func(context.Context) error) func(context.Context) {
+		return func(ctx context.Context) {
+			if err := run(ctx); err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
+				common.SysError(label + " stopped: " + err.Error())
+				model.MarkCacheReadinessUnavailable()
+			}
+		}
+	}
+
+	loops.Go(perfmetrics.Run)
+	loops.Go(service.RunDynamicPricingTicker)
+	loops.Go(common.RunSystemMonitor)
+	loops.Go(service.RunAuthArtifactCleanup)
 
 	if common.RedisEnabled {
 		// for compatibility with old versions
@@ -114,9 +148,11 @@ func runServer() {
 	if common.MemoryCacheEnabled {
 		common.SysLog("memory cache enabled")
 		common.SysLog(fmt.Sprintf("sync frequency: %d seconds", common.SyncFrequency))
-		go model.SyncChannelCache(common.SyncFrequency)
+		loops.Go(func(ctx context.Context) { model.SyncChannelCacheContext(ctx, common.SyncFrequency) })
 	}
-	wsmanager.StartSubscriber(context.Background())
+	// Keep the Valkey subscriber inside the lifecycle registry so shutdown waits
+	// for it before closing the shared client.
+	loops.Go(wsmanager.RunSubscriber)
 
 	// Perform one bounded synchronous warm before the server starts accepting
 	// traffic. Transient failure keeps the process alive but readiness remains
@@ -127,31 +163,46 @@ func runServer() {
 	}
 
 	// 热更新配置
-	go model.SyncOptions(common.SyncFrequency)
+	loops.Go(func(ctx context.Context) { model.SyncOptionsContext(ctx, common.SyncFrequency) })
 
 	// 周期性重载授权策略，保证多节点/多 master 部署下权限变更能传播到每个实例
-	go authz.StartPolicySync(common.SyncFrequency)
+	loops.Go(func(ctx context.Context) { authz.StartPolicySyncContext(ctx, common.SyncFrequency) })
 
 	// 数据看板
-	go model.UpdateQuotaData()
+	loops.Go(model.UpdateQuotaDataContext)
 
 	if os.Getenv("CHANNEL_UPDATE_FREQUENCY") != "" {
 		frequency, err := strconv.Atoi(os.Getenv("CHANNEL_UPDATE_FREQUENCY"))
-		if err != nil {
-			common.FatalLog("failed to parse CHANNEL_UPDATE_FREQUENCY: " + err.Error())
+		if err != nil || frequency <= 0 {
+			common.FatalLog("failed to parse positive CHANNEL_UPDATE_FREQUENCY: " + os.Getenv("CHANNEL_UPDATE_FREQUENCY"))
+			return
 		}
-		go controller.AutomaticallyUpdateChannels(frequency)
+		if multiSlotRuntime {
+			loops.Go(runCriticalLoop("automatic channel balance leadership", func(ctx context.Context) error {
+				return controller.RunAutomaticChannelBalanceUpdateWithLeadership(ctx, frequency)
+			}))
+		} else {
+			loops.Go(func(ctx context.Context) { controller.AutomaticallyUpdateChannelsContext(ctx, frequency) })
+		}
 	}
 
-	// Codex credential auto-refresh check every 10 minutes, refresh when expires within 1 day
-	service.StartCodexCredentialAutoRefreshTask()
+	// Codex credential auto-refresh check every 10 minutes, refresh when expires within 1 day.
+	if multiSlotRuntime {
+		loops.Go(runCriticalLoop("Codex credential refresh leadership", service.RunCodexCredentialAutoRefreshTaskWithLeadership))
+	} else {
+		loops.Go(service.RunCodexCredentialAutoRefreshTask)
+	}
 
-	// Subscription quota reset task (daily/weekly/monthly/custom)
-	service.StartSubscriptionQuotaResetTask()
+	// Subscription quota reset task (daily/weekly/monthly/custom).
+	if multiSlotRuntime {
+		loops.Go(runCriticalLoop("subscription maintenance leadership", service.RunSubscriptionMaintenanceScanWithLeadership))
+	} else {
+		loops.Go(service.RunSubscriptionQuotaResetTask)
+	}
 
 	// Report this process as a system instance so the System Info page can show
 	// all currently alive nodes in multi-instance deployments.
-	service.StartSystemInstanceReporter()
+	loops.Go(service.RunSystemInstanceReporter)
 
 	// Wire task polling adaptor factory (breaks service -> relay import cycle).
 	// Must run before the system task runner starts: the async_task_poll handler
@@ -170,12 +221,12 @@ func runServer() {
 	// schedules and executes them. Master-only execution and the UpdateTask
 	// switch are enforced inside the runner and each handler's Enabled().
 	controller.RegisterScheduledSystemTasks()
-	service.StartSystemTaskRunner()
+	loops.Go(service.RunSystemTaskRunner)
 
 	if os.Getenv("BATCH_UPDATE_ENABLED") == "true" {
 		common.BatchUpdateEnabled = true
 		common.SysLog("batch update enabled with interval " + strconv.Itoa(common.BatchUpdateInterval) + "s")
-		model.InitBatchUpdater()
+		loops.Go(model.RunBatchUpdater)
 	}
 
 	if os.Getenv("ENABLE_PPROF") == "true" {
@@ -274,16 +325,35 @@ func runServer() {
 	sig := <-quit
 	common.SysLog(fmt.Sprintf("received signal: %v, shutting down...", sig))
 
-	// SSE streams may run for minutes; give them time to finish before forced exit
-	shutdownTimeout := time.Duration(common.GetEnvOrDefault("SHUTDOWN_TIMEOUT_SECONDS", 120)) * time.Second
-	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
-	defer cancel()
-	if err := srv.Shutdown(ctx); err != nil {
-		common.SysError(fmt.Sprintf("server forced to shutdown: %v", err))
-	}
-	// 内存中的看板数据保存入库，避免重启丢失未落库数据 (issue #5679)
-	if common.DataExportEnabled {
-		model.SaveQuotaDataCache()
+	shutdownTimeout := configuredShutdownTimeout(common.GetEnvOrDefault("SHUTDOWN_TIMEOUT_SECONDS", int(httpShutdownTimeout/time.Second)))
+	err = shutdownRuntime(shutdownSteps{
+		markUnready:  model.MarkCacheReadinessUnavailable,
+		stopLoops:    loops.Stop,
+		drainSockets: wsmanager.DrainAll,
+		shutdownHTTP: func(ctx context.Context) error {
+			if shutdownErr := srv.Shutdown(ctx); shutdownErr != nil {
+				// A timed-out graceful drain must not keep handlers mutating the
+				// in-memory stores while the final flush is running.
+				return errors.Join(shutdownErr, srv.Close())
+			}
+			return nil
+		},
+		waitLoops: func(ctx context.Context) error {
+			return errors.Join(loops.Wait(ctx), model.WaitForCacheWarm(ctx))
+		},
+		flushQuota: func() {
+			if common.DataExportEnabled {
+				model.SaveQuotaDataCache()
+			}
+		},
+		flushBatch:  model.FlushBatchUpdates,
+		flushPerf:   perfmetrics.Flush,
+		closeValkey: common.CloseRedis,
+		closeDB:     model.CloseDB,
+	}, shutdownTimeout, loopShutdownTimeout)
+	resourcesOpen = false
+	if err != nil {
+		common.SysError("shutdown completed with errors: " + err.Error())
 	}
 	common.SysLog("server exited")
 }
@@ -420,14 +490,6 @@ func InitResources() (returnErr error) {
 		return err
 	}
 
-	perfmetrics.Init()
-
-	// 启动动态定价 ticker（按窗口聚合用量并更新模型价格倍率）
-	service.StartDynamicPricingTicker()
-
-	// 启动系统监控
-	common.StartSystemMonitor()
-
 	// Initialize i18n
 	err = i18n.Init()
 	if err != nil {
@@ -445,8 +507,6 @@ func InitResources() (returnErr error) {
 		common.SysError("failed to load custom OAuth providers: " + err.Error())
 		// Don't return error, custom OAuth is not critical
 	}
-
-	service.StartAuthArtifactCleanup()
 
 	return nil
 }

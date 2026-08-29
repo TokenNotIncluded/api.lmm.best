@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
+	"github.com/LIghtJUNction/api.lmm.best/leadership"
 	"github.com/LIghtJUNction/api.lmm.best/logger"
 	"github.com/LIghtJUNction/api.lmm.best/model"
 
@@ -28,33 +29,75 @@ var (
 
 func StartSubscriptionQuotaResetTask() {
 	subscriptionResetOnce.Do(func() {
-		if !common.IsMasterNode {
-			return
+		if common.IsMasterNode {
+			gopool.Go(func() { RunSubscriptionQuotaResetTask(context.Background()) })
 		}
-		gopool.Go(func() {
-			logger.LogInfo(context.Background(), fmt.Sprintf("subscription quota reset task started: tick=%s", subscriptionResetTickInterval))
-			ticker := time.NewTicker(subscriptionResetTickInterval)
-			defer ticker.Stop()
-
-			runSubscriptionQuotaResetOnce()
-			for range ticker.C {
-				runSubscriptionQuotaResetOnce()
-			}
-		})
 	})
 }
 
+// StartSubscriptionMaintenanceScanWithContext starts PostgreSQL-guarded
+// expiration, quota-reset, and cleanup scans. Followers only retry the lock.
+func StartSubscriptionMaintenanceScanWithContext(ctx context.Context) error {
+	return startPostgresLeaderTask(ctx, leadership.SubscriptionMaintenanceNamespace,
+		"subscription maintenance", runSubscriptionMaintenanceAsLeader)
+}
+
+// RunSubscriptionMaintenanceScanWithLeadership runs synchronously so the
+// process lifecycle can wait for lease release before closing PostgreSQL.
+func RunSubscriptionMaintenanceScanWithLeadership(ctx context.Context) error {
+	if !common.IsMasterNode {
+		return nil
+	}
+	return runPostgresLeaderTask(ctx, leadership.SubscriptionMaintenanceNamespace,
+		"subscription maintenance", runSubscriptionMaintenanceAsLeader)
+}
+
+func runSubscriptionMaintenanceAsLeader(ctx context.Context) {
+	logger.LogInfo(ctx, fmt.Sprintf("subscription maintenance leader started: tick=%s", subscriptionResetTickInterval))
+	runSubscriptionMaintenanceLoop(ctx)
+}
+
+// RunSubscriptionQuotaResetTask is the cancellable single-instance loop.
+// Multi-slot deployments must use StartSubscriptionMaintenanceScanWithContext.
+func RunSubscriptionQuotaResetTask(ctx context.Context) {
+	if !common.IsMasterNode {
+		return
+	}
+	logger.LogInfo(ctx, fmt.Sprintf("subscription quota reset task started: tick=%s", subscriptionResetTickInterval))
+	runSubscriptionMaintenanceLoop(ctx)
+}
+
+func runSubscriptionMaintenanceLoop(ctx context.Context) {
+	runSubscriptionQuotaResetOnceContext(ctx)
+	ticker := time.NewTicker(subscriptionResetTickInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			runSubscriptionQuotaResetOnceContext(ctx)
+		}
+	}
+}
+
 func runSubscriptionQuotaResetOnce() {
+	runSubscriptionQuotaResetOnceContext(context.Background())
+}
+
+func runSubscriptionQuotaResetOnceContext(ctx context.Context) {
 	if !subscriptionResetRunning.CompareAndSwap(false, true) {
 		return
 	}
 	defer subscriptionResetRunning.Store(false)
+	if ctx.Err() != nil {
+		return
+	}
 
-	ctx := context.Background()
 	totalReset := 0
 	totalExpired := 0
 	for {
-		n, err := model.ExpireDueSubscriptions(subscriptionResetBatchSize)
+		n, err := model.ExpireDueSubscriptionsContext(ctx, subscriptionResetBatchSize)
 		if err != nil {
 			logger.LogWarn(ctx, fmt.Sprintf("subscription expire task failed: %v", err))
 			return
@@ -68,7 +111,7 @@ func runSubscriptionQuotaResetOnce() {
 		}
 	}
 	for {
-		n, err := model.ResetDueSubscriptions(subscriptionResetBatchSize)
+		n, err := model.ResetDueSubscriptionsContext(ctx, subscriptionResetBatchSize)
 		if err != nil {
 			logger.LogWarn(ctx, fmt.Sprintf("subscription quota reset task failed: %v", err))
 			return
@@ -82,8 +125,8 @@ func runSubscriptionQuotaResetOnce() {
 		}
 	}
 	lastCleanup := time.Unix(subscriptionCleanupLast.Load(), 0)
-	if time.Since(lastCleanup) >= subscriptionCleanupInterval {
-		if _, err := model.CleanupSubscriptionPreConsumeRecords(7 * 24 * 3600); err == nil {
+	if ctx.Err() == nil && time.Since(lastCleanup) >= subscriptionCleanupInterval {
+		if _, err := model.CleanupSubscriptionPreConsumeRecordsContext(ctx, 7*24*3600); err == nil {
 			subscriptionCleanupLast.Store(time.Now().Unix())
 		}
 	}

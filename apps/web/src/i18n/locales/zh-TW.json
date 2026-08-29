@@ -5858,6 +5858,7 @@
     "running": "執行中",
     "Running": "執行中",
     "Runtime": "執行環境",
+    "Runtime instances reporting from this deployment; slots on the same node are listed separately.": "此部署中正在回報的執行個體；同一節點上的不同槽位會分開列出。",
     "Runway": "可用時長",
     "s": "秒",
     "Safety center": "安全中心",

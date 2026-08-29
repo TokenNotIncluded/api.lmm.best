@@ -5858,6 +5858,7 @@
     "running": "выполняется",
     "Running": "Выполняется",
     "Runtime": "Среда выполнения",
+    "Runtime instances reporting from this deployment; slots on the same node are listed separately.": "Экземпляры среды выполнения этого развёртывания; слоты одного узла отображаются отдельно.",
     "Runway": "Запас",
     "s": "s",
     "Safety center": "Центр безопасности",

@@ -79,23 +79,32 @@ type dynamicPricingModelWindow struct {
 // disabled.
 func StartDynamicPricingTicker() {
 	dynamicPricingTickerOnce.Do(func() {
-		gopool.Go(func() {
-			logger.LogInfo(context.Background(), "dynamic pricing ticker started")
-			for {
-				time.Sleep(dynamicPricingTickInterval())
-				// One panic must stop only that tick iteration, never the
-				// whole ticker process.
-				func() {
-					defer func() {
-						if r := recover(); r != nil {
-							common.SysError(fmt.Sprintf("dynamic pricing: tick panic recovered: %v", r))
-						}
-					}()
-					runDynamicPricingTick()
-				}()
-			}
-		})
+		gopool.Go(func() { RunDynamicPricingTicker(context.Background()) })
 	})
+}
+
+func RunDynamicPricingTicker(ctx context.Context) {
+	logger.LogInfo(ctx, "dynamic pricing ticker started")
+	for {
+		timer := time.NewTimer(dynamicPricingTickInterval())
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				<-timer.C
+			}
+			return
+		case <-timer.C:
+		}
+		// One panic must stop only that tick iteration, never the ticker.
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					common.SysError(fmt.Sprintf("dynamic pricing: tick panic recovered: %v", r))
+				}
+			}()
+			runDynamicPricingTick()
+		}()
+	}
 }
 
 // dynamicPricingTickInterval returns the configured tick interval, falling

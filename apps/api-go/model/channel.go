@@ -1,6 +1,7 @@
 package model
 
 import (
+	"context"
 	"database/sql/driver"
 	"encoding/json"
 	"errors"
@@ -427,13 +428,18 @@ func (channel *Channel) saveStatusState() error {
 }
 
 func GetAllChannels(startIdx int, num int, selectAll bool, idSort bool, sortOptions ...ChannelSortOptions) ([]*Channel, error) {
+	return GetAllChannelsContext(context.Background(), startIdx, num, selectAll, idSort, sortOptions...)
+}
+
+func GetAllChannelsContext(ctx context.Context, startIdx int, num int, selectAll bool, idSort bool, sortOptions ...ChannelSortOptions) ([]*Channel, error) {
 	var channels []*Channel
 	var err error
 	order := resolveChannelSortOptions(idSort, sortOptions)
+	query := DB.WithContext(ctx)
 	if selectAll {
-		err = order.Apply(DB).Find(&channels).Error
+		err = order.Apply(query).Find(&channels).Error
 	} else {
-		err = order.Apply(DB).Limit(num).Offset(startIdx).Omit("key").Find(&channels).Error
+		err = order.Apply(query).Limit(num).Offset(startIdx).Omit("key").Find(&channels).Error
 	}
 	return channels, err
 }
@@ -552,12 +558,17 @@ func SearchChannels(keyword string, group string, model string, searchSensitiveF
 }
 
 func GetChannelById(id int, selectAll bool) (*Channel, error) {
+	return GetChannelByIdContext(context.Background(), id, selectAll)
+}
+
+func GetChannelByIdContext(ctx context.Context, id int, selectAll bool) (*Channel, error) {
 	channel := &Channel{Id: id}
-	var err error = nil
+	query := DB.WithContext(ctx)
+	var err error
 	if selectAll {
-		err = DB.First(channel, "id = ?", id).Error
+		err = query.First(channel, "id = ?", id).Error
 	} else {
-		err = DB.Omit("key").First(channel, "id = ?", id).Error
+		err = query.Omit("key").First(channel, "id = ?", id).Error
 	}
 	if err != nil {
 		return nil, err
@@ -802,13 +813,16 @@ func (channel *Channel) UpdateResponseTime(responseTime int64) {
 }
 
 func (channel *Channel) UpdateBalance(balance float64) {
-	err := DB.Model(channel).Select("balance_updated_time", "balance").Updates(Channel{
+	if err := channel.UpdateBalanceContext(context.Background(), balance); err != nil {
+		common.SysLog(fmt.Sprintf("failed to update balance: channel_id=%d, error=%v", channel.Id, err))
+	}
+}
+
+func (channel *Channel) UpdateBalanceContext(ctx context.Context, balance float64) error {
+	return DB.WithContext(ctx).Model(channel).Select("balance_updated_time", "balance").Updates(Channel{
 		BalanceUpdatedTime: common.GetTimestamp(),
 		Balance:            balance,
 	}).Error
-	if err != nil {
-		common.SysLog(fmt.Sprintf("failed to update balance: channel_id=%d, error=%v", channel.Id, err))
-	}
 }
 
 func (channel *Channel) Delete() error {

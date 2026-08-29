@@ -37,9 +37,9 @@ export async function deleteStaleSystemInstances() {
   return res.data
 }
 
-export async function deleteStaleSystemInstance(nodeName: string) {
+export async function deleteStaleSystemInstance(reporterId: string) {
   const res = await api.delete<SystemInstanceDeleteResponse>(
-    `/api/system-info/instances/${encodeURIComponent(nodeName)}`
+    `/api/system-info/instances/${encodeURIComponent(reporterId)}`
   )
   return res.data
 }

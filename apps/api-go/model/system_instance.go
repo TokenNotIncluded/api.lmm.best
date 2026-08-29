@@ -15,6 +15,9 @@ const (
 )
 
 type SystemInstance struct {
+	// NodeName is the legacy database key and API field. For a slotted Go
+	// reporter it contains the derived reporter ID (for example host@blue).
+	// Unslotted reporters continue to store the physical node name unchanged.
 	NodeName   string `json:"node_name" gorm:"type:varchar(128);primaryKey"`
 	Info       string `json:"info" gorm:"type:text"`
 	StartedAt  int64  `json:"started_at" gorm:"bigint;index"`
@@ -24,7 +27,11 @@ type SystemInstance struct {
 }
 
 type SystemInstanceResponse struct {
+	// NodeName remains the legacy reporter key for API compatibility.
 	NodeName          string `json:"node_name"`
+	ReporterID        string `json:"reporter_id"`
+	PhysicalNodeName  string `json:"physical_node_name"`
+	InstanceSlot      string `json:"instance_slot,omitempty"`
 	Status            string `json:"status"`
 	StaleAfterSeconds int64  `json:"stale_after_seconds"`
 	StartedAt         int64  `json:"started_at"`
@@ -80,8 +87,10 @@ func DeleteStaleSystemInstances(now int64) (int64, error) {
 	return result.RowsAffected, result.Error
 }
 
-func DeleteStaleSystemInstance(nodeName string, now int64) (bool, error) {
-	result := DB.Where("node_name = ? AND last_seen_at < ?", nodeName, now-SystemInstanceStaleAfterSeconds).Delete(&SystemInstance{})
+// DeleteStaleSystemInstance deletes exactly one reporter identity. Slotted
+// runtimes on the same physical node therefore age out independently.
+func DeleteStaleSystemInstance(reporterID string, now int64) (bool, error) {
+	result := DB.Where("node_name = ? AND last_seen_at < ?", reporterID, now-SystemInstanceStaleAfterSeconds).Delete(&SystemInstance{})
 	return result.RowsAffected > 0, result.Error
 }
 
@@ -90,14 +99,39 @@ func (instance *SystemInstance) ToResponse(now int64) SystemInstanceResponse {
 	if now-instance.LastSeenAt > SystemInstanceStaleAfterSeconds {
 		status = SystemInstanceStatusStale
 	}
+	info := decodeSystemInstanceInfo(instance.Info)
+	physicalNodeName := nestedSystemInstanceInfoString(info, "node", "name")
+	if physicalNodeName == "" {
+		physicalNodeName = instance.NodeName
+	}
+	instanceSlot := nestedSystemInstanceInfoString(info, "reporter", "slot")
+	if instanceSlot == "" {
+		instanceSlot = nestedSystemInstanceInfoString(info, "runtime", "instance_slot")
+	}
 	return SystemInstanceResponse{
 		NodeName:          instance.NodeName,
+		ReporterID:        instance.NodeName,
+		PhysicalNodeName:  physicalNodeName,
+		InstanceSlot:      instanceSlot,
 		Status:            status,
 		StaleAfterSeconds: SystemInstanceStaleAfterSeconds,
 		StartedAt:         instance.StartedAt,
 		LastSeenAt:        instance.LastSeenAt,
-		Info:              decodeSystemInstanceInfo(instance.Info),
+		Info:              info,
 	}
+}
+
+func nestedSystemInstanceInfoString(info any, section string, field string) string {
+	root, ok := info.(map[string]any)
+	if !ok {
+		return ""
+	}
+	nested, ok := root[section].(map[string]any)
+	if !ok {
+		return ""
+	}
+	value, _ := nested[field].(string)
+	return value
 }
 
 func marshalSystemInstanceInfo(v any) (string, error) {
