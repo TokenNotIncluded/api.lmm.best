@@ -7,7 +7,7 @@ pkgdesc='LMM API production web frontend (prebuilt)'
 arch=('any')
 url='https://github.com/LIghtJUNction/api.lmm.best'
 license=('AGPL-3.0-only')
-depends=('bash' 'coreutils' 'diffutils' 'findutils' 'gawk' 'grep' 'nginx' 'sed' 'systemd' 'util-linux')
+depends=('lmm-api-provider' 'nginx')
 makedepends=('cosign')
 provides=("lmm-api-web=${pkgver}")
 conflicts=('lmm-api-web')
@@ -21,14 +21,12 @@ source=(
   "${_artifact}::${_release_base}/${_artifact}"
   "${_artifact}.sha256::${_release_base}/${_artifact}.sha256"
   "${_artifact}.sigstore.json::${_release_base}/${_artifact}.sigstore.json"
-  "lmm-api-web-activate::${url}/raw/refs/tags/${_release_tag}/packaging/aur/lmm-api-web-bin/lmm-api-web-activate"
 )
 noextract=("${_artifact}")
 sha256sums=(
   '51df7dba3eb8f9f1e1858c1a9e7a9b4c6d68510a3a0bd59533744552358011c1'
   'b808fe46b14f4de6491d08360b7f0d991278a9477663628b9898f4f954d89b54'
   '0c29d9d04d340685f004c57a9faa25e9341f6fb4a8899a011cc152d83aeb4dc7'
-  '358f5b958f3520757628d803027dafb1b67ec61b565d00bf4cd4f7927347cf33'
 )
 
 prepare() {
@@ -44,11 +42,8 @@ prepare() {
       "${url}/.github/workflows/release-web.yml@refs/tags/${_release_tag}" \
     --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
     "${_artifact}"
-  install -m0755 lmm-api-web-activate lmm-api-web-activate.local
   bsdtar -xf "${_artifact}"
   [[ -f ${srcdir}/dist/index.html ]]
-  [[ -x ${srcdir}/lmm-api-web-activate.local ]]
-  [[ -x ${srcdir}/frontend-release.sh ]]
   if (( $(vercmp "${pkgver}" 0.1.43) >= 0 )); then
     [[ -f ${srcdir}/lmm-api-web.install && ! -L ${srcdir}/lmm-api-web.install ]] || return 1
   fi
@@ -70,11 +65,6 @@ package() {
     "${pkgdir}/usr/share/lmm-api-web/frontend-dist/"
   find "${pkgdir}/usr/share/lmm-api-web/frontend-dist" -type d -exec chmod 0755 {} +
   find "${pkgdir}/usr/share/lmm-api-web/frontend-dist" -type f -exec chmod 0644 {} +
-
-  install -Dm0755 "${srcdir}/lmm-api-web-activate.local" \
-    "${pkgdir}/usr/lib/lmm-api-web/lmm-api-web-activate"
-  install -Dm0755 "${srcdir}/frontend-release.sh" \
-    "${pkgdir}/usr/lib/lmm-api-web/frontend-release.sh"
 
   local file
   for file in LICENSE NOTICE THIRD-PARTY-LICENSES.md; do

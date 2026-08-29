@@ -61,7 +61,12 @@ jobs:
           [[ "$aur_version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
           [[ "$aur_version" != "$version" ]]
           [[ $(printf '%s\n%s\n' "$aur_version" "$version" | sort -V | tail -n 1) == "$version" ]]
-          contract_revision=$(deploy/production/api-route-contract-revision.sh print)
+          contract_file=contracts/api-route/VERSION
+          [[ -f "$contract_file" && ! -L "$contract_file" ]]
+          [[ $(wc -l <"$contract_file") -eq 1 ]]
+          contract_version=$(<"$contract_file")
+          [[ "$contract_version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          contract_revision=$(sha256sum "$contract_file" | awk '{print $1}')
           {
             echo "contract_revision=$contract_revision"
             echo "version=$version"
@@ -109,10 +114,7 @@ jobs:
             echo "$RUNNER_TEMP/compat-tools" >> "$GITHUB_PATH"
           fi
           bsdtar --version | head -1
-          TMPDIR="$RUNNER_TEMP" bash deploy/test-frontend-release.sh
           TMPDIR="$RUNNER_TEMP" bash packaging/aur/test-web-activation.sh
-          TMPDIR="$RUNNER_TEMP" bash deploy/production/test-api-route-contract.sh
-          TMPDIR="$RUNNER_TEMP" bash deploy/production/test-release-artifact-contract.sh
 
       - name: Package immutable web artifact
         env:
@@ -124,19 +126,15 @@ jobs:
           bundle=release-web/bundle
           mkdir -p "$bundle"
           cp -a apps/web/dist "$bundle/"
-          cp packaging/aur/lmm-api-web-bin/lmm-api-web-activate "$bundle/"
           cp packaging/aur/lmm-api-web-bin/lmm-api-web.install "$bundle/"
-          cp deploy/frontend-release.sh "$bundle/"
           cp LICENSE NOTICE THIRD-PARTY-LICENSES.md "$bundle/"
           printf '%s\n' "$RELEASE_REVISION" >"$bundle/REVISION"
-          deploy/production/api-route-contract-revision.sh generate \
-            "$bundle/API_ROUTE_CONTRACT_REVISION"
-          deploy/production/api-route-contract-revision.sh verify \
-            "$bundle/API_ROUTE_CONTRACT_REVISION"
+          printf '%s\n' "$EXPECTED_CONTRACT_REVISION" >"$bundle/API_ROUTE_CONTRACT_REVISION"
+          [[ -f "$bundle/API_ROUTE_CONTRACT_REVISION" && ! -L "$bundle/API_ROUTE_CONTRACT_REVISION" ]]
           [[ $(<"$bundle/API_ROUTE_CONTRACT_REVISION") == "$EXPECTED_CONTRACT_REVISION" ]]
           archive="release-web/lmm-api-web-${RELEASE_VERSION}.tar.gz"
           tar -czf "$archive" -C "$bundle" \
-            dist lmm-api-web-activate lmm-api-web.install frontend-release.sh \
+            dist lmm-api-web.install \
             LICENSE NOTICE THIRD-PARTY-LICENSES.md REVISION \
             API_ROUTE_CONTRACT_REVISION
           (cd release-web && sha256sum "${archive##*/}" >"${archive##*/}.sha256")

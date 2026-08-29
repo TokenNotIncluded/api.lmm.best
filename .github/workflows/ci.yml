@@ -458,4 +458,3 @@ jobs:
             GITHUB_TOKEN='${{ github.token }}' \
             bash packaging/aur/verify-go-release-pins.sh
           runuser --user package-builder -- env TMPDIR=/home/package-builder/lmm-ci-tmp bash packaging/aur/test-bin-makepkg.sh
-          runuser --user package-builder -- env TMPDIR=/home/package-builder/lmm-ci-tmp bash packaging/aur/test-web-activation.sh
