@@ -425,3 +425,35 @@ func TestValidateEpayCallbackRejectsSignedTypeOrMoneyMismatchAndIsIdempotent(t *
 	require.NoError(t, err)
 	require.False(t, shouldCredit)
 }
+
+func TestValidateEpayCallbackAcceptsNonCNYImmutableSnapshot(t *testing.T) {
+	pending := &model.TopUp{
+		PaymentMethod:        "epay",
+		PaymentProvider:      model.PaymentProviderEpay,
+		Money:                5,
+		ExpectedAmountMicros: 5_000_000,
+		CreditedQuota:        2 * int64(common.QuotaPerUnit),
+		SettlementCurrency:   "LDC",
+		Status:               common.TopUpStatusPending,
+	}
+
+	shouldCredit, err := validateEpayCallback(pending, &epay.VerifyRes{Type: "epay", Money: "5.00"})
+	require.NoError(t, err)
+	require.True(t, shouldCredit)
+
+	usd := *pending
+	usd.SettlementCurrency = "USD"
+	usd.ExpectedAmountMicros = 10_000_000
+	usd.Money = 10
+	shouldCredit, err = validateEpayCallback(&usd, &epay.VerifyRes{Type: "epay", Money: "10.00"})
+	require.NoError(t, err)
+	require.True(t, shouldCredit)
+
+	legacy := *pending
+	legacy.ExpectedAmountMicros = 0
+	legacy.CreditedQuota = 0
+	legacy.SettlementCurrency = ""
+	shouldCredit, err = validateEpayCallback(&legacy, &epay.VerifyRes{Type: "epay", Money: "5.00"})
+	require.Error(t, err)
+	require.False(t, shouldCredit)
+}

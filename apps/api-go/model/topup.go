@@ -380,12 +380,13 @@ func completeExternalTopUpOnDB(db *gorm.DB, settlement ExternalTopUpSettlement) 
 			if completed.PaymentProvider == PaymentProviderCreem && strings.TrimSpace(completed.SettlementCurrency) == "" {
 				return ErrPaymentEvidenceConflict
 			}
-			if completed.PaymentProvider == PaymentProviderEpay &&
-				(completed.ExpectedAmountMicros <= 0 || completed.CreditedQuota <= 0 || !strings.EqualFold(strings.TrimSpace(completed.SettlementCurrency), "CNY")) {
+			if completed.PaymentProvider == PaymentProviderEpay && !epayHasImmutableSettlementSnapshot(&completed) {
 				// Historical Epay rows stored only an ambiguous float Money value.
 				// They may represent either already-converted USD or CNY and cannot
 				// be settled safely. Require manual reconciliation instead of
 				// guessing and crediting at today's exchange configuration.
+				// Virtual units such as LDC are valid when the order snapshotted
+				// amount, quota, and currency before the user paid.
 				return ErrPaymentEvidenceConflict
 			}
 
@@ -802,11 +803,11 @@ func normalizedTopUpCreditedQuota(topUp *TopUp) int64 {
 	if topUp == nil {
 		return 0
 	}
+	if topUp.CreditedQuota > 0 && (knownExternalTopUpSource(topUp) || epayHasImmutableSettlementSnapshot(topUp)) {
+		return topUp.CreditedQuota
+	}
 	if !knownExternalTopUpSource(topUp) {
 		return 0
-	}
-	if topUp.CreditedQuota > 0 {
-		return topUp.CreditedQuota
 	}
 	switch {
 	case topUp.PaymentProvider == PaymentProviderCreem || topUp.PaymentMethod == PaymentMethodCreem:
@@ -855,6 +856,24 @@ func isLegacyLinuxDOCreditTopUp(topUp *TopUp) bool {
 	}
 	return !strings.EqualFold(strings.TrimSpace(topUp.SettlementCurrency), "CNY") ||
 		(topUp.ExpectedAmountMicros <= 0 && topUp.SettledAmountMicros <= 0)
+}
+
+// EpayHasImmutableSettlementSnapshot reports whether an Epay order recorded
+// amount, credited quota, and settlement unit before redirecting to the
+// gateway. Historical rows stored only an ambiguous float Money value and
+// cannot be settled safely. Virtual units such as LDC are valid snapshots;
+// requiring CNY here would take payment and then refuse to credit.
+func EpayHasImmutableSettlementSnapshot(topUp *TopUp) bool {
+	return epayHasImmutableSettlementSnapshot(topUp)
+}
+
+func epayHasImmutableSettlementSnapshot(topUp *TopUp) bool {
+	if topUp == nil {
+		return false
+	}
+	return topUp.ExpectedAmountMicros > 0 &&
+		topUp.CreditedQuota > 0 &&
+		strings.TrimSpace(topUp.SettlementCurrency) != ""
 }
 
 func knownExternalTopUpSource(topUp *TopUp) bool {
@@ -952,7 +971,7 @@ func RechargeEpay(tradeNo string, actualPaymentMethod string, callerIp string) (
 		if actualPaymentMethod != "" && topUp.PaymentMethod != actualPaymentMethod {
 			topUp.PaymentMethod = actualPaymentMethod
 		}
-		if topUp.ExpectedAmountMicros <= 0 || topUp.CreditedQuota <= 0 || !strings.EqualFold(strings.TrimSpace(topUp.SettlementCurrency), "CNY") {
+		if !epayHasImmutableSettlementSnapshot(topUp) {
 			return ErrPaymentEvidenceConflict
 		}
 		quotaToAdd = int(topUp.CreditedQuota)
@@ -960,7 +979,6 @@ func RechargeEpay(tradeNo string, actualPaymentMethod string, callerIp string) (
 			return ErrInvalidTopUpQuota
 		}
 		topUp.SettledAmountMicros = topUp.ExpectedAmountMicros
-		topUp.SettlementCurrency = "CNY"
 		topUp.CompleteTime = common.GetTimestamp()
 		topUp.Status = common.TopUpStatusSuccess
 		if err := tx.Save(topUp).Error; err != nil {
