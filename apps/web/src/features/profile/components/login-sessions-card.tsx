@@ -16,7 +16,11 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { Logout01Icon, SmartPhone01Icon } from '@hugeicons/core-free-icons'
+import {
+  ArrowDown01Icon,
+  Logout01Icon,
+  SmartPhone01Icon,
+} from '@hugeicons/core-free-icons'
 import { HugeiconsIcon } from '@hugeicons/react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
@@ -33,6 +37,11 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible'
 import {
   Empty,
   EmptyDescription,
@@ -59,6 +68,7 @@ export function LoginSessionsCard() {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const [sessionsOpen, setSessionsOpen] = useState(false)
   const [revokeTarget, setRevokeTarget] = useState<LoginSession | null>(null)
   const [confirmOthers, setConfirmOthers] = useState(false)
 
@@ -171,31 +181,52 @@ export function LoginSessionsCard() {
 
   return (
     <>
-      <Card data-card-hover='false'>
-        <CardHeader>
-          <CardTitle>{t('Login sessions')}</CardTitle>
-          <CardDescription>
-            {t('Review and sign out devices currently using your account.')}
-          </CardDescription>
-          <CardAction>
-            <Button
-              type='button'
-              variant='outline'
-              size='sm'
-              disabled={!hasOtherSessions || revokeOthersMutation.isPending}
-              onClick={() => setConfirmOthers(true)}
-            >
-              <HugeiconsIcon
-                icon={Logout01Icon}
-                data-icon='inline-start'
-                strokeWidth={2}
-              />
-              {t('Sign out other sessions')}
-            </Button>
-          </CardAction>
-        </CardHeader>
-        <CardContent>{sessionsContent}</CardContent>
-      </Card>
+      <Collapsible open={sessionsOpen} onOpenChange={setSessionsOpen}>
+        <Card data-card-hover='false'>
+          <CardHeader>
+            <CardTitle>{t('Login sessions')}</CardTitle>
+            <CardDescription>
+              {t('Review and sign out devices currently using your account.')}
+            </CardDescription>
+            <CardAction className='flex items-center gap-2'>
+              <Button
+                type='button'
+                variant='outline'
+                size='sm'
+                disabled={!hasOtherSessions || revokeOthersMutation.isPending}
+                onClick={() => setConfirmOthers(true)}
+              >
+                <HugeiconsIcon
+                  icon={Logout01Icon}
+                  data-icon='inline-start'
+                  strokeWidth={2}
+                />
+                {t('Sign out other sessions')}
+              </Button>
+              <CollapsibleTrigger
+                render={
+                  <Button
+                    type='button'
+                    variant='outline'
+                    size='icon-sm'
+                    aria-label={t(sessionsOpen ? 'Collapse' : 'Expand')}
+                  />
+                }
+              >
+                <HugeiconsIcon
+                  icon={ArrowDown01Icon}
+                  strokeWidth={2}
+                  aria-hidden='true'
+                  className={`transition-transform duration-200 motion-reduce:transition-none ${sessionsOpen ? 'rotate-180' : ''}`}
+                />
+              </CollapsibleTrigger>
+            </CardAction>
+          </CardHeader>
+          <CollapsibleContent>
+            <CardContent>{sessionsContent}</CardContent>
+          </CollapsibleContent>
+        </Card>
+      </Collapsible>
 
       <LoginSessionDialogs
         revokeTarget={revokeTarget}
