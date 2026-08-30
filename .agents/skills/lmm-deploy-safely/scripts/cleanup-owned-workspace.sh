@@ -215,7 +215,14 @@ case "$final_state" in
 esac
 
 removed=none
-for name in artifacts staging tmp cache packages aur; do
+children=(artifacts staging tmp cache packages aur)
+# Controller workspaces hold only downloaded target/off-host verification
+# copies under backups/. The authoritative controller copy lives outside the
+# workspace at the plan-recorded durable backup path.
+if [[ $role == controller ]]; then
+  children+=(backups)
+fi
+for name in "${children[@]}"; do
   path="$workspace/$name"
   [[ -e $path || -L $path ]] || continue
   [[ -d $path && ! -L $path ]] || die "disposable child is not a real directory: $name"

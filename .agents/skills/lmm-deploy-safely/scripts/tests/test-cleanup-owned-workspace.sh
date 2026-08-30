@@ -42,8 +42,9 @@ grep -Fq 'removed=artifacts,staging,tmp,cache,packages,aur' <<<"$output"
 
 aborted_id='cleanup-contract-aborted'
 aborted=$root/$aborted_id
-mkdir -p "$aborted"/{state,artifacts,staging,tmp,cache}
+mkdir -p "$aborted"/{state,artifacts,staging,tmp,cache,backups}
 printf 'payload\n' >"$aborted/cache/file"
+printf 'verified backup proof\n' >"$aborted/backups/proof"
 cat >"$aborted/.lmm-deploy-workspace" <<EOF
 format=1
 deployment_id=$aborted_id
@@ -55,8 +56,8 @@ printf 'ABORTED reason=pre-switch-test\n' >"$aborted/state/status"
 output=$("$cleanup" --role controller --deployment-id "$aborted_id" --root "$root")
 grep -Fq 'final_state=ABORTED' <<<"$output"
 output=$("$cleanup" --role controller --deployment-id "$aborted_id" --root "$root" --execute)
-grep -Fq 'removed=artifacts,staging,tmp,cache' <<<"$output"
-[[ ! -e $aborted/cache ]]
+grep -Fq 'removed=artifacts,staging,tmp,cache,backups' <<<"$output"
+[[ ! -e $aborted/cache && ! -e $aborted/backups ]]
 
 validated_id='cleanup-contract-validated'
 validated=$root/$validated_id
