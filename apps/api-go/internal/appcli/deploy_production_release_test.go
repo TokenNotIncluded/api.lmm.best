@@ -335,9 +335,14 @@ func testProductionPackageInfo(t *testing.T, name, version string) string {
 			"arch = any",
 			"conflict = lmm-api-web",
 			"provides = lmm-api-web="+releaseVersion,
-			"depend = lmm-api-provider",
-			"depend = nginx",
 		)
+		dependencies := []string{"lmm-api-provider", "nginx"}
+		if version == "0.1.50-1" {
+			dependencies = []string{"bash", "coreutils", "diffutils", "findutils", "gawk", "grep", "nginx", "sed", "systemd", "util-linux"}
+		}
+		for _, value := range dependencies {
+			lines = append(lines, "depend = "+value)
+		}
 	}
 	return strings.Join(lines, "\n") + "\n"
 }
@@ -491,6 +496,7 @@ func TestVerifySignedPackageLayoutAcceptsOnlyProviderLayoutAndExactLegacyRollbac
 		{name: legacyPrefix + "lmm-api", body: "legacy-binary", mode: 0o755},
 		{name: legacyPrefix + "lmm-api-go.env", body: "safe-env\n", mode: 0o640},
 		{name: legacyPrefix + "lmm-api-operator.sudoers", body: "safe-sudoers\n", mode: 0o644},
+		{name: legacyPrefix + "CLI_TRANSITION_PHASE", body: "T1\n", mode: 0o644},
 	}
 	legacyReleaseEntries = append(legacyReleaseEntries, testEdgePolicyTarEntries(legacyPrefix+"edge-policy/")...)
 	writeTestTarGzip(t, legacyAsset, legacyReleaseEntries)
@@ -506,6 +512,7 @@ func TestVerifySignedPackageLayoutAcceptsOnlyProviderLayoutAndExactLegacyRollbac
 		{name: "etc/lmm-api-go/lmm-api-go.env", body: "safe-env\n", mode: 0o600},
 		{name: "etc/sudoers.d/", mode: 0o750, directory: true},
 		{name: "etc/sudoers.d/lmm-api-operator", body: "safe-sudoers\n", mode: 0o440},
+		{name: "usr/share/doc/lmm-api-go-bin/CLI_TRANSITION_PHASE", body: "T1\n", mode: 0o644},
 		{name: "usr/share/doc/lmm-api-go-bin/RELEASE_ASSET_SHA256", body: legacyAssetSHA256 + "\n", mode: 0o644},
 	}
 	legacyEntries = append(legacyEntries, testEdgePolicyTarEntries("usr/share/lmm-api-go/edge-policy/")...)
@@ -576,6 +583,37 @@ func TestVerifySignedWebPackageLayoutRequiresNativeCLIActivationHook(t *testing.
 	verify("tampered-hook", []byte("post_install() { /bin/false; }\n"), true, false, "install hook")
 	verify("unsigned-hook", installHook, false, false, "lacks lmm-api-web.install")
 	verify("shell-publisher", installHook, true, true, "unmapped payload")
+}
+
+func TestVerifySignedLegacyWebRollbackLayout(t *testing.T) {
+	caseRoot := t.TempDir()
+	installHook := []byte("post_install() { /usr/lib/lmm-api-web/lmm-api-web-activate \"$1\"; }\n")
+	publisher := "#!/bin/sh\nexit 0\n"
+	activator := "#!/bin/sh\nexit 0\n"
+	asset := filepath.Join(caseRoot, "web-0.1.50.tar.gz")
+	writeTestTarGzip(t, asset, []testTarEntry{
+		{name: "dist/index.html", body: "<!doctype html>\n", mode: 0o644},
+		{name: "lmm-api-web.install", body: string(installHook), mode: 0o644},
+		{name: "frontend-release.sh", body: publisher, mode: 0o755},
+		{name: "lmm-api-web-activate", body: activator, mode: 0o755},
+	})
+	assetSHA256, err := sha256File(asset)
+	if err != nil {
+		t.Fatal(err)
+	}
+	packagePath := filepath.Join(caseRoot, "legacy-web.tar.gz")
+	writeTestTarGzip(t, packagePath, []testTarEntry{
+		{name: ".PKGINFO", body: testProductionPackageInfo(t, productionWebPackageName, "0.1.50-1"), mode: 0o644},
+		{name: ".INSTALL", body: string(installHook), mode: 0o644},
+		{name: "usr/share/lmm-api-web/frontend-dist/index.html", body: "<!doctype html>\n", mode: 0o644},
+		{name: "usr/lib/lmm-api-web/frontend-release.sh", body: publisher, mode: 0o755},
+		{name: "usr/lib/lmm-api-web/lmm-api-web-activate", body: activator, mode: 0o755},
+		{name: "usr/share/doc/lmm-api-web-bin/RELEASE_ASSET_SHA256", body: assetSHA256 + "\n", mode: 0o644},
+	})
+	runtime := &productionReleaseRuntime{runner: osProductionCommandRunner{}}
+	if err := runtime.verifySignedPackageLayout(context.Background(), caseRoot, productionWebPackageName, "0.1.50-1", packagePath, asset, assetSHA256, false); err != nil {
+		t.Fatalf("verified legacy Web rollback rejected: %v", err)
+	}
 }
 
 func TestRemoteGoPackageDeduplicatesPacmanProviderResolution(t *testing.T) {

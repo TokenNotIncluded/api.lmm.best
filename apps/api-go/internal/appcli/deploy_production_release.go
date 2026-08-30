@@ -596,7 +596,7 @@ func (runtime *productionReleaseRuntime) verifySignedPackageLayout(ctx context.C
 		if err != nil || relative == "." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
 			return errors.New("signed release payload escaped its root")
 		}
-		packageRelative, ignored, err := signedPackageMember(packageName, relative)
+		packageRelative, ignored, err := signedPackageMember(packageName, packageVersion, relative)
 		if err != nil {
 			return err
 		}
@@ -1055,7 +1055,11 @@ func validateProductionPackageArchiveContract(packageRoot, packageName, packageV
 	if err := requirePackageInfoSet(fields, "replaces"); err != nil {
 		return err
 	}
-	if err := requirePackageInfoSet(fields, "depend", "lmm-api-provider", "nginx"); err != nil {
+	webDependencies := []string{"lmm-api-provider", "nginx"}
+	if packageVersion == "0.1.50-1" {
+		webDependencies = []string{"bash", "coreutils", "diffutils", "findutils", "gawk", "grep", "nginx", "sed", "systemd", "util-linux"}
+	}
+	if err := requirePackageInfoSet(fields, "depend", webDependencies...); err != nil {
 		return err
 	}
 	if expectedInstallSHA256 == "" {
@@ -1075,7 +1079,7 @@ func validateProductionPackageArchiveContract(packageRoot, packageName, packageV
 	return nil
 }
 
-func signedPackageMember(packageName, relative string) (packageRelative string, ignored bool, err error) {
+func signedPackageMember(packageName, packageVersion, relative string) (packageRelative string, ignored bool, err error) {
 	if filepath.IsAbs(relative) || relative == "." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
 		return "", false, errors.New("signed release member is unsafe")
 	}
@@ -1085,6 +1089,10 @@ func signedPackageMember(packageName, relative string) (packageRelative string, 
 			return filepath.Join("usr/share/lmm-api-web/frontend-dist", strings.TrimPrefix(relative, "dist/")), false, nil
 		case relative == "lmm-api-web.install":
 			return ".INSTALL", false, nil
+		case packageVersion == "0.1.50-1" && relative == "frontend-release.sh":
+			return "usr/lib/lmm-api-web/frontend-release.sh", false, nil
+		case packageVersion == "0.1.50-1" && relative == "lmm-api-web-activate":
+			return "usr/lib/lmm-api-web/lmm-api-web-activate", false, nil
 		case relative == "LICENSE", relative == "NOTICE", relative == "THIRD-PARTY-LICENSES.md":
 			return "usr/share/licenses/" + packageName + "/" + relative, false, nil
 		case relative == "REVISION", relative == "API_ROUTE_CONTRACT_REVISION":
@@ -1118,6 +1126,8 @@ func signedPackageMember(packageName, relative string) (packageRelative string, 
 		return "usr/share/licenses/" + packageName + "/" + relative, false, nil
 	case relative == "REVISION", relative == "API_ROUTE_CONTRACT_REVISION":
 		return "usr/share/doc/" + packageName + "/" + relative, false, nil
+	case packageVersion == "0.1.69-1" && relative == "CLI_TRANSITION_PHASE":
+		return "usr/share/doc/" + packageName + "/CLI_TRANSITION_PHASE", false, nil
 	default:
 		return "", false, fmt.Errorf("signed Go release contains an unmapped payload: %s", relative)
 	}
