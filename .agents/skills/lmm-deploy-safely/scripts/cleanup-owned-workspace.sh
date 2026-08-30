@@ -64,6 +64,27 @@ validate_root() {
   printf '%s\n' "$canonical"
 }
 
+read_final_state() {
+  local workspace=$1
+  local role=$2
+  local text_state="$workspace/state/status"
+  local json_state="$workspace/state/status.json"
+  local state
+
+  if [[ -f $text_state && ! -L $text_state ]]; then
+    state=$(<"$text_state")
+    state=${state%% *}
+  elif [[ $role == target && -f $json_state && ! -L $json_state ]]; then
+    command -v jq >/dev/null 2>&1 || die 'jq is required to read target deployment state'
+    state=$(jq -er '.phase | select(type == "string")' "$json_state") ||
+      die 'target deployment state is malformed'
+  else
+    die 'durable deployment state is missing or unsafe'
+  fi
+  [[ $state =~ ^[A-Z][A-Z_]*$ ]] || die 'durable deployment state is malformed'
+  printf '%s\n' "$state"
+}
+
 read_marker() {
   local marker=$1
   local line key value
@@ -140,7 +161,6 @@ assert_no_symlink_components "$workspace"
 [[ $(realpath -e -- "$workspace") == "$workspace" ]] || die 'workspace is not canonical'
 
 marker="$workspace/$MARKER_NAME"
-state_file="$workspace/state/status"
 read_marker "$marker"
 [[ ${marker_data[format]} == 1 ]] || die 'workspace marker format is unsupported'
 [[ ${marker_data[deployment_id]} == "$deployment_id" ]] || die 'workspace marker deployment ID mismatch'
@@ -153,11 +173,9 @@ fi
 [[ ${marker_data[created_at_utc]} =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]] ||
   die 'workspace marker timestamp is invalid'
 
-[[ -f $state_file && ! -L $state_file ]] || die 'durable deployment state is missing or unsafe'
-status=$(<"$state_file")
-final_state=${status%% *}
+final_state=$(read_final_state "$workspace" "$role")
 case "$final_state" in
-  CONFIRMED|ROLLED_BACK|ABORTED) ;;
+  CONFIRMED|ROLLED_BACK|ABORTED|FAILED_PREARM) ;;
   VALIDATED)
     [[ $role == controller ]] || die 'VALIDATED cleanup is limited to controller workspaces'
     ;;
@@ -187,11 +205,9 @@ read_marker "$marker"
 if [[ -v marker_data[workspace] ]]; then
   [[ ${marker_data[workspace]} == "$workspace" ]] || die 'workspace ownership changed before cleanup'
 fi
-[[ -f $state_file && ! -L $state_file ]] || die 'deployment state changed before deletion'
-status=$(<"$state_file")
-final_state=${status%% *}
+final_state=$(read_final_state "$workspace" "$role")
 case "$final_state" in
-  CONFIRMED|ROLLED_BACK|ABORTED) ;;
+  CONFIRMED|ROLLED_BACK|ABORTED|FAILED_PREARM) ;;
   VALIDATED)
     [[ $role == controller ]] || die 'deployment state changed before deletion'
     ;;

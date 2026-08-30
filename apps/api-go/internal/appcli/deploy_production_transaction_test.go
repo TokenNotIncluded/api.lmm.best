@@ -358,42 +358,43 @@ func (runner *fakeProductionRunner) runuser(args []string) ([]byte, error) {
 		}
 		return []byte(commandPacman + " --upgrade --noconfirm -- " + args[11] + "\n"), nil
 	}
-	if len(args) != 8 || args[3] != "/usr/bin/paru" || args[4] != "-U" || args[5] != "--noconfirm" || args[6] != "--" {
+	if len(args) < 8 || args[3] != "/usr/bin/paru" || args[4] != "-U" || args[5] != "--noconfirm" || args[6] != "--" {
 		return nil, fmt.Errorf("unsafe runuser invocation: %v", args)
 	}
-	path := args[7]
-	name, version, revision, _, _, ok := runner.packageData(path)
-	if !ok {
-		return nil, errors.New("unknown paru package")
-	}
-	version = strings.TrimSuffix(version, "-1")
-	switch name {
-	case productionAURPackageName:
-		runner.events = append(runner.events, "paru-go")
-		runner.installedGoVersion, runner.installedGoRevision = version, revision
-		providerPath := filepath.Join(filepath.Dir(runner.installedBinary), backendGoName)
-		if err := os.RemoveAll(providerPath); err != nil {
-			return nil, err
+	for _, path := range args[7:] {
+		name, version, revision, _, _, ok := runner.packageData(path)
+		if !ok {
+			return nil, errors.New("unknown paru package")
 		}
-		if err := os.WriteFile(providerPath, []byte("installed "+version+"\n"), 0o755); err != nil {
-			return nil, err
-		}
-		if err := os.WriteFile(runner.goRevisionFile, []byte(revision+"\n"), 0o644); err != nil {
-			return nil, err
-		}
-	case productionWebPackageName:
-		runner.events = append(runner.events, "paru-web-hook")
-		if runner.restartOnWebInstall {
-			runner.restartCounter++
-			runner.restartOnWebInstall = false
-		}
-		runner.installedWebVersion, runner.installedWebRevision = version, revision
-		if err := os.WriteFile(runner.webRevisionFile, []byte(revision+"\n"), 0o644); err != nil {
-			return nil, err
-		}
-		release := version + "-1.g" + revision[:12]
-		if err := executeFrontendDeploy(frontendDeployOptions{Action: "rollback", Root: runner.frontendRoot, Release: release, Keep: 3}); err != nil {
-			return nil, err
+		version = strings.TrimSuffix(version, "-1")
+		switch name {
+		case productionAURPackageName:
+			runner.events = append(runner.events, "paru-go")
+			runner.installedGoVersion, runner.installedGoRevision = version, revision
+			providerPath := filepath.Join(filepath.Dir(runner.installedBinary), backendGoName)
+			if err := os.RemoveAll(providerPath); err != nil {
+				return nil, err
+			}
+			if err := os.WriteFile(providerPath, []byte("installed "+version+"\n"), 0o755); err != nil {
+				return nil, err
+			}
+			if err := os.WriteFile(runner.goRevisionFile, []byte(revision+"\n"), 0o644); err != nil {
+				return nil, err
+			}
+		case productionWebPackageName:
+			runner.events = append(runner.events, "paru-web-hook")
+			if runner.restartOnWebInstall {
+				runner.restartCounter++
+				runner.restartOnWebInstall = false
+			}
+			runner.installedWebVersion, runner.installedWebRevision = version, revision
+			if err := os.WriteFile(runner.webRevisionFile, []byte(revision+"\n"), 0o644); err != nil {
+				return nil, err
+			}
+			release := version + "-1.g" + revision[:12]
+			if err := executeFrontendDeploy(frontendDeployOptions{Action: "rollback", Root: runner.frontendRoot, Release: release, Keep: 3}); err != nil {
+				return nil, err
+			}
 		}
 	}
 	return nil, nil
@@ -1092,10 +1093,18 @@ func TestProductionManualRollbackNeverRestoresDatabaseAndPreservesOnlineWrites(t
 	if fixture.runner.onlineWriteCount != writesAfterBackup {
 		t.Fatalf("manual rollback lost online writes: got=%d want=%d", fixture.runner.onlineWriteCount, writesAfterBackup)
 	}
+	jointPackageRollback := false
 	for _, command := range fixture.runner.commands[commandsBeforeRollback:] {
 		if filepath.Base(command.Name) == "pg_restore" {
 			t.Fatalf("manual rollback invoked pg_restore: %#v", command)
 		}
+		if command.Name == commandRunuser && len(command.Args) == 9 && command.Args[3] == "/usr/bin/paru" &&
+			command.Args[4] == "-U" && command.Args[7] == fixture.options.GoRollbackPackage && command.Args[8] == fixture.options.WebRollbackPackage {
+			jointPackageRollback = true
+		}
+	}
+	if !jointPackageRollback {
+		t.Fatal("manual rollback did not install backend and Web rollback packages in one transaction")
 	}
 }
 

@@ -10,10 +10,14 @@ import (
 	"regexp"
 )
 
-var routeContractVersionPattern = regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\n$`)
+var (
+	routeContractVersionPattern  = regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\n$`)
+	routeContractRevisionPattern = regexp.MustCompile(`^[0-9a-f]{64}\n$`)
+)
 
 type routeContractRuntime struct {
-	versionPath string
+	versionPath  string
+	revisionPath string
 }
 
 func runDeployContract(args []string, stdout, stderr io.Writer) int {
@@ -21,7 +25,10 @@ func runDeployContract(args []string, stdout, stderr io.Writer) int {
 		writeDeployContractUsage(stderr)
 		return ExitUsage
 	}
-	runtime := routeContractRuntime{versionPath: filepath.Join("contracts", "api-route", "VERSION")}
+	runtime := routeContractRuntime{
+		versionPath:  filepath.Join("contracts", "api-route", "VERSION"),
+		revisionPath: "/usr/share/doc/lmm-api-go-bin/API_ROUTE_CONTRACT_REVISION",
+	}
 	if err := runtime.run(args[1:], stdout); err != nil {
 		_, _ = fmt.Fprintf(stderr, "%s deploy contract route: %v\n", ProgramName, err)
 		return ExitError
@@ -38,6 +45,9 @@ func writeDeployContractUsage(output io.Writer) {
 
 func (runtime routeContractRuntime) revision() (string, error) {
 	info, err := os.Lstat(runtime.versionPath)
+	if errors.Is(err, os.ErrNotExist) && runtime.revisionPath != "" {
+		return readPackagedRouteContractRevision(runtime.revisionPath)
+	}
 	if err != nil {
 		return "", fmt.Errorf("contract version is missing: %w", err)
 	}
@@ -53,6 +63,24 @@ func (runtime routeContractRuntime) revision() (string, error) {
 	}
 	digest := sha256.Sum256(value)
 	return fmt.Sprintf("%x", digest[:]), nil
+}
+
+func readPackagedRouteContractRevision(path string) (string, error) {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return "", fmt.Errorf("packaged contract revision is missing: %w", err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		return "", errors.New("packaged contract revision must be a non-symlink regular file")
+	}
+	value, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	if !routeContractRevisionPattern.Match(value) {
+		return "", errors.New("packaged contract revision is malformed")
+	}
+	return string(value[:len(value)-1]), nil
 }
 
 func (runtime routeContractRuntime) run(args []string, stdout io.Writer) error {
