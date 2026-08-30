@@ -358,7 +358,7 @@ func (runner *fakeProductionRunner) runuser(args []string) ([]byte, error) {
 		}
 		return []byte(commandPacman + " --upgrade --noconfirm -- " + args[11] + "\n"), nil
 	}
-	if len(args) < 8 || args[3] != "/usr/bin/paru" || args[4] != "-U" || args[5] != "--noconfirm" || args[6] != "--" {
+	if len(args) != 8 || args[3] != "/usr/bin/paru" || args[4] != "-U" || args[5] != "--noconfirm" || args[6] != "--" {
 		return nil, fmt.Errorf("unsafe runuser invocation: %v", args)
 	}
 	for _, path := range args[7:] {
@@ -1093,18 +1093,17 @@ func TestProductionManualRollbackNeverRestoresDatabaseAndPreservesOnlineWrites(t
 	if fixture.runner.onlineWriteCount != writesAfterBackup {
 		t.Fatalf("manual rollback lost online writes: got=%d want=%d", fixture.runner.onlineWriteCount, writesAfterBackup)
 	}
-	jointPackageRollback := false
+	rollbackPackages := make([]string, 0, 2)
 	for _, command := range fixture.runner.commands[commandsBeforeRollback:] {
 		if filepath.Base(command.Name) == "pg_restore" {
 			t.Fatalf("manual rollback invoked pg_restore: %#v", command)
 		}
-		if command.Name == commandRunuser && len(command.Args) == 9 && command.Args[3] == "/usr/bin/paru" &&
-			command.Args[4] == "-U" && command.Args[7] == fixture.options.GoRollbackPackage && command.Args[8] == fixture.options.WebRollbackPackage {
-			jointPackageRollback = true
+		if command.Name == commandRunuser && len(command.Args) == 8 && command.Args[3] == "/usr/bin/paru" && command.Args[4] == "-U" {
+			rollbackPackages = append(rollbackPackages, command.Args[7])
 		}
 	}
-	if !jointPackageRollback {
-		t.Fatal("manual rollback did not install backend and Web rollback packages in one transaction")
+	if !slices.Equal(rollbackPackages, []string{fixture.options.WebRollbackPackage, fixture.options.GoRollbackPackage}) {
+		t.Fatalf("rollback package order=%v", rollbackPackages)
 	}
 }
 

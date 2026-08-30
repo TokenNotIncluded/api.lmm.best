@@ -228,17 +228,11 @@ func (runtime *productionRuntime) preflightParuInstall(ctx context.Context, work
 	return nil
 }
 
-func (runtime *productionRuntime) paruInstall(ctx context.Context, workspace productionWorkspace, userName string, packagePaths ...string) error {
-	if len(packagePaths) == 0 {
-		return errors.New("paru install requires at least one package")
+func (runtime *productionRuntime) paruInstall(ctx context.Context, workspace productionWorkspace, userName, packagePath string) error {
+	if err := runtime.preflightParuInstall(ctx, workspace, userName, packagePath); err != nil {
+		return err
 	}
-	for _, packagePath := range packagePaths {
-		if err := runtime.preflightParuInstall(ctx, workspace, userName, packagePath); err != nil {
-			return err
-		}
-	}
-	args := []string{"--user", userName, "--", runtime.paths.ParuBinary, "-U", "--noconfirm", "--"}
-	args = append(args, packagePaths...)
+	args := []string{"--user", userName, "--", runtime.paths.ParuBinary, "-U", "--noconfirm", "--", packagePath}
 	_, err := runtime.runner.Run(ctx, productionCommand{Name: commandRunuser, Args: args, Timeout: 5 * time.Minute})
 	return err
 }
@@ -1053,12 +1047,13 @@ func (runtime *productionRuntime) rollback(ctx context.Context, workspace produc
 		if err := runtime.prepareLegacyProviderRollback(manifest); err != nil {
 			return fail(err)
 		}
-		rollbackPackages := []string{manifest.Go.RollbackPath}
 		if manifest.Web.Changed {
-			rollbackPackages = append(rollbackPackages, manifest.Web.RollbackPath)
+			if err := runtime.paruInstall(ctx, workspace, manifest.OperatorUser, manifest.Web.RollbackPath); err != nil {
+				return fail(fmt.Errorf("install rollback Web package before legacy backend: %w", err))
+			}
 		}
-		if err := runtime.paruInstall(ctx, workspace, manifest.OperatorUser, rollbackPackages...); err != nil {
-			return fail(fmt.Errorf("install rollback packages: %w", err))
+		if err := runtime.paruInstall(ctx, workspace, manifest.OperatorUser, manifest.Go.RollbackPath); err != nil {
+			return fail(fmt.Errorf("install rollback backend package: %w", err))
 		}
 		if err := runtime.restoreConfiguration(workspace, manifest); err != nil {
 			return fail(err)
