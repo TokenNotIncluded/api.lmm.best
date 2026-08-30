@@ -37,6 +37,8 @@ type fakeProductionRunner struct {
 	serviceActive, timerActive, rollbackServiceActive           bool
 	migrationFailure, rollbackMigrationFailure, failTimerEnable bool
 	invalidCandidateEdgePolicy, alteredCandidatePackage         bool
+	legacyDeployInstalled, alteredLegacyDeployPackage           bool
+	legacyDeployBinary                                          string
 	sudoFailure, restartOnEnable, restartOnWebInstall           bool
 	restartOnRequestAfterBaseline, restartBaselineRead          bool
 	cancelOnStop                                                context.CancelFunc
@@ -283,7 +285,11 @@ func (runner *fakeProductionRunner) pacman(args []string) ([]byte, error) {
 		if len(args) != 1 {
 			return nil, errors.New("invalid pacman package-list arguments")
 		}
-		return []byte(productionAURPackageName + "\n" + productionWebPackageName + "\n" + productionOperatorPackageName + "\n"), nil
+		installed := productionAURPackageName + "\n" + productionWebPackageName + "\n"
+		if runner.legacyDeployInstalled {
+			installed += "lmm-api-deploy-bin\n"
+		}
+		return []byte(installed), nil
 	case "-Qqo":
 		if len(args) != 3 || args[1] != "--" {
 			return nil, errors.New("invalid pacman owner arguments")
@@ -296,11 +302,17 @@ func (runner *fakeProductionRunner) pacman(args []string) ([]byte, error) {
 		}
 		return []byte(name + " " + version + "\n"), nil
 	case "-Qkk":
+		if runner.alteredLegacyDeployPackage && args[1] == "lmm-api-deploy-bin" {
+			return []byte(args[1] + ": 25 total files, 1 altered file\n"), nil
+		}
 		if runner.alteredCandidatePackage && args[1] == productionAURPackageName && runner.installedGoVersion == runner.newVersion {
 			return []byte(args[1] + ": 42 total files, 1 altered file\n"), nil
 		}
 		return []byte(args[1] + ": 42 total files, 0 altered files\n"), nil
 	case "-Qo":
+		if runner.legacyDeployInstalled && args[1] == runner.legacyDeployBinary {
+			return []byte(args[1] + " is owned by lmm-api-deploy-bin 0.1.51-1\n"), nil
+		}
 		if args[1] == productionOperatorBinary {
 			return []byte(productionOperatorBinary + " is owned by " + productionOperatorPackageName + " 1.0.0-1\n"), nil
 		}
@@ -309,6 +321,15 @@ func (runner *fakeProductionRunner) pacman(args []string) ([]byte, error) {
 		return []byte("Name : " + productionAURPackageName + "\nVersion : " + runner.installedGoVersion + "-1\n"), nil
 	case "-U":
 		return nil, errors.New("direct pacman -U is forbidden")
+	case "--remove":
+		if len(args) != 4 || args[1] != "--noconfirm" || args[2] != "--" || args[3] != "lmm-api-deploy-bin" || !runner.legacyDeployInstalled {
+			return nil, errors.New("invalid legacy package removal")
+		}
+		runner.legacyDeployInstalled = false
+		if err := os.Remove(runner.legacyDeployBinary); err != nil {
+			return nil, err
+		}
+		return nil, nil
 	}
 	return nil, fmt.Errorf("unexpected pacman arguments: %v", args)
 }
@@ -1292,6 +1313,62 @@ func TestRetireContractlessMemoryDropInForPackageAdoption(t *testing.T) {
 	if _, err := os.Stat(path); err != nil {
 		t.Fatalf("unknown drop-in was removed: %v", err)
 	}
+}
+
+func TestRemoveLegacyDeployPackageForProviderMigrationIsExactAndFailClosed(t *testing.T) {
+	newRuntime := func(t *testing.T, version string, installed, altered bool) (*productionRuntime, *fakeProductionRunner, string) {
+		t.Helper()
+		legacyBinary := filepath.Join(t.TempDir(), "lmm-api-deploy")
+		if err := os.WriteFile(legacyBinary, []byte("legacy operator\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		runner := &fakeProductionRunner{
+			t:                          t,
+			installedGoVersion:         version,
+			legacyDeployInstalled:      installed,
+			alteredLegacyDeployPackage: altered,
+			legacyDeployBinary:         legacyBinary,
+		}
+		return &productionRuntime{runner: runner, paths: productionPaths{LegacyDeployBinary: legacyBinary}}, runner, legacyBinary
+	}
+	candidate := productionPackageMetadata{Name: productionAURPackageName, Version: "0.2.7-1"}
+
+	t.Run("verified-package", func(t *testing.T) {
+		runtime, runner, legacyBinary := newRuntime(t, "0.1.69", true, false)
+		if err := runtime.removeLegacyDeployPackageForProviderMigration(context.Background(), candidate); err != nil {
+			t.Fatalf("verified migration removal failed: %v", err)
+		}
+		if runner.legacyDeployInstalled {
+			t.Fatal("legacy package remains installed")
+		}
+		if _, err := os.Lstat(legacyBinary); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("legacy binary remains: %v", err)
+		}
+	})
+	t.Run("wrong-rollback-floor", func(t *testing.T) {
+		runtime, _, legacyBinary := newRuntime(t, "0.1.68", true, false)
+		if err := runtime.removeLegacyDeployPackageForProviderMigration(context.Background(), candidate); err == nil || !strings.Contains(err.Error(), "rollback floor") {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if _, err := os.Lstat(legacyBinary); err != nil {
+			t.Fatalf("legacy package mutated after rejection: %v", err)
+		}
+	})
+	t.Run("altered-package", func(t *testing.T) {
+		runtime, _, legacyBinary := newRuntime(t, "0.1.69", true, true)
+		if err := runtime.removeLegacyDeployPackageForProviderMigration(context.Background(), candidate); err == nil || !strings.Contains(err.Error(), "integrity") {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if _, err := os.Lstat(legacyBinary); err != nil {
+			t.Fatalf("altered package was mutated: %v", err)
+		}
+	})
+	t.Run("unowned-binary", func(t *testing.T) {
+		runtime, _, _ := newRuntime(t, "0.1.69", false, false)
+		if err := runtime.removeLegacyDeployPackageForProviderMigration(context.Background(), candidate); err == nil || !strings.Contains(err.Error(), "unowned") {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
 }
 
 func TestVerifyCanonicalOperatorAcceptsOnlyExactLegacyMigrationLayout(t *testing.T) {

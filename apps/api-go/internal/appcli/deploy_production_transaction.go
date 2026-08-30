@@ -310,6 +310,80 @@ func (runtime *productionRuntime) verifyManifestInstalled(ctx context.Context, m
 	return runtime.verifyTransitionInstalled(ctx, manifest.Web, rollback, false)
 }
 
+func (runtime *productionRuntime) validateLegacyDeployPackageForProviderMigration(ctx context.Context, candidate productionPackageMetadata) (string, error) {
+	listed, err := runtime.runner.Run(ctx, productionCommand{Name: commandPacman, Args: []string{"-Qq"}, Env: append(os.Environ(), "LC_ALL=C")})
+	if err != nil {
+		return "", fmt.Errorf("list installed packages before provider migration: %w", err)
+	}
+	legacyNames := map[string]bool{"lmm-api-deploy": true, "lmm-api-deploy-bin": true}
+	installedLegacy := ""
+	for _, name := range strings.Fields(string(listed)) {
+		if !legacyNames[name] {
+			continue
+		}
+		if installedLegacy != "" && installedLegacy != name {
+			return "", errors.New("multiple legacy deployment packages are installed")
+		}
+		installedLegacy = name
+	}
+	if installedLegacy == "" {
+		if _, err := os.Lstat(runtime.paths.LegacyDeployBinary); err == nil || !errors.Is(err, os.ErrNotExist) {
+			return "", errors.New("unowned legacy deployment CLI remains before provider migration")
+		}
+		return "", nil
+	}
+	if candidate.Name != productionAURPackageName || candidate.Version == "0.1.69-1" {
+		return "", errors.New("legacy deployment package removal requires the new provider package")
+	}
+	installedName, installedIdentity, err := runtime.installedGoPackage(ctx)
+	if err != nil || installedName != productionAURPackageName || installedIdentity != productionAURPackageName+" 0.1.69-1" {
+		return "", errors.New("legacy deployment package removal requires the exact integrated rollback floor")
+	}
+	for _, path := range []string{
+		"/etc/sudoers.d/lmm-api-operator",
+		"/usr/lib/sysusers.d/lmm-api-operator.conf",
+		"/usr/lib/tmpfiles.d/lmm-api-operator.conf",
+	} {
+		ownership, err := runtime.runner.Run(ctx, productionCommand{Name: commandPacman, Args: []string{"-Qo", path}, Env: append(os.Environ(), "LC_ALL=C")})
+		if err != nil || strings.TrimSpace(string(ownership)) != path+" is owned by "+installedIdentity {
+			return "", errors.New("integrated rollback floor does not own operator resources")
+		}
+	}
+	ownership, err := runtime.runner.Run(ctx, productionCommand{Name: commandPacman, Args: []string{"-Qo", runtime.paths.LegacyDeployBinary}, Env: append(os.Environ(), "LC_ALL=C")})
+	expectedOwnership := runtime.paths.LegacyDeployBinary + " is owned by " + installedLegacy + " "
+	if err != nil || !strings.HasPrefix(strings.TrimSpace(string(ownership)), expectedOwnership) {
+		return "", errors.New("legacy deployment CLI ownership is invalid")
+	}
+	integrity, err := runtime.runner.Run(ctx, productionCommand{Name: commandPacman, Args: []string{"-Qkk", installedLegacy}, Env: append(os.Environ(), "LC_ALL=C")})
+	if err != nil || !packageIntegrityClean(integrity, installedLegacy) {
+		return "", errors.New("legacy deployment package integrity check failed")
+	}
+	return installedLegacy, nil
+}
+
+func (runtime *productionRuntime) removeLegacyDeployPackageForProviderMigration(ctx context.Context, candidate productionPackageMetadata) error {
+	installedLegacy, err := runtime.validateLegacyDeployPackageForProviderMigration(ctx, candidate)
+	if err != nil || installedLegacy == "" {
+		return err
+	}
+	if _, err := runtime.runner.Run(ctx, productionCommand{Name: commandPacman, Args: []string{"--remove", "--noconfirm", "--", installedLegacy}, Timeout: 2 * time.Minute}); err != nil {
+		return fmt.Errorf("remove legacy deployment package for provider migration: %w", err)
+	}
+	if _, err := os.Lstat(runtime.paths.LegacyDeployBinary); err == nil || !errors.Is(err, os.ErrNotExist) {
+		return errors.New("legacy deployment CLI remains after package removal")
+	}
+	listed, err := runtime.runner.Run(ctx, productionCommand{Name: commandPacman, Args: []string{"-Qq"}, Env: append(os.Environ(), "LC_ALL=C")})
+	if err != nil {
+		return fmt.Errorf("verify installed packages after provider migration cleanup: %w", err)
+	}
+	for _, name := range strings.Fields(string(listed)) {
+		if name == "lmm-api-deploy" || name == "lmm-api-deploy-bin" {
+			return errors.New("legacy deployment package remains after removal")
+		}
+	}
+	return nil
+}
+
 func (runtime *productionRuntime) verifyTransitionCLI(transition productionPackageTransition, rollback bool) error {
 	name, identity := transition.CandidatePackageName, transition.CandidateIdentity
 	if rollback {
@@ -683,6 +757,9 @@ func (runtime *productionRuntime) apply(ctx context.Context, workspace productio
 		return productionStatus{}, err
 	}
 	if manifest.Go.Changed {
+		if err := runtime.removeLegacyDeployPackageForProviderMigration(ctx, goCandidate); err != nil {
+			return productionStatus{}, err
+		}
 		if _, err := runtime.runner.Run(ctx, productionCommand{Name: commandSystemctl, Args: []string{"stop", runtime.paths.Service}}); err != nil {
 			return productionStatus{}, fmt.Errorf("stop current Go service: %w", err)
 		}
