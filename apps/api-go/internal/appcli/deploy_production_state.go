@@ -553,6 +553,13 @@ func (runtime *productionRuntime) packageMetadata(ctx context.Context, packagePa
 }
 
 func (runtime *productionRuntime) verifyCanonicalOperator(ctx context.Context) error {
+	currentTarget, err := providerLinkState(runtime.paths.InstalledBinary)
+	if err != nil {
+		return fmt.Errorf("canonical deployment operator link is invalid: %w", err)
+	}
+	if currentTarget == "legacy-regular" {
+		return runtime.verifyLegacyCanonicalOperator(ctx)
+	}
 	selector := backendRuntime{
 		paths: backendPaths{
 			Canonical: runtime.paths.InstalledBinary,
@@ -576,6 +583,29 @@ func (runtime *productionRuntime) verifyCanonicalOperator(ctx context.Context) e
 	}
 	integrity, err := runtime.runner.Run(ctx, productionCommand{Name: commandPacman, Args: []string{"-Qkk", provider.Package}, Env: append(os.Environ(), "LC_ALL=C")})
 	if err != nil || !packageIntegrityClean(integrity, provider.Package) {
+		return errors.New("canonical deployment operator package integrity check failed")
+	}
+	return nil
+}
+
+func (runtime *productionRuntime) verifyLegacyCanonicalOperator(ctx context.Context) error {
+	canonical, canonicalErr := os.Lstat(runtime.paths.InstalledBinary)
+	provider, providerErr := os.Lstat(runtime.paths.LegacyGoBinary)
+	target, targetErr := os.Readlink(runtime.paths.LegacyGoBinary)
+	if canonicalErr != nil || !canonical.Mode().IsRegular() || canonical.Mode()&0o111 == 0 || canonical.Mode().Perm()&0o022 != 0 ||
+		providerErr != nil || provider.Mode()&os.ModeSymlink == 0 || targetErr != nil || target != filepath.Base(runtime.paths.InstalledBinary) {
+		return errors.New("canonical deployment operator legacy layout is invalid")
+	}
+	identity, err := runtime.runner.Run(ctx, productionCommand{Name: commandPacman, Args: []string{"-Q", productionAURPackageName}, Env: append(os.Environ(), "LC_ALL=C")})
+	if err != nil {
+		return errors.New("canonical deployment operator package identity is unavailable")
+	}
+	metadata, err := parseNamedPackageIdentity(identity, productionAURPackageName)
+	if err != nil || metadata.Version != "0.1.69-1" {
+		return errors.New("canonical deployment operator legacy package identity is invalid")
+	}
+	integrity, err := runtime.runner.Run(ctx, productionCommand{Name: commandPacman, Args: []string{"-Qkk", productionAURPackageName}, Env: append(os.Environ(), "LC_ALL=C")})
+	if err != nil || !packageIntegrityClean(integrity, productionAURPackageName) {
 		return errors.New("canonical deployment operator package integrity check failed")
 	}
 	return nil

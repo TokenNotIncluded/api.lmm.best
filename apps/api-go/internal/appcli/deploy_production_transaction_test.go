@@ -1294,6 +1294,60 @@ func TestRetireContractlessMemoryDropInForPackageAdoption(t *testing.T) {
 	}
 }
 
+func TestVerifyCanonicalOperatorAcceptsOnlyExactLegacyMigrationLayout(t *testing.T) {
+	newRuntime := func(t *testing.T, version string) (*productionRuntime, string, string) {
+		t.Helper()
+		root := t.TempDir()
+		canonical := filepath.Join(root, "lmm-api")
+		provider := filepath.Join(root, "lmm-api-go")
+		if err := os.WriteFile(canonical, []byte("legacy provider\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(filepath.Base(canonical), provider); err != nil {
+			t.Fatal(err)
+		}
+		runner := &fakeProductionRunner{t: t, installedGoVersion: version}
+		return &productionRuntime{
+			runner: runner,
+			paths:  productionPaths{InstalledBinary: canonical, LegacyGoBinary: provider},
+		}, canonical, provider
+	}
+
+	t.Run("exact-0.1.69-layout", func(t *testing.T) {
+		runtime, _, _ := newRuntime(t, "0.1.69")
+		if err := runtime.verifyCanonicalOperator(context.Background()); err != nil {
+			t.Fatalf("exact legacy migration layout rejected: %v", err)
+		}
+	})
+	t.Run("other-version", func(t *testing.T) {
+		runtime, _, _ := newRuntime(t, "0.1.68")
+		if err := runtime.verifyCanonicalOperator(context.Background()); err == nil || !strings.Contains(err.Error(), "legacy package identity") {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	t.Run("writable-canonical", func(t *testing.T) {
+		runtime, canonical, _ := newRuntime(t, "0.1.69")
+		if err := os.Chmod(canonical, 0o775); err != nil {
+			t.Fatal(err)
+		}
+		if err := runtime.verifyCanonicalOperator(context.Background()); err == nil || !strings.Contains(err.Error(), "legacy layout") {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	t.Run("wrong-reverse-link", func(t *testing.T) {
+		runtime, _, provider := newRuntime(t, "0.1.69")
+		if err := os.Remove(provider); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink("lmm-api-rs", provider); err != nil {
+			t.Fatal(err)
+		}
+		if err := runtime.verifyCanonicalOperator(context.Background()); err == nil || !strings.Contains(err.Error(), "legacy layout") {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+}
+
 func TestPackageIntegritySummaryIsExact(t *testing.T) {
 	name := productionAURPackageName
 	for _, test := range []struct {
