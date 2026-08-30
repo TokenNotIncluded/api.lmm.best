@@ -24,7 +24,7 @@ import {
   WalletCardsIcon,
 } from '@hugeicons/core-free-icons'
 import { HugeiconsIcon } from '@hugeicons/react'
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -173,25 +173,34 @@ export function RechargeFormCard({
   const { t, i18n } = useTranslation()
   const formatPlatformCreditBalance = (amount: number) =>
     formatPlatformCreditBalanceBase(amount, t('Platform'))
-  const [localAmount, setLocalAmount] = useState(topupAmount.toString())
+  const [amountInput, setAmountInput] = useState(() => ({
+    sourceAmount: topupAmount,
+    value: topupAmount.toString(),
+  }))
+  const localAmount =
+    amountInput.sourceAmount === topupAmount
+      ? amountInput.value
+      : topupAmount.toString()
   const [localWaffoPancakeRegionOverride, setLocalWaffoPancakeRegion] =
     useState<WaffoPancakeCheckoutRegion | null>(null)
 
-  useEffect(() => {
-    // Empty string must survive, otherwise the field can never be cleared
-    setLocalAmount((prev) =>
-      prev === '' && topupAmount === 0 ? prev : topupAmount.toString()
-    )
-  }, [topupAmount])
-
   const handleAmountChange = (value: string) => {
-    setLocalAmount(value)
     const parsedValue = Number.parseInt(value, 10)
     if (Number.isFinite(parsedValue) && parsedValue >= 0) {
+      setAmountInput({ sourceAmount: parsedValue, value })
       onTopupAmountChange(parsedValue)
     } else if (value === '') {
+      setAmountInput({ sourceAmount: 0, value })
       onTopupAmountChange(0)
     }
+  }
+
+  const handlePresetSelect = (preset: PresetAmount) => {
+    setAmountInput({
+      sourceAmount: preset.value,
+      value: preset.value.toString(),
+    })
+    onSelectPreset(preset)
   }
 
   const topupAvailability =
@@ -265,9 +274,15 @@ export function RechargeFormCard({
     setLocalWaffoPancakeRegion(value)
     onWaffoPancakeCheckoutRegionChange?.(value)
   }
+  const activeSelectedPreset =
+    selectedPreset !== null && selectedPreset === topupAmount
+      ? selectedPreset
+      : null
   const selectedPresetPricing = (() => {
-    if (selectedPreset === null) return null
-    const preset = presetAmounts.find((item) => item.value === selectedPreset)
+    if (activeSelectedPreset === null) return null
+    const preset = presetAmounts.find(
+      (item) => item.value === activeSelectedPreset
+    )
     if (!preset) return null
     const discount =
       preset.discount || topupInfo?.discount?.[preset.value] || 1.0
@@ -464,12 +479,12 @@ export function RechargeFormCard({
                             variant='outline'
                             className={cn(
                               'flex min-h-32 min-w-0 flex-col items-start rounded-lg px-3 py-2.5 text-left whitespace-normal sm:min-h-24 sm:p-4',
-                              selectedPreset === preset.value
+                              activeSelectedPreset === preset.value
                                 ? 'border-primary bg-primary/5'
                                 : 'border-muted'
                             )}
-                            onClick={() => onSelectPreset(preset)}
-                            aria-pressed={selectedPreset === preset.value}
+                            onClick={() => handlePresetSelect(preset)}
+                            aria-pressed={activeSelectedPreset === preset.value}
                             aria-label={t(
                               'Preset amount: {{credit}}. Actual payment: {{payment}}. Original payment: {{original}}. {{discount}}',
                               {
@@ -507,7 +522,7 @@ export function RechargeFormCard({
                               'The amount shown on each card is the platform credit. The actual payment and any discount are calculated for the selected payment method.'
                             )}
                           </p>
-                          {selectedPreset !== null && (
+                          {selectedPresetPricing && (
                             <>
                               <p className='text-muted-foreground'>
                                 {t(
@@ -515,15 +530,15 @@ export function RechargeFormCard({
                                   {
                                     method: selectedPaymentMethodName,
                                     amount: formatPresetPaymentAmount(
-                                      selectedPresetPricing?.actualPrice ?? 0
+                                      selectedPresetPricing.actualPrice
                                     ),
                                     original: formatPresetPaymentAmount(
-                                      selectedPresetPricing?.originalPrice ?? 0
+                                      selectedPresetPricing.originalPrice
                                     ),
                                   }
                                 )}
                               </p>
-                              {selectedPresetPricing?.hasDiscount && (
+                              {selectedPresetPricing.hasDiscount && (
                                 <p className='text-muted-foreground'>
                                   {t('Discount applied {{amount}}', {
                                     amount: formatPresetPaymentAmount(

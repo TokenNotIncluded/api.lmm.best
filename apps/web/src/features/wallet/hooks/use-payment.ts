@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import i18next from 'i18next'
-import { useState, useCallback } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { toast } from 'sonner'
 
 import { isLocalPreview } from '@/lib/local-preview'
@@ -119,11 +119,14 @@ export function usePayment() {
   const [amount, setAmount] = useState<number>(0)
   const [calculating, setCalculating] = useState(false)
   const [processing, setProcessing] = useState(false)
+  const amountRequestIdRef = useRef(0)
   const localPreview = isLocalPreview()
 
-  // Calculate payment amount
+  // Calculate payment amount. Only the newest request may update the quote;
+  // slower responses for an earlier amount must not overwrite current state.
   const calculatePaymentAmount = useCallback(
     async (topupAmount: number, paymentType: string, discountCode = '') => {
+      const requestId = ++amountRequestIdRef.current
       if (localPreview) {
         setAmount(topupAmount)
         return topupAmount
@@ -136,13 +139,19 @@ export function usePayment() {
           paymentType,
           discountCode
         )
-        setAmount(calculatedAmount)
+        if (requestId === amountRequestIdRef.current) {
+          setAmount(calculatedAmount)
+        }
         return calculatedAmount
       } catch {
-        setAmount(0)
+        if (requestId === amountRequestIdRef.current) {
+          setAmount(0)
+        }
         return 0
       } finally {
-        setCalculating(false)
+        if (requestId === amountRequestIdRef.current) {
+          setCalculating(false)
+        }
       }
     },
     [localPreview]

@@ -70,6 +70,7 @@ await i18n.use(initReactI18next).init({
   },
 })
 
+const { useEffect } = await import('react')
 const { RechargeFormCard } = await import('./recharge-form-card')
 const { Wallet } = await import('../index')
 const { useTopupInfo } = await import('../hooks/use-topup-info')
@@ -98,8 +99,10 @@ async function flushEffects() {
 let latestTopupState: ReturnType<typeof useTopupInfo> | null = null
 
 function TopupInfoProbe() {
-  latestTopupState = useTopupInfo()
-  const state = latestTopupState
+  const state = useTopupInfo()
+  useEffect(() => {
+    latestTopupState = state
+  }, [state])
   return (
     <div>
       {state.loading
@@ -806,7 +809,7 @@ describe('wallet payment clarity', () => {
     await unmount(rendered)
   })
 
-  test('keeps all eight Chinese presets and payment details inside a 390px viewport', async () => {
+  test('keeps all eight Chinese presets in a 390px viewport without showing stale preset details', async () => {
     await i18n.changeLanguage('zh')
     setCnyBillingCurrency()
     const rendered = await render(
@@ -861,12 +864,18 @@ describe('wallet payment clarity', () => {
       rendered.container.textContent?.includes(
         '所选方式：Alipay · 预计支付：432 CNY（原价 540 CNY）'
       ),
-      true
+      false
+    )
+    assert.equal(
+      cards
+        .find((card) => card.textContent?.includes('$100 (平台)'))
+        ?.getAttribute('aria-pressed'),
+      'false'
     )
     assert.equal(rendered.container.textContent?.includes('平台优惠 20%'), true)
     assert.equal(
       rendered.container.textContent?.includes('已优惠 108 CNY'),
-      true
+      false
     )
     assert.equal(
       rendered.container.textContent?.includes(
