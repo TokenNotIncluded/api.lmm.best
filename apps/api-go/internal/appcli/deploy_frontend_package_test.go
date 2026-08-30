@@ -107,6 +107,40 @@ func TestFrontendPackageActivatePublishesThroughManualState(t *testing.T) {
 	}
 }
 
+func TestFrontendPackageActivateRetriesConfirmedReleaseAfterExplicitRollback(t *testing.T) {
+	fixture := newFrontendPackageFixture(t)
+	confirmed, err := fixture.runtime.activate(context.Background(), fixture.options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	previous := "0.1.50-1.g" + strings.Repeat("b", 12)
+	previousRoot := filepath.Join(fixture.options.Root, "releases", previous)
+	if err := os.MkdirAll(previousRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(previousRoot, "index.html"), []byte("previous\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := switchFrontendCurrent(fixture.options.Root, previous); err != nil {
+		t.Fatal(err)
+	}
+
+	retried, err := fixture.runtime.activate(context.Background(), fixture.options)
+	if err != nil {
+		t.Fatalf("confirmed release retry failed: %v", err)
+	}
+	if retried.Phase != "CONFIRMED" || retried.Release != confirmed.Release {
+		t.Fatalf("retry state=%+v", retried)
+	}
+	current, err := currentFrontendRelease(fixture.options.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current != confirmed.Release {
+		t.Fatalf("current=%q want %q", current, confirmed.Release)
+	}
+}
+
 func TestFrontendPackageActivateFailureRequiresExplicitRollback(t *testing.T) {
 	fixture := newFrontendPackageFixture(t)
 	fixture.runner.failPrefix = "systemctl reload"

@@ -205,7 +205,13 @@ func (runtime frontendPackageRuntime) activate(ctx context.Context, options fron
 			if err == nil && current == release {
 				return existing, nil
 			}
-			return state, errors.New("confirmed frontend transaction does not match the active release")
+			if err != nil && !errors.Is(err, os.ErrNotExist) {
+				return state, fmt.Errorf("read active frontend before confirmed retry: %w", err)
+			}
+			// An explicit production rollback can restore the previous current
+			// link while retaining this immutable release and its confirmed state.
+			// Re-enter the normal digest and nginx gates instead of permanently
+			// blocking a later deployment of the same signed package.
 		}
 		if existing.Phase == "ROLLBACK_REQUIRED" {
 			return existing, errors.New("frontend transaction requires explicit rollback")
