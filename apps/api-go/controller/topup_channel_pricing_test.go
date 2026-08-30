@@ -344,6 +344,7 @@ func TestGetTopUpInfoPreservesCanonicalFXMetadata(t *testing.T) {
 	preserveChannelPricing(t)
 	setupTopupInfoUser(t, 303, "default")
 	operation_setting.USDExchangeRate = 6.8
+	operation_setting.TopUpPlatformUnitsPerCNY = 1.1
 	operation_setting.GetGeneralSetting().QuotaDisplayType =
 		operation_setting.QuotaDisplayTypeCNY
 	operation_setting.PayMethods = []map[string]string{
@@ -368,7 +369,7 @@ func TestGetTopUpInfoPreservesCanonicalFXMetadata(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &response))
 	require.Len(t, response.Data.PayMethods, 1)
 	require.Equal(t, "CNY", response.Data.PayMethods[0]["settlement_currency"])
-	require.Equal(t, "6.8", response.Data.PayMethods[0]["platform_units_per_usd"])
+	require.Equal(t, "7.48", response.Data.PayMethods[0]["platform_units_per_usd"])
 	require.Equal(t, "6.8", response.Data.PayMethods[0]["settlement_units_per_usd"])
 }
 
