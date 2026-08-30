@@ -879,13 +879,20 @@ func CreateWaffoPancakeProductForPlan(ctx context.Context, merchantID, privateKe
 	return productID, nil
 }
 
-// CreateWaffoPancakePrimaryProduct mints a live wallet-top-up
-// OnetimeProduct under storeID. Per-checkout price overrides via PriceSnapshot
-// are what make the "1.00" seed price irrelevant at runtime.
-func CreateWaffoPancakePrimaryProduct(ctx context.Context, merchantID, privateKey, storeID, returnURL string) (string, error) {
+// CreateWaffoPancakeOneTimeProductForPlan mints a live one-time product for
+// a plan. Checkout freezes the same settlement amount in its price snapshot.
+func CreateWaffoPancakeOneTimeProductForPlan(ctx context.Context, merchantID, privateKey, storeID, name, amount, returnURL string) (string, error) {
 	storeID = strings.TrimSpace(storeID)
 	if storeID == "" {
 		return "", fmt.Errorf("store id is required to create a product")
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return "", fmt.Errorf("plan name is required")
+	}
+	parsedAmount, err := decimal.NewFromString(strings.TrimSpace(amount))
+	if err != nil || !parsedAmount.IsPositive() {
+		return "", fmt.Errorf("plan price must be positive")
 	}
 	client, err := newWaffoPancakeClientFromCreds(merchantID, privateKey)
 	if err != nil {
@@ -893,23 +900,41 @@ func CreateWaffoPancakePrimaryProduct(ctx context.Context, merchantID, privateKe
 	}
 	prodRes, err := client.OnetimeProducts.Create(ctx, pancake.CreateOnetimeProductParams{
 		StoreID: storeID,
-		Name:    defaultWaffoPancakeProductName,
+		Name:    name,
 		Prices: pancake.Prices{
 			"USD": {
-				Amount:      "1.00", // overridden at checkout via PriceSnapshot
+				Amount:      parsedAmount.StringFixed(2),
 				TaxCategory: pancake.TaxCategory("saas"),
 			},
 		},
 		SuccessURL: optionalString(strings.TrimSpace(returnURL)),
 	})
 	if err != nil {
-		return "", fmt.Errorf("create Waffo Pancake product: %w", err)
+		return "", fmt.Errorf("create Waffo Pancake one-time product: %w", err)
 	}
-	productID := prodRes.Product.ID
+	productID := strings.TrimSpace(prodRes.Product.ID)
+	if productID == "" {
+		return "", fmt.Errorf("created Waffo Pancake one-time product has no id")
+	}
 	if err := ensureWaffoPancakeProductPublished(ctx, client, productID); err != nil {
-		return "", fmt.Errorf("publish Waffo Pancake product: %w", err)
+		return "", fmt.Errorf("publish Waffo Pancake one-time product: %w", err)
 	}
 	return productID, nil
+}
+
+// CreateWaffoPancakePrimaryProduct mints a live wallet-top-up
+// OnetimeProduct under storeID. Per-checkout price overrides via PriceSnapshot
+// are what make the "1.00" seed price irrelevant at runtime.
+func CreateWaffoPancakePrimaryProduct(ctx context.Context, merchantID, privateKey, storeID, returnURL string) (string, error) {
+	return CreateWaffoPancakeOneTimeProductForPlan(
+		ctx,
+		merchantID,
+		privateKey,
+		storeID,
+		defaultWaffoPancakeProductName,
+		"1.00",
+		returnURL,
+	)
 }
 
 // WaffoPancakePairResult is the response of CreateWaffoPancakePrimaryPair.
@@ -981,6 +1006,7 @@ type WaffoPancakeCatalogProduct struct {
 	Name          string `json:"name"`
 	Status        string `json:"status"`
 	BillingPeriod string `json:"billingPeriod,omitempty"`
+	ProductType   string `json:"product_type,omitempty"`
 }
 
 // WaffoPancakeCatalogStore keeps one-time wallet products and recurring plan
@@ -1097,6 +1123,14 @@ func ListWaffoPancakeCatalog(ctx context.Context, merchantID, privateKey string)
 }
 
 func WaffoPancakeCatalogHasActiveSubscriptionProduct(catalog *WaffoPancakeCatalog, storeID, productID string) bool {
+	return waffoPancakeCatalogHasActiveProduct(catalog, storeID, productID, true)
+}
+
+func WaffoPancakeCatalogHasActiveOneTimeProduct(catalog *WaffoPancakeCatalog, storeID, productID string) bool {
+	return waffoPancakeCatalogHasActiveProduct(catalog, storeID, productID, false)
+}
+
+func waffoPancakeCatalogHasActiveProduct(catalog *WaffoPancakeCatalog, storeID, productID string, subscription bool) bool {
 	if catalog == nil {
 		return false
 	}
@@ -1109,7 +1143,11 @@ func WaffoPancakeCatalogHasActiveSubscriptionProduct(catalog *WaffoPancakeCatalo
 		if strings.TrimSpace(store.ID) != storeID {
 			continue
 		}
-		for _, product := range store.SubscriptionProducts {
+		products := store.OnetimeProducts
+		if subscription {
+			products = store.SubscriptionProducts
+		}
+		for _, product := range products {
 			if strings.TrimSpace(product.ID) == productID && strings.EqualFold(strings.TrimSpace(product.Status), "active") {
 				return true
 			}

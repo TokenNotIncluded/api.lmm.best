@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -272,10 +273,23 @@ type createWaffoPancakeSubscriptionProductRequest struct {
 	Currency      string `json:"currency"`
 	DurationUnit  string `json:"duration_unit"`
 	DurationValue int    `json:"duration_value"`
+	ProductType   string `json:"product_type"`
 }
 
-// CreateWaffoPancakeSubscriptionProduct mints a recurring product. Plan price
-// is real fiat; the server converts its explicit ISO currency to Pancake USD.
+func parseWaffoPancakePlanProductType(value string) (string, error) {
+	productType := strings.ToLower(strings.TrimSpace(value))
+	if productType == "" {
+		return model.WaffoPancakeProductTypeSubscription, nil
+	}
+	if productType != model.WaffoPancakeProductTypeOneTime &&
+		productType != model.WaffoPancakeProductTypeSubscription {
+		return "", fmt.Errorf("Waffo Pancake product type must be one_time or subscription")
+	}
+	return productType, nil
+}
+
+// CreateWaffoPancakeSubscriptionProduct mints a one-time or recurring plan
+// product. The legacy route name remains stable for existing admin clients.
 func CreateWaffoPancakeSubscriptionProduct(c *gin.Context) {
 	var req createWaffoPancakeSubscriptionProductRequest
 	if c.Request.ContentLength > 0 {
@@ -307,9 +321,16 @@ func CreateWaffoPancakeSubscriptionProduct(c *gin.Context) {
 		return
 	}
 	settlementAmount := decimal.NewFromInt(expectedAmountMicros).Shift(-6)
-	if _, err := service.WaffoPancakeBillingPeriodForDuration(req.DurationUnit, req.DurationValue); err != nil {
+	productType, err := parseWaffoPancakePlanProductType(req.ProductType)
+	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": err.Error()})
 		return
+	}
+	if productType == model.WaffoPancakeProductTypeSubscription {
+		if _, err := service.WaffoPancakeBillingPeriodForDuration(req.DurationUnit, req.DurationValue); err != nil {
+			c.JSON(http.StatusOK, gin.H{"message": "error", "data": err.Error()})
+			return
+		}
 	}
 	merchantID, privateKey := resolveWaffoPancakeAdminCreds("", "")
 	storeID := strings.TrimSpace(setting.WaffoPancakeStoreID)
@@ -317,21 +338,34 @@ func CreateWaffoPancakeSubscriptionProduct(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "Waffo Pancake 未完成配置，请先在支付设置中完成网关绑定"})
 		return
 	}
-	productID, err := service.CreateWaffoPancakeProductForPlan(
-		c.Request.Context(),
-		merchantID,
-		privateKey,
-		storeID,
-		req.Name,
-		settlementAmount.StringFixed(2),
-		req.DurationUnit,
-		req.DurationValue,
-		setting.WaffoPancakeReturnURL,
-	)
+	var productID string
+	if productType == model.WaffoPancakeProductTypeOneTime {
+		productID, err = service.CreateWaffoPancakeOneTimeProductForPlan(
+			c.Request.Context(),
+			merchantID,
+			privateKey,
+			storeID,
+			req.Name,
+			settlementAmount.StringFixed(2),
+			setting.WaffoPancakeReturnURL,
+		)
+	} else {
+		productID, err = service.CreateWaffoPancakeProductForPlan(
+			c.Request.Context(),
+			merchantID,
+			privateKey,
+			storeID,
+			req.Name,
+			settlementAmount.StringFixed(2),
+			req.DurationUnit,
+			req.DurationValue,
+			setting.WaffoPancakeReturnURL,
+		)
+	}
 	if err != nil {
 		logger.LogError(c.Request.Context(), fmt.Sprintf(
-			"Waffo Pancake 创建套餐产品失败 store_id=%q name=%q amount=%q error=%q",
-			storeID, req.Name, req.Amount, err.Error(),
+			"Waffo Pancake 创建套餐产品失败 store_id=%q name=%q amount=%q product_type=%q error=%q",
+			storeID, req.Name, req.Amount, productType, err.Error(),
 		))
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "创建套餐产品失败"})
 		return
@@ -344,12 +378,13 @@ func CreateWaffoPancakeSubscriptionProduct(c *gin.Context) {
 			"store_id":            storeID,
 			"settlement_currency": "USD",
 			"settlement_amount":   settlementAmount.StringFixed(2),
+			"product_type":        productType,
 		},
 	})
 }
 
-// ListWaffoPancakeSubscriptionProductOptions returns recurring products only;
-// wallet one-time products can never be bound to a subscription plan.
+// ListWaffoPancakeSubscriptionProductOptions returns both plan-compatible
+// product families. The legacy route name remains stable for admin clients.
 func ListWaffoPancakeSubscriptionProductOptions(c *gin.Context) {
 	merchantID, privateKey := resolveWaffoPancakeAdminCreds("", "")
 	storeID := strings.TrimSpace(setting.WaffoPancakeStoreID)
@@ -367,10 +402,19 @@ func ListWaffoPancakeSubscriptionProductOptions(c *gin.Context) {
 	}
 	products := []service.WaffoPancakeCatalogProduct{}
 	for _, store := range catalog.Stores {
-		if store.ID == storeID {
-			products = store.SubscriptionProducts
-			break
+		if store.ID != storeID {
+			continue
 		}
+		products = make([]service.WaffoPancakeCatalogProduct, 0, len(store.OnetimeProducts)+len(store.SubscriptionProducts))
+		for _, product := range store.OnetimeProducts {
+			product.ProductType = model.WaffoPancakeProductTypeOneTime
+			products = append(products, product)
+		}
+		for _, product := range store.SubscriptionProducts {
+			product.ProductType = model.WaffoPancakeProductTypeSubscription
+			products = append(products, product)
+		}
+		break
 	}
 	c.JSON(http.StatusOK, gin.H{
 		"message": "success",
@@ -626,6 +670,14 @@ func WaffoPancakeWebhook(c *gin.Context) {
 			return
 		}
 
+		productType := waffoPancakeSubscriptionOrderProductType(order)
+		if action == service.WaffoPancakeWebhookActionSubscriptionStateChanged &&
+			productType != model.WaffoPancakeProductTypeSubscription {
+			logger.LogWarn(c.Request.Context(), fmt.Sprintf("Waffo Pancake recurring state event does not match one-time plan product trade_no=%s event_type=%s event_id=%s", tradeNo, eventType, event.ID))
+			c.String(http.StatusOK, "OK")
+			return
+		}
+
 		if action == service.WaffoPancakeWebhookActionSubscriptionStateChanged {
 			periodStart, periodEnd, periodErr := waffoPancakeSubscriptionPeriod(event, false)
 			if periodErr != nil {
@@ -665,10 +717,8 @@ func WaffoPancakeWebhook(c *gin.Context) {
 			c.String(http.StatusOK, "OK")
 			return
 		}
-		// order.completed is accepted only for legacy one-time plan products.
-		// New recurring orders have immutable settlement snapshots and must wait
-		// for subscription.payment_succeeded.
-		if action == service.WaffoPancakeWebhookActionOrderCompleted && order.ExpectedAmountMicros > 0 {
+		if !waffoPancakeSubscriptionOrderAcceptsSettlementAction(order, action) {
+			logger.LogWarn(c.Request.Context(), fmt.Sprintf("Waffo Pancake settlement event does not match plan product type trade_no=%s event_type=%s event_id=%s product_type=%s", tradeNo, eventType, event.ID, productType))
 			c.String(http.StatusOK, "OK")
 			return
 		}
@@ -853,6 +903,32 @@ func validateWaffoPancakeTopUpEvent(event *service.WaffoPancakeWebhookEvent, top
 		}
 	}
 	return nil
+}
+
+func waffoPancakeSubscriptionOrderProductType(order *model.SubscriptionOrder) string {
+	if order == nil {
+		return model.WaffoPancakeProductTypeSubscription
+	}
+	var snapshot struct {
+		ProductType string `json:"waffo_pancake_product_type"`
+	}
+	if err := json.Unmarshal([]byte(order.PlanSnapshot), &snapshot); err != nil {
+		return model.WaffoPancakeProductTypeSubscription
+	}
+	return model.NormalizeWaffoPancakeProductType(snapshot.ProductType)
+}
+
+func waffoPancakeSubscriptionOrderAcceptsSettlementAction(order *model.SubscriptionOrder, action service.WaffoPancakeWebhookAction) bool {
+	productType := waffoPancakeSubscriptionOrderProductType(order)
+	switch action {
+	case service.WaffoPancakeWebhookActionOrderCompleted:
+		// Historical one-time orders predate immutable amount snapshots.
+		return order != nil && (order.ExpectedAmountMicros <= 0 || productType == model.WaffoPancakeProductTypeOneTime)
+	case service.WaffoPancakeWebhookActionSubscriptionPaymentSucceeded:
+		return productType == model.WaffoPancakeProductTypeSubscription
+	default:
+		return false
+	}
 }
 
 // validateWaffoPancakeSubscriptionEvent keeps a signed provider callback

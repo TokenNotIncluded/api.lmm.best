@@ -58,13 +58,18 @@ func SubscriptionRequestWaffoPancakePay(c *gin.Context) {
 		return
 	}
 	catalog, err := service.ListWaffoPancakeCatalog(c.Request.Context(), merchantID, privateKey)
+	productType := model.NormalizeWaffoPancakeProductType(plan.WaffoPancakeProductType)
 	if err != nil {
-		logger.LogError(c.Request.Context(), fmt.Sprintf("Waffo Pancake 订阅产品核验失败 plan_id=%d product_id=%s error=%q", plan.Id, plan.WaffoPancakeProductId, err.Error()))
-		common.ApiErrorMsg(c, "无法核验 Waffo Pancake 订阅产品")
+		logger.LogError(c.Request.Context(), fmt.Sprintf("Waffo Pancake 套餐商品核验失败 plan_id=%d product_id=%s product_type=%s error=%q", plan.Id, plan.WaffoPancakeProductId, productType, err.Error()))
+		common.ApiErrorMsg(c, "无法核验 Waffo Pancake 套餐商品")
 		return
 	}
-	if !service.WaffoPancakeCatalogHasActiveSubscriptionProduct(catalog, storeID, plan.WaffoPancakeProductId) {
-		common.ApiErrorMsg(c, "套餐绑定的不是有效订阅产品，请重新创建并绑定")
+	productActive := service.WaffoPancakeCatalogHasActiveSubscriptionProduct(catalog, storeID, plan.WaffoPancakeProductId)
+	if productType == model.WaffoPancakeProductTypeOneTime {
+		productActive = service.WaffoPancakeCatalogHasActiveOneTimeProduct(catalog, storeID, plan.WaffoPancakeProductId)
+	}
+	if !productActive {
+		common.ApiErrorMsg(c, "套餐绑定的 Waffo Pancake 商品类型不匹配、无效或未启用，请重新创建并绑定")
 		return
 	}
 

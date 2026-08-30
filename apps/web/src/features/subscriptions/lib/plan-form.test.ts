@@ -30,8 +30,9 @@ import {
 } from './plan-form'
 
 describe('subscription plan fiat contract', () => {
-  test('defaults new plans to explicit CNY fiat pricing', () => {
+  test('defaults new plans to explicit CNY fiat pricing and recurring Pancake products', () => {
     assert.equal(PLAN_FORM_DEFAULTS.currency, 'CNY')
+    assert.equal(PLAN_FORM_DEFAULTS.waffo_pancake_product_type, 'subscription')
   })
 
   test('preserves explicit fiat currency through form and payload mapping', () => {
@@ -42,14 +43,17 @@ describe('subscription plan fiat contract', () => {
       currency: 'CNY',
       duration_unit: 'month',
       duration_value: 1,
+      waffo_pancake_product_type: 'one_time',
     } as SubscriptionPlan
 
     const values = planToFormValues(plan)
     assert.equal(values.price_amount, 6.8)
     assert.equal(values.currency, 'CNY')
+    assert.equal(values.waffo_pancake_product_type, 'one_time')
 
     const payload = formValuesToPlanPayload(values)
     assert.equal(payload.plan.price_amount, 6.8)
     assert.equal(payload.plan.currency, 'CNY')
+    assert.equal(payload.plan.waffo_pancake_product_type, 'one_time')
   })
 })

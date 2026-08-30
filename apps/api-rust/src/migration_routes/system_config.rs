@@ -1658,7 +1658,8 @@ mod pancake_gateway_tests {
     use super::{
         HttpWaffoPancakeGateway, TestInstanceDisabledWaffoPancakeGateway, WaffoPancakeGateway,
         normalize_pancake_catalog, pancake_billing_period, pancake_idempotency_key,
-        parse_pancake_private_key, subscription_price_in_usd,
+        pancake_plan_product_options, pancake_plan_product_type, parse_pancake_private_key,
+        subscription_price_in_usd,
     };
     use serde_json::json;
     use std::{io, time::Duration};
@@ -1725,11 +1726,21 @@ mod pancake_gateway_tests {
                 "subscriptionProducts":[{"id":"PROD_monthly","name":"Monthly","status":"active","billingPeriod":"monthly"}]
             }]})
         );
+        assert_eq!(
+            pancake_plan_product_options(&catalog, "STO_1"),
+            vec![
+                json!({"id":"PROD_active","name":"Active","status":"ACTIVE","product_type":"one_time"}),
+                json!({"id":"PROD_monthly","name":"Monthly","status":"active","billingPeriod":"monthly","product_type":"subscription"}),
+            ]
+        );
         Ok(())
     }
 
     #[test]
     fn recurring_cadence_and_fiat_conversion_are_explicit() {
+        assert_eq!(pancake_plan_product_type(None), Ok("subscription"));
+        assert_eq!(pancake_plan_product_type(Some("one_time")), Ok("one_time"));
+        assert_eq!(pancake_plan_product_type(Some("invalid")), Err(()));
         let mut options = std::collections::BTreeMap::new();
         options.insert("USDExchangeRate".to_owned(), "6.8".to_owned());
         assert_eq!(pancake_billing_period("day", 7), Ok("weekly"));
@@ -2836,6 +2847,62 @@ struct SubscriptionProductRequest {
     currency: Option<String>,
     duration_unit: Option<String>,
     duration_value: Option<i64>,
+    product_type: Option<String>,
+}
+
+const PANCAKE_PRODUCT_TYPE_ONE_TIME: &str = "one_time";
+const PANCAKE_PRODUCT_TYPE_SUBSCRIPTION: &str = "subscription";
+
+fn pancake_plan_product_type(value: Option<&str>) -> Result<&'static str, ()> {
+    match value
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "" | PANCAKE_PRODUCT_TYPE_SUBSCRIPTION => Ok(PANCAKE_PRODUCT_TYPE_SUBSCRIPTION),
+        PANCAKE_PRODUCT_TYPE_ONE_TIME => Ok(PANCAKE_PRODUCT_TYPE_ONE_TIME),
+        _ => Err(()),
+    }
+}
+
+fn pancake_plan_product_options(catalog: &Value, store_id: &str) -> Vec<Value> {
+    let Some(store) = catalog
+        .get("stores")
+        .and_then(Value::as_array)
+        .and_then(|stores| {
+            stores
+                .iter()
+                .find(|store| store.get("id").and_then(Value::as_str) == Some(store_id))
+        })
+    else {
+        return Vec::new();
+    };
+    let mut products = Vec::new();
+    for (key, product_type) in [
+        ("onetimeProducts", PANCAKE_PRODUCT_TYPE_ONE_TIME),
+        ("subscriptionProducts", PANCAKE_PRODUCT_TYPE_SUBSCRIPTION),
+    ] {
+        let snake_key = if key == "onetimeProducts" {
+            "onetime_products"
+        } else {
+            "subscription_products"
+        };
+        for product in store
+            .get(snake_key)
+            .or_else(|| store.get(key))
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            let mut product = product.clone();
+            if let Some(object) = product.as_object_mut() {
+                object.insert("product_type".to_owned(), json!(product_type));
+                products.push(product);
+            }
+        }
+    }
+    products
 }
 
 fn pancake_billing_period(duration_unit: &str, duration_value: i64) -> Result<&'static str, ()> {
@@ -3155,6 +3222,7 @@ async fn pancake_subscription_product(
             currency: None,
             duration_unit: None,
             duration_value: None,
+            product_type: None,
         }
     } else {
         match serde_json::from_slice::<SubscriptionProductRequest>(&body) {
@@ -3183,14 +3251,24 @@ async fn pancake_subscription_product(
         .unwrap_or_else(|| "CNY".to_owned())
         .trim()
         .to_ascii_uppercase();
-    let duration_unit = input.duration_unit.unwrap_or_default();
-    let Ok(billing_period) =
-        pancake_billing_period(&duration_unit, input.duration_value.unwrap_or_default())
-    else {
+    let Ok(product_type) = pancake_plan_product_type(input.product_type.as_deref()) else {
         return legacy_json(
             StatusCode::OK,
-            json!({"message":"error","data":"Waffo Pancake recurring billing supports exactly 7 days, 1 month, 3 months, 12 months, or 1 year"}),
+            json!({"message":"error","data":"Waffo Pancake product type must be one_time or subscription"}),
         );
+    };
+    let duration_unit = input.duration_unit.unwrap_or_default();
+    let duration_value = input.duration_value.unwrap_or_default();
+    let billing_period = if product_type == PANCAKE_PRODUCT_TYPE_SUBSCRIPTION {
+        let Ok(billing_period) = pancake_billing_period(&duration_unit, duration_value) else {
+            return legacy_json(
+                StatusCode::OK,
+                json!({"message":"error","data":"Waffo Pancake recurring billing supports exactly 7 days, 1 month, 3 months, 12 months, or 1 year"}),
+            );
+        };
+        Some(billing_period)
+    } else {
+        None
     };
     let creds = PancakeCreds {
         merchant_id: None,
@@ -3226,19 +3304,33 @@ async fn pancake_subscription_product(
         .get("WaffoPancakeReturnURL")
         .map(String::as_str)
         .unwrap_or_default();
-    match state
-        .pancake
-        .create_subscription_product(
-            &merchant_id,
-            &private_key,
-            store_id,
-            &name,
-            &settlement_amount,
-            billing_period,
-            return_url,
-        )
-        .await
-    {
+    let created = if let Some(billing_period) = billing_period {
+        state
+            .pancake
+            .create_subscription_product(
+                &merchant_id,
+                &private_key,
+                store_id,
+                &name,
+                &settlement_amount,
+                billing_period,
+                return_url,
+            )
+            .await
+    } else {
+        state
+            .pancake
+            .create_product(
+                &merchant_id,
+                &private_key,
+                store_id,
+                &name,
+                &settlement_amount,
+                return_url,
+            )
+            .await
+    };
+    match created {
         Ok(product) => {
             let product_id = product
                 .get("id")
@@ -3247,7 +3339,7 @@ async fn pancake_subscription_product(
                 .unwrap_or(product);
             legacy_json(
                 StatusCode::OK,
-                json!({"message":"success","data":{"product_id":product_id,"product_name":name,"store_id":store_id,"settlement_currency":"USD","settlement_amount":settlement_amount}}),
+                json!({"message":"success","data":{"product_id":product_id,"product_name":name,"store_id":store_id,"settlement_currency":"USD","settlement_amount":settlement_amount,"product_type":product_type}}),
             )
         }
         Err(()) => legacy_json(
@@ -3286,21 +3378,7 @@ async fn pancake_subscription_product_options(
     }
     match state.pancake.catalog(&merchant_id, &private_key).await {
         Ok(catalog) => {
-            let products = catalog
-                .get("stores")
-                .and_then(Value::as_array)
-                .and_then(|stores| {
-                    stores
-                        .iter()
-                        .find(|store| store.get("id").and_then(Value::as_str) == Some(store_id))
-                })
-                .and_then(|store| {
-                    store
-                        .get("subscription_products")
-                        .or_else(|| store.get("subscriptionProducts"))
-                })
-                .cloned()
-                .unwrap_or_else(|| json!([]));
+            let products = pancake_plan_product_options(&catalog, store_id);
             legacy_json(
                 StatusCode::OK,
                 json!({"message":"success","data":{"store_id":store_id,"products":products}}),

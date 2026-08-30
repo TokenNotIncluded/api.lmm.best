@@ -51,6 +51,7 @@ export function getPlanFormSchema(t: TFunction) {
     stripe_price_id: z.string().optional(),
     creem_product_id: z.string().optional(),
     waffo_pancake_product_id: z.string().optional(),
+    waffo_pancake_product_type: z.enum(['one_time', 'subscription']),
   })
 }
 
@@ -77,6 +78,7 @@ export const PLAN_FORM_DEFAULTS: PlanFormValues = {
   stripe_price_id: '',
   creem_product_id: '',
   waffo_pancake_product_id: '',
+  waffo_pancake_product_type: 'subscription',
 }
 
 export function planToFormValues(plan: SubscriptionPlan): PlanFormValues {
@@ -102,6 +104,10 @@ export function planToFormValues(plan: SubscriptionPlan): PlanFormValues {
     stripe_price_id: plan.stripe_price_id || '',
     creem_product_id: plan.creem_product_id || '',
     waffo_pancake_product_id: plan.waffo_pancake_product_id || '',
+    waffo_pancake_product_type:
+      plan.waffo_pancake_product_type === 'one_time'
+        ? 'one_time'
+        : 'subscription',
   }
 }
 

@@ -30,6 +30,7 @@ import type {
   SubscriptionPayResponse,
   SubscriptionPayRequest,
   WaffoPancakeSubscriptionPayRequest,
+  WaffoPancakeProductType,
   SelfSubscriptionData,
 } from './types'
 
@@ -171,14 +172,15 @@ export async function paySubscriptionBalance(
   return res.data
 }
 
-// Mints a recurring Pancake SubscriptionProduct. amount and currency are the
-// plan's real ISO-fiat list price; the server converts it to Pancake USD.
-export async function createWaffoPancakeSubscriptionProduct(data: {
+// Mints the selected Pancake plan product. amount and currency are the plan's
+// real ISO-fiat list price; the server converts it to Pancake USD.
+export async function createWaffoPancakePlanProduct(data: {
   name: string
   amount: string
   currency: string
   duration_unit: string
   duration_value: number
+  product_type: WaffoPancakeProductType
 }): Promise<
   ApiResponse<{
     product_id: string
@@ -186,6 +188,7 @@ export async function createWaffoPancakeSubscriptionProduct(data: {
     store_id: string
     settlement_currency: 'USD'
     settlement_amount: string
+    product_type: WaffoPancakeProductType
   }>
 > {
   const res = await api.post(
@@ -195,9 +198,8 @@ export async function createWaffoPancakeSubscriptionProduct(data: {
   return res.data
 }
 
-// Returns recurring products in the saved Pancake store; one-time wallet
-// products are deliberately excluded.
-export async function listWaffoPancakeSubscriptionProductOptions(): Promise<
+// Returns both one-time and recurring products in the saved Pancake store.
+export async function listWaffoPancakePlanProductOptions(): Promise<
   ApiResponse<{
     store_id: string
     products: {
@@ -205,6 +207,7 @@ export async function listWaffoPancakeSubscriptionProductOptions(): Promise<
       name: string
       status: string
       billingPeriod?: string
+      product_type?: WaffoPancakeProductType
     }[]
   }>
 > {

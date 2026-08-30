@@ -728,6 +728,7 @@ struct Plan {
     stripe_price_id: String,
     creem_product_id: String,
     waffo_pancake_product_id: String,
+    waffo_pancake_product_type: String,
     max_purchase_per_user: i64,
     total_amount: i64,
     upgrade_group: String,
@@ -790,6 +791,8 @@ struct PlanInput {
     #[serde(default)]
     waffo_pancake_product_id: String,
     #[serde(default)]
+    waffo_pancake_product_type: String,
+    #[serde(default)]
     max_purchase_per_user: i64,
     #[serde(default)]
     total_amount: i64,
@@ -806,6 +809,9 @@ fn true_value() -> bool {
     true
 }
 
+const PANCAKE_PRODUCT_TYPE_ONE_TIME: &str = "one_time";
+const PANCAKE_PRODUCT_TYPE_SUBSCRIPTION: &str = "subscription";
+
 impl PlanInput {
     fn normalize(mut self) -> Result<Self, &'static str> {
         self.title = self.title.trim().to_owned();
@@ -821,6 +827,16 @@ impl PlanInput {
                 "价格不能超过9999"
             });
         }
+        self.waffo_pancake_product_type = match self
+            .waffo_pancake_product_type
+            .trim()
+            .to_ascii_lowercase()
+            .as_str()
+        {
+            "" | PANCAKE_PRODUCT_TYPE_SUBSCRIPTION => PANCAKE_PRODUCT_TYPE_SUBSCRIPTION.to_owned(),
+            PANCAKE_PRODUCT_TYPE_ONE_TIME => PANCAKE_PRODUCT_TYPE_ONE_TIME.to_owned(),
+            _ => return Err("Waffo Pancake 商品类型必须为 one_time 或 subscription"),
+        };
         if self.max_purchase_per_user < 0 {
             return Err("购买上限不能为负数");
         }
@@ -955,7 +971,7 @@ pub(crate) async fn enabled_plan_views(pg: &PgPool) -> Result<Vec<PlanView>, sql
         .await
         .map(|plans| plans.into_iter().map(|plan| PlanView { plan }).collect())
 }
-const PLAN_SELECT: &str = "SELECT id, title, COALESCE(subtitle, '') subtitle, price_amount::FLOAT8 price_amount, COALESCE(NULLIF(currency, ''), 'CNY') currency, COALESCE(duration_unit, 'month') duration_unit, COALESCE(duration_value, 1) duration_value, COALESCE(custom_seconds, 0) custom_seconds, enabled, COALESCE(sort_order, 0) sort_order, COALESCE(allow_balance_pay, TRUE) allow_balance_pay, COALESCE(allow_wallet_overflow, TRUE) allow_wallet_overflow, COALESCE(stripe_price_id, '') stripe_price_id, COALESCE(creem_product_id, '') creem_product_id, COALESCE(waffo_pancake_product_id, '') waffo_pancake_product_id, COALESCE(max_purchase_per_user, 0) max_purchase_per_user, COALESCE(total_amount, 0) total_amount, COALESCE(upgrade_group, '') upgrade_group, COALESCE(downgrade_group, '') downgrade_group, COALESCE(quota_reset_period, 'never') quota_reset_period, COALESCE(quota_reset_custom_seconds, 0) quota_reset_custom_seconds, COALESCE(created_at, 0) created_at, COALESCE(updated_at, 0) updated_at FROM subscription_plans";
+const PLAN_SELECT: &str = "SELECT id, title, COALESCE(subtitle, '') subtitle, price_amount::FLOAT8 price_amount, COALESCE(NULLIF(currency, ''), 'CNY') currency, COALESCE(duration_unit, 'month') duration_unit, COALESCE(duration_value, 1) duration_value, COALESCE(custom_seconds, 0) custom_seconds, enabled, COALESCE(sort_order, 0) sort_order, COALESCE(allow_balance_pay, TRUE) allow_balance_pay, COALESCE(allow_wallet_overflow, TRUE) allow_wallet_overflow, COALESCE(stripe_price_id, '') stripe_price_id, COALESCE(creem_product_id, '') creem_product_id, COALESCE(waffo_pancake_product_id, '') waffo_pancake_product_id, COALESCE(NULLIF(waffo_pancake_product_type, ''), 'subscription') waffo_pancake_product_type, COALESCE(max_purchase_per_user, 0) max_purchase_per_user, COALESCE(total_amount, 0) total_amount, COALESCE(upgrade_group, '') upgrade_group, COALESCE(downgrade_group, '') downgrade_group, COALESCE(quota_reset_period, 'never') quota_reset_period, COALESCE(quota_reset_custom_seconds, 0) quota_reset_custom_seconds, COALESCE(created_at, 0) created_at, COALESCE(updated_at, 0) updated_at FROM subscription_plans";
 
 fn bind_plan_input<'q>(
     query: sqlx::query::Query<'q, Postgres, sqlx::postgres::PgArguments>,
@@ -984,6 +1000,7 @@ fn bind_plan_input<'q>(
         .bind(&input.downgrade_group)
         .bind(&input.quota_reset_period)
         .bind(input.quota_reset_custom_seconds)
+        .bind(&input.waffo_pancake_product_type)
 }
 
 fn plan_from_row(row: &sqlx::postgres::PgRow) -> Result<Plan, sqlx::Error> {
@@ -1003,6 +1020,7 @@ fn plan_from_row(row: &sqlx::postgres::PgRow) -> Result<Plan, sqlx::Error> {
         stripe_price_id: row.try_get("stripe_price_id")?,
         creem_product_id: row.try_get("creem_product_id")?,
         waffo_pancake_product_id: row.try_get("waffo_pancake_product_id")?,
+        waffo_pancake_product_type: row.try_get("waffo_pancake_product_type")?,
         max_purchase_per_user: row.try_get("max_purchase_per_user")?,
         total_amount: row.try_get("total_amount")?,
         upgrade_group: row.try_get("upgrade_group")?,
@@ -1028,7 +1046,7 @@ async fn admin_create_plan(
     };
     let now = now();
     let row = bind_plan_input(
-        sqlx::query("INSERT INTO subscription_plans (title, subtitle, price_amount, currency, price_currency_version, duration_unit, duration_value, custom_seconds, enabled, sort_order, allow_balance_pay, allow_wallet_overflow, stripe_price_id, creem_product_id, waffo_pancake_product_id, max_purchase_per_user, total_amount, upgrade_group, downgrade_group, quota_reset_period, quota_reset_custom_seconds, created_at, updated_at) VALUES ($1,$2,$3,$4,1,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$21) RETURNING id"),
+        sqlx::query("INSERT INTO subscription_plans (title, subtitle, price_amount, currency, price_currency_version, duration_unit, duration_value, custom_seconds, enabled, sort_order, allow_balance_pay, allow_wallet_overflow, stripe_price_id, creem_product_id, waffo_pancake_product_id, max_purchase_per_user, total_amount, upgrade_group, downgrade_group, quota_reset_period, quota_reset_custom_seconds, waffo_pancake_product_type, created_at, updated_at) VALUES ($1,$2,$3,$4,1,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$22) RETURNING id"),
         &input,
         Some(input.allow_balance_pay.unwrap_or(true)),
         Some(input.allow_wallet_overflow.unwrap_or(true)),
@@ -1056,7 +1074,7 @@ async fn admin_update_plan(
     State(state): State<BillingSubscriptionsState>,
     headers: HeaderMap,
     Path(id): Path<i64>,
-    Json(input): Json<PlanRequest>,
+    Json(mut input): Json<PlanRequest>,
 ) -> Response {
     if let Err(response) = authorize_admin_write(&state, &headers).await {
         return response;
@@ -1064,12 +1082,25 @@ async fn admin_update_plan(
     if id <= 0 {
         return failure(StatusCode::BAD_REQUEST, "无效的ID");
     }
+    if input.plan.waffo_pancake_product_type.trim().is_empty() {
+        match sqlx::query_scalar::<_, String>(
+            "SELECT COALESCE(NULLIF(waffo_pancake_product_type, ''), 'subscription') FROM subscription_plans WHERE id=$1",
+        )
+        .bind(id)
+        .fetch_optional(&state.pg)
+        .await
+        {
+            Ok(Some(product_type)) => input.plan.waffo_pancake_product_type = product_type,
+            Ok(None) => {}
+            Err(_) => return failure(StatusCode::INTERNAL_SERVER_ERROR, "系统错误"),
+        }
+    }
     let input = match validated_plan_input(&state.pg, input).await {
         Ok(input) => input,
         Err(response) => return response,
     };
     let updated = bind_plan_input(
-        sqlx::query("UPDATE subscription_plans SET title=$2, subtitle=$3, price_amount=$4, currency=$5, price_currency_version=1, duration_unit=$6, duration_value=$7, custom_seconds=$8, enabled=$9, sort_order=$10, allow_balance_pay=COALESCE($11, allow_balance_pay), allow_wallet_overflow=COALESCE($12, allow_wallet_overflow), stripe_price_id=$13, creem_product_id=$14, waffo_pancake_product_id=$15, max_purchase_per_user=$16, total_amount=$17, upgrade_group=$18, downgrade_group=$19, quota_reset_period=$20, quota_reset_custom_seconds=$21, updated_at=$22 WHERE id=$1")
+        sqlx::query("UPDATE subscription_plans SET title=$2, subtitle=$3, price_amount=$4, currency=$5, price_currency_version=1, duration_unit=$6, duration_value=$7, custom_seconds=$8, enabled=$9, sort_order=$10, allow_balance_pay=COALESCE($11, allow_balance_pay), allow_wallet_overflow=COALESCE($12, allow_wallet_overflow), stripe_price_id=$13, creem_product_id=$14, waffo_pancake_product_id=$15, max_purchase_per_user=$16, total_amount=$17, upgrade_group=$18, downgrade_group=$19, quota_reset_period=$20, quota_reset_custom_seconds=$21, waffo_pancake_product_type=$22, updated_at=$23 WHERE id=$1")
             .bind(id),
         &input,
         input.allow_balance_pay,
@@ -2116,6 +2147,7 @@ mod tests {
             stripe_price_id: String::new(),
             creem_product_id: String::new(),
             waffo_pancake_product_id: String::new(),
+            waffo_pancake_product_type: "subscription".into(),
             max_purchase_per_user: 0,
             total_amount: 1,
             upgrade_group: String::new(),

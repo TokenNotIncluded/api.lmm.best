@@ -37,6 +37,19 @@ const (
 	SubscriptionResetCustom  = "custom"
 )
 
+// Waffo Pancake product types bound to subscription plans.
+const (
+	WaffoPancakeProductTypeOneTime      = "one_time"
+	WaffoPancakeProductTypeSubscription = "subscription"
+)
+
+func NormalizeWaffoPancakeProductType(value string) string {
+	if strings.EqualFold(strings.TrimSpace(value), WaffoPancakeProductTypeOneTime) {
+		return WaffoPancakeProductTypeOneTime
+	}
+	return WaffoPancakeProductTypeSubscription
+}
+
 var (
 	ErrSubscriptionOrderNotFound      = errors.New("subscription order not found")
 	ErrSubscriptionOrderStatusInvalid = errors.New("subscription order status invalid")
@@ -175,9 +188,10 @@ type SubscriptionPlan struct {
 	// Allow falling back to wallet balance after subscription quota is exhausted (empty = true)
 	AllowWalletOverflow *bool `json:"allow_wallet_overflow"`
 
-	StripePriceId         string `json:"stripe_price_id" gorm:"type:varchar(128);default:''"`
-	CreemProductId        string `json:"creem_product_id" gorm:"type:varchar(128);default:''"`
-	WaffoPancakeProductId string `json:"waffo_pancake_product_id" gorm:"type:varchar(128);default:''"`
+	StripePriceId           string `json:"stripe_price_id" gorm:"type:varchar(128);default:''"`
+	CreemProductId          string `json:"creem_product_id" gorm:"type:varchar(128);default:''"`
+	WaffoPancakeProductId   string `json:"waffo_pancake_product_id" gorm:"type:varchar(128);default:''"`
+	WaffoPancakeProductType string `json:"waffo_pancake_product_type" gorm:"type:varchar(16);not null;default:'subscription'"`
 
 	// Max purchases per user (0 = unlimited)
 	MaxPurchasePerUser int `json:"max_purchase_per_user" gorm:"type:int;default:0"`
@@ -204,6 +218,7 @@ func (p *SubscriptionPlan) BeforeCreate(tx *gorm.DB) error {
 	if p.PriceCurrencyVersion == 0 {
 		p.PriceCurrencyVersion = 1
 	}
+	p.WaffoPancakeProductType = NormalizeWaffoPancakeProductType(p.WaffoPancakeProductType)
 	p.CreatedAt = now
 	p.UpdatedAt = now
 	return nil
@@ -214,10 +229,12 @@ func (p *SubscriptionPlan) BeforeUpdate(tx *gorm.DB) error {
 	if p.PriceCurrencyVersion == 0 {
 		p.PriceCurrencyVersion = 1
 	}
+	p.WaffoPancakeProductType = NormalizeWaffoPancakeProductType(p.WaffoPancakeProductType)
 	return nil
 }
 
 func (p *SubscriptionPlan) NormalizeDefaults() {
+	p.WaffoPancakeProductType = NormalizeWaffoPancakeProductType(p.WaffoPancakeProductType)
 	if p.AllowBalancePay == nil {
 		p.AllowBalancePay = common.GetPointer(true)
 	}

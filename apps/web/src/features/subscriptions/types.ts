@@ -27,6 +27,15 @@ import type {
 // Subscription Plan Schema & Types
 // ============================================================================
 
+export const waffoPancakeProductTypeSchema = z.enum([
+  'one_time',
+  'subscription',
+])
+
+export type WaffoPancakeProductType = z.infer<
+  typeof waffoPancakeProductTypeSchema
+>
+
 export const subscriptionPlanSchema = z.object({
   id: z.number(),
   title: z.string(),
@@ -49,6 +58,7 @@ export const subscriptionPlanSchema = z.object({
   stripe_price_id: z.string().optional(),
   creem_product_id: z.string().optional(),
   waffo_pancake_product_id: z.string().optional(),
+  waffo_pancake_product_type: waffoPancakeProductTypeSchema.optional(),
 })
 
 export type SubscriptionPlan = z.infer<typeof subscriptionPlanSchema>

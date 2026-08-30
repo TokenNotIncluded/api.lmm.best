@@ -77,6 +77,16 @@ func TestListWaffoPancakeCatalogUsesRootProductQuery(t *testing.T) {
 	require.False(t, WaffoPancakeCatalogHasActiveSubscriptionProduct(
 		catalog,
 		"STO_AbCdEfGhIjKlMnOpQrStUv",
-		"PROD_AbCdEfGhIjKlMnOpQrStUv", // wallet one-time product
+		"PROD_AbCdEfGhIjKlMnOpQrStUv", // one-time product
+	))
+	require.True(t, WaffoPancakeCatalogHasActiveOneTimeProduct(
+		catalog,
+		"STO_AbCdEfGhIjKlMnOpQrStUv",
+		"PROD_AbCdEfGhIjKlMnOpQrStUv",
+	))
+	require.False(t, WaffoPancakeCatalogHasActiveOneTimeProduct(
+		catalog,
+		"STO_AbCdEfGhIjKlMnOpQrStUv",
+		"PROD_Subscription000000000001",
 	))
 }

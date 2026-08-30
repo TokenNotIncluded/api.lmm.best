@@ -399,6 +399,7 @@ CREATE TABLE public.subscription_plans (
     stripe_price_id character varying(128) DEFAULT ''::character varying,
     creem_product_id character varying(128) DEFAULT ''::character varying,
     waffo_pancake_product_id character varying(128) DEFAULT ''::character varying,
+    waffo_pancake_product_type character varying(16) DEFAULT 'subscription'::character varying NOT NULL,
     max_purchase_per_user bigint DEFAULT 0,
     upgrade_group character varying(64) DEFAULT ''::character varying,
     downgrade_group character varying(64) DEFAULT ''::character varying,

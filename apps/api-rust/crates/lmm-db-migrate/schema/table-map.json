@@ -4294,6 +4294,17 @@
           "converter": "identity"
         },
         {
+          "name": "waffo_pancake_product_type",
+          "sqlite_type": "varchar(16)",
+          "sqlite_not_null": true,
+          "sqlite_default": "'subscription'",
+          "pk_position": 0,
+          "postgres_type": "character varying(16)",
+          "postgres_not_null": true,
+          "postgres_default": "'subscription'::character varying",
+          "converter": "identity"
+        },
+        {
           "name": "max_purchase_per_user",
           "sqlite_type": "integer",
           "sqlite_not_null": false,

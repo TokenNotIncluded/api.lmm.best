@@ -10,6 +10,7 @@ import (
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/LIghtJUNction/api.lmm.best/model"
+	"github.com/LIghtJUNction/api.lmm.best/service"
 	"github.com/LIghtJUNction/api.lmm.best/setting"
 	"github.com/LIghtJUNction/api.lmm.best/setting/operation_setting"
 	"github.com/gin-gonic/gin"
@@ -18,13 +19,14 @@ import (
 	"github.com/stripe/stripe-go/v81/form"
 )
 
-func TestWaffoPancakeProductBindingMustMatchPlanPriceAndCadence(t *testing.T) {
+func TestWaffoPancakeProductBindingMustMatchPlanPriceTypeAndCadence(t *testing.T) {
 	existing := &model.SubscriptionPlan{
-		PriceAmount:           6.8,
-		Currency:              "CNY",
-		DurationUnit:          model.SubscriptionDurationMonth,
-		DurationValue:         1,
-		WaffoPancakeProductId: "PROD_monthly",
+		PriceAmount:             6.8,
+		Currency:                "CNY",
+		DurationUnit:            model.SubscriptionDurationMonth,
+		DurationValue:           1,
+		WaffoPancakeProductId:   "PROD_monthly",
+		WaffoPancakeProductType: model.WaffoPancakeProductTypeSubscription,
 	}
 	next := *existing
 	require.False(t, waffoPancakeProductMustBeRecreated(existing, &next))
@@ -32,8 +34,59 @@ func TestWaffoPancakeProductBindingMustMatchPlanPriceAndCadence(t *testing.T) {
 	next.PriceAmount = 7.8
 	require.True(t, waffoPancakeProductMustBeRecreated(existing, &next))
 
+	next = *existing
+	next.WaffoPancakeProductType = model.WaffoPancakeProductTypeOneTime
+	require.True(t, waffoPancakeProductMustBeRecreated(existing, &next))
+
+	next = *existing
 	next.WaffoPancakeProductId = "PROD_monthly_new_price"
 	require.False(t, waffoPancakeProductMustBeRecreated(existing, &next))
+
+	oneTime := *existing
+	oneTime.WaffoPancakeProductType = model.WaffoPancakeProductTypeOneTime
+	next = oneTime
+	next.DurationValue = 2
+	require.False(t, waffoPancakeProductMustBeRecreated(&oneTime, &next))
+}
+
+func TestWaffoPancakePlanProductTypeAndSettlementEventContract(t *testing.T) {
+	productType, err := parseWaffoPancakePlanProductType("")
+	require.NoError(t, err)
+	require.Equal(t, model.WaffoPancakeProductTypeSubscription, productType)
+	_, err = parseWaffoPancakePlanProductType("invalid")
+	require.Error(t, err)
+
+	oneTimeOrder := &model.SubscriptionOrder{
+		PlanSnapshot:         `{"waffo_pancake_product_type":"one_time"}`,
+		ExpectedAmountMicros: 1000000,
+	}
+	require.True(t, waffoPancakeSubscriptionOrderAcceptsSettlementAction(
+		oneTimeOrder,
+		service.WaffoPancakeWebhookActionOrderCompleted,
+	))
+	require.False(t, waffoPancakeSubscriptionOrderAcceptsSettlementAction(
+		oneTimeOrder,
+		service.WaffoPancakeWebhookActionSubscriptionPaymentSucceeded,
+	))
+
+	subscriptionOrder := &model.SubscriptionOrder{
+		PlanSnapshot:         `{"waffo_pancake_product_type":"subscription"}`,
+		ExpectedAmountMicros: 1000000,
+	}
+	require.False(t, waffoPancakeSubscriptionOrderAcceptsSettlementAction(
+		subscriptionOrder,
+		service.WaffoPancakeWebhookActionOrderCompleted,
+	))
+	require.True(t, waffoPancakeSubscriptionOrderAcceptsSettlementAction(
+		subscriptionOrder,
+		service.WaffoPancakeWebhookActionSubscriptionPaymentSucceeded,
+	))
+
+	legacyOneTimeOrder := &model.SubscriptionOrder{}
+	require.True(t, waffoPancakeSubscriptionOrderAcceptsSettlementAction(
+		legacyOneTimeOrder,
+		service.WaffoPancakeWebhookActionOrderCompleted,
+	))
 }
 
 func TestNormalizeSubscriptionFiatCurrency(t *testing.T) {

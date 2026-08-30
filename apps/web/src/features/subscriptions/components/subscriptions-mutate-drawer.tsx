@@ -25,7 +25,7 @@ import {
   X,
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { useForm, type Resolver } from 'react-hook-form'
+import { useForm, useWatch, type Resolver } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -75,8 +75,8 @@ import {
   createPlan,
   updatePlan,
   getGroups,
-  createWaffoPancakeSubscriptionProduct,
-  listWaffoPancakeSubscriptionProductOptions,
+  createWaffoPancakePlanProduct,
+  listWaffoPancakePlanProductOptions,
 } from '../api'
 import { getDurationUnitOptions, getResetPeriodOptions } from '../constants'
 import {
@@ -87,8 +87,31 @@ import {
   getSubscriptionPaymentMethodLabel,
   type PlanFormValues,
 } from '../lib'
-import type { PlanRecord } from '../types'
+import type { PlanRecord, WaffoPancakeProductType } from '../types'
 import { useSubscriptions } from './subscriptions-provider'
+
+interface PancakeProductOption {
+  id: string
+  name: string
+  status: string
+  billingPeriod?: string
+  product_type: WaffoPancakeProductType
+}
+
+type RawPancakeProductOption = Omit<PancakeProductOption, 'product_type'> & {
+  product_type?: WaffoPancakeProductType
+}
+
+function normalizePancakeProductOptions(
+  products: RawPancakeProductOption[]
+): PancakeProductOption[] {
+  return products.map((product) => ({
+    ...product,
+    // Older providers returned subscription products without a discriminator.
+    product_type:
+      product.product_type === 'one_time' ? 'one_time' : 'subscription',
+  }))
+}
 
 interface Props {
   open: boolean
@@ -111,7 +134,7 @@ export function SubscriptionsMutateDrawer({
   const [groupOptions, setGroupOptions] = useState<string[]>([])
   const [creatingPancakeProduct, setCreatingPancakeProduct] = useState(false)
   const [pancakeProducts, setPancakeProducts] = useState<
-    { id: string; name: string; status: string }[]
+    PancakeProductOption[]
   >([])
 
   const schema = getPlanFormSchema(t)
@@ -135,17 +158,11 @@ export function SubscriptionsMutateDrawer({
         })
         .catch(() => {})
       // Best-effort — empty list still lets the operator use "+ Create".
-      listWaffoPancakeSubscriptionProductOptions()
+      listWaffoPancakePlanProductOptions()
         .then((res) => {
-          if (
-            res.message === 'success' &&
-            typeof res.data === 'object' &&
-            res.data &&
-            Array.isArray((res.data as { products?: unknown }).products)
-          ) {
-            setPancakeProducts(
-              (res.data as { products: typeof pancakeProducts }).products
-            )
+          const products = res.data?.products
+          if (res.message === 'success' && Array.isArray(products)) {
+            setPancakeProducts(normalizePancakeProductOptions(products))
           } else {
             setPancakeProducts([])
           }
@@ -154,12 +171,37 @@ export function SubscriptionsMutateDrawer({
     }
   }, [open, currentRow, form])
 
-  const durationUnit = form.watch('duration_unit')
-  const resetPeriod = form.watch('quota_reset_period')
-  const watchedAllowBalancePay = form.watch('allow_balance_pay')
-  const watchedStripePriceId = form.watch('stripe_price_id')
-  const watchedCreemProductId = form.watch('creem_product_id')
-  const watchedPancakeProductId = form.watch('waffo_pancake_product_id')
+  const durationUnit = useWatch({
+    control: form.control,
+    name: 'duration_unit',
+  })
+  const resetPeriod = useWatch({
+    control: form.control,
+    name: 'quota_reset_period',
+  })
+  const watchedAllowBalancePay = useWatch({
+    control: form.control,
+    name: 'allow_balance_pay',
+  })
+  const watchedStripePriceId = useWatch({
+    control: form.control,
+    name: 'stripe_price_id',
+  })
+  const watchedCreemProductId = useWatch({
+    control: form.control,
+    name: 'creem_product_id',
+  })
+  const watchedPancakeProductId = useWatch({
+    control: form.control,
+    name: 'waffo_pancake_product_id',
+  })
+  const watchedPancakeProductType = useWatch({
+    control: form.control,
+    name: 'waffo_pancake_product_type',
+  })
+  const filteredPancakeProducts = pancakeProducts.filter(
+    (product) => product.product_type === watchedPancakeProductType
+  )
   // Generic ePay methods are global rather than plan fields. Preserve the
   // authoritative admin catalog entries while this existing plan is edited.
   const inheritedEpayMethods = (currentRow?.payment_methods || []).filter(
@@ -174,8 +216,11 @@ export function SubscriptionsMutateDrawer({
     ...inheritedEpayMethods,
   ].filter((method): method is string => !!method)
   // Gate "+ Create on Pancake" on the same checks the mint handler runs.
-  const watchedTitle = form.watch('title')
-  const watchedPrice = form.watch('price_amount')
+  const watchedTitle = useWatch({ control: form.control, name: 'title' })
+  const watchedPrice = useWatch({
+    control: form.control,
+    name: 'price_amount',
+  })
   const pancakeCreateReady =
     typeof watchedTitle === 'string' &&
     watchedTitle.trim().length > 0 &&
@@ -207,14 +252,15 @@ export function SubscriptionsMutateDrawer({
     }
   }
 
-  // Mints a recurring Pancake SubscriptionProduct using the form's explicit
-  // fiat price and exact local cadence, then pins the returned PROD_ ID.
+  // Mints the selected Pancake product family using the form's explicit
+  // fiat price, then pins the returned PROD_ ID and matching product type.
   const handleCreatePancakeProduct = async () => {
     const title = form.getValues('title').trim()
     const priceAmount = Number(form.getValues('price_amount') || 0)
     const currency = form.getValues('currency')
     const durationUnit = form.getValues('duration_unit')
     const durationValue = Number(form.getValues('duration_value') || 0)
+    const productType = form.getValues('waffo_pancake_product_type')
     if (!title) {
       toast.error(t('Plan title is required'))
       return
@@ -225,34 +271,36 @@ export function SubscriptionsMutateDrawer({
     }
     setCreatingPancakeProduct(true)
     try {
-      const res = await createWaffoPancakeSubscriptionProduct({
+      const res = await createWaffoPancakePlanProduct({
         name: title,
         amount: priceAmount.toFixed(2),
         currency,
         duration_unit: durationUnit,
         duration_value: durationValue,
+        product_type: productType,
       })
       if (
         res.message === 'success' &&
         typeof res.data === 'object' &&
         res.data
       ) {
-        const created = res.data as { product_id: string; product_name: string }
+        const created = res.data
+        const typeMismatch =
+          (created.product_type && created.product_type !== productType) ||
+          (productType === 'one_time' && created.product_type !== 'one_time')
+        if (typeMismatch) {
+          toast.error(t('Waffo Pancake product creation failed'))
+          return
+        }
         form.setValue('waffo_pancake_product_id', created.product_id, {
           shouldDirty: true,
         })
         // Refetch from GraphQL so the dropdown reflects authoritative state.
         try {
-          const refresh = await listWaffoPancakeSubscriptionProductOptions()
-          if (
-            refresh.message === 'success' &&
-            typeof refresh.data === 'object' &&
-            refresh.data &&
-            Array.isArray((refresh.data as { products?: unknown }).products)
-          ) {
-            setPancakeProducts(
-              (refresh.data as { products: typeof pancakeProducts }).products
-            )
+          const refresh = await listWaffoPancakePlanProductOptions()
+          const products = refresh.data?.products
+          if (refresh.message === 'success' && Array.isArray(products)) {
+            setPancakeProducts(normalizePancakeProductOptions(products))
           }
         } catch {
           // Best-effort — form value already points at the new product;
@@ -871,16 +919,71 @@ export function SubscriptionsMutateDrawer({
 
               <FormField
                 control={form.control}
+                name='waffo_pancake_product_type'
+                render={({ field }) => {
+                  const productTypes = [
+                    {
+                      value: 'one_time' as const,
+                      label: t('One-time product'),
+                    },
+                    {
+                      value: 'subscription' as const,
+                      label: t('Subscription product'),
+                    },
+                  ]
+                  return (
+                    <FormItem>
+                      <FormLabel>{t('Product type')}</FormLabel>
+                      <Select
+                        items={productTypes}
+                        value={field.value}
+                        onValueChange={(value) => {
+                          if (
+                            value !== 'one_time' &&
+                            value !== 'subscription'
+                          ) {
+                            return
+                          }
+                          if (value !== field.value) {
+                            form.setValue('waffo_pancake_product_id', '', {
+                              shouldDirty: true,
+                              shouldValidate: true,
+                            })
+                          }
+                          field.onChange(value)
+                        }}
+                      >
+                        <FormControl>
+                          <SelectTrigger className='w-full'>
+                            <SelectValue />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {productTypes.map((item) => (
+                            <SelectItem key={item.value} value={item.value}>
+                              {item.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )
+                }}
+              />
+
+              <FormField
+                control={form.control}
                 name='waffo_pancake_product_id'
                 render={({ field }) => {
                   // Raw-ID fallback for IDs not yet in the catalog.
-                  const items = pancakeProducts.map((p) => ({
+                  const items = filteredPancakeProducts.map((p) => ({
                     value: p.id,
                     label: `${p.name} (${p.id})`,
                   }))
                   if (
                     field.value &&
-                    !pancakeProducts.some((p) => p.id === field.value)
+                    !filteredPancakeProducts.some((p) => p.id === field.value)
                   ) {
                     items.push({ value: field.value, label: field.value })
                   }

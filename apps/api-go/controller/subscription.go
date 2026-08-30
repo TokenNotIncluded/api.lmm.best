@@ -27,11 +27,17 @@ func waffoPancakeProductMustBeRecreated(existing, next *model.SubscriptionPlan) 
 	if existingProductID == "" || existingProductID != nextProductID {
 		return false
 	}
-	return existing.PriceAmount != next.PriceAmount ||
-		!strings.EqualFold(strings.TrimSpace(existing.Currency), strings.TrimSpace(next.Currency)) ||
-		existing.DurationUnit != next.DurationUnit ||
-		existing.DurationValue != next.DurationValue ||
-		existing.CustomSeconds != next.CustomSeconds
+	existingProductType := model.NormalizeWaffoPancakeProductType(existing.WaffoPancakeProductType)
+	nextProductType := model.NormalizeWaffoPancakeProductType(next.WaffoPancakeProductType)
+	if existingProductType != nextProductType ||
+		existing.PriceAmount != next.PriceAmount ||
+		!strings.EqualFold(strings.TrimSpace(existing.Currency), strings.TrimSpace(next.Currency)) {
+		return true
+	}
+	return nextProductType == model.WaffoPancakeProductTypeSubscription &&
+		(existing.DurationUnit != next.DurationUnit ||
+			existing.DurationValue != next.DurationValue ||
+			existing.CustomSeconds != next.CustomSeconds)
 }
 
 type SubscriptionPlanDTO struct {
@@ -291,6 +297,7 @@ func AdminCreateSubscriptionPlan(c *gin.Context) {
 	req.Plan.StripePriceId = strings.TrimSpace(req.Plan.StripePriceId)
 	req.Plan.CreemProductId = strings.TrimSpace(req.Plan.CreemProductId)
 	req.Plan.WaffoPancakeProductId = strings.TrimSpace(req.Plan.WaffoPancakeProductId)
+	req.Plan.WaffoPancakeProductType = model.NormalizeWaffoPancakeProductType(req.Plan.WaffoPancakeProductType)
 	if !enabledSubscriptionPlanHasConfiguredPaymentMethod(&req.Plan) {
 		subscriptionPlanPaymentMethodRequired(c)
 		return
@@ -392,8 +399,13 @@ func AdminUpdateSubscriptionPlan(c *gin.Context) {
 	req.Plan.StripePriceId = strings.TrimSpace(req.Plan.StripePriceId)
 	req.Plan.CreemProductId = strings.TrimSpace(req.Plan.CreemProductId)
 	req.Plan.WaffoPancakeProductId = strings.TrimSpace(req.Plan.WaffoPancakeProductId)
+	if strings.TrimSpace(req.Plan.WaffoPancakeProductType) == "" {
+		req.Plan.WaffoPancakeProductType = model.NormalizeWaffoPancakeProductType(existingPlan.WaffoPancakeProductType)
+	} else {
+		req.Plan.WaffoPancakeProductType = model.NormalizeWaffoPancakeProductType(req.Plan.WaffoPancakeProductType)
+	}
 	if waffoPancakeProductMustBeRecreated(existingPlan, &req.Plan) {
-		common.ApiErrorMsg(c, "套餐价格、币种或周期已变化，请重新创建并绑定 Waffo Pancake 订阅产品")
+		common.ApiErrorMsg(c, "套餐价格、币种、商品类型或订阅周期已变化，请重新创建并绑定 Waffo Pancake 商品")
 		return
 	}
 	if !enabledSubscriptionPlanHasConfiguredPaymentMethod(&req.Plan) {
@@ -416,6 +428,7 @@ func AdminUpdateSubscriptionPlan(c *gin.Context) {
 			"stripe_price_id":            req.Plan.StripePriceId,
 			"creem_product_id":           req.Plan.CreemProductId,
 			"waffo_pancake_product_id":   req.Plan.WaffoPancakeProductId,
+			"waffo_pancake_product_type": req.Plan.WaffoPancakeProductType,
 			"max_purchase_per_user":      req.Plan.MaxPurchasePerUser,
 			"total_amount":               req.Plan.TotalAmount,
 			"upgrade_group":              req.Plan.UpgradeGroup,
