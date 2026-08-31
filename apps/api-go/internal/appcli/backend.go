@@ -240,7 +240,7 @@ func (runtime *backendRuntime) selectProvider(selection string) (backendProvider
 	if err != nil {
 		return backendProvider{}, fmt.Errorf("open canonical backend directory for sync: %w", err)
 	}
-	syncErr := dir.Sync()
+	syncErr := flushDirectory(dir)
 	closeErr := dir.Close()
 	if syncErr != nil {
 		return backendProvider{}, fmt.Errorf("sync canonical backend directory: %w", syncErr)

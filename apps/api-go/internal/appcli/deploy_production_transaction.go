@@ -459,7 +459,7 @@ func (runtime *productionRuntime) prepareLegacyProviderRollback(manifest product
 		return fmt.Errorf("open provider directory after legacy unlink: %w", err)
 	}
 	defer directory.Close()
-	if err := directory.Sync(); err != nil {
+	if err := flushDirectory(directory); err != nil {
 		return fmt.Errorf("sync provider directory after legacy unlink: %w", err)
 	}
 	return nil

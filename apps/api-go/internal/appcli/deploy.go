@@ -684,7 +684,7 @@ func syncDirectory(path string) error {
 		return fmt.Errorf("open directory for sync: %w", err)
 	}
 	defer directory.Close()
-	if err := directory.Sync(); err != nil {
+	if err := flushDirectory(directory); err != nil {
 		return fmt.Errorf("sync directory: %w", err)
 	}
 	return nil
