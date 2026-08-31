@@ -35,6 +35,7 @@ import {
 } from '../lib/dynamic-price'
 import { parseTags } from '../lib/filters'
 import { isTokenBasedModel } from '../lib/model-helpers'
+import { getModelPerfDisplay, type ModelPerfBadgeData } from '../lib/model-perf'
 import {
   formatPrice,
   formatRequestPrice,
@@ -42,6 +43,7 @@ import {
 } from '../lib/price'
 import type { PricingModel, TokenUnit } from '../types'
 import { ModelBillingModeBadge } from './model-billing-mode-badge'
+import { ModelPerfStatus } from './model-perf-badge'
 
 // ----------------------------------------------------------------------------
 // Pricing Table Columns
@@ -53,6 +55,8 @@ export interface PricingColumnsOptions {
   usdExchangeRate?: number
   showRechargePrice?: boolean
   selectedGroup?: string
+  /** Per-model performance summary; absent entries render the empty state. */
+  perfMap?: ReadonlyMap<string, ModelPerfBadgeData>
 }
 
 export function usePricingColumns(
@@ -65,9 +69,12 @@ export function usePricingColumns(
     usdExchangeRate = 1,
     showRechargePrice = false,
     selectedGroup,
+    perfMap,
   } = options
 
   const tokenUnitLabel = tokenUnit === 'K' ? '1K' : '1M'
+
+  const getPerf = (modelName: string) => perfMap?.get(modelName)
 
   return [
     // Model column
@@ -386,6 +393,74 @@ export function usePricingColumns(
             ))}
           />
         )
+      },
+      size: 130,
+      enableSorting: false,
+    },
+
+    // Latency column (perf-metrics summary; '—' when no data)
+    {
+      id: 'perf_latency',
+      meta: { label: t('Latency') },
+      header: t('Latency'),
+      cell: ({ row }) => {
+        const perf = getPerf(row.original.model_name)
+        const display = getModelPerfDisplay(perf)
+        const label = `${t('Average latency')} · 24h · ${t('All Groups')}: ${display.latency}`
+        return (
+          <span
+            title={label}
+            aria-label={label}
+            className={
+              display.latency === '—'
+                ? 'text-muted-foreground font-mono text-sm tabular-nums'
+                : 'font-mono text-sm tabular-nums'
+            }
+          >
+            {display.latency}
+          </span>
+        )
+      },
+      size: 110,
+      enableSorting: false,
+    },
+
+    // Throughput column (perf-metrics summary; '—' when no data)
+    {
+      id: 'perf_throughput',
+      meta: { label: t('Throughput') },
+      header: t('Throughput'),
+      cell: ({ row }) => {
+        const perf = getPerf(row.original.model_name)
+        const display = getModelPerfDisplay(perf)
+        const label = `${t('Throughput')} · 24h · ${t('All Groups')}: ${display.throughput}`
+        return (
+          <span
+            title={label}
+            aria-label={label}
+            className={
+              display.throughput === '—'
+                ? 'text-muted-foreground font-mono text-sm tabular-nums'
+                : 'font-mono text-sm tabular-nums'
+            }
+          >
+            {display.throughput}
+          </span>
+        )
+      },
+      size: 120,
+      enableSorting: false,
+    },
+
+    // Status column: recent success-rate bars + rate, same semantics as the
+    // card view's ModelPerfBadge (healthy / degraded / outage).
+    {
+      id: 'perf_status',
+      meta: { label: t('Status') },
+      header: t('Status'),
+      cell: ({ row }) => {
+        const perf = getPerf(row.original.model_name)
+        return <ModelPerfStatus perf={perf} />
       },
       size: 130,
       enableSorting: false,

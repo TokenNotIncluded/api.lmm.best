@@ -32,6 +32,7 @@ import {
 } from './components'
 import { EXCLUDED_GROUPS, VIEW_MODES } from './constants'
 import { useFilters } from './hooks/use-filters'
+import { usePerfMap } from './hooks/use-perf-map'
 import { usePricingData } from './hooks/use-pricing-data'
 
 /** Models revealed per "Load more" click on the vendor grid. */
@@ -92,6 +93,8 @@ export function Pricing() {
     clearSearch,
   } = useFilters(models || [])
 
+  const { perfMap } = usePerfMap()
+
   const handleModelClick = useCallback((modelName: string) => {
     setSelectedModelName(modelName)
   }, [])
@@ -150,6 +153,7 @@ export function Pricing() {
             tokenUnit={tokenUnit}
             showRechargePrice={showRechargePrice}
             selectedGroup={groupFilter}
+            perfMap={perfMap}
           />
           {hasMore ? (
             <div className='mt-10 flex justify-center'>
@@ -174,6 +178,7 @@ export function Pricing() {
         tokenUnit={tokenUnit}
         showRechargePrice={showRechargePrice}
         selectedGroup={groupFilter}
+        perfMap={perfMap}
         onModelClick={handleModelClick}
       />
     )

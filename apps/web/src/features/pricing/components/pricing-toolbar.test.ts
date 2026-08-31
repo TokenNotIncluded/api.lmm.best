@@ -46,7 +46,7 @@ describe('PricingToolbar mobile controls', () => {
   test('keeps model-square controls at a thumb-friendly size on mobile', () => {
     assert.match(source, /inline-flex h-11 items-center[\s\S]*sm:h-8/)
     assert.match(source, /w-11 sm:w-7/)
-    assert.match(source, /className='h-11 gap-1\.5 sm:h-7 xl:hidden'/)
+    assert.match(source, /className='h-11 gap-1\.5 sm:h-7(?: [^']*)?'/)
     assert.match(source, /className='h-11 gap-1\.5 px-3 text-xs sm:h-8'/)
     assert.match(modelCardSource, /inline-flex min-h-11 items-center/)
     assert.match(
@@ -55,5 +55,20 @@ describe('PricingToolbar mobile controls', () => {
     )
     assert.match(searchBarSource, /h-11 w-full[\s\S]*sm:h-10/)
     assert.match(vendorSectionsSource, /min-h-16 gap-3 rounded-xl/)
+  })
+})
+
+describe('PricingToolbar filter access', () => {
+  test('uses an accessible filter sheet trigger at every breakpoint', () => {
+    const filterButton = source.match(
+      /<SheetTrigger[\s\S]*?<Button[\s\S]*?className='h-11 gap-1\.5 sm:h-7'[\s\S]*?<\/SheetTrigger>/
+    )
+
+    assert.ok(filterButton)
+    assert.doesNotMatch(filterButton[0], /\bxl:hidden\b/)
+    assert.match(
+      source,
+      /<Sheet open=\{filtersOpen\} onOpenChange=\{setFiltersOpen\}>/
+    )
   })
 })

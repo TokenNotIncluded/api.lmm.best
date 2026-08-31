@@ -19,106 +19,117 @@ For commercial licensing, please contact support@quantumnous.com
 import { memo } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import { getSuccessRateDotClass } from '@/features/performance-metrics/lib/format'
+import {
+  getSuccessRateDotClass,
+  getSuccessRateTextClass,
+} from '@/features/performance-metrics/lib/format'
 import { cn } from '@/lib/utils'
 
-export type ModelPerfBadgeData = {
-  avg_latency_ms: number
-  success_rate: number
-  avg_tps: number
-  recent_success_rates?: number[]
-}
+import { getModelPerfDisplay, type ModelPerfBadgeData } from '../lib/model-perf'
 
 export interface ModelPerfBadgeProps extends React.HTMLAttributes<HTMLDivElement> {
   perf: ModelPerfBadgeData | undefined
 }
 
-function formatCompactNumber(value: number): string {
-  if (!Number.isFinite(value) || value <= 0) return '—'
-  return value > 1 ? String(Math.round(value)) : value.toFixed(1)
+const STATUS_BAR_SLOTS = [
+  { key: 'oldest', heightClass: 'h-2' },
+  { key: 'middle', heightClass: 'h-2.5' },
+  { key: 'latest', heightClass: 'h-3' },
+] as const
+
+function getEmptyStatusBarClass(slotIndex: number): string {
+  return slotIndex === 0 ? 'bg-muted-foreground/10' : 'bg-muted-foreground/15'
 }
 
-function formatCompactLatency(ms: number): string {
-  if (!Number.isFinite(ms) || ms <= 0) return '—'
-  if (ms >= 1_000) return `${formatCompactNumber(ms / 1_000)}s`
-  return `${formatCompactNumber(ms)}ms`
-}
+export function ModelPerfStatus(props: {
+  perf: ModelPerfBadgeData | undefined
+  className?: string
+}) {
+  const { t } = useTranslation()
+  const display = getModelPerfDisplay(props.perf)
+  const successRate = props.perf?.success_rate ?? Number.NaN
+  const label = `${t('Success rate')} · 24h · ${t('All Groups')}: ${display.successRate}`
 
-function formatCompactThroughput(tps: number): string {
-  if (!Number.isFinite(tps) || tps <= 0) return '—'
-  if (tps >= 1_000) return `${formatCompactNumber(tps / 1_000)}Kt`
-  return `${formatCompactNumber(tps)}t`
+  return (
+    <div
+      title={label}
+      aria-label={label}
+      className={cn('flex h-4 min-w-0 items-center gap-1', props.className)}
+    >
+      <div aria-hidden='true' className='flex items-center gap-0.5'>
+        {STATUS_BAR_SLOTS.map((slot, slotIndex) => {
+          const rate = display.statusBars[slotIndex]
+          return (
+            <span
+              key={slot.key}
+              className={cn(
+                'w-1 rounded-full',
+                slot.heightClass,
+                rate == null
+                  ? getEmptyStatusBarClass(slotIndex)
+                  : getSuccessRateDotClass(rate)
+              )}
+            />
+          )
+        })}
+      </div>
+      <span
+        className={cn(
+          'font-mono text-[10px] leading-4 whitespace-nowrap',
+          Number.isFinite(successRate)
+            ? getSuccessRateTextClass(successRate)
+            : 'text-muted-foreground'
+        )}
+      >
+        {display.successRate}
+      </span>
+    </div>
+  )
 }
 
 export const ModelPerfBadge = memo(function ModelPerfBadge(
   props: ModelPerfBadgeProps
 ) {
   const { t } = useTranslation()
-
-  if (!props.perf) {
-    return null
-  }
-
-  const { avg_latency_ms, avg_tps, success_rate } = props.perf
-
-  const recentRates =
-    props.perf.recent_success_rates?.filter((rate) => Number.isFinite(rate)) ??
-    []
-  const statusRates =
-    recentRates.length > 0 ? recentRates.slice(-3) : [success_rate]
-  const statusBars = [
-    ...Array(Math.max(0, 3 - statusRates.length)).fill(null),
-    ...statusRates,
-  ].slice(-3)
+  const display = getModelPerfDisplay(props.perf)
+  const latencyLabel = `${t('Average latency')} · 24h · ${t('All Groups')}: ${display.latency}`
+  const throughputLabel = `${t('Throughput')} · 24h · ${t('All Groups')}: ${display.throughput}`
 
   return (
     <div
       className={cn(
-        'hidden w-[132px] grid-cols-[38px_48px_30px] gap-x-2 text-right tabular-nums min-[460px]:grid',
+        'grid w-full grid-cols-3 gap-x-3 text-left tabular-nums min-[460px]:w-[170px] min-[460px]:grid-cols-[44px_56px_54px] min-[460px]:gap-x-2 min-[460px]:text-right',
         props.className
       )}
     >
-      <div title={t('Average latency')} className='min-w-0'>
-        <div className='text-muted-foreground/55 text-[10px] leading-4'>
+      <div title={latencyLabel} aria-label={latencyLabel} className='min-w-0'>
+        <div className='text-muted-foreground truncate text-[11px] leading-4 font-medium'>
           {t('Latency short')}
         </div>
-        <div className='text-muted-foreground/80 font-mono text-xs leading-4 whitespace-nowrap'>
-          {formatCompactLatency(avg_latency_ms)}
-        </div>
-      </div>
-      <div title={t('Throughput')} className='min-w-0'>
-        <div className='text-muted-foreground/55 truncate text-[10px] leading-4'>
-          {t('Throughput short')}
-        </div>
-        <div className='text-muted-foreground/80 font-mono text-xs leading-4 whitespace-nowrap'>
-          {formatCompactThroughput(avg_tps)}
+        <div className='text-foreground/80 font-mono text-xs leading-4 whitespace-nowrap'>
+          {display.latency}
         </div>
       </div>
       <div
-        title={`${t('Success rate')}: ${success_rate.toFixed(1)}%`}
+        title={throughputLabel}
+        aria-label={throughputLabel}
         className='min-w-0'
       >
-        <div className='text-muted-foreground/55 truncate text-[10px] leading-4'>
+        <div className='text-muted-foreground truncate text-[11px] leading-4 font-medium'>
+          {t('Throughput short')}
+        </div>
+        <div className='text-foreground/80 font-mono text-xs leading-4 whitespace-nowrap'>
+          {display.throughput}
+        </div>
+      </div>
+      <div className='min-w-0'>
+        <div className='text-muted-foreground truncate text-[11px] leading-4 font-medium'>
           {t('Status short')}
         </div>
-        <div className='flex h-4 items-center justify-end gap-0.5'>
-          {statusBars.map((rate, index) => (
-            <span
-              key={`${index}-${rate ?? 'empty'}`}
-              className={cn(
-                'w-1 rounded-full',
-                index === 0 && 'h-2',
-                index === 1 && 'h-2.5',
-                index === 2 && 'h-3',
-                rate == null
-                  ? index === 0
-                    ? 'bg-muted-foreground/10'
-                    : 'bg-muted-foreground/15'
-                  : getSuccessRateDotClass(rate)
-              )}
-            />
-          ))}
-        </div>
+        <ModelPerfStatus
+          perf={props.perf}
+          className='min-[460px]:justify-end'
+        />
       </div>
     </div>
   )

@@ -31,10 +31,11 @@ import {
 } from '../lib/dynamic-price'
 import { parseTags } from '../lib/filters'
 import { isTokenBasedModel } from '../lib/model-helpers'
+import type { ModelPerfBadgeData } from '../lib/model-perf'
 import { formatPrice, formatRequestPrice } from '../lib/price'
 import type { PricingModel, TokenUnit } from '../types'
 import { ModelBillingModeBadge } from './model-billing-mode-badge'
-import { ModelPerfBadge, type ModelPerfBadgeData } from './model-perf-badge'
+import { ModelPerfBadge } from './model-perf-badge'
 
 export interface ModelCardProps {
   model: PricingModel
@@ -246,8 +247,8 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
       </p>
 
       {/* Footer: left metadata and right performance summary share row alignment */}
-      <div className='mt-2 grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-2 gap-y-1 sm:mt-4'>
-        <div className='flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1'>
+      <div className='mt-2 grid grid-cols-1 items-start gap-x-2 gap-y-1 min-[460px]:grid-cols-[minmax(0,1fr)_auto] sm:mt-4'>
+        <div className='flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 min-[460px]:col-start-1 min-[460px]:row-start-1'>
           {primaryGroup && (
             <span className='text-muted-foreground text-sm font-medium'>
               {primaryGroup}
@@ -255,9 +256,7 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
           )}
           <ModelBillingModeBadge model={props.model} />
         </div>
-        <ModelPerfBadge perf={props.perf} className='row-span-2 self-start' />
-
-        <div className='flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-0.5 sm:gap-x-3 sm:gap-y-1'>
+        <div className='flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-0.5 min-[460px]:col-start-1 min-[460px]:row-start-2 sm:gap-x-3 sm:gap-y-1'>
           {bottomTags.map((item) => (
             <span key={item} className='text-muted-foreground/70 text-xs'>
               {item}
@@ -272,6 +271,10 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
             </span>
           )}
         </div>
+        <ModelPerfBadge
+          perf={props.perf}
+          className='mt-2 border-t pt-2 min-[460px]:col-start-2 min-[460px]:row-span-2 min-[460px]:row-start-1 min-[460px]:mt-0 min-[460px]:border-t-0 min-[460px]:pt-0'
+        />
       </div>
     </div>
   )
