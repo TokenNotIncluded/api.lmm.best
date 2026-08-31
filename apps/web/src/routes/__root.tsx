@@ -160,6 +160,7 @@ const NON_BLOCKING_PUBLIC_PATHS = [
   '/',
   '/challenges',
   '/pricing',
+  '/status',
   '/privacy-policy',
   '/user-agreement',
   '/terms',
