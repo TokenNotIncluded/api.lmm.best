@@ -1,16 +1,17 @@
 /*
 Copyright (C) 2026 LIghtJUNction
 */
-import { useQuery } from '@tanstack/react-query'
 import {
-  Copy,
-  ImageIcon,
-  ImagePlus,
-  RefreshCw,
-  ServerCog,
-  Sparkles,
-  X,
-} from 'lucide-react'
+  Cancel01Icon,
+  Copy01Icon,
+  Image01Icon,
+  ImageAdd01Icon,
+  Loading03Icon,
+  McpServerIcon,
+  SparklesIcon,
+} from '@hugeicons/core-free-icons'
+import { HugeiconsIcon } from '@hugeicons/react'
+import { useQuery } from '@tanstack/react-query'
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -22,7 +23,15 @@ import {
   AlertDescription,
   AlertTitle,
 } from '@/components/ui/alert'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from '@/components/ui/empty'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
@@ -141,6 +150,7 @@ export function Drawing() {
   const [generating, setGenerating] = useState(false)
   const [drawingMcpToken, setDrawingMcpToken] = useState('')
   const [drawingMcpPending, setDrawingMcpPending] = useState(false)
+  const [drawingMcpOpen, setDrawingMcpOpen] = useState(false)
   const referenceInputRef = useRef<HTMLInputElement>(null)
   const previewUrlsRef = useRef(new Set<string>())
 
@@ -512,32 +522,35 @@ export function Drawing() {
     )
   } else {
     content = (
-      <div className='grid gap-5 xl:grid-cols-[minmax(0,1fr)_20rem] xl:items-stretch'>
+      <div className='grid gap-4 xl:grid-cols-[minmax(0,1fr)_19rem] xl:items-stretch'>
         <section
-          className='relative flex min-h-[620px] min-w-0 flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#111210] shadow-2xl shadow-black/10'
+          data-slot='drawing-canvas'
+          className='relative flex min-h-[36rem] min-w-0 flex-col overflow-hidden rounded-lg border border-white/10 bg-[#111210]'
           aria-live='polite'
           aria-labelledby='drawing-canvas-title'
         >
-          <div className='pointer-events-none absolute inset-0 bg-[radial-gradient(circle,rgba(255,255,255,0.07)_1px,transparent_1px)] [background-size:24px_24px] opacity-60' />
-          <header className='relative flex items-center justify-between gap-4 border-b border-white/10 bg-black/10 px-4 py-3 sm:px-5'>
+          <header className='flex items-center justify-between gap-4 border-b border-white/10 px-4 py-3 sm:px-5'>
             <div className='flex min-w-0 items-center gap-3'>
-              <div className='bg-primary/15 text-primary flex size-9 shrink-0 items-center justify-center rounded-lg'>
-                <Sparkles className='size-4' aria-hidden='true' />
+              <div className='bg-primary/15 text-primary flex size-8 shrink-0 items-center justify-center rounded-md'>
+                <HugeiconsIcon
+                  icon={SparklesIcon}
+                  className='size-4'
+                  strokeWidth={2}
+                  aria-hidden='true'
+                />
               </div>
-              <div className='min-w-0'>
-                <p className='text-[10px] font-medium tracking-[0.16em] text-white/45 uppercase'>
-                  {t('Canvas')}
-                </p>
-                <h2
-                  id='drawing-canvas-title'
-                  className='truncate text-sm font-medium text-white/90'
-                >
-                  {selectedModel || t('Preview')}
-                </h2>
-              </div>
+              <h2
+                id='drawing-canvas-title'
+                className='truncate text-sm font-medium text-white/90'
+              >
+                {selectedModel || t('Preview')}
+              </h2>
             </div>
-            <div className='flex shrink-0 items-center gap-2 text-xs'>
-              <span className='rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-white/65'>
+            <div className='flex shrink-0 items-center gap-2'>
+              <Badge
+                variant='outline'
+                className='border-white/15 bg-white/5 text-white/80'
+              >
                 {generating
                   ? referenceImages.length > 0
                     ? t('Editing...')
@@ -547,26 +560,31 @@ export function Drawing() {
                     : referenceImages.length > 0
                       ? t('Edit image')
                       : t('Draft')}
-              </span>
+              </Badge>
               {selectedGroup ? (
-                <span className='hidden rounded-full border border-white/10 px-2.5 py-1 text-white/45 sm:inline'>
+                <Badge
+                  variant='outline'
+                  className='hidden border-white/15 text-white/70 sm:inline-flex'
+                >
                   {selectedGroup}
-                </span>
+                </Badge>
               ) : null}
             </div>
           </header>
 
-          <div className='relative flex min-h-0 flex-1 items-center justify-center overflow-y-auto p-4 sm:p-8'>
+          <div className='flex min-h-0 flex-1 items-center justify-center overflow-y-auto p-4 sm:p-8'>
             {generating ? (
-              <div className='flex flex-col items-center justify-center text-center text-white/65'>
-                <div className='bg-primary/15 text-primary mb-5 flex size-16 items-center justify-center rounded-2xl'>
-                  <RefreshCw
+              <div className='flex flex-col items-center justify-center text-center text-white/80'>
+                <div className='bg-primary/15 text-primary mb-4 flex size-12 items-center justify-center rounded-lg'>
+                  <HugeiconsIcon
+                    icon={Loading03Icon}
                     className='size-7 animate-spin'
+                    strokeWidth={2}
                     aria-hidden='true'
                   />
                 </div>
                 <p className='text-sm'>{t('Generation in progress...')}</p>
-                <p className='mt-2 max-w-xs text-xs leading-5 text-white/40'>
+                <p className='mt-2 max-w-xs text-xs leading-5 text-white/65'>
                   {t('Your request is ready to run.')}
                 </p>
               </div>
@@ -577,7 +595,7 @@ export function Drawing() {
                   if (!src) return null
                   return (
                     <figure
-                      className='group relative min-w-0 overflow-hidden rounded-xl border border-white/10 bg-black/30 p-2'
+                      className='group relative min-w-0 overflow-hidden rounded-lg border border-white/10 bg-black/30 p-2'
                       key={image.url ?? image.b64_json ?? image.revised_prompt}
                     >
                       <img
@@ -596,36 +614,46 @@ export function Drawing() {
                 })}
               </div>
             ) : (
-              <div className='max-w-md text-center text-white/55'>
-                <div className='mx-auto mb-5 flex size-16 items-center justify-center rounded-2xl border border-white/10 bg-white/5'>
-                  <ImageIcon
-                    className='size-7 text-white/35'
-                    aria-hidden='true'
-                  />
-                </div>
-                <p className='text-sm text-white/75'>
-                  {t('Your generated images will appear here.')}
-                </p>
-                <p className='mt-2 text-xs leading-5 text-white/40'>
-                  {hasPrompt
-                    ? t(
-                        'Review the generated images here when the request finishes.'
-                      )
-                    : t(
-                        'Describe an image, choose a group, and generate a preview.'
-                      )}
-                </p>
-              </div>
+              <Empty className='max-w-md text-white'>
+                <EmptyHeader>
+                  <EmptyMedia
+                    variant='icon'
+                    className='size-10 bg-white/10 text-white/75'
+                  >
+                    <HugeiconsIcon
+                      icon={Image01Icon}
+                      className='size-5'
+                      strokeWidth={2}
+                      aria-hidden='true'
+                    />
+                  </EmptyMedia>
+                  <EmptyTitle className='text-white/85'>
+                    {t('Your generated images will appear here.')}
+                  </EmptyTitle>
+                  <EmptyDescription className='text-xs text-white/65'>
+                    {hasPrompt
+                      ? t(
+                          'Review the generated images here when the request finishes.'
+                        )
+                      : t(
+                          'Describe an image, choose a group, and generate a preview.'
+                        )}
+                  </EmptyDescription>
+                </EmptyHeader>
+              </Empty>
             )}
           </div>
 
-          <div className='relative border-t border-white/10 p-3 sm:p-4'>
-            <div className='rounded-xl border border-white/10 bg-black/55 p-3 shadow-xl shadow-black/20 backdrop-blur sm:p-4'>
+          <div
+            data-slot='drawing-composer'
+            className='border-t border-white/10 bg-black/20 p-3 sm:p-4'
+          >
+            <div className='rounded-lg border border-white/10 bg-black/35 p-3 sm:p-4'>
               <div className='mb-2 flex items-center justify-between gap-3'>
-                <Label htmlFor='drawing-prompt-input' className='text-white/80'>
+                <Label htmlFor='drawing-prompt-input' className='text-white/85'>
                   {t('Prompt')}
                 </Label>
-                <span className='text-xs text-white/35 tabular-nums'>
+                <span className='text-xs text-white/60 tabular-nums'>
                   {prompt.length}/2000
                 </span>
               </div>
@@ -636,50 +664,10 @@ export function Drawing() {
                 placeholder={t('Describe what you want to see...')}
                 maxLength={2000}
                 rows={3}
-                className='min-h-20 resize-none border-0 bg-transparent px-0 py-1 text-base text-white shadow-none placeholder:text-white/30 focus-visible:ring-0'
+                style={{ backgroundColor: 'transparent' }}
+                className='min-h-20 resize-none border-0 bg-transparent px-0 py-1 text-base text-white shadow-none placeholder:text-white/50 focus-visible:ring-0'
               />
-              <div className='mt-2 flex items-center justify-between gap-3 text-xs'>
-                <span className='truncate text-white/40'>
-                  {t('Be specific about the subject, mood, and style.')}
-                </span>
-                <span className='shrink-0 text-white/55'>
-                  {hasPrompt ? t('Ready') : t('Draft')}
-                </span>
-              </div>
-            </div>
-          </div>
-        </section>
 
-        <aside className='border-border/70 bg-card/30 flex min-w-0 flex-col rounded-2xl border'>
-          <div className='border-border/70 border-b p-5'>
-            <div className='flex items-start justify-between gap-3'>
-              <div>
-                <p className='text-muted-foreground mb-2 text-xs font-medium tracking-[0.14em] uppercase'>
-                  {t('Inspector')}
-                </p>
-                <h2 className='text-lg font-medium'>{t('Generation setup')}</h2>
-              </div>
-              {configurationReady ? (
-                <span className='text-primary pt-1 text-xs font-medium'>
-                  {t('Ready')}
-                </span>
-              ) : null}
-            </div>
-            <p className='text-muted-foreground mt-2 text-xs leading-5'>
-              {t('Choose a route and output settings.')}
-            </p>
-          </div>
-
-          <div className='grid gap-5 p-5'>
-            <div className='grid gap-3'>
-              <div className='flex items-center justify-between gap-3'>
-                <Label htmlFor='drawing-reference-images'>
-                  {t('Reference images')}
-                </Label>
-                <span className='text-muted-foreground text-xs tabular-nums'>
-                  {referenceImages.length}/{maxReferenceImages}
-                </span>
-              </div>
               <input
                 ref={referenceInputRef}
                 id='drawing-reference-images'
@@ -693,26 +681,27 @@ export function Drawing() {
                   event.target.value = ''
                 }}
               />
-              {referenceImages.length === 0 ? (
-                <Button
-                  type='button'
-                  variant='outline'
-                  className='text-muted-foreground hover:text-foreground h-24 border-dashed'
-                  disabled={generating}
-                  onClick={() => referenceInputRef.current?.click()}
-                >
-                  <ImagePlus className='mr-2 size-4' aria-hidden='true' />
-                  {t('Add reference images')}
-                </Button>
-              ) : (
-                <>
-                  <div className='grid grid-cols-2 gap-2'>
+
+              {referenceImages.length > 0 ? (
+                <div className='mt-3 border-t border-white/10 pt-3'>
+                  <div className='mb-2 flex items-center justify-between gap-3'>
+                    <Label
+                      htmlFor='drawing-reference-images'
+                      className='text-xs text-white/75'
+                    >
+                      {t('Reference images')}
+                    </Label>
+                    <span className='text-xs text-white/60 tabular-nums'>
+                      {referenceImages.length}/{maxReferenceImages}
+                    </span>
+                  </div>
+                  <div className='flex gap-2 overflow-x-auto pb-1'>
                     {referenceImages.map((image, index) => {
                       const label = referenceImageLabel(index)
                       return (
                         <figure
                           key={image.id}
-                          className='group relative aspect-square min-w-0 overflow-hidden rounded-xl border bg-black/10'
+                          className='group relative size-16 shrink-0 overflow-hidden rounded-md border border-white/15 bg-black/30 sm:size-20'
                           title={image.file.name}
                         >
                           <img
@@ -720,62 +709,133 @@ export function Drawing() {
                             alt={label}
                             className='size-full object-cover'
                           />
-                          <figcaption className='absolute bottom-1.5 left-1.5 rounded-md bg-black/75 px-2 py-1 text-[11px] font-medium text-white'>
+                          <figcaption className='absolute inset-x-1 bottom-1 truncate rounded-sm bg-black/80 px-1.5 py-0.5 text-[10px] font-medium text-white'>
                             {label}
                           </figcaption>
                           <Button
                             type='button'
                             variant='secondary'
-                            size='icon'
-                            className='absolute top-1.5 right-1.5 size-7 rounded-full bg-black/75 text-white opacity-90 hover:bg-black'
+                            size='icon-xs'
+                            className='absolute top-1 right-1 bg-black/80 text-white hover:bg-black'
                             disabled={generating}
                             aria-label={t('Remove {{name}}', { name: label })}
                             onClick={() => removeReferenceImage(image.id)}
                           >
-                            <X className='size-3.5' aria-hidden='true' />
+                            <HugeiconsIcon
+                              icon={Cancel01Icon}
+                              strokeWidth={2}
+                              aria-hidden='true'
+                            />
                           </Button>
                         </figure>
                       )
                     })}
                   </div>
+                  <p className='mt-2 text-xs leading-5 text-white/65'>
+                    {t(
+                      'Use the image labels in your prompt to describe how each reference should be used.'
+                    )}
+                  </p>
+                </div>
+              ) : null}
+
+              {error ? (
+                <Alert variant='destructive' className='mt-3'>
+                  <AlertTitle>{t('Request failed')}</AlertTitle>
+                  <AlertDescription>{error}</AlertDescription>
+                  <AlertAction>
+                    <Button
+                      type='button'
+                      size='sm'
+                      variant='outline'
+                      onClick={() => void generate()}
+                      disabled={generating}
+                    >
+                      {t('Retry')}
+                    </Button>
+                  </AlertAction>
+                </Alert>
+              ) : null}
+
+              <div className='mt-3 flex flex-col gap-3 border-t border-white/10 pt-3 sm:flex-row sm:items-center sm:justify-between'>
+                <div className='flex min-w-0 items-center gap-3'>
                   <Button
                     type='button'
                     variant='outline'
                     size='sm'
+                    className='border-white/15 bg-white/5 text-white hover:bg-white/10 hover:text-white'
                     disabled={
                       generating || referenceImages.length >= maxReferenceImages
                     }
                     onClick={() => referenceInputRef.current?.click()}
                   >
-                    <ImagePlus className='mr-2 size-4' aria-hidden='true' />
+                    <HugeiconsIcon
+                      icon={ImageAdd01Icon}
+                      data-icon='inline-start'
+                      strokeWidth={2}
+                      aria-hidden='true'
+                    />
                     {t('Add reference images')}
                   </Button>
-                </>
-              )}
-              <p className='text-muted-foreground text-xs leading-5'>
-                {t(
-                  'PNG, JPEG or WebP, up to {{count}} images and {{size}} MB each.',
-                  {
-                    count: maxReferenceImages,
-                    size: maxReferenceImageBytes / 1024 / 1024,
-                  }
-                )}
-              </p>
-              {referenceImages.length > 0 ? (
-                <div className='bg-muted/40 grid gap-1 rounded-lg border px-3 py-2 text-xs leading-5'>
-                  <span className='font-medium'>
-                    {t(
-                      'Reference images switch this request to image editing.'
-                    )}
-                  </span>
-                  <span className='text-muted-foreground'>
-                    {t(
-                      'Use the image labels in your prompt to describe how each reference should be used.'
-                    )}
+                  <span className='hidden truncate text-xs text-white/65 md:block'>
+                    {referenceImages.length > 0
+                      ? t(
+                          'Reference images switch this request to image editing.'
+                        )
+                      : t('Be specific about the subject, mood, and style.')}
                   </span>
                 </div>
+                <Button
+                  type='button'
+                  size='lg'
+                  className='w-full sm:w-auto sm:min-w-36'
+                  onClick={() => void generate()}
+                  disabled={
+                    generating ||
+                    !prompt.trim() ||
+                    !selectedGroup ||
+                    !selectedModel
+                  }
+                >
+                  <HugeiconsIcon
+                    icon={generating ? Loading03Icon : Image01Icon}
+                    data-icon='inline-start'
+                    className={generating ? 'animate-spin' : undefined}
+                    strokeWidth={2}
+                    aria-hidden='true'
+                  />
+                  {generating
+                    ? referenceImages.length > 0
+                      ? t('Editing...')
+                      : t('Generating...')
+                    : referenceImages.length > 0
+                      ? t('Edit image')
+                      : t('Generate image')}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <aside
+          data-slot='drawing-inspector'
+          className='bg-card flex min-w-0 flex-col rounded-lg border'
+        >
+          <div className='border-b p-4'>
+            <div className='flex items-start justify-between gap-3'>
+              <h2 className='text-base font-semibold'>
+                {t('Generation setup')}
+              </h2>
+              {configurationReady ? (
+                <Badge variant='secondary'>{t('Ready')}</Badge>
               ) : null}
             </div>
+            <p className='text-muted-foreground mt-2 text-xs leading-5'>
+              {t('Choose a route and output settings.')}
+            </p>
+          </div>
+
+          <div className='grid gap-5 p-4'>
             <div className='grid gap-2'>
               <Label htmlFor='drawing-group'>{t('Routing group')}</Label>
               <NativeSelect
@@ -871,49 +931,8 @@ export function Drawing() {
             </div>
           </div>
 
-          <div className='mt-auto grid gap-3 border-t p-5'>
-            {error ? (
-              <Alert variant='destructive'>
-                <AlertTitle>{t('Request failed')}</AlertTitle>
-                <AlertDescription>{error}</AlertDescription>
-                <AlertAction>
-                  <Button
-                    type='button'
-                    size='sm'
-                    variant='outline'
-                    onClick={() => void generate()}
-                    disabled={generating}
-                  >
-                    {t('Retry')}
-                  </Button>
-                </AlertAction>
-              </Alert>
-            ) : null}
-            <Button
-              type='button'
-              className='h-11 w-full'
-              onClick={() => void generate()}
-              disabled={
-                generating || !prompt.trim() || !selectedGroup || !selectedModel
-              }
-            >
-              {generating ? (
-                <RefreshCw
-                  className='mr-2 size-4 animate-spin'
-                  aria-hidden='true'
-                />
-              ) : (
-                <ImageIcon className='mr-2 size-4' aria-hidden='true' />
-              )}
-              {generating
-                ? referenceImages.length > 0
-                  ? t('Editing...')
-                  : t('Generating...')
-                : referenceImages.length > 0
-                  ? t('Edit image')
-                  : t('Generate image')}
-            </Button>
-            <p className='text-muted-foreground text-center text-xs leading-5'>
+          <div className='mt-auto border-t p-4'>
+            <p className='text-muted-foreground text-xs leading-5'>
               {t('Billing follows the selected group configuration.')}
             </p>
           </div>
@@ -925,21 +944,50 @@ export function Drawing() {
   return (
     <SectionPageLayout>
       <SectionPageLayout.Title>{t('Drawing studio')}</SectionPageLayout.Title>
+      {accessGranted ? (
+        <SectionPageLayout.Actions>
+          <Button
+            type='button'
+            size='sm'
+            variant='outline'
+            aria-expanded={drawingMcpOpen}
+            aria-controls='drawing-mcp-panel'
+            onClick={() => setDrawingMcpOpen((open) => !open)}
+          >
+            <HugeiconsIcon
+              icon={McpServerIcon}
+              data-icon='inline-start'
+              strokeWidth={2}
+              aria-hidden='true'
+            />
+            {t('Drawing MCP')}
+          </Button>
+        </SectionPageLayout.Actions>
+      ) : null}
       <SectionPageLayout.Content>
         <div className='mx-auto w-full max-w-7xl pb-16'>
-          <header className='mb-8 grid gap-2'>
+          <header className='mb-4 grid gap-2'>
             <p className='text-muted-foreground text-sm'>
               {t(
                 'Create images through the same safe, group-aware relay used by the API.'
               )}
             </p>
           </header>
-          {accessGranted ? (
-            <section className='bg-card mb-5 grid gap-4 border p-4 sm:p-5'>
+          {content}
+          {accessGranted && drawingMcpOpen ? (
+            <section
+              id='drawing-mcp-panel'
+              className='bg-card mt-4 grid gap-4 rounded-lg border p-4 sm:p-5'
+            >
               <div className='flex flex-wrap items-start justify-between gap-3'>
                 <div className='flex min-w-0 items-start gap-3'>
-                  <span className='bg-primary/10 text-primary flex size-9 shrink-0 items-center justify-center rounded-lg'>
-                    <ServerCog className='size-4' aria-hidden='true' />
+                  <span className='bg-primary/10 text-primary flex size-9 shrink-0 items-center justify-center rounded-md'>
+                    <HugeiconsIcon
+                      icon={McpServerIcon}
+                      className='size-4'
+                      strokeWidth={2}
+                      aria-hidden='true'
+                    />
                   </span>
                   <div className='min-w-0'>
                     <h2 className='text-sm font-semibold'>
@@ -959,7 +1007,13 @@ export function Drawing() {
                   onClick={() => void copyDrawingMcpConfig()}
                   disabled={drawingMcpPending}
                 >
-                  <Copy data-icon='inline-start' />
+                  <HugeiconsIcon
+                    icon={drawingMcpPending ? Loading03Icon : Copy01Icon}
+                    data-icon='inline-start'
+                    className={drawingMcpPending ? 'animate-spin' : undefined}
+                    strokeWidth={2}
+                    aria-hidden='true'
+                  />
                   {drawingMcpPending
                     ? t('Loading')
                     : drawingMcpToken
@@ -999,7 +1053,6 @@ export function Drawing() {
               ) : null}
             </section>
           ) : null}
-          {content}
         </div>
       </SectionPageLayout.Content>
     </SectionPageLayout>

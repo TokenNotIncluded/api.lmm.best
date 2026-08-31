@@ -193,6 +193,82 @@ describe('Drawing mobile controls', () => {
         assert.match(select.className, /\bh-11\b/)
         assert.match(select.className, /\bsm:h-8\b/)
       }
+
+      const composer = rendered.container.querySelector(
+        '[data-slot="drawing-composer"]'
+      )
+      const inspector = rendered.container.querySelector(
+        '[data-slot="drawing-inspector"]'
+      )
+      assert.ok(composer)
+      assert.ok(inspector)
+      assert.ok(composer.querySelector('#drawing-reference-images'))
+      assert.match(composer.textContent ?? '', /Generate image/)
+      assert.doesNotMatch(inspector.textContent ?? '', /Generate image/)
+      assert.doesNotMatch(
+        rendered.container.innerHTML,
+        /radial-gradient\(circle/
+      )
+    } finally {
+      await act(async () => rendered.root.unmount())
+      rendered.queryClient.clear()
+    }
+  })
+
+  test('keeps MCP configuration out of the primary workflow until requested', async () => {
+    api.get = (async (url: string) => {
+      if (url === '/api/assistant/status') {
+        return {
+          data: {
+            success: true,
+            data: {
+              enabled: true,
+              model: 'assistant-test',
+              developer_access_granted: true,
+              funding: { mode: 'super_administrator' },
+            },
+          },
+        }
+      }
+      if (url === '/api/pricing') return { data: pricing }
+      if (url === '/api/user/self/groups') {
+        return {
+          data: {
+            success: true,
+            data: pricing.usable_group,
+          },
+        }
+      }
+      throw new Error(`unexpected GET ${url}`)
+    }) as typeof api.get
+
+    const rendered = await renderDrawing()
+    try {
+      await act(
+        async () =>
+          await waitForCondition(
+            () => rendered.container.querySelectorAll('select').length === 5,
+            'drawing controls did not render'
+          )
+      )
+
+      assert.equal(
+        rendered.container.querySelector('#drawing-mcp-endpoint'),
+        null
+      )
+      const mcpButton = [...rendered.container.querySelectorAll('button')].find(
+        (button) => button.textContent?.includes('Drawing MCP')
+      )
+      assert.ok(mcpButton)
+      assert.equal(mcpButton.getAttribute('aria-expanded'), 'false')
+
+      await act(async () => {
+        mcpButton.click()
+        await flushEffects()
+      })
+
+      assert.ok(rendered.container.querySelector('#drawing-mcp-endpoint'))
+      assert.equal(mcpButton.getAttribute('aria-expanded'), 'true')
     } finally {
       await act(async () => rendered.root.unmount())
       rendered.queryClient.clear()
