@@ -289,7 +289,11 @@ export async function deletePrefillGroup(
  * Get deployment settings (io.net config)
  */
 export async function getDeploymentSettings(): Promise<DeploymentSettingsResponse> {
-  const res = await api.get('/api/deployments/settings')
+  const res = await api.get('/api/deployments/settings', {
+    // A manual/focus refresh must start a newer request instead of sharing an
+    // older in-flight response. The hook generation guard discards the loser.
+    disableDuplicate: true,
+  })
   return res.data
 }
 
