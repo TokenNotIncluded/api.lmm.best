@@ -38,8 +38,8 @@ fn full_copy_should_verify_all_tables_and_rollback_both_fault_phases() {
     };
 
     let report = rehearse(&options(&fixtures, "lmm_copy_success", &database_url)).unwrap();
-    assert_eq!(report.table_count, 34);
-    assert_eq!(report.sequence_count, 29);
+    assert_eq!(report.table_count, 38);
+    assert_eq!(report.sequence_count, 31);
     assert_eq!(report.financial_aggregates.len(), 15);
     assert!(
         verify(&VerifyOptions {
@@ -76,6 +76,69 @@ fn full_copy_should_verify_all_tables_and_rollback_both_fault_phases() {
         &database_url,
         &contract_migration,
     );
+}
+
+#[test]
+#[cfg(unix)]
+#[ignore = "requires native PostgreSQL from rehearse-postgres.sh"]
+fn subscription_reset_manifest_should_copy_representative_rows() {
+    let database_url = std::env::var("LMM_TEST_DATABASE_URL").expect("test database URL");
+    let crate_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let manifest_path = crate_dir.join("schema/table-map.json");
+    let baseline = crate_dir.join("schema/postgresql-baseline.sql");
+    let catalog_sql = crate_dir.join("schema/export-postgres-catalog.sql");
+    let contract_migration = crate_dir.join("../../migrations/0001_schema_contract.sql");
+    let release = release_binding(&contract_migration, "subscription-reset-copy-release");
+    let manifest = Manifest::load(&manifest_path).expect("load migration manifest");
+    let mut reset_tables = manifest
+        .tables
+        .iter()
+        .map(|table| table.name.as_str())
+        .filter(|name| name.starts_with("subscription_reset_"))
+        .collect::<Vec<_>>();
+    reset_tables.sort_unstable();
+    assert_eq!(
+        reset_tables,
+        [
+            "subscription_reset_events",
+            "subscription_reset_operations",
+            "subscription_reset_previews",
+            "subscription_reset_vouchers",
+        ],
+        "the copy manifest must enumerate all four durable reset tables"
+    );
+
+    let directory = tempfile::tempdir().expect("create reset-copy fixture directory");
+    let sqlite = directory.path().join("subscription-reset.db");
+    create_sqlite_fixture(&sqlite, &manifest);
+    seed_subscription_reset_fixture(&sqlite);
+    let schema = format!("lmm_reset_copy_{}", std::process::id());
+    let fixtures = RehearseFixtures {
+        sqlite: &sqlite,
+        manifest: &manifest,
+        baseline: &baseline,
+        catalog_sql: &catalog_sql,
+        contract_migration: &contract_migration,
+        release: &release,
+    };
+    let report = rehearse(&options(&fixtures, &schema, &database_url))
+        .expect("copy representative subscription-reset rows");
+    assert_eq!(report.table_count, 38);
+    assert_eq!(report.sequence_count, 31);
+    verify(&VerifyOptions {
+        sqlite: &sqlite,
+        manifest: &manifest,
+        schema: &schema,
+        database_url: &database_url,
+        release: &release,
+    })
+    .expect("verify reset-table copy hashes");
+    assert_subscription_reset_copy(&database_url, &schema);
+
+    let mut target = Client::connect(&database_url, NoTls).expect("connect for schema cleanup");
+    target
+        .batch_execute(&format!("DROP SCHEMA {} CASCADE", quote(&schema)))
+        .expect("drop reset-copy schema");
 }
 
 #[cfg(unix)]
@@ -302,6 +365,99 @@ fn create_sqlite_fixture(path: &Path, manifest: &Manifest) {
         .unwrap();
     connection.close().unwrap();
     assert!(!path.with_extension("db-wal").exists());
+}
+
+fn seed_subscription_reset_fixture(sqlite: &Path) {
+    let connection = Connection::open(sqlite).expect("open reset-copy SQLite fixture");
+    connection
+        .execute_batch(
+            r#"
+            UPDATE subscription_reset_vouchers
+               SET user_id=701,plan_id=31,operation_id='soft-reset-701',status='available',
+                   expires_at=1900000000,redeemed_at=0,created_by=1,
+                   created_at=1800000000,updated_at=1800000001;
+            UPDATE subscription_reset_events
+               SET operation_id='hard-reset-701',user_id=701,plan_id=31,mode='hard',
+                   actor_user_id=1,voucher_id=0,reset_count=2,restored_quota=987,
+                   voucher_expiry=0,created_at=1800000010;
+            UPDATE subscription_reset_previews
+               SET token='preview-701',actor_user_id=1,mode='soft',
+                   targets_json='[{"user_id":701,"plan_id":31,"subscriptions":[{"id":91,"amount_used":987}]}]',
+                   payload_hash='aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+                   target_count=1,active_subscriptions=1,quota_to_restore=987,
+                   voucher_expires_at=1900000000,expires_at=1800000600,
+                   consumed_at=0,operation_id='',created_at=1800000000;
+            UPDATE subscription_reset_operations
+               SET operation_id='hard-reset-701',preview_token='preview-701',actor_user_id=1,
+                   mode='hard',payload_hash='bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+                   result_json='{"operation_id":"hard-reset-701","reset_subscriptions":2,"restored_quota":987}',
+                   created_at=1800000010,completed_at=1800000011;
+            "#,
+        )
+        .expect("seed representative reset rows");
+}
+
+fn assert_subscription_reset_copy(database_url: &str, schema: &str) {
+    let mut target = Client::connect(database_url, NoTls).expect("connect to copied reset schema");
+    let voucher = target
+        .query_one(
+            &format!(
+                "SELECT user_id,plan_id,operation_id,status,expires_at FROM {}.subscription_reset_vouchers",
+                quote(schema)
+            ),
+            &[],
+        )
+        .expect("copied voucher row");
+    assert_eq!(voucher.get::<_, i64>(0), 701);
+    assert_eq!(voucher.get::<_, i64>(1), 31);
+    assert_eq!(voucher.get::<_, String>(2), "soft-reset-701");
+    assert_eq!(voucher.get::<_, String>(3), "available");
+    assert_eq!(voucher.get::<_, i64>(4), 1_900_000_000);
+
+    let event = target
+        .query_one(
+            &format!(
+                "SELECT operation_id,mode,reset_count,restored_quota FROM {}.subscription_reset_events",
+                quote(schema)
+            ),
+            &[],
+        )
+        .expect("copied reset audit row");
+    assert_eq!(event.get::<_, String>(0), "hard-reset-701");
+    assert_eq!(event.get::<_, String>(1), "hard");
+    assert_eq!(event.get::<_, i64>(2), 2);
+    assert_eq!(event.get::<_, i64>(3), 987);
+
+    let preview = target
+        .query_one(
+            &format!(
+                "SELECT token,targets_json,target_count,quota_to_restore FROM {}.subscription_reset_previews",
+                quote(schema)
+            ),
+            &[],
+        )
+        .expect("copied reset preview row");
+    assert_eq!(preview.get::<_, String>(0), "preview-701");
+    let targets: serde_json::Value =
+        serde_json::from_str(&preview.get::<_, String>(1)).expect("copied preview JSON");
+    assert_eq!(targets[0]["subscriptions"][0]["amount_used"], 987);
+    assert_eq!(preview.get::<_, i64>(2), 1);
+    assert_eq!(preview.get::<_, i64>(3), 987);
+
+    let operation = target
+        .query_one(
+            &format!(
+                "SELECT operation_id,preview_token,result_json FROM {}.subscription_reset_operations",
+                quote(schema)
+            ),
+            &[],
+        )
+        .expect("copied reset operation row");
+    assert_eq!(operation.get::<_, String>(0), "hard-reset-701");
+    assert_eq!(operation.get::<_, String>(1), "preview-701");
+    let result: serde_json::Value =
+        serde_json::from_str(&operation.get::<_, String>(2)).expect("copied operation JSON");
+    assert_eq!(result["restored_quota"], 987);
 }
 
 fn assert_independent_oracle(sqlite: &Path, database_url: &str) {

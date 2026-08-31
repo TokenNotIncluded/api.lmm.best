@@ -4360,6 +4360,17 @@
           "converter": "identity"
         },
         {
+          "name": "archived_at",
+          "sqlite_type": "bigint",
+          "sqlite_not_null": true,
+          "sqlite_default": "0",
+          "pk_position": 0,
+          "postgres_type": "bigint",
+          "postgres_not_null": true,
+          "postgres_default": "0",
+          "converter": "identity"
+        },
+        {
           "name": "created_at",
           "sqlite_type": "bigint",
           "sqlite_not_null": false,
@@ -4415,8 +4426,26 @@
           "converter": "identity"
         }
       ],
-      "sqlite_indexes": [],
+      "sqlite_indexes": [
+        {
+          "name": "idx_subscription_plans_archived_at",
+          "unique": false,
+          "columns": [
+            "archived_at"
+          ],
+          "predicate": null
+        }
+      ],
       "postgres_indexes": [
+        {
+          "name": "idx_subscription_plans_archived_at",
+          "unique": false,
+          "columns": [
+            "archived_at"
+          ],
+          "primary": false,
+          "predicate": null
+        },
         {
           "name": "subscription_plans_pkey",
           "unique": true,
@@ -4627,6 +4656,854 @@
       "sequence": {
         "name": "subscription_pre_consume_records_id_seq",
         "default": "nextval('subscription_pre_consume_records_id_seq'::regclass)",
+        "owned_column": "id"
+      },
+      "verifier": "count+blake3_table_v1"
+    },
+    {
+      "name": "subscription_reset_events",
+      "columns": [
+        {
+          "name": "id",
+          "sqlite_type": "integer",
+          "sqlite_not_null": false,
+          "sqlite_default": null,
+          "pk_position": 1,
+          "postgres_type": "bigint",
+          "postgres_not_null": true,
+          "postgres_default": "nextval('subscription_reset_events_id_seq'::regclass)",
+          "converter": "identity"
+        },
+        {
+          "name": "operation_id",
+          "sqlite_type": "varchar(64)",
+          "sqlite_not_null": true,
+          "sqlite_default": null,
+          "pk_position": 0,
+          "postgres_type": "character varying(64)",
+          "postgres_not_null": true,
+          "postgres_default": null,
+          "converter": "identity"
+        },
+        {
+          "name": "user_id",
+          "sqlite_type": "integer",
+          "sqlite_not_null": true,
+          "sqlite_default": null,
+          "pk_position": 0,
+          "postgres_type": "bigint",
+          "postgres_not_null": true,
+          "postgres_default": null,
+          "converter": "identity"
+        },
+        {
+          "name": "plan_id",
+          "sqlite_type": "integer",
+          "sqlite_not_null": true,
+          "sqlite_default": null,
+          "pk_position": 0,
+          "postgres_type": "bigint",
+          "postgres_not_null": true,
+          "postgres_default": null,
+          "converter": "identity"
+        },
+        {
+          "name": "mode",
+          "sqlite_type": "varchar(24)",
+          "sqlite_not_null": true,
+          "sqlite_default": null,
+          "pk_position": 0,
+          "postgres_type": "character varying(24)",
+          "postgres_not_null": true,
+          "postgres_default": null,
+          "converter": "identity"
+        },
+        {
+          "name": "actor_user_id",
+          "sqlite_type": "integer",
+          "sqlite_not_null": true,
+          "sqlite_default": null,
+          "pk_position": 0,
+          "postgres_type": "bigint",
+          "postgres_not_null": true,
+          "postgres_default": null,
+          "converter": "identity"
+        },
+        {
+          "name": "voucher_id",
+          "sqlite_type": "integer",
+          "sqlite_not_null": true,
+          "sqlite_default": "0",
+          "pk_position": 0,
+          "postgres_type": "bigint",
+          "postgres_not_null": true,
+          "postgres_default": "0",
+          "converter": "identity"
+        },
+        {
+          "name": "reset_count",
+          "sqlite_type": "integer",
+          "sqlite_not_null": true,
+          "sqlite_default": "0",
+          "pk_position": 0,
+          "postgres_type": "bigint",
+          "postgres_not_null": true,
+          "postgres_default": "0",
+          "converter": "identity"
+        },
+        {
+          "name": "restored_quota",
+          "sqlite_type": "integer",
+          "sqlite_not_null": true,
+          "sqlite_default": "0",
+          "pk_position": 0,
+          "postgres_type": "bigint",
+          "postgres_not_null": true,
+          "postgres_default": "0",
+          "converter": "identity"
+        },
+        {
+          "name": "voucher_expiry",
+          "sqlite_type": "integer",
+          "sqlite_not_null": true,
+          "sqlite_default": "0",
+          "pk_position": 0,
+          "postgres_type": "bigint",
+          "postgres_not_null": true,
+          "postgres_default": "0",
+          "converter": "identity"
+        },
+        {
+          "name": "created_at",
+          "sqlite_type": "integer",
+          "sqlite_not_null": true,
+          "sqlite_default": null,
+          "pk_position": 0,
+          "postgres_type": "bigint",
+          "postgres_not_null": true,
+          "postgres_default": null,
+          "converter": "identity"
+        }
+      ],
+      "sqlite_indexes": [
+        {
+          "name": "idx_subscription_reset_event_operation",
+          "unique": true,
+          "columns": [
+            "operation_id",
+            "user_id",
+            "plan_id",
+            "mode"
+          ],
+          "predicate": null
+        },
+        {
+          "name": "idx_subscription_reset_events_actor_user_id",
+          "unique": false,
+          "columns": [
+            "actor_user_id"
+          ],
+          "predicate": null
+        },
+        {
+          "name": "idx_subscription_reset_events_created_at",
+          "unique": false,
+          "columns": [
+            "created_at"
+          ],
+          "predicate": null
+        },
+        {
+          "name": "idx_subscription_reset_events_plan_id",
+          "unique": false,
+          "columns": [
+            "plan_id"
+          ],
+          "predicate": null
+        },
+        {
+          "name": "idx_subscription_reset_events_user_id",
+          "unique": false,
+          "columns": [
+            "user_id"
+          ],
+          "predicate": null
+        }
+      ],
+      "postgres_indexes": [
+        {
+          "name": "idx_subscription_reset_event_operation",
+          "unique": true,
+          "columns": [
+            "operation_id",
+            "user_id",
+            "plan_id",
+            "mode"
+          ],
+          "primary": false,
+          "predicate": null
+        },
+        {
+          "name": "idx_subscription_reset_events_actor_user_id",
+          "unique": false,
+          "columns": [
+            "actor_user_id"
+          ],
+          "primary": false,
+          "predicate": null
+        },
+        {
+          "name": "idx_subscription_reset_events_created_at",
+          "unique": false,
+          "columns": [
+            "created_at"
+          ],
+          "primary": false,
+          "predicate": null
+        },
+        {
+          "name": "idx_subscription_reset_events_plan_id",
+          "unique": false,
+          "columns": [
+            "plan_id"
+          ],
+          "primary": false,
+          "predicate": null
+        },
+        {
+          "name": "idx_subscription_reset_events_user_id",
+          "unique": false,
+          "columns": [
+            "user_id"
+          ],
+          "primary": false,
+          "predicate": null
+        },
+        {
+          "name": "subscription_reset_events_pkey",
+          "unique": true,
+          "columns": [
+            "id"
+          ],
+          "primary": true,
+          "predicate": null
+        }
+      ],
+      "sequence": {
+        "name": "subscription_reset_events_id_seq",
+        "default": "nextval('subscription_reset_events_id_seq'::regclass)",
+        "owned_column": "id"
+      },
+      "verifier": "count+blake3_table_v1"
+    },
+    {
+      "name": "subscription_reset_operations",
+      "columns": [
+        {
+          "name": "operation_id",
+          "sqlite_type": "varchar(64)",
+          "sqlite_not_null": false,
+          "sqlite_default": null,
+          "pk_position": 1,
+          "postgres_type": "character varying(64)",
+          "postgres_not_null": true,
+          "postgres_default": null,
+          "converter": "identity"
+        },
+        {
+          "name": "preview_token",
+          "sqlite_type": "varchar(64)",
+          "sqlite_not_null": true,
+          "sqlite_default": null,
+          "pk_position": 0,
+          "postgres_type": "character varying(64)",
+          "postgres_not_null": true,
+          "postgres_default": null,
+          "converter": "identity"
+        },
+        {
+          "name": "actor_user_id",
+          "sqlite_type": "integer",
+          "sqlite_not_null": true,
+          "sqlite_default": null,
+          "pk_position": 0,
+          "postgres_type": "bigint",
+          "postgres_not_null": true,
+          "postgres_default": null,
+          "converter": "identity"
+        },
+        {
+          "name": "mode",
+          "sqlite_type": "varchar(16)",
+          "sqlite_not_null": true,
+          "sqlite_default": null,
+          "pk_position": 0,
+          "postgres_type": "character varying(16)",
+          "postgres_not_null": true,
+          "postgres_default": null,
+          "converter": "identity"
+        },
+        {
+          "name": "payload_hash",
+          "sqlite_type": "varchar(64)",
+          "sqlite_not_null": true,
+          "sqlite_default": null,
+          "pk_position": 0,
+          "postgres_type": "character varying(64)",
+          "postgres_not_null": true,
+          "postgres_default": null,
+          "converter": "identity"
+        },
+        {
+          "name": "result_json",
+          "sqlite_type": "text",
+          "sqlite_not_null": true,
+          "sqlite_default": null,
+          "pk_position": 0,
+          "postgres_type": "text",
+          "postgres_not_null": true,
+          "postgres_default": null,
+          "converter": "identity"
+        },
+        {
+          "name": "created_at",
+          "sqlite_type": "integer",
+          "sqlite_not_null": true,
+          "sqlite_default": null,
+          "pk_position": 0,
+          "postgres_type": "bigint",
+          "postgres_not_null": true,
+          "postgres_default": null,
+          "converter": "identity"
+        },
+        {
+          "name": "completed_at",
+          "sqlite_type": "integer",
+          "sqlite_not_null": true,
+          "sqlite_default": null,
+          "pk_position": 0,
+          "postgres_type": "bigint",
+          "postgres_not_null": true,
+          "postgres_default": null,
+          "converter": "identity"
+        }
+      ],
+      "sqlite_indexes": [
+        {
+          "name": "idx_subscription_reset_operations_actor_user_id",
+          "unique": false,
+          "columns": [
+            "actor_user_id"
+          ],
+          "predicate": null
+        },
+        {
+          "name": "idx_subscription_reset_operations_completed_at",
+          "unique": false,
+          "columns": [
+            "completed_at"
+          ],
+          "predicate": null
+        },
+        {
+          "name": "idx_subscription_reset_operations_preview_token",
+          "unique": true,
+          "columns": [
+            "preview_token"
+          ],
+          "predicate": null
+        },
+        {
+          "name": "sqlite_autoindex_subscription_reset_operations_1",
+          "unique": true,
+          "columns": [
+            "operation_id"
+          ],
+          "predicate": null
+        }
+      ],
+      "postgres_indexes": [
+        {
+          "name": "idx_subscription_reset_operations_actor_user_id",
+          "unique": false,
+          "columns": [
+            "actor_user_id"
+          ],
+          "primary": false,
+          "predicate": null
+        },
+        {
+          "name": "idx_subscription_reset_operations_completed_at",
+          "unique": false,
+          "columns": [
+            "completed_at"
+          ],
+          "primary": false,
+          "predicate": null
+        },
+        {
+          "name": "idx_subscription_reset_operations_preview_token",
+          "unique": true,
+          "columns": [
+            "preview_token"
+          ],
+          "primary": false,
+          "predicate": null
+        },
+        {
+          "name": "subscription_reset_operations_pkey",
+          "unique": true,
+          "columns": [
+            "operation_id"
+          ],
+          "primary": true,
+          "predicate": null
+        }
+      ],
+      "sequence": null,
+      "verifier": "count+blake3_table_v1"
+    },
+    {
+      "name": "subscription_reset_previews",
+      "columns": [
+        {
+          "name": "token",
+          "sqlite_type": "varchar(64)",
+          "sqlite_not_null": false,
+          "sqlite_default": null,
+          "pk_position": 1,
+          "postgres_type": "character varying(64)",
+          "postgres_not_null": true,
+          "postgres_default": null,
+          "converter": "identity"
+        },
+        {
+          "name": "actor_user_id",
+          "sqlite_type": "integer",
+          "sqlite_not_null": true,
+          "sqlite_default": null,
+          "pk_position": 0,
+          "postgres_type": "bigint",
+          "postgres_not_null": true,
+          "postgres_default": null,
+          "converter": "identity"
+        },
+        {
+          "name": "mode",
+          "sqlite_type": "varchar(16)",
+          "sqlite_not_null": true,
+          "sqlite_default": null,
+          "pk_position": 0,
+          "postgres_type": "character varying(16)",
+          "postgres_not_null": true,
+          "postgres_default": null,
+          "converter": "identity"
+        },
+        {
+          "name": "targets_json",
+          "sqlite_type": "text",
+          "sqlite_not_null": true,
+          "sqlite_default": null,
+          "pk_position": 0,
+          "postgres_type": "text",
+          "postgres_not_null": true,
+          "postgres_default": null,
+          "converter": "identity"
+        },
+        {
+          "name": "payload_hash",
+          "sqlite_type": "varchar(64)",
+          "sqlite_not_null": true,
+          "sqlite_default": null,
+          "pk_position": 0,
+          "postgres_type": "character varying(64)",
+          "postgres_not_null": true,
+          "postgres_default": null,
+          "converter": "identity"
+        },
+        {
+          "name": "target_count",
+          "sqlite_type": "integer",
+          "sqlite_not_null": true,
+          "sqlite_default": null,
+          "pk_position": 0,
+          "postgres_type": "bigint",
+          "postgres_not_null": true,
+          "postgres_default": null,
+          "converter": "identity"
+        },
+        {
+          "name": "active_subscriptions",
+          "sqlite_type": "integer",
+          "sqlite_not_null": true,
+          "sqlite_default": null,
+          "pk_position": 0,
+          "postgres_type": "bigint",
+          "postgres_not_null": true,
+          "postgres_default": null,
+          "converter": "identity"
+        },
+        {
+          "name": "quota_to_restore",
+          "sqlite_type": "integer",
+          "sqlite_not_null": true,
+          "sqlite_default": null,
+          "pk_position": 0,
+          "postgres_type": "bigint",
+          "postgres_not_null": true,
+          "postgres_default": null,
+          "converter": "identity"
+        },
+        {
+          "name": "voucher_expires_at",
+          "sqlite_type": "integer",
+          "sqlite_not_null": true,
+          "sqlite_default": "0",
+          "pk_position": 0,
+          "postgres_type": "bigint",
+          "postgres_not_null": true,
+          "postgres_default": "0",
+          "converter": "identity"
+        },
+        {
+          "name": "expires_at",
+          "sqlite_type": "integer",
+          "sqlite_not_null": true,
+          "sqlite_default": null,
+          "pk_position": 0,
+          "postgres_type": "bigint",
+          "postgres_not_null": true,
+          "postgres_default": null,
+          "converter": "identity"
+        },
+        {
+          "name": "consumed_at",
+          "sqlite_type": "integer",
+          "sqlite_not_null": true,
+          "sqlite_default": "0",
+          "pk_position": 0,
+          "postgres_type": "bigint",
+          "postgres_not_null": true,
+          "postgres_default": "0",
+          "converter": "identity"
+        },
+        {
+          "name": "operation_id",
+          "sqlite_type": "varchar(64)",
+          "sqlite_not_null": true,
+          "sqlite_default": "\"\"",
+          "pk_position": 0,
+          "postgres_type": "character varying(64)",
+          "postgres_not_null": true,
+          "postgres_default": "''::character varying",
+          "converter": "identity"
+        },
+        {
+          "name": "created_at",
+          "sqlite_type": "integer",
+          "sqlite_not_null": true,
+          "sqlite_default": null,
+          "pk_position": 0,
+          "postgres_type": "bigint",
+          "postgres_not_null": true,
+          "postgres_default": null,
+          "converter": "identity"
+        }
+      ],
+      "sqlite_indexes": [
+        {
+          "name": "idx_subscription_reset_previews_actor_user_id",
+          "unique": false,
+          "columns": [
+            "actor_user_id"
+          ],
+          "predicate": null
+        },
+        {
+          "name": "idx_subscription_reset_previews_expires_at",
+          "unique": false,
+          "columns": [
+            "expires_at"
+          ],
+          "predicate": null
+        },
+        {
+          "name": "sqlite_autoindex_subscription_reset_previews_1",
+          "unique": true,
+          "columns": [
+            "token"
+          ],
+          "predicate": null
+        }
+      ],
+      "postgres_indexes": [
+        {
+          "name": "idx_subscription_reset_previews_actor_user_id",
+          "unique": false,
+          "columns": [
+            "actor_user_id"
+          ],
+          "primary": false,
+          "predicate": null
+        },
+        {
+          "name": "idx_subscription_reset_previews_expires_at",
+          "unique": false,
+          "columns": [
+            "expires_at"
+          ],
+          "primary": false,
+          "predicate": null
+        },
+        {
+          "name": "subscription_reset_previews_pkey",
+          "unique": true,
+          "columns": [
+            "token"
+          ],
+          "primary": true,
+          "predicate": null
+        }
+      ],
+      "sequence": null,
+      "verifier": "count+blake3_table_v1"
+    },
+    {
+      "name": "subscription_reset_vouchers",
+      "columns": [
+        {
+          "name": "id",
+          "sqlite_type": "integer",
+          "sqlite_not_null": false,
+          "sqlite_default": null,
+          "pk_position": 1,
+          "postgres_type": "bigint",
+          "postgres_not_null": true,
+          "postgres_default": "nextval('subscription_reset_vouchers_id_seq'::regclass)",
+          "converter": "identity"
+        },
+        {
+          "name": "user_id",
+          "sqlite_type": "integer",
+          "sqlite_not_null": true,
+          "sqlite_default": null,
+          "pk_position": 0,
+          "postgres_type": "bigint",
+          "postgres_not_null": true,
+          "postgres_default": null,
+          "converter": "identity"
+        },
+        {
+          "name": "plan_id",
+          "sqlite_type": "integer",
+          "sqlite_not_null": true,
+          "sqlite_default": null,
+          "pk_position": 0,
+          "postgres_type": "bigint",
+          "postgres_not_null": true,
+          "postgres_default": null,
+          "converter": "identity"
+        },
+        {
+          "name": "operation_id",
+          "sqlite_type": "varchar(64)",
+          "sqlite_not_null": true,
+          "sqlite_default": null,
+          "pk_position": 0,
+          "postgres_type": "character varying(64)",
+          "postgres_not_null": true,
+          "postgres_default": null,
+          "converter": "identity"
+        },
+        {
+          "name": "status",
+          "sqlite_type": "varchar(16)",
+          "sqlite_not_null": true,
+          "sqlite_default": "\"available\"",
+          "pk_position": 0,
+          "postgres_type": "character varying(16)",
+          "postgres_not_null": true,
+          "postgres_default": "'available'::character varying",
+          "converter": "identity"
+        },
+        {
+          "name": "expires_at",
+          "sqlite_type": "integer",
+          "sqlite_not_null": true,
+          "sqlite_default": null,
+          "pk_position": 0,
+          "postgres_type": "bigint",
+          "postgres_not_null": true,
+          "postgres_default": null,
+          "converter": "identity"
+        },
+        {
+          "name": "redeemed_at",
+          "sqlite_type": "integer",
+          "sqlite_not_null": true,
+          "sqlite_default": "0",
+          "pk_position": 0,
+          "postgres_type": "bigint",
+          "postgres_not_null": true,
+          "postgres_default": "0",
+          "converter": "identity"
+        },
+        {
+          "name": "created_by",
+          "sqlite_type": "integer",
+          "sqlite_not_null": true,
+          "sqlite_default": null,
+          "pk_position": 0,
+          "postgres_type": "bigint",
+          "postgres_not_null": true,
+          "postgres_default": null,
+          "converter": "identity"
+        },
+        {
+          "name": "created_at",
+          "sqlite_type": "integer",
+          "sqlite_not_null": true,
+          "sqlite_default": null,
+          "pk_position": 0,
+          "postgres_type": "bigint",
+          "postgres_not_null": true,
+          "postgres_default": null,
+          "converter": "identity"
+        },
+        {
+          "name": "updated_at",
+          "sqlite_type": "integer",
+          "sqlite_not_null": true,
+          "sqlite_default": null,
+          "pk_position": 0,
+          "postgres_type": "bigint",
+          "postgres_not_null": true,
+          "postgres_default": null,
+          "converter": "identity"
+        }
+      ],
+      "sqlite_indexes": [
+        {
+          "name": "idx_subscription_reset_voucher_operation",
+          "unique": true,
+          "columns": [
+            "user_id",
+            "plan_id",
+            "operation_id"
+          ],
+          "predicate": null
+        },
+        {
+          "name": "idx_subscription_reset_vouchers_created_by",
+          "unique": false,
+          "columns": [
+            "created_by"
+          ],
+          "predicate": null
+        },
+        {
+          "name": "idx_subscription_reset_vouchers_expires_at",
+          "unique": false,
+          "columns": [
+            "expires_at"
+          ],
+          "predicate": null
+        },
+        {
+          "name": "idx_subscription_reset_vouchers_plan_id",
+          "unique": false,
+          "columns": [
+            "plan_id"
+          ],
+          "predicate": null
+        },
+        {
+          "name": "idx_subscription_reset_vouchers_status",
+          "unique": false,
+          "columns": [
+            "status"
+          ],
+          "predicate": null
+        },
+        {
+          "name": "idx_subscription_reset_vouchers_user_id",
+          "unique": false,
+          "columns": [
+            "user_id"
+          ],
+          "predicate": null
+        }
+      ],
+      "postgres_indexes": [
+        {
+          "name": "idx_subscription_reset_voucher_operation",
+          "unique": true,
+          "columns": [
+            "user_id",
+            "plan_id",
+            "operation_id"
+          ],
+          "primary": false,
+          "predicate": null
+        },
+        {
+          "name": "idx_subscription_reset_vouchers_created_by",
+          "unique": false,
+          "columns": [
+            "created_by"
+          ],
+          "primary": false,
+          "predicate": null
+        },
+        {
+          "name": "idx_subscription_reset_vouchers_expires_at",
+          "unique": false,
+          "columns": [
+            "expires_at"
+          ],
+          "primary": false,
+          "predicate": null
+        },
+        {
+          "name": "idx_subscription_reset_vouchers_plan_id",
+          "unique": false,
+          "columns": [
+            "plan_id"
+          ],
+          "primary": false,
+          "predicate": null
+        },
+        {
+          "name": "idx_subscription_reset_vouchers_status",
+          "unique": false,
+          "columns": [
+            "status"
+          ],
+          "primary": false,
+          "predicate": null
+        },
+        {
+          "name": "idx_subscription_reset_vouchers_user_id",
+          "unique": false,
+          "columns": [
+            "user_id"
+          ],
+          "primary": false,
+          "predicate": null
+        },
+        {
+          "name": "subscription_reset_vouchers_pkey",
+          "unique": true,
+          "columns": [
+            "id"
+          ],
+          "primary": true,
+          "predicate": null
+        }
+      ],
+      "sequence": {
+        "name": "subscription_reset_vouchers_id_seq",
+        "default": "nextval('subscription_reset_vouchers_id_seq'::regclass)",
         "owned_column": "id"
       },
       "verifier": "count+blake3_table_v1"
@@ -5817,6 +6694,17 @@
           "postgres_not_null": false,
           "postgres_default": null,
           "converter": "boolean01"
+        },
+        {
+          "name": "auto_groups",
+          "sqlite_type": "text",
+          "sqlite_not_null": false,
+          "sqlite_default": null,
+          "pk_position": 0,
+          "postgres_type": "text",
+          "postgres_not_null": false,
+          "postgres_default": null,
+          "converter": "identity"
         },
         {
           "name": "deleted_at",

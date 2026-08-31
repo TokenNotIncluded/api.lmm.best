@@ -48,6 +48,7 @@ export const subscriptionPlanSchema = z.object({
   quota_reset_period: z.enum(['never', 'daily', 'weekly', 'monthly', 'custom']),
   quota_reset_custom_seconds: z.number().optional(),
   enabled: z.boolean(),
+  archived_at: z.number().optional(),
   sort_order: z.number(),
   allow_balance_pay: z.boolean().optional().default(true),
   allow_wallet_overflow: z.boolean().optional().default(true),
@@ -145,21 +146,128 @@ export interface CreateUserSubscriptionRequest {
   plan_id: number
 }
 
-export interface ResetUserSubscriptionsRequest {
-  plan_id: number
-  advance_reset_time: boolean
+export interface SubscriptionPlanRemovalResult {
+  action: 'deleted' | 'archived'
+  archived_at?: number
+  cancelled_orders?: number
 }
 
-export interface ResetPlanSubscriptionsRequest {
-  advance_reset_time: boolean
+export interface AdminSubscriptionRecord {
+  id: number
+  user_id: number
+  username: string
+  email: string
+  plan_id: number
+  plan_title: string
+  plan_archived_at: number
+  amount_total: number
+  amount_used: number
+  start_time: number
+  end_time: number
+  status: string
+  next_reset_time: number
+  source: string
+}
+
+export interface AdminSubscriptionRecordPage {
+  items: AdminSubscriptionRecord[]
+  total: number
+  page: number
+  page_size: number
+}
+
+export interface AdminSubscriptionResetEligible {
+  user_id: number
+  username: string
+  email: string
+  plan_id: number
+  plan_title: string
+  plan_archived_at: number
+  active_subscription_count: number
+  amount_total: number
+  amount_used: number
+  next_reset_time: number
+  banked_voucher_count: number
+}
+
+export interface AdminSubscriptionResetEligiblePage {
+  items: AdminSubscriptionResetEligible[]
+  total: number
+  page: number
+  page_size: number
+}
+
+export type SubscriptionResetMode = 'hard' | 'soft'
+
+export interface SubscriptionResetTarget {
+  user_id: number
+  plan_id: number
+}
+
+export interface SubscriptionResetFilter {
+  query?: string
+  plan_ids?: number[]
+  user_ids?: number[]
+}
+
+export interface SubscriptionResetPreviewRequest {
+  mode: SubscriptionResetMode
+  all_matching: boolean
+  targets?: SubscriptionResetTarget[]
+  filter: SubscriptionResetFilter
+}
+
+export interface SubscriptionResetPreviewResult {
+  token: string
+  mode: SubscriptionResetMode
+  target_count: number
+  user_count: number
+  plan_count: number
+  active_subscriptions: number
+  quota_to_restore: number
+  voucher_expires_at: number
+  expires_at: number
+  targets: AdminSubscriptionResetEligible[]
+}
+
+export interface SubscriptionResetExecuteRequest {
+  preview_token: string
+  operation_id: string
+}
+
+export interface SubscriptionResetBatchResult {
+  operation_id: string
+  mode: SubscriptionResetMode
+  requested_targets: number
+  processed_targets: number
+  skipped_targets: number
+  reset_subscriptions: number
+  restored_quota: number
+  vouchers_issued: number
+  voucher_expires_at: number
+}
+
+export interface SubscriptionResetVoucher {
+  id: number
+  user_id: number
+  plan_id: number
+  plan_title: string
+  operation_id: string
+  status: 'available' | 'redeemed' | 'expired'
+  expired?: boolean
+  expires_at: number
+  redeemed_at: number
+  created_at: number
 }
 
 export interface SubscriptionResetResult {
   plan_id: number
+  plan_title: string
   matched_count: number
   reset_count: number
   user_count: number
-  advance_reset_time: boolean
+  restored_quota: number
+  affected_user_ids: number[]
 }
 
 // ============================================================================
@@ -181,4 +289,3 @@ export type SubscriptionsDialogType =
   | 'update'
   | 'toggle-status'
   | 'delete-plan'
-  | 'reset-subscriptions'

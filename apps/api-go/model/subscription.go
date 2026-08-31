@@ -64,6 +64,7 @@ var (
 	ErrSubscriptionPlanInUse    = errors.New("subscription plan is in use")
 	ErrSubscriptionPlanChanged  = errors.New("subscription plan changed before persistence")
 	ErrSubscriptionPlanDisabled = errors.New("subscription plan is disabled")
+	ErrSubscriptionPlanArchived = errors.New("subscription plan is archived")
 
 	subscriptionPlanCacheOnce     sync.Once
 	subscriptionPlanInfoCacheOnce sync.Once
@@ -180,8 +181,9 @@ type SubscriptionPlan struct {
 	DurationValue int    `json:"duration_value" gorm:"type:int;not null;default:1"`
 	CustomSeconds int64  `json:"custom_seconds" gorm:"type:bigint;not null;default:0"`
 
-	Enabled   bool `json:"enabled" gorm:"default:true"`
-	SortOrder int  `json:"sort_order" gorm:"type:int;default:0"`
+	Enabled    bool  `json:"enabled" gorm:"default:true"`
+	ArchivedAt int64 `json:"archived_at" gorm:"index;not null;default:0"`
+	SortOrder  int   `json:"sort_order" gorm:"type:int;default:0"`
 
 	AllowBalancePay *bool `json:"allow_balance_pay"`
 
@@ -399,6 +401,7 @@ type SubscriptionResetResult struct {
 	ResetCount       int    `json:"reset_count"`
 	UserCount        int    `json:"user_count"`
 	AdvanceResetTime bool   `json:"advance_reset_time"`
+	RestoredQuota    int64  `json:"restored_quota"`
 	PlanTitle        string `json:"-"`
 	AffectedUserIds  []int  `json:"-"`
 }
@@ -483,11 +486,18 @@ func GetSubscriptionPlanById(id int) (*SubscriptionPlan, error) {
 	return getSubscriptionPlanByIdTx(nil, id)
 }
 
-func AdminDeleteSubscriptionPlan(planId int) error {
+type SubscriptionPlanRemovalResult struct {
+	Action          string `json:"action"`
+	ArchivedAt      int64  `json:"archived_at,omitempty"`
+	CancelledOrders int64  `json:"cancelled_orders,omitempty"`
+}
+
+func AdminDeleteSubscriptionPlan(planId int) (*SubscriptionPlanRemovalResult, error) {
 	if planId <= 0 {
-		return errors.New("invalid plan id")
+		return nil, errors.New("invalid plan id")
 	}
 
+	var result SubscriptionPlanRemovalResult
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		var plan SubscriptionPlan
 		if err := lockForUpdate(tx).Where("id = ?", planId).First(&plan).Error; err != nil {
@@ -498,20 +508,90 @@ func AdminDeleteSubscriptionPlan(planId int) error {
 		if err := tx.Model(&UserSubscription{}).Where("plan_id = ?", planId).Count(&subscriptionCount).Error; err != nil {
 			return err
 		}
-		var orderCount int64
-		if err := tx.Model(&SubscriptionOrder{}).Where("plan_id = ?", planId).Count(&orderCount).Error; err != nil {
+		var completedOrderCount int64
+		if subscriptionCount == 0 {
+			if err := tx.Model(&SubscriptionOrder{}).
+				Where("plan_id = ? AND status = ?", planId, common.TopUpStatusSuccess).
+				Count(&completedOrderCount).Error; err != nil {
+				return err
+			}
+		}
+		var resetHistoryCount int64
+		if subscriptionCount == 0 && completedOrderCount == 0 {
+			if err := tx.Model(&SubscriptionResetVoucher{}).Where("plan_id = ?", planId).Count(&resetHistoryCount).Error; err != nil {
+				return err
+			}
+			if resetHistoryCount == 0 {
+				if err := tx.Model(&SubscriptionResetEvent{}).Where("plan_id = ?", planId).Count(&resetHistoryCount).Error; err != nil {
+					return err
+				}
+			}
+		}
+		now := getDBTimestamp(tx)
+		if subscriptionCount > 0 || completedOrderCount > 0 || resetHistoryCount > 0 {
+			if err := tx.Model(&SubscriptionPlan{}).Where("id = ?", planId).Updates(map[string]any{
+				"archived_at": now,
+				"enabled":     false,
+				"updated_at":  now,
+			}).Error; err != nil {
+				return err
+			}
+			result = SubscriptionPlanRemovalResult{Action: "archived", ArchivedAt: now}
+			return nil
+		}
+		cancelled := tx.Model(&SubscriptionOrder{}).
+			Where("plan_id = ? AND status = ?", planId, common.TopUpStatusPending).
+			Updates(map[string]any{
+				"status":                      common.TopUpStatusExpired,
+				"complete_time":               now,
+				"provider_subscription_state": "plan_deleted",
+			})
+		if cancelled.Error != nil {
+			return cancelled.Error
+		}
+		if err := tx.Where("id = ?", planId).Delete(&SubscriptionPlan{}).Error; err != nil {
 			return err
 		}
-		if subscriptionCount > 0 || orderCount > 0 {
-			return ErrSubscriptionPlanInUse
-		}
-		return tx.Where("id = ?", planId).Delete(&SubscriptionPlan{}).Error
+		result = SubscriptionPlanRemovalResult{Action: "deleted", CancelledOrders: cancelled.RowsAffected}
+		return nil
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
 	InvalidateSubscriptionPlanCache(planId)
-	return nil
+	return &result, nil
+}
+
+func AdminRestoreSubscriptionPlan(planId int) (*SubscriptionPlan, error) {
+	if planId <= 0 {
+		return nil, errors.New("invalid plan id")
+	}
+	var plan SubscriptionPlan
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		if err := lockForUpdate(tx).Where("id = ?", planId).First(&plan).Error; err != nil {
+			return err
+		}
+		if plan.ArchivedAt == 0 {
+			return nil
+		}
+		now := getDBTimestamp(tx)
+		if err := tx.Model(&SubscriptionPlan{}).Where("id = ?", planId).Updates(map[string]any{
+			"archived_at": 0,
+			"enabled":     false,
+			"updated_at":  now,
+		}).Error; err != nil {
+			return err
+		}
+		plan.ArchivedAt = 0
+		plan.Enabled = false
+		plan.UpdatedAt = now
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	InvalidateSubscriptionPlanCache(planId)
+	return &plan, nil
 }
 
 func getSubscriptionPlanForPersistenceTx(tx *gorm.DB, id int) (*SubscriptionPlan, error) {
@@ -534,7 +614,7 @@ func getSubscriptionPlanByIdTx(tx *gorm.DB, id int) (*SubscriptionPlan, error) {
 		return nil, errors.New("invalid plan id")
 	}
 	key := subscriptionPlanCacheKey(id)
-	if key != "" {
+	if tx == nil && key != "" {
 		if cached, found, err := getSubscriptionPlanCache().Get(key); err == nil && found {
 			cached.NormalizeDefaults()
 			return &cached, nil
@@ -549,7 +629,9 @@ func getSubscriptionPlanByIdTx(tx *gorm.DB, id int) (*SubscriptionPlan, error) {
 		return nil, err
 	}
 	plan.NormalizeDefaults()
-	_ = getSubscriptionPlanCache().SetWithTTL(key, plan, subscriptionPlanCacheTTL())
+	if tx == nil {
+		_ = getSubscriptionPlanCache().SetWithTTL(key, plan, subscriptionPlanCacheTTL())
+	}
 	return &plan, nil
 }
 
@@ -723,9 +805,26 @@ func CompleteSubscriptionOrder(tradeNo string, providerPayload string, expectedP
 	var logPaymentMethod string
 	var upgradeGroup string
 	err := DB.Transaction(func(tx *gorm.DB) error {
+		var orderRef SubscriptionOrder
+		if err := tx.Select("plan_id", "status").Where(refCol+" = ?", tradeNo).First(&orderRef).Error; err != nil {
+			return ErrSubscriptionOrderNotFound
+		}
+		if orderRef.Status == common.TopUpStatusSuccess {
+			return nil
+		}
+		if orderRef.Status != common.TopUpStatusPending {
+			return ErrSubscriptionOrderStatusInvalid
+		}
+		plan, err := getSubscriptionPlanForPersistenceTx(tx, orderRef.PlanId)
+		if err != nil {
+			return err
+		}
 		var order SubscriptionOrder
 		if err := lockForUpdate(tx).Where(refCol+" = ?", tradeNo).First(&order).Error; err != nil {
 			return ErrSubscriptionOrderNotFound
+		}
+		if order.PlanId != plan.Id {
+			return ErrSubscriptionPlanChanged
 		}
 		if expectedPaymentProvider != "" && order.PaymentProvider != expectedPaymentProvider {
 			return ErrPaymentMethodMismatch
@@ -735,10 +834,6 @@ func CompleteSubscriptionOrder(tradeNo string, providerPayload string, expectedP
 		}
 		if order.Status != common.TopUpStatusPending {
 			return ErrSubscriptionOrderStatusInvalid
-		}
-		plan, err := getSubscriptionPlanByIdTx(tx, order.PlanId)
-		if err != nil {
-			return err
 		}
 		if snapshot := strings.TrimSpace(order.PlanSnapshot); snapshot != "" {
 			var frozenPlan SubscriptionPlan
@@ -1102,6 +1197,9 @@ func AdminBindSubscription(userId int, planId int, sourceNote string) (string, e
 		if err != nil {
 			return err
 		}
+		if plan.ArchivedAt != 0 {
+			return ErrSubscriptionPlanArchived
+		}
 		// Plan locks precede user locks across purchase paths, preventing a
 		// plan-delete/user-update lock inversion.
 		var userRow User
@@ -1430,6 +1528,7 @@ func resetUserSubscriptionTx(tx *gorm.DB, sub *UserSubscription, plan *Subscript
 	if tx == nil || sub == nil || plan == nil {
 		return errors.New("invalid reset args")
 	}
+	updates := map[string]any{"amount_used": 0}
 	sub.AmountUsed = 0
 	if advanceResetTime {
 		nextReset := calcNextResetTime(time.Unix(now, 0), plan, sub.EndTime)
@@ -1439,8 +1538,10 @@ func resetUserSubscriptionTx(tx *gorm.DB, sub *UserSubscription, plan *Subscript
 		} else {
 			sub.LastResetTime = 0
 		}
+		updates["next_reset_time"] = sub.NextResetTime
+		updates["last_reset_time"] = sub.LastResetTime
 	}
-	return tx.Save(sub).Error
+	return tx.Model(&UserSubscription{}).Where("id = ?", sub.Id).UpdateColumns(updates).Error
 }
 
 func buildSubscriptionResetResult(plan *SubscriptionPlan, subs []UserSubscription, advanceResetTime bool) *SubscriptionResetResult {
@@ -1478,70 +1579,22 @@ func adminResetUserSubscriptionsByPlanTx(tx *gorm.DB, userId int, plan *Subscrip
 	if len(subs) == 0 {
 		return nil, errors.New("该用户没有有效的此套餐订阅")
 	}
+	var restoredQuota int64
 	for i := range subs {
+		if subs[i].AmountUsed < 0 {
+			return nil, errors.New("subscription reset encountered a negative used quota")
+		}
+		var addErr error
+		restoredQuota, addErr = checkedSubscriptionResetAdd(restoredQuota, subs[i].AmountUsed)
+		if addErr != nil {
+			return nil, addErr
+		}
 		if err := resetUserSubscriptionTx(tx, &subs[i], plan, now, advanceResetTime); err != nil {
 			return nil, err
 		}
 	}
-	return buildSubscriptionResetResult(plan, subs, advanceResetTime), nil
-}
-
-func adminResetPlanSubscriptionsTx(tx *gorm.DB, plan *SubscriptionPlan, now int64, advanceResetTime bool) (*SubscriptionResetResult, error) {
-	if tx == nil || plan == nil {
-		return nil, errors.New("invalid reset args")
-	}
-	var subs []UserSubscription
-	if err := lockForUpdate(tx).
-		Where("plan_id = ? AND status = ? AND end_time > ?", plan.Id, "active", now).
-		Order("user_id asc, end_time asc, id asc").
-		Find(&subs).Error; err != nil {
-		return nil, err
-	}
-	for i := range subs {
-		if err := resetUserSubscriptionTx(tx, &subs[i], plan, now, advanceResetTime); err != nil {
-			return nil, err
-		}
-	}
-	return buildSubscriptionResetResult(plan, subs, advanceResetTime), nil
-}
-
-func AdminResetUserSubscriptionsByPlan(userId int, planId int, advanceResetTime bool) (*SubscriptionResetResult, error) {
-	if userId <= 0 || planId <= 0 {
-		return nil, errors.New("invalid userId or planId")
-	}
-	var result *SubscriptionResetResult
-	now := GetDBTimestamp()
-	err := DB.Transaction(func(tx *gorm.DB) error {
-		plan, err := getSubscriptionPlanByIdTx(tx, planId)
-		if err != nil {
-			return err
-		}
-		result, err = adminResetUserSubscriptionsByPlanTx(tx, userId, plan, now, advanceResetTime)
-		return err
-	})
-	if err != nil {
-		return nil, err
-	}
-	return result, nil
-}
-
-func AdminResetPlanSubscriptions(planId int, advanceResetTime bool) (*SubscriptionResetResult, error) {
-	if planId <= 0 {
-		return nil, errors.New("invalid planId")
-	}
-	var result *SubscriptionResetResult
-	now := GetDBTimestamp()
-	err := DB.Transaction(func(tx *gorm.DB) error {
-		plan, err := getSubscriptionPlanByIdTx(tx, planId)
-		if err != nil {
-			return err
-		}
-		result, err = adminResetPlanSubscriptionsTx(tx, plan, now, advanceResetTime)
-		return err
-	})
-	if err != nil {
-		return nil, err
-	}
+	result := buildSubscriptionResetResult(plan, subs, advanceResetTime)
+	result.RestoredQuota = restoredQuota
 	return result, nil
 }
 

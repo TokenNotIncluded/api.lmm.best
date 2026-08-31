@@ -3,14 +3,12 @@ package controller
 import (
 	"encoding/json"
 	"errors"
-	"io"
 	"strings"
 	"time"
 	"unicode/utf8"
 
 	"github.com/LIghtJUNction/api.lmm.best/service"
 	"github.com/LIghtJUNction/api.lmm.best/setting/ratio_setting"
-	"github.com/gin-gonic/gin"
 )
 
 const (
@@ -90,17 +88,4 @@ type assistantPreparedKeyAction struct {
 	Group                string `json:"group"`
 	ConversationID       int64  `json:"conversation_id"`
 	UIPath               string `json:"ui_path"`
-}
-
-func decodeStrictAssistantJSON(c *gin.Context, destination any) error {
-	decoder := json.NewDecoder(c.Request.Body)
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(destination); err != nil {
-		return err
-	}
-	var trailing any
-	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
-		return errors.New("request body must contain one JSON object")
-	}
-	return nil
 }

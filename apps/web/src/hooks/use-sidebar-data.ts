@@ -34,6 +34,7 @@ import {
   MessageSquare,
   PhoneCall,
   Radio,
+  RotateCcw,
   Server,
   ServerCog,
   Settings,
@@ -258,6 +259,12 @@ export function useSidebarData(): SidebarData {
             title: t('Subscriptions'),
             url: '/subscriptions',
             icon: CreditCard,
+          },
+          {
+            title: t('Subscription reset'),
+            url: '/subscriptions/reset',
+            icon: RotateCcw,
+            requiredRole: ROLE.SUPER_ADMIN,
           },
           {
             title: t('System Info'),

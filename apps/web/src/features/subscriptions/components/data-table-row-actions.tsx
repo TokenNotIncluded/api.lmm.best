@@ -17,8 +17,10 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import type { Row } from '@tanstack/react-table'
-import { Pencil, Power, PowerOff, RotateCcw, Trash2 } from 'lucide-react'
+import { ArchiveRestore, Pencil, Power, PowerOff, Trash2 } from 'lucide-react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
 import {
@@ -27,6 +29,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 
+import { restorePlan } from '../api'
 import type { PlanRecord } from '../types'
 import { useSubscriptions } from './subscriptions-provider'
 
@@ -36,7 +39,10 @@ interface DataTableRowActionsProps {
 
 export function DataTableRowActions({ row }: DataTableRowActionsProps) {
   const { t } = useTranslation()
-  const { setOpen, setCurrentRow, complianceConfirmed } = useSubscriptions()
+  const { setOpen, setCurrentRow, complianceConfirmed, triggerRefresh } =
+    useSubscriptions()
+  const [restoring, setRestoring] = useState(false)
+  const isArchived = (row.original.plan.archived_at ?? 0) > 0
   const isEnabled = row.original.plan.enabled
   const toggleLabel = isEnabled ? t('Disable') : t('Enable')
 
@@ -50,14 +56,46 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
     setOpen('toggle-status')
   }
 
-  const handleResetSubscriptions = () => {
-    setCurrentRow(row.original)
-    setOpen('reset-subscriptions')
-  }
-
   const handleDelete = () => {
     setCurrentRow(row.original)
     setOpen('delete-plan')
+  }
+
+  const handleRestore = async () => {
+    setRestoring(true)
+    try {
+      const response = await restorePlan(row.original.plan.id)
+      if (!response.success) {
+        throw new Error(response.message || t('Restore failed'))
+      }
+      toast.success(t('Subscription plan restored'))
+      triggerRefresh()
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : t('Restore failed'))
+    } finally {
+      setRestoring(false)
+    }
+  }
+
+  if (isArchived) {
+    return (
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Button
+              variant='ghost'
+              size='icon-sm'
+              disabled={!complianceConfirmed || restoring}
+              onClick={() => void handleRestore()}
+              aria-label={t('Restore subscription plan')}
+            />
+          }
+        >
+          <ArchiveRestore />
+        </TooltipTrigger>
+        <TooltipContent>{t('Restore subscription plan')}</TooltipContent>
+      </Tooltip>
+    )
   }
 
   return (
@@ -77,23 +115,6 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
           <Pencil />
         </TooltipTrigger>
         <TooltipContent>{t('Edit')}</TooltipContent>
-      </Tooltip>
-
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <Button
-              variant='ghost'
-              size='icon-sm'
-              disabled={!complianceConfirmed}
-              onClick={handleResetSubscriptions}
-              aria-label={t('Reset subscription quota')}
-            />
-          }
-        >
-          <RotateCcw />
-        </TooltipTrigger>
-        <TooltipContent>{t('Reset subscription quota')}</TooltipContent>
       </Tooltip>
 
       <Tooltip>

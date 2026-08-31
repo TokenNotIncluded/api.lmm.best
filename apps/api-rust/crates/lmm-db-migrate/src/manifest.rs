@@ -109,7 +109,7 @@ pub struct PostgresCatalogColumn {
 }
 
 impl Manifest {
-    /// Loads JSON and enforces the exact 34-table production contract.
+    /// Loads JSON and enforces the exact 38-table production contract.
     pub fn load(path: &Path) -> Result<Self, MigrationError> {
         let manifest: Self = serde_json::from_slice(&fs::read(path)?)?;
         manifest.validate()?;
@@ -318,7 +318,7 @@ fn validate_unique_names<'a>(
     Ok(())
 }
 
-const EXPECTED_TABLES: [&str; 34] = [
+const EXPECTED_TABLES: [&str; 38] = [
     "abilities",
     "auth_flows",
     "authz_roles",
@@ -340,6 +340,10 @@ const EXPECTED_TABLES: [&str; 34] = [
     "subscription_orders",
     "subscription_plans",
     "subscription_pre_consume_records",
+    "subscription_reset_events",
+    "subscription_reset_operations",
+    "subscription_reset_previews",
+    "subscription_reset_vouchers",
     "system_instances",
     "system_task_locks",
     "system_tasks",
@@ -404,6 +408,116 @@ mod tests {
     fn postgres_catalog_validator_should_accept_exact_catalog() {
         let (manifest, catalog) = manifest_and_catalog();
         validate_catalog(&manifest, &catalog).unwrap();
+    }
+
+    #[test]
+    fn subscription_reset_tables_should_preserve_complete_sqlite_sources() {
+        let (manifest, _) = manifest_and_catalog();
+        let expected = [
+            (
+                "subscription_reset_events",
+                [
+                    "id",
+                    "operation_id",
+                    "user_id",
+                    "plan_id",
+                    "mode",
+                    "actor_user_id",
+                    "voucher_id",
+                    "reset_count",
+                    "restored_quota",
+                    "voucher_expiry",
+                    "created_at",
+                ]
+                .as_slice(),
+            ),
+            (
+                "subscription_reset_operations",
+                [
+                    "operation_id",
+                    "preview_token",
+                    "actor_user_id",
+                    "mode",
+                    "payload_hash",
+                    "result_json",
+                    "created_at",
+                    "completed_at",
+                ]
+                .as_slice(),
+            ),
+            (
+                "subscription_reset_previews",
+                [
+                    "token",
+                    "actor_user_id",
+                    "mode",
+                    "targets_json",
+                    "payload_hash",
+                    "target_count",
+                    "active_subscriptions",
+                    "quota_to_restore",
+                    "voucher_expires_at",
+                    "expires_at",
+                    "consumed_at",
+                    "operation_id",
+                    "created_at",
+                ]
+                .as_slice(),
+            ),
+            (
+                "subscription_reset_vouchers",
+                [
+                    "id",
+                    "user_id",
+                    "plan_id",
+                    "operation_id",
+                    "status",
+                    "expires_at",
+                    "redeemed_at",
+                    "created_by",
+                    "created_at",
+                    "updated_at",
+                ]
+                .as_slice(),
+            ),
+        ];
+
+        for (table_name, expected_columns) in expected {
+            let table = manifest
+                .tables
+                .iter()
+                .find(|table| table.name == table_name)
+                .unwrap();
+            let actual_columns: Vec<_> = table
+                .columns
+                .iter()
+                .map(|column| column.name.as_str())
+                .collect();
+            assert_eq!(actual_columns, expected_columns);
+            assert!(
+                table
+                    .columns
+                    .iter()
+                    .all(|column| !column.sqlite_type.is_empty()
+                        && column.converter == Converter::Identity)
+            );
+            assert!(!table.sqlite_indexes.is_empty());
+            assert_eq!(table.verifier, "count+blake3_table_v1");
+        }
+
+        let previews = manifest
+            .tables
+            .iter()
+            .find(|table| table.name == "subscription_reset_previews")
+            .unwrap();
+        let targets = previews
+            .columns
+            .iter()
+            .find(|column| column.name == "targets_json")
+            .unwrap();
+        assert_eq!(targets.sqlite_type, "text");
+        assert!(targets.sqlite_not_null);
+        assert_eq!(targets.postgres_type, "text");
     }
 
     #[test]

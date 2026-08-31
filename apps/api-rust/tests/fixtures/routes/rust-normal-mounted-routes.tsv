@@ -275,12 +275,10 @@ POST	/api/subscription/admin/plans	apps/api-rust/src/main.rs
 DELETE	/api/subscription/admin/plans/:id	apps/api-rust/src/main.rs:billing_subscriptions
 PATCH	/api/subscription/admin/plans/:id	apps/api-rust/src/main.rs
 PUT	/api/subscription/admin/plans/:id	apps/api-rust/src/main.rs
-POST	/api/subscription/admin/plans/:id/subscriptions/reset	apps/api-rust/src/main.rs
 DELETE	/api/subscription/admin/user_subscriptions/:id	apps/api-rust/src/main.rs
 POST	/api/subscription/admin/user_subscriptions/:id/invalidate	apps/api-rust/src/main.rs
 GET	/api/subscription/admin/users/:id/subscriptions	apps/api-rust/src/main.rs
 POST	/api/subscription/admin/users/:id/subscriptions	apps/api-rust/src/main.rs
-POST	/api/subscription/admin/users/:id/subscriptions/reset	apps/api-rust/src/main.rs
 POST	/api/subscription/balance/pay	apps/api-rust/src/main.rs:subscription_balance_pay
 GET	/api/subscription/plans	apps/api-rust/src/main.rs
 GET	/api/subscription/self	apps/api-rust/src/main.rs

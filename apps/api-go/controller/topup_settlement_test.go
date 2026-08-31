@@ -147,9 +147,22 @@ func TestTopUpSelfRecordDoesNotExposeSettlementEvidence(t *testing.T) {
 	payload, err := json.Marshal(record)
 	require.NoError(t, err)
 	jsonText := string(payload)
+	assert.Contains(t, jsonText, `"currency":"USD"`)
 	for _, forbidden := range []string{"credited_quota", "expected_amount_micros", "settled_amount_micros", "settlement_currency", "provider_product_id", "provider_store_id", "provider_event_id", "provider_transaction_id"} {
 		assert.NotContains(t, jsonText, forbidden)
 	}
+}
+
+func TestTopUpAdminRecordProvidesCurrencyAlias(t *testing.T) {
+	record := newTopUpAdminRecord(&model.TopUp{
+		Id: 1, SettlementCurrency: "USD", ProviderTransactionId: stringPointer("pi_admin"),
+	})
+	payload, err := json.Marshal(record)
+	require.NoError(t, err)
+	jsonText := string(payload)
+	assert.Contains(t, jsonText, `"currency":"USD"`)
+	assert.Contains(t, jsonText, `"settlement_currency":"USD"`)
+	assert.Contains(t, jsonText, `"provider_transaction_id":"pi_admin"`)
 }
 
 func configureNeutralTopUpInfoTest(t *testing.T) {

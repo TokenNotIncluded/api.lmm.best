@@ -97,7 +97,7 @@ func GetSubscriptionPlans(c *gin.Context) {
 	}
 
 	var plans []model.SubscriptionPlan
-	if err := model.DB.Where("enabled = ?", true).Order("sort_order desc, id desc").Find(&plans).Error; err != nil {
+	if err := model.DB.Where("enabled = ? AND archived_at = 0", true).Order("sort_order desc, id desc").Find(&plans).Error; err != nil {
 		common.ApiError(c, err)
 		return
 	}
@@ -201,7 +201,12 @@ func subscriptionPlanPaymentMethodRequired(c *gin.Context) {
 
 func AdminListSubscriptionPlans(c *gin.Context) {
 	var plans []model.SubscriptionPlan
-	if err := model.DB.Order("sort_order desc, id desc").Find(&plans).Error; err != nil {
+	query := model.DB
+	includeArchived := c.Query("include_archived")
+	if includeArchived != "1" && !strings.EqualFold(includeArchived, "true") {
+		query = query.Where("archived_at = 0")
+	}
+	if err := query.Order("sort_order desc, id desc").Find(&plans).Error; err != nil {
 		common.ApiError(c, err)
 		return
 	}
@@ -236,6 +241,7 @@ func AdminCreateSubscriptionPlan(c *gin.Context) {
 		return
 	}
 	req.Plan.Id = 0
+	req.Plan.ArchivedAt = 0
 	if strings.TrimSpace(req.Plan.Title) == "" {
 		common.ApiErrorMsg(c, "套餐标题不能为空")
 		return
@@ -324,6 +330,10 @@ func AdminUpdateSubscriptionPlan(c *gin.Context) {
 	existingPlan, lookupErr := model.GetSubscriptionPlanById(id)
 	if lookupErr != nil {
 		common.ApiError(c, lookupErr)
+		return
+	}
+	if existingPlan.ArchivedAt > 0 {
+		common.ApiErrorMsg(c, "Archived subscription plans must be restored before they can be edited")
 		return
 	}
 	var req AdminUpsertSubscriptionPlanRequest
@@ -443,8 +453,18 @@ func AdminUpdateSubscriptionPlan(c *gin.Context) {
 		if req.Plan.AllowWalletOverflow != nil {
 			updateMap["allow_wallet_overflow"] = *req.Plan.AllowWalletOverflow
 		}
-		if err := tx.Model(&model.SubscriptionPlan{}).Where("id = ?", id).Updates(updateMap).Error; err != nil {
-			return err
+		updated := tx.Model(&model.SubscriptionPlan{}).Where("id = ? AND archived_at = 0", id).Updates(updateMap)
+		if updated.Error != nil {
+			return updated.Error
+		}
+		if updated.RowsAffected == 0 {
+			var plan model.SubscriptionPlan
+			if err := tx.Select("id", "archived_at").Where("id = ?", id).First(&plan).Error; err != nil {
+				return err
+			}
+			if plan.ArchivedAt > 0 {
+				return errors.New("archived subscription plans must be restored before they can be edited")
+			}
 		}
 		return nil
 	})
@@ -481,15 +501,35 @@ func AdminUpdateSubscriptionPlanStatus(c *gin.Context) {
 			common.ApiError(c, err)
 			return
 		}
+		if plan.ArchivedAt > 0 {
+			common.ApiErrorMsg(c, "Archived subscription plans must be restored before they can be enabled")
+			return
+		}
 		plan.Enabled = true
 		if !enabledSubscriptionPlanHasConfiguredPaymentMethod(plan) {
 			subscriptionPlanPaymentMethodRequired(c)
 			return
 		}
 	}
-	if err := model.DB.Model(&model.SubscriptionPlan{}).Where("id = ?", id).Update("enabled", *req.Enabled).Error; err != nil {
-		common.ApiError(c, err)
+	updateQuery := model.DB.Model(&model.SubscriptionPlan{}).Where("id = ?", id)
+	if *req.Enabled {
+		updateQuery = updateQuery.Where("archived_at = 0")
+	}
+	updated := updateQuery.Update("enabled", *req.Enabled)
+	if updated.Error != nil {
+		common.ApiError(c, updated.Error)
 		return
+	}
+	if *req.Enabled && updated.RowsAffected == 0 {
+		var plan model.SubscriptionPlan
+		if err := model.DB.Select("id", "archived_at").Where("id = ?", id).First(&plan).Error; err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		if plan.ArchivedAt > 0 {
+			common.ApiErrorMsg(c, "Archived subscription plans must be restored before they can be enabled")
+			return
+		}
 	}
 	model.InvalidateSubscriptionPlanCache(id)
 	common.ApiSuccess(c, nil)
@@ -505,10 +545,9 @@ func AdminDeleteSubscriptionPlan(c *gin.Context) {
 		common.ApiErrorMsg(c, "无效的ID")
 		return
 	}
-	if err := model.AdminDeleteSubscriptionPlan(id); err != nil {
+	result, err := model.AdminDeleteSubscriptionPlan(id)
+	if err != nil {
 		switch {
-		case errors.Is(err, model.ErrSubscriptionPlanInUse):
-			common.ApiErrorMsg(c, "Subscription plan has subscription or order history and cannot be deleted. Disable it instead.")
 		case errors.Is(err, gorm.ErrRecordNotFound):
 			common.ApiErrorMsg(c, "Subscription plan not found")
 		default:
@@ -516,7 +555,34 @@ func AdminDeleteSubscriptionPlan(c *gin.Context) {
 		}
 		return
 	}
-	common.ApiSuccess(c, nil)
+	recordManageAudit(c, "subscription.plan_remove", map[string]interface{}{
+		"plan_id":          id,
+		"action":           result.Action,
+		"cancelled_orders": result.CancelledOrders,
+	})
+	common.ApiSuccess(c, result)
+}
+
+func AdminRestoreSubscriptionPlan(c *gin.Context) {
+	if !requirePaymentCompliance(c) {
+		return
+	}
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil || id <= 0 {
+		common.ApiErrorMsg(c, "无效的ID")
+		return
+	}
+	plan, err := model.AdminRestoreSubscriptionPlan(id)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			common.ApiErrorMsg(c, "Subscription plan not found")
+			return
+		}
+		common.ApiError(c, err)
+		return
+	}
+	recordManageAudit(c, "subscription.plan_restore", map[string]interface{}{"plan_id": id})
+	common.ApiSuccess(c, plan)
 }
 
 type AdminBindSubscriptionRequest struct {
@@ -566,28 +632,6 @@ type AdminCreateUserSubscriptionRequest struct {
 	PlanId int `json:"plan_id"`
 }
 
-type AdminResetSubscriptionRequest struct {
-	PlanId           int   `json:"plan_id"`
-	AdvanceResetTime *bool `json:"advance_reset_time"`
-}
-
-func resolveAdvanceResetTime(value *bool) bool {
-	if value == nil {
-		return true
-	}
-	return *value
-}
-
-func recordSubscriptionResetUserLogs(result *model.SubscriptionResetResult, adminInfo map[string]interface{}) {
-	if result == nil || result.ResetCount == 0 {
-		return
-	}
-	content := fmt.Sprintf("管理员重置订阅套餐 %s（ID: %d）额度", result.PlanTitle, result.PlanId)
-	for _, userId := range result.AffectedUserIds {
-		model.RecordLogWithAdminInfo(userId, model.LogTypeManage, content, adminInfo)
-	}
-}
-
 // AdminCreateUserSubscription creates a new user subscription from a plan (no payment).
 func AdminCreateUserSubscription(c *gin.Context) {
 	if !requirePaymentCompliance(c) {
@@ -614,69 +658,6 @@ func AdminCreateUserSubscription(c *gin.Context) {
 		return
 	}
 	common.ApiSuccess(c, nil)
-}
-
-func AdminResetUserSubscriptionsByPlan(c *gin.Context) {
-	userId, _ := strconv.Atoi(c.Param("id"))
-	if userId <= 0 {
-		common.ApiErrorMsg(c, "无效的用户ID")
-		return
-	}
-	var req AdminResetSubscriptionRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		common.ApiErrorMsg(c, "参数错误")
-		return
-	}
-	if req.PlanId <= 0 {
-		common.ApiErrorMsg(c, "参数错误")
-		return
-	}
-	advanceResetTime := resolveAdvanceResetTime(req.AdvanceResetTime)
-	result, err := model.AdminResetUserSubscriptionsByPlan(userId, req.PlanId, advanceResetTime)
-	if err != nil {
-		common.ApiError(c, err)
-		return
-	}
-	recordSubscriptionResetUserLogs(result, auditOperatorInfo(c))
-	recordManageAuditFor(c, userId, "subscription.user_plan_reset", map[string]interface{}{
-		"target_user_id":     userId,
-		"plan_id":            result.PlanId,
-		"plan_title":         result.PlanTitle,
-		"reset_count":        result.ResetCount,
-		"user_count":         result.UserCount,
-		"advance_reset_time": result.AdvanceResetTime,
-	})
-	common.ApiSuccess(c, result)
-}
-
-func AdminResetPlanSubscriptions(c *gin.Context) {
-	planId, _ := strconv.Atoi(c.Param("id"))
-	if planId <= 0 {
-		common.ApiErrorMsg(c, "无效的ID")
-		return
-	}
-	var req AdminResetSubscriptionRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		common.ApiErrorMsg(c, "参数错误")
-		return
-	}
-	advanceResetTime := resolveAdvanceResetTime(req.AdvanceResetTime)
-	result, err := model.AdminResetPlanSubscriptions(planId, advanceResetTime)
-	if err != nil {
-		common.ApiError(c, err)
-		return
-	}
-	recordSubscriptionResetUserLogs(result, auditOperatorInfo(c))
-	common.SysLog(fmt.Sprintf("admin reset subscription plan %d quota: reset_count=%d user_count=%d advance_reset_time=%t",
-		result.PlanId, result.ResetCount, result.UserCount, result.AdvanceResetTime))
-	recordManageAudit(c, "subscription.plan_reset", map[string]interface{}{
-		"plan_id":            result.PlanId,
-		"plan_title":         result.PlanTitle,
-		"reset_count":        result.ResetCount,
-		"user_count":         result.UserCount,
-		"advance_reset_time": result.AdvanceResetTime,
-	})
-	common.ApiSuccess(c, result)
 }
 
 // AdminInvalidateUserSubscription cancels a user subscription immediately.

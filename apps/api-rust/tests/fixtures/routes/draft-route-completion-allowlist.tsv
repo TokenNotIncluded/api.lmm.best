@@ -168,6 +168,13 @@ POST	/api/security/admin/violation-fee-appeals/:id/:action	compatibility	apps/ap
 GET	/api/security/policy	compatibility	apps/api-rust/src/migration_routes/security_overview.rs	application route intentionally outside the frozen legacy migration inventory
 GET	/api/security/stats	compatibility	apps/api-rust/src/migration_routes/security_overview.rs	application route intentionally outside the frozen legacy migration inventory
 DELETE	/api/subscription/admin/plans/:id	compatibility	apps/api-rust/src/migration_routes/billing_subscriptions.rs	application route intentionally outside the frozen legacy migration inventory
+GET	/api/subscription/admin/records	compatibility	apps/api-rust/src/migration_routes/billing_subscriptions/reset.rs	audited subscription reset API introduced after the frozen legacy migration inventory
+POST	/api/subscription/admin/plans/:id/restore	compatibility	apps/api-rust/src/migration_routes/billing_subscriptions.rs	plan restoration API introduced after the frozen legacy migration inventory
+POST	/api/subscription/root/reset	compatibility	apps/api-rust/src/migration_routes/billing_subscriptions/reset.rs	root-only audited subscription reset API introduced after the frozen legacy migration inventory
+GET	/api/subscription/root/reset-targets	compatibility	apps/api-rust/src/migration_routes/billing_subscriptions/reset.rs	root-only reset target discovery introduced after the frozen legacy migration inventory
+POST	/api/subscription/root/reset/preview	compatibility	apps/api-rust/src/migration_routes/billing_subscriptions/reset.rs	preview-bound subscription reset API introduced after the frozen legacy migration inventory
+GET	/api/subscription/self/reset-vouchers	compatibility	apps/api-rust/src/migration_routes/billing_subscriptions/reset.rs	reset voucher API introduced after the frozen legacy migration inventory
+POST	/api/subscription/self/reset-vouchers/:id/redeem	compatibility	apps/api-rust/src/migration_routes/billing_subscriptions/reset.rs	idempotent reset voucher redemption introduced after the frozen legacy migration inventory
 GET	/api/task	compatibility	apps/api-rust/src/migration_routes/control_admin.rs	trailing-slash compatibility redirect outside the frozen Go registration
 GET	/api/test-public-rate-limit/:name	test	apps/api-rust/src/http.rs	cfg(test) public rate-limit boundary fixture
 GET	/api/todos	compatibility	apps/api-rust/src/migration_routes/unified_todo.rs	application route intentionally outside the frozen legacy migration inventory

@@ -1482,9 +1482,28 @@ func GetAllTopUps(c *gin.Context) {
 		return
 	}
 
+	records := make([]topUpAdminRecord, 0, len(topups))
+	for _, topUp := range topups {
+		if topUp == nil {
+			continue
+		}
+		records = append(records, newTopUpAdminRecord(topUp))
+	}
 	pageInfo.SetTotal(int(total))
-	pageInfo.SetItems(topups)
+	pageInfo.SetItems(records)
 	common.ApiSuccess(c, pageInfo)
+}
+
+type topUpAdminRecord struct {
+	*model.TopUp
+	Currency string `json:"currency,omitempty"`
+}
+
+func newTopUpAdminRecord(topUp *model.TopUp) topUpAdminRecord {
+	return topUpAdminRecord{
+		TopUp:    topUp,
+		Currency: topUp.SettlementCurrency,
+	}
 }
 
 type AdminCompleteTopupRequest struct {

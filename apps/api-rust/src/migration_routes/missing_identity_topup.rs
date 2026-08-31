@@ -434,6 +434,8 @@ struct TopupRecord {
     expected_amount_micros: i64,
     settled_amount_micros: i64,
     settlement_currency: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    currency: String,
     money: Value,
     trade_no: String,
     payment_method: String,
@@ -455,6 +457,8 @@ struct TopupSelfRecord {
     user_id: i64,
     amount: i64,
     money: Value,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    currency: String,
     trade_no: String,
     payment_method: String,
     create_time: i64,
@@ -469,6 +473,7 @@ impl From<TopupRecord> for TopupSelfRecord {
             user_id: record.user_id,
             amount: record.amount,
             money: record.money,
+            currency: record.currency,
             trade_no: record.trade_no,
             payment_method: record.payment_method,
             create_time: record.create_time,
@@ -482,6 +487,7 @@ fn topup_record(row: &sqlx::postgres::PgRow) -> Result<TopupRecord, sqlx::Error>
     let money_text: String = row.try_get("money")?;
     let money = money_value(&money_text);
     let top_up_json: Value = row.try_get("top_up_json")?;
+    let settlement_currency = json_string(&top_up_json, "settlement_currency");
     Ok(TopupRecord {
         id: row.try_get("id")?,
         user_id: row.try_get("user_id")?,
@@ -489,7 +495,8 @@ fn topup_record(row: &sqlx::postgres::PgRow) -> Result<TopupRecord, sqlx::Error>
         credited_quota: json_i64(&top_up_json, "credited_quota"),
         expected_amount_micros: json_i64(&top_up_json, "expected_amount_micros"),
         settled_amount_micros: json_i64(&top_up_json, "settled_amount_micros"),
-        settlement_currency: json_string(&top_up_json, "settlement_currency"),
+        settlement_currency: settlement_currency.clone(),
+        currency: settlement_currency,
         money,
         trade_no: row.try_get("trade_no")?,
         payment_method: row.try_get("payment_method")?,
@@ -2219,15 +2226,16 @@ mod tests {
     }
 
     #[test]
-    fn self_topup_record_keeps_the_go_public_shape() -> TestResult {
-        let value = serde_json::to_value(TopupSelfRecord::from(TopupRecord {
+    fn topup_records_keep_the_go_public_shapes() -> TestResult {
+        let record = TopupRecord {
             id: 7,
             user_id: 11,
             amount: 20,
             credited_quota: 0,
             expected_amount_micros: 0,
             settled_amount_micros: 0,
-            settlement_currency: String::new(),
+            settlement_currency: "USD".into(),
+            currency: "USD".into(),
             money: json!(20.0),
             trade_no: "trade-7".into(),
             payment_method: "stripe".into(),
@@ -2239,11 +2247,18 @@ mod tests {
             create_time: 100,
             complete_time: 200,
             status: "success".into(),
-        }))?;
-        assert_eq!(value["id"], 7);
-        assert_eq!(value["money"], 20.0);
-        assert_eq!(value["payment_method"], "stripe");
-        assert!(value.get("payment_provider").is_none());
+        };
+        let admin_value = serde_json::to_value(&record)?;
+        assert_eq!(admin_value["currency"], "USD");
+        assert_eq!(admin_value["settlement_currency"], "USD");
+
+        let self_value = serde_json::to_value(TopupSelfRecord::from(record))?;
+        assert_eq!(self_value["id"], 7);
+        assert_eq!(self_value["money"], 20.0);
+        assert_eq!(self_value["currency"], "USD");
+        assert_eq!(self_value["payment_method"], "stripe");
+        assert!(self_value.get("settlement_currency").is_none());
+        assert!(self_value.get("payment_provider").is_none());
         Ok(())
     }
 

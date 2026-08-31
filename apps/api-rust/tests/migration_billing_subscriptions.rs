@@ -301,6 +301,118 @@ async fn subscription_routes_should_preserve_legacy_method_boundaries() {
     assert_eq!(response.status(), StatusCode::METHOD_NOT_ALLOWED);
 }
 
+/// This is intentionally ignored by default: it requires a disposable
+/// PostgreSQL 18 database and exercises archive-management handler behavior.
+#[tokio::test]
+#[ignore = "requires isolated PostgreSQL 18; no production services"]
+async fn archived_plans_are_management_only_and_restore_retry_preserves_enabled_state() {
+    let database_url = env::var("LMM_BILLING_SUBSCRIPTIONS_TEST_DATABASE_URL")
+        .expect("set isolated PostgreSQL 18 URL");
+    let pool = PgPoolOptions::new()
+        .max_connections(2)
+        .acquire_timeout(Duration::from_secs(3))
+        .connect(&database_url)
+        .await
+        .expect("isolated PostgreSQL must be reachable");
+    reset_schema(&pool).await;
+    seed(&pool).await;
+    sqlx::query("UPDATE subscription_plans SET archived_at=123,enabled=TRUE WHERE id=3")
+        .execute(&pool)
+        .await
+        .expect("archived plan fixture");
+
+    let app = router(BillingSubscriptionsState::new(
+        pool.clone(),
+        None,
+        Arc::new(FixtureAuth),
+    ));
+    let request = |method: &str, uri: &str, body: Body| {
+        Request::builder()
+            .method(method)
+            .uri(uri)
+            .header("authorization", "Bearer admin")
+            .header("content-type", "application/json")
+            .body(body)
+            .expect("request")
+    };
+
+    let default_list = app
+        .clone()
+        .oneshot(request(
+            "GET",
+            "/api/subscription/admin/plans",
+            Body::empty(),
+        ))
+        .await
+        .expect("default list response");
+    assert!(
+        error_body(default_list).await["data"]
+            .as_array()
+            .expect("plan list")
+            .is_empty()
+    );
+    let archive_list = app
+        .clone()
+        .oneshot(request(
+            "GET",
+            "/api/subscription/admin/plans?include_archived=true",
+            Body::empty(),
+        ))
+        .await
+        .expect("archive list response");
+    assert_eq!(
+        error_body(archive_list).await["data"]
+            .as_array()
+            .expect("archive plan list")
+            .len(),
+        1
+    );
+
+    for (uri, body) in [
+        (
+            "/api/subscription/admin/bind",
+            json!({"user_id":7,"plan_id":3}),
+        ),
+        (
+            "/api/subscription/admin/users/7/subscriptions",
+            json!({"plan_id":3}),
+        ),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(request("POST", uri, Body::from(body.to_string())))
+            .await
+            .expect("archived bind response");
+        assert_eq!(error_body(response).await["success"], false);
+    }
+    assert_eq!(subscription_count(&pool).await, 0);
+    assert_eq!(user_group(&pool).await, "default");
+
+    let restore_uri = "/api/subscription/admin/plans/3/restore";
+    let restored = app
+        .clone()
+        .oneshot(request("POST", restore_uri, Body::empty()))
+        .await
+        .expect("restore response");
+    assert_eq!(error_body(restored).await["data"]["enabled"], false);
+    sqlx::query("UPDATE subscription_plans SET enabled=TRUE WHERE id=3")
+        .execute(&pool)
+        .await
+        .expect("active enabled fixture");
+
+    let retried = app
+        .oneshot(request("POST", restore_uri, Body::empty()))
+        .await
+        .expect("restore retry response");
+    assert_eq!(error_body(retried).await["data"]["enabled"], true);
+    let state: (i64, bool) =
+        sqlx::query_as("SELECT archived_at,enabled FROM subscription_plans WHERE id=3")
+            .fetch_one(&pool)
+            .await
+            .expect("restored plan state");
+    assert_eq!(state, (0, true));
+}
+
 /// This is intentionally ignored by default: it fails if the caller has not
 /// explicitly supplied disposable loopback PostgreSQL 18 and Valkey services.
 #[tokio::test]
@@ -467,7 +579,7 @@ async fn subscription_admin_routes_preserve_tcp_contract_atomicity_and_cache_rec
     .expect("atomic plan-delete audit");
     assert_eq!(
         serde_json::from_str::<serde_json::Value>(&audit).expect("audit JSON")["op"]["action"],
-        "subscription.plan_delete"
+        "subscription.plan_remove"
     );
     server.abort();
 }
@@ -610,6 +722,10 @@ async fn seed(pool: &PgPool) {
 async fn reset_schema(pool: &PgPool) {
     for table in [
         "logs",
+        "subscription_reset_operations",
+        "subscription_reset_previews",
+        "subscription_reset_events",
+        "subscription_reset_vouchers",
         "subscription_orders",
         "user_subscriptions",
         "subscription_pre_consume_records",
@@ -628,18 +744,26 @@ async fn reset_schema(pool: &PgPool) {
         .expect("options schema");
     sqlx::query("CREATE TABLE users (id BIGINT PRIMARY KEY, \"group\" TEXT NOT NULL, setting TEXT NOT NULL DEFAULT '{}', deleted_at TIMESTAMPTZ)")
         .execute(pool).await.expect("users schema");
-    sqlx::query("CREATE TABLE subscription_plans (id BIGINT PRIMARY KEY, title TEXT NOT NULL, subtitle TEXT, price_amount NUMERIC NOT NULL, currency TEXT, duration_unit TEXT, duration_value BIGINT, custom_seconds BIGINT, enabled BOOLEAN NOT NULL, sort_order BIGINT, allow_balance_pay BOOLEAN, allow_wallet_overflow BOOLEAN, stripe_price_id TEXT, creem_product_id TEXT, waffo_pancake_product_id TEXT, waffo_pancake_product_type TEXT NOT NULL DEFAULT 'subscription', max_purchase_per_user BIGINT, total_amount BIGINT NOT NULL, upgrade_group TEXT, downgrade_group TEXT, quota_reset_period TEXT, quota_reset_custom_seconds BIGINT, created_at BIGINT, updated_at BIGINT)")
+    sqlx::query("CREATE TABLE subscription_plans (id BIGINT PRIMARY KEY, title TEXT NOT NULL, subtitle TEXT, price_amount NUMERIC NOT NULL, currency TEXT, duration_unit TEXT, duration_value BIGINT, custom_seconds BIGINT, enabled BOOLEAN NOT NULL, sort_order BIGINT, allow_balance_pay BOOLEAN, allow_wallet_overflow BOOLEAN, stripe_price_id TEXT, creem_product_id TEXT, waffo_pancake_product_id TEXT, waffo_pancake_product_type TEXT NOT NULL DEFAULT 'subscription', max_purchase_per_user BIGINT, total_amount BIGINT NOT NULL, upgrade_group TEXT, downgrade_group TEXT, quota_reset_period TEXT, quota_reset_custom_seconds BIGINT, created_at BIGINT, updated_at BIGINT, archived_at BIGINT NOT NULL DEFAULT 0)")
         .execute(pool).await.expect("plans schema");
     sqlx::query("CREATE TABLE user_subscriptions (id BIGSERIAL PRIMARY KEY, user_id BIGINT NOT NULL, plan_id BIGINT NOT NULL, amount_total BIGINT NOT NULL CHECK (amount_total > 0), amount_used BIGINT NOT NULL, start_time BIGINT NOT NULL, end_time BIGINT NOT NULL, status TEXT NOT NULL, source TEXT NOT NULL, last_reset_time BIGINT NOT NULL, next_reset_time BIGINT NOT NULL, upgrade_group TEXT NOT NULL, prev_user_group TEXT NOT NULL, downgrade_group TEXT NOT NULL, allow_wallet_overflow BOOLEAN NOT NULL, created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL)")
         .execute(pool).await.expect("subscriptions schema");
     sqlx::query("CREATE TABLE subscription_pre_consume_records (id BIGSERIAL PRIMARY KEY, request_id TEXT NOT NULL, user_id BIGINT NOT NULL, user_subscription_id BIGINT NOT NULL, pre_consumed BIGINT NOT NULL, status TEXT NOT NULL, created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL)")
         .execute(pool).await.expect("pre-consume schema");
     sqlx::query(
-        "CREATE TABLE subscription_orders (id BIGSERIAL PRIMARY KEY, plan_id BIGINT NOT NULL)",
+        "CREATE TABLE subscription_orders (id BIGSERIAL PRIMARY KEY, plan_id BIGINT NOT NULL, status TEXT, complete_time BIGINT, provider_subscription_state TEXT NOT NULL DEFAULT '')",
     )
     .execute(pool)
     .await
     .expect("orders schema");
+    sqlx::query("CREATE TABLE subscription_reset_vouchers (id BIGSERIAL PRIMARY KEY, user_id BIGINT NOT NULL, plan_id BIGINT NOT NULL, operation_id VARCHAR(64) NOT NULL, status VARCHAR(16) NOT NULL DEFAULT 'available', expires_at BIGINT NOT NULL, redeemed_at BIGINT NOT NULL DEFAULT 0, created_by BIGINT NOT NULL, created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL, UNIQUE (user_id, plan_id, operation_id))")
+        .execute(pool).await.expect("reset vouchers schema");
+    sqlx::query("CREATE TABLE subscription_reset_events (id BIGSERIAL PRIMARY KEY, operation_id VARCHAR(64) NOT NULL, user_id BIGINT NOT NULL, plan_id BIGINT NOT NULL, mode VARCHAR(24) NOT NULL, actor_user_id BIGINT NOT NULL, voucher_id BIGINT NOT NULL DEFAULT 0, reset_count BIGINT NOT NULL DEFAULT 0, restored_quota BIGINT NOT NULL DEFAULT 0, voucher_expiry BIGINT NOT NULL DEFAULT 0, created_at BIGINT NOT NULL, UNIQUE (operation_id, user_id, plan_id, mode))")
+        .execute(pool).await.expect("reset events schema");
+    sqlx::query("CREATE TABLE subscription_reset_previews (token VARCHAR(64) PRIMARY KEY, actor_user_id BIGINT NOT NULL, mode VARCHAR(16) NOT NULL, targets_json TEXT NOT NULL, payload_hash VARCHAR(64) NOT NULL, target_count BIGINT NOT NULL, active_subscriptions BIGINT NOT NULL, quota_to_restore BIGINT NOT NULL, voucher_expires_at BIGINT NOT NULL DEFAULT 0, expires_at BIGINT NOT NULL, consumed_at BIGINT NOT NULL DEFAULT 0, operation_id VARCHAR(64) NOT NULL DEFAULT '', created_at BIGINT NOT NULL)")
+        .execute(pool).await.expect("reset previews schema");
+    sqlx::query("CREATE TABLE subscription_reset_operations (operation_id VARCHAR(64) PRIMARY KEY, preview_token VARCHAR(64) NOT NULL UNIQUE, actor_user_id BIGINT NOT NULL, mode VARCHAR(16) NOT NULL, payload_hash VARCHAR(64) NOT NULL, result_json TEXT NOT NULL, created_at BIGINT NOT NULL, completed_at BIGINT NOT NULL)")
+        .execute(pool).await.expect("reset operations schema");
     sqlx::query("CREATE TABLE logs (user_id BIGINT, created_at BIGINT, type BIGINT, content TEXT, username TEXT, ip TEXT, other TEXT)")
         .execute(pool).await.expect("logs schema");
 }

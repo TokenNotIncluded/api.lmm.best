@@ -118,12 +118,22 @@ export function useSubscriptionsColumns(): ColumnDef<PlanRecord>[] {
         size: 100,
       },
       {
-        accessorFn: (row) => row.plan.enabled,
+        accessorFn: (row) => row.plan.archived_at || row.plan.enabled,
         id: 'enabled',
         header: t('Status'),
         meta: { mobileBadge: true },
-        cell: ({ row }) =>
-          row.original.plan.enabled ? (
+        cell: ({ row }) => {
+          if ((row.original.plan.archived_at ?? 0) > 0) {
+            return (
+              <StatusBadge
+                label={t('Archived')}
+                variant='neutral'
+                copyable={false}
+                className='-ml-1.5'
+              />
+            )
+          }
+          return row.original.plan.enabled ? (
             <StatusBadge
               label={t('Enable')}
               variant='success'
@@ -137,7 +147,8 @@ export function useSubscriptionsColumns(): ColumnDef<PlanRecord>[] {
               copyable={false}
               className='-ml-1.5'
             />
-          ),
+          )
+        },
         size: 80,
       },
       {

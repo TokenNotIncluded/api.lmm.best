@@ -10,7 +10,8 @@ use crate::{
     contract::{ContractInstallOutcome, install_or_verify},
     forward_schema::{
         BOUNTY_SCHEMA_CONTRACT_ID, CURRENT_DASHBOARD_SCHEMA_CONTRACT_ID,
-        verify_current_dashboard_schema, verify_open_source_bounty_schema,
+        SUBSCRIPTION_RESET_SCHEMA_CONTRACT_ID, verify_current_dashboard_schema,
+        verify_open_source_bounty_schema, verify_subscription_reset_schema,
     },
     postgres_catalog::acquire_shared_migration_lock,
     release::ReleaseBinding,
@@ -69,6 +70,9 @@ pub fn forward(options: &ForwardOptions<'_>) -> Result<ForwardReport, MigrationE
     verify_open_source_bounty_schema(&mut transaction, options.schema)?;
     if options.release.contract_id().as_i64() >= CURRENT_DASHBOARD_SCHEMA_CONTRACT_ID {
         verify_current_dashboard_schema(&mut transaction, options.schema)?;
+    }
+    if options.release.contract_id().as_i64() >= SUBSCRIPTION_RESET_SCHEMA_CONTRACT_ID {
+        verify_subscription_reset_schema(&mut transaction, options.schema)?;
     }
     transaction.commit()?;
     Ok(ForwardReport {

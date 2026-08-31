@@ -52,11 +52,13 @@ var auditContentTemplates = map[string]string{
 
 	"redemption.create": "Created ${count} redemption codes named ${name} (${quota} each)",
 
-	"subscription.plan_delete":     "Deleted subscription plan ${plan_id}",
-	"subscription.plan_reset":      "Reset active subscriptions for plan ${plan_id}",
-	"subscription.user_plan_reset": "Reset active plan ${plan_id} subscriptions for user ${target_user_id}",
-	"user.reset_onboarding":        "Reset user ${target_user_id} onboarding to L0",
-	"onboarding.todo_progress":     "Advanced L1 onboarding step ${step} via ${source}",
+	"subscription.plan_delete":          "Deleted subscription plan ${plan_id}",
+	"subscription.plan_remove":          "Removed subscription plan ${plan_id} via ${action}",
+	"subscription.plan_restore":         "Restored subscription plan ${plan_id}",
+	"subscription.reset.execute":        "Executed ${mode} subscription reset ${operation_id}",
+	"subscription.reset.voucher_redeem": "Redeemed subscription reset voucher ${voucher_id}",
+	"user.reset_onboarding":             "Reset user ${target_user_id} onboarding to L0",
+	"onboarding.todo_progress":          "Advanced L1 onboarding step ${step} via ${source}",
 }
 
 // auditContentEN 按 action 模板渲染英文兜底文本；未登记的 action 退回 action 本身。

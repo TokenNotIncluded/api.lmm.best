@@ -22,10 +22,17 @@ import type {
   ApiResponse,
   PlanRecord,
   PlanPayload,
+  SubscriptionPlan,
   UserSubscriptionRecord,
   CreateUserSubscriptionRequest,
-  ResetUserSubscriptionsRequest,
-  ResetPlanSubscriptionsRequest,
+  SubscriptionPlanRemovalResult,
+  AdminSubscriptionRecordPage,
+  AdminSubscriptionResetEligiblePage,
+  SubscriptionResetPreviewRequest,
+  SubscriptionResetPreviewResult,
+  SubscriptionResetExecuteRequest,
+  SubscriptionResetBatchResult,
+  SubscriptionResetVoucher,
   SubscriptionResetResult,
   SubscriptionPayResponse,
   SubscriptionPayRequest,
@@ -38,8 +45,12 @@ import type {
 // Admin Plan Management
 // ============================================================================
 
-export async function getAdminPlans(): Promise<ApiResponse<PlanRecord[]>> {
-  const res = await api.get('/api/subscription/admin/plans')
+export async function getAdminPlans(
+  includeArchived = false
+): Promise<ApiResponse<PlanRecord[]>> {
+  const res = await api.get('/api/subscription/admin/plans', {
+    params: includeArchived ? { include_archived: '1' } : undefined,
+  })
   return res.data
 }
 
@@ -58,11 +69,20 @@ export async function updatePlan(
   return res.data
 }
 
-export async function deletePlan(id: number): Promise<ApiResponse> {
+export async function deletePlan(
+  id: number
+): Promise<ApiResponse<SubscriptionPlanRemovalResult>> {
   const res = await api.delete(`/api/subscription/admin/plans/${id}`, {
     skipBusinessError: true,
     skipErrorHandler: true,
   })
+  return res.data
+}
+
+export async function restorePlan(
+  id: number
+): Promise<ApiResponse<SubscriptionPlan>> {
+  const res = await api.post(`/api/subscription/admin/plans/${id}/restore`)
   return res.data
 }
 
@@ -118,25 +138,63 @@ export async function deleteUserSubscription(
   return res.data
 }
 
-export async function resetUserSubscriptionsByPlan(
-  userId: number,
-  data: ResetUserSubscriptionsRequest
-): Promise<ApiResponse<SubscriptionResetResult>> {
-  const res = await api.post(
-    `/api/subscription/admin/users/${userId}/subscriptions/reset`,
-    data
-  )
+export async function getAdminSubscriptionRecords(
+  params: {
+    page: number
+    pageSize: number
+    query?: string
+    planId?: number
+    status?: string
+  },
+  signal?: AbortSignal
+): Promise<ApiResponse<AdminSubscriptionRecordPage>> {
+  const res = await api.get('/api/subscription/admin/records', {
+    params: {
+      page: params.page,
+      page_size: params.pageSize,
+      query: params.query || undefined,
+      plan_id: params.planId || undefined,
+      status: params.status || 'all',
+    },
+    signal,
+  })
   return res.data
 }
 
-export async function resetPlanSubscriptions(
-  planId: number,
-  data: ResetPlanSubscriptionsRequest
-): Promise<ApiResponse<SubscriptionResetResult>> {
-  const res = await api.post(
-    `/api/subscription/admin/plans/${planId}/subscriptions/reset`,
-    data
-  )
+export async function getSubscriptionResetEligible(
+  params: {
+    page: number
+    pageSize: number
+    query?: string
+    planIds?: number[]
+    userIds?: number[]
+  },
+  signal?: AbortSignal
+): Promise<ApiResponse<AdminSubscriptionResetEligiblePage>> {
+  const res = await api.get('/api/subscription/root/reset-targets', {
+    params: {
+      page: params.page,
+      page_size: params.pageSize,
+      query: params.query || undefined,
+      plan_ids: params.planIds?.join(',') || undefined,
+      user_ids: params.userIds?.join(',') || undefined,
+    },
+    signal,
+  })
+  return res.data
+}
+
+export async function previewSubscriptionReset(
+  data: SubscriptionResetPreviewRequest
+): Promise<ApiResponse<SubscriptionResetPreviewResult>> {
+  const res = await api.post('/api/subscription/root/reset/preview', data)
+  return res.data
+}
+
+export async function executeSubscriptionReset(
+  data: SubscriptionResetExecuteRequest
+): Promise<ApiResponse<SubscriptionResetBatchResult>> {
+  const res = await api.post('/api/subscription/root/reset', data)
   return res.data
 }
 
@@ -244,6 +302,22 @@ export async function getSelfSubscriptionFull(): Promise<
   ApiResponse<SelfSubscriptionData>
 > {
   const res = await api.get('/api/subscription/self')
+  return res.data
+}
+
+export async function getSubscriptionResetVouchers(): Promise<
+  ApiResponse<SubscriptionResetVoucher[]>
+> {
+  const res = await api.get('/api/subscription/self/reset-vouchers')
+  return res.data
+}
+
+export async function redeemSubscriptionResetVoucher(
+  voucherId: number
+): Promise<ApiResponse<SubscriptionResetResult>> {
+  const res = await api.post(
+    `/api/subscription/self/reset-vouchers/${voucherId}/redeem`
+  )
   return res.data
 }
 

@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { Ban, Plus, RotateCcw, Trash2 } from 'lucide-react'
+import { Ban, Plus, Trash2 } from 'lucide-react'
 import {
   useCallback,
   useEffect,
@@ -61,7 +61,6 @@ import {
   SheetTitle,
   SheetDescription,
 } from '@/components/ui/sheet'
-import { Switch } from '@/components/ui/switch'
 import { formatFiatCurrencyAmount } from '@/lib/currency'
 import { formatQuota } from '@/lib/format'
 
@@ -71,7 +70,6 @@ import {
   createUserSubscription,
   invalidateUserSubscription,
   deleteUserSubscription,
-  resetUserSubscriptionsByPlan,
 } from '../../api'
 import { formatTimestamp } from '../../lib'
 import type { PlanRecord, UserSubscriptionRecord } from '../../types'
@@ -140,12 +138,6 @@ export function UserSubscriptionsDialog(props: Props) {
   const [plans, setPlans] = useState<PlanRecord[]>([])
   const [subs, setSubs] = useState<UserSubscriptionRecord[]>([])
   const [selectedPlanId, setSelectedPlanId] = useState<string>('')
-  const [resetting, setResetting] = useState(false)
-  const [advanceResetTime, setAdvanceResetTime] = useState(true)
-  const [resetAction, setResetAction] = useState<{
-    planId: number
-    planTitle: string
-  } | null>(null)
   const [confirmAction, setConfirmAction] = useState<{
     type: 'invalidate' | 'delete'
     subId: number
@@ -191,9 +183,7 @@ export function UserSubscriptionsDialog(props: Props) {
       setSubs([])
       setSelectedPlanId('')
       setCreating(false)
-      setResetting(false)
       setConfirmAction(null)
-      setResetAction(null)
       setLoading(props.open && userId !== null)
     }
   }, [props.open, userId])
@@ -316,37 +306,6 @@ export function UserSubscriptionsDialog(props: Props) {
       if (isCurrentOpenScope(scope)) toast.error(t('Operation failed'))
     } finally {
       if (isCurrentOpenScope(scope)) setConfirmAction(null)
-    }
-  }
-
-  const handleResetConfirm = async () => {
-    const scope = currentScopeRef.current
-    const action = resetAction
-    if (!isCurrentOpenScope(scope) || !action) return
-
-    setResetting(true)
-    try {
-      const res = await resetUserSubscriptionsByPlan(scope.userId, {
-        plan_id: action.planId,
-        advance_reset_time: advanceResetTime,
-      })
-      if (!isCurrentOpenScope(scope)) return
-      if (res.success) {
-        toast.success(
-          t('Reset {{count}} active subscriptions', {
-            count: res.data?.reset_count || 0,
-          })
-        )
-        await loadData(scope)
-        if (isCurrentOpenScope(scope)) props.onSuccess?.()
-      }
-    } catch {
-      if (isCurrentOpenScope(scope)) toast.error(t('Operation failed'))
-    } finally {
-      if (isCurrentOpenScope(scope)) {
-        setResetting(false)
-        setResetAction(null)
-      }
     }
   }
 
@@ -493,23 +452,6 @@ export function UserSubscriptionsDialog(props: Props) {
                       <DataTableRowActionMenu ariaLabel={t('Actions')}>
                         <DropdownMenuItem
                           disabled={!isActive}
-                          onClick={() => {
-                            setAdvanceResetTime(true)
-                            setResetAction({
-                              planId: sub.plan_id,
-                              planTitle:
-                                planTitleMap.get(sub.plan_id) ||
-                                `#${sub.plan_id}`,
-                            })
-                          }}
-                        >
-                          {t('Reset quota')}
-                          <DropdownMenuShortcut>
-                            <RotateCcw size={16} />
-                          </DropdownMenuShortcut>
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          disabled={!isActive}
                           onClick={() =>
                             setConfirmAction({
                               type: 'invalidate',
@@ -568,29 +510,6 @@ export function UserSubscriptionsDialog(props: Props) {
           handleConfirm={handleConfirmAction}
           destructive={confirmAction.type === 'delete'}
         />
-      )}
-
-      {resetAction && (
-        <ConfirmDialog
-          open
-          onOpenChange={(v) => !v && setResetAction(null)}
-          title={t('Reset subscription quota')}
-          desc={t('Reset active {{plan}} subscriptions for this user?', {
-            plan: resetAction.planTitle,
-          })}
-          confirmText={t('Reset quota')}
-          handleConfirm={handleResetConfirm}
-          isLoading={resetting}
-        >
-          <label className='flex items-center justify-between gap-3 rounded-md border px-3 py-2 text-sm'>
-            <span>{t('Advance next reset time')}</span>
-            <Switch
-              checked={advanceResetTime}
-              onCheckedChange={(checked) => setAdvanceResetTime(!!checked)}
-              aria-label={t('Advance next reset time')}
-            />
-          </label>
-        </ConfirmDialog>
       )}
     </>
   )

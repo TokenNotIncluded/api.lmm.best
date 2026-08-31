@@ -126,7 +126,9 @@ func runSubscriptionQuotaResetOnceContext(ctx context.Context) {
 	}
 	lastCleanup := time.Unix(subscriptionCleanupLast.Load(), 0)
 	if ctx.Err() == nil && time.Since(lastCleanup) >= subscriptionCleanupInterval {
-		if _, err := model.CleanupSubscriptionPreConsumeRecordsContext(ctx, 7*24*3600); err == nil {
+		_, preConsumeErr := model.CleanupSubscriptionPreConsumeRecordsContext(ctx, 7*24*3600)
+		_, previewErr := model.CleanupSubscriptionResetPreviewsContext(ctx, subscriptionResetBatchSize)
+		if preConsumeErr == nil && previewErr == nil {
 			subscriptionCleanupLast.Store(time.Now().Unix())
 		}
 	}

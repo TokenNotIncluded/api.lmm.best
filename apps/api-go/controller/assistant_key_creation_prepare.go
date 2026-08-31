@@ -174,7 +174,7 @@ func PrepareAssistantDefaultKey(c *gin.Context) {
 		return
 	}
 	var input assistantPrepareKeyInput
-	if err := decodeStrictAssistantJSON(c, &input); err != nil {
+	if err := decodeStrictJSONRequest(c, &input); err != nil {
 		writeAssistantError(c, http.StatusBadRequest, "ASSISTANT_INVALID_REQUEST", errors.New("invalid key preparation request"))
 		return
 	}

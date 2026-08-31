@@ -22,6 +22,9 @@ const (
 	// payment-method selectors, and redirect-free metadata. Bound the entire
 	// authenticated subscription surface before any ShouldBindJSON call.
 	subscriptionMutationRequestMaxBytes = 16 << 10
+	// A root reset preview may explicitly name up to 5,000 user-plan pairs.
+	// Keep that supported envelope bounded before auth and JSON decoding.
+	subscriptionResetMutationRequestMaxBytes = 512 << 10
 	// Self updates only contain profile fields and console preferences. Keep the
 	// decoded request bounded before UpdateSelf streams it into a map.
 	userSelfMutationRequestMaxBytes = 16 << 10
@@ -336,8 +339,10 @@ func SetApiRouter(router *gin.Engine) {
 		subscriptionRoute := apiRouter.Group("/subscription")
 		subscriptionRoute.Use(middleware.RequestBodyLimit(subscriptionMutationRequestMaxBytes), middleware.UserAuth())
 		{
-			subscriptionRoute.GET("/plans", controller.GetSubscriptionPlans)
-			subscriptionRoute.GET("/self", controller.GetSubscriptionSelf)
+			subscriptionRoute.GET("/plans", middleware.DisableCache(), controller.GetSubscriptionPlans)
+			subscriptionRoute.GET("/self", middleware.DisableCache(), controller.GetSubscriptionSelf)
+			subscriptionRoute.GET("/self/reset-vouchers", middleware.DisableCache(), controller.GetSubscriptionResetVouchers)
+			subscriptionRoute.POST("/self/reset-vouchers/:id/redeem", middleware.CriticalRateLimit(), middleware.DisableCache(), controller.RedeemSubscriptionResetVoucher)
 			subscriptionRoute.PUT("/self/preference", controller.UpdateSubscriptionPreference)
 			subscriptionRoute.POST("/balance/pay", middleware.PaymentAccessGate(), middleware.CriticalRateLimit(), controller.SubscriptionRequestBalancePay)
 			subscriptionRoute.POST("/epay/pay", middleware.PaymentMethodAccessGate(), middleware.CriticalRateLimit(), controller.SubscriptionRequestEpay)
@@ -346,22 +351,29 @@ func SetApiRouter(router *gin.Engine) {
 			subscriptionRoute.POST("/waffo-pancake/pay", middleware.RequestBodyLimit(waffoPancakeMutationRequestMaxBytes), middleware.PaymentMethodAccessGate(), middleware.CriticalRateLimit(), controller.SubscriptionRequestWaffoPancakePay)
 		}
 		subscriptionAdminRoute := apiRouter.Group("/subscription/admin")
-		subscriptionAdminRoute.Use(middleware.AdminAuth())
+		subscriptionAdminRoute.Use(middleware.RequestBodyLimit(subscriptionMutationRequestMaxBytes), middleware.AdminAuth(), middleware.DisableCache())
 		{
 			subscriptionAdminRoute.GET("/plans", controller.AdminListSubscriptionPlans)
+			subscriptionAdminRoute.GET("/records", controller.AdminListSubscriptionRecords)
 			subscriptionAdminRoute.POST("/plans", controller.AdminCreateSubscriptionPlan)
 			subscriptionAdminRoute.PUT("/plans/:id", controller.AdminUpdateSubscriptionPlan)
 			subscriptionAdminRoute.DELETE("/plans/:id", controller.AdminDeleteSubscriptionPlan)
+			subscriptionAdminRoute.POST("/plans/:id/restore", controller.AdminRestoreSubscriptionPlan)
 			subscriptionAdminRoute.PATCH("/plans/:id", controller.AdminUpdateSubscriptionPlanStatus)
 			subscriptionAdminRoute.POST("/bind", controller.AdminBindSubscription)
-			subscriptionAdminRoute.POST("/plans/:id/subscriptions/reset", controller.AdminResetPlanSubscriptions)
 
 			// User subscription management (admin)
 			subscriptionAdminRoute.GET("/users/:id/subscriptions", controller.AdminListUserSubscriptions)
 			subscriptionAdminRoute.POST("/users/:id/subscriptions", controller.AdminCreateUserSubscription)
-			subscriptionAdminRoute.POST("/users/:id/subscriptions/reset", controller.AdminResetUserSubscriptionsByPlan)
 			subscriptionAdminRoute.POST("/user_subscriptions/:id/invalidate", controller.AdminInvalidateUserSubscription)
 			subscriptionAdminRoute.DELETE("/user_subscriptions/:id", controller.AdminDeleteUserSubscription)
+		}
+		subscriptionRootRoute := apiRouter.Group("/subscription/root")
+		subscriptionRootRoute.Use(middleware.RequestBodyLimit(subscriptionResetMutationRequestMaxBytes), middleware.RootAuth(), middleware.DisableCache())
+		{
+			subscriptionRootRoute.GET("/reset-targets", controller.RootListSubscriptionResetEligible)
+			subscriptionRootRoute.POST("/reset/preview", middleware.CriticalRateLimit(), controller.RootPreviewSubscriptionsBatch)
+			subscriptionRootRoute.POST("/reset", middleware.CriticalRateLimit(), controller.RootResetSubscriptionsBatch)
 		}
 
 		// Subscription payment callbacks (no auth)

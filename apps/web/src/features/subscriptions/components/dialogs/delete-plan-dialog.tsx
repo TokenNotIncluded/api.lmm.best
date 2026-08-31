@@ -42,7 +42,11 @@ export function DeletePlanDialog() {
         toast.error(t(response.message || 'Operation failed'))
         return
       }
-      toast.success(t('Subscription plan deleted'))
+      toast.success(
+        response.data?.action === 'archived'
+          ? t('Subscription plan archived')
+          : t('Subscription plan deleted')
+      )
       triggerRefresh()
       setOpen(null)
     } catch (error) {
@@ -58,7 +62,7 @@ export function DeletePlanDialog() {
       onOpenChange={(nextOpen) => !nextOpen && setOpen(null)}
       title={t('Delete subscription plan')}
       desc={t(
-        'Delete subscription plan "{{name}}"? Only unused plans can be deleted. This action cannot be undone.',
+        'Remove subscription plan "{{name}}"? Plans with subscription history are archived and remain available in records. Never-subscribed plans are permanently deleted.',
         { name: planLabel }
       )}
       handleConfirm={handleConfirm}

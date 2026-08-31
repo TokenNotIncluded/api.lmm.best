@@ -70,6 +70,15 @@ func TestProtectedMutationRoutesRejectOversizedJSONBeforeBinding(t *testing.T) {
 
 	require.Equal(t, http.StatusRequestEntityTooLarge, subscriptionResponse.Code)
 
+	resetBody := `{"mode":"hard","targets":[],"padding":"` + strings.Repeat("x", subscriptionResetMutationRequestMaxBytes) + `"}`
+	resetRequest := httptest.NewRequest(http.MethodPost, "/api/subscription/root/reset/preview", strings.NewReader(resetBody))
+	resetRequest.Header.Set("Authorization", "Bearer "+accessToken)
+	resetResponse := httptest.NewRecorder()
+
+	engine.ServeHTTP(resetResponse, resetRequest)
+
+	require.Equal(t, http.StatusRequestEntityTooLarge, resetResponse.Code)
+
 	topUpBody := `{"amount":1,"padding":"` + strings.Repeat("x", topUpMutationRequestMaxBytes) + `"}`
 	topUpRequest := httptest.NewRequest(http.MethodPost, "/api/user/stripe/pay", strings.NewReader(topUpBody))
 	topUpRequest.Header.Set("Authorization", "Bearer "+accessToken)

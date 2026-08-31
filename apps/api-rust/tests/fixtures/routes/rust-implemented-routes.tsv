@@ -275,12 +275,10 @@ POST	/api/subscription/admin/plans	lmm_api_rs::migration_routes::billing_subscri
 DELETE	/api/subscription/admin/plans/:id	lmm_api_rs::migration_routes::billing_subscriptions::router
 PATCH	/api/subscription/admin/plans/:id	lmm_api_rs::migration_routes::billing_subscriptions::router
 PUT	/api/subscription/admin/plans/:id	lmm_api_rs::migration_routes::billing_subscriptions::router
-POST	/api/subscription/admin/plans/:id/subscriptions/reset	lmm_api_rs::migration_routes::billing_subscriptions::router
 DELETE	/api/subscription/admin/user_subscriptions/:id	lmm_api_rs::migration_routes::billing_subscriptions::router
 POST	/api/subscription/admin/user_subscriptions/:id/invalidate	lmm_api_rs::migration_routes::billing_subscriptions::router
 GET	/api/subscription/admin/users/:id/subscriptions	lmm_api_rs::migration_routes::billing_subscriptions::router
 POST	/api/subscription/admin/users/:id/subscriptions	lmm_api_rs::migration_routes::billing_subscriptions::router
-POST	/api/subscription/admin/users/:id/subscriptions/reset	lmm_api_rs::migration_routes::billing_subscriptions::router
 POST	/api/subscription/balance/pay	lmm_api_rs::migration_routes::billing_payments::subscription_balance_pay_router
 GET	/api/subscription/plans	lmm_api_rs::migration_routes::billing_subscriptions::router
 GET	/api/subscription/self	lmm_api_rs::migration_routes::billing_subscriptions::router

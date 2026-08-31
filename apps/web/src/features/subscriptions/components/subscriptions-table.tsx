@@ -21,6 +21,7 @@ import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { DataTablePage, useDataTable } from '@/components/data-table'
+import { ErrorState } from '@/components/error-state'
 
 import { getAdminPlans } from '../api'
 import { useSubscriptionsColumns } from './subscriptions-columns'
@@ -31,10 +32,10 @@ export function SubscriptionsTable() {
   const columns = useSubscriptionsColumns()
   const { refreshTrigger } = useSubscriptions()
 
-  const { data, isLoading } = useQuery({
+  const { data, isError, isLoading, refetch } = useQuery({
     queryKey: ['admin-subscription-plans', refreshTrigger],
     queryFn: async () => {
-      const result = await getAdminPlans()
+      const result = await getAdminPlans(true)
       return result.data || []
     },
     placeholderData: (prev) => prev,
@@ -48,6 +49,16 @@ export function SubscriptionsTable() {
     withFilteredRowModel: false,
     withFacetedRowModel: false,
   })
+
+  if (isError && !data) {
+    return (
+      <ErrorState
+        title={t('Failed to load subscription plans')}
+        description={t('The plan list could not be loaded.')}
+        onRetry={() => void refetch()}
+      />
+    )
+  }
 
   return (
     <DataTablePage

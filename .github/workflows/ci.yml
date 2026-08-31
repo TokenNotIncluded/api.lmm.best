@@ -399,6 +399,9 @@ jobs:
       LMM_MODELS_TEST_VALKEY_URL: redis://:lmm-ci-valkey-password@127.0.0.1:6379/0
       LMM_API_TOKEN_TEST_DATABASE_URL: postgresql://lmm_ci:lmm-ci-postgres-password@127.0.0.1:5432/lmm_ci
       LMM_API_TOKEN_TEST_VALKEY_URL: redis://:lmm-ci-valkey-password@127.0.0.1:6379/0
+      LMM_BILLING_SUBSCRIPTIONS_TEST_DATABASE_URL: postgresql://lmm_ci:lmm-ci-postgres-password@127.0.0.1:5432/lmm_ci
+      LMM_BILLING_SUBSCRIPTIONS_TEST_VALKEY_URL: redis://:lmm-ci-valkey-password@127.0.0.1:6379/0
+      LMM_TEST_DATABASE_URL: postgresql://lmm_ci:lmm-ci-postgres-password@127.0.0.1:5432/lmm_ci
     steps:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0

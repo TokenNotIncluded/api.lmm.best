@@ -71,6 +71,7 @@ import { cn } from '@/lib/utils'
 
 import { getEpayMethods } from '../lib'
 import type { TopupInfo } from '../types'
+import { SubscriptionResetVouchers } from './subscription-reset-vouchers'
 
 interface SubscriptionPlansCardProps {
   topupInfo: TopupInfo | null
@@ -674,6 +675,8 @@ export function SubscriptionPlansCard({
             </p>
           )}
         </div>
+
+        <SubscriptionResetVouchers onRedeemed={() => void handleRefresh()} />
 
         {/* Available plans grid */}
         {plansError ? (

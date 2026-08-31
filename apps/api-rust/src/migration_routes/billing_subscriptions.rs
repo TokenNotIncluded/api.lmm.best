@@ -5,10 +5,12 @@
 //! plan views and is evicted after a successful commit.
 
 use crate::auth::{AuthErrorKind, DashboardAuth, DashboardUser};
+
+mod reset;
 use axum::{
     Json, Router,
     body::to_bytes,
-    extract::{Path, Request, State},
+    extract::{Path, Query, Request, State},
     http::{HeaderMap, StatusCode, header},
     middleware::{self, Next},
     response::{IntoResponse, Response},
@@ -33,6 +35,7 @@ use tokio::{
 const PLAN_CACHE_PREFIX: &str = "new-api:subscription_plan:v1:";
 const PLAN_INFO_CACHE_PREFIX: &str = "new-api:subscription_plan_info:v1:";
 const ADMIN_ROLE: i64 = 10;
+const ROOT_ROLE: i64 = 100;
 const USER_CACHE_PREFIX: &str = "user:";
 const AUTH_VERSION: &str = "864b7076dbcd0a3c01b5520316720ebf";
 
@@ -155,15 +158,38 @@ async fn maintenance_once_at(
 
     let cleaned = if cleanup {
         let cutoff = current.saturating_sub(7 * 24 * 60 * 60);
-        sqlx::query("DELETE FROM subscription_pre_consume_records WHERE updated_at < $1")
-            .bind(cutoff)
-            .execute(pg)
-            .await?
-            .rows_affected() as i64
+        let pre_consume =
+            sqlx::query("DELETE FROM subscription_pre_consume_records WHERE updated_at < $1")
+                .bind(cutoff)
+                .execute(pg)
+                .await?
+                .rows_affected() as i64;
+        pre_consume.saturating_add(cleanup_reset_previews(pg, cutoff, 300).await?)
     } else {
         0
     };
     Ok((expired, reset, cleaned))
+}
+
+async fn cleanup_reset_previews(pg: &PgPool, cutoff: i64, limit: i64) -> Result<i64, sqlx::Error> {
+    let deleted = sqlx::query(
+        "WITH candidates AS (\
+            SELECT preview.token FROM subscription_reset_previews AS preview \
+            WHERE (preview.consumed_at=0 AND preview.expires_at<$1) \
+               OR (preview.consumed_at>0 AND preview.consumed_at<$1 AND EXISTS (\
+                    SELECT 1 FROM subscription_reset_operations AS operation \
+                    WHERE operation.preview_token=preview.token)) \
+            ORDER BY CASE WHEN preview.consumed_at>0 THEN preview.consumed_at ELSE preview.expires_at END, preview.token \
+            LIMIT $2 FOR UPDATE SKIP LOCKED\
+         ) \
+         DELETE FROM subscription_reset_previews AS preview USING candidates \
+         WHERE preview.token=candidates.token",
+    )
+    .bind(cutoff)
+    .bind(limit)
+    .execute(pg)
+    .await?;
+    Ok(i64::try_from(deleted.rows_affected()).unwrap_or(i64::MAX))
 }
 
 async fn expire_due_subscriptions(
@@ -348,6 +374,7 @@ async fn maybe_reset_subscription(
 /// Routes that do not initiate payments or accept provider callbacks.
 pub fn router(state: BillingSubscriptionsState) -> Router {
     let protected = Router::new()
+        .merge(reset::router())
         .route("/api/subscription/plans", get(list_enabled_plans))
         .route("/api/subscription/self", get(subscription_self))
         .route("/api/subscription/self/preference", put(update_preference))
@@ -362,8 +389,8 @@ pub fn router(state: BillingSubscriptionsState) -> Router {
                 .patch(admin_update_plan_status),
         )
         .route(
-            "/api/subscription/admin/plans/{id}/subscriptions/reset",
-            post(admin_reset_plan),
+            "/api/subscription/admin/plans/{id}/restore",
+            post(admin_restore_plan),
         )
         .route(
             "/api/subscription/admin/bind",
@@ -372,10 +399,6 @@ pub fn router(state: BillingSubscriptionsState) -> Router {
         .route(
             "/api/subscription/admin/users/{id}/subscriptions",
             get(admin_list_user_subscriptions).post(admin_create_user_subscription),
-        )
-        .route(
-            "/api/subscription/admin/users/{id}/subscriptions/reset",
-            post(admin_reset_user_subscriptions),
         )
         .route(
             "/api/subscription/admin/user_subscriptions/{id}",
@@ -408,7 +431,8 @@ async fn subscription_auth_boundary(
     {
         return response;
     }
-    let is_admin = request.uri().path().starts_with("/api/subscription/admin/");
+    let is_admin = request.uri().path().starts_with("/api/subscription/admin/")
+        || request.uri().path().starts_with("/api/subscription/root/");
     let result = if is_admin {
         admin(&state, request.headers()).await.map(|_| ())
     } else {
@@ -466,9 +490,24 @@ fn subscription_method_allowed(path: &str, method: &axum::http::Method) -> bool 
     match path {
         "/api/subscription/plans" | "/api/subscription/self" => *method == Method::GET,
         "/api/subscription/self/preference" => *method == Method::PUT,
+        "/api/subscription/self/reset-vouchers" => *method == Method::GET,
         "/api/subscription/admin/plans" => *method == Method::GET || *method == Method::POST,
+        "/api/subscription/admin/records" => *method == Method::GET,
         "/api/subscription/admin/bind" => *method == Method::POST,
-        _ if path.ends_with("/subscriptions/reset") => *method == Method::POST,
+        "/api/subscription/root/reset-targets" => *method == Method::GET,
+        "/api/subscription/root/reset/preview" | "/api/subscription/root/reset" => {
+            *method == Method::POST
+        }
+        _ if path.ends_with("/reset-vouchers/") => false,
+        _ if path.ends_with("/subscriptions/reset") => false,
+        _ if path.starts_with("/api/subscription/admin/plans/") && path.ends_with("/restore") => {
+            *method == Method::POST
+        }
+        _ if path.starts_with("/api/subscription/self/reset-vouchers/")
+            && path.ends_with("/redeem") =>
+        {
+            *method == Method::POST
+        }
         _ if path.ends_with("/invalidate") => *method == Method::POST,
         _ if path.starts_with("/api/subscription/admin/plans/") => {
             *method == Method::PUT || *method == Method::DELETE || *method == Method::PATCH
@@ -735,6 +774,7 @@ struct Plan {
     downgrade_group: String,
     quota_reset_period: String,
     quota_reset_custom_seconds: i64,
+    archived_at: i64,
     created_at: i64,
     updated_at: i64,
 }
@@ -927,16 +967,24 @@ async fn list_enabled_plans(
         }
         Ok(true) => {}
     }
-    plan_list_response(plans(&state.pg, true).await)
+    plan_list_response(plans(&state.pg, true, false).await)
 }
+
+#[derive(Default, Deserialize)]
+struct AdminPlanListQuery {
+    include_archived: Option<String>,
+}
+
 async fn admin_list_plans(
     State(state): State<BillingSubscriptionsState>,
     headers: HeaderMap,
+    Query(query): Query<AdminPlanListQuery>,
 ) -> Response {
     if let Err(response) = admin(&state, &headers).await {
         return response;
     }
-    plan_list_response(plans(&state.pg, false).await)
+    let include_archived = include_archived_requested(query.include_archived.as_deref());
+    plan_list_response(plans(&state.pg, false, include_archived).await)
 }
 
 fn plan_list_response(result: Result<Vec<Plan>, sqlx::Error>) -> Response {
@@ -952,12 +1000,28 @@ fn plan_list_response(result: Result<Vec<Plan>, sqlx::Error>) -> Response {
     )
 }
 
-async fn plans(pg: &PgPool, enabled_only: bool) -> Result<Vec<Plan>, sqlx::Error> {
-    let sql = if enabled_only {
-        format!("{PLAN_SELECT} WHERE enabled = TRUE ORDER BY sort_order DESC, id DESC")
-    } else {
+fn include_archived_requested(value: Option<&str>) -> bool {
+    value.is_some_and(|value| value == "1" || value.eq_ignore_ascii_case("true"))
+}
+
+fn plan_list_sql(enabled_only: bool, include_archived: bool) -> String {
+    if enabled_only {
+        format!(
+            "{PLAN_SELECT} WHERE enabled = TRUE AND archived_at = 0 ORDER BY sort_order DESC, id DESC"
+        )
+    } else if include_archived {
         format!("{PLAN_SELECT} ORDER BY sort_order DESC, id DESC")
-    };
+    } else {
+        format!("{PLAN_SELECT} WHERE archived_at = 0 ORDER BY sort_order DESC, id DESC")
+    }
+}
+
+async fn plans(
+    pg: &PgPool,
+    enabled_only: bool,
+    include_archived: bool,
+) -> Result<Vec<Plan>, sqlx::Error> {
+    let sql = plan_list_sql(enabled_only, include_archived);
     sqlx::query(&sql)
         .fetch_all(pg)
         .await?
@@ -967,11 +1031,11 @@ async fn plans(pg: &PgPool, enabled_only: bool) -> Result<Vec<Plan>, sqlx::Error
 }
 
 pub(crate) async fn enabled_plan_views(pg: &PgPool) -> Result<Vec<PlanView>, sqlx::Error> {
-    plans(pg, true)
+    plans(pg, true, false)
         .await
         .map(|plans| plans.into_iter().map(|plan| PlanView { plan }).collect())
 }
-const PLAN_SELECT: &str = "SELECT id, title, COALESCE(subtitle, '') subtitle, price_amount::FLOAT8 price_amount, COALESCE(NULLIF(currency, ''), 'CNY') currency, COALESCE(duration_unit, 'month') duration_unit, COALESCE(duration_value, 1) duration_value, COALESCE(custom_seconds, 0) custom_seconds, enabled, COALESCE(sort_order, 0) sort_order, COALESCE(allow_balance_pay, TRUE) allow_balance_pay, COALESCE(allow_wallet_overflow, TRUE) allow_wallet_overflow, COALESCE(stripe_price_id, '') stripe_price_id, COALESCE(creem_product_id, '') creem_product_id, COALESCE(waffo_pancake_product_id, '') waffo_pancake_product_id, COALESCE(NULLIF(waffo_pancake_product_type, ''), 'subscription') waffo_pancake_product_type, COALESCE(max_purchase_per_user, 0) max_purchase_per_user, COALESCE(total_amount, 0) total_amount, COALESCE(upgrade_group, '') upgrade_group, COALESCE(downgrade_group, '') downgrade_group, COALESCE(quota_reset_period, 'never') quota_reset_period, COALESCE(quota_reset_custom_seconds, 0) quota_reset_custom_seconds, COALESCE(created_at, 0) created_at, COALESCE(updated_at, 0) updated_at FROM subscription_plans";
+const PLAN_SELECT: &str = "SELECT id, title, COALESCE(subtitle, '') subtitle, price_amount::FLOAT8 price_amount, COALESCE(NULLIF(currency, ''), 'CNY') currency, COALESCE(duration_unit, 'month') duration_unit, COALESCE(duration_value, 1) duration_value, COALESCE(custom_seconds, 0) custom_seconds, enabled, COALESCE(sort_order, 0) sort_order, COALESCE(allow_balance_pay, TRUE) allow_balance_pay, COALESCE(allow_wallet_overflow, TRUE) allow_wallet_overflow, COALESCE(stripe_price_id, '') stripe_price_id, COALESCE(creem_product_id, '') creem_product_id, COALESCE(waffo_pancake_product_id, '') waffo_pancake_product_id, COALESCE(NULLIF(waffo_pancake_product_type, ''), 'subscription') waffo_pancake_product_type, COALESCE(max_purchase_per_user, 0) max_purchase_per_user, COALESCE(total_amount, 0) total_amount, COALESCE(upgrade_group, '') upgrade_group, COALESCE(downgrade_group, '') downgrade_group, COALESCE(quota_reset_period, 'never') quota_reset_period, COALESCE(quota_reset_custom_seconds, 0) quota_reset_custom_seconds, COALESCE(archived_at, 0) archived_at, COALESCE(created_at, 0) created_at, COALESCE(updated_at, 0) updated_at FROM subscription_plans";
 
 fn bind_plan_input<'q>(
     query: sqlx::query::Query<'q, Postgres, sqlx::postgres::PgArguments>,
@@ -1027,6 +1091,7 @@ fn plan_from_row(row: &sqlx::postgres::PgRow) -> Result<Plan, sqlx::Error> {
         downgrade_group: row.try_get("downgrade_group")?,
         quota_reset_period: row.try_get("quota_reset_period")?,
         quota_reset_custom_seconds: row.try_get("quota_reset_custom_seconds")?,
+        archived_at: row.try_get("archived_at")?,
         created_at: row.try_get("created_at")?,
         updated_at: row.try_get("updated_at")?,
     })
@@ -1100,7 +1165,7 @@ async fn admin_update_plan(
         Err(response) => return response,
     };
     let updated = bind_plan_input(
-        sqlx::query("UPDATE subscription_plans SET title=$2, subtitle=$3, price_amount=$4, currency=$5, price_currency_version=1, duration_unit=$6, duration_value=$7, custom_seconds=$8, enabled=$9, sort_order=$10, allow_balance_pay=COALESCE($11, allow_balance_pay), allow_wallet_overflow=COALESCE($12, allow_wallet_overflow), stripe_price_id=$13, creem_product_id=$14, waffo_pancake_product_id=$15, max_purchase_per_user=$16, total_amount=$17, upgrade_group=$18, downgrade_group=$19, quota_reset_period=$20, quota_reset_custom_seconds=$21, waffo_pancake_product_type=$22, updated_at=$23 WHERE id=$1")
+        sqlx::query("UPDATE subscription_plans SET title=$2, subtitle=$3, price_amount=$4, currency=$5, price_currency_version=1, duration_unit=$6, duration_value=$7, custom_seconds=$8, enabled=$9, sort_order=$10, allow_balance_pay=COALESCE($11, allow_balance_pay), allow_wallet_overflow=COALESCE($12, allow_wallet_overflow), stripe_price_id=$13, creem_product_id=$14, waffo_pancake_product_id=$15, max_purchase_per_user=$16, total_amount=$17, upgrade_group=$18, downgrade_group=$19, quota_reset_period=$20, quota_reset_custom_seconds=$21, waffo_pancake_product_type=$22, updated_at=$23 WHERE id=$1 AND archived_at=0")
             .bind(id),
         &input,
         input.allow_balance_pay,
@@ -1110,10 +1175,14 @@ async fn admin_update_plan(
     .execute(&state.pg)
     .await;
     match updated {
-        Ok(_) => {
+        Ok(result) if result.rows_affected() == 1 => {
             evict_plan(&state, id).await;
             with_auth_version(empty_ok())
         }
+        Ok(_) => with_auth_version(failure(
+            StatusCode::BAD_REQUEST,
+            "Archived subscription plans must be restored before they can be edited",
+        )),
         Err(_) => failure(StatusCode::INTERNAL_SERVER_ERROR, "系统错误"),
     }
 }
@@ -1137,19 +1206,42 @@ async fn admin_update_plan_status(
     let Some(enabled) = input.enabled else {
         return failure(StatusCode::BAD_REQUEST, "参数错误");
     };
-    match sqlx::query("UPDATE subscription_plans SET enabled=$2, updated_at=$3 WHERE id=$1")
+    match sqlx::query(
+        "UPDATE subscription_plans SET enabled=$2, updated_at=$3 WHERE id=$1 AND ($2=FALSE OR archived_at=0)",
+    )
         .bind(id)
         .bind(enabled)
         .bind(now())
         .execute(&state.pg)
         .await
     {
-        Ok(_) => {
+        Ok(result) if result.rows_affected() == 1 => {
             evict_plan(&state, id).await;
             with_auth_version(empty_ok())
         }
+        Ok(_) => with_auth_version(failure(
+            StatusCode::BAD_REQUEST,
+            if enabled {
+                "Archived subscription plans must be restored before they can be enabled"
+            } else {
+                "Subscription plan not found"
+            },
+        )),
         Err(_) => failure(StatusCode::INTERNAL_SERVER_ERROR, "系统错误"),
     }
+}
+
+#[derive(Serialize)]
+struct PlanRemovalResult {
+    action: &'static str,
+    #[serde(skip_serializing_if = "is_zero_i64")]
+    archived_at: i64,
+    #[serde(skip_serializing_if = "is_zero_i64")]
+    cancelled_orders: i64,
+}
+
+fn is_zero_i64(value: &i64) -> bool {
+    *value == 0
 }
 
 async fn admin_delete_plan(
@@ -1164,12 +1256,9 @@ async fn admin_delete_plan(
     if id <= 0 {
         return with_auth_version(failure(StatusCode::BAD_REQUEST, "无效的ID"));
     }
-
     let mut tx = match state.pg.begin().await {
         Ok(tx) => tx,
-        Err(_) => {
-            return with_auth_version(failure(StatusCode::INTERNAL_SERVER_ERROR, "系统错误"));
-        }
+        Err(_) => return with_auth_version(failure(StatusCode::INTERNAL_SERVER_ERROR, "系统错误")),
     };
     match sqlx::query_scalar::<_, i64>("SELECT id FROM subscription_plans WHERE id=$1 FOR UPDATE")
         .bind(id)
@@ -1187,69 +1276,175 @@ async fn admin_delete_plan(
             return with_auth_version(failure(StatusCode::INTERNAL_SERVER_ERROR, "系统错误"));
         }
     }
-
-    match sqlx::query_scalar::<_, bool>(
-        "SELECT EXISTS(SELECT 1 FROM user_subscriptions WHERE plan_id=$1) OR EXISTS(SELECT 1 FROM subscription_orders WHERE plan_id=$1)",
+    let history = sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS(SELECT 1 FROM user_subscriptions WHERE plan_id=$1) \
+         OR EXISTS(SELECT 1 FROM subscription_orders WHERE plan_id=$1 AND status='success') \
+         OR EXISTS(SELECT 1 FROM subscription_reset_vouchers WHERE plan_id=$1) \
+         OR EXISTS(SELECT 1 FROM subscription_reset_events WHERE plan_id=$1)",
     )
     .bind(id)
     .fetch_one(&mut *tx)
-    .await
-    {
-        Ok(true) => {
-            return with_auth_version(failure(
-                StatusCode::BAD_REQUEST,
-                "Subscription plan has subscription or order history and cannot be deleted. Disable it instead.",
-            ));
-        }
-        Ok(false) => {}
-        Err(_) => {
-            return with_auth_version(failure(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "系统错误",
-            ));
-        }
-    }
-
-    let audit = json!({
-        "admin_info": {
-            "admin_id": administrator.id,
-            "admin_username": administrator.username,
-            "admin_role": administrator.role,
-            "auth_method": "session",
-        },
-        "audit_info": {
-            "method": "DELETE",
-            "route": "/api/subscription/admin/plans/:id",
-            "path": format!("/api/subscription/admin/plans/{id}"),
-            "status": 200,
-            "success": true,
-            "params": { "id": id.to_string() },
-        },
-        "op": {
-            "action": "subscription.plan_delete",
-            "params": { "plan_id": id },
-        },
-    })
-    .to_string();
-    let deleted = sqlx::query("DELETE FROM subscription_plans WHERE id=$1")
+    .await;
+    let history = match history {
+        Ok(value) => value,
+        Err(_) => return with_auth_version(failure(StatusCode::INTERNAL_SERVER_ERROR, "系统错误")),
+    };
+    let current =
+        match sqlx::query_scalar::<_, i64>("SELECT EXTRACT(EPOCH FROM CURRENT_TIMESTAMP)::BIGINT")
+            .fetch_one(&mut *tx)
+            .await
+        {
+            Ok(value) => value,
+            Err(_) => {
+                return with_auth_version(failure(StatusCode::INTERNAL_SERVER_ERROR, "系统错误"));
+            }
+        };
+    let result = if history {
+        if sqlx::query(
+            "UPDATE subscription_plans SET archived_at=$2,enabled=FALSE,updated_at=$2 WHERE id=$1",
+        )
         .bind(id)
+        .bind(current)
         .execute(&mut *tx)
-        .await;
-    let audited = sqlx::query(
-        "INSERT INTO logs (user_id, created_at, type, content, username, ip, other) \
-         VALUES ($1, EXTRACT(EPOCH FROM NOW())::BIGINT, 3, $2, $3, '', $4)",
+        .await
+        .is_err()
+        {
+            return with_auth_version(failure(StatusCode::INTERNAL_SERVER_ERROR, "系统错误"));
+        }
+        PlanRemovalResult {
+            action: "archived",
+            archived_at: current,
+            cancelled_orders: 0,
+        }
+    } else {
+        let cancelled = match sqlx::query(
+            "UPDATE subscription_orders SET status='expired',complete_time=$2,provider_subscription_state='plan_deleted' WHERE plan_id=$1 AND status='pending'",
+        )
+        .bind(id)
+        .bind(current)
+        .execute(&mut *tx)
+        .await
+        {
+            Ok(value) => value.rows_affected() as i64,
+            Err(_) => return with_auth_version(failure(StatusCode::INTERNAL_SERVER_ERROR, "系统错误")),
+        };
+        if sqlx::query("DELETE FROM subscription_plans WHERE id=$1")
+            .bind(id)
+            .execute(&mut *tx)
+            .await
+            .is_err()
+        {
+            return with_auth_version(failure(StatusCode::INTERNAL_SERVER_ERROR, "系统错误"));
+        }
+        PlanRemovalResult {
+            action: "deleted",
+            archived_at: 0,
+            cancelled_orders: cancelled,
+        }
+    };
+    let audit = json!({"op":{"action":"subscription.plan_remove","params":{
+        "plan_id":id,"action":result.action,"cancelled_orders":result.cancelled_orders
+    }}})
+    .to_string();
+    if sqlx::query(
+        "INSERT INTO logs (user_id,created_at,type,content,username,ip,other) VALUES ($1,$2,3,$3,$4,'',$5)",
     )
     .bind(administrator.id)
+    .bind(current)
     .bind(format!("DELETE /api/subscription/admin/plans/{id}"))
     .bind(&administrator.username)
     .bind(audit)
     .execute(&mut *tx)
-    .await;
-    if deleted.is_err() || audited.is_err() || tx.commit().await.is_err() {
+    .await
+    .is_err()
+        || tx.commit().await.is_err()
+    {
         return with_auth_version(failure(StatusCode::INTERNAL_SERVER_ERROR, "系统错误"));
     }
     evict_plan(&state, id).await;
-    with_auth_version(empty_ok())
+    with_auth_version(ok(result))
+}
+
+async fn admin_restore_plan(
+    State(state): State<BillingSubscriptionsState>,
+    headers: HeaderMap,
+    Path(id): Path<i64>,
+) -> Response {
+    let administrator = match authorize_admin_write(&state, &headers).await {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
+    if id <= 0 {
+        return with_auth_version(failure(StatusCode::BAD_REQUEST, "无效的ID"));
+    }
+    let mut tx = match state.pg.begin().await {
+        Ok(value) => value,
+        Err(_) => return with_auth_version(failure(StatusCode::INTERNAL_SERVER_ERROR, "系统错误")),
+    };
+    let current =
+        match sqlx::query_scalar::<_, i64>("SELECT EXTRACT(EPOCH FROM CURRENT_TIMESTAMP)::BIGINT")
+            .fetch_one(&mut *tx)
+            .await
+        {
+            Ok(value) => value,
+            Err(_) => {
+                return with_auth_version(failure(StatusCode::INTERNAL_SERVER_ERROR, "系统错误"));
+            }
+        };
+    let restored = sqlx::query(
+        "UPDATE subscription_plans SET archived_at=0,enabled=FALSE,updated_at=$2 WHERE id=$1 AND archived_at<>0 RETURNING id",
+    )
+    .bind(id)
+    .bind(current)
+    .fetch_optional(&mut *tx)
+    .await;
+    match restored {
+        Ok(Some(_)) => {}
+        Ok(None) => {
+            let existing = match locked_plan(&mut tx, id).await {
+                Ok(Some(value)) => value,
+                Ok(None) => {
+                    return with_auth_version(failure(
+                        StatusCode::BAD_REQUEST,
+                        "Subscription plan not found",
+                    ));
+                }
+                Err(_) => {
+                    return with_auth_version(failure(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "系统错误",
+                    ));
+                }
+            };
+            if tx.commit().await.is_err() {
+                return with_auth_version(failure(StatusCode::INTERNAL_SERVER_ERROR, "系统错误"));
+            }
+            return with_auth_version(ok(existing));
+        }
+        Err(_) => return with_auth_version(failure(StatusCode::INTERNAL_SERVER_ERROR, "系统错误")),
+    }
+    let audit =
+        json!({"op":{"action":"subscription.plan_restore","params":{"plan_id":id}}}).to_string();
+    if sqlx::query(
+        "INSERT INTO logs (user_id,created_at,type,content,username,ip,other) VALUES ($1,$2,3,$3,$4,'',$5)",
+    )
+    .bind(administrator.id)
+    .bind(current)
+    .bind(format!("POST /api/subscription/admin/plans/{id}/restore"))
+    .bind(&administrator.username)
+    .bind(audit)
+    .execute(&mut *tx)
+    .await
+    .is_err()
+        || tx.commit().await.is_err()
+    {
+        return with_auth_version(failure(StatusCode::INTERNAL_SERVER_ERROR, "系统错误"));
+    }
+    evict_plan(&state, id).await;
+    with_auth_version(match plan(&state.pg, id).await {
+        Ok(value) => ok(value),
+        Err(_) => failure(StatusCode::INTERNAL_SERVER_ERROR, "系统错误"),
+    })
 }
 
 #[derive(Deserialize)]
@@ -1605,6 +1800,9 @@ async fn create_subscription(
     plan: &Plan,
     source: &str,
 ) -> Result<Option<String>, &'static str> {
+    if plan.archived_at != 0 {
+        return Err("Subscription plan is archived");
+    }
     let user =
         sqlx::query("SELECT \"group\" FROM users WHERE id=$1 AND deleted_at IS NULL FOR UPDATE")
             .bind(user_id)
@@ -1728,128 +1926,6 @@ fn add_calendar_months(value: DateTime<Local>, months: i64) -> Option<DateTime<L
     let date = chrono::NaiveDate::from_ymd_opt(year.try_into().ok()?, month0 as u32 + 1, 1)?
         .checked_add_signed(ChronoDuration::days(i64::from(value.day()) - 1))?;
     local_from_naive(date.and_time(value.time()))
-}
-
-#[derive(Deserialize)]
-struct ResetRequest {
-    plan_id: Option<i64>,
-    advance_reset_time: Option<bool>,
-}
-#[derive(Serialize)]
-struct ResetResult {
-    plan_id: i64,
-    matched_count: i64,
-    reset_count: i64,
-    user_count: i64,
-    advance_reset_time: bool,
-}
-async fn admin_reset_user_subscriptions(
-    State(state): State<BillingSubscriptionsState>,
-    headers: HeaderMap,
-    Path(user_id): Path<i64>,
-    Json(input): Json<ResetRequest>,
-) -> Response {
-    if let Err(response) = authorize_admin_id(&state, &headers, user_id, "无效的用户ID").await
-    {
-        return response;
-    }
-    let Some(plan_id) = input.plan_id else {
-        return failure(StatusCode::BAD_REQUEST, "参数错误");
-    };
-    with_auth_version(
-        reset(
-            &state,
-            Some(user_id),
-            plan_id,
-            input.advance_reset_time.unwrap_or(true),
-        )
-        .await,
-    )
-}
-async fn admin_reset_plan(
-    State(state): State<BillingSubscriptionsState>,
-    headers: HeaderMap,
-    Path(plan_id): Path<i64>,
-    Json(input): Json<ResetRequest>,
-) -> Response {
-    if let Err(response) = authorize_admin_id(&state, &headers, plan_id, "无效的ID").await {
-        return response;
-    }
-    with_auth_version(
-        reset(
-            &state,
-            None,
-            plan_id,
-            input.advance_reset_time.unwrap_or(true),
-        )
-        .await,
-    )
-}
-async fn reset(
-    state: &BillingSubscriptionsState,
-    user_id: Option<i64>,
-    plan_id: i64,
-    advance: bool,
-) -> Response {
-    let (mut tx, plan) = match transaction_with_locked_plan(&state.pg, plan_id).await {
-        Ok(transaction) => transaction,
-        Err(response) => return response,
-    };
-    let current = now();
-    let rows = match user_id { Some(user) => sqlx::query(&format!("{SUB_SELECT} WHERE user_id=$1 AND plan_id=$2 AND status='active' AND end_time>$3 ORDER BY end_time,id FOR UPDATE")).bind(user).bind(plan_id).bind(current).fetch_all(&mut *tx).await, None => sqlx::query(&format!("{SUB_SELECT} WHERE plan_id=$1 AND status='active' AND end_time>$2 ORDER BY user_id,end_time,id FOR UPDATE")).bind(plan_id).bind(current).fetch_all(&mut *tx).await };
-    let rows = match rows {
-        Ok(rows) => rows,
-        Err(_) => return failure(StatusCode::INTERNAL_SERVER_ERROR, "系统错误"),
-    };
-    if user_id.is_some() && rows.is_empty() {
-        return failure(StatusCode::BAD_REQUEST, "该用户没有有效的此套餐订阅");
-    }
-    let users = match rows
-        .iter()
-        .map(|row| row.try_get::<i64, _>("user_id"))
-        .collect::<Result<BTreeSet<_>, _>>()
-    {
-        Ok(users) => users,
-        Err(_) => return failure(StatusCode::INTERNAL_SERVER_ERROR, "系统错误"),
-    };
-    for row in &rows {
-        let id: i64 = match row.try_get("id") {
-            Ok(id) => id,
-            Err(_) => return failure(StatusCode::INTERNAL_SERVER_ERROR, "系统错误"),
-        };
-        let next = if advance {
-            let end: i64 = match row.try_get("end_time") {
-                Ok(end) => end,
-                Err(_) => return failure(StatusCode::INTERNAL_SERVER_ERROR, "系统错误"),
-            };
-            next_reset(current, end, &plan)
-        } else {
-            match row.try_get("next_reset_time") {
-                Ok(next) => next,
-                Err(_) => return failure(StatusCode::INTERNAL_SERVER_ERROR, "系统错误"),
-            }
-        };
-        let last = if advance {
-            if next > 0 { current } else { 0 }
-        } else {
-            match row.try_get("last_reset_time") {
-                Ok(last) => last,
-                Err(_) => return failure(StatusCode::INTERNAL_SERVER_ERROR, "系统错误"),
-            }
-        };
-        if sqlx::query("UPDATE user_subscriptions SET amount_used=0,last_reset_time=$2,next_reset_time=$3,updated_at=$4 WHERE id=$1").bind(id).bind(last).bind(next).bind(current).execute(&mut *tx).await.is_err() { return failure(StatusCode::INTERNAL_SERVER_ERROR, "系统错误"); }
-    }
-    if tx.commit().await.is_err() {
-        return failure(StatusCode::INTERNAL_SERVER_ERROR, "系统错误");
-    };
-    evict_plan(state, plan_id).await;
-    ok(ResetResult {
-        plan_id,
-        matched_count: rows.len() as i64,
-        reset_count: rows.len() as i64,
-        user_count: users.len() as i64,
-        advance_reset_time: advance,
-    })
 }
 
 async fn admin_list_user_subscriptions(
@@ -2112,8 +2188,8 @@ mod tests {
     use std::{error::Error, io};
 
     use super::{
-        LegacyUserSetting, Plan, end_time, next_reset, normalize_preference,
-        parse_preference_request,
+        LegacyUserSetting, Plan, end_time, include_archived_requested, next_reset,
+        normalize_preference, parse_preference_request, plan_list_sql,
     };
 
     type TestResult<T = ()> = Result<T, Box<dyn Error>>;
@@ -2154,10 +2230,23 @@ mod tests {
             downgrade_group: String::new(),
             quota_reset_period: "daily".into(),
             quota_reset_custom_seconds: 0,
+            archived_at: 0,
             created_at: 0,
             updated_at: 0,
         }
     }
+    #[test]
+    fn admin_plan_archive_filter_is_explicit_and_management_only() {
+        assert!(!include_archived_requested(None));
+        assert!(!include_archived_requested(Some("false")));
+        assert!(include_archived_requested(Some("1")));
+        assert!(include_archived_requested(Some("TRUE")));
+
+        assert!(plan_list_sql(false, false).contains("WHERE archived_at = 0"));
+        assert!(!plan_list_sql(false, true).contains("WHERE archived_at = 0"));
+        assert!(plan_list_sql(true, true).contains("archived_at = 0"));
+    }
+
     #[test]
     fn preference_matches_go_enum_and_default() -> TestResult {
         for preference in [
@@ -2171,6 +2260,28 @@ mod tests {
         assert_eq!(normalize_preference("unexpected"), "subscription_first");
         assert_eq!(normalize_preference("quota"), "subscription_first");
         Ok(())
+    }
+
+    #[test]
+    fn legacy_admin_reset_routes_are_not_in_the_route_contract() {
+        use axum::http::Method;
+
+        assert!(!super::subscription_method_allowed(
+            "/api/subscription/admin/plans/7/subscriptions/reset",
+            &Method::POST,
+        ));
+        assert!(!super::subscription_method_allowed(
+            "/api/subscription/admin/users/9/subscriptions/reset",
+            &Method::POST,
+        ));
+        assert!(super::subscription_method_allowed(
+            "/api/subscription/root/reset/preview",
+            &Method::POST,
+        ));
+        assert!(super::subscription_method_allowed(
+            "/api/subscription/root/reset",
+            &Method::POST,
+        ));
     }
 
     #[test]

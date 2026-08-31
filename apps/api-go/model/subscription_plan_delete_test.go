@@ -1,10 +1,10 @@
 package model
 
 import (
-	"errors"
 	"sync"
 	"testing"
 
+	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 )
@@ -26,65 +26,160 @@ func TestAdminDeleteSubscriptionPlanDeletesUnusedPlan(t *testing.T) {
 	truncateTables(t)
 	seedDeletableSubscriptionPlan(t, 9601)
 
-	require.NoError(t, AdminDeleteSubscriptionPlan(9601))
+	result, err := AdminDeleteSubscriptionPlan(9601)
+	require.NoError(t, err)
+	require.Equal(t, "deleted", result.Action)
 
 	var plan SubscriptionPlan
-	err := DB.Where("id = ?", 9601).First(&plan).Error
+	err = DB.Where("id = ?", 9601).First(&plan).Error
 	require.ErrorIs(t, err, gorm.ErrRecordNotFound)
 }
 
-func TestAdminDeleteSubscriptionPlanRejectsHistoricalReferences(t *testing.T) {
-	for _, test := range []struct {
+func TestAdminDeleteSubscriptionPlanArchivesSubscribedPlan(t *testing.T) {
+	truncateTables(t)
+	seedDeletableSubscriptionPlan(t, 9604)
+	require.NoError(t, DB.Create(&UserSubscription{
+		Id: 9602, UserId: 101, PlanId: 9604, AmountTotal: 100,
+		EndTime: GetDBTimestamp() + 3600, Status: "active",
+	}).Error)
+
+	result, err := AdminDeleteSubscriptionPlan(9604)
+	require.NoError(t, err)
+	require.Equal(t, "archived", result.Action)
+	require.Positive(t, result.ArchivedAt)
+
+	var plan SubscriptionPlan
+	require.NoError(t, DB.Where("id = ?", 9604).First(&plan).Error)
+	require.Equal(t, result.ArchivedAt, plan.ArchivedAt)
+	require.False(t, plan.Enabled)
+}
+
+func TestAdminDeleteSubscriptionPlanIgnoresOrderOnlyHistory(t *testing.T) {
+	truncateTables(t)
+	seedDeletableSubscriptionPlan(t, 9605)
+	require.NoError(t, DB.Create(&SubscriptionOrder{
+		Id: 9603, UserId: 101, PlanId: 9605, Money: 1,
+		TradeNo: "delete-plan-order", Status: common.TopUpStatusPending,
+	}).Error)
+	require.NoError(t, DB.Create(&SubscriptionOrder{
+		Id: 9604, UserId: 102, PlanId: 9605, Money: 1,
+		TradeNo: "delete-plan-failed-order", Status: common.TopUpStatusFailed,
+	}).Error)
+
+	result, err := AdminDeleteSubscriptionPlan(9605)
+	require.NoError(t, err)
+	require.Equal(t, "deleted", result.Action)
+	require.EqualValues(t, 1, result.CancelledOrders)
+
+	var planCount, subscriptionCount int64
+	require.NoError(t, DB.Model(&SubscriptionPlan{}).Where("id = ?", 9605).Count(&planCount).Error)
+	require.NoError(t, DB.Model(&UserSubscription{}).Where("plan_id = ?", 9605).Count(&subscriptionCount).Error)
+	require.Zero(t, planCount)
+	require.Zero(t, subscriptionCount)
+
+	var order SubscriptionOrder
+	require.NoError(t, DB.First(&order, 9603).Error)
+	require.Equal(t, common.TopUpStatusExpired, order.Status)
+	require.Equal(t, "plan_deleted", order.ProviderSubscriptionState)
+	require.ErrorIs(t, CompleteSubscriptionOrder(order.TradeNo, `{}`, "", ""), ErrSubscriptionOrderStatusInvalid)
+	var failedOrder SubscriptionOrder
+	require.NoError(t, DB.First(&failedOrder, 9604).Error)
+	require.Equal(t, common.TopUpStatusFailed, failedOrder.Status)
+	require.NoError(t, DB.Model(&UserSubscription{}).Where("plan_id = ?", 9605).Count(&subscriptionCount).Error)
+	require.Zero(t, subscriptionCount)
+}
+
+func TestAdminDeleteSubscriptionPlanArchivesCompletedOrderHistory(t *testing.T) {
+	truncateTables(t)
+	seedDeletableSubscriptionPlan(t, 9606)
+	require.NoError(t, DB.Create(&SubscriptionOrder{
+		Id: 9604, UserId: 101, PlanId: 9606, Money: 1,
+		TradeNo: "delete-plan-completed-order", Status: common.TopUpStatusSuccess,
+	}).Error)
+
+	result, err := AdminDeleteSubscriptionPlan(9606)
+	require.NoError(t, err)
+	require.Equal(t, "archived", result.Action)
+	require.Positive(t, result.ArchivedAt)
+
+	var plan SubscriptionPlan
+	require.NoError(t, DB.First(&plan, 9606).Error)
+	require.False(t, plan.Enabled)
+	require.Equal(t, result.ArchivedAt, plan.ArchivedAt)
+}
+
+func TestAdminDeleteSubscriptionPlanArchivesResetHistory(t *testing.T) {
+	tests := []struct {
 		name string
 		seed func(t *testing.T, planId int)
 	}{
 		{
-			name: "user subscription",
+			name: "banked voucher",
 			seed: func(t *testing.T, planId int) {
-				t.Helper()
-				require.NoError(t, DB.Create(&UserSubscription{
-					Id:          9602,
-					UserId:      101,
-					PlanId:      planId,
-					AmountTotal: 100,
-					EndTime:     GetDBTimestamp() + 3600,
-					Status:      "active",
+				require.NoError(t, DB.Create(&SubscriptionResetVoucher{
+					UserId: 101, PlanId: planId, OperationId: "delete-plan-voucher-history",
+					Status: SubscriptionResetVoucherAvailable, ExpiresAt: GetDBTimestamp() + 3600,
 				}).Error)
 			},
 		},
 		{
-			name: "subscription order",
+			name: "reset event",
 			seed: func(t *testing.T, planId int) {
-				t.Helper()
-				require.NoError(t, DB.Create(&SubscriptionOrder{
-					Id:      9603,
-					UserId:  101,
-					PlanId:  planId,
-					Money:   1,
-					TradeNo: "delete-plan-order",
+				require.NoError(t, DB.Create(&SubscriptionResetEvent{
+					OperationId: "delete-plan-event-history", UserId: 101, PlanId: planId,
+					Mode: SubscriptionResetModeHard, ActorUserId: 1, CreatedAt: GetDBTimestamp(),
 				}).Error)
 			},
 		},
-	} {
+	}
+	for index, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			truncateTables(t)
-			seedDeletableSubscriptionPlan(t, 9604)
-			test.seed(t, 9604)
+			planId := 9610 + index
+			seedDeletableSubscriptionPlan(t, planId)
+			test.seed(t, planId)
 
-			err := AdminDeleteSubscriptionPlan(9604)
-			require.True(t, errors.Is(err, ErrSubscriptionPlanInUse))
-
-			var count int64
-			require.NoError(t, DB.Model(&SubscriptionPlan{}).Where("id = ?", 9604).Count(&count).Error)
-			require.EqualValues(t, 1, count)
+			result, err := AdminDeleteSubscriptionPlan(planId)
+			require.NoError(t, err)
+			require.Equal(t, "archived", result.Action)
+			var plan SubscriptionPlan
+			require.NoError(t, DB.First(&plan, planId).Error)
+			require.False(t, plan.Enabled)
+			require.Positive(t, plan.ArchivedAt)
 		})
 	}
 }
 
 func TestAdminDeleteSubscriptionPlanRejectsInvalidOrMissingPlan(t *testing.T) {
 	truncateTables(t)
-	require.Error(t, AdminDeleteSubscriptionPlan(0))
-	require.ErrorIs(t, AdminDeleteSubscriptionPlan(999999), gorm.ErrRecordNotFound)
+	_, err := AdminDeleteSubscriptionPlan(0)
+	require.Error(t, err)
+	_, err = AdminDeleteSubscriptionPlan(999999)
+	require.ErrorIs(t, err, gorm.ErrRecordNotFound)
+}
+
+func TestAdminBindSubscriptionRejectsArchivedPlanWithoutMutation(t *testing.T) {
+	truncateTables(t)
+	const userId = 9630
+	const planId = 9631
+	require.NoError(t, DB.Create(&User{
+		Id: userId, Username: "archived-plan-bind", Password: "password", Status: common.UserStatusEnabled,
+		Group: "default",
+	}).Error)
+	require.NoError(t, DB.Create(&SubscriptionPlan{
+		Id: planId, Title: "Archived plan", DurationUnit: SubscriptionDurationMonth,
+		DurationValue: 1, TotalAmount: 100, UpgradeGroup: "pro", Enabled: true, ArchivedAt: 1,
+	}).Error)
+
+	_, err := AdminBindSubscription(userId, planId, "test")
+	require.ErrorIs(t, err, ErrSubscriptionPlanArchived)
+
+	var subscriptionCount int64
+	require.NoError(t, DB.Model(&UserSubscription{}).Where("user_id = ?", userId).Count(&subscriptionCount).Error)
+	require.Zero(t, subscriptionCount)
+	var user User
+	require.NoError(t, DB.First(&user, userId).Error)
+	require.Equal(t, "default", user.Group)
 }
 
 func runDeletePersistenceRace(delete func() error, persist func() error) (error, error) {
@@ -108,47 +203,31 @@ func runDeletePersistenceRace(delete func() error, persist func() error) (error,
 	return deleteErr, persistErr
 }
 
-func assertDeletePersistenceRaceResult(t *testing.T, planId int, deleteErr, persistErr error) {
-	t.Helper()
-	if deleteErr == nil {
-		require.ErrorIs(t, persistErr, gorm.ErrRecordNotFound)
-	} else {
-		require.ErrorIs(t, deleteErr, ErrSubscriptionPlanInUse)
-		require.NoError(t, persistErr)
-	}
-
-	var orphanOrders int64
-	require.NoError(t, DB.Table("subscription_orders AS orders").
-		Joins("LEFT JOIN subscription_plans AS plans ON plans.id = orders.plan_id").
-		Where("orders.plan_id = ? AND plans.id IS NULL", planId).
-		Count(&orphanOrders).Error)
-	require.Zero(t, orphanOrders)
-
-	var orphanSubscriptions int64
-	require.NoError(t, DB.Table("user_subscriptions AS subscriptions").
-		Joins("LEFT JOIN subscription_plans AS plans ON plans.id = subscriptions.plan_id").
-		Where("subscriptions.plan_id = ? AND plans.id IS NULL", planId).
-		Count(&orphanSubscriptions).Error)
-	require.Zero(t, orphanSubscriptions)
-}
-
-func TestSubscriptionPlanDeleteRacesOrderPersistenceWithoutOrphan(t *testing.T) {
+func TestSubscriptionPlanDeleteRacesOrderPersistenceAndPreservesOrderSnapshot(t *testing.T) {
 	truncateTables(t)
 	const planId = 9610
 	seedDeletableSubscriptionPlan(t, planId)
 
 	order := &SubscriptionOrder{
-		UserId:  101,
-		PlanId:  planId,
-		Money:   1,
-		TradeNo: "delete-order-persistence-race",
-		Status:  "pending",
+		UserId: 101, PlanId: planId, Money: 1,
+		TradeNo: "delete-order-persistence-race", Status: "pending",
 	}
 	deleteErr, persistErr := runDeletePersistenceRace(
-		func() error { return AdminDeleteSubscriptionPlan(planId) },
+		func() error {
+			_, err := AdminDeleteSubscriptionPlan(planId)
+			return err
+		},
 		order.Insert,
 	)
-	assertDeletePersistenceRaceResult(t, planId, deleteErr, persistErr)
+	require.NoError(t, deleteErr)
+	if persistErr == nil {
+		var persisted SubscriptionOrder
+		require.NoError(t, DB.Where("trade_no = ?", order.TradeNo).First(&persisted).Error)
+		require.Equal(t, planId, persisted.PlanId)
+		require.Equal(t, order.Money, persisted.Money)
+	} else {
+		require.ErrorIs(t, persistErr, gorm.ErrRecordNotFound)
+	}
 }
 
 func TestSubscriptionPlanDeleteRacesBalancePurchaseWithoutOrphan(t *testing.T) {
@@ -157,16 +236,30 @@ func TestSubscriptionPlanDeleteRacesBalancePurchaseWithoutOrphan(t *testing.T) {
 	const userId = 9621
 	seedDeletableSubscriptionPlan(t, planId)
 	require.NoError(t, DB.Create(&User{
-		Id:       userId,
-		Username: "delete-balance-race",
-		Password: "password",
-		Status:   1,
-		Quota:    10_000_000,
+		Id: userId, Username: "delete-balance-race", Password: "password", Status: 1, Quota: 10_000_000,
 	}).Error)
 
 	deleteErr, persistErr := runDeletePersistenceRace(
-		func() error { return AdminDeleteSubscriptionPlan(planId) },
+		func() error {
+			_, err := AdminDeleteSubscriptionPlan(planId)
+			return err
+		},
 		func() error { return PurchaseSubscriptionWithBalance(userId, planId) },
 	)
-	assertDeletePersistenceRaceResult(t, planId, deleteErr, persistErr)
+	require.NoError(t, deleteErr)
+	if persistErr == nil {
+		var plan SubscriptionPlan
+		require.NoError(t, DB.Where("id = ?", planId).First(&plan).Error)
+		require.Positive(t, plan.ArchivedAt)
+		require.False(t, plan.Enabled)
+	} else {
+		require.ErrorIs(t, persistErr, gorm.ErrRecordNotFound)
+	}
+
+	var orphanSubscriptions int64
+	require.NoError(t, DB.Table("user_subscriptions AS subscriptions").
+		Joins("LEFT JOIN subscription_plans AS plans ON plans.id = subscriptions.plan_id").
+		Where("subscriptions.plan_id = ? AND plans.id IS NULL", planId).
+		Count(&orphanSubscriptions).Error)
+	require.Zero(t, orphanSubscriptions)
 }

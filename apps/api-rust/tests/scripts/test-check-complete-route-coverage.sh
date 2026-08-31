@@ -165,9 +165,16 @@ for route in "${representatives[@]}"; do
 done
 
 # Current repository ledgers are consumable with a safe manifest override; no
-# backend build or listener starts during this self-test. The retired route is
-# removed and the three current-only shells are added to model the live set.
-awk -F '\t' '!($1 == "GET" && $2 == "/api/option/waffo-pancake/catalog")' \
+# backend build or listener starts during this self-test. Every route marked as
+# retired by the migration gate is removed, and the three current-only shells
+# are added to model the live set.
+awk -F '\t' '
+  NR == FNR {
+    if (NR > 1 && $10 ~ /(^|;)retired=true(;|$)/) retired[$1 FS $2] = 1
+    next
+  }
+  !retired[$1 FS $2]
+' "$repo_root/apps/api-rust/tests/fixtures/routes/migration-gate.tsv" \
   "$repo_root/apps/api-rust/tests/fixtures/routes/legacy-go-routes.tsv" >"$runtime/current-manifest.tsv"
 printf '%s\n' \
   $'POST\t/pg/images/edits\tgo.current-only' \
@@ -175,5 +182,6 @@ printf '%s\n' \
   $'GET\t/v1/responses\tgo.current-only' >>"$runtime/current-manifest.tsv"
 COMPLETE_GO_MANIFEST="$runtime/current-manifest.tsv" \
 COMPLETE_MCP_PATHS="$runtime/mcp.tsv" bash "$checker" >"$runtime/current-ledger-report.jsonl"
-grep -Fq '"total":355' "$runtime/current-ledger-report.jsonl" || fail 'current repository ledgers could not be checked'
+expected_total=$(wc -l <"$runtime/current-manifest.tsv" | tr -d ' ')
+grep -Fq "\"total\":$expected_total" "$runtime/current-ledger-report.jsonl" || fail 'current repository ledgers could not be checked'
 echo 'complete route coverage self-test: passed'
