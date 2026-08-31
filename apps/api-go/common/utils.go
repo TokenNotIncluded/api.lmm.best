@@ -49,18 +49,9 @@ func GetIp() (ip string) {
 
 	for _, a := range ips {
 		if ipNet, ok := a.(*net.IPNet); ok && !ipNet.IP.IsLoopback() {
-			if ipNet.IP.To4() != nil {
+			if isPrivateIPv4(ipNet.IP) {
 				ip = ipNet.IP.String()
-				if strings.HasPrefix(ip, "10") {
-					return
-				}
-				if strings.HasPrefix(ip, "172") {
-					return
-				}
-				if strings.HasPrefix(ip, "192.168") {
-					return
-				}
-				ip = ""
+				return
 			}
 		}
 	}
@@ -77,18 +68,16 @@ func GetNetworkIps() []string {
 
 	for _, a := range ips {
 		if ipNet, ok := a.(*net.IPNet); ok && !ipNet.IP.IsLoopback() {
-			if ipNet.IP.To4() != nil {
-				ip := ipNet.IP.String()
-				// Include common private network ranges
-				if strings.HasPrefix(ip, "10.") ||
-					strings.HasPrefix(ip, "172.") ||
-					strings.HasPrefix(ip, "192.168.") {
-					networkIps = append(networkIps, ip)
-				}
+			if isPrivateIPv4(ipNet.IP) {
+				networkIps = append(networkIps, ipNet.IP.String())
 			}
 		}
 	}
 	return networkIps
+}
+
+func isPrivateIPv4(ip net.IP) bool {
+	return ip.To4() != nil && ip.IsPrivate()
 }
 
 // IsRunningInContainer detects if the application is running inside a container
