@@ -142,6 +142,9 @@ const BOUNTY_QUERY_KEYS = [
   ['open-source-bounties', 'disputes'],
 ] as const
 
+const BOUNTY_VIEW_TAB_CLASS =
+  'h-auto min-h-11 w-full flex-none px-2 py-2 leading-tight whitespace-normal lg:min-h-7 lg:w-auto lg:whitespace-nowrap'
+
 const STATUS_KEYS = {
   draft: 'Draft',
   published: 'Published',
@@ -721,8 +724,8 @@ export function OpenSourceBounties({
 
   return (
     <Main>
-      <div className='min-h-0 flex-1 overflow-auto px-3 py-3 sm:px-4 sm:py-6'>
-        <CardStaggerContainer className='mx-auto flex w-full max-w-7xl flex-col gap-4 sm:gap-6'>
+      <div className='min-h-0 flex-1 [scrollbar-gutter:stable] overflow-x-hidden overflow-y-auto px-3 py-3 sm:px-4 sm:py-6'>
+        <CardStaggerContainer className='mx-auto flex w-full max-w-7xl flex-col gap-4 [overflow-wrap:anywhere] sm:gap-6'>
           <CardStaggerItem>
             <div className='flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between'>
               <div className='flex items-start gap-3 sm:gap-4'>
@@ -797,25 +800,41 @@ export function OpenSourceBounties({
           </CardStaggerItem>
 
           <CardStaggerItem>
-            <Tabs defaultValue='browse'>
-              <TabsList className='w-full justify-start overflow-x-auto sm:w-auto'>
-                <TabsTrigger value='browse'>{t('Bounty board')}</TabsTrigger>
-                <TabsTrigger value='owned'>
+            <Tabs defaultValue='browse' className='min-w-0'>
+              <TabsList
+                aria-label={t('Open-source bounties')}
+                className='grid w-full grid-cols-2 gap-1 p-1 group-data-horizontal/tabs:!h-auto sm:grid-cols-3 lg:flex lg:w-fit lg:max-w-full lg:flex-wrap lg:justify-start'
+              >
+                <TabsTrigger value='browse' className={BOUNTY_VIEW_TAB_CLASS}>
+                  {t('Bounty board')}
+                </TabsTrigger>
+                <TabsTrigger value='owned' className={BOUNTY_VIEW_TAB_CLASS}>
                   {t('My bounty projects')}
                   <PendingReviewSuperscript
                     count={pendingReviewCountQuery.data ?? 0}
                     label={t('Pending review')}
                   />
                 </TabsTrigger>
-                <TabsTrigger value='accepted'>{t('My challenges')}</TabsTrigger>
-                <TabsTrigger value='disputes'>{t('My disputes')}</TabsTrigger>
+                <TabsTrigger value='accepted' className={BOUNTY_VIEW_TAB_CLASS}>
+                  {t('My challenges')}
+                </TabsTrigger>
+                <TabsTrigger value='disputes' className={BOUNTY_VIEW_TAB_CLASS}>
+                  {t('My disputes')}
+                </TabsTrigger>
                 {isAdmin ? (
-                  <TabsTrigger value='admin-disputes'>
+                  <TabsTrigger
+                    value='admin-disputes'
+                    className={BOUNTY_VIEW_TAB_CLASS}
+                  >
                     {t('Dispute cases')}
                   </TabsTrigger>
                 ) : null}
-                <TabsTrigger value='mcp'>{t('MCP automation')}</TabsTrigger>
-                <TabsTrigger value='rules'>{t('Rules')}</TabsTrigger>
+                <TabsTrigger value='mcp' className={BOUNTY_VIEW_TAB_CLASS}>
+                  {t('MCP automation')}
+                </TabsTrigger>
+                <TabsTrigger value='rules' className={BOUNTY_VIEW_TAB_CLASS}>
+                  {t('Rules')}
+                </TabsTrigger>
               </TabsList>
 
               <TabsContent value='browse' className='mt-3 sm:mt-4'>
@@ -1370,13 +1389,15 @@ export function BountyCard({
     <TitledCard
       title={project.title}
       description={`${project.owner_username} · ${statusLabel(t, project.status)}`}
+      titleClassName='[overflow-wrap:anywhere]'
+      descriptionClassName='[overflow-wrap:anywhere]'
       icon={<HugeiconsIcon icon={Bug01Icon} strokeWidth={1.8} />}
       iconTone='primary'
       action={<BountyRankBadge rank={rank} />}
       disableHoverEffect
       contentClassName='flex h-full flex-col gap-4'
     >
-      <p className='text-muted-foreground text-sm leading-relaxed'>
+      <p className='text-muted-foreground text-sm leading-relaxed [overflow-wrap:anywhere] whitespace-pre-wrap'>
         {project.description}
       </p>
       <div className='grid grid-cols-2 gap-2 sm:grid-cols-5'>
@@ -1476,6 +1497,8 @@ function OwnerProjectCard(props: {
     <TitledCard
       title={project.title}
       description={project.repository_url}
+      titleClassName='[overflow-wrap:anywhere]'
+      descriptionClassName='break-all'
       icon={<HugeiconsIcon icon={SourceCodeIcon} strokeWidth={1.8} />}
       iconTone='info'
       disableHoverEffect
@@ -1670,6 +1693,8 @@ function ChallengeCard({
     <TitledCard
       title={challenge.project_title || t('Bounty challenge')}
       description={`${challenge.owner_username ?? ''} · ${statusLabel(t, challenge.status)}`}
+      titleClassName='[overflow-wrap:anywhere]'
+      descriptionClassName='[overflow-wrap:anywhere]'
       icon={<HugeiconsIcon icon={Bug01Icon} strokeWidth={1.8} />}
       iconTone='neutral'
       action={rank != null ? <BountyRankBadge rank={rank} /> : undefined}
@@ -1781,9 +1806,13 @@ function ChallengeCard({
 
 function Metric({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div className='bg-muted/50 rounded-lg border p-3'>
-      <p className='text-muted-foreground text-xs'>{label}</p>
-      <p className='mt-1 text-sm font-semibold'>{value}</p>
+    <div className='bg-muted/50 min-w-0 rounded-lg border p-3'>
+      <p className='text-muted-foreground text-xs [overflow-wrap:anywhere]'>
+        {label}
+      </p>
+      <p className='mt-1 text-sm font-semibold [overflow-wrap:anywhere]'>
+        {value}
+      </p>
     </div>
   )
 }
