@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -373,8 +374,13 @@ func awaitH2ServerResult(t *testing.T, resultCh <-chan h2ServerResult) h2ServerR
 // been fully written, and then resets the stream with REFUSED_STREAM (the
 // retry-safe reset some proxy/CDN-fronted upstreams send under load or during
 // graceful shutdown, see RFC 9113 section 8.7). When expectRetry is true it
-// serves the retried stream a 200 response; otherwise it stops after the reset.
-func runResetOnFirstStreamServer(ln net.Listener, expectRetry bool) <-chan h2ServerResult {
+// serves the retried stream a 200 response; otherwise it waits for the release
+// signal after sending the reset before closing the connection and returning.
+func runResetOnFirstStreamServer(
+	ln net.Listener,
+	expectRetry bool,
+	releaseAfterReset <-chan struct{},
+) <-chan h2ServerResult {
 	resCh := make(chan h2ServerResult, 1)
 	go func() {
 		res := h2ServerResult{}
@@ -403,6 +409,9 @@ func runResetOnFirstStreamServer(ln net.Listener, expectRetry bool) <-chan h2Ser
 					return
 				}
 				if !expectRetry {
+					if releaseAfterReset != nil {
+						<-releaseAfterReset
+					}
 					break attempts
 				}
 				continue
@@ -417,43 +426,57 @@ func runResetOnFirstStreamServer(ln net.Listener, expectRetry bool) <-chan h2Ser
 	return resCh
 }
 
-func runGoAwayAfterFirstRequestServer(ln net.Listener) <-chan h2ServerResult {
+func runGoAwayAfterFirstRequestServer(
+	ln net.Listener,
+	releaseConnections <-chan struct{},
+) <-chan h2ServerResult {
 	resCh := make(chan h2ServerResult, 1)
 	go func() {
 		res := h2ServerResult{}
 		defer func() { resCh <- res }()
 
-		for attempt := 0; attempt < 2; attempt++ {
-			conn, framer, err := acceptH2TestConnection(ln)
-			if err != nil {
-				res.err = err
-				return
-			}
-			streamID, body, err := readH2TestRequest(framer)
-			if err != nil {
-				conn.Close()
-				res.err = err
-				return
-			}
-			res.streamCount++
-			res.attemptBodies = append(res.attemptBodies, body)
-
-			if attempt == 0 {
-				err = framer.WriteGoAway(0, http2.ErrCodeNo, nil)
-				conn.Close()
-				if err != nil {
-					res.err = err
-					return
-				}
-				continue
-			}
-
-			err = writeH2TestResponse(framer, streamID)
-			conn.Close()
-			if err != nil {
-				res.err = err
-			}
+		firstConn, firstFramer, err := acceptH2TestConnection(ln)
+		if err != nil {
+			res.err = err
 			return
+		}
+		defer firstConn.Close()
+
+		_, firstBody, err := readH2TestRequest(firstFramer)
+		if err != nil {
+			res.err = err
+			return
+		}
+		res.streamCount++
+		res.attemptBodies = append(res.attemptBodies, firstBody)
+		if err := firstFramer.WriteGoAway(0, http2.ErrCodeNo, nil); err != nil {
+			res.err = err
+			return
+		}
+
+		// Keep the first connection open until the client has processed GOAWAY
+		// and established its retry connection. Closing immediately can race the
+		// control frame and surface a platform-specific TCP reset instead.
+		secondConn, secondFramer, err := acceptH2TestConnection(ln)
+		if err != nil {
+			res.err = err
+			return
+		}
+		defer secondConn.Close()
+
+		streamID, secondBody, err := readH2TestRequest(secondFramer)
+		if err != nil {
+			res.err = err
+			return
+		}
+		res.streamCount++
+		res.attemptBodies = append(res.attemptBodies, secondBody)
+		if err := writeH2TestResponse(secondFramer, streamID); err != nil {
+			res.err = err
+			return
+		}
+		if releaseConnections != nil {
+			<-releaseConnections
 		}
 	}()
 	return resCh
@@ -488,7 +511,7 @@ func TestUpstreamGetBody_HTTP2RetryAfterUpstreamStreamReset(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	defer ln.Close()
-	resCh := runResetOnFirstStreamServer(ln, true)
+	resCh := runResetOnFirstStreamServer(ln, true, nil)
 
 	client, transport := newH2PriorKnowledgeClient(ln)
 	defer transport.CloseIdleConnections()
@@ -523,7 +546,7 @@ func TestUpstreamGetBody_HTTP2RetryAfterUpstreamStreamReset_PassThrough(t *testi
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	defer ln.Close()
-	resCh := runResetOnFirstStreamServer(ln, true)
+	resCh := runResetOnFirstStreamServer(ln, true, nil)
 
 	client, transport := newH2PriorKnowledgeClient(ln)
 	defer transport.CloseIdleConnections()
@@ -555,7 +578,13 @@ func TestUpstreamGetBody_HTTP2RetryAfterGracefulGoAway_PassThrough(t *testing.T)
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	defer ln.Close()
-	resCh := runGoAwayAfterFirstRequestServer(ln)
+	releaseConnections := make(chan struct{})
+	var releaseOnce sync.Once
+	releaseServer := func() {
+		releaseOnce.Do(func() { close(releaseConnections) })
+	}
+	defer releaseServer()
+	resCh := runGoAwayAfterFirstRequestServer(ln, releaseConnections)
 
 	client, transport := newH2PriorKnowledgeClient(ln)
 	defer transport.CloseIdleConnections()
@@ -568,6 +597,7 @@ func TestUpstreamGetBody_HTTP2RetryAfterGracefulGoAway_PassThrough(t *testing.T)
 	require.NotNil(t, req.GetBody)
 
 	resp, err := client.Do(req)
+	releaseServer()
 	require.NoError(t, err, "the transport must retry on a new connection after graceful GOAWAY")
 	defer resp.Body.Close()
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
@@ -589,7 +619,13 @@ func TestUpstreamGetBody_HTTP2CannotRetryWithoutGetBody(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	defer ln.Close()
-	resCh := runResetOnFirstStreamServer(ln, false)
+	releaseAfterReset := make(chan struct{})
+	var releaseOnce sync.Once
+	releaseServer := func() {
+		releaseOnce.Do(func() { close(releaseAfterReset) })
+	}
+	defer releaseServer()
+	resCh := runResetOnFirstStreamServer(ln, false, releaseAfterReset)
 
 	client, transport := newH2PriorKnowledgeClient(ln)
 	defer transport.CloseIdleConnections()
@@ -604,6 +640,7 @@ func TestUpstreamGetBody_HTTP2CannotRetryWithoutGetBody(t *testing.T) {
 	assert.Nil(t, req.GetBody)
 
 	resp, err := client.Do(req) //nolint:bodyclose // Do fails, no body to close
+	releaseServer()
 	require.Error(t, err)
 	assert.Nil(t, resp)
 	require.ErrorContains(t, err, "cannot retry err")
