@@ -39,6 +39,11 @@ import { ConfirmDialog } from '@/components/confirm-dialog'
 import { CopyButton } from '@/components/copy-button'
 import { useDataTable } from '@/components/data-table/hooks/use-data-table'
 import { DataTablePage } from '@/components/data-table/layout/data-table-page'
+import {
+  sideDrawerContentClassName,
+  sideDrawerFormClassName,
+  sideDrawerHeaderClassName,
+} from '@/components/drawer-layout'
 import { ErrorState } from '@/components/error-state'
 import { SectionPageLayout } from '@/components/layout/components/section-page-layout'
 import { LoadingState } from '@/components/loading-state'
@@ -359,7 +364,8 @@ export function EmailActivationsPage() {
   const { t } = useTranslation()
   const [activationKind, setActivationKind] = useState<'sms' | 'email'>('sms')
   useHeroSmsTranslations()
-  const isMobile = useMediaQuery('(max-width: 640px)')
+  // Match Tailwind's `sm` breakpoint: at 640px the side drawer uses desktop layout.
+  const isMobile = useMediaQuery('(max-width: 639px)')
   const queryClient = useQueryClient()
   const emailMode = activationKind === 'email'
 
@@ -427,6 +433,16 @@ export function EmailActivationsPage() {
     detailTarget?.id ?? null,
     emailMode && !!detailTarget
   )
+  const detailActivation =
+    detailTarget &&
+    detailQuery.data?.activation &&
+    String(detailQuery.data.activation.id) === String(detailTarget.id)
+      ? detailQuery.data.activation
+      : null
+  const detailFeedback =
+    !detailActivation && !detailQuery.isPending
+      ? describeHeroSmsError(parseHeroSmsError(detailQuery.error), t)
+      : null
 
   const productsLoading =
     !!trimmedSite && (debouncedSite !== trimmedSite || productsQuery.isLoading)
@@ -1285,9 +1301,11 @@ export function EmailActivationsPage() {
         >
           <SheetContent
             side={isMobile ? 'bottom' : 'right'}
-            className='max-h-[88dvh] w-full overflow-y-auto sm:max-w-xl'
+            className={sideDrawerContentClassName(
+              'h-[88dvh] sm:h-dvh sm:max-w-xl'
+            )}
           >
-            <SheetHeader>
+            <SheetHeader className={sideDrawerHeaderClassName()}>
               <SheetTitle>{t('Activation details')}</SheetTitle>
               <SheetDescription>
                 {t(
@@ -1296,104 +1314,107 @@ export function EmailActivationsPage() {
               </SheetDescription>
             </SheetHeader>
 
-            <div className='mt-6 space-y-4'>
-              {detailQuery.isLoading && !detailQuery.data ? (
-                <LoadingState message={t('Loading activation details...')} />
-              ) : null}
-
-              {(() => {
-                const detailActivation =
-                  detailQuery.data?.activation ?? detailTarget
-                if (!detailActivation) {
-                  return null
-                }
-
-                return (
-                  <>
-                    <div className='flex flex-wrap items-start justify-between gap-3'>
-                      <div className='min-w-0 space-y-2'>
-                        <HeroSmsStatusBadge
-                          status={detailActivation.status}
-                          t={t}
-                        />
-                        <div className='min-w-0'>
-                          <p className='text-muted-foreground text-xs'>
-                            {t('Email')}
+            <div
+              className={sideDrawerFormClassName('gap-4')}
+              aria-busy={!detailActivation && detailQuery.isPending}
+            >
+              {!detailActivation && detailQuery.isPending ? (
+                <div role='status' aria-live='polite'>
+                  <LoadingState message={t('Loading activation details...')} />
+                </div>
+              ) : detailFeedback ? (
+                <div role='alert'>
+                  <ErrorState
+                    title={detailFeedback.title}
+                    description={detailFeedback.description}
+                    onRetry={() => void detailQuery.refetch()}
+                  />
+                </div>
+              ) : detailActivation ? (
+                <>
+                  <div className='flex flex-wrap items-start justify-between gap-3'>
+                    <div className='min-w-0 space-y-2'>
+                      <HeroSmsStatusBadge
+                        status={detailActivation.status}
+                        t={t}
+                      />
+                      <div className='min-w-0'>
+                        <p className='text-muted-foreground text-xs'>
+                          {t('Email')}
+                        </p>
+                        <div className='flex items-center gap-2'>
+                          <p className='truncate font-semibold'>
+                            {detailActivation.email || '—'}
                           </p>
-                          <div className='flex items-center gap-2'>
-                            <p className='truncate font-semibold'>
-                              {detailActivation.email || '—'}
-                            </p>
-                            {detailActivation.email ? (
-                              <CopyButton value={detailActivation.email} />
-                            ) : null}
-                          </div>
-                        </div>
-                        <div className='min-w-0'>
-                          <p className='text-muted-foreground text-xs'>
-                            {t('Verification code')}
-                          </p>
-                          <div className='flex items-center gap-2'>
-                            <p className='font-semibold'>
-                              {detailActivation.code || '—'}
-                            </p>
-                            {detailActivation.code ? (
-                              <CopyButton value={detailActivation.code} />
-                            ) : null}
-                          </div>
+                          {detailActivation.email ? (
+                            <CopyButton value={detailActivation.email} />
+                          ) : null}
                         </div>
                       </div>
-                      <Badge variant='outline'>
-                        {t('Order #{{id}}', { id: detailActivation.order_id })}
-                      </Badge>
+                      <div className='min-w-0'>
+                        <p className='text-muted-foreground text-xs'>
+                          {t('Verification code')}
+                        </p>
+                        <div className='flex items-center gap-2'>
+                          <p className='font-semibold'>
+                            {detailActivation.code || '—'}
+                          </p>
+                          {detailActivation.code ? (
+                            <CopyButton value={detailActivation.code} />
+                          ) : null}
+                        </div>
+                      </div>
                     </div>
+                    <Badge variant='outline'>
+                      {t('Order #{{id}}', { id: detailActivation.order_id })}
+                    </Badge>
+                  </div>
 
-                    {detailActivation.message ? (
-                      <Alert>
-                        <HugeiconsIcon
-                          icon={InformationCircleIcon}
-                          strokeWidth={2}
-                          aria-hidden='true'
-                        />
-                        <AlertTitle>{t('Provider message')}</AlertTitle>
-                        <AlertDescription>
-                          {detailActivation.message}
-                        </AlertDescription>
-                      </Alert>
-                    ) : null}
+                  {detailActivation.message ? (
+                    <Alert>
+                      <HugeiconsIcon
+                        icon={InformationCircleIcon}
+                        strokeWidth={2}
+                        aria-hidden='true'
+                      />
+                      <AlertTitle>{t('Provider message')}</AlertTitle>
+                      <AlertDescription>
+                        {detailActivation.message}
+                      </AlertDescription>
+                    </Alert>
+                  ) : null}
 
-                    <div className='grid gap-4 rounded-xl border p-4 sm:grid-cols-2'>
-                      <MetaItem
-                        label={t('Site')}
-                        value={detailActivation.site || '—'}
-                      />
-                      <MetaItem
-                        label={t('Domain')}
-                        value={detailActivation.domain || '—'}
-                      />
-                      <MetaItem
-                        label={t('Created')}
-                        value={formatDateTime(detailActivation.created_at)}
-                      />
-                      <MetaItem
-                        label={t('Updated')}
-                        value={formatDateTime(detailActivation.updated_at)}
-                      />
-                      <MetaItem
-                        label={t('Quota charge')}
-                        value={formatNumber(detailActivation.charge_quota)}
-                      />
-                      <MetaItem
-                        label={t('Cancellation reason')}
-                        value={formatCancellationReason(
-                          detailActivation.cancel_reason,
-                          t
-                        )}
-                      />
-                    </div>
-                  </>
-                )
-              })()}
+                  <div className='grid gap-4 rounded-xl border p-4 sm:grid-cols-2'>
+                    <MetaItem
+                      label={t('Site')}
+                      value={detailActivation.site || '—'}
+                    />
+                    <MetaItem
+                      label={t('Domain')}
+                      value={detailActivation.domain || '—'}
+                    />
+                    <MetaItem
+                      label={t('Created')}
+                      value={formatDateTime(detailActivation.created_at)}
+                    />
+                    <MetaItem
+                      label={t('Updated')}
+                      value={formatDateTime(detailActivation.updated_at)}
+                    />
+                    <MetaItem
+                      label={t('Quota charge')}
+                      value={formatNumber(detailActivation.charge_quota)}
+                    />
+                    <MetaItem
+                      label={t('Cancellation reason')}
+                      value={formatCancellationReason(
+                        detailActivation.cancel_reason,
+                        t
+                      )}
+                    />
+                  </div>
+                </>
+              ) : null}
             </div>
           </SheetContent>
         </Sheet>

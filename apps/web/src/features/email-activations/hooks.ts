@@ -149,7 +149,6 @@ export function useHeroSmsActivationDetail(
     queryKey: heroSmsQueryKeys.activation(activationId || 'none'),
     queryFn: () => getHeroSmsActivationDetail(String(activationId)),
     enabled: enabled && activationId != null,
-    placeholderData: (previousData) => previousData,
     refetchInterval: (query) => {
       if (!isHeroSmsActiveStatus(query.state.data?.activation.status)) {
         return false
