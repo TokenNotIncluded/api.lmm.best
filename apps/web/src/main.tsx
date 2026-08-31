@@ -31,8 +31,6 @@ import { toast } from 'sonner'
 import { getStatus } from '@/lib/api'
 import { bindAuthCache } from '@/lib/auth-session'
 import { installBuildMetadata } from '@/lib/build-metadata'
-import { DEFAULT_LOGO } from '@/lib/constants'
-import { applyFaviconToDom } from '@/lib/dom-utils'
 import '@/lib/dayjs'
 import { initializeFrontendCache } from '@/lib/frontend-cache'
 import { handleServerError } from '@/lib/handle-server-error'
@@ -118,7 +116,8 @@ const rootElement = document.querySelector<HTMLElement>('#root')
 if (!rootElement) {
   throw new Error('Root element not found')
 }
-// Set document.title and favicon from cached status, then refresh from network
+// Set the document title from cached status, then refresh from network.
+// The favicon stays pinned to the static entry mark (/lmm-forge-mark.svg).
 ;(function initSystemBranding() {
   try {
     if (typeof window === 'undefined' || typeof document === 'undefined') return
@@ -165,9 +164,6 @@ if (!rootElement) {
       if (saved) {
         const s = JSON.parse(saved)
         if (s?.system_name) apply(s.system_name)
-        if (!isForgePublicRoute() && s?.logo && s.logo !== DEFAULT_LOGO) {
-          applyFaviconToDom(s.logo)
-        }
       }
     } catch {
       /* empty */
@@ -182,9 +178,6 @@ if (!rootElement) {
           } catch {
             /* empty */
           }
-        }
-        if (!isForgePublicRoute() && s?.logo && s.logo !== DEFAULT_LOGO) {
-          applyFaviconToDom(s.logo as string)
         }
       })
       .catch(() => {

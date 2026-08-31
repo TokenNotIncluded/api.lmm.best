@@ -1306,7 +1306,7 @@ function LoadingState({ label }: { label: string }) {
   )
 }
 
-function BountyCard({
+export function BountyCard({
   project,
   rank,
   viewerUserId,
@@ -1376,7 +1376,7 @@ function BountyCard({
       disableHoverEffect
       contentClassName='flex h-full flex-col gap-4'
     >
-      <p className='text-muted-foreground line-clamp-3 text-sm leading-relaxed'>
+      <p className='text-muted-foreground text-sm leading-relaxed'>
         {project.description}
       </p>
       <div className='grid grid-cols-2 gap-2 sm:grid-cols-5'>

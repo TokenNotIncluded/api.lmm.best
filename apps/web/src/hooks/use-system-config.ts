@@ -19,7 +19,6 @@ For commercial licensing, please contact support@quantumnous.com
 import { useEffect, useCallback } from 'react'
 
 import { DEFAULT_SYSTEM_NAME, DEFAULT_LOGO } from '@/lib/constants'
-import { applyFaviconToDom } from '@/lib/dom-utils'
 import {
   useSystemConfigStore,
   type CurrencyConfig,
@@ -197,7 +196,6 @@ export function useSystemConfig(options: UseSystemConfigOptions = {}) {
       logo,
       () => {
         setLoadedLogoUrl(logo)
-        applyFaviconToDom(logo)
       },
       () => {
         if (logo !== DEFAULT_LOGO) {
