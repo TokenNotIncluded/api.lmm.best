@@ -42,6 +42,11 @@ import { DataTablePage } from '@/components/data-table/layout/data-table-page'
 import { ErrorState } from '@/components/error-state'
 import { SectionPageLayout } from '@/components/layout/components/section-page-layout'
 import { LoadingState } from '@/components/loading-state'
+import {
+  CardStaggerContainer,
+  CardStaggerItem,
+  FadeIn,
+} from '@/components/page-transition'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -252,90 +257,92 @@ function HistoryMobileCards({
   }
 
   return (
-    <div className='space-y-3'>
+    <CardStaggerContainer className='space-y-3'>
       {items.map((activation) => {
         const canCancel = canCancelHeroSmsActivation(activation.status)
         const canReorder = canReorderHeroSmsActivation(activation.status)
 
         return (
-          <Card key={String(activation.id)}>
-            <CardHeader className='pb-0'>
-              <div className='flex min-w-0 items-start justify-between gap-3'>
-                <div className='min-w-0 space-y-1'>
-                  <CardTitle className='truncate text-sm'>
-                    {activation.email || t('Pending email assignment')}
-                  </CardTitle>
-                  <CardDescription className='truncate'>
-                    {activation.site || '—'} · {activation.domain || '—'}
-                  </CardDescription>
+          <CardStaggerItem key={String(activation.id)}>
+            <Card>
+              <CardHeader className='pb-0'>
+                <div className='flex min-w-0 items-start justify-between gap-3'>
+                  <div className='min-w-0 space-y-1'>
+                    <CardTitle className='truncate text-sm'>
+                      {activation.email || t('Pending email assignment')}
+                    </CardTitle>
+                    <CardDescription className='truncate'>
+                      {activation.site || '—'} · {activation.domain || '—'}
+                    </CardDescription>
+                  </div>
+                  <HeroSmsStatusBadge status={activation.status} t={t} />
                 </div>
-                <HeroSmsStatusBadge status={activation.status} t={t} />
-              </div>
-            </CardHeader>
-            <CardContent className='space-y-3'>
-              <div className='grid grid-cols-2 gap-3 text-sm'>
-                <MetaItem label={t('Code')} value={activation.code || '—'} />
-                <MetaItem
-                  label={t('Quota charge')}
-                  value={formatNumber(activation.charge_quota)}
-                />
-                <MetaItem
-                  label={t('Created')}
-                  value={formatDateTime(activation.created_at)}
-                />
-              </div>
-              <div className='flex flex-wrap gap-2'>
-                <Button
-                  size='sm'
-                  variant='outline'
-                  onClick={() => onOpenDetail(activation)}
-                >
-                  {t('View details')}
-                </Button>
-                <Button
-                  size='sm'
-                  variant='outline'
-                  onClick={() => onRefresh(activation)}
-                >
-                  <HugeiconsIcon
-                    icon={ReloadIcon}
-                    data-icon='inline-start'
-                    strokeWidth={2}
+              </CardHeader>
+              <CardContent className='space-y-3'>
+                <div className='grid grid-cols-2 gap-3 text-sm'>
+                  <MetaItem label={t('Code')} value={activation.code || '—'} />
+                  <MetaItem
+                    label={t('Quota charge')}
+                    value={formatNumber(activation.charge_quota)}
                   />
-                  <span>{t('Refresh')}</span>
-                </Button>
-                <Button
-                  size='sm'
-                  variant='outline'
-                  onClick={() => onCancel(activation)}
-                  disabled={!canCancel}
-                >
-                  <HugeiconsIcon
-                    icon={CancelCircleIcon}
-                    data-icon='inline-start'
-                    strokeWidth={2}
+                  <MetaItem
+                    label={t('Created')}
+                    value={formatDateTime(activation.created_at)}
                   />
-                  <span>{t('Cancel')}</span>
-                </Button>
-                <Button
-                  size='sm'
-                  variant='outline'
-                  onClick={() => onReorder(activation)}
-                  disabled={!canReorder}
-                >
-                  <HugeiconsIcon
-                    icon={ArrowRight01Icon}
-                    data-icon='inline-start'
-                    strokeWidth={2}
-                  />
-                  <span>{t('Reorder')}</span>
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
+                </div>
+                <div className='flex flex-wrap gap-2'>
+                  <Button
+                    size='sm'
+                    variant='outline'
+                    onClick={() => onOpenDetail(activation)}
+                  >
+                    {t('View details')}
+                  </Button>
+                  <Button
+                    size='sm'
+                    variant='outline'
+                    onClick={() => onRefresh(activation)}
+                  >
+                    <HugeiconsIcon
+                      icon={ReloadIcon}
+                      data-icon='inline-start'
+                      strokeWidth={2}
+                    />
+                    <span>{t('Refresh')}</span>
+                  </Button>
+                  <Button
+                    size='sm'
+                    variant='outline'
+                    onClick={() => onCancel(activation)}
+                    disabled={!canCancel}
+                  >
+                    <HugeiconsIcon
+                      icon={CancelCircleIcon}
+                      data-icon='inline-start'
+                      strokeWidth={2}
+                    />
+                    <span>{t('Cancel')}</span>
+                  </Button>
+                  <Button
+                    size='sm'
+                    variant='outline'
+                    onClick={() => onReorder(activation)}
+                    disabled={!canReorder}
+                  >
+                    <HugeiconsIcon
+                      icon={ArrowRight01Icon}
+                      data-icon='inline-start'
+                      strokeWidth={2}
+                    />
+                    <span>{t('Reorder')}</span>
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          </CardStaggerItem>
         )
       })}
-    </div>
+    </CardStaggerContainer>
   )
 }
 
@@ -1078,7 +1085,7 @@ export function EmailActivationsPage() {
                   ) : null}
 
                   {currentActivation ? (
-                    <>
+                    <FadeIn className='space-y-4'>
                       <div className='rounded-xl border p-4'>
                         <div className='flex flex-wrap items-start justify-between gap-3'>
                           <div className='min-w-0 space-y-2'>
@@ -1198,7 +1205,7 @@ export function EmailActivationsPage() {
                           <span>{t('Reorder')}</span>
                         </Button>
                       </div>
-                    </>
+                    </FadeIn>
                   ) : (
                     <Alert>
                       <HugeiconsIcon
@@ -1482,18 +1489,22 @@ function Field({
 
 function InlineAlert({ feedback }: { feedback: InlineFeedback }) {
   return (
-    <Alert
-      variant={feedback.tone === 'destructive' ? 'destructive' : 'default'}
-    >
-      <HugeiconsIcon
-        icon={
-          feedback.tone === 'destructive' ? Alert02Icon : InformationCircleIcon
-        }
-        strokeWidth={2}
-        aria-hidden='true'
-      />
-      <AlertTitle>{feedback.title}</AlertTitle>
-      <AlertDescription>{feedback.description}</AlertDescription>
-    </Alert>
+    <FadeIn>
+      <Alert
+        variant={feedback.tone === 'destructive' ? 'destructive' : 'default'}
+      >
+        <HugeiconsIcon
+          icon={
+            feedback.tone === 'destructive'
+              ? Alert02Icon
+              : InformationCircleIcon
+          }
+          strokeWidth={2}
+          aria-hidden='true'
+        />
+        <AlertTitle>{feedback.title}</AlertTitle>
+        <AlertDescription>{feedback.description}</AlertDescription>
+      </Alert>
+    </FadeIn>
   )
 }

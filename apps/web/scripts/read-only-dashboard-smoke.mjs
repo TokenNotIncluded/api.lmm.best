@@ -20,7 +20,7 @@ import assert from 'node:assert/strict'
 import { mkdir } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const require = createRequire(import.meta.url)
 // Keep the system/global Playwright fallback; this repository intentionally
@@ -46,7 +46,7 @@ const playwrightEntry = (() => {
     }
   }
 })()
-const { chromium } = (await import(playwrightEntry)).default
+const { chromium } = (await import(pathToFileURL(playwrightEntry).href)).default
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url))
 const viewportMatch = /^([1-9]\d*)x([1-9]\d*)$/.exec(
@@ -225,6 +225,26 @@ function jsonFixture(pathname) {
       data: ['gpt-4o', 'gpt-4.1'],
       message: 'smoke fixture',
     }
+  }
+  if (pathname === '/api/todos') {
+    return {
+      success: true,
+      data: {
+        items: [],
+        page: 1,
+        page_size: 10,
+        total: 0,
+        category: 'all',
+        unread_count: 0,
+        total_unread_count: 0,
+        unread_by_category: {},
+        categories: [],
+      },
+      message: 'smoke fixture',
+    }
+  }
+  if (pathname === '/api/release-notes/latest') {
+    return { success: true, data: null, message: 'smoke fixture' }
   }
   if (pathname.startsWith('/api/token')) {
     return tokenPagePayload()
