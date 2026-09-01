@@ -183,6 +183,74 @@ func TestHandleWaffoPancakeSubscriptionRefundIsLedgerIdempotent(t *testing.T) {
 	require.Len(t, logs, 1)
 }
 
+func TestHandleWaffoPancakeSubscriptionRefundUsesCheckoutSnapshotNotLivePlan(t *testing.T) {
+	originalStoreID := setting.WaffoPancakeStoreID
+	setting.WaffoPancakeStoreID = "store-rotated"
+	t.Cleanup(func() { setting.WaffoPancakeStoreID = originalStoreID })
+
+	db := setupTokenControllerTestDB(t)
+	require.NoError(t, db.AutoMigrate(&model.User{}, &model.SubscriptionPlan{}, &model.SubscriptionOrder{}, &model.Log{}, &model.FinanceLedgerEntry{}))
+	user := model.User{
+		Username: "pancake-subscription-refund-snapshot",
+		Password: "password",
+		Status:   common.UserStatusEnabled,
+	}
+	require.NoError(t, db.Create(&user).Error)
+	plan := model.SubscriptionPlan{
+		Id:                    987656,
+		Title:                 "CNY list price plan",
+		PriceAmount:           6.8,
+		Currency:              "CNY",
+		WaffoPancakeProductId: "product-rotated",
+		Enabled:               true,
+	}
+	require.NoError(t, db.Create(&plan).Error)
+	tradeNo := "WAFFO_PANCAKE_SUB-refund-snapshot"
+	require.NoError(t, db.Create(&model.SubscriptionOrder{
+		UserId:               user.Id,
+		PlanId:               plan.Id,
+		TradeNo:              tradeNo,
+		PaymentMethod:        model.PaymentMethodWaffoPancake,
+		PaymentProvider:      model.PaymentProviderWaffoPancake,
+		Status:               common.TopUpStatusSuccess,
+		Money:                plan.PriceAmount,
+		ExpectedAmountMicros: 1_000_000,
+		SettlementCurrency:   "USD",
+		ProviderProductId:    "product-checkout",
+		ProviderStoreId:      "store-checkout",
+	}).Error)
+
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/", nil)
+	event := &service.WaffoPancakeWebhookEvent{
+		ID:        "evt-subscription-refund-snapshot",
+		EventType: "refund.succeeded",
+		StoreID:   "store-checkout",
+		Data: service.WaffoPancakeWebhookData{
+			OrderMerchantExternalID:        tradeNo,
+			RefundTicketMerchantExternalID: "refund-subscription-snapshot",
+			Amount:                         "1.00",
+			Currency:                       "USD",
+			OrderMetadata: map[string]string{
+				service.WaffoPancakeOrderMetadataProductID: "product-checkout",
+				service.WaffoPancakeOrderMetadataPlanID:    strconv.Itoa(plan.Id),
+			},
+		},
+	}
+
+	require.NoError(t, handleWaffoPancakeRefundEvent(ctx, event))
+
+	var entries []model.FinanceLedgerEntry
+	require.NoError(t, db.Where("source_type = ? AND source_id = ?", model.FinanceSourceRefund, event.ID).Find(&entries).Error)
+	require.Len(t, entries, 1)
+	require.Equal(t, int64(1_000_000), entries[0].AmountMicros)
+	require.Equal(t, "USD", entries[0].Currency)
+
+	var stored model.SubscriptionOrder
+	require.NoError(t, db.Where("trade_no = ?", tradeNo).First(&stored).Error)
+	require.Equal(t, int64(1_000_000), stored.RefundedAmountMicros)
+}
+
 func TestHandleWaffoPancakeSubscriptionRefundRejectsMismatchedMetadata(t *testing.T) {
 	originalStoreID := setting.WaffoPancakeStoreID
 	setting.WaffoPancakeStoreID = "store-subscription-refund"

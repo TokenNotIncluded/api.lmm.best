@@ -1159,28 +1159,22 @@ func validateWaffoPancakeSubscriptionRefundEvent(event *service.WaffoPancakeWebh
 	actualProduct, productMetadataPresent := event.Data.OrderMetadata[service.WaffoPancakeOrderMetadataProductID]
 	actualPlan, planMetadataPresent := event.Data.OrderMetadata[service.WaffoPancakeOrderMetadataPlanID]
 	metadataPresent := productMetadataPresent || planMetadataPresent
+	// Checkout snapshots are authoritative. The live store/product/currency on
+	// the plan can change after purchase (CNY list price vs USD Pancake
+	// settlement, product recreation, store rotation) and must not strand a
+	// signed refund against a still-active entitlement.
+	expectedStore := strings.TrimSpace(order.ProviderStoreId)
+	if expectedStore == "" {
+		expectedStore = strings.TrimSpace(setting.WaffoPancakeStoreID)
+	}
 	// Older refund payloads (and orders created before checkout metadata was
 	// introduced) do not carry StoreID or OrderMetadata. Keep those payloads
 	// processable, but never ignore a contradictory value when the provider
 	// does send one. New payloads with either binding field are validated below.
-	if expectedStore := strings.TrimSpace(setting.WaffoPancakeStoreID); expectedStore != "" &&
-		(actualStore != "" || metadataPresent) && actualStore != expectedStore {
-		return fmt.Errorf("subscription refund store mismatch: expected=%q actual=%q", expectedStore, strings.TrimSpace(event.StoreID))
+	if expectedStore != "" && (actualStore != "" || metadataPresent) && actualStore != expectedStore {
+		return fmt.Errorf("subscription refund store mismatch: expected=%q actual=%q", expectedStore, actualStore)
 	}
-	plan, err := model.GetSubscriptionPlanById(order.PlanId)
-	if err != nil || plan == nil {
-		if metadataPresent && err != nil {
-			return fmt.Errorf("subscription refund plan could not be loaded: %w", err)
-		}
-		if metadataPresent {
-			return fmt.Errorf("subscription refund plan could not be loaded")
-		}
-		// The plan may have been removed after a legacy order was settled. The
-		// trade number and (when supplied) buyer identity were already bound by
-		// ResolveWaffoPancakeRefundSubscriptionTradeNo, so retain compatibility.
-		return nil
-	}
-	expectedCurrency := strings.ToUpper(strings.TrimSpace(plan.Currency))
+	expectedCurrency := strings.ToUpper(strings.TrimSpace(order.SettlementCurrency))
 	if expectedCurrency == "" {
 		expectedCurrency = "USD"
 	}
@@ -1194,7 +1188,17 @@ func validateWaffoPancakeSubscriptionRefundEvent(event *service.WaffoPancakeWebh
 	if actualCurrency == "" {
 		return fmt.Errorf("subscription refund currency mismatch: expected=%q actual=%q", expectedCurrency, actualCurrency)
 	}
-	expectedProduct := strings.TrimSpace(plan.WaffoPancakeProductId)
+	expectedProduct := strings.TrimSpace(order.ProviderProductId)
+	if expectedProduct == "" {
+		plan, err := model.GetSubscriptionPlanById(order.PlanId)
+		if err != nil || plan == nil {
+			if err != nil {
+				return fmt.Errorf("subscription refund plan could not be loaded: %w", err)
+			}
+			return fmt.Errorf("subscription refund plan could not be loaded")
+		}
+		expectedProduct = strings.TrimSpace(plan.WaffoPancakeProductId)
+	}
 	if expectedProduct == "" {
 		return fmt.Errorf("subscription refund product is not configured")
 	}
@@ -1203,7 +1207,7 @@ func validateWaffoPancakeSubscriptionRefundEvent(event *service.WaffoPancakeWebh
 		return fmt.Errorf("subscription refund product metadata mismatch: expected=%q actual=%q", expectedProduct, actualProduct)
 	}
 	actualPlan = strings.TrimSpace(actualPlan)
-	if expectedPlan := strconv.Itoa(plan.Id); !planMetadataPresent || actualPlan != expectedPlan {
+	if expectedPlan := strconv.Itoa(order.PlanId); !planMetadataPresent || actualPlan != expectedPlan {
 		return fmt.Errorf("subscription refund plan metadata mismatch: expected=%q actual=%q", expectedPlan, actualPlan)
 	}
 	return nil
