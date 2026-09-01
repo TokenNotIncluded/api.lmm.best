@@ -6735,6 +6735,42 @@ for (const [locale, translations] of Object.entries(
   Object.assign(newKeys[locale], translations)
 }
 
+const checkinCalendarTranslations = {
+  en: {
+    'Next month': 'Next month',
+    'Previous month': 'Previous month',
+  },
+  zh: {
+    'Next month': '下个月',
+    'Previous month': '上个月',
+  },
+  'zh-TW': {
+    'Next month': '下個月',
+    'Previous month': '上個月',
+  },
+  fr: {
+    'Next month': 'Mois suivant',
+    'Previous month': 'Mois précédent',
+  },
+  ja: {
+    'Next month': '次の月',
+    'Previous month': '前の月',
+  },
+  ru: {
+    'Next month': 'Следующий месяц',
+    'Previous month': 'Предыдущий месяц',
+  },
+  vi: {
+    'Next month': 'Tháng sau',
+    'Previous month': 'Tháng trước',
+  },
+}
+for (const [locale, translations] of Object.entries(
+  checkinCalendarTranslations
+)) {
+  Object.assign(newKeys[locale], translations)
+}
+
 const deprecatedCurrencyKeys = new Set([
   'Price (local currency / USD)',
   'Use global price',

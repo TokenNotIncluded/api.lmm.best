@@ -25,7 +25,7 @@ import {
   ChevronUp,
   Sparkles,
 } from 'lucide-react'
-import { useEffect, useState, useMemo, useCallback } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -35,14 +35,15 @@ import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { IconBadge } from '@/components/ui/icon-badge'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Spinner } from '@/components/ui/spinner'
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
   TooltipProvider,
 } from '@/components/ui/tooltip'
+import { toIntlLocale } from '@/i18n/languages'
 import { formatQuotaWithCurrency } from '@/lib/currency'
-import dayjs from '@/lib/dayjs'
 import { cn } from '@/lib/utils'
 
 import { getCheckinStatus, performCheckin } from '../api'
@@ -59,22 +60,62 @@ export function CheckinCalendarCard({
   turnstileEnabled,
   turnstileSiteKey,
 }: CheckinCalendarCardProps) {
-  const { t } = useTranslation()
-  const [currentMonth, setCurrentMonth] = useState(() => {
-    const now = new Date()
-    return new Date(now.getFullYear(), now.getMonth(), 1)
-  })
+  const { t, i18n } = useTranslation()
+  const [today] = useState(() => new Date())
+  const [currentMonth, setCurrentMonth] = useState(
+    () => new Date(today.getFullYear(), today.getMonth(), 1)
+  )
   const [checkinLoading, setCheckinLoading] = useState(false)
   const [turnstileModalVisible, setTurnstileModalVisible] = useState(false)
   const [turnstileWidgetKey, setTurnstileWidgetKey] = useState(0)
   const [initialLoaded, setInitialLoaded] = useState(false)
   const [collapsed, setCollapsed] = useState<boolean>(false)
 
-  const currentMonthStr = useMemo(() => {
-    const y = currentMonth.getFullYear()
-    const m = String(currentMonth.getMonth() + 1).padStart(2, '0')
-    return `${y}-${m}`
-  }, [currentMonth])
+  const currentMonthStr = `${currentMonth.getFullYear()}-${String(
+    currentMonth.getMonth() + 1
+  ).padStart(2, '0')}`
+  const latestMonthTimestamp = new Date(
+    today.getFullYear(),
+    today.getMonth(),
+    1
+  ).getTime()
+  const canGoNext = currentMonth.getTime() < latestMonthTimestamp
+  const intlLocale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
+  const calendarFormatters = useMemo(() => {
+    const month = new Intl.DateTimeFormat(intlLocale, {
+      month: 'long',
+      year: 'numeric',
+    })
+    const date = new Intl.DateTimeFormat(intlLocale, {
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+    })
+    const weekdayShort = new Intl.DateTimeFormat(intlLocale, {
+      weekday: 'short',
+    })
+    const weekdayLong = new Intl.DateTimeFormat(intlLocale, {
+      weekday: 'long',
+    })
+    const sunday = new Date(2024, 0, 7)
+
+    return {
+      date,
+      month,
+      weekDays: Array.from({ length: 7 }, (_, index) => {
+        const referenceDate = new Date(
+          sunday.getFullYear(),
+          sunday.getMonth(),
+          sunday.getDate() + index
+        )
+        return {
+          long: weekdayLong.format(referenceDate),
+          short: weekdayShort.format(referenceDate),
+        }
+      }),
+    }
+  }, [intlLocale])
+  const monthLabel = calendarFormatters.month.format(currentMonth)
 
   // Fetch checkin status
   /* eslint-disable @tanstack/query/exhaustive-deps */
@@ -113,10 +154,9 @@ export function CheckinCalendarCard({
     )
   }, [checkinData?.stats?.records])
 
-  const todayString = useMemo(() => {
-    const d = new Date()
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-  }, [])
+  const todayString = `${today.getFullYear()}-${String(
+    today.getMonth() + 1
+  ).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
 
   const checkedToday = checkinData?.stats?.checked_in_today === true
   const todayAward = checkinRecordsMap[todayString]
@@ -195,14 +235,15 @@ export function CheckinCalendarCard({
 
   const handlePrevMonth = () => {
     setCurrentMonth(
-      new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1)
+      (month) => new Date(month.getFullYear(), month.getMonth() - 1, 1)
     )
   }
 
   const handleNextMonth = () => {
-    setCurrentMonth(
-      new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1)
-    )
+    setCurrentMonth((month) => {
+      const nextMonth = new Date(month.getFullYear(), month.getMonth() + 1, 1)
+      return nextMonth.getTime() <= latestMonthTimestamp ? nextMonth : month
+    })
   }
 
   // Build calendar grid
@@ -237,8 +278,6 @@ export function CheckinCalendarCard({
 
     return days
   }, [currentMonth])
-
-  const weekDays = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa']
 
   if (!checkinEnabled) {
     return null
@@ -309,7 +348,8 @@ export function CheckinCalendarCard({
           <div className='flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4'>
             <button
               type='button'
-              className='flex min-w-0 flex-1 items-start gap-3 rounded-lg text-left whitespace-normal outline-none'
+              aria-expanded={!collapsed}
+              className='focus-visible:ring-ring/50 flex min-w-0 flex-1 items-start gap-3 rounded-lg text-left whitespace-normal outline-none focus-visible:ring-3'
               onClick={() => setCollapsed((v) => !v)}
             >
               <IconBadge tone='neutral' size='lg' className='sm:size-11'>
@@ -359,8 +399,9 @@ export function CheckinCalendarCard({
               onClick={handleCheckinClick}
               disabled={checkinLoading || checkedToday}
               size='sm'
-              className='w-full shrink-0 sm:w-auto'
+              className='h-11 w-full shrink-0 sm:h-7 sm:w-auto sm:min-w-24'
             >
+              {checkinLoading ? <Spinner data-icon='inline-start' /> : null}
               {checkinButtonLabel}
             </Button>
           </div>
@@ -371,7 +412,7 @@ export function CheckinCalendarCard({
             {/* Stats */}
             <div className='grid grid-cols-3 gap-px border-b'>
               <div className='bg-card p-3 text-center sm:p-5'>
-                <div className='text-xl font-semibold tracking-tight tabular-nums sm:text-2xl'>
+                <div className='text-base leading-tight font-semibold tracking-tight whitespace-nowrap tabular-nums sm:text-xl xl:text-base 2xl:text-lg'>
                   {checkinData?.stats?.total_checkins || 0}
                 </div>
                 <div className='text-muted-foreground mt-0.5 text-[10px] font-medium sm:mt-1 sm:text-xs'>
@@ -379,7 +420,7 @@ export function CheckinCalendarCard({
                 </div>
               </div>
               <div className='bg-card p-3 text-center sm:p-5'>
-                <div className='text-xl font-semibold tracking-tight tabular-nums sm:text-2xl'>
+                <div className='text-base leading-tight font-semibold tracking-tight whitespace-nowrap tabular-nums sm:text-xl xl:text-base 2xl:text-lg'>
                   {formatQuotaWithCurrency(monthlyQuota, { digitsLarge: 0 })}
                 </div>
                 <div className='text-muted-foreground mt-0.5 text-[10px] font-medium sm:mt-1 sm:text-xs'>
@@ -387,7 +428,7 @@ export function CheckinCalendarCard({
                 </div>
               </div>
               <div className='bg-card p-3 text-center sm:p-5'>
-                <div className='text-xl font-semibold tracking-tight tabular-nums sm:text-2xl'>
+                <div className='text-base leading-tight font-semibold tracking-tight whitespace-nowrap tabular-nums sm:text-xl xl:text-base 2xl:text-lg'>
                   {formatQuotaWithCurrency(
                     checkinData?.stats?.total_quota || 0,
                     {
@@ -407,37 +448,46 @@ export function CheckinCalendarCard({
                 {/* Month navigation */}
                 <div className='flex items-center justify-between'>
                   <h4 className='text-xs font-semibold sm:text-sm'>
-                    {dayjs(currentMonth).format('YYYY-MM')}
+                    {monthLabel}
                   </h4>
                   <div className='flex items-center gap-0.5 sm:gap-1'>
                     <Button
+                      aria-label={t('Previous month')}
                       variant='ghost'
                       size='icon'
-                      className='h-7 w-7 sm:h-8 sm:w-8'
+                      className='size-11 sm:size-8'
                       onClick={handlePrevMonth}
                     >
-                      <ChevronLeft className='h-3.5 w-3.5 sm:h-4 sm:w-4' />
+                      <ChevronLeft />
                     </Button>
                     <Button
+                      aria-label={t('Next month')}
                       variant='ghost'
                       size='icon'
-                      className='h-7 w-7 sm:h-8 sm:w-8'
+                      className='size-11 sm:size-8'
                       onClick={handleNextMonth}
+                      disabled={!canGoNext}
                     >
-                      <ChevronRight className='h-3.5 w-3.5 sm:h-4 sm:w-4' />
+                      <ChevronRight />
                     </Button>
                   </div>
                 </div>
 
                 {/* Calendar grid */}
-                <div className='grid grid-cols-7 gap-0.5 sm:gap-1'>
+                <div
+                  role='grid'
+                  aria-label={monthLabel}
+                  className='grid grid-cols-7 gap-0.5 sm:gap-1'
+                >
                   {/* Week day headers */}
-                  {weekDays.map((day) => (
+                  {calendarFormatters.weekDays.map((day) => (
                     <div
-                      key={day}
+                      key={day.long}
+                      role='columnheader'
+                      aria-label={day.long}
                       className='text-muted-foreground flex h-7 items-center justify-center text-[10px] font-medium sm:h-8 sm:text-xs'
                     >
-                      {day}
+                      {day.short}
                     </div>
                   ))}
 
@@ -452,37 +502,65 @@ export function CheckinCalendarCard({
                     const quotaAwarded = checkinRecordsMap[dateStr]
                     const isCheckedIn = quotaAwarded !== undefined
                     const dayNum = dayObj.date.getDate()
+                    const dateLabel = calendarFormatters.date.format(
+                      dayObj.date
+                    )
+                    const formattedAward = isCheckedIn
+                      ? formatQuotaWithCurrency(quotaAwarded)
+                      : undefined
+                    const accessibleLabel = dayObj.isCurrentMonth
+                      ? [
+                          dateLabel,
+                          isCheckedIn ? t('Checked in') : null,
+                          formattedAward ? `+${formattedAward}` : null,
+                        ]
+                          .filter(Boolean)
+                          .join(', ')
+                      : undefined
 
-                    const dayButton = (
-                      <Button
+                    const dayCell = (
+                      <div
                         key={dateStr}
-                        variant={isToday ? 'default' : 'ghost'}
-                        disabled={!dayObj.isCurrentMonth}
+                        role='gridcell'
+                        aria-current={isToday ? 'date' : undefined}
+                        aria-hidden={dayObj.isCurrentMonth ? undefined : true}
+                        aria-label={accessibleLabel}
+                        tabIndex={
+                          isCheckedIn && dayObj.isCurrentMonth ? 0 : undefined
+                        }
                         className={cn(
-                          'relative flex h-9 w-full flex-col items-center justify-center rounded-lg px-0 text-xs font-medium sm:h-10 sm:text-sm',
+                          'relative flex h-9 w-full items-center justify-center rounded-lg px-0 text-xs font-medium outline-none sm:h-10 sm:text-sm',
                           !dayObj.isCurrentMonth &&
                             'text-muted-foreground/40 cursor-default',
-                          !isToday && isCheckedIn && 'font-semibold'
+                          isToday && 'bg-primary text-primary-foreground',
+                          !isToday && isCheckedIn && 'font-semibold',
+                          isCheckedIn &&
+                            dayObj.isCurrentMonth &&
+                            'cursor-help transition-colors hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50',
+                          isToday && isCheckedIn && 'hover:bg-primary/90'
                         )}
                       >
                         <span className='tabular-nums'>{dayNum}</span>
                         {isCheckedIn && !isToday && (
-                          <span className='bg-success absolute bottom-0.5 size-1 rounded-full sm:bottom-1' />
+                          <span
+                            aria-hidden='true'
+                            className='bg-success absolute bottom-0.5 size-1 rounded-full sm:bottom-1'
+                          />
                         )}
-                      </Button>
+                      </div>
                     )
 
                     if (isCheckedIn && dayObj.isCurrentMonth) {
                       return (
                         <Tooltip key={dateStr}>
-                          <TooltipTrigger render={dayButton} />
+                          <TooltipTrigger render={dayCell} />
                           <TooltipContent>
                             <div className='text-xs'>
                               <div className='font-medium'>
                                 {t('Checked in')}
                               </div>
                               <div className='text-muted-foreground mt-0.5'>
-                                +{formatQuotaWithCurrency(quotaAwarded)}
+                                +{formattedAward}
                               </div>
                             </div>
                           </TooltipContent>
@@ -490,7 +568,7 @@ export function CheckinCalendarCard({
                       )
                     }
 
-                    return dayButton
+                    return dayCell
                   })}
                 </div>
 
