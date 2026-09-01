@@ -63,6 +63,15 @@ var waffoPancakeChineseCheckoutLanguages = map[string]struct{}{
 	"zh-Hans-HK": {},
 }
 
+type WaffoPancakeBillingDetail struct {
+	Country      string `json:"country"`
+	IsBusiness   bool   `json:"isBusiness"`
+	Postcode     string `json:"postcode,omitempty"`
+	State        string `json:"state,omitempty"`
+	BusinessName string `json:"businessName,omitempty"`
+	TaxID        string `json:"taxId,omitempty"`
+}
+
 // WaffoPancakeCreateSessionParams is the input to CreateWaffoPancakeCheckoutSession.
 // BuyerIdentity must be stable per user (see WaffoPancakeBuyerIdentityFromUserID).
 // OrderMerchantExternalID = our trade_no; Pancake echoes it back in webhooks.
@@ -81,6 +90,9 @@ type WaffoPancakeCreateSessionParams struct {
 	CheckoutRegion string
 	// CheckoutLanguage is validated against Waffo's supported BCP 47 enum.
 	CheckoutLanguage string
+	// BillingDetail is populated only from the authenticated user's saved
+	// company profile after its invoice toggle has been enabled.
+	BillingDetail *WaffoPancakeBillingDetail
 }
 
 // WaffoPancakeOrderMetadataProductID and WaffoPancakeOrderMetadataPlanID are
@@ -339,7 +351,17 @@ func buildWaffoPancakeSDKCheckoutParams(params *WaffoPancakeCreateSessionParams)
 			TaxCategory: pancake.TaxCategory(params.PriceSnapshot.TaxCategory),
 		}
 	}
-	if ResolveWaffoPancakeCheckoutRegion(params.CheckoutRegion, params.CheckoutLanguage) == WaffoPancakeCheckoutRegionChina {
+	if params.BillingDetail != nil {
+		sdkParams.BillingDetail = &pancake.BillingDetail{
+			Country:      params.BillingDetail.Country,
+			IsBusiness:   params.BillingDetail.IsBusiness,
+			Postcode:     optionalString(params.BillingDetail.Postcode),
+			State:        optionalString(params.BillingDetail.State),
+			BusinessName: optionalString(params.BillingDetail.BusinessName),
+			TaxID:        optionalString(params.BillingDetail.TaxID),
+		}
+	} else if ResolveWaffoPancakeCheckoutRegion(params.CheckoutRegion, params.CheckoutLanguage) == WaffoPancakeCheckoutRegionChina {
+		// This pre-existing personal-region hint is not company profile data.
 		sdkParams.BillingDetail = &pancake.BillingDetail{
 			Country:    "CN",
 			IsBusiness: false,

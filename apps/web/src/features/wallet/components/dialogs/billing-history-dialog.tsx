@@ -54,6 +54,7 @@ import {
   formatTimestamp,
 } from '../../lib/billing'
 import { getTopupRecordPlatformAmount } from '../../lib/payment'
+import type { BillingHistorySortBy } from '../../types'
 
 interface BillingHistoryDialogProps {
   open: boolean
@@ -71,12 +72,16 @@ export function BillingHistoryDialog({
     page,
     pageSize,
     keyword,
+    sortBy,
+    sortOrder,
     loading,
     completing,
     isAdmin,
     handlePageChange,
     handlePageSizeChange,
     handleSearch,
+    handleSortByChange,
+    handleSortOrderChange,
     handleCompleteOrder,
   } = useBillingHistory({ enabled: open })
 
@@ -84,6 +89,22 @@ export function BillingHistoryDialog({
   const { copyToClipboard, copiedText } = useCopyToClipboard({ notify: false })
 
   const totalPages = Math.ceil(total / pageSize)
+  const sortOptions: Array<{
+    value: BillingHistorySortBy
+    label: string
+  }> = [
+    { value: 'create_time', label: t('Creation time') },
+    { value: 'amount', label: t('Platform credit') },
+    { value: 'money', label: t('Actual payment') },
+    { value: 'status', label: t('Status') },
+    { value: 'payment_method', label: t('Payment Method') },
+    ...(isAdmin
+      ? [
+          { value: 'user_id' as const, label: t('User ID') },
+          { value: 'trade_no' as const, label: t('Order number') },
+        ]
+      : []),
+  ]
 
   const handleConfirmComplete = async () => {
     if (confirmTradeNo) {
@@ -108,17 +129,67 @@ export function BillingHistoryDialog({
         bodyClassName='space-y-3'
       >
         <div className='min-h-0 space-y-3'>
-          {/* Search and Filter Bar */}
-          <div className='flex items-center gap-2'>
-            <div className='relative flex-1'>
+          {/* Search and sorting controls */}
+          <div className='flex flex-wrap items-center gap-2'>
+            <div className='relative min-w-48 flex-1'>
               <Search className='text-muted-foreground absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2' />
               <Input
+                aria-label={t('Search by order number...')}
                 placeholder={t('Search by order number...')}
                 value={keyword}
                 onChange={(e) => handleSearch(e.target.value)}
                 className='h-9 pl-10'
               />
             </div>
+            <Select
+              items={sortOptions}
+              value={sortBy}
+              onValueChange={(value) => {
+                const option = sortOptions.find((item) => item.value === value)
+                if (option) handleSortByChange(option.value)
+              }}
+            >
+              <SelectTrigger
+                aria-label={t('Sort by')}
+                className='h-9 min-w-40 flex-1 sm:w-44 sm:flex-none'
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent alignItemWithTrigger={false}>
+                <SelectGroup>
+                  {sortOptions.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+            <Select
+              items={[
+                { value: 'desc', label: t('Descending') },
+                { value: 'asc', label: t('Ascending') },
+              ]}
+              value={sortOrder}
+              onValueChange={(value) => {
+                if (value === 'asc' || value === 'desc') {
+                  handleSortOrderChange(value)
+                }
+              }}
+            >
+              <SelectTrigger
+                aria-label={t('Sort direction')}
+                className='h-9 min-w-32 flex-1 sm:w-36 sm:flex-none'
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent alignItemWithTrigger={false}>
+                <SelectGroup>
+                  <SelectItem value='desc'>{t('Descending')}</SelectItem>
+                  <SelectItem value='asc'>{t('Ascending')}</SelectItem>
+                </SelectGroup>
+              </SelectContent>
+            </Select>
             <Select
               items={[
                 { value: '10', label: t('10 / page') },
@@ -131,7 +202,10 @@ export function BillingHistoryDialog({
                 value !== null && handlePageSizeChange(Number.parseInt(value))
               }
             >
-              <SelectTrigger className='h-9 w-[92px] sm:w-32'>
+              <SelectTrigger
+                aria-label={t('Rows per page')}
+                className='h-9 w-[92px] sm:w-32'
+              >
                 <SelectValue />
               </SelectTrigger>
               <SelectContent alignItemWithTrigger={false}>
@@ -308,6 +382,7 @@ export function BillingHistoryDialog({
                 <Button
                   variant='outline'
                   size='sm'
+                  aria-label={t('Previous page')}
                   onClick={() => handlePageChange(page - 1)}
                   disabled={page <= 1}
                   className='h-8 w-8 p-0'
@@ -322,6 +397,7 @@ export function BillingHistoryDialog({
                 <Button
                   variant='outline'
                   size='sm'
+                  aria-label={t('Next page')}
                   onClick={() => handlePageChange(page + 1)}
                   disabled={page >= totalPages}
                   className='h-8 w-8 p-0'

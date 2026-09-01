@@ -222,6 +222,13 @@ function buildSectionDefs(t: (key: string) => string): SectionDef[] {
           config: { section: 'personal', key: 'topup' },
         },
         {
+          id: '/company',
+          key: 'company',
+          title: t('Company'),
+          description: t('Company billing and invoice settings'),
+          config: { section: 'personal', key: 'company' },
+        },
+        {
           id: '/profile',
           key: 'profile',
           title: t('Profile'),
@@ -325,6 +332,7 @@ const DEFAULT_ROUTES: DefaultRouteDef[] = [
   },
   { route: '/keys', title: 'API Keys', requiresConsole: true },
   { route: '/wallet', title: 'Wallet', requiresConsole: true },
+  { route: '/company', title: 'Company', requiresConsole: true },
   { route: '/drawing', title: 'Drawing studio', requiresConsole: true },
   { route: '/todos', title: 'To-dos', requiresConsole: true },
   { route: '/profile', title: 'Profile', requiresConsole: true },

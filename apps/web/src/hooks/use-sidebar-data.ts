@@ -20,6 +20,7 @@ import { useQuery } from '@tanstack/react-query'
 import {
   Activity,
   Box,
+  Building2,
   Bug,
   Compass,
   CreditCard,
@@ -202,6 +203,11 @@ export function useSidebarData(): SidebarData {
             title: t('Wallet'),
             url: '/wallet',
             icon: Wallet,
+          },
+          {
+            title: t('Company'),
+            url: '/company',
+            icon: Building2,
           },
           {
             title: t('Temporary activations'),

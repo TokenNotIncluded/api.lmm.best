@@ -16,11 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import {
-  formatFiatCurrencyAmount,
-  formatPlatformAmount,
-  getPlatformCurrencyLabel,
-} from '@/lib/currency'
+import { formatFiatCurrencyAmount } from '@/lib/currency'
 
 import { DEFAULT_DISCOUNT_RATE } from '../constants'
 
@@ -73,33 +69,24 @@ export function getPaymentCurrencyLabel(): string {
   return 'USD'
 }
 
-/** API top-up credits use the virtual platform currency label. */
-export function getCreditCurrencyLabel(): string {
-  return getPlatformCurrencyLabel()
+/** API top-up credits use a virtual unit label without a fiat symbol. */
+export function getCreditCurrencyLabel(platformLabel = 'Platform'): string {
+  const label = platformLabel.trim() || 'Platform'
+  return `(${label})`
 }
 
-/**
- * Format an API credit amount as virtual platform currency.
- *
- * The amount is USD-denominated for accounting, but it is not fiat. Keep the
- * explicit `(Platform)` marker whenever it is shown to a user.
- */
+/** Format a wallet platform credit as a virtual unit, never fiat money. */
 export function formatPlatformCreditBalance(
   amount: number,
   platformLabel?: string
 ): string {
-  return formatPlatformAmount(
-    amount,
-    {
-      abbreviate: false,
-      digitsLarge: 2,
-      digitsSmall: 4,
-    },
-    platformLabel
-  )
+  const formattedAmount = formatCurrency(amount)
+  return formattedAmount === '-'
+    ? formattedAmount
+    : `${formattedAmount} ${getCreditCurrencyLabel(platformLabel)}`
 }
 
-/** Format a visible platform credit amount (never fiat USD). */
+/** Format a visible top-up credit amount (never fiat USD). */
 export function formatCreditBalance(
   amount: number,
   platformLabel?: string

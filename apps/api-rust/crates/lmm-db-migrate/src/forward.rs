@@ -9,8 +9,9 @@ use crate::{
     MigrationError,
     contract::{ContractInstallOutcome, install_or_verify},
     forward_schema::{
-        BOUNTY_SCHEMA_CONTRACT_ID, CURRENT_DASHBOARD_SCHEMA_CONTRACT_ID,
-        SUBSCRIPTION_RESET_SCHEMA_CONTRACT_ID, verify_current_dashboard_schema,
+        BOUNTY_SCHEMA_CONTRACT_ID, COMPANY_BILLING_PROFILE_SCHEMA_CONTRACT_ID,
+        CURRENT_DASHBOARD_SCHEMA_CONTRACT_ID, SUBSCRIPTION_RESET_SCHEMA_CONTRACT_ID,
+        verify_company_billing_profile_schema, verify_current_dashboard_schema,
         verify_open_source_bounty_schema, verify_subscription_reset_schema,
     },
     postgres_catalog::acquire_shared_migration_lock,
@@ -73,6 +74,9 @@ pub fn forward(options: &ForwardOptions<'_>) -> Result<ForwardReport, MigrationE
     }
     if options.release.contract_id().as_i64() >= SUBSCRIPTION_RESET_SCHEMA_CONTRACT_ID {
         verify_subscription_reset_schema(&mut transaction, options.schema)?;
+    }
+    if options.release.contract_id().as_i64() >= COMPANY_BILLING_PROFILE_SCHEMA_CONTRACT_ID {
+        verify_company_billing_profile_schema(&mut transaction, options.schema)?;
     }
     transaction.commit()?;
     Ok(ForwardReport {

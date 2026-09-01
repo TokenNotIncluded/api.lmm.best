@@ -214,6 +214,8 @@ func SetApiRouter(router *gin.Engine) {
 				selfRoute.POST("/sessions/revoke-others", middleware.DisableCache(), controller.RevokeOtherLoginSessions)
 				selfRoute.GET("/self/groups", controller.GetUserGroups)
 				selfRoute.GET("/self", controller.GetSelf)
+				selfRoute.GET("/company-billing-profile", middleware.DisableCache(), controller.GetCompanyBillingProfile)
+				selfRoute.PUT("/company-billing-profile", middleware.CriticalRateLimit(), middleware.DisableCache(), middleware.RequestBodyLimit(userSelfMutationRequestMaxBytes), controller.PutCompanyBillingProfile)
 				selfRoute.GET("/models", controller.GetUserModels)
 				selfRoute.GET("/self/onboarding/todo", middleware.DisableCache(), controller.GetL1OnboardingTodo)
 				selfRoute.PATCH("/self/onboarding/todo", middleware.DisableCache(), controller.PatchL1OnboardingTodo)

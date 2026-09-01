@@ -511,6 +511,9 @@ func verifyPostgresMigrationPostconditions(db *gorm.DB, schema string) error {
 	if normalizedThemeCount != 1 {
 		return errors.New("retired theme option normalization is incomplete")
 	}
+	if err := verifyCompanyBillingProfilePostgresContract(db, schema); err != nil {
+		return err
+	}
 	return nil
 }
 

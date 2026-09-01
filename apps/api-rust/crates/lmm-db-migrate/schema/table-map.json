@@ -1208,6 +1208,150 @@
       "verifier": "count+blake3_table_v1"
     },
     {
+      "name": "company_billing_profiles",
+      "columns": [
+        {
+          "name": "user_id",
+          "sqlite_type": "integer",
+          "sqlite_not_null": false,
+          "sqlite_default": null,
+          "pk_position": 1,
+          "postgres_type": "bigint",
+          "postgres_not_null": true,
+          "postgres_default": null,
+          "converter": "identity"
+        },
+        {
+          "name": "country",
+          "sqlite_type": "char(2)",
+          "sqlite_not_null": true,
+          "sqlite_default": null,
+          "pk_position": 0,
+          "postgres_type": "character(2)",
+          "postgres_not_null": true,
+          "postgres_default": null,
+          "converter": "identity"
+        },
+        {
+          "name": "is_business",
+          "sqlite_type": "numeric",
+          "sqlite_not_null": true,
+          "sqlite_default": null,
+          "pk_position": 0,
+          "postgres_type": "boolean",
+          "postgres_not_null": true,
+          "postgres_default": null,
+          "converter": "boolean01"
+        },
+        {
+          "name": "postcode",
+          "sqlite_type": "varchar(32)",
+          "sqlite_not_null": true,
+          "sqlite_default": "\"\"",
+          "pk_position": 0,
+          "postgres_type": "character varying(32)",
+          "postgres_not_null": true,
+          "postgres_default": "''::character varying",
+          "converter": "identity"
+        },
+        {
+          "name": "state",
+          "sqlite_type": "varchar(128)",
+          "sqlite_not_null": true,
+          "sqlite_default": "\"\"",
+          "pk_position": 0,
+          "postgres_type": "character varying(128)",
+          "postgres_not_null": true,
+          "postgres_default": "''::character varying",
+          "converter": "identity"
+        },
+        {
+          "name": "business_name",
+          "sqlite_type": "varchar(255)",
+          "sqlite_not_null": true,
+          "sqlite_default": "\"\"",
+          "pk_position": 0,
+          "postgres_type": "character varying(255)",
+          "postgres_not_null": true,
+          "postgres_default": "''::character varying",
+          "converter": "identity"
+        },
+        {
+          "name": "tax_id",
+          "sqlite_type": "varchar(64)",
+          "sqlite_not_null": true,
+          "sqlite_default": "\"\"",
+          "pk_position": 0,
+          "postgres_type": "character varying(64)",
+          "postgres_not_null": true,
+          "postgres_default": "''::character varying",
+          "converter": "identity"
+        },
+        {
+          "name": "use_for_invoices",
+          "sqlite_type": "numeric",
+          "sqlite_not_null": true,
+          "sqlite_default": "false",
+          "pk_position": 0,
+          "postgres_type": "boolean",
+          "postgres_not_null": true,
+          "postgres_default": "false",
+          "converter": "boolean01"
+        },
+        {
+          "name": "created_at",
+          "sqlite_type": "integer",
+          "sqlite_not_null": true,
+          "sqlite_default": null,
+          "pk_position": 0,
+          "postgres_type": "bigint",
+          "postgres_not_null": true,
+          "postgres_default": null,
+          "converter": "identity"
+        },
+        {
+          "name": "updated_at",
+          "sqlite_type": "integer",
+          "sqlite_not_null": true,
+          "sqlite_default": null,
+          "pk_position": 0,
+          "postgres_type": "bigint",
+          "postgres_not_null": true,
+          "postgres_default": null,
+          "converter": "identity"
+        }
+      ],
+      "sqlite_indexes": [],
+      "postgres_indexes": [
+        {
+          "name": "company_billing_profiles_pkey",
+          "unique": true,
+          "columns": [
+            "user_id"
+          ],
+          "primary": true,
+          "predicate": null
+        }
+      ],
+      "sequence": null,
+      "verifier": "count+blake3_table_v1",
+      "postgres_foreign_keys": [
+        {
+          "name": "company_billing_profiles_user_id_fkey",
+          "columns": [
+            "user_id"
+          ],
+          "referenced_table": "users",
+          "referenced_columns": [
+            "id"
+          ],
+          "on_delete": "cascade",
+          "deferrable": true,
+          "initially_deferred": true
+        }
+      ]
+    },
+    {
       "name": "custom_oauth_providers",
       "columns": [
         {
@@ -4057,6 +4201,17 @@
           "postgres_not_null": false,
           "postgres_default": null,
           "converter": "identity"
+        },
+        {
+          "name": "failure_reason_code",
+          "sqlite_type": "varchar(64)",
+          "sqlite_not_null": true,
+          "sqlite_default": "\"\"",
+          "pk_position": 0,
+          "postgres_type": "character varying(64)",
+          "postgres_not_null": true,
+          "postgres_default": "''::character varying",
+          "converter": "identity"
         }
       ],
       "sqlite_indexes": [
@@ -6040,6 +6195,17 @@
           "postgres_type": "text",
           "postgres_not_null": false,
           "postgres_default": null,
+          "converter": "identity"
+        },
+        {
+          "name": "failure_reason_code",
+          "sqlite_type": "varchar(64)",
+          "sqlite_not_null": true,
+          "sqlite_default": "\"\"",
+          "pk_position": 0,
+          "postgres_type": "character varying(64)",
+          "postgres_not_null": true,
+          "postgres_default": "''::character varying",
           "converter": "identity"
         }
       ],

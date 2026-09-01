@@ -19,12 +19,38 @@ import { afterEach, test } from 'node:test'
 
 import { api } from '@/lib/api'
 
-import { sendAffiliateInvitation } from './api'
+import {
+  getAllBillingHistory,
+  getUserBillingHistory,
+  sendAffiliateInvitation,
+} from './api'
 
+const originalGet = api.get
 const originalPost = api.post
 
 afterEach(() => {
+  api.get = originalGet
   api.post = originalPost
+})
+
+test('billing history APIs send the global sort contract to user and admin routes', async () => {
+  const capturedUrls: string[] = []
+  api.get = (async (url: string) => {
+    capturedUrls.push(url)
+    return { data: { success: true, data: { items: [], total: 0 } } }
+  }) as typeof api.get
+
+  await getUserBillingHistory(2, 25, 'order 42', 'money', 'asc')
+  await getAllBillingHistory(3, 50, '', 'payment_method', 'desc')
+
+  assert.equal(
+    capturedUrls[0],
+    '/api/user/topup/self?p=2&page_size=25&sort_by=money&sort_order=asc&keyword=order+42'
+  )
+  assert.equal(
+    capturedUrls[1],
+    '/api/user/topup?p=3&page_size=50&sort_by=payment_method&sort_order=desc'
+  )
 })
 
 test('sendAffiliateInvitation posts only the recipient to the SMTP-backed route', async () => {

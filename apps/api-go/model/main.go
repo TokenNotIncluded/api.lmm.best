@@ -347,7 +347,7 @@ func mainMigrationModels() []interface{} {
 		&SubscriptionResetVoucher{}, &SubscriptionResetEvent{}, &SubscriptionResetPreview{}, &SubscriptionResetOperation{}, &CustomOAuthProvider{},
 		&UserOAuthBinding{}, &PerfMetric{}, &SystemInstance{}, &SystemTask{}, &SystemTaskLock{},
 		&CasbinRule{}, &AuthzRole{},
-		&WaffoPancakeWebhookReceipt{},
+		&WaffoPancakeWebhookReceipt{}, &CompanyBillingProfile{},
 		&AssistantLead{}, &AssistantProfileBucket{}, &AssistantUserProfile{}, &AssistantUserProfileAudit{}, &AssistantMemory{}, &AssistantFirstQuestionStat{}, &PromptPresetRow{}, &PromptPresetStat{}, &PromptConversionRef{}, &PromptConversationRef{}, &AssistantConversation{}, &AssistantHistoryMessage{}, &AssistantSecureCard{}, &AssistantSecurityIncident{}, &AssistantSecurityReviewNotice{}, &AssistantRequestReview{}, &AssistantReviewReset{}, &AssistantNewUserGift{}, &AssistantWeeklyDiscount{}, &AssistantGiftRiskKey{}, &AssistantGiftRiskMemory{}, &AdvancedSecurityEvent{},
 		&ViolationFeeState{}, &ViolationFeeRecord{}, &ViolationFeeAppeal{},
 		&FinanceLedgerEntry{}, &FinancePaymentMethod{},
@@ -369,6 +369,11 @@ func migrateDB() error {
 	err := DB.AutoMigrate(mainMigrationModels()...)
 	if err != nil {
 		return err
+	}
+	if common.UsingMainDatabase(common.DatabaseTypePostgreSQL) {
+		if err := ensureCompanyBillingProfilePostgresContract(DB); err != nil {
+			return err
+		}
 	}
 	if err := EnsureUserRankingRevisionState(DB); err != nil {
 		return err
@@ -477,6 +482,7 @@ func migrateDBFast() error {
 		{&SubscriptionResetPreview{}, "SubscriptionResetPreview"},
 		{&SubscriptionResetOperation{}, "SubscriptionResetOperation"},
 		{&WaffoPancakeWebhookReceipt{}, "WaffoPancakeWebhookReceipt"},
+		{&CompanyBillingProfile{}, "CompanyBillingProfile"},
 		{&FinanceLedgerEntry{}, "FinanceLedgerEntry"},
 		{&FinancePaymentMethod{}, "FinancePaymentMethod"},
 		{&HeroSMSEmailOrder{}, "HeroSMSEmailOrder"},
@@ -541,6 +547,11 @@ func migrateDBFast() error {
 	// Check for any errors
 	for err := range errChan {
 		if err != nil {
+			return err
+		}
+	}
+	if common.UsingMainDatabase(common.DatabaseTypePostgreSQL) {
+		if err := ensureCompanyBillingProfilePostgresContract(DB); err != nil {
 			return err
 		}
 	}

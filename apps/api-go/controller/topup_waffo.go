@@ -307,6 +307,31 @@ func RequestWaffoPay(c *gin.Context) {
 		return
 	}
 
+	// Preserve the established amount, group, discount, local-order, and SDK
+	// preconditions before touching the optional company profile. A missing
+	// migration or database failure remains explicit and the local order is
+	// moved out of pending with an allowlisted, non-sensitive reason.
+	companyBillingProfile, err := loadAutomaticCompanyBillingProfile(id)
+	if err != nil {
+		_ = model.FailPendingTopUpForCheckout(
+			merchantOrderId,
+			model.PaymentProviderWaffo,
+			model.PaymentOrderFailureCompanyBillingRules,
+		)
+		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "无法读取企业账单资料"})
+		return
+	}
+	if err := validateLegacyWaffoCompanyBilling(companyBillingProfile); err != nil {
+		logger.LogWarn(c.Request.Context(), fmt.Sprintf("Waffo 企业账单地址校验失败 user_id=%d profile_enabled=%t", id, companyBillingProfile != nil))
+		_ = model.FailPendingTopUpForCheckout(
+			merchantOrderId,
+			model.PaymentProviderWaffo,
+			model.PaymentOrderFailureCompanyBillingRules,
+		)
+		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "企业账单地址无效"})
+		return
+	}
+
 	callbackAddr := service.GetCallbackAddress()
 	notifyUrl := callbackAddr + "/api/waffo/webhook"
 	if setting.WaffoNotifyUrl != "" {
@@ -343,6 +368,7 @@ func RequestWaffoPay(c *gin.Context) {
 		SuccessRedirectURL: returnUrl,
 		FailedRedirectURL:  returnUrl,
 	}
+	applyCompanyBillingToLegacyWaffoOrder(createParams, companyBillingProfile)
 	resp, err := sdk.Order().Create(c.Request.Context(), createParams, nil)
 	if err != nil {
 		logger.LogError(c.Request.Context(), fmt.Sprintf("Waffo 创建订单失败 user_id=%d trade_no=%s error=%q", id, merchantOrderId, err.Error()))

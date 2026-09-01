@@ -9,7 +9,9 @@ for command in initdb pg_ctl createdb jq psql; do
 done
 
 crate_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
-rehearsal_dir=$(mktemp -d /tmp/lmm-db-migrate-pg.XXXXXX)
+rehearsal_root=${LMM_DB_MIGRATE_REHEARSAL_ROOT:-/tmp}
+mkdir -p -- "${rehearsal_root}"
+rehearsal_dir=$(mktemp -d "${rehearsal_root%/}/lmm-db-migrate-pg.XXXXXX")
 port=$((55440 + RANDOM % 900))
 
 cleanup() {
@@ -37,9 +39,9 @@ catalog_tables=$(jq 'length' "${catalog_file}")
 catalog_columns=$(jq '[.[].columns[]] | length' "${catalog_file}")
 catalog_indexes=$(jq '[.[].indexes[]] | length' "${catalog_file}")
 catalog_sequences=$(jq '[.[] | select(.sequence != null)] | length' "${catalog_file}")
-[[ "${catalog_tables}" == 34 ]] || { echo "catalog export has ${catalog_tables} tables" >&2; exit 1; }
-[[ "${catalog_columns}" == 424 ]] || { echo "catalog export has ${catalog_columns} columns" >&2; exit 1; }
-[[ "${catalog_indexes}" == 172 ]] || { echo "catalog export has ${catalog_indexes} indexes" >&2; exit 1; }
+[[ "${catalog_tables}" == 35 ]] || { echo "catalog export has ${catalog_tables} tables" >&2; exit 1; }
+[[ "${catalog_columns}" == 436 ]] || { echo "catalog export has ${catalog_columns} columns" >&2; exit 1; }
+[[ "${catalog_indexes}" == 173 ]] || { echo "catalog export has ${catalog_indexes} indexes" >&2; exit 1; }
 [[ "${catalog_sequences}" == 29 ]] || { echo "catalog export has ${catalog_sequences} sequences" >&2; exit 1; }
 
 cargo run --quiet --locked --manifest-path "${crate_dir}/../../Cargo.toml" \
@@ -66,12 +68,12 @@ missing_defaults=$(psql -XAt -h "${rehearsal_dir}" -p "${port}" -U postgres -d l
    WHERE s.relkind = 'S' AND s.relnamespace = 'public'::regnamespace
      AND (a.attname <> 'id' OR pg_get_expr(ad.adbin, ad.adrelid) NOT LIKE 'nextval(%')")
 
-[[ "${table_count}" == 34 ]] || { echo "expected 34 tables, found ${table_count}" >&2; exit 1; }
+[[ "${table_count}" == 35 ]] || { echo "expected 35 tables, found ${table_count}" >&2; exit 1; }
 [[ "${sequence_count}" == 29 ]] || { echo "expected 29 sequences, found ${sequence_count}" >&2; exit 1; }
 [[ "${unowned_sequences}" == 0 ]] || { echo "found ${unowned_sequences} unowned sequences" >&2; exit 1; }
 [[ "${missing_defaults}" == 0 ]] || { echo "found ${missing_defaults} invalid sequence defaults" >&2; exit 1; }
 
-echo "PostgreSQL baseline rehearsal passed: 34 tables, 424 columns, 172 indexes, 29 owned id sequences"
+echo "PostgreSQL baseline rehearsal passed: 35 tables, 436 columns, 173 indexes, 29 owned id sequences"
 
 LMM_TEST_PG_SOCKET="${rehearsal_dir}" \
 LMM_TEST_PG_PORT="${port}" \
