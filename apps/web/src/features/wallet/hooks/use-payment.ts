@@ -110,10 +110,7 @@ export async function requestPaymentAmount(
   return Number.parseFloat(response.data)
 }
 
-/** A checkout cannot be confirmed until its payable amount is known. */
-export function isPositivePaymentAmount(value: unknown): value is number {
-  return typeof value === 'number' && Number.isFinite(value) && value > 0
-}
+export { isPositivePaymentAmount } from '../lib/payment'
 
 export function usePayment() {
   const [amount, setAmount] = useState<number>(0)
@@ -132,8 +129,10 @@ export function usePayment() {
         return topupAmount
       }
 
+      setAmount(0)
+      setCalculating(true)
+
       try {
-        setCalculating(true)
         const calculatedAmount = await requestPaymentAmount(
           topupAmount,
           paymentType,

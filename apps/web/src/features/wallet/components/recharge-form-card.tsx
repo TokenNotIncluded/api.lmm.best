@@ -62,7 +62,6 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
-import { getPlatformCurrencyLabel } from '@/lib/currency'
 import { cn } from '@/lib/utils'
 import {
   getDefaultWaffoPancakeCheckoutRegion,
@@ -81,9 +80,11 @@ import {
   formatPaymentAmount,
   formatPaymentSettlementRate,
   formatSettlementAmount,
+  getCreditCurrencyLabel,
   getPaymentSettlementUnit,
   isWaffoPancakeCurrencySupported,
   isWaffoPancakePayment,
+  isPositivePaymentAmount,
   isSafeHttpCheckoutUrl,
 } from '../lib'
 import { discountCodeSavings } from '../lib/discount-state'
@@ -219,15 +220,17 @@ export function RechargeFormCard({
   const topupGroupRatio = topupInfo?.topup_group_ratio ?? 1
   const redemptionEnabled = topupInfo?.enable_redemption !== false
   const customDiscount = topupInfo?.discount?.[topupAmount] || 1
-  const customHasDiscount = customDiscount > 0 && customDiscount < 1
+  const hasCurrentPaymentAmount =
+    !calculating && isPositivePaymentAmount(paymentAmount)
+  const customHasDiscount =
+    hasCurrentPaymentAmount && customDiscount > 0 && customDiscount < 1
   const customOriginalPayment = customHasDiscount
     ? paymentAmount / customDiscount
     : paymentAmount
   const customDiscountAmount = customOriginalPayment - paymentAmount
-  const discountCodeSavingAmount = discountCodeSavings(
-    paymentAmount,
-    discountPercent
-  )
+  const discountCodeSavingAmount = hasCurrentPaymentAmount
+    ? discountCodeSavings(paymentAmount, discountPercent)
+    : 0
   const defaultPaymentType = getDefaultPaymentType(topupInfo)
   const effectivePaymentMethod =
     selectedPaymentMethod ??
@@ -243,7 +246,7 @@ export function RechargeFormCard({
   const getSettlementRule = (paymentMethod: PaymentMethod) =>
     formatPaymentSettlementRate(
       paymentMethod,
-      getPlatformCurrencyLabel(t('Platform')),
+      getCreditCurrencyLabel(t('Platform')),
       true
     )
   const formatSelectedPaymentAmount = (amount: number) =>
@@ -254,6 +257,11 @@ export function RechargeFormCard({
     settlementUnit
       ? formatSettlementAmount(amount, settlementUnit.label)
       : formatPaymentAmount(amount, 'USD')
+  const paymentAmountLabel = calculating
+    ? t('Calculating...')
+    : hasCurrentPaymentAmount
+      ? formatSelectedPaymentAmount(paymentAmount)
+      : t('Payment unavailable')
   const pancakeCurrencySupported = isWaffoPancakeCurrencySupported()
   const interfaceLanguage = i18n.resolvedLanguage || i18n.language
   const effectiveWaffoPancakeCheckoutRegion =
@@ -278,21 +286,31 @@ export function RechargeFormCard({
     selectedPreset !== null && selectedPreset === topupAmount
       ? selectedPreset
       : null
-  const selectedPresetPricing = (() => {
-    if (activeSelectedPreset === null) return null
-    const preset = presetAmounts.find(
-      (item) => item.value === activeSelectedPreset
-    )
-    if (!preset) return null
-    const discount =
-      preset.discount || topupInfo?.discount?.[preset.value] || 1.0
-    return calculatePresetPricing(
-      preset.value,
-      (settlementUnit?.unitPrice ?? priceRatio) *
-        topupGroupRatio *
-        paymentTopupRatio,
-      discount
-    )
+  const selectedPresetDetails =
+    activeSelectedPreset === null
+      ? null
+      : (presetAmounts.find((item) => item.value === activeSelectedPreset) ??
+        null)
+  const configuredSelectedPresetDiscount = selectedPresetDetails
+    ? (selectedPresetDetails.discount ??
+      topupInfo?.discount?.[selectedPresetDetails.value] ??
+      1)
+    : null
+  const selectedPresetDiscount =
+    configuredSelectedPresetDiscount !== null &&
+    Number.isFinite(configuredSelectedPresetDiscount) &&
+    configuredSelectedPresetDiscount > 0 &&
+    configuredSelectedPresetDiscount <= 1
+      ? configuredSelectedPresetDiscount
+      : null
+  const selectedPresetQuoteBreakdown = (() => {
+    if (selectedPresetDiscount === null || !hasCurrentPaymentAmount) return null
+    const originalPrice = paymentAmount / selectedPresetDiscount
+    return {
+      originalPrice,
+      savedAmount: originalPrice - paymentAmount,
+      hasDiscount: selectedPresetDiscount < 1,
+    }
   })()
 
   if (loading) {
@@ -522,27 +540,36 @@ export function RechargeFormCard({
                               'The amount shown on each card is the platform credit. The actual payment and any discount are calculated for the selected payment method.'
                             )}
                           </p>
-                          {selectedPresetPricing && (
+                          {selectedPresetDetails && (
                             <>
                               <p className='text-muted-foreground'>
-                                {t(
-                                  'Selected method: {{method}} · Estimated payment: {{amount}} (original {{original}})',
-                                  {
-                                    method: selectedPaymentMethodName,
-                                    amount: formatPresetPaymentAmount(
-                                      selectedPresetPricing.actualPrice
-                                    ),
-                                    original: formatPresetPaymentAmount(
-                                      selectedPresetPricing.originalPrice
-                                    ),
-                                  }
-                                )}
+                                {selectedPresetQuoteBreakdown
+                                  ? t(
+                                      'Selected method: {{method}} · Estimated payment: {{amount}} (original {{original}})',
+                                      {
+                                        method: selectedPaymentMethodName,
+                                        amount:
+                                          formatSelectedPaymentAmount(
+                                            paymentAmount
+                                          ),
+                                        original: formatSelectedPaymentAmount(
+                                          selectedPresetQuoteBreakdown.originalPrice
+                                        ),
+                                      }
+                                    )
+                                  : t(
+                                      'Selected method: {{method}} · Amount due: {{amount}} (actual payment)',
+                                      {
+                                        method: selectedPaymentMethodName,
+                                        amount: paymentAmountLabel,
+                                      }
+                                    )}
                               </p>
-                              {selectedPresetPricing.hasDiscount && (
+                              {selectedPresetQuoteBreakdown?.hasDiscount && (
                                 <p className='text-muted-foreground'>
                                   {t('Discount applied {{amount}}', {
-                                    amount: formatPresetPaymentAmount(
-                                      selectedPresetPricing.savedAmount
+                                    amount: formatSelectedPaymentAmount(
+                                      selectedPresetQuoteBreakdown.savedAmount
                                     ),
                                   })}
                                 </p>
@@ -574,7 +601,6 @@ export function RechargeFormCard({
                   </FieldDescription>
                   <div className='grid min-w-0 gap-2 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center'>
                     <InputGroup className='h-9 sm:h-10'>
-                      <InputGroupAddon aria-hidden='true'>$</InputGroupAddon>
                       <InputGroupInput
                         id='topup-amount'
                         type='number'
@@ -600,8 +626,7 @@ export function RechargeFormCard({
                             'Selected method: {{method}} · Amount due: {{amount}} (actual payment)',
                             {
                               method: selectedPaymentMethodName,
-                              amount:
-                                formatSelectedPaymentAmount(paymentAmount),
+                              amount: paymentAmountLabel,
                             }
                           )}
                         </span>
@@ -623,7 +648,6 @@ export function RechargeFormCard({
                           )}
                         </div>
                       </div>
-                      {calculating ? <Skeleton className='h-5 w-16' /> : null}
                     </div>
                   </div>
                 </Field>

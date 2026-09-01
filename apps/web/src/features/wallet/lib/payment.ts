@@ -36,6 +36,11 @@ import type {
 // Payment Processing Functions
 // ============================================================================
 
+/** A checkout cannot be displayed or confirmed without a usable quote. */
+export function isPositivePaymentAmount(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0
+}
+
 /**
  * Check if browser is Safari
  */

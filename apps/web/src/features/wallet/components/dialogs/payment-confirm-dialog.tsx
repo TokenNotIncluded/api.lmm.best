@@ -35,11 +35,12 @@ import { Skeleton } from '@/components/ui/skeleton'
 
 import { DEFAULT_DISCOUNT_RATE } from '../../constants'
 import {
-  formatPlatformCreditBalance as formatPlatformCreditBalanceBase,
+  formatCreditBalance as formatPlatformCreditBalanceBase,
   formatPaymentAmount,
   formatSettlementAmount,
   getPaymentIcon,
   getPaymentSettlementUnit,
+  isPositivePaymentAmount,
 } from '../../lib'
 import { discountCodeSavings } from '../../lib/discount-state'
 import type { PaymentMethod } from '../../types'
@@ -76,7 +77,8 @@ export function PaymentConfirmDialog({
   const { t } = useTranslation()
   const formatPlatformCreditBalance = (amount: number) =>
     formatPlatformCreditBalanceBase(amount, t('Platform'))
-  const hasDiscount = discountRate > 0 && discountRate < 1 && paymentAmount > 0
+  const hasPaymentAmount = isPositivePaymentAmount(paymentAmount)
+  const hasDiscount = hasPaymentAmount && discountRate > 0 && discountRate < 1
   const originalAmount = hasDiscount ? paymentAmount / discountRate : 0
   const discountAmount = hasDiscount ? originalAmount - paymentAmount : 0
   const codeSavings = discountCodeSavings(paymentAmount, discountPercent)
@@ -128,7 +130,7 @@ export function PaymentConfirmDialog({
             </span>
             {calculating ? (
               <Skeleton className='h-6 w-24' />
-            ) : (
+            ) : hasPaymentAmount ? (
               <div className='flex items-baseline gap-2'>
                 <span className='text-2xl font-semibold'>
                   {formatSelectedPaymentAmount(paymentAmount)}
@@ -139,6 +141,10 @@ export function PaymentConfirmDialog({
                   </span>
                 )}
               </div>
+            ) : (
+              <span className='text-muted-foreground font-medium'>
+                {t('Payment unavailable')}
+              </span>
             )}
           </div>
 
@@ -168,7 +174,7 @@ export function PaymentConfirmDialog({
             </div>
           )}
 
-          {settlementUnit && !calculating && (
+          {settlementUnit && !calculating && hasPaymentAmount && (
             <div className='bg-muted/50 rounded-lg border p-3 text-sm'>
               {t('Credit {{amount}}; pay {{payment}}', {
                 amount: formatPlatformCreditBalance(topupAmount),
@@ -220,7 +226,10 @@ export function PaymentConfirmDialog({
           <AlertDialogCancel disabled={processing}>
             {t('Cancel')}
           </AlertDialogCancel>
-          <AlertDialogAction onClick={onConfirm} disabled={processing}>
+          <AlertDialogAction
+            onClick={onConfirm}
+            disabled={calculating || processing || !hasPaymentAmount}
+          >
             {processing && (
               <HugeiconsIcon
                 icon={Loading03Icon}
