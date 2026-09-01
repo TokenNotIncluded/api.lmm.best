@@ -111,6 +111,12 @@ func SubscriptionRequestWaffoPancakePay(c *gin.Context) {
 	// dispatch in WaffoPancakeWebhook.
 	tradeNo := fmt.Sprintf("WAFFO_PANCAKE_SUB-%d-%d-%s", userId, time.Now().UnixMilli(), randstr.String(6))
 
+	companyBillingProfile, err := loadAutomaticCompanyBillingProfile(userId)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "无法读取企业账单资料"})
+		return
+	}
+
 	order := &model.SubscriptionOrder{
 		UserId:               userId,
 		PlanId:               plan.Id,
@@ -149,6 +155,7 @@ func SubscriptionRequestWaffoPancakePay(c *gin.Context) {
 		OrderMerchantExternalID: tradeNo,
 		CheckoutRegion:          req.CheckoutRegion,
 		CheckoutLanguage:        req.CheckoutLanguage,
+		BillingDetail:           waffoPancakeBillingDetailFromProfile(companyBillingProfile),
 	})
 	if err != nil {
 		logger.LogError(c.Request.Context(), fmt.Sprintf("Waffo Pancake 订阅结账会话创建失败 user_id=%d plan_id=%d trade_no=%s error=%q", userId, plan.Id, tradeNo, err.Error()))
@@ -157,7 +164,17 @@ func SubscriptionRequestWaffoPancakePay(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "拉起支付失败"})
 		return
 	}
-	logger.LogInfo(c.Request.Context(), fmt.Sprintf("Waffo Pancake 订阅订单创建成功 user_id=%d plan_id=%d trade_no=%s session_id=%s plan_price=%.2f plan_currency=%s settlement_amount=%s settlement_currency=USD", userId, plan.Id, tradeNo, session.SessionID, plan.PriceAmount, plan.Currency, settlementAmount.StringFixed(2)))
+	if err := validateWaffoPancakeCompanyBilling(c.Request.Context(), session, companyBillingProfile); err != nil {
+		reason := waffoPancakeCompanyBillingFailureReason(err)
+		if transitionErr := model.FailPendingSubscriptionOrderForCheckout(tradeNo, model.PaymentProviderWaffoPancake, reason); transitionErr != nil {
+			logger.LogError(c.Request.Context(), fmt.Sprintf("Waffo Pancake 订阅企业账单失败终态 CAS 失败 user_id=%d plan_id=%d trade_no=%s reason_code=%s error=%q", userId, plan.Id, tradeNo, reason, transitionErr.Error()))
+		} else {
+			logger.LogWarn(c.Request.Context(), fmt.Sprintf("Waffo Pancake 订阅企业账单校验失败 user_id=%d plan_id=%d trade_no=%s reason_code=%s profile_enabled=%t", userId, plan.Id, tradeNo, reason, companyBillingProfile != nil))
+		}
+		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "企业账单资料不完整或暂时无法校验"})
+		return
+	}
+	logger.LogInfo(c.Request.Context(), fmt.Sprintf("Waffo Pancake 订阅订单创建成功 user_id=%d plan_id=%d trade_no=%s session_id=%s plan_price=%.2f plan_currency=%s settlement_amount=%s settlement_currency=USD company_billing_enabled=%t", userId, plan.Id, tradeNo, session.SessionID, plan.PriceAmount, plan.Currency, settlementAmount.StringFixed(2), companyBillingProfile != nil))
 
 	c.JSON(http.StatusOK, gin.H{
 		"message": "success",

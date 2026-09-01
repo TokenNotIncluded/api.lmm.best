@@ -117,6 +117,119 @@ async fn self_profile_does_not_trust_client_identity_headers() {
 }
 
 #[tokio::test]
+async fn company_billing_profile_authenticates_before_parsing() {
+    let response = app_without_listener_principal()
+        .oneshot(
+            Request::put("/api/user/company-billing-profile")
+                .header("content-type", "application/json")
+                .header("x-user-id", "7")
+                .body(Body::from("{"))
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body");
+    assert_eq!(
+        serde_json::from_slice::<Value>(&body).expect("JSON failure envelope")["code"],
+        "AUTH_UNAUTHORIZED"
+    );
+}
+
+#[tokio::test]
+async fn company_billing_profile_rejects_client_provider_rules_before_postgres() {
+    for body in [
+        r#"{"country":"US","isBusiness":true,"useForInvoices":true,"requiredFields":[]}"#,
+        r#"{"country":"US","isBusiness":true,"useForInvoices":true,"providerRules":{"requiredFields":[]}}"#,
+    ] {
+        let response = app()
+            .oneshot(
+                Request::put("/api/user/company-billing-profile")
+                    .header("authorization", "Bearer listener-verified")
+                    .header("content-type", "application/json")
+                    .body(Body::from(body))
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("body");
+        let payload = serde_json::from_slice::<Value>(&bytes).expect("JSON failure envelope");
+        assert_eq!(payload["success"], false);
+        assert_eq!(
+            payload["message"],
+            "Invalid company billing profile request"
+        );
+        assert!(payload.get("errors").is_none());
+    }
+}
+
+#[tokio::test]
+async fn company_billing_profile_requires_server_owned_identity_fields() {
+    let response = app()
+        .oneshot(
+            Request::put("/api/user/company-billing-profile")
+                .header("authorization", "Bearer listener-verified")
+                .header("content-type", "application/json")
+                .body(Body::from(r#"{"postcode":"10001"}"#))
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+
+    assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body");
+    let payload = serde_json::from_slice::<Value>(&bytes).expect("JSON failure envelope");
+    assert_eq!(payload["errors"]["country"], "required");
+    assert_eq!(payload["errors"]["isBusiness"], "required");
+    assert_eq!(payload["errors"]["useForInvoices"], "required");
+}
+
+#[tokio::test]
+async fn company_billing_profile_validation_does_not_echo_sensitive_values() {
+    let sensitive_name = "N".repeat(256);
+    let sensitive_tax_id = "sensitive-tax-value";
+    let body = serde_json::json!({
+        "country": "US",
+        "isBusiness": true,
+        "businessName": sensitive_name,
+        "taxId": sensitive_tax_id,
+        "useForInvoices": true
+    })
+    .to_string();
+    let response = app()
+        .oneshot(
+            Request::put("/api/user/company-billing-profile")
+                .header("authorization", "Bearer listener-verified")
+                .header("content-type", "application/json")
+                .body(Body::from(body))
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+
+    assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body");
+    let response_text = String::from_utf8(bytes.to_vec()).expect("UTF-8 body");
+    assert!(!response_text.contains(&sensitive_name));
+    assert!(!response_text.contains(sensitive_tax_id));
+    assert_eq!(
+        serde_json::from_str::<Value>(&response_text).expect("JSON failure envelope")["errors"]["businessName"],
+        "too_long"
+    );
+}
+
+#[tokio::test]
 async fn setting_update_rejects_a_client_supplied_identity_before_postgres() {
     let response = app_without_listener_principal()
         .oneshot(
@@ -302,6 +415,119 @@ async fn self_profile_uses_request_locale_for_rejected_unverified_identity() {
         .expect("body");
     let json: Value = serde_json::from_slice(&body).expect("JSON failure envelope");
     assert_eq!(json["message"], "无权进行此操作，access token 无效");
+}
+
+#[tokio::test]
+#[ignore = "requires the contract-7 PostgreSQL baseline and LMM_IDENTITY_TEST_DATABASE_URL"]
+async fn company_billing_profile_get_put_is_owner_scoped_and_cascades_with_user() {
+    assert_eq!(
+        env::var("LMM_IDENTITY_TEST_ALLOW_SCHEMA_RESET").as_deref(),
+        Ok("1"),
+        "integration test requires LMM_IDENTITY_TEST_ALLOW_SCHEMA_RESET=1"
+    );
+    let database_url =
+        env::var("LMM_IDENTITY_TEST_DATABASE_URL").expect("isolated PostgreSQL 18 URL");
+    let pool = PgPoolOptions::new()
+        .max_connections(2)
+        .connect(&database_url)
+        .await
+        .expect("connect isolated PostgreSQL");
+    sqlx::query("DELETE FROM users WHERE id = 7")
+        .execute(&pool)
+        .await
+        .expect("reset test user and cascaded profile");
+    sqlx::query("INSERT INTO users (id, password) VALUES (7, 'unused')")
+        .execute(&pool)
+        .await
+        .expect("seed owner");
+
+    let unavailable_valkey =
+        redis::Client::open("redis://127.0.0.1:1/").expect("valid unavailable Valkey URL");
+    let application = router(
+        ProfileState::new(pool.clone(), unavailable_valkey)
+            .with_identity_resolver(Arc::new(VerifiedPrincipal)),
+    );
+
+    let response = application
+        .clone()
+        .oneshot(
+            Request::get("/api/user/company-billing-profile")
+                .header("authorization", "Bearer listener-verified")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body");
+    assert_eq!(
+        serde_json::from_slice::<Value>(&body).expect("absent profile response")["data"],
+        Value::Null
+    );
+
+    let response = application
+        .clone()
+        .oneshot(
+            Request::put("/api/user/company-billing-profile")
+                .header("authorization", "Bearer listener-verified")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"country":"us","isBusiness":true,"postcode":" 10001 ","state":" NY ","businessName":" Example LLC ","taxId":" T-001 ","useForInvoices":true}"#,
+                ))
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body");
+    let payload = serde_json::from_slice::<Value>(&body).expect("saved profile response");
+    assert_eq!(payload["data"]["country"], "US");
+    assert_eq!(payload["data"]["postcode"], "10001");
+    assert_eq!(payload["data"]["useForInvoices"], true);
+
+    let stored: (String, String, String) = sqlx::query_as(
+        "SELECT country, business_name, tax_id FROM company_billing_profiles WHERE user_id = 7",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("owner-scoped stored profile");
+    assert_eq!(stored.0, "US");
+    assert_eq!(stored.1, "Example LLC");
+    assert_eq!(stored.2, "T-001");
+
+    let response = application
+        .oneshot(
+            Request::get("/api/user/company-billing-profile")
+                .header("authorization", "Bearer listener-verified")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body");
+    let payload = serde_json::from_slice::<Value>(&body).expect("loaded profile response");
+    assert_eq!(payload["data"]["businessName"], "Example LLC");
+
+    sqlx::query("DELETE FROM users WHERE id = 7")
+        .execute(&pool)
+        .await
+        .expect("delete owner");
+    let remaining: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM company_billing_profiles WHERE user_id = 7")
+            .fetch_one(&pool)
+            .await
+            .expect("count cascaded profile");
+    assert_eq!(
+        remaining, 0,
+        "owner deletion must physically remove billing PII"
+    );
 }
 
 #[tokio::test]

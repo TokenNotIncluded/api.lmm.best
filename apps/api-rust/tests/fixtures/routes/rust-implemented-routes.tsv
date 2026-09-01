@@ -342,6 +342,8 @@ POST	/api/user/auth/refresh	lmm_api_rs::auth::http::refresh
 DELETE	/api/user/bindings/:binding_type	lmm_api_rs::routes::identity_profile::router
 GET	/api/user/checkin	lmm_api_rs::routes::checkin_affiliate::read_router
 POST	/api/user/checkin	lmm_api_rs::routes::checkin_affiliate::router
+GET	/api/user/company-billing-profile	lmm_api_rs::routes::identity_profile::router
+PUT	/api/user/company-billing-profile	lmm_api_rs::routes::identity_profile::router
 GET	/api/user/developer-access/request	lmm_api_rs::routes::developer_access::router
 POST	/api/user/developer-access/request	lmm_api_rs::routes::developer_access::router
 GET	/api/user/gift	lmm_api_rs::routes::gifts::router

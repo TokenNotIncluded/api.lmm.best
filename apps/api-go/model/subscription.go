@@ -273,6 +273,7 @@ type SubscriptionOrder struct {
 	ProviderSubscriptionState string `json:"provider_subscription_state" gorm:"type:varchar(32);index"`
 	CurrentPeriodStart        int64  `json:"current_period_start"`
 	CurrentPeriodEnd          int64  `json:"current_period_end" gorm:"index"`
+	FailureReasonCode         string `json:"failure_reason_code,omitempty" gorm:"type:varchar(64);not null;default:''"`
 
 	ProviderPayload string `json:"provider_payload" gorm:"type:text"`
 }
@@ -322,6 +323,49 @@ func (o *SubscriptionOrder) Insert() error {
 
 func (o *SubscriptionOrder) Update() error {
 	return DB.Save(o).Error
+}
+
+// FailPendingSubscriptionOrderForCheckout is the subscription-side CAS used
+// after a provider checkout exists but server-side company billing validation
+// fails. A concurrent webhook settlement wins and is never overwritten.
+func FailPendingSubscriptionOrderForCheckout(tradeNo, expectedPaymentProvider string, reason PaymentOrderFailureReason) error {
+	tradeNo = strings.TrimSpace(tradeNo)
+	expectedPaymentProvider = strings.TrimSpace(expectedPaymentProvider)
+	if tradeNo == "" {
+		return errors.New("tradeNo is empty")
+	}
+	if expectedPaymentProvider == "" {
+		return ErrPaymentMethodMismatch
+	}
+	if !reason.valid() {
+		return ErrInvalidPaymentFailureReason
+	}
+
+	result := DB.Model(&SubscriptionOrder{}).
+		Where("trade_no = ? AND payment_provider = ? AND status = ?", tradeNo, expectedPaymentProvider, common.TopUpStatusPending).
+		Updates(map[string]interface{}{
+			"status":              common.TopUpStatusFailed,
+			"complete_time":       common.GetTimestamp(),
+			"failure_reason_code": string(reason),
+		})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 1 {
+		return nil
+	}
+
+	var current SubscriptionOrder
+	if err := DB.Select("payment_provider", "status").Where("trade_no = ?", tradeNo).First(&current).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ErrSubscriptionOrderNotFound
+		}
+		return err
+	}
+	if current.PaymentProvider != expectedPaymentProvider {
+		return ErrPaymentMethodMismatch
+	}
+	return ErrSubscriptionOrderStatusInvalid
 }
 
 func GetSubscriptionOrderByTradeNo(tradeNo string) *SubscriptionOrder {

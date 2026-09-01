@@ -499,6 +499,12 @@ func RequestWaffoPancakePay(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "支付金额无效"})
 		return
 	}
+	companyBillingProfile, err := loadAutomaticCompanyBillingProfile(id)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "无法读取企业账单资料"})
+		return
+	}
+
 	topUp := &model.TopUp{
 		UserId:               id,
 		Amount:               storedAmount,
@@ -539,6 +545,7 @@ func RequestWaffoPancakePay(c *gin.Context) {
 		},
 		CheckoutRegion:   req.CheckoutRegion,
 		CheckoutLanguage: req.CheckoutLanguage,
+		BillingDetail:    waffoPancakeBillingDetailFromProfile(companyBillingProfile),
 	})
 	if err != nil {
 		logger.LogError(c.Request.Context(), fmt.Sprintf("Waffo Pancake 创建结账会话失败 user_id=%d trade_no=%s error=%q", id, tradeNo, err.Error()))
@@ -547,7 +554,17 @@ func RequestWaffoPancakePay(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "拉起支付失败"})
 		return
 	}
-	logger.LogInfo(c.Request.Context(), fmt.Sprintf("Waffo Pancake 充值订单创建成功 user_id=%d trade_no=%s session_id=%s amount=%s money=%s", id, tradeNo, session.SessionID, requestedAmount.String(), paymentAmount))
+	if err := validateWaffoPancakeCompanyBilling(c.Request.Context(), session, companyBillingProfile); err != nil {
+		reason := waffoPancakeCompanyBillingFailureReason(err)
+		if transitionErr := model.FailPendingTopUpForCheckout(tradeNo, model.PaymentProviderWaffoPancake, reason); transitionErr != nil {
+			logger.LogError(c.Request.Context(), fmt.Sprintf("Waffo Pancake 企业账单失败终态 CAS 失败 user_id=%d trade_no=%s reason_code=%s error=%q", id, tradeNo, reason, transitionErr.Error()))
+		} else {
+			logger.LogWarn(c.Request.Context(), fmt.Sprintf("Waffo Pancake 企业账单校验失败 user_id=%d trade_no=%s reason_code=%s profile_enabled=%t", id, tradeNo, reason, companyBillingProfile != nil))
+		}
+		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "企业账单资料不完整或暂时无法校验"})
+		return
+	}
+	logger.LogInfo(c.Request.Context(), fmt.Sprintf("Waffo Pancake 充值订单创建成功 user_id=%d trade_no=%s session_id=%s amount=%s money=%s company_billing_enabled=%t", id, tradeNo, session.SessionID, requestedAmount.String(), paymentAmount, companyBillingProfile != nil))
 
 	c.JSON(http.StatusOK, gin.H{
 		"message": "success",
@@ -669,6 +686,11 @@ func WaffoPancakeWebhook(c *gin.Context) {
 			c.String(http.StatusOK, "OK")
 			return
 		}
+		if waffoPancakeRejectsLateSettlement(order.Status) {
+			logger.LogWarn(c.Request.Context(), fmt.Sprintf("Waffo Pancake 订阅迟到事件被终态拒绝 trade_no=%s status=%s reason_code=%s event_id=%s", tradeNo, order.Status, order.FailureReasonCode, event.ID))
+			c.String(http.StatusOK, "OK")
+			return
+		}
 
 		productType := waffoPancakeSubscriptionOrderProductType(order)
 		if action == service.WaffoPancakeWebhookActionSubscriptionStateChanged &&
@@ -782,6 +804,14 @@ func WaffoPancakeWebhook(c *gin.Context) {
 		LockOrder(tradeNo)
 		defer UnlockOrder(tradeNo)
 		if err := model.CompleteSubscriptionOrder(tradeNo, string(bodyBytes), model.PaymentProviderWaffoPancake, ""); err != nil {
+			if errors.Is(err, model.ErrSubscriptionOrderStatusInvalid) {
+				current := model.GetSubscriptionOrderByTradeNo(tradeNo)
+				if current != nil && waffoPancakeRejectsLateSettlement(current.Status) {
+					logger.LogWarn(c.Request.Context(), fmt.Sprintf("Waffo Pancake 订阅迟到结算在 CAS 后被终态拒绝 trade_no=%s status=%s reason_code=%s event_id=%s", tradeNo, current.Status, current.FailureReasonCode, event.ID))
+					c.String(http.StatusOK, "OK")
+					return
+				}
+			}
 			logger.LogError(c.Request.Context(), fmt.Sprintf("Waffo Pancake 订阅完成失败 trade_no=%s event_id=%s order_id=%s client_ip=%s error=%q", tradeNo, event.ID, event.Data.OrderID, c.ClientIP(), err.Error()))
 			c.String(http.StatusInternalServerError, "retry")
 			return
@@ -816,6 +846,11 @@ func WaffoPancakeWebhook(c *gin.Context) {
 		return
 	}
 	topUp := model.GetTopUpByTradeNo(tradeNo)
+	if topUp != nil && waffoPancakeRejectsLateSettlement(topUp.Status) {
+		logger.LogWarn(c.Request.Context(), fmt.Sprintf("Waffo Pancake 充值迟到事件被终态拒绝 trade_no=%s status=%s reason_code=%s event_id=%s", tradeNo, topUp.Status, topUp.FailureReasonCode, event.ID))
+		c.String(http.StatusOK, "OK")
+		return
+	}
 	if err := validateWaffoPancakeTopUpEvent(event, topUp); err != nil {
 		logger.LogError(c.Request.Context(), fmt.Sprintf(
 			"Waffo Pancake webhook 充值订单证据不匹配 trade_no=%s event_id=%s order_id=%s client_ip=%s error=%q",
@@ -834,6 +869,11 @@ func WaffoPancakeWebhook(c *gin.Context) {
 	if topUp == nil {
 		logger.LogError(c.Request.Context(), fmt.Sprintf("Waffo Pancake 充值订单在加锁后消失 trade_no=%s event_id=%s", tradeNo, event.ID))
 		c.String(http.StatusInternalServerError, "retry")
+		return
+	}
+	if waffoPancakeRejectsLateSettlement(topUp.Status) {
+		logger.LogWarn(c.Request.Context(), fmt.Sprintf("Waffo Pancake 充值迟到事件在加锁后被终态拒绝 trade_no=%s status=%s reason_code=%s event_id=%s", tradeNo, topUp.Status, topUp.FailureReasonCode, event.ID))
+		c.String(http.StatusOK, "OK")
 		return
 	}
 	wasPending := topUp.Status == common.TopUpStatusPending
@@ -859,6 +899,14 @@ func WaffoPancakeWebhook(c *gin.Context) {
 		ProviderStoreId:       event.StoreID,
 	})
 	if err != nil {
+		if errors.Is(err, model.ErrTopUpStatusInvalid) {
+			current := model.GetTopUpByTradeNo(tradeNo)
+			if current != nil && waffoPancakeRejectsLateSettlement(current.Status) {
+				logger.LogWarn(c.Request.Context(), fmt.Sprintf("Waffo Pancake 充值迟到结算在 CAS 后被终态拒绝 trade_no=%s status=%s reason_code=%s event_id=%s", tradeNo, current.Status, current.FailureReasonCode, event.ID))
+				c.String(http.StatusOK, "OK")
+				return
+			}
+		}
 		logger.LogError(c.Request.Context(), fmt.Sprintf("Waffo Pancake 充值处理失败 trade_no=%s event_id=%s order_id=%s client_ip=%s error=%q", tradeNo, event.ID, event.Data.OrderID, c.ClientIP(), err.Error()))
 		c.String(http.StatusInternalServerError, "retry")
 		return

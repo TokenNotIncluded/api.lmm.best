@@ -139,6 +139,10 @@ impl ProfileState {
 pub fn router(state: ProfileState) -> Router {
     Router::new()
         .route("/api/user/aff", get(get_aff_code))
+        .route(
+            "/api/user/company-billing-profile",
+            get(get_company_billing_profile).put(put_company_billing_profile),
+        )
         .route("/api/user/setting", put(update_setting))
         .route("/api/user/self", put(update_self).delete(delete_self))
         .route(
@@ -171,6 +175,268 @@ async fn profile_auth_boundary(
         .headers_mut()
         .insert("auth-version", HeaderValue::from_static(AUTH_VERSION));
     response
+}
+
+const COMPANY_BILLING_REQUEST_MAX_BYTES: usize = 64 * 1024;
+const COMPANY_BILLING_POSTCODE_MAX_CHARS: usize = 32;
+const COMPANY_BILLING_STATE_MAX_CHARS: usize = 128;
+const COMPANY_BILLING_BUSINESS_NAME_MAX_CHARS: usize = 255;
+const COMPANY_BILLING_TAX_ID_MAX_CHARS: usize = 64;
+const ISO_3166_ALPHA_2: &str = "AD AE AF AG AI AL AM AO AQ AR AS AT AU AW AX AZ BA BB BD BE BF BG BH BI BJ BL BM BN BO BQ BR BS BT BV BW BY BZ CA CC CD CF CG CH CI CK CL CM CN CO CR CU CV CW CX CY CZ DE DJ DK DM DO DZ EC EE EG EH ER ES ET FI FJ FK FM FO FR GA GB GD GE GF GG GH GI GL GM GN GP GQ GR GS GT GU GW GY HK HM HN HR HT HU ID IE IL IM IN IO IQ IR IS IT JE JM JO JP KE KG KH KI KM KN KP KR KW KY KZ LA LB LC LI LK LR LS LT LU LV LY MA MC MD ME MF MG MH MK ML MM MN MO MP MQ MR MS MT MU MV MW MX MY MZ NA NC NE NF NG NI NL NO NP NR NU NZ OM PA PE PF PG PH PK PL PM PN PR PS PT PW PY QA RE RO RS RU RW SA SB SC SD SE SG SH SI SJ SK SL SM SN SO SR SS ST SV SX SY SZ TC TD TF TG TH TJ TK TL TM TN TO TR TT TV TW TZ UA UG UM US UY UZ VA VC VE VG VI VN VU WF WS YE YT ZA ZM ZW";
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CompanyBillingProfileRequest {
+    country: Option<String>,
+    is_business: Option<bool>,
+    postcode: Option<String>,
+    state: Option<String>,
+    business_name: Option<String>,
+    tax_id: Option<String>,
+    use_for_invoices: Option<bool>,
+}
+
+#[derive(Debug, Serialize, sqlx::FromRow)]
+#[serde(rename_all = "camelCase")]
+struct CompanyBillingProfileResponse {
+    country: String,
+    is_business: bool,
+    postcode: String,
+    state: String,
+    business_name: String,
+    tax_id: String,
+    use_for_invoices: bool,
+    created_at: i64,
+    updated_at: i64,
+}
+
+struct NormalizedCompanyBillingProfile {
+    country: String,
+    is_business: bool,
+    postcode: String,
+    state: String,
+    business_name: String,
+    tax_id: String,
+    use_for_invoices: bool,
+}
+
+#[derive(Clone, Copy)]
+struct CompanyBillingFieldError {
+    field: &'static str,
+    code: &'static str,
+}
+
+fn company_billing_response(data: Option<CompanyBillingProfileResponse>) -> Response {
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({"success": true, "message": "", "data": data})),
+    )
+        .into_response()
+}
+
+fn company_billing_failure(
+    status: StatusCode,
+    message: &'static str,
+    errors: Option<Map<String, Value>>,
+) -> Response {
+    let mut body = Map::from_iter([
+        ("success".to_owned(), Value::Bool(false)),
+        ("message".to_owned(), Value::String(message.to_owned())),
+    ]);
+    if let Some(errors) = errors.filter(|errors| !errors.is_empty()) {
+        body.insert("errors".to_owned(), Value::Object(errors));
+    }
+    (status, Json(Value::Object(body))).into_response()
+}
+
+fn normalize_company_billing_text(value: Option<String>) -> String {
+    value.unwrap_or_default().trim().to_owned()
+}
+
+fn validate_company_billing_text(
+    field: &'static str,
+    value: &str,
+    max_chars: usize,
+) -> Result<(), CompanyBillingFieldError> {
+    if value.chars().count() > max_chars {
+        return Err(CompanyBillingFieldError {
+            field,
+            code: "too_long",
+        });
+    }
+    if value.chars().any(char::is_control) {
+        return Err(CompanyBillingFieldError {
+            field,
+            code: "invalid_text",
+        });
+    }
+    Ok(())
+}
+
+fn normalize_company_billing_profile(
+    request: CompanyBillingProfileRequest,
+) -> Result<NormalizedCompanyBillingProfile, CompanyBillingFieldError> {
+    let country = request.country.unwrap_or_default().trim().to_uppercase();
+    if !ISO_3166_ALPHA_2
+        .split_ascii_whitespace()
+        .any(|candidate| candidate == country)
+    {
+        return Err(CompanyBillingFieldError {
+            field: "country",
+            code: "invalid_country",
+        });
+    }
+
+    let postcode = normalize_company_billing_text(request.postcode);
+    let state = normalize_company_billing_text(request.state);
+    let business_name = normalize_company_billing_text(request.business_name);
+    let tax_id = normalize_company_billing_text(request.tax_id);
+    for (field, value, max_chars) in [
+        ("state", state.as_str(), COMPANY_BILLING_STATE_MAX_CHARS),
+        (
+            "postcode",
+            postcode.as_str(),
+            COMPANY_BILLING_POSTCODE_MAX_CHARS,
+        ),
+        (
+            "businessName",
+            business_name.as_str(),
+            COMPANY_BILLING_BUSINESS_NAME_MAX_CHARS,
+        ),
+        ("taxId", tax_id.as_str(), COMPANY_BILLING_TAX_ID_MAX_CHARS),
+    ] {
+        validate_company_billing_text(field, value, max_chars)?;
+    }
+
+    Ok(NormalizedCompanyBillingProfile {
+        country,
+        is_business: request.is_business.unwrap_or(false),
+        postcode,
+        state,
+        business_name,
+        tax_id,
+        use_for_invoices: request.use_for_invoices.unwrap_or(false),
+    })
+}
+
+async fn get_company_billing_profile(
+    State(state): State<ProfileState>,
+    Extension(identity): Extension<ProfileIdentity>,
+) -> Response {
+    let result = sqlx::query_as::<_, CompanyBillingProfileResponse>(
+        "SELECT country, is_business, postcode, state, business_name, tax_id, \
+         use_for_invoices, created_at, updated_at \
+         FROM company_billing_profiles WHERE user_id = $1",
+    )
+    .bind(identity.user_id)
+    .fetch_optional(&state.pg)
+    .await;
+    match result {
+        Ok(profile) => company_billing_response(profile),
+        Err(_) => company_billing_failure(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Unable to load company billing profile",
+            None,
+        ),
+    }
+}
+
+async fn put_company_billing_profile(
+    State(state): State<ProfileState>,
+    Extension(identity): Extension<ProfileIdentity>,
+    request: Request,
+) -> Response {
+    let bytes = match to_bytes(request.into_body(), COMPANY_BILLING_REQUEST_MAX_BYTES).await {
+        Ok(bytes) => bytes,
+        Err(_) => {
+            return company_billing_failure(
+                StatusCode::BAD_REQUEST,
+                "Invalid company billing profile request",
+                None,
+            );
+        }
+    };
+    let request: CompanyBillingProfileRequest = match serde_json::from_slice(&bytes) {
+        Ok(request) => request,
+        Err(_) => {
+            return company_billing_failure(
+                StatusCode::BAD_REQUEST,
+                "Invalid company billing profile request",
+                None,
+            );
+        }
+    };
+
+    let mut required = Map::new();
+    if request.country.is_none() {
+        required.insert("country".to_owned(), Value::String("required".to_owned()));
+    }
+    if request.is_business.is_none() {
+        required.insert(
+            "isBusiness".to_owned(),
+            Value::String("required".to_owned()),
+        );
+    }
+    if request.use_for_invoices.is_none() {
+        required.insert(
+            "useForInvoices".to_owned(),
+            Value::String("required".to_owned()),
+        );
+    }
+    if !required.is_empty() {
+        return company_billing_failure(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "Invalid company billing profile",
+            Some(required),
+        );
+    }
+
+    let profile = match normalize_company_billing_profile(request) {
+        Ok(profile) => profile,
+        Err(error) => {
+            return company_billing_failure(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "Invalid company billing profile",
+                Some(Map::from_iter([(
+                    error.field.to_owned(),
+                    Value::String(error.code.to_owned()),
+                )])),
+            );
+        }
+    };
+    let now = chrono::Utc::now().timestamp();
+    let result = sqlx::query_as::<_, CompanyBillingProfileResponse>(
+        "INSERT INTO company_billing_profiles \
+         (user_id, country, is_business, postcode, state, business_name, tax_id, \
+          use_for_invoices, created_at, updated_at) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9) \
+         ON CONFLICT (user_id) DO UPDATE SET \
+          country = EXCLUDED.country, is_business = EXCLUDED.is_business, \
+          postcode = EXCLUDED.postcode, state = EXCLUDED.state, \
+          business_name = EXCLUDED.business_name, tax_id = EXCLUDED.tax_id, \
+          use_for_invoices = EXCLUDED.use_for_invoices, updated_at = EXCLUDED.updated_at \
+         RETURNING country, is_business, postcode, state, business_name, tax_id, \
+          use_for_invoices, created_at, updated_at",
+    )
+    .bind(identity.user_id)
+    .bind(profile.country)
+    .bind(profile.is_business)
+    .bind(profile.postcode)
+    .bind(profile.state)
+    .bind(profile.business_name)
+    .bind(profile.tax_id)
+    .bind(profile.use_for_invoices)
+    .bind(now)
+    .fetch_one(&state.pg)
+    .await;
+    match result {
+        Ok(profile) => company_billing_response(Some(profile)),
+        Err(_) => company_billing_failure(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Unable to save company billing profile",
+            None,
+        ),
+    }
 }
 
 fn self_oauth_binding_column(binding_type: &str) -> Option<(&'static str, &'static str)> {

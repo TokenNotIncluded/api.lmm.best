@@ -17,7 +17,14 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useNavigate } from '@tanstack/react-router'
-import { LayoutDashboard, User, Wallet, LogOut, Settings } from 'lucide-react'
+import {
+  Building2,
+  LayoutDashboard,
+  User,
+  Wallet,
+  LogOut,
+  Settings,
+} from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 import { SignOutDialog } from '@/components/sign-out-dialog'
@@ -49,6 +56,7 @@ export function ProfileDropdown() {
   const consoleActivated = isConsoleActivated(user)
   const isSuperAdmin = user?.role === ROLE.SUPER_ADMIN
   const isWalletVisible = useIsSidebarModuleVisible('/wallet')
+  const isCompanyVisible = useIsSidebarModuleVisible('/company')
   const avatarName = user?.username || displayName
 
   return (
@@ -120,6 +128,13 @@ export function ProfileDropdown() {
                 <DropdownMenuItem onClick={() => navigate({ to: '/wallet' })}>
                   <Wallet className='size-4' />
                   {t('Wallet')}
+                </DropdownMenuItem>
+              ) : null}
+
+              {isCompanyVisible ? (
+                <DropdownMenuItem onClick={() => navigate({ to: '/company' })}>
+                  <Building2 className='size-4' />
+                  {t('Company')}
                 </DropdownMenuItem>
               ) : null}
             </>

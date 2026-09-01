@@ -13,6 +13,8 @@ pub const BOUNTY_SCHEMA_CONTRACT_ID: i64 = 2;
 pub const CURRENT_DASHBOARD_SCHEMA_CONTRACT_ID: i64 = 3;
 /// The first schema contract that requires the subscription reset subsystem.
 pub const SUBSCRIPTION_RESET_SCHEMA_CONTRACT_ID: i64 = 6;
+/// The first schema contract that requires invoice identity and failed-payment reasons.
+pub const COMPANY_BILLING_PROFILE_SCHEMA_CONTRACT_ID: i64 = 7;
 
 #[derive(Clone, Copy)]
 struct ColumnRequirement {
@@ -82,6 +84,19 @@ const fn nullable_column(
         nullable: true,
     }
 }
+
+const COMPANY_BILLING_PROFILE_COLUMNS: &[ColumnRequirement] = &[
+    column("user_id", "bigint", None),
+    column("country", "character", Some(2)),
+    column("is_business", "boolean", None),
+    column("postcode", "character varying", Some(32)),
+    column("state", "character varying", Some(128)),
+    column("business_name", "character varying", Some(255)),
+    column("tax_id", "character varying", Some(64)),
+    column("use_for_invoices", "boolean", None),
+    column("created_at", "bigint", None),
+    column("updated_at", "bigint", None),
+];
 
 const PROJECT_COLUMNS: &[ColumnRequirement] = &[
     column("id", "bigint", None),
@@ -960,6 +975,193 @@ pub fn verify_subscription_reset_schema(
     Ok(())
 }
 
+fn company_column_default_is_exact(name: &str, default: Option<&str>) -> bool {
+    match name {
+        "postcode" | "state" | "business_name" | "tax_id" => varchar_default_is_exact(default, ""),
+        "use_for_invoices" => default == Some("false"),
+        _ => default.is_none(),
+    }
+}
+
+/// Verifies the complete contract-7 company billing profile and payment-failure catalog.
+pub fn verify_company_billing_profile_schema(
+    transaction: &mut Transaction<'_>,
+    schema: &str,
+) -> Result<(), MigrationError> {
+    let rows = transaction.query(
+        "SELECT column_name,data_type,character_maximum_length,is_nullable,column_default FROM information_schema.columns WHERE table_schema=$1 AND table_name='company_billing_profiles' ORDER BY ordinal_position",
+        &[&schema],
+    )?;
+    let columns_match = rows.len() == COMPANY_BILLING_PROFILE_COLUMNS.len()
+        && rows
+            .iter()
+            .zip(COMPANY_BILLING_PROFILE_COLUMNS)
+            .all(|(row, requirement)| {
+                let name: String = row.get(0);
+                let data_type: String = row.get(1);
+                let length: Option<i32> = row.get(2);
+                let nullable: String = row.get(3);
+                let default: Option<String> = row.get(4);
+                name == requirement.name
+                    && data_type == requirement.data_type
+                    && length == requirement.character_maximum_length
+                    && nullable == "NO"
+                    && company_column_default_is_exact(&name, default.as_deref())
+            });
+    if !columns_match {
+        return Err(MigrationError::Manifest(
+            "forward schema column contract mismatch for company_billing_profiles".to_owned(),
+        ));
+    }
+
+    for table in ["top_ups", "subscription_orders"] {
+        let row = transaction.query_opt(
+            "SELECT data_type,character_maximum_length,is_nullable,column_default FROM information_schema.columns WHERE table_schema=$1 AND table_name=$2 AND column_name='failure_reason_code'",
+            &[&schema, &table],
+        )?;
+        let compatible = row.is_some_and(|row| {
+            let data_type: String = row.get(0);
+            let length: Option<i32> = row.get(1);
+            let nullable: String = row.get(2);
+            let default: Option<String> = row.get(3);
+            data_type == "character varying"
+                && length == Some(64)
+                && nullable == "NO"
+                && varchar_default_is_exact(default.as_deref(), "")
+        });
+        if !compatible {
+            return Err(MigrationError::Manifest(format!(
+                "forward schema column mismatch for {table}.failure_reason_code"
+            )));
+        }
+    }
+
+    let primary = transaction.query_opt(
+        r#"SELECT index_class.relname::TEXT,
+                  metadata.indisunique,
+                  metadata.indisvalid,
+                  metadata.indisready,
+                  metadata.indisprimary,
+                  metadata.indisexclusion,
+                  metadata.indexprs IS NULL,
+                  metadata.indnkeyatts::INT,
+                  metadata.indnatts::INT,
+                  access_method.amname::TEXT,
+                  ARRAY(
+                      SELECT attribute.attname::TEXT
+                      FROM pg_catalog.unnest(metadata.indkey::SMALLINT[]) WITH ORDINALITY AS key(attribute_number, ordinality)
+                      JOIN pg_catalog.pg_attribute AS attribute
+                        ON attribute.attrelid=metadata.indrelid
+                       AND attribute.attnum=key.attribute_number
+                      WHERE key.ordinality <= metadata.indnkeyatts
+                      ORDER BY key.ordinality
+                  ),
+                  pg_catalog.pg_get_expr(metadata.indpred, metadata.indrelid)
+             FROM pg_catalog.pg_index AS metadata
+             JOIN pg_catalog.pg_class AS index_class ON index_class.oid=metadata.indexrelid
+             JOIN pg_catalog.pg_am AS access_method ON access_method.oid=index_class.relam
+             JOIN pg_catalog.pg_class AS table_class ON table_class.oid=metadata.indrelid
+             JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid=table_class.relnamespace
+            WHERE namespace.nspname=$1
+              AND table_class.relname='company_billing_profiles'
+              AND metadata.indisprimary"#,
+        &[&schema],
+    )?;
+    let primary_matches = primary.is_some_and(|row| {
+        let name: String = row.get(0);
+        let unique: bool = row.get(1);
+        let valid: bool = row.get(2);
+        let ready: bool = row.get(3);
+        let primary: bool = row.get(4);
+        let exclusion: bool = row.get(5);
+        let no_expressions: bool = row.get(6);
+        let key_count: i32 = row.get(7);
+        let attribute_count: i32 = row.get(8);
+        let method: String = row.get(9);
+        let columns: Vec<String> = row.get(10);
+        let predicate: Option<String> = row.get(11);
+        name == "company_billing_profiles_pkey"
+            && unique
+            && valid
+            && ready
+            && primary
+            && !exclusion
+            && no_expressions
+            && key_count == 1
+            && attribute_count == 1
+            && method == "btree"
+            && columns == ["user_id"]
+            && predicate.is_none()
+    });
+    if !primary_matches {
+        return Err(MigrationError::Manifest(
+            "forward schema primary key mismatch for company_billing_profiles".to_owned(),
+        ));
+    }
+
+    let foreign_keys = transaction.query(
+        r#"SELECT constraint_name.conname::TEXT,
+                  constraint_name.convalidated,
+                  constraint_name.condeferrable,
+                  constraint_name.condeferred,
+                  constraint_name.confdeltype::TEXT,
+                  referenced_namespace.nspname::TEXT,
+                  referenced_table.relname::TEXT,
+                  ARRAY(
+                      SELECT attribute.attname::TEXT
+                      FROM pg_catalog.unnest(constraint_name.conkey) WITH ORDINALITY AS key(attribute_number, ordinality)
+                      JOIN pg_catalog.pg_attribute AS attribute
+                        ON attribute.attrelid=constraint_name.conrelid
+                       AND attribute.attnum=key.attribute_number
+                      ORDER BY key.ordinality
+                  ),
+                  ARRAY(
+                      SELECT attribute.attname::TEXT
+                      FROM pg_catalog.unnest(constraint_name.confkey) WITH ORDINALITY AS key(attribute_number, ordinality)
+                      JOIN pg_catalog.pg_attribute AS attribute
+                        ON attribute.attrelid=constraint_name.confrelid
+                       AND attribute.attnum=key.attribute_number
+                      ORDER BY key.ordinality
+                  )
+             FROM pg_catalog.pg_constraint AS constraint_name
+             JOIN pg_catalog.pg_class AS source_table ON source_table.oid=constraint_name.conrelid
+             JOIN pg_catalog.pg_namespace AS source_namespace ON source_namespace.oid=source_table.relnamespace
+             JOIN pg_catalog.pg_class AS referenced_table ON referenced_table.oid=constraint_name.confrelid
+             JOIN pg_catalog.pg_namespace AS referenced_namespace ON referenced_namespace.oid=referenced_table.relnamespace
+            WHERE source_namespace.nspname=$1
+              AND source_table.relname='company_billing_profiles'
+              AND constraint_name.contype='f'"#,
+        &[&schema],
+    )?;
+    let foreign_key_matches = foreign_keys.len() == 1
+        && foreign_keys.first().is_some_and(|row| {
+            let name: String = row.get(0);
+            let validated: bool = row.get(1);
+            let deferrable: bool = row.get(2);
+            let deferred: bool = row.get(3);
+            let delete_action: String = row.get(4);
+            let referenced_schema: String = row.get(5);
+            let referenced_table: String = row.get(6);
+            let columns: Vec<String> = row.get(7);
+            let referenced_columns: Vec<String> = row.get(8);
+            name == "company_billing_profiles_user_id_fkey"
+                && validated
+                && deferrable
+                && deferred
+                && delete_action == "c"
+                && referenced_schema == schema
+                && referenced_table == "users"
+                && columns == ["user_id"]
+                && referenced_columns == ["id"]
+        });
+    if !foreign_key_matches {
+        return Err(MigrationError::Manifest(
+            "forward schema foreign key mismatch for company_billing_profiles.user_id".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs;
@@ -1073,6 +1275,27 @@ mod tests {
         // PostgreSQL therefore forbids CREATE INDEX CONCURRENTLY in this replay-safe artifact.
         assert!(!sql.to_ascii_uppercase().contains("CONCURRENTLY"));
         assert!(!sql.to_ascii_uppercase().contains("FOREIGN KEY"));
+    }
+
+    #[test]
+    fn contract_seven_sql_binds_profile_lifecycle_and_failure_reasons() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../migrations/0007_company_billing_profile.sql");
+        let sql = fs::read_to_string(path).expect("read contract-7 migration");
+
+        assert_eq!(COMPANY_BILLING_PROFILE_COLUMNS.len(), 10);
+        assert!(
+            sql.contains("CREATE TABLE IF NOT EXISTS __LMM_APP_SCHEMA__.company_billing_profiles")
+        );
+        assert!(sql.contains("CONSTRAINT company_billing_profiles_user_id_fkey"));
+        assert!(sql.contains("REFERENCES __LMM_APP_SCHEMA__.users(id) ON DELETE CASCADE"));
+        assert!(sql.contains("DEFERRABLE INITIALLY DEFERRED"));
+        assert_eq!(
+            sql.matches("ADD COLUMN IF NOT EXISTS failure_reason_code")
+                .count(),
+            2
+        );
+        assert!(!sql.contains("public."));
     }
 
     #[test]

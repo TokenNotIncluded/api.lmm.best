@@ -39,6 +39,42 @@ SELECT jsonb_agg(
       JOIN pg_class AS index_class ON index_class.oid = index_metadata.indexrelid
       WHERE index_metadata.indrelid = table_class.oid
     ),
+    'foreign_keys', COALESCE((
+      SELECT jsonb_agg(
+        jsonb_build_object(
+          'name', constraint_metadata.conname,
+          'columns', (
+            SELECT jsonb_agg(source_attribute.attname ORDER BY key.ordinality)
+            FROM unnest(constraint_metadata.conkey) WITH ORDINALITY AS key(attnum, ordinality)
+            JOIN pg_attribute AS source_attribute
+              ON source_attribute.attrelid = constraint_metadata.conrelid
+             AND source_attribute.attnum = key.attnum
+          ),
+          'referenced_table', referenced_table.relname,
+          'referenced_columns', (
+            SELECT jsonb_agg(referenced_attribute.attname ORDER BY key.ordinality)
+            FROM unnest(constraint_metadata.confkey) WITH ORDINALITY AS key(attnum, ordinality)
+            JOIN pg_attribute AS referenced_attribute
+              ON referenced_attribute.attrelid = constraint_metadata.confrelid
+             AND referenced_attribute.attnum = key.attnum
+          ),
+          'on_delete', CASE constraint_metadata.confdeltype
+            WHEN 'a' THEN 'no_action'
+            WHEN 'r' THEN 'restrict'
+            WHEN 'c' THEN 'cascade'
+            WHEN 'n' THEN 'set_null'
+            WHEN 'd' THEN 'set_default'
+          END,
+          'deferrable', constraint_metadata.condeferrable,
+          'initially_deferred', constraint_metadata.condeferred
+        ) ORDER BY constraint_metadata.conname
+      )
+      FROM pg_constraint AS constraint_metadata
+      JOIN pg_class AS referenced_table
+        ON referenced_table.oid = constraint_metadata.confrelid
+      WHERE constraint_metadata.conrelid = table_class.oid
+        AND constraint_metadata.contype = 'f'
+    ), '[]'::jsonb),
     'sequence', (
       SELECT jsonb_build_object(
         'name', sequence_class.relname,

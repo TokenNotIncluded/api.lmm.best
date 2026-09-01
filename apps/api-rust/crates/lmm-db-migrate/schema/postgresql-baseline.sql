@@ -115,6 +115,19 @@ CREATE SEQUENCE public.checkins_id_seq
     NO MAXVALUE
     CACHE 1;
 ALTER SEQUENCE public.checkins_id_seq OWNED BY public.checkins.id;
+CREATE TABLE public.company_billing_profiles (
+    user_id bigint NOT NULL,
+    country character(2) NOT NULL,
+    is_business boolean NOT NULL,
+    postcode character varying(32) DEFAULT ''::character varying NOT NULL,
+    state character varying(128) DEFAULT ''::character varying NOT NULL,
+    business_name character varying(255) DEFAULT ''::character varying NOT NULL,
+    tax_id character varying(64) DEFAULT ''::character varying NOT NULL,
+    use_for_invoices boolean DEFAULT false NOT NULL,
+    created_at bigint NOT NULL,
+    updated_at bigint NOT NULL,
+    CONSTRAINT company_billing_profiles_country_format CHECK (((char_length(country) = 2) AND (country = upper(country))))
+);
 CREATE TABLE public.custom_oauth_providers (
     id bigint NOT NULL,
     name character varying(64) NOT NULL,
@@ -374,7 +387,8 @@ CREATE TABLE public.subscription_orders (
     status text,
     create_time bigint,
     complete_time bigint,
-    provider_payload text
+    provider_payload text,
+    failure_reason_code character varying(64) DEFAULT ''::character varying NOT NULL
 );
 CREATE SEQUENCE public.subscription_orders_id_seq
     START WITH 1
@@ -534,7 +548,8 @@ CREATE TABLE public.top_ups (
     payment_provider character varying(50) DEFAULT ''::character varying,
     create_time bigint,
     complete_time bigint,
-    status text
+    status text,
+    failure_reason_code character varying(64) DEFAULT ''::character varying NOT NULL
 );
 CREATE SEQUENCE public.top_ups_id_seq
     START WITH 1
@@ -734,6 +749,8 @@ ALTER TABLE ONLY public.channels
     ADD CONSTRAINT channels_pkey PRIMARY KEY (id);
 ALTER TABLE ONLY public.checkins
     ADD CONSTRAINT checkins_pkey PRIMARY KEY (id);
+ALTER TABLE ONLY public.company_billing_profiles
+    ADD CONSTRAINT company_billing_profiles_pkey PRIMARY KEY (user_id);
 ALTER TABLE ONLY public.custom_oauth_providers
     ADD CONSTRAINT custom_oauth_providers_pkey PRIMARY KEY (id);
 ALTER TABLE ONLY public.external_identity_claims
@@ -798,6 +815,8 @@ ALTER TABLE ONLY public.users
     ADD CONSTRAINT users_username_key UNIQUE (username);
 ALTER TABLE ONLY public.vendors
     ADD CONSTRAINT vendors_pkey PRIMARY KEY (id);
+ALTER TABLE ONLY public.company_billing_profiles
+    ADD CONSTRAINT company_billing_profiles_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED;
 CREATE INDEX idx_abilities_channel_id ON public.abilities USING btree (channel_id);
 CREATE INDEX idx_abilities_priority ON public.abilities USING btree (priority);
 CREATE INDEX idx_abilities_tag ON public.abilities USING btree (tag);

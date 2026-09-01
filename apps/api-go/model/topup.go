@@ -37,6 +37,7 @@ type TopUp struct {
 	ProviderStoreId       string  `json:"provider_store_id" gorm:"type:varchar(255);not null;default:''"`
 	ProviderEventId       *string `json:"provider_event_id,omitempty" gorm:"type:varchar(255);uniqueIndex:idx_topup_provider_event,priority:2"`
 	ProviderTransactionId *string `json:"provider_transaction_id,omitempty" gorm:"type:varchar(255);uniqueIndex:idx_topup_provider_transaction,priority:2"`
+	FailureReasonCode     string  `json:"failure_reason_code,omitempty" gorm:"type:varchar(64);not null;default:''"`
 	CreateTime            int64   `json:"create_time"`
 	CompleteTime          int64   `json:"complete_time"`
 	Status                string  `json:"status"`
@@ -50,11 +51,31 @@ const (
 	PaymentMethodBalance      = "balance"
 )
 
+type PaymentOrderFailureReason string
+
+const (
+	PaymentOrderFailureCompanyBillingRequiredFields PaymentOrderFailureReason = "company_billing_required_fields"
+	PaymentOrderFailureCompanyBillingPreview        PaymentOrderFailureReason = "company_billing_preview_unavailable"
+	PaymentOrderFailureCompanyBillingRules          PaymentOrderFailureReason = "company_billing_rules_invalid"
+)
+
+func (reason PaymentOrderFailureReason) valid() bool {
+	switch reason {
+	case PaymentOrderFailureCompanyBillingRequiredFields,
+		PaymentOrderFailureCompanyBillingPreview,
+		PaymentOrderFailureCompanyBillingRules:
+		return true
+	default:
+		return false
+	}
+}
+
 var (
-	ErrPaymentEvidenceConflict = errors.New("payment evidence conflict")
-	ErrInvalidTopUpQuota       = errors.New("invalid top-up quota")
-	ErrTopUpQuotaLimitExceeded = errors.New("top-up quota limit exceeded")
-	settlementLockShards       [64]sync.Mutex
+	ErrPaymentEvidenceConflict     = errors.New("payment evidence conflict")
+	ErrInvalidPaymentFailureReason = errors.New("invalid payment failure reason")
+	ErrInvalidTopUpQuota           = errors.New("invalid top-up quota")
+	ErrTopUpQuotaLimitExceeded     = errors.New("top-up quota limit exceeded")
+	settlementLockShards           [64]sync.Mutex
 )
 
 type ExternalTopUpSettlement struct {
@@ -884,6 +905,59 @@ func topUpActivityAnchor(topUp *TopUp) int64 {
 		return topUp.CompleteTime
 	}
 	return topUp.CreateTime
+}
+
+// FailPendingTopUpForCheckout moves exactly one provider order out of pending.
+// The status predicate is the CAS boundary: a concurrent signed webhook that
+// already settled the order wins, and this path never overwrites that result.
+// Only allowlisted, non-sensitive reason codes can be persisted.
+func FailPendingTopUpForCheckout(tradeNo, expectedPaymentProvider string, reason PaymentOrderFailureReason) error {
+	tradeNo = strings.TrimSpace(tradeNo)
+	expectedPaymentProvider = strings.TrimSpace(expectedPaymentProvider)
+	if tradeNo == "" {
+		return errors.New("未提供支付单号")
+	}
+	if expectedPaymentProvider == "" {
+		return ErrPaymentMethodMismatch
+	}
+	if !reason.valid() {
+		return ErrInvalidPaymentFailureReason
+	}
+
+	return DB.Transaction(func(tx *gorm.DB) error {
+		result := tx.Model(&TopUp{}).
+			Where("trade_no = ? AND payment_provider = ? AND status = ?", tradeNo, expectedPaymentProvider, common.TopUpStatusPending).
+			Updates(map[string]interface{}{
+				"status":              common.TopUpStatusFailed,
+				"complete_time":       common.GetTimestamp(),
+				"failure_reason_code": string(reason),
+			})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 1 {
+			var topUp TopUp
+			if err := tx.Select("discount_code_id").Where("trade_no = ?", tradeNo).First(&topUp).Error; err != nil {
+				return err
+			}
+			if topUp.DiscountCodeId != 0 {
+				return releaseDiscountCodeReservationTx(tx, tradeNo)
+			}
+			return nil
+		}
+
+		var current TopUp
+		if err := tx.Select("payment_provider", "status").Where("trade_no = ?", tradeNo).First(&current).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrTopUpNotFound
+			}
+			return err
+		}
+		if current.PaymentProvider != expectedPaymentProvider {
+			return ErrPaymentMethodMismatch
+		}
+		return ErrTopUpStatusInvalid
+	})
 }
 
 func UpdatePendingTopUpStatus(tradeNo string, expectedPaymentProvider string, targetStatus string) error {

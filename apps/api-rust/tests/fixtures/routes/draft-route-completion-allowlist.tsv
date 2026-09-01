@@ -195,6 +195,8 @@ POST	/api/user/account-action-requests	compatibility	apps/api-rust/src/routes/ac
 GET	/api/user/account-action-requests/appeal	compatibility	apps/api-rust/src/routes/account_action.rs	application route intentionally outside the frozen legacy route inventory
 POST	/api/user/account-action-requests/appeal	compatibility	apps/api-rust/src/routes/account_action.rs	application route intentionally outside the frozen legacy route inventory
 DELETE	/api/user/bindings/:binding_type	compatibility	apps/api-rust/src/routes/identity_profile.rs	application route intentionally outside the frozen legacy route inventory
+GET	/api/user/company-billing-profile	compatibility	apps/api-rust/src/routes/identity_profile.rs	self-owned company billing identity route introduced after the frozen legacy route inventory
+PUT	/api/user/company-billing-profile	compatibility	apps/api-rust/src/routes/identity_profile.rs	self-owned company billing identity route introduced after the frozen legacy route inventory
 GET	/api/user/developer-access/request	compatibility	apps/api-rust/src/routes/developer_access.rs	application route intentionally outside the frozen legacy route inventory
 POST	/api/user/developer-access/request	compatibility	apps/api-rust/src/routes/developer_access.rs	application route intentionally outside the frozen legacy route inventory
 POST	/api/user/discount-code/validate	compatibility	apps/api-rust/src/routes/discount_code.rs	application route intentionally outside the frozen legacy route inventory

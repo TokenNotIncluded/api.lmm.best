@@ -57,6 +57,19 @@ pub struct PostgresIndex {
     pub predicate: Option<String>,
 }
 
+/// Exact PostgreSQL foreign-key ownership and delete-lifecycle contract.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct PostgresForeignKey {
+    pub name: String,
+    pub columns: Vec<String>,
+    pub referenced_table: String,
+    pub referenced_columns: Vec<String>,
+    pub on_delete: String,
+    pub deferrable: bool,
+    pub initially_deferred: bool,
+}
+
 /// Exact PostgreSQL sequence ownership and column-default contract.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -74,6 +87,8 @@ pub struct Table {
     pub columns: Vec<Column>,
     pub sqlite_indexes: Vec<SqliteIndex>,
     pub postgres_indexes: Vec<PostgresIndex>,
+    #[serde(default)]
+    pub postgres_foreign_keys: Vec<PostgresForeignKey>,
     pub sequence: Option<Sequence>,
     pub verifier: String,
 }
@@ -94,6 +109,7 @@ pub struct PostgresCatalogTable {
     pub name: String,
     pub columns: Vec<PostgresCatalogColumn>,
     pub indexes: Vec<PostgresIndex>,
+    pub foreign_keys: Vec<PostgresForeignKey>,
     pub sequence: Option<Sequence>,
 }
 
@@ -109,7 +125,7 @@ pub struct PostgresCatalogColumn {
 }
 
 impl Manifest {
-    /// Loads JSON and enforces the exact 34-table production contract.
+    /// Loads JSON and enforces the exact 35-table production contract.
     pub fn load(path: &Path) -> Result<Self, MigrationError> {
         let manifest: Self = serde_json::from_slice(&fs::read(path)?)?;
         manifest.validate()?;
@@ -138,6 +154,25 @@ impl Manifest {
         }
         for table in &self.tables {
             validate_table(table)?;
+            let expected_foreign_keys = if table.name == "company_billing_profiles" {
+                vec![PostgresForeignKey {
+                    name: "company_billing_profiles_user_id_fkey".to_owned(),
+                    columns: vec!["user_id".to_owned()],
+                    referenced_table: "users".to_owned(),
+                    referenced_columns: vec!["id".to_owned()],
+                    on_delete: "cascade".to_owned(),
+                    deferrable: true,
+                    initially_deferred: true,
+                }]
+            } else {
+                Vec::new()
+            };
+            if table.postgres_foreign_keys != expected_foreign_keys {
+                return Err(MigrationError::Manifest(format!(
+                    "foreign-key contract mismatch for {}",
+                    table.name
+                )));
+            }
         }
         Ok(())
     }
@@ -199,6 +234,16 @@ impl Manifest {
                     expected.name
                 )));
             }
+            let mut foreign_keys = table.foreign_keys.clone();
+            foreign_keys.sort();
+            let mut expected_foreign_keys = expected.postgres_foreign_keys.clone();
+            expected_foreign_keys.sort();
+            if foreign_keys != expected_foreign_keys {
+                return Err(MigrationError::Manifest(format!(
+                    "PostgreSQL foreign-key contract drift: {}",
+                    expected.name
+                )));
+            }
             if table.sequence != expected.sequence {
                 return Err(MigrationError::Manifest(format!(
                     "PostgreSQL sequence contract drift: {}",
@@ -252,6 +297,27 @@ fn validate_table(table: &Table) -> Result<(), MigrationError> {
             .iter()
             .map(|index| index.name.as_str()),
     )?;
+    validate_unique_names(
+        &table.name,
+        "PostgreSQL foreign key",
+        table
+            .postgres_foreign_keys
+            .iter()
+            .map(|foreign_key| foreign_key.name.as_str()),
+    )?;
+    if table.postgres_foreign_keys.iter().any(|foreign_key| {
+        foreign_key.columns.is_empty()
+            || foreign_key.columns.len() != foreign_key.referenced_columns.len()
+            || foreign_key
+                .columns
+                .iter()
+                .any(|column| !columns.contains(column.as_str()))
+    }) {
+        return Err(MigrationError::Manifest(format!(
+            "{} has an invalid PostgreSQL foreign key",
+            table.name
+        )));
+    }
     if table
         .sqlite_indexes
         .iter()
@@ -318,13 +384,14 @@ fn validate_unique_names<'a>(
     Ok(())
 }
 
-const EXPECTED_TABLES: [&str; 34] = [
+const EXPECTED_TABLES: [&str; 35] = [
     "abilities",
     "auth_flows",
     "authz_roles",
     "casbin_rule",
     "channels",
     "checkins",
+    "company_billing_profiles",
     "custom_oauth_providers",
     "external_identity_claims",
     "logs",
@@ -378,6 +445,7 @@ mod tests {
                     })
                     .collect(),
                 indexes: table.postgres_indexes.clone(),
+                foreign_keys: table.postgres_foreign_keys.clone(),
                 sequence: table.sequence.clone(),
             })
             .collect();
@@ -452,6 +520,35 @@ mod tests {
             .unwrap();
         index.predicate = Some("(deleted_at IS NOT NULL)".into());
         assert!(validate_catalog(&manifest, &changed_predicate).is_err());
+    }
+
+    #[test]
+    fn postgres_catalog_validator_should_reject_foreign_key_contract_mutations() {
+        let (manifest, catalog) = manifest_and_catalog();
+
+        let mut not_deferrable = catalog.clone();
+        not_deferrable
+            .iter_mut()
+            .find_map(|table| table.foreign_keys.first_mut())
+            .unwrap()
+            .deferrable = false;
+        assert!(validate_catalog(&manifest, &not_deferrable).is_err());
+
+        let mut not_initially_deferred = catalog.clone();
+        not_initially_deferred
+            .iter_mut()
+            .find_map(|table| table.foreign_keys.first_mut())
+            .unwrap()
+            .initially_deferred = false;
+        assert!(validate_catalog(&manifest, &not_initially_deferred).is_err());
+
+        let mut wrong_delete_action = catalog.clone();
+        wrong_delete_action
+            .iter_mut()
+            .find_map(|table| table.foreign_keys.first_mut())
+            .unwrap()
+            .on_delete = "restrict".into();
+        assert!(validate_catalog(&manifest, &wrong_delete_action).is_err());
     }
 
     #[test]
