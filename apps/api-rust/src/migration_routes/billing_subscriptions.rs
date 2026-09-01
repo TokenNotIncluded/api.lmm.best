@@ -212,6 +212,15 @@ async fn expire_due_subscriptions(
     let mut expired_count = 0_i64;
     for user_id in candidate_users {
         let mut tx = pg.begin().await?;
+        let Some(current_group) =
+            sqlx::query_scalar::<_, String>("SELECT \"group\" FROM users WHERE id=$1 FOR UPDATE")
+                .bind(user_id)
+                .fetch_optional(&mut *tx)
+                .await?
+        else {
+            tx.commit().await?;
+            continue;
+        };
         let changed = sqlx::query(
             "UPDATE user_subscriptions SET status='expired',updated_at=$2 WHERE user_id=$1 AND status='active' AND end_time > 0 AND end_time <= $2",
         )
@@ -242,12 +251,6 @@ async fn expire_due_subscriptions(
             .fetch_optional(&mut *tx)
             .await?
             {
-                let current_group: String = sqlx::query_scalar(
-                    "SELECT \"group\" FROM users WHERE id=$1 FOR UPDATE",
-                )
-                .bind(user_id)
-                .fetch_one(&mut *tx)
-                .await?;
                 let explicit_downgrade: String = row.try_get("downgrade_group")?;
                 let upgrade_group: String = row.try_get("upgrade_group")?;
                 let previous_group: String = row.try_get("prev_user_group")?;
@@ -1244,6 +1247,11 @@ fn is_zero_i64(value: &i64) -> bool {
     *value == 0
 }
 
+const PLAN_REMOVAL_HISTORY_SQL: &str = "SELECT EXISTS(SELECT 1 FROM user_subscriptions WHERE plan_id=$1) \
+     OR EXISTS(SELECT 1 FROM subscription_orders WHERE plan_id=$1 AND status IN ('pending','success')) \
+     OR EXISTS(SELECT 1 FROM subscription_reset_vouchers WHERE plan_id=$1) \
+     OR EXISTS(SELECT 1 FROM subscription_reset_events WHERE plan_id=$1)";
+
 async fn admin_delete_plan(
     State(state): State<BillingSubscriptionsState>,
     headers: HeaderMap,
@@ -1276,15 +1284,10 @@ async fn admin_delete_plan(
             return with_auth_version(failure(StatusCode::INTERNAL_SERVER_ERROR, "系统错误"));
         }
     }
-    let history = sqlx::query_scalar::<_, bool>(
-        "SELECT EXISTS(SELECT 1 FROM user_subscriptions WHERE plan_id=$1) \
-         OR EXISTS(SELECT 1 FROM subscription_orders WHERE plan_id=$1 AND status='success') \
-         OR EXISTS(SELECT 1 FROM subscription_reset_vouchers WHERE plan_id=$1) \
-         OR EXISTS(SELECT 1 FROM subscription_reset_events WHERE plan_id=$1)",
-    )
-    .bind(id)
-    .fetch_one(&mut *tx)
-    .await;
+    let history = sqlx::query_scalar::<_, bool>(PLAN_REMOVAL_HISTORY_SQL)
+        .bind(id)
+        .fetch_one(&mut *tx)
+        .await;
     let history = match history {
         Ok(value) => value,
         Err(_) => return with_auth_version(failure(StatusCode::INTERNAL_SERVER_ERROR, "系统错误")),
@@ -1317,17 +1320,6 @@ async fn admin_delete_plan(
             cancelled_orders: 0,
         }
     } else {
-        let cancelled = match sqlx::query(
-            "UPDATE subscription_orders SET status='expired',complete_time=$2,provider_subscription_state='plan_deleted' WHERE plan_id=$1 AND status='pending'",
-        )
-        .bind(id)
-        .bind(current)
-        .execute(&mut *tx)
-        .await
-        {
-            Ok(value) => value.rows_affected() as i64,
-            Err(_) => return with_auth_version(failure(StatusCode::INTERNAL_SERVER_ERROR, "系统错误")),
-        };
         if sqlx::query("DELETE FROM subscription_plans WHERE id=$1")
             .bind(id)
             .execute(&mut *tx)
@@ -1339,7 +1331,7 @@ async fn admin_delete_plan(
         PlanRemovalResult {
             action: "deleted",
             archived_at: 0,
-            cancelled_orders: cancelled,
+            cancelled_orders: 0,
         }
     };
     let audit = json!({"op":{"action":"subscription.plan_remove","params":{
@@ -1982,16 +1974,17 @@ async fn change_subscription_status(
         Ok(tx) => tx,
         Err(_) => return failure(StatusCode::INTERNAL_SERVER_ERROR, "系统错误"),
     };
-    let subscription = match locked_subscription(&mut tx, id).await {
-        Ok(Some(subscription)) => subscription,
+    let (subscription, current_group) = match lock_user_then_subscription(&mut tx, id).await {
+        Ok(Some(locked)) => locked,
         Ok(None) => return failure(StatusCode::NOT_FOUND, "订阅不存在"),
         Err(_) => return failure(StatusCode::INTERNAL_SERVER_ERROR, "系统错误"),
     };
     let current = now();
-    let downgrade = match downgrade_user_group(&mut tx, &subscription, current).await {
-        Ok(group) => group,
-        Err(_) => return failure(StatusCode::INTERNAL_SERVER_ERROR, "系统错误"),
-    };
+    let downgrade =
+        match downgrade_user_group(&mut tx, &subscription, current, &current_group).await {
+            Ok(group) => group,
+            Err(_) => return failure(StatusCode::INTERNAL_SERVER_ERROR, "系统错误"),
+        };
     let mutation = if invalidate {
         sqlx::query(
             "UPDATE user_subscriptions SET status='cancelled',end_time=$2,updated_at=$2 WHERE id=$1",
@@ -2016,34 +2009,52 @@ async fn change_subscription_status(
     }
 }
 
-async fn locked_subscription(
+/// Reads the owner only to establish `user -> subscription` lock order, then
+/// revalidates the owner while locking the subscription row.
+async fn lock_user_then_subscription(
     tx: &mut Transaction<'_, Postgres>,
     id: i64,
-) -> Result<Option<Subscription>, sqlx::Error> {
-    sqlx::query(&format!("{SUB_SELECT} WHERE id=$1 FOR UPDATE"))
-        .bind(id)
-        .fetch_optional(&mut **tx)
-        .await?
-        .map(|row| subscription_from_row(&row))
-        .transpose()
+) -> Result<Option<(Subscription, String)>, sqlx::Error> {
+    let Some(user_id) =
+        sqlx::query_scalar::<_, i64>("SELECT user_id FROM user_subscriptions WHERE id=$1")
+            .bind(id)
+            .fetch_optional(&mut **tx)
+            .await?
+    else {
+        return Ok(None);
+    };
+    let Some(current_group) =
+        sqlx::query_scalar::<_, String>("SELECT \"group\" FROM users WHERE id=$1 FOR UPDATE")
+            .bind(user_id)
+            .fetch_optional(&mut **tx)
+            .await?
+    else {
+        return Ok(None);
+    };
+    let subscription = sqlx::query(&format!(
+        "{SUB_SELECT} WHERE id=$1 AND user_id=$2 FOR UPDATE"
+    ))
+    .bind(id)
+    .bind(user_id)
+    .fetch_optional(&mut **tx)
+    .await?
+    .map(|row| subscription_from_row(&row))
+    .transpose()?;
+    Ok(subscription.map(|subscription| (subscription, current_group)))
 }
 
-/// Preserve the legacy cancellation/delete ordering: lock the subscription and
-/// user, keep a later active upgraded subscription, then apply an explicit
+/// Preserve the legacy cancellation/delete result while locking the user before
+/// the subscription. Keep a later active upgraded subscription, then apply an explicit
 /// downgrade group or the pre-upgrade group snapshot.
 async fn downgrade_user_group(
     tx: &mut Transaction<'_, Postgres>,
     subscription: &Subscription,
     current: i64,
+    current_group: &str,
 ) -> Result<Option<String>, sqlx::Error> {
     if subscription.downgrade_group.is_empty() && subscription.upgrade_group.is_empty() {
         return Ok(None);
     }
-    let user = sqlx::query("SELECT \"group\" FROM users WHERE id=$1 FOR UPDATE")
-        .bind(subscription.user_id)
-        .fetch_one(&mut **tx)
-        .await?;
-    let current_group: String = user.try_get("group")?;
     let other_active: bool = sqlx::query_scalar(
         "SELECT EXISTS(SELECT 1 FROM user_subscriptions WHERE user_id=$1 AND status='active' AND end_time>$2 AND id<>$3 AND upgrade_group<>'')",
     )
@@ -2188,8 +2199,8 @@ mod tests {
     use std::{error::Error, io};
 
     use super::{
-        LegacyUserSetting, Plan, end_time, include_archived_requested, next_reset,
-        normalize_preference, parse_preference_request, plan_list_sql,
+        LegacyUserSetting, PLAN_REMOVAL_HISTORY_SQL, Plan, end_time, include_archived_requested,
+        next_reset, normalize_preference, parse_preference_request, plan_list_sql,
     };
 
     type TestResult<T = ()> = Result<T, Box<dyn Error>>;
@@ -2245,6 +2256,12 @@ mod tests {
         assert!(plan_list_sql(false, false).contains("WHERE archived_at = 0"));
         assert!(!plan_list_sql(false, true).contains("WHERE archived_at = 0"));
         assert!(plan_list_sql(true, true).contains("archived_at = 0"));
+    }
+
+    #[test]
+    fn plan_removal_history_preserves_pending_external_checkouts() {
+        assert!(PLAN_REMOVAL_HISTORY_SQL.contains("status IN ('pending','success')"));
+        assert!(!PLAN_REMOVAL_HISTORY_SQL.contains("status='success'"));
     }
 
     #[test]

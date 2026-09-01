@@ -54,39 +54,60 @@ func TestAdminDeleteSubscriptionPlanArchivesSubscribedPlan(t *testing.T) {
 	require.False(t, plan.Enabled)
 }
 
-func TestAdminDeleteSubscriptionPlanIgnoresOrderOnlyHistory(t *testing.T) {
+func TestAdminDeleteSubscriptionPlanArchivesPendingExternalCheckout(t *testing.T) {
 	truncateTables(t)
 	seedDeletableSubscriptionPlan(t, 9605)
+	require.NoError(t, DB.Create(&User{
+		Id: 101, Username: "pending-plan-checkout", Password: "password",
+		Status: common.UserStatusEnabled, Group: "default",
+	}).Error)
 	require.NoError(t, DB.Create(&SubscriptionOrder{
 		Id: 9603, UserId: 101, PlanId: 9605, Money: 1,
 		TradeNo: "delete-plan-order", Status: common.TopUpStatusPending,
 	}).Error)
-	require.NoError(t, DB.Create(&SubscriptionOrder{
-		Id: 9604, UserId: 102, PlanId: 9605, Money: 1,
-		TradeNo: "delete-plan-failed-order", Status: common.TopUpStatusFailed,
-	}).Error)
 
 	result, err := AdminDeleteSubscriptionPlan(9605)
 	require.NoError(t, err)
-	require.Equal(t, "deleted", result.Action)
-	require.EqualValues(t, 1, result.CancelledOrders)
+	require.Equal(t, "archived", result.Action)
+	require.Positive(t, result.ArchivedAt)
+	require.Zero(t, result.CancelledOrders)
 
-	var planCount, subscriptionCount int64
-	require.NoError(t, DB.Model(&SubscriptionPlan{}).Where("id = ?", 9605).Count(&planCount).Error)
-	require.NoError(t, DB.Model(&UserSubscription{}).Where("plan_id = ?", 9605).Count(&subscriptionCount).Error)
-	require.Zero(t, planCount)
-	require.Zero(t, subscriptionCount)
+	var plan SubscriptionPlan
+	require.NoError(t, DB.First(&plan, 9605).Error)
+	require.False(t, plan.Enabled)
+	require.Equal(t, result.ArchivedAt, plan.ArchivedAt)
 
 	var order SubscriptionOrder
 	require.NoError(t, DB.First(&order, 9603).Error)
-	require.Equal(t, common.TopUpStatusExpired, order.Status)
-	require.Equal(t, "plan_deleted", order.ProviderSubscriptionState)
-	require.ErrorIs(t, CompleteSubscriptionOrder(order.TradeNo, `{}`, "", ""), ErrSubscriptionOrderStatusInvalid)
+	require.Equal(t, common.TopUpStatusPending, order.Status)
+	require.NoError(t, CompleteSubscriptionOrder(order.TradeNo, `{}`, "", ""))
+	require.NoError(t, DB.First(&order, 9603).Error)
+	require.Equal(t, common.TopUpStatusSuccess, order.Status)
+
+	var subscriptionCount int64
+	require.NoError(t, DB.Model(&UserSubscription{}).Where("plan_id = ?", 9605).Count(&subscriptionCount).Error)
+	require.EqualValues(t, 1, subscriptionCount)
+}
+
+func TestAdminDeleteSubscriptionPlanDeletesPlanWithFailedOrderOnly(t *testing.T) {
+	truncateTables(t)
+	seedDeletableSubscriptionPlan(t, 9607)
+	require.NoError(t, DB.Create(&SubscriptionOrder{
+		Id: 9604, UserId: 102, PlanId: 9607, Money: 1,
+		TradeNo: "delete-plan-failed-order", Status: common.TopUpStatusFailed,
+	}).Error)
+
+	result, err := AdminDeleteSubscriptionPlan(9607)
+	require.NoError(t, err)
+	require.Equal(t, "deleted", result.Action)
+	require.Zero(t, result.CancelledOrders)
+
+	var planCount int64
+	require.NoError(t, DB.Model(&SubscriptionPlan{}).Where("id = ?", 9607).Count(&planCount).Error)
+	require.Zero(t, planCount)
 	var failedOrder SubscriptionOrder
 	require.NoError(t, DB.First(&failedOrder, 9604).Error)
 	require.Equal(t, common.TopUpStatusFailed, failedOrder.Status)
-	require.NoError(t, DB.Model(&UserSubscription{}).Where("plan_id = ?", 9605).Count(&subscriptionCount).Error)
-	require.Zero(t, subscriptionCount)
 }
 
 func TestAdminDeleteSubscriptionPlanArchivesCompletedOrderHistory(t *testing.T) {

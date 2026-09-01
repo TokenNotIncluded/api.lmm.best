@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"sort"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -195,10 +196,10 @@ func applyAdminSubscriptionSearch(query *gorm.DB, value string) *gorm.DB {
 	}
 	like := "%" + value + "%"
 	predicate := fmt.Sprintf(
-		"CAST(us.user_id AS %s) LIKE ? OR LOWER(users.username) LIKE ? OR LOWER(COALESCE(users.email, '')) LIKE ?",
+		"CAST(us.user_id AS %s) LIKE ? OR LOWER(users.username) LIKE ? OR LOWER(COALESCE(users.email, '')) LIKE ? OR LOWER(plans.title) LIKE ?",
 		adminSubscriptionUserIDCastType(query),
 	)
-	return query.Where(predicate, like, like, like)
+	return query.Where(predicate, like, like, like, like)
 }
 
 func ListAdminSubscriptionRecords(filter AdminSubscriptionRecordFilter) (*AdminSubscriptionRecordPage, error) {
@@ -798,6 +799,26 @@ func verifySubscriptionResetPreviewTx(tx *gorm.DB, targets []SubscriptionResetPr
 	return nil
 }
 
+func verifySubscriptionResetUsersTx(tx *gorm.DB, targets []SubscriptionResetPreviewTarget) error {
+	userIds := make(map[int]struct{}, len(targets))
+	for _, target := range targets {
+		userIds[target.UserId] = struct{}{}
+	}
+	ids := make([]int, 0, len(userIds))
+	for userId := range userIds {
+		ids = append(ids, userId)
+	}
+	sort.Ints(ids)
+	var lockedIds []int
+	if err := lockForUpdate(tx).Model(&User{}).Where("id IN ?", ids).Order("id").Pluck("id", &lockedIds).Error; err != nil {
+		return err
+	}
+	if len(lockedIds) != len(ids) {
+		return ErrSubscriptionResetPreviewStale
+	}
+	return nil
+}
+
 func resetFrozenSubscriptionTargetTx(tx *gorm.DB, target SubscriptionResetPreviewTarget, now int64) (int, int64, error) {
 	resetCount := 0
 	var restoredQuota int64
@@ -881,6 +902,12 @@ func AdminResetSubscriptionsBatch(input AdminSubscriptionResetBatchInput) (*Admi
 		payloadHash, err := subscriptionResetPayloadHash(preview.Mode, targets)
 		if err != nil || payloadHash != preview.PayloadHash || len(targets) != preview.TargetCount {
 			return errors.New("subscription reset preview payload is invalid")
+		}
+		// Payment completion locks the user before inserting or updating a
+		// subscription. Keep the same user -> subscription order so a reset
+		// cannot verify an old subscription set while waiting on the user row.
+		if err := verifySubscriptionResetUsersTx(tx, targets); err != nil {
+			return err
 		}
 		if err := verifySubscriptionResetPreviewTx(tx, targets, now); err != nil {
 			return err

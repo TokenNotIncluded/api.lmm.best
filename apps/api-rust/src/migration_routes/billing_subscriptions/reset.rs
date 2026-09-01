@@ -131,6 +131,13 @@ fn normalized_page(value: Option<i64>, default: i64, maximum: i64) -> i64 {
     value.unwrap_or(default).clamp(1, maximum)
 }
 
+fn normalize_admin_search(value: &str) -> String {
+    value.trim().to_lowercase()
+}
+
+const ADMIN_RECORDS_BASE: &str = " FROM user_subscriptions us JOIN users ON users.id=us.user_id AND users.deleted_at IS NULL JOIN subscription_plans plans ON plans.id=us.plan_id WHERE ($1='' OR CAST(us.user_id AS TEXT) LIKE $2 OR LOWER(users.username) LIKE $2 OR LOWER(COALESCE(users.email,'')) LIKE $2 OR LOWER(plans.title) LIKE $2) AND ($3::BIGINT<=0 OR us.plan_id=$3) AND ($4='all' OR $4='' OR us.status=$4)";
+const RESET_TARGETS_BASE: &str = " FROM user_subscriptions us JOIN users ON users.id=us.user_id AND users.deleted_at IS NULL JOIN subscription_plans plans ON plans.id=us.plan_id WHERE us.status='active' AND us.end_time>$1 AND ($2='' OR CAST(us.user_id AS TEXT) LIKE $3 OR LOWER(users.username) LIKE $3 OR LOWER(COALESCE(users.email,'')) LIKE $3 OR LOWER(plans.title) LIKE $3) AND ($4::BIGINT<=0 OR us.plan_id=$4) AND (CARDINALITY($5::BIGINT[])=0 OR us.plan_id=ANY($5)) AND (CARDINALITY($6::BIGINT[])=0 OR us.user_id=ANY($6))";
+
 fn parse_query_ids(value: Option<&str>) -> Result<Vec<i64>, ResetError> {
     let value = value.unwrap_or_default().trim();
     if value.is_empty() {
@@ -195,7 +202,7 @@ async fn admin_records(
     }
     let page = normalized_page(query.page, 1, 1_000_000);
     let page_size = normalized_page(query.page_size, 20, 100);
-    let search = query.query.unwrap_or_default().trim().to_ascii_lowercase();
+    let search = normalize_admin_search(query.query.as_deref().unwrap_or_default());
     if search.chars().count() > MAX_QUERY_CHARACTERS {
         return no_cache(with_auth_version(failure(
             StatusCode::BAD_REQUEST,
@@ -217,8 +224,7 @@ async fn admin_records(
             "invalid subscription record status filter",
         )));
     }
-    let base = " FROM user_subscriptions us JOIN users ON users.id=us.user_id AND users.deleted_at IS NULL JOIN subscription_plans plans ON plans.id=us.plan_id WHERE ($1='' OR CAST(us.user_id AS TEXT) LIKE $2 OR LOWER(users.username) LIKE $2 OR LOWER(COALESCE(users.email,'')) LIKE $2) AND ($3::BIGINT<=0 OR us.plan_id=$3) AND ($4='all' OR $4='' OR us.status=$4)";
-    let total = sqlx::query_scalar::<_, i64>(&format!("SELECT COUNT(*){base}"))
+    let total = sqlx::query_scalar::<_, i64>(&format!("SELECT COUNT(*){ADMIN_RECORDS_BASE}"))
         .bind(&search)
         .bind(&like)
         .bind(plan_id)
@@ -226,7 +232,7 @@ async fn admin_records(
         .fetch_one(&state.pg)
         .await;
     let rows = sqlx::query_as::<_, AdminRecord>(&format!(
-        "SELECT us.id,us.user_id,users.username,COALESCE(users.email,'') email,us.plan_id,plans.title plan_title,COALESCE(plans.archived_at,0) plan_archived_at,us.amount_total,us.amount_used,us.start_time,us.end_time,COALESCE(us.status,'') status,COALESCE(us.source,'') source,COALESCE(us.last_reset_time,0) last_reset_time,COALESCE(us.next_reset_time,0) next_reset_time,COALESCE(us.allow_wallet_overflow,TRUE) allow_wallet_overflow,COALESCE(us.created_at,0) created_at,COALESCE(us.updated_at,0) updated_at{base} ORDER BY us.id DESC OFFSET $5 LIMIT $6"
+        "SELECT us.id,us.user_id,users.username,COALESCE(users.email,'') email,us.plan_id,plans.title plan_title,COALESCE(plans.archived_at,0) plan_archived_at,us.amount_total,us.amount_used,us.start_time,us.end_time,COALESCE(us.status,'') status,COALESCE(us.source,'') source,COALESCE(us.last_reset_time,0) last_reset_time,COALESCE(us.next_reset_time,0) next_reset_time,COALESCE(us.allow_wallet_overflow,TRUE) allow_wallet_overflow,COALESCE(us.created_at,0) created_at,COALESCE(us.updated_at,0) updated_at{ADMIN_RECORDS_BASE} ORDER BY us.id DESC OFFSET $5 LIMIT $6"
     ))
     .bind(&search)
     .bind(&like)
@@ -272,13 +278,13 @@ async fn eligible_rows(
     offset: i64,
     limit: i64,
 ) -> Result<(i64, Vec<Eligible>), sqlx::Error> {
-    let like = format!("%{}%", query.trim().to_ascii_lowercase());
-    let base = " FROM user_subscriptions us JOIN users ON users.id=us.user_id AND users.deleted_at IS NULL JOIN subscription_plans plans ON plans.id=us.plan_id WHERE us.status='active' AND us.end_time>$1 AND ($2='' OR CAST(us.user_id AS TEXT) LIKE $3 OR LOWER(users.username) LIKE $3 OR LOWER(COALESCE(users.email,'')) LIKE $3) AND ($4::BIGINT<=0 OR us.plan_id=$4) AND (CARDINALITY($5::BIGINT[])=0 OR us.plan_id=ANY($5)) AND (CARDINALITY($6::BIGINT[])=0 OR us.user_id=ANY($6))";
+    let search = normalize_admin_search(query);
+    let like = format!("%{search}%");
     let total = sqlx::query_scalar::<_, i64>(&format!(
-        "SELECT COUNT(*) FROM (SELECT us.user_id,us.plan_id{base} GROUP BY us.user_id,us.plan_id) eligible"
+        "SELECT COUNT(*) FROM (SELECT us.user_id,us.plan_id{RESET_TARGETS_BASE} GROUP BY us.user_id,us.plan_id) eligible"
     ))
     .bind(now)
-    .bind(query.trim())
+    .bind(&search)
     .bind(&like)
     .bind(plan_id)
     .bind(plan_ids)
@@ -286,10 +292,10 @@ async fn eligible_rows(
     .fetch_one(pg)
     .await?;
     let rows = sqlx::query_as::<_, Eligible>(&format!(
-        "SELECT us.user_id,users.username,COALESCE(users.email,'') email,us.plan_id,plans.title plan_title,COALESCE(plans.archived_at,0) plan_archived_at,COUNT(*)::BIGINT active_subscription_count,COALESCE(SUM(us.amount_total),0)::BIGINT amount_total,COALESCE(SUM(us.amount_used),0)::BIGINT amount_used,COALESCE(MIN(NULLIF(us.next_reset_time,0)),0)::BIGINT next_reset_time,(SELECT COUNT(*) FROM subscription_reset_vouchers v WHERE v.user_id=us.user_id AND v.plan_id=us.plan_id AND v.status='available' AND v.expires_at>$1)::BIGINT banked_voucher_count{base} GROUP BY us.user_id,users.username,users.email,us.plan_id,plans.title,plans.archived_at ORDER BY us.user_id DESC,us.plan_id DESC OFFSET $7 LIMIT $8"
+        "SELECT us.user_id,users.username,COALESCE(users.email,'') email,us.plan_id,plans.title plan_title,COALESCE(plans.archived_at,0) plan_archived_at,COUNT(*)::BIGINT active_subscription_count,COALESCE(SUM(us.amount_total),0)::BIGINT amount_total,COALESCE(SUM(us.amount_used),0)::BIGINT amount_used,COALESCE(MIN(NULLIF(us.next_reset_time,0)),0)::BIGINT next_reset_time,(SELECT COUNT(*) FROM subscription_reset_vouchers v WHERE v.user_id=us.user_id AND v.plan_id=us.plan_id AND v.status='available' AND v.expires_at>$1)::BIGINT banked_voucher_count{RESET_TARGETS_BASE} GROUP BY us.user_id,users.username,users.email,us.plan_id,plans.title,plans.archived_at ORDER BY us.user_id DESC,us.plan_id DESC OFFSET $7 LIMIT $8"
     ))
     .bind(now)
-    .bind(query.trim())
+    .bind(&search)
     .bind(&like)
     .bind(plan_id)
     .bind(plan_ids)
@@ -519,7 +525,7 @@ async fn resolve_targets(
             "plan_id cannot be combined with plan_ids",
         ));
     }
-    let search = filter.query.trim();
+    let search = normalize_admin_search(&filter.query);
     if search.chars().count() > MAX_QUERY_CHARACTERS {
         return Err(ResetError::Business(
             "subscription reset search filter is too long",
@@ -527,12 +533,12 @@ async fn resolve_targets(
     }
     let plan_ids = normalize_ids(&filter.plan_ids, "plan")?;
     let user_ids = normalize_ids(&filter.user_ids, "user")?;
-    let like = format!("%{}%", search.to_ascii_lowercase());
-    let rows = sqlx::query_as::<_, Target>(
-        "SELECT us.user_id,us.plan_id FROM user_subscriptions us JOIN users ON users.id=us.user_id AND users.deleted_at IS NULL WHERE us.status='active' AND us.end_time>$1 AND ($2='' OR CAST(us.user_id AS TEXT) LIKE $3 OR LOWER(users.username) LIKE $3 OR LOWER(COALESCE(users.email,'')) LIKE $3) AND ($4::BIGINT<=0 OR us.plan_id=$4) AND (CARDINALITY($5::BIGINT[])=0 OR us.plan_id=ANY($5)) AND (CARDINALITY($6::BIGINT[])=0 OR us.user_id=ANY($6)) GROUP BY us.user_id,us.plan_id ORDER BY us.user_id,us.plan_id LIMIT 5001",
-    )
+    let like = format!("%{search}%");
+    let rows = sqlx::query_as::<_, Target>(&format!(
+        "SELECT us.user_id,us.plan_id{RESET_TARGETS_BASE} GROUP BY us.user_id,us.plan_id ORDER BY us.user_id,us.plan_id LIMIT 5001"
+    ))
     .bind(now)
-    .bind(search)
+    .bind(&search)
     .bind(like)
     .bind(filter.plan_id)
     .bind(&plan_ids)
@@ -901,6 +907,22 @@ async fn verify_frozen(
     if expected.len() > MAX_ACTIVE_SUBSCRIPTIONS {
         return Err(ResetError::Stale);
     }
+    let mut user_ids = users
+        .iter()
+        .copied()
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>();
+    user_ids.sort_unstable();
+    let locked_users = sqlx::query_scalar::<_, i64>(
+        "SELECT id FROM users WHERE id=ANY($1::BIGINT[]) AND deleted_at IS NULL ORDER BY id FOR UPDATE",
+    )
+    .bind(&user_ids)
+    .fetch_all(&mut **tx)
+    .await?;
+    if locked_users != user_ids {
+        return Err(ResetError::Stale);
+    }
     let rows = sqlx::query_as::<_, FrozenSubscription>(
         "SELECT us.id,us.user_id,us.plan_id,us.amount_used,us.status,us.end_time,COALESCE(us.updated_at,0) updated_at FROM unnest($1::BIGINT[],$2::BIGINT[]) selected(user_id,plan_id) JOIN user_subscriptions us ON us.user_id=selected.user_id AND us.plan_id=selected.plan_id WHERE us.status='active' AND us.end_time>$3 ORDER BY us.user_id,us.plan_id,us.id FOR UPDATE OF us",
     )
@@ -957,7 +979,7 @@ async fn root_execute(
         Ok(value) => value,
         Err(response) => return no_cache(with_auth_version(response)),
     };
-    let result = execute(&state, &actor, request).await;
+    let result = execute(&state, &actor, request, &client_ip).await;
     no_cache(with_auth_version(match result {
         Ok(value) => ok(value),
         Err(error) => error_response(error),
@@ -968,6 +990,7 @@ async fn execute(
     state: &BillingSubscriptionsState,
     actor: &DashboardUser,
     request: ResetExecuteRequest,
+    client_ip: &str,
 ) -> Result<BatchResult, ResetError> {
     let operation_id = request.operation_id.trim();
     let preview_token = request.preview_token.trim();
@@ -1048,7 +1071,6 @@ async fn execute(
         vouchers_issued: 0,
         voucher_expires_at: preview.voucher_expires_at,
     };
-    let mut affected_users = BTreeSet::new();
     for target in &targets {
         let mut voucher_id = 0_i64;
         let mut reset_count = 0_i64;
@@ -1083,7 +1105,6 @@ async fn execute(
                     "subscription reset count exceeds the supported range",
                 ))?;
             result.restored_quota = checked_reset_add(result.restored_quota, restored_quota)?;
-            affected_users.insert(target.user_id);
         } else {
             voucher_id = sqlx::query_scalar::<_, i64>(
                 "INSERT INTO subscription_reset_vouchers (user_id,plan_id,operation_id,status,expires_at,redeemed_at,created_by,created_at,updated_at) VALUES ($1,$2,$3,'available',$4,0,$5,$6,$6) RETURNING id",
@@ -1137,6 +1158,7 @@ async fn execute(
         &mut tx,
         actor,
         now,
+        client_ip,
         "POST /api/subscription/root/reset",
         "subscription.reset.execute",
         json!({
@@ -1156,9 +1178,6 @@ async fn execute(
             }
             return Err(ResetError::Database(error));
         }
-    }
-    for user_id in affected_users {
-        evict_user_cache(state.valkey.as_ref(), user_id).await;
     }
     Ok(result)
 }
@@ -1250,7 +1269,7 @@ async fn redeem_voucher(
             "无效的重置券",
         )));
     }
-    let result = redeem(&state, &user, voucher_id).await;
+    let result = redeem(&state, &user, voucher_id, &client_ip).await;
     no_cache(with_auth_version(match result {
         Ok(value) => ok(value),
         Err(error) => error_response(error),
@@ -1261,6 +1280,7 @@ async fn redeem(
     state: &BillingSubscriptionsState,
     user: &DashboardUser,
     voucher_id: i64,
+    client_ip: &str,
 ) -> Result<VoucherResetResult, ResetError> {
     let now = database_timestamp(&state.pg).await?;
     let operation_id = format!("voucher:{voucher_id}");
@@ -1349,6 +1369,7 @@ async fn redeem(
         &mut tx,
         user,
         now,
+        client_ip,
         &format!("POST /api/subscription/self/reset-vouchers/{voucher_id}/redeem"),
         "subscription.reset.voucher_redeem",
         json!({"voucher_id":voucher_id,"reset_subscriptions":reset_count,"restored_quota":restored_quota}),
@@ -1380,17 +1401,19 @@ async fn insert_audit(
     tx: &mut Transaction<'_, Postgres>,
     actor: &DashboardUser,
     now: i64,
+    client_ip: &str,
     content: &str,
     action: &str,
     params: Value,
 ) -> Result<(), ResetError> {
     sqlx::query(
-        "INSERT INTO logs (user_id,created_at,type,content,username,ip,other) VALUES ($1,$2,3,$3,$4,'',$5)",
+        "INSERT INTO logs (user_id,created_at,type,content,username,ip,other) VALUES ($1,$2,3,$3,$4,$5,$6)",
     )
     .bind(actor.id)
     .bind(now)
     .bind(content)
     .bind(&actor.username)
+    .bind(client_ip)
     .bind(json!({"op":{"action":action,"params":params}}).to_string())
     .execute(&mut **tx)
     .await?;
@@ -1489,6 +1512,13 @@ mod tests {
         let replay = operation_result(&operation, 1, "preview")?;
         assert_eq!(replay.voucher_expires_at, 0);
         Ok(())
+    }
+
+    #[test]
+    fn admin_record_search_is_unicode_aware_and_matches_plan_titles() {
+        assert_eq!(normalize_admin_search("  ÜBER 套餐  "), "über 套餐");
+        assert!(ADMIN_RECORDS_BASE.contains("LOWER(plans.title) LIKE $2"));
+        assert!(RESET_TARGETS_BASE.contains("LOWER(plans.title) LIKE $3"));
     }
 
     #[test]

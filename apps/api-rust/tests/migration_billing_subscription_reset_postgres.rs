@@ -12,11 +12,14 @@ use axum::{
     response::Response,
 };
 use lmm_api_rs::{
+    ClientIpKey,
     auth::{
         AuthBundle, AuthError, AuthErrorKind, DashboardAuth, DashboardUser, LoginOutcome,
         LoginRequest, LogoutRequest, LogoutResult, RequestMetadata, TwoFactorLoginRequest,
     },
-    migration_routes::billing_subscriptions::{BillingSubscriptionsState, router},
+    migration_routes::billing_subscriptions::{
+        BillingSubscriptionsState, router, spawn_maintenance,
+    },
 };
 use secrecy::{ExposeSecret, SecretString};
 use serde_json::{Value, json};
@@ -356,12 +359,222 @@ async fn reset_execute_idempotent_replay_does_not_duplicate_durable_audit() -> T
     )
     .await?;
     assert_eq!(first["data"], replay["data"]);
-    let state: (i64, i64, i64, i64) = sqlx::query_as(
-        "SELECT (SELECT amount_used FROM user_subscriptions WHERE id=11), (SELECT COUNT(*) FROM subscription_reset_events WHERE operation_id='audit-replay'), (SELECT COUNT(*) FROM subscription_reset_operations WHERE operation_id='audit-replay'), (SELECT COUNT(*) FROM logs WHERE other::jsonb #>> '{op,action}'='subscription.reset.execute')",
+    let state: (i64, i64, i64, i64, String) = sqlx::query_as(
+        "SELECT (SELECT amount_used FROM user_subscriptions WHERE id=11), (SELECT COUNT(*) FROM subscription_reset_events WHERE operation_id='audit-replay'), (SELECT COUNT(*) FROM subscription_reset_operations WHERE operation_id='audit-replay'), (SELECT COUNT(*) FROM logs WHERE other::jsonb #>> '{op,action}'='subscription.reset.execute'), (SELECT ip FROM logs WHERE other::jsonb #>> '{op,action}'='subscription.reset.execute' LIMIT 1)",
     )
     .fetch_one(&harness.pool)
     .await?;
-    assert_eq!(state, (0, 1, 1, 1));
+    assert_eq!(state, (0, 1, 1, 1, "203.0.113.7".to_owned()));
+    harness.cleanup().await
+}
+
+#[tokio::test]
+#[ignore = "requires TEST_POSTGRES_URL from run-real-integration-gates.sh"]
+async fn reset_execute_rejects_a_deleted_target_user_without_consuming_preview() -> TestResult {
+    let harness = PgHarness::new().await?;
+    seed_active_subscription(&harness.pool, 8, 4, 12, 71).await?;
+    let app = harness.app();
+    let token = create_preview(&app, "soft", json!([{"user_id":8,"plan_id":4}])).await?;
+    sqlx::query("UPDATE users SET deleted_at=CURRENT_TIMESTAMP WHERE id=8")
+        .execute(&harness.pool)
+        .await?;
+    let response = response_json(
+        request(
+            app,
+            Method::POST,
+            "/api/subscription/root/reset",
+            "root",
+            Some(json!({"operation_id":"deleted-target","preview_token":token})),
+        )
+        .await?,
+    )
+    .await?;
+    assert_eq!(response["success"], false);
+    let state: (i64, i64, i64, i64, i64) = sqlx::query_as(
+        "SELECT (SELECT consumed_at FROM subscription_reset_previews WHERE token=$1), (SELECT COUNT(*) FROM subscription_reset_vouchers WHERE operation_id='deleted-target'), (SELECT COUNT(*) FROM subscription_reset_events WHERE operation_id='deleted-target'), (SELECT COUNT(*) FROM subscription_reset_operations WHERE operation_id='deleted-target'), (SELECT amount_used FROM user_subscriptions WHERE id=12)",
+    )
+    .bind(&token)
+    .fetch_one(&harness.pool)
+    .await?;
+    assert_eq!(state, (0, 0, 0, 0, 71));
+    harness.cleanup().await
+}
+
+#[tokio::test]
+#[ignore = "requires isolated PostgreSQL 18; run this test binary with --test-threads=1"]
+async fn admin_delete_waits_for_user_before_locking_subscription() -> TestResult {
+    let harness = PgHarness::new().await?;
+    seed_active_subscription(&harness.pool, 8, 4, 12, 71).await?;
+    sqlx::query("UPDATE users SET \"group\"='pro' WHERE id=8")
+        .execute(&harness.pool)
+        .await?;
+    sqlx::query("UPDATE user_subscriptions SET upgrade_group='pro',prev_user_group='default',downgrade_group='default' WHERE id=12")
+        .execute(&harness.pool)
+        .await?;
+    let app = harness.app();
+
+    let mut payment = harness.pool.begin().await?;
+    let payment_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *payment)
+        .await?;
+    sqlx::query("SELECT id FROM users WHERE id=8 FOR UPDATE")
+        .execute(&mut *payment)
+        .await?;
+    let deletion = tokio::spawn(request(
+        app,
+        Method::DELETE,
+        "/api/subscription/admin/user_subscriptions/12",
+        "root",
+        None,
+    ));
+    wait_until_blocked_by(&harness.pool, payment_pid).await?;
+    assert_subscription_row_unlocked(&harness.pool, 12).await?;
+    payment.rollback().await?;
+
+    let body = response_json(deletion.await??).await?;
+    assert_eq!(body["success"], true, "delete failed: {body}");
+    let state: (i64, String) = sqlx::query_as(
+        "SELECT (SELECT COUNT(*) FROM user_subscriptions WHERE id=12), (SELECT \"group\" FROM users WHERE id=8)",
+    )
+    .fetch_one(&harness.pool)
+    .await?;
+    assert_eq!(state, (0, "default".to_owned()));
+    harness.cleanup().await
+}
+
+#[tokio::test]
+#[ignore = "requires isolated PostgreSQL 18; run this test binary with --test-threads=1"]
+async fn maintenance_expiration_waits_for_user_before_updating_subscription() -> TestResult {
+    let harness = PgHarness::new().await?;
+    seed_active_subscription(&harness.pool, 8, 4, 12, 71).await?;
+    let current = database_timestamp(&harness.pool).await?;
+    sqlx::query("UPDATE users SET \"group\"='pro' WHERE id=8")
+        .execute(&harness.pool)
+        .await?;
+    sqlx::query("UPDATE user_subscriptions SET end_time=$1-1,upgrade_group='pro',prev_user_group='default',downgrade_group='default' WHERE id=12")
+        .bind(current)
+        .execute(&harness.pool)
+        .await?;
+
+    let mut payment = harness.pool.begin().await?;
+    let payment_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *payment)
+        .await?;
+    sqlx::query("SELECT id FROM users WHERE id=8 FOR UPDATE")
+        .execute(&mut *payment)
+        .await?;
+    let maintenance = spawn_maintenance(harness.pool.clone(), None)
+        .ok_or_else(|| std::io::Error::other("subscription maintenance is disabled"))?;
+    wait_until_blocked_by(&harness.pool, payment_pid).await?;
+    assert_subscription_row_unlocked(&harness.pool, 12).await?;
+    payment.rollback().await?;
+
+    timeout(Duration::from_secs(5), async {
+        loop {
+            let state: (String, String) = sqlx::query_as(
+                "SELECT (SELECT status FROM user_subscriptions WHERE id=12), (SELECT \"group\" FROM users WHERE id=8)",
+            )
+            .fetch_one(&harness.pool)
+            .await?;
+            if state == ("expired".to_owned(), "default".to_owned()) {
+                return Ok::<(), sqlx::Error>(());
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await??;
+    maintenance.abort();
+    let _ = maintenance.await;
+    harness.cleanup().await
+}
+
+#[tokio::test]
+#[ignore = "requires isolated PostgreSQL 18; run this test binary with --test-threads=1"]
+async fn reset_execute_rechecks_subscriptions_after_waiting_for_user_lock() -> TestResult {
+    let harness = PgHarness::new().await?;
+    seed_active_subscription(&harness.pool, 8, 4, 12, 71).await?;
+    let now = database_timestamp(&harness.pool).await?;
+    let app = harness.app();
+    let token = create_preview(&app, "hard", json!([{"user_id":8,"plan_id":4}])).await?;
+
+    let mut payment = harness.pool.begin().await?;
+    let payment_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *payment)
+        .await?;
+    sqlx::query("SELECT id FROM users WHERE id=8 FOR UPDATE")
+        .execute(&mut *payment)
+        .await?;
+    let execute = tokio::spawn(request(
+        app,
+        Method::POST,
+        "/api/subscription/root/reset",
+        "root",
+        Some(json!({"operation_id":"payment-race","preview_token":token})),
+    ));
+    wait_until_blocked_by(&harness.pool, payment_pid).await?;
+    sqlx::query("INSERT INTO user_subscriptions (id,user_id,plan_id,amount_total,amount_used,start_time,end_time,status,source,created_at,updated_at) VALUES (13,8,4,100,29,$1-60,$1+3600,'active','order',$1,$1)")
+        .bind(now)
+        .execute(&mut *payment)
+        .await?;
+    payment.commit().await?;
+
+    let body = response_json(execute.await??).await?;
+    assert_eq!(body["success"], false, "stale preview executed: {body}");
+    let state: (i64, i64, i64, i64) = sqlx::query_as(
+        "SELECT (SELECT consumed_at FROM subscription_reset_previews WHERE token=$1), (SELECT COUNT(*) FROM subscription_reset_operations WHERE operation_id='payment-race'), (SELECT amount_used FROM user_subscriptions WHERE id=12), (SELECT amount_used FROM user_subscriptions WHERE id=13)",
+    )
+    .bind(&token)
+    .fetch_one(&harness.pool)
+    .await?;
+    assert_eq!(state, (0, 0, 71, 29));
+    harness.cleanup().await
+}
+
+#[tokio::test]
+#[ignore = "requires isolated PostgreSQL 18; run this test binary with --test-threads=1"]
+async fn target_search_and_all_matching_preview_match_plan_titles() -> TestResult {
+    let harness = PgHarness::new().await?;
+    seed_active_subscription(&harness.pool, 8, 4, 12, 71).await?;
+    sqlx::query("UPDATE subscription_plans SET title='Enterprise Gold' WHERE id=4")
+        .execute(&harness.pool)
+        .await?;
+    let app = harness.app();
+
+    let targets = response_json(
+        request(
+            app.clone(),
+            Method::GET,
+            "/api/subscription/root/reset-targets?query=ENTERPRISE",
+            "root",
+            None,
+        )
+        .await?,
+    )
+    .await?;
+    assert_eq!(targets["success"], true, "target search failed: {targets}");
+    assert_eq!(targets["data"]["total"], 1);
+    assert_eq!(targets["data"]["items"][0]["user_id"], 8);
+    assert_eq!(targets["data"]["items"][0]["plan_id"], 4);
+
+    let preview = response_json(
+        request(
+            app,
+            Method::POST,
+            "/api/subscription/root/reset/preview",
+            "root",
+            Some(json!({
+                "mode":"hard",
+                "all_matching":true,
+                "filter":{"query":"ENTERPRISE"}
+            })),
+        )
+        .await?,
+    )
+    .await?;
+    assert_eq!(preview["success"], true, "preview failed: {preview}");
+    assert_eq!(preview["data"]["target_count"], 1);
+    assert_eq!(preview["data"]["targets"][0]["user_id"], 8);
+    assert_eq!(preview["data"]["targets"][0]["plan_id"], 4);
     harness.cleanup().await
 }
 
@@ -474,7 +687,11 @@ async fn request(
         }
         None => Body::empty(),
     };
-    app.oneshot(builder.body(body).expect("request")).await
+    let mut request = builder.body(body).expect("request");
+    request
+        .extensions_mut()
+        .insert(ClientIpKey("203.0.113.7".to_owned()));
+    app.oneshot(request).await
 }
 
 async fn response_json(response: Response) -> TestResult<Value> {
@@ -488,6 +705,18 @@ async fn database_timestamp(pool: &PgPool) -> TestResult<i64> {
             .fetch_one(pool)
             .await?,
     )
+}
+
+async fn assert_subscription_row_unlocked(pool: &PgPool, id: i64) -> TestResult {
+    let mut probe = pool.begin().await?;
+    let locked_id: i64 =
+        sqlx::query_scalar("SELECT id FROM user_subscriptions WHERE id=$1 FOR UPDATE NOWAIT")
+            .bind(id)
+            .fetch_one(&mut *probe)
+            .await?;
+    probe.rollback().await?;
+    assert_eq!(locked_id, id);
+    Ok(())
 }
 
 async fn wait_until_blocked_by(pool: &PgPool, blocker_pid: i32) -> TestResult {

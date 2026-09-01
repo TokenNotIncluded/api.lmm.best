@@ -219,6 +219,20 @@ func TestSubscriptionResetAllMatchingFiltersSpecificUsers(t *testing.T) {
 	require.Equal(t, int64(200), preview.QuotaToRestore)
 }
 
+func TestAdminSubscriptionSearchMatchesPlanTitle(t *testing.T) {
+	truncateTables(t)
+	seedResetSubscription(t, 9741, 9742, 9743, 100)
+
+	page, err := ListAdminSubscriptionRecords(AdminSubscriptionRecordFilter{
+		Page: 1, PageSize: 20, Query: "reset plan",
+	})
+	require.NoError(t, err)
+	require.EqualValues(t, 1, page.Total)
+	require.Len(t, page.Items, 1)
+	require.Equal(t, 9742, page.Items[0].PlanId)
+	require.Equal(t, "Reset plan", page.Items[0].PlanTitle)
+}
+
 func TestSubscriptionResetAllMatchingRejectsAmbiguousOrOversizedFilters(t *testing.T) {
 	truncateTables(t)
 	_, err := AdminPreviewSubscriptionsReset(AdminSubscriptionResetBatchInput{
@@ -317,6 +331,34 @@ func TestSubscriptionResetRejectsStalePreviewWithoutConsumingIt(t *testing.T) {
 	var subscription UserSubscription
 	require.NoError(t, DB.First(&subscription, 9753).Error)
 	require.Equal(t, int64(125), subscription.AmountUsed)
+}
+
+func TestSubscriptionResetRejectsDeletedTargetUserWithoutConsumingPreview(t *testing.T) {
+	truncateTables(t)
+	seedResetSubscription(t, 9754, 9755, 9756, 100)
+	preview, err := AdminPreviewSubscriptionsReset(AdminSubscriptionResetBatchInput{
+		ActorUserId: 1, Mode: SubscriptionResetModeSoft,
+		Targets: []SubscriptionResetTarget{{UserId: 9754, PlanId: 9755}},
+	})
+	require.NoError(t, err)
+	require.NoError(t, DB.Delete(&User{}, 9754).Error)
+
+	_, err = AdminResetSubscriptionsBatch(AdminSubscriptionResetBatchInput{
+		ActorUserId: 1, OperationId: "deleted-target-user", PreviewToken: preview.Token,
+	})
+	require.ErrorIs(t, err, ErrSubscriptionResetPreviewStale)
+
+	var persistedPreview SubscriptionResetPreview
+	require.NoError(t, DB.First(&persistedPreview, "token = ?", preview.Token).Error)
+	require.Zero(t, persistedPreview.ConsumedAt)
+	require.Empty(t, persistedPreview.OperationId)
+	var voucherCount, eventCount, operationCount int64
+	require.NoError(t, DB.Model(&SubscriptionResetVoucher{}).Count(&voucherCount).Error)
+	require.NoError(t, DB.Model(&SubscriptionResetEvent{}).Count(&eventCount).Error)
+	require.NoError(t, DB.Model(&SubscriptionResetOperation{}).Count(&operationCount).Error)
+	require.Zero(t, voucherCount)
+	require.Zero(t, eventCount)
+	require.Zero(t, operationCount)
 }
 
 func TestSubscriptionResetRejectsSubscriptionsAddedAfterPreview(t *testing.T) {

@@ -10,9 +10,7 @@ The fresh contract-1 PostgreSQL baseline requires `users.console_activated_at BI
 
 ## Evidence and scope
 
-The versioned manifest contains exactly 34 application tables and explicitly lists source and target columns, primary keys, indexes, converters, sequence ownership, and the verifier algorithm. The PostgreSQL 18 baseline was generated from the current Go/GORM models on an empty native cluster. `schema/provenance.json` binds the offline SQLite evidence, model inputs, manifest, baseline, and catalog query with SHA-256 hashes.
-
-CI verifies provenance and hard-runs a native PostgreSQL 18 cluster. It validates all 34 tables, 422 columns, 172 indexes, and 29 owned sequences. Docker is not used.
+The versioned manifest defines 34 application tables, their columns, keys, indexes, converters, sequence ownership, and verification rules. CI rehearses the contract on PostgreSQL 18 and validates 34 tables, 424 columns, 172 indexes, and 29 owned sequences.
 
 ## Commands
 

@@ -1,7 +1,7 @@
 //! Forward-only schema checks for mounted Rust business routes.
 //!
-//! Contract 1 intentionally remains the frozen 38-table SQLite baseline.  The Go-owned bounty
-//! tables are an expand step and become required only once a release advances to contract 2.
+//! Contract 1 remains the frozen 34-table SQLite baseline. The Go-owned bounty tables are an
+//! expand step and become required only once a release advances to contract 2.
 
 use postgres::Transaction;
 
@@ -20,6 +20,41 @@ struct ColumnRequirement {
     data_type: &'static str,
     character_maximum_length: Option<i32>,
     nullable: bool,
+}
+
+#[derive(Clone, Copy)]
+struct IndexRequirement {
+    table: &'static str,
+    name: &'static str,
+    unique: bool,
+    columns: &'static [&'static str],
+    predicate: Option<&'static str>,
+}
+
+#[derive(Clone, Copy)]
+struct PrimaryKeyRequirement {
+    table: &'static str,
+    columns: &'static [&'static str],
+}
+
+#[derive(Clone, Copy)]
+struct SerialRequirement {
+    table: &'static str,
+    column: &'static str,
+    sequence: &'static str,
+}
+
+#[derive(Clone, Copy)]
+enum LiteralDefault {
+    BigintZero,
+    Varchar(&'static str),
+}
+
+#[derive(Clone, Copy)]
+struct DefaultRequirement {
+    table: &'static str,
+    column: &'static str,
+    value: LiteralDefault,
 }
 
 const fn column(
@@ -380,6 +415,208 @@ const RESET_OPERATION_COLUMNS: &[ColumnRequirement] = &[
     column("completed_at", "bigint", None),
 ];
 
+const RESET_PRIMARY_KEYS: &[PrimaryKeyRequirement] = &[
+    PrimaryKeyRequirement {
+        table: "subscription_reset_vouchers",
+        columns: &["id"],
+    },
+    PrimaryKeyRequirement {
+        table: "subscription_reset_events",
+        columns: &["id"],
+    },
+    PrimaryKeyRequirement {
+        table: "subscription_reset_previews",
+        columns: &["token"],
+    },
+    PrimaryKeyRequirement {
+        table: "subscription_reset_operations",
+        columns: &["operation_id"],
+    },
+];
+
+const RESET_SERIAL_COLUMNS: &[SerialRequirement] = &[
+    SerialRequirement {
+        table: "subscription_reset_vouchers",
+        column: "id",
+        sequence: "subscription_reset_vouchers_id_seq",
+    },
+    SerialRequirement {
+        table: "subscription_reset_events",
+        column: "id",
+        sequence: "subscription_reset_events_id_seq",
+    },
+];
+
+const RESET_DEFAULTS: &[DefaultRequirement] = &[
+    DefaultRequirement {
+        table: "subscription_reset_vouchers",
+        column: "status",
+        value: LiteralDefault::Varchar("available"),
+    },
+    DefaultRequirement {
+        table: "subscription_reset_vouchers",
+        column: "redeemed_at",
+        value: LiteralDefault::BigintZero,
+    },
+    DefaultRequirement {
+        table: "subscription_reset_events",
+        column: "voucher_id",
+        value: LiteralDefault::BigintZero,
+    },
+    DefaultRequirement {
+        table: "subscription_reset_events",
+        column: "reset_count",
+        value: LiteralDefault::BigintZero,
+    },
+    DefaultRequirement {
+        table: "subscription_reset_events",
+        column: "restored_quota",
+        value: LiteralDefault::BigintZero,
+    },
+    DefaultRequirement {
+        table: "subscription_reset_events",
+        column: "voucher_expiry",
+        value: LiteralDefault::BigintZero,
+    },
+    DefaultRequirement {
+        table: "subscription_reset_previews",
+        column: "voucher_expires_at",
+        value: LiteralDefault::BigintZero,
+    },
+    DefaultRequirement {
+        table: "subscription_reset_previews",
+        column: "consumed_at",
+        value: LiteralDefault::BigintZero,
+    },
+    DefaultRequirement {
+        table: "subscription_reset_previews",
+        column: "operation_id",
+        value: LiteralDefault::Varchar(""),
+    },
+];
+
+const RESET_INDEXES: &[IndexRequirement] = &[
+    IndexRequirement {
+        table: "subscription_plans",
+        name: "idx_subscription_plans_archived_at",
+        unique: false,
+        columns: &["archived_at"],
+        predicate: None,
+    },
+    IndexRequirement {
+        table: "subscription_reset_vouchers",
+        name: "idx_subscription_reset_voucher_operation",
+        unique: true,
+        columns: &["user_id", "plan_id", "operation_id"],
+        predicate: None,
+    },
+    IndexRequirement {
+        table: "subscription_reset_vouchers",
+        name: "idx_subscription_reset_vouchers_user_id",
+        unique: false,
+        columns: &["user_id"],
+        predicate: None,
+    },
+    IndexRequirement {
+        table: "subscription_reset_vouchers",
+        name: "idx_subscription_reset_vouchers_plan_id",
+        unique: false,
+        columns: &["plan_id"],
+        predicate: None,
+    },
+    IndexRequirement {
+        table: "subscription_reset_vouchers",
+        name: "idx_subscription_reset_vouchers_status",
+        unique: false,
+        columns: &["status"],
+        predicate: None,
+    },
+    IndexRequirement {
+        table: "subscription_reset_vouchers",
+        name: "idx_subscription_reset_vouchers_expires_at",
+        unique: false,
+        columns: &["expires_at"],
+        predicate: None,
+    },
+    IndexRequirement {
+        table: "subscription_reset_vouchers",
+        name: "idx_subscription_reset_vouchers_created_by",
+        unique: false,
+        columns: &["created_by"],
+        predicate: None,
+    },
+    IndexRequirement {
+        table: "subscription_reset_events",
+        name: "idx_subscription_reset_event_operation",
+        unique: true,
+        columns: &["operation_id", "user_id", "plan_id", "mode"],
+        predicate: None,
+    },
+    IndexRequirement {
+        table: "subscription_reset_events",
+        name: "idx_subscription_reset_events_user_id",
+        unique: false,
+        columns: &["user_id"],
+        predicate: None,
+    },
+    IndexRequirement {
+        table: "subscription_reset_events",
+        name: "idx_subscription_reset_events_plan_id",
+        unique: false,
+        columns: &["plan_id"],
+        predicate: None,
+    },
+    IndexRequirement {
+        table: "subscription_reset_events",
+        name: "idx_subscription_reset_events_actor_user_id",
+        unique: false,
+        columns: &["actor_user_id"],
+        predicate: None,
+    },
+    IndexRequirement {
+        table: "subscription_reset_events",
+        name: "idx_subscription_reset_events_created_at",
+        unique: false,
+        columns: &["created_at"],
+        predicate: None,
+    },
+    IndexRequirement {
+        table: "subscription_reset_previews",
+        name: "idx_subscription_reset_previews_actor_user_id",
+        unique: false,
+        columns: &["actor_user_id"],
+        predicate: None,
+    },
+    IndexRequirement {
+        table: "subscription_reset_previews",
+        name: "idx_subscription_reset_previews_expires_at",
+        unique: false,
+        columns: &["expires_at"],
+        predicate: None,
+    },
+    IndexRequirement {
+        table: "subscription_reset_operations",
+        name: "idx_subscription_reset_operations_preview_token",
+        unique: true,
+        columns: &["preview_token"],
+        predicate: None,
+    },
+    IndexRequirement {
+        table: "subscription_reset_operations",
+        name: "idx_subscription_reset_operations_actor_user_id",
+        unique: false,
+        columns: &["actor_user_id"],
+        predicate: None,
+    },
+    IndexRequirement {
+        table: "subscription_reset_operations",
+        name: "idx_subscription_reset_operations_completed_at",
+        unique: false,
+        columns: &["completed_at"],
+        predicate: None,
+    },
+];
+
 const PERSONAL_ACCESS_IP_COLUMNS: &[ColumnRequirement] = &[
     column("user_id", "bigint", None),
     column("ip", "character varying", Some(45)),
@@ -502,7 +739,31 @@ pub fn verify_current_dashboard_schema(
     Ok(())
 }
 
-/// Verifies the contract-6 subscription reset tables, archival column, and idempotency indexes.
+fn bigint_default_is_exact_zero(default: Option<&str>) -> bool {
+    default.is_some_and(|value| {
+        matches!(
+            value.trim(),
+            "0" | "0::bigint" | "(0)::bigint" | "'0'::bigint"
+        )
+    })
+}
+
+fn varchar_default_is_exact(default: Option<&str>, expected: &str) -> bool {
+    let Some(value) = default.map(str::trim) else {
+        return false;
+    };
+    let literal = ["::character varying", "::varchar", "::text"]
+        .into_iter()
+        .find_map(|suffix| value.strip_suffix(suffix))
+        .unwrap_or(value)
+        .trim();
+    literal
+        .strip_prefix('\'')
+        .and_then(|value| value.strip_suffix('\''))
+        .is_some_and(|value| value.replace("''", "'") == expected)
+}
+
+/// Verifies the complete contract-6 reset-table catalog and archival index.
 pub fn verify_subscription_reset_schema(
     transaction: &mut Transaction<'_>,
     schema: &str,
@@ -518,7 +779,7 @@ pub fn verify_subscription_reset_schema(
     let default: Option<String> = archived.get(2);
     if data_type != "bigint"
         || nullable != "NO"
-        || !default.as_deref().is_some_and(|value| value.contains('0'))
+        || !bigint_default_is_exact_zero(default.as_deref())
     {
         return Err(MigrationError::Manifest(
             "forward schema column mismatch for subscription_plans.archived_at".to_owned(),
@@ -551,40 +812,148 @@ pub fn verify_subscription_reset_schema(
             }
         }
     }
-    for &(table, index, unique) in &[
-        (
-            "subscription_plans",
-            "idx_subscription_plans_archived_at",
-            false,
-        ),
-        (
-            "subscription_reset_vouchers",
-            "idx_subscription_reset_voucher_operation",
-            true,
-        ),
-        (
-            "subscription_reset_events",
-            "idx_subscription_reset_event_operation",
-            true,
-        ),
-        (
-            "subscription_reset_operations",
-            "idx_subscription_reset_operations_preview_token",
-            true,
-        ),
-    ] {
-        let definition: Option<String> = transaction.query_opt(
-            "SELECT indexdef FROM pg_catalog.pg_indexes WHERE schemaname=$1 AND tablename=$2 AND indexname=$3",
-            &[&schema, &table, &index],
-        )?.map(|row| row.get(0));
-        if definition.is_none()
-            || (unique
-                && !definition
-                    .as_deref()
-                    .is_some_and(|value| value.starts_with("CREATE UNIQUE INDEX")))
-        {
+    for requirement in RESET_PRIMARY_KEYS {
+        let definition = transaction.query_opt(
+            r#"SELECT metadata.indisvalid,
+                ARRAY(
+                    SELECT attribute.attname::TEXT
+                    FROM pg_catalog.unnest(metadata.indkey::SMALLINT[]) WITH ORDINALITY AS key(attribute_number, ordinality)
+                    JOIN pg_catalog.pg_attribute AS attribute
+                      ON attribute.attrelid=metadata.indrelid
+                     AND attribute.attnum=key.attribute_number
+                    WHERE key.ordinality <= metadata.indnkeyatts
+                    ORDER BY key.ordinality
+                )
+               FROM pg_catalog.pg_index AS metadata
+               JOIN pg_catalog.pg_class AS table_class ON table_class.oid=metadata.indrelid
+               JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid=table_class.relnamespace
+              WHERE namespace.nspname=$1 AND table_class.relname=$2 AND metadata.indisprimary"#,
+            &[&schema, &requirement.table],
+        )?;
+        let compatible = definition.is_some_and(|row| {
+            let valid: bool = row.get(0);
+            let columns: Vec<String> = row.get(1);
+            valid
+                && columns.len() == requirement.columns.len()
+                && columns
+                    .iter()
+                    .map(String::as_str)
+                    .eq(requirement.columns.iter().copied())
+        });
+        if !compatible {
             return Err(MigrationError::Manifest(format!(
-                "forward schema is missing compatible index {index}"
+                "forward schema primary key mismatch for {}",
+                requirement.table
+            )));
+        }
+    }
+    for requirement in RESET_SERIAL_COLUMNS {
+        let compatible: Option<bool> = transaction
+            .query_one(
+                r#"SELECT
+                    to_regclass(pg_get_serial_sequence(format('%I.%I',$1::TEXT,$2::TEXT),$3::TEXT)) =
+                        to_regclass(format('%I.%I',$1::TEXT,$4::TEXT))
+                    AND EXISTS (
+                        SELECT 1
+                        FROM pg_catalog.pg_class AS table_class
+                        JOIN pg_catalog.pg_namespace AS table_namespace ON table_namespace.oid=table_class.relnamespace
+                        JOIN pg_catalog.pg_attribute AS attribute ON attribute.attrelid=table_class.oid
+                        JOIN pg_catalog.pg_attrdef AS default_value ON default_value.adrelid=table_class.oid AND default_value.adnum=attribute.attnum
+                        WHERE table_namespace.nspname=$1 AND table_class.relname=$2 AND attribute.attname=$3
+                          AND pg_catalog.pg_get_expr(default_value.adbin, default_value.adrelid, false) =
+                              format('nextval(%L::regclass)', to_regclass(format('%I.%I',$1::TEXT,$4::TEXT))::TEXT)
+                    )"#,
+                &[&schema, &requirement.table, &requirement.column, &requirement.sequence],
+            )?
+            .get(0);
+        if compatible != Some(true) {
+            return Err(MigrationError::Manifest(format!(
+                "forward schema sequence/default mismatch for {}.{}",
+                requirement.table, requirement.column
+            )));
+        }
+    }
+    for requirement in RESET_DEFAULTS {
+        let default: Option<String> = transaction
+            .query_opt(
+                "SELECT column_default FROM information_schema.columns WHERE table_schema=$1 AND table_name=$2 AND column_name=$3",
+                &[&schema, &requirement.table, &requirement.column],
+            )?
+            .and_then(|row| row.get(0));
+        let compatible = match requirement.value {
+            LiteralDefault::BigintZero => bigint_default_is_exact_zero(default.as_deref()),
+            LiteralDefault::Varchar(expected) => {
+                varchar_default_is_exact(default.as_deref(), expected)
+            }
+        };
+        if !compatible {
+            return Err(MigrationError::Manifest(format!(
+                "forward schema default mismatch for {}.{}",
+                requirement.table, requirement.column
+            )));
+        }
+    }
+    for requirement in RESET_INDEXES {
+        let definition = transaction.query_opt(
+            r#"SELECT metadata.indisunique,
+                metadata.indisvalid,
+                metadata.indisready,
+                metadata.indisprimary,
+                metadata.indisexclusion,
+                metadata.indexprs IS NULL,
+                metadata.indnkeyatts::INT,
+                metadata.indnatts::INT,
+                access_method.amname::TEXT,
+                ARRAY(
+                    SELECT attribute.attname::TEXT
+                    FROM pg_catalog.unnest(metadata.indkey::SMALLINT[]) WITH ORDINALITY AS key(attribute_number, ordinality)
+                    JOIN pg_catalog.pg_attribute AS attribute
+                      ON attribute.attrelid=metadata.indrelid
+                     AND attribute.attnum=key.attribute_number
+                    WHERE key.ordinality <= metadata.indnkeyatts
+                    ORDER BY key.ordinality
+                ),
+                pg_catalog.pg_get_expr(metadata.indpred, metadata.indrelid)
+               FROM pg_catalog.pg_index AS metadata
+               JOIN pg_catalog.pg_class AS index_class ON index_class.oid=metadata.indexrelid
+               JOIN pg_catalog.pg_am AS access_method ON access_method.oid=index_class.relam
+               JOIN pg_catalog.pg_class AS table_class ON table_class.oid=metadata.indrelid
+               JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid=table_class.relnamespace
+              WHERE namespace.nspname=$1 AND table_class.relname=$2 AND index_class.relname=$3"#,
+            &[&schema, &requirement.table, &requirement.name],
+        )?;
+        let compatible = definition.is_some_and(|row| {
+            let found_unique: bool = row.get(0);
+            let found_valid: bool = row.get(1);
+            let found_ready: bool = row.get(2);
+            let found_primary: bool = row.get(3);
+            let found_exclusion: bool = row.get(4);
+            let found_no_expressions: bool = row.get(5);
+            let found_key_attribute_count: i32 = row.get(6);
+            let found_attribute_count: i32 = row.get(7);
+            let found_method: String = row.get(8);
+            let found_columns: Vec<String> = row.get(9);
+            let found_predicate: Option<String> = row.get(10);
+            found_unique == requirement.unique
+                && found_valid
+                && found_ready
+                && !found_primary
+                && !found_exclusion
+                && found_no_expressions
+                && found_key_attribute_count == requirement.columns.len() as i32
+                && found_attribute_count == requirement.columns.len() as i32
+                && found_method == "btree"
+                && found_columns.len() == requirement.columns.len()
+                && found_columns
+                    .iter()
+                    .map(String::as_str)
+                    .eq(requirement.columns.iter().copied())
+                && found_predicate.as_deref() == requirement.predicate
+        });
+        if !compatible {
+            return Err(MigrationError::Manifest(format!(
+                "forward schema is missing compatible index {}",
+                requirement.name
             )));
         }
     }
@@ -626,6 +995,52 @@ mod tests {
             assert!(
                 sql.contains(&format!("__LMM_APP_SCHEMA__.{table}")),
                 "contract-2 SQL does not mention {table}"
+            );
+        }
+    }
+
+    #[test]
+    fn contract_six_archived_default_requires_exact_zero() {
+        for value in ["0", "0::bigint", "(0)::bigint", "'0'::bigint"] {
+            assert!(bigint_default_is_exact_zero(Some(value)), "{value}");
+        }
+        for value in ["10", "100", "now()", "0 + 1", "'10'::bigint"] {
+            assert!(!bigint_default_is_exact_zero(Some(value)), "{value}");
+        }
+        assert!(!bigint_default_is_exact_zero(None));
+    }
+
+    #[test]
+    fn contract_six_varchar_defaults_are_exact() {
+        for value in [
+            "'available'::character varying",
+            "'available'::varchar",
+            "'available'::text",
+        ] {
+            assert!(varchar_default_is_exact(Some(value), "available"));
+        }
+        assert!(varchar_default_is_exact(Some("''::character varying"), ""));
+        for value in ["'invalid'::character varying", "available", "NULL"] {
+            assert!(!varchar_default_is_exact(Some(value), "available"));
+        }
+        assert!(!varchar_default_is_exact(None, "available"));
+    }
+
+    #[test]
+    fn contract_six_verifier_inventory_covers_every_declared_key_and_index() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../migrations/0006_subscription_reset_system.sql");
+        let sql = fs::read_to_string(path).expect("read contract-6 migration");
+
+        assert_eq!(RESET_PRIMARY_KEYS.len(), 4);
+        assert_eq!(RESET_SERIAL_COLUMNS.len(), 2);
+        assert_eq!(RESET_DEFAULTS.len(), 9);
+        assert_eq!(RESET_INDEXES.len(), 17);
+        for requirement in RESET_INDEXES {
+            assert!(
+                sql.contains(requirement.name),
+                "contract-6 SQL does not declare {}",
+                requirement.name
             );
         }
     }

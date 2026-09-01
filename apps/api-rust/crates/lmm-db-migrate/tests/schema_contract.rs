@@ -2,6 +2,7 @@ use std::{fs, path::Path};
 
 use lmm_db_migrate::{
     contract::{ContractError, ContractInstallOutcome, install_or_verify},
+    forward_schema::verify_subscription_reset_schema,
     release::{
         CompatibilityRange, MANDATORY_COMPONENT_NAMES, ReleaseBinding, Sha256Digest, Version,
     },
@@ -173,6 +174,158 @@ fn first_contract_should_start_at_one() {
     transaction
         .rollback()
         .expect("roll back initial-contract test");
+}
+
+#[test]
+#[ignore = "requires native PostgreSQL and LMM_TEST_DATABASE_URL"]
+fn contract_six_verifier_rejects_wrong_default_and_index_columns() {
+    let database_url = std::env::var("LMM_TEST_DATABASE_URL").expect("test database URL");
+    let schema = format!("lmm_contract_six_{}", std::process::id());
+    let quoted_schema = quote_ident(&schema);
+    let migration = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../migrations/0006_subscription_reset_system.sql");
+    let sql = fs::read_to_string(migration)
+        .expect("read contract-6 migration")
+        .replace("__LMM_APP_SCHEMA__", &quoted_schema);
+    let mut client = Client::connect(&database_url, NoTls).expect("connect to test PostgreSQL");
+    let mut transaction = client.transaction().expect("start test transaction");
+    transaction
+        .batch_execute(&format!(
+            "CREATE SCHEMA {quoted_schema}; CREATE TABLE {quoted_schema}.subscription_plans (id BIGINT PRIMARY KEY)"
+        ))
+        .expect("create contract-6 prerequisite");
+    transaction
+        .batch_execute(&sql)
+        .expect("apply contract-6 migration");
+    verify_subscription_reset_schema(&mut transaction, &schema).expect("valid contract-6 schema");
+
+    transaction
+        .batch_execute(&format!(
+            "ALTER TABLE {quoted_schema}.subscription_plans ALTER COLUMN archived_at SET DEFAULT 10"
+        ))
+        .expect("replace archived default");
+    let error = verify_subscription_reset_schema(&mut transaction, &schema)
+        .expect_err("nonzero archived default must fail");
+    assert!(error.to_string().contains("subscription_plans.archived_at"));
+    transaction
+        .batch_execute(&format!(
+            "ALTER TABLE {quoted_schema}.subscription_plans ALTER COLUMN archived_at SET DEFAULT 0; \
+             DROP INDEX {quoted_schema}.idx_subscription_reset_operations_preview_token; \
+             CREATE UNIQUE INDEX idx_subscription_reset_operations_preview_token \
+             ON {quoted_schema}.subscription_reset_operations(actor_user_id)"
+        ))
+        .expect("replace reset operation index");
+    let error = verify_subscription_reset_schema(&mut transaction, &schema)
+        .expect_err("wrong index columns must fail");
+    assert!(
+        error
+            .to_string()
+            .contains("idx_subscription_reset_operations_preview_token")
+    );
+    transaction
+        .batch_execute(&format!(
+            "DROP INDEX {quoted_schema}.idx_subscription_reset_operations_preview_token; \
+             CREATE UNIQUE INDEX idx_subscription_reset_operations_preview_token \
+             ON {quoted_schema}.subscription_reset_operations(preview_token, (operation_id || ''))"
+        ))
+        .expect("replace reset operation index with an expression key");
+    let error = verify_subscription_reset_schema(&mut transaction, &schema)
+        .expect_err("expression key must not be ignored by index verification");
+    assert!(
+        error
+            .to_string()
+            .contains("idx_subscription_reset_operations_preview_token")
+    );
+    transaction
+        .batch_execute(&format!(
+            "DROP INDEX {quoted_schema}.idx_subscription_reset_operations_preview_token; \
+             CREATE UNIQUE INDEX idx_subscription_reset_operations_preview_token \
+             ON {quoted_schema}.subscription_reset_operations(preview_token) INCLUDE (operation_id)"
+        ))
+        .expect("replace reset operation index with an included column");
+    let error = verify_subscription_reset_schema(&mut transaction, &schema)
+        .expect_err("included columns must not satisfy the exact index contract");
+    assert!(
+        error
+            .to_string()
+            .contains("idx_subscription_reset_operations_preview_token")
+    );
+    transaction
+        .batch_execute(&format!(
+            "DROP INDEX {quoted_schema}.idx_subscription_reset_operations_preview_token; \
+             CREATE UNIQUE INDEX idx_subscription_reset_operations_preview_token \
+             ON {quoted_schema}.subscription_reset_operations(preview_token); \
+             ALTER TABLE {quoted_schema}.subscription_reset_previews \
+             DROP CONSTRAINT subscription_reset_previews_pkey"
+        ))
+        .expect("replace preview primary key");
+    let error = verify_subscription_reset_schema(&mut transaction, &schema)
+        .expect_err("missing preview primary key must fail");
+    assert!(error.to_string().contains("subscription_reset_previews"));
+    transaction
+        .batch_execute(&format!(
+            "ALTER TABLE {quoted_schema}.subscription_reset_previews ADD PRIMARY KEY (token); \
+             ALTER TABLE {quoted_schema}.subscription_reset_vouchers ALTER COLUMN id DROP DEFAULT"
+        ))
+        .expect("remove voucher sequence default");
+    let error = verify_subscription_reset_schema(&mut transaction, &schema)
+        .expect_err("missing voucher sequence default must fail");
+    assert!(error.to_string().contains("subscription_reset_vouchers.id"));
+    transaction
+        .batch_execute(&format!(
+            "CREATE SEQUENCE {quoted_schema}.wrong_voucher_id_seq; \
+             ALTER TABLE {quoted_schema}.subscription_reset_vouchers ALTER COLUMN id \
+             SET DEFAULT nextval('{quoted_schema}.wrong_voucher_id_seq'::regclass) + \
+                         nextval('{quoted_schema}.subscription_reset_vouchers_id_seq'::regclass) * 0"
+        ))
+        .expect("replace voucher sequence expression");
+    let error = verify_subscription_reset_schema(&mut transaction, &schema)
+        .expect_err("compound voucher sequence default must fail");
+    assert!(error.to_string().contains("subscription_reset_vouchers.id"));
+    transaction
+        .batch_execute(&format!(
+            "ALTER TABLE {quoted_schema}.subscription_reset_vouchers ALTER COLUMN id \
+             SET DEFAULT nextval('{quoted_schema}.subscription_reset_vouchers_id_seq'::regclass); \
+             ALTER TABLE {quoted_schema}.subscription_reset_vouchers ALTER COLUMN status SET DEFAULT 'invalid'"
+        ))
+        .expect("replace voucher status default");
+    let error = verify_subscription_reset_schema(&mut transaction, &schema)
+        .expect_err("wrong voucher status default must fail");
+    assert!(
+        error
+            .to_string()
+            .contains("subscription_reset_vouchers.status")
+    );
+    transaction
+        .batch_execute(&format!(
+            "ALTER TABLE {quoted_schema}.subscription_reset_vouchers ALTER COLUMN status SET DEFAULT 'available'; \
+             DROP INDEX {quoted_schema}.idx_subscription_reset_vouchers_status; \
+             CREATE INDEX idx_subscription_reset_vouchers_status \
+             ON {quoted_schema}.subscription_reset_vouchers(plan_id)"
+        ))
+        .expect("replace voucher status index");
+    let error = verify_subscription_reset_schema(&mut transaction, &schema)
+        .expect_err("wrong secondary index columns must fail");
+    assert!(
+        error
+            .to_string()
+            .contains("idx_subscription_reset_vouchers_status")
+    );
+    transaction
+        .batch_execute(&format!(
+            "DROP INDEX {quoted_schema}.idx_subscription_reset_vouchers_status; \
+             ALTER TABLE {quoted_schema}.subscription_reset_vouchers \
+             ADD CONSTRAINT idx_subscription_reset_vouchers_status EXCLUDE USING btree (status WITH =)"
+        ))
+        .expect("replace voucher status index with exclusion constraint");
+    let error = verify_subscription_reset_schema(&mut transaction, &schema)
+        .expect_err("exclusion constraint must not satisfy a normal index contract");
+    assert!(
+        error
+            .to_string()
+            .contains("idx_subscription_reset_vouchers_status")
+    );
+    transaction.rollback().expect("roll back contract-6 test");
 }
 
 fn binding(

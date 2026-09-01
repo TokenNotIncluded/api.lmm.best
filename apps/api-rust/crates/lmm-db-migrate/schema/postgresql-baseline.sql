@@ -406,7 +406,6 @@ CREATE TABLE public.subscription_plans (
     total_amount bigint DEFAULT 0 NOT NULL,
     quota_reset_period character varying(16) DEFAULT 'never'::character varying,
     quota_reset_custom_seconds bigint DEFAULT 0,
-    archived_at bigint DEFAULT 0 NOT NULL,
     created_at bigint,
     updated_at bigint
 );
@@ -933,26 +932,3 @@ CREATE UNIQUE INDEX uk_prefill_name ON public.prefill_groups USING btree (name) 
 CREATE UNIQUE INDEX uk_vendor_name_delete_at ON public.vendors USING btree (name, deleted_at);
 CREATE UNIQUE INDEX ux_provider_userid ON public.user_oauth_bindings USING btree (provider_id, provider_user_id);
 CREATE UNIQUE INDEX ux_user_provider ON public.user_oauth_bindings USING btree (user_id, provider_id);
-
--- Additive subscription reset subsystem (contract 5).
-CREATE INDEX idx_subscription_plans_archived_at ON public.subscription_plans USING btree (archived_at);
-CREATE TABLE public.subscription_reset_vouchers (id bigserial PRIMARY KEY,user_id bigint NOT NULL,plan_id bigint NOT NULL,operation_id character varying(64) NOT NULL,status character varying(16) DEFAULT 'available'::character varying NOT NULL,expires_at bigint NOT NULL,redeemed_at bigint DEFAULT 0 NOT NULL,created_by bigint NOT NULL,created_at bigint NOT NULL,updated_at bigint NOT NULL);
-CREATE UNIQUE INDEX idx_subscription_reset_voucher_operation ON public.subscription_reset_vouchers USING btree (user_id,plan_id,operation_id);
-CREATE INDEX idx_subscription_reset_vouchers_user_id ON public.subscription_reset_vouchers USING btree (user_id);
-CREATE INDEX idx_subscription_reset_vouchers_plan_id ON public.subscription_reset_vouchers USING btree (plan_id);
-CREATE INDEX idx_subscription_reset_vouchers_status ON public.subscription_reset_vouchers USING btree (status);
-CREATE INDEX idx_subscription_reset_vouchers_expires_at ON public.subscription_reset_vouchers USING btree (expires_at);
-CREATE INDEX idx_subscription_reset_vouchers_created_by ON public.subscription_reset_vouchers USING btree (created_by);
-CREATE TABLE public.subscription_reset_events (id bigserial PRIMARY KEY,operation_id character varying(64) NOT NULL,user_id bigint NOT NULL,plan_id bigint NOT NULL,mode character varying(24) NOT NULL,actor_user_id bigint NOT NULL,voucher_id bigint DEFAULT 0 NOT NULL,reset_count bigint DEFAULT 0 NOT NULL,restored_quota bigint DEFAULT 0 NOT NULL,voucher_expiry bigint DEFAULT 0 NOT NULL,created_at bigint NOT NULL);
-CREATE UNIQUE INDEX idx_subscription_reset_event_operation ON public.subscription_reset_events USING btree (operation_id,user_id,plan_id,mode);
-CREATE INDEX idx_subscription_reset_events_user_id ON public.subscription_reset_events USING btree (user_id);
-CREATE INDEX idx_subscription_reset_events_plan_id ON public.subscription_reset_events USING btree (plan_id);
-CREATE INDEX idx_subscription_reset_events_actor_user_id ON public.subscription_reset_events USING btree (actor_user_id);
-CREATE INDEX idx_subscription_reset_events_created_at ON public.subscription_reset_events USING btree (created_at);
-CREATE TABLE public.subscription_reset_previews (token character varying(64) PRIMARY KEY,actor_user_id bigint NOT NULL,mode character varying(16) NOT NULL,targets_json text NOT NULL,payload_hash character varying(64) NOT NULL,target_count bigint NOT NULL,active_subscriptions bigint NOT NULL,quota_to_restore bigint NOT NULL,voucher_expires_at bigint DEFAULT 0 NOT NULL,expires_at bigint NOT NULL,consumed_at bigint DEFAULT 0 NOT NULL,operation_id character varying(64) DEFAULT ''::character varying NOT NULL,created_at bigint NOT NULL);
-CREATE INDEX idx_subscription_reset_previews_actor_user_id ON public.subscription_reset_previews USING btree (actor_user_id);
-CREATE INDEX idx_subscription_reset_previews_expires_at ON public.subscription_reset_previews USING btree (expires_at);
-CREATE TABLE public.subscription_reset_operations (operation_id character varying(64) PRIMARY KEY,preview_token character varying(64) NOT NULL,actor_user_id bigint NOT NULL,mode character varying(16) NOT NULL,payload_hash character varying(64) NOT NULL,result_json text NOT NULL,created_at bigint NOT NULL,completed_at bigint NOT NULL);
-CREATE UNIQUE INDEX idx_subscription_reset_operations_preview_token ON public.subscription_reset_operations USING btree (preview_token);
-CREATE INDEX idx_subscription_reset_operations_actor_user_id ON public.subscription_reset_operations USING btree (actor_user_id);
-CREATE INDEX idx_subscription_reset_operations_completed_at ON public.subscription_reset_operations USING btree (completed_at);

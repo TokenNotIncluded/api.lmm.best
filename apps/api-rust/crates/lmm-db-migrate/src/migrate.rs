@@ -25,7 +25,8 @@ use crate::{
     },
     forward_schema::{
         BOUNTY_SCHEMA_CONTRACT_ID, CURRENT_DASHBOARD_SCHEMA_CONTRACT_ID,
-        verify_current_dashboard_schema, verify_open_source_bounty_schema,
+        SUBSCRIPTION_RESET_SCHEMA_CONTRACT_ID, verify_current_dashboard_schema,
+        verify_open_source_bounty_schema, verify_subscription_reset_schema,
     },
     inspect::inspect_sqlite,
     manifest::{Column, Converter, Manifest, Table},
@@ -148,6 +149,9 @@ pub fn rehearse(options: &RehearseOptions<'_>) -> Result<MigrationReport, Migrat
     if options.release.contract_id().as_i64() >= CURRENT_DASHBOARD_SCHEMA_CONTRACT_ID {
         verify_current_dashboard_schema(&mut transaction, options.schema)?;
     }
+    if options.release.contract_id().as_i64() >= SUBSCRIPTION_RESET_SCHEMA_CONTRACT_ID {
+        verify_subscription_reset_schema(&mut transaction, options.schema)?;
+    }
     transaction.commit()?;
     source.connection.execute_batch("COMMIT")?;
     Ok(report)
@@ -182,6 +186,9 @@ pub fn verify(options: &VerifyOptions<'_>) -> Result<MigrationReport, MigrationE
     }
     if options.release.contract_id().as_i64() >= CURRENT_DASHBOARD_SCHEMA_CONTRACT_ID {
         verify_current_dashboard_schema(&mut transaction, options.schema)?;
+    }
+    if options.release.contract_id().as_i64() >= SUBSCRIPTION_RESET_SCHEMA_CONTRACT_ID {
+        verify_subscription_reset_schema(&mut transaction, options.schema)?;
     }
     ensure_source_still_offline(options.sqlite, options.manifest, &source_before)?;
     transaction.commit()?;
