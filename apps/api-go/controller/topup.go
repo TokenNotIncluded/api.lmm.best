@@ -1406,6 +1406,7 @@ func GetUserTopUps(c *gin.Context) {
 	userId := c.GetInt("id")
 	pageInfo := common.GetPageQuery(c)
 	keyword := c.Query("keyword")
+	sortSpec := model.NewTopUpSortSpec(c.Query("sort_by"), c.Query("sort_order"), false)
 
 	var (
 		topups []*model.TopUp
@@ -1413,9 +1414,9 @@ func GetUserTopUps(c *gin.Context) {
 		err    error
 	)
 	if keyword != "" {
-		topups, total, err = model.SearchUserTopUps(userId, keyword, pageInfo)
+		topups, total, err = model.SearchUserTopUps(userId, keyword, pageInfo, sortSpec)
 	} else {
-		topups, total, err = model.GetUserTopUps(userId, pageInfo)
+		topups, total, err = model.GetUserTopUps(userId, pageInfo, sortSpec)
 	}
 	if err != nil {
 		common.ApiError(c, err)
@@ -1466,6 +1467,7 @@ func newTopUpSelfRecord(topUp *model.TopUp) topUpSelfRecord {
 func GetAllTopUps(c *gin.Context) {
 	pageInfo := common.GetPageQuery(c)
 	keyword := c.Query("keyword")
+	sortSpec := model.NewTopUpSortSpec(c.Query("sort_by"), c.Query("sort_order"), true)
 
 	var (
 		topups []*model.TopUp
@@ -1473,9 +1475,9 @@ func GetAllTopUps(c *gin.Context) {
 		err    error
 	)
 	if keyword != "" {
-		topups, total, err = model.SearchAllTopUps(keyword, pageInfo)
+		topups, total, err = model.SearchAllTopUps(keyword, pageInfo, sortSpec)
 	} else {
-		topups, total, err = model.GetAllTopUps(pageInfo)
+		topups, total, err = model.GetAllTopUps(pageInfo, sortSpec)
 	}
 	if err != nil {
 		common.ApiError(c, err)

@@ -34,6 +34,8 @@ import type {
   AffiliateInvitationResponse,
   AffiliateTransferResponse,
   BillingHistoryResponse,
+  BillingHistorySortBy,
+  BillingHistorySortOrder,
   CompleteOrderRequest,
   CreemPaymentRequest,
   CreemPaymentResponse,
@@ -241,11 +243,15 @@ export async function transferAffiliateQuota(
 export async function getUserBillingHistory(
   page: number,
   pageSize: number,
-  keyword?: string
+  keyword?: string,
+  sortBy: BillingHistorySortBy = 'create_time',
+  sortOrder: BillingHistorySortOrder = 'desc'
 ): Promise<ApiResponse<BillingHistoryResponse>> {
   const params = new URLSearchParams({
     p: page.toString(),
     page_size: pageSize.toString(),
+    sort_by: sortBy,
+    sort_order: sortOrder,
   })
   if (keyword) {
     params.append('keyword', keyword)
@@ -260,11 +266,15 @@ export async function getUserBillingHistory(
 export async function getAllBillingHistory(
   page: number,
   pageSize: number,
-  keyword?: string
+  keyword?: string,
+  sortBy: BillingHistorySortBy = 'create_time',
+  sortOrder: BillingHistorySortOrder = 'desc'
 ): Promise<ApiResponse<BillingHistoryResponse>> {
   const params = new URLSearchParams({
     p: page.toString(),
     page_size: pageSize.toString(),
+    sort_by: sortBy,
+    sort_order: sortOrder,
   })
   if (keyword) {
     params.append('keyword', keyword)

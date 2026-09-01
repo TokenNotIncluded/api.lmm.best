@@ -330,6 +330,23 @@ struct PageQuery {
     ps: Option<i64>,
     size: Option<i64>,
     keyword: Option<String>,
+    sort_by: Option<String>,
+    sort_order: Option<String>,
+}
+
+#[derive(Clone, Copy)]
+struct TopupSortSpec {
+    order_by: &'static str,
+}
+
+impl TopupSortSpec {
+    const DEFAULT: Self = Self {
+        order_by: "create_time DESC, id DESC",
+    };
+
+    const fn order_by(self) -> &'static str {
+        self.order_by
+    }
 }
 
 impl PageQuery {
@@ -364,7 +381,47 @@ impl PageQuery {
             ps: raw_query_i64(raw, "ps"),
             size: raw_query_i64(raw, "size"),
             keyword: raw_query_string(raw, "keyword"),
+            sort_by: raw_query_string(raw, "sort_by"),
+            sort_order: raw_query_string(raw, "sort_order"),
         }
+    }
+
+    fn sort_spec(&self, admin: bool) -> TopupSortSpec {
+        let Some(sort_by) = self.sort_by.as_deref() else {
+            return TopupSortSpec::DEFAULT;
+        };
+        let Some(sort_order) = self.sort_order.as_deref() else {
+            return TopupSortSpec::DEFAULT;
+        };
+        let ascending = if sort_order.trim().eq_ignore_ascii_case("asc") {
+            true
+        } else if sort_order.trim().eq_ignore_ascii_case("desc") {
+            false
+        } else {
+            return TopupSortSpec::DEFAULT;
+        };
+
+        let sort_by = sort_by.trim().to_ascii_lowercase();
+        let order_by = match (sort_by.as_str(), ascending) {
+            ("id", true) => "id ASC",
+            ("id", false) => "id DESC",
+            ("create_time", true) => "create_time ASC, id ASC",
+            ("create_time", false) => "create_time DESC, id DESC",
+            ("amount", true) => "amount ASC, id ASC",
+            ("amount", false) => "amount DESC, id DESC",
+            ("money", true) => "money ASC, id ASC",
+            ("money", false) => "money DESC, id DESC",
+            ("status", true) => "status ASC, id ASC",
+            ("status", false) => "status DESC, id DESC",
+            ("payment_method", true) => "payment_method ASC, id ASC",
+            ("payment_method", false) => "payment_method DESC, id DESC",
+            ("user_id", true) if admin => "user_id ASC, id ASC",
+            ("user_id", false) if admin => "user_id DESC, id DESC",
+            ("trade_no", true) if admin => "trade_no ASC, id ASC",
+            ("trade_no", false) if admin => "trade_no DESC, id DESC",
+            _ => return TopupSortSpec::DEFAULT,
+        };
+        TopupSortSpec { order_by }
     }
 }
 
@@ -681,8 +738,9 @@ async fn fetch_topups(
             "SELECT COUNT(*) FROM (SELECT 1 FROM top_ups WHERE {where_sql} LIMIT {SEARCH_COUNT_HARD_LIMIT}) limited"
         )
     };
+    let order_by = query.sort_spec(user_id.is_none()).order_by();
     let list_sql = format!(
-        "SELECT {TOPUP_COLUMNS} FROM top_ups WHERE {where_sql} ORDER BY id DESC LIMIT ${} OFFSET ${}",
+        "SELECT {TOPUP_COLUMNS} FROM top_ups WHERE {where_sql} ORDER BY {order_by} LIMIT ${} OFFSET ${}",
         if user_id.is_some() { 5 } else { 3 },
         if user_id.is_some() { 6 } else { 4 }
     );
@@ -1989,6 +2047,36 @@ mod tests {
             let query = PageQuery::from_raw(Some(raw));
             assert_eq!((query.page(), query.page_size()), (page, size), "{raw}");
         }
+    }
+
+    #[test]
+    fn topup_sort_query_uses_the_go_whitelist_and_safe_defaults() {
+        assert_eq!(
+            PageQuery::from_raw(Some("sort_by=money&sort_order=asc"))
+                .sort_spec(false)
+                .order_by(),
+            "money ASC, id ASC"
+        );
+        assert_eq!(
+            PageQuery::from_raw(Some("sort_by=user_id&sort_order=desc"))
+                .sort_spec(true)
+                .order_by(),
+            "user_id DESC, id DESC"
+        );
+        assert_eq!(
+            PageQuery::from_raw(Some("sort_by=user_id&sort_order=asc"))
+                .sort_spec(false)
+                .order_by(),
+            "create_time DESC, id DESC"
+        );
+        assert_eq!(
+            PageQuery::from_raw(Some(
+                "sort_by=money%3B%20DROP%20TABLE%20top_ups&sort_order=sideways"
+            ))
+            .sort_spec(true)
+            .order_by(),
+            "create_time DESC, id DESC"
+        );
     }
 
     #[test]

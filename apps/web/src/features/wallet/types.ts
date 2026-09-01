@@ -346,6 +346,19 @@ export interface TopupRecord {
   status: TopupStatus
 }
 
+/** Server-side billing history sort fields. */
+export type BillingHistorySortBy =
+  | 'create_time'
+  | 'amount'
+  | 'money'
+  | 'status'
+  | 'payment_method'
+  | 'user_id'
+  | 'trade_no'
+
+/** Server-side billing history sort direction. */
+export type BillingHistorySortOrder = 'asc' | 'desc'
+
 /**
  * Billing history response
  */

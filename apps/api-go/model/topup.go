@@ -1043,12 +1043,64 @@ func Recharge(referenceId string, customerId string, callerIp string) (err error
 // topUpQueryWindowSeconds 限制充值记录查询的时间窗口（秒）。
 const topUpQueryWindowSeconds int64 = 30 * 24 * 60 * 60
 
+const defaultTopUpOrderClause = "create_time DESC, id DESC"
+
+type topUpSortClauses struct {
+	ascending  string
+	descending string
+	adminOnly  bool
+}
+
+var allowedTopUpSortClauses = map[string]topUpSortClauses{
+	"id":             {ascending: "id ASC", descending: "id DESC"},
+	"create_time":    {ascending: "create_time ASC, id ASC", descending: "create_time DESC, id DESC"},
+	"amount":         {ascending: "amount ASC, id ASC", descending: "amount DESC, id DESC"},
+	"money":          {ascending: "money ASC, id ASC", descending: "money DESC, id DESC"},
+	"status":         {ascending: "status ASC, id ASC", descending: "status DESC, id DESC"},
+	"payment_method": {ascending: "payment_method ASC, id ASC", descending: "payment_method DESC, id DESC"},
+	"user_id":        {ascending: "user_id ASC, id ASC", descending: "user_id DESC, id DESC", adminOnly: true},
+	"trade_no":       {ascending: "trade_no ASC, id ASC", descending: "trade_no DESC, id DESC", adminOnly: true},
+}
+
+// TopUpSortSpec contains only a fixed, whitelisted ORDER BY clause. Raw query
+// values never reach GORM's SQL expression API.
+type TopUpSortSpec struct {
+	clause string
+}
+
+func NewTopUpSortSpec(sortBy, sortOrder string, admin bool) TopUpSortSpec {
+	clauses, allowed := allowedTopUpSortClauses[strings.ToLower(strings.TrimSpace(sortBy))]
+	if !allowed || (clauses.adminOnly && !admin) {
+		return TopUpSortSpec{clause: defaultTopUpOrderClause}
+	}
+
+	switch strings.ToLower(strings.TrimSpace(sortOrder)) {
+	case "asc":
+		return TopUpSortSpec{clause: clauses.ascending}
+	case "desc":
+		return TopUpSortSpec{clause: clauses.descending}
+	default:
+		return TopUpSortSpec{clause: defaultTopUpOrderClause}
+	}
+}
+
+func (spec TopUpSortSpec) orderClause() string {
+	if spec.clause == "" {
+		return defaultTopUpOrderClause
+	}
+	return spec.clause
+}
+
+func applyTopUpSort(query *gorm.DB, spec TopUpSortSpec) *gorm.DB {
+	return query.Order(spec.orderClause())
+}
+
 // topUpQueryCutoff 返回允许查询的最早 create_time（秒级 Unix 时间戳）。
 func topUpQueryCutoff() int64 {
 	return common.GetTimestamp() - topUpQueryWindowSeconds
 }
 
-func GetUserTopUps(userId int, pageInfo *common.PageInfo) (topups []*TopUp, total int64, err error) {
+func GetUserTopUps(userId int, pageInfo *common.PageInfo, sortSpec TopUpSortSpec) (topups []*TopUp, total int64, err error) {
 	// Start transaction
 	tx := DB.Begin()
 	if tx.Error != nil {
@@ -1070,7 +1122,7 @@ func GetUserTopUps(userId int, pageInfo *common.PageInfo) (topups []*TopUp, tota
 	}
 
 	// Get paginated topups within same transaction
-	err = tx.Where("user_id = ? AND create_time >= ?", userId, cutoff).Order("id desc").Limit(pageInfo.GetPageSize()).Offset(pageInfo.GetStartIdx()).Find(&topups).Error
+	err = applyTopUpSort(tx.Where("user_id = ? AND create_time >= ?", userId, cutoff), sortSpec).Limit(pageInfo.GetPageSize()).Offset(pageInfo.GetStartIdx()).Find(&topups).Error
 	if err != nil {
 		tx.Rollback()
 		return nil, 0, err
@@ -1085,7 +1137,7 @@ func GetUserTopUps(userId int, pageInfo *common.PageInfo) (topups []*TopUp, tota
 }
 
 // GetAllTopUps 获取全平台的充值记录（管理员使用，不限制时间窗口）
-func GetAllTopUps(pageInfo *common.PageInfo) (topups []*TopUp, total int64, err error) {
+func GetAllTopUps(pageInfo *common.PageInfo, sortSpec TopUpSortSpec) (topups []*TopUp, total int64, err error) {
 	tx := DB.Begin()
 	if tx.Error != nil {
 		return nil, 0, tx.Error
@@ -1101,7 +1153,7 @@ func GetAllTopUps(pageInfo *common.PageInfo) (topups []*TopUp, total int64, err 
 		return nil, 0, err
 	}
 
-	if err = tx.Order("id desc").Limit(pageInfo.GetPageSize()).Offset(pageInfo.GetStartIdx()).Find(&topups).Error; err != nil {
+	if err = applyTopUpSort(tx, sortSpec).Limit(pageInfo.GetPageSize()).Offset(pageInfo.GetStartIdx()).Find(&topups).Error; err != nil {
 		tx.Rollback()
 		return nil, 0, err
 	}
@@ -1118,7 +1170,7 @@ func GetAllTopUps(pageInfo *common.PageInfo) (topups []*TopUp, total int64, err 
 const searchTopUpCountHardLimit = 10000
 
 // SearchUserTopUps 按订单号搜索某用户的充值记录
-func SearchUserTopUps(userId int, keyword string, pageInfo *common.PageInfo) (topups []*TopUp, total int64, err error) {
+func SearchUserTopUps(userId int, keyword string, pageInfo *common.PageInfo, sortSpec TopUpSortSpec) (topups []*TopUp, total int64, err error) {
 	tx := DB.Begin()
 	if tx.Error != nil {
 		return nil, 0, tx.Error
@@ -1145,7 +1197,7 @@ func SearchUserTopUps(userId int, keyword string, pageInfo *common.PageInfo) (to
 		return nil, 0, errors.New("搜索充值记录失败")
 	}
 
-	if err = query.Order("id desc").Limit(pageInfo.GetPageSize()).Offset(pageInfo.GetStartIdx()).Find(&topups).Error; err != nil {
+	if err = applyTopUpSort(query, sortSpec).Limit(pageInfo.GetPageSize()).Offset(pageInfo.GetStartIdx()).Find(&topups).Error; err != nil {
 		tx.Rollback()
 		common.SysError("failed to search topups: " + err.Error())
 		return nil, 0, errors.New("搜索充值记录失败")
@@ -1158,7 +1210,7 @@ func SearchUserTopUps(userId int, keyword string, pageInfo *common.PageInfo) (to
 }
 
 // SearchAllTopUps 按订单号搜索全平台充值记录（管理员使用，不限制时间窗口）
-func SearchAllTopUps(keyword string, pageInfo *common.PageInfo) (topups []*TopUp, total int64, err error) {
+func SearchAllTopUps(keyword string, pageInfo *common.PageInfo, sortSpec TopUpSortSpec) (topups []*TopUp, total int64, err error) {
 	tx := DB.Begin()
 	if tx.Error != nil {
 		return nil, 0, tx.Error
@@ -1185,7 +1237,7 @@ func SearchAllTopUps(keyword string, pageInfo *common.PageInfo) (topups []*TopUp
 		return nil, 0, errors.New("搜索充值记录失败")
 	}
 
-	if err = query.Order("id desc").Limit(pageInfo.GetPageSize()).Offset(pageInfo.GetStartIdx()).Find(&topups).Error; err != nil {
+	if err = applyTopUpSort(query, sortSpec).Limit(pageInfo.GetPageSize()).Offset(pageInfo.GetStartIdx()).Find(&topups).Error; err != nil {
 		tx.Rollback()
 		common.SysError("failed to search topups: " + err.Error())
 		return nil, 0, errors.New("搜索充值记录失败")
