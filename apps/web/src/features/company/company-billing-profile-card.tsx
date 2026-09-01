@@ -340,7 +340,7 @@ export function CompanyBillingProfileCard() {
     clearFieldFeedback(field)
   }
 
-  function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+  function handleSubmit(event: React.SubmitEvent<HTMLFormElement>) {
     event.preventDefault()
     const normalized = normalizeForm(form)
     const errors = validateForm(normalized)
