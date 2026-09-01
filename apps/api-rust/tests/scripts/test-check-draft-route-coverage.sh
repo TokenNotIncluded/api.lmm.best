@@ -142,7 +142,7 @@ for expected_placeholder in \
     exit 1
   }
 done
-[[ $valid_output == *'not differential verification, migration credit, or production ownership'* ]] || {
+[[ $valid_output == *'not differential verification, route ownership credit, or production ownership'* ]] || {
   echo "draft-only disclaimer is missing" >&2
   exit 1
 }

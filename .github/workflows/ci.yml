@@ -332,10 +332,10 @@ jobs:
             bash apps/api-rust/tests/scripts/check-behavior-deviations.sh
           run_check behavior-deviations-tests \
             bash apps/api-rust/tests/scripts/test-check-behavior-deviations.sh
-          run_check migration-plan \
-            bash apps/api-rust/tests/scripts/check-migration-plan.sh
-          run_check migration-plan-tests \
-            bash apps/api-rust/tests/scripts/test-check-migration-plan.sh
+          run_check route-plan \
+            bash apps/api-rust/tests/scripts/check-route-plan.sh
+          run_check route-plan-tests \
+            bash apps/api-rust/tests/scripts/test-check-route-plan.sh
           run_check draft-route-coverage \
             bash apps/api-rust/tests/scripts/check-draft-route-coverage.sh
           run_check draft-route-completion \

@@ -40,7 +40,7 @@ Go currently owns the shared systemd service, operator policy, protected Go
 environment, memory limits, and edge-policy assets; it does not own Web bytes.
 The service always executes `/usr/bin/lmm-api serve`. Rust may coexist for CLI
 and parity work but may not own production business traffic until the route
-migration gate and provider handover are explicitly approved.
+route gate and provider handover are explicitly approved.
 
 `lmm-api-web-bin` solely owns immutable frontend bytes. Releases at or above
 0.1.52 use the signed hook in `packaging/common/lmm-api/lmm-api-web.install`,

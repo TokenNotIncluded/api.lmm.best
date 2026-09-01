@@ -18,11 +18,11 @@ use axum::{
 };
 use lmm_api_rs::{
     RequestContext,
-    migration_routes::{
+    models::PgModelsService,
+    routes::{
         relay_misc::{RelayMiscHttpState, routes},
         relay_misc_postgres::PgRelayMiscService,
     },
-    models::PgModelsService,
 };
 use serde_json::{Value, json};
 use sqlx::{PgPool, Row, postgres::PgPoolOptions};

@@ -5,8 +5,8 @@ script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 repo_root=$(cd -- "$script_dir/../../../.." && pwd -P)
 router_root=${DRAFT_ROUTER_ROOT:-"$repo_root/apps/api-rust/src"}
 baseline=${DRAFT_BASELINE_PATH:-"$repo_root/apps/api-rust/tests/fixtures/routes/legacy-go-routes.tsv"}
-gate=${DRAFT_GATE_PATH:-"$repo_root/apps/api-rust/tests/fixtures/routes/migration-gate.tsv"}
-plan=${DRAFT_PLAN_PATH:-"$repo_root/apps/api-rust/tests/fixtures/routes/migration-plan.tsv"}
+gate=${DRAFT_GATE_PATH:-"$repo_root/apps/api-rust/tests/fixtures/routes/route-gate.tsv"}
+plan=${DRAFT_PLAN_PATH:-"$repo_root/apps/api-rust/tests/fixtures/routes/route-plan.tsv"}
 expected_baseline_count=${DRAFT_EXPECT_BASELINE_COUNT:-353}
 report_missing=${DRAFT_REPORT_MISSING:-0}
 require_complete=${DRAFT_REQUIRE_COMPLETE:-0}
@@ -21,11 +21,11 @@ outside_allowlist=${DRAFT_OUTSIDE_BASELINE_ALLOWLIST-"$repo_root/apps/api-rust/t
     exit 1
 }
 [[ -f $gate ]] || {
-    echo "missing migration gate: $gate" >&2
+    echo "missing route gate: $gate" >&2
     exit 1
 }
 [[ -f $plan ]] || {
-    echo "missing migration plan: $plan" >&2
+    echo "missing route plan: $plan" >&2
     exit 1
 }
 [[ $expected_baseline_count =~ ^[0-9]+$ ]] || {
@@ -281,9 +281,9 @@ sub is_models_post_alias {
 # arbitrary file or handler spelling the same route is a competing owner.
 sub is_known_models_shared_alias {
     my ($method, $candidate_path, $raw_path, $handler, $source_path, $first) = @_;
-    my $billing = 'apps/api-rust/src/migration_routes/missing_relay_models_billing.rs';
-    my $relay = 'apps/api-rust/src/migration_routes/relay_anthropic_gemini.rs';
-    my $delete_candidate = 'apps/api-rust/src/missing_relay_model_delete_candidate.rs';
+    my $billing = 'apps/api-rust/src/routes/model_lookup.rs';
+    my $relay = 'apps/api-rust/src/routes/relay_anthropic_gemini.rs';
+    my $delete_candidate = 'apps/api-rust/src/model_delete_candidate.rs';
     $handler =~ s/^\s+|\s+$//g;
 
     if ($method eq 'GET' && $candidate_path eq '/v1/models/:model') {
@@ -310,10 +310,14 @@ sub is_known_models_shared_alias {
         my %owners;
         $owners{"$first->{source_path}\t$first->{handler}"} = 1;
         $owners{"$source_path\t$handler"} = 1;
-        return $raw_path eq '/v1/models/:model'
+        my $matches = $raw_path eq '/v1/models/:model'
             && $first->{raw_path} eq '/v1/models/:model'
             && $owners{"$relay\tdelete_openai_model_not_implemented"}
             && $owners{"$delete_candidate\tdelete_model_route"};
+        return 0 if !$matches;
+        # Canonicalize the audited 501 owner to the relay declaration even when
+        # the test-only model-delete module sorts first on disk.
+        return $source_path eq $relay ? 2 : 1;
     }
     return 0;
 }
@@ -389,7 +393,7 @@ if (scalar(keys %baseline) != $expected_baseline_count) {
 open my $plan_handle, '<', $plan_path or die "cannot read $plan_path: $!\n";
 my $plan_header = <$plan_handle>;
 if (!defined $plan_header) {
-    $failed |= fail('migration plan is empty');
+    $failed |= fail('route plan is empty');
 } else {
     chomp $plan_header;
     $plan_header =~ s/\r$//;
@@ -397,7 +401,7 @@ if (!defined $plan_header) {
     my %column;
     @column{@header_fields} = (0 .. $#header_fields);
     for my $required (qw(method path planned_rust_module)) {
-        $failed |= fail("migration plan is missing $required column") if !exists $column{$required};
+        $failed |= fail("route plan is missing $required column") if !exists $column{$required};
     }
     my $plan_line = 1;
     while (my $line = <$plan_handle>) {
@@ -426,18 +430,18 @@ if (!defined $plan_header) {
 }
 close $plan_handle;
 for my $key (sort keys %baseline) {
-    $failed |= fail("migration plan is missing frozen route " . ($key =~ s/\t/ /r))
+    $failed |= fail("route plan is missing frozen route " . ($key =~ s/\t/ /r))
         if !exists $planned_module{$key};
 }
 for my $key (sort keys %planned_module) {
-    $failed |= fail("migration plan has non-frozen route " . ($key =~ s/\t/ /r))
+    $failed |= fail("route plan has non-frozen route " . ($key =~ s/\t/ /r))
         if !exists $baseline{$key};
 }
 
 open my $gate_handle, '<', $gate_path or die "cannot read $gate_path: $!\n";
 my $header = <$gate_handle>;
 if (!defined $header) {
-    $failed |= fail('migration gate is empty');
+    $failed |= fail('route gate is empty');
 } else {
     chomp $header;
     $header =~ s/\r$//;
@@ -445,7 +449,7 @@ if (!defined $header) {
     my %column;
     @column{@header_fields} = (0 .. $#header_fields);
     for my $required (qw(method path source_state mount_state gate_state evidence)) {
-        $failed |= fail("migration gate is missing $required column") if !exists $column{$required};
+        $failed |= fail("route gate is missing $required column") if !exists $column{$required};
     }
     my (%seen_gate, $gate_line);
     $gate_line = 1;
@@ -627,7 +631,7 @@ for my $file (@source_files) {
             }
             my $key = "$method\t$candidate_path";
             if (exists $candidates{$key}) {
-                next if is_known_models_shared_alias(
+                my $shared_alias = is_known_models_shared_alias(
                     $method,
                     $candidate_path,
                     $path,
@@ -635,6 +639,22 @@ for my $file (@source_files) {
                     $source_path,
                     $candidate_metadata{$key},
                 );
+                if ($shared_alias) {
+                    if ($method eq 'DELETE' && $candidate_path eq '/v1/models/:model') {
+                        if ($shared_alias == 2) {
+                            $handler =~ s/^\s+|\s+$//g;
+                            $candidates{$key} = $source_location;
+                            $candidate_metadata{$key} = {
+                                source_path => $source_path,
+                                handler => $handler,
+                                raw_path => $path,
+                            };
+                        }
+                        $not_implemented{$key} = 1;
+                        $placeholders{$key} = 1;
+                    }
+                    next;
+                }
                 $failed |= fail("$file:$line: duplicate normalized route $method $candidate_path (first at $candidates{$key})");
                 next;
             }
@@ -682,7 +702,7 @@ for my $key (sort keys %route_aliases) {
 
 exit 1 if $failed;
 
-my (@outside, @approved_outside, @placeholder_routes, @legacy_stub_routes, @missing_routes);
+my (@outside, @approved_outside, @placeholder_routes, @legacy_stub_routes, @route_compatibility);
 my ($frozen_matches, $mounted) = (0, 0);
 for my $key (sort keys %candidates) {
     if ($gate_retired{$key}) {
@@ -718,7 +738,7 @@ for my $key (sort keys %candidates) {
     }
 }
 for my $key (sort keys %baseline) {
-    push @missing_routes, "$key\t$baseline_handler{$key}"
+    push @route_compatibility, "$key\t$baseline_handler{$key}"
         if !$gate_retired{$key} && !exists $candidates{$key};
 }
 for my $key (sort keys %outside_allowlist) {
@@ -746,7 +766,7 @@ for my $entry (@legacy_stub_routes) {
 }
 if ($report_missing) {
     my %missing_by_module;
-    for my $entry (@missing_routes) {
+    for my $entry (@route_compatibility) {
         my ($method, $path, $handler) = split /\t/, $entry, 3;
         my $key = "$method\t$path";
         my $module = $planned_module{$key};
@@ -759,17 +779,17 @@ if ($report_missing) {
 }
 printf "draft route coverage: candidate-method-paths=%d frozen-matches=%d frozen-total=%d missing=%d mounted=%d placeholders=%d legacy-stubs=%d outside-baseline=%d approved-outside-baseline=%d\n",
     scalar(keys %candidates), $frozen_matches, scalar(keys %baseline),
-    scalar(@missing_routes), $mounted, scalar(@placeholder_routes),
+    scalar(@route_compatibility), $mounted, scalar(@placeholder_routes),
     scalar(@legacy_stub_routes), scalar(@outside), scalar(@approved_outside);
-print "draft coverage is static candidate evidence only; it is not differential verification, migration credit, or production ownership\n";
+print "draft coverage is static candidate evidence only; it is not differential verification, route ownership credit, or production ownership\n";
 if ($require_complete) {
-    my $complete = !@missing_routes
+    my $complete = !@route_compatibility
         && !@placeholder_routes
         && !@legacy_stub_routes
         && $mounted == scalar(keys %baseline) - scalar(keys %gate_retired);
     if (!$complete) {
         printf STDERR "draft completion gate failed: missing=%d placeholders=%d legacy-stubs=%d mounted=%d required-mounted=%d\n",
-            scalar(@missing_routes), scalar(@placeholder_routes), scalar(@legacy_stub_routes),
+            scalar(@route_compatibility), scalar(@placeholder_routes), scalar(@legacy_stub_routes),
             $mounted, scalar(keys %baseline) - scalar(keys %gate_retired);
         exit 1;
     }

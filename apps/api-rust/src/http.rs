@@ -19,8 +19,8 @@ use lmm_api_rs::{
     ClientIpKey, PreserveLegacyEmptyError, RequestContext,
     auth::{AuthHttpState, auth_router},
     legacy_empty_response,
-    migration_routes::api_token::{ApiTokenHttpState, ApiTokenPrincipal, api_token_router},
     models::{ModelsHttpState, ModelsService, models_router},
+    routes::api_token::{ApiTokenHttpState, ApiTokenPrincipal, api_token_router},
     status::StatusHttpState,
 };
 use lmm_application::{
@@ -281,12 +281,12 @@ fn finalize_listener(router: Router, state: AppState) -> Router {
     dead_code,
     reason = "the test-only wrapper is also compiled into the non-test binary target"
 )]
-/// Prepares the migration-candidate surface for
+/// Prepares the isolated route surface for
 /// [`router_with_api_token_and_extra`].
 ///
 /// This keeps candidate-specific compatibility headers and global limiting
 /// caller-owned while leaving listener-wide behavior to the final root.
-pub fn migration_candidate_test_surface(state: &AppState, candidates: Router) -> Router {
+pub fn route_test_surface(state: &AppState, candidates: Router) -> Router {
     let legacy_headers = AuthLegacyHeaderState {
         version: state.status.version().to_owned(),
     };
@@ -1112,8 +1112,8 @@ mod tests {
         ApiTokenMount, AppState, LEGACY_REQUEST_ID_HEADER, LEGACY_VERSION_HEADER,
         REQUEST_ID_HEADER, RuntimeState, TrustedProxyPolicy, api_global_rate_limited_surface,
         canonical_client_ip, discovery_auth_error, discovery_unauthorized, finalize_listener,
-        migration_candidate_test_surface, preserves_legacy_non_json_error,
-        router as production_router, router_with_api_token, router_with_api_token_and_extra,
+        preserves_legacy_non_json_error, route_test_surface, router as production_router,
+        router_with_api_token, router_with_api_token_and_extra,
     };
 
     #[test]
@@ -1145,7 +1145,10 @@ mod tests {
             DashboardAuth, DashboardUser, LoginOutcome, LoginRequest, LogoutRequest, LogoutResult,
             RequestMetadata, TwoFactorLoginRequest,
         },
-        migration_routes::{
+        models::{
+            ModelView, ModelsError, ModelsErrorKind, ModelsHttpState, ModelsRequest, ModelsService,
+        },
+        routes::{
             api_token::{ApiTokenHttpState, ApiTokenPrincipal, PgValkeyApiTokenService},
             open_source_bounties::{OpenSourceBountyState, router as open_source_bounty_router},
             relay_anthropic_gemini::{
@@ -1153,9 +1156,6 @@ mod tests {
                 RelayOutcome, RelayProtocol, UpstreamReply, UpstreamRequest,
                 router as relay_router,
             },
-        },
-        models::{
-            ModelView, ModelsError, ModelsErrorKind, ModelsHttpState, ModelsRequest, ModelsService,
         },
         status::{StatusHttpState, StatusRepository, StatusRepositoryError, StatusSnapshot},
     };
@@ -1543,7 +1543,7 @@ mod tests {
         let valkey = redis::Client::open("redis://127.0.0.1:1")?;
         let auth: Arc<dyn DashboardAuth> = Arc::new(UnavailableAuth);
         let app_state = state(None)?;
-        let candidates = migration_candidate_test_surface(
+        let candidates = route_test_surface(
             &app_state,
             crate::test_instance::safe_candidate_surface(pg, valkey, Arc::clone(&auth)),
         );
@@ -2308,7 +2308,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn migration_candidate_root_should_rate_limit_before_candidate_execution() -> TestResult {
+    async fn candidate_root_should_rate_limit_before_candidate_execution() -> TestResult {
         let calls = Arc::new(AtomicUsize::new(0));
         let handler_calls = Arc::clone(&calls);
         let candidates = axum::Router::new().route_service(
@@ -2326,7 +2326,7 @@ mod tests {
             client_ips: Mutex::new(Vec::new()),
         });
         let state = state_with_rate_limiter(None, limiter.clone())?;
-        let app = finalize_listener(migration_candidate_test_surface(&state, candidates), state);
+        let app = finalize_listener(route_test_surface(&state, candidates), state);
         let mut request = Request::get("/api/candidate-probe").body(Body::empty())?;
         request
             .extensions_mut()
@@ -2444,7 +2444,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn migration_candidate_token_preflight_bypasses_rejecting_global_limiter() -> TestResult {
+    async fn candidate_token_preflight_bypasses_rejecting_global_limiter() -> TestResult {
         let limiter = Arc::new(MockRateLimiter {
             mode: MockLimitMode::Reject(19),
             client_ips: Mutex::new(Vec::new()),
@@ -2454,7 +2454,7 @@ mod tests {
             axum::routing::options(|| async { StatusCode::NO_CONTENT }),
         );
         let state = state_with_rate_limiter(None, limiter.clone())?;
-        let app = finalize_listener(migration_candidate_test_surface(&state, candidates), state);
+        let app = finalize_listener(route_test_surface(&state, candidates), state);
         let mut request = Request::builder()
             .method("OPTIONS")
             .uri("/api/usage/token/")

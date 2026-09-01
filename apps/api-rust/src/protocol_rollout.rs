@@ -1,4 +1,4 @@
-//! Pure rollout controls for the protocol-conversion migration.
+//! Pure rollout controls for protocol conversion.
 //!
 //! This module deliberately stops at decision boundaries. It does not own a
 //! route, an HTTP client, a provider response, or traffic ownership. Its live

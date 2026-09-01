@@ -23,11 +23,11 @@ use axum::{
 };
 use lmm_api_rs::{
     RequestContext,
-    migration_routes::{
+    models::PgModelsService,
+    routes::{
         relay_misc::RelayMiscHttpState, relay_misc_active::router as active_router,
         relay_misc_frozen::router as frozen_router, relay_misc_postgres::PgRelayMiscService,
     },
-    models::PgModelsService,
 };
 use sqlx::postgres::PgPoolOptions;
 use tokio::net::TcpListener;

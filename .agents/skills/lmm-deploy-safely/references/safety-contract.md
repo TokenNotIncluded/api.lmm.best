@@ -205,7 +205,7 @@ Rust route ownership.
 
 ## Rust ownership gate
 
-- `migration-gate.tsv` is authoritative for route ownership. Reject unresolved,
+- `route-gate.tsv` is authoritative for route ownership. Reject unresolved,
   inconsistent, unverified, or unapproved auth/quota/billing/streaming routes.
 - Rust CLI/package parity, a provider symlink, health probes, mounted routes, or
   historical rehearsals do not transfer business ownership.

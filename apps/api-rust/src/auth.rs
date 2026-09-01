@@ -629,8 +629,8 @@ mod dashboard_user_view_tests {
 
 /// The three server-derived failures emitted by Go's `middleware.UserAuth`.
 ///
-/// Keep this check centralized: migration slices must not turn a disabled,
-/// guest, or malformed dashboard principal into a generic invalid-token
+/// Keep this check centralized: route modules must not turn a disabled, guest,
+/// or malformed dashboard principal into a generic invalid-token
 /// response.  The order is observable legacy behaviour.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum UserAuthPolicyError {
@@ -941,7 +941,7 @@ pub trait DashboardAuth: Send + Sync {
     ) -> Result<String, AuthError>;
 }
 
-/// Auditable source-to-module mapping for the four-route migration slice.
+/// Auditable source-to-module mapping for the authentication routes.
 pub const LEGACY_AUTH_SOURCE_MAP: &[(&str, &str)] = &[
     ("controller/user.go", "auth/http.rs + auth/postgres.rs"),
     (

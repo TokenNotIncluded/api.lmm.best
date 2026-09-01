@@ -116,7 +116,7 @@ running PID, sanitized process-environment scheme checks, and explicit HTTP
 probes for legacy classification, then move through the guarded T0 transaction
 before relying on the unified controller.
 
-Always read `apps/api-rust/tests/fixtures/routes/migration-gate.tsv` for the
+Always read `apps/api-rust/tests/fixtures/routes/route-gate.tsv` for the
 current route ownership and approval state; prose is not an authority for
 route counts.
 

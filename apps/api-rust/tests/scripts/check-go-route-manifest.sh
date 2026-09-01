@@ -225,7 +225,7 @@ shell_report="$(awk -F '\t' \
     representative["POST" SUBSEP "/api/user/creem/pay"] = "DisabledStripeCreemGateway"
     representative["POST" SUBSEP "/api/user/pay"] = "DisabledTopupRepository+DisabledEpayGateway"
     representative["POST" SUBSEP "/api/user/waffo/pay"] = "DisabledTopUpGateway"
-    representative["POST" SUBSEP "/pg/chat/completions"] = "FailClosedRelayMiscService"
+    representative["POST" SUBSEP "/pg/chat/completions"] = "FailClosedRelayCompatService"
     representative["POST" SUBSEP "/v1/video/generations"] = "FailClosedRelayVideoService"
     representative["GET" SUBSEP "/v1/responses"] = "UnconfiguredResponsesWebSocketService"
   }

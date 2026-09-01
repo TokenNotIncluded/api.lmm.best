@@ -14,7 +14,7 @@ Go still owns production business traffic. Rust route ownership is determined
 only by the current result of:
 
 ```text
-apps/api-rust/tests/fixtures/routes/migration-gate.tsv
+apps/api-rust/tests/fixtures/routes/route-gate.tsv
 ```
 
 A compiled binary, mounted candidate route, successful `/livez` or `/readyz`
@@ -86,7 +86,7 @@ verified:
 4. Shared Valkey session, revocation, and fail-closed rate-limit semantics.
 5. HTTP, SSE, and WebSocket draining/reconnection behavior without retrying
    non-idempotent requests.
-6. Explicit route-by-route approval in `migration-gate.tsv`.
+6. Explicit route-by-route approval in `route-gate.tsv`.
 7. A manual rollback rehearsal using the same signed provider packages and
    shared deployment-state schema that production will use.
 
@@ -102,8 +102,8 @@ awk -F '\t' 'NR > 1 { owner[$8]++; mount[$5]++; diff[$6]++ }
   END { for (k in owner) print "owner", k, owner[k];
         for (k in mount) print "mount", k, mount[k];
         for (k in diff) print "differential", k, diff[k] }' \
-  apps/api-rust/tests/fixtures/routes/migration-gate.tsv
-bash apps/api-rust/tests/scripts/check-migration-plan.sh
+  apps/api-rust/tests/fixtures/routes/route-gate.tsv
+bash apps/api-rust/tests/scripts/check-route-plan.sh
 bash apps/api-rust/tests/scripts/check-real-integration-gates.sh
 ```
 

@@ -18,11 +18,11 @@ use lmm_contracts::relay::{
 };
 
 use crate::{
-    migration_routes::sse::SseFrame,
     protocol_stream_pipeline::{
         StreamAdaptor, StreamAdaptorItem, StreamAdaptorOutput, StreamAdaptorRegistry,
         StreamAdaptorSession, StreamCloseReason, StreamSetupFailure, TypedStreamFailure,
     },
+    routes::sse::SseFrame,
 };
 
 /// Converter ID prefix shared by every cortexfs-backed route.

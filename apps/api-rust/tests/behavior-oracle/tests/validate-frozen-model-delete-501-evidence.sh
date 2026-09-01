@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Validates the sole explicit-501 exception which may receive migration credit.
+# Validates the sole explicit-501 exception which may receive route ownership credit.
 # This is deliberately a narrow evidence parser, not a generic 501 allow-list.
 set -euo pipefail
 

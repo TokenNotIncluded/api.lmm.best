@@ -21,7 +21,7 @@ not production data or snapshots.
 
 The test surface may expose incomplete Rust routes. Expected parity failures are
 not permission to transfer production traffic. Rust business ownership remains
-controlled by `apps/api-rust/tests/fixtures/routes/migration-gate.tsv`.
+controlled by `apps/api-rust/tests/fixtures/routes/route-gate.tsv`.
 
 Build a commit-bound provider package from a clean checkout:
 

@@ -17,11 +17,6 @@ use lmm_api_rs::{
         ClientAbortGuard, ConversionObserver, ConversionResult, ConverterVersion, FailureReason,
         FeatureClass, MetricKind, MetricLabels, StreamTiming,
     },
-    migration_routes::sse::{
-        DEFAULT_MAX_FRAME_BYTES, SseError, SseFrame, SseFrameParser, UnknownEventAction,
-        UnknownEventClass, json_events_from_frames, parse_sse_frames, parse_sse_frames_lenient,
-        parse_sse_frames_rejecting_unterminated, unknown_event_decision,
-    },
     protocol_differential_gate::{
         DifferentialEvidenceBundle, DifferentialEvidenceDocument, EVIDENCE_SCHEMA_VERSION,
         MAX_EVIDENCE_JSON_BYTES,
@@ -44,6 +39,11 @@ use lmm_api_rs::{
     route_ownership::{
         DifferentialClass, MIN_REVIEW_CANARY_BASIS_POINTS, OwnershipBlocker, OwnershipDecision,
         OwnershipEvidence, OwnershipGate, RouteOwnershipScope,
+    },
+    routes::sse::{
+        DEFAULT_MAX_FRAME_BYTES, SseError, SseFrame, SseFrameParser, UnknownEventAction,
+        UnknownEventClass, json_events_from_frames, parse_sse_frames, parse_sse_frames_lenient,
+        parse_sse_frames_rejecting_unterminated, unknown_event_decision,
     },
 };
 use lmm_contracts::relay::{
@@ -2617,7 +2617,7 @@ fn sse_regression_corpus_is_incremental_bounded_and_panic_free() {
         })
     );
     assert!(matches!(
-        json_events_from_frames(&[lmm_api_rs::migration_routes::sse::SseFrame {
+        json_events_from_frames(&[lmm_api_rs::routes::sse::SseFrame {
             event: None,
             id: Some("id".to_owned()),
             retry: None,

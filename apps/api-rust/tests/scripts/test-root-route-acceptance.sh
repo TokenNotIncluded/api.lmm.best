@@ -19,8 +19,8 @@ grep -Fq 'legacy-go-routes.tsv' "$repo_root/apps/api-rust/tests/root-route-accep
   echo "root-route inventory is not bound to the frozen 353-route baseline" >&2
   exit 1
 }
-grep -Fq 'migration-plan.tsv' "$repo_root/apps/api-rust/tests/root-route-acceptance/src/inventory.rs" || {
-  echo "root-route inventory is not bound to migration auth classes" >&2
+grep -Fq 'route-plan.tsv' "$repo_root/apps/api-rust/tests/root-route-acceptance/src/inventory.rs" || {
+  echo "root-route inventory is not bound to route auth classes" >&2
   exit 1
 }
 

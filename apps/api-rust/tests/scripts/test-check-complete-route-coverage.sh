@@ -47,7 +47,7 @@ run() {
   COMPLETE_RUNTIME_BLOCKERS_LEDGER="$runtime/blockers.tsv" \
   COMPLETE_NORMAL_MOUNTS_LEDGER="$runtime/normal.tsv" \
   COMPLETE_FAIL_CLOSED_SHELLS_LEDGER="$runtime/shells.tsv" \
-  COMPLETE_MIGRATION_GATE="$runtime/gate.tsv" \
+  COMPLETE_ROUTE_GATE="$runtime/gate.tsv" \
   COMPLETE_MCP_PATHS="$runtime/mcp.tsv" \
   COMPLETE_DIFFERENTIAL_RESULTS_DIR="$runtime/results" \
   bash "$checker"
@@ -127,7 +127,7 @@ expect_fail run
 grep -Fq 'retired route is not frozen: GET /fake-retired' "$runtime/err" || fail 'non-frozen retired route was not rejected'
 write_gate $'GET\t/retired\tpresent\tnot-applicable\tunmounted\tnot-applicable\tnot-applicable\tgo\tlegacy-go\tretired=true;fixture=invalid'
 expect_fail run
-grep -Fq 'retired migration gate row has invalid state' "$runtime/err" || fail 'invalid retired state tuple was not rejected'
+grep -Fq 'retired route gate row has invalid state' "$runtime/err" || fail 'invalid retired state tuple was not rejected'
 write_gate $'GET\t/retired\tabsent\tnot-applicable\tunmounted\tnot-applicable\tnot-applicable\tgo\tlegacy-go\tretired=true;fixture=absent'
 
 printf '%s\n' $'GET\t/unclassified\tgo.unclassified' >>"$runtime/manifest.tsv"
@@ -139,7 +139,7 @@ expect_fail env COMPLETE_REQUIRE_EXPLICIT_CLASSIFICATION=1 \
   COMPLETE_RUNTIME_BLOCKERS_LEDGER="$runtime/blockers.tsv" \
   COMPLETE_NORMAL_MOUNTS_LEDGER="$runtime/normal.tsv" \
   COMPLETE_FAIL_CLOSED_SHELLS_LEDGER="$runtime/shells.tsv" \
-  COMPLETE_MIGRATION_GATE="$runtime/gate.tsv" \
+  COMPLETE_ROUTE_GATE="$runtime/gate.tsv" \
   COMPLETE_MCP_PATHS="$runtime/mcp.tsv" bash "$checker"
 sed -i '$d' "$runtime/manifest.tsv"
 
@@ -166,7 +166,7 @@ done
 
 # Current repository ledgers are consumable with a safe manifest override; no
 # backend build or listener starts during this self-test. Every route marked as
-# retired by the migration gate is removed, and the three current-only shells
+# retired by the route gate is removed, and the three current-only shells
 # are added to model the live set.
 awk -F '\t' '
   NR == FNR {
@@ -174,7 +174,7 @@ awk -F '\t' '
     next
   }
   !retired[$1 FS $2]
-' "$repo_root/apps/api-rust/tests/fixtures/routes/migration-gate.tsv" \
+' "$repo_root/apps/api-rust/tests/fixtures/routes/route-gate.tsv" \
   "$repo_root/apps/api-rust/tests/fixtures/routes/legacy-go-routes.tsv" >"$runtime/current-manifest.tsv"
 printf '%s\n' \
   $'POST\t/pg/images/edits\tgo.current-only' \

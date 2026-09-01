@@ -76,4 +76,4 @@ a database backup.
 
 A provider deployment must remain N/N-1 compatible with the current Valkey key
 contract. Valkey presence alone never grants Rust production route ownership;
-`apps/api-rust/tests/fixtures/routes/migration-gate.tsv` remains authoritative.
+`apps/api-rust/tests/fixtures/routes/route-gate.tsv` remains authoritative.

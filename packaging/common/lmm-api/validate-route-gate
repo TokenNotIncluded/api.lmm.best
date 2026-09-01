@@ -138,7 +138,7 @@ assets_manifest_snapshot=$SNAPSHOT_RESULT
 declare -A asset_sha=()
 while read -r digest name; do
   [[ $digest =~ ^[0-9a-f]{64}$ ]] || die 'route-gate asset manifest contains an invalid checksum'
-  [[ $name =~ ^(migration-gate.tsv|validate-route-gate|migration-compatibility.env|frozen-route-auth.tsv)$ ]] || \
+  [[ $name =~ ^(route-gate.tsv|validate-route-gate|migration-compatibility.env|frozen-route-auth.tsv)$ ]] || \
     die 'route-gate asset manifest contains an unexpected path'
   [[ ! ${asset_sha[$name]+x} ]] || die 'route-gate asset manifest contains a duplicate path'
   asset_sha[$name]=$digest
@@ -158,12 +158,12 @@ gate_root=$(dirname -- "$gate")
 frozen_root=$(dirname -- "$frozen_contract")
 validate_directory "$gate_root" 'route gate controlling directory'
 validate_directory "$frozen_root" 'frozen contract controlling directory'
-snapshot_input "$gate" "$gate_root" gate.tsv "$max_control_bytes" 'route gate' "${asset_sha[migration-gate.tsv]}"
+snapshot_input "$gate" "$gate_root" gate.tsv "$max_control_bytes" 'route gate' "${asset_sha[route-gate.tsv]}"
 gate_snapshot=$SNAPSHOT_RESULT
 snapshot_input "$frozen_contract" "$frozen_root" frozen.tsv "$max_control_bytes" 'frozen route/auth contract' \
   "${asset_sha[frozen-route-auth.tsv]}"
 frozen_snapshot=$SNAPSHOT_RESULT
-[[ $(sed -n '1{s/\r$//;p;q;}' -- "$gate_snapshot") == "$gate_header" ]] || die 'migration-gate.tsv header is invalid'
+[[ $(sed -n '1{s/\r$//;p;q;}' -- "$gate_snapshot") == "$gate_header" ]] || die 'route-gate.tsv header is invalid'
 [[ $(sed -n '1{s/\r$//;p;q;}' -- "$frozen_snapshot") == "$frozen_header" ]] || \
   die 'frozen route/auth contract header is invalid'
 

@@ -40,16 +40,16 @@ route_gate_fixture_write_route() {
 
 route_gate_fixture_create() {
   local repo=$1 root=$2 revision=$3 current_gate method path rest index=0
-  current_gate="$repo/apps/api-rust/tests/fixtures/routes/migration-gate.tsv"
+  current_gate="$repo/apps/api-rust/tests/fixtures/routes/route-gate.tsv"
   ROUTE_GATE_FIXTURE_REVISION=$revision
   mkdir -p "$root/evidence"
   IFS= read -r header <"$current_gate"
-  printf '%s\n' "$header" >"$root/migration-gate.tsv"
+  printf '%s\n' "$header" >"$root/route-gate.tsv"
   while IFS=$'\t' read -r method path rest; do
     ((index += 1))
     route_gate_fixture_write_route "$root" "$index" "$method" "$path"
     printf '%s\t%s\tpresent\tverified\tmounted\tverified\tapproved\trs\tverified-approved\t%s\n' \
-      "$method" "$path" "$ROUTE_GATE_FIXTURE_EVIDENCE" >>"$root/migration-gate.tsv"
+      "$method" "$path" "$ROUTE_GATE_FIXTURE_EVIDENCE" >>"$root/route-gate.tsv"
   done < <(tail -n +2 "$current_gate")
 
   install -Dm0755 "$repo/packaging/common/lmm-api/validate-route-gate" "$root/validate-route-gate"
@@ -70,7 +70,7 @@ route_gate_fixture_create() {
     "$revision" "$schema_sha" "$n1_sha" "$approval_sha" >"$root/migration-compatibility.env"
   (
     cd "$root" || return
-    sha256sum migration-gate.tsv validate-route-gate migration-compatibility.env frozen-route-auth.tsv \
+    sha256sum route-gate.tsv validate-route-gate migration-compatibility.env frozen-route-auth.tsv \
       >route-gate-assets.sha256
   )
 }

@@ -21,10 +21,14 @@ use axum::{
 use chrono::{Local, SecondsFormat, TimeZone, Utc};
 use lmm_api_rs::{
     auth::DashboardAuth,
-    migration_routes::{
+    routes::{
         admin_catalog::{
             AdminCatalogAuthorizer, AdminCatalogState, CatalogError, CatalogUpstream,
             DashboardAdminCatalogAuthorizer, PgCatalogProvider, UpstreamCatalog,
+        },
+        billing_dashboard::{
+            BillingDashboardState, PgBillingDashboardAuthorizer, PgBillingDashboardStore,
+            billing_dashboard_router,
         },
         billing_payments::{
             BillingConfig, BillingDependencies, BillingHttpState, DashboardBillingAuthorizer,
@@ -40,6 +44,9 @@ use lmm_api_rs::{
         },
         channel_core::{ChannelAdminAuthorizer, ChannelCoreState},
         channel_ops::{ChannelOpsHttpState, DashboardChannelAuthorizer},
+        checkin_affiliate::{
+            CheckinAffiliateState, PgValkeyCheckinEffects, router as checkin_affiliate_router,
+        },
         control_admin::{
             ControlAdminState, DashboardControlAdminAuthorizer, OAuthDiscoveryClient,
             control_admin_router,
@@ -48,15 +55,24 @@ use lmm_api_rs::{
             ControlPublicError, ControlPublicHttpState, PgControlPublicRepository,
             UptimeHeartbeatPage, UptimeKumaClient, UptimeStatusPage, control_public_router,
         },
+        control_tasks::{
+            ControlTaskStatusError, ControlTaskStatusProbe, ControlTasksState, PgControlTaskStore,
+            control_tasks_router,
+        },
         deployment::{
             DeploymentState, DisabledDeploymentJobRunner, PgValkeyDeploymentProvider,
             router as deployment_router,
+        },
+        epay::{
+            DashboardTopupAuthorizer, DisabledEpayGateway, DisabledTopupRepository, UserTopupState,
+            router as epay_router,
         },
         identity_2fa::{
             Identity2FAActor, Identity2FASession, Identity2FAState, SecuritySessionRotation,
             SecuritySessionRotator,
         },
         identity_admin::IdentityAdminState,
+        identity_catalog::{IdentityCatalogState, router as identity_catalog_router},
         identity_federation::{
             DashboardFederationIdentity, DisabledEmailCodeVerifier, FederationError,
             FederationIdentity, FederationPrincipal, FederationState,
@@ -71,62 +87,29 @@ use lmm_api_rs::{
             TaskEffect, media_midjourney_dynamic_router,
         },
         media_tasks::{MediaTaskHttpState, MidjourneyMediaTaskService, media_task_router},
-        missing_billing_dashboard::{
-            BillingDashboardState, PgBillingDashboardAuthorizer, PgBillingDashboardStore,
-            billing_dashboard_router,
-        },
-        missing_billing_webhooks::{
-            DisabledPancakeWebhookVerifier, DisabledWaffoWebhookAvailability,
-            DisabledWaffoWebhookProcessor, DisabledWaffoWebhookVerifier, WaffoWebhookState,
-            missing_billing_webhooks_router,
-        },
-        missing_control_public::{
-            DashboardMissingControlAuthorizer, DashboardMissingControlRateLimiter, HeaderNavAccess,
-            MissingControlPublicState, MissingControlStore, MissingControlStoreError,
-            missing_control_public_router, parse_header_nav_access,
-        },
-        missing_control_ratio_sync::{
-            DashboardRatioSyncAuthorizer, PgRatioSyncRepository, RatioSyncHttpState,
-            TestInstanceDisabledRatioSyncUpstream, ratio_sync_router,
-        },
-        missing_control_tasks::{
-            ControlTaskStatusError, ControlTaskStatusProbe, MissingControlTasksState,
-            PgControlTaskStore, missing_control_tasks_router,
-        },
-        missing_identity_catalog::{IdentityCatalogState, router as identity_catalog_router},
-        missing_identity_checkin_aff::{
-            IdentityCheckinAffState, PgValkeyCheckinEffects, router as identity_checkin_aff_router,
-        },
-        missing_identity_epay::{
-            DashboardTopupAuthorizer, DisabledEpayGateway, DisabledTopupRepository, UserTopupState,
-            router as identity_epay_router,
-        },
-        missing_identity_stripe_creem::{
-            DashboardStripeCreemAuthorizer, DisabledStripeCreemGateway, IdentityStripeCreemState,
-            PgStripeCreemStore, router as identity_stripe_creem_router,
-        },
-        missing_identity_topup::{IdentityTopupState, router as identity_topup_router},
-        missing_identity_waffo::{
-            DisabledTopUpGateway, WaffoTopUpState, router as identity_waffo_router,
-        },
-        missing_relay_misc_new::{
-            MissingRelayAuthRejection, MissingRelayAuthorization, MissingRelayEndpoint,
-            MissingRelayMiscState, MissingRelayService, missing_relay_misc_router,
-        },
-        missing_relay_models_billing::{ModelLookupState, PgStaticModelLookup},
-        missing_relay_video::{
-            RelayVideoAuthorization, RelayVideoHttpState, RelayVideoOperation, RelayVideoService,
-            missing_relay_video_router,
-        },
+        model_lookup::{ModelLookupState, PgStaticModelLookup},
         observability::{
             DashboardObservabilityAuthorizer, ObservabilityState, PgObservabilityStore,
             PgReadOnlyObservabilityTokenAuthorizer, PostgresObservabilityMetrics,
             UnavailableObservabilityMaintenance, observability_router,
         },
         open_source_bounties::{OpenSourceBountyState, router as open_source_bounty_router},
+        public_catalog::{
+            DashboardPublicCatalogAuthorizer, DashboardPublicCatalogRateLimiter, HeaderNavAccess,
+            PublicCatalogState, PublicCatalogStore, PublicCatalogStoreError,
+            parse_header_nav_access, public_catalog_router,
+        },
+        ratio_sync::{
+            DashboardRatioSyncAuthorizer, PgRatioSyncRepository, RatioSyncHttpState,
+            TestInstanceDisabledRatioSyncUpstream, ratio_sync_router,
+        },
         relay_anthropic_gemini::{
             RelayBackend, RelayChannel, RelayFailure, RelayHttpState, RelayIdentity, RelayOutcome,
             RelayProtocol, UpstreamReply, UpstreamRequest, router_with_model_lookup,
+        },
+        relay_compat::{
+            RelayCompatAuthRejection, RelayCompatAuthorization, RelayCompatEndpoint,
+            RelayCompatService, RelayCompatState, relay_compat_router,
         },
         relay_media::{RelayMediaHttpState, RelayMediaService, relay_media_router},
         relay_misc::{
@@ -137,10 +120,25 @@ use lmm_api_rs::{
             OpenAiRelayAuthorization, OpenAiRelayFailure, OpenAiRelayHttpState, OpenAiRelayRequest,
             OpenAiRelayResult, OpenAiRelayService, openai_relay_router,
         },
+        relay_video::{
+            RelayVideoAuthorization, RelayVideoHttpState, RelayVideoOperation, RelayVideoService,
+            relay_video_router,
+        },
+        stripe_creem::{
+            DashboardStripeCreemAuthorizer, DisabledStripeCreemGateway, PgStripeCreemStore,
+            StripeCreemState, router as stripe_creem_router,
+        },
         system_config::{
             DashboardRootAuthorizer, ProjectUpdateClient, SystemConfigHttpState,
             SystemConfigRuntimeWriter, TestInstanceDisabledWaffoPancakeGateway,
             system_config_router,
+        },
+        topup::{TopupState, router as topup_router},
+        waffo::{DisabledTopUpGateway, WaffoTopUpState, router as waffo_router},
+        waffo_webhooks::{
+            DisabledPancakeWebhookVerifier, DisabledWaffoWebhookAvailability,
+            DisabledWaffoWebhookProcessor, DisabledWaffoWebhookVerifier, WaffoWebhookState,
+            waffo_webhooks_router,
         },
     },
 };
@@ -209,13 +207,13 @@ pub fn safe_control_public_surface(pg: PgPool) -> Router {
 /// the durable store plus the listener's shared dashboard session authority.
 /// Keep the constructor here shared with the isolated candidate surface so
 /// the two listeners cannot silently drift in their database/query contract.
-pub fn durable_missing_control_public_surface(pg: PgPool, auth: Arc<dyn DashboardAuth>) -> Router {
-    missing_control_public_router(
-        MissingControlPublicState::new(
-            Arc::new(PgMissingControlStore::new(pg)),
-            Arc::new(DashboardMissingControlAuthorizer::new(Arc::clone(&auth))),
+pub fn durable_public_catalog_surface(pg: PgPool, auth: Arc<dyn DashboardAuth>) -> Router {
+    public_catalog_router(
+        PublicCatalogState::new(
+            Arc::new(PgPublicCatalogStore::new(pg)),
+            Arc::new(DashboardPublicCatalogAuthorizer::new(Arc::clone(&auth))),
         )
-        .with_critical_rate_limiter(Arc::new(DashboardMissingControlRateLimiter::new(
+        .with_critical_rate_limiter(Arc::new(DashboardPublicCatalogRateLimiter::new(
             Arc::clone(&auth),
         )))
         .with_console_access_gate(auth),
@@ -309,14 +307,18 @@ pub fn safe_candidate_surface(
                 Arc::new(DisabledDeploymentJobRunner),
             ),
         ))))
-        .merge(lmm_api_rs::migration_routes::identity_security::router(
+        .merge(lmm_api_rs::routes::identity_security::router(
             IdentitySecurityState::new(
                 Arc::new(PgValkeySecurityProvider::new(pg.clone(), valkey.clone())),
-                Arc::new(lmm_api_rs::migration_routes::identity_security::DashboardSecurityAuthorizer::new(Arc::clone(&auth))),
+                Arc::new(
+                    lmm_api_rs::routes::identity_security::DashboardSecurityAuthorizer::new(
+                        Arc::clone(&auth),
+                    ),
+                ),
             )
             .with_passkey_enabled(false),
         ))
-        .merge(lmm_api_rs::migration_routes::identity_2fa::router(
+        .merge(lmm_api_rs::routes::identity_2fa::router(
             Identity2FAState::new(pg.clone(), valkey.clone(), Arc::new(DenySessionRotator)),
         ))
         .merge(identity_federation_provider_router(FederationState::new(
@@ -334,8 +336,7 @@ pub fn safe_candidate_surface(
                 Arc::new(PgObservabilityStore::new(
                     pg.clone(),
                     Arc::new(
-                        PostgresObservabilityMetrics::new(pg.clone())
-                            .with_valkey(valkey.clone()),
+                        PostgresObservabilityMetrics::new(pg.clone()).with_valkey(valkey.clone()),
                     ),
                     Arc::new(UnavailableObservabilityMaintenance),
                 )),
@@ -350,12 +351,14 @@ pub fn safe_candidate_surface(
             pg.clone(),
             Arc::clone(&auth),
         )))
-        .merge(relay_media_router(RelayMediaHttpState::new(Arc::new(DenyRelayMedia))))
+        .merge(relay_media_router(RelayMediaHttpState::new(Arc::new(
+            DenyRelayMedia,
+        ))))
         .merge(openai_relay_router(OpenAiRelayHttpState::new(
             Arc::new(DenyOpenAiRelay),
             env!("CARGO_PKG_VERSION"),
         )))
-        .merge(lmm_api_rs::migration_routes::admin_catalog::router(
+        .merge(lmm_api_rs::routes::admin_catalog::router(
             AdminCatalogState::new(
                 Arc::new(PgCatalogProvider::new(
                     pg.clone(),
@@ -364,33 +367,29 @@ pub fn safe_candidate_surface(
                 catalog_authorizer,
             ),
         ))
-        .merge(lmm_api_rs::migration_routes::billing_subscriptions::router(
+        .merge(lmm_api_rs::routes::billing_subscriptions::router(
             BillingSubscriptionsState::new(pg.clone(), Some(valkey.clone()), Arc::clone(&auth)),
         ))
-        .merge(lmm_api_rs::migration_routes::channel_core::router(
-            ChannelCoreState {
-                pg: pg.clone(),
-                valkey: valkey.clone(),
-                authorizer: Arc::clone(&channel_authorizer),
-                retry_times: 0,
-            },
+        .merge(lmm_api_rs::routes::channel_core::router(ChannelCoreState {
+            pg: pg.clone(),
+            valkey: valkey.clone(),
+            authorizer: Arc::clone(&channel_authorizer),
+            retry_times: 0,
+        }))
+        .merge(lmm_api_rs::routes::channel_ops::channel_ops_router(
+            ChannelOpsHttpState::new(pg.clone(), valkey.clone(), channel_authorizer),
         ))
-        .merge(
-            lmm_api_rs::migration_routes::channel_ops::channel_ops_router(
-                ChannelOpsHttpState::new(pg.clone(), valkey.clone(), channel_authorizer),
-            ),
-        )
-        .merge(lmm_api_rs::migration_routes::identity_admin::router(
+        .merge(lmm_api_rs::routes::identity_admin::router(
             IdentityAdminState::new(pg.clone(), valkey.clone(), Arc::clone(&auth)),
         ))
-        .merge(lmm_api_rs::migration_routes::identity_profile::router(
+        .merge(lmm_api_rs::routes::identity_profile::router(
             ProfileState::new(pg.clone(), valkey.clone()).with_dashboard_auth(Arc::clone(&auth)),
         ))
         .merge(safe_control_public_surface(pg.clone()))
         // The remainder of the candidate surface uses the same PostgreSQL and
         // dashboard-session authorities. Provider and relay boundaries remain
         // deliberately fail-closed on the isolated test instance.
-        .merge(durable_missing_control_public_surface(
+        .merge(durable_public_catalog_surface(
             pg.clone(),
             Arc::clone(&auth),
         ))
@@ -399,7 +398,7 @@ pub fn safe_candidate_surface(
             Arc::new(TestInstanceDisabledRatioSyncUpstream),
             Arc::new(DashboardRatioSyncAuthorizer::new(Arc::clone(&auth))),
         )))
-        .merge(missing_control_tasks_router(MissingControlTasksState::new(
+        .merge(control_tasks_router(ControlTasksState::new(
             Arc::new(PgControlTaskStore::new(pg.clone())),
             observability_authorizer,
             Arc::new(PgTestStatusProbe::new(pg.clone())),
@@ -408,25 +407,23 @@ pub fn safe_candidate_surface(
             pg.clone(),
             Arc::clone(&auth),
         )))
-        .merge(identity_checkin_aff_router(IdentityCheckinAffState::new(
-            pg.clone(),
-            Arc::clone(&auth),
-        ).with_effects(Arc::new(PgValkeyCheckinEffects::new(pg.clone(), valkey.clone())))))
-        .merge(identity_topup_router(IdentityTopupState::new(
-            pg.clone(),
-            Arc::clone(&auth),
-        )))
-        .merge(identity_epay_router(UserTopupState::new(
+        .merge(checkin_affiliate_router(
+            CheckinAffiliateState::new(pg.clone(), Arc::clone(&auth)).with_effects(Arc::new(
+                PgValkeyCheckinEffects::new(pg.clone(), valkey.clone()),
+            )),
+        ))
+        .merge(topup_router(TopupState::new(pg.clone(), Arc::clone(&auth))))
+        .merge(epay_router(UserTopupState::new(
             Arc::new(DashboardTopupAuthorizer::new(Arc::clone(&auth))),
             Arc::new(DisabledTopupRepository),
             Arc::new(DisabledEpayGateway),
         )))
-        .merge(identity_stripe_creem_router(IdentityStripeCreemState::new(
+        .merge(stripe_creem_router(StripeCreemState::new(
             Arc::new(PgStripeCreemStore::new(pg.clone())),
             Arc::new(DashboardStripeCreemAuthorizer::new(Arc::clone(&auth))),
             Arc::new(DisabledStripeCreemGateway),
         )))
-        .merge(identity_waffo_router(WaffoTopUpState::new(
+        .merge(waffo_router(WaffoTopUpState::new(
             pg.clone(),
             Arc::clone(&auth),
             Arc::new(DisabledTopUpGateway),
@@ -435,18 +432,18 @@ pub fn safe_candidate_surface(
             Arc::new(PgBillingDashboardStore::new(pg.clone())),
             Arc::new(PgBillingDashboardAuthorizer::new(pg.clone())),
         )))
-        .merge(missing_billing_webhooks_router(WaffoWebhookState::new(
+        .merge(waffo_webhooks_router(WaffoWebhookState::new(
             Arc::new(DisabledWaffoWebhookAvailability),
             Arc::new(DisabledPancakeWebhookVerifier),
             Arc::new(DisabledWaffoWebhookVerifier),
             Arc::new(DisabledWaffoWebhookProcessor),
         )))
-        .merge(missing_relay_video_router(RelayVideoHttpState::new(
-            Arc::new(DenyRelayVideo),
-        )))
-        .merge(missing_relay_misc_router(MissingRelayMiscState::new(
-            Arc::new(DenyRelayMisc),
-        )))
+        .merge(relay_video_router(RelayVideoHttpState::new(Arc::new(
+            DenyRelayVideo,
+        ))))
+        .merge(relay_compat_router(RelayCompatState::new(Arc::new(
+            DenyRelayMisc,
+        ))))
         // These four legacy relay seams and the frozen files/fine-tunes 501
         // endpoints must be registered together.  The test-only service
         // authenticates only a fixture token and otherwise never selects an
@@ -454,7 +451,10 @@ pub fn safe_candidate_surface(
         .merge(relay_misc_candidate_router())
         .merge(router_with_model_lookup(
             RelayHttpState::new(Arc::new(TestInstanceRelayBackend)),
-            ModelLookupState::new(Arc::new(PgStaticModelLookup::new(pg.clone())), env!("CARGO_PKG_VERSION")),
+            ModelLookupState::new(
+                Arc::new(PgStaticModelLookup::new(pg.clone())),
+                env!("CARGO_PKG_VERSION"),
+            ),
         ))
         // Setup must be reachable before a test-only root account exists.
         // Privileged routes retain the shared root-session guard and every
@@ -468,9 +468,9 @@ pub fn safe_candidate_surface(
         // test adapter denies every provider protocol after authentication, so
         // an imported snapshot can exercise route/auth compatibility without
         // contacting a selected production channel.
-        .merge(media_midjourney_dynamic_router(MidjourneyHttpState::new(Arc::new(
-            TestInstanceMidjourneyBackend::new(pg.clone()),
-        ))))
+        .merge(media_midjourney_dynamic_router(MidjourneyHttpState::new(
+            Arc::new(TestInstanceMidjourneyBackend::new(pg.clone())),
+        )))
         .merge(media_task_router(MediaTaskHttpState::new(Arc::new(
             MidjourneyMediaTaskService::new(Arc::new(TestInstanceMidjourneyBackend::new(pg))),
         ))))
@@ -478,11 +478,11 @@ pub fn safe_candidate_surface(
 
 /// PostgreSQL-backed read adapter for the legacy public/control endpoints.
 ///
-/// The legacy option payloads are intentionally retained as JSON so unknown
-/// fields survive the staged migration. Missing configuration yields an empty
-/// JSON value rather than an invented successful provider result.
+/// Legacy option payloads remain JSON so unknown fields survive unchanged.
+/// Missing configuration yields an empty JSON value rather than an invented
+/// successful provider result.
 #[derive(Clone)]
-struct PgMissingControlStore {
+struct PgPublicCatalogStore {
     pg: PgPool,
 }
 
@@ -519,17 +519,17 @@ struct PricingVendor {
     icon: String,
 }
 
-impl PgMissingControlStore {
+impl PgPublicCatalogStore {
     fn new(pg: PgPool) -> Self {
         Self { pg }
     }
 
-    async fn option_json(&self, key: &str) -> Result<Option<Value>, MissingControlStoreError> {
+    async fn option_json(&self, key: &str) -> Result<Option<Value>, PublicCatalogStoreError> {
         let value = sqlx::query_scalar::<_, String>("SELECT value FROM options WHERE key = $1")
             .bind(key)
             .fetch_optional(&self.pg)
             .await
-            .map_err(|error| MissingControlStoreError::new(error.to_string()))?;
+            .map_err(|error| PublicCatalogStoreError::new(error.to_string()))?;
         Ok(value.and_then(|value| serde_json::from_str(&value).ok()))
     }
 
@@ -537,7 +537,7 @@ impl PgMissingControlStore {
         &self,
         start: i64,
         end: i64,
-    ) -> Result<Vec<RankingQuotaTotal>, MissingControlStoreError> {
+    ) -> Result<Vec<RankingQuotaTotal>, PublicCatalogStoreError> {
         sqlx::query_as::<_, (String, i64)>(
             "SELECT model_name, SUM(token_used)::BIGINT AS total_tokens \
              FROM quota_data WHERE model_name <> '' AND created_at >= $1 AND created_at <= $2 \
@@ -555,7 +555,7 @@ impl PgMissingControlStore {
                 })
                 .collect()
         })
-        .map_err(|error| MissingControlStoreError::new(error.to_string()))
+        .map_err(|error| PublicCatalogStoreError::new(error.to_string()))
     }
 
     async fn ranking_buckets(
@@ -563,7 +563,7 @@ impl PgMissingControlStore {
         start: i64,
         end: i64,
         bucket_seconds: i64,
-    ) -> Result<Vec<RankingQuotaBucket>, MissingControlStoreError> {
+    ) -> Result<Vec<RankingQuotaBucket>, PublicCatalogStoreError> {
         sqlx::query_as::<_, (String, i64, i64)>(
             "SELECT model_name, (created_at / $3) * $3 AS bucket, SUM(token_used)::BIGINT AS tokens \
              FROM quota_data WHERE model_name <> '' AND created_at >= $1 AND created_at <= $2 \
@@ -583,12 +583,12 @@ impl PgMissingControlStore {
                 })
                 .collect()
         })
-        .map_err(|error| MissingControlStoreError::new(error.to_string()))
+        .map_err(|error| PublicCatalogStoreError::new(error.to_string()))
     }
 
     async fn ranking_model_metadata(
         &self,
-    ) -> Result<BTreeMap<String, RankingModelMeta>, MissingControlStoreError> {
+    ) -> Result<BTreeMap<String, RankingModelMeta>, PublicCatalogStoreError> {
         // Go's ranking metadata is built from its pricing cache: only models
         // served by an enabled ability may inherit model/vendor metadata.
         let active_models = sqlx::query_scalar::<_, String>(
@@ -597,7 +597,7 @@ impl PgMissingControlStore {
         )
         .fetch_all(&self.pg)
         .await
-        .map_err(|error| MissingControlStoreError::new(error.to_string()))?
+        .map_err(|error| PublicCatalogStoreError::new(error.to_string()))?
         .into_iter()
         .collect::<BTreeSet<_>>();
         if active_models.is_empty() {
@@ -610,13 +610,13 @@ impl PgMissingControlStore {
         )
         .fetch_all(&self.pg)
         .await
-        .map_err(|error| MissingControlStoreError::new(error.to_string()))?;
+        .map_err(|error| PublicCatalogStoreError::new(error.to_string()))?;
         let vendor_by_id = sqlx::query_as::<_, (i64, String, Option<String>)>(
             "SELECT id, name, icon FROM vendors WHERE deleted_at IS NULL",
         )
         .fetch_all(&self.pg)
         .await
-        .map_err(|error| MissingControlStoreError::new(error.to_string()))?
+        .map_err(|error| PublicCatalogStoreError::new(error.to_string()))?
         .into_iter()
         .map(|(id, name, icon)| (id, (name, icon.unwrap_or_default())))
         .collect::<BTreeMap<_, _>>();
@@ -1149,15 +1149,15 @@ fn build_pricing_snapshot(
 }
 
 #[async_trait]
-impl MissingControlStore for PgMissingControlStore {
-    async fn header_nav(&self, module: &str) -> Result<HeaderNavAccess, MissingControlStoreError> {
+impl PublicCatalogStore for PgPublicCatalogStore {
+    async fn header_nav(&self, module: &str) -> Result<HeaderNavAccess, PublicCatalogStoreError> {
         let Some(Value::Object(modules)) = self.option_json("HeaderNavModules").await? else {
             return Ok(HeaderNavAccess::default());
         };
         Ok(parse_header_nav_access(modules.get(module)))
     }
 
-    async fn groups(&self) -> Result<Vec<String>, MissingControlStoreError> {
+    async fn groups(&self) -> Result<Vec<String>, PublicCatalogStoreError> {
         // `controller.GetGroups` enumerates the configured GroupRatio map,
         // not the currently enabled abilities. A group with no active channel
         // must remain visible to the administration UI.
@@ -1173,10 +1173,8 @@ impl MissingControlStore for PgMissingControlStore {
 
     async fn pricing(
         &self,
-        actor: Option<
-            lmm_api_rs::migration_routes::missing_control_public::MissingControlPrincipal,
-        >,
-    ) -> Result<Value, MissingControlStoreError> {
+        actor: Option<lmm_api_rs::routes::public_catalog::PublicCatalogPrincipal>,
+    ) -> Result<Value, PublicCatalogStoreError> {
         // Go's pricing cache is built from every enabled ability.  In
         // particular, its cache refresh uses a left join and does not filter
         // a disabled channel here; changing that would silently remove a
@@ -1189,7 +1187,7 @@ impl MissingControlStore for PgMissingControlStore {
         )
         .fetch_all(&self.pg)
         .await
-        .map_err(|error| MissingControlStoreError::new(error.to_string()))?
+        .map_err(|error| PublicCatalogStoreError::new(error.to_string()))?
         .into_iter()
         .map(|(model_name, group, channel_type)| PricingAbility {
             model_name,
@@ -1216,7 +1214,7 @@ impl MissingControlStore for PgMissingControlStore {
         )
         .fetch_all(&self.pg)
         .await
-        .map_err(|error| MissingControlStoreError::new(error.to_string()))?
+        .map_err(|error| PublicCatalogStoreError::new(error.to_string()))?
         .into_iter()
         .map(
             |(
@@ -1246,7 +1244,7 @@ impl MissingControlStore for PgMissingControlStore {
         )
         .fetch_all(&self.pg)
         .await
-        .map_err(|error| MissingControlStoreError::new(error.to_string()))?
+        .map_err(|error| PublicCatalogStoreError::new(error.to_string()))?
         .into_iter()
         .map(|(id, name, description, icon)| PricingVendor {
             id,
@@ -1276,7 +1274,7 @@ impl MissingControlStore for PgMissingControlStore {
         ])
         .fetch_all(&self.pg)
         .await
-        .map_err(|error| MissingControlStoreError::new(error.to_string()))?
+        .map_err(|error| PublicCatalogStoreError::new(error.to_string()))?
         .into_iter()
         .filter_map(|(key, value)| serde_json::from_str(&value).ok().map(|value| (key, value)))
         .collect::<std::collections::BTreeMap<_, _>>();
@@ -1285,7 +1283,7 @@ impl MissingControlStore for PgMissingControlStore {
                 .bind(actor.user_id)
                 .fetch_optional(&self.pg)
                 .await
-                .map_err(|error| MissingControlStoreError::new(error.to_string()))?
+                .map_err(|error| PublicCatalogStoreError::new(error.to_string()))?
                 .unwrap_or_default()
         } else {
             String::new()
@@ -1299,9 +1297,9 @@ impl MissingControlStore for PgMissingControlStore {
         ))
     }
 
-    async fn rankings(&self, period: &str) -> Result<Value, MissingControlStoreError> {
+    async fn rankings(&self, period: &str) -> Result<Value, PublicCatalogStoreError> {
         let config = ranking_period(period).ok_or_else(|| {
-            MissingControlStoreError::new(format!("invalid ranking period: {period}"))
+            PublicCatalogStoreError::new(format!("invalid ranking period: {period}"))
         })?;
         let now = Utc::now().timestamp();
         let current_start = now - config.duration_seconds;
@@ -1324,13 +1322,13 @@ impl MissingControlStore for PgMissingControlStore {
         ))
     }
 
-    async fn exposed_ratio(&self) -> Result<Option<Value>, MissingControlStoreError> {
+    async fn exposed_ratio(&self) -> Result<Option<Value>, PublicCatalogStoreError> {
         let enabled = sqlx::query_scalar::<_, String>(
             "SELECT value FROM options WHERE key = 'ExposeRatioEnabled'",
         )
         .fetch_optional(&self.pg)
         .await
-        .map_err(|error| MissingControlStoreError::new(error.to_string()))?
+        .map_err(|error| PublicCatalogStoreError::new(error.to_string()))?
         .is_some_and(|value| value.eq_ignore_ascii_case("true") || value == "1");
         if !enabled {
             return Ok(None);
@@ -1351,7 +1349,7 @@ impl MissingControlStore for PgMissingControlStore {
         ])
         .fetch_all(&self.pg)
         .await
-        .map_err(|error| MissingControlStoreError::new(error.to_string()))?;
+        .map_err(|error| PublicCatalogStoreError::new(error.to_string()))?;
         let values = rows
             .into_iter()
             .filter_map(|(key, value)| serde_json::from_str(&value).ok().map(|value| (key, value)))
@@ -1365,7 +1363,7 @@ impl MissingControlStore for PgMissingControlStore {
         })))
     }
 
-    async fn token_usage(&self, key: &str) -> Result<Option<Value>, MissingControlStoreError> {
+    async fn token_usage(&self, key: &str) -> Result<Option<Value>, PublicCatalogStoreError> {
         self.token_usage_for_owner(key, 0).await
     }
 
@@ -1373,7 +1371,7 @@ impl MissingControlStore for PgMissingControlStore {
         &self,
         key: &str,
         owner_id: i64,
-    ) -> Result<Option<Value>, MissingControlStoreError> {
+    ) -> Result<Option<Value>, PublicCatalogStoreError> {
         let row = sqlx::query_as::<_, (String, i64, i64, bool, bool, String, i64)>(
             "SELECT name, used_quota, remain_quota, unlimited_quota, model_limits_enabled, \
              model_limits, expired_time FROM tokens WHERE key = $1 AND deleted_at IS NULL \
@@ -1383,7 +1381,7 @@ impl MissingControlStore for PgMissingControlStore {
         .bind(owner_id)
         .fetch_optional(&self.pg)
         .await
-        .map_err(|error| MissingControlStoreError::new(error.to_string()))?;
+        .map_err(|error| PublicCatalogStoreError::new(error.to_string()))?;
         Ok(row.map(
             |(name, used, remain, unlimited, limits_enabled, limits, expired)| {
                 let model_limits = limits
@@ -1410,8 +1408,8 @@ impl MissingControlStore for PgMissingControlStore {
         &self,
         key: &str,
     ) -> Result<
-        Option<lmm_api_rs::migration_routes::missing_control_public::MissingControlToken>,
-        MissingControlStoreError,
+        Option<lmm_api_rs::routes::public_catalog::PublicCatalogToken>,
+        PublicCatalogStoreError,
     > {
         let Some((status, user_id)) = sqlx::query_as::<_, (i64, i64)>(
             "SELECT COALESCE(status, 1), user_id FROM tokens \
@@ -1421,7 +1419,7 @@ impl MissingControlStore for PgMissingControlStore {
         .bind(key)
         .fetch_optional(&self.pg)
         .await
-        .map_err(|error| MissingControlStoreError::new(error.to_string()))?
+        .map_err(|error| PublicCatalogStoreError::new(error.to_string()))?
         else {
             return Ok(None);
         };
@@ -1431,9 +1429,9 @@ impl MissingControlStore for PgMissingControlStore {
         .bind(user_id)
         .fetch_optional(&self.pg)
         .await
-        .map_err(|error| MissingControlStoreError::new(error.to_string()))?
+        .map_err(|error| PublicCatalogStoreError::new(error.to_string()))?
         else {
-            return Err(MissingControlStoreError::new(format!(
+            return Err(PublicCatalogStoreError::new(format!(
                 "token owner {user_id} is missing"
             )));
         };
@@ -1441,7 +1439,7 @@ impl MissingControlStore for PgMissingControlStore {
             .ok()
             .and_then(|setting| setting.get("language")?.as_str().map(str::to_owned));
         Ok(Some(
-            lmm_api_rs::migration_routes::missing_control_public::MissingControlToken {
+            lmm_api_rs::routes::public_catalog::PublicCatalogToken {
                 user_id,
                 status,
                 user_status,
@@ -1962,26 +1960,26 @@ impl RelayVideoService for DenyRelayVideo {
 
 struct DenyRelayMisc;
 #[async_trait]
-impl MissingRelayService for DenyRelayMisc {
+impl RelayCompatService for DenyRelayMisc {
     async fn authorize(
         &self,
-        endpoint: MissingRelayEndpoint,
+        endpoint: RelayCompatEndpoint,
         _: &Request,
-    ) -> MissingRelayAuthorization {
-        MissingRelayAuthorization::Rejected(MissingRelayAuthRejection {
+    ) -> RelayCompatAuthorization {
+        RelayCompatAuthorization::Rejected(RelayCompatAuthRejection {
             status: StatusCode::UNAUTHORIZED,
             code: "AUTH_UNAUTHORIZED",
             message: match endpoint {
-                MissingRelayEndpoint::Realtime | MissingRelayEndpoint::Edits => "Invalid token",
-                MissingRelayEndpoint::PgChatCompletions => "Unauthorized, invalid access token",
-                MissingRelayEndpoint::PgImagesGenerations | MissingRelayEndpoint::PgImagesEdits => {
+                RelayCompatEndpoint::Realtime | RelayCompatEndpoint::Edits => "Invalid token",
+                RelayCompatEndpoint::PgChatCompletions => "Unauthorized, invalid access token",
+                RelayCompatEndpoint::PgImagesGenerations | RelayCompatEndpoint::PgImagesEdits => {
                     "Invalid token"
                 }
             }
             .to_owned(),
         })
     }
-    async fn relay(&self, _: MissingRelayEndpoint, _: Request) -> Response {
+    async fn relay(&self, _: RelayCompatEndpoint, _: Request) -> Response {
         StatusCode::SERVICE_UNAVAILABLE.into_response()
     }
 }
@@ -2281,7 +2279,7 @@ mod tests {
     };
     use chrono::Utc;
     use lmm_api_rs::auth::{AuthConfig, DashboardAuth, PgValkeyDashboardAuth};
-    use lmm_api_rs::migration_routes::{
+    use lmm_api_rs::routes::{
         admin_catalog::CatalogUpstream,
         control_public::UptimeKumaClient,
         media_midjourney::{
@@ -2301,12 +2299,12 @@ mod tests {
 
     use super::{
         DenyCatalogUpstream, DenyProjectUpdate, DenyUptimeKuma, LEGACY_PRICING_FIRST_MODEL_VERSION,
-        LEGACY_PRICING_RESPONSE_VERSION, PgMissingControlStore, PricingAbility,
+        LEGACY_PRICING_RESPONSE_VERSION, PgPublicCatalogStore, PricingAbility,
         PricingModelMetadata, PricingVendor, TestInstanceMidjourneyBackend,
         TestInstanceRelayBackend, TestInstanceSetupRuntimeWriter, build_pricing_snapshot,
         load_frozen_dashboard_models, relay_misc_candidate_router, safe_candidate_surface,
     };
-    use lmm_api_rs::migration_routes::missing_control_public::MissingControlStore;
+    use lmm_api_rs::routes::public_catalog::PublicCatalogStore;
 
     type TestResult<T = ()> = Result<T, Box<dyn Error>>;
 
@@ -2495,7 +2493,7 @@ mod tests {
         .execute(&pool)
         .await?;
 
-        let store = PgMissingControlStore::new(pool.clone());
+        let store = PgPublicCatalogStore::new(pool.clone());
         let prefix = required(
             key.split('-').next(),
             "generated control token must contain a prefix",
@@ -2995,7 +2993,7 @@ mod tests {
                 .await?;
             }
 
-            let snapshot = PgMissingControlStore::new(pool.clone())
+            let snapshot = PgPublicCatalogStore::new(pool.clone())
                 .rankings("week")
                 .await
                 .map_err(|error| test_error(format!("rankings store unavailable: {error}")))?;
@@ -3054,7 +3052,7 @@ mod tests {
     #[tokio::test]
     async fn media_candidate_deny_adapter_never_attempts_upstream_egress() -> TestResult {
         let backend = media_backend()?;
-        let identity = lmm_api_rs::migration_routes::media_midjourney::MidjourneyIdentity {
+        let identity = lmm_api_rs::routes::media_midjourney::MidjourneyIdentity {
             user_id: 1,
             token_id: "1".to_owned(),
         };

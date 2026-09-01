@@ -360,7 +360,7 @@ if [[ ${LMM_RELAY_MISC_SKIP_RUST_BUILD:-0} != 1 ]]; then
     RUSTUP_HOME="${RUSTUP_HOME:-$HOME/.rustup}" CARGO_TARGET_DIR="$rust_cargo_target" \
     LMM_RELAY_MISC_PROVIDER_URL="http://127.0.0.1:$provider_port" \
     cargo test --manifest-path "$repo_root/apps/api-rust/Cargo.toml" -p lmm-api-rs --lib --locked \
-    migration_routes::relay_misc::tests::loopback_provider_contract -- --ignored --exact
+    routes::relay_misc::tests::loopback_provider_contract -- --ignored --exact
 fi
 
 env -i PATH="$PATH" HOME="$HOME" SQL_DSN=local SQLITE_PATH="$runtime/go.db" PORT="$go_port" \

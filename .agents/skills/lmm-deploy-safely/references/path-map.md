@@ -18,7 +18,7 @@ This map follows the normative provider and manual-rollback contract in
 | Edge-policy assets | `packaging/common/lmm-api/edge-policy` |
 | Dedicated Valkey assets | `packaging/common/valkey` |
 | Backend CLI deployment contract | `docs/backend-cli-deployment-contract.md` |
-| Rust ownership gate | `apps/api-rust/tests/fixtures/routes/migration-gate.tsv` |
+| Rust ownership gate | `apps/api-rust/tests/fixtures/routes/route-gate.tsv` |
 
 The root `deploy/` directory is retired. Deployment behavior belongs in both
 backend CLIs; immutable files belong under `packaging/`; language tests replace
@@ -95,7 +95,7 @@ rehearsal prose is not.
 ## Rust ownership
 
 Go owns production business traffic until every affected row in
-`apps/api-rust/tests/fixtures/routes/migration-gate.tsv` has independent
+`apps/api-rust/tests/fixtures/routes/route-gate.tsv` has independent
 approval and the explicit provider handover is authorized. Rust CLI parity,
 package installation, a provider symlink, or successful health probes do not
 by themselves transfer route ownership.

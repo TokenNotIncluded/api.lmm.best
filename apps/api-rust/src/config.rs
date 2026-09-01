@@ -586,7 +586,7 @@ fn is_example_secret(secret: &str) -> bool {
 }
 
 /// `SYNC_FREQUENCY` is the Go-compatible source. The namespaced setting is a
-/// deliberate per-Rust override for staged migration rehearsals.
+/// Rust-listener override for isolated rehearsals.
 fn models_cache_ttl() -> Result<Duration, ConfigError> {
     match env::var("LMM_MODELS_CACHE_TTL_SECONDS") {
         Ok(raw) => positive_seconds_value(&raw, "LMM_MODELS_CACHE_TTL_SECONDS"),

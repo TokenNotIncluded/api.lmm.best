@@ -18,7 +18,7 @@ mod config {
 }
 
 #[cfg(all(feature = "runtime", not(test)))]
-// The production binary calls lifecycle and migration-candidate helpers that
+// The production binary calls lifecycle and route helpers that
 // this focused harness intentionally does not exercise. The source is linted
 // in its owning crate; suppress duplicate-context diagnostics here.
 #[allow(clippy::all, dead_code)]
@@ -47,7 +47,7 @@ mod runtime {
             DashboardAuth, DashboardUser, LoginOutcome, LoginRequest, LogoutRequest, LogoutResult,
             RequestMetadata, TwoFactorLoginRequest,
         },
-        migration_routes::api_token::{ApiTokenHttpState, PgValkeyApiTokenService},
+        routes::api_token::{ApiTokenHttpState, PgValkeyApiTokenService},
         models::{
             ModelView, ModelsError, ModelsErrorKind, ModelsHttpState, ModelsRequest, ModelsService,
         },

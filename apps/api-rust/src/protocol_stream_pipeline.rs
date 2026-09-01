@@ -22,13 +22,13 @@ use crate::{
         FeatureClass, MetricLabels, QueueDepthGuard, StreamTiming,
     },
     cortexfs_protocol_bridge::CortexFsStreamAdaptorRegistry,
-    migration_routes::sse::{
-        DEFAULT_MAX_FRAME_BYTES, LOSS_UNKNOWN_EVENT, SseFrame, UnknownEventClass,
-        UnknownEventDecision, unknown_event_decision,
-    },
     protocol_rollout::{ProtocolRolloutConfig, ProtocolRolloutSnapshot, RolloutContext},
     protocol_route_gate::{RouteGateBlocker, RouteGateDecision, RouteGateDetails, decide_route},
     route_ownership::{OwnershipEvidence, RouteOwnershipScope},
+    routes::sse::{
+        DEFAULT_MAX_FRAME_BYTES, LOSS_UNKNOWN_EVENT, SseFrame, UnknownEventClass,
+        UnknownEventDecision, unknown_event_decision,
+    },
 };
 
 /// Maximum number of bytes retained by the default typed-session boundary.
@@ -1510,9 +1510,9 @@ mod tests {
     use super::*;
     use crate::{
         conversion_observability::{ConversionObserver, MetricKind},
-        migration_routes::sse::{LOSS_UNKNOWN_EVENT, UnknownEventAction, parse_sse_frames},
         protocol_rollout::{ProtocolRolloutControl, RolloutFlag},
         protocol_runtime_registry::validated_current_registry,
+        routes::sse::{LOSS_UNKNOWN_EVENT, UnknownEventAction, parse_sse_frames},
     };
 
     type TestResult<T = ()> = Result<T, Box<dyn std::error::Error>>;

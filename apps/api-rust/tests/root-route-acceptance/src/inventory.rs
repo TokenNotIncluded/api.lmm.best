@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 const EXPECTED_ROUTE_COUNT: usize = 353;
 const LEGACY_ROUTES: &str = include_str!("../../fixtures/routes/legacy-go-routes.tsv");
-const MIGRATION_PLAN: &str = include_str!("../../fixtures/routes/migration-plan.tsv");
+const ROUTE_PLAN: &str = include_str!("../../fixtures/routes/route-plan.tsv");
 const PLAN_HEADER: &str = "method\tpath\tlegacy_handler\tdomain\tauth_scope\tdata_access\tstreaming\tpriority\tplanned_rust_module\tjob_dependency";
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -28,7 +28,7 @@ impl AuthClass {
             "admin" => Ok(Self::Admin),
             "root" => Ok(Self::Root),
             "webhook" => Ok(Self::Webhook),
-            _ => Err(format!("unsupported migration auth class: {value}")),
+            _ => Err(format!("unsupported route auth class: {value}")),
         }
     }
 
@@ -89,12 +89,12 @@ pub fn load_routes() -> Result<Vec<RouteCase>, String> {
         ));
     }
 
-    let mut plan_lines = MIGRATION_PLAN.lines();
+    let mut plan_lines = ROUTE_PLAN.lines();
     let header = plan_lines
         .next()
-        .ok_or_else(|| "migration plan is empty".to_owned())?;
+        .ok_or_else(|| "route plan is empty".to_owned())?;
     if header != PLAN_HEADER {
-        return Err(format!("migration plan header drifted: {header}"));
+        return Err(format!("route plan header drifted: {header}"));
     }
 
     let mut planned = BTreeMap::new();
@@ -103,11 +103,11 @@ pub fn load_routes() -> Result<Vec<RouteCase>, String> {
         let columns = line.split('\t').collect::<Vec<_>>();
         if columns.len() != 10 {
             return Err(format!(
-                "migration plan line {line_number} has {} columns instead of 10",
+                "route plan line {line_number} has {} columns instead of 10",
                 columns.len()
             ));
         }
-        validate_method_path(columns[0], columns[1], "migration plan", line_number)?;
+        validate_method_path(columns[0], columns[1], "route plan", line_number)?;
         let key = (columns[0].to_owned(), columns[1].to_owned());
         let auth = AuthClass::parse(columns[4])?;
         if planned
@@ -115,7 +115,7 @@ pub fn load_routes() -> Result<Vec<RouteCase>, String> {
             .is_some()
         {
             return Err(format!(
-                "duplicate migration route at line {line_number}: {} {}",
+                "duplicate route at line {line_number}: {} {}",
                 columns[0], columns[1]
             ));
         }
@@ -123,7 +123,7 @@ pub fn load_routes() -> Result<Vec<RouteCase>, String> {
 
     if planned.len() != EXPECTED_ROUTE_COUNT {
         return Err(format!(
-            "migration plan count is {}, expected {EXPECTED_ROUTE_COUNT}",
+            "route plan count is {}, expected {EXPECTED_ROUTE_COUNT}",
             planned.len()
         ));
     }
@@ -136,7 +136,7 @@ pub fn load_routes() -> Result<Vec<RouteCase>, String> {
             .expect("ordered frozen key exists");
         let (planned_handler, auth) = planned
             .get(&(method.clone(), path.clone()))
-            .ok_or_else(|| format!("migration plan is missing {method} {path}"))?;
+            .ok_or_else(|| format!("route plan is missing {method} {path}"))?;
         if handler != planned_handler {
             return Err(format!(
                 "legacy handler drift for {method} {path}: baseline={handler} plan={planned_handler}"
@@ -163,7 +163,7 @@ pub fn load_routes() -> Result<Vec<RouteCase>, String> {
     ]);
     if auth_counts != expected_auth_counts {
         return Err(format!(
-            "migration auth-class counts drifted: actual={auth_counts:?} expected={expected_auth_counts:?}"
+            "route auth-class counts drifted: actual={auth_counts:?} expected={expected_auth_counts:?}"
         ));
     }
 

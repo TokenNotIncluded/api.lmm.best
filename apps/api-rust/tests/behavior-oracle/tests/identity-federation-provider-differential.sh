@@ -3,7 +3,7 @@
 #
 # Only the provider exchange currently has a compile-time loopback seam. The
 # shared listener issuer, cache publisher, and Go-equivalent session fixture
-# are not wired in this migration module, so this script reports those rows as
+# are not wired in this route module, so this script reports those rows as
 # BLOCKED and exits non-zero instead of inventing listener environment knobs.
 set -euo pipefail
 
@@ -44,7 +44,7 @@ cd -- "$repo_root/apps/api-rust"
 # shutdown. No port is preselected, no secret is passed in argv/environment,
 # and the production-only URL policy cannot construct the fixture variant.
 setsid cargo test -p lmm-api-rs --lib \
-  migration_routes::identity_federation::adapter_tests::configured_github_provider_uses_compile_time_loopback_fixture \
+  routes::identity_federation::adapter_tests::configured_github_provider_uses_compile_time_loopback_fixture \
   -- --exact >"$runtime/provider-loopback.log" 2>&1 &
 test_pid=$!
 test_pgid=$(ps -o pgid= -p "$test_pid" | tr -d '[:space:]')

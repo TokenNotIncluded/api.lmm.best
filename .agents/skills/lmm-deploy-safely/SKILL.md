@@ -260,7 +260,7 @@ automatically.
 
 ## Rust ownership gate
 
-`apps/api-rust/tests/fixtures/routes/migration-gate.tsv` is authoritative. Rust
+`apps/api-rust/tests/fixtures/routes/route-gate.tsv` is authoritative. Rust
 CLI parity, package installation, provider selection, mounted routes, health
 probes, or historical rehearsals do not transfer business ownership.
 

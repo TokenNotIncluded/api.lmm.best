@@ -49,7 +49,7 @@ run_api_token() {
   require_loopback_url LMM_API_TOKEN_TEST_DATABASE_URL
   require_loopback_url LMM_API_TOKEN_TEST_VALKEY_URL
   cargo test --locked --manifest-path "$manifest" -p lmm-api-rs \
-    --test migration_api_token -- --ignored --test-threads=1
+    --test api_token -- --ignored --test-threads=1
 }
 
 run_subscription_reset() {
@@ -57,9 +57,9 @@ run_subscription_reset() {
   require_loopback_url LMM_BILLING_SUBSCRIPTIONS_TEST_VALKEY_URL
   require_loopback_url LMM_TEST_DATABASE_URL
   cargo test --locked --manifest-path "$manifest" -p lmm-api-rs \
-    --test migration_billing_subscriptions -- --ignored --test-threads=1
+    --test billing_subscriptions -- --ignored --test-threads=1
   cargo test --locked --manifest-path "$manifest" -p lmm-api-rs \
-    --test migration_billing_subscription_reset_postgres -- --ignored --test-threads=1
+    --test billing_subscription_reset_postgres -- --ignored --test-threads=1
   cargo test --locked --manifest-path "$manifest" -p lmm-db-migrate \
     --test full_copy subscription_reset_manifest_should_copy_representative_rows -- \
     --ignored --exact --test-threads=1

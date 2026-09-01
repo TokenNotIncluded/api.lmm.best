@@ -20,14 +20,14 @@ legacy_stubs=${COMPLETE_LEGACY_STUB_LEDGER:-"$routes_dir/legacy-equivalent-stubs
 blockers=${COMPLETE_RUNTIME_BLOCKERS_LEDGER:-"$routes_dir/test-instance-runtime-blockers.tsv"}
 normal_mounts=${COMPLETE_NORMAL_MOUNTS_LEDGER:-"$routes_dir/rust-normal-mounted-routes.tsv"}
 compatibility_shells=${COMPLETE_FAIL_CLOSED_SHELLS_LEDGER:-"$routes_dir/rust-mounted-fail-closed-shells.tsv"}
-migration_gate=${COMPLETE_MIGRATION_GATE:-"$routes_dir/migration-gate.tsv"}
+route_gate=${COMPLETE_ROUTE_GATE:-"$routes_dir/route-gate.tsv"}
 mcp_paths=${COMPLETE_MCP_PATHS:-"$repo_root/apps/api-go/router/open_source_bounty_mcp_router.go"}
 results_dir=${COMPLETE_DIFFERENTIAL_RESULTS_DIR:-}
 strict_classification=${COMPLETE_REQUIRE_EXPLICIT_CLASSIFICATION:-0}
 
 fail() { printf 'complete route coverage: %s\n' "$*" >&2; exit 1; }
 [[ $strict_classification == 0 || $strict_classification == 1 ]] || fail 'COMPLETE_REQUIRE_EXPLICIT_CLASSIFICATION must be 0 or 1'
-for file in "$frozen" "$implemented" "$legacy_stubs" "$blockers" "$normal_mounts" "$compatibility_shells" "$migration_gate"; do
+for file in "$frozen" "$implemented" "$legacy_stubs" "$blockers" "$normal_mounts" "$compatibility_shells" "$route_gate"; do
   [[ -f $file ]] || fail "missing ledger: $file"
 done
 [[ -z $results_dir || -d $results_dir ]] || fail "COMPLETE_DIFFERENTIAL_RESULTS_DIR is not a directory: $results_dir"
@@ -68,7 +68,7 @@ awk -F '\t' '
   !seen[$1 FS $2]++ { print }
 ' "$manifest" "$mcp_inventory" >"$work/go-full.tsv"
 
-perl - "$work/go-full.tsv" "$frozen" "$implemented" "$legacy_stubs" "$blockers" "$normal_mounts" "$compatibility_shells" "$migration_gate" "$results_dir" "$strict_classification" <<'PERL'
+perl - "$work/go-full.tsv" "$frozen" "$implemented" "$legacy_stubs" "$blockers" "$normal_mounts" "$compatibility_shells" "$route_gate" "$results_dir" "$strict_classification" <<'PERL'
 use strict;
 use warnings;
 use JSON::PP qw(decode_json encode_json);
@@ -115,16 +115,16 @@ my %normal = route_map($normal_path, 'normal mount ledger', 3, 1);
 my %shells = route_map($shells_path, 'mounted fail-closed shell ledger', 6, 1);
 my %live = route_map($inventory_path, 'Go inventory', 3, 0);
 
-open my $gate, '<', $gate_path or fail("cannot read migration gate: $!");
+open my $gate, '<', $gate_path or fail("cannot read route gate: $!");
 my $gate_header = <$gate>;
-fail('migration gate is empty') unless defined $gate_header;
+fail('route gate is empty') unless defined $gate_header;
 chomp $gate_header;
 $gate_header =~ s/\r$//;
 my @gate_columns = split /\t/, $gate_header, -1;
 my %gate_column;
 @gate_column{@gate_columns} = (0 .. $#gate_columns);
 for my $required (qw(method path source_state mount_state gate_state evidence)) {
-  fail("migration gate is missing $required column") unless exists $gate_column{$required};
+  fail("route gate is missing $required column") unless exists $gate_column{$required};
 }
 my (%retired, $gate_line);
 $gate_line = 1;
@@ -133,18 +133,18 @@ while (my $line = <$gate>) {
   chomp $line;
   $line =~ s/\r$//;
   my @fields = split /\t/, $line, -1;
-  fail("malformed migration gate row at $gate_line") unless @fields == @gate_columns;
+  fail("malformed route gate row at $gate_line") unless @fields == @gate_columns;
   my ($method, $path, $source, $mount, $state, $evidence) =
     @fields[@gate_column{qw(method path source_state mount_state gate_state evidence)}];
   next unless $evidence =~ /(?:^|;)retired=true(?:;|$)/;
-  fail("retired migration gate row has invalid state at $gate_line: $method $path")
+  fail("retired route gate row has invalid state at $gate_line: $method $path")
     unless $method =~ /^(?:GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS|TRACE|CONNECT)$/
       && $path =~ m{^/}
       && $source eq 'absent'
       && $mount eq 'unmounted'
       && $state eq 'legacy-go';
   my $route = key($method, $path);
-  fail("duplicate retired migration gate route: $method $path") if exists $retired{$route};
+  fail("duplicate retired route gate route: $method $path") if exists $retired{$route};
   $retired{$route} = [$method, $path];
 }
 close $gate;
@@ -269,7 +269,7 @@ while (my $line = <$inventory>) {
   else {
     fail("unclassified Go route: $method $path") if $strict;
     $class = 'static-only';
-    $reason = exists $frozen{$route} ? 'frozen Go route without a Rust implementation ledger entry' : 'current Go route outside frozen migration ledger';
+    $reason = exists $frozen{$route} ? 'frozen Go route without a Rust implementation ledger entry' : 'current Go route outside frozen route ledger';
   }
   my $rust_normal = exists $shells{$route} ? 'fail-closed-compatibility-shell' : exists $normal{$route} ? 'mounted' : 'unmounted';
   my $rust_test = ($class eq 'provider-blocked' || $class eq 'mounted-fail-closed-shell') ? 'fail-closed' : $class eq 'legacy-501' ? 'legacy-501' :

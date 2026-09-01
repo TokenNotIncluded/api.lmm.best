@@ -7,7 +7,7 @@ use lmm_api_rs::auth::{
     AssistantL1ConfirmationError, AuthConfig, AuthErrorKind, AuthHttpState, DashboardAuth,
     PgValkeyDashboardAuth, UserAuthPolicyError, auth_router, enforce_user_auth,
 };
-use lmm_api_rs::migration_routes::missing_identity_catalog::{IdentityCatalogState, token_router};
+use lmm_api_rs::routes::identity_catalog::{IdentityCatalogState, token_router};
 use lmm_api_rs::{ClientIpKey, RequestContext};
 use secrecy::SecretString;
 use serde_json::Value;

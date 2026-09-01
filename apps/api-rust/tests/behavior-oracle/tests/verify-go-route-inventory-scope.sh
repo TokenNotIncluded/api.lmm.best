@@ -155,13 +155,13 @@ if rg -n --glob '*.go' --glob '!*_test.go' \
 fi
 
 echo "Go registration inventory: ${inventory_count} method/path identities"
-echo "Frozen migration ledger: ${ledger_count} method/path identities"
+echo "Frozen route ledger: ${ledger_count} method/path identities"
 echo "MCP Any registrations: ${#mcp_relative_paths[@]} paths x ${#any_methods[@]} methods (HEAD/OPTIONS included)"
 echo "405 behavior: no production HandleMethodNotAllowed=true or NoMethod registration; Gin fallback remains outside the route inventory"
 echo "Inventory derivation: route-manifest (SetApiRouter, SetDashboardRouter, SetRelayRouter, SetVideoRouter) plus source-registered SetOpenSourceBountyMCPRouter"
 
 if [[ -s "${extra_identities}" || -s "${missing_identities}" || -s "${extra_paths}" || -s "${missing_paths}" ]]; then
-  echo "inventory exceeds migration scope: authoritative Go registration is not exactly the frozen 353-route ledger" >&2
+  echo "inventory exceeds route scope: authoritative Go registration is not exactly the frozen 353-route ledger" >&2
   echo "extra method/path identities: $(wc -l <"${extra_identities}" | tr -d ' ')" >&2
   sed 's/\t/ /' "${extra_identities}" >&2
   echo "missing method/path identities: $(wc -l <"${missing_identities}" | tr -d ' ')" >&2
@@ -173,4 +173,4 @@ if [[ -s "${extra_identities}" || -s "${missing_identities}" || -s "${extra_path
   exit 1
 fi
 
-echo "inventory matches migration scope: ${ledger_count} method/path identities"
+echo "inventory matches route scope: ${ledger_count} method/path identities"

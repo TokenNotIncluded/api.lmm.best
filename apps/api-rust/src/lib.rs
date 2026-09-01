@@ -91,12 +91,12 @@ pub mod protocol_runtime_registry;
 /// Production protocol conversion backed by the cortexfs-protocol crate.
 pub mod cortexfs_protocol_bridge;
 
-/// Candidate route slices compiled for migration testing but not mounted.
-pub mod migration_routes;
+/// HTTP route modules grouped by product domain.
+pub mod routes;
 
 /// Focused candidate for the legacy model-deletion boundary.
 #[cfg(test)]
-pub(crate) mod missing_relay_model_delete_candidate;
+pub(crate) mod model_delete_candidate;
 
 /// Legacy-compatible public system status route.
 pub mod status;
