@@ -370,6 +370,11 @@ func migrateDB() error {
 	if err != nil {
 		return err
 	}
+	if common.UsingMainDatabase(common.DatabaseTypePostgreSQL) {
+		if err := ensureCompanyBillingProfilePostgresContract(DB); err != nil {
+			return err
+		}
+	}
 	if err := EnsureUserRankingRevisionState(DB); err != nil {
 		return err
 	}
@@ -542,6 +547,11 @@ func migrateDBFast() error {
 	// Check for any errors
 	for err := range errChan {
 		if err != nil {
+			return err
+		}
+	}
+	if common.UsingMainDatabase(common.DatabaseTypePostgreSQL) {
+		if err := ensureCompanyBillingProfilePostgresContract(DB); err != nil {
 			return err
 		}
 	}
