@@ -220,6 +220,102 @@ func TestApplyWaffoPancakeRefundBindsProviderEventToOriginalOrder(t *testing.T) 
 	assert.Contains(t, entries[0].Note, "refund_trade_no="+firstOrder.TradeNo)
 }
 
+func TestSubscriptionRenewalRestoresPurchasedQuotaAndIgnoresPriorRefundRetries(t *testing.T) {
+	db := setupConsoleActivationTestDB(t)
+	require.NoError(t, db.AutoMigrate(
+		&SubscriptionPlan{}, &SubscriptionOrder{}, &UserSubscription{},
+		&SubscriptionPaymentEvent{}, &FinanceLedgerEntry{}, &TopUp{}, &Log{},
+	))
+
+	user := User{
+		Username: "refund-renewal-owner", Password: "password",
+		Status: common.UserStatusEnabled, Group: "default", AffCode: "refund-renewal-owner",
+	}
+	require.NoError(t, db.Create(&user).Error)
+	plan := SubscriptionPlan{
+		Title: "Refund renewal plan", PriceAmount: 10, Currency: "USD",
+		DurationUnit: SubscriptionDurationMonth, DurationValue: 1,
+		Enabled: true, TotalAmount: 100_000,
+	}
+	require.NoError(t, db.Create(&plan).Error)
+	tradeNo := "refund-renewal-subscription"
+	order := SubscriptionOrder{
+		UserId: user.Id, PlanId: plan.Id, Money: plan.PriceAmount, TradeNo: tradeNo,
+		PaymentMethod: PaymentMethodWaffoPancake, PaymentProvider: PaymentProviderWaffoPancake,
+		Status: common.TopUpStatusPending, CreateTime: common.GetTimestamp(),
+		PlanSnapshot: common.GetJsonString(plan), ExpectedAmountMicros: 1_000_000,
+		SettlementCurrency: "USD", ProviderProductId: "PROD_refund_renewal",
+	}
+	require.NoError(t, db.Create(&order).Error)
+	require.NoError(t, CompleteSubscriptionOrder(tradeNo, `{}`, PaymentProviderWaffoPancake, ""))
+
+	now := common.GetTimestamp()
+	firstStart := now - 60
+	firstEnd := now + 30*24*60*60
+	require.NoError(t, ApplySubscriptionPaymentEvent(tradeNo, &SubscriptionPaymentEvent{
+		PaymentProvider: PaymentProviderWaffoPancake, ProviderEventId: "EVT_refund_renewal_initial",
+		ProviderTransactionId: "PAY_refund_renewal_initial", SettlementCurrency: "USD",
+		SettlementAmountMicros: 1_000_000, PeriodStart: firstStart, PeriodEnd: firstEnd,
+	}, "ORD_refund_renewal", "active"))
+
+	result, err := ApplyWaffoPancakeRefund(
+		tradeNo, true, 500_000, FinanceCurrencyUSD,
+		"EVT_refund_renewal_partial", PaymentMethodWaffoPancake, PaymentProviderWaffoPancake,
+		"period-1 refund", user.Id,
+	)
+	require.NoError(t, err)
+	assert.True(t, result.Created)
+	assert.Equal(t, int64(50_000), result.QuotaDebited)
+
+	storedOrder := GetSubscriptionOrderByTradeNo(tradeNo)
+	require.NotNil(t, storedOrder)
+	var subscription UserSubscription
+	require.NoError(t, db.First(&subscription, storedOrder.UserSubscriptionId).Error)
+	assert.Equal(t, int64(50_000), subscription.AmountTotal)
+
+	secondEnd := firstEnd + 31*24*60*60
+	require.NoError(t, ApplySubscriptionPaymentEvent(tradeNo, &SubscriptionPaymentEvent{
+		PaymentProvider: PaymentProviderWaffoPancake, ProviderEventId: "EVT_refund_renewal_cycle_2",
+		ProviderTransactionId: "PAY_refund_renewal_cycle_2", SettlementCurrency: "USD",
+		SettlementAmountMicros: 1_000_000, PeriodStart: firstEnd, PeriodEnd: secondEnd,
+	}, "ORD_refund_renewal", "active"))
+
+	require.NoError(t, db.First(&subscription, storedOrder.UserSubscriptionId).Error)
+	assert.Equal(t, int64(100_000), subscription.AmountTotal, "paid renewal must restore the purchased quota grant")
+	assert.Equal(t, "active", subscription.Status)
+	storedOrder = GetSubscriptionOrderByTradeNo(tradeNo)
+	require.NotNil(t, storedOrder)
+	assert.Zero(t, storedOrder.RefundedAmountMicros)
+	assert.Zero(t, storedOrder.RefundedQuota)
+
+	result, err = ApplyWaffoPancakeRefund(
+		tradeNo, true, 500_000, FinanceCurrencyUSD,
+		"EVT_refund_renewal_partial", PaymentMethodWaffoPancake, PaymentProviderWaffoPancake,
+		"period-1 refund retry", user.Id,
+	)
+	require.NoError(t, err)
+	assert.False(t, result.Created)
+	assert.Zero(t, result.QuotaDebited)
+	require.NoError(t, db.First(&subscription, storedOrder.UserSubscriptionId).Error)
+	assert.Equal(t, int64(100_000), subscription.AmountTotal, "prior-period refund retry must not shrink the new grant")
+	storedOrder = GetSubscriptionOrderByTradeNo(tradeNo)
+	require.NotNil(t, storedOrder)
+	assert.Zero(t, storedOrder.RefundedAmountMicros)
+}
+
+func TestSubscriptionRefundAlreadyConsumedInPriorPeriod(t *testing.T) {
+	assert.False(t, subscriptionRefundAlreadyConsumedInPriorPeriod(nil, &FinanceLedgerEntry{OccurredAt: 10}))
+	assert.False(t, subscriptionRefundAlreadyConsumedInPriorPeriod(&SubscriptionOrder{CurrentPeriodStart: 20}, nil))
+	assert.False(t, subscriptionRefundAlreadyConsumedInPriorPeriod(
+		&SubscriptionOrder{CurrentPeriodStart: 20},
+		&FinanceLedgerEntry{OccurredAt: 20},
+	))
+	assert.True(t, subscriptionRefundAlreadyConsumedInPriorPeriod(
+		&SubscriptionOrder{CurrentPeriodStart: 20},
+		&FinanceLedgerEntry{OccurredAt: 19},
+	))
+}
+
 func getUserQuotaForRefundTest(t *testing.T, db *gorm.DB, userID int) int {
 	t.Helper()
 	var quota int

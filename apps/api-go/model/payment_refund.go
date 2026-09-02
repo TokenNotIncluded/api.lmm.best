@@ -167,7 +167,8 @@ func ApplyPaymentRefund(
 			if ledgerExists && !refundLedgerBindsRequest(&ledger, tradeNo, providerEventID, paymentMethod, paymentProvider, currency, result.UserID) {
 				return ErrPaymentRefundOrderConflict
 			}
-			alreadyApplied := ledgerExists && order.RefundedAmountMicros > 0
+			alreadyApplied := ledgerExists && (order.RefundedAmountMicros > 0 ||
+				subscriptionRefundAlreadyConsumedInPriorPeriod(&order, &ledger))
 			paidMicros := order.ExpectedAmountMicros
 			if paidMicros <= 0 {
 				// Legacy fallback only. New subscription orders snapshot the real
@@ -294,6 +295,18 @@ func refundNoteContainsTradeNo(note, tradeNo string) bool {
 		}
 	}
 	return false
+}
+
+// subscriptionRefundAlreadyConsumedInPriorPeriod reports that a ledger row
+// belongs to an earlier billing cycle. Recurring renewal resets the order's
+// cumulative refund counters so the new period can accept its own refunds;
+// a provider retry of the previous cycle must not look like a legacy
+// backfill and shrink the freshly restored grant.
+func subscriptionRefundAlreadyConsumedInPriorPeriod(order *SubscriptionOrder, ledger *FinanceLedgerEntry) bool {
+	if order == nil || ledger == nil {
+		return false
+	}
+	return order.CurrentPeriodStart > 0 && ledger.OccurredAt > 0 && ledger.OccurredAt < order.CurrentPeriodStart
 }
 
 func refundLedgerBindsRequest(

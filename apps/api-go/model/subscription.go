@@ -1054,9 +1054,17 @@ func ApplySubscriptionPaymentEvent(tradeNo string, paymentEvent *SubscriptionPay
 		subscription.EndTime = paymentEvent.PeriodEnd
 		isRenewal = priorCount > 0
 		if isRenewal {
+			// A paid renewal starts a new grant. Refunds permanently shrink
+			// AmountTotal for the period they belong to; carrying that reduced
+			// cap into the next paid cycle would keep charging full price for
+			// leftover quota. Restore the purchased snapshot when it is a
+			// finite grant (0 means unlimited and is not reduced by refunds).
 			order.RefundedAmountMicros = 0
 			order.RefundedQuota = 0
 			subscription.AmountUsed = 0
+			if renewalPlan.TotalAmount > 0 {
+				subscription.AmountTotal = renewalPlan.TotalAmount
+			}
 			subscription.Status = "active"
 			subscription.LastResetTime = paymentEvent.PeriodStart
 			subscription.NextResetTime = calcNextResetTime(time.Unix(paymentEvent.PeriodStart, 0), &renewalPlan, subscription.EndTime)
