@@ -6135,16 +6135,16 @@ for (const [locale, translations] of Object.entries(
 
 const walletTerminologyTranslations = {
   en: {
-    'Platform credit': 'Platform credit ($ (Platform))',
-    'Custom platform credit': 'Custom platform credit ($ (Platform))',
+    'Platform credit': 'Platform credit',
+    'Custom platform credit': 'Custom platform credit',
     'Maximum platform credit per payment: {{amount}}':
       'Maximum platform credit per payment: {{amount}}',
     'Maximum: {{amount}}': 'Maximum: {{amount}}',
     'Credit {{amount}}; pay {{payment}}': 'Credit {{amount}}; pay {{payment}}',
   },
   zh: {
-    'Platform credit': '平台金额（$（平台））',
-    'Custom platform credit': '自定义平台金额（$（平台））',
+    'Platform credit': '平台额度',
+    'Custom platform credit': '自定义平台额度',
     'Maximum platform credit per payment: {{amount}}':
       '单笔最高平台金额：{{amount}}',
     'Maximum: {{amount}}': '上限：{{amount}}',
@@ -6152,8 +6152,8 @@ const walletTerminologyTranslations = {
       '到账 {{amount}}；实际支付 {{payment}}',
   },
   'zh-TW': {
-    'Platform credit': '平台金額（$（平台））',
-    'Custom platform credit': '自訂平台金額（$（平台））',
+    'Platform credit': '平台額度',
+    'Custom platform credit': '自訂平台額度',
     'Maximum platform credit per payment: {{amount}}':
       '單筆最高平台金額：{{amount}}',
     'Maximum: {{amount}}': '上限：{{amount}}',
@@ -6161,9 +6161,8 @@ const walletTerminologyTranslations = {
       '入帳 {{amount}}；實際支付 {{payment}}',
   },
   fr: {
-    'Platform credit': 'Crédit de plateforme ($ (Plateforme))',
-    'Custom platform credit':
-      'Crédit de plateforme personnalisé ($ (Plateforme))',
+    'Platform credit': 'Crédit de plateforme',
+    'Custom platform credit': 'Crédit de plateforme personnalisé',
     'Maximum platform credit per payment: {{amount}}':
       'Crédit de plateforme maximal par paiement : {{amount}}',
     'Maximum: {{amount}}': 'Maximum : {{amount}}',
@@ -6171,9 +6170,8 @@ const walletTerminologyTranslations = {
       'Crédit {{amount}} ; paiement {{payment}}',
   },
   ja: {
-    'Platform credit': 'プラットフォーム残高（$（プラットフォーム））',
-    'Custom platform credit':
-      'カスタムのプラットフォーム残高（$（プラットフォーム））',
+    'Platform credit': 'プラットフォームクレジット',
+    'Custom platform credit': '任意のプラットフォームクレジット',
     'Maximum platform credit per payment: {{amount}}':
       '1回あたりの最大プラットフォーム残高：{{amount}}',
     'Maximum: {{amount}}': '上限：{{amount}}',
@@ -6181,9 +6179,8 @@ const walletTerminologyTranslations = {
       '付与額 {{amount}}；支払額 {{payment}}',
   },
   ru: {
-    'Platform credit': 'Платформенный кредит ($ (Платформа))',
-    'Custom platform credit':
-      'Пользовательский платформенный кредит ($ (Платформа))',
+    'Platform credit': 'Платформенный кредит',
+    'Custom platform credit': 'Другая сумма кредита платформы',
     'Maximum platform credit per payment: {{amount}}':
       'Максимальный платформенный кредит за платёж: {{amount}}',
     'Maximum: {{amount}}': 'Максимум: {{amount}}',
@@ -6191,8 +6188,8 @@ const walletTerminologyTranslations = {
       'Зачисление {{amount}}; оплата {{payment}}',
   },
   vi: {
-    'Platform credit': 'Tín dụng nền tảng ($ (Nền tảng))',
-    'Custom platform credit': 'Tín dụng nền tảng tùy chỉnh ($ (Nền tảng))',
+    'Platform credit': 'Tín dụng nền tảng',
+    'Custom platform credit': 'Tín dụng nền tảng tùy chỉnh',
     'Maximum platform credit per payment: {{amount}}':
       'Tín dụng nền tảng tối đa mỗi lần thanh toán: {{amount}}',
     'Maximum: {{amount}}': 'Tối đa: {{amount}}',
