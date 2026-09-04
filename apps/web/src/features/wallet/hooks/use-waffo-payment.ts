@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import i18next from 'i18next'
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import { toast } from 'sonner'
 
 import { requestWaffoPayment, isApiSuccess } from '../api'
@@ -52,12 +52,16 @@ function getErrorMessage(message: string | undefined, data: unknown): string {
  */
 export function useWaffoPayment() {
   const [processing, setProcessing] = useState(false)
+  const processingRef = useRef(false)
 
   const processWaffoPayment = useCallback(
     async (topupAmount: number, payMethodIndex?: number, discountCode = '') => {
+      if (processingRef.current) return false
+
       let checkout: ReturnType<typeof reservePaymentCheckout> | null = null
 
       try {
+        processingRef.current = true
         setProcessing(true)
         checkout = reservePaymentCheckout()
         const response = await requestWaffoPayment({
@@ -88,6 +92,7 @@ export function useWaffoPayment() {
         toast.error(i18next.t('Payment request failed'))
         return false
       } finally {
+        processingRef.current = false
         setProcessing(false)
       }
     },

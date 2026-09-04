@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { Crown, CalendarClock, Package } from 'lucide-react'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -95,6 +95,7 @@ interface Props {
 export function SubscriptionPurchaseDialog(props: Props) {
   const { t, i18n } = useTranslation()
   const [paying, setPaying] = useState(false)
+  const payingRef = useRef(false)
   const [selectedEpayMethod, setSelectedEpayMethod] = useState('')
   const [waffoPancakeCheckoutRegionOverride, setWaffoPancakeCheckoutRegion] =
     useState<WaffoPancakeCheckoutRegion | null>(null)
@@ -146,6 +147,18 @@ export function SubscriptionPurchaseDialog(props: Props) {
     availableEpayMethods.find((m) => m.type === selectedEpayMethod)?.name ||
     selectedEpayMethod ||
     t('Select payment method')
+
+  const beginPayment = () => {
+    if (payingRef.current) return false
+    payingRef.current = true
+    setPaying(true)
+    return true
+  }
+
+  const endPayment = () => {
+    payingRef.current = false
+    setPaying(false)
+  }
   const totalAmount = Number(plan.total_amount || 0)
   const price = formatFiatCurrencyAmount(
     Number(plan.price_amount || 0),
@@ -166,8 +179,9 @@ export function SubscriptionPurchaseDialog(props: Props) {
     (props.purchaseCount || 0) >= (props.purchaseLimit || 0)
 
   const handlePayStripe = async () => {
+    if (!beginPayment()) return
+
     let checkout: ReturnType<typeof reservePaymentCheckout> | null = null
-    setPaying(true)
     try {
       checkout = reservePaymentCheckout()
       const res = await paySubscriptionStripe({ plan_id: plan.id })
@@ -192,13 +206,14 @@ export function SubscriptionPurchaseDialog(props: Props) {
       if (checkout) cancelPaymentCheckout(checkout)
       toast.error(t('Payment request failed'))
     } finally {
-      setPaying(false)
+      endPayment()
     }
   }
 
   const handlePayCreem = async () => {
+    if (!beginPayment()) return
+
     let checkout: ReturnType<typeof reservePaymentCheckout> | null = null
-    setPaying(true)
     try {
       checkout = reservePaymentCheckout()
       const res = await paySubscriptionCreem({ plan_id: plan.id })
@@ -223,14 +238,15 @@ export function SubscriptionPurchaseDialog(props: Props) {
       if (checkout) cancelPaymentCheckout(checkout)
       toast.error(t('Payment request failed'))
     } finally {
-      setPaying(false)
+      endPayment()
     }
   }
 
   // In-tab redirect (not window.open) — user-gesture context is lost
   // across the await, so a popup would be blocked. Same as the wallet hook.
   const handlePayWaffoPancake = async () => {
-    setPaying(true)
+    if (!beginPayment()) return
+
     try {
       const res = await paySubscriptionWaffoPancake({
         plan_id: plan.id,
@@ -254,7 +270,7 @@ export function SubscriptionPurchaseDialog(props: Props) {
     } catch {
       toast.error(t('Payment request failed'))
     } finally {
-      setPaying(false)
+      endPayment()
     }
   }
 
@@ -263,8 +279,9 @@ export function SubscriptionPurchaseDialog(props: Props) {
       toast.error(t('Please select a payment method'))
       return
     }
+    if (!beginPayment()) return
+
     let checkout: ReturnType<typeof reservePaymentCheckout> | null = null
-    setPaying(true)
     try {
       checkout = reservePaymentCheckout()
       const res = await paySubscriptionEpay({
@@ -292,7 +309,7 @@ export function SubscriptionPurchaseDialog(props: Props) {
       if (checkout) cancelPaymentCheckout(checkout)
       toast.error(t('Payment request failed'))
     } finally {
-      setPaying(false)
+      endPayment()
     }
   }
 
@@ -301,7 +318,8 @@ export function SubscriptionPurchaseDialog(props: Props) {
       toast.error(t('This plan does not allow balance redemption'))
       return
     }
-    setPaying(true)
+    if (!beginPayment()) return
+
     try {
       const res = await paySubscriptionBalance({ plan_id: plan.id })
       if (res.success) {
@@ -318,7 +336,7 @@ export function SubscriptionPurchaseDialog(props: Props) {
     } catch {
       toast.error(t('Payment request failed'))
     } finally {
-      setPaying(false)
+      endPayment()
     }
   }
 

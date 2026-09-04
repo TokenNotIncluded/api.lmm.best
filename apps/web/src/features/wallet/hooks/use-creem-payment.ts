@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import i18next from 'i18next'
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import { toast } from 'sonner'
 
 import { requestCreemPayment, isApiSuccess } from '../api'
@@ -32,10 +32,14 @@ import {
  */
 export function useCreemPayment() {
   const [processing, setProcessing] = useState(false)
+  const processingRef = useRef(false)
 
   const processCreemPayment = useCallback(async (productId: string) => {
+    if (processingRef.current) return false
+
     let checkout: ReturnType<typeof reservePaymentCheckout> | null = null
     try {
+      processingRef.current = true
       setProcessing(true)
       checkout = reservePaymentCheckout()
       const response = await requestCreemPayment({
@@ -61,6 +65,7 @@ export function useCreemPayment() {
       toast.error(i18next.t('Payment request failed'))
       return false
     } finally {
+      processingRef.current = false
       setProcessing(false)
     }
   }, [])

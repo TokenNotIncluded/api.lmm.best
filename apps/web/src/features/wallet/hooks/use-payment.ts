@@ -116,6 +116,7 @@ export function usePayment() {
   const [amount, setAmount] = useState<number>(0)
   const [calculating, setCalculating] = useState(false)
   const [processing, setProcessing] = useState(false)
+  const processingRef = useRef(false)
   const amountRequestIdRef = useRef(0)
   const localPreview = isLocalPreview()
 
@@ -168,8 +169,11 @@ export function usePayment() {
         return false
       }
 
+      if (processingRef.current) return false
+
       let checkout: ReturnType<typeof reservePaymentCheckout> | null = null
       try {
+        processingRef.current = true
         setProcessing(true)
 
         const isStripe = isStripePayment(paymentType)
@@ -229,6 +233,7 @@ export function usePayment() {
         toast.error(i18next.t('Payment request failed'))
         return false
       } finally {
+        processingRef.current = false
         setProcessing(false)
       }
     },

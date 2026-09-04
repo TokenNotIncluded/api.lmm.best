@@ -200,6 +200,47 @@ describe('subscription purchase checkout', () => {
     }
   })
 
+  test('ignores duplicate subscription checkout clicks while the request is pending', async () => {
+    let requestCount = 0
+    let releaseRequest: () => void = () => undefined
+    const popup = {
+      closed: false,
+      name: '',
+      opener: {} as Window | null,
+      close: () => undefined,
+      focus: () => undefined,
+      location: { href: '' },
+    }
+    domWindow.open = (() => popup as unknown as Window) as typeof domWindow.open
+    api.post = (async () => {
+      requestCount += 1
+      return new Promise<void>((resolve) => {
+        releaseRequest = resolve
+      })
+    }) as unknown as typeof api.post
+
+    const rendered = await renderDialog()
+    try {
+      const stripeButton = [...document.querySelectorAll('button')].find(
+        (button) => button.textContent?.trim() === 'Stripe'
+      )
+      assert.ok(stripeButton)
+
+      await act(async () => {
+        stripeButton.click()
+        stripeButton.click()
+        await Promise.resolve()
+      })
+
+      assert.equal(requestCount, 1)
+
+      releaseRequest()
+      await act(flushEffects)
+    } finally {
+      await unmount(rendered)
+    }
+  })
+
   test('reserves an ePay checkout before the async request on mobile', async () => {
     const events: string[] = []
     const popup = {
