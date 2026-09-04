@@ -156,6 +156,23 @@ fi
 grep -Fq '/usr/bin/lmm-api deploy frontend package-activate --package-version "$1"' \
   "$SHARED/lmm-api-web.install" ||
   die 'future Web release hook does not use the public backend CLI'
+go_release_workflow="$ROOT/.github/workflows/release-go.yml"
+[[ -f $go_release_workflow ]] || die 'Go release workflow is missing'
+# shellcheck disable=SC2016 # Deliberately inspect workflow source literals.
+grep -Fq 'gh release create "$RELEASE_TAG"' "$go_release_workflow" ||
+  die 'Go release workflow does not create a new immutable release'
+grep -Fq 'immutable releases cannot be edited or overwritten' "$go_release_workflow" ||
+  die 'Go release workflow does not fail closed when a release already exists'
+grep -Fq 'already exists and exactly matches the immutable contract' "$go_release_workflow" ||
+  die 'Go release workflow cannot safely resume an exactly matching immutable release'
+grep -Fq '|| return 1' "$go_release_workflow" ||
+  die 'Go release readback checks are not explicit in conditional resume mode'
+if grep -Eq 'gh release (edit|upload)|--clobber' "$go_release_workflow"; then
+  die 'Go release workflow can mutate an existing release'
+fi
+# shellcheck disable=SC2016 # Deliberately inspect the asset digest readback query.
+grep -Fq '.assets[] | select(.name == $name) | .digest' "$go_release_workflow" ||
+  die 'Go release workflow does not read back published asset digests'
 web_release_workflow="$ROOT/.github/workflows/release-web.yml"
 [[ -f $web_release_workflow ]] || die 'web release workflow is missing'
 grep -Fq '  workflow_dispatch:' "$web_release_workflow" ||
@@ -170,6 +187,21 @@ grep -Fq 'cosign sign-blob' "$web_release_workflow" ||
   die 'web release does not sign its immutable artifact'
 grep -Fq 'cosign verify-blob' "$web_release_workflow" ||
   die 'web release does not verify its new signature'
+# shellcheck disable=SC2016 # Deliberately inspect workflow source literals.
+grep -Fq 'gh release create "$RELEASE_TAG"' "$web_release_workflow" ||
+  die 'web release workflow does not create a new immutable release'
+grep -Fq 'immutable releases cannot be edited or overwritten' "$web_release_workflow" ||
+  die 'web release workflow does not fail closed when a release already exists'
+grep -Fq 'already exists and exactly matches the immutable contract' "$web_release_workflow" ||
+  die 'web release workflow cannot safely resume an exactly matching immutable release'
+grep -Fq '|| return 1' "$web_release_workflow" ||
+  die 'web release readback checks are not explicit in conditional resume mode'
+if grep -Eq 'gh release (edit|upload)|--clobber' "$web_release_workflow"; then
+  die 'web release workflow can mutate an existing release'
+fi
+# shellcheck disable=SC2016 # Deliberately inspect the asset digest readback query.
+grep -Fq '.assets[] | select(.name == $name) | .digest' "$web_release_workflow" ||
+  die 'web release workflow does not read back published asset digests'
 
 contains_srcinfo lmm-api-go-git $'\tmakedepends = bun'
 contains_srcinfo lmm-api-go-git $'\tmakedepends = go>=1.25.1'

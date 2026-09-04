@@ -49,7 +49,7 @@ func validProductionReleasePlanArguments(root string) []string {
 		"--web-rollback-package", path("web-old.pkg.tar.zst"),
 		"--web-rollback-release-asset", path("web-old.tar.gz"),
 		"--web-rollback-release-bundle", path("web-old.tar.gz.bundle"),
-		"--probe-binary", path("lmm-api"),
+		"--probe-binary", path(backendGoName),
 	}
 }
 
@@ -220,8 +220,8 @@ func testProductionReleasePlan(t *testing.T, root string) productionReleasePlan 
 		GoRollback:          goRollback,
 		WebCandidate:        web,
 		WebRollback:         web,
-		ProbeBinary:         productionReleaseFilePlan{Path: filepath.Join(root, "lmm-api"), SHA256: goCandidate.PayloadSHA256},
-		OperatorBinary:      productionReleaseFilePlan{Path: filepath.Join(root, "lmm-api"), SHA256: goCandidate.PayloadSHA256},
+		ProbeBinary:         productionReleaseFilePlan{Path: filepath.Join(root, backendGoName), SHA256: goCandidate.PayloadSHA256},
+		OperatorBinary:      productionReleaseFilePlan{Path: filepath.Join(root, backendGoName), SHA256: goCandidate.PayloadSHA256},
 		GoChanged:           true,
 		ObservationSeconds:  180,
 		WithBackups:         true,

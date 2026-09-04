@@ -108,33 +108,48 @@ func (runtime *productionRuntime) probeModels(ctx context.Context, binary, token
 	return nil
 }
 
-func (runtime *productionRuntime) probeBackendLocal(ctx context.Context, manifest productionManifest, version string) error {
-	if _, err := runtime.probeStatus(ctx, manifest.ProbeBinary, runtime.paths.LocalBaseURL, version); err != nil {
+func (runtime *productionRuntime) probeBackendLocal(ctx context.Context, workspace productionWorkspace, manifest productionManifest, version string) error {
+	binary, err := runtime.validateCandidateEntrypoint(workspace, manifest.ProbeBinary, manifest.ProbeBinarySHA256)
+	if err != nil {
+		return err
+	}
+	return runtime.probeBackendLocalWithBinary(ctx, binary, version)
+}
+
+func (runtime *productionRuntime) probeBackendLocalWithBinary(ctx context.Context, binary, version string) error {
+	if _, err := runtime.probeStatus(ctx, binary, runtime.paths.LocalBaseURL, version); err != nil {
 		return fmt.Errorf("local status probe: %w", err)
 	}
-	if err := runtime.probeLive(ctx, manifest.ProbeBinary); err != nil {
+	if err := runtime.probeLive(ctx, binary); err != nil {
 		return fmt.Errorf("local live probe: %w", err)
 	}
 	return nil
 }
 
-func (runtime *productionRuntime) probeRelease(ctx context.Context, manifest productionManifest, version, frontendSHA256 string) error {
+func (runtime *productionRuntime) probeRelease(ctx context.Context, workspace productionWorkspace, manifest productionManifest, version, frontendSHA256 string) error {
+	binary, err := runtime.validateCandidateEntrypoint(workspace, manifest.ProbeBinary, manifest.ProbeBinarySHA256)
+	if err != nil {
+		return err
+	}
+	return runtime.probeReleaseWithBinary(ctx, workspace, binary, version, frontendSHA256)
+}
+
+func (runtime *productionRuntime) probeReleaseWithBinary(ctx context.Context, workspace productionWorkspace, binary, version, frontendSHA256 string) error {
 	attempts := runtime.probeAttempts
 	if attempts < 1 {
 		attempts = 1
 	}
 	var lastError error
 	for attempt := 0; attempt < attempts; attempt++ {
-		if _, err := runtime.probeStatus(ctx, manifest.ProbeBinary, runtime.paths.LocalBaseURL, version); err != nil {
+		if _, err := runtime.probeStatus(ctx, binary, runtime.paths.LocalBaseURL, version); err != nil {
 			lastError = fmt.Errorf("local status probe: %w", err)
-		} else if err := runtime.probeLive(ctx, manifest.ProbeBinary); err != nil {
+		} else if err := runtime.probeLive(ctx, binary); err != nil {
 			lastError = fmt.Errorf("local live probe: %w", err)
-		} else if _, err := runtime.probeStatus(ctx, manifest.ProbeBinary, runtime.paths.PublicBaseURL, version); err != nil {
+		} else if _, err := runtime.probeStatus(ctx, binary, runtime.paths.PublicBaseURL, version); err != nil {
 			lastError = fmt.Errorf("public status probe: %w", err)
-		} else if err := runtime.probeFrontend(ctx, manifest.ProbeBinary, frontendSHA256); err != nil {
+		} else if err := runtime.probeFrontend(ctx, binary, frontendSHA256); err != nil {
 			lastError = fmt.Errorf("public frontend probe: %w", err)
-		} else if err := runtime.probeModels(ctx, manifest.ProbeBinary, filepath.Join(filepath.Dir(manifest.ProbeBinary), "..", "state", productionProbeTokenFilename)); err != nil {
-			// The probe binary is a direct staging child; state is its sibling.
+		} else if err := runtime.probeModels(ctx, binary, workspace.probeToken); err != nil {
 			lastError = fmt.Errorf("authenticated business probe: %w", err)
 		} else {
 			return nil
@@ -360,7 +375,7 @@ func (runtime *productionRuntime) healthCheck(ctx context.Context, workspace pro
 			return err
 		}
 	}
-	if err := runtime.probeRelease(ctx, manifest, manifest.ExpectedVersion, manifest.Frontend.NewIndexSHA256); err != nil {
+	if err := runtime.probeRelease(ctx, workspace, manifest, manifest.ExpectedVersion, manifest.Frontend.NewIndexSHA256); err != nil {
 		return err
 	}
 	if err := runtime.verifyServiceRestartBaseline(ctx, manifest); err != nil {

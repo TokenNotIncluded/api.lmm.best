@@ -237,14 +237,30 @@ func (runtime *productionRuntime) paruInstall(ctx context.Context, workspace pro
 	return err
 }
 
-func (runtime *productionRuntime) verifyManifestArchives(ctx context.Context, manifest productionManifest) error {
+func (runtime *productionRuntime) verifyManifestArchives(ctx context.Context, workspace productionWorkspace, manifest productionManifest) error {
 	restoredEnvironment, err := readPrivateRegularFile(filepath.Join(manifest.ConfigRestorePath, "lmm-api-go.env"), 1<<20)
 	if err != nil || fmt.Sprintf("%x", sha256Bytes(restoredEnvironment)) != manifest.EnvironmentRestoreSHA256 {
 		return errors.New("configuration rollback snapshot no longer matches the deployment manifest")
 	}
 	if manifest.BackupsEnabled {
-		if err := validateBackupAttestation(manifest.BackupDir, manifest.DeploymentID); err != nil {
+		if _, err := runtime.validateBackupSet(ctx, workspace, manifest.BackupDir); err != nil {
+			return fmt.Errorf("revalidate target production backup: %w", err)
+		}
+		attestation, err := readBackupAttestation(manifest.BackupDir, manifest.DeploymentID)
+		if err != nil {
 			return err
+		}
+		if manifest.BackupEvidenceFormat == 2 {
+			if attestation.Format != 1 || attestation.EvidenceFormat != 2 || attestation.TargetDigest != manifest.TargetBackupSHA256 ||
+				attestation.ControllerDigest != manifest.ControllerBackupSHA256 || attestation.OffhostDigest != manifest.OffhostBackupSHA256 {
+				return errors.New("production backup attestation differs from immutable manifest digests")
+			}
+			targetDigest, err := sha256File(filepath.Join(manifest.BackupDir, "SHA256SUMS"))
+			if err != nil || targetDigest != manifest.TargetBackupSHA256 {
+				return errors.New("target backup checksum manifest differs from immutable deployment evidence")
+			}
+		} else if manifest.BackupEvidenceFormat != 0 || attestation.Format != 1 || attestation.EvidenceFormat != 0 {
+			return errors.New("legacy deployment manifest cannot accept an unbound current backup attestation")
 		}
 		backupDigest, err := sha256File(filepath.Join(manifest.BackupDir, "database.archive"))
 		if err != nil || backupDigest != manifest.DatabaseBackupSHA256 {
@@ -276,6 +292,37 @@ func (runtime *productionRuntime) verifyManifestArchives(ctx context.Context, ma
 	}
 	if pairs[0].candidate.BinarySHA256 != manifest.ProbeBinarySHA256 || pairs[1].candidate.IndexSHA256 != manifest.Frontend.NewIndexSHA256 || pairs[1].rollback.IndexSHA256 != manifest.Frontend.OldIndexSHA256 {
 		return errors.New("manifest binary or frontend hash does not match staged package archives")
+	}
+	return nil
+}
+
+func (runtime *productionRuntime) verifyRollbackManifestArchives(ctx context.Context, manifest productionManifest) error {
+	if manifest.Go.Changed {
+		restoredEnvironment, err := readPrivateRegularFile(filepath.Join(manifest.ConfigRestorePath, "lmm-api-go.env"), 1<<20)
+		if err != nil || fmt.Sprintf("%x", sha256Bytes(restoredEnvironment)) != manifest.EnvironmentRestoreSHA256 {
+			return errors.New("configuration rollback snapshot no longer matches the deployment manifest")
+		}
+	}
+	for _, transition := range []productionPackageTransition{manifest.Go, manifest.Web} {
+		if !transition.Changed {
+			continue
+		}
+		rollback, err := runtime.packageMetadata(ctx, transition.RollbackPath, transition.RollbackPackageName)
+		if err != nil {
+			return err
+		}
+		if rollback.Identity != transition.RollbackIdentity || rollback.GitRevision != transition.RollbackGitRevision ||
+			rollback.ContractRevision != transition.RollbackContractRevision {
+			return fmt.Errorf("%s rollback metadata does not match the staged package archive", transition.RollbackPackageName)
+		}
+		if transition.RollbackPackageName == productionWebPackageName && rollback.IndexSHA256 != manifest.Frontend.OldIndexSHA256 {
+			return errors.New("rollback Web index hash does not match the deployment manifest")
+		}
+	}
+	if manifest.Go.Changed && manifest.NginxEdgeRestoreSHA256 != "" {
+		if err := runtime.validateEdgePolicyBackup(filepath.Join(manifest.ConfigRestorePath, "nginx-edge"), manifest.NginxEdgeRestoreSHA256); err != nil {
+			return fmt.Errorf("validate edge-policy rollback evidence: %w", err)
+		}
 	}
 	return nil
 }
@@ -556,13 +603,19 @@ func (runtime *productionRuntime) apply(ctx context.Context, workspace productio
 	if options.OperatorBinarySHA256 == "" {
 		options.OperatorBinarySHA256 = options.ProbeBinarySHA256
 	}
+	if options.OperatorBinary != options.ProbeBinary || options.OperatorBinarySHA256 != options.ProbeBinarySHA256 {
+		return productionStatus{}, errors.New("candidate probe and operator evidence must identify the same lmm-api-go provider")
+	}
+	candidateEntrypoint, err := runtime.validateCandidateEntrypoint(workspace, options.ProbeBinary, options.ProbeBinarySHA256)
+	if err != nil {
+		return productionStatus{}, err
+	}
 	staged := []productionStagedFile{
 		{options.GoPackage, options.GoPackageSHA256, "candidate Go package", false},
 		{options.GoRollbackPackage, options.GoRollbackSHA256, "rollback Go package", false},
 		{options.WebPackage, options.WebPackageSHA256, "candidate Web package", false},
 		{options.WebRollbackPackage, options.WebRollbackSHA256, "rollback Web package", false},
-		{options.ProbeBinary, options.ProbeBinarySHA256, "probe binary", true},
-		{options.OperatorBinary, options.OperatorBinarySHA256, "operator binary", true},
+		{options.ProbeBinary, options.ProbeBinarySHA256, "candidate provider binary", true},
 	}
 	if err := runtime.validateOperatorWorkspace(ctx, workspace, options.OperatorUser, staged); err != nil {
 		return productionStatus{}, err
@@ -571,6 +624,9 @@ func (runtime *productionRuntime) apply(ctx context.Context, workspace productio
 		if err := runtime.validateStagedFile(workspace, file.path, file.digest, file.label); err != nil {
 			return productionStatus{}, err
 		}
+	}
+	if candidateEntrypoint, err = runtime.validateCandidateEntrypoint(workspace, options.ProbeBinary, options.ProbeBinarySHA256); err != nil {
+		return productionStatus{}, err
 	}
 	preflightPackages := make([]string, 0, 4)
 	if options.GoChanged {
@@ -590,10 +646,19 @@ func (runtime *productionRuntime) apply(ctx context.Context, workspace productio
 		return productionStatus{}, err
 	}
 	databaseBackupSHA256 := ""
+	backupAttestation := productionBackupAttestation{}
 	if options.BackupDir != "" {
 		databaseBackupSHA256, err = sha256File(filepath.Join(options.BackupDir, "database.archive"))
 		if err != nil || !productionSHA256Pattern.MatchString(databaseBackupSHA256) {
 			return productionStatus{}, errors.New("authorized database backup is missing or empty")
+		}
+		backupAttestation, err = readBackupAttestation(options.BackupDir, workspace.id)
+		if err != nil || backupAttestation.Format != 1 || backupAttestation.EvidenceFormat != 2 {
+			return productionStatus{}, errors.New("production backup attestation is not bound to all three copy digests")
+		}
+		targetDigest, err := sha256File(filepath.Join(options.BackupDir, "SHA256SUMS"))
+		if err != nil || targetDigest != backupAttestation.TargetDigest {
+			return productionStatus{}, errors.New("target backup changed after controller verification")
 		}
 	}
 	if _, err := runtime.runner.Run(ctx, productionCommand{Name: commandSystemctl, Args: []string{"is-active", "--quiet", runtime.paths.Service}}); err != nil {
@@ -659,18 +724,18 @@ func (runtime *productionRuntime) apply(ctx context.Context, workspace productio
 	if err := runtime.verifyMemoryPackageOwner(ctx, goRollback.Identity); err != nil {
 		return productionStatus{}, err
 	}
-	probeVersion, err := runVerifiedBinary(ctx, runtime.runner, options.ProbeBinary, []string{"version"}, nil, "", productionCommandTimeout, false)
+	probeVersion, err := runVerifiedBinary(ctx, runtime.runner, candidateEntrypoint, []string{"version"}, nil, "", productionCommandTimeout, false)
 	if err != nil || strings.TrimSpace(string(probeVersion)) != options.ExpectedVersion {
 		return productionStatus{}, errors.New("candidate probe binary version mismatch")
 	}
-	oldVersion, err := runtime.probeStatus(ctx, options.ProbeBinary, runtime.paths.LocalBaseURL, "")
+	oldVersion, err := runtime.probeStatus(ctx, candidateEntrypoint, runtime.paths.LocalBaseURL, "")
 	if err != nil {
 		return productionStatus{}, fmt.Errorf("pre-upgrade local status probe failed: %w", err)
 	}
 	if !productionPackageMatches(goRollback.Version, oldVersion) {
 		return productionStatus{}, errors.New("rollback Go package version does not match the running service")
 	}
-	if _, err := runtime.probeStatus(ctx, options.ProbeBinary, runtime.paths.PublicBaseURL, oldVersion); err != nil {
+	if _, err := runtime.probeStatus(ctx, candidateEntrypoint, runtime.paths.PublicBaseURL, oldVersion); err != nil {
 		return productionStatus{}, fmt.Errorf("pre-upgrade public status probe failed: %w", err)
 	}
 	comparisonOutput, err := runtime.runner.Run(ctx, productionCommand{Name: commandVercmp, Args: []string{oldVersion, options.ExpectedVersion}})
@@ -689,7 +754,7 @@ func (runtime *productionRuntime) apply(ctx context.Context, workspace productio
 	if err != nil || oldIndexSHA != webRollback.IndexSHA256 || oldTarget != frontendTargetFor(webRollback) {
 		return productionStatus{}, errors.New("active frontend does not exactly match rollback Web package")
 	}
-	if err := runtime.probeFrontend(ctx, options.ProbeBinary, oldIndexSHA); err != nil {
+	if err := runtime.probeFrontend(ctx, candidateEntrypoint, oldIndexSHA); err != nil {
 		return productionStatus{}, fmt.Errorf("pre-upgrade public frontend probe failed: %w", err)
 	}
 	newTarget := frontendTargetFor(webCandidate)
@@ -711,10 +776,10 @@ func (runtime *productionRuntime) apply(ctx context.Context, workspace productio
 	if err != nil {
 		return productionStatus{}, err
 	}
-	if err := runtime.probeModels(ctx, options.ProbeBinary, workspace.probeToken); err != nil {
+	if err := runtime.probeModels(ctx, candidateEntrypoint, workspace.probeToken); err != nil {
 		return productionStatus{}, fmt.Errorf("pre-upgrade authenticated business probe failed: %w", err)
 	}
-	if err := runtime.probeLive(ctx, options.ProbeBinary); err != nil {
+	if err := runtime.probeLive(ctx, candidateEntrypoint); err != nil {
 		return productionStatus{}, fmt.Errorf("pre-upgrade live probe failed: %w", err)
 	}
 
@@ -738,8 +803,10 @@ func (runtime *productionRuntime) apply(ctx context.Context, workspace productio
 		OperatorBinary: options.OperatorBinary, OperatorBinarySHA256: options.OperatorBinarySHA256,
 		ExpectedVersion: options.ExpectedVersion, OldVersion: oldVersion,
 		PreviousProviderTarget: previousProviderTarget, NewProviderTarget: backendGoName,
-		BackupDir: options.BackupDir, BackupsEnabled: options.WithBackups,
-		DatabaseBackupSHA256: databaseBackupSHA256, DatabaseSchema: databaseSchema,
+		BackupDir: options.BackupDir, BackupsEnabled: options.WithBackups, BackupEvidenceFormat: backupAttestation.EvidenceFormat,
+		DatabaseBackupSHA256: databaseBackupSHA256, TargetBackupSHA256: backupAttestation.TargetDigest,
+		ControllerBackupSHA256: backupAttestation.ControllerDigest, OffhostBackupSHA256: backupAttestation.OffhostDigest,
+		DatabaseSchema:     databaseSchema,
 		ObservationSeconds: int64(options.ObservationWindow / time.Second), ConfigRestorePath: workspace.configRestore, EnvironmentRestoreSHA256: environmentRestoreSHA256,
 		NginxEdgeRestoreSHA256: nginxEdgeRestoreSHA256, PreserveEdgePolicy: options.PreserveEdgePolicy,
 	}
@@ -756,6 +823,9 @@ func (runtime *productionRuntime) apply(ctx context.Context, workspace productio
 	if err := runtime.prepareOperatorWorkspace(ctx, workspace, options.OperatorUser, staged); err != nil {
 		return productionStatus{}, err
 	}
+	if candidateEntrypoint, err = runtime.validateCandidateEntrypoint(workspace, options.ProbeBinary, options.ProbeBinarySHA256); err != nil {
+		return productionStatus{}, err
+	}
 	if manifest.Go.Changed {
 		if err := runtime.removeLegacyDeployPackageForProviderMigration(ctx, goCandidate); err != nil {
 			return productionStatus{}, err
@@ -766,7 +836,7 @@ func (runtime *productionRuntime) apply(ctx context.Context, workspace productio
 		if err := runtime.writeStatus(workspace, productionStatus{Phase: "MIGRATING", Version: options.ExpectedVersion, Previous: oldVersion}); err != nil {
 			return productionStatus{}, err
 		}
-		for _, migration := range []migrationRun{{name: "candidate-apply", binary: manifest.ProbeBinary, mode: "apply"}, {name: "candidate-verify", binary: manifest.ProbeBinary, mode: "verify"}, {name: "rollback-verify", binary: runtime.paths.InstalledBinary, mode: "verify"}} {
+		for _, migration := range []migrationRun{{name: "candidate-apply", binary: candidateEntrypoint, mode: "apply"}, {name: "candidate-verify", binary: candidateEntrypoint, mode: "verify"}, {name: "rollback-verify", binary: runtime.paths.InstalledBinary, mode: "verify"}} {
 			if err := runtime.runMigration(ctx, workspace, manifest, migration); err != nil {
 				return productionStatus{}, err
 			}
@@ -844,7 +914,7 @@ func (runtime *productionRuntime) apply(ctx context.Context, workspace productio
 			return productionStatus{}, err
 		}
 	}
-	if err := runtime.probeBackendLocalEventually(ctx, manifest, options.ExpectedVersion); err != nil {
+	if err := runtime.probeBackendLocalEventually(ctx, workspace, manifest, options.ExpectedVersion); err != nil {
 		return productionStatus{}, fmt.Errorf("candidate local backend health gate failed: %w", err)
 	}
 	if err := runtime.verifyServiceRestartBaseline(ctx, manifest); err != nil {
@@ -870,7 +940,7 @@ func (runtime *productionRuntime) apply(ctx context.Context, workspace productio
 	if err := runtime.verifyServiceRestartBaseline(ctx, manifest); err != nil {
 		return productionStatus{}, fmt.Errorf("candidate release identity verification changed restart baseline: %w", err)
 	}
-	if err := runtime.probeRelease(ctx, manifest, options.ExpectedVersion, manifest.Frontend.NewIndexSHA256); err != nil {
+	if err := runtime.probeRelease(ctx, workspace, manifest, options.ExpectedVersion, manifest.Frontend.NewIndexSHA256); err != nil {
 		return productionStatus{}, fmt.Errorf("candidate release probes failed: %w", err)
 	}
 	if err := runtime.verifyServiceRestartBaseline(ctx, manifest); err != nil {
@@ -889,10 +959,18 @@ func (runtime *productionRuntime) apply(ctx context.Context, workspace productio
 	return awaiting, nil
 }
 
-func (runtime *productionRuntime) probeBackendLocalEventually(ctx context.Context, manifest productionManifest, expectedVersion string) error {
+func (runtime *productionRuntime) probeBackendLocalEventually(ctx context.Context, workspace productionWorkspace, manifest productionManifest, expectedVersion string) error {
+	return runtime.probeBackendLocalEventuallyWithBinary(ctx, workspace, manifest, "", expectedVersion)
+}
+
+func (runtime *productionRuntime) probeBackendLocalEventuallyWithBinary(ctx context.Context, workspace productionWorkspace, manifest productionManifest, binary, expectedVersion string) error {
 	var probeErr error
 	for attempt := 0; attempt < 30; attempt++ {
-		probeErr = runtime.probeBackendLocal(ctx, manifest, expectedVersion)
+		if binary == "" {
+			probeErr = runtime.probeBackendLocal(ctx, workspace, manifest, expectedVersion)
+		} else {
+			probeErr = runtime.probeBackendLocalWithBinary(ctx, binary, expectedVersion)
+		}
 		if probeErr == nil {
 			return nil
 		}
@@ -955,8 +1033,13 @@ func (runtime *productionRuntime) confirmLoaded(ctx context.Context, workspace p
 	if err := runtime.validateTransactionLock(workspace); err != nil {
 		return productionStatus{}, err
 	}
-	if err := runtime.verifyManifestArchives(ctx, manifest); err != nil {
+	if err := runtime.verifyManifestArchives(ctx, workspace, manifest); err != nil {
 		return productionStatus{}, fmt.Errorf("deployment manifest archive verification failed: %w", err)
+	}
+	if manifest.BackupsEnabled && manifest.BackupEvidenceFormat == 2 {
+		if err := runtime.validateBackupConfirmation(manifest.BackupDir, manifest, runtime.now()); err != nil {
+			return productionStatus{}, err
+		}
 	}
 	observationWindow := time.Duration(manifest.ObservationSeconds) * time.Second
 	observationEnd := manifest.ObservationStartedUTC.Add(observationWindow)
@@ -976,8 +1059,13 @@ func (runtime *productionRuntime) confirmLoaded(ctx context.Context, workspace p
 	}
 	// Re-run archive and live identity gates immediately before the terminal
 	// write so confirmation cannot bless changed evidence or a degraded release.
-	if err := runtime.verifyManifestArchives(ctx, manifest); err != nil {
+	if err := runtime.verifyManifestArchives(ctx, workspace, manifest); err != nil {
 		return productionStatus{}, fmt.Errorf("final deployment archive verification failed: %w", err)
+	}
+	if manifest.BackupsEnabled && manifest.BackupEvidenceFormat == 2 {
+		if err := runtime.validateBackupConfirmation(manifest.BackupDir, manifest, runtime.now()); err != nil {
+			return productionStatus{}, err
+		}
 	}
 	if err := runtime.healthCheck(ctx, workspace, manifest); err != nil {
 		return productionStatus{}, fmt.Errorf("final production health and identity recheck failed: %w", err)
@@ -1007,7 +1095,7 @@ func (runtime *productionRuntime) persistRollbackFailure(workspace productionWor
 }
 
 func (runtime *productionRuntime) rollback(ctx context.Context, workspace productionWorkspace, reason string) (productionStatus, error) {
-	manifest, err := runtime.readManifest(workspace)
+	manifest, err := runtime.readManifestForRollback(workspace)
 	if err != nil {
 		return productionStatus{}, err
 	}
@@ -1033,8 +1121,8 @@ func (runtime *productionRuntime) rollback(ctx context.Context, workspace produc
 	fail := func(operationErr error) (productionStatus, error) {
 		return productionStatus{}, runtime.persistRollbackFailure(workspace, rolling, reason, operationErr)
 	}
-	if err := runtime.verifyManifestArchives(ctx, manifest); err != nil {
-		return fail(fmt.Errorf("deployment manifest archive verification failed: %w", err))
+	if err := runtime.verifyRollbackManifestArchives(ctx, manifest); err != nil {
+		return fail(fmt.Errorf("rollback evidence verification failed: %w", err))
 	}
 	if err := runtime.validateTransactionLock(workspace); err != nil {
 		return fail(err)
@@ -1089,7 +1177,7 @@ func (runtime *productionRuntime) rollback(ctx context.Context, workspace produc
 		if _, err := runtime.runner.Run(ctx, productionCommand{Name: commandSystemctl, Args: []string{"enable", "--now", runtime.paths.Service}}); err != nil {
 			return fail(fmt.Errorf("start rolled-back backend service: %w", err))
 		}
-		if err := runtime.probeBackendLocalEventually(ctx, manifest, manifest.OldVersion); err != nil {
+		if err := runtime.probeBackendLocalEventuallyWithBinary(ctx, workspace, manifest, runtime.paths.InstalledBinary, manifest.OldVersion); err != nil {
 			return fail(fmt.Errorf("rolled-back local backend health gate failed: %w", err))
 		}
 	}
@@ -1104,7 +1192,7 @@ func (runtime *productionRuntime) rollback(ctx context.Context, workspace produc
 	if err := verifyFrontendIdentity(runtime.paths.FrontendRoot, manifest.Frontend.OldTarget, manifest.Frontend.OldIndexSHA256); err != nil {
 		return fail(err)
 	}
-	if err := runtime.probeRelease(ctx, manifest, manifest.OldVersion, manifest.Frontend.OldIndexSHA256); err != nil {
+	if err := runtime.probeReleaseWithBinary(ctx, workspace, runtime.paths.InstalledBinary, manifest.OldVersion, manifest.Frontend.OldIndexSHA256); err != nil {
 		return fail(fmt.Errorf("rolled-back release probes failed: %w", err))
 	}
 	rolledBack := productionStatus{Phase: "ROLLED_BACK", Version: manifest.OldVersion, Previous: manifest.ExpectedVersion, Reason: reason}

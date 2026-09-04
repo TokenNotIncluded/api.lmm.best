@@ -48,4 +48,12 @@ fi
 [[ ! -e $stop_root/blocked ]] || fail 'blocked workspace was partially created'
 grep -Fq 'clean terminal marker-owned workspaces' "$stop_error" || fail 'stop error lacks cleanup guidance'
 
+target_state="$test_base/target/lmm-api-go-deploy"
+target_root="$target_state/work"
+mkdir -p -- "$target_state/backups"
+truncate -s $((513 * 1024 * 1024)) "$target_state/backups/retained-backup.bin"
+target_output=$(bash "$create_workspace" --role target --deployment-id target-budget --root "$target_root")
+[[ -f $target_root/target-budget/.lmm-deploy-workspace ]] || fail 'target workspace was blocked by retained sibling backups'
+grep -Fq "LMM_DEPLOY_WORKSPACE=$target_root/target-budget" <<< "$target_output" || fail 'target output missing workspace path'
+
 printf 'create-workspace tests: PASS\n'
