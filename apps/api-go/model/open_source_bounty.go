@@ -145,13 +145,22 @@ type OpenSourceBountyDraftInput struct {
 
 type OpenSourceBountyProjectView struct {
 	OpenSourceBountyProject
-	OwnerUsername          string                     `json:"owner_username"`
-	ActiveChallengeCount   int64                      `json:"active_challenge_count"`
-	ApprovedChallengeCount int64                      `json:"approved_challenge_count"`
-	OwnerRatingAverage     float64                    `json:"owner_rating_average"`
-	OwnerRatingCount       int64                      `json:"owner_rating_count"`
-	OwnerThankHeartCount   int64                      `json:"owner_thank_heart_count"`
-	ViewerChallenge        *OpenSourceBountyChallenge `json:"viewer_challenge,omitempty" gorm:"-"`
+	OwnerUsername            string                     `json:"owner_username"`
+	ParticipantCount         int64                      `json:"participant_count"`
+	ActiveChallengeCount     int64                      `json:"active_challenge_count"`
+	AcceptedChallengeCount   int64                      `json:"accepted_challenge_count"`
+	SubmittedChallengeCount  int64                      `json:"submitted_challenge_count"`
+	ApprovedChallengeCount   int64                      `json:"approved_challenge_count"`
+	RejectedChallengeCount   int64                      `json:"rejected_challenge_count"`
+	WithdrawnChallengeCount  int64                      `json:"withdrawn_challenge_count"`
+	CancelledChallengeCount  int64                      `json:"cancelled_challenge_count"`
+	AppealableChallengeCount int64                      `json:"appealable_challenge_count"`
+	AppealWindowEndsAt       int64                      `json:"appeal_window_ends_at"`
+	OpenDisputeCount         int64                      `json:"open_dispute_count"`
+	OwnerRatingAverage       float64                    `json:"owner_rating_average"`
+	OwnerRatingCount         int64                      `json:"owner_rating_count"`
+	OwnerThankHeartCount     int64                      `json:"owner_thank_heart_count"`
+	ViewerChallenge          *OpenSourceBountyChallenge `json:"viewer_challenge,omitempty" gorm:"-"`
 }
 
 type OpenSourceBountyTipNotification struct {
@@ -760,6 +769,7 @@ func openSourceBountyProjectQuery() *gorm.DB {
 	appealCutoff := common.GetTimestamp() - OpenSourceBountyAppealWindowSeconds
 	return DB.Table("open_source_bounty_projects AS p").
 		Select(`p.*, u.username AS owner_username,
+			(SELECT COUNT(*) FROM open_source_bounty_challenges c WHERE c.project_id = p.id) AS participant_count,
 			(SELECT COUNT(*) FROM open_source_bounty_challenges c WHERE c.project_id = p.id AND (
 				c.status IN ('accepted','submitted') OR
 				(c.status = 'rejected' AND c.rejected_at > ? AND NOT EXISTS (
@@ -768,10 +778,22 @@ func openSourceBountyProjectQuery() *gorm.DB {
 					SELECT 1 FROM open_source_bounty_disputes dispute WHERE dispute.challenge_id = c.id AND dispute.status = 'open'
 				)
 			)) AS active_challenge_count,
+			(SELECT COUNT(*) FROM open_source_bounty_challenges c WHERE c.project_id = p.id AND c.status = 'accepted') AS accepted_challenge_count,
+			(SELECT COUNT(*) FROM open_source_bounty_challenges c WHERE c.project_id = p.id AND c.status = 'submitted') AS submitted_challenge_count,
 			(SELECT COUNT(*) FROM open_source_bounty_challenges c WHERE c.project_id = p.id AND c.status = 'approved') AS approved_challenge_count,
+			(SELECT COUNT(*) FROM open_source_bounty_challenges c WHERE c.project_id = p.id AND c.status = 'rejected') AS rejected_challenge_count,
+			(SELECT COUNT(*) FROM open_source_bounty_challenges c WHERE c.project_id = p.id AND c.status = 'withdrawn') AS withdrawn_challenge_count,
+			(SELECT COUNT(*) FROM open_source_bounty_challenges c WHERE c.project_id = p.id AND c.status = 'cancelled') AS cancelled_challenge_count,
+			(SELECT COUNT(*) FROM open_source_bounty_challenges c WHERE c.project_id = p.id AND c.status = 'rejected' AND c.rejected_at > ? AND NOT EXISTS (
+				SELECT 1 FROM open_source_bounty_disputes dispute WHERE dispute.challenge_id = c.id AND dispute.status IN ('open','resolved_paid','resolved_denied')
+			)) AS appealable_challenge_count,
+			COALESCE((SELECT MAX(c.rejected_at + ?) FROM open_source_bounty_challenges c WHERE c.project_id = p.id AND c.status = 'rejected' AND c.rejected_at > ? AND NOT EXISTS (
+				SELECT 1 FROM open_source_bounty_disputes dispute WHERE dispute.challenge_id = c.id AND dispute.status IN ('open','resolved_paid','resolved_denied')
+			)), 0) AS appeal_window_ends_at,
+			(SELECT COUNT(DISTINCT dispute.challenge_id) FROM open_source_bounty_disputes dispute WHERE dispute.project_id = p.id AND dispute.status = 'open') AS open_dispute_count,
 			COALESCE((SELECT AVG(c.contributor_rating_score) FROM open_source_bounty_challenges c JOIN open_source_bounty_projects rated_project ON rated_project.id = c.project_id WHERE rated_project.owner_user_id = p.owner_user_id AND c.contributor_rating_score > 0), 0) AS owner_rating_average,
 			(SELECT COUNT(*) FROM open_source_bounty_challenges c JOIN open_source_bounty_projects rated_project ON rated_project.id = c.project_id WHERE rated_project.owner_user_id = p.owner_user_id AND c.contributor_rating_score > 0) AS owner_rating_count,
-			(SELECT COUNT(*) FROM open_source_bounty_ledgers heart WHERE heart.user_id = p.owner_user_id AND heart.kind = 'tip_transfer' AND heart.thanked_at > 0) AS owner_thank_heart_count`, appealCutoff).
+			(SELECT COUNT(*) FROM open_source_bounty_ledgers heart WHERE heart.user_id = p.owner_user_id AND heart.kind = 'tip_transfer' AND heart.thanked_at > 0) AS owner_thank_heart_count`, appealCutoff, appealCutoff, OpenSourceBountyAppealWindowSeconds, appealCutoff).
 		Joins("JOIN users u ON u.id = p.owner_user_id AND u.deleted_at IS NULL")
 }
 

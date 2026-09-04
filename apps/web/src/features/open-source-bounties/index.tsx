@@ -113,6 +113,10 @@ import {
   withdrawChallenge,
 } from './api'
 import {
+  getBountyLifecycleSummary,
+  type BountyLifecycleSummary,
+} from './lifecycle'
+import {
   selectBountyNotificationChallenge,
   type BountyNotificationDetailTarget,
 } from './notification-target'
@@ -159,6 +163,12 @@ const STATUS_KEYS = {
   cancelled: 'Cancelled by publisher',
 } as const
 
+const CLOSE_BLOCKER_ERROR_CODES = new Set([
+  'OPEN_SOURCE_BOUNTY_ACTIVE_CHALLENGES',
+  'OPEN_SOURCE_BOUNTY_APPEAL_WINDOW',
+  'OPEN_SOURCE_BOUNTY_OPEN_DISPUTES',
+])
+
 const ERROR_KEYS: Record<string, string> = {
   OPEN_SOURCE_BOUNTY_INVALID_REPOSITORY:
     'Enter a GitHub repository URL in the format https://github.com/owner/repository.',
@@ -179,6 +189,10 @@ const ERROR_KEYS: Record<string, string> = {
     'Your balance is not enough to publish this bounty.',
   OPEN_SOURCE_BOUNTY_ACTIVE_CHALLENGES:
     'Cancel unsubmitted challenges or review submitted work before closing this bounty.',
+  OPEN_SOURCE_BOUNTY_APPEAL_WINDOW:
+    'Rejected challenges can still be appealed. Wait until the seven-day appeal window ends unless a dispute is opened.',
+  OPEN_SOURCE_BOUNTY_OPEN_DISPUTES:
+    'Resolve all open disputes before closing this bounty or refunding escrow.',
   OPEN_SOURCE_BOUNTY_FULL: 'All reward slots are currently occupied.',
   OPEN_SOURCE_BOUNTY_ALREADY_ACCEPTED:
     'You have already accepted this challenge.',
@@ -229,11 +243,42 @@ function statusLabel(t: (key: string) => string, status: string) {
   return t(STATUS_KEYS[status as keyof typeof STATUS_KEYS] ?? status)
 }
 
-function availableSlots(project: BountyProject) {
+function useBountyLifecycle(project: BountyProject, hasOpenDispute = false) {
+  const deadline = project.appeal_window_ends_at ?? 0
+  const [nowSeconds, setNowSeconds] = useState(() =>
+    Math.floor(Date.now() / 1000)
+  )
+
+  useEffect(() => {
+    const delay = deadline * 1000 - Date.now()
+    if (delay <= 0) return
+    const timeout = window.setTimeout(
+      () => setNowSeconds(Math.floor(Date.now() / 1000)),
+      delay + 50
+    )
+    return () => window.clearTimeout(timeout)
+  }, [deadline])
+
+  return useMemo(
+    () => getBountyLifecycleSummary(project, hasOpenDispute, nowSeconds),
+    [hasOpenDispute, nowSeconds, project]
+  )
+}
+
+function availableSlots(
+  project: BountyProject,
+  lifecycle?: BountyLifecycleSummary
+) {
+  const expiredAppealCount = lifecycle
+    ? Math.max(
+        0,
+        (project.appealable_challenge_count ?? 0) - lifecycle.appealableCount
+      )
+    : 0
   return Math.max(
     0,
     project.reward_slots -
-      project.active_challenge_count -
+      Math.max(0, project.active_challenge_count - expiredAppealCount) -
       project.approved_challenge_count
   )
 }
@@ -396,6 +441,15 @@ export function OpenSourceBounties({
       return true
     } catch (error) {
       toast.error(errorMessage(error))
+      const code = (error as Error & { code?: string })?.code
+      if (code && CLOSE_BLOCKER_ERROR_CODES.has(code)) {
+        try {
+          await refresh()
+        } catch {
+          // Keep the original action error visible; the next manual refresh can
+          // still recover the lifecycle summary.
+        }
+      }
       return false
     } finally {
       setPending('')
@@ -460,6 +514,7 @@ export function OpenSourceBounties({
   useEffect(() => {
     if (!detailTarget) return
     let cancelled = false
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- an external notification target starts this async load.
     setPending(`detail-${detailTarget.projectId}`)
     void getBountyDetail(detailTarget.projectId)
       .then((nextDetail) => {
@@ -1342,8 +1397,9 @@ export function BountyCard({
 }) {
   const { t } = useTranslation()
   const challenge = project.viewer_challenge
+  const lifecycle = useBountyLifecycle(project)
   const acceptanceState = getChallengeAcceptanceState(challenge)
-  const slots = availableSlots(project)
+  const slots = availableSlots(project, lifecycle)
   let viewerAction: React.ReactNode
   if (project.owner_user_id === viewerUserId) {
     viewerAction = <Badge variant='secondary'>{t('Managed by you')}</Badge>
@@ -1388,12 +1444,14 @@ export function BountyCard({
   return (
     <TitledCard
       title={project.title}
-      description={`${project.owner_username} · ${statusLabel(t, project.status)}`}
+      description={project.owner_username}
       titleClassName='[overflow-wrap:anywhere]'
       descriptionClassName='[overflow-wrap:anywhere]'
       icon={<HugeiconsIcon icon={Bug01Icon} strokeWidth={1.8} />}
       iconTone='primary'
-      action={<BountyRankBadge rank={rank} />}
+      action={
+        <BountyStatusBar project={project} lifecycle={lifecycle} rank={rank} />
+      }
       disableHoverEffect
       contentClassName='flex h-full flex-col gap-4'
     >
@@ -1476,7 +1534,100 @@ function BountyRankBadge({ rank }: { rank: number }) {
   )
 }
 
-function OwnerProjectCard(props: {
+function BountyStatusBar({
+  project,
+  lifecycle,
+  rank,
+}: {
+  project: BountyProject
+  lifecycle: BountyLifecycleSummary
+  rank?: number
+}) {
+  const { t } = useTranslation()
+  const items = [
+    {
+      key: 'participants',
+      label: 'Participants',
+      count: lifecycle.participantCount,
+      className: 'console-status-info-badge',
+      always: true,
+    },
+    {
+      key: 'accepted',
+      label: 'In progress',
+      count: lifecycle.acceptedCount,
+    },
+    {
+      key: 'submitted',
+      label: 'Awaiting review',
+      count: lifecycle.submittedCount,
+      className: 'console-status-warning-badge',
+    },
+    {
+      key: 'approved',
+      label: 'Approved',
+      count: lifecycle.approvedCount,
+      className: 'console-status-success-badge',
+    },
+    {
+      key: 'rejected',
+      label: 'Rejected',
+      count: lifecycle.rejectedCount,
+      className: 'console-status-danger-badge',
+    },
+    {
+      key: 'withdrawn',
+      label: 'Withdrawn',
+      count: lifecycle.withdrawnCount,
+    },
+    {
+      key: 'cancelled',
+      label: 'Cancelled',
+      count: lifecycle.cancelledCount,
+    },
+    {
+      key: 'appealable',
+      label: 'In appeal window',
+      count: lifecycle.appealableCount,
+      className: 'console-status-warning-badge',
+    },
+    {
+      key: 'disputes',
+      label: 'Open disputes',
+      count: lifecycle.openDisputeCount,
+      className: 'console-status-danger-badge',
+    },
+  ]
+
+  return (
+    <div
+      data-bounty-status-bar
+      aria-label={t('Bounty status summary')}
+      className='flex max-w-full flex-wrap items-center gap-1.5 sm:max-w-xl sm:justify-end'
+    >
+      <Badge variant='outline'>{statusLabel(t, project.status)}</Badge>
+      {items
+        .filter((item) => item.always || item.count > 0)
+        .map((item) => (
+          <Badge
+            key={item.key}
+            variant='outline'
+            className={cn(
+              'gap-1.5 whitespace-nowrap tabular-nums',
+              item.className
+            )}
+            aria-label={`${t(item.label)}: ${item.count}`}
+          >
+            <span className='font-mono font-semibold'>{item.count}</span>
+            <span>{t(item.label)}</span>
+          </Badge>
+        ))}
+      {rank === undefined ? null : <BountyRankBadge rank={rank} />}
+    </div>
+  )
+}
+
+export function OwnerProjectCard(props: {
   project: BountyProject
   pending: string
   hasOpenDispute: boolean
@@ -1492,7 +1643,12 @@ function OwnerProjectCard(props: {
 }) {
   const { t } = useTranslation()
   const { project } = props
+  const lifecycle = useBountyLifecycle(project, props.hasOpenDispute)
   const busy = props.pending !== ''
+  const closeBlockerId = `bounty-close-blockers-${project.id}`
+  const appealDeadline = lifecycle.appealWindowEndsAt
+    ? new Date(lifecycle.appealWindowEndsAt * 1000).toLocaleString()
+    : ''
   return (
     <TitledCard
       title={project.title}
@@ -1502,7 +1658,7 @@ function OwnerProjectCard(props: {
       icon={<HugeiconsIcon icon={SourceCodeIcon} strokeWidth={1.8} />}
       iconTone='info'
       disableHoverEffect
-      action={<Badge variant='outline'>{statusLabel(t, project.status)}</Badge>}
+      action={<BountyStatusBar project={project} lifecycle={lifecycle} />}
     >
       <div className='flex flex-col gap-4'>
         <div className='grid gap-2 sm:grid-cols-5'>
@@ -1537,14 +1693,58 @@ function OwnerProjectCard(props: {
             value={`${project.active_challenge_count} / ${project.approved_challenge_count}`}
           />
         </div>
-        {props.hasOpenDispute ? (
-          <Alert>
+        {lifecycle.closeBlocked ? (
+          <Alert id={closeBlockerId}>
             <HugeiconsIcon icon={MoneyLockIcon} strokeWidth={2} />
-            <AlertTitle>{t('Funds and reward slots are frozen')}</AlertTitle>
+            <AlertTitle>{t('Why closing is unavailable')}</AlertTitle>
             <AlertDescription>
-              {t(
-                'An open dispute prevents closing, refunding, releasing, or reusing the affected escrow until a third-party administrator resolves the case.'
-              )}
+              <div className='space-y-2'>
+                <p>
+                  {t(
+                    'This bounty cannot be closed yet. Resolve the blockers below:'
+                  )}
+                </p>
+                <ul className='list-disc space-y-1 pl-5'>
+                  {lifecycle.acceptedCount > 0 ||
+                  lifecycle.submittedCount > 0 ? (
+                    <li>
+                      {t(
+                        'In progress: {{accepted}} · Awaiting review: {{submitted}}',
+                        {
+                          accepted: lifecycle.acceptedCount,
+                          submitted: lifecycle.submittedCount,
+                        }
+                      )}
+                    </li>
+                  ) : null}
+                  {lifecycle.appealableCount > 0 ? (
+                    <li>
+                      {t(
+                        'Challenges still in the appeal window: {{count}}. Latest deadline: {{date}}.',
+                        {
+                          count: lifecycle.appealableCount,
+                          date: appealDeadline,
+                        }
+                      )}
+                    </li>
+                  ) : null}
+                  {lifecycle.openDisputeCount > 0 ? (
+                    <li>
+                      {t(
+                        'Open disputes: {{count}}. A third-party administrator must resolve them before escrow can be refunded.',
+                        { count: lifecycle.openDisputeCount }
+                      )}
+                    </li>
+                  ) : null}
+                  {lifecycle.hasUnknownActiveBlocker ? (
+                    <li>
+                      {t(
+                        'Cancel unsubmitted challenges or review submitted work before closing this bounty.'
+                      )}
+                    </li>
+                  ) : null}
+                </ul>
+              </div>
             </AlertDescription>
           </Alert>
         ) : null}
@@ -1625,7 +1825,10 @@ function OwnerProjectCard(props: {
               <Button
                 variant='destructive'
                 onClick={props.onClose}
-                disabled={busy || props.hasOpenDispute}
+                disabled={busy || lifecycle.closeBlocked}
+                aria-describedby={
+                  lifecycle.closeBlocked ? closeBlockerId : undefined
+                }
               >
                 <HugeiconsIcon
                   icon={CancelCircleIcon}

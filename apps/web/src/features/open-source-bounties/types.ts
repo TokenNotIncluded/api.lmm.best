@@ -216,8 +216,17 @@ export interface BountyProject {
   published_at: number
   closed_at: number
   archived_at: number
+  participant_count?: number
   active_challenge_count: number
+  accepted_challenge_count?: number
+  submitted_challenge_count?: number
   approved_challenge_count: number
+  rejected_challenge_count?: number
+  withdrawn_challenge_count?: number
+  cancelled_challenge_count?: number
+  appealable_challenge_count?: number
+  appeal_window_ends_at?: number
+  open_dispute_count?: number
   owner_rating_average: number
   owner_rating_count: number
   owner_thank_heart_count: number
