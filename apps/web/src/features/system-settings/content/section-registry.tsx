@@ -17,15 +17,38 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import type { ContentSettings } from '../types'
+import { lazyNamedSection } from '../utils/lazy-section'
 import { createSectionRegistry } from '../utils/section-registry'
-import { AnnouncementsSection } from './announcements-section'
-import { ApiInfoSection } from './api-info-section'
-import { AssistantSettingsSection } from './assistant-settings-section'
-import { ChatSettingsSection } from './chat-settings-section'
-import { DashboardSection } from './dashboard-section'
-import { DrawingSettingsSection } from './drawing-settings-section'
-import { FAQSection } from './faq-section'
-import { UptimeKumaSection } from './uptime-kuma-section'
+
+const AnnouncementsSection = lazyNamedSection(
+  () => import('./announcements-section'),
+  'AnnouncementsSection'
+)
+const ApiInfoSection = lazyNamedSection(
+  () => import('./api-info-section'),
+  'ApiInfoSection'
+)
+const AssistantSettingsSection = lazyNamedSection(
+  () => import('./assistant-settings-section'),
+  'AssistantSettingsSection'
+)
+const ChatSettingsSection = lazyNamedSection(
+  () => import('./chat-settings-section'),
+  'ChatSettingsSection'
+)
+const DashboardSection = lazyNamedSection(
+  () => import('./dashboard-section'),
+  'DashboardSection'
+)
+const DrawingSettingsSection = lazyNamedSection(
+  () => import('./drawing-settings-section'),
+  'DrawingSettingsSection'
+)
+const FAQSection = lazyNamedSection(() => import('./faq-section'), 'FAQSection')
+const UptimeKumaSection = lazyNamedSection(
+  () => import('./uptime-kuma-section'),
+  'UptimeKumaSection'
+)
 
 /**
  * Validate and coerce DataExportDefaultTime to a safe value

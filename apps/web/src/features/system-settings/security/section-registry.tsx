@@ -16,15 +16,38 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { RateLimitSection } from '../request-limits/rate-limit-section'
-import { SensitiveWordsSection } from '../request-limits/sensitive-words-section'
-import { SSRFSection } from '../request-limits/ssrf-section'
-import { TokenLimitSection } from '../request-limits/token-limit-section'
 import type { SecuritySettings } from '../types'
+import { lazyNamedSection } from '../utils/lazy-section'
 import { createSectionRegistry } from '../utils/section-registry'
-import { AdvancedSecuritySection } from './advanced-security-section'
-import { AntiRelaySection } from './anti-relay-section'
-import { IPAccessRoutingSection } from './ip-access-routing-section'
+
+const RateLimitSection = lazyNamedSection(
+  () => import('../request-limits/rate-limit-section'),
+  'RateLimitSection'
+)
+const SensitiveWordsSection = lazyNamedSection(
+  () => import('../request-limits/sensitive-words-section'),
+  'SensitiveWordsSection'
+)
+const SSRFSection = lazyNamedSection(
+  () => import('../request-limits/ssrf-section'),
+  'SSRFSection'
+)
+const TokenLimitSection = lazyNamedSection(
+  () => import('../request-limits/token-limit-section'),
+  'TokenLimitSection'
+)
+const AdvancedSecuritySection = lazyNamedSection(
+  () => import('./advanced-security-section'),
+  'AdvancedSecuritySection'
+)
+const AntiRelaySection = lazyNamedSection(
+  () => import('./anti-relay-section'),
+  'AntiRelaySection'
+)
+const IPAccessRoutingSection = lazyNamedSection(
+  () => import('./ip-access-routing-section'),
+  'IPAccessRoutingSection'
+)
 
 const SECURITY_SECTIONS = [
   {
