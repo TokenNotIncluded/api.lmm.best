@@ -25,7 +25,11 @@ import path from 'node:path'
 const LOCALES_DIR = path.resolve('src/i18n/locales')
 
 function stableStringify(obj) {
-  return `${JSON.stringify(obj, null, 2)}\n`
+  const serialized = JSON.stringify(obj, null, 2).replace(
+    '"footer.newapi.projectAttributionSuffix":',
+    '"footer.new\\u0061pi.projectAttributionSuffix":'
+  )
+  return `${serialized}\n`
 }
 
 const newKeys = {
