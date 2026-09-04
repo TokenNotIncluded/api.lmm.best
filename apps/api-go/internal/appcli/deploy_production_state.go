@@ -890,7 +890,13 @@ func parseProductionTransactionOptions(action string, args []string, stderr io.W
 }
 
 func (runtime *productionRuntime) executeTransaction(ctx context.Context, options productionTransactionOptions) (productionStatus, error) {
-	workspace, err := runtime.openWorkspace(options.Workspace)
+	var workspace productionWorkspace
+	var err error
+	if options.Action == "status" {
+		workspace, err = runtime.openWorkspaceForInspection(options.Workspace)
+	} else {
+		workspace, err = runtime.openWorkspace(options.Workspace)
+	}
 	if err != nil {
 		return productionStatus{}, err
 	}
@@ -930,6 +936,14 @@ func (runtime *productionRuntime) executeTransaction(ctx context.Context, option
 }
 
 func (runtime *productionRuntime) openWorkspace(root string) (productionWorkspace, error) {
+	return runtime.openWorkspaceWithMode(root, true)
+}
+
+func (runtime *productionRuntime) openWorkspaceForInspection(root string) (productionWorkspace, error) {
+	return runtime.openWorkspaceWithMode(root, false)
+}
+
+func (runtime *productionRuntime) openWorkspaceWithMode(root string, requireStaging bool) (productionWorkspace, error) {
 	if filepath.Dir(root) != filepath.Clean(runtime.paths.WorkRoot) {
 		return productionWorkspace{}, errors.New("workspace must be one direct child of the production work root")
 	}
@@ -964,8 +978,10 @@ func (runtime *productionRuntime) openWorkspace(root string) (productionWorkspac
 		return productionWorkspace{}, errors.New("workspace marker does not own this deployment ID")
 	}
 	stateDir := filepath.Join(root, "state")
-	if err := ensureRealDirectory(stateDir, 0o700); err != nil {
-		return productionWorkspace{}, fmt.Errorf("prepare deployment state: %w", err)
+	if requireStaging {
+		if err := ensureRealDirectory(stateDir, 0o700); err != nil {
+			return productionWorkspace{}, fmt.Errorf("prepare deployment state: %w", err)
+		}
 	}
 	if err := runtime.requireOwnedSafePath(stateDir, true); err != nil {
 		return productionWorkspace{}, errors.New("deployment state must be root-owned and safe")
@@ -978,8 +994,16 @@ func (runtime *productionRuntime) openWorkspace(root string) (productionWorkspac
 		return productionWorkspace{}, errors.New("deployment state must remain root-only")
 	}
 	stagingDir := filepath.Join(root, "staging")
-	if err := runtime.requireOwnedSafePath(stagingDir, true); err != nil {
-		return productionWorkspace{}, fmt.Errorf("validate deployment staging: %w", err)
+	if requireStaging {
+		if err := runtime.requireOwnedSafePath(stagingDir, true); err != nil {
+			return productionWorkspace{}, fmt.Errorf("validate deployment staging: %w", err)
+		}
+	} else if _, err := os.Lstat(stagingDir); err == nil {
+		if err := runtime.requireOwnedSafePath(stagingDir, true); err != nil {
+			return productionWorkspace{}, fmt.Errorf("validate deployment staging: %w", err)
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return productionWorkspace{}, fmt.Errorf("inspect deployment staging: %w", err)
 	}
 	return productionWorkspace{
 		root:          root,
