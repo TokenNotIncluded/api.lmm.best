@@ -129,6 +129,34 @@ func TestProductionWorkspaceCleanupExecuteRemovesOnlyDisposableChildren(t *testi
 			t.Fatalf("audit path %s was removed: %v", path, err)
 		}
 	}
+
+	second, err := runtime.cleanupWorkspaces(context.Background(), productionWorkspaceCleanupOptions{OlderThan: 24 * time.Hour, Execute: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.RemovedBytes != 0 || len(second.Entries) != 1 || second.Entries[0].Phase != "FAILED_PREARM" {
+		t.Fatalf("cleanup was not idempotent after staging removal: %#v", second)
+	}
+}
+
+func TestProductionWorkspaceInspectionDoesNotRequireStaging(t *testing.T) {
+	runtime, now := newCleanupFixture(t)
+	root := addCleanupWorkspace(t, runtime, "go-cleaned", "CONFIRMED", "0.1.0.r299.gdeadbeef0", now.Add(-72*time.Hour))
+	if err := os.RemoveAll(filepath.Join(root, "staging")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtime.openWorkspaceForInspection(root); err != nil {
+		t.Fatalf("inspect cleaned terminal workspace: %v", err)
+	}
+	if _, err := runtime.openWorkspace(root); err == nil {
+		t.Fatal("mutation path accepted a workspace without staging")
+	}
+	if err := os.Symlink("/etc", filepath.Join(root, "staging")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtime.openWorkspaceForInspection(root); err == nil {
+		t.Fatal("inspection path accepted an unsafe staging symlink")
+	}
 }
 
 func TestProductionWorkspaceCleanupRefusesInvalidOrActiveLock(t *testing.T) {

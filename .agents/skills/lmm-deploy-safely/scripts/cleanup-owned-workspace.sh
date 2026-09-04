@@ -148,7 +148,7 @@ case "$role" in
     fi
     ;;
   target)
-    [[ -n $root ]] || root='/var/lib/lmm-api/deploy-work'
+    [[ -n $root ]] || root='/var/lib/lmm-api-go-deploy/work'
     ;;
   *) die 'role must be controller or target' ;;
 esac

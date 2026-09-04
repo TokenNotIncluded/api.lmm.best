@@ -13,6 +13,8 @@ fail() {
   exit 1
 }
 
+grep -Fq "root='/var/lib/lmm-api-go-deploy/work'" "$create_workspace" || fail 'target default root drifted from the production path map'
+
 cleanup() {
   rm -rf -- "$test_base"
 }

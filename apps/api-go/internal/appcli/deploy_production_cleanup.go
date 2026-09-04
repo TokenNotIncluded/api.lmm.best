@@ -77,7 +77,7 @@ func (runtime *productionRuntime) cleanupWorkspaces(ctx context.Context, options
 			if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
 				continue
 			}
-			workspace, err := runtime.openWorkspace(root)
+			workspace, err := runtime.openWorkspaceForInspection(root)
 			if err != nil {
 				// Unknown or damaged directories are never cleanup targets.
 				result.Entries = append(result.Entries, productionWorkspaceCleanupEntry{
