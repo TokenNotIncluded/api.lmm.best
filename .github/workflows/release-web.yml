@@ -169,9 +169,17 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
+          version=${RELEASE_TAG#web-v}
+          expected_names=(
+            "lmm-api-web-${version}.tar.gz"
+            "lmm-api-web-${version}.tar.gz.sha256"
+            "lmm-api-web-${version}.tar.gz.sigstore.json"
+          )
           assets=(release-web/*)
-          (( ${#assets[@]} > 0 )) || {
-            echo 'No signed web release assets were produced.' >&2
+          mapfile -t actual_names < <(printf '%s\n' "${assets[@]##*/}" | sort)
+          mapfile -t expected_names < <(printf '%s\n' "${expected_names[@]}" | sort)
+          [[ "${actual_names[*]}" == "${expected_names[*]}" ]] || {
+            echo 'Signed web release assets do not match the exact three-file contract.' >&2
             exit 1
           }
           notes="$RUNNER_TEMP/web-release-notes.md"
@@ -179,16 +187,39 @@ jobs:
             'Independent production web frontend release.' \
             "$RELEASE_REVISION" "$CONTRACT_REVISION" > "$notes"
 
-          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
-              --verify-tag --target "$RELEASE_REVISION" \
-              --title "LMM web $RELEASE_TAG" \
-              --notes-file "$notes" --latest=false
-            gh release upload "$RELEASE_TAG" "${assets[@]}" \
-              --repo "$GITHUB_REPOSITORY" --clobber
-          else
-            gh release create "$RELEASE_TAG" "${assets[@]}" \
-              --repo "$GITHUB_REPOSITORY" --verify-tag \
-              --target "$RELEASE_REVISION" --title "LMM web $RELEASE_TAG" \
-              --notes-file "$notes" --latest=false
+          verify_release() {
+            local readback=$1 asset name local_digest published_digest published_list
+            [[ $(jq -r '.tagName' <<<"$readback") == "$RELEASE_TAG" ]] || return 1
+            [[ $(jq -r '.targetCommitish' <<<"$readback") == "$RELEASE_REVISION" ]] || return 1
+            [[ $(jq -r '.name' <<<"$readback") == "LMM web $RELEASE_TAG" ]] || return 1
+            [[ $(jq -r '.body' <<<"$readback") == "$(<"$notes")" ]] || return 1
+            [[ $(jq -r '.isDraft, .isPrerelease' <<<"$readback") == $'false\nfalse' ]] || return 1
+            published_list=$(jq -er '.assets | map(.name) | sort | .[]' <<<"$readback") || return 1
+            mapfile -t published_names <<<"$published_list"
+            [[ "${published_names[*]}" == "${expected_names[*]}" ]] || return 1
+            for asset in "${assets[@]}"; do
+              name=${asset##*/}
+              local_digest=$(sha256sum "$asset" | cut -d' ' -f1) || return 1
+              published_digest=$(jq -er --arg name "$name" \
+                '.assets[] | select(.name == $name) | .digest' <<<"$readback") || return 1
+              [[ "$published_digest" == "sha256:$local_digest" ]] || return 1
+            done
+          }
+
+          if readback=$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --json tagName,targetCommitish,name,body,isDraft,isPrerelease,assets 2>/dev/null); then
+            verify_release "$readback" || {
+              echo "Release $RELEASE_TAG exists but differs; immutable releases cannot be edited or overwritten." >&2
+              exit 1
+            }
+            echo "Release $RELEASE_TAG already exists and exactly matches the immutable contract."
+            exit 0
           fi
+          gh release create "$RELEASE_TAG" "${assets[@]}" \
+            --repo "$GITHUB_REPOSITORY" --verify-tag \
+            --target "$RELEASE_REVISION" --title "LMM web $RELEASE_TAG" \
+            --notes-file "$notes" --latest=false
+
+          readback=$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --json tagName,targetCommitish,name,body,isDraft,isPrerelease,assets)
+          verify_release "$readback"

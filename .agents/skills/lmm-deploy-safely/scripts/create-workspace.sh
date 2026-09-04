@@ -137,7 +137,9 @@ chmod 0700 -- "$root"
 assert_no_symlink_components "$root"
 [[ -d $root && ! -L $root ]] || die 'workspace root is not a real directory'
 [[ $(realpath -e -- "$root") == "$root" ]] || die 'workspace root changed during creation'
-check_state_budget "$(dirname -- "$root")"
+if [[ $role == controller ]]; then
+  check_state_budget "$(dirname -- "$root")"
+fi
 
 workspace="$root/$deployment_id"
 [[ ! -e $workspace && ! -L $workspace ]] || die 'deployment workspace already exists'

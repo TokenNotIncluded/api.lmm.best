@@ -13,7 +13,10 @@ import (
 	"time"
 )
 
-const productionBackupAttestationFilename = "external-copies.json"
+const (
+	productionBackupAttestationFilename  = "external-copies.json"
+	productionBackupConfirmationFilename = "external-confirmation.json"
+)
 
 type productionBackupExportOptions struct {
 	Workspace        string
@@ -32,8 +35,10 @@ type productionBackupExportResult struct {
 
 type productionBackupAttestOptions struct {
 	Workspace        string
+	TargetDigest     string
 	ControllerDigest string
 	OffhostDigest    string
+	Confirmation     bool
 }
 
 type productionBackupVerifyOptions struct {
@@ -46,6 +51,7 @@ type productionBackupVerifyOptions struct {
 
 type productionBackupVerificationResult struct {
 	DeploymentID     string `json:"deployment_id"`
+	TargetDigest     string `json:"target_digest"`
 	ControllerDigest string `json:"controller_digest"`
 	OffhostDigest    string `json:"offhost_digest"`
 	TargetVerified   bool   `json:"target_verified"`
@@ -55,6 +61,17 @@ type productionBackupVerificationResult struct {
 type productionBackupAttestation struct {
 	Format           int       `json:"format"`
 	DeploymentID     string    `json:"deployment_id"`
+	EvidenceFormat   int       `json:"backup_evidence_format,omitempty"`
+	TargetDigest     string    `json:"target_digest,omitempty"`
+	ControllerDigest string    `json:"controller_digest"`
+	OffhostDigest    string    `json:"offhost_digest"`
+	VerifiedUTC      time.Time `json:"verified_utc"`
+}
+
+type productionBackupConfirmation struct {
+	Format           int       `json:"format"`
+	DeploymentID     string    `json:"deployment_id"`
+	TargetDigest     string    `json:"target_digest"`
 	ControllerDigest string    `json:"controller_digest"`
 	OffhostDigest    string    `json:"offhost_digest"`
 	VerifiedUTC      time.Time `json:"verified_utc"`
@@ -155,8 +172,10 @@ func parseProductionBackupAttestOptions(args []string, stderr io.Writer) (produc
 	flags := flag.NewFlagSet("deploy production backup attest", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	flags.StringVar(&options.Workspace, "workspace", "", "marker-owned target deployment workspace")
+	flags.StringVar(&options.TargetDigest, "target-digest", "", "controller-verified target checksum digest")
 	flags.StringVar(&options.ControllerDigest, "controller-digest", "", "verified controller-copy digest")
 	flags.StringVar(&options.OffhostDigest, "offhost-digest", "", "verified off-host-copy digest")
+	flags.BoolVar(&options.Confirmation, "confirmation", false, "write a fresh controller-verification receipt for backup-enabled confirmation")
 	flags.Usage = func() { writeDeployUsage(stderr) }
 	if err := flags.Parse(args); err != nil {
 		return productionBackupAttestOptions{}, err
@@ -169,8 +188,8 @@ func parseProductionBackupAttestOptions(args []string, stderr io.Writer) (produc
 		return productionBackupAttestOptions{}, fmt.Errorf("invalid --workspace: %w", err)
 	}
 	options.Workspace = workspace
-	if !productionSHA256Pattern.MatchString(options.ControllerDigest) || !productionSHA256Pattern.MatchString(options.OffhostDigest) {
-		return productionBackupAttestOptions{}, errors.New("controller and off-host digests must be lowercase SHA-256 values")
+	if !productionSHA256Pattern.MatchString(options.TargetDigest) || !productionSHA256Pattern.MatchString(options.ControllerDigest) || !productionSHA256Pattern.MatchString(options.OffhostDigest) {
+		return productionBackupAttestOptions{}, errors.New("target, controller, and off-host digests must be lowercase SHA-256 values")
 	}
 	return options, nil
 }
@@ -324,7 +343,7 @@ func (runtime *productionRuntime) attestBackup(ctx context.Context, options prod
 		return productionBackupAttestation{}, err
 	}
 	attestation := productionBackupAttestation{
-		Format: 1, DeploymentID: workspace.id,
+		Format: 1, DeploymentID: workspace.id, EvidenceFormat: 2, TargetDigest: options.TargetDigest,
 		ControllerDigest: options.ControllerDigest, OffhostDigest: options.OffhostDigest,
 		VerifiedUTC: utcSecond(runtime.now()),
 	}
@@ -336,6 +355,13 @@ func (runtime *productionRuntime) attestBackup(ctx context.Context, options prod
 		if _, err := runtime.validateBackupSet(ctx, workspace, backupDir); err != nil {
 			return err
 		}
+		targetDigest, err := sha256File(filepath.Join(backupDir, "SHA256SUMS"))
+		if err != nil {
+			return err
+		}
+		if targetDigest != options.TargetDigest {
+			return errors.New("target backup checksum digest differs from controller-verified evidence")
+		}
 		path := filepath.Join(backupDir, productionBackupAttestationFilename)
 		encoded, err := json.MarshalIndent(attestation, "", "  ")
 		if err != nil {
@@ -343,33 +369,92 @@ func (runtime *productionRuntime) attestBackup(ctx context.Context, options prod
 		}
 		if existing, err := readPrivateRegularFile(path, 64<<10); err == nil {
 			var current productionBackupAttestation
-			if json.Unmarshal(existing, &current) != nil || current.DeploymentID != attestation.DeploymentID ||
+			if json.Unmarshal(existing, &current) != nil || current.Format != 1 || current.EvidenceFormat != 2 || current.DeploymentID != attestation.DeploymentID || current.TargetDigest != attestation.TargetDigest ||
 				current.ControllerDigest != attestation.ControllerDigest || current.OffhostDigest != attestation.OffhostDigest {
 				return errors.New("backup attestation already exists with different evidence")
 			}
 			attestation = current
-			return nil
 		} else if !errors.Is(err, os.ErrNotExist) {
 			return err
+		} else if err := writeAtomicRegularFile(path, append(encoded, '\n'), 0o600); err != nil {
+			return err
 		}
-		return writeAtomicRegularFile(path, append(encoded, '\n'), 0o600)
+		if options.Confirmation {
+			confirmation := productionBackupConfirmation{
+				Format: 1, DeploymentID: workspace.id, TargetDigest: attestation.TargetDigest,
+				ControllerDigest: attestation.ControllerDigest, OffhostDigest: attestation.OffhostDigest,
+				VerifiedUTC: utcSecond(runtime.now()),
+			}
+			confirmationBytes, err := json.MarshalIndent(confirmation, "", "  ")
+			if err != nil {
+				return err
+			}
+			if err := writeAtomicRegularFile(filepath.Join(backupDir, productionBackupConfirmationFilename), append(confirmationBytes, '\n'), 0o600); err != nil {
+				return err
+			}
+		}
+		return nil
 	})
 	return attestation, err
 }
 
-func validateBackupAttestation(backupDir, deploymentID string) error {
-	content, err := readPrivateRegularFile(filepath.Join(backupDir, productionBackupAttestationFilename), 64<<10)
+func readBackupAttestation(backupDir, deploymentID string) (productionBackupAttestation, error) {
+	path := filepath.Join(backupDir, productionBackupAttestationFilename)
+	info, err := os.Lstat(path)
+	if err != nil || info.Mode().Perm()&0o077 != 0 {
+		return productionBackupAttestation{}, errors.New("external backup attestation is missing or not private")
+	}
+	uid, linkCount, ok := deploymentFileOwnership(info)
+	if !ok || int(uid) != os.Geteuid() || linkCount != 1 {
+		return productionBackupAttestation{}, errors.New("external backup attestation owner or link count is unsafe")
+	}
+	content, err := readPrivateRegularFile(path, 64<<10)
 	if err != nil {
-		return fmt.Errorf("external backup attestation is missing or unsafe: %w", err)
+		return productionBackupAttestation{}, fmt.Errorf("external backup attestation is missing or unsafe: %w", err)
 	}
 	var attestation productionBackupAttestation
 	if err := json.Unmarshal(content, &attestation); err != nil {
-		return fmt.Errorf("decode external backup attestation: %w", err)
+		return productionBackupAttestation{}, fmt.Errorf("decode external backup attestation: %w", err)
 	}
-	if attestation.Format != 1 || attestation.DeploymentID != deploymentID ||
+	legacy := attestation.Format == 1 && attestation.EvidenceFormat == 0 && attestation.TargetDigest == ""
+	bound := attestation.Format == 1 && attestation.EvidenceFormat == 2 && productionSHA256Pattern.MatchString(attestation.TargetDigest)
+	if (!legacy && !bound) || attestation.DeploymentID != deploymentID ||
 		!productionSHA256Pattern.MatchString(attestation.ControllerDigest) ||
 		!productionSHA256Pattern.MatchString(attestation.OffhostDigest) || attestation.VerifiedUTC.IsZero() {
-		return errors.New("external backup attestation is incomplete or belongs to another deployment")
+		return productionBackupAttestation{}, errors.New("external backup attestation is incomplete or belongs to another deployment")
+	}
+	return attestation, nil
+}
+
+func validateBackupAttestation(backupDir, deploymentID string) error {
+	_, err := readBackupAttestation(backupDir, deploymentID)
+	return err
+}
+
+func (runtime *productionRuntime) validateBackupConfirmation(backupDir string, manifest productionManifest, now time.Time) error {
+	path := filepath.Join(backupDir, productionBackupConfirmationFilename)
+	info, err := os.Lstat(path)
+	if err != nil || info.Mode().Perm()&0o077 != 0 {
+		return errors.New("fresh external backup confirmation receipt is missing or not private")
+	}
+	uid, linkCount, ok := deploymentFileOwnership(info)
+	if !ok || uid != runtime.requiredOwnerUID || linkCount != 1 {
+		return errors.New("external backup confirmation receipt owner or link count is unsafe")
+	}
+	content, err := readPrivateRegularFile(path, 64<<10)
+	if err != nil {
+		return fmt.Errorf("fresh external backup confirmation receipt is missing or unsafe: %w", err)
+	}
+	var confirmation productionBackupConfirmation
+	if err := json.Unmarshal(content, &confirmation); err != nil {
+		return fmt.Errorf("decode external backup confirmation receipt: %w", err)
+	}
+	verified := confirmation.VerifiedUTC.UTC()
+	current := now.UTC()
+	if confirmation.Format != 1 || confirmation.DeploymentID != manifest.DeploymentID ||
+		confirmation.TargetDigest != manifest.TargetBackupSHA256 || confirmation.ControllerDigest != manifest.ControllerBackupSHA256 ||
+		confirmation.OffhostDigest != manifest.OffhostBackupSHA256 || verified.IsZero() || verified.After(current.Add(30*time.Second)) || current.Sub(verified) > 5*time.Minute {
+		return errors.New("external backup confirmation receipt is stale or differs from immutable manifest evidence")
 	}
 	return nil
 }
@@ -408,7 +493,8 @@ func (runtime *productionRuntime) verifyExternalBackups(ctx context.Context, opt
 		copyDigests[role] = digest
 	}
 	return productionBackupVerificationResult{
-		DeploymentID: deploymentID, ControllerDigest: copyDigests["controller"], OffhostDigest: copyDigests["off-host"],
+		DeploymentID: deploymentID, TargetDigest: targetChecksumDigest,
+		ControllerDigest: copyDigests["controller"], OffhostDigest: copyDigests["off-host"],
 		TargetVerified: true, EncryptedCopies: true,
 	}, nil
 }
@@ -465,9 +551,11 @@ func (runtime *productionRuntime) verifyExternalBackupCopy(
 	role, root, identity, temporaryRoot, deploymentID, targetChecksumDigest string,
 	targetDigests map[string]string,
 ) (string, error) {
-	if err := verifyNamedChecksums(root, []string{
-		"application.archive", "frontend.archive", "rollback.package", "configuration.age", "database.age", "manifest.env",
-	}); err != nil {
+	names := externalBackupMemberNames()
+	if err := runtime.validateExternalBackupInventory(root, names); err != nil {
+		return "", fmt.Errorf("validate %s backup inventory: %w", role, err)
+	}
+	if err := verifyNamedChecksums(root, names); err != nil {
 		return "", fmt.Errorf("verify %s backup checksums: %w", role, err)
 	}
 	manifest, err := readPrivateRegularFile(filepath.Join(root, "manifest.env"), 64<<10)
@@ -504,4 +592,41 @@ func (runtime *productionRuntime) verifyExternalBackupCopy(
 		}
 	}
 	return sha256File(filepath.Join(root, "SHA256SUMS"))
+}
+
+func (runtime *productionRuntime) validateExternalBackupInventory(root string, members []string) error {
+	info, err := os.Lstat(root)
+	if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.IsDir() || info.Mode().Perm() != 0o700 {
+		return errors.New("external backup root is missing, linked, or not private")
+	}
+	owner, _, ok := deploymentFileOwnership(info)
+	if !ok || int(owner) != runtime.effectiveUID() {
+		return errors.New("external backup root owner is invalid")
+	}
+	expected := make(map[string]bool, len(members)+1)
+	for _, name := range append(append([]string(nil), members...), "SHA256SUMS") {
+		if name == "" || filepath.Base(name) != name || expected[name] {
+			return errors.New("external backup inventory contract is invalid")
+		}
+		expected[name] = true
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil || len(entries) != len(expected) {
+		return errors.New("external backup contains a missing or unexpected member")
+	}
+	for _, entry := range entries {
+		if !expected[entry.Name()] {
+			return fmt.Errorf("external backup contains an unexpected member: %s", entry.Name())
+		}
+		path := filepath.Join(root, entry.Name())
+		entryInfo, err := os.Lstat(path)
+		if err != nil || entryInfo.Mode()&os.ModeSymlink != 0 || !entryInfo.Mode().IsRegular() || entryInfo.Size() <= 0 || entryInfo.Mode().Perm()&0o077 != 0 {
+			return fmt.Errorf("external backup member is unsafe: %s", entry.Name())
+		}
+		entryOwner, linkCount, ok := deploymentFileOwnership(entryInfo)
+		if !ok || int(entryOwner) != runtime.effectiveUID() || linkCount != 1 {
+			return fmt.Errorf("external backup member owner or link count is unsafe: %s", entry.Name())
+		}
+	}
+	return nil
 }

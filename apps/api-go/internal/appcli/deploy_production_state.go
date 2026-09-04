@@ -33,6 +33,7 @@ const (
 	productionFrontendReleaseKeep = 3
 	productionTransactionMarker   = "deployment.env"
 	productionWorkspaceMarker     = ".lmm-deploy-workspace"
+	productionCandidateLinkName   = "lmm-api"
 	productionManifestFilename    = "deployment.json"
 	productionStatusFilename      = "status.json"
 	// pi-lens-ignore: go-hardcoded-secrets
@@ -362,7 +363,11 @@ type productionManifest struct {
 	NewProviderTarget        string                       `json:"new_provider_target,omitempty"`
 	BackupDir                string                       `json:"backup_dir,omitempty"`
 	BackupsEnabled           bool                         `json:"backups_enabled"`
+	BackupEvidenceFormat     int                          `json:"backup_evidence_format,omitempty"`
 	DatabaseBackupSHA256     string                       `json:"database_backup_sha256,omitempty"`
+	TargetBackupSHA256       string                       `json:"target_backup_sha256,omitempty"`
+	ControllerBackupSHA256   string                       `json:"controller_backup_sha256,omitempty"`
+	OffhostBackupSHA256      string                       `json:"offhost_backup_sha256,omitempty"`
 	DatabaseSchema           string                       `json:"database_schema"`
 	ObservationStartedUTC    time.Time                    `json:"observation_started_utc,omitempty"`
 	ObservationSeconds       int64                        `json:"observation_seconds"`
@@ -721,6 +726,7 @@ type productionWorkspace struct {
 	id            string
 	stateDir      string
 	stagingDir    string
+	candidateLink string
 	manifestPath  string
 	statusPath    string
 	probeToken    string
@@ -1010,6 +1016,7 @@ func (runtime *productionRuntime) openWorkspaceWithMode(root string, requireStag
 		id:            id,
 		stateDir:      stateDir,
 		stagingDir:    stagingDir,
+		candidateLink: filepath.Join(stagingDir, productionCandidateLinkName),
 		manifestPath:  filepath.Join(stateDir, productionManifestFilename),
 		statusPath:    filepath.Join(stateDir, productionStatusFilename),
 		probeToken:    filepath.Join(stateDir, productionProbeTokenFilename),
@@ -1091,6 +1098,39 @@ func (runtime *productionRuntime) writeManifest(workspace productionWorkspace, m
 }
 
 func (runtime *productionRuntime) readManifest(workspace productionWorkspace) (productionManifest, error) {
+	manifest, err := runtime.readManifestSchema(workspace)
+	if err != nil {
+		return productionManifest{}, err
+	}
+	if err := runtime.validateManifestArtifacts(workspace, manifest); err != nil {
+		return productionManifest{}, err
+	}
+	return manifest, nil
+}
+
+func (runtime *productionRuntime) readManifestForRollback(workspace productionWorkspace) (productionManifest, error) {
+	manifest, err := runtime.readManifestSchema(workspace)
+	if err != nil {
+		return productionManifest{}, err
+	}
+	for _, file := range []struct {
+		path, digest, label string
+		changed             bool
+	}{
+		{manifest.Go.RollbackPath, manifest.Go.RollbackSHA256, "rollback Go package", manifest.Go.Changed},
+		{manifest.Web.RollbackPath, manifest.Web.RollbackSHA256, "rollback Web package", manifest.Web.Changed},
+	} {
+		if !file.changed {
+			continue
+		}
+		if err := runtime.validateStagedFile(workspace, file.path, file.digest, file.label); err != nil {
+			return productionManifest{}, fmt.Errorf("deployment manifest %s failed validation: %w", file.label, err)
+		}
+	}
+	return manifest, nil
+}
+
+func (runtime *productionRuntime) readManifestSchema(workspace productionWorkspace) (productionManifest, error) {
 	content, err := readPrivateRegularFile(workspace.manifestPath, 256<<10)
 	if err != nil {
 		return productionManifest{}, fmt.Errorf("read deployment manifest: %w", err)
@@ -1102,7 +1142,7 @@ func (runtime *productionRuntime) readManifest(workspace productionWorkspace) (p
 	if manifest.Format != productionTransactionFormat || manifest.DeploymentID != workspace.id {
 		return productionManifest{}, errors.New("deployment manifest identity is invalid")
 	}
-	if err := runtime.validateManifest(workspace, manifest); err != nil {
+	if err := runtime.validateManifestSchema(workspace, manifest); err != nil {
 		return productionManifest{}, err
 	}
 	return manifest, nil
@@ -1120,6 +1160,13 @@ func providerTargetForPackage(name string) (string, error) {
 }
 
 func (runtime *productionRuntime) validateManifest(workspace productionWorkspace, manifest productionManifest) error {
+	if err := runtime.validateManifestSchema(workspace, manifest); err != nil {
+		return err
+	}
+	return runtime.validateManifestArtifacts(workspace, manifest)
+}
+
+func (runtime *productionRuntime) validateManifestSchema(workspace productionWorkspace, manifest productionManifest) error {
 	if !productionVersionPattern.MatchString(manifest.ExpectedVersion) || !productionVersionPattern.MatchString(manifest.OldVersion) ||
 		manifest.OperatorUser != productionOperatorUser {
 		return errors.New("deployment manifest contains invalid release or operator identity")
@@ -1182,11 +1229,9 @@ func (runtime *productionRuntime) validateManifest(workspace productionWorkspace
 			return errors.New("deployment manifest contains an invalid SHA-256")
 		}
 	}
-	if !pathWithinRoot(workspace.stagingDir, manifest.ProbeBinary) || filepath.Dir(manifest.ProbeBinary) != workspace.stagingDir {
-		return errors.New("deployment manifest probe binary escapes staging")
-	}
-	if !pathWithinRoot(workspace.stagingDir, manifest.OperatorBinary) || filepath.Dir(manifest.OperatorBinary) != workspace.stagingDir {
-		return errors.New("deployment manifest operator binary escapes staging")
+	if manifest.ProbeBinary != manifest.OperatorBinary || manifest.ProbeBinarySHA256 != manifest.OperatorBinarySHA256 ||
+		manifest.ProbeBinary != filepath.Join(workspace.stagingDir, backendGoName) {
+		return errors.New("deployment manifest candidate entrypoint is invalid")
 	}
 	if manifest.ConfigRestorePath != workspace.configRestore {
 		return errors.New("deployment manifest configuration rollback path escapes root-only state")
@@ -1195,7 +1240,16 @@ func (runtime *productionRuntime) validateManifest(workspace productionWorkspace
 		if manifest.BackupDir != filepath.Join(runtime.paths.BackupRoot, workspace.id) || !productionSHA256Pattern.MatchString(manifest.DatabaseBackupSHA256) {
 			return errors.New("deployment manifest backup path or digest is not release-scoped")
 		}
-	} else if manifest.BackupDir != "" || manifest.DatabaseBackupSHA256 != "" {
+		boundDigests := productionSHA256Pattern.MatchString(manifest.TargetBackupSHA256) &&
+			productionSHA256Pattern.MatchString(manifest.ControllerBackupSHA256) &&
+			productionSHA256Pattern.MatchString(manifest.OffhostBackupSHA256)
+		legacyDigests := manifest.TargetBackupSHA256 == "" && manifest.ControllerBackupSHA256 == "" && manifest.OffhostBackupSHA256 == ""
+		if (manifest.BackupEvidenceFormat == 2 && !boundDigests) ||
+			(manifest.BackupEvidenceFormat == 0 && !legacyDigests) ||
+			(manifest.BackupEvidenceFormat != 0 && manifest.BackupEvidenceFormat != 2) {
+			return errors.New("deployment manifest external backup digests are incomplete")
+		}
+	} else if manifest.BackupDir != "" || manifest.BackupEvidenceFormat != 0 || manifest.DatabaseBackupSHA256 != "" || manifest.TargetBackupSHA256 != "" || manifest.ControllerBackupSHA256 != "" || manifest.OffhostBackupSHA256 != "" {
 		return errors.New("deployment manifest contains unauthorized optional backup state")
 	}
 	if manifest.ObservationSeconds < 120 || manifest.ObservationSeconds > 360 {
@@ -1216,18 +1270,23 @@ func (runtime *productionRuntime) validateManifest(workspace productionWorkspace
 	if !isDatabaseSchema(manifest.DatabaseSchema) {
 		return errors.New("deployment manifest contains unsafe schema data")
 	}
+	return nil
+}
+
+func (runtime *productionRuntime) validateManifestArtifacts(workspace productionWorkspace, manifest productionManifest) error {
 	staged := []struct{ path, digest, label string }{
 		{manifest.Go.CandidatePath, manifest.Go.CandidateSHA256, "candidate Go package"},
 		{manifest.Go.RollbackPath, manifest.Go.RollbackSHA256, "rollback Go package"},
 		{manifest.Web.CandidatePath, manifest.Web.CandidateSHA256, "candidate Web package"},
 		{manifest.Web.RollbackPath, manifest.Web.RollbackSHA256, "rollback Web package"},
-		{manifest.ProbeBinary, manifest.ProbeBinarySHA256, "probe binary"},
-		{manifest.OperatorBinary, manifest.OperatorBinarySHA256, "operator binary"},
 	}
 	for _, file := range staged {
 		if err := runtime.validateStagedFile(workspace, file.path, file.digest, file.label); err != nil {
 			return fmt.Errorf("deployment manifest %s failed validation: %w", file.label, err)
 		}
+	}
+	if _, err := runtime.validateCandidateEntrypoint(workspace, manifest.ProbeBinary, manifest.ProbeBinarySHA256); err != nil {
+		return fmt.Errorf("deployment manifest candidate entrypoint failed validation: %w", err)
 	}
 	return nil
 }

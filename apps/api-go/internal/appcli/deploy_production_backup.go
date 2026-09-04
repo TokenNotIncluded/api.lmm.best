@@ -92,6 +92,43 @@ func (runtime *productionRuntime) validateStagedFile(workspace productionWorkspa
 	return nil
 }
 
+func (runtime *productionRuntime) validateCandidateEntrypoint(workspace productionWorkspace, provider, expectedSHA256 string) (string, error) {
+	if provider != filepath.Join(workspace.stagingDir, backendGoName) || filepath.Dir(provider) != workspace.stagingDir {
+		return "", errors.New("candidate provider must be the release-scoped staging/lmm-api-go file")
+	}
+	if err := runtime.requireOwnedSafePath(provider, false); err != nil {
+		return "", errors.New("candidate provider target is not a safe root-owned regular file")
+	}
+	providerInfo, err := os.Lstat(provider)
+	if err != nil || providerInfo.Mode().Perm()&0o100 == 0 {
+		return "", errors.New("candidate provider target is not executable")
+	}
+	path := workspace.candidateLink
+	info, err := os.Lstat(path)
+	if err != nil || info.Mode()&os.ModeSymlink == 0 {
+		return "", errors.New("candidate entrypoint must be a symbolic link")
+	}
+	uid, _, ok := deploymentFileOwnership(info)
+	if !ok || uid != runtime.requiredOwnerUID {
+		return "", errors.New("candidate entrypoint link owner is invalid")
+	}
+	target, err := os.Readlink(path)
+	if err != nil || target != backendGoName {
+		return "", errors.New("candidate entrypoint must be a one-hop relative link to lmm-api-go")
+	}
+	if !productionSHA256Pattern.MatchString(expectedSHA256) {
+		return "", errors.New("candidate entrypoint SHA-256 is invalid")
+	}
+	actual, err := sha256File(provider)
+	if err != nil {
+		return "", fmt.Errorf("hash candidate provider target: %w", err)
+	}
+	if actual != expectedSHA256 {
+		return "", errors.New("candidate provider target SHA-256 mismatch")
+	}
+	return path, nil
+}
+
 func (runtime *productionRuntime) validateBackupSet(ctx context.Context, workspace productionWorkspace, backupDir string) ([]byte, error) {
 	expected := filepath.Join(runtime.paths.BackupRoot, workspace.id)
 	if backupDir != expected {
@@ -99,6 +136,14 @@ func (runtime *productionRuntime) validateBackupSet(ctx context.Context, workspa
 	}
 	if err := requireRealDirectory(backupDir); err != nil {
 		return nil, fmt.Errorf("verified target backup is missing or unsafe: %w", err)
+	}
+	backupInfo, err := os.Lstat(backupDir)
+	if err != nil || backupInfo.Mode().Perm() != 0o700 {
+		return nil, errors.New("verified target backup root must remain private")
+	}
+	backupUID, _, ownershipOK := deploymentFileOwnership(backupInfo)
+	if !ownershipOK || backupUID != runtime.requiredOwnerUID {
+		return nil, errors.New("verified target backup root owner is invalid")
 	}
 	required := []string{
 		"application.archive",
@@ -112,8 +157,27 @@ func (runtime *productionRuntime) validateBackupSet(ctx context.Context, workspa
 	for _, name := range required {
 		path := filepath.Join(backupDir, name)
 		info, err := os.Lstat(path)
-		if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || info.Size() == 0 {
+		if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || info.Size() == 0 || info.Mode().Perm()&0o077 != 0 {
 			return nil, fmt.Errorf("backup entry %s is missing, empty, or unsafe", name)
+		}
+		uid, linkCount, ownershipOK := deploymentFileOwnership(info)
+		if !ownershipOK || uid != runtime.requiredOwnerUID || linkCount != 1 {
+			return nil, fmt.Errorf("backup entry %s owner or link count is unsafe", name)
+		}
+	}
+	allowed := make(map[string]bool, len(required)+2)
+	for _, name := range required {
+		allowed[name] = true
+	}
+	allowed[productionBackupAttestationFilename] = true
+	allowed[productionBackupConfirmationFilename] = true
+	entries, err := os.ReadDir(backupDir)
+	if err != nil {
+		return nil, err
+	}
+	for _, entry := range entries {
+		if !allowed[entry.Name()] {
+			return nil, fmt.Errorf("backup contains an unexpected member: %s", entry.Name())
 		}
 	}
 	if err := verifyBackupChecksums(backupDir); err != nil {
