@@ -26,6 +26,8 @@ import { StatusBadge } from '@/components/status-badge'
 import { Button } from '@/components/ui/button'
 import { IconBadge } from '@/components/ui/icon-badge'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { copyToClipboard } from '@/lib/copy-to-clipboard'
+import { openExternalUrl } from '@/lib/external-navigation'
 import {
   getTrustedLocalObjectUrl,
   revokeTrustedObjectUrl,
@@ -136,11 +138,12 @@ function AudioClipCard({ clip }: { clip: AudioClip }) {
               variant='outline'
               size='sm'
               className='h-7 gap-1 text-xs'
-              onClick={() =>
+              onClick={async () => {
                 // Invariant: audioUrl is credential-free HTTPS or a tracked local object URL.
                 // pi-lens-ignore: ts-open-redirect, no-open-redirect
-                window.open(audioUrl, '_blank', 'noopener,noreferrer')
-              }
+                const opened = await openExternalUrl(audioUrl)
+                if (!opened) toast.error(t('Unable to open link'))
+              }}
             >
               <ExternalLink className='h-3 w-3' />
               {t('Open in new tab')}
@@ -149,9 +152,13 @@ function AudioClipCard({ clip }: { clip: AudioClip }) {
               variant='outline'
               size='sm'
               className='h-7 gap-1 text-xs'
-              onClick={() => {
-                navigator.clipboard.writeText(audioUrl)
-                toast.success(t('Copied'))
+              onClick={async () => {
+                const copied = await copyToClipboard(audioUrl)
+                if (copied) {
+                  toast.success(t('Copied'))
+                } else {
+                  toast.error(t('Failed to copy to clipboard'))
+                }
               }}
             >
               <Copy className='h-3 w-3' />

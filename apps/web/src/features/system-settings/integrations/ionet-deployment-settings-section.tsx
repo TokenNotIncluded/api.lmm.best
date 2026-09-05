@@ -38,6 +38,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
 import { testDeploymentConnectionWithKey } from '@/features/models/api'
+import { openExternalUrl } from '@/lib/external-navigation'
 import { validatedExternalUrl } from '@/lib/validated-external-url'
 
 import {
@@ -223,7 +224,7 @@ export function IoNetDeploymentSettingsSection({
                     <Button
                       type='button'
                       variant='outline'
-                      onClick={() => {
+                      onClick={async () => {
                         const documentationUrl = validatedExternalUrl(
                           'https://ai.io.net/ai/api-keys',
                           {
@@ -236,11 +237,8 @@ export function IoNetDeploymentSettingsSection({
                         if (documentationUrl) {
                           // Invariant: documentationUrl is the exact HTTPS ai.io.net API-key page.
                           // pi-lens-ignore: ts-open-redirect, no-open-redirect
-                          window.open(
-                            documentationUrl,
-                            '_blank',
-                            'noopener,noreferrer'
-                          )
+                          const opened = await openExternalUrl(documentationUrl)
+                          if (!opened) toast.error(t('Unable to open link'))
                         }
                       }}
                     >

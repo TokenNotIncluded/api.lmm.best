@@ -52,6 +52,7 @@ import { resolveChatUrl, type ChatPreset } from '@/features/chat/lib/chat-links'
 import { sendToFluent } from '@/features/chat/lib/send-to-fluent'
 import { encodeChannelConnectionInfo } from '@/lib/channel-connection-info'
 import { copyToClipboard } from '@/lib/copy-to-clipboard'
+import { openResolvedExternalUrl } from '@/lib/external-navigation'
 import { getTrustedTemplatedUrl } from '@/lib/validated-external-url'
 
 import { updateApiKeyStatus } from '../api'
@@ -127,10 +128,9 @@ export function DataTableRowActions<TData>({
 
   const handleOpenChatPreset = useCallback(
     async (preset: ChatPreset) => {
-      const realKey = await resolveRealKey(apiKey.id)
-      if (!realKey) return
-
       if (preset.type === 'fluent') {
+        const realKey = await resolveRealKey(apiKey.id)
+        if (!realKey) return
         const success = sendToFluent(realKey, serverAddress)
         if (success) {
           toast.success(t('Sent the API key to FluentRead.'))
@@ -144,26 +144,39 @@ export function DataTableRowActions<TData>({
         return
       }
 
-      const resolvedUrl = resolveChatUrl({
-        template: preset.url,
-        apiKey: realKey,
-        serverAddress,
-      })
+      let navigationPrepared = false
+      try {
+        const opened = await openResolvedExternalUrl(async () => {
+          const realKey = await resolveRealKey(apiKey.id)
+          if (!realKey) return null
 
-      const trustedUrl = getTrustedTemplatedUrl(
-        resolvedUrl,
-        preset.url,
-        ALLOWED_CHAT_PROTOCOLS
-      )
-      if (!trustedUrl) {
-        toast.error(t('Invalid chat link. Please contact your administrator.'))
-        return
+          const resolvedUrl = resolveChatUrl({
+            template: preset.url,
+            apiKey: realKey,
+            serverAddress,
+          })
+          const trustedUrl = getTrustedTemplatedUrl(
+            resolvedUrl,
+            preset.url,
+            ALLOWED_CHAT_PROTOCOLS
+          )
+          if (!trustedUrl) {
+            toast.error(
+              t('Invalid chat link. Please contact your administrator.')
+            )
+            return null
+          }
+
+          navigationPrepared = true
+          return trustedUrl
+        })
+
+        if (!opened && navigationPrepared) {
+          toast.error(t('Unable to open chat'))
+        }
+      } catch {
+        toast.error(t('Unable to open chat'))
       }
-
-      if (typeof window === 'undefined') return
-      // Invariant: trustedUrl matches the configured chat template scheme, origin, host, and path.
-      // pi-lens-ignore: ts-open-redirect, no-open-redirect
-      window.open(trustedUrl, '_blank', 'noopener,noreferrer')
     },
     [resolveRealKey, apiKey.id, serverAddress, t]
   )
