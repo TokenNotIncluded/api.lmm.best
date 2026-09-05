@@ -26,14 +26,14 @@ basic_root="$test_base/basic/lmm-api/deploy-work"
 basic_output=$(bash "$create_workspace" --role controller --deployment-id basic --root "$basic_root")
 [[ -f $basic_root/basic/.lmm-deploy-workspace ]] || fail 'basic workspace marker missing'
 [[ -f $basic_root/basic/state/status ]] || fail 'basic workspace state missing'
-grep -Fq "LMM_DEPLOY_WORKSPACE=$basic_root/basic" <<< "$basic_output" || fail 'basic output missing workspace path'
+grep -Fq "LMM_DEPLOY_WORKSPACE=$basic_root/basic" <<<"$basic_output" || fail 'basic output missing workspace path'
 
 warning_state="$test_base/warning/lmm-api"
 warning_root="$warning_state/deploy-work"
 mkdir -p -- "$warning_state"
 truncate -s $((257 * 1024 * 1024)) "$warning_state/pressure.bin"
 warning_error="$test_base/warning.err"
-bash "$create_workspace" --role controller --deployment-id warning --root "$warning_root" 2> "$warning_error"
+bash "$create_workspace" --role controller --deployment-id warning --root "$warning_root" 2>"$warning_error"
 [[ -d $warning_root/warning ]] || fail 'warning-sized state root should still allow creation'
 grep -Fq 'warning: state root uses' "$warning_error" || fail 'warning-sized state root did not emit warning'
 
@@ -42,7 +42,7 @@ stop_root="$stop_state/deploy-work"
 mkdir -p -- "$stop_state"
 truncate -s $((513 * 1024 * 1024)) "$stop_state/pressure.bin"
 stop_error="$test_base/stop.err"
-if bash "$create_workspace" --role controller --deployment-id blocked --root "$stop_root" 2> "$stop_error"; then
+if bash "$create_workspace" --role controller --deployment-id blocked --root "$stop_root" 2>"$stop_error"; then
   fail 'stop-sized state root unexpectedly allowed creation'
 fi
 [[ ! -e $stop_root/blocked ]] || fail 'blocked workspace was partially created'
@@ -54,6 +54,6 @@ mkdir -p -- "$target_state/backups"
 truncate -s $((513 * 1024 * 1024)) "$target_state/backups/retained-backup.bin"
 target_output=$(bash "$create_workspace" --role target --deployment-id target-budget --root "$target_root")
 [[ -f $target_root/target-budget/.lmm-deploy-workspace ]] || fail 'target workspace was blocked by retained sibling backups'
-grep -Fq "LMM_DEPLOY_WORKSPACE=$target_root/target-budget" <<< "$target_output" || fail 'target output missing workspace path'
+grep -Fq "LMM_DEPLOY_WORKSPACE=$target_root/target-budget" <<<"$target_output" || fail 'target output missing workspace path'
 
 printf 'create-workspace tests: PASS\n'
