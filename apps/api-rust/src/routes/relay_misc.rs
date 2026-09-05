@@ -668,6 +668,21 @@ pub(super) fn filtered_upstream_response(mut response: Response) -> Response {
             && !is_hop_by_hop(name)
     });
     *response.headers_mut() = headers;
+    if response
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| {
+            value.split(';').next().is_some_and(|media_type| {
+                media_type.trim().eq_ignore_ascii_case("text/event-stream")
+            })
+        })
+    {
+        response.headers_mut().insert(
+            header::HeaderName::from_static("x-accel-buffering"),
+            header::HeaderValue::from_static("no"),
+        );
+    }
     response
 }
 
@@ -1325,6 +1340,19 @@ mod tests {
         assert!(response.headers().get("x-provider-hop").is_none());
         assert_eq!(response.headers()[header::CONTENT_TYPE], "application/json");
         assert_eq!(response.headers()["x-upstream-request-id"], "up-1");
+    }
+
+    #[test]
+    fn upstream_sse_response_disables_reverse_proxy_buffering() {
+        let mut response = Response::new(Body::empty());
+        response.headers_mut().insert(
+            header::CONTENT_TYPE,
+            HeaderValue::from_static("Text/Event-Stream; charset=utf-8"),
+        );
+
+        let response = filtered_upstream_response(response);
+
+        assert_eq!(response.headers()["x-accel-buffering"], "no");
     }
 
     struct LoopbackService {

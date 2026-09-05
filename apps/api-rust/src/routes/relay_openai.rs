@@ -991,6 +991,10 @@ fn legacy_success(
             response
                 .headers_mut()
                 .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
+            response.headers_mut().insert(
+                HeaderName::from_static("x-accel-buffering"),
+                HeaderValue::from_static("no"),
+            );
             response
         }
         OpenAiRelayBody::Upstream { content_type, body } => {
@@ -1014,6 +1018,12 @@ fn legacy_success(
                 response
                     .headers_mut()
                     .insert(header::CONTENT_TYPE, content_type);
+            }
+            if stream {
+                response.headers_mut().insert(
+                    HeaderName::from_static("x-accel-buffering"),
+                    HeaderValue::from_static("no"),
+                );
             }
             response
         }
@@ -1300,6 +1310,7 @@ fn copy_safe_headers(source: &HeaderMap, target: &mut HeaderMap) {
         if !is_hop_by_hop(name)
             && name != header::CONTENT_TYPE
             && name != header::CONTENT_LENGTH
+            && name != "x-accel-buffering"
             && name != "x-new-api-version"
             && name != "x-oneapi-request-id"
         {
