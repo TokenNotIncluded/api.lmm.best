@@ -6772,6 +6772,224 @@ for (const [locale, translations] of Object.entries(
   Object.assign(newKeys[locale], translations)
 }
 
+const roundStatusTranslations = {
+  en: {
+    'All models': 'All models',
+    'All providers': 'All providers',
+    'Click a bar to filter logs to that time window.':
+      'Click a bar to filter logs to that time window.',
+    'Data coverage: {{reported}} of {{total}} models reported.':
+      'Data coverage: {{reported}} of {{total}} models reported.',
+    'Performance data may be delayed. The latest sample is more than 6 hours old.':
+      'Performance data may be delayed. The latest sample is more than 6 hours old.',
+    'Last 3 days': 'Last 3 days',
+    'Last 7 days': 'Last 7 days',
+    'Last 30 days': 'Last 30 days',
+    'Latest data: {{time}}': 'Latest data: {{time}}',
+    'Performance window: last {{hours}} hours':
+      'Performance window: last {{hours}} hours',
+    'Unable to load usage trend': 'Unable to load usage trend',
+    'No usage trend data in this range': 'No usage trend data in this range',
+    'Loading performance data': 'Loading performance data',
+    'Performance data unavailable': 'Performance data unavailable',
+    'Models are still available without live performance data.':
+      'Models are still available without live performance data.',
+    'Usage trend for the selected time range':
+      'Usage trend for the selected time range',
+    'The new activation is open in the details panel.':
+      'The new activation is open in the details panel.',
+    'Your purchase is being submitted. Do not submit another order.':
+      'Your purchase is being submitted. Do not submit another order.',
+    'Your reorder is being submitted. Do not submit another order.':
+      'Your reorder is being submitted. Do not submit another order.',
+  },
+  zh: {
+    'All models': '全部模型',
+    'All providers': '全部供应商',
+    'Click a bar to filter logs to that time window.':
+      '点击柱状图可将日志筛选到对应时间段。',
+    'Data coverage: {{reported}} of {{total}} models reported.':
+      '数据覆盖：{{reported}} / {{total}} 个模型已上报。',
+    'Performance data may be delayed. The latest sample is more than 6 hours old.':
+      '性能数据可能存在延迟，最新样本已超过 6 小时。',
+    'Last 3 days': '最近 3 天',
+    'Last 7 days': '最近 7 天',
+    'Last 30 days': '最近 30 天',
+    'Latest data: {{time}}': '最新数据：{{time}}',
+    'Performance window: last {{hours}} hours':
+      '性能统计窗口：最近 {{hours}} 小时',
+    'Unable to load usage trend': '无法加载用量趋势',
+    'No usage trend data in this range': '该时间范围内暂无用量趋势数据',
+    'Loading performance data': '正在加载性能数据',
+    'Performance data unavailable': '性能数据暂不可用',
+    'Models are still available without live performance data.':
+      '没有实时性能数据，但模型仍可使用。',
+    'Usage trend for the selected time range': '所选时间范围的用量趋势',
+    'The new activation is open in the details panel.':
+      '新的激活记录已在详情面板中打开。',
+    'Your purchase is being submitted. Do not submit another order.':
+      '正在提交购买请求，请勿重复提交。',
+    'Your reorder is being submitted. Do not submit another order.':
+      '正在提交重新购买请求，请勿重复提交。',
+  },
+  'zh-TW': {
+    'All models': '所有模型',
+    'All providers': '所有供應商',
+    'Click a bar to filter logs to that time window.':
+      '點選柱狀圖可將日誌篩選到對應時間範圍。',
+    'Data coverage: {{reported}} of {{total}} models reported.':
+      '資料涵蓋：{{reported}} / {{total}} 個模型已回報。',
+    'Performance data may be delayed. The latest sample is more than 6 hours old.':
+      '效能資料可能有延遲，最新樣本已超過 6 小時。',
+    'Last 3 days': '最近 3 天',
+    'Last 7 days': '最近 7 天',
+    'Last 30 days': '最近 30 天',
+    'Latest data: {{time}}': '最新資料：{{time}}',
+    'Performance window: last {{hours}} hours':
+      '效能統計視窗：最近 {{hours}} 小時',
+    'Unable to load usage trend': '無法載入用量趨勢',
+    'No usage trend data in this range': '此時間範圍內沒有用量趨勢資料',
+    'Loading performance data': '正在載入效能資料',
+    'Performance data unavailable': '效能資料暫不可用',
+    'Models are still available without live performance data.':
+      '沒有即時效能資料，但模型仍可使用。',
+    'Usage trend for the selected time range': '所選時間範圍的用量趨勢',
+    'The new activation is open in the details panel.':
+      '新的啟用記錄已在詳細資料面板中開啟。',
+    'Your purchase is being submitted. Do not submit another order.':
+      '正在提交購買要求，請勿重複提交。',
+    'Your reorder is being submitted. Do not submit another order.':
+      '正在提交重新購買要求，請勿重複提交。',
+  },
+  fr: {
+    'All models': 'Tous les modèles',
+    'All providers': 'Tous les fournisseurs',
+    'Click a bar to filter logs to that time window.':
+      'Cliquez sur une barre pour filtrer les journaux sur cette période.',
+    'Data coverage: {{reported}} of {{total}} models reported.':
+      'Couverture : {{reported}} modèles signalés sur {{total}}.',
+    'Performance data may be delayed. The latest sample is more than 6 hours old.':
+      'Les données de performance peuvent être retardées ; le dernier échantillon date de plus de 6 heures.',
+    'Last 3 days': '3 derniers jours',
+    'Last 7 days': '7 derniers jours',
+    'Last 30 days': '30 derniers jours',
+    'Latest data: {{time}}': 'Dernières données : {{time}}',
+    'Performance window: last {{hours}} hours':
+      'Fenêtre de performance : {{hours}} dernières heures',
+    'Unable to load usage trend':
+      'Impossible de charger la tendance d’utilisation',
+    'No usage trend data in this range':
+      'Aucune donnée de tendance d’utilisation sur cette période',
+    'Loading performance data': 'Chargement des données de performance',
+    'Performance data unavailable': 'Données de performance indisponibles',
+    'Models are still available without live performance data.':
+      'Les modèles restent disponibles sans données de performance en direct.',
+    'Usage trend for the selected time range':
+      'Tendance d’utilisation pour la période sélectionnée',
+    'The new activation is open in the details panel.':
+      'La nouvelle activation est ouverte dans le panneau de détails.',
+    'Your purchase is being submitted. Do not submit another order.':
+      'Votre achat est en cours d’envoi. Ne soumettez pas une autre commande.',
+    'Your reorder is being submitted. Do not submit another order.':
+      'Votre nouvelle commande est en cours d’envoi. Ne soumettez pas une autre commande.',
+  },
+  ja: {
+    'All models': 'すべてのモデル',
+    'All providers': 'すべてのプロバイダー',
+    'Click a bar to filter logs to that time window.':
+      '棒をクリックすると、その時間帯でログを絞り込めます。',
+    'Data coverage: {{reported}} of {{total}} models reported.':
+      'データ範囲：{{total}} モデル中 {{reported}} モデルが報告済み',
+    'Performance data may be delayed. The latest sample is more than 6 hours old.':
+      'パフォーマンスデータが遅延している可能性があります。最新サンプルは 6 時間以上前のものです。',
+    'Last 3 days': '過去 3 日間',
+    'Last 7 days': '過去 7 日間',
+    'Last 30 days': '過去 30 日間',
+    'Latest data: {{time}}': '最新データ：{{time}}',
+    'Performance window: last {{hours}} hours':
+      'パフォーマンス集計期間：過去 {{hours}} 時間',
+    'Unable to load usage trend': '使用量の推移を読み込めません',
+    'No usage trend data in this range':
+      'この期間の使用量推移データはありません',
+    'Loading performance data': 'パフォーマンスデータを読み込んでいます',
+    'Performance data unavailable': 'パフォーマンスデータを利用できません',
+    'Models are still available without live performance data.':
+      'ライブのパフォーマンスデータがなくてもモデルは利用できます。',
+    'Usage trend for the selected time range': '選択期間の使用量推移',
+    'The new activation is open in the details panel.':
+      '新しいアクティベーションを詳細パネルで開きました。',
+    'Your purchase is being submitted. Do not submit another order.':
+      '購入を送信しています。重複して注文しないでください。',
+    'Your reorder is being submitted. Do not submit another order.':
+      '再注文を送信しています。重複して注文しないでください。',
+  },
+  ru: {
+    'All models': 'Все модели',
+    'All providers': 'Все поставщики',
+    'Click a bar to filter logs to that time window.':
+      'Нажмите на столбец, чтобы отфильтровать логи по этому интервалу.',
+    'Data coverage: {{reported}} of {{total}} models reported.':
+      'Охват данных: отчёты получены для {{reported}} из {{total}} моделей.',
+    'Performance data may be delayed. The latest sample is more than 6 hours old.':
+      'Данные о производительности могут поступать с задержкой: последний образец старше 6 часов.',
+    'Last 3 days': 'Последние 3 дня',
+    'Last 7 days': 'Последние 7 дней',
+    'Last 30 days': 'Последние 30 дней',
+    'Latest data: {{time}}': 'Последние данные: {{time}}',
+    'Performance window: last {{hours}} hours':
+      'Окно производительности: последние {{hours}} ч.',
+    'Unable to load usage trend': 'Не удалось загрузить динамику использования',
+    'No usage trend data in this range':
+      'За этот период нет данных о динамике использования',
+    'Loading performance data': 'Загрузка данных о производительности',
+    'Performance data unavailable': 'Данные о производительности недоступны',
+    'Models are still available without live performance data.':
+      'Модели доступны даже без актуальных данных о производительности.',
+    'Usage trend for the selected time range':
+      'Динамика использования за выбранный период',
+    'The new activation is open in the details panel.':
+      'Новая активация открыта на панели подробностей.',
+    'Your purchase is being submitted. Do not submit another order.':
+      'Покупка отправляется. Не отправляйте ещё один заказ.',
+    'Your reorder is being submitted. Do not submit another order.':
+      'Повторная покупка отправляется. Не отправляйте ещё один заказ.',
+  },
+  vi: {
+    'All models': 'Tất cả mô hình',
+    'All providers': 'Tất cả nhà cung cấp',
+    'Click a bar to filter logs to that time window.':
+      'Nhấp vào cột để lọc nhật ký theo khoảng thời gian đó.',
+    'Data coverage: {{reported}} of {{total}} models reported.':
+      'Phạm vi dữ liệu: {{reported}}/{{total}} mô hình đã báo cáo.',
+    'Performance data may be delayed. The latest sample is more than 6 hours old.':
+      'Dữ liệu hiệu năng có thể bị trễ; mẫu mới nhất đã cũ hơn 6 giờ.',
+    'Last 3 days': '3 ngày qua',
+    'Last 7 days': '7 ngày qua',
+    'Last 30 days': '30 ngày qua',
+    'Latest data: {{time}}': 'Dữ liệu mới nhất: {{time}}',
+    'Performance window: last {{hours}} hours':
+      'Khoảng hiệu năng: {{hours}} giờ qua',
+    'Unable to load usage trend': 'Không thể tải xu hướng sử dụng',
+    'No usage trend data in this range':
+      'Không có dữ liệu xu hướng sử dụng trong khoảng này',
+    'Loading performance data': 'Đang tải dữ liệu hiệu năng',
+    'Performance data unavailable': 'Dữ liệu hiệu năng không khả dụng',
+    'Models are still available without live performance data.':
+      'Mô hình vẫn khả dụng khi không có dữ liệu hiệu năng trực tiếp.',
+    'Usage trend for the selected time range':
+      'Xu hướng sử dụng trong khoảng thời gian đã chọn',
+    'The new activation is open in the details panel.':
+      'Kích hoạt mới đã mở trong bảng chi tiết.',
+    'Your purchase is being submitted. Do not submit another order.':
+      'Đang gửi yêu cầu mua. Không gửi thêm đơn khác.',
+    'Your reorder is being submitted. Do not submit another order.':
+      'Đang gửi yêu cầu mua lại. Không gửi thêm đơn khác.',
+  },
+}
+for (const [locale, translations] of Object.entries(roundStatusTranslations)) {
+  Object.assign(newKeys[locale], translations)
+}
+
 const bountyLifecycleTranslations = {
   en: {
     'Rejected challenges can still be appealed. Wait until the seven-day appeal window ends unless a dispute is opened.':

@@ -19,25 +19,53 @@ for (const key of [
   'window',
   'document',
   'navigator',
+  'history',
+  'location',
   'HTMLElement',
+  'HTMLButtonElement',
+  'HTMLInputElement',
   'HTMLSelectElement',
   'HTMLTextAreaElement',
   'SVGElement',
+  'customElements',
   'Node',
   'Element',
   'Event',
+  'MouseEvent',
+  'PointerEvent',
+  'FocusEvent',
   'CustomEvent',
   'MutationObserver',
   'ResizeObserver',
   'requestAnimationFrame',
   'cancelAnimationFrame',
   'getComputedStyle',
+  'scrollTo',
 ] as const) {
   Object.defineProperty(globalThis, key, {
     configurable: true,
     value: domWindow[key],
   })
 }
+
+const matchMedia = ((query: string) => ({
+  matches: false,
+  media: query,
+  onchange: null,
+  addListener: () => undefined,
+  removeListener: () => undefined,
+  addEventListener: () => undefined,
+  removeEventListener: () => undefined,
+  dispatchEvent: () => false,
+})) as unknown as typeof domWindow.matchMedia
+Object.defineProperty(domWindow, 'matchMedia', {
+  configurable: true,
+  value: matchMedia,
+})
+Object.defineProperty(globalThis, 'matchMedia', {
+  configurable: true,
+  value: matchMedia,
+})
 
 const { act } = await import('react')
 const { createRoot } = await import('react-dom/client')

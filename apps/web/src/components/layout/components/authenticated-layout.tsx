@@ -24,8 +24,10 @@ import { AnimatedOutlet } from '@/components/page-transition'
 import { SkipToMain } from '@/components/skip-to-main'
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar'
 import { LayoutProvider } from '@/context/layout-provider'
+import { ModelPlazaProvider } from '@/context/model-plaza-provider'
 import { SearchProvider } from '@/context/search-provider'
 import { AssistantLauncher } from '@/features/assistant/assistant-launcher'
+import { ModelPlazaPanel } from '@/features/pricing/components/model-plaza-panel'
 import { ReleaseNoteDialog } from '@/features/release-notes/release-note-dialog'
 import { isConsoleActivated } from '@/lib/console-activation'
 import { getCookie } from '@/lib/cookies'
@@ -50,40 +52,43 @@ export function AuthenticatedLayout(props: AuthenticatedLayoutProps) {
 
   return (
     <LayoutProvider>
-      <SearchProvider>
-        <SidebarProvider
-          defaultOpen={defaultOpen}
-          className='console-editorial h-dvh min-h-0 flex-col overflow-hidden'
-        >
-          <SkipToMain />
-          <AppHeader
-            showTopNav={consoleActivated}
-            showSidebarTrigger={!assistantPage}
-          />
-          <div className='flex min-h-0 w-full min-w-0 flex-1 basis-0 flex-col flex-nowrap md:flex-row'>
-            {assistantPage ? null : <AppSidebar />}
-            <SidebarInset
-              className={cn(
-                '@container/content',
-                'min-h-0 min-w-0 flex-1 basis-0 overflow-hidden',
-                assistantPage
-                  ? 'pb-0'
-                  : 'pb-[calc(4.5rem+env(safe-area-inset-bottom))] md:pb-16 xl:pb-0'
-              )}
-            >
-              {assistantPage ? (
-                <AssistantLauncher page />
-              ) : (
-                (props.children ?? <AnimatedOutlet />)
-              )}
-            </SidebarInset>
-            {assistantPage ? null : <AssistantLauncher />}
-          </div>
-          <AccessRestrictionNotice className='shrink-0' />
-          <ReleaseNoteDialog />
-          <CommandMenu />
-        </SidebarProvider>
-      </SearchProvider>
+      <ModelPlazaProvider>
+        <SearchProvider>
+          <SidebarProvider
+            defaultOpen={defaultOpen}
+            className='console-editorial h-dvh min-h-0 flex-col overflow-hidden'
+          >
+            <SkipToMain />
+            <AppHeader
+              showTopNav={consoleActivated}
+              showSidebarTrigger={!assistantPage}
+            />
+            <div className='flex min-h-0 w-full min-w-0 flex-1 basis-0 flex-col flex-nowrap md:flex-row'>
+              {assistantPage ? null : <AppSidebar />}
+              <SidebarInset
+                className={cn(
+                  '@container/content',
+                  'min-h-0 min-w-0 flex-1 basis-0 overflow-hidden',
+                  assistantPage
+                    ? 'pb-0'
+                    : 'pb-[calc(4.5rem+env(safe-area-inset-bottom))] md:pb-16 xl:pb-0'
+                )}
+              >
+                {assistantPage ? (
+                  <AssistantLauncher page />
+                ) : (
+                  (props.children ?? <AnimatedOutlet />)
+                )}
+              </SidebarInset>
+              {assistantPage ? null : <AssistantLauncher />}
+            </div>
+            <AccessRestrictionNotice className='shrink-0' />
+            <ReleaseNoteDialog />
+            <CommandMenu />
+            <ModelPlazaPanel />
+          </SidebarProvider>
+        </SearchProvider>
+      </ModelPlazaProvider>
     </LayoutProvider>
   )
 }

@@ -595,7 +595,13 @@ export function EmailActivationsPage() {
   }
 
   async function handlePurchase(target: PurchaseConfirmation) {
-    setPurchaseFeedback(null)
+    setPurchaseFeedback({
+      tone: 'default',
+      title: t('Submitting...'),
+      description: t(
+        'Your purchase is being submitted. Do not submit another order.'
+      ),
+    })
     try {
       const result = await createMutation.mutateAsync({
         domain_id: target.product.id,
@@ -628,6 +634,11 @@ export function EmailActivationsPage() {
         })
         toast.info(t('Purchase submitted for reconciliation'))
       } else {
+        setPurchaseFeedback({
+          tone: 'default',
+          title: t('Email activation purchased'),
+          description: t('The new activation is open in the details panel.'),
+        })
         toast.success(t('Email activation purchased'))
       }
       if (result.activations[0]) {
@@ -735,7 +746,13 @@ export function EmailActivationsPage() {
   async function handleConfirmReorder() {
     if (!reorderTarget) return
 
-    setActionFeedback(null)
+    setActionFeedback({
+      tone: 'default',
+      title: t('Submitting...'),
+      description: t(
+        'Your reorder is being submitted. Do not submit another order.'
+      ),
+    })
     try {
       const result = await reorderMutation.mutateAsync({
         activationId: reorderTarget.activation.id,
@@ -768,6 +785,11 @@ export function EmailActivationsPage() {
         })
         toast.info(t('Purchase submitted for reconciliation'))
       } else {
+        setActionFeedback({
+          tone: 'default',
+          title: t('Reorder submitted'),
+          description: t('The new activation is open in the details panel.'),
+        })
         toast.success(t('Reorder submitted'))
       }
       if (result.activations[0]) {
