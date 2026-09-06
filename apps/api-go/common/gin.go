@@ -19,6 +19,7 @@ import (
 
 const KeyRequestBody = "key_request_body"
 const KeyBodyStorage = "key_body_storage"
+const KeyMultipartForms = "key_multipart_forms"
 
 var ErrRequestBodyTooLarge = errors.New("request body too large")
 
@@ -103,6 +104,43 @@ func CleanupBodyStorage(c *gin.Context) {
 		}
 		c.Set(KeyBodyStorage, nil)
 	}
+}
+
+// trackMultipartForm 记录一个已解析的 multipart 表单，以便请求结束时释放它
+// 溢出到磁盘的临时文件。multipart.Reader.ReadForm 会把超过内存上限的分部写入
+// os.CreateTemp，只有 Form.RemoveAll 能删除它们；net/http 仅自动清理
+// Request.MultipartForm，因此没有挂到请求上的表单必须由这里兜底。
+func trackMultipartForm(c *gin.Context, form *multipart.Form) {
+	if c == nil || form == nil {
+		return
+	}
+	tracked, _ := c.Get(KeyMultipartForms)
+	forms, _ := tracked.([]*multipart.Form)
+	c.Set(KeyMultipartForms, append(forms, form))
+}
+
+// CleanupMultipartForms 释放本次请求解析出的所有 multipart 临时文件（应在请求
+// 结束时调用）。Form.RemoveAll 会忽略文件已不存在的情况，因此与调用方自己的
+// RemoveAll 或 net/http 的自动清理重复执行是安全的。
+func CleanupMultipartForms(c *gin.Context) {
+	if c == nil {
+		return
+	}
+	tracked, exists := c.Get(KeyMultipartForms)
+	if !exists || tracked == nil {
+		return
+	}
+	if forms, ok := tracked.([]*multipart.Form); ok {
+		for _, form := range forms {
+			if form == nil {
+				continue
+			}
+			if err := form.RemoveAll(); err != nil {
+				SysLog("failed to remove multipart temporary files: " + err.Error())
+			}
+		}
+	}
+	c.Set(KeyMultipartForms, nil)
 }
 
 func UnmarshalBodyReusable(c *gin.Context, v any) error {
@@ -281,6 +319,9 @@ func ParseMultipartFormReusable(c *gin.Context) (*multipart.Form, error) {
 	if err != nil {
 		return nil, err
 	}
+	// 每次解析都可能新建一批磁盘临时文件；同一请求内允许多次解析，因此逐个登记
+	// 而不是覆盖，确保重复解析产生的副本同样会被释放。
+	trackMultipartForm(c, form)
 
 	// Reset request body
 	if _, seekErr := storage.Seek(0, io.SeekStart); seekErr != nil {
