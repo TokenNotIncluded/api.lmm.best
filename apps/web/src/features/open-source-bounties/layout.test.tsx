@@ -222,12 +222,15 @@ describe('open-source bounty layout', () => {
     assert.ok(tabsList)
     assert.match(tabsList.className, /(?:^|\s)grid(?:\s|$)/)
     assert.match(tabsList.className, /group-data-horizontal\/tabs:!h-auto/)
+    assert.match(tabsList.className, /(?:^|\s)lg:w-full(?:\s|$)/)
+    assert.match(tabsList.className, /(?:^|\s)lg:justify-center(?:\s|$)/)
 
     const tabs = [...container.querySelectorAll<HTMLElement>('[role="tab"]')]
     assert.equal(tabs.length, 6)
     for (const tab of tabs) {
       assert.match(tab.className, /(?:^|\s)min-h-11(?:\s|$)/)
       assert.match(tab.className, /(?:^|\s)whitespace-normal(?:\s|$)/)
+      assert.match(tab.className, /(?:^|\s)lg:flex-1(?:\s|$)/)
     }
 
     const titleElement = [

@@ -32,13 +32,13 @@ await i18n.use(initReactI18next).init({
   resources: { en: { translation: {} } },
 })
 
-// A description long enough that a three-line clamp would truncate it.
-const longDescription = [
-  'Line one of a deliberately long bounty description.',
-  'Line two keeps going to force wrapping.',
-  'Line three would still not be the end, so clamping at three lines would hide content.',
-  'Line four confirms the full text stays visible when clamping is removed.',
-].join(' ')
+// Keep enough copy to exercise the card's collapsed preview and accessible
+// expand control without relying on browser line measurements.
+const longDescription = Array.from(
+  { length: 8 },
+  (_, index) =>
+    `Scope detail ${index + 1}: provide a focused change with verification evidence and a clear handoff for the next contributor.`
+).join(' ')
 
 const project: BountyProject = {
   id: 1,
@@ -83,10 +83,32 @@ function renderCard() {
 }
 
 describe('bounty project card description', () => {
-  test('renders the full description without three-line truncation', () => {
+  test('offers an accessible expand control for long descriptions', () => {
     const markup = renderCard()
 
     assert.ok(markup.includes(longDescription))
-    assert.doesNotMatch(markup, /line-clamp-3/)
+    assert.match(markup, /line-clamp-4/)
+    assert.match(markup, /aria-expanded="false"/)
+    assert.match(markup, /aria-controls="bounty-description-1"/)
+    assert.match(markup, /Expand description/)
+  })
+
+  test('keeps short descriptions uncluttered', () => {
+    const markup = renderToStaticMarkup(
+      <I18nextProvider i18n={i18n}>
+        <BountyCard
+          project={{ ...project, id: 2, description: 'Short summary.' }}
+          rank={1}
+          viewerUserId={999}
+          pending=''
+          onAccept={() => {}}
+          onSubmit={() => {}}
+        />
+      </I18nextProvider>
+    )
+
+    assert.ok(markup.includes('Short summary.'))
+    assert.doesNotMatch(markup, /Expand description/)
+    assert.doesNotMatch(markup, /line-clamp-4/)
   })
 })

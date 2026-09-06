@@ -56,7 +56,7 @@ describe('authenticated sidebar discovery', () => {
     assert.match(resetSection, /requiredRole: ROLE\.SUPER_ADMIN/)
   })
 
-  test('keeps the model square reachable from the activated mobile sidebar', () => {
+  test('keeps the model square visible without making it navigable', () => {
     const generalStart = source.indexOf("id: 'general'")
     const personalStart = source.indexOf("id: 'personal'", generalStart)
     const activatedGeneralSection =
@@ -67,5 +67,6 @@ describe('authenticated sidebar discovery', () => {
     assert.ok(activatedGeneralSection)
     assert.match(activatedGeneralSection, /title: t\('Model Square'\)/)
     assert.match(activatedGeneralSection, /url: '\/pricing'/)
+    assert.match(activatedGeneralSection, /interaction: 'model-panel'/)
   })
 })

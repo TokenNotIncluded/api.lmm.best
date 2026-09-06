@@ -41,7 +41,7 @@ import {
 import { HugeiconsIcon } from '@hugeicons/react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { Heart } from 'lucide-react'
+import { ChevronDown, Heart } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -147,7 +147,10 @@ const BOUNTY_QUERY_KEYS = [
 ] as const
 
 const BOUNTY_VIEW_TAB_CLASS =
-  'h-auto min-h-11 w-full flex-none px-2 py-2 leading-tight whitespace-normal lg:min-h-7 lg:w-auto lg:whitespace-nowrap'
+  'h-auto min-h-11 w-full min-w-0 flex-none px-2 py-2 text-center leading-tight whitespace-normal lg:min-h-9 lg:flex-1 lg:px-3'
+
+const BOUNTY_DESCRIPTION_PREVIEW_LINES = 4
+const BOUNTY_DESCRIPTION_COLLAPSE_THRESHOLD = 240
 
 const STATUS_KEYS = {
   draft: 'Draft',
@@ -280,6 +283,13 @@ function availableSlots(
     project.reward_slots -
       Math.max(0, project.active_challenge_count - expiredAppealCount) -
       project.approved_challenge_count
+  )
+}
+
+function isBountyDescriptionExpandable(description: string) {
+  return (
+    description.length > BOUNTY_DESCRIPTION_COLLAPSE_THRESHOLD ||
+    description.split(/\r?\n/).length > BOUNTY_DESCRIPTION_PREVIEW_LINES
   )
 }
 
@@ -858,7 +868,7 @@ export function OpenSourceBounties({
             <Tabs defaultValue='browse' className='min-w-0'>
               <TabsList
                 aria-label={t('Open-source bounties')}
-                className='grid w-full grid-cols-2 gap-1 p-1 group-data-horizontal/tabs:!h-auto sm:grid-cols-3 lg:flex lg:w-fit lg:max-w-full lg:flex-wrap lg:justify-start'
+                className='grid w-full grid-cols-2 gap-1 p-1 group-data-horizontal/tabs:!h-auto sm:grid-cols-3 lg:flex lg:w-full lg:max-w-full lg:flex-nowrap lg:justify-center'
               >
                 <TabsTrigger value='browse' className={BOUNTY_VIEW_TAB_CLASS}>
                   {t('Bounty board')}
@@ -1400,6 +1410,11 @@ export function BountyCard({
   const lifecycle = useBountyLifecycle(project)
   const acceptanceState = getChallengeAcceptanceState(challenge)
   const slots = availableSlots(project, lifecycle)
+  const [descriptionExpanded, setDescriptionExpanded] = useState(false)
+  const descriptionExpandable = isBountyDescriptionExpandable(
+    project.description
+  )
+  const descriptionId = `bounty-description-${project.id}`
   let viewerAction: React.ReactNode
   if (project.owner_user_id === viewerUserId) {
     viewerAction = <Badge variant='secondary'>{t('Managed by you')}</Badge>
@@ -1455,9 +1470,39 @@ export function BountyCard({
       disableHoverEffect
       contentClassName='flex h-full flex-col gap-4'
     >
-      <p className='text-muted-foreground text-sm leading-relaxed [overflow-wrap:anywhere] whitespace-pre-wrap'>
-        {project.description}
-      </p>
+      <div className='space-y-2'>
+        <p
+          id={descriptionId}
+          className={cn(
+            'text-muted-foreground text-sm leading-relaxed [overflow-wrap:anywhere] whitespace-pre-wrap',
+            descriptionExpandable && !descriptionExpanded && 'line-clamp-4'
+          )}
+        >
+          {project.description}
+        </p>
+        {descriptionExpandable ? (
+          <Button
+            type='button'
+            variant='ghost'
+            size='sm'
+            className='text-primary hover:text-primary h-8 px-0 hover:bg-transparent hover:underline'
+            aria-expanded={descriptionExpanded}
+            aria-controls={descriptionId}
+            onClick={() => setDescriptionExpanded((expanded) => !expanded)}
+          >
+            {descriptionExpanded
+              ? t('Collapse description')
+              : t('Expand description')}
+            <ChevronDown
+              aria-hidden='true'
+              className={cn(
+                'size-4 transition-transform motion-reduce:transition-none',
+                descriptionExpanded && 'rotate-180'
+              )}
+            />
+          </Button>
+        ) : null}
+      </div>
       <div className='grid grid-cols-2 gap-2 sm:grid-cols-5'>
         <Metric
           label={t('Reward per fix')}

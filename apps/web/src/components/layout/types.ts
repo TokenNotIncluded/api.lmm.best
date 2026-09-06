@@ -26,6 +26,11 @@ type BaseNavItem = {
   title: string
   badge?: string
   icon?: React.ElementType
+  /**
+   * Keeps the item visible while preventing navigation when the destination
+   * is intentionally unavailable in the current workspace.
+   */
+  disabled?: boolean
   activeUrls?: (LinkProps['to'] | (string & {}))[]
   configUrls?: (LinkProps['to'] | (string & {}))[]
   /**

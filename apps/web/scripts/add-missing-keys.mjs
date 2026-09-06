@@ -6830,6 +6830,42 @@ for (const [locale, translations] of Object.entries(
   Object.assign(newKeys[locale], translations)
 }
 
+const bountyDescriptionTranslations = {
+  en: {
+    'Expand description': 'Expand description',
+    'Collapse description': 'Collapse description',
+  },
+  zh: {
+    'Expand description': '展开简介',
+    'Collapse description': '收起简介',
+  },
+  'zh-TW': {
+    'Expand description': '展開簡介',
+    'Collapse description': '收起簡介',
+  },
+  fr: {
+    'Expand description': 'Afficher la description complète',
+    'Collapse description': 'Réduire la description',
+  },
+  ja: {
+    'Expand description': '説明を展開',
+    'Collapse description': '説明を折りたたむ',
+  },
+  ru: {
+    'Expand description': 'Развернуть описание',
+    'Collapse description': 'Свернуть описание',
+  },
+  vi: {
+    'Expand description': 'Mở rộng mô tả',
+    'Collapse description': 'Thu gọn mô tả',
+  },
+}
+for (const [locale, translations] of Object.entries(
+  bountyDescriptionTranslations
+)) {
+  Object.assign(newKeys[locale], translations)
+}
+
 const roundStatusTranslations = {
   en: {
     'All models': 'All models',
