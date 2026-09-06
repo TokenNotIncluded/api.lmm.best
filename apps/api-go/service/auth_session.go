@@ -65,6 +65,9 @@ func createLoginSession(userID int, expectedAuthVersion int64, loginMethod, ip, 
 		return nil, ErrLoginSessionRevoked
 	}
 	now := time.Now().Unix()
+	if err := model.RevokeWeekOldUserSessions(userID, now); err != nil {
+		return nil, err
+	}
 	refreshSecret, err := common.GenerateRandomCharsKey(64)
 	if err != nil {
 		return nil, err
@@ -121,7 +124,27 @@ func ValidateLoginSession(identity AuthIdentity) (*model.UserSession, *model.Use
 	if user.Status != common.UserStatusEnabled || user.AuthVersion != identity.UserAuthVersion {
 		return nil, nil, ErrLoginSessionRevoked
 	}
+	if err := enforceSessionAutoLogout(session, user.GetSetting().IsSessionAutoLogoutEnabled(), now); err != nil {
+		return nil, nil, err
+	}
 	return session, user, nil
+}
+
+func enforceSessionAutoLogout(session *model.UserSession, enabled bool, now int64) error {
+	if !enabled || session.CreatedAt >= now-int64(model.UserSessionAutoLogoutAge/time.Second) {
+		return nil
+	}
+	revoked, err := model.RevokeWeekOldUserSession(session.UserID, session.SID, now)
+	if errors.Is(err, model.ErrUserSessionInactive) {
+		return ErrLoginSessionRevoked
+	}
+	if err != nil {
+		return err
+	}
+	if revoked {
+		return ErrLoginSessionRevoked
+	}
+	return nil
 }
 
 // ValidateSessionReference validates a server-side flow bound to an existing
@@ -220,6 +243,9 @@ func RefreshLoginSession(rawRefreshToken, expectedSID, ip, userAgent string) (*A
 		_, _ = model.RevokeUserSession(session.UserID, session.SID, "user_security_changed")
 		return nil, nil, ErrLoginSessionRevoked
 	}
+	if err := enforceSessionAutoLogout(session, currentUser.GetSetting().IsSessionAutoLogoutEnabled(), time.Now().Unix()); err != nil {
+		return nil, nil, err
+	}
 	nextSecret := deriveNextRefreshSecret(sid, secret)
 	rotated, err := model.RotateUserSessionRefresh(session.UserID, sid, hashRefreshSecret(secret), hashRefreshSecret(nextSecret), time.Now().Unix(), RefreshReplayWindow)
 	var raceSession model.UserSession
@@ -274,6 +300,9 @@ func RefreshTokenSID(rawRefreshToken string) (string, bool) {
 }
 
 func ListLoginSessions(userID int, currentSID string) ([]LoginSessionView, error) {
+	if err := model.RevokeWeekOldUserSessions(userID, time.Now().Unix()); err != nil {
+		return nil, err
+	}
 	sessions, err := model.ListActiveUserSessions(userID, currentSID, time.Now().Unix())
 	if err != nil {
 		return nil, err

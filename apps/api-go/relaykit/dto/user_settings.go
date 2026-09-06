@@ -7,6 +7,7 @@ import (
 )
 
 type UserSetting struct {
+	SessionAutoLogout                *bool   `json:"session_auto_logout,omitempty"`                  // nil enables weekly sign-out for existing users.
 	NotifyType                       string  `json:"notify_type,omitempty"`                          // QuotaWarningType 额度预警类型
 	QuotaWarningThreshold            float64 `json:"quota_warning_threshold,omitempty"`              // QuotaWarningThreshold 额度预警阈值
 	WebhookUrl                       string  `json:"webhook_url,omitempty"`                          // WebhookUrl webhook地址
@@ -23,6 +24,10 @@ type UserSetting struct {
 	BillingPreference                string  `json:"billing_preference,omitempty"`                   // BillingPreference 扣费策略（订阅/钱包）
 	Language                         string  `json:"language,omitempty"`                             // Language 用户语言偏好 (zh, en)
 	UsageLeaderboardVisibility       string  `json:"usage_leaderboard_visibility,omitempty"`         // 用户使用排行榜展示方式
+}
+
+func (setting UserSetting) IsSessionAutoLogoutEnabled() bool {
+	return setting.SessionAutoLogout == nil || *setting.SessionAutoLogout
 }
 
 const SidebarModulesMaxBytes = 16 * 1024

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/LIghtJUNction/api.lmm.best/logger"
 	"github.com/LIghtJUNction/api.lmm.best/middleware"
@@ -104,7 +105,37 @@ func GetLoginSessions(c *gin.Context) {
 		writeAuthSessionError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"success": true, "message": "", "data": sessions})
+	user, err := model.GetUserById(identity.UserID, false)
+	if err != nil {
+		writeAuthSessionError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "", "data": sessions, "session_auto_logout": user.GetSetting().IsSessionAutoLogoutEnabled()})
+}
+
+func UpdateLoginSessionSettings(c *gin.Context) {
+	identity, ok := requireBrowserSession(c)
+	if !ok {
+		return
+	}
+	var req struct {
+		SessionAutoLogout *bool `json:"session_auto_logout"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || req.SessionAutoLogout == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "session_auto_logout must be a boolean"})
+		return
+	}
+	if err := model.UpdateUserSessionAutoLogout(identity.UserID, *req.SessionAutoLogout); err != nil {
+		writeAuthSessionError(c, err)
+		return
+	}
+	if *req.SessionAutoLogout {
+		if err := model.RevokeWeekOldUserSessions(identity.UserID, time.Now().Unix()); err != nil {
+			writeAuthSessionError(c, err)
+			return
+		}
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": ""})
 }
 
 func DeleteLoginSession(c *gin.Context) {

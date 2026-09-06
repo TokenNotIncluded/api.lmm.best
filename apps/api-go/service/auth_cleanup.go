@@ -43,6 +43,9 @@ func RunAuthArtifactCleanup(ctx context.Context) {
 
 func cleanupAuthArtifacts() {
 	now := time.Now()
+	if err := model.RevokeWeekOldUserSessions(0, now.Unix()); err != nil {
+		common.SysError("failed to revoke week-old user sessions: " + err.Error())
+	}
 	count, err := model.CountUserSessionsCreatedSince(0, now.Add(-time.Hour).Unix())
 	if err != nil {
 		common.SysError("failed to count hourly user session issuance: " + err.Error())

@@ -210,6 +210,7 @@ func SetApiRouter(router *gin.Engine) {
 				selfRoute.PUT("/access-ip", middleware.CriticalRateLimit(), middleware.DisableCache(), controller.PersonalAccessIPRetired)
 				selfRoute.DELETE("/access-ip", middleware.CriticalRateLimit(), middleware.DisableCache(), controller.PersonalAccessIPRetired)
 				selfRoute.GET("/sessions", middleware.DisableCache(), controller.GetLoginSessions)
+				selfRoute.PUT("/sessions/settings", middleware.CriticalRateLimit(), middleware.DisableCache(), middleware.RequestBodyLimit(userSelfMutationRequestMaxBytes), controller.UpdateLoginSessionSettings)
 				selfRoute.DELETE("/sessions/:sid", middleware.DisableCache(), controller.DeleteLoginSession)
 				selfRoute.POST("/sessions/revoke-others", middleware.DisableCache(), controller.RevokeOtherLoginSessions)
 				selfRoute.GET("/self/groups", controller.GetUserGroups)

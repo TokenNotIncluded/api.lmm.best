@@ -49,8 +49,10 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from '@/components/ui/empty'
+import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Switch } from '@/components/ui/switch'
 import { clearAuthenticatedClientState } from '@/lib/api'
 import type { LoginSession } from '@/stores/auth-store'
 
@@ -58,6 +60,7 @@ import {
   getLoginSessions,
   revokeLoginSession,
   revokeOtherLoginSessions,
+  updateLoginSessionSettings,
 } from '../api'
 import { LoginSessionDialogs } from './login-session-dialogs'
 import { LoginSessionItem } from './login-session-item'
@@ -79,7 +82,10 @@ export function LoginSessionsCard() {
       if (!response.success) {
         throw new Error(response.message || t('Failed to load login sessions'))
       }
-      return response.data ?? []
+      return {
+        sessions: response.data ?? [],
+        sessionAutoLogout: response.session_auto_logout ?? true,
+      }
     },
   })
 
@@ -92,7 +98,7 @@ export function LoginSessionsCard() {
       return sid
     },
     onSuccess: async (sid) => {
-      const revokedCurrent = sessionsQuery.data?.some(
+      const revokedCurrent = sessionsQuery.data?.sessions.some(
         (session) => session.sid === sid && session.current
       )
       setRevokeTarget(null)
@@ -124,7 +130,23 @@ export function LoginSessionsCard() {
     onError: (error: Error) => toast.error(error.message),
   })
 
-  const sessions = sessionsQuery.data ?? []
+  const settingsMutation = useMutation({
+    mutationFn: async (enabled: boolean) => {
+      const response = await updateLoginSessionSettings(enabled)
+      if (!response.success) {
+        throw new Error(
+          response.message || t('Failed to update login session settings')
+        )
+      }
+    },
+    onSuccess: async () => {
+      toast.success(t('Login session settings updated'))
+      await queryClient.invalidateQueries({ queryKey: sessionQueryKey })
+    },
+    onError: (error: Error) => toast.error(error.message),
+  })
+
+  const sessions = sessionsQuery.data?.sessions ?? []
   const hasOtherSessions = sessions.some((session) => !session.current)
   let sessionsContent: ReactNode
   if (sessionsQuery.isLoading) {
@@ -222,6 +244,34 @@ export function LoginSessionsCard() {
               </CollapsibleTrigger>
             </CardAction>
           </CardHeader>
+          <CardContent>
+            <div className='flex items-start justify-between gap-4'>
+              <div className='space-y-1'>
+                <Label htmlFor='session-auto-logout'>
+                  {t('Automatically sign out sessions after one week')}
+                </Label>
+                <p
+                  id='session-auto-logout-description'
+                  className='text-muted-foreground text-sm'
+                >
+                  {t(
+                    'Enabled by default. Sessions are signed out one week after login, even if they are still active, including this device.'
+                  )}
+                </p>
+              </div>
+              <Switch
+                id='session-auto-logout'
+                aria-describedby='session-auto-logout-description'
+                checked={sessionsQuery.data?.sessionAutoLogout ?? true}
+                disabled={
+                  !sessionsQuery.isSuccess ||
+                  sessionsQuery.isFetching ||
+                  settingsMutation.isPending
+                }
+                onCheckedChange={(enabled) => settingsMutation.mutate(enabled)}
+              />
+            </div>
+          </CardContent>
           <CollapsibleContent>
             <CardContent>{sessionsContent}</CardContent>
           </CollapsibleContent>

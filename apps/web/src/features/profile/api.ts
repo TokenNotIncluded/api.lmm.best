@@ -167,8 +167,23 @@ export async function startTelegramBind(): Promise<
 // Login Session APIs
 // ============================================================================
 
-export async function getLoginSessions(): Promise<ApiResponse<LoginSession[]>> {
+interface LoginSessionsResponse extends ApiResponse<LoginSession[]> {
+  session_auto_logout?: boolean
+}
+
+export async function getLoginSessions(): Promise<LoginSessionsResponse> {
   const res = await api.get('/api/user/sessions')
+  return res.data
+}
+
+export async function updateLoginSessionSettings(
+  sessionAutoLogout: boolean
+): Promise<ApiResponse> {
+  const res = await api.put(
+    '/api/user/sessions/settings',
+    { session_auto_logout: sessionAutoLogout },
+    { skipBusinessError: true, skipErrorHandler: true }
+  )
   return res.data
 }
 
