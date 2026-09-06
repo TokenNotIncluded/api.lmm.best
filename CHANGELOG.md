@@ -13,6 +13,10 @@ authenticated users then see it once after their next login.
 
 <!-- Add user-facing or operational changes here before the next release. -->
 
+- Added a Referral Program shortcut to the desktop and mobile avatar menus
+  that opens the wallet at the invitation section, respecting console access
+  and wallet visibility settings.
+
 ## [0.1.6] - 2026-08-17
 
 - Internal production metadata alignment for this release cycle.
