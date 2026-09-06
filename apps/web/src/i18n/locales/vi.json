@@ -3033,7 +3033,7 @@
     "footer.columns.related.links.midjourney": "MjProxy",
     "footer.columns.related.title": "Các Dự Án Liên Quan",
     "footer.defaultCopyright": "Bản quyền được bảo lưu.",
-    "footer.new\u0061pi.projectAttributionSuffix": "Bản quyền được bảo lưu. Được thiết kế và phát triển bởi các cộng tác viên dự án.",
+    "footer.newapi.projectAttributionSuffix": "Bản quyền được bảo lưu. Được thiết kế và phát triển bởi các cộng tác viên dự án.",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "Đối với các kênh được thêm sau ngày 10 tháng 5 năm 2025, không cần loại bỏ \".\" khỏi tên mô hình trong quá trình triển khai",
     "For example, a reliable OpenAI-compatible endpoint": "Ví dụ: một endpoint tương thích OpenAI đáng tin cậy",
     "For example: 12, 34, 56": "Ví dụ: 12, 34, 56",
@@ -8026,6 +8026,10 @@
     "Zero retention": "Không lưu dữ liệu",
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V4",
-    "Zoom": "Thu phóng"
+    "Zoom": "Thu phóng",
+    "Automatically sign out sessions after one week": "Tự động đăng xuất phiên sau một tuần",
+    "Enabled by default. Sessions are signed out one week after login, even if they are still active, including this device.": "Bật theo mặc định. Các phiên sẽ được đăng xuất một tuần sau khi đăng nhập, ngay cả khi vẫn đang hoạt động, bao gồm cả thiết bị này.",
+    "Failed to update login session settings": "Cập nhật cài đặt phiên đăng nhập thất bại",
+    "Login session settings updated": "Đã cập nhật cài đặt phiên đăng nhập"
   }
 }

@@ -3033,7 +3033,7 @@
     "footer.columns.related.links.midjourney": "MjProxy",
     "footer.columns.related.title": "Projets liés",
     "footer.defaultCopyright": "Tous droits réservés.",
-    "footer.new\u0061pi.projectAttributionSuffix": "Tous droits réservés. Conçu et développé par les contributeurs du projet.",
+    "footer.newapi.projectAttributionSuffix": "Tous droits réservés. Conçu et développé par les contributeurs du projet.",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "Pour les canaux ajoutés après le 10 mai 2025, pas besoin de supprimer \".\" des noms de modèles lors du déploiement",
     "For example, a reliable OpenAI-compatible endpoint": "Par exemple : un point d’accès OpenAI compatible fiable",
     "For example: 12, 34, 56": "Par exemple : 12, 34, 56",
@@ -8026,6 +8026,10 @@
     "Zero retention": "Aucune rétention",
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V4",
-    "Zoom": "Zoom"
+    "Zoom": "Zoom",
+    "Automatically sign out sessions after one week": "Déconnecter automatiquement les sessions après une semaine",
+    "Enabled by default. Sessions are signed out one week after login, even if they are still active, including this device.": "Activé par défaut. Les sessions sont déconnectées une semaine après la connexion, même si elles sont encore actives, y compris sur cet appareil.",
+    "Failed to update login session settings": "Échec de la mise à jour des paramètres de session de connexion",
+    "Login session settings updated": "Paramètres de session de connexion mis à jour"
   }
 }

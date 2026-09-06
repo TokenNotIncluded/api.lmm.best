@@ -3033,7 +3033,7 @@
     "footer.columns.related.links.midjourney": "MjProxy",
     "footer.columns.related.title": "相關項目",
     "footer.defaultCopyright": "版權所有。",
-    "footer.new\u0061pi.projectAttributionSuffix": "版權所有，由項目貢獻者設計與開發。",
+    "footer.newapi.projectAttributionSuffix": "版權所有，由項目貢獻者設計與開發。",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "對於 2025 年 5 月 10 日之後新增的渠道，在部署時無需從模型名稱中移除 \".\"",
     "For example, a reliable OpenAI-compatible endpoint": "例如：穩定的 OpenAI 相容介面",
     "For example: 12, 34, 56": "例如：12, 34, 56",
@@ -8026,6 +8026,10 @@
     "Zero retention": "零數據保留",
     "Zhipu": "智譜",
     "Zhipu V4": "智譜 V4",
-    "Zoom": "縮放"
+    "Zoom": "縮放",
+    "Automatically sign out sessions after one week": "登入超過一週後自動登出工作階段",
+    "Enabled by default. Sessions are signed out one week after login, even if they are still active, including this device.": "預設為啟用。工作階段自登入起算一週後將自動登出，即使仍在使用中亦然，包括本裝置。",
+    "Failed to update login session settings": "更新登入工作階段設定失敗",
+    "Login session settings updated": "登入工作階段設定已更新"
   }
 }
