@@ -16,6 +16,9 @@ func BodyStorageCleanup() gin.HandlerFunc {
 		// 请求结束后清理存储
 		common.CleanupBodyStorage(c)
 
+		// 清理 multipart 解析溢出到磁盘的临时文件
+		common.CleanupMultipartForms(c)
+
 		// 清理文件缓存（URL 下载的文件等）
 		service.CleanupFileSources(c)
 	}
