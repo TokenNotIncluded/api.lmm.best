@@ -14,7 +14,10 @@ const source = readFileSync(new URL('./nav-group.tsx', import.meta.url), 'utf8')
 
 describe('sidebar navigation interaction contract', () => {
   test('routes model-panel interactions to the client-side panel instead of navigation', () => {
-    assert.match(source, /navItem\.interaction === 'model-panel' \? openPanel : undefined/)
+    assert.match(
+      source,
+      /navItem\.interaction === 'model-panel' \? openPanel : undefined/
+    )
     assert.match(source, /if \(onModelPanelClick\) \{/)
     assert.match(source, /event\.preventDefault\(\)/)
   })
