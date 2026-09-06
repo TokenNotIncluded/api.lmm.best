@@ -1621,11 +1621,18 @@ func runAssistantAgent(c *gin.Context, settings setting.AssistantSettings, conve
 	if forceL0Assessment && maxSteps < 2 {
 		maxSteps = 2
 	}
-	if forceConversationTitle && maxSteps < 2 {
-		// A title is a real agent action, not optional model prose. Keep it
-		// available even when an administrator disables the general-purpose
-		// multi-step loop.
-		maxSteps = 2
+	if forceConversationTitle {
+		// Reserve an actual task tool and answer after the title attempt,
+		// including when the general-purpose loop is disabled.
+		minimum := 2
+		taskContext := userContext
+		taskContext.ConversationTitleNeeded = false
+		if assistantNamedToolChoiceName(assistantToolChoiceForContext(taskContext)) != "" {
+			minimum++
+		}
+		if maxSteps < minimum {
+			maxSteps = minimum
+		}
 	}
 	if minimum := assistantRecommendationWorkflowMinSteps(userContext); maxSteps < minimum {
 		maxSteps = minimum
@@ -1693,6 +1700,12 @@ func runAssistantAgent(c *gin.Context, settings setting.AssistantSettings, conve
 		}
 		if status < http.StatusOK || status >= http.StatusMultipleChoices {
 			forcedTool := assistantNamedToolChoiceName(request.ToolChoice)
+			if forcedTool == "set_conversation_title" && assistantNamedToolChoiceUnsupported(body) {
+				// A provider's optional metadata limitation must not block the
+				// actual task. History already supplies a safe fallback title.
+				userContext = skipAssistantConversationTitle(c)
+				continue
+			}
 			if assistantNamedToolChoiceUnsupported(body) && assistantServerReadFallbackAllowed(forcedTool) {
 				// The provider cannot select the read explicitly. Execute the
 				// bounded server-owned read, append its verified result, then let
@@ -1738,6 +1751,22 @@ func runAssistantAgent(c *gin.Context, settings setting.AssistantSettings, conve
 			return
 		}
 		message := response.Choices[0].Message
+		if assistantNamedToolChoiceName(request.ToolChoice) == "set_conversation_title" &&
+			(len(message.ToolCalls) != 1 || strings.TrimSpace(message.ToolCalls[0].Function.Name) != "set_conversation_title") {
+			userContext = skipAssistantConversationTitle(c)
+			// Reuse a complete answer to a plain question. A task that still
+			// needs an authoritative tool read must go through that workflow;
+			// never accept unsupported account or pricing claims as a fallback.
+			nextChoice := assistantToolChoiceForAgentStep(userContext, calledTools, successfulTools)
+			if assistantNamedToolChoiceName(nextChoice) != "" || len(message.ToolCalls) > 0 || strings.TrimSpace(assistantResponseContent(message.Content)) == "" {
+				if err := streamSession.resetContent(); err != nil {
+					writeAssistantError(c, http.StatusBadGateway, "ASSISTANT_STREAM_WRITE_FAILED", errors.New("assistant stream output failed"))
+					return
+				}
+				continue
+			}
+			request.ToolChoice = nil
+		}
 		if forceConversationTitle || forceRecommendationWorkflow || forceCreateKeyWorkflow || forceImageGenerationWorkflow || forcePublicActivityWorkflow || forceNewUserGiftWorkflow || forceWeeklyDiscountWorkflow || forceHumanSupportWorkflow || forceReadChain {
 			requiredTool := assistantNamedToolChoiceName(request.ToolChoice)
 			if requiredTool != "" && (len(message.ToolCalls) != 1 || strings.TrimSpace(message.ToolCalls[0].Function.Name) != requiredTool) {
@@ -1782,12 +1811,22 @@ func runAssistantAgent(c *gin.Context, settings setting.AssistantSettings, conve
 			return
 		}
 
+		// Canonicalize before retaining the assistant message as well as its
+		// results. Repairing only tool_call_id leaves orphaned tool responses
+		// when a compatible provider omits IDs or surrounds them with spaces.
+		for index := range message.ToolCalls {
+			call := &message.ToolCalls[index]
+			call.ID = strings.TrimSpace(call.ID)
+			if call.ID == "" {
+				call.ID = fmt.Sprintf("assistant-call-%d-%d", step+1, index+1)
+			}
+		}
 		messages = append(messages, assistantOpenAIMessage{
 			Role:      "assistant",
 			Content:   assistantResponseContent(message.Content),
 			ToolCalls: message.ToolCalls,
 		})
-		for index, call := range message.ToolCalls {
+		for _, call := range message.ToolCalls {
 			toolName := strings.TrimSpace(call.Function.Name)
 			calledTools[toolName] = true
 			if toolName != "set_conversation_title" {
@@ -1802,24 +1841,19 @@ func runAssistantAgent(c *gin.Context, settings setting.AssistantSettings, conve
 				successfulTools[toolName] = true
 			}
 			if toolName == "set_conversation_title" {
-				// The title tool updates the Gin context. Keep this loop's local
-				// policy snapshot in sync so the next step advances to the task
-				// tool instead of forcing the title again.
-				userContext = assistantUserContextFromGin(c)
+				// Attempt optional metadata once, including malformed drafts, so
+				// it cannot consume the turns reserved for the user's task.
+				userContext = skipAssistantConversationTitle(c)
 			}
 			if marshalErr != nil {
 				resultJSON = []byte(`{"ok":false,"error":"tool result exceeded its byte budget"}`)
 			}
 			toolTraces = append(toolTraces, buildAssistantToolTrace(call, result))
 			c.Set(assistantClientToolsKey, toolTraces)
-			callID := strings.TrimSpace(call.ID)
-			if callID == "" {
-				callID = fmt.Sprintf("assistant-call-%d-%d", step+1, index+1)
-			}
 			messages = append(messages, assistantOpenAIMessage{
 				Role:       "tool",
 				Content:    string(resultJSON),
-				ToolCallID: callID,
+				ToolCallID: call.ID,
 			})
 		}
 		if assistantContextBytes(messages) > assistantAgentContextMaxBytes {
@@ -1829,6 +1863,13 @@ func runAssistantAgent(c *gin.Context, settings setting.AssistantSettings, conve
 	}
 
 	writeAssistantError(c, http.StatusBadGateway, "ASSISTANT_AGENT_MAX_STEPS", errors.New("assistant agent reached its step limit"))
+}
+
+func skipAssistantConversationTitle(c *gin.Context) assistantUserContext {
+	userContext := assistantUserContextFromGin(c)
+	userContext.ConversationTitleNeeded = false
+	c.Set(assistantUserContextKey, userContext)
+	return userContext
 }
 
 func parseAssistantResponse(body []byte) (assistantOpenAIResponse, error) {

@@ -590,6 +590,179 @@ describe('assistant conversation context', () => {
 })
 
 describe('assistant chat retry policy', () => {
+  test('never sends an already cancelled request through either transport', async () => {
+    const originalPost = api.post
+    const originalFetch = globalThis.fetch
+    const controller = new AbortController()
+    controller.abort()
+    let calls = 0
+    const unexpectedRequest = async () => {
+      calls += 1
+      throw new Error('Cancelled requests must not reach the server')
+    }
+    api.post = unexpectedRequest as typeof api.post
+    globalThis.fetch = unexpectedRequest as typeof globalThis.fetch
+    try {
+      for (const handlers of [undefined, { onDelta: () => undefined }]) {
+        await assert.rejects(
+          sendAssistantMessage(
+            'hello',
+            [],
+            undefined,
+            undefined,
+            handlers,
+            controller.signal
+          ),
+          isAssistantRequestAborted
+        )
+      }
+      assert.equal(calls, 0)
+    } finally {
+      api.post = originalPost
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  test('passes cancellation to JSON requests and recognizes Axios cancellation', async () => {
+    const originalPost = api.post
+    const controller = new AbortController()
+    let calls = 0
+    api.post = (async (_url: string, _data: unknown, config: unknown) => {
+      calls += 1
+      assert.equal(
+        (config as { signal?: AbortSignal }).signal,
+        controller.signal
+      )
+      throw Object.assign(new Error('cancelled'), { __CANCEL__: true })
+    }) as typeof api.post
+    try {
+      await assert.rejects(
+        sendAssistantMessage(
+          'hello',
+          [],
+          undefined,
+          undefined,
+          undefined,
+          controller.signal
+        ),
+        isAssistantRequestAborted
+      )
+      assert.equal(calls, 1)
+    } finally {
+      api.post = originalPost
+    }
+  })
+
+  test('stopping during retry backoff prevents another request and visible reset', async () => {
+    const originalFetch = globalThis.fetch
+    const controller = new AbortController()
+    let calls = 0
+    let resets = 0
+    let abortTimer: ReturnType<typeof setTimeout> | undefined
+    globalThis.fetch = (async () => {
+      calls += 1
+      abortTimer = setTimeout(() => controller.abort(), 10)
+      return new Response('{"message":"temporarily unavailable"}', {
+        status: 503,
+      })
+    }) as typeof globalThis.fetch
+    try {
+      await assert.rejects(
+        sendAssistantMessage(
+          'hello',
+          [],
+          undefined,
+          undefined,
+          {
+            onDelta: () => undefined,
+            onReset: () => {
+              resets += 1
+            },
+          },
+          controller.signal
+        ),
+        isAssistantRequestAborted
+      )
+      assert.equal(calls, 1)
+      assert.equal(resets, 0)
+    } finally {
+      clearTimeout(abortTimer)
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  test('honors a terminal retry policy from both JSON and streaming HTTP errors', async () => {
+    const originalPost = api.post
+    const originalFetch = globalThis.fetch
+    let calls = 0
+    api.post = (async () => {
+      calls += 1
+      throw Object.assign(retryableAxiosError(503), {
+        response: { status: 503, data: { retryable: false } },
+      })
+    }) as typeof api.post
+    globalThis.fetch = (async () => {
+      calls += 1
+      return new Response('{"message":"service disabled","retryable":false}', {
+        status: 503,
+      })
+    }) as typeof globalThis.fetch
+    try {
+      await assert.rejects(sendAssistantMessage('hello'))
+      await assert.rejects(
+        sendAssistantMessage('hello', [], undefined, undefined, {
+          onDelta: () => undefined,
+        }),
+        /service disabled/
+      )
+      assert.equal(calls, 2)
+    } finally {
+      api.post = originalPost
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  test('retries HTTP rate limits with the same conversation and question', async () => {
+    const originalFetch = globalThis.fetch
+    const requests: Array<{ body: unknown; attempt: string | null }> = []
+    globalThis.fetch = (async (_input, init) => {
+      requests.push({
+        body: JSON.parse(String(init?.body)),
+        attempt: new Headers(init?.headers).get('X-LMM-Assistant-Attempt'),
+      })
+      return requests.length === 1
+        ? new Response('{"message":"rate limited"}', { status: 429 })
+        : Response.json({
+            choices: [{ message: { content: 'Windows setup instructions' } }],
+          })
+    }) as typeof globalThis.fetch
+    try {
+      const reply = await sendAssistantMessage(
+        'What about Windows?',
+        [
+          { role: 'user', content: 'How do I configure my client?' },
+          { role: 'assistant', content: 'Which operating system?' },
+        ],
+        42,
+        undefined,
+        { onDelta: () => undefined }
+      )
+      assert.equal(reply.content, 'Windows setup instructions')
+      assert.equal(requests.length, 2)
+      assert.deepEqual(
+        requests.map(({ attempt }) => attempt),
+        ['1', '2']
+      )
+      assert.deepEqual(requests[1].body, requests[0].body)
+      assert.equal(
+        (requests[1].body as { conversation_id: number }).conversation_id,
+        42
+      )
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
   test('consumes assistant SSE deltas before the final response', async () => {
     const originalFetch = globalThis.fetch
     const chunks = [

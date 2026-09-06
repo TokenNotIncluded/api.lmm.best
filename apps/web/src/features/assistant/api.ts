@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import axios, { type AxiosError, type AxiosResponse } from 'axios'
+import axios, { type AxiosError } from 'axios'
 
 import type { QuotaDataItem } from '@/features/dashboard/types'
 import type { PricingData } from '@/features/pricing/types'
@@ -27,6 +27,7 @@ import { useAuthStore } from '@/stores/auth-store'
 import {
   AssistantStreamError,
   consumeAssistantAISDKStream,
+  isRetryableAssistantStatus,
 } from './assistant-ai-stream'
 import { redactAssistantMessageForRequest } from './assistant-message-safety'
 
@@ -73,13 +74,9 @@ function isRetryableAssistantError(error: unknown): boolean {
   if (isAssistantRequestAborted(error)) return false
   if (axios.isAxiosError(error)) {
     const status = error.response?.status
-    return (
-      status === undefined ||
-      status === 408 ||
-      status === 425 ||
-      status === 429 ||
-      status >= 500
-    )
+    const retryable = error.response?.data?.retryable
+    if (typeof retryable === 'boolean') return retryable
+    return status === undefined || isRetryableAssistantStatus(status)
   }
   if (error instanceof AssistantStreamError) {
     return error.retryable
@@ -90,11 +87,36 @@ function isRetryableAssistantError(error: unknown): boolean {
 }
 
 export function isAssistantRequestAborted(error: unknown): boolean {
-  return error instanceof Error && error.name === 'AbortError'
+  return (
+    axios.isCancel(error) ||
+    (error instanceof Error && error.name === 'AbortError')
+  )
 }
 
-function waitForAssistantRetry(delayMs: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, delayMs))
+function throwIfAssistantAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    throw new DOMException('The assistant request was cancelled.', 'AbortError')
+  }
+}
+
+function waitForAssistantRetry(
+  delayMs: number,
+  signal?: AbortSignal
+): Promise<void> {
+  throwIfAssistantAborted(signal)
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', abort)
+      resolve()
+    }, delayMs)
+    const abort = () => {
+      clearTimeout(timer)
+      reject(
+        new DOMException('The assistant request was cancelled.', 'AbortError')
+      )
+    }
+    signal?.addEventListener('abort', abort, { once: true })
+  })
 }
 
 export type AssistantFundingStatus = {
@@ -1351,6 +1373,7 @@ async function sendAssistantMessageStream(
   const auth = useAuthStore.getState().auth
   const authHeaders =
     auth.user && auth.session ? await getFreshAuthHeaders() : getCommonHeaders()
+  throwIfAssistantAborted(signal)
   const response = await fetch('/api/assistant/chat', {
     method: 'POST',
     credentials: 'include',
@@ -1375,13 +1398,14 @@ async function sendAssistantMessageStream(
       response.status,
       payload,
       message,
-      payload?.retryable === true || response.status >= 500
+      payload?.retryable
     )
   }
 
   const contentType = response.headers.get('content-type')?.toLowerCase() || ''
   if (!contentType.includes('text/event-stream')) {
     const jsonPayload = payload ?? (await readAssistantFetchPayload(response))
+    throwIfAssistantAborted(signal)
     return buildAssistantReply(
       jsonPayload,
       response.headers.get('x-lmm-assistant-intent')
@@ -1395,6 +1419,7 @@ async function sendAssistantMessageStream(
     )
   }
   const streamedPayload = await consumeAssistantStream(response.body, handlers)
+  throwIfAssistantAborted(signal)
   return buildAssistantReply(
     streamedPayload,
     response.headers.get('x-lmm-assistant-intent')
@@ -1418,12 +1443,12 @@ export async function sendAssistantMessage(
     conversationId,
     presetId
   )
-  let response: AxiosResponse<AssistantChatPayload> | undefined
   for (
     let attempt = 1;
     attempt <= ASSISTANT_MAX_REQUEST_ATTEMPTS;
     attempt += 1
   ) {
+    throwIfAssistantAborted(signal)
     if (attempt > 1) handlers?.onReset?.()
     try {
       if (handlers?.onDelta) {
@@ -1434,17 +1459,23 @@ export async function sendAssistantMessage(
           signal
         )
       }
-      response = await api.post<AssistantChatPayload>(
+      const response = await api.post<AssistantChatPayload>(
         '/api/assistant/chat',
         requestBody,
         {
           skipBusinessError: true,
           skipErrorHandler: true,
+          signal,
           headers: { 'X-LMM-Assistant-Attempt': String(attempt) },
         }
       )
-      break
+      throwIfAssistantAborted(signal)
+      return buildAssistantReply(
+        response.data,
+        response.headers['x-lmm-assistant-intent']
+      )
     } catch (error) {
+      throwIfAssistantAborted(signal)
       if (
         !isRetryableAssistantError(error) ||
         attempt >= ASSISTANT_MAX_REQUEST_ATTEMPTS
@@ -1452,15 +1483,12 @@ export async function sendAssistantMessage(
         throw error
       }
       await waitForAssistantRetry(
-        ASSISTANT_RETRY_DELAYS_MS[attempt - 1] ?? 1_500
+        ASSISTANT_RETRY_DELAYS_MS[attempt - 1] ?? 1_500,
+        signal
       )
     }
   }
-  if (!response) throw new Error('Assistant request did not complete')
-  return buildAssistantReply(
-    response.data,
-    response.headers['x-lmm-assistant-intent']
-  )
+  throw new Error('Assistant request did not complete')
 }
 
 export async function getAssistantPreConversationPresets(): Promise<AssistantPreConversationPresets> {

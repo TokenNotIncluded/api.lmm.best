@@ -22,8 +22,8 @@ import {
   MailSend01Icon,
 } from '@hugeicons/core-free-icons'
 import { HugeiconsIcon } from '@hugeicons/react'
-import { useQuery } from '@tanstack/react-query'
-import { useEffect, useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -56,12 +56,12 @@ import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Spinner } from '@/components/ui/spinner'
 import { Textarea } from '@/components/ui/textarea'
+import { useAuthStore } from '@/stores/auth-store'
 
 import {
   getAssistantHandoff,
   submitAssistantHandoff,
   type AssistantHumanSupportAction,
-  type AssistantHandoff,
 } from './api'
 
 const minAssistantHandoffCharacters = 5
@@ -69,28 +69,59 @@ const minAssistantHandoffCharacters = 5
 export function AssistantHandoffTool(props: {
   confirmationAction?: AssistantHumanSupportAction | null
 }) {
+  const userId = useAuthStore((state) => state.auth.user?.id ?? null)
+  const sessionId = useAuthStore((state) => state.auth.session?.sid ?? null)
+  return (
+    <AssistantHandoffToolContent
+      key={JSON.stringify([userId, sessionId])}
+      {...props}
+      userId={userId}
+      sessionId={sessionId}
+    />
+  )
+}
+
+function AssistantHandoffToolContent(props: {
+  confirmationAction?: AssistantHumanSupportAction | null
+  userId: number | null
+  sessionId: string | null
+}) {
   const { t } = useTranslation()
+  const queryClient = useQueryClient()
+  const mountedRef = useRef(false)
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+    }
+  }, [])
   const [message, setMessage] = useState(
     props.confirmationAction?.message ?? ''
   )
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [submitting, setSubmitting] = useState(false)
-  const [submitted, setSubmitted] = useState<AssistantHandoff | null>(null)
+  const [consumedConfirmationToken, setConsumedConfirmationToken] = useState<
+    string | null
+  >(null)
+  const queryKey = ['assistant-handoff', props.userId, props.sessionId] as const
   const handoffQuery = useQuery({
-    queryKey: ['assistant-handoff'],
+    queryKey,
     queryFn: getAssistantHandoff,
     staleTime: 30_000,
     retry: false,
   })
-  const current = submitted ?? handoffQuery.data
-  const confirmationToken = props.confirmationAction?.confirmation_token
-  const isPreparedAction = Boolean(props.confirmationAction)
+  const current = handoffQuery.data
+  const confirmationAction =
+    props.confirmationAction?.confirmation_token === consumedConfirmationToken
+      ? undefined
+      : props.confirmationAction
+  const confirmationToken = confirmationAction?.confirmation_token
+  const isPreparedAction = Boolean(confirmationAction)
   useEffect(() => {
-    if (props.confirmationAction) {
-      setMessage(props.confirmationAction.message)
-      setSubmitted(null)
+    if (confirmationAction) {
+      setMessage(confirmationAction.message)
     }
-  }, [props.confirmationAction])
+  }, [confirmationAction, consumedConfirmationToken])
   const trimmedMessage = message.trim()
   const messageLength = [...trimmedMessage].length
   const messageTooShort =
@@ -98,21 +129,40 @@ export function AssistantHandoffTool(props: {
 
   const submit = async () => {
     if (submitting || messageLength < minAssistantHandoffCharacters) return
+    const isCurrentSubmission = () => {
+      const auth = useAuthStore.getState().auth
+      return (
+        mountedRef.current &&
+        (auth.user?.id ?? null) === props.userId &&
+        (auth.session?.sid ?? null) === props.sessionId
+      )
+    }
+    if (!isCurrentSubmission()) return
     setSubmitting(true)
     try {
       const result = await submitAssistantHandoff(
         trimmedMessage,
         confirmationToken
       )
-      setSubmitted(result)
+      if (!isCurrentSubmission()) return
+      // A status lookup started before submission must not overwrite the
+      // newly created request. Keep one cache that later refreshes can update.
+      await queryClient.cancelQueries({ queryKey, exact: true })
+      if (!isCurrentSubmission()) return
+      queryClient.setQueryData(queryKey, result)
+      if (confirmationToken) setConsumedConfirmationToken(confirmationToken)
+      setMessage((current) =>
+        current.trim() === trimmedMessage ? '' : current
+      )
       setConfirmOpen(false)
       toast.success(t('Your message was sent to an administrator'))
     } catch (error) {
+      if (!isCurrentSubmission()) return
       toast.error(
         error instanceof Error ? error.message : t('Unable to contact support')
       )
     } finally {
-      setSubmitting(false)
+      if (isCurrentSubmission()) setSubmitting(false)
     }
   }
 
@@ -134,8 +184,28 @@ export function AssistantHandoffTool(props: {
             )}
           </CardDescription>
         </CardHeader>
-        <CardContent>
-          <Badge variant='outline'>{t('Pending')}</Badge>
+        <CardContent className='grid gap-3'>
+          <div className='flex flex-wrap items-center justify-between gap-2'>
+            <Badge variant='outline'>{t('Pending')}</Badge>
+            <Button
+              type='button'
+              variant='outline'
+              size='sm'
+              className='min-h-11 sm:min-h-8'
+              onClick={() => void handoffQuery.refetch()}
+              disabled={handoffQuery.isFetching}
+            >
+              {handoffQuery.isFetching ? (
+                <Spinner data-icon='inline-start' />
+              ) : null}
+              {t('Refresh')}
+            </Button>
+          </div>
+          {handoffQuery.isError ? (
+            <p className='text-destructive text-sm' role='alert'>
+              {t('Unable to check support request status')}
+            </p>
+          ) : null}
         </CardContent>
       </Card>
     )

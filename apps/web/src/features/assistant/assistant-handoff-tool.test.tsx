@@ -59,6 +59,7 @@ const { QueryClient, QueryClientProvider } =
 const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { api } = await import('@/lib/api')
+const { useAuthStore } = await import('@/stores/auth-store')
 const { AssistantHandoffTool } = await import('./assistant-handoff-tool')
 type AssistantHumanSupportAction = import('./api').AssistantHumanSupportAction
 
@@ -100,18 +101,21 @@ async function renderTool(confirmationAction?: AssistantHumanSupportAction) {
   document.body.append(container)
   const root = createRoot(container)
 
-  await act(async () => {
-    root.render(
-      <QueryClientProvider client={queryClient}>
-        <I18nextProvider i18n={i18n}>
-          <AssistantHandoffTool confirmationAction={confirmationAction} />
-        </I18nextProvider>
-      </QueryClientProvider>
-    )
-    await flushEffects()
-  })
-  await act(flushEffects)
-  return { container, queryClient, root }
+  const rerender = async (action?: AssistantHumanSupportAction) => {
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <I18nextProvider i18n={i18n}>
+            <AssistantHandoffTool confirmationAction={action} />
+          </I18nextProvider>
+        </QueryClientProvider>
+      )
+      await flushEffects()
+    })
+    await act(flushEffects)
+  }
+  await rerender(confirmationAction)
+  return { container, queryClient, root, rerender }
 }
 
 function findButton(text: string): HTMLButtonElement {
@@ -145,6 +149,7 @@ afterEach(() => {
   api.get = originalGet
   api.post = originalPost
   document.body.replaceChildren()
+  useAuthStore.getState().auth.reset()
 })
 
 after(() => domWindow.close())
@@ -197,13 +202,26 @@ describe('AssistantHandoffTool', () => {
     await unmount(rendered)
   })
 
-  test('recovers the status check and requires confirmation before sending', async () => {
+  test('confirms submission and refreshes the pending request to show the administrator reply', async () => {
     let getCalls = 0
     let posted: { url: string; data: unknown } | undefined
     api.get = (async (url: string) => {
       assert.equal(url, '/api/assistant/handoffs/self')
       getCalls += 1
       if (getCalls === 1) throw new Error('status offline')
+      if (getCalls === 3) {
+        return {
+          data: {
+            success: true,
+            data: {
+              ...pendingHandoff,
+              status: 'resolved',
+              admin_note: 'The API key page has been fixed. Please try again.',
+              resolved_at: pendingHandoff.created_at + 60,
+            },
+          },
+        }
+      }
       return { data: { success: true, data: null } }
     }) as typeof api.get
     api.post = (async (url: string, data: unknown) => {
@@ -260,13 +278,92 @@ describe('AssistantHandoffTool', () => {
       /Administrator follow-up requested/
     )
 
+    await act(async () => {
+      findButton('Refresh').click()
+      await flushEffects()
+    })
+    await act(flushEffects)
+
+    assert.equal(getCalls, 3)
+    assert.match(
+      rendered.container.textContent ?? '',
+      /Previous request resolved/
+    )
+    assert.match(
+      rendered.container.textContent ?? '',
+      /The API key page has been fixed\. Please try again\./
+    )
+    assert.doesNotMatch(
+      rendered.container.textContent ?? '',
+      /Administrator follow-up requested/
+    )
+    assert.ok(rendered.container.querySelector('#assistant-handoff-message'))
+
     await unmount(rendered)
   })
 
-  test('renders an assistant-prepared handoff and submits its confirmation token', async () => {
-    let posted: { url: string; data: unknown } | undefined
+  test('preserves the pending request when refreshing fails and allows another refresh', async () => {
+    let getCalls = 0
     api.get = (async () => {
-      return { data: { success: true, data: null } }
+      getCalls += 1
+      if (getCalls === 2) throw new Error('status offline')
+      return { data: { success: true, data: pendingHandoff } }
+    }) as typeof api.get
+
+    const rendered = await renderTool()
+    try {
+      await act(async () => {
+        findButton('Refresh').click()
+        await flushEffects()
+      })
+      await act(flushEffects)
+
+      assert.match(
+        rendered.container.textContent ?? '',
+        /Administrator follow-up requested/
+      )
+      assert.match(
+        rendered.container.textContent ?? '',
+        /Unable to check support request status/
+      )
+      assert.equal(
+        rendered.container.querySelector('#assistant-handoff-message'),
+        null
+      )
+      assert.equal(findButton('Refresh').disabled, false)
+
+      await act(async () => {
+        findButton('Refresh').click()
+        await flushEffects()
+      })
+      await act(flushEffects)
+
+      assert.equal(getCalls, 3)
+      assert.doesNotMatch(
+        rendered.container.textContent ?? '',
+        /Unable to check support request status/
+      )
+      assert.match(
+        rendered.container.textContent ?? '',
+        /Administrator follow-up requested/
+      )
+    } finally {
+      await unmount(rendered)
+    }
+  })
+
+  test('consumes a prepared handoff once, allows a new manual issue, and accepts a new prepared action', async () => {
+    let posted: { url: string; data: unknown } | undefined
+    let getCalls = 0
+    api.get = (async () => {
+      getCalls += 1
+      return {
+        data: {
+          success: true,
+          data:
+            getCalls === 1 ? null : { ...pendingHandoff, status: 'resolved' },
+        },
+      }
     }) as typeof api.get
     api.post = (async (url: string, data: unknown) => {
       posted = { url, data }
@@ -308,6 +405,155 @@ describe('AssistantHandoffTool', () => {
         confirmation_token: 'handoff-token',
       },
     })
+
+    await act(async () => {
+      findButton('Refresh').click()
+      await flushEffects()
+    })
+    await act(flushEffects)
+    // Re-rendering the same action must not reactivate its consumed token.
+    await rendered.rerender({ ...action })
+    const textarea = rendered.container.querySelector<HTMLTextAreaElement>(
+      '#assistant-handoff-message'
+    )
+    assert.ok(textarea)
+    assert.equal(textarea.value, '')
+    assert.equal(findButton('Review message').disabled, true)
+    await setTextareaValue(
+      textarea,
+      'A different issue needs administrator help.'
+    )
+    await act(async () => {
+      findButton('Review message').click()
+      await flushEffects()
+    })
+    await act(async () => {
+      findButton('Confirm and send').click()
+      await flushEffects()
+    })
+    await act(flushEffects)
+    assert.deepEqual(posted?.data, {
+      confirmed: true,
+      message: 'A different issue needs administrator help.',
+    })
+
+    await act(async () => {
+      findButton('Refresh').click()
+      await flushEffects()
+    })
+    await act(flushEffects)
+    const nextAction = {
+      ...action,
+      confirmation_token: 'next-handoff-token',
+      message: 'Please review the new billing issue.',
+    }
+    await rendered.rerender(nextAction)
+    assert.equal(
+      rendered.container.querySelector('#assistant-handoff-message'),
+      null
+    )
+    assert.match(
+      rendered.container.textContent ?? '',
+      /Please review the new billing issue/
+    )
+    await act(async () => {
+      findButton('Review message').click()
+      await flushEffects()
+    })
+    await act(async () => {
+      findButton('Confirm and send').click()
+      await flushEffects()
+    })
+    await act(flushEffects)
+    assert.deepEqual(posted?.data, {
+      confirmed: true,
+      message: nextAction.message,
+      confirmation_token: nextAction.confirmation_token,
+    })
     await unmount(rendered)
   })
+
+  for (const change of ['unmount', 'account', 'session'] as const) {
+    test(`ignores a late submission after ${change}`, async () => {
+      useAuthStore
+        .getState()
+        .auth.setUser({ id: 1, username: 'first-user', role: 1 })
+      api.get = (async () => ({
+        data: { success: true, data: null },
+      })) as typeof api.get
+      let finishPost: (() => void) | undefined
+      api.post = (async () =>
+        new Promise<unknown>((resolve) => {
+          finishPost = () =>
+            resolve({ data: { success: true, data: pendingHandoff } })
+        })) as typeof api.post
+      const rendered = await renderTool()
+      const textarea = rendered.container.querySelector<HTMLTextAreaElement>(
+        '#assistant-handoff-message'
+      )
+      assert.ok(textarea)
+      await setTextareaValue(textarea, pendingHandoff.message)
+      await act(async () => {
+        findButton('Review message').click()
+        await flushEffects()
+      })
+      await act(async () => {
+        findButton('Confirm and send').click()
+        await flushEffects()
+      })
+      assert.ok(finishPost)
+
+      if (change === 'unmount') {
+        await unmount(rendered)
+      } else {
+        await act(async () => {
+          if (change === 'account') {
+            useAuthStore
+              .getState()
+              .auth.setUser({ id: 2, username: 'second-user', role: 1 })
+          } else {
+            useAuthStore.setState((state) => ({
+              auth: {
+                ...state.auth,
+                session: {
+                  sid: 'replacement-session',
+                  current: true,
+                  login_method: 'password',
+                  ip: '',
+                  user_agent: '',
+                  created_at: 0,
+                  last_active_at: 0,
+                  expires_at: 0,
+                },
+              },
+            }))
+          }
+          await flushEffects()
+        })
+        await act(flushEffects)
+      }
+
+      await act(async () => {
+        finishPost?.()
+        await flushEffects()
+      })
+      await act(flushEffects)
+      assert.ok(
+        rendered.queryClient
+          .getQueryCache()
+          .findAll({ queryKey: ['assistant-handoff'] })
+          .every((query) => query.state.data === null)
+      )
+      if (change !== 'unmount') {
+        assert.doesNotMatch(
+          rendered.container.textContent ?? '',
+          /Administrator follow-up requested/
+        )
+        assert.ok(
+          rendered.container.querySelector('#assistant-handoff-message')
+        )
+        await unmount(rendered)
+      }
+    })
+  }
 })

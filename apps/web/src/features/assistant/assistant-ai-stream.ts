@@ -16,6 +16,10 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 import { readUIMessageStream, type UIMessageChunk } from 'ai'
 
+export function isRetryableAssistantStatus(status: number): boolean {
+  return status === 408 || status === 425 || status === 429 || status >= 500
+}
+
 export class AssistantStreamError extends Error {
   readonly response: { status: number; data: unknown }
   readonly status: number
@@ -25,7 +29,7 @@ export class AssistantStreamError extends Error {
     status: number,
     data: unknown,
     message: string,
-    retryable = status >= 500
+    retryable = isRetryableAssistantStatus(status)
   ) {
     super(message)
     this.name = 'AssistantStreamError'
@@ -106,6 +110,13 @@ function createAssistantAISDKStream(
         let payload: AssistantStreamPayload
         try {
           payload = JSON.parse(data) as AssistantStreamPayload
+          if (
+            !payload ||
+            typeof payload !== 'object' ||
+            Array.isArray(payload)
+          ) {
+            throw new Error('Expected an assistant event object')
+          }
         } catch {
           fail(
             new AssistantStreamError(
@@ -157,7 +168,9 @@ function createAssistantAISDKStream(
               status,
               payload,
               message,
-              payload.retryable === true || status >= 500
+              typeof payload.retryable === 'boolean'
+                ? payload.retryable
+                : undefined
             )
           )
           return
@@ -179,8 +192,9 @@ function createAssistantAISDKStream(
       }
 
       const consume = async () => {
+        let reader: ReadableStreamDefaultReader<Uint8Array> | undefined
         try {
-          const reader = body.getReader()
+          reader = body.getReader()
           const decoder = new TextDecoder()
           controller.enqueue({ type: 'start', messageId: 'assistant-message' })
           while (!settled) {
@@ -221,6 +235,13 @@ function createAssistantAISDKStream(
                 : 'Assistant stream could not be read'
             )
           )
+        } finally {
+          // A done/error event can arrive before HTTP closes the connection.
+          // Stop reading that response before retrying or starting another turn.
+          if (reader) {
+            await reader.cancel().catch(() => undefined)
+            reader.releaseLock()
+          }
         }
       }
 
@@ -249,16 +270,14 @@ export async function consumeAssistantAISDKStream(
       handlers.onDelta?.(event.content)
     }
   )
-  try {
+  const drainMessages = async () => {
     for await (const _message of readUIMessageStream({
       stream: messageStream,
     })) {
       // Draining the AI SDK stream preserves its lifecycle validation while the
       // raw event callback above applies replacement semantics losslessly.
     }
-  } catch (error) {
-    await completion.catch(() => undefined)
-    throw error
   }
-  return completion
+  const [payload] = await Promise.all([completion, drainMessages()])
+  return payload
 }
