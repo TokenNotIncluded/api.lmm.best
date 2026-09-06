@@ -19,6 +19,7 @@ import (
 
 const KeyRequestBody = "key_request_body"
 const KeyBodyStorage = "key_body_storage"
+const KeyMultipartForms = "key_multipart_forms"
 
 var ErrRequestBodyTooLarge = errors.New("request body too large")
 
@@ -103,6 +104,40 @@ func CleanupBodyStorage(c *gin.Context) {
 		}
 		c.Set(KeyBodyStorage, nil)
 	}
+}
+
+// trackMultipartForm 登记每轮解析结果；net/http 仅清理 Request.MultipartForm。
+func trackMultipartForm(c *gin.Context, form *multipart.Form) {
+	if c == nil || form == nil {
+		return
+	}
+	tracked, _ := c.Get(KeyMultipartForms)
+	forms, _ := tracked.([]*multipart.Form)
+	c.Set(KeyMultipartForms, append(forms, form))
+}
+
+// CleanupMultipartForms 释放本次请求解析出的所有 multipart 临时文件（应在请求
+// 结束时调用）。Form.RemoveAll 会忽略文件已不存在的情况，因此与调用方自己的
+// RemoveAll 或 net/http 的自动清理重复执行是安全的。
+func CleanupMultipartForms(c *gin.Context) {
+	if c == nil {
+		return
+	}
+	tracked, exists := c.Get(KeyMultipartForms)
+	if !exists || tracked == nil {
+		return
+	}
+	if forms, ok := tracked.([]*multipart.Form); ok {
+		for _, form := range forms {
+			if form == nil {
+				continue
+			}
+			if err := form.RemoveAll(); err != nil {
+				SysLog("failed to remove multipart temporary files: " + err.Error())
+			}
+		}
+	}
+	c.Set(KeyMultipartForms, nil)
 }
 
 func UnmarshalBodyReusable(c *gin.Context, v any) error {
@@ -257,10 +292,6 @@ func ParseMultipartFormReusable(c *gin.Context) (*multipart.Form, error) {
 	if err != nil {
 		return nil, err
 	}
-	requestBody, err := storage.Bytes()
-	if err != nil {
-		return nil, err
-	}
 
 	// Use the original Content-Type saved on first call to avoid boundary
 	// mismatch when callers overwrite c.Request.Header after multipart rebuild.
@@ -276,11 +307,14 @@ func ParseMultipartFormReusable(c *gin.Context) (*multipart.Form, error) {
 		return nil, err
 	}
 
-	reader := multipart.NewReader(bytes.NewReader(requestBody), boundary)
+	// Stream disk-backed bodies without allocating another copy of the upload.
+	reader := multipart.NewReader(storage, boundary)
 	form, err := reader.ReadForm(multipartMemoryLimit())
 	if err != nil {
 		return nil, err
 	}
+	// 即使后续复位失败，请求结束时也需要清理这个表单。
+	trackMultipartForm(c, form)
 
 	// Reset request body
 	if _, seekErr := storage.Seek(0, io.SeekStart); seekErr != nil {
