@@ -9,6 +9,7 @@ package model
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
@@ -19,7 +20,7 @@ import (
 
 func TestApplyWaffoPancakeRefundAccumulatesSubscriptionPartialRefunds(t *testing.T) {
 	db := setupConsoleActivationTestDB(t)
-	require.NoError(t, db.AutoMigrate(&SubscriptionOrder{}, &UserSubscription{}, &FinanceLedgerEntry{}))
+	require.NoError(t, db.AutoMigrate(&SubscriptionOrder{}, &UserSubscription{}, &FinanceLedgerEntry{}, &SubscriptionPaymentEvent{}))
 
 	user := User{Username: "refund-subscription-owner", Password: "password", Status: common.UserStatusEnabled}
 	require.NoError(t, db.Create(&user).Error)
@@ -218,6 +219,184 @@ func TestApplyWaffoPancakeRefundBindsProviderEventToOriginalOrder(t *testing.T) 
 	require.NoError(t, db.Where("source_type = ?", FinanceSourceRefund).Find(&entries).Error)
 	require.Len(t, entries, 1)
 	assert.Contains(t, entries[0].Note, "refund_trade_no="+firstOrder.TradeNo)
+}
+
+func TestSubscriptionRenewalRestoresPurchasedQuotaAndIgnoresPriorRefundRetries(t *testing.T) {
+	for _, refundOffset := range []int64{-1, 0, 60} {
+		t.Run(fmt.Sprintf("refund_offset_%d", refundOffset), func(t *testing.T) {
+			db := setupConsoleActivationTestDB(t)
+			require.NoError(t, db.AutoMigrate(
+				&SubscriptionPlan{}, &SubscriptionOrder{}, &UserSubscription{},
+				&SubscriptionPaymentEvent{}, &FinanceLedgerEntry{}, &TopUp{}, &Log{},
+			))
+
+			user := User{
+				Username: "refund-renewal-owner", Password: "password",
+				Status: common.UserStatusEnabled, Group: "default", AffCode: "refund-renewal-owner",
+			}
+			require.NoError(t, db.Create(&user).Error)
+			plan := SubscriptionPlan{
+				Title: "Refund renewal plan", PriceAmount: 10, Currency: "USD",
+				DurationUnit: SubscriptionDurationMonth, DurationValue: 1,
+				Enabled: true, TotalAmount: 100_000,
+			}
+			require.NoError(t, db.Create(&plan).Error)
+			tradeNo := "refund-renewal-subscription"
+			order := SubscriptionOrder{
+				UserId: user.Id, PlanId: plan.Id, Money: plan.PriceAmount, TradeNo: tradeNo,
+				PaymentMethod: PaymentMethodWaffoPancake, PaymentProvider: PaymentProviderWaffoPancake,
+				Status: common.TopUpStatusPending, CreateTime: common.GetTimestamp(),
+				PlanSnapshot: common.GetJsonString(plan), ExpectedAmountMicros: 1_000_000,
+				SettlementCurrency: "USD", ProviderProductId: "PROD_refund_renewal",
+			}
+			require.NoError(t, db.Create(&order).Error)
+			require.NoError(t, CompleteSubscriptionOrder(tradeNo, `{}`, PaymentProviderWaffoPancake, ""))
+
+			now := common.GetTimestamp()
+			firstStart := now - 60
+			firstEnd := now + 30*24*60*60
+			require.NoError(t, ApplySubscriptionPaymentEvent(tradeNo, &SubscriptionPaymentEvent{
+				PaymentProvider: PaymentProviderWaffoPancake, ProviderEventId: "EVT_refund_renewal_initial",
+				ProviderTransactionId: "PAY_refund_renewal_initial", SettlementCurrency: "USD",
+				SettlementAmountMicros: 1_000_000, PeriodStart: firstStart, PeriodEnd: firstEnd,
+			}, "ORD_refund_renewal", "active"))
+
+			result, err := ApplyWaffoPancakeRefund(
+				tradeNo, true, 500_000, FinanceCurrencyUSD,
+				"EVT_refund_renewal_partial", PaymentMethodWaffoPancake, PaymentProviderWaffoPancake,
+				"period-1 refund", user.Id,
+			)
+			require.NoError(t, err)
+			assert.True(t, result.Created)
+			assert.Equal(t, int64(50_000), result.QuotaDebited)
+
+			storedOrder := GetSubscriptionOrderByTradeNo(tradeNo)
+			require.NotNil(t, storedOrder)
+			var subscription UserSubscription
+			require.NoError(t, db.First(&subscription, storedOrder.UserSubscriptionId).Error)
+			assert.Equal(t, int64(50_000), subscription.AmountTotal)
+
+			// A refund may arrive at or after the next billing boundary before the
+			// renewal callback. Its ledger timestamp must not decide replay safety.
+			require.NoError(t, db.Model(&FinanceLedgerEntry{}).
+				Where("source_id = ?", "EVT_refund_renewal_partial").
+				Update("occurred_at", firstEnd+refundOffset).Error)
+			// Editing the live plan must not change the purchased renewal grant.
+			require.NoError(t, db.Model(&plan).Update("total_amount", 250_000).Error)
+
+			secondEnd := firstEnd + 31*24*60*60
+			require.NoError(t, ApplySubscriptionPaymentEvent(tradeNo, &SubscriptionPaymentEvent{
+				PaymentProvider: PaymentProviderWaffoPancake, ProviderEventId: "EVT_refund_renewal_cycle_2",
+				ProviderTransactionId: "PAY_refund_renewal_cycle_2", SettlementCurrency: "USD",
+				SettlementAmountMicros: 1_000_000, PeriodStart: firstEnd, PeriodEnd: secondEnd,
+				CreatedTime: firstEnd + 60,
+			}, "ORD_refund_renewal", "active"))
+
+			require.NoError(t, db.First(&subscription, storedOrder.UserSubscriptionId).Error)
+			assert.Equal(t, int64(100_000), subscription.AmountTotal, "paid renewal must restore the purchased quota grant")
+			assert.Equal(t, "active", subscription.Status)
+			storedOrder = GetSubscriptionOrderByTradeNo(tradeNo)
+			require.NotNil(t, storedOrder)
+			assert.Zero(t, storedOrder.RefundedAmountMicros)
+			assert.Zero(t, storedOrder.RefundedQuota)
+
+			result, err = ApplyWaffoPancakeRefund(
+				tradeNo, true, 500_000, FinanceCurrencyUSD,
+				"EVT_refund_renewal_partial", PaymentMethodWaffoPancake, PaymentProviderWaffoPancake,
+				"period-1 refund retry", user.Id,
+			)
+			require.NoError(t, err)
+			assert.False(t, result.Created)
+			assert.Zero(t, result.QuotaDebited)
+			require.NoError(t, db.First(&subscription, storedOrder.UserSubscriptionId).Error)
+			assert.Equal(t, int64(100_000), subscription.AmountTotal, "prior-period refund retry must not shrink the new grant")
+			storedOrder = GetSubscriptionOrderByTradeNo(tradeNo)
+			require.NotNil(t, storedOrder)
+			assert.Zero(t, storedOrder.RefundedAmountMicros)
+
+			result, err = ApplyWaffoPancakeRefund(
+				tradeNo, true, 250_000, FinanceCurrencyUSD,
+				"EVT_refund_renewal_cycle_2_partial", PaymentMethodWaffoPancake, PaymentProviderWaffoPancake,
+				"period-2 refund", user.Id,
+			)
+			require.NoError(t, err)
+			assert.True(t, result.Created)
+			assert.Equal(t, int64(25_000), result.QuotaDebited)
+			require.NoError(t, db.First(&subscription, storedOrder.UserSubscriptionId).Error)
+			assert.Equal(t, int64(75_000), subscription.AmountTotal)
+			result, err = ApplyWaffoPancakeRefund(
+				tradeNo, true, 250_000, FinanceCurrencyUSD,
+				"EVT_refund_renewal_cycle_2_partial", PaymentMethodWaffoPancake, PaymentProviderWaffoPancake,
+				"period-2 refund retry", user.Id,
+			)
+			require.NoError(t, err)
+			assert.False(t, result.Created)
+			assert.Zero(t, result.QuotaDebited)
+		})
+	}
+}
+
+func TestApplySubscriptionRefundBackfillsLegacyLedger(t *testing.T) {
+	for _, receiptCount := range []int{1, 2} {
+		t.Run(fmt.Sprintf("receipts_%d", receiptCount), func(t *testing.T) {
+			db := setupConsoleActivationTestDB(t)
+			require.NoError(t, db.AutoMigrate(&SubscriptionOrder{}, &UserSubscription{}, &FinanceLedgerEntry{}, &SubscriptionPaymentEvent{}))
+			userID := 1
+			now := common.GetTimestamp()
+			periodStart := now - 60
+			if receiptCount == 1 {
+				periodStart = now + 1
+			}
+			subscription := UserSubscription{UserId: userID, AmountTotal: 100_000, Status: "active", EndTime: now + 3600}
+			require.NoError(t, db.Create(&subscription).Error)
+			order := SubscriptionOrder{
+				UserId: userID, TradeNo: "legacy-refund-backfill", UserSubscriptionId: subscription.Id,
+				PaymentProvider: PaymentProviderWaffoPancake, PaymentMethod: PaymentMethodWaffoPancake,
+				Status: common.TopUpStatusSuccess, ExpectedAmountMicros: 1_000_000,
+				SettlementCurrency: "USD", CurrentPeriodStart: periodStart,
+			}
+			require.NoError(t, db.Create(&order).Error)
+			ledger := FinanceLedgerEntry{
+				EntryType: FinanceEntryRevenue, Category: FinanceSourceRefund, AmountMicros: 250_000,
+				Currency: FinanceCurrencyUSD, Direction: FinanceDirectionDebit,
+				PaymentMethod: order.PaymentMethod, PaymentProvider: order.PaymentProvider,
+				UserId: &userID, SourceType: FinanceSourceRefund, SourceId: "legacy-refund-event",
+				Note: "trade_no=" + order.TradeNo, OccurredAt: now, CreatedBy: userID,
+				IdempotencyKey: order.PaymentProvider + ":refund:legacy-refund-event",
+			}
+			require.NoError(t, db.Create(&ledger).Error)
+			// An initial receipt does not reset the grant. Once renewed, a newer
+			// ledger-only refund still needs its missing quota debit.
+			receiptTime := now - 1
+			if receiptCount == 1 {
+				receiptTime = now + 1
+			}
+			for cycle := 0; cycle < receiptCount; cycle++ {
+				eventID := fmt.Sprintf("legacy-receipt-%d", cycle)
+				require.NoError(t, db.Create(&SubscriptionPaymentEvent{
+					SubscriptionOrderId: order.Id, PaymentProvider: order.PaymentProvider,
+					ProviderEventId: eventID, ProviderTransactionId: eventID,
+					PeriodEnd: now + int64(cycle+1)*3600, CreatedTime: receiptTime,
+				}).Error)
+			}
+			for attempt := 0; attempt < 2; attempt++ {
+				result, err := ApplyPaymentRefund(order.TradeNo, true, 250_000, FinanceCurrencyUSD,
+					ledger.SourceId, order.PaymentMethod, order.PaymentProvider, "legacy replay", userID)
+				require.NoError(t, err)
+				assert.False(t, result.Created)
+				if attempt == 0 {
+					assert.Equal(t, int64(25_000), result.QuotaDebited)
+				} else {
+					assert.Zero(t, result.QuotaDebited)
+				}
+			}
+			require.NoError(t, db.First(&subscription, subscription.Id).Error)
+			assert.Equal(t, int64(75_000), subscription.AmountTotal)
+			var storedLedger FinanceLedgerEntry
+			require.NoError(t, db.First(&storedLedger, ledger.Id).Error)
+			assert.Equal(t, ledger.Note, storedLedger.Note, "historical finance ledger rows stay immutable")
+		})
+	}
 }
 
 func getUserQuotaForRefundTest(t *testing.T, db *gorm.DB, userID int) int {

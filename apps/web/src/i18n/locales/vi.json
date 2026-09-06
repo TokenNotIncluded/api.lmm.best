@@ -8028,6 +8028,10 @@
     "Zero retention": "Không lưu dữ liệu",
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V4",
-    "Zoom": "Thu phóng"
+    "Zoom": "Thu phóng",
+    "Automatically sign out sessions after one week": "Tự động đăng xuất phiên sau một tuần",
+    "Enabled by default. Sessions are signed out one week after login, even if they are still active, including this device.": "Bật theo mặc định. Các phiên sẽ được đăng xuất một tuần sau khi đăng nhập, ngay cả khi vẫn đang hoạt động, bao gồm cả thiết bị này.",
+    "Failed to update login session settings": "Cập nhật cài đặt phiên đăng nhập thất bại",
+    "Login session settings updated": "Đã cập nhật cài đặt phiên đăng nhập"
   }
 }

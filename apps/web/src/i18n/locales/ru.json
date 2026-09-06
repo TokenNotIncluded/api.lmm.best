@@ -8028,6 +8028,10 @@
     "Zero retention": "Без хранения данных",
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V4",
-    "Zoom": "Масштаб"
+    "Zoom": "Масштаб",
+    "Automatically sign out sessions after one week": "Автоматически завершать сеансы через неделю",
+    "Enabled by default. Sessions are signed out one week after login, even if they are still active, including this device.": "Включено по умолчанию. Сеансы завершаются через неделю после входа, даже если они всё ещё активны, включая это устройство.",
+    "Failed to update login session settings": "Не удалось обновить настройки сеанса входа",
+    "Login session settings updated": "Настройки сеанса входа обновлены"
   }
 }
