@@ -50,6 +50,7 @@ import {
 import { getSecurityPolicy } from '@/features/security/api'
 import { toIntlLocale } from '@/i18n/languages'
 import { formatQuotaWithCurrency } from '@/lib/currency'
+import { openExternalUrl } from '@/lib/external-navigation'
 import { formatTimestampToDate } from '@/lib/format'
 import { truncateText } from '@/lib/utils'
 import { validatedExternalUrl } from '@/lib/validated-external-url'
@@ -819,7 +820,7 @@ export function useChannelsColumns(
                       render={
                         <span
                           className='flex cursor-pointer items-center gap-1.5 text-xs font-medium'
-                          onClick={(e) => {
+                          onClick={async (e) => {
                             e.stopPropagation()
                             if (!deploymentId) {
                               return
@@ -837,11 +838,8 @@ export function useChannelsColumns(
                             if (targetUrl) {
                               // Invariant: targetUrl is same-origin with the exact deployments path.
                               // pi-lens-ignore: ts-open-redirect, no-open-redirect
-                              window.open(
-                                targetUrl,
-                                '_blank',
-                                'noopener,noreferrer'
-                              )
+                              const opened = await openExternalUrl(targetUrl)
+                              if (!opened) toast.error(t('Unable to open link'))
                             }
                           }}
                         />

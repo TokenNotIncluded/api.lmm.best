@@ -96,6 +96,7 @@ export function useSidebarData(): SidebarData {
               title: t('Model Square'),
               url: '/pricing',
               icon: Box,
+              interaction: 'model-panel',
             },
             {
               title: t('Status detection'),
@@ -165,7 +166,7 @@ export function useSidebarData(): SidebarData {
             title: t('Model Square'),
             url: '/pricing',
             icon: Box,
-            disabled: true,
+            interaction: 'model-panel',
           },
           {
             title: t('Status detection'),

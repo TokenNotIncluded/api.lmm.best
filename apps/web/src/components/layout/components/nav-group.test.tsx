@@ -13,9 +13,9 @@ import { describe, test } from 'node:test'
 const source = readFileSync(new URL('./nav-group.tsx', import.meta.url), 'utf8')
 
 describe('sidebar navigation interaction contract', () => {
-  test('renders disabled links as native buttons instead of router links', () => {
-    assert.match(source, /item\.disabled \? \(/)
-    assert.match(source, /<SidebarMenuButton[\s\S]*disabled[\s\S]*>/)
-    assert.match(source, /render=\{<Link to=\{item\.url\}/)
+  test('routes model-panel interactions to the client-side panel instead of navigation', () => {
+    assert.match(source, /navItem\.interaction === 'model-panel' \? openPanel : undefined/)
+    assert.match(source, /if \(onModelPanelClick\) \{/)
+    assert.match(source, /event\.preventDefault\(\)/)
   })
 })

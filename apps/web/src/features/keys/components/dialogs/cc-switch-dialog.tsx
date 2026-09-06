@@ -28,6 +28,7 @@ import { Label } from '@/components/ui/label'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { getUserModels } from '@/lib/api'
 import { buildCCSwitchProviderURL } from '@/lib/cc-switch-deep-link'
+import { openExternalUrl } from '@/lib/external-navigation'
 import { validatedExternalUrl } from '@/lib/validated-external-url'
 
 const APP_CONFIGS = {
@@ -112,7 +113,7 @@ export function CCSwitchDialog(props: Props) {
     setModels({})
   }
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!models.model) {
       toast.warning(t('Please select a primary model'))
       return
@@ -140,10 +141,17 @@ export function CCSwitchDialog(props: Props) {
         allowHash: false,
       }
     )
-    if (!url) return
+    if (!url) {
+      toast.error(t('Unable to open CC Switch'))
+      return
+    }
     // Invariant: url is ccswitch://v1/import with no credentials or fragment.
     // pi-lens-ignore: ts-open-redirect, no-open-redirect
-    window.open(url, '_blank', 'noopener,noreferrer')
+    const opened = await openExternalUrl(url)
+    if (!opened) {
+      toast.error(t('Unable to open CC Switch'))
+      return
+    }
     props.onOpenChange(false)
   }
 

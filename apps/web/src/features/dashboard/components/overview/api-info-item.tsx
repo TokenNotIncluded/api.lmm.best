@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { Zap, ExternalLink, Gauge } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
 
 import { CopyButton } from '@/components/copy-button'
 import { StatusBadge } from '@/components/status-badge'
@@ -122,7 +123,10 @@ export function ApiInfoItemComponent(props: ApiInfoItemProps) {
             <Button
               variant='ghost'
               size='sm'
-              onClick={() => openExternalSpeedTest(item.url)}
+              onClick={async () => {
+                const opened = await openExternalSpeedTest(item.url)
+                if (!opened) toast.error(t('Unable to open link'))
+              }}
               className='hover:bg-muted/80 hidden size-7 p-0 sm:inline-flex'
               title={t('External Speed Test')}
             >

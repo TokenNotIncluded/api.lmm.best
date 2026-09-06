@@ -16,17 +16,19 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-export { PricingSidebar } from './pricing-sidebar'
-export { PricingToolbar } from './pricing-toolbar'
-export { ModelCard } from './model-card'
-export { VendorModelSections } from './vendor-model-sections'
-export { LoadingSkeleton } from './loading-skeleton'
-export { EmptyState } from './empty-state'
-export { SearchBar } from './search-bar'
-export {
-  ModelDetails,
-  ModelDetailsContent,
-  ModelDetailsDrawer,
-} from './model-details'
-export { PricingTable } from './pricing-table'
-export { ModelPlazaPanel } from './model-plaza-panel'
+/*
+Copyright (C) 2026 LIghtJUNction
+*/
+type PaymentMethodAudienceRoleOption = {
+  label: string
+  value: string
+}
+
+export const getPaymentMethodAudienceRoleOptions = (
+  t: (key: string) => string
+): PaymentMethodAudienceRoleOption[] => [
+  { label: t('No role condition'), value: 'none' },
+  { label: t('Common User'), value: 'common' },
+  { label: t('Administrator'), value: 'admin' },
+  { label: t('Root administrator'), value: 'root' },
+]

@@ -26,6 +26,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     permissions:
+      actions: read
+      checks: read
       contents: write
       id-token: write
     steps:
@@ -72,6 +74,11 @@ jobs:
             echo "version=$version"
             echo "revision=$revision"
           } >>"$GITHUB_OUTPUT"
+
+      - name: Require successful CI, CodeQL, and release contracts
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: bash scripts/verify-release-commit-checks.sh "${GITHUB_SHA}"
 
       - name: Install checksum-pinned Bun
         run: |

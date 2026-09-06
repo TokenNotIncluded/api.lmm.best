@@ -7,6 +7,16 @@ REQUIRED="$ROOT/.github/required-release-checks.txt"
 REVISION=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 readonly ROOT SCRIPT REQUIRED REVISION
 
+for workflow in release-go release-web; do
+  # Both component publishers must invoke the same immutable-commit gate.
+  # shellcheck disable=SC2016
+  grep -Fq 'run: bash scripts/verify-release-commit-checks.sh "${GITHUB_SHA}"' \
+    "$ROOT/.github/workflows/$workflow.yml" || {
+    printf '%s does not enforce the required commit checks\n' "$workflow" >&2
+    exit 1
+  }
+done
+
 tmp=$(mktemp -d)
 cleanup() { rm -rf -- "$tmp"; }
 trap cleanup EXIT

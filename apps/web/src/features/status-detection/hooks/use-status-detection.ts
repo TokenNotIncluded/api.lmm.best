@@ -25,38 +25,82 @@ import { useCallback, useMemo } from 'react'
 import { getStatusDetectionMetrics, getStatusDetectionSummary } from '../api'
 import { aggregateStatusGroups } from '../lib/aggregate'
 
-const WINDOW_HOURS = 24
 const MAX_MODELS = 48
 
-export function useStatusDetection() {
+type StatusDetectionOptions = {
+  hours?: number
+  model?: string
+  group?: string
+  vendor?: string
+  modelVendors?: ReadonlyMap<string, string>
+}
+
+export function useStatusDetection(options: StatusDetectionOptions = {}) {
+  const hours = options.hours ?? 24
+  const modelFilter = options.model?.trim() ?? ''
+  const groupFilter = options.group?.trim() ?? ''
+  const vendorFilter = options.vendor?.trim() ?? ''
   const summaryQuery = useQuery({
-    queryKey: ['perf-metrics-summary', WINDOW_HOURS],
-    queryFn: () => getStatusDetectionSummary(WINDOW_HOURS),
+    queryKey: ['perf-metrics-summary', hours],
+    queryFn: () => getStatusDetectionSummary(hours),
     staleTime: 60 * 1000,
     retry: false,
   })
 
-  const modelNames = useMemo(
+  const allModelNames = useMemo(
     () =>
       (summaryQuery.data?.data.models ?? [])
         .map((model) => model.model_name.trim())
-        .filter(Boolean)
-        .slice(0, MAX_MODELS),
+        .filter(Boolean),
     [summaryQuery.data]
+  )
+  const modelNames = useMemo(
+    () =>
+      allModelNames
+        .filter((modelName) => {
+          if (modelFilter && modelName !== modelFilter) return false
+          if (
+            vendorFilter &&
+            options.modelVendors?.get(modelName) !== vendorFilter
+          ) {
+            return false
+          }
+          return true
+        })
+        .slice(0, MAX_MODELS),
+    [allModelNames, modelFilter, options.modelVendors, vendorFilter]
   )
 
   const detailsQuery = useQuery({
-    queryKey: ['status-detection-metrics', WINDOW_HOURS, modelNames],
-    queryFn: () => getStatusDetectionMetrics(modelNames, WINDOW_HOURS),
+    queryKey: ['status-detection-metrics', hours, modelNames],
+    queryFn: () => getStatusDetectionMetrics(modelNames, hours),
     enabled: modelNames.length > 0,
     staleTime: 60 * 1000,
     retry: false,
   })
 
-  const groups = useMemo(
+  const allGroups = useMemo(
     () => aggregateStatusGroups(detailsQuery.data?.entries ?? []),
     [detailsQuery.data?.entries]
   )
+  const groups = useMemo(
+    () =>
+      groupFilter
+        ? allGroups.filter((group) => group.group === groupFilter)
+        : allGroups,
+    [allGroups, groupFilter]
+  )
+  const latestTimestamp = useMemo(() => {
+    let latest = Number.NaN
+    for (const entry of detailsQuery.data?.entries ?? []) {
+      for (const group of entry.groups) {
+        for (const point of group.series ?? []) {
+          if (Number.isFinite(point.ts)) latest = Math.max(latest, point.ts)
+        }
+      }
+    }
+    return Number.isFinite(latest) ? latest : null
+  }, [detailsQuery.data?.entries])
 
   const refresh = useCallback(async () => {
     await summaryQuery.refetch()
@@ -65,6 +109,8 @@ export function useStatusDetection() {
 
   return {
     groups,
+    availableGroups: allGroups.map((group) => group.group),
+    availableModels: allModelNames,
     modelCount: modelNames.length,
     modelsWithData: detailsQuery.data?.entries.length ?? 0,
     failedModelCount: detailsQuery.data?.failedModels.length ?? 0,
@@ -72,6 +118,8 @@ export function useStatusDetection() {
     isFetching: summaryQuery.isFetching || detailsQuery.isFetching,
     error: summaryQuery.error ?? detailsQuery.error,
     hasSummary: Boolean(summaryQuery.data?.success),
+    latestTimestamp,
+    hours,
     refresh,
   }
 }

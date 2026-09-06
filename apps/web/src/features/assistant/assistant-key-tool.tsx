@@ -130,10 +130,10 @@ export function AssistantKeyTool(props: {
     selectedModel
   )
 
-  const importToCCSwitch = (apiKey: string) => {
-    if (model === '<MODEL_ID>' || typeof window === 'undefined') return
+  const prepareCCSwitchImport = (apiKey: string) => {
+    if (model === '<MODEL_ID>') return null
     const serviceRoot = trustedServiceRoot(props.baseUrl)
-    if (!serviceRoot) return
+    if (!serviceRoot) return null
 
     const normalizedKey = apiKey.startsWith('sk-') ? apiKey : `sk-${apiKey}`
     const url = validateCCSwitchImportUrl(
@@ -148,9 +148,7 @@ export function AssistantKeyTool(props: {
       }),
       serviceRoot
     )
-    if (!url) return
-
-    window.open(url, '_blank', 'noopener,noreferrer')
+    return url
   }
 
   if (creation.state.phase.kind === 'created') {
@@ -160,7 +158,7 @@ export function AssistantKeyTool(props: {
         baseUrl={props.baseUrl}
         model={model}
         onContinueSetup={props.onContinueSetup}
-        onImportToCCSwitch={importToCCSwitch}
+        onImportToCCSwitch={prepareCCSwitchImport}
         t={t}
       />
     )

@@ -16,17 +16,23 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-export { PricingSidebar } from './pricing-sidebar'
-export { PricingToolbar } from './pricing-toolbar'
-export { ModelCard } from './model-card'
-export { VendorModelSections } from './vendor-model-sections'
-export { LoadingSkeleton } from './loading-skeleton'
-export { EmptyState } from './empty-state'
-export { SearchBar } from './search-bar'
-export {
-  ModelDetails,
-  ModelDetailsContent,
-  ModelDetailsDrawer,
-} from './model-details'
-export { PricingTable } from './pricing-table'
-export { ModelPlazaPanel } from './model-plaza-panel'
+import assert from 'node:assert/strict'
+import { describe, test } from 'node:test'
+
+import zhLocale from '@/i18n/locales/zh.json'
+
+import { getPaymentMethodAudienceRoleOptions } from './payment-method-audience'
+
+describe('payment method audience role options', () => {
+  test('uses the translated common-user label', () => {
+    const translations = zhLocale.translation as Record<string, string>
+    const options = getPaymentMethodAudienceRoleOptions(
+      (key) => translations[key] ?? key
+    )
+
+    assert.equal(
+      options.find(({ value }) => value === 'common')?.label,
+      '普通用户'
+    )
+  })
+})

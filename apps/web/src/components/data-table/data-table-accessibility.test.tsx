@@ -154,6 +154,26 @@ describe('data-table pagination accessibility', () => {
     )
     assert.ok(pageSizeTrigger)
     assert.equal(pageSizeTrigger.getAttribute('aria-label'), 'Rows per page')
+    assert.equal(
+      pageSizeTrigger.classList.contains('@lg/pagination:h-8'),
+      true,
+      'wide pagination containers should keep the compact page-size control'
+    )
+    assert.equal(
+      pageSizeTrigger.classList.contains('h-11'),
+      true,
+      'narrow pagination containers should expose a 44px page-size target'
+    )
+
+    const currentPageButton = navigation.querySelector(
+      'button[aria-current="page"]'
+    )
+    assert.ok(currentPageButton)
+    assert.equal(
+      currentPageButton.classList.contains('h-11'),
+      true,
+      'narrow pagination containers should expose 44px page targets'
+    )
 
     await act(async () => rendered.root.unmount())
   })

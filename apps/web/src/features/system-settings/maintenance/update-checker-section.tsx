@@ -25,6 +25,7 @@ import { Dialog } from '@/components/dialog'
 import { Button } from '@/components/ui/button'
 import { Markdown } from '@/components/ui/markdown'
 import { api } from '@/lib/api'
+import { openExternalUrl } from '@/lib/external-navigation'
 import { formatTimestamp, formatTimestampToDate } from '@/lib/format'
 import { validatedExternalUrl } from '@/lib/validated-external-url'
 
@@ -108,7 +109,7 @@ export function UpdateCheckerSection({
     }
   }
 
-  const goToRelease = () => {
+  const goToRelease = async () => {
     if (!release?.html_url) return
 
     const releaseUrl = validatedExternalUrl(release.html_url, {
@@ -120,7 +121,8 @@ export function UpdateCheckerSection({
     if (releaseUrl) {
       // Invariant: releaseUrl is HTTPS on github.com under this repository's commit path.
       // pi-lens-ignore: ts-open-redirect, no-open-redirect
-      window.open(releaseUrl, '_blank', 'noopener,noreferrer')
+      const opened = await openExternalUrl(releaseUrl)
+      if (!opened) toast.error(t('Unable to open link'))
     }
   }
 

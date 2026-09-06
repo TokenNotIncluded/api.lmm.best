@@ -37,22 +37,28 @@ function parseStatusCodeMappingTarget(rawValue: unknown): number | null {
   return null
 }
 
-export function collectInvalidStatusCodeEntries(
+function parseStatusCodeMapping(
   statusCodeMappingStr: string
-): string[] {
+): [string, unknown][] {
   if (!statusCodeMappingStr?.trim()) return []
 
-  let parsed: Record<string, unknown>
   try {
-    parsed = JSON.parse(statusCodeMappingStr)
+    const parsed: unknown = JSON.parse(statusCodeMappingStr)
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? Object.entries(parsed)
+      : []
   } catch {
     return []
   }
+}
 
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return []
-
+export function collectInvalidStatusCodeEntries(
+  statusCodeMappingStr: string
+): string[] {
   const invalid: string[] = []
-  for (const [rawKey, rawValue] of Object.entries(parsed)) {
+  for (const [rawKey, rawValue] of parseStatusCodeMapping(
+    statusCodeMappingStr
+  )) {
     const fromCode = parseStatusCodeKey(rawKey)
     const toCode = parseStatusCodeMappingTarget(rawValue)
     if (fromCode === null || toCode === null) {
@@ -65,19 +71,8 @@ export function collectInvalidStatusCodeEntries(
 export function collectDisallowedStatusCodeRedirects(
   statusCodeMappingStr: string
 ): string[] {
-  if (!statusCodeMappingStr?.trim()) return []
-
-  let parsed: Record<string, unknown>
-  try {
-    parsed = JSON.parse(statusCodeMappingStr)
-  } catch {
-    return []
-  }
-
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return []
-
   const riskyMappings: string[] = []
-  for (const [rawFrom, rawTo] of Object.entries(parsed)) {
+  for (const [rawFrom, rawTo] of parseStatusCodeMapping(statusCodeMappingStr)) {
     const fromCode = parseStatusCodeKey(rawFrom)
     const toCode = parseStatusCodeMappingTarget(rawTo)
     if (fromCode === null || toCode === null) continue

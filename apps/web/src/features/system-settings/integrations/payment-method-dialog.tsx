@@ -46,6 +46,8 @@ import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { usesDedicatedPaymentPricing } from '@/lib/payment-pricing'
 
+import { getPaymentMethodAudienceRoleOptions } from './payment-method-audience'
+
 const SETTLEMENT_UNIT_PATTERN = /^[A-Za-z0-9._-]{1,16}$/
 const POSITIVE_DECIMAL_PATTERN = /^[0-9]+(?:\.[0-9]+)?$/
 const NON_NEGATIVE_INTEGER_PATTERN = /^(?:0|[1-9][0-9]*)$/
@@ -1117,14 +1119,9 @@ export function PaymentMethodDialog({
                         <FormLabel>{t('Account role condition')}</FormLabel>
                         <FormControl>
                           <Combobox
-                            options={[
-                              { label: t('No role condition'), value: 'none' },
-                              { label: t('Common user'), value: 'common' },
-                              { label: t('Administrator'), value: 'admin' },
-                              { label: t('Root administrator'), value: 'root' },
-                            ]}
+                            options={getPaymentMethodAudienceRoleOptions(t)}
                             value={field.value || 'none'}
-                            onValueChange={(value) =>
+                            onValueChange={(value: string | null) =>
                               value && field.onChange(value)
                             }
                             placeholder={t('Select account role')}

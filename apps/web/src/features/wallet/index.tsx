@@ -21,6 +21,7 @@ import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
 import { SectionPageLayout } from '@/components/layout'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 import { useAuthUserRefresh } from '@/features/onboarding'
 import { useStatus } from '@/hooks/use-status'
 import { isConsoleActivated } from '@/lib/console-activation'
@@ -72,6 +73,11 @@ interface WalletProps {
   initialShowHistory?: boolean
 }
 
+type PaymentFeedback = {
+  tone: 'default' | 'success' | 'destructive'
+  message: string
+}
+
 const PAYMENT_REFRESH_INTERVAL_MS = 3_000
 const PAYMENT_REFRESH_DEADLINE_MS = 2 * 60 * 1_000
 
@@ -109,6 +115,8 @@ export function Wallet(props: WalletProps) {
   const [pendingCheckoutDeadline, setPendingCheckoutDeadline] = useState<
     number | null
   >(null)
+  const [paymentFeedback, setPaymentFeedback] =
+    useState<PaymentFeedback | null>(null)
 
   const { status } = useStatus()
   const {
@@ -412,8 +420,14 @@ export function Wallet(props: WalletProps) {
 
     if (!selectedPaymentMethod) return
 
+    setPaymentFeedback({ tone: 'default', message: t('Submitting...') })
+
     if (!isPaymentMethodCurrencySupported(selectedPaymentMethod.type)) {
       setConfirmDialogOpen(false)
+      setPaymentFeedback({
+        tone: 'destructive',
+        message: t('Payment request failed'),
+      })
       toast.error(
         t(
           'Waffo Pancake currently supports USD only. Please set this gateway currency to USD.'
@@ -439,8 +453,17 @@ export function Wallet(props: WalletProps) {
     )
 
     if (success) {
+      setPaymentFeedback({
+        tone: 'success',
+        message: t('Payment page opened'),
+      })
       setConfirmDialogOpen(false)
       await refreshAfterPaymentLaunch()
+    } else {
+      setPaymentFeedback({
+        tone: 'destructive',
+        message: t('Payment request failed'),
+      })
     }
   }
 
@@ -505,11 +528,22 @@ export function Wallet(props: WalletProps) {
 
     if (!selectedCreemProduct) return
 
+    setPaymentFeedback({ tone: 'default', message: t('Submitting...') })
+
     const success = await processCreemPayment(selectedCreemProduct.productId)
     if (success) {
+      setPaymentFeedback({
+        tone: 'success',
+        message: t('Payment page opened'),
+      })
       setCreemDialogOpen(false)
       setSelectedCreemProduct(null)
       await refreshAfterPaymentLaunch()
+    } else {
+      setPaymentFeedback({
+        tone: 'destructive',
+        message: t('Payment request failed'),
+      })
     }
   }
 
@@ -564,6 +598,20 @@ export function Wallet(props: WalletProps) {
         <SectionPageLayout.Title>{t('Wallet')}</SectionPageLayout.Title>
         <SectionPageLayout.Content>
           <div className='wallet-editorial mx-auto flex w-full max-w-7xl flex-col gap-4 sm:gap-5'>
+            {paymentFeedback ? (
+              <Alert
+                variant={
+                  paymentFeedback.tone === 'destructive'
+                    ? 'destructive'
+                    : 'default'
+                }
+                role={
+                  paymentFeedback.tone === 'destructive' ? 'alert' : 'status'
+                }
+              >
+                <AlertDescription>{paymentFeedback.message}</AlertDescription>
+              </Alert>
+            ) : null}
             {developerAccessGranted ? (
               <>
                 <WalletStatsCard user={user} loading={userLoading} />

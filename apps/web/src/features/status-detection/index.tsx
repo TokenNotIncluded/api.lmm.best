@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { getRouteApi } from '@tanstack/react-router'
 /*
 Copyright (C) 2026 LIghtJUNction
 */
@@ -53,11 +54,35 @@ import {
   getSuccessRateTextClass,
   type SuccessRateLevel,
 } from '@/features/performance-metrics/lib/format'
+import { usePricingData } from '@/features/pricing/hooks/use-pricing-data'
 import { cn } from '@/lib/utils'
 
 import { useStatusDetection } from './hooks/use-status-detection'
 import { sortStatusGroups } from './lib/aggregate'
 import type { StatusGroup, StatusSort } from './types'
+
+const route = getRouteApi('/status/')
+const STATUS_HOUR_OPTIONS = [24, 72, 168, 720] as const
+
+function formatStatusTimestamp(
+  timestamp: number | null,
+  hours: number,
+  locale: string,
+  t: (key: string, options?: Record<string, unknown>) => string
+) {
+  if (timestamp === null) {
+    return t('Performance window: last {{hours}} hours', { hours })
+  }
+  const milliseconds =
+    timestamp < 1_000_000_000_000 ? timestamp * 1_000 : timestamp
+  const date = new Date(milliseconds)
+  if (Number.isNaN(date.getTime())) {
+    return t('Performance window: last {{hours}} hours', { hours })
+  }
+  return t('Latest data: {{time}}', {
+    time: date.toLocaleString(locale || undefined),
+  })
+}
 
 function statusLabel(t: (key: string) => string, level: SuccessRateLevel) {
   switch (level) {
@@ -311,8 +336,61 @@ function EmptyStatusState(props: { message: string }) {
 }
 
 export function StatusDetection() {
-  const { t } = useTranslation()
-  const status = useStatusDetection()
+  const { t, i18n } = useTranslation()
+  const search = route.useSearch()
+  const navigate = route.useNavigate()
+  const pricing = usePricingData()
+  const modelVendors = useMemo(
+    () =>
+      new Map(
+        pricing.models.flatMap((model) =>
+          model.vendor_name ? [[model.model_name, model.vendor_name]] : []
+        )
+      ),
+    [pricing.models]
+  )
+  const vendorOptions = useMemo(
+    () =>
+      [
+        ...new Set(
+          pricing.models.map((model) => model.vendor_name).filter(Boolean)
+        ),
+      ].sort((left, right) =>
+        String(left).localeCompare(String(right))
+      ) as string[],
+    [pricing.models]
+  )
+  const status = useStatusDetection({
+    hours: search.hours,
+    model: search.model,
+    group: search.group,
+    vendor: search.vendor,
+    modelVendors,
+  })
+  const updateSearch = (
+    key: 'hours' | 'model' | 'group' | 'vendor',
+    value: string
+  ) => {
+    void navigate({
+      replace: true,
+      search: (previous) => ({
+        ...previous,
+        [key]: key === 'hours' ? Number(value) : value || undefined,
+      }),
+    })
+  }
+  const clearFilters = () => {
+    void navigate({
+      replace: true,
+      search: (previous) => ({
+        ...previous,
+        hours: undefined,
+        model: undefined,
+        group: undefined,
+        vendor: undefined,
+      }),
+    })
+  }
   const [sort, setSort] = useState<StatusSort>('ttft')
   const sortedGroups = useMemo(
     () => sortStatusGroups(status.groups, sort),
@@ -326,6 +404,24 @@ export function StatusDetection() {
     ['excellent', 'good'].includes(getSuccessRateLevel(group.successRate))
   ).length
   const hasError = Boolean(status.error)
+  const hasActiveFilters = Boolean(
+    search.hours !== 24 || search.model || search.group || search.vendor
+  )
+  const freshnessLabel = formatStatusTimestamp(
+    status.latestTimestamp,
+    status.hours,
+    i18n.resolvedLanguage || i18n.language,
+    t
+  )
+  const latestTimestampMs =
+    status.latestTimestamp === null
+      ? null
+      : status.latestTimestamp < 1_000_000_000_000
+        ? status.latestTimestamp * 1_000
+        : status.latestTimestamp
+  const dataMayBeDelayed =
+    latestTimestampMs !== null &&
+    Date.now() - latestTimestampMs > 6 * 60 * 60 * 1_000
 
   return (
     <PublicLayout
@@ -340,7 +436,7 @@ export function StatusDetection() {
                 {t('Status detection')}
               </h1>
               <p className='text-muted-foreground mt-1 text-sm'>
-                {t('Last 24 hours')}
+                {freshnessLabel}
               </p>
             </div>
             <Button
@@ -362,6 +458,131 @@ export function StatusDetection() {
             </Button>
           </div>
 
+          <div className='border-border/70 bg-card grid gap-3 rounded-lg border p-3 sm:grid-cols-4'>
+            <Select
+              value={String(search.hours)}
+              onValueChange={(value) => value && updateSearch('hours', value)}
+            >
+              <SelectTrigger
+                className='h-10 w-full'
+                aria-label={t('Time range')}
+              >
+                <SelectValue>
+                  {t(
+                    search.hours === 24
+                      ? 'Last 24 hours'
+                      : search.hours === 72
+                        ? 'Last 3 days'
+                        : search.hours === 168
+                          ? 'Last 7 days'
+                          : 'Last 30 days'
+                  )}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  {STATUS_HOUR_OPTIONS.map((hours) => (
+                    <SelectItem key={hours} value={String(hours)}>
+                      {t(
+                        hours === 24
+                          ? 'Last 24 hours'
+                          : hours === 72
+                            ? 'Last 3 days'
+                            : hours === 168
+                              ? 'Last 7 days'
+                              : 'Last 30 days'
+                      )}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+            <Select
+              value={search.model || 'all'}
+              onValueChange={(value) =>
+                value && updateSearch('model', value === 'all' ? '' : value)
+              }
+            >
+              <SelectTrigger className='h-10 w-full' aria-label={t('Model')}>
+                <SelectValue>{search.model || t('All models')}</SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value='all'>{t('All models')}</SelectItem>
+                {status.availableModels.map((model) => (
+                  <SelectItem key={model} value={model}>
+                    {model}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select
+              value={search.group || 'all'}
+              onValueChange={(value) =>
+                value && updateSearch('group', value === 'all' ? '' : value)
+              }
+            >
+              <SelectTrigger className='h-10 w-full' aria-label={t('Group')}>
+                <SelectValue>{search.group || t('All groups')}</SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value='all'>{t('All groups')}</SelectItem>
+                {status.availableGroups.map((group) => (
+                  <SelectItem key={group} value={group}>
+                    {group}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {vendorOptions.length > 0 ? (
+              <Select
+                value={search.vendor || 'all'}
+                onValueChange={(value) =>
+                  value && updateSearch('vendor', value === 'all' ? '' : value)
+                }
+              >
+                <SelectTrigger
+                  className='h-10 w-full'
+                  aria-label={t('Provider')}
+                >
+                  <SelectValue>
+                    {search.vendor || t('All providers')}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value='all'>{t('All providers')}</SelectItem>
+                  {vendorOptions.map((vendor) => (
+                    <SelectItem key={vendor} value={vendor}>
+                      {vendor}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : null}
+            {hasActiveFilters ? (
+              <Button
+                variant='ghost'
+                className='h-10 justify-self-start sm:col-span-4 sm:justify-self-end'
+                onClick={clearFilters}
+              >
+                {t('Clear filters')}
+              </Button>
+            ) : null}
+          </div>
+
+          <p className='text-muted-foreground text-xs' role='status'>
+            {t('Data coverage: {{reported}} of {{total}} models reported.', {
+              reported: status.modelsWithData,
+              total: status.modelCount,
+            })}
+          </p>
+          {dataMayBeDelayed ? (
+            <p className='text-muted-foreground text-xs' role='status'>
+              {t(
+                'Performance data may be delayed. The latest sample is more than 6 hours old.'
+              )}
+            </p>
+          ) : null}
+
           {hasError && (
             <Alert variant='destructive'>
               <AlertCircle />
@@ -382,7 +603,13 @@ export function StatusDetection() {
           {status.isLoading ? (
             <StatusDetectionSkeleton />
           ) : hasError ? null : status.groups.length === 0 ? (
-            <EmptyStatusState message={t('No status data is available yet.')} />
+            <EmptyStatusState
+              message={
+                hasActiveFilters
+                  ? t('No models match the current filters.')
+                  : t('No status data is available yet.')
+              }
+            />
           ) : (
             <>
               <dl className='border-border/70 bg-card grid grid-cols-2 overflow-hidden rounded-lg border sm:grid-cols-4'>

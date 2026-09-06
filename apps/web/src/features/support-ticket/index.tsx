@@ -31,7 +31,7 @@ import {
 } from '@hugeicons/core-free-icons'
 import { HugeiconsIcon } from '@hugeicons/react'
 import { useQueryClient } from '@tanstack/react-query'
-import { useState } from 'react'
+import { type FormEvent, useState } from 'react'
 import { Controller, useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -58,6 +58,8 @@ import { TitledCard } from '@/components/ui/titled-card'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { openBountyDispute } from '@/features/open-source-bounties/api'
 import { isConsoleActivated } from '@/lib/console-activation'
+import { copyToClipboard } from '@/lib/copy-to-clipboard'
+import { openResolvedExternalUrl } from '@/lib/external-navigation'
 import { useAuthStore } from '@/stores/auth-store'
 
 import {
@@ -212,7 +214,7 @@ export function SupportTicket({
     return { text, mailto: buildSupportMailto(subject, text) }
   }
 
-  const submitTicket = handleSubmit(async (values) => {
+  const submitDispute = handleSubmit(async (values) => {
     if (developerAccessGranted && values.category === 'bounty_dispute') {
       const challengeId = Number(values.referenceId)
       if (
@@ -247,18 +249,64 @@ export function SupportTicket({
       }
       return
     }
-    const { mailto } = prepareTicket(values)
-    toast.info(t('Your email app will open with the ticket details filled in.'))
-    window.location.assign(mailto)
   })
+
+  const openEmailTicket = async () => {
+    let ticketPrepared = false
+    setSubmitting(true)
+    try {
+      const opened = await openResolvedExternalUrl(async () => {
+        if (!(await trigger())) return null
+        const { mailto } = prepareTicket(getValues())
+        ticketPrepared = true
+        return mailto
+      })
+
+      if (opened) {
+        toast.info(
+          t('Your email app will open with the ticket details filled in.')
+        )
+      } else if (ticketPrepared) {
+        toast.error(
+          t(
+            'Unable to open email app. Copy the request and email it to {{email}}.',
+            { email: SUPPORT_EMAIL }
+          )
+        )
+      }
+    } catch {
+      toast.error(
+        t(
+          'Unable to open email app. Copy the request and email it to {{email}}.',
+          { email: SUPPORT_EMAIL }
+        )
+      )
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const handleFormSubmit = (event: FormEvent<HTMLFormElement>) => {
+    if (developerAccessGranted && selectedCategory === 'bounty_dispute') {
+      void submitDispute(event)
+      return
+    }
+
+    event.preventDefault()
+    void openEmailTicket()
+  }
 
   const copyTicket = async () => {
     if (!(await trigger())) return
 
     try {
       const { text } = prepareTicket(getValues())
-      await navigator.clipboard.writeText(text)
-      toast.success(t('Ticket copied to clipboard'))
+      const copied = await copyToClipboard(text)
+      if (copied) {
+        toast.success(t('Ticket copied to clipboard'))
+      } else {
+        toast.error(t('Unable to copy the ticket'))
+      }
     } catch {
       toast.error(t('Unable to copy the ticket'))
     }
@@ -292,7 +340,7 @@ export function SupportTicket({
 
           <CardStaggerItem>
             <div className='grid gap-4 sm:gap-6 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-start'>
-              <form onSubmit={submitTicket} noValidate>
+              <form onSubmit={handleFormSubmit} noValidate>
                 <TitledCard
                   title={t('Request details')}
                   description={t(
@@ -611,7 +659,12 @@ export function SupportTicket({
                   <Button
                     variant='outline'
                     className='w-full'
-                    render={<a href={`mailto:${SUPPORT_EMAIL}`} />}
+                    onClick={async () => {
+                      const opened = await openResolvedExternalUrl(
+                        () => `mailto:${SUPPORT_EMAIL}`
+                      )
+                      if (!opened) toast.error(t('Unable to open email app'))
+                    }}
                   >
                     <HugeiconsIcon
                       icon={MailSend01Icon}

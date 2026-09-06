@@ -67,6 +67,6 @@ describe('authenticated sidebar discovery', () => {
     assert.ok(activatedGeneralSection)
     assert.match(activatedGeneralSection, /title: t\('Model Square'\)/)
     assert.match(activatedGeneralSection, /url: '\/pricing'/)
-    assert.match(activatedGeneralSection, /disabled: true/)
+    assert.match(activatedGeneralSection, /interaction: 'model-panel'/)
   })
 })

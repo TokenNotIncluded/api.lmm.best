@@ -166,10 +166,12 @@ impl PgAnthropicGeminiRelayBackend {
             .client
             .post(url)
             .header(header::CONTENT_TYPE, "application/json")
-            .header(header::ACCEPT, "application/json");
+            .header(header::ACCEPT, upstream_accept_header(request.streaming));
         match request.protocol {
             RelayProtocol::Anthropic => {
-                outbound = outbound.header("x-api-key", &channel_key);
+                outbound = outbound
+                    .header("x-api-key", &channel_key)
+                    .header("anthropic-version", ANTHROPIC_VERSION);
             }
             RelayProtocol::Gemini => {
                 outbound = outbound.header("x-goog-api-key", &channel_key);
@@ -446,13 +448,34 @@ fn epoch_seconds() -> i64 {
         .map_or(0, |duration| duration.as_secs() as i64)
 }
 
+const ANTHROPIC_VERSION: &str = "2023-06-01";
+
+fn upstream_accept_header(streaming: bool) -> &'static str {
+    if streaming {
+        "text/event-stream"
+    } else {
+        "application/json"
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{RelayFailure, parse_sse_events};
+    use super::{ANTHROPIC_VERSION, RelayFailure, parse_sse_events, upstream_accept_header};
     use crate::routes::sse::SseError;
     use serde_json::json;
 
     type TestResult = Result<(), Box<dyn std::error::Error>>;
+
+    #[test]
+    fn streaming_upstream_requests_advertise_sse_accept() {
+        assert_eq!(upstream_accept_header(true), "text/event-stream");
+        assert_eq!(upstream_accept_header(false), "application/json");
+    }
+
+    #[test]
+    fn anthropic_upstream_requests_use_the_messages_api_version() {
+        assert_eq!(ANTHROPIC_VERSION, "2023-06-01");
+    }
 
     #[test]
     fn postgres_parser_keeps_unknown_json_event_names_and_multiline_data() -> TestResult {

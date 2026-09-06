@@ -86,6 +86,7 @@ import {
 } from '@/components/ui/tooltip'
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
 import { useIsMobile } from '@/hooks/use-mobile'
+import { openExternalUrl } from '@/lib/external-navigation'
 import { validatedExternalUrl } from '@/lib/validated-external-url'
 
 import { updateChannel } from '../../api'
@@ -1292,7 +1293,7 @@ function FailureResultContent({
             variant='outline'
             size='sm'
             className='h-7 w-fit px-2 text-xs'
-            onClick={() => {
+            onClick={async () => {
               const targetUrl = validatedExternalUrl(
                 '/system-settings/billing/model-pricing',
                 {
@@ -1308,7 +1309,8 @@ function FailureResultContent({
               if (targetUrl) {
                 // Invariant: targetUrl is same-origin with the exact pricing path.
                 // pi-lens-ignore: ts-open-redirect, no-open-redirect
-                window.open(targetUrl, '_blank', 'noopener,noreferrer')
+                const opened = await openExternalUrl(targetUrl)
+                if (!opened) toast.error(t('Unable to open link'))
               }
             }}
           >

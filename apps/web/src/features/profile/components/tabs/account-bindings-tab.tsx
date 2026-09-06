@@ -37,6 +37,7 @@ import {
   getOAuthSessionStorage,
   markOAuthBindPopup,
 } from '@/features/auth/lib/oauth-callback-mode'
+import { isOAuthProviderConfigured } from '@/features/auth/lib/registration'
 import type { CustomOAuthProviderInfo } from '@/features/auth/types'
 import { useDialogs } from '@/hooks/use-dialog'
 import { useStatus } from '@/hooks/use-status'
@@ -125,9 +126,12 @@ export function AccountBindingsTab({
     []
   )
 
-  const customProviders = status?.custom_oauth_providers as
-    | CustomOAuthProviderInfo[]
-    | undefined
+  const customProviders = (
+    status?.custom_oauth_providers as CustomOAuthProviderInfo[] | undefined
+  )?.filter((provider) =>
+    isOAuthProviderConfigured(status, `custom:${provider.slug}`)
+  )
+  const hasCustomProviders = Boolean(customProviders?.length)
   const customBindingsByProviderId = useMemo(
     () => indexCustomOAuthBindings(customBindings),
     [customBindings]
@@ -135,7 +139,7 @@ export function AccountBindingsTab({
   const canUnbindBuiltInOAuth = getBackendCapabilities(status).self_oauth_unbind
 
   const fetchCustomBindings = useCallback(async () => {
-    if (!customProviders || customProviders.length === 0) return
+    if (!hasCustomProviders) return
     try {
       const res = await getSelfOAuthBindings()
       if (res.success && res.data) {
@@ -144,7 +148,7 @@ export function AccountBindingsTab({
     } catch {
       // ignore
     }
-  }, [customProviders])
+  }, [hasCustomProviders])
 
   useEffect(() => {
     fetchCustomBindings()
@@ -352,7 +356,7 @@ export function AccountBindingsTab({
         isBound: Boolean(
           (profile as unknown as Record<string, unknown>).wechat_id
         ),
-        isEnabled: status?.wechat_login || false,
+        isEnabled: isOAuthProviderConfigured(status, 'wechat'),
         onBind: () => dialogs.open('wechat'),
         onUnbind: canUnbindBuiltInOAuth
           ? () =>
@@ -373,7 +377,7 @@ export function AccountBindingsTab({
         isBound: Boolean(
           (profile as unknown as Record<string, unknown>).github_id
         ),
-        isEnabled: status?.github_oauth || false,
+        isEnabled: isOAuthProviderConfigured(status, 'github'),
         onBind: () => {
           const clientId = status?.github_client_id
           if (clientId) {
@@ -402,7 +406,7 @@ export function AccountBindingsTab({
         isBound: Boolean(
           (profile as unknown as Record<string, unknown>).discord_id
         ),
-        isEnabled: status?.discord_oauth || false,
+        isEnabled: isOAuthProviderConfigured(status, 'discord'),
         onBind: () => {
           const clientId = status?.discord_client_id
           if (clientId) {
@@ -431,7 +435,7 @@ export function AccountBindingsTab({
         isBound: Boolean(
           (profile as unknown as Record<string, unknown>).oidc_id
         ),
-        isEnabled: status?.oidc_enabled || false,
+        isEnabled: isOAuthProviderConfigured(status, 'oidc'),
         onBind: () => {
           const authorizationEndpoint = status?.oidc_authorization_endpoint
           const clientId = status?.oidc_client_id
@@ -461,7 +465,7 @@ export function AccountBindingsTab({
         isBound: Boolean(
           (profile as unknown as Record<string, unknown>).telegram_id
         ),
-        isEnabled: status?.telegram_oauth || false,
+        isEnabled: isOAuthProviderConfigured(status, 'telegram'),
         onBind: () => dialogs.open('telegram'),
         onUnbind: canUnbindBuiltInOAuth
           ? () =>
@@ -482,7 +486,7 @@ export function AccountBindingsTab({
         isBound: Boolean(
           (profile as unknown as Record<string, unknown>).linux_do_id
         ),
-        isEnabled: status?.linuxdo_oauth || false,
+        isEnabled: isOAuthProviderConfigured(status, 'linuxdo'),
         onBind: () => {
           const clientId = status?.linuxdo_client_id
           if (clientId) {
