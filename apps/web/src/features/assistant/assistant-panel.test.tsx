@@ -315,7 +315,270 @@ after(() => {
   domWindow.close()
 })
 
+function requireValue<T>(value: T | null | undefined): T {
+  assert.ok(value != null)
+  return value
+}
+
 describe('AssistantPanel', () => {
+  test('opens human support for an L0 user even when model routing is unavailable', async () => {
+    let chatRequests = 0
+    api.get = (async (url: string) => {
+      if (url === '/api/assistant/status') {
+        return {
+          data: {
+            success: true,
+            data: {
+              ...assistantStatus,
+              developer_access_granted: false,
+              route_available: false,
+            },
+          },
+        }
+      }
+      if (url === '/api/assistant/handoffs/self') {
+        return { data: { success: true, data: null } }
+      }
+      throw new Error(`Unexpected GET ${url}`)
+    }) as typeof api.get
+    api.post = (async () => {
+      chatRequests++
+      throw new Error('No model needed')
+    }) as typeof api.post
+    const rendered = await renderPanel()
+    try {
+      await act(async () => {
+        requireValue(
+          document.querySelector<HTMLButtonElement>(
+            'button[aria-label="Contact support"]'
+          )
+        ).click()
+        await flushEffects()
+      })
+      assert.match(
+        document.body.textContent ?? '',
+        /Send a message to an administrator/
+      )
+      assert.equal(chatRequests, 0)
+    } finally {
+      await act(async () => rendered.root.unmount())
+      rendered.queryClient.clear()
+    }
+  })
+
+  for (const lateResult of ['answer', 'error'] as const) {
+    test(`isolates a late ${lateResult} after starting a new conversation`, async () => {
+      const requests: {
+        body: Record<string, unknown>
+        resolve: (value: unknown) => void
+        reject: (reason: Error) => void
+      }[] = []
+      api.get = (async () => ({
+        data: { success: true, data: assistantStatus },
+      })) as typeof api.get
+      api.post = ((_: string, body: Record<string, unknown>) =>
+        new Promise<unknown>((resolve, reject) => {
+          requests.push({ body, resolve, reject })
+        })) as typeof api.post
+      const rendered = await renderPanel()
+      const reply = (content: string, id: number) => ({
+        data: {
+          choices: [{ message: { content } }],
+          lmm_assistant_history: { conversation_id: id },
+        },
+      })
+      const send = async (text: string) => {
+        await setTextareaValue(
+          requireValue(document.querySelector<HTMLTextAreaElement>('textarea')),
+          text
+        )
+        await act(async () => {
+          requireValue(
+            document.querySelector<HTMLButtonElement>(
+              'button[aria-label="Send"]'
+            )
+          ).click()
+          await flushEffects()
+        })
+      }
+      try {
+        await send('Old question')
+        await act(async () => {
+          requireValue(
+            document.querySelector<HTMLButtonElement>(
+              'button[aria-label="New conversation"]'
+            )
+          ).click()
+          await flushEffects()
+        })
+        assert.equal(
+          requireValue(document.querySelector<HTMLTextAreaElement>('textarea'))
+            .disabled,
+          false
+        )
+        await send('Current question')
+        assert.equal(requests.length, 2)
+        await act(async () => {
+          if (lateResult === 'answer') {
+            requireValue(requests[0]).resolve(reply('Stale answer', 101))
+          } else {
+            requireValue(requests[0]).reject(new Error('Stale failure'))
+          }
+          await flushEffects()
+        })
+        assert.doesNotMatch(
+          document.body.textContent ?? '',
+          /Stale answer|could not answer|Response stopped/
+        )
+        assert.equal(
+          requireValue(document.querySelector<HTMLTextAreaElement>('textarea'))
+            .disabled,
+          true
+        )
+        await act(async () => {
+          requireValue(requests[1]).resolve(reply('Current answer', 202))
+          await flushEffects()
+        })
+        assert.match(document.body.textContent ?? '', /Current answer/)
+        await send('Follow up')
+        assert.equal(requireValue(requests[2]).body.conversation_id, 202)
+        await act(async () => {
+          requireValue(requests[2]).resolve(reply('Follow up answer', 202))
+          await flushEffects()
+        })
+      } finally {
+        await act(async () => rendered.root.unmount())
+        rendered.queryClient.clear()
+      }
+    })
+  }
+
+  test('keeps a stopped partial answer and retries without duplicating the question', async () => {
+    const panelFetch = globalThis.fetch
+    const posted: unknown[] = []
+    api.get = (async () => ({
+      data: { success: true, data: assistantStatus },
+    })) as typeof api.get
+    globalThis.fetch = (async (
+      _input: RequestInfo | URL,
+      init?: RequestInit
+    ) => {
+      posted.push(JSON.parse(String(init?.body)))
+      if (posted.length > 1) {
+        return new Response(
+          JSON.stringify({
+            choices: [{ message: { content: 'Complete answer' } }],
+          }),
+          {
+            headers: { 'content-type': 'application/json' },
+          }
+        )
+      }
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(
+            new TextEncoder().encode(
+              'event: delta\ndata: {"content":"Partial answer"}\n\n'
+            )
+          )
+          init?.signal?.addEventListener(
+            'abort',
+            () => controller.error(new DOMException('Stopped', 'AbortError')),
+            { once: true }
+          )
+        },
+      })
+      return new Response(body, {
+        headers: { 'content-type': 'text/event-stream' },
+      })
+    }) as typeof globalThis.fetch
+    const rendered = await renderPanel()
+    try {
+      await setTextareaValue(
+        requireValue(document.querySelector<HTMLTextAreaElement>('textarea')),
+        'Help diagnose this request'
+      )
+      await act(async () => {
+        requireValue(
+          document.querySelector<HTMLButtonElement>('button[aria-label="Send"]')
+        ).click()
+        await flushEffects()
+      })
+      await act(async () => {
+        requireValue(
+          document.querySelector<HTMLButtonElement>('button[aria-label="Stop"]')
+        ).click()
+        await flushEffects()
+      })
+      assert.match(document.body.textContent ?? '', /Partial answer/)
+      assert.match(document.body.textContent ?? '', /Response stopped\./)
+      assert.equal(
+        requireValue(document.querySelector<HTMLTextAreaElement>('textarea'))
+          .disabled,
+        false
+      )
+      await act(async () => {
+        findButton('Retry').click()
+        await flushEffects()
+      })
+      assert.deepEqual(posted[1], posted[0])
+      assert.match(document.body.textContent ?? '', /Complete answer/)
+      assert.doesNotMatch(document.body.textContent ?? '', /Response stopped\./)
+      assert.equal(
+        (document.body.textContent ?? '').match(/Help diagnose this request/g)
+          ?.length,
+        1
+      )
+    } finally {
+      await act(async () => rendered.root.unmount())
+      rendered.queryClient.clear()
+      globalThis.fetch = panelFetch
+    }
+  })
+
+  test('unlocks the composer while account metadata is still refreshing', async () => {
+    let statusRequests = 0
+    let finishRefresh: (() => void) | undefined
+    api.get = (async (url: string) => {
+      if (url === '/api/assistant/status' && ++statusRequests > 1) {
+        await new Promise<void>((resolve) => {
+          finishRefresh = resolve
+        })
+      }
+      return { data: { success: true, data: assistantStatus } }
+    }) as typeof api.get
+    api.post = (async () => ({
+      data: { choices: [{ message: { content: 'Answer is ready' } }] },
+    })) as typeof api.post
+    const rendered = await renderPanel()
+    try {
+      await setTextareaValue(
+        requireValue(document.querySelector<HTMLTextAreaElement>('textarea')),
+        'How do I get started?'
+      )
+      await act(async () => {
+        requireValue(
+          document.querySelector<HTMLButtonElement>('button[aria-label="Send"]')
+        ).click()
+        await flushEffects()
+      })
+      assert.ok(finishRefresh)
+      assert.match(document.body.textContent ?? '', /Answer is ready/)
+      assert.equal(
+        requireValue(document.querySelector<HTMLTextAreaElement>('textarea'))
+          .disabled,
+        false
+      )
+      assert.equal(document.querySelector('button[aria-label="Stop"]'), null)
+    } finally {
+      await act(async () => {
+        finishRefresh?.()
+        rendered.root.unmount()
+      })
+      rendered.queryClient.clear()
+    }
+  })
+
   test('renders the mobile assistant sheet at the full dynamic viewport size', async () => {
     api.get = (async (url: string) => {
       assert.equal(url, '/api/assistant/status')

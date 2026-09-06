@@ -30,7 +30,7 @@ import {
 import { HugeiconsIcon } from '@hugeicons/react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate } from '@tanstack/react-router'
-import { History, PanelLeft, Plus, Square } from 'lucide-react'
+import { History, MessageCircle, PanelLeft, Plus, Square } from 'lucide-react'
 import { nanoid } from 'nanoid'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -183,6 +183,8 @@ type ConversationEntry = {
   imageAction?: AssistantImageGenerationAction
   error?: boolean
   notice?: boolean
+  streaming?: boolean
+  interrupted?: boolean
   retry?: {
     message: string
     history: AssistantChatMessage[]
@@ -793,7 +795,7 @@ function AssistantPromptComposer(props: {
             type='button'
             variant='ghost'
             size='icon-sm'
-            className='text-muted-foreground hover:text-foreground'
+            className='text-muted-foreground hover:text-foreground size-11 sm:size-7'
             aria-label={t('Retry the last message')}
             title={t('Retry the last message')}
             data-testid='assistant-retry-last'
@@ -812,7 +814,7 @@ function AssistantPromptComposer(props: {
               variant='ghost'
               size='icon-sm'
               className={cn(
-                'text-muted-foreground hover:text-foreground',
+                'text-muted-foreground hover:text-foreground size-11 sm:size-7',
                 props.classicLayout &&
                   'text-[#19c37d] hover:bg-[#1aaf73] hover:text-[#202123]'
               )}
@@ -831,7 +833,7 @@ function AssistantPromptComposer(props: {
               size='icon-sm'
               aria-label={t('Send')}
               className={cn(
-                'size-8 rounded-full!',
+                'size-11 rounded-full! sm:size-8',
                 props.classicLayout
                   ? 'bg-[#19c37d] text-[#202123] hover:bg-[#1aaf73]'
                   : 'bg-primary text-primary-foreground hover:bg-primary/90'
@@ -874,6 +876,7 @@ function AssistantPanelHeader(props: {
   historyVisible: boolean
   historyDetail: boolean
   onOpenHistory: () => void
+  onContactSupport: () => void
   onCloseHistory: () => void
   onClose?: () => void
   fullscreen?: boolean
@@ -916,6 +919,16 @@ function AssistantPanelHeader(props: {
           </p>
         </div>
         <div className='flex min-w-0 shrink-0 items-center gap-0.5'>
+          <Button
+            type='button'
+            variant='ghost'
+            size='icon-sm'
+            aria-label={t('Contact support')}
+            title={t('Contact support')}
+            onClick={props.onContactSupport}
+          >
+            <MessageCircle aria-hidden='true' />
+          </Button>
           <Button
             type='button'
             variant='ghost'
@@ -1023,6 +1036,31 @@ function AssistantPanelHeader(props: {
     )
   }
 
+  const supportActions = (
+    <>
+      <Button
+        type='button'
+        variant='ghost'
+        size='icon-sm'
+        aria-label={t('New conversation')}
+        title={t('New conversation')}
+        onClick={props.onNewConversation}
+      >
+        <Plus aria-hidden='true' />
+      </Button>
+      <Button
+        type='button'
+        variant='ghost'
+        size='icon-sm'
+        aria-label={t('Contact support')}
+        title={t('Contact support')}
+        onClick={props.onContactSupport}
+      >
+        <MessageCircle aria-hidden='true' />
+      </Button>
+    </>
+  )
+
   // Compact icon-only header for the overlay sheet and the desktop rail:
   // history + fullscreen on the left, close on the right. No dividers.
   if (props.mode === 'mobile') {
@@ -1045,6 +1083,7 @@ function AssistantPanelHeader(props: {
         >
           <History aria-hidden='true' />
         </Button>
+        {supportActions}
         <div className='ms-auto' />
         <Button
           type='button'
@@ -1081,6 +1120,7 @@ function AssistantPanelHeader(props: {
         >
           <History aria-hidden='true' />
         </Button>
+        {supportActions}
         <Button
           type='button'
           variant='ghost'
@@ -1120,6 +1160,7 @@ function AssistantPanelHeader(props: {
       >
         <History aria-hidden='true' />
       </Button>
+      {supportActions}
       <Button
         type='button'
         variant='ghost'
@@ -1220,12 +1261,6 @@ export function AssistantPanel(props: {
   const openedTargetRef = useRef<AssistantPresetId | undefined>(undefined)
   const activeToolRegionRef = useRef<HTMLDivElement | null>(null)
   const [conversationResetRevision, setConversationResetRevision] = useState(0)
-  useEffect(
-    () => () => {
-      assistantAbortControllerRef.current?.abort()
-    },
-    []
-  )
   useEffect(() => {
     try {
       window.localStorage.setItem(
@@ -1264,7 +1299,9 @@ export function AssistantPanel(props: {
   const authUser = useAuthStore((state) => state.auth.user)
   useEffect(
     () => () => {
-      assistantAbortControllerRef.current?.abort()
+      const pending = assistantAbortControllerRef.current
+      assistantAbortControllerRef.current = null
+      pending?.abort()
     },
     []
   )
@@ -1313,7 +1350,7 @@ export function AssistantPanel(props: {
     assistantFooterStatus = withAccessLevel(
       superAdministratorFunded
         ? t('Funded by the super administrator')
-        : t('Loading...')
+        : t('Write actions need your confirmation')
     )
     assistantDescription = t(
       'Guidance for plans, setup, API keys, costs, and support.'
@@ -1362,8 +1399,16 @@ export function AssistantPanel(props: {
     )
   }, [clearToolState])
 
+  const cancelPendingReply = useCallback(() => {
+    // Detach first: a cancelled request may still settle after another thread opens.
+    const pending = assistantAbortControllerRef.current
+    assistantAbortControllerRef.current = null
+    pending?.abort()
+    setSending(false)
+  }, [])
+
   const resetConversation = useCallback(() => {
-    assistantAbortControllerRef.current?.abort()
+    cancelPendingReply()
     setEntries([])
     setConversationId(null)
     setSelectedPreConversationPresetId(null)
@@ -1373,10 +1418,11 @@ export function AssistantPanel(props: {
     openedTargetRef.current = undefined
     setConversationResetRevision((revision) => revision + 1)
     onConversationReset?.()
-  }, [clearToolState, onConversationReset])
+  }, [cancelPendingReply, clearToolState, onConversationReset])
 
   const continueHistoryConversation = useCallback(
     (detail: AssistantConversationHistoryDetail) => {
+      cancelPendingReply()
       const restoredEntries = detail.messages.flatMap<ConversationEntry>(
         (message) => {
           if (message.role !== 'user' && message.role !== 'assistant') return []
@@ -1401,7 +1447,7 @@ export function AssistantPanel(props: {
       clearToolState()
       setHistoryView(null)
     },
-    [clearToolState, t]
+    [cancelPendingReply, clearToolState, t]
   )
 
   const openAssistantTarget = useCallback(
@@ -1467,9 +1513,12 @@ export function AssistantPanel(props: {
     history: AssistantChatMessage[],
     presetId?: string
   ) => {
+    if (assistantAbortControllerRef.current) return
     setSending(true)
     const abortController = new AbortController()
     assistantAbortControllerRef.current = abortController
+    const isCurrentRequest = () =>
+      assistantAbortControllerRef.current === abortController
     const streamingEntryId = nanoid()
     let streamedContent = ''
     let streamFrame: number | null = null
@@ -1478,9 +1527,10 @@ export function AssistantPanel(props: {
     )
     setEntries((current) => [
       ...current,
-      { id: streamingEntryId, role: 'assistant', content: '' },
+      { id: streamingEntryId, role: 'assistant', content: '', streaming: true },
     ])
     const renderStreamedContent = () => {
+      if (!isCurrentRequest()) return
       const safeContent = redactAssistantMessageForDisplay(
         streamedContent,
         displayRedactionNotice
@@ -1508,10 +1558,12 @@ export function AssistantPanel(props: {
         presetId,
         {
           onDelta: (delta) => {
+            if (!isCurrentRequest() || abortController.signal.aborted) return
             streamedContent += delta
             scheduleStreamRender()
           },
           onReset: () => {
+            if (!isCurrentRequest() || abortController.signal.aborted) return
             if (streamFrame !== null) {
               window.cancelAnimationFrame(streamFrame)
               streamFrame = null
@@ -1522,6 +1574,12 @@ export function AssistantPanel(props: {
         },
         abortController.signal
       )
+      if (!isCurrentRequest()) return
+      abortController.signal.throwIfAborted()
+      if (streamFrame !== null) {
+        window.cancelAnimationFrame(streamFrame)
+        streamFrame = null
+      }
       if (reply.conversationId) setConversationId(reply.conversationId)
       if (reply.restricted) setConversationRestricted(true)
       const safeReply = redactAssistantMessageForDisplay(
@@ -1675,34 +1733,40 @@ export function AssistantPanel(props: {
       if (explicitNavigation && developerAccessGranted) {
         void navigate({ to: explicitNavigation })
       }
-      await queryClient.invalidateQueries({ queryKey: ['assistant-status'] })
-      await queryClient.invalidateQueries({ queryKey: ['assistant-journey'] })
-      await queryClient.invalidateQueries({
-        queryKey: ['assistant-new-user-gift'],
-      })
-      await queryClient.invalidateQueries({
-        queryKey: ['assistant-weekly-discount'],
-      })
-      await queryClient.invalidateQueries({
-        queryKey: ['assistant-conversations'],
-      })
+      // Account/history refreshes must not keep the completed answer's composer locked.
+      void Promise.all(
+        [
+          'assistant-status',
+          'assistant-journey',
+          'assistant-new-user-gift',
+          'assistant-weekly-discount',
+          'assistant-conversations',
+        ].map((key) => queryClient.invalidateQueries({ queryKey: [key] }))
+      ).catch(() => undefined)
     } catch (error) {
-      if (isAssistantRequestAborted(error)) {
+      if (!isCurrentRequest()) return
+      if (isAssistantRequestAborted(error) || abortController.signal.aborted) {
         if (streamFrame !== null) {
           window.cancelAnimationFrame(streamFrame)
           streamFrame = null
         }
-        if (streamedContent) {
-          renderStreamedContent()
-        } else {
-          setEntries((current) =>
-            current.map((entry) =>
-              entry.id === streamingEntryId
-                ? { ...entry, content: t('Response stopped.'), notice: true }
-                : entry
-            )
+        const content = redactAssistantMessageForDisplay(
+          streamedContent,
+          displayRedactionNotice
+        ).content
+        setEntries((current) =>
+          current.map((entry) =>
+            entry.id === streamingEntryId
+              ? {
+                  ...entry,
+                  content,
+                  streaming: false,
+                  interrupted: true,
+                  retry: { message, history, presetId },
+                }
+              : entry
           )
-        }
+        )
         return
       }
       const canSubmitWithoutAssistant =
@@ -1719,11 +1783,11 @@ export function AssistantPanel(props: {
           label: t('Submit for administrator review'),
           tool: 'activation',
         }
-      } else if (developerAccessGranted) {
+      } else if (accountAccessConfirmed) {
         errorAction = {
-          kind: 'route',
+          kind: 'tool',
           label: t('Contact support'),
-          to: '/support',
+          tool: 'handoff',
         }
       }
       const errorEntry: ConversationEntry = {
@@ -1742,14 +1806,14 @@ export function AssistantPanel(props: {
       if (streamFrame !== null) window.cancelAnimationFrame(streamFrame)
       if (assistantAbortControllerRef.current === abortController) {
         assistantAbortControllerRef.current = null
+        setSending(false)
       }
-      setSending(false)
     }
   }
 
   const submitMessage = async ({ text }: { text?: string }) => {
     const message = text?.trim()
-    if (sending || conversationRestricted) return
+    if (assistantAbortControllerRef.current || conversationRestricted) return
     if (!message) {
       throw new Error(t('Please enter a message.'))
     }
@@ -1778,10 +1842,12 @@ export function AssistantPanel(props: {
       return
     }
     const history: AssistantChatMessage[] = entries
-      .filter((entry) => !entry.error && !entry.notice)
+      .filter((entry) => !entry.error && !entry.notice && !entry.interrupted)
       .map((entry) => ({ role: entry.role, content: entry.content }))
     setEntries((current) => [
-      ...current,
+      ...current.map((entry) =>
+        entry.retry ? { ...entry, retry: undefined } : entry
+      ),
       { id: nanoid(), role: 'user', content: safeMessage.content },
       ...(safeMessage.redacted
         ? [
@@ -1830,7 +1896,13 @@ export function AssistantPanel(props: {
   ])
 
   const retryMessage = async (entry: ConversationEntry) => {
-    if (!entry.retry || sending) return
+    if (
+      !entry.retry ||
+      assistantAbortControllerRef.current ||
+      conversationRestricted
+    ) {
+      return
+    }
     setEntries((current) => current.filter((item) => item.id !== entry.id))
     await requestAssistantReply(
       entry.retry.message,
@@ -1883,6 +1955,11 @@ export function AssistantPanel(props: {
         description={assistantDescription}
         classicLayout={classicLayout}
         onNewConversation={resetConversation}
+        onContactSupport={() => {
+          assistantAbortControllerRef.current?.abort()
+          if (openAssistantTarget('human')) setHistoryView(null)
+          else void navigate({ to: '/support' })
+        }}
         onToggleClassicLayout={() => setClassicLayout((value) => !value)}
         historyVisible={historyVisible}
         historyDetail={historyView !== null && historyView !== 'list'}
@@ -2035,7 +2112,7 @@ export function AssistantPanel(props: {
                         {entry.role === 'assistant' ? (
                           <Response
                             className='max-w-full leading-7 break-words [&_pre]:max-w-full [&_pre]:overflow-x-auto'
-                            final
+                            final={!entry.streaming}
                           >
                             {entry.content}
                           </Response>
@@ -2044,6 +2121,14 @@ export function AssistantPanel(props: {
                             {entry.content}
                           </p>
                         )}
+                        {entry.interrupted ? (
+                          <p
+                            className='text-muted-foreground text-xs'
+                            role='status'
+                          >
+                            {t('Response stopped.')}
+                          </p>
+                        ) : null}
                         {entry.tools?.length ? (
                           <AssistantToolCalls traces={entry.tools} />
                         ) : null}
@@ -2065,7 +2150,7 @@ export function AssistantPanel(props: {
                                 type='button'
                                 variant='outline'
                                 onClick={() => void retryMessage(entry)}
-                                disabled={sending}
+                                disabled={sending || conversationRestricted}
                               >
                                 <HugeiconsIcon
                                   icon={ReloadIcon}
@@ -2332,15 +2417,14 @@ export function AssistantPanel(props: {
                   routeUnavailable={assistantRouteUnavailable}
                   sending={sending}
                   canRetry={
-                    entries.some(
-                      (entry) => entry.retry !== undefined && entry.error
-                    ) && !conversationRestricted
+                    entries.some((entry) => entry.retry !== undefined) &&
+                    !conversationRestricted
                   }
                   onRetry={() => {
                     let retryable: (typeof entries)[number] | undefined
                     for (let index = entries.length - 1; index >= 0; index--) {
                       const entry = entries[index]
-                      if (entry?.retry !== undefined && entry.error) {
+                      if (entry?.retry !== undefined) {
                         retryable = entry
                         break
                       }
