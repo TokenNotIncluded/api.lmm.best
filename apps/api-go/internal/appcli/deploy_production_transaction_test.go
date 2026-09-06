@@ -590,12 +590,15 @@ func newProductionFixture(t *testing.T) productionFixture {
 	goRollback := filepath.Join(staging, "lmm-api-go-bin-old.pkg.tar.zst")
 	webCandidate := filepath.Join(staging, "lmm-api-web-bin-new.pkg.tar.zst")
 	webRollback := filepath.Join(staging, "lmm-api-web-bin-old.pkg.tar.zst")
-	probe := filepath.Join(staging, "lmm-api-go")
-	operator := filepath.Join(staging, "lmm-api-operator")
-	for path, body := range map[string]string{goCandidate: "go-new", goRollback: "go-old", webCandidate: "web-new", webRollback: "web-old", probe: "probe", operator: "operator"} {
+	probeProvider := filepath.Join(staging, backendGoName)
+	probeEntrypoint := filepath.Join(staging, productionCandidateLinkName)
+	for path, body := range map[string]string{goCandidate: "go-new", goRollback: "go-old", webCandidate: "web-new", webRollback: "web-old", probeProvider: "probe"} {
 		if err := os.WriteFile(path, []byte(body), 0o700); err != nil {
 			t.Fatal(err)
 		}
+	}
+	if err := os.Symlink(backendGoName, probeEntrypoint); err != nil {
+		t.Fatal(err)
 	}
 	environment := []byte("SQL_DSN=postgres://user:password@127.0.0.1/lmm\nSESSION_COOKIE_SECURE=false\n")
 	if err := os.WriteFile(filepath.Join(paths.ConfigDir, "lmm-api-go.env"), environment, 0o600); err != nil {
@@ -619,13 +622,13 @@ func newProductionFixture(t *testing.T) productionFixture {
 		t.Fatal(err)
 	}
 	clockValue := time.Date(2026, 8, 10, 1, 0, 0, 0, time.UTC)
-	runner := &fakeProductionRunner{t: t, goCandidate: goCandidate, goRollback: goRollback, webCandidate: webCandidate, webRollback: webRollback, probeBinary: probe, installedBinary: paths.InstalledBinary, frontendRoot: paths.FrontendRoot, oldWebIndex: filepath.Join(oldFrontend, "index.html"), newWebIndex: filepath.Join(newFrontend, "index.html"), oldVersion: oldVersion, newVersion: newVersion, oldRevision: oldRevision, newRevision: newRevision, contractRevision: contract, installedGoVersion: oldVersion, installedWebVersion: oldVersion, installedGoRevision: oldRevision, installedWebRevision: oldRevision, goRevisionFile: paths.GoRevisionFile, webRevisionFile: paths.WebRevisionFile, goContractFile: paths.GoContractFile, webContractFile: paths.WebContractFile, serviceActive: true, timerDeadline: clockValue.Add(10 * time.Minute)}
+	runner := &fakeProductionRunner{t: t, goCandidate: goCandidate, goRollback: goRollback, webCandidate: webCandidate, webRollback: webRollback, probeBinary: probeEntrypoint, installedBinary: paths.InstalledBinary, frontendRoot: paths.FrontendRoot, oldWebIndex: filepath.Join(oldFrontend, "index.html"), newWebIndex: filepath.Join(newFrontend, "index.html"), oldVersion: oldVersion, newVersion: newVersion, oldRevision: oldRevision, newRevision: newRevision, contractRevision: contract, installedGoVersion: oldVersion, installedWebVersion: oldVersion, installedGoRevision: oldRevision, installedWebRevision: oldRevision, goRevisionFile: paths.GoRevisionFile, webRevisionFile: paths.WebRevisionFile, goContractFile: paths.GoContractFile, webContractFile: paths.WebContractFile, serviceActive: true, timerDeadline: clockValue.Add(10 * time.Minute)}
 	runtime := &productionRuntime{paths: paths, runner: runner, now: func() time.Time { return clockValue }, sleep: func(d time.Duration) { clockValue = clockValue.Add(d) }, effectiveUID: func() int { return 0 }, hostname: func() (string, error) { return productionExpectedHost, nil }, probeAttempts: 1, requiredOwnerUID: uint32(os.Getuid())}
 	workspace, err := runtime.openWorkspace(workspaceRoot)
 	if err != nil {
 		t.Fatal(err)
 	}
-	options := productionTransactionOptions{Action: "apply", Workspace: workspaceRoot, OperatorUser: productionOperatorUser, GoPackage: goCandidate, GoPackageSHA256: mustHashFile(t, goCandidate), GoRollbackPackage: goRollback, GoRollbackSHA256: mustHashFile(t, goRollback), WebPackage: webCandidate, WebPackageSHA256: mustHashFile(t, webCandidate), WebRollbackPackage: webRollback, WebRollbackSHA256: mustHashFile(t, webRollback), GoChanged: true, WebChanged: true, ProbeBinary: probe, ProbeBinarySHA256: mustHashFile(t, probe), OperatorBinary: operator, OperatorBinarySHA256: mustHashFile(t, operator), ExpectedVersion: newVersion, BackupDir: backupDir, WithBackups: true, ObservationWindow: 2 * time.Minute}
+	options := productionTransactionOptions{Action: "apply", Workspace: workspaceRoot, OperatorUser: productionOperatorUser, GoPackage: goCandidate, GoPackageSHA256: mustHashFile(t, goCandidate), GoRollbackPackage: goRollback, GoRollbackSHA256: mustHashFile(t, goRollback), WebPackage: webCandidate, WebPackageSHA256: mustHashFile(t, webCandidate), WebRollbackPackage: webRollback, WebRollbackSHA256: mustHashFile(t, webRollback), GoChanged: true, WebChanged: true, ProbeBinary: probeProvider, ProbeBinarySHA256: mustHashFile(t, probeProvider), OperatorBinary: probeProvider, OperatorBinarySHA256: mustHashFile(t, probeProvider), ExpectedVersion: newVersion, BackupDir: backupDir, WithBackups: true, ObservationWindow: 2 * time.Minute}
 	return productionFixture{runtime: runtime, runner: runner, workspace: workspace, options: options, environment: environment, clock: &clockValue}
 }
 
@@ -658,13 +661,6 @@ func writeTestBackupSet(root string, environment []byte) error {
 	if err := os.WriteFile(filepath.Join(root, "manifest.env"), []byte("format=1\n"), 0o600); err != nil {
 		return fmt.Errorf("write test backup manifest: %w", err)
 	}
-	attestation, err := json.Marshal(productionBackupAttestation{Format: 1, DeploymentID: filepath.Base(root), ControllerDigest: strings.Repeat("c", 64), OffhostDigest: strings.Repeat("d", 64), VerifiedUTC: time.Date(2026, 8, 10, 0, 0, 0, 0, time.UTC)})
-	if err != nil {
-		return fmt.Errorf("marshal test backup attestation: %w", err)
-	}
-	if err := os.WriteFile(filepath.Join(root, productionBackupAttestationFilename), append(attestation, '\n'), 0o600); err != nil {
-		return fmt.Errorf("write test backup attestation: %w", err)
-	}
 	var sums strings.Builder
 	for _, name := range []string{"application.archive", "frontend.archive", "configuration.archive", "database.archive", "rollback.package"} {
 		digest, err := sha256File(filepath.Join(root, name))
@@ -676,7 +672,48 @@ func writeTestBackupSet(root string, environment []byte) error {
 	if err := os.WriteFile(filepath.Join(root, "SHA256SUMS"), []byte(sums.String()), 0o600); err != nil {
 		return fmt.Errorf("write test backup checksums: %w", err)
 	}
+	targetDigest, err := sha256File(filepath.Join(root, "SHA256SUMS"))
+	if err != nil {
+		return fmt.Errorf("hash test backup checksums: %w", err)
+	}
+	attestation, err := json.Marshal(productionBackupAttestation{Format: 1, DeploymentID: filepath.Base(root), EvidenceFormat: 2, TargetDigest: targetDigest, ControllerDigest: strings.Repeat("c", 64), OffhostDigest: strings.Repeat("d", 64), VerifiedUTC: time.Date(2026, 8, 10, 0, 0, 0, 0, time.UTC)})
+	if err != nil {
+		return fmt.Errorf("marshal test backup attestation: %w", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, productionBackupAttestationFilename), append(attestation, '\n'), 0o600); err != nil {
+		return fmt.Errorf("write test backup attestation: %w", err)
+	}
 	return nil
+}
+
+func rewriteTestBackupChecksums(t *testing.T, root string) {
+	t.Helper()
+	var sums strings.Builder
+	for _, name := range []string{"application.archive", "frontend.archive", "configuration.archive", "database.archive", "rollback.package"} {
+		digest, err := sha256File(filepath.Join(root, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _ = fmt.Fprintf(&sums, "%s  %s\n", digest, name)
+	}
+	if err := os.WriteFile(filepath.Join(root, "SHA256SUMS"), []byte(sums.String()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func writeTestBackupConfirmation(t *testing.T, manifest productionManifest, verifiedUTC time.Time) {
+	t.Helper()
+	receipt, err := json.Marshal(productionBackupConfirmation{
+		Format: 1, DeploymentID: manifest.DeploymentID, TargetDigest: manifest.TargetBackupSHA256,
+		ControllerDigest: manifest.ControllerBackupSHA256, OffhostDigest: manifest.OffhostBackupSHA256,
+		VerifiedUTC: verifiedUTC,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(manifest.BackupDir, productionBackupConfirmationFilename), append(receipt, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func mustHashFile(t *testing.T, path string) string {
@@ -704,7 +741,8 @@ func TestProductionDualPackageApplyUsesParuAndAwaitsExplicitConfirmationWithoutT
 	if manifest.Format != productionTransactionFormat || manifest.OperatorUser != productionOperatorUser || !manifest.Go.Changed || !manifest.Web.Changed ||
 		manifest.Go.CandidatePackageName != productionAURPackageName || manifest.Go.RollbackPackageName != productionAURPackageName ||
 		manifest.Web.CandidatePackageName != productionWebPackageName || manifest.Web.RollbackPackageName != productionWebPackageName ||
-		manifest.Go.CandidateContractRevision != manifest.Web.CandidateContractRevision || manifest.ServiceRestartBaseline != 0 || manifest.ObservationStartedUTC.IsZero() {
+		manifest.Go.CandidateContractRevision != manifest.Web.CandidateContractRevision || manifest.ServiceRestartBaseline != 0 || manifest.ObservationStartedUTC.IsZero() ||
+		!productionSHA256Pattern.MatchString(manifest.TargetBackupSHA256) || !productionSHA256Pattern.MatchString(manifest.ControllerBackupSHA256) || !productionSHA256Pattern.MatchString(manifest.OffhostBackupSHA256) {
 		t.Fatalf("manifest=%#v", manifest)
 	}
 	paruTransactions := 0
@@ -717,6 +755,9 @@ func TestProductionDualPackageApplyUsesParuAndAwaitsExplicitConfirmationWithoutT
 			if got := strings.Join(command.Args, " "); !strings.Contains(got, "-- /usr/bin/paru -U --noconfirm --") {
 				t.Fatalf("paru invocation=%q", got)
 			}
+		}
+		if command.Name == commandRunuser && len(command.Args) >= 4 && command.Args[1] == "root" && command.Args[3] == fixture.options.ProbeBinary {
+			t.Fatalf("candidate provider was executed directly instead of through %s: %#v", fixture.runner.probeBinary, command)
 		}
 	}
 	if paruTransactions != 2 {
@@ -739,6 +780,7 @@ func TestProductionDualPackageApplyUsesParuAndAwaitsExplicitConfirmationWithoutT
 		filepath.Join(fixture.workspace.root, productionWorkspaceMarker): 0o640,
 		fixture.workspace.stateDir:                                       0o700,
 		fixture.options.GoPackage:                                        0o640,
+		fixture.options.ProbeBinary:                                      0o750,
 	} {
 		info, err := os.Lstat(path)
 		if err != nil {
@@ -748,10 +790,78 @@ func TestProductionDualPackageApplyUsesParuAndAwaitsExplicitConfirmationWithoutT
 			t.Fatalf("operator workspace %s mode=%v want=%v", path, info.Mode().Perm(), wantMode)
 		}
 	}
+	if target, err := os.Readlink(fixture.workspace.candidateLink); err != nil || target != backendGoName {
+		t.Fatalf("candidate entrypoint target=%q err=%v", target, err)
+	}
 	for _, command := range fixture.runner.commands {
 		if command.Name == commandSystemctl && len(command.Args) > 2 && (command.Args[0] == "enable" || command.Args[0] == "disable") && strings.HasPrefix(command.Args[2], "lmm-api-go-rollback-") {
 			t.Fatalf("deployment managed a rollback timer/service: %#v", command)
 		}
+	}
+}
+
+func TestCandidateEntrypointRejectsUnsafeLinksAndTargets(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*testing.T, productionFixture)
+	}{
+		{
+			name: "regular generic file",
+			mutate: func(t *testing.T, fixture productionFixture) {
+				t.Helper()
+				if err := os.Remove(fixture.workspace.candidateLink); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(fixture.workspace.candidateLink, []byte("generic"), 0o700); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{
+			name: "absolute target",
+			mutate: func(t *testing.T, fixture productionFixture) {
+				t.Helper()
+				if err := os.Remove(fixture.workspace.candidateLink); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(fixture.options.ProbeBinary, fixture.workspace.candidateLink); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{
+			name: "chained target",
+			mutate: func(t *testing.T, fixture productionFixture) {
+				t.Helper()
+				if err := os.Remove(fixture.workspace.candidateLink); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(backendGoName, filepath.Join(fixture.workspace.stagingDir, "nested-provider")); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink("nested-provider", fixture.workspace.candidateLink); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{
+			name: "writable provider",
+			mutate: func(t *testing.T, fixture productionFixture) {
+				t.Helper()
+				if err := os.Chmod(fixture.options.ProbeBinary, 0o720); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newProductionFixture(t)
+			test.mutate(t, fixture)
+			if _, err := fixture.runtime.validateCandidateEntrypoint(fixture.workspace, fixture.options.ProbeBinary, fixture.options.ProbeBinarySHA256); err == nil {
+				t.Fatal("unsafe candidate entrypoint was accepted")
+			}
+		})
 	}
 }
 
@@ -773,12 +883,131 @@ func TestProductionRollbackRestoresBothPackagesAndFrontend(t *testing.T) {
 	}
 }
 
+func TestProductionRollbackIgnoresAuxiliaryBackupAndCandidateDamage(t *testing.T) {
+	fixture := newProductionFixture(t)
+	fixture.options.WebPackage = fixture.options.WebRollbackPackage
+	fixture.options.WebPackageSHA256 = fixture.options.WebRollbackSHA256
+	fixture.options.WebChanged = false
+	if _, err := fixture.runtime.apply(context.Background(), fixture.workspace, fixture.options); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(fixture.options.BackupDir, "application.archive"), []byte("damaged-auxiliary-backup"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(fixture.workspace.candidateLink); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(fixture.workspace.candidateLink, []byte("invalid-regular-entrypoint"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(fixture.options.WebRollbackPackage, []byte("damaged-unused-web-rollback"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	status, err := fixture.runtime.rollback(context.Background(), fixture.workspace, "test-necessary-evidence-only")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.Phase != "ROLLED_BACK" || fixture.runner.installedGoVersion != fixture.runner.oldVersion || fixture.runner.installedWebVersion != fixture.runner.oldVersion {
+		t.Fatalf("status=%#v", status)
+	}
+}
+
+func TestProductionWebOnlyRollbackIgnoresUnusedGoAndConfigurationEvidence(t *testing.T) {
+	fixture := newProductionFixture(t)
+	fixture.options.GoPackage = fixture.options.GoRollbackPackage
+	fixture.options.GoPackageSHA256 = fixture.options.GoRollbackSHA256
+	fixture.options.GoChanged = false
+	fixture.options.ExpectedVersion = fixture.runner.oldVersion
+	fixture.runner.probeVersion = fixture.runner.oldVersion
+	if _, err := fixture.runtime.apply(context.Background(), fixture.workspace, fixture.options); err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := fixture.runtime.readManifest(fixture.workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(fixture.options.GoRollbackPackage, []byte("damaged-unused-go-rollback"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(manifest.ConfigRestorePath, "lmm-api-go.env"), []byte("damaged-unused-configuration"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	status, err := fixture.runtime.rollback(context.Background(), fixture.workspace, "test-web-only-necessary-evidence")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.Phase != "ROLLED_BACK" || fixture.runner.installedWebVersion != fixture.runner.oldVersion {
+		t.Fatalf("status=%#v", status)
+	}
+}
+
+func TestProductionRollbackRejectsDamagedNecessaryEvidence(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		mutate func(*testing.T, productionFixture, productionManifest)
+	}{
+		{
+			name: "rollback package",
+			mutate: func(t *testing.T, fixture productionFixture, _ productionManifest) {
+				t.Helper()
+				if err := os.WriteFile(fixture.options.GoRollbackPackage, []byte("damaged-rollback-package"), 0o700); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{
+			name: "configuration restore",
+			mutate: func(t *testing.T, _ productionFixture, manifest productionManifest) {
+				t.Helper()
+				if err := os.WriteFile(filepath.Join(manifest.ConfigRestorePath, "lmm-api-go.env"), []byte("damaged-restore-state"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newProductionFixture(t)
+			if _, err := fixture.runtime.apply(context.Background(), fixture.workspace, fixture.options); err != nil {
+				t.Fatal(err)
+			}
+			manifest, err := fixture.runtime.readManifest(fixture.workspace)
+			if err != nil {
+				t.Fatal(err)
+			}
+			test.mutate(t, fixture, manifest)
+
+			if _, err := fixture.runtime.rollback(context.Background(), fixture.workspace, "test-damaged-rollback-evidence"); err == nil {
+				t.Fatal("rollback accepted damaged necessary evidence")
+			}
+		})
+	}
+}
+
+func TestProductionTargetOnlyConfirmRequiresFreshExternalBackupReceipt(t *testing.T) {
+	fixture := newProductionFixture(t)
+	if _, err := fixture.runtime.apply(context.Background(), fixture.workspace, fixture.options); err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := fixture.runtime.readManifest(fixture.workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture.runtime.now = func() time.Time { return manifest.ObservationStartedUTC.Add(3 * time.Minute) }
+
+	if _, err := fixture.runtime.confirmLoaded(context.Background(), fixture.workspace, manifest); err == nil || !strings.Contains(err.Error(), "confirmation receipt") {
+		t.Fatalf("target-only confirmation error=%v", err)
+	}
+}
+
 func TestProductionConfirmRequiresObservationAndExactIdentities(t *testing.T) {
 	fixture := newProductionFixture(t)
 	if _, err := fixture.runtime.apply(context.Background(), fixture.workspace, fixture.options); err != nil {
 		t.Fatal(err)
 	}
 	manifest, _ := fixture.runtime.readManifest(fixture.workspace)
+	writeTestBackupConfirmation(t, manifest, manifest.ObservationStartedUTC)
 	*fixture.clock = manifest.ObservationStartedUTC.Add(119 * time.Second)
 	if _, err := fixture.runtime.confirmLoaded(context.Background(), fixture.workspace, manifest); err == nil || !strings.Contains(err.Error(), "120 seconds") {
 		t.Fatalf("early confirm error=%v", err)
@@ -790,6 +1019,47 @@ func TestProductionConfirmRequiresObservationAndExactIdentities(t *testing.T) {
 	}
 	if confirmed.Phase != "CONFIRMED" {
 		t.Fatalf("confirmed=%#v", confirmed)
+	}
+}
+
+func TestProductionConfirmRejectsTamperedTargetBackupMember(t *testing.T) {
+	fixture := newProductionFixture(t)
+	if _, err := fixture.runtime.apply(context.Background(), fixture.workspace, fixture.options); err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := fixture.runtime.readManifest(fixture.workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture.runtime.now = func() time.Time { return manifest.ObservationStartedUTC.Add(3 * time.Minute) }
+	if err := os.WriteFile(filepath.Join(fixture.options.BackupDir, "application.archive"), []byte("tampered"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	rewriteTestBackupChecksums(t, fixture.options.BackupDir)
+
+	if _, err := fixture.runtime.confirmLoaded(context.Background(), fixture.workspace, manifest); err == nil || !strings.Contains(err.Error(), "checksum manifest") {
+		t.Fatalf("tampered target backup confirmation error=%v", err)
+	}
+}
+
+func TestProductionApplyRejectsSelfConsistentTargetBackupTamperBeforeMutation(t *testing.T) {
+	fixture := newProductionFixture(t)
+	if err := os.WriteFile(filepath.Join(fixture.options.BackupDir, "application.archive"), []byte("tampered-before-apply"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	rewriteTestBackupChecksums(t, fixture.options.BackupDir)
+
+	if _, err := fixture.runtime.apply(context.Background(), fixture.workspace, fixture.options); err == nil || !strings.Contains(err.Error(), "changed after controller verification") {
+		t.Fatalf("pre-mutation target backup tamper error=%v", err)
+	}
+	for _, event := range fixture.runner.events {
+		if event == "systemd-stop" || strings.HasPrefix(event, "paru-") {
+			t.Fatalf("pre-mutation backup tamper changed production state: %v", fixture.runner.events)
+		}
+	}
+	status, err := fixture.runtime.readStatus(fixture.workspace)
+	if err != nil || status.Phase != "FAILED_PREARM" {
+		t.Fatalf("pre-mutation backup tamper status=%#v err=%v", status, err)
 	}
 }
 
@@ -1095,8 +1365,8 @@ func TestProductionManualRollbackNeverRestoresDatabaseAndPreservesOnlineWrites(t
 	}
 	rollbackPackages := make([]string, 0, 2)
 	for _, command := range fixture.runner.commands[commandsBeforeRollback:] {
-		if filepath.Base(command.Name) == "pg_restore" {
-			t.Fatalf("manual rollback invoked pg_restore: %#v", command)
+		if filepath.Base(command.Name) == "pg_restore" && (len(command.Args) != 2 || command.Args[0] != "--list") {
+			t.Fatalf("manual rollback attempted database restoration: %#v", command)
 		}
 		if command.Name == commandRunuser && len(command.Args) == 8 && command.Args[3] == "/usr/bin/paru" && command.Args[4] == "-U" {
 			rollbackPackages = append(rollbackPackages, command.Args[7])

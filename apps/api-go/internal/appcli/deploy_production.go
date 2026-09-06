@@ -105,7 +105,8 @@ func writeProductionDeployUsage(output io.Writer) {
        --web-rollback-package FILE --web-rollback-release-asset FILE --web-rollback-release-bundle FILE \\
        --probe-binary FILE [--operator-binary FILE] [--with-backups --age-recipient-file FILE]
   %s deploy production stage|promote|status|confirm|rollback \\
-       --plan FILE --plan-sha256 HEX --confirm api.lmm.best
+       --plan FILE --plan-sha256 HEX --confirm api.lmm.best \\
+       [--age-identity-file FILE for backup-enabled promote or confirm]
 
 Target-only recovery commands (normally invoked by the controller):
   %s deploy production workspace create --deployment-id ID

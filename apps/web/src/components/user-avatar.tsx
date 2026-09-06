@@ -20,10 +20,11 @@ import { useEffect, useMemo, useState } from 'react'
 
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import {
-  getGravatarUrl,
   getUserAvatarFallback,
   getUserAvatarStyle,
+  normalizeGravatarEmail,
 } from '@/lib/avatar'
+import { getGravatarImage } from '@/lib/avatar-cache'
 import { cn } from '@/lib/utils'
 
 type UserAvatarProps = React.ComponentProps<typeof Avatar> & {
@@ -35,7 +36,18 @@ type UserAvatarProps = React.ComponentProps<typeof Avatar> & {
   gravatarSize?: number
 }
 
-export function UserAvatar({
+export function UserAvatar(props: UserAvatarProps) {
+  const email = normalizeGravatarEmail(props.email ?? '')
+  return (
+    <UserAvatarContent
+      key={`${email}:${props.gravatarSize ?? 192}`}
+      {...props}
+      email={email}
+    />
+  )
+}
+
+function UserAvatarContent({
   name,
   email,
   alt,
@@ -52,12 +64,19 @@ export function UserAvatar({
 
   useEffect(() => {
     let active = true
+    let objectUrl: string | undefined
     setGravatarUrl(null)
     setImageLoaded(false)
 
-    void getGravatarUrl(email, gravatarSize)
-      .then((url) => {
-        if (active) setGravatarUrl(url)
+    void getGravatarImage(email, gravatarSize)
+      .then((image) => {
+        if (!active) return
+        if (image instanceof Blob) {
+          objectUrl = URL.createObjectURL(image)
+          setGravatarUrl(objectUrl)
+        } else {
+          setGravatarUrl(image)
+        }
       })
       .catch(() => {
         if (active) setGravatarUrl(null)
@@ -65,6 +84,7 @@ export function UserAvatar({
 
     return () => {
       active = false
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
     }
   }, [email, gravatarSize])
 

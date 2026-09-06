@@ -17,9 +17,20 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { createFileRoute } from '@tanstack/react-router'
+import z from 'zod'
 
 import { StatusDetection } from '@/features/status-detection'
 
 export const Route = createFileRoute('/status/')({
+  validateSearch: z.object({
+    hours: z.coerce
+      .number()
+      .int()
+      .refine((value) => [24, 72, 168, 720].includes(value))
+      .catch(24),
+    model: z.string().optional().catch(''),
+    group: z.string().optional().catch(''),
+    vendor: z.string().optional().catch(''),
+  }),
   component: StatusDetection,
 })

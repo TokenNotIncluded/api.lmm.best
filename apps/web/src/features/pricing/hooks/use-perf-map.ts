@@ -53,10 +53,11 @@ export function buildPerfMap(
  * empty state — the summary route itself is already public under the pricing
  * nav module, so no extra auth handling is needed here.
  */
-export function usePerfMap() {
-  const { data, isLoading } = useQuery({
+export function usePerfMap(options?: { enabled?: boolean }) {
+  const { data, isLoading, isFetching, error, refetch } = useQuery({
     queryKey: PERF_SUMMARY_QUERY_KEY,
     queryFn: () => getPerfMetricsSummary(PERF_SUMMARY_HOURS),
+    enabled: options?.enabled ?? true,
     staleTime: PERF_SUMMARY_STALE_TIME_MS,
     retry: false,
   })
@@ -66,5 +67,5 @@ export function usePerfMap() {
     [data]
   )
 
-  return { perfMap, isLoading }
+  return { perfMap, isLoading, isFetching, error, refetch }
 }

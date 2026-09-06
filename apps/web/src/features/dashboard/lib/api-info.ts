@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import type { PingStatus } from '@/features/dashboard/types'
+import { openExternalUrl } from '@/lib/external-navigation'
 import { validatedExternalUrl } from '@/lib/validated-external-url'
 
 /**
@@ -55,7 +56,7 @@ export async function testUrlLatency(url: string): Promise<PingStatus> {
 /**
  * Open external speed test link
  */
-export function openExternalSpeedTest(url: string): void {
+export function openExternalSpeedTest(url: string): Promise<boolean> {
   const encodedUrl = encodeURIComponent(url)
   const speedTestUrl = validatedExternalUrl(
     `https://www.tcptest.cn/http/${encodedUrl}`,
@@ -69,8 +70,9 @@ export function openExternalSpeedTest(url: string): void {
   if (speedTestUrl) {
     // Invariant: speedTestUrl is HTTPS on www.tcptest.cn under /http/.
     // pi-lens-ignore: ts-open-redirect, no-open-redirect
-    window.open(speedTestUrl, '_blank', 'noopener,noreferrer')
+    return openExternalUrl(speedTestUrl)
   }
+  return Promise.resolve(false)
 }
 
 /**

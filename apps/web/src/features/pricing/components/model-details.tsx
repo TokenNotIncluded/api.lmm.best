@@ -38,7 +38,7 @@ import { CopyButton } from '@/components/copy-button'
 import { StaticDataTable } from '@/components/data-table'
 import { sideDrawerContentClassName } from '@/components/drawer-layout'
 import { GroupBadge } from '@/components/group-badge'
-import { PublicLayout } from '@/components/layout'
+import { PublicLayout } from '@/components/layout/components/public-layout'
 import { Button } from '@/components/ui/button'
 import {
   Sheet,

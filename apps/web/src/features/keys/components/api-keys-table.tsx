@@ -162,7 +162,9 @@ function ApiKeysMobileList({
               <div className='min-w-0 flex-1 [&_button:first-child]:max-w-full [&_button:first-child]:truncate [&_button:first-child]:px-0'>
                 <ApiKeyCell apiKey={apiKey} />
               </div>
-              <DataTableRowActions row={row} />
+              <div className='[&_button]:min-h-11 [&_button]:min-w-11'>
+                <DataTableRowActions row={row} />
+              </div>
             </div>
 
             <div className='flex items-center justify-between gap-2 text-xs'>

@@ -293,6 +293,51 @@ func legacyPolicyUnitIsEnabled(output []byte) bool {
 	}
 }
 
+func (runtime *productionRuntime) validateEdgePolicyBackup(root, expectedDigest string) error {
+	manifestPath := filepath.Join(root, "manifest.json")
+	manifestBytes, err := readPrivateRegularFile(manifestPath, edgePolicyBackupLimit)
+	if err != nil {
+		return fmt.Errorf("read edge-policy restore manifest: %w", err)
+	}
+	if expectedDigest == "" || fmt.Sprintf("%x", sha256Bytes(manifestBytes)) != expectedDigest {
+		return errors.New("edge-policy restore manifest changed after deployment was armed")
+	}
+	var manifest edgePolicyBackupManifest
+	if err := json.Unmarshal(manifestBytes, &manifest); err != nil || manifest.Format != edgeBackupFormat {
+		return errors.New("edge-policy restore manifest is invalid")
+	}
+	assets := make(map[string]edgePolicyAsset)
+	for _, asset := range runtime.allEdgePolicyAssets() {
+		assets[asset.Key] = asset
+	}
+	if len(manifest.Entries) != len(assets) {
+		return errors.New("edge-policy restore manifest inventory is incomplete")
+	}
+	seen := make(map[string]bool, len(assets))
+	for _, entry := range manifest.Entries {
+		if _, ok := assets[entry.Key]; !ok || seen[entry.Key] || entry.State != "present" && entry.State != "absent" {
+			return errors.New("edge-policy restore manifest contains an unknown or duplicate entry")
+		}
+		seen[entry.Key] = true
+		backupFile := filepath.Join(root, entry.Key)
+		if entry.State == "absent" {
+			if _, err := os.Lstat(backupFile); !errors.Is(err, os.ErrNotExist) {
+				return fmt.Errorf("edge-policy restore contains unexpected absent-state data: %s", entry.Key)
+			}
+			continue
+		}
+		info, err := os.Lstat(backupFile)
+		if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || info.Size() == 0 || info.Mode().Perm()&0o022 != 0 {
+			return fmt.Errorf("edge-policy restore file is missing or unsafe: %s", entry.Key)
+		}
+		actual, err := sha256File(backupFile)
+		if err != nil || actual != entry.SHA256 {
+			return fmt.Errorf("edge-policy restore checksum mismatch: %s", entry.Key)
+		}
+	}
+	return nil
+}
+
 func (runtime *productionRuntime) restoreEdgePolicyBackup(ctx context.Context, root, expectedDigest string) error {
 	manifestPath := filepath.Join(root, "manifest.json")
 	manifestBytes, err := readPrivateRegularFile(manifestPath, edgePolicyBackupLimit)

@@ -24,6 +24,7 @@ import {
   Wallet,
   LogOut,
   Settings,
+  Share2,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
@@ -125,10 +126,20 @@ export function ProfileDropdown() {
               </DropdownMenuItem>
 
               {isWalletVisible ? (
-                <DropdownMenuItem onClick={() => navigate({ to: '/wallet' })}>
-                  <Wallet className='size-4' />
-                  {t('Wallet')}
-                </DropdownMenuItem>
+                <>
+                  <DropdownMenuItem onClick={() => navigate({ to: '/wallet' })}>
+                    <Wallet className='size-4' />
+                    {t('Wallet')}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() =>
+                      navigate({ to: '/wallet', hash: 'referral-program' })
+                    }
+                  >
+                    <Share2 className='size-4' />
+                    {t('Referral Program')}
+                  </DropdownMenuItem>
+                </>
               ) : null}
 
               {isCompanyVisible ? (

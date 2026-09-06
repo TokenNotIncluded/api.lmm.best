@@ -106,10 +106,7 @@ func CleanupBodyStorage(c *gin.Context) {
 	}
 }
 
-// trackMultipartForm 记录一个已解析的 multipart 表单，以便请求结束时释放它
-// 溢出到磁盘的临时文件。multipart.Reader.ReadForm 会把超过内存上限的分部写入
-// os.CreateTemp，只有 Form.RemoveAll 能删除它们；net/http 仅自动清理
-// Request.MultipartForm，因此没有挂到请求上的表单必须由这里兜底。
+// trackMultipartForm 登记每轮解析结果；net/http 仅清理 Request.MultipartForm。
 func trackMultipartForm(c *gin.Context, form *multipart.Form) {
 	if c == nil || form == nil {
 		return
@@ -295,10 +292,6 @@ func ParseMultipartFormReusable(c *gin.Context) (*multipart.Form, error) {
 	if err != nil {
 		return nil, err
 	}
-	requestBody, err := storage.Bytes()
-	if err != nil {
-		return nil, err
-	}
 
 	// Use the original Content-Type saved on first call to avoid boundary
 	// mismatch when callers overwrite c.Request.Header after multipart rebuild.
@@ -314,13 +307,13 @@ func ParseMultipartFormReusable(c *gin.Context) (*multipart.Form, error) {
 		return nil, err
 	}
 
-	reader := multipart.NewReader(bytes.NewReader(requestBody), boundary)
+	// Stream disk-backed bodies without allocating another copy of the upload.
+	reader := multipart.NewReader(storage, boundary)
 	form, err := reader.ReadForm(multipartMemoryLimit())
 	if err != nil {
 		return nil, err
 	}
-	// 每次解析都可能新建一批磁盘临时文件；同一请求内允许多次解析，因此逐个登记
-	// 而不是覆盖，确保重复解析产生的副本同样会被释放。
+	// 即使后续复位失败，请求结束时也需要清理这个表单。
 	trackMultipartForm(c, form)
 
 	// Reset request body

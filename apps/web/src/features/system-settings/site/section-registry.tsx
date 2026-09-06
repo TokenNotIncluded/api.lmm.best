@@ -16,18 +16,32 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { SystemInfoSection } from '../general/system-info-section'
 import {
   parseHeaderNavModules,
   parseSidebarModulesAdmin,
   serializeHeaderNavModules,
   serializeSidebarModulesAdmin,
 } from '../maintenance/config'
-import { HeaderNavigationSection } from '../maintenance/header-navigation-section'
-import { NoticeSection } from '../maintenance/notice-section'
-import { SidebarModulesSection } from '../maintenance/sidebar-modules-section'
 import type { SiteSettings } from '../types'
+import { lazyNamedSection } from '../utils/lazy-section'
 import { createSectionRegistry } from '../utils/section-registry'
+
+const SystemInfoSection = lazyNamedSection(
+  () => import('../general/system-info-section'),
+  'SystemInfoSection'
+)
+const HeaderNavigationSection = lazyNamedSection(
+  () => import('../maintenance/header-navigation-section'),
+  'HeaderNavigationSection'
+)
+const NoticeSection = lazyNamedSection(
+  () => import('../maintenance/notice-section'),
+  'NoticeSection'
+)
+const SidebarModulesSection = lazyNamedSection(
+  () => import('../maintenance/sidebar-modules-section'),
+  'SidebarModulesSection'
+)
 
 const SITE_SECTIONS = [
   {

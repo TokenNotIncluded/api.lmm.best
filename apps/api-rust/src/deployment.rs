@@ -30,6 +30,7 @@ pub const RELEASE_STATE_FORMAT: u32 = 3;
 pub const MINIMUM_OBSERVATION_SECONDS: i64 = 120;
 const MAXIMUM_OBSERVATION_SECONDS: i64 = 360;
 const WORK_ROOT: &str = "/var/lib/lmm-api-go-deploy/work";
+const BACKUP_ROOT: &str = "/var/lib/lmm-api-go-deploy/backups";
 const TRANSACTION_LOCK: &str = "/var/lib/lmm-api-go-deploy/transaction.lock";
 const EXPECTED_HOST: &str = "arch-dmit";
 const SERVICE: &str = "lmm-api.service";
@@ -88,7 +89,15 @@ pub struct ProductionManifest {
     pub backup_dir: PathBuf,
     pub backups_enabled: bool,
     #[serde(default)]
+    pub backup_evidence_format: u32,
+    #[serde(default)]
     pub database_backup_sha256: String,
+    #[serde(default)]
+    pub target_backup_sha256: String,
+    #[serde(default)]
+    pub controller_backup_sha256: String,
+    #[serde(default)]
+    pub offhost_backup_sha256: String,
     pub database_schema: String,
     #[serde(default)]
     pub observation_started_utc: Option<DateTime<Utc>>,
@@ -236,8 +245,21 @@ pub struct Workspace {
 
 impl Workspace {
     pub fn open(path: &Path, require_root_owner: bool) -> Result<Self, DeploymentError> {
+        Self::open_under(path, Path::new(WORK_ROOT), require_root_owner, true)
+    }
+
+    fn open_for_inspection(path: &Path, require_root_owner: bool) -> Result<Self, DeploymentError> {
+        Self::open_under(path, Path::new(WORK_ROOT), require_root_owner, false)
+    }
+
+    fn open_under(
+        path: &Path,
+        work_root: &Path,
+        require_root_owner: bool,
+        require_staging: bool,
+    ) -> Result<Self, DeploymentError> {
         let cleaned = clean_absolute(path)?;
-        if cleaned.parent() != Some(Path::new(WORK_ROOT)) {
+        if cleaned.parent() != Some(work_root) {
             return Err(DeploymentError::UnsafePath(
                 "workspace must be one direct child of the production work root".to_owned(),
             ));
@@ -265,7 +287,11 @@ impl Workspace {
         let state = cleaned.join("state");
         let staging = cleaned.join("staging");
         require_real(&state, true, require_root_owner)?;
-        require_real(&staging, true, require_root_owner)?;
+        match fs::symlink_metadata(&staging) {
+            Ok(_) => require_real(&staging, true, require_root_owner)?,
+            Err(error) if !require_staging && error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+        }
         if fs::metadata(&state)?.permissions().mode() & 0o777 != 0o700 {
             return Err(DeploymentError::UnsafePath(
                 "deployment state must remain root-only".to_owned(),
@@ -289,6 +315,17 @@ impl Workspace {
         let bytes = read_private(&self.manifest, 256 * 1024, require_root_owner)?;
         let manifest: ProductionManifest = serde_json::from_slice(&bytes)?;
         validate_manifest(self, &manifest, require_root_owner)?;
+        Ok(manifest)
+    }
+
+    fn read_manifest_for_rollback(
+        &self,
+        require_root_owner: bool,
+    ) -> Result<ProductionManifest, DeploymentError> {
+        let bytes = read_private(&self.manifest, 256 * 1024, require_root_owner)?;
+        let manifest: ProductionManifest = serde_json::from_slice(&bytes)?;
+        validate_manifest_schema(self, &manifest)?;
+        verify_manifest_evidence_for_rollback(&manifest, require_root_owner)?;
         Ok(manifest)
     }
 
@@ -339,12 +376,25 @@ pub fn validate_release_plan(plan: &ReleasePlan) -> Result<(), DeploymentError> 
     }
     for digest in [
         &plan.go_candidate.package_sha256,
+        &plan.go_candidate.payload_sha256,
         &plan.go_rollback.package_sha256,
         &plan.web_candidate.package_sha256,
         &plan.web_rollback.package_sha256,
         &plan.probe_binary.sha256,
     ] {
         require_sha256(digest)?;
+    }
+    let operator = plan.operator_binary.as_ref().ok_or_else(|| {
+        DeploymentError::InvalidSchema("release plan operator identity is missing".to_owned())
+    })?;
+    if plan.probe_binary.path.file_name() != Some(std::ffi::OsStr::new(GO_PROVIDER))
+        || operator.path != plan.probe_binary.path
+        || operator.sha256 != plan.probe_binary.sha256
+        || plan.probe_binary.sha256 != plan.go_candidate.payload_sha256
+    {
+        return Err(DeploymentError::InvalidSchema(
+            "release plan candidate provider evidence is invalid".to_owned(),
+        ));
     }
     if plan.go_changed && !plan.with_backups {
         return Err(DeploymentError::InvalidSchema(
@@ -380,9 +430,8 @@ pub fn load_release_plan(
 }
 
 pub fn target_status(workspace_path: &Path) -> Result<ProductionStatus, DeploymentError> {
-    let workspace = Workspace::open(workspace_path, false)?;
-    let _manifest = workspace.read_manifest(false)?;
-    workspace.read_status(false)
+    let workspace = Workspace::open_for_inspection(workspace_path, true)?;
+    workspace.read_status(true)
 }
 
 pub async fn target_confirm(workspace_path: &Path) -> Result<ProductionStatus, DeploymentError> {
@@ -391,6 +440,9 @@ pub async fn target_confirm(workspace_path: &Path) -> Result<ProductionStatus, D
     validate_transaction_lock(&workspace)?;
     let manifest = workspace.read_manifest(true)?;
     verify_manifest_evidence(&workspace, &manifest, true)?;
+    if manifest.backups_enabled && manifest.backup_evidence_format == 2 {
+        verify_backup_confirmation(&manifest, true)?;
+    }
     let status = workspace.read_status(true)?;
     if status.phase == "CONFIRMED" {
         finalize_transaction(&workspace)?;
@@ -425,6 +477,9 @@ pub async fn target_confirm(workspace_path: &Path) -> Result<ProductionStatus, D
     };
     workspace.write_status(confirming)?;
     verify_manifest_evidence(&workspace, &manifest, true)?;
+    if manifest.backups_enabled && manifest.backup_evidence_format == 2 {
+        verify_backup_confirmation(&manifest, true)?;
+    }
     verify_active_provider(
         &manifest.go.candidate_package_name,
         &manifest.new_provider_target,
@@ -458,8 +513,7 @@ pub async fn target_rollback(
     }
     let workspace = Workspace::open(workspace_path, true)?;
     validate_transaction_lock(&workspace)?;
-    let manifest = workspace.read_manifest(true)?;
-    verify_manifest_evidence(&workspace, &manifest, true)?;
+    let manifest = workspace.read_manifest_for_rollback(true)?;
     let status = workspace.read_status(true)?;
     if status.phase == "CONFIRMED" || status.phase == "ROLLED_BACK" {
         finalize_transaction(&workspace)?;
@@ -785,6 +839,25 @@ fn validate_manifest(
     manifest: &ProductionManifest,
     require_root_owner: bool,
 ) -> Result<(), DeploymentError> {
+    validate_manifest_schema(workspace, manifest)?;
+    for transition in [&manifest.go, &manifest.web] {
+        validate_transition_evidence(workspace, transition, require_root_owner)?;
+    }
+    let candidate_provider = provider_for_package(&manifest.go.candidate_package_name)?;
+    validate_candidate_entrypoint(
+        workspace,
+        &manifest.probe_binary,
+        &manifest.probe_binary_sha256,
+        candidate_provider,
+        require_root_owner,
+    )?;
+    Ok(())
+}
+
+fn validate_manifest_schema(
+    workspace: &Workspace,
+    manifest: &ProductionManifest,
+) -> Result<(), DeploymentError> {
     if manifest.format != MANIFEST_FORMAT
         || manifest.deployment_id != workspace.id
         || manifest.operator_user != "lmm-api-deploy"
@@ -798,7 +871,7 @@ fn validate_manifest(
         ));
     }
     for transition in [&manifest.go, &manifest.web] {
-        validate_transition(workspace, transition, require_root_owner)?;
+        validate_transition_schema(workspace, transition)?;
     }
     let candidate_provider = provider_for_package(&manifest.go.candidate_package_name)?;
     if manifest.new_provider_target != candidate_provider.filename()
@@ -823,6 +896,42 @@ fn validate_manifest(
             "configuration restore path escapes deployment state".to_owned(),
         ));
     }
+    if manifest.backups_enabled {
+        if manifest.backup_dir != Path::new(BACKUP_ROOT).join(&manifest.deployment_id) {
+            return Err(DeploymentError::UnsafePath(
+                "target backup path is not release-scoped".to_owned(),
+            ));
+        }
+        require_sha256(&manifest.database_backup_sha256)?;
+        let bound = [
+            &manifest.target_backup_sha256,
+            &manifest.controller_backup_sha256,
+            &manifest.offhost_backup_sha256,
+        ]
+        .into_iter()
+        .all(|digest| require_sha256(digest).is_ok());
+        let legacy = manifest.target_backup_sha256.is_empty()
+            && manifest.controller_backup_sha256.is_empty()
+            && manifest.offhost_backup_sha256.is_empty();
+        if (manifest.backup_evidence_format == 2 && !bound)
+            || (manifest.backup_evidence_format == 0 && !legacy)
+            || !matches!(manifest.backup_evidence_format, 0 | 2)
+        {
+            return Err(DeploymentError::InvalidSchema(
+                "external backup digest evidence is incomplete".to_owned(),
+            ));
+        }
+    } else if !manifest.backup_dir.as_os_str().is_empty()
+        || manifest.backup_evidence_format != 0
+        || !manifest.database_backup_sha256.is_empty()
+        || !manifest.target_backup_sha256.is_empty()
+        || !manifest.controller_backup_sha256.is_empty()
+        || !manifest.offhost_backup_sha256.is_empty()
+    {
+        return Err(DeploymentError::InvalidSchema(
+            "manifest contains unauthorized backup evidence".to_owned(),
+        ));
+    }
     for digest in [
         &manifest.probe_binary_sha256,
         &manifest.operator_binary_sha256,
@@ -832,25 +941,55 @@ fn validate_manifest(
     ] {
         require_sha256(digest)?;
     }
-    validate_staged(
-        workspace,
-        &manifest.probe_binary,
-        &manifest.probe_binary_sha256,
-        require_root_owner,
-    )?;
-    validate_staged(
-        workspace,
-        &manifest.operator_binary,
-        &manifest.operator_binary_sha256,
-        require_root_owner,
-    )?;
+    if manifest.probe_binary != manifest.operator_binary
+        || manifest.probe_binary_sha256 != manifest.operator_binary_sha256
+    {
+        return Err(DeploymentError::InvalidSchema(
+            "candidate probe and operator evidence differ".to_owned(),
+        ));
+    }
     Ok(())
 }
 
-fn validate_transition(
+fn validate_candidate_entrypoint(
+    workspace: &Workspace,
+    provider_path: &Path,
+    digest: &str,
+    provider: Provider,
+    require_root_owner: bool,
+) -> Result<PathBuf, DeploymentError> {
+    let expected_provider = workspace.staging.join(provider.filename());
+    if provider_path != expected_provider {
+        return Err(DeploymentError::UnsafePath(
+            "candidate provider evidence is not the release-scoped provider file".to_owned(),
+        ));
+    }
+    validate_staged(workspace, provider_path, digest, require_root_owner)?;
+    let provider_metadata = fs::symlink_metadata(provider_path)?;
+    if provider_metadata.permissions().mode() & 0o022 != 0
+        || provider_metadata.permissions().mode() & 0o100 == 0
+        || provider_metadata.nlink() != 1
+    {
+        return Err(DeploymentError::UnsafePath(
+            "candidate provider target mode or link count is unsafe".to_owned(),
+        ));
+    }
+    let entrypoint = workspace.staging.join("lmm-api");
+    let entrypoint_metadata = fs::symlink_metadata(&entrypoint)?;
+    if !entrypoint_metadata.file_type().is_symlink()
+        || (require_root_owner && entrypoint_metadata.uid() != 0)
+        || fs::read_link(&entrypoint)? != Path::new(provider.filename())
+    {
+        return Err(DeploymentError::UnsafePath(
+            "candidate entrypoint is not a one-hop relative provider link".to_owned(),
+        ));
+    }
+    Ok(entrypoint)
+}
+
+fn validate_transition_schema(
     workspace: &Workspace,
     transition: &PackageTransition,
-    require_root_owner: bool,
 ) -> Result<(), DeploymentError> {
     if transition.candidate_package_name.is_empty()
         || transition.rollback_package_name.is_empty()
@@ -869,18 +1008,8 @@ fn validate_transition(
     }
     require_sha256(&transition.candidate_sha256)?;
     require_sha256(&transition.rollback_sha256)?;
-    validate_staged(
-        workspace,
-        &transition.candidate_path,
-        &transition.candidate_sha256,
-        require_root_owner,
-    )?;
-    validate_staged(
-        workspace,
-        &transition.rollback_path,
-        &transition.rollback_sha256,
-        require_root_owner,
-    )?;
+    validate_staged_path(workspace, &transition.candidate_path)?;
+    validate_staged_path(workspace, &transition.rollback_path)?;
     if !transition.changed
         && (transition.candidate_package_name != transition.rollback_package_name
             || transition.candidate_identity != transition.rollback_identity
@@ -893,18 +1022,42 @@ fn validate_transition(
     Ok(())
 }
 
-fn validate_staged(
+fn validate_transition_evidence(
     workspace: &Workspace,
-    path: &Path,
-    digest: &str,
+    transition: &PackageTransition,
     require_root_owner: bool,
 ) -> Result<(), DeploymentError> {
+    validate_staged(
+        workspace,
+        &transition.candidate_path,
+        &transition.candidate_sha256,
+        require_root_owner,
+    )?;
+    validate_staged(
+        workspace,
+        &transition.rollback_path,
+        &transition.rollback_sha256,
+        require_root_owner,
+    )
+}
+
+fn validate_staged_path(workspace: &Workspace, path: &Path) -> Result<PathBuf, DeploymentError> {
     let clean = clean_absolute(path)?;
     if clean.parent() != Some(workspace.staging.as_path()) {
         return Err(DeploymentError::UnsafePath(
             "staged evidence escapes workspace".to_owned(),
         ));
     }
+    Ok(clean)
+}
+
+fn validate_staged(
+    workspace: &Workspace,
+    path: &Path,
+    digest: &str,
+    require_root_owner: bool,
+) -> Result<(), DeploymentError> {
+    let clean = validate_staged_path(workspace, path)?;
     if sha256_file(&clean, require_root_owner)? != digest {
         return Err(DeploymentError::InvalidEvidence(format!(
             "SHA-256 mismatch for {}",
@@ -926,6 +1079,196 @@ fn verify_manifest_evidence(
             "configuration rollback snapshot no longer matches manifest".to_owned(),
         ));
     }
+    verify_target_backup(manifest, require_root_owner)?;
+    Ok(())
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ExternalBackupAttestation {
+    format: u32,
+    deployment_id: String,
+    #[serde(default)]
+    backup_evidence_format: u32,
+    #[serde(default)]
+    target_digest: String,
+    controller_digest: String,
+    offhost_digest: String,
+    verified_utc: DateTime<Utc>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ExternalBackupConfirmation {
+    format: u32,
+    deployment_id: String,
+    target_digest: String,
+    controller_digest: String,
+    offhost_digest: String,
+    verified_utc: DateTime<Utc>,
+}
+
+fn verify_target_backup(
+    manifest: &ProductionManifest,
+    require_root_owner: bool,
+) -> Result<(), DeploymentError> {
+    if !manifest.backups_enabled {
+        return Ok(());
+    }
+    let root = &manifest.backup_dir;
+    require_real(root, true, require_root_owner)?;
+    let root_metadata = fs::symlink_metadata(root)?;
+    if root_metadata.permissions().mode() & 0o777 != 0o700 {
+        return Err(DeploymentError::UnsafePath(
+            "target backup root must remain private".to_owned(),
+        ));
+    }
+    let checksum_names = [
+        "application.archive",
+        "frontend.archive",
+        "configuration.archive",
+        "database.archive",
+        "rollback.package",
+    ];
+    let checksum_path = root.join("SHA256SUMS");
+    let checksum_bytes = read_private(&checksum_path, 1024 * 1024, require_root_owner)?;
+    let checksum_text = std::str::from_utf8(&checksum_bytes)
+        .map_err(|_| DeploymentError::InvalidSchema("backup checksums are not UTF-8".to_owned()))?;
+    let mut checksums = BTreeMap::new();
+    for line in checksum_text.lines() {
+        let mut fields = line.split_whitespace();
+        let digest = fields.next().unwrap_or_default();
+        let name = fields.next().unwrap_or_default().trim_start_matches('*');
+        if fields.next().is_some()
+            || !checksum_names.contains(&name)
+            || checksums
+                .insert(name.to_owned(), digest.to_owned())
+                .is_some()
+        {
+            return Err(DeploymentError::InvalidSchema(
+                "backup checksum inventory is invalid".to_owned(),
+            ));
+        }
+        require_sha256(digest)?;
+    }
+    if checksums.len() != checksum_names.len() {
+        return Err(DeploymentError::InvalidEvidence(
+            "backup checksum inventory is incomplete".to_owned(),
+        ));
+    }
+    let mut expected_members = vec![
+        "SHA256SUMS",
+        "application.archive",
+        "configuration.archive",
+        "database.archive",
+        "external-copies.json",
+        "frontend.archive",
+        "manifest.env",
+        "rollback.package",
+    ];
+    if root.join("external-confirmation.json").exists() {
+        expected_members.push("external-confirmation.json");
+    }
+    expected_members.sort_unstable();
+    let mut actual_members = fs::read_dir(root)?
+        .map(|entry| {
+            entry
+                .map(|value| value.file_name().to_string_lossy().into_owned())
+                .map_err(DeploymentError::from)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    actual_members.sort();
+    if actual_members != expected_members {
+        return Err(DeploymentError::InvalidEvidence(
+            "target backup contains a missing or unexpected member".to_owned(),
+        ));
+    }
+    for name in &expected_members {
+        let metadata = fs::symlink_metadata(root.join(name))?;
+        if metadata.file_type().is_symlink()
+            || !metadata.is_file()
+            || metadata.len() == 0
+            || metadata.nlink() != 1
+            || metadata.permissions().mode() & 0o077 != 0
+            || (require_root_owner && metadata.uid() != 0)
+        {
+            return Err(DeploymentError::InvalidEvidence(format!(
+                "target backup member is unsafe: {name}"
+            )));
+        }
+    }
+    for (name, expected_digest) in &checksums {
+        let path = root.join(name);
+        if sha256_file(&path, require_root_owner)? != *expected_digest {
+            return Err(DeploymentError::InvalidEvidence(format!(
+                "target backup member is unsafe or mismatched: {name}"
+            )));
+        }
+    }
+    if checksums.get("database.archive") != Some(&manifest.database_backup_sha256) {
+        return Err(DeploymentError::InvalidEvidence(
+            "database backup digest differs from deployment manifest".to_owned(),
+        ));
+    }
+    let checksum_digest = sha256_bytes(&checksum_bytes);
+    let attestation_bytes = read_private(
+        &root.join("external-copies.json"),
+        64 * 1024,
+        require_root_owner,
+    )?;
+    let attestation: ExternalBackupAttestation = serde_json::from_slice(&attestation_bytes)?;
+    if attestation.format != 1
+        || attestation.deployment_id != manifest.deployment_id
+        || attestation.verified_utc.timestamp() <= 0
+        || require_sha256(&attestation.controller_digest).is_err()
+        || require_sha256(&attestation.offhost_digest).is_err()
+    {
+        return Err(DeploymentError::InvalidEvidence(
+            "external backup attestation is invalid".to_owned(),
+        ));
+    }
+    if manifest.backup_evidence_format == 2 {
+        if attestation.backup_evidence_format != 2
+            || attestation.target_digest != manifest.target_backup_sha256
+            || attestation.controller_digest != manifest.controller_backup_sha256
+            || attestation.offhost_digest != manifest.offhost_backup_sha256
+            || checksum_digest != manifest.target_backup_sha256
+        {
+            return Err(DeploymentError::InvalidEvidence(
+                "backup attestation differs from immutable manifest evidence".to_owned(),
+            ));
+        }
+    } else if attestation.backup_evidence_format != 0 || !attestation.target_digest.is_empty() {
+        return Err(DeploymentError::InvalidEvidence(
+            "legacy manifest cannot accept current backup evidence".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+fn verify_backup_confirmation(
+    manifest: &ProductionManifest,
+    require_root_owner: bool,
+) -> Result<(), DeploymentError> {
+    let bytes = read_private(
+        &manifest.backup_dir.join("external-confirmation.json"),
+        64 * 1024,
+        require_root_owner,
+    )?;
+    let confirmation: ExternalBackupConfirmation = serde_json::from_slice(&bytes)?;
+    let now = Utc::now();
+    if confirmation.format != 1
+        || confirmation.deployment_id != manifest.deployment_id
+        || confirmation.target_digest != manifest.target_backup_sha256
+        || confirmation.controller_digest != manifest.controller_backup_sha256
+        || confirmation.offhost_digest != manifest.offhost_backup_sha256
+        || confirmation.verified_utc > now + chrono::Duration::seconds(30)
+        || now - confirmation.verified_utc > chrono::Duration::minutes(5)
+    {
+        return Err(DeploymentError::InvalidEvidence(
+            "external backup confirmation receipt is stale or mismatched".to_owned(),
+        ));
+    }
     Ok(())
 }
 
@@ -933,12 +1276,24 @@ fn verify_manifest_evidence_for_rollback(
     manifest: &ProductionManifest,
     require_root_owner: bool,
 ) -> Result<(), DeploymentError> {
-    if sha256_file(&manifest.go.rollback_path, require_root_owner)? != manifest.go.rollback_sha256
-        || sha256_file(&manifest.web.rollback_path, require_root_owner)?
+    if manifest.go.changed
+        && (sha256_file(
+            &manifest.config_restore_path.join("lmm-api-go.env"),
+            require_root_owner,
+        )? != manifest.environment_restore_sha256
+            || sha256_file(&manifest.go.rollback_path, require_root_owner)?
+                != manifest.go.rollback_sha256)
+    {
+        return Err(DeploymentError::InvalidEvidence(
+            "Go rollback package or configuration evidence changed during operation".to_owned(),
+        ));
+    }
+    if manifest.web.changed
+        && sha256_file(&manifest.web.rollback_path, require_root_owner)?
             != manifest.web.rollback_sha256
     {
         return Err(DeploymentError::InvalidEvidence(
-            "rollback package evidence changed during operation".to_owned(),
+            "Web rollback package evidence changed during operation".to_owned(),
         ));
     }
     Ok(())
@@ -1079,6 +1434,7 @@ fn require_real(
     if metadata.file_type().is_symlink()
         || directory != metadata.is_dir()
         || (!directory && !metadata.is_file())
+        || metadata.permissions().mode() & 0o022 != 0
         || (require_root_owner && metadata.uid() != 0)
     {
         return Err(DeploymentError::UnsafePath(path.display().to_string()));
@@ -1170,7 +1526,26 @@ fn valid_version(value: &str) -> bool {
 fn valid_identity(identity: &str, package: &str) -> bool {
     identity
         .split_once(' ')
-        .is_some_and(|(name, version)| name == package && valid_version(version))
+        .is_some_and(|(name, full_version)| {
+            name == package
+                && full_version
+                    .rsplit_once('-')
+                    .is_some_and(|(version, release)| {
+                        valid_version(version)
+                            && !release.is_empty()
+                            && release.as_bytes()[0].is_ascii_digit()
+                            && release.split_once('.').map_or_else(
+                                || release.bytes().all(|byte| byte.is_ascii_digit()),
+                                |(major, minor)| {
+                                    !major.is_empty()
+                                        && !minor.is_empty()
+                                        && major.bytes().all(|byte| byte.is_ascii_digit())
+                                        && minor.bytes().all(|byte| byte.is_ascii_digit())
+                                },
+                            )
+                            && !release.starts_with('0')
+                    })
+        })
 }
 
 fn valid_reason(reason: &str) -> bool {
@@ -1184,7 +1559,284 @@ fn valid_reason(reason: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use std::{
+        os::unix::fs::{PermissionsExt, symlink},
+        sync::atomic::{AtomicUsize, Ordering},
+    };
+
     use super::*;
+
+    static TEST_WORKSPACE_ID: AtomicUsize = AtomicUsize::new(0);
+
+    struct TestWorkspace {
+        base: PathBuf,
+        work_root: PathBuf,
+        workspace: PathBuf,
+    }
+
+    impl TestWorkspace {
+        fn new() -> Self {
+            let sequence = TEST_WORKSPACE_ID.fetch_add(1, Ordering::Relaxed);
+            let base = Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("target/deployment-unit-tests")
+                .join(format!("{}-{sequence}", std::process::id()));
+            let work_root = base.join("work");
+            let workspace = work_root.join("cleaned-terminal");
+            let state = workspace.join("state");
+            fs::create_dir_all(&state).expect("create deployment state fixture");
+            fs::set_permissions(&state, fs::Permissions::from_mode(0o700))
+                .expect("protect deployment state fixture");
+            fs::write(
+                workspace.join(".lmm-deploy-workspace"),
+                "format=1\ndeployment_id=cleaned-terminal\nrole=target\n",
+            )
+            .expect("write workspace marker");
+            let status = ProductionStatus {
+                format: STATUS_FORMAT,
+                deployment_id: "cleaned-terminal".to_owned(),
+                phase: "CONFIRMED".to_owned(),
+                version: "0.2.13".to_owned(),
+                previous: "0.2.12".to_owned(),
+                reason: "test".to_owned(),
+                failure: String::new(),
+                updated_utc: Utc::now(),
+                observation_seconds: MINIMUM_OBSERVATION_SECONDS,
+            };
+            fs::write(
+                state.join("status.json"),
+                serde_json::to_vec(&status).expect("encode status fixture"),
+            )
+            .expect("write status fixture");
+            Self {
+                base,
+                work_root,
+                workspace,
+            }
+        }
+
+        fn candidate_entrypoint(&self) -> (PathBuf, String) {
+            let staging = self.workspace.join("staging");
+            fs::create_dir(&staging).expect("create staging fixture");
+            let provider = staging.join(GO_PROVIDER);
+            fs::write(&provider, b"candidate-provider").expect("write provider fixture");
+            fs::set_permissions(&provider, fs::Permissions::from_mode(0o700))
+                .expect("protect provider fixture");
+            symlink(GO_PROVIDER, staging.join("lmm-api"))
+                .expect("create candidate entrypoint fixture");
+            let digest = sha256_file(&provider, false).expect("hash provider fixture");
+            (provider, digest)
+        }
+
+        fn go_rollback_manifest(&self) -> ProductionManifest {
+            let (provider, provider_digest) = self.candidate_entrypoint();
+            let staging = self.workspace.join("staging");
+            let write_package = |name: &str, body: &[u8]| {
+                let path = staging.join(name);
+                fs::write(&path, body).expect("write package fixture");
+                fs::set_permissions(&path, fs::Permissions::from_mode(0o600))
+                    .expect("protect package fixture");
+                let digest = sha256_file(&path, false).expect("hash package fixture");
+                (path, digest)
+            };
+            let (go_candidate, go_candidate_digest) =
+                write_package("lmm-api-go-bin-new.pkg.tar.zst", b"go-candidate");
+            let (go_rollback, go_rollback_digest) =
+                write_package("lmm-api-go-bin-old.pkg.tar.zst", b"go-rollback");
+            let (web_candidate, web_candidate_digest) =
+                write_package("lmm-api-web-bin-new.pkg.tar.zst", b"web-candidate");
+            let (web_rollback, _web_rollback_digest) =
+                write_package("lmm-api-web-bin-old.pkg.tar.zst", b"web-candidate");
+            let config_restore = self.workspace.join("state/config-restore");
+            fs::create_dir(&config_restore).expect("create config restore fixture");
+            fs::set_permissions(&config_restore, fs::Permissions::from_mode(0o700))
+                .expect("protect config restore fixture");
+            let environment = config_restore.join("lmm-api-go.env");
+            fs::write(&environment, b"SQL_DSN=postgres://fixture\n")
+                .expect("write environment restore fixture");
+            fs::set_permissions(&environment, fs::Permissions::from_mode(0o600))
+                .expect("protect environment restore fixture");
+            let environment_digest =
+                sha256_file(&environment, false).expect("hash environment restore fixture");
+            let contract = "a".repeat(64);
+            ProductionManifest {
+                format: MANIFEST_FORMAT,
+                deployment_id: "cleaned-terminal".to_owned(),
+                operator_user: "lmm-api-deploy".to_owned(),
+                go: PackageTransition {
+                    candidate_package_name: "lmm-api-go-bin".to_owned(),
+                    rollback_package_name: "lmm-api-go-bin".to_owned(),
+                    changed: true,
+                    candidate_path: go_candidate,
+                    rollback_path: go_rollback,
+                    candidate_identity: "lmm-api-go-bin 0.2.13-1".to_owned(),
+                    rollback_identity: "lmm-api-go-bin 0.2.12-1".to_owned(),
+                    candidate_sha256: go_candidate_digest,
+                    rollback_sha256: go_rollback_digest,
+                    candidate_git_revision: "2".repeat(40),
+                    rollback_git_revision: "1".repeat(40),
+                    candidate_contract_revision: contract.clone(),
+                    rollback_contract_revision: contract.clone(),
+                },
+                web: PackageTransition {
+                    candidate_package_name: "lmm-api-web-bin".to_owned(),
+                    rollback_package_name: "lmm-api-web-bin".to_owned(),
+                    changed: false,
+                    candidate_path: web_candidate,
+                    rollback_path: web_rollback,
+                    candidate_identity: "lmm-api-web-bin 0.1.57-1".to_owned(),
+                    rollback_identity: "lmm-api-web-bin 0.1.57-1".to_owned(),
+                    candidate_sha256: web_candidate_digest.clone(),
+                    rollback_sha256: web_candidate_digest,
+                    candidate_git_revision: "3".repeat(40),
+                    rollback_git_revision: "3".repeat(40),
+                    candidate_contract_revision: contract.clone(),
+                    rollback_contract_revision: contract,
+                },
+                frontend: FrontendTransition {
+                    old_target: "releases/0.1.57-1.g333333333333".to_owned(),
+                    new_target: "releases/0.1.57-1.g333333333333".to_owned(),
+                    old_index_sha256: "4".repeat(64),
+                    new_index_sha256: "4".repeat(64),
+                },
+                probe_binary: provider.clone(),
+                probe_binary_sha256: provider_digest.clone(),
+                operator_binary: provider,
+                operator_binary_sha256: provider_digest,
+                expected_version: "0.2.13".to_owned(),
+                old_version: "0.2.12".to_owned(),
+                previous_provider_target: GO_PROVIDER.to_owned(),
+                new_provider_target: GO_PROVIDER.to_owned(),
+                backup_dir: PathBuf::new(),
+                backups_enabled: false,
+                backup_evidence_format: 0,
+                database_backup_sha256: String::new(),
+                target_backup_sha256: String::new(),
+                controller_backup_sha256: String::new(),
+                offhost_backup_sha256: String::new(),
+                database_schema: "public".to_owned(),
+                observation_started_utc: Some(Utc::now()),
+                observation_seconds: MINIMUM_OBSERVATION_SECONDS,
+                service_restart_baseline: 0,
+                config_restore_path: config_restore,
+                environment_restore_sha256: environment_digest,
+                nginx_edge_restore_sha256: String::new(),
+                preserve_edge_policy: false,
+            }
+        }
+
+        fn bound_backup_manifest(&self) -> ProductionManifest {
+            let backup = self.base.join("backup");
+            fs::create_dir(&backup).expect("create backup fixture");
+            fs::set_permissions(&backup, fs::Permissions::from_mode(0o700))
+                .expect("protect backup fixture");
+            let checksummed = [
+                "application.archive",
+                "frontend.archive",
+                "configuration.archive",
+                "database.archive",
+                "rollback.package",
+            ];
+            let mut checksums = String::new();
+            let mut database_digest = String::new();
+            for name in checksummed {
+                let path = backup.join(name);
+                fs::write(&path, format!("fixture-{name}")).expect("write backup member fixture");
+                fs::set_permissions(&path, fs::Permissions::from_mode(0o600))
+                    .expect("protect backup member fixture");
+                let digest = sha256_file(&path, false).expect("hash backup member fixture");
+                if name == "database.archive" {
+                    database_digest.clone_from(&digest);
+                }
+                checksums.push_str(&format!("{digest}  {name}\n"));
+            }
+            let manifest_path = backup.join("manifest.env");
+            fs::write(&manifest_path, "format=1\n").expect("write backup manifest fixture");
+            fs::set_permissions(&manifest_path, fs::Permissions::from_mode(0o600))
+                .expect("protect backup manifest fixture");
+            let checksum_path = backup.join("SHA256SUMS");
+            fs::write(&checksum_path, &checksums).expect("write backup checksums fixture");
+            fs::set_permissions(&checksum_path, fs::Permissions::from_mode(0o600))
+                .expect("protect backup checksums fixture");
+            let target_digest =
+                sha256_file(&checksum_path, false).expect("hash backup checksum fixture");
+            let controller_digest = "c".repeat(64);
+            let offhost_digest = "d".repeat(64);
+            let attestation = serde_json::json!({
+                "format": 1,
+                "deployment_id": "cleaned-terminal",
+                "backup_evidence_format": 2,
+                "target_digest": target_digest,
+                "controller_digest": controller_digest,
+                "offhost_digest": offhost_digest,
+                "verified_utc": Utc::now(),
+            });
+            let attestation_path = backup.join("external-copies.json");
+            fs::write(
+                &attestation_path,
+                serde_json::to_vec(&attestation).expect("encode backup attestation fixture"),
+            )
+            .expect("write backup attestation fixture");
+            fs::set_permissions(&attestation_path, fs::Permissions::from_mode(0o600))
+                .expect("protect backup attestation fixture");
+            let transition = PackageTransition {
+                candidate_package_name: String::new(),
+                rollback_package_name: String::new(),
+                changed: false,
+                candidate_path: PathBuf::new(),
+                rollback_path: PathBuf::new(),
+                candidate_identity: String::new(),
+                rollback_identity: String::new(),
+                candidate_sha256: String::new(),
+                rollback_sha256: String::new(),
+                candidate_git_revision: String::new(),
+                rollback_git_revision: String::new(),
+                candidate_contract_revision: String::new(),
+                rollback_contract_revision: String::new(),
+            };
+            ProductionManifest {
+                format: MANIFEST_FORMAT,
+                deployment_id: "cleaned-terminal".to_owned(),
+                operator_user: String::new(),
+                go: transition.clone(),
+                web: transition,
+                frontend: FrontendTransition {
+                    old_target: String::new(),
+                    new_target: String::new(),
+                    old_index_sha256: String::new(),
+                    new_index_sha256: String::new(),
+                },
+                probe_binary: PathBuf::new(),
+                probe_binary_sha256: String::new(),
+                operator_binary: PathBuf::new(),
+                operator_binary_sha256: String::new(),
+                expected_version: String::new(),
+                old_version: String::new(),
+                previous_provider_target: String::new(),
+                new_provider_target: String::new(),
+                backup_dir: backup,
+                backups_enabled: true,
+                backup_evidence_format: 2,
+                database_backup_sha256: database_digest,
+                target_backup_sha256: target_digest,
+                controller_backup_sha256: controller_digest,
+                offhost_backup_sha256: offhost_digest,
+                database_schema: String::new(),
+                observation_started_utc: None,
+                observation_seconds: MINIMUM_OBSERVATION_SECONDS,
+                service_restart_baseline: 0,
+                config_restore_path: PathBuf::new(),
+                environment_restore_sha256: String::new(),
+                nginx_edge_restore_sha256: String::new(),
+                preserve_edge_policy: false,
+            }
+        }
+    }
+
+    impl Drop for TestWorkspace {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.base);
+        }
+    }
 
     #[test]
     fn formats_match_manual_only_go_contract() {
@@ -1212,5 +1864,227 @@ mod tests {
     fn unsafe_rollback_reason_is_rejected() {
         assert!(!valid_reason("operator request"));
         assert!(valid_reason("operator-request:incident_42"));
+    }
+
+    #[test]
+    fn go_arch_package_identities_include_pkgrel() {
+        assert!(valid_identity("lmm-api-go-bin 0.2.13-1", "lmm-api-go-bin"));
+        assert!(valid_identity(
+            "lmm-api-web-bin 0.1.57-2.1",
+            "lmm-api-web-bin"
+        ));
+        assert!(!valid_identity("lmm-api-go-bin 0.2.13", "lmm-api-go-bin"));
+        assert!(!valid_identity("lmm-api-go-bin 0.2.13-0", "lmm-api-go-bin"));
+    }
+
+    #[test]
+    fn inspection_accepts_terminal_workspace_without_staging() {
+        let fixture = TestWorkspace::new();
+
+        let workspace = Workspace::open_under(&fixture.workspace, &fixture.work_root, false, false)
+            .expect("inspect cleaned terminal workspace");
+
+        assert_eq!(
+            workspace
+                .read_status(false)
+                .expect("read retained terminal status")
+                .phase,
+            "CONFIRMED"
+        );
+    }
+
+    #[test]
+    fn mutation_rejects_terminal_workspace_without_staging() {
+        let fixture = TestWorkspace::new();
+
+        let error = Workspace::open_under(&fixture.workspace, &fixture.work_root, false, true)
+            .expect_err("mutation must require staging");
+
+        assert!(
+            matches!(error, DeploymentError::Io(ref source) if source.kind() == io::ErrorKind::NotFound)
+        );
+    }
+
+    #[test]
+    fn inspection_rejects_symlinked_staging() {
+        let fixture = TestWorkspace::new();
+        symlink("/etc", fixture.workspace.join("staging")).expect("create unsafe staging symlink");
+
+        let error = Workspace::open_under(&fixture.workspace, &fixture.work_root, false, false)
+            .expect_err("inspection must reject symlinked staging");
+
+        assert!(matches!(error, DeploymentError::UnsafePath(_)));
+    }
+
+    #[test]
+    fn candidate_entrypoint_accepts_one_hop_relative_provider_link() {
+        let fixture = TestWorkspace::new();
+        let (provider, digest) = fixture.candidate_entrypoint();
+        let workspace = Workspace::open_under(&fixture.workspace, &fixture.work_root, false, true)
+            .expect("open staged workspace");
+
+        let entrypoint =
+            validate_candidate_entrypoint(&workspace, &provider, &digest, Provider::Go, false)
+                .expect("validate candidate entrypoint");
+
+        assert_eq!(entrypoint, fixture.workspace.join("staging/lmm-api"));
+    }
+
+    #[test]
+    fn candidate_entrypoint_rejects_absolute_or_chained_target() {
+        for target in ["/usr/bin/lmm-api-go", "nested-provider"] {
+            let fixture = TestWorkspace::new();
+            let (provider, digest) = fixture.candidate_entrypoint();
+            let entrypoint = fixture.workspace.join("staging/lmm-api");
+            fs::remove_file(&entrypoint).expect("remove valid entrypoint fixture");
+            symlink(target, &entrypoint).expect("create invalid entrypoint fixture");
+            if target == "nested-provider" {
+                symlink(
+                    GO_PROVIDER,
+                    fixture.workspace.join("staging/nested-provider"),
+                )
+                .expect("create chained provider fixture");
+            }
+            let workspace =
+                Workspace::open_under(&fixture.workspace, &fixture.work_root, false, true)
+                    .expect("open staged workspace");
+
+            assert!(
+                validate_candidate_entrypoint(&workspace, &provider, &digest, Provider::Go, false,)
+                    .is_err(),
+                "unsafe target was accepted: {target}"
+            );
+        }
+    }
+
+    #[test]
+    fn rollback_reader_accepts_go_manifest_and_ignores_candidate_and_backup_evidence() {
+        let fixture = TestWorkspace::new();
+        let mut manifest = fixture.go_rollback_manifest();
+        manifest.backups_enabled = true;
+        manifest.backup_dir = Path::new(BACKUP_ROOT).join(&manifest.deployment_id);
+        manifest.backup_evidence_format = 2;
+        manifest.database_backup_sha256 = "b".repeat(64);
+        manifest.target_backup_sha256 = "c".repeat(64);
+        manifest.controller_backup_sha256 = "d".repeat(64);
+        manifest.offhost_backup_sha256 = "e".repeat(64);
+        fs::write(
+            fixture.workspace.join("state/deployment.json"),
+            serde_json::to_vec(&manifest).expect("encode Go-style deployment manifest"),
+        )
+        .expect("write Go-style deployment manifest");
+        fs::set_permissions(
+            fixture.workspace.join("state/deployment.json"),
+            fs::Permissions::from_mode(0o600),
+        )
+        .expect("protect Go-style deployment manifest");
+        fs::remove_file(fixture.workspace.join("staging/lmm-api"))
+            .expect("remove candidate entrypoint fixture");
+        fs::write(&manifest.probe_binary, b"damaged-candidate-provider")
+            .expect("damage candidate provider fixture");
+        fs::set_permissions(&manifest.probe_binary, fs::Permissions::from_mode(0o700))
+            .expect("protect damaged candidate provider fixture");
+        let workspace = Workspace::open_under(&fixture.workspace, &fixture.work_root, false, true)
+            .expect("open rollback workspace");
+
+        let loaded = workspace
+            .read_manifest_for_rollback(false)
+            .expect("read Go transaction using only rollback evidence");
+
+        assert_eq!(loaded.go.rollback_identity, "lmm-api-go-bin 0.2.12-1");
+        assert!(workspace.read_manifest(false).is_err());
+    }
+
+    #[test]
+    fn rollback_reader_rejects_damaged_package_or_configuration() {
+        for damage_configuration in [false, true] {
+            let fixture = TestWorkspace::new();
+            let manifest = fixture.go_rollback_manifest();
+            fs::write(
+                fixture.workspace.join("state/deployment.json"),
+                serde_json::to_vec(&manifest).expect("encode deployment manifest"),
+            )
+            .expect("write deployment manifest");
+            fs::set_permissions(
+                fixture.workspace.join("state/deployment.json"),
+                fs::Permissions::from_mode(0o600),
+            )
+            .expect("protect deployment manifest");
+            let damaged = if damage_configuration {
+                manifest.config_restore_path.join("lmm-api-go.env")
+            } else {
+                manifest.go.rollback_path.clone()
+            };
+            fs::write(&damaged, b"damaged-rollback-evidence")
+                .expect("damage necessary rollback evidence");
+            fs::set_permissions(&damaged, fs::Permissions::from_mode(0o600))
+                .expect("protect damaged rollback evidence");
+            let workspace =
+                Workspace::open_under(&fixture.workspace, &fixture.work_root, false, true)
+                    .expect("open rollback workspace");
+
+            assert!(workspace.read_manifest_for_rollback(false).is_err());
+        }
+    }
+
+    #[test]
+    fn target_backup_rejects_self_consistent_member_rewrite() {
+        let fixture = TestWorkspace::new();
+        let manifest = fixture.bound_backup_manifest();
+        verify_target_backup(&manifest, false).expect("verify bound target backup");
+        let application = manifest.backup_dir.join("application.archive");
+        fs::write(&application, "tampered-application")
+            .expect("rewrite target backup member fixture");
+        fs::set_permissions(&application, fs::Permissions::from_mode(0o600))
+            .expect("protect rewritten target backup fixture");
+        let replacement = sha256_file(&application, false).expect("hash rewritten member");
+        let checksum_path = manifest.backup_dir.join("SHA256SUMS");
+        let current = fs::read_to_string(&checksum_path).expect("read checksum fixture");
+        let rewritten = current
+            .lines()
+            .map(|line| {
+                if line.ends_with("  application.archive") {
+                    format!("{replacement}  application.archive")
+                } else {
+                    line.to_owned()
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+            + "\n";
+        fs::write(&checksum_path, rewritten).expect("rewrite checksum fixture");
+        fs::set_permissions(&checksum_path, fs::Permissions::from_mode(0o600))
+            .expect("protect rewritten checksum fixture");
+
+        assert!(verify_target_backup(&manifest, false).is_err());
+    }
+
+    #[test]
+    fn backup_confirmation_requires_fresh_bound_receipt() {
+        let fixture = TestWorkspace::new();
+        let manifest = fixture.bound_backup_manifest();
+        let receipt_path = manifest.backup_dir.join("external-confirmation.json");
+        let write_receipt = |verified_utc: DateTime<Utc>| {
+            let receipt = serde_json::json!({
+                "format": 1,
+                "deployment_id": manifest.deployment_id.clone(),
+                "target_digest": manifest.target_backup_sha256.clone(),
+                "controller_digest": manifest.controller_backup_sha256.clone(),
+                "offhost_digest": manifest.offhost_backup_sha256.clone(),
+                "verified_utc": verified_utc,
+            });
+            fs::write(
+                &receipt_path,
+                serde_json::to_vec(&receipt).expect("encode backup receipt fixture"),
+            )
+            .expect("write backup receipt fixture");
+            fs::set_permissions(&receipt_path, fs::Permissions::from_mode(0o600))
+                .expect("protect backup receipt fixture");
+        };
+        write_receipt(Utc::now());
+        verify_backup_confirmation(&manifest, false).expect("verify fresh backup receipt");
+        write_receipt(Utc::now() - chrono::Duration::minutes(6));
+
+        assert!(verify_backup_confirmation(&manifest, false).is_err());
     }
 }

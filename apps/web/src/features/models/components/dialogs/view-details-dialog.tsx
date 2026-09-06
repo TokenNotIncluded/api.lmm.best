@@ -48,6 +48,7 @@ import {
   CollapsibleTrigger,
 } from '@/components/ui/collapsible'
 import { Separator } from '@/components/ui/separator'
+import { openExternalUrl } from '@/lib/external-navigation'
 import { validatedExternalUrl } from '@/lib/validated-external-url'
 
 import { getDeployment, listDeploymentContainers } from '../../api'
@@ -285,11 +286,14 @@ export function ViewDetailsDialog({
                           <Button
                             variant='outline'
                             size='sm'
-                            onClick={() =>
+                            onClick={async () => {
                               // Invariant: url is a credential-free HTTPS URL with a valid host and path.
                               // pi-lens-ignore: ts-open-redirect, no-open-redirect
-                              window.open(url, '_blank', 'noopener,noreferrer')
-                            }
+                              const opened = await openExternalUrl(url)
+                              if (!opened) {
+                                toast.error(t('Unable to open link'))
+                              }
+                            }}
                           >
                             <ExternalLink className='mr-2 h-4 w-4' />
                             {t('Open')}

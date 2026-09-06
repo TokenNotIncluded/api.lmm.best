@@ -17,14 +17,16 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { Link, useRouterState } from '@tanstack/react-router'
-import { useMemo } from 'react'
+import { type ReactNode, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
 
 import { BrandLogo } from '@/components/brand-logo'
 import { HtmlContent } from '@/components/html-content'
 import { LMM_BRAND_NAME, LmmBrandMark } from '@/components/lmm-brand-mark'
 import { useSystemConfig } from '@/hooks/use-system-config'
 import { DEFAULT_LOGO, DEFAULT_SYSTEM_NAME } from '@/lib/constants'
+import { openResolvedExternalUrl } from '@/lib/external-navigation'
 import { cn } from '@/lib/utils'
 
 interface FooterLink {
@@ -48,7 +50,19 @@ interface FooterProps {
 function FooterLinkItem(props: { link: FooterLink }) {
   const { t } = useTranslation()
   const isExternal = props.link.href.startsWith('http')
+  const isMailto = props.link.href.startsWith('mailto:')
   const label = t(props.link.text)
+
+  if (isMailto) {
+    return (
+      <MailtoLink
+        href={props.link.href}
+        className='forge-footer-link text-muted-foreground hover:text-foreground text-sm transition-colors duration-200'
+      >
+        {label}
+      </MailtoLink>
+    )
+  }
 
   if (isExternal) {
     return (
@@ -70,6 +84,28 @@ function FooterLinkItem(props: { link: FooterLink }) {
     >
       {label}
     </Link>
+  )
+}
+
+function MailtoLink(props: {
+  href: string
+  className?: string
+  children: ReactNode
+}) {
+  const { t } = useTranslation()
+
+  return (
+    <a
+      href={props.href}
+      className={props.className}
+      onClick={async (event) => {
+        event.preventDefault()
+        const opened = await openResolvedExternalUrl(() => props.href)
+        if (!opened) toast.error(t('Unable to open email app'))
+      }}
+    >
+      {props.children}
+    </a>
   )
 }
 
@@ -104,12 +140,12 @@ function ComplianceLinks() {
             {item.label}
           </Link>
         ))}
-        <a
+        <MailtoLink
           href='mailto:support@lmm.best'
           className='hover:text-foreground font-medium transition-colors duration-200'
         >
           {t('Customer Support')}: support@lmm.best
-        </a>
+        </MailtoLink>
       </div>
     </div>
   )
@@ -323,12 +359,12 @@ export function Footer(props: FooterProps) {
                   >
                     {t('Privacy Policy')}
                   </Link>
-                  <a
+                  <MailtoLink
                     className='text-muted-foreground hover:text-primary block transition-colors duration-150'
                     href='mailto:support@lmm.best'
                   >
                     support@lmm.best
-                  </a>
+                  </MailtoLink>
                 </div>
               </div>
             </nav>

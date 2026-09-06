@@ -154,7 +154,7 @@ func parseProductionReleasePlanOptions(args []string, stderr io.Writer) (product
 	flags.StringVar(&options.WebRollbackReleaseAsset, "web-rollback-release-asset", "", "signed rollback Web release archive")
 	flags.StringVar(&options.WebRollbackReleaseBundle, "web-rollback-release-bundle", "", "rollback Web Sigstore bundle")
 	flags.StringVar(&options.ProbeBinary, "probe-binary", "", "candidate lmm-api binary extracted from the signed Go release")
-	flags.StringVar(&options.OperatorBinary, "operator-binary", "", "signed deployment operator binary staged separately from the candidate probe")
+	flags.StringVar(&options.OperatorBinary, "operator-binary", "", "optional additional candidate operator artifact to verify before normalizing execution to --probe-binary")
 	flags.BoolVar(&options.WithBackups, "with-backups", false, "require verified target, controller, and off-host backups (mandatory for Go changes)")
 	flags.StringVar(&options.AgeRecipientFile, "age-recipient-file", "", "age or SSH public recipient file used when backups are enabled")
 	flags.IntVar(&options.ObservationSeconds, "observation-seconds", options.ObservationSeconds, "stability observation window (120-360)")
@@ -325,7 +325,7 @@ func (runtime *productionReleaseRuntime) createPlan(ctx context.Context, options
 		WebCandidate:        webCandidate,
 		WebRollback:         webRollback,
 		ProbeBinary:         productionReleaseFilePlan{Path: options.ProbeBinary, SHA256: probeSHA256},
-		OperatorBinary:      productionReleaseFilePlan{Path: options.OperatorBinary, SHA256: operatorSHA256},
+		OperatorBinary:      productionReleaseFilePlan{Path: options.ProbeBinary, SHA256: operatorSHA256},
 		GoChanged:           goChanged,
 		WebChanged:          webChanged,
 		ObservationSeconds:  options.ObservationSeconds,
@@ -1276,11 +1276,13 @@ func validateProductionReleasePlan(plan productionReleasePlan) error {
 		return fmt.Errorf("release plan Web pair: %w", err)
 	}
 	probe, err := cleanAbsoluteNonRoot(plan.ProbeBinary.Path)
-	if err != nil || probe != plan.ProbeBinary.Path || !productionSHA256Pattern.MatchString(plan.ProbeBinary.SHA256) || plan.ProbeBinary.SHA256 != plan.GoCandidate.PayloadSHA256 {
+	if err != nil || probe != plan.ProbeBinary.Path || filepath.Base(probe) != backendGoName ||
+		!productionSHA256Pattern.MatchString(plan.ProbeBinary.SHA256) || plan.ProbeBinary.SHA256 != plan.GoCandidate.PayloadSHA256 {
 		return errors.New("release plan probe identity is invalid")
 	}
 	operator, err := cleanAbsoluteNonRoot(plan.OperatorBinary.Path)
-	if err != nil || operator != plan.OperatorBinary.Path || !productionSHA256Pattern.MatchString(plan.OperatorBinary.SHA256) || plan.OperatorBinary.SHA256 != plan.GoCandidate.PayloadSHA256 {
+	if err != nil || operator != plan.OperatorBinary.Path || operator != probe ||
+		plan.OperatorBinary.SHA256 != plan.ProbeBinary.SHA256 {
 		return errors.New("release plan operator identity is invalid")
 	}
 	if plan.WithBackups {
@@ -1355,7 +1357,7 @@ func validateProductionReleasePlanArtifacts(ctx context.Context, runtime *produc
 		}{plan.AgeRecipient.Path, plan.AgeRecipient.SHA256, "age recipient"})
 	}
 	for _, file := range files {
-		executable := file.label == "probe binary"
+		executable := file.label == "probe binary" || file.label == "operator binary"
 		if err := validateControllerArtifact(file.path, file.label, executable); err != nil {
 			return err
 		}

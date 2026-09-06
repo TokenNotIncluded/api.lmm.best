@@ -58,6 +58,16 @@ jobs:
           bash .agents/skills/lmm-deploy-safely/scripts/tests/test-inspect-state.sh
           bash .agents/skills/lmm-deploy-safely/scripts/tests/test-resource-pressure-report.sh
 
+      - name: Validate deployment workspace lifecycle
+        run: |
+          shellcheck \
+            .agents/skills/lmm-deploy-safely/scripts/create-workspace.sh \
+            .agents/skills/lmm-deploy-safely/scripts/cleanup-owned-workspace.sh \
+            .agents/skills/lmm-deploy-safely/scripts/tests/test-create-workspace.sh \
+            .agents/skills/lmm-deploy-safely/scripts/tests/test-cleanup-owned-workspace.sh
+          bash .agents/skills/lmm-deploy-safely/scripts/tests/test-create-workspace.sh
+          bash .agents/skills/lmm-deploy-safely/scripts/tests/test-cleanup-owned-workspace.sh
+
       - name: Test component release governance tooling
         run: |
           shellcheck \

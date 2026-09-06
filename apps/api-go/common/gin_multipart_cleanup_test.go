@@ -2,6 +2,7 @@ package common
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"mime/multipart"
 	"net/http/httptest"
@@ -109,4 +110,99 @@ func TestCleanupMultipartFormsWithoutParsedForm(t *testing.T) {
 
 	assert.NotPanics(t, func() { CleanupMultipartForms(c) })
 	assert.NotPanics(t, func() { CleanupMultipartForms(nil) })
+}
+
+// The first Seek rewinds cached storage; the second restores it after parsing.
+type resetFailingBodyStorage struct {
+	BodyStorage
+	seeks int
+	err   error
+}
+
+func (s *resetFailingBodyStorage) Seek(offset int64, whence int) (int64, error) {
+	s.seeks++
+	if s.seeks == 2 {
+		return 0, s.err
+	}
+	return s.BodyStorage.Seek(offset, whence)
+}
+
+func TestParseMultipartFormReusableCleanupAfterResetFailure(t *testing.T) {
+	c, tempDir := newMultipartTestContext(t)
+	base, err := GetBodyStorage(c)
+	require.NoError(t, err)
+	injected := errors.New("final reset failed")
+	c.Set(KeyBodyStorage, &resetFailingBodyStorage{BodyStorage: base, err: injected})
+	form, err := ParseMultipartFormReusable(c)
+	require.ErrorIs(t, err, injected)
+	require.Nil(t, form)
+	require.Equal(t, 1, countTempSpillFiles(t, tempDir))
+	CleanupMultipartForms(c)
+	require.Zero(t, countTempSpillFiles(t, tempDir))
+	tracked, _ := c.Get(KeyMultipartForms)
+	require.Nil(t, tracked)
+	CleanupMultipartForms(c)
+	require.Zero(t, countTempSpillFiles(t, tempDir))
+}
+
+func TestCleanupMultipartFormsReleasesAndResetsTrackedForms(t *testing.T) {
+	c, tempDir := newMultipartTestContext(t)
+	for range 2 {
+		form, err := ParseMultipartFormReusable(c)
+		require.NoError(t, err)
+		require.NotNil(t, form)
+		require.Equal(t, 1, countTempSpillFiles(t, tempDir))
+		CleanupMultipartForms(c)
+		require.Zero(t, countTempSpillFiles(t, tempDir))
+		tracked, _ := c.Get(KeyMultipartForms)
+		require.Nil(t, tracked)
+		CleanupMultipartForms(c)
+		require.Zero(t, countTempSpillFiles(t, tempDir))
+	}
+}
+
+func BenchmarkParseMultipartFormReusableDisk(b *testing.B) {
+	b.StopTimer()
+	tempDir := b.TempDir()
+	for _, key := range []string{"TMPDIR", "TMP", "TEMP"} {
+		b.Setenv(key, tempDir)
+	}
+	previousLimit := constant.MaxFileDownloadMB
+	previousCache := GetDiskCacheConfig()
+	constant.MaxFileDownloadMB = 1
+	SetDiskCacheConfig(DiskCacheConfig{Enabled: true, ThresholdMB: 1, MaxSizeMB: 128, Path: filepath.Join(tempDir, "body")})
+	b.Cleanup(func() {
+		constant.MaxFileDownloadMB = previousLimit
+		SetDiskCacheConfig(previousCache)
+	})
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	part, err := writer.CreateFormFile("file", "audio.wav")
+	require.NoError(b, err)
+	_, err = part.Write(bytes.Repeat([]byte("a"), 16<<20))
+	require.NoError(b, err)
+	require.NoError(b, writer.Close())
+	storage, err := CreateBodyStorage(body.Bytes())
+	require.NoError(b, err)
+	require.True(b, storage.IsDisk())
+	b.Cleanup(func() { _ = storage.Close() })
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest("POST", "/", nil)
+	c.Request.Header.Set("Content-Type", writer.FormDataContentType())
+	c.Set(KeyBodyStorage, storage)
+	b.Cleanup(func() { CleanupMultipartForms(c) })
+	b.SetBytes(int64(body.Len()))
+	b.ReportAllocs()
+	b.ResetTimer()
+	b.StartTimer()
+	for range b.N {
+		form, err := ParseMultipartFormReusable(c)
+		if err != nil {
+			b.Fatal(err)
+		}
+		if form == nil {
+			b.Fatal("nil parsed form")
+		}
+		CleanupMultipartForms(c)
+	}
 }

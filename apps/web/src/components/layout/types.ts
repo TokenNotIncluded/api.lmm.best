@@ -34,6 +34,8 @@ type BaseNavItem = {
    * `useSidebarView`). Route-level guards still enforce access independently.
    */
   requiredRole?: number
+  /** Opens an in-context surface instead of changing the current route. */
+  interaction?: 'model-panel'
 }
 
 /**

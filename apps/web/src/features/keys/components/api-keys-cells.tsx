@@ -20,6 +20,7 @@ import type { PopoverRootProps } from '@base-ui/react/popover'
 import { Check, Copy, Loader2 } from 'lucide-react'
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
 
 import { BadgeCell } from '@/components/data-table'
 import { StatusBadge } from '@/components/status-badge'
@@ -156,7 +157,8 @@ export function ApiKeyCell({ apiKey }: { apiKey: ApiKey }) {
 
     const ok = await copyToClipboard(realKey)
     if (ok) markKeyCopied(apiKey.id)
-  }, [resolvedFullKey, resolveRealKey, apiKey.id, markKeyCopied])
+    else toast.error(t('Failed to copy to clipboard'))
+  }, [resolvedFullKey, resolveRealKey, apiKey.id, markKeyCopied, t])
 
   let copyIcon = <Copy className='size-3.5' />
   let copyTooltip = t('Copy API key')

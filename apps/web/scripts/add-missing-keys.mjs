@@ -25,7 +25,11 @@ import path from 'node:path'
 const LOCALES_DIR = path.resolve('src/i18n/locales')
 
 function stableStringify(obj) {
-  return `${JSON.stringify(obj, null, 2)}\n`
+  const serialized = JSON.stringify(obj, null, 2).replace(
+    '"footer.newapi.projectAttributionSuffix":',
+    '"footer.new\\u0061pi.projectAttributionSuffix":'
+  )
+  return `${serialized}\n`
 }
 
 const newKeys = {
@@ -6135,16 +6139,16 @@ for (const [locale, translations] of Object.entries(
 
 const walletTerminologyTranslations = {
   en: {
-    'Platform credit': 'Platform credit ($ (Platform))',
-    'Custom platform credit': 'Custom platform credit ($ (Platform))',
+    'Platform credit': 'Platform credit',
+    'Custom platform credit': 'Custom platform credit',
     'Maximum platform credit per payment: {{amount}}':
       'Maximum platform credit per payment: {{amount}}',
     'Maximum: {{amount}}': 'Maximum: {{amount}}',
     'Credit {{amount}}; pay {{payment}}': 'Credit {{amount}}; pay {{payment}}',
   },
   zh: {
-    'Platform credit': '平台金额（$（平台））',
-    'Custom platform credit': '自定义平台金额（$（平台））',
+    'Platform credit': '平台额度',
+    'Custom platform credit': '自定义平台额度',
     'Maximum platform credit per payment: {{amount}}':
       '单笔最高平台金额：{{amount}}',
     'Maximum: {{amount}}': '上限：{{amount}}',
@@ -6152,8 +6156,8 @@ const walletTerminologyTranslations = {
       '到账 {{amount}}；实际支付 {{payment}}',
   },
   'zh-TW': {
-    'Platform credit': '平台金額（$（平台））',
-    'Custom platform credit': '自訂平台金額（$（平台））',
+    'Platform credit': '平台額度',
+    'Custom platform credit': '自訂平台額度',
     'Maximum platform credit per payment: {{amount}}':
       '單筆最高平台金額：{{amount}}',
     'Maximum: {{amount}}': '上限：{{amount}}',
@@ -6161,9 +6165,8 @@ const walletTerminologyTranslations = {
       '入帳 {{amount}}；實際支付 {{payment}}',
   },
   fr: {
-    'Platform credit': 'Crédit de plateforme ($ (Plateforme))',
-    'Custom platform credit':
-      'Crédit de plateforme personnalisé ($ (Plateforme))',
+    'Platform credit': 'Crédit de plateforme',
+    'Custom platform credit': 'Crédit de plateforme personnalisé',
     'Maximum platform credit per payment: {{amount}}':
       'Crédit de plateforme maximal par paiement : {{amount}}',
     'Maximum: {{amount}}': 'Maximum : {{amount}}',
@@ -6171,9 +6174,8 @@ const walletTerminologyTranslations = {
       'Crédit {{amount}} ; paiement {{payment}}',
   },
   ja: {
-    'Platform credit': 'プラットフォーム残高（$（プラットフォーム））',
-    'Custom platform credit':
-      'カスタムのプラットフォーム残高（$（プラットフォーム））',
+    'Platform credit': 'プラットフォームクレジット',
+    'Custom platform credit': '任意のプラットフォームクレジット',
     'Maximum platform credit per payment: {{amount}}':
       '1回あたりの最大プラットフォーム残高：{{amount}}',
     'Maximum: {{amount}}': '上限：{{amount}}',
@@ -6181,9 +6183,8 @@ const walletTerminologyTranslations = {
       '付与額 {{amount}}；支払額 {{payment}}',
   },
   ru: {
-    'Platform credit': 'Платформенный кредит ($ (Платформа))',
-    'Custom platform credit':
-      'Пользовательский платформенный кредит ($ (Платформа))',
+    'Platform credit': 'Платформенный кредит',
+    'Custom platform credit': 'Другая сумма кредита платформы',
     'Maximum platform credit per payment: {{amount}}':
       'Максимальный платформенный кредит за платёж: {{amount}}',
     'Maximum: {{amount}}': 'Максимум: {{amount}}',
@@ -6191,8 +6192,8 @@ const walletTerminologyTranslations = {
       'Зачисление {{amount}}; оплата {{payment}}',
   },
   vi: {
-    'Platform credit': 'Tín dụng nền tảng ($ (Nền tảng))',
-    'Custom platform credit': 'Tín dụng nền tảng tùy chỉnh ($ (Nền tảng))',
+    'Platform credit': 'Tín dụng nền tảng',
+    'Custom platform credit': 'Tín dụng nền tảng tùy chỉnh',
     'Maximum platform credit per payment: {{amount}}':
       'Tín dụng nền tảng tối đa mỗi lần thanh toán: {{amount}}',
     'Maximum: {{amount}}': 'Tối đa: {{amount}}',
@@ -6735,6 +6736,64 @@ for (const [locale, translations] of Object.entries(
   Object.assign(newKeys[locale], translations)
 }
 
+const externalNavigationTranslations = {
+  en: {
+    'Unable to open CC Switch': 'Unable to open CC Switch',
+    'Unable to open link': 'Unable to open link',
+    'Unable to open email app': 'Unable to open email app',
+    'Unable to open email app. Copy the request and email it to {{email}}.':
+      'Unable to open email app. Copy the request and email it to {{email}}.',
+  },
+  zh: {
+    'Unable to open CC Switch': '无法打开 CC Switch',
+    'Unable to open link': '无法打开链接',
+    'Unable to open email app': '无法打开邮件应用',
+    'Unable to open email app. Copy the request and email it to {{email}}.':
+      '无法打开邮件应用。请复制请求并发送至 {{email}}。',
+  },
+  'zh-TW': {
+    'Unable to open CC Switch': '無法開啟 CC Switch',
+    'Unable to open link': '無法開啟連結',
+    'Unable to open email app': '無法開啟郵件應用程式',
+    'Unable to open email app. Copy the request and email it to {{email}}.':
+      '無法開啟郵件應用程式。請複製請求並傳送至 {{email}}。',
+  },
+  fr: {
+    'Unable to open CC Switch': "Impossible d'ouvrir CC Switch",
+    'Unable to open link': "Impossible d'ouvrir le lien",
+    'Unable to open email app':
+      "Impossible d'ouvrir l'application de messagerie",
+    'Unable to open email app. Copy the request and email it to {{email}}.':
+      "Impossible d'ouvrir l'application de messagerie. Copiez la demande et envoyez-la à {{email}}.",
+  },
+  ja: {
+    'Unable to open CC Switch': 'CC Switchを開けません',
+    'Unable to open link': 'リンクを開けません',
+    'Unable to open email app': 'メールアプリを開けません',
+    'Unable to open email app. Copy the request and email it to {{email}}.':
+      'メールアプリを開けません。リクエストをコピーして {{email}} 宛てに送信してください。',
+  },
+  ru: {
+    'Unable to open CC Switch': 'Не удалось открыть CC Switch',
+    'Unable to open link': 'Не удалось открыть ссылку',
+    'Unable to open email app': 'Не удалось открыть почтовое приложение',
+    'Unable to open email app. Copy the request and email it to {{email}}.':
+      'Не удалось открыть почтовое приложение. Скопируйте запрос и отправьте его на адрес {{email}}.',
+  },
+  vi: {
+    'Unable to open CC Switch': 'Không thể mở CC Switch',
+    'Unable to open link': 'Không thể mở liên kết',
+    'Unable to open email app': 'Không thể mở ứng dụng email',
+    'Unable to open email app. Copy the request and email it to {{email}}.':
+      'Không thể mở ứng dụng email. Hãy sao chép yêu cầu và gửi đến {{email}}.',
+  },
+}
+for (const [locale, translations] of Object.entries(
+  externalNavigationTranslations
+)) {
+  Object.assign(newKeys[locale], translations)
+}
+
 const checkinCalendarTranslations = {
   en: {
     'Next month': 'Next month',
@@ -6767,6 +6826,379 @@ const checkinCalendarTranslations = {
 }
 for (const [locale, translations] of Object.entries(
   checkinCalendarTranslations
+)) {
+  Object.assign(newKeys[locale], translations)
+}
+
+const roundStatusTranslations = {
+  en: {
+    'All models': 'All models',
+    'All providers': 'All providers',
+    'Click a bar to filter logs to that time window.':
+      'Click a bar to filter logs to that time window.',
+    'Data coverage: {{reported}} of {{total}} models reported.':
+      'Data coverage: {{reported}} of {{total}} models reported.',
+    'Performance data may be delayed. The latest sample is more than 6 hours old.':
+      'Performance data may be delayed. The latest sample is more than 6 hours old.',
+    'Last 3 days': 'Last 3 days',
+    'Last 7 days': 'Last 7 days',
+    'Last 30 days': 'Last 30 days',
+    'Latest data: {{time}}': 'Latest data: {{time}}',
+    'Performance window: last {{hours}} hours':
+      'Performance window: last {{hours}} hours',
+    'Unable to load usage trend': 'Unable to load usage trend',
+    'No usage trend data in this range': 'No usage trend data in this range',
+    'Loading performance data': 'Loading performance data',
+    'Performance data unavailable': 'Performance data unavailable',
+    'Models are still available without live performance data.':
+      'Models are still available without live performance data.',
+    'Usage trend for the selected time range':
+      'Usage trend for the selected time range',
+    'The new activation is open in the details panel.':
+      'The new activation is open in the details panel.',
+    'Your purchase is being submitted. Do not submit another order.':
+      'Your purchase is being submitted. Do not submit another order.',
+    'Your reorder is being submitted. Do not submit another order.':
+      'Your reorder is being submitted. Do not submit another order.',
+  },
+  zh: {
+    'All models': '全部模型',
+    'All providers': '全部供应商',
+    'Click a bar to filter logs to that time window.':
+      '点击柱状图可将日志筛选到对应时间段。',
+    'Data coverage: {{reported}} of {{total}} models reported.':
+      '数据覆盖：{{reported}} / {{total}} 个模型已上报。',
+    'Performance data may be delayed. The latest sample is more than 6 hours old.':
+      '性能数据可能存在延迟，最新样本已超过 6 小时。',
+    'Last 3 days': '最近 3 天',
+    'Last 7 days': '最近 7 天',
+    'Last 30 days': '最近 30 天',
+    'Latest data: {{time}}': '最新数据：{{time}}',
+    'Performance window: last {{hours}} hours':
+      '性能统计窗口：最近 {{hours}} 小时',
+    'Unable to load usage trend': '无法加载用量趋势',
+    'No usage trend data in this range': '该时间范围内暂无用量趋势数据',
+    'Loading performance data': '正在加载性能数据',
+    'Performance data unavailable': '性能数据暂不可用',
+    'Models are still available without live performance data.':
+      '没有实时性能数据，但模型仍可使用。',
+    'Usage trend for the selected time range': '所选时间范围的用量趋势',
+    'The new activation is open in the details panel.':
+      '新的激活记录已在详情面板中打开。',
+    'Your purchase is being submitted. Do not submit another order.':
+      '正在提交购买请求，请勿重复提交。',
+    'Your reorder is being submitted. Do not submit another order.':
+      '正在提交重新购买请求，请勿重复提交。',
+  },
+  'zh-TW': {
+    'All models': '所有模型',
+    'All providers': '所有供應商',
+    'Click a bar to filter logs to that time window.':
+      '點選柱狀圖可將日誌篩選到對應時間範圍。',
+    'Data coverage: {{reported}} of {{total}} models reported.':
+      '資料涵蓋：{{reported}} / {{total}} 個模型已回報。',
+    'Performance data may be delayed. The latest sample is more than 6 hours old.':
+      '效能資料可能有延遲，最新樣本已超過 6 小時。',
+    'Last 3 days': '最近 3 天',
+    'Last 7 days': '最近 7 天',
+    'Last 30 days': '最近 30 天',
+    'Latest data: {{time}}': '最新資料：{{time}}',
+    'Performance window: last {{hours}} hours':
+      '效能統計視窗：最近 {{hours}} 小時',
+    'Unable to load usage trend': '無法載入用量趨勢',
+    'No usage trend data in this range': '此時間範圍內沒有用量趨勢資料',
+    'Loading performance data': '正在載入效能資料',
+    'Performance data unavailable': '效能資料暫不可用',
+    'Models are still available without live performance data.':
+      '沒有即時效能資料，但模型仍可使用。',
+    'Usage trend for the selected time range': '所選時間範圍的用量趨勢',
+    'The new activation is open in the details panel.':
+      '新的啟用記錄已在詳細資料面板中開啟。',
+    'Your purchase is being submitted. Do not submit another order.':
+      '正在提交購買要求，請勿重複提交。',
+    'Your reorder is being submitted. Do not submit another order.':
+      '正在提交重新購買要求，請勿重複提交。',
+  },
+  fr: {
+    'All models': 'Tous les modèles',
+    'All providers': 'Tous les fournisseurs',
+    'Click a bar to filter logs to that time window.':
+      'Cliquez sur une barre pour filtrer les journaux sur cette période.',
+    'Data coverage: {{reported}} of {{total}} models reported.':
+      'Couverture : {{reported}} modèles signalés sur {{total}}.',
+    'Performance data may be delayed. The latest sample is more than 6 hours old.':
+      'Les données de performance peuvent être retardées ; le dernier échantillon date de plus de 6 heures.',
+    'Last 3 days': '3 derniers jours',
+    'Last 7 days': '7 derniers jours',
+    'Last 30 days': '30 derniers jours',
+    'Latest data: {{time}}': 'Dernières données : {{time}}',
+    'Performance window: last {{hours}} hours':
+      'Fenêtre de performance : {{hours}} dernières heures',
+    'Unable to load usage trend':
+      'Impossible de charger la tendance d’utilisation',
+    'No usage trend data in this range':
+      'Aucune donnée de tendance d’utilisation sur cette période',
+    'Loading performance data': 'Chargement des données de performance',
+    'Performance data unavailable': 'Données de performance indisponibles',
+    'Models are still available without live performance data.':
+      'Les modèles restent disponibles sans données de performance en direct.',
+    'Usage trend for the selected time range':
+      'Tendance d’utilisation pour la période sélectionnée',
+    'The new activation is open in the details panel.':
+      'La nouvelle activation est ouverte dans le panneau de détails.',
+    'Your purchase is being submitted. Do not submit another order.':
+      'Votre achat est en cours d’envoi. Ne soumettez pas une autre commande.',
+    'Your reorder is being submitted. Do not submit another order.':
+      'Votre nouvelle commande est en cours d’envoi. Ne soumettez pas une autre commande.',
+  },
+  ja: {
+    'All models': 'すべてのモデル',
+    'All providers': 'すべてのプロバイダー',
+    'Click a bar to filter logs to that time window.':
+      '棒をクリックすると、その時間帯でログを絞り込めます。',
+    'Data coverage: {{reported}} of {{total}} models reported.':
+      'データ範囲：{{total}} モデル中 {{reported}} モデルが報告済み',
+    'Performance data may be delayed. The latest sample is more than 6 hours old.':
+      'パフォーマンスデータが遅延している可能性があります。最新サンプルは 6 時間以上前のものです。',
+    'Last 3 days': '過去 3 日間',
+    'Last 7 days': '過去 7 日間',
+    'Last 30 days': '過去 30 日間',
+    'Latest data: {{time}}': '最新データ：{{time}}',
+    'Performance window: last {{hours}} hours':
+      'パフォーマンス集計期間：過去 {{hours}} 時間',
+    'Unable to load usage trend': '使用量の推移を読み込めません',
+    'No usage trend data in this range':
+      'この期間の使用量推移データはありません',
+    'Loading performance data': 'パフォーマンスデータを読み込んでいます',
+    'Performance data unavailable': 'パフォーマンスデータを利用できません',
+    'Models are still available without live performance data.':
+      'ライブのパフォーマンスデータがなくてもモデルは利用できます。',
+    'Usage trend for the selected time range': '選択期間の使用量推移',
+    'The new activation is open in the details panel.':
+      '新しいアクティベーションを詳細パネルで開きました。',
+    'Your purchase is being submitted. Do not submit another order.':
+      '購入を送信しています。重複して注文しないでください。',
+    'Your reorder is being submitted. Do not submit another order.':
+      '再注文を送信しています。重複して注文しないでください。',
+  },
+  ru: {
+    'All models': 'Все модели',
+    'All providers': 'Все поставщики',
+    'Click a bar to filter logs to that time window.':
+      'Нажмите на столбец, чтобы отфильтровать логи по этому интервалу.',
+    'Data coverage: {{reported}} of {{total}} models reported.':
+      'Охват данных: отчёты получены для {{reported}} из {{total}} моделей.',
+    'Performance data may be delayed. The latest sample is more than 6 hours old.':
+      'Данные о производительности могут поступать с задержкой: последний образец старше 6 часов.',
+    'Last 3 days': 'Последние 3 дня',
+    'Last 7 days': 'Последние 7 дней',
+    'Last 30 days': 'Последние 30 дней',
+    'Latest data: {{time}}': 'Последние данные: {{time}}',
+    'Performance window: last {{hours}} hours':
+      'Окно производительности: последние {{hours}} ч.',
+    'Unable to load usage trend': 'Не удалось загрузить динамику использования',
+    'No usage trend data in this range':
+      'За этот период нет данных о динамике использования',
+    'Loading performance data': 'Загрузка данных о производительности',
+    'Performance data unavailable': 'Данные о производительности недоступны',
+    'Models are still available without live performance data.':
+      'Модели доступны даже без актуальных данных о производительности.',
+    'Usage trend for the selected time range':
+      'Динамика использования за выбранный период',
+    'The new activation is open in the details panel.':
+      'Новая активация открыта на панели подробностей.',
+    'Your purchase is being submitted. Do not submit another order.':
+      'Покупка отправляется. Не отправляйте ещё один заказ.',
+    'Your reorder is being submitted. Do not submit another order.':
+      'Повторная покупка отправляется. Не отправляйте ещё один заказ.',
+  },
+  vi: {
+    'All models': 'Tất cả mô hình',
+    'All providers': 'Tất cả nhà cung cấp',
+    'Click a bar to filter logs to that time window.':
+      'Nhấp vào cột để lọc nhật ký theo khoảng thời gian đó.',
+    'Data coverage: {{reported}} of {{total}} models reported.':
+      'Phạm vi dữ liệu: {{reported}}/{{total}} mô hình đã báo cáo.',
+    'Performance data may be delayed. The latest sample is more than 6 hours old.':
+      'Dữ liệu hiệu năng có thể bị trễ; mẫu mới nhất đã cũ hơn 6 giờ.',
+    'Last 3 days': '3 ngày qua',
+    'Last 7 days': '7 ngày qua',
+    'Last 30 days': '30 ngày qua',
+    'Latest data: {{time}}': 'Dữ liệu mới nhất: {{time}}',
+    'Performance window: last {{hours}} hours':
+      'Khoảng hiệu năng: {{hours}} giờ qua',
+    'Unable to load usage trend': 'Không thể tải xu hướng sử dụng',
+    'No usage trend data in this range':
+      'Không có dữ liệu xu hướng sử dụng trong khoảng này',
+    'Loading performance data': 'Đang tải dữ liệu hiệu năng',
+    'Performance data unavailable': 'Dữ liệu hiệu năng không khả dụng',
+    'Models are still available without live performance data.':
+      'Mô hình vẫn khả dụng khi không có dữ liệu hiệu năng trực tiếp.',
+    'Usage trend for the selected time range':
+      'Xu hướng sử dụng trong khoảng thời gian đã chọn',
+    'The new activation is open in the details panel.':
+      'Kích hoạt mới đã mở trong bảng chi tiết.',
+    'Your purchase is being submitted. Do not submit another order.':
+      'Đang gửi yêu cầu mua. Không gửi thêm đơn khác.',
+    'Your reorder is being submitted. Do not submit another order.':
+      'Đang gửi yêu cầu mua lại. Không gửi thêm đơn khác.',
+  },
+}
+for (const [locale, translations] of Object.entries(roundStatusTranslations)) {
+  Object.assign(newKeys[locale], translations)
+}
+
+const bountyLifecycleTranslations = {
+  en: {
+    'Rejected challenges can still be appealed. Wait until the seven-day appeal window ends unless a dispute is opened.':
+      'Rejected challenges can still be appealed. Wait until the seven-day appeal window ends unless a dispute is opened.',
+    'Resolve all open disputes before closing this bounty or refunding escrow.':
+      'Resolve all open disputes before closing this bounty or refunding escrow.',
+    'Bounty status summary': 'Bounty status summary',
+    Participants: 'Participants',
+    'In progress': 'In progress',
+    'Awaiting review': 'Awaiting review',
+    'In appeal window': 'In appeal window',
+    'Open disputes': 'Open disputes',
+    'Why closing is unavailable': 'Why closing is unavailable',
+    'This bounty cannot be closed yet. Resolve the blockers below:':
+      'This bounty cannot be closed yet. Resolve the blockers below:',
+    'In progress: {{accepted}} · Awaiting review: {{submitted}}':
+      'In progress: {{accepted}} · Awaiting review: {{submitted}}',
+    'Challenges still in the appeal window: {{count}}. Latest deadline: {{date}}.':
+      'Challenges still in the appeal window: {{count}}. Latest deadline: {{date}}.',
+    'Open disputes: {{count}}. A third-party administrator must resolve them before escrow can be refunded.':
+      'Open disputes: {{count}}. A third-party administrator must resolve them before escrow can be refunded.',
+  },
+  zh: {
+    'Rejected challenges can still be appealed. Wait until the seven-day appeal window ends unless a dispute is opened.':
+      '被拒绝的挑战仍可申诉。请等待 7 天申诉期结束；若有人发起争议，则需先处理争议。',
+    'Resolve all open disputes before closing this bounty or refunding escrow.':
+      '关闭悬赏或退回托管额度前，请先解决所有未结争议。',
+    'Bounty status summary': '悬赏状态概览',
+    Participants: '参与人数',
+    'In progress': '进行中',
+    'Awaiting review': '等待审核',
+    'In appeal window': '申诉期内',
+    'Open disputes': '未结争议',
+    'Why closing is unavailable': '为什么暂时无法关闭',
+    'This bounty cannot be closed yet. Resolve the blockers below:':
+      '此悬赏暂时无法关闭，请先处理以下事项：',
+    'In progress: {{accepted}} · Awaiting review: {{submitted}}':
+      '进行中：{{accepted}} · 等待审核：{{submitted}}',
+    'Challenges still in the appeal window: {{count}}. Latest deadline: {{date}}.':
+      '仍在申诉期内的挑战：{{count}} 个。最晚截止时间：{{date}}。',
+    'Open disputes: {{count}}. A third-party administrator must resolve them before escrow can be refunded.':
+      '未结争议：{{count}} 个。必须由第三方管理员解决后，才能退回托管额度。',
+  },
+  'zh-TW': {
+    'Rejected challenges can still be appealed. Wait until the seven-day appeal window ends unless a dispute is opened.':
+      '遭拒絕的挑戰仍可申訴。請等待 7 天申訴期結束；若有人提出爭議，則需先處理爭議。',
+    'Resolve all open disputes before closing this bounty or refunding escrow.':
+      '關閉懸賞或退回託管額度前，請先解決所有未結爭議。',
+    'Bounty status summary': '懸賞狀態概覽',
+    Participants: '參與人數',
+    'In progress': '進行中',
+    'Awaiting review': '等待審核',
+    'In appeal window': '申訴期內',
+    'Open disputes': '未結爭議',
+    'Why closing is unavailable': '為什麼暫時無法關閉',
+    'This bounty cannot be closed yet. Resolve the blockers below:':
+      '此懸賞暫時無法關閉，請先處理以下事項：',
+    'In progress: {{accepted}} · Awaiting review: {{submitted}}':
+      '進行中：{{accepted}} · 等待審核：{{submitted}}',
+    'Challenges still in the appeal window: {{count}}. Latest deadline: {{date}}.':
+      '仍在申訴期內的挑戰：{{count}} 個。最晚截止時間：{{date}}。',
+    'Open disputes: {{count}}. A third-party administrator must resolve them before escrow can be refunded.':
+      '未結爭議：{{count}} 個。必須由第三方管理員解決後，才能退回託管額度。',
+  },
+  fr: {
+    'Rejected challenges can still be appealed. Wait until the seven-day appeal window ends unless a dispute is opened.':
+      'Les défis rejetés peuvent encore faire l’objet d’un recours. Attendez la fin du délai de sept jours, sauf si un litige est ouvert.',
+    'Resolve all open disputes before closing this bounty or refunding escrow.':
+      'Résolvez tous les litiges ouverts avant de clôturer cette prime ou de rembourser les fonds bloqués.',
+    'Bounty status summary': 'Résumé de l’état de la prime',
+    Participants: 'Participants',
+    'In progress': 'En cours',
+    'Awaiting review': 'En attente de validation',
+    'In appeal window': 'Dans le délai de recours',
+    'Open disputes': 'Litiges ouverts',
+    'Why closing is unavailable': 'Pourquoi la clôture est indisponible',
+    'This bounty cannot be closed yet. Resolve the blockers below:':
+      'Cette prime ne peut pas encore être clôturée. Résolvez d’abord les blocages suivants :',
+    'In progress: {{accepted}} · Awaiting review: {{submitted}}':
+      'En cours : {{accepted}} · En attente de validation : {{submitted}}',
+    'Challenges still in the appeal window: {{count}}. Latest deadline: {{date}}.':
+      'Défis encore dans le délai de recours : {{count}}. Échéance la plus tardive : {{date}}.',
+    'Open disputes: {{count}}. A third-party administrator must resolve them before escrow can be refunded.':
+      'Litiges ouverts : {{count}}. Un administrateur tiers doit les résoudre avant le remboursement des fonds bloqués.',
+  },
+  ja: {
+    'Rejected challenges can still be appealed. Wait until the seven-day appeal window ends unless a dispute is opened.':
+      '却下されたチャレンジにはまだ異議を申し立てられます。異議が開始された場合を除き、7 日間の申立期間が終了するまでお待ちください。',
+    'Resolve all open disputes before closing this bounty or refunding escrow.':
+      '懸賞を終了またはエスクローを返金する前に、未解決の異議をすべて解決してください。',
+    'Bounty status summary': '懸賞ステータスの概要',
+    Participants: '参加者数',
+    'In progress': '進行中',
+    'Awaiting review': 'レビュー待ち',
+    'In appeal window': '異議申立期間中',
+    'Open disputes': '未解決の異議',
+    'Why closing is unavailable': '終了できない理由',
+    'This bounty cannot be closed yet. Resolve the blockers below:':
+      'この懸賞はまだ終了できません。以下の阻害要因を解消してください：',
+    'In progress: {{accepted}} · Awaiting review: {{submitted}}':
+      '進行中：{{accepted}}・レビュー待ち：{{submitted}}',
+    'Challenges still in the appeal window: {{count}}. Latest deadline: {{date}}.':
+      '異議申立期間中のチャレンジ：{{count}}件。最も遅い期限：{{date}}。',
+    'Open disputes: {{count}}. A third-party administrator must resolve them before escrow can be refunded.':
+      '未解決の異議：{{count}}件。エスクローを返金するには、第三者の管理者による解決が必要です。',
+  },
+  ru: {
+    'Rejected challenges can still be appealed. Wait until the seven-day appeal window ends unless a dispute is opened.':
+      'Отклонённые заявки ещё можно обжаловать. Дождитесь окончания семидневного срока, если спор не будет открыт.',
+    'Resolve all open disputes before closing this bounty or refunding escrow.':
+      'Разрешите все открытые споры перед закрытием награды или возвратом средств из эскроу.',
+    'Bounty status summary': 'Сводка статуса награды',
+    Participants: 'Участники',
+    'In progress': 'В работе',
+    'Awaiting review': 'Ожидают проверки',
+    'In appeal window': 'В периоде обжалования',
+    'Open disputes': 'Открытые споры',
+    'Why closing is unavailable': 'Почему закрытие недоступно',
+    'This bounty cannot be closed yet. Resolve the blockers below:':
+      'Эту награду пока нельзя закрыть. Устраните следующие препятствия:',
+    'In progress: {{accepted}} · Awaiting review: {{submitted}}':
+      'В работе: {{accepted}} · Ожидают проверки: {{submitted}}',
+    'Challenges still in the appeal window: {{count}}. Latest deadline: {{date}}.':
+      'Заявки в периоде обжалования: {{count}}. Самый поздний срок: {{date}}.',
+    'Open disputes: {{count}}. A third-party administrator must resolve them before escrow can be refunded.':
+      'Открытые споры: {{count}}. Сторонний администратор должен разрешить их до возврата средств из эскроу.',
+  },
+  vi: {
+    'Rejected challenges can still be appealed. Wait until the seven-day appeal window ends unless a dispute is opened.':
+      'Thử thách bị từ chối vẫn có thể được kháng nghị. Hãy chờ hết thời hạn bảy ngày, trừ khi có tranh chấp được mở.',
+    'Resolve all open disputes before closing this bounty or refunding escrow.':
+      'Hãy giải quyết mọi tranh chấp đang mở trước khi đóng tiền thưởng hoặc hoàn lại khoản ký quỹ.',
+    'Bounty status summary': 'Tóm tắt trạng thái tiền thưởng',
+    Participants: 'Người tham gia',
+    'In progress': 'Đang thực hiện',
+    'Awaiting review': 'Đang chờ duyệt',
+    'In appeal window': 'Trong thời hạn kháng nghị',
+    'Open disputes': 'Tranh chấp đang mở',
+    'Why closing is unavailable': 'Lý do chưa thể đóng',
+    'This bounty cannot be closed yet. Resolve the blockers below:':
+      'Tiền thưởng này chưa thể đóng. Hãy xử lý các trở ngại sau:',
+    'In progress: {{accepted}} · Awaiting review: {{submitted}}':
+      'Đang thực hiện: {{accepted}} · Đang chờ duyệt: {{submitted}}',
+    'Challenges still in the appeal window: {{count}}. Latest deadline: {{date}}.':
+      'Thử thách vẫn trong thời hạn kháng nghị: {{count}}. Hạn muộn nhất: {{date}}.',
+    'Open disputes: {{count}}. A third-party administrator must resolve them before escrow can be refunded.':
+      'Tranh chấp đang mở: {{count}}. Quản trị viên bên thứ ba phải giải quyết chúng trước khi hoàn lại khoản ký quỹ.',
+  },
+}
+for (const [locale, translations] of Object.entries(
+  bountyLifecycleTranslations
 )) {
   Object.assign(newKeys[locale], translations)
 }

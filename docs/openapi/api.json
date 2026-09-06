@@ -754,15 +754,29 @@
       "get": {
         "summary": "查看登录会话",
         "deprecated": false,
-        "description": "🔐 需要面板 Access Token；PAT 不能管理浏览器登录会话。只返回当前 user_auth_version 的有效会话，当前会话优先，最多 100 条。",
+        "description": "🔐 需要面板 Access Token；PAT 不能管理浏览器登录会话。只返回当前 user_auth_version 的有效会话，当前会话优先，最多 100 条。顶层 session_auto_logout 返回用户的自动登出开关，所有账号默认开启。开启时撤销 created_at 严格早于当前时间减去 7 天的会话，刷新令牌不重置登录时间。此功能由默认 Go 后端提供。",
         "tags": [
           "用户登陆注册"
         ],
         "parameters": [],
         "responses": {
           "200": {
-            "description": "返回当前鉴权版本的有效登录会话",
-            "headers": {}
+            "description": "返回当前鉴权版本的有效登录会话及自动登出开关",
+            "headers": {},
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["success", "message", "data", "session_auto_logout"],
+                  "properties": {
+                    "success": {"type": "boolean"},
+                    "message": {"type": "string"},
+                    "data": {"type": "array", "items": {"type": "object"}},
+                    "session_auto_logout": {"type": "boolean", "default": true}
+                  }
+                }
+              }
+            }
           }
         },
         "security": [
@@ -770,6 +784,51 @@
             "AccessToken1": []
           }
         ]
+      }
+    },
+    "/api/user/sessions/settings": {
+      "put": {
+        "summary": "设置自动登出超过一周的登录会话",
+        "deprecated": false,
+        "description": "🔐 需要当前用户的浏览器登录会话 Access Token；PAT 不可使用。保存用户级 session_auto_logout 开关，缺省设置代表开启，已有账号同样适用。开启后立即撤销登录时间 created_at 严格早于当前时间减去 7 天的会话，包括符合条件的当前会话；刚好 7 天仍保留。关闭开关不恢复已撤销会话，原有 30 天有效期继续生效。默认 Go 后端提供此接口，Rust 预览后端暂未实现。",
+        "tags": ["用户登陆注册"],
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["session_auto_logout"],
+                "properties": {
+                  "session_auto_logout": {"type": "boolean", "default": true}
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "设置已保存并完成适用的会话撤销；当前会话被撤销时，后续请求返回 401",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["success", "message"],
+                  "properties": {
+                    "success": {"type": "boolean"},
+                    "message": {"type": "string"}
+                  }
+                },
+                "example": {"success": true, "message": ""}
+              }
+            }
+          },
+          "400": {"description": "缺少 session_auto_logout 或值不是布尔值"},
+          "401": {"description": "登录会话无效或已撤销"},
+          "403": {"description": "需要浏览器登录会话，PAT 不可使用"}
+        },
+        "security": [{"AccessToken1": []}]
       }
     },
     "/api/user/sessions/{sid}": {

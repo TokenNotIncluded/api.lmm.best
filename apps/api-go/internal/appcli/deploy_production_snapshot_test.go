@@ -209,7 +209,8 @@ func TestNativeProductionBackupCapturesRollbackFrontendConfigAndPostgres(t *test
 		t.Fatalf("proof-only verification=%#v want=%#v", proofVerification, verification)
 	}
 	attestation, err := fixture.runtime.attestBackup(context.Background(), productionBackupAttestOptions{
-		Workspace: fixture.workspace.root, ControllerDigest: verification.ControllerDigest, OffhostDigest: verification.OffhostDigest,
+		Workspace: fixture.workspace.root, TargetDigest: verification.TargetDigest,
+		ControllerDigest: verification.ControllerDigest, OffhostDigest: verification.OffhostDigest,
 	})
 	if err != nil {
 		t.Fatal(err)

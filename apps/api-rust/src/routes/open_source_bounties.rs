@@ -3286,8 +3286,17 @@ struct BountyProjectView {
     closed_at: i64,
     archived_at: i64,
     owner_username: String,
+    participant_count: i64,
     active_challenge_count: i64,
+    accepted_challenge_count: i64,
+    submitted_challenge_count: i64,
     approved_challenge_count: i64,
+    rejected_challenge_count: i64,
+    withdrawn_challenge_count: i64,
+    cancelled_challenge_count: i64,
+    appealable_challenge_count: i64,
+    appeal_window_ends_at: i64,
+    open_dispute_count: i64,
     #[serde(serialize_with = "serialize_rating_average")]
     owner_rating_average: f64,
     owner_rating_count: i64,
@@ -4081,7 +4090,71 @@ async fn required_admin_id(
 fn project_select() -> &'static str {
     // Keep casts explicit: Go's integer fields are persisted differently by
     // historical PostgreSQL migrations, while the wire contract is numeric.
-    "SELECT p.id::BIGINT AS id, p.owner_user_id::BIGINT AS owner_user_id, p.repository_url, p.title, p.description, p.rules, p.reward_quota::BIGINT AS reward_quota, p.net_reward_quota::BIGINT AS net_reward_quota, p.reward_slots::BIGINT AS reward_slots, p.escrow_quota::BIGINT AS escrow_quota, p.platform_fee_rate_bps::BIGINT AS platform_fee_rate_bps, p.platform_fee_quota::BIGINT AS platform_fee_quota, p.status, p.created_at::BIGINT AS created_at, p.updated_at::BIGINT AS updated_at, p.published_at::BIGINT AS published_at, p.closed_at::BIGINT AS closed_at, p.archived_at::BIGINT AS archived_at, u.username AS owner_username, (SELECT COUNT(*)::BIGINT FROM open_source_bounty_challenges c WHERE c.project_id = p.id AND (c.status IN ('accepted','submitted') OR (c.status = 'rejected' AND c.rejected_at > $1 AND NOT EXISTS (SELECT 1 FROM open_source_bounty_disputes resolved_dispute WHERE resolved_dispute.challenge_id = c.id AND resolved_dispute.status IN ('resolved_paid','resolved_denied'))) OR EXISTS (SELECT 1 FROM open_source_bounty_disputes dispute WHERE dispute.challenge_id = c.id AND dispute.status = 'open'))) AS active_challenge_count, (SELECT COUNT(*)::BIGINT FROM open_source_bounty_challenges c WHERE c.project_id = p.id AND c.status = 'approved') AS approved_challenge_count, COALESCE((SELECT AVG(c.contributor_rating_score)::DOUBLE PRECISION FROM open_source_bounty_challenges c JOIN open_source_bounty_projects rated_project ON rated_project.id = c.project_id WHERE rated_project.owner_user_id = p.owner_user_id AND c.contributor_rating_score > 0), 0)::DOUBLE PRECISION AS owner_rating_average, (SELECT COUNT(*)::BIGINT FROM open_source_bounty_challenges c JOIN open_source_bounty_projects rated_project ON rated_project.id = c.project_id WHERE rated_project.owner_user_id = p.owner_user_id AND c.contributor_rating_score > 0) AS owner_rating_count, (SELECT COUNT(*)::BIGINT FROM open_source_bounty_ledgers heart WHERE heart.user_id = p.owner_user_id AND heart.kind = 'tip_transfer' AND heart.thanked_at > 0) AS owner_thank_heart_count FROM open_source_bounty_projects p JOIN users u ON u.id = p.owner_user_id AND u.deleted_at IS NULL"
+    r#"SELECT
+        p.id::BIGINT AS id,
+        p.owner_user_id::BIGINT AS owner_user_id,
+        p.repository_url,
+        p.title,
+        p.description,
+        p.rules,
+        p.reward_quota::BIGINT AS reward_quota,
+        p.net_reward_quota::BIGINT AS net_reward_quota,
+        p.reward_slots::BIGINT AS reward_slots,
+        p.escrow_quota::BIGINT AS escrow_quota,
+        p.platform_fee_rate_bps::BIGINT AS platform_fee_rate_bps,
+        p.platform_fee_quota::BIGINT AS platform_fee_quota,
+        p.status,
+        p.created_at::BIGINT AS created_at,
+        p.updated_at::BIGINT AS updated_at,
+        p.published_at::BIGINT AS published_at,
+        p.closed_at::BIGINT AS closed_at,
+        p.archived_at::BIGINT AS archived_at,
+        u.username AS owner_username,
+        (SELECT COUNT(*)::BIGINT FROM open_source_bounty_challenges c WHERE c.project_id = p.id) AS participant_count,
+        (SELECT COUNT(*)::BIGINT FROM open_source_bounty_challenges c WHERE c.project_id = p.id AND (
+            c.status IN ('accepted','submitted') OR
+            (c.status = 'rejected' AND c.rejected_at > $1 AND NOT EXISTS (
+                SELECT 1 FROM open_source_bounty_disputes resolved_dispute
+                WHERE resolved_dispute.challenge_id = c.id
+                  AND resolved_dispute.status IN ('resolved_paid','resolved_denied')
+            )) OR EXISTS (
+                SELECT 1 FROM open_source_bounty_disputes dispute
+                WHERE dispute.challenge_id = c.id AND dispute.status = 'open'
+            )
+        )) AS active_challenge_count,
+        (SELECT COUNT(*)::BIGINT FROM open_source_bounty_challenges c WHERE c.project_id = p.id AND c.status = 'accepted') AS accepted_challenge_count,
+        (SELECT COUNT(*)::BIGINT FROM open_source_bounty_challenges c WHERE c.project_id = p.id AND c.status = 'submitted') AS submitted_challenge_count,
+        (SELECT COUNT(*)::BIGINT FROM open_source_bounty_challenges c WHERE c.project_id = p.id AND c.status = 'approved') AS approved_challenge_count,
+        (SELECT COUNT(*)::BIGINT FROM open_source_bounty_challenges c WHERE c.project_id = p.id AND c.status = 'rejected') AS rejected_challenge_count,
+        (SELECT COUNT(*)::BIGINT FROM open_source_bounty_challenges c WHERE c.project_id = p.id AND c.status = 'withdrawn') AS withdrawn_challenge_count,
+        (SELECT COUNT(*)::BIGINT FROM open_source_bounty_challenges c WHERE c.project_id = p.id AND c.status = 'cancelled') AS cancelled_challenge_count,
+        (SELECT COUNT(*)::BIGINT FROM open_source_bounty_challenges c
+          WHERE c.project_id = p.id AND c.status = 'rejected' AND c.rejected_at > $1
+            AND NOT EXISTS (
+                SELECT 1 FROM open_source_bounty_disputes dispute
+                WHERE dispute.challenge_id = c.id
+                  AND dispute.status IN ('open','resolved_paid','resolved_denied')
+            )) AS appealable_challenge_count,
+        COALESCE((SELECT MAX(c.rejected_at + 604800)::BIGINT FROM open_source_bounty_challenges c
+          WHERE c.project_id = p.id AND c.status = 'rejected' AND c.rejected_at > $1
+            AND NOT EXISTS (
+                SELECT 1 FROM open_source_bounty_disputes dispute
+                WHERE dispute.challenge_id = c.id
+                  AND dispute.status IN ('open','resolved_paid','resolved_denied')
+            )), 0)::BIGINT AS appeal_window_ends_at,
+        (SELECT COUNT(DISTINCT dispute.challenge_id)::BIGINT FROM open_source_bounty_disputes dispute
+          WHERE dispute.project_id = p.id AND dispute.status = 'open') AS open_dispute_count,
+        COALESCE((SELECT AVG(c.contributor_rating_score)::DOUBLE PRECISION
+          FROM open_source_bounty_challenges c
+          JOIN open_source_bounty_projects rated_project ON rated_project.id = c.project_id
+          WHERE rated_project.owner_user_id = p.owner_user_id AND c.contributor_rating_score > 0), 0)::DOUBLE PRECISION AS owner_rating_average,
+        (SELECT COUNT(*)::BIGINT FROM open_source_bounty_challenges c
+          JOIN open_source_bounty_projects rated_project ON rated_project.id = c.project_id
+          WHERE rated_project.owner_user_id = p.owner_user_id AND c.contributor_rating_score > 0) AS owner_rating_count,
+        (SELECT COUNT(*)::BIGINT FROM open_source_bounty_ledgers heart
+          WHERE heart.user_id = p.owner_user_id AND heart.kind = 'tip_transfer' AND heart.thanked_at > 0) AS owner_thank_heart_count
+      FROM open_source_bounty_projects p
+      JOIN users u ON u.id = p.owner_user_id AND u.deleted_at IS NULL"#
 }
 
 fn project_from_row(row: &PgRow) -> Result<BountyProjectView, sqlx::Error> {
@@ -4105,8 +4178,17 @@ fn project_from_row(row: &PgRow) -> Result<BountyProjectView, sqlx::Error> {
         closed_at: row.try_get("closed_at")?,
         archived_at: row.try_get("archived_at")?,
         owner_username: row.try_get("owner_username")?,
+        participant_count: row.try_get("participant_count")?,
         active_challenge_count: row.try_get("active_challenge_count")?,
+        accepted_challenge_count: row.try_get("accepted_challenge_count")?,
+        submitted_challenge_count: row.try_get("submitted_challenge_count")?,
         approved_challenge_count: row.try_get("approved_challenge_count")?,
+        rejected_challenge_count: row.try_get("rejected_challenge_count")?,
+        withdrawn_challenge_count: row.try_get("withdrawn_challenge_count")?,
+        cancelled_challenge_count: row.try_get("cancelled_challenge_count")?,
+        appealable_challenge_count: row.try_get("appealable_challenge_count")?,
+        appeal_window_ends_at: row.try_get("appeal_window_ends_at")?,
+        open_dispute_count: row.try_get("open_dispute_count")?,
         owner_rating_average: row.try_get("owner_rating_average")?,
         owner_rating_count: row.try_get("owner_rating_count")?,
         owner_thank_heart_count: row.try_get("owner_thank_heart_count")?,

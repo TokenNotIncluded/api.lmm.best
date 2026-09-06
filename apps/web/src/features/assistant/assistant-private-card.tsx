@@ -24,13 +24,16 @@ import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
 import { copyToClipboard } from '@/lib/copy-to-clipboard'
+import { openResolvedExternalUrl } from '@/lib/external-navigation'
 
 import { revealAssistantPrivateCard, type AssistantPrivateCard } from './api'
 
 export function AssistantPrivateCard(props: {
   card: AssistantPrivateCard
   onContinue: () => void
-  onImportToCCSwitch?: (secret: string) => void | Promise<void>
+  onImportToCCSwitch?: (
+    secret: string
+  ) => string | null | Promise<string | null>
 }) {
   const { t } = useTranslation()
   const secretRef = useRef('')
@@ -80,11 +83,21 @@ export function AssistantPrivateCard(props: {
     if (!props.onImportToCCSwitch || importing) return
     setImporting(true)
     try {
-      const secret = await getSecret()
-      if (!secret) return
-      await props.onImportToCCSwitch(secret)
+      let credentialResolved = false
+      const opened = await openResolvedExternalUrl(async () => {
+        const secret = await getSecret()
+        if (!secret) return null
+        credentialResolved = true
+        return props.onImportToCCSwitch?.(secret) ?? null
+      })
+      if (!opened) {
+        if (credentialResolved) toast.error(t('Unable to open CC Switch'))
+        return
+      }
       secretRef.current = ''
       setViewing(false)
+    } catch {
+      toast.error(t('Unable to open CC Switch'))
     } finally {
       setImporting(false)
     }

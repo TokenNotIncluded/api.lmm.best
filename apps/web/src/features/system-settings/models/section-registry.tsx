@@ -16,16 +16,42 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { ChannelAffinitySection } from '../general/channel-affinity'
-import { IoNetDeploymentSettingsSection } from '../integrations/ionet-deployment-settings-section'
 import type { ModelSettings } from '../types'
+import { lazyNamedSection } from '../utils/lazy-section'
 import { createSectionRegistry } from '../utils/section-registry'
-import { ClaudeSettingsCard } from './claude-settings-card'
-import { DynamicPricingSection } from './dynamic-pricing-section'
-import { GeminiSettingsCard } from './gemini-settings-card'
-import { GlobalSettingsCard } from './global-settings-card'
-import { GrokSettingsCard } from './grok-settings-card'
-import { RoutingReliabilitySection } from './routing-reliability-section'
+
+const ChannelAffinitySection = lazyNamedSection(
+  () => import('../general/channel-affinity'),
+  'ChannelAffinitySection'
+)
+const IoNetDeploymentSettingsSection = lazyNamedSection(
+  () => import('../integrations/ionet-deployment-settings-section'),
+  'IoNetDeploymentSettingsSection'
+)
+const ClaudeSettingsCard = lazyNamedSection(
+  () => import('./claude-settings-card'),
+  'ClaudeSettingsCard'
+)
+const DynamicPricingSection = lazyNamedSection(
+  () => import('./dynamic-pricing-section'),
+  'DynamicPricingSection'
+)
+const GeminiSettingsCard = lazyNamedSection(
+  () => import('./gemini-settings-card'),
+  'GeminiSettingsCard'
+)
+const GlobalSettingsCard = lazyNamedSection(
+  () => import('./global-settings-card'),
+  'GlobalSettingsCard'
+)
+const GrokSettingsCard = lazyNamedSection(
+  () => import('./grok-settings-card'),
+  'GrokSettingsCard'
+)
+const RoutingReliabilitySection = lazyNamedSection(
+  () => import('./routing-reliability-section'),
+  'RoutingReliabilitySection'
+)
 
 function formatJsonForEditor(value: string, fallback: string) {
   const raw = (value ?? '').toString().trim()

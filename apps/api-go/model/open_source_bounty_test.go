@@ -109,6 +109,79 @@ func TestOpenSourceBountyEmptyListQueriesReturnNonNilSlices(t *testing.T) {
 	assert.Empty(t, disputes)
 }
 
+func TestOpenSourceBountyProjectViewReportsLifecycleCountsAndAppealDeadline(t *testing.T) {
+	db := setupOpenSourceBountyTestDB(t)
+	owner := createOpenSourceBountyUser(t, db, "lifecycle-owner", 100_000, common.RoleCommonUser)
+	project, err := CreateOpenSourceBountyDraft(owner.Id, openSourceBountyInput("https://github.com/example/lifecycle", 1_000, 12))
+	require.NoError(t, err)
+	project, _, err = PublishOpenSourceBounty(owner.Id, project.Id)
+	require.NoError(t, err)
+
+	now := common.GetTimestamp()
+	statuses := []struct {
+		status     string
+		rejectedAt int64
+	}{
+		{status: OpenSourceBountyChallengeAccepted},
+		{status: OpenSourceBountyChallengeSubmitted},
+		{status: OpenSourceBountyChallengeApproved},
+		{status: OpenSourceBountyChallengeRejected, rejectedAt: now - 100},
+		{status: OpenSourceBountyChallengeRejected, rejectedAt: now - OpenSourceBountyAppealWindowSeconds - 100},
+		{status: OpenSourceBountyChallengeRejected, rejectedAt: now - 50},
+		{status: OpenSourceBountyChallengeWithdrawn},
+		{status: OpenSourceBountyChallengeCancelled},
+	}
+	challenges := make([]OpenSourceBountyChallenge, 0, len(statuses))
+	for index, status := range statuses {
+		challenges = append(challenges, OpenSourceBountyChallenge{
+			ProjectId:         project.Id,
+			ParticipantUserId: 10_000 + index,
+			GithubHandle:      fmt.Sprintf("participant-%d", index),
+			Status:            status.status,
+			RewardQuota:       project.NetRewardQuota,
+			AcceptedAt:        now - 200,
+			RejectedAt:        status.rejectedAt,
+			CreatedAt:         now - 200,
+			UpdatedAt:         now,
+		})
+	}
+	require.NoError(t, db.Create(&challenges).Error)
+	openKey := "lifecycle-open-dispute"
+	require.NoError(t, db.Create(&OpenSourceBountyDispute{
+		ChallengeId:             challenges[5].Id,
+		ProjectId:               project.Id,
+		OpenedByUserId:          challenges[5].ParticipantUserId,
+		AgainstUserId:           owner.Id,
+		CaseKey:                 "lifecycle-dispute-case",
+		OpenKey:                 &openKey,
+		Reason:                  "requirements_met_but_rejected",
+		Statement:               "The submitted fix meets the documented acceptance requirements.",
+		ProjectTitleSnapshot:    project.Title,
+		RepositoryUrlSnapshot:   project.RepositoryUrl,
+		ProjectRulesSnapshot:    project.Rules,
+		ChallengeStatusSnapshot: OpenSourceBountyChallengeRejected,
+		Status:                  OpenSourceBountyDisputeOpen,
+		CreatedAt:               now,
+		UpdatedAt:               now,
+	}).Error)
+
+	projects, err := ListOwnedOpenSourceBounties(owner.Id)
+	require.NoError(t, err)
+	require.Len(t, projects, 1)
+	view := projects[0]
+	assert.EqualValues(t, 8, view.ParticipantCount)
+	assert.EqualValues(t, 4, view.ActiveChallengeCount)
+	assert.EqualValues(t, 1, view.AcceptedChallengeCount)
+	assert.EqualValues(t, 1, view.SubmittedChallengeCount)
+	assert.EqualValues(t, 1, view.ApprovedChallengeCount)
+	assert.EqualValues(t, 3, view.RejectedChallengeCount)
+	assert.EqualValues(t, 1, view.WithdrawnChallengeCount)
+	assert.EqualValues(t, 1, view.CancelledChallengeCount)
+	assert.EqualValues(t, 1, view.AppealableChallengeCount)
+	assert.EqualValues(t, now-100+OpenSourceBountyAppealWindowSeconds, view.AppealWindowEndsAt)
+	assert.EqualValues(t, 1, view.OpenDisputeCount)
+}
+
 func TestOpenSourceBountyL0ViewerGetsOnlyPublicBoardAndDetail(t *testing.T) {
 	db := setupOpenSourceBountyTestDB(t)
 	owner := createOpenSourceBountyUser(t, db, "l0-public-owner", 10_000, common.RoleCommonUser)

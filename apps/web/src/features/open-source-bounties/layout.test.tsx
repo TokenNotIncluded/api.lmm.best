@@ -21,6 +21,8 @@ import { after, afterEach, describe, test } from 'node:test'
 
 import { Window } from 'happy-dom'
 
+import type { BountyProject } from './types'
+
 const domWindow = new Window()
 domWindow.document.write(
   '<!doctype html><html><head></head><body></body></html>'
@@ -56,7 +58,7 @@ const { QueryClient, QueryClientProvider } =
 const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { api } = await import('@/lib/api')
-const { OpenSourceBounties } = await import('./index')
+const { OpenSourceBounties, OwnerProjectCard } = await import('./index')
 
 const originalGet = api.get
 const reactTestGlobals = globalThis as typeof globalThis & {
@@ -74,7 +76,7 @@ const description =
   'A complete bounty description that must remain readable instead of being clamped after three lines.'
 const ownerUsername = `maintainer${'x'.repeat(96)}`
 const title = `Fix${'x'.repeat(128)}`
-const project = {
+const project: BountyProject = {
   id: 42,
   owner_user_id: 21,
   owner_username: ownerUsername,
@@ -94,8 +96,17 @@ const project = {
   published_at: 1,
   closed_at: 0,
   archived_at: 0,
-  active_challenge_count: 1,
-  approved_challenge_count: 0,
+  participant_count: 8,
+  active_challenge_count: 4,
+  accepted_challenge_count: 1,
+  submitted_challenge_count: 2,
+  approved_challenge_count: 1,
+  rejected_challenge_count: 2,
+  withdrawn_challenge_count: 1,
+  cancelled_challenge_count: 1,
+  appealable_challenge_count: 1,
+  appeal_window_ends_at: Math.floor(Date.now() / 1000) + 3_600,
+  open_dispute_count: 1,
   owner_rating_average: 4.8,
   owner_rating_count: 18,
   owner_thank_heart_count: 12,
@@ -113,6 +124,49 @@ afterEach(() => {
 after(() => domWindow.close())
 
 describe('open-source bounty layout', () => {
+  test('explains close blockers before the owner acts', async () => {
+    const container = document.createElement('div')
+    document.body.append(container)
+    const root = createRoot(container)
+    const noop = () => undefined
+
+    await act(async () => {
+      root.render(
+        <I18nextProvider i18n={i18n}>
+          <OwnerProjectCard
+            project={project}
+            pending=''
+            hasOpenDispute
+            onEdit={noop}
+            onReview={noop}
+            onPublish={noop}
+            onPause={noop}
+            onResume={noop}
+            onClose={noop}
+            onArchive={noop}
+            onUnarchive={noop}
+            onDelete={noop}
+          />
+        </I18nextProvider>
+      )
+    })
+
+    const closeButton = [...container.querySelectorAll('button')].find(
+      (button) => button.textContent === 'Close and refund escrow'
+    )
+    assert.ok(closeButton)
+    assert.equal(closeButton.disabled, true)
+    const blockerId = closeButton.getAttribute('aria-describedby')
+    assert.ok(blockerId)
+    const blocker = document.getElementById(blockerId)
+    assert.ok(blocker)
+    assert.match(blocker.textContent ?? '', /Why closing is unavailable/)
+    assert.match(blocker.textContent ?? '', /Latest deadline/)
+    assert.match(blocker.textContent ?? '', /Open disputes: 1/)
+
+    await act(async () => root.unmount())
+  })
+
   test('keeps all view tabs readable and renders complete descriptions', async () => {
     api.get = (async (url: string) => {
       let data: unknown = []
@@ -197,6 +251,25 @@ describe('open-source bounty layout', () => {
     assert.match(descriptionElement.className, /whitespace-pre-wrap/)
     assert.match(descriptionElement.className, /\[overflow-wrap:anywhere\]/)
     assert.doesNotMatch(descriptionElement.className, /line-clamp/)
+
+    const statusBar = container.querySelector<HTMLElement>(
+      '[data-bounty-status-bar]'
+    )
+    assert.ok(statusBar)
+    assert.match(statusBar.className, /flex-wrap/)
+    for (const label of [
+      'Participants',
+      'In progress',
+      'Awaiting review',
+      'Approved',
+      'Rejected',
+      'Withdrawn',
+      'Cancelled',
+      'In appeal window',
+      'Open disputes',
+    ]) {
+      assert.match(statusBar.textContent ?? '', new RegExp(label))
+    }
 
     await act(async () => root.unmount())
     queryClient.clear()

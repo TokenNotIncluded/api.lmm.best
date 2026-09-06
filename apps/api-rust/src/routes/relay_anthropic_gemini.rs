@@ -13,7 +13,7 @@ use axum::{
     Json, Router,
     body::{Body, to_bytes},
     extract::{Path, Request, State},
-    http::{HeaderValue, StatusCode, header},
+    http::{HeaderName, HeaderValue, StatusCode, header},
     response::{IntoResponse, Response},
     routing::{MethodRouter, post},
 };
@@ -992,6 +992,21 @@ fn add_compat_headers(response: &mut Response, channel_id: i64, request_id: &str
         && let Ok(value) = HeaderValue::from_str(&channel_id.to_string())
     {
         response.headers_mut().insert(CHANNEL_ID, value);
+    }
+    if response
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| {
+            value.split(';').next().is_some_and(|media_type| {
+                media_type.trim().eq_ignore_ascii_case("text/event-stream")
+            })
+        })
+    {
+        response.headers_mut().insert(
+            HeaderName::from_static("x-accel-buffering"),
+            HeaderValue::from_static("no"),
+        );
     }
 }
 

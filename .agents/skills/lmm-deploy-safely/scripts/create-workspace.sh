@@ -5,6 +5,8 @@ umask 077
 
 readonly MARKER_NAME='.lmm-deploy-workspace'
 readonly ID_PATTERN='^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$'
+readonly STATE_WARNING_BYTES=$((256 * 1024 * 1024))
+readonly STATE_STOP_BYTES=$((512 * 1024 * 1024))
 
 usage() {
   printf 'Usage: %s --role controller|target --deployment-id ID [--root ABSOLUTE_PATH]\n' "${0##*/}" >&2
@@ -24,8 +26,8 @@ reject_unsafe_text() {
   [[ $value != *$'\n'* && $value != *$'\r'* && $value != *$'\t'* ]] ||
     die 'path contains control characters'
   [[ $value != *'~'* && $value != *'$'* && $value != *'*'* &&
-     $value != *'?'* && $value != *'['* && $value != *']'* &&
-     $value != *'{'* && $value != *'}'* ]] || die 'path contains unresolved shell syntax or a glob'
+    $value != *'?'* && $value != *'['* && $value != *']'* &&
+    $value != *'{'* && $value != *'}'* ]] || die 'path contains unresolved shell syntax or a glob'
 }
 
 assert_no_symlink_components() {
@@ -34,7 +36,7 @@ assert_no_symlink_components() {
   local component
   local -a components=()
 
-  IFS='/' read -r -a components <<< "${path#/}"
+  IFS='/' read -r -a components <<<"${path#/}"
   for component in "${components[@]}"; do
     [[ -n $component ]] || continue
     if [[ $current == '/' ]]; then
@@ -56,12 +58,28 @@ validate_root() {
   canonical=$(realpath -m -- "$root")
   [[ $canonical == "$root" ]] || die 'workspace root must be canonical'
   case "$canonical" in
-    /|/tmp|/tmp/*|/var/tmp|/var/tmp/*)
-      die 'workspace root is too broad or uses a forbidden temporary path'
-      ;;
+  / | /tmp | /tmp/* | /var/tmp | /var/tmp/*)
+    die 'workspace root is too broad or uses a forbidden temporary path'
+    ;;
   esac
   assert_no_symlink_components "$canonical"
   printf '%s\n' "$canonical"
+}
+
+check_state_budget() {
+  local state_root=$1
+  local size_bytes
+
+  [[ -d $state_root && ! -L $state_root ]] || die 'state root is not a real directory'
+  size_bytes=$(du -sb -- "$state_root" | awk 'NR == 1 { print $1 }')
+  [[ $size_bytes =~ ^[0-9]+$ ]] || die 'could not measure state root size'
+  if ((size_bytes >= STATE_STOP_BYTES)); then
+    die "state root uses ${size_bytes} bytes; clean terminal marker-owned workspaces before creating another deployment (stop=${STATE_STOP_BYTES})"
+  fi
+  if ((size_bytes >= STATE_WARNING_BYTES)); then
+    printf 'warning: state root uses %s bytes (warning=%s, stop=%s)\n' \
+      "$size_bytes" "$STATE_WARNING_BYTES" "$STATE_STOP_BYTES" >&2
+  fi
 }
 
 role=''
@@ -70,44 +88,44 @@ root=''
 
 while (($# > 0)); do
   case "$1" in
-    --role)
-      (($# >= 2)) || die 'missing value for --role'
-      role=$2
-      shift 2
-      ;;
-    --deployment-id)
-      (($# >= 2)) || die 'missing value for --deployment-id'
-      deployment_id=$2
-      shift 2
-      ;;
-    --root)
-      (($# >= 2)) || die 'missing value for --root'
-      root=$2
-      shift 2
-      ;;
-    -h|--help)
-      usage
-      exit 0
-      ;;
-    *)
-      usage
-      die 'unknown argument'
-      ;;
+  --role)
+    (($# >= 2)) || die 'missing value for --role'
+    role=$2
+    shift 2
+    ;;
+  --deployment-id)
+    (($# >= 2)) || die 'missing value for --deployment-id'
+    deployment_id=$2
+    shift 2
+    ;;
+  --root)
+    (($# >= 2)) || die 'missing value for --root'
+    root=$2
+    shift 2
+    ;;
+  -h | --help)
+    usage
+    exit 0
+    ;;
+  *)
+    usage
+    die 'unknown argument'
+    ;;
   esac
 done
 
 case "$role" in
-  controller)
-    if [[ -z $root ]]; then
-      root="${XDG_STATE_HOME:-$HOME/.local/state}/lmm-api/deploy-work"
-    fi
-    ;;
-  target)
-    [[ -n $root ]] || root='/var/lib/lmm-api/deploy-work'
-    ;;
-  *)
-    die 'role must be controller or target'
-    ;;
+controller)
+  if [[ -z $root ]]; then
+    root="${XDG_STATE_HOME:-$HOME/.local/state}/lmm-api/deploy-work"
+  fi
+  ;;
+target)
+  [[ -n $root ]] || root='/var/lib/lmm-api-go-deploy/work'
+  ;;
+*)
+  die 'role must be controller or target'
+  ;;
 esac
 
 [[ -n $deployment_id ]] || die 'missing --deployment-id'
@@ -119,6 +137,9 @@ chmod 0700 -- "$root"
 assert_no_symlink_components "$root"
 [[ -d $root && ! -L $root ]] || die 'workspace root is not a real directory'
 [[ $(realpath -e -- "$root") == "$root" ]] || die 'workspace root changed during creation'
+if [[ $role == controller ]]; then
+  check_state_budget "$(dirname -- "$root")"
+fi
 
 workspace="$root/$deployment_id"
 [[ ! -e $workspace && ! -L $workspace ]] || die 'deployment workspace already exists'
@@ -153,9 +174,9 @@ marker="$workspace/$MARKER_NAME"
   printf 'role=%s\n' "$role"
   printf 'workspace=%s\n' "$workspace"
   printf 'created_at_utc=%s\n' "$created_at"
-} > "$marker"
+} >"$marker"
 chmod 0600 -- "$marker"
-printf 'CREATED\n' > "$workspace/state/status"
+printf 'CREATED\n' >"$workspace/state/status"
 chmod 0600 -- "$workspace/state/status"
 
 [[ $(realpath -e -- "$workspace") == "$workspace" ]] || die 'workspace changed during creation'

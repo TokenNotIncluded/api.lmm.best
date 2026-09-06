@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useParams } from '@tanstack/react-router'
-import { useMemo, useState, type ReactNode } from 'react'
+import { Suspense, useMemo, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { SectionPageLayout } from '@/components/layout'
@@ -145,7 +145,15 @@ export function SettingsPage<
 
   return (
     <SettingsPageFrame title={t(sectionMeta.titleKey)}>
-      {sectionContent}
+      <Suspense
+        fallback={
+          <div className='text-muted-foreground flex min-h-40 items-center justify-center text-sm'>
+            {t(loadingMessage)}
+          </div>
+        }
+      >
+        {sectionContent}
+      </Suspense>
     </SettingsPageFrame>
   )
 }

@@ -5,6 +5,10 @@ set -euo pipefail
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 readonly script_dir
 readonly cleanup=${script_dir%/scripts/tests}/scripts/cleanup-owned-workspace.sh
+if ! grep -Fq "root='/var/lib/lmm-api-go-deploy/work'" "$cleanup"; then
+  printf 'FAIL: target default root drifted from the production path map\n' >&2
+  exit 1
+fi
 test_base=${XDG_STATE_HOME:-$HOME/.local/state}/lmm-api/skill-tests
 mkdir -p "$test_base"
 test_root=$(mktemp -d -p "$test_base")

@@ -254,6 +254,11 @@ async fn responses_route_serializes_typed_stream_as_named_sse_events() {
         response.headers()[header::CONTENT_TYPE],
         "text/event-stream; charset=utf-8"
     );
+    assert_eq!(
+        response.headers()["x-accel-buffering"],
+        "no",
+        "streaming responses must opt out of reverse-proxy buffering"
+    );
     let body = String::from_utf8(
         to_bytes(response.into_body(), usize::MAX)
             .await
@@ -265,6 +270,33 @@ async fn responses_route_serializes_typed_stream_as_named_sse_events() {
     assert!(body.contains("event: response.output_text.delta\n"));
     assert!(body.contains("event: response.completed\n"));
     assert!(body.ends_with("data: [DONE]\n\n"));
+}
+
+#[tokio::test]
+async fn native_openai_sse_sets_reverse_proxy_buffering_header() {
+    let service = service(Ok(OpenAiRelayResult {
+        status: StatusCode::OK,
+        headers: Default::default(),
+        body: OpenAiRelayBody::Upstream {
+            content_type: Some(header::HeaderValue::from_static("text/event-stream")),
+            body: Body::from("data: {\"opaque\":true}\n\ndata: [DONE]\n\n"),
+        },
+    }));
+    let router = openai_relay_router(OpenAiRelayHttpState::new(service, "v0.0.0"));
+    let response = router
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/chat/completions")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(r#"{"model":"gpt-4o","stream":true}"#))
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()["x-accel-buffering"], "no");
 }
 
 #[tokio::test]

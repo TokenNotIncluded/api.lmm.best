@@ -73,6 +73,7 @@ Session endpoints:
 | `POST /api/user/auth/refresh` | Refresh cookie; Origin check added in secure mode | Rotate refresh token and issue a new access token |
 | `POST /api/user/auth/logout` | Refresh cookie; Origin check added in secure mode; Bearer optional | Revoke current login session and clear cookie |
 | `GET /api/user/sessions` | Bearer | List valid sessions for current auth version, current session first, max 100 |
+| `PUT /api/user/sessions/settings` | Browser-session Bearer | Save the current user's automatic session sign-out preference |
 | `DELETE /api/user/sessions/:sid` | Bearer | Revoke selected session, including current one |
 | `POST /api/user/sessions/revoke-others` | Bearer | Keep current session and revoke all others |
 
@@ -93,6 +94,12 @@ The frontend serializes refresh calls per profile using Web Locks and shares ses
 Access token and refresh token are never shared across tabs via Web Storage.
 
 ## Session Issuance Limits and Retention
+
+The **Automatically sign out sessions older than one week** switch is enabled by default for new and existing accounts. The user preference is stored as `session_auto_logout` in `users.setting`; a missing value means enabled. `GET /api/user/sessions` keeps its `data` array and includes the effective `session_auto_logout` boolean at the top level. Save it with `PUT /api/user/sessions/settings` and a JSON body such as `{"session_auto_logout": false}`. A boolean is required; PATs cannot change this browser-session setting.
+
+When enabled, a session is signed out when its login time (`created_at`) is strictly earlier than `now - 7 × 24 hours`. Exactly seven days is still within the boundary. Refreshing a token or using a device updates activity without resetting this login age. The rule also applies to the current session. Turning the switch off preserves sessions still valid under the original 30-day lifetime; it cannot restore a session already revoked.
+
+The Go backend checks the age during access-token validation and refresh, and cleans up old sessions before login issuance, before listing sessions, and when enabling the switch. The master node also performs cleanup at startup and every hour, including accounts that no longer visit the site. Automatic sign-out uses the existing revocation and cache tombstone path; revoked records remain subject to audit retention below. This preference currently applies to the default Go backend; the Rust preview has not implemented it.
 
 Login issuance enforces two-tier account-level checks for all login methods:
 
