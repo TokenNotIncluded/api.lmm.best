@@ -197,6 +197,28 @@ func TestManualCompleteTopUpRollsBackStatusAtWalletBoundary(t *testing.T) {
 	assert.Equal(t, overflowingCurrent, reloadedUser.Quota)
 }
 
+func TestManualCompleteTopUpRejectsUnrecognizedProviderWithSnapshot(t *testing.T) {
+	for _, provider := range []string{"unknown", "admin", PaymentProviderBalance, ""} {
+		t.Run(provider, func(t *testing.T) {
+			db := setupExternalTopUpSettlementDB(t, 1)
+			user, topUp, _ := createSettlementFixture(t, db, "manual-unknown-snapshot")
+			require.NoError(t, db.Model(&topUp).Updates(map[string]any{
+				"payment_provider": provider,
+				"payment_method":   "unknown",
+			}).Error)
+
+			require.Error(t, ManualCompleteTopUp(topUp.TradeNo, "127.0.0.1"))
+
+			var reloadedTopUp TopUp
+			require.NoError(t, db.First(&reloadedTopUp, topUp.Id).Error)
+			assert.Equal(t, common.TopUpStatusPending, reloadedTopUp.Status)
+			var reloadedUser User
+			require.NoError(t, db.First(&reloadedUser, user.Id).Error)
+			assert.Equal(t, user.Quota, reloadedUser.Quota)
+		})
+	}
+}
+
 func TestCompleteExternalTopUpRollsBackOrderWhenUserCreditFails(t *testing.T) {
 	db := setupExternalTopUpSettlementDB(t, 1)
 	user, topUp, settlement := createSettlementFixture(t, db, "credit-rollback")
@@ -428,6 +450,62 @@ func TestCompleteExternalTopUpIndependentHandlesCreditExactlyOnce(t *testing.T) 
 	var reloadedUser User
 	require.NoError(t, db.First(&reloadedUser, user.Id).Error)
 	assert.Equal(t, 100+1_234, reloadedUser.Quota)
+}
+
+func TestCompleteExternalTopUpCreditsEpayNonCNYSnapshot(t *testing.T) {
+	db := setupExternalTopUpSettlementDB(t, 1)
+	user, topUp, settlement := createSettlementFixture(t, db, "epay-ldc")
+	require.NoError(t, db.Model(&topUp).Updates(map[string]any{
+		"payment_provider":       PaymentProviderEpay,
+		"payment_method":         PaymentProviderEpay,
+		"settlement_currency":    "LDC",
+		"provider_product_id":    "",
+		"provider_store_id":      "",
+		"expected_amount_micros": 5_000_000,
+		"credited_quota":         2_000,
+	}).Error)
+	settlement.PaymentProvider = PaymentProviderEpay
+	settlement.PaymentMethod = PaymentProviderEpay
+	settlement.SettlementCurrency = "LDC"
+	settlement.SettledAmountMicros = 5_000_000
+	settlement.ProviderQuotedAmountMicros = 0
+	settlement.ProviderProductId = ""
+	settlement.ProviderStoreId = ""
+
+	completed, err := CompleteExternalTopUp(settlement)
+	require.NoError(t, err)
+	require.NotNil(t, completed)
+	assert.Equal(t, common.TopUpStatusSuccess, completed.Status)
+	assert.Equal(t, "LDC", completed.SettlementCurrency)
+	assert.EqualValues(t, 5_000_000, completed.SettledAmountMicros)
+	assert.EqualValues(t, 2_000, completed.CreditedQuota)
+
+	var reloadedUser User
+	require.NoError(t, db.First(&reloadedUser, user.Id).Error)
+	assert.Equal(t, 100+2_000, reloadedUser.Quota)
+}
+
+func TestCompleteExternalTopUpRejectsEpayWithoutImmutableSnapshot(t *testing.T) {
+	db := setupExternalTopUpSettlementDB(t, 1)
+	_, topUp, settlement := createSettlementFixture(t, db, "epay-legacy")
+	require.NoError(t, db.Model(&topUp).Updates(map[string]any{
+		"payment_provider":       PaymentProviderEpay,
+		"payment_method":         "alipay",
+		"settlement_currency":    "",
+		"expected_amount_micros": 0,
+		"credited_quota":         0,
+		"provider_product_id":    "",
+		"provider_store_id":      "",
+	}).Error)
+	settlement.PaymentProvider = PaymentProviderEpay
+	settlement.PaymentMethod = "alipay"
+	settlement.SettlementCurrency = "CNY"
+	settlement.ProviderQuotedAmountMicros = 0
+	settlement.ProviderProductId = ""
+	settlement.ProviderStoreId = ""
+
+	_, err := CompleteExternalTopUp(settlement)
+	require.ErrorIs(t, err, ErrPaymentEvidenceConflict)
 }
 
 func TestCompleteExternalTopUpRejectsExpectedMoneyOrCurrencyMismatch(t *testing.T) {

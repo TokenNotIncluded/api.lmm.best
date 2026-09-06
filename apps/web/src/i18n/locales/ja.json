@@ -8028,6 +8028,10 @@
     "Zero retention": "データ保持なし",
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V 4",
-    "Zoom": "ズーム"
+    "Zoom": "ズーム",
+    "Automatically sign out sessions after one week": "1 週間後にセッションを自動でサインアウトする",
+    "Enabled by default. Sessions are signed out one week after login, even if they are still active, including this device.": "デフォルトで有効。ログインから 1 週間経過したセッションは、利用中であってもこのデバイスを含めて自動的にサインアウトされます。",
+    "Failed to update login session settings": "ログインセッション設定の更新に失敗しました",
+    "Login session settings updated": "ログインセッション設定を更新しました"
   }
 }

@@ -39,7 +39,14 @@ func isStripeWebhookConfigured() bool {
 }
 
 func isStripeWebhookEnabled() bool {
-	return isStripeTopUpEnabled()
+	// Wallet and subscription checkouts share one Stripe webhook. Subscription
+	// plans carry their own Price ID, so requiring the global wallet product
+	// rejects paid subscription fulfillments on subscription-only deploys.
+	// Keep the endpoint available whenever signed webhook credentials exist,
+	// matching Waffo Pancake: pending orders must still complete after the
+	// wallet product is absent or rotated.
+	return isStripeWebhookConfigured() &&
+		(isStripeTopUpEnabled() || isStripeSubscriptionPaymentEnabled())
 }
 
 func isCreemTopUpEnabled() bool {
@@ -67,7 +74,11 @@ func isCreemWebhookConfigured() bool {
 }
 
 func isCreemWebhookEnabled() bool {
-	return isCreemTopUpEnabled() && isCreemWebhookConfigured()
+	// Creem subscription products live on each plan. The global wallet
+	// catalog must not gate signed webhooks, or subscription-only sites
+	// charge users and never grant access.
+	return isCreemWebhookConfigured() &&
+		(isCreemTopUpEnabled() || isCreemSubscriptionPaymentEnabled())
 }
 
 func isWaffoTopUpEnabled() bool {

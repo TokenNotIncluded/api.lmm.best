@@ -76,6 +76,63 @@ func TestStripeWebhookRetriesWhenLocalSettlementCannotPersist(t *testing.T) {
 	require.Equal(t, http.StatusInternalServerError, response.Code)
 }
 
+func TestStripeWebhookAcceptsSubscriptionOnlyCredentials(t *testing.T) {
+	setupTokenControllerTestDB(t)
+	confirmPaymentComplianceForTest(t)
+
+	originalAPISecret := setting.StripeApiSecret
+	originalWebhookSecret := setting.StripeWebhookSecret
+	originalPriceID := setting.StripePriceId
+	t.Cleanup(func() {
+		setting.StripeApiSecret = originalAPISecret
+		setting.StripeWebhookSecret = originalWebhookSecret
+		setting.StripePriceId = originalPriceID
+	})
+	setting.StripeApiSecret = "sk_test_subscription_only" // gitleaks:allow
+	setting.StripeWebhookSecret = "whsec_subscription_only"
+	setting.StripePriceId = ""
+
+	payload := []byte(`{
+		"id":"evt_subscription_only",
+		"object":"event",
+		"type":"checkout.session.completed",
+		"data":{"object":{
+			"id":"cs_subscription_only",
+			"object":"checkout.session",
+			"client_reference_id":"missing-local-order",
+			"status":"complete",
+			"payment_status":"paid",
+			"amount_total":"100",
+			"amount_subtotal":"100",
+			"currency":"usd"
+		}}
+	}`)
+	signed := webhook.GenerateTestSignedPayload(&webhook.UnsignedPayload{
+		Payload:   payload,
+		Secret:    setting.StripeWebhookSecret,
+		Timestamp: time.Now(),
+	})
+
+	disabled := httptest.NewRecorder()
+	disabledCtx, _ := gin.CreateTestContext(disabled)
+	disabledCtx.Request = httptest.NewRequest(http.MethodPost, "/api/stripe/webhook", http.NoBody)
+	disabledCtx.Request.Body = io.NopCloser(bytes.NewReader(payload))
+	setting.StripeWebhookSecret = ""
+	StripeWebhook(disabledCtx)
+	require.Equal(t, http.StatusForbidden, disabled.Code)
+
+	setting.StripeWebhookSecret = "whsec_subscription_only"
+	accepted := httptest.NewRecorder()
+	acceptedCtx, _ := gin.CreateTestContext(accepted)
+	acceptedRequest := httptest.NewRequest(http.MethodPost, "/api/stripe/webhook", http.NoBody)
+	acceptedRequest.Body = io.NopCloser(bytes.NewReader(payload))
+	acceptedRequest.Header.Set("Stripe-Signature", signed.Header)
+	acceptedCtx.Request = acceptedRequest
+	StripeWebhook(acceptedCtx)
+	require.NotEqual(t, http.StatusForbidden, accepted.Code)
+	require.Equal(t, http.StatusInternalServerError, accepted.Code)
+}
+
 func TestStripeWebhookRetriesOnlyPersistableFailures(t *testing.T) {
 	require.True(t, stripeWebhookRetryable(errors.New("database unavailable")))
 	for _, err := range []error{

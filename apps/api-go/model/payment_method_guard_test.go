@@ -266,6 +266,40 @@ func TestRechargeEpayRejectsLegacyOrderWithoutImmutableCNYSnapshot(t *testing.T)
 	assert.Equal(t, 0, getUserQuotaForPaymentGuardTest(t, user.Id))
 }
 
+func TestRechargeEpayCreditsLinuxDOCreditSnapshotWithoutRewritingCurrency(t *testing.T) {
+	truncateTables(t)
+	oldQuotaPerUnit := common.QuotaPerUnit
+	common.QuotaPerUnit = 500000
+	t.Cleanup(func() { common.QuotaPerUnit = oldQuotaPerUnit })
+
+	user := insertUserForPaymentGuardTest(t, 502, 0)
+	order := TopUp{
+		UserId:               user.Id,
+		Amount:               2,
+		CreditedQuota:        int64(common.QuotaPerUnit * 2),
+		Money:                5,
+		ExpectedAmountMicros: 5_000_000,
+		SettlementCurrency:   "LDC",
+		TradeNo:              "EPAYLDCSNAPSHOT",
+		PaymentMethod:        PaymentProviderEpay,
+		PaymentProvider:      PaymentProviderEpay,
+		CreateTime:           common.GetTimestamp(),
+		Status:               common.TopUpStatusPending,
+	}
+	require.NoError(t, DB.Create(&order).Error)
+
+	alreadyDone, err := RechargeEpay(order.TradeNo, PaymentProviderEpay, "127.0.0.1")
+	require.NoError(t, err)
+	assert.False(t, alreadyDone)
+	assert.Equal(t, 2*500000, getUserQuotaForPaymentGuardTest(t, user.Id))
+
+	reloaded := GetTopUpByTradeNo(order.TradeNo)
+	require.NotNil(t, reloaded)
+	assert.Equal(t, common.TopUpStatusSuccess, reloaded.Status)
+	assert.Equal(t, "LDC", reloaded.SettlementCurrency)
+	assert.EqualValues(t, 5_000_000, reloaded.SettledAmountMicros)
+}
+
 func TestRechargeEpayCreditsQuotaExactlyOnce(t *testing.T) {
 	truncateTables(t)
 

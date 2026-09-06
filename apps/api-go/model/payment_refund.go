@@ -168,6 +168,13 @@ func ApplyPaymentRefund(
 				return ErrPaymentRefundOrderConflict
 			}
 			alreadyApplied := ledgerExists && order.RefundedAmountMicros > 0
+			if ledgerExists && !alreadyApplied {
+				var err error
+				alreadyApplied, err = subscriptionRefundAlreadyAppliedTx(tx, &order, &ledger)
+				if err != nil {
+					return err
+				}
+			}
 			paidMicros := order.ExpectedAmountMicros
 			if paidMicros <= 0 {
 				// Legacy fallback only. New subscription orders snapshot the real
@@ -294,6 +301,21 @@ func refundNoteContainsTradeNo(note, tradeNo string) bool {
 		}
 	}
 	return false
+}
+
+// subscriptionRefundAlreadyAppliedTx distinguishes an old-cycle retry from
+// a legacy ledger-only refund after renewal clears the cumulative counters.
+func subscriptionRefundAlreadyAppliedTx(tx *gorm.DB, order *SubscriptionOrder, ledger *FinanceLedgerEntry) (bool, error) {
+	// A refund can be processed after the scheduled billing boundary while
+	// the renewal callback is delayed. Use the local receipt time under the
+	// same order lock, including same-second refunds. Two receipts ensure
+	// that a paid renewal actually reset quota, rather than the initial cycle.
+	var receipts []SubscriptionPaymentEvent
+	if err := tx.Select("created_time").Where("subscription_order_id = ?", order.Id).
+		Order("id DESC").Limit(2).Find(&receipts).Error; err != nil {
+		return false, err
+	}
+	return len(receipts) == 2 && ledger.OccurredAt > 0 && ledger.OccurredAt <= receipts[0].CreatedTime, nil
 }
 
 func refundLedgerBindsRequest(

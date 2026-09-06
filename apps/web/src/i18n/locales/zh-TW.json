@@ -8028,6 +8028,10 @@
     "Zero retention": "零數據保留",
     "Zhipu": "智譜",
     "Zhipu V4": "智譜 V4",
-    "Zoom": "縮放"
+    "Zoom": "縮放",
+    "Automatically sign out sessions after one week": "登入超過一週後自動登出工作階段",
+    "Enabled by default. Sessions are signed out one week after login, even if they are still active, including this device.": "預設為啟用。工作階段自登入起算一週後將自動登出，即使仍在使用中亦然，包括本裝置。",
+    "Failed to update login session settings": "更新登入工作階段設定失敗",
+    "Login session settings updated": "登入工作階段設定已更新"
   }
 }

@@ -1342,8 +1342,8 @@ func validateEpayCallback(topUp *model.TopUp, verifyInfo *epay.VerifyRes) (bool,
 	if topUp.PaymentMethod != verifyInfo.Type {
 		return false, fmt.Errorf("payment method mismatch")
 	}
-	if topUp.ExpectedAmountMicros <= 0 || topUp.CreditedQuota <= 0 || !strings.EqualFold(strings.TrimSpace(topUp.SettlementCurrency), "CNY") {
-		return false, fmt.Errorf("Epay order has no immutable CNY settlement snapshot")
+	if !model.EpayHasImmutableSettlementSnapshot(topUp) {
+		return false, fmt.Errorf("Epay order has no immutable settlement snapshot")
 	}
 	callbackMoneyMicros, err := monetaryStringToMicros(verifyInfo.Money)
 	if err != nil || callbackMoneyMicros <= 0 {

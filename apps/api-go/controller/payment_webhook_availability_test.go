@@ -54,8 +54,31 @@ func TestStripeWebhookEnabledRequiresTopUpAndWebhookConfig(t *testing.T) {
 	setting.StripeWebhookSecret = "whsec_test"
 	require.True(t, isStripeWebhookEnabled())
 
+	// Subscription-only sites leave the wallet price empty on purpose.
 	setting.StripePriceId = ""
+	require.True(t, isStripeWebhookEnabled())
+
+	setting.StripeApiSecret = ""
 	require.False(t, isStripeWebhookEnabled())
+}
+
+func TestStripeWebhookEnabledForSubscriptionOnlyCredentials(t *testing.T) {
+	confirmPaymentComplianceForTest(t)
+	originalAPISecret := setting.StripeApiSecret
+	originalWebhookSecret := setting.StripeWebhookSecret
+	originalPriceID := setting.StripePriceId
+	t.Cleanup(func() {
+		setting.StripeApiSecret = originalAPISecret
+		setting.StripeWebhookSecret = originalWebhookSecret
+		setting.StripePriceId = originalPriceID
+	})
+
+	setting.StripeApiSecret = "sk_test_subscription" // gitleaks:allow
+	setting.StripeWebhookSecret = "whsec_subscription"
+	setting.StripePriceId = ""
+	require.True(t, isStripeSubscriptionPaymentEnabled())
+	require.False(t, isStripeTopUpEnabled())
+	require.True(t, isStripeWebhookEnabled())
 }
 
 func TestCreemWebhookEnabledRequiresTopUpAndWebhookConfig(t *testing.T) {
@@ -77,8 +100,31 @@ func TestCreemWebhookEnabledRequiresTopUpAndWebhookConfig(t *testing.T) {
 	setting.CreemWebhookSecret = "creem_secret"
 	require.True(t, isCreemWebhookEnabled())
 
+	// Subscription-only sites do not populate the wallet product catalog.
 	setting.CreemProducts = "[]"
+	require.True(t, isCreemWebhookEnabled())
+
+	setting.CreemApiKey = ""
 	require.False(t, isCreemWebhookEnabled())
+}
+
+func TestCreemWebhookEnabledForSubscriptionOnlyCredentials(t *testing.T) {
+	confirmPaymentComplianceForTest(t)
+	originalAPIKey := setting.CreemApiKey
+	originalProducts := setting.CreemProducts
+	originalWebhookSecret := setting.CreemWebhookSecret
+	t.Cleanup(func() {
+		setting.CreemApiKey = originalAPIKey
+		setting.CreemProducts = originalProducts
+		setting.CreemWebhookSecret = originalWebhookSecret
+	})
+
+	setting.CreemApiKey = "creem_api_key"
+	setting.CreemWebhookSecret = "creem_secret"
+	setting.CreemProducts = "[]"
+	require.True(t, isCreemSubscriptionPaymentEnabled())
+	require.False(t, isCreemTopUpEnabled())
+	require.True(t, isCreemWebhookEnabled())
 }
 
 func TestWaffoWebhookEnabledRequiresTopUpAndWebhookConfig(t *testing.T) {
