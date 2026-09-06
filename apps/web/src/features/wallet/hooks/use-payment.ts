@@ -138,9 +138,10 @@ export function usePayment() {
           paymentType,
           discountCode
         )
-        if (requestId === amountRequestIdRef.current) {
-          setAmount(calculatedAmount)
-        }
+        // Callers also use this result to open checkout confirmation. A stale
+        // success must not approve the currently selected amount or method.
+        if (requestId !== amountRequestIdRef.current) return 0
+        setAmount(calculatedAmount)
         return calculatedAmount
       } catch {
         if (requestId === amountRequestIdRef.current) {

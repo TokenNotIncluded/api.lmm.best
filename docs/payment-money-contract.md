@@ -40,6 +40,26 @@ A quote must persist all of the following before redirecting to a provider:
 
 Callbacks grant value only after matching the persisted amount, currency, provider, and product binding.
 
+### Frontend quote display
+
+The wallet preserves the display fields returned by `/api/user/topup/info`,
+including `settlement_currency`, `platform_units_per_usd`,
+`settlement_units_per_usd`, `settlement_units_per_platform_unit`, and `max_topup`.
+Keep decimal strings intact during parsing. These fields describe the quote's
+currency and conversion; the existing amount endpoint remains authoritative for
+the payable amount. Platform credit and real-fiat payment appear separately.
+
+An amount, payment-method, or discount-code change invalidates pending discount
+validation and payment confirmation. A successful response for an older input
+must not authorize confirmation for the current input. Checkout still recalculates
+and enforces the payment rules on the server.
+
+Homepage purchase actions follow the server's developer-access decision. Pending
+accounts continue to access review; approved accounts can enter the wallet.
+Registration links wait for live registration capabilities. Payment does not
+grant developer access, and the pricing overview does not expose the protected
+model catalog before approval.
+
 ## Subscription plans
 
 `SubscriptionPlan.PriceAmount` plus `SubscriptionPlan.Currency` is a real ISO-fiat list price. It is not a wallet top-up amount and must not pass through `P / B`.

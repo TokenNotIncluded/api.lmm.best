@@ -722,3 +722,12 @@ For commercial licensing, please contact support@quantumnous.com
     animation: none;
   }
 }
+
+/* Keep the access and purchase steps within reach of the first viewport. */
+.forge-home-purchase-path {
+  position: relative;
+  margin: 0 auto;
+  width: min(100% - 3rem, 76rem);
+  border-block: 1px solid var(--border);
+  padding-block: 2rem;
+}

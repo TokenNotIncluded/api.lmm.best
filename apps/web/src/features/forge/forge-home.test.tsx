@@ -79,6 +79,7 @@ const { consumeQueuedAssistantRequest, subscribeToAssistantOpen } =
   await import('@/features/assistant/assistant-events')
 const { useAuthStore } = await import('@/stores/auth-store')
 const { ForgeHome } = await import('./forge-home')
+const { PublicAccessPricing } = await import('../pricing/public-access-pricing')
 
 const originalGet = api.get
 const reactTestGlobals = globalThis as typeof globalThis & {
@@ -96,12 +97,12 @@ async function flushEffects() {
   await new Promise((resolve) => setTimeout(resolve, 20))
 }
 
-function makeRouter() {
+function makeRouter(component = ForgeHome) {
   const rootRoute = createRootRoute({ component: Outlet })
   const homeRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: '/',
-    component: ForgeHome,
+    component,
   })
   const routes = [
     '/about',
@@ -113,6 +114,8 @@ function makeRouter() {
     '/pricing',
     '/security',
     '/sign-in',
+    '/sign-up',
+    '/wallet',
   ].map((path) =>
     createRoute({
       getParentRoute: () => rootRoute,
@@ -139,7 +142,8 @@ function makeRouter() {
 async function renderHome(
   user: AuthUser | null,
   assistantEnabled = true,
-  statusPending = false
+  statusPending = false,
+  options: { registrationEnabled?: boolean; component?: typeof ForgeHome } = {}
 ) {
   useAuthStore.getState().auth.setUser(user)
   const queryClient = new QueryClient({
@@ -151,7 +155,7 @@ async function renderHome(
       },
     },
   })
-  const router = makeRouter()
+  const router = makeRouter(options.component)
   const container = document.createElement('div')
   document.body.append(container)
   const root = createRoot(container)
@@ -168,6 +172,7 @@ async function renderHome(
           data: {
             backend_capabilities: { bounty_public_read: false },
             assistant: { enabled: assistantEnabled },
+            register_enabled: options.registrationEnabled ?? true,
           },
         },
       }
@@ -492,6 +497,116 @@ describe('ForgeHome assistant entry', () => {
     assert.equal(storage.includes('sk-secret1234567890'), false)
 
     unsubscribe()
+    await unmountHome(rendered)
+  })
+})
+
+describe('Purchase entry follows account access', () => {
+  test('offers registration only after live status confirms it', async () => {
+    const pending = await renderHome(null, true, true)
+    assert.equal(
+      pending.container
+        .querySelector('.forge-home-hero-actions a')
+        ?.getAttribute('href'),
+      '/sign-in?redirect=%2Fwallet'
+    )
+    await unmountHome(pending)
+
+    const ready = await renderHome(null)
+    assert.equal(
+      ready.container
+        .querySelector('.forge-home-hero-actions a')
+        ?.getAttribute('href'),
+      '/sign-up'
+    )
+    assert.ok(
+      ready.container.textContent?.includes('Payment does not unlock access.')
+    )
+    await unmountHome(ready)
+  })
+
+  test('does not advertise disabled registration', async () => {
+    const rendered = await renderHome(null, true, false, {
+      registrationEnabled: false,
+    })
+    assert.equal(
+      rendered.container
+        .querySelector('.forge-home-hero-actions a')
+        ?.textContent?.trim(),
+      'Sign in'
+    )
+    await unmountHome(rendered)
+  })
+
+  test('takes an approved customer directly to the wallet', async () => {
+    const rendered = await renderHome({
+      id: 11,
+      username: 'approved',
+      role: 1,
+      developer_access_granted: true,
+    })
+    const purchase = rendered.container.querySelector<HTMLAnchorElement>(
+      '.forge-home-hero-actions a'
+    )
+    assert.ok(purchase)
+    await act(async () => {
+      purchase.click()
+      await flushEffects()
+    })
+    assert.equal(rendered.router.state.location.pathname, '/wallet')
+    await unmountHome(rendered)
+  })
+
+  test('keeps a pending customer on the access-request path', async () => {
+    const rendered = await renderHome({
+      id: 12,
+      username: 'pending',
+      role: 1,
+      developer_access_granted: false,
+    })
+    const purchase = rendered.container.querySelector<HTMLAnchorElement>(
+      '.forge-home-hero-actions a'
+    )
+    assert.ok(purchase)
+    assert.equal(purchase.textContent?.trim(), 'Check access status')
+    await act(async () => {
+      purchase.click()
+      await flushEffects()
+    })
+    assert.equal(rendered.router.state.location.pathname, '/getting-started')
+    await unmountHome(rendered)
+  })
+
+  test('explains purchase conditions and answers pricing questions before access', async () => {
+    const rendered = await renderHome(
+      { id: 13, username: 'pending', role: 1, developer_access_granted: false },
+      true,
+      false,
+      { component: PublicAccessPricing }
+    )
+    const main = rendered.container.querySelector('main')
+    assert.ok(main)
+    assert.equal(
+      main.querySelector('a')?.getAttribute('href'),
+      '/getting-started'
+    )
+    assert.equal(main.querySelectorAll('ol li').length, 3)
+    const question = Array.from(
+      main.querySelectorAll<HTMLButtonElement>('button')
+    ).find((button) =>
+      button.textContent?.includes('Is platform credit the same as money?')
+    )
+    assert.ok(question)
+    await act(async () => {
+      question.click()
+      await flushEffects()
+    })
+    assert.equal(question.getAttribute('aria-expanded'), 'true')
+    assert.ok(
+      main.textContent?.includes(
+        'The checkout shows the actual payment separately, with its settlement currency.'
+      )
+    )
     await unmountHome(rendered)
   })
 })
