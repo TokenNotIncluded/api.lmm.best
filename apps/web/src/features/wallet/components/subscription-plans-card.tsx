@@ -705,7 +705,7 @@ export function SubscriptionPlansCard({
               const totalAmount = Number(plan.total_amount || 0)
               const price = formatFiatCurrencyAmount(
                 Number(plan.price_amount || 0),
-                'USD',
+                plan.currency || 'USD',
                 {
                   abbreviate: false,
                   digitsLarge: 2,

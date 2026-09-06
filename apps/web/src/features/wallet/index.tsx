@@ -117,6 +117,15 @@ export function Wallet(props: WalletProps) {
   >(null)
   const [paymentFeedback, setPaymentFeedback] =
     useState<PaymentFeedback | null>(null)
+  const paymentInputRevisionRef = useRef(0)
+  const confirmedQuoteRevisionRef = useRef<number | null>(null)
+  const resetPendingPayment = useCallback(() => {
+    confirmedQuoteRevisionRef.current = null
+    setConfirmDialogOpen(false)
+    setPaymentLoading(null)
+    setDiscountApplying(false)
+    return ++paymentInputRevisionRef.current
+  }, [])
 
   const { status } = useStatus()
   const {
@@ -264,6 +273,7 @@ export function Wallet(props: WalletProps) {
 
   const applyDiscountCode = useCallback(
     async (rawCode: string, fromUrl = false) => {
+      const revision = resetPendingPayment()
       const code = rawCode.trim()
       if (!code) {
         setAppliedDiscountCode('')
@@ -278,6 +288,9 @@ export function Wallet(props: WalletProps) {
           amount: topupAmount,
           payment_method: getCurrentPaymentType() || undefined,
         })
+        // Validation may finish after the amount, method, or code changed.
+        // Never let that old closure start a new quote for the old input.
+        if (revision !== paymentInputRevisionRef.current) return
         if (!isApiSuccess(result) || !result.data) {
           toast.error(result.message || t('Discount code is invalid'))
           setAppliedDiscountCode('')
@@ -297,20 +310,30 @@ export function Wallet(props: WalletProps) {
             result.data.code
           )
         }
+        if (revision !== paymentInputRevisionRef.current) return
         toast.success(
           t('Discount applied: {{percent}}% off', {
             percent: result.data.discount_percent,
           })
         )
       } catch {
+        if (revision !== paymentInputRevisionRef.current) return
         toast.error(t('Discount code is invalid'))
         setAppliedDiscountCode('')
         setDiscountPercent(null)
       } finally {
-        setDiscountApplying(false)
+        if (revision === paymentInputRevisionRef.current) {
+          setDiscountApplying(false)
+        }
       }
     },
-    [calculatePaymentAmount, getCurrentPaymentType, t, topupAmount]
+    [
+      calculatePaymentAmount,
+      getCurrentPaymentType,
+      resetPendingPayment,
+      t,
+      topupAmount,
+    ]
   )
 
   const discountUrlValidatedAmountRef = useRef<number | null>(null)
@@ -332,6 +355,7 @@ export function Wallet(props: WalletProps) {
 
   // Handle preset selection
   const handleSelectPreset = (preset: PresetAmount) => {
+    resetPendingPayment()
     const nextDiscount = discountAfterAmountChange(
       { code: appliedDiscountCode, percent: discountPercent },
       topupAmount,
@@ -351,6 +375,7 @@ export function Wallet(props: WalletProps) {
 
   // Handle topup amount change
   const handleTopupAmountChange = (amount: number) => {
+    resetPendingPayment()
     const nextDiscount = discountAfterAmountChange(
       { code: appliedDiscountCode, percent: discountPercent },
       topupAmount,
@@ -379,6 +404,7 @@ export function Wallet(props: WalletProps) {
       return
     }
 
+    const revision = resetPendingPayment()
     setSelectedPaymentMethod(method)
     setSelectedWaffoMethodIndex(null)
     setPaymentLoading(method.type)
@@ -396,14 +422,18 @@ export function Wallet(props: WalletProps) {
         method.type,
         appliedDiscountCode
       )
+      if (revision !== paymentInputRevisionRef.current) return
       if (!isPositivePaymentAmount(calculatedAmount)) {
         setSelectedPaymentMethod(undefined)
         toast.error(t('Payment request failed'))
         return
       }
+      confirmedQuoteRevisionRef.current = revision
       setConfirmDialogOpen(true)
     } finally {
-      setPaymentLoading(null)
+      if (revision === paymentInputRevisionRef.current) {
+        setPaymentLoading(null)
+      }
     }
   }
 
@@ -418,7 +448,14 @@ export function Wallet(props: WalletProps) {
       return
     }
 
-    if (!selectedPaymentMethod) return
+    if (
+      !selectedPaymentMethod ||
+      calculating ||
+      !isPositivePaymentAmount(paymentAmount) ||
+      confirmedQuoteRevisionRef.current !== paymentInputRevisionRef.current
+    ) {
+      return
+    }
 
     setPaymentFeedback({ tone: 'default', message: t('Submitting...') })
 
@@ -551,6 +588,7 @@ export function Wallet(props: WalletProps) {
     method: WaffoPayMethod,
     index: number
   ) => {
+    const revision = resetPendingPayment()
     const loadingKey = `waffo-${index}`
     setSelectedPaymentMethod({
       name: method.name,
@@ -568,15 +606,19 @@ export function Wallet(props: WalletProps) {
         PAYMENT_TYPES.WAFFO,
         appliedDiscountCode
       )
+      if (revision !== paymentInputRevisionRef.current) return
       if (!isPositivePaymentAmount(calculatedAmount)) {
         setSelectedPaymentMethod(undefined)
         setSelectedWaffoMethodIndex(null)
         toast.error(t('Payment request failed'))
         return
       }
+      confirmedQuoteRevisionRef.current = revision
       setConfirmDialogOpen(true)
     } finally {
-      setPaymentLoading(null)
+      if (revision === paymentInputRevisionRef.current) {
+        setPaymentLoading(null)
+      }
     }
   }
 
@@ -648,6 +690,7 @@ export function Wallet(props: WalletProps) {
                   discountCodeFromUrl={Boolean(discountCodeFromUrl)}
                   onDiscountCodeChange={(value) => {
                     if (discountCodeFromUrl) return
+                    resetPendingPayment()
                     setDiscountCode(value)
                     if (
                       appliedDiscountCode &&
@@ -655,6 +698,10 @@ export function Wallet(props: WalletProps) {
                     ) {
                       setAppliedDiscountCode('')
                       setDiscountPercent(null)
+                      const paymentType = getCurrentPaymentType()
+                      if (paymentType) {
+                        void calculatePaymentAmount(topupAmount, paymentType)
+                      }
                     }
                   }}
                   onApplyDiscount={handleApplyDiscount}

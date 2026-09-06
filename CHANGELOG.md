@@ -13,6 +13,13 @@ authenticated users then see it once after their next login.
 
 <!-- Add user-facing or operational changes here before the next release. -->
 
+- Clarified the account-to-purchase journey on the homepage and pricing overview,
+  with access-aware actions, billing explanations and seven-language copy.
+- Preserved payment currency, exchange-rate and top-up-limit metadata in the wallet,
+  and displayed subscription list prices in their configured currency.
+- Prevented outdated amount and discount-code responses from opening or changing
+  a payment confirmation for newer inputs.
+
 - Added a Referral Program shortcut to the desktop and mobile avatar menus
   that opens the wallet at the invitation section, respecting console access
   and wallet visibility settings.

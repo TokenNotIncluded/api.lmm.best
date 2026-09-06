@@ -58,6 +58,8 @@ import { useAuthStore } from '@/stores/auth-store'
 import { ForgeLiquidAccent } from './forge-liquid-accent'
 import { ForgeMetalWindowOrnament } from './forge-metal-window-ornament'
 import { ForgePublicShell } from './forge-public-shell'
+import { PurchaseJourney } from './purchase-journey'
+import { usePurchaseEntry } from './use-purchase-entry'
 import { useTypewriterPlaceholder } from './use-typewriter-placeholder'
 
 import './forge-home.css'
@@ -276,6 +278,7 @@ function CodePreview(props: {
 export function ForgeHome() {
   const { t } = useTranslation()
   const navigate = useNavigate()
+  const purchaseEntry = usePurchaseEntry()
   const user = useAuthStore((state) => state.auth.user)
   const { status } = useStatus()
   const [message, setMessage] = useState('')
@@ -397,7 +400,7 @@ export function ForgeHome() {
             </p>
             <p className='forge-home-hero-summary'>
               {t(
-                'Pay as you go, no time limits, fast chat, transparent details, no hidden fees, and online recharge for access to every model.'
+                'Start with a small balance after access approval. Compare model rates, review the final payment, and track your usage.'
               )}
             </p>
             <div className='forge-home-hero-actions'>
@@ -406,23 +409,34 @@ export function ForgeHome() {
                 className='group h-14 rounded-full px-8 text-base'
                 render={
                   <Link
-                    to={user ? '/dashboard' : '/sign-in'}
-                    search={user ? undefined : { redirect: '/dashboard' }}
+                    to={purchaseEntry.to}
+                    search={
+                      purchaseEntry.to === '/sign-in'
+                        ? { redirect: '/wallet' }
+                        : undefined
+                    }
                   />
                 }
               >
-                {t('Get started')}
+                {t(purchaseEntry.label)}
                 <ArrowRight className='ml-2 size-4 transition-transform group-hover:translate-x-1' />
               </Button>
               <Button
                 variant='outline'
                 size='lg'
                 className='border-border/80 bg-card/50 h-14 rounded-full px-8 text-base'
-                render={<Link to='/guide' />}
+                render={<Link to='/pricing' />}
               >
-                {t('Read the guide')}
+                {isConsoleActivated(user)
+                  ? t('View model pricing')
+                  : t('Pricing and access')}
               </Button>
             </div>
+            <p className='text-muted-foreground max-w-xl text-sm leading-6'>
+              {t(
+                'Developer access requires approval. Payment does not unlock access.'
+              )}
+            </p>
             <form
               className='forge-home-hero-assistant'
               onSubmit={submitMessage}
@@ -459,6 +473,24 @@ export function ForgeHome() {
               </InputGroup>
             </form>
           </div>
+        </section>
+
+        <section
+          className='forge-home-purchase-path'
+          aria-labelledby='forge-home-purchase-title'
+        >
+          <div className='mb-7 flex flex-wrap items-baseline justify-between gap-3'>
+            <h2
+              id='forge-home-purchase-title'
+              className='text-xl font-semibold'
+            >
+              {t('A clear path to your first request')}
+            </h2>
+            <Link to='/guide' className='text-sm underline underline-offset-4'>
+              {t('Read the guide')}
+            </Link>
+          </div>
+          <PurchaseJourney />
         </section>
 
         <section

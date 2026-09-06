@@ -53,6 +53,12 @@ function parseJsonArray(data: unknown): unknown[] {
   return []
 }
 
+function parseStringOrNumber(value: unknown): string | number | undefined {
+  return typeof value === 'string' || typeof value === 'number'
+    ? value
+    : undefined
+}
+
 function parsePaymentMethods(
   data: unknown,
   stripeMinTopup: number
@@ -74,20 +80,26 @@ function parsePaymentMethods(
         description:
           typeof item.description === 'string' ? item.description : undefined,
         icon: typeof item.icon === 'string' ? item.icon : undefined,
+        settlement_currency:
+          typeof item.settlement_currency === 'string'
+            ? item.settlement_currency
+            : undefined,
+        platform_units_per_usd: parseStringOrNumber(
+          item.platform_units_per_usd
+        ),
+        settlement_units_per_usd: parseStringOrNumber(
+          item.settlement_units_per_usd
+        ),
+        settlement_units_per_platform_unit: parseStringOrNumber(
+          item.settlement_units_per_platform_unit
+        ),
         settlement_unit:
           typeof item.settlement_unit === 'string'
             ? item.settlement_unit
             : undefined,
-        unit_price:
-          typeof item.unit_price === 'string' ||
-          typeof item.unit_price === 'number'
-            ? item.unit_price
-            : undefined,
-        topup_ratio:
-          typeof item.topup_ratio === 'string' ||
-          typeof item.topup_ratio === 'number'
-            ? item.topup_ratio
-            : undefined,
+        unit_price: parseStringOrNumber(item.unit_price),
+        topup_ratio: parseStringOrNumber(item.topup_ratio),
+        max_topup: parseStringOrNumber(item.max_topup),
         min_topup:
           type === 'stripe' && normalizedMinTopup <= 0
             ? stripeMinTopup
