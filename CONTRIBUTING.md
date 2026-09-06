@@ -72,8 +72,26 @@ If checks are skipped, list the reason clearly in PR description.
 - Upstream fork attribution rules and notices remain intact (see `NOTICE` and `FORK.md`).
 - No unrelated refactors, cosmetic-only formatting, or broad tree-wide edits.
 
+### Automated PR handling
+
+- `PR Check` validates the current description against the repository's actual PR
+  template. Fill in the summary, verification, applicable options, and checklist.
+  Describe skipped checks honestly; a checked item does not claim every test ran.
+- Missing information produces an actionable job summary. Editing the description
+  reruns the check. The workflow has read-only permissions and cannot close, label,
+  or lock contributions. Dependency bots keep their generated descriptions.
+- Account age, profile completeness, merge history, and use of AI tools are not
+  grounds for automatic rejection. Contributors remain responsible for reviewing
+  their changes and providing reproducible evidence.
+- Maintainers decide whether to merge, request changes, or close a PR based on its
+  code, tests, scope, and review. For an incorrect closure, comment on the PR with
+  the relevant evidence. Maintainers should reopen it and remove stale automation
+  labels; if its changes are already merged, link the replacement before closing
+  the duplicate.
+
+The policy can be tested locally with `node --test scripts/pr-quality.test.mjs`.
+
 ## Communication
 
 For all bug reports and feature requests, use GitHub templates.
 For security vulnerabilities, use the procedure in [`SECURITY.md`](./SECURITY.md).
-

@@ -1,0 +1,47 @@
+name: i18n Check
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      base-ref:
+        description: Git ref to compare with the checked-out revision
+        default: HEAD^
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: i18n-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  translations:
+    name: Translation regression check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout source and comparison history
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Test the translation checker
+        run: node --test scripts/check-i18n.test.mjs
+
+      - name: Check added keys and removed translations
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.event.pull_request.base.sha || github.event.before || inputs.base-ref || 'HEAD^' }}
+        run: |
+          if [[ "$EVENT_NAME" == pull_request ]]; then
+            node scripts/check-i18n.mjs --base "$BASE_REF" --merge-base
+          else
+            node scripts/check-i18n.mjs --base "$BASE_REF"
+          fi
