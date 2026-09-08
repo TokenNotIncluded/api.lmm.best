@@ -27,3 +27,26 @@ export function getDrawingRequestErrorKind(
   if (status === null) return 'network'
   return 'http'
 }
+
+function record(value: unknown): Record<string, unknown> | null {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null
+}
+
+function message(value: unknown): string | null {
+  return typeof value === 'string' ? value.trim() || null : null
+}
+
+export function getDrawingRequestErrorMessage(
+  error: unknown,
+  fallback: string
+): string {
+  const response = record(record(error)?.response)
+  const data = record(response?.data)
+  // Only structured error fields are displayable; gateways may return HTML.
+  // The caller renders this as text, never as HTML or Markdown.
+  return (
+    message(record(data?.error)?.message) ?? message(data?.message) ?? fallback
+  )
+}

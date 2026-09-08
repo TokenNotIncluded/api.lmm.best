@@ -376,3 +376,120 @@ describe('Drawing mobile controls', () => {
     }
   })
 })
+
+describe('Drawing generation failures', () => {
+  const cases = [
+    {
+      name: 'shows the relay detail as text when generation returns 503',
+      reject: true,
+      response: {
+        status: 503,
+        data: {
+          error: {
+            message:
+              'No available channel for <image-2> (request id: request-123)',
+          },
+        },
+      },
+      expected: 'No available channel for <image-2> (request id: request-123)',
+    },
+    {
+      name: 'uses a readable fallback for an HTML gateway outage',
+      reject: true,
+      response: { status: 503, data: '<html>Service Unavailable</html>' },
+      expected: 'Please try again later.',
+    },
+    {
+      name: 'explains network failures without exposing the Axios message',
+      reject: true,
+      response: undefined,
+      expected: 'Network connection failed or server not responding',
+    },
+    {
+      name: 'retains business error details from successful HTTP responses',
+      reject: false,
+      response: { status: 200, data: { message: 'Image quota exhausted' } },
+      expected: 'Image quota exhausted',
+    },
+    {
+      name: 'handles an empty successful response without a JavaScript error',
+      reject: false,
+      response: { status: 200, data: null },
+      expected: 'Unable to generate the image',
+    },
+  ]
+
+  for (const scenario of cases) {
+    test(scenario.name, async () => {
+      api.get = (async (url: string) => {
+        if (url === '/api/assistant/status') {
+          return {
+            data: {
+              success: true,
+              data: { developer_access_granted: true },
+            },
+          }
+        }
+        if (url === '/api/pricing') return { data: pricing }
+        if (url === '/api/user/self/groups') {
+          return { data: { success: true, data: pricing.usable_group } }
+        }
+        throw new Error(`unexpected GET ${url}`)
+      }) as typeof api.get
+      let postCalls = 0
+      api.post = (async () => {
+        postCalls += 1
+        if (scenario.reject) {
+          throw Object.assign(
+            new Error('Request failed with status code 503'),
+            {
+              response: scenario.response,
+            }
+          )
+        }
+        return scenario.response
+      }) as typeof api.post
+
+      const rendered = await renderDrawing()
+      try {
+        await act(
+          async () =>
+            await waitForCondition(
+              () => rendered.container.querySelectorAll('select').length === 5,
+              'drawing controls did not render'
+            )
+        )
+        const textarea = rendered.container.querySelector('textarea')
+        assert.ok(textarea)
+        await setTextareaValue(textarea, 'A quiet mountain lake at sunrise')
+        const generateButton = [
+          ...rendered.container.querySelectorAll('button'),
+        ].find((button) => button.textContent?.includes('Generate image'))
+        assert.ok(generateButton)
+        assert.equal(generateButton.disabled, false)
+
+        await act(async () => {
+          generateButton.click()
+          await flushEffects()
+        })
+
+        assert.equal(
+          postCalls,
+          1,
+          'paid generation must not retry automatically'
+        )
+        assert.ok(rendered.container.textContent?.includes(scenario.expected))
+        assert.doesNotMatch(
+          rendered.container.textContent ?? '',
+          /Request failed with status code|Cannot read properties/
+        )
+        assert.equal(rendered.container.querySelector('image-2'), null)
+        assert.equal(textarea.value, 'A quiet mountain lake at sunrise')
+        assert.equal(generateButton.disabled, false)
+      } finally {
+        await act(async () => rendered.root.unmount())
+        rendered.queryClient.clear()
+      }
+    })
+  }
+})
