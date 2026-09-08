@@ -54,6 +54,9 @@ func GetRequestBody(c *gin.Context) (io.Seeker, error) {
 				return nil, err
 			}
 			c.Set(KeyBodyStorage, bs)
+			// The storage now owns the payload. In disk mode retaining the old
+			// byte cache would defeat spilling for the rest of the request.
+			c.Set(KeyRequestBody, nil)
 			return bs, nil
 		}
 	}
@@ -103,6 +106,11 @@ func CleanupBodyStorage(c *gin.Context) {
 			bs.Close()
 		}
 		c.Set(KeyBodyStorage, nil)
+	}
+	// Adapters can install the legacy cache and fail before creating storage.
+	// Do not allocate a context map for requests that never cached a body.
+	if _, exists := c.Get(KeyRequestBody); exists {
+		c.Set(KeyRequestBody, nil)
 	}
 }
 
