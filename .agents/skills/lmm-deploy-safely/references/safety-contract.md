@@ -93,10 +93,14 @@ Thresholds:
   for five minutes, and at least 4 GiB free before production packages/backups.
 - Warning: root/inodes `70-80%`, memory `20-30%`, swap `10-25%`, or CPU
   `70-85%`; serialize work and prune only measured terminal state.
-- Stop: root/inodes `>=80%`, insufficient package + requested backup + 1 GiB
-  headroom, memory `<20%`, swap `>25%` with churn, CPU `>85%` for five minutes,
-  restart/OOM evidence, write failures, or required-probe timeout. At `>=90%`
-  storage treat the host as an incident.
+- Stop: root/inodes `>=80%`, insufficient target package + staging + required
+  rollback material + 1 GiB headroom, memory `<20%`, swap `>25%` with churn,
+  CPU `>85%` for five minutes, restart/OOM evidence, write failures, or
+  required-probe timeout. At `>=90%` storage treat the host as an incident.
+- Budget requested backups and restore-verification scratch space on the
+  controller, not the target. A separately authorized off-host destination also
+  needs its own space check. Never stage a backup on the target to work around
+  insufficient local space.
 
 Do not clear swap, journals, caches, or databases to make a gate green. Do not
 kill unrelated processes or hide failed checks with blind restarts.
@@ -115,29 +119,53 @@ kill unrelated processes or hide failed checks with blind restarts.
 - Local acceptance uses fresh marker-owned PostgreSQL and Valkey instances only;
   SQLite fallback and production data are forbidden.
 
-## Optional backup copies
+## Optional controller-only backups
 
-Backups are optional and require explicit current-turn authorization. When
-selected, require verified copies:
+Backups are optional and require explicit current-turn authorization. For every
+role (`local`, `test`, `production`), the only required copy is a verified copy
+on the controller. This application-specific policy overrides generic SSH
+checklists that require target or additional off-host copies.
 
-| Role | Required copies |
-| --- | --- |
-| local | controller |
-| test | target, controller |
-| production | target, controller, off-host |
+- Controller root: `$HOME/backup/lmm-api/<verified-host>/<id>`, outside the
+  repository and disposable deployment caches. Use `0700` directories and
+  `0600` files.
+- The target must not store new backup archives, database dumps, encrypted
+  copies, or partial files, even temporarily in the deployment workspace,
+  `/tmp`, `/var/tmp`, or `/dev/shm`. The historical target root
+  `/var/lib/lmm-api-go-deploy/backups` is read-only retention evidence.
+- Additional off-host storage is optional and requires separate current-turn
+  authorization of the exact host and path. Only then may verified `archczy`
+  use `/home/arch/.local/state/lmm-api-production-backups/<id>`. No automatic
+  second-server contact or copy is allowed.
 
-Production roots:
+Stream a consistent database export and archive data through source-side
+encryption directly over verified SSH to a private controller `.part` file.
+Use bounded-memory pipelines, low CPU/I/O priority, modest compression, and one
+export at a time. Do not invoke a backup/export command that writes or requires
+scratch archives on the target. If streaming is unsupported, stop and report;
+do not fall back to a target dump or a large in-memory buffer.
 
-- target: `/var/lib/lmm-api-go-deploy/backups/<id>`;
-- controller: `$HOME/backup/lmm-api/<verified-host>/<id>`;
-- off-host: `/home/arch/.local/state/lmm-api-production-backups/<id>` on the
-  verified `archczy` host.
+Check producer/encryptor/SSH/receiver exit statuses and complete EOF (pipeline
+failure must propagate at both ends), then verify SHA-256 of the encrypted
+bytes and decryption/archive readability. Run the applicable database restore
+preflight on the controller, without restoring into business data. A checksum
+or an `encrypted=true` manifest flag alone is not proof of a usable backup.
+Finalize the controller backup atomically only after all checks pass; incomplete
+files must never be reported as verified or replace the latest-known-good copy.
 
-Each copy contains a manifest, `SHA256SUMS`, nonempty application/frontend/
-configuration archives, and a database backup when applicable. Controller and
-off-host secret-bearing archives are encrypted before transfer; checksums cover
-the transferred encrypted bytes. Never prune an active/unconfirmed release,
-latest-known-good backup, or a copy whose remaining peers are unverified.
+Each verified copy contains a manifest, `SHA256SUMS`, nonempty application,
+frontend, configuration, and database archives. The manifest records the real
+host/release/engine identity without secrets. `verify-backup-set.sh` checks the
+controller copy's metadata and checksums for the actual deployment role; it
+must not require a target or off-host copy. If an extra off-host copy was
+requested, pass `--require-off-host` and verify its identity and bytes too.
+The script is read-only and does not itself prove host identity, encryption, or
+restore readiness.
+
+Keep minimal target transaction audit, locks, and required N/N-1 manual-rollback
+material; do not use that exception for full backup duplicates. This change
+does not authorize deleting historical target backups, active/unconfirmed
+releases, latest-known-good backups, or unverified requested copies.
 
 ## Manual rollback state machine
 
@@ -190,8 +218,9 @@ then releases the lock. It never restores a database automatically.
 3. Update, test, commit, and publish exact pinned AUR metadata; read it back.
 4. Assemble exact candidate and N-1 Go/Web packages as non-root and verify
    package/archive/provider identities.
-5. Create requested backup copies, when authorized, and persist manual rollback
-   evidence before mutation.
+5. When authorized, stream backups to the controller without target-side
+   staging; verify them and any separately requested off-host copy. Persist
+   manual rollback evidence before mutation.
 6. Run candidate `migrate --apply` and `migrate --verify` through a validated
    candidate symlink named `lmm-api`; migrations must remain N/N-1 compatible.
 7. Install exact packages, atomically establish/verify `/usr/bin/lmm-api ->

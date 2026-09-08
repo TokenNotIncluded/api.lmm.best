@@ -10,7 +10,8 @@ readonly SHA256_PATTERN='^[A-Fa-f0-9]{64}$'
 readonly UTC_PATTERN='^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$'
 
 usage() {
-  printf 'Usage: %s --role local|test|production --deployment-id ID --copy COPY_ROLE=/absolute/path [--copy ...]\n' "${0##*/}" >&2
+  printf 'Usage: %s --role local|test|production --deployment-id ID --copy controller=/absolute/path [--require-off-host --copy off-host=/absolute/path]\n' "${0##*/}" >&2
+  printf 'Read-only metadata/checksum verification; no target copies, SSH, or restore checks.\n' >&2
 }
 
 die() {
@@ -23,8 +24,8 @@ reject_unsafe_text() {
   [[ $value != *$'\n'* && $value != *$'\r'* && $value != *$'\t'* ]] ||
     die 'path contains control characters'
   [[ $value != *'~'* && $value != *'$'* && $value != *'*'* &&
-     $value != *'?'* && $value != *'['* && $value != *']'* &&
-     $value != *'{'* && $value != *'}'* ]] || die 'path contains unresolved shell syntax or a glob'
+    $value != *'?'* && $value != *'['* && $value != *']'* &&
+    $value != *'{'* && $value != *'}'* ]] || die 'path contains unresolved shell syntax or a glob'
 }
 
 assert_no_symlink_components() {
@@ -33,7 +34,7 @@ assert_no_symlink_components() {
   local component
   local -a components=()
 
-  IFS='/' read -r -a components <<< "${path#/}"
+  IFS='/' read -r -a components <<<"${path#/}"
   for component in "${components[@]}"; do
     [[ -n $component ]] || continue
     if [[ $current == '/' ]]; then
@@ -55,9 +56,9 @@ validate_copy_path() {
   canonical=$(realpath -m -- "$path")
   [[ $canonical == "$path" ]] || die 'backup copy path must be canonical'
   case "$canonical" in
-    /|/tmp|/tmp/*|/var/tmp|/var/tmp/*)
-      die 'backup copy path is too broad or uses a forbidden temporary path'
-      ;;
+  / | /tmp | /tmp/* | /var/tmp | /var/tmp/*)
+    die 'backup copy path is too broad or uses a forbidden temporary path'
+    ;;
   esac
   assert_no_symlink_components "$canonical"
   [[ -d $canonical && ! -L $canonical ]] || die 'backup copy path is not a real directory'
@@ -107,7 +108,7 @@ verify_copy() {
     [[ $value != *$'\n'* && $value != *$'\r'* && $value != *$'\t'* ]] ||
       die "copy $copy_role has a control character in its manifest"
     data[$key]=$value
-  done < "$manifest"
+  done <"$manifest"
 
   local -a required_keys=(
     format created_at_utc deployment_id copy_role deployment_role verified_host release_id artifact_sha256 git_revision
@@ -131,17 +132,15 @@ verify_copy() {
   [[ ${data[artifact_sha256]} =~ $SHA256_PATTERN ]] || die "copy $copy_role has an invalid artifact checksum"
   [[ ${data[git_revision]} =~ ^[A-Fa-f0-9]{7,64}$ ]] || die "copy $copy_role has an invalid Git revision"
   case "${data[database_engine]}" in
-    sqlite|postgres|mysql) ;;
-    *) die "copy $copy_role has an invalid database engine" ;;
+  sqlite | postgres | mysql) ;;
+  *) die "copy $copy_role has an invalid database engine" ;;
   esac
   [[ ${data[service_state]} =~ $SAFE_VALUE_PATTERN ]] || die "copy $copy_role has an invalid service state"
   [[ ${data[frontend_release]} =~ $SAFE_VALUE_PATTERN ]] || die "copy $copy_role has an invalid frontend identity"
-  case "${data[configuration_encrypted]}" in true|false) ;; *) die "copy $copy_role has invalid encryption metadata" ;; esac
-  case "${data[database_encrypted]}" in true|false) ;; *) die "copy $copy_role has invalid encryption metadata" ;; esac
-  if [[ $copy_role == controller || $copy_role == off-host ]]; then
-    [[ ${data[configuration_encrypted]} == true && ${data[database_encrypted]} == true ]] ||
-      die "copy $copy_role does not mark secret-bearing archives as encrypted"
-  fi
+  case "${data[configuration_encrypted]}" in true | false) ;; *) die "copy $copy_role has invalid encryption metadata" ;; esac
+  case "${data[database_encrypted]}" in true | false) ;; *) die "copy $copy_role has invalid encryption metadata" ;; esac
+  [[ ${data[configuration_encrypted]} == true && ${data[database_encrypted]} == true ]] ||
+    die "copy $copy_role does not mark secret-bearing archives as encrypted"
 
   while IFS= read -r line || [[ -n $line ]]; do
     [[ -n $line ]] || continue
@@ -156,7 +155,7 @@ verify_copy() {
     validate_relative_file "$filename"
     [[ ! -v checksum_by_file[$filename] ]] || die "copy $copy_role has a duplicate checksum entry"
     checksum_by_file[$filename]=$checksum
-  done < "$checksums"
+  done <"$checksums"
 
   ((${#checksum_by_file[@]} == 4)) || die "copy $copy_role checksum list must contain exactly four archives"
 
@@ -205,55 +204,68 @@ verify_copy() {
 
 role=''
 deployment_id=''
+require_off_host=false
 declare -A copies=()
 declare -a copy_order=()
 
 while (($# > 0)); do
   case "$1" in
-    --role)
-      (($# >= 2)) || die 'missing value for --role'
-      role=$2
-      shift 2
-      ;;
-    --deployment-id)
-      (($# >= 2)) || die 'missing value for --deployment-id'
-      deployment_id=$2
-      shift 2
-      ;;
-    --copy)
-      (($# >= 2)) || die 'missing value for --copy'
-      [[ $2 == *=* ]] || die '--copy must use COPY_ROLE=/absolute/path'
-      copy_role=${2%%=*}
-      copy_path=${2#*=}
-      case "$copy_role" in target|controller|off-host) ;; *) die 'invalid backup copy role' ;; esac
-      [[ ! -v copies[$copy_role] ]] || die 'duplicate backup copy role'
-      copies[$copy_role]=$(validate_copy_path "$copy_path")
-      copy_order+=("$copy_role")
-      shift 2
-      ;;
-    -h|--help)
-      usage
-      exit 0
-      ;;
-    *)
-      usage
-      die 'unknown argument'
-      ;;
+  --role)
+    (($# >= 2)) || die 'missing value for --role'
+    role=$2
+    shift 2
+    ;;
+  --deployment-id)
+    (($# >= 2)) || die 'missing value for --deployment-id'
+    deployment_id=$2
+    shift 2
+    ;;
+  --copy)
+    (($# >= 2)) || die 'missing value for --copy'
+    [[ $2 == *=* ]] || die '--copy must use COPY_ROLE=/absolute/path'
+    copy_role=${2%%=*}
+    copy_path=${2#*=}
+    case "$copy_role" in
+    controller | off-host) ;;
+    target) die 'target backup copies are disabled; store backups on the controller' ;;
+    *) die 'invalid backup copy role' ;;
+    esac
+    [[ ! -v copies[$copy_role] ]] || die 'duplicate backup copy role'
+    copies[$copy_role]=$(validate_copy_path "$copy_path")
+    copy_order+=("$copy_role")
+    shift 2
+    ;;
+  --require-off-host)
+    require_off_host=true
+    shift
+    ;;
+  -h | --help)
+    usage
+    exit 0
+    ;;
+  *)
+    usage
+    die 'unknown argument'
+    ;;
   esac
 done
 
 case "$role" in
-  local) required_roles=(controller) ;;
-  test) required_roles=(target controller) ;;
-  production) required_roles=(target controller off-host) ;;
-  *) die 'role must be local, test, or production' ;;
+local | test | production) ;;
+*) die 'role must be local, test, or production' ;;
 esac
 [[ $deployment_id =~ $ID_PATTERN ]] || die 'invalid deployment ID'
-for copy_role in "${required_roles[@]}"; do
-  [[ -v copies[$copy_role] ]] || die "missing required $copy_role backup copy"
-done
+[[ -v copies[controller] ]] || die 'missing required controller backup copy'
+if [[ $require_off_host == true && ! -v copies[off-host] ]]; then
+  die 'missing requested off-host backup copy'
+fi
 
 for copy_role in "${copy_order[@]}"; do
   verify_copy "$copy_role" "${copies[$copy_role]}"
 done
+if [[ -v copies[off-host] ]]; then
+  printf 'backup_policy=controller-plus-off-host\n'
+else
+  printf 'backup_policy=controller-only\n'
+fi
 printf 'backup_set=verified\n'
