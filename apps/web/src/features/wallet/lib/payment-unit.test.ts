@@ -25,6 +25,7 @@ import {
   formatPaymentSettlementRate,
   formatSettlementAmount,
   getPaymentMaxTopup,
+  getPaymentMaxTopupAmount,
   getPaymentTopupRatio,
   getPaymentSettlementMetadata,
   getPaymentSettlementUnit,
@@ -124,6 +125,32 @@ describe('payment settlement units', () => {
           name: 'Invalid method',
           type: 'epay',
           max_topup: maxTopup,
+        }),
+        null
+      )
+    }
+  })
+
+  test('keeps the request-amount cap independent of quote rates and USD metadata', () => {
+    assert.equal(
+      getPaymentMaxTopupAmount({
+        name: 'Custom gateway',
+        type: 'epay',
+        max_topup: '2.5',
+        max_topup_amount: '17',
+        platform_units_per_usd: '99',
+        topup_ratio: '0.5',
+      }),
+      17
+    )
+    for (const amount of [undefined, 0, -1, 'NaN', '1e2', ' 17 ', Infinity]) {
+      assert.equal(
+        getPaymentMaxTopupAmount({
+          name: 'Incomplete gateway',
+          type: 'epay',
+          max_topup: '2.5',
+          max_topup_amount: amount,
+          platform_units_per_usd: '6.8',
         }),
         null
       )

@@ -73,6 +73,12 @@ interface WalletProps {
   initialShowHistory?: boolean
 }
 
+type DiscountValidationContext = {
+  amount: number
+  paymentType: string
+  revision: number
+}
+
 type PaymentFeedback = {
   tone: 'default' | 'success' | 'destructive'
   message: string
@@ -119,6 +125,9 @@ export function Wallet(props: WalletProps) {
     useState<PaymentFeedback | null>(null)
   const paymentInputRevisionRef = useRef(0)
   const confirmedQuoteRevisionRef = useRef<number | null>(null)
+  const discountUrlValidationRef = useRef<
+    (DiscountValidationContext & { code: string }) | null
+  >(null)
   const resetPendingPayment = useCallback(() => {
     confirmedQuoteRevisionRef.current = null
     setConfirmDialogOpen(false)
@@ -272,58 +281,86 @@ export function Wallet(props: WalletProps) {
   }, [selectedPaymentMethod, topupAvailability])
 
   const applyDiscountCode = useCallback(
-    async (rawCode: string, fromUrl = false) => {
-      const revision = resetPendingPayment()
-      const code = rawCode.trim()
-      if (!code) {
-        setAppliedDiscountCode('')
-        setDiscountPercent(null)
-        return
+    async (
+      rawCode: string,
+      fromUrl = false,
+      context?: DiscountValidationContext
+    ): Promise<number> => {
+      const { amount, paymentType, revision } = context ?? {
+        amount: topupAmount,
+        paymentType: getCurrentPaymentType(),
+        revision: resetPendingPayment(),
       }
+      const code = rawCode.trim()
+      setAppliedDiscountCode('')
+      setDiscountPercent(null)
+      if (!code || !paymentType) return 0
 
+      // Record the full request before changing state so the URL effect cannot
+      // duplicate a validation already started by a payment or amount change.
+      if (fromUrl) {
+        discountUrlValidationRef.current = {
+          code,
+          amount,
+          paymentType,
+          revision,
+        }
+      }
       setDiscountApplying(true)
+      let applied = false
       try {
         const result = await validateDiscountCode({
           code,
-          amount: topupAmount,
-          payment_method: getCurrentPaymentType() || undefined,
+          amount,
+          payment_method: paymentType,
         })
-        // Validation may finish after the amount, method, or code changed.
-        // Never let that old closure start a new quote for the old input.
-        if (revision !== paymentInputRevisionRef.current) return
+        if (revision !== paymentInputRevisionRef.current) return 0
         if (!isApiSuccess(result) || !result.data) {
           toast.error(result.message || t('Discount code is invalid'))
-          setAppliedDiscountCode('')
-          setDiscountPercent(null)
-          return
+          void calculatePaymentAmount(amount, paymentType)
+          return 0
+        }
+
+        const calculatedAmount = await calculatePaymentAmount(
+          amount,
+          paymentType,
+          result.data.code
+        )
+        if (revision !== paymentInputRevisionRef.current) return 0
+        if (!isPositivePaymentAmount(calculatedAmount)) {
+          toast.error(t('Payment request failed'))
+          return 0
         }
 
         setAppliedDiscountCode(result.data.code)
         setDiscountCode(result.data.code)
-        if (fromUrl) setDiscountCodeFromUrl(result.data.code)
-        setDiscountPercent(result.data.discount_percent)
-        const paymentType = getCurrentPaymentType()
-        if (paymentType) {
-          await calculatePaymentAmount(
-            topupAmount,
+        if (fromUrl) {
+          discountUrlValidationRef.current = {
+            code: result.data.code,
+            amount,
             paymentType,
-            result.data.code
-          )
+            revision,
+          }
+          setDiscountCodeFromUrl(result.data.code)
         }
-        if (revision !== paymentInputRevisionRef.current) return
+        setDiscountPercent(result.data.discount_percent)
+        applied = true
         toast.success(
           t('Discount applied: {{percent}}% off', {
             percent: result.data.discount_percent,
           })
         )
+        return calculatedAmount
       } catch {
-        if (revision !== paymentInputRevisionRef.current) return
+        if (revision !== paymentInputRevisionRef.current) return 0
         toast.error(t('Discount code is invalid'))
-        setAppliedDiscountCode('')
-        setDiscountPercent(null)
+        void calculatePaymentAmount(amount, paymentType)
+        return 0
       } finally {
         if (revision === paymentInputRevisionRef.current) {
           setDiscountApplying(false)
+          // A rejected link or failed quote must leave a manual recovery path.
+          if (fromUrl && !applied) setDiscountCodeFromUrl('')
         }
       }
     },
@@ -336,14 +373,21 @@ export function Wallet(props: WalletProps) {
     ]
   )
 
-  const discountUrlValidatedAmountRef = useRef<number | null>(null)
   useEffect(() => {
     if (!discountCodeFromUrl || !topupInfo) return
     if (topupAmount < getMinTopupAmount(topupInfo)) return
-    if (!getCurrentPaymentType()) return
-    if (discountUrlValidatedAmountRef.current === topupAmount) return
+    const paymentType = getCurrentPaymentType()
+    if (!paymentType) return
+    const previous = discountUrlValidationRef.current
+    if (
+      previous?.amount === topupAmount &&
+      previous.paymentType === paymentType &&
+      previous.code === discountCodeFromUrl &&
+      previous.revision === paymentInputRevisionRef.current
+    ) {
+      return
+    }
 
-    discountUrlValidatedAmountRef.current = topupAmount
     void applyDiscountCode(discountCodeFromUrl, true)
   }, [
     applyDiscountCode,
@@ -353,44 +397,52 @@ export function Wallet(props: WalletProps) {
     topupInfo,
   ])
 
-  // Handle preset selection
-  const handleSelectPreset = (preset: PresetAmount) => {
-    resetPendingPayment()
-    const nextDiscount = discountAfterAmountChange(
-      { code: appliedDiscountCode, percent: discountPercent },
-      topupAmount,
-      preset.value
-    )
-    setTopupAmount(preset.value)
-    setSelectedPreset(preset.value)
-    if (nextDiscount.code !== appliedDiscountCode) {
-      setAppliedDiscountCode(nextDiscount.code)
-      setDiscountPercent(nextDiscount.percent)
-    }
-    const paymentType = getCurrentPaymentType()
-    if (paymentType) {
-      calculatePaymentAmount(preset.value, paymentType, nextDiscount.code)
-    }
-  }
-
-  // Handle topup amount change
-  const handleTopupAmountChange = (amount: number) => {
-    resetPendingPayment()
+  const updateTopupAmount = (amount: number, preset: number | null) => {
+    const revision = resetPendingPayment()
     const nextDiscount = discountAfterAmountChange(
       { code: appliedDiscountCode, percent: discountPercent },
       topupAmount,
       amount
     )
     setTopupAmount(amount)
-    setSelectedPreset(null)
+    setSelectedPreset(preset)
     if (nextDiscount.code !== appliedDiscountCode) {
       setAppliedDiscountCode(nextDiscount.code)
       setDiscountPercent(nextDiscount.percent)
     }
     const paymentType = getCurrentPaymentType()
-    if (paymentType) {
-      calculatePaymentAmount(amount, paymentType, nextDiscount.code)
+    if (!paymentType) return
+    if (discountCodeFromUrl && amount >= getMinTopupAmount(topupInfo)) {
+      void applyDiscountCode(discountCodeFromUrl, true, {
+        amount,
+        paymentType,
+        revision,
+      })
+    } else {
+      void calculatePaymentAmount(amount, paymentType, nextDiscount.code)
     }
+  }
+
+  const handleSelectPreset = (preset: PresetAmount) => {
+    updateTopupAmount(preset.value, preset.value)
+  }
+
+  const handleTopupAmountChange = (amount: number) => {
+    updateTopupAmount(amount, null)
+  }
+
+  const calculateCheckoutAmount = (paymentType: string, revision: number) => {
+    const code =
+      discountCodeFromUrl ||
+      appliedDiscountCode ||
+      (discountApplying ? discountCode.trim() : '')
+    return code
+      ? applyDiscountCode(code, Boolean(discountCodeFromUrl), {
+          amount: topupAmount,
+          paymentType,
+          revision,
+        })
+      : calculatePaymentAmount(topupAmount, paymentType)
   }
 
   // Handle payment method selection
@@ -417,10 +469,9 @@ export function Wallet(props: WalletProps) {
       }
 
       // Calculate payment amount and show confirmation dialog
-      const calculatedAmount = await calculatePaymentAmount(
-        topupAmount,
+      const calculatedAmount = await calculateCheckoutAmount(
         method.type,
-        appliedDiscountCode
+        revision
       )
       if (revision !== paymentInputRevisionRef.current) return
       if (!isPositivePaymentAmount(calculatedAmount)) {
@@ -450,6 +501,7 @@ export function Wallet(props: WalletProps) {
 
     if (
       !selectedPaymentMethod ||
+      discountApplying ||
       calculating ||
       !isPositivePaymentAmount(paymentAmount) ||
       confirmedQuoteRevisionRef.current !== paymentInputRevisionRef.current
@@ -601,10 +653,9 @@ export function Wallet(props: WalletProps) {
     setPaymentLoading(loadingKey)
 
     try {
-      const calculatedAmount = await calculatePaymentAmount(
-        topupAmount,
+      const calculatedAmount = await calculateCheckoutAmount(
         PAYMENT_TYPES.WAFFO,
-        appliedDiscountCode
+        revision
       )
       if (revision !== paymentInputRevisionRef.current) return
       if (!isPositivePaymentAmount(calculatedAmount)) {

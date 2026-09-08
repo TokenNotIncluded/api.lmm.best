@@ -14,6 +14,7 @@ import { Window } from 'happy-dom'
 import {
   calculateSettlementAmount,
   getPaymentMaxTopup,
+  getPaymentMaxTopupAmount,
   getPaymentSettlementMetadata,
   getPaymentTopupRatio,
 } from '../lib/payment-unit'
@@ -104,7 +105,8 @@ test('preserves server currency, USD bridge rates and payment limits through the
       settlement_currency: 'USD',
       platform_units_per_usd: '6.8',
       settlement_units_per_usd: '1',
-      max_topup: '68',
+      max_topup: '2.5',
+      max_topup_amount: '17',
     },
     {
       name: 'CNY payment',
@@ -113,6 +115,7 @@ test('preserves server currency, USD bridge rates and payment limits through the
       platform_units_per_usd: 6.8,
       settlement_units_per_usd: 6.8,
       max_topup: 34,
+      max_topup_amount: '231.2',
     },
   ])
 
@@ -125,7 +128,10 @@ test('preserves server currency, USD bridge rates and payment limits through the
   assert.equal(cnyMetadata.currencyCode, 'CNY')
   assert.equal(calculateSettlementAmount(6.8, usdMetadata), 1)
   assert.equal(calculateSettlementAmount(6.8, cnyMetadata), 6.8)
-  assert.equal(getPaymentMaxTopup(usd), 68)
+  assert.equal(getPaymentMaxTopup(usd), 2.5)
+  assert.equal(getPaymentMaxTopupAmount(usd), 17)
+  assert.equal(usd.max_topup_amount, '17')
+  assert.equal(getPaymentMaxTopupAmount(cny), 231.2)
   assert.equal(getPaymentMaxTopup(cny), 34)
   assert.equal(usd.min_topup, 10)
 })
@@ -156,6 +162,7 @@ test('preserves direct credit pricing and decimal strings from legacy JSON catal
   )
   assert.equal(getPaymentTopupRatio(method), 0.5)
   assert.equal(getPaymentMaxTopup(method), 20.5)
+  assert.equal(getPaymentMaxTopupAmount(method), null)
   assert.equal('private_gateway_key' in method, false)
 })
 

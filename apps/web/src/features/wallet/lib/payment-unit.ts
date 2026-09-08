@@ -64,18 +64,18 @@ function formatRate(value: string | number | undefined, normalized: number) {
 export function getPaymentMaxTopup(
   paymentMethod?: PaymentMethod
 ): number | null {
-  const rawLimit = paymentMethod?.max_topup
-  if (typeof rawLimit === 'string') {
-    if (!POSITIVE_DECIMAL_PATTERN.test(rawLimit)) return null
-    const parsedLimit = Number(rawLimit)
-    return Number.isFinite(parsedLimit) && parsedLimit > 0 ? parsedLimit : null
-  }
+  return parsePositiveDecimal(paymentMethod?.max_topup)
+}
 
-  return typeof rawLimit === 'number' &&
-    Number.isFinite(rawLimit) &&
-    rawLimit > 0
-    ? rawLimit
-    : null
+/**
+ * Compare request amounts only with the server-converted cap. A gateway's
+ * custom quote rate may differ from the global rate used to enforce limits.
+ * Older servers still enforce their USD cap when quoting and creating orders.
+ */
+export function getPaymentMaxTopupAmount(
+  paymentMethod?: PaymentMethod
+): number | null {
+  return parsePositiveDecimal(paymentMethod?.max_topup_amount)
 }
 
 /**

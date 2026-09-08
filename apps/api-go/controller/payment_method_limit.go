@@ -106,6 +106,31 @@ func configuredPaymentMethodMaxTopUp(paymentType string) (decimal.Decimal, bool,
 	return limit, configured, nil
 }
 
+// paymentMethodMaxTopUpAmount expresses the credited-USD limit in checkout
+// request units. Limits use global wallet pricing, even when a custom payment
+// method has an independent settlement quote.
+func paymentMethodMaxTopUpAmount(paymentType string) (decimal.Decimal, bool, error) {
+	limit, configured, err := configuredPaymentMethodMaxTopUp(paymentType)
+	if err != nil || !configured {
+		return decimal.Zero, configured, err
+	}
+	rates, err := paymentpricing.CurrentRates()
+	if err != nil {
+		return decimal.Zero, true, err
+	}
+	amount, err := rates.PlatformUnitsForFiat(limit, paymentpricing.CurrencyUSD)
+	if err != nil {
+		return decimal.Zero, true, err
+	}
+	if operation_setting.GetQuotaDisplayType() == operation_setting.QuotaDisplayTypeTokens {
+		if !validQuotaPerUnit() {
+			return decimal.Zero, true, fmt.Errorf("quota per unit must be positive")
+		}
+		amount = amount.Mul(decimal.NewFromFloat(common.QuotaPerUnit))
+	}
+	return amount, true, nil
+}
+
 func requestedTopUpUSD(amount int64) (decimal.Decimal, error) {
 	return requestedTopUpUSDDecimal(decimal.NewFromInt(amount))
 }
