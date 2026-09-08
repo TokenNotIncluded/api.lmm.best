@@ -73,12 +73,12 @@ func writeDeployUsage(output io.Writer) {
        --go-rollback-package FILE --go-rollback-release-asset FILE --go-rollback-release-bundle FILE \
        --web-package FILE --web-release-asset FILE --web-release-bundle FILE \
        --web-rollback-package FILE --web-rollback-release-asset FILE --web-rollback-release-bundle FILE \
-       --probe-binary FILE [--with-backups --age-recipient-file FILE]
+       --probe-binary FILE [--with-backups --controller-backup-dir DIR]
   %s deploy production stage|promote|status|confirm|rollback \
        --plan FILE --plan-sha256 HEX --confirm api.lmm.best
 
-Production Go changes require --with-backups and the verified target, controller, and off-host copies.
-Web-only releases may omit backups.
+Backups are optional for Go-only, Web-only, and combined releases.
+Selected backups are imported and decrypted only on the controller; only signed verification receipts reach production.
 Target-only recovery commands are listed by the production command's usage.
 `, ProgramName, ProgramName, ProgramName, ProgramName, ProgramName, ProgramName, ProgramName, ProgramName, ProgramName)
 }

@@ -242,7 +242,11 @@ func (runtime *productionRuntime) verifyManifestArchives(ctx context.Context, wo
 	if err != nil || fmt.Sprintf("%x", sha256Bytes(restoredEnvironment)) != manifest.EnvironmentRestoreSHA256 {
 		return errors.New("configuration rollback snapshot no longer matches the deployment manifest")
 	}
-	if manifest.BackupsEnabled {
+	if manifest.BackupEvidenceFormat == controllerBackupEvidenceFormat {
+		if err := runtime.verifyControllerBackupEvidence(workspace, manifest, false); err != nil {
+			return err
+		}
+	} else if manifest.BackupsEnabled {
 		if _, err := runtime.validateBackupSet(ctx, workspace, manifest.BackupDir); err != nil {
 			return fmt.Errorf("revalidate target production backup: %w", err)
 		}
@@ -555,11 +559,8 @@ func (runtime *productionRuntime) apply(ctx context.Context, workspace productio
 	if !options.GoChanged && !options.WebChanged {
 		return productionStatus{}, errors.New("at least one of --go-changed or --web-changed is required")
 	}
-	if options.WithBackups != (options.BackupDir != "") {
-		return productionStatus{}, errors.New("production backups require both --with-backups and --backup-dir")
-	}
-	if options.GoChanged && !options.WithBackups {
-		return productionStatus{}, errors.New("production Go transactions require verified three-copy backups via --with-backups and --backup-dir")
+	if err := validateControllerBackupTransactionOptions(options); err != nil {
+		return productionStatus{}, err
 	}
 	if _, err := os.Lstat(workspace.manifestPath); !errors.Is(err, os.ErrNotExist) {
 		return productionStatus{}, errors.New("deployment manifest already exists")
@@ -810,6 +811,23 @@ func (runtime *productionRuntime) apply(ctx context.Context, workspace productio
 		ObservationSeconds: int64(options.ObservationWindow / time.Second), ConfigRestorePath: workspace.configRestore, EnvironmentRestoreSHA256: environmentRestoreSHA256,
 		NginxEdgeRestoreSHA256: nginxEdgeRestoreSHA256, PreserveEdgePolicy: options.PreserveEdgePolicy,
 	}
+	if options.ControllerBackup != (controllerBackupBinding{}) {
+		binding := options.ControllerBackup
+		receipt, err := readControllerBackupReceipt(binding.ReceiptPath, binding.PublicKey, binding.ReceiptSHA256, runtime.requiredOwnerUID)
+		if err != nil {
+			return productionStatus{}, err
+		}
+		manifest.BackupEvidenceFormat = controllerBackupEvidenceFormat
+		manifest.ControllerOnlyBackup = &binding
+		manifest.DatabaseBackupSHA256 = receipt.ArchivePlaintexts["database"]
+		manifest.ControllerBackupSHA256 = receipt.BackupSetSHA256
+		if receipt.GoRollbackPayloadSHA256 != goRollback.BinarySHA256 {
+			return productionStatus{}, errors.New("controller backup payload does not match the verified rollback Go package")
+		}
+		if err := runtime.verifyControllerBackupEvidence(workspace, manifest, true); err != nil {
+			return productionStatus{}, err
+		}
+	}
 	if err := runtime.writeManifest(workspace, manifest); err != nil {
 		return productionStatus{}, fmt.Errorf("write deployment manifest: %w", err)
 	}
@@ -1041,6 +1059,11 @@ func (runtime *productionRuntime) confirmLoaded(ctx context.Context, workspace p
 			return productionStatus{}, err
 		}
 	}
+	if manifest.BackupEvidenceFormat == controllerBackupEvidenceFormat {
+		if err := runtime.verifyControllerBackupConfirmation(workspace, manifest); err != nil {
+			return productionStatus{}, err
+		}
+	}
 	observationWindow := time.Duration(manifest.ObservationSeconds) * time.Second
 	observationEnd := manifest.ObservationStartedUTC.Add(observationWindow)
 	if manifest.ObservationStartedUTC.IsZero() || observationWindow < 2*time.Minute || runtime.now().Before(observationEnd) {
@@ -1064,6 +1087,11 @@ func (runtime *productionRuntime) confirmLoaded(ctx context.Context, workspace p
 	}
 	if manifest.BackupsEnabled && manifest.BackupEvidenceFormat == 2 {
 		if err := runtime.validateBackupConfirmation(manifest.BackupDir, manifest, runtime.now()); err != nil {
+			return productionStatus{}, err
+		}
+	}
+	if manifest.BackupEvidenceFormat == controllerBackupEvidenceFormat {
+		if err := runtime.verifyControllerBackupConfirmation(workspace, manifest); err != nil {
 			return productionStatus{}, err
 		}
 	}

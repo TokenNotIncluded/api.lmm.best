@@ -1681,6 +1681,7 @@ dependencies = [
  "chrono",
  "clap",
  "cortexfs-protocol",
+ "ed25519-dalek",
  "flate2",
  "form_urlencoded",
  "fs2",

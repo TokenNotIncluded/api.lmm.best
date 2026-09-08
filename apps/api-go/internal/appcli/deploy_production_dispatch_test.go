@@ -26,8 +26,8 @@ func (runner *productionDispatchStatusRunner) Run(_ context.Context, command pro
 	if len(remote) == 3 && remote[0] == "readlink" && remote[1] == "--" {
 		return []byte(backendGoName + "\n"), nil
 	}
-	if len(remote) == 5 && remote[0] == "stat" && remote[1] == "-c" {
-		return []byte("0:700:1:regular file\n"), nil
+	if len(remote) == 5 && remote[0] == "stat" && remote[1] == "-c" && remote[2] == "%u:%f:%h" {
+		return []byte("0:81c0:1\n"), nil
 	}
 	if len(remote) == 3 && remote[0] == "sha256sum" && remote[1] == "--" {
 		return []byte(runner.payload + "  " + remote[2] + "\n"), nil
@@ -65,8 +65,8 @@ func (runner *productionDispatchFaultRunner) Run(_ context.Context, command prod
 	if len(remote) == 3 && remote[0] == "readlink" && remote[1] == "--" {
 		return []byte(backendGoName + "\n"), nil
 	}
-	if len(remote) == 5 && remote[0] == "stat" && remote[1] == "-c" {
-		return []byte("0:700:1:regular file\n"), nil
+	if len(remote) == 5 && remote[0] == "stat" && remote[1] == "-c" && remote[2] == "%u:%f:%h" {
+		return []byte("0:81c0:1\n"), nil
 	}
 	if len(remote) == 3 && remote[0] == "sha256sum" && remote[1] == "--" {
 		path := remote[2]
@@ -356,6 +356,49 @@ func TestProductionActivationDispatchFaultReconciliation(t *testing.T) {
 			}
 			if persisted.ActivationUnit != unit || persisted.DispatchAttempts != test.wantAttempts || persisted.DispatchObserved != test.wantObserved {
 				t.Fatalf("persisted state=%#v", persisted)
+			}
+		})
+	}
+}
+
+func TestControllerRecoveryUsesInstalledPackageBoundCLIWithoutStaging(t *testing.T) {
+	plan := testProductionDispatchPlan(t.TempDir(), "controller-recovery-installed")
+	plan.WithBackups, plan.BackupMode = true, "controller-only"
+	state := productionReleaseControllerState{RemoteWorkspace: filepath.Join(defaultProductionPaths().WorkRoot, plan.DeploymentID)}
+	provider := filepath.Join(filepath.Dir(productionOperatorBinary), backendGoName)
+	for _, test := range []struct {
+		name              string
+		installed, staged bool
+		want              string
+	}{
+		{"installed verified without candidate staging", true, false, productionOperatorBinary},
+		{"old installed provider uses verified recovery staging", false, true, productionRemoteOperatorPath(state)},
+		{"neither operator trusted", false, false, ""},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			digests := make(map[string]string)
+			if test.staged {
+				digests = productionDispatchRemoteDigests(plan, state)
+			}
+			digests[provider], digests[productionOperatorBinary] = strings.Repeat("0", 64), strings.Repeat("0", 64)
+			if test.installed {
+				digests[provider], digests[productionOperatorBinary] = plan.GoCandidate.PayloadSHA256, plan.GoCandidate.PayloadSHA256
+			}
+			runner := &productionDispatchFaultRunner{remoteDigests: digests}
+			runtime := &productionReleaseRuntime{runner: runner}
+			operator, err := runtime.controllerRecoveryOperator(context.Background(), plan, state)
+			if test.want == "" {
+				if err == nil {
+					t.Fatal("untrusted installed/candidate operator accepted")
+				}
+			} else if err != nil || operator != test.want {
+				t.Fatalf("operator=%q error=%v", operator, err)
+			}
+			if test.installed && runner.digestCalls[productionRemoteOperatorPath(state)] != 0 {
+				t.Fatal("verified installed CLI still required staging")
+			}
+			if runner.dispatchCalls != 0 {
+				t.Fatal("operator selection dispatched a release")
 			}
 		})
 	}

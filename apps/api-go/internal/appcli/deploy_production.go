@@ -103,7 +103,7 @@ func writeProductionDeployUsage(output io.Writer) {
        --go-rollback-package FILE --go-rollback-release-asset FILE --go-rollback-release-bundle FILE \\
        --web-package FILE --web-release-asset FILE --web-release-bundle FILE \\
        --web-rollback-package FILE --web-rollback-release-asset FILE --web-rollback-release-bundle FILE \\
-       --probe-binary FILE [--operator-binary FILE] [--with-backups --age-recipient-file FILE]
+       --probe-binary FILE [--operator-binary FILE] [--with-backups --controller-backup-dir DIR]
   %s deploy production stage|promote|status|confirm|rollback \\
        --plan FILE --plan-sha256 HEX --confirm api.lmm.best \\
        [--age-identity-file FILE for backup-enabled promote or confirm]
@@ -114,11 +114,15 @@ Target-only recovery commands (normally invoked by the controller):
        --go-package FILE --go-package-sha256 HEX --go-rollback-package FILE --go-rollback-sha256 HEX \\
        --web-package FILE --web-package-sha256 HEX --web-rollback-package FILE --web-rollback-sha256 HEX \\
        --probe-binary FILE --probe-binary-sha256 HEX --operator-binary FILE --operator-binary-sha256 HEX \\
-       --expected-version VERSION [--go-changed] [--web-changed] [--with-backups --backup-dir DIR]
+       --expected-version VERSION [--go-changed] [--web-changed]
+       [--with-backups --controller-backup-public-key HEX --release-plan-sha256 HEX
+        --controller-backup-receipt FILE --controller-backup-receipt-sha256 HEX]
   %s deploy production status|confirm|rollback --workspace DIR
 
-Production Go changes require --with-backups and the verified target, controller, and off-host copies.
-Web-only releases may omit backups.
+Backups are optional for Go-only, Web-only, and combined releases.
+New plans import controller-only encrypted backup sets; no full target or off-host copy is created.
+Selected backups require the local age identity at promote and confirm. Only signed metadata reaches production.
+Legacy format-5 plans and --with-backups --backup-dir transactions remain readable for recovery.
 `, ProgramName, ProgramName, ProgramName, ProgramName, ProgramName)
 }
 

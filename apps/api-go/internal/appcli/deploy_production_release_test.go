@@ -89,10 +89,10 @@ func TestParseProductionReleasePlanAcceptsSafeAbsoluteInputs(t *testing.T) {
 	}
 }
 
-func TestParseProductionReleasePlanRequiresAgeRecipientWithBackups(t *testing.T) {
+func TestParseProductionReleasePlanRequiresControllerImportWithSelectedBackups(t *testing.T) {
 	arguments := append(validProductionReleasePlanArguments(t.TempDir()), "--with-backups")
 	_, err := parseProductionReleasePlanOptions(arguments, &bytes.Buffer{})
-	if err == nil || !strings.Contains(err.Error(), "--age-recipient-file is required") {
+	if err == nil || !strings.Contains(err.Error(), "--controller-backup-dir is required") {
 		t.Fatalf("backup input error=%v", err)
 	}
 }
@@ -207,7 +207,8 @@ func testProductionReleasePlan(t *testing.T, root string) productionReleasePlan 
 	goRollback := testProductionReleasePackage(t, root, productionAURPackageName, "0.1.69-1", strings.Repeat("3", 64), strings.Repeat("4", 64))
 	web := testProductionReleasePackage(t, root, productionWebPackageName, "0.1.41-1", strings.Repeat("5", 64), strings.Repeat("6", 64))
 	return productionReleasePlan{
-		Format:              productionReleasePlanFormat,
+		// Keep this fixture format 5 to exercise legacy recovery compatibility.
+		Format:              5,
 		DeploymentID:        "release-0.2.0-test",
 		CreatedUTC:          time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC),
 		ControllerWorkspace: root,
@@ -268,7 +269,7 @@ func TestValidateProductionReleasePlanRejectsCandidateContractMismatch(t *testin
 	}
 }
 
-func TestValidateProductionReleasePlanRequiresBackupsForGoChanges(t *testing.T) {
+func TestValidateLegacyProductionReleasePlanPreservesGoBackupRequirement(t *testing.T) {
 	plan := testProductionReleasePlan(t, t.TempDir())
 	plan.WithBackups = false
 	plan.AgeRecipient = productionReleaseFilePlan{}

@@ -25,7 +25,8 @@ use crate::provider_link::{
 
 pub const MANIFEST_FORMAT: u32 = 8;
 pub const STATUS_FORMAT: u32 = 2;
-pub const RELEASE_PLAN_FORMAT: u32 = 5;
+pub const RELEASE_PLAN_FORMAT: u32 = 6;
+const LEGACY_RELEASE_PLAN_FORMAT: u32 = 5;
 pub const RELEASE_STATE_FORMAT: u32 = 3;
 pub const MINIMUM_OBSERVATION_SECONDS: i64 = 120;
 const MAXIMUM_OBSERVATION_SECONDS: i64 = 360;
@@ -35,6 +36,9 @@ const TRANSACTION_LOCK: &str = "/var/lib/lmm-api-go-deploy/transaction.lock";
 const EXPECTED_HOST: &str = "arch-dmit";
 const SERVICE: &str = "lmm-api.service";
 const FRONTEND_ROOT: &str = "/srv/lmm-api-frontend";
+
+mod controller_backup;
+pub use controller_backup::ControllerOnlyBackup;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -98,6 +102,8 @@ pub struct ProductionManifest {
     pub controller_backup_sha256: String,
     #[serde(default)]
     pub offhost_backup_sha256: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub controller_only_backup: Option<ControllerOnlyBackup>,
     pub database_schema: String,
     #[serde(default)]
     pub observation_started_utc: Option<DateTime<Utc>>,
@@ -188,6 +194,12 @@ pub struct ReleasePlan {
     pub observation_seconds: i64,
     pub preserve_edge_policy: bool,
     pub with_backups: bool,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub backup_mode: String,
+    #[serde(default, skip_serializing_if = "path_is_empty")]
+    pub controller_backup_dir: PathBuf,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub controller_backup_public_key: String,
     #[serde(default)]
     pub age_recipient: Option<ReleaseFilePlan>,
 }
@@ -357,8 +369,15 @@ impl Workspace {
     }
 }
 
+fn path_is_empty(path: &Path) -> bool {
+    path.as_os_str().is_empty()
+}
+
 pub fn validate_release_plan(plan: &ReleasePlan) -> Result<(), DeploymentError> {
-    if plan.format != RELEASE_PLAN_FORMAT {
+    if !matches!(
+        plan.format,
+        LEGACY_RELEASE_PLAN_FORMAT | RELEASE_PLAN_FORMAT
+    ) {
         return Err(DeploymentError::InvalidSchema(
             "unsupported release plan format".to_owned(),
         ));
@@ -396,11 +415,7 @@ pub fn validate_release_plan(plan: &ReleasePlan) -> Result<(), DeploymentError> 
             "release plan candidate provider evidence is invalid".to_owned(),
         ));
     }
-    if plan.go_changed && !plan.with_backups {
-        return Err(DeploymentError::InvalidSchema(
-            "backend changes require verified three-copy backups".to_owned(),
-        ));
-    }
+    controller_backup::validate_plan_mode(plan)?;
     Ok(())
 }
 
@@ -440,9 +455,7 @@ pub async fn target_confirm(workspace_path: &Path) -> Result<ProductionStatus, D
     validate_transaction_lock(&workspace)?;
     let manifest = workspace.read_manifest(true)?;
     verify_manifest_evidence(&workspace, &manifest, true)?;
-    if manifest.backups_enabled && manifest.backup_evidence_format == 2 {
-        verify_backup_confirmation(&manifest, true)?;
-    }
+    verify_confirmation_evidence(&workspace, &manifest, true)?;
     let status = workspace.read_status(true)?;
     if status.phase == "CONFIRMED" {
         finalize_transaction(&workspace)?;
@@ -477,9 +490,7 @@ pub async fn target_confirm(workspace_path: &Path) -> Result<ProductionStatus, D
     };
     workspace.write_status(confirming)?;
     verify_manifest_evidence(&workspace, &manifest, true)?;
-    if manifest.backups_enabled && manifest.backup_evidence_format == 2 {
-        verify_backup_confirmation(&manifest, true)?;
-    }
+    verify_confirmation_evidence(&workspace, &manifest, true)?;
     verify_active_provider(
         &manifest.go.candidate_package_name,
         &manifest.new_provider_target,
@@ -896,7 +907,14 @@ fn validate_manifest_schema(
             "configuration restore path escapes deployment state".to_owned(),
         ));
     }
-    if manifest.backups_enabled {
+    if manifest.backups_enabled && manifest.backup_evidence_format == 3 {
+        controller_backup::validate_schema(workspace, manifest)?;
+    } else if manifest.backups_enabled {
+        if manifest.controller_only_backup.is_some() {
+            return Err(DeploymentError::InvalidSchema(
+                "legacy manifest contains controller-only evidence".to_owned(),
+            ));
+        }
         if manifest.backup_dir != Path::new(BACKUP_ROOT).join(&manifest.deployment_id) {
             return Err(DeploymentError::UnsafePath(
                 "target backup path is not release-scoped".to_owned(),
@@ -927,6 +945,7 @@ fn validate_manifest_schema(
         || !manifest.target_backup_sha256.is_empty()
         || !manifest.controller_backup_sha256.is_empty()
         || !manifest.offhost_backup_sha256.is_empty()
+        || manifest.controller_only_backup.is_some()
     {
         return Err(DeploymentError::InvalidSchema(
             "manifest contains unauthorized backup evidence".to_owned(),
@@ -1079,7 +1098,11 @@ fn verify_manifest_evidence(
             "configuration rollback snapshot no longer matches manifest".to_owned(),
         ));
     }
-    verify_target_backup(manifest, require_root_owner)?;
+    if manifest.backup_evidence_format == 3 {
+        controller_backup::verify_initial(workspace, manifest, require_root_owner)?;
+    } else {
+        verify_target_backup(manifest, require_root_owner)?;
+    }
     Ok(())
 }
 
@@ -1242,6 +1265,21 @@ fn verify_target_backup(
         return Err(DeploymentError::InvalidEvidence(
             "legacy manifest cannot accept current backup evidence".to_owned(),
         ));
+    }
+    Ok(())
+}
+
+fn verify_confirmation_evidence(
+    workspace: &Workspace,
+    manifest: &ProductionManifest,
+    require_root_owner: bool,
+) -> Result<(), DeploymentError> {
+    if manifest.backups_enabled {
+        match manifest.backup_evidence_format {
+            2 => verify_backup_confirmation(manifest, require_root_owner)?,
+            3 => controller_backup::verify_confirmation(workspace, manifest, require_root_owner)?,
+            _ => {}
+        }
     }
     Ok(())
 }
@@ -1713,6 +1751,7 @@ mod tests {
                 target_backup_sha256: String::new(),
                 controller_backup_sha256: String::new(),
                 offhost_backup_sha256: String::new(),
+                controller_only_backup: None,
                 database_schema: "public".to_owned(),
                 observation_started_utc: Some(Utc::now()),
                 observation_seconds: MINIMUM_OBSERVATION_SECONDS,
@@ -1820,6 +1859,7 @@ mod tests {
                 target_backup_sha256: target_digest,
                 controller_backup_sha256: controller_digest,
                 offhost_backup_sha256: offhost_digest,
+                controller_only_backup: None,
                 database_schema: String::new(),
                 observation_started_utc: None,
                 observation_seconds: MINIMUM_OBSERVATION_SECONDS,
@@ -1841,7 +1881,7 @@ mod tests {
     #[test]
     fn formats_match_manual_only_go_contract() {
         assert_eq!((MANIFEST_FORMAT, STATUS_FORMAT), (8, 2));
-        assert_eq!((RELEASE_PLAN_FORMAT, RELEASE_STATE_FORMAT), (5, 3));
+        assert_eq!((RELEASE_PLAN_FORMAT, RELEASE_STATE_FORMAT), (6, 3));
     }
 
     #[test]
