@@ -27,6 +27,7 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { I18nextProvider, initReactI18next } from 'react-i18next'
 
+import { parseAssistantToolTraces } from './api.js'
 import { AssistantToolCalls } from './assistant-tool-calls.js'
 import { collapseAssistantToolTraces } from './assistant-tool-traces.js'
 
@@ -116,4 +117,19 @@ describe('assistant tool traces', () => {
     ])
     assert.equal(traces.length, 2)
   })
+})
+
+test('keeps every bounded administrator action and its failed outcome', () => {
+  const parsed = parseAssistantToolTraces(
+    Array.from({ length: 24 }, (_, index) => ({
+      call_id: `admin-${index}`,
+      name: 'execute_admin_operation',
+      status: index === 0 ? 'output-error' : 'output-available',
+      input: { operation_id: 'PUT /api/channel/' },
+    }))
+  )
+  const traces = collapseAssistantToolTraces(parsed)
+  assert.equal(traces.length, 24)
+  assert.equal(traces[0]?.status, 'output-error')
+  assert.equal(traces[23]?.callId, 'admin-23')
 })

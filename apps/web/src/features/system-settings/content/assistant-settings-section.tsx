@@ -1018,7 +1018,7 @@ export function AssistantSettingsSection(props: {
                       <Input
                         type='number'
                         min={1}
-                        max={12}
+                        max={32}
                         step={1}
                         {...safeNumberFieldProps(field)}
                         disabled={!enabled || !agentLoopEnabled}
@@ -1026,7 +1026,7 @@ export function AssistantSettingsSection(props: {
                     </FormControl>
                     <FormDescription>
                       {t(
-                        'Maximum number of model/tool turns in one assistant request (1–12).'
+                        'Maximum number of model/tool turns in one assistant request (1–32).'
                       )}
                     </FormDescription>
                     <FormMessage />
@@ -1044,7 +1044,7 @@ export function AssistantSettingsSection(props: {
                       <Input
                         type='number'
                         min={5}
-                        max={120}
+                        max={300}
                         step={1}
                         {...safeNumberFieldProps(field)}
                         disabled={!enabled || !agentLoopEnabled}
@@ -1052,7 +1052,7 @@ export function AssistantSettingsSection(props: {
                     </FormControl>
                     <FormDescription>
                       {t(
-                        'Hard limit for the complete agent loop (5–120 seconds).'
+                        'Hard limit for the complete agent loop (5–300 seconds).'
                       )}
                     </FormDescription>
                     <FormMessage />

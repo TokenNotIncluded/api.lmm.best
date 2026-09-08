@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"reflect"
 	"strings"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
@@ -57,6 +58,21 @@ func authHelper(c *gin.Context, minRole int) {
 		writeDashboardAuthError(c, err)
 		return
 	}
+	if minRole >= common.RoleAdminUser {
+		// An assistant operation can arrive after a demotion or security reset
+		// during the same conversation. Handlers also inspect c.role, so the
+		// context must contain the authoritative role, not the cached snapshot.
+		current, loadErr := model.GetUserById(user.Id, false)
+		if loadErr != nil {
+			writeDashboardAuthError(c, loadErr)
+			return
+		}
+		if current == nil || current.AuthVersion != identity.UserAuthVersion {
+			writeDashboardAuthError(c, service.ErrAuthTokenInvalid)
+			return
+		}
+		user = current.ToBaseUser()
+	}
 	if user.Status != common.UserStatusEnabled {
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"success": false, "code": "AUTH_USER_DISABLED", "message": common.TranslateMessage(c, i18n.MsgAuthUserBanned)})
 		return
@@ -105,14 +121,26 @@ func UserAuth() func(c *gin.Context) {
 }
 
 func AdminAuth() func(c *gin.Context) {
-	return func(c *gin.Context) {
-		authHelper(c, common.RoleAdminUser)
-	}
+	return dashboardAdminAuth
 }
 
 func RootAuth() func(c *gin.Context) {
-	return func(c *gin.Context) {
-		authHelper(c, common.RoleRootUser)
+	return dashboardRootAuth
+}
+
+func dashboardAdminAuth(c *gin.Context) { authHelper(c, common.RoleAdminUser) }
+func dashboardRootAuth(c *gin.Context)  { authHelper(c, common.RoleRootUser) }
+
+// RequiredDashboardRole identifies the named authentication middleware when
+// registering assistant operations. Authentication itself always runs normally.
+func RequiredDashboardRole(handler gin.HandlerFunc) int {
+	switch reflect.ValueOf(handler).Pointer() {
+	case reflect.ValueOf(dashboardAdminAuth).Pointer():
+		return common.RoleAdminUser
+	case reflect.ValueOf(dashboardRootAuth).Pointer():
+		return common.RoleRootUser
+	default:
+		return 0
 	}
 }
 

@@ -361,7 +361,7 @@ func assistantUserContextForRequest(userID int, message string, conversation ...
 	}
 
 	user, err := model.GetUserById(userID, false)
-	if err != nil || user == nil {
+	if err != nil || user == nil || user.Status != common.UserStatusEnabled {
 		context.CustomerProfile, context.ProfileSignals = classifyAssistantCustomerProfile(context, userText)
 		context.GiftRewardBlocked = assistantGiftRewardRiskInConversation(context, conversation...)
 		context.WelcomeStrategy = assistantWelcomeStrategyForContext(context)

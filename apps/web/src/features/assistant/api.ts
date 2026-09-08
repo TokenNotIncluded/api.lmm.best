@@ -403,6 +403,7 @@ export type AssistantUserAction =
   | AssistantUserAccountAction
 
 export type AssistantToolTrace = {
+  callId?: string
   name: string
   status: 'output-available' | 'output-error' | 'approval-requested'
   input?: Record<string, string | number | boolean>
@@ -886,7 +887,7 @@ function parseAssistantUserAction(
 export function parseAssistantToolTraces(value: unknown): AssistantToolTrace[] {
   if (!Array.isArray(value)) return []
   return value
-    .slice(0, 12)
+    .slice(0, 1024)
     .map((item) => {
       if (!item || typeof item !== 'object') return null
       const trace = item as Record<string, unknown>
@@ -937,6 +938,9 @@ export function parseAssistantToolTraces(value: unknown): AssistantToolTrace[] {
           : undefined
       return {
         name,
+        ...(typeof trace.call_id === 'string' && trace.call_id.length <= 200
+          ? { callId: trace.call_id }
+          : {}),
         status: trace.status as AssistantToolTrace['status'],
         ...(input && Object.keys(input).length > 0 ? { input } : {}),
         ...(result !== undefined ? { result } : {}),
