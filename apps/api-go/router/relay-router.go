@@ -20,6 +20,9 @@ func SetRelayRouter(router *gin.Engine) {
 	router.Use(middleware.DecompressRequestMiddleware())
 	router.Use(middleware.BodyStorageCleanup()) // 清理请求体存储
 	router.Use(middleware.StatsMiddleware())
+	// One process-wide pool across protocols. Register it after authentication
+	// and before any middleware that reads/decodes the request body.
+	largeRequestAdmission := middleware.RelayRequestAdmission()
 	// https://platform.openai.com/docs/api-reference/introduction
 	modelsRouter := router.Group("/v1/models")
 	modelsRouter.Use(middleware.RouteTag("relay"))
@@ -70,7 +73,7 @@ func SetRelayRouter(router *gin.Engine) {
 	playgroundRouter := router.Group("/pg")
 	playgroundRouter.Use(middleware.RouteTag("relay"))
 	playgroundRouter.Use(middleware.SystemPerformanceCheck())
-	playgroundRouter.Use(middleware.UserAuth(), middleware.Distribute())
+	playgroundRouter.Use(middleware.UserAuth(), largeRequestAdmission, middleware.Distribute())
 	{
 		playgroundRouter.POST("/chat/completions", controller.Playground)
 	}
@@ -80,7 +83,7 @@ func SetRelayRouter(router *gin.Engine) {
 	playgroundImageRouter := router.Group("/pg/images")
 	playgroundImageRouter.Use(middleware.RouteTag("relay"))
 	playgroundImageRouter.Use(middleware.SystemPerformanceCheck())
-	playgroundImageRouter.Use(middleware.UserAuth())
+	playgroundImageRouter.Use(middleware.UserAuth(), largeRequestAdmission)
 	playgroundImageRouter.POST("/generations", middleware.RequestBodyLimit(32<<10), middleware.Distribute(), controller.PlaygroundImage)
 	playgroundImageRouter.POST("/edits", middleware.RequestBodyLimit(82<<20), middleware.Distribute(), controller.PlaygroundImageEdit)
 	assistantPresetRouter := router.Group("/api/assistant/pre-conversation-presets")
@@ -94,7 +97,7 @@ func SetRelayRouter(router *gin.Engine) {
 	assistantRouter := router.Group("/api/assistant")
 	assistantRouter.Use(middleware.RouteTag("relay"))
 	assistantRouter.Use(middleware.SystemPerformanceCheck())
-	assistantRouter.Use(middleware.UserAuth())
+	assistantRouter.Use(middleware.UserAuth(), largeRequestAdmission)
 	{
 		assistantRouter.GET("/status", controller.GetAssistantStatus)
 		assistantRouter.GET("/models", middleware.AdminAuth(), controller.GetAssistantModels)
@@ -146,6 +149,7 @@ func SetRelayRouter(router *gin.Engine) {
 	relayV1Router.Use(middleware.RouteTag("relay"))
 	relayV1Router.Use(middleware.SystemPerformanceCheck())
 	relayV1Router.Use(middleware.TokenAuth())
+	relayV1Router.Use(largeRequestAdmission)
 	relayV1Router.Use(middleware.ModelRequestRateLimit())
 	{
 		// Channel selection is delayed until response.create supplies the model.
@@ -253,18 +257,18 @@ func SetRelayRouter(router *gin.Engine) {
 	relayMjRouter := router.Group("/mj")
 	relayMjRouter.Use(middleware.RouteTag("relay"))
 	relayMjRouter.Use(middleware.SystemPerformanceCheck())
-	registerMjRouterGroup(relayMjRouter)
+	registerMjRouterGroup(relayMjRouter, largeRequestAdmission)
 
 	relayMjModeRouter := router.Group("/:mode/mj")
 	relayMjModeRouter.Use(middleware.RouteTag("relay"))
 	relayMjModeRouter.Use(middleware.SystemPerformanceCheck())
-	registerMjRouterGroup(relayMjModeRouter)
+	registerMjRouterGroup(relayMjModeRouter, largeRequestAdmission)
 	//relayMjRouter.Use()
 
 	relaySunoRouter := router.Group("/suno")
 	relaySunoRouter.Use(middleware.RouteTag("relay"))
 	relaySunoRouter.Use(middleware.SystemPerformanceCheck())
-	relaySunoRouter.Use(middleware.TokenAuth(), middleware.Distribute())
+	relaySunoRouter.Use(middleware.TokenAuth(), largeRequestAdmission, middleware.Distribute())
 	{
 		relaySunoRouter.POST("/submit/:action", controller.RelayTask)
 		relaySunoRouter.POST("/fetch", controller.RelayTaskFetch)
@@ -275,6 +279,7 @@ func SetRelayRouter(router *gin.Engine) {
 	relayGeminiRouter.Use(middleware.RouteTag("relay"))
 	relayGeminiRouter.Use(middleware.SystemPerformanceCheck())
 	relayGeminiRouter.Use(middleware.TokenAuth())
+	relayGeminiRouter.Use(largeRequestAdmission)
 	relayGeminiRouter.Use(middleware.ModelRequestRateLimit())
 	relayGeminiRouter.Use(middleware.Distribute())
 	{
@@ -285,9 +290,9 @@ func SetRelayRouter(router *gin.Engine) {
 	}
 }
 
-func registerMjRouterGroup(relayMjRouter *gin.RouterGroup) {
+func registerMjRouterGroup(relayMjRouter *gin.RouterGroup, largeRequestAdmission gin.HandlerFunc) {
 	relayMjRouter.GET("/image/:id", relay.RelayMidjourneyImage)
-	relayMjRouter.Use(middleware.TokenAuth(), middleware.Distribute())
+	relayMjRouter.Use(middleware.TokenAuth(), largeRequestAdmission, middleware.Distribute())
 	{
 		relayMjRouter.POST("/submit/action", controller.RelayMidjourney)
 		relayMjRouter.POST("/submit/shorten", controller.RelayMidjourney)

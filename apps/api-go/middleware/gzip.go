@@ -25,7 +25,8 @@ func (rc *readCloser) Close() error {
 
 func DecompressRequestMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if c.Request.Body == nil || c.Request.Method == http.MethodGet {
+		if c.Request.Body == nil || c.Request.Method == http.MethodGet ||
+			(c.Request.Body == http.NoBody && c.GetHeader("Content-Encoding") == "") {
 			c.Next()
 			return
 		}
@@ -53,6 +54,9 @@ func DecompressRequestMiddleware() gin.HandlerFunc {
 				c.AbortWithStatus(http.StatusBadRequest)
 				return
 			}
+			// Release decoder resources even if authentication/admission rejects
+			// the request before a body consumer takes ownership.
+			defer gzipReader.Close()
 			// Replace the request body with the decompressed data, and enforce a max size (post-decompression).
 			c.Request.Body = wrapMaxBytes(&readCloser{
 				Reader: gzipReader,
@@ -72,17 +76,21 @@ func DecompressRequestMiddleware() gin.HandlerFunc {
 			})
 			decompressed = true
 		case "zstd":
-			reader, err := zstd.NewReader(origBody)
+			// Avoid eager asynchronous decompression before authentication and
+			// admission, and bound per-request decoder buffers/goroutines.
+			reader, err := zstd.NewReader(origBody, zstd.WithDecoderConcurrency(1))
 			if err != nil {
 				_ = origBody.Close()
 				c.AbortWithStatus(http.StatusBadRequest)
 				return
 			}
+			defer reader.Close()
 			c.Request.Body = wrapMaxBytes(&readCloser{
 				Reader: reader,
 				closeFn: func() error {
+					err := origBody.Close()
 					reader.Close()
-					return origBody.Close()
+					return err
 				},
 			})
 			decompressed = true
@@ -93,9 +101,16 @@ func DecompressRequestMiddleware() gin.HandlerFunc {
 
 		if decompressed {
 			c.Request.Header.Del("Content-Encoding")
+			// The wire length describes compressed bytes, not this reader. A
+			// small compressed body must not bypass admission/spill thresholds
+			// and grow into a large io.ReadAll allocation after decompression.
+			c.Request.ContentLength = -1
+			c.Request.Header.Del("Content-Length")
 		}
 
-		// Continue processing the request
+		// net/http still owns the original wire body on early rejection. Do
+		// not drain/close it here before the error response can be flushed;
+		// only the decoder resources above are owned by this middleware.
 		c.Next()
 	}
 }

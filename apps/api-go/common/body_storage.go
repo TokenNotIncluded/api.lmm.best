@@ -82,6 +82,11 @@ func (m *memoryStorage) Close() error {
 	defer m.mu.Unlock()
 	if atomic.CompareAndSwapInt32(&m.closed, 0, 1) {
 		DecrementMemoryBuffers(m.size)
+		// Storage may outlive the request through replay closures. Drop its
+		// references now; already-open independent readers retain their own
+		// backing array and remain usable until their callers release them.
+		m.data = nil
+		m.reader = nil
 	}
 	return nil
 }
