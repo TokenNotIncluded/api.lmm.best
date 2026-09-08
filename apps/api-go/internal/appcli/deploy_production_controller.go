@@ -32,19 +32,20 @@ type productionReleaseControllerOptions struct {
 }
 
 type productionReleaseControllerState struct {
-	Format           int       `json:"format"`
-	DeploymentID     string    `json:"deployment_id"`
-	PlanSHA256       string    `json:"plan_sha256"`
-	Phase            string    `json:"phase"`
-	RemoteWorkspace  string    `json:"remote_workspace"`
-	TargetBackup     string    `json:"target_backup,omitempty"`
-	ControllerBackup string    `json:"controller_backup,omitempty"`
-	OffhostBackup    string    `json:"offhost_backup,omitempty"`
-	Version          string    `json:"version,omitempty"`
-	ActivationUnit   string    `json:"activation_unit,omitempty"`
-	DispatchAttempts int       `json:"dispatch_attempts,omitempty"`
-	DispatchObserved bool      `json:"dispatch_observed,omitempty"`
-	UpdatedUTC       time.Time `json:"updated_utc"`
+	Format                  int       `json:"format"`
+	DeploymentID            string    `json:"deployment_id"`
+	PlanSHA256              string    `json:"plan_sha256"`
+	Phase                   string    `json:"phase"`
+	RemoteWorkspace         string    `json:"remote_workspace"`
+	TargetBackup            string    `json:"target_backup,omitempty"`
+	ControllerBackup        string    `json:"controller_backup,omitempty"`
+	ControllerReceiptSHA256 string    `json:"controller_receipt_sha256,omitempty"`
+	OffhostBackup           string    `json:"offhost_backup,omitempty"`
+	Version                 string    `json:"version,omitempty"`
+	ActivationUnit          string    `json:"activation_unit,omitempty"`
+	DispatchAttempts        int       `json:"dispatch_attempts,omitempty"`
+	DispatchObserved        bool      `json:"dispatch_observed,omitempty"`
+	UpdatedUTC              time.Time `json:"updated_utc"`
 }
 
 type productionReleaseControllerResult struct {
@@ -253,7 +254,16 @@ func (runtime *productionReleaseRuntime) promote(ctx context.Context, options pr
 	if err := runtime.verifyRemoteStagedRelease(ctx, plan, state); err != nil {
 		return productionReleaseControllerResult{}, err
 	}
-	if plan.WithBackups && state.TargetBackup == "" {
+	if !plan.WithBackups && options.AgeIdentityFile != "" {
+		return productionReleaseControllerResult{}, errors.New("disabled backup plans forbid --age-identity-file")
+	}
+	if plan.Format == productionReleasePlanFormat && plan.WithBackups && state.DispatchAttempts == 0 &&
+		(state.Phase == productionReleasePhaseStaged || state.Phase == productionReleasePhaseBackupsReady) {
+		if err := runtime.prepareControllerOnlyBackup(ctx, plan, &state, options.AgeIdentityFile); err != nil {
+			return productionReleaseControllerResult{}, err
+		}
+	}
+	if plan.Format == 5 && plan.WithBackups && state.TargetBackup == "" {
 		if options.AgeIdentityFile == "" {
 			return productionReleaseControllerResult{}, errors.New("--age-identity-file is required by this backup-enabled plan")
 		}
@@ -308,6 +318,9 @@ func (runtime *productionReleaseRuntime) control(ctx context.Context, action str
 	if err := runtime.assertRemoteHost(ctx, plan.TargetAlias, plan.ExpectedHost); err != nil {
 		return productionReleaseControllerResult{}, err
 	}
+	if !plan.WithBackups && options.AgeIdentityFile != "" {
+		return productionReleaseControllerResult{}, errors.New("disabled backup plans forbid --age-identity-file")
+	}
 	if action == "confirm" && plan.WithBackups {
 		if options.AgeIdentityFile == "" {
 			return productionReleaseControllerResult{}, errors.New("--age-identity-file is required to reverify backup-enabled confirmation")
@@ -321,7 +334,11 @@ func (runtime *productionReleaseRuntime) control(ctx context.Context, action str
 		if action == "rollback" {
 			arguments = append(arguments, "--reason", options.Reason)
 		}
-		output, err := runtime.ssh(ctx, plan.TargetAlias, 12*time.Minute, append([]string{productionOperatorBinary}, arguments...)...)
+		operator, err := runtime.controllerRecoveryOperator(ctx, plan, state)
+		if err != nil {
+			return productionReleaseControllerResult{}, err
+		}
+		output, err := runtime.ssh(ctx, plan.TargetAlias, 12*time.Minute, append([]string{operator}, arguments...)...)
 		if err != nil {
 			return productionReleaseControllerResult{}, fmt.Errorf("production %s failed or became transport-ambiguous: %w", action, err)
 		}
@@ -393,7 +410,15 @@ func (runtime *productionReleaseRuntime) productionApplyArguments(plan productio
 		arguments = append(arguments, "--web-changed")
 	}
 	if plan.WithBackups {
-		arguments = append(arguments, "--with-backups", "--backup-dir", state.TargetBackup)
+		if plan.Format == productionReleasePlanFormat {
+			arguments = append(arguments, "--with-backups",
+				"--controller-backup-public-key", plan.ControllerBackupPublicKey,
+				"--release-plan-sha256", state.PlanSHA256,
+				"--controller-backup-receipt", filepath.Join(state.RemoteWorkspace, "state", controllerBackupReceiptName),
+				"--controller-backup-receipt-sha256", state.ControllerReceiptSHA256)
+		} else {
+			arguments = append(arguments, "--with-backups", "--backup-dir", state.TargetBackup)
+		}
 	}
 	if plan.PreserveEdgePolicy {
 		arguments = append(arguments, "--preserve-edge-policy")
@@ -545,9 +570,27 @@ func (runtime *productionReleaseRuntime) waitForDispatchObservation(ctx context.
 	}
 }
 
+func (runtime *productionReleaseRuntime) controllerRecoveryOperator(ctx context.Context, plan productionReleasePlan, state productionReleaseControllerState) (string, error) {
+	if plan.Format == productionReleasePlanFormat && plan.WithBackups {
+		// After activation the installed, package-bound CLI is sufficient even
+		// if disposable staging has disappeared. Never infer compatibility from
+		// a version string or fall back to an unverified N-1 provider.
+		provider := filepath.Join(filepath.Dir(productionOperatorBinary), backendGoName)
+		if err := runtime.verifyRemoteProviderEntrypoint(ctx, plan.TargetAlias, productionOperatorBinary, provider, plan.GoCandidate.PayloadSHA256); err == nil {
+			return productionOperatorBinary, nil
+		}
+		return runtime.remoteCandidateCommand(ctx, plan, state)
+	}
+	return productionOperatorBinary, nil
+}
+
 func (runtime *productionReleaseRuntime) readRemoteReleaseStatus(ctx context.Context, plan productionReleasePlan, state productionReleaseControllerState) (productionStatus, error) {
+	operator, err := runtime.controllerRecoveryOperator(ctx, plan, state)
+	if err != nil {
+		return productionStatus{}, err
+	}
 	output, err := runtime.ssh(ctx, plan.TargetAlias, 2*time.Minute,
-		productionOperatorBinary, "deploy", "production", "status", "--workspace", state.RemoteWorkspace)
+		operator, "deploy", "production", "status", "--workspace", state.RemoteWorkspace)
 	if err != nil {
 		return productionStatus{}, fmt.Errorf("read production release status: %w", err)
 	}
@@ -588,7 +631,7 @@ func productionReleaseStageFiles(plan productionReleasePlan, planPath string) ([
 		{planPath, planSHA256, false},
 		{digestPath, digestSHA256, false},
 	}
-	if plan.WithBackups {
+	if plan.WithBackups && plan.Format == 5 {
 		files = append(files, productionReleaseStageFile{plan.AgeRecipient.Path, plan.AgeRecipient.SHA256, false})
 	}
 	unique := make([]productionReleaseStageFile, 0, len(files))
@@ -669,22 +712,29 @@ func (runtime *productionReleaseRuntime) ensureRemoteCandidateEntrypoint(ctx con
 func (runtime *productionReleaseRuntime) verifyRemoteCandidateEntrypoint(ctx context.Context, plan productionReleasePlan, state productionReleaseControllerState) error {
 	link := productionRemoteOperatorPath(state)
 	target := filepath.Join(state.RemoteWorkspace, "staging", backendGoName)
-	output, err := runtime.ssh(ctx, plan.TargetAlias, 2*time.Minute, "readlink", "--", link)
-	if err != nil || strings.TrimSpace(string(output)) != backendGoName {
-		return errors.New("remote candidate entrypoint is not a one-hop relative lmm-api link")
+	return runtime.verifyRemoteProviderEntrypoint(ctx, plan.TargetAlias, link, target, plan.GoCandidate.PayloadSHA256)
+}
+
+func (runtime *productionReleaseRuntime) verifyRemoteProviderEntrypoint(ctx context.Context, alias, link, target, expectedSHA256 string) error {
+	if !productionSHA256Pattern.MatchString(expectedSHA256) {
+		return errors.New("remote provider verification requires a frozen package payload digest")
 	}
-	metadata, err := runtime.ssh(ctx, plan.TargetAlias, 2*time.Minute, "stat", "-c", "%u:%a:%h:%F", "--", target)
-	parts := strings.SplitN(strings.TrimSpace(string(metadata)), ":", 4)
-	if err != nil || len(parts) != 4 || parts[0] != "0" || parts[2] != "1" || parts[3] != "regular file" {
+	output, err := runtime.ssh(ctx, alias, 2*time.Minute, "readlink", "--", link)
+	if err != nil || strings.TrimSpace(string(output)) != backendGoName {
+		return errors.New("remote provider entrypoint is not a one-hop relative lmm-api link")
+	}
+	metadata, err := runtime.ssh(ctx, alias, 2*time.Minute, "stat", "-c", "%u:%f:%h", "--", target)
+	parts := strings.SplitN(strings.TrimSpace(string(metadata)), ":", 3)
+	if err != nil || len(parts) != 3 || parts[0] != "0" || parts[2] != "1" {
 		return errors.New("remote candidate provider target is not a root-owned single-link regular file")
 	}
-	mode, parseErr := strconv.ParseUint(parts[1], 8, 32)
-	if parseErr != nil || mode&0o022 != 0 || mode&0o100 == 0 {
+	mode, parseErr := strconv.ParseUint(parts[1], 16, 32)
+	if parseErr != nil || mode&0o170000 != 0o100000 || mode&0o7022 != 0 || mode&0o100 == 0 {
 		return errors.New("remote candidate provider target mode is unsafe")
 	}
 	for _, path := range []string{target, link} {
-		digest, err := runtime.remoteFileSHA256(ctx, plan.TargetAlias, path)
-		if err != nil || digest != plan.GoCandidate.PayloadSHA256 {
+		digest, err := runtime.remoteFileSHA256(ctx, alias, path)
+		if err != nil || digest != expectedSHA256 {
 			return errors.New("remote candidate entrypoint target digest mismatch")
 		}
 	}
@@ -700,7 +750,7 @@ func (runtime *productionReleaseRuntime) verifyRemoteStagedRelease(ctx context.C
 		plan.ProbeBinary,
 		plan.OperatorBinary,
 	}
-	if plan.WithBackups {
+	if plan.WithBackups && plan.Format == 5 {
 		files = append(files, plan.AgeRecipient)
 	}
 	seen := make(map[string]string)
@@ -729,6 +779,9 @@ type productionPreparedBackups struct {
 }
 
 func (runtime *productionReleaseRuntime) prepareControllerBackups(ctx context.Context, plan productionReleasePlan, state productionReleaseControllerState, ageIdentityFile string) (productionPreparedBackups, error) {
+	if plan.Format != 5 || !plan.WithBackups {
+		return productionPreparedBackups{}, errors.New("legacy multi-copy backup creation is unavailable to new release plans")
+	}
 	if err := runtime.assertRemoteHost(ctx, productionOffhostAlias, productionOffhostExpectedHost); err != nil {
 		return productionPreparedBackups{}, err
 	}
@@ -969,6 +1022,12 @@ func (runtime *productionReleaseRuntime) verifyRemoteExternalBackupCopy(ctx cont
 }
 
 func (runtime *productionReleaseRuntime) reverifyControllerBackups(ctx context.Context, plan productionReleasePlan, state productionReleaseControllerState, ageIdentityFile string) error {
+	if plan.Format == productionReleasePlanFormat {
+		return runtime.reverifyControllerOnlyBackup(ctx, plan, state, ageIdentityFile)
+	}
+	if plan.Format != 5 || !plan.WithBackups {
+		return errors.New("backup re-verification requires an explicitly selected supported plan")
+	}
 	if err := validateAgeIdentity(ageIdentityFile); err != nil {
 		return err
 	}
@@ -1139,6 +1198,9 @@ func validateProductionReleaseControllerState(plan productionReleasePlan, planSH
 	}
 	if state.Phase == productionReleasePhaseActivationDispatched && state.DispatchAttempts == 0 {
 		return errors.New("controller release state activation phase lacks a dispatch attempt")
+	}
+	if err := validateControllerOnlyBackupState(plan, state); err != nil {
+		return err
 	}
 	for _, path := range []string{state.TargetBackup, state.ControllerBackup, state.OffhostBackup} {
 		if path != "" && !filepath.IsAbs(path) {

@@ -64,6 +64,19 @@ A provider switch can occur while a deployment is awaiting confirmation.
 Therefore either provider MUST be able to read, validate, confirm, or manually
 roll back a transaction created by the other provider.
 
+## Optional production backups
+
+Release-plan format 6 requires an explicit `disabled` or `controller-only` backup
+mode. Go-only, Web-only, and combined releases may disable backups. Selected
+controller-only backups require authenticated verification of the complete local
+collection; target hosts receive signed metadata rather than archives or keys.
+Both providers MUST validate evidence format 3 and retain legacy readers for
+existing transactions. Optional backups do not replace verified N-1 packages or
+configuration rollback state.
+
+[Controller-only backup evidence](controller-only-backup-format.md) defines the
+wire format, freshness rules, transfer/retry behavior and recovery requirements.
+
 ## Manual rollback
 
 Production deployment has no scheduled or automatic rollback. It MUST NOT create

@@ -1377,7 +1377,7 @@ func TestProductionManualRollbackNeverRestoresDatabaseAndPreservesOnlineWrites(t
 	}
 }
 
-func TestProductionBackupsMayBeOmittedOnlyForWebOnlyTransactions(t *testing.T) {
+func TestProductionBackupsAreOptionalForEveryChangeKind(t *testing.T) {
 	t.Run("Web-only omitted", func(t *testing.T) {
 		fixture := newProductionFixture(t)
 		fixture.options.GoChanged = false
@@ -1398,20 +1398,33 @@ func TestProductionBackupsMayBeOmittedOnlyForWebOnlyTransactions(t *testing.T) {
 			t.Fatalf("backup state persisted for Web-only release without backups: %#v", manifest)
 		}
 	})
-	t.Run("Go change omitted", func(t *testing.T) {
-		fixture := newProductionFixture(t)
-		fixture.options.BackupDir = ""
-		fixture.options.WithBackups = false
-		if _, err := fixture.runtime.apply(context.Background(), fixture.workspace, fixture.options); err == nil || !strings.Contains(err.Error(), "Go transactions require verified three-copy backups") {
-			t.Fatalf("Go backup requirement error=%v", err)
-		}
-		if _, err := os.Lstat(fixture.workspace.statusPath); !errors.Is(err, os.ErrNotExist) {
-			t.Fatalf("rejected Go transaction wrote status: %v", err)
-		}
-		if _, err := os.Lstat(fixture.workspace.manifestPath); !errors.Is(err, os.ErrNotExist) {
-			t.Fatalf("rejected Go transaction wrote manifest: %v", err)
-		}
-	})
+	for _, webChanged := range []bool{false, true} {
+		t.Run(fmt.Sprintf("Go change with Web=%t omitted", webChanged), func(t *testing.T) {
+			fixture := newProductionFixture(t)
+			fixture.options.BackupDir = ""
+			fixture.options.WithBackups = false
+			fixture.options.WebChanged = webChanged
+			if !webChanged {
+				fixture.options.WebPackage = fixture.options.WebRollbackPackage
+				fixture.options.WebPackageSHA256 = fixture.options.WebRollbackSHA256
+			}
+			if _, err := fixture.runtime.apply(context.Background(), fixture.workspace, fixture.options); err != nil {
+				t.Fatal(err)
+			}
+			manifest, err := fixture.runtime.readManifest(fixture.workspace)
+			if err != nil || manifest.BackupsEnabled || manifest.ControllerOnlyBackup != nil || manifest.BackupEvidenceFormat != 0 {
+				t.Fatalf("disabled backup manifest invalid: %v", err)
+			}
+			if _, err := fixture.runtime.confirm(context.Background(), fixture.workspace); err != nil {
+				t.Fatal(err)
+			}
+			for _, command := range fixture.runner.commands {
+				if command.Name == commandAge || command.Name == commandPGDump || command.Name == commandPGRestore {
+					t.Fatalf("disabled mode ran backup command %s", command.Name)
+				}
+			}
+		})
+	}
 	t.Run("authorized-empty-database", func(t *testing.T) {
 		fixture := newProductionFixture(t)
 		if err := os.Truncate(filepath.Join(fixture.options.BackupDir, "database.archive"), 0); err != nil {
@@ -1492,7 +1505,7 @@ func TestParseProductionTransactionRejectsRemovedAutomaticRollbackFlags(t *testi
 	}
 }
 
-func TestParseProductionTransactionRequiresBackupsForGoChanges(t *testing.T) {
+func TestParseProductionTransactionAllowsGoChangesWithoutBackups(t *testing.T) {
 	fixture := newProductionFixture(t)
 	base := []string{
 		"--workspace", fixture.workspace.root, "--operator-user", productionOperatorUser,
@@ -1503,9 +1516,9 @@ func TestParseProductionTransactionRequiresBackupsForGoChanges(t *testing.T) {
 		"--probe-binary", fixture.options.ProbeBinary, "--probe-binary-sha256", fixture.options.ProbeBinarySHA256,
 		"--expected-version", fixture.options.ExpectedVersion,
 	}
-	_, err := parseProductionTransactionOptions("apply", append(slices.Clone(base), "--go-changed"), &bytes.Buffer{})
-	if err == nil || !strings.Contains(err.Error(), "--go-changed requires verified three-copy backups") {
-		t.Fatalf("Go backup parse error=%v", err)
+	goOnly, err := parseProductionTransactionOptions("apply", append(slices.Clone(base), "--go-changed"), &bytes.Buffer{})
+	if err != nil || goOnly.WithBackups || goOnly.BackupDir != "" || goOnly.ControllerBackup != (controllerBackupBinding{}) {
+		t.Fatalf("Go-only transaction without backups rejected or gained backup evidence: %v", err)
 	}
 
 	webOnly, err := parseProductionTransactionOptions("apply", append(slices.Clone(base), "--web-changed"), &bytes.Buffer{})

@@ -23,7 +23,7 @@ const (
 	productionOffhostAlias            = "archczy"
 	productionOffhostExpectedHost     = "archczy"
 	productionOffhostRoot             = "/home/arch/.local/state/lmm-api-production-backups"
-	productionReleasePlanFormat       = 5
+	productionReleasePlanFormat       = 6
 	productionReleaseStateFormat      = 3
 	productionReleasePlanFilename     = "release-plan.json"
 	productionReleasePlanHashFilename = "release-plan.sha256"
@@ -51,6 +51,7 @@ type productionReleasePlanOptions struct {
 	ProbeBinary              string
 	OperatorBinary           string
 	AgeRecipientFile         string
+	ControllerBackupDir      string
 	ObservationSeconds       int
 	PreserveEdgePolicy       bool
 	WithBackups              bool
@@ -79,27 +80,30 @@ type productionReleaseFilePlan struct {
 }
 
 type productionReleasePlan struct {
-	Format              int                          `json:"format"`
-	DeploymentID        string                       `json:"deployment_id"`
-	CreatedUTC          time.Time                    `json:"created_utc"`
-	ControllerWorkspace string                       `json:"controller_workspace"`
-	Repository          string                       `json:"repository"`
-	TargetAlias         string                       `json:"target_alias"`
-	ExpectedHost        string                       `json:"expected_host"`
-	OperatorUser        string                       `json:"operator_user"`
-	ExpectedVersion     string                       `json:"expected_version"`
-	GoCandidate         productionReleasePackagePlan `json:"go_candidate"`
-	GoRollback          productionReleasePackagePlan `json:"go_rollback"`
-	WebCandidate        productionReleasePackagePlan `json:"web_candidate"`
-	WebRollback         productionReleasePackagePlan `json:"web_rollback"`
-	ProbeBinary         productionReleaseFilePlan    `json:"probe_binary"`
-	OperatorBinary      productionReleaseFilePlan    `json:"operator_binary,omitempty"`
-	GoChanged           bool                         `json:"go_changed"`
-	WebChanged          bool                         `json:"web_changed"`
-	ObservationSeconds  int                          `json:"observation_seconds"`
-	PreserveEdgePolicy  bool                         `json:"preserve_edge_policy"`
-	WithBackups         bool                         `json:"with_backups"`
-	AgeRecipient        productionReleaseFilePlan    `json:"age_recipient,omitempty"`
+	Format                    int                          `json:"format"`
+	DeploymentID              string                       `json:"deployment_id"`
+	CreatedUTC                time.Time                    `json:"created_utc"`
+	ControllerWorkspace       string                       `json:"controller_workspace"`
+	Repository                string                       `json:"repository"`
+	TargetAlias               string                       `json:"target_alias"`
+	ExpectedHost              string                       `json:"expected_host"`
+	OperatorUser              string                       `json:"operator_user"`
+	ExpectedVersion           string                       `json:"expected_version"`
+	GoCandidate               productionReleasePackagePlan `json:"go_candidate"`
+	GoRollback                productionReleasePackagePlan `json:"go_rollback"`
+	WebCandidate              productionReleasePackagePlan `json:"web_candidate"`
+	WebRollback               productionReleasePackagePlan `json:"web_rollback"`
+	ProbeBinary               productionReleaseFilePlan    `json:"probe_binary"`
+	OperatorBinary            productionReleaseFilePlan    `json:"operator_binary,omitempty"`
+	GoChanged                 bool                         `json:"go_changed"`
+	WebChanged                bool                         `json:"web_changed"`
+	ObservationSeconds        int                          `json:"observation_seconds"`
+	PreserveEdgePolicy        bool                         `json:"preserve_edge_policy"`
+	WithBackups               bool                         `json:"with_backups"`
+	BackupMode                string                       `json:"backup_mode,omitempty"`
+	ControllerBackupDir       string                       `json:"controller_backup_dir,omitempty"`
+	ControllerBackupPublicKey string                       `json:"controller_backup_public_key,omitempty"`
+	AgeRecipient              productionReleaseFilePlan    `json:"age_recipient,omitempty"`
 }
 
 type productionReleasePlanResult struct {
@@ -155,8 +159,9 @@ func parseProductionReleasePlanOptions(args []string, stderr io.Writer) (product
 	flags.StringVar(&options.WebRollbackReleaseBundle, "web-rollback-release-bundle", "", "rollback Web Sigstore bundle")
 	flags.StringVar(&options.ProbeBinary, "probe-binary", "", "candidate lmm-api binary extracted from the signed Go release")
 	flags.StringVar(&options.OperatorBinary, "operator-binary", "", "optional additional candidate operator artifact to verify before normalizing execution to --probe-binary")
-	flags.BoolVar(&options.WithBackups, "with-backups", false, "require verified target, controller, and off-host backups (mandatory for Go changes)")
-	flags.StringVar(&options.AgeRecipientFile, "age-recipient-file", "", "age or SSH public recipient file used when backups are enabled")
+	flags.BoolVar(&options.WithBackups, "with-backups", false, "select an independently collected controller-only encrypted backup set")
+	flags.StringVar(&options.ControllerBackupDir, "controller-backup-dir", "", "private controller directory containing the completed encrypted backup set")
+	flags.StringVar(&options.AgeRecipientFile, "age-recipient-file", "", "legacy input rejected by new controller-only release plans")
 	flags.IntVar(&options.ObservationSeconds, "observation-seconds", options.ObservationSeconds, "stability observation window (120-360)")
 	flags.BoolVar(&options.PreserveEdgePolicy, "preserve-edge-policy", false, "preserve the active nginx edge policy during activation")
 	flags.Usage = func() { writeProductionDeployUsage(stderr) }
@@ -190,10 +195,13 @@ func parseProductionReleasePlanOptions(args []string, stderr io.Writer) (product
 		"--probe-binary":                &options.ProbeBinary,
 		"--operator-binary":             &options.OperatorBinary,
 	}
+	if options.AgeRecipientFile != "" {
+		return productionReleasePlanOptions{}, errors.New("new plans import controller-only backups; --age-recipient-file cannot create target or off-host copies")
+	}
 	if options.WithBackups {
-		paths["--age-recipient-file"] = &options.AgeRecipientFile
-	} else if options.AgeRecipientFile != "" {
-		return productionReleasePlanOptions{}, errors.New("--age-recipient-file requires --with-backups")
+		paths["--controller-backup-dir"] = &options.ControllerBackupDir
+	} else if options.ControllerBackupDir != "" {
+		return productionReleasePlanOptions{}, errors.New("--controller-backup-dir requires explicit --with-backups")
 	}
 	for label, value := range paths {
 		if *value == "" {
@@ -242,10 +250,11 @@ func (runtime *productionReleaseRuntime) createPlan(ctx context.Context, options
 	if err := validateControllerArtifact(options.OperatorBinary, "operator binary", true); err != nil {
 		return productionReleasePlanResult{}, err
 	}
-	if options.WithBackups {
-		if err := validateControllerArtifact(options.AgeRecipientFile, "age recipient", false); err != nil {
-			return productionReleasePlanResult{}, err
-		}
+	if options.AgeRecipientFile != "" {
+		return productionReleasePlanResult{}, errors.New("new release plans do not create target or off-host backup copies")
+	}
+	if options.WithBackups != (options.ControllerBackupDir != "") {
+		return productionReleasePlanResult{}, errors.New("controller-only backups must be explicitly selected with their import directory")
 	}
 	planPath := filepath.Join(options.Workspace, productionReleasePlanFilename)
 	digestPath := filepath.Join(options.Workspace, productionReleasePlanHashFilename)
@@ -276,9 +285,6 @@ func (runtime *productionReleaseRuntime) createPlan(ctx context.Context, options
 	webChanged := webCandidate.PackageSHA256 != webRollback.PackageSHA256
 	if !goChanged && !webChanged {
 		return productionReleasePlanResult{}, errors.New("candidate release is byte-identical to both rollback packages")
-	}
-	if goChanged && !options.WithBackups {
-		return productionReleasePlanResult{}, errors.New("production Go releases require verified three-copy backups; supply --with-backups and --age-recipient-file")
 	}
 	if err := validateChangedIdentity(goChanged, releasePlanMetadata(goCandidate), releasePlanMetadata(goRollback), goCandidate.PackageSHA256, goRollback.PackageSHA256); err != nil {
 		return productionReleasePlanResult{}, fmt.Errorf("Go package pair: %w", err)
@@ -331,13 +337,16 @@ func (runtime *productionReleaseRuntime) createPlan(ctx context.Context, options
 		ObservationSeconds:  options.ObservationSeconds,
 		PreserveEdgePolicy:  options.PreserveEdgePolicy,
 		WithBackups:         options.WithBackups,
+		BackupMode:          "disabled",
 	}
 	if options.WithBackups {
-		recipientSHA256, err := sha256File(options.AgeRecipientFile)
+		publicKey, err := initializeControllerBackupKey(options.Workspace)
 		if err != nil {
-			return productionReleasePlanResult{}, fmt.Errorf("hash age recipient: %w", err)
+			return productionReleasePlanResult{}, err
 		}
-		plan.AgeRecipient = productionReleaseFilePlan{Path: options.AgeRecipientFile, SHA256: recipientSHA256}
+		plan.BackupMode = "controller-only"
+		plan.ControllerBackupDir = options.ControllerBackupDir
+		plan.ControllerBackupPublicKey = publicKey
 	}
 	if err := validateProductionReleasePlan(plan); err != nil {
 		return productionReleasePlanResult{}, err
@@ -1206,8 +1215,11 @@ func loadProductionReleasePlan(path, expectedSHA256 string) (productionReleasePl
 
 // pi-lens-ignore: go-bare-error
 func validateProductionReleasePlan(plan productionReleasePlan) error {
-	if plan.Format != productionReleasePlanFormat {
+	if plan.Format != productionReleasePlanFormat && plan.Format != 5 {
 		return errors.New("unsupported release plan format")
+	}
+	if err := validateControllerOnlyReleasePlanPolicy(plan); err != nil {
+		return err
 	}
 	if !productionIDPattern.MatchString(plan.DeploymentID) {
 		return errors.New("release plan deployment ID is invalid")
@@ -1221,8 +1233,8 @@ func validateProductionReleasePlan(plan productionReleasePlan) error {
 	if !productionVersionPattern.MatchString(plan.ExpectedVersion) || plan.ObservationSeconds < 120 || plan.ObservationSeconds > 360 {
 		return errors.New("release plan timing or version contract is invalid")
 	}
-	if plan.GoChanged && !plan.WithBackups {
-		return errors.New("production release plans with Go changes require verified three-copy backups")
+	if plan.Format == 5 && plan.GoChanged && !plan.WithBackups {
+		return errors.New("legacy production release plans with Go changes require verified three-copy backups")
 	}
 	workspace, err := cleanAbsoluteNonRoot(plan.ControllerWorkspace)
 	if err != nil || workspace != plan.ControllerWorkspace {
@@ -1285,7 +1297,7 @@ func validateProductionReleasePlan(plan productionReleasePlan) error {
 		plan.OperatorBinary.SHA256 != plan.ProbeBinary.SHA256 {
 		return errors.New("release plan operator identity is invalid")
 	}
-	if plan.WithBackups {
+	if plan.WithBackups && plan.Format == 5 {
 		recipient, err := cleanAbsoluteNonRoot(plan.AgeRecipient.Path)
 		if err != nil || recipient != plan.AgeRecipient.Path || !productionSHA256Pattern.MatchString(plan.AgeRecipient.SHA256) {
 			return errors.New("release plan age recipient is invalid")
@@ -1306,7 +1318,7 @@ func validateReleaseBasenameCollisions(plan productionReleasePlan) error {
 		plan.ProbeBinary,
 		plan.OperatorBinary,
 	}
-	if plan.WithBackups {
+	if plan.WithBackups && plan.Format == 5 {
 		files = append(files, plan.AgeRecipient)
 	}
 	for _, file := range files {
@@ -1349,7 +1361,7 @@ func validateProductionReleasePlanArtifacts(ctx context.Context, runtime *produc
 		{plan.ProbeBinary.Path, plan.ProbeBinary.SHA256, "probe binary"},
 		{plan.OperatorBinary.Path, plan.OperatorBinary.SHA256, "operator binary"},
 	}
-	if plan.WithBackups {
+	if plan.WithBackups && plan.Format == 5 {
 		files = append(files, struct {
 			path   string
 			digest string

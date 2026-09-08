@@ -71,6 +71,7 @@ brotli.workspace = true
 chrono.workspace = true
 clap.workspace = true
 cortexfs-protocol = "0.1.7"
+ed25519-dalek = "2.2.0"
 hmac.workspace = true
 hex.workspace = true
 form_urlencoded.workspace = true

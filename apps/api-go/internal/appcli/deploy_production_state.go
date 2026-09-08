@@ -318,6 +318,7 @@ type productionTransactionOptions struct {
 	ExpectedVersion      string
 	BackupDir            string
 	WithBackups          bool
+	ControllerBackup     controllerBackupBinding
 	ObservationWindow    time.Duration
 	PreserveEdgePolicy   bool
 	Reason               string
@@ -364,6 +365,7 @@ type productionManifest struct {
 	BackupDir                string                       `json:"backup_dir,omitempty"`
 	BackupsEnabled           bool                         `json:"backups_enabled"`
 	BackupEvidenceFormat     int                          `json:"backup_evidence_format,omitempty"`
+	ControllerOnlyBackup     *controllerBackupBinding     `json:"controller_only_backup,omitempty"`
 	DatabaseBackupSHA256     string                       `json:"database_backup_sha256,omitempty"`
 	TargetBackupSHA256       string                       `json:"target_backup_sha256,omitempty"`
 	ControllerBackupSHA256   string                       `json:"controller_backup_sha256,omitempty"`
@@ -787,7 +789,11 @@ func parseProductionTransactionOptions(action string, args []string, stderr io.W
 		flags.StringVar(&options.OperatorBinarySHA256, "operator-binary-sha256", "", "operator binary SHA-256")
 		flags.StringVar(&options.ExpectedVersion, "expected-version", "", "candidate service version")
 		flags.StringVar(&options.BackupDir, "backup-dir", "", "verified target copy from the production three-copy backup set")
-		flags.BoolVar(&options.WithBackups, "with-backups", false, "bind verified production backups (mandatory for Go changes)")
+		flags.BoolVar(&options.WithBackups, "with-backups", false, "bind explicitly selected verified production backup evidence")
+		flags.StringVar(&options.ControllerBackup.PublicKey, "controller-backup-public-key", "", "frozen controller verification public key")
+		flags.StringVar(&options.ControllerBackup.PlanSHA256, "release-plan-sha256", "", "immutable controller release-plan SHA-256")
+		flags.StringVar(&options.ControllerBackup.ReceiptPath, "controller-backup-receipt", "", "root-owned signed controller-only verification receipt")
+		flags.StringVar(&options.ControllerBackup.ReceiptSHA256, "controller-backup-receipt-sha256", "", "signed controller verification receipt SHA-256")
 		observationSeconds := int(options.ObservationWindow / time.Second)
 		flags.IntVar(&observationSeconds, "observation-seconds", observationSeconds, "stability observation window (120-360)")
 		flags.BoolVar(&options.PreserveEdgePolicy, "preserve-edge-policy", false, "preserve the active nginx edge policy")
@@ -875,11 +881,8 @@ func parseProductionTransactionOptions(action string, args []string, stderr io.W
 			}
 			*value = clean
 		}
-		if options.WithBackups != (options.BackupDir != "") {
-			return productionTransactionOptions{}, errors.New("--with-backups and --backup-dir must be supplied together")
-		}
-		if options.GoChanged && !options.WithBackups {
-			return productionTransactionOptions{}, errors.New("--go-changed requires verified three-copy backups via --with-backups and --backup-dir")
+		if err := validateControllerBackupTransactionOptions(options); err != nil {
+			return productionTransactionOptions{}, err
 		}
 		if options.BackupDir != "" {
 			clean, err := cleanAbsoluteNonRoot(options.BackupDir)
@@ -1236,7 +1239,14 @@ func (runtime *productionRuntime) validateManifestSchema(workspace productionWor
 	if manifest.ConfigRestorePath != workspace.configRestore {
 		return errors.New("deployment manifest configuration rollback path escapes root-only state")
 	}
-	if manifest.BackupsEnabled {
+	if manifest.BackupEvidenceFormat == controllerBackupEvidenceFormat {
+		if err := validateControllerBackupBinding(workspace, manifest); err != nil {
+			return err
+		}
+	} else if manifest.BackupsEnabled {
+		if manifest.ControllerOnlyBackup != nil {
+			return errors.New("legacy backup evidence cannot contain a controller-only binding")
+		}
 		if manifest.BackupDir != filepath.Join(runtime.paths.BackupRoot, workspace.id) || !productionSHA256Pattern.MatchString(manifest.DatabaseBackupSHA256) {
 			return errors.New("deployment manifest backup path or digest is not release-scoped")
 		}
@@ -1249,7 +1259,7 @@ func (runtime *productionRuntime) validateManifestSchema(workspace productionWor
 			(manifest.BackupEvidenceFormat != 0 && manifest.BackupEvidenceFormat != 2) {
 			return errors.New("deployment manifest external backup digests are incomplete")
 		}
-	} else if manifest.BackupDir != "" || manifest.BackupEvidenceFormat != 0 || manifest.DatabaseBackupSHA256 != "" || manifest.TargetBackupSHA256 != "" || manifest.ControllerBackupSHA256 != "" || manifest.OffhostBackupSHA256 != "" {
+	} else if manifest.ControllerOnlyBackup != nil || manifest.BackupDir != "" || manifest.BackupEvidenceFormat != 0 || manifest.DatabaseBackupSHA256 != "" || manifest.TargetBackupSHA256 != "" || manifest.ControllerBackupSHA256 != "" || manifest.OffhostBackupSHA256 != "" {
 		return errors.New("deployment manifest contains unauthorized optional backup state")
 	}
 	if manifest.ObservationSeconds < 120 || manifest.ObservationSeconds > 360 {
