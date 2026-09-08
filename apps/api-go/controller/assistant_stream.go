@@ -118,7 +118,7 @@ func (s *assistantStreamSession) finish(body []byte) error {
 	return nil
 }
 
-func (s *assistantStreamSession) fail(status int, code, message string) error {
+func (s *assistantStreamSession) fail(status int, code, message string, mutationAttempted ...bool) error {
 	if s == nil {
 		return nil
 	}
@@ -136,7 +136,7 @@ func (s *assistantStreamSession) fail(status int, code, message string) error {
 		"code":      code,
 		"message":   message,
 		"status":    status,
-		"retryable": status == http.StatusRequestTimeout || status == http.StatusTooEarly || status == http.StatusTooManyRequests || status >= http.StatusInternalServerError,
+		"retryable": (len(mutationAttempted) == 0 || !mutationAttempted[0]) && (status == http.StatusRequestTimeout || status == http.StatusTooEarly || status == http.StatusTooManyRequests || status >= http.StatusInternalServerError),
 	})
 	s.finished = true
 	return err

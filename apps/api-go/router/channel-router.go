@@ -16,7 +16,7 @@ type permissionRoute struct {
 	handler    gin.HandlerFunc
 }
 
-func registerChannelRoutes(apiRouter *gin.RouterGroup) {
+func registerChannelRoutes(apiRouter *assistantRouterGroup) {
 	channelRoute := apiRouter.Group("/channel")
 	channelRoute.Use(middleware.AdminAuth())
 

@@ -33,6 +33,8 @@ import (
 const (
 	assistantToolArgumentsMaxBytes        = 16 * 1024
 	assistantToolCallsPerTurn             = 4
+	assistantToolCallsPerResponse         = 32
+	assistantAgentMaxSteps                = 32
 	assistantAgentDefaultTimeout          = 45 * time.Second
 	assistantUpstreamMaxAttempts          = 3
 	assistantUpstreamRetryBaseDelay       = 200 * time.Millisecond
@@ -48,6 +50,7 @@ const (
 	assistantUpstreamResponseMaxBytes     = 256 << 10
 	assistantToolResultMaxBytes           = 64 << 10
 	assistantAgentContextMaxBytes         = 512 << 10
+	assistantAgentContextTargetBytes      = 384 << 10
 	assistantAgentMaxConcurrent           = 16
 )
 
@@ -453,7 +456,7 @@ func buildAssistantTools() []assistantOpenAIToolDefinition {
 			Type: "function",
 			Function: assistantOpenAIToolFunction{
 				Name:        "prepare_admin_user_skill_change",
-				Description: "For an administrator only, prepare a confirmation-gated edit to one permitted lower-role user's assistant memory or profile skill. Use get_admin_user_skills first. This never writes immediately; the administrator must confirm the exact preview in the UI. Memory deletes require memory_id. Never store credentials, payment data, protected traits, or security labels.",
+				Description: "For an administrator only, prepare a confirmation-gated edit to one permitted lower-role user's assistant memory or profile skill. Use get_admin_user_skills first. In an authenticated administrator agent session, this validates and applies the exact change immediately; otherwise it prepares a confirmation preview. Memory deletes require memory_id. Never store credentials, payment data, protected traits, or security labels.",
 				Parameters: objectSchema(map[string]any{
 					"target_user_id": map[string]any{"type": "integer", "minimum": 1},
 					"kind":           map[string]any{"type": "string", "enum": []string{"memory", "profile"}},
@@ -480,7 +483,7 @@ func buildAssistantTools() []assistantOpenAIToolDefinition {
 			Type: "function",
 			Function: assistantOpenAIToolFunction{
 				Name:        "prepare_admin_config_change",
-				Description: "For an administrator only, prepare an exact preview of one or more allowlisted non-secret server settings. This never applies a change; the administrator must confirm the preview in the UI.",
+				Description: "For an administrator only, prepare an exact preview of one or more allowlisted non-secret server settings. In an authenticated administrator agent session, this validates and applies the change immediately and returns the result; otherwise it prepares a confirmation preview.",
 				Parameters: objectSchema(map[string]any{
 					"changes": map[string]any{
 						"type":                 "object",
@@ -501,7 +504,7 @@ func buildAssistantTools() []assistantOpenAIToolDefinition {
 			Type: "function",
 			Function: assistantOpenAIToolFunction{
 				Name:        "prepare_admin_channel_change",
-				Description: "For an administrator only, prepare an exact preview for safe channel routing metadata or enable/disable status. This never applies a change; the administrator must confirm the preview in the UI. Never request keys, provider settings, headers, proxies, or upstream URLs through this tool.",
+				Description: "For an administrator only, prepare an exact preview for safe channel routing metadata or enable/disable status. In an authenticated administrator agent session, this validates and applies the change immediately and returns the result; otherwise it prepares a confirmation preview. Never request keys, provider settings, headers, proxies, or upstream URLs through this tool.",
 				Parameters: objectSchema(map[string]any{
 					"channel_id": map[string]any{"type": "integer", "minimum": 1},
 					"changes": map[string]any{
@@ -523,7 +526,7 @@ func buildAssistantTools() []assistantOpenAIToolDefinition {
 			Type: "function",
 			Function: assistantOpenAIToolFunction{
 				Name:        "prepare_admin_model_sync",
-				Description: "For a root administrator only, verify selected locally-missing model IDs against the live upstream catalog and prepare a confirmation-gated import for the IDs found there. Call get_admin_model_inventory first; do not claim an ID is available upstream until this tool returns its preview. This never writes immediately; the UI must show the exact metadata and skipped IDs, and the administrator must confirm.",
+				Description: "For a root administrator only, verify selected locally-missing model IDs against the live upstream catalog and prepare a confirmation-gated import for the IDs found there. Call get_admin_model_inventory first; do not claim an ID is available upstream until this tool returns its preview. In an authenticated root administrator agent session, this imports the validated metadata immediately and returns the imported and skipped IDs; otherwise it prepares a confirmation preview.",
 				Parameters: objectSchema(map[string]any{
 					"model_ids": map[string]any{"type": "array", "maxItems": assistantAdminMaxModelSyncItems, "items": map[string]any{"type": "string", "maxLength": assistantAdminMaxModelNameRunes}},
 					"locale":    map[string]any{"type": "string", "enum": []string{"en", "zh-CN", "zh-TW", "ja"}},
@@ -534,7 +537,7 @@ func buildAssistantTools() []assistantOpenAIToolDefinition {
 			Type: "function",
 			Function: assistantOpenAIToolFunction{
 				Name:        "prepare_admin_pricing_change",
-				Description: "For an administrator only, prepare an exact preview for one enabled model's pricing. Use ratio for token pricing or fixed_request for a per-request price; optional completion, cache, image, and audio ratios update the same exact model. This never applies a change; the administrator must confirm the preview in the UI.",
+				Description: "For an administrator only, prepare an exact preview for one enabled model's pricing. Use ratio for token pricing or fixed_request for a per-request price; optional completion, cache, image, and audio ratios update the same exact model. In an authenticated administrator agent session, this validates and applies the change immediately and returns the result; otherwise it prepares a confirmation preview.",
 				Parameters: objectSchema(map[string]any{
 					"model_id":               map[string]any{"type": "string", "minLength": 1, "maxLength": 200},
 					"mode":                   map[string]any{"type": "string", "enum": []string{"ratio", "fixed_request"}},
@@ -549,6 +552,8 @@ func buildAssistantTools() []assistantOpenAIToolDefinition {
 			},
 		},
 	}
+	definitions = append(definitions, assistantAdminOperationToolDefinitions()...)
+	definitions = append(definitions, assistantAdminPricingAuditTools()...)
 	return append(definitions, assistantSkillTools()...)
 }
 
@@ -643,6 +648,9 @@ func assistantToolAllowedForContext(name string, userContext assistantUserContex
 	}
 	if name == "get_bounty_data" {
 		return assistantBountyReadToolAllowed(userContext)
+	}
+	if isAssistantAdministratorTool(name) && !userContext.AdministratorMode {
+		return false
 	}
 	if userContext.AdministratorMode {
 		if userContext.AccessLevel != "ROOT" {
@@ -1508,6 +1516,9 @@ func relayAssistantTurnWithRetryUsing(c *gin.Context, request assistantOpenAIReq
 	responsesToolChoiceFallbackUsed := false
 	omitToolChoiceFallbackUsed := false
 	for attempt := 1; attempt <= assistantUpstreamMaxAttempts; attempt++ {
+		if err := c.Request.Context().Err(); err != nil {
+			return http.StatusRequestTimeout, nil, err
+		}
 		status, body, err := turn(c, request, rootRequestID, step)
 		if err != nil {
 			return status, body, err
@@ -1552,9 +1563,7 @@ func relayAssistantTurnWithRetryUsing(c *gin.Context, request assistantOpenAIReq
 		timer := time.NewTimer(assistantUpstreamRetryDelay(attempt))
 		select {
 		case <-c.Request.Context().Done():
-			if !timer.Stop() {
-				<-timer.C
-			}
+			timer.Stop()
 			return http.StatusRequestTimeout, nil, c.Request.Context().Err()
 		case <-timer.C:
 		}
@@ -1566,6 +1575,78 @@ var relayAssistantAgentTurn = relayAssistantTurnWithRetry
 
 func assistantContextBytes(messages []assistantOpenAIMessage) int {
 	return agent.Bytes(messages)
+}
+
+func compactAssistantAgentContext(messages []assistantOpenAIMessage) ([]assistantOpenAIMessage, error) {
+	compacted, err := agent.Compact(messages, assistantAgentContextTargetBytes)
+	if errors.Is(err, agent.ErrContextBudget) {
+		// A large latest result can exceed the target while still fitting the
+		// hard transport budget. Never truncate that fresh execution receipt.
+		return agent.Compact(messages, assistantAgentContextMaxBytes)
+	}
+	return compacted, err
+}
+
+func assistantUpstreamContextExceeded(status int, body []byte) bool {
+	if status != http.StatusBadRequest && status != http.StatusRequestEntityTooLarge {
+		return false
+	}
+	text := strings.ToLower(string(body))
+	return strings.Contains(text, "context_length_exceeded") || strings.Contains(text, "context_window_exceeded") ||
+		strings.Contains(text, "maximum context length") || strings.Contains(text, "prompt is too long") ||
+		strings.Contains(text, "too many input tokens")
+}
+
+func assistantAgentRequestStopped(c *gin.Context) bool {
+	err := c.Request.Context().Err()
+	if err == nil {
+		return false
+	}
+	code, message := "ASSISTANT_REQUEST_CANCELLED", "assistant request was cancelled"
+	if errors.Is(err, context.DeadlineExceeded) {
+		code, message = "ASSISTANT_REQUEST_TIMEOUT", "assistant request exceeded its time limit; inspect completed actions before retrying"
+	}
+	writeAssistantError(c, http.StatusRequestTimeout, code, errors.New(message))
+	return true
+}
+
+func assistantToolCallReadOnly(c *gin.Context, call assistantOpenAIToolCall) bool {
+	name := strings.TrimSpace(call.Function.Name)
+	if name == "execute_admin_operation" {
+		return assistantAdminOperationReadOnly(c, call.Function.Arguments)
+	}
+	return strings.HasPrefix(name, "get_") || strings.HasPrefix(name, "list_") ||
+		strings.HasPrefix(name, "calculate_") || name == "search_web" || name == "audit_admin_model_pricing" || name == "recall_memory"
+}
+
+func assistantAdminRetryMutationBlocked(c *gin.Context, call assistantOpenAIToolCall) bool {
+	return c != nil && c.Request != nil && isAssistantAdministratorTool(strings.TrimSpace(call.Function.Name)) && assistantRequestAttempt(c) > 1 && !assistantToolCallReadOnly(c, call)
+}
+
+func assistantAdminRetryMutationResult() map[string]any {
+	return map[string]any{"ok": false, "status": "retry_requires_verification", "do_not_retry": true, "error": "not executed: this is a retried conversation request and a previous write may already have committed; inspect live state and report the outcome, then require a new explicit user request for further changes"}
+}
+
+func assistantAgentToolResultJSON(result map[string]any) []byte {
+	encoded, err := common.MarshalLimit(result, assistantToolResultMaxBytes)
+	if err == nil {
+		return encoded
+	}
+	// Keep the execution outcome when its data is oversized. Reporting an
+	// applied write as failed invites the model to apply it a second time.
+	receipt := map[string]any{"context_compacted": true, "omitted": "tool result exceeded its byte budget; re-read live state for details"}
+	for _, key := range []string{"ok", "status", "applied", "verified", "mutation_attempted", "do_not_retry", "outcome"} {
+		switch value := result[key].(type) {
+		case bool:
+			receipt[key] = value
+		case string:
+			if len(value) <= 256 {
+				receipt[key] = value
+			}
+		}
+	}
+	encoded, _ = json.Marshal(receipt)
+	return encoded
 }
 
 func runAssistantAgent(c *gin.Context, settings setting.AssistantSettings, conversation []assistantOpenAIMessage) {
@@ -1580,6 +1661,7 @@ func runAssistantAgent(c *gin.Context, settings setting.AssistantSettings, conve
 	if timeout < 5*time.Second {
 		timeout = assistantAgentDefaultTimeout
 	}
+	timeout = min(timeout, 5*time.Minute)
 	ctx, cancel := context.WithTimeout(c.Request.Context(), timeout)
 	defer cancel()
 	originalRequest := c.Request
@@ -1589,6 +1671,9 @@ func runAssistantAgent(c *gin.Context, settings setting.AssistantSettings, conve
 		common.CleanupBodyStorage(c)
 	}()
 	streamSession := assistantStreamSessionFrom(c)
+	if assistantAgentRequestStopped(c) {
+		return
+	}
 
 	rootRequestID := c.GetString(common.RequestIdKey)
 	if rootRequestID == "" {
@@ -1597,10 +1682,18 @@ func runAssistantAgent(c *gin.Context, settings setting.AssistantSettings, conve
 	}
 
 	userContext := assistantUserContextFromGin(c)
+	adminAutomationAllowed := false
+	if settings.AgentLoopEnabled && userContext.AdministratorMode {
+		_, authErr := validateAssistantAdminAutomationSession(c, assistantActorUserID(c))
+		adminAutomationAllowed = authErr == nil
+	}
+	c.Set(assistantAdminAutomationContextKey, adminAutomationAllowed)
 	messages := make([]assistantOpenAIMessage, 1, len(conversation)+1)
 	messages[0] = assistantOpenAIMessage{Role: "system", Content: assistantPrompt(c, settings, userContext)}
 	messages = append(messages, conversation...)
-	if assistantContextBytes(messages) > assistantAgentContextMaxBytes {
+	var compactErr error
+	messages, compactErr = compactAssistantAgentContext(messages)
+	if compactErr != nil {
 		writeAssistantError(c, http.StatusRequestEntityTooLarge, "ASSISTANT_CONTEXT_TOO_LARGE", errors.New("assistant context exceeded its byte budget"))
 		return
 	}
@@ -1608,6 +1701,7 @@ func runAssistantAgent(c *gin.Context, settings setting.AssistantSettings, conve
 	if maxSteps < 1 {
 		maxSteps = 1
 	}
+	maxSteps = min(maxSteps, assistantAgentMaxSteps)
 	forceL0Assessment := assistantL0InterlocutorAssessmentRequired(userContext)
 	forceRecommendationWorkflow := assistantRecommendationWorkflowRequired(userContext)
 	forceCreateKeyWorkflow := assistantCreateKeyWorkflowRequired(userContext)
@@ -1668,8 +1762,25 @@ func runAssistantAgent(c *gin.Context, settings setting.AssistantSettings, conve
 		calledTools = make(map[string]bool)
 		successfulTools = make(map[string]bool)
 	}
+	usedCallIDs := make(map[string]bool)
+	for _, message := range messages {
+		for _, call := range message.ToolCalls {
+			usedCallIDs[call.ID] = true
+		}
+	}
+	var loopGuard agent.LoopGuard
+	finalAnswerOnly := false
+	contextRecoveries := 0
 
 	for step := 0; step < maxSteps; step++ {
+		if assistantAgentRequestStopped(c) {
+			return
+		}
+		messages, compactErr = compactAssistantAgentContext(messages)
+		if compactErr != nil {
+			writeAssistantError(c, http.StatusRequestEntityTooLarge, "ASSISTANT_CONTEXT_TOO_LARGE", errors.New("required assistant context exceeded its byte budget"))
+			return
+		}
 		streamTurn := streamSession != nil && settings.StreamEnabled
 		request := assistantOpenAIRequest{
 			Model:           settings.Model,
@@ -1681,7 +1792,7 @@ func runAssistantAgent(c *gin.Context, settings setting.AssistantSettings, conve
 		}
 		// Reserve the last turn for a final natural-language answer. This
 		// makes MaxSteps a hard bound while ensuring a tool call can finish.
-		if agentEnabled && step < maxSteps-1 {
+		if agentEnabled && step < maxSteps-1 && !finalAnswerOnly {
 			request.Tools = tools
 			request.ToolChoice = assistantToolChoiceForAgentStep(userContext, calledTools, successfulTools)
 		}
@@ -1690,15 +1801,42 @@ func runAssistantAgent(c *gin.Context, settings setting.AssistantSettings, conve
 		var body []byte
 		var err error
 		if streamTurn {
-			status, body, err = relayAssistantStreamTurn(c, request, rootRequestID, step, streamSession)
+			attempts := 0
+			status, body, err = relayAssistantTurnWithRetryUsing(c, request, rootRequestID, step, func(c *gin.Context, request assistantOpenAIRequest, rootRequestID string, step int) (int, []byte, error) {
+				if attempts > 0 {
+					if err := streamSession.resetContent(); err != nil {
+						return http.StatusBadGateway, nil, err
+					}
+				}
+				attempts++
+				return relayAssistantStreamTurn(c, request, rootRequestID, step, streamSession)
+			})
 		} else {
 			status, body, err = relayAssistantAgentTurn(c, request, rootRequestID, step)
+		}
+		if assistantAgentRequestStopped(c) {
+			return
 		}
 		if err != nil {
 			writeAssistantError(c, http.StatusInternalServerError, "ASSISTANT_REQUEST_BUILD_FAILED", errors.New("failed to build assistant request"))
 			return
 		}
 		if status < http.StatusOK || status >= http.StatusMultipleChoices {
+			if contextRecoveries < 2 && assistantUpstreamContextExceeded(status, body) {
+				// Provider windows differ. Retry a rejected model request with a
+				// smaller history, keeping exact policy, current task and latest
+				// tool receipt. No tool has executed for this failed turn.
+				if compacted, compactErr := agent.Compact(messages, assistantContextBytes(messages)*2/3); compactErr == nil {
+					messages = compacted
+					contextRecoveries++
+					if resetErr := streamSession.resetContent(); resetErr != nil {
+						writeAssistantError(c, http.StatusBadGateway, "ASSISTANT_STREAM_WRITE_FAILED", errors.New("assistant stream output failed"))
+						return
+					}
+					step--
+					continue
+				}
+			}
 			forcedTool := assistantNamedToolChoiceName(request.ToolChoice)
 			if forcedTool == "set_conversation_title" && assistantNamedToolChoiceUnsupported(body) {
 				// A provider's optional metadata limitation must not block the
@@ -1715,14 +1853,12 @@ func runAssistantAgent(c *gin.Context, settings setting.AssistantSettings, conve
 					Type:     "function",
 					Function: assistantOpenAIToolCallFunction{Name: forcedTool},
 				}
+				call = agent.NormalizeCalls([]assistantOpenAIToolCall{call}, step, usedCallIDs)[0]
 				result := executeAssistantTool(c, call)
 				if c.IsAborted() {
 					return
 				}
-				resultJSON, marshalErr := common.MarshalLimit(result, assistantToolResultMaxBytes)
-				if marshalErr != nil {
-					resultJSON = []byte(`{"ok":false,"error":"tool result exceeded its byte budget"}`)
-				}
+				resultJSON := assistantAgentToolResultJSON(result)
 				calledTools[forcedTool] = true
 				if ok, _ := result["ok"].(bool); ok {
 					successfulTools[forcedTool] = true
@@ -1802,11 +1938,11 @@ func runAssistantAgent(c *gin.Context, settings setting.AssistantSettings, conve
 			c.Data(status, "application/json; charset=utf-8", normalizedBody)
 			return
 		}
-		if (!settings.AgentLoopEnabled && !forceL0Assessment && !forceConversationTitle && !forceRecommendationWorkflow && !forceCreateKeyWorkflow && !forceImageGenerationWorkflow && !forcePublicActivityWorkflow && !forceNewUserGiftWorkflow && !forceWeeklyDiscountWorkflow && !forceHumanSupportWorkflow && !forceReadChain) || step >= maxSteps-1 {
+		if (!settings.AgentLoopEnabled && !forceL0Assessment && !forceConversationTitle && !forceRecommendationWorkflow && !forceCreateKeyWorkflow && !forceImageGenerationWorkflow && !forcePublicActivityWorkflow && !forceNewUserGiftWorkflow && !forceWeeklyDiscountWorkflow && !forceHumanSupportWorkflow && !forceReadChain) || step >= maxSteps-1 || finalAnswerOnly {
 			writeAssistantError(c, http.StatusBadGateway, "ASSISTANT_AGENT_MAX_STEPS", errors.New("assistant agent reached its step limit before producing a final answer"))
 			return
 		}
-		if len(message.ToolCalls) > assistantToolCallsPerTurn {
+		if len(message.ToolCalls) > assistantToolCallsPerResponse {
 			writeAssistantError(c, http.StatusBadGateway, "ASSISTANT_TOO_MANY_TOOL_CALLS", errors.New("assistant requested too many tools in one turn"))
 			return
 		}
@@ -1814,29 +1950,45 @@ func runAssistantAgent(c *gin.Context, settings setting.AssistantSettings, conve
 		// Canonicalize before retaining the assistant message as well as its
 		// results. Repairing only tool_call_id leaves orphaned tool responses
 		// when a compatible provider omits IDs or surrounds them with spaces.
-		for index := range message.ToolCalls {
-			call := &message.ToolCalls[index]
-			call.ID = strings.TrimSpace(call.ID)
-			if call.ID == "" {
-				call.ID = fmt.Sprintf("assistant-call-%d-%d", step+1, index+1)
-			}
-		}
+		message.ToolCalls = agent.NormalizeCalls(message.ToolCalls, step, usedCallIDs)
 		messages = append(messages, assistantOpenAIMessage{
 			Role:      "assistant",
 			Content:   assistantResponseContent(message.Content),
 			ToolCalls: message.ToolCalls,
 		})
+		executed := 0
 		for _, call := range message.ToolCalls {
+			if assistantAgentRequestStopped(c) {
+				return
+			}
 			toolName := strings.TrimSpace(call.Function.Name)
-			calledTools[toolName] = true
 			if toolName != "set_conversation_title" {
 				usedCacheSensitiveTool = true
 			}
-			result := executeAssistantTool(c, call)
+			readOnly := assistantToolCallReadOnly(c, call)
+			var result map[string]any
+			switch {
+			case executed >= assistantToolCallsPerTurn:
+				result = map[string]any{"ok": false, "status": "tool_batch_limit", "error": "not executed: at most four tools run per round; request this call again in a later round"}
+			case assistantAdminRetryMutationBlocked(c, call):
+				result = assistantAdminRetryMutationResult()
+			case !loopGuard.Allow(call, readOnly):
+				result = map[string]any{"ok": false, "status": "tool_repetition_limit", "error": "not executed: this exact call already succeeded or repeatedly made no progress; use the existing result, change the request, or explain the remaining work"}
+			default:
+				calledTools[toolName] = true
+				executed++
+				result = executeAssistantTool(c, call)
+				ok, _ := result["ok"].(bool)
+				attempted, _ := result["mutation_attempted"].(bool)
+				loopGuard.Complete(call, readOnly, ok || attempted)
+				if isAssistantAdministratorTool(toolName) && !readOnly && (attempted || (ok && c.GetBool(assistantAdminAutomationContextKey))) {
+					c.Set("assistant_admin_mutation_attempted", true)
+				}
+			}
 			if c.IsAborted() {
 				return
 			}
-			resultJSON, marshalErr := common.MarshalLimit(result, assistantToolResultMaxBytes)
+			resultJSON := assistantAgentToolResultJSON(result)
 			if ok, _ := result["ok"].(bool); ok {
 				successfulTools[toolName] = true
 			}
@@ -1844,9 +1996,6 @@ func runAssistantAgent(c *gin.Context, settings setting.AssistantSettings, conve
 				// Attempt optional metadata once, including malformed drafts, so
 				// it cannot consume the turns reserved for the user's task.
 				userContext = skipAssistantConversationTitle(c)
-			}
-			if marshalErr != nil {
-				resultJSON = []byte(`{"ok":false,"error":"tool result exceeded its byte budget"}`)
 			}
 			toolTraces = append(toolTraces, buildAssistantToolTrace(call, result))
 			c.Set(assistantClientToolsKey, toolTraces)
@@ -1856,10 +2005,9 @@ func runAssistantAgent(c *gin.Context, settings setting.AssistantSettings, conve
 				ToolCallID: call.ID,
 			})
 		}
-		if assistantContextBytes(messages) > assistantAgentContextMaxBytes {
-			writeAssistantError(c, http.StatusBadGateway, "ASSISTANT_CONTEXT_TOO_LARGE", errors.New("assistant tool context exceeded its byte budget"))
-			return
-		}
+		// An entirely repeated batch gets one final answer turn, so stalled
+		// plans cannot spend the remaining budget repeating identical calls.
+		finalAnswerOnly = executed == 0
 	}
 
 	writeAssistantError(c, http.StatusBadGateway, "ASSISTANT_AGENT_MAX_STEPS", errors.New("assistant agent reached its step limit"))
@@ -1920,12 +2068,12 @@ func normalizeAssistantClientResponse(c *gin.Context, body []byte) ([]byte, erro
 }
 
 func writeAssistantUpstreamError(c *gin.Context, code, message string) {
-	payload := gin.H{"success": false, "code": code, "message": message, "retryable": true}
+	payload := gin.H{"success": false, "code": code, "message": message, "retryable": !c.GetBool("assistant_admin_mutation_attempted")}
 	if requestID := strings.TrimSpace(c.GetString(common.RequestIdKey)); requestID != "" {
 		payload["request_id"] = requestID
 	}
 	if session := assistantStreamSessionFrom(c); session != nil {
-		_ = session.fail(http.StatusBadGateway, code, message)
+		_ = session.fail(http.StatusBadGateway, code, message, c.GetBool("assistant_admin_mutation_attempted"))
 		c.Abort()
 		return
 	}
@@ -1943,6 +2091,11 @@ func writeAssistantRawResponse(c *gin.Context, status int, body []byte, fallback
 		return
 	}
 	c.Data(status, "application/json; charset=utf-8", normalizedBody)
+}
+
+func isAssistantAdministratorTool(name string) bool {
+	return strings.HasPrefix(name, "get_admin_") || strings.HasPrefix(name, "prepare_admin_") ||
+		name == "list_admin_operations" || name == "execute_admin_operation" || name == "audit_admin_model_pricing"
 }
 
 func assistantActorUserID(c *gin.Context) int {
@@ -1987,6 +2140,16 @@ func executeAssistantTool(c *gin.Context, call assistantOpenAIToolCall) map[stri
 				}
 			}
 		}
+	}
+	// Tool names, prompts, remembered roles and billing credentials are never
+	// authority. Recheck the original actor and live browser session per call.
+	if isAssistantAdministratorTool(name) || (c != nil && assistantUserContextFromGin(c).AdministratorMode) {
+		if _, err := validateAssistantAdminAutomationSession(c, actorUserID); err != nil {
+			return map[string]any{"ok": false, "status": "admin_access_denied", "error": "a current administrator browser session is required"}
+		}
+	}
+	if assistantAdminRetryMutationBlocked(c, call) {
+		return assistantAdminRetryMutationResult()
 	}
 	arguments := strings.TrimSpace(call.Function.Arguments)
 	if arguments == "" {
@@ -2221,6 +2384,12 @@ func executeAssistantTool(c *gin.Context, call assistantOpenAIToolCall) map[stri
 			"message":       "Ask the user to confirm sending this message to an administrator.",
 			"draft_message": message,
 		}
+	case "list_admin_operations":
+		return executeAssistantAdminOperationsTool(c, actorUserID, input)
+	case "execute_admin_operation":
+		return executeAssistantAdminOperationTool(c, actorUserID, input)
+	case "audit_admin_model_pricing":
+		return executeAssistantAdminPricingAuditTool(actorUserID, input)
 	case "get_admin_server_config":
 		return executeAssistantAdminConfigTool(c, actorUserID)
 	case "get_admin_model_inventory":

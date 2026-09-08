@@ -1,6 +1,8 @@
 package controller
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"math"
 	"strconv"
@@ -16,6 +18,7 @@ import (
 // The browser needs to show what happened, but the conversation must never
 // receive raw account data, passwords, OAuth subject IDs, or request content.
 type assistantToolTrace struct {
+	CallID    string         `json:"call_id,omitempty"`
 	Name      string         `json:"name"`
 	Status    string         `json:"status"`
 	Input     map[string]any `json:"input,omitempty"`
@@ -28,6 +31,10 @@ func buildAssistantToolTrace(call assistantOpenAIToolCall, result map[string]any
 		Name:   strings.TrimSpace(call.Function.Name),
 		Status: "output-available",
 		Input:  assistantSafeToolInput(call.Function.Arguments),
+	}
+	if isAssistantAdministratorTool(trace.Name) {
+		callID := sha256.Sum256([]byte(call.ID))
+		trace.CallID = hex.EncodeToString(callID[:12])
 	}
 	if ok, exists := result["ok"].(bool); exists && !ok {
 		trace.Status = "output-error"
@@ -56,7 +63,7 @@ func assistantSafeToolInput(arguments string) map[string]any {
 	allowed := map[string]struct{}{
 		"action": {}, "days": {}, "group": {}, "identifier": {}, "model_id": {},
 		"expression": {}, "page": {}, "platform": {}, "provider": {}, "query": {}, "section": {},
-		"target_user_id": {}, "title": {}, "topic": {},
+		"target_user_id": {}, "title": {}, "topic": {}, "operation_id": {},
 	}
 	result := make(map[string]any)
 	for key, value := range input {
@@ -97,7 +104,7 @@ func resolveAssistantUserTarget(c *gin.Context, actorUserID int, input map[strin
 		return nil, map[string]any{"ok": false, "status": "context_unavailable", "error": "signed-in account is unavailable"}
 	}
 	actor, err := model.GetUserById(actorUserID, false)
-	if err != nil {
+	if err != nil || actor == nil || actor.Status != common.UserStatusEnabled {
 		return nil, map[string]any{"ok": false, "status": "context_unavailable", "error": "current account could not be loaded"}
 	}
 	isAdmin := actor.Role >= common.RoleAdminUser
@@ -114,6 +121,15 @@ func resolveAssistantUserTarget(c *gin.Context, actorUserID int, input map[strin
 	}
 	if targetID > 0 && identifier != "" {
 		return nil, map[string]any{"ok": false, "status": "target_invalid", "error": "provide either user_id or identifier, not both"}
+	}
+	// These tools are also available to ordinary users for their own account,
+	// so their names do not carry an admin prefix. Cross-user reads and searches
+	// nevertheless need a live administrator session, including after logout
+	// or role revocation during an agent loop.
+	if isAdmin && (identifier != "" || (targetID > 0 && targetID != actor.Id)) {
+		if _, err := validateAssistantAdminAutomationSession(c, actorUserID); err != nil {
+			return nil, map[string]any{"ok": false, "status": "admin_access_denied", "error": "a current administrator browser session is required"}
+		}
 	}
 
 	target := actor

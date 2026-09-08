@@ -64,7 +64,9 @@ const (
 )
 
 func SetApiRouter(router *gin.Engine) {
-	apiRouter := router.Group("/api")
+	operations := controller.NewAssistantAdminOperationRegistry(router)
+	apiRouter := &assistantRouterGroup{group: router.Group("/api"), operations: operations}
+	apiRouter.Use(operations.Middleware())
 	apiRouter.Use(middleware.RouteTag("api"))
 	apiRouter.Use(gzip.Gzip(gzip.DefaultCompression))
 	apiRouter.Use(middleware.BodyStorageCleanup()) // 清理请求体存储
@@ -73,7 +75,8 @@ func SetApiRouter(router *gin.Engine) {
 	// Bounty routes have their own L1 boundary and a deliberately public board.
 	// Keep them outside ConsoleAccessGate so L0 callers can browse public data
 	// and receive redacted empty private feeds without a page-wide 404.
-	openSourceBountyApiRouter := router.Group("/api")
+	openSourceBountyApiRouter := &assistantRouterGroup{group: router.Group("/api"), operations: operations}
+	openSourceBountyApiRouter.Use(operations.Middleware())
 	openSourceBountyApiRouter.Use(middleware.RouteTag("api"))
 	openSourceBountyApiRouter.Use(gzip.Gzip(gzip.DefaultCompression))
 	openSourceBountyApiRouter.Use(middleware.BodyStorageCleanup())

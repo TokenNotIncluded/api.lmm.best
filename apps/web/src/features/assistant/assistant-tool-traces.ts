@@ -22,6 +22,7 @@ Copyright (C) 2026 LIghtJUNction
 import type { AssistantToolTrace } from './api.js'
 
 function toolTraceKey(trace: AssistantToolTrace) {
+  if (trace.callId) return `${trace.name}:${trace.callId}`
   const input = Object.entries(trace.input ?? {}).sort(([left], [right]) =>
     left.localeCompare(right)
   )
@@ -33,7 +34,11 @@ export function collapseAssistantToolTraces(traces: AssistantToolTrace[]) {
   for (const trace of traces) {
     if (trace.status === 'output-available') {
       collapsed = collapsed.filter(
-        (item) => item.name !== trace.name || item.status !== 'output-error'
+        (item) =>
+          item.name !== trace.name ||
+          item.status !== 'output-error' ||
+          (Boolean(trace.callId || item.callId) &&
+            toolTraceKey(item) !== toolTraceKey(trace))
       )
     }
     const key = toolTraceKey(trace)

@@ -13,6 +13,13 @@ authenticated users then see it once after their next login.
 
 <!-- Add user-facing or operational changes here before the next release. -->
 
+- Added automatic administrator assistant tasks through the existing protected
+  management routes, source-derived request contracts, and live pricing audits.
+- Recheck administrator roles and browser sessions for every tool action; keep
+  ordinary users and assistant billing identities outside administrator authority.
+- Added bounded tool retries, duplicate-write protection, context compression,
+  and full administrator action traces; reject forged browser conversation history.
+
 - Fixed payment methods being disabled by comparing a credited-USD limit with
   platform credit. Wallet limits now use a server-derived request-amount ceiling.
 - Revalidate linked discount codes after changing payment methods and allow

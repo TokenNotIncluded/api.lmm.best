@@ -36,7 +36,7 @@ func TestAssistantDefaultsAndValidation(t *testing.T) {
 	if settings.ReasoningEffort != DefaultAssistantReasoningEffort {
 		t.Fatalf("unexpected default reasoning effort: %q", settings.ReasoningEffort)
 	}
-	if !settings.StreamEnabled || settings.Temperature != DefaultAssistantTemperature || settings.MaxTokens != DefaultAssistantMaxTokens || !settings.AgentLoopEnabled || settings.MaxSteps != 6 || settings.TimeoutSeconds != 45 || !settings.CacheEnabled || settings.CacheTTLMinutes != 1440 {
+	if !settings.StreamEnabled || settings.Temperature != DefaultAssistantTemperature || settings.MaxTokens != DefaultAssistantMaxTokens || !settings.AgentLoopEnabled || settings.MaxSteps != 12 || settings.TimeoutSeconds != 90 || !settings.CacheEnabled || settings.CacheTTLMinutes != 1440 {
 		t.Fatalf("unexpected assistant runtime defaults: %+v", settings)
 	}
 	if !settings.RetentionEnabled || settings.ActiveRetentionDays != 90 || settings.ArchivedRetentionDays != 30 || settings.SecurityRetentionDays != 180 || settings.RetentionIntervalHours != 24 {
@@ -54,7 +54,7 @@ func TestAssistantDefaultsAndValidation(t *testing.T) {
 		AssistantStreamEnabledOptionKey:          "not-a-bool",
 		AssistantTemperatureOptionKey:            "2.1",
 		AssistantMaxTokensOptionKey:              "63",
-		AssistantMaxStepsOptionKey:               "13",
+		AssistantMaxStepsOptionKey:               "33",
 		AssistantTimeoutSecondsOptionKey:         "4",
 		AssistantCacheTTLMinutesOptionKey:        "10081",
 		AssistantReviewWindowDaysOptionKey:       "0",

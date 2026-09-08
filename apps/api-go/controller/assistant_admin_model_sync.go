@@ -347,7 +347,12 @@ func executeAssistantAdminModelSyncTool(c *gin.Context, userID int, input map[st
 		}
 		return map[string]any{"ok": false, "status": "model_sync_unavailable", "error": err.Error(), "skipped_model_ids": skipped}
 	}
-	token, err := createAssistantAdminFlow(c, userID, assistantAdminChangePayload{Kind: assistantAdminModelSyncChangeKind, ModelSync: &change})
+	payload := assistantAdminChangePayload{Kind: assistantAdminModelSyncChangeKind, ModelSync: &change}
+	if result, handled := maybeApplyAssistantAdminAutomatically(c, userID, payload); handled {
+		result["skipped_model_ids"] = skipped
+		return result
+	}
+	token, err := createAssistantAdminFlow(c, userID, payload)
 	if err != nil {
 		return map[string]any{"ok": false, "error": "administrator browser session is required to prepare a model sync"}
 	}

@@ -1298,7 +1298,7 @@ func TestAssistantPricingEndpointAppliesTrustDiscountToGroupRatios(t *testing.T)
 func TestAssistantAgentToolsExposeSafeAndConfirmationGatedActions(t *testing.T) {
 	c, _ := createAssistantKeyTestContext(t, "assistant-tool-user")
 	definitions := assistantToolDefinitions()
-	require.Len(t, definitions, 40)
+	require.Len(t, definitions, 43)
 	names := make(map[string]bool, len(definitions))
 	for _, definition := range definitions {
 		names[definition.Function.Name] = true
@@ -1328,6 +1328,9 @@ func TestAssistantAgentToolsExposeSafeAndConfirmationGatedActions(t *testing.T) 
 	assert.True(t, names["prepare_l1_recommendation"])
 	assert.True(t, names["request_create_key"])
 	assert.True(t, names["request_human_support"])
+	assert.True(t, names["list_admin_operations"])
+	assert.True(t, names["execute_admin_operation"])
+	assert.True(t, names["audit_admin_model_pricing"])
 	assert.True(t, names["get_admin_server_config"])
 	assert.True(t, names["get_admin_assistant_review"])
 	assert.True(t, names["prepare_admin_config_change"])
