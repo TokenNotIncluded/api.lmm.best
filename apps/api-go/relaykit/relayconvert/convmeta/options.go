@@ -8,6 +8,10 @@ type Options struct {
 	Claude ClaudeOptions
 	Gemini GeminiOptions
 
+	// ResponsesTools preserves client tool identities across request/response
+	// conversion. It belongs to one relay attempt and must not be shared.
+	ResponsesTools ResponsesToolMap
+
 	// OpenRouterDialect marks the upstream as OpenRouter's OpenAI-compatible
 	// surface, which accepts extra fields (reasoning config, cache_control on
 	// system parts) that converters emit only for that dialect. The host sets
