@@ -22,6 +22,25 @@ For commercial licensing, please contact support@quantumnous.com
  * component-specific adjustments live here.
  */
 
+/* Base spacing follows the available content width, including when the
+ * assistant rail is open on a wide display. */
+@container content (min-width: 56rem) {
+  .console-section-header,
+  .console-section-content,
+  .console-section-footer {
+    padding-inline: clamp(2rem, 3cqi, 3rem);
+  }
+
+  .console-section-header {
+    padding-top: 2rem;
+    padding-bottom: 1.5rem;
+  }
+}
+
+.console-section-content {
+  scroll-padding-block: 1rem;
+}
+
 /* These small status utilities also work inside dialog portals, which are
  * rendered outside the authenticated layout's .console-editorial wrapper. */
 .console-status-success {

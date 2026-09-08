@@ -388,10 +388,10 @@ func buildAssistantTools() []assistantOpenAIToolDefinition {
 			Type: "function",
 			Function: assistantOpenAIToolFunction{
 				Name:        "get_setup_guide",
-				Description: "Return verified platform-specific install commands and gateway configuration for Claude Code, CC Switch, Claude Desktop, Codex, and compatible clients. model_id must be an exact value returned by get_available_models for this account; use this tool instead of guessing client capabilities, models, or endpoint formats.",
+				Description: "Return device-specific downloads, click-by-click setup, verification, and troubleshooting for Chatbox, Cherry Studio, Claude Code, CC Switch, Claude Desktop, Codex, and compatible clients. model_id must be an exact value returned by get_available_models for this account; use this tool instead of guessing client capabilities, models, or endpoint formats.",
 				Parameters: objectSchema(map[string]any{
-					"platform": map[string]any{"type": "string", "enum": []string{"windows", "linux", "macos"}},
-					"topic":    map[string]any{"type": "string", "enum": []string{"claude-code", "cc-switch", "claude-desktop", "chatgpt-client", "codex", "cursor", "open-webui", "other-openai-compatible"}},
+					"platform": map[string]any{"type": "string", "enum": []string{"windows", "linux", "macos", "android", "ios"}},
+					"topic":    map[string]any{"type": "string", "enum": []string{"claude-code", "cc-switch", "claude-desktop", "chatgpt-client", "codex", "cursor", "open-webui", "cherry-studio", "chatbox", "other-openai-compatible"}},
 					"model_id": map[string]any{"type": "string", "minLength": 1, "maxLength": 200},
 				}, []string{"platform", "topic", "model_id"}),
 			},
@@ -3263,10 +3263,10 @@ func quotePowerShellLiteral(value string) string {
 func executeAssistantSetupTool(userID int, input map[string]any) map[string]any {
 	platform := strings.ToLower(strings.TrimSpace(inputString(input, "platform")))
 	topic := strings.ToLower(strings.TrimSpace(inputString(input, "topic")))
-	if platform != "windows" && platform != "linux" && platform != "macos" {
-		return map[string]any{"ok": false, "error": "platform must be windows, linux, or macos"}
+	if platform != "windows" && platform != "linux" && platform != "macos" && platform != "android" && platform != "ios" {
+		return map[string]any{"ok": false, "error": "platform must be windows, linux, macos, android, or ios"}
 	}
-	if topic != "claude-code" && topic != "cc-switch" && topic != "claude-desktop" && topic != "chatgpt-client" && topic != "codex" && topic != "cursor" && topic != "open-webui" && topic != "other-openai-compatible" {
+	if topic != "claude-code" && topic != "cc-switch" && topic != "claude-desktop" && topic != "chatgpt-client" && topic != "codex" && topic != "cursor" && topic != "open-webui" && topic != "cherry-studio" && topic != "chatbox" && topic != "other-openai-compatible" {
 		return map[string]any{"ok": false, "error": "topic is not supported"}
 	}
 	rootURL := strings.TrimRight(system_setting.ServerAddress, "/")
@@ -3337,9 +3337,52 @@ func executeAssistantSetupTool(userID int, input map[string]any) map[string]any 
 		"developer_access_granted":    developerAccessGranted,
 		"account_model_access_locked": accountModelAccessLocked,
 		"security_note":               securityNote,
+		"verification":                lockedAwareStep("Save the provider, select the exact returned model, and send: Reply with OK. A response without an error confirms this request worked; importing settings alone does not verify connectivity.", testStep),
+		"troubleshooting": map[string]string{
+			"401": "In the private API-key page, check that the key is enabled, unexpired, and copied without whitespace. Paste it only into the client's API Key field; never into chat.",
+			"404": "Check the client-specific host and path below for a missing or duplicate /v1. Use one exact live model ID and a model that supports the client's API route.",
+			"429": "Read the error detail to distinguish rate limiting from insufficient quota. Respect Retry-After, reduce concurrent requests, and check account/key quota in the console; do not repeatedly retry or assume a payment is required.",
+		},
+		"support_details": "If the test fails, share only the client name/version, status code, and redacted error text. Remove API keys, Authorization headers, and key-bearing import links from any screenshot.",
+	}
+	if (platform == "android" || platform == "ios") && topic != "chatbox" && topic != "chatgpt-client" && topic != "open-webui" && topic != "other-openai-compatible" {
+		result["supported"] = false
+		result["limitation"] = "This guide is for a desktop client. Use Chatbox on Android or iOS, or continue this client's setup on Windows, macOS, or Linux."
+		result["recommended_alternatives"] = []string{"Chatbox"}
+		result["official_download"] = "https://chatboxai.app/en/guide/getting-started/download"
+		delete(result, "verification")
+		return result
 	}
 
 	switch topic {
+	case "chatbox", "cherry-studio":
+		result["supported"] = true
+		result["client_api_host"] = rootURL
+		result["api_path"] = "/v1/chat/completions"
+		result["endpoint_format"] = "OpenAI Chat Completions; API Host is the service root, with /v1/chat/completions as a separate request path. Do not duplicate /v1."
+		if topic == "chatbox" {
+			result["official_download"] = "https://chatboxai.app/en/guide/getting-started/download"
+			result["official_docs"] = "https://docs.chatboxai.app/guides/providers"
+			result["steps"] = []string{
+				"Open the official Chatbox download page and select " + platform + ". On Android or iOS follow its official store/download link, install the app, then open it.",
+				"Open Settings > Model Providers > Add. Name the provider LMM and choose OpenAI API Compatible.",
+				"Set API Host to " + rootURL + ". Leave API Path at /v1/chat/completions; do not add /v1 to API Host.",
+				credentialStep + " Paste the key only into Chatbox's API Key field.",
+				"Add a model with the exact ID " + clientModel + ", then save the provider. Enable only capabilities supported by that model.",
+				lockedAwareStep("Click Check and confirm a successful connection. Return to the home screen, start a new chat, select LMM and the configured model, then send: Reply with OK.", testStep),
+			}
+		} else {
+			result["official_download"] = "https://www.cherry-ai.com/download"
+			result["official_docs"] = "https://docs.cherry-ai.com/pre-basic/providers/newapi"
+			result["steps"] = []string{
+				"Open the official Cherry Studio download page, select " + platform + ", install the package for your device, and launch the app.",
+				"Open Settings > Model Services and select New API. This provider supports the service's OpenAI-compatible API.",
+				"Set API Address to " + rootURL + ". New API adds the API path automatically; do not enter /chat/completions in this field.",
+				credentialStep + " Paste the key only into Cherry Studio's API Key field.",
+				"Use Manage to fetch models, or Add to enter the exact ID " + clientModel + ". Turn on the provider's enable switch.",
+				lockedAwareStep("Click Check with the configured model. Open a new conversation, choose this provider and model, and send: Reply with OK.", testStep),
+			}
+		}
 	case "claude-code":
 		installCommand := "curl -fsSL https://claude.ai/install.sh | bash"
 		configuration := fmt.Sprintf("export ANTHROPIC_BASE_URL=%s\nexport ANTHROPIC_AUTH_TOKEN='<YOUR_API_KEY>'\nexport ANTHROPIC_MODEL=%s\nclaude", quotePOSIXShellLiteral(rootURL), quotePOSIXShellLiteral(clientModel))
@@ -3424,7 +3467,7 @@ func executeAssistantSetupTool(userID int, input map[string]any) map[string]any 
 		result["supported"] = false
 		result["direct_custom_gateway_supported"] = false
 		result["limitation"] = "The official ChatGPT app uses OpenAI sign-in and does not accept this service's Base URL or API key as a custom provider."
-		result["recommended_alternatives"] = []string{"CC Switch", "Codex CLI", "Open WebUI", "another client that explicitly supports custom OpenAI-compatible providers"}
+		result["recommended_alternatives"] = []string{"Chatbox", "Cherry Studio (Windows, macOS, Linux)", "CC Switch (desktop coding tools)"}
 		result["official_download"] = "https://chatgpt.com/download/"
 	case "codex":
 		apiKeyCommand := "export LMM_API_KEY='<YOUR_API_KEY>'"
@@ -3465,6 +3508,9 @@ func executeAssistantSetupTool(userID int, input map[string]any) map[string]any 
 			"Enter the returned /v1 Base URL, exact model ID, and " + credentialPhrase + ".",
 			lockedAwareStep("Send a short test and verify that the client uses a route supported by this service.", testStep),
 		}
+	}
+	if result["supported"] == false {
+		delete(result, "verification")
 	}
 	return result
 }

@@ -30,7 +30,17 @@ import {
 import { HugeiconsIcon } from '@hugeicons/react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate } from '@tanstack/react-router'
-import { History, MessageCircle, PanelLeft, Plus, Square } from 'lucide-react'
+import {
+  ArrowUpRight,
+  Download,
+  History,
+  KeyRound,
+  MessageCircle,
+  PanelLeft,
+  Plus,
+  Square,
+  Wrench,
+} from 'lucide-react'
 import { nanoid } from 'nanoid'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -110,6 +120,7 @@ import {
 } from './assistant-clipboard'
 import { AssistantCostTool } from './assistant-cost-tool'
 import {
+  requestAssistantOpen,
   subscribeToAssistantOpen,
   type AssistantPresetId,
 } from './assistant-events'
@@ -307,12 +318,9 @@ function AssistantModernWelcome(props: {
 }) {
   const { t } = useTranslation()
 
-  /* Minimal gpt.ge-style empty state: one heading, one line of copy.
-   * Capability lanes and notice rows were cut — the preset chips under the
-   * composer already show what to ask. */
   return (
     <div
-      className='mx-auto flex w-full max-w-2xl flex-1 flex-col items-center justify-center gap-4 px-5 py-12 text-center sm:py-16'
+      className='mx-auto flex w-full max-w-2xl flex-col items-center justify-center gap-4 px-2 pt-10 pb-7 text-center sm:px-5 sm:pt-16 sm:pb-9'
       data-testid='assistant-modern-welcome'
     >
       <h2 className='text-2xl leading-snug font-semibold tracking-tight text-balance sm:text-3xl'>
@@ -323,6 +331,75 @@ function AssistantModernWelcome(props: {
       <p className='text-muted-foreground max-w-xl text-sm leading-7'>
         {props.description}
       </p>
+    </div>
+  )
+}
+
+function AssistantGettingStartedActions(props: {
+  disabled: boolean
+  restricted: boolean
+  onOpen: (target: AssistantPresetId) => void
+}) {
+  const { t } = useTranslation()
+  const actions = [
+    {
+      icon: Download,
+      title: t('Download and connect a client'),
+      description: t('Choose your device and follow the installation steps.'),
+      open: () => props.onOpen('client-setup'),
+    },
+    {
+      icon: KeyRound,
+      title: props.restricted ? t('Get API access') : t('Create API key'),
+      description: props.restricted
+        ? t('Tell us your use case and follow the access review.')
+        : t('Create a key, then import it into a supported client.'),
+      open: () => props.onOpen(props.restricted ? 'onboarding' : 'api-key'),
+    },
+    {
+      icon: Wrench,
+      title: t('Fix a connection problem'),
+      description: t('Get help with sign-in, model selection, or API errors.'),
+      open: () =>
+        requestAssistantOpen(
+          undefined,
+          t(
+            'Help me troubleshoot my client connection. Ask for my device, client, and error message, then guide me step by step. Never ask for my API key.'
+          )
+        ),
+    },
+  ]
+
+  return (
+    <div
+      className='mx-auto mb-8 grid w-full max-w-xl gap-3 px-1 sm:px-4'
+      aria-label={t('Getting started')}
+      data-testid='assistant-getting-started-actions'
+    >
+      {actions.map(({ icon: Icon, title, description, open }) => (
+        <button
+          key={title}
+          type='button'
+          disabled={props.disabled}
+          onClick={open}
+          className='border-border/70 bg-background text-foreground hover:bg-muted focus-visible:ring-ring flex min-h-20 items-center gap-3 rounded-xl border px-4 py-4 text-start transition-colors focus-visible:ring-2 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 sm:gap-4 sm:px-5'
+        >
+          <Icon
+            className='text-muted-foreground size-5 shrink-0'
+            aria-hidden='true'
+          />
+          <span className='min-w-0 flex-1'>
+            <span className='block text-sm font-medium'>{title}</span>
+            <span className='text-muted-foreground mt-1 block text-xs leading-5'>
+              {description}
+            </span>
+          </span>
+          <ArrowUpRight
+            className='text-muted-foreground size-4 shrink-0'
+            aria-hidden='true'
+          />
+        </button>
+      ))}
     </div>
   )
 }
@@ -2067,6 +2144,11 @@ export function AssistantPanel(props: {
                         restricted={accountAccessState === 'restricted'}
                       />
                     )}
+                    <AssistantGettingStartedActions
+                      disabled={!accountAccessConfirmed}
+                      restricted={accountAccessState === 'restricted'}
+                      onOpen={(target) => openAssistantTarget(target)}
+                    />
                   </div>
                 </div>
               ) : (
@@ -2294,6 +2376,9 @@ export function AssistantPanel(props: {
                         developerAccessGranted={developerAccessGranted}
                         onCreateKey={() => setActiveTool('key')}
                         onRequestAccess={() => setActiveTool('activation')}
+                        onAskQuestion={(question) =>
+                          requestAssistantOpen(undefined, question)
+                        }
                       />
                     ) : null}
                     {activeTool === 'usage' && developerAccessGranted ? (
@@ -2388,6 +2473,34 @@ export function AssistantPanel(props: {
                 key={conversationResetRevision}
                 initialInput={props.initialMessage}
               >
+                {accountAccessConfirmed && entries.length > 0 ? (
+                  <div className='mb-2 flex flex-wrap items-center gap-1'>
+                    <Button
+                      type='button'
+                      variant='ghost'
+                      size='sm'
+                      className='text-muted-foreground min-h-10 max-w-full whitespace-normal'
+                      disabled={sending}
+                      onClick={() => openAssistantTarget('client-setup')}
+                    >
+                      <Download
+                        className='size-4 shrink-0'
+                        aria-hidden='true'
+                      />
+                      {t('Download and connect a client')}
+                    </Button>
+                    <Button
+                      variant='ghost'
+                      size='sm'
+                      className='text-muted-foreground min-h-10'
+                      render={<Link to='/guide' />}
+                      onClick={() => props.onOpenChange(false)}
+                    >
+                      {t('Browse the setup guide')}
+                      <ArrowUpRight className='size-4' aria-hidden='true' />
+                    </Button>
+                  </div>
+                ) : null}
                 <AssistantPromptInputSync
                   initialMessage={props.initialMessage}
                   initialMessageRevision={props.initialMessageRevision}

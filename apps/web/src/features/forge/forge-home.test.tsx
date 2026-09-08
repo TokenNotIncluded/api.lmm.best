@@ -287,7 +287,67 @@ describe('ForgeHome code preview ornament', () => {
   })
 })
 
+describe('ForgeHome API examples', () => {
+  test('provides complete Claude and Gemini request bodies with JSON headers', async () => {
+    const rendered = await renderHome(null)
+    for (const tabName of ['Claude', 'Gemini']) {
+      const tab = Array.from(
+        rendered.container.querySelectorAll<HTMLButtonElement>('[role="tab"]')
+      ).find((button) => button.textContent === tabName)
+      assert.ok(tab)
+      await act(async () => {
+        tab.click()
+        await flushEffects()
+      })
+      const code =
+        rendered.container.querySelector('.forge-home-code-block')
+          ?.textContent ?? ''
+      assert.match(code, /Content-Type: application\/json/)
+      assert.match(code, /\$LMM_API_KEY/)
+      const body = code.match(/-d '([\s\S]+)'$/)?.[1]
+      assert.ok(body)
+      const request = JSON.parse(body)
+      if (tabName === 'Claude') {
+        assert.match(code, /\/v1\/messages/)
+        assert.ok(request.max_tokens > 0)
+        assert.deepEqual(request.messages, [{ role: 'user', content: 'Hello' }])
+      } else {
+        assert.match(code, /\/v1beta\/models\/model-name:generateContent/)
+        assert.deepEqual(request.contents, [
+          { role: 'user', parts: [{ text: 'Hello' }] },
+        ])
+      }
+    }
+    await unmountHome(rendered)
+  })
+})
+
 describe('ForgeHome assistant entry', () => {
+  test('starts app setup from a visible suggestion and preserves guidance across sign-in', async () => {
+    const rendered = await renderHome(null)
+    const suggestion = Array.from(
+      rendered.container.querySelectorAll<HTMLButtonElement>(
+        '.forge-home-assistant-prompts button'
+      )
+    ).find((button) => button.textContent?.includes('Connect my API key'))
+    assert.ok(suggestion)
+
+    await act(async () => {
+      suggestion.click()
+      await flushEffects()
+    })
+
+    assert.equal(rendered.router.state.location.pathname, '/sign-in')
+    const queued = consumeQueuedAssistantRequest()
+    assert.equal(queued?.autoSend, true)
+    assert.match(queued?.message ?? '', /Ask which app and device I use/)
+    assert.match(
+      queued?.message ?? '',
+      /Do not ask me to paste my key into chat/
+    )
+    await unmountHome(rendered)
+  })
+
   test('animates server-generated prompts and stops when the visitor interacts', async () => {
     const rendered = await renderHome(null)
     const input = findMessageInput(rendered.container)
@@ -459,6 +519,10 @@ describe('ForgeHome assistant entry', () => {
 
   test('does not leave a queued message when the assistant is disabled', async () => {
     const rendered = await renderHome(null, false)
+    assert.equal(
+      rendered.container.querySelector('.forge-home-assistant-prompts'),
+      null
+    )
 
     await submitMessage(rendered.container, 'Help me configure the SDK')
 

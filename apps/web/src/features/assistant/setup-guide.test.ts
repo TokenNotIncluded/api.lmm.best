@@ -33,7 +33,7 @@ import {
 } from './setup-guide'
 
 describe('assistant setup guide', () => {
-  test('detects supported desktop platforms and avoids treating mobile as Linux', () => {
+  test('detects desktop, Android and iOS platforms including desktop-mode iPads', () => {
     assert.equal(detectAssistantSetupPlatform('Windows', ''), 'windows')
     assert.equal(detectAssistantSetupPlatform('macOS', ''), 'macos')
     assert.equal(detectAssistantSetupPlatform('Linux', ''), 'linux')
@@ -50,7 +50,35 @@ describe('assistant setup guide', () => {
     )
     assert.equal(
       detectAssistantSetupPlatform('', 'Mozilla/5.0 (Linux; Android 15)'),
-      'windows'
+      'android'
+    )
+    assert.equal(
+      detectAssistantSetupPlatform('Linux', 'Mozilla/5.0 (Linux; Android 15)'),
+      'android'
+    )
+    assert.equal(detectAssistantSetupPlatform('iOS', ''), 'ios')
+    assert.equal(
+      detectAssistantSetupPlatform(
+        '',
+        'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0)'
+      ),
+      'ios'
+    )
+    assert.equal(
+      detectAssistantSetupPlatform(
+        'MacIntel',
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X)',
+        5
+      ),
+      'ios'
+    )
+    assert.equal(
+      detectAssistantSetupPlatform(
+        'MacIntel',
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X)',
+        0
+      ),
+      'macos'
     )
     assert.equal(detectAssistantSetupPlatform('', ''), 'windows')
   })

@@ -707,7 +707,7 @@ fn build_assistant_system_prompt(settings: &AssistantSettingsView) -> String {
     let mut prompt = format!(
         "You are the built-in customer assistant for LMM, an AI API service.\n\
 Answer in the user's language and be concise, accurate, and practical.\n\
-You may explain onboarding review, plans, pricing, discounts, API keys, Base URL and model IDs, cost calculations, open-source bounties and tips, and setup for Claude Code, CC Switch, ChatGPT-compatible clients, Windows, Linux, and macOS.\n\n\
+You may explain onboarding review, plans, pricing, discounts, API keys, Base URL and model IDs, cost calculations, open-source bounties and tips, and setup for Claude Code, CC Switch, Cherry Studio, Chatbox, Windows, Linux, macOS, Android, and iOS.\n\n\
 Current service connection facts:\n\
 - Anthropic-compatible service root: {root}\n\
 - OpenAI-compatible Base URL: {base}\n\
@@ -739,6 +739,10 @@ Current service connection facts:\n\
     prompt.push_str(
         "\n\nNon-overridable safety and accuracy rules:\n\
 - Never ask for or repeat passwords, API keys, session cookies, or other secrets.\n\
+- Answer the user's concrete request before onboarding. Reuse the device, client, and completed steps already stated; never ask whether this is their first time using AI or repeat questions already answered. Ask at most one focused question when a fact is required for the next step.\n\
+- For setup, get the live model ID, then call get_setup_guide. Give numbered steps for the official device download, exact settings/menu, connection fields, saving, and a short test with its expected result. Answer download-only questions directly without requiring a model, key, or upgrade. Prefer Chatbox on Android/iOS and Chatbox or Cherry Studio for desktop chat; never give desktop installation commands to a phone.\n\
+- Follow client-specific API Host/path fields: Chatbox uses the service root plus a separate /v1/chat/completions path; Cherry Studio's New API provider appends the path. Do not duplicate /v1. Use only verified private-card import actions and never invent an import protocol.\n\
+- For 401 check key validity, whitespace, and expiry privately; for 404 check the exact endpoint and live model; for 429 check the rate-limit or quota detail and respect Retry-After. Ask only for a status code and redacted error text, never a secret or unredacted screenshot. Importing settings does not prove a request succeeded; confirm with a short chat test.\n\
 - Never claim that you created a key, changed an account, contacted an administrator, purchased a plan, or completed any other action unless a confirmed tool result says so.\n\
 - Use live tools for account state, model availability, pricing, discounts, invitation rewards, usage statistics, and search results. If a tool is unavailable, say so instead of inventing a value.\n\
 - Before estimating token cost, call get_model_pricing for the exact model and group, then pass its already-adjusted USD rates to calculate_cost with group_ratio=1.\n\
@@ -746,10 +750,10 @@ Current service connection facts:\n\
 - For an L0 user asking for L1, first call get_account_access. Ask focused follow-up questions about their real use case, intended client, and what they plan to build. Do not prepare a recommendation from a greeting or a vague demand.\n\
 - Once the L0 user has provided enough concrete information, call prepare_l1_recommendation. The user must explicitly confirm that draft in the UI before it is sent. Only an administrator can approve or reject it; never claim that the assistant granted L1.\n\
 - When get_account_access reports a pending or reviewed L1 request, accurately relay its status and the administrator's note. A rejection is feedback for another conversation, not permission to activate the account.\n\
-- Use the service root without /v1 for Anthropic-compatible clients such as Claude Code, and use the /v1 Base URL for OpenAI-compatible clients.\n\
+- Use the service root without /v1 for Anthropic-compatible clients such as Claude Code, use /v1 for OpenAI SDK-style Base URLs, and follow the guide for clients with separate API Host/path fields.\n\
 - CC Switch supports one-click provider import through the ccswitch://v1/import deep-link protocol. Never say that CC Switch has no import link, and do not make manual field entry the default. For Claude, the generated link uses resource=provider, app=claude, the service root without /v1, the exact client model ID, and the newly created API key.\n\
 - API keys must never enter the assistant context or chat transcript. After the user confirms key creation, use the shielded private card's Import to CC Switch action (or the CC Switch action for that key on /keys) to construct and open the real link in the browser; show manual values only as a fallback.\n\
-- The official ChatGPT app does not accept a custom API Base URL or this service's API key. Recommend CC Switch or another compatible API client when the user wants to use this service.\n\
+- The official ChatGPT app does not accept a custom API Base URL or this service's API key. Recommend Chatbox on mobile, Chatbox or Cherry Studio for desktop chat, or CC Switch for coding tools when the user wants to use this service.\n\
 - Write actions require explicit confirmation in the UI. Explain the next step clearly and never hide a charge or a permission change.",
     );
     prompt
@@ -897,11 +901,11 @@ fn assistant_tool_definitions() -> Vec<Value> {
         ),
         tool(
             "get_setup_guide",
-            "Return verified platform-specific install commands and gateway configuration for Claude Code, CC Switch, Claude Desktop, Codex, and compatible clients. Use this instead of guessing client capabilities or endpoint formats.",
+            "Return device-specific downloads, click-by-click setup, verification, and troubleshooting for Chatbox, Cherry Studio, Claude Code, CC Switch, Claude Desktop, Codex, and compatible clients. Use an exact model ID returned by get_available_models instead of guessing client capabilities or endpoint formats.",
             object(
                 json!({
-                    "platform":{"type":"string","enum":["windows","linux","macos"]},
-                    "topic":{"type":"string","enum":["claude-code","cc-switch","claude-desktop","chatgpt-client","codex","cursor","open-webui","other-openai-compatible"]},
+                    "platform":{"type":"string","enum":["windows","linux","macos","android","ios"]},
+                    "topic":{"type":"string","enum":["claude-code","cc-switch","claude-desktop","chatgpt-client","codex","cursor","open-webui","cherry-studio","chatbox","other-openai-compatible"]},
                     "model_id":{"type":"string","minLength":1,"maxLength":200}
                 }),
                 &["platform", "topic"],
@@ -2141,7 +2145,7 @@ async fn execute_assistant_tool(
         "get_account_access" => assistant_account_tool(state, actor).await,
         "get_plan_offers" => assistant_plan_offers_tool(state, actor).await,
         "get_bounty_guide" => assistant_bounty_tool(state).await,
-        "get_setup_guide" => assistant_setup_tool(settings, &input),
+        "get_setup_guide" => assistant_setup_tool(settings, &input, actor.developer_access_granted),
         "request_human_support" => json!({
             "ok": true,
             "status": "confirmation_required",
@@ -3491,11 +3495,18 @@ async fn assistant_search_tool(
     json!({"ok":true,"configured":true,"query":query,"results":results})
 }
 
-fn assistant_setup_tool(settings: &AssistantSettingsView, input: &Map<String, Value>) -> Value {
+fn assistant_setup_tool(
+    settings: &AssistantSettingsView,
+    input: &Map<String, Value>,
+    developer_access_granted: bool,
+) -> Value {
     let platform = input_string(input, "platform").to_lowercase();
     let topic = input_string(input, "topic").to_lowercase();
-    if !matches!(platform.as_str(), "windows" | "linux" | "macos") {
-        return json!({"ok":false,"error":"platform must be windows, linux, or macos"});
+    if !matches!(
+        platform.as_str(),
+        "windows" | "linux" | "macos" | "android" | "ios"
+    ) {
+        return json!({"ok":false,"error":"platform must be windows, linux, macos, android, or ios"});
     }
     if !matches!(
         topic.as_str(),
@@ -3506,6 +3517,8 @@ fn assistant_setup_tool(settings: &AssistantSettingsView, input: &Map<String, Va
             | "codex"
             | "cursor"
             | "open-webui"
+            | "cherry-studio"
+            | "chatbox"
             | "other-openai-compatible"
     ) {
         return json!({"ok":false,"error":"topic is not supported"});
@@ -3523,6 +3536,18 @@ fn assistant_setup_tool(settings: &AssistantSettingsView, input: &Map<String, Va
         model if model.is_empty() => "<MODEL_ID_FROM_GET_AVAILABLE_MODELS>".to_owned(),
         model => model,
     };
+    let credential_step = if developer_access_granted {
+        "Create a key through this console's confirmation UI. Paste it only into the client's API Key field, never into chat."
+    } else {
+        "Keep the <YOUR_API_KEY> placeholder while access is locked; after L1 approval, create a key through the console's confirmation UI and paste it only into the client's API Key field. Never paste it into chat."
+    };
+    let test_step = |unlocked: &'static str| {
+        if developer_access_granted {
+            unlocked
+        } else {
+            "After L1 approval and key creation, save the provider, select the configured model, and send a short test request."
+        }
+    };
     let mut result = json!({
         "ok": true,
         "platform": platform,
@@ -3531,9 +3556,89 @@ fn assistant_setup_tool(settings: &AssistantSettingsView, input: &Map<String, Va
         "openai_base_url": openai_base,
         "client_model_id": model,
         "api_key": "<YOUR_API_KEY>",
-        "security_note": "Create the key in this console, never paste an existing secret into chat, and test with a newly opened terminal or client session."
+        "developer_access_granted": developer_access_granted,
+        "account_model_access_locked": !developer_access_granted,
+        "security_note": if developer_access_granted {
+            "Create the key in this console, never paste an existing secret into chat, and test with a newly opened terminal or client session."
+        } else {
+            "API key creation and authenticated requests remain locked until L1 approval. You can install the client and review the placeholder configuration now without creating or sharing a key."
+        },
+        "verification": test_step("Save the provider, select the exact returned model, and send: Reply with OK. A response without an error confirms this request worked; importing settings alone does not verify connectivity."),
+        "troubleshooting": {
+            "401": "Check privately that the key is enabled, unexpired, and copied without whitespace. Paste it only into the client's API Key field, never into chat.",
+            "404": "Check the client-specific host and path for a missing or duplicate /v1. Use an exact live model ID and a model that supports the client's API route.",
+            "429": "Read the error detail to distinguish rate limiting from insufficient quota. Respect Retry-After, reduce concurrent requests, and check account/key quota in the console; do not repeatedly retry or assume payment is required."
+        },
+        "support_details": "Share only the client name/version, status code, and redacted error text. Remove keys, Authorization headers, and key-bearing import links from screenshots."
     });
+    if matches!(platform.as_str(), "android" | "ios")
+        && !matches!(
+            topic.as_str(),
+            "chatbox" | "chatgpt-client" | "open-webui" | "other-openai-compatible"
+        )
+    {
+        result["supported"] = json!(false);
+        result["limitation"] = json!(
+            "This guide is for a desktop client. Use Chatbox on Android or iOS, or continue this client's setup on Windows, macOS, or Linux."
+        );
+        result["recommended_alternatives"] = json!(["Chatbox"]);
+        result["official_download"] =
+            json!("https://chatboxai.app/en/guide/getting-started/download");
+        if let Some(object) = result.as_object_mut() {
+            object.remove("verification");
+        }
+        return result;
+    }
     match topic.as_str() {
+        "chatbox" | "cherry-studio" => {
+            result["supported"] = json!(true);
+            result["client_api_host"] = json!(root);
+            result["api_path"] = json!("/v1/chat/completions");
+            result["endpoint_format"] = json!(
+                "OpenAI Chat Completions; API Host is the service root, with /v1/chat/completions as a separate request path. Do not duplicate /v1."
+            );
+            if topic == "chatbox" {
+                result["official_download"] =
+                    json!("https://chatboxai.app/en/guide/getting-started/download");
+                result["official_docs"] = json!("https://docs.chatboxai.app/guides/providers");
+                result["steps"] = json!([
+                    format!(
+                        "Open the official Chatbox download page and select {platform}. On Android or iOS follow its official store/download link, install the app, then open it."
+                    ),
+                    "Open Settings > Model Providers > Add. Name the provider LMM and choose OpenAI API Compatible.",
+                    format!(
+                        "Set API Host to {root}. Leave API Path at /v1/chat/completions; do not add /v1 to API Host."
+                    ),
+                    credential_step,
+                    format!(
+                        "Add the exact model ID {model}, then save the provider. Enable only capabilities supported by that model."
+                    ),
+                    test_step(
+                        "Click Check and confirm a successful connection. Start a new chat, select LMM and the configured model, then send: Reply with OK."
+                    )
+                ]);
+            } else {
+                result["official_download"] = json!("https://www.cherry-ai.com/download");
+                result["official_docs"] =
+                    json!("https://docs.cherry-ai.com/pre-basic/providers/newapi");
+                result["steps"] = json!([
+                    format!(
+                        "Open the official Cherry Studio download page, select {platform}, install the package for your device, and launch the app."
+                    ),
+                    "Open Settings > Model Services and select New API. This provider supports the service's OpenAI-compatible API.",
+                    format!(
+                        "Set API Address to {root}. New API adds the API path automatically; do not enter /chat/completions in this field."
+                    ),
+                    credential_step,
+                    format!(
+                        "Use Manage to fetch models, or Add to enter the exact ID {model}. Turn on the provider's enable switch."
+                    ),
+                    test_step(
+                        "Click Check with the configured model. Open a new conversation, choose this provider and model, and send: Reply with OK."
+                    )
+                ]);
+            }
+        }
         "claude-code" => {
             let (install, configuration) = match platform.as_str() {
                 "windows" => (
@@ -3561,8 +3666,10 @@ fn assistant_setup_tool(settings: &AssistantSettingsView, input: &Map<String, Va
                 Value::String("Anthropic Messages; use the service root without /v1".to_owned());
             result["steps"] = json!([
                 "Install Claude Code with the command returned by this tool, then run claude --version.",
-                "Create an API key in this console and replace only the <YOUR_API_KEY> placeholder.",
-                "Apply the returned environment variables in a terminal opened for the project, then run claude."
+                credential_step,
+                test_step(
+                    "Apply the returned environment variables in a terminal opened for the project, then run claude."
+                )
             ]);
             result["official_docs"] =
                 Value::String("https://code.claude.com/docs/en/setup".to_owned());
@@ -3610,9 +3717,15 @@ fn assistant_setup_tool(settings: &AssistantSettingsView, input: &Map<String, Va
             });
             result["steps"] = json!([
                 "Install CC Switch from the official GitHub Releases page, or use the macOS Homebrew command returned by this tool.",
-                "Create or select an API key in this console; the key stays in a shielded private card.",
-                "Use Import to CC Switch from that private card (or the key's CC Switch action on /keys). The UI constructs the ccswitch:// link and CC Switch shows an import confirmation.",
-                "Confirm the import, enable the Claude provider, then open a new terminal and send a short Claude Code test message."
+                credential_step,
+                if developer_access_granted {
+                    "Use Import to CC Switch from that private card (or the key's CC Switch action on /keys). The UI constructs the ccswitch:// link and CC Switch shows an import confirmation."
+                } else {
+                    "Review the placeholder provider configuration now. The private-card import becomes available only after L1 approval and key creation."
+                },
+                test_step(
+                    "Confirm the import, enable the Claude provider, then open a new terminal and send a short Claude Code test message."
+                )
             ]);
             result["official_releases"] =
                 Value::String("https://github.com/farion1231/cc-switch/releases".to_owned());
@@ -3631,7 +3744,9 @@ fn assistant_setup_tool(settings: &AssistantSettingsView, input: &Map<String, Va
                 result["steps"] = json!([
                     "Install and launch the official Claude Desktop app once.",
                     "In CC Switch, enable Claude Desktop and import the Claude Code provider or add a custom provider.",
-                    "Map the Sonnet role to the returned model ID, enable local routing, then fully restart Claude Desktop."
+                    test_step(
+                        "Map the Sonnet role to the returned model ID, enable local routing, then fully restart Claude Desktop."
+                    )
                 ]);
             }
             result["official_docs"] =
@@ -3643,10 +3758,9 @@ fn assistant_setup_tool(settings: &AssistantSettingsView, input: &Map<String, Va
             result["direct_custom_gateway_supported"] = Value::Bool(false);
             result["limitation"] = Value::String("The official ChatGPT app uses OpenAI sign-in and does not accept this service's Base URL or API key as a custom provider.".to_owned());
             result["recommended_alternatives"] = json!([
-                "CC Switch",
-                "Codex CLI",
-                "Open WebUI",
-                "another client that explicitly supports custom OpenAI-compatible providers"
+                "Chatbox",
+                "Cherry Studio (Windows, macOS, Linux)",
+                "CC Switch (desktop coding tools)"
             ]);
             result["official_download"] = Value::String("https://chatgpt.com/download/".to_owned());
         }
@@ -3672,6 +3786,11 @@ fn assistant_setup_tool(settings: &AssistantSettingsView, input: &Map<String, Va
                 Value::String("OpenAI-compatible; use the /v1 Base URL".to_owned());
         }
         _ => {}
+    }
+    if result["supported"] == false
+        && let Some(object) = result.as_object_mut()
+    {
+        object.remove("verification");
     }
     result
 }
