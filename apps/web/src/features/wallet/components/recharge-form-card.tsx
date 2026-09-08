@@ -70,7 +70,7 @@ import {
 
 import {
   getPaymentIcon,
-  getPaymentMaxTopup,
+  getPaymentMaxTopupAmount,
   getPaymentTopupRatio,
   getDefaultPaymentType,
   getTopupAvailability,
@@ -665,7 +665,7 @@ export function RechargeFormCard({
                           method.min_topup || 0,
                           getMinTopupAmount(topupInfo)
                         )
-                        const maxTopup = getPaymentMaxTopup(method)
+                        const maxTopup = getPaymentMaxTopupAmount(method)
                         const belowMinimum = minTopup > topupAmount
                         const aboveMaximum =
                           maxTopup !== null && topupAmount > maxTopup

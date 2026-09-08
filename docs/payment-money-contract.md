@@ -44,15 +44,31 @@ Callbacks grant value only after matching the persisted amount, currency, provid
 
 The wallet preserves the display fields returned by `/api/user/topup/info`,
 including `settlement_currency`, `platform_units_per_usd`,
-`settlement_units_per_usd`, `settlement_units_per_platform_unit`, and `max_topup`.
+`settlement_units_per_usd`, `settlement_units_per_platform_unit`, `max_topup`,
+and `max_topup_amount`.
 Keep decimal strings intact during parsing. These fields describe the quote's
 currency and conversion; the existing amount endpoint remains authoritative for
 the payable amount. Platform credit and real-fiat payment appear separately.
+
+`max_topup` is a credited-USD limit, not an amount of platform credit. The Go
+backend derives `max_topup_amount` in the units accepted by the top-up request,
+using the global wallet rates and, in token display mode, `QuotaPerUnit`.
+Duplicate payment types share their strictest configured limit. Custom gateway
+pricing, discounts, and display currencies do not change this ceiling.
+The frontend compares its input only with `max_topup_amount`. If an older
+backend omits it, quote and checkout endpoints continue enforcing the USD limit;
+the client must not guess a conversion and block an otherwise valid purchase.
 
 An amount, payment-method, or discount-code change invalidates pending discount
 validation and payment confirmation. A successful response for an older input
 must not authorize confirmation for the current input. Checkout still recalculates
 and enforces the payment rules on the server.
+
+Checkout-link discounts are validated against the amount, payment method, code,
+and current input revision. Changing payment methods revalidates the discount;
+confirmation waits for the matching discounted quote. A failed validation or
+quote unlocks the code for editing and manual retry without an automatic retry
+loop. Normalizing a valid code must not start a duplicate validation.
 
 Homepage purchase actions follow the server's developer-access decision. Pending
 accounts continue to access review; approved accounts can enter the wallet.

@@ -100,6 +100,7 @@ function parsePaymentMethods(
         unit_price: parseStringOrNumber(item.unit_price),
         topup_ratio: parseStringOrNumber(item.topup_ratio),
         max_topup: parseStringOrNumber(item.max_topup),
+        max_topup_amount: parseStringOrNumber(item.max_topup_amount),
         min_topup:
           type === 'stripe' && normalizedMinTopup <= 0
             ? stripeMinTopup

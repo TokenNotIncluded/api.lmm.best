@@ -463,6 +463,11 @@ func sanitizedPaymentMethods(methods []map[string]string) []map[string]string {
 		if public["name"] == "" || public["type"] == "" {
 			continue
 		}
+		// This field is derived from the server's complete policy, never copied
+		// from configuration or inferred from the method's settlement rate.
+		if maximum, configured, err := paymentMethodMaxTopUpAmount(public["type"]); err == nil && configured {
+			public["max_topup_amount"] = maximum.String()
+		}
 		hasExplicitPricing := strings.TrimSpace(public["platform_units_per_usd"]) != "" ||
 			strings.TrimSpace(public["settlement_units_per_usd"]) != "" ||
 			strings.TrimSpace(public["settlement_units_per_platform_unit"]) != "" ||

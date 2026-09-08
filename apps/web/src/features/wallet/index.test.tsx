@@ -105,6 +105,7 @@ afterEach(async () => {
   api.get = originalGet
   api.post = originalPost
   useAuthStore.getState().auth.reset('complete')
+  window.history.replaceState({}, '', '/wallet?discount_code=SAVE')
 })
 after(() => domWindow.close())
 
@@ -145,11 +146,64 @@ test('a superseded quote cannot approve checkout while the latest quote is pendi
 })
 
 test('late discount validation cannot quote an old amount into a new checkout', async () => {
+  const validations: Array<ReturnType<typeof deferred<ValidationResult>>> = []
+  const checkoutQuote = deferred<{ data: { message: string; data: string } }>()
+  const quotes: AmountRequest[] = []
+  api.post = (async (url, request) => {
+    if (url === '/api/user/discount-code/validate') {
+      const response = deferred<ValidationResult>()
+      validations.push(response)
+      return response.promise
+    }
+    assert.equal(url, '/api/user/amount')
+    const quote = request as AmountRequest
+    quotes.push(quote)
+    return quote.discount_code
+      ? checkoutQuote.promise
+      : { data: { message: 'success', data: String(quote.amount) } }
+  }) as typeof api.post
+  const { container, queryClient } = await renderWallet()
+  const largerPreset = container.querySelector<HTMLButtonElement>(
+    'button[aria-label^="Preset amount: 100 "]'
+  )
+  assert.ok(largerPreset)
+  await act(async () => largerPreset.click())
+  const pay = container.querySelector<HTMLButtonElement>(
+    'button[aria-label="Payment option 1"]'
+  )
+  assert.ok(pay)
+  await act(async () => pay.click())
+  assert.equal(validations.length, 3)
+  const requestsBeforeValidation = quotes.length
+  await act(async () => {
+    validations[0].resolve(validDiscount)
+    validations[1].resolve(validDiscount)
+  })
+  assert.equal(quotes.length, requestsBeforeValidation)
+  assert.equal(document.querySelector('[role="alertdialog"]'), null)
+  await act(async () => validations[2].resolve(validDiscount))
+  assert.deepEqual(quotes.at(-1), {
+    amount: 100,
+    payment_method: 'alipay',
+    discount_code: 'SAVE',
+  })
+  assert.equal(document.querySelector('[role="alertdialog"]'), null)
+  await act(async () =>
+    checkoutQuote.resolve({ data: { message: 'success', data: '90.00' } })
+  )
+  const confirmation = document.querySelector('[role="alertdialog"]')
+  assert.ok(confirmation)
+  assert.ok(confirmation.textContent?.includes('100 (Platform)'))
+  assert.ok(confirmation.textContent?.includes('90 CNY'))
+  queryClient.clear()
+})
+
+async function renderWallet(activated = false) {
   const user = {
     id: 7,
     username: 'checkout-user',
     role: 1,
-    developer_access_granted: false,
+    developer_access_granted: activated,
   }
   useAuthStore.getState().auth.setUser(user)
   api.get = (async (url) => ({
@@ -160,15 +214,13 @@ test('late discount validation cannot quote an old amount into a new checkout', 
           ? {
               enable_online_topup: true,
               enable_stripe_topup: false,
-              pay_methods: [
-                {
-                  name: 'Alipay',
-                  type: 'alipay',
-                  settlement_currency: 'CNY',
-                  platform_units_per_usd: '7',
-                  settlement_units_per_usd: '7',
-                },
-              ],
+              pay_methods: ['alipay', 'wxpay'].map((type) => ({
+                name: type,
+                type,
+                settlement_currency: 'CNY',
+                platform_units_per_usd: '7',
+                settlement_units_per_usd: '7',
+              })),
               min_topup: 10,
               stripe_min_topup: 10,
               amount_options: [10, 100],
@@ -176,28 +228,11 @@ test('late discount validation cannot quote an old amount into a new checkout', 
             }
           : url === '/api/user/self'
             ? user
-            : {},
+            : url === '/api/user/aff'
+              ? ''
+              : [],
     },
   })) as typeof api.get
-  const validation = deferred<{
-    data: {
-      success: boolean
-      data: { code: string; discount_percent: number; min_amount: number }
-    }
-  }>()
-  const checkoutQuote = deferred<{
-    data: { message: string; data: string }
-  }>()
-  const quotes: AmountRequest[] = []
-  let requestedCheckout = false
-  api.post = (async (url, request) => {
-    if (url === '/api/user/discount-code/validate') return validation.promise
-    assert.equal(url, '/api/user/amount')
-    const quoteRequest = request as AmountRequest
-    quotes.push(quoteRequest)
-    if (requestedCheckout) return checkoutQuote.promise
-    return { data: { message: 'success', data: String(quoteRequest.amount) } }
-  }) as typeof api.post
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
@@ -206,36 +241,205 @@ test('late discount validation cannot quote an old amount into a new checkout', 
       <Wallet />
     </QueryClientProvider>
   )
-  const largerPreset = container.querySelector<HTMLButtonElement>(
-    'button[aria-label^="Preset amount: 100 "]'
-  )
-  assert.ok(largerPreset)
-  await act(async () => largerPreset.click())
-  requestedCheckout = true
+  return { container, queryClient }
+}
+
+type ValidationResult = {
+  data: {
+    success: boolean
+    data?: { code: string; discount_percent: number; min_amount: number }
+  }
+}
+const validDiscount = {
+  data: {
+    success: true,
+    data: { code: 'SAVE', discount_percent: 10, min_amount: 10 },
+  },
+}
+
+test('a checkout link revalidates a changed payment method and waits for its discounted quote', async () => {
+  window.history.replaceState({}, '', '/wallet?discount_code=save')
+  const validations: Array<{
+    request: { code: string; amount: number; payment_method: string }
+    response: ReturnType<typeof deferred<ValidationResult>>
+  }> = []
+  const discountedQuote = deferred<{
+    data: { message: string; data: string }
+  }>()
+  const quotes: AmountRequest[] = []
+  api.post = (async (url, request) => {
+    if (url === '/api/user/discount-code/validate') {
+      const response = deferred<ValidationResult>()
+      validations.push({
+        request: request as (typeof validations)[number]['request'],
+        response,
+      })
+      return response.promise
+    }
+    assert.equal(url, '/api/user/amount')
+    const quote = request as AmountRequest
+    quotes.push(quote)
+    return quote.discount_code
+      ? discountedQuote.promise
+      : { data: { message: 'success', data: String(quote.amount) } }
+  }) as typeof api.post
+  const { container, queryClient } = await renderWallet()
+  assert.equal(validations.length, 1)
+  assert.equal(validations[0].request.payment_method, 'alipay')
   const pay = container.querySelector<HTMLButtonElement>(
-    'button[aria-label="Payment option 1"]'
+    'button[aria-label="Payment option 2"]'
   )
   assert.ok(pay)
   await act(async () => pay.click())
-  const requestsBeforeValidation = quotes.length
-  await act(async () => {
-    validation.resolve({
-      data: {
-        success: true,
-        data: { code: 'SAVE', discount_percent: 10, min_amount: 10 },
-      },
-    })
+  assert.equal(
+    validations.length,
+    2,
+    'the same amount needs a fresh validation for wxpay'
+  )
+  assert.deepEqual(validations[1].request, {
+    code: 'save',
+    amount: 10,
+    payment_method: 'wxpay',
   })
-  assert.equal(quotes.length, requestsBeforeValidation)
+  await act(async () => validations[0].response.resolve(validDiscount))
+  assert.equal(quotes.filter((quote) => quote.discount_code).length, 0)
   assert.equal(document.querySelector('[role="alertdialog"]'), null)
-  await act(async () => {
-    checkoutQuote.resolve({ data: { message: 'success', data: '100.00' } })
+  await act(async () => validations[1].response.resolve(validDiscount))
+  assert.deepEqual(quotes.at(-1), {
+    amount: 10,
+    payment_method: 'wxpay',
+    discount_code: 'SAVE',
   })
+  assert.equal(document.querySelector('[role="alertdialog"]'), null)
+  await act(async () =>
+    discountedQuote.resolve({ data: { message: 'success', data: '9.00' } })
+  )
   const confirmation = document.querySelector('[role="alertdialog"]')
   assert.ok(confirmation)
-  assert.ok(confirmation.textContent?.includes('100 (Platform)'))
-  assert.ok(confirmation.textContent?.includes('100 CNY'))
-  assert.equal(quotes.at(-1)?.amount, 100)
-  assert.equal(quotes.at(-1)?.discount_code, undefined)
+  assert.ok(confirmation.textContent?.includes('9 CNY'))
+  assert.equal(
+    validations.length,
+    2,
+    'completed validation must not trigger another effect'
+  )
+  queryClient.clear()
+})
+
+test('a failed checkout-link discount unlocks manual retry without an automatic retry loop', async () => {
+  const first = deferred<ValidationResult>()
+  let validations = 0
+  api.post = (async (url, request) => {
+    if (url === '/api/user/discount-code/validate') {
+      validations++
+      return validations === 1 ? first.promise : validDiscount
+    }
+    assert.equal(url, '/api/user/amount')
+    return {
+      data: {
+        message: 'success',
+        data: (request as AmountRequest).discount_code ? '9' : '10',
+      },
+    }
+  }) as typeof api.post
+  const { container, queryClient } = await renderWallet(true)
+  const input = container.querySelector<HTMLInputElement>('#discount-code')
+  assert.ok(input)
+  assert.equal(input.readOnly, true)
+  await act(async () => first.resolve({ data: { success: false } }))
+  assert.equal(
+    input.readOnly,
+    false,
+    'an invalid link must let the customer retry or edit the code'
+  )
+  const apply = Array.from(
+    container.querySelectorAll<HTMLButtonElement>('button')
+  ).find((button) => button.textContent?.trim() === 'Apply')
+  assert.ok(apply)
+  assert.equal(apply.disabled, false)
+  assert.equal(validations, 1)
+  await act(async () => apply.click())
+  assert.equal(validations, 2)
+  assert.ok(container.textContent?.includes('Discount applied: 10% off'))
+  queryClient.clear()
+})
+
+test('editing a pending manual discount prevents the old code from approving a quote', async () => {
+  window.history.replaceState({}, '', '/wallet')
+  const oldValidation = deferred<ValidationResult>()
+  const quotes: AmountRequest[] = []
+  api.post = (async (url, request) => {
+    if (url === '/api/user/discount-code/validate') {
+      return (request as { code: string }).code === 'SAVE'
+        ? oldValidation.promise
+        : {
+            data: {
+              success: true,
+              data: { code: 'OTHER', discount_percent: 20, min_amount: 10 },
+            },
+          }
+    }
+    assert.equal(url, '/api/user/amount')
+    const quote = request as AmountRequest
+    quotes.push(quote)
+    return {
+      data: { message: 'success', data: quote.discount_code ? '8' : '10' },
+    }
+  }) as typeof api.post
+  const { container, queryClient } = await renderWallet(true)
+  const input = container.querySelector<HTMLInputElement>('#discount-code')
+  assert.ok(input)
+  const setInputValue = Object.getOwnPropertyDescriptor(
+    domWindow.HTMLInputElement.prototype,
+    'value'
+  )?.set
+  assert.ok(setInputValue)
+  const changeCode = async (code: string) => {
+    await act(async () => {
+      setInputValue.call(input, code)
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+  }
+  const apply = Array.from(
+    container.querySelectorAll<HTMLButtonElement>('button')
+  ).find((button) => button.textContent?.trim() === 'Apply')
+  assert.ok(apply)
+  await changeCode('SAVE')
+  await act(async () => apply.click())
+  assert.equal(apply.disabled, true)
+  await changeCode('OTHER')
+  await act(async () => oldValidation.resolve(validDiscount))
+  assert.equal(input.value, 'OTHER')
+  assert.equal(quotes.filter((quote) => quote.discount_code).length, 0)
+  assert.equal(document.querySelector('[role="alertdialog"]'), null)
+  await act(async () => apply.click())
+  assert.equal(quotes.at(-1)?.discount_code, 'OTHER')
+  assert.ok(container.textContent?.includes('Discount applied: 20% off'))
+  queryClient.clear()
+})
+
+test('a failed discounted quote unlocks the checkout-link code for retry', async () => {
+  const quote = deferred<{ data: { success: boolean } }>()
+  let validations = 0
+  api.post = (async (url, request) => {
+    if (url === '/api/user/discount-code/validate') {
+      validations++
+      return validDiscount
+    }
+    assert.equal(url, '/api/user/amount')
+    return (request as AmountRequest).discount_code
+      ? quote.promise
+      : { data: { message: 'success', data: '10' } }
+  }) as typeof api.post
+  const { container, queryClient } = await renderWallet(true)
+  await act(async () => quote.resolve({ data: { success: false } }))
+  const input = container.querySelector<HTMLInputElement>('#discount-code')
+  assert.ok(input)
+  assert.equal(input.readOnly, false)
+  assert.equal(validations, 1)
+  assert.equal(
+    container.textContent?.includes('Discount applied: 10% off'),
+    false
+  )
+  assert.equal(document.querySelector('[role="alertdialog"]'), null)
   queryClient.clear()
 })

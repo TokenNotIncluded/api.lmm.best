@@ -13,6 +13,11 @@ authenticated users then see it once after their next login.
 
 <!-- Add user-facing or operational changes here before the next release. -->
 
+- Fixed payment methods being disabled by comparing a credited-USD limit with
+  platform credit. Wallet limits now use a server-derived request-amount ceiling.
+- Revalidate linked discount codes after changing payment methods and allow
+  retrying a failed validation before confirming the payment.
+
 - Clarified the account-to-purchase journey on the homepage and pricing overview,
   with access-aware actions, billing explanations and seven-language copy.
 - Preserved payment currency, exchange-rate and top-up-limit metadata in the wallet,

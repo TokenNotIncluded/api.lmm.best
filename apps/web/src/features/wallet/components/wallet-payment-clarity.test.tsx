@@ -946,6 +946,7 @@ describe('wallet payment clarity', () => {
               name: 'LINUX DO Credit',
               type: 'epay',
               max_topup: '20',
+              max_topup_amount: '20',
             },
           ],
         }}
@@ -978,6 +979,92 @@ describe('wallet payment clarity', () => {
       'Maximum platform credit per payment: 20 (Platform)'
     )
 
+    await unmount(rendered)
+  })
+
+  test('uses the server request-amount cap instead of USD or gateway pricing', async () => {
+    await i18n.changeLanguage('en')
+    setCnyBillingCurrency()
+    // The server uses 6.8 platform units/USD for limits. A custom gateway
+    // can price those units differently without changing the credited cap.
+    for (const amount of [17, 18]) {
+      let selected = false
+      const method = {
+        name: 'Limited custom gateway',
+        type: 'epay',
+        settlement_currency: 'LDC',
+        platform_units_per_usd: '99',
+        settlement_units_per_usd: '10',
+        max_topup: '2.5',
+        max_topup_amount: '17',
+      }
+      const rendered = await render(
+        <RechargeFormCard
+          topupInfo={{ ...topupInfo, pay_methods: [method] }}
+          presetAmounts={[]}
+          selectedPreset={null}
+          onSelectPreset={() => undefined}
+          topupAmount={amount}
+          onTopupAmountChange={() => undefined}
+          paymentAmount={1}
+          calculating={false}
+          onPaymentMethodSelect={() => {
+            selected = true
+          }}
+          paymentLoading={null}
+          redemptionCode=''
+          onRedemptionCodeChange={() => undefined}
+          onRedeem={() => undefined}
+          redeeming={false}
+        />
+      )
+      const button = [...rendered.container.querySelectorAll('button')].find(
+        (item) => item.textContent?.includes('Limited custom gateway')
+      )
+      assert.ok(button)
+      assert.equal(button.disabled, amount > 17)
+      if (amount === 17) {
+        await act(async () => button.click())
+        assert.equal(selected, true)
+      } else {
+        assert.equal(
+          button.title,
+          'Maximum platform credit per payment: 17 (Platform)'
+        )
+      }
+      await unmount(rendered)
+    }
+  })
+
+  test('leaves legacy caps to the server when the request-amount limit is absent', async () => {
+    await i18n.changeLanguage('en')
+    const rendered = await render(
+      <RechargeFormCard
+        topupInfo={{
+          ...topupInfo,
+          pay_methods: [
+            { name: 'Legacy gateway', type: 'epay', max_topup: '2.5' },
+          ],
+        }}
+        presetAmounts={[]}
+        selectedPreset={null}
+        onSelectPreset={() => undefined}
+        topupAmount={17}
+        onTopupAmountChange={() => undefined}
+        paymentAmount={1}
+        calculating={false}
+        onPaymentMethodSelect={() => undefined}
+        paymentLoading={null}
+        redemptionCode=''
+        onRedemptionCodeChange={() => undefined}
+        onRedeem={() => undefined}
+        redeeming={false}
+      />
+    )
+    const button = [...rendered.container.querySelectorAll('button')].find(
+      (item) => item.textContent?.includes('Legacy gateway')
+    )
+    assert.equal(button?.disabled, false)
     await unmount(rendered)
   })
 

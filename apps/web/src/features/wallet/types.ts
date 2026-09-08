@@ -118,6 +118,8 @@ export interface PaymentMethod {
   min_topup?: number
   /** Maximum credited USD allowed in one payment for this method. */
   max_topup?: string | number
+  /** Server-derived maximum in the same units as the top-up request amount. */
+  max_topup_amount?: string | number
   /** Optional react-icons component name or safe icon URL */
   icon?: string
   /** Explicit ISO/code unit charged by the gateway, for example USD or CNY. */
