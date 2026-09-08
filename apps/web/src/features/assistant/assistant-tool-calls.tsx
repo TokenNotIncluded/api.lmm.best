@@ -34,6 +34,9 @@ import {
 } from './assistant-tool-traces.js'
 
 const TOOL_TITLE_KEYS = {
+  list_admin_operations: 'Discover management operations',
+  execute_admin_operation: 'Run management operation',
+  audit_admin_model_pricing: 'Audit model pricing',
   navigate_to_page: 'Navigate within console',
   get_user_overview: 'Inspect user account',
   get_user_usage_summary: 'Analyze user usage',
@@ -51,6 +54,9 @@ const TOOL_TITLE_KEYS = {
 } satisfies Record<string, string>
 
 const TOOL_SUMMARY_KEYS = {
+  list_admin_operations: 'Management operations loaded',
+  execute_admin_operation: 'Management operation completed',
+  audit_admin_model_pricing: 'Pricing audit completed',
   navigate_to_page: 'Navigation prepared',
   get_user_overview: 'Account overview loaded',
   get_user_usage_summary: 'Usage summary loaded',

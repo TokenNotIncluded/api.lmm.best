@@ -314,6 +314,7 @@ func TestAssistantAdminToolsRejectNonAdministrator(t *testing.T) {
 
 func TestAssistantAdminChannelPreviewKeepsProviderSecretsOut(t *testing.T) {
 	db := setupTokenControllerTestDB(t)
+	setupAssistantAdminPermissionTest(t, db)
 	require.NoError(t, db.AutoMigrate(&model.User{}, &model.Channel{}, &model.AuthFlow{}))
 	user := model.User{
 		Username: "assistant-channel-admin",

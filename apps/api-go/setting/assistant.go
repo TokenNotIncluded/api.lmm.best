@@ -162,8 +162,8 @@ var (
 		Temperature:            DefaultAssistantTemperature,
 		MaxTokens:              DefaultAssistantMaxTokens,
 		AgentLoopEnabled:       true,
-		MaxSteps:               6,
-		TimeoutSeconds:         45,
+		MaxSteps:               12,
+		TimeoutSeconds:         90,
 		CacheEnabled:           true,
 		CacheTTLMinutes:        1440,
 		Persona:                "",
@@ -336,8 +336,8 @@ func SetAssistantAgentLoopEnabled(enabled bool) {
 
 func UpdateAssistantMaxSteps(value string) error {
 	steps, err := strconv.Atoi(strings.TrimSpace(value))
-	if err != nil || steps < 1 || steps > 12 {
-		return errors.New("assistant max steps must be between 1 and 12")
+	if err != nil || steps < 1 || steps > 32 {
+		return errors.New("assistant max steps must be between 1 and 32")
 	}
 
 	assistantSettingsMutex.Lock()
@@ -348,8 +348,8 @@ func UpdateAssistantMaxSteps(value string) error {
 
 func UpdateAssistantTimeoutSeconds(value string) error {
 	seconds, err := strconv.Atoi(strings.TrimSpace(value))
-	if err != nil || seconds < 5 || seconds > 120 {
-		return errors.New("assistant timeout must be between 5 and 120 seconds")
+	if err != nil || seconds < 5 || seconds > 300 {
+		return errors.New("assistant timeout must be between 5 and 300 seconds")
 	}
 
 	assistantSettingsMutex.Lock()
@@ -828,13 +828,13 @@ func ValidateAssistantOption(key string, value string) error {
 		return validateAssistantNumber(value, 64, 8192, "assistant max tokens must be between 64 and 8192")
 	case AssistantMaxStepsOptionKey:
 		steps, err := strconv.Atoi(strings.TrimSpace(value))
-		if err != nil || steps < 1 || steps > 12 {
-			return errors.New("assistant max steps must be between 1 and 12")
+		if err != nil || steps < 1 || steps > 32 {
+			return errors.New("assistant max steps must be between 1 and 32")
 		}
 	case AssistantTimeoutSecondsOptionKey:
 		seconds, err := strconv.Atoi(strings.TrimSpace(value))
-		if err != nil || seconds < 5 || seconds > 120 {
-			return errors.New("assistant timeout must be between 5 and 120 seconds")
+		if err != nil || seconds < 5 || seconds > 300 {
+			return errors.New("assistant timeout must be between 5 and 300 seconds")
 		}
 	case AssistantCacheTTLMinutesOptionKey:
 		minutes, err := strconv.Atoi(strings.TrimSpace(value))

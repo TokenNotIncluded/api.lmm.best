@@ -16,6 +16,7 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/LIghtJUNction/api.lmm.best/model"
 	"github.com/LIghtJUNction/api.lmm.best/service"
+	"github.com/LIghtJUNction/api.lmm.best/service/authz"
 	"github.com/LIghtJUNction/api.lmm.best/setting"
 	"github.com/LIghtJUNction/api.lmm.best/setting/billing_setting"
 	"github.com/LIghtJUNction/api.lmm.best/setting/config"
@@ -430,11 +431,17 @@ func assistantAdminUser(userID int) (*model.UserBase, error) {
 	if userID <= 0 {
 		return nil, errors.New("administrator account is unavailable")
 	}
-	user, err := model.GetUserCache(userID)
-	if err != nil || user == nil || user.Role < common.RoleAdminUser {
+	// Tool loops can outlive a role change or account suspension. Read the
+	// authoritative row on every privileged call instead of trusting the
+	// request snapshot or the distributed user cache.
+	if model.DB == nil {
+		return nil, errors.New("administrator account is unavailable")
+	}
+	user, err := model.GetUserById(userID, false)
+	if err != nil || user == nil || user.Status != common.UserStatusEnabled || user.Role < common.RoleAdminUser {
 		return nil, errors.New("administrator access is required")
 	}
-	return user, nil
+	return user.ToBaseUser(), nil
 }
 
 func assistantRootUser(userID int) (*model.UserBase, error) {
@@ -1347,6 +1354,9 @@ func executeAssistantAdminConfigChangeTool(c *gin.Context, userID int, input map
 		ConfigChanges:  changes,
 		ConfigExpected: current,
 	}
+	if result, handled := maybeApplyAssistantAdminAutomatically(c, userID, payload); handled {
+		return result
+	}
 	token, err := createAssistantAdminFlow(c, userID, payload)
 	if err != nil {
 		return map[string]any{"ok": false, "error": "administrator browser session is required to prepare a change"}
@@ -1372,6 +1382,9 @@ func executeAssistantAdminChannelsTool(userID int) map[string]any {
 	user, err := assistantAdminUser(userID)
 	if err != nil {
 		return map[string]any{"ok": false, "error": err.Error()}
+	}
+	if !authz.Can(userID, user.Role, authz.ChannelRead) {
+		return map[string]any{"ok": false, "error": "channel read permission is required"}
 	}
 	channels, total, truncated, err := assistantAdminChannelViews()
 	if err != nil {
@@ -1643,6 +1656,9 @@ func executeAssistantAdminUserSkillChangeTool(c *gin.Context, userID int, input 
 	}
 	change.Operation = strings.ToLower(change.Operation)
 	payload := assistantAdminChangePayload{Kind: assistantAdminUserSkillChangeKind, UserSkill: &change}
+	if result, handled := maybeApplyAssistantAdminAutomatically(c, userID, payload); handled {
+		return result
+	}
 	token, err := createAssistantAdminFlow(c, userID, payload)
 	if err != nil {
 		return map[string]any{"ok": false, "error": "administrator browser session is required to prepare a user skill change"}
@@ -1666,6 +1682,9 @@ func executeAssistantAdminChannelChangeTool(c *gin.Context, userID int, input ma
 	}
 	channelID, changes, err := assistantAdminChannelChanges(input)
 	if err != nil {
+		return map[string]any{"ok": false, "error": err.Error()}
+	}
+	if err := assistantAdminChannelPermission(userID, changes); err != nil {
 		return map[string]any{"ok": false, "error": err.Error()}
 	}
 	current, channel, err := assistantAdminChannelState(channelID)
@@ -1692,6 +1711,9 @@ func executeAssistantAdminChannelChangeTool(c *gin.Context, userID int, input ma
 			Changes:   changes,
 			Expected:  expected,
 		},
+	}
+	if result, handled := maybeApplyAssistantAdminAutomatically(c, userID, payload); handled {
+		return result
 	}
 	token, err := createAssistantAdminFlow(c, userID, payload)
 	if err != nil {
@@ -1866,6 +1888,9 @@ func executeAssistantAdminPricingChangeTool(c *gin.Context, userID int, input ma
 	currentState := assistantAdminCurrentPricingState(modelID)
 	change.Expected = &currentState
 	payload := assistantAdminChangePayload{Kind: assistantAdminPricingChangeKind, Pricing: &change}
+	if result, handled := maybeApplyAssistantAdminAutomatically(c, userID, payload); handled {
+		return result
+	}
 	token, err := createAssistantAdminFlow(c, userID, payload)
 	if err != nil {
 		return map[string]any{"ok": false, "error": "administrator browser session is required to prepare a pricing change"}
@@ -2227,12 +2252,15 @@ func applyAssistantAdminChange(c *gin.Context, payload assistantAdminChangePaylo
 		if payload.Channel == nil {
 			return errors.New("administrator channel change is empty")
 		}
+		if err := assistantAdminChannelPermission(assistantActorUserID(c), payload.Channel.Changes); err != nil {
+			return err
+		}
 		return applyAssistantAdminChannelChange(*payload.Channel)
 	case assistantAdminUserSkillChangeKind:
 		if payload.UserSkill == nil {
 			return errors.New("administrator user skill change is empty")
 		}
-		return applyAssistantAdminUserSkillChange(c.GetInt("id"), *payload.UserSkill)
+		return applyAssistantAdminUserSkillChange(assistantActorUserID(c), *payload.UserSkill)
 	case assistantAdminModelSyncChangeKind:
 		if payload.ModelSync == nil {
 			return errors.New("administrator model sync change is empty")

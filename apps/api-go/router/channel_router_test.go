@@ -33,7 +33,7 @@ func TestChannelStatusRoutesRegisterWithoutConflict(t *testing.T) {
 	api := engine.Group("/api")
 
 	require.NotPanics(t, func() {
-		registerChannelRoutes(api)
+		registerChannelRoutes(&assistantRouterGroup{group: api})
 	})
 }
 

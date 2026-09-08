@@ -46,6 +46,7 @@ import { getPricing } from '../pricing/api'
 import type { PricingModel } from '../pricing/types'
 import {
   getDrawingRequestErrorKind,
+  getDrawingRequestErrorMessage,
   getDrawingRequestStatus,
 } from './error-state'
 import { buildDrawingMcpConfig } from './mcp-config'
@@ -390,12 +391,18 @@ export function Drawing() {
           { skipBusinessError: true, skipErrorHandler: true }
         )
       }
-      if (response.data.error || !Array.isArray(response.data.data)) {
-        throw new Error(
-          response.data.error?.message ||
-            response.data.message ||
+      if (
+        !response.data ||
+        response.data.error ||
+        !Array.isArray(response.data.data)
+      ) {
+        setError(
+          getDrawingRequestErrorMessage(
+            { response },
             t('Unable to generate the image')
+          )
         )
+        return
       }
       const usableResults = response.data.data.filter(
         (image) => imageSource(image) !== undefined
@@ -405,10 +412,18 @@ export function Drawing() {
         setError(t('No images were returned'))
       }
     } catch (cause) {
+      const fallbackMessages = {
+        unauthenticated: t('Session expired!'),
+        forbidden: t('No permission to perform this action'),
+        unavailable: t('Please try again later.'),
+        network: t('Network connection failed or server not responding'),
+        http: t('Unable to generate the image'),
+      }
       setError(
-        cause instanceof Error
-          ? cause.message
-          : t('Unable to generate the image')
+        getDrawingRequestErrorMessage(
+          cause,
+          fallbackMessages[getDrawingRequestErrorKind(cause)]
+        )
       )
     } finally {
       setGenerating(false)

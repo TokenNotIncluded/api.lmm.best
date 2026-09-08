@@ -1418,7 +1418,7 @@ export function AssistantPanel(props: {
   if (isAdministrator) {
     assistantFooterStatus = withAccessLevel(t('Administrator mode'))
     assistantDescription = t(
-      'Administrator mode can inspect safe server settings and prepare model pricing changes for your confirmation.'
+      'Administrator mode executes requested management tasks using your current permissions and reports the results.'
     )
     assistantPromptPlaceholder = t(
       'Ask about server configuration, model pricing, or operations...'

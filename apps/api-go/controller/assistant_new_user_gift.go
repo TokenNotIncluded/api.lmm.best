@@ -54,7 +54,13 @@ func assistantConversationEvidence(c *gin.Context) (turns int, runes int) {
 	if c == nil {
 		return 0, 0
 	}
-	raw, exists := c.Get("assistant_conversation")
+	// Compression markers and omitted excerpts are model context only. Count
+	// substantive evidence from the original owned text so summaries cannot
+	// manufacture turns or inflate a short user's request into reward merit.
+	raw, exists := c.Get(assistantPolicyConversationKey)
+	if !exists {
+		raw, exists = c.Get("assistant_conversation")
+	}
 	if !exists {
 		return 0, 0
 	}
