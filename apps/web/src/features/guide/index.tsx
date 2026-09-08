@@ -16,258 +16,663 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { Check, Copy } from 'lucide-react'
+import { useQuery } from '@tanstack/react-query'
+import { Link, useNavigate } from '@tanstack/react-router'
+import {
+  ArrowRight,
+  Check,
+  ChevronDown,
+  Copy,
+  MessageCircle,
+  ShieldCheck,
+  Terminal,
+} from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { PublicLayout } from '@/components/layout'
+import { Button } from '@/components/ui/button'
+import { getAssistantAvailableModels } from '@/features/assistant/api'
+import {
+  requestAssistantOpen,
+  type AssistantPresetId,
+} from '@/features/assistant/assistant-events'
+import { AssistantSetupTool } from '@/features/assistant/assistant-setup-tool'
+import { useStatus } from '@/hooks/use-status'
+import {
+  getOnboardingState,
+  isConsoleActivated,
+} from '@/lib/console-activation'
+import { useAuthStore } from '@/stores/auth-store'
 
-type GuideCopy = {
-  eyebrow: string
-  title: string
-  intro: string
-  steps: Array<{ title: string; body: string }>
-  keyTitle: string
-  keyBody: string
-  connectionTitle: string
-  connectionBody: string
-  securityTitle: string
-  securityBody: string
-  nextTitle: string
-  nextBody: string
-  codeLabel: string
-  copyLabel: string
-  copiedLabel: string
-}
-
-const COPY: Record<'zh' | 'en', GuideCopy> = {
+const COPY = {
   zh: {
-    eyebrow: '接入指南',
-    title: '从注册到第一次调用',
+    eyebrow: '新手指南',
+    title: '第一次使用，从这里开始。',
     intro:
-      '把 LMM 接入你的客户端只需要几分钟。先创建密钥，再选择分组，最后用兼容接口发出第一条请求。',
-    steps: [
+      '选好设备和软件，跟着步骤完成连接。下载安装可以先看；需要账号帮助时，让 AI 助手陪你继续。',
+    start: '选择我的客户端',
+    assistant: '让 AI 一步步带我配置',
+    manualIntro:
+      '选好设备和软件，跟着步骤完成连接。下载安装可以先看，账号和访问权限问题也可以联系支持。',
+    contactSupport: '联系支持',
+    requestManualAccess: '联系支持申请访问',
+    supportTitle: '需要人工帮助？',
+    supportBody:
+      '访问申请或配置遇到问题时，可通过下方邮箱联系支持。说明账号、设备与具体问题，记得隐藏密钥。',
+    supportTicket: '提交支持工单',
+    manualTroubleBody:
+      '保留错误码、客户端名称和请求 ID。点开相应问题查看处理方法；仍未解决时，可以联系支持。',
+    guestAssistant: '登录，让 AI 带我配置',
+    stages: [
+      '选择软件',
+      '下载安装',
+      '申请访问并创建密钥',
+      '填写配置',
+      '开始第一次对话',
+    ],
+    setupTitle: '从你正在使用的设备开始',
+    setupBody:
+      '选择下面的设备和软件，查看官方安装入口与配置步骤。已有软件的用户可以直接查看连接配置。',
+    accountTitle: '准备好你的账号',
+    accountBody:
+      '访问权限通过后，就可以创建专用密钥，把 LMM 连接到自己的软件。',
+    accountSteps: ['获得 API 访问权限', '创建一把 API 密钥', '完成第一次请求'],
+    complete: '已完成',
+    pending: '待完成',
+    signIn: '登录并继续配置',
+    requestAccess: '让助手帮我申请访问',
+    createKey: '创建密钥与快捷导入',
+    requestAccessQuestion:
+      '我正在阅读新手指南，想使用 LMM API。请说明申请访问需要哪些信息，并带我完成申请。',
+    createKeyQuestion:
+      '我已阅读新手指南。请帮我创建一把适合首次使用的 API 密钥，说明权限、额度与分组的选择，然后带我将密钥导入我使用的客户端。',
+    setupQuestion:
+      '我第一次使用 LMM。请先问我使用的设备、软件和用途，再带我从官方下载、安装、申请访问、创建密钥、配置地址与模型，到发出第一条消息。每一步请说明点击哪里以及成功的标志。',
+    securityTitle: '密钥只填进你信任的客户端',
+    securityBody:
+      '聊天、截图和问题反馈中请遮住 API Key。若已泄露，到密钥页面撤销并重新创建；排查问题时提供请求 ID 即可。',
+    modelsError:
+      '暂时无法加载可用模型。你可以继续查看安装步骤，配置前请重试获取准确的模型 ID。',
+    retry: '重新加载模型',
+    firstTitle: '发一条消息，确认连接成功',
+    firstBody:
+      '保存配置后，新建对话，选择当前账号可用的模型，发送下面这句话。收到回复后，可到用量记录确认请求与消耗。',
+    firstMessage: '你好，请用一句话介绍你能帮助我做什么。',
+    usage: '查看用量记录',
+    modelList: '查看模型与价格',
+    troubleTitle: '卡在某一步？先看这里。',
+    troubleBody:
+      '保留错误码、客户端名称和请求 ID。点开相应问题，或把具体情况交给助手继续排查。',
+    troubles: [
       {
-        title: '1. 创建 API Key',
-        body: '打开控制台的 API 密钥页面，点击创建。密钥只会在创建后显示一次，请立即复制并保存在密码管理器中。',
+        code: '401',
+        title: '密钥验证失败',
+        body: '重新复制 API Key，检查前后空格，确认密钥未过期或被撤销，并填入客户端的 API Key 字段。仍失败时，提供错误信息和请求 ID，隐藏密钥。',
+        question:
+          '我在配置客户端时遇到 HTTP 401。请先问我设备、客户端、错误信息及请求 ID（不要索取 API Key），再逐步排查密钥填写、有效期与权限。',
       },
       {
-        title: '2. 选择路由分组',
-        body: '分组决定模型路由与计费。需要稳定入口时选择具体分组；希望自动故障切换时使用 auto（如果你的账号可见）。',
+        code: '404',
+        title: '接口地址或模型有误',
+        body: '按上方所选客户端的说明核对地址，避免重复拼接 /v1。模型名称须与账号的实时可用模型 ID 完全一致，再发起一次请求。',
+        question:
+          '我在配置客户端时遇到 HTTP 404。请先确认客户端名称、Base URL、模型 ID 和错误信息，帮我检查路径拼接与模型是否可用。不要索取密钥。',
       },
       {
-        title: '3. 填写客户端',
-        body: 'OpenAI 兼容客户端使用 /v1，Claude 客户端使用根地址。模型 ID 必须从控制台的实时模型列表复制，不要凭记忆填写。',
+        code: '429',
+        title: '请求受限，稍后再试',
+        body: '先暂停连续重试，查看错误详情。如果提示限流，等待后降低并发；如果提示额度不足，检查密钥限额、余额和套餐。错误详情能帮助区分原因。',
+        question:
+          '我在首次使用时遇到 HTTP 429。请根据完整错误信息判断是请求频率、配额还是上游限流，并给出具体处理步骤。请提醒我隐藏密钥后再分享错误信息。',
       },
     ],
-    keyTitle: '密钥创建后，你需要保存什么？',
-    keyBody:
-      '只保存 API Key。不要在聊天、工单、截图或 Git 仓库里发送它。Base URL 和模型 ID 不是秘密，可以安全地放进客户端配置。',
-    connectionTitle: 'OpenAI 兼容示例',
-    connectionBody:
-      '把环境变量替换为你自己的密钥，然后在本地终端运行。示例不会产生额外的配置文件。',
-    securityTitle: '安全边界',
-    securityBody:
-      '如果密钥泄露，立即到 API 密钥页面撤销并重新创建。遇到价格、余额或路由问题，提供请求 ID，不要提供密钥本身。',
-    nextTitle: '接下来可以做什么？',
-    nextBody:
-      '查看实时模型价格、连接 Claude Code / Codex / Cursor，或让内置助手按你的客户端一步一步完成配置。',
-    codeLabel: 'bash',
-    copyLabel: '复制代码',
-    copiedLabel: '已复制',
+    askAboutError: '让 AI 帮我排查',
+    guestError: '登录后让 AI 帮我排查',
+    developerTitle: '开发者：用 curl 测试连接',
+    developerBody:
+      '在本地 Bash 或兼容终端执行。替换示例密钥与模型 ID；示例请求会按所选模型计费。',
+    copy: '复制',
+    copied: '已复制',
+    copyFailed: '复制失败，请选中内容手动复制。',
   },
   en: {
-    eyebrow: 'Connection guide',
-    title: 'From sign-up to your first request',
+    eyebrow: 'Getting started',
+    title: 'Your first connection starts here.',
     intro:
-      'Connect LMM to a client in a few minutes: create a key, choose a group, then send a request through a compatible API.',
-    steps: [
+      'Choose your device and app, then follow the steps to connect. Browse installation instructions now, and continue with the AI assistant whenever you need help.',
+    start: 'Choose my client',
+    assistant: 'Guide me with AI',
+    manualIntro:
+      'Choose your device and app, then follow the setup steps. Browse installation instructions now, and contact support for help with your account or access.',
+    contactSupport: 'Contact support',
+    requestManualAccess: 'Contact support for access',
+    supportTitle: 'Need help from a person?',
+    supportBody:
+      'For access requests or setup issues, contact the support email below. Include your account, device and issue, with your API key hidden.',
+    supportTicket: 'Open a support ticket',
+    manualTroubleBody:
+      'Keep the error code, app name and request ID handy. Open the matching issue below for steps, or contact support if you are still stuck.',
+    guestAssistant: 'Sign in for AI guidance',
+    stages: [
+      'Choose an app',
+      'Download and install',
+      'Request access and create a key',
+      'Configure your client',
+      'Send your first message',
+    ],
+    setupTitle: 'Start with the device you use',
+    setupBody:
+      'Choose your device and app below for official downloads and setup instructions. Already installed? Continue to the connection settings.',
+    accountTitle: 'Prepare your account',
+    accountBody:
+      'Once API access is approved, create a dedicated key to connect LMM to your app.',
+    accountSteps: [
+      'Get API access',
+      'Create an API key',
+      'Complete your first request',
+    ],
+    complete: 'Complete',
+    pending: 'Pending',
+    signIn: 'Sign in to continue setup',
+    requestAccess: 'Ask the assistant for access',
+    createKey: 'Create a key and import',
+    requestAccessQuestion:
+      'I am reading the getting-started guide and want to use the LMM API. Explain what information is needed for access and guide me through the application.',
+    createKeyQuestion:
+      'I have read the getting-started guide. Help me create an API key for my first connection, explain permissions, limits and routing groups, then guide me through importing it into my chosen client.',
+    setupQuestion:
+      'I am new to LMM. First ask which device and app I use and what I want to do, then guide me through the official download, installation, access request, key creation, base URL and model configuration, and my first message. Explain where to click and how to verify each step.',
+    securityTitle: 'Enter keys only in trusted clients',
+    securityBody:
+      'Hide API keys in chats, screenshots and support requests. Revoke and replace a leaked key from API Keys. Share the request ID when troubleshooting.',
+    modelsError:
+      'Available models could not be loaded. You can keep reading installation steps; retry before configuring an exact model ID.',
+    retry: 'Reload models',
+    firstTitle: 'Send a message to check your connection',
+    firstBody:
+      'Save your settings, start a new conversation, select an available model for your account, and send the message below. After receiving a reply, check Usage Logs for the request and its cost.',
+    firstMessage: 'Hello! Tell me in one sentence what you can help me with.',
+    usage: 'Open usage logs',
+    modelList: 'Explore models and pricing',
+    troubleTitle: 'Stuck on a step? Start here.',
+    troubleBody:
+      'Keep the error code, app name and request ID handy. Open the matching issue below, or continue troubleshooting with the assistant.',
+    troubles: [
       {
-        title: '1. Create an API key',
-        body: 'Open API Keys in the console and create one. The secret is shown once; copy it immediately into a password manager.',
+        code: '401',
+        title: 'API key authentication failed',
+        body: 'Copy your API key again, remove surrounding spaces, and check it has not expired or been revoked. Enter it in the app’s API Key field. If it still fails, share the error and request ID with the key hidden.',
+        question:
+          'I received HTTP 401 while setting up my client. Ask for my device, client, error message and request ID without asking for my API key, then help me check key entry, expiration and permissions step by step.',
       },
       {
-        title: '2. Choose a routing group',
-        body: 'The group controls routing and billing. Choose a named group for a stable route, or use auto when it is available to your account.',
+        code: '404',
+        title: 'Check the endpoint and model',
+        body: 'Follow the address instructions for the selected client and check that /v1 is not duplicated. Use an exact model ID from your account’s available model list, then retry once.',
+        question:
+          'I received HTTP 404 while setting up my client. Ask for the client, Base URL, model ID and error message, then help me check endpoint paths and model availability. Do not ask for my API key.',
       },
       {
-        title: '3. Configure your client',
-        body: 'OpenAI-compatible clients use /v1; Claude clients use the root URL. Copy an exact model ID from the live model list instead of guessing.',
+        code: '429',
+        title: 'A request limit was reached',
+        body: 'Pause repeated retries and read the error details. For rate limits, wait and reduce concurrency. For insufficient quota, check key limits, balance and your plan. The error details help distinguish the cause.',
+        question:
+          'I received HTTP 429 on my first connection. Use the error details to identify rate limits, quota or upstream throttling and give specific next steps. Remind me to hide the key before sharing the error.',
       },
     ],
-    keyTitle: 'What should you save?',
-    keyBody:
-      'Save only the API key. Never paste it into chat, tickets, screenshots, or a Git repository. The Base URL and model ID are not secrets.',
-    connectionTitle: 'OpenAI-compatible example',
-    connectionBody:
-      'Replace the environment variable with your own key and run this in a local terminal. It does not create a configuration file.',
-    securityTitle: 'Security boundary',
-    securityBody:
-      'If a key leaks, revoke it from API Keys and create a replacement. For billing or routing issues, share a request ID—not the key.',
-    nextTitle: 'Where to go next',
-    nextBody:
-      'Check live model pricing, connect Claude Code / Codex / Cursor, or ask the built-in assistant to guide your exact client setup.',
-    codeLabel: 'bash',
-    copyLabel: 'Copy code',
-    copiedLabel: 'Copied',
+    askAboutError: 'Troubleshoot with AI',
+    guestError: 'Sign in to troubleshoot with AI',
+    developerTitle: 'For developers: test with curl',
+    developerBody:
+      'Run in a local Bash-compatible terminal. Replace the example key and model ID; the request is billed at the selected model’s rate.',
+    copy: 'Copy',
+    copied: 'Copied',
+    copyFailed: 'Copy failed. Select the content and copy it manually.',
   },
 }
-
-const EXAMPLE = String.raw`export LMM_API_KEY='paste-your-key-here'
-curl https://api.lmm.best/v1/chat/completions \
-  -H "Authorization: Bearer $LMM_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"model":"your-model-id","messages":[{"role":"user","content":"Hello"}]}'`
 
 function GuideCode({
   label,
-  copyLabel,
-  copiedLabel,
-  children,
+  value,
+  copy,
 }: {
   label: string
-  copyLabel: string
-  copiedLabel: string
-  children: string
+  value: string
+  copy: (typeof COPY)['en']
 }) {
-  const [copied, setCopied] = useState(false)
-
-  const copy = async () => {
-    if (!navigator.clipboard) return
+  const [status, setStatus] = useState<'idle' | 'copied' | 'error'>('idle')
+  const copyValue = async () => {
     try {
-      await navigator.clipboard.writeText(children)
-      setCopied(true)
-      window.setTimeout(() => setCopied(false), 1600)
+      await navigator.clipboard.writeText(value)
+      setStatus('copied')
     } catch {
-      setCopied(false)
+      setStatus('error')
     }
   }
 
   return (
-    <div className='bg-muted/40 overflow-hidden rounded-lg border'>
+    <div className='bg-muted/35 overflow-hidden rounded-xl border'>
       <div className='border-border/70 flex items-center justify-between gap-3 border-b px-4 py-2 text-xs'>
         <span className='text-muted-foreground'>{label}</span>
-        <button
+        <Button
           type='button'
-          className='text-muted-foreground hover:text-foreground inline-flex items-center gap-1.5 font-medium transition-colors'
-          onClick={() => void copy()}
-          aria-label={copied ? copiedLabel : copyLabel}
+          variant='ghost'
+          className='min-h-10'
+          onClick={() => void copyValue()}
         >
-          {copied ? <Check className='size-4' /> : <Copy className='size-4' />}
-          <span>{copied ? copiedLabel : copyLabel}</span>
-        </button>
+          {status === 'copied' ? (
+            <Check aria-hidden='true' />
+          ) : (
+            <Copy aria-hidden='true' />
+          )}
+          {status === 'copied' ? copy.copied : copy.copy}
+        </Button>
       </div>
-      <pre className='overflow-x-auto p-4 text-sm leading-6'>
-        <code>{children}</code>
+      <pre
+        className='overflow-x-auto p-4 text-sm leading-7'
+        tabIndex={0}
+        aria-label={label}
+      >
+        <code>{value}</code>
       </pre>
+      <p className='sr-only' role='status'>
+        {status === 'copied' ? copy.copied : ''}
+      </p>
+      {status === 'error' ? (
+        <p className='text-destructive px-4 pb-4 text-sm' role='alert'>
+          {copy.copyFailed}
+        </p>
+      ) : null}
     </div>
   )
 }
 
-/**
- * Integration guide, following the same public-page language as the
- * rankings page: standard shell, soft top glow, rounded bordered cards,
- * bold tracking-tight headings.
- */
 export function Guide() {
   const { i18n } = useTranslation()
+  const navigate = useNavigate()
+  const { status, capabilitiesReady } = useStatus()
+  const assistantAvailable =
+    capabilitiesReady && status?.assistant?.enabled !== false
+  const user = useAuthStore((state) => state.auth.user)
   const copy = i18n.language.toLowerCase().startsWith('zh') ? COPY.zh : COPY.en
+  const developerAccessGranted = isConsoleActivated(user)
+  const onboarding = getOnboardingState(user)
+  const completedSteps = [
+    onboarding.activationComplete,
+    onboarding.credentialComplete,
+    onboarding.firstRequestComplete,
+  ]
+  const rootUrl =
+    typeof window === 'undefined'
+      ? 'https://api.lmm.best'
+      : window.location.origin
+  const modelsQuery = useQuery({
+    queryKey: ['guide-available-models', user?.id],
+    queryFn: getAssistantAvailableModels,
+    enabled: developerAccessGranted,
+    staleTime: 60_000,
+    retry: false,
+  })
+  const contactSupport = () => {
+    if (developerAccessGranted) {
+      void navigate({ to: '/support' })
+      return
+    }
+    const support = document.getElementById('guide-support')
+    support?.scrollIntoView({ block: 'center' })
+    support?.focus({ preventScroll: true })
+  }
+  const askAssistant = (
+    message: string,
+    preset: AssistantPresetId = 'client-setup'
+  ) => {
+    if (!assistantAvailable) {
+      contactSupport()
+      return
+    }
+    requestAssistantOpen(preset, message)
+    if (user) {
+      void navigate({ to: '/getting-started' })
+    } else {
+      void navigate({
+        to: '/sign-in',
+        search: { redirect: '/getting-started' },
+      })
+    }
+  }
+  const createKey = () => {
+    if (developerAccessGranted && !assistantAvailable) {
+      void navigate({ to: '/keys' })
+      return
+    }
+    askAssistant(copy.createKeyQuestion, 'api-key')
+  }
+  const requestAccess = () => {
+    if (!assistantAvailable && !user) {
+      void navigate({ to: '/sign-in', search: { redirect: '/guide' } })
+      return
+    }
+    askAssistant(copy.requestAccessQuestion, 'onboarding')
+  }
+  const example = String.raw`export LMM_API_KEY='paste-your-key-here'
+curl ${rootUrl}/v1/chat/completions \
+  -H "Authorization: Bearer $LMM_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"your-model-id","messages":[{"role":"user","content":"Hello"}]}'`
 
   return (
     <PublicLayout showMainContainer={false}>
-      <div className='relative'>
-        <div
-          aria-hidden
-          className='pointer-events-none absolute inset-x-0 top-0 h-[600px] opacity-20 dark:opacity-[0.10]'
-          style={{
-            background: [
-              'radial-gradient(ellipse 60% 50% at 20% 20%, oklch(0.72 0.18 250 / 80%) 0%, transparent 70%)',
-              'radial-gradient(ellipse 50% 40% at 80% 15%, oklch(0.65 0.15 200 / 60%) 0%, transparent 70%)',
-              'radial-gradient(ellipse 40% 35% at 50% 70%, oklch(0.70 0.12 280 / 40%) 0%, transparent 70%)',
-            ].join(', '),
-            maskImage:
-              'linear-gradient(to bottom, black 40%, transparent 100%)',
-            WebkitMaskImage:
-              'linear-gradient(to bottom, black 40%, transparent 100%)',
-          }}
-        />
-        <main className='relative mx-auto max-w-6xl px-4 pt-16 pb-16 sm:px-6 sm:pt-20 md:px-8 md:pb-24'>
-          <header className='mx-auto max-w-3xl text-center'>
-            <p className='text-muted-foreground text-xs font-medium tracking-[0.2em] uppercase sm:text-xs sm:tracking-[0.32em]'>
+      <main className='dark:bg-background bg-[#faf9f6]'>
+        <div className='mx-auto max-w-6xl px-5 pt-16 pb-20 sm:px-8 sm:pt-24 lg:px-10 lg:pb-28'>
+          <header className='max-w-3xl'>
+            <p className='text-muted-foreground text-xs font-semibold tracking-[0.18em]'>
               {copy.eyebrow}
             </p>
-            <h1 className='mt-4 text-3xl leading-[1.15] font-bold tracking-tight sm:text-4xl md:text-5xl'>
+            <h1 className='mt-5 text-4xl leading-[1.2] font-semibold tracking-tight text-balance sm:text-5xl lg:text-6xl'>
               {copy.title}
             </h1>
-            <p className='text-muted-foreground mx-auto mt-4 max-w-2xl text-sm leading-7 sm:text-base'>
-              {copy.intro}
+            <p className='text-muted-foreground mt-6 max-w-2xl text-base leading-8'>
+              {assistantAvailable ? copy.intro : copy.manualIntro}
             </p>
+            <div className='mt-8 flex flex-col gap-3 sm:flex-row sm:flex-wrap'>
+              <Button
+                className='min-h-12 px-5'
+                render={<a href='#client-setup' />}
+              >
+                {copy.start}
+                <ArrowRight aria-hidden='true' />
+              </Button>
+              <Button
+                variant='outline'
+                className='min-h-12 px-5 whitespace-normal'
+                onClick={
+                  assistantAvailable
+                    ? () => askAssistant(copy.setupQuestion)
+                    : contactSupport
+                }
+              >
+                <MessageCircle aria-hidden='true' />
+                {assistantAvailable
+                  ? user
+                    ? copy.assistant
+                    : copy.guestAssistant
+                  : copy.contactSupport}
+              </Button>
+            </div>
           </header>
 
-          <div className='mt-12 grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,22rem)] lg:gap-10'>
-            <div className='min-w-0 space-y-4'>
-              {copy.steps.map((step) => (
-                <section
-                  key={step.title}
-                  className='bg-card/50 border-border/60 rounded-xl border p-5 backdrop-blur md:p-6'
+          <ol className='border-border/70 mt-12 grid gap-x-6 gap-y-5 border-y py-7 sm:grid-cols-3 lg:mt-16 lg:grid-cols-5'>
+            {copy.stages.map((stage, index) => (
+              <li
+                key={stage}
+                className='flex items-baseline gap-3 text-sm leading-6'
+              >
+                <span
+                  className='text-muted-foreground font-mono text-xs'
+                  aria-hidden='true'
                 >
-                  <h2 className='text-lg font-semibold tracking-tight'>
-                    {step.title}
-                  </h2>
-                  <p className='text-muted-foreground mt-2 text-sm leading-6'>
-                    {step.body}
-                  </p>
-                </section>
-              ))}
+                  {String(index + 1).padStart(2, '0')}
+                </span>
+                <span className='font-medium'>{stage}</span>
+              </li>
+            ))}
+          </ol>
 
-              <section className='bg-card/50 border-border/60 rounded-xl border p-5 backdrop-blur md:p-6'>
-                <h2 className='text-lg font-semibold tracking-tight'>
-                  {copy.connectionTitle}
+          <div className='mt-12 grid items-start gap-10 lg:mt-16 lg:grid-cols-[minmax(0,1fr)_17rem] lg:gap-12'>
+            <div className='min-w-0 space-y-12'>
+              <section
+                id='client-setup'
+                className='scroll-mt-24'
+                aria-labelledby='client-setup-title'
+              >
+                <h2
+                  id='client-setup-title'
+                  className='text-2xl font-semibold tracking-tight'
+                >
+                  {copy.setupTitle}
                 </h2>
-                <p className='text-muted-foreground mt-2 text-sm leading-6'>
-                  {copy.connectionBody}
+                <p className='text-muted-foreground mt-3 text-sm leading-7'>
+                  {copy.setupBody}
+                </p>
+                <div className='mt-6'>
+                  <AssistantSetupTool
+                    publicGuide
+                    rootUrl={rootUrl}
+                    openAIBaseUrl={`${rootUrl}/v1`}
+                    availableModels={
+                      developerAccessGranted ? (modelsQuery.data ?? []) : []
+                    }
+                    modelsLoading={modelsQuery.isLoading}
+                    developerAccessGranted={developerAccessGranted}
+                    onCreateKey={createKey}
+                    onRequestAccess={requestAccess}
+                    onAskQuestion={
+                      assistantAvailable ? askAssistant : undefined
+                    }
+                  />
+                </div>
+                {developerAccessGranted && modelsQuery.isError ? (
+                  <div className='mt-4 rounded-xl border p-4' role='alert'>
+                    <p className='text-muted-foreground text-sm leading-6'>
+                      {copy.modelsError}
+                    </p>
+                    <Button
+                      variant='outline'
+                      className='mt-3 min-h-11'
+                      disabled={modelsQuery.isFetching}
+                      onClick={() => void modelsQuery.refetch()}
+                    >
+                      {copy.retry}
+                    </Button>
+                  </div>
+                ) : null}
+              </section>
+
+              <section aria-labelledby='first-message-title'>
+                <h2
+                  id='first-message-title'
+                  className='text-2xl font-semibold tracking-tight'
+                >
+                  {copy.firstTitle}
+                </h2>
+                <p className='text-muted-foreground mt-3 text-sm leading-7'>
+                  {copy.firstBody}
+                </p>
+                <blockquote className='bg-background mt-5 rounded-xl border px-5 py-5 text-sm leading-7'>
+                  {copy.firstMessage}
+                </blockquote>
+                <div className='mt-4 flex flex-wrap gap-x-5 gap-y-3'>
+                  {developerAccessGranted ? (
+                    <Link
+                      to='/usage-logs'
+                      className='text-sm font-medium underline underline-offset-4'
+                    >
+                      {copy.usage}
+                    </Link>
+                  ) : null}
+                  <Link
+                    to='/pricing'
+                    className='text-sm font-medium underline underline-offset-4'
+                  >
+                    {copy.modelList}
+                  </Link>
+                </div>
+              </section>
+
+              <section aria-labelledby='troubleshooting-title'>
+                <h2
+                  id='troubleshooting-title'
+                  className='text-2xl font-semibold tracking-tight'
+                >
+                  {copy.troubleTitle}
+                </h2>
+                <p className='text-muted-foreground mt-3 text-sm leading-7'>
+                  {assistantAvailable
+                    ? copy.troubleBody
+                    : copy.manualTroubleBody}
+                </p>
+                <div className='mt-5 space-y-3'>
+                  {copy.troubles.map((trouble) => (
+                    <details
+                      key={trouble.code}
+                      className='group bg-background rounded-xl border'
+                    >
+                      <summary className='focus-visible:outline-ring flex min-h-16 cursor-pointer list-none items-center gap-3 rounded-xl px-4 py-4 focus-visible:outline-2 focus-visible:outline-offset-2 [&::-webkit-details-marker]:hidden'>
+                        <span className='text-muted-foreground shrink-0 font-mono text-xs'>
+                          {trouble.code}
+                        </span>
+                        <span className='min-w-0 flex-1 text-sm leading-6 font-medium'>
+                          {trouble.title}
+                        </span>
+                        <ChevronDown
+                          className='text-muted-foreground size-4 shrink-0 transition-transform group-open:rotate-180'
+                          aria-hidden='true'
+                        />
+                      </summary>
+                      <div className='px-4 pb-5 sm:px-5'>
+                        <p className='text-muted-foreground text-sm leading-7'>
+                          {trouble.body}
+                        </p>
+                        <Button
+                          variant='outline'
+                          className='mt-4 min-h-11 max-w-full whitespace-normal'
+                          onClick={
+                            assistantAvailable
+                              ? () => askAssistant(trouble.question)
+                              : contactSupport
+                          }
+                        >
+                          <MessageCircle aria-hidden='true' />
+                          {assistantAvailable
+                            ? user
+                              ? copy.askAboutError
+                              : copy.guestError
+                            : copy.contactSupport}
+                        </Button>
+                      </div>
+                    </details>
+                  ))}
+                </div>
+              </section>
+
+              <details className='group border-t pt-5'>
+                <summary className='focus-visible:outline-ring flex min-h-12 cursor-pointer list-none items-center gap-3 rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 [&::-webkit-details-marker]:hidden'>
+                  <Terminal
+                    className='text-muted-foreground size-4 shrink-0'
+                    aria-hidden='true'
+                  />
+                  <span className='min-w-0 flex-1 text-sm font-medium'>
+                    {copy.developerTitle}
+                  </span>
+                  <ChevronDown
+                    className='text-muted-foreground size-4 shrink-0 transition-transform group-open:rotate-180'
+                    aria-hidden='true'
+                  />
+                </summary>
+                <p className='text-muted-foreground mt-3 text-sm leading-7'>
+                  {copy.developerBody}
                 </p>
                 <div className='mt-4'>
                   <GuideCode
-                    label={copy.codeLabel}
-                    copyLabel={copy.copyLabel}
-                    copiedLabel={copy.copiedLabel}
-                  >
-                    {EXAMPLE}
-                  </GuideCode>
+                    label='Bash · OpenAI-compatible API'
+                    value={example}
+                    copy={copy}
+                  />
                 </div>
-              </section>
+              </details>
             </div>
 
-            <aside className='min-w-0 space-y-4'>
-              <section className='bg-card/50 border-border/60 rounded-xl border p-5 backdrop-blur'>
-                <p className='text-foreground text-sm font-semibold'>
-                  {copy.keyTitle}
+            <aside className='space-y-7 lg:sticky lg:top-24'>
+              <section className='bg-background rounded-2xl border p-6'>
+                <h2 className='text-base font-semibold'>{copy.accountTitle}</h2>
+                <p className='text-muted-foreground mt-3 text-sm leading-7'>
+                  {copy.accountBody}
                 </p>
-                <p className='text-muted-foreground mt-2 text-sm leading-6'>
-                  {copy.keyBody}
-                </p>
+                <ol className='mt-5 space-y-4'>
+                  {copy.accountSteps.map((step, index) => (
+                    <li
+                      key={step}
+                      className='flex items-start gap-2.5 text-sm leading-6'
+                    >
+                      <span
+                        className='bg-muted mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full text-xs'
+                        aria-label={
+                          completedSteps[index] ? copy.complete : copy.pending
+                        }
+                      >
+                        {completedSteps[index] ? (
+                          <Check className='size-3.5' aria-hidden='true' />
+                        ) : (
+                          index + 1
+                        )}
+                      </span>
+                      <span>{step}</span>
+                    </li>
+                  ))}
+                </ol>
+                {user ? (
+                  <Button
+                    className='mt-6 min-h-11 w-full whitespace-normal'
+                    onClick={developerAccessGranted ? createKey : requestAccess}
+                  >
+                    {developerAccessGranted
+                      ? copy.createKey
+                      : assistantAvailable
+                        ? copy.requestAccess
+                        : copy.requestManualAccess}
+                  </Button>
+                ) : (
+                  <Button
+                    className='mt-6 min-h-11 w-full whitespace-normal'
+                    render={
+                      <Link to='/sign-in' search={{ redirect: '/guide' }} />
+                    }
+                  >
+                    {copy.signIn}
+                  </Button>
+                )}
               </section>
-              <section className='bg-card/50 border-border/60 rounded-xl border p-5 backdrop-blur'>
-                <p className='text-foreground text-sm font-semibold'>
+              <section
+                id='guide-support'
+                tabIndex={-1}
+                className='focus-visible:outline-ring scroll-mt-24 rounded-xl border p-5 focus-visible:outline-2 focus-visible:outline-offset-2'
+              >
+                <h2 className='text-sm font-semibold'>{copy.supportTitle}</h2>
+                <p className='text-muted-foreground mt-2 text-sm leading-7'>
+                  {copy.supportBody}
+                </p>
+                <a
+                  href='mailto:support@lmm.best'
+                  className='mt-3 inline-flex min-h-11 items-center text-sm font-medium underline underline-offset-4'
+                >
+                  support@lmm.best
+                </a>
+                {developerAccessGranted ? (
+                  <Link
+                    to='/support'
+                    className='inline-flex min-h-11 items-center text-sm font-medium underline underline-offset-4'
+                  >
+                    {copy.supportTicket}
+                  </Link>
+                ) : null}
+              </section>
+              <section className='px-1 sm:px-2'>
+                <ShieldCheck
+                  className='text-muted-foreground size-5'
+                  aria-hidden='true'
+                />
+                <h2 className='mt-3 text-sm font-semibold'>
                   {copy.securityTitle}
-                </p>
-                <p className='text-muted-foreground mt-2 text-sm leading-6'>
+                </h2>
+                <p className='text-muted-foreground mt-2 text-sm leading-7'>
                   {copy.securityBody}
-                </p>
-              </section>
-              <section className='bg-card/50 border-border/60 rounded-xl border p-5 backdrop-blur'>
-                <p className='text-foreground text-sm font-semibold'>
-                  {copy.nextTitle}
-                </p>
-                <p className='text-muted-foreground mt-2 text-sm leading-6'>
-                  {copy.nextBody}
                 </p>
               </section>
             </aside>
           </div>
-        </main>
-      </div>
+        </div>
+      </main>
     </PublicLayout>
   )
 }

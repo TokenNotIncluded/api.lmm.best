@@ -133,7 +133,7 @@ fn assistant_setup_tool_should_describe_cc_switch_deep_link_import() -> TestResu
         "deserialize assistant setup input",
     )?;
 
-    let result = assistant_setup_tool(&settings, &input);
+    let result = assistant_setup_tool(&settings, &input, true);
     assert_eq!(result["ok"], true);
     assert_eq!(result["service_root"], "https://api.example.com");
     assert_eq!(result["cc_switch_import"]["supported"], true);
@@ -152,6 +152,114 @@ fn assistant_setup_tool_should_describe_cc_switch_deep_link_import() -> TestResu
     assert!(result["steps"]
         .as_array()
         .is_some_and(|steps| steps.iter().any(|step| step == "Use Import to CC Switch from that private card (or the key's CC Switch action on /keys). The UI constructs the ccswitch:// link and CC Switch shows an import confirmation.")));
+    Ok(())
+}
+
+#[test]
+fn assistant_setup_tool_should_keep_mobile_hosts_and_paths_separate() -> TestResult {
+    let settings = AssistantSettingsView {
+        server_address: "https://api.example.com/".to_owned(),
+        ..AssistantSettingsView::default()
+    };
+    for platform in ["windows", "macos", "linux", "android", "ios"] {
+        for topic in ["chatbox", "cherry-studio"] {
+            let input = json_from_value::<Map<String, Value>>(
+                json!({"platform": platform, "topic": topic, "model_id": "test-chat-model"}),
+                "deserialize chat client setup input",
+            )?;
+            let result = assistant_setup_tool(&settings, &input, true);
+            assert_eq!(result["ok"], true);
+            assert_eq!(result["api_key"], "<YOUR_API_KEY>");
+            assert!(result.get("install_command").is_none());
+            if topic == "cherry-studio" && matches!(platform, "android" | "ios") {
+                assert_eq!(result["supported"], false);
+                assert_eq!(result["recommended_alternatives"], json!(["Chatbox"]));
+                assert!(result.get("steps").is_none());
+                continue;
+            }
+            assert_eq!(result["supported"], true);
+            assert_eq!(result["client_api_host"], "https://api.example.com");
+            assert_eq!(result["api_path"], "/v1/chat/completions");
+            assert_eq!(result["openai_base_url"], "https://api.example.com/v1");
+            let steps = required(result["steps"].as_array(), "setup steps are missing")?;
+            assert!(steps.len() >= 6);
+            assert!(
+                steps
+                    .last()
+                    .and_then(Value::as_str)
+                    .is_some_and(|step| step.contains("Reply with OK"))
+            );
+            for code in ["401", "404", "429"] {
+                assert!(
+                    result["troubleshooting"][code]
+                        .as_str()
+                        .is_some_and(|text| !text.is_empty())
+                );
+            }
+        }
+    }
+    for topic in [
+        "claude-code",
+        "cc-switch",
+        "codex",
+        "cursor",
+        "claude-desktop",
+    ] {
+        let input = json_from_value::<Map<String, Value>>(
+            json!({"platform": "ios", "topic": topic, "model_id": "test-chat-model"}),
+            "deserialize desktop client setup input",
+        )?;
+        let result = assistant_setup_tool(&settings, &input, true);
+        assert_eq!(result["supported"], false);
+        assert!(result.get("install_command").is_none());
+        assert!(result.get("configuration").is_none());
+    }
+    Ok(())
+}
+
+#[test]
+fn assistant_setup_tool_should_defer_credentials_and_tests_until_l1() -> TestResult {
+    let settings = AssistantSettingsView::default();
+    for topic in ["chatbox", "cherry-studio", "claude-code", "cc-switch"] {
+        let input = json_from_value::<Map<String, Value>>(
+            json!({"platform": "windows", "topic": topic, "model_id": "test-chat-model"}),
+            "deserialize access-aware setup input",
+        )?;
+        for access_granted in [false, true] {
+            let result = assistant_setup_tool(&settings, &input, access_granted);
+            assert_eq!(result["ok"], true);
+            assert_eq!(result["developer_access_granted"], access_granted);
+            assert_eq!(result["account_model_access_locked"], !access_granted);
+            let steps = required(result["steps"].as_array(), "setup steps are missing")?;
+            let credentials = if matches!(topic, "chatbox" | "cherry-studio") {
+                &steps[3]
+            } else {
+                &steps[1]
+            };
+            let credentials = required(credentials.as_str(), "credential step is missing")?;
+            let verification =
+                required(result["verification"].as_str(), "verification is missing")?;
+            if access_granted {
+                assert!(credentials.starts_with("Create a key"));
+                assert!(verification.contains("Reply with OK"));
+            } else {
+                assert!(credentials.starts_with("Keep the <YOUR_API_KEY> placeholder"));
+                assert!(credentials.contains("after L1 approval"));
+                assert!(verification.starts_with("After L1 approval"));
+                assert!(
+                    steps
+                        .last()
+                        .and_then(Value::as_str)
+                        .is_some_and(|step| step.starts_with("After L1 approval"))
+                );
+                assert!(
+                    result["security_note"]
+                        .as_str()
+                        .is_some_and(|note| note.contains("remain locked until L1 approval"))
+                );
+            }
+        }
+    }
     Ok(())
 }
 

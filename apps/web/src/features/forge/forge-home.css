@@ -17,15 +17,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 /*
- * Homepage presentation follows the compact, centered product landing page
- * pattern used by gpt.ge: translucent navigation, an aurora/grid hero,
- * centered feature sections and a setup walkthrough.
+ * Responsive landing page: a quiet canvas, readable sections, and a clear
+ * route from choosing an app to completing the first request.
  * Colors are semantic so the page remains compatible with the active theme.
  */
 .forge-home-page {
-  /* gpt.ge's landing page uses a neutral canvas and a single vivid accent.
-   * Keep the accent connected to the active theme's chart palette instead of
-   * inheriting the public Forge shell's older editorial surface aliases. */
+  --home-gutter: clamp(1.25rem, 4vw, 3rem);
+  --home-section-space: clamp(3.5rem, 7vw, 6rem);
   --background: oklch(0.99 0 0);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
@@ -106,20 +104,21 @@ For commercial licensing, please contact support@quantumnous.com
   position: relative;
   display: flex;
   isolation: isolate;
-  min-height: min(42rem, calc(100svh - 4rem));
+  min-height: min(46rem, calc(100svh - 4rem));
   align-items: center;
   justify-content: center;
   overflow: hidden;
-  padding: 2.5rem 1.5rem 4rem;
+  padding: clamp(3rem, 6vw, 5.5rem) var(--home-gutter) var(--home-section-space);
 }
 
 .forge-home-aurora {
   pointer-events: none;
-  position: fixed;
+  position: absolute;
   z-index: -12;
-  inset: -3.75rem 0 12.5rem;
+  inset: 0 0 auto;
+  height: 46rem;
   overflow: hidden;
-  opacity: 0.8;
+  opacity: 0.3;
 }
 
 .forge-home-aurora-layer {
@@ -213,7 +212,7 @@ For commercial licensing, please contact support@quantumnous.com
     linear-gradient(to bottom, var(--home-grid) 1px, transparent 1px);
   background-size: 100px 100px;
   mask-image: linear-gradient(to bottom, black 0%, transparent 90%);
-  opacity: 0.7;
+  opacity: 0.3;
 }
 
 .forge-home-orb {
@@ -247,9 +246,8 @@ For commercial licensing, please contact support@quantumnous.com
   max-width: 80rem;
   flex-direction: column;
   align-items: center;
-  gap: 1.75rem;
+  gap: 1.5rem;
   text-align: center;
-  transform: translateY(clamp(1rem, 4vh, 3rem));
 }
 
 .forge-home-model-badge,
@@ -327,7 +325,7 @@ For commercial licensing, please contact support@quantumnous.com
   gap: 0.85rem;
   font-size: clamp(2.75rem, 7vw, 5.25rem);
   font-weight: 700;
-  line-height: 0.92;
+  line-height: 1.14;
   letter-spacing: -0.055em;
   text-wrap: balance;
 }
@@ -366,11 +364,70 @@ For commercial licensing, please contact support@quantumnous.com
   justify-content: center;
   gap: 1rem;
   padding-top: 0.5rem;
+  width: min(100%, 34rem);
+}
+
+.forge-home-guide-entry {
+  display: inline-flex;
+  min-height: 2.75rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  color: var(--foreground);
+  font-size: 0.875rem;
+  text-underline-offset: 0.25rem;
+}
+
+.forge-home-guide-entry:hover {
+  text-decoration: underline;
+}
+
+.forge-home-guide-entry svg {
+  flex-shrink: 0;
 }
 
 .forge-home-hero-assistant {
-  width: min(100%, 38rem);
-  margin-top: 0.5rem;
+  width: min(100%, 42rem);
+  margin-top: 0.75rem;
+  text-align: start;
+}
+
+.forge-home-assistant-label {
+  display: block;
+  margin-bottom: 0.75rem;
+  color: var(--home-muted);
+  font-size: 0.875rem;
+  text-align: center;
+}
+
+.forge-home-assistant-prompts {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.5rem 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.forge-home-assistant-prompts button {
+  display: inline-flex;
+  min-height: 2.75rem;
+  align-items: center;
+  gap: 0.5rem;
+  border-radius: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  color: var(--home-muted);
+  font-size: 0.8125rem;
+  text-align: start;
+  cursor: pointer;
+}
+
+.forge-home-assistant-prompts button:hover {
+  background: var(--muted);
+  color: var(--foreground);
+}
+
+.forge-home-submit-icon {
+  display: none;
 }
 
 .forge-home-hero-assistant [data-slot='input-group'] {
@@ -382,9 +439,9 @@ For commercial licensing, please contact support@quantumnous.com
 
 .forge-home-section {
   width: 100%;
-  max-width: 80rem;
+  max-width: 76rem;
   margin: 0 auto;
-  padding: 4.5rem 1rem;
+  padding: var(--home-section-space) var(--home-gutter);
 }
 
 .forge-home-section-heading {
@@ -392,7 +449,7 @@ For commercial licensing, please contact support@quantumnous.com
   flex-direction: column;
   align-items: center;
   gap: 0.9rem;
-  margin: 0 auto 2.75rem;
+  margin: 0 auto clamp(2rem, 4vw, 3.5rem);
   text-align: center;
 }
 
@@ -424,18 +481,18 @@ For commercial licensing, please contact support@quantumnous.com
 .forge-home-feature-grid {
   display: grid;
   grid-template-columns: repeat(1, minmax(0, 1fr));
-  gap: 0.75rem;
+  gap: 1rem;
 }
 
 .forge-home-feature-card {
   display: flex;
   min-height: 10rem;
   flex-direction: column;
-  gap: 1rem;
+  gap: 1.25rem;
   border: 1px solid color-mix(in oklch, var(--border) 55%, transparent);
   border-radius: 1rem;
   background: color-mix(in oklch, var(--card) 42%, transparent);
-  padding: 1.25rem;
+  padding: clamp(1.5rem, 3vw, 2rem);
   text-align: left;
   transition:
     border-color 180ms ease,
@@ -468,7 +525,7 @@ For commercial licensing, please contact support@quantumnous.com
 .forge-home-feature-card h3,
 .forge-home-step h3,
 .forge-home-use-case h3 {
-  font-size: 0.95rem;
+  font-size: 1rem;
   font-weight: 600;
   letter-spacing: -0.015em;
 }
@@ -476,14 +533,14 @@ For commercial licensing, please contact support@quantumnous.com
 .forge-home-feature-card p,
 .forge-home-step p,
 .forge-home-use-case p {
-  margin-top: 0.375rem;
+  margin-top: 0.625rem;
   color: var(--home-muted);
-  font-size: 0.8rem;
-  line-height: 1.65;
+  font-size: 0.875rem;
+  line-height: 1.8;
 }
 
 .forge-home-quickstart {
-  max-width: 80rem;
+  max-width: 76rem;
 }
 
 .forge-home-quickstart-grid {
@@ -494,7 +551,7 @@ For commercial licensing, please contact support@quantumnous.com
 .forge-home-steps {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: 1rem;
 }
 
 .forge-home-step {
@@ -505,7 +562,12 @@ For commercial licensing, please contact support@quantumnous.com
   border: 1px solid color-mix(in oklch, var(--border) 55%, transparent);
   border-radius: 1rem;
   background: color-mix(in oklch, var(--card) 42%, transparent);
-  padding: 1rem;
+  padding: 1.5rem;
+  transition: background-color 180ms ease;
+}
+
+.forge-home-step:hover {
+  background: var(--home-card-strong);
 }
 
 .forge-home-step-number {
@@ -594,6 +656,7 @@ For commercial licensing, please contact support@quantumnous.com
 }
 
 .forge-home-code-tabs button {
+  min-height: 2.75rem;
   border-radius: 999px;
   padding: 0.3rem 0.7rem;
   color: color-mix(in oklch, var(--foreground) 54%, transparent);
@@ -633,19 +696,13 @@ For commercial licensing, please contact support@quantumnous.com
   line-height: 1.65;
 }
 
-.forge-home-code-response {
+.forge-home-code-help {
+  margin-top: 1rem;
   border-top: 1px solid color-mix(in oklch, var(--border) 55%, transparent);
-  padding-top: 0.75rem;
-}
-
-.forge-home-code-status {
-  color: var(--success);
-  letter-spacing: 0;
-  text-transform: none;
-}
-
-.forge-home-response-block {
-  max-height: 8rem;
+  padding-top: 1rem;
+  color: var(--home-muted);
+  font-size: 0.8125rem;
+  line-height: 1.75;
 }
 
 .forge-home-use-case-grid {
@@ -657,7 +714,7 @@ For commercial licensing, please contact support@quantumnous.com
 .forge-home-use-case {
   min-height: 9rem;
   border-top: 1px solid color-mix(in oklch, var(--border) 75%, transparent);
-  padding: 1.25rem 0.25rem;
+  padding: 1.75rem 0.25rem;
 }
 
 .forge-home-use-case h3 {
@@ -665,21 +722,13 @@ For commercial licensing, please contact support@quantumnous.com
 }
 
 @media (min-width: 640px) {
-  .forge-home-hero {
-    padding-inline: 2rem;
-  }
-
   .forge-home-hero-actions {
     flex-direction: row;
   }
 
-  .forge-home-section {
-    padding-inline: 2rem;
-  }
-
   .forge-home-feature-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 1rem;
+    gap: 1.25rem;
   }
 
   .forge-home-use-case-grid {
@@ -692,7 +741,7 @@ For commercial licensing, please contact support@quantumnous.com
   .forge-home-quickstart-grid {
     grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
     align-items: start;
-    gap: 2rem;
+    gap: 2.5rem;
   }
 
   .forge-home-feature-grid {
@@ -710,6 +759,7 @@ For commercial licensing, please contact support@quantumnous.com
 
 @media (prefers-reduced-motion: reduce) {
   .forge-home-feature-card,
+  .forge-home-step,
   .forge-home-quick-link {
     transition: none;
   }
@@ -723,11 +773,58 @@ For commercial licensing, please contact support@quantumnous.com
   }
 }
 
-/* Keep the access and purchase steps within reach of the first viewport. */
+/* Align the purchase journey with the readable content column. */
 .forge-home-purchase-path {
   position: relative;
   margin: 0 auto;
-  width: min(100% - 3rem, 76rem);
+  width: min(100% - 2 * var(--home-gutter), 70rem);
   border-block: 1px solid var(--border);
-  padding-block: 2rem;
+  padding-block: clamp(2rem, 4vw, 3rem);
+}
+
+.forge-home-page :where(a, button, input):focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 4px;
+}
+
+@media (max-width: 639px) {
+  .forge-home-hero-content {
+    gap: 1.25rem;
+  }
+
+  .forge-home-hero h1 {
+    font-size: clamp(2.5rem, 9vw, 3.5rem);
+    line-height: 1.2;
+  }
+
+  .forge-home-hero-summary {
+    margin-top: 0;
+  }
+
+  .forge-home-hero-assistant [data-slot='input-group-control'] {
+    font-size: 1rem;
+  }
+
+  .forge-home-hero-assistant [data-slot='input-group-button'] {
+    width: 2.75rem;
+    height: 2.75rem;
+    padding-inline: 0;
+  }
+
+  .forge-home-submit-label {
+    display: none;
+  }
+
+  .forge-home-submit-icon {
+    display: block;
+  }
+
+  .forge-home-assistant-prompts {
+    justify-content: flex-start;
+    column-gap: 0.25rem;
+  }
+
+  .forge-home-step {
+    padding: 1.25rem;
+  }
 }

@@ -16,24 +16,37 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-export type AssistantSetupPlatform = 'windows' | 'macos' | 'linux'
+export type AssistantDesktopPlatform = 'windows' | 'macos' | 'linux'
+export type AssistantSetupPlatform =
+  | AssistantDesktopPlatform
+  | 'android'
+  | 'ios'
 
 export type CCSwitchInstallGuide = {
   artifact: string
   command: string | null
 }
 
+export function isMobileSetupPlatform(
+  platform: AssistantSetupPlatform
+): platform is 'android' | 'ios' {
+  return platform === 'android' || platform === 'ios'
+}
+
 export function detectAssistantSetupPlatform(
   platformHint?: string,
-  userAgent?: string
+  userAgent?: string,
+  maxTouchPoints = 0
 ): AssistantSetupPlatform {
   const platform = platformHint?.trim().toLowerCase() ?? ''
+  const agent = userAgent?.toLowerCase() ?? ''
+  // Android reports Linux; iPads in desktop mode report macOS.
+  if (/android/.test(`${platform} ${agent}`)) return 'android'
+  if (/iphone|ipad|ipod|ios/.test(`${platform} ${agent}`)) return 'ios'
+  if (/mac/.test(`${platform} ${agent}`) && maxTouchPoints > 1) return 'ios'
   if (platform.includes('win')) return 'windows'
   if (platform.includes('mac')) return 'macos'
   if (platform.includes('linux')) return 'linux'
-
-  const agent = userAgent?.toLowerCase() ?? ''
-  if (/android|iphone|ipad|ipod/.test(agent)) return 'windows'
   if (/windows|win32|win64/.test(agent)) return 'windows'
   if (/macintosh|mac os x/.test(agent)) return 'macos'
   if (/linux|x11/.test(agent)) return 'linux'
@@ -49,7 +62,7 @@ function quotePowerShell(value: string): string {
 }
 
 export function getClaudeInstallCommand(
-  platform: AssistantSetupPlatform
+  platform: AssistantDesktopPlatform
 ): string {
   if (platform === 'windows') return 'winget install Anthropic.ClaudeCode'
   if (platform === 'macos') return 'brew install --cask claude-code'
@@ -57,7 +70,7 @@ export function getClaudeInstallCommand(
 }
 
 export function getClaudeSessionCommand(
-  platform: AssistantSetupPlatform,
+  platform: AssistantDesktopPlatform,
   rootUrl: string,
   model: string
 ): string {
@@ -81,7 +94,7 @@ export function getClaudeSessionCommand(
 }
 
 export function getCCSwitchInstallGuide(
-  platform: AssistantSetupPlatform
+  platform: AssistantDesktopPlatform
 ): CCSwitchInstallGuide {
   if (platform === 'windows') {
     return {
@@ -144,20 +157,20 @@ export function getOpenAICompatibleClientJSON(
 }
 
 export function getCodexInstallCommand(
-  platform: AssistantSetupPlatform
+  platform: AssistantDesktopPlatform
 ): string {
   if (platform === 'windows') return 'npm install -g @openai/codex'
   return 'curl -fsSL https://chatgpt.com/codex/install.sh | sh'
 }
 
 export function getCodexAPIKeyCommand(
-  platform: AssistantSetupPlatform
+  platform: AssistantDesktopPlatform
 ): string {
   if (platform === 'windows') return "$env:LMM_API_KEY='<YOUR_API_KEY>'"
   return "export LMM_API_KEY='<YOUR_API_KEY>'"
 }
 
-export function getCodexConfigPath(platform: AssistantSetupPlatform): string {
+export function getCodexConfigPath(platform: AssistantDesktopPlatform): string {
   if (platform === 'windows') return '%USERPROFILE%\\.codex\\config.toml'
   return '~/.codex/config.toml'
 }

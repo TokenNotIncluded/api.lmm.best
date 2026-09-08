@@ -28,6 +28,7 @@ for (const key of [
   'navigator',
   'HTMLElement',
   'HTMLButtonElement',
+  'HTMLInputElement',
   'SVGElement',
   'Node',
   'Element',
@@ -54,6 +55,7 @@ const { createRoot } = await import('react-dom/client')
 const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { AssistantSetupTool } = await import('./assistant-setup-tool')
+const { ClientKeyImport } = await import('./client-key-import')
 
 const reactTestGlobals = globalThis as typeof globalThis & {
   IS_REACT_ACT_ENVIRONMENT?: boolean
@@ -116,6 +118,7 @@ describe('AssistantSetupTool', () => {
 
     await act(async () => {
       findButton('Windows').click()
+      findButton('Claude Code').click()
       await flushEffects()
     })
     assert.match(
@@ -241,6 +244,7 @@ describe('AssistantSetupTool', () => {
     assert.match(container.textContent ?? '', /Ask for L1 access/)
     await act(async () => {
       findButton('Windows').click()
+      findButton('Claude Code').click()
       await flushEffects()
     })
     assert.match(
@@ -271,4 +275,222 @@ describe('AssistantSetupTool', () => {
 
     await act(async () => root.unmount())
   })
+})
+
+test('mobile walkthrough exposes official Chatbox steps and keeps desktop commands out', async () => {
+  const container = document.createElement('div')
+  document.body.append(container)
+  const root = createRoot(container)
+  let question = ''
+  await act(async () => {
+    root.render(
+      <I18nextProvider i18n={i18n}>
+        <AssistantSetupTool
+          rootUrl='https://console.example.test'
+          openAIBaseUrl='https://console.example.test/v1'
+          availableModels={['available-model']}
+          developerAccessGranted
+          onCreateKey={() => {}}
+          onRequestAccess={() => {}}
+          onAskQuestion={(value) => {
+            question = value
+          }}
+        />
+      </I18nextProvider>
+    )
+    await flushEffects()
+  })
+  assert.match(container.textContent ?? '', /Cherry Studio/)
+  await act(async () => {
+    findButton('Android').click()
+    await flushEffects()
+  })
+  assert.equal(findButton('Android').getAttribute('aria-pressed'), 'true')
+  assert.match(container.textContent ?? '', /Google Play or official APK/)
+  assert.match(
+    container.textContent ?? '',
+    /API Path as \/v1\/chat\/completions/
+  )
+  assert.doesNotMatch(
+    container.textContent ?? '',
+    /winget|brew install|curl -fsSL/
+  )
+  assert.equal(
+    container.querySelector('[role="tab"][data-value="cc-switch"]'),
+    null
+  )
+  assert.ok(
+    container.querySelector(
+      'a[href="https://chatboxai.app/en/guide/getting-started/download"]'
+    )
+  )
+  await act(async () => {
+    findButton('iOS / iPadOS').click()
+    await flushEffects()
+  })
+  assert.match(container.textContent ?? '', /App Store link/)
+  await act(async () => {
+    findButton('Walk me through this').click()
+  })
+  assert.match(question, /Chatbox on iOS \/ iPadOS/)
+  assert.match(question, /never ask for my API key/)
+  await act(async () => root.unmount())
+})
+
+test('public installation guide hides account connection values and private import fields', async () => {
+  const container = document.createElement('div')
+  document.body.append(container)
+  const root = createRoot(container)
+  await act(async () => {
+    root.render(
+      <I18nextProvider i18n={i18n}>
+        <AssistantSetupTool
+          rootUrl='https://private.example.test'
+          openAIBaseUrl='https://private.example.test/v1'
+          availableModels={['private-model']}
+          developerAccessGranted={false}
+          publicGuide
+          onCreateKey={() => assert.fail('must not create a key')}
+          onRequestAccess={() => {}}
+        />
+      </I18nextProvider>
+    )
+    await flushEffects()
+  })
+  assert.match(container.textContent ?? '', /Start with the installation/)
+  await act(async () => {
+    findButton('CC Switch').click()
+    await flushEffects()
+  })
+  assert.doesNotMatch(
+    container.textContent ?? '',
+    /private.example.test|private-model/
+  )
+  assert.equal(container.querySelector('input[type="password"]'), null)
+  assert.throws(() => findButton('Use an existing API key'))
+  await act(async () => root.unmount())
+})
+
+test('private key import is explicit, temporary and cleared on cancel or invalid destination', async () => {
+  const container = document.createElement('div')
+  document.body.append(container)
+  const root = createRoot(container)
+  await act(async () => {
+    root.render(
+      <I18nextProvider i18n={i18n}>
+        <ClientKeyImport
+          rootUrl='https://untrusted.example.test'
+          openAIBaseUrl='https://untrusted.example.test/v1'
+          model='available-model'
+          availableModels={['available-model']}
+        />
+      </I18nextProvider>
+    )
+  })
+  assert.equal(container.querySelector('input'), null)
+  await act(async () => {
+    findButton('Use an existing API key').click()
+  })
+  const input = container.querySelector<HTMLInputElement>(
+    'input[type="password"]'
+  )
+  assert.ok(input)
+  assert.equal(findButton('Open CC Switch').disabled, true)
+  const setInput = Object.getOwnPropertyDescriptor(
+    HTMLInputElement.prototype,
+    'value'
+  )?.set
+  assert.ok(setInput)
+  await act(async () => {
+    setInput.call(input, 'sk-private-import-only')
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  assert.equal(findButton('Open CC Switch').disabled, false)
+  assert.doesNotMatch(container.textContent ?? '', /sk-private-import-only/)
+  assert.doesNotMatch(container.innerHTML, /sk-private-import-only/)
+  assert.equal(window.localStorage.length, 0)
+  assert.equal(window.sessionStorage.length, 0)
+  await act(async () => {
+    findButton('Open CC Switch').click()
+  })
+  assert.equal(input.value, '')
+  assert.match(container.textContent ?? '', /could not be opened/)
+  await act(async () => {
+    setInput.call(input, 'sk-another-private-key')
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    findButton('Cancel').click()
+  })
+  assert.equal(container.querySelector('input'), null)
+  await act(async () => {
+    findButton('Use an existing API key').click()
+  })
+  assert.equal(container.querySelector<HTMLInputElement>('input')?.value, '')
+  await act(async () => root.unmount())
+})
+
+test('a confirmed import launches only the installed client and clears its input', async () => {
+  const container = document.createElement('div')
+  document.body.append(container)
+  const root = createRoot(container)
+  const calls: string[] = []
+  const originalAssign = window.location.assign
+  Object.defineProperty(window.location, 'assign', {
+    configurable: true,
+    value: (url: string) => calls.push(url),
+  })
+  try {
+    await act(async () => {
+      root.render(
+        <I18nextProvider i18n={i18n}>
+          <ClientKeyImport
+            rootUrl='https://console.example.test'
+            openAIBaseUrl='https://console.example.test/v1'
+            model='available-model'
+            availableModels={['available-model']}
+          />
+        </I18nextProvider>
+      )
+    })
+    await act(async () => {
+      findButton('Use an existing API key').click()
+    })
+    const input = container.querySelector<HTMLInputElement>(
+      'input[type="password"]'
+    )
+    assert.ok(input)
+    const setter = Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      'value'
+    )?.set
+    assert.ok(setter)
+    await act(async () => {
+      setter.call(input, 'sk-local-confirmation')
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    assert.deepEqual(calls, [])
+    assert.equal(window.localStorage.length, 0)
+    await act(async () => {
+      findButton('Open CC Switch').click()
+    })
+    assert.equal(calls.length, 1)
+    const url = new URL(calls[0])
+    assert.equal(url.protocol, 'ccswitch:')
+    assert.equal(url.searchParams.get('apiKey'), 'sk-local-confirmation')
+    assert.equal(
+      url.searchParams.get('endpoint'),
+      'https://console.example.test'
+    )
+    assert.equal(input.value, '')
+    assert.doesNotMatch(container.innerHTML, /sk-local-confirmation/)
+    assert.match(
+      container.textContent ?? '',
+      /cannot detect whether the app imported it/
+    )
+  } finally {
+    Object.defineProperty(window.location, 'assign', {
+      configurable: true,
+      value: originalAssign,
+    })
+    await act(async () => root.unmount())
+  }
 })

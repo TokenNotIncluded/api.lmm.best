@@ -321,6 +321,45 @@ function requireValue<T>(value: T | null | undefined): T {
 }
 
 describe('AssistantPanel', () => {
+  test('opens installation guidance from the welcome screen without a model request or key access', async () => {
+    let chatRequests = 0
+    api.get = (async (url: string) => {
+      if (url === '/api/assistant/pre-conversation-presets') {
+        return { data: { success: true, data: { presets: [] } } }
+      }
+      assert.equal(url, '/api/assistant/status')
+      return {
+        data: {
+          success: true,
+          data: { ...assistantStatus, developer_access_granted: false },
+        },
+      }
+    }) as typeof api.get
+    api.post = (async () => {
+      chatRequests += 1
+      throw new Error(
+        'Installation guidance should work without a model request'
+      )
+    }) as typeof api.post
+    const rendered = await renderPanel()
+    try {
+      await act(async () => {
+        await waitForCondition(
+          () => !findButton('Download and connect a client').disabled,
+          'Newcomer actions did not become available'
+        )
+        findButton('Download and connect a client').click()
+        await flushEffects()
+      })
+      assert.match(document.body.textContent ?? '', /Client setup guide/)
+      assert.equal(document.querySelector('input[type="password"]'), null)
+      assert.equal(chatRequests, 0)
+    } finally {
+      await act(async () => rendered.root.unmount())
+      rendered.queryClient.clear()
+    }
+  })
+
   test('opens human support for an L0 user even when model routing is unavailable', async () => {
     let chatRequests = 0
     api.get = (async (url: string) => {
@@ -826,6 +865,15 @@ describe('AssistantPanel', () => {
     for (const mode of ['page', 'mobile'] as const) {
       const rendered = await renderPanel(undefined, mode)
       try {
+        await act(async () => {
+          await waitForCondition(
+            () =>
+              document.querySelector(
+                '[data-testid="assistant-preset-prompts"]'
+              ) !== null,
+            'Preset prompts did not finish loading'
+          )
+        })
         const presets = document.querySelector<HTMLElement>(
           '[data-testid="assistant-preset-prompts"]'
         )
