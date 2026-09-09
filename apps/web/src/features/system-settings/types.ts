@@ -37,6 +37,7 @@ export type UpdateOptionRequest = {
 export type UpdateOptionResponse = {
   success: boolean
   message: string
+  warnings?: string[]
 }
 
 export type UsdExchangeRateQuote = {
@@ -391,6 +392,7 @@ export type ModelSettings = {
   'dynamic_pricing_setting.max_factor': number
   'dynamic_pricing_setting.channel_costs': string
   ModelPrice: string
+  ModelPriceLock: string
   ModelRatio: string
   CacheRatio: string
   CreateCacheRatio: string
@@ -450,6 +452,7 @@ export type BillingSettings = {
   DisplayInCurrencyEnabled: boolean
   DisplayTokenStatEnabled: boolean
   ModelPrice: string
+  ModelPriceLock: string
   ModelRatio: string
   CacheRatio: string
   CreateCacheRatio: string

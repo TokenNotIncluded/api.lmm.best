@@ -27,7 +27,7 @@ import { Button } from '@/components/ui/button'
 import {
   fetchUpstreamRatios,
   getUpstreamChannels,
-  updateSystemOption,
+  updateSystemOptions,
 } from '../api'
 import type {
   DifferencesMap,
@@ -194,13 +194,20 @@ export function UpstreamRatioSync({ modelRatios }: UpstreamRatioSyncProps) {
 
   const { mutate: syncMutate, isPending: isSyncPending } = useMutation({
     mutationFn: async (updates: Array<{ key: string; value: string }>) => {
-      for (const update of updates) {
-        await updateSystemOption(update)
+      const result = await updateSystemOptions(
+        Object.fromEntries(updates.map(({ key, value }) => [key, value]))
+      )
+      if (!result.success) {
+        throw new Error(result.message || t('Failed to sync prices'))
       }
+      return result
     },
-    onSuccess: () => {
-      toast.success(t('Prices synced successfully'))
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['system-options'] })
+      // The API has already displayed lock warnings. Keep selections visible
+      // so ignored changes cannot be mistaken for a fully completed sync.
+      if (data.warnings?.length) return
+      toast.success(t('Prices synced successfully'))
 
       setDifferences((prevDiffs) => {
         const newDiffs = { ...prevDiffs }
@@ -385,7 +392,7 @@ export function UpstreamRatioSync({ modelRatios }: UpstreamRatioSyncProps) {
 
       return new Promise<boolean>((resolve) => {
         syncMutate(updates, {
-          onSuccess: () => resolve(true),
+          onSuccess: (data) => resolve(!data.warnings?.length),
           onError: () => resolve(false),
         })
       })

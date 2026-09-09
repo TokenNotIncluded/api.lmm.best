@@ -51,6 +51,7 @@ import { combineBillingExpr } from '@/features/pricing/lib/billing-expr'
 import { useMediaQuery } from '@/hooks'
 
 import { safeJsonParse } from '../utils/json-parser'
+import { isModelPriceLocked, parseModelPriceLocks } from './model-price-lock'
 import type { PricingMode } from './model-pricing-core'
 import {
   ModelPricingEditorPanel,
@@ -67,6 +68,13 @@ import {
 import { buildModelRatioColumns } from './model-ratio-table-columns'
 
 type ModelRatioVisualEditorProps = {
+  savedPricingRevision: number
+  modelPriceLock: string
+  onPriceLockChange: (
+    name: string,
+    locked: boolean
+  ) => Promise<Record<string, string>>
+  isLocking: boolean
   savedModelPrice: string
   savedModelRatio: string
   savedCacheRatio: string
@@ -106,6 +114,10 @@ const ModelRatioVisualEditorComponent = forwardRef<
   ModelRatioVisualEditorProps
 >(function ModelRatioVisualEditor(
   {
+    savedPricingRevision,
+    modelPriceLock,
+    onPriceLockChange,
+    isLocking,
     savedModelPrice,
     savedModelRatio,
     savedCacheRatio,
@@ -136,6 +148,21 @@ const ModelRatioVisualEditorComponent = forwardRef<
   ref
 ) {
   const { t } = useTranslation()
+  const locks = useMemo(
+    () => parseModelPriceLocks(modelPriceLock),
+    [modelPriceLock]
+  )
+  const isLocked = useCallback(
+    (name: string) => isModelPriceLocked(locks, name),
+    [locks]
+  )
+  const warnLocked = useCallback(
+    () =>
+      toast.warning(
+        t('Locked model prices were preserved; changes were ignored.')
+      ),
+    [t]
+  )
   const isMobile = useMediaQuery('(max-width: 767px)')
   const [sheetOpen, setSheetOpen] = useState(false)
   const [editorOpen, setEditorOpen] = useState(false)
@@ -145,6 +172,7 @@ const ModelRatioVisualEditorComponent = forwardRef<
   const [globalFilter, setGlobalFilter] = useState('')
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({})
   const editorPanelRef = useRef<ModelPricingEditorPanelHandle>(null)
+  const appliedSavedRevision = useRef(savedPricingRevision)
   const [pagination, setPagination] = useState<PaginationState>({
     pageIndex: 0,
     pageSize: 20,
@@ -317,6 +345,19 @@ const ModelRatioVisualEditorComponent = forwardRef<
     [isMobile]
   )
 
+  useEffect(() => {
+    if (appliedSavedRevision.current === savedPricingRevision) return
+    appliedSavedRevision.current = savedPricingRevision
+    if (!editorOpen || !editData) return
+    const row = models.find((model) => model.name === editData.name)
+    if (row) handleEdit({ ...row, draft: row.saved })
+    else {
+      setEditData(null)
+      setEditorOpen(false)
+      setSheetOpen(false)
+    }
+  }, [savedPricingRevision, models, editorOpen, editData, handleEdit])
+
   const handleAdd = useCallback(() => {
     setEditData(null)
     setEditorOpen(true)
@@ -340,6 +381,10 @@ const ModelRatioVisualEditorComponent = forwardRef<
 
   const handleDelete = useCallback(
     (name: string) => {
+      if (isLocked(name)) {
+        warnLocked()
+        return
+      }
       const priceMap = safeJsonParse<Record<string, number>>(modelPrice, {
         fallback: {},
         silent: true,
@@ -419,6 +464,8 @@ const ModelRatioVisualEditorComponent = forwardRef<
       }
     },
     [
+      isLocked,
+      warnLocked,
       modelPrice,
       modelRatio,
       cacheRatio,
@@ -434,15 +481,128 @@ const ModelRatioVisualEditorComponent = forwardRef<
     ]
   )
 
+  const togglePriceLock = useCallback(
+    async (name: string) => {
+      const locked = !isLocked(name)
+      let canonical: Record<string, string>
+      try {
+        canonical = await onPriceLockChange(name, locked)
+      } catch {
+        return // Mutation reports the actual failure.
+      }
+      if (!locked) return
+      // Lock the persisted prices and discard any pending changes for this alias.
+      const fields = [
+        ['ModelPrice', modelPrice, savedModelPrice],
+        ['ModelRatio', modelRatio, savedModelRatio],
+        ['CacheRatio', cacheRatio, savedCacheRatio],
+        ['CreateCacheRatio', createCacheRatio, savedCreateCacheRatio],
+        ['CompletionRatio', completionRatio, savedCompletionRatio],
+        ['ImageRatio', imageRatio, savedImageRatio],
+        ['AudioRatio', audioRatio, savedAudioRatio],
+        [
+          'AudioCompletionRatio',
+          audioCompletionRatio,
+          savedAudioCompletionRatio,
+        ],
+        ['billing_setting.billing_mode', billingMode, savedBillingMode],
+        ['billing_setting.billing_expr', billingExpr, savedBillingExpr],
+      ]
+      let discardedChanges = false
+      for (const [field, draft] of fields) {
+        const draftMap =
+          safeJsonParse<Record<string, unknown>>(draft, {
+            fallback: {},
+            silent: true,
+          }) || {}
+        const savedMap =
+          safeJsonParse<Record<string, unknown>>(canonical[field] || '{}', {
+            fallback: {},
+            silent: true,
+          }) || {}
+        for (const key of new Set([
+          ...Object.keys(draftMap),
+          ...Object.keys(savedMap),
+        ])) {
+          if (!isModelPriceLocked({ [name]: true }, key)) continue
+          if (JSON.stringify(draftMap[key]) !== JSON.stringify(savedMap[key])) {
+            discardedChanges = true
+          }
+          if (Object.hasOwn(savedMap, key)) draftMap[key] = savedMap[key]
+          else delete draftMap[key]
+        }
+        onChange(field, JSON.stringify(draftMap, null, 2))
+      }
+      if (discardedChanges) warnLocked()
+      const row = models.find((model) => model.name === editData?.name)
+      if (row && isModelPriceLocked({ [name]: true }, row.name)) {
+        const saved = buildModelSnapshots({
+          modelPrice: canonical.ModelPrice || '{}',
+          modelRatio: canonical.ModelRatio || '{}',
+          cacheRatio: canonical.CacheRatio || '{}',
+          createCacheRatio: canonical.CreateCacheRatio || '{}',
+          completionRatio: canonical.CompletionRatio || '{}',
+          imageRatio: canonical.ImageRatio || '{}',
+          audioRatio: canonical.AudioRatio || '{}',
+          audioCompletionRatio: canonical.AudioCompletionRatio || '{}',
+          billingMode: canonical['billing_setting.billing_mode'] || '{}',
+          billingExpr: canonical['billing_setting.billing_expr'] || '{}',
+        }).find((model) => model.name === row.name)
+        handleEdit({ ...row, draft: saved, saved })
+      }
+    },
+    [
+      isLocked,
+      onPriceLockChange,
+      modelPrice,
+      savedModelPrice,
+      modelRatio,
+      savedModelRatio,
+      cacheRatio,
+      savedCacheRatio,
+      createCacheRatio,
+      savedCreateCacheRatio,
+      completionRatio,
+      savedCompletionRatio,
+      imageRatio,
+      savedImageRatio,
+      audioRatio,
+      savedAudioRatio,
+      audioCompletionRatio,
+      savedAudioCompletionRatio,
+      billingMode,
+      savedBillingMode,
+      billingExpr,
+      savedBillingExpr,
+      onChange,
+      models,
+      editData,
+      handleEdit,
+      warnLocked,
+    ]
+  )
+
   const columns = useMemo(
     () =>
       buildModelRatioColumns({
         onDelete: handleDelete,
         onEdit: handleEdit,
+        isLocked,
+        onToggleLock: togglePriceLock,
+        lockDisabled: isLocking || isSaving,
         deleteDisabled: filterMode === 'unset',
         t,
       }),
-    [handleEdit, handleDelete, filterMode, t]
+    [
+      handleEdit,
+      handleDelete,
+      filterMode,
+      t,
+      isLocked,
+      togglePriceLock,
+      isLocking,
+      isSaving,
+    ]
   )
 
   const ensurePageInRange = useCallback((pageCount: number) => {
@@ -480,6 +640,9 @@ const ModelRatioVisualEditorComponent = forwardRef<
 
   const persistPricingData = useCallback(
     (data: ModelRatioData, targetNames: string[] = [data.name]) => {
+      const writableNames = targetNames.filter((name) => !isLocked(name))
+      if (writableNames.length !== targetNames.length) warnLocked()
+      if (!writableNames.length) return 0
       const priceMap = safeJsonParse<Record<string, number>>(modelPrice, {
         fallback: {},
         silent: true,
@@ -531,7 +694,7 @@ const ModelRatioVisualEditorComponent = forwardRef<
         if (Number.isFinite(parsed)) target[name] = parsed
       }
 
-      targetNames.forEach((name) => {
+      writableNames.forEach((name) => {
         delete priceMap[name]
         delete ratioMap[name]
         delete cacheMap[name]
@@ -596,8 +759,11 @@ const ModelRatioVisualEditorComponent = forwardRef<
         'billing_setting.billing_expr',
         JSON.stringify(billingExprMap, null, 2)
       )
+      return writableNames.length
     },
     [
+      isLocked,
+      warnLocked,
       modelPrice,
       modelRatio,
       cacheRatio,
@@ -637,31 +803,58 @@ const ModelRatioVisualEditorComponent = forwardRef<
 
     // Persist to the source model too, so targets never carry pricing the
     // source itself would lose if the editor draft were abandoned.
-    persistPricingData(sourceData, [
+    const applied = persistPricingData(sourceData, [
       ...new Set([sourceData.name, ...targetNames]),
     ])
     table.resetRowSelection()
-    toast.success(
-      t('Applied {{name}} pricing to {{count}} models', {
-        name: sourceData.name,
-        count: targetNames.length,
-      })
-    )
-  }, [editData, editorOpen, persistPricingData, t, table])
+    if (applied && targetNames.some((name) => !isLocked(name))) {
+      toast.success(
+        t('Applied {{name}} pricing to {{count}} models', {
+          name: sourceData.name,
+          count: targetNames.filter((name) => !isLocked(name)).length,
+        })
+      )
+    }
+  }, [editData, editorOpen, persistPricingData, t, table, isLocked])
 
   useImperativeHandle(
     ref,
     () => ({
       commitOpenEditor: async () => {
-        if (!editorOpen || !editorPanelRef.current) return true
+        if (
+          !editorOpen ||
+          !editorPanelRef.current ||
+          (editData && isLocked(editData.name))
+        ) {
+          return true
+        }
         const data = await editorPanelRef.current.commitDraft()
         if (!data) return false
+        if (isLocked(data.name)) {
+          warnLocked()
+          const row = models.find((model) => model.name === data.name)
+          if (row) handleEdit({ ...row, draft: row.saved })
+          else {
+            setEditData(null)
+            setEditorOpen(false)
+            setSheetOpen(false)
+          }
+          return true
+        }
         persistPricingData(data)
         setEditData(data)
         return true
       },
     }),
-    [editorOpen, persistPricingData]
+    [
+      editorOpen,
+      persistPricingData,
+      editData,
+      isLocked,
+      warnLocked,
+      models,
+      handleEdit,
+    ]
   )
 
   const hasRows = table.getRowModel().rows.length > 0
@@ -777,6 +970,11 @@ const ModelRatioVisualEditorComponent = forwardRef<
             <ModelPricingEditorPanel
               ref={editorPanelRef}
               editData={editData}
+              isLocked={Boolean(editData && isLocked(editData.name))}
+              onToggleLock={
+                editData ? () => void togglePriceLock(editData.name) : undefined
+              }
+              isLocking={isLocking}
               onSave={onSave}
               isSaving={isSaving}
               className='h-full min-h-0'
@@ -817,6 +1015,11 @@ const ModelRatioVisualEditorComponent = forwardRef<
           open={sheetOpen}
           onOpenChange={setSheetOpen}
           editData={editData}
+          isLocked={Boolean(editData && isLocked(editData.name))}
+          onToggleLock={
+            editData ? () => void togglePriceLock(editData.name) : undefined
+          }
+          isLocking={isLocking}
           onSave={onSave}
           isSaving={isSaving}
         />
@@ -830,6 +1033,10 @@ export const ModelRatioVisualEditor = memo(
   // Custom equality check - only re-render if JSON props actually changed
   (prevProps, nextProps) => {
     return (
+      prevProps.savedPricingRevision === nextProps.savedPricingRevision &&
+      prevProps.modelPriceLock === nextProps.modelPriceLock &&
+      prevProps.onPriceLockChange === nextProps.onPriceLockChange &&
+      prevProps.isLocking === nextProps.isLocking &&
       prevProps.savedModelPrice === nextProps.savedModelPrice &&
       prevProps.savedModelRatio === nextProps.savedModelRatio &&
       prevProps.savedCacheRatio === nextProps.savedCacheRatio &&

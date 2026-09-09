@@ -50,6 +50,7 @@ import {
 
 type ModelFormValues = {
   ModelPrice: string
+  ModelPriceLock: string
   ModelRatio: string
   CacheRatio: string
   CreateCacheRatio: string
@@ -65,7 +66,13 @@ type ModelFormValues = {
 type ModelRatioFormProps = {
   form: UseFormReturn<ModelFormValues>
   savedValues: ModelFormValues
+  savedPricingRevision: number
   onSave: (values: ModelFormValues) => Promise<void>
+  onPriceLockChange: (
+    name: string,
+    locked: boolean
+  ) => Promise<Record<string, string>>
+  isLocking: boolean
   onReset: () => void
   isSaving: boolean
   isResetting: boolean
@@ -171,8 +178,11 @@ function ModelJsonTextareaField(props: {
 export const ModelRatioForm = memo(function ModelRatioForm({
   form,
   savedValues,
+  savedPricingRevision,
   onSave,
   onReset,
+  onPriceLockChange,
+  isLocking,
   isSaving,
   isResetting,
   variant = 'default',
@@ -269,6 +279,10 @@ export const ModelRatioForm = memo(function ModelRatioForm({
           <div className='space-y-6'>
             <ModelRatioVisualEditor
               ref={visualEditorRef}
+              savedPricingRevision={savedPricingRevision}
+              modelPriceLock={form.watch('ModelPriceLock')}
+              onPriceLockChange={onPriceLockChange}
+              isLocking={isLocking}
               savedModelPrice={savedValues.ModelPrice}
               savedModelRatio={savedValues.ModelRatio}
               savedCacheRatio={savedValues.CacheRatio}

@@ -1,5 +1,10 @@
 {
   "translation": {
+    "Lock model prices": "Заблокировать цены модели",
+    "Unlock model prices": "Разблокировать цены модели",
+    "Locked model prices were preserved; changes were ignored.": "Заблокированные цены модели сохранены; изменения проигнорированы.",
+    "Model prices are locked. Changes will be ignored.": "Цены модели заблокированы. Изменения будут проигнорированы.",
+    "Price is locked. Unlock it in model pricing settings to edit.": "Цена заблокирована. Разблокируйте её в настройках цен модели для редактирования.",
     "360": "360",
     "1000": "1000",
     "10000": "10000",

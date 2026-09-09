@@ -1,5 +1,10 @@
 {
   "translation": {
+    "Lock model prices": "Khóa giá mô hình",
+    "Unlock model prices": "Mở khóa giá mô hình",
+    "Locked model prices were preserved; changes were ignored.": "Giá mô hình đã khóa được giữ nguyên; các thay đổi đã bị bỏ qua.",
+    "Model prices are locked. Changes will be ignored.": "Giá mô hình đã bị khóa. Các thay đổi sẽ bị bỏ qua.",
+    "Price is locked. Unlock it in model pricing settings to edit.": "Giá đã bị khóa. Hãy mở khóa trong cài đặt giá mô hình để chỉnh sửa.",
     "360": "360",
     "1000": "1000",
     "10000": "10000",

@@ -42,15 +42,23 @@ export function AssistantAdminChangeTool(props: {
   const { t } = useTranslation()
   const [applying, setApplying] = useState(false)
   const [applied, setApplied] = useState(false)
+  const [warnings, setWarnings] = useState<string[]>([])
 
   const apply = async () => {
     if (applying || applied) return
     setApplying(true)
     try {
-      await submitAssistantAdminChange(props.action.confirmation_token)
+      const result = await submitAssistantAdminChange(
+        props.action.confirmation_token
+      )
       setApplied(true)
+      setWarnings(result.warnings ?? [])
       props.onApplied?.()
-      toast.success(t('Administrator change applied'))
+      if (result.warnings?.length) {
+        toast.warning(result.warnings.join('\n'))
+      } else if (result.applied) {
+        toast.success(t('Administrator change applied'))
+      }
     } catch (error) {
       toast.error(
         error instanceof Error
@@ -64,21 +72,36 @@ export function AssistantAdminChangeTool(props: {
 
   if (applied) {
     return (
-      <Card size='sm' className='border-success/40 bg-success/5'>
+      <Card
+        size='sm'
+        className={
+          warnings.length
+            ? 'border-amber-500/40 bg-amber-500/5'
+            : 'border-success/40 bg-success/5'
+        }
+      >
         <CardHeader>
           <CardTitle className='flex items-center gap-2'>
             <HugeiconsIcon
-              icon={CheckmarkCircle02Icon}
-              className='text-success size-4'
+              icon={warnings.length ? Shield02Icon : CheckmarkCircle02Icon}
+              className={
+                warnings.length
+                  ? 'size-4 text-amber-600'
+                  : 'text-success size-4'
+              }
               strokeWidth={2}
               aria-hidden='true'
             />
-            {t('Administrator change applied')}
+            {warnings.length
+              ? t('Administrator configuration change')
+              : t('Administrator change applied')}
           </CardTitle>
           <CardDescription>
-            {t(
-              'The server configuration was updated and the one-time confirmation was consumed.'
-            )}
+            {warnings.length
+              ? warnings.join('\n')
+              : t(
+                  'The server configuration was updated and the one-time confirmation was consumed.'
+                )}
           </CardDescription>
         </CardHeader>
       </Card>

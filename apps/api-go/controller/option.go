@@ -160,14 +160,15 @@ func ValidateOptions(c *gin.Context) {
 	if !ok {
 		return
 	}
-	if err := model.ValidateOptionValues(values); err != nil {
+	warnings, err := model.ValidateOptionValuesWithWarnings(values)
+	if err != nil {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
 			"message": err.Error(),
 		})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"success": true, "message": ""})
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "", "warnings": warnings})
 }
 
 // UpdateOptionsBulk validates and persists a related set of option writes as
@@ -178,7 +179,8 @@ func UpdateOptionsBulk(c *gin.Context) {
 	if !ok {
 		return
 	}
-	if err := model.UpdateOptionsBulk(values); err != nil {
+	warnings, err := model.UpdateOptionsBulkWithWarnings(values)
+	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
@@ -188,7 +190,7 @@ func UpdateOptionsBulk(c *gin.Context) {
 	}
 	sort.Strings(keys)
 	recordManageAudit(c, "option.bulk_update", map[string]interface{}{"keys": keys})
-	c.JSON(http.StatusOK, gin.H{"success": true, "message": ""})
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "", "warnings": warnings})
 }
 
 func UpdateOption(c *gin.Context) {
@@ -342,42 +344,6 @@ func UpdateOption(c *gin.Context) {
 			})
 			return
 		}
-	case "ImageRatio":
-		err = ratio_setting.UpdateImageRatioByJSONString(option.Value.(string))
-		if err != nil {
-			c.JSON(http.StatusOK, gin.H{
-				"success": false,
-				"message": "图片倍率设置失败: " + err.Error(),
-			})
-			return
-		}
-	case "AudioRatio":
-		err = ratio_setting.UpdateAudioRatioByJSONString(option.Value.(string))
-		if err != nil {
-			c.JSON(http.StatusOK, gin.H{
-				"success": false,
-				"message": "音频倍率设置失败: " + err.Error(),
-			})
-			return
-		}
-	case "AudioCompletionRatio":
-		err = ratio_setting.UpdateAudioCompletionRatioByJSONString(option.Value.(string))
-		if err != nil {
-			c.JSON(http.StatusOK, gin.H{
-				"success": false,
-				"message": "音频补全倍率设置失败: " + err.Error(),
-			})
-			return
-		}
-	case "CreateCacheRatio":
-		err = ratio_setting.UpdateCreateCacheRatioByJSONString(option.Value.(string))
-		if err != nil {
-			c.JSON(http.StatusOK, gin.H{
-				"success": false,
-				"message": "缓存创建倍率设置失败: " + err.Error(),
-			})
-			return
-		}
 	case "ModelRequestRateLimitGroup":
 		err = setting.CheckModelRequestRateLimitGroup(option.Value.(string))
 		if err != nil {
@@ -451,7 +417,7 @@ func UpdateOption(c *gin.Context) {
 			return
 		}
 	}
-	err = model.UpdateOption(option.Key, option.Value.(string))
+	warnings, err := model.UpdateOptionWithWarnings(option.Key, option.Value.(string))
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -467,7 +433,8 @@ func UpdateOption(c *gin.Context) {
 		"key": option.Key,
 	})
 	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "",
+		"success":  true,
+		"message":  "",
+		"warnings": warnings,
 	})
 }

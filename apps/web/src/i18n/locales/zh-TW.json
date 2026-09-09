@@ -1,5 +1,10 @@
 {
   "translation": {
+    "Lock model prices": "鎖定模型價格",
+    "Unlock model prices": "解鎖模型價格",
+    "Locked model prices were preserved; changes were ignored.": "已保留鎖定的模型價格，修改已忽略。",
+    "Model prices are locked. Changes will be ignored.": "模型價格已鎖定，修改將被忽略。",
+    "Price is locked. Unlock it in model pricing settings to edit.": "價格已鎖定，請在模型定價設定中解鎖後編輯。",
     "360": "360",
     "1000": "1000",
     "10000": "10000",
