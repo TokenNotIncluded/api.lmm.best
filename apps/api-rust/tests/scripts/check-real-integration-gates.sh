@@ -80,8 +80,8 @@ if rg -U -n 'else\s*\{\s*return;\s*\}' \
   exit 1
 fi
 
-for suite in auth models api-token system-config; do
-  if env -u LMM_AUTH_TEST_ALLOW_SCHEMA_RESET -u LMM_AUTH_TEST_DATABASE_URL -u LMM_AUTH_TEST_VALKEY_URL \
+for suite in auth models api-token system-config migration; do
+  if env -u LMM_TEST_DATABASE_URL -u LMM_AUTH_TEST_ALLOW_SCHEMA_RESET -u LMM_AUTH_TEST_DATABASE_URL -u LMM_AUTH_TEST_VALKEY_URL \
     -u LMM_MODELS_TEST_DATABASE_URL -u LMM_MODELS_TEST_VALKEY_URL \
     -u LMM_API_TOKEN_TEST_DATABASE_URL -u LMM_API_TOKEN_TEST_VALKEY_URL \
     -u LMM_SYSTEM_CONFIG_TEST_DATABASE_URL -u LMM_SYSTEM_CONFIG_TEST_VALKEY_URL \
@@ -90,5 +90,24 @@ for suite in auth models api-token system-config; do
     exit 1
   fi
 done
+
+# Reproduce libtest's successful zero-match exit without touching dependencies.
+# The runner must reject it before treating a migration gate as passed.
+empty_test_bin=$(mktemp -d /tmp/lmm-empty-integration-test.XXXXXX)
+trap 'rm -rf -- "$empty_test_bin"' EXIT
+cat >"$empty_test_bin/cargo" <<'STUB'
+#!/usr/bin/env bash
+exit 0
+STUB
+chmod +x "$empty_test_bin/cargo"
+if PATH="$empty_test_bin:$PATH" LMM_TEST_DATABASE_URL='postgresql://127.0.0.1:5432/isolated' \
+  bash "$runner" migration >"$empty_test_bin/output" 2>&1; then
+  echo 'migration gate accepted a successful zero-test selection' >&2
+  exit 1
+fi
+rg -Fq 'required integration test is missing:' "$empty_test_bin/output" || {
+  echo 'migration gate did not reject the missing compiled test' >&2
+  exit 1
+}
 
 echo "real integration gates valid: $total_ignored ignored tests across ${#requirements[@]} modules; missing environment hard-fails"

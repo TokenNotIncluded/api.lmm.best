@@ -138,3 +138,14 @@ PR #239 initial commit `7f3e49a` passed the PostgreSQL 18 / Valkey CI job,
 including the two system-config integration regressions and pinned Go SDK
 signature verification (Actions run `34331195212`). This does not certify
 payment settlement or authorize route ownership changes.
+
+## Migration gate integrity
+
+CI log review found an obsolete exact test filter selecting zero tests while
+Cargo returned success. The subscription-reset runner now invokes the existing
+contract-six schema verifier. Exact migration gates check the compiled ignored
+test list before execution and fail if the requested test is absent. A stubbed
+zero-test success regression protects this behavior without a database.
+The full-copy migration/fault rollback test and contract-eight payment replay
+schema test are now explicitly included in the real-dependency runner. Their
+results must be checked on the new commit; earlier green jobs did not run them.
