@@ -3,14 +3,18 @@ name: CI
 on:
   pull_request:
   push:
+    # Feature branches run through pull_request; keep main and tag evidence for releases.
+    branches: [main]
+    tags: ["*"]
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.sha }}
-  cancel-in-progress: false
+  # Replace obsolete PR runs without cancelling another main commit's release gates.
+  group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}-${{ github.event_name == 'pull_request' && 'latest' || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   CI: "true"
@@ -80,6 +84,13 @@ jobs:
             packaging/aur/export-go-package-base.sh \
             packaging/aur/test-export-go-package-base.sh
           bash scripts/test-verify-release-commit-checks.sh
+
+      - name: Test pinned AUR release verification
+        env:
+          TMPDIR: ${{ runner.temp }}
+        run: |
+          shellcheck packaging/aur/verify-go-release-pins.sh packaging/aur/test-verify-go-release-pins.sh
+          bash packaging/aur/test-verify-go-release-pins.sh
 
       - name: Validate real integration gate contracts
         run: |
@@ -452,7 +463,8 @@ jobs:
           pacman --sync --refresh --noconfirm clang cosign curl git jq libarchive rust shellcheck
           paru_revision=9ac3578807a87858651e81a02586ceb947686e7c
           paru_archive=/tmp/paru.tar.gz
-          curl --fail --location --silent --show-error \
+          curl --fail --location --silent --show-error --retry 3 \
+            --connect-timeout 10 --max-time 120 \
             "https://github.com/Morganamilo/paru/archive/${paru_revision}.tar.gz" \
             --output "$paru_archive"
           echo 'fa1e2da402283f9584f98458c61ae8d0bb04c92b2cddb1d2727c8ce944da457e  /tmp/paru.tar.gz' | sha256sum --check --strict
@@ -469,12 +481,20 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Validate all public AUR packages
+      - name: Validate public AUR package matrix
         run: |
           chown --recursive package-builder:package-builder "$GITHUB_WORKSPACE"
           runuser --user package-builder -- env TMPDIR=/home/package-builder/lmm-ci-tmp bash packaging/aur/test-matrix.sh
+
+      - name: Verify pinned Go release integrity
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
           runuser --user package-builder -- env \
             TMPDIR=/home/package-builder/lmm-ci-tmp \
-            GITHUB_TOKEN='${{ github.token }}' \
-            bash packaging/aur/verify-go-release-pins.sh
+            GITHUB_TOKEN="$GITHUB_TOKEN" \
+            bash packaging/aur/verify-go-release-pins.sh --pinned
+
+      - name: Validate binary package with makepkg and paru
+        run: |
           runuser --user package-builder -- env TMPDIR=/home/package-builder/lmm-ci-tmp bash packaging/aur/test-bin-makepkg.sh

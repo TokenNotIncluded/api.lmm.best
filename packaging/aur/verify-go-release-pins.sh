@@ -18,6 +18,13 @@ fail() {
   exit 1
 }
 
+[[ $# -le 1 ]] || fail 'usage: verify-go-release-pins.sh [--pinned|--latest]'
+readonly mode=${1:---latest}
+case $mode in
+  --pinned|--latest) ;;
+  *) fail 'usage: verify-go-release-pins.sh [--pinned|--latest]' ;;
+esac
+
 api_get() {
   local url=$1
   if [[ -n ${GITHUB_TOKEN:-} ]]; then
@@ -42,7 +49,7 @@ download_asset() {
   fi
 }
 
-for command in cosign curl git jq makepkg sha256sum sort vercmp; do
+for command in cosign curl jq sha256sum sort vercmp; do
   command -v "$command" >/dev/null 2>&1 || fail "required command is unavailable: $command"
 done
 [[ -x $VERSION_CHECK ]] || fail 'AUR candidate version checker is missing or not executable'
@@ -54,31 +61,37 @@ trap cleanup EXIT
 pkgver=$(sed -n 's/^pkgver=//p' "$PKGBUILD")
 [[ $pkgver =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] ||
   fail 'binary PKGBUILD has an invalid release version'
-latest_tag=$(api_get "$API_ROOT/repos/$REPOSITORY/releases?per_page=100" |
-  jq -r '.[] | select(.draft == false and (.tag_name | test("^go-v[0-9]+\\.[0-9]+\\.[0-9]+$"))) | .tag_name' |
-  sort -V | tail -n 1)
-[[ -n $latest_tag ]] || fail 'no published Go release was found'
-[[ $latest_tag == "go-v$pkgver" ]] ||
-  fail "binary package is not pinned to the latest Go release: $latest_tag"
+release_tag="go-v$pkgver"
+# CI validates the immutable recipe at its checked-out revision. Publication
+# audits additionally enforce freshness against mutable GitHub and AUR state.
+# A new release must not invalidate CI for the preceding, still-authentic pin.
+if [[ $mode == --latest ]]; then
+  latest_tag=$(api_get "$API_ROOT/repos/$REPOSITORY/releases?per_page=100" |
+    jq -r '.[] | select(.draft == false and .prerelease == false and (.tag_name | test("^go-v[0-9]+\\.[0-9]+\\.[0-9]+$"))) | .tag_name' |
+    sort -V | tail -n 1)
+  [[ -n $latest_tag ]] || fail 'no published Go release was found'
+  [[ $latest_tag == "$release_tag" ]] ||
+    fail "binary package is not pinned to the latest Go release: $latest_tag"
+fi
 
-tag_ref=$(api_get "$API_ROOT/repos/$REPOSITORY/git/ref/tags/$latest_tag")
+tag_ref=$(api_get "$API_ROOT/repos/$REPOSITORY/git/ref/tags/$release_tag")
 tag_object_sha=$(jq -r '.object.sha' <<<"$tag_ref")
 [[ $(jq -r '.object.type' <<<"$tag_ref") == tag && $tag_object_sha =~ ^[0-9a-f]{40}$ ]] ||
-  fail "$latest_tag is not an annotated tag"
+  fail "$release_tag is not an annotated tag"
 tag_object=$(api_get "$API_ROOT/repos/$REPOSITORY/git/tags/$tag_object_sha")
 tag_revision=$(jq -r '.object.sha' <<<"$tag_object")
 [[ $(jq -r '.verification.verified' <<<"$tag_object") == true &&
    $(jq -r '.object.type' <<<"$tag_object") == commit && $tag_revision =~ ^[0-9a-f]{40}$ ]] ||
-  fail "$latest_tag is not a GitHub-verified signed commit tag"
+  fail "$release_tag is not a GitHub-verified signed commit tag"
 comparison=$(api_get "$API_ROOT/repos/$REPOSITORY/compare/$tag_revision...main")
 case $(jq -r '.status' <<<"$comparison") in
   ahead|identical) ;;
-  *) fail "$latest_tag does not identify an ancestor of main" ;;
+  *) fail "$release_tag does not identify an ancestor of main" ;;
 esac
 release_json="$work/release.json"
-api_get "$API_ROOT/repos/$REPOSITORY/releases/tags/$latest_tag" >"$release_json"
+api_get "$API_ROOT/repos/$REPOSITORY/releases/tags/$release_tag" >"$release_json"
 [[ $(jq -r '.draft' "$release_json") == false && $(jq -r '.prerelease' "$release_json") == false ]] ||
-  fail "$latest_tag is not a final release"
+  fail "$release_tag is not a final release"
 
 mapfile -t amd64_pins < <(awk '$1 == "sha256sums_x86_64" { print $3 }' "$SRCINFO")
 mapfile -t arm64_pins < <(awk '$1 == "sha256sums_aarch64" { print $3 }' "$SRCINFO")
@@ -97,7 +110,7 @@ for arch in amd64 arm64; do
     name=${names[$index]}
     url=$(jq -r --arg name "$name" '.assets[] | select(.name == $name) | .browser_download_url' "$release_json")
     digest=$(jq -r --arg name "$name" '.assets[] | select(.name == $name) | .digest' "$release_json")
-    [[ -n $url && $url != null && $digest == sha256:* ]] || fail "$latest_tag is missing $name or its digest"
+    [[ -n $url && $url != null && $digest == sha256:* ]] || fail "$release_tag is missing $name or its digest"
     output="$work/$name"
     download_asset "$url" "$output"
     actual=$(sha256sum "$output")
@@ -109,7 +122,7 @@ for arch in amd64 arm64; do
   [[ $expected == "${pins[0]}" ]] || fail "$artifact checksum asset does not bind the archive"
   cosign verify-blob \
     --bundle "$work/$artifact.sigstore.json" \
-    --certificate-identity "https://github.com/$REPOSITORY/.github/workflows/release-go.yml@refs/tags/$latest_tag" \
+    --certificate-identity "https://github.com/$REPOSITORY/.github/workflows/release-go.yml@refs/tags/$release_tag" \
     --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
     "$work/$artifact" >"$work/cosign-$arch.log" || fail "$artifact Sigstore bundle is invalid"
 done
@@ -121,15 +134,18 @@ source_pkgrel=$(sed -n 's/^pkgrel=//p' "$SOURCE_PKGBUILD")
 source_candidate="$source_pkgver-$source_pkgrel"
 (( $(vercmp "$PUBLISHED_SOURCE_FLOOR" "$source_candidate") < 0 )) ||
   fail "source package version is not newer than the published floor: $PUBLISHED_SOURCE_FLOOR"
-aur_json=$(curl --fail --location --silent --show-error "${CURL_RETRY_ARGS[@]}" --max-time 60 \
-  'https://aur.archlinux.org/rpc/v5/info?arg[]=lmm-api-go&arg[]=lmm-api-go-bin')
-for package in lmm-api-go lmm-api-go-bin; do
-  published=$(jq -r --arg package "$package" '.results[] | select(.Name == $package) | .Version' <<<"$aur_json")
-  [[ -n $published && $published != null ]] || fail "AUR did not report $package"
-  candidate=$source_candidate
-  [[ $package == lmm-api-go-bin ]] && candidate="$pkgver-1"
-  "$VERSION_CHECK" "$package" "$candidate" "$published" >/dev/null ||
-    fail "$package candidate failed the published-version contract"
-done
+if [[ $mode == --latest ]]; then
+  aur_json=$(curl --fail --location --silent --show-error "${CURL_RETRY_ARGS[@]}" --max-time 60 \
+    'https://aur.archlinux.org/rpc/v5/info?arg[]=lmm-api-go&arg[]=lmm-api-go-bin')
+  for package in lmm-api-go lmm-api-go-bin; do
+    published=$(jq -r --arg package "$package" '.results[] | select(.Name == $package) | .Version' <<<"$aur_json")
+    [[ -n $published && $published != null ]] || fail "AUR did not report $package"
+    candidate=$source_candidate
+    [[ $package == lmm-api-go-bin ]] && candidate="$pkgver-1"
+    "$VERSION_CHECK" "$package" "$candidate" "$published" >/dev/null ||
+      fail "$package candidate failed the published-version contract"
+  done
+  printf 'latest Go release and AUR monotonicity verified: %s\n' "$release_tag"
+fi
 
-printf 'latest Go release, AUR monotonicity, checksums, and Sigstore pins verified: %s\n' "$latest_tag"
+printf 'Go release identity, checksums, and Sigstore pins verified: %s\n' "$release_tag"
