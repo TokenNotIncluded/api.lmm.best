@@ -121,3 +121,20 @@ The fixed historical signature time is checked with a test clock in Rust; the
 SDK fixture oracle disables its wall-clock age check to verify the same fixed
 cryptographic bytes. This is protocol evidence, not a payment-settlement or
 whole-backend differential pass.
+
+## Weekly session age
+
+Access validation, refresh and security-proof operations now check the original
+session creation time against seven days. Missing or malformed preferences
+default to enabled; only a boolean `session_auto_logout: false` opts out.
+For aged sessions the adapter locks the user and session, rereads the preference,
+writes the shared Valkey revoking fence, then commits PostgreSQL revocation.
+Refresh and recent activity do not reset creation time. The integration gate
+covers independent access/refresh rejection, explicit opt-out, unchanged login
+age and the shared cache tombstone. Session-list preferences, settings writes
+and periodic cleanup remain separate parity gaps.
+
+PR #239 initial commit `7f3e49a` passed the PostgreSQL 18 / Valkey CI job,
+including the two system-config integration regressions and pinned Go SDK
+signature verification (Actions run `34331195212`). This does not certify
+payment settlement or authorize route ownership changes.
