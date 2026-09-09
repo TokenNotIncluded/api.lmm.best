@@ -16,6 +16,9 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+/*
+Copyright (C) 2026 LIghtJUNction
+*/
 import axios, { type AxiosError } from 'axios'
 
 import type { QuotaDataItem } from '@/features/dashboard/types'
@@ -312,6 +315,7 @@ export type AssistantAdminConfigChangeAction = {
   channel_id?: number
   channel_name?: string
   changes: AssistantAdminConfigPreview[]
+  warnings?: string[]
 }
 
 export type AssistantAdminPricingChangeAction = {
@@ -1062,6 +1066,13 @@ export function parseAssistantAction(
         ...(channelID ? { channel_id: channelID } : {}),
         ...(channelName ? { channel_name: channelName } : {}),
         changes,
+        ...(Array.isArray(action.warnings)
+          ? {
+              warnings: action.warnings.filter(
+                (warning): warning is string => typeof warning === 'string'
+              ),
+            }
+          : {}),
       }
     }
   }
@@ -1607,11 +1618,19 @@ export async function submitAssistantAccountDisableRequest(input: {
   )
 }
 
+export type AssistantAdminChangeResult = {
+  applied: boolean
+  kind: string
+  status?: 'applied' | 'applied_with_warnings' | 'ignored_locked'
+  warnings?: string[]
+  locked_models?: string[]
+}
+
 export async function submitAssistantAdminChange(
   confirmationToken: string
-): Promise<{ applied: boolean; kind: string }> {
+): Promise<AssistantAdminChangeResult> {
   const response = await api.post<
-    AssistantAPIResponse<{ applied: boolean; kind: string }>
+    AssistantAPIResponse<AssistantAdminChangeResult>
   >(
     '/api/assistant/admin/apply',
     { confirmation_token: confirmationToken, confirmed: true },

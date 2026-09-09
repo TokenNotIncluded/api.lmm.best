@@ -16,6 +16,9 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+/*
+Copyright (C) 2026 LIghtJUNction
+*/
 export type SystemOption = {
   key: string
   value: string
@@ -27,16 +30,20 @@ export type SystemOptionsResponse = {
   success: boolean
   message: string
   data: SystemOption[]
+  capabilities?: { model_price_locks?: boolean }
 }
 
 export type UpdateOptionRequest = {
   key: string
   value: string | boolean | number
+  model?: string
 }
 
 export type UpdateOptionResponse = {
   success: boolean
   message: string
+  warnings?: string[]
+  locked_models?: string[]
 }
 
 export type UsdExchangeRateQuote = {

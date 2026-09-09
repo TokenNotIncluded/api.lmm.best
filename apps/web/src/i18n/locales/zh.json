@@ -8161,6 +8161,13 @@
     "New here? Start with the setup guide": "第一次使用？从设置指南开始",
     "OpenAI-compatible access for applications, scripts, and agents.": "为应用、脚本和智能体提供 OpenAI 兼容接口。",
     "Replace model-name with an available model ID for the selected API. Set LMM_API_KEY locally; never put your key in browser code.": "将 model-name 替换为所选 API 支持的可用模型 ID。在本地设置 LMM_API_KEY，请勿将密钥写入浏览器端代码。",
-    "Use one Base URL, model ID, and API key across your compatible tools.": "在兼容工具中使用同一组基础地址、模型 ID 和 API 密钥。"
+    "Use one Base URL, model ID, and API key across your compatible tools.": "在兼容工具中使用同一组基础地址、模型 ID 和 API 密钥。",
+    "Lock {{name}} pricing": "锁定 {{name}} 的价格",
+    "Unlock {{name}} pricing": "解锁 {{name}} 的价格",
+    "Locked model prices are unchanged. Unlock the model to edit pricing.": "已锁定模型的价格保持不变，解锁后可修改。",
+    "Skipped locked models: {{models}}": "已跳过锁定的模型：{{models}}",
+    "The server does not support price locks. Update the server before locking prices.": "服务器暂不支持价格锁，请先更新服务器。",
+    "Failed to update price lock": "更新价格锁失败",
+    "Locked price changes ignored": "已忽略锁定价格的修改"
   }
 }

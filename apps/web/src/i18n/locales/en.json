@@ -8161,6 +8161,13 @@
     "New here? Start with the setup guide": "New here? Start with the setup guide",
     "OpenAI-compatible access for applications, scripts, and agents.": "OpenAI-compatible access for applications, scripts, and agents.",
     "Replace model-name with an available model ID for the selected API. Set LMM_API_KEY locally; never put your key in browser code.": "Replace model-name with an available model ID for the selected API. Set LMM_API_KEY locally; never put your key in browser code.",
-    "Use one Base URL, model ID, and API key across your compatible tools.": "Use one Base URL, model ID, and API key across your compatible tools."
+    "Use one Base URL, model ID, and API key across your compatible tools.": "Use one Base URL, model ID, and API key across your compatible tools.",
+    "Lock {{name}} pricing": "Lock {{name}} pricing",
+    "Unlock {{name}} pricing": "Unlock {{name}} pricing",
+    "Locked model prices are unchanged. Unlock the model to edit pricing.": "Locked model prices are unchanged. Unlock the model to edit pricing.",
+    "Skipped locked models: {{models}}": "Skipped locked models: {{models}}",
+    "The server does not support price locks. Update the server before locking prices.": "The server does not support price locks. Update the server before locking prices.",
+    "Failed to update price lock": "Failed to update price lock",
+    "Locked price changes ignored": "Locked price changes ignored"
   }
 }

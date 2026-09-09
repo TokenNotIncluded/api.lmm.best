@@ -16,6 +16,9 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+/*
+Copyright (C) 2026 LIghtJUNction
+*/
 import type {
   ColumnFiltersState,
   OnChangeFn,
@@ -65,6 +68,7 @@ import {
   type ModelRow,
 } from './model-pricing-snapshots'
 import { buildModelRatioColumns } from './model-ratio-table-columns'
+import { useModelPriceLocks } from './use-model-price-locks'
 
 type ModelRatioVisualEditorProps = {
   savedModelPrice: string
@@ -136,6 +140,8 @@ const ModelRatioVisualEditorComponent = forwardRef<
   ref
 ) {
   const { t } = useTranslation()
+  const priceLocks = useModelPriceLocks()
+  const { locks, pending: lockPending, toggle: togglePriceLock } = priceLocks
   const isMobile = useMediaQuery('(max-width: 767px)')
   const [sheetOpen, setSheetOpen] = useState(false)
   const [editorOpen, setEditorOpen] = useState(false)
@@ -188,6 +194,106 @@ const ModelRatioVisualEditorComponent = forwardRef<
     localStorage.setItem(STORAGE_KEY, JSON.stringify(columnVisibility))
   }, [columnVisibility])
 
+  const savedPricing = useMemo(
+    () => ({
+      ModelPrice: savedModelPrice,
+      ModelRatio: savedModelRatio,
+      CacheRatio: savedCacheRatio,
+      CreateCacheRatio: savedCreateCacheRatio,
+      CompletionRatio: savedCompletionRatio,
+      ImageRatio: savedImageRatio,
+      AudioRatio: savedAudioRatio,
+      AudioCompletionRatio: savedAudioCompletionRatio,
+      'billing_setting.billing_mode': savedBillingMode,
+      'billing_setting.billing_expr': savedBillingExpr,
+      ...Object.fromEntries(
+        priceLocks.options?.map(({ key, value }) => [key, value]) || []
+      ),
+    }),
+    [
+      savedModelPrice,
+      savedModelRatio,
+      savedCacheRatio,
+      savedCreateCacheRatio,
+      savedCompletionRatio,
+      savedImageRatio,
+      savedAudioRatio,
+      savedAudioCompletionRatio,
+      savedBillingMode,
+      savedBillingExpr,
+      priceLocks.options,
+    ]
+  )
+
+  const changePricingField = useCallback(
+    (field: string, value: string) => {
+      const next = safeJsonParse<Record<string, unknown>>(value, {
+        fallback: {},
+        silent: true,
+      })
+      const saved = safeJsonParse<Record<string, unknown>>(
+        savedPricing[field as keyof typeof savedPricing],
+        { fallback: {}, silent: true }
+      )
+      for (const name of Object.keys(locks)) {
+        if (Object.hasOwn(saved, name)) next[name] = saved[name]
+        else delete next[name]
+      }
+      onChange(field, JSON.stringify(next, null, 2))
+    },
+    [locks, onChange, savedPricing]
+  )
+
+  const handleToggleLock = useCallback(
+    async (name: string) => {
+      const result = await togglePriceLock(name)
+      if (!result?.locked) return
+      // Discard this model's existing draft now, so unlocking cannot revive it.
+      const drafts: Record<string, string> = {
+        ModelPrice: modelPrice,
+        ModelRatio: modelRatio,
+        CacheRatio: cacheRatio,
+        CreateCacheRatio: createCacheRatio,
+        CompletionRatio: completionRatio,
+        ImageRatio: imageRatio,
+        AudioRatio: audioRatio,
+        AudioCompletionRatio: audioCompletionRatio,
+        'billing_setting.billing_mode': billingMode,
+        'billing_setting.billing_expr': billingExpr,
+      }
+      const saved = Object.fromEntries(
+        result.options.map(({ key, value }) => [key, value])
+      )
+      for (const [field, value] of Object.entries(drafts)) {
+        const next = safeJsonParse<Record<string, unknown>>(value, {
+          fallback: {},
+          silent: true,
+        })
+        const canonical = safeJsonParse<Record<string, unknown>>(
+          saved[field] || '{}',
+          { fallback: {}, silent: true }
+        )
+        if (Object.hasOwn(canonical, name)) next[name] = canonical[name]
+        else delete next[name]
+        onChange(field, JSON.stringify(next, null, 2))
+      }
+    },
+    [
+      togglePriceLock,
+      modelPrice,
+      modelRatio,
+      cacheRatio,
+      createCacheRatio,
+      completionRatio,
+      imageRatio,
+      audioRatio,
+      audioCompletionRatio,
+      billingMode,
+      billingExpr,
+      onChange,
+    ]
+  )
+
   const models = useMemo(() => {
     const savedRows = buildModelSnapshots({
       modelPrice: savedModelPrice,
@@ -214,28 +320,38 @@ const ModelRatioVisualEditorComponent = forwardRef<
       billingExpr,
     })
 
-    const savedByName = new Map(savedRows.map((row) => [row.name, row]))
+    const savedByName = new Map(
+      (priceLocks.snapshots || savedRows).map((row) => [row.name, row])
+    )
     const draftByName = new Map(draftRows.map((row) => [row.name, row]))
     const modelNames =
       filterMode === 'unset'
-        ? new Set(candidateModelNames ?? [])
-        : new Set([...savedByName.keys(), ...draftByName.keys()])
+        ? new Set([...(candidateModelNames ?? []), ...Object.keys(locks)])
+        : new Set([
+            ...savedByName.keys(),
+            ...draftByName.keys(),
+            ...Object.keys(locks),
+          ])
 
     return [...modelNames]
       .map((name) => {
         const saved = savedByName.get(name)
         const draft = draftByName.get(name)
         const displayed = saved ??
-          draft ?? { name, billingMode: 'per-token', hasConflict: false }
+          (locks[name] ? undefined : draft) ?? {
+            name,
+            billingMode: 'per-token',
+            hasConflict: false,
+          }
         const savedSignature = getSnapshotSignature(saved)
         const draftSignature = getSnapshotSignature(draft)
 
         return {
           ...displayed,
           saved,
-          draft,
+          draft: locks[name] ? saved : draft,
           isDraftChanged: savedSignature !== draftSignature,
-          isDraftDeleted: Boolean(saved && !draft),
+          isDraftDeleted: Boolean(saved && !draft && !locks[name]),
           isDraftNew: Boolean(!saved && draft),
         }
       })
@@ -243,6 +359,8 @@ const ModelRatioVisualEditorComponent = forwardRef<
       .filter((row) => filterMode !== 'unset' || isBasePricingUnset(row.saved))
       .sort((a, b) => a.name.localeCompare(b.name))
   }, [
+    locks,
+    priceLocks.snapshots,
     candidateModelNames,
     filterMode,
     savedModelPrice,
@@ -290,7 +408,9 @@ const ModelRatioVisualEditorComponent = forwardRef<
 
   const handleEdit = useCallback(
     (model: ModelRow) => {
-      const editableModel = model.draft ?? model.saved ?? model
+      const editableModel = locks[model.name]
+        ? (model.saved ?? model)
+        : (model.draft ?? model.saved ?? model)
       let editBillingMode: PricingMode = 'per-token'
       if (editableModel.billingMode === 'tiered_expr') {
         editBillingMode = 'tiered_expr'
@@ -314,8 +434,20 @@ const ModelRatioVisualEditorComponent = forwardRef<
       setEditorOpen(true)
       if (isMobile) setSheetOpen(true)
     },
-    [isMobile]
+    [isMobile, locks]
   )
+
+  useEffect(() => {
+    if (!editData || !locks[editData.name]) return
+    const model = models.find((row) => row.name === editData.name)
+    if (
+      model &&
+      getSnapshotSignature({ ...editData, hasConflict: false }) !==
+        getSnapshotSignature(model.saved || model)
+    ) {
+      handleEdit(model)
+    }
+  }, [editData, locks, models, handleEdit])
 
   const handleAdd = useCallback(() => {
     setEditData(null)
@@ -340,6 +472,14 @@ const ModelRatioVisualEditorComponent = forwardRef<
 
   const handleDelete = useCallback(
     (name: string) => {
+      if (locks[name] || lockPending) {
+        toast.warning(
+          t(
+            'Locked model prices are unchanged. Unlock the model to edit pricing.'
+          )
+        )
+        return
+      }
       const priceMap = safeJsonParse<Record<string, number>>(modelPrice, {
         fallback: {},
         silent: true,
@@ -392,22 +532,28 @@ const ModelRatioVisualEditorComponent = forwardRef<
       delete billingModeMap[name]
       delete billingExprMap[name]
 
-      onChange('ModelPrice', JSON.stringify(priceMap, null, 2))
-      onChange('ModelRatio', JSON.stringify(ratioMap, null, 2))
-      onChange('CacheRatio', JSON.stringify(cacheMap, null, 2))
-      onChange('CreateCacheRatio', JSON.stringify(createCacheMap, null, 2))
-      onChange('CompletionRatio', JSON.stringify(completionMap, null, 2))
-      onChange('ImageRatio', JSON.stringify(imageMap, null, 2))
-      onChange('AudioRatio', JSON.stringify(audioMap, null, 2))
-      onChange(
+      changePricingField('ModelPrice', JSON.stringify(priceMap, null, 2))
+      changePricingField('ModelRatio', JSON.stringify(ratioMap, null, 2))
+      changePricingField('CacheRatio', JSON.stringify(cacheMap, null, 2))
+      changePricingField(
+        'CreateCacheRatio',
+        JSON.stringify(createCacheMap, null, 2)
+      )
+      changePricingField(
+        'CompletionRatio',
+        JSON.stringify(completionMap, null, 2)
+      )
+      changePricingField('ImageRatio', JSON.stringify(imageMap, null, 2))
+      changePricingField('AudioRatio', JSON.stringify(audioMap, null, 2))
+      changePricingField(
         'AudioCompletionRatio',
         JSON.stringify(audioCompletionMap, null, 2)
       )
-      onChange(
+      changePricingField(
         'billing_setting.billing_mode',
         JSON.stringify(billingModeMap, null, 2)
       )
-      onChange(
+      changePricingField(
         'billing_setting.billing_expr',
         JSON.stringify(billingExprMap, null, 2)
       )
@@ -429,7 +575,10 @@ const ModelRatioVisualEditorComponent = forwardRef<
       audioCompletionRatio,
       billingMode,
       billingExpr,
-      onChange,
+      changePricingField,
+      locks,
+      lockPending,
+      t,
       editData,
     ]
   )
@@ -439,10 +588,22 @@ const ModelRatioVisualEditorComponent = forwardRef<
       buildModelRatioColumns({
         onDelete: handleDelete,
         onEdit: handleEdit,
+        locks,
+        lockPending: lockPending || isSaving,
+        onToggleLock: handleToggleLock,
         deleteDisabled: filterMode === 'unset',
         t,
       }),
-    [handleEdit, handleDelete, filterMode, t]
+    [
+      handleEdit,
+      handleDelete,
+      filterMode,
+      t,
+      locks,
+      lockPending,
+      isSaving,
+      handleToggleLock,
+    ]
   )
 
   const ensurePageInRange = useCallback((pageCount: number) => {
@@ -531,7 +692,14 @@ const ModelRatioVisualEditorComponent = forwardRef<
         if (Number.isFinite(parsed)) target[name] = parsed
       }
 
+      const skipped = targetNames.filter((name) => locks[name])
+      if (skipped.length) {
+        toast.warning(
+          t('Skipped locked models: {{models}}', { models: skipped.join(', ') })
+        )
+      }
       targetNames.forEach((name) => {
+        if (locks[name]) return
         delete priceMap[name]
         delete ratioMap[name]
         delete cacheMap[name]
@@ -577,25 +745,32 @@ const ModelRatioVisualEditorComponent = forwardRef<
         }
       })
 
-      onChange('ModelPrice', JSON.stringify(priceMap, null, 2))
-      onChange('ModelRatio', JSON.stringify(ratioMap, null, 2))
-      onChange('CacheRatio', JSON.stringify(cacheMap, null, 2))
-      onChange('CreateCacheRatio', JSON.stringify(createCacheMap, null, 2))
-      onChange('CompletionRatio', JSON.stringify(completionMap, null, 2))
-      onChange('ImageRatio', JSON.stringify(imageMap, null, 2))
-      onChange('AudioRatio', JSON.stringify(audioMap, null, 2))
-      onChange(
+      changePricingField('ModelPrice', JSON.stringify(priceMap, null, 2))
+      changePricingField('ModelRatio', JSON.stringify(ratioMap, null, 2))
+      changePricingField('CacheRatio', JSON.stringify(cacheMap, null, 2))
+      changePricingField(
+        'CreateCacheRatio',
+        JSON.stringify(createCacheMap, null, 2)
+      )
+      changePricingField(
+        'CompletionRatio',
+        JSON.stringify(completionMap, null, 2)
+      )
+      changePricingField('ImageRatio', JSON.stringify(imageMap, null, 2))
+      changePricingField('AudioRatio', JSON.stringify(audioMap, null, 2))
+      changePricingField(
         'AudioCompletionRatio',
         JSON.stringify(audioCompletionMap, null, 2)
       )
-      onChange(
+      changePricingField(
         'billing_setting.billing_mode',
         JSON.stringify(billingModeMap, null, 2)
       )
-      onChange(
+      changePricingField(
         'billing_setting.billing_expr',
         JSON.stringify(billingExprMap, null, 2)
       )
+      return skipped
     },
     [
       modelPrice,
@@ -608,18 +783,27 @@ const ModelRatioVisualEditorComponent = forwardRef<
       audioCompletionRatio,
       billingMode,
       billingExpr,
-      onChange,
+      changePricingField,
+      locks,
+      t,
     ]
   )
 
   const handleBatchCopy = useCallback(async () => {
+    if (lockPending || isSaving) return
     if (!editData) {
       toast.error(t('Open a source model first'))
       return
     }
 
     let sourceData = editData
-    if (editorOpen && editorPanelRef.current) {
+    if (locks[editData.name]) {
+      const saved = models.find((model) => model.name === editData.name)?.saved
+      sourceData = saved
+        ? { ...saved, billingMode: saved.billingMode as PricingMode }
+        : { name: editData.name, billingMode: 'per-token' }
+    }
+    if (editorOpen && editorPanelRef.current && !locks[editData.name]) {
       const committed = await editorPanelRef.current.commitDraft()
       if (!committed) return
       sourceData = committed
@@ -637,22 +821,43 @@ const ModelRatioVisualEditorComponent = forwardRef<
 
     // Persist to the source model too, so targets never carry pricing the
     // source itself would lose if the editor draft were abandoned.
-    persistPricingData(sourceData, [
+    const skipped = persistPricingData(sourceData, [
       ...new Set([sourceData.name, ...targetNames]),
     ])
     table.resetRowSelection()
-    toast.success(
-      t('Applied {{name}} pricing to {{count}} models', {
-        name: sourceData.name,
-        count: targetNames.length,
-      })
-    )
-  }, [editData, editorOpen, persistPricingData, t, table])
+    if (skipped.length === 0) {
+      toast.success(
+        t('Applied {{name}} pricing to {{count}} models', {
+          name: sourceData.name,
+          count: targetNames.length,
+        })
+      )
+    }
+  }, [
+    editData,
+    editorOpen,
+    persistPricingData,
+    t,
+    table,
+    locks,
+    lockPending,
+    isSaving,
+    models,
+  ])
 
   useImperativeHandle(
     ref,
     () => ({
       commitOpenEditor: async () => {
+        if (lockPending) return false
+        if (editData && locks[editData.name]) {
+          toast.warning(
+            t(
+              'Locked model prices are unchanged. Unlock the model to edit pricing.'
+            )
+          )
+          return true
+        }
         if (!editorOpen || !editorPanelRef.current) return true
         const data = await editorPanelRef.current.commitDraft()
         if (!data) return false
@@ -661,7 +866,7 @@ const ModelRatioVisualEditorComponent = forwardRef<
         return true
       },
     }),
-    [editorOpen, persistPricingData]
+    [editorOpen, persistPricingData, editData, locks, lockPending, t]
   )
 
   const hasRows = table.getRowModel().rows.length > 0
@@ -761,7 +966,9 @@ const ModelRatioVisualEditorComponent = forwardRef<
                   }
                   onClick={(event) => {
                     const target = event.target as HTMLElement
-                    if (target.closest('button, [role="checkbox"]')) return
+                    if (target.closest('button, input, [role="checkbox"]')) {
+                      return
+                    }
                     handleEdit(row.original)
                   }}
                 />
@@ -778,7 +985,12 @@ const ModelRatioVisualEditorComponent = forwardRef<
               ref={editorPanelRef}
               editData={editData}
               onSave={onSave}
-              isSaving={isSaving}
+              isSaving={isSaving || lockPending}
+              locked={!!editData && locks[editData.name] === true}
+              lockPending={lockPending || isSaving}
+              onToggleLock={
+                editData ? () => handleToggleLock(editData.name) : undefined
+              }
               className='h-full min-h-0'
             />
           ) : (
@@ -803,7 +1015,11 @@ const ModelRatioVisualEditorComponent = forwardRef<
       </div>
 
       <DataTableBulkActions table={table} entityName={t('model')}>
-        <Button size='sm' disabled={!editData} onClick={handleBatchCopy}>
+        <Button
+          size='sm'
+          disabled={!editData || lockPending || isSaving}
+          onClick={handleBatchCopy}
+        >
           <Copy data-icon='inline-start' />
           {editData
             ? t('Copy {{name}} pricing', { name: editData.name })
@@ -818,7 +1034,12 @@ const ModelRatioVisualEditorComponent = forwardRef<
           onOpenChange={setSheetOpen}
           editData={editData}
           onSave={onSave}
-          isSaving={isSaving}
+          isSaving={isSaving || lockPending}
+          locked={!!editData && locks[editData.name] === true}
+          lockPending={lockPending || isSaving}
+          onToggleLock={
+            editData ? () => handleToggleLock(editData.name) : undefined
+          }
         />
       )}
     </div>

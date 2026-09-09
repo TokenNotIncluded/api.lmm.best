@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"math"
 	"net/url"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -199,6 +198,7 @@ func InitOptionMap() {
 	common.OptionMap["ModelRequestRateLimitDurationMinutes"] = strconv.Itoa(setting.ModelRequestRateLimitDurationMinutes)
 	common.OptionMap["ModelRequestRateLimitSuccessCount"] = strconv.Itoa(setting.ModelRequestRateLimitSuccessCount)
 	common.OptionMap["ModelRequestRateLimitGroup"] = setting.ModelRequestRateLimitGroup2JSONString()
+	common.OptionMap[ModelPriceLocksOptionKey] = "{}"
 	common.OptionMap["ModelRatio"] = ratio_setting.ModelRatio2JSONString()
 	common.OptionMap["ModelPrice"] = ratio_setting.ModelPrice2JSONString()
 	common.OptionMap["CacheRatio"] = ratio_setting.CacheRatio2JSONString()
@@ -259,6 +259,8 @@ func InitOptionMap() {
 }
 
 func loadOptionsFromDatabase() {
+	optionUpdateMutex.Lock()
+	defer optionUpdateMutex.Unlock()
 	options, _ := AllOption()
 	for _, option := range options {
 		err := updateOptionMap(option.Key, option.Value)
@@ -393,26 +395,8 @@ func validateAbsoluteHTTPURLOption(key string, value string) error {
 }
 
 func UpdateOption(key string, value string) error {
-	if err := validateOptionValue(key, value); err != nil {
-		return err
-	}
-	// Save to database first
-	option := Option{
-		Key: key,
-	}
-	// https://gorm.io/docs/update.html#Save-All-Fields
-	if err := DB.FirstOrCreate(&option, Option{Key: key}).Error; err != nil {
-		return err
-	}
-	option.Value = value
-	// Save is a combination function.
-	// If save value does not contain primary key, it will execute Create,
-	// otherwise it will execute Update (with all fields).
-	if err := DB.Save(&option).Error; err != nil {
-		return err
-	}
-	// Update OptionMap
-	return updateOptionMap(key, value)
+	_, err := UpdateOptionWithWarnings(key, value)
+	return err
 }
 
 // ValidateOptionValue exposes the same validation used by UpdateOption without
@@ -420,7 +404,10 @@ func UpdateOption(key string, value string) error {
 // use this to reject an invalid change before issuing a one-time confirmation
 // flow.
 func ValidateOptionValue(key, value string) error {
-	return validateOptionValue(key, value)
+	if err := validateOptionValue(key, value); err != nil {
+		return err
+	}
+	return validateModelPriceValues(map[string]string{key: value})
 }
 
 // ValidateOptionValues checks a related set of option writes without
@@ -428,6 +415,13 @@ func ValidateOptionValue(key, value string) error {
 // configuration so an import cannot pass each field in isolation while the
 // resulting configuration is unsafe.
 func ValidateOptionValues(values map[string]string) error {
+	if err := validateOptionValues(values); err != nil {
+		return err
+	}
+	return validateModelPriceValues(values)
+}
+
+func validateOptionValues(values map[string]string) error {
 	if len(values) == 0 {
 		return errors.New("at least one option is required")
 	}
@@ -550,58 +544,8 @@ func validateAssistantReviewRouteValues(values map[string]string) error {
 // is touched — safe for callers that must commit a set of related options
 // atomically (e.g. payment gateway binding).
 func UpdateOptionsBulk(values map[string]string) error {
-	if len(values) == 0 {
-		return nil
-	}
-	if err := ValidateOptionValues(values); err != nil {
-		return err
-	}
-	keys := make([]string, 0, len(values))
-	for key := range values {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	// Apply the master switch last when enabling (all safety inputs are live
-	// first), and first when disabling (request-path pricing stops before any
-	// other setting changes).
-	enabledKey := "dynamic_pricing_setting.enabled"
-	if enabledValue, ok := values[enabledKey]; ok {
-		withoutEnabled := make([]string, 0, len(keys)-1)
-		for _, key := range keys {
-			if key != enabledKey {
-				withoutEnabled = append(withoutEnabled, key)
-			}
-		}
-		if enabledValue == "false" {
-			keys = append([]string{enabledKey}, withoutEnabled...)
-		} else {
-			keys = append(withoutEnabled, enabledKey)
-		}
-	}
-	err := DB.Transaction(func(tx *gorm.DB) error {
-		for _, k := range keys {
-			v := values[k]
-			option := Option{Key: k}
-			if err := tx.FirstOrCreate(&option, Option{Key: k}).Error; err != nil {
-				return err
-			}
-			option.Value = v
-			if err := tx.Save(&option).Error; err != nil {
-				return err
-			}
-		}
-		return nil
-	})
-	if err != nil {
-		return err
-	}
-	for _, k := range keys {
-		v := values[k]
-		if err := updateOptionMap(k, v); err != nil {
-			return err
-		}
-	}
-	return nil
+	_, err := UpdateOptionsBulkWithWarnings(values)
+	return err
 }
 
 // UpdateAdvancedSecurityOptions persists and applies the four guardrail

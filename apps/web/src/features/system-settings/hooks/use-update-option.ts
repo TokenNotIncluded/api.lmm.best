@@ -16,12 +16,16 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+/*
+Copyright (C) 2026 LIghtJUNction
+*/
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import i18next from 'i18next'
 import { toast } from 'sonner'
 
 import { updateSystemOption, updateSystemOptions } from '../api'
 import type { UpdateOptionRequest } from '../types'
+import { showOptionUpdateToast } from '../utils/option-update-toast'
 
 // Configuration keys that require status refresh
 const STATUS_RELATED_KEYS = new Set([
@@ -73,11 +77,11 @@ const STATUS_RELATED_KEYS = new Set([
   'AssistantRetentionIntervalHours',
 ])
 
-function invalidateOptionQueries(
+async function invalidateOptionQueries(
   queryClient: ReturnType<typeof useQueryClient>,
   keys: Iterable<string>
 ) {
-  queryClient.invalidateQueries({ queryKey: ['system-options'] })
+  await queryClient.invalidateQueries({ queryKey: ['system-options'] })
   if ([...keys].some((key) => STATUS_RELATED_KEYS.has(key))) {
     queryClient.invalidateQueries({ queryKey: ['status'] })
     try {
@@ -93,10 +97,10 @@ export function useUpdateOption() {
 
   return useMutation({
     mutationFn: (request: UpdateOptionRequest) => updateSystemOption(request),
-    onSuccess: (data, variables) => {
+    onSuccess: async (data, variables) => {
       if (data.success) {
-        invalidateOptionQueries(queryClient, [variables.key])
-        toast.success(i18next.t('Setting updated successfully'))
+        await invalidateOptionQueries(queryClient, [variables.key])
+        showOptionUpdateToast(data, i18next.t('Setting updated successfully'))
       } else {
         toast.error(data.message || i18next.t('Failed to update setting'))
       }
@@ -112,10 +116,10 @@ export function useUpdateOptions() {
 
   return useMutation({
     mutationFn: (values: Record<string, string>) => updateSystemOptions(values),
-    onSuccess: (data, variables) => {
+    onSuccess: async (data, variables) => {
       if (data.success) {
-        invalidateOptionQueries(queryClient, Object.keys(variables))
-        toast.success(i18next.t('Setting updated successfully'))
+        await invalidateOptionQueries(queryClient, Object.keys(variables))
+        showOptionUpdateToast(data, i18next.t('Setting updated successfully'))
       } else {
         toast.error(data.message || i18next.t('Failed to update setting'))
       }

@@ -8161,6 +8161,13 @@
     "New here? Start with the setup guide": "Bạn mới bắt đầu? Hãy xem hướng dẫn thiết lập",
     "OpenAI-compatible access for applications, scripts, and agents.": "Quyền truy cập tương thích OpenAI cho ứng dụng, tập lệnh và tác tử.",
     "Replace model-name with an available model ID for the selected API. Set LMM_API_KEY locally; never put your key in browser code.": "Thay model-name bằng ID mô hình khả dụng cho API đã chọn. Thiết lập LMM_API_KEY cục bộ; đừng bao giờ đưa khóa vào mã chạy trên trình duyệt.",
-    "Use one Base URL, model ID, and API key across your compatible tools.": "Dùng chung một URL cơ sở, ID mô hình và khóa API cho các công cụ tương thích của bạn."
+    "Use one Base URL, model ID, and API key across your compatible tools.": "Dùng chung một URL cơ sở, ID mô hình và khóa API cho các công cụ tương thích của bạn.",
+    "Lock {{name}} pricing": "Khóa giá {{name}}",
+    "Unlock {{name}} pricing": "Mở khóa giá {{name}}",
+    "Locked model prices are unchanged. Unlock the model to edit pricing.": "Giá mô hình đã khóa được giữ nguyên. Mở khóa mô hình để chỉnh sửa.",
+    "Skipped locked models: {{models}}": "Đã bỏ qua các mô hình bị khóa: {{models}}",
+    "The server does not support price locks. Update the server before locking prices.": "Máy chủ chưa hỗ trợ khóa giá. Hãy cập nhật máy chủ trước.",
+    "Failed to update price lock": "Không thể cập nhật khóa giá",
+    "Locked price changes ignored": "Đã bỏ qua thay đổi giá bị khóa"
   }
 }
