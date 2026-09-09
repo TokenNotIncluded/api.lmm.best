@@ -108,6 +108,7 @@ func migrateTokenControllerTestDB(t *testing.T, db *gorm.DB) {
 		&model.AssistantConversation{},
 		&model.AssistantHistoryMessage{},
 		&model.AssistantSecureCard{},
+		&model.AssistantSupportRequest{},
 	); err != nil {
 		t.Fatalf("failed to migrate token table: %v", err)
 	}

@@ -463,18 +463,22 @@ describe('getting started access boundaries', () => {
         stage: 'credential',
       },
     })
-    await act(flushEffects)
+    const unavailableMessage = 'Challenges are temporarily unavailable.'
+    // Capability discovery enables a second query; wait for its rendered
+    // error state across React Query's scheduled notifications.
+    const deadline = Date.now() + 1_000
+    while (
+      Date.now() < deadline &&
+      !page.container.textContent?.includes(unavailableMessage)
+    ) {
+      await act(flushEffects)
+    }
 
     const bountyCalls = page.gets.filter((url) =>
       url.startsWith('/api/open-source-bounties?')
     )
     assert.equal(bountyCalls.length, 1)
-    assert.equal(
-      page.container.textContent?.includes(
-        'Challenges are temporarily unavailable.'
-      ),
-      true
-    )
+    assert.equal(page.container.textContent?.includes(unavailableMessage), true)
 
     const bountyConfig = page.getConfigs.find((_, index) =>
       page.gets[index].startsWith('/api/open-source-bounties?')

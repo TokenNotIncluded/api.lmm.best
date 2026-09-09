@@ -2652,3 +2652,453 @@ describe('AssistantPanel', () => {
     }
   })
 })
+
+describe('AssistantPanel in-site human support', () => {
+  const user: AuthUser = {
+    id: 88,
+    username: 'support-user',
+    role: 1,
+    developer_access_granted: true,
+  }
+  const fixture = (changes: Record<string, unknown> = {}) => ({
+    id: 17,
+    user_id: 88,
+    conversation_id: 91,
+    kind: 'handoff',
+    status: 'pending',
+    topic: 'Connection issue',
+    preferred_time: '',
+    scheduled_at: 0,
+    assigned_admin_id: 0,
+    assigned_admin_name: '',
+    created_at: 1,
+    updated_at: 1,
+    accepted_at: 0,
+    closed_at: 0,
+    ...changes,
+  })
+  async function send(text: string) {
+    await setTextareaValue(
+      requireValue(
+        document.querySelector<HTMLTextAreaElement>(
+          'textarea[aria-label="Ask AI assistant"]'
+        )
+      ),
+      text
+    )
+    await act(async () => {
+      requireValue(
+        document.querySelector<HTMLButtonElement>('button[aria-label="Send"]')
+      ).click()
+      await flushEffects()
+    })
+  }
+  function stubSupport(
+    current: () => Record<string, unknown> | null,
+    messages: () => unknown[] = () => [],
+    options: { eligible?: boolean; routeUnavailable?: boolean } = {}
+  ) {
+    api.get = (async (url: string) => {
+      if (url === '/api/assistant/support/eligibility') {
+        return {
+          data: {
+            success: true,
+            data: { eligible: options.eligible ?? false },
+          },
+        }
+      }
+      if (url === '/api/assistant/support/self') {
+        return { data: { success: true, data: { request: current() } } }
+      }
+      if (url.startsWith('/api/assistant/support/')) {
+        return {
+          data: {
+            success: true,
+            data: { request: current(), messages: messages() },
+          },
+        }
+      }
+      if (url === '/api/assistant/pre-conversation-presets') {
+        return { data: { success: true, data: { presets: [] } } }
+      }
+      if (url === '/api/assistant/status') {
+        return {
+          data: {
+            success: true,
+            data: {
+              ...assistantStatus,
+              route_available: !options.routeUnavailable,
+            },
+          },
+        }
+      }
+      return { data: { success: false, message: 'Not enabled in this test' } }
+    }) as typeof api.get
+  }
+
+  test('submits typed transfer with unavailable AI and keeps staff replies in the same composer', async () => {
+    let request: Record<string, unknown> | null = null
+    const messages: unknown[] = []
+    const posts: { url: string; body: Record<string, unknown> }[] = []
+    stubSupport(
+      () => request,
+      () => messages,
+      { routeUnavailable: true }
+    )
+    api.post = (async (url: string, body: Record<string, unknown>) => {
+      posts.push({ url, body })
+      if (url === '/api/assistant/support') {
+        request = fixture()
+        messages.push({ id: 1, role: 'user', content: '转人工', created_at: 1 })
+        return { data: { success: true, data: { request, created: true } } }
+      }
+      assert.equal(url, '/api/assistant/support/17/messages')
+      const message = {
+        id: 4,
+        role: 'user',
+        content: body.content,
+        created_at: 4,
+      }
+      messages.push(message)
+      return { data: { success: true, data: { message } } }
+    }) as typeof api.post
+    const rendered = await renderPanel(undefined, 'page', user)
+    try {
+      await send('转人工')
+      await act(async () =>
+        waitForCondition(
+          () =>
+            document.body.textContent?.includes(
+              'Waiting for an administrator to join'
+            ) === true,
+          'Transfer status missing'
+        )
+      )
+      request = fixture({
+        status: 'accepted',
+        assigned_admin_id: 7,
+        assigned_admin_name: 'Current staff',
+        accepted_at: 2,
+        updated_at: 2,
+      })
+      messages.push({
+        id: 2,
+        role: 'human',
+        actor_name: 'Previous staff',
+        content: 'I checked the request.',
+        created_at: 2,
+      })
+      messages.push({
+        id: 3,
+        role: 'human',
+        actor_name: 'Current staff',
+        content: 'Please try again.',
+        created_at: 3,
+      })
+      await act(async () => {
+        await rendered.queryClient.invalidateQueries({
+          queryKey: ['assistant-support'],
+        })
+        await rendered.queryClient.invalidateQueries({
+          queryKey: ['assistant-support-detail'],
+        })
+        await flushEffects()
+      })
+      assert.match(
+        document.body.textContent ?? '',
+        /Human technical support · Previous staff/
+      )
+      assert.match(
+        document.body.textContent ?? '',
+        /Human technical support · Current staff/
+      )
+      await send('It works now')
+      await act(async () =>
+        waitForCondition(
+          () => document.body.textContent?.includes('It works now') === true,
+          'Human message did not refresh'
+        )
+      )
+      assert.deepEqual(
+        posts.map((post) => post.url),
+        ['/api/assistant/support', '/api/assistant/support/17/messages']
+      )
+      assert.equal(
+        document.querySelector('[data-testid="assistant-active-tool-region"]'),
+        null
+      )
+    } finally {
+      await act(async () => rendered.root.unmount())
+      rendered.queryClient.clear()
+    }
+  })
+
+  test('keeps AI available for a pending appointment and offers immediate transfer', async () => {
+    const request = fixture({
+      kind: 'appointment',
+      scheduled_at: Math.floor(Date.now() / 1000) + 3600,
+    })
+    stubSupport(
+      () => request,
+      () => [],
+      { eligible: true }
+    )
+    const posts: string[] = []
+    api.post = (async (url: string) => {
+      posts.push(url)
+      assert.equal(url, '/api/assistant/chat')
+      return {
+        data: {
+          choices: [
+            { message: { content: 'Check the client configuration.' } },
+          ],
+          lmm_assistant_history: { conversation_id: 91 },
+        },
+      }
+    }) as typeof api.post
+    const rendered = await renderPanel(undefined, 'page', user)
+    try {
+      await act(async () =>
+        waitForCondition(
+          () =>
+            document.body.textContent?.includes(
+              'Technical support appointment requested'
+            ) === true,
+          'Appointment did not load'
+        )
+      )
+      assert.ok(findButton('Transfer to human'))
+      await send('How can I check the client?')
+      await act(async () =>
+        waitForCondition(
+          () =>
+            document.body.textContent?.includes(
+              'Check the client configuration.'
+            ) === true,
+          'AI stopped for pending appointment'
+        )
+      )
+      assert.deepEqual(posts, ['/api/assistant/chat'])
+    } finally {
+      await act(async () => rendered.root.unmount())
+      rendered.queryClient.clear()
+    }
+  })
+
+  for (const changed of ['account', 'session'] as const) {
+    test(`ignores a transfer response from the previous ${changed} and resets mutation state`, async () => {
+      let resolveOld: ((value: unknown) => void) | undefined
+      stubSupport(() => null)
+      api.post = (() =>
+        new Promise<unknown>((resolve) => {
+          resolveOld = resolve
+        })) as typeof api.post
+      const rendered = await renderPanel(undefined, 'page', user)
+      try {
+        await act(async () => {
+          findButton('Transfer to human').click()
+          await flushEffects()
+        })
+        assert.ok(resolveOld)
+        await act(async () => {
+          if (changed === 'account') {
+            useAuthStore
+              .getState()
+              .auth.setUser({ ...user, id: 89, username: 'next-user' })
+          } else {
+            useAuthStore.getState().auth.setBundle({
+              user,
+              access_token: 'new-test-session',
+              token_type: 'Bearer',
+              access_expires_at: 99,
+              session: {
+                sid: 'new-session',
+                current: true,
+                login_method: 'password',
+                ip: '',
+                user_agent: '',
+                created_at: 1,
+                last_active_at: 1,
+                expires_at: 99,
+              },
+            })
+          }
+          await flushEffects()
+        })
+        assert.equal(findButton('Transfer to human').disabled, false)
+        await act(async () => {
+          resolveOld?.({
+            data: {
+              success: true,
+              data: {
+                request: fixture({ topic: 'Previous account private topic' }),
+                created: true,
+              },
+            },
+          })
+          await flushEffects()
+        })
+        assert.doesNotMatch(
+          document.body.textContent ?? '',
+          /Previous account private topic|Waiting for an administrator to join/
+        )
+        assert.equal(findButton('Transfer to human').disabled, false)
+      } finally {
+        await act(async () => rendered.root.unmount())
+        rendered.queryClient.clear()
+      }
+    })
+  }
+
+  test('shows the paid appointment option and submits the chosen time with its timezone', async () => {
+    let request: Record<string, unknown> | null = null
+    let submitted: Record<string, unknown> | undefined
+    stubSupport(
+      () => request,
+      () => [],
+      { eligible: true }
+    )
+    api.post = (async (url: string, body: Record<string, unknown>) => {
+      assert.equal(url, '/api/assistant/support')
+      submitted = body
+      request = fixture({ ...body, id: 17, conversation_id: 91 })
+      return { data: { success: true, data: { request, created: true } } }
+    }) as typeof api.post
+    const rendered = await renderPanel(undefined, 'page', user)
+    try {
+      await act(async () => {
+        findButton('Book technical support').click()
+        await flushEffects()
+      })
+      await setTextareaValue(
+        requireValue(
+          document.querySelector<HTMLTextAreaElement>(
+            '#assistant-support-topic'
+          )
+        ),
+        'Help install the API client'
+      )
+      const time = new Date(Date.now() + 3600_000).toISOString().slice(0, 16)
+      await act(async () => {
+        const input = requireValue(
+          document.querySelector<HTMLInputElement>('#assistant-support-time')
+        )
+        requireValue(
+          Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')
+            ?.set
+        ).call(input, time)
+        input.dispatchEvent(new Event('input', { bubbles: true }))
+        await flushEffects()
+      })
+      await act(async () => {
+        findButton('Submit appointment').click()
+        await flushEffects()
+      })
+      assert.equal(submitted?.kind, 'appointment')
+      assert.equal(submitted?.topic, 'Help install the API client')
+      assert.equal(
+        submitted?.scheduled_at,
+        Math.floor(new Date(time).getTime() / 1000)
+      )
+      assert.equal(
+        submitted?.preferred_time,
+        `${time} (${Intl.DateTimeFormat().resolvedOptions().timeZone})`
+      )
+      await act(async () =>
+        waitForCondition(
+          () =>
+            document.body.textContent?.includes(
+              'Technical support appointment requested'
+            ) === true,
+          'Appointment success status missing'
+        )
+      )
+    } finally {
+      await act(async () => rendered.root.unmount())
+      rendered.queryClient.clear()
+    }
+  })
+
+  test('ignores a late support creation after resetting an unsaved conversation', async () => {
+    let resolveOld: ((value: unknown) => void) | undefined
+    stubSupport(() => null)
+    api.post = (() =>
+      new Promise<unknown>((resolve) => {
+        resolveOld = resolve
+      })) as typeof api.post
+    const rendered = await renderPanel(undefined, 'page', user)
+    try {
+      await act(async () => {
+        findButton('Transfer to human').click()
+        await flushEffects()
+      })
+      await act(async () => {
+        requireValue(
+          document.querySelector<HTMLButtonElement>(
+            'button[aria-label="New conversation"]'
+          )
+        ).click()
+        await flushEffects()
+      })
+      assert.equal(findButton('Transfer to human').disabled, false)
+      await act(async () => {
+        resolveOld?.({
+          data: { success: true, data: { request: fixture(), created: true } },
+        })
+        await flushEffects()
+      })
+      assert.doesNotMatch(
+        document.body.textContent ?? '',
+        /Waiting for an administrator to join/
+      )
+      assert.equal(findButton('Transfer to human').disabled, false)
+    } finally {
+      await act(async () => rendered.root.unmount())
+      rendered.queryClient.clear()
+    }
+  })
+
+  test('drops an in-flight AI answer after human transfer starts', async () => {
+    let resolveAI: ((value: unknown) => void) | undefined
+    let request: Record<string, unknown> | null = null
+    stubSupport(() => request)
+    api.post = ((url: string) => {
+      if (url === '/api/assistant/chat') {
+        return new Promise<unknown>((resolve) => {
+          resolveAI = resolve
+        })
+      }
+      assert.equal(url, '/api/assistant/support')
+      request = fixture()
+      return Promise.resolve({
+        data: { success: true, data: { request, created: true } },
+      })
+    }) as typeof api.post
+    const rendered = await renderPanel(undefined, 'page', user)
+    try {
+      await send('Help configure my client')
+      assert.ok(resolveAI)
+      await act(async () => {
+        findButton('Transfer to human').click()
+        await flushEffects()
+      })
+      await act(async () => {
+        resolveAI?.({
+          data: {
+            choices: [{ message: { content: 'Stale AI answer' } }],
+            lmm_assistant_history: { conversation_id: 91 },
+          },
+        })
+        await flushEffects()
+      })
+      assert.doesNotMatch(document.body.textContent ?? '', /Stale AI answer/)
+      assert.match(
+        document.body.textContent ?? '',
+        /Waiting for an administrator to join/
+      )
+    } finally {
+      await act(async () => rendered.root.unmount())
+      rendered.queryClient.clear()
+    }
+  })
+})

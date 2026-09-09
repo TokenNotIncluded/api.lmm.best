@@ -120,6 +120,20 @@ func assistantToolDefinitions() []assistantOpenAIToolDefinition {
 // filters this snapshot; it never rebuilds the nested JSON schemas per step.
 func buildAssistantTools() []assistantOpenAIToolDefinition {
 	definitions := []assistantOpenAIToolDefinition{
+		{Type: "function", Function: assistantOpenAIToolFunction{
+			Name:        "get_human_support_status",
+			Description: "Read live eligibility for technical support appointments and the signed-in user's active in-site support request. Any signed-in user can say 转人工 at any time. Appointments require a completed paid recharge.",
+			Parameters:  emptyObjectSchema(),
+		}},
+		{Type: "function", Function: assistantOpenAIToolFunction{
+			Name:        "book_technical_support",
+			Description: "Submit an in-site technical support appointment after the user explicitly requests booking. Collect the topic and a future date, time and timezone; use a Unix timestamp in seconds and a human-readable preferred_time including timezone. Server checks recharge eligibility. This is an appointment request awaiting administrator acceptance, not a guaranteed slot. Check created: false means an existing request, with no new booking or changed time.",
+			Parameters: objectSchema(map[string]any{
+				"topic":          map[string]any{"type": "string", "minLength": 1, "maxLength": 2000},
+				"preferred_time": map[string]any{"type": "string", "minLength": 1, "maxLength": 200},
+				"scheduled_at":   map[string]any{"type": "integer", "minimum": 1},
+			}, []string{"topic", "preferred_time", "scheduled_at"}),
+		}},
 		{
 			Type: "function",
 			Function: assistantOpenAIToolFunction{
@@ -677,7 +691,9 @@ func assistantToolAllowedForContext(name string, userContext assistantUserContex
 		return true
 	}
 	switch name {
-	case "get_service_facts",
+	case "get_human_support_status",
+		"book_technical_support",
+		"get_service_facts",
 		"calculate_math",
 		"calculate_cost",
 		"get_account_access",
@@ -732,6 +748,8 @@ func assistantToolChoiceForContext(userContext assistantUserContext) any {
 		// A ready, explicit purchase request must read the live offers before
 		// the model can answer from stale plan context or invent a price.
 		name = "get_plan_offers"
+	} else if assistantSupportBookingDecision(userContext.LatestUserRequest) > 0 {
+		name = "get_human_support_status"
 	} else if assistantHumanSupportRequest(userContext.LatestUserRequest) {
 		name = "request_human_support"
 	} else if assistantPublicActivityQuestion(userContext.LatestUserRequest) {
@@ -841,9 +859,12 @@ func assistantBountyReadRequest(text string) bool {
 // confirmation-gated handoff tool so the assistant cannot merely draft prose;
 // the latter can still receive ordinary navigation guidance.
 func assistantHumanSupportRequest(text string) bool {
-	normalized := strings.ToLower(strings.TrimSpace(text))
+	if assistantExplicitHumanTransferRequest(text) {
+		return true
+	}
+	normalized := strings.ToLower(strings.TrimSpace(assistantSupportQuotedText.ReplaceAllString(text, "")))
 	return assistantTextContainsAny(normalized,
-		"提交人工客服", "提交工单", "人工核查", "转人工", "联系管理员处理", "请管理员处理",
+		"提交人工客服", "提交工单", "人工核查", "联系管理员处理", "请管理员处理",
 		"submit a support ticket", "submit to support", "request human support", "human review",
 		"contact an administrator", "send this to support",
 	)
@@ -1009,7 +1030,7 @@ func assistantWeeklyDiscountWorkflowRequired(userContext assistantUserContext) b
 }
 
 func assistantHumanSupportWorkflowRequired(userContext assistantUserContext) bool {
-	return assistantHumanSupportRequest(userContext.LatestUserRequest) &&
+	return (assistantSupportBookingDecision(userContext.LatestUserRequest) > 0 || assistantHumanSupportRequest(userContext.LatestUserRequest)) &&
 		assistantToolAllowedForContext("request_human_support", userContext)
 }
 
@@ -1018,6 +1039,9 @@ func assistantHumanSupportWorkflowMinSteps(userContext assistantUserContext) int
 		return 0
 	}
 	steps := 2 // prepare a confirmation card, then answer
+	if assistantSupportBookingDecision(userContext.LatestUserRequest) > 0 {
+		steps = 3
+	}
 	if userContext.ConversationTitleNeeded {
 		steps++
 	}
@@ -1116,6 +1140,15 @@ func assistantToolChoiceForAgentStep(userContext assistantUserContext, calledToo
 		return "none"
 	}
 	if assistantHumanSupportWorkflowRequired(userContext) {
+		if assistantSupportBookingDecision(userContext.LatestUserRequest) > 0 {
+			if !calledTools["get_human_support_status"] {
+				return assistantNamedToolChoice("get_human_support_status")
+			}
+			if !successfulTools["get_human_support_status"] {
+				return "none"
+			}
+			return "auto"
+		}
 		if !calledTools["request_human_support"] {
 			return assistantNamedToolChoice("request_human_support")
 		}
@@ -1671,7 +1704,28 @@ func runAssistantAgent(c *gin.Context, settings setting.AssistantSettings, conve
 		common.CleanupBodyStorage(c)
 	}()
 	streamSession := assistantStreamSessionFrom(c)
-	if assistantAgentRequestStopped(c) {
+	if streamSession != nil && c.GetBool(assistantSupportGuardKey) {
+		// Stream deltas can arrive once per token. Poll at most four times a
+		// second here; model/tool/final boundaries always check immediately.
+		var lastSupportCheck time.Time
+		var supportCheckMu sync.Mutex
+		streamSession.setSupportCheck(func() error {
+			supportCheckMu.Lock()
+			if time.Since(lastSupportCheck) < 250*time.Millisecond {
+				supportCheckMu.Unlock()
+				return nil
+			}
+			lastSupportCheck = time.Now()
+			supportCheckMu.Unlock()
+			if err := assistantSupportGuardError(c); err != nil {
+				cancel()
+				return err
+			}
+			return nil
+		})
+		defer streamSession.setSupportCheck(nil)
+	}
+	if assistantHumanSupportInterrupted(c) || assistantAgentRequestStopped(c) {
 		return
 	}
 
@@ -1709,7 +1763,8 @@ func runAssistantAgent(c *gin.Context, settings setting.AssistantSettings, conve
 	forcePublicActivityWorkflow := assistantPublicActivityWorkflowRequired(userContext)
 	forceNewUserGiftWorkflow := assistantNewUserGiftWorkflowRequired(userContext)
 	forceWeeklyDiscountWorkflow := assistantWeeklyDiscountWorkflowRequired(userContext)
-	forceHumanSupportWorkflow := assistantHumanSupportWorkflowRequired(userContext)
+	forceSupportBooking := assistantSupportBookingDecision(userContext.LatestUserRequest) > 0 || (!settings.AgentLoopEnabled && assistantSupportBookingAuthorized(c))
+	forceHumanSupportWorkflow := forceSupportBooking || assistantHumanSupportWorkflowRequired(userContext)
 	forceConversationTitle := userContext.ConversationTitleNeeded
 	forceReadChain := assistantLiveReadRequired(userContext)
 	if forceL0Assessment && maxSteps < 2 {
@@ -1739,6 +1794,9 @@ func runAssistantAgent(c *gin.Context, settings setting.AssistantSettings, conve
 	}
 	if minimum := assistantLiveActivityWorkflowMinSteps(userContext); maxSteps < minimum {
 		maxSteps = minimum
+	}
+	if forceSupportBooking && maxSteps < 3 {
+		maxSteps = 3
 	}
 	if minimum := assistantHumanSupportWorkflowMinSteps(userContext); maxSteps < minimum {
 		maxSteps = minimum
@@ -1773,7 +1831,7 @@ func runAssistantAgent(c *gin.Context, settings setting.AssistantSettings, conve
 	contextRecoveries := 0
 
 	for step := 0; step < maxSteps; step++ {
-		if assistantAgentRequestStopped(c) {
+		if assistantHumanSupportInterrupted(c) || assistantAgentRequestStopped(c) {
 			return
 		}
 		messages, compactErr = compactAssistantAgentContext(messages)
@@ -1814,7 +1872,7 @@ func runAssistantAgent(c *gin.Context, settings setting.AssistantSettings, conve
 		} else {
 			status, body, err = relayAssistantAgentTurn(c, request, rootRequestID, step)
 		}
-		if assistantAgentRequestStopped(c) {
+		if assistantHumanSupportInterrupted(c) || assistantAgentRequestStopped(c) {
 			return
 		}
 		if err != nil {
@@ -1922,6 +1980,10 @@ func runAssistantAgent(c *gin.Context, settings setting.AssistantSettings, conve
 			}
 			if streamSession != nil {
 				enrichedBody := assistantHistoryResponseBody(c, status, normalizedBody)
+				if c.GetBool("assistant_support_response_replaced") {
+					writeAssistantSupportCompletion(c, enrichedBody)
+					return
+				}
 				if !streamTurn {
 					finalResponse, parseErr := parseAssistantResponse(normalizedBody)
 					if parseErr == nil && len(finalResponse.Choices) > 0 {
@@ -1958,7 +2020,7 @@ func runAssistantAgent(c *gin.Context, settings setting.AssistantSettings, conve
 		})
 		executed := 0
 		for _, call := range message.ToolCalls {
-			if assistantAgentRequestStopped(c) {
+			if assistantHumanSupportInterrupted(c) || assistantAgentRequestStopped(c) {
 				return
 			}
 			toolName := strings.TrimSpace(call.Function.Name)
@@ -2128,6 +2190,9 @@ func assistantDeveloperCapabilityRequired(userID int, capability string) (map[st
 }
 
 func executeAssistantTool(c *gin.Context, call assistantOpenAIToolCall) map[string]any {
+	if assistantHumanSupportInterrupted(c) {
+		return map[string]any{"ok": false, "status": "human_support_active"}
+	}
 	actorUserID := assistantActorUserID(c)
 	name := strings.TrimSpace(call.Function.Name)
 	if c != nil {
@@ -2181,6 +2246,10 @@ func executeAssistantTool(c *gin.Context, call assistantOpenAIToolCall) map[stri
 	}
 
 	switch name {
+	case "get_human_support_status":
+		return executeAssistantHumanSupportStatusTool(c)
+	case "book_technical_support":
+		return executeAssistantBookTechnicalSupportTool(c, input)
 	case assistantInterlocutorAssessmentTool:
 		return executeAssistantInterlocutorAssessmentTool(c, input)
 	case "set_conversation_title":
