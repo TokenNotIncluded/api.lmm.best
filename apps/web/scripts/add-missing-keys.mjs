@@ -7499,6 +7499,44 @@ for (const [locale, translations] of Object.entries(uiDocTranslationFixes)) {
   Object.assign(newKeys[locale], translations)
 }
 
+const targetedUiTranslationFixes = {
+  fr: {
+    End: 'Fin',
+    Pay: 'Payer',
+    Prompt: 'Invite',
+    Quota: 'Quota',
+    'Quota:': 'Quota :',
+  },
+  ru: {
+    End: 'Завершить',
+    Pay: 'Оплатить',
+    Tips: 'Чаевые',
+  },
+  vi: {
+    End: 'Kết thúc',
+    Pay: 'Thanh toán',
+    Prompt: 'Lời nhắc',
+    Tips: 'Tiền boa',
+    Query: 'Truy vấn',
+  },
+  'zh-TW': {
+    Pay: '付款',
+    Query: '查詢',
+    'Quota:': '配額:',
+  },
+  zh: {
+    Pay: '支付',
+    Query: '查询',
+    'Quota:': '配额:',
+  },
+}
+
+for (const [locale, translations] of Object.entries(
+  targetedUiTranslationFixes
+)) {
+  Object.assign(newKeys[locale], translations)
+}
+
 const deprecatedCurrencyKeys = new Set([
   'Price (local currency / USD)',
   'Use global price',
