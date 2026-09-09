@@ -7517,9 +7517,13 @@ const targetedUiTranslationFixes = {
   vi: {
     End: 'Kết thúc',
     Pay: 'Thanh toán',
+    Add: 'Thêm',
+    Breadcrumb: 'Đường dẫn',
     Prompt: 'Lời nhắc',
     Tips: 'Tiền boa',
     Query: 'Truy vấn',
+    Tag: 'Nhãn',
+    off: 'giảm',
   },
   ja: {
     Pay: '支払い',
