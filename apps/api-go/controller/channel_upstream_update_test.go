@@ -37,6 +37,33 @@ func newAdvancedCustomModelListChannel(baseURL string, key string, upstreamPath 
 	return channel
 }
 
+func TestFetchVolcEngineModelsUsesArkPathAndPreservesSpecialBase(t *testing.T) {
+	for _, special := range []bool{false, true} {
+		t.Run(map[bool]string{false: "ark", true: "special base"}[special], func(t *testing.T) {
+			var path, authorization string
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				path, authorization = r.URL.Path, r.Header.Get("Authorization")
+				_, _ = w.Write([]byte(`{"data":[{"id":"doubao-model"}]}`))
+			}))
+			defer server.Close()
+			if special {
+				constant.ChannelSpecialBases[server.URL] = constant.ChannelSpecialBase{OpenAIBaseURL: server.URL + "/coding"}
+				defer delete(constant.ChannelSpecialBases, server.URL)
+			}
+			channel := &model.Channel{Type: constant.ChannelTypeVolcEngine, Key: "secret", BaseURL: &server.URL}
+			models, err := fetchChannelUpstreamModelIDs(channel)
+			require.NoError(t, err)
+			require.Equal(t, []string{"doubao-model"}, models)
+			if special {
+				require.Equal(t, "/coding/v1/models", path)
+			} else {
+				require.Equal(t, "/api/v3/models", path)
+			}
+			require.Equal(t, "Bearer secret", authorization)
+		})
+	}
+}
+
 func TestParseOpenAIModelIDsStrictResponseContract(t *testing.T) {
 	tests := []struct {
 		name      string

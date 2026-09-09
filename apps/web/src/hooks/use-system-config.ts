@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useEffect, useCallback } from 'react'
 
+import { getStatus } from '@/lib/api'
 import { DEFAULT_SYSTEM_NAME, DEFAULT_LOGO } from '@/lib/constants'
 import {
   useSystemConfigStore,
@@ -114,13 +115,10 @@ export function mapStatusDataToConfig(
 
 // Fetch system config from API
 async function fetchSystemConfig(): Promise<Partial<SystemConfig>> {
-  const response = await fetch('/api/status')
-  if (!response.ok) throw new Error('Failed to fetch status')
-
-  const data: StatusApiResponse = await response.json()
-  if (!data.success) throw new Error('API returned error')
-
-  return mapStatusDataToConfig(data.data)
+  // Share the session-scoped in-flight request and error policy with status
+  // consumers; a raw fetch bypassed that deduplication during startup.
+  const data = await getStatus()
+  return mapStatusDataToConfig(data as StatusApiResponse['data'])
 }
 
 // Preload image and return cleanup function
