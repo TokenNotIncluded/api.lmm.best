@@ -3,6 +3,8 @@
 //! This module owns the `system-config` rows in `route-plan.tsv`; it does not
 //! claim every route whose path starts with `/api/option`.
 
+mod pricing;
+
 use crate::protocol_rollout::{
     ConverterPairOverride, FlagConfig, ProtocolRolloutConfig, ProtocolRolloutControl,
     ProtocolRolloutControlError, RolloutConfigError, parse_boolean, parse_loss_policy,
@@ -2074,6 +2076,27 @@ async fn cached_options(state: &SystemConfigHttpState) -> Result<BTreeMap<String
         }
         tracing::warn!("discarding malformed system-config option cache");
     }
+    let options = authoritative_options(state).await?;
+    if let Ok(mut connection) = state.valkey.get_multiplexed_async_connection().await {
+        let ttl = state.option_cache_ttl.as_secs();
+        let serialized = serde_json::to_string(&options).map_err(|_| ())?;
+        if let Err(error) = connection
+            .set_ex::<_, _, ()>(OPTIONS_CACHE_KEY, serialized, ttl)
+            .await
+        {
+            tracing::warn!(%error, "system-config option cache write failed");
+        } else {
+            state.option_cache_dirty.store(false, Ordering::Release);
+            // A cache refill proves only durable/cache convergence; it cannot
+            // prove that a previously failed runtime writer has caught up.
+        }
+    }
+    Ok(options)
+}
+
+async fn authoritative_options(
+    state: &SystemConfigHttpState,
+) -> Result<BTreeMap<String, String>, ()> {
     let rows = sqlx::query("SELECT key, value FROM options")
         .fetch_all(&state.pg)
         .await
@@ -2089,20 +2112,6 @@ async fn cached_options(state: &SystemConfigHttpState) -> Result<BTreeMap<String
         })
         .collect::<Result<BTreeMap<_, _>, sqlx::Error>>()
         .map_err(|_| ())?;
-    if let Ok(mut connection) = state.valkey.get_multiplexed_async_connection().await {
-        let ttl = state.option_cache_ttl.as_secs();
-        let serialized = serde_json::to_string(&options).map_err(|_| ())?;
-        if let Err(error) = connection
-            .set_ex::<_, _, ()>(OPTIONS_CACHE_KEY, serialized, ttl)
-            .await
-        {
-            tracing::warn!(%error, "system-config option cache write failed");
-        } else {
-            state.option_cache_dirty.store(false, Ordering::Release);
-            // A cache refill proves only durable/cache convergence; it cannot
-            // prove that a previously failed runtime writer has caught up.
-        }
-    }
     Ok(options)
 }
 
@@ -2205,26 +2214,17 @@ async fn update_option(
     if input.key == "theme.frontend" && value != "default" {
         return legacy_error("Classic 前端已移除，主题只能设置为 default");
     }
-    let options = match cached_options(&state).await {
-        Ok(options) => options,
-        Err(()) => return legacy_error("保存设置失败"),
-    };
-    let mut candidate_options = options.clone();
-    candidate_options.insert(input.key.clone(), value.clone());
-    if let Err(message) = validate_option_update(&input.key, &value, &candidate_options) {
-        return legacy_error(message);
-    }
-    if let Err(message) =
-        validate_assistant_model_update(&state, &input.key, &value, &candidate_options).await
-    {
-        return legacy_error(message);
-    }
-    let changes = vec![(input.key, value)];
-    if persist_option_changes(&state, &changes).await.is_err() {
-        return legacy_error("保存设置失败");
-    }
-    record_option_update_audit(&state.pg, identity, &headers, &changes[0].0).await;
-    legacy_json(StatusCode::OK, json!({"success": true, "message": ""}))
+    let key = input.key;
+    let warnings =
+        match apply_generic_options(&state, BTreeMap::from([(key.clone(), value)]), false).await {
+            Ok(warnings) => warnings,
+            Err(message) => return legacy_error(message),
+        };
+    record_option_update_audit(&state.pg, identity, &headers, &key).await;
+    legacy_json(
+        StatusCode::OK,
+        json!({"success": true, "message": "", "warnings": warnings}),
+    )
 }
 
 fn validate_option_update(
@@ -2232,6 +2232,13 @@ fn validate_option_update(
     value: &str,
     options: &BTreeMap<String, String>,
 ) -> Result<(), String> {
+    if key.starts_with("payment_setting.compliance_") {
+        return Err("合规确认字段不允许通过通用设置接口修改".to_owned());
+    }
+    if key == "theme.frontend" && value != "default" {
+        return Err("Classic 前端已移除，主题只能设置为 default".to_owned());
+    }
+    pricing::validate(key, value)?;
     match key {
         "QuotaForInviter" | "QuotaForInvitee"
             if positive_option_value(value)
@@ -2452,6 +2459,13 @@ async fn persist_option_changes(
     // advisory locks cannot serialize this route with setup or another
     // process, so the shared state mutex closes the local race.
     let _option_write_guard = state.option_write_lock.lock().await;
+    persist_option_changes_locked(state, changes).await
+}
+
+async fn persist_option_changes_locked(
+    state: &SystemConfigHttpState,
+    changes: &[(String, String)],
+) -> Result<(), ()> {
     // A missing runtime writer must fail before the durable mutation.  Once a
     // real writer is composed, this mirrors Go's database -> OptionMap ->
     // cache-invalidating sequence.
@@ -2818,14 +2832,15 @@ async fn reset_model_ratio(
     headers: HeaderMap,
 ) -> Response {
     let identity = context.identity;
-    let changes = vec![("ModelRatio".to_owned(), "{}".to_owned())];
-    if persist_option_changes(&state, &changes).await.is_err() {
-        return legacy_error("保存设置失败");
-    }
+    let values = BTreeMap::from([("ModelRatio".to_owned(), "{}".to_owned())]);
+    let warnings = match apply_generic_options(&state, values, false).await {
+        Ok(warnings) => warnings,
+        Err(message) => return legacy_error(message),
+    };
     record_option_update_audit(&state.pg, identity, &headers, "ModelRatio").await;
     legacy_json(
         StatusCode::OK,
-        json!({"success":true,"message":"重置模型倍率成功"}),
+        json!({"success":true,"message":"重置模型倍率成功","warnings":warnings}),
     )
 }
 
@@ -3018,6 +3033,32 @@ struct OptionValuesRequest {
     values: BTreeMap<String, String>,
 }
 
+// Hold the same write lock across snapshot, filtering, validation and runtime
+// replacement: an unlock in this batch must not authorize a price edit in it.
+async fn apply_generic_options(
+    state: &SystemConfigHttpState,
+    mut values: BTreeMap<String, String>,
+    dry_run: bool,
+) -> Result<Vec<String>, String> {
+    let _guard = state.option_write_lock.lock().await;
+    let mut options = authoritative_options(state)
+        .await
+        .map_err(|()| "保存设置失败".to_owned())?;
+    let warnings = pricing::filter(&options, &mut values)?;
+    options.extend(values.clone());
+    for (key, value) in &values {
+        validate_option_update(key, value, &options)?;
+        validate_assistant_model_update(state, key, value, &options).await?;
+    }
+    if !dry_run {
+        let changes: Vec<_> = values.into_iter().collect();
+        persist_option_changes_locked(state, &changes)
+            .await
+            .map_err(|()| "保存设置失败".to_owned())?;
+    }
+    Ok(warnings)
+}
+
 async fn validate_options(
     State(state): State<SystemConfigHttpState>,
     Extension(_context): Extension<SystemConfigAuthContext>,
@@ -3027,29 +3068,13 @@ async fn validate_options(
         Ok(values) => values,
         Err(response) => return response,
     };
-    let options = match cached_options(&state).await {
-        Ok(options) => options,
-        Err(()) => return legacy_error("保存设置失败"),
-    };
-    let mut candidate_options = options.clone();
-    candidate_options.extend(values.clone());
-    for (key, value) in &values {
-        if let Err(message) = validate_option_update(key, value, &candidate_options) {
-            return legacy_json(
-                StatusCode::OK,
-                json!({"success": false, "message": message}),
-            );
-        }
-        if let Err(message) =
-            validate_assistant_model_update(&state, key, value, &candidate_options).await
-        {
-            return legacy_json(
-                StatusCode::OK,
-                json!({"success": false, "message": message}),
-            );
-        }
+    match apply_generic_options(&state, values, true).await {
+        Ok(warnings) => legacy_json(
+            StatusCode::OK,
+            json!({"success": true, "message": "", "warnings": warnings}),
+        ),
+        Err(message) => legacy_error(message),
     }
-    legacy_json(StatusCode::OK, json!({"success": true, "message": ""}))
 }
 
 async fn update_options_bulk(
@@ -3061,34 +3086,11 @@ async fn update_options_bulk(
         Ok(values) => values,
         Err(response) => return response,
     };
-    let options = match cached_options(&state).await {
-        Ok(options) => options,
-        Err(()) => return legacy_error("保存设置失败"),
+    let keys: Vec<_> = values.keys().cloned().collect();
+    let warnings = match apply_generic_options(&state, values, false).await {
+        Ok(warnings) => warnings,
+        Err(message) => return legacy_error(message),
     };
-    let mut candidate_options = options.clone();
-    candidate_options.extend(values.clone());
-    for (key, value) in &values {
-        if let Err(message) = validate_option_update(key, value, &candidate_options) {
-            return legacy_json(
-                StatusCode::OK,
-                json!({"success": false, "message": message}),
-            );
-        }
-        if let Err(message) =
-            validate_assistant_model_update(&state, key, value, &candidate_options).await
-        {
-            return legacy_json(
-                StatusCode::OK,
-                json!({"success": false, "message": message}),
-            );
-        }
-    }
-    let changes: Vec<(String, String)> = values.into_iter().collect();
-    if persist_option_changes(&state, &changes).await.is_err() {
-        return legacy_error("保存设置失败");
-    }
-    let mut keys: Vec<&str> = changes.iter().map(|(key, _)| key.as_str()).collect();
-    keys.sort_unstable();
     let other = json!({"op": {"action": "option.bulk_update", "params": {"keys": keys}}});
     let _ = sqlx::query(
         "INSERT INTO logs (user_id, created_at, type, content, username, other) VALUES ($1, $2, 3, $3, $4, $5)",
@@ -3100,7 +3102,10 @@ async fn update_options_bulk(
     .bind(other.to_string())
     .execute(&state.pg)
     .await;
-    legacy_json(StatusCode::OK, json!({"success": true, "message": ""}))
+    legacy_json(
+        StatusCode::OK,
+        json!({"success": true, "message": "", "warnings": warnings}),
+    )
 }
 
 fn decode_option_values(body: &Bytes) -> Result<BTreeMap<String, String>, Response> {
@@ -3578,4 +3583,23 @@ async fn post_setup(State(state): State<SystemConfigHttpState>, body: Bytes) -> 
         StatusCode::OK,
         json!({"success":true,"message":"系统初始化成功"}),
     )
+}
+
+#[cfg(test)]
+mod generic_option_parity_tests {
+    use super::*;
+
+    #[test]
+    fn generic_updates_cannot_forge_compliance_or_restore_removed_theme() {
+        let options =
+            BTreeMap::from([("payment_setting.compliance_confirmed".into(), "true".into())]);
+        for key in [
+            "payment_setting.compliance_confirmed",
+            "payment_setting.compliance_confirmed_by",
+        ] {
+            assert!(validate_option_update(key, "true", &options).is_err());
+        }
+        assert!(validate_option_update("theme.frontend", "classic", &options).is_err());
+        assert!(validate_option_update("theme.frontend", "default", &options).is_ok());
+    }
 }
