@@ -147,3 +147,45 @@ Converter lookup has a small fixed cost: in the empty-payload DTO benchmark it
 added 640 bytes and one allocation/op compared with the legacy copier. These
 are operation-level allocation results, **not** total process RSS or end-to-end
 throughput guarantees. Native Linux CI/load testing remains a release gate.
+
+
+## In-process byte-cache allocations
+
+`pkg/cachex.ByteCache` grows its map as keys are inserted, instead of reserving
+space for the configured entry limit at construction and after `Purge`.
+Replacing an existing value reuses its entry and LRU node. This reduces idle
+allocation for notification/verification caches and the in-memory rate limiter,
+and removes cache-node churn when request counters are updated. Insertion,
+replacement, and eviction share one implementation under the existing mutex.
+
+Entry limits, weight accounting, LRU order, TTL refresh/reset, and atomic
+`Compute` semantics are preserved. An oversized `SetWithTTL` still leaves an
+existing value unchanged; an oversized `Compute` result still removes it.
+Expiry remains lazy. Purging drops the map and entries without forcing GC.
+The configured byte budget counts caller-supplied weights, not map/list overhead
+or total process RSS; a filled map can retain capacity until a purge.
+
+Synthetic Linux/amd64 allocation measurements, Go 1.25.1, three runs per case:
+
+| Operation | Before (bytes/op) | After (bytes/op) |
+| --- | ---: | ---: |
+| Create empty cache, 256-entry limit | 13,784 | 176 |
+| Create empty cache, 16,384-entry limit | about 873,912 | 176 |
+| Create empty cache, 65,536-entry limit | about 3,495,223 | 176 |
+| Replace existing integer, `SetWithTTL` | 112 (2 allocations) | 0 (0 allocations) |
+| Increment existing integer, `Compute` | 112 (2 allocations) | 0 (0 allocations) |
+| Insert one integer then purge, 65,536-entry limit | about 3,495,206 | 368 |
+| Insert/evict distinct string keys, 256-entry limit | 119 | 119 |
+
+These measure allocation volume for the named operations, not retained heap or
+whole-server savings. New keys still allocate nodes, and growing the index on
+demand shifts map growth work to insertion. User callbacks and values may also
+allocate; zero-allocation updates here use integer values and a simple callback.
+No production throughput or latency claim is made from these microbenchmarks.
+
+Reproduce from `apps/api-go`:
+
+```bash
+go test -race ./pkg/cachex
+go test -run '^$' -bench '^BenchmarkByteCache' -benchmem -count=3 ./pkg/cachex
+```

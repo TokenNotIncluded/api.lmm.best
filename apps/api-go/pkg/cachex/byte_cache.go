@@ -15,7 +15,8 @@ type byteCacheEntry[V any] struct {
 
 // ByteCache is a concurrency-safe LRU bounded by both entry count and bytes.
 // It intentionally has no janitor goroutine: expiration is handled on access,
-// which avoids one long-lived goroutine per cache instance.
+// which avoids one long-lived goroutine per cache instance. The index grows
+// on demand; maxEntries is an eviction limit, not an initial allocation size.
 type ByteCache[V any] struct {
 	mu         sync.Mutex
 	entries    map[string]*list.Element
@@ -37,7 +38,7 @@ func NewByteCache[V any](maxEntries int, maxBytes int64, weigh func(string, V) i
 		weigh = func(key string, _ V) int64 { return int64(len(key)) }
 	}
 	return &ByteCache[V]{
-		entries: make(map[string]*list.Element, maxEntries), order: list.New(),
+		entries: make(map[string]*list.Element), order: list.New(),
 		maxEntries: maxEntries, maxBytes: maxBytes, weigh: weigh,
 	}
 }
@@ -72,19 +73,7 @@ func (c *ByteCache[V]) SetWithTTL(key string, value V, ttl time.Duration) {
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if existing, ok := c.entries[key]; ok {
-		c.remove(existing)
-	}
-	entry := &byteCacheEntry[V]{key: key, value: value, bytes: weight}
-	if ttl > 0 {
-		entry.expiresAt = time.Now().Add(ttl)
-	}
-	element := c.order.PushFront(entry)
-	c.entries[key] = element
-	c.usedBytes += weight
-	for len(c.entries) > c.maxEntries || c.usedBytes > c.maxBytes {
-		c.remove(c.order.Back())
-	}
+	c.store(key, value, weight, ttl)
 }
 
 func (c *ByteCache[V]) Store(key string, value V) {
@@ -106,13 +95,7 @@ func (c *ByteCache[V]) LoadOrStore(key string, value V) (V, bool) {
 	if weight < 0 || weight > c.maxBytes {
 		return value, false
 	}
-	entry := &byteCacheEntry[V]{key: key, value: value, bytes: weight}
-	element := c.order.PushFront(entry)
-	c.entries[key] = element
-	c.usedBytes += weight
-	for len(c.entries) > c.maxEntries || c.usedBytes > c.maxBytes {
-		c.remove(c.order.Back())
-	}
+	c.store(key, value, weight, 0)
 	return value, false
 }
 
@@ -141,26 +124,20 @@ func (c *ByteCache[V]) Compute(
 	}
 
 	next, keep := update(current, found)
-	if element, ok := c.entries[key]; ok {
-		c.remove(element)
-	}
 	if !keep {
+		if element, ok := c.entries[key]; ok {
+			c.remove(element)
+		}
 		return next, false
 	}
 	weight := c.weigh(key, next)
 	if weight < 0 || weight > c.maxBytes {
+		if element, ok := c.entries[key]; ok {
+			c.remove(element)
+		}
 		return next, false
 	}
-	entry := &byteCacheEntry[V]{key: key, value: next, bytes: weight}
-	if ttl > 0 {
-		entry.expiresAt = time.Now().Add(ttl)
-	}
-	element := c.order.PushFront(entry)
-	c.entries[key] = element
-	c.usedBytes += weight
-	for len(c.entries) > c.maxEntries || c.usedBytes > c.maxBytes {
-		c.remove(c.order.Back())
-	}
+	c.store(key, next, weight, ttl)
 	_, stored = c.entries[key]
 	return next, stored
 }
@@ -209,7 +186,7 @@ func (c *ByteCache[V]) DeleteMany(keys []string) map[string]bool {
 func (c *ByteCache[V]) Purge() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.entries = make(map[string]*list.Element, c.maxEntries)
+	c.entries = make(map[string]*list.Element)
 	c.order.Init()
 	c.usedBytes = 0
 }
@@ -237,4 +214,26 @@ func (c *ByteCache[V]) remove(element *list.Element) {
 	delete(c.entries, entry.key)
 	c.order.Remove(element)
 	c.usedBytes -= entry.bytes
+}
+
+// store requires c.mu and a validated weight. Reuse an existing entry and list
+// node so frequently updated counters do not allocate on every request.
+func (c *ByteCache[V]) store(key string, value V, weight int64, ttl time.Duration) {
+	var expiresAt time.Time
+	if ttl > 0 {
+		expiresAt = time.Now().Add(ttl)
+	}
+	if element, ok := c.entries[key]; ok {
+		entry := element.Value.(*byteCacheEntry[V])
+		c.usedBytes -= entry.bytes
+		entry.value, entry.bytes, entry.expiresAt = value, weight, expiresAt
+		c.order.MoveToFront(element)
+	} else {
+		entry := &byteCacheEntry[V]{key: key, value: value, bytes: weight, expiresAt: expiresAt}
+		c.entries[key] = c.order.PushFront(entry)
+	}
+	c.usedBytes += weight
+	for len(c.entries) > c.maxEntries || c.usedBytes > c.maxBytes {
+		c.remove(c.order.Back())
+	}
 }
