@@ -964,7 +964,11 @@ async fn weekly_session_age_revokes_access_and_refresh_but_honors_opt_out() {
         (r#"{"session_auto_logout":false}"#, true, StatusCode::OK),
     ] {
         sqlx::query("UPDATE users SET setting=$1 WHERE id=7")
-            .bind(setting)
+            .bind(if setting == "{}" {
+                r#"{"session_auto_logout":false}"#
+            } else {
+                "{}"
+            })
             .execute(&pool)
             .await
             .unwrap();
@@ -988,7 +992,13 @@ async fn weekly_session_age_revokes_access_and_refresh_but_honors_opt_out() {
         let body = json_body(login).await;
         let sid = body["data"]["session"]["sid"].as_str().unwrap();
         let token = body["data"]["access_token"].as_str().unwrap();
-        let created_at: i64 = sqlx::query_scalar("UPDATE user_sessions SET created_at=EXTRACT(EPOCH FROM NOW())::bigint-604860, last_active_at=EXTRACT(EPOCH FROM NOW())::bigint WHERE sid=$1 RETURNING created_at")
+        // Preference changes after login must override any cached user state.
+        sqlx::query("UPDATE users SET setting=$1 WHERE id=7")
+            .bind(setting)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let created_at: i64 = sqlx::query_scalar("UPDATE user_sessions SET ip=NULL, user_agent=NULL, created_at=EXTRACT(EPOCH FROM NOW())::bigint-604860, last_active_at=EXTRACT(EPOCH FROM NOW())::bigint WHERE sid=$1 RETURNING created_at")
             .bind(sid).fetch_one(&pool).await.unwrap();
         let request = if refresh_first {
             with_test_context(

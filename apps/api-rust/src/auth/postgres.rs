@@ -1672,7 +1672,8 @@ FROM user_sessions WHERE sid = $1 LIMIT 1
 const SESSION_SELECT_FOR_UPDATE: &str = r#"
 SELECT sid, user_id, version, user_auth_version, status,
        refresh_hash, COALESCE(previous_refresh_hash, '') AS previous_refresh_hash,
-       previous_valid_until, login_method, ip, user_agent, created_at,
+       previous_valid_until, login_method, COALESCE(ip, '') AS ip,
+       COALESCE(user_agent, '') AS user_agent, created_at,
        last_active_at, expires_at, revoked_at, COALESCE(revoked_reason, '') AS revoked_reason
 FROM user_sessions WHERE sid = $1 FOR UPDATE
 "#;
