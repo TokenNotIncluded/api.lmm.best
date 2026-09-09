@@ -79,13 +79,13 @@ func (r *AssistantAdminOperationRegistry) Middleware() gin.HandlerFunc {
 
 func assistantAdminOperationToolDefinitions() []assistantOpenAIToolDefinition {
 	return []assistantOpenAIToolDefinition{
-		{Type: "function", Function: assistantOpenAIToolFunction{Name: "list_admin_operations", Description: "Discover authorized administration operations from the live dashboard router. Search by handler or route, paginate results, and inspect an exact operation_id to obtain its body/query/path contract. Includes all administrator and root dashboard features accessible to your current account. Unknown or partial schemas require inspection; never invent fields or credentials. Mutations execute directly when the administrator agent loop is enabled. Existing role, permission, security-proof and audit controls still apply.", Parameters: objectSchema(map[string]any{
+		{Type: "function", Function: assistantOpenAIToolFunction{Name: "list_admin_operations", Description: "Discover authorized administration operations from the live dashboard router. Search by handler or route, paginate results, and inspect an exact operation_id to obtain its body/query/path contract. Includes all administrator and root dashboard features accessible to your current account. Unknown or partial schemas require inspection; never invent fields or credentials. The generic execution tool only permits read-only operations; mutations require an explicit UI confirmation flow. Existing role, permission, security-proof and audit controls still apply.", Parameters: objectSchema(map[string]any{
 			"query":        map[string]any{"type": "string", "description": "Case-insensitive route or handler search, e.g. pricing, option, channel, subscription."},
 			"operation_id": map[string]any{"type": "string", "description": "Exact METHOD /api/path-template from this catalog; returns its full contract."},
 			"offset":       map[string]any{"type": "integer", "minimum": 0},
 			"limit":        map[string]any{"type": "integer", "minimum": 1, "maximum": 30},
 		}, nil)}},
-		{Type: "function", Function: assistantOpenAIToolFunction{Name: "execute_admin_operation", Description: "Execute an exact operation discovered with list_admin_operations through the original authenticated dashboard route. Use only documented path_params, query and JSON body. No URL, headers, token, role or actor override is accepted. Writes take effect immediately; inspect current values and send the smallest documented change. Follow-up reads verify the result. Security verification requirements must be completed by the real user; never fabricate proof. Never retry a write whose result is unknown.", Parameters: objectSchema(map[string]any{
+		{Type: "function", Function: assistantOpenAIToolFunction{Name: "execute_admin_operation", Description: "Execute an exact read-only operation discovered with list_admin_operations through the original authenticated dashboard route. Mutations require an explicit administrator confirmation flow and cannot be executed by this tool. Use only documented path_params and query parameters. No URL, headers, token, role or actor override is accepted.", Parameters: objectSchema(map[string]any{
 			"operation_id": map[string]any{"type": "string"},
 			"path_params":  map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "string"}},
 			"query":        map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "string"}},
@@ -211,8 +211,8 @@ func executeAssistantAdminOperationTool(c *gin.Context, userID int, input map[st
 	if !exists || op.MinRole > role {
 		return assistantAdminOperationError("forbidden", "operation is unavailable for this account")
 	}
-	if !op.ReadOnly && !c.GetBool(assistantAdminAutomationContextKey) {
-		return assistantAdminOperationError("automation_disabled", "administrator agent automation must be enabled to execute mutations")
+	if !op.ReadOnly {
+		return assistantAdminOperationError("confirmation_required", "administrator mutations require explicit UI confirmation and cannot be executed by this tool")
 	}
 	requestPath, err := assistantOperationPath(op.Path, input["path_params"])
 	if err != nil {
