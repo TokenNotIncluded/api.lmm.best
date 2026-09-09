@@ -16,6 +16,9 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+/*
+Copyright (C) 2026 LIghtJUNction
+*/
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -27,11 +30,12 @@ import * as z from 'zod'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
-import { resetModelRatios, updateSystemOptions } from '../api'
+import { getSystemOptions, resetModelRatios, updateSystemOptions } from '../api'
 import { SettingsPageTitleStatusPortal } from '../components/settings-page-context'
 import { SettingsSection } from '../components/settings-section'
-import { useUpdateOption } from '../hooks/use-update-option'
+import { getOptionValue } from '../hooks/use-system-options'
 import { positiveIntegerSchema } from '../utils/numeric-field'
+import { showOptionUpdateToast } from '../utils/option-update-toast'
 import { GroupRatioForm } from './group-ratio-form'
 import {
   changedGroupRatioOptions,
@@ -169,16 +173,15 @@ export function RatioSettingsCard({
   visibleTabs = ['models', 'groups', 'tool-prices', 'upstream-sync'],
 }: RatioSettingsCardProps) {
   const { t } = useTranslation()
-  const updateOption = useUpdateOption()
   const queryClient = useQueryClient()
   const [confirmOpen, setConfirmOpen] = useState(false)
 
   const resetMutation = useMutation({
     mutationFn: resetModelRatios,
-    onSuccess: (data) => {
+    onSuccess: async (data) => {
       if (data.success) {
-        toast.success(t('Model prices reset successfully'))
-        queryClient.invalidateQueries({ queryKey: ['system-options'] })
+        await reloadModelValues()
+        showOptionUpdateToast(data, t('Model prices reset successfully'))
         setConfirmOpen(false)
       } else {
         toast.error(data.message || t('Failed to reset model ratios'))
@@ -278,40 +281,89 @@ export function RatioSettingsCard({
     },
   })
 
-  useEffect(() => {
-    modelNormalizedDefaults.current = {
-      ModelPrice: normalizeJsonString(modelDefaults.ModelPrice),
-      ModelRatio: normalizeJsonString(modelDefaults.ModelRatio),
-      CacheRatio: normalizeJsonString(modelDefaults.CacheRatio),
-      CreateCacheRatio: normalizeJsonString(modelDefaults.CreateCacheRatio),
-      CompletionRatio: normalizeJsonString(modelDefaults.CompletionRatio),
-      ImageRatio: normalizeJsonString(modelDefaults.ImageRatio),
-      AudioRatio: normalizeJsonString(modelDefaults.AudioRatio),
-      AudioCompletionRatio: normalizeJsonString(
-        modelDefaults.AudioCompletionRatio
-      ),
-      ExposeRatioEnabled: modelDefaults.ExposeRatioEnabled,
-      BillingMode: normalizeJsonString(modelDefaults.BillingMode),
-      BillingExpr: normalizeJsonString(modelDefaults.BillingExpr),
-    }
-    setSavedModelValues(modelNormalizedDefaults.current)
+  const applyModelDefaults = useCallback(
+    (defaults: ModelFormValues) => {
+      modelNormalizedDefaults.current = {
+        ModelPrice: normalizeJsonString(defaults.ModelPrice),
+        ModelRatio: normalizeJsonString(defaults.ModelRatio),
+        CacheRatio: normalizeJsonString(defaults.CacheRatio),
+        CreateCacheRatio: normalizeJsonString(defaults.CreateCacheRatio),
+        CompletionRatio: normalizeJsonString(defaults.CompletionRatio),
+        ImageRatio: normalizeJsonString(defaults.ImageRatio),
+        AudioRatio: normalizeJsonString(defaults.AudioRatio),
+        AudioCompletionRatio: normalizeJsonString(
+          defaults.AudioCompletionRatio
+        ),
+        ExposeRatioEnabled: defaults.ExposeRatioEnabled,
+        BillingMode: normalizeJsonString(defaults.BillingMode),
+        BillingExpr: normalizeJsonString(defaults.BillingExpr),
+      }
+      setSavedModelValues(modelNormalizedDefaults.current)
 
-    modelForm.reset({
-      ...modelDefaults,
-      ModelPrice: formatJsonForTextarea(modelDefaults.ModelPrice),
-      ModelRatio: formatJsonForTextarea(modelDefaults.ModelRatio),
-      CacheRatio: formatJsonForTextarea(modelDefaults.CacheRatio),
-      CreateCacheRatio: formatJsonForTextarea(modelDefaults.CreateCacheRatio),
-      CompletionRatio: formatJsonForTextarea(modelDefaults.CompletionRatio),
-      ImageRatio: formatJsonForTextarea(modelDefaults.ImageRatio),
-      AudioRatio: formatJsonForTextarea(modelDefaults.AudioRatio),
-      AudioCompletionRatio: formatJsonForTextarea(
-        modelDefaults.AudioCompletionRatio
-      ),
-      BillingMode: formatJsonForTextarea(modelDefaults.BillingMode),
-      BillingExpr: formatJsonForTextarea(modelDefaults.BillingExpr),
-    })
-  }, [modelDefaults, modelForm])
+      modelForm.reset({
+        ...defaults,
+        ModelPrice: formatJsonForTextarea(defaults.ModelPrice),
+        ModelRatio: formatJsonForTextarea(defaults.ModelRatio),
+        CacheRatio: formatJsonForTextarea(defaults.CacheRatio),
+        CreateCacheRatio: formatJsonForTextarea(defaults.CreateCacheRatio),
+        CompletionRatio: formatJsonForTextarea(defaults.CompletionRatio),
+        ImageRatio: formatJsonForTextarea(defaults.ImageRatio),
+        AudioRatio: formatJsonForTextarea(defaults.AudioRatio),
+        AudioCompletionRatio: formatJsonForTextarea(
+          defaults.AudioCompletionRatio
+        ),
+        BillingMode: formatJsonForTextarea(defaults.BillingMode),
+        BillingExpr: formatJsonForTextarea(defaults.BillingExpr),
+      })
+    },
+    [modelForm]
+  )
+
+  useEffect(() => {
+    const unchanged = Object.entries(modelDefaults).every(
+      ([key, value]) =>
+        (typeof value === 'boolean' ? value : normalizeJsonString(value)) ===
+        modelNormalizedDefaults.current[key as keyof ModelFormValues]
+    )
+    if (!unchanged) applyModelDefaults(modelDefaults)
+  }, [applyModelDefaults, modelDefaults])
+
+  const reloadModelValues = useCallback(async () => {
+    await queryClient.cancelQueries({ queryKey: ['system-options'] })
+    const response = await getSystemOptions()
+    if (!response.success) {
+      throw new Error(response.message || t('Failed to load settings'))
+    }
+    const formKeyMap: Record<string, string> = {
+      'billing_setting.billing_mode': 'BillingMode',
+      'billing_setting.billing_expr': 'BillingExpr',
+    }
+    const acceptedOptions = response.data.map((option) => ({
+      ...option,
+      key: formKeyMap[option.key] || option.key,
+    }))
+    // A locked-only update leaves the query data unchanged; reset explicitly so
+    // rejected edits never become the form's saved snapshot.
+    applyModelDefaults(getOptionValue(acceptedOptions, modelDefaults))
+    queryClient.setQueryData(['system-options'], response)
+  }, [applyModelDefaults, modelDefaults, queryClient, t])
+
+  const modelUpdateMutation = useMutation({
+    mutationFn: async (values: Record<string, string>) => {
+      const response = await updateSystemOptions(values)
+      if (!response.success) {
+        throw new Error(response.message || t('Failed to update setting'))
+      }
+      return response
+    },
+    onSuccess: async (response) => {
+      await reloadModelValues()
+      showOptionUpdateToast(response, t('Setting updated successfully'))
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || t('Failed to update setting'))
+    },
+  })
 
   useEffect(() => {
     groupNormalizedDefaults.current = {
@@ -375,15 +427,13 @@ export function RatioSettingsCard({
         return
       }
 
-      for (const key of updates) {
-        const apiKey = apiKeyMap[key as string] || (key as string)
-        await updateOption.mutateAsync({ key: apiKey, value: normalized[key] })
-      }
-
-      modelNormalizedDefaults.current = normalized
-      setSavedModelValues(normalized)
+      await modelUpdateMutation.mutateAsync(
+        Object.fromEntries(
+          updates.map((key) => [apiKeyMap[key] || key, String(normalized[key])])
+        )
+      )
     },
-    [t, updateOption]
+    [modelUpdateMutation, t]
   )
 
   const saveGroupRatios = useCallback(
@@ -451,7 +501,7 @@ export function RatioSettingsCard({
           savedValues={savedModelValues}
           onSave={saveModelRatios}
           onReset={handleResetRatios}
-          isSaving={updateOption.isPending}
+          isSaving={modelUpdateMutation.isPending}
           isResetting={resetMutation.isPending}
           variant={tab === 'unset-models' ? 'unset' : 'default'}
         />

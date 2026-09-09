@@ -20,8 +20,8 @@ reject_unsafe_text() {
   [[ $value != *$'\n'* && $value != *$'\r'* && $value != *$'\t'* ]] ||
     die 'path contains control characters'
   [[ $value != *'~'* && $value != *'$'* && $value != *'*'* &&
-     $value != *'?'* && $value != *'['* && $value != *']'* &&
-     $value != *'{'* && $value != *'}'* ]] || die 'path contains unresolved shell syntax or a glob'
+    $value != *'?'* && $value != *'['* && $value != *']'* &&
+    $value != *'{'* && $value != *'}'* ]] || die 'path contains unresolved shell syntax or a glob'
 }
 
 assert_no_symlink_components() {
@@ -30,7 +30,7 @@ assert_no_symlink_components() {
   local component
   local -a components=()
 
-  IFS='/' read -r -a components <<< "${path#/}"
+  IFS='/' read -r -a components <<<"${path#/}"
   for component in "${components[@]}"; do
     [[ -n $component ]] || continue
     if [[ $current == '/' ]]; then
@@ -52,9 +52,9 @@ validate_root() {
   canonical=$(realpath -m -- "$root")
   [[ $canonical == "$root" ]] || die 'workspace root must be canonical'
   case "$canonical" in
-    /|/home|/var|/var/lib|/srv|/opt|/usr|/etc|/tmp|/tmp/*|/var/tmp|/var/tmp/*|/var/lib/lmm-api|/var/lib/lmm-api/deploy-backups|/var/lib/lmm-api/deploy-staging|/srv/lmm-api-frontend|/srv/lmm-api-frontend/releases|*/backup|*/backup/*|*/backups|*/backups/*|*/deploy-backups|*/deploy-backups/*|*/releases|*/releases/*)
-      die 'workspace root is broad, a backup/release root, or a forbidden temporary path'
-      ;;
+  / | /home | /var | /var/lib | /srv | /opt | /usr | /etc | /tmp | /tmp/* | /var/tmp | /var/tmp/* | /var/lib/lmm-api | /var/lib/lmm-api/deploy-backups | /var/lib/lmm-api/deploy-staging | /srv/lmm-api-frontend | /srv/lmm-api-frontend/releases | */backup | */backup/* | */backups | */backups/* | */deploy-backups | */deploy-backups/* | */releases | */releases/*)
+    die 'workspace root is broad, a backup/release root, or a forbidden temporary path'
+    ;;
   esac
   if [[ -n ${HOME:-} && $canonical == "$HOME" ]]; then
     die 'workspace root must not be the home directory'
@@ -95,10 +95,10 @@ read_marker() {
     [[ $line == *=* ]] || die 'workspace marker is malformed'
     key=${line%%=*}
     value=${line#*=}
-    case "$key" in format|deployment_id|role|workspace|created_at_utc) ;; *) die 'workspace marker contains an unknown key' ;; esac
+    case "$key" in format | deployment_id | role | workspace | created_at_utc) ;; *) die 'workspace marker contains an unknown key' ;; esac
     [[ ! -v marker_data[$key] ]] || die 'workspace marker contains a duplicate key'
     marker_data[$key]=$value
-  done < "$marker"
+  done <"$marker"
   for key in format deployment_id role created_at_utc; do
     [[ -v marker_data[$key] ]] || die 'workspace marker is incomplete'
   done
@@ -111,46 +111,46 @@ execute=false
 
 while (($# > 0)); do
   case "$1" in
-    --role)
-      (($# >= 2)) || die 'missing value for --role'
-      role=$2
-      shift 2
-      ;;
-    --deployment-id)
-      (($# >= 2)) || die 'missing value for --deployment-id'
-      deployment_id=$2
-      shift 2
-      ;;
-    --root)
-      (($# >= 2)) || die 'missing value for --root'
-      root=$2
-      shift 2
-      ;;
-    --execute)
-      execute=true
-      shift
-      ;;
-    -h|--help)
-      usage
-      exit 0
-      ;;
-    *)
-      usage
-      die 'unknown argument'
-      ;;
+  --role)
+    (($# >= 2)) || die 'missing value for --role'
+    role=$2
+    shift 2
+    ;;
+  --deployment-id)
+    (($# >= 2)) || die 'missing value for --deployment-id'
+    deployment_id=$2
+    shift 2
+    ;;
+  --root)
+    (($# >= 2)) || die 'missing value for --root'
+    root=$2
+    shift 2
+    ;;
+  --execute)
+    execute=true
+    shift
+    ;;
+  -h | --help)
+    usage
+    exit 0
+    ;;
+  *)
+    usage
+    die 'unknown argument'
+    ;;
   esac
 done
 
 case "$role" in
-  controller)
-    if [[ -z $root ]]; then
-      root="${XDG_STATE_HOME:-$HOME/.local/state}/lmm-api/deploy-work"
-    fi
-    ;;
-  target)
-    [[ -n $root ]] || root='/var/lib/lmm-api-go-deploy/work'
-    ;;
-  *) die 'role must be controller or target' ;;
+controller)
+  if [[ -z $root ]]; then
+    root="${XDG_STATE_HOME:-$HOME/.local/state}/lmm-api/deploy-work"
+  fi
+  ;;
+target)
+  [[ -n $root ]] || root='/var/lib/lmm-api-go-deploy/work'
+  ;;
+*) die 'role must be controller or target' ;;
 esac
 [[ $deployment_id =~ $ID_PATTERN ]] || die 'invalid deployment ID'
 
@@ -175,11 +175,11 @@ fi
 
 final_state=$(read_final_state "$workspace" "$role")
 case "$final_state" in
-  CONFIRMED|ROLLED_BACK|ABORTED|FAILED_PREARM) ;;
-  VALIDATED)
-    [[ $role == controller ]] || die 'VALIDATED cleanup is limited to controller workspaces'
-    ;;
-  *) die 'workspace is not in a cleanup-safe terminal state' ;;
+CONFIRMED | ROLLED_BACK | ABORTED | FAILED_PREARM) ;;
+VALIDATED)
+  [[ $role == controller ]] || die 'VALIDATED cleanup is limited to controller workspaces'
+  ;;
+*) die 'workspace is not in a cleanup-safe terminal state' ;;
 esac
 
 marker_checksum=$(sha256sum -- "$marker")
@@ -207,11 +207,11 @@ if [[ -v marker_data[workspace] ]]; then
 fi
 final_state=$(read_final_state "$workspace" "$role")
 case "$final_state" in
-  CONFIRMED|ROLLED_BACK|ABORTED|FAILED_PREARM) ;;
-  VALIDATED)
-    [[ $role == controller ]] || die 'deployment state changed before deletion'
-    ;;
-  *) die 'deployment state changed before deletion' ;;
+CONFIRMED | ROLLED_BACK | ABORTED | FAILED_PREARM) ;;
+VALIDATED)
+  [[ $role == controller ]] || die 'deployment state changed before deletion'
+  ;;
+*) die 'deployment state changed before deletion' ;;
 esac
 
 removed=none

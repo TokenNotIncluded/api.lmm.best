@@ -142,7 +142,7 @@ export function AssistantLauncher(props: { page?: boolean }) {
     return () => window.removeEventListener('keydown', handleShortcut)
   }, [showManualAssistant])
 
-  if (status?.assistant?.enabled === false) return null
+  if (status?.assistant?.enabled === false && !user) return null
 
   if (props.page) {
     return (

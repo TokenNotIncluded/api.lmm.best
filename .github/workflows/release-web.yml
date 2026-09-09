@@ -3,7 +3,7 @@ name: LMM web release
 on:
   push:
     tags:
-      - 'web-v*.*.*'
+      - "web-v*.*.*"
   workflow_dispatch:
 
 permissions:
@@ -14,7 +14,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  CI: 'true'
+  CI: "true"
 
 jobs:
   web:

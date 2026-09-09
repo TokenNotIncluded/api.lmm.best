@@ -451,7 +451,7 @@ impl BillingConfig {
 /// This is the legacy pricing normalizer, not a permissive model-name prefix
 /// match.  It only coalesces the documented gizmo and Gemini thinking variants
 /// before looking up explicit price/ratio entries.
-fn legacy_pricing_model_name(model: &str) -> &str {
+pub(crate) fn legacy_pricing_model_name(model: &str) -> &str {
     if model.starts_with("gpt-4-gizmo") {
         "gpt-4-gizmo-*"
     } else if model.starts_with("gpt-4o-gizmo") {

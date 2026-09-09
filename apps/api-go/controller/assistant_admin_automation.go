@@ -46,12 +46,13 @@ func maybeApplyAssistantAdminAutomatically(c *gin.Context, userID int, payload a
 	return nil, false
 }
 
-func auditAssistantAdminChange(c *gin.Context, payload assistantAdminChangePayload, suffix string) {
-	detail := map[string]interface{}{"kind": payload.Kind}
+func auditAssistantAdminChange(c *gin.Context, payload assistantAdminChangePayload, suffix string, result map[string]any) {
+	detail := map[string]interface{}{"kind": payload.Kind, "status": result["status"], "applied": result["applied"], "warnings": result["warnings"], "locked_models": result["locked_models"]}
 	switch payload.Kind {
 	case assistantAdminPricingChangeKind:
 		if payload.Pricing != nil {
-			detail["model_id"], detail["mode"], detail["value"] = payload.Pricing.ModelID, payload.Pricing.Mode, payload.Pricing.Value
+			detail["model_id"] = payload.Pricing.ModelID
+			detail["pricing"] = result["pricing"]
 		}
 	case assistantAdminChannelChangeKind:
 		if payload.Channel != nil {
@@ -66,7 +67,7 @@ func auditAssistantAdminChange(c *gin.Context, payload assistantAdminChangePaylo
 			detail["locale"], detail["model_count"], detail["source_digest"] = payload.ModelSync.Locale, len(payload.ModelSync.Models), payload.ModelSync.SourceDigest
 		}
 	default:
-		detail["keys"] = sortedAssistantAdminChangeKeys(payload.ConfigChanges)
+		detail["keys"] = result["updated_keys"]
 	}
 	// The relay bills a root account in c.id. Attribute mutations to the signed
 	// in actor without changing the relay's billing context.

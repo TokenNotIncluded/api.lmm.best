@@ -145,6 +145,8 @@ type WaffoPancakeWebhookData struct {
 	PaymentStatus                  string
 	PaymentMethod                  string
 	PaymentLast4                   string
+	PaymentDate                    string
+	BillingPeriod                  string
 	CurrentPeriodStart             string
 	CurrentPeriodEnd               string
 	CanceledAt                     string
@@ -175,7 +177,7 @@ func WaffoPancakeWebhookActionForEvent(eventType string) WaffoPancakeWebhookActi
 	case "order.completed":
 		return WaffoPancakeWebhookActionOrderCompleted
 	// State events never prove payment; they only synchronize lifecycle state.
-	case "subscription.activated", "subscription.canceling", "subscription.uncanceled", "subscription.updated", "subscription.past_due", "subscription.canceled":
+	case "subscription.activated", "subscription.renewed", "subscription.canceling", "subscription.uncanceled", "subscription.updated", "subscription.past_due", "subscription.canceled":
 		return WaffoPancakeWebhookActionSubscriptionStateChanged
 	case "subscription.payment_succeeded":
 		return WaffoPancakeWebhookActionSubscriptionPaymentSucceeded
@@ -435,6 +437,12 @@ func VerifyConfiguredWaffoPancakeWebhook(payload string, signatureHeader string)
 	if err != nil {
 		return nil, err
 	}
+	return waffoPancakeWebhookEventFromSDK(evt), nil
+}
+
+// waffoPancakeWebhookEventFromSDK adapts the SDK shape without parsing or
+// authenticating input. Runtime callers must verify the signature first.
+func waffoPancakeWebhookEventFromSDK(evt *pancake.TypedWebhookEvent[pancake.WebhookEventData]) *WaffoPancakeWebhookEvent {
 	identity := ""
 	if evt.Data.MerchantProvidedBuyerIdentity != nil {
 		identity = *evt.Data.MerchantProvidedBuyerIdentity
@@ -462,6 +470,14 @@ func VerifyConfiguredWaffoPancakeWebhook(payload string, signatureHeader string)
 	paymentLast4 := ""
 	if evt.Data.PaymentLast4 != nil {
 		paymentLast4 = *evt.Data.PaymentLast4
+	}
+	paymentDate := ""
+	if evt.Data.PaymentDate != nil {
+		paymentDate = *evt.Data.PaymentDate
+	}
+	billingPeriod := ""
+	if evt.Data.BillingPeriod != nil {
+		billingPeriod = *evt.Data.BillingPeriod
 	}
 	currentPeriodStart := ""
 	if evt.Data.CurrentPeriodStart != nil {
@@ -519,6 +535,8 @@ func VerifyConfiguredWaffoPancakeWebhook(payload string, signatureHeader string)
 			PaymentStatus:                  paymentStatus,
 			PaymentMethod:                  paymentMethod,
 			PaymentLast4:                   paymentLast4,
+			PaymentDate:                    paymentDate,
+			BillingPeriod:                  billingPeriod,
 			CurrentPeriodStart:             currentPeriodStart,
 			CurrentPeriodEnd:               currentPeriodEnd,
 			CanceledAt:                     canceledAt,
@@ -527,7 +545,7 @@ func VerifyConfiguredWaffoPancakeWebhook(payload string, signatureHeader string)
 			RefundCreatedAt:                refundCreatedAt,
 			Total:                          total,
 		},
-	}, nil
+	}
 }
 
 // ResolveWaffoPancakeTradeNo maps a verified webhook event to a local TopUp

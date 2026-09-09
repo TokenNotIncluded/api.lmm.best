@@ -26,12 +26,13 @@ const (
 // relay may expose provider-specific fields, but this session only emits
 // bounded natural-language deltas and one normalized final response.
 type assistantStreamSession struct {
-	writer      gin.ResponseWriter
-	mu          sync.Mutex
-	started     bool
-	finished    bool
-	rawContent  strings.Builder
-	emittedSafe string
+	writer       gin.ResponseWriter
+	mu           sync.Mutex
+	started      bool
+	finished     bool
+	rawContent   strings.Builder
+	emittedSafe  string
+	supportCheck func() error
 }
 
 func newAssistantStreamSession(writer gin.ResponseWriter) *assistantStreamSession {
@@ -58,9 +59,27 @@ func (s *assistantStreamSession) start() error {
 	return s.writeJSONEventLocked("ready", map[string]string{"type": "ready"})
 }
 
+func (s *assistantStreamSession) setSupportCheck(check func() error) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.supportCheck = check
+}
+
 func (s *assistantStreamSession) appendContent(delta string) error {
 	if s == nil || delta == "" {
 		return nil
+	}
+	s.mu.Lock()
+	check := s.supportCheck
+	s.mu.Unlock()
+	if check != nil {
+		if err := check(); err != nil {
+			_ = s.resetContent()
+			return err
+		}
 	}
 
 	s.mu.Lock()

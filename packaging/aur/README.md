@@ -80,11 +80,20 @@ Run from a marker-owned workspace:
 
 ```bash
 TMPDIR="${TMPDIR:?marker-owned workspace required}" bash packaging/aur/test-matrix.sh
-TMPDIR="$TMPDIR" bash packaging/aur/verify-go-release-pins.sh
+TMPDIR="$TMPDIR" bash packaging/aur/test-verify-go-release-pins.sh
+TMPDIR="$TMPDIR" bash packaging/aur/verify-go-release-pins.sh --pinned
 TMPDIR="$TMPDIR" bash packaging/aur/test-bin-makepkg.sh
 cd apps/api-go && go test ./internal/appcli
 cd apps/api-rust && cargo test --locked
 ```
+
+CI uses `--pinned` to verify the checked-in Go release's signed tag, ancestry,
+final-release status, checksums, GitHub asset digests, and Sigstore bundles. A
+subsequent release or AUR update does not invalidate an existing authentic pin.
+Before publishing an AUR update, run `verify-go-release-pins.sh --latest` in the
+same workspace. This also requires the latest final Go release and rejects
+candidates older than the live AUR packages. Omitting the flag retains this
+stricter publication audit.
 
 Regenerate every changed `.SRCINFO` with:
 

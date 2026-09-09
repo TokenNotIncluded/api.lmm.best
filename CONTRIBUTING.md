@@ -56,6 +56,17 @@ For production-facing changes:
 
 If checks are skipped, list the reason clearly in PR description.
 
+CI runs for pull requests, pushes to `main`, all tag pushes, and manual dispatches.
+Open a PR or dispatch CI manually to check a feature branch. A new PR commit
+cancels that PR's obsolete CI run; checks for distinct `main` commits remain
+available for release verification.
+
+The AUR CI gate verifies the release pinned in the checked-out package metadata,
+including its signed tag and asset integrity. Publishing a newer release does
+not invalidate that pin. Before publishing an AUR update, also run
+`bash packaging/aur/verify-go-release-pins.sh --latest` to check release freshness
+and published AUR versions; see [the AUR guide](packaging/aur/README.md).
+
 ## PR expectations
 
 ### Mandatory PR checklist

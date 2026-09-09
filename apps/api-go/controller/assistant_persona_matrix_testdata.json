@@ -27,7 +27,7 @@
       },
       "payment_offer_state": "none",
       "tools": {
-        "allowed": ["get_service_facts", "calculate_math", "calculate_cost", "get_account_access", "get_l1_recommendation", "get_available_models", "get_model_pricing", "get_bounty_guide", "prepare_new_user_gift", "search_web", "get_setup_guide", "prepare_l1_recommendation", "request_human_support", "recall_memory", "remember_memory", "remember_profile_skill", "forget_profile_skill"],
+        "allowed": ["get_human_support_status", "book_technical_support", "get_service_facts", "calculate_math", "calculate_cost", "get_account_access", "get_l1_recommendation", "get_available_models", "get_model_pricing", "get_bounty_guide", "prepare_new_user_gift", "search_web", "get_setup_guide", "prepare_l1_recommendation", "request_human_support", "recall_memory", "remember_memory", "remember_profile_skill", "forget_profile_skill"],
         "denied": ["assess_l0_interlocutor", "get_plan_offers", "request_create_key", "get_usage_summary"]
       }
     }
@@ -60,7 +60,7 @@
       },
       "payment_offer_state": "needs_details",
       "tools": {
-        "allowed": ["get_service_facts", "calculate_math", "calculate_cost", "get_account_access", "get_l1_recommendation", "get_available_models", "get_model_pricing", "get_bounty_guide", "prepare_new_user_gift", "search_web", "get_setup_guide", "prepare_l1_recommendation", "request_human_support", "recall_memory", "remember_memory", "remember_profile_skill", "forget_profile_skill"],
+        "allowed": ["get_human_support_status", "book_technical_support", "get_service_facts", "calculate_math", "calculate_cost", "get_account_access", "get_l1_recommendation", "get_available_models", "get_model_pricing", "get_bounty_guide", "prepare_new_user_gift", "search_web", "get_setup_guide", "prepare_l1_recommendation", "request_human_support", "recall_memory", "remember_memory", "remember_profile_skill", "forget_profile_skill"],
         "denied": ["assess_l0_interlocutor", "get_plan_offers", "request_create_key", "get_usage_summary"]
       }
     }
@@ -93,7 +93,7 @@
       },
       "payment_offer_state": "blocked",
       "tools": {
-        "allowed": ["get_service_facts", "calculate_math", "calculate_cost", "get_account_access", "get_l1_recommendation", "get_available_models", "get_model_pricing", "get_bounty_guide", "search_web", "get_setup_guide", "prepare_l1_recommendation", "request_human_support", "recall_memory", "remember_memory", "remember_profile_skill", "forget_profile_skill"],
+        "allowed": ["get_human_support_status", "book_technical_support", "get_service_facts", "calculate_math", "calculate_cost", "get_account_access", "get_l1_recommendation", "get_available_models", "get_model_pricing", "get_bounty_guide", "search_web", "get_setup_guide", "prepare_l1_recommendation", "request_human_support", "recall_memory", "remember_memory", "remember_profile_skill", "forget_profile_skill"],
         "denied": ["assess_l0_interlocutor", "get_plan_offers", "request_create_key", "get_usage_summary"]
       }
     }
@@ -125,7 +125,7 @@
       },
       "payment_offer_state": "blocked",
       "tools": {
-		"allowed": ["get_service_facts", "calculate_math", "calculate_cost", "get_account_access", "get_l1_recommendation", "get_available_models", "get_model_pricing", "get_bounty_guide", "search_web", "get_setup_guide", "prepare_l1_recommendation", "request_human_support", "recall_memory", "remember_memory", "remember_profile_skill", "forget_profile_skill"],
+		"allowed": ["get_human_support_status", "book_technical_support", "get_service_facts", "calculate_math", "calculate_cost", "get_account_access", "get_l1_recommendation", "get_available_models", "get_model_pricing", "get_bounty_guide", "search_web", "get_setup_guide", "prepare_l1_recommendation", "request_human_support", "recall_memory", "remember_memory", "remember_profile_skill", "forget_profile_skill"],
 		"denied": ["assess_l0_interlocutor", "get_plan_offers", "request_create_key", "get_admin_server_config"]
       }
     }
@@ -158,7 +158,7 @@
       },
       "payment_offer_state": "none",
       "tools": {
-        "allowed": ["get_service_facts", "calculate_math", "calculate_cost", "get_account_access", "get_l1_recommendation", "get_available_models", "get_model_pricing", "get_plan_offers", "get_invitation_rewards", "get_bounty_guide", "get_usage_summary", "search_web", "get_setup_guide", "prepare_l1_recommendation", "request_create_key", "request_human_support", "recall_memory", "remember_memory", "remember_profile_skill", "forget_profile_skill", "prepare_image_generation", "prepare_new_user_gift"],
+        "allowed": ["get_human_support_status", "book_technical_support", "get_service_facts", "calculate_math", "calculate_cost", "get_account_access", "get_l1_recommendation", "get_available_models", "get_model_pricing", "get_plan_offers", "get_invitation_rewards", "get_bounty_guide", "get_usage_summary", "search_web", "get_setup_guide", "prepare_l1_recommendation", "request_create_key", "request_human_support", "recall_memory", "remember_memory", "remember_profile_skill", "forget_profile_skill", "prepare_image_generation", "prepare_new_user_gift"],
         "denied": ["assess_l0_interlocutor", "get_admin_server_config", "prepare_admin_config_change", "get_admin_channels", "prepare_admin_channel_change", "prepare_admin_pricing_change"]
       }
     }
@@ -192,7 +192,7 @@
       },
       "payment_offer_state": "none",
       "tools": {
-        "allowed": ["get_service_facts", "calculate_math", "calculate_cost", "get_account_access", "get_l1_recommendation", "get_available_models", "get_model_pricing", "get_plan_offers", "get_invitation_rewards", "get_bounty_guide", "get_usage_summary", "search_web", "get_setup_guide", "prepare_l1_recommendation", "request_create_key", "request_human_support", "recall_memory", "remember_memory", "remember_profile_skill", "forget_profile_skill", "prepare_image_generation", "prepare_new_user_gift"],
+        "allowed": ["get_human_support_status", "book_technical_support", "get_service_facts", "calculate_math", "calculate_cost", "get_account_access", "get_l1_recommendation", "get_available_models", "get_model_pricing", "get_plan_offers", "get_invitation_rewards", "get_bounty_guide", "get_usage_summary", "search_web", "get_setup_guide", "prepare_l1_recommendation", "request_create_key", "request_human_support", "recall_memory", "remember_memory", "remember_profile_skill", "forget_profile_skill", "prepare_image_generation", "prepare_new_user_gift"],
         "denied": ["assess_l0_interlocutor", "get_admin_server_config", "prepare_admin_config_change", "get_admin_channels", "prepare_admin_channel_change", "prepare_admin_pricing_change"]
       }
     }
@@ -225,7 +225,7 @@
       },
       "payment_offer_state": "none",
       "tools": {
-        "allowed": ["get_service_facts", "calculate_math", "calculate_cost", "get_account_access", "get_l1_recommendation", "get_available_models", "get_model_pricing", "get_bounty_guide", "search_web", "get_setup_guide", "prepare_l1_recommendation", "request_human_support", "recall_memory", "remember_memory", "remember_profile_skill", "forget_profile_skill", "prepare_new_user_gift"],
+        "allowed": ["get_human_support_status", "book_technical_support", "get_service_facts", "calculate_math", "calculate_cost", "get_account_access", "get_l1_recommendation", "get_available_models", "get_model_pricing", "get_bounty_guide", "search_web", "get_setup_guide", "prepare_l1_recommendation", "request_human_support", "recall_memory", "remember_memory", "remember_profile_skill", "forget_profile_skill", "prepare_new_user_gift"],
         "denied": ["assess_l0_interlocutor", "get_plan_offers", "request_create_key", "get_usage_summary", "get_admin_server_config"]
       }
     }
@@ -258,7 +258,7 @@
       },
       "payment_offer_state": "none",
       "tools": {
-        "allowed": ["get_service_facts", "calculate_math", "calculate_cost", "get_account_access", "get_l1_recommendation", "get_available_models", "get_model_pricing", "get_bounty_guide", "search_web", "get_setup_guide", "prepare_l1_recommendation", "request_human_support", "recall_memory", "remember_memory", "remember_profile_skill", "forget_profile_skill", "prepare_new_user_gift"],
+        "allowed": ["get_human_support_status", "book_technical_support", "get_service_facts", "calculate_math", "calculate_cost", "get_account_access", "get_l1_recommendation", "get_available_models", "get_model_pricing", "get_bounty_guide", "search_web", "get_setup_guide", "prepare_l1_recommendation", "request_human_support", "recall_memory", "remember_memory", "remember_profile_skill", "forget_profile_skill", "prepare_new_user_gift"],
         "denied": ["assess_l0_interlocutor", "get_plan_offers", "request_create_key", "get_usage_summary", "get_admin_server_config"]
       }
     }
@@ -291,7 +291,7 @@
       },
       "payment_offer_state": "none",
       "tools": {
-        "allowed": ["get_service_facts", "calculate_math", "calculate_cost", "get_account_access", "get_l1_recommendation", "get_available_models", "get_model_pricing", "get_plan_offers", "get_invitation_rewards", "get_bounty_guide", "get_usage_summary", "search_web", "get_setup_guide", "prepare_l1_recommendation", "request_create_key", "request_human_support", "recall_memory", "remember_memory", "remember_profile_skill", "forget_profile_skill", "prepare_image_generation", "prepare_new_user_gift"],
+        "allowed": ["get_human_support_status", "book_technical_support", "get_service_facts", "calculate_math", "calculate_cost", "get_account_access", "get_l1_recommendation", "get_available_models", "get_model_pricing", "get_plan_offers", "get_invitation_rewards", "get_bounty_guide", "get_usage_summary", "search_web", "get_setup_guide", "prepare_l1_recommendation", "request_create_key", "request_human_support", "recall_memory", "remember_memory", "remember_profile_skill", "forget_profile_skill", "prepare_image_generation", "prepare_new_user_gift"],
         "denied": ["assess_l0_interlocutor", "get_admin_server_config", "prepare_admin_config_change", "get_admin_channels", "prepare_admin_channel_change", "prepare_admin_pricing_change"]
       }
     }
@@ -324,7 +324,7 @@
       },
       "payment_offer_state": "none",
       "tools": {
-        "allowed": ["get_service_facts", "calculate_math", "calculate_cost", "get_account_access", "get_l1_recommendation", "get_available_models", "get_model_pricing", "get_plan_offers", "get_invitation_rewards", "get_bounty_guide", "get_usage_summary", "search_web", "get_setup_guide", "prepare_l1_recommendation", "request_create_key", "request_human_support", "recall_memory", "remember_memory", "remember_profile_skill", "forget_profile_skill", "prepare_image_generation"],
+        "allowed": ["get_human_support_status", "book_technical_support", "get_service_facts", "calculate_math", "calculate_cost", "get_account_access", "get_l1_recommendation", "get_available_models", "get_model_pricing", "get_plan_offers", "get_invitation_rewards", "get_bounty_guide", "get_usage_summary", "search_web", "get_setup_guide", "prepare_l1_recommendation", "request_create_key", "request_human_support", "recall_memory", "remember_memory", "remember_profile_skill", "forget_profile_skill", "prepare_image_generation"],
         "denied": ["assess_l0_interlocutor", "get_admin_server_config", "prepare_admin_config_change", "get_admin_channels", "prepare_admin_channel_change", "prepare_admin_pricing_change"]
       }
     }

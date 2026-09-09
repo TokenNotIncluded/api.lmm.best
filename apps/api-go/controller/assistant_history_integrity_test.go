@@ -43,7 +43,7 @@ func TestAssistantRejectsNegativeConversationID(t *testing.T) {
 func TestAssistantEmptyOwnedConversationCannotRestoreBrowserHistory(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := setupTokenControllerTestDB(t)
-	require.NoError(t, db.AutoMigrate(&model.User{}, &model.AssistantConversation{}, &model.AssistantHistoryMessage{}, &model.AssistantLead{}, &model.AssistantProfileBucket{}, &model.AssistantFirstQuestionStat{}))
+	require.NoError(t, db.AutoMigrate(&model.User{}, &model.AssistantConversation{}, &model.AssistantSupportRequest{}, &model.AssistantHistoryMessage{}, &model.AssistantLead{}, &model.AssistantProfileBucket{}, &model.AssistantFirstQuestionStat{}))
 	user := model.User{Username: "empty-history-owner", Password: "password", Role: common.RoleCommonUser, Status: common.UserStatusEnabled}
 	require.NoError(t, db.Create(&user).Error)
 	conversation, err := model.PrepareAssistantConversation(user.Id, 0, "Owned but empty")
@@ -121,7 +121,7 @@ func TestAssistantHistoryCompactionBoundaries(t *testing.T) {
 func TestAssistantHistoryCompressionCannotErasePolicyEvidence(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := setupTokenControllerTestDB(t)
-	require.NoError(t, db.AutoMigrate(&model.User{}, &model.AssistantConversation{}, &model.AssistantHistoryMessage{}, &model.AssistantLead{}, &model.AssistantProfileBucket{}, &model.AssistantFirstQuestionStat{}))
+	require.NoError(t, db.AutoMigrate(&model.User{}, &model.AssistantConversation{}, &model.AssistantSupportRequest{}, &model.AssistantHistoryMessage{}, &model.AssistantLead{}, &model.AssistantProfileBucket{}, &model.AssistantFirstQuestionStat{}))
 	user := model.User{Username: "history-policy-owner", Password: "password", Role: common.RoleCommonUser, Status: common.UserStatusEnabled}
 	require.NoError(t, db.Create(&user).Error)
 	conversation, err := model.PrepareAssistantConversation(user.Id, 0, "Initial site question")

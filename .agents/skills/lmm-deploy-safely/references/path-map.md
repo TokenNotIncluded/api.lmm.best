@@ -58,9 +58,9 @@ or rollback evidence. A new release must never recreate it.
 | Required hostname | `arch-dmit` |
 | Controller workspace | `${XDG_STATE_HOME:-$HOME/.local/state}/lmm-api/deploy-work/<deployment-id>` |
 | Target workspace | `/var/lib/lmm-api-go-deploy/work/<deployment-id>` |
-| Target optional backup | `/var/lib/lmm-api-go-deploy/backups/<deployment-id>` |
-| Controller optional backup | `$HOME/backup/lmm-api/<verified-host>/<deployment-id>` |
-| Off-host optional backup | `/home/arch/.local/state/lmm-api-production-backups/<deployment-id>` on `archczy` |
+| Target historical backups (read-only; no new copies) | `/var/lib/lmm-api-go-deploy/backups/<deployment-id>` |
+| Authorized backup destination (controller only by default) | `$HOME/backup/lmm-api/<verified-host>/<deployment-id>` |
+| Extra off-host copy (separate explicit authorization only) | `/home/arch/.local/state/lmm-api-production-backups/<deployment-id>` on verified `archczy` |
 | Frontend releases | `/srv/lmm-api-frontend/releases/<version>` |
 | Backend service | `lmm-api.service` |
 
@@ -107,9 +107,16 @@ oracle or rollback baseline.
 ## Workspace and backup lifecycle
 
 Backups are optional and created only with explicit current-turn authorization.
-When selected for production, verify target, controller, and off-host copies.
-A backup root, active release, latest-known-good rollback package, transaction
-lock, and nonterminal workspace are never cleanup targets.
+For local, test, and production roles, require a verified controller copy only.
+Stream source-encrypted exports directly to the controller; no backup archive,
+dump, encrypted copy, or partial file may be staged on the target, including its
+workspace or memory-backed filesystems. An extra off-host copy requires separate
+host/destination approval and verification; never contact `archczy` by default.
+
+Keep minimal target audit/lock and N/N-1 manual-rollback material distinct from
+full backups. This policy neither creates target backups nor authorizes removal
+of existing ones. A backup root, active release, latest-known-good rollback
+package, transaction lock, and nonterminal workspace are never cleanup targets.
 
 After `CONFIRMED`, `ROLLED_BACK`, controller-only `VALIDATED`, or verified
 pre-switch `ABORTED`, preview then remove only the exact workspace's disposable

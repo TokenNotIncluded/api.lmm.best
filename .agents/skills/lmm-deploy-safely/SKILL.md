@@ -172,28 +172,46 @@ ssh ArchDmit 'bash -s -- --expected-host arch-dmit --format kv' \
 Run [scripts/inspect-state.sh](scripts/inspect-state.sh) before planning. It
 reports sanitized state and never sources environment files or prints DSNs.
 
-## Optional backups
+## Optional controller-only backups
 
 Backups are optional and require explicit current-turn authorization. When
-selected, require:
+selected, the required verified copy is on the operator's local machine
+(`controller`) for every role, including `test` and `production`. This LMM
+policy takes precedence over generic SSH multi-copy backup checklists.
 
-| Role | Verified copies |
-| --- | --- |
-| local | controller |
-| test | target, controller |
-| production | target, controller, off-host |
+- Controller: `$HOME/backup/lmm-api/<verified-host>/<deployment-id>`, outside
+  the repository and deployment caches; private directories `0700`, files `0600`.
+- Do not create or stage backup archives, database dumps, encrypted copies, or
+  partial backup files on the target server, including its workspace, `/tmp`,
+  `/var/tmp`, or `/dev/shm`. ArchDmit's small disk must not hold a backup copy.
+- An extra off-host copy is optional and needs separate current-turn approval
+  of the host and destination. `archczy` is not contacted by default. If
+  approved, its conventional destination is
+  `/home/arch/.local/state/lmm-api-production-backups/<deployment-id>`.
 
-Canonical production roots:
+Use a bounded-memory stream: a consistent database export or archive stream is
+encrypted on the source before leaving it, then streamed over verified SSH to
+an exact private controller `.part` file. Do not use an export command that
+requires target-side temporary files; stop if a streaming path is unavailable.
+Check both ends' exit status and stream completeness, verify encrypted-byte
+SHA-256, and test decryption/archive readability and database restore preflight
+on the controller before atomically marking the backup complete. Never log
+secrets or overwrite a known-good copy. Budget local backup/verification space
+separately; serialize exports with low CPU/I/O priority and bounded compression.
 
-- target: `/var/lib/lmm-api-go-deploy/backups/<deployment-id>`;
-- controller: `$HOME/backup/lmm-api/<verified-host>/<deployment-id>`;
-- off-host: `/home/arch/.local/state/lmm-api-production-backups/<deployment-id>`
-  on verified SSH alias `archczy` / hostname `archczy`.
+Run [scripts/verify-backup-set.sh](scripts/verify-backup-set.sh) with
+`--role production --deployment-id <id> --copy controller=<absolute-path>`
+(or the actual local/test role). This verifies file metadata and checksums,
+not encryption correctness, restore readiness, or remote host identity. If an
+extra off-host copy was requested, also pass `--require-off-host` and its
+`--copy off-host=<absolute-path>`; verify every requested copy before activation.
 
-Use [scripts/verify-backup-set.sh](scripts/verify-backup-set.sh). Encrypt every
-secret-bearing archive before it leaves the target; checksums cover transferred
-encrypted bytes. Never print contents. Never delete active/unconfirmed or
-latest-known-good copies.
+The old target backup root `/var/lib/lmm-api-go-deploy/backups` is historical
+read-only evidence, not a destination for new backups. Do not delete existing
+backups under this policy change. Keep the target's minimal transaction audit,
+locks, and required N/N-1 manual-rollback material; these are not permission to
+duplicate full backups there. Never prune active/unconfirmed or latest-known-good
+copies.
 
 ## Manual rollback only
 
@@ -245,7 +263,9 @@ automatically.
    explicit Git/release/AUR authorization; read back and verify publication.
 4. Assemble exact candidate and N-1 packages as non-root. Verify package,
    release, route-contract, provider filename/link, and artifact hashes.
-5. If authorized, create and verify role-specific backup copies.
+5. If authorized, stream backups directly to the controller and verify them;
+   add an off-host copy only with separate approval. Never stage backups on the
+   target.
 6. Persist manual rollback evidence/lock before mutation. Persist transient-unit
    identity and attempt count before remote dispatch. On transport ambiguity,
    reconcile unit + manifest + status; redispatch once only on three-way absence.

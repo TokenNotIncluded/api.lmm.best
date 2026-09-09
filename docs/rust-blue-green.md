@@ -10,6 +10,9 @@ are normative in [`backend-cli-deployment-contract.md`](backend-cli-deployment-c
 
 ## Current ownership
 
+The current source-level gap review and configuration compatibility work are
+tracked in [`rust-go-parity.md`](rust-go-parity.md).
+
 Go still owns production business traffic. Rust route ownership is determined
 only by the current result of:
 

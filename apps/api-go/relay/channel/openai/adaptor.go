@@ -30,7 +30,6 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/service"
 	"github.com/LIghtJUNction/api.lmm.best/setting/model_setting"
 	"github.com/LIghtJUNction/api.lmm.best/setting/reasoning"
-	"github.com/samber/lo"
 
 	"github.com/gin-gonic/gin"
 )
@@ -245,6 +244,12 @@ func (a *Adaptor) ConvertOpenAIRequest(c *gin.Context, info *relaycommon.RelayIn
 	if request == nil {
 		return nil, errors.New("request is nil")
 	}
+	// OpenRouter moves the top-level effort into its reasoning object below.
+	// Retain the effective effort for capability checks and accounting metadata.
+	effectiveEffort := request.ReasoningEffort
+	if effectiveEffort == "" {
+		effectiveEffort = info.GetReasoningEffort()
+	}
 	if info.ChannelType != constant.ChannelTypeOpenAI && info.ChannelType != constant.ChannelTypeOpenHuman && info.ChannelType != constant.ChannelTypeAzure {
 		request.StreamOptions = nil
 	}
@@ -325,42 +330,37 @@ func (a *Adaptor) ConvertOpenAIRequest(c *gin.Context, info *relaycommon.RelayIn
 		}
 
 	}
-	isOModel := dto.IsOpenAIReasoningOModel(info.UpstreamModelName)
-	isGPT5Model := dto.IsOpenAIGPT5Model(info.UpstreamModelName)
-	if isOModel || isGPT5Model {
-		if lo.FromPtrOr(request.MaxCompletionTokens, uint(0)) == 0 && lo.FromPtrOr(request.MaxTokens, uint(0)) != 0 {
+	// Resolve this fork's legacy effort suffix before testing capabilities.
+	// Unknown model names retain their spelling and parameters.
+	effort, baseModel := reasoning.ParseOpenAIReasoningEffortFromModelSuffix(info.UpstreamModelName)
+	if effort != "" && dto.GetOpenAIChatCapabilities(baseModel, effort).UseMaxCompletionTokens {
+		request.ReasoningEffort = effort
+		effectiveEffort = effort
+		info.UpstreamModelName = baseModel
+		request.Model = baseModel
+	}
+	info.SetReasoningEffort(effectiveEffort)
+	capabilities := dto.GetOpenAIChatCapabilities(info.UpstreamModelName, effectiveEffort)
+	if capabilities.UseMaxCompletionTokens {
+		// An explicitly provided completion limit, including zero, takes
+		// precedence. Never forward the unsupported legacy field alongside it.
+		if request.MaxCompletionTokens == nil {
 			request.MaxCompletionTokens = request.MaxTokens
-			request.MaxTokens = nil
 		}
-
-		if isOModel {
-			request.Temperature = nil
-		}
-
-		// gpt-5系列模型适配 归零不再支持的参数
-		if isGPT5Model {
-			request.Temperature = nil
-			request.TopP = nil
-			request.LogProbs = nil
-		}
-
-		// 转换模型推理力度后缀
-		effort, originModel := reasoning.ParseOpenAIReasoningEffortFromModelSuffix(info.UpstreamModelName)
-		if effort != "" {
-			request.ReasoningEffort = effort
-			info.UpstreamModelName = originModel
-			request.Model = originModel
-		}
-
-		info.SetReasoningEffort(request.ReasoningEffort)
-
-		// o系列模型developer适配（o1-mini除外）
-		if !strings.HasPrefix(info.UpstreamModelName, "o1-mini") && !strings.HasPrefix(info.UpstreamModelName, "o1-preview") {
-			//修改第一个Message的内容，将system改为developer
-			if len(request.Messages) > 0 && request.Messages[0].Role == "system" {
-				request.Messages[0].Role = "developer"
-			}
-		}
+		request.MaxTokens = nil
+	}
+	if !capabilities.SupportsTemperature {
+		request.Temperature = nil
+	}
+	if !capabilities.SupportsTopP {
+		request.TopP = nil
+	}
+	if !capabilities.SupportsLogProbs {
+		request.LogProbs = nil
+		request.TopLogProbs = nil
+	}
+	if capabilities.UseDeveloperRole && len(request.Messages) > 0 && request.Messages[0].Role == "system" {
+		request.Messages[0].Role = "developer"
 	}
 
 	return request, nil

@@ -16,6 +16,9 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+/*
+Copyright (C) 2026 LIghtJUNction
+*/
 import axios, { type AxiosError } from 'axios'
 
 import type { QuotaDataItem } from '@/features/dashboard/types'
@@ -30,6 +33,7 @@ import {
   isRetryableAssistantStatus,
 } from './assistant-ai-stream'
 import { redactAssistantMessageForRequest } from './assistant-message-safety'
+import type { AssistantSupportRequest } from './assistant-support-api'
 
 type AssistantChatPayload = {
   choices?: Array<{
@@ -43,6 +47,7 @@ type AssistantChatPayload = {
   }
   code?: string
   message?: string
+  support_request?: AssistantSupportRequest
   lmm_assistant_action?: unknown
   lmm_assistant_policy?: unknown
   lmm_assistant_history?: {
@@ -312,6 +317,7 @@ export type AssistantAdminConfigChangeAction = {
   channel_id?: number
   channel_name?: string
   changes: AssistantAdminConfigPreview[]
+  warnings?: string[]
 }
 
 export type AssistantAdminPricingChangeAction = {
@@ -446,7 +452,8 @@ export type AssistantSecureCardView = {
 
 export type AssistantConversationHistoryMessage = {
   id: number
-  role: 'user' | 'assistant' | 'secure_card'
+  role: 'user' | 'assistant' | 'human' | 'secure_card'
+  actor_name?: string
   content: string
   created_at: number
   cards?: AssistantSecureCardView[]
@@ -545,6 +552,7 @@ export type AssistantFundingSummary = {
 }
 
 export type AssistantReply = {
+  supportRequest?: AssistantSupportRequest
   content: string
   intent?: AssistantIntent
   action?: AssistantAction
@@ -679,6 +687,9 @@ function buildAssistantReply(
     responseConversationId > 0
   ) {
     reply.conversationId = responseConversationId
+  }
+  if (payload.support_request?.id && payload.support_request.conversation_id) {
+    reply.supportRequest = payload.support_request
   }
   if (conversationRestricted) reply.restricted = true
   return reply
@@ -1062,6 +1073,13 @@ export function parseAssistantAction(
         ...(channelID ? { channel_id: channelID } : {}),
         ...(channelName ? { channel_name: channelName } : {}),
         changes,
+        ...(Array.isArray(action.warnings)
+          ? {
+              warnings: action.warnings.filter(
+                (warning): warning is string => typeof warning === 'string'
+              ),
+            }
+          : {}),
       }
     }
   }
@@ -1607,11 +1625,19 @@ export async function submitAssistantAccountDisableRequest(input: {
   )
 }
 
+export type AssistantAdminChangeResult = {
+  applied: boolean
+  kind: string
+  status?: 'applied' | 'applied_with_warnings' | 'ignored_locked'
+  warnings?: string[]
+  locked_models?: string[]
+}
+
 export async function submitAssistantAdminChange(
   confirmationToken: string
-): Promise<{ applied: boolean; kind: string }> {
+): Promise<AssistantAdminChangeResult> {
   const response = await api.post<
-    AssistantAPIResponse<{ applied: boolean; kind: string }>
+    AssistantAPIResponse<AssistantAdminChangeResult>
   >(
     '/api/assistant/admin/apply',
     { confirmation_token: confirmationToken, confirmed: true },

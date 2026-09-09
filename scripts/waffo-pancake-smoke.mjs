@@ -22,6 +22,8 @@ const TEST_CARD = '4576750000000110'
 export const WAFFO_PANCAKE_WEBHOOK_EVENTS = Object.freeze([
   WebhookEventType.OrderCompleted,
   WebhookEventType.SubscriptionActivated,
+  // The pinned SDK predates this lifecycle event; send its official wire name.
+  'subscription.renewed',
   WebhookEventType.SubscriptionPaymentSucceeded,
   WebhookEventType.RefundSucceeded,
   WebhookEventType.RefundFailed,
