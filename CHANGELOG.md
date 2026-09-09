@@ -13,6 +13,11 @@ authenticated users then see it once after their next login.
 
 <!-- Add user-facing or operational changes here before the next release. -->
 
+- Rust OpenAI-compatible native relay paths now retain the aggregated request
+  body in a reference-counted buffer, avoiding an extra full-payload copy before
+  the upstream request and preserving streaming first-content latency for large
+  prompts.
+
 - Added automatic administrator assistant tasks through the existing protected
   management routes, source-derived request contracts, and live pricing audits.
 - Recheck administrator roles and browser sessions for every tool action; keep

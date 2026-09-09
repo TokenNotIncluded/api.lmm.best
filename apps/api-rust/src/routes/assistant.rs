@@ -522,7 +522,7 @@ impl AssistantAgentBackend for PgAssistantAgentBackend {
             request_id: turn.request_id.clone(),
             headers,
             request: canonical,
-            raw_body: turn.body.clone(),
+            raw_body: axum::body::Bytes::copy_from_slice(&turn.body),
         };
         let result = match self.upstream.forward(&reservation.target, &request).await {
             Ok(result) => result,
