@@ -336,6 +336,8 @@ type ResponsesOutput struct {
 	Result    string                   `json:"result,omitempty"`
 	CallId    string                   `json:"call_id,omitempty"`
 	Name      string                   `json:"name,omitempty"`
+	Namespace string                   `json:"namespace,omitempty"`
+	Execution string                   `json:"execution,omitempty"`
 	Arguments json.RawMessage          `json:"arguments,omitempty"`
 }
 
@@ -395,6 +397,7 @@ type ResponsesStreamResponse struct {
 	ContentIndex *int                           `json:"content_index,omitempty"`
 	SummaryIndex *int                           `json:"summary_index,omitempty"`
 	ItemID       string                         `json:"item_id,omitempty"`
+	Arguments    json.RawMessage                `json:"arguments,omitempty"`
 	Part         *ResponsesReasoningSummaryPart `json:"part,omitempty"`
 }
 
