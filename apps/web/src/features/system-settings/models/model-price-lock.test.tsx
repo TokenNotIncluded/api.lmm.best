@@ -385,8 +385,11 @@ test('bulk copy from locked source uses saved price and warns for locked targets
   }
 })
 
-test('locking discards stale source drafts and preserves other model drafts', async () => {
+test('locking refreshes concurrent prices and preserves other model drafts', async () => {
   const ctx = await setup(options('{}', '{"source":1,"target":3}'))
+  ctx.beforePut(async () => {
+    ctx.setServer(options('{}', '{"source":2,"target":3}'))
+  })
   const changes: Record<string, string> = {}
   try {
     await ctx.render(
@@ -404,7 +407,7 @@ test('locking discards stale source drafts and preserves other model drafts', as
         )
       ).click()
     )
-    assert.deepEqual(JSON.parse(changes.ModelRatio), { source: 1, target: 77 })
+    assert.deepEqual(JSON.parse(changes.ModelRatio), { source: 2, target: 77 })
     await act(async () =>
       required(
         ctx.container.querySelector<HTMLButtonElement>(
@@ -422,7 +425,7 @@ test('locking discards stale source drafts and preserves other model drafts', as
       ctx.container.querySelector<HTMLInputElement>(
         'input[inputmode="decimal"]'
       )?.value,
-      '2'
+      '4'
     )
   } finally {
     await ctx.cleanup()

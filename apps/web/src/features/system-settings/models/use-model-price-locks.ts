@@ -95,9 +95,6 @@ export function useModelPriceLocks() {
           )
           return
         }
-        const currentLocks = parseModelPriceLocks(
-          current.data.find(({ key }) => key === 'ModelPriceLock')?.value
-        )
         await queryClient.cancelQueries({ queryKey: ['system-options'] })
         const response = await updateSystemOption({
           key: 'ModelPriceLock',
@@ -107,19 +104,17 @@ export function useModelPriceLocks() {
         if (!response.success) {
           throw new Error(response.message || t('Failed to update price lock'))
         }
-        const nextLocks = { ...currentLocks, [name]: locked }
-        const accepted = {
-          ...current,
-          data: [
-            ...current.data.filter(({ key }) => key !== 'ModelPriceLock'),
-            { key: 'ModelPriceLock', value: JSON.stringify(nextLocks) },
-          ],
+        // Pricing can change between the capability check and the lock write.
+        // Publish only the authoritative snapshot read after the write.
+        const accepted = await getSystemOptions()
+        if (!accepted.success) {
+          throw new Error(accepted.message || t('Failed to load settings'))
         }
         queryClient.setQueryData(['system-options'], accepted)
         if (response.warnings?.length) {
           response.warnings.forEach((warning) => toast.warning(warning))
         }
-        return { locked, options: current.data }
+        return { locked, options: accepted.data }
       } catch (error) {
         toast.error(
           error instanceof Error
