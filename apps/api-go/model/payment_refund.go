@@ -312,7 +312,7 @@ func subscriptionRefundAlreadyAppliedTx(tx *gorm.DB, order *SubscriptionOrder, l
 	// that a paid renewal actually reset quota, rather than the initial cycle.
 	var receipts []SubscriptionPaymentEvent
 	if err := tx.Select("created_time").Where("subscription_order_id = ?", order.Id).
-		Order("id DESC").Limit(2).Find(&receipts).Error; err != nil {
+		Order("period_end DESC, id DESC").Limit(2).Find(&receipts).Error; err != nil {
 		return false, err
 	}
 	return len(receipts) == 2 && ledger.OccurredAt > 0 && ledger.OccurredAt <= receipts[0].CreatedTime, nil

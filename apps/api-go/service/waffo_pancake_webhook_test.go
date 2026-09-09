@@ -1,16 +1,20 @@
 package service
 
 import (
+	"encoding/json"
+	"fmt"
 	"testing"
 
 	"github.com/LIghtJUNction/api.lmm.best/setting"
 	"github.com/stretchr/testify/require"
+	pancake "github.com/waffo-com/waffo-pancake-sdk-go"
 )
 
 func TestWaffoPancakeWebhookActionForEvent(t *testing.T) {
 	tests := map[string]WaffoPancakeWebhookAction{
 		"order.completed":                WaffoPancakeWebhookActionOrderCompleted,
 		"subscription.activated":         WaffoPancakeWebhookActionSubscriptionStateChanged,
+		"subscription.renewed":           WaffoPancakeWebhookActionSubscriptionStateChanged,
 		"subscription.canceling":         WaffoPancakeWebhookActionSubscriptionStateChanged,
 		"subscription.uncanceled":        WaffoPancakeWebhookActionSubscriptionStateChanged,
 		"subscription.past_due":          WaffoPancakeWebhookActionSubscriptionStateChanged,
@@ -23,6 +27,79 @@ func TestWaffoPancakeWebhookActionForEvent(t *testing.T) {
 	for eventType, expected := range tests {
 		t.Run(eventType, func(t *testing.T) {
 			require.Equal(t, expected, WaffoPancakeWebhookActionForEvent(eventType))
+		})
+	}
+}
+
+func TestWaffoPancakeWebhookAdapterPaymentWithoutPeriodFields(t *testing.T) {
+	// Since 2026-09-06 payment events omit orderStatus and all cycle fields.
+	const payload = `{
+		"id": "ORD_example", "eventId": "PAY_example-succeeded",
+		"eventType": "subscription.payment_succeeded", "mode": "prod",
+		"storeId": "STO_example", "timestamp": "2026-09-08T04:20:43.300Z",
+		"data": {
+			"orderId": "ORD_example", "orderMerchantExternalId": "local-order",
+			"paymentId": "PAY_example", "paymentStatus": "succeeded",
+			"paymentDate": "2026-09-08", "amount": "3.99", "currency": "USD",
+			"merchantProvidedBuyerIdentity": "new-api-user-12",
+			"orderMetadata": {"lmm_product_id": "PRO_example"}
+		}
+	}`
+	var sdkEvent pancake.TypedWebhookEvent[pancake.WebhookEventData]
+	require.NoError(t, json.Unmarshal([]byte(payload), &sdkEvent))
+	event := waffoPancakeWebhookEventFromSDK(&sdkEvent)
+
+	require.Equal(t, WaffoPancakeWebhookActionSubscriptionPaymentSucceeded, WaffoPancakeWebhookActionForEvent(event.EventType))
+	require.NoError(t, ValidateWaffoPancakeWebhookEvent(event))
+	require.Equal(t, "PAY_example", event.Data.PaymentID)
+	require.Equal(t, "2026-09-08", event.Data.PaymentDate)
+	require.Equal(t, "ORD_example", event.Data.OrderID)
+	require.Equal(t, "local-order", event.Data.OrderMerchantExternalID)
+	require.Equal(t, "new-api-user-12", event.Data.MerchantProvidedBuyerIdentity)
+	require.Equal(t, "PRO_example", event.Data.OrderMetadata[WaffoPancakeOrderMetadataProductID])
+	require.Empty(t, event.Data.OrderStatus)
+	require.Empty(t, event.Data.BillingPeriod)
+	require.Empty(t, event.Data.CurrentPeriodStart)
+	require.Empty(t, event.Data.CurrentPeriodEnd)
+}
+
+func TestWaffoPancakeWebhookAdapterLifecyclePeriods(t *testing.T) {
+	for _, eventType := range []string{"subscription.activated", "subscription.renewed"} {
+		t.Run(eventType, func(t *testing.T) {
+			payload := fmt.Sprintf(`{
+				"id": "ORD_example", "eventId": "ORD_example-renewed-2026-10-08",
+				"eventType": %q, "mode": "prod", "storeId": "STO_example",
+				"storeName": "Your Store", "timestamp": "2026-09-08T04:20:43.300Z",
+				"data": {
+					"orderId": "ORD_example", "orderStatus": "active",
+					"billingPeriod": "monthly", "currentPeriodStart": "2026-09-08",
+					"currentPeriodEnd": "2026-10-08", "amount": "3.99",
+					"subtotal": "3.99", "taxAmount": "0.00", "total": "3.99",
+					"currency": "USD", "taxName": "None", "taxRate": 0,
+					"buyerEmail": "buyer@example.com",
+					"merchantProvidedBuyerIdentity": "new-api-user-12",
+					"orderMerchantExternalId": "local-order",
+					"orderMetadata": {}, "productMetadata": {},
+					"productName": "Monthly-VIP", "productDescription": "...",
+					"billingDetail": {"country": "US", "isBusiness": false}
+				}
+			}`, eventType)
+			var sdkEvent pancake.TypedWebhookEvent[pancake.WebhookEventData]
+			require.NoError(t, json.Unmarshal([]byte(payload), &sdkEvent))
+			event := waffoPancakeWebhookEventFromSDK(&sdkEvent)
+
+			require.Equal(t, WaffoPancakeWebhookActionSubscriptionStateChanged, WaffoPancakeWebhookActionForEvent(event.EventType))
+			require.NoError(t, ValidateWaffoPancakeWebhookEvent(event))
+			require.Equal(t, "ORD_example-renewed-2026-10-08", event.EventID)
+			require.Equal(t, "ORD_example", event.Data.OrderID)
+			require.Equal(t, "local-order", event.Data.OrderMerchantExternalID)
+			require.Equal(t, "active", event.Data.OrderStatus)
+			require.Equal(t, "monthly", event.Data.BillingPeriod)
+			require.Equal(t, "2026-09-08", event.Data.CurrentPeriodStart)
+			require.Equal(t, "2026-10-08", event.Data.CurrentPeriodEnd)
+			require.Equal(t, "3.99", event.Data.Total)
+			require.Empty(t, event.Data.PaymentID)
+			require.Empty(t, event.Data.PaymentDate)
 		})
 	}
 }
@@ -110,6 +187,7 @@ func TestValidateWaffoPancakeWebhookEventAllowsOmittedOptionalStatuses(t *testin
 	for _, eventType := range []string{
 		"order.completed",
 		"subscription.activated",
+		"subscription.renewed",
 		"subscription.payment_succeeded",
 		"refund.succeeded",
 		"refund.failed",
