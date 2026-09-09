@@ -43,7 +43,6 @@ const defaultBillingSettings: BillingSettings = {
   DisplayInCurrencyEnabled: true,
   DisplayTokenStatEnabled: true,
   ModelPrice: '',
-  ModelPriceLock: '{}',
   ModelRatio: '',
   CacheRatio: '',
   CreateCacheRatio: '',

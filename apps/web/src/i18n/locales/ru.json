@@ -1,5 +1,7 @@
 {
   "translation": {
+    "Locked model prices were preserved; changes were ignored.": "Заблокированные цены модели сохранены; изменения проигнорированы.",
+    "Price is locked. Unlock it in model pricing settings to edit.": "Цена заблокирована. Разблокируйте её в настройках цен модели для редактирования.",
     "Human technical support": "Техническая поддержка специалиста",
     "Accept this request to join the user’s existing conversation.": "Примите запрос, чтобы присоединиться к текущему разговору пользователя.",
     "Requested support time": "Желаемое время поддержки",
@@ -28,11 +30,6 @@
     "Your existing support request is already being handled.": "Ваш текущий запрос на поддержку уже обрабатывается.",
     "Message human support...": "Написать специалисту…",
     "An administrator can join this conversation after you request a transfer.": "После запроса на подключение специалиста администратор сможет присоединиться к этому разговору.",
-    "Lock model prices": "Заблокировать цены модели",
-    "Unlock model prices": "Разблокировать цены модели",
-    "Locked model prices were preserved; changes were ignored.": "Заблокированные цены модели сохранены; изменения проигнорированы.",
-    "Model prices are locked. Changes will be ignored.": "Цены модели заблокированы. Изменения будут проигнорированы.",
-    "Price is locked. Unlock it in model pricing settings to edit.": "Цена заблокирована. Разблокируйте её в настройках цен модели для редактирования.",
     "360": "360",
     "1000": "1000",
     "10000": "10000",
@@ -8194,6 +8191,13 @@
     "New here? Start with the setup guide": "Впервые здесь? Начните с руководства по настройке",
     "OpenAI-compatible access for applications, scripts, and agents.": "Совместимый с OpenAI доступ для приложений, скриптов и агентов.",
     "Replace model-name with an available model ID for the selected API. Set LMM_API_KEY locally; never put your key in browser code.": "Замените model-name на идентификатор доступной модели для выбранного API. Задайте LMM_API_KEY локально; никогда не размещайте ключ в коде браузера.",
-    "Use one Base URL, model ID, and API key across your compatible tools.": "Используйте единые базовый URL, идентификатор модели и API-ключ во всех совместимых инструментах."
+    "Use one Base URL, model ID, and API key across your compatible tools.": "Используйте единые базовый URL, идентификатор модели и API-ключ во всех совместимых инструментах.",
+    "Lock {{name}} pricing": "Заблокировать цены {{name}}",
+    "Unlock {{name}} pricing": "Разблокировать цены {{name}}",
+    "Locked model prices are unchanged. Unlock the model to edit pricing.": "Заблокированные цены не изменяются. Разблокируйте модель для редактирования.",
+    "Skipped locked models: {{models}}": "Пропущены заблокированные модели: {{models}}",
+    "The server does not support price locks. Update the server before locking prices.": "Сервер не поддерживает блокировку цен. Сначала обновите сервер.",
+    "Failed to update price lock": "Не удалось обновить блокировку цен",
+    "Locked price changes ignored": "Изменения заблокированных цен пропущены"
   }
 }

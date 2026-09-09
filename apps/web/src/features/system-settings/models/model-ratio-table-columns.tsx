@@ -16,6 +16,9 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+/*
+Copyright (C) 2026 LIghtJUNction
+*/
 import type { ColumnDef } from '@tanstack/react-table'
 
 import { DataTableColumnHeader } from '@/components/data-table/core/column-header'
@@ -23,7 +26,7 @@ import { StaticRowActions } from '@/components/data-table/static/static-row-acti
 import { StatusBadge } from '@/components/status-badge'
 import { Checkbox } from '@/components/ui/checkbox'
 
-import { ModelPriceLockButton } from './model-price-lock-button'
+import { ModelPriceLockButton } from './model-price-lock'
 import {
   getModeLabel,
   getModeVariant,
@@ -43,9 +46,9 @@ const filterBySelectedValues = (
 type BuildModelRatioColumnsOptions = {
   onDelete: (name: string) => void
   onEdit: (model: ModelRow) => void
-  isLocked: (name: string) => boolean
+  locks: Record<string, boolean>
+  lockPending: boolean
   onToggleLock: (name: string) => void
-  lockDisabled?: boolean
   deleteDisabled?: boolean
   t: (key: string) => string
 }
@@ -54,9 +57,9 @@ export function buildModelRatioColumns({
   onDelete,
   onEdit,
   deleteDisabled,
-  isLocked,
+  locks,
+  lockPending,
   onToggleLock,
-  lockDisabled,
   t,
 }: BuildModelRatioColumnsOptions): ColumnDef<ModelRow>[] {
   return [
@@ -135,20 +138,21 @@ export function buildModelRatioColumns({
         <DataTableColumnHeader column={column} title={t('Price summary')} />
       ),
       cell: ({ row }) => (
-        <div className='flex min-w-0 items-center gap-2'>
-          <ModelPriceLockButton
-            locked={isLocked(row.original.name)}
-            disabled={lockDisabled}
-            onToggle={() => onToggleLock(row.original.name)}
-          />
-          <div className='flex min-w-0 flex-col gap-1'>
+        <div className='flex min-w-0 flex-col gap-1'>
+          <div className='flex items-center gap-1'>
             <span className='truncate font-medium'>
               {getPriceSummary(row.original, t)}
             </span>
-            <span className='text-muted-foreground truncate text-xs'>
-              {getPriceDetail(row.original, t)}
-            </span>
+            <ModelPriceLockButton
+              name={row.original.name}
+              locked={locks[row.original.name] === true}
+              pending={lockPending}
+              onToggle={() => onToggleLock(row.original.name)}
+            />
           </div>
+          <span className='text-muted-foreground truncate text-xs'>
+            {getPriceDetail(row.original, t)}
+          </span>
         </div>
       ),
       sortingFn: (rowA, rowB) =>

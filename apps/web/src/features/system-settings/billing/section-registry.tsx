@@ -45,7 +45,6 @@ const RatioSettingsCard = lazyNamedSection(
 
 const getModelDefaults = (settings: BillingSettings) => ({
   ModelPrice: settings.ModelPrice,
-  ModelPriceLock: settings.ModelPriceLock,
   ModelRatio: settings.ModelRatio,
   CacheRatio: settings.CacheRatio,
   CreateCacheRatio: settings.CreateCacheRatio,

@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"math"
 	"net/url"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -199,9 +198,9 @@ func InitOptionMap() {
 	common.OptionMap["ModelRequestRateLimitDurationMinutes"] = strconv.Itoa(setting.ModelRequestRateLimitDurationMinutes)
 	common.OptionMap["ModelRequestRateLimitSuccessCount"] = strconv.Itoa(setting.ModelRequestRateLimitSuccessCount)
 	common.OptionMap["ModelRequestRateLimitGroup"] = setting.ModelRequestRateLimitGroup2JSONString()
+	common.OptionMap[ModelPriceLocksOptionKey] = "{}"
 	common.OptionMap["ModelRatio"] = ratio_setting.ModelRatio2JSONString()
 	common.OptionMap["ModelPrice"] = ratio_setting.ModelPrice2JSONString()
-	common.OptionMap[ModelPriceLockOptionKey] = "{}"
 	common.OptionMap["CacheRatio"] = ratio_setting.CacheRatio2JSONString()
 	common.OptionMap["CreateCacheRatio"] = ratio_setting.CreateCacheRatio2JSONString()
 	common.OptionMap["GroupRatio"] = ratio_setting.GroupRatio2JSONString()
@@ -293,9 +292,6 @@ func SyncOptionsContext(ctx context.Context, frequency int) {
 }
 
 func validateOptionValue(key string, value string) error {
-	if err := validateModelPricingOption(key, value); err != nil {
-		return err
-	}
 	if isRetiredIPAccessOptionKey(key) {
 		return errors.New("legacy IP access option is retired; use IPAccessRoutingRules")
 	}
@@ -399,31 +395,8 @@ func validateAbsoluteHTTPURLOption(key string, value string) error {
 }
 
 func UpdateOption(key string, value string) error {
-	warnings, err := UpdateOptionWithWarnings(key, value)
-	logPricingWarnings(warnings)
+	_, err := UpdateOptionWithWarnings(key, value)
 	return err
-}
-
-func UpdateOptionWithWarnings(key, value string) ([]string, error) {
-	optionUpdateMutex.Lock()
-	defer optionUpdateMutex.Unlock()
-	filtered, warnings, err := FilterLockedModelPricing(map[string]string{key: value})
-	if err != nil {
-		return nil, err
-	}
-	value = filtered[key]
-	if err := validateOptionValue(key, value); err != nil {
-		return warnings, err
-	}
-	option := Option{Key: key}
-	if err := DB.FirstOrCreate(&option, Option{Key: key}).Error; err != nil {
-		return warnings, err
-	}
-	option.Value = value
-	if err := DB.Save(&option).Error; err != nil {
-		return warnings, err
-	}
-	return warnings, updateOptionMap(key, value)
 }
 
 // ValidateOptionValue exposes the same validation used by UpdateOption without
@@ -431,12 +404,10 @@ func UpdateOptionWithWarnings(key, value string) ([]string, error) {
 // use this to reject an invalid change before issuing a one-time confirmation
 // flow.
 func ValidateOptionValue(key, value string) error {
-	filtered, warnings, err := FilterLockedModelPricing(map[string]string{key: value})
-	if err != nil {
+	if err := validateOptionValue(key, value); err != nil {
 		return err
 	}
-	logPricingWarnings(warnings)
-	return validateOptionValue(key, filtered[key])
+	return validateModelPriceValues(map[string]string{key: value})
 }
 
 // ValidateOptionValues checks a related set of option writes without
@@ -444,17 +415,10 @@ func ValidateOptionValue(key, value string) error {
 // configuration so an import cannot pass each field in isolation while the
 // resulting configuration is unsafe.
 func ValidateOptionValues(values map[string]string) error {
-	warnings, err := ValidateOptionValuesWithWarnings(values)
-	logPricingWarnings(warnings)
-	return err
-}
-
-func ValidateOptionValuesWithWarnings(values map[string]string) ([]string, error) {
-	filtered, warnings, err := FilterLockedModelPricing(values)
-	if err != nil {
-		return nil, err
+	if err := validateOptionValues(values); err != nil {
+		return err
 	}
-	return warnings, validateOptionValues(filtered)
+	return validateModelPriceValues(values)
 }
 
 func validateOptionValues(values map[string]string) error {
@@ -580,70 +544,8 @@ func validateAssistantReviewRouteValues(values map[string]string) error {
 // is touched — safe for callers that must commit a set of related options
 // atomically (e.g. payment gateway binding).
 func UpdateOptionsBulk(values map[string]string) error {
-	warnings, err := UpdateOptionsBulkWithWarnings(values)
-	logPricingWarnings(warnings)
+	_, err := UpdateOptionsBulkWithWarnings(values)
 	return err
-}
-
-func UpdateOptionsBulkWithWarnings(values map[string]string) ([]string, error) {
-	if len(values) == 0 {
-		return nil, nil
-	}
-	optionUpdateMutex.Lock()
-	defer optionUpdateMutex.Unlock()
-	values, warnings, err := FilterLockedModelPricing(values)
-	if err != nil {
-		return nil, err
-	}
-	if err := validateOptionValues(values); err != nil {
-		return warnings, err
-	}
-	keys := make([]string, 0, len(values))
-	for key := range values {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	// Apply the master switch last when enabling (all safety inputs are live
-	// first), and first when disabling (request-path pricing stops before any
-	// other setting changes).
-	enabledKey := "dynamic_pricing_setting.enabled"
-	if enabledValue, ok := values[enabledKey]; ok {
-		withoutEnabled := make([]string, 0, len(keys)-1)
-		for _, key := range keys {
-			if key != enabledKey {
-				withoutEnabled = append(withoutEnabled, key)
-			}
-		}
-		if enabledValue == "false" {
-			keys = append([]string{enabledKey}, withoutEnabled...)
-		} else {
-			keys = append(withoutEnabled, enabledKey)
-		}
-	}
-	err = DB.Transaction(func(tx *gorm.DB) error {
-		for _, k := range keys {
-			v := values[k]
-			option := Option{Key: k}
-			if err := tx.FirstOrCreate(&option, Option{Key: k}).Error; err != nil {
-				return err
-			}
-			option.Value = v
-			if err := tx.Save(&option).Error; err != nil {
-				return err
-			}
-		}
-		return nil
-	})
-	if err != nil {
-		return warnings, err
-	}
-	for _, k := range keys {
-		v := values[k]
-		if err := updateOptionMap(k, v); err != nil {
-			return warnings, err
-		}
-	}
-	return warnings, nil
 }
 
 // UpdateAdvancedSecurityOptions persists and applies the four guardrail

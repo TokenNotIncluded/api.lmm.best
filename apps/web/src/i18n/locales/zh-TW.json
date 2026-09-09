@@ -1,5 +1,7 @@
 {
   "translation": {
+    "Locked model prices were preserved; changes were ignored.": "已保留鎖定的模型價格，修改已忽略。",
+    "Price is locked. Unlock it in model pricing settings to edit.": "價格已鎖定，請在模型定價設定中解鎖後編輯。",
     "Human technical support": "人工技術支援",
     "Accept this request to join the user’s existing conversation.": "接受請求後，即可加入使用者目前的站內對話。",
     "Requested support time": "期望支援時間",
@@ -28,11 +30,6 @@
     "Your existing support request is already being handled.": "你已有人工支援請求正在處理中。",
     "Message human support...": "向人工支援傳送訊息…",
     "An administrator can join this conversation after you request a transfer.": "提交轉人工請求後，管理員可以接單並加入目前對話。",
-    "Lock model prices": "鎖定模型價格",
-    "Unlock model prices": "解鎖模型價格",
-    "Locked model prices were preserved; changes were ignored.": "已保留鎖定的模型價格，修改已忽略。",
-    "Model prices are locked. Changes will be ignored.": "模型價格已鎖定，修改將被忽略。",
-    "Price is locked. Unlock it in model pricing settings to edit.": "價格已鎖定，請在模型定價設定中解鎖後編輯。",
     "360": "360",
     "1000": "1000",
     "10000": "10000",
@@ -8194,6 +8191,13 @@
     "New here? Start with the setup guide": "第一次使用？從設定指南開始",
     "OpenAI-compatible access for applications, scripts, and agents.": "為應用程式、腳本和智慧代理提供 OpenAI 相容介面。",
     "Replace model-name with an available model ID for the selected API. Set LMM_API_KEY locally; never put your key in browser code.": "將 model-name 替換為所選 API 支援的可用模型 ID。在本機設定 LMM_API_KEY，請勿將金鑰寫入瀏覽器端程式碼。",
-    "Use one Base URL, model ID, and API key across your compatible tools.": "在相容工具中使用同一組基礎位址、模型 ID 和 API 金鑰。"
+    "Use one Base URL, model ID, and API key across your compatible tools.": "在相容工具中使用同一組基礎位址、模型 ID 和 API 金鑰。",
+    "Lock {{name}} pricing": "鎖定 {{name}} 的價格",
+    "Unlock {{name}} pricing": "解鎖 {{name}} 的價格",
+    "Locked model prices are unchanged. Unlock the model to edit pricing.": "已鎖定模型的價格保持不變，解鎖後可修改。",
+    "Skipped locked models: {{models}}": "已略過鎖定的模型：{{models}}",
+    "The server does not support price locks. Update the server before locking prices.": "伺服器暫不支援價格鎖，請先更新伺服器。",
+    "Failed to update price lock": "更新價格鎖失敗",
+    "Locked price changes ignored": "已忽略鎖定價格的修改"
   }
 }

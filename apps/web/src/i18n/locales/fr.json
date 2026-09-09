@@ -1,5 +1,7 @@
 {
   "translation": {
+    "Locked model prices were preserved; changes were ignored.": "Les prix verrouillés ont été conservés ; les modifications ont été ignorées.",
+    "Price is locked. Unlock it in model pricing settings to edit.": "Le prix est verrouillé. Déverrouillez-le dans les paramètres de tarification du modèle pour le modifier.",
     "Human technical support": "Assistance technique par un conseiller",
     "Accept this request to join the user’s existing conversation.": "Acceptez cette demande pour rejoindre la conversation en cours de l’utilisateur.",
     "Requested support time": "Horaire d’assistance souhaité",
@@ -28,11 +30,6 @@
     "Your existing support request is already being handled.": "Votre demande d’assistance actuelle est déjà en cours de traitement.",
     "Message human support...": "Écrire au conseiller…",
     "An administrator can join this conversation after you request a transfer.": "Un administrateur pourra rejoindre cette conversation après votre demande de transfert.",
-    "Lock model prices": "Verrouiller les prix du modèle",
-    "Unlock model prices": "Déverrouiller les prix du modèle",
-    "Locked model prices were preserved; changes were ignored.": "Les prix verrouillés ont été conservés ; les modifications ont été ignorées.",
-    "Model prices are locked. Changes will be ignored.": "Les prix du modèle sont verrouillés. Les modifications seront ignorées.",
-    "Price is locked. Unlock it in model pricing settings to edit.": "Le prix est verrouillé. Déverrouillez-le dans les paramètres de tarification du modèle pour le modifier.",
     "360": "360",
     "1000": "1000",
     "10000": "10000",
@@ -8194,6 +8191,13 @@
     "New here? Start with the setup guide": "Vous débutez ? Commencez par le guide de configuration",
     "OpenAI-compatible access for applications, scripts, and agents.": "Un accès compatible avec OpenAI pour les applications, les scripts et les agents.",
     "Replace model-name with an available model ID for the selected API. Set LMM_API_KEY locally; never put your key in browser code.": "Remplacez model-name par l'identifiant d'un modèle disponible pour l'API sélectionnée. Définissez LMM_API_KEY localement ; n'insérez jamais votre clé dans du code exécuté par le navigateur.",
-    "Use one Base URL, model ID, and API key across your compatible tools.": "Utilisez la même URL de base, le même identifiant de modèle et la même clé API dans vos outils compatibles."
+    "Use one Base URL, model ID, and API key across your compatible tools.": "Utilisez la même URL de base, le même identifiant de modèle et la même clé API dans vos outils compatibles.",
+    "Lock {{name}} pricing": "Verrouiller le prix de {{name}}",
+    "Unlock {{name}} pricing": "Déverrouiller le prix de {{name}}",
+    "Locked model prices are unchanged. Unlock the model to edit pricing.": "Les prix verrouillés restent inchangés. Déverrouillez le modèle pour les modifier.",
+    "Skipped locked models: {{models}}": "Modèles verrouillés ignorés : {{models}}",
+    "The server does not support price locks. Update the server before locking prices.": "Le serveur ne prend pas en charge le verrouillage des prix. Mettez-le à jour au préalable.",
+    "Failed to update price lock": "Échec de la mise à jour du verrouillage du prix",
+    "Locked price changes ignored": "Modifications des prix verrouillés ignorées"
   }
 }

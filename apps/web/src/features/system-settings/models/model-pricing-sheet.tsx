@@ -16,6 +16,9 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+/*
+Copyright (C) 2026 LIghtJUNction
+*/
 import { zodResolver } from '@hookform/resolvers/zod'
 import { AlertTriangle, Save } from 'lucide-react'
 import {
@@ -28,7 +31,6 @@ import {
 } from 'react'
 import { useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
-import { toast } from 'sonner'
 
 import { sideDrawerContentClassName } from '@/components/drawer-layout'
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -64,7 +66,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { cn } from '@/lib/utils'
 
-import { ModelPriceLockButton } from './model-price-lock-button'
+import { ModelPriceLockButton } from './model-price-lock'
 import {
   EMPTY_LANE_ENABLED,
   EMPTY_LANE_PRICES,
@@ -93,9 +95,9 @@ type ModelPricingSheetProps = {
   editData?: ModelRatioData | null
   onSave?: () => void | Promise<void>
   isSaving?: boolean
-  isLocked?: boolean
+  locked?: boolean
+  lockPending?: boolean
   onToggleLock?: () => void
-  isLocking?: boolean
 }
 
 type ModelPricingEditorPanelProps = Omit<
@@ -119,9 +121,9 @@ export const ModelPricingSheet = forwardRef<
     editData,
     onSave,
     isSaving,
-    isLocked,
+    locked,
+    lockPending,
     onToggleLock,
-    isLocking,
   },
   ref
 ) {
@@ -144,9 +146,9 @@ export const ModelPricingSheet = forwardRef<
           editData={editData}
           onSave={onSave}
           isSaving={isSaving}
-          isLocked={isLocked}
+          locked={locked}
+          lockPending={lockPending}
           onToggleLock={onToggleLock}
-          isLocking={isLocking}
           className='h-full rounded-none border-0'
         />
       </SheetContent>
@@ -158,15 +160,7 @@ export const ModelPricingEditorPanel = forwardRef<
   ModelPricingEditorPanelHandle,
   ModelPricingEditorPanelProps
 >(function ModelPricingEditorPanel(
-  {
-    editData,
-    className,
-    onSave,
-    isSaving,
-    isLocked = false,
-    onToggleLock,
-    isLocking,
-  },
+  { editData, className, onSave, isSaving, locked, lockPending, onToggleLock },
   ref
 ) {
   const { t } = useTranslation()
@@ -182,13 +176,6 @@ export const ModelPricingEditorPanel = forwardRef<
   const [requestRuleExpr, setRequestRuleExpr] = useState('')
   const [editorReloadToken, setEditorReloadToken] = useState(0)
   const isEditMode = !!editData
-  const ignoreLockedChange = () => {
-    if (!isLocked) return false
-    toast.warning(
-      t('Locked model prices were preserved; changes were ignored.')
-    )
-    return true
-  }
 
   const form = useForm<ModelPricingFormValues>({
     resolver: zodResolver(createModelPricingSchema(t)),
@@ -309,14 +296,12 @@ export const ModelPricingEditorPanel = forwardRef<
   }
 
   const handlePromptPriceChange = (value: string) => {
-    if (ignoreLockedChange()) return
     if (!numericDraftRegex.test(value)) return
     setPromptPrice(value)
     syncLaneRatios(value, lanePrices, laneEnabled)
   }
 
   const handleLanePriceChange = (lane: LaneKey, value: string) => {
-    if (ignoreLockedChange()) return
     if (!numericDraftRegex.test(value)) return
     const nextLanePrices = { ...lanePrices, [lane]: value }
     setLanePrices(nextLanePrices)
@@ -342,7 +327,6 @@ export const ModelPricingEditorPanel = forwardRef<
   }
 
   const handleLaneToggle = (lane: LaneKey, checked: boolean) => {
-    if (ignoreLockedChange()) return
     const nextEnabled = { ...laneEnabled, [lane]: checked }
     let nextPrices = lanePrices
 
@@ -368,7 +352,6 @@ export const ModelPricingEditorPanel = forwardRef<
   }
 
   const handleModeChange = (value: string) => {
-    if (ignoreLockedChange()) return
     const nextMode = value as PricingMode
     setPricingMode(nextMode)
     if (nextMode === 'tiered_expr' && !billingExpr) {
@@ -503,13 +486,21 @@ export const ModelPricingEditorPanel = forwardRef<
     ref,
     () => ({
       commitDraft: async () => {
-        if (isLocked) return editData ?? null
+        if (lockPending) return null
+        if (locked && editData) return editData
         const isValid = await form.trigger()
         if (!isValid || !validatePricingValues()) return null
         return buildSubmitData(form.getValues())
       },
     }),
-    [form, validatePricingValues, buildSubmitData, isLocked, editData]
+    [
+      form,
+      validatePricingValues,
+      buildSubmitData,
+      locked,
+      lockPending,
+      editData,
+    ]
   )
 
   const showActions = Boolean(onSave)
@@ -527,20 +518,23 @@ export const ModelPricingEditorPanel = forwardRef<
             <h3 className='truncate text-base font-medium'>
               {isEditMode ? t('Edit model pricing') : t('Add model pricing')}
             </h3>
-            {isLocked && (
-              <p className='text-muted-foreground mt-1 text-sm'>
-                {t('Model prices are locked. Changes will be ignored.')}
-              </p>
-            )}
           </div>
-          {isEditMode && onToggleLock && (
+          {editData && onToggleLock && (
             <ModelPriceLockButton
-              locked={isLocked}
-              disabled={isLocking || isSaving}
+              name={editData.name}
+              locked={!!locked}
+              pending={lockPending}
               onToggle={onToggleLock}
             />
           )}
         </div>
+        {locked && (
+          <p role='status' className='text-muted-foreground mt-2 text-sm'>
+            {t(
+              'Locked model prices are unchanged. Unlock the model to edit pricing.'
+            )}
+          </p>
+        )}
       </div>
 
       <Form {...form}>
@@ -551,190 +545,159 @@ export const ModelPricingEditorPanel = forwardRef<
         >
           <div className='min-h-0 flex-1 overflow-y-auto p-4 pb-6'>
             <div className='grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(220px,260px)]'>
-              <FieldGroup>
-                {warnings.length > 0 && (
-                  <Alert variant='destructive'>
-                    <AlertTriangle data-icon='inline-start' />
-                    <AlertDescription>
-                      <div className='flex flex-col gap-1'>
-                        {warnings.map((warning) => (
-                          <span key={warning}>{warning}</span>
-                        ))}
-                      </div>
-                    </AlertDescription>
-                  </Alert>
-                )}
-
-                <FormField
-                  control={form.control}
-                  name='name'
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t('Model name')}</FormLabel>
-                      <FormControl>
-                        <Input
-                          placeholder={t('gpt-4')}
-                          {...field}
-                          disabled={isEditMode}
-                        />
-                      </FormControl>
-                      <FormDescription>
-                        {t(
-                          'The exact model identifier as used in API requests.'
-                        )}
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
+              <fieldset disabled={locked || lockPending} className='min-w-0'>
+                <FieldGroup>
+                  {warnings.length > 0 && (
+                    <Alert variant='destructive'>
+                      <AlertTriangle data-icon='inline-start' />
+                      <AlertDescription>
+                        <div className='flex flex-col gap-1'>
+                          {warnings.map((warning) => (
+                            <span key={warning}>{warning}</span>
+                          ))}
+                        </div>
+                      </AlertDescription>
+                    </Alert>
                   )}
-                />
 
-                <div
-                  onPointerDownCapture={(event) => {
-                    if (
-                      isLocked &&
-                      (event.target as HTMLElement).closest(
-                        'input, button, textarea, [contenteditable]'
-                      )
-                    ) {
-                      event.preventDefault()
-                      event.stopPropagation()
-                      ignoreLockedChange()
-                    }
-                  }}
-                  onKeyDownCapture={(event) => {
-                    if (isLocked && !['Tab', 'Escape'].includes(event.key)) {
-                      event.preventDefault()
-                      event.stopPropagation()
-                      ignoreLockedChange()
-                    }
-                  }}
-                >
-                  <fieldset disabled={isLocked}>
-                    <Tabs
-                      value={pricingMode}
-                      onValueChange={handleModeChange}
-                      className='gap-4'
-                    >
-                      <TabsList className='grid w-full grid-cols-3'>
-                        <TabsTrigger value='per-token'>
-                          {t('Per-token')}
-                        </TabsTrigger>
-                        <TabsTrigger value='per-request'>
-                          {t('Per-request')}
-                        </TabsTrigger>
-                        <TabsTrigger value='tiered_expr'>
-                          {t('Expression')}
-                        </TabsTrigger>
-                      </TabsList>
-
-                      <TabsContent value='per-token' className='pt-0'>
-                        <FieldGroup className='gap-5'>
-                          <Field>
-                            <FieldLabel>{t('Input price')}</FieldLabel>
-                            <PriceInput
-                              value={promptPrice}
-                              placeholder='3'
-                              onChange={handlePromptPriceChange}
-                            />
-                            <FieldDescription>
-                              {t('USD price per 1M input tokens.')}
-                            </FieldDescription>
-                          </Field>
-
-                          <div className='grid gap-3 sm:grid-cols-[repeat(auto-fit,minmax(400px,1fr))]'>
-                            {laneConfigs.map((lane) => {
-                              const disabled =
-                                lane.key === 'audioOutput' &&
-                                (!laneEnabled.audioInput ||
-                                  !hasValue(lanePrices.audioInput))
-                              return (
-                                <PriceLane
-                                  key={lane.key}
-                                  title={t(lane.titleKey)}
-                                  description={t(lane.descriptionKey)}
-                                  placeholder={lane.placeholder}
-                                  value={lanePrices[lane.key]}
-                                  enabled={laneEnabled[lane.key]}
-                                  disabled={disabled}
-                                  onEnabledChange={(checked) =>
-                                    handleLaneToggle(lane.key, checked)
-                                  }
-                                  onChange={(value) =>
-                                    handleLanePriceChange(lane.key, value)
-                                  }
-                                />
-                              )
-                            })}
-                          </div>
-                        </FieldGroup>
-                      </TabsContent>
-
-                      <TabsContent value='per-request' className='pt-0'>
-                        <FieldGroup className='gap-5'>
-                          <FormField
-                            control={form.control}
-                            name='price'
-                            render={({ field }) => (
-                              <FormItem className='contents'>
-                                <Field>
-                                  <FieldLabel>{t('Fixed price')}</FieldLabel>
-                                  <FormControl>
-                                    <InputGroup>
-                                      <InputGroupAddon>$</InputGroupAddon>
-                                      <InputGroupInput
-                                        inputMode='decimal'
-                                        placeholder='0.01'
-                                        {...field}
-                                        onChange={(event) => {
-                                          if (ignoreLockedChange()) return
-                                          const value = event.target.value
-                                          if (numericDraftRegex.test(value)) {
-                                            field.onChange(value)
-                                          }
-                                        }}
-                                      />
-                                      <InputGroupAddon align='inline-end'>
-                                        {t('per request')}
-                                      </InputGroupAddon>
-                                    </InputGroup>
-                                  </FormControl>
-                                  <FieldDescription>
-                                    {t(
-                                      'Cost in USD per request, regardless of tokens used.'
-                                    )}
-                                  </FieldDescription>
-                                  <FormMessage />
-                                </Field>
-                              </FormItem>
-                            )}
+                  <FormField
+                    control={form.control}
+                    name='name'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('Model name')}</FormLabel>
+                        <FormControl>
+                          <Input
+                            placeholder={t('gpt-4')}
+                            {...field}
+                            disabled={isEditMode}
                           />
-                        </FieldGroup>
-                      </TabsContent>
-
-                      <TabsContent value='tiered_expr' className='pt-0'>
-                        <FieldGroup className='gap-5'>
-                          {isLocked ? (
-                            <pre className='text-muted-foreground text-sm break-words whitespace-pre-wrap'>
-                              {[billingExpr, requestRuleExpr]
-                                .filter(Boolean)
-                                .join('\n')}
-                            </pre>
-                          ) : (
-                            <TieredPricingEditor
-                              key={editorReloadToken}
-                              modelName={watchedValues.name}
-                              billingExpr={billingExpr}
-                              requestRuleExpr={requestRuleExpr}
-                              onBillingExprChange={setBillingExpr}
-                              onRequestRuleExprChange={setRequestRuleExpr}
-                            />
+                        </FormControl>
+                        <FormDescription>
+                          {t(
+                            'The exact model identifier as used in API requests.'
                           )}
-                        </FieldGroup>
-                      </TabsContent>
-                    </Tabs>
-                  </fieldset>
-                </div>
-              </FieldGroup>
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <Tabs
+                    value={pricingMode}
+                    onValueChange={handleModeChange}
+                    className='gap-4'
+                  >
+                    <TabsList className='grid w-full grid-cols-3'>
+                      <TabsTrigger value='per-token'>
+                        {t('Per-token')}
+                      </TabsTrigger>
+                      <TabsTrigger value='per-request'>
+                        {t('Per-request')}
+                      </TabsTrigger>
+                      <TabsTrigger value='tiered_expr'>
+                        {t('Expression')}
+                      </TabsTrigger>
+                    </TabsList>
+
+                    <TabsContent value='per-token' className='pt-0'>
+                      <FieldGroup className='gap-5'>
+                        <Field>
+                          <FieldLabel>{t('Input price')}</FieldLabel>
+                          <PriceInput
+                            value={promptPrice}
+                            placeholder='3'
+                            onChange={handlePromptPriceChange}
+                          />
+                          <FieldDescription>
+                            {t('USD price per 1M input tokens.')}
+                          </FieldDescription>
+                        </Field>
+
+                        <div className='grid gap-3 sm:grid-cols-[repeat(auto-fit,minmax(400px,1fr))]'>
+                          {laneConfigs.map((lane) => {
+                            const disabled =
+                              lane.key === 'audioOutput' &&
+                              (!laneEnabled.audioInput ||
+                                !hasValue(lanePrices.audioInput))
+                            return (
+                              <PriceLane
+                                key={lane.key}
+                                title={t(lane.titleKey)}
+                                description={t(lane.descriptionKey)}
+                                placeholder={lane.placeholder}
+                                value={lanePrices[lane.key]}
+                                enabled={laneEnabled[lane.key]}
+                                disabled={disabled}
+                                onEnabledChange={(checked) =>
+                                  handleLaneToggle(lane.key, checked)
+                                }
+                                onChange={(value) =>
+                                  handleLanePriceChange(lane.key, value)
+                                }
+                              />
+                            )
+                          })}
+                        </div>
+                      </FieldGroup>
+                    </TabsContent>
+
+                    <TabsContent value='per-request' className='pt-0'>
+                      <FieldGroup className='gap-5'>
+                        <FormField
+                          control={form.control}
+                          name='price'
+                          render={({ field }) => (
+                            <FormItem className='contents'>
+                              <Field>
+                                <FieldLabel>{t('Fixed price')}</FieldLabel>
+                                <FormControl>
+                                  <InputGroup>
+                                    <InputGroupAddon>$</InputGroupAddon>
+                                    <InputGroupInput
+                                      inputMode='decimal'
+                                      placeholder='0.01'
+                                      {...field}
+                                      onChange={(event) => {
+                                        const value = event.target.value
+                                        if (numericDraftRegex.test(value)) {
+                                          field.onChange(value)
+                                        }
+                                      }}
+                                    />
+                                    <InputGroupAddon align='inline-end'>
+                                      {t('per request')}
+                                    </InputGroupAddon>
+                                  </InputGroup>
+                                </FormControl>
+                                <FieldDescription>
+                                  {t(
+                                    'Cost in USD per request, regardless of tokens used.'
+                                  )}
+                                </FieldDescription>
+                                <FormMessage />
+                              </Field>
+                            </FormItem>
+                          )}
+                        />
+                      </FieldGroup>
+                    </TabsContent>
+
+                    <TabsContent value='tiered_expr' className='pt-0'>
+                      <FieldGroup className='gap-5'>
+                        <TieredPricingEditor
+                          key={editorReloadToken}
+                          modelName={watchedValues.name}
+                          billingExpr={billingExpr}
+                          requestRuleExpr={requestRuleExpr}
+                          onBillingExprChange={setBillingExpr}
+                          onRequestRuleExprChange={setRequestRuleExpr}
+                        />
+                      </FieldGroup>
+                    </TabsContent>
+                  </Tabs>
+                </FieldGroup>
+              </fieldset>
 
               <aside className='bg-muted/20 sticky top-0 rounded-none border'>
                 <div className='border-b px-3 py-2'>

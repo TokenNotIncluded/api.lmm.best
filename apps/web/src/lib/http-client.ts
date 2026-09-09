@@ -90,19 +90,6 @@ function createConfiguredRequestError(
 
 api.interceptors.response.use(
   (response) => {
-    if (
-      response.data?.success === true &&
-      Array.isArray(response.data.warnings)
-    ) {
-      const warnings = response.data.warnings.filter(
-        (warning: unknown): warning is string =>
-          typeof warning === 'string' && warning.trim().length > 0
-      )
-      if (warnings.length > 0) {
-        toast.warning([...new Set(warnings)].join('\n'))
-      }
-    }
-
     if (response.config.acceptAuthRotation && response.data?.success === true) {
       try {
         applyAuthRotation(response.data.data)

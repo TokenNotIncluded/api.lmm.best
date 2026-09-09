@@ -78,10 +78,7 @@ import {
   useSystemOptions,
   getOptionValue,
 } from '@/features/system-settings/hooks/use-system-options'
-import {
-  isModelPriceLocked,
-  parseModelPriceLocks,
-} from '@/features/system-settings/models/model-price-lock'
+import { parseModelPriceLocks } from '@/features/system-settings/models/use-model-price-locks'
 import { normalizeJsonString } from '@/features/system-settings/models/utils'
 import type { ModelSettings } from '@/features/system-settings/types'
 import { safeJsonParse } from '@/features/system-settings/utils/json-parser'
@@ -394,10 +391,7 @@ export function ModelMutateDrawer({
     () => parseModelPriceLocks(modelSettings?.ModelPriceLock || '{}'),
     [modelSettings?.ModelPriceLock]
   )
-  const isPricingLocked = isModelPriceLocked(
-    priceLocks,
-    form.watch('model_name')
-  )
+  const isPricingLocked = priceLocks[form.watch('model_name')] === true
 
   const validateNumber = (value: string) => {
     if (value === '') return true
@@ -717,7 +711,7 @@ export function ModelMutateDrawer({
                 ...Object.keys(next),
               ])) {
                 if (
-                  isModelPriceLocked(priceLocks, name) &&
+                  priceLocks[name] === true &&
                   previous[name] !== next[name]
                 ) {
                   pricingIgnored = true

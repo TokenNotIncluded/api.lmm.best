@@ -22,7 +22,7 @@ func TestAssistantAdminOperationContractsCriticalPayloads(t *testing.T) {
 		handler string
 		fields  []string
 	}{
-		{"UpdateOption", []string{"key", "value"}},
+		{"UpdateOption", []string{"key", "value", "model"}},
 		{"UpdateOptionsBulk", []string{"values"}},
 		{"UpdateChannel", []string{"id", "models", "model_mapping", "key_mode"}},
 		{"AddChannel", []string{"mode", "channel"}},

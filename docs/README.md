@@ -8,6 +8,7 @@ This directory contains operational, API, and legal documentation for LMM Forge.
 - [`seamless-upgrades.md`](./seamless-upgrades.md): operator upgrade flow.
 - [`release-architecture.md`](./release-architecture.md): component-scoped Go/Web release identities and Rust preview boundary.
 - [`dynamic-pricing.md`](./dynamic-pricing.md): dynamic pricing feature: formula pipeline, configuration, status API, and operation.
+- [`model-price-locks.md`](./model-price-locks.md): model base price locks, ignored-change warnings, and API compatibility.
 - [`go-memory-management.md`](./go-memory-management.md): Go request memory, optional large-request admission, and small-host tuning.
 - [`postgresql-migration.md`](./postgresql-migration.md): migration rehearsal workflow.
 - [`postgresql-cutover.md`](./postgresql-cutover.md): production cutover transaction.

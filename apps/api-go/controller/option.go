@@ -118,15 +118,17 @@ func GetOptions(c *gin.Context) {
 		Value: buildCompletionRatioMetaValue(optionValues),
 	})
 	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "",
-		"data":    options,
+		"success":      true,
+		"message":      "",
+		"data":         options,
+		"capabilities": gin.H{"model_price_locks": true},
 	})
 }
 
 type OptionUpdateRequest struct {
 	Key   string `json:"key"`
 	Value any    `json:"value"`
+	Model string `json:"model,omitempty"`
 }
 
 type OptionValuesRequest struct {
@@ -160,7 +162,7 @@ func ValidateOptions(c *gin.Context) {
 	if !ok {
 		return
 	}
-	warnings, err := model.ValidateOptionValuesWithWarnings(values)
+	result, err := model.ValidateOptionValuesWithWarnings(values)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
@@ -168,7 +170,10 @@ func ValidateOptions(c *gin.Context) {
 		})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"success": true, "message": "", "warnings": warnings})
+	c.JSON(http.StatusOK, gin.H{
+		"success": true, "message": "",
+		"warnings": result.Warnings, "locked_models": result.LockedModels,
+	})
 }
 
 // UpdateOptionsBulk validates and persists a related set of option writes as
@@ -179,7 +184,7 @@ func UpdateOptionsBulk(c *gin.Context) {
 	if !ok {
 		return
 	}
-	warnings, err := model.UpdateOptionsBulkWithWarnings(values)
+	result, err := model.UpdateOptionsBulkWithWarnings(values)
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -189,8 +194,11 @@ func UpdateOptionsBulk(c *gin.Context) {
 		keys = append(keys, key)
 	}
 	sort.Strings(keys)
-	recordManageAudit(c, "option.bulk_update", map[string]interface{}{"keys": keys})
-	c.JSON(http.StatusOK, gin.H{"success": true, "message": "", "warnings": warnings})
+	recordManageAudit(c, "option.bulk_update", map[string]interface{}{"keys": keys, "locked_models": result.LockedModels})
+	c.JSON(http.StatusOK, gin.H{
+		"success": true, "message": "",
+		"warnings": result.Warnings, "locked_models": result.LockedModels,
+	})
 }
 
 func UpdateOption(c *gin.Context) {
@@ -200,6 +208,25 @@ func UpdateOption(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
 			"message": "无效的参数",
+		})
+		return
+	}
+	if option.Key == model.ModelPriceLocksOptionKey && option.Model != "" {
+		locked, ok := option.Value.(bool)
+		if !ok {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "value must be a boolean"})
+			return
+		}
+		result, err := model.UpdateModelPriceLock(option.Model, locked)
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		recordManageAudit(c, "option.update", map[string]interface{}{"key": option.Key,
+			"locked_models": result.LockedModels, "model": option.Model})
+		c.JSON(http.StatusOK, gin.H{
+			"success": true, "message": "",
+			"warnings": result.Warnings, "locked_models": result.LockedModels,
 		})
 		return
 	}
@@ -417,7 +444,7 @@ func UpdateOption(c *gin.Context) {
 			return
 		}
 	}
-	warnings, err := model.UpdateOptionWithWarnings(option.Key, option.Value.(string))
+	result, err := model.UpdateOptionWithWarnings(option.Key, option.Value.(string))
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -430,11 +457,13 @@ func UpdateOption(c *gin.Context) {
 	}
 	// 出于安全考虑只记录被修改的配置项名称，不记录配置值（可能含密钥等敏感信息）。
 	recordManageAudit(c, "option.update", map[string]interface{}{
-		"key": option.Key,
+		"key":           option.Key,
+		"locked_models": result.LockedModels,
 	})
 	c.JSON(http.StatusOK, gin.H{
-		"success":  true,
-		"message":  "",
-		"warnings": warnings,
+		"success":       true,
+		"message":       "",
+		"warnings":      result.Warnings,
+		"locked_models": result.LockedModels,
 	})
 }

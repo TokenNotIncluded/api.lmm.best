@@ -1,5 +1,7 @@
 {
   "translation": {
+    "Locked model prices were preserved; changes were ignored.": "ロックされたモデル料金を保持し、変更を無視しました。",
+    "Price is locked. Unlock it in model pricing settings to edit.": "料金はロックされています。モデル料金設定でロックを解除して編集してください。",
     "Human technical support": "担当者によるテクニカルサポート",
     "Accept this request to join the user’s existing conversation.": "このリクエストを受け付けると、ユーザーの現在の会話に参加できます。",
     "Requested support time": "サポート希望日時",
@@ -28,11 +30,6 @@
     "Your existing support request is already being handled.": "既存のサポートリクエストはすでに対応中です。",
     "Message human support...": "サポート担当者にメッセージを送信…",
     "An administrator can join this conversation after you request a transfer.": "担当者への切り替えをリクエストすると、管理者がこの会話に参加できます。",
-    "Lock model prices": "モデル料金をロック",
-    "Unlock model prices": "モデル料金のロックを解除",
-    "Locked model prices were preserved; changes were ignored.": "ロックされたモデル料金を保持し、変更を無視しました。",
-    "Model prices are locked. Changes will be ignored.": "モデル料金はロックされています。変更は無視されます。",
-    "Price is locked. Unlock it in model pricing settings to edit.": "料金はロックされています。モデル料金設定でロックを解除して編集してください。",
     "360": "360",
     "1000": "1000",
     "10000": "10000",
@@ -8194,6 +8191,13 @@
     "New here? Start with the setup guide": "初めての方は設定ガイドから",
     "OpenAI-compatible access for applications, scripts, and agents.": "アプリ、スクリプト、エージェントで使える OpenAI 互換 API。",
     "Replace model-name with an available model ID for the selected API. Set LMM_API_KEY locally; never put your key in browser code.": "model-name を、選択した API で利用できるモデル ID に置き換えてください。LMM_API_KEY はローカルで設定し、ブラウザーで実行するコードにはキーを絶対に含めないでください。",
-    "Use one Base URL, model ID, and API key across your compatible tools.": "対応ツール間で同じ Base URL、モデル ID、API キーを使えます。"
+    "Use one Base URL, model ID, and API key across your compatible tools.": "対応ツール間で同じ Base URL、モデル ID、API キーを使えます。",
+    "Lock {{name}} pricing": "{{name}} の価格をロック",
+    "Unlock {{name}} pricing": "{{name}} の価格ロックを解除",
+    "Locked model prices are unchanged. Unlock the model to edit pricing.": "ロックされたモデルの価格は変更されません。編集するにはロックを解除してください。",
+    "Skipped locked models: {{models}}": "ロックされたモデルをスキップしました: {{models}}",
+    "The server does not support price locks. Update the server before locking prices.": "サーバーは価格ロックに対応していません。先にサーバーを更新してください。",
+    "Failed to update price lock": "価格ロックの更新に失敗しました",
+    "Locked price changes ignored": "ロックされた価格の変更を無視しました"
   }
 }

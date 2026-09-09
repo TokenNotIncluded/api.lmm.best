@@ -2,7 +2,6 @@ package controller
 
 import (
 	"errors"
-	"fmt"
 	"time"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
@@ -15,42 +14,6 @@ import (
 // Only the authenticated chat controller may set this request-local capability.
 // Tool arguments, conversation messages and summaries cannot enable it.
 const assistantAdminAutomationContextKey = "assistant_admin_automation_authorized"
-const assistantAdminPricingWarningsContextKey = "assistant_admin_pricing_warnings"
-const assistantAdminPricingIgnoredContextKey = "assistant_admin_pricing_ignored"
-
-func clearAssistantAdminPricingWarnings(c *gin.Context) {
-	if c != nil {
-		c.Set(assistantAdminPricingWarningsContextKey, []string(nil))
-		c.Set(assistantAdminPricingIgnoredContextKey, false)
-	}
-}
-
-func assistantAdminPricingWarnings(c *gin.Context) []string {
-	if c == nil {
-		return nil
-	}
-	value, _ := c.Get(assistantAdminPricingWarningsContextKey)
-	warnings, _ := value.([]string)
-	return warnings
-}
-
-func appendAssistantAdminPricingWarnings(c *gin.Context, warnings []string) {
-	if c != nil && len(warnings) > 0 {
-		c.Set(assistantAdminPricingWarningsContextKey, append(assistantAdminPricingWarnings(c), warnings...))
-	}
-}
-
-func assistantAdminLockedPricingWarning(modelID string) string {
-	return fmt.Sprintf("模型 %s 的价格已锁定，已忽略本次价格修改", modelID)
-}
-
-func assistantAdminIgnoredPricingResult(modelID string) map[string]any {
-	return map[string]any{
-		"ok": true, "status": "ignored", "applied": false, "model_id": modelID,
-		"warnings": []string{assistantAdminLockedPricingWarning(modelID)},
-		"pricing":  assistantAdminPricingStateMap(assistantAdminCurrentPricingState(modelID)),
-	}
-}
 
 // Fresh database reads prevent an in-flight agent from retaining authority
 // after logout, account suspension, a password/security reset, or demotion.
@@ -81,7 +44,6 @@ func validateAssistantAdminAutomationSession(c *gin.Context, userID int) (*model
 // authenticated administrator conversation may execute the exact same
 // validated payload directly and receives the applied result for its next turn.
 func maybeApplyAssistantAdminAutomatically(c *gin.Context, userID int, payload assistantAdminChangePayload) (map[string]any, bool) {
-	clearAssistantAdminPricingWarnings(c)
 	if c == nil || !c.GetBool(assistantAdminAutomationContextKey) {
 		return nil, false
 	}
@@ -95,28 +57,12 @@ func maybeApplyAssistantAdminAutomatically(c *gin.Context, userID int, payload a
 	if (payload.Kind == assistantAdminConfigChangeKind || payload.Kind == assistantAdminPricingChangeKind || payload.Kind == assistantAdminModelSyncChangeKind) && user.Role < common.RoleRootUser {
 		return map[string]any{"ok": false, "status": "forbidden", "error": "root administrator access is required"}, true
 	}
-	if payload.Kind == assistantAdminPricingChangeKind && payload.Pricing != nil && model.IsModelPricingLocked(payload.Pricing.ModelID) {
-		return assistantAdminIgnoredPricingResult(payload.Pricing.ModelID), true
-	}
-	if err := applyAssistantAdminChange(c, payload); err != nil {
+	result, err := applyAssistantAdminChange(c, payload)
+	if err != nil {
 		return map[string]any{"ok": false, "status": "apply_failed", "error": err.Error()}, true
 	}
-	if !c.GetBool(assistantAdminPricingIgnoredContextKey) {
-		auditAssistantAdminChange(c, payload, ".automatic")
-	}
-	result := map[string]any{"ok": true, "status": "applied", "applied": !c.GetBool(assistantAdminPricingIgnoredContextKey), "kind": payload.Kind}
-	if warnings := assistantAdminPricingWarnings(c); len(warnings) > 0 {
-		result["warnings"] = warnings
-	}
-	if c.GetBool(assistantAdminPricingIgnoredContextKey) {
-		result["status"] = "ignored"
-	}
+	auditAssistantAdminChange(c, payload, ".automatic", result)
 	switch payload.Kind {
-	case assistantAdminConfigChangeKind:
-		result["updated_keys"] = sortedAssistantAdminChangeKeys(payload.ConfigChanges)
-	case assistantAdminPricingChangeKind:
-		result["model_id"] = payload.Pricing.ModelID
-		result["pricing"] = assistantAdminPricingStateMap(assistantAdminCurrentPricingState(payload.Pricing.ModelID))
 	case assistantAdminChannelChangeKind:
 		result["channel_id"] = payload.Channel.ChannelID
 		result["updated_fields"] = sortedAssistantAdminChangeKeys(payload.Channel.Changes)
@@ -133,12 +79,13 @@ func maybeApplyAssistantAdminAutomatically(c *gin.Context, userID int, payload a
 	return result, true
 }
 
-func auditAssistantAdminChange(c *gin.Context, payload assistantAdminChangePayload, suffix string) {
-	detail := map[string]interface{}{"kind": payload.Kind}
+func auditAssistantAdminChange(c *gin.Context, payload assistantAdminChangePayload, suffix string, result map[string]any) {
+	detail := map[string]interface{}{"kind": payload.Kind, "status": result["status"], "applied": result["applied"], "warnings": result["warnings"], "locked_models": result["locked_models"]}
 	switch payload.Kind {
 	case assistantAdminPricingChangeKind:
 		if payload.Pricing != nil {
-			detail["model_id"], detail["mode"], detail["value"] = payload.Pricing.ModelID, payload.Pricing.Mode, payload.Pricing.Value
+			detail["model_id"] = payload.Pricing.ModelID
+			detail["pricing"] = result["pricing"]
 		}
 	case assistantAdminChannelChangeKind:
 		if payload.Channel != nil {
@@ -153,7 +100,7 @@ func auditAssistantAdminChange(c *gin.Context, payload assistantAdminChangePaylo
 			detail["locale"], detail["model_count"], detail["source_digest"] = payload.ModelSync.Locale, len(payload.ModelSync.Models), payload.ModelSync.SourceDigest
 		}
 	default:
-		detail["keys"] = sortedAssistantAdminChangeKeys(payload.ConfigChanges)
+		detail["keys"] = result["updated_keys"]
 	}
 	// The relay bills a root account in c.id. Attribute mutations to the signed
 	// in actor without changing the relay's billing context.

@@ -1,5 +1,7 @@
 {
   "translation": {
+    "Locked model prices were preserved; changes were ignored.": "已保留锁定的模型价格，修改已忽略。",
+    "Price is locked. Unlock it in model pricing settings to edit.": "价格已锁定，请在模型定价设置中解锁后编辑。",
     "Human technical support": "人工技术支持",
     "Accept this request to join the user’s existing conversation.": "接受请求后，即可加入用户当前的站内对话。",
     "Requested support time": "期望支持时间",
@@ -28,11 +30,6 @@
     "Your existing support request is already being handled.": "你已有人工支持请求正在处理中。",
     "Message human support...": "向人工支持发送消息…",
     "An administrator can join this conversation after you request a transfer.": "提交转人工请求后，管理员可以接单并加入当前对话。",
-    "Lock model prices": "锁定模型价格",
-    "Unlock model prices": "解锁模型价格",
-    "Locked model prices were preserved; changes were ignored.": "已保留锁定的模型价格，修改已忽略。",
-    "Model prices are locked. Changes will be ignored.": "模型价格已锁定，修改将被忽略。",
-    "Price is locked. Unlock it in model pricing settings to edit.": "价格已锁定，请在模型定价设置中解锁后编辑。",
     "360": "360",
     "1000": "1000",
     "10000": "10000",
@@ -3077,7 +3074,7 @@
     "footer.columns.related.links.midjourney": "MjProxy",
     "footer.columns.related.title": "相关项目",
     "footer.defaultCopyright": "版权所有。",
-    "footer.new\u0061pi.projectAttributionSuffix": "版权所有，由项目贡献者设计与开发。",
+    "footer.newapi.projectAttributionSuffix": "版权所有，由项目贡献者设计与开发。",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "对于 2025 年 5 月 10 日之后添加的渠道，在部署时无需从模型名称中移除 \".\"",
     "For example, a reliable OpenAI-compatible endpoint": "例如：稳定的 OpenAI 兼容接口",
     "For example: 12, 34, 56": "例如：12, 34, 56",
@@ -8194,6 +8191,13 @@
     "New here? Start with the setup guide": "第一次使用？从设置指南开始",
     "OpenAI-compatible access for applications, scripts, and agents.": "为应用、脚本和智能体提供 OpenAI 兼容接口。",
     "Replace model-name with an available model ID for the selected API. Set LMM_API_KEY locally; never put your key in browser code.": "将 model-name 替换为所选 API 支持的可用模型 ID。在本地设置 LMM_API_KEY，请勿将密钥写入浏览器端代码。",
-    "Use one Base URL, model ID, and API key across your compatible tools.": "在兼容工具中使用同一组基础地址、模型 ID 和 API 密钥。"
+    "Use one Base URL, model ID, and API key across your compatible tools.": "在兼容工具中使用同一组基础地址、模型 ID 和 API 密钥。",
+    "Lock {{name}} pricing": "锁定 {{name}} 的价格",
+    "Unlock {{name}} pricing": "解锁 {{name}} 的价格",
+    "Locked model prices are unchanged. Unlock the model to edit pricing.": "已锁定模型的价格保持不变，解锁后可修改。",
+    "Skipped locked models: {{models}}": "已跳过锁定的模型：{{models}}",
+    "The server does not support price locks. Update the server before locking prices.": "服务器暂不支持价格锁，请先更新服务器。",
+    "Failed to update price lock": "更新价格锁失败",
+    "Locked price changes ignored": "已忽略锁定价格的修改"
   }
 }

@@ -1,5 +1,7 @@
 {
   "translation": {
+    "Locked model prices were preserved; changes were ignored.": "Giá mô hình đã khóa được giữ nguyên; các thay đổi đã bị bỏ qua.",
+    "Price is locked. Unlock it in model pricing settings to edit.": "Giá đã bị khóa. Hãy mở khóa trong cài đặt giá mô hình để chỉnh sửa.",
     "Human technical support": "Hỗ trợ kỹ thuật từ nhân viên",
     "Accept this request to join the user’s existing conversation.": "Chấp nhận yêu cầu này để tham gia cuộc trò chuyện hiện tại của người dùng.",
     "Requested support time": "Thời gian hỗ trợ mong muốn",
@@ -28,11 +30,6 @@
     "Your existing support request is already being handled.": "Yêu cầu hỗ trợ hiện tại của bạn đang được xử lý.",
     "Message human support...": "Nhắn tin cho nhân viên hỗ trợ…",
     "An administrator can join this conversation after you request a transfer.": "Sau khi bạn yêu cầu chuyển đến nhân viên, quản trị viên có thể tham gia cuộc trò chuyện này.",
-    "Lock model prices": "Khóa giá mô hình",
-    "Unlock model prices": "Mở khóa giá mô hình",
-    "Locked model prices were preserved; changes were ignored.": "Giá mô hình đã khóa được giữ nguyên; các thay đổi đã bị bỏ qua.",
-    "Model prices are locked. Changes will be ignored.": "Giá mô hình đã bị khóa. Các thay đổi sẽ bị bỏ qua.",
-    "Price is locked. Unlock it in model pricing settings to edit.": "Giá đã bị khóa. Hãy mở khóa trong cài đặt giá mô hình để chỉnh sửa.",
     "360": "360",
     "1000": "1000",
     "10000": "10000",
@@ -8194,6 +8191,13 @@
     "New here? Start with the setup guide": "Bạn mới bắt đầu? Hãy xem hướng dẫn thiết lập",
     "OpenAI-compatible access for applications, scripts, and agents.": "Quyền truy cập tương thích OpenAI cho ứng dụng, tập lệnh và tác tử.",
     "Replace model-name with an available model ID for the selected API. Set LMM_API_KEY locally; never put your key in browser code.": "Thay model-name bằng ID mô hình khả dụng cho API đã chọn. Thiết lập LMM_API_KEY cục bộ; đừng bao giờ đưa khóa vào mã chạy trên trình duyệt.",
-    "Use one Base URL, model ID, and API key across your compatible tools.": "Dùng chung một URL cơ sở, ID mô hình và khóa API cho các công cụ tương thích của bạn."
+    "Use one Base URL, model ID, and API key across your compatible tools.": "Dùng chung một URL cơ sở, ID mô hình và khóa API cho các công cụ tương thích của bạn.",
+    "Lock {{name}} pricing": "Khóa giá {{name}}",
+    "Unlock {{name}} pricing": "Mở khóa giá {{name}}",
+    "Locked model prices are unchanged. Unlock the model to edit pricing.": "Giá mô hình đã khóa được giữ nguyên. Mở khóa mô hình để chỉnh sửa.",
+    "Skipped locked models: {{models}}": "Đã bỏ qua các mô hình bị khóa: {{models}}",
+    "The server does not support price locks. Update the server before locking prices.": "Máy chủ chưa hỗ trợ khóa giá. Hãy cập nhật máy chủ trước.",
+    "Failed to update price lock": "Không thể cập nhật khóa giá",
+    "Locked price changes ignored": "Đã bỏ qua thay đổi giá bị khóa"
   }
 }

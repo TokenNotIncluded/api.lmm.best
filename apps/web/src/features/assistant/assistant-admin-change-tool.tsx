@@ -20,6 +20,7 @@ import { Spinner } from '@/components/ui/spinner'
 import {
   submitAssistantAdminChange,
   type AssistantAdminChangeAction,
+  type AssistantAdminChangeResult,
 } from './api'
 
 function displayValue(value: unknown): string {
@@ -41,22 +42,20 @@ export function AssistantAdminChangeTool(props: {
 }) {
   const { t } = useTranslation()
   const [applying, setApplying] = useState(false)
-  const [applied, setApplied] = useState(false)
-  const [warnings, setWarnings] = useState<string[]>([])
+  const [result, setResult] = useState<AssistantAdminChangeResult | null>(null)
 
   const apply = async () => {
-    if (applying || applied) return
+    if (applying || result) return
     setApplying(true)
     try {
-      const result = await submitAssistantAdminChange(
+      const saved = await submitAssistantAdminChange(
         props.action.confirmation_token
       )
-      setApplied(true)
-      setWarnings(result.warnings ?? [])
-      props.onApplied?.()
-      if (result.warnings?.length) {
-        toast.warning(result.warnings.join('\n'))
-      } else if (result.applied) {
+      setResult(saved)
+      if (saved.applied) props.onApplied?.()
+      if (saved.warnings?.length) {
+        toast.warning(saved.warnings.join('；'))
+      } else if (saved.applied) {
         toast.success(t('Administrator change applied'))
       }
     } catch (error) {
@@ -70,35 +69,34 @@ export function AssistantAdminChangeTool(props: {
     }
   }
 
-  if (applied) {
+  if (result) {
+    const hasWarnings = !result.applied || Boolean(result.warnings?.length)
     return (
       <Card
         size='sm'
         className={
-          warnings.length
-            ? 'border-amber-500/40 bg-amber-500/5'
+          hasWarnings
+            ? 'border-warning/40 bg-warning/5'
             : 'border-success/40 bg-success/5'
         }
       >
         <CardHeader>
           <CardTitle className='flex items-center gap-2'>
             <HugeiconsIcon
-              icon={warnings.length ? Shield02Icon : CheckmarkCircle02Icon}
+              icon={hasWarnings ? Shield02Icon : CheckmarkCircle02Icon}
               className={
-                warnings.length
-                  ? 'size-4 text-amber-600'
-                  : 'text-success size-4'
+                hasWarnings ? 'text-warning size-4' : 'text-success size-4'
               }
               strokeWidth={2}
               aria-hidden='true'
             />
-            {warnings.length
-              ? t('Administrator configuration change')
-              : t('Administrator change applied')}
+            {result.applied
+              ? t('Administrator change applied')
+              : t('Locked price changes ignored')}
           </CardTitle>
           <CardDescription>
-            {warnings.length
-              ? warnings.join('\n')
+            {hasWarnings
+              ? result.warnings?.join('；') || t('Locked price changes ignored')
               : t(
                   'The server configuration was updated and the one-time confirmation was consumed.'
                 )}
@@ -131,6 +129,12 @@ export function AssistantAdminChangeTool(props: {
         </CardDescription>
       </CardHeader>
       <CardContent className='grid gap-3'>
+        {props.action.type === 'admin_config_change' &&
+        props.action.warnings?.length ? (
+          <p role='status' className='text-warning text-xs'>
+            {props.action.warnings.join('；')}
+          </p>
+        ) : null}
         {props.action.type === 'admin_config_change' &&
         (props.action.scope ||
           props.action.target_user_id ||

@@ -130,5 +130,6 @@ func TestAssistantAdminChannelToolsRespectPermissionOverrides(t *testing.T) {
 	assert.Equal(t, false, executeAssistantAdminChannelsTool(actor.Id)["ok"])
 	assert.Error(t, assistantAdminChannelPermission(actor.Id, map[string]string{"models": "example-model"}))
 	assert.NoError(t, assistantAdminChannelPermission(actor.Id, map[string]string{"status": "2"}))
-	assert.Error(t, applyAssistantAdminChange(c, assistantAdminChangePayload{Kind: assistantAdminChannelChangeKind, Channel: &assistantAdminChannelChange{ChannelID: 1, Changes: map[string]string{"models": "example-model"}}}))
+	_, err := applyAssistantAdminChange(c, assistantAdminChangePayload{Kind: assistantAdminChannelChangeKind, Channel: &assistantAdminChannelChange{ChannelID: 1, Changes: map[string]string{"models": "example-model"}}})
+	assert.Error(t, err)
 }
