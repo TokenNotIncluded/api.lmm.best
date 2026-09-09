@@ -80,7 +80,7 @@ function options(locks = '{}', ratio = '{}'): SystemOptionsResponse {
     data: Object.entries({
       ...emptyFields,
       ModelRatio: ratio,
-      ModelPriceLocks: locks,
+      ModelPriceLock: locks,
     }).map(([key, value]) => ({ key, value })),
   }
 }
