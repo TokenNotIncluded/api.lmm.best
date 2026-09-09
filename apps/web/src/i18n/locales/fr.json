@@ -5566,7 +5566,7 @@
     "Quantity": "Quantité",
     "Quantity: {{quantity}} · Service: {{service}} · Country: {{country}} · Maximum reserved total: {{price}}. Any lower settlement is refunded.": "Quantité : {{quantity}} · Service : {{service}} · Pays/région : {{country}} · Total maximal réservé : {{price}}. Toute différence en cas de règlement inférieur est remboursée.",
     "Quantity: {{quantity}} · Service: {{service}} · Country: {{country}} · Total: {{price}} of platform balance.": "Quantité : {{quantity}} · Service : {{service}} · Pays : {{country}} · Total débité du solde de la plateforme : {{price}}.",
-    "Query": "Query",
+    "Query": "Requête",
     "Query Balance": "Solde des requêtes",
     "Query Param": "Paramètre de requête",
     "Querying...": "Recherche en cours...",

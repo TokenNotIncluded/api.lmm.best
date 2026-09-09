@@ -7503,6 +7503,7 @@ const targetedUiTranslationFixes = {
   fr: {
     End: 'Fin',
     Pay: 'Payer',
+    Query: 'Requête',
     Prompt: 'Invite',
     Quota: 'Quota',
     'Quota:': 'Quota :',
@@ -7516,8 +7517,13 @@ const targetedUiTranslationFixes = {
     End: 'Kết thúc',
     Pay: 'Thanh toán',
     Prompt: 'Lời nhắc',
+    // (Japanese-specific "チップ" kept separate below)
     Tips: 'Tiền boa',
     Query: 'Truy vấn',
+  },
+  ja: {
+    Pay: '支払い',
+    Tips: 'チップ',
   },
   'zh-TW': {
     Pay: '付款',
