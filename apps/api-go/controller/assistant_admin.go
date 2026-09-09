@@ -283,13 +283,14 @@ type assistantAdminPricingState struct {
 }
 
 type assistantAdminChangePayload struct {
-	Kind           string                         `json:"kind"`
-	ConfigChanges  map[string]string              `json:"config_changes,omitempty"`
-	ConfigExpected map[string]string              `json:"config_expected,omitempty"`
-	Channel        *assistantAdminChannelChange   `json:"channel,omitempty"`
-	Pricing        *assistantAdminPricingChange   `json:"pricing,omitempty"`
-	UserSkill      *assistantAdminUserSkillChange `json:"user_skill,omitempty"`
-	ModelSync      *assistantAdminModelSyncChange `json:"model_sync,omitempty"`
+	Kind            string                         `json:"kind"`
+	ConfigChanges   map[string]string              `json:"config_changes,omitempty"`
+	ConfigExpected  map[string]string              `json:"config_expected,omitempty"`
+	PricingWarnings []string                       `json:"pricing_warnings,omitempty"`
+	Channel         *assistantAdminChannelChange   `json:"channel,omitempty"`
+	Pricing         *assistantAdminPricingChange   `json:"pricing,omitempty"`
+	UserSkill       *assistantAdminUserSkillChange `json:"user_skill,omitempty"`
+	ModelSync       *assistantAdminModelSyncChange `json:"model_sync,omitempty"`
 }
 
 type assistantAdminChannelChange struct {
@@ -827,47 +828,60 @@ func validateAssistantAdminConfigFieldType(key, value string) error {
 }
 
 func assistantAdminConfigChanges(input map[string]any) (map[string]string, error) {
+	changes, _, err := assistantAdminConfigChangesWithWarnings(input)
+	return changes, err
+}
+
+func assistantAdminConfigChangesWithWarnings(input map[string]any) (map[string]string, []string, error) {
 	raw, ok := input["changes"]
 	if !ok {
-		return nil, errors.New("changes are required")
+		return nil, nil, errors.New("changes are required")
 	}
 	changes, ok := raw.(map[string]any)
 	if !ok {
 		if encoded, encodedOK := raw.(string); encodedOK {
 			if err := json.Unmarshal([]byte(encoded), &changes); err != nil {
-				return nil, errors.New("changes must be a JSON object")
+				return nil, nil, errors.New("changes must be a JSON object")
 			}
 		} else {
-			return nil, errors.New("changes must be a JSON object")
+			return nil, nil, errors.New("changes must be a JSON object")
 		}
 	}
 	if len(changes) == 0 || len(changes) > assistantAdminMaxConfigChanges {
-		return nil, fmt.Errorf("choose between 1 and %d configuration changes", assistantAdminMaxConfigChanges)
+		return nil, nil, fmt.Errorf("choose between 1 and %d configuration changes", assistantAdminMaxConfigChanges)
 	}
 	result := make(map[string]string, len(changes))
 	labels := assistantAdminAvailableConfigLabels()
 	for key, value := range changes {
 		key = strings.TrimSpace(key)
 		if _, allowed := labels[key]; !allowed {
-			return nil, fmt.Errorf("configuration key %q is not available to the assistant", key)
+			return nil, nil, fmt.Errorf("configuration key %q is not available to the assistant", key)
 		}
 		normalized, err := assistantAdminValueString(value)
 		if err != nil {
-			return nil, fmt.Errorf("%s: %w", key, err)
-		}
-		if !strings.HasPrefix(key, "dynamic_pricing_setting.") {
-			if err := validateAssistantAdminConfigValue(key, normalized); err != nil {
-				return nil, fmt.Errorf("%s: %w", key, err)
-			}
+			return nil, nil, fmt.Errorf("%s: %w", key, err)
 		}
 		result[key] = normalized
 	}
-	if hasAssistantAdminDynamicPricingChange(result) {
-		if err := model.ValidateOptionValues(result); err != nil {
-			return nil, fmt.Errorf("dynamic pricing: %w", err)
+	// Discard locked entries before validating their values. The sanitized map
+	// is also the exact payload shown and signed for later confirmation.
+	result, warnings, err := model.FilterLockedModelPricing(result)
+	if err != nil {
+		return nil, nil, err
+	}
+	for key, value := range result {
+		if !strings.HasPrefix(key, "dynamic_pricing_setting.") {
+			if err := validateAssistantAdminConfigValue(key, value); err != nil {
+				return nil, nil, fmt.Errorf("%s: %w", key, err)
+			}
 		}
 	}
-	return result, nil
+	if hasAssistantAdminDynamicPricingChange(result) {
+		if err := model.ValidateOptionValues(result); err != nil {
+			return nil, nil, fmt.Errorf("dynamic pricing: %w", err)
+		}
+	}
+	return result, warnings, nil
 }
 
 func hasAssistantAdminDynamicPricingChange(values map[string]string) bool {
@@ -1330,10 +1344,11 @@ func executeAssistantReviewTool(userID int) map[string]any {
 }
 
 func executeAssistantAdminConfigChangeTool(c *gin.Context, userID int, input map[string]any) map[string]any {
+	clearAssistantAdminPricingWarnings(c)
 	if _, err := assistantRootUser(userID); err != nil {
 		return map[string]any{"ok": false, "error": err.Error()}
 	}
-	changes, err := assistantAdminConfigChanges(input)
+	changes, warnings, err := assistantAdminConfigChangesWithWarnings(input)
 	if err != nil {
 		return map[string]any{"ok": false, "error": err.Error()}
 	}
@@ -1350,9 +1365,10 @@ func executeAssistantAdminConfigChangeTool(c *gin.Context, userID int, input map
 		})
 	}
 	payload := assistantAdminChangePayload{
-		Kind:           assistantAdminConfigChangeKind,
-		ConfigChanges:  changes,
-		ConfigExpected: current,
+		Kind:            assistantAdminConfigChangeKind,
+		ConfigChanges:   changes,
+		ConfigExpected:  current,
+		PricingWarnings: warnings,
 	}
 	if result, handled := maybeApplyAssistantAdminAutomatically(c, userID, payload); handled {
 		return result
@@ -1367,6 +1383,7 @@ func executeAssistantAdminConfigChangeTool(c *gin.Context, userID int, input map
 		"requires_confirmation": true,
 		"expires_in_seconds":    int(assistantAdminChangeLifetime / time.Second),
 		"changes":               preview,
+		"warnings":              warnings,
 	}
 	c.Set(assistantClientActionKey, action)
 	return map[string]any{
@@ -1374,6 +1391,7 @@ func executeAssistantAdminConfigChangeTool(c *gin.Context, userID int, input map
 		"status":    "confirmation_required",
 		"action":    "admin_config_change",
 		"changes":   preview,
+		"warnings":  warnings,
 		"next_step": "Show the exact preview and ask the administrator to confirm in the UI.",
 	}
 }
@@ -1821,6 +1839,7 @@ func assistantAdminPricingPreview(change assistantAdminPricingChange) map[string
 }
 
 func executeAssistantAdminPricingChangeTool(c *gin.Context, userID int, input map[string]any) map[string]any {
+	clearAssistantAdminPricingWarnings(c)
 	if _, err := assistantRootUser(userID); err != nil {
 		return map[string]any{"ok": false, "error": err.Error()}
 	}
@@ -1829,6 +1848,15 @@ func executeAssistantAdminPricingChangeTool(c *gin.Context, userID int, input ma
 	value, valueOK := inputNumber(input, "value")
 	if modelID == "" || len([]rune(modelID)) > 200 {
 		return map[string]any{"ok": false, "error": "an exact model_id is required"}
+	}
+	// Authorization is checked first, including live session revocation for
+	// automated calls. A locked model never validates or applies a new price.
+	if model.IsModelPricingLocked(modelID) {
+		payload := assistantAdminChangePayload{Kind: assistantAdminPricingChangeKind, Pricing: &assistantAdminPricingChange{ModelID: modelID}}
+		if result, handled := maybeApplyAssistantAdminAutomatically(c, userID, payload); handled {
+			return result
+		}
+		return assistantAdminIgnoredPricingResult(modelID)
 	}
 	if mode != "ratio" && mode != "fixed_request" {
 		return map[string]any{"ok": false, "error": "mode must be ratio or fixed_request"}
@@ -2192,6 +2220,8 @@ func applyAssistantAdminUserSkillChange(actorUserID int, change assistantAdminUs
 }
 
 func applyAssistantAdminChange(c *gin.Context, payload assistantAdminChangePayload) error {
+	clearAssistantAdminPricingWarnings(c)
+	appendAssistantAdminPricingWarnings(c, payload.PricingWarnings)
 	switch payload.Kind {
 	case assistantAdminConfigChangeKind:
 		if len(payload.ConfigChanges) == 0 {
@@ -2206,6 +2236,12 @@ func applyAssistantAdminChange(c *gin.Context, payload assistantAdminChangePaylo
 				return errors.New("administrator configuration changed after the preview; prepare it again")
 			}
 		}
+		filtered, warnings, err := model.FilterLockedModelPricing(payload.ConfigChanges)
+		if err != nil {
+			return err
+		}
+		payload.ConfigChanges = filtered
+		appendAssistantAdminPricingWarnings(c, warnings)
 		if err := validateAssistantAdminDynamicPricingChange(payload.ConfigChanges); err != nil {
 			return err
 		}
@@ -2220,9 +2256,11 @@ func applyAssistantAdminChange(c *gin.Context, payload assistantAdminChangePaylo
 				return fmt.Errorf("%s: %w", key, err)
 			}
 		}
-		if err := model.UpdateOptionsBulk(payload.ConfigChanges); err != nil {
+		warnings, err = model.UpdateOptionsBulkWithWarnings(payload.ConfigChanges)
+		if err != nil {
 			return err
 		}
+		appendAssistantAdminPricingWarnings(c, warnings)
 		for key := range payload.ConfigChanges {
 			if key == "GroupRatio" || key == "GroupGroupRatio" || key == "TopupGroupRatio" {
 				if err := refreshPricingCache(); err != nil {
@@ -2235,6 +2273,11 @@ func applyAssistantAdminChange(c *gin.Context, payload assistantAdminChangePaylo
 		if payload.Pricing == nil {
 			return errors.New("administrator pricing change is empty")
 		}
+		if model.IsModelPricingLocked(payload.Pricing.ModelID) {
+			appendAssistantAdminPricingWarnings(c, []string{assistantAdminLockedPricingWarning(payload.Pricing.ModelID)})
+			c.Set(assistantAdminPricingIgnoredContextKey, true)
+			return nil
+		}
 		if payload.Pricing.Expected == nil || assistantAdminCurrentPricingState(payload.Pricing.ModelID) != *payload.Pricing.Expected {
 			return errors.New("model pricing changed after the preview; prepare it again")
 		}
@@ -2242,9 +2285,11 @@ func applyAssistantAdminChange(c *gin.Context, payload assistantAdminChangePaylo
 		if err != nil {
 			return err
 		}
-		if err := model.UpdateOptionsBulk(options); err != nil {
+		warnings, err := model.UpdateOptionsBulkWithWarnings(options)
+		if err != nil {
 			return err
 		}
+		appendAssistantAdminPricingWarnings(c, warnings)
 		if err := refreshPricingCache(); err != nil {
 			return err
 		}
@@ -2316,11 +2361,13 @@ func ApplyAssistantAdminChange(c *gin.Context) {
 		return
 	}
 	if payload.Kind == assistantAdminPricingChangeKind && payload.Pricing != nil {
-		recordManageAudit(c, "assistant.admin_pricing_apply", map[string]interface{}{
-			"model_id": payload.Pricing.ModelID,
-			"mode":     payload.Pricing.Mode,
-			"value":    payload.Pricing.Value,
-		})
+		if !c.GetBool(assistantAdminPricingIgnoredContextKey) {
+			recordManageAudit(c, "assistant.admin_pricing_apply", map[string]interface{}{
+				"model_id": payload.Pricing.ModelID,
+				"mode":     payload.Pricing.Mode,
+				"value":    payload.Pricing.Value,
+			})
+		}
 	} else if payload.Kind == assistantAdminChannelChangeKind && payload.Channel != nil {
 		fields := make([]string, 0, len(payload.Channel.Changes))
 		for field := range payload.Channel.Changes {
@@ -2356,7 +2403,8 @@ func ApplyAssistantAdminChange(c *gin.Context) {
 		recordManageAudit(c, "assistant.admin_config_apply", map[string]interface{}{"keys": keys})
 	}
 	common.ApiSuccess(c, gin.H{
-		"applied": true,
-		"kind":    payload.Kind,
+		"applied":  !c.GetBool(assistantAdminPricingIgnoredContextKey),
+		"kind":     payload.Kind,
+		"warnings": assistantAdminPricingWarnings(c),
 	})
 }

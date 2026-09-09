@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { ChevronDown, Loader2 } from 'lucide-react'
+import { ChevronDown, Loader2, Lock } from 'lucide-react'
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
@@ -31,6 +31,7 @@ import {
   sideDrawerFooterClassName,
   sideDrawerFormClassName,
   sideDrawerHeaderClassName,
+  sideDrawerSectionClassName,
   sideDrawerSwitchItemClassName,
 } from '@/components/drawer-layout'
 import { JsonEditor } from '@/components/json-editor'
@@ -72,11 +73,15 @@ import {
 } from '@/components/ui/sheet'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
+import { updateSystemOptions } from '@/features/system-settings/api'
 import {
   useSystemOptions,
   getOptionValue,
 } from '@/features/system-settings/hooks/use-system-options'
-import { useUpdateOption } from '@/features/system-settings/hooks/use-update-option'
+import {
+  isModelPriceLocked,
+  parseModelPriceLocks,
+} from '@/features/system-settings/models/model-price-lock'
 import { normalizeJsonString } from '@/features/system-settings/models/utils'
 import type { ModelSettings } from '@/features/system-settings/types'
 import { safeJsonParse } from '@/features/system-settings/utils/json-parser'
@@ -281,8 +286,6 @@ export function ModelMutateDrawer({
   // Fetch system options for ratio configuration
   const { data: systemOptionsData } = useSystemOptions()
 
-  const updateOption = useUpdateOption()
-
   // Get model settings from system options
   const modelSettings = useMemo(() => {
     if (!systemOptionsData?.data) return null
@@ -310,6 +313,7 @@ export function ModelMutateDrawer({
       'claude.thinking_adapter_enabled': true,
       'claude.thinking_adapter_budget_tokens_percentage': 0.8,
       ModelPrice: '',
+      ModelPriceLock: '{}',
       ModelRatio: '',
       CacheRatio: '',
       CompletionRatio: '',
@@ -385,6 +389,15 @@ export function ModelMutateDrawer({
       audioCompletionRatio: '',
     },
   })
+
+  const priceLocks = useMemo(
+    () => parseModelPriceLocks(modelSettings?.ModelPriceLock || '{}'),
+    [modelSettings?.ModelPriceLock]
+  )
+  const isPricingLocked = isModelPriceLocked(
+    priceLocks,
+    form.watch('model_name')
+  )
 
   const validateNumber = (value: string) => {
     if (value === '') return true
@@ -504,6 +517,7 @@ export function ModelMutateDrawer({
             : await createModel(modelData)
 
         if (response.success) {
+          let pricingIgnored = false
           // Handle ratio configuration updates in system settings
           const finalModelName = values.model_name
           const hasRatioConfig =
@@ -688,17 +702,55 @@ export function ModelMutateDrawer({
               })
             }
 
-            // Apply all updates (including deletions when clearing fields)
+            // Preserve locked entries even if the form was edited before a
+            // lock arrived or renamed onto an already locked model name.
+            const allowedUpdates: Record<string, string> = {}
             for (const update of updates) {
-              await updateOption.mutateAsync(update)
+              const previous =
+                safeJsonParse<Record<string, number>>(
+                  modelSettings[update.key as keyof ModelSettings] as string,
+                  { fallback: {}, silent: true }
+                ) || {}
+              const next = JSON.parse(update.value) as Record<string, number>
+              for (const name of new Set([
+                ...Object.keys(previous),
+                ...Object.keys(next),
+              ])) {
+                if (
+                  isModelPriceLocked(priceLocks, name) &&
+                  previous[name] !== next[name]
+                ) {
+                  pricingIgnored = true
+                  if (Object.hasOwn(previous, name)) next[name] = previous[name]
+                  else delete next[name]
+                }
+              }
+              const value = normalizeJsonString(JSON.stringify(next))
+              if (value !== normalizeJsonString(JSON.stringify(previous))) {
+                allowedUpdates[update.key] = value
+              }
+            }
+            if (pricingIgnored) {
+              toast.warning(
+                t('Locked model prices were preserved; changes were ignored.')
+              )
+            }
+            if (Object.keys(allowedUpdates).length > 0) {
+              const result = await updateSystemOptions(allowedUpdates)
+              if (!result.success) {
+                throw new Error(result.message || t('Failed to update setting'))
+              }
+              pricingIgnored ||= Boolean(result.warnings?.length)
             }
           }
 
-          toast.success(
-            isEditing
-              ? 'Model updated successfully'
-              : 'Model created successfully'
-          )
+          if (!pricingIgnored) {
+            toast.success(
+              isEditing
+                ? 'Model updated successfully'
+                : 'Model created successfully'
+            )
+          }
           queryClient.invalidateQueries({ queryKey: modelsQueryKeys.lists() })
           queryClient.invalidateQueries({ queryKey: ['system-options'] })
           onOpenChange(false)
@@ -720,7 +772,8 @@ export function ModelMutateDrawer({
       oldModelName,
       loadedPricingName,
       modelSettings,
-      updateOption,
+      priceLocks,
+      t,
     ]
   )
 
@@ -993,11 +1046,23 @@ export function ModelMutateDrawer({
             </SideDrawerSection>
 
             {/* Pricing Configuration */}
-            <SideDrawerSection>
+            <fieldset
+              disabled={isPricingLocked}
+              className={sideDrawerSectionClassName('disabled:opacity-60')}
+              aria-label={t('Pricing Configuration')}
+            >
               <h3 className='text-sm font-semibold'>
                 {t('Pricing Configuration')}
               </h3>
 
+              {isPricingLocked && (
+                <p className='text-muted-foreground flex items-center gap-2 text-sm'>
+                  <Lock className='h-4 w-4 shrink-0' aria-hidden='true' />
+                  {t(
+                    'Price is locked. Unlock it in model pricing settings to edit.'
+                  )}
+                </p>
+              )}
               <div className='space-y-4'>
                 <Label>{t('Pricing mode')}</Label>
                 <RadioGroup
@@ -1333,7 +1398,7 @@ export function ModelMutateDrawer({
                   </Collapsible>
                 </>
               )}
-            </SideDrawerSection>
+            </fieldset>
 
             {/* Status & Sync */}
             <SideDrawerSection>

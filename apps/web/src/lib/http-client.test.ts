@@ -21,6 +21,7 @@ import { afterEach, describe, test } from 'node:test'
 
 import { QueryClient } from '@tanstack/react-query'
 import type { AxiosAdapter, AxiosResponse } from 'axios'
+import { toast } from 'sonner'
 
 import {
   bindAuthCache,
@@ -76,6 +77,39 @@ afterEach(() => {
 })
 
 describe('authenticated HTTP requests', () => {
+  test('returns successful locked-price writes and displays a warning without errors', async () => {
+    const warningToast = toast.warning
+    const errorToast = toast.error
+    const warnings: unknown[] = []
+    const errors: unknown[] = []
+    toast.warning = ((message: unknown) => {
+      warnings.push(message)
+      return 1
+    }) as typeof toast.warning
+    toast.error = ((message: unknown) => {
+      errors.push(message)
+      return 1
+    }) as typeof toast.error
+    api.defaults.adapter = async (config) =>
+      response(config, 200, {
+        success: true,
+        message: '',
+        warnings: ['Locked price preserved', 'Locked price preserved', null],
+      })
+    try {
+      const result = await api.put('/api/option/', {
+        key: 'ModelPrice',
+        value: '{"locked-model":99}',
+      })
+      assert.equal(result.data.success, true)
+      assert.deepEqual(warnings, ['Locked price preserved'])
+      assert.deepEqual(errors, [])
+    } finally {
+      toast.warning = warningToast
+      toast.error = errorToast
+    }
+  })
+
   test('refreshes an expiring token before protected requests fan out', async () => {
     const now = Math.floor(Date.now() / 1000)
     const refreshed = bundle('fresh-token', now + 600)

@@ -1,5 +1,10 @@
 {
   "translation": {
+    "Lock model prices": "モデル料金をロック",
+    "Unlock model prices": "モデル料金のロックを解除",
+    "Locked model prices were preserved; changes were ignored.": "ロックされたモデル料金を保持し、変更を無視しました。",
+    "Model prices are locked. Changes will be ignored.": "モデル料金はロックされています。変更は無視されます。",
+    "Price is locked. Unlock it in model pricing settings to edit.": "料金はロックされています。モデル料金設定でロックを解除して編集してください。",
     "360": "360",
     "1000": "1000",
     "10000": "10000",

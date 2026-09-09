@@ -27,10 +27,14 @@ import * as z from 'zod'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
-import { resetModelRatios, updateSystemOptions } from '../api'
+import {
+  getSystemOptions,
+  resetModelRatios,
+  updateSystemOption,
+  updateSystemOptions,
+} from '../api'
 import { SettingsPageTitleStatusPortal } from '../components/settings-page-context'
 import { SettingsSection } from '../components/settings-section'
-import { useUpdateOption } from '../hooks/use-update-option'
 import { positiveIntegerSchema } from '../utils/numeric-field'
 import { GroupRatioForm } from './group-ratio-form'
 import {
@@ -38,6 +42,7 @@ import {
   type GroupRatioOptionValues,
 } from './group-ratio-option-values'
 import { isValidGroupWarnings } from './group-warning-validation'
+import { parseModelPriceLocks, withModelPriceLock } from './model-price-lock'
 import { ModelRatioForm } from './model-ratio-form'
 import { ToolPriceSettings } from './tool-price-settings'
 import { UpstreamRatioSync } from './upstream-ratio-sync'
@@ -112,6 +117,7 @@ function createJsonStringField(
 const createModelSchema = (t: Translate) =>
   z.object({
     ModelPrice: createJsonStringField(t),
+    ModelPriceLock: createJsonStringField(t),
     ModelRatio: createJsonStringField(t),
     CacheRatio: createJsonStringField(t),
     CreateCacheRatio: createJsonStringField(t),
@@ -145,6 +151,37 @@ const createGroupSchema = (t: Translate) =>
   })
 
 type ModelFormValues = z.infer<ReturnType<typeof createModelSchema>>
+const modelApiKeys: Record<string, string> = {
+  BillingMode: 'billing_setting.billing_mode',
+  BillingExpr: 'billing_setting.billing_expr',
+}
+
+function canonicalModelValues(
+  options: Record<string, string>
+): ModelFormValues {
+  return {
+    ...Object.fromEntries(
+      [
+        'ModelPrice',
+        'ModelPriceLock',
+        'ModelRatio',
+        'CacheRatio',
+        'CreateCacheRatio',
+        'CompletionRatio',
+        'ImageRatio',
+        'AudioRatio',
+        'AudioCompletionRatio',
+        'BillingMode',
+        'BillingExpr',
+      ].map((key) => [
+        key,
+        normalizeJsonString(options[modelApiKeys[key] || key] || '{}'),
+      ])
+    ),
+    ExposeRatioEnabled: options.ExposeRatioEnabled === 'true',
+  } as ModelFormValues
+}
+
 type GroupFormValues = z.infer<ReturnType<typeof createGroupSchema>>
 type RatioTabId =
   | 'models'
@@ -169,15 +206,17 @@ export function RatioSettingsCard({
   visibleTabs = ['models', 'groups', 'tool-prices', 'upstream-sync'],
 }: RatioSettingsCardProps) {
   const { t } = useTranslation()
-  const updateOption = useUpdateOption()
   const queryClient = useQueryClient()
   const [confirmOpen, setConfirmOpen] = useState(false)
+  const [savedPricingRevision, setSavedPricingRevision] = useState(0)
 
   const resetMutation = useMutation({
     mutationFn: resetModelRatios,
     onSuccess: (data) => {
       if (data.success) {
-        toast.success(t('Model prices reset successfully'))
+        if (!data.warnings?.length) {
+          toast.success(t('Model prices reset successfully'))
+        }
         queryClient.invalidateQueries({ queryKey: ['system-options'] })
         setConfirmOpen(false)
       } else {
@@ -208,6 +247,7 @@ export function RatioSettingsCard({
 
   const modelNormalizedDefaults = useRef({
     ModelPrice: normalizeJsonString(modelDefaults.ModelPrice),
+    ModelPriceLock: normalizeJsonString(modelDefaults.ModelPriceLock),
     ModelRatio: normalizeJsonString(modelDefaults.ModelRatio),
     CacheRatio: normalizeJsonString(modelDefaults.CacheRatio),
     CreateCacheRatio: normalizeJsonString(modelDefaults.CreateCacheRatio),
@@ -247,6 +287,7 @@ export function RatioSettingsCard({
     defaultValues: {
       ...modelDefaults,
       ModelPrice: formatJsonForTextarea(modelDefaults.ModelPrice),
+      ModelPriceLock: formatJsonForTextarea(modelDefaults.ModelPriceLock),
       ModelRatio: formatJsonForTextarea(modelDefaults.ModelRatio),
       CacheRatio: formatJsonForTextarea(modelDefaults.CacheRatio),
       CreateCacheRatio: formatJsonForTextarea(modelDefaults.CreateCacheRatio),
@@ -281,6 +322,7 @@ export function RatioSettingsCard({
   useEffect(() => {
     modelNormalizedDefaults.current = {
       ModelPrice: normalizeJsonString(modelDefaults.ModelPrice),
+      ModelPriceLock: normalizeJsonString(modelDefaults.ModelPriceLock),
       ModelRatio: normalizeJsonString(modelDefaults.ModelRatio),
       CacheRatio: normalizeJsonString(modelDefaults.CacheRatio),
       CreateCacheRatio: normalizeJsonString(modelDefaults.CreateCacheRatio),
@@ -295,10 +337,12 @@ export function RatioSettingsCard({
       BillingExpr: normalizeJsonString(modelDefaults.BillingExpr),
     }
     setSavedModelValues(modelNormalizedDefaults.current)
+    setSavedPricingRevision((revision) => revision + 1)
 
     modelForm.reset({
       ...modelDefaults,
       ModelPrice: formatJsonForTextarea(modelDefaults.ModelPrice),
+      ModelPriceLock: formatJsonForTextarea(modelDefaults.ModelPriceLock),
       ModelRatio: formatJsonForTextarea(modelDefaults.ModelRatio),
       CacheRatio: formatJsonForTextarea(modelDefaults.CacheRatio),
       CreateCacheRatio: formatJsonForTextarea(modelDefaults.CreateCacheRatio),
@@ -343,10 +387,85 @@ export function RatioSettingsCard({
     })
   }, [groupDefaults, groupForm])
 
+  const modelUpdateMutation = useMutation({
+    mutationFn: async (values: Record<string, string>) => {
+      const response = await updateSystemOptions(values)
+      if (!response.success) {
+        throw new Error(response.message || t('Failed to update setting'))
+      }
+      return response
+    },
+    onSuccess: async (response) => {
+      // A successful update may have skipped locked models. Refresh canonical values.
+      const latest = await getSystemOptions()
+      if (!latest.success) {
+        throw new Error(latest.message || t('Failed to load settings'))
+      }
+      const canonical = canonicalModelValues(
+        Object.fromEntries(latest.data.map(({ key, value }) => [key, value]))
+      )
+      modelNormalizedDefaults.current = canonical
+      setSavedModelValues(canonical)
+      modelForm.reset(canonical)
+      setSavedPricingRevision((revision) => revision + 1)
+      queryClient.setQueryData(['system-options'], latest)
+      if (!response.warnings?.length) {
+        toast.success(t('Setting updated successfully'))
+      }
+    },
+    onError: (error: Error) =>
+      toast.error(error.message || t('Failed to update setting')),
+  })
+
+  const lockMutation = useMutation({
+    mutationFn: async ({ name, locked }: { name: string; locked: boolean }) => {
+      const latest = await getSystemOptions()
+      if (!latest.success) {
+        throw new Error(latest.message || t('Failed to load settings'))
+      }
+      const current = parseModelPriceLocks(
+        latest.data.find((option) => option.key === 'ModelPriceLock')?.value ||
+          '{}'
+      )
+      const value = JSON.stringify(withModelPriceLock(current, name, locked))
+      const response = await updateSystemOption({
+        key: 'ModelPriceLock',
+        value,
+      })
+      if (!response.success) {
+        throw new Error(response.message || t('Failed to update setting'))
+      }
+      const canonical = await getSystemOptions()
+      if (!canonical.success) {
+        throw new Error(canonical.message || t('Failed to load settings'))
+      }
+      return Object.fromEntries(
+        canonical.data.map(({ key, value }) => [key, value])
+      )
+    },
+    onSuccess: (options) => {
+      // Keep unrelated unsaved price drafts while persisting the lock immediately.
+      const canonical = canonicalModelValues(options)
+      modelForm.setValue('ModelPriceLock', canonical.ModelPriceLock)
+      modelNormalizedDefaults.current = canonical
+      setSavedModelValues(canonical)
+    },
+    onError: (error: Error) =>
+      toast.error(error.message || t('Failed to update setting')),
+  })
+
+  const changePriceLock = useCallback(
+    async (name: string, locked: boolean) => {
+      return await lockMutation.mutateAsync({ name, locked })
+    },
+    [lockMutation]
+  )
+
   const saveModelRatios = useCallback(
     async (values: ModelFormValues) => {
       const normalized = {
         ModelPrice: normalizeJsonString(values.ModelPrice),
+        ModelPriceLock: normalizeJsonString(values.ModelPriceLock),
         ModelRatio: normalizeJsonString(values.ModelRatio),
         CacheRatio: normalizeJsonString(values.CacheRatio),
         CreateCacheRatio: normalizeJsonString(values.CreateCacheRatio),
@@ -367,7 +486,9 @@ export function RatioSettingsCard({
       const updates = (
         Object.keys(normalized) as Array<keyof ModelFormValues>
       ).filter(
-        (key) => normalized[key] !== modelNormalizedDefaults.current[key]
+        (key) =>
+          key !== 'ModelPriceLock' &&
+          normalized[key] !== modelNormalizedDefaults.current[key]
       )
 
       if (updates.length === 0) {
@@ -375,15 +496,13 @@ export function RatioSettingsCard({
         return
       }
 
-      for (const key of updates) {
-        const apiKey = apiKeyMap[key as string] || (key as string)
-        await updateOption.mutateAsync({ key: apiKey, value: normalized[key] })
-      }
-
-      modelNormalizedDefaults.current = normalized
-      setSavedModelValues(normalized)
+      await modelUpdateMutation.mutateAsync(
+        Object.fromEntries(
+          updates.map((key) => [apiKeyMap[key] || key, String(normalized[key])])
+        )
+      )
     },
-    [t, updateOption]
+    [t, modelUpdateMutation]
   )
 
   const saveGroupRatios = useCallback(
@@ -449,9 +568,12 @@ export function RatioSettingsCard({
         <ModelRatioForm
           form={modelForm}
           savedValues={savedModelValues}
+          savedPricingRevision={savedPricingRevision}
           onSave={saveModelRatios}
           onReset={handleResetRatios}
-          isSaving={updateOption.isPending}
+          onPriceLockChange={changePriceLock}
+          isLocking={lockMutation.isPending}
+          isSaving={modelUpdateMutation.isPending}
           isResetting={resetMutation.isPending}
           variant={tab === 'unset-models' ? 'unset' : 'default'}
         />

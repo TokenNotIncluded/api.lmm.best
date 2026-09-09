@@ -1,5 +1,10 @@
 {
   "translation": {
+    "Lock model prices": "Verrouiller les prix du modèle",
+    "Unlock model prices": "Déverrouiller les prix du modèle",
+    "Locked model prices were preserved; changes were ignored.": "Les prix verrouillés ont été conservés ; les modifications ont été ignorées.",
+    "Model prices are locked. Changes will be ignored.": "Les prix du modèle sont verrouillés. Les modifications seront ignorées.",
+    "Price is locked. Unlock it in model pricing settings to edit.": "Le prix est verrouillé. Déverrouillez-le dans les paramètres de tarification du modèle pour le modifier.",
     "360": "360",
     "1000": "1000",
     "10000": "10000",

@@ -1,5 +1,10 @@
 {
   "translation": {
+    "Lock model prices": "Lock model prices",
+    "Unlock model prices": "Unlock model prices",
+    "Locked model prices were preserved; changes were ignored.": "Locked model prices were preserved; changes were ignored.",
+    "Model prices are locked. Changes will be ignored.": "Model prices are locked. Changes will be ignored.",
+    "Price is locked. Unlock it in model pricing settings to edit.": "Price is locked. Unlock it in model pricing settings to edit.",
     "360": "360",
     "1000": "1000",
     "10000": "10000",

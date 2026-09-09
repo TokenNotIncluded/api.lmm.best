@@ -50,6 +50,7 @@ const defaultModelSettings: ModelSettings = {
   'dynamic_pricing_setting.max_factor': 3,
   'dynamic_pricing_setting.channel_costs': '{}',
   ModelPrice: '',
+  ModelPriceLock: '{}',
   ModelRatio: '',
   CacheRatio: '',
   CreateCacheRatio: '',

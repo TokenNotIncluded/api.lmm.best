@@ -1607,11 +1607,18 @@ export async function submitAssistantAccountDisableRequest(input: {
   )
 }
 
+export type AssistantAdminChangeResult = {
+  applied: boolean
+  kind: string
+  status?: string
+  warnings?: string[]
+}
+
 export async function submitAssistantAdminChange(
   confirmationToken: string
-): Promise<{ applied: boolean; kind: string }> {
+): Promise<AssistantAdminChangeResult> {
   const response = await api.post<
-    AssistantAPIResponse<{ applied: boolean; kind: string }>
+    AssistantAPIResponse<AssistantAdminChangeResult>
   >(
     '/api/assistant/admin/apply',
     { confirmation_token: confirmationToken, confirmed: true },
