@@ -624,6 +624,13 @@ func WaffoPancakeWebhook(c *gin.Context) {
 		c.String(http.StatusOK, "OK")
 		return
 	}
+	handleVerifiedWaffoPancakeWebhook(c, event, bodyBytes)
+}
+
+// Only WaffoPancakeWebhook may supply events here after signature and mode
+// verification. Keeping dispatch separate also exercises real settlement paths
+// in tests without substituting a production signature verifier.
+func handleVerifiedWaffoPancakeWebhook(c *gin.Context, event *service.WaffoPancakeWebhookEvent, bodyBytes []byte) {
 	if err := service.ValidateWaffoPancakeWebhookEvent(event); err != nil {
 		logger.LogError(c.Request.Context(), fmt.Sprintf(
 			"Waffo Pancake webhook 状态字段不一致 event_type=%s event_id=%s order_id=%s client_ip=%s error=%q",
@@ -693,6 +700,25 @@ func WaffoPancakeWebhook(c *gin.Context) {
 		}
 
 		productType := waffoPancakeSubscriptionOrderProductType(order)
+		if isWaffoPancakeSubscriptionCycleEvent(eventType) {
+			if productType != model.WaffoPancakeProductTypeSubscription {
+				c.String(http.StatusOK, "OK")
+				return
+			}
+			plan, err := model.GetSubscriptionPlanById(order.PlanId)
+			if err == nil {
+				_, err = recordWaffoPancakeSubscriptionCycle(event, order, plan, string(bodyBytes))
+			}
+			if err != nil {
+				logger.LogError(c.Request.Context(), fmt.Sprintf("Waffo Pancake 订阅账期事件处理失败 trade_no=%s event_type=%s event_id=%s error=%q", tradeNo, eventType, event.EventID, err.Error()))
+				c.String(http.StatusInternalServerError, "retry")
+				return
+			}
+			// An unmatched payment/lifecycle event is durable at this point;
+			// whichever counterpart arrives next reconciles the paid period.
+			c.String(http.StatusOK, "OK")
+			return
+		}
 		if action == service.WaffoPancakeWebhookActionSubscriptionStateChanged &&
 			productType != model.WaffoPancakeProductTypeSubscription {
 			logger.LogWarn(c.Request.Context(), fmt.Sprintf("Waffo Pancake recurring state event does not match one-time plan product trade_no=%s event_type=%s event_id=%s", tradeNo, eventType, event.ID))
@@ -744,13 +770,6 @@ func WaffoPancakeWebhook(c *gin.Context) {
 			c.String(http.StatusOK, "OK")
 			return
 		}
-		if action == service.WaffoPancakeWebhookActionSubscriptionPaymentSucceeded &&
-			(order.ExpectedAmountMicros <= 0 || strings.TrimSpace(order.SettlementCurrency) == "") {
-			logger.LogError(c.Request.Context(), fmt.Sprintf("Waffo Pancake recurring order has no immutable settlement snapshot trade_no=%s event_id=%s", tradeNo, event.ID))
-			c.String(http.StatusOK, "OK")
-			return
-		}
-
 		plan, planErr := model.GetSubscriptionPlanById(order.PlanId)
 		if planErr != nil {
 			logger.LogError(c.Request.Context(), fmt.Sprintf(
@@ -772,35 +791,6 @@ func WaffoPancakeWebhook(c *gin.Context) {
 			return
 		}
 
-		var paymentEvent *model.SubscriptionPaymentEvent
-		if action == service.WaffoPancakeWebhookActionSubscriptionPaymentSucceeded {
-			periodStart, periodEnd, periodErr := waffoPancakeSubscriptionPeriod(event, true)
-			if periodErr != nil {
-				logger.LogError(c.Request.Context(), fmt.Sprintf("Waffo Pancake 订阅支付周期无效 trade_no=%s event_id=%s error=%q", tradeNo, event.ID, periodErr.Error()))
-				c.String(http.StatusOK, "OK")
-				return
-			}
-			providerEventID := strings.TrimSpace(event.EventID)
-			if providerEventID == "" {
-				providerEventID = strings.TrimSpace(event.ID)
-			}
-			providerTransactionID := strings.TrimSpace(event.Data.PaymentID)
-			settlementAmountMicros, amountErr := monetaryStringToMicros(event.Data.Amount)
-			if providerEventID == "" || providerTransactionID == "" || amountErr != nil {
-				logger.LogError(c.Request.Context(), fmt.Sprintf("Waffo Pancake 订阅支付缺少幂等结算证据 trade_no=%s event_id=%s payment_id=%s error=%v", tradeNo, providerEventID, providerTransactionID, amountErr))
-				c.String(http.StatusOK, "OK")
-				return
-			}
-			paymentEvent = &model.SubscriptionPaymentEvent{
-				PaymentProvider:        model.PaymentProviderWaffoPancake,
-				ProviderEventId:        providerEventID,
-				ProviderTransactionId:  providerTransactionID,
-				SettlementCurrency:     strings.ToUpper(strings.TrimSpace(event.Data.Currency)),
-				SettlementAmountMicros: settlementAmountMicros,
-				PeriodStart:            periodStart,
-				PeriodEnd:              periodEnd,
-			}
-		}
 		LockOrder(tradeNo)
 		defer UnlockOrder(tradeNo)
 		if err := model.CompleteSubscriptionOrder(tradeNo, string(bodyBytes), model.PaymentProviderWaffoPancake, ""); err != nil {
@@ -815,18 +805,6 @@ func WaffoPancakeWebhook(c *gin.Context) {
 			logger.LogError(c.Request.Context(), fmt.Sprintf("Waffo Pancake 订阅完成失败 trade_no=%s event_id=%s order_id=%s client_ip=%s error=%q", tradeNo, event.ID, event.Data.OrderID, c.ClientIP(), err.Error()))
 			c.String(http.StatusInternalServerError, "retry")
 			return
-		}
-		if paymentEvent != nil {
-			if err := model.ApplySubscriptionPaymentEvent(
-				tradeNo,
-				paymentEvent,
-				strings.TrimSpace(event.Data.OrderID),
-				"active",
-			); err != nil {
-				logger.LogError(c.Request.Context(), fmt.Sprintf("Waffo Pancake 订阅支付周期应用失败 trade_no=%s event_id=%s order_id=%s client_ip=%s error=%q", tradeNo, event.ID, event.Data.OrderID, c.ClientIP(), err.Error()))
-				c.String(http.StatusInternalServerError, "retry")
-				return
-			}
 		}
 		logger.LogInfo(c.Request.Context(), fmt.Sprintf("Waffo Pancake 订阅支付已应用 trade_no=%s event_id=%s order_id=%s client_ip=%s", tradeNo, event.ID, event.Data.OrderID, c.ClientIP()))
 		c.String(http.StatusOK, "OK")
@@ -994,6 +972,10 @@ func parseWaffoPancakeTimestamp(value, field string, required bool) (int64, erro
 		return 0, nil
 	}
 	parsed, err := time.Parse(time.RFC3339, value)
+	if err != nil && (field == "currentPeriodStart" || field == "currentPeriodEnd" || field == "paymentDate") {
+		// Pancake billing dates have no offset; retain a consistent UTC day.
+		parsed, err = time.Parse(time.DateOnly, value)
+	}
 	if err != nil {
 		return 0, fmt.Errorf("invalid subscription %s: %w", field, err)
 	}

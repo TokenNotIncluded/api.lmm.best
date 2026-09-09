@@ -716,7 +716,7 @@ func lockUserSubscriptionForMutationTx(tx *gorm.DB, subscriptionId, expectedUser
 		return nil, nil, err
 	}
 	var user User
-	if err := lockForUpdate(tx).Select("id", commonGroupCol).Where("id = ?", owner.UserId).First(&user).Error; err != nil {
+	if err := lockForUpdate(tx).Select([]string{"id", "group"}).Where("id = ?", owner.UserId).First(&user).Error; err != nil {
 		return nil, nil, err
 	}
 	var subscription UserSubscription
@@ -852,10 +852,39 @@ func refreshSubscriptionUserGroupCache(userId int, operation string) {
 	}
 }
 
+type subscriptionCompletionEffects struct {
+	logUserId        int
+	logPlanTitle     string
+	logMoney         float64
+	logPaymentMethod string
+	upgradeGroup     string
+}
+
+func (effects subscriptionCompletionEffects) publish() {
+	if effects.upgradeGroup != "" && effects.logUserId > 0 {
+		refreshSubscriptionUserGroupCache(effects.logUserId, "subscription payment completion")
+	}
+	if effects.logUserId > 0 {
+		msg := fmt.Sprintf("订阅购买成功，套餐: %s，支付金额: %.2f，支付方式: %s", effects.logPlanTitle, effects.logMoney, effects.logPaymentMethod)
+		RecordLog(effects.logUserId, LogTypeTopup, msg)
+	}
+}
+
 // Complete a subscription order (idempotent). Creates a UserSubscription snapshot from the plan.
 // expectedPaymentProvider guards against cross-gateway callback attacks (empty skips the check).
 // actualPaymentMethod updates the order's PaymentMethod to reflect the real payment type used (empty skips update).
 func CompleteSubscriptionOrder(tradeNo string, providerPayload string, expectedPaymentProvider string, actualPaymentMethod string) error {
+	var effects subscriptionCompletionEffects
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		return completeSubscriptionOrderTx(tx, tradeNo, providerPayload, expectedPaymentProvider, actualPaymentMethod, &effects)
+	})
+	if err == nil {
+		effects.publish()
+	}
+	return err
+}
+
+func completeSubscriptionOrderTx(tx *gorm.DB, tradeNo, providerPayload, expectedPaymentProvider, actualPaymentMethod string, effects *subscriptionCompletionEffects) error {
 	if tradeNo == "" {
 		return errors.New("tradeNo is empty")
 	}
@@ -863,107 +892,117 @@ func CompleteSubscriptionOrder(tradeNo string, providerPayload string, expectedP
 	if common.UsingMainDatabase(common.DatabaseTypePostgreSQL) {
 		refCol = `"trade_no"`
 	}
-	var logUserId int
-	var logPlanTitle string
-	var logMoney float64
-	var logPaymentMethod string
-	var upgradeGroup string
-	err := DB.Transaction(func(tx *gorm.DB) error {
-		var orderRef SubscriptionOrder
-		if err := tx.Select("plan_id", "status").Where(refCol+" = ?", tradeNo).First(&orderRef).Error; err != nil {
-			return ErrSubscriptionOrderNotFound
-		}
-		if orderRef.Status == common.TopUpStatusSuccess {
-			return nil
-		}
-		if orderRef.Status != common.TopUpStatusPending {
-			return ErrSubscriptionOrderStatusInvalid
-		}
-		plan, err := getSubscriptionPlanForPersistenceTx(tx, orderRef.PlanId)
-		if err != nil {
-			return err
-		}
-		var order SubscriptionOrder
-		if err := lockForUpdate(tx).Where(refCol+" = ?", tradeNo).First(&order).Error; err != nil {
-			return ErrSubscriptionOrderNotFound
-		}
-		if order.PlanId != plan.Id {
-			return ErrSubscriptionPlanChanged
-		}
-		if expectedPaymentProvider != "" && order.PaymentProvider != expectedPaymentProvider {
-			return ErrPaymentMethodMismatch
-		}
-		if order.Status == common.TopUpStatusSuccess {
-			return nil
-		}
-		if order.Status != common.TopUpStatusPending {
-			return ErrSubscriptionOrderStatusInvalid
-		}
-		if snapshot := strings.TrimSpace(order.PlanSnapshot); snapshot != "" {
-			var frozenPlan SubscriptionPlan
-			if err := json.Unmarshal([]byte(snapshot), &frozenPlan); err != nil {
-				return fmt.Errorf("decode subscription plan snapshot: %w", err)
-			}
-			if frozenPlan.Id != order.PlanId || frozenPlan.PriceAmount != order.Money {
-				return ErrSubscriptionPlanChanged
-			}
-			frozenPlan.NormalizeDefaults()
-			plan = &frozenPlan
-		}
-		if !plan.Enabled {
-			// still allow completion for already purchased orders
-		}
-		// 锁定用户行：并发完成同一用户的不同订单（包括多实例部署下）时，
-		// 使 CreateUserSubscriptionFromPlanTx 的 MaxPurchasePerUser 检查按用户串行。
-		var userRow User
-		if err := lockForUpdate(tx).Select("id").Where("id = ?", order.UserId).First(&userRow).Error; err != nil {
-			return err
-		}
-		subscription, err := CreateUserSubscriptionFromPlanTx(tx, order.UserId, plan, "order")
-		if err != nil {
-			return err
-		}
-		if subscription.PrevUserGroup != "" {
-			upgradeGroup = strings.TrimSpace(subscription.UpgradeGroup)
-		}
-		if err := upsertSubscriptionTopUpTx(tx, &order); err != nil {
-			return err
-		}
-		order.UserSubscriptionId = subscription.Id
-		order.Status = common.TopUpStatusSuccess
-		order.CompleteTime = common.GetTimestamp()
-		if providerPayload != "" {
-			order.ProviderPayload = providerPayload
-		}
-		if actualPaymentMethod != "" && order.PaymentMethod != actualPaymentMethod {
-			order.PaymentMethod = actualPaymentMethod
-		}
-		if err := tx.Save(&order).Error; err != nil {
-			return err
-		}
-		logUserId = order.UserId
-		logPlanTitle = plan.Title
-		logMoney = order.Money
-		logPaymentMethod = order.PaymentMethod
+	var orderRef SubscriptionOrder
+	if err := tx.Select("plan_id", "status").Where(refCol+" = ?", tradeNo).First(&orderRef).Error; err != nil {
+		return ErrSubscriptionOrderNotFound
+	}
+	if orderRef.Status == common.TopUpStatusSuccess {
 		return nil
-	})
+	}
+	if orderRef.Status != common.TopUpStatusPending {
+		return ErrSubscriptionOrderStatusInvalid
+	}
+	plan, err := getSubscriptionPlanForPersistenceTx(tx, orderRef.PlanId)
 	if err != nil {
 		return err
 	}
-	if upgradeGroup != "" && logUserId > 0 {
-		refreshSubscriptionUserGroupCache(logUserId, "subscription payment completion")
+	var order SubscriptionOrder
+	if err := lockForUpdate(tx).Where(refCol+" = ?", tradeNo).First(&order).Error; err != nil {
+		return ErrSubscriptionOrderNotFound
 	}
-	if logUserId > 0 {
-		msg := fmt.Sprintf("订阅购买成功，套餐: %s，支付金额: %.2f，支付方式: %s", logPlanTitle, logMoney, logPaymentMethod)
-		RecordLog(logUserId, LogTypeTopup, msg)
+	if order.PlanId != plan.Id {
+		return ErrSubscriptionPlanChanged
 	}
+	if expectedPaymentProvider != "" && order.PaymentProvider != expectedPaymentProvider {
+		return ErrPaymentMethodMismatch
+	}
+	if order.Status == common.TopUpStatusSuccess {
+		return nil
+	}
+	if order.Status != common.TopUpStatusPending {
+		return ErrSubscriptionOrderStatusInvalid
+	}
+	if snapshot := strings.TrimSpace(order.PlanSnapshot); snapshot != "" {
+		var frozenPlan SubscriptionPlan
+		if err := json.Unmarshal([]byte(snapshot), &frozenPlan); err != nil {
+			return fmt.Errorf("decode subscription plan snapshot: %w", err)
+		}
+		if frozenPlan.Id != order.PlanId || frozenPlan.PriceAmount != order.Money {
+			return ErrSubscriptionPlanChanged
+		}
+		frozenPlan.NormalizeDefaults()
+		plan = &frozenPlan
+	}
+	if !plan.Enabled {
+		// still allow completion for already purchased orders
+	}
+	// 锁定用户行：并发完成同一用户的不同订单（包括多实例部署下）时，
+	// 使 CreateUserSubscriptionFromPlanTx 的 MaxPurchasePerUser 检查按用户串行。
+	var userRow User
+	if err := lockForUpdate(tx).Select("id").Where("id = ?", order.UserId).First(&userRow).Error; err != nil {
+		return err
+	}
+	subscription, err := CreateUserSubscriptionFromPlanTx(tx, order.UserId, plan, "order")
+	if err != nil {
+		return err
+	}
+	if subscription.PrevUserGroup != "" {
+		effects.upgradeGroup = strings.TrimSpace(subscription.UpgradeGroup)
+	}
+	if err := upsertSubscriptionTopUpTx(tx, &order); err != nil {
+		return err
+	}
+	order.UserSubscriptionId = subscription.Id
+	order.Status = common.TopUpStatusSuccess
+	order.CompleteTime = common.GetTimestamp()
+	if providerPayload != "" {
+		order.ProviderPayload = providerPayload
+	}
+	if actualPaymentMethod != "" && order.PaymentMethod != actualPaymentMethod {
+		order.PaymentMethod = actualPaymentMethod
+	}
+	if err := tx.Save(&order).Error; err != nil {
+		return err
+	}
+	effects.logUserId = order.UserId
+	effects.logPlanTitle = plan.Title
+	effects.logMoney = order.Money
+	effects.logPaymentMethod = order.PaymentMethod
 	return nil
+}
+
+type subscriptionPaymentEffects struct {
+	groupChanged bool
+	logUserId    int
+	isRenewal    bool
+	amountMicros int64
+	currency     string
+}
+
+func (effects subscriptionPaymentEffects) publish() {
+	if effects.groupChanged && effects.logUserId > 0 {
+		refreshSubscriptionUserGroupCache(effects.logUserId, "subscription renewal")
+	}
+	if effects.isRenewal && effects.logUserId > 0 {
+		RecordLog(effects.logUserId, LogTypeTopup, fmt.Sprintf("订阅续费成功，结算金额: %.2f %s", float64(effects.amountMicros)/1_000_000, effects.currency))
+	}
 }
 
 // ApplySubscriptionPaymentEvent records one recurring settlement and renews
 // the already-created entitlement only after the first cycle. The event,
 // provider transaction, and order/period keys are all idempotency boundaries.
 func ApplySubscriptionPaymentEvent(tradeNo string, paymentEvent *SubscriptionPaymentEvent, providerSubscriptionId, providerState string) error {
+	var effects subscriptionPaymentEffects
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		return applySubscriptionPaymentEventTx(tx, tradeNo, paymentEvent, providerSubscriptionId, providerState, false, &effects)
+	})
+	if err == nil {
+		effects.publish()
+	}
+	return err
+}
+
+func applySubscriptionPaymentEventTx(tx *gorm.DB, tradeNo string, paymentEvent *SubscriptionPaymentEvent, providerSubscriptionId, providerState string, renewal bool, effects *subscriptionPaymentEffects) error {
 	if strings.TrimSpace(tradeNo) == "" || paymentEvent == nil {
 		return errors.New("invalid subscription payment event")
 	}
@@ -975,135 +1014,162 @@ func ApplySubscriptionPaymentEvent(tradeNo string, paymentEvent *SubscriptionPay
 		return errors.New("incomplete subscription payment evidence")
 	}
 
-	groupChanged := false
-	logUserId := 0
-	isRenewal := false
-	err := DB.Transaction(func(tx *gorm.DB) error {
-		var order SubscriptionOrder
-		if err := lockForUpdate(tx).Where("trade_no = ?", tradeNo).First(&order).Error; err != nil {
-			return ErrSubscriptionOrderNotFound
+	var order SubscriptionOrder
+	if err := lockForUpdate(tx).Where("trade_no = ?", tradeNo).First(&order).Error; err != nil {
+		return ErrSubscriptionOrderNotFound
+	}
+	if order.PaymentProvider != paymentEvent.PaymentProvider {
+		return ErrPaymentMethodMismatch
+	}
+	if order.Status != common.TopUpStatusSuccess || order.UserSubscriptionId <= 0 {
+		return ErrSubscriptionOrderStatusInvalid
+	}
+	var renewalPlan SubscriptionPlan
+	if snapshot := strings.TrimSpace(order.PlanSnapshot); snapshot != "" {
+		if err := json.Unmarshal([]byte(snapshot), &renewalPlan); err != nil {
+			return fmt.Errorf("decode subscription plan snapshot: %w", err)
 		}
-		if order.PaymentProvider != paymentEvent.PaymentProvider {
-			return ErrPaymentMethodMismatch
-		}
-		if order.Status != common.TopUpStatusSuccess || order.UserSubscriptionId <= 0 {
-			return ErrSubscriptionOrderStatusInvalid
-		}
-		var renewalPlan SubscriptionPlan
-		if snapshot := strings.TrimSpace(order.PlanSnapshot); snapshot != "" {
-			if err := json.Unmarshal([]byte(snapshot), &renewalPlan); err != nil {
-				return fmt.Errorf("decode subscription plan snapshot: %w", err)
-			}
-		} else if err := tx.Where("id = ?", order.PlanId).First(&renewalPlan).Error; err != nil {
-			return err
-		}
-		if order.ExpectedAmountMicros > 0 && order.ExpectedAmountMicros != paymentEvent.SettlementAmountMicros {
-			return fmt.Errorf("subscription settlement amount mismatch")
-		}
-		if expectedCurrency := strings.ToUpper(strings.TrimSpace(order.SettlementCurrency)); expectedCurrency != "" && expectedCurrency != paymentEvent.SettlementCurrency {
-			return fmt.Errorf("subscription settlement currency mismatch")
-		}
+	} else if err := tx.Where("id = ?", order.PlanId).First(&renewalPlan).Error; err != nil {
+		return err
+	}
+	if order.ExpectedAmountMicros > 0 && order.ExpectedAmountMicros != paymentEvent.SettlementAmountMicros {
+		return fmt.Errorf("subscription settlement amount mismatch")
+	}
+	if expectedCurrency := strings.ToUpper(strings.TrimSpace(order.SettlementCurrency)); expectedCurrency != "" && expectedCurrency != paymentEvent.SettlementCurrency {
+		return fmt.Errorf("subscription settlement currency mismatch")
+	}
 
-		var duplicates []SubscriptionPaymentEvent
-		if err := tx.
-			Where("provider_event_id = ? OR (payment_provider = ? AND provider_transaction_id = ?) OR (subscription_order_id = ? AND period_end = ?)",
-				paymentEvent.ProviderEventId, paymentEvent.PaymentProvider, paymentEvent.ProviderTransactionId, order.Id, paymentEvent.PeriodEnd).
-			Find(&duplicates).Error; err != nil {
-			return err
+	var duplicates []SubscriptionPaymentEvent
+	if err := tx.
+		Where("provider_event_id = ? OR (payment_provider = ? AND provider_transaction_id = ?) OR (subscription_order_id = ? AND period_end = ?)",
+			paymentEvent.ProviderEventId, paymentEvent.PaymentProvider, paymentEvent.ProviderTransactionId, order.Id, paymentEvent.PeriodEnd).
+		Find(&duplicates).Error; err != nil {
+		return err
+	}
+	for _, duplicate := range duplicates {
+		sameProviderIdentity := duplicate.ProviderTransactionId == paymentEvent.ProviderTransactionId
+		if duplicate.SubscriptionOrderId == order.Id &&
+			duplicate.PaymentProvider == paymentEvent.PaymentProvider &&
+			sameProviderIdentity &&
+			duplicate.SettlementCurrency == paymentEvent.SettlementCurrency &&
+			duplicate.SettlementAmountMicros == paymentEvent.SettlementAmountMicros &&
+			duplicate.PeriodStart == paymentEvent.PeriodStart &&
+			duplicate.PeriodEnd == paymentEvent.PeriodEnd {
+			return nil
 		}
-		for _, duplicate := range duplicates {
-			sameProviderIdentity := duplicate.ProviderTransactionId == paymentEvent.ProviderTransactionId
-			if duplicate.SubscriptionOrderId == order.Id &&
-				duplicate.PaymentProvider == paymentEvent.PaymentProvider &&
-				sameProviderIdentity &&
-				duplicate.SettlementCurrency == paymentEvent.SettlementCurrency &&
-				duplicate.SettlementAmountMicros == paymentEvent.SettlementAmountMicros &&
-				duplicate.PeriodStart == paymentEvent.PeriodStart &&
-				duplicate.PeriodEnd == paymentEvent.PeriodEnd {
-				return nil
-			}
-		}
-		if len(duplicates) > 0 {
-			return fmt.Errorf("%w: conflicting recurring subscription payment evidence", ErrPaymentEvidenceConflict)
-		}
-		var priorCount int64
-		if err := tx.Model(&SubscriptionPaymentEvent{}).Where("subscription_order_id = ?", order.Id).Count(&priorCount).Error; err != nil {
-			return err
-		}
+	}
+	if len(duplicates) > 0 {
+		return fmt.Errorf("%w: conflicting recurring subscription payment evidence", ErrPaymentEvidenceConflict)
+	}
+	var prior struct {
+		Count     int64
+		PeriodEnd int64
+	}
+	if err := tx.Model(&SubscriptionPaymentEvent{}).Select("COUNT(*) AS count, COALESCE(MAX(period_end), 0) AS period_end").
+		Where("subscription_order_id = ?", order.Id).Scan(&prior).Error; err != nil {
+		return err
+	}
 
-		paymentEvent.SubscriptionOrderId = order.Id
-		if paymentEvent.CreatedTime == 0 {
-			paymentEvent.CreatedTime = common.GetTimestamp()
+	paymentEvent.SubscriptionOrderId = order.Id
+	if paymentEvent.CreatedTime == 0 {
+		paymentEvent.CreatedTime = common.GetTimestamp()
+	}
+	if err := tx.Create(paymentEvent).Error; err != nil {
+		if uniqueConstraintError(err) {
+			return ErrPaymentEvidenceConflict
 		}
-		if err := tx.Create(paymentEvent).Error; err != nil {
-			if uniqueConstraintError(err) {
-				return ErrPaymentEvidenceConflict
-			}
-			return err
-		}
-
-		subscription, lockedUser, err := lockUserSubscriptionForMutationTx(tx, order.UserSubscriptionId, order.UserId)
-		if err != nil {
-			return err
-		}
-		now := common.GetTimestamp()
-		if paymentEvent.PeriodEnd <= now {
-			return fmt.Errorf("subscription payment period already ended")
-		}
-		if subscription.StartTime == 0 {
-			subscription.StartTime = paymentEvent.PeriodStart
-		}
-		subscription.EndTime = paymentEvent.PeriodEnd
-		isRenewal = priorCount > 0
-		if isRenewal {
-			// A paid renewal starts a new grant. Refunds permanently shrink
-			// AmountTotal for the period they belong to; carrying that reduced
-			// cap into the next paid cycle would keep charging full price for
-			// leftover quota. Restore the purchased snapshot when it is a
-			// finite grant (0 means unlimited and is not reduced by refunds).
-			order.RefundedAmountMicros = 0
-			order.RefundedQuota = 0
-			subscription.AmountUsed = 0
-			if renewalPlan.TotalAmount > 0 {
-				subscription.AmountTotal = renewalPlan.TotalAmount
-			}
-			subscription.Status = "active"
-			subscription.LastResetTime = paymentEvent.PeriodStart
-			subscription.NextResetTime = calcNextResetTime(time.Unix(paymentEvent.PeriodStart, 0), &renewalPlan, subscription.EndTime)
-			if subscription.NextResetTime == 0 || subscription.NextResetTime > subscription.EndTime {
-				subscription.NextResetTime = subscription.EndTime
-			}
-			if upgradeGroup := strings.TrimSpace(subscription.UpgradeGroup); upgradeGroup != "" && lockedUser.Group != upgradeGroup {
-				if err := tx.Model(lockedUser).Update("group", upgradeGroup).Error; err != nil {
-					return err
-				}
-				groupChanged = true
-			}
-		}
-		subscription.UpdatedAt = now
-		if err := tx.Save(subscription).Error; err != nil {
-			return err
-		}
-
-		order.ProviderSubscriptionId = strings.TrimSpace(providerSubscriptionId)
-		order.ProviderSubscriptionState = strings.TrimSpace(providerState)
-		order.CurrentPeriodStart = paymentEvent.PeriodStart
-		order.CurrentPeriodEnd = paymentEvent.PeriodEnd
-		if err := tx.Save(&order).Error; err != nil {
-			return err
-		}
-		logUserId = order.UserId
+		return err
+	}
+	// Historical pairs still belong in the immutable finance ledger. Delivery
+	// order must never shorten an entitlement or reset an already-used grant.
+	if prior.Count > 0 && paymentEvent.PeriodEnd <= prior.PeriodEnd {
 		return nil
-	})
+	}
+
+	subscription, lockedUser, err := lockUserSubscriptionForMutationTx(tx, order.UserSubscriptionId, order.UserId)
 	if err != nil {
 		return err
 	}
-	if groupChanged && logUserId > 0 {
-		refreshSubscriptionUserGroupCache(logUserId, "subscription renewal")
+	now := common.GetTimestamp()
+	if subscription.Status == "cancelled" && paymentEvent.PeriodStart <= subscription.UpdatedAt {
+		return nil
 	}
-	if isRenewal && logUserId > 0 {
-		RecordLog(logUserId, LogTypeTopup, fmt.Sprintf("订阅续费成功，结算金额: %.2f %s", float64(paymentEvent.SettlementAmountMicros)/1_000_000, paymentEvent.SettlementCurrency))
+	if paymentEvent.PeriodEnd <= now {
+		// A first payment discovered after expiry must not retain the temporary
+		// plan-duration entitlement created during order completion.
+		if prior.Count == 0 {
+			subscription.StartTime = paymentEvent.PeriodStart
+			subscription.EndTime = paymentEvent.PeriodEnd
+			subscription.Status = "expired"
+			subscription.NextResetTime = 0
+			subscription.UpdatedAt = now
+			if err := tx.Save(subscription).Error; err != nil {
+				return err
+			}
+			restoredGroup, err := downgradeUserGroupForSubscriptionTx(tx, subscription, now)
+			if err != nil {
+				return err
+			}
+			effects.groupChanged = restoredGroup != ""
+			effects.logUserId = order.UserId
+		}
+		return tx.Model(&order).Updates(map[string]interface{}{
+			"provider_subscription_id": strings.TrimSpace(providerSubscriptionId),
+			"current_period_start":     paymentEvent.PeriodStart,
+			"current_period_end":       paymentEvent.PeriodEnd,
+		}).Error
 	}
+	if subscription.StartTime == 0 || prior.Count == 0 {
+		subscription.StartTime = paymentEvent.PeriodStart
+	}
+	subscription.EndTime = paymentEvent.PeriodEnd
+	if prior.Count == 0 {
+		subscription.NextResetTime = calcNextResetTime(time.Unix(paymentEvent.PeriodStart, 0), &renewalPlan, subscription.EndTime)
+		if subscription.NextResetTime > 0 {
+			subscription.LastResetTime = paymentEvent.PeriodStart
+		}
+	}
+	effects.isRenewal = prior.Count > 0 || renewal
+	if effects.isRenewal {
+		// A paid renewal starts a new grant. Refunds permanently shrink
+		// AmountTotal for the period they belong to; carrying that reduced
+		// cap into the next paid cycle would keep charging full price for
+		// leftover quota. Restore the purchased snapshot when it is a
+		// finite grant (0 means unlimited and is not reduced by refunds).
+		order.RefundedAmountMicros = 0
+		order.RefundedQuota = 0
+		subscription.AmountUsed = 0
+		if renewalPlan.TotalAmount > 0 {
+			subscription.AmountTotal = renewalPlan.TotalAmount
+		}
+		subscription.Status = "active"
+		subscription.LastResetTime = paymentEvent.PeriodStart
+		subscription.NextResetTime = calcNextResetTime(time.Unix(paymentEvent.PeriodStart, 0), &renewalPlan, subscription.EndTime)
+		if subscription.NextResetTime == 0 || subscription.NextResetTime > subscription.EndTime {
+			subscription.NextResetTime = subscription.EndTime
+		}
+		if upgradeGroup := strings.TrimSpace(subscription.UpgradeGroup); upgradeGroup != "" && lockedUser.Group != upgradeGroup {
+			if err := tx.Model(lockedUser).Update("group", upgradeGroup).Error; err != nil {
+				return err
+			}
+			effects.groupChanged = true
+		}
+	}
+	subscription.UpdatedAt = now
+	if err := tx.Save(subscription).Error; err != nil {
+		return err
+	}
+
+	order.ProviderSubscriptionId = strings.TrimSpace(providerSubscriptionId)
+	order.ProviderSubscriptionState = strings.TrimSpace(providerState)
+	order.CurrentPeriodStart = paymentEvent.PeriodStart
+	order.CurrentPeriodEnd = paymentEvent.PeriodEnd
+	if err := tx.Save(&order).Error; err != nil {
+		return err
+	}
+	effects.logUserId = order.UserId
+	effects.amountMicros = paymentEvent.SettlementAmountMicros
+	effects.currency = paymentEvent.SettlementCurrency
 	return nil
 }
 
