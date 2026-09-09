@@ -1,3 +1,6 @@
+/*
+Copyright (C) 2026 LIghtJUNction
+*/
 /** Server-owned fiat settlement. Never derive this from platform credit rates. */
 export interface SettlementQuote {
   amount: string

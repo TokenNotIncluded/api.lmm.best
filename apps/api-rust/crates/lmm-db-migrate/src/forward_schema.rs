@@ -1405,14 +1405,18 @@ mod tests {
     fn contract_two_inventory_covers_every_mounted_bounty_table() {
         assert_eq!(TABLES.len(), 8);
         assert!(TABLES.iter().all(|(_, columns)| !columns.is_empty()));
-        assert!(TABLES
-            .iter()
-            .flat_map(|(_, columns)| columns.iter())
-            .any(|column| column.name == "reward_payout_key" && column.nullable));
-        assert!(TABLES
-            .iter()
-            .flat_map(|(_, columns)| columns.iter())
-            .any(|column| column.name == "open_key" && column.nullable));
+        assert!(
+            TABLES
+                .iter()
+                .flat_map(|(_, columns)| columns.iter())
+                .any(|column| column.name == "reward_payout_key" && column.nullable)
+        );
+        assert!(
+            TABLES
+                .iter()
+                .flat_map(|(_, columns)| columns.iter())
+                .any(|column| column.name == "open_key" && column.nullable)
+        );
     }
 
     #[test]
@@ -1492,8 +1496,11 @@ mod tests {
         assert!(sql.contains(
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_subscription_reset_voucher_operation"
         ));
-        assert!(sql
-            .contains("CREATE UNIQUE INDEX IF NOT EXISTS idx_subscription_reset_event_operation"));
+        assert!(
+            sql.contains(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_subscription_reset_event_operation"
+            )
+        );
         assert!(sql.contains(
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_subscription_reset_operations_preview_token"
         ));

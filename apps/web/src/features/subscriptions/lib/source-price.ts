@@ -1,3 +1,6 @@
+/*
+Copyright (C) 2026 LIghtJUNction
+*/
 import { formatFiatCurrencyAmount } from '@/lib/currency'
 
 /** The plan's original fiat list price, never a platform-credit or FX conversion. */

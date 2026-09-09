@@ -292,7 +292,7 @@ manual rollback evidence. Any unresolved or unapproved row fails closed.
 ## Bounded state and cleanup
 
 Measure `${XDG_STATE_HOME:-$HOME/.local/state}/lmm-api` before builds and after
-cleanup. Warn at 256 MiB; stop new builds at 512 MiB or earlier when storage is
+cleanup. Warn at 256 MiB; stop new builds at 8 GiB or earlier when storage is
 yellow. A large unexplained owner is a stop, not permission for broad deletion.
 
 Use [scripts/cleanup-owned-workspace.sh](scripts/cleanup-owned-workspace.sh) only

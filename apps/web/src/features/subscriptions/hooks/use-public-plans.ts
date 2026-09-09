@@ -1,3 +1,6 @@
+/*
+Copyright (C) 2026 LIghtJUNction
+*/
 import { useQuery } from '@tanstack/react-query'
 
 import { useCheckoutScope } from '@/features/wallet/hooks/use-checkout-scope'

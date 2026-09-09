@@ -616,8 +616,7 @@ impl ProfileLocalePatch {
         let mut setting = if raw.is_empty() {
             Map::new()
         } else {
-            serde_json::from_str::<Map<String, Value>>(raw)
-                .map_err(|_| ProfileError::internal())?
+            serde_json::from_str::<Map<String, Value>>(raw).map_err(|_| ProfileError::internal())?
         };
         if let Some(language) = self.language {
             setting.insert("language".to_owned(), Value::String(language));
@@ -1649,7 +1648,10 @@ mod tests {
                 .merge(r#"{"settlement_currency":"USD","language":"zh","unknown":{"keep":true}}"#)
                 .expect("merge currency");
             let setting: Value = serde_json::from_str(&raw).expect("setting JSON");
-            assert_eq!(setting.get("settlement_currency").and_then(Value::as_str), expected);
+            assert_eq!(
+                setting.get("settlement_currency").and_then(Value::as_str),
+                expected
+            );
             assert_eq!(setting["language"], "zh");
             assert_eq!(setting["unknown"], serde_json::json!({"keep": true}));
         }
@@ -1690,11 +1692,18 @@ mod tests {
         ] {
             let request = Map::from_iter([
                 ("language".to_owned(), language),
-                ("settlement_currency".to_owned(), Value::String("USD".to_owned())),
+                (
+                    "settlement_currency".to_owned(),
+                    Value::String("USD".to_owned()),
+                ),
             ]);
             assert!(ProfileLocalePatch::from_request(&request, LegacyLocale::En).is_err());
         }
-        for language in [String::new(), "a".repeat(64), format!("{}a", "中".repeat(21))] {
+        for language in [
+            String::new(),
+            "a".repeat(64),
+            format!("{}a", "中".repeat(21)),
+        ] {
             let request = Map::from_iter([("language".to_owned(), Value::String(language))]);
             assert!(ProfileLocalePatch::from_request(&request, LegacyLocale::En).is_ok());
         }
@@ -1722,8 +1731,8 @@ mod tests {
     fn locale_patch_rejects_malformed_or_non_object_settings() {
         let request = Map::from_iter([("language".to_owned(), Value::String("en".to_owned()))]);
         for raw in ["{", "null", "[]", "7", "\"text\"", " "] {
-            let patch = ProfileLocalePatch::from_request(&request, LegacyLocale::En)
-                .expect("valid patch");
+            let patch =
+                ProfileLocalePatch::from_request(&request, LegacyLocale::En).expect("valid patch");
             assert!(patch.merge(raw).is_err(), "must not replace setting {raw}");
         }
     }
@@ -1732,7 +1741,10 @@ mod tests {
     fn locale_patch_initializes_unset_settings_with_both_fields() {
         let request = Map::from_iter([
             ("language".to_owned(), Value::String("zh".to_owned())),
-            ("settlement_currency".to_owned(), Value::String("CNY".to_owned())),
+            (
+                "settlement_currency".to_owned(),
+                Value::String("CNY".to_owned()),
+            ),
         ]);
         let raw = ProfileLocalePatch::from_request(&request, LegacyLocale::En)
             .expect("valid patch")

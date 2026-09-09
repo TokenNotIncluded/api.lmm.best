@@ -37,10 +37,17 @@ bash "$create_workspace" --role controller --deployment-id warning --root "$warn
 [[ -d $warning_root/warning ]] || fail 'warning-sized state root should still allow creation'
 grep -Fq 'warning: state root uses' "$warning_error" || fail 'warning-sized state root did not emit warning'
 
+below_state="$test_base/below-limit/lmm-api"
+below_root="$below_state/deploy-work"
+mkdir -p -- "$below_state"
+truncate -s $((8 * 1024 * 1024 * 1024 - 1024 * 1024)) "$below_state/pressure.bin"
+bash "$create_workspace" --role controller --deployment-id below-limit --root "$below_root"
+[[ -d $below_root/below-limit ]] || fail 'state below 8 GiB should allow creation'
+
 stop_state="$test_base/stop/lmm-api"
 stop_root="$stop_state/deploy-work"
 mkdir -p -- "$stop_state"
-truncate -s $((513 * 1024 * 1024)) "$stop_state/pressure.bin"
+truncate -s $((8 * 1024 * 1024 * 1024)) "$stop_state/pressure.bin"
 stop_error="$test_base/stop.err"
 if bash "$create_workspace" --role controller --deployment-id blocked --root "$stop_root" 2>"$stop_error"; then
   fail 'stop-sized state root unexpectedly allowed creation'
@@ -51,7 +58,7 @@ grep -Fq 'clean terminal marker-owned workspaces' "$stop_error" || fail 'stop er
 target_state="$test_base/target/lmm-api-go-deploy"
 target_root="$target_state/work"
 mkdir -p -- "$target_state/backups"
-truncate -s $((513 * 1024 * 1024)) "$target_state/backups/retained-backup.bin"
+truncate -s $((8 * 1024 * 1024 * 1024)) "$target_state/backups/retained-backup.bin"
 target_output=$(bash "$create_workspace" --role target --deployment-id target-budget --root "$target_root")
 [[ -f $target_root/target-budget/.lmm-deploy-workspace ]] || fail 'target workspace was blocked by retained sibling backups'
 grep -Fq "LMM_DEPLOY_WORKSPACE=$target_root/target-budget" <<<"$target_output" || fail 'target output missing workspace path'

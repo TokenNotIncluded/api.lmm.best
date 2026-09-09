@@ -6,18 +6,18 @@ use postgres::{Client, NoTls};
 use serde::Serialize;
 
 use crate::{
-    contract::{install_or_verify, ContractInstallOutcome},
+    MigrationError,
+    contract::{ContractInstallOutcome, install_or_verify},
     forward_schema::{
-        verify_company_billing_profile_schema, verify_current_dashboard_schema,
-        verify_open_source_bounty_schema, verify_subscription_payment_refund_schema,
-        verify_subscription_reset_schema, verify_waffo_subscription_schema,
         BOUNTY_SCHEMA_CONTRACT_ID, COMPANY_BILLING_PROFILE_SCHEMA_CONTRACT_ID,
         CURRENT_DASHBOARD_SCHEMA_CONTRACT_ID, SUBSCRIPTION_PAYMENT_REFUND_SCHEMA_CONTRACT_ID,
         SUBSCRIPTION_RESET_SCHEMA_CONTRACT_ID, WAFFO_SUBSCRIPTION_SCHEMA_CONTRACT_ID,
+        verify_company_billing_profile_schema, verify_current_dashboard_schema,
+        verify_open_source_bounty_schema, verify_subscription_payment_refund_schema,
+        verify_subscription_reset_schema, verify_waffo_subscription_schema,
     },
     postgres_catalog::acquire_shared_migration_lock,
     release::ReleaseBinding,
-    MigrationError,
 };
 
 /// Inputs for one forward-only schema expansion.

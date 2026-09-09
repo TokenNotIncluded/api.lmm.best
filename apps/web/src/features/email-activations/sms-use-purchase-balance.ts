@@ -1,3 +1,6 @@
+/*
+Copyright (C) 2026 LIghtJUNction
+*/
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 /*
 Copyright (C) 2026 LIghtJUNction
