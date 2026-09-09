@@ -946,3 +946,143 @@ async fn option_write_invalidates_valkey_then_recovers_from_authoritative_postgr
         "root reads must use the same secret-redaction policy for SMTP, OAuth, and payment settings"
     );
 }
+
+#[derive(Default)]
+struct PricingRuntimeProbe(Mutex<Vec<(String, String)>>);
+
+#[async_trait]
+impl SystemConfigRuntimeWriter for PricingRuntimeProbe {
+    async fn preflight(&self, _: &[(String, String)]) -> Result<(), ()> {
+        Ok(())
+    }
+
+    async fn apply_committed(&self, changes: &[(String, String)]) -> Result<(), ()> {
+        self.0.lock().unwrap().extend_from_slice(changes);
+        Ok(())
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires isolated PostgreSQL 18 and Valkey; run with LMM_SYSTEM_CONFIG_TEST_DATABASE_URL and LMM_SYSTEM_CONFIG_TEST_VALKEY_URL"]
+async fn pricing_locks_filter_before_commit_and_dry_run_has_no_side_effects() {
+    let pool = PgPoolOptions::new()
+        .max_connections(3)
+        .connect(&env::var("LMM_SYSTEM_CONFIG_TEST_DATABASE_URL").unwrap())
+        .await
+        .unwrap();
+    let version: String = sqlx::query_scalar("SHOW server_version")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert!(version.starts_with("18."));
+    sqlx::query("CREATE TABLE IF NOT EXISTS options (key TEXT PRIMARY KEY, value TEXT)")
+        .execute(&pool)
+        .await
+        .unwrap();
+    for (key, value) in [
+        ("ModelPriceLock", r#"{"locked":true}"#),
+        ("ModelPrice", r#"{"locked":1,"editable":2}"#),
+    ] {
+        sqlx::query("INSERT INTO options (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value")
+            .bind(key).bind(value).execute(&pool).await.unwrap();
+    }
+    let valkey =
+        redis::Client::open(env::var("LMM_SYSTEM_CONFIG_TEST_VALKEY_URL").unwrap()).unwrap();
+    let mut connection = valkey.get_multiplexed_async_connection().await.unwrap();
+    // A stale unlocked cache must not override PostgreSQL's lock decision.
+    connection
+        .set::<_, _, ()>("lmm:system-config:options", r#"{"ModelPriceLock":"{}"}"#)
+        .await
+        .unwrap();
+    let runtime = Arc::new(PricingRuntimeProbe::default());
+    let app = system_config_router(
+        SystemConfigHttpState::new(
+            pool.clone(),
+            valkey,
+            Arc::new(Root),
+            Arc::new(Update),
+            Arc::new(Pancake),
+        )
+        .with_runtime_writer(runtime.clone()),
+    );
+    let values = json!({"values": {
+        "ModelPriceLock": "{}",
+        "ModelPrice": r#"{"locked":"invalid attempted price","editable":3}"#
+    }});
+    for path in ["/api/option/validate", "/api/option/bulk"] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(path)
+                    .header("content-type", "application/json")
+                    .body(Body::from(values.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body: Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap())
+                .unwrap();
+        assert_eq!(body["success"], true, "{body}");
+        assert_eq!(body["warnings"].as_array().unwrap().len(), 1);
+        let saved: String =
+            sqlx::query_scalar("SELECT value FROM options WHERE key = 'ModelPrice'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        if path.ends_with("validate") {
+            assert_eq!(
+                serde_json::from_str::<Value>(&saved).unwrap(),
+                json!({"locked":1,"editable":2})
+            );
+            assert!(runtime.0.lock().unwrap().is_empty());
+            assert_eq!(
+                connection
+                    .get::<_, String>("lmm:system-config:options")
+                    .await
+                    .unwrap(),
+                r#"{"ModelPriceLock":"{}"}"#
+            );
+        } else {
+            assert_eq!(
+                serde_json::from_str::<Value>(&saved).unwrap(),
+                json!({"locked":1,"editable":3})
+            );
+            let applied = runtime.0.lock().unwrap();
+            assert!(
+                applied
+                    .iter()
+                    .any(|(key, value)| key == "ModelPrice" && value == &saved)
+            );
+        }
+    }
+    // The preceding batch unlocked the model; a separate write can now change it.
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri("/api/option/")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({"key":"ModelPrice", "value":r#"{"locked":9}"#}).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let body: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
+    assert_eq!(body["success"], true);
+    assert!(body["warnings"].as_array().unwrap().is_empty());
+    let saved: String = sqlx::query_scalar("SELECT value FROM options WHERE key = 'ModelPrice'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        serde_json::from_str::<Value>(&saved).unwrap(),
+        json!({"locked":9})
+    );
+}
