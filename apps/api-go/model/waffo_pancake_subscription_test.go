@@ -62,7 +62,7 @@ func readWaffoSubscription(t *testing.T, order *SubscriptionOrder) UserSubscript
 	return subscription
 }
 
-func TestWaffoSubscriptionPairsEitherDeliveryOrderAndReplays(t *testing.T) {
+func TestWaffoSubscriptionIndependentStreamsEitherDeliveryOrderAndReplays(t *testing.T) {
 	for _, paymentFirst := range []bool{true, false} {
 		t.Run(fmt.Sprintf("payment_first_%t", paymentFirst), func(t *testing.T) {
 			order := newWaffoSubscriptionFixture(t)
@@ -74,11 +74,17 @@ func TestWaffoSubscriptionPairsEitherDeliveryOrderAndReplays(t *testing.T) {
 			}
 			settled, err := RecordWaffoPancakeSubscriptionEvent(order.TradeNo, first)
 			require.NoError(t, err)
-			require.False(t, settled)
-			require.Equal(t, common.TopUpStatusPending, GetSubscriptionOrderByTradeNo(order.TradeNo).Status)
+			require.True(t, settled)
+			storedOrder := GetSubscriptionOrderByTradeNo(order.TradeNo)
 			var count int64
 			require.NoError(t, DB.Model(&UserSubscription{}).Where("user_id = ?", order.UserId).Count(&count).Error)
-			require.Zero(t, count)
+			if paymentFirst {
+				require.Equal(t, common.TopUpStatusSuccess, storedOrder.Status)
+				require.Zero(t, count, "payment records money, not access")
+			} else {
+				require.Equal(t, common.TopUpStatusPending, storedOrder.Status)
+				require.EqualValues(t, 1, count, "verified activation authorizes access, not money")
+			}
 			settled, err = RecordWaffoPancakeSubscriptionEvent(order.TradeNo, second)
 			require.NoError(t, err)
 			require.True(t, settled)
@@ -145,6 +151,7 @@ func TestWaffoSubscriptionSettlementFailureRollsBackCompletion(t *testing.T) {
 	payment, period := waffoSubscriptionFixtureEvents(order, "atomic", "subscription.activated", now-100, now+3600)
 	_, err := RecordWaffoPancakeSubscriptionEvent(order.TradeNo, &period)
 	require.NoError(t, err)
+	before := readWaffoSubscription(t, order)
 	require.NoError(t, DB.Exec(`CREATE TRIGGER reject_waffo_settlement BEFORE INSERT ON subscription_payment_events BEGIN SELECT RAISE(ABORT, 'simulated ledger failure'); END`).Error)
 	t.Cleanup(func() { DB.Exec("DROP TRIGGER IF EXISTS reject_waffo_settlement") })
 	settled, err := RecordWaffoPancakeSubscriptionEvent(order.TradeNo, &payment)
@@ -152,12 +159,13 @@ func TestWaffoSubscriptionSettlementFailureRollsBackCompletion(t *testing.T) {
 	require.False(t, settled)
 	stored := GetSubscriptionOrderByTradeNo(order.TradeNo)
 	require.Equal(t, common.TopUpStatusPending, stored.Status)
-	require.Zero(t, stored.UserSubscriptionId)
-	for _, table := range []interface{}{&UserSubscription{}, &TopUp{}} {
-		var count int64
-		require.NoError(t, DB.Model(table).Where("user_id = ?", order.UserId).Count(&count).Error)
-		require.Zero(t, count)
-	}
+	require.Equal(t, before.Id, stored.UserSubscriptionId)
+	require.Equal(t, before, readWaffoSubscription(t, order), "financial failure cannot undo independent lifecycle authority")
+	var cashRows, rawPayments int64
+	require.NoError(t, DB.Model(&TopUp{}).Where("user_id = ?", order.UserId).Count(&cashRows).Error)
+	require.NoError(t, DB.Model(&WaffoPancakeSubscriptionPayment{}).Where("subscription_order_id = ?", order.Id).Count(&rawPayments).Error)
+	require.Zero(t, cashRows)
+	require.Zero(t, rawPayments, "failed finance and payment evidence roll back together")
 	require.NoError(t, DB.Exec("DROP TRIGGER reject_waffo_settlement").Error)
 	settled, err = RecordWaffoPancakeSubscriptionEvent(order.TradeNo, &payment)
 	require.NoError(t, err)
@@ -174,19 +182,21 @@ func TestWaffoSubscriptionRejectsAmbiguousPeriodsAndConflictingIDs(t *testing.T)
 	changedPayment.PaymentDate++
 	_, err = RecordWaffoPancakeSubscriptionEvent(order.TradeNo, &changedPayment)
 	require.ErrorIs(t, err, ErrPaymentEvidenceConflict)
-	// Overlapping lifecycle receipts may be retained before a payment exists,
-	// but must never choose a cycle arbitrarily once both are available.
-	require.NoError(t, DB.Where("subscription_order_id = ?", order.Id).Delete(&WaffoPancakeSubscriptionPayment{}).Error)
+	// Conflicting lifecycle boundaries are rejected immediately; a payment
+	// cannot legitimize or choose between inconsistent access windows.
 	_, err = RecordWaffoPancakeSubscriptionEvent(order.TradeNo, &period)
 	require.NoError(t, err)
+	before := readWaffoSubscription(t, order)
 	overlap := period
 	overlap.EventID += "-overlap"
 	overlap.PeriodStart--
 	_, err = RecordWaffoPancakeSubscriptionEvent(order.TradeNo, &overlap)
-	require.NoError(t, err)
-	_, err = RecordWaffoPancakeSubscriptionEvent(order.TradeNo, &payment)
 	require.ErrorIs(t, err, ErrPaymentEvidenceConflict)
-	require.Equal(t, common.TopUpStatusPending, GetSubscriptionOrderByTradeNo(order.TradeNo).Status)
+	require.Equal(t, before, readWaffoSubscription(t, order))
+	changed, err := RecordWaffoPancakeSubscriptionEvent(order.TradeNo, &payment)
+	require.NoError(t, err)
+	require.False(t, changed)
+	require.Equal(t, common.TopUpStatusSuccess, GetSubscriptionOrderByTradeNo(order.TradeNo).Status)
 }
 
 func TestWaffoSubscriptionConcurrentDuplicateDeliverySettlesOnce(t *testing.T) {
@@ -222,7 +232,7 @@ func TestWaffoSubscriptionLatePairDoesNotReviveCancellation(t *testing.T) {
 	require.NoError(t, CompleteSubscriptionOrder(order.TradeNo, "{}", PaymentProviderWaffoPancake, ""))
 	now := time.Now().Unix()
 	payment, period := waffoSubscriptionFixtureEvents(order, "cancelled", "subscription.activated", now-100, now+3600)
-	require.NoError(t, UpdateSubscriptionProviderState(order.TradeNo, PaymentProviderWaffoPancake, payment.ProviderOrderID, "canceled", period.PeriodStart, period.PeriodEnd, now-50))
+	require.NoError(t, UpdateSubscriptionProviderState(order.TradeNo, PaymentProviderWaffoPancake, payment.ProviderOrderID, "canceled", period.PeriodStart, period.PeriodEnd, now-500, (now-50)*1000))
 	for _, event := range []*WaffoPancakeSubscriptionEvent{&payment, &period} {
 		_, err := RecordWaffoPancakeSubscriptionEvent(order.TradeNo, event)
 		require.NoError(t, err)

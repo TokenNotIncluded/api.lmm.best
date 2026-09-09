@@ -514,8 +514,11 @@ async fn update_self(
 ) -> Result<Response, ProfileError> {
     let request_locale = locale(request.headers());
     let mut request = request_object(request).await?;
-    if request.contains_key("sidebar_modules") || request.contains_key("language") {
+    if request.contains_key("sidebar_modules") {
         return update_self_setting(&state, identity.user_id, &mut request, request_locale).await;
+    }
+    if request.contains_key("language") || request.contains_key("settlement_currency") {
+        return update_self_locale(&state, identity.user_id, &request, request_locale).await;
     }
     let username = request
         .get("username")
@@ -567,6 +570,104 @@ async fn request_object(request: Request) -> Result<Map<String, Value>, ProfileE
         Value::Null => Ok(Map::new()),
         _ => Err(ProfileError::bad_request("invalid parameters")),
     }
+}
+
+#[derive(Debug)]
+struct ProfileLocalePatch {
+    language: Option<String>,
+    settlement_currency: Option<String>,
+}
+
+impl ProfileLocalePatch {
+    fn from_request(
+        request: &Map<String, Value>,
+        request_locale: LegacyLocale,
+    ) -> Result<Self, ProfileError> {
+        let invalid = || ProfileError::legacy(request_locale.invalid_parameters());
+        let language = request
+            .get("language")
+            .map(|value| {
+                value
+                    .as_str()
+                    .filter(|language| language.len() <= 64)
+                    .map(str::to_owned)
+                    .ok_or_else(invalid)
+            })
+            .transpose()?;
+        let settlement_currency = request
+            .get("settlement_currency")
+            .map(|value| {
+                let currency = value.as_str().ok_or_else(invalid)?.trim().to_uppercase();
+                if !matches!(currency.as_str(), "" | "CNY" | "USD") {
+                    return Err(invalid());
+                }
+                Ok(currency)
+            })
+            .transpose()?;
+        Ok(Self {
+            language,
+            settlement_currency,
+        })
+    }
+
+    fn merge(self, raw: &str) -> Result<String, ProfileError> {
+        // An unset legacy setting is empty; nonempty invalid JSON must never
+        // turn a locale change into deletion of the user's other preferences.
+        let mut setting = if raw.is_empty() {
+            Map::new()
+        } else {
+            serde_json::from_str::<Map<String, Value>>(raw)
+                .map_err(|_| ProfileError::internal())?
+        };
+        if let Some(language) = self.language {
+            setting.insert("language".to_owned(), Value::String(language));
+        }
+        if let Some(currency) = self.settlement_currency {
+            if currency.is_empty() {
+                setting.remove("settlement_currency");
+            } else {
+                setting.insert("settlement_currency".to_owned(), Value::String(currency));
+            }
+        }
+        serde_json::to_string(&setting).map_err(|_| ProfileError::internal())
+    }
+}
+
+async fn update_self_locale(
+    state: &ProfileState,
+    user_id: i64,
+    request: &Map<String, Value>,
+    request_locale: LegacyLocale,
+) -> Result<Response, ProfileError> {
+    // Validate the complete patch before either field can reach PostgreSQL.
+    let patch = ProfileLocalePatch::from_request(request, request_locale)?;
+    let mut transaction = state
+        .pg
+        .begin()
+        .await
+        .map_err(|_| ProfileError::internal())?;
+    let raw = sqlx::query_scalar::<_, Option<String>>(
+        "SELECT setting FROM users WHERE id = $1 AND deleted_at IS NULL FOR UPDATE",
+    )
+    .bind(user_id)
+    .fetch_optional(&mut *transaction)
+    .await
+    .map_err(|_| ProfileError::internal())?
+    .ok_or_else(ProfileError::not_found)?
+    .unwrap_or_default();
+    let serialized = patch.merge(&raw)?;
+    sqlx::query("UPDATE users SET setting = $1 WHERE id = $2 AND deleted_at IS NULL")
+        .bind(&serialized)
+        .bind(user_id)
+        .execute(&mut *transaction)
+        .await
+        .map_err(|_| ProfileError::internal())?;
+    transaction
+        .commit()
+        .await
+        .map_err(|_| ProfileError::internal())?;
+    clear_user_cache(state, user_id).await;
+    Ok(common_update_success(request_locale))
 }
 
 async fn update_self_setting(
@@ -992,6 +1093,8 @@ struct LegacyNotificationSetting {
     billing_preference: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     language: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    settlement_currency: String,
 }
 
 fn is_zero_f64(value: &f64) -> bool {
@@ -1021,6 +1124,7 @@ fn build_notification_setting(
         upstream_model_update_notify_enabled: upstream,
         accept_unset_ratio_model: request.accept_unset_model_ratio_model,
         record_ip_log: request.record_ip_log,
+        settlement_currency: existing.settlement_currency,
         ..LegacyNotificationSetting::default()
     };
     match request.notify_type.as_str() {
@@ -1493,8 +1597,9 @@ fn ordinary_update_success() -> Response {
 #[cfg(test)]
 mod tests {
     use super::{
-        AFF_CODE_LENGTH, LegacyLocale, UserSettingRequest, build_notification_setting,
-        generate_aff_code, is_request_uri, self_oauth_binding_column, validate_user_setting,
+        AFF_CODE_LENGTH, LegacyLocale, LegacyNotificationSetting, ProfileLocalePatch,
+        UserSettingRequest, build_notification_setting, generate_aff_code, is_request_uri,
+        self_oauth_binding_column, serialize_legacy_notification_setting, validate_user_setting,
     };
     use serde_json::{Map, Value};
 
@@ -1524,6 +1629,140 @@ mod tests {
             "language"
         };
         assert_eq!(key, "sidebar_modules");
+    }
+
+    #[test]
+    fn locale_patch_normalizes_currency_and_clears_automatic_preference() {
+        for (input, expected) in [
+            (" cny ", Some("CNY")),
+            ("\tUsd\n", Some("USD")),
+            ("", None),
+            ("  ", None),
+        ] {
+            let request = Map::from_iter([(
+                "settlement_currency".to_owned(),
+                Value::String(input.to_owned()),
+            )]);
+            let patch = ProfileLocalePatch::from_request(&request, LegacyLocale::En)
+                .expect("accepted currency");
+            let raw = patch
+                .merge(r#"{"settlement_currency":"USD","language":"zh","unknown":{"keep":true}}"#)
+                .expect("merge currency");
+            let setting: Value = serde_json::from_str(&raw).expect("setting JSON");
+            assert_eq!(setting.get("settlement_currency").and_then(Value::as_str), expected);
+            assert_eq!(setting["language"], "zh");
+            assert_eq!(setting["unknown"], serde_json::json!({"keep": true}));
+        }
+    }
+
+    #[test]
+    fn locale_patch_rejects_unsupported_or_non_string_currency() {
+        for currency in [
+            serde_json::json!("auto"),
+            serde_json::json!("EUR"),
+            serde_json::json!(42),
+            Value::Null,
+            serde_json::json!(true),
+            serde_json::json!([]),
+            serde_json::json!({}),
+        ] {
+            let request = Map::from_iter([
+                ("language".to_owned(), Value::String("zh".to_owned())),
+                ("settlement_currency".to_owned(), currency),
+            ]);
+            let error = ProfileLocalePatch::from_request(&request, LegacyLocale::En)
+                .expect_err("invalid currency must reject the whole patch");
+            assert_eq!(error.status, axum::http::StatusCode::OK);
+            assert_eq!(error.message, "Invalid parameters");
+        }
+    }
+
+    #[test]
+    fn locale_patch_validates_language_type_and_utf8_byte_limit() {
+        for language in [
+            Value::Null,
+            serde_json::json!(7),
+            serde_json::json!(false),
+            serde_json::json!([]),
+            serde_json::json!({}),
+            serde_json::json!("a".repeat(65)),
+            serde_json::json!("中".repeat(22)),
+        ] {
+            let request = Map::from_iter([
+                ("language".to_owned(), language),
+                ("settlement_currency".to_owned(), Value::String("USD".to_owned())),
+            ]);
+            assert!(ProfileLocalePatch::from_request(&request, LegacyLocale::En).is_err());
+        }
+        for language in [String::new(), "a".repeat(64), format!("{}a", "中".repeat(21))] {
+            let request = Map::from_iter([("language".to_owned(), Value::String(language))]);
+            assert!(ProfileLocalePatch::from_request(&request, LegacyLocale::En).is_ok());
+        }
+    }
+
+    #[test]
+    fn locale_only_patch_preserves_manual_currency_and_unknown_json() {
+        let request = Map::from_iter([("language".to_owned(), Value::String("en".to_owned()))]);
+        let raw = ProfileLocalePatch::from_request(&request, LegacyLocale::En)
+            .expect("valid patch")
+            .merge(r#"{"language":"zh","settlement_currency":"CNY","notify_type":"email","unknown":[1,{"keep":true}]}"#)
+            .expect("merge patch");
+        assert_eq!(
+            serde_json::from_str::<Value>(&raw).expect("setting JSON"),
+            serde_json::json!({
+                "language": "en",
+                "settlement_currency": "CNY",
+                "notify_type": "email",
+                "unknown": [1, {"keep": true}]
+            })
+        );
+    }
+
+    #[test]
+    fn locale_patch_rejects_malformed_or_non_object_settings() {
+        let request = Map::from_iter([("language".to_owned(), Value::String("en".to_owned()))]);
+        for raw in ["{", "null", "[]", "7", "\"text\"", " "] {
+            let patch = ProfileLocalePatch::from_request(&request, LegacyLocale::En)
+                .expect("valid patch");
+            assert!(patch.merge(raw).is_err(), "must not replace setting {raw}");
+        }
+    }
+
+    #[test]
+    fn locale_patch_initializes_unset_settings_with_both_fields() {
+        let request = Map::from_iter([
+            ("language".to_owned(), Value::String("zh".to_owned())),
+            ("settlement_currency".to_owned(), Value::String("CNY".to_owned())),
+        ]);
+        let raw = ProfileLocalePatch::from_request(&request, LegacyLocale::En)
+            .expect("valid patch")
+            .merge("")
+            .expect("initialize unset setting");
+        assert_eq!(
+            serde_json::from_str::<Value>(&raw).expect("setting JSON"),
+            serde_json::json!({"language": "zh", "settlement_currency": "CNY"})
+        );
+    }
+
+    #[test]
+    fn sidebar_serialization_preserves_explicit_currency_and_empty_snapshot() {
+        let mut setting: LegacyNotificationSetting =
+            serde_json::from_str(r#"{"settlement_currency":"CNY"}"#).expect("existing setting");
+        setting.sidebar_modules = r#"{"chat":true}"#.to_owned();
+        let raw = serialize_legacy_notification_setting(&setting).expect("sidebar setting");
+        assert_eq!(
+            serde_json::from_str::<Value>(&raw).expect("setting JSON"),
+            serde_json::json!({
+                "gotify_priority": 0,
+                "sidebar_modules": "{\"chat\":true}",
+                "settlement_currency": "CNY"
+            })
+        );
+        assert_eq!(
+            serialize_legacy_notification_setting(&LegacyNotificationSetting::default())
+                .expect("default setting"),
+            r#"{"gotify_priority":0}"#
+        );
     }
 
     #[test]
@@ -1604,6 +1843,21 @@ mod tests {
         assert_eq!(value["gotify_priority"], 0);
         assert!(value.get("language").is_none());
         assert!(value.get("billing_preference").is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn notification_setting_preserves_explicit_settlement_currency() -> TestResult {
+        let request: UserSettingRequest = serde_json::from_value(serde_json::json!({
+            "notify_type": "email",
+            "quota_warning_threshold": 1,
+            "notification_email": "ada@example.test"
+        }))?;
+        for currency in ["CNY", "USD"] {
+            let current = serde_json::json!({"settlement_currency": currency}).to_string();
+            let value = notification_setting_json(&current, &request)?;
+            assert_eq!(value["settlement_currency"], currency);
+        }
         Ok(())
     }
 

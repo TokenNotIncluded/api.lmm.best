@@ -219,7 +219,10 @@ export async function paySubscriptionCreem(
 export async function paySubscriptionWaffoPancake(
   data: WaffoPancakeSubscriptionPayRequest
 ): Promise<SubscriptionPayResponse> {
-  const res = await api.post('/api/subscription/waffo-pancake/pay', data)
+  const res = await api.post('/api/subscription/waffo-pancake/pay', data, {
+    skipBusinessError: true,
+    skipErrorHandler: true,
+  })
   return res.data
 }
 
@@ -321,8 +324,10 @@ export async function redeemSubscriptionResetVoucher(
   return res.data
 }
 
-export async function getPublicPlans(): Promise<ApiResponse<PlanRecord[]>> {
-  const res = await api.get('/api/subscription/plans')
+export async function getPublicPlans(
+  signal?: AbortSignal
+): Promise<ApiResponse<PlanRecord[]>> {
+  const res = await api.get('/api/subscription/plans', { signal })
   return res.data
 }
 

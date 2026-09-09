@@ -9,7 +9,7 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/model"
 	"github.com/LIghtJUNction/api.lmm.best/service"
 	"github.com/stretchr/testify/require"
-	waffoorder "github.com/waffo-com/waffo-go/types/order"
+	waffoorder "github.com/waffo-com/waffo-go/v2/types/order"
 )
 
 func enabledCompanyBillingProfile() *model.CompanyBillingProfile {
@@ -94,7 +94,9 @@ func TestCompanyBillingToggleOnAttachesOnlyProviderSupportedFields(t *testing.T)
 	require.Equal(t, "US", params.AddressInfo.BillingAddress.Country)
 	require.Equal(t, "NY", params.AddressInfo.BillingAddress.State)
 	require.Equal(t, "10001", params.AddressInfo.BillingAddress.PostalCode)
-	// waffo-go v1.3.2 exposes no businessName/taxId/isBusiness fields.
+	// waffo-go/v2 keeps billing as a nested address object, not an encoded
+	// string, and exposes no businessName/taxId/isBusiness fields.
+	require.JSONEq(t, `{"billingAddress":{"country":"US","state":"NY","postalCode":"10001"}}`, common.GetJsonString(params.AddressInfo))
 	require.NotContains(t, common.GetJsonString(params.AddressInfo), profile.BusinessName)
 	require.NotContains(t, common.GetJsonString(params.AddressInfo), profile.TaxID)
 

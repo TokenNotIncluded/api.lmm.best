@@ -45,8 +45,17 @@ type SubscriptionPlanDTO struct {
 	// PaymentMethods is user-authorized in the public catalog and operator-
 	// configured in the admin catalog. Both views require usable gateway
 	// credentials rather than trusting a bare provider product ID.
-	PaymentMethods    []string `json:"payment_methods"`
-	BalancePriceQuota int64    `json:"balance_price_quota"`
+	PaymentMethods         []string                     `json:"payment_methods"`
+	BalancePriceQuota      int64                        `json:"balance_price_quota"`
+	WaffoPancakeSettlement *WaffoPancakeSettlementQuote `json:"waffo_pancake_settlement,omitempty"`
+}
+
+// WaffoPancakeSettlementQuote is a server-computed fiat quote, not wallet credit.
+type WaffoPancakeSettlementQuote struct {
+	Amount    string `json:"amount"`
+	Currency  string `json:"currency"`
+	Available bool   `json:"available"`
+	Reason    string `json:"reason,omitempty"`
 }
 
 func normalizeSubscriptionFiatCurrency(value string) (string, error) {
@@ -102,17 +111,26 @@ func GetSubscriptionPlans(c *gin.Context) {
 		return
 	}
 	result := make([]SubscriptionPlanDTO, 0, len(plans))
+	currency := userSettlementCurrency(user, settlementLanguageHint(c))
 	for _, p := range plans {
 		p.NormalizeDefaults()
 		methods, balancePriceQuota := subscriptionPaymentMethodsWithBalanceQuote(
 			&p,
 			subscriptionPaymentMethods(user, &p, time.Now()),
 		)
-		result = append(result, SubscriptionPlanDTO{
+		dto := SubscriptionPlanDTO{
 			Plan:              p,
 			PaymentMethods:    methods,
 			BalancePriceQuota: balancePriceQuota,
-		})
+		}
+		for _, method := range methods {
+			if method == model.PaymentMethodWaffoPancake {
+				// The catalog route never queries or mutates merchant products.
+				dto.WaffoPancakeSettlement = subscriptionWaffoPancakeSettlementQuote(&p, currency)
+				break
+			}
+		}
+		result = append(result, dto)
 	}
 	common.ApiSuccess(c, result)
 }
@@ -157,7 +175,7 @@ func UpdateSubscriptionPreference(c *gin.Context) {
 	}
 	current := user.GetSetting()
 	current.BillingPreference = pref
-	if err := model.UpdateUserSetting(user.Id, current); err != nil {
+	if err := model.UpdateUserSettingPreservingLocale(user.Id, current); err != nil {
 		common.ApiError(c, err)
 		return
 	}

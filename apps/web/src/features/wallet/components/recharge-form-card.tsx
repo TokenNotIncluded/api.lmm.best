@@ -89,6 +89,11 @@ import {
 } from '../lib'
 import { discountCodeSavings } from '../lib/discount-state'
 import type { TopupAvailability } from '../lib/payment'
+import {
+  formatSettlementQuote,
+  parseSettlementQuote,
+  type SettlementQuote,
+} from '../lib/settlement-quote'
 import type {
   PaymentMethod,
   PresetAmount,
@@ -107,6 +112,7 @@ interface RechargeFormCardProps {
   topupAmount: number
   onTopupAmountChange: (amount: number) => void
   paymentAmount: number
+  settlementQuote?: SettlementQuote | null
   selectedPaymentMethod?: PaymentMethod
   calculating: boolean
   onPaymentMethodSelect: (method: PaymentMethod) => void
@@ -144,7 +150,8 @@ export function RechargeFormCard({
   onSelectPreset,
   topupAmount,
   onTopupAmountChange,
-  paymentAmount,
+  paymentAmount: legacyPaymentAmount,
+  settlementQuote,
   selectedPaymentMethod,
   calculating,
   onPaymentMethodSelect,
@@ -220,28 +227,45 @@ export function RechargeFormCard({
   const topupGroupRatio = topupInfo?.topup_group_ratio ?? 1
   const redemptionEnabled = topupInfo?.enable_redemption !== false
   const customDiscount = topupInfo?.discount?.[topupAmount] || 1
+  const effectivePaymentMethod =
+    selectedPaymentMethod ??
+    standardMethods.find(
+      (method) => method.type === getDefaultPaymentType(topupInfo)
+    )
+  const usesSettlementQuote = isWaffoPancakePayment(
+    effectivePaymentMethod?.type ?? ''
+  )
+  const quote = parseSettlementQuote(settlementQuote)
+  const paymentAmount = usesSettlementQuote
+    ? quote
+      ? Number(quote.amount)
+      : 0
+    : legacyPaymentAmount
   const hasCurrentPaymentAmount =
     !calculating && isPositivePaymentAmount(paymentAmount)
   const customHasDiscount =
-    hasCurrentPaymentAmount && customDiscount > 0 && customDiscount < 1
+    !usesSettlementQuote &&
+    hasCurrentPaymentAmount &&
+    customDiscount > 0 &&
+    customDiscount < 1
   const customOriginalPayment = customHasDiscount
     ? paymentAmount / customDiscount
     : paymentAmount
   const customDiscountAmount = customOriginalPayment - paymentAmount
-  const discountCodeSavingAmount = hasCurrentPaymentAmount
-    ? discountCodeSavings(paymentAmount, discountPercent)
-    : 0
-  const defaultPaymentType = getDefaultPaymentType(topupInfo)
-  const effectivePaymentMethod =
-    selectedPaymentMethod ??
-    standardMethods.find((method) => method.type === defaultPaymentType)
-  const settlementUnit = getPaymentSettlementUnit(effectivePaymentMethod, true)
+  const discountCodeSavingAmount =
+    !usesSettlementQuote && hasCurrentPaymentAmount
+      ? discountCodeSavings(paymentAmount, discountPercent)
+      : 0
+  const settlementUnit = usesSettlementQuote
+    ? null
+    : getPaymentSettlementUnit(effectivePaymentMethod, true)
   const paymentTopupRatio = getPaymentTopupRatio(effectivePaymentMethod)
   const selectedPaymentMethodName =
     neutralMode || !effectivePaymentMethod?.name
       ? t('Payment Method')
       : effectivePaymentMethod.name
   const shouldShowSettlementRule = (paymentMethod: PaymentMethod) =>
+    !isWaffoPancakePayment(paymentMethod.type) &&
     getPaymentSettlementUnit(paymentMethod, true) !== null
   const getSettlementRule = (paymentMethod: PaymentMethod) =>
     formatPaymentSettlementRate(
@@ -250,13 +274,17 @@ export function RechargeFormCard({
       true
     )
   const formatSelectedPaymentAmount = (amount: number) =>
-    settlementUnit
-      ? formatSettlementAmount(amount, settlementUnit.label)
-      : formatPaymentAmount(amount, 'USD')
+    usesSettlementQuote
+      ? quote
+        ? formatSettlementQuote(quote)
+        : t('Payment unavailable')
+      : settlementUnit
+        ? formatSettlementAmount(amount, settlementUnit.label)
+        : formatPaymentAmount(amount, 'USD')
   const formatPresetPaymentAmount = (amount: number) =>
-    settlementUnit
-      ? formatSettlementAmount(amount, settlementUnit.label)
-      : formatPaymentAmount(amount, 'USD')
+    usesSettlementQuote
+      ? t('Payment unavailable')
+      : formatSelectedPaymentAmount(amount)
   const paymentAmountLabel = calculating
     ? t('Calculating...')
     : hasCurrentPaymentAmount
@@ -304,7 +332,13 @@ export function RechargeFormCard({
       ? configuredSelectedPresetDiscount
       : null
   const selectedPresetQuoteBreakdown = (() => {
-    if (selectedPresetDiscount === null || !hasCurrentPaymentAmount) return null
+    if (
+      usesSettlementQuote ||
+      selectedPresetDiscount === null ||
+      !hasCurrentPaymentAmount
+    ) {
+      return null
+    }
     const originalPrice = paymentAmount / selectedPresetDiscount
     return {
       originalPrice,
@@ -452,11 +486,18 @@ export function RechargeFormCard({
                           preset.discount ||
                           topupInfo?.discount?.[preset.value] ||
                           1.0
-                        const defaultPricing = calculatePresetPricing(
-                          preset.value,
-                          priceRatio * topupGroupRatio * paymentTopupRatio,
-                          discount
-                        )
+                        const defaultPricing = usesSettlementQuote
+                          ? {
+                              originalPrice: 0,
+                              actualPrice: 0,
+                              savedAmount: 0,
+                              hasDiscount: false,
+                            }
+                          : calculatePresetPricing(
+                              preset.value,
+                              priceRatio * topupGroupRatio * paymentTopupRatio,
+                              discount
+                            )
                         const configuredSettlementPrice = settlementUnit
                           ? calculatePresetPricing(
                               preset.value,

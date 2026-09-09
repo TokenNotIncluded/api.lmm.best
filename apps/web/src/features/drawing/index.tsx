@@ -24,7 +24,7 @@ import {
   AlertTitle,
 } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
+import { Button, buttonVariants } from '@/components/ui/button'
 import {
   Empty,
   EmptyDescription,
@@ -39,27 +39,29 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Textarea } from '@/components/ui/textarea'
 import { api } from '@/lib/api'
 import { copyToClipboard } from '@/lib/copy-to-clipboard'
+import { useAuthStore } from '@/stores/auth-store'
+import { useSystemConfigStore } from '@/stores/system-config-store'
 
-import { getAssistantStatus } from '../assistant/api'
+import { getAssistantStatus, type DrawingWebAccess } from '../assistant/api'
 import { rotateMcpToken } from '../open-source-bounties/api'
 import { getPricing } from '../pricing/api'
 import type { PricingModel } from '../pricing/types'
+import { DrawingGallery } from './drawing-gallery'
 import {
   getDrawingRequestErrorKind,
   getDrawingRequestErrorMessage,
   getDrawingRequestStatus,
 } from './error-state'
+import { DRAWING_HISTORY_BYTES, DRAWING_HISTORY_LIMIT } from './history-storage'
+import { drawingSource, type GeneratedDrawing } from './image-bytes'
 import { buildDrawingMcpConfig } from './mcp-config'
-
-type ImageResult = {
-  url?: string
-  b64_json?: string
-  revised_prompt?: string
-}
+import { useDrawingHistory } from './use-drawing-history'
+import { getDrawingWebDenial, resolveDrawingWebAccess } from './web-access'
 
 type ImageResponse = {
-  data?: ImageResult[]
-  error?: { message?: string }
+  data?: GeneratedDrawing[]
+  error?: { message?: string; code?: string }
+  drawing_web_access?: DrawingWebAccess
   message?: string
 }
 
@@ -76,12 +78,6 @@ const chineseImageOrdinals = ['一', '二', '三', '四', '五', '六', '七', '
 
 function isImageModel(model: PricingModel): boolean {
   return model.supported_endpoint_types?.includes('image-generation') === true
-}
-
-function imageSource(image: ImageResult): string | undefined {
-  if (image.url?.trim()) return image.url.trim()
-  if (image.b64_json?.trim()) return `data:image/png;base64,${image.b64_json}`
-  return undefined
 }
 
 function modelSupportsGroup(model: PricingModel, group: string): boolean {
@@ -138,14 +134,39 @@ function DrawingQueryErrorAlert(props: {
 }
 
 export function Drawing() {
+  const userId = useAuthStore((state) => state.auth.user?.id)
+  // Remount every account-owned state, including prompt/reference files and the
+  // session-only MCP secret. Never render one account's previews for another.
+  return userId ? <DrawingWorkbench key={userId} userId={userId} /> : null
+}
+
+function DrawingWorkbench({ userId }: { userId: number }) {
   const { t, i18n } = useTranslation()
+  const history = useDrawingHistory(userId)
+  const results = history.images
+  const quotaPerUSD = useSystemConfigStore(
+    (state) => state.config.currency.quotaPerUnit
+  )
+  const [webDenial, setWebDenial] = useState<DrawingWebAccess | null>(null)
+  const [keyPending, setKeyPending] = useState(false)
+  const [keyReady, setKeyReady] = useState(false)
+  const [keyError, setKeyError] = useState<string | null>(null)
+  const activeRef = useRef(true)
+  const requestPendingRef = useRef(false)
+  const isCurrentUser = () =>
+    activeRef.current && useAuthStore.getState().auth.user?.id === userId
+  useEffect(() => {
+    activeRef.current = true
+    return () => {
+      activeRef.current = false
+    }
+  }, [])
   const [prompt, setPrompt] = useState('')
   const [group, setGroup] = useState('')
   const [model, setModel] = useState('')
   const [size, setSize] = useState('')
   const [quality, setQuality] = useState('')
   const [count, setCount] = useState('1')
-  const [results, setResults] = useState<ImageResult[]>([])
   const [referenceImages, setReferenceImages] = useState<ReferenceImage[]>([])
   const [error, setError] = useState<string | null>(null)
   const [generating, setGenerating] = useState(false)
@@ -156,11 +177,64 @@ export function Drawing() {
   const previewUrlsRef = useRef(new Set<string>())
 
   const accessQuery = useQuery({
-    queryKey: ['assistant-status'],
+    queryKey: ['assistant-status', 'drawing', userId],
     queryFn: getAssistantStatus,
     staleTime: 30_000,
     retry: false,
   })
+  const walletQuery = useQuery({
+    queryKey: ['drawing-wallet', userId],
+    enabled: accessQuery.isSuccess && !accessQuery.data.drawing_web_access,
+    queryFn: async () => {
+      const response = await api.get<{
+        success: boolean
+        data?: { quota?: number }
+      }>('/api/user/self', {
+        skipBusinessError: true,
+        skipErrorHandler: true,
+      })
+      if (!response.data.success) {
+        throw new Error('Unable to load wallet balance')
+      }
+      return response.data.data ?? {}
+    },
+    staleTime: 30_000,
+    retry: false,
+  })
+  const webAccess =
+    webDenial ??
+    resolveDrawingWebAccess(
+      accessQuery.data?.drawing_web_access,
+      walletQuery.isError ? undefined : walletQuery.data?.quota,
+      quotaPerUSD
+    )
+  const refreshBalance = async () => {
+    const [status, wallet] = await Promise.all([
+      accessQuery.refetch(),
+      accessQuery.data?.drawing_web_access
+        ? Promise.resolve(null)
+        : walletQuery.refetch(),
+    ])
+    if (!isCurrentUser()) return
+    if (
+      status.isError ||
+      (!status.data?.drawing_web_access && wallet?.isError)
+    ) {
+      setWebDenial({
+        minimum_balance_usd: 10,
+        balance_usd: null,
+        allowed: false,
+      })
+    } else {
+      setWebDenial(
+        resolveDrawingWebAccess(
+          status.data?.drawing_web_access,
+          wallet?.data?.quota,
+          quotaPerUSD
+        )
+      )
+    }
+  }
   const pricingQuery = useQuery({
     queryKey: ['drawing-pricing'],
     queryFn: getPricing,
@@ -168,7 +242,7 @@ export function Drawing() {
     retry: false,
   })
   const groupsQuery = useQuery({
-    queryKey: ['drawing-user-groups'],
+    queryKey: ['drawing-user-groups', userId],
     queryFn: async () => {
       const response = await api.get<{
         success: boolean
@@ -197,19 +271,19 @@ export function Drawing() {
       )
       .sort((left, right) => left.localeCompare(right))
   }, [groupsQuery.data?.data, imageModels, pricingQuery.data?.usable_group])
-  let selectedGroup = groups[0] ?? ''
-  if (groups.includes('image-2')) selectedGroup = 'image-2'
-  if (groups.includes(group)) selectedGroup = group
+  const selectedGroup = groups.includes(group)
+    ? group
+    : groups.includes('image-2')
+      ? 'image-2'
+      : (groups[0] ?? '')
   const modelsForGroup = imageModels.filter((item) =>
     modelSupportsGroup(item, selectedGroup)
   )
-  let selectedModel = modelsForGroup[0]?.model_name ?? ''
-  if (modelsForGroup.some((item) => item.model_name === 'image-2')) {
-    selectedModel = 'image-2'
-  }
-  if (modelsForGroup.some((item) => item.model_name === model)) {
-    selectedModel = model
-  }
+  const selectedModel = modelsForGroup.some((item) => item.model_name === model)
+    ? model
+    : modelsForGroup.some((item) => item.model_name === 'image-2')
+      ? 'image-2'
+      : (modelsForGroup[0]?.model_name ?? '')
   const groupDescription =
     groupsQuery.data?.data?.[selectedGroup]?.desc ??
     pricingQuery.data?.usable_group?.[selectedGroup]?.desc
@@ -224,66 +298,32 @@ export function Drawing() {
     ? buildDrawingMcpConfig(drawingMcpEndpoint, drawingMcpToken)
     : ''
 
-  const sizePresets = useMemo(() => {
-    const defaults = [{ value: '', label: t('Default') }]
-    if (selectedModel === 'dall-e-2' || selectedModel === 'dall-e') {
-      return [
-        ...defaults,
-        ...['256x256', '512x512', '1024x1024'].map((value) => ({
-          value,
-          label: value,
-        })),
-      ]
-    }
-    if (selectedModel === 'dall-e-3') {
-      return [
-        ...defaults,
-        ...['1024x1024', '1024x1792', '1792x1024'].map((value) => ({
-          value,
-          label: value,
-        })),
-      ]
-    }
-    return [
-      ...defaults,
-      ...['1024x1024', '1024x1536', '1536x1024'].map((value) => ({
-        value,
-        label: value,
-      })),
-    ]
-  }, [selectedModel, t])
+  const sizes =
+    selectedModel === 'dall-e-2' || selectedModel === 'dall-e'
+      ? ['256x256', '512x512', '1024x1024']
+      : selectedModel === 'dall-e-3'
+        ? ['1024x1024', '1024x1792', '1792x1024']
+        : ['1024x1024', '1024x1536', '1536x1024']
+  const qualities = selectedModel.startsWith('gpt-image-')
+    ? ['auto', 'low', 'medium', 'high']
+    : ['standard', 'hd']
+  const sizePresets = ['', ...sizes].map((value) => ({
+    value,
+    label: value || t('Default'),
+  }))
+  const qualityPresets = ['', ...qualities].map((value) => ({
+    value,
+    label: value || t('Default'),
+  }))
 
-  const qualityPresets = useMemo(() => {
-    const defaults = [{ value: '', label: t('Default') }]
-    if (selectedModel === 'dall-e-3') {
-      return [
-        ...defaults,
-        ...['standard', 'hd'].map((value) => ({ value, label: value })),
-      ]
-    }
-    if (selectedModel === 'gpt-image-1') {
-      return [
-        ...defaults,
-        ...['auto', 'low', 'medium', 'high'].map((value) => ({
-          value,
-          label: value,
-        })),
-      ]
-    }
-    return [
-      ...defaults,
-      ...['standard', 'hd'].map((value) => ({ value, label: value })),
-    ]
-  }, [selectedModel, t])
-
-  useEffect(() => {
-    setSize((current) =>
-      sizePresets.some((option) => option.value === current) ? current : ''
-    )
-    setQuality((current) =>
-      qualityPresets.some((option) => option.value === current) ? current : ''
-    )
-  }, [qualityPresets, sizePresets])
+  const selectedSize = sizePresets.some((option) => option.value === size)
+    ? size
+    : ''
+  const selectedQuality = qualityPresets.some(
+    (option) => option.value === quality
+  )
+    ? quality
+    : ''
 
   useEffect(
     () => () => {
@@ -357,10 +397,28 @@ export function Drawing() {
 
   const generate = async () => {
     const cleanPrompt = prompt.trim()
-    if (generating || !cleanPrompt || !selectedGroup || !selectedModel) return
+    if (
+      requestPendingRef.current ||
+      !isCurrentUser() ||
+      !accessGranted ||
+      !webAccess.allowed ||
+      history.clearing ||
+      !cleanPrompt ||
+      !selectedGroup ||
+      !selectedModel
+    ) {
+      return
+    }
+    requestPendingRef.current = true
+    const ticket = history.capture()
+    const metadata = {
+      prompt: cleanPrompt,
+      model: selectedModel,
+      group: selectedGroup,
+      createdAt: Date.now(),
+    }
     setGenerating(true)
     setError(null)
-    setResults([])
     try {
       let response
       if (referenceImages.length > 0) {
@@ -368,8 +426,8 @@ export function Drawing() {
         form.append('prompt', cleanPrompt)
         form.append('model', selectedModel)
         form.append('n', count)
-        if (size.trim()) form.append('size', size.trim())
-        if (quality.trim()) form.append('quality', quality.trim())
+        if (selectedSize) form.append('size', selectedSize)
+        if (selectedQuality) form.append('quality', selectedQuality)
         for (const image of referenceImages) {
           form.append('image', image.file, image.file.name)
         }
@@ -385,11 +443,17 @@ export function Drawing() {
             prompt: cleanPrompt,
             model: selectedModel,
             n: Number(count),
-            ...(size.trim() ? { size: size.trim() } : {}),
-            ...(quality.trim() ? { quality: quality.trim() } : {}),
+            ...(selectedSize ? { size: selectedSize } : {}),
+            ...(selectedQuality ? { quality: selectedQuality } : {}),
           },
           { skipBusinessError: true, skipErrorHandler: true }
         )
+      }
+      if (!isCurrentUser() || ticket !== history.capture()) return
+      const denial = getDrawingWebDenial({ response })
+      if (denial) {
+        setWebDenial(denial)
+        return
       }
       if (
         !response.data ||
@@ -405,13 +469,22 @@ export function Drawing() {
         return
       }
       const usableResults = response.data.data.filter(
-        (image) => imageSource(image) !== undefined
+        (image) => drawingSource(image) !== undefined
       )
-      setResults(usableResults)
       if (usableResults.length === 0) {
         setError(t('No images were returned'))
+      } else {
+        // Cache failures are handled separately: successful generation is never
+        // an API error or an invitation to regenerate (and pay again).
+        void history.remember(usableResults, metadata, ticket)
       }
     } catch (cause) {
+      if (!isCurrentUser() || ticket !== history.capture()) return
+      const denial = getDrawingWebDenial(cause)
+      if (denial) {
+        setWebDenial(denial)
+        return
+      }
       const fallbackMessages = {
         unauthenticated: t('Session expired!'),
         forbidden: t('No permission to perform this action'),
@@ -426,12 +499,52 @@ export function Drawing() {
         )
       )
     } finally {
-      setGenerating(false)
+      requestPendingRef.current = false
+      if (isCurrentUser()) {
+        setGenerating(false)
+        void refreshBalance()
+      }
+    }
+  }
+
+  const ensureDrawingKey = async () => {
+    if (keyPending || !accessGranted || !isCurrentUser()) return
+    setKeyPending(true)
+    setKeyError(null)
+    try {
+      const response = await api.post<{
+        success: boolean
+        data?: { id: number; name: string; group: 'image-2'; created: boolean }
+      }>(
+        '/api/assistant/drawing/key',
+        {},
+        { skipBusinessError: true, skipErrorHandler: true }
+      )
+      if (!isCurrentUser()) return
+      if (
+        !response.data.success ||
+        !response.data.data?.id ||
+        response.data.data.group !== 'image-2'
+      ) {
+        throw new Error('Unable to prepare drawing key')
+      }
+      setKeyReady(true)
+    } catch (cause) {
+      if (isCurrentUser()) {
+        setKeyError(
+          getDrawingRequestErrorMessage(
+            cause,
+            t('Unable to prepare the image-2 API Key.')
+          )
+        )
+      }
+    } finally {
+      if (isCurrentUser()) setKeyPending(false)
     }
   }
 
   const copyDrawingMcpConfig = async () => {
-    if (drawingMcpPending) return
+    if (drawingMcpPending || !isCurrentUser()) return
     setDrawingMcpPending(true)
     try {
       let token = drawingMcpToken
@@ -443,25 +556,30 @@ export function Drawing() {
         )
         if (!confirmed) return
         const connection = await rotateMcpToken()
+        if (!isCurrentUser()) return
         token = connection.token
         setDrawingMcpToken(token)
       }
       const copied = await copyToClipboard(
         buildDrawingMcpConfig(drawingMcpEndpoint, token)
       )
+      if (!isCurrentUser()) return
       if (copied) {
         toast.success(t('Drawing MCP configuration copied.'))
       } else {
         toast.error(t('Unable to copy the drawing MCP configuration.'))
       }
     } catch {
-      toast.error(t('Unable to create the drawing MCP configuration.'))
+      if (isCurrentUser()) {
+        toast.error(t('Unable to create the drawing MCP configuration.'))
+      }
     } finally {
-      setDrawingMcpPending(false)
+      if (isCurrentUser()) setDrawingMcpPending(false)
     }
   }
 
   let content: ReactNode
+  let standaloneHistory = true
   if (
     accessQuery.isLoading ||
     pricingQuery.isLoading ||
@@ -536,6 +654,7 @@ export function Drawing() {
       </Alert>
     )
   } else {
+    standaloneHistory = false
     content = (
       <div className='grid gap-4 xl:grid-cols-[minmax(0,1fr)_19rem] xl:items-stretch'>
         <section
@@ -604,30 +723,7 @@ export function Drawing() {
                 </p>
               </div>
             ) : results.length > 0 ? (
-              <div className='grid max-h-[min(58vh,42rem)] w-full max-w-4xl gap-4 overflow-y-auto sm:grid-cols-2'>
-                {results.map((image) => {
-                  const src = imageSource(image)
-                  if (!src) return null
-                  return (
-                    <figure
-                      className='group relative min-w-0 overflow-hidden rounded-lg border border-white/10 bg-black/30 p-2'
-                      key={image.url ?? image.b64_json ?? image.revised_prompt}
-                    >
-                      <img
-                        src={src}
-                        alt={image.revised_prompt || prompt}
-                        className='h-auto max-h-[38rem] w-full rounded-lg object-contain'
-                        loading='lazy'
-                      />
-                      {image.revised_prompt ? (
-                        <figcaption className='absolute inset-x-2 bottom-2 rounded-md bg-black/70 px-2 py-1.5 text-xs leading-5 text-white/70 opacity-0 transition-opacity group-hover:opacity-100'>
-                          {image.revised_prompt}
-                        </figcaption>
-                      ) : null}
-                    </figure>
-                  )
-                })}
-              </div>
+              <DrawingGallery images={results} />
             ) : (
               <Empty className='max-w-md text-white'>
                 <EmptyHeader>
@@ -764,7 +860,9 @@ export function Drawing() {
                       size='sm'
                       variant='outline'
                       onClick={() => void generate()}
-                      disabled={generating}
+                      disabled={
+                        generating || !webAccess.allowed || history.clearing
+                      }
                     >
                       {t('Retry')}
                     </Button>
@@ -807,6 +905,8 @@ export function Drawing() {
                   onClick={() => void generate()}
                   disabled={
                     generating ||
+                    !webAccess.allowed ||
+                    history.clearing ||
                     !prompt.trim() ||
                     !selectedGroup ||
                     !selectedModel
@@ -894,7 +994,7 @@ export function Drawing() {
                 <Label htmlFor='drawing-size'>{t('Size (optional)')}</Label>
                 <NativeSelect
                   id='drawing-size'
-                  value={size}
+                  value={selectedSize}
                   className='w-full'
                   onChange={(event) => setSize(event.target.value)}
                 >
@@ -914,7 +1014,7 @@ export function Drawing() {
                 </Label>
                 <NativeSelect
                   id='drawing-quality'
-                  value={quality}
+                  value={selectedQuality}
                   className='w-full'
                   onChange={(event) => setQuality(event.target.value)}
                 >
@@ -965,6 +1065,21 @@ export function Drawing() {
             type='button'
             size='sm'
             variant='outline'
+            disabled={keyPending}
+            onClick={() => void ensureDrawingKey()}
+          >
+            {keyPending ? t('Loading') : t('Prepare image-2 API Key')}
+          </Button>
+          <a
+            href='/keys'
+            className={buttonVariants({ variant: 'outline', size: 'sm' })}
+          >
+            {t('Manage API Keys')}
+          </a>
+          <Button
+            type='button'
+            size='sm'
+            variant='outline'
             aria-expanded={drawingMcpOpen}
             aria-controls='drawing-mcp-panel'
             onClick={() => setDrawingMcpOpen((open) => !open)}
@@ -988,7 +1103,134 @@ export function Drawing() {
               )}
             </p>
           </header>
+          {accessGranted && !webAccess.allowed ? (
+            <Alert
+              variant='destructive'
+              className='mb-4'
+              data-slot='drawing-web-access'
+            >
+              <AlertTitle>
+                {webAccess.balance_usd === null
+                  ? t('Web image generation balance unavailable')
+                  : t('Insufficient balance for web image generation')}
+              </AlertTitle>
+              <AlertDescription>
+                <p>
+                  {webAccess.balance_usd === null
+                    ? t(
+                        'Web image generation requires a minimum balance of USD {{minimum}}. Your current USD balance is unavailable. Refresh the balance to continue.',
+                        { minimum: '10.00' }
+                      )
+                    : t(
+                        'Web image generation requires a minimum balance of USD {{minimum}}. Current balance: USD {{balance}}.',
+                        {
+                          minimum: '10.00',
+                          balance: webAccess.balance_usd.toFixed(2),
+                        }
+                      )}
+                </p>
+                <p>
+                  {t(
+                    'You can still create an image-2 API Key and use image-2 through the API or MCP, subject to existing permissions and available quota. API and MCP usage is billed normally, not free.'
+                  )}
+                </p>
+                <Button
+                  type='button'
+                  size='sm'
+                  variant='outline'
+                  disabled={accessQuery.isFetching || walletQuery.isFetching}
+                  onClick={() => void refreshBalance()}
+                >
+                  {t('Refresh balance')}
+                </Button>
+              </AlertDescription>
+            </Alert>
+          ) : null}
+          {keyReady || keyError ? (
+            <Alert
+              className='mb-4'
+              variant={keyError ? 'destructive' : 'default'}
+            >
+              <AlertTitle>
+                {keyError ? t('Request failed') : t('image-2 API Key ready')}
+              </AlertTitle>
+              <AlertDescription>
+                {keyError ||
+                  t(
+                    'Open API Key management to reveal or copy your key. No key secret is displayed here.'
+                  )}
+              </AlertDescription>
+            </Alert>
+          ) : null}
+          <div
+            className='mb-4 flex flex-wrap items-center justify-between gap-2'
+            data-slot='drawing-history-controls'
+          >
+            <p className='text-muted-foreground max-w-3xl text-xs'>
+              {t(
+                'This browser keeps up to {{count}} images or {{size}} MB per account, newest first. Older images are removed automatically. Clearing browser data also removes this history.',
+                {
+                  count: DRAWING_HISTORY_LIMIT,
+                  size: DRAWING_HISTORY_BYTES / 1024 / 1024,
+                }
+              )}
+            </p>
+            <Button
+              type='button'
+              size='sm'
+              variant='outline'
+              disabled={history.clearing}
+              onClick={() => {
+                if (
+                  window.confirm(
+                    t(
+                      'Clear image history for this account in this browser? Pending results will not be saved.'
+                    )
+                  )
+                ) {
+                  void history.clear()
+                }
+              }}
+            >
+              {history.clearing
+                ? t('Clearing history...')
+                : t('Clear image history')}
+            </Button>
+          </div>
+          {history.loading || history.saving ? (
+            <p role='status' className='text-muted-foreground mb-3 text-xs'>
+              {history.loading
+                ? t('Loading image history...')
+                : t('Saving image bytes in this browser...')}
+            </p>
+          ) : null}
+          {history.warning ? (
+            <Alert className='mb-4' data-slot='drawing-history-warning'>
+              <AlertTitle>{t('Browser image history unavailable')}</AlertTitle>
+              <AlertDescription>
+                {history.warning === 'clear'
+                  ? t(
+                      'Browser history could not be cleared. Saved images may return after refresh. Try clearing history again; this will not generate or bill any images.'
+                    )
+                  : history.warning === 'load'
+                    ? t(
+                        'Saved image history could not be loaded. You can still generate images, but browser storage may be unavailable.'
+                      )
+                    : t(
+                        'Generation succeeded, but some image bytes could not be saved in this browser (storage quota or image-host CORS restrictions). Download them now. Unsaved or URL-only previews may disappear after refresh. Do not regenerate to repair the cache; another generation is billed again.'
+                      )}
+              </AlertDescription>
+            </Alert>
+          ) : null}
           {content}
+          {standaloneHistory && results.length > 0 ? (
+            <section
+              className='mt-4 rounded-lg bg-[#111210] p-4'
+              aria-label={t('Image history')}
+            >
+              <DrawingGallery images={results} />
+            </section>
+          ) : null}
           {accessGranted && drawingMcpOpen ? (
             <section
               id='drawing-mcp-panel'
@@ -1010,7 +1252,7 @@ export function Drawing() {
                     </h2>
                     <p className='text-muted-foreground mt-1 max-w-2xl text-xs leading-5'>
                       {t(
-                        'Connect an Agent to this drawing workbench with the dedicated MCP endpoint. Generation keeps the same group permissions and billing as this page.'
+                        'Connect an Agent with the dedicated drawing MCP endpoint. MCP uses the same group permissions and normal API billing, without the web-only USD 10 minimum balance.'
                       )}
                     </p>
                   </div>

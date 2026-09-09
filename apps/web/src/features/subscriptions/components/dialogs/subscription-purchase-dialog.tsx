@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { Crown, CalendarClock, Package } from 'lucide-react'
-import { useState, useEffect } from 'react'
+import { useState, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -34,6 +34,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Separator } from '@/components/ui/separator'
+import { useCheckoutScope } from '@/features/wallet/hooks/use-checkout-scope'
 import {
   cancelPaymentCheckout,
   redirectCurrentWindowToPaymentCheckout,
@@ -41,7 +42,13 @@ import {
   reservePaymentCheckout,
   submitPaymentForm,
 } from '@/features/wallet/lib'
-import { formatFiatCurrencyAmount } from '@/lib/currency'
+import {
+  expectedSettlement,
+  formatSettlementQuote,
+  getAvailableSettlementQuote,
+  isSettlementQuoteChanged,
+  SettlementQuoteChangedError,
+} from '@/features/wallet/lib/settlement-quote'
 import { formatQuota } from '@/lib/format'
 import {
   getDefaultWaffoPancakeCheckoutRegion,
@@ -56,7 +63,9 @@ import {
   paySubscriptionWaffoPancake,
   paySubscriptionBalance,
 } from '../../api'
+import { usePublicPlans } from '../../hooks/use-public-plans'
 import { formatDuration, formatResetPeriod } from '../../lib'
+import { formatPlanSourcePrice } from '../../lib/source-price'
 import type { PlanRecord } from '../../types'
 
 interface PaymentMethod {
@@ -93,23 +102,36 @@ interface Props {
 }
 
 export function SubscriptionPurchaseDialog(props: Props) {
+  const { key } = useCheckoutScope()
+  const paymentInFlightRef = useRef(false)
+  return (
+    <ScopedSubscriptionPurchaseDialog
+      key={`${key}:${props.plan?.plan.id}:${props.open}`}
+      {...props}
+      acquirePayment={() => {
+        if (paymentInFlightRef.current) return false
+        paymentInFlightRef.current = true
+        return true
+      }}
+      releasePayment={() => {
+        paymentInFlightRef.current = false
+      }}
+    />
+  )
+}
+
+function ScopedSubscriptionPurchaseDialog(
+  props: Props & { acquirePayment: () => boolean; releasePayment: () => void }
+) {
   const { t, i18n } = useTranslation()
+  const { isCurrent } = useCheckoutScope()
+  const plansQuery = usePublicPlans(props.open && !!props.plan)
   const [paying, setPaying] = useState(false)
-  const [selectedEpayMethod, setSelectedEpayMethod] = useState('')
+  const [quoteInvalidated, setQuoteInvalidated] = useState(false)
+  const [quoteChanged, setQuoteChanged] = useState(false)
+  const [selectedEpayMethodOverride, setSelectedEpayMethod] = useState('')
   const [waffoPancakeCheckoutRegionOverride, setWaffoPancakeCheckoutRegion] =
     useState<WaffoPancakeCheckoutRegion | null>(null)
-
-  useEffect(() => {
-    const availableEpayMethods = getPlanEpayMethods(
-      props.paymentMethods,
-      props.epayMethods
-    )
-    if (props.open && availableEpayMethods.length > 0) {
-      setSelectedEpayMethod(availableEpayMethods[0].type)
-    } else if (!props.open) {
-      setSelectedEpayMethod('')
-    }
-  }, [props.open, props.paymentMethods, props.epayMethods])
 
   const planRecord = props.plan
   if (!planRecord) return null
@@ -135,23 +157,39 @@ export function SubscriptionPurchaseDialog(props: Props) {
   const hasEpay = hasAuthoritativePaymentCatalog
     ? availableEpayMethods.length > 0
     : props.enableOnlineTopUp && availableEpayMethods.length > 0
-  const hasAnyPayment = hasStripe || hasCreem || hasWaffoPancake || hasEpay
+  const quotedPlan =
+    !plansQuery.isError && !plansQuery.isFetching
+      ? plansQuery.data?.find((record) => record.plan.id === plan.id)
+      : undefined
+  const settlementQuote =
+    !quoteInvalidated &&
+    (!quotedPlan?.payment_methods ||
+      quotedPlan.payment_methods.includes('waffo_pancake'))
+      ? getAvailableSettlementQuote(quotedPlan?.waffo_pancake_settlement)
+      : null
+  const showWaffoPancake =
+    hasWaffoPancake ||
+    planRecord.waffo_pancake_settlement !== undefined ||
+    quotedPlan?.waffo_pancake_settlement !== undefined
+  const hasAnyPayment = hasStripe || hasCreem || showWaffoPancake || hasEpay
   const interfaceLanguage = i18n.resolvedLanguage || i18n.language
   const waffoPancakeCheckoutRegion =
     waffoPancakeCheckoutRegionOverride ??
     getDefaultWaffoPancakeCheckoutRegion(interfaceLanguage)
   const waffoPancakeCheckoutLanguage =
     getWaffoPancakeCheckoutLanguage(interfaceLanguage)
+  const selectedEpayMethod =
+    availableEpayMethods.find(
+      (method) => method.type === selectedEpayMethodOverride
+    )?.type ??
+    availableEpayMethods[0]?.type ??
+    ''
   const selectedEpayMethodLabel =
     availableEpayMethods.find((m) => m.type === selectedEpayMethod)?.name ||
     selectedEpayMethod ||
     t('Select payment method')
   const totalAmount = Number(plan.total_amount || 0)
-  const price = formatFiatCurrencyAmount(
-    Number(plan.price_amount || 0),
-    plan.currency || 'USD',
-    { abbreviate: false, digitsLarge: 2, digitsSmall: 2 }
-  )
+  const price = formatPlanSourcePrice(plan)
   const balanceCost = Math.max(
     0,
     Math.ceil(Number(planRecord.balance_price_quota || 0))
@@ -165,12 +203,39 @@ export function SubscriptionPurchaseDialog(props: Props) {
     (props.purchaseLimit || 0) > 0 &&
     (props.purchaseCount || 0) >= (props.purchaseLimit || 0)
 
-  const handlePayStripe = async () => {
-    let checkout: ReturnType<typeof reservePaymentCheckout> | null = null
+  const beginPayment = () => {
+    if (
+      !props.open ||
+      !isCurrent() ||
+      limitReached ||
+      !props.acquirePayment()
+    ) {
+      return false
+    }
     setPaying(true)
+    return true
+  }
+  const finishPayment = () => {
+    props.releasePayment()
+    if (isCurrent()) setPaying(false)
+  }
+  const refreshSettlementQuote = async () => {
+    if (!isCurrent()) return
+    setQuoteInvalidated(true)
+    const result = await plansQuery.refetch()
+    if (isCurrent() && result.isSuccess) setQuoteInvalidated(false)
+  }
+
+  const handlePayStripe = async () => {
+    if (!beginPayment()) return
+    let checkout: ReturnType<typeof reservePaymentCheckout> | null = null
     try {
       checkout = reservePaymentCheckout()
       const res = await paySubscriptionStripe({ plan_id: plan.id })
+      if (!isCurrent()) {
+        cancelPaymentCheckout(checkout)
+        return
+      }
       if (res.message === 'success' && res.data?.pay_link) {
         if (!redirectToPaymentCheckout(checkout, res.data.pay_link)) {
           cancelPaymentCheckout(checkout)
@@ -190,18 +255,22 @@ export function SubscriptionPurchaseDialog(props: Props) {
       }
     } catch {
       if (checkout) cancelPaymentCheckout(checkout)
-      toast.error(t('Payment request failed'))
+      if (isCurrent()) toast.error(t('Payment request failed'))
     } finally {
-      setPaying(false)
+      finishPayment()
     }
   }
 
   const handlePayCreem = async () => {
+    if (!beginPayment()) return
     let checkout: ReturnType<typeof reservePaymentCheckout> | null = null
-    setPaying(true)
     try {
       checkout = reservePaymentCheckout()
       const res = await paySubscriptionCreem({ plan_id: plan.id })
+      if (!isCurrent()) {
+        cancelPaymentCheckout(checkout)
+        return
+      }
       if (res.message === 'success' && res.data?.checkout_url) {
         if (!redirectToPaymentCheckout(checkout, res.data.checkout_url)) {
           cancelPaymentCheckout(checkout)
@@ -221,22 +290,25 @@ export function SubscriptionPurchaseDialog(props: Props) {
       }
     } catch {
       if (checkout) cancelPaymentCheckout(checkout)
-      toast.error(t('Payment request failed'))
+      if (isCurrent()) toast.error(t('Payment request failed'))
     } finally {
-      setPaying(false)
+      finishPayment()
     }
   }
 
   // In-tab redirect (not window.open) — user-gesture context is lost
   // across the await, so a popup would be blocked. Same as the wallet hook.
   const handlePayWaffoPancake = async () => {
-    setPaying(true)
+    if (!hasWaffoPancake || !settlementQuote || !beginPayment()) return
     try {
       const res = await paySubscriptionWaffoPancake({
         plan_id: plan.id,
         checkout_region: waffoPancakeCheckoutRegion,
         checkout_language: waffoPancakeCheckoutLanguage,
+        ...expectedSettlement(settlementQuote),
       })
+      if (!isCurrent()) return
+      if (isSettlementQuoteChanged(res)) throw new SettlementQuoteChangedError()
       if (res.message === 'success' && res.data?.checkout_url) {
         if (!redirectCurrentWindowToPaymentCheckout(res.data.checkout_url)) {
           toast.error(t('Invalid payment redirect URL'))
@@ -251,26 +323,43 @@ export function SubscriptionPurchaseDialog(props: Props) {
             : t('Payment request failed')
         )
       }
-    } catch {
-      toast.error(t('Payment request failed'))
+    } catch (error) {
+      if (!isCurrent()) return
+      if (isSettlementQuoteChanged(error)) {
+        setQuoteChanged(true)
+        toast.error(
+          t(
+            'Settlement quote changed. Review the refreshed amount and confirm again.'
+          )
+        )
+        // Refresh only the preview. A new user click must confirm the new pair.
+        await refreshSettlementQuote()
+      } else {
+        toast.error(t('Payment request failed'))
+      }
     } finally {
-      setPaying(false)
+      finishPayment()
     }
   }
 
   const handlePayEpay = async () => {
+    if (!isCurrent()) return
     if (!selectedEpayMethod) {
       toast.error(t('Please select a payment method'))
       return
     }
+    if (!beginPayment()) return
     let checkout: ReturnType<typeof reservePaymentCheckout> | null = null
-    setPaying(true)
     try {
       checkout = reservePaymentCheckout()
       const res = await paySubscriptionEpay({
         plan_id: plan.id,
         payment_method: selectedEpayMethod,
       })
+      if (!isCurrent()) {
+        cancelPaymentCheckout(checkout)
+        return
+      }
       if (res.message === 'success' && res.url) {
         if (!submitPaymentForm(res.url, res.data || {}, checkout.target)) {
           cancelPaymentCheckout(checkout)
@@ -290,20 +379,22 @@ export function SubscriptionPurchaseDialog(props: Props) {
       }
     } catch {
       if (checkout) cancelPaymentCheckout(checkout)
-      toast.error(t('Payment request failed'))
+      if (isCurrent()) toast.error(t('Payment request failed'))
     } finally {
-      setPaying(false)
+      finishPayment()
     }
   }
 
   const handlePayBalance = async () => {
+    if (!isCurrent()) return
     if (!allowBalancePay) {
       toast.error(t('This plan does not allow balance redemption'))
       return
     }
-    setPaying(true)
+    if (insufficientBalance || !beginPayment()) return
     try {
       const res = await paySubscriptionBalance({ plan_id: plan.id })
+      if (!isCurrent()) return
       if (res.success) {
         toast.success(t('Subscription purchased successfully'))
         void props.onPurchaseSuccess?.()
@@ -316,9 +407,9 @@ export function SubscriptionPurchaseDialog(props: Props) {
         )
       }
     } catch {
-      toast.error(t('Payment request failed'))
+      if (isCurrent()) toast.error(t('Payment request failed'))
     } finally {
-      setPaying(false)
+      finishPayment()
     }
   }
 
@@ -383,10 +474,63 @@ export function SubscriptionPurchaseDialog(props: Props) {
           )}
           <Separator />
           <div className='flex items-center justify-between'>
-            <span className='text-sm font-medium'>{t('Amount Due')}</span>
-            <span className='text-primary text-lg font-bold'>{price}</span>
+            <span className='text-sm font-medium'>{t('Source price')}</span>
+            <span className='text-primary text-lg font-bold'>
+              {price ?? t('Source price unavailable')}
+            </span>
           </div>
         </div>
+
+        {showWaffoPancake && (
+          <div
+            className='space-y-2'
+            aria-live='polite'
+            aria-busy={plansQuery.isFetching}
+          >
+            <div className='flex flex-wrap items-center justify-between gap-2 text-sm'>
+              <span>{t('Waffo Pancake payable')}</span>
+              <span className='font-medium'>
+                {settlementQuote
+                  ? formatSettlementQuote(settlementQuote)
+                  : plansQuery.isFetching
+                    ? t('Loading...')
+                    : t('Settlement quote unavailable')}
+              </span>
+            </div>
+            {quoteChanged && (
+              <Alert>
+                <AlertDescription>
+                  {t(
+                    'Settlement quote changed. Review the refreshed amount and confirm again.'
+                  )}
+                </AlertDescription>
+              </Alert>
+            )}
+            {!settlementQuote && !plansQuery.isFetching && (
+              <Alert>
+                <AlertDescription>
+                  {t(
+                    quotedPlan?.waffo_pancake_settlement?.reason ||
+                      'Settlement quote unavailable'
+                  )}
+                </AlertDescription>
+              </Alert>
+            )}
+            <div className='flex flex-wrap items-center gap-3 text-xs'>
+              <Button
+                variant='outline'
+                size='sm'
+                disabled={paying || plansQuery.isFetching}
+                onClick={() => void refreshSettlementQuote()}
+              >
+                {t('Refresh')}
+              </Button>
+              <a href='/profile' className='underline underline-offset-4'>
+                {t('Change settlement currency')}
+              </a>
+            </div>
+          </div>
+        )}
 
         {limitReached && (
           <Alert variant='destructive'>
@@ -435,7 +579,7 @@ export function SubscriptionPurchaseDialog(props: Props) {
             <p className='text-muted-foreground text-xs'>
               {t('Select payment method')}
             </p>
-            {(hasStripe || hasCreem || hasWaffoPancake) && (
+            {(hasStripe || hasCreem || showWaffoPancake) && (
               <div className='grid grid-cols-2 gap-2 sm:flex'>
                 {hasStripe && (
                   <Button
@@ -457,12 +601,17 @@ export function SubscriptionPurchaseDialog(props: Props) {
                     Creem
                   </Button>
                 )}
-                {hasWaffoPancake && (
+                {showWaffoPancake && (
                   <Button
                     variant='outline'
                     className='flex-1'
                     onClick={handlePayWaffoPancake}
-                    disabled={paying || limitReached}
+                    disabled={
+                      paying ||
+                      limitReached ||
+                      !hasWaffoPancake ||
+                      !settlementQuote
+                    }
                   >
                     Waffo Pancake
                   </Button>

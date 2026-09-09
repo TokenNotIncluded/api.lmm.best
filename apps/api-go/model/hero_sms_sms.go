@@ -765,11 +765,17 @@ func reserveHeroSMSSMSQuota(order *HeroSMSSMSOrder) (int, error) {
 		if err := lockForUpdate(tx).Select("id", "quota").Where("id = ?", order.UserID).First(&user).Error; err != nil {
 			return err
 		}
+		// This is a starting-balance floor for new purchases, not a surcharge
+		// or a minimum remaining balance. Existing orders replay before this transaction.
+		minimumQuota := common.GetTrustQuota()
+		if user.Quota < minimumQuota {
+			return newHeroSMSError(http.StatusPaymentRequired, "TEMPORARY_SMS_MINIMUM_BALANCE", "Temporary SMS purchases require a balance of at least USD 10")
+		}
 		if user.Quota < order.ChargeQuota {
 			return newHeroSMSError(http.StatusPaymentRequired, "INSUFFICIENT_BALANCE", "insufficient quota balance")
 		}
 		update := UpdateWalletQuotaByDelta(
-			tx.Model(&User{}).Where("id = ? AND quota >= ?", order.UserID, order.ChargeQuota),
+			tx.Model(&User{}).Where("id = ? AND quota >= ? AND quota >= ?", order.UserID, minimumQuota, order.ChargeQuota),
 			-order.ChargeQuota,
 		)
 		if update.Error != nil || update.RowsAffected != 1 {

@@ -16,10 +16,10 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/shopspring/decimal"
 	"github.com/thanhpk/randstr"
-	waffo "github.com/waffo-com/waffo-go"
-	"github.com/waffo-com/waffo-go/config"
-	"github.com/waffo-com/waffo-go/core"
-	"github.com/waffo-com/waffo-go/types/order"
+	waffo "github.com/waffo-com/waffo-go/v2"
+	"github.com/waffo-com/waffo-go/v2/config"
+	"github.com/waffo-com/waffo-go/v2/core"
+	"github.com/waffo-com/waffo-go/v2/types/order"
 )
 
 func getWaffoSDK() (*waffo.Waffo, error) {
@@ -402,7 +402,7 @@ func RequestWaffoPay(c *gin.Context) {
 	})
 }
 
-// webhookPayloadWithSubInfo 扩展 PAYMENT_NOTIFICATION，包含 SDK 未定义的 subscriptionInfo 字段
+// webhookPayloadWithSubInfo 保留 PAYMENT_NOTIFICATION 的旧版 subscriptionInfo 字段解析兼容。
 type webhookPayloadWithSubInfo struct {
 	EventType string `json:"eventType"`
 	Result    struct {

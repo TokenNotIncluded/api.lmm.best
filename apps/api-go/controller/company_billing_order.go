@@ -7,7 +7,7 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/LIghtJUNction/api.lmm.best/model"
 	"github.com/LIghtJUNction/api.lmm.best/service"
-	waffoorder "github.com/waffo-com/waffo-go/types/order"
+	waffoorder "github.com/waffo-com/waffo-go/v2/types/order"
 )
 
 var previewWaffoPancakeCompanyBillingRules = service.PreviewWaffoPancakeTaxRules
@@ -16,9 +16,9 @@ func loadAutomaticCompanyBillingProfile(userID int) (*model.CompanyBillingProfil
 	return model.GetCompanyBillingProfileForAutomaticBilling(userID)
 }
 
-// Legacy waffo-go v1.3.2 supports only AddressInfo. It has no company identity
-// fields and no preview-tax API, so production validates only the supported
-// address fields and never sends businessName, taxId, or isBusiness.
+// The legacy gateway's waffo-go/v2 order DTO supports only AddressInfo for
+// billing, with no company identity fields or preview-tax API. Validate only
+// the supported address fields; never send businessName, taxId, or isBusiness.
 func validateLegacyWaffoCompanyBilling(profile *model.CompanyBillingProfile) error {
 	if profile == nil || !profile.UseForInvoices {
 		return nil

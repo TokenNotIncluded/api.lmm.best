@@ -39,7 +39,9 @@ export interface ApiResponse<T = unknown> {
  */
 export type TopupInfoResponse = ApiResponse<TopupInfo>
 export type RedemptionResponse = ApiResponse<number>
-export type AmountResponse = ApiResponse<string>
+export type AmountResponse = ApiResponse<string> & {
+  settlement_currency?: string
+}
 export type DiscountCodeResponse = ApiResponse<{
   code: string
   discount_percent: number
@@ -62,6 +64,8 @@ export type WaffoPancakePaymentResponse = ApiResponse<
       session_id?: string
       expires_at?: number | string
       order_id?: string
+      settlement_amount?: string
+      settlement_currency?: 'CNY' | 'USD'
       // Self-service session token + expiry — surfaced by the backend so
       // future flows (refund / cancel from this platform's own UI) can use them
       // without re-issuing checkout. Not consumed by the current handler.
@@ -199,6 +203,8 @@ export interface TopupInfo {
   waffo_min_topup?: number
   /** Whether Waffo Pancake topup is enabled */
   enable_waffo_pancake_topup?: boolean
+  /** Account-selected currency; payable amounts still require a paired server quote. */
+  waffo_pancake_currency?: 'CNY' | 'USD'
   /** Whether plan-level Stripe checkout is enabled */
   enable_stripe_subscription?: boolean
   /** Whether plan-level Creem checkout is enabled */
@@ -260,6 +266,8 @@ export interface WaffoPaymentRequest {
  * Waffo Pancake payment request parameters
  */
 export interface WaffoPancakePaymentRequest {
+  settlement_currency?: 'CNY' | 'USD'
+  settlement_amount?: string
   /** Topup amount */
   amount: number
   /** Waffo Pancake checkout region selected by the user or derived from locale */

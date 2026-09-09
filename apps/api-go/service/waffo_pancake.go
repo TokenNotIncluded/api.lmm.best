@@ -76,7 +76,12 @@ type WaffoPancakeBillingDetail struct {
 // BuyerIdentity must be stable per user (see WaffoPancakeBuyerIdentityFromUserID).
 // OrderMerchantExternalID = our trade_no; Pancake echoes it back in webhooks.
 type WaffoPancakeCreateSessionParams struct {
-	ProductID               string
+	ProductID string
+	// Currency is the server-selected fiat settlement currency. Empty keeps
+	// legacy internal callers on USD; it is never inferred from checkout UI.
+	Currency string
+	// ProductType is local compatibility evidence, not an SDK request field.
+	ProductType             string
 	BuyerIdentity           string
 	PriceSnapshot           *WaffoPancakePriceSnapshot
 	BuyerEmail              string
@@ -177,7 +182,9 @@ func WaffoPancakeWebhookActionForEvent(eventType string) WaffoPancakeWebhookActi
 	case "order.completed":
 		return WaffoPancakeWebhookActionOrderCompleted
 	// State events never prove payment; they only synchronize lifecycle state.
-	case "subscription.activated", "subscription.renewed", "subscription.canceling", "subscription.uncanceled", "subscription.updated", "subscription.past_due", "subscription.canceled":
+	case "subscription.activated", "subscription.renewed", "subscription.recovered",
+		"subscription.plan_changed", "subscription.plan_change_scheduled", "subscription.plan_change_failed",
+		"subscription.canceling", "subscription.uncanceled", "subscription.updated", "subscription.past_due", "subscription.canceled":
 		return WaffoPancakeWebhookActionSubscriptionStateChanged
 	case "subscription.payment_succeeded":
 		return WaffoPancakeWebhookActionSubscriptionPaymentSucceeded
@@ -215,7 +222,18 @@ func ValidateWaffoPancakeWebhookEvent(event *WaffoPancakeWebhookEvent) error {
 		}
 		return check("paymentStatus", event.Data.PaymentStatus, "succeeded")
 	case WaffoPancakeWebhookActionSubscriptionStateChanged:
-		return nil
+		switch event.NormalizedEventType() {
+		case "subscription.activated", "subscription.renewed", "subscription.recovered", "subscription.uncanceled":
+			return check("orderStatus", event.Data.OrderStatus, "active")
+		case "subscription.canceling":
+			return check("orderStatus", event.Data.OrderStatus, "canceling")
+		case "subscription.canceled":
+			return check("orderStatus", event.Data.OrderStatus, "canceled")
+		case "subscription.past_due":
+			return check("orderStatus", event.Data.OrderStatus, "past_due")
+		default:
+			return nil
+		}
 	case WaffoPancakeWebhookActionSubscriptionPaymentSucceeded:
 		return check("paymentStatus", event.Data.PaymentStatus, "succeeded")
 	case WaffoPancakeWebhookActionRefundSucceeded:
@@ -329,17 +347,39 @@ func NormalizeWaffoPancakeCheckoutLanguage(language string) string {
 	return language
 }
 
+// WaffoPancakeSupportsSettlementCurrency enforces the v0.11.0 payment
+// matrix (introduced in v0.7.0): one-time CNY supports WeChat; recurring CNY is
+// rejected by Pancake. Region/language cannot change this product constraint.
+func WaffoPancakeSupportsSettlementCurrency(currency, productType string) bool {
+	switch productType {
+	case "", model.WaffoPancakeProductTypeSubscription:
+		return currency == "USD"
+	case model.WaffoPancakeProductTypeOneTime:
+		return currency == "USD" || currency == "CNY"
+	default:
+		return false
+	}
+}
+
 // buildWaffoPancakeSDKCheckoutParams is kept separate from the network call
-// so the region/language security boundary can be tested without credentials.
+// so the currency/region/language security boundary can be tested without credentials.
 func buildWaffoPancakeSDKCheckoutParams(params *WaffoPancakeCreateSessionParams) (pancake.AuthenticatedCheckoutParams, error) {
 	if params == nil {
 		return pancake.AuthenticatedCheckoutParams{}, fmt.Errorf("missing checkout params")
 	}
 
+	currency := strings.ToUpper(strings.TrimSpace(params.Currency))
+	if currency == "" {
+		currency = "USD"
+	}
+	if !WaffoPancakeSupportsSettlementCurrency(currency, params.ProductType) {
+		return pancake.AuthenticatedCheckoutParams{}, fmt.Errorf("unsupported_settlement_currency: %s for product type %q", currency, params.ProductType)
+	}
+
 	sdkParams := pancake.AuthenticatedCheckoutParams{
 		CreateCheckoutSessionParams: pancake.CreateCheckoutSessionParams{
 			ProductID:               params.ProductID,
-			Currency:                "USD",
+			Currency:                currency,
 			BuyerEmail:              optionalString(params.BuyerEmail),
 			ExpiresInSeconds:        params.ExpiresInSeconds,
 			OrderMerchantExternalID: optionalString(params.OrderMerchantExternalID),
@@ -348,7 +388,7 @@ func buildWaffoPancakeSDKCheckoutParams(params *WaffoPancakeCreateSessionParams)
 		BuyerIdentity: params.BuyerIdentity,
 	}
 	if params.PriceSnapshot != nil {
-		sdkParams.PriceSnapshot = &pancake.PriceInfo{
+		sdkParams.PriceSnapshot = &pancake.PriceSnapshot{
 			Amount:      params.PriceSnapshot.Amount,
 			TaxCategory: pancake.TaxCategory(params.PriceSnapshot.TaxCategory),
 		}
@@ -389,14 +429,13 @@ func CreateWaffoPancakeCheckoutSession(ctx context.Context, params *WaffoPancake
 	if strings.TrimSpace(params.OrderMerchantExternalID) == "" {
 		return nil, fmt.Errorf("missing order merchant external id")
 	}
-	client, err := newWaffoPancakeClient()
-	if err != nil {
-		return nil, fmt.Errorf("build Waffo Pancake client: %w", err)
-	}
-
 	sdkParams, err := buildWaffoPancakeSDKCheckoutParams(params)
 	if err != nil {
 		return nil, err
+	}
+	client, err := newWaffoPancakeClient()
+	if err != nil {
+		return nil, fmt.Errorf("build Waffo Pancake client: %w", err)
 	}
 
 	session, err := client.Checkout.Authenticated.Create(ctx, sdkParams)
@@ -432,10 +471,26 @@ func WaffoPancakeBuyerIdentityFromUserID(userID int) string {
 
 // VerifyConfiguredWaffoPancakeWebhook verifies the signature header. The SDK
 // picks the matching test / prod public key from the payload's `mode` field.
-func VerifyConfiguredWaffoPancakeWebhook(payload string, signatureHeader string) (*WaffoPancakeWebhookEvent, error) {
-	evt, err := pancake.VerifyWebhookTyped[pancake.WebhookEventData](payload, signatureHeader, nil)
+func VerifyConfiguredWaffoPancakeWebhook(payload string, signatureHeader string, expectedEnvironment ...string) (*WaffoPancakeWebhookEvent, error) {
+	var options *pancake.VerifyWebhookOptions
+	if len(expectedEnvironment) > 1 {
+		return nil, fmt.Errorf("expected exactly one webhook environment")
+	}
+	if len(expectedEnvironment) == 1 {
+		environment := strings.TrimSpace(expectedEnvironment[0])
+		if environment != "prod" && environment != "test" {
+			return nil, fmt.Errorf("invalid webhook verification environment")
+		}
+		// Pin the route's key, not just the signed mode label. Keep the SDK's
+		// 45-minute retry window and its separate one-minute future tolerance.
+		options = &pancake.VerifyWebhookOptions{Environment: pancake.Environment(environment)}
+	}
+	evt, err := pancake.VerifyWebhookTyped[pancake.WebhookEventData](payload, signatureHeader, options)
 	if err != nil {
 		return nil, err
+	}
+	if options != nil && evt.Mode != options.Environment {
+		return nil, fmt.Errorf("webhook environment does not match its verification route")
 	}
 	return waffoPancakeWebhookEventFromSDK(evt), nil
 }

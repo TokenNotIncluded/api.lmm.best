@@ -109,8 +109,16 @@ func TestWaffoPancakeSplitSubscriptionEventsSettleInEitherOrder(t *testing.T) {
 			}
 			require.Equal(t, http.StatusOK, deliverPancakeCycle(first))
 			order := model.GetSubscriptionOrderByTradeNo(f.order.TradeNo)
-			require.Equal(t, common.TopUpStatusPending, order.Status)
-			require.Zero(t, order.UserSubscriptionId, "one event alone must not grant access")
+			if paymentFirst {
+				require.Equal(t, common.TopUpStatusSuccess, order.Status)
+				require.Zero(t, order.UserSubscriptionId, "payment does not authorize access")
+			} else {
+				require.Equal(t, common.TopUpStatusPending, order.Status)
+				require.Positive(t, order.UserSubscriptionId, "activation authorizes access independently")
+				var cashRows int64
+				require.NoError(t, f.db.Model(&model.TopUp{}).Count(&cashRows).Error)
+				require.Zero(t, cashRows, "activation must not invent a cash receipt")
+			}
 			var payments, periods int64
 			require.NoError(t, f.db.Model(&model.WaffoPancakeSubscriptionPayment{}).Count(&payments).Error)
 			require.NoError(t, f.db.Model(&model.WaffoPancakeSubscriptionPeriod{}).Count(&periods).Error)
@@ -136,6 +144,10 @@ func TestWaffoPancakeRenewedAndPaymentResetQuotaOnceInEitherOrder(t *testing.T) 
 	for _, paymentFirst := range []bool{true, false} {
 		t.Run(strconv.FormatBool(paymentFirst), func(t *testing.T) {
 			f := newPancakeCycleFixture(t)
+			// Replay the prior month, then renew into the present period. A
+			// lifecycle must not claim a start later than its own creation time.
+			f.end = f.start
+			f.start = f.start.AddDate(0, -1, 0)
 			require.Equal(t, http.StatusOK, deliverPancakeCycle(f.event("subscription.activated", "activation", f.start, f.end)))
 			require.Equal(t, http.StatusOK, deliverPancakeCycle(f.event("subscription.payment_succeeded", "initial", f.start, f.end)))
 			sub := f.subscription(t)
@@ -149,8 +161,13 @@ func TestWaffoPancakeRenewedAndPaymentResetQuotaOnceInEitherOrder(t *testing.T) 
 			}
 			require.Equal(t, http.StatusOK, deliverPancakeCycle(first))
 			sub = f.subscription(t)
-			require.EqualValues(t, 700, sub.AmountUsed)
-			require.Equal(t, f.end.Unix(), sub.EndTime)
+			if paymentFirst {
+				require.EqualValues(t, 700, sub.AmountUsed)
+				require.Equal(t, f.end.Unix(), sub.EndTime)
+			} else {
+				require.Zero(t, sub.AmountUsed)
+				require.Equal(t, nextEnd.Unix(), sub.EndTime)
+			}
 			require.Equal(t, http.StatusOK, deliverPancakeCycle(second))
 			sub = f.subscription(t)
 			require.Zero(t, sub.AmountUsed)
@@ -163,8 +180,10 @@ func TestWaffoPancakeRenewedAndPaymentResetQuotaOnceInEitherOrder(t *testing.T) 
 			var ledger []model.SubscriptionPaymentEvent
 			require.NoError(t, f.db.Order("period_end").Find(&ledger).Error)
 			require.Len(t, ledger, 2)
-			require.Equal(t, f.start.Unix(), ledger[0].PeriodStart)
-			require.Equal(t, f.end.Unix(), ledger[1].PeriodStart)
+			var unbound int64
+			require.NoError(t, f.db.Model(&model.SubscriptionPaymentEvent{}).
+				Where("period_start IS NULL AND period_end IS NULL").Count(&unbound).Error)
+			require.EqualValues(t, 2, unbound, "payment receipts must not acquire guessed periods")
 		})
 	}
 }
@@ -229,10 +248,14 @@ func TestWaffoPancakeCycleDatabaseFailureRetriesWithoutPartialGrant(t *testing.T
 	require.Equal(t, http.StatusInternalServerError, deliverPancakeCycle(payment))
 	order := model.GetSubscriptionOrderByTradeNo(f.order.TradeNo)
 	require.Equal(t, common.TopUpStatusPending, order.Status)
-	require.Zero(t, order.UserSubscriptionId)
-	var grantCount int64
+	require.Positive(t, order.UserSubscriptionId)
+	var grantCount, cashCount, paymentCount int64
 	require.NoError(t, f.db.Model(&model.UserSubscription{}).Count(&grantCount).Error)
-	require.Zero(t, grantCount)
+	require.EqualValues(t, 1, grantCount, "previously verified lifecycle authority remains valid")
+	require.NoError(t, f.db.Model(&model.TopUp{}).Count(&cashCount).Error)
+	require.NoError(t, f.db.Model(&model.SubscriptionPaymentEvent{}).Count(&paymentCount).Error)
+	require.Zero(t, cashCount)
+	require.Zero(t, paymentCount, "failed financial transaction is fully rolled back")
 	require.NoError(t, f.db.Callback().Create().Remove(callback))
 	require.Equal(t, http.StatusOK, deliverPancakeCycle(payment))
 	require.Equal(t, f.end.Unix(), f.subscription(t).EndTime)

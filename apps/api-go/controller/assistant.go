@@ -1052,6 +1052,7 @@ func GetAssistantStatus(c *gin.Context) {
 		"funding": gin.H{
 			"mode": "super_administrator",
 		},
+		"drawing_web_access":       drawingWebAccessForUser(userID),
 		"developer_access_granted": developerAccessGranted,
 		"access_level":             accessLevel,
 		"trust_level":              trustLevel,

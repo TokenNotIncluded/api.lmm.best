@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/LIghtJUNction/api.lmm.best/service/herosms"
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/require"
@@ -16,7 +17,7 @@ import (
 
 func TestHeroSMSSMSConflictingReconcilersCannotReactivateRefundedOrder(t *testing.T) {
 	db := setupHeroSMSTestDB(t)
-	user := createHeroSMSTestUser(t, db, 815, 1_000_000)
+	user := createHeroSMSTestUser(t, db, 815, common.GetTrustQuota())
 	chargeQuota, err := heroSMSChargeQuota(decimal.RequireFromString("0.5"))
 	require.NoError(t, err)
 	snapshot, err := encryptHeroSMSSMSSnapshot([]herosms.SMSActiveActivation{})
@@ -91,7 +92,7 @@ func TestHeroSMSSMSConflictingReconcilersCannotReactivateRefundedOrder(t *testin
 
 func TestHeroSMSSMSPurchaseReconcilesMalformedSuccessWithoutDoubleCharge(t *testing.T) {
 	db := setupHeroSMSTestDB(t)
-	user := createHeroSMSTestUser(t, db, 811, 1_000_000)
+	user := createHeroSMSTestUser(t, db, 811, common.GetTrustQuota())
 	require.NoError(t, UpdateHeroSMSSettings(HeroSMSSettingsUpdate{
 		Enabled:         ptrBool(true),
 		SMSEnabled:      ptrBool(true),
@@ -152,7 +153,7 @@ func TestHeroSMSSMSPurchaseReconcilesMalformedSuccessWithoutDoubleCharge(t *test
 
 func TestHeroSMSSMSPurchaseReconcilesTimeoutWithoutDoubleCharge(t *testing.T) {
 	db := setupHeroSMSTestDB(t)
-	user := createHeroSMSTestUser(t, db, 803, 1_000_000)
+	user := createHeroSMSTestUser(t, db, 803, common.GetTrustQuota())
 	require.NoError(t, UpdateHeroSMSSettings(HeroSMSSettingsUpdate{
 		Enabled:         ptrBool(true),
 		SMSEnabled:      ptrBool(true),

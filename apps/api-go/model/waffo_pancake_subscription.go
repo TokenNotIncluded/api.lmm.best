@@ -14,6 +14,7 @@ import (
 type WaffoPancakeSubscriptionEvent struct {
 	EventID, EventType, ProviderOrderID, PaymentID, BillingPeriod, Currency, Payload string
 	PaymentDate, PeriodStart, PeriodEnd, AmountMicros                                int64
+	EventTimeMillis                                                                  int64
 }
 
 // WaffoPancakeSubscriptionPayment preserves payments that arrive before their
@@ -52,12 +53,12 @@ type WaffoPancakeSubscriptionPeriod struct {
 	ReceivedAt          int64  `gorm:"not null"`
 }
 
-// RecordWaffoPancakeSubscriptionEvent persists either half of a settlement and
-// reconciles all matching receipts under the order lock. Initial completion,
-// entitlement mutation and settlement ledger insertion commit together. A
-// false result means no new pair settled; the accepted evidence is still durable.
+// RecordWaffoPancakeSubscriptionEvent keeps financial and access evidence
+// independent, as specified by the provider. A payment books money; an
+// activated/renewed lifecycle event grants its explicit period. No charge is
+// guessed from paymentDate, event arrival order, or a lifecycle timestamp.
 func RecordWaffoPancakeSubscriptionEvent(tradeNo string, event *WaffoPancakeSubscriptionEvent) (bool, error) {
-	if event == nil || strings.TrimSpace(tradeNo) == "" {
+	if DB == nil || event == nil || strings.TrimSpace(tradeNo) == "" {
 		return false, gorm.ErrInvalidData
 	}
 	evidence := *event
@@ -75,21 +76,24 @@ func RecordWaffoPancakeSubscriptionEvent(tradeNo string, event *WaffoPancakeSubs
 			((evidence.PeriodStart != 0 || evidence.PeriodEnd != 0) && !legacyPeriod) {
 			return false, gorm.ErrInvalidData
 		}
-	} else if (evidence.EventType != "subscription.activated" && evidence.EventType != "subscription.renewed") ||
+	} else if (evidence.EventType != "subscription.activated" && evidence.EventType != "subscription.renewed" && evidence.EventType != "subscription.recovered") ||
 		!legacyPeriod || strings.TrimSpace(evidence.BillingPeriod) == "" {
 		return false, gorm.ErrInvalidData
 	}
 
-	settled := false
-	var completion subscriptionCompletionEffects
-	var paymentEffects []subscriptionPaymentEffects
+	// eventId is scoped by eventType. Never use the transport envelope's id as
+	// a global business-event key across different lifecycle event types.
+	evidence.EventID = evidence.EventType + ":" + evidence.EventID
+	changed := false
+	var effects subscriptionPaymentEffects
 	err := DB.Transaction(func(tx *gorm.DB) error {
-		// Match completion's plan -> order -> user -> subscription lock order.
 		var orderRef SubscriptionOrder
-		if err := tx.Select("plan_id", "status").Where("trade_no = ?", tradeNo).First(&orderRef).Error; err != nil {
+		if err := tx.Select("plan_id").Where("trade_no = ?", tradeNo).First(&orderRef).Error; err != nil {
 			return subscriptionOrderLookupError(err)
 		}
-		if orderRef.Status == common.TopUpStatusPending {
+		// Lifecycle creation preserves the established plan -> order -> user
+		// lock order. A pure financial receipt does not read or mutate a plan.
+		if !isPayment || legacyPeriod {
 			if _, err := getSubscriptionPlanForPersistenceTx(tx, orderRef.PlanId); err != nil {
 				return err
 			}
@@ -113,6 +117,7 @@ func RecordWaffoPancakeSubscriptionEvent(tradeNo string, event *WaffoPancakeSubs
 			return fmt.Errorf("%w: subscription provider/order/amount mismatch", ErrPaymentEvidenceConflict)
 		}
 		if order.ProviderSubscriptionId == "" {
+			order.ProviderSubscriptionId = evidence.ProviderOrderID
 			if err := tx.Model(&order).Update("provider_subscription_id", evidence.ProviderOrderID).Error; err != nil {
 				return err
 			}
@@ -121,61 +126,29 @@ func RecordWaffoPancakeSubscriptionEvent(tradeNo string, event *WaffoPancakeSubs
 			if err := recordWaffoPancakePaymentTx(tx, order.Id, &evidence); err != nil {
 				return err
 			}
+			var err error
+			changed, err = recordWaffoPancakeSettlementTx(tx, &order, &evidence)
+			if err != nil {
+				return err
+			}
 		}
 		if !isPayment || legacyPeriod {
 			if err := recordWaffoPancakePeriodTx(tx, order.Id, &evidence); err != nil {
 				return err
 			}
-		}
-
-		var pending []WaffoPancakeSubscriptionPayment
-		if err := tx.Where("subscription_order_id = ? AND NOT EXISTS (SELECT 1 FROM subscription_payment_events AS settled WHERE settled.payment_provider = ? AND settled.provider_transaction_id = waffo_pancake_subscription_payments.payment_id)", order.Id, PaymentProviderWaffoPancake).
-			Order("payment_date ASC, id ASC").Find(&pending).Error; err != nil {
-			return err
-		}
-		var periods []WaffoPancakeSubscriptionPeriod
-		if err := tx.Where("subscription_order_id = ? AND provider_order_id = ?", order.Id, evidence.ProviderOrderID).
-			Order("period_end ASC, id ASC").Find(&periods).Error; err != nil {
-			return err
-		}
-		for _, payment := range pending {
-			period, err := matchWaffoPancakePeriod(&payment, periods)
+			granted, err := applyWaffoPancakePeriodTx(tx, &order, &evidence, &effects)
 			if err != nil {
 				return err
 			}
-			if period == nil {
-				continue
-			}
-			// A cancellation received before the initial pair must not be
-			// undone by delayed activation/payment delivery.
-			if order.Status == common.TopUpStatusPending && subscriptionProviderStateTerminal(order.ProviderSubscriptionState) {
-				continue
-			}
-			if err := completeSubscriptionOrderTx(tx, tradeNo, payment.Payload, PaymentProviderWaffoPancake, "", &completion); err != nil {
-				return err
-			}
-			ledger := &SubscriptionPaymentEvent{
-				PaymentProvider: PaymentProviderWaffoPancake, ProviderEventId: payment.EventID,
-				ProviderTransactionId: payment.PaymentID, SettlementCurrency: payment.Currency,
-				SettlementAmountMicros: payment.AmountMicros, PeriodStart: period.PeriodStart, PeriodEnd: period.PeriodEnd,
-			}
-			var effects subscriptionPaymentEffects
-			if err := applySubscriptionPaymentEventTx(tx, tradeNo, ledger, payment.ProviderOrderID, "active", period.EventType == "subscription.renewed", &effects); err != nil {
-				return err
-			}
-			paymentEffects = append(paymentEffects, effects)
-			settled = true
+			changed = changed || granted
 		}
 		return nil
 	})
 	if err != nil {
 		return false, err
 	}
-	completion.publish()
-	for _, effects := range paymentEffects {
-		effects.publish()
-	}
-	return settled, nil
+	effects.publish()
+	return changed, nil
 }
 
 func subscriptionOrderLookupError(err error) error {
@@ -199,7 +172,6 @@ func recordWaffoPancakePaymentTx(tx *gorm.DB, orderID int, event *WaffoPancakeSu
 	for _, payment := range settled {
 		if payment.SubscriptionOrderId != orderID || payment.PaymentProvider != PaymentProviderWaffoPancake ||
 			payment.ProviderTransactionId != event.PaymentID || payment.SettlementCurrency != event.Currency || payment.SettlementAmountMicros != event.AmountMicros ||
-			(event.PeriodEnd == 0 && event.PaymentDate > 0 && (event.PaymentDate < payment.PeriodStart || event.PaymentDate >= payment.PeriodEnd)) ||
 			(event.PeriodEnd > 0 && (event.PeriodStart != payment.PeriodStart || event.PeriodEnd != payment.PeriodEnd)) {
 			return fmt.Errorf("%w: conflicting existing subscription settlement", ErrPaymentEvidenceConflict)
 		}

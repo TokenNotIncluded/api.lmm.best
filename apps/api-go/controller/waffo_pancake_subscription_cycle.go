@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/LIghtJUNction/api.lmm.best/model"
 	"github.com/LIghtJUNction/api.lmm.best/service"
@@ -11,7 +12,7 @@ import (
 
 func isWaffoPancakeSubscriptionCycleEvent(eventType string) bool {
 	switch strings.TrimSpace(eventType) {
-	case "subscription.activated", "subscription.renewed", "subscription.payment_succeeded":
+	case "subscription.activated", "subscription.renewed", "subscription.recovered", "subscription.payment_succeeded":
 		return true
 	default:
 		return false
@@ -73,7 +74,12 @@ func recordWaffoPancakeSubscriptionCycle(event *service.WaffoPancakeWebhookEvent
 		// envelope id is the subscription order and repeats on every renewal.
 		providerEventID = strings.TrimSpace(event.Data.PaymentID)
 	}
+	eventTimeMillis, err := waffoPancakeEventTimeMillis(event)
+	if err != nil {
+		return false, err
+	}
 	return model.RecordWaffoPancakeSubscriptionEvent(order.TradeNo, &model.WaffoPancakeSubscriptionEvent{
+		EventTimeMillis: eventTimeMillis,
 		EventID:         providerEventID,
 		EventType:       eventType,
 		ProviderOrderID: strings.TrimSpace(event.Data.OrderID),
@@ -86,4 +92,18 @@ func recordWaffoPancakeSubscriptionCycle(event *service.WaffoPancakeWebhookEvent
 		Currency:        strings.ToUpper(strings.TrimSpace(event.Data.Currency)),
 		Payload:         payload,
 	})
+}
+
+// The signed payload creation time orders lifecycle facts. A retry's signature
+// timestamp or arrival time must never make an older state appear newer.
+func waffoPancakeEventTimeMillis(event *service.WaffoPancakeWebhookEvent) (int64, error) {
+	raw := strings.TrimSpace(event.Timestamp)
+	if raw == "" {
+		return 0, nil // Explicit legacy/unknown time; never synthesize one.
+	}
+	created, err := time.Parse(time.RFC3339Nano, raw)
+	if err != nil || created.UnixMilli() <= 0 {
+		return 0, fmt.Errorf("invalid signed subscription event timestamp")
+	}
+	return created.UnixMilli(), nil
 }

@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -21,6 +22,10 @@ type SubscriptionWaffoPancakePayRequest struct {
 	PlanId           int    `json:"plan_id"`
 	CheckoutRegion   string `json:"checkout_region"`
 	CheckoutLanguage string `json:"checkout_language"`
+	// Optional strings, decoded by the quote guard so malformed values and
+	// explicit nulls cannot be mistaken for legacy omitted fields.
+	SettlementCurrency json.RawMessage `json:"settlement_currency,omitempty"`
+	SettlementAmount   json.RawMessage `json:"settlement_amount,omitempty"`
 }
 
 func SubscriptionRequestWaffoPancakePay(c *gin.Context) {
@@ -57,22 +62,6 @@ func SubscriptionRequestWaffoPancakePay(c *gin.Context) {
 		common.ApiErrorMsg(c, "Waffo Pancake 未配置或密钥无效")
 		return
 	}
-	catalog, err := service.ListWaffoPancakeCatalog(c.Request.Context(), merchantID, privateKey)
-	productType := model.NormalizeWaffoPancakeProductType(plan.WaffoPancakeProductType)
-	if err != nil {
-		logger.LogError(c.Request.Context(), fmt.Sprintf("Waffo Pancake 套餐商品核验失败 plan_id=%d product_id=%s product_type=%s error=%q", plan.Id, plan.WaffoPancakeProductId, productType, err.Error()))
-		common.ApiErrorMsg(c, "无法核验 Waffo Pancake 套餐商品")
-		return
-	}
-	productActive := service.WaffoPancakeCatalogHasActiveSubscriptionProduct(catalog, storeID, plan.WaffoPancakeProductId)
-	if productType == model.WaffoPancakeProductTypeOneTime {
-		productActive = service.WaffoPancakeCatalogHasActiveOneTimeProduct(catalog, storeID, plan.WaffoPancakeProductId)
-	}
-	if !productActive {
-		common.ApiErrorMsg(c, "套餐绑定的 Waffo Pancake 商品类型不匹配、无效或未启用，请重新创建并绑定")
-		return
-	}
-
 	userId := c.GetInt("id")
 	user, err := model.GetUserById(userId, false)
 	if err != nil {
@@ -96,7 +85,13 @@ func SubscriptionRequestWaffoPancakePay(c *gin.Context) {
 		}
 	}
 
-	expectedAmountMicros, settlementCurrency, err := subscriptionSettlementSnapshot(plan, "USD")
+	currency := waffoPancakeCheckoutCurrency(c, user, req.CheckoutLanguage)
+	productType := model.NormalizeWaffoPancakeProductType(plan.WaffoPancakeProductType)
+	if !service.WaffoPancakeSupportsSettlementCurrency(currency, productType) {
+		waffoPancakeCheckoutError(c, waffoPancakeUnsupportedSettlementCurrency, "该 Waffo Pancake 商品不支持所选结算货币")
+		return
+	}
+	expectedAmountMicros, settlementCurrency, err := subscriptionSettlementSnapshot(plan, currency)
 	if err != nil {
 		common.ApiErrorMsg(c, "套餐结算金额无效")
 		return
@@ -104,6 +99,26 @@ func SubscriptionRequestWaffoPancakePay(c *gin.Context) {
 	settlementAmount := decimal.NewFromInt(expectedAmountMicros).Shift(-6)
 	if !settlementAmount.IsPositive() {
 		common.ApiErrorMsg(c, "套餐结算金额无效")
+		return
+	}
+	if !requireWaffoPancakeExpectedQuote(c, req.SettlementCurrency, req.SettlementAmount, settlementCurrency, settlementAmount) {
+		return
+	}
+
+	// Validate both the expected quote and local currency compatibility before
+	// any provider request; preserve the exact store/product/type binding.
+	catalog, err := service.ListWaffoPancakeCatalog(c.Request.Context(), merchantID, privateKey)
+	if err != nil {
+		logger.LogError(c.Request.Context(), fmt.Sprintf("Waffo Pancake 套餐商品核验失败 plan_id=%d product_id=%s product_type=%s error=%q", plan.Id, plan.WaffoPancakeProductId, productType, err.Error()))
+		common.ApiErrorMsg(c, "无法核验 Waffo Pancake 套餐商品")
+		return
+	}
+	productActive := service.WaffoPancakeCatalogHasActiveSubscriptionProduct(catalog, storeID, plan.WaffoPancakeProductId)
+	if productType == model.WaffoPancakeProductTypeOneTime {
+		productActive = service.WaffoPancakeCatalogHasActiveOneTimeProduct(catalog, storeID, plan.WaffoPancakeProductId)
+	}
+	if !productActive {
+		common.ApiErrorMsg(c, "套餐绑定的 Waffo Pancake 商品类型不匹配、无效或未启用，请重新创建并绑定")
 		return
 	}
 
@@ -141,6 +156,8 @@ func SubscriptionRequestWaffoPancakePay(c *gin.Context) {
 	expiresInSeconds := 45 * 60
 	session, err := service.CreateWaffoPancakeCheckoutSession(c.Request.Context(), &service.WaffoPancakeCreateSessionParams{
 		ProductID:     plan.WaffoPancakeProductId,
+		Currency:      settlementCurrency,
+		ProductType:   productType,
 		BuyerIdentity: service.WaffoPancakeBuyerIdentityFromUserID(user.Id),
 		PriceSnapshot: &service.WaffoPancakePriceSnapshot{
 			Amount:      settlementAmount.StringFixed(2),
@@ -174,17 +191,19 @@ func SubscriptionRequestWaffoPancakePay(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "企业账单资料不完整或暂时无法校验"})
 		return
 	}
-	logger.LogInfo(c.Request.Context(), fmt.Sprintf("Waffo Pancake 订阅订单创建成功 user_id=%d plan_id=%d trade_no=%s session_id=%s plan_price=%.2f plan_currency=%s settlement_amount=%s settlement_currency=USD company_billing_enabled=%t", userId, plan.Id, tradeNo, session.SessionID, plan.PriceAmount, plan.Currency, settlementAmount.StringFixed(2), companyBillingProfile != nil))
+	logger.LogInfo(c.Request.Context(), fmt.Sprintf("Waffo Pancake 订阅订单创建成功 user_id=%d plan_id=%d trade_no=%s session_id=%s plan_price=%.2f plan_currency=%s settlement_amount=%s settlement_currency=%s company_billing_enabled=%t", userId, plan.Id, tradeNo, session.SessionID, plan.PriceAmount, plan.Currency, settlementAmount.StringFixed(2), settlementCurrency, companyBillingProfile != nil))
 
 	c.JSON(http.StatusOK, gin.H{
 		"message": "success",
 		"data": gin.H{
-			"checkout_url":     session.CheckoutURL,
-			"session_id":       session.SessionID,
-			"expires_at":       session.ExpiresAt,
-			"order_id":         tradeNo,
-			"token":            session.Token,
-			"token_expires_at": session.TokenExpiresAt,
+			"checkout_url":        session.CheckoutURL,
+			"session_id":          session.SessionID,
+			"expires_at":          session.ExpiresAt,
+			"order_id":            tradeNo,
+			"token":               session.Token,
+			"token_expires_at":    session.TokenExpiresAt,
+			"settlement_amount":   settlementAmount.StringFixed(2),
+			"settlement_currency": settlementCurrency,
 		},
 	})
 }

@@ -38,6 +38,10 @@ for (const key of [
 
 const { act } = await import('react')
 const { createRoot } = await import('react-dom/client')
+const { QueryClient, QueryClientProvider } =
+  await import('@tanstack/react-query')
+const { useAuthStore } = await import('@/stores/auth-store')
+const { toast } = await import('sonner')
 const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { api } = await import('@/lib/api')
@@ -45,6 +49,10 @@ const { SubscriptionPurchaseDialog } =
   await import('./subscription-purchase-dialog')
 
 const originalPost = api.post
+const originalGet = api.get
+const originalAuth = useAuthStore.getState().auth
+const originalToastError = toast.error
+const originalToastSuccess = toast.success
 const originalOpen = domWindow.open
 const originalFormSubmit = domWindow.HTMLFormElement.prototype.submit
 const reactTestGlobals = globalThis as typeof globalThis & {
@@ -78,6 +86,21 @@ const plan: PlanRecord = {
   },
 }
 
+const pancakePlan: PlanRecord = {
+  ...plan,
+  waffo_pancake_settlement: {
+    amount: '1.36',
+    currency: 'USD',
+    available: true,
+  },
+  plan: {
+    ...plan.plan,
+    price_amount: 9.9,
+    currency: 'CNY',
+    waffo_pancake_product_id: 'pancake-mobile-starter',
+  },
+}
+
 async function flushEffects() {
   await new Promise((resolve) => setTimeout(resolve, 20))
 }
@@ -85,9 +108,12 @@ async function flushEffects() {
 type Rendered = {
   container: HTMLDivElement
   root: ReturnType<typeof createRoot>
+  client: InstanceType<typeof QueryClient>
 }
 
 type DialogOptions = {
+  plan?: PlanRecord
+  getPlans?: (signal?: AbortSignal) => Promise<PlanRecord[]>
   enableStripe?: boolean
   enableWaffoPancake?: boolean
   enableOnlineTopUp?: boolean
@@ -101,45 +127,59 @@ async function renderDialog(options: DialogOptions = {}): Promise<Rendered> {
   const container = document.createElement('div')
   document.body.append(container)
   const root = createRoot(container)
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  })
+  const renderedPlan =
+    options.plan ?? (options.enableWaffoPancake ? pancakePlan : plan)
+  api.get = (async (url, config) => {
+    assert.equal(url, '/api/subscription/plans')
+    const data = options.getPlans
+      ? await options.getPlans(config?.signal as AbortSignal | undefined)
+      : [renderedPlan]
+    return { data: { success: true, data } }
+  }) as typeof api.get
   await act(async () => {
     root.render(
-      <I18nextProvider i18n={i18n}>
-        <SubscriptionPurchaseDialog
-          open
-          onOpenChange={() => undefined}
-          plan={
-            options.enableWaffoPancake
-              ? {
-                  ...plan,
-                  plan: {
-                    ...plan.plan,
-                    waffo_pancake_product_id: 'pancake-mobile-starter',
-                  },
-                }
-              : plan
-          }
-          enableStripe={options.enableStripe ?? true}
-          enableWaffoPancake={options.enableWaffoPancake}
-          enableOnlineTopUp={options.enableOnlineTopUp}
-          epayMethods={options.epayMethods}
-          paymentMethods={options.paymentMethods}
-          userQuota={options.userQuota ?? 0}
-          onCheckoutStarted={options.onCheckoutStarted}
-        />
-      </I18nextProvider>
+      <QueryClientProvider client={client}>
+        <I18nextProvider i18n={i18n}>
+          <SubscriptionPurchaseDialog
+            open
+            onOpenChange={() => undefined}
+            plan={renderedPlan}
+            enableStripe={options.enableStripe ?? true}
+            enableWaffoPancake={options.enableWaffoPancake}
+            enableOnlineTopUp={options.enableOnlineTopUp}
+            epayMethods={options.epayMethods}
+            paymentMethods={options.paymentMethods}
+            userQuota={options.userQuota ?? 0}
+            onCheckoutStarted={options.onCheckoutStarted}
+          />
+        </I18nextProvider>
+      </QueryClientProvider>
     )
+  })
+  await act(async () => {
     await flushEffects()
   })
-  return { container, root }
+  return { container, root, client }
 }
 
 async function unmount(rendered: Rendered) {
   await act(async () => rendered.root.unmount())
+  rendered.client.clear()
   rendered.container.remove()
 }
 
-afterEach(() => {
+afterEach(async () => {
   api.post = originalPost
+  api.get = originalGet
+  toast.error = originalToastError
+  toast.success = originalToastSuccess
+  await act(async () => {
+    useAuthStore.setState({ auth: originalAuth })
+    await i18n.changeLanguage('en')
+  })
   domWindow.open = originalOpen
   domWindow.HTMLFormElement.prototype.submit = originalFormSubmit
   document.body.replaceChildren()

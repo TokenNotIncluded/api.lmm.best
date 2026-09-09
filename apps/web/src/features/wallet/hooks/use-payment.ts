@@ -41,7 +41,12 @@ import {
   reservePaymentCheckout,
   submitPaymentForm,
 } from '../lib'
+import {
+  parseSettlementQuote,
+  type SettlementQuote,
+} from '../lib/settlement-quote'
 import type { AmountRequest, AmountResponse, PaymentResponse } from '../types'
+import { useCheckoutScope } from './use-checkout-scope'
 
 // ============================================================================
 // Payment Hook
@@ -63,12 +68,12 @@ const defaultPaymentAmountCalculators: PaymentAmountCalculators = {
   waffoPancake: calculateWaffoPancakeAmount,
 }
 
-export async function requestPaymentAmount(
+export async function requestPaymentQuote(
   topupAmount: number,
   paymentType: string,
   discountCodeOrCalculators: string | PaymentAmountCalculators = '',
   providedCalculators?: PaymentAmountCalculators
-): Promise<number> {
+): Promise<{ amount: number; settlementQuote: SettlementQuote | null }> {
   // Keep the old third-argument calculators form working for callers outside
   // the wallet while allowing the wallet to pass a discount code.
   const discountCode =
@@ -103,58 +108,86 @@ export async function requestPaymentAmount(
         ...(discountCode ? { discount_code: discountCode } : {}),
       }
   const response = await calculator(request)
-  if (!isApiSuccess(response) || !response.data) {
-    return 0
+  const unavailable = { amount: 0, settlementQuote: null }
+  if (!isApiSuccess(response) || !response.data) return unavailable
+  if (isWaffoPancakePayment(paymentType)) {
+    const settlementQuote = parseSettlementQuote({
+      amount: response.data,
+      currency: response.settlement_currency,
+    })
+    return settlementQuote
+      ? { amount: Number(settlementQuote.amount), settlementQuote }
+      : unavailable
   }
+  return { amount: Number.parseFloat(response.data), settlementQuote: null }
+}
 
-  return Number.parseFloat(response.data)
+export async function requestPaymentAmount(
+  ...args: Parameters<typeof requestPaymentQuote>
+): Promise<number> {
+  return (await requestPaymentQuote(...args)).amount
 }
 
 export { isPositivePaymentAmount } from '../lib/payment'
 
 export function usePayment() {
-  const [amount, setAmount] = useState<number>(0)
-  const [calculating, setCalculating] = useState(false)
+  const { key: scope, isCurrent } = useCheckoutScope()
+  const [quote, setQuote] = useState<{
+    scope: string
+    amount: number
+    settlementQuote: SettlementQuote | null
+  } | null>(null)
+  const amount = quote?.scope === scope ? quote.amount : 0
+  const settlementQuote = quote?.scope === scope ? quote.settlementQuote : null
+  const [calculatingScope, setCalculatingScope] = useState<string | null>(null)
+  const calculating = calculatingScope === scope
   const [processing, setProcessing] = useState(false)
   const amountRequestIdRef = useRef(0)
   const localPreview = isLocalPreview()
+  const invalidateQuote = useCallback(() => {
+    ++amountRequestIdRef.current
+    setQuote(null)
+    setCalculatingScope(null)
+  }, [])
+  // Scope-derived state hides old quotes immediately. useCheckoutScope also
+  // rejects completions after unmount, so no synchronous effect reset is needed.
 
   // Calculate payment amount. Only the newest request may update the quote;
   // slower responses for an earlier amount must not overwrite current state.
   const calculatePaymentAmount = useCallback(
     async (topupAmount: number, paymentType: string, discountCode = '') => {
       const requestId = ++amountRequestIdRef.current
-      if (localPreview) {
-        setAmount(topupAmount)
+      if (localPreview && !isWaffoPancakePayment(paymentType)) {
+        setQuote({ scope, amount: topupAmount, settlementQuote: null })
         return topupAmount
       }
 
-      setAmount(0)
-      setCalculating(true)
+      setQuote(null)
+      setCalculatingScope(scope)
 
       try {
-        const calculatedAmount = await requestPaymentAmount(
+        const calculated = await requestPaymentQuote(
           topupAmount,
           paymentType,
           discountCode
         )
         // Callers also use this result to open checkout confirmation. A stale
         // success must not approve the currently selected amount or method.
-        if (requestId !== amountRequestIdRef.current) return 0
-        setAmount(calculatedAmount)
-        return calculatedAmount
+        if (requestId !== amountRequestIdRef.current || !isCurrent()) return 0
+        setQuote({ scope, ...calculated })
+        return calculated.amount
       } catch {
-        if (requestId === amountRequestIdRef.current) {
-          setAmount(0)
+        if (requestId === amountRequestIdRef.current && isCurrent()) {
+          setQuote(null)
         }
         return 0
       } finally {
-        if (requestId === amountRequestIdRef.current) {
-          setCalculating(false)
+        if (requestId === amountRequestIdRef.current && isCurrent()) {
+          setCalculatingScope(null)
         }
       }
     },
-    [localPreview]
+    [localPreview, scope, isCurrent]
   )
 
   // Process payment
@@ -242,6 +275,7 @@ export function usePayment() {
     processing,
     calculatePaymentAmount,
     processPayment,
-    setAmount,
+    settlementQuote,
+    invalidateQuote,
   }
 }

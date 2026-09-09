@@ -32,22 +32,36 @@ type FundingSource interface {
 // fall back to a subscription source.
 var ErrInsufficientWalletQuota = errors.New("wallet quota insufficient")
 
+// ErrWebDrawingMinimumBalance is an access denial, not an invitation to use
+// subscription funding instead of the wallet.
+var ErrWebDrawingMinimumBalance = errors.New("Web drawing requires a starting wallet balance of at least USD 10.")
+
 type WalletFunding struct {
-	userId   int
-	consumed int // 实际预扣的用户额度
+	userId       int
+	minimumQuota int
+	consumed     int // 实际预扣的用户额度
 }
 
 func (w *WalletFunding) Source() string { return BillingSourceWallet }
 
 func (w *WalletFunding) PreConsume(amount int) error {
-	if amount <= 0 {
+	if amount <= 0 && w.minimumQuota == 0 {
 		return nil
 	}
-	reserved, err := model.TryReserveUserQuota(w.userId, amount)
+	reserved, err := model.TryReserveUserQuotaWithMinimum(w.userId, amount, w.minimumQuota)
 	if err != nil {
 		return err
 	}
 	if !reserved {
+		if w.minimumQuota > 0 {
+			balance, err := model.GetUserQuota(w.userId, true)
+			if err != nil {
+				return err
+			}
+			if balance < w.minimumQuota {
+				return ErrWebDrawingMinimumBalance
+			}
+		}
 		return ErrInsufficientWalletQuota
 	}
 	w.consumed = amount

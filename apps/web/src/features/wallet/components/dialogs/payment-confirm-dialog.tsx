@@ -41,8 +41,14 @@ import {
   getPaymentIcon,
   getPaymentSettlementUnit,
   isPositivePaymentAmount,
+  isWaffoPancakePayment,
 } from '../../lib'
 import { discountCodeSavings } from '../../lib/discount-state'
+import {
+  formatSettlementQuote,
+  parseSettlementQuote,
+  type SettlementQuote,
+} from '../../lib/settlement-quote'
 import type { PaymentMethod } from '../../types'
 
 interface PaymentConfirmDialogProps {
@@ -51,6 +57,7 @@ interface PaymentConfirmDialogProps {
   onConfirm: () => void
   topupAmount: number
   paymentAmount: number
+  settlementQuote?: SettlementQuote | null
   paymentMethod: PaymentMethod | undefined
   calculating: boolean
   processing: boolean
@@ -66,6 +73,7 @@ export function PaymentConfirmDialog({
   onConfirm,
   topupAmount,
   paymentAmount,
+  settlementQuote,
   paymentMethod,
   calculating,
   processing,
@@ -77,16 +85,32 @@ export function PaymentConfirmDialog({
   const { t } = useTranslation()
   const formatPlatformCreditBalance = (amount: number) =>
     formatPlatformCreditBalanceBase(amount, t('Platform'))
-  const hasPaymentAmount = isPositivePaymentAmount(paymentAmount)
-  const hasDiscount = hasPaymentAmount && discountRate > 0 && discountRate < 1
+  const usesSettlementQuote = isWaffoPancakePayment(paymentMethod?.type ?? '')
+  const quote = parseSettlementQuote(settlementQuote)
+  const hasPaymentAmount = usesSettlementQuote
+    ? quote !== null
+    : isPositivePaymentAmount(paymentAmount)
+  const hasDiscount =
+    !usesSettlementQuote &&
+    hasPaymentAmount &&
+    discountRate > 0 &&
+    discountRate < 1
   const originalAmount = hasDiscount ? paymentAmount / discountRate : 0
   const discountAmount = hasDiscount ? originalAmount - paymentAmount : 0
-  const codeSavings = discountCodeSavings(paymentAmount, discountPercent)
-  const settlementUnit = getPaymentSettlementUnit(paymentMethod, true)
+  const codeSavings = usesSettlementQuote
+    ? 0
+    : discountCodeSavings(paymentAmount, discountPercent)
+  const settlementUnit = usesSettlementQuote
+    ? null
+    : getPaymentSettlementUnit(paymentMethod, true)
   const formatSelectedPaymentAmount = (amount: number) =>
-    settlementUnit
-      ? formatSettlementAmount(amount, settlementUnit.label)
-      : formatPaymentAmount(amount, 'USD')
+    usesSettlementQuote
+      ? quote
+        ? formatSettlementQuote(quote)
+        : t('Payment unavailable')
+      : settlementUnit
+        ? formatSettlementAmount(amount, settlementUnit.label)
+        : formatPaymentAmount(amount, 'USD')
   const paymentMethodLabel = neutralMode
     ? t('Payment Method')
     : paymentMethod?.name
@@ -174,7 +198,7 @@ export function PaymentConfirmDialog({
             </div>
           )}
 
-          {settlementUnit && !calculating && hasPaymentAmount && (
+          {(settlementUnit || quote) && !calculating && hasPaymentAmount && (
             <div className='bg-muted/50 rounded-lg border p-3 text-sm'>
               {t('Credit {{amount}}; pay {{payment}}', {
                 amount: formatPlatformCreditBalance(topupAmount),
@@ -227,7 +251,10 @@ export function PaymentConfirmDialog({
             {t('Cancel')}
           </AlertDialogCancel>
           <AlertDialogAction
-            onClick={onConfirm}
+            onClick={(event) => {
+              event.preventDefault()
+              onConfirm()
+            }}
             disabled={calculating || processing || !hasPaymentAmount}
           >
             {processing && (
