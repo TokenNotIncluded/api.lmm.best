@@ -7503,6 +7503,7 @@ const targetedUiTranslationFixes = {
   fr: {
     End: 'Fin',
     Pay: 'Payer',
+    Root: 'Racine',
     Query: 'Requête',
     Prompt: 'Invite',
     Quota: 'Quota',
@@ -7528,11 +7529,13 @@ const targetedUiTranslationFixes = {
     Pay: '付款',
     Query: '查詢',
     'Quota:': '配額:',
+    Root: '根目錄',
   },
   zh: {
     Pay: '支付',
     Query: '查询',
     'Quota:': '配额:',
+    Root: '根',
   },
 }
 
