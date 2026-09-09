@@ -11,7 +11,7 @@ manifest="$repo_root/apps/api-rust/Cargo.toml"
 suite=${1:-all}
 
 usage() {
-  echo "usage: $0 {auth|models|api-token|subscription-reset|all}" >&2
+  echo "usage: $0 {auth|models|api-token|subscription-reset|migration|system-config|all}" >&2
   exit 2
 }
 
@@ -25,6 +25,20 @@ require_loopback_url() {
     redis://:*@localhost:* | redis://:*@127.0.0.1:* | redis://:*@\[::1\]:*) ;;
     *) echo "$name must use a loopback-only isolated service" >&2; exit 1 ;;
   esac
+}
+
+# libtest returns success when a stale exact filter selects zero tests.
+# Require the compiled ignored test to exist before executing the gate.
+run_exact_migration_test() {
+  local target=$1 test_name=$2 listing
+  listing=$(cargo test --locked --manifest-path "$manifest" -p lmm-db-migrate \
+    --test "$target" "$test_name" -- --ignored --exact --list)
+  if ! grep -Fxq "$test_name: test" <<<"$listing"; then
+    echo "required integration test is missing: $target::$test_name" >&2
+    exit 1
+  fi
+  cargo test --locked --manifest-path "$manifest" -p lmm-db-migrate \
+    --test "$target" "$test_name" -- --ignored --exact --test-threads=1
 }
 
 run_auth() {
@@ -60,9 +74,20 @@ run_subscription_reset() {
     --test billing_subscriptions -- --ignored --test-threads=1
   cargo test --locked --manifest-path "$manifest" -p lmm-api-rs \
     --test billing_subscription_reset_postgres -- --ignored --test-threads=1
-  cargo test --locked --manifest-path "$manifest" -p lmm-db-migrate \
-    --test full_copy subscription_reset_manifest_should_copy_representative_rows -- \
-    --ignored --exact --test-threads=1
+  run_exact_migration_test schema_contract contract_six_verifier_rejects_wrong_default_and_index_columns
+}
+
+run_migration() {
+  require_loopback_url LMM_TEST_DATABASE_URL
+  run_exact_migration_test full_copy full_copy_should_verify_all_tables_and_rollback_both_fault_phases
+  run_exact_migration_test waffo_subscription_schema contract_eight_preserves_pending_evidence_and_rejects_broken_replay_guards
+}
+
+run_system_config() {
+  require_loopback_url LMM_SYSTEM_CONFIG_TEST_DATABASE_URL
+  require_loopback_url LMM_SYSTEM_CONFIG_TEST_VALKEY_URL
+  cargo test --locked --manifest-path "$manifest" -p lmm-api-rs \
+    --test system_config -- --ignored --test-threads=1
 }
 
 case "$suite" in
@@ -70,6 +95,8 @@ case "$suite" in
   models) run_models ;;
   api-token) run_api_token ;;
   subscription-reset) run_subscription_reset ;;
-  all) run_auth; run_models; run_api_token; run_subscription_reset ;;
+  migration) run_migration ;;
+  system-config) run_system_config ;;
+  all) run_auth; run_models; run_api_token; run_subscription_reset; run_system_config; run_migration ;;
   *) usage ;;
 esac

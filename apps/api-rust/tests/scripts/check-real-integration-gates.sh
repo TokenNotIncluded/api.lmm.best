@@ -11,7 +11,8 @@ isolated_runner="$repo_root/apps/api-rust/tests/scripts/run-isolated-real-integr
 [[ -x $isolated_runner || -f $isolated_runner ]] || { echo "missing isolated real-integration runner: $isolated_runner" >&2; exit 1; }
 
 declare -A requirements=(
-  [auth_pg_valkey.rs]='auth_routes_preserve_postgres_and_valkey_control_plane,dashboard_resolver_preserves_session_pat_and_userauth_boundaries,assistant_l1_confirmation_should_be_session_bound_and_single_use|LMM_AUTH_TEST_DATABASE_URL|LMM_AUTH_TEST_VALKEY_URL'
+  [system_config.rs]='option_write_invalidates_valkey_then_recovers_from_authoritative_postgres,pricing_locks_filter_before_commit_and_dry_run_has_no_side_effects|LMM_SYSTEM_CONFIG_TEST_DATABASE_URL|LMM_SYSTEM_CONFIG_TEST_VALKEY_URL'
+  [auth_pg_valkey.rs]='auth_routes_preserve_postgres_and_valkey_control_plane,dashboard_resolver_preserves_session_pat_and_userauth_boundaries,assistant_l1_confirmation_should_be_session_bound_and_single_use,weekly_session_age_revokes_access_and_refresh_but_honors_opt_out|LMM_AUTH_TEST_DATABASE_URL|LMM_AUTH_TEST_VALKEY_URL'
   [models_pg_valkey.rs]='models_route_uses_authoritative_postgres_and_tolerates_valkey_failure|LMM_MODELS_TEST_DATABASE_URL|LMM_MODELS_TEST_VALKEY_URL'
   [api_token.rs]='mixed_case_deleted_at_create_update_preserves_active_rows_and_rejects_invalid_inputs,create_missing_and_explicit_zero_fields_use_go_model_defaults,create_token_activation_is_one_time_and_transactional,api_token_mutations_invalidate_cached_credentials_and_keep_listings_masked,api_token_status_only_writes_the_legacy_update_column_set,api_token_delete_is_idempotent_under_replay_and_competing_requests,api_token_batch_delete_is_owner_scoped_and_preserves_foreign_cache_on_replay,api_token_token_limit_and_owner_scope_use_postgres_authority,concurrent_create_keeps_the_legacy_count_then_insert_race_contract,api_token_options_refresh_is_best_effort_and_retains_last_good_snapshot,api_token_update_returns_loaded_mutation_without_a_post_write_select,api_token_row_decode_faults_keep_raw_generic_detail_but_search_maps_the_error,api_token_listener_preserves_field_specific_query_overflows_and_repeated_keys,api_token_batch_key_database_fault_is_not_silently_downgraded_to_an_empty_map|LMM_API_TOKEN_TEST_DATABASE_URL|LMM_API_TOKEN_TEST_VALKEY_URL'
 )
@@ -79,14 +80,34 @@ if rg -U -n 'else\s*\{\s*return;\s*\}' \
   exit 1
 fi
 
-for suite in auth models api-token; do
-  if env -u LMM_AUTH_TEST_ALLOW_SCHEMA_RESET -u LMM_AUTH_TEST_DATABASE_URL -u LMM_AUTH_TEST_VALKEY_URL \
+for suite in auth models api-token system-config migration; do
+  if env -u LMM_TEST_DATABASE_URL -u LMM_AUTH_TEST_ALLOW_SCHEMA_RESET -u LMM_AUTH_TEST_DATABASE_URL -u LMM_AUTH_TEST_VALKEY_URL \
     -u LMM_MODELS_TEST_DATABASE_URL -u LMM_MODELS_TEST_VALKEY_URL \
     -u LMM_API_TOKEN_TEST_DATABASE_URL -u LMM_API_TOKEN_TEST_VALKEY_URL \
+    -u LMM_SYSTEM_CONFIG_TEST_DATABASE_URL -u LMM_SYSTEM_CONFIG_TEST_VALKEY_URL \
     bash "$runner" "$suite" >/dev/null 2>&1; then
     echo "$suite real-integration runner unexpectedly accepted missing environment" >&2
     exit 1
   fi
 done
+
+# Reproduce libtest's successful zero-match exit without touching dependencies.
+# The runner must reject it before treating a migration gate as passed.
+empty_test_bin=$(mktemp -d /tmp/lmm-empty-integration-test.XXXXXX)
+trap 'rm -rf -- "$empty_test_bin"' EXIT
+cat >"$empty_test_bin/cargo" <<'STUB'
+#!/usr/bin/env bash
+exit 0
+STUB
+chmod +x "$empty_test_bin/cargo"
+if PATH="$empty_test_bin:$PATH" LMM_TEST_DATABASE_URL='postgresql://127.0.0.1:5432/isolated' \
+  bash "$runner" migration >"$empty_test_bin/output" 2>&1; then
+  echo 'migration gate accepted a successful zero-test selection' >&2
+  exit 1
+fi
+rg -Fq 'required integration test is missing:' "$empty_test_bin/output" || {
+  echo 'migration gate did not reject the missing compiled test' >&2
+  exit 1
+}
 
 echo "real integration gates valid: $total_ignored ignored tests across ${#requirements[@]} modules; missing environment hard-fails"

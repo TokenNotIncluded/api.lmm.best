@@ -46,7 +46,7 @@ completed implementations merely because they answer HTTP requests.
 | Area | Evidence / remaining work |
 | --- | --- |
 | Runtime composition | Inspect every dependency in `apps/api-rust/src/main.rs`; the listener still composes disabled payment checkout/verifier/processor implementations. Wire real dependencies only with persistence and failure-path tests. |
-| Pancake lifecycle | `routes/waffo_webhooks.rs` dispatches only `order.completed`; Go also handles subscription payment and lifecycle events. Port signed verification, order/period association, out-of-order delivery, idempotency and refund behavior together. |
+| Pancake lifecycle | RSA verification and lifecycle/payment/refund dispatch now have implementations and regression tests. The durable processor is still disabled: order/period association, out-of-order delivery, idempotent settlement and refunds must be implemented and independently verified before enabling the gateway. |
 | Global pricing protection | This patch covers the system-config surface. Audit assistant, scheduled pricing, import/sync and independent writers. Cross-process Go/Rust concurrent writes need a shared database transaction/locking contract; a Rust process mutex alone does not provide that guarantee. |
 | Pending frontend contract | Open PR #230 contains additional price-lock capability and per-model update contracts. Reconcile its final merged behavior before enabling Rust price-lock controls in the UI. |
 | Reset defaults | This patch preserves the existing Rust reset target (`{}`). Compare it with Go's built-in default ratio catalogue before claiming reset response/data parity. |
@@ -78,3 +78,74 @@ PostgreSQL/Valkey tests ignored. Targeted Clippy (`--lib --test system_config --
 execution environment, so no database integration or frozen-Go differential
 pass is claimed. An initial incremental test link failed; the repository's CI
 setting `CARGO_INCREMENTAL=0` produced the passing test run.
+
+
+## Pancake verification and lifecycle boundary
+
+The normal listener now composes the RSA-SHA256 verifier, with public keys pinned
+from Pancake Go SDK v0.9.0. It verifies the exact timestamp-prefixed raw body,
+retains the provider retry window (45 minutes) and limits future clock skew to
+60 seconds. Go environment overrides are supported with PEM, escaped PEM and
+raw base64 SPKI keys; parsing is local and errors never disclose key values.
+The loopback acceptance listener retains the deny verifier.
+
+The signed mode is bound to its own key; duplicate signature fields are rejected.
+These deliberate security differences from SDK auto-detection are recorded in
+the behavior deviation ledger and have no production approval credit.
+
+Payment callbacks may omit period fields following the 2026-09-06 change.
+Verified event/payment/order IDs and optional lifecycle boundaries are preserved
+separately. Contradictory status fields never reach the durable processor.
+Recognized lifecycle, payment and refund events reach an explicit processor
+method; an incomplete adapter returns retry rather than acknowledging lost
+payment evidence. Unknown event types remain acknowledgements without mutation.
+
+**Availability and durable settlement remain disabled in the normal listener.**
+This verifier does not itself grant entitlements, settle funds, validate the
+merchant/order's amount, or establish production readiness.
+
+The existing PostgreSQL 18 / Valkey CI job now runs the previously ignored
+system-config tests explicitly via the integration runner. Missing environment
+variables remain hard errors, not successful skipped verification.
+
+Verification for the webhook boundary: 18 Rust webhook tests passed; targeted
+Clippy for the library, production binary and system-config test passed. The
+same OpenSSL fixtures passed the pinned Go SDK oracle:
+
+```bash
+cd apps/api-rust/tests/pancake-sdk-oracle
+go test -mod=readonly -v ./...
+```
+
+The fixed historical signature time is checked with a test clock in Rust; the
+SDK fixture oracle disables its wall-clock age check to verify the same fixed
+cryptographic bytes. This is protocol evidence, not a payment-settlement or
+whole-backend differential pass.
+
+## Weekly session age
+
+Access validation, refresh and security-proof operations now check the original
+session creation time against seven days. Missing or malformed preferences
+default to enabled; only a boolean `session_auto_logout: false` opts out.
+For aged sessions the adapter locks the user and session, rereads the preference,
+writes the shared Valkey revoking fence, then commits PostgreSQL revocation.
+Refresh and recent activity do not reset creation time. The integration gate
+covers independent access/refresh rejection, explicit opt-out, unchanged login
+age and the shared cache tombstone. Session-list preferences, settings writes
+and periodic cleanup remain separate parity gaps.
+
+PR #239 initial commit `7f3e49a` passed the PostgreSQL 18 / Valkey CI job,
+including the two system-config integration regressions and pinned Go SDK
+signature verification (Actions run `34331195212`). This does not certify
+payment settlement or authorize route ownership changes.
+
+## Migration gate integrity
+
+CI log review found an obsolete exact test filter selecting zero tests while
+Cargo returned success. The subscription-reset runner now invokes the existing
+contract-six schema verifier. Exact migration gates check the compiled ignored
+test list before execution and fail if the requested test is absent. A stubbed
+zero-test success regression protects this behavior without a database.
+The full-copy migration/fault rollback test and contract-eight payment replay
+schema test are now explicitly included in the real-dependency runner. Their
+results must be checked on the new commit; earlier green jobs did not run them.

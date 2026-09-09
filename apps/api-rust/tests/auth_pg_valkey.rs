@@ -933,6 +933,137 @@ async fn assistant_l1_confirmation_should_be_session_bound_and_single_use() {
     assert_eq!(replay, Err(AssistantL1ConfirmationError::Invalid));
 }
 
+#[tokio::test]
+#[ignore = "requires isolated PostgreSQL 18 and Valkey; use run-real-integration-gates.sh auth"]
+async fn weekly_session_age_revokes_access_and_refresh_but_honors_opt_out() {
+    let (database_url, valkey_url) = integration_urls();
+    let pool = PgPoolOptions::new()
+        .max_connections(4)
+        .connect(&database_url)
+        .await
+        .unwrap();
+    reset_schema(&pool).await;
+    sqlx::query("INSERT INTO users (id, username, password, display_name, role, status, email, \"group\", setting, auth_version) VALUES (7, 'alice', $1, 'Alice', 1, 1, 'alice@example.test', 'default', '{}', 1)")
+        .bind(hash("correct horse", DEFAULT_COST).unwrap()).execute(&pool).await.unwrap();
+    let valkey = redis::Client::open(valkey_url.as_str()).unwrap();
+    let mut connection = valkey.get_multiplexed_async_connection().await.unwrap();
+    redis::cmd("FLUSHDB")
+        .query_async::<()>(&mut connection)
+        .await
+        .unwrap();
+    let auth: Arc<dyn DashboardAuth> =
+        Arc::new(PgValkeyDashboardAuth::new(pool.clone(), valkey, integration_config()).unwrap());
+    let router = auth_router(AuthHttpState::new(auth, false).with_password_login_enabled(true));
+
+    // Exercise both paths independently: neither may rely on the other path
+    // having already revoked the session. A recent last_active_at is irrelevant.
+    for (setting, refresh_first, expected) in [
+        ("{}", false, StatusCode::UNAUTHORIZED),
+        ("{}", true, StatusCode::UNAUTHORIZED),
+        (r#"{"session_auto_logout":false}"#, false, StatusCode::OK),
+        (r#"{"session_auto_logout":false}"#, true, StatusCode::OK),
+    ] {
+        sqlx::query("UPDATE users SET setting=$1 WHERE id=7")
+            .bind(if setting == "{}" {
+                r#"{"session_auto_logout":false}"#
+            } else {
+                "{}"
+            })
+            .execute(&pool)
+            .await
+            .unwrap();
+        let login = router
+            .clone()
+            .oneshot(json_request(
+                "POST",
+                "/api/user/login",
+                r#"{"username":"alice","password":"correct horse"}"#,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(login.status(), StatusCode::OK);
+        let cookie = login.headers()[header::SET_COOKIE]
+            .to_str()
+            .unwrap()
+            .split(';')
+            .next()
+            .unwrap()
+            .to_owned();
+        let body = json_body(login).await;
+        let sid = body["data"]["session"]["sid"].as_str().unwrap();
+        let token = body["data"]["access_token"].as_str().unwrap();
+        // Preference changes after login must override any cached user state.
+        sqlx::query("UPDATE users SET setting=$1 WHERE id=7")
+            .bind(setting)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let created_at: i64 = sqlx::query_scalar("UPDATE user_sessions SET ip=NULL, user_agent=NULL, created_at=EXTRACT(EPOCH FROM NOW())::bigint-604860, last_active_at=EXTRACT(EPOCH FROM NOW())::bigint WHERE sid=$1 RETURNING created_at")
+            .bind(sid).fetch_one(&pool).await.unwrap();
+        let request = if refresh_first {
+            with_test_context(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/user/auth/refresh")
+                    .header(header::COOKIE, cookie)
+                    .header("x-auth-session", sid)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+        } else {
+            Request::builder()
+                .uri("/api/user/self")
+                .header(header::AUTHORIZATION, format!("Bearer {token}"))
+                .body(Body::empty())
+                .unwrap()
+        };
+        let response = router.clone().oneshot(request).await.unwrap();
+        assert_eq!(
+            response.status(),
+            expected,
+            "setting={setting} refresh={refresh_first}"
+        );
+        let row = sqlx::query(
+            "SELECT status, revoked_reason, created_at FROM user_sessions WHERE sid=$1",
+        )
+        .bind(sid)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            row.get::<i64, _>("created_at"),
+            created_at,
+            "refresh cannot reset login age"
+        );
+        if expected == StatusCode::UNAUTHORIZED {
+            assert_eq!(row.get::<String, _>("status"), "revoked");
+            assert_eq!(row.get::<String, _>("revoked_reason"), "weekly_auto_logout");
+            let keys: Vec<String> = redis::cmd("KEYS")
+                .arg("auth:session:*")
+                .query_async(&mut connection)
+                .await
+                .unwrap();
+            let mut found = false;
+            for key in keys {
+                let values: Vec<String> = redis::cmd("HMGET")
+                    .arg(key)
+                    .arg("SID")
+                    .arg("Status")
+                    .query_async(&mut connection)
+                    .await
+                    .unwrap();
+                if values[0] == sid {
+                    assert_eq!(values[1], "revoked", "shared Go/Rust cache must deny");
+                    found = true;
+                }
+            }
+            assert!(found, "revoked session tombstone must exist");
+        } else {
+            assert_eq!(row.get::<String, _>("status"), "active");
+        }
+    }
+}
+
 fn integration_config() -> AuthConfig {
     AuthConfig {
         session_secret: SecretString::from("integration-SESSION-secret-2026!".to_owned()),
