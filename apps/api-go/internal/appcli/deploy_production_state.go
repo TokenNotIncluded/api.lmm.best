@@ -1072,7 +1072,14 @@ func (runtime *productionRuntime) writeStatus(workspace productionWorkspace, sta
 	if err != nil {
 		return err
 	}
-	return writeAtomicRegularFile(workspace.statusPath, append(encoded, '\n'), 0o600)
+	if err := writeAtomicRegularFile(workspace.statusPath, append(encoded, '\n'), 0o600); err != nil {
+		return err
+	}
+	// Public copy is cosmetic: a publication failure must never stop recovery.
+	if err := runtime.publishServicePhase(workspace.id, status.Phase); err != nil {
+		_, _ = fmt.Fprintf(os.Stderr, "public maintenance status unavailable: %v\n", err)
+	}
+	return nil
 }
 
 func (runtime *productionRuntime) readStatus(workspace productionWorkspace) (productionStatus, error) {

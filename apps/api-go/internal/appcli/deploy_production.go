@@ -9,6 +9,8 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -38,6 +40,8 @@ func runProductionDeploy(args []string, stdout, stderr io.Writer) int {
 		return ExitUsage
 	}
 	switch args[0] {
+	case "maintenance":
+		return runProductionMaintenance(args[1:], stdout, stderr)
 	case "plan":
 		return runProductionReleasePlan(args[1:], stdout, stderr)
 	case "stage":
@@ -98,6 +102,7 @@ func productionControllerPlanMode(args []string) bool {
 
 func writeProductionDeployUsage(output io.Writer) {
 	_, _ = fmt.Fprintf(output, `Usage:
+  %s deploy production maintenance --deployment-id ID --confirm api.lmm.best [--state STATE] [--service NAME] [--message TEXT] [--expected-recovery-at RFC3339]
   %s deploy production plan --repo DIR --workspace DIR --deployment-id ID \\
        --go-package FILE --go-release-asset FILE --go-release-bundle FILE \\
        --go-rollback-package FILE --go-rollback-release-asset FILE --go-rollback-release-bundle FILE \\
@@ -123,7 +128,7 @@ Backups are optional for Go-only, Web-only, and combined releases.
 New plans import controller-only encrypted backup sets; no full target or off-host copy is created.
 Selected backups require the local age identity at promote and confirm. Only signed metadata reaches production.
 Legacy format-5 plans and --with-backups --backup-dir transactions remain readable for recovery.
-`, ProgramName, ProgramName, ProgramName, ProgramName, ProgramName)
+`, ProgramName, ProgramName, ProgramName, ProgramName, ProgramName, ProgramName)
 }
 
 func parseProductionHardenOptions(args []string, stderr io.Writer) (productionHardenOptions, error) {
@@ -243,6 +248,14 @@ func verifyProductionMemoryDropIn(path string) error {
 }
 
 func retireKnownMemoryOverrides(root string) error {
+	return inspectMemoryOverrides(root, true)
+}
+
+func validateMemoryOverrides(root string) error {
+	return inspectMemoryOverrides(root, false)
+}
+
+func inspectMemoryOverrides(root string, retire bool) error {
 	entries, err := os.ReadDir(root)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
@@ -263,6 +276,9 @@ func retireKnownMemoryOverrides(root string) error {
 		if err != nil {
 			return err
 		}
+		if conservativeGoMemoryOverride(content) {
+			continue
+		}
 		text := string(content)
 		if !strings.Contains(text, "MemoryHigh=") && !strings.Contains(text, "MemoryMax=") &&
 			!strings.Contains(text, "MemorySwapMax=") && !strings.Contains(text, "GOMEMLIMIT=") {
@@ -281,6 +297,9 @@ func retireKnownMemoryOverrides(root string) error {
 			return fmt.Errorf("unknown memory override blocks deployment: %s", path)
 		}
 		remove = append(remove, path)
+	}
+	if !retire {
+		return nil
 	}
 	for _, path := range remove {
 		if err := os.Remove(path); err != nil {
@@ -396,4 +415,38 @@ func writeAtomicRegularFile(path string, content []byte, mode fs.FileMode) (retu
 		return err
 	}
 	return syncDirectory(parent)
+}
+
+// A smaller Go heap target tightens the packaged memory policy. Preserve it
+// without allowing arbitrary cgroup overrides or environment directives.
+func conservativeGoMemoryOverride(content []byte) bool {
+	limitPattern := regexp.MustCompile(`^Environment="GOMEMLIMIT=([1-9][0-9]*)MiB"$`)
+	temporaryPattern := regexp.MustCompile(`^Environment="TMPDIR=(/[A-Za-z0-9_./-]+)"$`)
+	section, limit := false, false
+	for _, raw := range strings.Split(string(content), "\n") {
+		line := strings.TrimSpace(raw)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if line == "[Service]" && !section {
+			section = true
+			continue
+		}
+		if !section {
+			return false
+		}
+		if match := limitPattern.FindStringSubmatch(line); match != nil {
+			amount, err := strconv.Atoi(match[1])
+			if limit || err != nil || amount > 256 {
+				return false
+			}
+			limit = true
+			continue
+		}
+		if match := temporaryPattern.FindStringSubmatch(line); match != nil && filepath.Clean(match[1]) == match[1] {
+			continue
+		}
+		return false
+	}
+	return section && limit
 }

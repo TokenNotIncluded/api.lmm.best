@@ -108,3 +108,39 @@ contract tests must be replaced by Go and Rust tests before `deploy/` is removed
 CI MUST fail if tracked code, workflows, packages, or documentation reintroduce
 a runtime dependency on the removed `deploy/` path or invokes a provider binary
 as the production operator entry point.
+
+## Public outage information
+
+The edge serves a standalone LMM Best document when it cannot reach the service.
+Browser GET/HEAD requests accepting HTML receive that document; API clients
+receive a structured 503 response. Upstream API error bodies are not intercepted.
+The document does not depend on the application, its JavaScript bundle, or fonts.
+Its readable source is `packaging/common/lmm-api/edge-policy/service-unavailable.html`;
+run `node scripts/generate-nginx-error-page.mjs` after editing it.
+
+The Go production operator publishes only a small public status document beside
+the frontend releases. It never copies private failure messages, credentials,
+configuration, or transaction manifests into that document. Deployment phases
+update the explanation automatically. An estimate is absent unless an operator
+supplies one. Expired estimates are labeled as expired; a recorded recovery is
+confirmed with the live health endpoint before the page announces availability.
+
+An operator can publish a reviewed explanation and a real estimate with:
+
+```sh
+/usr/bin/lmm-api deploy production maintenance \
+  --deployment-id "$DEPLOYMENT_ID" --confirm api.lmm.best \
+  --state maintenance --service "LMM Best API" \
+  --message "Scheduled service update" \
+  --expected-recovery-at "$RECOVERY_AT"
+```
+
+`RECOVERY_AT` must be a future RFC3339 timestamp. Omit the last option when the
+recovery time is unknown. Service/model names and explanations must describe the
+actual affected scope. This command changes the notice only; it does not stop,
+start, or bypass access controls for the service.
+
+Memory override validation runs before stopping the backend on both activation
+and rollback. Strictly parsed Go heap limits at or below the packaged 256 MiB
+ceiling are retained, including the existing 192 MiB mitigation. Unknown cgroup
+or executable directives still fail closed before the service is stopped.

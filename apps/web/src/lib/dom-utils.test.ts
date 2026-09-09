@@ -51,8 +51,8 @@ function setupDom(iconHrefs: string[]) {
 }
 
 describe('applyFaviconToDom', () => {
-  test('keeps exactly one icon link when starting from the LMM Forge entry mark', () => {
-    const domWindow = setupDom(['/lmm-forge-mark.svg'])
+  test('keeps exactly one icon link when starting from the LMM Best entry mark', () => {
+    const domWindow = setupDom(['/lmm-best-mark.svg'])
 
     applyFaviconToDom('https://cdn.example.com/logo.png')
 
@@ -64,7 +64,7 @@ describe('applyFaviconToDom', () => {
   })
 
   test('re-applying the same URL does not duplicate the icon link', () => {
-    const domWindow = setupDom(['/lmm-forge-mark.svg'])
+    const domWindow = setupDom(['/lmm-best-mark.svg'])
 
     applyFaviconToDom('https://cdn.example.com/logo.png')
     applyFaviconToDom('https://cdn.example.com/logo.png')
@@ -76,19 +76,19 @@ describe('applyFaviconToDom', () => {
   })
 
   test('keeps the entry mark untouched when it is already the active icon', () => {
-    const domWindow = setupDom(['/lmm-forge-mark.svg'])
+    const domWindow = setupDom(['/lmm-best-mark.svg'])
 
-    applyFaviconToDom('/lmm-forge-mark.svg')
+    applyFaviconToDom('/lmm-best-mark.svg')
 
     const icons = [
       ...domWindow.document.querySelectorAll('link[rel~="icon"]'),
     ] as unknown as HTMLLinkElement[]
     assert.equal(icons.length, 1)
-    assert.match(icons[0].href, /\/lmm-forge-mark\.svg$/)
+    assert.match(icons[0].href, /\/lmm-best-mark\.svg$/)
   })
 
   test('converges duplicate icon links to a single link', () => {
-    const domWindow = setupDom(['/lmm-forge-mark.svg', '/logo.png'])
+    const domWindow = setupDom(['/lmm-best-mark.svg', '/logo.png'])
 
     applyFaviconToDom('https://cdn.example.com/logo.png')
 
@@ -100,7 +100,7 @@ describe('applyFaviconToDom', () => {
 })
 
 describe('entry favicon declaration', () => {
-  test('index.html declares the LMM Forge mark as the initial icon', () => {
+  test('index.html declares the LMM Best mark as the initial icon', () => {
     const html = readFileSync(
       join(import.meta.dirname, '../../index.html'),
       'utf8'
@@ -108,7 +108,7 @@ describe('entry favicon declaration', () => {
 
     assert.match(
       html,
-      /<link rel="icon" type="image\/svg\+xml" href="\/lmm-forge-mark\.svg" \/>/
+      /<link rel="icon" type="image\/svg\+xml" href="\/lmm-best-mark\.svg" \/>/
     )
   })
 })

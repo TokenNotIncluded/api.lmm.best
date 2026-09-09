@@ -1727,3 +1727,68 @@ func TestPackageIntegritySummaryIsExact(t *testing.T) {
 		}
 	}
 }
+
+func TestUnknownMemoryOverrideFailsBeforeStoppingProduction(t *testing.T) {
+	fixture := newProductionFixture(t)
+	if err := os.MkdirAll(fixture.runtime.paths.DropInDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(fixture.runtime.paths.DropInDir, "95-unknown.conf"), []byte("[Service]\nMemoryMax=1G\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := fixture.runtime.apply(context.Background(), fixture.workspace, fixture.options)
+	if err == nil || !strings.Contains(err.Error(), "memory configuration preflight") {
+		t.Fatalf("unexpected result: %v", err)
+	}
+	for _, command := range fixture.runner.commands {
+		if command.Name == commandSystemctl && len(command.Args) > 0 && command.Args[0] == "stop" {
+			t.Fatal("service stopped before memory preflight")
+		}
+	}
+}
+
+func TestRollbackMemoryPreflightLeavesRunningServiceUntouched(t *testing.T) {
+	fixture := newProductionFixture(t)
+	if _, err := fixture.runtime.apply(context.Background(), fixture.workspace, fixture.options); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(fixture.runtime.paths.DropInDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(fixture.runtime.paths.DropInDir, "95-unknown.conf"), []byte("[Service]\nMemoryMax=1G\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	fixture.runner.commands = nil
+	_, err := fixture.runtime.rollback(context.Background(), fixture.workspace, "test")
+	if err == nil || !strings.Contains(err.Error(), "rollback memory configuration preflight") {
+		t.Fatalf("unexpected result: %v", err)
+	}
+	for _, command := range fixture.runner.commands {
+		if command.Name == commandSystemctl && len(command.Args) > 0 && command.Args[0] == "stop" {
+			t.Fatal("rollback stopped service before validating memory settings")
+		}
+	}
+}
+
+func TestApplyAndRollbackPreserveConservativeHeapMitigation(t *testing.T) {
+	fixture := newProductionFixture(t)
+	if err := os.MkdirAll(fixture.runtime.paths.DropInDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(fixture.runtime.paths.DropInDir, "95-memory-mitigation.conf")
+	content := []byte("[Service]\nEnvironment=\"TMPDIR=/var/lib/lmm-api-go/tmp\"\nEnvironment=\"GOMEMLIMIT=192MiB\"\n")
+	if err := os.WriteFile(path, content, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.runtime.apply(context.Background(), fixture.workspace, fixture.options); err != nil {
+		t.Fatal(err)
+	}
+	status, err := fixture.runtime.rollback(context.Background(), fixture.workspace, "test")
+	if err != nil || status.Phase != "ROLLED_BACK" {
+		t.Fatalf("rollback=%+v err=%v", status, err)
+	}
+	actual, err := os.ReadFile(path)
+	if err != nil || !bytes.Equal(actual, content) {
+		t.Fatal("existing heap protection changed")
+	}
+}

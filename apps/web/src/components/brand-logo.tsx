@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { LmmBrandMark } from '@/components/lmm-brand-mark'
-import { DEFAULT_LOGO } from '@/lib/constants'
+import { DEFAULT_LOGO, isDefaultLogo } from '@/lib/constants'
 import { isSafeResourceUrl } from '@/lib/content-format'
 
 type BrandLogoProps = {
@@ -48,7 +48,7 @@ export function BrandLogo({
 }: BrandLogoProps) {
   const resolvedSrc = src?.trim() || DEFAULT_LOGO
 
-  if (resolvedSrc === DEFAULT_LOGO || !isSafeResourceUrl(resolvedSrc)) {
+  if (isDefaultLogo(resolvedSrc) || !isSafeResourceUrl(resolvedSrc)) {
     return (
       <LmmBrandMark
         title={alt || undefined}
