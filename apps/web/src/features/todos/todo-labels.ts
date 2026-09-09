@@ -8,6 +8,7 @@ the Free Software Foundation, either version 3 of the License, or
 */
 
 const ITEM_LABELS: Record<string, string> = {
+  'assistant.human_support': 'Human technical support',
   'open_source_bounty.challenge_submitted': 'Challenge submitted',
   'open_source_bounty.tip_received': 'Tip received',
   'open_source_bounty.reward_received': 'Reward received',

@@ -33,7 +33,8 @@ function item(
     | 'open_source_bounty'
     | 'security_review'
     | 'developer_access'
-    | 'account_action',
+    | 'account_action'
+    | 'human_support',
   details: Record<string, unknown> = {}
 ) {
   return {
@@ -75,5 +76,10 @@ describe('unified todo destinations', () => {
     // resolving a user profile first would hide the actionable approve/reject UI.
     assert.equal(todoItemHasDestination(item('developer_access')), true)
     assert.equal(todoItemHasDestination(item('account_action')), true)
+    assert.equal(todoItemHasDestination(item('human_support')), true)
+    assert.equal(
+      todoItemTitleKey('assistant.human_support'),
+      'Human technical support'
+    )
   })
 })

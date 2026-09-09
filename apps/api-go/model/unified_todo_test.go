@@ -10,7 +10,7 @@ import (
 
 func TestUnifiedTodoIncludesSubmittedBountyForOwner(t *testing.T) {
 	db := setupOpenSourceBountyTestDB(t)
-	require.NoError(t, db.AutoMigrate(&UnifiedTodoRead{}, &DeveloperAccessRequest{}, &AccountActionRequest{}, &AssistantConversation{}, &AssistantHistoryMessage{}, &AssistantSecurityIncident{}, &AssistantSecurityReviewNotice{}))
+	require.NoError(t, db.AutoMigrate(&UnifiedTodoRead{}, &DeveloperAccessRequest{}, &AccountActionRequest{}, &AssistantConversation{}, &AssistantHistoryMessage{}, &AssistantSecurityIncident{}, &AssistantSecurityReviewNotice{}, &AssistantSupportRequest{}))
 
 	owner := createOpenSourceBountyUser(t, db, "todo-owner", 10_000, common.RoleCommonUser)
 	participant := createOpenSourceBountyUser(t, db, "todo-participant", 0, common.RoleCommonUser)
@@ -62,7 +62,7 @@ func TestUnifiedTodoIncludesSubmittedBountyForOwner(t *testing.T) {
 
 func TestUnifiedTodoDeveloperAccessQueueContainsOnlyPendingIdentifiedApplicants(t *testing.T) {
 	db := setupOpenSourceBountyTestDB(t)
-	require.NoError(t, db.AutoMigrate(&UnifiedTodoRead{}, &DeveloperAccessRequest{}, &AccountActionRequest{}, &AssistantConversation{}, &AssistantHistoryMessage{}, &AssistantSecurityIncident{}, &AssistantSecurityReviewNotice{}))
+	require.NoError(t, db.AutoMigrate(&UnifiedTodoRead{}, &DeveloperAccessRequest{}, &AccountActionRequest{}, &AssistantConversation{}, &AssistantHistoryMessage{}, &AssistantSecurityIncident{}, &AssistantSecurityReviewNotice{}, &AssistantSupportRequest{}))
 
 	admin := createOpenSourceBountyUser(t, db, "todo-admin", 0, common.RoleAdminUser)
 	pendingUser := createOpenSourceBountyUser(t, db, "pending-applicant", 0, common.RoleCommonUser)
@@ -109,7 +109,7 @@ func TestUnifiedTodoSecurityIncidentsFollowAdministratorRoleLattice(t *testing.T
 		&AssistantConversation{},
 		&AssistantHistoryMessage{},
 		&AssistantSecurityIncident{},
-		&AssistantSecurityReviewNotice{},
+		&AssistantSecurityReviewNotice{}, &AssistantSupportRequest{},
 	))
 	ordinary := createOpenSourceBountyUser(t, db, "incident-user", 0, common.RoleCommonUser)
 	admin := createOpenSourceBountyUser(t, db, "incident-admin", 0, common.RoleAdminUser)
@@ -155,7 +155,7 @@ func TestUnifiedTodoSecurityReviewIsAggregateOnlyAndAdminVisible(t *testing.T) {
 	require.NoError(t, db.AutoMigrate(
 		&UnifiedTodoRead{}, &DeveloperAccessRequest{}, &AccountActionRequest{},
 		&AssistantConversation{}, &AssistantHistoryMessage{}, &AssistantSecurityIncident{},
-		&AssistantSecurityReviewNotice{},
+		&AssistantSecurityReviewNotice{}, &AssistantSupportRequest{},
 	))
 	admin := createOpenSourceBountyUser(t, db, "security-review-admin", 0, common.RoleAdminUser)
 	ordinary := createOpenSourceBountyUser(t, db, "security-review-user", 0, common.RoleCommonUser)
@@ -208,7 +208,7 @@ func TestUnifiedTodoDeepPageLoadsOnlySelectedRows(t *testing.T) {
 		&AssistantConversation{},
 		&AssistantHistoryMessage{},
 		&AssistantSecurityIncident{},
-		&AssistantSecurityReviewNotice{},
+		&AssistantSecurityReviewNotice{}, &AssistantSupportRequest{},
 	))
 	admin := createOpenSourceBountyUser(t, db, "todo-page-admin", 0, common.RoleAdminUser)
 	applicant := createOpenSourceBountyUser(t, db, "todo-page-applicant", 0, common.RoleCommonUser)
@@ -249,7 +249,7 @@ func TestUnifiedTodoMarkAllUsesBoundedBatches(t *testing.T) {
 		&AssistantConversation{},
 		&AssistantHistoryMessage{},
 		&AssistantSecurityIncident{},
-		&AssistantSecurityReviewNotice{},
+		&AssistantSecurityReviewNotice{}, &AssistantSupportRequest{},
 	))
 	admin := createOpenSourceBountyUser(t, db, "todo-batch-admin", 0, common.RoleAdminUser)
 	applicant := createOpenSourceBountyUser(t, db, "todo-batch-applicant", 0, common.RoleCommonUser)
@@ -282,7 +282,7 @@ func TestUnifiedTodoMarkAllUsesBoundedBatches(t *testing.T) {
 
 func TestUnifiedTodoMarkAllRollsBackEarlierCategories(t *testing.T) {
 	db := setupConsoleActivationTestDB(t)
-	require.NoError(t, db.AutoMigrate(&UnifiedTodoRead{}, &AssistantSecurityIncident{}, &AssistantSecurityReviewNotice{}))
+	require.NoError(t, db.AutoMigrate(&UnifiedTodoRead{}, &AssistantSecurityIncident{}, &AssistantSecurityReviewNotice{}, &AssistantSupportRequest{}))
 	admin := User{Username: "todo-rollback-admin", Password: "password", AffCode: "todo-rollback-admin", Role: common.RoleAdminUser}
 	owner := User{Username: "todo-rollback-owner", Password: "password", AffCode: "todo-rollback-owner", Role: common.RoleCommonUser}
 	require.NoError(t, db.Create(&admin).Error)

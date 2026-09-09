@@ -244,7 +244,7 @@ func TestPrepareAssistantRequestTerminatesAndReportsConversationWithoutModelSpen
 		&model.User{},
 		&model.TopUp{},
 		&model.DeveloperAccessRequest{},
-		&model.AssistantConversation{},
+		&model.AssistantConversation{}, &model.AssistantSupportRequest{},
 		&model.AssistantHistoryMessage{},
 		&model.AssistantSecurityIncident{},
 		&model.AssistantLead{},
@@ -430,7 +430,7 @@ func TestPrepareAssistantRequestRebuildsExistingConversationFromServerHistory(t 
 func TestAssistantNewConversationPersistsOnlyAfterSuccessfulAnswer(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := setupTokenControllerTestDB(t)
-	require.NoError(t, db.AutoMigrate(&model.User{}, &model.AssistantConversation{}, &model.AssistantHistoryMessage{}, &model.AssistantLead{}, &model.AssistantProfileBucket{}, &model.AssistantFirstQuestionStat{}))
+	require.NoError(t, db.AutoMigrate(&model.User{}, &model.AssistantConversation{}, &model.AssistantSupportRequest{}, &model.AssistantHistoryMessage{}, &model.AssistantLead{}, &model.AssistantProfileBucket{}, &model.AssistantFirstQuestionStat{}))
 	user := model.User{
 		Username: "assistant-atomic-history-owner",
 		AffCode:  "assistant-atomic-history-owner-aff",
@@ -975,7 +975,7 @@ func TestAssistantCreateKeyAgentConfirmationIsSessionBoundAndExactlyOnce(t *test
 
 func TestCreateAssistantDefaultKeyRejectsL0AtCommitTime(t *testing.T) {
 	db := setupTokenControllerTestDB(t)
-	require.NoError(t, db.AutoMigrate(&model.User{}, &model.TopUp{}, &model.Option{}, &model.AuthFlow{}, &model.UserSession{}, &model.TwoFA{}, &model.TwoFABackupCode{}, &model.Log{}, &model.AssistantConversation{}, &model.AssistantHistoryMessage{}, &model.AssistantSecureCard{}))
+	require.NoError(t, db.AutoMigrate(&model.User{}, &model.TopUp{}, &model.Option{}, &model.AuthFlow{}, &model.UserSession{}, &model.TwoFA{}, &model.TwoFABackupCode{}, &model.Log{}, &model.AssistantConversation{}, &model.AssistantSupportRequest{}, &model.AssistantHistoryMessage{}, &model.AssistantSecureCard{}))
 	configureAssistantKeyGroups(t, db)
 	user := model.User{
 		Username:    "assistant-l0-user",
@@ -1298,7 +1298,7 @@ func TestAssistantPricingEndpointAppliesTrustDiscountToGroupRatios(t *testing.T)
 func TestAssistantAgentToolsExposeSafeAndConfirmationGatedActions(t *testing.T) {
 	c, _ := createAssistantKeyTestContext(t, "assistant-tool-user")
 	definitions := assistantToolDefinitions()
-	require.Len(t, definitions, 43)
+	require.Len(t, definitions, 45)
 	names := make(map[string]bool, len(definitions))
 	for _, definition := range definitions {
 		names[definition.Function.Name] = true
@@ -1328,6 +1328,8 @@ func TestAssistantAgentToolsExposeSafeAndConfirmationGatedActions(t *testing.T) 
 	assert.True(t, names["prepare_l1_recommendation"])
 	assert.True(t, names["request_create_key"])
 	assert.True(t, names["request_human_support"])
+	assert.True(t, names["get_human_support_status"])
+	assert.True(t, names["book_technical_support"])
 	assert.True(t, names["list_admin_operations"])
 	assert.True(t, names["execute_admin_operation"])
 	assert.True(t, names["audit_admin_model_pricing"])

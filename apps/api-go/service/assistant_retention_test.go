@@ -48,7 +48,7 @@ func TestAssistantRetentionHandlerDeletesInBatchesAndFinishesTask(t *testing.T) 
 		&model.AssistantUserProfileAudit{},
 		&model.AssistantProfileBucket{},
 		&model.AssistantFirstQuestionStat{},
-		&model.AssistantConversation{},
+		&model.AssistantConversation{}, &model.AssistantSupportRequest{},
 		&model.AssistantHistoryMessage{},
 		&model.AssistantSecureCard{},
 		&model.AssistantSecurityIncident{},

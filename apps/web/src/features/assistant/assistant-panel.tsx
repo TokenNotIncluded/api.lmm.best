@@ -148,10 +148,16 @@ import { AssistantOnboardingTodo } from './assistant-onboarding-todo'
 import { AssistantPlanTool } from './assistant-plan-tool'
 import { getAssistantPromptValidation } from './assistant-prompt-validation'
 import { AssistantSetupTool } from './assistant-setup-tool'
+import {
+  isExplicitAssistantHandoff,
+  type AssistantSupportInput,
+} from './assistant-support-api'
+import { AssistantSupportControls } from './assistant-support-controls'
 import { AssistantToolCalls } from './assistant-tool-calls'
 import { AssistantUsageTool } from './assistant-usage-tool'
 import { AssistantUserActionTool } from './assistant-user-action-tool'
 import { AssistantWeeklyDiscount } from './assistant-weekly-discount'
+import { useAssistantSupport } from './use-assistant-support'
 
 type AssistantActionPath =
   | '/'
@@ -186,7 +192,8 @@ type AssistantAction =
 
 type ConversationEntry = {
   id: string
-  role: 'user' | 'assistant'
+  role: 'user' | 'assistant' | 'human'
+  actorName?: string
   content: string
   tools?: AssistantToolTrace[]
   action?: AssistantAction
@@ -1277,7 +1284,7 @@ function AssistantPanelHeader(props: {
   )
 }
 
-export function AssistantPanel(props: {
+type AssistantPanelProps = {
   open: boolean
   mode?: AssistantPanelMode
   collapsed?: boolean
@@ -1291,7 +1298,15 @@ export function AssistantPanel(props: {
   onConversationReset?: () => void
   onToggleCollapsed?: () => void
   onToggleFullscreen?: () => void
-}) {
+}
+
+export function AssistantPanel(props: AssistantPanelProps) {
+  const userId = useAuthStore((state) => state.auth.user?.id)
+  const sessionId = useAuthStore((state) => state.auth.session?.sid)
+  return <AssistantPanelSession key={`${userId}:${sessionId}`} {...props} />
+}
+
+function AssistantPanelSession(props: AssistantPanelProps) {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
@@ -1299,8 +1314,18 @@ export function AssistantPanel(props: {
   const onConversationReset = props.onConversationReset
   const panelVisible = mode === 'page' ? true : props.open
   const baseUrl = getBaseUrl()
+  const authUser = useAuthStore((state) => state.auth.user)
+  const authSessionId = useAuthStore((state) => state.auth.session?.sid)
+  const mountedRef = useRef(true)
+  const conversationGenerationRef = useRef(0)
   const [entries, setEntries] = useState<ConversationEntry[]>([])
   const [conversationId, setConversationId] = useState<number | null>(null)
+  const [conversationResetRevision, setConversationResetRevision] = useState(0)
+  const support = useAssistantSupport(
+    conversationId,
+    panelVisible,
+    conversationResetRevision
+  )
   const [selectedPreConversationPresetId, setSelectedPreConversationPresetId] =
     useState<string | null>(null)
   const [conversationRestricted, setConversationRestricted] = useState(false)
@@ -1337,7 +1362,6 @@ export function AssistantPanel(props: {
   >(null)
   const openedTargetRef = useRef<AssistantPresetId | undefined>(undefined)
   const activeToolRegionRef = useRef<HTMLDivElement | null>(null)
-  const [conversationResetRevision, setConversationResetRevision] = useState(0)
   useEffect(() => {
     try {
       window.localStorage.setItem(
@@ -1349,7 +1373,7 @@ export function AssistantPanel(props: {
     }
   }, [classicLayout])
   const statusQuery = useQuery({
-    queryKey: ['assistant-status'],
+    queryKey: ['assistant-status', authUser?.id, authSessionId],
     queryFn: getAssistantStatus,
     enabled: panelVisible,
     staleTime: 30_000,
@@ -1364,7 +1388,11 @@ export function AssistantPanel(props: {
   const developerAccessGranted = accountAccessState === 'granted'
   const assistantRouteUnavailable = statusQuery.data?.route_available === false
   const preConversationPresetsQuery = useQuery({
-    queryKey: ['assistant-pre-conversation-presets'],
+    queryKey: [
+      'assistant-pre-conversation-presets',
+      authUser?.id,
+      authSessionId,
+    ],
     queryFn: getAssistantPreConversationPresets,
     // Presets are public onboarding guidance, not an L0-only capability.
     // Keep them available for L1/admin users too so returning users can still
@@ -1373,15 +1401,15 @@ export function AssistantPanel(props: {
     staleTime: 5 * 60_000,
     retry: false,
   })
-  const authUser = useAuthStore((state) => state.auth.user)
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
       const pending = assistantAbortControllerRef.current
       assistantAbortControllerRef.current = null
       pending?.abort()
-    },
-    []
-  )
+    }
+  }, [])
   const isAdministrator = statusQuery.data?.is_admin === true
   const accessLevel = statusQuery.data?.access_level
   const withAccessLevel = (message: string) =>
@@ -1389,7 +1417,7 @@ export function AssistantPanel(props: {
   const superAdministratorFunded =
     statusQuery.data?.funding?.mode === 'super_administrator'
   const connectionModelsQuery = useQuery({
-    queryKey: ['assistant-available-models'],
+    queryKey: ['assistant-available-models', authUser?.id, authSessionId],
     queryFn: getAssistantAvailableModels,
     enabled:
       props.open &&
@@ -1484,7 +1512,97 @@ export function AssistantPanel(props: {
     setSending(false)
   }, [])
 
+  const wasHumanSupportRef = useRef(false)
+  useEffect(() => {
+    if (support.request && conversationId === null) {
+      setConversationId(support.request.conversation_id)
+    }
+  }, [conversationId, support.request])
+  useEffect(() => {
+    if (!support.aiPaused) return
+    cancelPendingReply()
+    clearTransientCards()
+    setEntries((current) => current.filter((entry) => !entry.streaming))
+  }, [support.aiPaused, cancelPendingReply, clearTransientCards])
+  useEffect(() => {
+    if (
+      !support.messages ||
+      support.request?.conversation_id !== conversationId
+    ) {
+      return
+    }
+    if (!support.aiPaused && !wasHumanSupportRef.current) return
+    if (assistantAbortControllerRef.current) return
+    const restored = support.messages.flatMap<ConversationEntry>((message) => {
+      if (message.role === 'secure_card') return []
+      return [
+        {
+          id: `history-${message.id}`,
+          role: message.role,
+          actorName: message.actor_name,
+          content: redactAssistantMessageForDisplay(
+            message.content,
+            t(
+              'Sensitive details are hidden until confirmation and remain visible only to you.'
+            )
+          ).content,
+        },
+      ]
+    })
+    setEntries(restored)
+    wasHumanSupportRef.current = support.aiPaused
+  }, [
+    support.detailRevision,
+    support.messages,
+    support.aiPaused,
+    support.request?.conversation_id,
+    conversationId,
+    t,
+  ])
+
+  const createSupport = async (
+    input: AssistantSupportInput
+  ): Promise<boolean> => {
+    if (!authUser || support.busy) return false
+    const generation = conversationGenerationRef.current
+    if (input.kind === 'handoff') {
+      cancelPendingReply()
+      clearTransientCards()
+      setEntries((current) => current.filter((entry) => !entry.streaming))
+    }
+    try {
+      const result = await support.create(input)
+      if (
+        !result ||
+        !mountedRef.current ||
+        conversationGenerationRef.current !== generation
+      ) {
+        return false
+      }
+      setConversationId(result.request.conversation_id)
+      if (!result.created) {
+        toast.message(
+          t('Your existing support request is already being handled.')
+        )
+      }
+      return true
+    } catch (error) {
+      if (
+        mountedRef.current &&
+        conversationGenerationRef.current === generation
+      ) {
+        toast.error(
+          error instanceof Error
+            ? t(error.message)
+            : t('Unable to update human support')
+        )
+      }
+      return false
+    }
+  }
+
   const resetConversation = useCallback(() => {
+    conversationGenerationRef.current += 1
     cancelPendingReply()
     setEntries([])
     setConversationId(null)
@@ -1499,10 +1617,18 @@ export function AssistantPanel(props: {
 
   const continueHistoryConversation = useCallback(
     (detail: AssistantConversationHistoryDetail) => {
+      conversationGenerationRef.current += 1
+      setConversationResetRevision((revision) => revision + 1)
       cancelPendingReply()
       const restoredEntries = detail.messages.flatMap<ConversationEntry>(
         (message) => {
-          if (message.role !== 'user' && message.role !== 'assistant') return []
+          if (
+            message.role !== 'user' &&
+            message.role !== 'assistant' &&
+            message.role !== 'human'
+          ) {
+            return []
+          }
           const safeMessage = redactAssistantMessageForDisplay(
             message.content,
             t(
@@ -1513,6 +1639,7 @@ export function AssistantPanel(props: {
             {
               id: `history-${message.id}`,
               role: message.role,
+              actorName: message.actor_name,
               content: safeMessage.content,
             },
           ]
@@ -1590,7 +1717,13 @@ export function AssistantPanel(props: {
     history: AssistantChatMessage[],
     presetId?: string
   ) => {
-    if (assistantAbortControllerRef.current) return
+    if (
+      assistantAbortControllerRef.current ||
+      support.aiPaused ||
+      support.busy
+    ) {
+      return
+    }
     setSending(true)
     const abortController = new AbortController()
     assistantAbortControllerRef.current = abortController
@@ -1658,6 +1791,7 @@ export function AssistantPanel(props: {
         streamFrame = null
       }
       if (reply.conversationId) setConversationId(reply.conversationId)
+      void support.refresh()
       if (reply.restricted) setConversationRestricted(true)
       const safeReply = redactAssistantMessageForDisplay(
         reply.content,
@@ -1890,7 +2024,43 @@ export function AssistantPanel(props: {
 
   const submitMessage = async ({ text }: { text?: string }) => {
     const message = text?.trim()
-    if (assistantAbortControllerRef.current || conversationRestricted) return
+    if (message && authUser && isExplicitAssistantHandoff(message)) {
+      if (!(await createSupport({ kind: 'handoff', topic: message }))) {
+        throw new Error(t('Unable to update human support'))
+      }
+      return
+    }
+    if (support.aiPaused && message) {
+      const safe = redactAssistantMessageForRequest(message)
+      if (!hasAssistantMessageSubstantialMeaning(safe.content)) {
+        throw new Error(t('Please enter a message.'))
+      }
+      const generation = conversationGenerationRef.current
+      try {
+        await support.send(safe.content)
+      } catch (error) {
+        if (
+          mountedRef.current &&
+          conversationGenerationRef.current === generation
+        ) {
+          toast.error(
+            error instanceof Error
+              ? t(error.message)
+              : t('Unable to update human support')
+          )
+        }
+        throw error
+      }
+      return
+    }
+    if (
+      assistantAbortControllerRef.current ||
+      conversationRestricted ||
+      support.busy ||
+      assistantRouteUnavailable
+    ) {
+      return
+    }
     if (!message) {
       throw new Error(t('Please enter a message.'))
     }
@@ -1920,7 +2090,13 @@ export function AssistantPanel(props: {
     }
     const history: AssistantChatMessage[] = entries
       .filter((entry) => !entry.error && !entry.notice && !entry.interrupted)
-      .map((entry) => ({ role: entry.role, content: entry.content }))
+      .map((entry) => ({
+        role: entry.role === 'human' ? ('assistant' as const) : entry.role,
+        content:
+          entry.role === 'human'
+            ? `[Human technical support] ${entry.content}`
+            : entry.content,
+      }))
     setEntries((current) => [
       ...current.map((entry) =>
         entry.retry ? { ...entry, retry: undefined } : entry
@@ -1975,6 +2151,8 @@ export function AssistantPanel(props: {
   const retryMessage = async (entry: ConversationEntry) => {
     if (
       !entry.retry ||
+      support.aiPaused ||
+      support.busy ||
       assistantAbortControllerRef.current ||
       conversationRestricted
     ) {
@@ -1993,7 +2171,7 @@ export function AssistantPanel(props: {
       .filter((entry) => !entry.notice && !entry.error)
       .map(
         (entry) =>
-          `${entry.role === 'user' ? t('You') : t('Assistant')}: ${entry.content}`
+          `${entry.role === 'user' ? t('You') : entry.role === 'human' ? entry.actorName || t('Human technical support') : t('Assistant')}: ${entry.content}`
       )
       .join('\n\n')
 
@@ -2033,6 +2211,11 @@ export function AssistantPanel(props: {
         classicLayout={classicLayout}
         onNewConversation={resetConversation}
         onContactSupport={() => {
+          if (authUser) {
+            setHistoryView(null)
+            void createSupport({ kind: 'handoff' })
+            return
+          }
           assistantAbortControllerRef.current?.abort()
           if (openAssistantTarget('human')) setHistoryView(null)
           else void navigate({ to: '/support' })
@@ -2155,7 +2338,7 @@ export function AssistantPanel(props: {
                 <>
                   {entries.map((entry) => (
                     <Message
-                      from={entry.role}
+                      from={entry.role === 'human' ? 'assistant' : entry.role}
                       key={entry.id}
                       className={cn(
                         classicLayout &&
@@ -2191,6 +2374,12 @@ export function AssistantPanel(props: {
                             <span>LMM Forge</span>
                           </div>
                         ) : null}
+                        {entry.role === 'human' ? (
+                          <p className='text-muted-foreground text-xs font-medium'>
+                            {t('Human technical support')} ·{' '}
+                            {entry.actorName || t('Administrator')}
+                          </p>
+                        ) : null}
                         {entry.role === 'assistant' ? (
                           <Response
                             className='max-w-full leading-7 break-words [&_pre]:max-w-full [&_pre]:overflow-x-auto'
@@ -2214,10 +2403,10 @@ export function AssistantPanel(props: {
                         {entry.tools?.length ? (
                           <AssistantToolCalls traces={entry.tools} />
                         ) : null}
-                        {entry.imageAction ? (
+                        {!support.aiPaused && entry.imageAction ? (
                           <AssistantImageTool action={entry.imageAction} />
                         ) : null}
-                        {entry.adminChange ? (
+                        {!support.aiPaused && entry.adminChange ? (
                           <AssistantAdminChangeTool
                             action={entry.adminChange}
                             onApplied={() => {
@@ -2225,7 +2414,7 @@ export function AssistantPanel(props: {
                             }}
                           />
                         ) : null}
-                        {entry.retry || entry.action ? (
+                        {!support.aiPaused && (entry.retry || entry.action) ? (
                           <div className='flex flex-wrap gap-2'>
                             {entry.retry ? (
                               <Button
@@ -2268,125 +2457,137 @@ export function AssistantPanel(props: {
                   ) : null}
                   <AssistantNewUserGift enabled={accountAccessConfirmed} />
                   <AssistantWeeklyDiscount enabled={accountAccessConfirmed} />
-                  <div
-                    ref={activeToolRegionRef}
-                    className={cn(
-                      'grid gap-5 outline-none',
-                      classicLayout &&
-                        'mx-auto w-full max-w-3xl px-5 py-5 sm:px-8'
-                    )}
-                    data-testid='assistant-active-tool-region'
-                    tabIndex={-1}
-                  >
-                    {accountToolActive && !accountAccessConfirmed ? (
-                      <AssistantAccountStatusNotice
-                        state={
-                          accountAccessState === 'error' ? 'error' : 'loading'
-                        }
-                        onRetry={() => void statusQuery.refetch()}
-                      />
-                    ) : null}
-                    {activeTool === 'key' && developerAccessGranted ? (
-                      <AssistantKeyTool
-                        baseUrl={baseUrl}
-                        availableModels={connectionModelsQuery.data ?? []}
-                        modelsLoading={connectionModelsQuery.isLoading}
-                        developerAccessGranted={developerAccessGranted}
-                        confirmationAction={keyCreationAction}
-                        autoConfirm={
-                          autoConfirmKeyToken ===
-                          keyCreationAction?.confirmation_token
-                        }
-                        onKeyPreparationInvalid={() => {
-                          setAutoConfirmKeyToken(null)
-                          setKeyCreationAction(null)
-                        }}
-                        onKeyCreated={() => {
-                          setAutoConfirmKeyToken(null)
-                          setKeyCreationAction(null)
-                          if (authUser) {
-                            void queryClient.invalidateQueries({
-                              queryKey: [
-                                'assistant-onboarding-todo',
-                                authUser.id,
-                              ],
-                            })
+                  {!support.aiPaused ? (
+                    <div
+                      ref={activeToolRegionRef}
+                      className={cn(
+                        'grid gap-5 outline-none',
+                        classicLayout &&
+                          'mx-auto w-full max-w-3xl px-5 py-5 sm:px-8'
+                      )}
+                      data-testid='assistant-active-tool-region'
+                      tabIndex={-1}
+                    >
+                      {accountToolActive && !accountAccessConfirmed ? (
+                        <AssistantAccountStatusNotice
+                          state={
+                            accountAccessState === 'error' ? 'error' : 'loading'
                           }
-                        }}
-                        onContinueSetup={() => setActiveTool('setup')}
-                      />
-                    ) : null}
-                    {activeTool === 'activation' && accountAccessConfirmed ? (
-                      <AssistantActivationTool
-                        recommendationDraft={recommendationDraft}
-                        onDraftConsumed={() => setRecommendationDraft(null)}
-                        onContinueSetup={() => setActiveTool('setup')}
-                        onSubmitted={() => {
-                          setRecommendationDraft(null)
-                          setEntries((current) => [
-                            ...current,
-                            {
-                              id: nanoid(),
-                              role: 'assistant',
-                              content: t(
-                                'Your AI recommendation was submitted to the automatic review agent. L1 remains locked until automatic review approves it or human fallback completes.'
-                              ),
-                            },
-                          ])
-                        }}
-                      />
-                    ) : null}
-                    {accountDisableDraft ? (
-                      <AssistantAccountActionTool
-                        action={accountDisableDraft}
-                        onSubmitted={() => setAccountDisableDraft(null)}
-                      />
-                    ) : null}
-                    {userActionDraft ? (
-                      <AssistantUserActionTool
-                        action={userActionDraft}
-                        onCompleted={() => setUserActionDraft(null)}
-                      />
-                    ) : null}
-                    {activeTool === 'cost' && accountAccessConfirmed ? (
-                      <AssistantCostTool
-                        developerAccessGranted={developerAccessGranted}
-                      />
-                    ) : null}
-                    {activeTool === 'handoff' && accountAccessConfirmed ? (
-                      <AssistantHandoffTool
-                        confirmationAction={humanSupportAction}
-                      />
-                    ) : null}
-                    {activeTool === 'models' && developerAccessGranted ? (
-                      <AssistantModelsTool />
-                    ) : null}
-                    {activeTool === 'plan' && accountAccessConfirmed ? (
-                      <AssistantPlanTool
-                        developerAccessGranted={developerAccessGranted}
-                        onRequestAccess={() => setActiveTool('activation')}
-                      />
-                    ) : null}
-                    {activeTool === 'setup' && accountAccessConfirmed ? (
-                      <AssistantSetupTool
-                        rootUrl={baseUrl.replace(/\/v1$/, '')}
-                        openAIBaseUrl={baseUrl}
-                        availableModels={connectionModelsQuery.data ?? []}
-                        modelsLoading={connectionModelsQuery.isLoading}
-                        developerAccessGranted={developerAccessGranted}
-                        onCreateKey={() => setActiveTool('key')}
-                        onRequestAccess={() => setActiveTool('activation')}
-                        onAskQuestion={(question) =>
-                          requestAssistantOpen(undefined, question)
-                        }
-                      />
-                    ) : null}
-                    {activeTool === 'usage' && developerAccessGranted ? (
-                      <AssistantUsageTool
-                        developerAccessGranted={developerAccessGranted}
-                      />
-                    ) : null}
-                  </div>
+                          onRetry={() => void statusQuery.refetch()}
+                        />
+                      ) : null}
+                      {activeTool === 'key' && developerAccessGranted ? (
+                        <AssistantKeyTool
+                          baseUrl={baseUrl}
+                          availableModels={connectionModelsQuery.data ?? []}
+                          modelsLoading={connectionModelsQuery.isLoading}
+                          developerAccessGranted={developerAccessGranted}
+                          confirmationAction={keyCreationAction}
+                          autoConfirm={
+                            autoConfirmKeyToken ===
+                            keyCreationAction?.confirmation_token
+                          }
+                          onKeyPreparationInvalid={() => {
+                            setAutoConfirmKeyToken(null)
+                            setKeyCreationAction(null)
+                          }}
+                          onKeyCreated={() => {
+                            setAutoConfirmKeyToken(null)
+                            setKeyCreationAction(null)
+                            if (authUser) {
+                              void queryClient.invalidateQueries({
+                                queryKey: [
+                                  'assistant-onboarding-todo',
+                                  authUser.id,
+                                ],
+                              })
+                            }
+                          }}
+                          onContinueSetup={() => setActiveTool('setup')}
+                        />
+                      ) : null}
+                      {activeTool === 'activation' && accountAccessConfirmed ? (
+                        <AssistantActivationTool
+                          recommendationDraft={recommendationDraft}
+                          onDraftConsumed={() => setRecommendationDraft(null)}
+                          onContinueSetup={() => setActiveTool('setup')}
+                          onSubmitted={() => {
+                            setRecommendationDraft(null)
+                            setEntries((current) => [
+                              ...current,
+                              {
+                                id: nanoid(),
+                                role: 'assistant',
+                                content: t(
+                                  'Your AI recommendation was submitted to the automatic review agent. L1 remains locked until automatic review approves it or human fallback completes.'
+                                ),
+                              },
+                            ])
+                          }}
+                        />
+                      ) : null}
+                      {accountDisableDraft ? (
+                        <AssistantAccountActionTool
+                          action={accountDisableDraft}
+                          onSubmitted={() => setAccountDisableDraft(null)}
+                        />
+                      ) : null}
+                      {userActionDraft ? (
+                        <AssistantUserActionTool
+                          action={userActionDraft}
+                          onCompleted={() => setUserActionDraft(null)}
+                        />
+                      ) : null}
+                      {activeTool === 'cost' && accountAccessConfirmed ? (
+                        <AssistantCostTool
+                          developerAccessGranted={developerAccessGranted}
+                        />
+                      ) : null}
+                      {activeTool === 'handoff' && accountAccessConfirmed ? (
+                        <AssistantHandoffTool
+                          onTransfer={
+                            authUser
+                              ? () =>
+                                  createSupport({
+                                    kind: 'handoff',
+                                    topic: humanSupportAction?.message,
+                                  })
+                              : undefined
+                          }
+                          transferring={support.busy}
+                          confirmationAction={humanSupportAction}
+                        />
+                      ) : null}
+                      {activeTool === 'models' && developerAccessGranted ? (
+                        <AssistantModelsTool />
+                      ) : null}
+                      {activeTool === 'plan' && accountAccessConfirmed ? (
+                        <AssistantPlanTool
+                          developerAccessGranted={developerAccessGranted}
+                          onRequestAccess={() => setActiveTool('activation')}
+                        />
+                      ) : null}
+                      {activeTool === 'setup' && accountAccessConfirmed ? (
+                        <AssistantSetupTool
+                          rootUrl={baseUrl.replace(/\/v1$/, '')}
+                          openAIBaseUrl={baseUrl}
+                          availableModels={connectionModelsQuery.data ?? []}
+                          modelsLoading={connectionModelsQuery.isLoading}
+                          developerAccessGranted={developerAccessGranted}
+                          onCreateKey={() => setActiveTool('key')}
+                          onRequestAccess={() => setActiveTool('activation')}
+                          onAskQuestion={(question) =>
+                            requestAssistantOpen(undefined, question)
+                          }
+                        />
+                      ) : null}
+                      {activeTool === 'usage' && developerAccessGranted ? (
+                        <AssistantUsageTool
+                          developerAccessGranted={developerAccessGranted}
+                        />
+                      ) : null}
+                    </div>
+                  ) : null}
 
                   <div
                     className={cn(
@@ -2517,21 +2718,53 @@ export function AssistantPanel(props: {
                     }}
                   />
                 ) : null}
+                {authUser ? (
+                  <AssistantSupportControls
+                    request={support.request}
+                    eligible={support.eligible}
+                    busy={support.busy}
+                    error={Boolean(support.error)}
+                    onCreate={createSupport}
+                    onRetry={() => void support.refresh()}
+                    onClose={() => {
+                      const generation = conversationGenerationRef.current
+                      void support.close().catch((error: unknown) => {
+                        if (
+                          mountedRef.current &&
+                          conversationGenerationRef.current === generation
+                        ) {
+                          toast.error(
+                            error instanceof Error
+                              ? t(error.message)
+                              : t('Unable to update human support')
+                          )
+                        }
+                      })
+                    }}
+                  />
+                ) : null}
                 <AssistantPromptComposer
                   footerStatus={
-                    conversationRestricted
-                      ? t('Conversation ended by safety policy')
-                      : assistantFooterStatus
+                    support.aiPaused
+                      ? t('Human technical support')
+                      : conversationRestricted
+                        ? t('Conversation ended by safety policy')
+                        : assistantFooterStatus
                   }
-                  placeholder={assistantPromptPlaceholder}
+                  placeholder={
+                    support.aiPaused
+                      ? t('Message human support...')
+                      : assistantPromptPlaceholder
+                  }
                   classicLayout={classicLayout}
                   restricted={accountAccessState === 'restricted'}
-                  terminated={conversationRestricted}
-                  routeUnavailable={assistantRouteUnavailable}
-                  sending={sending}
+                  terminated={conversationRestricted && !authUser}
+                  routeUnavailable={assistantRouteUnavailable && !authUser}
+                  sending={sending || support.busy}
                   canRetry={
                     entries.some((entry) => entry.retry !== undefined) &&
-                    !conversationRestricted
+                    !conversationRestricted &&
+                    !support.aiPaused
                   }
                   onRetry={() => {
                     let retryable: (typeof entries)[number] | undefined

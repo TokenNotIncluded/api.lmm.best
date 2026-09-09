@@ -76,7 +76,7 @@ func createAssistantKeyFixture(t *testing.T, username string) (*gorm.DB, model.U
 	db := setupTokenControllerTestDB(t)
 	require.NoError(t, db.AutoMigrate(
 		&model.User{}, &model.Option{}, &model.AuthFlow{}, &model.TwoFA{}, &model.TwoFABackupCode{}, &model.TopUp{}, &model.UserSession{}, &model.Log{},
-		&model.AssistantConversation{}, &model.AssistantHistoryMessage{}, &model.AssistantSecureCard{},
+		&model.AssistantConversation{}, &model.AssistantSupportRequest{}, &model.AssistantHistoryMessage{}, &model.AssistantSecureCard{},
 	))
 	configureAssistantKeyGroups(t, db)
 	user := model.User{

@@ -542,9 +542,9 @@ describe('AssistantHistory archive controls', () => {
           .findAll({ queryKey: ['assistant-conversations'] })
           .map((query) => query.queryKey),
         [
-          ['assistant-conversations', 'self', null, 'active'],
-          ['assistant-conversations', 'audit', null, 'active'],
-          ['assistant-conversations', 'audit', 42, 'active'],
+          ['assistant-conversations', 99, undefined, 'self', null, 'active'],
+          ['assistant-conversations', 99, undefined, 'audit', null, 'active'],
+          ['assistant-conversations', 99, undefined, 'audit', 42, 'active'],
         ]
       )
 
@@ -722,4 +722,26 @@ describe('AssistantHistory archive controls', () => {
       await unmount(rendered)
     }
   })
+})
+
+test('history cache is isolated after switching the signed-in account', async () => {
+  setUser(1)
+  api.get = (async () => ({
+    data: { success: true, data: { conversations: [activeConversation] } },
+  })) as typeof api.get
+  const rendered = await renderHistory()
+  try {
+    assert.match(rendered.container.textContent ?? '', /active-support/)
+    api.get = (() => new Promise<unknown>(() => {})) as typeof api.get
+    await act(async () => {
+      useAuthStore
+        .getState()
+        .auth.setUser({ id: 100, username: 'other-account', role: 1 })
+      await flushEffects()
+    })
+    assert.doesNotMatch(rendered.container.textContent ?? '', /active-support/)
+  } finally {
+    await act(async () => rendered.root.unmount())
+    rendered.queryClient.clear()
+  }
 })

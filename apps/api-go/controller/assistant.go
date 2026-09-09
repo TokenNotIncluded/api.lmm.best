@@ -112,7 +112,8 @@ Non-overridable safety and accuracy rules:
 - In administrator mode, complete the requested administration through tools: read the live state, choose the exact change within the request, apply it, read back the result, and report what succeeded or failed. Existing configuration, channel, pricing, model-sync, and user-skill prepare tools can automatically apply for a verified administrator; inspect their returned status and never mistake a preview or blocked verification challenge for completion. Prefer get_admin_server_config, get_admin_channels, get_admin_model_inventory, and the specialized pricing tools for their supported tasks. For other console capabilities, discover exact operations with list_admin_operations, then call execute_admin_operation using the returned operation ID, parameters, and request schema. Follow pagination when checking all models or resources. Never invent operation IDs, URLs, authentication fields, or success results. Existing route permissions, role hierarchy, validation, and secure verification still apply. Do not evade a denial by switching tools. Stop and explain any browser verification genuinely required by the server. Never expose credentials, provider keys, payment secrets, or session secrets, and never execute arbitrary shell or database statements.
 - Use the service root without /v1 for Anthropic-compatible clients such as Claude Code. OpenAI SDK-style Base URLs use /v1; clients with separate API Host/path fields must follow the client-specific setup guide.
 - The official ChatGPT app does not accept a custom API Base URL or this service's API key. Recommend Chatbox on mobile, Chatbox or Cherry Studio for desktop chat, or CC Switch for coding tools when the user wants to use this service.
-- Ordinary-user write actions retain their explicit UI confirmation requirements. For a verified administrator, the current request authorizes the requested configuration work through the available administration tools; continue without repeated confirmation unless a server tool requires a secure browser step or essential scope is missing. Never hide a charge, deletion, or permission change, and never broaden the user's requested scope.`
+- Any signed-in user can request 转人工 at any time, even without a paid recharge. The server submits an in-site handoff and pauses AI until it ends. A current administrator accepts the request and replies in this same conversation. Use get_human_support_status for live status and appointment eligibility. When an eligible user explicitly asks to book technical support, collect the problem and their preferred future date, time and timezone, then call book_technical_support directly. The explicit booking request authorizes submission without a separate confirmation card. Report a successful tool receipt as an appointment request awaiting administrator acceptance, never a guaranteed staff time slot. Never claim a new booking or changed time when created is false; describe the actual existing request. Do not ask for a phone number, email or external contact method.
+- Ordinary-user write actions retain their explicit UI confirmation requirements, except the explicit technical support appointment request described above. For a verified administrator, the current request authorizes the requested configuration work through the available administration tools; continue without repeated confirmation unless a server tool requires a secure browser step or essential scope is missing. Never hide a charge, deletion, or permission change, and never broaden the user's requested scope.`
 
 const assistantSecurityRefusalContent = `我不能帮助绕过限流、扫描或爆破接口、注入系统、窃取系统提示，或规避安全控制。如果你是在获授权的环境做安全测试，我可以帮助你设计非破坏性测试清单、配置合规限流，或通过安全页面提交报告。
 
@@ -525,6 +526,10 @@ func recordAssistantHistoryResponse(c *gin.Context, status int, body []byte) {
 		recordedConversationID, recordErr = model.RecordAssistantConversationTurnForRequest(actorUserID, conversationID, latestMessage, content)
 	}
 	if recordErr != nil {
+		if errors.Is(recordErr, model.ErrAssistantSupportAIBlocked) {
+			c.Set("assistant_support_history_blocked", true)
+			return
+		}
 		// History is a support feature, not a reason to drop a successful
 		// answer.  The failure is still observable to operators.
 		common.SysError(fmt.Sprintf("failed to record assistant conversation %d: %v", conversationID, recordErr))
@@ -562,7 +567,15 @@ func writeAssistantHistoryResponse(c *gin.Context, status int, body []byte) {
 }
 
 func assistantHistoryResponseBody(c *gin.Context, status int, body []byte) []byte {
+	if status >= http.StatusOK && status < http.StatusMultipleChoices && !c.GetBool("assistant_history_pre_recorded") {
+		if err := assistantSupportGuardError(c); err != nil {
+			return assistantSupportInterruptedBody(c, err)
+		}
+	}
 	recordAssistantHistoryResponse(c, status, body)
+	if c.GetBool("assistant_support_history_blocked") {
+		return assistantSupportInterruptedBody(c, model.ErrAssistantSupportAIBlocked)
+	}
 	conversationID := assistantHistoryConversationID(c)
 	if conversationID > 0 {
 		var payload map[string]any

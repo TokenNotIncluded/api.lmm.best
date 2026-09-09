@@ -94,6 +94,19 @@ func SetRelayRouter(router *gin.Engine) {
 		assistantPresetRouter.GET("", controller.GetPromptPresets)
 		assistantPresetRouter.POST("/:id/click", middleware.CriticalRateLimit(), controller.CountPromptPresetClick)
 	}
+	// Human support remains available even when model routing or AI funding is
+	// unavailable. Each operation rechecks the signed-in actor in the database.
+	assistantSupportRouter := router.Group("/api/assistant/support")
+	assistantSupportRouter.Use(middleware.RouteTag("api"), middleware.UserAuth(), middleware.DisableCache())
+	{
+		assistantSupportRouter.GET("/eligibility", controller.GetAssistantSupportEligibility)
+		assistantSupportRouter.GET("/self", controller.GetAssistantSupportSelf)
+		assistantSupportRouter.POST("", middleware.RequestBodyLimit(assistantMutationRequestMaxBytes), middleware.UserCriticalRateLimit("assistant-support"), controller.CreateAssistantSupport)
+		assistantSupportRouter.GET("/:id", controller.GetAssistantSupport)
+		assistantSupportRouter.POST("/:id/messages", middleware.RequestBodyLimit(assistantMutationRequestMaxBytes), middleware.UserCriticalRateLimit("assistant-support-message"), controller.SendAssistantSupportMessage)
+		assistantSupportRouter.POST("/:id/accept", middleware.UserCriticalRateLimit("assistant-support-accept"), controller.AcceptAssistantSupport)
+		assistantSupportRouter.POST("/:id/close", middleware.RequestBodyLimit(assistantMutationRequestMaxBytes), middleware.UserCriticalRateLimit("assistant-support-close"), controller.CloseAssistantSupport)
+	}
 	assistantRouter := router.Group("/api/assistant")
 	assistantRouter.Use(middleware.RouteTag("relay"))
 	assistantRouter.Use(middleware.SystemPerformanceCheck())
@@ -107,7 +120,7 @@ func SetRelayRouter(router *gin.Engine) {
 		assistantRouter.POST("/new-user-gift/claim", middleware.UserCriticalRateLimit("assistant-new-user-gift"), middleware.DisableCache(), controller.ClaimAssistantNewUserGift)
 		assistantRouter.GET("/weekly-discount", middleware.DisableCache(), controller.GetAssistantWeeklyDiscount)
 		assistantRouter.POST("/weekly-discount/claim", middleware.UserCriticalRateLimit("assistant-weekly-discount"), middleware.DisableCache(), controller.ClaimAssistantWeeklyDiscount)
-		assistantRouter.POST("/chat", middleware.UserCriticalRateLimit("assistant"), middleware.RequestBodyLimit(assistantRequestMaxBytes), controller.PrepareAssistantRequest, middleware.Distribute(), controller.AssistantChat)
+		assistantRouter.POST("/chat", middleware.UserCriticalRateLimit("assistant"), middleware.RequestBodyLimit(assistantRequestMaxBytes), controller.RouteAssistantHumanSupport, controller.PrepareAssistantRequest, middleware.Distribute(), controller.AssistantChat)
 		assistantRouter.GET("/conversations", middleware.DisableCache(), controller.ListAssistantConversations)
 		assistantRouter.GET("/conversations/:id", middleware.DisableCache(), controller.GetAssistantConversationHistory)
 		assistantRouter.POST("/conversations/:id/archive", middleware.DisableCache(), controller.ArchiveAssistantConversation)
