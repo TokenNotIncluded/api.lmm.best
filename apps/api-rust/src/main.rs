@@ -158,8 +158,8 @@ use lmm_api_rs::{
         waffo::{DisabledTopUpGateway, WaffoTopUpState, router as waffo_router},
         waffo_webhooks::{
             DisabledPancakeWebhookVerifier, DisabledWaffoWebhookAvailability,
-            DisabledWaffoWebhookProcessor, DisabledWaffoWebhookVerifier, WaffoWebhookState,
-            waffo_webhooks_router,
+            DisabledWaffoWebhookProcessor, DisabledWaffoWebhookVerifier, PancakeWebhookVerifier,
+            RsaPancakeWebhookVerifier, WaffoWebhookState, waffo_webhooks_router,
         },
     },
     status::{PgStatusRepository, StatusHttpState, StatusRepository},
@@ -740,9 +740,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 BillingConfig::default(),
             )),
         );
+        let pancake_verifier: Arc<dyn PancakeWebhookVerifier> = if local_acceptance {
+            Arc::new(DisabledPancakeWebhookVerifier)
+        } else {
+            Arc::new(RsaPancakeWebhookVerifier::from_environment().map_err(|_| {
+                io::Error::other("failed to initialize Pancake webhook verification keys")
+            })?)
+        };
         let waffo_webhooks = waffo_webhooks_router(WaffoWebhookState::new(
             Arc::new(DisabledWaffoWebhookAvailability),
-            Arc::new(DisabledPancakeWebhookVerifier),
+            pancake_verifier,
             Arc::new(DisabledWaffoWebhookVerifier),
             Arc::new(DisabledWaffoWebhookProcessor),
         ));

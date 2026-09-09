@@ -7,6 +7,9 @@
 //! HTTP acknowledgement is therefore only emitted after that transaction has
 //! committed (or an already-settled order was observed).
 
+mod pancake;
+pub use pancake::{PancakeAction, PancakeEventData, RsaPancakeWebhookVerifier};
+
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -75,6 +78,17 @@ pub trait WaffoWebhookProcessor: Send + Sync {
         buyer_identity: &str,
         raw_payload: &[u8],
     ) -> Result<Settlement, WebhookFailure>;
+
+    /// New lifecycle/payment and refund events must reach a durable processor.
+    /// An adapter that has not implemented them requests retry, never silently
+    /// acknowledges and loses evidence needed to settle a later payment.
+    async fn process_pancake_event(
+        &self,
+        _event: &PancakeEvent,
+        _raw_payload: &[u8],
+    ) -> Result<Settlement, WebhookFailure> {
+        Err(WebhookFailure::Unavailable)
+    }
 
     async fn complete_waffo_top_up(
         &self,
@@ -195,8 +209,11 @@ pub fn waffo_webhooks_router(state: WaffoWebhookState) -> Router {
         .with_state(state)
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct PancakeEvent {
+    pub event_id: String,
+    pub store_id: String,
+    pub data: PancakeEventData,
     pub id: String,
     pub event_type: String,
     pub mode: String,
@@ -243,13 +260,18 @@ async fn pancake_webhook(
         Ok(event) => event,
         Err(_) => return plain(StatusCode::UNAUTHORIZED, "invalid signature"),
     };
-    // Pancake selects verification material from `mode`; route environment is
-    // a second, independent guard against a dashboard endpoint mix-up.
+    // Route environment is a second, independent guard against a dashboard
+    // endpoint mix-up after the verifier authenticates the signed mode.
     if !event.mode.trim().eq_ignore_ascii_case(environment.trim()) {
         return plain(StatusCode::OK, "OK");
     }
-    if event.event_type.trim() != "order.completed" {
+    if event.action() == PancakeAction::Ignore || event.validate_status().is_err() {
         return plain(StatusCode::OK, "OK");
+    }
+    if event.action() != PancakeAction::OrderCompleted {
+        return pancake_settlement_response(
+            state.processor.process_pancake_event(&event, &body).await,
+        );
     }
     let trade_no = event.order_merchant_external_id.trim();
     let identity = event.merchant_provided_buyer_identity.trim();
@@ -269,6 +291,10 @@ async fn pancake_webhook(
             .complete_pancake_top_up(trade_no, identity, &body)
             .await
     };
+    pancake_settlement_response(result)
+}
+
+fn pancake_settlement_response(result: Result<Settlement, WebhookFailure>) -> Response {
     match result {
         Ok(Settlement::Completed | Settlement::AlreadySettled) => plain(StatusCode::OK, "OK"),
         // Exactly matches Go: a transient/transaction failure is retried by
@@ -452,6 +478,7 @@ mod tests {
                 mode: "test".into(),
                 order_merchant_external_id: "WAFFO_PANCAKE_SUB-1".into(),
                 merchant_provided_buyer_identity: "new-api-user-1".into(),
+                ..PancakeEvent::default()
             })
         }
     }
@@ -506,6 +533,16 @@ mod tests {
         ) -> Result<Settlement, WebhookFailure> {
             lock_recover(&self.calls).push(format!("pancake-sub:{trade}"));
             Ok(Settlement::AlreadySettled)
+        }
+        async fn process_pancake_event(
+            &self,
+            event: &PancakeEvent,
+            body: &[u8],
+        ) -> Result<Settlement, WebhookFailure> {
+            assert_eq!(body, b"signed-evidence");
+            lock_recover(&self.calls)
+                .push(format!("event:{}:{}", event.event_type, event.event_id));
+            Ok(Settlement::Completed)
         }
         async fn complete_waffo_top_up(
             &self,
@@ -765,5 +802,104 @@ mod tests {
             ]
         );
         Ok(())
+    }
+    struct EventVerifier(PancakeEvent);
+    #[async_trait]
+    impl PancakeWebhookVerifier for EventVerifier {
+        async fn verify(&self, _: &[u8], _: &str) -> Result<PancakeEvent, WebhookFailure> {
+            Ok(self.0.clone())
+        }
+    }
+
+    async fn deliver_event(
+        event: PancakeEvent,
+        processor: Arc<dyn WaffoWebhookProcessor>,
+    ) -> StatusCode {
+        let app = waffo_webhooks_router(WaffoWebhookState::new(
+            Arc::new(Availability {
+                pancake: AtomicBool::new(true),
+                waffo: AtomicBool::new(false),
+            }),
+            Arc::new(EventVerifier(event)),
+            Arc::new(Waffo),
+            processor,
+        ));
+        app.oneshot(
+            Request::post("/api/waffo-pancake/webhook/test")
+                .header("x-waffo-signature", "verified-by-fixture")
+                .body(Body::from("signed-evidence"))
+                .unwrap(),
+        )
+        .await
+        .unwrap()
+        .status()
+    }
+
+    #[tokio::test]
+    async fn lifecycle_payment_and_refund_events_reach_durable_boundary_or_request_retry() {
+        for event_type in [
+            "subscription.activated",
+            "subscription.renewed",
+            "subscription.canceling",
+            "subscription.uncanceled",
+            "subscription.updated",
+            "subscription.past_due",
+            "subscription.canceled",
+            "subscription.payment_succeeded",
+            "refund.succeeded",
+            "refund.failed",
+        ] {
+            let event = PancakeEvent {
+                event_type: event_type.into(),
+                event_id: "event-1".into(),
+                mode: "test".into(),
+                ..Default::default()
+            };
+            let processor = Arc::new(Processor::default());
+            assert_eq!(
+                deliver_event(event.clone(), processor.clone()).await,
+                StatusCode::OK
+            );
+            assert_eq!(
+                lock_recover(&processor.calls).as_slice(),
+                [format!("event:{event_type}:event-1")]
+            );
+            assert_eq!(
+                deliver_event(event, Arc::new(DisabledWaffoWebhookProcessor)).await,
+                StatusCode::INTERNAL_SERVER_ERROR
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn unknown_mismatched_and_contradictory_events_never_mutate_payment_state() {
+        let processor = Arc::new(Processor::default());
+        for event in [
+            PancakeEvent {
+                event_type: "future.event".into(),
+                mode: "test".into(),
+                ..Default::default()
+            },
+            PancakeEvent {
+                event_type: "subscription.renewed".into(),
+                mode: "prod".into(),
+                ..Default::default()
+            },
+            PancakeEvent {
+                event_type: "refund.succeeded".into(),
+                mode: "test".into(),
+                data: PancakeEventData {
+                    refund_status: Some("failed".into()),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        ] {
+            assert_eq!(
+                deliver_event(event, processor.clone()).await,
+                StatusCode::OK
+            );
+        }
+        assert!(lock_recover(&processor.calls).is_empty());
     }
 }

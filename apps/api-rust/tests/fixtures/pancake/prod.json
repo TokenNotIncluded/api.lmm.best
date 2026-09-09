@@ -1,0 +1,1 @@
+{"id":"subscription-envelope","eventId":"payment-event-1","eventType":"subscription.payment_succeeded","storeId":"store-1","mode":"prod","data":{"orderId":"ORD_1","orderMerchantExternalId":"WAFFO_PANCAKE_SUB-1","merchantProvidedBuyerIdentity":"new-api-user-1","amount":"99.00","currency":"USD","paymentId":"PAY_1","paymentDate":"2026-09-09T08:00:00Z","paymentStatus":"succeeded"}}

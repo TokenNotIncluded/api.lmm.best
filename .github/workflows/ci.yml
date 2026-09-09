@@ -426,6 +426,8 @@ jobs:
       LMM_BILLING_SUBSCRIPTIONS_TEST_DATABASE_URL: postgresql://lmm_ci:lmm-ci-postgres-password@127.0.0.1:5432/lmm_ci
       LMM_BILLING_SUBSCRIPTIONS_TEST_VALKEY_URL: redis://:lmm-ci-valkey-password@127.0.0.1:6379/0
       LMM_TEST_DATABASE_URL: postgresql://lmm_ci:lmm-ci-postgres-password@127.0.0.1:5432/lmm_ci
+      LMM_SYSTEM_CONFIG_TEST_DATABASE_URL: postgresql://lmm_ci:lmm-ci-postgres-password@127.0.0.1:5432/lmm_ci
+      LMM_SYSTEM_CONFIG_TEST_VALKEY_URL: redis://:lmm-ci-valkey-password@127.0.0.1:6379/0
     steps:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -448,6 +450,16 @@ jobs:
           test "$(docker exec "$VALKEY_CONTAINER_ID" valkey-cli --no-auth-warning -a "$VALKEY_PASSWORD" ping)" = PONG
           unauthenticated=$(docker exec "$VALKEY_CONTAINER_ID" valkey-cli ping 2>&1 || true)
           [[ $unauthenticated != *PONG* ]]
+
+      - name: Set up Go for independent Pancake SDK verification
+        uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6.2.0
+        with:
+          go-version-file: apps/api-go/go.mod
+          cache: false
+
+      - name: Verify RSA fixtures against pinned Pancake Go SDK
+        working-directory: apps/api-rust/tests/pancake-sdk-oracle
+        run: go test -mod=readonly -v ./...
 
       - name: Run real integration suites
         run: bash apps/api-rust/tests/scripts/run-real-integration-gates.sh all

@@ -11,7 +11,7 @@ manifest="$repo_root/apps/api-rust/Cargo.toml"
 suite=${1:-all}
 
 usage() {
-  echo "usage: $0 {auth|models|api-token|subscription-reset|all}" >&2
+  echo "usage: $0 {auth|models|api-token|subscription-reset|system-config|all}" >&2
   exit 2
 }
 
@@ -65,11 +65,19 @@ run_subscription_reset() {
     --ignored --exact --test-threads=1
 }
 
+run_system_config() {
+  require_loopback_url LMM_SYSTEM_CONFIG_TEST_DATABASE_URL
+  require_loopback_url LMM_SYSTEM_CONFIG_TEST_VALKEY_URL
+  cargo test --locked --manifest-path "$manifest" -p lmm-api-rs \
+    --test system_config -- --ignored --test-threads=1
+}
+
 case "$suite" in
   auth) run_auth ;;
   models) run_models ;;
   api-token) run_api_token ;;
   subscription-reset) run_subscription_reset ;;
-  all) run_auth; run_models; run_api_token; run_subscription_reset ;;
+  system-config) run_system_config ;;
+  all) run_auth; run_models; run_api_token; run_subscription_reset; run_system_config ;;
   *) usage ;;
 esac
