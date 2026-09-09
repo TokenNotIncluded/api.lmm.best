@@ -41,7 +41,7 @@ func TestAssistantAdminOperationDispatchPreservesMiddlewareAndActor(t *testing.T
 	global, grouped, handler := 0, 0, 0
 	engine.Use(func(c *gin.Context) { global++; c.Next() })
 	api := engine.Group("/api", registry.Middleware(), middleware.AdminAuth(), func(c *gin.Context) { grouped++; c.Next() })
-	api.PUT("/objects/:id", func(c *gin.Context) {
+	api.GET("/objects/:id", func(c *gin.Context) {
 		handler++
 		assert.Equal(t, user.Id, c.GetInt("id"))
 		assert.Equal(t, common.RoleAdminUser, c.GetInt("role"))
@@ -52,14 +52,14 @@ func TestAssistantAdminOperationDispatchPreservesMiddlewareAndActor(t *testing.T
 		assert.Equal(t, "changed", body["name"])
 		c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{"name": "changed", "api_key": "must-not-leak", "session_id": "must-not-leak"}})
 	})
-	registry.Register(http.MethodPut, "/api/objects/:id", "UpdateObject", common.RoleAdminUser)
+	registry.Register(http.MethodGet, "/api/objects/:id", "GetChannel", common.RoleAdminUser)
 	// The relay bills a separate root, while operations remain actor-bound.
 	c.Set(assistantActorUserIDKey, user.Id)
 	c.Set("id", user.Id+99)
 	c.Set("role", common.RoleRootUser)
-	result := executeAssistantAdminOperationTool(c, user.Id, map[string]any{"operation_id": "PUT /api/objects/:id", "path_params": map[string]any{"id": "7"}, "query": map[string]any{"q": "a&b=1"}, "body": map[string]any{"name": "changed"}})
+	result := executeAssistantAdminOperationTool(c, user.Id, map[string]any{"operation_id": "GET /api/objects/:id", "path_params": map[string]any{"id": "7"}, "query": map[string]any{"q": "a&b=1"}, "body": map[string]any{"name": "changed"}})
 	require.Equal(t, true, result["ok"], "%v", result)
-	assert.Equal(t, true, result["mutation_attempted"])
+	assert.Equal(t, false, result["mutation_attempted"])
 	assert.Equal(t, 1, global)
 	assert.Equal(t, 1, grouped)
 	assert.Equal(t, 1, handler)
@@ -78,7 +78,7 @@ func TestAssistantAdminOperationCannotSelectAnotherStaticRoute(t *testing.T) {
 	registry.Register("POST", "/api/objects/:id", "UpdateObject", common.RoleAdminUser)
 	result := executeAssistantAdminOperationTool(c, user.Id, map[string]any{"operation_id": "POST /api/objects/:id", "path_params": map[string]any{"id": "delete_all"}})
 	assert.Equal(t, false, result["ok"])
-	assert.Equal(t, http.StatusForbidden, result["http_status"])
+	assert.Equal(t, "confirmation_required", result["status"])
 	assert.Zero(t, called)
 }
 
@@ -132,7 +132,7 @@ func TestAssistantAdminOperationRetainsPermissionAndSecurityProofGates(t *testin
 	registry.Register("PUT", "/api/channel/", "UpdateChannel", common.RoleAdminUser)
 	result := executeAssistantAdminOperationTool(c, user.Id, map[string]any{"operation_id": "PUT /api/channel/"})
 	assert.Equal(t, false, result["ok"])
-	assert.Equal(t, http.StatusForbidden, result["http_status"])
+	assert.Equal(t, "confirmation_required", result["status"])
 	assert.Zero(t, called)
 }
 
@@ -159,12 +159,12 @@ func TestAssistantAdminOperationUncertainResponsesFenceMutationRetries(t *testin
 		t.Run(name, func(t *testing.T) {
 			c, user, registry, engine := assistantOperationTestContext(t, common.RoleAdminUser)
 			api := engine.Group("/api", registry.Middleware(), middleware.AdminAuth())
-			api.POST("/objects", func(c *gin.Context) { c.String(200, response) })
-			registry.Register("POST", "/api/objects", "UpdateObjects", common.RoleAdminUser)
-			result := executeAssistantAdminOperationTool(c, user.Id, map[string]any{"operation_id": "POST /api/objects"})
-			assert.Equal(t, true, result["mutation_attempted"])
-			assert.Equal(t, true, result["do_not_retry"])
-			assert.Equal(t, "possibly_applied", result["outcome"])
+			api.GET("/objects", func(c *gin.Context) { c.String(200, response) })
+			registry.Register("GET", "/api/objects", "GetAllChannels", common.RoleAdminUser)
+			result := executeAssistantAdminOperationTool(c, user.Id, map[string]any{"operation_id": "GET /api/objects"})
+			assert.Equal(t, false, result["mutation_attempted"])
+			expectedStatus := map[string]string{"oversized": "response_limit_exceeded", "non_json": "non_json_response"}[name]
+			assert.Equal(t, expectedStatus, result["status"])
 			assert.NotContains(t, result, "response")
 		})
 	}
@@ -213,16 +213,16 @@ func TestAssistantAdminOperationDemotionCannotRetainCachedRootContext(t *testing
 	require.NoError(t, err)
 	require.NoError(t, model.DB.Model(&user).Update("role", common.RoleAdminUser).Error)
 	api := engine.Group("/api", registry.Middleware(), middleware.AdminAuth())
-	api.POST("/objects", func(c *gin.Context) {
+	api.GET("/objects", func(c *gin.Context) {
 		assert.Equal(t, common.RoleAdminUser, c.GetInt("role"))
 		c.JSON(200, gin.H{"success": true})
 	})
-	registry.Register("POST", "/api/objects", "UpdateObjects", common.RoleAdminUser)
-	result := executeAssistantAdminOperationTool(c, user.Id, map[string]any{"operation_id": "POST /api/objects"})
+	registry.Register("GET", "/api/objects", "GetAllChannels", common.RoleAdminUser)
+	result := executeAssistantAdminOperationTool(c, user.Id, map[string]any{"operation_id": "GET /api/objects"})
 	assert.Equal(t, true, result["ok"], "%v", result)
 }
 
-func TestAssistantAdminOperationSecurityProofCannotBeInvented(t *testing.T) {
+func TestAssistantAdminOperationMutationCannotReachSecurityProofMiddleware(t *testing.T) {
 	c, user, registry, engine := assistantOperationTestContext(t, common.RoleRootUser)
 	require.NoError(t, model.DB.AutoMigrate(&model.TwoFA{}))
 	called := 0
@@ -231,9 +231,6 @@ func TestAssistantAdminOperationSecurityProofCannotBeInvented(t *testing.T) {
 	registry.Register("POST", "/api/channel/:id/key", "GetChannelKey", common.RoleRootUser)
 	result := executeAssistantAdminOperationTool(c, user.Id, map[string]any{"operation_id": "POST /api/channel/:id/key", "path_params": map[string]any{"id": "1"}})
 	assert.Equal(t, false, result["ok"])
-	assert.Equal(t, http.StatusForbidden, result["http_status"])
+	assert.Equal(t, "confirmation_required", result["status"])
 	assert.Zero(t, called)
-	encoded, err := json.Marshal(result)
-	require.NoError(t, err)
-	assert.Contains(t, string(encoded), "SECURITY_PROOF_REQUIRED")
 }

@@ -4,7 +4,6 @@ import (
 	"errors"
 	"time"
 
-	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/LIghtJUNction/api.lmm.best/middleware"
 	"github.com/LIghtJUNction/api.lmm.best/model"
 	"github.com/LIghtJUNction/api.lmm.best/service/authz"
@@ -40,43 +39,11 @@ func validateAssistantAdminAutomationSession(c *gin.Context, userID int) (*model
 	return user, nil
 }
 
-// Prepared tools retain their preview behavior for existing clients. An
-// authenticated administrator conversation may execute the exact same
-// validated payload directly and receives the applied result for its next turn.
+// Administrator mutations must pass through the signed, single-use confirmation
+// flow. Model tool calls are not proof of administrator intent because their
+// context can contain tenant-controlled data.
 func maybeApplyAssistantAdminAutomatically(c *gin.Context, userID int, payload assistantAdminChangePayload) (map[string]any, bool) {
-	if c == nil || !c.GetBool(assistantAdminAutomationContextKey) {
-		return nil, false
-	}
-	user, err := validateAssistantAdminAutomationSession(c, userID)
-	if err != nil {
-		return map[string]any{"ok": false, "status": "authorization_revoked", "error": err.Error()}, true
-	}
-	if c.Request == nil || c.Request.Context().Err() != nil {
-		return map[string]any{"ok": false, "status": "canceled", "error": "administrator request was canceled before applying the change"}, true
-	}
-	if (payload.Kind == assistantAdminConfigChangeKind || payload.Kind == assistantAdminPricingChangeKind || payload.Kind == assistantAdminModelSyncChangeKind) && user.Role < common.RoleRootUser {
-		return map[string]any{"ok": false, "status": "forbidden", "error": "root administrator access is required"}, true
-	}
-	result, err := applyAssistantAdminChange(c, payload)
-	if err != nil {
-		return map[string]any{"ok": false, "status": "apply_failed", "error": err.Error()}, true
-	}
-	auditAssistantAdminChange(c, payload, ".automatic", result)
-	switch payload.Kind {
-	case assistantAdminChannelChangeKind:
-		result["channel_id"] = payload.Channel.ChannelID
-		result["updated_fields"] = sortedAssistantAdminChangeKeys(payload.Channel.Changes)
-	case assistantAdminModelSyncChangeKind:
-		result["imported_model_count"] = len(payload.ModelSync.Models)
-		ids := make([]string, 0, len(payload.ModelSync.Models))
-		for _, imported := range payload.ModelSync.Models {
-			ids = append(ids, imported.ModelName)
-		}
-		result["imported_model_ids"] = ids
-	case assistantAdminUserSkillChangeKind:
-		result["target_user_id"] = payload.UserSkill.TargetUserID
-	}
-	return result, true
+	return nil, false
 }
 
 func auditAssistantAdminChange(c *gin.Context, payload assistantAdminChangePayload, suffix string, result map[string]any) {

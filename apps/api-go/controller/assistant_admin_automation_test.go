@@ -73,9 +73,8 @@ func TestAssistantAdminAutomationRechecksActorSessionAndRole(t *testing.T) {
 			case "personal_access_token":
 				c.Set("use_access_token", true)
 			}
-			result, handled := maybeApplyAssistantAdminAutomatically(c, user.Id, assistantAdminChangePayload{Kind: assistantAdminConfigChangeKind, ConfigChanges: map[string]string{"SystemName": "must-not-apply"}, ConfigExpected: map[string]string{"SystemName": common.SystemName}})
-			require.True(t, handled)
-			assert.Equal(t, false, result["ok"])
+			_, err = validateAssistantAdminAutomationSession(c, user.Id)
+			require.Error(t, err)
 			var count int64
 			require.NoError(t, db.Model(&model.Option{}).Count(&count).Error)
 			assert.Zero(t, count)
@@ -83,8 +82,9 @@ func TestAssistantAdminAutomationRechecksActorSessionAndRole(t *testing.T) {
 	}
 }
 
-func TestAssistantAdminAutomationUsesValidatedPayloadWithoutConfirmationToken(t *testing.T) {
+func TestAssistantAdminAutomationRequiresConfirmationToken(t *testing.T) {
 	db := setupTokenControllerTestDB(t)
+	require.NoError(t, db.AutoMigrate(&model.AuthFlow{}))
 	c, user, _ := assistantAutomationTestContext(t, db, common.RoleRootUser)
 	previousName := common.SystemName
 	common.OptionMapRWMutex.Lock()
@@ -99,27 +99,24 @@ func TestAssistantAdminAutomationUsesValidatedPayloadWithoutConfirmationToken(t 
 	})
 	result := executeAssistantAdminConfigChangeTool(c, user.Id, map[string]any{"changes": map[string]any{"SystemName": "automatic-test"}})
 	require.Equal(t, true, result["ok"], "%v", result)
-	assert.Equal(t, "applied", result["status"])
-	assert.Equal(t, "automatic-test", common.SystemName)
-	_, hasCard := c.Get(assistantClientActionKey)
-	assert.False(t, hasCard)
+	assert.Equal(t, "confirmation_required", result["status"])
+	assert.Equal(t, previousName, common.SystemName)
+	action, hasCard := c.Get(assistantClientActionKey)
+	require.True(t, hasCard)
+	assert.Equal(t, true, action.(map[string]any)["requires_confirmation"])
 	var logs []model.Log
 	require.NoError(t, db.Find(&logs).Error)
-	require.Len(t, logs, 1)
-	assert.Equal(t, user.Id, logs[0].UserId)
-	assert.Contains(t, logs[0].Other, "assistant.admin_config_apply.automatic")
-	assert.NotContains(t, logs[0].Other, "automatic-test")
+	assert.Empty(t, logs)
 }
 
-func TestAssistantAdminAutomationNeverUsesRelayBillingAccountAuthority(t *testing.T) {
+func TestAssistantAdminAutomationValidatesActorInsteadOfRelayBillingAccount(t *testing.T) {
 	db := setupTokenControllerTestDB(t)
 	c, actor, _ := assistantAutomationTestContext(t, db, common.RoleAdminUser)
 	c.Set(assistantActorUserIDKey, actor.Id)
 	c.Set("id", actor.Id+100)
 	c.Set("role", common.RoleRootUser)
-	result, handled := maybeApplyAssistantAdminAutomatically(c, actor.Id, assistantAdminChangePayload{Kind: assistantAdminConfigChangeKind})
-	require.True(t, handled)
-	assert.Equal(t, "forbidden", result["status"])
+	_, err := validateAssistantAdminAutomationSession(c, actor.Id)
+	require.NoError(t, err)
 }
 
 func TestAssistantAdminChannelToolsRespectPermissionOverrides(t *testing.T) {
