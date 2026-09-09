@@ -39,7 +39,7 @@ func setupAssistantPriceLockTest(t *testing.T) (*gin.Context, model.User) {
 		common.OptionMapRWMutex.Unlock()
 	})
 	require.NoError(t, model.UpdateOptionsBulk(map[string]string{
-		"ModelRatio": `{"locked-model":2}`, "ModelPrice": "{}", "ModelPriceLocks": "{}",
+		"ModelRatio": `{"locked-model":2}`, "ModelPrice": "{}", "ModelPriceLock": "{}",
 		"billing_setting.billing_mode": "{}", "billing_setting.billing_expr": "{}",
 	}))
 	return c, user
@@ -98,7 +98,7 @@ func TestAssistantAdminLockedConfigSkipsInvalidExpressionAndReportsSavedKeys(t *
 	c, user := setupAssistantPriceLockTest(t)
 	expressions := `{"z-model":"tier(\"base\", p)","locked-model":"tier(\"base\", p)"}`
 	require.NoError(t, model.UpdateOption("billing_setting.billing_expr", expressions))
-	require.NoError(t, model.UpdateOption("ModelPriceLocks", `{"locked-model":true,"z-model":true}`))
+	require.NoError(t, model.UpdateOption("ModelPriceLock", `{"locked-model":true,"z-model":true}`))
 	result := executeAssistantAdminConfigChangeTool(c, user.Id, map[string]any{"changes": map[string]any{
 		"billing_setting.billing_expr": `{"locked-model":"invalid(","z-model":"invalid("}`,
 		"SystemName":                   "changed-unlocked-setting",

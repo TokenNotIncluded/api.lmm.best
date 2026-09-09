@@ -91,7 +91,7 @@ func TestUpdateModelPriceLockRequiresBoolean(t *testing.T) {
 	response := httptest.NewRecorder()
 	context, _ := gin.CreateTestContext(response)
 	context.Request = httptest.NewRequest(http.MethodPut, "/api/option/", strings.NewReader(
-		`{"key":"ModelPriceLocks","model":"test-model","value":"true"}`,
+		`{"key":"ModelPriceLock","model":"test-model","value":"true"}`,
 	))
 	UpdateOption(context)
 	require.Equal(t, http.StatusBadRequest, response.Code)

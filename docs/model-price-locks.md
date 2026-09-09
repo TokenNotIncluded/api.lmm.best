@@ -19,7 +19,7 @@ normal error behavior.
 
 ## API and deployment
 
-`ModelPriceLocks` is a persisted JSON-encoded model-to-boolean option with
+`ModelPriceLock` is a persisted JSON-encoded model-to-boolean option with
 default `{}`. Missing or false entries are unlocked. Existing root-only
 option permissions apply. `GET /api/option/` advertises
 `capabilities.model_price_locks: true`; clients check this before toggling
@@ -28,12 +28,12 @@ locks so an old provider cannot silently accept an unsupported request.
 Use an atomic single-model update through `PUT /api/option/`:
 
 ```json
-{"key":"ModelPriceLocks","model":"gpt-4o","value":true}
+{"key":"ModelPriceLock","model":"gpt-4o","value":true}
 ```
 
 Use `false` to unlock. This preserves other models' locks even when another
 administrator has changed them. Full-map option updates remain supported,
-for example `{"key":"ModelPriceLocks","value":"{\"gpt-4o\":true}"}`;
+for example `{"key":"ModelPriceLock","value":"{\"gpt-4o\":true}"}`;
 read and merge the current map before replacing it. A request combining
 unlocking and repricing still preserves the previously locked price.
 

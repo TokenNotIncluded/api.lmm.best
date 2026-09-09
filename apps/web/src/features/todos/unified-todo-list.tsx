@@ -9,7 +9,7 @@ License, or (at your option) any later version.
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
 import { ChevronRight } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
@@ -25,6 +25,7 @@ import {
   type TodoCategory,
   type TodoItem,
 } from './api'
+import { HumanSupportDialog } from './human-support-dialog'
 import { todoItemTitleKey } from './todo-labels'
 import {
   todoItemHasDestination,
@@ -39,6 +40,7 @@ const CATEGORY_LABELS: Record<TodoCategory, string> = {
   account_action: 'Account actions',
   security_incident: 'Security incidents',
   security_review: 'Security reviews',
+  human_support: 'Human technical support',
 }
 
 function detailString(item: TodoItem, key: string) {
@@ -52,16 +54,47 @@ function detailNumber(item: TodoItem, key: string) {
 }
 
 export function UnifiedTodoList() {
+  const user = useAuthStore((state) => state.auth.user)
+  const sessionId = useAuthStore((state) => state.auth.session?.sid)
+  return (
+    <UnifiedTodoListContent
+      key={`${user?.id ?? ''}:${sessionId ?? ''}:${user?.role ?? 0}`}
+    />
+  )
+}
+
+function UnifiedTodoListContent() {
   const { t, i18n } = useTranslation()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const user = useAuthStore((state) => state.auth.user)
+  const sessionId = useAuthStore((state) => state.auth.session?.sid)
   const isAdmin = (user?.role ?? 0) >= ROLE.ADMIN
+  const mounted = useRef(true)
+  useEffect(() => {
+    mounted.current = true
+    return () => {
+      mounted.current = false
+    }
+  }, [])
+  const current = () => {
+    const auth = useAuthStore.getState().auth
+    return (
+      mounted.current &&
+      auth.user?.id === user?.id &&
+      auth.session?.sid === sessionId &&
+      auth.user?.role === user?.role
+    )
+  }
+  const [supportItem, setSupportItem] = useState<TodoItem | null>(null)
   const [category, setCategory] = useState<TodoCategory>('all')
   const query = useQuery({
-    queryKey: ['todos', category],
+    queryKey: ['todos', user?.id, sessionId, category],
     queryFn: () => getTodos(category),
     staleTime: 10_000,
+    enabled: Boolean(user),
+    refetchInterval: 10_000,
+    refetchIntervalInBackground: false,
   })
   const refresh = () =>
     queryClient.invalidateQueries({ queryKey: ['todos'], exact: false })
@@ -73,7 +106,11 @@ export function UnifiedTodoList() {
 
   const openItem = async (item: TodoItem) => {
     if (!item.read) await markOne.mutateAsync(item)
-    if (!todoItemHasDestination(item)) return
+    if (!current() || !todoItemHasDestination(item)) return
+    if (item.category === 'human_support') {
+      if (isAdmin) setSupportItem(item)
+      return
+    }
     const projectId = detailNumber(item, 'project_id')
     if (projectId) {
       await navigate({
@@ -138,7 +175,8 @@ export function UnifiedTodoList() {
           item.total > 0 ||
           item.key === 'open_source_bounty_review' ||
           ((user?.role ?? 0) >= ROLE.ADMIN &&
-            item.key === 'security_incident') ||
+            (item.key === 'security_incident' ||
+              item.key === 'human_support')) ||
           ((user?.role ?? 0) >= ROLE.ADMIN && item.key === 'security_review') ||
           ((user?.role ?? 0) >= ROLE.ADMIN &&
             (item.key === 'developer_access' || item.key === 'account_action'))
@@ -203,7 +241,8 @@ export function UnifiedTodoList() {
             if (
               !participant &&
               (item.category === 'security_incident' ||
-                item.category === 'developer_access')
+                item.category === 'developer_access' ||
+                item.category === 'human_support')
             ) {
               participant = detailString(item, 'username')
             }
@@ -212,7 +251,8 @@ export function UnifiedTodoList() {
             const title = t(todoItemTitleKey(item.title))
             const canOpen =
               todoItemHasDestination(item) &&
-              (item.category !== 'developer_access' || isAdmin)
+              (!['developer_access', 'human_support'].includes(item.category) ||
+                isAdmin)
             return (
               <button
                 key={item.id}
@@ -282,6 +322,15 @@ export function UnifiedTodoList() {
           </p>
         </div>
       )}
+      {supportItem && isAdmin ? (
+        <HumanSupportDialog
+          item={
+            query.data?.items.find((item) => item.id === supportItem.id) ??
+            supportItem
+          }
+          onClose={() => setSupportItem(null)}
+        />
+      ) : null}
     </section>
   )
 }

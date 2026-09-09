@@ -18,7 +18,7 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-const ModelPriceLocksOptionKey = "ModelPriceLocks"
+const ModelPriceLocksOptionKey = "ModelPriceLock"
 
 // Serializes persistence and runtime publication, including periodic reloads.
 var optionUpdateMutex sync.Mutex
@@ -46,13 +46,13 @@ func isModelPriceOption(key string) bool {
 func parseModelPriceLocks(value string) (map[string]bool, error) {
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal([]byte(value), &raw); err != nil || raw == nil {
-		return nil, errors.New("ModelPriceLocks must be a JSON object of booleans")
+		return nil, errors.New("ModelPriceLock must be a JSON object of booleans")
 	}
 	locks := make(map[string]bool, len(raw))
 	for name, value := range raw {
 		var locked bool
 		if strings.TrimSpace(name) == "" || string(value) == "null" || json.Unmarshal(value, &locked) != nil {
-			return nil, errors.New("ModelPriceLocks must contain model names and boolean values")
+			return nil, errors.New("ModelPriceLock must contain model names and boolean values")
 		}
 		locks[name] = locked
 	}

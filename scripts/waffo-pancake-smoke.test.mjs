@@ -31,6 +31,7 @@ test('managed Test webhook subscribes to settlement, subscription, and refund ev
   assert.deepEqual([...WAFFO_PANCAKE_WEBHOOK_EVENTS], [
     WebhookEventType.OrderCompleted,
     WebhookEventType.SubscriptionActivated,
+    'subscription.renewed',
     WebhookEventType.SubscriptionPaymentSucceeded,
     WebhookEventType.RefundSucceeded,
     WebhookEventType.RefundFailed,

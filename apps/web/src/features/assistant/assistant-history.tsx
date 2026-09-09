@@ -88,12 +88,13 @@ function HistoryMessage(props: {
     )
   )
   const isAssistant = props.message.role === 'assistant'
+  const isHuman = props.message.role === 'human'
   const isCard = props.message.role === 'secure_card'
   return (
     <div
       className={cn(
         'flex gap-3 py-5',
-        !isAssistant && !isCard && 'justify-end'
+        !isAssistant && !isHuman && !isCard && 'justify-end'
       )}
       data-testid='assistant-history-message'
     >
@@ -105,13 +106,20 @@ function HistoryMessage(props: {
       <div
         className={cn(
           'min-w-0 max-w-[min(92%,52rem)]',
-          !isAssistant && !isCard && 'rounded-2xl bg-muted px-4 py-3',
+          !isAssistant &&
+            !isHuman &&
+            !isCard &&
+            'rounded-2xl bg-muted px-4 py-3',
           isCard && 'w-full border-l-2 pl-4'
         )}
       >
         <div className='mb-1 flex items-center gap-2'>
           <p className='text-muted-foreground text-[11px] font-medium'>
-            {isAssistant ? t('Service guide') : t('You')}
+            {isHuman
+              ? `${t('Human technical support')} · ${props.message.actor_name || t('Administrator')}`
+              : isAssistant
+                ? t('Service guide')
+                : t('You')}
           </p>
           {props.message.created_at ? (
             <time
@@ -167,6 +175,7 @@ export function AssistantHistory(props: {
   const { t, i18n } = useTranslation()
   const queryClient = useQueryClient()
   const authUser = useAuthStore((state) => state.auth.user)
+  const authSessionId = useAuthStore((state) => state.auth.session?.sid)
   const canAudit = authUser?.role !== undefined && authUser.role >= ROLE.ADMIN
   const [scope, setScope] = useState<'self' | 'audit'>('self')
   const [auditUserIdInput, setAuditUserIdInput] = useState('')
@@ -197,7 +206,12 @@ export function AssistantHistory(props: {
       : undefined
   const historyLimit = props.limit
   const auditUsersQuery = useQuery({
-    queryKey: ['assistant-audit-users', auditSearch],
+    queryKey: [
+      'assistant-audit-users',
+      authUser?.id,
+      authSessionId,
+      auditSearch,
+    ],
     queryFn: () => searchUsers({ keyword: auditSearch.trim(), page_size: 24 }),
     enabled:
       props.active &&
@@ -210,6 +224,8 @@ export function AssistantHistory(props: {
   const historyQuery = useInfiniteQuery({
     queryKey: [
       'assistant-conversations',
+      authUser?.id,
+      authSessionId,
       effectiveScope,
       activeUserId ?? null,
       filter,
@@ -735,8 +751,15 @@ export function AssistantHistoryConversation(props: {
   onContinue?: (detail: AssistantConversationHistoryDetail) => void
 }) {
   const { t, i18n } = useTranslation()
+  const authUserId = useAuthStore((state) => state.auth.user?.id)
+  const authSessionId = useAuthStore((state) => state.auth.session?.sid)
   const historyQuery = useQuery({
-    queryKey: ['assistant-conversation', props.conversation.id],
+    queryKey: [
+      'assistant-conversation',
+      authUserId,
+      authSessionId,
+      props.conversation.id,
+    ],
     queryFn: () => getAssistantConversationHistoryDetail(props.conversation.id),
     staleTime: 30_000,
     retry: false,

@@ -68,9 +68,40 @@ const minAssistantHandoffCharacters = 5
 
 export function AssistantHandoffTool(props: {
   confirmationAction?: AssistantHumanSupportAction | null
+  onTransfer?: () => Promise<boolean>
+  transferring?: boolean
 }) {
+  const { t } = useTranslation()
   const userId = useAuthStore((state) => state.auth.user?.id ?? null)
   const sessionId = useAuthStore((state) => state.auth.session?.sid ?? null)
+  if (props.onTransfer) {
+    return (
+      <Card size='sm'>
+        <CardHeader>
+          <CardTitle>{t('Human technical support')}</CardTitle>
+          <CardDescription>
+            {t(
+              'An administrator can join this conversation after you request a transfer.'
+            )}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className='grid gap-3'>
+          {props.confirmationAction?.message ? (
+            <p className='text-sm whitespace-pre-wrap'>
+              {props.confirmationAction.message}
+            </p>
+          ) : null}
+          <Button
+            type='button'
+            disabled={props.transferring}
+            onClick={() => void props.onTransfer?.()}
+          >
+            {t('Transfer to human')}
+          </Button>
+        </CardContent>
+      </Card>
+    )
+  }
   return (
     <AssistantHandoffToolContent
       key={JSON.stringify([userId, sessionId])}

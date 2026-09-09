@@ -33,6 +33,7 @@ import {
   isRetryableAssistantStatus,
 } from './assistant-ai-stream'
 import { redactAssistantMessageForRequest } from './assistant-message-safety'
+import type { AssistantSupportRequest } from './assistant-support-api'
 
 type AssistantChatPayload = {
   choices?: Array<{
@@ -46,6 +47,7 @@ type AssistantChatPayload = {
   }
   code?: string
   message?: string
+  support_request?: AssistantSupportRequest
   lmm_assistant_action?: unknown
   lmm_assistant_policy?: unknown
   lmm_assistant_history?: {
@@ -450,7 +452,8 @@ export type AssistantSecureCardView = {
 
 export type AssistantConversationHistoryMessage = {
   id: number
-  role: 'user' | 'assistant' | 'secure_card'
+  role: 'user' | 'assistant' | 'human' | 'secure_card'
+  actor_name?: string
   content: string
   created_at: number
   cards?: AssistantSecureCardView[]
@@ -549,6 +552,7 @@ export type AssistantFundingSummary = {
 }
 
 export type AssistantReply = {
+  supportRequest?: AssistantSupportRequest
   content: string
   intent?: AssistantIntent
   action?: AssistantAction
@@ -683,6 +687,9 @@ function buildAssistantReply(
     responseConversationId > 0
   ) {
     reply.conversationId = responseConversationId
+  }
+  if (payload.support_request?.id && payload.support_request.conversation_id) {
+    reply.supportRequest = payload.support_request
   }
   if (conversationRestricted) reply.restricted = true
   return reply

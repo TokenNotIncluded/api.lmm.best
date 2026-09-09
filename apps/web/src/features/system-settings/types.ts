@@ -397,6 +397,7 @@ export type ModelSettings = {
   'dynamic_pricing_setting.cost_floor_factor': number
   'dynamic_pricing_setting.max_factor': number
   'dynamic_pricing_setting.channel_costs': string
+  ModelPriceLock?: string
   ModelPrice: string
   ModelRatio: string
   CacheRatio: string

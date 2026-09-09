@@ -106,14 +106,14 @@ async function setup(initial = options()) {
     puts.push(request)
     if (beforePut) await beforePut()
     const locks = parseModelPriceLocks(
-      server.data.find(({ key }) => key === 'ModelPriceLocks')?.value
+      server.data.find(({ key }) => key === 'ModelPriceLock')?.value
     )
     server = {
       ...server,
       data: [
-        ...server.data.filter(({ key }) => key !== 'ModelPriceLocks'),
+        ...server.data.filter(({ key }) => key !== 'ModelPriceLock'),
         {
-          key: 'ModelPriceLocks',
+          key: 'ModelPriceLock',
           value: JSON.stringify({
             ...locks,
             [required(request.model)]: request.value,
@@ -186,7 +186,7 @@ test('atomic lock is retained across remounts', async () => {
       required(ctx.container.querySelector('button')).click()
     )
     assert.deepEqual(ctx.puts, [
-      { key: 'ModelPriceLocks', model: 'source', value: true },
+      { key: 'ModelPriceLock', model: 'source', value: true },
     ])
     await ctx.render(<div />)
     await ctx.render()
@@ -232,14 +232,14 @@ test('unlock writes false without touching another model', async () => {
       required(ctx.container.querySelector('button')).click()
     )
     assert.deepEqual(ctx.puts, [
-      { key: 'ModelPriceLocks', model: 'source', value: false },
+      { key: 'ModelPriceLock', model: 'source', value: false },
     ])
     const current = required(
       ctx.client.getQueryData<SystemOptionsResponse>(['system-options'])
     )
     assert.equal(
       parseModelPriceLocks(
-        current.data.find(({ key }) => key === 'ModelPriceLocks')?.value
+        current.data.find(({ key }) => key === 'ModelPriceLock')?.value
       ).other,
       true
     )

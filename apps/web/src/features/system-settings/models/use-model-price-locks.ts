@@ -52,7 +52,7 @@ export function useModelPriceLocks() {
   const locks = useMemo(
     () =>
       parseModelPriceLocks(
-        options?.data?.find(({ key }) => key === 'ModelPriceLocks')?.value
+        options?.data?.find(({ key }) => key === 'ModelPriceLock')?.value
       ),
     [options]
   )
@@ -96,11 +96,11 @@ export function useModelPriceLocks() {
           return
         }
         const currentLocks = parseModelPriceLocks(
-          current.data.find(({ key }) => key === 'ModelPriceLocks')?.value
+          current.data.find(({ key }) => key === 'ModelPriceLock')?.value
         )
         await queryClient.cancelQueries({ queryKey: ['system-options'] })
         const response = await updateSystemOption({
-          key: 'ModelPriceLocks',
+          key: 'ModelPriceLock',
           model: name,
           value: locked,
         })
@@ -111,8 +111,8 @@ export function useModelPriceLocks() {
         const accepted = {
           ...current,
           data: [
-            ...current.data.filter(({ key }) => key !== 'ModelPriceLocks'),
-            { key: 'ModelPriceLocks', value: JSON.stringify(nextLocks) },
+            ...current.data.filter(({ key }) => key !== 'ModelPriceLock'),
+            { key: 'ModelPriceLock', value: JSON.stringify(nextLocks) },
           ],
         }
         queryClient.setQueryData(['system-options'], accepted)
