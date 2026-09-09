@@ -49,8 +49,12 @@ jobs:
       - name: Test PR description policy
         run: node --test scripts/pr-quality.test.mjs
 
+      - name: Test CI apt source preparation
+        run: python3 scripts/test-prepare-ci-apt.py
+
       - name: Install repository contract tools
         run: |
+          sudo --preserve-env=GITHUB_ACTIONS python3 scripts/prepare-ci-apt.py
           sudo apt-get update
           sudo apt-get install --no-install-recommends --yes nginx ripgrep
           test "$(command -v rg)" = /usr/bin/rg
@@ -121,6 +125,7 @@ jobs:
 
       - name: Install archive inspection tool
         run: |
+          sudo --preserve-env=GITHUB_ACTIONS python3 scripts/prepare-ci-apt.py
           sudo apt-get update
           sudo apt-get install --no-install-recommends --yes libarchive-tools
           test "$(command -v bsdtar)" = /usr/bin/bsdtar
@@ -202,6 +207,7 @@ jobs:
 
       - name: Install production contract tools
         run: |
+          sudo --preserve-env=GITHUB_ACTIONS python3 scripts/prepare-ci-apt.py
           sudo apt-get update
           sudo apt-get install --no-install-recommends --yes libarchive-tools
           test "$(command -v bsdtar)" = /usr/bin/bsdtar
