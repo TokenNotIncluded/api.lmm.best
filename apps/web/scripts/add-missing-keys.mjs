@@ -7517,7 +7517,6 @@ const targetedUiTranslationFixes = {
     End: 'Kết thúc',
     Pay: 'Thanh toán',
     Prompt: 'Lời nhắc',
-    // (Japanese-specific "チップ" kept separate below)
     Tips: 'Tiền boa',
     Query: 'Truy vấn',
   },
