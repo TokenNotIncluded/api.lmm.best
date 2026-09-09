@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	kitutil "github.com/LIghtJUNction/api.lmm.best/relaykit/relayconvert/kitutil"
 	"github.com/LIghtJUNction/api.lmm.best/relaykit/types"
@@ -115,7 +116,40 @@ func (r GeneralOpenAIRequest) MarshalJSON() ([]byte, error) {
 	if !IsQwenThinkingBudgetModel(r.Model) {
 		r.ThinkingBudget = nil
 	}
-	return kitutil.Marshal((*Alias)(&r))
+
+	hasToolLoadingMessage := false
+	for _, message := range r.Messages {
+		if len(message.Tools) > 0 && message.Content == nil {
+			hasToolLoadingMessage = true
+			break
+		}
+	}
+	if !hasToolLoadingMessage {
+		return kitutil.Marshal((*Alias)(&r))
+	}
+
+	// Kimi K3 dynamic tool loading: a system message that carries tools must not
+	// carry a content key at all, otherwise the upstream rejects it. Only those
+	// messages drop the key; every other message keeps emitting "content": null.
+	type toolLoadingMessage struct {
+		*Message
+		Content any `json:"content,omitempty"`
+	}
+	// Encode messages once with the request instead of allocating an encoded
+	// RawMessage for every history item (which may contain large media payloads).
+	messages := make([]any, len(r.Messages))
+	for i := range r.Messages {
+		message := &r.Messages[i]
+		if len(message.Tools) > 0 && message.Content == nil {
+			messages[i] = toolLoadingMessage{Message: message}
+		} else {
+			messages[i] = message
+		}
+	}
+	return kitutil.Marshal(struct {
+		*Alias
+		Messages []any `json:"messages,omitempty"`
+	}{Alias: (*Alias)(&r), Messages: messages})
 }
 
 func (r *GeneralOpenAIRequest) GetTokenCountMeta() *types.TokenCountMeta {
@@ -151,9 +185,18 @@ func (r *GeneralOpenAIRequest) GetTokenCountMeta() *types.TokenCountMeta {
 		tokenCountMeta.MaxTokens = int(maxTokens)
 	}
 
+	var dynamicTools []ToolCallRequest
 	for _, message := range r.Messages {
 		tokenCountMeta.MessagesCount++
 		texts = append(texts, message.Role)
+		if len(message.Tools) > 0 {
+			// Kimi K3 dynamic tool loading: tools declared on a message are
+			// visible to the model and are counted like top-level tools.
+			var messageTools []ToolCallRequest
+			if err := kitutil.Unmarshal(message.Tools, &messageTools); err == nil {
+				dynamicTools = append(dynamicTools, messageTools...)
+			}
+		}
 		if message.Content != nil {
 			if message.Name != nil {
 				tokenCountMeta.NameCount++
@@ -185,22 +228,23 @@ func (r *GeneralOpenAIRequest) GetTokenCountMeta() *types.TokenCountMeta {
 		}
 	}
 
-	if r.Tools != nil {
-		openaiTools := r.Tools
-		for _, tool := range openaiTools {
-			tokenCountMeta.ToolsCount++
-			texts = append(texts, tool.Function.Name)
-			if tool.Function.Description != "" {
-				texts = append(texts, tool.Function.Description)
-			}
-			if tool.Function.Parameters != nil {
-				texts = append(texts, fmt.Sprintf("%v", tool.Function.Parameters))
-			}
-		}
-		//toolTokens := CountTokenInput(countStr, request.Model)
-		//tkm += 8
-		//tkm += toolTokens
+	tools := r.Tools
+	if len(dynamicTools) > 0 {
+		tools = append(dynamicTools, r.Tools...)
 	}
+	for _, tool := range tools {
+		tokenCountMeta.ToolsCount++
+		texts = append(texts, tool.Function.Name)
+		if tool.Function.Description != "" {
+			texts = append(texts, tool.Function.Description)
+		}
+		if tool.Function.Parameters != nil {
+			texts = append(texts, fmt.Sprintf("%v", tool.Function.Parameters))
+		}
+	}
+	//toolTokens := CountTokenInput(countStr, request.Model)
+	//tkm += 8
+	//tkm += toolTokens
 	tokenCountMeta.CombineText = strings.Join(texts, "\n")
 	tokenCountMeta.Files = fileMeta
 	return &tokenCountMeta
@@ -230,7 +274,72 @@ func IsOpenAIReasoningOModel(modelName string) bool {
 }
 
 func IsOpenAIGPT5Model(modelName string) bool {
-	return strings.HasPrefix(modelName, "gpt-5")
+	return modelName == "gpt-5" || strings.HasPrefix(modelName, "gpt-5-") || strings.HasPrefix(modelName, "gpt-5.")
+}
+
+// OpenAIChatCapabilities describes independent Chat Completions compatibility rules.
+type OpenAIChatCapabilities struct {
+	UseMaxCompletionTokens bool
+	UseDeveloperRole       bool
+	SupportsTemperature    bool
+	SupportsTopP           bool
+	SupportsLogProbs       bool // Also governs top_logprobs.
+}
+
+// GetOpenAIChatCapabilities uses the mapped model and resolved reasoning effort.
+// Unrecognized models retain their parameters; future GPT generations do not
+// automatically inherit the restrictions of existing models.
+func GetOpenAIChatCapabilities(modelName, reasoningEffort string) OpenAIChatCapabilities {
+	capabilities := OpenAIChatCapabilities{
+		SupportsTemperature: true,
+		SupportsTopP:        true,
+		SupportsLogProbs:    true,
+	}
+	if IsOpenAIReasoningOModel(modelName) {
+		capabilities.UseMaxCompletionTokens = true
+		capabilities.UseDeveloperRole = !strings.HasPrefix(modelName, "o1-mini") && !strings.HasPrefix(modelName, "o1-preview")
+		capabilities.SupportsTemperature = false
+		return capabilities
+	}
+
+	isGPT5Model := IsOpenAIGPT5Model(modelName)
+	if !isGPT5Model && !isOpenAIModelSnapshot(modelName, "gpt-6-astra") {
+		return capabilities
+	}
+	capabilities.UseMaxCompletionTokens = true
+	capabilities.UseDeveloperRole = true
+
+	// These standard GPT-5 models default to none and support sampling only
+	// without reasoning. Named variants (pro, codex, chat-latest, etc.) do not
+	// inherit this exception. GPT-6 Astra never supports these parameters.
+	// https://developers.openai.com/api/docs/guides/latest-model?model=gpt-5.2
+	// https://developers.openai.com/api/docs/guides/latest-model?model=gpt-5.4
+	// https://developers.openai.com/api/docs/guides/latest-model?model=gpt-6-astra
+	supportsSampling := false
+	if isGPT5Model && (reasoningEffort == "" || reasoningEffort == "none") {
+		for _, model := range []string{"gpt-5.1", "gpt-5.2", "gpt-5.4"} {
+			if isOpenAIModelSnapshot(modelName, model) {
+				supportsSampling = true
+				break
+			}
+		}
+	}
+	capabilities.SupportsTemperature = supportsSampling
+	capabilities.SupportsTopP = supportsSampling
+	capabilities.SupportsLogProbs = supportsSampling
+	return capabilities
+}
+
+func isOpenAIModelSnapshot(modelName, baseModel string) bool {
+	if modelName == baseModel {
+		return true
+	}
+	snapshot, ok := strings.CutPrefix(modelName, baseModel+"-")
+	if !ok {
+		return false
+	}
+	_, err := time.Parse(time.DateOnly, snapshot)
+	return err == nil
 }
 
 func IsQwenThinkingBudgetModel(modelName string) bool {
@@ -242,11 +351,7 @@ func IsQwenThinkingBudgetModel(modelName string) bool {
 }
 
 func (r *GeneralOpenAIRequest) GetSystemRoleName() string {
-	if IsOpenAIReasoningOModel(r.Model) {
-		if !strings.HasPrefix(r.Model, "o1-mini") && !strings.HasPrefix(r.Model, "o1-preview") {
-			return "developer"
-		}
-	} else if IsOpenAIGPT5Model(r.Model) {
+	if GetOpenAIChatCapabilities(r.Model, r.ReasoningEffort).UseDeveloperRole {
 		return "developer"
 	}
 	return "system"
@@ -312,7 +417,9 @@ type Message struct {
 	Reasoning        *string         `json:"reasoning,omitempty"`
 	ToolCalls        json.RawMessage `json:"tool_calls,omitempty"`
 	ToolCallId       string          `json:"tool_call_id,omitempty"`
-	parsedContent    []MediaContent
+	// Tools preserves dynamic tool declarations on OpenAI-compatible messages.
+	Tools         json.RawMessage `json:"tools,omitempty"`
+	parsedContent []MediaContent
 	//parsedStringContent *string
 }
 
