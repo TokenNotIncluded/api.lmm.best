@@ -40,6 +40,15 @@ func parseSubscriptionResetIds(value string) ([]int, error) {
 func subscriptionAdminPageQuery(c *gin.Context) (int, int) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 {
+		pageSize = 20
+	}
+	if pageSize > 100 {
+		pageSize = 100
+	}
 	return page, pageSize
 }
 
