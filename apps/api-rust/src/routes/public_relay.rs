@@ -1746,12 +1746,32 @@ fn normalize_public_relay_url(raw: &str) -> Result<String, PublicRelayError> {
     if host.eq_ignore_ascii_case("localhost") {
         return Err(PublicRelayError::invalid_url());
     }
-    if let Ok(ip) = host.parse::<IpAddr>()
+    // host_str() includes brackets for IPv6 (e.g. "[::1]"), but
+    // IpAddr::parse() rejects brackets.  Strip them so the guard
+    // actually runs for IPv6 literal addresses.
+    let host_stripped = host
+        .strip_prefix('[')
+        .and_then(|h| h.strip_suffix(']'))
+        .unwrap_or(host);
+    if let Ok(ip) = host_stripped.parse::<IpAddr>()
         && (ip.is_loopback()
             || ip.is_unspecified()
             || match ip {
                 IpAddr::V4(v4) => v4.is_private() || v4.is_link_local(),
-                IpAddr::V6(v6) => v6.is_unique_local() || is_ipv6_link_local(v6),
+                IpAddr::V6(v6) => {
+                    v6.is_unique_local()
+                        || is_ipv6_link_local(v6)
+                        // Reject IPv4-mapped addresses (::ffff:x.x.x.x) by
+                        // re-checking the mapped IPv4 form against private
+                        // and loopback ranges.
+                        || v6.to_ipv4_mapped()
+                            .is_some_and(|v4| {
+                                v4.is_loopback()
+                                    || v4.is_unspecified()
+                                    || v4.is_private()
+                                    || v4.is_link_local()
+                            })
+                }
             })
     {
         return Err(PublicRelayError::invalid_url());
@@ -2126,4 +2146,88 @@ fn unix_now() -> i64 {
 
 fn db_error(error: sqlx::Error) -> PublicRelayError {
     PublicRelayError::Database(error.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Regression test: host_str() returns IPv6 addresses with brackets (e.g. [::1]),
+    // but IpAddr::parse() rejects brackets, so the old host_str().parse::<IpAddr>()
+    // guard was silently dead code.  Using the typed Host enum avoids this entirely.
+
+    #[test]
+    fn rejects_ipv6_loopback_literal() {
+        assert!(normalize_public_relay_url("http://[::1]/").is_err());
+    }
+
+    #[test]
+    fn rejects_ipv6_mapped_loopback() {
+        // ::ffff:127.0.0.1 — IPv4-mapped loopback
+        assert!(normalize_public_relay_url("http://[::ffff:127.0.0.1]/").is_err());
+    }
+
+    #[test]
+    fn rejects_ipv6_mapped_private() {
+        // ::ffff:10.0.0.1 — IPv4-mapped RFC 1918
+        assert!(normalize_public_relay_url("http://[::ffff:10.0.0.1]/").is_err());
+    }
+
+    #[test]
+    fn rejects_ipv6_mapped_link_local() {
+        // ::ffff:169.254.169.254 — IPv4-mapped link-local (cloud metadata)
+        assert!(normalize_public_relay_url("http://[::ffff:169.254.169.254]/").is_err());
+    }
+
+    #[test]
+    fn rejects_ipv6_unique_local() {
+        assert!(normalize_public_relay_url("http://[fc00::1]/").is_err());
+    }
+
+    #[test]
+    fn rejects_ipv6_link_local() {
+        assert!(normalize_public_relay_url("http://[fe80::1]/").is_err());
+    }
+
+    #[test]
+    fn rejects_ipv4_loopback() {
+        assert!(normalize_public_relay_url("http://127.0.0.1/").is_err());
+    }
+
+    #[test]
+    fn rejects_ipv4_private() {
+        assert!(normalize_public_relay_url("http://10.0.0.1/").is_err());
+    }
+
+    #[test]
+    fn rejects_ipv4_link_local() {
+        assert!(normalize_public_relay_url("http://169.254.0.1/").is_err());
+    }
+
+    #[test]
+    fn accepts_public_ipv4() {
+        let result = normalize_public_relay_url("https://8.8.8.8/v1");
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "https://8.8.8.8/v1");
+    }
+
+    #[test]
+    fn accepts_public_ipv6() {
+        let result = normalize_public_relay_url("https://[2606:4700::1]/v1");
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "https://[2606:4700::1]/v1");
+    }
+
+    #[test]
+    fn accepts_public_domain() {
+        let result = normalize_public_relay_url("https://api.example.com/v1");
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "https://api.example.com/v1");
+    }
+
+    #[test]
+    fn rejects_localhost() {
+        assert!(normalize_public_relay_url("http://localhost/").is_err());
+        assert!(normalize_public_relay_url("http://LocalHost:8080/").is_err());
+    }
 }
