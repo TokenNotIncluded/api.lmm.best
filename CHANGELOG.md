@@ -13,6 +13,9 @@ authenticated users then see it once after their next login.
 
 <!-- Add user-facing or operational changes here before the next release. -->
 
+- Rust relay clients now enforce the configured deadline while waiting for
+  upstream response headers without terminating an already-started stream.
+
 - Rust OpenAI-compatible native relay paths now retain the aggregated request
   body in a reference-counted buffer, avoiding an extra full-payload copy before
   the upstream request and preserving streaming first-content latency for large
