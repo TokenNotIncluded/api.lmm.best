@@ -568,6 +568,10 @@ fn public_ip(ip: IpAddr) -> bool {
                 && !ip.is_multicast()
         }
         IpAddr::V6(ip) => {
+            // Reject IPv4-mapped addresses by re-checking the mapped IPv4 form.
+            if let Some(mapped) = ip.to_ipv4_mapped() {
+                return public_ip(IpAddr::V4(mapped));
+            }
             !ip.is_loopback()
                 && !ip.is_unspecified()
                 && !ip.is_unique_local()
