@@ -13,8 +13,9 @@ authenticated users then see it once after their next login.
 
 <!-- Add user-facing or operational changes here before the next release. -->
 
-- Rust relay clients now enforce the configured deadline while waiting for
-  upstream response headers without terminating an already-started stream.
+- Rust relay clients now bound stalled reads with a resettable read timeout
+  instead of a total request deadline, allowing progressing streams to continue.
+  Adapter request/header deadlines and control-plane total timeouts remain intact.
 
 - Rust OpenAI-compatible native relay paths now retain the aggregated request
   body in a reference-counted buffer, avoiding an extra full-payload copy before
