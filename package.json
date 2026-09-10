@@ -44,6 +44,6 @@
     "uuid": "14.0.0"
   },
   "devDependencies": {
-    "@waffo/pancake-ts": "0.9.0"
+    "@waffo/pancake-ts": "0.20.0"
   }
 }

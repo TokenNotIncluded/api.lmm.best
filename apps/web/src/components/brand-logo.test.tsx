@@ -62,6 +62,25 @@ describe('BrandLogo', () => {
     await act(async () => root.unmount())
   })
 
+  test('normalizes current and cached legacy defaults to the LMM Best mark', async () => {
+    for (const src of [
+      '/lmm-best-mark.svg',
+      'https://api.lmm.best/logo.png?v=old',
+      '/favicon.ico',
+      '/lmm-forge-mark.svg',
+    ]) {
+      const container = document.createElement('div')
+      const root = createRoot(container)
+      await act(async () => root.render(<BrandLogo src={src} alt='LMM Best' />))
+      assert.equal(container.querySelector('img'), null)
+      assert.equal(
+        container.querySelector('svg')?.getAttribute('aria-label'),
+        'LMM Best'
+      )
+      await act(async () => root.unmount())
+    }
+  })
+
   test('keeps a tenant logo as an accessible image', async () => {
     const container = document.createElement('div')
     const root = createRoot(container)

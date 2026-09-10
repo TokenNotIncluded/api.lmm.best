@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { z } from 'zod'
 
+import type { AvailableSettlementQuote } from '@/features/wallet/lib/settlement-quote'
 import type {
   WaffoPancakeCheckoutLanguage,
   WaffoPancakeCheckoutRegion,
@@ -73,6 +74,8 @@ export interface PlanRecord {
   payment_methods?: string[]
   /** Server-authoritative platform quota debited for a wallet purchase. */
   balance_price_quota?: number
+  /** Server-selected payable fiat quote, distinct from the original plan price. */
+  waffo_pancake_settlement?: AvailableSettlementQuote
 }
 
 // ============================================================================
@@ -118,6 +121,8 @@ export interface SubscriptionPayRequest {
 }
 
 export interface WaffoPancakeSubscriptionPayRequest {
+  settlement_amount?: string
+  settlement_currency?: 'CNY' | 'USD'
   plan_id: number
   checkout_region?: WaffoPancakeCheckoutRegion
   checkout_language?: WaffoPancakeCheckoutLanguage
@@ -134,6 +139,8 @@ export interface SubscriptionPayResponse {
     // Pancake-only: order metadata + self-service buyer session token,
     // surfaced for future flows (refund / cancel from this platform's own UI).
     session_id?: string
+    settlement_amount?: string
+    settlement_currency?: 'CNY' | 'USD'
     expires_at?: number | string
     order_id?: string
     token?: string

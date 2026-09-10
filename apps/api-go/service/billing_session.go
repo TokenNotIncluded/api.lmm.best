@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
+	"github.com/LIghtJUNction/api.lmm.best/constant"
 	"github.com/LIghtJUNction/api.lmm.best/logger"
 	"github.com/LIghtJUNction/api.lmm.best/model"
 	relaycommon "github.com/LIghtJUNction/api.lmm.best/relay/common"
@@ -214,6 +215,9 @@ func (s *BillingSession) preConsume(c *gin.Context, quota int) *types.NewAPIErro
 			}
 			s.tokenConsumed = 0
 		}
+		if errors.Is(err, ErrWebDrawingMinimumBalance) {
+			return newWebDrawingMinimumBalanceError()
+		}
 		if errors.Is(err, ErrInsufficientWalletQuota) {
 			userQuota, quotaErr := model.GetUserQuota(s.relayInfo.UserId, true)
 			if quotaErr != nil {
@@ -377,10 +381,30 @@ func (s *BillingSession) syncRelayInfo() {
 // NewBillingSession 工厂 — 根据计费偏好创建会话并处理回退
 // ---------------------------------------------------------------------------
 
+func newWebDrawingMinimumBalanceError() *types.NewAPIError {
+	return types.NewErrorWithStatusCode(
+		ErrWebDrawingMinimumBalance, "WEB_DRAWING_MINIMUM_BALANCE", http.StatusForbidden,
+		types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog())
+}
+
 // NewBillingSession 根据用户计费偏好创建 BillingSession，处理 subscription_first / wallet_first 的回退。
 func NewBillingSession(c *gin.Context, relayInfo *relaycommon.RelayInfo, preConsumedQuota int) (*BillingSession, *types.NewAPIError) {
 	if relayInfo == nil {
 		return nil, types.NewError(fmt.Errorf("relayInfo is nil"), types.ErrorCodeInvalidRequest, types.ErrOptionWithSkipRetry())
+	}
+
+	minimumQuota := c.GetInt(string(constant.ContextKeyWebDrawingMinimumQuota))
+	if minimumQuota > 0 {
+		if err := common.ValidateWalletQuota(minimumQuota); err != nil {
+			return nil, types.NewError(err, types.ErrorCodeInvalidRequest, types.ErrOptionWithSkipRetry())
+		}
+		balance, err := model.GetUserQuota(relayInfo.UserId, true)
+		if err != nil {
+			return nil, types.NewError(err, types.ErrorCodeQueryDataError, types.ErrOptionWithSkipRetry())
+		}
+		if balance < minimumQuota {
+			return nil, newWebDrawingMinimumBalanceError()
+		}
 	}
 
 	pref := common.NormalizeBillingPreference(relayInfo.UserSetting.BillingPreference)
@@ -390,6 +414,9 @@ func NewBillingSession(c *gin.Context, relayInfo *relaycommon.RelayInfo, preCons
 		userQuota, err := model.GetUserQuota(relayInfo.UserId, true)
 		if err != nil {
 			return nil, types.NewError(err, types.ErrorCodeQueryDataError, types.ErrOptionWithSkipRetry())
+		}
+		if minimumQuota > 0 && userQuota < minimumQuota {
+			return nil, newWebDrawingMinimumBalanceError()
 		}
 		if userQuota <= 0 {
 			return nil, types.NewErrorWithStatusCode(
@@ -407,7 +434,7 @@ func NewBillingSession(c *gin.Context, relayInfo *relaycommon.RelayInfo, preCons
 
 		session := &BillingSession{
 			relayInfo: relayInfo,
-			funding:   &WalletFunding{userId: relayInfo.UserId},
+			funding:   &WalletFunding{userId: relayInfo.UserId, minimumQuota: minimumQuota},
 		}
 		if apiErr := session.preConsume(c, preConsumedQuota); apiErr != nil {
 			return nil, apiErr

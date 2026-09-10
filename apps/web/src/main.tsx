@@ -117,7 +117,7 @@ if (!rootElement) {
   throw new Error('Root element not found')
 }
 // Set the document title from cached status, then refresh from network.
-// The favicon stays pinned to the static entry mark (/lmm-forge-mark.svg).
+// The favicon stays pinned to the static entry mark (/lmm-best-mark.svg).
 ;(function initSystemBranding() {
   try {
     if (typeof window === 'undefined' || typeof document === 'undefined') return

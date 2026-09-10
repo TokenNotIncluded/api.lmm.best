@@ -31,6 +31,7 @@ import type {
   CheckinResponse,
   GiftItem,
   GiftClaimResponse,
+  SettlementCurrencyPreference,
 } from './types'
 
 // ============================================================================
@@ -92,6 +93,19 @@ export async function updateUserLanguage(
   language: string
 ): Promise<ApiResponse> {
   const res = await api.put('/api/user/self', { language })
+  return res.data
+}
+
+/** Save only the customer fiat preference, without changing language or quota. */
+export async function updateSettlementCurrency(
+  settlementCurrency: SettlementCurrencyPreference,
+  signal?: AbortSignal
+): Promise<ApiResponse> {
+  const res = await api.put(
+    '/api/user/self',
+    { settlement_currency: settlementCurrency },
+    { signal, skipBusinessError: true, skipErrorHandler: true }
+  )
   return res.data
 }
 

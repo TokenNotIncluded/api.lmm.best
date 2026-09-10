@@ -176,6 +176,7 @@ func GetTopUpInfo(c *gin.Context) {
 	complianceConfirmed := operation_setting.IsPaymentComplianceConfirmed()
 	gatewayAvailability := paymentGatewayAvailabilityForUser(user, complianceConfirmed, time.Now())
 	subscriptionAvailability := subscriptionPaymentAvailabilityForUser(user, complianceConfirmed, time.Now())
+	pancakeCurrency := userSettlementCurrency(user, settlementLanguageHint(c))
 	if model.IsPaymentRestricted(user) && !gatewayAvailability.hasPayment() && !subscriptionAvailability.hasPayment() {
 		common.ApiSuccess(c, neutralTopUpInfo{
 			DeveloperAccessGranted:         access.Granted,
@@ -190,6 +191,7 @@ func GetTopUpInfo(c *gin.Context) {
 			EnableStripeSubscription:       false,
 			EnableCreemSubscription:        false,
 			EnableWaffoPancakeSubscription: false,
+			WaffoPancakeCurrency:           pancakeCurrency,
 		})
 		return
 	}
@@ -207,6 +209,7 @@ func GetTopUpInfo(c *gin.Context) {
 			WaffoCurrency:                  waffoSettlementCurrency(),
 			WaffoUnitPrice:                 standardUSDPerPlatformUnit(),
 			EnableWaffoPancakeTopUp:        gatewayAvailability.WaffoPancake,
+			WaffoPancakeCurrency:           pancakeCurrency,
 			EnableStripeSubscription:       subscriptionAvailability.Stripe,
 			EnableCreemSubscription:        subscriptionAvailability.Creem,
 			EnableWaffoPancakeSubscription: subscriptionAvailability.WaffoPancake,
@@ -248,6 +251,7 @@ func GetTopUpInfo(c *gin.Context) {
 		"waffo_currency":                    waffoSettlementCurrency(),
 		"waffo_unit_price":                  standardUSDPerPlatformUnit(),
 		"enable_waffo_pancake_topup":        gatewayAvailability.WaffoPancake,
+		"waffo_pancake_currency":            pancakeCurrency,
 		"enable_stripe_subscription":        subscriptionAvailability.Stripe,
 		"enable_creem_subscription":         subscriptionAvailability.Creem,
 		"enable_waffo_pancake_subscription": subscriptionAvailability.WaffoPancake,
@@ -286,6 +290,7 @@ type neutralTopUpInfo struct {
 	WaffoCurrency                  string              `json:"waffo_currency,omitempty"`
 	WaffoUnitPrice                 float64             `json:"waffo_unit_price,omitempty"`
 	EnableWaffoPancakeTopUp        bool                `json:"enable_waffo_pancake_topup"`
+	WaffoPancakeCurrency           string              `json:"waffo_pancake_currency"`
 	EnableStripeSubscription       bool                `json:"enable_stripe_subscription"`
 	EnableCreemSubscription        bool                `json:"enable_creem_subscription"`
 	EnableWaffoPancakeSubscription bool                `json:"enable_waffo_pancake_subscription"`

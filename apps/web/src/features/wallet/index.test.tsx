@@ -22,7 +22,9 @@ import { after, afterEach, test } from 'node:test'
 import { Window } from 'happy-dom'
 import type React from 'react'
 
-import type { AmountRequest } from './types'
+import type { AuthUser } from '@/stores/auth-store'
+
+import type { AmountRequest, TopupInfo } from './types'
 
 const domWindow = new Window({
   url: 'https://console.example.test/wallet?discount_code=SAVE',
@@ -65,6 +67,8 @@ const { QueryClient, QueryClientProvider } =
 const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { Wallet } = await import('./index')
+const { PaymentConfirmDialog } =
+  await import('./components/dialogs/payment-confirm-dialog')
 const { usePayment } = await import('./hooks/use-payment')
 const { api } = await import('@/lib/api')
 const { useAuthStore } = await import('@/stores/auth-store')
@@ -198,12 +202,19 @@ test('late discount validation cannot quote an old amount into a new checkout', 
   queryClient.clear()
 })
 
-async function renderWallet(activated = false) {
+async function renderWallet(
+  activated = false,
+  options: {
+    topupInfo?: Partial<TopupInfo>
+    setting?: AuthUser['setting']
+  } = {}
+) {
   const user = {
     id: 7,
     username: 'checkout-user',
     role: 1,
     developer_access_granted: activated,
+    setting: options.setting,
   }
   useAuthStore.getState().auth.setUser(user)
   api.get = (async (url) => ({
@@ -225,6 +236,7 @@ async function renderWallet(activated = false) {
               stripe_min_topup: 10,
               amount_options: [10, 100],
               discount: {},
+              ...options.topupInfo,
             }
           : url === '/api/user/self'
             ? user
@@ -443,3 +455,409 @@ test('a failed discounted quote unlocks the checkout-link code for retry', async
   assert.equal(document.querySelector('[role="alertdialog"]'), null)
   queryClient.clear()
 })
+
+const pancakeTopup = {
+  enable_online_topup: false,
+  enable_waffo_pancake_topup: true,
+  waffo_pancake_min_topup: 10,
+  pay_methods: [
+    {
+      name: 'Pancake',
+      type: 'waffo_pancake',
+      settlement_currency: 'USD',
+      platform_units_per_usd: '7',
+      settlement_units_per_usd: '1',
+    },
+  ],
+} satisfies Partial<TopupInfo>
+const quoteResponse = (amount: string, currency: 'CNY' | 'USD' = 'CNY') => ({
+  data: { message: 'success', data: amount, settlement_currency: currency },
+})
+const paymentButton = () => {
+  const button = document.querySelector<HTMLButtonElement>(
+    'button[aria-label="Payment option 1"]'
+  )
+  assert.ok(button)
+  return button
+}
+const confirmButton = () => {
+  const dialog = document.querySelector('[role="alertdialog"]')
+  assert.ok(dialog)
+  const button = Array.from(
+    dialog.querySelectorAll<HTMLButtonElement>('button')
+  ).find((item) => item.textContent?.trim() === 'Confirm Payment')
+  assert.ok(button)
+  return button
+}
+
+for (const currency of ['CNY', 'USD'] as const) {
+  test(`Pancake shows and sends the exact ${currency} server quote, not the legacy coupon fiat preview`, async () => {
+    const requests: Array<{ url: unknown; body: unknown }> = []
+    api.post = (async (url, body) => {
+      requests.push({ url, body })
+      if (url === '/api/user/discount-code/validate') {
+        return {
+          data: {
+            ...validDiscount.data,
+            data: {
+              ...validDiscount.data.data,
+              pay_amount: 999,
+              settlement_currency: 'USD',
+            },
+          },
+        }
+      }
+      if (url === '/api/user/waffo-pancake/amount') {
+        return quoteResponse(
+          (body as AmountRequest).discount_code ? '63.0700' : '70.00',
+          currency
+        )
+      }
+      assert.equal(url, '/api/user/waffo-pancake/pay')
+      return { data: { success: false, message: 'mock checkout rejected' } }
+    }) as typeof api.post
+    const { container, queryClient } = await renderWallet(false, {
+      topupInfo: pancakeTopup,
+    })
+    assert.ok(container.textContent?.includes(`63.0700 ${currency}`))
+    assert.equal(container.textContent?.includes('1 USD / 7'), false)
+    assert.equal(container.textContent?.includes('999'), false)
+    await act(async () => paymentButton().click())
+    const dialog = document.querySelector('[role="alertdialog"]')
+    assert.ok(dialog?.textContent?.includes(`63.0700 ${currency}`))
+    assert.ok(dialog?.textContent?.includes('10 (Platform)'))
+    await act(async () => confirmButton().click())
+    assert.deepEqual(requests.at(-1), {
+      url: '/api/user/waffo-pancake/pay',
+      body: {
+        amount: 10,
+        settlement_amount: '63.0700',
+        settlement_currency: currency,
+        checkout_region: 'global',
+        checkout_language: 'en',
+        discount_code: 'SAVE',
+      },
+    })
+    assert.ok(
+      requests.some(
+        ({ url, body }) =>
+          url === '/api/user/waffo-pancake/amount' &&
+          (body as AmountRequest).discount_code === 'SAVE'
+      )
+    )
+    assert.ok(container.textContent?.includes('Payment request failed'))
+    assert.equal(container.textContent?.includes('Payment page opened'), false)
+    queryClient.clear()
+  })
+}
+
+test('an incomplete Pancake quote stays visibly unavailable and cannot open confirmation', async () => {
+  window.history.replaceState({}, '', '/wallet')
+  api.post = (async (url) => {
+    assert.equal(url, '/api/user/waffo-pancake/amount')
+    return { data: { message: 'success', data: '70.00' } }
+  }) as typeof api.post
+  const { container, queryClient } = await renderWallet(false, {
+    topupInfo: pancakeTopup,
+  })
+  assert.ok(container.textContent?.includes('Payment unavailable'))
+  await act(async () => paymentButton().click())
+  assert.equal(document.querySelector('[role="alertdialog"]'), null)
+  assert.ok(container.textContent?.includes('Payment unavailable'))
+  queryClient.clear()
+})
+
+test('SETTLEMENT_QUOTE_CHANGED only refreshes and requires a new selection and confirmation', async () => {
+  window.history.replaceState({}, '', '/wallet')
+  const refreshed = deferred<ReturnType<typeof quoteResponse>>()
+  let quotes = 0
+  let payments = 0
+  api.post = (async (url, body) => {
+    if (url === '/api/user/waffo-pancake/amount') {
+      quotes++
+      return quotes === 3
+        ? refreshed.promise
+        : quoteResponse(quotes < 3 ? '70.00' : '71.0000')
+    }
+    assert.equal(url, '/api/user/waffo-pancake/pay')
+    payments++
+    assert.equal(
+      (body as { settlement_amount: string }).settlement_amount,
+      payments === 1 ? '70.00' : '71.0000'
+    )
+    return { data: { success: false, code: 'SETTLEMENT_QUOTE_CHANGED' } }
+  }) as typeof api.post
+  const { container, queryClient } = await renderWallet(false, {
+    topupInfo: pancakeTopup,
+  })
+  await act(async () => paymentButton().click())
+  await act(async () => confirmButton().click())
+  assert.equal(payments, 1)
+  assert.equal(quotes, 3)
+  assert.equal(document.querySelector('[role="alertdialog"]'), null)
+  assert.ok(
+    container.textContent?.includes(
+      'The payment quote changed. Review the updated amount and confirm again.'
+    )
+  )
+  assert.equal(container.textContent?.includes('70.00 CNY'), false)
+  await act(async () => refreshed.resolve(quoteResponse('71.0000')))
+  assert.equal(payments, 1, 'refresh must never submit a new payment')
+  assert.equal(document.querySelector('[role="alertdialog"]'), null)
+  assert.ok(container.textContent?.includes('71.0000 CNY'))
+  await act(async () => paymentButton().click())
+  assert.equal(payments, 1)
+  await act(async () => confirmButton().click())
+  assert.equal(payments, 2)
+  queryClient.clear()
+})
+
+test('changing the amount invalidates confirmation and isolates late Pancake quotes', async () => {
+  window.history.replaceState({}, '', '/wallet')
+  const pending = deferred<ReturnType<typeof quoteResponse>>()
+  let requests = 0
+  api.post = (async (url, body) => {
+    assert.equal(url, '/api/user/waffo-pancake/amount')
+    requests++
+    return requests === 2
+      ? pending.promise
+      : quoteResponse(
+          (body as AmountRequest).amount === 100 ? '640.0000' : '64.00'
+        )
+  }) as typeof api.post
+  const { container, queryClient } = await renderWallet(false, {
+    topupInfo: pancakeTopup,
+  })
+  await act(async () => paymentButton().click())
+  const preset = container.querySelector<HTMLButtonElement>(
+    'button[aria-label^="Preset amount: 100 "]'
+  )
+  assert.ok(preset)
+  await act(async () => preset.click())
+  await act(async () => pending.resolve(quoteResponse('64.00')))
+  assert.equal(document.querySelector('[role="alertdialog"]'), null)
+  assert.ok(container.textContent?.includes('640.0000 CNY'))
+  assert.equal(container.textContent?.includes('64.00 CNY'), false)
+  await act(async () => paymentButton().click())
+  assert.ok(
+    document
+      .querySelector('[role="alertdialog"]')
+      ?.textContent?.includes('640.0000 CNY')
+  )
+  queryClient.clear()
+})
+
+for (const currency of ['CNY', 'USD'] as const) {
+  test(`confirmation uses the exact ${currency} quote instead of stale numeric amount and metadata`, async () => {
+    await render(
+      <PaymentConfirmDialog
+        open
+        onOpenChange={() => undefined}
+        onConfirm={() => assert.fail('rendering must not submit')}
+        topupAmount={100}
+        paymentAmount={999}
+        settlementQuote={{ amount: '12.3400', currency }}
+        paymentMethod={pancakeTopup.pay_methods[0]}
+        calculating={false}
+        processing={false}
+        discountRate={0.5}
+        discountPercent={50}
+        discountCode='SAVE'
+      />
+    )
+    const text =
+      document.querySelector('[role="alertdialog"]')?.textContent ?? ''
+    assert.ok(text.includes(`12.3400 ${currency}`))
+    assert.ok(text.includes('100 (Platform)'))
+    assert.equal(text.includes('999'), false)
+    assert.equal(confirmButton().disabled, false)
+  })
+}
+
+for (const state of ['missing', 'invalid', 'pending', 'processing'] as const) {
+  test(`a ${state} Pancake confirmation cannot submit`, async () => {
+    await render(
+      <PaymentConfirmDialog
+        open
+        onOpenChange={() => undefined}
+        onConfirm={() =>
+          assert.fail('unavailable confirmation must not submit')
+        }
+        topupAmount={100}
+        paymentAmount={999}
+        settlementQuote={
+          state === 'missing'
+            ? null
+            : { amount: state === 'invalid' ? '0' : '12.3400', currency: 'CNY' }
+        }
+        paymentMethod={pancakeTopup.pay_methods[0]}
+        calculating={state === 'pending'}
+        processing={state === 'processing'}
+      />
+    )
+    assert.equal(confirmButton().disabled, true)
+    await act(async () => confirmButton().click())
+    const text =
+      document.querySelector('[role="alertdialog"]')?.textContent ?? ''
+    assert.equal(text.includes('999'), false)
+    if (state === 'missing' || state === 'invalid') {
+      assert.ok(text.includes('Payment unavailable'))
+    }
+    if (state === 'pending') assert.equal(text.includes('12.3400 CNY'), false)
+  })
+}
+
+test('fixed gateway confirmation ignores the unrelated Pancake settlement quote', async () => {
+  await render(
+    <PaymentConfirmDialog
+      open
+      onOpenChange={() => undefined}
+      onConfirm={() => undefined}
+      topupAmount={100}
+      paymentAmount={70}
+      settlementQuote={{ amount: '12.3400', currency: 'USD' }}
+      paymentMethod={{
+        name: 'Alipay',
+        type: 'alipay',
+        settlement_unit: 'CNY',
+        unit_price: '0.7',
+      }}
+      calculating={false}
+      processing={false}
+    />
+  )
+  const text = document.querySelector('[role="alertdialog"]')?.textContent ?? ''
+  assert.ok(text.includes('70 CNY'))
+  assert.equal(text.includes('12.3400'), false)
+  assert.equal(text.includes('USD'), false)
+})
+
+test('editing a coupon invalidates its pending Pancake quote before the coupon response can approve it', async () => {
+  window.history.replaceState({}, '', '/wallet')
+  const pending = deferred<ReturnType<typeof quoteResponse>>()
+  api.post = (async (url, body) => {
+    if (url === '/api/user/discount-code/validate') return validDiscount
+    assert.equal(url, '/api/user/waffo-pancake/amount')
+    return (body as AmountRequest).discount_code
+      ? pending.promise
+      : quoteResponse('70.00')
+  }) as typeof api.post
+  const { container, queryClient } = await renderWallet(true, {
+    topupInfo: pancakeTopup,
+  })
+  const input = container.querySelector<HTMLInputElement>('#discount-code')
+  assert.ok(input)
+  const setValue = Object.getOwnPropertyDescriptor(
+    domWindow.HTMLInputElement.prototype,
+    'value'
+  )?.set
+  assert.ok(setValue)
+  const changeCode = (code: string) =>
+    act(async () => {
+      setValue.call(input, code)
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+  await changeCode('SAVE')
+  const apply = Array.from(
+    container.querySelectorAll<HTMLButtonElement>('button')
+  ).find((button) => button.textContent?.trim() === 'Apply')
+  assert.ok(apply)
+  await act(async () => apply.click())
+  await changeCode('OTHER')
+  await act(async () => pending.resolve(quoteResponse('63.0000')))
+  assert.equal(input.value, 'OTHER')
+  assert.equal(container.textContent?.includes('63.0000 CNY'), false)
+  assert.ok(container.textContent?.includes('Payment unavailable'))
+  assert.equal(document.querySelector('[role="alertdialog"]'), null)
+  queryClient.clear()
+})
+
+const scopeChanges = {
+  account: () => {
+    const { auth } = useAuthStore.getState()
+    assert.ok(auth.user)
+    auth.setUser({ ...auth.user, id: 8 })
+  },
+  currency: () => {
+    const { auth } = useAuthStore.getState()
+    assert.ok(auth.user)
+    auth.setUser({
+      ...auth.user,
+      setting: { settlement_currency: 'CNY' },
+    })
+  },
+  session: () =>
+    useAuthStore.setState((state) => ({
+      auth: {
+        ...state.auth,
+        session: {
+          sid: 'replacement',
+          current: true,
+          login_method: 'password',
+          ip: '',
+          user_agent: '',
+          created_at: 1,
+          last_active_at: 1,
+          expires_at: 9999999999,
+        },
+      },
+    })),
+}
+for (const [scope, changeScope] of Object.entries(scopeChanges)) {
+  test(`a ${scope} change hides confirmation and isolates the late quote`, async () => {
+    window.history.replaceState({}, '', '/wallet')
+    const pending = deferred<ReturnType<typeof quoteResponse>>()
+    let requests = 0
+    api.post = (async (url) => {
+      assert.equal(url, '/api/user/waffo-pancake/amount')
+      requests++
+      return requests === 2
+        ? pending.promise
+        : quoteResponse(requests < 3 ? '10.000' : '80.000')
+    }) as typeof api.post
+    const { container, queryClient } = await renderWallet(false, {
+      topupInfo: pancakeTopup,
+      setting: { settlement_currency: 'USD' },
+    })
+    await act(async () => paymentButton().click())
+    await act(async () => changeScope())
+    await act(async () => pending.resolve(quoteResponse('10.000')))
+    assert.equal(document.querySelector('[role="alertdialog"]'), null)
+    assert.equal(container.textContent?.includes('10.000 CNY'), false)
+    assert.ok(container.textContent?.includes('80.000 CNY'))
+    queryClient.clear()
+  })
+
+  test(`a ${scope} change prevents a late checkout response from redirecting or reporting success`, async () => {
+    window.history.replaceState({}, '', '/wallet')
+    const pending = deferred<{
+      data: { success: boolean; data: { checkout_url: string } }
+    }>()
+    api.post = (async (url) => {
+      if (url === '/api/user/waffo-pancake/amount') {
+        return quoteResponse('70.00')
+      }
+      assert.equal(url, '/api/user/waffo-pancake/pay')
+      return pending.promise
+    }) as typeof api.post
+    const { container, queryClient } = await renderWallet(false, {
+      topupInfo: pancakeTopup,
+      setting: { settlement_currency: 'USD' },
+    })
+    await act(async () => paymentButton().click())
+    await act(async () => confirmButton().click())
+    await act(async () => changeScope())
+    await act(async () =>
+      pending.resolve({
+        data: {
+          success: true,
+          data: { checkout_url: 'https://checkout.example.test/old-owner' },
+        },
+      })
+    )
+    assert.equal(window.location.pathname, '/wallet')
+    assert.equal(container.textContent?.includes('Payment page opened'), false)
+    assert.equal(document.querySelector('[role="alertdialog"]'), null)
+    queryClient.clear()
+  })
+}

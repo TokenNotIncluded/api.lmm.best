@@ -668,6 +668,9 @@ func (runtime *productionRuntime) apply(ctx context.Context, workspace productio
 	if _, err := runtime.runner.Run(ctx, productionCommand{Name: commandSystemctl, Args: []string{"is-enabled", "--quiet", runtime.paths.Service}}); err != nil {
 		return productionStatus{}, errors.New("pre-upgrade lmm-api service is not enabled")
 	}
+	if err := validateMemoryOverrides(runtime.paths.DropInDir); err != nil {
+		return productionStatus{}, fmt.Errorf("memory configuration preflight: %w", err)
+	}
 	if err := runtime.verifyCanonicalOperator(ctx); err != nil {
 		return productionStatus{}, err
 	}
@@ -1154,6 +1157,9 @@ func (runtime *productionRuntime) rollback(ctx context.Context, workspace produc
 	}
 	if err := runtime.validateTransactionLock(workspace); err != nil {
 		return fail(err)
+	}
+	if err := validateMemoryOverrides(runtime.paths.DropInDir); err != nil {
+		return fail(fmt.Errorf("rollback memory configuration preflight: %w", err))
 	}
 	if err := runtime.writeStatus(workspace, rolling); err != nil {
 		return productionStatus{}, err

@@ -23,11 +23,12 @@ func SetRouter(router *gin.Engine) error {
 	router.GET("/internal/access-ip-policy", middleware.DisableCache(), controller.CheckIPAccessRoutingPolicy)
 	router.GET("/internal/errors/access-policy", controller.GetAccessPolicyErrorPage)
 
+	largeRequestAdmission := middleware.RelayRequestAdmission()
 	SetApiRouter(router)
 	SetOpenSourceBountyMCPRouter(router)
-	SetDrawingMCPRouter(router)
+	SetDrawingMCPRouter(router, largeRequestAdmission)
 	SetDashboardRouter(router)
-	SetRelayRouter(router)
+	SetRelayRouter(router, largeRequestAdmission)
 	SetVideoRouter(router)
 
 	frontendBaseUrl := os.Getenv("FRONTEND_BASE_URL")

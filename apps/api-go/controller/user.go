@@ -970,7 +970,7 @@ func UpdateSelf(c *gin.Context) {
 		}
 		currentSetting.SidebarModules = sidebarModulesStr
 
-		if err := model.UpdateUserSetting(user.Id, currentSetting); err != nil {
+		if err := model.UpdateUserSettingPreservingLocale(user.Id, currentSetting); err != nil {
 			common.ApiErrorI18n(c, i18n.MsgUpdateFailed)
 			return
 		}
@@ -979,29 +979,9 @@ func UpdateSelf(c *gin.Context) {
 		return
 	}
 
-	// 检查是否是语言偏好更新请求
-	if language, langExists := requestData["language"]; langExists {
-		userId := c.GetInt("id")
-		user, err := model.GetUserById(userId, false)
-		if err != nil {
-			common.ApiError(c, err)
-			return
-		}
-
-		// 获取当前用户设置
-		currentSetting := user.GetSetting()
-
-		// 更新language字段
-		if langStr, ok := language.(string); ok {
-			currentSetting.Language = langStr
-		}
-
-		if err := model.UpdateUserSetting(user.Id, currentSetting); err != nil {
-			common.ApiErrorI18n(c, i18n.MsgUpdateFailed)
-			return
-		}
-
-		common.ApiSuccessI18n(c, i18n.MsgUpdateSuccess, nil)
+	// Merge locale preferences atomically, preserving a manually selected
+	// settlement currency when the interface language changes.
+	if updateSelfLocalePreferences(c, requestData) {
 		return
 	}
 
@@ -1748,7 +1728,7 @@ func UpdateUserSetting(c *gin.Context) {
 	}
 
 	// 更新用户设置
-	if err := model.UpdateUserSetting(user.Id, settings); err != nil {
+	if err := model.UpdateUserSettingPreservingLocale(user.Id, settings); err != nil {
 		common.ApiErrorI18n(c, i18n.MsgUpdateFailed)
 		return
 	}

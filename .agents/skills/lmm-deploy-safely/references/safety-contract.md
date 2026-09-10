@@ -44,7 +44,7 @@
 ### Bounded state
 
 - Measure `${XDG_STATE_HOME:-$HOME/.local/state}/lmm-api` before builds and after
-  terminal cleanup. Warn at 256 MiB and stop new builds at 512 MiB or earlier
+  terminal cleanup. Warn at 256 MiB and stop new builds at 8 GiB or earlier
   when the storage gate is yellow.
 - Remove only exact disposable children of marker-owned terminal workspaces.
   Never prune active/nonterminal workspaces, transaction locks, application or

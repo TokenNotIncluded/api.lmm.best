@@ -126,6 +126,6 @@ symlinks, `/`, home roots, `/tmp`, `/var/tmp`, backup roots, and broad release
 roots.
 
 The controller state root is bounded: warn at 256 MiB and stop new builds at
-512 MiB or earlier when filesystem evidence is yellow. On production require
+8 GiB or earlier when filesystem evidence is yellow. On production require
 at least 4 GiB free before package/backup work; 80% root use is a stop and 90%
 is an incident.

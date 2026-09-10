@@ -74,6 +74,15 @@ func ApplyPaymentRefund(
 	result := PaymentRefundResult{}
 	idempotencyKey := paymentProvider + ":refund:" + providerEventID
 	err := DB.Transaction(func(tx *gorm.DB) error {
+		if !isSubscription && paymentProvider == PaymentProviderWaffoPancake {
+			var subscriptionOrders int64
+			if err := tx.Model(&SubscriptionOrder{}).Where("trade_no = ?", tradeNo).Count(&subscriptionOrders).Error; err != nil {
+				return err
+			}
+			if subscriptionOrders > 0 {
+				return ErrPaymentRefundOrderConflict
+			}
+		}
 		var ledger FinanceLedgerEntry
 		ledgerErr := tx.Where("idempotency_key = ?", idempotencyKey).First(&ledger).Error
 		ledgerExists := ledgerErr == nil
@@ -162,6 +171,9 @@ func ApplyPaymentRefund(
 			}
 			if order.Status != common.TopUpStatusSuccess || order.PaymentProvider != paymentProvider {
 				return fmt.Errorf("refund order is not a settled %s subscription", paymentProvider)
+			}
+			if paymentProvider == PaymentProviderWaffoPancake && SubscriptionRefundNeedsPaymentIdentity(&order) {
+				return ErrSubscriptionRefundPaymentRequired
 			}
 			result.UserID = order.UserId
 			if ledgerExists && !refundLedgerBindsRequest(&ledger, tradeNo, providerEventID, paymentMethod, paymentProvider, currency, result.UserID) {

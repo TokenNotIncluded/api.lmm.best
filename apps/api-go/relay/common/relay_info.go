@@ -546,7 +546,10 @@ func genBaseRelayInfo(c *gin.Context, request dto.Request) *RelayInfo {
 	}
 
 	if strings.HasPrefix(c.Request.URL.Path, "/pg") {
-		info.IsPlayground = true
+		// Real-key drawing uses the normal token reserve/settle/refund path.
+		// Chat playground keeps its historical token-accounting exemption.
+		info.IsPlayground = !(common.GetContextKeyBool(c, constant.ContextKeyDrawingRealToken) && info.TokenId > 0 &&
+			(info.RelayMode == relayconstant.RelayModeImagesGenerations || info.RelayMode == relayconstant.RelayModeImagesEdits))
 		info.RequestURLPath = strings.TrimPrefix(info.RequestURLPath, "/pg")
 		info.RequestURLPath = "/v1" + info.RequestURLPath
 	}

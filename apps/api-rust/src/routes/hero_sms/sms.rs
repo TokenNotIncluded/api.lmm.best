@@ -1131,19 +1131,7 @@ async fn purchase_locked(
     let id = format!("hssms_{}", Uuid::new_v4().simple());
     let now = now_unix();
     let mut tx = conn.begin().await.map_err(|_| internal_error())?;
-    let quota: i64 = sqlx::query_scalar("SELECT quota FROM users WHERE id=$1 FOR UPDATE")
-        .bind(user)
-        .fetch_optional(&mut *tx)
-        .await
-        .map_err(|_| internal_error())?
-        .ok_or_else(order_not_found)?;
-    if quota < charge {
-        return Err(HeroSmsApiError {
-            status: StatusCode::PAYMENT_REQUIRED,
-            code: "INSUFFICIENT_QUOTA",
-            message: "insufficient quota",
-        });
-    }
+    let remaining_quota = reserve_sms_wallet_quota(&mut tx, user, charge, &locked_options).await?;
     sqlx::query("INSERT INTO hero_sms_sms_orders(id,user_id,idempotency_key_hash,request_payload_hash,country_id,service,operator,status,price_multiplier,provider_price_cny,customer_price_usd,reserved_quota,charge_quota,refunded_quota,provider_currency_code,provider_snapshot_ciphertext,last_error_code,last_error_message,provider_request_started_at,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,'pending_provider',$8,$9,$10,$11,$11,0,$12,$13,'PROVIDER_INTENT_PENDING','provider purchase intent is reserved but not started',$14,$14,$14)").bind(&id).bind(user).bind(idem_hash).bind(payload_hash).bind(quote.country_id).bind(&quote.service).bind(&quote.operator).bind(&quote.multiplier).bind(&quote.cost_cny).bind(customer.normalize().to_string()).bind(charge).bind(HERO_SMS_CURRENCY_CODE).bind(snapshot).bind(now).execute(&mut *tx).await.map_err(|_|internal_error())?;
     sqlx::query("INSERT INTO hero_sms_sms_quota_ledgers(user_id,order_id,entry_type,amount_quota,idempotency_key,created_at) VALUES($1,$2,'reserve',$3,$4,$5)")
         .bind(user)
@@ -1151,12 +1139,6 @@ async fn purchase_locked(
         .bind(-charge)
         .bind(format!("hero_sms:sms:reserve:{id}"))
         .bind(now)
-        .execute(&mut *tx)
-        .await
-        .map_err(|_| internal_error())?;
-    sqlx::query("UPDATE users SET quota=quota-$2 WHERE id=$1")
-        .bind(user)
-        .bind(charge)
         .execute(&mut *tx)
         .await
         .map_err(|_| internal_error())?;
@@ -1185,7 +1167,7 @@ async fn purchase_locked(
             } else {
                 StatusCode::ACCEPTED
             };
-            Ok((view, quota - charge, response_status))
+            Ok((view, remaining_quota, response_status))
         }
         Err(e) => {
             let mapped = map_provider_error(e);
@@ -1202,6 +1184,49 @@ async fn purchase_locked(
         }
     }
 }
+// The starting-balance floor applies only to new paid orders. Replays and
+// servicing existing orders never enter this reservation transaction.
+async fn reserve_sms_wallet_quota(
+    tx: &mut sqlx::Transaction<'_, Postgres>,
+    user: i64,
+    charge: i64,
+    options: &BTreeMap<String, String>,
+) -> Result<i64, HeroSmsApiError> {
+    let minimum = charge_quota_decimal(Decimal::from(10), options)?;
+    let quota: i64 = sqlx::query_scalar("SELECT quota FROM users WHERE id=$1 FOR UPDATE")
+        .bind(user)
+        .fetch_optional(&mut **tx)
+        .await
+        .map_err(|_| internal_error())?
+        .ok_or_else(order_not_found)?;
+    if quota < minimum {
+        return Err(HeroSmsApiError {
+            status: StatusCode::PAYMENT_REQUIRED,
+            code: "TEMPORARY_SMS_MINIMUM_BALANCE",
+            message: "Temporary SMS purchases require a balance of at least USD 10",
+        });
+    }
+    if quota < charge {
+        return Err(HeroSmsApiError {
+            status: StatusCode::PAYMENT_REQUIRED,
+            code: "INSUFFICIENT_QUOTA",
+            message: "insufficient quota",
+        });
+    }
+    let updated =
+        sqlx::query("UPDATE users SET quota=quota-$2 WHERE id=$1 AND quota >= $2 AND quota >= $3")
+            .bind(user)
+            .bind(charge)
+            .bind(minimum)
+            .execute(&mut **tx)
+            .await
+            .map_err(|_| internal_error())?;
+    if updated.rows_affected() != 1 {
+        return Err(internal_error());
+    }
+    Ok(quota - charge)
+}
+
 async fn complete(
     state: &HeroSmsState,
     id: &str,
@@ -2747,6 +2772,89 @@ mod tests {
             )?)
             .await?;
         assert_eq!(limiter.0.load(Ordering::SeqCst), 1);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn postgres_sms_minimum_balance_reservation() -> TestResult {
+        let Ok(database_url) = std::env::var("LMM_TEST_POSTGRES_URL") else {
+            return Ok(());
+        };
+        let admin = PgPool::connect(&database_url).await?;
+        let schema = format!("hero_sms_minimum_test_{}", Uuid::new_v4().simple());
+        sqlx::query(&format!("CREATE SCHEMA {schema}"))
+            .execute(&admin)
+            .await?;
+        let scoped_url = format!(
+            "{database_url}{}options=-csearch_path%3D{schema}",
+            if database_url.contains('?') { "&" } else { "?" }
+        );
+        let pg = PgPool::connect(&scoped_url).await?;
+        sqlx::query("CREATE TABLE users(id BIGINT PRIMARY KEY, quota BIGINT NOT NULL)")
+            .execute(&pg)
+            .await?;
+        // A non-default quota ratio proves the floor uses USD, not display fiat.
+        let options = BTreeMap::from([("QuotaPerUnit".into(), "1000".into())]);
+        let minimum = charge_quota_decimal(Decimal::from(10), &options)?;
+        let charge = charge_quota_decimal(Decimal::ONE, &options)?;
+        assert_eq!(minimum, 10_000);
+        sqlx::query("INSERT INTO users VALUES(7,$1)")
+            .bind(minimum - 1)
+            .execute(&pg)
+            .await?;
+        let mut tx = pg.begin().await?;
+        let err = reserve_sms_wallet_quota(&mut tx, 7, charge, &options)
+            .await
+            .expect_err("below-floor balance must reject before reservation");
+        assert_eq!(err.status, StatusCode::PAYMENT_REQUIRED);
+        assert_eq!(err.code, "TEMPORARY_SMS_MINIMUM_BALANCE");
+        assert_eq!(
+            err.message,
+            "Temporary SMS purchases require a balance of at least USD 10"
+        );
+        tx.rollback().await?;
+        let quota: i64 = sqlx::query_scalar("SELECT quota FROM users WHERE id=7")
+            .fetch_one(&pg)
+            .await?;
+        assert_eq!(quota, minimum - 1);
+        sqlx::query("UPDATE users SET quota=$1 WHERE id=7")
+            .bind(minimum)
+            .execute(&pg)
+            .await?;
+        let mut tx = pg.begin().await?;
+        let err = reserve_sms_wallet_quota(&mut tx, 7, minimum + 1, &options)
+            .await
+            .expect_err("meeting the floor does not waive the actual price");
+        assert_eq!(err.code, "INSUFFICIENT_QUOTA");
+        tx.rollback().await?;
+
+        // Distinct purchases serialize on the same wallet row. At the exact
+        // floor one can commit; the next cannot debit even an affordable fee.
+        let reserve = || async {
+            let mut tx = pg.begin().await.map_err(|_| internal_error())?;
+            let remaining = reserve_sms_wallet_quota(&mut tx, 7, charge, &options).await?;
+            tx.commit().await.map_err(|_| internal_error())?;
+            Ok::<_, HeroSmsApiError>(remaining)
+        };
+        let (first, second) = tokio::join!(reserve(), reserve());
+        let (remaining, rejection) = match (first, second) {
+            (Ok(quota), Err(error)) | (Err(error), Ok(quota)) => (quota, error),
+            _ => {
+                return Err(
+                    std::io::Error::other("exactly one distinct reservation must succeed").into(),
+                );
+            }
+        };
+        assert_eq!(remaining, minimum - charge);
+        assert_eq!(rejection.code, "TEMPORARY_SMS_MINIMUM_BALANCE");
+        let quota: i64 = sqlx::query_scalar("SELECT quota FROM users WHERE id=7")
+            .fetch_one(&pg)
+            .await?;
+        assert_eq!(quota, remaining);
+        pg.close().await;
+        sqlx::query(&format!("DROP SCHEMA {schema} CASCADE"))
+            .execute(&admin)
+            .await?;
         Ok(())
     }
 

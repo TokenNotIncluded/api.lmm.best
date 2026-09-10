@@ -6,7 +6,7 @@ umask 077
 readonly MARKER_NAME='.lmm-deploy-workspace'
 readonly ID_PATTERN='^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$'
 readonly STATE_WARNING_BYTES=$((256 * 1024 * 1024))
-readonly STATE_STOP_BYTES=$((512 * 1024 * 1024))
+readonly STATE_STOP_BYTES=$((8 * 1024 * 1024 * 1024))
 
 usage() {
   printf 'Usage: %s --role controller|target --deployment-id ID [--root ABSOLUTE_PATH]\n' "${0##*/}" >&2

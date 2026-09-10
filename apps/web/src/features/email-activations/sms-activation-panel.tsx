@@ -53,6 +53,8 @@ import {
   type HeroSmsSmsOrder,
   type HeroSmsSmsService,
 } from './sms-api.js'
+import { SmsBalanceNotice } from './sms-balance-notice.js'
+import { isSmsMinimumBalanceError } from './sms-balance.js'
 import {
   SmsActiveOrdersCard,
   SmsOrderDetailDialog,
@@ -78,6 +80,7 @@ import {
   toggleHeroSmsFavorite,
   type HeroSmsFavoritePair,
 } from './sms-selection.js'
+import { useSmsPurchaseBalance } from './sms-use-purchase-balance.js'
 
 const smsKeys = {
   countries: (service = 'all') =>
@@ -111,6 +114,7 @@ const smsKeys = {
 type Translate = ReturnType<typeof useTranslation>['t']
 
 interface SmsPurchaseMutationOptions {
+  balance: ReturnType<typeof useSmsPurchaseBalance>
   offer?: HeroSmsSmsOffer
   quantity: number
   getFreshOffer: () => Promise<HeroSmsSmsOffer>
@@ -140,6 +144,9 @@ function batchFailureMessage(result: HeroSmsBatchPurchaseResult, t: Translate) {
     return t('Inventory ran out before item {{item}}.', {
       item: result.failure.item,
     })
+  }
+  if (isSmsMinimumBalanceError(result.failure.error)) {
+    return t('Temporary SMS purchases require a balance of at least USD 10')
   }
   return t(parseHeroSmsError(result.failure.error).message)
 }
@@ -179,7 +186,14 @@ function useSmsPurchaseMutation(options: SmsPurchaseMutationOptions) {
         quantity: options.quantity,
         idempotencyKey: createHeroSmsIdempotencyKey(),
         getFreshOffer: options.getFreshOffer,
-        createOrder: createHeroSmsSmsOrder,
+        createOrder: async (offerId, idempotencyKey) => {
+          if (!options.balance.isCurrentSession()) {
+            throw new Error('HeroSMS request failed')
+          }
+          const result = await createHeroSmsSmsOrder(offerId, idempotencyKey)
+          options.balance.recordQuota(result.quota)
+          return result
+        },
         isAmbiguousNetworkError: (error) =>
           isAxiosError(error) && !error.response,
         onProgress: (completed, total) =>
@@ -189,18 +203,29 @@ function useSmsPurchaseMutation(options: SmsPurchaseMutationOptions) {
     onMutate: () => {
       options.setBatchResult(null)
       options.setBatchProgress({ completed: 0, total: options.quantity })
+      return options.balance
     },
-    onSuccess: async (result) => {
+    onSuccess: async (result, _variables, balance) => {
       options.setConfirmOpen(false)
       options.setBatchResult(result)
+      if (isSmsMinimumBalanceError(result.failure?.error)) balance?.markDenied()
       showBatchResult(result, options.t)
       options.setBatchProgress(null)
       await options.invalidate()
       await options.refetchOffer()
     },
-    onError: (error) => {
+    onError: (error, _variables, balance) => {
       options.setBatchProgress(null)
-      toast.error(options.t(parseHeroSmsError(error).message))
+      if (isSmsMinimumBalanceError(error)) {
+        balance?.markDenied()
+        toast.error(
+          options.t(
+            'Temporary SMS purchases require a balance of at least USD 10'
+          )
+        )
+      } else {
+        toast.error(options.t(parseHeroSmsError(error).message))
+      }
     },
   })
 }
@@ -436,7 +461,7 @@ function useSmsSelectionState() {
   )
   const [batchResult, setBatchResult] =
     useState<HeroSmsBatchPurchaseResult | null>(null)
-  const lastSmsServiceRef = useRef('')
+  const [lastSmsService, setLastSmsService] = useState('')
 
   const resetSelectionTail = () => {
     setOperator('')
@@ -448,7 +473,7 @@ function useSmsSelectionState() {
   }
   const selectService = (value: string) => {
     if (value && !isHeroSmsWhatsAppService(value)) {
-      lastSmsServiceRef.current = value
+      setLastSmsService(value)
     }
     setService(value)
     setCountry('')
@@ -460,7 +485,7 @@ function useSmsSelectionState() {
   }
   const selectFavorite = (favorite: HeroSmsFavoritePair) => {
     if (!isHeroSmsWhatsAppService(favorite.serviceCode)) {
-      lastSmsServiceRef.current = favorite.serviceCode
+      setLastSmsService(favorite.serviceCode)
     }
     setService(favorite.serviceCode)
     setCountry(String(favorite.countryId))
@@ -494,7 +519,7 @@ function useSmsSelectionState() {
     setFavorites,
     batchResult,
     setBatchResult,
-    lastSmsService: lastSmsServiceRef.current,
+    lastSmsService,
     selectService,
     selectCountry,
     selectFavorite,
@@ -633,6 +658,7 @@ function createSmsPanelView({
 export function HeroSmsSmsActivationPanel() {
   const { t, i18n } = useTranslation()
   const queryClient = useQueryClient()
+  const purchaseBalance = useSmsPurchaseBalance()
   const language = resolveSmsLanguage(i18n.resolvedLanguage, i18n.language)
   const pageVisible = usePageVisibility()
   const {
@@ -749,6 +775,7 @@ export function HeroSmsSmsActivationPanel() {
     ])
   }, [queryClient])
   const purchaseMutation = useSmsPurchaseMutation({
+    balance: purchaseBalance,
     offer: effectiveOffer,
     quantity: effectiveQuantity,
     getFreshOffer,
@@ -776,7 +803,11 @@ export function HeroSmsSmsActivationPanel() {
     onError: (error) => toast.error(t(parseHeroSmsError(error).message)),
   })
   const cancelMutation = useMutation({
-    mutationFn: (orderId: string) => cancelHeroSmsSmsOrder(orderId),
+    mutationFn: async (orderId: string) => {
+      const result = await cancelHeroSmsSmsOrder(orderId)
+      purchaseBalance.recordQuota(result.quota)
+      return result
+    },
     onSuccess: async (result) => {
       if (
         result.order.status === 'cancelled' &&
@@ -858,6 +889,10 @@ export function HeroSmsSmsActivationPanel() {
 
   return (
     <div className='space-y-6'>
+      <SmsBalanceNotice
+        {...purchaseBalance}
+        onRefresh={() => void purchaseBalance.refresh()}
+      />
       <div className='grid gap-4 xl:grid-cols-[minmax(0,430px)_minmax(0,1fr)]'>
         <SmsPurchaseCard
           language={language}
@@ -900,7 +935,7 @@ export function HeroSmsSmsActivationPanel() {
           batchProgress={batchProgress}
           batchResult={batchResult}
           batchFeedback={view.batchFeedback}
-          canPurchase={view.canPurchase}
+          canPurchase={view.canPurchase && purchaseBalance.canPurchase}
           reconciliationPending={
             reconciliation.pending || queries.current.isFetching
           }
@@ -923,7 +958,9 @@ export function HeroSmsSmsActivationPanel() {
           onToggleFavorite={favoriteController.toggle}
           onRefreshOffer={() => void refetchEffectiveOffer()}
           onReconcile={() => void reconciliation.run()}
-          onPurchase={() => setConfirmOpen(true)}
+          onPurchase={() => {
+            if (purchaseBalance.canPurchase) setConfirmOpen(true)
+          }}
         />
         <SmsActiveOrdersCard
           orders={currentOrders}
@@ -1051,9 +1088,20 @@ export function HeroSmsSmsActivationPanel() {
           }
         )}
         confirmText={t('Confirm purchase')}
-        handleConfirm={() => purchaseMutation.mutate()}
+        disabled={!purchaseBalance.canPurchase || purchaseBalance.isRefreshing}
+        handleConfirm={() => {
+          void purchaseBalance.refresh().then((allowed) => {
+            if (allowed) purchaseMutation.mutate()
+          })
+        }}
         isLoading={purchaseMutation.isPending}
-      />
+      >
+        <SmsBalanceNotice
+          {...purchaseBalance}
+          id='sms-confirm-balance-notice'
+          onRefresh={() => void purchaseBalance.refresh()}
+        />
+      </ConfirmDialog>
     </div>
   )
 }

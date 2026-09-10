@@ -49,11 +49,18 @@ jobs:
       - name: Test PR description policy
         run: node --test scripts/pr-quality.test.mjs
 
+      - name: Test CI apt source preparation
+        run: python3 scripts/test-prepare-ci-apt.py
+
       - name: Install repository contract tools
         run: |
+          sudo --preserve-env=GITHUB_ACTIONS python3 scripts/prepare-ci-apt.py
           sudo apt-get update
           sudo apt-get install --no-install-recommends --yes nginx ripgrep
           test "$(command -v rg)" = /usr/bin/rg
+
+      - name: Verify backend-independent outage responses
+        run: node --test scripts/nginx-service-errors.test.mjs
 
       - name: Validate read-only production inspectors
         run: |
@@ -118,6 +125,7 @@ jobs:
 
       - name: Install archive inspection tool
         run: |
+          sudo --preserve-env=GITHUB_ACTIONS python3 scripts/prepare-ci-apt.py
           sudo apt-get update
           sudo apt-get install --no-install-recommends --yes libarchive-tools
           test "$(command -v bsdtar)" = /usr/bin/bsdtar
@@ -157,7 +165,9 @@ jobs:
           bun run --filter @lmm/web typecheck
 
       - name: Test web workspace
-        run: bun run --filter @lmm/web test
+        run: |
+          bun run --filter @lmm/web test
+          node --test scripts/service-unavailable.test.mjs
 
       - name: Validate frontend API route manifest
         run: bash apps/api-rust/tests/behavior-oracle/tests/test-frontend-api-route-manifest.sh
@@ -197,6 +207,7 @@ jobs:
 
       - name: Install production contract tools
         run: |
+          sudo --preserve-env=GITHUB_ACTIONS python3 scripts/prepare-ci-apt.py
           sudo apt-get update
           sudo apt-get install --no-install-recommends --yes libarchive-tools
           test "$(command -v bsdtar)" = /usr/bin/bsdtar

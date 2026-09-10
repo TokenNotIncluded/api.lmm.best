@@ -145,6 +145,7 @@ func TestHandleWaffoPancakeSubscriptionRefundIsLedgerIdempotent(t *testing.T) {
 	require.NoError(t, db.Create(&plan).Error)
 	tradeNo := "WAFFO_PANCAKE_SUB-1-refund"
 	require.NoError(t, db.Create(&model.SubscriptionOrder{
+		PlanSnapshot:    `{"waffo_pancake_product_type":"one_time"}`,
 		UserId:          user.Id,
 		PlanId:          plan.Id,
 		TradeNo:         tradeNo,
@@ -173,7 +174,7 @@ func TestHandleWaffoPancakeSubscriptionRefundIsLedgerIdempotent(t *testing.T) {
 	require.NoError(t, handleWaffoPancakeRefundEvent(ctx, event))
 
 	var entries []model.FinanceLedgerEntry
-	require.NoError(t, db.Where("source_type = ? AND source_id = ?", model.FinanceSourceRefund, event.ID).Find(&entries).Error)
+	require.NoError(t, db.Where("source_type = ? AND source_id = ?", model.FinanceSourceRefund, event.Data.RefundTicketMerchantExternalID).Find(&entries).Error)
 	require.Len(t, entries, 1)
 	require.Equal(t, model.PaymentProviderWaffoPancake, entries[0].PaymentProvider)
 	require.Equal(t, int64(2_500_000), entries[0].AmountMicros)
@@ -209,6 +210,7 @@ func TestHandleWaffoPancakeSubscriptionRefundUsesCheckoutSnapshotNotLivePlan(t *
 	require.NoError(t, db.Create(&subscription).Error)
 	tradeNo := "WAFFO_PANCAKE_SUB-refund-snapshot"
 	require.NoError(t, db.Create(&model.SubscriptionOrder{
+		PlanSnapshot:         `{"waffo_pancake_product_type":"one_time"}`,
 		UserId:               user.Id,
 		PlanId:               plan.Id,
 		UserSubscriptionId:   subscription.Id,
@@ -244,7 +246,7 @@ func TestHandleWaffoPancakeSubscriptionRefundUsesCheckoutSnapshotNotLivePlan(t *
 	require.NoError(t, handleWaffoPancakeRefundEvent(ctx, event))
 
 	var entries []model.FinanceLedgerEntry
-	require.NoError(t, db.Where("source_type = ? AND source_id = ?", model.FinanceSourceRefund, event.ID).Find(&entries).Error)
+	require.NoError(t, db.Where("source_type = ? AND source_id = ?", model.FinanceSourceRefund, event.Data.RefundTicketMerchantExternalID).Find(&entries).Error)
 	require.Len(t, entries, 1)
 	require.Equal(t, int64(1_000_000), entries[0].AmountMicros)
 	require.Equal(t, "USD", entries[0].Currency)
@@ -504,7 +506,7 @@ func TestHandleWaffoPancakeRefundFailedIsEventIdempotent(t *testing.T) {
 	require.NoError(t, handleWaffoPancakeRefundEvent(ctx, event))
 
 	var receipts []model.WaffoPancakeWebhookReceipt
-	require.NoError(t, db.Where("provider = ? AND event_id = ?", model.PaymentProviderWaffoPancake, event.ID).Find(&receipts).Error)
+	require.NoError(t, db.Where("provider = ? AND event_id = ?", model.PaymentProviderWaffoPancake, event.Data.RefundTicketMerchantExternalID).Find(&receipts).Error)
 	require.Len(t, receipts, 1)
 	var logs []model.Log
 	require.NoError(t, db.Where("user_id = ? AND type = ?", user.Id, model.LogTypeRefund).Find(&logs).Error)

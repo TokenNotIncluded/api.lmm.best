@@ -171,9 +171,13 @@ func persistTokenQuotaDelta(id int, delta int) error {
 }
 
 func reserveUserQuotaDB(id int, quota int) (bool, error) {
+	return reserveUserQuotaDBWithMinimum(id, quota, 0)
+}
+
+func reserveUserQuotaDBWithMinimum(id, amount, minimum int) (bool, error) {
 	result := UpdateWalletQuotaByDelta(
-		DB.Model(&User{}).Where("id = ? AND quota >= ?", id, quota),
-		-quota,
+		DB.Model(&User{}).Where("id = ? AND quota >= ? AND quota >= ?", id, amount, minimum),
+		-amount,
 	)
 	if result.Error != nil {
 		return false, result.Error
@@ -207,17 +211,38 @@ func reserveTokenQuotaDB(id int, quota int) (bool, error) {
 // invalidated only after that durable update succeeds. This fail-closed order
 // prevents a delayed cache fill from authorizing an overdraft.
 func TryReserveUserQuota(id int, quota int) (bool, error) {
-	if quota < 0 {
+	return TryReserveUserQuotaWithMinimum(id, quota, 0)
+}
+
+// TryReserveUserQuotaWithMinimum also requires the starting wallet balance to
+// meet minimum. Only amount is deducted; the remaining balance may fall below
+// minimum. Both predicates are checked in the same durable database UPDATE.
+func TryReserveUserQuotaWithMinimum(id, amount, minimum int) (bool, error) {
+	if amount < 0 {
 		return false, errors.New("quota 不能为负数！")
 	}
-	if err := common.ValidateWalletQuota(quota); err != nil {
+	if minimum < 0 {
+		return false, errors.New("minimum quota must not be negative")
+	}
+	if err := common.ValidateWalletQuota(amount); err != nil {
 		return false, err
 	}
-	if quota == 0 {
-		_, err := currentWalletQuota(DB, id)
-		return err == nil, err
+	if err := common.ValidateWalletQuota(minimum); err != nil {
+		return false, err
 	}
-	reserved, err := reserveUserQuotaDB(id, quota)
+	if amount == 0 {
+		current, err := currentWalletQuota(DB, id)
+		if err != nil || minimum == 0 {
+			// Preserve the zero-amount API's existing user-existence check,
+			// including users with an already negative wallet balance.
+			return err == nil, err
+		}
+		if err := common.ValidateWalletQuota(current); err != nil {
+			return false, ErrWalletQuotaOutOfRange
+		}
+		return current >= minimum, nil
+	}
+	reserved, err := reserveUserQuotaDBWithMinimum(id, amount, minimum)
 	if err != nil {
 		return false, err
 	}

@@ -140,7 +140,14 @@ export type AssistantPreConversationPresets = {
   presets: AssistantPreConversationPreset[]
 }
 
+export type DrawingWebAccess = {
+  minimum_balance_usd: number
+  balance_usd: number | null
+  allowed: boolean
+}
+
 export type AssistantStatus = {
+  drawing_web_access?: DrawingWebAccess
   enabled: boolean
   model: string
   group?: string

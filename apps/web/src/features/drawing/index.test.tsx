@@ -2,8 +2,9 @@
 Copyright (C) 2026 LIghtJUNction
 */
 import assert from 'node:assert/strict'
-import { after, afterEach, describe, test } from 'node:test'
+import { after, afterEach, beforeEach, describe, test } from 'node:test'
 
+import { IDBFactory } from 'fake-indexeddb'
 import { Window } from 'happy-dom'
 
 const domWindow = new Window({
@@ -75,6 +76,10 @@ const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { api } = await import('@/lib/api')
 const { Drawing } = await import('./index')
+const { useAuthStore } = await import('@/stores/auth-store')
+const { createDrawingHistoryStore } = await import('./history-storage')
+const originalFetch = globalThis.fetch
+const originalConfirm = window.confirm
 
 const originalGet = api.get
 const originalPost = api.post
@@ -143,6 +148,28 @@ async function setTextareaValue(textarea: HTMLTextAreaElement, value: string) {
 }
 
 async function renderDrawing() {
+  const get = api.get
+  api.get = (async (url: string, config?: Parameters<typeof api.get>[1]) => {
+    if (url === '/api/user/self') {
+      return { data: { success: true, data: { quota: 5000000 } } }
+    }
+    const response = await get(url, config)
+    if (
+      url === '/api/assistant/status' &&
+      response.data?.success &&
+      !Object.hasOwn(response.data.data ?? {}, 'drawing_web_access')
+    ) {
+      response.data.data = {
+        ...response.data.data,
+        drawing_web_access: {
+          minimum_balance_usd: 10,
+          balance_usd: 10,
+          allowed: true,
+        },
+      }
+    }
+    return response
+  }) as typeof api.get
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
@@ -163,7 +190,25 @@ async function renderDrawing() {
   return { container, queryClient, root }
 }
 
+beforeEach(() => {
+  useAuthStore
+    .getState()
+    .auth.setUser({ id: 1, username: 'drawing-user', role: 10 })
+  Object.defineProperty(globalThis, 'indexedDB', {
+    configurable: true,
+    writable: true,
+    value: new IDBFactory(),
+  })
+  globalThis.fetch = (() => {
+    throw new Error('Unexpected network fetch in drawing tests')
+  }) as typeof fetch
+  window.confirm = () => true
+})
+
 afterEach(() => {
+  globalThis.fetch = originalFetch
+  window.confirm = originalConfirm
+  useAuthStore.getState().auth.reset()
   api.get = originalGet
   api.post = originalPost
   document.body.replaceChildren()
@@ -492,4 +537,330 @@ describe('Drawing generation failures', () => {
       }
     })
   }
+})
+
+function mockWorkbench(balance: () => number | null, modelName = 'image-2') {
+  let statusReads = 0
+  api.get = (async (url: string) => {
+    if (url === '/api/assistant/status') {
+      statusReads++
+      const current = balance()
+      return {
+        data: {
+          success: true,
+          data: {
+            developer_access_granted: true,
+            drawing_web_access: {
+              minimum_balance_usd: 10,
+              balance_usd: current,
+              allowed: current !== null && current >= 10,
+            },
+          },
+        },
+      }
+    }
+    if (url === '/api/pricing') {
+      return {
+        data: {
+          ...pricing,
+          data: pricing.data.map((model) => ({
+            ...model,
+            model_name: modelName,
+          })),
+        },
+      }
+    }
+    if (url === '/api/user/self/groups') {
+      return { data: { success: true, data: pricing.usable_group } }
+    }
+    throw new Error(`Unexpected GET ${url}`)
+  }) as typeof api.get
+  return () => statusReads
+}
+
+function button(container: HTMLElement, text: string) {
+  const target = [...container.querySelectorAll('button')].find((entry) =>
+    entry.textContent?.includes(text)
+  )
+  assert.ok(target, `Missing button: ${text}`)
+  return target
+}
+
+async function promptDrawing(container: HTMLElement) {
+  const input = container.querySelector<HTMLTextAreaElement>(
+    '#drawing-prompt-input'
+  )
+  assert.ok(input)
+  await setTextareaValue(input, 'A stored painting')
+}
+
+const png =
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6aQAAAABJRU5ErkJggg=='
+
+describe('Drawing balance and browser history', () => {
+  for (const balance of [9.99, 10, null]) {
+    test(`balance ${balance} gates only web generation while key/MCP controls remain available`, async () => {
+      mockWorkbench(() => balance)
+      let keyCalls = 0
+      api.post = (async (url: string, body: unknown) => {
+        assert.equal(url, '/api/assistant/drawing/key')
+        assert.deepEqual(body, {})
+        keyCalls++
+        return {
+          data: {
+            success: true,
+            data: { id: 7, name: 'Drawing', group: 'image-2', created: true },
+          },
+        }
+      }) as typeof api.post
+      const rendered = await renderDrawing()
+      try {
+        await promptDrawing(rendered.container)
+        assert.equal(
+          button(rendered.container, 'Generate image').disabled,
+          balance !== 10
+        )
+        const alert = rendered.container.querySelector(
+          '[data-slot="drawing-web-access"]'
+        )
+        if (balance === 10) assert.equal(alert, null)
+        else {
+          assert.ok(alert)
+          assert.match(alert.textContent ?? '', /USD 10.00/)
+          assert.match(
+            alert.textContent ?? '',
+            /API and MCP usage is billed normally, not free/
+          )
+          if (balance === null) {
+            assert.match(alert.textContent ?? '', /balance unavailable/)
+            assert.doesNotMatch(
+              alert.textContent ?? '',
+              /Current balance: USD 0/
+            )
+          } else {
+            assert.match(
+              alert.textContent ?? '',
+              /Insufficient balance for web image generation/
+            )
+            assert.match(alert.textContent ?? '', /Current balance: USD 9.99/)
+          }
+        }
+        assert.equal(
+          button(rendered.container, 'Prepare image-2 API Key').disabled,
+          false
+        )
+        assert.equal(button(rendered.container, 'Drawing MCP').disabled, false)
+        await act(async () => {
+          button(rendered.container, 'Prepare image-2 API Key').click()
+          button(rendered.container, 'Drawing MCP').click()
+          await flushEffects()
+        })
+        assert.equal(keyCalls, 1)
+        assert.match(
+          rendered.container.textContent ?? '',
+          /image-2 API Key ready/
+        )
+        assert.ok(rendered.container.querySelector('a[href="/keys"]'))
+        assert.ok(rendered.container.querySelector('#drawing-mcp-endpoint'))
+      } finally {
+        await act(async () => rendered.root.unmount())
+        rendered.queryClient.clear()
+      }
+    })
+  }
+
+  test('exact USD 10 generates once, refreshes balance and keeps downloaded history available below the floor', async () => {
+    let balance = 10
+    const statusReads = mockWorkbench(() => balance)
+    let calls = 0
+    api.post = (async () => {
+      calls++
+      balance = 9.5
+      return { data: { data: [{ b64_json: png }] } }
+    }) as typeof api.post
+    let rendered = await renderDrawing()
+    try {
+      await promptDrawing(rendered.container)
+      await act(async () => {
+        button(rendered.container, 'Generate image').click()
+        await flushEffects()
+      })
+      await act(async () =>
+        waitForCondition(
+          () =>
+            Boolean(rendered.container.querySelector('a[download]')) &&
+            !rendered.container.textContent?.includes('Saving image bytes'),
+          'image bytes were not saved'
+        )
+      )
+      assert.equal(calls, 1)
+      assert.ok(statusReads() >= 2)
+      assert.equal(button(rendered.container, 'Generate image').disabled, true)
+      assert.match(
+        rendered.container.textContent ?? '',
+        /Current balance: USD 9.50/
+      )
+      const stored = await createDrawingHistoryStore().load(1)
+      assert.equal(stored.images.length, 1)
+      assert.equal(stored.images[0].blob.size, atob(png).length)
+      const firstURL = rendered.container
+        .querySelector('figure img')
+        ?.getAttribute('src')
+      await act(async () => rendered.root.unmount())
+      rendered.queryClient.clear()
+      rendered = await renderDrawing()
+      await act(async () =>
+        waitForCondition(
+          () => Boolean(rendered.container.querySelector('a[download]')),
+          'history did not survive refresh'
+        )
+      )
+      assert.notEqual(
+        rendered.container.querySelector('figure img')?.getAttribute('src'),
+        firstURL
+      )
+      assert.match(rendered.container.textContent ?? '', /A stored painting/)
+      assert.equal(calls, 1)
+      await act(async () => {
+        button(rendered.container, 'Clear image history').click()
+        await flushEffects()
+      })
+      assert.equal(rendered.container.querySelectorAll('figure').length, 0)
+      assert.equal((await createDrawingHistoryStore().load(1)).images.length, 0)
+      assert.equal(calls, 1)
+    } finally {
+      await act(async () => rendered.root.unmount())
+      rendered.queryClient.clear()
+    }
+  })
+
+  test('server denial produces a persistent web-only alert rather than a generation retry', async () => {
+    let balance = 12
+    mockWorkbench(() => balance)
+    let calls = 0
+    api.post = (async () => {
+      calls++
+      balance = 8
+      throw {
+        response: {
+          status: 403,
+          data: {
+            error: {
+              code: 'WEB_DRAWING_MINIMUM_BALANCE',
+              message: 'server threshold',
+            },
+            drawing_web_access: {
+              minimum_balance_usd: 10,
+              balance_usd: 8,
+              allowed: false,
+            },
+          },
+        },
+      }
+    }) as typeof api.post
+    const rendered = await renderDrawing()
+    try {
+      await promptDrawing(rendered.container)
+      await act(async () => {
+        button(rendered.container, 'Generate image').click()
+        await flushEffects()
+      })
+      assert.match(
+        rendered.container.textContent ?? '',
+        /Insufficient balance for web image generation/
+      )
+      assert.match(
+        rendered.container.textContent ?? '',
+        /Current balance: USD 8.00/
+      )
+      assert.doesNotMatch(
+        rendered.container.textContent ?? '',
+        /Request failed/
+      )
+      assert.equal(button(rendered.container, 'Generate image').disabled, true)
+      assert.equal(button(rendered.container, 'Drawing MCP').disabled, false)
+      assert.equal(calls, 1)
+    } finally {
+      await act(async () => rendered.root.unmount())
+      rendered.queryClient.clear()
+    }
+  })
+
+  test('cache failure never turns generation success into Request failed or repeats the paid request', async () => {
+    mockWorkbench(() => 20)
+    let calls = 0
+    api.post = (async () => {
+      calls++
+      Object.defineProperty(globalThis, 'indexedDB', {
+        configurable: true,
+        value: undefined,
+      })
+      return { data: { data: [{ b64_json: png }] } }
+    }) as typeof api.post
+    const rendered = await renderDrawing()
+    try {
+      await promptDrawing(rendered.container)
+      await act(async () => {
+        button(rendered.container, 'Generate image').click()
+        await flushEffects()
+      })
+      assert.ok(rendered.container.querySelector('a[download]'))
+      assert.match(
+        rendered.container.textContent ?? '',
+        /Generation succeeded, but some image bytes could not be saved/
+      )
+      assert.match(
+        rendered.container.textContent ?? '',
+        /Not saved in this browser/
+      )
+      assert.doesNotMatch(
+        rendered.container.textContent ?? '',
+        /Request failed/
+      )
+      assert.equal(calls, 1)
+    } finally {
+      await act(async () => rendered.root.unmount())
+      rendered.queryClient.clear()
+    }
+  })
+
+  test('account switch and logout cannot display or save a late response for a previous user', async () => {
+    mockWorkbench(() => 20)
+    let finish: (value: unknown) => void = () => {
+      throw new Error('Generation did not start')
+    }
+    api.post = (() =>
+      new Promise<unknown>((resolve) => {
+        finish = resolve
+      })) as typeof api.post
+    const rendered = await renderDrawing()
+    try {
+      await promptDrawing(rendered.container)
+      await act(async () => {
+        button(rendered.container, 'Generate image').click()
+        await flushEffects()
+        useAuthStore
+          .getState()
+          .auth.setUser({ id: 2, username: 'second-user', role: 10 })
+      })
+      await act(async () => {
+        finish({ data: { data: [{ b64_json: png }] } })
+        await flushEffects()
+      })
+      assert.equal(rendered.container.querySelectorAll('figure').length, 0)
+      assert.equal(
+        rendered.container.querySelector<HTMLTextAreaElement>(
+          '#drawing-prompt-input'
+        )?.value,
+        ''
+      )
+      assert.equal((await createDrawingHistoryStore().load(1)).images.length, 0)
+      assert.equal((await createDrawingHistoryStore().load(2)).images.length, 0)
+      await act(async () => useAuthStore.getState().auth.reset())
+      assert.equal(rendered.container.textContent, '')
+    } finally {
+      await act(async () => rendered.root.unmount())
+      rendered.queryClient.clear()
+    }
+  })
 })

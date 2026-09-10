@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -18,6 +19,7 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/constant"
 	"github.com/LIghtJUNction/api.lmm.best/middleware"
 	"github.com/LIghtJUNction/api.lmm.best/model"
+	"github.com/LIghtJUNction/api.lmm.best/service"
 	"github.com/gin-gonic/gin"
 	"github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -66,7 +68,7 @@ func drawingMCPAuthorizedUser(userID int) (*model.UserBase, error) {
 		return nil, errors.New("drawing is currently disabled")
 	}
 	user, err := model.GetUserCache(userID)
-	if err != nil {
+	if err != nil || user.Status != common.UserStatusEnabled {
 		return nil, errors.New("the authenticated account is unavailable")
 	}
 	access, err := model.GetDeveloperAccessStateForUserBase(user)
@@ -112,22 +114,18 @@ func drawingMCPResolveInput(user *model.UserBase, input drawingMCPGenerateInput)
 		return drawingMCPGenerateInput{}, errors.New("image count must be between 1 and 4")
 	}
 
-	groups, imageModels := assistantDrawingCatalog(user.Group)
 	if input.Group == "" {
-		if _, ok := groups["image-2"]; ok {
-			input.Group = "image-2"
-		} else {
-			names := make([]string, 0, len(groups))
-			for name := range groups {
-				names = append(names, name)
-			}
-			slices.Sort(names)
-			return drawingMCPGenerateInput{}, fmt.Errorf("group is required; available groups: %s", strings.Join(names, ", "))
-		}
+		input.Group = model.DrawingTokenGroup
 	}
-	if _, ok := groups[input.Group]; !ok {
+	if !service.IsUserSelectableGroup(user.Group, input.Group) {
 		return drawingMCPGenerateInput{}, errors.New("the selected routing group is not available to this account")
 	}
+	// Exact user selections use the same authoritative availability/model-limit
+	// checks as the direct API. Catalog metadata is only needed for defaults.
+	if input.Model != "" {
+		return input, nil
+	}
+	_, imageModels := assistantDrawingCatalog(user.Group)
 	models := assistantDrawingModelsForGroup(input.Group, imageModels)
 	if len(models) == 0 {
 		return drawingMCPGenerateInput{}, errors.New("the selected group has no image-capable models")
@@ -154,7 +152,7 @@ func drawingMCPConsumeConfirmation(userID int, operation *model.OpenSourceBounty
 	)
 }
 
-func registerDrawingMCPTools(server *mcp.Server) {
+func registerDrawingMCPTools(server *mcp.Server, relay http.Handler) {
 	mcp.AddTool(server, drawingMCPTool(
 		"drawing.list_capabilities", "List drawing capabilities",
 		"List the authenticated developer's currently usable image groups and image-capable models. This is read-only and never spends quota.",
@@ -209,7 +207,7 @@ func registerDrawingMCPTools(server *mcp.Server) {
 		if err := drawingMCPConsumeConfirmation(userID, operation); err != nil {
 			return nil, drawingMCPOutput{}, err
 		}
-		result, err := executeDrawingMCPRelay(ctx, user, resolved)
+		result, err := executeDrawingMCPRelay(ctx, relay, user, resolved)
 		if err != nil {
 			return nil, drawingMCPOutput{}, err
 		}
@@ -217,7 +215,38 @@ func registerDrawingMCPTools(server *mcp.Server) {
 	})
 }
 
-func executeDrawingMCPRelay(ctx context.Context, user *model.UserBase, input drawingMCPGenerateInput) (map[string]any, error) {
+type drawingMCPClientIPKey struct{}
+
+// PrepareDrawingMCPRequestContext captures the outer router's trusted proxy/IP
+// policy. The private engine trusts no proxy headers and never sees MCP secrets.
+func PrepareDrawingMCPRequestContext(c *gin.Context) {
+	c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), drawingMCPClientIPKey{}, c.ClientIP()))
+	c.Next()
+}
+
+func newDrawingMCPRelayEngine(admission gin.HandlerFunc) *gin.Engine {
+	engine := gin.New()
+	_ = engine.SetTrustedProxies(nil)
+	engine.Use(middleware.BodyStorageCleanup())
+	engine.Use(func(c *gin.Context) {
+		identity, ok := c.Request.Context().Value(drawingMCPRelayIdentityKey{}).(drawingMCPRelayIdentity)
+		if !ok || identity.UserID <= 0 {
+			c.AbortWithStatus(http.StatusUnauthorized)
+			return
+		}
+		c.Set("id", identity.UserID)
+		c.Set("use_access_token", false)
+		c.Set(common.RequestIdKey, common.NewRequestId())
+		common.SetContextKey(c, constant.ContextKeyRequestStartTime, time.Now())
+		c.Next()
+	})
+	engine.Use(middleware.SystemPerformanceCheck(), admission)
+	engine.POST("/pg/images/generations", middleware.RequestBodyLimit(32<<10),
+		PreparePlaygroundImageAuth, middleware.ModelRequestRateLimit(), middleware.Distribute(), PlaygroundImage)
+	return engine
+}
+
+func executeDrawingMCPRelay(ctx context.Context, relay http.Handler, user *model.UserBase, input drawingMCPGenerateInput) (map[string]any, error) {
 	payload := map[string]any{
 		"prompt": input.Prompt, "model": input.Model, "n": input.N,
 	}
@@ -232,22 +261,15 @@ func executeDrawingMCPRelay(ctx context.Context, user *model.UserBase, input dra
 		return nil, errors.New("image request could not be encoded")
 	}
 	request := httptest.NewRequest(http.MethodPost, "/pg/images/generations?group="+url.QueryEscape(input.Group), bytes.NewReader(body))
-	request = request.WithContext(ctx)
+	request = request.WithContext(context.WithValue(ctx, drawingMCPRelayIdentityKey{}, drawingMCPRelayIdentity{UserID: user.Id}))
+	request.Header.Set("Content-Type", "application/json")
+	// Never use httptest's synthetic client address to satisfy key IP limits.
+	request.RemoteAddr = ""
+	if clientIP, ok := ctx.Value(drawingMCPClientIPKey{}).(string); ok && net.ParseIP(clientIP) != nil {
+		request.RemoteAddr = net.JoinHostPort(clientIP, "0")
+	}
 	recorder := httptest.NewRecorder()
-	engine := gin.New()
-	engine.Use(func(c *gin.Context) {
-		c.Set("id", user.Id)
-		c.Set("use_access_token", false)
-		c.Set("username", user.Username)
-		c.Set("role", user.Role)
-		c.Set("group", user.Group)
-		user.WriteContext(c)
-		c.Set(common.RequestIdKey, common.NewRequestId())
-		common.SetContextKey(c, constant.ContextKeyRequestStartTime, time.Now())
-		c.Next()
-	})
-	engine.POST("/pg/images/generations", middleware.Distribute(), PlaygroundImage)
-	engine.ServeHTTP(recorder, request)
+	relay.ServeHTTP(recorder, request)
 	if recorder.Code < http.StatusOK || recorder.Code >= http.StatusMultipleChoices {
 		var failure struct {
 			Error struct {
@@ -273,7 +295,7 @@ func executeDrawingMCPRelay(ctx context.Context, user *model.UserBase, input dra
 	return result, nil
 }
 
-func newDrawingMCPServer() *mcp.Server {
+func newDrawingMCPServer(relay http.Handler) *mcp.Server {
 	server := mcp.NewServer(&mcp.Implementation{
 		Name: "api.lmm.best-drawing", Version: common.Version,
 	}, &mcp.ServerOptions{
@@ -289,15 +311,23 @@ func newDrawingMCPServer() *mcp.Server {
 			Messages:    []*mcp.PromptMessage{{Role: "user", Content: &mcp.TextContent{Text: "Use drawing.list_capabilities first. Select only an exact available group and image model. Before drawing, show the full prompt, model, group, image count, and expected billing impact, then continue only after I explicitly confirm. Do not retry a confirmed generation automatically."}}},
 		}, nil
 	})
-	registerDrawingMCPTools(server)
+	registerDrawingMCPTools(server, relay)
 	return server
 }
 
 // NewDrawingMCPHandler exposes the drawing-only Streamable HTTP MCP server.
 // It intentionally reuses the personal developer MCP token, while keeping
 // drawing tools on a separate endpoint and scope from bounty tools.
-func NewDrawingMCPHandler() http.Handler {
-	server := newDrawingMCPServer()
+func NewDrawingMCPHandler(sharedAdmission ...gin.HandlerFunc) http.Handler {
+	// Construct once per handler/router, never once per tool invocation. The
+	// application passes the very same closure used by all public relay routes.
+	var admission gin.HandlerFunc
+	if len(sharedAdmission) > 0 {
+		admission = sharedAdmission[0]
+	} else {
+		admission = middleware.RelayRequestAdmission()
+	}
+	server := newDrawingMCPServer(newDrawingMCPRelayEngine(admission))
 	streamable := mcp.NewStreamableHTTPHandler(func(request *http.Request) *mcp.Server {
 		return server
 	}, &mcp.StreamableHTTPOptions{
@@ -316,5 +346,15 @@ func NewDrawingMCPHandler() http.Handler {
 	}
 	return auth.RequireBearerToken(verifier, &auth.RequireBearerTokenOptions{
 		Scopes: []string{"drawing:read", "drawing:write"}, AllowMissingExpiration: true,
-	})(streamable)
+	})(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		// Standalone handlers use the peer IP; only the outer gin router can
+		// supply a proxy-validated client IP. Client JSON cannot set either key.
+		if request.Context().Value(drawingMCPClientIPKey{}) == nil {
+			clientIP, _, _ := net.SplitHostPort(request.RemoteAddr)
+			request = request.WithContext(context.WithValue(request.Context(), drawingMCPClientIPKey{}, clientIP))
+		}
+		request.Header = drawingRelayHeaders(request.Header)
+		request.Body = http.MaxBytesReader(w, request.Body, 64<<10)
+		streamable.ServeHTTP(w, request)
+	}))
 }

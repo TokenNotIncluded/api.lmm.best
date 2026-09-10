@@ -108,7 +108,9 @@ jobs:
           cache: false
 
       - name: Install archive inspection tool
-        run: sudo apt-get update && sudo apt-get install --yes libarchive-tools
+        run: |
+          sudo --preserve-env=GITHUB_ACTIONS python3 scripts/prepare-ci-apt.py
+          sudo apt-get update && sudo apt-get install --yes libarchive-tools
 
       - name: Check and test default Go module
         working-directory: apps/api-go

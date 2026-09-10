@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/LIghtJUNction/api.lmm.best/service/herosms"
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/require"
@@ -72,7 +73,7 @@ func TestHeroSMSSMSBidPriceBounds(t *testing.T) {
 
 func TestHeroSMSSMSPurchaseRefreshAndPricing(t *testing.T) {
 	db := setupHeroSMSTestDB(t)
-	user := createHeroSMSTestUser(t, db, 801, 2_000_000)
+	user := createHeroSMSTestUser(t, db, 801, common.GetTrustQuota())
 	require.NoError(t, UpdateHeroSMSSettings(HeroSMSSettingsUpdate{
 		Enabled:         ptrBool(true),
 		EmailEnabled:    ptrBool(true),
@@ -148,6 +149,7 @@ func TestHeroSMSSMSPurchaseRefreshAndPricing(t *testing.T) {
 	require.Equal(t, HeroSMSSMSOrderStatusActive, order.Status)
 	require.Equal(t, "79001234567", order.PhoneNumber)
 	require.Equal(t, user.Quota-order.ChargeQuota, quota)
+	require.Less(t, quota, common.GetTrustQuota(), "exact-floor purchase deducts only the actual price; replay and code receipt still work below the floor")
 	publicPayload, err = json.Marshal(order)
 	require.NoError(t, err)
 	require.NotContains(t, string(publicPayload), `"provider_price_cny"`)
@@ -342,7 +344,7 @@ func TestHeroSMSSMSLegacyActivationUsesExplicitProviderCancellation(t *testing.T
 
 func TestHeroSMSSMSPriceTiersOperatorsAndBidRefund(t *testing.T) {
 	db := setupHeroSMSTestDB(t)
-	user := createHeroSMSTestUser(t, db, 807, 2_000_000)
+	user := createHeroSMSTestUser(t, db, 807, common.GetTrustQuota())
 	require.NoError(t, UpdateHeroSMSSettings(HeroSMSSettingsUpdate{
 		Enabled:         ptrBool(true),
 		SMSEnabled:      ptrBool(true),
@@ -458,7 +460,7 @@ func TestHeroSMSSMSRejectsUnsafeProviderSettlement(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			db := setupHeroSMSTestDB(t)
-			user := createHeroSMSTestUser(t, db, test.userID, 1_000_000)
+			user := createHeroSMSTestUser(t, db, test.userID, common.GetTrustQuota())
 			require.NoError(t, UpdateHeroSMSSettings(HeroSMSSettingsUpdate{
 				Enabled:         ptrBool(true),
 				SMSEnabled:      ptrBool(true),
@@ -587,7 +589,7 @@ func TestHeroSMSSMSOperatorRemovalStopsBeforeReservation(t *testing.T) {
 
 func TestHeroSMSSMSConcurrentIdempotentRetryPurchasesOnce(t *testing.T) {
 	db := setupHeroSMSTestDB(t)
-	user := createHeroSMSTestUser(t, db, 804, 2_000_000)
+	user := createHeroSMSTestUser(t, db, 804, common.GetTrustQuota())
 	require.NoError(t, UpdateHeroSMSSettings(HeroSMSSettingsUpdate{
 		Enabled:         ptrBool(true),
 		SMSEnabled:      ptrBool(true),
@@ -664,6 +666,7 @@ func TestHeroSMSSMSConcurrentIdempotentRetryPurchasesOnce(t *testing.T) {
 	require.NotNil(t, second.order)
 	require.Equal(t, first.order.ID, second.order.ID)
 	require.EqualValues(t, 1, purchaseCalls.Load())
+	require.Less(t, getUserQuotaValue(user.Id), common.GetTrustQuota(), "the retry under the provider lease must replay after the first debit crosses the floor")
 
 	current, err := ListCurrentHeroSMSSMSOrders(t.Context(), 804)
 	require.NoError(t, err)
@@ -743,7 +746,7 @@ func TestHeroSMSSMSCatalogRanksBySuccessfulPurchases(t *testing.T) {
 
 func TestHeroSMSSMSCancellationRefundsReservedQuota(t *testing.T) {
 	db := setupHeroSMSTestDB(t)
-	user := createHeroSMSTestUser(t, db, 802, 1_000_000)
+	user := createHeroSMSTestUser(t, db, 802, common.GetTrustQuota())
 	require.NoError(t, UpdateHeroSMSSettings(HeroSMSSettingsUpdate{
 		Enabled:         ptrBool(true),
 		SMSEnabled:      ptrBool(true),
@@ -795,6 +798,7 @@ func TestHeroSMSSMSCancellationRefundsReservedQuota(t *testing.T) {
 	require.Equal(t, 250_000, pending.ChargeQuota)
 	require.Equal(t, 250_000, pending.RefundedQuota)
 	require.Less(t, quota, user.Quota)
+	require.Less(t, quota, common.GetTrustQuota(), "existing cancellation and refunds remain available below the purchase floor")
 
 	processed, err := RunHeroSMSSMSReconciliationOnce(t.Context(), 10)
 	require.NoError(t, err)
@@ -808,7 +812,7 @@ func TestHeroSMSSMSCancellationRefundsReservedQuota(t *testing.T) {
 
 func TestHeroSMSSMSCancellationCannotRefundCompletedRace(t *testing.T) {
 	db := setupHeroSMSTestDB(t)
-	user := createHeroSMSTestUser(t, db, 805, 1_000_000)
+	user := createHeroSMSTestUser(t, db, 805, common.GetTrustQuota())
 	require.NoError(t, UpdateHeroSMSSettings(HeroSMSSettingsUpdate{
 		Enabled:         ptrBool(true),
 		SMSEnabled:      ptrBool(true),
@@ -893,7 +897,7 @@ func TestHeroSMSSMSCancellationCannotRefundCompletedRace(t *testing.T) {
 
 func TestHeroSMSSMSCancellationPendingRecoversOnlyAfterUpstreamConfirmation(t *testing.T) {
 	db := setupHeroSMSTestDB(t)
-	user := createHeroSMSTestUser(t, db, 806, 1_000_000)
+	user := createHeroSMSTestUser(t, db, 806, common.GetTrustQuota())
 	require.NoError(t, UpdateHeroSMSSettings(HeroSMSSettingsUpdate{
 		Enabled:         ptrBool(true),
 		SMSEnabled:      ptrBool(true),

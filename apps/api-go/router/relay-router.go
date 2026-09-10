@@ -15,14 +15,19 @@ const (
 	assistantMutationRequestMaxBytes = 16 << 10
 )
 
-func SetRelayRouter(router *gin.Engine) {
+func SetRelayRouter(router *gin.Engine, sharedAdmission ...gin.HandlerFunc) {
 	router.Use(middleware.CORS())
 	router.Use(middleware.DecompressRequestMiddleware())
 	router.Use(middleware.BodyStorageCleanup()) // 清理请求体存储
 	router.Use(middleware.StatsMiddleware())
 	// One process-wide pool across protocols. Register it after authentication
 	// and before any middleware that reads/decodes the request body.
-	largeRequestAdmission := middleware.RelayRequestAdmission()
+	var largeRequestAdmission gin.HandlerFunc
+	if len(sharedAdmission) > 0 {
+		largeRequestAdmission = sharedAdmission[0]
+	} else {
+		largeRequestAdmission = middleware.RelayRequestAdmission()
+	}
 	// https://platform.openai.com/docs/api-reference/introduction
 	modelsRouter := router.Group("/v1/models")
 	modelsRouter.Use(middleware.RouteTag("relay"))
@@ -84,8 +89,8 @@ func SetRelayRouter(router *gin.Engine) {
 	playgroundImageRouter.Use(middleware.RouteTag("relay"))
 	playgroundImageRouter.Use(middleware.SystemPerformanceCheck())
 	playgroundImageRouter.Use(middleware.UserAuth(), largeRequestAdmission)
-	playgroundImageRouter.POST("/generations", middleware.RequestBodyLimit(32<<10), middleware.Distribute(), controller.PlaygroundImage)
-	playgroundImageRouter.POST("/edits", middleware.RequestBodyLimit(82<<20), middleware.Distribute(), controller.PlaygroundImageEdit)
+	playgroundImageRouter.POST("/generations", middleware.RequestBodyLimit(32<<10), controller.PreparePlaygroundImageAuth, middleware.ModelRequestRateLimit(), middleware.Distribute(), controller.PlaygroundImage)
+	playgroundImageRouter.POST("/edits", middleware.RequestBodyLimit(82<<20), controller.PreparePlaygroundImageAuth, middleware.ModelRequestRateLimit(), middleware.Distribute(), controller.PlaygroundImageEdit)
 	assistantPresetRouter := router.Group("/api/assistant/pre-conversation-presets")
 	assistantPresetRouter.Use(middleware.RouteTag("api"))
 	assistantPresetRouter.Use(middleware.SystemPerformanceCheck())
@@ -130,7 +135,8 @@ func SetRelayRouter(router *gin.Engine) {
 		assistantRouter.POST("/handoffs", middleware.RequestBodyLimit(assistantMutationRequestMaxBytes), middleware.UserCriticalRateLimit("assistant-handoff"), middleware.DisableCache(), controller.SubmitAssistantHandoff)
 		assistantRouter.POST("/tools/prepare-key", middleware.RequestBodyLimit(assistantMutationRequestMaxBytes), middleware.ConsoleAccessGate(), middleware.UserCriticalRateLimit("assistant-prepare-key"), middleware.DisableCache(), controller.PrepareAssistantDefaultKey)
 		assistantRouter.POST("/tools/create-key", middleware.RequestBodyLimit(assistantMutationRequestMaxBytes), middleware.ConsoleAccessGate(), middleware.UserCriticalRateLimit("assistant-create-key"), middleware.DisableCache(), controller.CreateAssistantDefaultKey)
-		assistantRouter.POST("/drawing/generate", middleware.UserCriticalRateLimit("assistant-drawing"), middleware.RequestBodyLimit(8<<10), middleware.DisableCache(), controller.GenerateAssistantDrawing)
+		assistantRouter.POST("/drawing/key", middleware.RequestBodyLimit(1<<10), middleware.ConsoleAccessGate(), middleware.UserCriticalRateLimit("assistant-drawing-key"), middleware.DisableCache(), controller.EnsureAssistantDrawingKey)
+		assistantRouter.POST("/drawing/generate", middleware.UserCriticalRateLimit("assistant-drawing"), middleware.RequestBodyLimit(8<<10), middleware.DisableCache(), controller.PrepareAssistantDrawing, middleware.ModelRequestRateLimit(), middleware.Distribute(), controller.GenerateAssistantDrawing)
 	}
 	// Model prices include group ratios and therefore can disclose the same
 	// discounted console inventory as /api/pricing.  Keep this read behind the

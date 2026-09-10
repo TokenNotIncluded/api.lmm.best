@@ -47,7 +47,7 @@ require (
 	github.com/tidwall/gjson v1.19.0
 	github.com/tidwall/sjson v1.2.5
 	github.com/tiktoken-go/tokenizer v0.6.2
-	github.com/waffo-com/waffo-go v1.3.2
+	github.com/waffo-com/waffo-go/v2 v2.1.0
 	github.com/yapingcat/gomedia v0.0.0-20240906162731-17feea57090c
 	golang.org/x/crypto v0.52.0
 	golang.org/x/image v0.41.0
@@ -62,7 +62,7 @@ require (
 )
 
 require (
-	github.com/waffo-com/waffo-pancake-sdk-go v0.9.0
+	github.com/waffo-com/waffo-pancake-sdk-go v0.11.0
 	gorm.io/driver/clickhouse v0.6.0
 )
 

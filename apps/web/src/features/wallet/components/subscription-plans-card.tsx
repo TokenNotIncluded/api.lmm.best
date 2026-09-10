@@ -46,11 +46,11 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import {
-  getPublicPlans,
   getSelfSubscriptionFull,
   updateBillingPreference,
 } from '@/features/subscriptions/api'
 import { SubscriptionPurchaseDialog } from '@/features/subscriptions/components/dialogs/subscription-purchase-dialog'
+import { usePublicPlans } from '@/features/subscriptions/hooks/use-public-plans'
 import {
   SUBSCRIPTION_CHECKOUT_POLL_INTERVAL_MS,
   beginSubscriptionCheckoutConfirmation,
@@ -61,15 +61,20 @@ import {
   subscriptionCheckoutFingerprint,
   type PendingSubscriptionCheckout,
 } from '@/features/subscriptions/lib'
+import { formatPlanSourcePrice } from '@/features/subscriptions/lib/source-price'
 import type {
   PlanRecord,
   UserSubscriptionRecord,
 } from '@/features/subscriptions/types'
-import { formatFiatCurrencyAmount } from '@/lib/currency'
 import { formatQuota } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
+import { useCheckoutScope } from '../hooks/use-checkout-scope'
 import { getEpayMethods } from '../lib'
+import {
+  formatSettlementQuote,
+  getAvailableSettlementQuote,
+} from '../lib/settlement-quote'
 import type { TopupInfo } from '../types'
 import { SubscriptionResetVouchers } from './subscription-reset-vouchers'
 
@@ -139,7 +144,16 @@ function getBillingPreferenceLabel(
   }
 }
 
-export function SubscriptionPlansCard({
+const EMPTY_PLANS: PlanRecord[] = []
+
+export function SubscriptionPlansCard(props: SubscriptionPlansCardProps) {
+  const { key } = useCheckoutScope()
+  return (
+    <ScopedSubscriptionPlansCard key={`${key}:${props.userId}`} {...props} />
+  )
+}
+
+function ScopedSubscriptionPlansCard({
   topupInfo,
   onAvailabilityChange,
   userId,
@@ -148,7 +162,11 @@ export function SubscriptionPlansCard({
 }: SubscriptionPlansCardProps) {
   const { t } = useTranslation()
 
-  const [plans, setPlans] = useState<PlanRecord[]>([])
+  const { isCurrent } = useCheckoutScope()
+  const plansQuery = usePublicPlans()
+  const plans = plansQuery.data ?? EMPTY_PLANS
+  const plansError = plansQuery.isError
+  const { refetch: fetchPlans } = plansQuery
   const [activeSubscriptions, setActiveSubscriptions] = useState<
     UserSubscriptionRecord[]
   >([])
@@ -157,12 +175,17 @@ export function SubscriptionPlansCard({
   >([])
   const [billingPreference, setBillingPreference] =
     useState('subscription_first')
-  const [loading, setLoading] = useState(true)
-  const [plansError, setPlansError] = useState(false)
+  const [subscriptionCheckedAt, setSubscriptionCheckedAt] = useState(
+    () => Date.now() / 1000
+  )
+  const [loadingSelf, setLoadingSelf] = useState(true)
+  const loading = loadingSelf || plansQuery.isPending
   const [refreshing, setRefreshing] = useState(false)
 
   const [purchaseOpen, setPurchaseOpen] = useState(false)
-  const [selectedPlan, setSelectedPlan] = useState<PlanRecord | null>(null)
+  const [selectedPlanId, setSelectedPlanId] = useState<number | null>(null)
+  const selectedPlan =
+    plans.find((record) => record.plan.id === selectedPlanId) ?? null
   const [pendingCheckout, setPendingCheckout] = useState<
     PendingSubscriptionCheckout | undefined
   >(() => readPendingCheckout(userId))
@@ -186,27 +209,13 @@ export function SubscriptionPlansCard({
     [topupInfo?.pay_methods]
   )
 
-  const fetchPlans = useCallback(async () => {
-    try {
-      const res = await getPublicPlans()
-      if (res.success) {
-        setPlans(res.data || [])
-        setPlansError(false)
-      } else {
-        setPlansError(true)
-      }
-    } catch {
-      setPlans([])
-      setPlansError(true)
-    }
-  }, [])
-
   const fetchSelfSubscription = useCallback(async (): Promise<
     string | undefined
   > => {
     try {
       const res = await getSelfSubscriptionFull()
-      if (res.success && res.data) {
+      if (isCurrent() && res.success && res.data) {
+        setSubscriptionCheckedAt(Date.now() / 1000)
         setBillingPreference(
           res.data.billing_preference || 'subscription_first'
         )
@@ -221,15 +230,17 @@ export function SubscriptionPlansCard({
       // ignore
     }
     return undefined
-  }, [])
+  }, [isCurrent])
 
   const clearPendingCheckout = useCallback(() => {
+    if (!isCurrent()) return
     clearPendingCheckoutStorage(pendingCheckoutStorageKey(userId))
     pendingCheckoutRef.current = undefined
     setPendingCheckout(undefined)
-  }, [userId])
+  }, [isCurrent, userId])
 
   const markCheckoutPending = useCallback(() => {
+    if (!isCurrent()) return
     const next = beginSubscriptionCheckoutConfirmation(
       subscriptionFingerprintRef.current
     )
@@ -243,7 +254,7 @@ export function SubscriptionPlansCard({
     }
     pendingCheckoutRef.current = next
     setPendingCheckout(next)
-  }, [userId])
+  }, [isCurrent, userId])
 
   const refreshPendingCheckout = useCallback(async () => {
     const pending = pendingCheckoutRef.current
@@ -259,6 +270,7 @@ export function SubscriptionPlansCard({
     pendingRefreshInFlightRef.current = true
     try {
       const fingerprint = await fetchSelfSubscription()
+      if (!isCurrent()) return
       const latest = pendingCheckoutRef.current
       if (
         latest &&
@@ -270,16 +282,15 @@ export function SubscriptionPlansCard({
     } finally {
       pendingRefreshInFlightRef.current = false
     }
-  }, [clearPendingCheckout, fetchSelfSubscription])
+  }, [clearPendingCheckout, fetchSelfSubscription, isCurrent])
 
   useEffect(() => {
     const init = async () => {
-      setLoading(true)
-      await Promise.all([fetchPlans(), fetchSelfSubscription()])
-      setLoading(false)
+      await fetchSelfSubscription()
+      if (isCurrent()) setLoadingSelf(false)
     }
-    init()
-  }, [fetchPlans, fetchSelfSubscription])
+    void init()
+  }, [fetchSelfSubscription, isCurrent])
 
   useEffect(() => {
     if (!pendingCheckout) return
@@ -304,19 +315,22 @@ export function SubscriptionPlansCard({
   }, [pendingCheckout, refreshPendingCheckout])
 
   const handleRefresh = async () => {
+    if (!isCurrent()) return
     setRefreshing(true)
     try {
       await Promise.all([fetchPlans(), fetchSelfSubscription()])
     } finally {
-      setRefreshing(false)
+      if (isCurrent()) setRefreshing(false)
     }
   }
 
   const handlePreferenceChange = async (pref: string) => {
+    if (!isCurrent()) return
     const previous = billingPreference
     setBillingPreference(pref)
     try {
       const res = await updateBillingPreference(pref)
+      if (!isCurrent()) return
       if (res.success) {
         toast.success(t('Updated successfully'))
         const normalized = res.data?.billing_preference || pref
@@ -326,6 +340,7 @@ export function SubscriptionPlansCard({
         setBillingPreference(previous)
       }
     } catch {
+      if (!isCurrent()) return
       toast.error(t('Request failed'))
       setBillingPreference(previous)
     }
@@ -368,8 +383,7 @@ export function SubscriptionPlansCard({
   const getRemainingDays = (sub: UserSubscriptionRecord) => {
     const endTime = sub?.subscription?.end_time || 0
     if (!endTime) return 0
-    const now = Date.now() / 1000
-    return Math.max(0, Math.ceil((endTime - now) / 86400))
+    return Math.max(0, Math.ceil((endTime - subscriptionCheckedAt) / 86400))
   }
 
   const getUsagePercent = (sub: UserSubscriptionRecord) => {
@@ -562,8 +576,8 @@ export function SubscriptionPlansCard({
                     planTitleMap.get(subscription?.plan_id) || ''
                   const remainDays = getRemainingDays(sub)
                   const usagePercent = getUsagePercent(sub)
-                  const now = Date.now() / 1000
-                  const isExpired = (subscription?.end_time || 0) < now
+                  const isExpired =
+                    (subscription?.end_time || 0) < subscriptionCheckedAt
                   const isCancelled = subscription?.status === 'cancelled'
                   const isActive =
                     subscription?.status === 'active' && !isExpired
@@ -703,15 +717,14 @@ export function SubscriptionPlansCard({
               const plan = p?.plan
               if (!plan) return null
               const totalAmount = Number(plan.total_amount || 0)
-              const price = formatFiatCurrencyAmount(
-                Number(plan.price_amount || 0),
-                plan.currency || 'USD',
-                {
-                  abbreviate: false,
-                  digitsLarge: 2,
-                  digitsSmall: 2,
-                }
-              )
+              const price = formatPlanSourcePrice(plan)
+              const settlementQuote = !plansQuery.isFetching
+                ? getAvailableSettlementQuote(p.waffo_pancake_settlement)
+                : null
+              const showPancakeSettlement =
+                p.waffo_pancake_settlement !== undefined ||
+                p.payment_methods?.includes('waffo_pancake') ||
+                (enableWaffoPancake && !!plan.waffo_pancake_product_id)
               const isPopular = index === 0 && plans.length > 1
               const limit = Number(plan.max_purchase_per_user || 0)
               const count = planPurchaseCountMap.get(plan.id) || 0
@@ -719,12 +732,16 @@ export function SubscriptionPlansCard({
               const hasPlanPaymentCatalog = Array.isArray(p.payment_methods)
               const hasPlanCheckout = hasPlanPaymentCatalog
                 ? (p.payment_methods || []).some(
-                    (method) => method !== 'balance'
+                    (method) =>
+                      method !== 'balance' &&
+                      (method !== 'waffo_pancake' || !!settlementQuote)
                   )
                 : !paymentUnavailable &&
                   ((enableStripe && !!plan.stripe_price_id) ||
                     (enableCreem && !!plan.creem_product_id) ||
-                    (enableWaffoPancake && !!plan.waffo_pancake_product_id) ||
+                    (enableWaffoPancake &&
+                      !!plan.waffo_pancake_product_id &&
+                      !!settlementQuote) ||
                     (enableOnlineTopUp && epayMethods.length > 0))
               const canPurchase =
                 isPlanBalancePaymentAvailable(p) || hasPlanCheckout
@@ -778,7 +795,8 @@ export function SubscriptionPlansCard({
                     variant='outline'
                     className='w-full'
                     onClick={() => {
-                      setSelectedPlan(p)
+                      if (!isCurrent()) return
+                      setSelectedPlanId(plan.id)
                       setPurchaseOpen(true)
                     }}
                   >
@@ -819,8 +837,34 @@ export function SubscriptionPlansCard({
 
                     <div className='py-2'>
                       <span className='text-primary text-2xl font-bold'>
-                        {price}
+                        {price ?? t('Source price unavailable')}
                       </span>
+                      {showPancakeSettlement && (
+                        <div
+                          className='text-muted-foreground mt-2 space-y-1 text-xs'
+                          aria-live='polite'
+                        >
+                          <p>
+                            {t('Waffo Pancake payable')}:{' '}
+                            {settlementQuote
+                              ? formatSettlementQuote(settlementQuote)
+                              : plansQuery.isFetching
+                                ? t('Loading...')
+                                : t(
+                                    p.waffo_pancake_settlement?.reason ||
+                                      'Settlement quote unavailable'
+                                  )}
+                          </p>
+                          {!settlementQuote && !plansQuery.isFetching && (
+                            <a
+                              href='/profile'
+                              className='underline underline-offset-4'
+                            >
+                              {t('Change settlement currency')}
+                            </a>
+                          )}
+                        </div>
+                      )}
                     </div>
 
                     <div className='flex-1 space-y-1.5 pb-3'>

@@ -27,7 +27,14 @@ import {
 
 import { requestWaffoPancakePayment, isApiSuccess } from '../api'
 import { isSafeHttpCheckoutUrl } from '../lib'
+import {
+  expectedSettlement,
+  isSettlementQuoteChanged,
+  parseSettlementQuote,
+  SettlementQuoteChangedError,
+} from '../lib/settlement-quote'
 import type { WaffoPancakePaymentRequest } from '../types'
+import { useCheckoutScope } from './use-checkout-scope'
 
 function getCheckoutUrl(data: unknown): string | null {
   if (!data || typeof data !== 'object') {
@@ -57,21 +64,32 @@ function getErrorMessage(message: string | undefined, data: unknown): string {
  */
 export function useWaffoPancakePayment() {
   const [processing, setProcessing] = useState(false)
+  const { isCurrent } = useCheckoutScope()
 
   const processWaffoPancakePayment = useCallback(
     async (
       topupAmount: number,
       checkoutOptions?: Pick<
         WaffoPancakePaymentRequest,
-        'checkout_region' | 'checkout_language' | 'discount_code'
+        | 'checkout_region'
+        | 'checkout_language'
+        | 'discount_code'
+        | 'settlement_amount'
+        | 'settlement_currency'
       >
     ) => {
+      const quote = parseSettlementQuote({
+        amount: checkoutOptions?.settlement_amount,
+        currency: checkoutOptions?.settlement_currency,
+      })
+      if (!quote || !isCurrent()) return false
       setProcessing(true)
 
       try {
         const interfaceLanguage = i18next.resolvedLanguage || i18next.language
         const response = await requestWaffoPancakePayment({
           amount: Math.floor(topupAmount),
+          ...expectedSettlement(quote),
           checkout_region:
             checkoutOptions?.checkout_region ??
             getDefaultWaffoPancakeCheckoutRegion(interfaceLanguage),
@@ -83,6 +101,10 @@ export function useWaffoPancakePayment() {
             : {}),
         })
 
+        if (!isCurrent()) return false
+        if (isSettlementQuoteChanged(response)) {
+          throw new SettlementQuoteChangedError()
+        }
         if (isApiSuccess(response)) {
           const checkoutUrl = getCheckoutUrl(response.data)
 
@@ -101,14 +123,18 @@ export function useWaffoPancakePayment() {
 
         toast.error(getErrorMessage(response.message, response.data))
         return false
-      } catch {
+      } catch (error) {
+        if (!isCurrent()) return false
+        if (isSettlementQuoteChanged(error)) {
+          throw new SettlementQuoteChangedError()
+        }
         toast.error(i18next.t('Payment request failed'))
         return false
       } finally {
         setProcessing(false)
       }
     },
-    []
+    [isCurrent]
   )
 
   return { processing, processWaffoPancakePayment }

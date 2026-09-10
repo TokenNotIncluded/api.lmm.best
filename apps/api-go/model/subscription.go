@@ -273,6 +273,7 @@ type SubscriptionOrder struct {
 	ProviderStoreId           string `json:"provider_store_id" gorm:"type:varchar(255);index"`
 	ProviderSubscriptionId    string `json:"provider_subscription_id" gorm:"type:varchar(255);index"`
 	ProviderSubscriptionState string `json:"provider_subscription_state" gorm:"type:varchar(32);index"`
+	ProviderEventTimeMillis   int64  `json:"-" gorm:"not null;default:0"`
 	CurrentPeriodStart        int64  `json:"current_period_start"`
 	CurrentPeriodEnd          int64  `json:"current_period_end" gorm:"index"`
 	FailureReasonCode         string `json:"failure_reason_code,omitempty" gorm:"type:varchar(64);not null;default:''"`
@@ -280,8 +281,9 @@ type SubscriptionOrder struct {
 	ProviderPayload string `json:"provider_payload" gorm:"type:text"`
 }
 
-// SubscriptionPaymentEvent is the immutable per-cycle settlement ledger for a
-// recurring provider subscription.
+// SubscriptionPaymentEvent is an immutable recurring payment receipt. Modern
+// Pancake payments have NULL period boundaries (read as zero); only explicitly
+// supplied legacy payment boundaries may populate the concrete-period key.
 type SubscriptionPaymentEvent struct {
 	Id                     int    `json:"id"`
 	SubscriptionOrderId    int    `json:"subscription_order_id" gorm:"not null;index;uniqueIndex:idx_subscription_order_period,priority:1"`
@@ -1176,8 +1178,18 @@ func applySubscriptionPaymentEventTx(tx *gorm.DB, tradeNo string, paymentEvent *
 // UpdateSubscriptionProviderState synchronizes non-payment lifecycle events.
 // Cancellation revokes local access; canceling/past_due remain usable only
 // through the already-paid current period.
-func UpdateSubscriptionProviderState(tradeNo, expectedProvider, providerSubscriptionId, providerState string, periodStart, periodEnd, canceledAt int64) error {
+func UpdateSubscriptionProviderState(tradeNo, expectedProvider, providerSubscriptionId, providerState string, periodStart, periodEnd, canceledAt int64, eventTimes ...int64) error {
 	providerState = strings.TrimSpace(providerState)
+	if providerState == "uncanceled" {
+		providerState = "active"
+	}
+	eventTimeMillis := int64(0)
+	if len(eventTimes) > 0 {
+		eventTimeMillis = eventTimes[0]
+	}
+	if eventTimeMillis < 0 || canceledAt < 0 {
+		return gorm.ErrInvalidData
+	}
 	groupChanged := false
 	userId := 0
 	err := DB.Transaction(func(tx *gorm.DB) error {
@@ -1188,18 +1200,33 @@ func UpdateSubscriptionProviderState(tradeNo, expectedProvider, providerSubscrip
 		if expectedProvider != "" && order.PaymentProvider != expectedProvider {
 			return ErrPaymentMethodMismatch
 		}
-		order.ProviderSubscriptionId = strings.TrimSpace(providerSubscriptionId)
+		providerSubscriptionId = strings.TrimSpace(providerSubscriptionId)
+		if providerSubscriptionId == "" || (order.ProviderSubscriptionId != "" && order.ProviderSubscriptionId != providerSubscriptionId) {
+			return ErrPaymentEvidenceConflict
+		}
+		if eventTimeMillis < order.ProviderEventTimeMillis || (periodEnd > 0 && periodEnd < order.CurrentPeriodEnd) {
+			return nil
+		}
+		if eventTimeMillis > 0 && eventTimeMillis/1000 < order.CurrentPeriodStart {
+			return nil
+		}
+		terminalState := subscriptionProviderStateTerminal(providerState)
+		if subscriptionProviderStateTerminal(order.ProviderSubscriptionState) && !terminalState {
+			return nil
+		}
+		order.ProviderSubscriptionId = providerSubscriptionId
 		order.ProviderSubscriptionState = providerState
-		if periodStart > 0 {
+		order.ProviderEventTimeMillis = eventTimeMillis
+		// Non-granting states cannot move the authoritative access window.
+		if order.CurrentPeriodStart == 0 && periodStart > 0 {
 			order.CurrentPeriodStart = periodStart
 		}
-		if periodEnd > 0 {
+		if order.CurrentPeriodEnd == 0 && periodEnd > 0 {
 			order.CurrentPeriodEnd = periodEnd
 		}
 		if err := tx.Save(&order).Error; err != nil {
 			return err
 		}
-		terminalState := providerState == "canceled" || providerState == "expired" || providerState == "paused" || providerState == "unpaid"
 		if !terminalState || order.UserSubscriptionId <= 0 {
 			return nil
 		}
@@ -1208,14 +1235,18 @@ func UpdateSubscriptionProviderState(tradeNo, expectedProvider, providerSubscrip
 			return err
 		}
 		now := common.GetTimestamp()
-		endTime := canceledAt
-		if endTime <= 0 || endTime > now {
-			endTime = now
+		// canceledAt is when cancellation was requested, not when access ends.
+		// Only the terminal event itself can end access; never backdate it to
+		// an earlier cancel-at-period-end request.
+		endTime := now
+		if eventTimeMillis > 0 && eventTimeMillis/1000 < endTime {
+			endTime = eventTimeMillis / 1000
 		}
 		if subscription.EndTime == 0 || subscription.EndTime > endTime {
 			subscription.EndTime = endTime
 		}
 		subscription.Status = "cancelled"
+		subscription.NextResetTime = 0
 		subscription.UpdatedAt = now
 		if err := tx.Save(subscription).Error; err != nil {
 			return err
