@@ -491,6 +491,15 @@ function WalletCheckout(props: WalletProps) {
   }
 
   const calculateCheckoutAmount = (paymentType: string, revision: number) => {
+    const candidateCode = candidateDiscountCode || discountCodeFromUrl
+    if (candidateCode && !urlDiscountLocked && !appliedDiscountCode) {
+      discountUrlValidationRef.current = {
+        code: candidateCode,
+        amount: topupAmount,
+        paymentType,
+        revision,
+      }
+    }
     const code =
       appliedDiscountCode ||
       (urlDiscountLocked ? discountCodeFromUrl || candidateDiscountCode : '') ||
@@ -515,6 +524,15 @@ function WalletCheckout(props: WalletProps) {
     index: number
   ) => {
     const revision = resetPendingPayment()
+    const candidateCode = candidateDiscountCode || discountCodeFromUrl
+    if (candidateCode && !urlDiscountLocked && !appliedDiscountCode) {
+      discountUrlValidationRef.current = {
+        code: candidateCode,
+        amount: topupAmount,
+        paymentType: PAYMENT_TYPES.WAFFO,
+        revision,
+      }
+    }
     const loadingKey = `waffo-${index}`
     setSelectedPaymentMethod({
       name: method.name,
@@ -572,6 +590,15 @@ function WalletCheckout(props: WalletProps) {
     }
 
     const revision = resetPendingPayment()
+    const candidateCode = candidateDiscountCode || discountCodeFromUrl
+    if (candidateCode && !urlDiscountLocked && !appliedDiscountCode) {
+      discountUrlValidationRef.current = {
+        code: candidateCode,
+        amount: topupAmount,
+        paymentType: method.type,
+        revision,
+      }
+    }
     setSelectedPaymentMethod(method)
     setSelectedWaffoMethodIndex(null)
     setPaymentLoading(method.type)
@@ -903,18 +930,30 @@ function WalletCheckout(props: WalletProps) {
                   discountCodeFromUrl={urlDiscountLocked}
                   onDiscountCodeChange={(value) => {
                     if (urlDiscountLocked) return
-                    resetPendingPayment()
                     setDiscountCode(value)
                     setDiscountCodeOrigin('manual')
                     setDiscountCodeFromUrl('')
                     setCandidateDiscountCode('')
                     setUrlDiscountLocked(false)
+                    const trimmed = value.trim()
                     if (
                       appliedDiscountCode &&
-                      value.trim() !== appliedDiscountCode
+                      trimmed !== appliedDiscountCode
                     ) {
+                      resetPendingPayment()
                       setAppliedDiscountCode('')
                       setDiscountPercent(null)
+                      const paymentType = getCurrentPaymentType()
+                      if (paymentType) {
+                        void calculatePaymentAmount(topupAmount, paymentType)
+                      }
+                    } else if (discountApplying) {
+                      resetPendingPayment()
+                      setDiscountApplying(false)
+                    } else if (
+                      !trimmed &&
+                      !isPositivePaymentAmount(paymentAmount)
+                    ) {
                       const paymentType = getCurrentPaymentType()
                       if (paymentType) {
                         void calculatePaymentAmount(topupAmount, paymentType)

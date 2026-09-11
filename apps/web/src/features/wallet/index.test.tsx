@@ -930,6 +930,13 @@ for (const [scope, changeScope] of Object.entries(scopeChanges)) {
 
 test('proceed to payment preserves selected Waffo sub-method index and dispatches successfully', async () => {
   window.history.replaceState({}, '', '/wallet')
+  const originalOpen = window.open
+  const popup = {
+    closed: false,
+    focus: () => undefined,
+    location: { href: '' },
+  }
+  window.open = (() => popup) as unknown as typeof window.open
   const waffoPayRequests: Array<{ url: string; body: unknown }> = []
   api.post = (async (url, body) => {
     if (url === '/api/user/waffo/amount') {
@@ -937,6 +944,105 @@ test('proceed to payment preserves selected Waffo sub-method index and dispatche
     }
     if (url === '/api/user/waffo/pay') {
       waffoPayRequests.push({ url, body })
+      return {
+        data: {
+          success: true,
+          data: { payment_url: 'https://waffo.example.test/pay' },
+        },
+      }
+    }
+    return { data: { message: 'success', data: '10.00' } }
+  }) as typeof api.post
+
+  try {
+    const waffoTopup: Partial<TopupInfo> = {
+      enable_online_topup: true,
+      enable_waffo_topup: true,
+      pay_methods: [
+        {
+          name: 'alipay',
+          type: 'alipay',
+          settlement_currency: 'CNY',
+          platform_units_per_usd: '7',
+          settlement_units_per_usd: '7',
+        },
+      ],
+      waffo_pay_methods: [
+        {
+          name: 'Waffo Card',
+          payMethodType: 'card',
+          payMethodName: 'waffo_card',
+        },
+        {
+          name: 'Waffo Crypto',
+          payMethodType: 'crypto',
+          payMethodName: 'waffo_crypto',
+        },
+      ],
+      min_topup: 10,
+      waffo_min_topup: 10,
+      amount_options: [10, 100],
+    }
+
+    const { container, queryClient } = await renderWallet(true, {
+      topupInfo: waffoTopup,
+    })
+
+    // Find Waffo Crypto button (index 1)
+    const waffoCryptoBtn = Array.from(
+      container.querySelectorAll<HTMLButtonElement>('button')
+    ).find((btn) => btn.textContent?.includes('Waffo Crypto'))
+    assert.ok(waffoCryptoBtn, 'Waffo Crypto button should exist')
+
+    // Click Waffo Crypto (opens confirmation dialog)
+    await act(async () => waffoCryptoBtn.click())
+    let dialog = document.querySelector('[role="alertdialog"]')
+    assert.ok(dialog, 'confirmation dialog should open')
+
+    // Close dialog without submitting
+    const cancelBtn = Array.from(
+      dialog.querySelectorAll<HTMLButtonElement>('button')
+    ).find((b) => b.textContent?.trim() === 'Cancel')
+    assert.ok(cancelBtn, 'cancel button should exist')
+    await act(async () => cancelBtn.click())
+    assert.equal(document.querySelector('[role="alertdialog"]'), null)
+
+    // Now click primary Pay CTA
+    const payCta = Array.from(
+      container.querySelectorAll<HTMLButtonElement>('button')
+    ).find((btn) => btn.textContent?.startsWith('Pay '))
+    assert.ok(payCta, 'primary pay CTA should exist')
+    await act(async () => payCta.click())
+
+    // Confirmation dialog opens again
+    dialog = document.querySelector('[role="alertdialog"]')
+    assert.ok(dialog, 'dialog should re-open after clicking primary pay CTA')
+
+    // Confirm payment
+    await act(async () => confirmButton().click())
+
+    // Verify that dispatchSelectedPayment dispatched to /api/user/waffo/pay with pay_method_index: 1
+    assert.equal(waffoPayRequests.length, 1)
+    assert.deepEqual(waffoPayRequests[0].body, {
+      amount: 10,
+      pay_method_index: 1,
+    })
+    assert.equal(popup.location.href, 'https://waffo.example.test/pay')
+    assert.ok(container.textContent?.includes('Payment page opened'))
+    assert.equal(document.querySelector('[role="alertdialog"]'), null)
+    queryClient.clear()
+  } finally {
+    window.open = originalOpen
+  }
+})
+
+test('proceed to payment handles missing Waffo payment URL failure', async () => {
+  window.history.replaceState({}, '', '/wallet')
+  api.post = (async (url) => {
+    if (url === '/api/user/waffo/amount') {
+      return { data: { message: 'success', data: '10.00' } }
+    }
+    if (url === '/api/user/waffo/pay') {
       return {
         data: {
           success: true,
@@ -965,11 +1071,6 @@ test('proceed to payment preserves selected Waffo sub-method index and dispatche
         payMethodType: 'card',
         payMethodName: 'waffo_card',
       },
-      {
-        name: 'Waffo Crypto',
-        payMethodType: 'crypto',
-        payMethodName: 'waffo_crypto',
-      },
     ],
     min_topup: 10,
     waffo_min_topup: 10,
@@ -980,45 +1081,19 @@ test('proceed to payment preserves selected Waffo sub-method index and dispatche
     topupInfo: waffoTopup,
   })
 
-  // Find Waffo Crypto button (index 1)
-  const waffoCryptoBtn = Array.from(
+  const waffoCardBtn = Array.from(
     container.querySelectorAll<HTMLButtonElement>('button')
-  ).find((btn) => btn.textContent?.includes('Waffo Crypto'))
-  assert.ok(waffoCryptoBtn, 'Waffo Crypto button should exist')
+  ).find((btn) => btn.textContent?.includes('Waffo Card'))
+  assert.ok(waffoCardBtn, 'Waffo Card button should exist')
 
-  // Click Waffo Crypto (opens confirmation dialog)
-  await act(async () => waffoCryptoBtn.click())
-  let dialog = document.querySelector('[role="alertdialog"]')
+  await act(async () => waffoCardBtn.click())
+  const dialog = document.querySelector('[role="alertdialog"]')
   assert.ok(dialog, 'confirmation dialog should open')
 
-  // Close dialog without submitting
-  const cancelBtn = Array.from(
-    dialog.querySelectorAll<HTMLButtonElement>('button')
-  ).find((b) => b.textContent?.trim() === 'Cancel')
-  assert.ok(cancelBtn, 'cancel button should exist')
-  await act(async () => cancelBtn.click())
-  assert.equal(document.querySelector('[role="alertdialog"]'), null)
-
-  // Now click primary Pay CTA
-  const payCta = Array.from(
-    container.querySelectorAll<HTMLButtonElement>('button')
-  ).find((btn) => btn.textContent?.startsWith('Pay '))
-  assert.ok(payCta, 'primary pay CTA should exist')
-  await act(async () => payCta.click())
-
-  // Confirmation dialog opens again
-  dialog = document.querySelector('[role="alertdialog"]')
-  assert.ok(dialog, 'dialog should re-open after clicking primary pay CTA')
-
-  // Confirm payment
   await act(async () => confirmButton().click())
 
-  // Verify that dispatchSelectedPayment dispatched to /api/user/waffo/pay with pay_method_index: 1
-  assert.equal(waffoPayRequests.length, 1)
-  assert.deepEqual(waffoPayRequests[0].body, {
-    amount: 10,
-    pay_method_index: 1,
-  })
+  assert.ok(container.textContent?.includes('Payment request failed'))
+  assert.equal(container.textContent?.includes('Payment page opened'), false)
   queryClient.clear()
 })
 
@@ -1163,6 +1238,151 @@ test('invalid URL discount code reverts to regular price and allows checkout wit
   )
   // Last quote did not have discount_code
   assert.equal(quotes.at(-1)?.discount_code, undefined)
+
+  queryClient.clear()
+})
+
+test('typing a discount code draft and deleting it back to empty keeps Pay button enabled and opens confirmation dialog', async () => {
+  window.history.replaceState({}, '', '/wallet')
+  api.post = (async (url) => {
+    assert.equal(url, '/api/user/amount')
+    return {
+      data: {
+        message: 'success',
+        data: '10.00',
+      },
+    }
+  }) as typeof api.post
+
+  const { container, queryClient } = await renderWallet(true)
+
+  const payCta = Array.from(
+    container.querySelectorAll<HTMLButtonElement>('button')
+  ).find((btn) => btn.textContent?.startsWith('Pay '))
+  assert.ok(payCta, 'Pay CTA should exist')
+  assert.equal(payCta.disabled, false)
+
+  const input = container.querySelector<HTMLInputElement>('#discount-code')
+  assert.ok(input, 'discount code input should exist')
+
+  const setValue = Object.getOwnPropertyDescriptor(
+    domWindow.HTMLInputElement.prototype,
+    'value'
+  )?.set
+  assert.ok(setValue)
+  const changeCode = (code: string) =>
+    act(async () => {
+      setValue.call(input, code)
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+
+  // User types a draft discount code without applying
+  await changeCode('TESTCODE')
+  assert.equal(input.value, 'TESTCODE')
+  assert.equal(
+    payCta.disabled,
+    false,
+    'Pay CTA remains enabled while typing draft'
+  )
+
+  // User deletes it back to empty
+  await changeCode('')
+  assert.equal(input.value, '')
+  assert.equal(
+    payCta.disabled,
+    false,
+    'Pay CTA remains enabled after clearing draft'
+  )
+
+  // Clicking Pay CTA opens confirmation dialog at regular price
+  await act(async () => payCta.click())
+  const dialog = document.querySelector('[role="alertdialog"]')
+  assert.ok(
+    dialog,
+    'confirmation dialog must open after typing and clearing discount code'
+  )
+  assert.ok(dialog.textContent?.includes('10 CNY'))
+
+  queryClient.clear()
+})
+
+test('invalid URL discount code does not abort checkout when switching payment methods', async () => {
+  window.history.replaceState({}, '', '/wallet?discount_code=EXPIRED')
+  let validationCalled = 0
+  const validation = deferred<{ data: { success: boolean; message: string } }>()
+  const wxpayQuote = deferred<{ data: { message: string; data: string } }>()
+  const quotes: AmountRequest[] = []
+
+  api.post = (async (url, request) => {
+    if (url === '/api/user/discount-code/validate') {
+      validationCalled++
+      return validation.promise
+    }
+    assert.equal(url, '/api/user/amount')
+    const req = request as AmountRequest
+    quotes.push(req)
+    if (req.payment_method === 'wxpay') {
+      return wxpayQuote.promise
+    }
+    return {
+      data: {
+        message: 'success',
+        data: '10.00',
+      },
+    }
+  }) as typeof api.post
+
+  const { container, queryClient } = await renderWallet(true)
+  assert.equal(validationCalled, 1)
+
+  // Fail initial URL validation on Alipay
+  await act(async () =>
+    validation.resolve({
+      data: {
+        success: false,
+        message: 'The coupon code has expired',
+      },
+    })
+  )
+
+  // Switch to WeChat Pay option
+  const wxpayOptionBtn = Array.from(
+    container.querySelectorAll<HTMLButtonElement>('button')
+  ).find(
+    (btn) =>
+      btn.textContent?.includes('wxpay') ||
+      btn.getAttribute('aria-label')?.includes('wxpay') ||
+      btn.getAttribute('aria-label')?.includes('Payment option 2')
+  )
+  assert.ok(wxpayOptionBtn, 'WeChat Pay option button should exist')
+
+  // Click WeChat Pay to initiate checkout with delayed quote
+  await act(async () => wxpayOptionBtn.click())
+
+  // Ensure dead URL code is not re-validated on method switch
+  assert.equal(
+    validationCalled,
+    1,
+    'switching payment method must not re-trigger validation of dead URL discount code'
+  )
+
+  // Resolve the WeChat Pay quote
+  await act(async () =>
+    wxpayQuote.resolve({
+      data: {
+        message: 'success',
+        data: '10.00',
+      },
+    })
+  )
+
+  // Confirmation dialog opens successfully for WeChat Pay at regular price
+  const dialog = document.querySelector('[role="alertdialog"]')
+  assert.ok(
+    dialog,
+    'confirmation dialog must open successfully for WeChat Pay without being aborted by stale revision'
+  )
+  assert.ok(dialog.textContent?.includes('10 CNY'))
 
   queryClient.clear()
 })
