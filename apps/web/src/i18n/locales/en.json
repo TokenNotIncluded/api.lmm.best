@@ -6228,7 +6228,7 @@
     "Saving image bytes in this browser...": "Saving image bytes in this browser...",
     "Saving...": "Saving...",
     "Scan QR Code": "Scan QR Code",
-    "Scan the QR code to follow the official account and reply with “验证码” to receive your verification code.": "Scan the QR code to follow the official account and send the message “验证码” to receive your verification code.",
+    "Scan the QR code to follow the official account and reply with “验证码” to receive your verification code.": "Scan the QR code to follow the official account and send the message “verification code” to receive your verification code.",
     "Scan this QR code with your authenticator app (Google Authenticator, Microsoft Authenticator, etc.)": "Scan this QR code with your authenticator app (Google Authenticator, Microsoft Authenticator, etc.)",
     "Scan user prompts before they are sent to an upstream model.": "Scan user prompts before they are sent to an upstream model.",
     "Scenario Templates": "Scenario Templates",

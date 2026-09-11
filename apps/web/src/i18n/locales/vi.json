@@ -6228,7 +6228,7 @@
     "Saving image bytes in this browser...": "Đang lưu dữ liệu ảnh vào trình duyệt này…",
     "Saving...": "Đang lưu...",
     "Scan QR Code": "Quét mã QR",
-    "Scan the QR code to follow the official account and reply with “验证码” to receive your verification code.": "Quét mã QR để theo dõi tài khoản chính thức, trả lời « 验证码 » để nhận mã xác minh.",
+    "Scan the QR code to follow the official account and reply with “验证码” to receive your verification code.": "Quét mã QR để theo dõi tài khoản chính thức, trả lời « mã xác minh » để nhận mã xác minh.",
     "Scan this QR code with your authenticator app (Google Authenticator, Microsoft Authenticator, etc.)": "Quét mã QR này bằng ứng dụng xác thực của bạn (Google Authenticator, Microsoft Authenticator, v.v.)",
     "Scan user prompts before they are sent to an upstream model.": "Quét prompt của người dùng trước khi gửi đến mô hình upstream.",
     "Scenario Templates": "Mẫu kịch bản",
