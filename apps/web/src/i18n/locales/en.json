@@ -1971,6 +1971,7 @@
     "Current Password": "Current Password",
     "Current Price": "Current Price",
     "Current quota": "Current quota",
+    "Current settlement currency: {{currency}}": "Current settlement currency: {{currency}}",
     "Current signed-in account · API usage balance": "Current signed-in account · API usage balance",
     "Current step": "Current step",
     "Current step: {{step}}": "Current step: {{step}}",

@@ -1971,6 +1971,7 @@
     "Current Password": "Mật khẩu hiện tại",
     "Current Price": "Giá hiện tại",
     "Current quota": "Hạn mức hiện tại",
+    "Current settlement currency: {{currency}}": "Đơn vị tiền tệ thanh toán hiện tại: {{currency}}",
     "Current signed-in account · API usage balance": "Tài khoản đang đăng nhập · số dư sử dụng API",
     "Current step": "Bước hiện tại",
     "Current step: {{step}}": "Bước hiện tại: {{step}}",

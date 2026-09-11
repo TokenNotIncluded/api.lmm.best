@@ -1971,6 +1971,7 @@
     "Current Password": "Mot de passe actuel",
     "Current Price": "Prix actuel",
     "Current quota": "Quota actuel",
+    "Current settlement currency: {{currency}}": "Devise de règlement actuelle : {{currency}}",
     "Current signed-in account · API usage balance": "Compte actuellement connecté · solde d'utilisation de l'API",
     "Current step": "Étape en cours",
     "Current step: {{step}}": "Étape en cours : {{step}}",

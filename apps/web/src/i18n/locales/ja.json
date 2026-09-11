@@ -1971,6 +1971,7 @@
     "Current Password": "現在のパスワード",
     "Current Price": "現在の価格",
     "Current quota": "現在のクォータ",
+    "Current settlement currency: {{currency}}": "現在の決済通貨：{{currency}}",
     "Current signed-in account · API usage balance": "現在ログイン中のアカウント · API 利用残高",
     "Current step": "現在の手順",
     "Current step: {{step}}": "現在の手順: {{step}}",

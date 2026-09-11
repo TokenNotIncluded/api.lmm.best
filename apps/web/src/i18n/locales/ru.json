@@ -1971,6 +1971,7 @@
     "Current Password": "Текущий пароль",
     "Current Price": "Текущая цена",
     "Current quota": "Текущая квота",
+    "Current settlement currency: {{currency}}": "Текущая валюта расчёта: {{currency}}",
     "Current signed-in account · API usage balance": "Текущая учётная запись · баланс использования API",
     "Current step": "Текущий шаг",
     "Current step: {{step}}": "Текущий шаг: {{step}}",

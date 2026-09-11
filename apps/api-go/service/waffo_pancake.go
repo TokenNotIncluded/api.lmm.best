@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -452,6 +453,31 @@ func CreateWaffoPancakeCheckoutSession(ctx context.Context, params *WaffoPancake
 		Token:          session.Token,
 		TokenExpiresAt: session.TokenExpiresAt,
 	}, nil
+}
+
+// FormatWaffoPancakeError extracts structured diagnostics from *pancake.Error
+// (including HTTP status, layers, error messages, and AI hints) without
+// exposing credentials or secrets.
+func FormatWaffoPancakeError(err error) string {
+	if err == nil {
+		return ""
+	}
+	var pancakeErr *pancake.Error
+	if errors.As(err, &pancakeErr) {
+		var notices []string
+		for _, notice := range pancakeErr.Errors {
+			detail := notice.Message
+			if notice.Layer != "" {
+				detail = fmt.Sprintf("[%s] %s", notice.Layer, detail)
+			}
+			if notice.AIHint != "" {
+				detail = fmt.Sprintf("%s (hint: %s)", detail, notice.AIHint)
+			}
+			notices = append(notices, detail)
+		}
+		return fmt.Sprintf("status=%d notices=%s raw=%q", pancakeErr.Status, strings.Join(notices, "; "), err.Error())
+	}
+	return err.Error()
 }
 
 func optionalString(s string) *string {
