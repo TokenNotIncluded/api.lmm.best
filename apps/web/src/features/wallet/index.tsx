@@ -56,6 +56,7 @@ import {
 } from './hooks'
 import { useCheckoutScope } from './hooks/use-checkout-scope'
 import {
+  getDefaultPaymentType,
   getTopupAvailability,
   getMinTopupAmount,
   isPaymentMethodCurrencySupported,
@@ -138,6 +139,9 @@ function WalletCheckout(props: WalletProps) {
   const [urlDiscountLocked, setUrlDiscountLocked] = useState(
     Boolean(initialDiscountCode)
   )
+  const [discountCodeOrigin, setDiscountCodeOrigin] = useState<
+    'url' | 'manual' | null
+  >(() => (initialDiscountCode ? 'url' : null))
   const [appliedDiscountCode, setAppliedDiscountCode] = useState('')
   const [discountPercent, setDiscountPercent] = useState<number | null>(null)
   const [discountApplying, setDiscountApplying] = useState(false)
@@ -396,7 +400,7 @@ function WalletCheckout(props: WalletProps) {
       } finally {
         if (isCurrent() && revision === paymentInputRevisionRef.current) {
           setDiscountApplying(false)
-          setUrlDiscountLocked(applied)
+          setUrlDiscountLocked(fromUrl ? applied : false)
         }
       }
     },
@@ -421,8 +425,7 @@ function WalletCheckout(props: WalletProps) {
     if (
       previous?.amount === topupAmount &&
       previous.paymentType === paymentType &&
-      previous.code === candidateCode &&
-      previous.revision === paymentInputRevisionRef.current
+      previous.code === candidateCode
     ) {
       return
     }
@@ -466,7 +469,10 @@ function WalletCheckout(props: WalletProps) {
       appliedDiscountCode ||
       (discountApplying ? discountCode.trim() : '')
     if (candidateCode && amount >= getMinTopupAmount(topupInfo)) {
-      void applyDiscountCode(candidateCode, true, {
+      const isFromUrl =
+        discountCodeOrigin === 'url' &&
+        Boolean(candidateDiscountCode || discountCodeFromUrl)
+      void applyDiscountCode(candidateCode, isFromUrl, {
         amount,
         paymentType,
         revision,
@@ -486,14 +492,15 @@ function WalletCheckout(props: WalletProps) {
 
   const calculateCheckoutAmount = (paymentType: string, revision: number) => {
     const code =
-      candidateDiscountCode ||
-      discountCodeFromUrl ||
       appliedDiscountCode ||
+      (urlDiscountLocked ? discountCodeFromUrl || candidateDiscountCode : '') ||
       (discountApplying ? discountCode.trim() : '')
     return code
       ? applyDiscountCode(
           code,
-          Boolean(candidateDiscountCode || discountCodeFromUrl),
+          Boolean(
+            urlDiscountLocked && (candidateDiscountCode || discountCodeFromUrl)
+          ),
           {
             amount: topupAmount,
             paymentType,
@@ -501,6 +508,46 @@ function WalletCheckout(props: WalletProps) {
           }
         )
       : calculatePaymentAmount(topupAmount, paymentType)
+  }
+
+  const handleWaffoMethodSelect = async (
+    method: WaffoPayMethod,
+    index: number
+  ) => {
+    const revision = resetPendingPayment()
+    const loadingKey = `waffo-${index}`
+    setSelectedPaymentMethod({
+      name: method.name,
+      type: PAYMENT_TYPES.WAFFO,
+      icon: method.icon,
+      settlement_unit: topupInfo?.waffo_currency || 'USD',
+      unit_price: topupInfo?.waffo_unit_price,
+    })
+    setSelectedWaffoMethodIndex(index)
+    setPaymentLoading(loadingKey)
+
+    try {
+      const calculatedAmount = await calculateCheckoutAmount(
+        PAYMENT_TYPES.WAFFO,
+        revision
+      )
+      if (!isCurrent() || revision !== paymentInputRevisionRef.current) return
+      if (!isPositivePaymentAmount(calculatedAmount)) {
+        setSelectedPaymentMethod(undefined)
+        setSelectedWaffoMethodIndex(null)
+        const reason =
+          lastQuoteErrorRef.current ||
+          t('Unable to calculate payment quote. Please retry.')
+        toast.error(reason)
+        return
+      }
+      confirmedQuoteRevisionRef.current = revision
+      setConfirmDialogOpen(true)
+    } finally {
+      if (revision === paymentInputRevisionRef.current) {
+        setPaymentLoading(null)
+      }
+    }
   }
 
   // Handle payment method selection
@@ -512,6 +559,16 @@ function WalletCheckout(props: WalletProps) {
         )
       )
       return
+    }
+
+    if (method.type === PAYMENT_TYPES.WAFFO) {
+      const index = selectedWaffoMethodIndex ?? 0
+      const waffoMethod =
+        topupInfo?.waffo_pay_methods?.[index] ??
+        topupAvailability.waffoMethods[0]
+      if (waffoMethod) {
+        return handleWaffoMethodSelect(waffoMethod, index)
+      }
     }
 
     const revision = resetPendingPayment()
@@ -671,7 +728,54 @@ function WalletCheckout(props: WalletProps) {
   }
 
   const handleApplyDiscount = () => {
-    void applyDiscountCode(discountCode)
+    if (!discountCode.trim()) return
+    setDiscountCodeOrigin('manual')
+    void applyDiscountCode(discountCode.trim(), false)
+  }
+
+  const handleRemoveDiscount = useCallback(() => {
+    resetPendingPayment()
+    setDiscountCode('')
+    setCandidateDiscountCode('')
+    setDiscountCodeFromUrl('')
+    setAppliedDiscountCode('')
+    setDiscountPercent(null)
+    setDiscountCodeOrigin(null)
+    setUrlDiscountLocked(false)
+    const paymentType = getCurrentPaymentType()
+    if (paymentType) {
+      void calculatePaymentAmount(topupAmount, paymentType)
+    }
+  }, [
+    calculatePaymentAmount,
+    getCurrentPaymentType,
+    resetPendingPayment,
+    topupAmount,
+  ])
+
+  const handleProceedToPayment = async () => {
+    if (selectedPaymentMethod?.type === PAYMENT_TYPES.WAFFO) {
+      const index = selectedWaffoMethodIndex ?? 0
+      const waffoMethod =
+        topupInfo?.waffo_pay_methods?.[index] ??
+        topupAvailability.waffoMethods[0]
+      if (waffoMethod) {
+        return handleWaffoMethodSelect(waffoMethod, index)
+      }
+    }
+    const currentMethod =
+      selectedPaymentMethod ||
+      topupAvailability.standardMethods.find(
+        (method) => method.type === getDefaultPaymentType(topupInfo)
+      ) ||
+      topupAvailability.standardMethods[0]
+
+    if (currentMethod) {
+      return handlePaymentMethodSelect(currentMethod)
+    }
+    if (topupAvailability.waffoMethods.length > 0) {
+      return handleWaffoMethodSelect(topupAvailability.waffoMethods[0], 0)
+    }
   }
 
   // Handle transfer
@@ -727,46 +831,6 @@ function WalletCheckout(props: WalletProps) {
         tone: 'destructive',
         message: t('Payment request failed'),
       })
-    }
-  }
-
-  const handleWaffoMethodSelect = async (
-    method: WaffoPayMethod,
-    index: number
-  ) => {
-    const revision = resetPendingPayment()
-    const loadingKey = `waffo-${index}`
-    setSelectedPaymentMethod({
-      name: method.name,
-      type: PAYMENT_TYPES.WAFFO,
-      icon: method.icon,
-      settlement_unit: topupInfo?.waffo_currency || 'USD',
-      unit_price: topupInfo?.waffo_unit_price,
-    })
-    setSelectedWaffoMethodIndex(index)
-    setPaymentLoading(loadingKey)
-
-    try {
-      const calculatedAmount = await calculateCheckoutAmount(
-        PAYMENT_TYPES.WAFFO,
-        revision
-      )
-      if (!isCurrent() || revision !== paymentInputRevisionRef.current) return
-      if (!isPositivePaymentAmount(calculatedAmount)) {
-        setSelectedPaymentMethod(undefined)
-        setSelectedWaffoMethodIndex(null)
-        const reason =
-          lastQuoteErrorRef.current ||
-          t('Unable to calculate payment quote. Please retry.')
-        toast.error(reason)
-        return
-      }
-      confirmedQuoteRevisionRef.current = revision
-      setConfirmDialogOpen(true)
-    } finally {
-      if (revision === paymentInputRevisionRef.current) {
-        setPaymentLoading(null)
-      }
     }
   }
 
@@ -841,6 +905,7 @@ function WalletCheckout(props: WalletProps) {
                     if (urlDiscountLocked) return
                     resetPendingPayment()
                     setDiscountCode(value)
+                    setDiscountCodeOrigin('manual')
                     setDiscountCodeFromUrl('')
                     setCandidateDiscountCode('')
                     setUrlDiscountLocked(false)
@@ -857,6 +922,8 @@ function WalletCheckout(props: WalletProps) {
                     }
                   }}
                   onApplyDiscount={handleApplyDiscount}
+                  onRemoveDiscount={handleRemoveDiscount}
+                  onProceedToPayment={handleProceedToPayment}
                   discountApplying={discountApplying}
                   discountPercent={discountPercent}
                   topupLink={topupInfo?.topup_link}

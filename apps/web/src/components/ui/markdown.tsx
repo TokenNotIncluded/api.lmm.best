@@ -732,31 +732,29 @@ const markdownParser = new Marked({
 
 markdownParser.use(...markdownExtensions)
 
-function isExternalUrl(href: string): boolean {
+export function isExternalUrl(href: string): boolean {
   if (!href) return false
+  const trimmed = href.trim()
   if (
-    href.startsWith('/') ||
-    href.startsWith('#') ||
-    href.startsWith('?') ||
-    href.startsWith('mailto:') ||
-    href.startsWith('tel:')
+    trimmed.startsWith('#') ||
+    trimmed.startsWith('?') ||
+    trimmed.startsWith('mailto:') ||
+    trimmed.startsWith('tel:') ||
+    trimmed.startsWith('javascript:')
   ) {
     return false
   }
   try {
-    const url = new URL(
-      href,
-      typeof window !== 'undefined'
+    const base =
+      typeof window !== 'undefined' && window.location?.href
+        ? window.location.href
+        : 'http://localhost'
+    const url = new URL(trimmed, base)
+    const currentOrigin =
+      typeof window !== 'undefined' && window.location?.origin
         ? window.location.origin
         : 'http://localhost'
-    )
-    if (
-      typeof window !== 'undefined' &&
-      url.origin === window.location.origin
-    ) {
-      return false
-    }
-    return true
+    return url.origin !== currentOrigin
   } catch {
     return false
   }

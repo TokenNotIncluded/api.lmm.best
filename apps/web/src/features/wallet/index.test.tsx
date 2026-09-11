@@ -927,3 +927,242 @@ for (const [scope, changeScope] of Object.entries(scopeChanges)) {
     queryClient.clear()
   })
 }
+
+test('proceed to payment preserves selected Waffo sub-method index and dispatches successfully', async () => {
+  window.history.replaceState({}, '', '/wallet')
+  const waffoPayRequests: Array<{ url: string; body: unknown }> = []
+  api.post = (async (url, body) => {
+    if (url === '/api/user/waffo/amount') {
+      return { data: { message: 'success', data: '10.00' } }
+    }
+    if (url === '/api/user/waffo/pay') {
+      waffoPayRequests.push({ url, body })
+      return {
+        data: {
+          success: true,
+          data: { checkout_url: 'https://waffo.example.test/pay' },
+        },
+      }
+    }
+    return { data: { message: 'success', data: '10.00' } }
+  }) as typeof api.post
+
+  const waffoTopup: Partial<TopupInfo> = {
+    enable_online_topup: true,
+    enable_waffo_topup: true,
+    pay_methods: [
+      {
+        name: 'alipay',
+        type: 'alipay',
+        settlement_currency: 'CNY',
+        platform_units_per_usd: '7',
+        settlement_units_per_usd: '7',
+      },
+    ],
+    waffo_pay_methods: [
+      {
+        name: 'Waffo Card',
+        payMethodType: 'card',
+        payMethodName: 'waffo_card',
+      },
+      {
+        name: 'Waffo Crypto',
+        payMethodType: 'crypto',
+        payMethodName: 'waffo_crypto',
+      },
+    ],
+    min_topup: 10,
+    waffo_min_topup: 10,
+    amount_options: [10, 100],
+  }
+
+  const { container, queryClient } = await renderWallet(true, {
+    topupInfo: waffoTopup,
+  })
+
+  // Find Waffo Crypto button (index 1)
+  const waffoCryptoBtn = Array.from(
+    container.querySelectorAll<HTMLButtonElement>('button')
+  ).find((btn) => btn.textContent?.includes('Waffo Crypto'))
+  assert.ok(waffoCryptoBtn, 'Waffo Crypto button should exist')
+
+  // Click Waffo Crypto (opens confirmation dialog)
+  await act(async () => waffoCryptoBtn.click())
+  let dialog = document.querySelector('[role="alertdialog"]')
+  assert.ok(dialog, 'confirmation dialog should open')
+
+  // Close dialog without submitting
+  const cancelBtn = Array.from(
+    dialog.querySelectorAll<HTMLButtonElement>('button')
+  ).find((b) => b.textContent?.trim() === 'Cancel')
+  assert.ok(cancelBtn, 'cancel button should exist')
+  await act(async () => cancelBtn.click())
+  assert.equal(document.querySelector('[role="alertdialog"]'), null)
+
+  // Now click primary Pay CTA
+  const payCta = Array.from(
+    container.querySelectorAll<HTMLButtonElement>('button')
+  ).find((btn) => btn.textContent?.startsWith('Pay '))
+  assert.ok(payCta, 'primary pay CTA should exist')
+  await act(async () => payCta.click())
+
+  // Confirmation dialog opens again
+  dialog = document.querySelector('[role="alertdialog"]')
+  assert.ok(dialog, 'dialog should re-open after clicking primary pay CTA')
+
+  // Confirm payment
+  await act(async () => confirmButton().click())
+
+  // Verify that dispatchSelectedPayment dispatched to /api/user/waffo/pay with pay_method_index: 1
+  assert.equal(waffoPayRequests.length, 1)
+  assert.deepEqual(waffoPayRequests[0].body, {
+    amount: 10,
+    pay_method_index: 1,
+  })
+  queryClient.clear()
+})
+
+test('manual discount code is not locked as URL discount and can be edited or removed', async () => {
+  window.history.replaceState({}, '', '/wallet')
+  api.post = (async (url, request) => {
+    if (url === '/api/user/discount-code/validate') {
+      const code = (request as { code: string }).code
+      if (code === 'MANUAL20') {
+        return {
+          data: {
+            success: true,
+            data: { code: 'MANUAL20', discount_percent: 20, min_amount: 10 },
+          },
+        }
+      }
+      return { data: { success: false, message: 'Invalid code' } }
+    }
+    assert.equal(url, '/api/user/amount')
+    const req = request as AmountRequest
+    return {
+      data: {
+        message: 'success',
+        data: req.discount_code ? '8.00' : '10.00',
+      },
+    }
+  }) as typeof api.post
+
+  const { container, queryClient } = await renderWallet(true)
+  const input = container.querySelector<HTMLInputElement>('#discount-code')
+  assert.ok(input)
+  assert.equal(input.readOnly, false)
+
+  // Type MANUAL20
+  const setValue = Object.getOwnPropertyDescriptor(
+    domWindow.HTMLInputElement.prototype,
+    'value'
+  )?.set
+  assert.ok(setValue)
+  await act(async () => {
+    setValue.call(input, 'MANUAL20')
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+
+  const applyBtn = Array.from(
+    container.querySelectorAll<HTMLButtonElement>('button')
+  ).find((b) => b.textContent?.trim() === 'Apply')
+  assert.ok(applyBtn)
+  await act(async () => applyBtn.click())
+
+  // Discount is applied
+  assert.ok(container.textContent?.includes('Discount applied: 20% off'))
+  // Input is STILL NOT readOnly
+  assert.equal(
+    input.readOnly,
+    false,
+    'manual discount should not lock input as readOnly'
+  )
+  // Label does not say "Discount code from URL"
+  assert.equal(container.textContent?.includes('Discount code from URL'), false)
+  assert.equal(
+    container.textContent?.includes(
+      'This code came from the checkout link and cannot be edited.'
+    ),
+    false
+  )
+
+  // "Remove" button appears
+  const removeBtn = Array.from(
+    container.querySelectorAll<HTMLButtonElement>('button')
+  ).find((b) => b.textContent?.trim() === 'Remove')
+  assert.ok(removeBtn, 'Remove button should exist for applied discount')
+
+  // Click Remove
+  await act(async () => removeBtn.click())
+
+  // Discount is cleared
+  assert.equal(input.value, '')
+  assert.equal(
+    container.textContent?.includes('Discount applied: 20% off'),
+    false
+  )
+  queryClient.clear()
+})
+
+test('invalid URL discount code reverts to regular price and allows checkout without error', async () => {
+  window.history.replaceState({}, '', '/wallet?discount_code=EXPIRED')
+  let validationCalled = 0
+  const validation = deferred<{ data: { success: boolean; message: string } }>()
+  const quotes: AmountRequest[] = []
+  api.post = (async (url, request) => {
+    if (url === '/api/user/discount-code/validate') {
+      validationCalled++
+      return validation.promise
+    }
+    assert.equal(url, '/api/user/amount')
+    const req = request as AmountRequest
+    quotes.push(req)
+    return {
+      data: {
+        message: 'success',
+        data: '10.00',
+      },
+    }
+  }) as typeof api.post
+
+  const { container, queryClient } = await renderWallet(true)
+  assert.equal(validationCalled, 1)
+
+  // Resolve validation as expired/failed
+  await act(async () =>
+    validation.resolve({
+      data: {
+        success: false,
+        message: 'The coupon code has expired',
+      },
+    })
+  )
+
+  // UI reverted to regular price (no discount applied)
+  assert.equal(container.textContent?.includes('Discount applied'), false)
+
+  const payCta = Array.from(
+    container.querySelectorAll<HTMLButtonElement>('button')
+  ).find((btn) => btn.textContent?.startsWith('Pay '))
+  assert.ok(payCta, 'Pay CTA should exist')
+  await act(async () => payCta.click())
+
+  // Confirmation dialog opens successfully at regular price
+  const dialog = document.querySelector('[role="alertdialog"]')
+  assert.ok(
+    dialog,
+    'confirmation dialog must open successfully for regular price'
+  )
+  assert.ok(dialog.textContent?.includes('10 CNY'))
+
+  // Validation was NOT re-called with the dead code during checkout
+  assert.equal(
+    validationCalled,
+    1,
+    'checkout must not re-validate the invalid code'
+  )
+  // Last quote did not have discount_code
+  assert.equal(quotes.at(-1)?.discount_code, undefined)
+
+  queryClient.clear()
+})

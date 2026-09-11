@@ -68,6 +68,7 @@ import {
   type WaffoPancakeCheckoutRegion,
 } from '@/lib/waffo-pancake-checkout'
 
+import { PAYMENT_TYPES } from '../constants'
 import {
   getPaymentIcon,
   getPaymentMaxTopupAmount,
@@ -140,6 +141,8 @@ interface RechargeFormCardProps {
     region: WaffoPancakeCheckoutRegion
   ) => void
   neutralMode?: boolean
+  onProceedToPayment?: () => void
+  onRemoveDiscount?: () => void
 }
 
 export function RechargeFormCard({
@@ -177,6 +180,8 @@ export function RechargeFormCard({
   waffoPancakeCheckoutRegion,
   onWaffoPancakeCheckoutRegionChange,
   neutralMode = false,
+  onProceedToPayment,
+  onRemoveDiscount,
 }: RechargeFormCardProps) {
   const { t, i18n } = useTranslation()
   const formatPlatformCreditBalance = (amount: number) =>
@@ -231,7 +236,17 @@ export function RechargeFormCard({
     selectedPaymentMethod ??
     standardMethods.find(
       (method) => method.type === getDefaultPaymentType(topupInfo)
-    )
+    ) ??
+    standardMethods[0] ??
+    (waffoMethods.length > 0
+      ? {
+          name: waffoMethods[0].name,
+          type: PAYMENT_TYPES.WAFFO,
+          icon: waffoMethods[0].icon,
+          settlement_unit: topupInfo?.waffo_currency || 'USD',
+          unit_price: topupInfo?.waffo_unit_price,
+        }
+      : undefined)
   const usesSettlementQuote = isWaffoPancakePayment(
     effectivePaymentMethod?.type ?? ''
   )
@@ -744,27 +759,42 @@ export function RechargeFormCard({
                         autoComplete='off'
                         maxLength={64}
                       />
-                      <Button
-                        onClick={onApplyDiscount}
-                        disabled={
-                          discountCodeFromUrl ||
-                          discountApplying ||
-                          !discountCode.trim()
-                        }
-                        variant='outline'
-                        className='h-9 px-4'
-                      >
-                        {discountApplying && (
-                          <HugeiconsIcon
-                            icon={Loading03Icon}
-                            className='animate-spin'
-                            data-icon='inline-start'
-                          />
-                        )}
-                        {discountCodeFromUrl && discountPercent !== null
-                          ? t('Applied')
-                          : t('Apply')}
-                      </Button>
+                      <div className='flex items-center gap-1.5'>
+                        {onRemoveDiscount &&
+                          (discountPercent !== null ||
+                            (!discountCodeFromUrl && discountCode.trim())) && (
+                            <Button
+                              type='button'
+                              onClick={onRemoveDiscount}
+                              disabled={discountApplying}
+                              variant='ghost'
+                              className='text-muted-foreground hover:text-foreground h-9 px-2.5'
+                            >
+                              {t('Remove')}
+                            </Button>
+                          )}
+                        <Button
+                          onClick={onApplyDiscount}
+                          disabled={
+                            discountCodeFromUrl ||
+                            discountApplying ||
+                            !discountCode.trim()
+                          }
+                          variant='outline'
+                          className='h-9 px-4'
+                        >
+                          {discountApplying && (
+                            <HugeiconsIcon
+                              icon={Loading03Icon}
+                              className='animate-spin'
+                              data-icon='inline-start'
+                            />
+                          )}
+                          {discountCodeFromUrl && discountPercent !== null
+                            ? t('Applied')
+                            : t('Apply')}
+                        </Button>
+                      </div>
                     </div>
                     {discountCodeFromUrl ? (
                       <p className='text-muted-foreground text-xs'>
@@ -1077,60 +1107,63 @@ export function RechargeFormCard({
                   </div>
                 </div>
               )}
-              {hasStandardPaymentMethods && effectivePaymentMethod && (
-                <div className='bg-muted/40 mt-3 flex flex-col gap-3 rounded-lg border p-3.5 sm:p-4'>
-                  <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
-                    <div className='flex min-w-0 flex-col'>
-                      <span className='text-muted-foreground text-xs font-medium'>
-                        {t('Total')}
-                      </span>
-                      <div className='flex items-baseline gap-2'>
-                        <span className='text-xl font-bold sm:text-2xl'>
-                          {paymentAmountLabel}
+              {(hasStandardPaymentMethods || hasWaffoPaymentMethods) &&
+                effectivePaymentMethod && (
+                  <div className='bg-muted/40 mt-3 flex flex-col gap-3 rounded-lg border p-3.5 sm:p-4'>
+                    <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
+                      <div className='flex min-w-0 flex-col'>
+                        <span className='text-muted-foreground text-xs font-medium'>
+                          {t('Total')}
                         </span>
-                        {discountCodeSavingAmount > 0 &&
-                          hasCurrentPaymentAmount &&
-                          !isUpdatingQuote && (
-                            <span className='text-muted-foreground text-xs line-through'>
-                              {formatSelectedPaymentAmount(
-                                effectivePaymentAmount +
-                                  discountCodeSavingAmount
-                              )}
-                            </span>
-                          )}
+                        <div className='flex items-baseline gap-2'>
+                          <span className='text-xl font-bold sm:text-2xl'>
+                            {paymentAmountLabel}
+                          </span>
+                          {discountCodeSavingAmount > 0 &&
+                            hasCurrentPaymentAmount &&
+                            !isUpdatingQuote && (
+                              <span className='text-muted-foreground text-xs line-through'>
+                                {formatSelectedPaymentAmount(
+                                  effectivePaymentAmount +
+                                    discountCodeSavingAmount
+                                )}
+                              </span>
+                            )}
+                        </div>
                       </div>
+                      <Button
+                        type='button'
+                        size='default'
+                        className='h-10 font-semibold sm:min-w-44'
+                        disabled={
+                          isUpdatingQuote ||
+                          !hasCurrentPaymentAmount ||
+                          Boolean(paymentLoading)
+                        }
+                        onClick={() =>
+                          onProceedToPayment
+                            ? onProceedToPayment()
+                            : onPaymentMethodSelect(effectivePaymentMethod)
+                        }
+                      >
+                        {isUpdatingQuote ? (
+                          <>
+                            <HugeiconsIcon
+                              icon={Loading03Icon}
+                              className='animate-spin'
+                              data-icon='inline-start'
+                            />
+                            {discountApplying
+                              ? t('Validating discount...')
+                              : t('Calculating...')}
+                          </>
+                        ) : (
+                          t('Pay {{amount}}', { amount: paymentAmountLabel })
+                        )}
+                      </Button>
                     </div>
-                    <Button
-                      type='button'
-                      size='default'
-                      className='h-10 font-semibold sm:min-w-44'
-                      disabled={
-                        isUpdatingQuote ||
-                        !hasCurrentPaymentAmount ||
-                        Boolean(paymentLoading)
-                      }
-                      onClick={() =>
-                        onPaymentMethodSelect(effectivePaymentMethod)
-                      }
-                    >
-                      {isUpdatingQuote ? (
-                        <>
-                          <HugeiconsIcon
-                            icon={Loading03Icon}
-                            className='animate-spin'
-                            data-icon='inline-start'
-                          />
-                          {discountApplying
-                            ? t('Validating discount...')
-                            : t('Calculating...')}
-                        </>
-                      ) : (
-                        t('Pay {{amount}}', { amount: paymentAmountLabel })
-                      )}
-                    </Button>
                   </div>
-                </div>
-              )}
+                )}
             </>
           )}
         </div>
