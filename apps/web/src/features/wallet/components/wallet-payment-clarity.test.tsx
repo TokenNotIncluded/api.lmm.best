@@ -50,6 +50,9 @@ const domGlobals = [
   'requestAnimationFrame',
   'cancelAnimationFrame',
   'getComputedStyle',
+  'matchMedia',
+  'customElements',
+  'CSSStyleSheet',
   'localStorage',
 ] as const
 
@@ -1282,5 +1285,52 @@ describe('wallet payment clarity', () => {
 
     await unmount(rendered)
     await i18n.changeLanguage('en')
+  })
+
+  test('PaymentConfirmDialog renders discount code savings and strikethrough for settlement quotes', async () => {
+    const rendered = await render(
+      <PaymentConfirmDialog
+        open
+        onOpenChange={() => undefined}
+        onConfirm={() => undefined}
+        topupAmount={100}
+        paymentAmount={8.47}
+        settlementQuote={{ amount: '8.4700', currency: 'USD' }}
+        paymentMethod={{
+          name: 'Waffo Pancake',
+          type: 'waffo_pancake',
+        }}
+        calculating={false}
+        processing={false}
+        discountCode='SAVE40'
+        discountPercent={40}
+      />
+    )
+
+    const text =
+      document.querySelector('[role="alertdialog"]')?.textContent ?? ''
+    assert.ok(
+      text.includes('8.4700 USD'),
+      'actual payment quote should be rendered'
+    )
+    assert.ok(text.includes('SAVE40'), 'discount code should be displayed')
+    assert.ok(
+      text.includes('Discount applied: 40% off'),
+      'discount percent should be displayed'
+    )
+    assert.ok(
+      text.includes('Discount code saves'),
+      'savings line should be displayed'
+    )
+    assert.ok(
+      text.includes('14.12 USD'),
+      'pre-discount strikethrough amount should be rendered'
+    )
+    assert.ok(
+      text.includes('5.65 USD'),
+      'discount code savings amount should be rendered'
+    )
+
+    await unmount(rendered)
   })
 })

@@ -375,6 +375,72 @@ test('a failed checkout-link discount unlocks manual retry without an automatic 
   queryClient.clear()
 })
 
+test('a failed checkout-link discount automatically revalidates when the user selects a qualifying amount', async () => {
+  window.history.replaceState({}, '', '/wallet?discount_code=SAVE')
+  const validationRequests: Array<{ code: string; amount: number }> = []
+  api.post = (async (url, request) => {
+    if (url === '/api/user/discount-code/validate') {
+      const body = request as { code: string; amount: number }
+      validationRequests.push({ code: body.code, amount: body.amount })
+      if (body.amount < 50) {
+        return {
+          data: {
+            success: false,
+            message: 'Amount does not meet discount requirements',
+          },
+        }
+      }
+      return {
+        data: {
+          success: true,
+          data: { code: 'SAVE', discount_percent: 40, min_amount: 50 },
+        },
+      }
+    }
+    assert.equal(url, '/api/user/amount')
+    const req = request as AmountRequest
+    return {
+      data: {
+        message: 'success',
+        data: req.discount_code ? String(req.amount * 0.6) : String(req.amount),
+      },
+    }
+  }) as typeof api.post
+
+  const { container, queryClient } = await renderWallet(true, {
+    topupInfo: {
+      amount_options: [10, 100],
+      min_topup: 10,
+    },
+  })
+
+  assert.equal(validationRequests.length, 1)
+  assert.equal(validationRequests[0].amount, 10)
+
+  const preset100 = Array.from(
+    container.querySelectorAll<HTMLButtonElement>('button')
+  ).find((btn) => btn.getAttribute('aria-label')?.includes('100'))
+  assert.ok(preset100, 'preset 100 button should exist')
+  await act(async () => preset100.click())
+
+  assert.equal(validationRequests.length, 2)
+  assert.equal(validationRequests[1].amount, 100)
+  assert.equal(validationRequests[1].code, 'SAVE')
+  assert.ok(container.textContent?.includes('Discount applied: 40% off'))
+  queryClient.clear()
+})
+
+test('an unactivated account retains access to the discount code input when configurable topup is enabled', async () => {
+  window.history.replaceState({}, '', '/wallet')
+  const { container, queryClient } = await renderWallet(false)
+  const input = container.querySelector<HTMLInputElement>('#discount-code')
+  assert.ok(
+    input,
+    'discount code input should be available even in neutralMode'
+  )
+  queryClient.clear()
+})
+
 test('editing a pending manual discount prevents the old code from approving a quote', async () => {
   window.history.replaceState({}, '', '/wallet')
   const oldValidation = deferred<ValidationResult>()

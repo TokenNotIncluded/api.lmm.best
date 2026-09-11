@@ -7559,9 +7559,58 @@ const targetedUiTranslationFixes = {
   },
 }
 
+const walletUiFixes = {
+  en: {
+    'Validating discount...': 'Validating discount...',
+    'Unable to calculate payment quote. Please retry.':
+      'Unable to calculate payment quote. Please retry.',
+    'Payment quote unavailable': 'Payment quote unavailable',
+  },
+  zh: {
+    'Validating discount...': '正在验证优惠...',
+    'Unable to calculate payment quote. Please retry.':
+      '暂时无法获取报价，尚未发起付款。请重试。',
+    'Payment quote unavailable': '暂时无法获取付款报价',
+  },
+  'zh-TW': {
+    'Validating discount...': '正在驗證優惠...',
+    'Unable to calculate payment quote. Please retry.':
+      '暫時無法獲取報價，尚未發起付款。請重試。',
+    'Payment quote unavailable': '暫時無法獲取付款報價',
+  },
+  fr: {
+    'Validating discount...': 'Validation de la réduction...',
+    'Unable to calculate payment quote. Please retry.':
+      'Impossible de calculer le devis de paiement. Veuillez réessayer.',
+    'Payment quote unavailable': 'Devis de paiement indisponible',
+  },
+  ja: {
+    'Validating discount...': '割引を確認中...',
+    'Unable to calculate payment quote. Please retry.':
+      '支払い見積もりを計算できません。もう一度お試しください。',
+    'Payment quote unavailable': '支払い見積もりを利用できません',
+  },
+  ru: {
+    'Validating discount...': 'Проверка скидки...',
+    'Unable to calculate payment quote. Please retry.':
+      'Не удалось рассчитать стоимость платежа. Повторите попытку.',
+    'Payment quote unavailable': 'Стоимость платежа недоступна',
+  },
+  vi: {
+    'Validating discount...': 'Đang xác thực giảm giá...',
+    'Unable to calculate payment quote. Please retry.':
+      'Không thể tính báo giá thanh toán. Vui lòng thử lại.',
+    'Payment quote unavailable': 'Báo giá thanh toán không khả dụng',
+  },
+}
+
 for (const [locale, translations] of Object.entries(
   targetedUiTranslationFixes
 )) {
+  Object.assign(newKeys[locale], translations)
+}
+
+for (const [locale, translations] of Object.entries(walletUiFixes)) {
   Object.assign(newKeys[locale], translations)
 }
 

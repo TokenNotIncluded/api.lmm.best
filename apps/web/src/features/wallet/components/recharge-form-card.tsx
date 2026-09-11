@@ -252,10 +252,11 @@ export function RechargeFormCard({
     ? paymentAmount / customDiscount
     : paymentAmount
   const customDiscountAmount = customOriginalPayment - paymentAmount
-  const discountCodeSavingAmount =
-    !usesSettlementQuote && hasCurrentPaymentAmount
-      ? discountCodeSavings(paymentAmount, discountPercent)
-      : 0
+  const effectivePaymentAmount =
+    usesSettlementQuote && quote ? Number(quote.amount) : paymentAmount
+  const discountCodeSavingAmount = hasCurrentPaymentAmount
+    ? discountCodeSavings(effectivePaymentAmount, discountPercent)
+    : 0
   const settlementUnit = usesSettlementQuote
     ? null
     : getPaymentSettlementUnit(effectivePaymentMethod, true)
@@ -276,7 +277,9 @@ export function RechargeFormCard({
   const formatSelectedPaymentAmount = (amount: number) =>
     usesSettlementQuote
       ? quote
-        ? formatSettlementQuote(quote)
+        ? amount === Number(quote.amount)
+          ? formatSettlementQuote(quote)
+          : formatPaymentAmount(amount, quote.currency)
         : t('Payment unavailable')
       : settlementUnit
         ? formatSettlementAmount(amount, settlementUnit.label)
@@ -285,8 +288,11 @@ export function RechargeFormCard({
     usesSettlementQuote
       ? t('Payment unavailable')
       : formatSelectedPaymentAmount(amount)
-  const paymentAmountLabel = calculating
-    ? t('Calculating...')
+  const isUpdatingQuote = calculating || discountApplying
+  const paymentAmountLabel = isUpdatingQuote
+    ? discountApplying
+      ? t('Validating discount...')
+      : t('Calculating...')
     : hasCurrentPaymentAmount
       ? formatSelectedPaymentAmount(paymentAmount)
       : t('Payment unavailable')
@@ -694,6 +700,108 @@ export function RechargeFormCard({
                 </Field>
               </FieldGroup>
 
+              {hasConfigurableTopup ? (
+                <FieldGroup>
+                  <Field>
+                    <div className='flex items-center justify-between gap-2'>
+                      <div className='flex items-center gap-2'>
+                        <IconBadge tone='success' size='xs'>
+                          <HugeiconsIcon icon={GiftIcon} strokeWidth={2} />
+                        </IconBadge>
+                        <Label
+                          htmlFor='discount-code'
+                          className='text-muted-foreground text-xs font-medium tracking-wider uppercase'
+                        >
+                          {discountCodeFromUrl
+                            ? t('Discount code from URL')
+                            : t('Discount code')}
+                        </Label>
+                      </div>
+                      {discountPercent !== null &&
+                        discountPercent !== undefined && (
+                          <Badge
+                            variant='secondary'
+                            className='text-xs font-medium'
+                          >
+                            {t('Discount applied: {{percent}}% off', {
+                              percent: discountPercent,
+                            })}
+                          </Badge>
+                        )}
+                    </div>
+                    <div className='grid grid-cols-[minmax(0,1fr)_auto] gap-2'>
+                      <Input
+                        id='discount-code'
+                        value={discountCode}
+                        onChange={(e) => onDiscountCodeChange?.(e.target.value)}
+                        placeholder={t('Enter your discount code')}
+                        readOnly={discountCodeFromUrl}
+                        aria-readonly={discountCodeFromUrl}
+                        className={cn(
+                          'h-9 min-w-0 uppercase',
+                          discountCodeFromUrl && 'bg-muted font-mono'
+                        )}
+                        autoComplete='off'
+                        maxLength={64}
+                      />
+                      <Button
+                        onClick={onApplyDiscount}
+                        disabled={
+                          discountCodeFromUrl ||
+                          discountApplying ||
+                          !discountCode.trim()
+                        }
+                        variant='outline'
+                        className='h-9 px-4'
+                      >
+                        {discountApplying && (
+                          <HugeiconsIcon
+                            icon={Loading03Icon}
+                            className='animate-spin'
+                            data-icon='inline-start'
+                          />
+                        )}
+                        {discountCodeFromUrl && discountPercent !== null
+                          ? t('Applied')
+                          : t('Apply')}
+                      </Button>
+                    </div>
+                    {discountCodeFromUrl ? (
+                      <p className='text-muted-foreground text-xs'>
+                        {t(
+                          'This code came from the checkout link and cannot be edited.'
+                        )}
+                      </p>
+                    ) : null}
+                    {discountPercent !== null &&
+                    discountPercent !== undefined ? (
+                      <div className='text-success flex flex-wrap items-center gap-x-3 gap-y-1 text-xs'>
+                        <span>
+                          {t('Discount applied: {{percent}}% off', {
+                            percent: discountPercent,
+                          })}
+                        </span>
+                        {discountCodeSavingAmount > 0 ? (
+                          <span className='font-medium'>
+                            {t('Discount code saves {{amount}}', {
+                              amount: formatSelectedPaymentAmount(
+                                discountCodeSavingAmount
+                              ),
+                            })}
+                          </span>
+                        ) : null}
+                      </div>
+                    ) : (
+                      <p className='text-muted-foreground text-xs'>
+                        {t(
+                          'A valid discount code is applied at checkout and cannot be combined with another code.'
+                        )}
+                      </p>
+                    )}
+                  </Field>
+                </FieldGroup>
+              ) : null}
+
               <FieldGroup>
                 <Field>
                   <Label className='text-muted-foreground text-xs font-medium tracking-wider uppercase'>
@@ -739,6 +847,8 @@ export function RechargeFormCard({
                               number: index + 1,
                             })
                           : method.name
+                        const isSelected =
+                          effectivePaymentMethod?.type === method.type
 
                         const button = (
                           <Button
@@ -752,7 +862,11 @@ export function RechargeFormCard({
                                 ? `${paymentMethodLabel}. ${disabledReason}`
                                 : paymentMethodLabel
                             }
-                            className='min-h-14 min-w-0 justify-start gap-2 rounded-lg px-3 py-2 text-left'
+                            className={cn(
+                              'min-h-14 min-w-0 justify-start gap-2 rounded-lg px-3 py-2 text-left transition-all',
+                              isSelected &&
+                                'border-primary bg-primary/5 ring-1 ring-primary'
+                            )}
                           >
                             {paymentLoading === method.type ? (
                               <HugeiconsIcon
@@ -963,6 +1077,60 @@ export function RechargeFormCard({
                   </div>
                 </div>
               )}
+              {hasStandardPaymentMethods && effectivePaymentMethod && (
+                <div className='bg-muted/40 mt-3 flex flex-col gap-3 rounded-lg border p-3.5 sm:p-4'>
+                  <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
+                    <div className='flex min-w-0 flex-col'>
+                      <span className='text-muted-foreground text-xs font-medium'>
+                        {t('Total')}
+                      </span>
+                      <div className='flex items-baseline gap-2'>
+                        <span className='text-xl font-bold sm:text-2xl'>
+                          {paymentAmountLabel}
+                        </span>
+                        {discountCodeSavingAmount > 0 &&
+                          hasCurrentPaymentAmount &&
+                          !isUpdatingQuote && (
+                            <span className='text-muted-foreground text-xs line-through'>
+                              {formatSelectedPaymentAmount(
+                                effectivePaymentAmount +
+                                  discountCodeSavingAmount
+                              )}
+                            </span>
+                          )}
+                      </div>
+                    </div>
+                    <Button
+                      type='button'
+                      size='default'
+                      className='h-10 font-semibold sm:min-w-44'
+                      disabled={
+                        isUpdatingQuote ||
+                        !hasCurrentPaymentAmount ||
+                        Boolean(paymentLoading)
+                      }
+                      onClick={() =>
+                        onPaymentMethodSelect(effectivePaymentMethod)
+                      }
+                    >
+                      {isUpdatingQuote ? (
+                        <>
+                          <HugeiconsIcon
+                            icon={Loading03Icon}
+                            className='animate-spin'
+                            data-icon='inline-start'
+                          />
+                          {discountApplying
+                            ? t('Validating discount...')
+                            : t('Calculating...')}
+                        </>
+                      ) : (
+                        t('Pay {{amount}}', { amount: paymentAmountLabel })
+                      )}
+                    </Button>
+                  </div>
+                </div>
+              )}
             </>
           )}
         </div>
@@ -1055,89 +1223,6 @@ export function RechargeFormCard({
             )}
           </AlertDescription>
         </Alert>
-      ) : null}
-
-      {!neutralMode && hasConfigurableTopup ? (
-        <div className='flex flex-col gap-3 pt-4 sm:pt-6'>
-          <Separator />
-          <div className='flex items-center gap-2'>
-            <IconBadge tone='success' size='xs'>
-              <HugeiconsIcon icon={GiftIcon} strokeWidth={2} />
-            </IconBadge>
-            <Label
-              htmlFor='discount-code'
-              className='text-muted-foreground text-xs font-medium tracking-wider uppercase'
-            >
-              {discountCodeFromUrl
-                ? t('Discount code from URL')
-                : t('Discount code')}
-            </Label>
-          </div>
-          <div className='grid grid-cols-[minmax(0,1fr)_auto] gap-2'>
-            <Input
-              id='discount-code'
-              value={discountCode}
-              onChange={(e) => onDiscountCodeChange?.(e.target.value)}
-              placeholder={t('Enter your discount code')}
-              readOnly={discountCodeFromUrl}
-              aria-readonly={discountCodeFromUrl}
-              className={cn(
-                'h-9 min-w-0 uppercase',
-                discountCodeFromUrl && 'bg-muted font-mono'
-              )}
-              autoComplete='off'
-              maxLength={64}
-            />
-            <Button
-              onClick={onApplyDiscount}
-              disabled={
-                discountCodeFromUrl || discountApplying || !discountCode.trim()
-              }
-              variant='outline'
-              className='h-9 px-4'
-            >
-              {discountApplying && (
-                <HugeiconsIcon
-                  icon={Loading03Icon}
-                  className='animate-spin'
-                  data-icon='inline-start'
-                />
-              )}
-              {discountCodeFromUrl && discountPercent !== null
-                ? t('Applied')
-                : t('Apply')}
-            </Button>
-          </div>
-          {discountCodeFromUrl ? (
-            <p className='text-muted-foreground text-xs'>
-              {t('This code came from the checkout link and cannot be edited.')}
-            </p>
-          ) : null}
-          {discountPercent !== null && discountPercent !== undefined ? (
-            <div className='text-success flex flex-wrap items-center gap-x-3 gap-y-1 text-xs'>
-              <span>
-                {t('Discount applied: {{percent}}% off', {
-                  percent: discountPercent,
-                })}
-              </span>
-              {discountCodeSavingAmount > 0 ? (
-                <span className='font-medium'>
-                  {t('Discount code saves {{amount}}', {
-                    amount: formatSelectedPaymentAmount(
-                      discountCodeSavingAmount
-                    ),
-                  })}
-                </span>
-              ) : null}
-            </div>
-          ) : (
-            <p className='text-muted-foreground text-xs'>
-              {t(
-                'A valid discount code is applied at checkout and cannot be combined with another code.'
-              )}
-            </p>
-          )}
-        </div>
       ) : null}
     </TitledCard>
   )

@@ -732,10 +732,43 @@ const markdownParser = new Marked({
 
 markdownParser.use(...markdownExtensions)
 
+function isExternalUrl(href: string): boolean {
+  if (!href) return false
+  if (
+    href.startsWith('/') ||
+    href.startsWith('#') ||
+    href.startsWith('?') ||
+    href.startsWith('mailto:') ||
+    href.startsWith('tel:')
+  ) {
+    return false
+  }
+  try {
+    const url = new URL(
+      href,
+      typeof window !== 'undefined'
+        ? window.location.origin
+        : 'http://localhost'
+    )
+    if (
+      typeof window !== 'undefined' &&
+      url.origin === window.location.origin
+    ) {
+      return false
+    }
+    return true
+  } catch {
+    return false
+  }
+}
+
 function addExternalLinkAttributes(fragment: DocumentFragment): void {
   fragment.querySelectorAll('a[href]').forEach((link) => {
-    link.setAttribute('target', '_blank')
-    link.setAttribute('rel', 'noopener noreferrer')
+    const href = link.getAttribute('href') ?? ''
+    if (isExternalUrl(href)) {
+      link.setAttribute('target', '_blank')
+      link.setAttribute('rel', 'noopener noreferrer')
+    }
   })
 }
 

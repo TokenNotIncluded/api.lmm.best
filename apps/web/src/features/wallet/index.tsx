@@ -133,6 +133,11 @@ function WalletCheckout(props: WalletProps) {
   const [discountCode, setDiscountCode] = useState(initialDiscountCode)
   const [discountCodeFromUrl, setDiscountCodeFromUrl] =
     useState(initialDiscountCode)
+  const [candidateDiscountCode, setCandidateDiscountCode] =
+    useState(initialDiscountCode)
+  const [urlDiscountLocked, setUrlDiscountLocked] = useState(
+    Boolean(initialDiscountCode)
+  )
   const [appliedDiscountCode, setAppliedDiscountCode] = useState('')
   const [discountPercent, setDiscountPercent] = useState<number | null>(null)
   const [discountApplying, setDiscountApplying] = useState(false)
@@ -169,6 +174,7 @@ function WalletCheckout(props: WalletProps) {
     amount: paymentAmount,
     calculating,
     processing,
+    lastQuoteErrorRef,
     calculatePaymentAmount,
     processPayment,
     settlementQuote,
@@ -332,6 +338,10 @@ function WalletCheckout(props: WalletProps) {
         }
         if (!isApiSuccess(result) || !result.data) {
           toast.error(result.message || t('Discount code is invalid'))
+          if (fromUrl) {
+            setDiscountCodeFromUrl('')
+            setUrlDiscountLocked(false)
+          }
           void calculatePaymentAmount(amount, paymentType)
           return 0
         }
@@ -345,7 +355,10 @@ function WalletCheckout(props: WalletProps) {
           return 0
         }
         if (!isPositivePaymentAmount(calculatedAmount)) {
-          toast.error(t('Payment request failed'))
+          const reason =
+            lastQuoteErrorRef.current ||
+            t('Unable to calculate payment quote. Please retry.')
+          toast.error(reason)
           return 0
         }
 
@@ -359,6 +372,7 @@ function WalletCheckout(props: WalletProps) {
             revision,
           }
           setDiscountCodeFromUrl(result.data.code)
+          setCandidateDiscountCode(result.data.code)
         }
         setDiscountPercent(result.data.discount_percent)
         applied = true
@@ -373,13 +387,16 @@ function WalletCheckout(props: WalletProps) {
           return 0
         }
         toast.error(t('Discount code is invalid'))
+        if (fromUrl) {
+          setDiscountCodeFromUrl('')
+          setUrlDiscountLocked(false)
+        }
         void calculatePaymentAmount(amount, paymentType)
         return 0
       } finally {
         if (isCurrent() && revision === paymentInputRevisionRef.current) {
           setDiscountApplying(false)
-          // A rejected link or failed quote must leave a manual recovery path.
-          if (fromUrl && !applied) setDiscountCodeFromUrl('')
+          setUrlDiscountLocked(applied)
         }
       }
     },
@@ -387,6 +404,7 @@ function WalletCheckout(props: WalletProps) {
       calculatePaymentAmount,
       getCurrentPaymentType,
       isCurrent,
+      lastQuoteErrorRef,
       resetPendingPayment,
       t,
       topupAmount,
@@ -394,7 +412,8 @@ function WalletCheckout(props: WalletProps) {
   )
 
   useEffect(() => {
-    if (!discountCodeFromUrl || !topupInfo) return
+    const candidateCode = candidateDiscountCode || discountCodeFromUrl
+    if (!candidateCode || !topupInfo) return
     if (topupAmount < getMinTopupAmount(topupInfo)) return
     const paymentType = getCurrentPaymentType()
     if (!paymentType) return
@@ -402,20 +421,29 @@ function WalletCheckout(props: WalletProps) {
     if (
       previous?.amount === topupAmount &&
       previous.paymentType === paymentType &&
-      previous.code === discountCodeFromUrl &&
+      previous.code === candidateCode &&
       previous.revision === paymentInputRevisionRef.current
     ) {
       return
     }
 
-    void applyDiscountCode(discountCodeFromUrl, true)
+    void applyDiscountCode(candidateCode, true)
   }, [
     applyDiscountCode,
+    candidateDiscountCode,
     discountCodeFromUrl,
     getCurrentPaymentType,
     topupAmount,
     topupInfo,
   ])
+
+  useEffect(() => {
+    if (!initialDiscountCode || typeof document === 'undefined') return
+    const el = document.getElementById('wallet-add-funds')
+    if (el && typeof el.scrollIntoView === 'function') {
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
+  }, [initialDiscountCode])
 
   const updateTopupAmount = (amount: number, preset: number | null) => {
     const revision = resetPendingPayment()
@@ -432,8 +460,13 @@ function WalletCheckout(props: WalletProps) {
     }
     const paymentType = getCurrentPaymentType()
     if (!paymentType) return
-    if (discountCodeFromUrl && amount >= getMinTopupAmount(topupInfo)) {
-      void applyDiscountCode(discountCodeFromUrl, true, {
+    const candidateCode =
+      candidateDiscountCode ||
+      discountCodeFromUrl ||
+      appliedDiscountCode ||
+      (discountApplying ? discountCode.trim() : '')
+    if (candidateCode && amount >= getMinTopupAmount(topupInfo)) {
+      void applyDiscountCode(candidateCode, true, {
         amount,
         paymentType,
         revision,
@@ -453,15 +486,20 @@ function WalletCheckout(props: WalletProps) {
 
   const calculateCheckoutAmount = (paymentType: string, revision: number) => {
     const code =
+      candidateDiscountCode ||
       discountCodeFromUrl ||
       appliedDiscountCode ||
       (discountApplying ? discountCode.trim() : '')
     return code
-      ? applyDiscountCode(code, Boolean(discountCodeFromUrl), {
-          amount: topupAmount,
-          paymentType,
-          revision,
-        })
+      ? applyDiscountCode(
+          code,
+          Boolean(candidateDiscountCode || discountCodeFromUrl),
+          {
+            amount: topupAmount,
+            paymentType,
+            revision,
+          }
+        )
       : calculatePaymentAmount(topupAmount, paymentType)
   }
 
@@ -496,7 +534,10 @@ function WalletCheckout(props: WalletProps) {
       if (!isCurrent() || revision !== paymentInputRevisionRef.current) return
       if (!isPositivePaymentAmount(calculatedAmount)) {
         setSelectedPaymentMethod(undefined)
-        toast.error(t('Payment request failed'))
+        const reason =
+          lastQuoteErrorRef.current ||
+          t('Unable to calculate payment quote. Please retry.')
+        toast.error(reason)
         return
       }
       confirmedQuoteRevisionRef.current = revision
@@ -714,7 +755,10 @@ function WalletCheckout(props: WalletProps) {
       if (!isPositivePaymentAmount(calculatedAmount)) {
         setSelectedPaymentMethod(undefined)
         setSelectedWaffoMethodIndex(null)
-        toast.error(t('Payment request failed'))
+        const reason =
+          lastQuoteErrorRef.current ||
+          t('Unable to calculate payment quote. Please retry.')
+        toast.error(reason)
         return
       }
       confirmedQuoteRevisionRef.current = revision
@@ -784,7 +828,7 @@ function WalletCheckout(props: WalletProps) {
                   paymentAmount={paymentAmount}
                   settlementQuote={settlementQuote}
                   selectedPaymentMethod={selectedPaymentMethod}
-                  calculating={calculating}
+                  calculating={calculating || discountApplying}
                   onPaymentMethodSelect={handlePaymentMethodSelect}
                   paymentLoading={paymentLoading}
                   redemptionCode={redemptionCode}
@@ -792,11 +836,14 @@ function WalletCheckout(props: WalletProps) {
                   onRedeem={handleRedeem}
                   redeeming={redeeming}
                   discountCode={discountCode}
-                  discountCodeFromUrl={Boolean(discountCodeFromUrl)}
+                  discountCodeFromUrl={urlDiscountLocked}
                   onDiscountCodeChange={(value) => {
-                    if (discountCodeFromUrl) return
+                    if (urlDiscountLocked) return
                     resetPendingPayment()
                     setDiscountCode(value)
+                    setDiscountCodeFromUrl('')
+                    setCandidateDiscountCode('')
+                    setUrlDiscountLocked(false)
                     if (
                       appliedDiscountCode &&
                       value.trim() !== appliedDiscountCode
