@@ -12,7 +12,14 @@ import {
 } from '@hugeicons/core-free-icons'
 import { HugeiconsIcon } from '@hugeicons/react'
 import { useQuery } from '@tanstack/react-query'
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -25,6 +32,12 @@ import {
 } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button, buttonVariants } from '@/components/ui/button'
+import {
+  Drawer,
+  DrawerContent,
+  DrawerHeader,
+  DrawerTitle,
+} from '@/components/ui/drawer'
 import {
   Empty,
   EmptyDescription,
@@ -46,7 +59,21 @@ import { getAssistantStatus, type DrawingWebAccess } from '../assistant/api'
 import { rotateMcpToken } from '../open-source-bounties/api'
 import { getPricing } from '../pricing/api'
 import type { PricingModel } from '../pricing/types'
+import { DrawingErrorBoundary } from './drawing-error-boundary'
 import { DrawingGallery } from './drawing-gallery'
+import { DrawingSnakeGame } from './drawing-snake-game'
+import {
+  clearActiveDrawingTask,
+  getActiveDrawingTask,
+  getDrawingDraft,
+  getDrawingMinigamePref,
+  registerActiveDrawingTask,
+  saveDrawingDraft,
+  setDrawingMinigamePref,
+  subscribeActiveDrawingTask,
+  updateActiveDrawingTask,
+  type ActiveDrawingTask,
+} from './drawing-task-state'
 import {
   getDrawingRequestErrorKind,
   getDrawingRequestErrorMessage,
@@ -137,7 +164,11 @@ export function Drawing() {
   const userId = useAuthStore((state) => state.auth.user?.id)
   // Remount every account-owned state, including prompt/reference files and the
   // session-only MCP secret. Never render one account's previews for another.
-  return userId ? <DrawingWorkbench key={userId} userId={userId} /> : null
+  return userId ? (
+    <DrawingErrorBoundary>
+      <DrawingWorkbench key={userId} userId={userId} />
+    </DrawingErrorBoundary>
+  ) : null
 }
 
 function DrawingWorkbench({ userId }: { userId: number }) {
@@ -153,28 +184,111 @@ function DrawingWorkbench({ userId }: { userId: number }) {
   const [keyError, setKeyError] = useState<string | null>(null)
   const activeRef = useRef(true)
   const requestPendingRef = useRef(false)
-  const isCurrentUser = () =>
-    activeRef.current && useAuthStore.getState().auth.user?.id === userId
+  const currentAbortRef = useRef<AbortController | null>(null)
+  const isCurrentUser = useCallback(
+    () => activeRef.current && useAuthStore.getState().auth.user?.id === userId,
+    [userId]
+  )
   useEffect(() => {
     activeRef.current = true
     return () => {
       activeRef.current = false
     }
   }, [])
-  const [prompt, setPrompt] = useState('')
-  const [group, setGroup] = useState('')
-  const [model, setModel] = useState('')
-  const [size, setSize] = useState('')
-  const [quality, setQuality] = useState('')
-  const [count, setCount] = useState('1')
+
+  const initialDraft = useMemo(() => getDrawingDraft(userId), [userId])
+  const [prompt, setPrompt] = useState(initialDraft.prompt || '')
+  const [group, setGroup] = useState(initialDraft.group || '')
+  const [model, setModel] = useState(initialDraft.model || '')
+  const [size, setSize] = useState(initialDraft.size || '')
+  const [quality, setQuality] = useState(initialDraft.quality || '')
+  const [count, setCount] = useState(initialDraft.count || '1')
   const [referenceImages, setReferenceImages] = useState<ReferenceImage[]>([])
   const [error, setError] = useState<string | null>(null)
+  const [errorStatus, setErrorStatus] = useState<number | null>(null)
+  const [stoppedMessage, setStoppedMessage] = useState<string | null>(null)
   const [generating, setGenerating] = useState(false)
+  const [elapsedSeconds, setElapsedSeconds] = useState(0)
+  const [minigameEnabled, setMinigameEnabled] = useState(getDrawingMinigamePref)
+  const [minigameExpanded, setMinigameExpanded] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [activeTask, setActiveTask] = useState<ActiveDrawingTask | null>(() =>
+    getActiveDrawingTask(userId)
+  )
+
   const [drawingMcpToken, setDrawingMcpToken] = useState('')
   const [drawingMcpPending, setDrawingMcpPending] = useState(false)
   const [drawingMcpOpen, setDrawingMcpOpen] = useState(false)
   const referenceInputRef = useRef<HTMLInputElement>(null)
   const previewUrlsRef = useRef(new Set<string>())
+
+  // Save prompt draft automatically
+  useEffect(() => {
+    saveDrawingDraft(userId, { prompt })
+  }, [userId, prompt])
+
+  // Subscribe to background active task across SPA navigations
+  useEffect(() => {
+    const existing = getActiveDrawingTask(userId)
+    if (existing && existing.status === 'generating') {
+      setGenerating(true)
+      setActiveTask(existing)
+      if (existing.abortController) {
+        currentAbortRef.current = existing.abortController
+      }
+    }
+    return subscribeActiveDrawingTask(userId, (task) => {
+      if (!isCurrentUser()) return
+      setActiveTask(task)
+      if (task && task.status === 'generating') {
+        setGenerating(true)
+        if (task.abortController) {
+          currentAbortRef.current = task.abortController
+        }
+      } else if (task && task.status === 'failed') {
+        setGenerating(false)
+        if (task.error) setError(task.error)
+        if (task.errorStatus) setErrorStatus(task.errorStatus)
+      } else if (
+        !task ||
+        task.status === 'completed' ||
+        task.status === 'stopped'
+      ) {
+        setGenerating(false)
+      }
+    })
+  }, [userId, isCurrentUser])
+
+  // Live elapsed timer
+  useEffect(() => {
+    if (!generating) {
+      setElapsedSeconds(0)
+      return
+    }
+    const started = activeTask?.startedAt || Date.now()
+    const updateTime = () => {
+      const sec = Math.max(1, Math.floor((Date.now() - started) / 1000))
+      setElapsedSeconds(sec)
+    }
+    updateTime()
+    const timer = setInterval(updateTime, 1000)
+    return () => clearInterval(timer)
+  }, [generating, activeTask?.startedAt])
+
+  // Auto expand minigame when waiting > 3s if enabled
+  useEffect(() => {
+    if (
+      generating &&
+      elapsedSeconds >= 3 &&
+      minigameEnabled &&
+      !minigameExpanded
+    ) {
+      setMinigameExpanded(true)
+    }
+    if (!generating) {
+      setMinigameExpanded(false)
+    }
+  }, [generating, elapsedSeconds, minigameEnabled, minigameExpanded])
 
   const accessQuery = useQuery({
     queryKey: ['assistant-status', 'drawing', userId],
@@ -395,6 +509,61 @@ function DrawingWorkbench({ userId }: { userId: number }) {
     setReferenceImages((current) => current.filter((image) => image.id !== id))
   }
 
+  useEffect(() => {
+    if (selectedGroup) {
+      saveDrawingDraft(userId, {
+        group: selectedGroup,
+        model: selectedModel,
+        size: selectedSize,
+        quality: selectedQuality,
+        count,
+      })
+    }
+  }, [
+    userId,
+    selectedGroup,
+    selectedModel,
+    selectedSize,
+    selectedQuality,
+    count,
+  ])
+
+  const stopGeneration = () => {
+    if (currentAbortRef.current) {
+      currentAbortRef.current.abort()
+      currentAbortRef.current = null
+    }
+    const currentTask = getActiveDrawingTask(userId)
+    if (currentTask?.abortController) {
+      currentTask.abortController.abort()
+    }
+    clearActiveDrawingTask(userId)
+    requestPendingRef.current = false
+    setGenerating(false)
+    setError(null)
+    setErrorStatus(null)
+    setStoppedMessage(
+      t(
+        'Stopped waiting. If the server is already processing, the generated image may appear in your history later.'
+      )
+    )
+  }
+
+  const copyErrorDetails = async () => {
+    const details = {
+      timestamp: new Date().toISOString(),
+      model: selectedModel,
+      group: selectedGroup,
+      prompt: prompt.trim(),
+      status: errorStatus,
+      error,
+    }
+    const success = await copyToClipboard(JSON.stringify(details, null, 2))
+    if (success) {
+      toast.success(t('Error details copied'))
+    }
+  }
+
   const generate = async () => {
     const cleanPrompt = prompt.trim()
     if (
@@ -410,6 +579,8 @@ function DrawingWorkbench({ userId }: { userId: number }) {
       return
     }
     requestPendingRef.current = true
+    const abortController = new AbortController()
+    currentAbortRef.current = abortController
     const ticket = history.capture()
     const metadata = {
       prompt: cleanPrompt,
@@ -417,8 +588,27 @@ function DrawingWorkbench({ userId }: { userId: number }) {
       group: selectedGroup,
       createdAt: Date.now(),
     }
+    const taskId = crypto.randomUUID()
+    registerActiveDrawingTask({
+      id: taskId,
+      userId,
+      prompt: cleanPrompt,
+      group: selectedGroup,
+      model: selectedModel,
+      size: selectedSize,
+      quality: selectedQuality,
+      count,
+      referenceCount: referenceImages.length,
+      startedAt: Date.now(),
+      abortController,
+      status: 'generating',
+    })
+
     setGenerating(true)
     setError(null)
+    setErrorStatus(null)
+    setStoppedMessage(null)
+
     try {
       let response
       if (referenceImages.length > 0) {
@@ -434,7 +624,11 @@ function DrawingWorkbench({ userId }: { userId: number }) {
         response = await api.post<ImageResponse>(
           `/pg/images/edits?group=${encodeURIComponent(selectedGroup)}`,
           form,
-          { skipBusinessError: true, skipErrorHandler: true }
+          {
+            signal: abortController.signal,
+            skipBusinessError: true,
+            skipErrorHandler: true,
+          }
         )
       } else {
         response = await api.post<ImageResponse>(
@@ -446,12 +640,20 @@ function DrawingWorkbench({ userId }: { userId: number }) {
             ...(selectedSize ? { size: selectedSize } : {}),
             ...(selectedQuality ? { quality: selectedQuality } : {}),
           },
-          { skipBusinessError: true, skipErrorHandler: true }
+          {
+            signal: abortController.signal,
+            skipBusinessError: true,
+            skipErrorHandler: true,
+          }
         )
       }
+
+      if (abortController.signal.aborted) return
       if (!isCurrentUser() || ticket !== history.capture()) return
+
       const denial = getDrawingWebDenial({ response })
       if (denial) {
+        clearActiveDrawingTask(userId, taskId)
         setWebDenial(denial)
         return
       }
@@ -460,28 +662,44 @@ function DrawingWorkbench({ userId }: { userId: number }) {
         response.data.error ||
         !Array.isArray(response.data.data)
       ) {
-        setError(
-          getDrawingRequestErrorMessage(
-            { response },
-            t('Unable to generate the image')
-          )
+        const status = getDrawingRequestStatus({ response })
+        const errorMsg = getDrawingRequestErrorMessage(
+          { response },
+          t('Unable to generate the image')
         )
+        setError(errorMsg)
+        setErrorStatus(status)
+        updateActiveDrawingTask(userId, {
+          status: 'failed',
+          error: errorMsg,
+          errorStatus: status,
+        })
         return
       }
       const usableResults = response.data.data.filter(
         (image) => drawingSource(image) !== undefined
       )
       if (usableResults.length === 0) {
-        setError(t('No images were returned'))
+        const msg = t('No images were returned')
+        setError(msg)
+        updateActiveDrawingTask(userId, { status: 'failed', error: msg })
       } else {
+        clearActiveDrawingTask(userId, taskId)
         // Cache failures are handled separately: successful generation is never
         // an API error or an invitation to regenerate (and pay again).
         void history.remember(usableResults, metadata, ticket)
       }
-    } catch (cause) {
+    } catch (cause: unknown) {
+      if (
+        abortController.signal.aborted ||
+        (cause instanceof Error && cause.name === 'AbortError')
+      ) {
+        return
+      }
       if (!isCurrentUser() || ticket !== history.capture()) return
       const denial = getDrawingWebDenial(cause)
       if (denial) {
+        clearActiveDrawingTask(userId, taskId)
         setWebDenial(denial)
         return
       }
@@ -492,17 +710,30 @@ function DrawingWorkbench({ userId }: { userId: number }) {
         network: t('Network connection failed or server not responding'),
         http: t('Unable to generate the image'),
       }
-      setError(
-        getDrawingRequestErrorMessage(
-          cause,
-          fallbackMessages[getDrawingRequestErrorKind(cause)]
-        )
+      const status = getDrawingRequestStatus(cause)
+      const errorMsg = getDrawingRequestErrorMessage(
+        cause,
+        fallbackMessages[getDrawingRequestErrorKind(cause)]
       )
+      setError(errorMsg)
+      setErrorStatus(status)
+      updateActiveDrawingTask(userId, {
+        status: 'failed',
+        error: errorMsg,
+        errorStatus: status,
+      })
     } finally {
       requestPendingRef.current = false
+      if (currentAbortRef.current === abortController) {
+        currentAbortRef.current = null
+      }
       if (isCurrentUser()) {
         setGenerating(false)
-        void refreshBalance()
+        try {
+          void refreshBalance()
+        } catch {
+          // Balance refresh failures should never break drawing studio
+        }
       }
     }
   }
@@ -579,7 +810,7 @@ function DrawingWorkbench({ userId }: { userId: number }) {
   }
 
   let content: ReactNode
-  let standaloneHistory = true
+  const standaloneHistory = true
   if (
     accessQuery.isLoading ||
     pricingQuery.isLoading ||
@@ -654,16 +885,108 @@ function DrawingWorkbench({ userId }: { userId: number }) {
       </Alert>
     )
   } else {
-    standaloneHistory = false
+    const settingsForm = (
+      <div className='grid gap-5'>
+        <div className='grid gap-2'>
+          <Label htmlFor='drawing-group'>{t('Routing group')}</Label>
+          <NativeSelect
+            id='drawing-group'
+            value={selectedGroup}
+            className='w-full'
+            onChange={(event) => setGroup(event.target.value)}
+          >
+            {groups.map((item) => (
+              <NativeSelectOption key={item} value={item}>
+                {item}
+              </NativeSelectOption>
+            ))}
+          </NativeSelect>
+          {groupDescription ? (
+            <p className='text-muted-foreground text-xs leading-relaxed break-words'>
+              {groupDescription}
+            </p>
+          ) : null}
+        </div>
+        <div className='grid gap-2'>
+          <Label htmlFor='drawing-model'>{t('Image model')}</Label>
+          <NativeSelect
+            id='drawing-model'
+            value={selectedModel}
+            className='w-full'
+            onChange={(event) => setModel(event.target.value)}
+          >
+            {modelsForGroup.map((item) => (
+              <NativeSelectOption key={item.model_name} value={item.model_name}>
+                {item.model_name}
+              </NativeSelectOption>
+            ))}
+          </NativeSelect>
+        </div>
+        <div className='grid gap-4 sm:grid-cols-2 xl:grid-cols-1'>
+          <div className='grid gap-2'>
+            <Label htmlFor='drawing-size'>{t('Size (optional)')}</Label>
+            <NativeSelect
+              id='drawing-size'
+              value={selectedSize}
+              className='w-full'
+              onChange={(event) => setSize(event.target.value)}
+            >
+              {sizePresets.map((option) => (
+                <NativeSelectOption
+                  key={option.value || 'default'}
+                  value={option.value}
+                >
+                  {option.label}
+                </NativeSelectOption>
+              ))}
+            </NativeSelect>
+          </div>
+          <div className='grid gap-2'>
+            <Label htmlFor='drawing-quality'>{t('Quality (optional)')}</Label>
+            <NativeSelect
+              id='drawing-quality'
+              value={selectedQuality}
+              className='w-full'
+              onChange={(event) => setQuality(event.target.value)}
+            >
+              {qualityPresets.map((option) => (
+                <NativeSelectOption
+                  key={option.value || 'default'}
+                  value={option.value}
+                >
+                  {option.label}
+                </NativeSelectOption>
+              ))}
+            </NativeSelect>
+          </div>
+        </div>
+        <div className='grid max-w-40 gap-2'>
+          <Label htmlFor='drawing-count'>{t('Images')}</Label>
+          <NativeSelect
+            id='drawing-count'
+            value={count}
+            className='w-full'
+            onChange={(event) => setCount(event.target.value)}
+          >
+            {[1, 2, 3, 4].map((value) => (
+              <NativeSelectOption key={value} value={String(value)}>
+                {value}
+              </NativeSelectOption>
+            ))}
+          </NativeSelect>
+        </div>
+      </div>
+    )
+
     content = (
       <div className='grid gap-4 xl:grid-cols-[minmax(0,1fr)_19rem] xl:items-stretch'>
         <section
           data-slot='drawing-canvas'
-          className='relative flex min-h-[36rem] min-w-0 flex-col overflow-hidden rounded-lg border border-white/10 bg-[#111210]'
+          className='relative flex min-h-[20rem] min-w-0 flex-col overflow-hidden rounded-lg border border-white/10 bg-[#111210] sm:min-h-[26rem] xl:min-h-[36rem]'
           aria-live='polite'
           aria-labelledby='drawing-canvas-title'
         >
-          <header className='flex items-center justify-between gap-4 border-b border-white/10 px-4 py-3 sm:px-5'>
+          <header className='flex items-center justify-between gap-3 border-b border-white/10 px-4 py-3 sm:px-5'>
             <div className='flex min-w-0 items-center gap-3'>
               <div className='bg-primary/15 text-primary flex size-8 shrink-0 items-center justify-center rounded-md'>
                 <HugeiconsIcon
@@ -681,6 +1004,28 @@ function DrawingWorkbench({ userId }: { userId: number }) {
               </h2>
             </div>
             <div className='flex shrink-0 items-center gap-2'>
+              {/* Mobile generation settings trigger */}
+              <Button
+                type='button'
+                variant='outline'
+                size='xs'
+                className='border-white/15 bg-white/5 text-xs text-white/80 xl:hidden'
+                onClick={() => setSettingsOpen(true)}
+              >
+                <span className='max-w-[7rem] truncate font-mono'>
+                  {selectedModel || t('Preview')}
+                </span>
+                {selectedGroup ? (
+                  <>
+                    <span className='text-white/40'>·</span>
+                    <span className='max-w-[5rem] truncate text-white/70'>
+                      {selectedGroup}
+                    </span>
+                  </>
+                ) : null}
+                <span className='ml-1 text-xs'>⚙️</span>
+              </Button>
+
               <Badge
                 variant='outline'
                 className='border-white/15 bg-white/5 text-white/80'
@@ -708,8 +1053,8 @@ function DrawingWorkbench({ userId }: { userId: number }) {
 
           <div className='flex min-h-0 flex-1 items-center justify-center overflow-y-auto p-4 sm:p-8'>
             {generating ? (
-              <div className='flex flex-col items-center justify-center text-center text-white/80'>
-                <div className='bg-primary/15 text-primary mb-4 flex size-12 items-center justify-center rounded-lg'>
+              <div className='mx-auto flex max-w-md flex-col items-center justify-center p-4 text-center text-white/90'>
+                <div className='bg-primary/15 text-primary mb-3 flex size-12 items-center justify-center rounded-lg'>
                   <HugeiconsIcon
                     icon={Loading03Icon}
                     className='size-7 animate-spin'
@@ -717,10 +1062,89 @@ function DrawingWorkbench({ userId }: { userId: number }) {
                     aria-hidden='true'
                   />
                 </div>
-                <p className='text-sm'>{t('Generation in progress...')}</p>
-                <p className='mt-2 max-w-xs text-xs leading-5 text-white/65'>
-                  {t('Your request is ready to run.')}
+                <p className='text-sm font-medium'>
+                  {t('Request submitted · Waiting {{seconds}}s', {
+                    seconds: elapsedSeconds,
+                  })}
                 </p>
+                <p className='mt-1 text-xs text-white/60'>
+                  {t('Waiting for image generation result...')}
+                </p>
+                <p className='mt-1 max-w-xs text-[11px] text-white/40'>
+                  {t(
+                    'You can continue waiting, or stop waiting. Results will also be saved to history.'
+                  )}
+                </p>
+
+                {/* Minigame section */}
+                {elapsedSeconds >= 3 ? (
+                  <div className='mt-4 flex w-full flex-col items-center'>
+                    {minigameExpanded ? (
+                      <div className='flex flex-col items-center gap-2'>
+                        <DrawingSnakeGame />
+                        <Button
+                          type='button'
+                          variant='ghost'
+                          size='xs'
+                          className='mt-1 text-white/60 hover:text-white'
+                          onClick={() => setMinigameExpanded(false)}
+                        >
+                          {t('Collapse minigame')}
+                        </Button>
+                      </div>
+                    ) : (
+                      <Button
+                        type='button'
+                        variant='outline'
+                        size='xs'
+                        className='border-white/15 bg-white/5 text-white hover:bg-white/10'
+                        onClick={() => {
+                          setMinigameExpanded(true)
+                          setMinigameEnabled(true)
+                          setDrawingMinigamePref(true)
+                        }}
+                      >
+                        {t('Play dot-matrix snake while waiting')}
+                      </Button>
+                    )}
+                  </div>
+                ) : null}
+
+                <div className='mt-5 flex items-center gap-3'>
+                  <Button
+                    type='button'
+                    variant='outline'
+                    size='sm'
+                    className='border-white/20 bg-white/5 text-white hover:bg-white/15'
+                    onClick={stopGeneration}
+                  >
+                    {t('Stop waiting')}
+                  </Button>
+                </div>
+              </div>
+            ) : stoppedMessage ? (
+              <div className='w-full max-w-md p-4 text-center'>
+                <Empty className='max-w-md text-white'>
+                  <EmptyHeader>
+                    <EmptyMedia
+                      variant='icon'
+                      className='size-10 bg-white/10 text-white/75'
+                    >
+                      <HugeiconsIcon
+                        icon={Cancel01Icon}
+                        className='size-5'
+                        strokeWidth={2}
+                        aria-hidden='true'
+                      />
+                    </EmptyMedia>
+                    <EmptyTitle className='text-white/85'>
+                      {t('Stop waiting')}
+                    </EmptyTitle>
+                    <EmptyDescription className='mt-2 text-xs text-white/65'>
+                      {stoppedMessage}
+                    </EmptyDescription>
+                  </EmptyHeader>
+                </Empty>
               </div>
             ) : results.length > 0 ? (
               <DrawingGallery images={results} />
@@ -852,9 +1276,19 @@ function DrawingWorkbench({ userId }: { userId: number }) {
 
               {error ? (
                 <Alert variant='destructive' className='mt-3'>
-                  <AlertTitle>{t('Request failed')}</AlertTitle>
+                  <AlertTitle className='flex items-center justify-between'>
+                    <span>{t('Request failed')}</span>
+                    {errorStatus ? (
+                      <Badge
+                        variant='outline'
+                        className='text-destructive-foreground font-mono text-xs'
+                      >
+                        HTTP {errorStatus}
+                      </Badge>
+                    ) : null}
+                  </AlertTitle>
                   <AlertDescription>{error}</AlertDescription>
-                  <AlertAction>
+                  <AlertAction className='gap-2'>
                     <Button
                       type='button'
                       size='sm'
@@ -865,6 +1299,14 @@ function DrawingWorkbench({ userId }: { userId: number }) {
                       }
                     >
                       {t('Retry')}
+                    </Button>
+                    <Button
+                      type='button'
+                      size='sm'
+                      variant='secondary'
+                      onClick={() => void copyErrorDetails()}
+                    >
+                      {t('Copy error details')}
                     </Button>
                   </AlertAction>
                 </Alert>
@@ -898,35 +1340,48 @@ function DrawingWorkbench({ userId }: { userId: number }) {
                       : t('Be specific about the subject, mood, and style.')}
                   </span>
                 </div>
-                <Button
-                  type='button'
-                  size='lg'
-                  className='w-full sm:w-auto sm:min-w-36'
-                  onClick={() => void generate()}
-                  disabled={
-                    generating ||
-                    !webAccess.allowed ||
-                    history.clearing ||
-                    !prompt.trim() ||
-                    !selectedGroup ||
-                    !selectedModel
-                  }
-                >
-                  <HugeiconsIcon
-                    icon={generating ? Loading03Icon : Image01Icon}
-                    data-icon='inline-start'
-                    className={generating ? 'animate-spin' : undefined}
-                    strokeWidth={2}
-                    aria-hidden='true'
-                  />
-                  {generating
-                    ? referenceImages.length > 0
-                      ? t('Editing...')
-                      : t('Generating...')
-                    : referenceImages.length > 0
+                {generating ? (
+                  <Button
+                    type='button'
+                    size='lg'
+                    variant='outline'
+                    className='w-full border-white/20 text-white hover:bg-white/10 sm:w-auto sm:min-w-36'
+                    onClick={stopGeneration}
+                  >
+                    <HugeiconsIcon
+                      icon={Cancel01Icon}
+                      data-icon='inline-start'
+                      strokeWidth={2}
+                      aria-hidden='true'
+                    />
+                    {t('Stop waiting')}
+                  </Button>
+                ) : (
+                  <Button
+                    type='button'
+                    size='lg'
+                    className='w-full sm:w-auto sm:min-w-36'
+                    onClick={() => void generate()}
+                    disabled={
+                      generating ||
+                      !webAccess.allowed ||
+                      history.clearing ||
+                      !prompt.trim() ||
+                      !selectedGroup ||
+                      !selectedModel
+                    }
+                  >
+                    <HugeiconsIcon
+                      icon={Image01Icon}
+                      data-icon='inline-start'
+                      strokeWidth={2}
+                      aria-hidden='true'
+                    />
+                    {referenceImages.length > 0
                       ? t('Edit image')
                       : t('Generate image')}
-                </Button>
+                  </Button>
+                )}
               </div>
             </div>
           </div>
@@ -950,101 +1405,7 @@ function DrawingWorkbench({ userId }: { userId: number }) {
             </p>
           </div>
 
-          <div className='grid gap-5 p-4'>
-            <div className='grid gap-2'>
-              <Label htmlFor='drawing-group'>{t('Routing group')}</Label>
-              <NativeSelect
-                id='drawing-group'
-                value={selectedGroup}
-                className='w-full'
-                onChange={(event) => setGroup(event.target.value)}
-              >
-                {groups.map((item) => (
-                  <NativeSelectOption key={item} value={item}>
-                    {item}
-                  </NativeSelectOption>
-                ))}
-              </NativeSelect>
-              {groupDescription ? (
-                <p className='text-muted-foreground text-xs leading-relaxed break-words'>
-                  {groupDescription}
-                </p>
-              ) : null}
-            </div>
-            <div className='grid gap-2'>
-              <Label htmlFor='drawing-model'>{t('Image model')}</Label>
-              <NativeSelect
-                id='drawing-model'
-                value={selectedModel}
-                className='w-full'
-                onChange={(event) => setModel(event.target.value)}
-              >
-                {modelsForGroup.map((item) => (
-                  <NativeSelectOption
-                    key={item.model_name}
-                    value={item.model_name}
-                  >
-                    {item.model_name}
-                  </NativeSelectOption>
-                ))}
-              </NativeSelect>
-            </div>
-            <div className='grid gap-4 sm:grid-cols-2 xl:grid-cols-1'>
-              <div className='grid gap-2'>
-                <Label htmlFor='drawing-size'>{t('Size (optional)')}</Label>
-                <NativeSelect
-                  id='drawing-size'
-                  value={selectedSize}
-                  className='w-full'
-                  onChange={(event) => setSize(event.target.value)}
-                >
-                  {sizePresets.map((option) => (
-                    <NativeSelectOption
-                      key={option.value || 'default'}
-                      value={option.value}
-                    >
-                      {option.label}
-                    </NativeSelectOption>
-                  ))}
-                </NativeSelect>
-              </div>
-              <div className='grid gap-2'>
-                <Label htmlFor='drawing-quality'>
-                  {t('Quality (optional)')}
-                </Label>
-                <NativeSelect
-                  id='drawing-quality'
-                  value={selectedQuality}
-                  className='w-full'
-                  onChange={(event) => setQuality(event.target.value)}
-                >
-                  {qualityPresets.map((option) => (
-                    <NativeSelectOption
-                      key={option.value || 'default'}
-                      value={option.value}
-                    >
-                      {option.label}
-                    </NativeSelectOption>
-                  ))}
-                </NativeSelect>
-              </div>
-            </div>
-            <div className='grid max-w-40 gap-2'>
-              <Label htmlFor='drawing-count'>{t('Images')}</Label>
-              <NativeSelect
-                id='drawing-count'
-                value={count}
-                className='w-full'
-                onChange={(event) => setCount(event.target.value)}
-              >
-                {[1, 2, 3, 4].map((value) => (
-                  <NativeSelectOption key={value} value={String(value)}>
-                    {value}
-                  </NativeSelectOption>
-                ))}
-              </NativeSelect>
-            </div>
-          </div>
+          <div className='p-4'>{settingsForm}</div>
 
           <div className='mt-auto border-t p-4'>
             <p className='text-muted-foreground text-xs leading-5'>
@@ -1052,6 +1413,16 @@ function DrawingWorkbench({ userId }: { userId: number }) {
             </p>
           </div>
         </aside>
+
+        {/* Mobile settings drawer */}
+        <Drawer open={settingsOpen} onOpenChange={setSettingsOpen}>
+          <DrawerContent className='max-h-[85vh] overflow-y-auto p-4 pb-8'>
+            <DrawerHeader className='px-0 pt-0'>
+              <DrawerTitle>{t('Generation settings')}</DrawerTitle>
+            </DrawerHeader>
+            <div className='mt-2'>{settingsForm}</div>
+          </DrawerContent>
+        </Drawer>
       </div>
     )
   }

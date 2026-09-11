@@ -78,6 +78,7 @@ const { api } = await import('@/lib/api')
 const { Drawing } = await import('./index')
 const { useAuthStore } = await import('@/stores/auth-store')
 const { createDrawingHistoryStore } = await import('./history-storage')
+const { resetDrawingTaskState } = await import('./drawing-task-state')
 const originalFetch = globalThis.fetch
 const originalConfirm = window.confirm
 
@@ -191,6 +192,7 @@ async function renderDrawing() {
 }
 
 beforeEach(() => {
+  resetDrawingTaskState()
   useAuthStore
     .getState()
     .auth.setUser({ id: 1, username: 'drawing-user', role: 10 })
@@ -206,6 +208,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  resetDrawingTaskState()
   globalThis.fetch = originalFetch
   window.confirm = originalConfirm
   useAuthStore.getState().auth.reset()
@@ -858,6 +861,143 @@ describe('Drawing balance and browser history', () => {
       assert.equal((await createDrawingHistoryStore().load(2)).images.length, 0)
       await act(async () => useAuthStore.getState().auth.reset())
       assert.equal(rendered.container.textContent, '')
+    } finally {
+      await act(async () => rendered.root.unmount())
+      rendered.queryClient.clear()
+    }
+  })
+})
+
+describe('Drawing wait experience, cancel control, and prompt draft restoration', () => {
+  test('shows truthful wait status and allows stopping waiting while keeping prompt', async () => {
+    mockWorkbench(() => 20)
+    let resolvePost: ((value: unknown) => void) | null = null
+    api.post = (() =>
+      new Promise<unknown>((resolve) => {
+        resolvePost = resolve
+      })) as typeof api.post
+
+    const rendered = await renderDrawing()
+    try {
+      await promptDrawing(rendered.container)
+      const promptInput = rendered.container.querySelector<HTMLTextAreaElement>(
+        '#drawing-prompt-input'
+      )
+      assert.ok(promptInput)
+      await setTextareaValue(promptInput, 'A cyberpunk neon cat in rain')
+
+      await act(async () => {
+        button(rendered.container, 'Generate image').click()
+        await flushEffects()
+      })
+
+      // Truthful waiting state: shows Request submitted · Waiting and does NOT show contradictory text
+      assert.match(
+        rendered.container.textContent ?? '',
+        /Request submitted · Waiting/
+      )
+      assert.doesNotMatch(
+        rendered.container.textContent ?? '',
+        /Your request is ready to run/
+      )
+
+      // Stop waiting button is clearly present
+      const stopBtn = button(rendered.container, 'Stop waiting')
+      assert.ok(stopBtn)
+
+      // Click Stop waiting
+      await act(async () => {
+        stopBtn.click()
+        await flushEffects()
+      })
+
+      // Stops waiting and displays clear explanation
+      assert.match(rendered.container.textContent ?? '', /Stopped waiting/)
+
+      // Prompt is preserved!
+      assert.equal(promptInput.value, 'A cyberpunk neon cat in rain')
+
+      // Generate button is back and ready to run again
+      const genBtn = button(rendered.container, 'Generate image')
+      assert.ok(genBtn)
+      assert.equal(genBtn.disabled, false)
+
+      const resolver = resolvePost as ((value: unknown) => void) | null
+      if (resolver) {
+        resolver({ data: { data: [{ b64_json: png }] } })
+      }
+    } finally {
+      await act(async () => rendered.root.unmount())
+      rendered.queryClient.clear()
+    }
+  })
+
+  test('restores saved prompt draft upon mounting', async () => {
+    mockWorkbench(() => 20)
+    const { saveDrawingDraft } = await import('./drawing-task-state')
+    saveDrawingDraft(1, { prompt: 'Persisted draft of a red lighthouse' })
+
+    const rendered = await renderDrawing()
+    try {
+      await act(
+        async () =>
+          await waitForCondition(
+            () => rendered.container.querySelectorAll('select').length === 5,
+            'drawing controls did not render'
+          )
+      )
+      const promptInput = rendered.container.querySelector<HTMLTextAreaElement>(
+        '#drawing-prompt-input'
+      )
+      assert.ok(promptInput)
+      assert.equal(promptInput.value, 'Persisted draft of a red lighthouse')
+    } finally {
+      await act(async () => rendered.root.unmount())
+      rendered.queryClient.clear()
+    }
+  })
+
+  test('displays error details with HTTP status badge and copy button on 500 error, keeping prompt intact', async () => {
+    mockWorkbench(() => 20)
+    api.post = (() =>
+      Promise.reject({
+        response: {
+          status: 500,
+          data: { error: { message: 'Internal engine error during sampling' } },
+        },
+      })) as typeof api.post
+
+    const rendered = await renderDrawing()
+    try {
+      await promptDrawing(rendered.container)
+      const promptInput = rendered.container.querySelector<HTMLTextAreaElement>(
+        '#drawing-prompt-input'
+      )
+      assert.ok(promptInput)
+      await setTextareaValue(promptInput, 'Mountain sunrise')
+
+      await act(async () => {
+        button(rendered.container, 'Generate image').click()
+        await flushEffects()
+      })
+
+      // Error message and HTTP status badge rendered
+      assert.match(
+        rendered.container.textContent ?? '',
+        /Internal engine error during sampling/
+      )
+      assert.match(rendered.container.textContent ?? '', /HTTP 500/)
+
+      // Prompt is preserved
+      assert.equal(promptInput.value, 'Mountain sunrise')
+
+      // Copy error details button is available
+      const copyBtn = button(rendered.container, 'Copy error details')
+      assert.ok(copyBtn)
+
+      // Retry button is available
+      const retryBtn = button(rendered.container, 'Retry')
+      assert.ok(retryBtn)
     } finally {
       await act(async () => rendered.root.unmount())
       rendered.queryClient.clear()
