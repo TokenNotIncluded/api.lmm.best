@@ -49,6 +49,9 @@ jobs:
       - name: Test PR description policy
         run: node --test scripts/pr-quality.test.mjs
 
+      - name: Test relay timeout differential comparator
+        run: python3 -B -m unittest discover -s apps/api-rust/tests/behavior-oracle/fixtures -p test_relay_timeout_compare.py
+
       - name: Test CI apt source preparation
         run: python3 scripts/test-prepare-ci-apt.py
 
@@ -288,6 +291,10 @@ jobs:
       - name: Test workspace
         working-directory: apps/api-rust
         run: cargo test --workspace --all-targets --all-features --locked
+
+      - name: Test workspace documentation contracts
+        working-directory: apps/api-rust
+        run: cargo test --workspace --doc --all-features --locked
 
   route-coverage-contract:
     name: Go and Rust route/behavior alignment gates

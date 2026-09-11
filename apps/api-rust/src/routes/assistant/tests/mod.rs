@@ -341,6 +341,61 @@ async fn assistant_chat_should_own_model_prompt_billing_and_intent() -> TestResu
     Ok(())
 }
 
+#[tokio::test(start_paused = true)]
+async fn assistant_outer_timeout_cancels_a_pending_relay_turn() -> TestResult {
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    struct PendingBackend(Arc<AtomicBool>);
+    struct DroppedTurn(Arc<AtomicBool>);
+    impl Drop for DroppedTurn {
+        fn drop(&mut self) {
+            self.0.store(true, Ordering::SeqCst);
+        }
+    }
+    #[async_trait]
+    impl AssistantAgentBackend for PendingBackend {
+        async fn relay_turn(
+            &self,
+            _: AssistantAgentTurn,
+        ) -> Result<AssistantAgentTurnResponse, String> {
+            let _guard = DroppedTurn(Arc::clone(&self.0));
+            std::future::pending().await
+        }
+    }
+
+    let store = FixtureStore {
+        settings: AssistantSettingsView {
+            timeout_seconds: 5,
+            cache_enabled: false,
+            ..AssistantSettingsView::default()
+        },
+        billing_result: Some(Ok(AssistantBillingAccount {
+            id: 987,
+            group: "default".to_owned(),
+        })),
+        ..FixtureStore::default()
+    };
+    let dropped = Arc::new(AtomicBool::new(false));
+    let router = fixture_router_with_agent(store, Arc::new(PendingBackend(Arc::clone(&dropped))))?;
+    let start = tokio::time::Instant::now();
+    let response = tokio::time::timeout(
+        Duration::from_secs(10),
+        router.oneshot(build_request(
+            Request::post("/api/assistant/chat")
+                .header(header::AUTHORIZATION, "Bearer browser-session"),
+            Body::from(r#"{"message":"How do I create a key?"}"#),
+            "build assistant timeout request",
+        )?),
+    )
+    .await??;
+    assert_eq!(start.elapsed(), Duration::from_secs(5));
+    assert_eq!(response.status(), StatusCode::GATEWAY_TIMEOUT);
+    let body = response_json(response).await?;
+    assert_eq!(body["code"], "ASSISTANT_UPSTREAM_FAILED");
+    assert!(dropped.load(Ordering::SeqCst));
+    Ok(())
+}
+
 #[tokio::test]
 async fn assistant_chat_should_execute_bounded_tool_loop_then_force_final_answer() -> TestResult {
     let first = json!({

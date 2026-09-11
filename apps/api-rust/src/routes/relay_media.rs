@@ -5,17 +5,12 @@
 //! upstreams stream their response bodies.  Passing the Axum request and
 //! response through the service boundary intact preserves all three cases.
 
-use std::{
-    collections::HashSet,
-    net::IpAddr,
-    sync::Arc,
-    time::{Duration, UNIX_EPOCH},
-};
+use std::{collections::HashSet, net::IpAddr, sync::Arc, time::UNIX_EPOCH};
 
 use async_trait::async_trait;
 use axum::{
     Router,
-    body::{Body, to_bytes},
+    body::to_bytes,
     extract::{Request, State},
     http::{HeaderMap, HeaderName, Method, StatusCode, header},
     response::{IntoResponse, Response},
@@ -40,25 +35,20 @@ pub struct MediaUpstreamTarget {
 
 /// Concrete HTTP client used by the production channel adapter.
 ///
-/// Construct it with a `reqwest::Client` that has `rustls-tls`, `stream`, and a
-/// finite client-wide timeout enabled.  The additional timeout here bounds the
-/// time to upstream response headers; it avoids an indefinitely stalled
-/// connection even when a caller accidentally supplies a less restrictive
-/// client.
+/// The shared relay client owns response-header, body-idle and optional total
+/// deadlines independently for each existing upstream attempt.
 #[derive(Clone)]
 pub struct MediaUpstreamClient {
-    client: reqwest::Client,
-    response_header_timeout: Duration,
+    client: crate::relay_http::RelayHttpClient,
     max_attempts: u8,
 }
 
 impl MediaUpstreamClient {
     /// Creates a retrying upstream client.  Attempts must be positive.
     #[must_use]
-    pub fn new(client: reqwest::Client, response_header_timeout: Duration) -> Self {
+    pub fn new(client: crate::relay_http::RelayHttpClient) -> Self {
         Self {
             client,
-            response_header_timeout,
             max_attempts: DEFAULT_MAX_ATTEMPTS,
         }
     }
@@ -104,9 +94,11 @@ impl MediaUpstreamClient {
                 &target.api_key,
             )
             .body(body.clone());
-            match tokio::time::timeout(self.response_header_timeout, request.send()).await {
-                Ok(Ok(response)) => return Ok(stream_response(response)),
-                Ok(Err(error)) => last_error = Some(MediaUpstreamError::Transport(error)),
+            match self.client.send(request).await {
+                Ok(response) => return Ok(stream_response(response)),
+                Err(crate::relay_http::RelayHttpError::Transport(error)) => {
+                    last_error = Some(MediaUpstreamError::Transport(error))
+                }
                 Err(_) => last_error = Some(MediaUpstreamError::Timeout),
             }
             if attempt + 1 < attempts {
@@ -168,10 +160,10 @@ fn is_loopback_mock_target(url: &reqwest::Url) -> bool {
 }
 
 fn copy_request_headers(
-    mut request: reqwest::RequestBuilder,
+    mut request: crate::relay_http::RelayRequestBuilder,
     inbound: &HeaderMap,
     api_key: &str,
-) -> reqwest::RequestBuilder {
+) -> crate::relay_http::RelayRequestBuilder {
     let hop_by_hop = request_hop_by_hop_headers(inbound);
     for (name, value) in inbound {
         if hop_by_hop.contains(name) {
@@ -224,10 +216,10 @@ fn request_hop_by_hop_headers(inbound: &HeaderMap) -> HashSet<HeaderName> {
     headers
 }
 
-fn stream_response(response: reqwest::Response) -> Response {
+fn stream_response(response: crate::relay_http::RelayResponse) -> Response {
     let status = response.status();
     let headers = response.headers().clone();
-    let mut output = Response::new(Body::from_stream(response.bytes_stream()));
+    let mut output = Response::new(response.into_body());
     *output.status_mut() = status;
     for (name, value) in &headers {
         if !is_hop_by_hop_header(name) {

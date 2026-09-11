@@ -940,18 +940,18 @@ impl Default for MidjourneySettings {
 
 /// Production adapter for Midjourney routes.
 ///
-/// Required constructor inputs are a PostgreSQL 18 pool, a rustls-enabled
-/// `reqwest::Client` with a finite whole-request timeout, the selected channel,
-/// and the maximum buffered response size.  Midjourney intentionally does not
+/// Required constructor inputs include a PostgreSQL 18 pool, a shared relay
+/// client, the selected channel, a separate protected-image fetch deadline,
+/// and the maximum buffered response size. Midjourney intentionally does not
 /// create task-specific Valkey keys: the legacy listener stores task state in
 /// PostgreSQL and relies on the outer token/distribution layer for its Valkey
 /// cache and concurrency controls.
 #[derive(Clone)]
 pub struct PgMidjourneyBackend {
     pg: PgPool,
-    client: reqwest::Client,
+    client: crate::relay_http::RelayHttpClient,
     channel: MidjourneyChannel,
-    response_header_timeout: Duration,
+    image_fetch_timeout: Duration,
     max_response_bytes: usize,
     settings: MidjourneySettings,
 }
@@ -1006,16 +1006,16 @@ impl PgMidjourneyBackend {
     #[must_use]
     pub fn new(
         pg: PgPool,
-        client: reqwest::Client,
+        client: crate::relay_http::RelayHttpClient,
         channel: MidjourneyChannel,
-        response_header_timeout: Duration,
+        image_fetch_timeout: Duration,
         max_response_bytes: usize,
     ) -> Self {
         Self {
             pg,
             client,
             channel,
-            response_header_timeout,
+            image_fetch_timeout,
             max_response_bytes,
             settings: MidjourneySettings::default(),
         }
@@ -1061,9 +1061,10 @@ impl PgMidjourneyBackend {
         if let Some(body) = body {
             request = request.json(&body);
         }
-        let response = tokio::time::timeout(self.response_header_timeout, request.send())
+        let response = self
+            .client
+            .send(request)
             .await
-            .map_err(|_| MidjourneyFailure::Upstream)?
             .map_err(|_| MidjourneyFailure::Upstream)?;
         let status = response.status();
         let content_type = response
@@ -1071,16 +1072,17 @@ impl PgMidjourneyBackend {
             .get(header::CONTENT_TYPE)
             .cloned()
             .unwrap_or_else(|| HeaderValue::from_static("application/json; charset=utf-8"));
-        let bytes = tokio::time::timeout(
-            self.response_header_timeout,
-            to_bytes(
-                Body::from_stream(response.bytes_stream()),
-                self.max_response_bytes,
-            ),
-        )
-        .await
-        .map_err(|_| MidjourneyFailure::Upstream)?
-        .map_err(|_| MidjourneyFailure::Upstream)?;
+        let bytes = match to_bytes(response.into_body(), self.max_response_bytes).await {
+            Ok(bytes) => bytes,
+            Err(_) if !status.is_success() => {
+                return Ok(BufferedJsonReply {
+                    status,
+                    content_type: HeaderValue::from_static("application/json; charset=utf-8"),
+                    body: json!({"code":5,"description":"do_request_failed ","type":"upstream_error"}),
+                });
+            }
+            Err(_) => return Err(MidjourneyFailure::Upstream),
+        };
         let body =
             serde_json::from_slice(&bytes).map_err(|_| MidjourneyFailure::InvalidUpstreamJson)?;
         Ok(BufferedJsonReply {
@@ -1143,12 +1145,12 @@ impl PgMidjourneyBackend {
             let client = reqwest::Client::builder()
                 .no_proxy()
                 .redirect(reqwest::redirect::Policy::none())
-                .connect_timeout(self.response_header_timeout)
+                .connect_timeout(self.image_fetch_timeout)
                 .resolve_to_addrs(host, &addresses)
                 .build()
                 .map_err(|_| MidjourneyFailure::Upstream)?;
             let response =
-                tokio::time::timeout(self.response_header_timeout, client.get(url.clone()).send())
+                tokio::time::timeout(self.image_fetch_timeout, client.get(url.clone()).send())
                     .await
                     .map_err(|_| MidjourneyFailure::Upstream)?
                     .map_err(|_| MidjourneyFailure::Upstream)?;
@@ -1202,8 +1204,8 @@ impl PgMidjourneyBackend {
 #[derive(Clone)]
 pub struct PgMidjourneyDispatchBackend {
     pg: PgPool,
-    client: reqwest::Client,
-    response_header_timeout: Duration,
+    client: crate::relay_http::RelayHttpClient,
+    image_fetch_timeout: Duration,
     max_response_bytes: usize,
     settings: MidjourneySettings,
 }
@@ -1213,14 +1215,14 @@ impl PgMidjourneyDispatchBackend {
     #[must_use]
     pub fn new(
         pg: PgPool,
-        client: reqwest::Client,
-        response_header_timeout: Duration,
+        client: crate::relay_http::RelayHttpClient,
+        image_fetch_timeout: Duration,
         max_response_bytes: usize,
     ) -> Self {
         Self {
             pg,
             client,
-            response_header_timeout,
+            image_fetch_timeout,
             max_response_bytes,
             settings: MidjourneySettings::default(),
         }
@@ -1239,7 +1241,7 @@ impl PgMidjourneyDispatchBackend {
             self.pg.clone(),
             self.client.clone(),
             channel,
-            self.response_header_timeout,
+            self.image_fetch_timeout,
             self.max_response_bytes,
         )
         .with_settings(self.settings.clone())
@@ -1825,7 +1827,7 @@ impl MidjourneyBackend for PgMidjourneyBackend {
             });
         }
         let bytes = tokio::time::timeout(
-            self.response_header_timeout,
+            self.image_fetch_timeout,
             to_bytes(
                 Body::from_stream(response.bytes_stream()),
                 self.max_response_bytes,

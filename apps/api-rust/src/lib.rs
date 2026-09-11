@@ -64,6 +64,9 @@ pub mod models;
 /// Hardened shared construction for outbound control-plane HTTP calls.
 pub mod outbound_http;
 
+/// Provider-specific HTTP deadlines and response consumption.
+pub mod relay_http;
+
 /// Bounded low-cardinality protocol-conversion observability.
 pub mod conversion_observability;
 

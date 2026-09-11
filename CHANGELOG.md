@@ -13,9 +13,12 @@ authenticated users then see it once after their next login.
 
 <!-- Add user-facing or operational changes here before the next release. -->
 
-- Rust relay clients now bound stalled reads with a resettable read timeout
-  instead of a total request deadline, allowing progressing streams to continue.
-  Adapter request/header deadlines and control-plane total timeouts remain intact.
+- Rust model relays now use independent response-header (1800 seconds), byte-idle
+  (300 seconds), and optional per-attempt total deadlines (disabled by default),
+  with Rust environment settings taking precedence over Go-compatible aliases.
+  Internal dependency deadlines remain unchanged. Header timing includes upload;
+  byte heartbeats reset idle timing, which does not protect slow downstream writes.
+  See [relay timeout configuration](apps/api-rust/docs/relay-timeouts.md).
 
 - Rust OpenAI-compatible native relay paths now retain the aggregated request
   body in a reference-counted buffer, avoiding an extra full-payload copy before

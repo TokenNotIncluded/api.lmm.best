@@ -111,6 +111,7 @@ zstd.workspace = true
 zip.workspace = true
 
 [dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
 
 [[bin]]
 name = "lmm-api-rs"

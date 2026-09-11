@@ -13,7 +13,7 @@
 use std::{
     net::IpAddr,
     sync::Arc,
-    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+    time::{Instant, SystemTime, UNIX_EPOCH},
 };
 
 use crate::{
@@ -25,6 +25,7 @@ use crate::{
     protocol_rollout::{ProtocolRolloutControl, RolloutContext},
     protocol_route_gate::{RouteGateBlocker, RouteGateDecision, RouteGateDetails, decide_route},
     protocol_runtime_registry::validated_current_registry,
+    relay_http::{RelayHttpClient, RelayHttpError, RelayResponse},
     route_ownership::{OwnershipEvidence, RouteOwnershipScope},
 };
 use async_trait::async_trait;
@@ -157,18 +158,14 @@ pub struct OpenAiUpstreamTarget {
 /// call owns a fresh replay of [`OpenAiRelayRequest::raw_body`].
 #[derive(Clone)]
 pub struct OpenAiUpstreamClient {
-    client: reqwest::Client,
-    response_header_timeout: Duration,
+    client: RelayHttpClient,
 }
 
 impl OpenAiUpstreamClient {
-    /// Creates an adapter with a finite response-header deadline.
+    /// Creates an adapter governed by the shared provider timeout policy.
     #[must_use]
-    pub fn new(client: reqwest::Client, response_header_timeout: Duration) -> Self {
-        Self {
-            client,
-            response_header_timeout,
-        }
+    pub fn new(client: RelayHttpClient) -> Self {
+        Self { client }
     }
 
     /// Forwards one selected request and preserves successful JSON or SSE wire
@@ -184,10 +181,12 @@ impl OpenAiUpstreamClient {
         let upstream_request =
             copy_upstream_headers(self.client.post(url), &request.headers, &target.api_key)
                 .body(request.raw_body.clone());
-        let upstream = tokio::time::timeout(self.response_header_timeout, upstream_request.send())
-            .await
-            .map_err(|_| upstream_transport_failure("upstream response timed out"))?
-            .map_err(|_| upstream_transport_failure("upstream request failed"))?;
+        let upstream = self.client.send(upstream_request).await.map_err(|error| {
+            upstream_transport_failure(match error {
+                RelayHttpError::ResponseHeaders => "upstream response timed out",
+                _ => "upstream request failed",
+            })
+        })?;
         let status = upstream.status();
         let headers = upstream.headers().clone();
         if !status.is_success() {
@@ -199,7 +198,7 @@ impl OpenAiUpstreamClient {
             headers,
             body: OpenAiRelayBody::Upstream {
                 content_type,
-                body: Body::from_stream(upstream.bytes_stream()),
+                body: upstream.into_body(),
             },
         })
     }
@@ -1358,10 +1357,10 @@ const fn upstream_path(endpoint: OpenAiRelayEndpoint) -> &'static str {
 }
 
 fn copy_upstream_headers(
-    mut request: reqwest::RequestBuilder,
+    mut request: crate::relay_http::RelayRequestBuilder,
     inbound: &HeaderMap,
     api_key: &str,
-) -> reqwest::RequestBuilder {
+) -> crate::relay_http::RelayRequestBuilder {
     for (name, value) in inbound {
         if should_forward_upstream_header(name) {
             request = request.header(name, value);
@@ -1417,7 +1416,7 @@ fn upstream_transport_failure(message: &'static str) -> OpenAiRelayFailure {
 async fn upstream_http_failure(
     status: StatusCode,
     headers: HeaderMap,
-    mut response: reqwest::Response,
+    mut response: RelayResponse,
 ) -> OpenAiRelayFailure {
     let mut body = Vec::new();
     while body.len() < MAX_UPSTREAM_ERROR_BODY_BYTES {
@@ -1542,6 +1541,7 @@ mod tests {
 
     struct CapturedUpstreamRequest {
         authorization: Option<String>,
+        headers: HeaderMap,
         path: String,
         body: Bytes,
     }
@@ -1561,6 +1561,7 @@ mod tests {
                     .map(str::to_owned),
                 path: uri.path().to_owned(),
                 body,
+                headers,
             })
             .await;
         (
@@ -1799,9 +1800,9 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn upstream_header_copy_strips_client_credentials_and_injects_channel_credential() -> TestResult
-    {
+    #[tokio::test]
+    async fn upstream_header_copy_strips_client_credentials_and_injects_channel_credential()
+    -> TestResult {
         let mut inbound = HeaderMap::new();
         inbound.insert(header::ACCEPT, HeaderValue::from_static("application/json"));
         inbound.insert("x-trace-id", HeaderValue::from_static("trace-123"));
@@ -1826,22 +1827,32 @@ mod tests {
             inbound.insert(name, HeaderValue::from_static(value));
         }
 
-        let request = with_context(
-            copy_upstream_headers(
-                reqwest::Client::new().post("https://upstream.example/v1/responses"),
+        let (url, mut requests, server) = mock_server(MockUpstreamResponse {
+            status: StatusCode::OK,
+            headers: HeaderMap::new(),
+            body: Vec::new(),
+        })
+        .await?;
+        let client = RelayHttpClient::new(Default::default())?;
+        let reply = tokio::time::timeout(
+            Duration::from_secs(5),
+            client.send(copy_upstream_headers(
+                client.post(url.parse()?),
                 &inbound,
                 "channel-secret",
-            )
-            .build(),
-            "build the upstream header passthrough request",
-        )?;
+            )),
+        )
+        .await;
+        server.abort();
+        assert_eq!(reply??.status(), StatusCode::OK);
+        let request = required(requests.recv().await, "captured upstream headers")?;
 
         assert_eq!(
-            request.headers()[header::AUTHORIZATION],
+            request.headers[header::AUTHORIZATION],
             "Bearer channel-secret"
         );
-        assert_eq!(request.headers()[header::ACCEPT], "application/json");
-        assert_eq!(request.headers()["x-trace-id"], "trace-123");
+        assert_eq!(request.headers[header::ACCEPT], "application/json");
+        assert_eq!(request.headers["x-trace-id"], "trace-123");
         for name in [
             "x-api-key",
             "x-goog-api-key",
@@ -1851,7 +1862,7 @@ mod tests {
             "cookie",
         ] {
             assert!(
-                !request.headers().contains_key(name),
+                !request.headers.contains_key(name),
                 "sensitive inbound header leaked upstream: {name}"
             );
         }
@@ -1876,7 +1887,13 @@ mod tests {
             OpenAiRelayEndpoint::ChatCompletions,
             br#"{"model":"mock-model","messages":[{"role":"user","content":"hello"}],"provider_option":true}"#,
         )?;
-        let client = OpenAiUpstreamClient::new(reqwest::Client::new(), Duration::from_secs(1));
+        let client = OpenAiUpstreamClient::new(
+            crate::relay_http::RelayHttpClient::new(crate::relay_http::RelayTimeoutConfig {
+                response_headers: Some(Duration::from_secs(1)),
+                ..Default::default()
+            })
+            .unwrap(),
+        );
         let result = with_context(
             client
                 .forward(
@@ -1934,7 +1951,13 @@ mod tests {
             body: expected.to_vec(),
         })
         .await?;
-        let client = OpenAiUpstreamClient::new(reqwest::Client::new(), Duration::from_secs(1));
+        let client = OpenAiUpstreamClient::new(
+            crate::relay_http::RelayHttpClient::new(crate::relay_http::RelayTimeoutConfig {
+                response_headers: Some(Duration::from_secs(1)),
+                ..Default::default()
+            })
+            .unwrap(),
+        );
         let result = with_context(
             client
                 .forward(
@@ -1978,7 +2001,13 @@ mod tests {
             body: br#"{"error":{"message":"rate limited","code":"rate_limit_exceeded"}}"#.to_vec(),
         })
         .await?;
-        let client = OpenAiUpstreamClient::new(reqwest::Client::new(), Duration::from_secs(1));
+        let client = OpenAiUpstreamClient::new(
+            crate::relay_http::RelayHttpClient::new(crate::relay_http::RelayTimeoutConfig {
+                response_headers: Some(Duration::from_secs(1)),
+                ..Default::default()
+            })
+            .unwrap(),
+        );
         let result = client
             .forward(
                 &OpenAiUpstreamTarget {

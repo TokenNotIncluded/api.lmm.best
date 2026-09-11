@@ -46,6 +46,93 @@ struct ProviderObservation {
     body: Value,
 }
 
+#[tokio::test]
+#[ignore = "requires isolated PostgreSQL; set LMM_RELAY_MISC_TEST_DATABASE_URL and LMM_RELAY_MISC_TEST_ALLOW_SCHEMA_RESET=1"]
+async fn stalled_valkey_uses_dependency_deadline_independent_of_model_deadlines() {
+    use lmm_api_rs::relay_http::{RelayHttpClient, RelayTimeoutConfig};
+    use tokio::io::AsyncReadExt;
+
+    let pool = PgPoolOptions::new()
+        .max_connections(4)
+        .connect(&integration_database_url())
+        .await
+        .unwrap();
+    reset_schema(&pool).await;
+    let provider = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    seed(&pool, &format!("http://{}", provider.local_addr().unwrap())).await;
+    sqlx::query("UPDATE options SET value='true' WHERE key='ModelRequestRateLimitEnabled'")
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    for header_deadline in [Some(Duration::from_secs(30)), None] {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let (observed, received) = tokio::sync::oneshot::channel();
+        let stalled_valkey = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut bytes = [0_u8; 1024];
+            let count = socket.read(&mut bytes).await.unwrap();
+            observed.send(count).unwrap();
+            // Accept protocol bytes but never answer, exercising an actual pending dependency.
+            std::future::pending::<()>().await;
+            drop(socket);
+        });
+        let dependency_timeout = Duration::from_secs(2);
+        let service = PgRelayMiscService::new(
+            pool.clone(),
+            Arc::new(PgModelsService::new(pool.clone())),
+            RelayHttpClient::new(RelayTimeoutConfig {
+                response_headers: header_deadline,
+                idle: Duration::from_secs(30),
+                total: None,
+            })
+            .unwrap(),
+            dependency_timeout,
+        )
+        .with_model_rate_limit_valkey(
+            redis::Client::open(format!("redis://{address}/0")).unwrap(),
+            dependency_timeout,
+        );
+        let app = routes(RelayMiscHttpState::new(Arc::new(service)));
+        let start = tokio::time::Instant::now();
+        let response = tokio::time::timeout(
+            Duration::from_secs(8),
+            call(
+                &app,
+                "Bearer sk-relayprobe",
+                r#"{"model":"gpt-test","input":"hello"}"#,
+                "stalled-valkey",
+            ),
+        )
+        .await
+        .expect("model deadlines must not replace the dependency deadline");
+        assert!(start.elapsed() >= dependency_timeout);
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        let body: Value = serde_json::from_slice(&response_body(response).await).unwrap();
+        assert_eq!(body["error"]["code"], "invalid_request");
+        assert!(
+            body["error"]["message"]
+                .as_str()
+                .unwrap()
+                .contains("rate_limit_check_failed")
+        );
+        assert!(
+            received.await.unwrap() > 0,
+            "must reach the stalled dependency"
+        );
+        stalled_valkey.abort();
+        assert!(stalled_valkey.await.unwrap_err().is_cancelled());
+    }
+    assert!(
+        tokio::time::timeout(Duration::from_millis(100), provider.accept())
+            .await
+            .is_err(),
+        "rate-limit dependency failure must not reach the model provider"
+    );
+    pool.close().await;
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires an isolated PostgreSQL database; set LMM_RELAY_MISC_TEST_DATABASE_URL and LMM_RELAY_MISC_TEST_ALLOW_SCHEMA_RESET=1"]
 async fn fixed_price_embedding_settles_atomically_and_provider_failure_rolls_back() {
@@ -78,9 +165,7 @@ async fn fixed_price_embedding_settles_atomically_and_provider_failure_rolls_bac
 
     seed(&pool, &format!("http://{provider_address}")).await;
     let models = Arc::new(PgModelsService::new(pool.clone()));
-    let outbound = reqwest::Client::builder()
-        .redirect(reqwest::redirect::Policy::none())
-        .build()
+    let outbound = lmm_api_rs::relay_http::RelayHttpClient::new(Default::default())
         .expect("loopback provider client");
     let app = routes(RelayMiscHttpState::new(Arc::new(PgRelayMiscService::new(
         pool.clone(),

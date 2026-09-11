@@ -1,5 +1,6 @@
 use lmm_api_rs::{
     protocol_rollout::{ProtocolRolloutConfig, RolloutConfigError},
+    relay_http::{RelayTimeoutConfig, RelayTimeoutConfigError},
     status::TurnstilePublicConfig,
 };
 use lmm_application::ValkeyReadinessPolicy;
@@ -52,6 +53,7 @@ pub struct Config {
     pub valkey_url: String,
     pub schema_contract: i64,
     pub dependency_timeout: Duration,
+    pub relay_timeouts: RelayTimeoutConfig,
     pub drain_timeout: Duration,
     pub public_content_cache_ttl: Duration,
     pub valkey_readiness_policy: ValkeyReadinessPolicy,
@@ -168,6 +170,7 @@ impl std::fmt::Debug for Config {
             .field("valkey_url", &"[REDACTED]")
             .field("schema_contract", &self.schema_contract)
             .field("dependency_timeout", &self.dependency_timeout)
+            .field("relay_timeouts", &self.relay_timeouts)
             .field("drain_timeout", &self.drain_timeout)
             .field("public_content_cache_ttl", &self.public_content_cache_ttl)
             .field("valkey_readiness_policy", &self.valkey_readiness_policy)
@@ -238,6 +241,8 @@ pub enum ConfigError {
     Invalid(&'static str),
     #[error("protocol rollout configuration is invalid: {0}")]
     ProtocolRollout(#[from] RolloutConfigError),
+    #[error(transparent)]
+    RelayTimeout(#[from] RelayTimeoutConfigError),
 }
 impl Config {
     pub fn from_env() -> Result<Self, ConfigError> {
@@ -269,6 +274,11 @@ impl Config {
                 .parse()
                 .map_err(|_| ConfigError::Invalid("LMM_SCHEMA_CONTRACT"))?,
             dependency_timeout: positive_seconds("LMM_DEPENDENCY_TIMEOUT_SECONDS", 2)?,
+            relay_timeouts: RelayTimeoutConfig::from_lookup(|name| match env::var(name) {
+                Ok(value) => Ok(Some(value)),
+                Err(env::VarError::NotPresent) => Ok(None),
+                Err(env::VarError::NotUnicode(_)) => Err(RelayTimeoutConfigError(name)),
+            })?,
             // `lmm-api-rs@.service` leaves a five-second supervisor margin
             // beyond this bound.  Reject longer values rather than letting
             // systemd cut a drain short and disconnect an in-flight request.
@@ -796,7 +806,74 @@ fn boolean_with_legacy(
 
 #[cfg(test)]
 mod tests {
-    use super::{Config, TrustedProxyPolicy, TurnstileConfig, select_compatible_value};
+    use std::{env, process::Command};
+
+    #[test]
+    fn relay_environment_does_not_change_internal_dependency_default() {
+        const CHILD: &str = "LMM_RELAY_CONFIG_TEST_CHILD";
+        if let Ok(mode) = env::var(CHILD) {
+            let config = Config::from_env().expect("isolated startup configuration");
+            assert_eq!(config.dependency_timeout, Duration::from_secs(2));
+            match mode.as_str() {
+                "default" => assert_eq!(config.relay_timeouts, RelayTimeoutConfig::default()),
+                "custom" => assert_eq!(
+                    config.relay_timeouts,
+                    RelayTimeoutConfig {
+                        response_headers: Some(Duration::from_secs(7)),
+                        idle: Duration::from_secs(9),
+                        total: Some(Duration::from_secs(11)),
+                    }
+                ),
+                _ => panic!("unknown isolated test mode"),
+            }
+            return;
+        }
+
+        for mode in ["default", "custom"] {
+            let mut child = Command::new(env::current_exe().unwrap());
+            child
+                .env_clear()
+                .args([
+                    "--exact",
+                    "config::tests::relay_environment_does_not_change_internal_dependency_default",
+                    "--nocapture",
+                ])
+                .env(CHILD, mode)
+                .env("LMM_RS_SLOT", "blue")
+                .env("LMM_RS_LISTEN_ADDR", "127.0.0.1:0")
+                .env("LMM_SCHEMA_CONTRACT", "1")
+                .env("DATABASE_URL", "postgresql://unused@127.0.0.1:1/unused")
+                .env("VALKEY_URL", "redis://127.0.0.1:1")
+                .env(
+                    "SESSION_SECRET",
+                    "RelayConfig-Only-2026-01234567890123456789",
+                )
+                .env(
+                    "CRYPTO_SECRET",
+                    "RelayConfig-Crypto-2026-01234567890123456789",
+                );
+            if mode == "custom" {
+                child
+                    .env("LMM_RELAY_RESPONSE_HEADER_TIMEOUT_SECONDS", "7")
+                    .env("LMM_RELAY_IDLE_TIMEOUT_SECONDS", "9")
+                    .env("LMM_RELAY_TIMEOUT_SECONDS", "11")
+                    .env("RELAY_RESPONSE_HEADER_TIMEOUT", "invalid-ignored-alias")
+                    .env("STREAMING_TIMEOUT", "invalid-ignored-alias")
+                    .env("RELAY_TIMEOUT", "invalid-ignored-alias");
+            }
+            let output = child.output().expect("configuration test child");
+            assert!(
+                output.status.success(),
+                "{}\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+    }
+
+    use super::{
+        Config, RelayTimeoutConfig, TrustedProxyPolicy, TurnstileConfig, select_compatible_value,
+    };
     use lmm_api_rs::protocol_rollout::ProtocolRolloutConfig;
     use lmm_api_rs::status::TurnstilePublicConfig;
     use lmm_application::ValkeyReadinessPolicy;
@@ -846,6 +923,7 @@ mod tests {
             valkey_url: "redis://:secret@localhost".to_owned(),
             schema_contract: 1,
             dependency_timeout: Duration::from_secs(2),
+            relay_timeouts: RelayTimeoutConfig::default(),
             drain_timeout: Duration::from_secs(30),
             public_content_cache_ttl: Duration::from_secs(5),
             valkey_readiness_policy: ValkeyReadinessPolicy::RequiredForRateLimiting,

@@ -2095,7 +2095,8 @@ impl TestInstanceMidjourneyBackend {
         Self {
             authentication: PgMidjourneyBackend::new(
                 pg,
-                reqwest::Client::new(),
+                lmm_api_rs::relay_http::RelayHttpClient::new(Default::default())
+                    .expect("relay client"),
                 MidjourneyChannel {
                     id: 0,
                     base_url: "http://127.0.0.1:9/".to_owned(),
