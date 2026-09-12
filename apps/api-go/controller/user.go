@@ -1121,15 +1121,15 @@ func DeleteUser(c *gin.Context) {
 func DeleteSelf(c *gin.Context) {
 	id := c.GetInt("id")
 	user, err := model.GetUserById(id, false)
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		common.ApiError(c, err)
+		return
+	}
 	if errors.Is(err, gorm.ErrRecordNotFound) || user == nil {
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
 			"success": false,
 			"message": common.TranslateMessage(c, i18n.MsgAuthNotLoggedIn),
 		})
-		return
-	}
-	if err != nil {
-		common.ApiError(c, err)
 		return
 	}
 
