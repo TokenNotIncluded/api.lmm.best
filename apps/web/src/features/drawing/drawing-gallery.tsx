@@ -4,6 +4,7 @@ Copyright (C) 2026 LIghtJUNction
 import { useTranslation } from 'react-i18next'
 
 import { buttonVariants } from '@/components/ui/button'
+import { toIntlLocale } from '@/i18n/languages'
 
 import type { DrawingPreview } from './drawing-history'
 
@@ -34,7 +35,11 @@ export function DrawingGallery({ images }: { images: DrawingPreview[] }) {
                 return (
                   <time dateTime={isValid ? date.toISOString() : undefined}>
                     {isValid
-                      ? date.toLocaleString(i18n.resolvedLanguage || 'en')
+                      ? date.toLocaleString(
+                          toIntlLocale(
+                            i18n.resolvedLanguage || i18n.language
+                          ) ?? 'en'
+                        )
                       : ''}
                   </time>
                 )
