@@ -162,12 +162,13 @@ func defaultProductionPaths() productionPaths {
 }
 
 type productionCommand struct {
-	Name      string
-	Args      []string
-	Env       []string
-	Dir       string
-	Timeout   time.Duration
-	Sensitive bool
+	Name        string
+	Args        []string
+	Env         []string
+	Dir         string
+	Timeout     time.Duration
+	Sensitive   bool
+	OutputLimit int
 }
 
 type productionCommandRunner interface {
@@ -242,6 +243,10 @@ func (osProductionCommandRunner) Run(parent context.Context, command productionC
 	var stderr bytes.Buffer
 	process.Stdout = &stdout
 	process.Stderr = &stderr
+	if command.OutputLimit > 0 {
+		process.Stdout = &boundedBillingOutput{buffer: &stdout, limit: command.OutputLimit}
+		process.Stderr = &boundedBillingOutput{buffer: &stderr, limit: command.OutputLimit}
+	}
 	err := process.Run()
 	if err == nil {
 		return stdout.Bytes(), nil
@@ -274,14 +279,17 @@ func runVerifiedBinary(ctx context.Context, runner productionCommandRunner, bina
 }
 
 type productionRuntime struct {
-	paths            productionPaths
-	runner           productionCommandRunner
-	now              func() time.Time
-	sleep            func(time.Duration)
-	effectiveUID     func() int
-	hostname         func() (string, error)
-	probeAttempts    int
-	requiredOwnerUID uint32
+	billingAdmissionClosed bool
+	billingRollback        bool
+	billingConnections     func() (int, error)
+	paths                  productionPaths
+	runner                 productionCommandRunner
+	now                    func() time.Time
+	sleep                  func(time.Duration)
+	effectiveUID           func() int
+	hostname               func() (string, error)
+	probeAttempts          int
+	requiredOwnerUID       uint32
 }
 
 func defaultProductionRuntime() *productionRuntime {
@@ -348,6 +356,7 @@ type productionFrontendTransition struct {
 }
 
 type productionManifest struct {
+	BillingGate              *productionBillingGate       `json:"billing_gate,omitempty"`
 	Format                   int                          `json:"format"`
 	DeploymentID             string                       `json:"deployment_id"`
 	OperatorUser             string                       `json:"operator_user"`
