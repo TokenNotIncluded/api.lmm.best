@@ -33,7 +33,7 @@ func SetRelayRouter(router *gin.Engine, sharedAdmission ...gin.HandlerFunc) {
 	quotaRouter.Use(middleware.RouteTag("relay"), middleware.DisableCache(), middleware.QuotaQueryAuth(), middleware.QuotaQueryRateLimit())
 	quotaRouter.GET("", controller.GetQuotaQuery)
 	pricingRouter := router.Group("/v1/pricing")
-	pricingRouter.Use(middleware.RouteTag("relay"), middleware.DisableCache(), middleware.TokenAuth(), middleware.QuotaQueryRateLimit())
+	pricingRouter.Use(middleware.RouteTag("relay"), middleware.DisableCache(), middleware.QuotaQueryAuth(), middleware.PricingQueryAccess(), middleware.QuotaQueryRateLimit())
 	pricingRouter.GET("", controller.GetTokenPricing)
 
 	modelsRouter := router.Group("/v1/models")

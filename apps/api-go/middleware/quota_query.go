@@ -8,7 +8,10 @@ import (
 	"time"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
+	"github.com/LIghtJUNction/api.lmm.best/constant"
 	"github.com/LIghtJUNction/api.lmm.best/model"
+	"github.com/LIghtJUNction/api.lmm.best/service"
+	"github.com/LIghtJUNction/api.lmm.best/setting/ratio_setting"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
@@ -66,4 +69,42 @@ func QuotaQueryAuth() gin.HandlerFunc {
 // Per account, regardless of how many keys are used: at most 30 queries/minute.
 func QuotaQueryRateLimit() gin.HandlerFunc {
 	return userRateLimitFactory(30, 60, "quota-query")
+}
+
+// PricingQueryAccess follows relay visibility without ValidateUserToken, whose
+// lazy expired/exhausted transitions are writes and may log credential SQL.
+// Register after QuotaQueryAuth so the key and account have been read safely.
+func PricingQueryAccess() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		raw, _ := c.Get("quota_query_token")
+		token, ok := raw.(*model.Token)
+		if !ok || token == nil || token.Status != common.TokenStatusEnabled || (!token.UnlimitedQuota && token.RemainQuota <= 0) {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"success": false, "message": "API key unavailable"})
+			return
+		}
+		user, err := model.GetUserCache(token.UserId)
+		if err != nil {
+			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "pricing context unavailable"})
+			return
+		}
+		if allowed, err := trustLevelAllowsDeveloperAccess(user); err != nil || !allowed {
+			abortRelayAsNotFound(c)
+			return
+		}
+		group := user.Group
+		if token.Group != "" {
+			if _, allowed := service.GetUserUsableGroups(user.Group)[token.Group]; !allowed || (token.Group != "auto" && !ratio_setting.ContainsGroupRatio(token.Group)) {
+				c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"success": false, "message": "group unavailable"})
+				return
+			}
+			group = token.Group
+		}
+		if err := SetupContextForToken(c, token); err != nil {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"success": false, "message": "API key unavailable"})
+			return
+		}
+		user.WriteContext(c)
+		common.SetContextKey(c, constant.ContextKeyUsingGroup, group)
+		c.Next()
+	}
 }
