@@ -8124,6 +8124,40 @@ for (const [locale, translations] of Object.entries(resetVoucherHistoryCopy)) {
   Object.assign(newKeys[locale], translations)
 }
 
+const expiredResetPreviewCopy = {
+  en: {
+    'The preview or voucher expiry has passed. Prepare a new preview.':
+      'The preview or voucher expiry has passed. Prepare a new preview.',
+  },
+  zh: {
+    'The preview or voucher expiry has passed. Prepare a new preview.':
+      '预览或券已过期，请重新生成预览。',
+  },
+  'zh-TW': {
+    'The preview or voucher expiry has passed. Prepare a new preview.':
+      '預覽或券已到期，請重新產生預覽。',
+  },
+  fr: {
+    'The preview or voucher expiry has passed. Prepare a new preview.':
+      'L’aperçu ou le bon a expiré. Préparez un nouvel aperçu.',
+  },
+  ja: {
+    'The preview or voucher expiry has passed. Prepare a new preview.':
+      'プレビューまたは券の有効期限が切れました。新しいプレビューを作成してください。',
+  },
+  ru: {
+    'The preview or voucher expiry has passed. Prepare a new preview.':
+      'Срок действия предпросмотра или ваучера истёк. Подготовьте новый предпросмотр.',
+  },
+  vi: {
+    'The preview or voucher expiry has passed. Prepare a new preview.':
+      'Bản xem trước hoặc phiếu đã hết hạn. Hãy tạo bản xem trước mới.',
+  },
+}
+for (const [locale, translations] of Object.entries(expiredResetPreviewCopy)) {
+  Object.assign(newKeys[locale], translations)
+}
+
 const deprecatedCurrencyKeys = new Set([
   'Price (local currency / USD)',
   'Use global price',

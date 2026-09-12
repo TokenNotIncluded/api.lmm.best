@@ -7104,6 +7104,7 @@
     "The policy endpoint returned no policy data. No categories, rules, or fee amounts are fabricated in this view.": "策略接口未返回策略数据。本页面不会伪造分类、规则或扣费金额。",
     "The policy endpoint returned no public fee rules. No amount is shown until the server publishes one.": "策略接口未返回公开扣费规则。服务器发布规则前，本页面不会显示金额。",
     "The policy endpoint returned no risk categories. No category list is fabricated in this view.": "策略接口未返回风险分类。本页面不会伪造分类列表。",
+    "The preview or voucher expiry has passed. Prepare a new preview.": "预览或券已过期，请重新生成预览。",
     "The price changed before item {{item}}. Review the new quote.": "购买第 {{item}} 个号码前价格已变化，请确认新报价。",
     "The production edge checks the request's exit IP. A mainland-China exit IP must match your registered address; other regions continue normally.": "生产边缘节点会检查请求的出口 IP。中国大陆出口 IP 必须匹配你登记的地址；其他地区照常访问。",
     "The profit multiplier never falls below this value while dynamic pricing is enabled.": "启用动态定价后，利润倍率不会低于此值。",

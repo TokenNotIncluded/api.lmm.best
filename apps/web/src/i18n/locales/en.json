@@ -7104,6 +7104,7 @@
     "The policy endpoint returned no policy data. No categories, rules, or fee amounts are fabricated in this view.": "The policy endpoint returned no policy data. No categories, rules, or fee amounts are fabricated in this view.",
     "The policy endpoint returned no public fee rules. No amount is shown until the server publishes one.": "The policy endpoint returned no public fee rules. No amount is shown until the server publishes one.",
     "The policy endpoint returned no risk categories. No category list is fabricated in this view.": "The policy endpoint returned no risk categories. No category list is fabricated in this view.",
+    "The preview or voucher expiry has passed. Prepare a new preview.": "The preview or voucher expiry has passed. Prepare a new preview.",
     "The price changed before item {{item}}. Review the new quote.": "The price changed before item {{item}}. Review the new quote.",
     "The production edge checks the request's exit IP. A mainland-China exit IP must match your registered address; other regions continue normally.": "The production edge checks the request's exit IP. A mainland-China exit IP must match your registered address; other regions continue normally.",
     "The profit multiplier never falls below this value while dynamic pricing is enabled.": "The profit multiplier never falls below this value while dynamic pricing is enabled.",

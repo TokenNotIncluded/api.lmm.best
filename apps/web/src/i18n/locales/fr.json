@@ -7104,6 +7104,7 @@
     "The policy endpoint returned no policy data. No categories, rules, or fee amounts are fabricated in this view.": "L'endpoint de politique n'a renvoyé aucune donnée de politique. Aucune catégorie, règle ou montant n'est inventé ici.",
     "The policy endpoint returned no public fee rules. No amount is shown until the server publishes one.": "L'endpoint de politique n'a renvoyé aucune règle publique de frais. Aucun montant n'est affiché tant que le serveur n'en publie pas.",
     "The policy endpoint returned no risk categories. No category list is fabricated in this view.": "L'endpoint de politique n'a renvoyé aucune catégorie de risque. Aucune liste n'est inventée ici.",
+    "The preview or voucher expiry has passed. Prepare a new preview.": "L’aperçu ou le bon a expiré. Préparez un nouvel aperçu.",
     "The price changed before item {{item}}. Review the new quote.": "Le prix a changé avant l’élément {{item}}. Vérifiez le nouveau devis.",
     "The production edge checks the request's exit IP. A mainland-China exit IP must match your registered address; other regions continue normally.": "Le point d’entrée de production vérifie l’IP de sortie de la requête. Une IP de sortie de Chine continentale doit correspondre à votre adresse enregistrée ; les autres régions continuent normalement.",
     "The profit multiplier never falls below this value while dynamic pricing is enabled.": "Le coefficient de profit ne descend jamais sous cette valeur lorsque la tarification dynamique est active.",

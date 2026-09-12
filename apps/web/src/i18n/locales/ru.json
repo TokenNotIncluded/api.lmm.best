@@ -7104,6 +7104,7 @@
     "The policy endpoint returned no policy data. No categories, rules, or fee amounts are fabricated in this view.": "Конечная точка политики не вернула данные политики. Категории, правила и суммы не выдумываются.",
     "The policy endpoint returned no public fee rules. No amount is shown until the server publishes one.": "Конечная точка политики не вернула публичные правила платы. Сумма не показывается до публикации сервером.",
     "The policy endpoint returned no risk categories. No category list is fabricated in this view.": "Конечная точка политики не вернула категории риска. Список категорий не выдумывается.",
+    "The preview or voucher expiry has passed. Prepare a new preview.": "Срок действия предпросмотра или ваучера истёк. Подготовьте новый предпросмотр.",
     "The price changed before item {{item}}. Review the new quote.": "Цена изменилась перед покупкой № {{item}}. Проверьте новое предложение.",
     "The production edge checks the request's exit IP. A mainland-China exit IP must match your registered address; other regions continue normally.": "Производственный пограничный узел проверяет IP выхода запроса. IP выхода из материкового Китая должен совпадать с зарегистрированным адресом; остальные регионы работают как обычно.",
     "The profit multiplier never falls below this value while dynamic pricing is enabled.": "При включённом динамическом ценообразовании коэффициент прибыли не опускается ниже этого значения.",

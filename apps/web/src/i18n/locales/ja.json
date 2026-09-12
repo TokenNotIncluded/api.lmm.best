@@ -7104,6 +7104,7 @@
     "The policy endpoint returned no policy data. No categories, rules, or fee amounts are fabricated in this view.": "ポリシーエンドポイントからポリシーデータが返されませんでした。カテゴリ、ルール、料金を作成することはありません。",
     "The policy endpoint returned no public fee rules. No amount is shown until the server publishes one.": "ポリシーエンドポイントから公開料金ルールが返されませんでした。サーバーが公開するまで金額は表示しません。",
     "The policy endpoint returned no risk categories. No category list is fabricated in this view.": "ポリシーエンドポイントからリスクカテゴリが返されませんでした。このビューでカテゴリ一覧を作成することはありません。",
+    "The preview or voucher expiry has passed. Prepare a new preview.": "プレビューまたは券の有効期限が切れました。新しいプレビューを作成してください。",
     "The price changed before item {{item}}. Review the new quote.": "{{item}} 件目の購入前に価格が変わりました。新しい見積もりを確認してください。",
     "The production edge checks the request's exit IP. A mainland-China exit IP must match your registered address; other regions continue normally.": "本番エッジはリクエストの出口 IP を確認します。中国本土の出口 IP は登録済みアドレスと一致する必要がありますが、他の地域は通常どおり利用できます。",
     "The profit multiplier never falls below this value while dynamic pricing is enabled.": "動的料金設定中、利益倍率はこの値を下回りません。",

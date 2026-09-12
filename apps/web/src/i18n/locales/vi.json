@@ -7104,6 +7104,7 @@
     "The policy endpoint returned no policy data. No categories, rules, or fee amounts are fabricated in this view.": "Điểm cuối chính sách không trả về dữ liệu chính sách. Trang này không tạo giả danh mục, quy tắc hoặc số tiền.",
     "The policy endpoint returned no public fee rules. No amount is shown until the server publishes one.": "Điểm cuối chính sách không trả về quy tắc phí công khai. Chưa hiển thị số tiền cho đến khi máy chủ công bố.",
     "The policy endpoint returned no risk categories. No category list is fabricated in this view.": "Điểm cuối chính sách không trả về danh mục rủi ro. Trang này không tạo giả danh sách danh mục.",
+    "The preview or voucher expiry has passed. Prepare a new preview.": "Bản xem trước hoặc phiếu đã hết hạn. Hãy tạo bản xem trước mới.",
     "The price changed before item {{item}}. Review the new quote.": "Giá đã thay đổi trước mục {{item}}. Hãy kiểm tra báo giá mới.",
     "The production edge checks the request's exit IP. A mainland-China exit IP must match your registered address; other regions continue normally.": "Điểm biên production kiểm tra IP thoát của yêu cầu. IP thoát từ Trung Quốc đại lục phải khớp với địa chỉ đã đăng ký; các khu vực khác vẫn hoạt động bình thường.",
     "The profit multiplier never falls below this value while dynamic pricing is enabled.": "Khi định giá động bật, hệ số lợi nhuận không thấp hơn giá trị này.",
