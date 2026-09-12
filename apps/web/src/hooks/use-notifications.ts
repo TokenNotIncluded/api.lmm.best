@@ -16,7 +16,11 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  useInfiniteQuery,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query'
 import { useState, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -28,6 +32,10 @@ import {
   thankBountyTip,
 } from '@/features/open-source-bounties/api'
 import type { BountyNotification } from '@/features/open-source-bounties/types'
+import {
+  listRatioNotifications,
+  ratioAnnouncement,
+} from '@/features/ratio-notifications/api'
 import { useStatus } from '@/hooks/use-status'
 import { getNotice } from '@/lib/api'
 import { getBackendCapabilities } from '@/lib/backend-capabilities'
@@ -99,15 +107,31 @@ export function useNotifications() {
   const backendCapabilities = getBackendCapabilities(status)
   const announcementsEnabled = status?.announcements_enabled ?? false
   const statusAnnouncements = status?.announcements
+  const ratioFeed = useInfiniteQuery({
+    queryKey: ['ratio-notifications', userId, authUser?.group],
+    queryFn: ({ pageParam }) => listRatioNotifications(pageParam),
+    initialPageParam: '',
+    getNextPageParam: (page) => page.next,
+    enabled: userId > 0,
+    staleTime: 60_000,
+    refetchInterval: userId > 0 ? 60_000 : false,
+    retry: false,
+  })
   const announcements = useMemo<Record<string, unknown>[]>(
-    () =>
-      announcementsEnabled
+    () => [
+      ...(userId > 0
+        ? (ratioFeed.data?.pages ?? []).flatMap((page) =>
+            page.events.map((event) => ratioAnnouncement(event, userId, t))
+          )
+        : []),
+      ...(announcementsEnabled
         ? ((statusAnnouncements || []) as Record<string, unknown>[]).slice(
             0,
             20
           )
-        : [],
-    [announcementsEnabled, statusAnnouncements]
+        : []),
+    ],
+    [announcementsEnabled, statusAnnouncements, ratioFeed.data, userId, t]
   )
   const bountyNotificationsEnabled =
     userId > 0 &&
@@ -135,7 +159,7 @@ export function useNotifications() {
     lastReadNotice,
     markNoticeRead,
     markAnnouncementsRead,
-    isAnnouncementRead,
+    readAnnouncementKeys,
   } = useNotificationStore()
 
   // Extract notice content
@@ -151,7 +175,7 @@ export function useNotifications() {
     const announcementsUnread = announcements.filter(
       (item: Record<string, unknown>) => {
         const key = getAnnouncementKey(item)
-        return !isAnnouncementRead(key)
+        return !readAnnouncementKeys.includes(key)
       }
     ).length
     const bountyUnread = bountyNotifications.filter(
@@ -168,7 +192,7 @@ export function useNotifications() {
     noticeContent,
     lastReadNotice,
     announcements,
-    isAnnouncementRead,
+    readAnnouncementKeys,
     bountyNotifications,
   ])
 
@@ -271,6 +295,20 @@ export function useNotifications() {
     notice: noticeContent,
     announcements,
     bountyTips: bountyNotifications,
+    ratioFeed:
+      userId > 0
+        ? {
+            loading: ratioFeed.isFetching,
+            error: ratioFeed.isError,
+            hasMore: ratioFeed.hasNextPage,
+            loadMore: () => {
+              void ratioFeed.fetchNextPage()
+            },
+            retry: () => {
+              void ratioFeed.refetch()
+            },
+          }
+        : undefined,
     loading:
       noticeLoading ||
       statusLoading ||

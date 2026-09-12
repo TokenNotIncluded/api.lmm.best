@@ -25,6 +25,7 @@ export type ActiveDrawingTask = {
   abortController?: AbortController
   promise?: Promise<unknown>
   status: 'generating' | 'stopped' | 'failed' | 'completed'
+  waitingStopped?: boolean
   error?: string | null
   errorStatus?: number | null
 }

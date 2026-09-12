@@ -12,6 +12,7 @@ import {
 } from '@hugeicons/core-free-icons'
 import { HugeiconsIcon } from '@hugeicons/react'
 import { useQuery } from '@tanstack/react-query'
+import { Link } from '@tanstack/react-router'
 import {
   useCallback,
   useEffect,
@@ -230,23 +231,24 @@ function DrawingWorkbench({ userId }: { userId: number }) {
   // Subscribe to background active task across SPA navigations
   useEffect(() => {
     const existing = getActiveDrawingTask(userId)
-    if (existing && existing.status === 'generating') {
-      setGenerating(true)
-      setActiveTask(existing)
-      if (existing.abortController) {
-        currentAbortRef.current = existing.abortController
-      }
-    }
-    return subscribeActiveDrawingTask(userId, (task) => {
+    const syncTask = (task: ActiveDrawingTask | null) => {
       if (!isCurrentUser()) return
       setActiveTask(task)
       if (task && task.status === 'generating') {
-        setGenerating(true)
+        setGenerating(!task.waitingStopped)
+        setStoppedMessage(
+          task.waitingStopped
+            ? t(
+                'Generation continues in this tab. You can switch pages; do not reload or close this tab until the result is saved.'
+              )
+            : null
+        )
         if (task.abortController) {
           currentAbortRef.current = task.abortController
         }
       } else if (task && task.status === 'failed') {
         setGenerating(false)
+        setStoppedMessage(null)
         if (task.error) setError(task.error)
         if (task.errorStatus) setErrorStatus(task.errorStatus)
       } else if (
@@ -255,9 +257,12 @@ function DrawingWorkbench({ userId }: { userId: number }) {
         task.status === 'stopped'
       ) {
         setGenerating(false)
+        setStoppedMessage(null)
       }
-    })
-  }, [userId, isCurrentUser])
+    }
+    syncTask(existing)
+    return subscribeActiveDrawingTask(userId, syncTask)
+  }, [userId, isCurrentUser, t])
 
   // Live elapsed timer
   useEffect(() => {
@@ -529,22 +534,13 @@ function DrawingWorkbench({ userId }: { userId: number }) {
   ])
 
   const stopGeneration = () => {
-    if (currentAbortRef.current) {
-      currentAbortRef.current.abort()
-      currentAbortRef.current = null
-    }
-    const currentTask = getActiveDrawingTask(userId)
-    if (currentTask?.abortController) {
-      currentTask.abortController.abort()
-    }
-    clearActiveDrawingTask(userId)
-    requestPendingRef.current = false
+    updateActiveDrawingTask(userId, { waitingStopped: true })
     setGenerating(false)
     setError(null)
     setErrorStatus(null)
     setStoppedMessage(
       t(
-        'Stopped waiting. If the server is already processing, the generated image may appear in your history later.'
+        'Generation continues in this tab. You can switch pages; do not reload or close this tab until the result is saved.'
       )
     )
   }
@@ -568,6 +564,7 @@ function DrawingWorkbench({ userId }: { userId: number }) {
     const cleanPrompt = prompt.trim()
     if (
       requestPendingRef.current ||
+      getActiveDrawingTask(userId)?.status === 'generating' ||
       !isCurrentUser() ||
       !accessGranted ||
       !webAccess.allowed ||
@@ -581,6 +578,7 @@ function DrawingWorkbench({ userId }: { userId: number }) {
     requestPendingRef.current = true
     const abortController = new AbortController()
     currentAbortRef.current = abortController
+    const releaseHistory = history.retain()
     const ticket = history.capture()
     const metadata = {
       prompt: cleanPrompt,
@@ -649,7 +647,12 @@ function DrawingWorkbench({ userId }: { userId: number }) {
       }
 
       if (abortController.signal.aborted) return
-      if (!isCurrentUser() || ticket !== history.capture()) return
+      if (
+        useAuthStore.getState().auth.user?.id !== userId ||
+        ticket !== history.capture()
+      ) {
+        return
+      }
 
       const denial = getDrawingWebDenial({ response })
       if (denial) {
@@ -684,10 +687,13 @@ function DrawingWorkbench({ userId }: { userId: number }) {
         setError(msg)
         updateActiveDrawingTask(userId, { status: 'failed', error: msg })
       } else {
-        clearActiveDrawingTask(userId, taskId)
         // Cache failures are handled separately: successful generation is never
         // an API error or an invitation to regenerate (and pay again).
-        void history.remember(usableResults, metadata, ticket)
+        await history.remember(usableResults, metadata, ticket)
+        clearActiveDrawingTask(userId, taskId)
+        if (useAuthStore.getState().auth.user?.id === userId) {
+          toast.success(t('Image generation completed'))
+        }
       }
     } catch (cause: unknown) {
       if (
@@ -696,7 +702,12 @@ function DrawingWorkbench({ userId }: { userId: number }) {
       ) {
         return
       }
-      if (!isCurrentUser() || ticket !== history.capture()) return
+      if (
+        useAuthStore.getState().auth.user?.id !== userId ||
+        ticket !== history.capture()
+      ) {
+        return
+      }
       const denial = getDrawingWebDenial(cause)
       if (denial) {
         clearActiveDrawingTask(userId, taskId)
@@ -723,6 +734,13 @@ function DrawingWorkbench({ userId }: { userId: number }) {
         errorStatus: status,
       })
     } finally {
+      if (
+        getActiveDrawingTask(userId)?.id === taskId &&
+        getActiveDrawingTask(userId)?.status === 'generating'
+      ) {
+        clearActiveDrawingTask(userId, taskId)
+      }
+      releaseHistory()
       requestPendingRef.current = false
       if (currentAbortRef.current === abortController) {
         currentAbortRef.current = null
@@ -1072,7 +1090,7 @@ function DrawingWorkbench({ userId }: { userId: number }) {
                 </p>
                 <p className='mt-1 max-w-xs text-[11px] text-white/40'>
                   {t(
-                    'You can continue waiting, or stop waiting. Results will also be saved to history.'
+                    'Generation continues in this tab. You can switch pages; do not reload or close this tab until the result is saved.'
                   )}
                 </p>
 
@@ -1364,6 +1382,7 @@ function DrawingWorkbench({ userId }: { userId: number }) {
                     onClick={() => void generate()}
                     disabled={
                       generating ||
+                      activeTask?.status === 'generating' ||
                       !webAccess.allowed ||
                       history.clearing ||
                       !prompt.trim() ||
@@ -1441,12 +1460,12 @@ function DrawingWorkbench({ userId }: { userId: number }) {
           >
             {keyPending ? t('Loading') : t('Prepare image-2 API Key')}
           </Button>
-          <a
-            href='/keys'
+          <Link
+            to='/keys'
             className={buttonVariants({ variant: 'outline', size: 'sm' })}
           >
             {t('Manage API Keys')}
-          </a>
+          </Link>
           <Button
             type='button'
             size='sm'

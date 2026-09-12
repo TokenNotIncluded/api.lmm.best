@@ -7806,6 +7806,241 @@ for (const [locale, translations] of Object.entries(drawingExperienceFixes)) {
   Object.assign(newKeys[locale], translations)
 }
 
+const keyAndDrawingFixes = {
+  en: {
+    'API address unavailable': 'API address unavailable',
+    'Base URL copied': 'Base URL copied',
+    'Failed to copy Base URL': 'Failed to copy Base URL',
+    'Copy Base URL': 'Copy Base URL',
+    'Includes /v1. Do not append /v1 again in your client. Copy the API key separately.':
+      'Includes /v1. Do not append /v1 again in your client. Copy the API key separately.',
+    'Generation continues in this tab. You can switch pages; do not reload or close this tab until the result is saved.':
+      'Generation continues in this tab. You can switch pages; do not reload or close this tab until the result is saved.',
+    'Image generation completed': 'Image generation completed',
+    'Query API key quota (read-only)': 'Query API key quota (read-only)',
+    'GET /v1/usage reports this API key only (scope=token, currency=USD), not your account balance or subscription.':
+      'GET /v1/usage reports this API key only (scope=token, currency=USD), not your account balance or subscription.',
+    'Copy quota query': 'Copy quota query',
+    'Replace API_KEY locally with your key. This example never includes your real key.':
+      'Replace API_KEY locally with your key. This example never includes your real key.',
+    'Response fields: valid, currency, remaining, used_today, used_total, total_quota, unlimited, updated_at. With unlimited=true, remaining and total_quota are null. used_today uses retained UTC logs; it is null when logging is disabled and may be incomplete after log deletion or interruptions.':
+      'Response fields: valid, currency, remaining, used_today, used_total, total_quota, unlimited, updated_at. With unlimited=true, remaining and total_quota are null. used_today uses retained UTC logs; it is null when logging is disabled and may be incomplete after log deletion or interruptions.',
+    'Model prices remain available at GET /v1/pricing.':
+      'Model prices remain available at GET /v1/pricing.',
+  },
+  zh: {
+    'API address unavailable': 'API 地址暂不可用',
+    'Base URL copied': 'Base URL 已复制',
+    'Failed to copy Base URL': 'Base URL 复制失败',
+    'Copy Base URL': '复制 Base URL',
+    'Includes /v1. Do not append /v1 again in your client. Copy the API key separately.':
+      '地址已包含 /v1，请勿在客户端重复添加。API 密钥请单独复制。',
+    'Generation continues in this tab. You can switch pages; do not reload or close this tab until the result is saved.':
+      '图片仍在此标签页中生成。可以切换站内页面；结果保存前请勿刷新或关闭此标签页。',
+    'Image generation completed': '图片生成完成',
+    'Query API key quota (read-only)': '查询密钥额度（只读）',
+    'GET /v1/usage reports this API key only (scope=token, currency=USD), not your account balance or subscription.':
+      'GET /v1/usage 仅返回当前 API 密钥的额度（scope=token，currency=USD），不代表账户余额或订阅额度。',
+    'Copy quota query': '复制额度查询命令',
+    'Replace API_KEY locally with your key. This example never includes your real key.':
+      '请在本地将 API_KEY 替换为你的密钥。此示例不会包含真实密钥。',
+    'Response fields: valid, currency, remaining, used_today, used_total, total_quota, unlimited, updated_at. With unlimited=true, remaining and total_quota are null. used_today uses retained UTC logs; it is null when logging is disabled and may be incomplete after log deletion or interruptions.':
+      '响应字段：valid、currency、remaining、used_today、used_total、total_quota、unlimited、updated_at。unlimited=true 时，remaining 和 total_quota 为 null。used_today 按保留的 UTC 日志统计；日志关闭时为 null，删除日志或记录中断会导致统计不完整。',
+    'Model prices remain available at GET /v1/pricing.':
+      '模型价格仍可通过 GET /v1/pricing 查询。',
+  },
+  'zh-TW': {
+    'API address unavailable': 'API 位址暫不可用',
+    'Base URL copied': 'Base URL 已複製',
+    'Failed to copy Base URL': 'Base URL 複製失敗',
+    'Copy Base URL': '複製 Base URL',
+    'Includes /v1. Do not append /v1 again in your client. Copy the API key separately.':
+      '位址已包含 /v1，請勿在用戶端重複加入。API 金鑰請另行複製。',
+    'Generation continues in this tab. You can switch pages; do not reload or close this tab until the result is saved.':
+      '圖片仍在此分頁中產生。可以切換站內頁面；結果儲存前請勿重新整理或關閉此分頁。',
+    'Image generation completed': '圖片產生完成',
+    'Query API key quota (read-only)': '查詢金鑰額度（唯讀）',
+    'GET /v1/usage reports this API key only (scope=token, currency=USD), not your account balance or subscription.':
+      'GET /v1/usage 僅傳回目前 API 金鑰的額度（scope=token，currency=USD），不代表帳戶餘額或訂閱額度。',
+    'Copy quota query': '複製額度查詢指令',
+    'Replace API_KEY locally with your key. This example never includes your real key.':
+      '請在本機將 API_KEY 替換為你的金鑰。此範例不會包含真實金鑰。',
+    'Response fields: valid, currency, remaining, used_today, used_total, total_quota, unlimited, updated_at. With unlimited=true, remaining and total_quota are null. used_today uses retained UTC logs; it is null when logging is disabled and may be incomplete after log deletion or interruptions.':
+      '回應欄位：valid、currency、remaining、used_today、used_total、total_quota、unlimited、updated_at。unlimited=true 時，remaining 和 total_quota 為 null。used_today 按保留的 UTC 日誌統計；日誌關閉時為 null，刪除日誌或記錄中斷會導致統計不完整。',
+    'Model prices remain available at GET /v1/pricing.':
+      '模型價格仍可透過 GET /v1/pricing 查詢。',
+  },
+  fr: {
+    'API address unavailable': 'Adresse API indisponible',
+    'Base URL copied': 'URL de base copiée',
+    'Failed to copy Base URL': 'Échec de la copie de l’URL de base',
+    'Copy Base URL': 'Copier l’URL de base',
+    'Includes /v1. Do not append /v1 again in your client. Copy the API key separately.':
+      'Inclut /v1. Ne rajoutez pas /v1 dans votre client. Copiez la clé API séparément.',
+    'Generation continues in this tab. You can switch pages; do not reload or close this tab until the result is saved.':
+      'La génération continue dans cet onglet. Vous pouvez changer de page dans le site ; gardez cet onglet ouvert sans le recharger jusqu’à l’enregistrement du résultat.',
+    'Image generation completed': 'Génération de l’image terminée',
+    'Query API key quota (read-only)':
+      'Consulter le quota de la clé API (lecture seule)',
+    'GET /v1/usage reports this API key only (scope=token, currency=USD), not your account balance or subscription.':
+      'GET /v1/usage concerne uniquement cette clé API (scope=token, currency=USD), pas le solde du compte ni l’abonnement.',
+    'Copy quota query': 'Copier la commande de quota',
+    'Replace API_KEY locally with your key. This example never includes your real key.':
+      'Remplacez API_KEY localement par votre clé. Cet exemple ne contient jamais votre vraie clé.',
+    'Response fields: valid, currency, remaining, used_today, used_total, total_quota, unlimited, updated_at. With unlimited=true, remaining and total_quota are null. used_today uses retained UTC logs; it is null when logging is disabled and may be incomplete after log deletion or interruptions.':
+      'Champs : valid, currency, remaining, used_today, used_total, total_quota, unlimited, updated_at. Avec unlimited=true, remaining et total_quota valent null. used_today utilise les journaux UTC conservés ; il vaut null si la journalisation est désactivée et peut être incomplet après suppression ou interruption des journaux.',
+    'Model prices remain available at GET /v1/pricing.':
+      'Les prix des modèles restent consultables via GET /v1/pricing.',
+  },
+  ja: {
+    'API address unavailable': 'API アドレスを利用できません',
+    'Base URL copied': 'Base URL をコピーしました',
+    'Failed to copy Base URL': 'Base URL をコピーできませんでした',
+    'Copy Base URL': 'Base URL をコピー',
+    'Includes /v1. Do not append /v1 again in your client. Copy the API key separately.':
+      '/v1 を含みます。クライアントで /v1 を重複して追加しないでください。API キーは別途コピーしてください。',
+    'Generation continues in this tab. You can switch pages; do not reload or close this tab until the result is saved.':
+      'このタブで生成を続けます。サイト内のページは移動できますが、結果の保存までタブを閉じたり再読み込みしたりしないでください。',
+    'Image generation completed': '画像の生成が完了しました',
+    'Query API key quota (read-only)':
+      'API キーの割り当てを照会（読み取り専用）',
+    'GET /v1/usage reports this API key only (scope=token, currency=USD), not your account balance or subscription.':
+      'GET /v1/usage はこの API キーの割り当てのみを返します（scope=token、currency=USD）。アカウント残高やサブスクリプションとは異なります。',
+    'Copy quota query': '割り当て照会コマンドをコピー',
+    'Replace API_KEY locally with your key. This example never includes your real key.':
+      'ローカルで API_KEY を自分のキーに置き換えてください。この例に実際のキーは含まれません。',
+    'Response fields: valid, currency, remaining, used_today, used_total, total_quota, unlimited, updated_at. With unlimited=true, remaining and total_quota are null. used_today uses retained UTC logs; it is null when logging is disabled and may be incomplete after log deletion or interruptions.':
+      '応答フィールド：valid、currency、remaining、used_today、used_total、total_quota、unlimited、updated_at。unlimited=true の場合、remaining と total_quota は null です。used_today は保持された UTC ログで集計されます。ログが無効な場合は null となり、ログの削除や記録の中断により不完全になる場合があります。',
+    'Model prices remain available at GET /v1/pricing.':
+      'モデル料金は引き続き GET /v1/pricing で確認できます。',
+  },
+  ru: {
+    'API address unavailable': 'Адрес API недоступен',
+    'Base URL copied': 'Базовый URL скопирован',
+    'Failed to copy Base URL': 'Не удалось скопировать базовый URL',
+    'Copy Base URL': 'Копировать базовый URL',
+    'Includes /v1. Do not append /v1 again in your client. Copy the API key separately.':
+      'Адрес уже содержит /v1. Не добавляйте /v1 повторно в клиенте. Копируйте API-ключ отдельно.',
+    'Generation continues in this tab. You can switch pages; do not reload or close this tab until the result is saved.':
+      'Генерация продолжается в этой вкладке. Можно переходить между страницами сайта; не закрывайте и не обновляйте вкладку до сохранения результата.',
+    'Image generation completed': 'Генерация изображения завершена',
+    'Query API key quota (read-only)':
+      'Проверить квоту API-ключа (только чтение)',
+    'GET /v1/usage reports this API key only (scope=token, currency=USD), not your account balance or subscription.':
+      'GET /v1/usage возвращает квоту только этого API-ключа (scope=token, currency=USD), а не баланс аккаунта или подписки.',
+    'Copy quota query': 'Копировать запрос квоты',
+    'Replace API_KEY locally with your key. This example never includes your real key.':
+      'Замените API_KEY своим ключом локально. В примере никогда не содержится ваш настоящий ключ.',
+    'Response fields: valid, currency, remaining, used_today, used_total, total_quota, unlimited, updated_at. With unlimited=true, remaining and total_quota are null. used_today uses retained UTC logs; it is null when logging is disabled and may be incomplete after log deletion or interruptions.':
+      'Поля ответа: valid, currency, remaining, used_today, used_total, total_quota, unlimited, updated_at. При unlimited=true поля remaining и total_quota равны null. used_today рассчитывается по сохранённым журналам UTC; при отключении журналов значение равно null, а удаление или перерывы записи могут привести к неполным данным.',
+    'Model prices remain available at GET /v1/pricing.':
+      'Цены моделей по-прежнему доступны через GET /v1/pricing.',
+  },
+  vi: {
+    'API address unavailable': 'Địa chỉ API không khả dụng',
+    'Base URL copied': 'Đã sao chép URL cơ sở',
+    'Failed to copy Base URL': 'Không thể sao chép URL cơ sở',
+    'Copy Base URL': 'Sao chép URL cơ sở',
+    'Includes /v1. Do not append /v1 again in your client. Copy the API key separately.':
+      'Đã bao gồm /v1. Không thêm /v1 lần nữa trong ứng dụng. Sao chép khóa API riêng.',
+    'Generation continues in this tab. You can switch pages; do not reload or close this tab until the result is saved.':
+      'Ảnh tiếp tục được tạo trong thẻ này. Bạn có thể chuyển trang trong trang web; không tải lại hoặc đóng thẻ cho đến khi kết quả được lưu.',
+    'Image generation completed': 'Đã tạo ảnh xong',
+    'Query API key quota (read-only)': 'Tra cứu hạn mức khóa API (chỉ đọc)',
+    'GET /v1/usage reports this API key only (scope=token, currency=USD), not your account balance or subscription.':
+      'GET /v1/usage chỉ trả về hạn mức của khóa API này (scope=token, currency=USD), không phải số dư tài khoản hay gói đăng ký.',
+    'Copy quota query': 'Sao chép lệnh tra cứu hạn mức',
+    'Replace API_KEY locally with your key. This example never includes your real key.':
+      'Thay API_KEY bằng khóa của bạn trên máy cục bộ. Ví dụ này không bao giờ chứa khóa thật.',
+    'Response fields: valid, currency, remaining, used_today, used_total, total_quota, unlimited, updated_at. With unlimited=true, remaining and total_quota are null. used_today uses retained UTC logs; it is null when logging is disabled and may be incomplete after log deletion or interruptions.':
+      'Các trường phản hồi: valid, currency, remaining, used_today, used_total, total_quota, unlimited, updated_at. Khi unlimited=true, remaining và total_quota là null. used_today được tính theo nhật ký UTC còn lưu; giá trị là null khi tắt nhật ký và có thể không đầy đủ nếu nhật ký bị xóa hoặc ghi gián đoạn.',
+    'Model prices remain available at GET /v1/pricing.':
+      'Giá mô hình vẫn có thể được tra cứu qua GET /v1/pricing.',
+  },
+}
+
+for (const [locale, translations] of Object.entries(keyAndDrawingFixes)) {
+  Object.assign(newKeys[locale], translations)
+}
+
+const ratioNotificationCopy = {
+  en: {
+    'Rate changes': 'Rate changes',
+    'Old value': 'Old value',
+    'New value': 'New value',
+    'Effective at {{time}}': 'Effective at {{time}}',
+    'Unable to load rate changes': 'Unable to load rate changes',
+    'Load older rate changes': 'Load older rate changes',
+    'Limit: 30 queries per minute per account. Poll once per minute; on HTTP 429, respect Retry-After. Quota queries require a valid key but no developer level; pricing uses normal relay authentication.':
+      'Limit: 30 queries per minute per account. Poll once per minute; on HTTP 429, respect Retry-After. Quota queries require a valid key but no developer level; pricing uses normal relay authentication.',
+  },
+  zh: {
+    'Rate changes': '倍率变更',
+    'Old value': '旧值',
+    'New value': '新值',
+    'Effective at {{time}}': '生效时间：{{time}}',
+    'Unable to load rate changes': '无法加载倍率变更',
+    'Load older rate changes': '加载更早的倍率变更',
+    'Limit: 30 queries per minute per account. Poll once per minute; on HTTP 429, respect Retry-After. Quota queries require a valid key but no developer level; pricing uses normal relay authentication.':
+      '每账户每分钟限 30 次查询，建议每分钟轮询一次；HTTP 429 时请遵循 Retry-After。额度查询需要有效密钥，不要求开发者等级；价格查询沿用正常的转发鉴权。',
+  },
+  'zh-TW': {
+    'Rate changes': '倍率變更',
+    'Old value': '舊值',
+    'New value': '新值',
+    'Effective at {{time}}': '生效時間：{{time}}',
+    'Unable to load rate changes': '無法載入倍率變更',
+    'Load older rate changes': '載入更早的倍率變更',
+    'Limit: 30 queries per minute per account. Poll once per minute; on HTTP 429, respect Retry-After. Quota queries require a valid key but no developer level; pricing uses normal relay authentication.':
+      '每帳戶每分鐘限 30 次查詢，建議每分鐘輪詢一次；HTTP 429 時請遵循 Retry-After。額度查詢需要有效金鑰，不要求開發者等級；價格查詢沿用正常的轉送驗證。',
+  },
+  fr: {
+    'Rate changes': 'Changements de tarifs',
+    'Old value': 'Ancienne valeur',
+    'New value': 'Nouvelle valeur',
+    'Effective at {{time}}': 'Prend effet à {{time}}',
+    'Unable to load rate changes':
+      'Impossible de charger les changements de tarifs',
+    'Load older rate changes': 'Charger les changements antérieurs',
+    'Limit: 30 queries per minute per account. Poll once per minute; on HTTP 429, respect Retry-After. Quota queries require a valid key but no developer level; pricing uses normal relay authentication.':
+      'Limite : 30 requêtes par minute et par compte. Interrogez une fois par minute ; en cas de HTTP 429, respectez Retry-After. Le quota exige une clé valide, sans niveau développeur ; les prix utilisent l’authentification habituelle du relais.',
+  },
+  ja: {
+    'Rate changes': '倍率の変更',
+    'Old value': '変更前',
+    'New value': '変更後',
+    'Effective at {{time}}': '適用日時：{{time}}',
+    'Unable to load rate changes': '倍率の変更を読み込めません',
+    'Load older rate changes': '以前の倍率変更を読み込む',
+    'Limit: 30 queries per minute per account. Poll once per minute; on HTTP 429, respect Retry-After. Quota queries require a valid key but no developer level; pricing uses normal relay authentication.':
+      'アカウントごとに毎分 30 回までです。照会は毎分 1 回とし、HTTP 429 では Retry-After に従ってください。割り当て照会には有効なキーが必要ですが、開発者レベルは不要です。料金照会には通常のリレー認証が適用されます。',
+  },
+  ru: {
+    'Rate changes': 'Изменения коэффициентов',
+    'Old value': 'Прежнее значение',
+    'New value': 'Новое значение',
+    'Effective at {{time}}': 'Вступает в силу: {{time}}',
+    'Unable to load rate changes':
+      'Не удалось загрузить изменения коэффициентов',
+    'Load older rate changes': 'Загрузить более ранние изменения',
+    'Limit: 30 queries per minute per account. Poll once per minute; on HTTP 429, respect Retry-After. Quota queries require a valid key but no developer level; pricing uses normal relay authentication.':
+      'Лимит: 30 запросов в минуту на аккаунт. Опрашивайте раз в минуту; при HTTP 429 соблюдайте Retry-After. Для квоты нужен действующий ключ, но не уровень разработчика; для цен действует обычная авторизация ретрансляции.',
+  },
+  vi: {
+    'Rate changes': 'Thay đổi hệ số',
+    'Old value': 'Giá trị cũ',
+    'New value': 'Giá trị mới',
+    'Effective at {{time}}': 'Có hiệu lực lúc {{time}}',
+    'Unable to load rate changes': 'Không thể tải thay đổi hệ số',
+    'Load older rate changes': 'Tải thay đổi hệ số trước đó',
+    'Limit: 30 queries per minute per account. Poll once per minute; on HTTP 429, respect Retry-After. Quota queries require a valid key but no developer level; pricing uses normal relay authentication.':
+      'Giới hạn: 30 truy vấn mỗi phút cho mỗi tài khoản. Nên truy vấn mỗi phút một lần; khi gặp HTTP 429, tuân thủ Retry-After. Tra cứu hạn mức cần khóa hợp lệ nhưng không yêu cầu cấp nhà phát triển; tra cứu giá dùng xác thực chuyển tiếp thông thường.',
+  },
+}
+for (const [locale, translations] of Object.entries(ratioNotificationCopy)) {
+  Object.assign(newKeys[locale], translations)
+}
+
 const deprecatedCurrencyKeys = new Set([
   'Price (local currency / USD)',
   'Use global price',
