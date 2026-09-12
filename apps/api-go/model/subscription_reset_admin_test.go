@@ -175,6 +175,36 @@ func TestSubscriptionResetVoucherListPrioritizesAvailableVouchers(t *testing.T) 
 	require.Equal(t, SubscriptionResetVoucherAvailable, vouchers[0].Status)
 }
 
+func TestExpiredSubscriptionResetVoucherCannotChangeSubscription(t *testing.T) {
+	for _, offset := range []int64{-1, 0} {
+		t.Run(fmt.Sprintf("expiry_offset_%d", offset), func(t *testing.T) {
+			truncateTables(t)
+			endTime, nextResetTime := seedResetSubscription(t, 9721, 9722, 9723, 2468)
+			voucher := SubscriptionResetVoucher{
+				UserId: 9721, PlanId: 9722, OperationId: "expired-voucher",
+				Status: SubscriptionResetVoucherAvailable, ExpiresAt: GetDBTimestamp() + offset,
+			}
+			require.NoError(t, DB.Create(&voucher).Error)
+			_, err := RedeemUserSubscriptionResetVoucher(9721, voucher.Id)
+			require.ErrorIs(t, err, ErrSubscriptionResetVoucherExpired)
+			var subscription UserSubscription
+			require.NoError(t, DB.First(&subscription, 9723).Error)
+			require.Equal(t, int64(2468), subscription.AmountUsed)
+			require.Equal(t, endTime, subscription.EndTime)
+			require.Equal(t, nextResetTime, subscription.NextResetTime)
+			var stored SubscriptionResetVoucher
+			require.NoError(t, DB.First(&stored, voucher.Id).Error)
+			require.Equal(t, SubscriptionResetVoucherAvailable, stored.Status)
+			require.Zero(t, stored.RedeemedAt)
+			require.Equal(t, int64(0), subscriptionResetAuditCount(t, "subscription.reset.voucher_redeem"))
+			vouchers, err := ListUserSubscriptionResetVouchers(9721)
+			require.NoError(t, err)
+			require.Len(t, vouchers, 1)
+			require.True(t, vouchers[0].Expired)
+		})
+	}
+}
+
 func TestSubscriptionResetPreviewSupportsMultiplePlans(t *testing.T) {
 	truncateTables(t)
 	seedResetSubscription(t, 9721, 9722, 9723, 100)
