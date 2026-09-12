@@ -219,6 +219,7 @@ export interface SubscriptionResetFilter {
 
 export interface SubscriptionResetPreviewRequest {
   mode: SubscriptionResetMode
+  voucher_expires_at?: number
   all_matching: boolean
   targets?: SubscriptionResetTarget[]
   filter: SubscriptionResetFilter

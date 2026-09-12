@@ -34,6 +34,7 @@ import { Label } from '@/components/ui/label'
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
   SelectTrigger,
   SelectValue,
@@ -101,6 +102,7 @@ function targetKey(
 export function SubscriptionResetWorkspace() {
   const { t } = useTranslation()
   const [mode, setMode] = useState<SubscriptionResetMode>('hard')
+  const [voucherExpiry, setVoucherExpiry] = useState('')
   const [query, setQuery] = useState('')
   const [userIdsInput, setUserIdsInput] = useState('')
   const [page, setPage] = useState(1)
@@ -189,8 +191,14 @@ export function SubscriptionResetWorkspace() {
     query.trim() === debouncedQuery &&
     !eligibleQuery.isFetching &&
     !eligibleQuery.isError
+  const voucherExpiresAt = Math.floor(new Date(voucherExpiry).getTime() / 1000)
+  const voucherExpiryValid =
+    Number.isSafeInteger(voucherExpiresAt) &&
+    voucherExpiresAt > Date.now() / 1000
   const canPreview =
-    filtersSettled && (allMatching ? total > 0 : selected.size > 0)
+    filtersSettled &&
+    (mode === 'hard' || voucherExpiryValid) &&
+    (allMatching ? total > 0 : selected.size > 0)
 
   const toggleTarget = (
     target: AdminSubscriptionResetEligible,
@@ -215,6 +223,7 @@ export function SubscriptionResetWorkspace() {
 
   const requestPreview = async () => {
     if (!canPreview) return
+    if (mode === 'soft' && voucherExpiresAt <= Date.now() / 1000) return
     const requestId = ++previewRequestId.current
     setPreviewing(true)
     setConfirmOpen(false)
@@ -225,6 +234,7 @@ export function SubscriptionResetWorkspace() {
     try {
       const response = await previewSubscriptionReset({
         mode,
+        ...(mode === 'soft' ? { voucher_expires_at: voucherExpiresAt } : {}),
         all_matching: allMatching,
         targets: allMatching
           ? undefined
@@ -258,6 +268,17 @@ export function SubscriptionResetWorkspace() {
 
   const execute = async () => {
     if (!preview || !operationId) return
+    const now = Date.now() / 1000
+    if (
+      preview.expires_at <= now ||
+      (preview.mode === 'soft' && preview.voucher_expires_at <= now)
+    ) {
+      invalidateApproval()
+      setActionError(
+        t('The preview or voucher expiry has passed. Prepare a new preview.')
+      )
+      return
+    }
     setExecuting(true)
     setActionError('')
     try {
@@ -376,13 +397,46 @@ export function SubscriptionResetWorkspace() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value='hard'>{t('Hard reset now')}</SelectItem>
-                    <SelectItem value='soft'>
-                      {t('Issue banked reset voucher')}
-                    </SelectItem>
+                    <SelectGroup>
+                      <SelectItem value='hard'>
+                        {t('Hard reset now')}
+                      </SelectItem>
+                      <SelectItem value='soft'>
+                        {t('Issue banked reset voucher')}
+                      </SelectItem>
+                    </SelectGroup>
                   </SelectContent>
                 </Select>
               </div>
+
+              {mode === 'soft' && (
+                <div className='space-y-1'>
+                  <Label htmlFor='subscription-reset-voucher-expiry'>
+                    {t('Voucher expiry')}
+                  </Label>
+                  <Input
+                    id='subscription-reset-voucher-expiry'
+                    type='datetime-local'
+                    required
+                    value={voucherExpiry}
+                    disabled={executing}
+                    aria-invalid={voucherExpiry !== '' && !voucherExpiryValid}
+                    aria-describedby='subscription-reset-voucher-expiry-help'
+                    onChange={(event) => {
+                      setVoucherExpiry(event.target.value)
+                      invalidateApproval()
+                    }}
+                  />
+                  <p
+                    id='subscription-reset-voucher-expiry-help'
+                    className='text-muted-foreground text-sm'
+                  >
+                    {t(
+                      'Choose a future expiry time in your local time zone. Existing vouchers are unchanged.'
+                    )}
+                  </p>
+                </div>
+              )}
 
               <div className='grid gap-3 sm:grid-cols-2'>
                 <div className='relative self-end'>
@@ -939,8 +993,11 @@ export function SubscriptionResetWorkspace() {
                   { count: preview.active_subscriptions }
                 )
               : t(
-                  'Issue one single-use voucher for each of {{count}} previewed user-plan pairs? Each voucher expires in one calendar month.',
-                  { count: preview.target_count }
+                  'Issue one single-use voucher for each of {{count}} previewed user-plan pairs? Each voucher expires at {{time}}.',
+                  {
+                    count: preview.target_count,
+                    time: formatTimestamp(preview.voucher_expires_at),
+                  }
                 )
           }
           confirmText={

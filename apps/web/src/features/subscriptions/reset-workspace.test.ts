@@ -35,6 +35,21 @@ const voucherSource = readFileSync(
 )
 
 describe('subscription reset workspace safety contract', () => {
+  test('requires a future operator-selected expiry and invalidates its preview on edits', () => {
+    assert.match(source, /mode === 'hard' \|\| voucherExpiryValid/)
+    assert.match(source, /voucherExpiresAt > Date\.now\(\) \/ 1000/)
+    assert.match(
+      source,
+      /mode === 'soft' \? { voucher_expires_at: voucherExpiresAt } : {}/
+    )
+    assert.match(
+      source,
+      /setVoucherExpiry\(event\.target\.value\)[\s\S]{0,80}invalidateApproval\(\)/
+    )
+    assert.match(source, /type='datetime-local'\s+required/)
+    assert.match(source, /formatTimestamp\(preview\.voucher_expires_at\)/)
+    assert.doesNotMatch(source, /Each voucher expires in one calendar month/)
+  })
   test('guards the dedicated route with the root role', () => {
     assert.match(routeSource, /auth\.user\.role < ROLE\.SUPER_ADMIN/)
     assert.match(routeSource, /throw redirect\({[\s\S]{0,100}to: '\/403'/)

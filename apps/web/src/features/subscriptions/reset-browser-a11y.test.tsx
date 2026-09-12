@@ -84,6 +84,7 @@ await i18n.use(initReactI18next).init({
 })
 
 const originalGet = api.get
+const originalPost = api.post
 
 type Deferred<T> = {
   promise: Promise<T>
@@ -180,6 +181,7 @@ async function unmount(rendered: {
 
 afterEach(() => {
   api.get = originalGet
+  api.post = originalPost
   document.body.replaceChildren()
 })
 
@@ -222,6 +224,94 @@ const voucher = {
 }
 
 describe('subscription reset browser accessibility', () => {
+  test('requires an explicit future voucher expiry in soft mode', async () => {
+    let sentPreview: { voucher_expires_at?: number; mode?: string } | undefined
+    api.post = (async (_url, body) => {
+      sentPreview = body as typeof sentPreview
+      return { data: { success: false, message: 'Preview test response' } }
+    }) as typeof api.post
+    api.get = (async () => ({
+      data: { success: true, data: [] },
+    })) as typeof api.get
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+    })
+    queryClient.setQueryData(['admin-subscription-plans', 'reset-workspace'], {
+      success: true,
+      data: [],
+    })
+    queryClient.setQueryData(
+      ['subscription-reset-eligible', 1, '', '', ''],
+      eligibleResponse
+    )
+    const rendered = await renderWorkspace(queryClient)
+    await waitFor(
+      () =>
+        !!rendered.container.querySelector(
+          '[aria-label="Select alice on Pro"]'
+        ),
+      'selection did not render'
+    )
+    const target = rendered.container.querySelector<HTMLElement>(
+      '[aria-label="Select alice on Pro"]'
+    )
+    assert.ok(target)
+    await act(async () => target.click())
+    const prepare = buttonNamed(rendered.container, 'Prepare preview')
+    assert.ok(prepare)
+    assert.equal(prepare.disabled, false)
+    const modeSelect = rendered.container.querySelector<HTMLElement>(
+      '[aria-label="Reset mode"]'
+    )
+    assert.ok(modeSelect)
+    await act(async () => modeSelect.click())
+    await waitFor(
+      () =>
+        [...document.querySelectorAll<HTMLElement>('[role="option"]')].some(
+          (node) => node.textContent === 'Issue banked reset voucher'
+        ),
+      'soft mode option missing'
+    )
+    const softOption = [
+      ...document.querySelectorAll<HTMLElement>('[role="option"]'),
+    ].find((node) => node.textContent === 'Issue banked reset voucher')
+    assert.ok(softOption)
+    await act(async () => softOption.click())
+    const expiry = rendered.container.querySelector<HTMLInputElement>(
+      '#subscription-reset-voucher-expiry'
+    )
+    assert.ok(expiry)
+    assert.equal(expiry.required, true)
+    assert.equal(prepare.disabled, true)
+    const setValue = Object.getOwnPropertyDescriptor(
+      domWindow.HTMLInputElement.prototype,
+      'value'
+    )?.set
+    assert.ok(setValue)
+    await act(async () => {
+      setValue.call(expiry, '2000-01-01T12:00')
+      expiry.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    assert.equal(prepare.disabled, true)
+    assert.equal(expiry.getAttribute('aria-invalid'), 'true')
+    await act(async () => {
+      setValue.call(expiry, '2099-01-01T12:00')
+      expiry.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    assert.equal(prepare.disabled, false)
+    assert.equal(expiry.getAttribute('aria-invalid'), 'false')
+    await act(async () => {
+      prepare.click()
+      await flushQueries()
+    })
+    assert.equal(sentPreview?.mode, 'soft')
+    assert.equal(
+      sentPreview?.voucher_expires_at,
+      new Date('2099-01-01T12:00').getTime() / 1000
+    )
+    await unmount(rendered)
+  })
+
   test('retains rows while refetching, announces progress, and locks destructive selection', async () => {
     const refetch = deferred<{ data: typeof eligibleResponse }>()
     api.get = (async (url) => {
