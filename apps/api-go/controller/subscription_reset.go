@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"encoding/json"
 	"errors"
 	"strconv"
 	"strings"
@@ -130,10 +131,11 @@ type rootSubscriptionResetFilter struct {
 }
 
 type rootSubscriptionResetPreviewRequest struct {
-	Mode        string                          `json:"mode"`
-	Targets     []model.SubscriptionResetTarget `json:"targets"`
-	AllMatching bool                            `json:"all_matching"`
-	Filter      *rootSubscriptionResetFilter    `json:"filter"`
+	VoucherExpiresAt json.RawMessage                 `json:"voucher_expires_at"`
+	Mode             string                          `json:"mode"`
+	Targets          []model.SubscriptionResetTarget `json:"targets"`
+	AllMatching      bool                            `json:"all_matching"`
+	Filter           *rootSubscriptionResetFilter    `json:"filter"`
 }
 
 type rootSubscriptionResetExecuteRequest struct {
@@ -155,6 +157,15 @@ func RootPreviewSubscriptionsBatch(c *gin.Context) {
 		common.ApiErrorMsg(c, "all_matching subscription resets require an explicit filter object")
 		return
 	}
+	var voucherExpiresAt *int64
+	if len(req.VoucherExpiresAt) > 0 {
+		var timestamp int64
+		if err := json.Unmarshal(req.VoucherExpiresAt, &timestamp); err != nil {
+			common.ApiErrorMsg(c, "voucher_expires_at must be an integer Unix timestamp in seconds")
+			return
+		}
+		voucherExpiresAt = &timestamp
+	}
 	filter := model.AdminSubscriptionResetEligibleFilter{}
 	if req.Filter != nil {
 		filter = model.AdminSubscriptionResetEligibleFilter{
@@ -165,6 +176,7 @@ func RootPreviewSubscriptionsBatch(c *gin.Context) {
 	result, err := model.AdminPreviewSubscriptionsReset(model.AdminSubscriptionResetBatchInput{
 		ActorUserId: c.GetInt("id"), Mode: req.Mode, Targets: req.Targets,
 		AllMatching: req.AllMatching, Filter: filter,
+		VoucherExpiresAt: voucherExpiresAt,
 	})
 	if err != nil {
 		common.ApiError(c, err)

@@ -31,6 +31,7 @@ const (
 	maxSubscriptionResetSubscriptions = 20_000
 
 	subscriptionResetPreviewRetentionSeconds int64 = 7 * 24 * 60 * 60
+	MaxSubscriptionResetVoucherExpiresAt     int64 = 253402300799 // 9999-12-31T23:59:59Z
 )
 
 var (
@@ -518,6 +519,71 @@ func subscriptionResetPayloadHash(mode string, targets []SubscriptionResetPrevie
 	return fmt.Sprintf("%x", digest[:]), nil
 }
 
+func subscriptionResetExpiryPayloadHash(mode string, targets []SubscriptionResetPreviewTarget, expiresAt int64) (string, error) {
+	payload, err := json.Marshal(struct {
+		Version          int                              `json:"version"`
+		Mode             string                           `json:"mode"`
+		Targets          []SubscriptionResetPreviewTarget `json:"targets"`
+		VoucherExpiresAt int64                            `json:"voucher_expires_at"`
+	}{2, mode, targets, expiresAt})
+	if err != nil {
+		return "", err
+	}
+	digest := sha256.Sum256(payload)
+	return fmt.Sprintf("%x", digest[:]), nil
+}
+
+func validSubscriptionResetPayload(preview SubscriptionResetPreview, targets []SubscriptionResetPreviewTarget) bool {
+	hash, err := subscriptionResetExpiryPayloadHash(preview.Mode, targets, preview.VoucherExpiresAt)
+	if err == nil && hash == preview.PayloadHash {
+		return true
+	}
+	// Legacy previews hashed only targets and mode. Accept their original
+	// deterministic expiry, never an arbitrary unhashed replacement. Completed
+	// operations and already-issued vouchers require no migration or rewrite.
+	hash, err = subscriptionResetPayloadHash(preview.Mode, targets)
+	if err != nil || hash != preview.PayloadHash || preview.CreatedAt <= 0 {
+		return false
+	}
+	if preview.Mode == SubscriptionResetModeSoft {
+		return preview.VoucherExpiresAt == addOneCalendarMonthUTC(preview.CreatedAt)
+	}
+	return preview.Mode == SubscriptionResetModeHard && preview.VoucherExpiresAt == 0
+}
+
+func validateSubscriptionResetExpiry(mode string, expiry *int64, now int64) error {
+	if mode == SubscriptionResetModeHard {
+		if expiry != nil {
+			return errors.New("voucher_expires_at is not allowed for hard resets")
+		}
+		return nil
+	}
+	if expiry == nil || *expiry <= now || *expiry > MaxSubscriptionResetVoucherExpiresAt {
+		return errors.New("voucher_expires_at must be a future Unix timestamp in seconds, no later than 253402300799")
+	}
+	return nil
+}
+
+// Read wall-clock database time after acquiring row locks. PostgreSQL NOW()
+// freezes at transaction start, so it cannot detect expiry during a lock wait.
+func subscriptionResetExecutionTimestamp(tx *gorm.DB) (int64, error) {
+	query := "SELECT UNIX_TIMESTAMP()"
+	switch tx.Dialector.Name() {
+	case "postgres":
+		query = "SELECT FLOOR(EXTRACT(EPOCH FROM clock_timestamp()))::bigint"
+	case "sqlite":
+		query = "SELECT strftime('%s','now')"
+	}
+	var now int64
+	if err := tx.Raw(query).Scan(&now).Error; err != nil {
+		return 0, err
+	}
+	if now <= 0 {
+		return 0, errors.New("subscription reset database time is unavailable")
+	}
+	return now, nil
+}
+
 func AdminPreviewSubscriptionsReset(input AdminSubscriptionResetBatchInput) (*AdminSubscriptionResetPreviewResult, error) {
 	if input.ActorUserId <= 0 {
 		return nil, errors.New("invalid subscription reset actor")
@@ -526,11 +592,14 @@ func AdminPreviewSubscriptionsReset(input AdminSubscriptionResetBatchInput) (*Ad
 	if err != nil {
 		return nil, err
 	}
+	now := GetDBTimestamp()
+	if err := validateSubscriptionResetExpiry(mode, input.VoucherExpiresAt, now); err != nil {
+		return nil, err
+	}
 	targets, err := resolveSubscriptionResetTargets(input)
 	if err != nil {
 		return nil, err
 	}
-	now := GetDBTimestamp()
 	summaries, frozenTargets, err := loadSubscriptionResetTargetSummaries(targets, now)
 	if err != nil {
 		return nil, err
@@ -556,13 +625,13 @@ func AdminPreviewSubscriptionsReset(input AdminSubscriptionResetBatchInput) (*Ad
 	result.UserCount = len(users)
 	result.PlanCount = len(plans)
 	if mode == SubscriptionResetModeSoft {
-		result.VoucherExpiresAt = addOneCalendarMonthUTC(now)
+		result.VoucherExpiresAt = *input.VoucherExpiresAt
 	}
 	targetJSON, err := json.Marshal(frozenTargets)
 	if err != nil {
 		return nil, err
 	}
-	payloadHash, err := subscriptionResetPayloadHash(mode, frozenTargets)
+	payloadHash, err := subscriptionResetExpiryPayloadHash(mode, frozenTargets, result.VoucherExpiresAt)
 	if err != nil {
 		return nil, err
 	}
@@ -587,14 +656,15 @@ type SubscriptionResetAuditContext struct {
 }
 
 type AdminSubscriptionResetBatchInput struct {
-	ActorUserId  int
-	OperationId  string
-	PreviewToken string
-	Mode         string
-	Targets      []SubscriptionResetTarget
-	AllMatching  bool
-	Filter       AdminSubscriptionResetEligibleFilter
-	Audit        SubscriptionResetAuditContext
+	VoucherExpiresAt *int64
+	ActorUserId      int
+	OperationId      string
+	PreviewToken     string
+	Mode             string
+	Targets          []SubscriptionResetTarget
+	AllMatching      bool
+	Filter           AdminSubscriptionResetEligibleFilter
+	Audit            SubscriptionResetAuditContext
 }
 
 type AdminSubscriptionResetBatchResult struct {
@@ -854,6 +924,9 @@ func resetFrozenSubscriptionTargetTx(tx *gorm.DB, target SubscriptionResetPrevie
 }
 
 func AdminResetSubscriptionsBatch(input AdminSubscriptionResetBatchInput) (*AdminSubscriptionResetBatchResult, error) {
+	if input.VoucherExpiresAt != nil {
+		return nil, errors.New("execute uses the preview voucher_expires_at; an override is not allowed")
+	}
 	if input.ActorUserId <= 0 {
 		return nil, errors.New("invalid subscription reset actor")
 	}
@@ -899,8 +972,14 @@ func AdminResetSubscriptionsBatch(input AdminSubscriptionResetBatchInput) (*Admi
 		if err := json.Unmarshal([]byte(preview.TargetsJSON), &targets); err != nil {
 			return errors.New("subscription reset preview targets are malformed")
 		}
-		payloadHash, err := subscriptionResetPayloadHash(preview.Mode, targets)
-		if err != nil || payloadHash != preview.PayloadHash || len(targets) != preview.TargetCount {
+		if !validSubscriptionResetPayload(preview, targets) || len(targets) != preview.TargetCount {
+			return errors.New("subscription reset preview payload is invalid")
+		}
+		if preview.Mode == SubscriptionResetModeSoft {
+			if err := validateSubscriptionResetExpiry(preview.Mode, &preview.VoucherExpiresAt, now); err != nil {
+				return err
+			}
+		} else if preview.Mode != SubscriptionResetModeHard || preview.VoucherExpiresAt != 0 {
 			return errors.New("subscription reset preview payload is invalid")
 		}
 		// Payment completion locks the user before inserting or updating a
@@ -911,6 +990,19 @@ func AdminResetSubscriptionsBatch(input AdminSubscriptionResetBatchInput) (*Admi
 		}
 		if err := verifySubscriptionResetPreviewTx(tx, targets, now); err != nil {
 			return err
+		}
+		var timeErr error
+		now, timeErr = subscriptionResetExecutionTimestamp(tx)
+		if timeErr != nil {
+			return timeErr
+		}
+		if preview.ExpiresAt <= now {
+			return errors.New("subscription reset preview has expired")
+		}
+		if preview.Mode == SubscriptionResetModeSoft {
+			if err := validateSubscriptionResetExpiry(preview.Mode, &preview.VoucherExpiresAt, now); err != nil {
+				return err
+			}
 		}
 		claim := tx.Model(&SubscriptionResetPreview{}).
 			Where("token = ? AND actor_user_id = ? AND consumed_at = 0 AND expires_at > ?", previewToken, input.ActorUserId, now).

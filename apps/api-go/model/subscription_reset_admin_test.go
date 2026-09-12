@@ -101,15 +101,16 @@ func TestHardSubscriptionResetRequiresPreviewAndChangesOnlyQuota(t *testing.T) {
 func TestSoftSubscriptionResetIssuesExpiringBankedVoucher(t *testing.T) {
 	truncateTables(t)
 	endTime, nextResetTime := seedResetSubscription(t, 9711, 9712, 9713, 2468)
+	expiresAt := GetDBTimestamp() + 3*24*60*60
 
 	preview, err := AdminPreviewSubscriptionsReset(AdminSubscriptionResetBatchInput{
 		ActorUserId: 1, Mode: SubscriptionResetModeSoft,
-		Targets: []SubscriptionResetTarget{{UserId: 9711, PlanId: 9712}},
+		VoucherExpiresAt: &expiresAt,
+		Targets:          []SubscriptionResetTarget{{UserId: 9711, PlanId: 9712}},
 	})
 	require.NoError(t, err)
 	require.Equal(t, int64(2468), preview.QuotaToRestore)
-	require.Greater(t, preview.VoucherExpiresAt, GetDBTimestamp()+27*24*60*60)
-	require.Less(t, preview.VoucherExpiresAt, GetDBTimestamp()+32*24*60*60)
+	require.Equal(t, expiresAt, preview.VoucherExpiresAt)
 
 	result, err := AdminResetSubscriptionsBatch(AdminSubscriptionResetBatchInput{
 		ActorUserId: 1, OperationId: "soft-reset-preview-contract", PreviewToken: preview.Token,
@@ -126,7 +127,8 @@ func TestSoftSubscriptionResetIssuesExpiringBankedVoucher(t *testing.T) {
 
 	duplicatePreview, err := AdminPreviewSubscriptionsReset(AdminSubscriptionResetBatchInput{
 		ActorUserId: 1, Mode: SubscriptionResetModeSoft,
-		Targets: []SubscriptionResetTarget{{UserId: 9711, PlanId: 9712}},
+		VoucherExpiresAt: &expiresAt,
+		Targets:          []SubscriptionResetTarget{{UserId: 9711, PlanId: 9712}},
 	})
 	require.NoError(t, err)
 	require.Len(t, duplicatePreview.Targets, 1)
@@ -150,6 +152,93 @@ func TestSoftSubscriptionResetIssuesExpiringBankedVoucher(t *testing.T) {
 	require.Equal(t, redeemed, replayed)
 	require.Equal(t, int64(1), subscriptionResetAuditCount(t, "subscription.reset.execute"))
 	require.Equal(t, int64(1), subscriptionResetAuditCount(t, "subscription.reset.voucher_redeem"))
+}
+
+func TestSubscriptionResetVoucherExpiryValidation(t *testing.T) {
+	now := GetDBTimestamp()
+	require.Error(t, validateSubscriptionResetExpiry(SubscriptionResetModeSoft, nil, now))
+	for _, expiry := range []int64{-1, 0, now - 1, now, MaxSubscriptionResetVoucherExpiresAt + 1, now * 1000, 1<<63 - 1} {
+		require.Error(t, validateSubscriptionResetExpiry(SubscriptionResetModeSoft, &expiry, now))
+		require.Error(t, validateSubscriptionResetExpiry(SubscriptionResetModeHard, &expiry, now))
+	}
+	for _, expiry := range []int64{now + 1, MaxSubscriptionResetVoucherExpiresAt} {
+		require.NoError(t, validateSubscriptionResetExpiry(SubscriptionResetModeSoft, &expiry, now))
+	}
+	require.NoError(t, validateSubscriptionResetExpiry(SubscriptionResetModeHard, nil, now))
+}
+
+func TestSubscriptionResetExpiryFrozenTamperProofAndExistingVouchersUnchanged(t *testing.T) {
+	truncateTables(t)
+	end, next := seedResetSubscription(t, 9811, 9812, 9813, 123)
+	old := SubscriptionResetVoucher{UserId: 9811, PlanId: 9812, OperationId: "old-issued", Status: SubscriptionResetVoucherAvailable, ExpiresAt: GetDBTimestamp() + 100000, CreatedAt: GetDBTimestamp() - 100}
+	require.NoError(t, DB.Create(&old).Error)
+	expiry := GetDBTimestamp() + 3600
+	preview, err := AdminPreviewSubscriptionsReset(AdminSubscriptionResetBatchInput{ActorUserId: 1, Mode: SubscriptionResetModeSoft, VoucherExpiresAt: &expiry, Targets: []SubscriptionResetTarget{{UserId: 9811, PlanId: 9812}}})
+	require.NoError(t, err)
+	require.Equal(t, expiry, preview.VoucherExpiresAt)
+	input := AdminSubscriptionResetBatchInput{ActorUserId: 1, OperationId: "expiry-frozen", PreviewToken: preview.Token}
+	input.VoucherExpiresAt = &expiry
+	_, err = AdminResetSubscriptionsBatch(input)
+	require.ErrorContains(t, err, "override is not allowed")
+	input.VoucherExpiresAt = nil
+	require.NoError(t, DB.Model(&SubscriptionResetPreview{}).Where("token = ?", preview.Token).Update("voucher_expires_at", expiry+1).Error)
+	_, err = AdminResetSubscriptionsBatch(input)
+	require.ErrorContains(t, err, "payload is invalid")
+	require.NoError(t, DB.Model(&SubscriptionResetPreview{}).Where("token = ?", preview.Token).Update("voucher_expires_at", expiry).Error)
+	result, err := AdminResetSubscriptionsBatch(input)
+	require.NoError(t, err)
+	require.Equal(t, expiry, result.VoucherExpiresAt)
+	replayed, err := AdminResetSubscriptionsBatch(input)
+	require.NoError(t, err)
+	require.Equal(t, result, replayed)
+	var issued SubscriptionResetVoucher
+	require.NoError(t, DB.Where("operation_id = ?", input.OperationId).First(&issued).Error)
+	require.Equal(t, expiry, issued.ExpiresAt)
+	var oldAfter SubscriptionResetVoucher
+	require.NoError(t, DB.First(&oldAfter, old.Id).Error)
+	require.Equal(t, old, oldAfter)
+	var subscription UserSubscription
+	require.NoError(t, DB.First(&subscription, 9813).Error)
+	require.Equal(t, end, subscription.EndTime)
+	require.Equal(t, next, subscription.NextResetTime)
+	require.EqualValues(t, 123, subscription.AmountUsed)
+}
+
+func TestSubscriptionResetExpiryRejectsExpiredFrozenDeadlineAndSupportsLegacyPreview(t *testing.T) {
+	for _, legacy := range []bool{false, true} {
+		t.Run(fmt.Sprintf("legacy_%t", legacy), func(t *testing.T) {
+			truncateTables(t)
+			seedResetSubscription(t, 9821, 9822, 9823, 321)
+			expiry := GetDBTimestamp() + 3600
+			preview, err := AdminPreviewSubscriptionsReset(AdminSubscriptionResetBatchInput{ActorUserId: 1, Mode: SubscriptionResetModeSoft, VoucherExpiresAt: &expiry, Targets: []SubscriptionResetTarget{{UserId: 9821, PlanId: 9822}}})
+			require.NoError(t, err)
+			var stored SubscriptionResetPreview
+			require.NoError(t, DB.First(&stored, "token = ?", preview.Token).Error)
+			var targets []SubscriptionResetPreviewTarget
+			require.NoError(t, json.Unmarshal([]byte(stored.TargetsJSON), &targets))
+			if legacy {
+				stored.VoucherExpiresAt = addOneCalendarMonthUTC(stored.CreatedAt)
+				stored.PayloadHash, err = subscriptionResetPayloadHash(stored.Mode, targets)
+			} else {
+				stored.VoucherExpiresAt = GetDBTimestamp()
+				stored.PayloadHash, err = subscriptionResetExpiryPayloadHash(stored.Mode, targets, stored.VoucherExpiresAt)
+			}
+			require.NoError(t, err)
+			require.NoError(t, DB.Save(&stored).Error)
+			result, err := AdminResetSubscriptionsBatch(AdminSubscriptionResetBatchInput{ActorUserId: 1, OperationId: "legacy-or-expired", PreviewToken: preview.Token})
+			if legacy {
+				require.NoError(t, err)
+				require.Equal(t, stored.VoucherExpiresAt, result.VoucherExpiresAt)
+			} else {
+				require.ErrorContains(t, err, "future Unix timestamp")
+				var count int64
+				require.NoError(t, DB.Model(&SubscriptionResetVoucher{}).Count(&count).Error)
+				require.Zero(t, count)
+				require.NoError(t, DB.First(&stored, "token = ?", preview.Token).Error)
+				require.Zero(t, stored.ConsumedAt)
+			}
+		})
+	}
 }
 
 func TestSubscriptionResetVoucherListPrioritizesAvailableVouchers(t *testing.T) {
@@ -366,9 +455,11 @@ func TestSubscriptionResetRejectsStalePreviewWithoutConsumingIt(t *testing.T) {
 func TestSubscriptionResetRejectsDeletedTargetUserWithoutConsumingPreview(t *testing.T) {
 	truncateTables(t)
 	seedResetSubscription(t, 9754, 9755, 9756, 100)
+	expiresAt := GetDBTimestamp() + 3600
 	preview, err := AdminPreviewSubscriptionsReset(AdminSubscriptionResetBatchInput{
 		ActorUserId: 1, Mode: SubscriptionResetModeSoft,
-		Targets: []SubscriptionResetTarget{{UserId: 9754, PlanId: 9755}},
+		VoucherExpiresAt: &expiresAt,
+		Targets:          []SubscriptionResetTarget{{UserId: 9754, PlanId: 9755}},
 	})
 	require.NoError(t, err)
 	require.NoError(t, DB.Delete(&User{}, 9754).Error)
