@@ -5,6 +5,7 @@ import (
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/LIghtJUNction/api.lmm.best/model"
+	"github.com/LIghtJUNction/api.lmm.best/setting/config"
 	"github.com/LIghtJUNction/api.lmm.best/setting/ratio_setting"
 	"github.com/stretchr/testify/require"
 )
@@ -44,4 +45,24 @@ func TestTokenPricingUsesLiveRatesAndPermissionBoundary(t *testing.T) {
 	groups.ownerGroups = []string{"default", "private", "default"}
 	rows = tokenPricingEntries(catalog[:1], groups, false, nil, 1, "")
 	require.Len(t, rows, 2)
+}
+
+func TestTokenPricingReportsExpressionInsteadOfFixedQuote(t *testing.T) {
+	saved := map[string]string{}
+	require.NoError(t, config.GlobalConfig.SaveToDB(func(key, value string) error { saved[key] = value; return nil }))
+	t.Cleanup(func() { require.NoError(t, config.GlobalConfig.LoadFromDB(saved)) })
+	require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{
+		"billing_setting.billing_mode":          `{"tiered-query":"tiered_expr"}`,
+		"billing_setting.billing_expr":          `{"tiered-query":"p * 2 + c * 4"}`,
+		"group_ratio_setting.group_ratio":       `{"default":3}`,
+		"group_ratio_setting.group_group_ratio": `{"vip":{"default":0.5}}`,
+	}))
+	rows := tokenPricingEntries([]model.Pricing{{ModelName: "tiered-query", EnableGroup: []string{"default"}}}, modelListGroups{userGroup: "vip", ownerGroups: []string{"default"}}, false, nil, 0.97, "tiered-query")
+	require.Len(t, rows, 1)
+	require.Equal(t, "expression", rows[0].Unit)
+	require.Equal(t, "p * 2 + c * 4", rows[0].Expression)
+	require.InDelta(t, 0.485, rows[0].GroupRatio, 1e-10)
+	require.Nil(t, rows[0].InputPrice)
+	require.Nil(t, rows[0].OutputPrice)
+	require.Nil(t, rows[0].RequestPrice)
 }
