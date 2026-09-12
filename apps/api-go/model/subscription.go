@@ -402,8 +402,9 @@ type UserSubscription struct {
 	UserId int `json:"user_id" gorm:"index;index:idx_user_sub_active,priority:1"`
 	PlanId int `json:"plan_id" gorm:"index"`
 
-	AmountTotal int64 `json:"amount_total" gorm:"type:bigint;not null;default:0"`
-	AmountUsed  int64 `json:"amount_used" gorm:"type:bigint;not null;default:0"`
+	AmountTotal  int64 `json:"amount_total" gorm:"type:bigint;not null;default:0"`
+	AmountUsed   int64 `json:"amount_used" gorm:"type:bigint;not null;default:0"`
+	QuotaVersion int64 `json:"quota_version" gorm:"type:bigint;not null;default:0"`
 
 	StartTime int64  `json:"start_time" gorm:"bigint"`
 	EndTime   int64  `json:"end_time" gorm:"bigint;index;index:idx_user_sub_active,priority:3"`
@@ -1141,6 +1142,7 @@ func applySubscriptionPaymentEventTx(tx *gorm.DB, tradeNo string, paymentEvent *
 		order.RefundedAmountMicros = 0
 		order.RefundedQuota = 0
 		subscription.AmountUsed = 0
+		subscription.QuotaVersion++
 		if renewalPlan.TotalAmount > 0 {
 			subscription.AmountTotal = renewalPlan.TotalAmount
 		}
@@ -1689,8 +1691,9 @@ func resetUserSubscriptionTx(tx *gorm.DB, sub *UserSubscription, plan *Subscript
 	if tx == nil || sub == nil || plan == nil {
 		return errors.New("invalid reset args")
 	}
-	updates := map[string]any{"amount_used": 0}
+	updates := map[string]any{"amount_used": 0, "quota_version": gorm.Expr("quota_version + 1")}
 	sub.AmountUsed = 0
+	sub.QuotaVersion++
 	if advanceResetTime {
 		nextReset := calcNextResetTime(time.Unix(now, 0), plan, sub.EndTime)
 		sub.NextResetTime = nextReset
@@ -1883,6 +1886,7 @@ type SubscriptionPreConsumeRecord struct {
 	WalletOverflow     bool   `json:"wallet_overflow" gorm:"not null;default:false"`
 	ActualQuota        int64  `json:"actual_quota" gorm:"type:bigint;not null;default:0"`
 	WalletConsumed     int64  `json:"wallet_consumed" gorm:"type:bigint;not null;default:0"`
+	ReservedVersion    int64  `json:"reserved_version" gorm:"type:bigint;not null;default:0"`
 	Status             string `json:"status" gorm:"type:varchar(32);index"` // consumed/settling/settled/refunded
 	CreatedAt          int64  `json:"created_at" gorm:"bigint"`
 	UpdatedAt          int64  `json:"updated_at" gorm:"bigint;index"`
@@ -1931,6 +1935,7 @@ func maybeResetUserSubscriptionWithPlanTx(tx *gorm.DB, sub *UserSubscription, pl
 		return nil
 	}
 	sub.AmountUsed = 0
+	sub.QuotaVersion++
 	sub.LastResetTime = base.Unix()
 	sub.NextResetTime = next
 	return tx.Save(sub).Error

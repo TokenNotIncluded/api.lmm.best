@@ -58,7 +58,11 @@ func subscriptionBillingTokenDelta(tx *gorm.DB, userID, tokenID int, delta int64
 		return "", nil
 	} // playground/assistant
 	var token Token
-	if err := lockForUpdate(tx).Where("id = ? AND user_id = ?", tokenID, userID).First(&token).Error; err != nil {
+	tokenDB := tx
+	if !reserve {
+		tokenDB = tokenDB.Unscoped()
+	}
+	if err := lockForUpdate(tokenDB).Where("id = ? AND user_id = ?", tokenID, userID).First(&token).Error; err != nil {
 		return "", err
 	}
 	if reserve && !token.UnlimitedQuota && int64(token.RemainQuota) < delta {
@@ -70,7 +74,7 @@ func subscriptionBillingTokenDelta(tx *gorm.DB, userID, tokenID int, delta int64
 	if delta < 0 && (int64(token.RemainQuota) > math.MaxInt64+delta || int64(token.UsedQuota) < math.MinInt64-delta) {
 		return "", errors.New("token quota overflow")
 	}
-	res := tx.Model(&Token{}).Where("id = ? AND user_id = ?", tokenID, userID).Updates(map[string]interface{}{
+	res := tokenDB.Model(&Token{}).Where("id = ? AND user_id = ?", tokenID, userID).Updates(map[string]interface{}{
 		"remain_quota": gorm.Expr("remain_quota - ?", delta), "used_quota": gorm.Expr("used_quota + ?", delta), "accessed_time": common.GetTimestamp(),
 	})
 	if res.Error != nil {
@@ -122,6 +126,10 @@ func PreConsumeSubscriptionBilling(requestID string, userID, tokenID int, modelN
 		if q.RowsAffected > 0 {
 			return nil
 		}
+		var subscription UserSubscription
+		if err := tx.First(&subscription, result.UserSubscriptionId).Error; err != nil {
+			return err
+		}
 		tokenKey, err = subscriptionBillingTokenDelta(tx, userID, tokenID, amount, true)
 		if err != nil {
 			return err
@@ -131,7 +139,7 @@ func PreConsumeSubscriptionBilling(requestID string, userID, tokenID int, modelN
 			tokenConsumed = 0
 		}
 		return tx.Model(&SubscriptionPreConsumeRecord{}).Where("request_id = ?", requestID).Updates(map[string]interface{}{
-			"billing_managed": true, "token_id": tokenID, "token_consumed": tokenConsumed, "wallet_overflow": walletOverflow,
+			"billing_managed": true, "token_id": tokenID, "token_consumed": tokenConsumed, "wallet_overflow": walletOverflow, "reserved_version": subscription.QuotaVersion,
 		}).Error
 	})
 	if err != nil {
@@ -176,6 +184,13 @@ func ReserveSubscriptionBilling(requestID string, userID int, target int64) (*Su
 		}
 		if target <= r.PreConsumed {
 			return 0, "", nil
+		}
+		var subscription UserSubscription
+		if err := lockForUpdate(tx).First(&subscription, r.UserSubscriptionId).Error; err != nil {
+			return 0, "", err
+		}
+		if subscription.QuotaVersion != r.ReservedVersion {
+			return 0, "", errors.New("subscription period changed; reserve rejected")
 		}
 		delta := target - r.PreConsumed
 		if err := postConsumeUserSubscriptionDeltaTx(tx, r.UserSubscriptionId, delta); err != nil {
@@ -253,6 +268,11 @@ func SettleSubscriptionBilling(requestID string, userID int, actual int64) (*Sub
 		if subDelta > 0 && sub.AmountUsed > math.MaxInt64-subDelta {
 			return 0, "", errors.New("subscription quota overflow")
 		}
+		// A refund of an expired grant must not erase another request's usage
+		// in the current grant. Positive overage still consumes current capacity.
+		if subDelta < 0 && sub.QuotaVersion != r.ReservedVersion {
+			subDelta = 0
+		}
 		sub.AmountUsed += subDelta
 		if sub.AmountUsed < 0 {
 			sub.AmountUsed = 0
@@ -293,8 +313,14 @@ func RefundSubscriptionBilling(requestID string, userID int) error {
 		if r.Status != "consumed" {
 			return 0, "", errors.New("cannot refund completed upstream usage; retry settlement")
 		}
-		if err := postConsumeUserSubscriptionDeltaTx(tx, r.UserSubscriptionId, -r.PreConsumed); err != nil {
+		var subscription UserSubscription
+		if err := lockForUpdate(tx).First(&subscription, r.UserSubscriptionId).Error; err != nil {
 			return 0, "", err
+		}
+		if subscription.QuotaVersion == r.ReservedVersion {
+			if err := postConsumeUserSubscriptionDeltaTx(tx, r.UserSubscriptionId, -r.PreConsumed); err != nil {
+				return 0, "", err
+			}
 		}
 		key, err := subscriptionBillingTokenDelta(tx, userID, r.TokenId, -r.TokenConsumed, false)
 		if err != nil {

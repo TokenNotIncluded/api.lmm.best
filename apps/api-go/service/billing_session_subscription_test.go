@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http/httptest"
 	"testing"
@@ -11,6 +12,7 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/model"
 	relaycommon "github.com/LIghtJUNction/api.lmm.best/relay/common"
 	"github.com/LIghtJUNction/api.lmm.best/relaykit/dto"
+	hosttypes "github.com/LIghtJUNction/api.lmm.best/types"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
@@ -202,4 +204,84 @@ func TestSubscriptionBillingTaskDoesNotCreateUnrefundableWalletSplit(t *testing.
 	require.Nil(t, apiErr)
 	require.ErrorIs(t, session.Settle(160000), model.ErrSubscriptionQuotaInsufficient)
 	assertSubscriptionBillingBalances(t, db, info, 60000, 0, 60000)
+}
+
+func TestSubscriptionBillingTextLogSeparatesUsageAndPayment(t *testing.T) {
+	for _, tc := range []struct {
+		name                           string
+		allow, failToken               bool
+		actual, charged, pendingRefund int
+		status                         string
+	}{
+		{"mixed", true, false, 160000, 160000, 0, "settled"},
+		{"blocked", false, false, 160000, 60000, 0, "settling"},
+		{"db_failure", true, true, 160000, 60000, 0, "settling"},
+		{"refund_failure", true, true, 20000, 60000, 40000, "settling"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db, info, c := subscriptionBillingFixture(t, 100000, tc.allow, "subscription_first")
+			require.NoError(t, db.AutoMigrate(&model.Log{}, &model.Channel{}))
+			prevLogDB, prevLogEnabled := model.LOG_DB, common.LogConsumeEnabled
+			model.LOG_DB, common.LogConsumeEnabled = db, true
+			t.Cleanup(func() { model.LOG_DB, common.LogConsumeEnabled = prevLogDB, prevLogEnabled })
+			channel := model.Channel{Name: "billing-log"}
+			require.NoError(t, db.Create(&channel).Error)
+			info.ChannelMeta = &relaycommon.ChannelMeta{ChannelId: channel.Id}
+			info.StartTime = time.Now()
+			info.OriginModelName = "billing-test"
+			info.PriceData = hosttypes.PriceData{ModelRatio: 1, CompletionRatio: 1, GroupRatioInfo: hosttypes.GroupRatioInfo{GroupRatio: 1}}
+			session, apiErr := NewBillingSession(c, info, 60000)
+			require.Nil(t, apiErr)
+			info.Billing = session
+			// Disable notification delivery in this accounting/log fixture.
+			info.SubscriptionAmountTotal = 0
+			if tc.failToken {
+				require.NoError(t, db.Callback().Update().Before("gorm:update").Register("fail_log_token", func(tx *gorm.DB) {
+					if tx.Statement.Table == "tokens" {
+						tx.AddError(errors.New("injected token write failure"))
+					}
+				}))
+			}
+			PostTextConsumeQuota(c, info, &dto.Usage{PromptTokens: tc.actual, TotalTokens: tc.actual}, nil)
+			var log model.Log
+			require.NoError(t, db.Where("type = ?", model.LogTypeConsume).First(&log).Error)
+			require.Equal(t, tc.actual, log.Quota)
+			var other map[string]interface{}
+			require.NoError(t, json.Unmarshal([]byte(log.Other), &other))
+			billing := other["billing_settlement"].(map[string]interface{})
+			require.Equal(t, tc.status, billing["status"])
+			require.EqualValues(t, tc.actual, billing["actual_quota"])
+			require.EqualValues(t, tc.charged, billing["charged_quota"])
+			require.Equal(t, billing["wallet_quota"], other["wallet_quota_deducted"])
+			require.Equal(t, billing["subscription_quota"], other["subscription_consumed"])
+			pending := tc.actual - tc.charged
+			if pending < 0 {
+				pending = 0
+			}
+			require.EqualValues(t, pending, billing["unsettled_quota"])
+			require.EqualValues(t, tc.pendingRefund, billing["refund_pending_quota"])
+			require.Equal(t, tc.status == "settled", billing["complete"])
+			if tc.status != "settled" {
+				require.Contains(t, log.Content, "费用结算未完成")
+			}
+			var user model.User
+			require.NoError(t, db.First(&user, info.UserId).Error)
+			require.EqualValues(t, tc.actual, user.UsedQuota)
+			require.Equal(t, 1, user.RequestCount)
+			require.NoError(t, db.First(&channel, channel.Id).Error)
+			require.EqualValues(t, tc.actual, channel.UsedQuota)
+			if tc.failToken {
+				require.NoError(t, db.Callback().Update().Remove("fail_log_token"))
+			}
+			if tc.allow {
+				_, err := model.SettleSubscriptionBilling(info.RequestId, info.UserId, int64(tc.actual))
+				require.NoError(t, err)
+				require.NoError(t, db.First(&user, info.UserId).Error)
+				require.Equal(t, 1, user.RequestCount, "compensation must not repeat usage accounting")
+				var count int64
+				require.NoError(t, db.Model(&model.Log{}).Count(&count).Error)
+				require.EqualValues(t, 1, count)
+			}
+		})
+	}
 }

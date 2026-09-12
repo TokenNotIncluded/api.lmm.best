@@ -3,7 +3,6 @@ package model
 import (
 	"context"
 	"errors"
-	"fmt"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"gorm.io/gorm"
@@ -152,10 +151,6 @@ func persistUserQuotaDelta(id int, delta int) error {
 }
 
 func persistTokenQuotaDelta(id int, delta int) error {
-	if common.BatchUpdateEnabled {
-		addNewRecord(BatchUpdateTypeTokenQuota, id, delta)
-		return nil
-	}
 	result := DB.Model(&Token{}).Where("id = ?", id).Updates(map[string]interface{}{
 		"remain_quota":  gorm.Expr("remain_quota + ?", delta),
 		"used_quota":    gorm.Expr("used_quota - ?", delta),
@@ -264,37 +259,21 @@ func TryReserveTokenQuota(id int, key string, quota int, unlimited bool) (bool, 
 	if quota == 0 {
 		return true, nil
 	}
+	// Redis may be evicted or hydrated at any time. Only the durable balance
+	// can authorize a spend shared by wallet and subscription transactions.
+	var reserved bool
+	var err error
 	if unlimited {
-		if err := DecreaseTokenQuota(id, key, quota); err != nil {
-			return false, err
-		}
-		return true, nil
+		err = persistTokenQuotaDelta(id, -quota)
+		reserved = err == nil
+	} else {
+		reserved, err = reserveTokenQuotaDB(id, quota)
 	}
-	if !common.RedisEnabled || common.RDB == nil {
-		return reserveTokenQuotaDB(id, quota)
-	}
-
-	result, err := cacheTryReserveTokenQuota(id, key, int64(quota))
-	if err == nil && result == cacheQuotaMiss {
-		if _, hydrateErr := GetTokenByKey(key, true); hydrateErr == nil {
-			result, err = cacheTryReserveTokenQuota(id, key, int64(quota))
-		}
-	}
-	if err != nil || result == cacheQuotaMiss {
-		if err != nil {
-			common.SysLog("token quota cache reserve unavailable, falling back to database: " + err.Error())
-		}
-		return reserveTokenQuotaDB(id, quota)
-	}
-	if result == cacheQuotaInsufficient {
-		return false, nil
-	}
-	if err = persistTokenQuotaDelta(id, -quota); err != nil {
-		compensated, compensateErr := cacheApplyTokenQuotaDelta(id, key, int64(quota))
-		if compensateErr != nil || compensated != cacheQuotaOK {
-			common.SysError(fmt.Sprintf("failed to compensate reserved token quota: result=%d error=%v", compensated, compensateErr))
-		}
+	if err != nil {
 		return false, err
 	}
-	return true, nil
+	if cacheErr := invalidateTokenCacheForMutation(key); cacheErr != nil {
+		common.SysLog("invalidate token after reserve: " + cacheErr.Error())
+	}
+	return reserved, nil
 }

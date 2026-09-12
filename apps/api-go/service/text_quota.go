@@ -478,8 +478,10 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 		model.UpdateChannelUsedQuota(relayInfo.ChannelId, summary.Quota)
 	}
 
-	if err := SettleBilling(ctx, relayInfo, summary.Quota); err != nil {
-		logger.LogError(ctx, "error settling billing: "+err.Error())
+	settlementErr := SettleBilling(ctx, relayInfo, summary.Quota)
+	if settlementErr != nil {
+		logger.LogError(ctx, "error settling billing: "+settlementErr.Error())
+		extraContent = append(extraContent, "费用结算未完成；已返回的模型结果不会重发")
 	}
 
 	logModel := summary.ModelName
@@ -555,6 +557,7 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 	}
 
 	attachQuotaSaturation(ctx, relayInfo, other)
+	appendSubscriptionSettlementLog(other, relayInfo, settlementErr)
 
 	model.RecordConsumeLog(ctx, relayInfo.UserId, model.RecordConsumeLogParams{
 		ChannelId:        relayInfo.ChannelId,
@@ -573,4 +576,46 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 	gopool.Go(func() {
 		perfmetrics.RecordRelaySample(relayInfo, true, int64(summary.CompletionTokens))
 	})
+}
+
+// Usage counters and Log.Quota continue to describe measured usage, not payment.
+// The settlement snapshot records committed debits independently, including the
+// prepayment retained when a final debit or refund fails. Never retry upstream
+// generation here; compensation uses the durable request-ID settlement API.
+func appendSubscriptionSettlementLog(other map[string]interface{}, info *relaycommon.RelayInfo, settlementErr error) {
+	session, ok := info.Billing.(*BillingSession)
+	if !ok {
+		return
+	}
+	result := session.SubscriptionSettlement()
+	if result == nil {
+		return
+	}
+	charged := result.SubscriptionQuota + result.WalletQuota
+	// Override the legacy single-source metadata generated above.
+	other["wallet_quota_deducted"] = result.WalletQuota
+	other["subscription_consumed"] = result.SubscriptionQuota
+	unsettled, refundPending := result.ActualQuota-charged, charged-result.ActualQuota
+	if unsettled < 0 {
+		unsettled = 0
+	}
+	if refundPending < 0 {
+		refundPending = 0
+	}
+	other["billing_settlement"] = map[string]interface{}{
+		"request_id": result.RequestId, "status": result.Status,
+		"actual_quota": result.ActualQuota, "charged_quota": charged,
+		"unsettled_quota": unsettled, "refund_pending_quota": refundPending,
+		"subscription_quota": result.SubscriptionQuota, "wallet_quota": result.WalletQuota,
+		"token_quota": result.TokenQuota, "usage_counters_basis": "actual_quota",
+		"complete": settlementErr == nil && result.Status == "settled",
+	}
+	if settlementErr != nil {
+		admin, ok := other["admin_info"].(map[string]interface{})
+		if !ok {
+			admin = make(map[string]interface{})
+			other["admin_info"] = admin
+		}
+		admin["billing_settlement_error"] = settlementErr.Error()
+	}
 }

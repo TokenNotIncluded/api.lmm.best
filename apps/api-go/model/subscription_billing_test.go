@@ -190,11 +190,29 @@ func TestSubscriptionBillingMigrationPostgres(t *testing.T) {
 		if _, ok := candidate.(*SubscriptionPreConsumeRecord); ok {
 			required = append(required, candidate)
 		}
+		if _, ok := candidate.(*UserSubscription); ok {
+			required = append(required, candidate)
+		}
 	}
-	require.Len(t, required, 1, "CLI apply and verify must include the billing ledger")
+	require.Len(t, required, 2, "CLI apply and verify must include the billing ledger and quota generation")
 	inventory, err := buildPostgresSchemaInventory(db, schema, required)
 	require.NoError(t, err)
-	columns := []string{"billing_managed", "token_id", "token_consumed", "wallet_overflow", "actual_quota", "wallet_consumed"}
+	columns := []string{"billing_managed", "token_id", "token_consumed", "wallet_overflow", "actual_quota", "wallet_consumed", "reserved_version"}
+	require.NoError(t, db.Migrator().DropColumn(&UserSubscription{}, "quota_version"))
+	require.ErrorContains(t, verifyPostgresSchemaInventory(db, inventory), "user_subscriptions.quota_version")
+	require.NoError(t, db.AutoMigrate(required...))
+	for _, column := range columns {
+		found := false
+		for _, object := range inventory.Objects {
+			if object.table == "subscription_pre_consume_records" && object.column == column {
+				found = true
+			}
+		}
+		require.True(t, found, "CLI verify inventory missing %s", column)
+		require.NoError(t, db.Migrator().DropColumn(&SubscriptionPreConsumeRecord{}, column))
+		require.ErrorContains(t, verifyPostgresSchemaInventory(db, inventory), "subscription_pre_consume_records."+column)
+		require.NoError(t, db.AutoMigrate(required...))
+	}
 	for _, column := range columns {
 		require.NoError(t, db.Migrator().DropColumn(&SubscriptionPreConsumeRecord{}, column))
 	}
@@ -207,4 +225,60 @@ func TestSubscriptionBillingMigrationPostgres(t *testing.T) {
 	require.False(t, legacy.BillingManaged)
 	require.EqualValues(t, 1, legacy.PreConsumed)
 	require.Zero(t, legacy.TokenConsumed)
+}
+
+func TestSubscriptionBillingDeletedTokenCanSettleOrRefund(t *testing.T) {
+	for _, refund := range []bool{false, true} {
+		t.Run(fmt.Sprint(refund), func(t *testing.T) {
+			db := subscriptionBillingModelFixture(t, false)
+			_, err := PreConsumeSubscriptionBilling("deleted-key", 9001, 9002, "model", 60000, true)
+			require.NoError(t, err)
+			require.NoError(t, db.Delete(&Token{}, 9002).Error)
+			_, err = ReserveSubscriptionBilling("deleted-key", 9001, 70000)
+			require.Error(t, err)
+			_, err = PreConsumeSubscriptionBilling("new-deleted-key", 9001, 9002, "model", 1, true)
+			require.Error(t, err)
+			want := 160000
+			if refund {
+				require.NoError(t, RefundSubscriptionBilling("deleted-key", 9001))
+				want = 0
+			} else {
+				_, err = SettleSubscriptionBilling("deleted-key", 9001, 160000)
+				require.NoError(t, err)
+			}
+			var token Token
+			require.NoError(t, db.Unscoped().First(&token, 9002).Error)
+			require.Equal(t, want, token.UsedQuota)
+			require.True(t, token.DeletedAt.Valid)
+		})
+	}
+}
+
+func TestSubscriptionBillingOldPeriodRefundPreservesNewUsage(t *testing.T) {
+	for _, refund := range []bool{false, true} {
+		t.Run(fmt.Sprint(refund), func(t *testing.T) {
+			db := subscriptionBillingModelFixture(t, false)
+			_, err := PreConsumeSubscriptionBilling("old-period", 9001, 9002, "model", 60000, true)
+			require.NoError(t, err)
+			var sub UserSubscription
+			require.NoError(t, db.First(&sub, 9101).Error)
+			var plan SubscriptionPlan
+			require.NoError(t, db.First(&plan, sub.PlanId).Error)
+			err = db.Transaction(func(tx *gorm.DB) error { return resetUserSubscriptionTx(tx, &sub, &plan, time.Now().Unix(), false) })
+			require.NoError(t, err)
+			require.EqualValues(t, 1, sub.QuotaVersion)
+			_, err = PreConsumeSubscriptionBilling("new-period", 9001, 9002, "model", 40000, true)
+			require.NoError(t, err)
+			_, err = ReserveSubscriptionBilling("old-period", 9001, 70000)
+			require.ErrorContains(t, err, "period changed")
+			if refund {
+				require.NoError(t, RefundSubscriptionBilling("old-period", 9001))
+			} else {
+				_, err = SettleSubscriptionBilling("old-period", 9001, 20000)
+				require.NoError(t, err)
+			}
+			require.NoError(t, db.First(&sub, 9101).Error)
+			require.EqualValues(t, 40000, sub.AmountUsed)
+		})
+	}
 }

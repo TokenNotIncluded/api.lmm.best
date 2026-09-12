@@ -1572,10 +1572,6 @@ func IncreaseUserQuota(id int, quota int, db bool) error {
 	if err := common.ValidateWalletQuota(quota); err != nil {
 		return err
 	}
-	if !db && common.BatchUpdateEnabled {
-		addNewRecord(BatchUpdateTypeUserQuota, id, quota)
-		return nil
-	}
 	if err := increaseUserQuota(id, quota); err != nil {
 		return err
 	}
@@ -1593,10 +1589,6 @@ func DecreaseUserQuota(id int, quota int, db bool) error {
 	}
 	if err := common.ValidateWalletQuota(quota); err != nil {
 		return err
-	}
-	if !db && common.BatchUpdateEnabled {
-		addNewRecord(BatchUpdateTypeUserQuota, id, -quota)
-		return nil
 	}
 	if err := decreaseUserQuota(id, quota); err != nil {
 		return err
@@ -1616,11 +1608,9 @@ func syncUserQuotaDeltaCacheAsync(id int, delta int, operation string) {
 	if !common.RedisEnabled || delta == 0 {
 		return
 	}
-	gopool.Go(func() {
-		if err := cacheIncrUserQuota(id, int64(delta)); err != nil {
-			common.SysLog("failed to " + operation + ": " + err.Error())
-		}
-	})
+	if err := invalidateUserCache(id); err != nil {
+		common.SysLog("failed to " + operation + ": " + err.Error())
+	}
 }
 
 func DeltaUpdateUserQuota(id int, delta int) (err error) {

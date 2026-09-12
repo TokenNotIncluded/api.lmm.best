@@ -150,24 +150,24 @@ func cacheGetUserBase(userId int) (*UserBase, error) {
 	return &userCache, nil
 }
 
-// Quota deltas are applied through guarded Lua in quota_reserve.go.  A cache
-// miss is intentionally a no-op: the database mutation remains authoritative
-// and the next cache read will hydrate the complete user hash.
+// Spendable quota mutations commit to DB before this cache notification. This
+// legacy delta-shaped helper only invalidates: delayed increments could count
+// an already committed credit twice after a concurrent hydration.
 func cacheIncrUserQuota(userId int, delta int64) error {
 	if !common.RedisEnabled {
 		return nil
 	}
-	_, err := cacheApplyUserQuotaDelta(userId, delta)
-	return err
+	// Callers have already committed to DB. Eviction is safe even if delayed
+	// until after another request hydrates the committed balance; adding the
+	// delta at that point would count the same credit twice.
+	return invalidateUserCache(userId)
 }
 
 func cacheDecrUserQuota(userId int, delta int64) error {
 	return cacheIncrUserQuota(userId, -delta)
 }
 
-// syncCreditUserQuotaCache 在授信事务（充值/兑换等）提交后同步把增量补进缓存
-// 余额。预扣以缓存值为准（存在期间），授信不能绕过它，否则新到账的额度在
-// 缓存过期前不可用；缓存未命中无需处理，下次读取会从已提交的数据库余额水合。
+// syncCreditUserQuotaCache 在授信事务提交后失效缓存；后续读取从数据库水合。
 func syncCreditUserQuotaCache(userId int, quota int, operation string) {
 	if quota <= 0 {
 		return
