@@ -21,6 +21,42 @@ import (
 
 type responsesReadError struct{}
 
+func TestResponsesEventNameInjection(t *testing.T) {
+	for _, name := range []string{"response.created\nevent: injected", "response.created\rdata: injected", "response.created\r\n\r\nevent: injected"} {
+		encoded, err := json.Marshal(map[string]string{"type": name})
+		require.NoError(t, err)
+		body := "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_test\"}}\n\ndata: " + string(encoded) + "\n\n"
+		_, e, w, info := runResponsesTerminalTest(t, strings.NewReader(body), false)
+		require.Nil(t, e)
+		require.NotContains(t, w.Body.String(), "injected")
+		require.Equal(t, 1, strings.Count(w.Body.String(), "event: response.failed"))
+		require.True(t, info.StreamStatus.HasErrors())
+		direct := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(direct)
+		c.Request = httptest.NewRequest(http.MethodPost, "/", nil)
+		require.Error(t, writeResponsesEvent(c, name, `{}`))
+		require.False(t, c.Writer.Written())
+	}
+}
+
+func TestResponsesCreatedOnlyUsagePolicy(t *testing.T) {
+	for _, withUsage := range []bool{false, true} {
+		u := ""
+		if withUsage {
+			u = `,"usage":{"input_tokens":100,"output_tokens":0,"total_tokens":100}`
+		}
+		body := `data: {"type":"response.created","response":{"id":"resp_test"` + u + "}}\n\n"
+		usage, e, _, _ := runResponsesTerminalTest(t, strings.NewReader(body), false)
+		require.Nil(t, e)
+		require.Zero(t, usage.CompletionTokens)
+		if withUsage {
+			require.Equal(t, 100, usage.PromptTokens)
+		} else {
+			require.Zero(t, usage.PromptTokens)
+		}
+	}
+}
+
 type responsesFailedWriter struct {
 	*httptest.ResponseRecorder
 	writes int

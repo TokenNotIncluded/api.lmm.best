@@ -96,6 +96,12 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 			return
 		}
 		streamResponse := event.ResponsesStreamResponse
+		if strings.ContainsAny(streamResponse.Type, "\r\n") {
+			// JSON escapes are decoded above; validate the value at the SSE
+			// boundary before it can introduce another event or data field.
+			sr.Error(fmt.Errorf("invalid Responses event name"))
+			return
+		}
 		if event.SequenceNumber != nil && *event.SequenceNumber > sequence {
 			sequence = *event.SequenceNumber
 		}
@@ -176,6 +182,9 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 	}
 
 	if !hasUsage && usage.PromptTokens == 0 && usage.CompletionTokens != 0 {
+		// response.created alone proves acceptance, not consumed input. Only
+		// estimate prompt usage after observed output; otherwise leave unknown
+		// usage at zero rather than inventing consumption from request size.
 		usage.PromptTokens = info.GetEstimatePromptTokens()
 	}
 
@@ -217,6 +226,9 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 // Return write failures directly: Gin's Render records them on the context but
 // does not return them to the stream handler, which must stop consuming output.
 func writeResponsesEvent(c *gin.Context, eventType, data string) error {
+	if strings.ContainsAny(eventType, "\r\n") {
+		return fmt.Errorf("invalid Responses event name")
+	}
 	if err := c.Request.Context().Err(); err != nil {
 		return err
 	}
