@@ -160,20 +160,12 @@ export function DrawingSnakeGame() {
     }
     document.addEventListener('visibilitychange', handleVisibilityChange)
 
+    let resetTimeoutId: ReturnType<typeof setTimeout> | null = null
+
     const tick = () => {
       if (isPaused) return
       const s = stateRef.current
       if (!s.alive) {
-        // Auto reset after 1 second if died
-        setTimeout(() => {
-          s.snake = [...INITIAL_SNAKE]
-          s.direction = INITIAL_DIRECTION
-          s.nextDirection = INITIAL_DIRECTION
-          s.food = getRandomFood(INITIAL_SNAKE)
-          s.score = 0
-          s.alive = true
-          setScore(0)
-        }, 800)
         return
       }
 
@@ -196,6 +188,19 @@ export function DrawingSnakeGame() {
       )
       if (hitsBody) {
         s.alive = false
+        if (resetTimeoutId) {
+          clearTimeout(resetTimeoutId)
+        }
+        resetTimeoutId = setTimeout(() => {
+          s.snake = [...INITIAL_SNAKE]
+          s.direction = INITIAL_DIRECTION
+          s.nextDirection = INITIAL_DIRECTION
+          s.food = getRandomFood(INITIAL_SNAKE)
+          s.score = 0
+          s.alive = true
+          setScore(0)
+          resetTimeoutId = null
+        }, 800)
         return
       }
 
@@ -299,6 +304,9 @@ export function DrawingSnakeGame() {
 
     return () => {
       clearInterval(timerId)
+      if (resetTimeoutId) {
+        clearTimeout(resetTimeoutId)
+      }
       cancelAnimationFrame(animationId)
       document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
