@@ -597,7 +597,7 @@ func RequestWaffoPancakePay(c *gin.Context) {
 		BillingDetail:    waffoPancakeBillingDetailFromProfile(companyBillingProfile),
 	})
 	if err != nil {
-		logger.LogError(c.Request.Context(), fmt.Sprintf("Waffo Pancake 创建结账会话失败 user_id=%d trade_no=%s error=%q", id, tradeNo, err.Error()))
+		logger.LogError(c.Request.Context(), fmt.Sprintf("Waffo Pancake 创建结账会话失败 user_id=%d trade_no=%s currency=%s product_id=%s %s", id, tradeNo, currency, productID, service.FormatWaffoPancakeError(err)))
 		// The provider may have accepted the checkout before an I/O timeout.
 		// Keep the order pending so a later signed webhook remains recoverable.
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "拉起支付失败"})

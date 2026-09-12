@@ -30,7 +30,7 @@ use crate::{
 use async_trait::async_trait;
 use axum::{
     Router,
-    body::{Body, to_bytes},
+    body::{Body, Bytes, to_bytes},
     extract::{Request, State},
     http::{HeaderMap, HeaderName, HeaderValue, StatusCode, header},
     response::{IntoResponse, Response},
@@ -67,7 +67,7 @@ pub struct OpenAiRelayRequest {
     /// Original JSON bytes.  The transactional adapter uses these to replay a
     /// failed attempt and to retain provider fields which are intentionally
     /// outside the canonical cross-provider subset.
-    pub raw_body: Vec<u8>,
+    pub raw_body: Bytes,
 }
 
 /// OpenAI endpoint families sharing the relay executor.
@@ -739,7 +739,7 @@ async fn relay(
         request_id: request_id.clone(),
         headers,
         request: canonical,
-        raw_body: body.to_vec(),
+        raw_body: body,
     };
     let result = match state.service.relay(relay_request).await {
         Ok(result) => result,
@@ -1618,7 +1618,7 @@ mod tests {
                 completion_request_to_canonical(br#"{"model":"mock-model","prompt":"hello"}"#),
                 "build canonical relay test request",
             )?,
-            raw_body: raw_body.to_vec(),
+            raw_body: Bytes::copy_from_slice(raw_body),
         })
     }
 
@@ -1899,7 +1899,7 @@ mod tests {
             captured.authorization.as_deref(),
             Some("Bearer channel-secret")
         );
-        assert_eq!(captured.body.as_ref(), request.raw_body.as_slice());
+        assert_eq!(captured.body.as_ref(), request.raw_body.as_ref());
         assert_eq!(result.headers["x-upstream-trace"], "mock-json");
         let (body, content_type) = match result.body {
             OpenAiRelayBody::Upstream { body, content_type } => (body, content_type),

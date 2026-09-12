@@ -49,7 +49,8 @@ export function normalizeInterfaceLanguage(
     normalized === 'zhcn' ||
     normalized === 'zh-cn' ||
     normalized === 'zh-sg' ||
-    normalized.startsWith('zh-hans')
+    normalized.startsWith('zh-hans') ||
+    normalized.startsWith('zh-')
   ) {
     return 'zhCN'
   }

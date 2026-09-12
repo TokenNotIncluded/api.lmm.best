@@ -49,7 +49,13 @@ func (setting UserSetting) EffectiveSettlementCurrency(languageHint string) stri
 	}
 	language = strings.ToLower(strings.TrimSpace(strings.Split(language, ",")[0]))
 	language = strings.Split(language, ";")[0]
-	if language == "zh" || strings.HasPrefix(language, "zh-") || strings.HasPrefix(language, "zh_") {
+	language = strings.ReplaceAll(language, "_", "-")
+	if language == "zhcn" {
+		language = "zh-cn"
+	} else if language == "zhtw" {
+		language = "zh-tw"
+	}
+	if language == "zh" || strings.HasPrefix(language, "zh-") {
 		return "CNY"
 	}
 	return "USD"

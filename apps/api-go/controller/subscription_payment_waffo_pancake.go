@@ -175,7 +175,7 @@ func SubscriptionRequestWaffoPancakePay(c *gin.Context) {
 		BillingDetail:           waffoPancakeBillingDetailFromProfile(companyBillingProfile),
 	})
 	if err != nil {
-		logger.LogError(c.Request.Context(), fmt.Sprintf("Waffo Pancake 订阅结账会话创建失败 user_id=%d plan_id=%d trade_no=%s error=%q", userId, plan.Id, tradeNo, err.Error()))
+		logger.LogError(c.Request.Context(), fmt.Sprintf("Waffo Pancake 订阅结账会话创建失败 user_id=%d plan_id=%d trade_no=%s currency=%s product_id=%s %s", userId, plan.Id, tradeNo, settlementCurrency, plan.WaffoPancakeProductId, service.FormatWaffoPancakeError(err)))
 		// A transport timeout can happen after Pancake accepted the session.
 		// Keep the durable order pending so a later signed webhook can settle it.
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "拉起支付失败"})

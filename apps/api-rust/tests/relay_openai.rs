@@ -3,7 +3,7 @@ use std::{net::IpAddr, str::FromStr};
 
 use async_trait::async_trait;
 use axum::{
-    body::{Body, to_bytes},
+    body::{Body, Bytes, to_bytes},
     http::{Request, StatusCode, header},
 };
 use lmm_api_rs::RequestContext;
@@ -81,6 +81,51 @@ fn completed() -> OpenAiRelayResult {
 }
 
 #[tokio::test]
+async fn openai_routes_share_original_request_storage_with_replays() {
+    let payload = Bytes::from(
+        serde_json::to_vec(&serde_json::json!({
+            "model": "gpt-4o", "stream": true, "prompt": "hello",
+            "provider_field": "x".repeat(16 * 1024),
+        }))
+        .expect("payload"),
+    );
+    for path in [
+        "/v1/chat/completions",
+        "/v1/completions",
+        "/v1/responses",
+        "/v1/responses/compact",
+    ] {
+        let service = service(Ok(completed()));
+        let router = openai_relay_router(OpenAiRelayHttpState::new(service.clone(), "test"));
+        let response = router
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(path)
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(payload.clone()))
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::OK, "{path}");
+        let requests = service.requests.lock().expect("requests");
+        let raw_body = &requests[0].raw_body;
+        assert_eq!(&raw_body[..], payload.as_ref());
+        assert!(
+            std::ptr::eq(raw_body.as_ptr(), payload.as_ptr()),
+            "{path}: the relay must reuse the aggregated body, not copy its payload"
+        );
+        let replay = raw_body.clone();
+        assert!(
+            std::ptr::eq(replay.as_ptr(), payload.as_ptr()),
+            "{path}: preparing an upstream replay must share the original payload"
+        );
+        assert_eq!(&replay[..], payload.as_ref());
+    }
+}
+
+#[tokio::test]
 async fn chat_route_authenticates_through_service_and_returns_legacy_headers() {
     let service = service(Ok(completed()));
     let router = openai_relay_router(OpenAiRelayHttpState::new(service.clone(), "v0.0.0"));
@@ -112,7 +157,7 @@ async fn chat_route_authenticates_through_service_and_returns_legacy_headers() {
     assert_eq!(requests[0].endpoint, OpenAiRelayEndpoint::ChatCompletions);
     assert_eq!(requests[0].request.model, "gpt-4o");
     assert_eq!(
-        requests[0].raw_body,
+        requests[0].raw_body.as_ref(),
         br#"{"model":"gpt-4o","messages":[{"role":"user","content":"hello"}]}"#
     );
     assert!(!requests[0].request_id.is_empty());
@@ -182,7 +227,7 @@ async fn completions_preserves_the_original_wire_body_for_the_adapter() {
     assert_eq!(requests[0].endpoint, OpenAiRelayEndpoint::Completions);
     assert_eq!(requests[0].request.model, "gpt-4o");
     assert_eq!(
-        requests[0].raw_body,
+        requests[0].raw_body.as_ref(),
         br#"{"model":"gpt-4o","prompt":"write a haiku","stream":false,"suffix":"."}"#
     );
 }

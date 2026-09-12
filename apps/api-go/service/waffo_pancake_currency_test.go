@@ -1,10 +1,12 @@
 package service
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/LIghtJUNction/api.lmm.best/model"
 	"github.com/stretchr/testify/require"
+	pancake "github.com/waffo-com/waffo-pancake-sdk-go"
 )
 
 func TestWaffoPancakeCheckoutCurrencyProductMatrix(t *testing.T) {
@@ -49,4 +51,27 @@ func TestWaffoPancakeUnsupportedCurrencyRejectedBeforeClientCreation(t *testing.
 		BuyerIdentity: "new-api-user-1", OrderMerchantExternalID: "test-order",
 	})
 	require.ErrorContains(t, err, "unsupported_settlement_currency")
+}
+
+func TestFormatWaffoPancakeError(t *testing.T) {
+	require.Equal(t, "", FormatWaffoPancakeError(nil))
+
+	plainErr := errors.New("connection reset")
+	require.Equal(t, "connection reset", FormatWaffoPancakeError(plainErr))
+
+	pErr := &pancake.Error{
+		Status: 422,
+		Errors: []pancake.Notice{
+			{
+				Message: "Payment method not configured for currency",
+				Layer:   "payment_methods",
+				AIHint:  "Enable WeChat pay in Pancake store",
+			},
+		},
+	}
+	formatted := FormatWaffoPancakeError(pErr)
+	require.Contains(t, formatted, "status=422")
+	require.Contains(t, formatted, "[payment_methods]")
+	require.Contains(t, formatted, "Payment method not configured for currency")
+	require.Contains(t, formatted, "hint: Enable WeChat pay in Pancake store")
 }

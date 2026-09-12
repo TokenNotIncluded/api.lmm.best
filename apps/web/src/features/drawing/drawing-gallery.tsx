@@ -28,11 +28,17 @@ export function DrawingGallery({ images }: { images: DrawingPreview[] }) {
               {image.revisedPrompt || image.prompt}
             </p>
             <div className='flex flex-wrap items-center justify-between gap-2'>
-              <time dateTime={new Date(image.createdAt).toISOString()}>
-                {new Date(image.createdAt).toLocaleString(
-                  i18n.resolvedLanguage || 'en'
-                )}
-              </time>
+              {(() => {
+                const date = new Date(image.createdAt)
+                const isValid = !Number.isNaN(date.getTime())
+                return (
+                  <time dateTime={isValid ? date.toISOString() : undefined}>
+                    {isValid
+                      ? date.toLocaleString(i18n.resolvedLanguage || 'en')
+                      : ''}
+                  </time>
+                )
+              })()}
               <a
                 href={image.src}
                 download={

@@ -62,10 +62,16 @@ function SettlementCurrencyField({
     { value: 'CNY', label: 'CNY' },
     { value: 'USD', label: 'USD' },
   ]
-  const effectiveCurrency = resolveSettlementCurrency(
+  const autoCurrency = resolveSettlementCurrency(
     { ...parseSettlementSettings(profile?.setting), settlement_currency: '' },
     i18n.resolvedLanguage || i18n.language
   )
+  const descriptionText =
+    preference.value === ''
+      ? t('Following language: {{currency}}', { currency: autoCurrency })
+      : t('Current settlement currency: {{currency}}', {
+          currency: preference.value,
+        })
   const hasError = preference.failedValue !== null
   const disabled = !preference.available || preference.saving
 
@@ -89,10 +95,7 @@ function SettlementCurrencyField({
               {t('Fiat settlement currency')}
             </FieldLabel>
             <FieldDescription id={`${id}-description`}>
-              {preference.available &&
-                t('Following language: {{currency}}', {
-                  currency: effectiveCurrency,
-                })}
+              {preference.available && descriptionText}
             </FieldDescription>
           </FieldContent>
           <Select

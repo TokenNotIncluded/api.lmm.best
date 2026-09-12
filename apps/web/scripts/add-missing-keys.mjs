@@ -7559,9 +7559,250 @@ const targetedUiTranslationFixes = {
   },
 }
 
+const walletUiFixes = {
+  en: {
+    'Validating discount...': 'Validating discount...',
+    'Unable to calculate payment quote. Please retry.':
+      'Unable to calculate payment quote. Please retry.',
+    'Payment quote unavailable': 'Payment quote unavailable',
+  },
+  zh: {
+    'Validating discount...': '正在验证优惠...',
+    'Unable to calculate payment quote. Please retry.':
+      '暂时无法获取报价，尚未发起付款。请重试。',
+    'Payment quote unavailable': '暂时无法获取付款报价',
+  },
+  'zh-TW': {
+    'Validating discount...': '正在驗證優惠...',
+    'Unable to calculate payment quote. Please retry.':
+      '暫時無法獲取報價，尚未發起付款。請重試。',
+    'Payment quote unavailable': '暫時無法獲取付款報價',
+  },
+  fr: {
+    'Validating discount...': 'Validation de la réduction...',
+    'Unable to calculate payment quote. Please retry.':
+      'Impossible de calculer le devis de paiement. Veuillez réessayer.',
+    'Payment quote unavailable': 'Devis de paiement indisponible',
+  },
+  ja: {
+    'Validating discount...': '割引を確認中...',
+    'Unable to calculate payment quote. Please retry.':
+      '支払い見積もりを計算できません。もう一度お試しください。',
+    'Payment quote unavailable': '支払い見積もりを利用できません',
+  },
+  ru: {
+    'Validating discount...': 'Проверка скидки...',
+    'Unable to calculate payment quote. Please retry.':
+      'Не удалось рассчитать стоимость платежа. Повторите попытку.',
+    'Payment quote unavailable': 'Стоимость платежа недоступна',
+  },
+  vi: {
+    'Validating discount...': 'Đang xác thực giảm giá...',
+    'Unable to calculate payment quote. Please retry.':
+      'Không thể tính báo giá thanh toán. Vui lòng thử lại.',
+    'Payment quote unavailable': 'Báo giá thanh toán không khả dụng',
+  },
+}
+
 for (const [locale, translations] of Object.entries(
   targetedUiTranslationFixes
 )) {
+  Object.assign(newKeys[locale], translations)
+}
+
+for (const [locale, translations] of Object.entries(walletUiFixes)) {
+  Object.assign(newKeys[locale], translations)
+}
+
+const drawingExperienceFixes = {
+  en: {
+    'Stop waiting': 'Stop waiting',
+    'Stopped waiting. If the server is already processing, the generated image may appear in your history later.':
+      'Stopped waiting. If the server is already processing, the generated image may appear in your history later.',
+    'Request submitted · Waiting {{seconds}}s':
+      'Request submitted · Waiting {{seconds}}s',
+    'Waiting for image generation result...':
+      'Waiting for image generation result...',
+    'You can continue waiting, or stop waiting. Results will also be saved to history.':
+      'You can continue waiting, or stop waiting. Results will also be saved to history.',
+    'Play while waiting': 'Play while waiting',
+    'Play dot-matrix snake while waiting':
+      'Play dot-matrix snake while waiting',
+    'Collapse minigame': 'Collapse minigame',
+    'Expand minigame': 'Expand minigame',
+    'Score: {{score}}': 'Score: {{score}}',
+    'High score: {{score}}': 'High score: {{score}}',
+    'Swipe or use arrow keys to control': 'Swipe or use arrow keys to control',
+    'Generation settings': 'Generation settings',
+    'Copy error details': 'Copy error details',
+    'Error details copied': 'Error details copied',
+    'The drawing workbench encountered an error, but your draft has been saved.':
+      'The drawing workbench encountered an error, but your draft has been saved.',
+    'Recover workbench': 'Recover workbench',
+    'More tools': 'More tools',
+    'Clear image history?': 'Clear image history?',
+  },
+  zh: {
+    'Stop waiting': '停止等待',
+    'Stopped waiting. If the server is already processing, the generated image may appear in your history later.':
+      '已停止等待。如果服务端已在处理，生成的图片可能稍后会在历史记录中显示。',
+    'Request submitted · Waiting {{seconds}}s':
+      '请求已提交 · 已等待 {{seconds}} 秒',
+    'Waiting for image generation result...': '正在等待图片生成结果...',
+    'You can continue waiting, or stop waiting. Results will also be saved to history.':
+      '您可以继续等待或停止等待。生成成功后也会自动保存到历史记录。',
+    'Play while waiting': '等待时玩一下',
+    'Play dot-matrix snake while waiting': '等待时玩点阵贪吃蛇',
+    'Collapse minigame': '收起小游戏',
+    'Expand minigame': '展开小游戏',
+    'Score: {{score}}': '得分：{{score}}',
+    'High score: {{score}}': '最高分：{{score}}',
+    'Swipe or use arrow keys to control': '滑动或使用方向键控制',
+    'Generation settings': '生成设置',
+    'Copy error details': '复制错误详情',
+    'Error details copied': '错误详情已复制',
+    'The drawing workbench encountered an error, but your draft has been saved.':
+      '绘画工作台遇到问题，但您的草稿已保存。',
+    'Recover workbench': '恢复工作台',
+    'More tools': '更多工具',
+    'Clear image history?': '清空绘画历史？',
+  },
+  'zh-TW': {
+    'Stop waiting': '停止等待',
+    'Stopped waiting. If the server is already processing, the generated image may appear in your history later.':
+      '已停止等待。如果伺服器已在處理，產生的圖片可能稍後會在歷史記錄中顯示。',
+    'Request submitted · Waiting {{seconds}}s':
+      '請求已提交 · 已等待 {{seconds}} 秒',
+    'Waiting for image generation result...': '正在等待圖片生成結果...',
+    'You can continue waiting, or stop waiting. Results will also be saved to history.':
+      '您可以繼續等待或停止等待。生成成功後也會自動保存到歷史記錄。',
+    'Play while waiting': '等待時玩一下',
+    'Play dot-matrix snake while waiting': '等待時玩點陣貪食蛇',
+    'Collapse minigame': '收起小遊戲',
+    'Expand minigame': '展開小遊戲',
+    'Score: {{score}}': '得分：{{score}}',
+    'High score: {{score}}': '最高分：{{score}}',
+    'Swipe or use arrow keys to control': '滑動或使用方向鍵控制',
+    'Generation settings': '生成設定',
+    'Copy error details': '複製錯誤詳情',
+    'Error details copied': '錯誤詳情已複製',
+    'The drawing workbench encountered an error, but your draft has been saved.':
+      '繪畫工作台遇到問題，但您的草稿已儲存。',
+    'Recover workbench': '恢復工作台',
+    'More tools': '更多工具',
+    'Clear image history?': '清空繪畫歷史？',
+  },
+  fr: {
+    'Stop waiting': "Arrêter l'attente",
+    'Stopped waiting. If the server is already processing, the generated image may appear in your history later.':
+      "Attente arrêtée. Si le serveur traite déjà la requête, l'image générée pourra apparaître ultérieurement dans votre historique.",
+    'Request submitted · Waiting {{seconds}}s':
+      'Demande envoyée · En attente depuis {{seconds}} s',
+    'Waiting for image generation result...':
+      "En attente du résultat de la génération d'image...",
+    'You can continue waiting, or stop waiting. Results will also be saved to history.':
+      "Vous pouvez continuer d'attendre ou arrêter l'attente. Les résultats seront aussi enregistrés dans l'historique.",
+    'Play while waiting': 'Jouer en attendant',
+    'Play dot-matrix snake while waiting':
+      'Jouer au serpent matriciel en attendant',
+    'Collapse minigame': 'Réduire le mini-jeu',
+    'Expand minigame': 'Agrandir le mini-jeu',
+    'Score: {{score}}': 'Score : {{score}}',
+    'High score: {{score}}': 'Meilleur score : {{score}}',
+    'Swipe or use arrow keys to control':
+      'Glissez ou utilisez les touches fléchées pour contrôler',
+    'Generation settings': 'Paramètres de génération',
+    'Copy error details': "Copier les détails de l'erreur",
+    'Error details copied': "Détails de l'erreur copiés",
+    'The drawing workbench encountered an error, but your draft has been saved.':
+      "L'atelier de dessin a rencontré une erreur, mais votre brouillon a été enregistré.",
+    'Recover workbench': "Restaurer l'atelier",
+    'More tools': "Plus d'outils",
+    'Clear image history?': "Effacer l'historique des images ?",
+  },
+  ja: {
+    'Stop waiting': '待機を停止',
+    'Stopped waiting. If the server is already processing, the generated image may appear in your history later.':
+      '待機を停止しました。サーバーで既に処理中の場合、生成された画像は後ほど履歴に表示されることがあります。',
+    'Request submitted · Waiting {{seconds}}s':
+      'リクエスト送信済み · 待機中 {{seconds}} 秒',
+    'Waiting for image generation result...': '画像生成の結果を待機中...',
+    'You can continue waiting, or stop waiting. Results will also be saved to history.':
+      '待機を続けることも停止することもできます。完了した結果は履歴にも保存されます。',
+    'Play while waiting': '待機中にミニゲームで遊ぶ',
+    'Play dot-matrix snake while waiting': '待機中にドットスネークゲームで遊ぶ',
+    'Collapse minigame': 'ミニゲームを折りたたむ',
+    'Expand minigame': 'ミニゲームを展開',
+    'Score: {{score}}': 'スコア: {{score}}',
+    'High score: {{score}}': 'ハイスコア: {{score}}',
+    'Swipe or use arrow keys to control': 'スワイプまたは矢印キーで操作',
+    'Generation settings': '生成設定',
+    'Copy error details': 'エラー詳細をコピー',
+    'Error details copied': 'エラー詳細をコピーしました',
+    'The drawing workbench encountered an error, but your draft has been saved.':
+      '描画スタジオで問題が発生しましたが、下書きは保存されています。',
+    'Recover workbench': 'スタジオを復旧',
+    'More tools': 'その他のツール',
+    'Clear image history?': '画像履歴を消去しますか？',
+  },
+  ru: {
+    'Stop waiting': 'Прекратить ожидание',
+    'Stopped waiting. If the server is already processing, the generated image may appear in your history later.':
+      'Ожидание прекращено. Если сервер уже обрабатывает запрос, созданное изображение может позже появиться в истории.',
+    'Request submitted · Waiting {{seconds}}s':
+      'Запрос отправлен · Ожидание: {{seconds}} с',
+    'Waiting for image generation result...':
+      'Ожидание результата генерации изображения...',
+    'You can continue waiting, or stop waiting. Results will also be saved to history.':
+      'Вы можете продолжить или прекратить ожидание. Результаты также сохраняются в истории.',
+    'Play while waiting': 'Сыграть во время ожидания',
+    'Play dot-matrix snake while waiting':
+      'Сыграть в точечную змейку во время ожидания',
+    'Collapse minigame': 'Свернуть мини-игру',
+    'Expand minigame': 'Развернуть мини-игру',
+    'Score: {{score}}': 'Счет: {{score}}',
+    'High score: {{score}}': 'Рекорд: {{score}}',
+    'Swipe or use arrow keys to control':
+      'Проведите пальцем или используйте стрелки для управления',
+    'Generation settings': 'Настройки генерации',
+    'Copy error details': 'Скопировать сведения об ошибке',
+    'Error details copied': 'Сведения об ошибке скопированы',
+    'The drawing workbench encountered an error, but your draft has been saved.':
+      'В рабочей области рисования произошла ошибка, но ваш черновик сохранен.',
+    'Recover workbench': 'Восстановить область',
+    'More tools': 'Другие инструменты',
+    'Clear image history?': 'Очистить историю изображений?',
+  },
+  vi: {
+    'Stop waiting': 'Dừng chờ',
+    'Stopped waiting. If the server is already processing, the generated image may appear in your history later.':
+      'Đã dừng chờ. Nếu máy chủ đang xử lý, ảnh tạo ra có thể xuất hiện trong lịch sử sau đó.',
+    'Request submitted · Waiting {{seconds}}s':
+      'Đã gửi yêu cầu · Đang chờ {{seconds}} giây',
+    'Waiting for image generation result...': 'Đang chờ kết quả tạo ảnh...',
+    'You can continue waiting, or stop waiting. Results will also be saved to history.':
+      'Bạn có thể tiếp tục chờ hoặc dừng chờ. Kết quả cũng sẽ được lưu vào lịch sử.',
+    'Play while waiting': 'Chơi trong khi chờ',
+    'Play dot-matrix snake while waiting':
+      'Chơi rắn săn mồi ma trận điểm trong khi chờ',
+    'Collapse minigame': 'Thu gọn trò chơi',
+    'Expand minigame': 'Mở rộng trò chơi',
+    'Score: {{score}}': 'Điểm: {{score}}',
+    'High score: {{score}}': 'Điểm cao: {{score}}',
+    'Swipe or use arrow keys to control':
+      'Vuốt hoặc dùng phím mũi tên để điều khiển',
+    'Generation settings': 'Cài đặt tạo ảnh',
+    'Copy error details': 'Sao chép chi tiết lỗi',
+    'Error details copied': 'Đã sao chép chi tiết lỗi',
+    'The drawing workbench encountered an error, but your draft has been saved.':
+      'Không gian vẽ gặp sự cố, nhưng bản nháp của bạn đã được lưu.',
+    'Recover workbench': 'Khôi phục bàn làm việc',
+    'More tools': 'Thêm công cụ',
+    'Clear image history?': 'Xóa lịch sử ảnh?',
+  },
+}
+
+for (const [locale, translations] of Object.entries(drawingExperienceFixes)) {
   Object.assign(newKeys[locale], translations)
 }
 
