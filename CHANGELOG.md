@@ -17,6 +17,17 @@ authenticated users then see it once after their next login.
   price queries at `GET /v1/pricing`. Quota responses use USD, distinguish key
   allowance from account funds, and represent unlimited allowance explicitly.
   See [the query API documentation](docs/read-only-query-api.md).
+- Key creation and management now show the copyable Base URL and quota-query
+  instructions. Drawing results keep saving across in-tab navigation after
+  stopping the waiting screen; reloading or closing an unfinished tab is not
+  background execution.
+- Price changes appear as scoped in-site announcements and signed webhook
+  deliveries with bounded retries, without per-user email fanout.
+- Synchronous subscription-first billing can settle permitted wallet overage
+  atomically with token quota. Settlement records distinguish measured cost,
+  committed payment and outstanding adjustments, including reset/deleted-key
+  cases. Upgrades require draining old writers and migrating the schema; see
+  [billing upgrade and rollback constraints](apps/api-go/service/subscription_billing.md).
 - Go Responses streams retain terminal usage and report interrupted streams
   without replaying consumed output or refunding its completed consumption.
   Upstream SSE heartbeats and Ollama final-frame content are preserved.
