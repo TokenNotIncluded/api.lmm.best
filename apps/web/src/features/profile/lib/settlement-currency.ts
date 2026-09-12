@@ -1,6 +1,8 @@
 /*
 Copyright (C) 2026 LIghtJUNction
 */
+import { normalizeInterfaceLanguage } from '@/i18n/languages'
+
 import type {
   FiatSettlementCurrency,
   SettlementCurrencyPreference,
@@ -41,14 +43,8 @@ export function resolveSettlementCurrency(
 
   const storedLanguage =
     typeof settings.language === 'string' ? settings.language.trim() : ''
-  const language = (storedLanguage || browserLocale || '')
-    .split(',')[0]
-    .split(';')[0]
-    .trim()
-    .toLowerCase()
-  return language === 'zh' ||
-    language.startsWith('zh-') ||
-    language.startsWith('zh_')
-    ? 'CNY'
-    : 'USD'
+  const language = normalizeInterfaceLanguage(
+    (storedLanguage || browserLocale || '').split(',')[0].split(';')[0].trim()
+  )
+  return language === 'zhCN' || language === 'zhTW' ? 'CNY' : 'USD'
 }

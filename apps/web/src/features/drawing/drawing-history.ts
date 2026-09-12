@@ -109,6 +109,24 @@ export class DrawingHistory {
       })
   }
 
+  reload = async (): Promise<void> => {
+    if (!this.active) return
+    const ticket = ++this.revision
+    try {
+      const data = await this.store.load(this.userId)
+      if (!this.current(ticket)) return
+      this.epoch = data.epoch
+      const images = data.images
+        .filter((image) => image.userId === this.userId)
+        .map((image) => this.preview(image, true))
+      this.update({
+        images: retainDrawings(images),
+      })
+    } catch {
+      // Ignored
+    }
+  }
+
   remember = async (
     raw: GeneratedDrawing[],
     metadata: DrawingMetadata,

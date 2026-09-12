@@ -14,9 +14,15 @@ describe('fiat settlement preferences', () => {
   test('Chinese interface variants default to CNY; English and others default to USD', () => {
     for (const language of [
       'zh',
+      'zhCN',
+      'zhTW',
       'zh-CN',
       'zh-TW',
+      'zh_CN',
+      'zh_TW',
       'zh_Hant',
+      'zh-Hans',
+      'zh-Hant',
       ' ZH-CN,zh;q=0.9 ',
     ]) {
       assert.equal(resolveSettlementCurrency({}, language), 'CNY')
@@ -43,6 +49,12 @@ describe('fiat settlement preferences', () => {
     )
     assert.equal(resolveSettlementCurrency({ language: 'en' }, 'zh'), 'USD')
     assert.equal(resolveSettlementCurrency({ language: 'zh-TW' }, 'en'), 'CNY')
+    assert.equal(resolveSettlementCurrency({ language: 'zhCN' }, 'en'), 'CNY')
+    assert.equal(resolveSettlementCurrency({ language: 'zhTW' }, 'en'), 'CNY')
+    assert.equal(
+      resolveSettlementCurrency({ settlement_currency: '', language: 'zhCN' }),
+      'CNY'
+    )
     assert.equal(
       resolveSettlementCurrency({ settlement_currency: '', language: 'zh' }),
       'CNY'

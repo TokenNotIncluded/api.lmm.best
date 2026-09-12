@@ -8,6 +8,10 @@ func TestEffectiveSettlementCurrency(t *testing.T) {
 	}{
 		{"Chinese", "", "zh", "en", "CNY"},
 		{"TraditionalChinese", "", "zh-TW", "en", "CNY"},
+		{"SimplifiedChineseCamel", "", "zhCN", "en", "CNY"},
+		{"TraditionalChineseCamel", "", "zhTW", "en", "CNY"},
+		{"ChineseUnderscore", "", "zh_CN", "en", "CNY"},
+		{"TraditionalChineseUnderscore", "", "zh_Hant", "en", "CNY"},
 		{"English", "", "en", "zh", "USD"},
 		{"ChineseHint", "", "", "zh-CN,zh;q=0.9,en;q=0.8", "CNY"},
 		{"Empty", "", "", "", "USD"},

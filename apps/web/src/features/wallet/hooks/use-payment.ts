@@ -73,7 +73,11 @@ export async function requestPaymentQuote(
   paymentType: string,
   discountCodeOrCalculators: string | PaymentAmountCalculators = '',
   providedCalculators?: PaymentAmountCalculators
-): Promise<{ amount: number; settlementQuote: SettlementQuote | null }> {
+): Promise<{
+  amount: number
+  settlementQuote: SettlementQuote | null
+  errorReason?: string
+}> {
   // Keep the old third-argument calculators form working for callers outside
   // the wallet while allowing the wallet to pass a discount code.
   const discountCode =
@@ -107,9 +111,55 @@ export async function requestPaymentQuote(
         amount: topupAmount,
         ...(discountCode ? { discount_code: discountCode } : {}),
       }
-  const response = await calculator(request)
-  const unavailable = { amount: 0, settlementQuote: null }
-  if (!isApiSuccess(response) || !response.data) return unavailable
+  let response: AmountResponse
+  try {
+    response = await calculator(request)
+  } catch (error: unknown) {
+    const errorWithResponse = error as {
+      response?: { data?: { data?: string; message?: string } }
+      message?: string
+    }
+    const errorReason =
+      errorWithResponse?.response?.data?.data ||
+      errorWithResponse?.response?.data?.message ||
+      errorWithResponse?.message ||
+      undefined
+    return {
+      amount: 0,
+      settlementQuote: null,
+      errorReason: typeof errorReason === 'string' ? errorReason : undefined,
+    }
+  }
+
+  const extractErrorReason = (
+    res: AmountResponse | undefined
+  ): string | undefined => {
+    if (!res) return undefined
+    if (
+      typeof res.data === 'string' &&
+      res.data.trim() &&
+      res.data !== 'error'
+    ) {
+      return res.data.trim()
+    }
+    if (
+      typeof res.message === 'string' &&
+      res.message.trim() &&
+      res.message !== 'error' &&
+      res.message !== 'success'
+    ) {
+      return res.message.trim()
+    }
+    return undefined
+  }
+
+  if (!isApiSuccess(response) || !response.data) {
+    return {
+      amount: 0,
+      settlementQuote: null,
+      errorReason: extractErrorReason(response),
+    }
+  }
   if (isWaffoPancakePayment(paymentType)) {
     const settlementQuote = parseSettlementQuote({
       amount: response.data,
@@ -117,7 +167,11 @@ export async function requestPaymentQuote(
     })
     return settlementQuote
       ? { amount: Number(settlementQuote.amount), settlementQuote }
-      : unavailable
+      : {
+          amount: 0,
+          settlementQuote: null,
+          errorReason: extractErrorReason(response),
+        }
   }
   return { amount: Number.parseFloat(response.data), settlementQuote: null }
 }
@@ -142,12 +196,16 @@ export function usePayment() {
   const [calculatingScope, setCalculatingScope] = useState<string | null>(null)
   const calculating = calculatingScope === scope
   const [processing, setProcessing] = useState(false)
+  const [quoteError, setQuoteError] = useState<string | null>(null)
+  const lastQuoteErrorRef = useRef<string | null>(null)
   const amountRequestIdRef = useRef(0)
   const localPreview = isLocalPreview()
   const invalidateQuote = useCallback(() => {
     ++amountRequestIdRef.current
     setQuote(null)
     setCalculatingScope(null)
+    setQuoteError(null)
+    lastQuoteErrorRef.current = null
   }, [])
   // Scope-derived state hides old quotes immediately. useCheckoutScope also
   // rejects completions after unmount, so no synchronous effect reset is needed.
@@ -159,11 +217,15 @@ export function usePayment() {
       const requestId = ++amountRequestIdRef.current
       if (localPreview && !isWaffoPancakePayment(paymentType)) {
         setQuote({ scope, amount: topupAmount, settlementQuote: null })
+        setQuoteError(null)
+        lastQuoteErrorRef.current = null
         return topupAmount
       }
 
       setQuote(null)
       setCalculatingScope(scope)
+      setQuoteError(null)
+      lastQuoteErrorRef.current = null
 
       try {
         const calculated = await requestPaymentQuote(
@@ -174,11 +236,15 @@ export function usePayment() {
         // Callers also use this result to open checkout confirmation. A stale
         // success must not approve the currently selected amount or method.
         if (requestId !== amountRequestIdRef.current || !isCurrent()) return 0
+        lastQuoteErrorRef.current = calculated.errorReason ?? null
+        setQuoteError(calculated.errorReason ?? null)
         setQuote({ scope, ...calculated })
         return calculated.amount
       } catch {
         if (requestId === amountRequestIdRef.current && isCurrent()) {
           setQuote(null)
+          setQuoteError(null)
+          lastQuoteErrorRef.current = null
         }
         return 0
       } finally {
@@ -273,6 +339,8 @@ export function usePayment() {
     amount,
     calculating,
     processing,
+    quoteError,
+    lastQuoteErrorRef,
     calculatePaymentAmount,
     processPayment,
     settlementQuote,

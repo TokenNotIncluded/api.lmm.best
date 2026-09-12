@@ -90,23 +90,29 @@ export function PaymentConfirmDialog({
   const hasPaymentAmount = usesSettlementQuote
     ? quote !== null
     : isPositivePaymentAmount(paymentAmount)
+  const effectivePaymentAmount =
+    usesSettlementQuote && quote ? Number(quote.amount) : paymentAmount
+  const codeSavings = hasPaymentAmount
+    ? discountCodeSavings(effectivePaymentAmount, discountPercent)
+    : 0
   const hasDiscount =
     !usesSettlementQuote &&
     hasPaymentAmount &&
     discountRate > 0 &&
     discountRate < 1
-  const originalAmount = hasDiscount ? paymentAmount / discountRate : 0
-  const discountAmount = hasDiscount ? originalAmount - paymentAmount : 0
-  const codeSavings = usesSettlementQuote
-    ? 0
-    : discountCodeSavings(paymentAmount, discountPercent)
+  const originalAmount = hasDiscount ? effectivePaymentAmount / discountRate : 0
+  const discountAmount = hasDiscount
+    ? originalAmount - effectivePaymentAmount
+    : 0
   const settlementUnit = usesSettlementQuote
     ? null
     : getPaymentSettlementUnit(paymentMethod, true)
   const formatSelectedPaymentAmount = (amount: number) =>
     usesSettlementQuote
       ? quote
-        ? formatSettlementQuote(quote)
+        ? amount === Number(quote.amount)
+          ? formatSettlementQuote(quote)
+          : formatPaymentAmount(amount, quote.currency)
         : t('Payment unavailable')
       : settlementUnit
         ? formatSettlementAmount(amount, settlementUnit.label)
@@ -157,11 +163,15 @@ export function PaymentConfirmDialog({
             ) : hasPaymentAmount ? (
               <div className='flex items-baseline gap-2'>
                 <span className='text-2xl font-semibold'>
-                  {formatSelectedPaymentAmount(paymentAmount)}
+                  {formatSelectedPaymentAmount(effectivePaymentAmount)}
                 </span>
-                {hasDiscount && (
+                {(hasDiscount || codeSavings > 0) && (
                   <span className='text-muted-foreground text-sm line-through'>
-                    {formatSelectedPaymentAmount(originalAmount)}
+                    {formatSelectedPaymentAmount(
+                      hasDiscount
+                        ? originalAmount
+                        : effectivePaymentAmount + codeSavings
+                    )}
                   </span>
                 )}
               </div>
@@ -186,11 +196,20 @@ export function PaymentConfirmDialog({
           {discountCode && codeSavings > 0 && !calculating && (
             <div className='bg-primary/5 rounded-lg border p-3'>
               <div className='flex items-center justify-between gap-3 text-sm'>
-                <span className='text-muted-foreground min-w-0'>
-                  {t('Discount code saves {{amount}}', {
-                    amount: formatSelectedPaymentAmount(codeSavings),
-                  })}
-                </span>
+                <div className='flex min-w-0 flex-col'>
+                  <span className='text-foreground font-medium'>
+                    {discountPercent !== null && discountPercent !== undefined
+                      ? t('Discount applied: {{percent}}% off', {
+                          percent: discountPercent,
+                        })
+                      : t('Discount code')}
+                  </span>
+                  <span className='text-muted-foreground text-xs'>
+                    {t('Discount code saves {{amount}}', {
+                      amount: formatSelectedPaymentAmount(codeSavings),
+                    })}
+                  </span>
+                </div>
                 <Badge variant='secondary' className='shrink-0 font-mono'>
                   {discountCode}
                 </Badge>
@@ -202,7 +221,7 @@ export function PaymentConfirmDialog({
             <div className='bg-muted/50 rounded-lg border p-3 text-sm'>
               {t('Credit {{amount}}; pay {{payment}}', {
                 amount: formatPlatformCreditBalance(topupAmount),
-                payment: formatSelectedPaymentAmount(paymentAmount),
+                payment: formatSelectedPaymentAmount(effectivePaymentAmount),
               })}
             </div>
           )}
