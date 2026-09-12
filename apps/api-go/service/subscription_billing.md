@@ -37,7 +37,7 @@ funding for tasks requires persisting both funding amounts in task bookkeeping
 and updating task refunds/recalculation first.
 
 No new table is introduced. The seven added SubscriptionPreConsumeRecord columns
-are billing_managed, token_id, token_consumed, wallet_overflow, actual_quota and
+are billing_managed, token_id, token_consumed, wallet_overflow, actual_quota,
 wallet_consumed and reserved_version. UserSubscription.quota_version increments
 on scheduled, manual, batch/voucher resets and paid renewals. Reserve across a
 version change is rejected. Old-period negative settlement/refund adjusts the
@@ -53,8 +53,10 @@ then verifies the upgraded schema and preservation of legacy records.
 
 Spendable token and wallet balances now commit synchronously even when
 BatchUpdateEnabled is enabled. Batch mode still applies to usage counters.
-All token reservations use the database sufficient-balance predicate; Redis
-is not an authorization source. Post-commit cache notifications invalidate
+All token reservations are authorized and persisted in the database. Limited
+tokens require sufficient balance; unlimited tokens bypass only that balance
+check and still persist their usage. Redis is not an authorization source.
+Post-commit cache notifications invalidate
 rather than add a delta, so delayed notifications after hydration cannot count
 a credit twice. Tests exercise Redis Lua storage with concurrent wallet and
 subscription callers and BatchUpdateEnabled, including stale cache snapshots.
@@ -65,3 +67,14 @@ before activating the new binary. An old binary can still hold uncommitted
 Redis-only token reservations; the new binary cannot recover another process's
 in-memory batch queue. This is an upgrade prerequisite, not an automatic
 production action performed by the change.
+
+Rolling back to an old binary does not make it safe to resume writes. The old
+binary does not understand managed `settling`/`settled` records or quota versions,
+and its cleanup can delete managed records needed for reconciliation and replay
+protection. Before rollback, stop admission and all writers/cleanup workers,
+drain in-flight work and queued updates, then inspect and reconcile outstanding
+settlements with code that understands this ledger. Preserve managed records
+and verify balances, token usage and period ownership before considering any
+resumption of writes. Simply switching binaries or retaining the added columns
+does not establish N-1 runtime compatibility; old writes and cleanup must remain
+disabled until an explicit compatible recovery plan has been validated.
