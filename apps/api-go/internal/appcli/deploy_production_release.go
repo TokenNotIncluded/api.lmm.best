@@ -28,10 +28,33 @@ const (
 	productionReleasePlanFilename     = "release-plan.json"
 	productionReleasePlanHashFilename = "release-plan.sha256"
 	productionReleaseStateFilename    = "release-state.json"
-	// Historical release certificates retain the repository identity used when signed.
-	productionReleaseRepository = "https://github.com/LIghtJUNction/api.lmm.best"
-	productionReleaseOIDCIssuer = "https://token.actions.githubusercontent.com"
+	productionReleaseRepository       = "https://github.com/TokenNotIncluded/api.lmm.best"
+	productionReleaseWorkflow         = ".github/workflows/"
+	productionReleaseOIDCIssuer       = "https://token.actions.githubusercontent.com"
 )
+
+type historicalReleaseIdentityPin struct {
+	AssetSHA256 string
+	Component   string
+	Tag         string
+	Repository  string
+}
+
+var historicalReleaseIdentityPins = [...]historicalReleaseIdentityPin{
+	{AssetSHA256: "54b7bbff7e9105ce248ed894373e40503995d6b2e7674c4a420e550c7c377ec4", Component: productionAURPackageName, Tag: "go-v0.2.17", Repository: "https://github.com/LIghtJUNction/api.lmm.best"},
+	{AssetSHA256: "941d7406559b2c4d102006d6e5bdf0d6d2c8151f866071d5d7c2ab63500f9835", Component: productionWebPackageName, Tag: "web-v0.1.64", Repository: "https://github.com/LIghtJUNction/api.lmm.best"},
+}
+
+func productionReleaseIdentity(assetSHA256, component, workflow, tag string) string {
+	repository := productionReleaseRepository
+	for _, pin := range historicalReleaseIdentityPins {
+		if pin.AssetSHA256 == assetSHA256 && pin.Component == component && pin.Tag == tag {
+			repository = pin.Repository
+			break
+		}
+	}
+	return repository + "/" + productionReleaseWorkflow + workflow + "@refs/tags/" + tag
+}
 
 type productionReleasePlanOptions struct {
 	Repo                     string
@@ -400,7 +423,7 @@ func (runtime *productionReleaseRuntime) verifyPackageEvidence(ctx context.Conte
 		tagPrefix = "web-v"
 	}
 	releaseTag := tagPrefix + releaseVersion
-	identity := productionReleaseRepository + "/.github/workflows/" + workflow + "@refs/tags/" + releaseTag
+	identity := productionReleaseIdentity(assetSHA256, expectedName, workflow, releaseTag)
 	if _, err := runtime.runner.Run(ctx, productionCommand{Name: commandCosign, Args: []string{
 		"verify-blob", "--bundle", signatureBundle,
 		"--certificate-identity", identity,

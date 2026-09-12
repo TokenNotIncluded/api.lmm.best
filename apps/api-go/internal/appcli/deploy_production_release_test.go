@@ -644,3 +644,38 @@ func TestRemoteGoPackageRejectsDistinctInstalledPackages(t *testing.T) {
 		t.Fatalf("remoteGoPackage error=%v", err)
 	}
 }
+
+func TestProductionReleaseIdentityUsesOnlyExactHistoricalPin(t *testing.T) {
+	const historicalAsset = "54b7bbff7e9105ce248ed894373e40503995d6b2e7674c4a420e550c7c377ec4"
+	wantOld := "https://github.com/LIghtJUNction/api.lmm.best/.github/workflows/release-go.yml@refs/tags/go-v0.2.17"
+	newPrefix := "https://github.com/TokenNotIncluded/api.lmm.best/.github/workflows/release-go.yml@refs/tags/"
+	if got := productionReleaseIdentity(historicalAsset, productionAURPackageName, "release-go.yml", "go-v0.2.17"); got != wantOld {
+		t.Fatalf("exact historical identity=%q, want %q", got, wantOld)
+	}
+	for _, input := range [][3]string{
+		{historicalAsset, productionSourcePackageName, "go-v0.2.17"},
+		{historicalAsset, productionAURPackageName, "go-v0.2.18"},
+		{"54b7bbff7e9105ce248ed894373e40503995d6b2e7674c4a420e550c7c377ec5", productionAURPackageName, "go-v0.2.17"},
+	} {
+		want := newPrefix + input[2]
+		if got := productionReleaseIdentity(input[0], input[1], "release-go.yml", input[2]); got != want {
+			t.Fatalf("non-exact identity=%q, want %q", got, want)
+		}
+	}
+	webAsset := "941d7406559b2c4d102006d6e5bdf0d6d2c8151f866071d5d7c2ab63500f9835"
+	webOld := "https://github.com/LIghtJUNction/api.lmm.best/.github/workflows/release-web.yml@refs/tags/web-v0.1.64"
+	webNewPrefix := "https://github.com/TokenNotIncluded/api.lmm.best/.github/workflows/release-web.yml@refs/tags/"
+	if got := productionReleaseIdentity(webAsset, productionWebPackageName, "release-web.yml", "web-v0.1.64"); got != webOld {
+		t.Fatalf("exact historical web identity=%q, want %q", got, webOld)
+	}
+	for _, input := range [][3]string{
+		{webAsset, productionAURPackageName, "web-v0.1.64"},
+		{webAsset, productionWebPackageName, "web-v0.1.65"},
+		{"941d7406559b2c4d102006d6e5bdf0d6d2c8151f866071d5d7c2ab63500f9840", productionWebPackageName, "web-v0.1.64"},
+	} {
+		want := webNewPrefix + input[2]
+		if got := productionReleaseIdentity(input[0], input[1], "release-web.yml", input[2]); got != want {
+			t.Fatalf("non-exact web identity=%q, want %q", got, want)
+		}
+	}
+}
