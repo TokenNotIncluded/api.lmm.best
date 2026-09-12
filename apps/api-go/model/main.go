@@ -334,6 +334,7 @@ func InitLogDB(session *StartupMigrationSession) (err error) {
 
 func mainMigrationModels() []interface{} {
 	return []interface{}{
+		&RatioNotification{}, &RatioDelivery{},
 		&Channel{}, &Token{}, &UserRankingRevision{}, &User{}, &UserSession{}, &AuthFlow{}, &ExternalIdentityClaim{},
 		&PasskeyCredential{}, &Option{}, &Redemption{}, &Ability{}, &Log{}, &Midjourney{},
 		&DiscountCode{}, &DiscountCodeReservation{},

@@ -313,7 +313,9 @@ func updateOptionsWithPriceLocks(values map[string]string, lockModel string, loc
 	var keys []string
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		accepted = values
-		if hasModelPriceOptions(values) {
+		_, groupRatioChanged := values["GroupRatio"]
+		_, groupOverrideChanged := values["GroupGroupRatio"]
+		if hasModelPriceOptions(values) || groupRatioChanged || groupOverrideChanged {
 			// Every price/lock writer locks the same existing policy row, providing
 			// database-wide ordering as well as the in-process mutex above.
 			policy := Option{Key: ModelPriceLocksOptionKey, Value: "{}"}
@@ -350,6 +352,9 @@ func updateOptionsWithPriceLocks(values map[string]string, lockModel string, loc
 			if err := validateModelPriceValues(accepted); err != nil {
 				return err
 			}
+		}
+		if err := recordRatioNotification(tx, accepted); err != nil {
+			return err
 		}
 		keys = sortedOptionUpdateKeys(accepted)
 		for _, key := range keys {

@@ -15,7 +15,7 @@ import (
 
 func TestPriceLockControllerPreservesLockedRuntimePrices(t *testing.T) {
 	db := openTokenControllerTestDB(t)
-	require.NoError(t, db.AutoMigrate(&model.Option{}, &model.Log{}))
+	require.NoError(t, db.AutoMigrate(&model.Option{}, &model.Log{}, &model.RatioNotification{}, &model.RatioDelivery{}))
 	previousRefresh := refreshPricingCache
 	previousImage := ratio_setting.ImageRatio2JSONString()
 	previousRatio := ratio_setting.ModelRatio2JSONString()
