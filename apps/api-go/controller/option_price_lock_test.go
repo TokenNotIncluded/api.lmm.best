@@ -63,6 +63,8 @@ func TestPriceLockControllerPreservesLockedRuntimePrices(t *testing.T) {
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
+			var before, after int64
+			require.NoError(t, db.Model(&model.RatioNotification{}).Count(&before).Error)
 			response := httptest.NewRecorder()
 			context, _ := gin.CreateTestContext(response)
 			context.Request = httptest.NewRequest(http.MethodPut, "/api/option/", strings.NewReader(test.body))
@@ -75,6 +77,12 @@ func TestPriceLockControllerPreservesLockedRuntimePrices(t *testing.T) {
 			}
 			require.NoError(t, common.Unmarshal(response.Body.Bytes(), &payload))
 			require.True(t, payload.Success, response.Body.String())
+			require.NoError(t, db.Model(&model.RatioNotification{}).Count(&after).Error)
+			if test.name == "single image update" || test.name == "reset model ratio" {
+				require.Equal(t, before+1, after)
+			} else {
+				require.Equal(t, before, after)
+			}
 			require.NotEmpty(t, payload.Warnings)
 			require.Equal(t, []string{"locked-controller-model"}, payload.LockedModels)
 			image, _ := ratio_setting.GetImageRatio("locked-controller-model")

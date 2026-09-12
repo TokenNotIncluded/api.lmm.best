@@ -522,6 +522,8 @@ func migrateDBFast() error {
 		{&AssistantWeeklyDiscount{}, "AssistantWeeklyDiscount"},
 		{&AdvancedSecurityEvent{}, "AdvancedSecurityEvent"},
 		{&ReleaseNote{}, "ReleaseNote"},
+		{&RatioNotification{}, "RatioNotification"},
+		{&RatioDelivery{}, "RatioDelivery"},
 		{&ReleaseNoteRead{}, "ReleaseNoteRead"},
 		{&UnifiedTodoRead{}, "UnifiedTodoRead"},
 		{&L1OnboardingTodo{}, "L1OnboardingTodo"},

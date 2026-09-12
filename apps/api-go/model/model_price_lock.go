@@ -261,6 +261,10 @@ func validateModelPriceValues(values map[string]string) error {
 }
 
 func ValidateOptionValuesWithWarnings(values map[string]string) (OptionUpdateResult, error) {
+	values = maps.Clone(values)
+	if err := normalizeRatioOptionAliases(values); err != nil {
+		return OptionUpdateResult{}, err
+	}
 	filtered, result, err := FilterLockedModelPriceChanges(values)
 	if err != nil {
 		return result, err
@@ -296,6 +300,9 @@ func updateOptionsWithPriceLocks(values map[string]string, lockModel string, loc
 	optionUpdateMutex.Lock()
 	defer optionUpdateMutex.Unlock()
 	values = maps.Clone(values)
+	if err := normalizeRatioOptionAliases(values); err != nil {
+		return result, err
+	}
 	// Route validation may query DB. Do it before opening the transaction so a
 	// deployment with one database connection cannot deadlock on a nested query.
 	nonPricing := make(map[string]string)

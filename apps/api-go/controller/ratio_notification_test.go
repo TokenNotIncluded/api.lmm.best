@@ -14,7 +14,7 @@ import (
 func TestRatioNotificationFeedFiltersPrivateChanges(t *testing.T) {
 	db := openTokenControllerTestDB(t)
 	require.NoError(t, db.AutoMigrate(&model.User{}, &model.Ability{}, &model.Channel{}, &model.RatioNotification{}))
-	u := model.User{Username: "feed", Status: common.UserStatusEnabled, Group: "default"}
+	u := model.User{Username: "feed", Status: common.UserStatusEnabled, Group: "default", Role: common.RoleAdminUser}
 	require.NoError(t, db.Create(&u).Error)
 	e := model.RatioNotification{ID: "feed-event", EffectiveAt: 123, Changes: `[{"option":"GroupRatio","group":"default","old":1,"new":2},{"option":"GroupRatio","group":"secret-group","old":4,"new":5}]`}
 	require.NoError(t, db.Create(&e).Error)
@@ -25,7 +25,8 @@ func TestRatioNotificationFeedFiltersPrivateChanges(t *testing.T) {
 	require.Equal(t, http.StatusOK, w.Code)
 	require.Contains(t, w.Body.String(), "feed-event")
 	require.NotContains(t, w.Body.String(), "secret-group")
-	require.NoError(t, db.Model(&u).Update("group", "other").Error)
+	l0 := 0
+	require.NoError(t, db.Model(&u).Updates(map[string]any{"role": common.RoleCommonUser, "trust_level_override": l0}).Error)
 	w = httptest.NewRecorder()
 	router.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/", nil))
 	require.NotContains(t, w.Body.String(), "feed-event")

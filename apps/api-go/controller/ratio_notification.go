@@ -6,6 +6,7 @@ import (
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/LIghtJUNction/api.lmm.best/model"
+	"github.com/LIghtJUNction/api.lmm.best/service"
 	"github.com/gin-gonic/gin"
 )
 
@@ -32,7 +33,7 @@ func ListRatioNotifications(c *gin.Context) {
 	}
 	data := []gin.H{}
 	for _, event := range events {
-		changes, err := model.VisibleRatioChanges(event, user)
+		changes, err := service.VisibleRatioChanges(event, user)
 		if err != nil {
 			common.ApiError(c, err)
 			return

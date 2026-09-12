@@ -8,10 +8,35 @@ import (
 	"time"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
+	"github.com/LIghtJUNction/api.lmm.best/setting/ratio_setting"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
+
+// Keep both generations of group config keys in agreement. All writes use the
+// same canonical diff once; conflicting aliases in one batch are rejected.
+func normalizeRatioOptionAliases(values map[string]string) error {
+	for alias, canonical := range map[string]string{"group_ratio_setting.group_ratio": "GroupRatio", "group_ratio_setting.group_group_ratio": "GroupGroupRatio"} {
+		a, hasAlias := values[alias]
+		b, hasCanonical := values[canonical]
+		if !hasAlias && !hasCanonical {
+			continue
+		}
+		if hasAlias && hasCanonical {
+			diff, err := ratioChanges(canonical, a, b)
+			if err != nil || len(diff) > 0 {
+				return errors.New("conflicting group ratio aliases")
+			}
+		}
+		if hasAlias {
+			b = a
+		}
+		values[canonical] = b
+		values[alias] = b
+	}
+	return nil
+}
 
 // One event represents an entire committed option batch. Payloads are never
 // exposed directly: both the feed and dispatcher must apply current visibility.
@@ -110,7 +135,7 @@ func recordRatioNotification(tx *gorm.DB, values map[string]string) error {
 			continue
 		}
 		var row Option
-		err := tx.Where("key = ?", key).First(&row).Error
+		err := tx.Where(map[string]any{"key": key}).First(&row).Error
 		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err
 		}
@@ -135,9 +160,10 @@ func recordRatioNotification(tx *gorm.DB, values map[string]string) error {
 	return tx.Create(&RatioNotification{ID: uuid.NewString(), Changes: string(payload), EffectiveAt: time.Now().Unix()}).Error
 }
 
-// Conservative scope: only the user's current billing group and its enabled
-// models. Never expose another user's group overrides, even to an admin feed.
-func VisibleRatioChanges(event RatioNotification, user User) ([]RatioChange, error) {
+// The service supplies the very same usable-group resolver as pricing queries.
+// Model visibility uses the same pricing snapshot, including metadata hiding
+// and the special all-groups marker. Access is re-evaluated on every read/send.
+func VisibleRatioChanges(event RatioNotification, user User, groups map[string]string) ([]RatioChange, error) {
 	var all []RatioChange
 	if err := json.Unmarshal([]byte(event.Changes), &all); err != nil {
 		return nil, err
@@ -145,21 +171,49 @@ func VisibleRatioChanges(event RatioNotification, user User) ([]RatioChange, err
 	if user.Status != common.UserStatusEnabled {
 		return []RatioChange{}, nil
 	}
-	models, err := GetGroupEnabledModelsWithError(user.Group)
+	access, err := GetDeveloperAccessStateForUser(&user)
 	if err != nil {
 		return nil, err
 	}
+	if !access.Granted {
+		return []RatioChange{}, nil
+	}
 	allowed := map[string]bool{}
-	for _, m := range models {
-		allowed[m] = true
+	needsModels := false
+	for _, c := range all {
+		if c.Model != "" {
+			needsModels = true
+			break
+		}
+	}
+	if needsModels {
+		pricing := GetPricing()
+		if pricing == nil {
+			return nil, errors.New("pricing visibility unavailable")
+		}
+		for _, p := range pricing {
+			for _, g := range p.EnableGroup {
+				if _, ok := groups[g]; ok || (g == "all" && len(groups) > 0) {
+					allowed[p.ModelName] = true
+					break
+				}
+			}
+		}
 	}
 	visible := []RatioChange{}
 	for _, c := range all {
 		if c.UserGroup != "" && c.UserGroup != user.Group {
 			continue
 		}
-		if c.Group != "" && c.Group != user.Group {
-			continue
+		if c.Group != "" {
+			if _, ok := groups[c.Group]; !ok {
+				continue
+			}
+			if c.Option == "GroupRatio" {
+				if _, overridden := ratio_setting.GetGroupGroupRatio(user.Group, c.Group); overridden {
+					continue
+				}
+			}
 		}
 		if c.Model != "" && !allowed[c.Model] {
 			continue

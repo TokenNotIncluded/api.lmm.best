@@ -7,7 +7,10 @@ failure rejects the save; a later delivery failure does not change saved prices.
 
 Supported maps: ModelPrice, ModelRatio, CompletionRatio, CacheRatio,
 CreateCacheRatio, ImageRatio, AudioRatio, AudioCompletionRatio, GroupRatio,
-GroupGroupRatio. Changes include `option`, `model` or `group`, optional
+GroupGroupRatio, including the newer `group_ratio_setting.group_ratio` and
+`group_ratio_setting.group_group_ratio` keys. Both aliases are saved in agreement;
+conflicting aliases in one batch are rejected and a batch produces one event.
+Changes include `option`, `model` or `group`, optional
 `user_group`, `old`, and `new`. Null means the explicit entry was absent or
 removed; the configured fallback now applies. `effective_at` is Unix seconds.
 Dynamic pricing calculations are outside this option-change feed.
@@ -28,11 +31,14 @@ The frontend must render this feed as announcements; no frontend is included in
 this backend change. Deduplicate announcements by event ID. These announcements
 must not be copied into an unfiltered public/global announcement option.
 
-Visibility is deliberately conservative: a user sees their current billing
-group and models backed by enabled channels for that group. Overrides belonging
-to other user groups are excluded. Additional selectable groups are not included.
-Both feed reads and every webhook attempt recheck current visibility and account
-status. A changed scope may therefore change a retry's payload for the same event.
+Visibility uses the same `GetUserUsableGroups` resolver and pricing model snapshot
+as authenticated pricing queries: current group, globally available groups,
+per-user-group additions/removals, model metadata hiding and the `all` marker.
+Overrides belonging to other user groups are excluded. A global group ratio
+covered by the recipient's current override is also excluded. Feed reads and every
+webhook attempt recheck developer access, account status and current visibility;
+L0 users receive no price changes, including through webhook. Permission lookup
+failures fail closed. A changed scope may change a retry's payload for the same event.
 
 ## Webhook subscription and verification
 
@@ -62,6 +68,14 @@ Recipient/event uniqueness and conditional claims prevent normal duplicate work
 across instances. Current preferences are used on retry, so operators/users can
 repair an endpoint or signing secret before manually retrying a failed row.
 
-The two new tables are included in normal schema migrations. Apply the repository's
-normal migration/deployment procedure before activating the binary. There is no
-automatic deletion/retention job in this change.
+The two tables are included in `mainMigrationModels` and the explicit
+`migrateDBFast` list. CLI `migrate --verify` derives the PostgreSQL schema inventory
+from `mainMigrationModels`, including the unique event/recipient index. Production
+deployment invokes that CLI; it does not maintain a separate Go table list in
+this revision. Apply the normal migration procedure before activating the binary.
+There is no automatic deletion/retention job in this change.
+
+`ResetModelRatio`, ordinary settings, bulk/import writes, and assistant pricing
+apply all reach `UpdateOptionsBulkWithWarnings`. Upstream ratio fetch is read-only;
+notifications are created only when the fetched values are saved through settings.
+Runtime option polling and startup loading do not create duplicate events.

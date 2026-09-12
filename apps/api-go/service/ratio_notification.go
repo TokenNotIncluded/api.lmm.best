@@ -3,7 +3,6 @@ package service
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
@@ -13,6 +12,10 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/LIghtJUNction/api.lmm.best/model"
 )
+
+func VisibleRatioChanges(event model.RatioNotification, user model.User) ([]model.RatioChange, error) {
+	return model.VisibleRatioChanges(event, user, GetUserUsableGroups(user.Group))
+}
 
 // Mandatory public-IP policy independent of configurable provider-fetch policy.
 // Resolve and dial the same address; no proxies, redirects or worker bypass.
@@ -103,26 +106,29 @@ func dispatchRatioDelivery(ctx context.Context, d model.RatioDelivery) error {
 	}
 	var changes []model.RatioChange
 	if err == nil {
-		changes, err = model.VisibleRatioChanges(event, user)
+		changes, err = VisibleRatioChanges(event, user)
 	}
 	status := "delivered"
+	failureClass := "recipient, permission or event lookup failed"
 	s := user.GetSetting()
 	if err == nil && (len(changes) == 0 || s.NotifyType != "webhook" || s.WebhookUrl == "") {
 		status = "skipped"
 	} else if err == nil {
 		payload, e := common.MarshalLimit(map[string]any{"type": "ratio.changed", "event_id": event.ID, "effective_at": event.EffectiveAt, "changes": changes}, webhookPayloadMaxBytes)
+		failureClass = "webhook payload encoding failed"
 		err = e
 		if err == nil {
 			err = sendRatioWebhook(ctx, s.WebhookUrl, s.WebhookSecret, payload, event.ID)
+			// Only the closed sender's sanitized errors are eligible for display.
+			if err != nil {
+				failureClass = err.Error()
+			}
 		}
 	}
 	last := ""
 	if err != nil {
 		status = "pending"
-		last = "recipient or event unavailable"
-		if json.Valid([]byte(event.Changes)) {
-			last = err.Error()
-		}
+		last = failureClass
 		if len(last) > 200 {
 			last = last[:200]
 		}
