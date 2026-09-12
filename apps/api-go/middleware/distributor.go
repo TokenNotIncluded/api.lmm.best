@@ -496,6 +496,15 @@ func getTaskOriginModelName(c *gin.Context) string {
 }
 
 func SetupContextForSelectedChannel(c *gin.Context, channel *model.Channel, modelName string) *types.NewAPIError {
+	return setupContextForSelectedChannel(c, channel, modelName, nil)
+}
+
+// SetupContextForChannelRecovery is only for internal health probes, never relay routing.
+func SetupContextForChannelRecovery(c *gin.Context, channel *model.Channel, modelName string, index int) *types.NewAPIError {
+	return setupContextForSelectedChannel(c, channel, modelName, &index)
+}
+
+func setupContextForSelectedChannel(c *gin.Context, channel *model.Channel, modelName string, recoveryIndex *int) *types.NewAPIError {
 	c.Set("original_model", modelName) // for retry
 	if channel == nil {
 		return types.NewError(errors.New("channel is nil"), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
@@ -520,7 +529,19 @@ func SetupContextForSelectedChannel(c *gin.Context, channel *model.Channel, mode
 	common.SetContextKey(c, constant.ContextKeyChannelModelMapping, channel.GetModelMapping())
 	common.SetContextKey(c, constant.ContextKeyChannelStatusCodeMapping, channel.GetStatusCodeMapping())
 
-	key, index, newAPIError := channel.GetNextEnabledKey()
+	var key string
+	var index int
+	var newAPIError *types.NewAPIError
+	if recoveryIndex != nil {
+		index = *recoveryIndex
+		keys := channel.GetKeys()
+		if !channel.ChannelInfo.IsMultiKey || channel.Status == common.ChannelStatusManuallyDisabled || index < 0 || index >= len(keys) || channel.ChannelInfo.MultiKeyStatusList[index] != common.ChannelStatusAutoDisabled {
+			return types.NewError(errors.New("key is not eligible for recovery"), types.ErrorCodeChannelNoAvailableKey, types.ErrOptionWithSkipRetry())
+		}
+		key = keys[index]
+	} else {
+		key, index, newAPIError = channel.GetNextEnabledKey()
+	}
 	if newAPIError != nil {
 		return newAPIError
 	}

@@ -952,6 +952,15 @@ func hasEnabledMultiKey(keys []string, statusList map[int]int) bool {
 }
 
 func UpdateChannelStatus(channelId int, usingKey string, status int, reason string) bool {
+	return updateChannelStatus(channelId, usingKey, status, reason, nil)
+}
+
+// RecoverChannelKey checks the current persisted state under the status lock.
+func RecoverChannelKey(channelId, index int, key string) bool {
+	return updateChannelStatus(channelId, key, common.ChannelStatusEnabled, "", &index)
+}
+
+func updateChannelStatus(channelId int, usingKey string, status int, reason string, recoveryIndex *int) bool {
 	if common.MemoryCacheEnabled {
 		channelStatusLock.Lock()
 		defer channelStatusLock.Unlock()
@@ -971,9 +980,22 @@ func UpdateChannelStatus(channelId int, usingKey string, status int, reason stri
 	if channel.Status == status && !channel.ChannelInfo.IsMultiKey {
 		return false
 	}
+	if recoveryIndex != nil {
+		keys := channel.GetKeys()
+		i := *recoveryIndex
+		if !channel.ChannelInfo.IsMultiKey || channel.Status == common.ChannelStatusManuallyDisabled || i < 0 || i >= len(keys) || keys[i] != usingKey || channel.ChannelInfo.MultiKeyStatusList[i] != common.ChannelStatusAutoDisabled {
+			return false
+		}
+		// Update by index, including channels containing duplicate credentials.
+		delete(channel.ChannelInfo.MultiKeyStatusList, i)
+		delete(channel.ChannelInfo.MultiKeyDisabledReason, i)
+		delete(channel.ChannelInfo.MultiKeyDisabledTime, i)
+	}
 
 	beforeStatus := channel.Status
-	if channel.ChannelInfo.IsMultiKey {
+	if recoveryIndex != nil {
+		channel.Status = common.ChannelStatusEnabled
+	} else if channel.ChannelInfo.IsMultiKey {
 		handlerMultiKeyUpdate(channel, usingKey, status, reason)
 	} else {
 		info := channel.GetOtherInfo()
