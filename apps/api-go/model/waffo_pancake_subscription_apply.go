@@ -124,6 +124,7 @@ func applyWaffoPancakePeriodTx(tx *gorm.DB, order *SubscriptionOrder, event *Waf
 		subscription.EndTime = event.PeriodEnd
 		subscription.AmountTotal = plan.TotalAmount
 		subscription.AmountUsed = 0
+		subscription.QuotaVersion++
 		subscription.LastResetTime = event.PeriodStart
 		subscription.NextResetTime = calcNextResetTime(time.Unix(event.PeriodStart, 0), plan, event.PeriodEnd)
 		order.RefundedAmountMicros = 0

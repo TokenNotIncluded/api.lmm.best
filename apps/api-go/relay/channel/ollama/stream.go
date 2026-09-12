@@ -129,7 +129,12 @@ func ollamaStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 		}
 		created = toUnix(chunk.CreatedAt)
 
-		if !chunk.Done {
+		// Ollama may attach the last content or tool call to its done frame.
+		// Emit that payload before the finish reason and usage, just once.
+		hasPayload := chunk.Response != "" || (chunk.Message != nil &&
+			(chunk.Message.Content != "" || len(chunk.Message.ToolCalls) > 0 ||
+				(len(chunk.Message.Thinking) > 0 && string(chunk.Message.Thinking) != "null" && string(chunk.Message.Thinking) != `""`)))
+		if !chunk.Done || hasPayload {
 			// delta content
 			var content string
 			if chunk.Message != nil {
@@ -170,6 +175,8 @@ func ollamaStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 			if data, err := common.Marshal(delta); err == nil {
 				_ = helper.StringData(c, string(data))
 			}
+		}
+		if !chunk.Done {
 			continue
 		}
 		// done frame

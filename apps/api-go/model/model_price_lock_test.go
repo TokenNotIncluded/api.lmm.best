@@ -14,7 +14,7 @@ import (
 
 func setupPriceLockTest(t *testing.T) {
 	t.Helper()
-	useSingleConnectionTestDB(t, &Option{}, &Ability{}, &Channel{})
+	useSingleConnectionTestDB(t, &Option{}, &Ability{}, &Channel{}, &RatioNotification{}, &RatioDelivery{})
 	previousPricing := priceOptionSnapshot()
 	common.OptionMapRWMutex.Lock()
 	previousOptions := common.OptionMap

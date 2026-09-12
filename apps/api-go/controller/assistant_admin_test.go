@@ -203,7 +203,7 @@ func TestAssistantAdminPricingOptionsSwitchModeWithoutMutatingCache(t *testing.T
 
 func TestAssistantAdminPricingPreviewAndApplyUpdatesRuntimeRates(t *testing.T) {
 	db := setupTokenControllerTestDB(t)
-	require.NoError(t, db.AutoMigrate(&model.User{}, &model.Option{}, &model.AuthFlow{}, &model.Log{}))
+	require.NoError(t, db.AutoMigrate(&model.User{}, &model.Option{}, &model.AuthFlow{}, &model.Log{}, &model.RatioNotification{}, &model.RatioDelivery{}))
 	admin := model.User{
 		Username: "assistant-admin-pricing-apply",
 		Password: "password",

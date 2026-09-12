@@ -72,6 +72,9 @@ func SetApiRouter(router *gin.Engine) {
 	apiRouter.Use(middleware.BodyStorageCleanup()) // 清理请求体存储
 	apiRouter.Use(middleware.GlobalAPIRateLimit())
 	apiRouter.Use(middleware.ConsoleAccessGate())
+	apiRouter.GET("/ratio-notifications", middleware.UserAuth(), middleware.DisableCache(), controller.ListRatioNotifications)
+	apiRouter.GET("/ratio-notifications/deliveries", middleware.RootAuth(), middleware.DisableCache(), controller.ListRatioDeliveries)
+	apiRouter.POST("/ratio-notifications/deliveries/:id/retry", middleware.RootAuth(), middleware.CriticalRateLimit(), controller.RetryRatioDelivery)
 	// Bounty routes have their own L1 boundary and a deliberately public board.
 	// Keep them outside ConsoleAccessGate so L0 callers can browse public data
 	// and receive redacted empty private feeds without a page-wide 404.

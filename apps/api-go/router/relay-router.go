@@ -29,6 +29,13 @@ func SetRelayRouter(router *gin.Engine, sharedAdmission ...gin.HandlerFunc) {
 		largeRequestAdmission = middleware.RelayRequestAdmission()
 	}
 	// https://platform.openai.com/docs/api-reference/introduction
+	quotaRouter := router.Group("/v1/usage")
+	quotaRouter.Use(middleware.RouteTag("relay"), middleware.DisableCache(), middleware.QuotaQueryAuth(), middleware.QuotaQueryRateLimit())
+	quotaRouter.GET("", controller.GetQuotaQuery)
+	pricingRouter := router.Group("/v1/pricing")
+	pricingRouter.Use(middleware.RouteTag("relay"), middleware.DisableCache(), middleware.QuotaQueryAuth(), middleware.PricingQueryAccess(), middleware.QuotaQueryRateLimit())
+	pricingRouter.GET("", controller.GetTokenPricing)
+
 	modelsRouter := router.Group("/v1/models")
 	modelsRouter.Use(middleware.RouteTag("relay"))
 	modelsRouter.Use(middleware.TokenAuth())

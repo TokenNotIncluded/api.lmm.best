@@ -131,7 +131,7 @@ func TestGetPricingReturnsServiceUnavailableWithoutSnapshot(t *testing.T) {
 func TestPricingAdminMutationsPropagateRefreshFailure(t *testing.T) {
 	preserveCacheRuntimeHooks(t)
 	db := setupModelListControllerTestDB(t)
-	require.NoError(t, db.AutoMigrate(&model.Option{}))
+	require.NoError(t, db.AutoMigrate(&model.Option{}, &model.RatioNotification{}, &model.RatioDelivery{}))
 	common.OptionMapRWMutex.Lock()
 	previousOptionMap := common.OptionMap
 	common.OptionMap = make(map[string]string, len(previousOptionMap))

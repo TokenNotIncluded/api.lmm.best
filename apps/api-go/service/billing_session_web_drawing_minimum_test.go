@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/LIghtJUNction/api.lmm.best/constant"
@@ -184,8 +183,7 @@ func TestNewBillingSessionWebDrawingMinimumLateDropRefundsTokenWithoutFallback(t
 	require.Equal(t, 100, storedToken.RemainQuota)
 	require.Zero(t, storedToken.UsedQuota)
 	cacheKey := fmt.Sprintf("token:%s", common.GenerateHMAC(token.Key))
-	require.Eventually(t, func() bool {
-		remaining, err := common.RDB.HGet(context.Background(), cacheKey, "RemainQuota").Int()
-		return err == nil && remaining == 100
-	}, time.Second, 10*time.Millisecond)
+	exists, err := common.RDB.Exists(context.Background(), cacheKey).Result()
+	require.NoError(t, err)
+	require.Zero(t, exists, "committed refund must invalidate the stale token snapshot")
 }

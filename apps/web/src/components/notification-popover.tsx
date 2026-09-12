@@ -55,6 +55,7 @@ import { cn } from '@/lib/utils'
 export type NotificationTab = 'notice' | 'announcements' | 'bounty-tips'
 
 interface AnnouncementItem {
+  plainText?: boolean
   id?: number | string
   type?: string
   content?: string
@@ -63,6 +64,13 @@ interface AnnouncementItem {
 }
 
 interface NotificationPopoverProps {
+  ratioFeed?: {
+    loading: boolean
+    error: boolean
+    hasMore: boolean
+    loadMore: () => void
+    retry: () => void
+  }
   open: boolean
   onOpenChange: (open: boolean) => void
   unreadCount: number
@@ -273,12 +281,22 @@ function AnnouncementsContent({
                   <AnnouncementDot type={item.type} />
                   <div className='flex min-w-0 flex-1 flex-col gap-2'>
                     <div className='text-sm'>
-                      <RichContent breaks content={item.content || ''} />
+                      {item.plainText ? (
+                        <p className='break-words whitespace-pre-wrap'>
+                          {item.content}
+                        </p>
+                      ) : (
+                        <RichContent breaks content={item.content || ''} />
+                      )}
                     </div>
 
                     {item.extra ? (
                       <div className='text-muted-foreground text-xs'>
-                        <RichContent breaks content={item.extra} />
+                        {item.plainText ? (
+                          item.extra
+                        ) : (
+                          <RichContent breaks content={item.extra} />
+                        )}
                       </div>
                     ) : null}
 
@@ -412,6 +430,7 @@ export function NotificationPopover({
   onThankTip,
   loading,
   className,
+  ratioFeed,
 }: NotificationPopoverProps) {
   const { t } = useTranslation()
   return (
@@ -478,6 +497,27 @@ export function NotificationPopover({
               loading={loading}
               t={t}
             />
+            {ratioFeed?.error ? (
+              <p className='text-sm' role='status'>
+                {t('Unable to load rate changes')}{' '}
+                <Button variant='ghost' size='sm' onClick={ratioFeed.retry}>
+                  {t('Retry')}
+                </Button>
+              </p>
+            ) : null}
+            {ratioFeed?.loading ? (
+              <p className='text-muted-foreground text-xs'>{t('Loading...')}</p>
+            ) : null}
+            {ratioFeed?.hasMore ? (
+              <Button
+                variant='outline'
+                size='sm'
+                disabled={ratioFeed.loading}
+                onClick={ratioFeed.loadMore}
+              >
+                {t('Load older rate changes')}
+              </Button>
+            ) : null}
           </TabsContent>
 
           <TabsContent value='bounty-tips' className='mt-2'>
