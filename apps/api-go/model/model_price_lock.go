@@ -261,6 +261,10 @@ func validateModelPriceValues(values map[string]string) error {
 }
 
 func ValidateOptionValuesWithWarnings(values map[string]string) (OptionUpdateResult, error) {
+	values = maps.Clone(values)
+	if err := normalizeRatioOptionAliases(values); err != nil {
+		return OptionUpdateResult{}, err
+	}
 	filtered, result, err := FilterLockedModelPriceChanges(values)
 	if err != nil {
 		return result, err
@@ -296,6 +300,9 @@ func updateOptionsWithPriceLocks(values map[string]string, lockModel string, loc
 	optionUpdateMutex.Lock()
 	defer optionUpdateMutex.Unlock()
 	values = maps.Clone(values)
+	if err := normalizeRatioOptionAliases(values); err != nil {
+		return result, err
+	}
 	// Route validation may query DB. Do it before opening the transaction so a
 	// deployment with one database connection cannot deadlock on a nested query.
 	nonPricing := make(map[string]string)
@@ -313,7 +320,9 @@ func updateOptionsWithPriceLocks(values map[string]string, lockModel string, loc
 	var keys []string
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		accepted = values
-		if hasModelPriceOptions(values) {
+		_, groupRatioChanged := values["GroupRatio"]
+		_, groupOverrideChanged := values["GroupGroupRatio"]
+		if hasModelPriceOptions(values) || groupRatioChanged || groupOverrideChanged {
 			// Every price/lock writer locks the same existing policy row, providing
 			// database-wide ordering as well as the in-process mutex above.
 			policy := Option{Key: ModelPriceLocksOptionKey, Value: "{}"}
@@ -350,6 +359,9 @@ func updateOptionsWithPriceLocks(values map[string]string, lockModel string, loc
 			if err := validateModelPriceValues(accepted); err != nil {
 				return err
 			}
+		}
+		if err := recordRatioNotification(tx, accepted); err != nil {
+			return err
 		}
 		keys = sortedOptionUpdateKeys(accepted)
 		for _, key := range keys {

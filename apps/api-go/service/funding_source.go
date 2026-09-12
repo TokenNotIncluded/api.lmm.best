@@ -98,6 +98,9 @@ type SubscriptionFunding struct {
 	amount         int64 // 预扣的订阅额度（subConsume）
 	subscriptionId int
 	preConsumed    int64
+	managed        bool // subscription and token share a durable transaction
+	tokenId        int
+	walletOverflow bool
 	// 以下字段在 PreConsume 成功后填充，供 RelayInfo 同步使用
 	AmountTotal     int64
 	AmountUsedAfter int64
@@ -109,7 +112,13 @@ func (s *SubscriptionFunding) Source() string { return BillingSourceSubscription
 
 func (s *SubscriptionFunding) PreConsume(_ int) error {
 	// amount 参数被忽略，使用内部 s.amount（已在构造时根据 preConsumedQuota 计算）
-	res, err := model.PreConsumeUserSubscription(s.requestId, s.userId, s.modelName, 0, s.amount)
+	var res *model.SubscriptionPreConsumeResult
+	var err error
+	if s.managed {
+		res, err = model.PreConsumeSubscriptionBilling(s.requestId, s.userId, s.tokenId, s.modelName, s.amount, s.walletOverflow)
+	} else {
+		res, err = model.PreConsumeUserSubscription(s.requestId, s.userId, s.modelName, 0, s.amount)
+	}
 	if err != nil {
 		return err
 	}
@@ -126,6 +135,9 @@ func (s *SubscriptionFunding) PreConsume(_ int) error {
 }
 
 func (s *SubscriptionFunding) Settle(delta int) error {
+	if s.managed {
+		return errors.New("managed subscription requires absolute BillingSession settlement")
+	}
 	if delta == 0 {
 		return nil
 	}

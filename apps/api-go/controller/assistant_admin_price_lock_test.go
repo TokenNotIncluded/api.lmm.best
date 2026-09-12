@@ -20,7 +20,7 @@ func setupAssistantPriceLockTest(t *testing.T) (*gin.Context, model.User) {
 	t.Helper()
 	db := setupTokenControllerTestDB(t)
 	c, user, _ := assistantAutomationTestContext(t, db, common.RoleRootUser)
-	require.NoError(t, db.AutoMigrate(&model.AuthFlow{}))
+	require.NoError(t, db.AutoMigrate(&model.AuthFlow{}, &model.RatioNotification{}, &model.RatioDelivery{}))
 	previousRatio, previousPrice := ratio_setting.ModelRatio2JSONString(), ratio_setting.ModelPrice2JSONString()
 	previousConfig := config.GlobalConfig.ExportAllConfigs()
 	previousName, previousRefresh := common.SystemName, refreshPricingCache

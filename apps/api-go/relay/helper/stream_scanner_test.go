@@ -331,6 +331,9 @@ func TestStreamScannerHandler_PingSentDuringSlowUpstream(t *testing.T) {
 	go func() {
 		StreamScannerHandler(c, resp, info, func(data string, sr *StreamResult) {
 			count.Add(1)
+			if err := StringData(c, data); err != nil {
+				sr.Stop(err)
+			}
 		})
 		close(done)
 	}()

@@ -72,6 +72,8 @@ const { act } = await import('react')
 const { createRoot } = await import('react-dom/client')
 const { QueryClient, QueryClientProvider } =
   await import('@tanstack/react-query')
+const { createRouter, createRootRoute, createMemoryHistory, RouterProvider } =
+  await import('@tanstack/react-router')
 const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { api } = await import('@/lib/api')
@@ -135,6 +137,24 @@ async function waitForCondition(
   throw new Error(failureMessage)
 }
 
+// Finish each act before checking the DOM: a single outer act can defer React's
+// commit until after the predicate times out. Poll observable state, bounded by
+// the same attempt budget as the other asynchronous workbench checks.
+async function waitForDrawingState(
+  condition: () => boolean | Promise<boolean>,
+  failureMessage: string
+) {
+  for (let attempt = 0; attempt < 80; attempt += 1) {
+    await act(flushEffects)
+    let ready = false
+    await act(async () => {
+      ready = await condition()
+    })
+    if (ready) return
+  }
+  throw new Error(failureMessage)
+}
+
 async function setTextareaValue(textarea: HTMLTextAreaElement, value: string) {
   const setValue = Object.getOwnPropertyDescriptor(
     HTMLTextAreaElement.prototype,
@@ -149,6 +169,11 @@ async function setTextareaValue(textarea: HTMLTextAreaElement, value: string) {
 }
 
 async function renderDrawing() {
+  const router = createRouter({
+    routeTree: createRootRoute({ component: Drawing }),
+    history: createMemoryHistory({ initialEntries: ['/'] }),
+  })
+  await router.load()
   const get = api.get
   api.get = (async (url: string, config?: Parameters<typeof api.get>[1]) => {
     if (url === '/api/user/self') {
@@ -181,7 +206,7 @@ async function renderDrawing() {
     root.render(
       <QueryClientProvider client={queryClient}>
         <I18nextProvider i18n={i18n}>
-          <Drawing />
+          <RouterProvider router={router} />
         </I18nextProvider>
       </QueryClientProvider>
     )
@@ -869,6 +894,90 @@ describe('Drawing balance and browser history', () => {
 })
 
 describe('Drawing wait experience, cancel control, and prompt draft restoration', () => {
+  for (const returnBeforeCompletion of [true, false]) {
+    test(`persists a request across navigation (return before completion: ${returnBeforeCompletion})`, async () => {
+      mockWorkbench(() => 20)
+      let resolvePost!: (value: unknown) => void
+      let calls = 0
+      let signal: AbortSignal | undefined
+      api.post = ((
+        _url: string,
+        _body: unknown,
+        config: { signal?: AbortSignal }
+      ) => {
+        calls++
+        signal = config.signal
+        return new Promise<unknown>((resolve) => {
+          resolvePost = resolve
+        })
+      }) as typeof api.post
+      let rendered = await renderDrawing()
+      let mounted = true
+      const unmount = async () => {
+        if (!mounted) return
+        await act(async () => rendered.root.unmount())
+        rendered.queryClient.clear()
+        mounted = false
+      }
+      try {
+        await promptDrawing(rendered.container)
+        await act(async () => {
+          button(rendered.container, 'Generate image').click()
+          await flushEffects()
+          button(rendered.container, 'Stop waiting').click()
+          await flushEffects()
+        })
+        assert.equal(signal?.aborted, false)
+        await unmount()
+        if (returnBeforeCompletion) {
+          rendered = await renderDrawing()
+          mounted = true
+          assert.equal(
+            button(rendered.container, 'Generate image').disabled,
+            true
+          )
+        }
+        await act(async () => {
+          resolvePost({ data: { data: [{ b64_json: png }] } })
+        })
+        await waitForDrawingState(
+          async () =>
+            (await createDrawingHistoryStore().load(1)).images.length === 1,
+          'background generation did not persist its image'
+        )
+        if (!returnBeforeCompletion) {
+          rendered = await renderDrawing()
+          mounted = true
+        }
+        const historyRestored = () =>
+          Boolean(
+            rendered.container.querySelector(
+              '[aria-label="Image history"] img[alt="A stored painting"]'
+            )
+          ) && !button(rendered.container, 'Generate image').disabled
+        await waitForDrawingState(
+          historyRestored,
+          'saved image did not appear after navigation'
+        )
+        assert.equal(
+          button(rendered.container, 'Generate image').disabled,
+          false
+        )
+        assert.equal(calls, 1)
+        await unmount()
+        // Fresh session restores from IndexedDB rather than an old component.
+        rendered = await renderDrawing()
+        mounted = true
+        await waitForDrawingState(
+          historyRestored,
+          'fresh session did not restore image history'
+        )
+      } finally {
+        await unmount()
+      }
+    })
+  }
+
   test('shows truthful wait status and allows stopping waiting while keeping prompt', async () => {
     mockWorkbench(() => 20)
     let resolvePost: ((value: unknown) => void) | null = null
@@ -912,19 +1021,37 @@ describe('Drawing wait experience, cancel control, and prompt draft restoration'
       })
 
       // Stops waiting and displays clear explanation
-      assert.match(rendered.container.textContent ?? '', /Stopped waiting/)
+      assert.match(
+        rendered.container.textContent ?? '',
+        /Generation continues in this tab/
+      )
 
       // Prompt is preserved!
       assert.equal(promptInput.value, 'A cyberpunk neon cat in rain')
 
-      // Generate button is back and ready to run again
+      // The paid request is still in flight, so duplicate submission is blocked.
       const genBtn = button(rendered.container, 'Generate image')
       assert.ok(genBtn)
-      assert.equal(genBtn.disabled, false)
+      assert.equal(genBtn.disabled, true)
 
       const resolver = resolvePost as ((value: unknown) => void) | null
       if (resolver) {
-        resolver({ data: { data: [{ b64_json: png }] } })
+        await act(async () => {
+          resolver({ data: { data: [{ b64_json: png }] } })
+          await flushEffects()
+        })
+        assert.equal(
+          (await createDrawingHistoryStore().load(1)).images.length,
+          1
+        )
+        assert.equal(
+          button(rendered.container, 'Generate image').disabled,
+          false
+        )
+        assert.doesNotMatch(
+          rendered.container.textContent ?? '',
+          /Generation continues in this tab/
+        )
       }
     } finally {
       await act(async () => rendered.root.unmount())

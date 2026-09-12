@@ -19,7 +19,11 @@ import (
 )
 
 type fakeProductionRunner struct {
-	t *testing.T
+	nginxClosed, nginxDrainFailure, badWriterStop bool
+	shutdownJournalFailure                        bool
+	refundIntent, missingStartup, journalLoss     bool
+	managedBillingRows                            string
+	t                                             *testing.T
 
 	goCandidate, goRollback                                     string
 	webCandidate, webRollback                                   string
@@ -55,6 +59,22 @@ func (runner *fakeProductionRunner) Run(ctx context.Context, command productionC
 		return nil, err
 	}
 	runner.commands = append(runner.commands, command)
+	for i, arg := range command.Args {
+		if strings.HasPrefix(arg, "/v1/models?lmm_billing_gate=") {
+			id := strings.TrimPrefix(arg, "/v1/models?lmm_billing_gate=")
+			for j, flag := range command.Args {
+				if flag == "--status-file" && j+1 < len(command.Args) {
+					_ = os.WriteFile(command.Args[j+1], []byte("503"), 0600)
+				}
+			}
+			_ = i
+			if runner.nginxDrainFailure {
+				return []byte("not gated"), nil
+			}
+			runner.nginxClosed = true
+			return []byte("lmm-billing-drain:" + id), nil
+		}
+	}
 	if command.Name == runner.probeBinary || command.Name == runner.installedBinary {
 		return runner.runNativeBinary(command.Name, command.Args)
 	}
@@ -79,6 +99,8 @@ func (runner *fakeProductionRunner) Run(ctx context.Context, command productionC
 		return runner.runuser(command.Args)
 	}
 	switch filepath.Base(command.Name) {
+	case "nginx":
+		return nil, nil
 	case "bsdtar":
 		return runner.bsdtar(command.Args)
 	case "pg_restore":
@@ -94,6 +116,12 @@ func (runner *fakeProductionRunner) Run(ctx context.Context, command productionC
 		}
 		return nil, errors.New("pg_dump output is missing")
 	case "psql":
+		if strings.Contains(strings.Join(command.Args, " "), "to_jsonb(r)") {
+			if runner.managedBillingRows != "" {
+				return []byte(runner.managedBillingRows), nil
+			}
+			return []byte("0\n"), nil
+		}
 		if strings.Contains(strings.Join(command.Args, " "), "current_schema") {
 			return []byte("public\n"), nil
 		}
@@ -105,6 +133,34 @@ func (runner *fakeProductionRunner) Run(ctx context.Context, command productionC
 	case "systemctl":
 		return runner.systemctl(command.Args)
 	case "journalctl":
+		if slices.Contains(command.Args, "--output=json") {
+			messages := []string{"LMM " + runner.oldVersion + " started", "ready in 20 ms"}
+			if runner.missingStartup {
+				messages = []string{"ready in 20 ms"}
+			}
+			if runner.refundIntent {
+				messages = append(messages, "用户 1 请求失败, 返还预扣费")
+			}
+			var output strings.Builder
+			for _, message := range messages {
+				line, _ := json.Marshal(map[string]string{"MESSAGE": message, "__CURSOR": "test-cursor", "__REALTIME_TIMESTAMP": "1789200000000000"})
+				output.Write(line)
+				output.WriteByte('\n')
+			}
+			return []byte(output.String()), nil
+		}
+		if slices.Contains(command.Args, "systemd-journald.service") {
+			if runner.journalLoss {
+				return []byte("Suppressed 10 messages"), nil
+			}
+			return nil, nil
+		}
+		if strings.Contains(strings.Join(command.Args, " "), "_PID=") {
+			if runner.shutdownJournalFailure {
+				return []byte("received signal: terminated\nfailed to batch update token quota\nserver exited\n"), nil
+			}
+			return []byte("received signal: terminated\nbatch update finished\nserver exited\n"), nil
+		}
 		return nil, nil
 	case "age":
 		output, decrypt := "", false
@@ -405,6 +461,8 @@ func (runner *fakeProductionRunner) systemctl(args []string) ([]byte, error) {
 		return nil, errors.New("missing systemctl action")
 	}
 	switch args[0] {
+	case "reload":
+		return nil, nil
 	case "is-active":
 		unit := args[len(args)-1]
 		if strings.HasSuffix(unit, ".timer") {
@@ -462,6 +520,17 @@ func (runner *fakeProductionRunner) systemctl(args []string) ([]byte, error) {
 		}
 		return nil, nil
 	case "show":
+		if slices.Contains(args, "--property=MainPID,ExecMainPID,ExecMainCode,ExecMainStatus,ActiveState,SubState,Result,ControlGroup,Restart,InvocationID") {
+			pid, active := "2147483600", runner.serviceActive
+			main, state, sub, cgroup, result, code, status := "0", "inactive", "dead", "", "success", "1", "0"
+			if active {
+				main, state, sub, cgroup = pid, "active", "running", "/fixture"
+			}
+			if runner.badWriterStop && !active && args[1] != "nginx.service" {
+				result, code, status = "timeout", "2", "9"
+			}
+			return []byte(fmt.Sprintf("MainPID=%s\nExecMainPID=%s\nActiveState=%s\nSubState=%s\nControlGroup=%s\nResult=%s\nExecMainCode=%s\nExecMainStatus=%s\nRestart=no\nInvocationID=11111111111111111111111111111111\n", main, pid, state, sub, cgroup, result, code, status)), nil
+		}
 		if strings.HasSuffix(args[1], ".timer") && slices.Contains(args, "--property=NextElapseUSecRealtime") {
 			active, sub := "inactive", "dead"
 			if runner.timerActive {
@@ -515,6 +584,13 @@ func newProductionFixture(t *testing.T) productionFixture {
 	t.Helper()
 	root := t.TempDir()
 	paths := defaultProductionPaths()
+	paths.NginxRoot = filepath.Join(root, "nginx")
+	if err := os.MkdirAll(paths.NginxRoot, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(paths.NginxRoot, "lmm-api-locations.conf"), []byte("location @lmm_api_backend { proxy_pass http://127.0.0.1:3000; }\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
 	paths.WorkRoot = filepath.Join(root, "work")
 	paths.BackupRoot = filepath.Join(root, "backups")
 	paths.GlobalLock = filepath.Join(root, "run", "deploy.lock")
@@ -624,6 +700,7 @@ func newProductionFixture(t *testing.T) productionFixture {
 	clockValue := time.Date(2026, 8, 10, 1, 0, 0, 0, time.UTC)
 	runner := &fakeProductionRunner{t: t, goCandidate: goCandidate, goRollback: goRollback, webCandidate: webCandidate, webRollback: webRollback, probeBinary: probeEntrypoint, installedBinary: paths.InstalledBinary, frontendRoot: paths.FrontendRoot, oldWebIndex: filepath.Join(oldFrontend, "index.html"), newWebIndex: filepath.Join(newFrontend, "index.html"), oldVersion: oldVersion, newVersion: newVersion, oldRevision: oldRevision, newRevision: newRevision, contractRevision: contract, installedGoVersion: oldVersion, installedWebVersion: oldVersion, installedGoRevision: oldRevision, installedWebRevision: oldRevision, goRevisionFile: paths.GoRevisionFile, webRevisionFile: paths.WebRevisionFile, goContractFile: paths.GoContractFile, webContractFile: paths.WebContractFile, serviceActive: true, timerDeadline: clockValue.Add(10 * time.Minute)}
 	runtime := &productionRuntime{paths: paths, runner: runner, now: func() time.Time { return clockValue }, sleep: func(d time.Duration) { clockValue = clockValue.Add(d) }, effectiveUID: func() int { return 0 }, hostname: func() (string, error) { return productionExpectedHost, nil }, probeAttempts: 1, requiredOwnerUID: uint32(os.Getuid())}
+	runtime.billingConnections = func() (int, error) { return 0, nil }
 	workspace, err := runtime.openWorkspace(workspaceRoot)
 	if err != nil {
 		t.Fatal(err)

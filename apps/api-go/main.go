@@ -138,6 +138,7 @@ func runServer() {
 
 	loops.Go(perfmetrics.Run)
 	loops.Go(service.RunDynamicPricingTicker)
+	loops.Go(service.RunRatioNotifications)
 	loops.Go(common.RunSystemMonitor)
 	loops.Go(service.RunAuthArtifactCleanup)
 

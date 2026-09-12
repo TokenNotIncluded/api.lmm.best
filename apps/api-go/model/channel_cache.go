@@ -125,11 +125,14 @@ func refreshChannelCache() error {
 		}
 		groups := strings.Split(channel.Group, ",")
 		for _, group := range groups {
+			if newGroup2model2channels[group] == nil {
+				// Channel configuration remains the routing authority even when
+				// its derived ability rows are missing from the snapshot.
+				newGroup2model2channels[group] = make(map[string][]int)
+				common.SysLog(fmt.Sprintf("channel cache: enabled channel %d references a group without abilities", channel.Id))
+			}
 			models := strings.Split(channel.Models, ",")
 			for _, model := range models {
-				if _, ok := newGroup2model2channels[group][model]; !ok {
-					newGroup2model2channels[group][model] = make([]int, 0)
-				}
 				newGroup2model2channels[group][model] = append(newGroup2model2channels[group][model], channel.Id)
 			}
 		}

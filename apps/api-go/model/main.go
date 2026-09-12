@@ -334,6 +334,7 @@ func InitLogDB(session *StartupMigrationSession) (err error) {
 
 func mainMigrationModels() []interface{} {
 	return []interface{}{
+		&RatioNotification{}, &RatioDelivery{},
 		&Channel{}, &Token{}, &UserRankingRevision{}, &User{}, &UserSession{}, &AuthFlow{}, &ExternalIdentityClaim{},
 		&PasskeyCredential{}, &Option{}, &Redemption{}, &Ability{}, &Log{}, &Midjourney{},
 		&DiscountCode{}, &DiscountCodeReservation{},
@@ -521,6 +522,8 @@ func migrateDBFast() error {
 		{&AssistantWeeklyDiscount{}, "AssistantWeeklyDiscount"},
 		{&AdvancedSecurityEvent{}, "AdvancedSecurityEvent"},
 		{&ReleaseNote{}, "ReleaseNote"},
+		{&RatioNotification{}, "RatioNotification"},
+		{&RatioDelivery{}, "RatioDelivery"},
 		{&ReleaseNoteRead{}, "ReleaseNoteRead"},
 		{&UnifiedTodoRead{}, "UnifiedTodoRead"},
 		{&L1OnboardingTodo{}, "L1OnboardingTodo"},

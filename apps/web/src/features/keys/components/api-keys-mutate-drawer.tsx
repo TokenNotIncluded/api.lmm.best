@@ -92,6 +92,7 @@ import {
   transformApiKeyToFormDefaults,
 } from '../lib'
 import type { ApiKey } from '../types'
+import { ApiBaseUrl } from './api-base-url'
 import {
   ApiKeyGroupCombobox,
   type ApiKeyGroupOption,
@@ -456,6 +457,7 @@ export function ApiKeysMutateDrawer({
             inert={!isFormInitialized || isSubmitting ? true : undefined}
             className={sideDrawerFormClassName('gap-5')}
           >
+            <ApiBaseUrl />
             <SideDrawerSection>
               <SideDrawerSectionHeader
                 title={t('Basic Information')}

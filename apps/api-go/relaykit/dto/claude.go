@@ -313,7 +313,31 @@ func (c *ClaudeRequest) GetTokenCountMeta() *types.TokenCountMeta {
 			case "tool_result":
 				if media.Content != nil {
 					b, _ := kitutil.Marshal(media.Content)
-					texts = append(texts, string(b))
+					var blocks []json.RawMessage
+					if json.Unmarshal(b, &blocks) != nil {
+						texts = append(texts, media.GetStringContent())
+						if !media.IsStringContent() {
+							texts = append(texts, string(b))
+						}
+						break
+					}
+					for _, block := range blocks {
+						var nested ClaudeMediaMessage
+						if json.Unmarshal(block, &nested) == nil {
+							if nested.Type == "text" {
+								texts = append(texts, nested.GetText())
+								continue
+							}
+							if nested.Type == "image" {
+								if source := nested.ToFileSource(); source != nil {
+									fileMeta = append(fileMeta, &types.FileMeta{FileType: types.FileTypeImage, Source: source})
+									continue
+								}
+							}
+						}
+						// Preserve unknown or malformed blocks instead of silently counting zero.
+						texts = append(texts, string(block))
+					}
 				}
 			}
 		}

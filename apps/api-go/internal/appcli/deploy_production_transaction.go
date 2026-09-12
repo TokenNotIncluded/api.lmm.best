@@ -851,8 +851,11 @@ func (runtime *productionRuntime) apply(ctx context.Context, workspace productio
 		if err := runtime.removeLegacyDeployPackageForProviderMigration(ctx, goCandidate); err != nil {
 			return productionStatus{}, err
 		}
-		if _, err := runtime.runner.Run(ctx, productionCommand{Name: commandSystemctl, Args: []string{"stop", runtime.paths.Service}}); err != nil {
-			return productionStatus{}, fmt.Errorf("stop current Go service: %w", err)
+		if err := runtime.closeBillingAdmission(ctx, workspace, &manifest); err != nil {
+			return productionStatus{}, err
+		}
+		if err := runtime.stopBillingWriter(ctx, workspace, &manifest); err != nil {
+			return productionStatus{}, err
 		}
 		if err := runtime.writeStatus(workspace, productionStatus{Phase: "MIGRATING", Version: options.ExpectedVersion, Previous: oldVersion}); err != nil {
 			return productionStatus{}, err
@@ -874,11 +877,7 @@ func (runtime *productionRuntime) apply(ctx context.Context, workspace productio
 		if err := runtime.restoreConfiguration(workspace, manifest); err != nil {
 			return productionStatus{}, err
 		}
-		if manifest.NginxEdgeRestoreSHA256 != "" && !manifest.PreserveEdgePolicy {
-			if err := runtime.applyEdgePolicyAssets(ctx, runtime.paths.EdgeAssetRoot, filepath.Join(workspace.configRestore, "nginx-edge"), true); err != nil {
-				return productionStatus{}, fmt.Errorf("install managed nginx edge policy: %w", err)
-			}
-		}
+
 		if err := retireKnownMemoryOverrides(runtime.paths.DropInDir); err != nil {
 			return productionStatus{}, err
 		}
@@ -940,6 +939,14 @@ func (runtime *productionRuntime) apply(ctx context.Context, workspace productio
 	}
 	if err := runtime.verifyServiceRestartBaseline(ctx, manifest); err != nil {
 		return productionStatus{}, fmt.Errorf("candidate local backend health gate changed restart baseline: %w", err)
+	}
+	if err := runtime.reopenBillingAdmission(ctx, workspace, &manifest); err != nil {
+		return productionStatus{}, err
+	}
+	if manifest.Go.Changed && manifest.NginxEdgeRestoreSHA256 != "" && !manifest.PreserveEdgePolicy {
+		if err := runtime.applyEdgePolicyAssets(ctx, runtime.paths.EdgeAssetRoot, filepath.Join(workspace.configRestore, "nginx-edge"), true); err != nil {
+			return productionStatus{}, fmt.Errorf("install managed nginx edge policy: %w", err)
+		}
 	}
 	if manifest.Web.Changed {
 		if err := runtime.writeStatus(workspace, productionStatus{Phase: "DEPLOYING_WEB", Version: options.ExpectedVersion, Previous: oldVersion}); err != nil {
@@ -1164,8 +1171,17 @@ func (runtime *productionRuntime) rollback(ctx context.Context, workspace produc
 	if err := runtime.writeStatus(workspace, rolling); err != nil {
 		return productionStatus{}, err
 	}
+	runtime.billingRollback = true
 	if manifest.Go.Changed {
-		_, _ = runtime.runner.Run(ctx, productionCommand{Name: commandSystemctl, Args: []string{"stop", runtime.paths.Service}})
+		if err := runtime.closeBillingAdmission(ctx, workspace, &manifest); err != nil {
+			return fail(err)
+		}
+		if err := runtime.stopBillingWriter(ctx, workspace, &manifest); err != nil {
+			return fail(err)
+		}
+		if err := runtime.refuseManagedBillingRollback(ctx, workspace, manifest); err != nil {
+			return fail(err)
+		}
 		if err := runtime.prepareLegacyProviderRollback(manifest); err != nil {
 			return fail(err)
 		}
@@ -1180,11 +1196,7 @@ func (runtime *productionRuntime) rollback(ctx context.Context, workspace produc
 		if err := runtime.restoreConfiguration(workspace, manifest); err != nil {
 			return fail(err)
 		}
-		if manifest.NginxEdgeRestoreSHA256 != "" {
-			if err := runtime.restoreEdgePolicyBackup(ctx, filepath.Join(workspace.configRestore, "nginx-edge"), manifest.NginxEdgeRestoreSHA256); err != nil {
-				return fail(fmt.Errorf("restore nginx edge policy: %w", err))
-			}
-		}
+
 		if manifest.PreviousProviderTarget == backendGoName || manifest.PreviousProviderTarget == "legacy-regular" {
 			if err := hardenProductionConfiguration(productionHardenOptions{EnvFile: filepath.Join(runtime.paths.ConfigDir, "lmm-api-go.env"), DropInDir: runtime.paths.PackagedDropInDir, OverrideDropInDir: runtime.paths.DropInDir}); err != nil {
 				return fail(err)
@@ -1225,6 +1237,14 @@ func (runtime *productionRuntime) rollback(ctx context.Context, workspace produc
 	}
 	if err := verifyFrontendIdentity(runtime.paths.FrontendRoot, manifest.Frontend.OldTarget, manifest.Frontend.OldIndexSHA256); err != nil {
 		return fail(err)
+	}
+	if err := runtime.reopenBillingAdmission(ctx, workspace, &manifest); err != nil {
+		return fail(err)
+	}
+	if manifest.NginxEdgeRestoreSHA256 != "" {
+		if err := runtime.restoreEdgePolicyBackup(ctx, filepath.Join(workspace.configRestore, "nginx-edge"), manifest.NginxEdgeRestoreSHA256); err != nil {
+			return fail(fmt.Errorf("restore nginx edge policy: %w", err))
+		}
 	}
 	if err := runtime.probeReleaseWithBinary(ctx, workspace, runtime.paths.InstalledBinary, manifest.OldVersion, manifest.Frontend.OldIndexSHA256); err != nil {
 		return fail(fmt.Errorf("rolled-back release probes failed: %w", err))

@@ -1031,27 +1031,7 @@ func (r *OpenAIResponsesRequest) GetTokenCountMeta() *types.TokenCountMeta {
 	var texts = make([]string, 0)
 
 	if r.Input != nil {
-		inputs := r.ParseInput()
-		for _, input := range inputs {
-			if input.Type == "input_image" {
-				if input.ImageUrl != "" {
-					fileMeta = append(fileMeta, &types.FileMeta{
-						FileType: types.FileTypeImage,
-						Source:   types.NewFileSourceFromData(input.ImageUrl, ""),
-						Detail:   input.Detail,
-					})
-				}
-			} else if input.Type == "input_file" {
-				if input.FileUrl != "" {
-					fileMeta = append(fileMeta, &types.FileMeta{
-						FileType: types.FileTypeFile,
-						Source:   types.NewFileSourceFromData(input.FileUrl, ""),
-					})
-				}
-			} else {
-				texts = append(texts, input.Text)
-			}
-		}
+		collectResponsesTokenInput(r.Input, &texts, &fileMeta)
 	}
 
 	if len(r.Instructions) > 0 {

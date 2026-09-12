@@ -20,6 +20,28 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestBGERerankEndpointConsistency(t *testing.T) {
+	for _, tc := range []struct {
+		model, endpoint, path string
+		format                types.RelayFormat
+		request               dto.Request
+	}{
+		{"bge-reranker-v2-m3", "", "/v1/rerank", types.RelayFormatRerank, &dto.RerankRequest{}},
+		{"BAAI/bge-reranker-v2-m3", "", "/v1/rerank", types.RelayFormatRerank, &dto.RerankRequest{}},
+		{"Qwen3-Reranker-8B", "", "/v1/rerank", types.RelayFormatRerank, &dto.RerankRequest{}},
+		{"bge-m3", "", "/v1/embeddings", types.RelayFormatEmbedding, &dto.EmbeddingRequest{}},
+		{"bge-reranker-v2-m3", string(constant.EndpointTypeEmbeddings), "/v1/embeddings", types.RelayFormatEmbedding, &dto.EmbeddingRequest{}},
+		{"bge-m3", string(constant.EndpointTypeJinaRerank), "/v1/rerank", types.RelayFormatRerank, &dto.RerankRequest{}},
+	} {
+		t.Run(tc.model+tc.endpoint, func(t *testing.T) {
+			path := resolveChannelTestRequestPath(nil, tc.model, tc.endpoint)
+			require.Equal(t, tc.path, path)
+			require.Equal(t, tc.format, channelTestRelayFormat(tc.endpoint, path))
+			require.IsType(t, tc.request, buildTestRequest(tc.model, tc.endpoint, nil, false))
+		})
+	}
+}
+
 func convertChatCompatibilityRequest(t *testing.T, request *dto.GeneralOpenAIRequest, channelType int, mapping map[string]string) []byte {
 	t.Helper()
 	oldMode := gin.Mode()

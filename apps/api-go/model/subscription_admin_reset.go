@@ -827,7 +827,7 @@ func resetFrozenSubscriptionTargetTx(tx *gorm.DB, target SubscriptionResetPrevie
 			"id = ? AND user_id = ? AND plan_id = ? AND status = ? AND end_time = ? AND end_time > ? AND amount_used = ? AND updated_at = ?",
 			frozen.Id, frozen.UserId, frozen.PlanId, frozen.Status, frozen.EndTime, now, frozen.AmountUsed, frozen.UpdatedAt,
 		)
-		updated := query.UpdateColumn("amount_used", 0)
+		updated := query.UpdateColumns(map[string]interface{}{"amount_used": 0, "quota_version": gorm.Expr("quota_version + 1")})
 		if updated.Error != nil {
 			return 0, 0, updated.Error
 		}
