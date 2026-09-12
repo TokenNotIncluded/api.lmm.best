@@ -20,9 +20,6 @@ For commercial licensing, please contact support@quantumnous.com
 Copyright (C) 2026 LIghtJUNction
 */
 import axios from 'axios'
-/*
-Copyright (C) 2026 LIghtJUNction
-*/
 import type { TFunction } from 'i18next'
 
 import { api } from '@/lib/api'
@@ -71,6 +68,18 @@ export function ratioAnnouncement(
   userId: number,
   t: TFunction
 ) {
+  const labels: Record<string, string> = {
+    ModelRatio: t('Model ratio'),
+    ModelPrice: t('Model Price'),
+    CompletionRatio: t('Completion ratio'),
+    CacheRatio: t('Cache ratio'),
+    CreateCacheRatio: t('Cache Creation'),
+    ImageRatio: t('Image ratio'),
+    AudioRatio: t('Audio ratio'),
+    AudioCompletionRatio: t('Audio completion ratio'),
+    GroupRatio: t('Group Ratio'),
+    GroupGroupRatio: t('Group Ratio'),
+  }
   return {
     id: `ratio:${userId}:${event.event_id}`,
     type: 'info',
@@ -79,7 +88,7 @@ export function ratioAnnouncement(
     content: `${t('Rate changes')}\n${event.changes
       .map((change) => {
         const target = [
-          change.option,
+          labels[change.option] ?? change.option,
           change.model,
           change.group,
           change.user_group,
