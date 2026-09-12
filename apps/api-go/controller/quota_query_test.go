@@ -71,4 +71,9 @@ func TestQuotaQueryScopeAndReadOnly(t *testing.T) {
 	require.Equal(t, 401, query("Bearer "+token.Key).Code)
 	require.NoError(t, db.Model(&token).Updates(map[string]any{"status": common.TokenStatusEnabled, "expired_time": now.Unix() - 1}).Error)
 	require.Equal(t, 401, query("Bearer "+token.Key).Code)
+	require.NoError(t, db.Model(&token).Updates(map[string]any{"expired_time": -1, "allow_ips": "203.0.113.1"}).Error)
+	require.Equal(t, 403, query("Bearer "+token.Key).Code)
+	require.NoError(t, db.Model(&token).Update("allow_ips", "").Error)
+	require.NoError(t, db.Model(&user).Update("status", common.UserStatusDisabled).Error)
+	require.Equal(t, 401, query("Bearer "+token.Key).Code)
 }
