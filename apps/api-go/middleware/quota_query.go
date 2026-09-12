@@ -14,6 +14,7 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/setting/ratio_setting"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 	"gorm.io/gorm/logger"
 )
 
@@ -32,7 +33,8 @@ func QuotaQueryAuth() gin.HandlerFunc {
 		var token model.Token
 		key := strings.TrimPrefix(parts[1], "sk-")
 		// Credential predicates must never be expanded into SQL error logs.
-		err := model.DB.Session(&gorm.Session{Logger: logger.Discard}).WithContext(c.Request.Context()).Where(map[string]any{"key": key}).First(&token).Error
+		err := model.DB.Session(&gorm.Session{Logger: logger.Discard}).WithContext(c.Request.Context()).
+			Where("? = ?", clause.Column{Name: "key"}, key).First(&token).Error
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			fail(http.StatusUnauthorized, "invalid_api_key")
 			return
