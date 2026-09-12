@@ -83,13 +83,18 @@ export function createRelay(http: LmmHttp, hooks: RelayHooks): ProviderStreams {
         const authorizedAccess = access;
         const guardedFetch: typeof fetch = async (input, init) => {
           const target = input instanceof Request ? input.url : String(input);
-          requireValue(target === `${http.issuer}${path}`, 'LMM relay destination does not match its advertised protocol.');
-          const actual = new Headers(input instanceof Request ? input.headers : init?.headers);
+          const endpoint = `${http.issuer}${path}`;
+          // The Anthropic SDK adds this transport flag to its beta endpoint.
+          // LMM carries beta features in headers and rejects relay query strings.
+          const sdkBeta = api === 'anthropic-messages' && target === `${endpoint}?beta=true`;
+          requireValue(target === endpoint || sdkBeta, 'LMM relay destination does not match its advertised protocol.');
+          const actual = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined));
           for (const name of ['x-api-key', 'api-key', 'proxy-authorization', 'cookie']) actual.delete(name);
           actual.set('authorization', `Bearer ${authorizedAccess}`);
           actual.set('x-lmm-group', entry.group_id);
           sent = true;
-          return http.fetch(input, { ...init, headers: actual, redirect: 'error', credentials: 'omit' });
+          const destination = sdkBeta ? (input instanceof Request ? new Request(endpoint, input) : endpoint) : input;
+          return http.fetch(destination, { ...init, headers: actual, redirect: 'error', credentials: 'omit' });
         };
         const originalOnPayload = options.onPayload;
         const wireOptions: ProviderStreamOptions = {

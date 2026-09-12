@@ -14,13 +14,29 @@ npm run typecheck
 npm run pack:check
 ```
 
-After the interoperability gates are resolved, test the local extension with Pi's `-e ./src/index.ts`, use `/login` to select LMM, and select an admitted model through `/model`. A successful package load or browser login alone is not a successful model-call test.
+## Install and use with Pi
+
+The package is not published to npm. From a repository checkout, install it into Pi with:
+
+```sh
+pi install ./packages/pi-lmm-provider
+```
+
+From another directory, pass the package directory explicitly:
+
+```sh
+pi install /absolute/path/to/api.lmm.best/packages/pi-lmm-provider
+```
+
+Then use `/login` and choose LMM in the native provider selector. Choose an admitted model with `/model`; `/lmm-prices` refreshes the account catalog and displays current pricing. `/lmm-revoke` requires interactive confirmation, revokes the server authorization, and leaves `/logout` to clear the local Pi login.
+
+For local development, Pi can load the source directly with `-e ./src/index.ts`. A successful package load or browser login alone is not a successful model-call test.
 
 ## Current acceptance gaps
 
 - The server must be deployed with a trusted issuer and explicit group allowlist.
 - Catalog capabilities come from the installed Pi official provider model directories by exact upstream model ID and advertised API. Provider prices are not reused and no cross-model fallback is allowed; unknown IDs remain unavailable for invocation.
-- Static token prices are converted from platform credits to nominal USD. Dynamic, expression and incomplete prices remain inspection-only.
+- Static token prices are converted from platform credits to nominal USD. Dynamic token prices expose the highest current route estimate, including configured cost floors with an estimate basis and timestamp; request-based, expression and incomplete prices remain inspection-only.
 - Normal automatic refresh is implemented with a journal that stores only credential summaries and prevents replay after failed rotation. A crash that loses the replacement token still requires login again.
 - `/lmm-revoke` is connected, but live authorization, stream, cancellation, account switching, revocation, refresh and billing reconciliation remain to be tested in production.
 

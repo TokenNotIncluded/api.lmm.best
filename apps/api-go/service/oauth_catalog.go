@@ -11,6 +11,7 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/constant"
 	"github.com/LIghtJUNction/api.lmm.best/model"
 	"github.com/LIghtJUNction/api.lmm.best/oauthserver"
+	"github.com/LIghtJUNction/api.lmm.best/pkg/dynamic_pricing"
 	"github.com/LIghtJUNction/api.lmm.best/pkg/paymentpricing"
 	"github.com/LIghtJUNction/api.lmm.best/setting/billing_setting"
 	"github.com/LIghtJUNction/api.lmm.best/setting/dynamic_pricing_setting"
@@ -68,6 +69,7 @@ type oauthAbility struct {
 	Group       string
 	Model       string
 	ChannelType int
+	ChannelID   int
 }
 
 func (s *OAuthIntegration) liveAbilities(ctx context.Context, groups []string, name string) ([]oauthAbility, error) {
@@ -75,7 +77,7 @@ func (s *OAuthIntegration) liveAbilities(ctx context.Context, groups []string, n
 	if len(groups) == 0 {
 		return rows, nil
 	}
-	query := s.DB.WithContext(ctx).Table("abilities").Select(`DISTINCT abilities."group", abilities.model, channels.type AS channel_type`).
+	query := s.DB.WithContext(ctx).Table("abilities").Select(`DISTINCT abilities."group", abilities.model, channels.type AS channel_type, channels.id AS channel_id`).
 		Joins("JOIN channels ON channels.id = abilities.channel_id").Where(`abilities."group" IN ? AND abilities.enabled = ? AND channels.status = ?`, groups, true, common.ChannelStatusEnabled)
 	if name != "" {
 		query = query.Where("abilities.model = ?", name)
@@ -158,22 +160,37 @@ func oauthGroupRatio(user *model.User, group string) *float64 {
 	return oauthNumber(ratio)
 }
 
-func oauthPricing(name string, groupRatio, trustRatio *float64, updated int64) OAuthCatalogPricing {
+func oauthPricing(name string, groupRatio, trustRatio *float64, channelIDs []int, updated int64) OAuthCatalogPricing {
 	p := OAuthCatalogPricing{Currency: "USD", Unit: "unknown", PriceBasis: "unknown", GroupMultiplier: groupRatio, TrustMultiplier: trustRatio, FinalCostDependsOnUsage: true, UpdatedAt: updated}
 	if billing_setting.GetBillingMode(name) == billing_setting.BillingModeTieredExpr {
 		p.Unit, p.PriceBasis = "expression", "tiered_expression"
 		return p
 	}
-	if dynamic_pricing_setting.IsEnabled() {
-		// Current dynamic prices depend on the route and settlement-time snapshot.
-		// Null is intentional: base rates are not a final or free dynamic quote.
+	dynamic := dynamic_pricing_setting.IsEnabled()
+	if dynamic && groupRatio != nil && trustRatio != nil {
+		// Include configured cost floors across eligible routes. These factors
+		// can change before settlement, so the current maximum is an estimate,
+		// never a locked quote.
 		p.PriceBasis = "dynamic_estimate"
-		return p
 	}
 	if groupRatio == nil || trustRatio == nil || common.QuotaPerUnit <= 0 {
 		return p
 	}
 	factor := *groupRatio * *trustRatio
+	if dynamic {
+		if len(channelIDs) == 0 {
+			return p
+		}
+		requestFactor := 0.0
+		for _, channelID := range channelIDs {
+			current, _, err := dynamic_pricing.GetRequestMultiplier(name, channelID)
+			if err != nil {
+				return p
+			}
+			requestFactor = math.Max(requestFactor, current)
+		}
+		factor *= requestFactor
+	}
 	rates, err := paymentpricing.CurrentRates()
 	if err != nil {
 		return p
@@ -189,7 +206,14 @@ func oauthPricing(name string, groupRatio, trustRatio *float64, updated int64) O
 		return oauthNumber(amount.InexactFloat64())
 	}
 	if price, exists := ratio_setting.GetModelPrice(name, false); exists {
-		p.Unit, p.PriceBasis, p.Request = "request", "configured_base_rates", toUSD(price*factor)
+		p.Unit, p.PriceBasis = "request", "configured_base_rates"
+		if dynamic {
+			p.Unit, p.PriceBasis = "request", "dynamic_estimate"
+		}
+		p.Request = toUSD(price * factor)
+		if dynamic {
+			p.Request = nil
+		}
 		return p
 	}
 	inputRatio, exists, _ := ratio_setting.GetModelRatio(name)
@@ -197,7 +221,10 @@ func oauthPricing(name string, groupRatio, trustRatio *float64, updated int64) O
 		return p
 	}
 	input := inputRatio * factor * 1_000_000 / common.QuotaPerUnit
-	p.Unit, p.PriceBasis = "million_tokens", "configured_base_rates"
+	p.Unit = "million_tokens"
+	if !dynamic {
+		p.PriceBasis = "configured_base_rates"
+	}
 	p.Input, p.Output = toUSD(input), toUSD(input*ratio_setting.GetCompletionRatio(name))
 	// The bool reports whether an override exists; the returned defaults are
 	// also the values used by relay/helper/price.go during settlement.
@@ -228,6 +255,7 @@ func (s *OAuthIntegration) Catalog(ctx context.Context, user *model.User, grant 
 		result.Groups = append(result.Groups, OAuthCatalogGroup{ID: OAuthGroupID(group), Name: group, Scope: OAuthGroupScope(group), Multiplier: oauthGroupRatio(user, group)})
 	}
 	entries := make(map[string]*OAuthCatalogModel)
+	channelIDs := make(map[string]map[int]struct{})
 	for _, row := range rows {
 		apis := oauthAPIs(row.ChannelType, row.Model)
 		if len(apis) == 0 || row.Model == "" || len(row.Model) > 512 {
@@ -236,10 +264,11 @@ func (s *OAuthIntegration) Catalog(ctx context.Context, user *model.User, grant 
 		id := "lmm:" + OAuthGroupID(row.Group) + ":" + base64.RawURLEncoding.EncodeToString([]byte(row.Model))
 		entry := entries[id]
 		if entry == nil {
-			pricing := oauthPricing(row.Model, oauthGroupRatio(user, row.Group), multiplier, now)
-			entry = &OAuthCatalogModel{ID: id, GroupID: OAuthGroupID(row.Group), Group: row.Group, UpstreamModel: row.Model, Name: row.Group + " / " + row.Model, APIs: []string{}, Pricing: pricing, NativeCost: pricing.NativeCost}
+			entry = &OAuthCatalogModel{ID: id, GroupID: OAuthGroupID(row.Group), Group: row.Group, UpstreamModel: row.Model, Name: row.Group + " / " + row.Model, APIs: []string{}}
 			entries[id] = entry
+			channelIDs[id] = make(map[int]struct{})
 		}
+		channelIDs[id][row.ChannelID] = struct{}{}
 		for _, api := range apis {
 			if !slices.Contains(entry.APIs, api) {
 				entry.APIs = append(entry.APIs, api)
@@ -248,6 +277,12 @@ func (s *OAuthIntegration) Catalog(ctx context.Context, user *model.User, grant 
 	}
 	for _, entry := range entries {
 		slices.Sort(entry.APIs)
+		ids := make([]int, 0, len(channelIDs[entry.ID]))
+		for channelID := range channelIDs[entry.ID] {
+			ids = append(ids, channelID)
+		}
+		entry.Pricing = oauthPricing(entry.UpstreamModel, oauthGroupRatio(user, entry.Group), multiplier, ids, now)
+		entry.NativeCost = entry.Pricing.NativeCost
 		result.Models = append(result.Models, *entry)
 	}
 	slices.SortFunc(result.Models, func(a, b OAuthCatalogModel) int {

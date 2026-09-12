@@ -45,8 +45,9 @@ function nativeCost(value: unknown, pricing: Pricing): ModelCost | null {
     input: nonnegative(row.input), output: nonnegative(row.output),
     cacheRead: nonnegative(row.cacheRead), cacheWrite: nonnegative(row.cacheWrite),
   };
-  requireValue(pricing.currency === 'USD' && pricing.unit === 'million_tokens' && pricing.price_basis === 'configured_base_rates' && pricing.request === null,
-    'LMM advertised a native cost for non-static or incompatible billing.');
+  requireValue(pricing.currency === 'USD' && pricing.unit === 'million_tokens' &&
+    (pricing.price_basis === 'configured_base_rates' || pricing.price_basis === 'dynamic_estimate') && pricing.request === null,
+    'LMM advertised a native cost for incompatible billing.');
   requireValue(cost.input === pricing.input && cost.output === pricing.output && cost.cacheRead === pricing.cache_read && cost.cacheWrite === pricing.cache_write,
     'LMM native cost differs from its already-adjusted server rates.');
   return cost;
@@ -108,8 +109,9 @@ export function admitCatalog(catalog: Catalog, issuer: string, resolve: Capabili
       typeof capabilities.reasoning === 'boolean' && capabilities.input.length > 0 && capabilities.input.every((input) => input === 'text' || input === 'image'));
     text(capabilities.provenance);
     const multiplier = entry.pricing.group_multiplier === null ? 'unknown' : `${entry.pricing.group_multiplier}×`;
+    const estimate = entry.pricing.price_basis === 'dynamic_estimate' ? ' · estimate' : '';
     const model: Model<LmmApi> = {
-      id: entry.id, name: `${entry.group} / ${entry.upstream_model} · group ${multiplier}`,
+      id: entry.id, name: `${entry.group} / ${entry.upstream_model} · group ${multiplier}${estimate}`,
       provider: PROVIDER_ID, api: capabilities.api,
       baseUrl: capabilities.api === 'anthropic-messages' ? issuer : `${issuer}/v1`,
       reasoning: capabilities.reasoning, input: [...capabilities.input], contextWindow: capabilities.contextWindow,

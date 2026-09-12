@@ -72,10 +72,15 @@ func TestEdgePolicyInstallBacksUpRemovesLegacyAndRestores(t *testing.T) {
 		switch asset.Key {
 		case "http-map":
 			candidate += "geoip2 /var/lib/geoip2/DBIP-Country-Lite.mmdb {\n"
+			candidate += "map $request_uri $lmm_oauth_request_loggable {\n"
 		case "server":
 			candidate += "include /etc/nginx/lmm-api-region-policy.conf;\n"
 		case "locations":
 			candidate += "error_page 418 = @lmm_api_cors_preflight;\n"
+			candidate += "location = /.well-known/oauth-authorization-server {\n"
+			candidate += "location = /.well-known/oauth-protected-resource/api/oauth2 {\n"
+			candidate += "location = /api/oauth2/authorize {\n"
+			candidate += "access_log /var/log/nginx/access.log combined if=$lmm_access_loggable;\n"
 			candidate += "location @lmm_api_cors_preflight {\n"
 			candidate += "auth_request off;\n"
 			candidate += "set $lmm_access_policy_original_uri $uri;\n"

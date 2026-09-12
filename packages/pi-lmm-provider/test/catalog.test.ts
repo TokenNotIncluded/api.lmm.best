@@ -25,6 +25,8 @@ test('rejects a mismatched native cost and does not treat missing cache as zero'
   assert.equal(parseCatalog({ ...catalog, models: [missingCache] }, catalog.resource, 'group:ZGVmYXVsdA').models[0]!.native_cost, null);
 });
 
-test('does not accept native cost for dynamic pricing', () => {
-  assert.throws(() => parseCatalog({ ...catalog, models: [{ ...model, pricing: { ...pricing, price_basis: 'dynamic_estimate' } }] }, catalog.resource, 'group:ZGVmYXVsdA'));
+test('accepts a dynamic estimate as native cost while retaining its estimate basis', () => {
+  const result = parseCatalog({ ...catalog, models: [{ ...model, pricing: { ...pricing, price_basis: 'dynamic_estimate' } }] }, catalog.resource, 'group:ZGVmYXVsdA');
+  assert.equal(result.models[0]!.pricing.price_basis, 'dynamic_estimate');
+  assert.equal(result.models[0]!.native_cost?.input, 1);
 });

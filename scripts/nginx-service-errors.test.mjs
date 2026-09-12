@@ -13,12 +13,13 @@ const root = path.resolve(import.meta.dirname, '..')
 test('nginx preserves access boundaries and API bodies while explaining edge outages', async () => {
  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lmm-nginx-outage-'))
  const frontend = path.join(dir, 'frontend');fs.mkdirSync(frontend)
+ fs.mkdirSync(path.join(frontend,'current'));fs.writeFileSync(path.join(frontend,'current','index.html'), '<!doctype html><title>Fixture</title>')
  fs.writeFileSync(path.join(frontend,'service-status.json'), JSON.stringify({state:'maintenance'}))
- const backend = http.createServer((req,res) => {res.writeHead(500,{'Content-Type':'application/json'});res.end('{"error":{"message":"upstream test failure"}}')})
+ const backend = http.createServer((req,res) => {if(req.url.startsWith('/.well-known/oauth-')){res.writeHead(200,{'Content-Type':'application/json'});res.end(JSON.stringify({issuer:'https://api.lmm.best'}));return;}res.writeHead(500,{'Content-Type':'application/json'});res.end('{"error":{"message":"upstream test failure"}}')})
  backend.listen(0,'127.0.0.1');await once(backend,'listening')
  const reservation=net.createServer();reservation.listen(0,'127.0.0.1');await once(reservation,'listening');const port=reservation.address().port;await new Promise(resolve=>reservation.close(resolve))
  const source=fs.readFileSync(path.join(root,'packaging/common/lmm-api/edge-policy/nginx/lmm-api-locations.conf'),'utf8')
- fs.writeFileSync(path.join(dir,'locations.conf'),source.replaceAll('/etc/nginx/lmm-api-mime.types',path.join(root,'packaging/common/lmm-api/edge-policy/nginx/mime.types')).replaceAll('/srv/lmm-api-frontend',frontend).replaceAll('127.0.0.1:3000',`127.0.0.1:${backend.address().port}`))
+ fs.writeFileSync(path.join(dir,'locations.conf'),source.replaceAll('/var/log/nginx/access.log',path.join(dir,'access.log')).replaceAll('/etc/nginx/lmm-api-mime.types',path.join(root,'packaging/common/lmm-api/edge-policy/nginx/mime.types')).replaceAll('/srv/lmm-api-frontend',frontend).replaceAll('127.0.0.1:3000',`127.0.0.1:${backend.address().port}`))
  const maps=fs.readFileSync(path.join(root,'packaging/common/lmm-api/edge-policy/nginx/http-map.conf'),'utf8')
  const map=maps.slice(maps.indexOf('map "$request_method:$http_accept"'))
  fs.writeFileSync(path.join(dir,'nginx.conf'),`worker_processes 1;
@@ -58,6 +59,17 @@ http {
   assert.equal(response.status,503);assert.match(response.headers.get('content-type'),/application\/json/);assert.equal((await response.json()).error.code,'service_temporarily_unavailable')
   response=await fetch(url+'/v1/chat/completions',{method:'POST',headers:{Accept:'application/json','X-Fixture-Allow':'1','Content-Type':'application/json'},body:'{}'})
   assert.equal(response.status,500);assert.deepEqual(await response.json(),{error:{message:'upstream test failure'}})
+  for(const endpoint of ['/.well-known/oauth-authorization-server','/.well-known/oauth-protected-resource/api/oauth2']) {
+   response=await fetch(url+endpoint,{headers:{'X-Fixture-Allow':'1'}});assert.equal(response.status,200);assert.match(response.headers.get('content-type'),/application\/json/);assert.equal((await response.json()).issuer,'https://api.lmm.best')
+   response=await fetch(url+endpoint);assert.equal(response.status,503)
+  }
+  for(const endpoint of ['/api/oauth2/authorize','/api/user/auth/oauth2/consent','/oauth/fixture']) {
+   response=await fetch(url+endpoint+'?state=oauth-secret-fixture',{headers:{'X-Fixture-Allow':'1'}});await response.text()
+  }
+  response=await fetch(url+'/api/status?ordinary=retained',{headers:{'X-Fixture-Allow':'1'}});await response.text()
+  response=await fetch(url+'/api/status',{headers:{'X-Fixture-Allow':'1',Referer:'https://api.lmm.best/oauth/fixture?code=oauth-secret-referrer'}});await response.text()
+  response=await fetch(url+'/api/oauth2/authorize?state=oauth-secret-options',{method:'OPTIONS'});assert.equal(response.status,204)
+  const accessLog=fs.readFileSync(path.join(dir,'access.log'),'utf8');assert.match(accessLog,/ordinary=retained/);assert.doesNotMatch(accessLog,/oauth-secret-/)
   response=await fetch(url+'/v1/chat/completions',{method:'OPTIONS'});assert.equal(response.status,204)
   response=await fetch(url+'/internal/errors/service-unavailable');assert.equal(response.status,404)
   response=await fetch(url+'/__lmm_service_status');assert.equal(response.status,200);assert.equal((await response.json()).state,'maintenance')

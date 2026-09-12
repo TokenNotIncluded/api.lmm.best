@@ -4,6 +4,9 @@ import (
 	"testing"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
+	"github.com/LIghtJUNction/api.lmm.best/pkg/dynamic_pricing"
+	"github.com/LIghtJUNction/api.lmm.best/setting/config"
+	"github.com/LIghtJUNction/api.lmm.best/setting/dynamic_pricing_setting"
 	"github.com/LIghtJUNction/api.lmm.best/setting/operation_setting"
 	"github.com/LIghtJUNction/api.lmm.best/setting/ratio_setting"
 	"github.com/stretchr/testify/require"
@@ -23,7 +26,7 @@ func TestOAuthPricingConvertsPlatformUnitsToUSDOnce(t *testing.T) {
 	require.NoError(t, ratio_setting.UpdateCacheRatioByJSONString(`{"oauth-pricing-test":0.1}`))
 	require.NoError(t, ratio_setting.UpdateCreateCacheRatioByJSONString(`{"oauth-pricing-test":0.2}`))
 
-	p := oauthPricing("oauth-pricing-test", floatPtr(2), floatPtr(0.5), 1)
+	p := oauthPricing("oauth-pricing-test", floatPtr(2), floatPtr(0.5), []int{1}, 1)
 	require.Equal(t, "USD", p.Currency)
 	require.Equal(t, "configured_base_rates", p.PriceBasis)
 	require.InDelta(t, 2.0/9.0, *p.Input, 1e-12)
@@ -33,14 +36,39 @@ func TestOAuthPricingConvertsPlatformUnitsToUSDOnce(t *testing.T) {
 	require.NotNil(t, p.NativeCost)
 	require.NoError(t, ratio_setting.UpdateCacheRatioByJSONString(`{}`))
 	require.NoError(t, ratio_setting.UpdateCreateCacheRatioByJSONString(`{}`))
-	p = oauthPricing("oauth-pricing-test", floatPtr(2), floatPtr(0.5), 1)
+	p = oauthPricing("oauth-pricing-test", floatPtr(2), floatPtr(0.5), []int{1}, 1)
 	require.InDelta(t, 2.0/9.0, *p.CacheRead, 1e-12)
 	require.InDelta(t, 2.5/9.0, *p.CacheWrite, 1e-12)
 	require.NotNil(t, p.NativeCost)
 }
 
 func TestOAuthPricingUnknownAndMissingCacheStayNull(t *testing.T) {
-	p := oauthPricing("definitely-unknown-oauth-model", nil, floatPtr(1), 1)
+	p := oauthPricing("definitely-unknown-oauth-model", nil, floatPtr(1), nil, 1)
+	require.Nil(t, p.Input)
+	require.Nil(t, p.NativeCost)
+}
+
+func TestOAuthPricingDynamicTokenUsesCurrentModelEstimate(t *testing.T) {
+	oldQuota, oldFX, oldPurchase := common.QuotaPerUnit, operation_setting.USDExchangeRate, operation_setting.TopUpPlatformUnitsPerCNY
+	oldRatios := ratio_setting.ModelRatio2JSONString()
+	cfg := config.GlobalConfig.Get("dynamic_pricing_setting").(*dynamic_pricing_setting.DynamicPricingSetting)
+	oldSetting := dynamic_pricing_setting.GetSetting()
+	t.Cleanup(func() {
+		common.QuotaPerUnit, operation_setting.USDExchangeRate, operation_setting.TopUpPlatformUnitsPerCNY = oldQuota, oldFX, oldPurchase
+		require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(oldRatios))
+		*cfg = oldSetting
+	})
+	common.QuotaPerUnit, operation_setting.USDExchangeRate, operation_setting.TopUpPlatformUnitsPerCNY = 500000, 7.2, 1.25
+	require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(`{"oauth-dynamic-test":1}`))
+	*cfg = oldSetting
+	cfg.Enabled, cfg.MinFactor, cfg.BasePriceUSDPerMillion, cfg.ChannelCosts = true, 1, 1, map[string]float64{"1": 5}
+	require.True(t, dynamic_pricing_setting.IsEnabled())
+	dynamic_pricing.SetState("oauth-dynamic-test", &dynamic_pricing.ModelState{Factor: 2})
+	p := oauthPricing("oauth-dynamic-test", floatPtr(1), floatPtr(1), []int{1}, 1)
+	require.Equal(t, "dynamic_estimate", p.PriceBasis)
+	require.InDelta(t, 12.0/9.0, *p.Input, 1e-12)
+	require.NotNil(t, p.NativeCost)
+	p = oauthPricing("oauth-dynamic-test", floatPtr(1), floatPtr(1), []int{2}, 1)
 	require.Nil(t, p.Input)
 	require.Nil(t, p.NativeCost)
 }
@@ -49,7 +77,7 @@ func TestOAuthPricingRejectsNonFinitePlatformAmount(t *testing.T) {
 	old := ratio_setting.ModelRatio2JSONString()
 	t.Cleanup(func() { require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(old)) })
 	require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(`{"oauth-overflow-test":1}`))
-	p := oauthPricing("oauth-overflow-test", floatPtr(1e308), floatPtr(1e308), 1)
+	p := oauthPricing("oauth-overflow-test", floatPtr(1e308), floatPtr(1e308), []int{1}, 1)
 	require.Nil(t, p.Input)
 }
 

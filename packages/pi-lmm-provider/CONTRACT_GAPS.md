@@ -6,7 +6,7 @@ Pi 0.85.1 model capability metadata is resolved from the installed official prov
 
 ## Non-static pricing
 
-Pi 0.85.1 native cost fields cannot represent unknown, request-based, or expression pricing. Only complete finite USD/million-token configured static rates can be registered truthfully; null/dynamic prices are not replaced with zero, NaN, infinity, or invented maxima. Read-only `/lmm-prices` reports other prices with their basis and caveat. Enabling those models in `/model` needs an upstream Pi unknown-cost representation (or a separately reviewed integration), not another picker. No client budget-confirmation/expensive-group gate is planned.
+Pi 0.85.1 native cost fields cannot represent unknown, request-based, or expression pricing. Complete finite USD/million-token configured rates and current dynamic route estimates including configured cost floors can be registered; dynamic entries carry `dynamic_estimate`, a refresh timestamp and a non-locked-quote caveat. Null/request/expression prices are not replaced with zero, NaN, infinity, or invented maxima and remain inspection-only. No client budget-confirmation/expensive-group gate is planned.
 
 ## Refresh rotation
 
@@ -14,4 +14,4 @@ The installed Pi 0.85.1 native `Models.getAuth` correctly double-checks expiry i
 
 The package now supports normal automatic refresh through its journal. The journal stores only credential summaries, serializes refreshes and prevents replay after failed rotation. If a crash loses the replacement token after server rotation, the grant may require a fresh `/login`; no plaintext token backup is kept. `/lmm-revoke` is wired to server revocation.
 
-These are integration blockers to report to the main agent. This package must not be described as ready for publication/installation or a successful live-model test until they are resolved and separately reviewed.
+Local installation, host loading, protocol streams and refresh behavior have automated coverage. Production OAuth authorization, model calls, cancellation, account switching, revocation and billing reconciliation still require live acceptance before a stable release.
