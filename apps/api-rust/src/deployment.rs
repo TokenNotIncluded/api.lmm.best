@@ -56,6 +56,8 @@ pub struct PackageTransition {
     pub rollback_git_revision: String,
     pub candidate_contract_revision: String,
     pub rollback_contract_revision: String,
+    #[serde(default)]
+    pub rollback_oauth_managed_token_isolation: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -545,6 +547,7 @@ pub async fn target_rollback(
     if !ELIGIBLE.contains(&status.phase.as_str()) {
         return Err(DeploymentError::InvalidPhase(status.phase));
     }
+    verify_oauth_managed_rollback_compatibility(&manifest)?;
     let rolling = ProductionStatus {
         format: STATUS_FORMAT,
         deployment_id: workspace.id.clone(),
@@ -596,6 +599,89 @@ async fn perform_rollback(manifest: &ProductionManifest) -> Result<(), Deploymen
     }
     verify_manifest_evidence_for_rollback(manifest, true)?;
     health_check(manifest, true).await
+}
+
+const OAUTH_MANAGED_TOKEN_CAPABILITY: &str = "OAUTH_MANAGED_TOKEN_CAPABILITY";
+
+fn verify_oauth_managed_rollback_compatibility(
+    manifest: &ProductionManifest,
+) -> Result<(), DeploymentError> {
+    let environment = read_private(
+        &manifest.config_restore_path.join("lmm-api-go.env"),
+        1024 * 1024,
+        true,
+    )?;
+    let environment_text = String::from_utf8_lossy(&environment);
+    let database_url = environment_text
+        .lines()
+        .find_map(|line| {
+            line.strip_prefix("SQL_DSN=")
+                .or_else(|| line.strip_prefix("DATABASE_URL="))
+        })
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            DeploymentError::InvalidEvidence("rollback database URL is missing".to_owned())
+        })?;
+    if !valid_identifier(&manifest.database_schema, 63) {
+        return Err(DeploymentError::InvalidSchema(
+            "rollback database schema is invalid".to_owned(),
+        ));
+    }
+    let query = format!(
+        "SELECT COUNT(*) FROM \"{}\".tokens AS t WHERE COALESCE((to_jsonb(t)->>'oauth_managed')::boolean, false)",
+        manifest.database_schema
+    );
+    let output = Command::new("/usr/bin/psql")
+        .args([
+            "-X",
+            "-v",
+            "ON_ERROR_STOP=1",
+            "--no-align",
+            "--tuples-only",
+            "--dbname",
+        ])
+        .arg(database_url)
+        .args(["--command", &query])
+        .env(
+            "PGOPTIONS",
+            format!("-c search_path={}", manifest.database_schema),
+        )
+        .env("LC_ALL", "C")
+        .output()?;
+    if !output.status.success() {
+        return Err(DeploymentError::Command(
+            "OAuth-managed token eligibility query failed".to_owned(),
+        ));
+    }
+    let managed_rows = String::from_utf8_lossy(&output.stdout)
+        .trim()
+        .parse::<u64>()
+        .map_err(|_| {
+            DeploymentError::InvalidEvidence("OAuth-managed token count is invalid".to_owned())
+        })?;
+    if managed_rows == 0 {
+        return Ok(());
+    }
+    let marker = Command::new("/usr/bin/bsdtar")
+        .args(["-xOf"])
+        .arg(&manifest.go.rollback_path)
+        .arg(format!(
+            "usr/share/doc/lmm-api-go-bin/{OAUTH_MANAGED_TOKEN_CAPABILITY}"
+        ))
+        .output()?;
+    let supported =
+        marker.status.success() && String::from_utf8_lossy(&marker.stdout).trim() == "v1";
+    if !oauth_managed_rollback_allowed(managed_rows, supported) {
+        return Err(DeploymentError::InvalidEvidence(
+            "OAuth-managed token records require a rollback package with token isolation capability".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+fn oauth_managed_rollback_allowed(managed_rows: u64, capability: bool) -> bool {
+    managed_rows == 0 || capability
 }
 
 fn rollback_failure_code(error: &DeploymentError) -> &'static str {
@@ -1714,6 +1800,7 @@ mod tests {
                     rollback_git_revision: "1".repeat(40),
                     candidate_contract_revision: contract.clone(),
                     rollback_contract_revision: contract.clone(),
+                    rollback_oauth_managed_token_isolation: false,
                 },
                 web: PackageTransition {
                     candidate_package_name: "lmm-api-web-bin".to_owned(),
@@ -1729,6 +1816,7 @@ mod tests {
                     rollback_git_revision: "3".repeat(40),
                     candidate_contract_revision: contract.clone(),
                     rollback_contract_revision: contract,
+                    rollback_oauth_managed_token_isolation: false,
                 },
                 frontend: FrontendTransition {
                     old_target: "releases/0.1.57-1.g333333333333".to_owned(),
@@ -1831,6 +1919,7 @@ mod tests {
                 rollback_git_revision: String::new(),
                 candidate_contract_revision: String::new(),
                 rollback_contract_revision: String::new(),
+                rollback_oauth_managed_token_isolation: false,
             };
             ProductionManifest {
                 format: MANIFEST_FORMAT,
@@ -2126,5 +2215,27 @@ mod tests {
         write_receipt(Utc::now() - chrono::Duration::minutes(6));
 
         assert!(verify_backup_confirmation(&manifest, false).is_err());
+    }
+
+    #[test]
+    fn oauth_managed_rows_require_explicit_rollback_capability() {
+        assert_eq!(
+            include_str!("../../../packaging/common/lmm-api/OAUTH_MANAGED_TOKEN_CAPABILITY").trim(),
+            "v1"
+        );
+        assert!(!oauth_managed_rollback_allowed(1, false));
+        assert!(oauth_managed_rollback_allowed(1, true));
+        assert!(oauth_managed_rollback_allowed(0, false));
+    }
+
+    #[test]
+    fn rust_accepts_go_manifest_oauth_capability_field() {
+        let fixture = TestWorkspace::new();
+        let manifest = fixture.go_rollback_manifest();
+        let mut value = serde_json::to_value(manifest).expect("encode Go manifest fixture");
+        value["go"]["rollback_oauth_managed_token_isolation"] = serde_json::Value::Bool(true);
+        let decoded: ProductionManifest =
+            serde_json::from_value(value).expect("decode Go manifest fixture");
+        assert!(decoded.go.rollback_oauth_managed_token_isolation);
     }
 }

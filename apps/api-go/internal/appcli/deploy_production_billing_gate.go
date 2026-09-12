@@ -415,5 +415,13 @@ func (runtime *productionRuntime) refuseManagedBillingRollback(ctx context.Conte
 	if strings.TrimSpace(string(out)) != "0" {
 		return errors.New("managed billing records block old writer rollback; keep admission closed and reconcile with compatible code")
 	}
+	query = `SELECT COUNT(*) FROM "` + manifest.DatabaseSchema + `".tokens AS t WHERE COALESCE((to_jsonb(t)->>'oauth_managed')::boolean, false)`
+	out, err = runtime.runner.Run(ctx, productionCommand{Name: commandPSQL, Args: []string{"-X", "-v", "ON_ERROR_STOP=1", "--no-align", "--tuples-only", "--command", query, databaseURL}, Env: childEnvironment, Sensitive: true})
+	if err != nil {
+		return errors.New("cannot verify OAuth-managed token rollback eligibility")
+	}
+	if strings.TrimSpace(string(out)) != "0" && !manifest.Go.RollbackOAuthManagedTokenIsolation {
+		return errors.New("OAuth-managed token records require a rollback binary with token isolation capability")
+	}
 	return nil
 }

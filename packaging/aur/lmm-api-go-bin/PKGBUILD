@@ -94,6 +94,10 @@ prepare() {
     fi
     [[ -f ${bundle}/API_ROUTE_CONTRACT_REVISION && ! -L ${bundle}/API_ROUTE_CONTRACT_REVISION ]] || return 1
     [[ $(<"${bundle}/API_ROUTE_CONTRACT_REVISION") =~ ^[0-9a-f]{64}$ ]] || return 1
+    if [[ -e ${bundle}/OAUTH_MANAGED_TOKEN_CAPABILITY ]]; then
+      [[ -f ${bundle}/OAUTH_MANAGED_TOKEN_CAPABILITY && ! -L ${bundle}/OAUTH_MANAGED_TOKEN_CAPABILITY ]] || return 1
+      [[ $(<"${bundle}/OAUTH_MANAGED_TOKEN_CAPABILITY") == v1 ]] || return 1
+    fi
     grep -Fqx 'Environment=LMM_API_FRONTEND_DIR=/srv/lmm-api-frontend/current' \
       "${bundle}/lmm-api.service"
   fi
@@ -147,6 +151,10 @@ package() {
     fi
     install -Dm0644 "${bundle}/API_ROUTE_CONTRACT_REVISION" \
       "${pkgdir}/usr/share/doc/${pkgname}/API_ROUTE_CONTRACT_REVISION"
+  fi
+  if [[ -f ${bundle}/OAUTH_MANAGED_TOKEN_CAPABILITY ]]; then
+    install -Dm0644 "${bundle}/OAUTH_MANAGED_TOKEN_CAPABILITY" \
+      "${pkgdir}/usr/share/doc/${pkgname}/OAUTH_MANAGED_TOKEN_CAPABILITY"
   fi
 
   install -d -m0755 "${pkgdir}/usr/share/lmm-api-go/edge-policy"

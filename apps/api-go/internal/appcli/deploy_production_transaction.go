@@ -147,6 +147,7 @@ func transitionFromMetadata(changed bool, candidatePath, rollbackPath, candidate
 		CandidateSHA256: candidateSHA, RollbackSHA256: rollbackSHA,
 		CandidateGitRevision: candidate.GitRevision, RollbackGitRevision: rollback.GitRevision,
 		CandidateContractRevision: candidate.ContractRevision, RollbackContractRevision: rollback.ContractRevision,
+		RollbackOAuthManagedTokenIsolation: rollback.OAuthManagedTokenIsolation,
 	}
 }
 
@@ -1168,6 +1169,11 @@ func (runtime *productionRuntime) rollback(ctx context.Context, workspace produc
 	if err := validateMemoryOverrides(runtime.paths.DropInDir); err != nil {
 		return fail(fmt.Errorf("rollback memory configuration preflight: %w", err))
 	}
+	if manifest.Go.Changed {
+		if err := runtime.refuseManagedBillingRollback(ctx, workspace, manifest); err != nil {
+			return fail(err)
+		}
+	}
 	if err := runtime.writeStatus(workspace, rolling); err != nil {
 		return productionStatus{}, err
 	}
@@ -1177,9 +1183,6 @@ func (runtime *productionRuntime) rollback(ctx context.Context, workspace produc
 			return fail(err)
 		}
 		if err := runtime.stopBillingWriter(ctx, workspace, &manifest); err != nil {
-			return fail(err)
-		}
-		if err := runtime.refuseManagedBillingRollback(ctx, workspace, manifest); err != nil {
 			return fail(err)
 		}
 		if err := runtime.prepareLegacyProviderRollback(manifest); err != nil {

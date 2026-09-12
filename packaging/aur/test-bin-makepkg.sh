@@ -90,6 +90,9 @@ prepare_go_fixture() {
     printf 't0\n' >"$bundle/CLI_TRANSITION_PHASE"
   fi
   add_go_runtime "$bundle"
+  if [[ $version != 0.1.69 ]]; then
+    printf 'v1\n' >"$bundle/OAUTH_MANAGED_TOKEN_CAPABILITY"
+  fi
   create_archive "$work" "$artifact"
   pin_fixture_hashes "$work/PKGBUILD" sha256sums_x86_64 \
     "$work/${artifact}.tar.gz" "$work/${artifact}.tar.gz.sha256" \
@@ -102,6 +105,9 @@ prepare_go_fixture "$legacy_work" 0.1.69 lmm-api
 legacy_archive=$(build_package go-legacy "$legacy_work" \
   usr/bin/lmm-api usr/bin/lmm-api-go usr/lib/systemd/system/lmm-api.service \
   usr/share/doc/lmm-api-go-bin/API_ROUTE_CONTRACT_REVISION)
+if bsdtar -tf "$legacy_archive" | grep -Fq 'usr/share/doc/lmm-api-go-bin/OAUTH_MANAGED_TOKEN_CAPABILITY'; then
+  die 'legacy Go package must not claim OAuth-managed token capability'
+fi
 legacy_extract="$tmp/go-legacy-extract"
 mkdir -p "$legacy_extract"
 bsdtar -xf "$legacy_archive" -C "$legacy_extract"
@@ -117,7 +123,8 @@ next_archive=$(build_package go-next "$next_work" \
   usr/bin/lmm-api-go usr/lib/systemd/system/lmm-api.service \
   usr/lib/systemd/system/lmm-api.service.d/20-memory.conf \
   usr/lib/sysusers.d/lmm-api-operator.conf usr/lib/tmpfiles.d/lmm-api-operator.conf \
-  etc/sudoers.d/lmm-api-operator usr/share/doc/lmm-api-go-bin/API_ROUTE_CONTRACT_REVISION)
+  etc/sudoers.d/lmm-api-operator usr/share/doc/lmm-api-go-bin/API_ROUTE_CONTRACT_REVISION \
+  usr/share/doc/lmm-api-go-bin/OAUTH_MANAGED_TOKEN_CAPABILITY)
 if bsdtar -tf "$next_archive" | grep -Eq 'usr/bin/lmm-api$|usr/bin/lmm-api-deploy$|CLI_TRANSITION_PHASE|frontend-dist'; then
   die 'new Go provider package contains a generic/reverse/deploy/phase/frontend payload'
 fi

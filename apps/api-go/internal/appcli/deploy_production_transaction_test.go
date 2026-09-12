@@ -23,6 +23,8 @@ type fakeProductionRunner struct {
 	shutdownJournalFailure                        bool
 	refundIntent, missingStartup, journalLoss     bool
 	managedBillingRows                            string
+	managedOAuthTokenRows                         string
+	oauthManagedTokenIsolation                    bool
 	t                                             *testing.T
 
 	goCandidate, goRollback                                     string
@@ -119,6 +121,12 @@ func (runner *fakeProductionRunner) Run(ctx context.Context, command productionC
 		if strings.Contains(strings.Join(command.Args, " "), "to_jsonb(r)") {
 			if runner.managedBillingRows != "" {
 				return []byte(runner.managedBillingRows), nil
+			}
+			return []byte("0\n"), nil
+		}
+		if strings.Contains(strings.Join(command.Args, " "), "to_jsonb(t)") {
+			if runner.managedOAuthTokenRows != "" {
+				return []byte(runner.managedOAuthTokenRows), nil
 			}
 			return []byte("0\n"), nil
 		}
@@ -311,6 +319,8 @@ func (runner *fakeProductionRunner) bsdtar(args []string) ([]byte, error) {
 		return []byte(revision + "\n"), nil
 	case strings.HasSuffix(member, "/API_ROUTE_CONTRACT_REVISION"):
 		return []byte(contract + "\n"), nil
+	case strings.HasSuffix(member, "/OAUTH_MANAGED_TOKEN_CAPABILITY") && name == productionAURPackageName && runner.oauthManagedTokenIsolation:
+		return []byte("v1\n"), nil
 	case name == productionWebPackageName && strings.HasSuffix(member, "/index.html"):
 		return os.ReadFile(index)
 	case name == productionAURPackageName && member == "usr/bin/lmm-api-go":

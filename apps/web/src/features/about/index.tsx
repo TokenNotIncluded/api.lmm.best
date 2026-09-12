@@ -22,8 +22,8 @@ import { useTranslation } from 'react-i18next'
 
 import { RichContent } from '@/components/rich-content'
 import { Skeleton } from '@/components/ui/skeleton'
-import { isHttpUrl, isLikelyHtml } from '@/lib/content-format'
 import { useSystemConfig } from '@/hooks/use-system-config'
+import { isHttpUrl, isLikelyHtml } from '@/lib/content-format'
 
 import { ForgePublicShell } from '../forge/forge-public-shell'
 import { getAboutContent } from './api'

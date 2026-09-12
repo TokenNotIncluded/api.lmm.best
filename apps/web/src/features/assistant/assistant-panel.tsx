@@ -65,7 +65,6 @@ import {
 import { Response } from '@/components/ai-elements/response'
 import { sideDrawerContentClassName } from '@/components/drawer-layout'
 import { LmmBrandMark } from '@/components/lmm-brand-mark'
-import { useSystemConfig } from '@/hooks/use-system-config'
 import {
   Alert,
   AlertAction,
@@ -83,6 +82,7 @@ import {
 } from '@/components/ui/sheet'
 import { Skeleton } from '@/components/ui/skeleton'
 import { WaitCompanion } from '@/components/wait-companion'
+import { useSystemConfig } from '@/hooks/use-system-config'
 import { isConsoleActivated } from '@/lib/console-activation'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'

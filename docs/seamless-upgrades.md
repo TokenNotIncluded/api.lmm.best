@@ -26,8 +26,8 @@ The 2026-08-14 read-only audit found `api.lmm.best` running the Go backend with
 PostgreSQL and dedicated Valkey. The canonical lowercase
 `pg-write-boundary` and `cutover-journal` agree on the transaction, schema and
 revision; the journal phase is `COMPLETE`; and `post-cutover-verify.json`
-attests the PostgreSQL historical migration as verified. Re-run the sanitized
-`inspect-state.sh` gate before every mutation instead of treating this dated
+attests the PostgreSQL historical migration as verified. Verify the native production transaction status and current host resource
+and health measurements before every mutation instead of treating this dated
 observation as permanent evidence. Rust remains internal-probe-only and does
 not own production business traffic.
 

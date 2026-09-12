@@ -22,10 +22,10 @@ Copyright (C) 2026 LIghtJUNction
 import fs from 'node:fs/promises'
 import path from 'node:path'
 
+import { assistantToolCopy } from './assistant-tool-copy.mjs'
 import { homeEditorialCopy } from './home-editorial-copy.mjs'
 import { paymentPricingCopy } from './payment-pricing-copy.mjs'
 import { waitCompanionCopy } from './wait-companion-copy.mjs'
-import { assistantToolCopy } from './assistant-tool-copy.mjs'
 
 const LOCALES_DIR = path.resolve('src/i18n/locales')
 
@@ -8184,7 +8184,7 @@ async function main() {
         ? waitCompanionCopy
         : assistantToolOnly
           ? assistantToolCopy
-        : newKeys
+          : newKeys
   let totalAdded = 0
   for (const [locale, baseTranslations] of Object.entries(entries)) {
     const translations = scoped

@@ -65,25 +65,9 @@ jobs:
       - name: Verify backend-independent outage responses
         run: node --test scripts/nginx-service-errors.test.mjs
 
-      - name: Validate read-only production inspectors
-        run: |
-          shellcheck \
-            .agents/skills/lmm-deploy-safely/scripts/inspect-state.sh \
-            .agents/skills/lmm-deploy-safely/scripts/tests/test-inspect-state.sh \
-            .agents/skills/lmm-deploy-safely/scripts/resource-pressure-report.sh \
-            .agents/skills/lmm-deploy-safely/scripts/tests/test-resource-pressure-report.sh
-          bash .agents/skills/lmm-deploy-safely/scripts/tests/test-inspect-state.sh
-          bash .agents/skills/lmm-deploy-safely/scripts/tests/test-resource-pressure-report.sh
-
-      - name: Validate deployment workspace lifecycle
-        run: |
-          shellcheck \
-            .agents/skills/lmm-deploy-safely/scripts/create-workspace.sh \
-            .agents/skills/lmm-deploy-safely/scripts/cleanup-owned-workspace.sh \
-            .agents/skills/lmm-deploy-safely/scripts/tests/test-create-workspace.sh \
-            .agents/skills/lmm-deploy-safely/scripts/tests/test-cleanup-owned-workspace.sh
-          bash .agents/skills/lmm-deploy-safely/scripts/tests/test-create-workspace.sh
-          bash .agents/skills/lmm-deploy-safely/scripts/tests/test-cleanup-owned-workspace.sh
+      # Native inspection, workspace lifecycle and recovery are covered by the
+      # release-artifact-contract job. The retired operator skill scripts are
+      # no longer repository runtime assets.
 
       - name: Test component release governance tooling
         run: |
@@ -133,7 +117,7 @@ jobs:
           sudo apt-get install --no-install-recommends --yes libarchive-tools
           test "$(command -v bsdtar)" = /usr/bin/bsdtar
 
-      - name: Verify immutable release, provider, and package contracts
+      - name: Verify native inspection, workspace, release, and package contracts
         working-directory: apps/api-go
         env:
           TMPDIR: ${{ runner.temp }}
