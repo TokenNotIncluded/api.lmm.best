@@ -58,6 +58,14 @@ impl Drop for Server {
 }
 
 async fn relay_to(upstream: Router) -> (Router, Server) {
+    relay_with_deadlines(upstream, Duration::from_secs(5), Duration::from_secs(5)).await
+}
+
+async fn relay_with_deadlines(
+    upstream: Router,
+    headers: Duration,
+    idle: Duration,
+) -> (Router, Server) {
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("listen");
     let address = listener.local_addr().expect("address");
     let server = Server(tokio::spawn(async move {
@@ -65,11 +73,8 @@ async fn relay_to(upstream: Router) -> (Router, Server) {
     }));
     let service = Arc::new(ForwardRelay {
         client: OpenAiUpstreamClient::new(
-            reqwest::Client::builder()
-                .no_proxy()
-                .build()
-                .expect("client"),
-            Duration::from_secs(5),
+            lmm_api_rs::outbound_http::relay_client(idle).expect("relay client"),
+            headers,
         ),
         target: OpenAiUpstreamTarget {
             base_url: format!("http://{address}"),
@@ -89,6 +94,140 @@ fn request(body: Bytes) -> Request {
         .header(header::CONTENT_TYPE, "application/json")
         .body(Body::from(body))
         .expect("request")
+}
+
+fn streaming_request() -> Request {
+    request(Bytes::from_static(br#"{"model":"gpt-4o","stream":true}"#))
+}
+
+#[tokio::test]
+async fn relay_rejects_missing_response_headers() {
+    let upstream = Router::new().route(
+        "/v1/chat/completions",
+        post(|| async {
+            std::future::pending::<()>().await;
+            "unreachable"
+        }),
+    );
+    let (relay, _server) =
+        relay_with_deadlines(upstream, Duration::from_millis(100), Duration::from_secs(5)).await;
+    let response = tokio::time::timeout(Duration::from_secs(2), relay.oneshot(streaming_request()))
+        .await
+        .expect("header deadline")
+        .expect("response");
+    assert!(!response.status().is_success());
+    let body = to_bytes(response.into_body(), 4096)
+        .await
+        .expect("error body");
+    assert!(String::from_utf8_lossy(&body).contains("upstream response timed out"));
+}
+
+#[tokio::test]
+async fn relay_bounds_body_stalls_after_headers() {
+    let upstream = Router::new().route(
+        "/v1/chat/completions",
+        post(|| async {
+            let first = stream::once(async { Ok::<_, Infallible>(Bytes::from_static(FIRST)) });
+            (
+                [(header::CONTENT_TYPE, "text/event-stream")],
+                Body::from_stream(first.chain(stream::pending())),
+            )
+        }),
+    );
+    let (relay, _server) =
+        relay_with_deadlines(upstream, Duration::from_secs(2), Duration::from_millis(100)).await;
+    let response = relay.oneshot(streaming_request()).await.expect("response");
+    assert_eq!(response.status(), StatusCode::OK);
+    let result = tokio::time::timeout(Duration::from_secs(2), to_bytes(response.into_body(), 4096))
+        .await
+        .expect("stalled body must fail within the idle deadline");
+    assert!(result.is_err(), "do not turn a truncated SSE into success");
+}
+
+#[tokio::test]
+async fn relay_resets_idle_deadline_for_progressing_stream() {
+    let upstream = Router::new().route(
+        "/v1/chat/completions",
+        post(|| async {
+            let chunks = stream::unfold(0, |index| async move {
+                if index == 9 {
+                    return None;
+                }
+                if index > 0 {
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+                Some((
+                    Ok::<_, Infallible>(Bytes::from_static(if index == 8 { DONE } else { FIRST })),
+                    index + 1,
+                ))
+            });
+            (
+                [(header::CONTENT_TYPE, "text/event-stream")],
+                Body::from_stream(chunks),
+            )
+        }),
+    );
+    let idle = Duration::from_millis(400);
+    let (relay, _server) = relay_with_deadlines(upstream, Duration::from_millis(300), idle).await;
+    let started = Instant::now();
+    let response = relay.oneshot(streaming_request()).await.expect("response");
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = tokio::time::timeout(Duration::from_secs(5), to_bytes(response.into_body(), 4096))
+        .await
+        .expect("outer deadline")
+        .expect("progressing stream");
+    assert!(started.elapsed() > idle);
+    assert_eq!(body.as_ref(), [FIRST.repeat(8), DONE.to_vec()].concat());
+}
+
+struct SignalDrop(Option<oneshot::Sender<()>>);
+impl Drop for SignalDrop {
+    fn drop(&mut self) {
+        if let Some(sender) = self.0.take() {
+            let _ = sender.send(());
+        }
+    }
+}
+
+#[tokio::test]
+async fn dropping_downstream_releases_upstream_body() {
+    let (dropped, wait) = oneshot::channel();
+    let signal = Arc::new(Mutex::new(Some(dropped)));
+    let upstream = Router::new().route(
+        "/v1/chat/completions",
+        post(move || {
+            let signal = signal.clone();
+            async move {
+                let guard = SignalDrop(signal.lock().await.take());
+                let chunks = stream::unfold((false, guard), |(sent, guard)| async move {
+                    if sent {
+                        std::future::pending::<()>().await;
+                    }
+                    Some((
+                        Ok::<_, Infallible>(Bytes::from_static(FIRST)),
+                        (true, guard),
+                    ))
+                });
+                (
+                    [(header::CONTENT_TYPE, "text/event-stream")],
+                    Body::from_stream(chunks),
+                )
+            }
+        }),
+    );
+    let (relay, _server) =
+        relay_with_deadlines(upstream, Duration::from_secs(5), Duration::from_secs(30)).await;
+    let response = relay.oneshot(streaming_request()).await.expect("response");
+    let mut chunks = response.into_body().into_data_stream();
+    assert_eq!(
+        chunks.next().await.expect("chunk").expect("data").as_ref(),
+        FIRST
+    );
+    drop(chunks);
+    tokio::time::timeout(Duration::from_secs(3), wait)
+        .await
+        .expect("release before idle timeout")
+        .expect("upstream dropped");
 }
 
 #[tokio::test]
