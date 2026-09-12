@@ -380,8 +380,7 @@ fn usage_percent(total: u64, used: u64) -> Option<f64> {
 pub struct PgRelayMiscService {
     pg: PgPool,
     models: Arc<PgModelsService>,
-    client: reqwest::Client,
-    response_header_timeout: Duration,
+    client: crate::relay_http::RelayHttpClient,
     valkey: Option<redis::Client>,
     rate_limit_timeout: Duration,
     memory_rate_limits: Arc<MemoryModelRateLimits>,
@@ -395,16 +394,15 @@ impl PgRelayMiscService {
     pub fn new(
         pg: PgPool,
         models: Arc<PgModelsService>,
-        client: reqwest::Client,
-        response_header_timeout: Duration,
+        client: crate::relay_http::RelayHttpClient,
+        dependency_timeout: Duration,
     ) -> Self {
         Self {
             pg,
             models,
             client,
-            response_header_timeout,
             valkey: None,
-            rate_limit_timeout: response_header_timeout,
+            rate_limit_timeout: dependency_timeout,
             memory_rate_limits: Arc::new(MemoryModelRateLimits::default()),
             performance_monitor: Arc::new(SystemPerformanceMonitor::new()),
         }
@@ -850,19 +848,20 @@ impl PgRelayMiscService {
                 upstream_request = upstream_request.header(name, value);
             }
         }
-        let upstream = tokio::time::timeout(self.response_header_timeout, upstream_request.send())
-            .await
-            .map_err(|_| {
-                RelayFailure::upstream("upstream response timed out", &principal.request_id)
-            })?
-            .map_err(|_| {
-                RelayFailure::upstream("upstream request failed", &principal.request_id)
-            })?;
+        let upstream = self.client.send(upstream_request).await.map_err(|error| {
+            let message = match error {
+                crate::relay_http::RelayHttpError::ResponseHeaders => "upstream response timed out",
+                _ => "upstream request failed",
+            };
+            RelayFailure::upstream(message, &principal.request_id)
+        })?;
         let status = upstream.status();
         let headers = upstream.headers().clone();
-        let response_body = read_bounded(upstream, MAX_RELAY_BODY_BYTES)
-            .await
-            .map_err(|message| RelayFailure::upstream(message, &principal.request_id))?;
+        let response_body = match read_bounded(upstream, MAX_RELAY_BODY_BYTES).await {
+            Ok(body) => body,
+            Err(_) if status != StatusCode::OK => Vec::new(),
+            Err(message) => return Err(RelayFailure::upstream(message, &principal.request_id)),
+        };
 
         if status != StatusCode::OK {
             tx.rollback().await.ok();
@@ -1976,7 +1975,7 @@ fn usage_from_response(body: &[u8]) -> Usage {
 }
 
 async fn read_bounded(
-    mut response: reqwest::Response,
+    mut response: crate::relay_http::RelayResponse,
     limit: usize,
 ) -> Result<Vec<u8>, &'static str> {
     let mut body = Vec::new();

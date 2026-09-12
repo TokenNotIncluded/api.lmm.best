@@ -584,7 +584,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
         let _subscription_maintenance =
             spawn_subscription_maintenance(pg.clone(), Some(valkey.clone()));
-        let relay_client = lmm_api_rs::outbound_http::relay_client(config.dependency_timeout)
+        let relay_client = lmm_api_rs::relay_http::RelayHttpClient::new(config.relay_timeouts)
             .map_err(|_| io::Error::other("failed to initialize relay HTTP client"))?;
         let assistant_reads = assistant_read_router(
             AssistantReadState::new(
@@ -600,7 +600,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 },
                 DashboardDeveloperAccessPolicy::new(local_acceptance),
             )
-            .with_agent_relay(relay_client.clone(), config.dependency_timeout),
+            .with_agent_relay(relay_client.clone()),
         );
         let developer_access = http::api_global_rate_limited_surface(
             &app_state,
@@ -853,7 +853,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             OpenAiRelayHttpState::new(
                 Arc::new(PgOpenAiRelayService::new(
                     pg.clone(),
-                    OpenAiUpstreamClient::new(relay_client.clone(), config.dependency_timeout),
+                    OpenAiUpstreamClient::new(relay_client.clone()),
                     1,
                 )),
                 app_state.status.version().to_owned(),
@@ -909,7 +909,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             AnthropicGeminiHttpState::new(Arc::new(PgAnthropicGeminiRelayBackend::new(
                 pg.clone(),
                 relay_client.clone(),
-                config.dependency_timeout,
             )))
             .with_protocol_runtime(protocol_rollout.clone(), protocol_registry.clone()),
             model_lookup_state.clone(),
@@ -917,7 +916,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let relay_media = relay_media_router(RelayMediaHttpState::new(Arc::new(
             PgRelayMediaService::new(
                 pg.clone(),
-                MediaUpstreamClient::new(relay_client.clone(), config.dependency_timeout),
+                MediaUpstreamClient::new(relay_client.clone()),
                 1,
             ),
         )));

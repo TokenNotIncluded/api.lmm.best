@@ -11,7 +11,7 @@ manifest="$repo_root/apps/api-rust/Cargo.toml"
 suite=${1:-all}
 
 usage() {
-  echo "usage: $0 {auth|models|api-token|subscription-reset|migration|system-config|all}" >&2
+  echo "usage: $0 {auth|models|api-token|subscription-reset|migration|system-config|relay-timeouts|all}" >&2
   exit 2
 }
 
@@ -90,6 +90,20 @@ run_system_config() {
     --test system_config -- --ignored --test-threads=1
 }
 
+run_relay_timeouts() {
+  require_loopback_url LMM_TEST_DATABASE_URL
+  cargo test --locked --manifest-path "$manifest" -p lmm-api-rs \
+    --test relay_anthropic_gemini_postgres -- --ignored --test-threads=1
+  [[ ${LMM_AUTH_TEST_ALLOW_SCHEMA_RESET:-} == 1 ]] || {
+    echo "LMM_AUTH_TEST_ALLOW_SCHEMA_RESET=1 is required for the isolated relay-misc schema reset" >&2
+    exit 1
+  }
+  LMM_RELAY_MISC_TEST_DATABASE_URL="$LMM_TEST_DATABASE_URL" \
+    LMM_RELAY_MISC_TEST_ALLOW_SCHEMA_RESET=1 \
+    cargo test --locked --manifest-path "$manifest" -p lmm-api-rs \
+    --test relay_misc_pg -- --ignored --test-threads=1
+}
+
 case "$suite" in
   auth) run_auth ;;
   models) run_models ;;
@@ -97,6 +111,7 @@ case "$suite" in
   subscription-reset) run_subscription_reset ;;
   migration) run_migration ;;
   system-config) run_system_config ;;
-  all) run_auth; run_models; run_api_token; run_subscription_reset; run_system_config; run_migration ;;
+  relay-timeouts) run_relay_timeouts ;;
+  all) run_auth; run_models; run_api_token; run_subscription_reset; run_system_config; run_migration; run_relay_timeouts ;;
   *) usage ;;
 esac

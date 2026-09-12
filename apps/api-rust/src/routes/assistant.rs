@@ -1456,14 +1456,10 @@ impl AssistantReadState {
 
     /// Enables the server-funded assistant relay on the normal listener.
     #[must_use]
-    pub fn with_agent_relay(
-        mut self,
-        client: reqwest::Client,
-        response_header_timeout: Duration,
-    ) -> Self {
+    pub fn with_agent_relay(mut self, client: crate::relay_http::RelayHttpClient) -> Self {
         self.agent_backend = Arc::new(PgAssistantAgentBackend {
             pg: self.pg.clone(),
-            upstream: OpenAiUpstreamClient::new(client, response_header_timeout),
+            upstream: OpenAiUpstreamClient::new(client),
             quota_per_request: 1,
         });
         self

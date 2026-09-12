@@ -73,8 +73,14 @@ async fn relay_with_deadlines(
     }));
     let service = Arc::new(ForwardRelay {
         client: OpenAiUpstreamClient::new(
-            lmm_api_rs::outbound_http::relay_client(idle).expect("relay client"),
-            headers,
+            lmm_api_rs::relay_http::RelayHttpClient::new(
+                lmm_api_rs::relay_http::RelayTimeoutConfig {
+                    response_headers: Some(headers),
+                    idle,
+                    total: None,
+                },
+            )
+            .expect("relay client"),
         ),
         target: OpenAiUpstreamTarget {
             base_url: format!("http://{address}"),
@@ -98,6 +104,75 @@ fn request(body: Bytes) -> Request {
 
 fn streaming_request() -> Request {
     request(Bytes::from_static(br#"{"model":"gpt-4o","stream":true}"#))
+}
+
+#[tokio::test]
+async fn three_second_headers_do_not_use_dependency_or_body_idle_timeout() {
+    for headers in [Duration::from_secs(1800), Duration::from_millis(100)] {
+        let upstream = Router::new().route(
+            "/v1/chat/completions",
+            post(|| async {
+                tokio::time::sleep(Duration::from_secs(3)).await;
+                (
+                    [(header::CONTENT_TYPE, "text/event-stream")],
+                    [FIRST, DONE].concat(),
+                )
+            }),
+        );
+        let (relay, _server) =
+            relay_with_deadlines(upstream, headers, Duration::from_secs(2)).await;
+        let response =
+            tokio::time::timeout(Duration::from_secs(15), relay.oneshot(streaming_request()))
+                .await
+                .expect("outer deadline")
+                .expect("response");
+        if headers == Duration::from_secs(1800) {
+            assert_eq!(response.status(), StatusCode::OK);
+            assert_eq!(
+                to_bytes(response.into_body(), 4096).await.unwrap().as_ref(),
+                [FIRST, DONE].concat()
+            );
+        } else {
+            assert!(!response.status().is_success());
+            let body = to_bytes(response.into_body(), 4096).await.unwrap();
+            assert!(String::from_utf8_lossy(&body).contains("upstream response timed out"));
+        }
+    }
+}
+
+#[tokio::test]
+async fn stalled_error_body_preserves_upstream_status_and_safe_fallback() {
+    let upstream = Router::new().route(
+        "/v1/chat/completions",
+        post(|| async {
+            let incomplete =
+                stream::once(async { Ok::<_, Infallible>(Bytes::from_static(b"{\"error\":")) });
+            (
+                StatusCode::TOO_MANY_REQUESTS,
+                [(header::RETRY_AFTER, "7")],
+                Body::from_stream(incomplete.chain(stream::pending())),
+            )
+        }),
+    );
+    let (relay, _server) =
+        relay_with_deadlines(upstream, Duration::from_secs(2), Duration::from_millis(100)).await;
+    let response = tokio::time::timeout(Duration::from_secs(5), relay.oneshot(streaming_request()))
+        .await
+        .expect("error body deadline")
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(response.headers()[header::RETRY_AFTER], "7");
+    let request_id = response.headers()["x-oneapi-request-id"]
+        .to_str()
+        .unwrap()
+        .to_owned();
+    let body = to_bytes(response.into_body(), 4096).await.unwrap();
+    let error: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(
+        error["error"]["message"],
+        format!("upstream returned an error (request id: {request_id})")
+    );
+    assert_eq!(error["error"]["code"], "upstream_error");
 }
 
 #[tokio::test]
