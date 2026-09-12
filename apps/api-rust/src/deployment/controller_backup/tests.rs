@@ -411,7 +411,7 @@ fn plan() -> ReleasePlan {
         deployment_id: "signed-receipt-test".to_owned(),
         created_utc: now(),
         controller_workspace: PathBuf::from("/controller/work"),
-        repository: "LightJunction/api.lmm.best".to_owned(),
+        repository: "TokenNotIncluded/api.lmm.best".to_owned(),
         target_alias: "ArchDmit".to_owned(),
         expected_host: EXPECTED_HOST.to_owned(),
         operator_user: "lmm-api-deploy".to_owned(),

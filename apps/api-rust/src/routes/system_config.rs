@@ -58,7 +58,7 @@ const EXCHANGE_RATE_TIMEOUT: Duration = Duration::from_secs(10);
 const FRANKFURTER_URL_PREFIX: &str = "https://api.frankfurter.app/latest?from=USD&to=";
 const ER_API_URL: &str = "https://open.er-api.com/v6/latest/USD";
 const PROJECT_UPDATE_URL: &str =
-    "https://api.github.com/repos/LIghtJUNction/api.lmm.best/commits/main";
+    "https://api.github.com/repos/TokenNotIncluded/api.lmm.best/commits/main";
 const PANCAKE_API_BASE_URL: &str = "https://api.waffo.ai";
 const PANCAKE_GRAPHQL_PATH: &str = "/v1/graphql";
 const PANCAKE_CREATE_STORE_PATH: &str = "/v1/actions/store/create-store";
@@ -174,7 +174,7 @@ impl GitHubCommit {
             "tag_name": &sha[..7],
             "name": name,
             "body": body,
-            "html_url": format!("https://github.com/LIghtJUNction/api.lmm.best/commit/{sha}"),
+            "html_url": format!("https://github.com/TokenNotIncluded/api.lmm.best/commit/{sha}"),
             "published_at": published_at,
         }))
     }

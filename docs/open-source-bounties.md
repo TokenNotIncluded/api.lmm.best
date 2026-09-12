@@ -8,7 +8,7 @@ A project sponsor can escrow repair rewards using API balance, pay a low, platfo
 
 After the project owner approves submissions, the locked reward is transferred directly into the contributor’s API balance.
 
-This playbook is independent of any Challenge II restoration process. The platform does not preconfigure, default-publish, or auto-pin any repository, including `LIghtJUNction/api.lmm.best`. All projects must be created manually by a sponsor using their own balance, and owners, admins, and regular users follow the same fee rules.
+This playbook is independent of any Challenge II restoration process. The platform does not preconfigure, default-publish, or auto-pin any repository, including `TokenNotIncluded/api.lmm.best`. All projects must be created manually by a sponsor using their own balance, and owners, admins, and regular users follow the same fee rules.
 
 ## 2. Core Principles
 

@@ -1,8 +1,8 @@
 blank_issues_enabled: false
 contact_links:
   - name: LMM API 使用与部署说明 / Usage and deployment
-    url: https://github.com/LIghtJUNction/api.lmm.best#readme
+    url: https://github.com/TokenNotIncluded/api.lmm.best#readme
     about: 提交 Issue 前请先查看本衍生版的说明、构建方式和支持边界。
   - name: LMM Forge 悬赏流程 / Bounty workflow
-    url: https://github.com/LIghtJUNction/api.lmm.best/blob/main/docs/open-source-bounties.zh-CN.md
+    url: https://github.com/TokenNotIncluded/api.lmm.best/blob/main/docs/open-source-bounties.zh-CN.md
     about: 发布悬赏、接受挑战、提交证据、验收、争议和 MCP 流程均有说明。

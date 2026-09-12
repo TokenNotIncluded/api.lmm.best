@@ -16,8 +16,8 @@ import (
 )
 
 const (
-	projectCommitAPIURL  = "https://api.github.com/repos/LIghtJUNction/api.lmm.best/commits/main"
-	projectCommitURLBase = "https://github.com/LIghtJUNction/api.lmm.best/commit/"
+	projectCommitAPIURL  = "https://api.github.com/repos/TokenNotIncluded/api.lmm.best/commits/main"
+	projectCommitURLBase = "https://github.com/TokenNotIncluded/api.lmm.best/commit/"
 	maxProjectCommitBody = 1 << 20
 )
 

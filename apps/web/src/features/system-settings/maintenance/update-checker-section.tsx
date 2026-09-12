@@ -116,7 +116,7 @@ export function UpdateCheckerSection({
       protocols: ['https:'],
       origins: ['https://github.com'],
       hosts: ['github.com'],
-      paths: { prefixes: ['/LIghtJUNction/api.lmm.best/commit/'] },
+      paths: { prefixes: ['/TokenNotIncluded/api.lmm.best/commit/'] },
     })
     if (releaseUrl) {
       // Invariant: releaseUrl is HTTPS on github.com under this repository's commit path.

@@ -1,10 +1,10 @@
 # LMM Forge
 
-[![CI](https://github.com/LIghtJUNction/api.lmm.best/actions/workflows/ci.yml/badge.svg)](https://github.com/LIghtJUNction/api.lmm.best/actions/workflows/ci.yml)
+[![CI](https://github.com/TokenNotIncluded/api.lmm.best/actions/workflows/ci.yml/badge.svg)](https://github.com/TokenNotIncluded/api.lmm.best/actions/workflows/ci.yml)
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](./LICENSE)
-[![Release](https://img.shields.io/github/v/release/LIghtJUNction/api.lmm.best?display_name=tag)](https://github.com/LIghtJUNction/api.lmm.best/releases)
-[![Issues](https://img.shields.io/github/issues/LIghtJUNction/api.lmm.best)](https://github.com/LIghtJUNction/api.lmm.best/issues)
-[![Last Commit](https://img.shields.io/github/last-commit/LIghtJUNction/api.lmm.best)](https://github.com/LIghtJUNction/api.lmm.best/commits/main)
+[![Release](https://img.shields.io/github/v/release/TokenNotIncluded/api.lmm.best?display_name=tag)](https://github.com/TokenNotIncluded/api.lmm.best/releases)
+[![Issues](https://img.shields.io/github/issues/TokenNotIncluded/api.lmm.best)](https://github.com/TokenNotIncluded/api.lmm.best/issues)
+[![Last Commit](https://img.shields.io/github/last-commit/TokenNotIncluded/api.lmm.best)](https://github.com/TokenNotIncluded/api.lmm.best/commits/main)
 
 > **Access policy:** Access from China is prohibited.
 
@@ -60,7 +60,7 @@ Providers install real `lmm-api-go` or `lmm-api-rs` binaries. Production and ope
 
 ```bash
 
-git clone https://github.com/LIghtJUNction/api.lmm.best.git
+git clone https://github.com/TokenNotIncluded/api.lmm.best.git
 cd api.lmm.best
 just setup
 ```

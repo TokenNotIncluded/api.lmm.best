@@ -3,7 +3,7 @@ set -Eeuo pipefail
 
 ROOT=$(git rev-parse --show-toplevel)
 readonly ROOT
-readonly REPOSITORY=${GITHUB_REPOSITORY:-LIghtJUNction/api.lmm.best}
+readonly REPOSITORY=${GITHUB_REPOSITORY:-TokenNotIncluded/api.lmm.best}
 readonly API_ROOT=${GITHUB_API_URL:-https://api.github.com}
 readonly REQUIRED_FILE="$ROOT/.github/required-release-checks.txt"
 readonly MAX_ATTEMPTS=${LMM_CHECK_MAX_ATTEMPTS:-30}

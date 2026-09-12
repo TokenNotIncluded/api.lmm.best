@@ -24,7 +24,7 @@ import { cn } from '@/lib/utils'
 
 import { ErrorPageFrame } from './error-page-frame'
 
-const FEEDBACK_URL = 'https://github.com/LIghtJUNction/api.lmm.best/issues'
+const FEEDBACK_URL = 'https://github.com/TokenNotIncluded/api.lmm.best/issues'
 
 type GeneralErrorProps = React.HTMLAttributes<HTMLDivElement> & {
   minimal?: boolean

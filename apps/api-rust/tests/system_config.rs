@@ -61,7 +61,7 @@ impl ProjectUpdateClient for Update {
             "tag_name": "abcdef0",
             "name": "fix: control plane",
             "body": "fixture",
-            "html_url": "https://github.com/LIghtJUNction/api.lmm.best/commit/abcdef0",
+            "html_url": "https://github.com/TokenNotIncluded/api.lmm.best/commit/abcdef0",
             "published_at": "2026-08-01T00:00:00Z"
         }))
     }

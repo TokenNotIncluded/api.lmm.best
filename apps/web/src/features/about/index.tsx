@@ -58,7 +58,7 @@ function EmptyAboutState() {
           <p className='text-muted-foreground'>
             {t('This project must be used in compliance with the')}{' '}
             <a
-              href='https://github.com/LIghtJUNction/api.lmm.best/blob/main/LICENSE'
+              href='https://github.com/TokenNotIncluded/api.lmm.best/blob/main/LICENSE'
               target='_blank'
               rel='noopener noreferrer'
               className='border-foreground text-foreground border-b hover:opacity-70'

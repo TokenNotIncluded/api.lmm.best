@@ -4,7 +4,7 @@ umask 077
 
 HERE=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 readonly HERE
-readonly REPOSITORY=${GITHUB_REPOSITORY:-LIghtJUNction/api.lmm.best}
+readonly REPOSITORY=${GITHUB_REPOSITORY:-TokenNotIncluded/api.lmm.best}
 readonly API_ROOT=${GITHUB_API_URL:-https://api.github.com}
 readonly PKGBUILD="$HERE/lmm-api-go-bin/PKGBUILD"
 readonly SRCINFO="$HERE/lmm-api-go-bin/.SRCINFO"
@@ -122,7 +122,7 @@ for arch in amd64 arm64; do
   [[ $expected == "${pins[0]}" ]] || fail "$artifact checksum asset does not bind the archive"
   cosign verify-blob \
     --bundle "$work/$artifact.sigstore.json" \
-    --certificate-identity "https://github.com/$REPOSITORY/.github/workflows/release-go.yml@refs/tags/$release_tag" \
+    --certificate-identity "https://github.com/LIghtJUNction/api.lmm.best/.github/workflows/release-go.yml@refs/tags/$release_tag" \
     --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
     "$work/$artifact" >"$work/cosign-$arch.log" || fail "$artifact Sigstore bundle is invalid"
 done

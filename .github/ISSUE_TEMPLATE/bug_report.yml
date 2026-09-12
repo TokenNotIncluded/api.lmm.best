@@ -11,8 +11,8 @@ body:
 
         本仓库只处理能够在 **LMM Forge** 中复现的问题，以及由当前产品层或兼容层修改引入的回归。
 
-        - 使用与部署说明：[项目 README](https://github.com/LIghtJUNction/api.lmm.best#readme)
-        - 悬赏流程说明：[开源悬赏玩法](https://github.com/LIghtJUNction/api.lmm.best/blob/main/docs/open-source-bounties.zh-CN.md)
+        - 使用与部署说明：[项目 README](https://github.com/TokenNotIncluded/api.lmm.best#readme)
+        - 悬赏流程说明：[开源悬赏玩法](https://github.com/TokenNotIncluded/api.lmm.best/blob/main/docs/open-source-bounties.zh-CN.md)
         - 第三方托管站、私有修改版和外部供应商服务本身的问题，请联系相应维护者或服务商。
         - 请务必删除 API Key、Cookie、Token、密码、DSN 和其他敏感信息。
 
@@ -25,7 +25,7 @@ body:
     attributes:
       label: 提交确认
       options:
-        - label: 我已搜索本仓库的 [Issues](https://github.com/LIghtJUNction/api.lmm.best/issues)，确认没有重复问题。
+        - label: 我已搜索本仓库的 [Issues](https://github.com/TokenNotIncluded/api.lmm.best/issues)，确认没有重复问题。
           required: true
         - label: 我确认问题能够在本仓库未修改的代码中复现，而不是仅存在于第三方服务或我的私有修改中。
           required: true

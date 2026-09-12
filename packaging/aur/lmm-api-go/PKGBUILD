@@ -5,7 +5,7 @@ pkgver=0.1.20.r1291.g1db462ebe
 pkgrel=1
 pkgdesc='LMM API Go backend, native CLI, systemd service, and web frontend'
 arch=('x86_64' 'aarch64')
-url='https://github.com/LIghtJUNction/api.lmm.best'
+url='https://github.com/TokenNotIncluded/api.lmm.best'
 license=('AGPL-3.0-only')
 depends=('ca-certificates' 'coreutils' 'libarchive' 'pacman' 'paru' 'sudo' 'systemd' 'tzdata' 'util-linux')
 makedepends=('bun' 'git' 'go>=1.25.1')

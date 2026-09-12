@@ -169,6 +169,6 @@ authenticated users then see it once after their next login.
   buyer, promotion, security, normal, mobile, privacy and screen-reader
   profiles.
 
-[Unreleased]: https://github.com/LIghtJUNction/api.lmm.best/compare/v0.1.6...HEAD
-[0.1.6]: https://github.com/LIghtJUNction/api.lmm.best/compare/v0.1.5...v0.1.6
-[0.1.4]: https://github.com/LIghtJUNction/api.lmm.best/compare/v0.1.3...v0.1.4
+[Unreleased]: https://github.com/TokenNotIncluded/api.lmm.best/compare/v0.1.6...HEAD
+[0.1.6]: https://github.com/TokenNotIncluded/api.lmm.best/compare/v0.1.5...v0.1.6
+[0.1.4]: https://github.com/TokenNotIncluded/api.lmm.best/compare/v0.1.3...v0.1.4

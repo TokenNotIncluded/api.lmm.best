@@ -28,6 +28,7 @@ const (
 	productionReleasePlanFilename     = "release-plan.json"
 	productionReleasePlanHashFilename = "release-plan.sha256"
 	productionReleaseStateFilename    = "release-state.json"
+	// Historical release certificates retain the repository identity used when signed.
 	productionReleaseRepository       = "https://github.com/LIghtJUNction/api.lmm.best"
 	productionReleaseOIDCIssuer       = "https://token.actions.githubusercontent.com"
 )

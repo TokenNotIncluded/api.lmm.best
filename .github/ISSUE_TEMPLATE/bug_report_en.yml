@@ -11,8 +11,8 @@ body:
 
         This repository handles issues reproducible in **LMM Forge** and regressions introduced by the current product or compatibility layers.
 
-        - Usage and deployment: [project README](https://github.com/LIghtJUNction/api.lmm.best#readme)
-        - Bounty workflow: [open-source bounty guide](https://github.com/LIghtJUNction/api.lmm.best/blob/main/docs/open-source-bounties.zh-CN.md)
+        - Usage and deployment: [project README](https://github.com/TokenNotIncluded/api.lmm.best#readme)
+        - Bounty workflow: [open-source bounty guide](https://github.com/TokenNotIncluded/api.lmm.best/blob/main/docs/open-source-bounties.zh-CN.md)
         - For third-party hosted services, private forks, or external provider failures, contact the relevant maintainer or provider.
         - Remove API keys, cookies, tokens, passwords, DSNs, and all other secrets before posting.
 
@@ -25,7 +25,7 @@ body:
     attributes:
       label: Submission checks
       options:
-        - label: I searched this repository's [Issues](https://github.com/LIghtJUNction/api.lmm.best/issues) and found no duplicate.
+        - label: I searched this repository's [Issues](https://github.com/TokenNotIncluded/api.lmm.best/issues) and found no duplicate.
           required: true
         - label: I reproduced the issue with unmodified code from this repository; it is not limited to a third-party service or my private changes.
           required: true
