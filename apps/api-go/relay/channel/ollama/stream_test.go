@@ -1,6 +1,7 @@
 package ollama
 
 import (
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -16,6 +17,63 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestOllamaStreamRetainsDonePayload(t *testing.T) {
+	for _, payload := range []string{
+		`"message":{"content":"final text","thinking":"final thought","tool_calls":[{"function":{"name":"weather","arguments":{"city":"Paris"}}},{"function":{"name":"clock","arguments":{}}}]}`,
+		`"response":"final text"`,
+		`"message":{"content":""}`,
+	} {
+		t.Run(payload, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(w)
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+			body := `{"model":"test",` + payload + `,"done":true,"prompt_eval_count":5,"eval_count":7}` + "\n"
+			resp := &http.Response{Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}
+			usage, apiErr := ollamaStreamHandler(c, &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{UpstreamModelName: "test"}}, resp)
+			require.Nil(t, apiErr)
+			require.Equal(t, 12, usage.TotalTokens)
+			var calls []dto.ToolCallResponse
+			var content, reasoning, finish string
+			var chunks int
+			for _, line := range strings.Split(w.Body.String(), "\n") {
+				if !strings.HasPrefix(line, "data: ") || line == "data: [DONE]" {
+					continue
+				}
+				var event dto.ChatCompletionsStreamResponse
+				require.NoError(t, json.Unmarshal([]byte(strings.TrimPrefix(line, "data: ")), &event))
+				chunks++
+				for _, choice := range event.Choices {
+					content += choice.Delta.GetContentString()
+					calls = append(calls, choice.Delta.ToolCalls...)
+					if choice.Delta.ReasoningContent != nil {
+						reasoning += *choice.Delta.ReasoningContent
+					}
+					if choice.FinishReason != nil {
+						finish = *choice.FinishReason
+					}
+				}
+			}
+			require.Equal(t, 1, strings.Count(w.Body.String(), "data: [DONE]"))
+			if strings.Contains(payload, "tool_calls") {
+				require.Len(t, calls, 2)
+				require.Equal(t, 0, *calls[0].Index)
+				require.Equal(t, 1, *calls[1].Index)
+				require.JSONEq(t, `{"city":"Paris"}`, calls[0].Function.Arguments)
+				require.Equal(t, "final thought", reasoning)
+				require.Equal(t, "tool_calls", finish)
+			} else {
+				require.Equal(t, "stop", finish)
+			}
+			if strings.Contains(payload, "final text") {
+				require.Equal(t, "final text", content)
+			} else {
+				require.Empty(t, content)
+				require.Equal(t, 3, chunks)
+			}
+		})
+	}
+}
 
 func TestOllamaChatHandlerNonStreamToolCalls(t *testing.T) {
 	gin.SetMode(gin.TestMode)
