@@ -952,6 +952,9 @@ func testChannelForHealthCheck(ctx context.Context, channel *model.Channel, test
 	summary := channelTestSummary{}
 	if channel.ChannelInfo.IsMultiKey && common.AutomaticEnableChannelEnabled && channel.Status != common.ChannelStatusManuallyDisabled {
 		summary = recoverChannelKeys(ctx, channel, testUserID)
+		// channel is the pre-probe snapshot. A disabled channel has already been
+		// checked key by key; do not add a redundant ordinary test this cycle.
+		// Successful recovery is persisted independently, including abilities/cache.
 		if channel.Status != common.ChannelStatusEnabled || ctx.Err() != nil {
 			return summary
 		}

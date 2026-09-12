@@ -99,6 +99,9 @@ func TestChannelRecoveryHTTP(t *testing.T) {
 			}
 			require.Len(t, called, expectedCalls)
 			require.Equal(t, recovered, summary.Enabled)
+			if !tc.cancel {
+				require.Equal(t, expectedCalls, summary.Tested)
+			}
 			if recovered > 0 || tc.name == "partial" {
 				require.Equal(t, common.ChannelStatusEnabled, stored.Status)
 			} else {
