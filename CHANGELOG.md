@@ -13,6 +13,18 @@ authenticated users then see it once after their next login.
 
 <!-- Add user-facing or operational changes here before the next release. -->
 
+- Added read-only API-key quota monitoring at `GET /v1/usage` and scoped model
+  price queries at `GET /v1/pricing`. Quota responses use USD, distinguish key
+  allowance from account funds, and represent unlimited allowance explicitly.
+  See [the query API documentation](docs/read-only-query-api.md).
+- Go Responses streams retain terminal usage and report interrupted streams
+  without replaying consumed output or refunding its completed consumption.
+  Upstream SSE heartbeats and Ollama final-frame content are preserved.
+- Fixed routing-cache refreshes with missing ability groups, BGE reranker test
+  requests, recovery of automatically disabled channel keys, inline-media token
+  counting, and AWS credential dispatch. Unsupported Gemini actions are rejected
+  before generation billing.
+
 - Rust relay clients now bound stalled reads with a resettable read timeout
   instead of a total request deadline, allowing progressing streams to continue.
   Adapter request/header deadlines and control-plane total timeouts remain intact.
