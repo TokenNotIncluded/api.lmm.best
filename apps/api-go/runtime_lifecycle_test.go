@@ -95,7 +95,7 @@ func TestShutdownRuntimeOrderingAndTimeout(t *testing.T) {
 		t.Fatalf("shutdown error = %v, want deadline exceeded", err)
 	}
 
-	want := []string{"unready", "cancel", "websocket", "http", "wait", "quota", "batch", "perf", "valkey", "db"}
+	want := []string{"unready", "cancel", "websocket", "http", "wait"}
 	if !reflect.DeepEqual(order, want) {
 		t.Fatalf("shutdown order = %v, want %v", order, want)
 	}

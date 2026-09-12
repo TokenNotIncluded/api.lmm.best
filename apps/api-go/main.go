@@ -342,6 +342,12 @@ func runServer() {
 		waitLoops: func(ctx context.Context) error {
 			return errors.Join(loops.Wait(ctx), model.WaitForCacheWarm(ctx), middleware.WaitAdminAudits(ctx))
 		},
+		waitRefunds: func(ctx context.Context) (bool, error) {
+			report, err := service.DrainBillingRefundTasks(ctx)
+			complete := ctx.Err() == nil && report.Active == 0 && report.Accepted == report.Finished
+			common.SysLog(fmt.Sprintf("refund_tasks execution_complete=%t accepted=%d finished=%d active=%d failed=%d (execution completion is not financial success)", complete, report.Accepted, report.Finished, report.Active, report.Failed))
+			return complete, err
+		},
 		flushQuota: func() {
 			if common.DataExportEnabled {
 				model.SaveQuotaDataCache()
@@ -354,7 +360,8 @@ func runServer() {
 	}, shutdownTimeout, loopShutdownTimeout)
 	resourcesOpen = false
 	if err != nil {
-		common.SysError("shutdown completed with errors: " + err.Error())
+		common.SysError("shutdown failed: " + err.Error())
+		os.Exit(1)
 	}
 	common.SysLog("server exited")
 }

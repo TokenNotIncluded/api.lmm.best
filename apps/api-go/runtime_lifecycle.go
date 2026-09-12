@@ -106,6 +106,7 @@ type shutdownSteps struct {
 	drainSockets func(context.Context) error
 	shutdownHTTP func(context.Context) error
 	waitLoops    func(context.Context) error
+	waitRefunds  func(context.Context) (bool, error)
 	flushQuota   func()
 	flushBatch   func()
 	flushPerf    func()
@@ -142,6 +143,18 @@ func shutdownRuntime(steps shutdownSteps, totalTimeout, waitTimeout time.Duratio
 		result = errors.Join(result, steps.shutdownHTTP(shutdownCtx))
 	}
 	result = errors.Join(result, boundedStep(steps.waitLoops))
+	// A failed producer drain cannot establish that the refund queue is final.
+	// Do not flush or close stores while a handler/loop may still mutate them.
+	if result != nil {
+		return errors.Join(result, errors.New("producer drain incomplete; refund drain and store flush skipped"))
+	}
+	if steps.waitRefunds != nil {
+		complete, err := steps.waitRefunds(shutdownCtx)
+		result = errors.Join(result, err)
+		if !complete {
+			return errors.Join(result, errors.New("refund task drain incomplete; stores left open for process termination"))
+		}
+	}
 	if steps.flushQuota != nil {
 		steps.flushQuota()
 	}

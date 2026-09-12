@@ -13,7 +13,6 @@ import (
 	relaycommon "github.com/LIghtJUNction/api.lmm.best/relay/common"
 	"github.com/LIghtJUNction/api.lmm.best/relaykit/types"
 
-	"github.com/bytedance/gopkg/util/gopool"
 	"github.com/gin-gonic/gin"
 )
 
@@ -118,14 +117,14 @@ func (s *BillingSession) SubscriptionSettlement() *model.SubscriptionBillingResu
 // Refund 退还所有预扣费。订阅同步原子退款，其他来源异步执行。
 func (s *BillingSession) Refund(c *gin.Context) {
 	s.mu.Lock()
+	defer s.mu.Unlock()
 	if sub, ok := s.funding.(*SubscriptionFunding); ok && sub.managed {
-		defer s.mu.Unlock()
 		if s.settled || s.refunded || s.settlementAttempted {
 			return
 		}
 		// Synchronous and atomic: a failed refund remains retryable. The durable
 		// record, not the in-memory flag, protects against duplicate credits.
-		if err := sub.Refund(); err != nil {
+		if err := billingRefundTasks.run(sub.Refund); err != nil {
 			common.SysLog("error refunding subscription billing: " + err.Error())
 			return
 		}
@@ -133,11 +132,8 @@ func (s *BillingSession) Refund(c *gin.Context) {
 		return
 	}
 	if s.settled || s.refunded || !s.needsRefundLocked() {
-		s.mu.Unlock()
 		return
 	}
-	s.refunded = true
-	s.mu.Unlock()
 
 	logger.LogInfo(c, fmt.Sprintf("用户 %d 请求失败, 返还预扣费（token_quota=%s, funding=%s）",
 		s.relayInfo.UserId,
@@ -155,23 +151,33 @@ func (s *BillingSession) Refund(c *gin.Context) {
 	subscriptionId := s.relayInfo.SubscriptionId
 	funding := s.funding
 
-	gopool.Go(func() {
+	err := billingRefundTasks.goRun(func() error {
+		var result error
 		// 1) 退还资金来源
 		if err := funding.Refund(); err != nil {
+			result = errors.Join(result, err)
 			common.SysLog("error refunding billing source: " + err.Error())
 		}
 		if extraReserved > 0 && funding.Source() == BillingSourceSubscription && subscriptionId > 0 {
 			if err := model.PostConsumeUserSubscriptionDelta(subscriptionId, -int64(extraReserved)); err != nil {
+				result = errors.Join(result, err)
 				common.SysLog("error refunding subscription extra reserved quota: " + err.Error())
 			}
 		}
 		// 2) 退还令牌额度
 		if tokenConsumed > 0 && !isPlayground && !isAssistant {
 			if err := model.IncreaseTokenQuota(tokenId, tokenKey, tokenConsumed); err != nil {
+				result = errors.Join(result, err)
 				common.SysLog("error refunding token quota: " + err.Error())
 			}
 		}
-	})
+		return result
+	}, func(error) { common.SysError("billing refund task failed; financial reconciliation required") })
+	if err != nil {
+		common.SysError("billing refund not scheduled: " + err.Error())
+		return
+	}
+	s.refunded = true
 }
 
 // NeedsRefund 返回是否存在需要退还的预扣状态。
