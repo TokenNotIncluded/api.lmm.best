@@ -495,11 +495,16 @@ fn public_https_url(raw: &str) -> Result<Url, FederationProviderError> {
     {
         return Err(FederationProviderError::InvalidIdentity);
     }
-    if let Some(host) = url.host_str()
-        && let Ok(ip) = host.parse::<IpAddr>()
-        && !public_ip(ip)
-    {
-        return Err(FederationProviderError::InvalidIdentity);
+    if let Some(host) = url.host_str() {
+        let host_stripped = host
+            .strip_prefix('[')
+            .and_then(|h| h.strip_suffix(']'))
+            .unwrap_or(host);
+        if let Ok(ip) = host_stripped.parse::<IpAddr>()
+            && !public_ip(ip)
+        {
+            return Err(FederationProviderError::InvalidIdentity);
+        }
     }
     Ok(url)
 }
@@ -527,7 +532,11 @@ async fn validate_fetch_url(
         return Err(FederationProviderError::Unavailable);
     }
     let host = url.host_str().ok_or(FederationProviderError::Unavailable)?;
-    if let Ok(ip) = host.parse::<IpAddr>() {
+    let host_stripped = host
+        .strip_prefix('[')
+        .and_then(|h| h.strip_suffix(']'))
+        .unwrap_or(host);
+    if let Ok(ip) = host_stripped.parse::<IpAddr>() {
         return public_ip(ip)
             .then_some(())
             .ok_or(FederationProviderError::Unavailable);
@@ -559,6 +568,10 @@ fn public_ip(ip: IpAddr) -> bool {
                 && !ip.is_multicast()
         }
         IpAddr::V6(ip) => {
+            // Reject IPv4-mapped addresses by re-checking the mapped IPv4 form.
+            if let Some(mapped) = ip.to_ipv4_mapped() {
+                return public_ip(IpAddr::V4(mapped));
+            }
             !ip.is_loopback()
                 && !ip.is_unspecified()
                 && !ip.is_unique_local()

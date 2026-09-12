@@ -365,7 +365,14 @@ fn validate_ratio_url(url: &reqwest::Url) -> Result<(), String> {
     if !matches!(port, 443 | 8443) {
         return Err("upstream HTTPS port is not allowed".to_owned());
     }
-    if let Ok(ip) = host.parse::<IpAddr>()
+    // host_str() includes brackets for IPv6 (e.g. "[::1]"), but
+    // IpAddr::parse() rejects brackets.  Strip them so the guard
+    // actually runs for IPv6 literal addresses.
+    let host_stripped = host
+        .strip_prefix('[')
+        .and_then(|h| h.strip_suffix(']'))
+        .unwrap_or(host);
+    if let Ok(ip) = host_stripped.parse::<IpAddr>()
         && !globally_routable(ip)
     {
         return Err("unsafe upstream IP".to_owned());
