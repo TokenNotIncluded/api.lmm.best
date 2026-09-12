@@ -95,14 +95,16 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 	streamingTimeout := time.Duration(constant.StreamingTimeout) * time.Second
 
 	var (
-		stopChan    = make(chan bool, 3) // 增加缓冲区避免阻塞
-		scanner     = NewStreamScanner(resp.Body)
-		ticker      = time.NewTicker(streamingTimeout)
-		pingTicker  *time.Ticker
-		writeMutex  sync.Mutex     // Mutex to protect concurrent writes
-		wg          sync.WaitGroup // 用于等待所有 goroutine 退出
-		cleanupOnce sync.Once
-		stopOnce    sync.Once
+		stopChan        = make(chan bool, 3) // 增加缓冲区避免阻塞
+		scanner         = NewStreamScanner(resp.Body)
+		ticker          = time.NewTicker(streamingTimeout)
+		pingTicker      *time.Ticker
+		writeMutex      sync.Mutex     // Mutex to protect concurrent writes
+		wg              sync.WaitGroup // 用于等待所有 goroutine 退出
+		cleanupOnce     sync.Once
+		stopOnce        sync.Once
+		businessWritten bool // protected by writeMutex, unlike scanner counters
+		lastHeartbeat   time.Time
 	)
 
 	stop := func() {
@@ -120,6 +122,23 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 
 	if pingEnabled {
 		pingTicker = time.NewTicker(pingInterval)
+	}
+	// Upstream comments and local pings share a bounded write cadence. Comments
+	// never commit headers before a business callback has written a response.
+	heartbeatInterval := time.Second
+	if pingInterval < heartbeatInterval {
+		heartbeatInterval = pingInterval
+	}
+	writeHeartbeat := func() error {
+		if !businessWritten || time.Since(lastHeartbeat) < heartbeatInterval {
+			return nil
+		}
+		ExtendWriteDeadline(c)
+		if err := PingData(c); err != nil {
+			return err
+		}
+		lastHeartbeat = time.Now()
+		return nil
 	}
 
 	logger.LogDebug(c, "relay timeout seconds: %d", common.RelayTimeout)
@@ -179,12 +198,12 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 					func() {
 						writeMutex.Lock()
 						defer writeMutex.Unlock()
-						ExtendWriteDeadline(c)
-						err = PingData(c)
+						err = writeHeartbeat()
 					}()
 					if err != nil {
 						logger.LogError(c, "ping data error: "+err.Error())
 						info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonPingFail, err)
+						stop()
 						return
 					}
 					logger.LogDebug(c, "ping data sent")
@@ -223,8 +242,15 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 			func() {
 				writeMutex.Lock()
 				defer writeMutex.Unlock()
+				if strings.HasPrefix(data, ":") {
+					if err := writeHeartbeat(); err != nil {
+						sr.Stop(err)
+					}
+					return
+				}
 				ExtendWriteDeadline(c)
 				dataHandler(data, sr)
+				businessWritten = c.Writer.Written()
 			}()
 			if sr.IsStopped() {
 				return
@@ -259,6 +285,16 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 			ticker.Reset(streamingTimeout)
 			data := scanner.Text()
 			logger.LogDebug(c, "stream scanner data: %s", data)
+			if strings.HasPrefix(data, ":") {
+				select {
+				case dataChan <- ":": // normalize and keep the existing bounded queue
+				case <-ctx.Done():
+					return
+				case <-stopChan:
+					return
+				}
+				continue
+			}
 
 			if len(data) < 6 {
 				continue
