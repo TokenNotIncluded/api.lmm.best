@@ -595,6 +595,96 @@ async fn dynamic_midjourney_auth_and_route_status_contract_holds_over_a_real_tcp
 }
 
 #[tokio::test]
+async fn disabled_model_deadlines_do_not_relax_protected_image_address_checks() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}/private.png", listener.local_addr().unwrap());
+    let backend = PgMidjourneyBackend::new(
+        PgPool::connect_lazy("postgres://unused:unused@127.0.0.1:1/unused").unwrap(),
+        lmm_api_rs::relay_http::RelayHttpClient::new(lmm_api_rs::relay_http::RelayTimeoutConfig {
+            response_headers: None,
+            total: None,
+            ..Default::default()
+        })
+        .unwrap(),
+        MidjourneyChannel {
+            id: 9,
+            base_url: url.clone(),
+            api_key: "fixture".into(),
+            quota: 0,
+        },
+        Duration::from_millis(100),
+        16 * 1024,
+    );
+    let reply = tokio::time::timeout(Duration::from_secs(5), backend.fetch_image(&url))
+        .await
+        .expect("protected fetch remains bounded");
+    assert!(matches!(reply, Err(MidjourneyFailure::BlockedImage)));
+    assert!(
+        tokio::time::timeout(Duration::from_millis(50), listener.accept())
+            .await
+            .is_err(),
+        "blocked images must not reach the network"
+    );
+}
+
+#[tokio::test]
+async fn stalled_provider_error_keeps_status_and_cannot_create_a_success_effect() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let upstream = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let mut request = [0; 4096];
+        assert!(socket.read(&mut request).await.unwrap() > 0);
+        socket.write_all(b"HTTP/1.1 429 Too Many Requests\r\nContent-Type: application/json\r\nContent-Length: 1000\r\n\r\n{\"code\":").await.unwrap();
+        tokio::time::sleep(Duration::from_secs(5)).await;
+    });
+    let backend = PgMidjourneyBackend::new(
+        PgPool::connect_lazy("postgres://unused:unused@127.0.0.1:1/unused").unwrap(),
+        lmm_api_rs::relay_http::RelayHttpClient::new(lmm_api_rs::relay_http::RelayTimeoutConfig {
+            response_headers: Some(Duration::from_secs(2)),
+            idle: Duration::from_millis(100),
+            total: None,
+        })
+        .unwrap(),
+        MidjourneyChannel {
+            id: 9,
+            base_url: format!("http://{address}/"),
+            api_key: "fixture".into(),
+            quota: 0,
+        },
+        Duration::from_secs(1),
+        16 * 1024,
+    )
+    .with_settings(lmm_api_rs::routes::media_midjourney::MidjourneySettings {
+        require_successful_parent: false,
+        ..Default::default()
+    });
+    let result = tokio::time::timeout(
+        Duration::from_secs(3),
+        backend.submit(
+            &MidjourneyIdentity {
+                user_id: 1,
+                token_id: "1".into(),
+            },
+            "proxy",
+            "imagine",
+            &axum::http::HeaderMap::new(),
+            json!({"prompt":"fixture"}),
+        ),
+    )
+    .await;
+    upstream.abort();
+    let _ = upstream.await;
+    let reply = result
+        .expect("bounded read")
+        .expect("safe upstream error reply");
+    assert_eq!(reply.response.status, StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(reply.response.body["code"], 5);
+    assert_eq!(reply.effect.code, 5);
+    assert!(reply.effect.task_id.is_empty());
+}
+
+#[tokio::test]
 async fn pg_adapter_uses_channel_secret_and_only_compatibility_headers_for_mock_upstream() {
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("listener");
     let address = listener.local_addr().expect("address");
@@ -610,7 +700,7 @@ async fn pg_adapter_uses_channel_secret_and_only_compatibility_headers_for_mock_
     });
     let backend = PgMidjourneyBackend::new(
         PgPool::connect_lazy("postgres://oracle:oracle@127.0.0.1:1/oracle").expect("lazy pool"),
-        reqwest::Client::new(),
+        lmm_api_rs::relay_http::RelayHttpClient::new(Default::default()).unwrap(),
         MidjourneyChannel {
             id: 9,
             base_url: format!("http://{address}/"),

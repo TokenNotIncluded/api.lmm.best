@@ -5,7 +5,17 @@
 set -euo pipefail
 
 repo_root=$(git rev-parse --show-toplevel)
-legacy_revision=5418ce6b6d45ed69167b0aad53f2f595e5bc8de9
+legacy_revision=${LMM_GO_ORACLE_REVISION:-5418ce6b6d45ed69167b0aad53f2f595e5bc8de9}
+if [[ -n ${LMM_RELAY_TIMEOUT_PROFILE:-} ]]; then
+  python3 "$repo_root/apps/api-rust/tests/behavior-oracle/fixtures/test_relay_timeout_compare.py"
+  read -r header_seconds idle_seconds total_seconds < <(
+    jq -er --arg profile "$LMM_RELAY_TIMEOUT_PROFILE" \
+      '.profiles[$profile] | [.headers, .idle, .total] | @tsv' \
+      "$repo_root/apps/api-rust/tests/behavior-oracle/fixtures/scenarios/relay_timeouts.json"
+  )
+  export RELAY_RESPONSE_HEADER_TIMEOUT=$header_seconds STREAMING_TIMEOUT=$idle_seconds RELAY_TIMEOUT=$total_seconds
+  export LMM_RELAY_RESPONSE_HEADER_TIMEOUT_SECONDS=$header_seconds LMM_RELAY_IDLE_TIMEOUT_SECONDS=$idle_seconds LMM_RELAY_TIMEOUT_SECONDS=$total_seconds
+fi
 legacy_root=${LMM_GO_ORACLE_ROOT:-}
 [[ -n $legacy_root ]] || {
   echo "LMM_GO_ORACLE_ROOT is required ($legacy_revision)" >&2
@@ -89,7 +99,7 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-for command in awk cargo createdb createuser curl ffmpeg go initdb jq pg_ctl postgres psql python3 ss valkey-cli valkey-server; do
+for command in awk cargo createdb createuser curl go initdb jq pg_ctl postgres psql python3 ss valkey-cli valkey-server; do
   command -v "$command" >/dev/null || {
     echo "required command unavailable: $command" >&2
     exit 127
@@ -238,6 +248,16 @@ stop_owned go_pid
 seed "$go_role" "$go_schema" "$provider_port"
 seed "$rust_role" "$rust_schema" "$provider_port"
 
+if [[ -n ${LMM_RELAY_TIMEOUT_PROFILE:-} ]]; then
+  for identity in "$go_role:$go_schema" "$rust_role:$rust_schema"; do
+    IFS=: read -r role schema <<<"$identity"
+    PGOPTIONS="-c search_path=$schema" psql -h 127.0.0.1 -p "$pg_port" -U "$role" -d "$database" -v ON_ERROR_STOP=1 <<'SQL' >/dev/null
+ALTER TABLE users ADD COLUMN IF NOT EXISTS trust_level_override INTEGER;
+UPDATE users SET trust_level_override=1 WHERE id=42;
+SQL
+  done
+fi
+
 hits="$runtime/provider-hits.jsonl"
 : >"$hits"
 python3 -u "$repo_root/apps/api-rust/tests/behavior-oracle/fixtures/relay_openai_provider.py" "$provider_port" "$hits" >"$runtime/provider.log" 2>&1 &
@@ -277,6 +297,12 @@ done
   sed -n '1,220p' "$runtime/rust.log" >&2
   exit 1
 }
+
+if [[ -n ${LMM_RELAY_TIMEOUT_PROFILE:-} ]]; then
+  python3 "$repo_root/apps/api-rust/tests/behavior-oracle/fixtures/relay_timeout_compare.py" \
+    "$LMM_RELAY_TIMEOUT_PROFILE" "$go_port" "$rust_port" "$runtime/timeout-result.json" "${hits%.jsonl}.lifecycle.jsonl"
+  exit
+fi
 
 call() {
   local engine=$1 name=$2 path=$3 body=$4 token=${5:-} port prefix
@@ -335,8 +361,16 @@ jq -s -e '
 # Exercise the valid multipart branch as well as the malformed JSON boundary
 # above. A tiny PCM WAV is sufficient for Go's duration counter and keeps the
 # upload fixture deterministic and local.
-ffmpeg -hide_banner -loglevel error -f lavfi -i anullsrc=r=8000:cl=mono -t 0.1 \
-  -c:a pcm_s16le "$runtime/fixture.wav" -y
+python3 - "$runtime/fixture.wav" <<'PY'
+import sys
+import wave
+
+with wave.open(sys.argv[1], "wb") as audio:
+    audio.setnchannels(1)
+    audio.setsampwidth(2)
+    audio.setframerate(8000)
+    audio.writeframes(bytes(800 * 2))
+PY
 for route in 'audio-transcriptions|/v1/audio/transcriptions' 'audio-translations|/v1/audio/translations'; do
   IFS='|' read -r name path <<<"$route"
   call_multipart go "$name-valid-anon" "$path"

@@ -327,20 +327,26 @@ async fn concrete_upstream_client_replaces_caller_auth_and_preserves_chunked_sse
     );
     headers.insert(header::CONNECTION, "x-media-local".parse().expect("header"));
     headers.insert("x-media-local", "must-not-forward".parse().expect("header"));
-    let response = MediaUpstreamClient::new(reqwest::Client::new(), Duration::from_secs(1))
-        .forward(
-            &MediaUpstreamTarget {
-                base_url: format!("http://{address}/"),
-                api_key: "channel-secret".to_owned(),
-            },
-            "POST".parse().expect("method"),
-            "/v1/images/edits",
-            &headers,
-            b"--oracle\r\npayload\r\n--oracle--\r\n".to_vec(),
-            false,
-        )
-        .await
-        .expect("upstream response");
+    let response = MediaUpstreamClient::new(
+        lmm_api_rs::relay_http::RelayHttpClient::new(lmm_api_rs::relay_http::RelayTimeoutConfig {
+            response_headers: Some(Duration::from_secs(1)),
+            ..Default::default()
+        })
+        .unwrap(),
+    )
+    .forward(
+        &MediaUpstreamTarget {
+            base_url: format!("http://{address}/"),
+            api_key: "channel-secret".to_owned(),
+        },
+        "POST".parse().expect("method"),
+        "/v1/images/edits",
+        &headers,
+        b"--oracle\r\npayload\r\n--oracle--\r\n".to_vec(),
+        false,
+    )
+    .await
+    .expect("upstream response");
     assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(
         response.headers()[header::CONTENT_TYPE],
@@ -364,6 +370,60 @@ async fn concrete_upstream_client_replaces_caller_auth_and_preserves_chunked_sse
 }
 
 #[tokio::test]
+async fn retry_gets_a_fresh_total_deadline() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        let (mut first, _) = listener.accept().await.unwrap();
+        let mut request = [0; 2048];
+        assert!(first.read(&mut request).await.unwrap() > 0);
+        tokio::time::sleep(Duration::from_millis(650)).await;
+        drop(first);
+        let (mut second, _) = listener.accept().await.unwrap();
+        assert!(second.read(&mut request).await.unwrap() > 0);
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        second
+            .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok")
+            .await
+            .unwrap();
+    });
+    let client = MediaUpstreamClient::new(
+        lmm_api_rs::relay_http::RelayHttpClient::new(lmm_api_rs::relay_http::RelayTimeoutConfig {
+            response_headers: Some(Duration::from_secs(3)),
+            idle: Duration::from_secs(2),
+            total: Some(Duration::from_millis(500)),
+        })
+        .unwrap(),
+    )
+    .with_max_attempts(2);
+    let result = tokio::time::timeout(Duration::from_secs(10), async {
+        let response = client
+            .forward(
+                &MediaUpstreamTarget {
+                    base_url: format!("http://{address}/"),
+                    api_key: "fixture".into(),
+                },
+                "GET".parse().unwrap(),
+                "/v1/files/test/content",
+                &HeaderMap::new(),
+                Vec::new(),
+                true,
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            to_bytes(response.into_body(), 1024).await.unwrap().as_ref(),
+            b"ok"
+        );
+    })
+    .await;
+    server.abort();
+    let _ = server.await;
+    result.expect("outer deadline");
+}
+
+#[tokio::test]
 async fn concrete_upstream_client_times_out_without_retrying_non_idempotent_submit() {
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("listener");
     let address = listener.local_addr().expect("address");
@@ -375,20 +435,26 @@ async fn concrete_upstream_client_times_out_without_retrying_non_idempotent_subm
         count_tx.send(()).expect("count receiver");
         tokio::time::sleep(Duration::from_millis(100)).await;
     });
-    let result = MediaUpstreamClient::new(reqwest::Client::new(), Duration::from_millis(15))
-        .with_max_attempts(2)
-        .forward(
-            &MediaUpstreamTarget {
-                base_url: format!("http://{address}/"),
-                api_key: "channel-secret".to_owned(),
-            },
-            "POST".parse().expect("method"),
-            "/v1/images/generations",
-            &HeaderMap::new(),
-            b"{}".to_vec(),
-            false,
-        )
-        .await;
+    let result = MediaUpstreamClient::new(
+        lmm_api_rs::relay_http::RelayHttpClient::new(lmm_api_rs::relay_http::RelayTimeoutConfig {
+            response_headers: Some(Duration::from_millis(15)),
+            ..Default::default()
+        })
+        .unwrap(),
+    )
+    .with_max_attempts(2)
+    .forward(
+        &MediaUpstreamTarget {
+            base_url: format!("http://{address}/"),
+            api_key: "channel-secret".to_owned(),
+        },
+        "POST".parse().expect("method"),
+        "/v1/images/generations",
+        &HeaderMap::new(),
+        b"{}".to_vec(),
+        false,
+    )
+    .await;
     assert!(result.is_err());
     count_rx.await.expect("one upstream request");
     server.await.expect("server task");

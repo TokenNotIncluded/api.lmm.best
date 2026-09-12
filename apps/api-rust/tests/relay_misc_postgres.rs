@@ -20,9 +20,7 @@ async fn relay_misc_postgres_router_mounts_without_contacting_dependencies() {
         .connect_lazy("postgresql://unused:unused@127.0.0.1:1/unused")
         .expect("lazy PostgreSQL pool");
     let models = Arc::new(PgModelsService::new(pool.clone()));
-    let client = reqwest::Client::builder()
-        .redirect(reqwest::redirect::Policy::none())
-        .build()
+    let client = lmm_api_rs::relay_http::RelayHttpClient::new(Default::default())
         .expect("bounded relay client");
     let app = relay_misc_postgres_router(PgRelayMiscService::new(
         pool,

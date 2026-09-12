@@ -10,7 +10,8 @@
 //! the adapter preserves the caller's JSON and response envelopes when a
 //! channel is configured as a transparent Gemini/Anthropic endpoint.
 
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use crate::relay_http::{RelayHttpClient, RelayResponse};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::relay_anthropic_gemini::{
     NativeSseReply, RelayBackend, RelayChannel, RelayFailure, RelayIdentity, RelayOutcome,
@@ -21,10 +22,7 @@ use super::sse::{
     parse_sse_frames_rejecting_unterminated,
 };
 use async_trait::async_trait;
-use axum::{
-    body::{Body, to_bytes},
-    http::header,
-};
+use axum::{body::to_bytes, http::header};
 use reqwest::Url;
 use serde_json::Value;
 use sqlx::{PgPool, Row};
@@ -35,19 +33,17 @@ const MAX_RESPONSE_BYTES: usize = 64 * 1024 * 1024;
 #[derive(Clone)]
 pub struct PgAnthropicGeminiRelayBackend {
     pg: PgPool,
-    client: reqwest::Client,
-    response_header_timeout: Duration,
+    client: RelayHttpClient,
     sse_max_frame_bytes: usize,
 }
 
 impl PgAnthropicGeminiRelayBackend {
     /// Builds the adapter used by the normal Rust listener.
     #[must_use]
-    pub fn new(pg: PgPool, client: reqwest::Client, response_header_timeout: Duration) -> Self {
+    pub fn new(pg: PgPool, client: RelayHttpClient) -> Self {
         Self {
             pg,
             client,
-            response_header_timeout,
             sse_max_frame_bytes: DEFAULT_MAX_FRAME_BYTES,
         }
     }
@@ -180,11 +176,11 @@ impl PgAnthropicGeminiRelayBackend {
                 outbound = outbound.header(header::AUTHORIZATION, format!("Bearer {channel_key}"));
             }
         }
-        let response =
-            tokio::time::timeout(self.response_header_timeout, outbound.body(raw_body).send())
-                .await
-                .map_err(|_| RelayFailure::Upstream)?
-                .map_err(|_| RelayFailure::Upstream)?;
+        let response = self
+            .client
+            .send(outbound.body(raw_body))
+            .await
+            .map_err(|_| RelayFailure::Upstream)?;
         let status = response.status();
         let content_type_header = response.headers().get(header::CONTENT_TYPE).cloned();
         let content_type = content_type_header
@@ -194,7 +190,7 @@ impl PgAnthropicGeminiRelayBackend {
             .to_ascii_lowercase();
         let is_sse = content_type.contains("text/event-stream") || request.streaming;
         if !status.is_success() {
-            let body = collect_bounded_body(self.response_header_timeout, response).await?;
+            let body = collect_bounded_body(response).await.unwrap_or_default();
             let value = serde_json::from_slice::<Value>(&body)
                 .unwrap_or_else(|_| Value::String(String::from_utf8_lossy(&body).into_owned()));
             return Err(RelayFailure::Provider {
@@ -217,12 +213,12 @@ impl PgAnthropicGeminiRelayBackend {
         {
             return Ok(UpstreamReply::NativeSse(Box::new(NativeSseReply::new(
                 status,
-                Body::from_stream(response.bytes_stream()),
+                response.into_body(),
                 content_type_header,
             ))));
         }
 
-        let body = collect_bounded_body(self.response_header_timeout, response).await?;
+        let body = collect_bounded_body(response).await?;
         let value = serde_json::from_slice::<Value>(&body)
             .unwrap_or_else(|_| Value::String(String::from_utf8_lossy(&body).into_owned()));
         if is_sse {
@@ -235,20 +231,10 @@ impl PgAnthropicGeminiRelayBackend {
     }
 }
 
-async fn collect_bounded_body(
-    timeout: Duration,
-    response: reqwest::Response,
-) -> Result<axum::body::Bytes, RelayFailure> {
-    tokio::time::timeout(
-        timeout,
-        to_bytes(
-            Body::from_stream(response.bytes_stream()),
-            MAX_RESPONSE_BYTES,
-        ),
-    )
-    .await
-    .map_err(|_| RelayFailure::Upstream)?
-    .map_err(|_| RelayFailure::Upstream)
+async fn collect_bounded_body(response: RelayResponse) -> Result<axum::body::Bytes, RelayFailure> {
+    to_bytes(response.into_body(), MAX_RESPONSE_BYTES)
+        .await
+        .map_err(|_| RelayFailure::Upstream)
 }
 
 /// Reproduces the current Go provider-boundary normalization for the two

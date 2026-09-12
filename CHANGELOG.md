@@ -13,6 +13,12 @@ authenticated users then see it once after their next login.
 
 <!-- Add user-facing or operational changes here before the next release. -->
 
+- Rust model relays now use independent response-header (1800 seconds), byte-idle
+  (300 seconds), and optional per-attempt total deadlines (disabled by default),
+  with Rust environment settings taking precedence over Go-compatible aliases.
+  Internal dependency deadlines remain unchanged. Header timing includes upload;
+  byte heartbeats reset idle timing, which does not protect slow downstream writes.
+  See [relay timeout configuration](apps/api-rust/docs/relay-timeouts.md).
 - Added read-only API-key quota monitoring at `GET /v1/usage` and scoped model
   price queries at `GET /v1/pricing`. Quota responses use USD, distinguish key
   allowance from account funds, and represent unlimited allowance explicitly.
