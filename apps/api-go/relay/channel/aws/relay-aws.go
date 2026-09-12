@@ -62,6 +62,10 @@ func newAwsInvokeError(requestContext context.Context, err error, operation stri
 }
 
 func newAwsClient(c *gin.Context, info *relaycommon.RelayInfo) (*bedrockruntime.Client, error) {
+	awsSecret, err := parseAwsCredentials(info.ApiKey, info.ChannelOtherSettings.AwsKeyType)
+	if err != nil {
+		return nil, err
+	}
 	httpClient, err := service.GetHttpClientWithProxySettings(info.ChannelSetting.Proxy, info.ChannelSetting)
 	if err != nil {
 		return nil, fmt.Errorf("new proxy http client failed: %w", err)
@@ -71,7 +75,6 @@ func newAwsClient(c *gin.Context, info *relaycommon.RelayInfo) (*bedrockruntime.
 		int64(common.GetContextKeyInt(c, appconstant.ContextKeyResponseByteLimit)),
 	)
 
-	awsSecret := strings.Split(info.ApiKey, "|")
 	var client *bedrockruntime.Client
 	switch len(awsSecret) {
 	case 2:
@@ -96,6 +99,29 @@ func newAwsClient(c *gin.Context, info *relaycommon.RelayInfo) (*bedrockruntime.
 	}
 
 	return client, nil
+}
+
+func parseAwsCredentials(secret string, keyType dto.AwsKeyType) ([]string, error) {
+	parts := strings.Split(secret, "|")
+	valid := len(parts) == 2 || len(parts) == 3
+	switch keyType {
+	case "": // Preserve legacy channels that inferred their credential type.
+	case dto.AwsKeyTypeApiKey:
+		valid = valid && len(parts) == 2
+	case dto.AwsKeyTypeAKSK:
+		valid = valid && len(parts) == 3
+	default:
+		valid = false
+	}
+	for _, part := range parts {
+		if strings.TrimSpace(part) == "" || strings.TrimSpace(part) != part {
+			valid = false
+		}
+	}
+	if !valid {
+		return nil, errors.New("invalid AWS credentials: expected api-key|region or access-key|secret-key|region matching aws_key_type")
+	}
+	return parts, nil
 }
 
 func doAwsClientRequest(c *gin.Context, info *relaycommon.RelayInfo, a *Adaptor, requestBody io.Reader) (any, error) {
