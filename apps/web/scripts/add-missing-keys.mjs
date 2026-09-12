@@ -8041,6 +8041,89 @@ for (const [locale, translations] of Object.entries(ratioNotificationCopy)) {
   Object.assign(newKeys[locale], translations)
 }
 
+const resetVoucherHistoryCopy = {
+  en: {
+    'Show used or expired vouchers ({{count}} loaded)':
+      'Show used or expired vouchers ({{count}} loaded)',
+    'Hide used or expired vouchers ({{count}} loaded)':
+      'Hide used or expired vouchers ({{count}} loaded)',
+    'Voucher expiry': 'Voucher expiry',
+    'Choose a future expiry time in your local time zone. Existing vouchers are unchanged.':
+      'Choose a future expiry time in your local time zone. Existing vouchers are unchanged.',
+    'Issue one single-use voucher for each of {{count}} previewed user-plan pairs? Each voucher expires at {{time}}.':
+      'Issue one single-use voucher for each of {{count}} previewed user-plan pairs? Each voucher expires at {{time}}.',
+  },
+  zh: {
+    'Show used or expired vouchers ({{count}} loaded)':
+      '展开已使用或已过期券（已加载 {{count}} 张）',
+    'Hide used or expired vouchers ({{count}} loaded)':
+      '收起已使用或已过期券（已加载 {{count}} 张）',
+    'Voucher expiry': '券到期时间',
+    'Choose a future expiry time in your local time zone. Existing vouchers are unchanged.':
+      '请按本地时区选择未来的到期时间。已发放的券不受影响。',
+    'Issue one single-use voucher for each of {{count}} previewed user-plan pairs? Each voucher expires at {{time}}.':
+      '为预览中的 {{count}} 个用户与套餐组合各发放一张一次性券？每张券的到期时间为 {{time}}。',
+  },
+  'zh-TW': {
+    'Show used or expired vouchers ({{count}} loaded)':
+      '展開已使用或已到期券（已載入 {{count}} 張）',
+    'Hide used or expired vouchers ({{count}} loaded)':
+      '收起已使用或已到期券（已載入 {{count}} 張）',
+    'Voucher expiry': '券到期時間',
+    'Choose a future expiry time in your local time zone. Existing vouchers are unchanged.':
+      '請依本地時區選擇未來的到期時間。已發放的券不受影響。',
+    'Issue one single-use voucher for each of {{count}} previewed user-plan pairs? Each voucher expires at {{time}}.':
+      '為預覽中的 {{count}} 個使用者與方案組合各發放一張一次性券？每張券的到期時間為 {{time}}。',
+  },
+  fr: {
+    'Show used or expired vouchers ({{count}} loaded)':
+      'Afficher les bons utilisés ou expirés ({{count}} chargés)',
+    'Hide used or expired vouchers ({{count}} loaded)':
+      'Masquer les bons utilisés ou expirés ({{count}} chargés)',
+    'Voucher expiry': 'Expiration du bon',
+    'Choose a future expiry time in your local time zone. Existing vouchers are unchanged.':
+      'Choisissez une date d’expiration future dans votre fuseau horaire. Les bons existants restent inchangés.',
+    'Issue one single-use voucher for each of {{count}} previewed user-plan pairs? Each voucher expires at {{time}}.':
+      'Émettre un bon à usage unique pour chacune des {{count}} paires utilisateur-forfait de l’aperçu ? Chaque bon expire le {{time}}.',
+  },
+  ja: {
+    'Show used or expired vouchers ({{count}} loaded)':
+      '使用済み・期限切れの券を表示（{{count}} 件読み込み済み）',
+    'Hide used or expired vouchers ({{count}} loaded)':
+      '使用済み・期限切れの券を隠す（{{count}} 件読み込み済み）',
+    'Voucher expiry': '券の有効期限',
+    'Choose a future expiry time in your local time zone. Existing vouchers are unchanged.':
+      'お使いのタイムゾーンで未来の有効期限を選択してください。発行済みの券は変更されません。',
+    'Issue one single-use voucher for each of {{count}} previewed user-plan pairs? Each voucher expires at {{time}}.':
+      'プレビューした {{count}} 組のユーザーとプランの組み合わせに、それぞれ 1 回限りの券を発行しますか？各券の有効期限は {{time}} です。',
+  },
+  ru: {
+    'Show used or expired vouchers ({{count}} loaded)':
+      'Показать использованные и истёкшие ваучеры (загружено: {{count}})',
+    'Hide used or expired vouchers ({{count}} loaded)':
+      'Скрыть использованные и истёкшие ваучеры (загружено: {{count}})',
+    'Voucher expiry': 'Срок действия ваучера',
+    'Choose a future expiry time in your local time zone. Existing vouchers are unchanged.':
+      'Выберите будущий срок действия в вашем часовом поясе. Уже выданные ваучеры не изменятся.',
+    'Issue one single-use voucher for each of {{count}} previewed user-plan pairs? Each voucher expires at {{time}}.':
+      'Выдать по одноразовому ваучеру для каждой из {{count}} пар «пользователь — тариф» в предпросмотре? Каждый ваучер истекает {{time}}.',
+  },
+  vi: {
+    'Show used or expired vouchers ({{count}} loaded)':
+      'Hiện phiếu đã dùng hoặc hết hạn (đã tải {{count}})',
+    'Hide used or expired vouchers ({{count}} loaded)':
+      'Ẩn phiếu đã dùng hoặc hết hạn (đã tải {{count}})',
+    'Voucher expiry': 'Thời điểm hết hạn phiếu',
+    'Choose a future expiry time in your local time zone. Existing vouchers are unchanged.':
+      'Chọn thời điểm hết hạn trong tương lai theo múi giờ địa phương. Các phiếu đã phát hành không thay đổi.',
+    'Issue one single-use voucher for each of {{count}} previewed user-plan pairs? Each voucher expires at {{time}}.':
+      'Phát một phiếu dùng một lần cho mỗi cặp người dùng–gói trong {{count}} cặp đã xem trước? Mỗi phiếu hết hạn lúc {{time}}.',
+  },
+}
+for (const [locale, translations] of Object.entries(resetVoucherHistoryCopy)) {
+  Object.assign(newKeys[locale], translations)
+}
+
 const deprecatedCurrencyKeys = new Set([
   'Price (local currency / USD)',
   'Use global price',

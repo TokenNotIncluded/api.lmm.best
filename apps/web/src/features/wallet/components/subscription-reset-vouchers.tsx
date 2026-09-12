@@ -7,7 +7,7 @@ published by the Free Software Foundation, either version 3 of the
 License, or (at your option) any later version.
 */
 import { useQuery } from '@tanstack/react-query'
-import { RefreshCw, RotateCcw } from 'lucide-react'
+import { ChevronDown, RefreshCw, RotateCcw } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -15,6 +15,11 @@ import { toast } from 'sonner'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { StatusBadge } from '@/components/status-badge'
 import { Button } from '@/components/ui/button'
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
   getSubscriptionResetVouchers,
@@ -33,6 +38,8 @@ export function SubscriptionResetVouchers(props: { onRedeemed?: () => void }) {
     () => new Set()
   )
   const [redeeming, setRedeeming] = useState(false)
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const [historyPage, setHistoryPage] = useState(0)
   const vouchersQuery = useQuery({
     queryKey: ['subscription-reset-vouchers'],
     queryFn: getSubscriptionResetVouchers,
@@ -40,6 +47,73 @@ export function SubscriptionResetVouchers(props: { onRedeemed?: () => void }) {
   })
   const vouchers = vouchersQuery.data?.data ?? []
   const hasVoucherData = vouchersQuery.data != null
+  const voucherStatus = (voucher: SubscriptionResetVoucher) =>
+    redeemedVoucherIds.has(voucher.id)
+      ? 'redeemed'
+      : voucher.status === 'available' &&
+          (voucher.expired === true || voucher.expires_at <= Date.now() / 1000)
+        ? 'expired'
+        : voucher.status
+  const availableVouchers = vouchers.filter(
+    (voucher) => voucherStatus(voucher) === 'available'
+  )
+  const historyVouchers = vouchers.filter(
+    (voucher) => voucherStatus(voucher) !== 'available'
+  )
+  const historyPages = Math.max(1, Math.ceil(historyVouchers.length / 10))
+  const currentHistoryPage = Math.min(historyPage, historyPages - 1)
+
+  const renderVoucher = (voucher: SubscriptionResetVoucher) => {
+    const status = voucherStatus(voucher)
+    return (
+      <div
+        key={voucher.id}
+        data-voucher-id={voucher.id}
+        className='flex flex-wrap items-center justify-between gap-3 rounded-md border p-3'
+      >
+        <div className='min-w-0'>
+          <div className='flex flex-wrap items-center gap-2'>
+            <span className='text-sm font-medium break-words'>
+              {voucher.plan_title || `#${voucher.plan_id}`}
+            </span>
+            <StatusBadge
+              label={t(
+                status === 'available'
+                  ? 'Available'
+                  : status === 'redeemed'
+                    ? 'Redeemed'
+                    : 'Expired'
+              )}
+              variant={status === 'available' ? 'success' : 'neutral'}
+              copyable={false}
+            />
+          </div>
+          <p className='text-muted-foreground mt-1 text-xs'>
+            {t('Expires at {{time}}', {
+              time: formatTimestamp(voucher.expires_at),
+            })}
+          </p>
+          {status === 'redeemed' && voucher.redeemed_at > 0 ? (
+            <p className='text-muted-foreground mt-1 text-xs'>
+              {t('Redeemed at {{time}}', {
+                time: formatTimestamp(voucher.redeemed_at),
+              })}
+            </p>
+          ) : null}
+        </div>
+        {status === 'available' && (
+          <Button
+            size='sm'
+            variant='outline'
+            onClick={() => setSelected(voucher)}
+          >
+            <RotateCcw aria-hidden='true' />
+            {t('Redeem reset')}
+          </Button>
+        )}
+      </div>
+    )
+  }
 
   const redeem = async () => {
     if (!selected) return
@@ -157,59 +231,88 @@ export function SubscriptionResetVouchers(props: { onRedeemed?: () => void }) {
           </p>
         ) : (
           <div className='mt-3 space-y-2'>
-            {vouchers.map((voucher) => {
-              const status = redeemedVoucherIds.has(voucher.id)
-                ? 'redeemed'
-                : voucher.status === 'available' &&
-                    (voucher.expired === true ||
-                      voucher.expires_at <= Date.now() / 1000)
-                  ? 'expired'
-                  : voucher.status
-              return (
-                <div
-                  key={voucher.id}
-                  className='flex flex-wrap items-center justify-between gap-3 rounded-md border p-3'
-                >
-                  <div className='min-w-0'>
-                    <div className='flex flex-wrap items-center gap-2'>
-                      <span className='text-sm font-medium'>
-                        {voucher.plan_title || `#${voucher.plan_id}`}
-                      </span>
-                      <StatusBadge
-                        label={t(
-                          status === 'available'
-                            ? 'Available'
-                            : status === 'redeemed'
-                              ? 'Redeemed'
-                              : 'Expired'
-                        )}
-                        variant={status === 'available' ? 'success' : 'neutral'}
-                        copyable={false}
-                      />
-                    </div>
-                    <p className='text-muted-foreground mt-1 text-xs'>
-                      {status === 'redeemed'
-                        ? t('Redeemed at {{time}}', {
-                            time: formatTimestamp(voucher.redeemed_at),
-                          })
-                        : t('Expires at {{time}}', {
-                            time: formatTimestamp(voucher.expires_at),
-                          })}
-                    </p>
-                  </div>
-                  {status === 'available' && (
+            <div data-slot='available-reset-vouchers' className='space-y-2'>
+              {availableVouchers.map(renderVoucher)}
+            </div>
+            {historyVouchers.length > 0 ? (
+              <Collapsible
+                open={historyOpen}
+                onOpenChange={(open) => {
+                  setHistoryOpen(open)
+                  setHistoryPage(0)
+                }}
+              >
+                <CollapsibleTrigger
+                  render={
                     <Button
-                      size='sm'
-                      variant='outline'
-                      onClick={() => setSelected(voucher)}
-                    >
-                      <RotateCcw aria-hidden='true' />
-                      {t('Redeem reset')}
-                    </Button>
-                  )}
-                </div>
-              )
-            })}
+                      type='button'
+                      variant='ghost'
+                      className='h-auto min-h-11 max-w-full justify-start text-start whitespace-normal'
+                    />
+                  }
+                >
+                  <ChevronDown
+                    aria-hidden='true'
+                    className={
+                      historyOpen
+                        ? 'size-4 shrink-0 rotate-180'
+                        : 'size-4 shrink-0'
+                    }
+                  />
+                  {historyOpen
+                    ? t('Hide used or expired vouchers ({{count}} loaded)', {
+                        count: historyVouchers.length,
+                      })
+                    : t('Show used or expired vouchers ({{count}} loaded)', {
+                        count: historyVouchers.length,
+                      })}
+                </CollapsibleTrigger>
+                <CollapsibleContent>
+                  <div
+                    data-slot='reset-voucher-history'
+                    className='mt-2 space-y-2'
+                  >
+                    {historyVouchers
+                      .slice(
+                        currentHistoryPage * 10,
+                        (currentHistoryPage + 1) * 10
+                      )
+                      .map(renderVoucher)}
+                    {historyPages > 1 ? (
+                      <div className='flex flex-wrap items-center justify-between gap-2'>
+                        <Button
+                          type='button'
+                          variant='outline'
+                          size='sm'
+                          disabled={currentHistoryPage === 0}
+                          onClick={() => setHistoryPage(currentHistoryPage - 1)}
+                        >
+                          {t('Previous page')}
+                        </Button>
+                        <span
+                          role='status'
+                          className='text-muted-foreground text-xs'
+                        >
+                          {t('Page {{page}} of {{total}}', {
+                            page: currentHistoryPage + 1,
+                            total: historyPages,
+                          })}
+                        </span>
+                        <Button
+                          type='button'
+                          variant='outline'
+                          size='sm'
+                          disabled={currentHistoryPage === historyPages - 1}
+                          onClick={() => setHistoryPage(currentHistoryPage + 1)}
+                        >
+                          {t('Next page')}
+                        </Button>
+                      </div>
+                    ) : null}
+                  </div>
+                </CollapsibleContent>
+              </Collapsible>
+            ) : null}
           </div>
         )}
       </div>
