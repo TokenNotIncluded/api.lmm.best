@@ -295,10 +295,11 @@ func TestOAuthHTTPResourceBillingIsolationAndRevocation(t *testing.T) {
 	response = h.request("POST", "/v1/chat/completions", `{"model":"gpt-4o"}`, relayHeaders)
 	require.Equal(t, 200, response.Code, response.Body.String())
 	require.Eventually(t, func() bool {
-		return h.db.First(&wallet, h.user.Id).Error == nil && wallet.Quota == 9920
+		if h.db.First(&wallet, h.user.Id).Error != nil || wallet.Quota != 9920 {
+			return false
+		}
+		return h.db.First(&managed, managed.Id).Error == nil && managed.UsedQuota == 80
 	}, 2*time.Second, 10*time.Millisecond)
-	require.NoError(t, h.db.First(&managed, managed.Id).Error)
-	require.Equal(t, 80, managed.UsedQuota)
 	var bindings int64
 	require.NoError(t, h.db.Model(&model.OAuthBillingBinding{}).Count(&bindings).Error)
 	require.EqualValues(t, 1, bindings)

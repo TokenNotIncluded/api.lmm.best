@@ -422,9 +422,9 @@ func writeTestTarGzip(t *testing.T, path string, entries []testTarEntry) {
 
 func testEdgePolicyTarEntries(prefix string) []testTarEntry {
 	return []testTarEntry{
-		{name: prefix + "nginx/http-map.conf", body: "geoip2 /var/lib/geoip2/DBIP-Country-Lite.mmdb {\n}\n", mode: 0o644},
+		{name: prefix + "nginx/http-map.conf", body: "geoip2 /var/lib/geoip2/DBIP-Country-Lite.mmdb {\n}\nmap $request_uri $lmm_oauth_request_loggable {\n}\n", mode: 0o644},
 		{name: prefix + "nginx/new-api.conf", body: "include /etc/nginx/lmm-api-region-policy.conf;\n", mode: 0o644},
-		{name: prefix + "nginx/lmm-api-locations.conf", body: "error_page 418 = @lmm_api_cors_preflight;\nlocation @lmm_api_cors_preflight {\nauth_request off;\n}\nset $lmm_access_policy_original_uri $uri;\nif ($request_method = OPTIONS) { return 418; }\nadd_header Access-Control-Allow-Methods $http_access_control_request_method always;\nadd_header Access-Control-Allow-Headers $http_access_control_request_headers always;\nadd_header Vary \"Origin, Access-Control-Request-Method, Access-Control-Request-Headers\" always;\n", mode: 0o644},
+		{name: prefix + "nginx/lmm-api-locations.conf", body: "location = /.well-known/oauth-authorization-server {\n}\nlocation = /.well-known/oauth-protected-resource/api/oauth2 {\n}\nlocation = /api/oauth2/authorize {\n}\naccess_log /var/log/nginx/access.log combined if=$lmm_access_loggable;\nerror_page 418 = @lmm_api_cors_preflight;\nlocation @lmm_api_cors_preflight {\nauth_request off;\n}\nset $lmm_access_policy_original_uri $uri;\nif ($request_method = OPTIONS) { return 418; }\nadd_header Access-Control-Allow-Methods $http_access_control_request_method always;\nadd_header Access-Control-Allow-Headers $http_access_control_request_headers always;\nadd_header Vary \"Origin, Access-Control-Request-Method, Access-Control-Request-Headers\" always;\n", mode: 0o644},
 		{name: prefix + "nginx/lmm-api-region-policy.conf", body: "auth_request /internal/access-ip-policy;\nproxy_set_header X-LMM-Original-URI $lmm_access_policy_original_uri;\nproxy_set_header X-LMM-Original-Accept $http_accept;\n", mode: 0o644},
 		{name: prefix + "nginx/mime.types", body: "types {}\n", mode: 0o644},
 		{name: prefix + "geoip2-country-update.service", body: "[Service]\n", mode: 0o644},

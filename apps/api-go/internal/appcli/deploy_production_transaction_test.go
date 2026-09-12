@@ -303,11 +303,11 @@ func (runner *fakeProductionRunner) bsdtar(args []string) ([]byte, error) {
 		}
 		switch {
 		case strings.HasSuffix(member, "/nginx/http-map.conf"):
-			return []byte("geoip2 /var/lib/geoip2/DBIP-Country-Lite.mmdb {\n}\n"), nil
+			return []byte("geoip2 /var/lib/geoip2/DBIP-Country-Lite.mmdb {\n}\nmap $request_uri $lmm_oauth_request_loggable {\n}\n"), nil
 		case strings.HasSuffix(member, "/nginx/new-api.conf"):
 			return []byte("include /etc/nginx/lmm-api-region-policy.conf;\n"), nil
 		case strings.HasSuffix(member, "/nginx/lmm-api-locations.conf"):
-			return []byte("error_page 418 = @lmm_api_cors_preflight;\nlocation @lmm_api_cors_preflight {\nauth_request off;\n}\nset $lmm_access_policy_original_uri $uri;\nif ($request_method = OPTIONS) { return 418; }\nadd_header Access-Control-Allow-Methods $http_access_control_request_method always;\nadd_header Access-Control-Allow-Headers $http_access_control_request_headers always;\nadd_header Vary \"Origin, Access-Control-Request-Method, Access-Control-Request-Headers\" always;\n"), nil
+			return []byte("location = /.well-known/oauth-authorization-server {\n}\nlocation = /.well-known/oauth-protected-resource/api/oauth2 {\n}\nlocation = /api/oauth2/authorize {\n}\naccess_log /var/log/nginx/access.log combined if=$lmm_access_loggable;\nerror_page 418 = @lmm_api_cors_preflight;\nlocation @lmm_api_cors_preflight {\nauth_request off;\n}\nset $lmm_access_policy_original_uri $uri;\nif ($request_method = OPTIONS) { return 418; }\nadd_header Access-Control-Allow-Methods $http_access_control_request_method always;\nadd_header Access-Control-Allow-Headers $http_access_control_request_headers always;\nadd_header Vary \"Origin, Access-Control-Request-Method, Access-Control-Request-Headers\" always;\n"), nil
 		case strings.HasSuffix(member, "/nginx/lmm-api-region-policy.conf"):
 			return []byte("auth_request /internal/access-ip-policy;\nproxy_set_header X-LMM-Original-URI $lmm_access_policy_original_uri;\nproxy_set_header X-LMM-Original-Accept $http_accept;\n"), nil
 		default:
