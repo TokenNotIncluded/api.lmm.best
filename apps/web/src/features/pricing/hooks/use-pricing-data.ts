@@ -33,14 +33,14 @@ export function usePricingData(options?: { enabled?: boolean }) {
     staleTime: 5 * 60 * 1000,
   })
 
-  // Ensure rates never reach zero to prevent division errors
+  // Missing/invalid conversion rates must not fabricate a USD estimate.
   const priceRate = useMemo(
-    () => Math.max((status?.price as number) ?? 1, 0.001),
+    () => Number(status?.price ?? Number.NaN),
     [status?.price]
   )
   const usdExchangeRate = useMemo(
-    () => Math.max((status?.usd_exchange_rate as number) ?? priceRate, 0.001),
-    [status?.usd_exchange_rate, priceRate]
+    () => Number(status?.usd_exchange_rate ?? Number.NaN),
+    [status?.usd_exchange_rate]
   )
 
   const models = useMemo(() => {

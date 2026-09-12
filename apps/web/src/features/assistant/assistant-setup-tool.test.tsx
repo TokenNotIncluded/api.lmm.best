@@ -275,6 +275,33 @@ describe('AssistantSetupTool', () => {
 
     await act(async () => root.unmount())
   })
+
+  test('does not present an image model as the selected chat default', async () => {
+    const container = document.createElement('div')
+    document.body.append(container)
+    const root = createRoot(container)
+    await act(async () => {
+      root.render(
+        <I18nextProvider i18n={i18n}>
+          <AssistantSetupTool
+            rootUrl='https://api.example.test'
+            openAIBaseUrl='https://api.example.test/v1'
+            availableModels={['gpt-image-2']}
+            developerAccessGranted
+            onCreateKey={() => {}}
+            onRequestAccess={() => {}}
+          />
+        </I18nextProvider>
+      )
+      await flushEffects()
+    })
+    const select = container.querySelector('select[aria-label="Model ID"]')
+    assert.ok(select)
+    assert.equal((select as HTMLSelectElement).value, '')
+    assert.equal(select.querySelector('option')?.disabled, true)
+    assert.doesNotMatch(container.textContent ?? '', /gpt-image-2/)
+    await act(async () => root.unmount())
+  })
 })
 
 test('mobile walkthrough exposes official Chatbox steps and keeps desktop commands out', async () => {

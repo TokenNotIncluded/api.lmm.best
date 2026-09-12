@@ -1,0 +1,35 @@
+{
+  "name": "@tokennotincluded/pi-lmm-provider",
+  "version": "0.1.0-alpha.1",
+  "description": "LMM OAuth provider for Pi's native model selector (integration-gated preview)",
+  "type": "module",
+  "license": "AGPL-3.0-only",
+  "author": "TokenNotIncluded",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TokenNotIncluded/api.lmm.best.git",
+    "directory": "packages/pi-lmm-provider"
+  },
+  "homepage": "https://github.com/TokenNotIncluded/api.lmm.best/tree/main/packages/pi-lmm-provider",
+  "bugs": "https://github.com/TokenNotIncluded/api.lmm.best/issues",
+  "keywords": ["pi-package", "oauth", "lmm"],
+  "engines": { "node": ">=22.18.0" },
+  "exports": { ".": "./src/index.ts" },
+  "pi": { "extensions": ["./src/index.ts"] },
+  "files": ["src/*.ts", "README.md", "CONTRACT_GAPS.md", "LICENSE"],
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "^0.85.1",
+    "@earendil-works/pi-coding-agent": "^0.85.1"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-ai": "0.85.1",
+    "@earendil-works/pi-coding-agent": "0.85.1",
+    "@types/node": "26.1.1",
+    "@typescript/native-preview": "7.0.0-dev.20260707.2"
+  },
+  "scripts": {
+    "test": "node --experimental-strip-types --test test/*.test.ts",
+    "typecheck": "tsgo --noEmit",
+    "pack:check": "npm pack --dry-run --ignore-scripts"
+  }
+}

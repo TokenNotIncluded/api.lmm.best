@@ -33,6 +33,7 @@ import {
   isRetryableAssistantStatus,
 } from './assistant-ai-stream'
 import { redactAssistantMessageForRequest } from './assistant-message-safety'
+import { ASSISTANT_PROMPT_PRESET_COPY_VERSION } from './assistant-prompt-presets'
 import type { AssistantSupportRequest } from './assistant-support-api'
 
 type AssistantChatPayload = {
@@ -1520,10 +1521,14 @@ export async function sendAssistantMessage(
   throw new Error('Assistant request did not complete')
 }
 
-export async function getAssistantPreConversationPresets(): Promise<AssistantPreConversationPresets> {
+export async function getAssistantPreConversationPresets(
+  language = 'en'
+): Promise<AssistantPreConversationPresets> {
   const response = await api.get<
     AssistantAPIResponse<AssistantPreConversationPresets>
-  >('/api/assistant/pre-conversation-presets')
+  >('/api/assistant/pre-conversation-presets', {
+    params: { language, copy_version: ASSISTANT_PROMPT_PRESET_COPY_VERSION },
+  })
   return requireAssistantData(
     response.data,
     'Unable to load assistant conversation starters'

@@ -19,8 +19,10 @@ For commercial licensing, please contact support@quantumnous.com
 import { useEffect } from 'react'
 
 import { PublicLayout } from '@/components/layout'
-import { LmmBrandMark } from '@/components/lmm-brand-mark'
+import { LMM_BRAND_NAME, LmmBrandMark } from '@/components/lmm-brand-mark'
+import { useSystemConfig } from '@/hooks/use-system-config'
 import { useTopNavLinks } from '@/hooks/use-top-nav-links'
+import { DEFAULT_SYSTEM_NAME } from '@/lib/constants'
 
 import './forge-public-shell.css'
 
@@ -29,23 +31,26 @@ type ForgePublicShellProps = {
 }
 
 export function ForgePublicShell(props: ForgePublicShellProps) {
+  const { systemName } = useSystemConfig()
+  const siteName =
+    systemName === DEFAULT_SYSTEM_NAME ? LMM_BRAND_NAME : systemName
   const securityLink = useTopNavLinks().find(
     (link) => link.href === '/security'
   )
 
   useEffect(() => {
     const previousTitle = document.title
-    document.title = 'LMM Forge'
+    document.title = siteName
     return () => {
       document.title = previousTitle
     }
-  }, [])
+  }, [siteName])
 
   return (
     <PublicLayout
       showMainContainer={false}
-      siteName='LMM Forge'
-      logo={<LmmBrandMark className='size-7' title='LMM Forge' />}
+      siteName={siteName}
+      logo={<LmmBrandMark className='size-7' title={siteName} />}
       navLinks={[
         { title: 'Home', href: '/' },
         { title: 'Model Square', href: '/pricing' },

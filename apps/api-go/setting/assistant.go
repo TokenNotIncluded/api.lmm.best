@@ -109,6 +109,7 @@ type AssistantSettings struct {
 	Model                  string
 	Group                  string
 	L1AutoApprovalUserIDs  string
+	L1AutoReview           AssistantL1AutoReviewSettings
 	ReasoningEffort        string
 	StreamEnabled          bool
 	Temperature            float64
@@ -157,6 +158,7 @@ var (
 		Model:                  DefaultAssistantModel,
 		Group:                  DefaultAssistantGroup,
 		L1AutoApprovalUserIDs:  DefaultAssistantL1AutoApprovalUserIDs,
+		L1AutoReview:           DefaultAssistantL1AutoReviewSettings(),
 		ReasoningEffort:        DefaultAssistantReasoningEffort,
 		StreamEnabled:          true,
 		Temperature:            DefaultAssistantTemperature,
@@ -787,6 +789,10 @@ func UpdateAssistantRetentionIntervalHours(value string) error {
 }
 
 func ValidateAssistantOption(key string, value string) error {
+	if IsAssistantL1AutoReviewOption(key) {
+		_, err := ParseAssistantL1AutoReviewSettings(DefaultAssistantL1AutoReviewSettings(), map[string]string{key: value})
+		return err
+	}
 	switch key {
 	case AssistantReviewEnabledOptionKey:
 		if _, err := strconv.ParseBool(strings.TrimSpace(value)); err != nil {

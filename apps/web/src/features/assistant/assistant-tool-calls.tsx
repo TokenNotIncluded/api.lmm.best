@@ -30,6 +30,7 @@ import {
 import type { AssistantToolTrace } from './api.js'
 import {
   assistantToolTraceKey,
+  assistantToolOutcome,
   collapseAssistantToolTraces,
 } from './assistant-tool-traces.js'
 
@@ -51,6 +52,7 @@ const TOOL_TITLE_KEYS = {
   calculate_math: 'Calculate math',
   calculate_cost: 'Calculate cost',
   set_conversation_title: 'Update conversation title',
+  request_create_key: 'Prepare API key creation',
 } satisfies Record<string, string>
 
 const TOOL_SUMMARY_KEYS = {
@@ -71,6 +73,7 @@ const TOOL_SUMMARY_KEYS = {
   calculate_math: 'Calculation completed',
   calculate_cost: 'Cost estimate calculated',
   set_conversation_title: 'Conversation title updated',
+  request_create_key: 'API key creation prepared',
 } satisfies Record<string, string>
 
 function toolErrorText(
@@ -98,10 +101,12 @@ function toolStatusText(
   trace: AssistantToolTrace,
   t: ReturnType<typeof useTranslation>['t']
 ) {
-  if (trace.status === 'output-error') return t('Tool failed')
-  if (trace.status === 'approval-requested') {
+  const outcome = assistantToolOutcome(trace)
+  if (outcome === 'failed') return t('Tool failed')
+  if (outcome === 'waiting') {
     return t('Waiting for confirmation')
   }
+  if (outcome === 'prepared') return t('Prepared; confirmation required')
   return t('Tool completed')
 }
 
@@ -123,10 +128,7 @@ function toolSummary({
     if (expression) return `${String(expression)} = ${trace.result}`
     return `${completedSummary} · ${trace.result}`
   }
-  if (
-    trace.status === 'output-error' ||
-    trace.status === 'approval-requested'
-  ) {
+  if (assistantToolOutcome(trace) !== 'completed') {
     return statusText
   }
   if (parameterCount > 0) {

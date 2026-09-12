@@ -65,20 +65,17 @@ export function UserRecommendationArchiveDialog(props: { user: User }) {
   }
 
   return (
-    <Dialog
-      open={open}
-      onOpenChange={(nextOpen) => {
-        setOpen(nextOpen)
-        if (nextOpen) void load()
-      }}
-    >
+    <Dialog open={open} onOpenChange={setOpen}>
       <Button
         type='button'
         variant='ghost'
         size='icon-sm'
         className='size-11 sm:size-7'
         aria-label={t('View L1 recommendation archive')}
-        onClick={() => setOpen(true)}
+        onClick={() => {
+          setOpen(true)
+          void load()
+        }}
       >
         <Archive aria-hidden='true' />
       </Button>

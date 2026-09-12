@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { Skeleton } from '@/components/ui/skeleton'
+import { WaitCompanion } from '@/components/wait-companion'
 
 import { VIEW_MODES, type ViewMode } from '../constants'
 
@@ -35,6 +36,7 @@ export function LoadingSkeleton(props: LoadingSkeletonProps) {
       </div>
       <Skeleton className='h-10 w-full rounded-lg' />
       <FilterBarSkeleton />
+      <WaitCompanion pending />
       {viewMode === VIEW_MODES.TABLE ? (
         <TableContentSkeleton />
       ) : (

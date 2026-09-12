@@ -42,6 +42,7 @@ For commercial licensing, please contact support@quantumnous.com
 import * as React from 'react'
 
 import { PageFooterPortal } from '@/components/layout/components/page-footer'
+import { WaitCompanion } from '@/components/wait-companion'
 import { useMediaQuery } from '@/hooks'
 import { cn } from '@/lib/utils'
 
@@ -308,6 +309,7 @@ export type DataTablePageProps<TData> = {
  * `toolbar` / `mobile` / `renderRow` slots instead of the `*Props` variants.
  */
 export function DataTablePage<TData>(props: DataTablePageProps<TData>) {
+  const tableRegionRef = React.useRef<HTMLDivElement>(null)
   const isMobile = useMediaQuery('(max-width: 640px)')
   const showMobile = isMobile && !props.hideMobile
 
@@ -336,6 +338,8 @@ export function DataTablePage<TData>(props: DataTablePageProps<TData>) {
   return (
     <>
       <div
+        ref={tableRegionRef}
+        tabIndex={-1}
         className={cn(
           props.fixedHeight !== false
             ? 'flex h-full min-h-0 flex-col gap-2.5 sm:gap-3'
@@ -344,6 +348,13 @@ export function DataTablePage<TData>(props: DataTablePageProps<TData>) {
         )}
       >
         {toolbarNode}
+        <WaitCompanion
+          pending={!!props.isLoading || !!props.isFetching}
+          className='max-h-[45svh] shrink-0 overflow-y-auto'
+          onReturnToTask={() =>
+            tableRegionRef.current?.focus({ preventScroll: true })
+          }
+        />
         {mobileNode}
         {desktopNode}
         {props.afterTable}

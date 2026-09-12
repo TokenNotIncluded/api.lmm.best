@@ -11,6 +11,7 @@ import (
 	"sync"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
+	"github.com/LIghtJUNction/api.lmm.best/setting"
 	"github.com/LIghtJUNction/api.lmm.best/setting/billing_setting"
 	"github.com/LIghtJUNction/api.lmm.best/setting/config"
 	"github.com/LIghtJUNction/api.lmm.best/setting/ratio_setting"
@@ -319,6 +320,9 @@ func updateOptionsWithPriceLocks(values map[string]string, lockModel string, loc
 	var accepted map[string]string
 	var keys []string
 	err := DB.Transaction(func(tx *gorm.DB) error {
+		if err := lockAssistantL1AutoReviewOptions(tx, values); err != nil {
+			return err
+		}
 		accepted = values
 		_, groupRatioChanged := values["GroupRatio"]
 		_, groupOverrideChanged := values["GroupGroupRatio"]
@@ -375,7 +379,13 @@ func updateOptionsWithPriceLocks(values map[string]string, lockModel string, loc
 	if err != nil {
 		return result, err
 	}
+	if err := applyAssistantL1AutoReviewOptionMap(accepted); err != nil {
+		return result, err
+	}
 	for _, key := range keys {
+		if setting.IsAssistantL1AutoReviewOption(key) {
+			continue
+		}
 		if err := updateOptionMap(key, accepted[key]); err != nil {
 			return result, err
 		}

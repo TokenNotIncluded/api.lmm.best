@@ -141,6 +141,45 @@ export function getCCSwitchClaudeProviderJSON(
   )
 }
 
+const NON_TEXT_MODEL_MARKERS = [
+  'audio',
+  'dall-e',
+  'embedding',
+  'flux',
+  'image',
+  'imagen',
+  'rerank',
+  'seedream',
+  'stable-diffusion',
+  'sora',
+  'tts',
+  'video',
+  'whisper',
+]
+
+export function getGuideEligibleModels(
+  availableModels: readonly string[]
+): string[] {
+  const isTextModel = (model: string) => {
+    const normalized = model.trim().toLowerCase()
+    return (
+      normalized.length > 0 &&
+      !NON_TEXT_MODEL_MARKERS.some((marker) => normalized.includes(marker))
+    )
+  }
+  return availableModels.filter(isTextModel).map((model) => model.trim())
+}
+
+export function selectGuideModel(
+  availableModels: readonly string[],
+  selectedModel = ''
+): string {
+  const eligibleModels = getGuideEligibleModels(availableModels)
+  const selected = selectedModel.trim()
+  if (selected && eligibleModels.includes(selected)) return selected
+  return eligibleModels[0] ?? ''
+}
+
 export function getOpenAICompatibleClientJSON(
   baseUrl: string,
   model: string

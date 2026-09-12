@@ -49,6 +49,7 @@ type DeveloperAccessRequest struct {
 	AdminNote        string `json:"admin_note" gorm:"type:text"`
 	CreatedAt        int64  `json:"created_at" gorm:"not null;index"`
 	ReviewedAt       int64  `json:"reviewed_at" gorm:"not null;default:0"`
+	Revision         int64  `json:"-" gorm:"not null;default:0"`
 }
 
 func (DeveloperAccessRequest) TableName() string { return "developer_access_requests" }
@@ -131,6 +132,7 @@ func reopenDeveloperAccessRequestForUserWithTx(tx *gorm.DB, userID int) error {
 	}
 
 	return tx.Model(&latest).Updates(map[string]interface{}{
+		"revision":      gorm.Expr("revision + 1"),
 		"status":        DeveloperAccessRequestPending,
 		"admin_user_id": 0,
 		"admin_note":    "",
@@ -263,12 +265,14 @@ func submitNormalizedDeveloperAccessRequestWithTx(tx *gorm.DB, userID int, norma
 		// manual edits update that same pending row instead of creating a
 		// second queue item or preserving conflicting copies.
 		updates := map[string]interface{}{
+			"revision":      gorm.Expr("revision + 1"),
 			"reason":        redactAssistantHandoffMessage(normalizedReason),
 			"status":        DeveloperAccessRequestPending,
 			"admin_user_id": 0,
 			"admin_note":    "",
 			"reviewed_at":   0,
 		}
+		pending.Revision++
 		pending.Reason = updates["reason"].(string)
 		pending.Status = DeveloperAccessRequestPending
 		pending.AdminUserId = 0
@@ -344,6 +348,18 @@ func ReviewDeveloperAccessRequest(adminUserID int, requestID int, approve bool, 
 	}
 	var request DeveloperAccessRequest
 	err = DB.Transaction(func(tx *gorm.DB) error {
+		// Discover the owner, then use the same user -> request lock order as
+		// submission, automatic review and administrator L0 resets.
+		var owner DeveloperAccessRequest
+		if err := tx.Select("id", "user_id").First(&owner, requestID).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrDeveloperAccessRequestNotFound
+			}
+			return err
+		}
+		if err := lockAssistantOwner(tx, owner.UserId); err != nil {
+			return err
+		}
 		if err := lockForUpdate(tx).Where("id = ?", requestID).First(&request).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return ErrDeveloperAccessRequestNotFound
@@ -383,6 +399,7 @@ func ReviewDeveloperAccessRequest(adminUserID int, requestID int, approve bool, 
 			status = DeveloperAccessRequestApproved
 		}
 		if err := tx.Model(&request).Updates(map[string]interface{}{
+			"revision":      gorm.Expr("revision + 1"),
 			"status":        status,
 			"admin_user_id": adminUserID,
 			"admin_note":    normalizedNote,
@@ -390,6 +407,7 @@ func ReviewDeveloperAccessRequest(adminUserID int, requestID int, approve bool, 
 		}).Error; err != nil {
 			return err
 		}
+		request.Revision++
 		request.Status = status
 		request.AdminUserId = adminUserID
 		request.AdminNote = normalizedNote
@@ -407,59 +425,5 @@ func ReviewDeveloperAccessRequest(adminUserID int, requestID int, approve bool, 
 	if approve {
 		_ = InvalidateUserCache(request.UserId)
 	}
-	return &request, nil
-}
-
-// AutoApproveDeveloperAccessRequest applies an automatic approval only when
-// the exact recommendation snapshot that was reviewed is still pending. The
-// row lock makes the final comparison and privilege change one transaction.
-func AutoApproveDeveloperAccessRequest(adminUserID, requestID int, expectedReason, expectedRecommendation, note string) (*DeveloperAccessRequest, error) {
-	if adminUserID <= 0 || requestID <= 0 {
-		return nil, gorm.ErrInvalidData
-	}
-	normalizedNote, err := normalizeDeveloperAccessReviewNote(note)
-	if err != nil {
-		return nil, err
-	}
-	var request DeveloperAccessRequest
-	err = DB.Transaction(func(tx *gorm.DB) error {
-		if err := lockForUpdate(tx).Where("id = ?", requestID).First(&request).Error; err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return ErrDeveloperAccessRequestNotFound
-			}
-			return err
-		}
-		if request.Status != DeveloperAccessRequestPending {
-			return ErrDeveloperAccessRequestReviewed
-		}
-		if request.Reason != expectedReason || request.AIRecommendation != expectedRecommendation {
-			return ErrDeveloperAccessRequestChanged
-		}
-		result := tx.Model(&User{}).
-			Where("id = ?", request.UserId).
-			Updates(map[string]interface{}{"console_activated_at": time.Now().Unix(), "trust_level_override": nil})
-		if result.Error != nil {
-			return result.Error
-		}
-		if result.RowsAffected == 0 {
-			return ErrDeveloperAccessRequestNotFound
-		}
-		now := common.GetTimestamp()
-		if err := tx.Model(&request).Updates(map[string]interface{}{
-			"status": DeveloperAccessRequestApproved, "admin_user_id": adminUserID,
-			"admin_note": normalizedNote, "reviewed_at": now,
-		}).Error; err != nil {
-			return err
-		}
-		request.Status = DeveloperAccessRequestApproved
-		request.AdminUserId = adminUserID
-		request.AdminNote = normalizedNote
-		request.ReviewedAt = now
-		return archiveApprovedDeveloperAccessRecommendation(tx, request)
-	})
-	if err != nil {
-		return nil, err
-	}
-	_ = InvalidateUserCache(request.UserId)
 	return &request, nil
 }

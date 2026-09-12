@@ -401,6 +401,94 @@ describe('wallet payment clarity', () => {
     await unmount(rendered)
   })
 
+  test('Pancake presets distinguish unrequested quotes from the selected server quote', async () => {
+    await i18n.changeLanguage('en')
+    setUsdBillingCurrency()
+    for (const calculating of [false, true]) {
+      const rendered = await render(
+        <RechargeFormCard
+          topupInfo={topupInfo}
+          presetAmounts={[{ value: 10 }, { value: 20 }]}
+          selectedPreset={10}
+          onSelectPreset={() => undefined}
+          topupAmount={10}
+          onTopupAmountChange={() => undefined}
+          paymentAmount={999}
+          settlementQuote={{ amount: '1.4900', currency: 'USD' }}
+          selectedPaymentMethod={{
+            name: 'Waffo Pancake',
+            type: 'waffo_pancake',
+          }}
+          calculating={calculating}
+          onPaymentMethodSelect={() => undefined}
+          paymentLoading={null}
+          redemptionCode=''
+          onRedemptionCodeChange={() => undefined}
+          onRedeem={() => undefined}
+          redeeming={false}
+        />
+      )
+      const presets = Array.from(
+        rendered.container.querySelectorAll('button[aria-pressed]')
+      )
+      assert.equal(presets.length, 2)
+      const selectedLabel = presets[0].getAttribute('aria-label') || ''
+      const unselectedLabel = presets[1].getAttribute('aria-label') || ''
+      assert.equal(selectedLabel.includes('1.4900 USD'), !calculating)
+      assert.equal(
+        unselectedLabel.includes('Select to get the current payment quote'),
+        true
+      )
+      assert.equal(unselectedLabel.includes('Payment unavailable'), false)
+      assert.equal(unselectedLabel.includes('1.4900'), false)
+      assert.equal(selectedLabel.includes('999'), false)
+      await unmount(rendered)
+    }
+  })
+
+  test('failed quotes explain the server reason and allow a quote-only retry', async () => {
+    await i18n.changeLanguage('en')
+    let retries = 0
+    const rendered = await render(
+      <RechargeFormCard
+        topupInfo={topupInfo}
+        presetAmounts={[{ value: 10 }]}
+        selectedPreset={10}
+        onSelectPreset={() => undefined}
+        topupAmount={10}
+        onTopupAmountChange={() => undefined}
+        paymentAmount={0}
+        settlementQuote={null}
+        selectedPaymentMethod={{ name: 'Waffo Pancake', type: 'waffo_pancake' }}
+        calculating={false}
+        quoteError='Minimum payment is 1 USD'
+        onRetryQuote={() => {
+          retries++
+        }}
+        onPaymentMethodSelect={() => {
+          throw new Error('retry must not start checkout')
+        }}
+        paymentLoading={null}
+        redemptionCode=''
+        onRedemptionCodeChange={() => undefined}
+        onRedeem={() => undefined}
+        redeeming={false}
+      />
+    )
+    const alert = rendered.container.querySelector('[role="alert"]')
+    assert.ok(alert)
+    assert.ok(alert.textContent?.includes('Minimum payment is 1 USD'))
+    const retry = alert.querySelector('button')
+    assert.ok(retry)
+    await act(async () => retry.click())
+    assert.equal(retries, 1)
+    const payButton = Array.from(
+      rendered.container.querySelectorAll('button')
+    ).find((b) => b.textContent?.includes('Pay Payment unavailable'))
+    assert.equal(payButton?.disabled, true)
+    await unmount(rendered)
+  })
+
   test('hides a stale payment quote while a fresh quote is calculating', async () => {
     await i18n.changeLanguage('en')
     setUsdBillingCurrency()

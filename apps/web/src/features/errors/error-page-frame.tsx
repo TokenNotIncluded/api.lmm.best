@@ -15,6 +15,7 @@ You should have received a copy of the GNU Affero General Public License
 along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 import { LmmBrandMark } from '@/components/lmm-brand-mark'
+import { useSystemConfig } from '@/hooks/use-system-config'
 
 import './error-page-frame.css'
 
@@ -29,14 +30,15 @@ type ErrorPageFrameProps = {
 }
 
 export function ErrorPageFrame(props: ErrorPageFrameProps) {
+  const { systemName } = useSystemConfig()
   return (
     <main className='error-editorial min-h-svh'>
       <div className='error-editorial-shell'>
         <div className='error-editorial-layout'>
           <section className='error-editorial-copy'>
             <div className='error-editorial-brand'>
-              <LmmBrandMark className='size-7' title='LMM Forge' />
-              <span>LMM Forge</span>
+              <LmmBrandMark className='size-7' title={systemName} />
+              <span>{systemName}</span>
             </div>
             <p className='error-editorial-kicker'>System note</p>
             {props.showStatus !== false && (

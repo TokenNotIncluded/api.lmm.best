@@ -95,7 +95,7 @@ func PreWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usag
 		return err
 	}
 
-	token, err := model.GetTokenByKey(strings.TrimPrefix(relayInfo.TokenKey, "sk-"), false)
+	token, err := model.GetRelayBillingToken(relayInfo.TokenId, strings.TrimPrefix(relayInfo.TokenKey, "sk-"))
 	if err != nil {
 		return err
 	}
@@ -428,7 +428,7 @@ func PreConsumeTokenQuota(relayInfo *relaycommon.RelayInfo, quota int) error {
 	}
 	// Atomically check and reserve the token quota so concurrent requests
 	// cannot all pass a separate balance check before deducting.
-	token, err := model.GetTokenByKey(relayInfo.TokenKey, false)
+	token, err := model.GetRelayBillingToken(relayInfo.TokenId, relayInfo.TokenKey)
 	if err != nil {
 		return err
 	}

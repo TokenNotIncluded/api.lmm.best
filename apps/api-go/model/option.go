@@ -143,7 +143,9 @@ func InitOptionMap() {
 	common.OptionMap[setting.AssistantEnabledOptionKey] = strconv.FormatBool(assistantSettings.Enabled)
 	common.OptionMap[setting.AssistantModelOptionKey] = assistantSettings.Model
 	common.OptionMap[setting.AssistantGroupOptionKey] = assistantSettings.Group
-	common.OptionMap[setting.AssistantL1AutoApprovalUserIDsOptionKey] = assistantSettings.L1AutoApprovalUserIDs
+	for key, value := range setting.GetAssistantL1AutoReviewSettings().OptionValues() {
+		common.OptionMap[key] = value
+	}
 	common.OptionMap[setting.AssistantReasoningEffortOptionKey] = assistantSettings.ReasoningEffort
 	common.OptionMap[setting.AssistantStreamEnabledOptionKey] = strconv.FormatBool(assistantSettings.StreamEnabled)
 	common.OptionMap[setting.AssistantTemperatureOptionKey] = strconv.FormatFloat(assistantSettings.Temperature, 'f', -1, 64)
@@ -261,12 +263,23 @@ func InitOptionMap() {
 func loadOptionsFromDatabase() {
 	optionUpdateMutex.Lock()
 	defer optionUpdateMutex.Unlock()
-	options, _ := AllOption()
+	options, err := AllOption()
+	if err != nil {
+		common.SysLog("failed to load option map: " + err.Error())
+		return
+	}
+	l1Values := setting.DefaultAssistantL1AutoReviewSettings().OptionValues()
 	for _, option := range options {
-		err := updateOptionMap(option.Key, option.Value)
-		if err != nil {
+		if setting.IsAssistantL1AutoReviewOption(option.Key) {
+			l1Values[option.Key] = option.Value
+			continue
+		}
+		if err := updateOptionMap(option.Key, option.Value); err != nil {
 			common.SysLog("failed to update option map: " + err.Error())
 		}
+	}
+	if err := applyAssistantL1AutoReviewOptionMap(l1Values); err != nil {
+		common.SysLog("failed to update L1 automatic review settings: " + err.Error())
 	}
 }
 
@@ -292,6 +305,9 @@ func SyncOptionsContext(ctx context.Context, frequency int) {
 }
 
 func validateOptionValue(key string, value string) error {
+	if setting.IsAssistantL1AutoReviewOption(key) {
+		return validateAssistantL1AutoReviewValues(map[string]string{key: value})
+	}
 	if isRetiredIPAccessOptionKey(key) {
 		return errors.New("legacy IP access option is retired; use IPAccessRoutingRules")
 	}
@@ -428,7 +444,12 @@ func validateOptionValues(values map[string]string) error {
 	dynamicValues := make(map[string]string)
 	assistantRouteChanged := false
 	assistantReviewRouteChanged := false
+	l1AutoReviewValues := make(map[string]string)
 	for key, value := range values {
+		if setting.IsAssistantL1AutoReviewOption(key) {
+			l1AutoReviewValues[key] = value
+			continue
+		}
 		if dynamic_pricing_setting.IsOptionKey(key) {
 			dynamicValues[key] = value
 			continue
@@ -478,6 +499,11 @@ func validateOptionValues(values map[string]string) error {
 			}
 		}
 		if err := validateAssistantReviewRouteValues(values); err != nil {
+			return err
+		}
+	}
+	if len(l1AutoReviewValues) > 0 {
+		if err := validateAssistantL1AutoReviewValues(l1AutoReviewValues); err != nil {
 			return err
 		}
 	}
@@ -648,6 +674,13 @@ func updateOptionMap(key string, value string) (err error) {
 	}
 	common.OptionMapRWMutex.Lock()
 	defer common.OptionMapRWMutex.Unlock()
+	if setting.IsAssistantL1AutoReviewOption(key) {
+		if err := setting.UpdateAssistantL1AutoReviewOption(key, value); err != nil {
+			return err
+		}
+		common.OptionMap[key] = value
+		return nil
+	}
 	common.OptionMap[key] = value
 
 	// 检查是否是模型配置 - 使用更规范的方式处理

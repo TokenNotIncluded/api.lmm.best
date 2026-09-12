@@ -28,12 +28,14 @@ import { StrictMode, Suspense } from 'react'
 import ReactDOM from 'react-dom/client'
 import { toast } from 'sonner'
 
+import { LoadingState } from '@/components/loading-state'
 import { getStatus } from '@/lib/api'
 import { bindAuthCache } from '@/lib/auth-session'
 import { installBuildMetadata } from '@/lib/build-metadata'
 import '@/lib/dayjs'
 import { initializeFrontendCache } from '@/lib/frontend-cache'
 import { handleServerError } from '@/lib/handle-server-error'
+import { resolveSystemName } from '@/lib/constants'
 
 import { DirectionProvider } from './context/direction-provider'
 import { FontProvider } from './context/font-provider'
@@ -98,6 +100,8 @@ const router = createRouter({
   routeTree,
   context: { queryClient },
   defaultPreload: 'intent',
+  defaultPendingComponent: LoadingState,
+  defaultPendingMinMs: 0,
   // Avoid re-running every hover preload while auth/session state is settling.
   // The router-core update also handles an in-flight preload being evicted.
   defaultPreloadStaleTime: 30_000,
@@ -120,43 +124,15 @@ if (!rootElement) {
 ;(function initSystemBranding() {
   try {
     if (typeof window === 'undefined' || typeof document === 'undefined') return
-    const forgePublicPaths = [
-      '/pricing',
-      '/challenges',
-      '/about',
-      '/rankings',
-      '/privacy-policy',
-      '/user-agreement',
-      '/terms',
-      '/terms-of-service',
-      '/sign-in',
-      '/sign-up',
-      '/signup',
-      '/register',
-      '/forgot-password',
-      '/reset',
-      '/otp',
-      '/oauth',
-    ]
-    const isForgePublicRoute = () => {
-      const { pathname } = window.location
-      return (
-        pathname === '/' ||
-        forgePublicPaths.some(
-          (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`)
-        )
-      )
-    }
-    const forgeTitle = 'LMM Forge'
     const apply = (name: string) => {
-      const title = isForgePublicRoute() ? forgeTitle : name
+      const title = resolveSystemName(name)
       document.title = title
       const metaTitle = document.querySelector(
         'meta[name="title"]'
       ) as HTMLMetaElement | null
       if (metaTitle) metaTitle.setAttribute('content', title)
     }
-    if (isForgePublicRoute()) apply(forgeTitle)
+    apply('')
     // Cache-first
     try {
       const saved = localStorage.getItem('status')

@@ -25,6 +25,7 @@ import {
   sideDrawerFormClassName,
   sideDrawerHeaderClassName,
 } from '@/components/drawer-layout'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -209,8 +210,8 @@ export function PricingToolbar(props: PricingToolbarProps) {
             <div className='hidden items-center gap-2 sm:flex'>
               <SegmentedControl
                 options={[
-                  { value: 'standard', label: t('Standard') },
-                  { value: 'recharge', label: t('Recharge') },
+                  { value: 'standard', label: t('Platform credits') },
+                  { value: 'recharge', label: t('Estimated USD cost') },
                 ]}
                 value={props.showRechargePrice ? 'recharge' : 'standard'}
                 onChange={handleRechargePriceChange}
@@ -283,6 +284,21 @@ export function PricingToolbar(props: PricingToolbarProps) {
         </div>
       </div>
 
+      <Alert role='note'>
+        <AlertDescription>
+          <p>
+            {t(
+              'Unfiltered prices are starting prices. Choose a group to see its rate; Auto follows your configured group order.'
+            )}
+          </p>
+          <p>
+            {t(
+              'Base prices exclude dynamic profit multipliers and usage discounts. USD estimates also exclude payment discounts and fees; checkout confirms the payable amount.'
+            )}
+          </p>
+        </AlertDescription>
+      </Alert>
+
       <SheetContent
         side='right'
         className={sideDrawerContentClassName('sm:max-w-md')}
@@ -321,8 +337,8 @@ export function PricingToolbar(props: PricingToolbarProps) {
               </p>
               <SegmentedControl
                 options={[
-                  { value: 'standard', label: t('Standard') },
-                  { value: 'recharge', label: t('Recharge') },
+                  { value: 'standard', label: t('Platform credits') },
+                  { value: 'recharge', label: t('Estimated USD cost') },
                 ]}
                 value={props.showRechargePrice ? 'recharge' : 'standard'}
                 onChange={handleRechargePriceChange}

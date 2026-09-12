@@ -38,7 +38,7 @@ func TestPromptPresetFallbackAndAggregateAttribution(t *testing.T) {
 		}
 	}
 	require.NotNil(t, weekly)
-	assert.Contains(t, weekly.Prompt, "充值优惠码")
+	assert.Equal(t, "这周充值有什么优惠？", weekly.Prompt)
 	assert.NotEmpty(t, set.Presets[0].Prompt)
 
 	attribution, err := ResolvePromptPreset(set.Presets[0].Id, set.Presets[0].Prompt)
@@ -134,7 +134,7 @@ func TestPromptPresetValidationAndBoundedRefresh(t *testing.T) {
 		}
 	}
 	require.NotNil(t, weekly)
-	assert.Contains(t, weekly.Prompt, "充值优惠码")
+	assert.Equal(t, "这周充值有什么优惠？", weekly.Prompt)
 	assert.NotContains(t, weekly.Prompt, "alice")
 	assert.NotContains(t, weekly.Prompt, "secret")
 	assert.Contains(t, promptPresetIDs(generated.Presets), "new_user_gift")

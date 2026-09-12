@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
 import { after, afterEach, describe, test } from 'node:test'
 
 import { Window } from 'happy-dom'
@@ -492,6 +493,80 @@ describe('AssistantPanel', () => {
     })
   }
 
+  test('waiting play stays outside the live conversation and returns focus to the arriving answer', async () => {
+    const panelFetch = globalThis.fetch
+    let output: ReadableStreamDefaultController<Uint8Array> | undefined
+    api.get = (async () => ({
+      data: { success: true, data: assistantStatus },
+    })) as typeof api.get
+    globalThis.fetch = (async (
+      _input: RequestInfo | URL,
+      init?: RequestInit
+    ) => {
+      return new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            output = controller
+            init?.signal?.addEventListener(
+              'abort',
+              () => controller.error(new DOMException('Stopped', 'AbortError')),
+              { once: true }
+            )
+          },
+        }),
+        { headers: { 'content-type': 'text/event-stream' } }
+      )
+    }) as typeof globalThis.fetch
+    const rendered = await renderPanel()
+    try {
+      await setTextareaValue(
+        requireValue(document.querySelector<HTMLTextAreaElement>('textarea')),
+        'Explain this workflow'
+      )
+      await act(async () => {
+        requireValue(
+          document.querySelector<HTMLButtonElement>('button[aria-label="Send"]')
+        ).click()
+        await flushEffects()
+      })
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 4100))
+      })
+      const companion = requireValue(
+        document.querySelector('[data-testid="wait-companion"]')
+      )
+      assert.equal(companion.closest('[role="log"]'), null)
+      await act(async () => {
+        findButton('Play while you wait').click()
+        await flushEffects()
+      })
+      assert.equal(companion.querySelectorAll('button[aria-pressed]').length, 9)
+      await act(async () => {
+        requireValue(output).enqueue(
+          new TextEncoder().encode(
+            'event: delta\ndata: {"content":"A response is arriving."}\n\n'
+          )
+        )
+        await flushEffects()
+      })
+      assert.ok(
+        document.body.textContent?.includes('The response has started.')
+      )
+      assert.equal(companion.querySelectorAll('button[aria-pressed]').length, 0)
+      await act(async () => {
+        findButton('Back to task').click()
+        await flushEffects()
+      })
+      assert.ok(
+        document.activeElement?.textContent?.includes('A response is arriving.')
+      )
+    } finally {
+      await act(async () => rendered.root.unmount())
+      rendered.queryClient.clear()
+      globalThis.fetch = panelFetch
+    }
+  })
+
   test('keeps a stopped partial answer and retries without duplicating the question', async () => {
     const panelFetch = globalThis.fetch
     const posted: unknown[] = []
@@ -917,6 +992,222 @@ describe('AssistantPanel', () => {
         await act(async () => rendered.root.unmount())
         rendered.queryClient.clear()
       }
+    }
+  })
+
+  test('switches all four cached starters, composer text and submitted prompts across seven interface languages', async () => {
+    const keys = {
+      ai_recommendation: 'Help me write an L1 recommendation.',
+      getting_started: 'Where should I start?',
+      new_user_gift: 'How do I get the new-user gift?',
+      weekly_discount: 'Any top-up discounts this week?',
+    }
+    const legacyPresets = Object.keys(keys).map((id) => ({
+      id,
+      label: '旧标签',
+      prompt: '请围绕旧模板说明权限边界。',
+    }))
+    const requestedLanguages: string[] = []
+    const clicks: string[] = []
+    const chats: { preset_id: string; messages: { content: string }[] }[] = []
+    api.get = (async (
+      url: string,
+      config?: { params?: { language?: string } }
+    ) => {
+      if (url === '/api/assistant/pre-conversation-presets') {
+        requestedLanguages.push(config?.params?.language ?? '')
+        return {
+          data: {
+            success: true,
+            data: {
+              generation: 17,
+              version: 'aggregate-topic-v1',
+              presets: legacyPresets,
+            },
+          },
+        }
+      }
+      assert.equal(url, '/api/assistant/status')
+      return {
+        data: {
+          success: true,
+          data: { ...assistantStatus, developer_access_granted: false },
+        },
+      }
+    }) as typeof api.get
+    api.post = (async (url: string, body: (typeof chats)[number]) => {
+      if (url.endsWith('/click')) {
+        clicks.push(url)
+        return { data: { success: true } }
+      }
+      assert.equal(url, '/api/assistant/chat')
+      chats.push(body)
+      return {
+        data: { choices: [{ message: { content: 'Preset test reply.' } }] },
+        headers: {},
+      }
+    }) as typeof api.post
+
+    const rendered = await renderPanel()
+    try {
+      for (const [language, file] of [
+        ['en', 'en'],
+        ['zhCN', 'zh'],
+        ['zhTW', 'zh-TW'],
+        ['fr', 'fr'],
+        ['ja', 'ja'],
+        ['ru', 'ru'],
+        ['vi', 'vi'],
+      ]) {
+        const resource = JSON.parse(
+          await readFile(
+            new URL(`../../i18n/locales/${file}.json`, import.meta.url),
+            'utf8'
+          )
+        ) as { translation: Record<string, string> }
+        // Keep unrelated controls in English so this test isolates starter copy.
+        i18n.addResourceBundle(
+          language,
+          'translation',
+          Object.fromEntries(
+            Object.values(keys).map((key) => [key, resource.translation[key]])
+          )
+        )
+        await act(async () => {
+          await i18n.changeLanguage(language)
+          await flushEffects()
+        })
+        assert.ok(
+          requestedLanguages.includes(language),
+          'Language-specific preset request was not made'
+        )
+        for (const [id, key] of Object.entries(keys)) {
+          const prompt = resource.translation[key]
+          assert.ok(prompt)
+          const group = requireValue(
+            document.querySelector('[data-testid="assistant-preset-prompts"]')
+          )
+          const button = requireValue(
+            [...group.querySelectorAll('button')].find(
+              (item) => item.textContent === prompt
+            )
+          )
+          assert.match(button.className, /max-w-full/)
+          assert.doesNotMatch(group.textContent ?? '', /旧标签|权限边界/)
+          const previousChats = chats.length
+          await act(async () => {
+            button.click()
+            await flushEffects()
+          })
+          const textarea = requireValue(document.querySelector('textarea'))
+          assert.equal(textarea.value, prompt)
+          assert.equal(
+            chats.length,
+            previousChats,
+            'Selecting a starter should fill, not auto-send, the composer'
+          )
+          assert.equal(
+            clicks.at(-1),
+            `/api/assistant/pre-conversation-presets/${id}/click`
+          )
+          await act(async () => {
+            const submit = requireValue(
+              document.querySelector<HTMLButtonElement>(
+                'button[aria-label="Send"]'
+              )
+            )
+            assert.equal(submit.disabled, false)
+            submit.click()
+            await flushEffects()
+          })
+          await act(flushEffects)
+          assert.ok(
+            document.body.textContent?.includes('Preset test reply.'),
+            'Localized starter was not sent'
+          )
+          assert.equal(chats.at(-1)?.preset_id, id)
+          assert.equal(chats.at(-1)?.messages.at(-1)?.content, prompt)
+          await act(async () => {
+            findButton('Clear conversation').click()
+            await flushEffects()
+          })
+        }
+      }
+      assert.equal(chats.length, 28)
+      assert.equal(clicks.length, 28)
+      assert.equal(requestedLanguages.length, 7)
+      await act(async () => {
+        await i18n.changeLanguage('en')
+        await flushEffects()
+      })
+      assert.equal(
+        requestedLanguages.length,
+        7,
+        'Returning to a fresh locale cache must not refetch'
+      )
+      for (const prompt of Object.values(keys)) assert.ok(findButton(prompt))
+    } finally {
+      await act(async () => rendered.root.unmount())
+      rendered.queryClient.clear()
+      await i18n.changeLanguage('en')
+    }
+  })
+
+  test('shows localized seed starters when the preset endpoint fails', async () => {
+    api.get = (async (url: string) => {
+      if (url === '/api/assistant/pre-conversation-presets') {
+        throw new Error('preset cache unavailable')
+      }
+      assert.equal(url, '/api/assistant/status')
+      return { data: { success: true, data: assistantStatus } }
+    }) as typeof api.get
+    api.post = (async (url: string) => {
+      assert.equal(
+        url,
+        '/api/assistant/pre-conversation-presets/getting_started/click'
+      )
+      return { data: { success: true } }
+    }) as typeof api.post
+    const resource = JSON.parse(
+      await readFile(
+        new URL('../../i18n/locales/fr.json', import.meta.url),
+        'utf8'
+      )
+    ) as { translation: Record<string, string> }
+    const key = 'Where should I start?'
+    i18n.addResourceBundle(
+      'fr',
+      'translation',
+      { [key]: resource.translation[key] },
+      true,
+      true
+    )
+    await i18n.changeLanguage('fr')
+    const rendered = await renderPanel()
+    try {
+      await act(async () =>
+        waitForCondition(
+          () =>
+            document.querySelector(
+              '[data-testid="assistant-preset-prompts"]'
+            ) !== null,
+          'Localized fallback starters did not finish loading'
+        )
+      )
+      const group = requireValue(
+        document.querySelector('[data-testid="assistant-preset-prompts"]')
+      )
+      assert.equal(group.querySelectorAll('button').length, 4)
+      const prompt = resource.translation[key]
+      await act(async () => {
+        findButton(prompt).click()
+        await flushEffects()
+      })
+      assert.equal(document.querySelector('textarea')?.value, prompt)
+    } finally {
+      await act(async () => rendered.root.unmount())
+      rendered.queryClient.clear()
+      await i18n.changeLanguage('en')
     }
   })
 

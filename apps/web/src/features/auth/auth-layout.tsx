@@ -22,6 +22,7 @@ import { useEffect } from 'react'
 import { LanguageSwitcher } from '@/components/language-switcher'
 import { LmmBrandMark } from '@/components/lmm-brand-mark'
 import { ThemeSwitch } from '@/components/theme-switch'
+import { useSystemConfig } from '@/hooks/use-system-config'
 
 import { AuthArtPanel } from './components/auth-art-panel'
 
@@ -32,13 +33,14 @@ type AuthLayoutProps = {
 }
 
 export function AuthLayout({ children }: AuthLayoutProps) {
+  const { systemName } = useSystemConfig()
   useEffect(() => {
     const previousTitle = document.title
-    document.title = 'LMM Forge'
+    document.title = systemName
     return () => {
       document.title = previousTitle
     }
-  }, [])
+  }, [systemName])
 
   return (
     <div className='auth-editorial relative flex h-dvh max-w-none flex-col overflow-hidden lg:grid lg:grid-cols-[minmax(31rem,0.92fr)_minmax(31rem,1.08fr)]'>
@@ -47,8 +49,8 @@ export function AuthLayout({ children }: AuthLayoutProps) {
           to='/'
           className='flex items-center gap-2 transition-opacity hover:opacity-80'
         >
-          <LmmBrandMark className='size-8' title='LMM Forge' />
-          <h1 className='text-lg font-medium sm:text-xl'>LMM Forge</h1>
+          <LmmBrandMark className='size-8' title={systemName} />
+          <h1 className='text-lg font-medium sm:text-xl'>{systemName}</h1>
         </Link>
         <div className='flex items-center gap-1'>
           <LanguageSwitcher />

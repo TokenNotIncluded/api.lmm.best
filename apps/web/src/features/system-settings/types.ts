@@ -351,6 +351,12 @@ export type ContentSettings = {
   AssistantSearchMCPTool: string
   AssistantSkills: string
   AssistantSkillFiles: string
+  AssistantL1AutoReviewEnabled: boolean
+  AssistantL1AutoReviewGroup: string
+  AssistantL1AutoReviewModel: string
+  AssistantL1AutoReviewPrompt: string
+  AssistantL1AutoReviewMinConfidence: number
+  AssistantL1AutoApprovalUserIDs: string
   AssistantReviewEnabled: boolean
   AssistantReviewWindowDays: number
   AssistantReviewIntervalHours: number

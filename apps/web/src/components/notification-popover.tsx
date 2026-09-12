@@ -440,7 +440,7 @@ export function NotificationPopover({
           <Button
             variant='ghost'
             size='icon'
-            className={cn('relative size-8', className)}
+            className={cn('relative size-11 sm:size-8', className)}
             aria-label={t('Notifications')}
           />
         }

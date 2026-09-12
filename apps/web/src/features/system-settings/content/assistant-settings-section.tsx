@@ -20,7 +20,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { useQuery } from '@tanstack/react-query'
 import { FileText, Plus, RefreshCw, Trash2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { useForm } from 'react-hook-form'
+import { useForm, useWatch } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
@@ -61,6 +61,7 @@ import {
   type AssistantSearchProvider,
 } from '../types'
 import { safeNumberFieldProps } from '../utils/numeric-field'
+import { AssistantL1ReviewSettings } from './assistant-l1-review-settings'
 import {
   assistantSettingsSchema,
   type AssistantSettingsFormValues,
@@ -121,17 +122,6 @@ function AssistantSkillFilesEditor(props: {
     0
   )
   const selectedFile = files[selected]
-  const filePaths = files.map((file) => file.path).join('\u0000')
-
-  useEffect(() => {
-    if (files.length === 0) {
-      setSelectedPath(null)
-      return
-    }
-    if (!selectedPath || !files.some((file) => file.path === selectedPath)) {
-      setSelectedPath(files[0].path)
-    }
-  }, [filePaths, files, selectedPath])
 
   const updateFiles = (next: AssistantSkillFile[]) => {
     props.onChange(
@@ -319,16 +309,32 @@ export function AssistantSettingsSection(props: {
     }
   }
 
-  const enabled = form.watch('AssistantEnabled')
-  const agentLoopEnabled = form.watch('AssistantAgentLoopEnabled')
-  const cacheEnabled = form.watch('AssistantCacheEnabled')
-  const reviewEnabled = form.watch('AssistantReviewEnabled')
-  const retentionEnabled = form.watch('AssistantRetentionEnabled')
-  const searchProvider = form.watch('AssistantSearchProvider')
-  const selectedGroup = form.watch('AssistantGroup')
-  const selectedModel = form.watch('AssistantModel')
-  const selectedReviewGroup = form.watch('AssistantReviewGroup')
-  const selectedReviewModel = form.watch('AssistantReviewModel')
+  const [
+    enabled,
+    agentLoopEnabled,
+    cacheEnabled,
+    reviewEnabled,
+    retentionEnabled,
+    searchProvider,
+    selectedGroup,
+    selectedModel,
+    selectedReviewGroup,
+    selectedReviewModel,
+  ] = useWatch({
+    control: form.control,
+    name: [
+      'AssistantEnabled',
+      'AssistantAgentLoopEnabled',
+      'AssistantCacheEnabled',
+      'AssistantReviewEnabled',
+      'AssistantRetentionEnabled',
+      'AssistantSearchProvider',
+      'AssistantGroup',
+      'AssistantModel',
+      'AssistantReviewGroup',
+      'AssistantReviewModel',
+    ],
+  })
   const groupsQuery = useQuery({
     queryKey: ['assistant-routing-groups'],
     queryFn: async () => {
@@ -1112,6 +1118,12 @@ export function AssistantSettingsSection(props: {
               )}
             />
           </div>
+
+          <AssistantL1ReviewSettings
+            groups={assistantGroups}
+            groupsLoading={groupsQuery.isLoading}
+            getModels={getEnabledAssistantModelIDs}
+          />
 
           <div className='grid gap-5 border-t pt-6'>
             <div>

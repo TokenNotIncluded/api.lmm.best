@@ -10,7 +10,11 @@ import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 
 import type { PricingModel } from '../types'
-import { getAvailableGroups, getDisplayGroupRatio } from './model-helpers'
+import {
+  getAvailableGroups,
+  getDisplayGroupRatio,
+  getDisplayPriceGroup,
+} from './model-helpers'
 
 function model(enableGroups: string[]): PricingModel {
   return {
@@ -24,6 +28,24 @@ function model(enableGroups: string[]): PricingModel {
 }
 
 describe('pricing model group helpers', () => {
+  test('the displayed group matches the advertised minimum price, not source order', () => {
+    const pricedModel = {
+      ...model(['official', 'default', 'cheap']),
+      group_ratio: { official: 5, default: 10, cheap: 0.1 },
+    }
+    assert.equal(getDisplayPriceGroup(pricedModel), 'cheap')
+    assert.equal(getDisplayPriceGroup(pricedModel, 'default'), 'default')
+    assert.equal(getDisplayGroupRatio(pricedModel, 'default'), 10)
+  })
+
+  test('zero is a valid free price but negative prices are not advertised', () => {
+    const pricedModel = {
+      ...model(['paid', 'invalid', 'free']),
+      group_ratio: { paid: 2, invalid: -1, free: 0 },
+    }
+    assert.equal(getDisplayPriceGroup(pricedModel), 'free')
+    assert.equal(getDisplayGroupRatio(pricedModel), 0)
+  })
   test('expands all-groups models to every usable group', () => {
     const usableGroups = {
       default: { desc: 'Default', ratio: 1 },

@@ -25,6 +25,10 @@ func QuotaQueryAuth() gin.HandlerFunc {
 		fail := func(status int, message string) {
 			c.AbortWithStatusJSON(status, gin.H{"valid": false, "error": message})
 		}
+		if isOAuthResourceAttempt(c) {
+			fail(http.StatusUnauthorized, "invalid_api_key")
+			return
+		}
 		parts := strings.Fields(c.GetHeader("Authorization"))
 		if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
 			fail(http.StatusUnauthorized, "invalid_api_key")
@@ -34,7 +38,7 @@ func QuotaQueryAuth() gin.HandlerFunc {
 		key := strings.TrimPrefix(parts[1], "sk-")
 		// Credential predicates must never be expanded into SQL error logs.
 		err := model.DB.Session(&gorm.Session{Logger: logger.Discard}).WithContext(c.Request.Context()).
-			Where("? = ?", clause.Column{Name: "key"}, key).First(&token).Error
+			Where("? = ? AND oauth_managed = ?", clause.Column{Name: "key"}, key, false).First(&token).Error
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			fail(http.StatusUnauthorized, "invalid_api_key")
 			return

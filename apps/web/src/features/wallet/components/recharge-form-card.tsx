@@ -62,6 +62,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import { WaitCompanion } from '@/components/wait-companion'
 import { cn } from '@/lib/utils'
 import {
   getDefaultWaffoPancakeCheckoutRegion,
@@ -116,6 +117,8 @@ interface RechargeFormCardProps {
   settlementQuote?: SettlementQuote | null
   selectedPaymentMethod?: PaymentMethod
   calculating: boolean
+  quoteError?: string | null
+  onRetryQuote?: () => void
   onPaymentMethodSelect: (method: PaymentMethod) => void
   paymentLoading: string | null
   redemptionCode: string
@@ -157,6 +160,8 @@ export function RechargeFormCard({
   settlementQuote,
   selectedPaymentMethod,
   calculating,
+  quoteError,
+  onRetryQuote,
   onPaymentMethodSelect,
   paymentLoading,
   redemptionCode,
@@ -301,7 +306,7 @@ export function RechargeFormCard({
         : formatPaymentAmount(amount, 'USD')
   const formatPresetPaymentAmount = (amount: number) =>
     usesSettlementQuote
-      ? t('Payment unavailable')
+      ? t('Select for a quote')
       : formatSelectedPaymentAmount(amount)
   const isUpdatingQuote = calculating || discountApplying
   const paymentAmountLabel = isUpdatingQuote
@@ -565,15 +570,34 @@ export function RechargeFormCard({
                             )}
                             onClick={() => handlePresetSelect(preset)}
                             aria-pressed={activeSelectedPreset === preset.value}
-                            aria-label={t(
-                              'Preset amount: {{credit}}. Actual payment: {{payment}}. Original payment: {{original}}. {{discount}}',
-                              {
-                                credit: credits,
-                                payment,
-                                original: originalPayment,
-                                discount: discountSummary,
-                              }
-                            )}
+                            aria-label={
+                              usesSettlementQuote
+                                ? activeSelectedPreset === preset.value &&
+                                  hasCurrentPaymentAmount
+                                  ? t(
+                                      'Preset amount: {{credit}}. Actual payment: {{payment}}.',
+                                      {
+                                        credit: credits,
+                                        payment:
+                                          formatSelectedPaymentAmount(
+                                            paymentAmount
+                                          ),
+                                      }
+                                    )
+                                  : t(
+                                      'Preset amount: {{credit}}. Select to get the current payment quote.',
+                                      { credit: credits }
+                                    )
+                                : t(
+                                    'Preset amount: {{credit}}. Actual payment: {{payment}}. Original payment: {{original}}. {{discount}}',
+                                    {
+                                      credit: credits,
+                                      payment,
+                                      original: originalPayment,
+                                      discount: discountSummary,
+                                    }
+                                  )
+                            }
                           >
                             <div className='flex w-full min-w-0 flex-col items-start gap-1 sm:flex-row sm:items-center sm:justify-between'>
                               <div className='min-w-0 text-base font-semibold sm:text-lg'>
@@ -1106,6 +1130,24 @@ export function RechargeFormCard({
                     })}
                   </div>
                 </div>
+              )}
+              <WaitCompanion pending={calculating} />
+              {quoteError && !calculating && (
+                <Alert variant='destructive'>
+                  <AlertDescription>
+                    <p>{quoteError}</p>
+                    {onRetryQuote && (
+                      <Button
+                        type='button'
+                        variant='outline'
+                        onClick={onRetryQuote}
+                        disabled={!!paymentLoading}
+                      >
+                        {t('Retry')}
+                      </Button>
+                    )}
+                  </AlertDescription>
+                </Alert>
               )}
               {(hasStandardPaymentMethods || hasWaffoPaymentMethods) &&
                 effectivePaymentMethod && (

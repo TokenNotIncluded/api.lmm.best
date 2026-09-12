@@ -42,9 +42,9 @@ function PanelHeader(props: {
 }) {
   const heading = (
     <div className='flex flex-col gap-0.5'>
-      <div className='text-foreground text-sm font-semibold tracking-tight'>
+      <h3 className='text-foreground text-base font-semibold tracking-tight'>
         {props.title}
-      </div>
+      </h3>
       {props.description != null && (
         <div className='text-muted-foreground text-xs leading-relaxed'>
           {props.description}
@@ -54,7 +54,7 @@ function PanelHeader(props: {
   )
 
   return (
-    <div className='border-border/60 bg-muted/10 border-b px-4 py-3 sm:px-5'>
+    <div className='px-4 pt-4 pb-3 sm:px-5 sm:pt-5'>
       {props.actions != null ? (
         <div className='flex items-start justify-between gap-2'>
           {heading}
@@ -72,14 +72,18 @@ export function PanelWrapper(props: PanelWrapperProps) {
   const resolvedEmptyMessage = props.emptyMessage ?? t('No data available')
   const height = props.height ?? 'h-64'
   const frameClassName = cn(
-    'overflow-hidden rounded-xl border border-border/70 bg-card shadow-xs transition-all',
+    'min-w-0 overflow-hidden rounded-xl bg-card',
     props.className
   )
 
   if (props.loading) {
     return (
       <div className={frameClassName}>
-        <PanelHeader title={props.title} description={props.description} />
+        <PanelHeader
+          title={props.title}
+          description={props.description}
+          actions={props.headerActions}
+        />
         <div className={cn('p-4 sm:p-5', props.contentClassName)}>
           <Skeleton className={`w-full ${height}`} />
         </div>
@@ -90,12 +94,14 @@ export function PanelWrapper(props: PanelWrapperProps) {
   if (props.empty) {
     return (
       <div className={frameClassName}>
-        <PanelHeader title={props.title} description={props.description} />
+        <PanelHeader
+          title={props.title}
+          description={props.description}
+          actions={props.headerActions}
+        />
         <div
           className={cn(
-            'text-muted-foreground flex items-center justify-center px-4 text-sm',
-            height,
-            props.contentClassName
+            'text-muted-foreground flex min-h-24 items-center px-4 py-6 text-sm sm:px-5'
           )}
         >
           {resolvedEmptyMessage}

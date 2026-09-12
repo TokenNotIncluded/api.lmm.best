@@ -36,6 +36,7 @@ type TitledCardProps = {
   action?: ReactNode
   children?: ReactNode
   disableHoverEffect?: boolean
+  appearance?: 'paper' | 'outlined'
   className?: string
   headerClassName?: string
   contentClassName?: string
@@ -52,6 +53,7 @@ export function TitledCard({
   action,
   children,
   disableHoverEffect,
+  appearance = 'paper',
   className,
   headerClassName,
   contentClassName,
@@ -62,11 +64,18 @@ export function TitledCard({
 }: TitledCardProps) {
   return (
     <Card
-      data-card-hover={disableHoverEffect ? 'false' : undefined}
+      variant={appearance}
+      data-card-hover={
+        disableHoverEffect || appearance === 'paper' ? 'false' : undefined
+      }
       className={cn('gap-0 overflow-hidden py-0', className)}
     >
       <CardHeader
-        className={cn('border-b p-3 !pb-3 sm:p-5 sm:!pb-5', headerClassName)}
+        className={cn(
+          'p-4 !pb-3 sm:p-6 sm:!pb-4',
+          appearance === 'outlined' && 'border-b',
+          headerClassName
+        )}
       >
         <div className='flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between'>
           <div className='flex min-w-0 items-center gap-3'>
@@ -98,7 +107,7 @@ export function TitledCard({
           )}
         </div>
       </CardHeader>
-      <CardContent className={cn('p-3 sm:p-5', contentClassName)}>
+      <CardContent className={cn('p-4 sm:p-6', contentClassName)}>
         {children}
       </CardContent>
     </Card>

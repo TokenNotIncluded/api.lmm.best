@@ -127,7 +127,7 @@ export function PresetSelector(props: PresetSelectorProps) {
   }
 
   return (
-    <SettingsControlGroup className='space-y-3 border-dashed'>
+    <SettingsControlGroup className='gap-3 border-dashed'>
       <p className='text-sm font-medium'>{t('Quick Setup from Preset')}</p>
       <div
         className={

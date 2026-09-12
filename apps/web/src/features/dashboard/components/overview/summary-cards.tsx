@@ -18,11 +18,10 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { ArrowRight, Flame, ShieldCheck, TrendingDown } from 'lucide-react'
+import { ArrowRight } from 'lucide-react'
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import { StaggerContainer, StaggerItem } from '@/components/page-transition'
 import { Button } from '@/components/ui/button'
 import { getUserQuotaDates } from '@/features/dashboard/api'
 import { useSummaryCardsConfig } from '@/features/dashboard/hooks/use-dashboard-config'
@@ -151,6 +150,7 @@ export function SummaryCards() {
       'dashboard',
       'overview',
       'summary-sparklines',
+      user?.id,
       summaryTimeRange.start_timestamp,
       summaryTimeRange.end_timestamp,
     ],
@@ -161,14 +161,14 @@ export function SummaryCards() {
         default_time: 'hour',
       }),
     staleTime: 60 * 1000,
+    enabled: Boolean(user?.id),
   })
 
-  const summaryValues = useMemo(() => {
-    return {
-      usedDisplay: formatQuota(usedQuota),
-      requestCountDisplay: formatNumber(requestCount),
-    }
-  }, [requestCount, usedQuota])
+  // Formatting follows the current language and currency configuration on every render.
+  const summaryValues = {
+    usedDisplay: formatQuota(usedQuota),
+    requestCountDisplay: formatNumber(requestCount),
+  }
 
   const currencyEnabledFromStore = isCurrencyDisplayEnabled()
   const statusCurrencyFlag =
@@ -206,13 +206,19 @@ export function SummaryCards() {
     [usageTrendQuery.data?.data]
   )
 
+  const usageReady =
+    usageTrendQuery.isSuccess && usageTrendQuery.data.success === true
+  const usageFailed =
+    usageTrendQuery.isError || usageTrendQuery.data?.success === false
   const healthLevel = getHealthLevel(remainQuota, recentUsage)
   const healthCfg = HEALTH_CONFIG[healthLevel]
   const runwayDays = getRunwayDays(remainQuota, recentUsage)
 
-  const todayUsageDisplay = formatQuota(recentUsage)
+  const todayUsageDisplay = usageReady ? formatQuota(recentUsage) : '—'
   let runwayDisplay: string
-  if (runwayDays !== null) {
+  if (!usageReady) {
+    runwayDisplay = t('Unknown')
+  } else if (runwayDays !== null) {
     if (runwayDays < 1) {
       runwayDisplay = t('Less than 1 day left')
     } else if (runwayDays > 999) {
@@ -242,116 +248,93 @@ export function SummaryCards() {
       icon: config.icon,
       tone: tones[index] ?? 'accent-3',
       sparkline:
-        config.key === 'todayUsage'
-          ? sparklineData.usage
-          : getSummarySparkline(config.key, sparklineData),
+        usageReady && (usageTrendQuery.data?.data.length ?? 0) > 0
+          ? config.key === 'todayUsage'
+            ? sparklineData.usage
+            : getSummarySparkline(config.key, sparklineData)
+          : undefined,
       sparklineVariant: 'line' as const,
     }
   })
 
   return (
-    <div className='bg-card border-border/70 overflow-hidden rounded-2xl border shadow-xs transition-all'>
-      <div className='grid xl:grid-cols-[minmax(0,1fr)_20rem]'>
-        <div className='flex flex-col gap-3 p-3.5 sm:gap-4 sm:p-5'>
-          <div className='flex flex-wrap items-start justify-between gap-3'>
-            <div className='flex flex-col gap-0.5'>
-              <h3 className='text-foreground text-sm font-semibold tracking-tight sm:text-base'>
-                {t('Usage at a glance')}
-              </h3>
-              <p className='text-muted-foreground text-xs leading-relaxed sm:text-sm'>
-                {t('Monitor balance, usage, and request volume')}
-              </p>
-            </div>
-          </div>
-          <StaggerContainer className='grid grid-cols-3 gap-2 sm:gap-3.5'>
+    <section
+      className='border-border border-b pb-8'
+      aria-label={t('Usage at a glance')}
+    >
+      <div className='grid gap-8 lg:grid-cols-[minmax(0,1fr)_18rem]'>
+        <div className='order-2 min-w-0 lg:order-1'>
+          <h3 className='mb-6 text-base font-semibold'>
+            {t('Usage at a glance')}
+          </h3>
+          <div className='grid grid-cols-1 gap-4 sm:grid-cols-3 sm:gap-8'>
             {items.map((it) => (
-              <StaggerItem
+              <StatCard
                 key={it.key}
-                className='bg-background/70 hover:bg-background/95 group/stat border-border/60 hover:border-border/90 rounded-xl border px-2.5 py-2 transition-all duration-200 hover:shadow-xs sm:p-3.5'
-              >
-                <StatCard
-                  title={it.title}
-                  value={it.value}
-                  description={it.desc}
-                  icon={it.icon}
-                  tone={it.tone}
-                  sparkline={it.sparkline}
-                  sparklineVariant={it.sparklineVariant}
-                  loading={loading}
-                  compactMobile
-                />
-              </StaggerItem>
+                title={it.title}
+                value={it.value}
+                description={it.desc}
+                icon={it.icon}
+                tone={it.tone}
+                sparkline={it.sparkline}
+                sparklineVariant={it.sparklineVariant}
+                loading={
+                  loading ||
+                  (it.key === 'todayUsage' && usageTrendQuery.isLoading)
+                }
+                error={it.key === 'todayUsage' && usageFailed}
+                plain
+              />
             ))}
-          </StaggerContainer>
+          </div>
+          {usageFailed && (
+            <div
+              role='status'
+              className='text-muted-foreground mt-4 flex flex-wrap items-center gap-2 text-sm'
+            >
+              <span>{t('Failed to load data')}</span>
+              <Button
+                type='button'
+                variant='ghost'
+                size='sm'
+                disabled={usageTrendQuery.isFetching}
+                onClick={() => void usageTrendQuery.refetch()}
+              >
+                {t('Retry')}
+              </Button>
+            </div>
+          )}
         </div>
-
-        <div className='border-border/60 bg-muted/20 flex flex-col justify-between gap-3.5 border-t p-3.5 sm:gap-4 sm:p-5 xl:border-t-0 xl:border-l'>
-          <div className='flex flex-col gap-2.5 sm:gap-3'>
-            <div className='flex items-center justify-between'>
-              <span className='text-muted-foreground text-xs font-medium'>
-                {t('Credit remaining')}
-              </span>
-              <span className='border-border/60 bg-background/80 inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-medium shadow-2xs'>
+        <div className='order-1 flex min-w-0 flex-col gap-4 lg:order-2'>
+          <div className='flex flex-wrap items-center justify-between gap-2'>
+            <span className='text-sm font-medium'>{t('Credit remaining')}</span>
+            {usageReady || remainQuota <= 0 ? (
+              <span className='text-muted-foreground inline-flex items-center gap-2 text-xs'>
                 <span
-                  className={cn(
-                    'size-1.5 rounded-full ring-2 ring-current/20',
-                    healthCfg.dotClass
-                  )}
+                  className={cn('size-1.5 rounded-full', healthCfg.dotClass)}
                   aria-hidden='true'
                 />
-                <span className='text-muted-foreground'>
-                  {t(healthCfg.labelKey)}
-                </span>
+                {t(healthCfg.labelKey)}
               </span>
-            </div>
-
-            <div className='text-foreground font-mono text-2xl font-bold tracking-tight sm:text-3xl'>
-              {formatQuota(remainQuota)}
-            </div>
-
-            <div className='grid grid-cols-2 gap-2'>
-              <div className='bg-background/80 border-border/50 hover:border-border/80 rounded-xl border px-3 py-2.5 transition-colors'>
-                <div className='text-muted-foreground flex items-center gap-1 text-[11px] leading-none font-medium'>
-                  <Flame
-                    className='text-chart-4 size-3 shrink-0'
-                    aria-hidden='true'
-                  />
-                  <span className='truncate'>{t('Last 24h usage')}</span>
-                </div>
-                <div className='text-foreground mt-1.5 truncate font-mono text-xs font-semibold tabular-nums'>
-                  {formatQuota(recentUsage)}
-                </div>
-              </div>
-              <div className='bg-background/80 border-border/50 hover:border-border/80 rounded-xl border px-3 py-2.5 transition-colors'>
-                <div className='text-muted-foreground flex items-center gap-1 text-[11px] leading-none font-medium'>
-                  {runwayDays !== null && runwayDays < 3 ? (
-                    <TrendingDown
-                      className='text-warning size-3 shrink-0'
-                      aria-hidden='true'
-                    />
-                  ) : (
-                    <ShieldCheck
-                      className='text-success size-3 shrink-0'
-                      aria-hidden='true'
-                    />
-                  )}
-                  <span className='truncate'>{t('Runway')}</span>
-                </div>
-                <div
-                  className={cn(
-                    'mt-1.5 truncate font-mono text-xs font-semibold tabular-nums',
-                    healthLevel === 'critical' && 'text-destructive',
-                    healthLevel === 'caution' && 'text-warning'
-                  )}
-                >
-                  {runwayDisplay}
-                </div>
-              </div>
-            </div>
+            ) : null}
           </div>
-
+          <div className='text-2xl font-semibold break-words tabular-nums'>
+            {formatQuota(remainQuota)}
+          </div>
+          <dl className='flex flex-wrap items-baseline justify-between gap-2 text-sm'>
+            <dt className='text-muted-foreground'>{t('Runway')}</dt>
+            <dd
+              className={cn(
+                'tabular-nums',
+                healthLevel === 'critical' && 'text-destructive',
+                usageReady && healthLevel === 'caution' && 'text-warning'
+              )}
+            >
+              {runwayDisplay}
+            </dd>
+          </dl>
           <Button
-            className='justify-between shadow-xs transition-all hover:shadow-sm'
+            className='min-h-11 justify-between'
             render={<Link to='/wallet' />}
           >
             <span>{t('Wallet')}</span>
@@ -359,6 +342,6 @@ export function SummaryCards() {
           </Button>
         </div>
       </div>
-    </div>
+    </section>
   )
 }

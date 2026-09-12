@@ -960,6 +960,12 @@ For commercial licensing, please contact support@quantumnous.com
   background: var(--background);
 }
 
+/* Keep keyboard focus inside the horizontally scrollable header links. */
+.console-editorial header nav a:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+
 .console-editorial :where([data-slot='button']) {
   border-radius: calc(var(--radius) * 0.55);
 }

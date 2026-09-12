@@ -29,7 +29,10 @@ import { I18nextProvider, initReactI18next } from 'react-i18next'
 
 import { parseAssistantToolTraces } from './api.js'
 import { AssistantToolCalls } from './assistant-tool-calls.js'
-import { collapseAssistantToolTraces } from './assistant-tool-traces.js'
+import {
+  assistantToolOutcome,
+  collapseAssistantToolTraces,
+} from './assistant-tool-traces.js'
 
 const testI18n = createInstance()
 await testI18n.use(initReactI18next).init({
@@ -39,6 +42,57 @@ await testI18n.use(initReactI18next).init({
 })
 
 describe('assistant tool traces', () => {
+  test('does not call a prepared key request completed', () => {
+    assert.equal(
+      assistantToolOutcome({
+        name: 'request_create_key',
+        status: 'output-available',
+      }),
+      'prepared'
+    )
+    assert.equal(
+      assistantToolOutcome({
+        name: 'request_create_key',
+        status: 'approval-requested',
+      }),
+      'waiting'
+    )
+    assert.equal(
+      assistantToolOutcome({
+        name: 'request_create_key',
+        status: 'output-error',
+      }),
+      'failed'
+    )
+    assert.equal(
+      assistantToolOutcome({
+        name: 'get_service_facts',
+        status: 'output-available',
+      }),
+      'completed'
+    )
+  })
+
+  test('renders a prepared key request as awaiting confirmation', () => {
+    const markup = renderToStaticMarkup(
+      createElement(
+        I18nextProvider,
+        { i18n: testI18n },
+        createElement(AssistantToolCalls, {
+          traces: [
+            {
+              name: 'request_create_key',
+              status: 'output-available',
+              input: { name: 'demo', group: 'default' },
+            },
+          ],
+        })
+      )
+    )
+    assert.match(markup, /Prepared; confirmation required/)
+    assert.doesNotMatch(markup, /Tool completed/)
+  })
+
   test('collapses duplicate failures and hides failures recovered by success', () => {
     const traces = collapseAssistantToolTraces([
       {

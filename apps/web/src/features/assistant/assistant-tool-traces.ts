@@ -21,6 +21,23 @@ Copyright (C) 2026 LIghtJUNction
 */
 import type { AssistantToolTrace } from './api.js'
 
+export type AssistantToolOutcome =
+  | 'completed'
+  | 'prepared'
+  | 'waiting'
+  | 'failed'
+
+export function assistantToolOutcome(
+  trace: AssistantToolTrace
+): AssistantToolOutcome {
+  if (trace.status === 'output-error') return 'failed'
+  if (trace.status === 'approval-requested') return 'waiting'
+  // request_create_key only prepares a confirmation-bound draft. It never
+  // proves that a key was created, so it must not render as completed.
+  if (trace.name === 'request_create_key') return 'prepared'
+  return 'completed'
+}
+
 function toolTraceKey(trace: AssistantToolTrace) {
   if (trace.callId) return `${trace.name}:${trace.callId}`
   const input = Object.entries(trace.input ?? {}).sort(([left], [right]) =>

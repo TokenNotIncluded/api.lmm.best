@@ -41,6 +41,9 @@ func Distribute() func(c *gin.Context) {
 			abortWithOpenAiMessage(c, http.StatusBadRequest, i18n.T(c, i18n.MsgDistributorInvalidRequest, map[string]any{"Error": err.Error()}))
 			return
 		}
+		if !ValidateOAuthRelayModel(c, modelRequest.Model) {
+			return
+		}
 		if channelId != "" {
 			id, err := strconv.Atoi(channelId)
 			if err != nil {

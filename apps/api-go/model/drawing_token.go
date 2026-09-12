@@ -55,7 +55,7 @@ func ResolveDrawingToken(userID int, group string, groupAllowed func(string, str
 		if !groupAllowed(user.Group, group) {
 			return ErrDrawingTokenGroupUnavailable
 		}
-		err = tx.Where("user_id = ? AND "+commonGroupCol+" = ?", userID, group).Order("id ASC").First(&token).Error
+		err = tx.Where("user_id = ? AND "+commonGroupCol+" = ? AND oauth_managed = ?", userID, group, false).Order("id ASC").First(&token).Error
 		if err == nil {
 			return nil
 		}
@@ -71,7 +71,7 @@ func ResolveDrawingToken(userID int, group string, groupAllowed func(string, str
 			return ErrDrawingTokenWarningRequired
 		}
 		var count int64
-		if err := tx.Model(&Token{}).Where("user_id = ?", userID).Count(&count).Error; err != nil {
+		if err := tx.Model(&Token{}).Where("user_id = ? AND oauth_managed = ?", userID, false).Count(&count).Error; err != nil {
 			return err
 		}
 		if count >= int64(operation_setting.GetMaxUserTokens()) {

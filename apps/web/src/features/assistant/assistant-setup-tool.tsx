@@ -51,8 +51,10 @@ import {
   getCodexConfig,
   getCodexConfigPath,
   getCodexInstallCommand,
+  getGuideEligibleModels,
   getOpenAICompatibleClientJSON,
   isMobileSetupPlatform,
+  selectGuideModel,
   type AssistantSetupPlatform,
 } from './setup-guide'
 
@@ -200,12 +202,11 @@ export function AssistantSetupTool(props: {
   const mobile = isMobileSetupPlatform(platform)
   const desktopPlatform = mobile ? 'windows' : platform
   const canConnect = props.developerAccessGranted
-  const model =
-    canConnect && props.availableModels.includes(selectedModel)
-      ? selectedModel
-      : canConnect
-        ? (props.availableModels[0] ?? '<MODEL_ID>')
-        : '<MODEL_ID>'
+  const eligibleModels = getGuideEligibleModels(props.availableModels)
+  const model = canConnect
+    ? selectGuideModel(eligibleModels, selectedModel)
+    : ''
+  const modelValue = model || '<MODEL_ID>'
   const clientNames: Record<ClientTab, string> = {
     'cherry-studio': 'Cherry Studio',
     chatbox: 'Chatbox',
@@ -237,7 +238,7 @@ export function AssistantSetupTool(props: {
           label={t(root ? 'API endpoint root' : 'OpenAI-compatible Base URL')}
           value={root ? props.rootUrl : props.openAIBaseUrl}
         />
-        <ConnectionValue label={t('Model ID')} value={model} />
+        <ConnectionValue label={t('Model ID')} value={modelValue} />
         <ConnectionValue label={t('API key')} value='<YOUR_API_KEY>' />
       </div>
     ) : null
@@ -351,15 +352,13 @@ export function AssistantSetupTool(props: {
           <label className='grid gap-2 text-sm font-medium'>
             {t('Model ID')}
             <NativeSelect
-              value={model}
-              disabled={
-                props.modelsLoading || props.availableModels.length === 0
-              }
+              value={model || ''}
+              disabled={props.modelsLoading || eligibleModels.length === 0}
               onChange={(event) => setSelectedModel(event.target.value)}
               aria-label={t('Model ID')}
             >
-              {props.modelsLoading || props.availableModels.length === 0 ? (
-                <NativeSelectOption value='<MODEL_ID>'>
+              {props.modelsLoading || eligibleModels.length === 0 ? (
+                <NativeSelectOption value='' disabled>
                   {t(
                     props.modelsLoading
                       ? 'Loading current models...'
@@ -367,7 +366,7 @@ export function AssistantSetupTool(props: {
                   )}
                 </NativeSelectOption>
               ) : (
-                props.availableModels.map((item) => (
+                eligibleModels.map((item) => (
                   <NativeSelectOption key={item} value={item}>
                     {item}
                   </NativeSelectOption>
@@ -712,7 +711,7 @@ export function AssistantSetupTool(props: {
                       label={t('Codex configuration: {{path}}', {
                         path: getCodexConfigPath(desktopPlatform),
                       })}
-                      value={getCodexConfig(props.openAIBaseUrl, model)}
+                      value={getCodexConfig(props.openAIBaseUrl, modelValue)}
                     />
                   </>
                 ) : null}

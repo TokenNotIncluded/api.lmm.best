@@ -73,6 +73,7 @@ export function DrawingSnakeGame() {
   const touchStartRef = useRef<{ x: number; y: number } | null>(null)
 
   const handleTouchStart = (e: React.TouchEvent) => {
+    canvasRef.current?.focus({ preventScroll: true })
     const touch = e.touches[0]
     if (touch) {
       touchStartRef.current = { x: touch.clientX, y: touch.clientY }
@@ -99,56 +100,48 @@ export function DrawingSnakeGame() {
     }
   }
 
-  // Keyboard navigation
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      // Don't capture typing in inputs or textareas
-      const target = event.target as HTMLElement | null
-      if (
-        target?.tagName === 'INPUT' ||
-        target?.tagName === 'TEXTAREA' ||
-        target?.isContentEditable
-      ) {
-        return
-      }
-
-      let handled = false
-      switch (event.key) {
-        case 'ArrowUp':
-        case 'w':
-        case 'W':
-          changeDirection('UP')
-          handled = true
-          break
-        case 'ArrowDown':
-        case 's':
-        case 'S':
-          changeDirection('DOWN')
-          handled = true
-          break
-        case 'ArrowLeft':
-        case 'a':
-        case 'A':
-          changeDirection('LEFT')
-          handled = true
-          break
-        case 'ArrowRight':
-        case 'd':
-        case 'D':
-          changeDirection('RIGHT')
-          handled = true
-          break
-      }
-      if (handled && event.key.startsWith('Arrow')) {
-        event.preventDefault()
-      }
+  // Keyboard controls belong to the focused game, never to the whole page.
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.altKey || event.ctrlKey || event.metaKey) return
+    const target = event.target as HTMLElement | null
+    if (
+      target?.tagName === 'INPUT' ||
+      target?.tagName === 'TEXTAREA' ||
+      target?.isContentEditable
+    ) {
+      return
     }
-
-    window.addEventListener('keydown', handleKeyDown)
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown)
+    let handled = false
+    switch (event.key) {
+      case 'ArrowUp':
+      case 'w':
+      case 'W':
+        changeDirection('UP')
+        handled = true
+        break
+      case 'ArrowDown':
+      case 's':
+      case 'S':
+        changeDirection('DOWN')
+        handled = true
+        break
+      case 'ArrowLeft':
+      case 'a':
+      case 'A':
+        changeDirection('LEFT')
+        handled = true
+        break
+      case 'ArrowRight':
+      case 'd':
+      case 'D':
+        changeDirection('RIGHT')
+        handled = true
+        break
     }
-  }, [changeDirection])
+    if (handled) {
+      event.preventDefault()
+    }
+  }
 
   // Game loop and rendering
   useEffect(() => {
@@ -313,7 +306,12 @@ export function DrawingSnakeGame() {
   }, [])
 
   return (
-    <div className='flex flex-col items-center justify-center gap-3 select-none'>
+    <div
+      className='flex flex-col items-center justify-center gap-3 select-none'
+      role='group'
+      aria-label={t('Snake game')}
+      onKeyDown={handleKeyDown}
+    >
       <div className='flex w-full max-w-[240px] items-center justify-between px-1 text-xs text-white/70'>
         <span className='font-mono font-medium'>
           {t('Score: {{score}}', { score })}
@@ -331,9 +329,14 @@ export function DrawingSnakeGame() {
       >
         <canvas
           ref={canvasRef}
+          tabIndex={0}
+          aria-label={t('Swipe or use arrow keys to control')}
+          onPointerDown={() =>
+            canvasRef.current?.focus({ preventScroll: true })
+          }
           width={240}
           height={240}
-          className='block rounded-lg'
+          className='focus-visible:ring-ring block rounded-lg focus-visible:ring-2 focus-visible:outline-none'
           style={{ width: 240, height: 240 }}
         />
       </div>
@@ -343,15 +346,15 @@ export function DrawingSnakeGame() {
       </p>
 
       {/* Mini mobile D-pad */}
-      <div className='grid w-28 grid-cols-3 gap-1 pt-1 sm:hidden'>
+      <div className='grid w-36 grid-cols-3 gap-1 pt-1 sm:hidden'>
         <div />
         <Button
           type='button'
           variant='secondary'
           size='icon-xs'
-          className='size-8 bg-white/10 text-white hover:bg-white/20'
+          className='size-11 bg-white/10 text-white hover:bg-white/20'
           onClick={() => changeDirection('UP')}
-          aria-label='Up'
+          aria-label={t('Up')}
         >
           <HugeiconsIcon
             icon={ArrowUp01Icon}
@@ -364,9 +367,9 @@ export function DrawingSnakeGame() {
           type='button'
           variant='secondary'
           size='icon-xs'
-          className='size-8 bg-white/10 text-white hover:bg-white/20'
+          className='size-11 bg-white/10 text-white hover:bg-white/20'
           onClick={() => changeDirection('LEFT')}
-          aria-label='Left'
+          aria-label={t('Left')}
         >
           <HugeiconsIcon
             icon={ArrowLeft01Icon}
@@ -378,9 +381,9 @@ export function DrawingSnakeGame() {
           type='button'
           variant='secondary'
           size='icon-xs'
-          className='size-8 bg-white/10 text-white hover:bg-white/20'
+          className='size-11 bg-white/10 text-white hover:bg-white/20'
           onClick={() => changeDirection('DOWN')}
-          aria-label='Down'
+          aria-label={t('Down')}
         >
           <HugeiconsIcon
             icon={ArrowDown01Icon}
@@ -392,9 +395,9 @@ export function DrawingSnakeGame() {
           type='button'
           variant='secondary'
           size='icon-xs'
-          className='size-8 bg-white/10 text-white hover:bg-white/20'
+          className='size-11 bg-white/10 text-white hover:bg-white/20'
           onClick={() => changeDirection('RIGHT')}
-          aria-label='Right'
+          aria-label={t('Right')}
         >
           <HugeiconsIcon
             icon={ArrowRight01Icon}

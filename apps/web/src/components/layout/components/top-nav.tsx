@@ -118,7 +118,7 @@ export function TopNav({ className, links, ...props }: TopNavProps) {
               target='_blank'
               rel='noopener noreferrer'
               className={cn(
-                'rounded-lg px-2.5 py-1 text-xs font-semibold tracking-tight transition-all',
+                'shrink-0 rounded-lg px-2.5 py-2 text-xs font-medium transition-colors',
                 isActive
                   ? 'bg-muted/70 text-foreground shadow-2xs'
                   : 'text-muted-foreground hover:bg-muted/40 hover:text-foreground'
@@ -132,7 +132,7 @@ export function TopNav({ className, links, ...props }: TopNavProps) {
               to={href}
               disabled={disabled}
               className={cn(
-                'rounded-lg px-2.5 py-1 text-xs font-semibold tracking-tight transition-all',
+                'shrink-0 rounded-lg px-2.5 py-2 text-xs font-medium transition-colors',
                 isActive
                   ? 'bg-muted/70 text-foreground shadow-2xs'
                   : 'text-muted-foreground hover:bg-muted/40 hover:text-foreground'

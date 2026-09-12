@@ -31,7 +31,7 @@ import { HugeiconsIcon } from '@hugeicons/react'
 import { useQueryClient } from '@tanstack/react-query'
 import { getRouteApi } from '@tanstack/react-router'
 import type { ColumnDef } from '@tanstack/react-table'
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -79,8 +79,10 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { WaitCompanion } from '@/components/wait-companion'
 import { useDebounce, useMediaQuery } from '@/hooks'
 import { useTableUrlState } from '@/hooks/use-table-url-state'
+import { formatQuotaWithCurrency } from '@/lib/currency'
 import dayjs from '@/lib/dayjs'
 import { formatNumber } from '@/lib/format'
 
@@ -288,7 +290,7 @@ function HistoryMobileCards({
                   <MetaItem label={t('Code')} value={activation.code || '—'} />
                   <MetaItem
                     label={t('Quota charge')}
-                    value={formatNumber(activation.charge_quota)}
+                    value={formatQuotaWithCurrency(activation.charge_quota)}
                   />
                   <MetaItem
                     label={t('Created')}
@@ -467,6 +469,7 @@ export function EmailActivationsPage() {
 
   const activations = activationsQuery.data?.items ?? EMPTY_ACTIVATIONS
   const currentActivation = currentActivationQuery.data ?? null
+  const currentOrderRegionRef = useRef<HTMLDivElement>(null)
 
   const statusOptions = useMemo(() => getHeroSmsStatusOptions(t), [t])
 
@@ -516,7 +519,7 @@ export function EmailActivationsPage() {
     {
       accessorKey: 'charge_quota',
       header: t('Quota charge'),
-      cell: ({ row }) => formatNumber(row.original.charge_quota),
+      cell: ({ row }) => formatQuotaWithCurrency(row.original.charge_quota),
     },
     {
       accessorKey: 'created_at',
@@ -1027,7 +1030,7 @@ export function EmailActivationsPage() {
                         />
                         <MetaItem
                           label={t('Final quota price')}
-                          value={formatNumber(
+                          value={formatQuotaWithCurrency(
                             (selectedProduct?.charge_quota ?? 0) * quantity
                           )}
                         />
@@ -1124,7 +1127,11 @@ export function EmailActivationsPage() {
 
                   {currentActivation ? (
                     <FadeIn className='space-y-4'>
-                      <div className='rounded-xl border p-4'>
+                      <div
+                        ref={currentOrderRegionRef}
+                        tabIndex={-1}
+                        className='rounded-xl border p-4'
+                      >
                         <div className='flex flex-wrap items-start justify-between gap-3'>
                           <div className='min-w-0 space-y-2'>
                             <HeroSmsStatusBadge
@@ -1182,11 +1189,33 @@ export function EmailActivationsPage() {
                           </div>
                           <MetaItem
                             label={t('Quota charge')}
-                            value={formatNumber(currentActivation.charge_quota)}
+                            value={formatQuotaWithCurrency(
+                              currentActivation.charge_quota
+                            )}
                           />
                         </div>
                       </div>
 
+                      <WaitCompanion
+                        taskKey={currentActivation.id}
+                        pending={
+                          currentActivation.status === 'active' &&
+                          !currentActivation.code
+                        }
+                        finishedLabel={
+                          currentActivation.code
+                            ? t('Code received')
+                            : undefined
+                        }
+                        onReturnToTask={() => {
+                          currentOrderRegionRef.current?.focus({
+                            preventScroll: true,
+                          })
+                          currentOrderRegionRef.current?.scrollIntoView({
+                            block: 'nearest',
+                          })
+                        }}
+                      />
                       {currentActivation.message ? (
                         <Alert>
                           <HugeiconsIcon
@@ -1425,7 +1454,9 @@ export function EmailActivationsPage() {
                     />
                     <MetaItem
                       label={t('Quota charge')}
-                      value={formatNumber(detailActivation.charge_quota)}
+                      value={formatQuotaWithCurrency(
+                        detailActivation.charge_quota
+                      )}
                     />
                     <MetaItem
                       label={t('Cancellation reason')}
@@ -1452,7 +1483,7 @@ export function EmailActivationsPage() {
                   {
                     quantity: purchaseTarget.quantity,
                     domain: purchaseTarget.product.domain,
-                    quota: formatNumber(
+                    quota: formatQuotaWithCurrency(
                       purchaseTarget.product.charge_quota *
                         purchaseTarget.quantity
                     ),
@@ -1494,7 +1525,9 @@ export function EmailActivationsPage() {
                   'Reorder {{domain}} for {{quota}} quota ({{price}} platform price)? This creates a new paid activation.',
                   {
                     domain: reorderTarget.product.domain,
-                    quota: formatNumber(reorderTarget.product.charge_quota),
+                    quota: formatQuotaWithCurrency(
+                      reorderTarget.product.charge_quota
+                    ),
                     price: formatHeroSmsPlatformAmount(
                       reorderTarget.product.customer_price_usd
                     ),

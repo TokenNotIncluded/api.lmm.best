@@ -39,7 +39,7 @@ describe('authenticated header responsive navigation', () => {
   test('keeps the dynamic navigation available below the desktop breakpoint', () => {
     assert.match(
       appHeaderSource,
-      /hidden lg:block[\s\S]*lg:hidden[\s\S]*<TopNav links=\{links\}/
+      /hidden min-w-0 flex-1 justify-center px-4 lg:flex[\s\S]*lg:hidden[\s\S]*<TopNav links=\{links\}/
     )
   })
 

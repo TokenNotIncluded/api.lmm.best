@@ -208,10 +208,9 @@ export function Footer(props: FooterProps) {
   const configuredName = systemName || props.name || DEFAULT_SYSTEM_NAME
   const usesDefaultBrand = displayLogo === DEFAULT_LOGO
   const displayName =
-    isForgeSurface ||
-    (!isSetupSurface &&
-      usesDefaultBrand &&
-      configuredName === DEFAULT_SYSTEM_NAME)
+    !isSetupSurface &&
+    usesDefaultBrand &&
+    configuredName === DEFAULT_SYSTEM_NAME
       ? LMM_BRAND_NAME
       : configuredName
   const isDemoSiteMode = Boolean(demoSiteEnabled)

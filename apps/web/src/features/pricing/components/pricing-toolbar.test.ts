@@ -39,7 +39,7 @@ describe('PricingToolbar mobile controls', () => {
   test('keeps pricing display controls available inside the mobile filter sheet', () => {
     assert.match(
       source,
-      /border-t pt-4 sm:hidden[\s\S]*Price display mode[\s\S]*Standard[\s\S]*Recharge[\s\S]*Token unit[\s\S]*\/1M[\s\S]*\/1K/
+      /border-t pt-4 sm:hidden[\s\S]*Price display mode[\s\S]*Platform credits[\s\S]*Estimated USD cost[\s\S]*Token unit[\s\S]*\/1M[\s\S]*\/1K/
     )
   })
 

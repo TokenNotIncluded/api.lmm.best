@@ -26,6 +26,7 @@ import { useAuthUserRefresh } from '@/features/onboarding'
 import { useStatus } from '@/hooks/use-status'
 import { isConsoleActivated } from '@/lib/console-activation'
 import { isLocalPreview } from '@/lib/local-preview'
+import { platformUnitsToUsd } from '@/lib/payment-pricing'
 import {
   getDefaultWaffoPancakeCheckoutRegion,
   getWaffoPancakeCheckoutLanguage,
@@ -179,6 +180,7 @@ function WalletCheckout(props: WalletProps) {
     calculating,
     processing,
     lastQuoteErrorRef,
+    quoteError,
     calculatePaymentAmount,
     processPayment,
     settlementQuote,
@@ -920,6 +922,17 @@ function WalletCheckout(props: WalletProps) {
                   settlementQuote={settlementQuote}
                   selectedPaymentMethod={selectedPaymentMethod}
                   calculating={calculating || discountApplying}
+                  quoteError={quoteError}
+                  onRetryQuote={() => {
+                    const paymentType = getCurrentPaymentType()
+                    if (paymentType) {
+                      void calculatePaymentAmount(
+                        topupAmount,
+                        paymentType,
+                        appliedDiscountCode
+                      )
+                    }
+                  }}
                   onPaymentMethodSelect={handlePaymentMethodSelect}
                   paymentLoading={paymentLoading}
                   redemptionCode={redemptionCode}
@@ -969,7 +982,7 @@ function WalletCheckout(props: WalletProps) {
                   loading={topupLoading}
                   error={topupError}
                   onRetry={refetchTopupInfo}
-                  priceRatio={(status?.price as number) || 1}
+                  priceRatio={platformUnitsToUsd(1, Number(status?.price))}
                   onOpenBilling={() => setBillingDialogOpen(true)}
                   onCreemProductSelect={handleCreemProductSelect}
                   onWaffoMethodSelect={handleWaffoMethodSelect}

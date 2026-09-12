@@ -32,6 +32,7 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
+import { WaitCompanion } from '@/components/wait-companion'
 
 import { DEFAULT_DISCOUNT_RATE } from '../../constants'
 import {
@@ -265,6 +266,7 @@ export function PaymentConfirmDialog({
           </Alert>
         </div>
 
+        <WaitCompanion pending={calculating || processing} />
         <AlertDialogFooter className='grid grid-cols-2 gap-2 sm:flex'>
           <AlertDialogCancel disabled={processing}>
             {t('Cancel')}

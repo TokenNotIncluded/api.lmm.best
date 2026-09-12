@@ -530,10 +530,10 @@ export function HeroSmsSettingsSection() {
                 <FormLabel>{t('Charging rule')}</FormLabel>
                 <FormControl>
                   <Input
-                    value={t('1 CNY provider cost → {{price}} platform price', {
-                      price: getHeroSmsPreviewCustomerPrice(
-                        priceMultiplier || 1
-                      ).toFixed(2),
+                    value={t('1 USD provider cost → {{price}} platform price', {
+                      price: formatHeroSmsPlatformAmount(
+                        getHeroSmsPreviewCustomerPrice(priceMultiplier || 1)
+                      ),
                     })}
                     readOnly
                     aria-readonly='true'

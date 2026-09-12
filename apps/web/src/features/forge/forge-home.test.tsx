@@ -17,10 +17,12 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
 import { after, afterEach, describe, test } from 'node:test'
 
 import { Window } from 'happy-dom'
 
+import { ASSISTANT_PROMPT_PRESET_COPY_VERSION } from '@/features/assistant/assistant-prompt-presets'
 import type { AuthUser } from '@/stores/auth-store'
 
 const domWindow = new Window({ url: 'https://console.example.test/' })
@@ -143,7 +145,11 @@ async function renderHome(
   user: AuthUser | null,
   assistantEnabled = true,
   statusPending = false,
-  options: { registrationEnabled?: boolean; component?: typeof ForgeHome } = {}
+  options: {
+    registrationEnabled?: boolean
+    component?: typeof ForgeHome
+    headerNavModules?: string
+  } = {}
 ) {
   useAuthStore.getState().auth.setUser(user)
   const queryClient = new QueryClient({
@@ -173,6 +179,7 @@ async function renderHome(
             backend_capabilities: { bounty_public_read: false },
             assistant: { enabled: assistantEnabled },
             register_enabled: options.registrationEnabled ?? true,
+            HeaderNavModules: options.headerNavModules,
           },
         },
       }
@@ -262,28 +269,58 @@ afterEach(() => {
 
 after(() => domWindow.close())
 
-describe('ForgeHome code preview ornament', () => {
-  test('renders one ornament outside the tablist and buttons', async () => {
+describe('ForgeHome code preview accessibility', () => {
+  test('switches complete request examples with arrow keys and exposes the active panel', async () => {
     const rendered = await renderHome(null)
-    const windowBars = rendered.container.querySelectorAll(
-      '.forge-home-window-bar'
+    const tabs = Array.from(
+      rendered.container.querySelectorAll<HTMLButtonElement>('[role="tab"]')
     )
-
-    assert.equal(windowBars.length, 1)
-    const windowBar = windowBars[0]
-    assert.ok(windowBar)
-    assert.equal(windowBar.childElementCount, 1)
-    const ornament = windowBar.firstElementChild
-    assert.ok(ornament)
-
-    const tablist = rendered.container.querySelector('[role="tablist"]')
-    assert.ok(tablist)
-    assert.equal(tablist.contains(ornament), false)
-    for (const button of rendered.container.querySelectorAll('button')) {
-      assert.equal(button.contains(ornament), false)
-    }
-
+    assert.equal(tabs.length, 4)
+    assert.equal(tabs.filter((tab) => tab.tabIndex === 0).length, 1)
+    await act(async () => {
+      tabs[0].focus()
+      tabs[0].dispatchEvent(
+        new window.KeyboardEvent('keydown', {
+          key: 'ArrowRight',
+          bubbles: true,
+        })
+      )
+      await flushEffects()
+    })
+    assert.equal(tabs[1].getAttribute('aria-selected'), 'true')
+    assert.equal(document.activeElement, tabs[1])
+    const panel = rendered.container.querySelector('[role="tabpanel"]')
+    assert.equal(panel?.getAttribute('aria-labelledby'), tabs[1].id)
+    assert.ok(panel?.textContent?.includes('process.env.LMM_API_KEY'))
     await unmountHome(rendered)
+  })
+})
+
+describe('ForgeHome configured destinations', () => {
+  test('hides the security destination when disabled and sends gated visitors to login', async () => {
+    const hidden = await renderHome(null, true, false, {
+      headerNavModules: JSON.stringify({
+        security: { enabled: false, requireAuth: false },
+      }),
+    })
+    assert.equal(
+      hidden.container.querySelector(
+        '.forge-home-destinations a[href="/security"]'
+      ),
+      null
+    )
+    await unmountHome(hidden)
+    const gated = await renderHome(null, true, false, {
+      headerNavModules: JSON.stringify({
+        security: { enabled: true, requireAuth: true },
+      }),
+    })
+    assert.ok(
+      gated.container.querySelector(
+        '.forge-home-destinations a[href="/sign-in?redirect=%2Fsecurity"]'
+      )
+    )
+    await unmountHome(gated)
   })
 })
 
@@ -368,6 +405,99 @@ describe('ForgeHome assistant entry', () => {
     assert.equal(input.placeholder, 'Describe what you need...')
 
     await unmountHome(rendered)
+  })
+
+  test('localizes cached placeholders immediately while each language request is pending', async () => {
+    const key = 'Where should I start?'
+    const localizedPrompts = await Promise.all(
+      Object.entries({
+        en: 'en',
+        zhCN: 'zh',
+        zhTW: 'zh-TW',
+        fr: 'fr',
+        ja: 'ja',
+        ru: 'ru',
+        vi: 'vi',
+      }).map(async ([language, file]) => {
+        const resource = JSON.parse(
+          await readFile(
+            new URL(`../../i18n/locales/${file}.json`, import.meta.url),
+            'utf8'
+          )
+        ) as { translation: Record<string, string> }
+        return { language, prompt: resource.translation[key] }
+      })
+    )
+    for (const { language, prompt } of localizedPrompts) {
+      i18n.addResourceBundle(language, 'translation', { [key]: prompt })
+    }
+    const rendered = await renderHome(null)
+    const requestedLanguages: string[] = []
+    const originalHomeGet = api.get
+    api.get = (async (
+      url: string,
+      config?: { params?: { language?: string } }
+    ) => {
+      if (url === '/api/assistant/pre-conversation-presets') {
+        requestedLanguages.push(config?.params?.language ?? '')
+        return await new Promise(() => undefined)
+      }
+      return originalHomeGet(url)
+    }) as typeof api.get
+    try {
+      await act(async () => {
+        rendered.queryClient.setQueryData(
+          [
+            'assistant-pre-conversation-presets',
+            'en',
+            ASSISTANT_PROMPT_PRESET_COPY_VERSION,
+          ],
+          {
+            generation: 17,
+            version: 'aggregate-topic-v1',
+            presets: [
+              { id: 'getting_started', prompt: '请围绕旧模板说明权限边界。' },
+            ],
+          }
+        )
+        await flushEffects()
+      })
+      for (const { language, prompt } of localizedPrompts) {
+        await act(async () => {
+          await i18n.changeLanguage(language)
+          await flushEffects()
+        })
+        await act(async () => {
+          await new Promise((resolve) => setTimeout(resolve, 90))
+        })
+        const input = findMessageInput(rendered.container)
+        assert.ok(input.placeholder.length > 0)
+        assert.ok(
+          prompt.startsWith(input.placeholder),
+          `${language}: unexpected placeholder ${input.placeholder}`
+        )
+        assert.equal(
+          input.value,
+          '',
+          'A placeholder must not become a submitted draft'
+        )
+        if (language !== 'en') {
+          assert.ok(requestedLanguages.includes(language))
+          assert.equal(
+            rendered.queryClient.getQueryState([
+              'assistant-pre-conversation-presets',
+              language,
+              ASSISTANT_PROMPT_PRESET_COPY_VERSION,
+            ])?.status,
+            'pending'
+          )
+        }
+      }
+      assert.equal(requestedLanguages.length, 6)
+    } finally {
+      await unmountHome(rendered)
+      await i18n.changeLanguage('en')
+    }
   })
 
   test('queues onboarding with the message and redirects anonymous users to sign-in', async () => {

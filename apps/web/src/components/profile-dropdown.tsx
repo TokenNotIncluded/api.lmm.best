@@ -64,7 +64,12 @@ export function ProfileDropdown() {
     <>
       <DropdownMenu modal={false}>
         <DropdownMenuTrigger
-          render={<Button variant='ghost' className='relative size-8 p-0' />}
+          render={
+            <Button
+              variant='ghost'
+              className='relative size-11 p-0 sm:size-8'
+            />
+          }
         >
           <UserAvatar
             name={avatarName}

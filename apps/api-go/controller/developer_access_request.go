@@ -187,8 +187,8 @@ func SubmitDeveloperAccessRequest(c *gin.Context) {
 			common.SysError("failed to record assistant preset recommendation for request " + strconv.Itoa(request.Id))
 		}
 	}
-	// AI-generated recommendation letters enter a bounded asynchronous review
-	// queue. A strict reviewer can approve clear legitimate requests; any
+	// New applications (with or without an AI letter) enter the independently
+	// configured, bounded review queue. A strict reviewer can approve clear legitimate requests; any
 	// uncertainty, timeout, or malformed response leaves the request pending for
 	// the existing human review path.
 	enqueueAssistantL1AutoReview(request)

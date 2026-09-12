@@ -24,6 +24,9 @@ func SetRouter(router *gin.Engine) error {
 	router.GET("/internal/errors/access-policy", controller.GetAccessPolicyErrorPage)
 
 	largeRequestAdmission := middleware.RelayRequestAdmission()
+	if err := SetOAuthServerRouter(router); err != nil {
+		return err
+	}
 	SetApiRouter(router)
 	SetOpenSourceBountyMCPRouter(router)
 	SetDrawingMCPRouter(router, largeRequestAdmission)

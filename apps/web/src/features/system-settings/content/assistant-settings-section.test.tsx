@@ -21,6 +21,8 @@ import { after, describe, test } from 'node:test'
 
 import { Window } from 'happy-dom'
 
+import type { AssistantSettingsFormValues } from './assistant-settings-schema'
+
 const domWindow = new Window({
   url: 'https://console.example.test/admin/system-settings/content/assistant',
 })
@@ -107,6 +109,12 @@ const baseValues = {
   AssistantSearchMCPTool: '',
   AssistantSkills: '',
   AssistantSkillFiles: '[]',
+  AssistantL1AutoReviewEnabled: false,
+  AssistantL1AutoReviewGroup: '',
+  AssistantL1AutoReviewModel: '',
+  AssistantL1AutoReviewPrompt: '',
+  AssistantL1AutoReviewMinConfidence: 0.98,
+  AssistantL1AutoApprovalUserIDs: '',
   AssistantReviewEnabled: true,
   AssistantReviewWindowDays: 30,
   AssistantReviewIntervalHours: 24,
@@ -123,7 +131,8 @@ const baseValues = {
 } as const
 
 async function renderSettings(
-  provider: (typeof ASSISTANT_SEARCH_PROVIDERS)[number]
+  provider: (typeof ASSISTANT_SEARCH_PROVIDERS)[number],
+  overrides: Partial<AssistantSettingsFormValues> = {}
 ) {
   const container = document.createElement('div')
   document.body.append(container)
@@ -143,6 +152,7 @@ async function renderSettings(
               AssistantSearchURL: assistantSearchURLByProvider[provider] ?? '',
               AssistantSearchMCPTool:
                 provider === 'mcp_streamable_http' ? 'web_search' : '',
+              ...overrides,
             }}
           />
         </I18nextProvider>
@@ -167,6 +177,226 @@ async function flushEffects() {
 after(() => domWindow.close())
 
 describe('assistant search provider settings', () => {
+  test('requires an explicit complete L1 reviewer and finite confidence', () => {
+    assert.equal(assistantSettingsSchema.safeParse(baseValues).success, true)
+    assert.equal(
+      assistantSettingsSchema.safeParse({
+        ...baseValues,
+        AssistantL1AutoReviewEnabled: true,
+      }).success,
+      false
+    )
+    const enabled = {
+      ...baseValues,
+      AssistantL1AutoReviewEnabled: true,
+      AssistantL1AutoReviewGroup: 'default',
+      AssistantL1AutoReviewModel: 'review-model',
+      AssistantL1AutoReviewPrompt:
+        'Approve only verified development use cases.',
+    }
+    assert.equal(assistantSettingsSchema.safeParse(enabled).success, true)
+    for (const value of [Number.NaN, Infinity, -Infinity, -0.01, 1.01]) {
+      assert.equal(
+        assistantSettingsSchema.safeParse({
+          ...enabled,
+          AssistantL1AutoReviewMinConfidence: value,
+        }).success,
+        false
+      )
+    }
+    for (const value of ['0', '-1', '7,not-an-id']) {
+      assert.equal(
+        assistantSettingsSchema.safeParse({
+          ...enabled,
+          AssistantL1AutoApprovalUserIDs: value,
+        }).success,
+        false
+      )
+    }
+    assert.equal(
+      assistantSettingsSchema.safeParse({
+        ...enabled,
+        AssistantL1AutoApprovalUserIDs: '7,42',
+      }).success,
+      true
+    )
+  })
+
+  test('renders independent L1 controls with fail-closed defaults', async () => {
+    const { container, cleanup } = await renderSettings('none')
+    try {
+      const panel = container.querySelector(
+        '[data-testid="assistant-l1-review-settings"]'
+      )
+      assert.ok(panel)
+      assert.match(panel.textContent ?? '', /Enable automatic L1 review/)
+      assert.match(
+        panel.textContent ?? '',
+        /Leave blank to review all new applications/
+      )
+      assert.equal(
+        panel.querySelector('[role="switch"]')?.getAttribute('aria-checked'),
+        'false'
+      )
+      const prompt = panel.querySelector(
+        'textarea[name="AssistantL1AutoReviewPrompt"]'
+      ) as HTMLTextAreaElement
+      assert.ok(prompt)
+      assert.equal(prompt.disabled, false)
+      assert.equal(prompt.maxLength, 8000)
+      assert.equal(
+        (
+          panel.querySelector(
+            'input[name="AssistantL1AutoReviewMinConfidence"]'
+          ) as HTMLInputElement
+        ).value,
+        '0.98'
+      )
+      assert.equal(
+        (
+          panel.querySelector(
+            '[data-testid="assistant-l1-get-model-list"]'
+          ) as HTMLButtonElement
+        ).disabled,
+        true
+      )
+    } finally {
+      await cleanup()
+    }
+  })
+
+  for (const outcome of ['loaded', 'empty', 'error'] as const) {
+    test(`loads only the configured L1 route and handles ${outcome} model lists`, async () => {
+      const originalGet = api.get
+      const requestedGroups: string[] = []
+      api.get = (async (
+        url: string,
+        config?: { params?: { group?: string } }
+      ) => {
+        if (url === '/api/group/') {
+          return { data: { data: ['default', 'l1-route', 'other-route'] } }
+        }
+        if (url === '/api/assistant/models') {
+          requestedGroups.push(config?.params?.group ?? '')
+          if (outcome === 'error') {
+            throw new Error('Review model list unavailable')
+          }
+          return {
+            data: { data: outcome === 'empty' ? [] : ['l1-review-model'] },
+          }
+        }
+        throw new Error(`unexpected GET ${url}`)
+      }) as typeof api.get
+      const rendered = await renderSettings('none', {
+        AssistantL1AutoReviewGroup: 'l1-route',
+        AssistantL1AutoReviewModel: 'l1-review-model',
+      })
+      try {
+        await act(flushEffects)
+        const panel = rendered.container.querySelector<HTMLElement>(
+          '[data-testid="assistant-l1-review-settings"]'
+        )
+        assert.ok(panel)
+        const routeControls = panel.querySelectorAll<HTMLButtonElement>(
+          'button[role="combobox"]'
+        )
+        const refresh = panel.querySelector<HTMLButtonElement>(
+          '[data-testid="assistant-l1-get-model-list"]'
+        )
+        assert.ok(refresh)
+        assert.equal(routeControls[1]?.disabled, true)
+        assert.deepEqual(requestedGroups, [])
+        await act(async () => {
+          refresh.click()
+          await flushEffects()
+          await flushEffects()
+        })
+        assert.deepEqual(requestedGroups, ['l1-route'])
+        assert.equal(routeControls[1]?.disabled, outcome !== 'loaded')
+        if (outcome === 'empty') {
+          assert.match(
+            panel.textContent ?? '',
+            /This group has no enabled model IDs/
+          )
+        }
+        if (outcome === 'error') {
+          assert.match(panel.textContent ?? '', /Could not load review models/)
+        }
+        if (outcome === 'loaded') {
+          await act(async () => {
+            routeControls[0]?.click()
+            await flushEffects()
+          })
+          const otherGroup = [
+            ...document.querySelectorAll<HTMLElement>('[role="option"]'),
+          ].find((option) => option.textContent?.trim() === 'other-route')
+          assert.ok(otherGroup)
+          await act(async () => {
+            otherGroup.click()
+            await flushEffects()
+          })
+          assert.equal(routeControls[1]?.disabled, true)
+          assert.doesNotMatch(
+            routeControls[1]?.textContent ?? '',
+            /l1-review-model/
+          )
+          assert.deepEqual(
+            requestedGroups,
+            ['l1-route'],
+            'changing groups must not invoke a hidden fallback model fetch'
+          )
+        }
+      } finally {
+        api.get = originalGet
+        await rendered.cleanup()
+      }
+    })
+  }
+
+  test('saves the independent L1 switch through the bulk settings endpoint', async () => {
+    const originalGet = api.get
+    const originalPost = api.post
+    let capturedValues: Record<string, string> | undefined
+    api.get = (async () => ({ data: { data: ['default'] } })) as typeof api.get
+    api.post = (async (
+      url: string,
+      body: { values?: Record<string, string> }
+    ) => {
+      assert.equal(url, '/api/option/bulk')
+      capturedValues = body.values
+      return { data: { success: true, message: '' } }
+    }) as typeof api.post
+    const rendered = await renderSettings('none', {
+      AssistantL1AutoReviewGroup: 'default',
+      AssistantL1AutoReviewModel: 'l1-review-model',
+      AssistantL1AutoReviewPrompt: 'Review legitimate development use cases.',
+    })
+    try {
+      const toggle = rendered.container.querySelector<HTMLButtonElement>(
+        '[data-testid="assistant-l1-review-settings"] [role="switch"]'
+      )
+      const form = rendered.container.querySelector('form')
+      assert.ok(toggle)
+      assert.ok(form)
+      await act(async () => {
+        toggle.click()
+        await flushEffects()
+      })
+      await act(async () => {
+        form.dispatchEvent(
+          new Event('submit', { bubbles: true, cancelable: true })
+        )
+        await flushEffects()
+        await flushEffects()
+      })
+      assert.deepEqual(capturedValues, { AssistantL1AutoReviewEnabled: 'true' })
+    } finally {
+      api.get = originalGet
+      api.post = originalPost
+      await rendered.cleanup()
+    }
+  })
+
   test('validates bounded conversation retention settings', () => {
     assert.equal(assistantSettingsSchema.safeParse(baseValues).success, true)
     for (const invalid of [

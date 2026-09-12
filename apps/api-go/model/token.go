@@ -8,6 +8,7 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/LIghtJUNction/api.lmm.best/setting/operation_setting"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type Token struct {
@@ -28,6 +29,7 @@ type Token struct {
 	Group              string         `json:"group" gorm:"default:''"`
 	CrossGroupRetry    bool           `json:"cross_group_retry"` // 跨分组重试，仅auto分组有效
 	AutoGroups         string         `json:"-" gorm:"type:text"`
+	OAuthManaged       bool           `json:"-" gorm:"column:oauth_managed;not null;default:false;index"`
 	DeletedAt          gorm.DeletedAt `gorm:"index"`
 }
 
@@ -73,10 +75,16 @@ func MaskTokenKey(key string) string {
 }
 
 func (token *Token) GetFullKey() string {
+	if token.OAuthManaged {
+		return ""
+	}
 	return token.Key
 }
 
 func (token *Token) GetMaskedKey() string {
+	if token.OAuthManaged {
+		return ""
+	}
 	return MaskTokenKey(token.Key)
 }
 
@@ -105,7 +113,7 @@ func (token *Token) GetIpLimits() []string {
 func GetAllUserTokens(userId int, startIdx int, num int) ([]*Token, error) {
 	var tokens []*Token
 	var err error
-	err = DB.Where("user_id = ?", userId).Order("id desc").Limit(num).Offset(startIdx).Find(&tokens).Error
+	err = DB.Where("user_id = ? AND oauth_managed = ?", userId, false).Order("id desc").Limit(num).Offset(startIdx).Find(&tokens).Error
 	return tokens, err
 }
 
@@ -182,7 +190,7 @@ func SearchUserTokens(userId int, keyword string, token string, offset int, limi
 		}
 	}
 
-	baseQuery := DB.Model(&Token{}).Where("user_id = ?", userId)
+	baseQuery := DB.Model(&Token{}).Where("user_id = ? AND oauth_managed = ?", userId, false)
 
 	// 非空才加 LIKE 条件，空则跳过（不过滤该字段）
 	if keyword != "" {
@@ -197,7 +205,7 @@ func SearchUserTokens(userId int, keyword string, token string, offset int, limi
 		if err != nil {
 			return nil, 0, err
 		}
-		baseQuery = baseQuery.Where(commonKeyCol+" LIKE ? ESCAPE '!'", tokenPattern)
+		baseQuery = baseQuery.Where(clause.Expr{SQL: "? LIKE ? ESCAPE '!'", Vars: []any{clause.Column{Name: "key"}, tokenPattern}})
 	}
 
 	// 先查匹配总数（用于分页，受 maxTokens 上限保护，避免全表 COUNT）
@@ -262,7 +270,7 @@ func GetTokenByIds(id int, userId int) (*Token, error) {
 	}
 	token := Token{Id: id, UserId: userId}
 	var err error = nil
-	err = DB.First(&token, "id = ? and user_id = ?", id, userId).Error
+	err = DB.First(&token, "id = ? and user_id = ? AND oauth_managed = ?", id, userId, false).Error
 	return &token, err
 }
 
@@ -276,16 +284,19 @@ func GetTokenById(id int) (*Token, error) {
 }
 
 func GetTokenByKey(key string, fromDB bool) (token *Token, err error) {
+	if strings.HasPrefix(key, OAuthBillingKeyPrefix) {
+		return nil, gorm.ErrRecordNotFound
+	}
 	if !fromDB && common.RedisEnabled {
 		// Try Redis first
 		token, err := cacheGetTokenByKey(key)
-		if err == nil {
+		if err == nil && !token.OAuthManaged {
 			return token, nil
 		}
 		// Don't return error - fall through to DB
 	}
 	token = &Token{}
-	if err = DB.Where(commonKeyCol+" = ?", key).First(token).Error; err != nil {
+	if err = DB.Where(clause.Eq{Column: "key", Value: key}).Where("oauth_managed = ?", false).First(token).Error; err != nil {
 		return nil, err
 	}
 	if common.RedisEnabled {
@@ -310,7 +321,7 @@ func (token *Token) Update() (err error) {
 	if cacheErr := invalidateTokenCacheForMutation(token.Key); cacheErr != nil {
 		common.SysLog("failed to invalidate token cache before update: " + cacheErr.Error())
 	}
-	return DB.Model(token).Select("name", "status", "expired_time", "remain_quota", "unlimited_quota",
+	return DB.Model(token).Where("oauth_managed = ?", false).Select("name", "status", "expired_time", "remain_quota", "unlimited_quota",
 		"model_limits_enabled", "model_limits", "allow_ips", "group", "cross_group_retry", "auto_groups").Updates(token).Error
 }
 
@@ -319,7 +330,7 @@ func (token *Token) SelectUpdate() (err error) {
 		common.SysLog("failed to invalidate token cache before status update: " + cacheErr.Error())
 	}
 	// This can update zero values
-	err = DB.Model(token).Select("accessed_time", "status").Updates(token).Error
+	err = DB.Model(token).Where("oauth_managed = ?", false).Select("accessed_time", "status").Updates(token).Error
 	return err
 }
 
@@ -327,7 +338,7 @@ func (token *Token) Delete() (err error) {
 	if cacheErr := invalidateTokenCacheForMutation(token.Key); cacheErr != nil {
 		common.SysLog("failed to invalidate token cache before delete: " + cacheErr.Error())
 	}
-	return DB.Delete(token).Error
+	return DB.Where("oauth_managed = ?", false).Delete(token).Error
 }
 
 func (token *Token) IsModelLimitsEnabled() bool {
@@ -366,7 +377,7 @@ func DeleteTokenById(id int, userId int) (err error) {
 		return errors.New("id 或 userId 为空！")
 	}
 	token := Token{Id: id, UserId: userId}
-	err = DB.Where(token).First(&token).Error
+	err = DB.Where(token).Where("oauth_managed = ?", false).First(&token).Error
 	if err != nil {
 		return err
 	}
@@ -424,7 +435,7 @@ func decreaseTokenQuota(id int, quota int) (err error) {
 // CountUserTokens returns total number of tokens for the given user, used for pagination
 func CountUserTokens(userId int) (int64, error) {
 	var total int64
-	err := DB.Model(&Token{}).Where("user_id = ?", userId).Count(&total).Error
+	err := DB.Model(&Token{}).Where("user_id = ? AND oauth_managed = ?", userId, false).Count(&total).Error
 	return total, err
 }
 
@@ -437,7 +448,7 @@ func BatchDeleteTokens(ids []int, userId int) (int, error) {
 	tx := DB.Begin()
 
 	var tokens []Token
-	if err := tx.Where("user_id = ? AND id IN (?)", userId, ids).Find(&tokens).Error; err != nil {
+	if err := tx.Where("user_id = ? AND id IN (?) AND oauth_managed = ?", userId, ids, false).Find(&tokens).Error; err != nil {
 		tx.Rollback()
 		return 0, err
 	}
@@ -445,7 +456,7 @@ func BatchDeleteTokens(ids []int, userId int) (int, error) {
 		common.SysLog("failed to invalidate token cache before batch delete: " + err.Error())
 	}
 
-	if err := tx.Where("user_id = ? AND id IN (?)", userId, ids).Delete(&Token{}).Error; err != nil {
+	if err := tx.Where("user_id = ? AND id IN (?) AND oauth_managed = ?", userId, ids, false).Delete(&Token{}).Error; err != nil {
 		tx.Rollback()
 		return 0, err
 	}
@@ -459,8 +470,8 @@ func BatchDeleteTokens(ids []int, userId int) (int, error) {
 
 func GetTokenKeysByIds(ids []int, userId int) ([]Token, error) {
 	var tokens []Token
-	err := DB.Select("id", commonKeyCol).
-		Where("user_id = ? AND id IN (?)", userId, ids).
+	err := DB.Select("id", "key").
+		Where("user_id = ? AND id IN (?) AND oauth_managed = ?", userId, ids, false).
 		Find(&tokens).Error
 	return tokens, err
 }

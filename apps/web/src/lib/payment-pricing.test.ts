@@ -22,7 +22,18 @@ Copyright (C) 2026 LIghtJUNction
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { usesDedicatedPaymentPricing } from './payment-pricing'
+import {
+  usesDedicatedPaymentPricing,
+  platformUnitsToUsd,
+} from './payment-pricing'
+
+test('wallet fallback uses the same USD bridge as model estimates', () => {
+  assert.equal(platformUnitsToUsd(14, 14), 1)
+  assert.equal(platformUnitsToUsd(1, 14), 1 / 14)
+  for (const rate of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+    assert.ok(Number.isNaN(platformUnitsToUsd(10, rate)))
+  }
+})
 
 test('built-in gateways cannot expose custom settlement pricing', () => {
   for (const type of ['stripe', 'waffo', 'waffo_pancake', 'alipay', 'wxpay']) {

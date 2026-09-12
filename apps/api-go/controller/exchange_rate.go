@@ -50,12 +50,15 @@ type exchangeRateProviderResponse struct {
 }
 
 type frankfurterExchangeRateResponse struct {
-	Rates map[string]float64 `json:"rates"`
+	Base   string             `json:"base"`
+	Amount *float64           `json:"amount"`
+	Rates  map[string]float64 `json:"rates"`
 }
 
 type openExchangeRateResponse struct {
-	Result string             `json:"result"`
-	Rates  map[string]float64 `json:"rates"`
+	Result   string             `json:"result"`
+	BaseCode string             `json:"base_code"`
+	Rates    map[string]float64 `json:"rates"`
 }
 
 // GetUsdExchangeRate returns the latest fiat rate for one USD in the requested
@@ -116,6 +119,9 @@ func fetchUsdExchangeRate(ctx context.Context, currency string) (exchangeRatePro
 				if err := json.Unmarshal(body, &response); err != nil {
 					return 0, err
 				}
+				if response.Base != "USD" || (response.Amount != nil && *response.Amount != 1) {
+					return 0, fmt.Errorf("provider did not quote one USD")
+				}
 				return response.Rates[currency], nil
 			},
 		},
@@ -126,6 +132,9 @@ func fetchUsdExchangeRate(ctx context.Context, currency string) (exchangeRatePro
 				var response openExchangeRateResponse
 				if err := json.Unmarshal(body, &response); err != nil {
 					return 0, err
+				}
+				if response.Result != "success" || response.BaseCode != "USD" {
+					return 0, fmt.Errorf("provider did not return a successful USD quote")
 				}
 				return response.Rates[currency], nil
 			},

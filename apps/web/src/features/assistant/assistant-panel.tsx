@@ -65,6 +65,7 @@ import {
 import { Response } from '@/components/ai-elements/response'
 import { sideDrawerContentClassName } from '@/components/drawer-layout'
 import { LmmBrandMark } from '@/components/lmm-brand-mark'
+import { useSystemConfig } from '@/hooks/use-system-config'
 import {
   Alert,
   AlertAction,
@@ -81,6 +82,7 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet'
 import { Skeleton } from '@/components/ui/skeleton'
+import { WaitCompanion } from '@/components/wait-companion'
 import { isConsoleActivated } from '@/lib/console-activation'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'
@@ -146,6 +148,10 @@ import { AssistantModelsTool } from './assistant-models-tool'
 import { AssistantNewUserGift } from './assistant-new-user-gift'
 import { AssistantOnboardingTodo } from './assistant-onboarding-todo'
 import { AssistantPlanTool } from './assistant-plan-tool'
+import {
+  ASSISTANT_PROMPT_PRESET_COPY_VERSION,
+  localizeAssistantPreConversationPresets,
+} from './assistant-prompt-presets'
 import { getAssistantPromptValidation } from './assistant-prompt-validation'
 import { AssistantSetupTool } from './assistant-setup-tool'
 import {
@@ -261,6 +267,7 @@ function readAssistantClassicLayout(): boolean {
 
 function AssistantClassicWelcome() {
   const { t } = useTranslation()
+  const { systemName } = useSystemConfig()
   const prompts = [
     [t('Examples'), t('Explain an API setup')],
     [t('Examples'), t('Compare live model pricing')],
@@ -278,7 +285,7 @@ function AssistantClassicWelcome() {
         </div>
         <div className='min-w-0'>
           <p className='text-xs font-medium tracking-wide text-[#b5b5bd] uppercase'>
-            LMM Forge
+            {systemName}
           </p>
           <h2 className='mt-1 text-xl font-semibold tracking-tight text-[#f1f1f1] sm:text-2xl'>
             {t('How can I help?')}
@@ -417,6 +424,7 @@ function AssistantClassicSidebar(props: {
   onToggleLayout: () => void
 }) {
   const { t } = useTranslation()
+  const { systemName } = useSystemConfig()
   return (
     <aside
       className='hidden w-64 shrink-0 flex-col border-r border-[#4b4d56] bg-[#202123] text-[#ececf1] md:flex'
@@ -425,7 +433,7 @@ function AssistantClassicSidebar(props: {
       <div className='flex items-center gap-3 px-4 py-5'>
         <LmmBrandMark className='size-8' />
         <div className='min-w-0'>
-          <p className='truncate text-sm font-semibold'>LMM Forge</p>
+          <p className='truncate text-sm font-semibold'>{systemName}</p>
           <p className='truncate text-xs text-[#b5b5bd]'>
             {t('Service guide')}
           </p>
@@ -757,14 +765,15 @@ function AssistantPromptInputSync(props: {
 }
 
 function AssistantPresetPrompts(props: {
-  presets: AssistantPreConversationPreset[]
+  presets: AssistantPreConversationPreset[] | undefined
   onSelect: (preset: AssistantPreConversationPreset) => void
 }) {
   const { t } = useTranslation()
   const {
     textInput: { setInput },
   } = usePromptInputController()
-  if (props.presets.length === 0) return null
+  const presets = localizeAssistantPreConversationPresets(props.presets, t)
+  if (presets.length === 0) return null
 
   return (
     <div
@@ -773,13 +782,13 @@ function AssistantPresetPrompts(props: {
       aria-label={t('Choose a topic or write a message.')}
       data-testid='assistant-preset-prompts'
     >
-      {props.presets.map((preset) => (
+      {presets.map((preset) => (
         <Button
           key={preset.id}
           type='button'
           variant='ghost'
           size='sm'
-          className='bg-muted/40 h-auto min-h-8 shrink-0 rounded-full px-3 text-left whitespace-normal'
+          className='bg-muted/40 h-auto min-h-8 max-w-full shrink-0 rounded-full px-3 text-left whitespace-normal'
           onClick={() => {
             setInput(preset.prompt)
             props.onSelect(preset)
@@ -966,6 +975,7 @@ function AssistantPanelHeader(props: {
   fullscreen?: boolean
   onToggleFullscreen?: () => void
 }) {
+  const { systemName } = useSystemConfig()
   const { t } = useTranslation()
 
   if (props.classicLayout) {
@@ -992,7 +1002,7 @@ function AssistantPanelHeader(props: {
         <div className='min-w-0 flex-1'>
           <div className='flex min-w-0 items-center gap-2'>
             <h1 className='truncate text-sm font-semibold sm:text-base'>
-              LMM Forge
+              {systemName}
             </h1>
             <span className='hidden rounded-full border border-[#565869] px-2 py-0.5 text-[10px] tracking-wide text-[#b5b5bd] uppercase sm:inline'>
               {t('Classic chat')}
@@ -1307,7 +1317,8 @@ export function AssistantPanel(props: AssistantPanelProps) {
 }
 
 function AssistantPanelSession(props: AssistantPanelProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const { systemName } = useSystemConfig()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const mode = props.mode ?? 'mobile'
@@ -1362,6 +1373,7 @@ function AssistantPanelSession(props: AssistantPanelProps) {
   >(null)
   const openedTargetRef = useRef<AssistantPresetId | undefined>(undefined)
   const activeToolRegionRef = useRef<HTMLDivElement | null>(null)
+  const latestAssistantMessageRef = useRef<HTMLDivElement | null>(null)
   useEffect(() => {
     try {
       window.localStorage.setItem(
@@ -1387,13 +1399,17 @@ function AssistantPanelSession(props: AssistantPanelProps) {
     accountAccessState === 'granted' || accountAccessState === 'restricted'
   const developerAccessGranted = accountAccessState === 'granted'
   const assistantRouteUnavailable = statusQuery.data?.route_available === false
+  const presetLanguage = i18n.resolvedLanguage || i18n.language
   const preConversationPresetsQuery = useQuery({
     queryKey: [
       'assistant-pre-conversation-presets',
+      ASSISTANT_PROMPT_PRESET_COPY_VERSION,
+      presetLanguage,
       authUser?.id,
       authSessionId,
     ],
-    queryFn: getAssistantPreConversationPresets,
+    queryFn: () => getAssistantPreConversationPresets(presetLanguage),
+    placeholderData: (previous) => previous,
     // Presets are public onboarding guidance, not an L0-only capability.
     // Keep them available for L1/admin users too so returning users can still
     // discover the assistant's current workflows.
@@ -2193,7 +2209,7 @@ function AssistantPanelSession(props: AssistantPanelProps) {
     if (!text) return
     if (typeof navigator.share === 'function') {
       try {
-        await navigator.share({ title: 'LMM Forge', text })
+        await navigator.share({ title: systemName, text })
         return
       } catch {
         // User dismissed the share sheet — fall through to clipboard.
@@ -2340,6 +2356,13 @@ function AssistantPanelSession(props: AssistantPanelProps) {
                     <Message
                       from={entry.role === 'human' ? 'assistant' : entry.role}
                       key={entry.id}
+                      ref={
+                        entry.role === 'assistant' &&
+                        entry.id === entries.at(-1)?.id
+                          ? latestAssistantMessageRef
+                          : undefined
+                      }
+                      tabIndex={entry.role === 'assistant' ? -1 : undefined}
                       className={cn(
                         classicLayout &&
                           'assistant-classic-message mx-auto w-full max-w-3xl items-start px-5 py-5 sm:px-8 sm:py-6',
@@ -2371,7 +2394,7 @@ function AssistantPanelSession(props: AssistantPanelProps) {
                         {classicLayout && entry.role === 'assistant' ? (
                           <div className='mb-3 flex items-center gap-2 text-xs font-medium text-[#f1f1f1]'>
                             <LmmBrandMark className='size-6' />
-                            <span>LMM Forge</span>
+                            <span>{systemName}</span>
                           </div>
                         ) : null}
                         {entry.role === 'human' ? (
@@ -2654,6 +2677,27 @@ function AssistantPanelSession(props: AssistantPanelProps) {
             <ConversationScrollButton />
           </Conversation>
 
+          <WaitCompanion
+            taskKey={`${authUser?.id ?? 'guest'}:${conversationResetRevision}`}
+            pending={
+              sending &&
+              !(entries.at(-1)?.streaming && entries.at(-1)?.content.trim())
+            }
+            finishedLabel={sending ? t('The response has started.') : undefined}
+            onReturnToTask={() => {
+              latestAssistantMessageRef.current?.focus({
+                preventScroll: true,
+              })
+              latestAssistantMessageRef.current?.scrollIntoView({
+                block: 'nearest',
+                behavior: 'auto',
+              })
+            }}
+            className={cn(
+              'max-h-[35svh] shrink-0 overflow-y-auto px-4 sm:px-6',
+              classicLayout && 'mx-auto w-full max-w-3xl'
+            )}
+          />
           <div
             className={cn(
               'min-w-0 shrink-0 overflow-hidden pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:pb-[max(0.75rem,env(safe-area-inset-bottom))]',
@@ -2709,7 +2753,11 @@ function AssistantPanelSession(props: AssistantPanelProps) {
                 {accountAccessConfirmed &&
                 !entries.some((entry) => entry.role === 'user') ? (
                   <AssistantPresetPrompts
-                    presets={preConversationPresetsQuery.data?.presets ?? []}
+                    presets={
+                      preConversationPresetsQuery.isPending
+                        ? []
+                        : preConversationPresetsQuery.data?.presets
+                    }
                     onSelect={(preset) => {
                       setSelectedPreConversationPresetId(preset.id)
                       void recordAssistantPreConversationPresetClick(

@@ -280,20 +280,19 @@ function DrawingWorkbench({ userId }: { userId: number }) {
     return () => clearInterval(timer)
   }, [generating, activeTask?.startedAt])
 
-  // Auto expand minigame when waiting > 3s if enabled
+  // Offer once per generation; closing a game must not immediately reopen it.
+  const gameOfferedRef = useRef(false)
   useEffect(() => {
-    if (
-      generating &&
-      elapsedSeconds >= 3 &&
-      minigameEnabled &&
-      !minigameExpanded
-    ) {
+    if (!generating) {
+      gameOfferedRef.current = false
+      setMinigameExpanded(false)
+      return
+    }
+    if (elapsedSeconds >= 3 && minigameEnabled && !gameOfferedRef.current) {
+      gameOfferedRef.current = true
       setMinigameExpanded(true)
     }
-    if (!generating) {
-      setMinigameExpanded(false)
-    }
-  }, [generating, elapsedSeconds, minigameEnabled, minigameExpanded])
+  }, [generating, elapsedSeconds, minigameEnabled])
 
   const accessQuery = useQuery({
     queryKey: ['assistant-status', 'drawing', userId],

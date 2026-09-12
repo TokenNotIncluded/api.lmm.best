@@ -23,12 +23,14 @@ import { useTranslation } from 'react-i18next'
 import { RichContent } from '@/components/rich-content'
 import { Skeleton } from '@/components/ui/skeleton'
 import { isHttpUrl, isLikelyHtml } from '@/lib/content-format'
+import { useSystemConfig } from '@/hooks/use-system-config'
 
 import { ForgePublicShell } from '../forge/forge-public-shell'
 import { getAboutContent } from './api'
 
 function EmptyAboutState() {
   const { t } = useTranslation()
+  const { systemName } = useSystemConfig()
 
   return (
     <main className='mx-auto max-w-7xl px-5 pt-32 pb-24 md:px-10 md:pt-40'>
@@ -36,7 +38,7 @@ function EmptyAboutState() {
         <div>
           <p className='mb-5 flex items-center gap-2 text-xs font-bold uppercase'>
             <span className='bg-foreground size-2 rounded-full' />
-            {t('About LMM Forge')}
+            {t('About')} · {systemName}
           </p>
           <h1 className='max-w-3xl font-serif text-5xl leading-[1.02] font-normal md:text-7xl'>
             {t('Open-source work, made accountable.')}

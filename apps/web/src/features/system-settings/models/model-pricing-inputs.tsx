@@ -66,7 +66,7 @@ export function PriceLane(props: {
 
   return (
     <SettingsControlGroup
-      className={cn('space-y-3', effectiveDisabled && 'opacity-75')}
+      className={cn('gap-3', effectiveDisabled && 'opacity-75')}
       data-disabled={effectiveDisabled || undefined}
     >
       <SettingsSwitchField

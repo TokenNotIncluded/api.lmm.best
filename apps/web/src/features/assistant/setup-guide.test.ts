@@ -30,9 +30,21 @@ import {
   getCodexConfigPath,
   getCodexInstallCommand,
   getOpenAICompatibleClientJSON,
+  getGuideEligibleModels,
+  selectGuideModel,
 } from './setup-guide'
 
 describe('assistant setup guide', () => {
+  test('selects a text model instead of an image model and leaves no fake default', () => {
+    const models = ['gpt-image-2', 'gpt-5.6-codex', 'claude-sonnet-4']
+    assert.deepEqual(getGuideEligibleModels(models), [
+      'gpt-5.6-codex',
+      'claude-sonnet-4',
+    ])
+    assert.equal(selectGuideModel(models), 'gpt-5.6-codex')
+    assert.equal(selectGuideModel(models, 'claude-sonnet-4'), 'claude-sonnet-4')
+    assert.equal(selectGuideModel(['gpt-image-2']), '')
+  })
   test('detects desktop, Android and iOS platforms including desktop-mode iPads', () => {
     assert.equal(detectAssistantSetupPlatform('Windows', ''), 'windows')
     assert.equal(detectAssistantSetupPlatform('macOS', ''), 'macos')

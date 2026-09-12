@@ -143,6 +143,14 @@ const CONTENT_SECTIONS = [
           AssistantSearchMCPTool: settings.AssistantSearchMCPTool,
           AssistantSkills: settings.AssistantSkills,
           AssistantSkillFiles: settings.AssistantSkillFiles,
+          AssistantL1AutoReviewEnabled: settings.AssistantL1AutoReviewEnabled,
+          AssistantL1AutoReviewGroup: settings.AssistantL1AutoReviewGroup,
+          AssistantL1AutoReviewModel: settings.AssistantL1AutoReviewModel,
+          AssistantL1AutoReviewPrompt: settings.AssistantL1AutoReviewPrompt,
+          AssistantL1AutoReviewMinConfidence:
+            settings.AssistantL1AutoReviewMinConfidence,
+          AssistantL1AutoApprovalUserIDs:
+            settings.AssistantL1AutoApprovalUserIDs,
           AssistantReviewEnabled: settings.AssistantReviewEnabled,
           AssistantReviewWindowDays: settings.AssistantReviewWindowDays,
           AssistantReviewIntervalHours: settings.AssistantReviewIntervalHours,

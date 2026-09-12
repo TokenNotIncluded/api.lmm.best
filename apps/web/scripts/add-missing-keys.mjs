@@ -22,6 +22,11 @@ Copyright (C) 2026 LIghtJUNction
 import fs from 'node:fs/promises'
 import path from 'node:path'
 
+import { homeEditorialCopy } from './home-editorial-copy.mjs'
+import { paymentPricingCopy } from './payment-pricing-copy.mjs'
+import { waitCompanionCopy } from './wait-companion-copy.mjs'
+import { assistantToolCopy } from './assistant-tool-copy.mjs'
+
 const LOCALES_DIR = path.resolve('src/i18n/locales')
 
 function stableStringify(obj) {
@@ -8165,18 +8170,44 @@ const deprecatedCurrencyKeys = new Set([
 ])
 
 async function main() {
+  // Allow scoped additions without overwriting unrelated in-progress translations.
+  const paymentOnly = process.argv.includes('--only-payment-pricing')
+  const homeOnly = process.argv.includes('--only-home-editorial')
+  const waitOnly = process.argv.includes('--only-wait-companion')
+  const assistantToolOnly = process.argv.includes('--only-assistant-tool')
+  const scoped = paymentOnly || homeOnly || waitOnly || assistantToolOnly
+  const entries = paymentOnly
+    ? paymentPricingCopy
+    : homeOnly
+      ? homeEditorialCopy
+      : waitOnly
+        ? waitCompanionCopy
+        : assistantToolOnly
+          ? assistantToolCopy
+        : newKeys
   let totalAdded = 0
-  for (const [locale, translations] of Object.entries(newKeys)) {
+  for (const [locale, baseTranslations] of Object.entries(entries)) {
+    const translations = scoped
+      ? baseTranslations
+      : {
+          ...baseTranslations,
+          ...paymentPricingCopy[locale],
+          ...homeEditorialCopy[locale],
+          ...waitCompanionCopy[locale],
+        }
     const filePath = path.join(LOCALES_DIR, `${locale}.json`)
     const json = JSON.parse(await fs.readFile(filePath, 'utf8'))
     let count = 0
-    for (const key of deprecatedCurrencyKeys) {
+    for (const key of scoped ? [] : deprecatedCurrencyKeys) {
       if (Object.hasOwn(json.translation, key)) {
         delete json.translation[key]
         count++
       }
     }
-    if ('Routing rules cannot exceed 16384 characters.' in json.translation) {
+    if (
+      !scoped &&
+      'Routing rules cannot exceed 16384 characters.' in json.translation
+    ) {
       delete json.translation['Routing rules cannot exceed 16384 characters.']
       count++
     }

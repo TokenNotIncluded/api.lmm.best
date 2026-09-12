@@ -20,7 +20,7 @@ For commercial licensing, please contact support@quantumnous.com
 Copyright (C) 2026 LIghtJUNction
 */
 import { RefreshCw, ShieldCheck, Trash2, XCircle } from 'lucide-react'
-import type { ReactNode } from 'react'
+import { useRef, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { CopyButton } from '@/components/copy-button'
@@ -36,6 +36,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Skeleton } from '@/components/ui/skeleton'
+import { WaitCompanion } from '@/components/wait-companion'
 import { formatTimestampToDate } from '@/lib/format'
 
 import { formatHeroSmsPlatformAmount } from './api.js'
@@ -164,6 +165,8 @@ function SmsOrderDetails({
   showActions?: boolean
 }) {
   const { t } = useTranslation()
+  const codeRegionRef = useRef<HTMLDivElement>(null)
+  const messageRegionRef = useRef<HTMLDivElement>(null)
   const operationPending = refreshPending || complaintPending || cancelPending
   const phoneNumber = resolveHeroSmsPhoneNumber(order.phone_number)
   const canComplain = order.can_complain ?? false
@@ -238,6 +241,8 @@ function SmsOrderDetails({
           </p>
           <div
             className='mt-1 flex items-center gap-2'
+            ref={codeRegionRef}
+            tabIndex={-1}
             role='status'
             aria-live='polite'
             aria-atomic='true'
@@ -251,7 +256,11 @@ function SmsOrderDetails({
       </div>
 
       {order.message ? (
-        <div className='bg-muted/25 rounded-lg border p-3'>
+        <div
+          ref={messageRegionRef}
+          tabIndex={-1}
+          className='bg-muted/25 rounded-lg border p-3'
+        >
           <p className='text-muted-foreground text-xs'>{t('SMS message')}</p>
           <div className='mt-1 flex items-start gap-2'>
             <p className='min-w-0 flex-1 text-sm break-words'>
@@ -261,6 +270,29 @@ function SmsOrderDetails({
           </div>
         </div>
       ) : null}
+      <WaitCompanion
+        taskKey={order.id}
+        pending={
+          order.status === 'active' &&
+          !order.code &&
+          !order.message &&
+          !complaintPendingUpstream
+        }
+        finishedLabel={
+          order.code
+            ? t('Code received')
+            : order.message
+              ? t('SMS message')
+              : undefined
+        }
+        onReturnToTask={() => {
+          const target = order.code
+            ? codeRegionRef.current
+            : (messageRegionRef.current ?? codeRegionRef.current)
+          target?.focus({ preventScroll: true })
+          target?.scrollIntoView({ block: 'nearest' })
+        }}
+      />
       {order.last_error_message ? (
         <p className='text-destructive text-sm' role='alert'>
           {order.last_error_message}

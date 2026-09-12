@@ -57,7 +57,7 @@ func TestFetchUsdExchangeRateUsesProviderCurrency(t *testing.T) {
 			require.Equal(t, "CNY", request.URL.Query().Get("to"))
 			return &http.Response{
 				StatusCode: http.StatusOK,
-				Body:       io.NopCloser(strings.NewReader(`{"rates":{"CNY":6.8}}`)),
+				Body:       io.NopCloser(strings.NewReader(`{"base":"USD","amount":1,"rates":{"CNY":6.8}}`)),
 				Header:     make(http.Header),
 			}, nil
 		}),
@@ -74,4 +74,42 @@ func TestFetchUsdExchangeRateReturnsOneForUsd(t *testing.T) {
 	rate, err := fetchUsdExchangeRate(context.Background(), "USD")
 	require.NoError(t, err)
 	require.Equal(t, exchangeRateProviderResponse{Rate: 1, Provider: "base"}, rate)
+}
+
+func TestFetchUsdExchangeRateRejectsWrongBaseAndUsesFallback(t *testing.T) {
+	previousClient := exchangeRateHTTPClient
+	t.Cleanup(func() { exchangeRateHTTPClient = previousClient })
+	calls := 0
+	exchangeRateHTTPClient = &http.Client{Transport: exchangeRateRoundTripper(func(request *http.Request) (*http.Response, error) {
+		calls++
+		body := `{"base":"EUR","amount":1,"rates":{"CNY":8}}`
+		if request.URL.Host == "open.er-api.com" {
+			body = `{"result":"success","base_code":"USD","rates":{"CNY":7}}`
+		}
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}, nil
+	})}
+	rate, err := fetchUsdExchangeRate(context.Background(), "CNY")
+	require.NoError(t, err)
+	require.Equal(t, 2, calls)
+	require.Equal(t, "open.er-api.com", rate.Provider)
+	require.Equal(t, 7.0, rate.Rate)
+}
+
+func TestFetchUsdExchangeRateRejectsInvalidProviderQuotes(t *testing.T) {
+	for _, payload := range []string{
+		`{"base":"USD","amount":100,"rates":{"CNY":700}}`,
+		`{"result":"error","base_code":"USD","rates":{"CNY":7}}`,
+		`{"result":"success","base_code":"EUR","rates":{"CNY":8}}`,
+		`{"base":"USD","amount":1,"result":"success","base_code":"USD","rates":{"CNY":0}}`,
+	} {
+		t.Run(payload, func(t *testing.T) {
+			previousClient := exchangeRateHTTPClient
+			t.Cleanup(func() { exchangeRateHTTPClient = previousClient })
+			exchangeRateHTTPClient = &http.Client{Transport: exchangeRateRoundTripper(func(*http.Request) (*http.Response, error) {
+				return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(payload)), Header: make(http.Header)}, nil
+			})}
+			_, err := fetchUsdExchangeRate(context.Background(), "CNY")
+			require.Error(t, err)
+		})
+	}
 }

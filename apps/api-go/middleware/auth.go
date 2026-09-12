@@ -469,6 +469,10 @@ func WssAuth(c *gin.Context) {
 // Used for endpoints that need to be accessible from both the dashboard and API clients.
 func TokenOrUserAuth() func(c *gin.Context) {
 	return func(c *gin.Context) {
+		if isOAuthResourceAttempt(c) {
+			authenticateOAuthResource(c)
+			return
+		}
 		raw, ok := authorizationToken(c.GetHeader("Authorization"))
 		if ok {
 			identity, internal, err := service.ParseDashboardAccessToken(raw)
@@ -500,6 +504,10 @@ func TokenOrUserAuth() func(c *gin.Context) {
 // 仍然检查用户是否被封禁。
 func TokenAuthReadOnly() func(c *gin.Context) {
 	return func(c *gin.Context) {
+		if isOAuthResourceAttempt(c) {
+			oauthResourceFailure(c, http.StatusUnauthorized, "invalid_token")
+			return
+		}
 		key := c.Request.Header.Get("Authorization")
 		if key == "" {
 			c.JSON(http.StatusUnauthorized, gin.H{
@@ -577,6 +585,10 @@ func TokenAuthReadOnly() func(c *gin.Context) {
 
 func TokenAuth() func(c *gin.Context) {
 	return func(c *gin.Context) {
+		if isOAuthResourceAttempt(c) {
+			authenticateOAuthResource(c)
+			return
+		}
 		if failure := authenticateRelayToken(c); failure != nil {
 			writeRelayTokenAuthFailure(c, failure)
 			return
@@ -612,6 +624,11 @@ func RevalidateTokenAuth(c *gin.Context) *types.NewAPIError {
 }
 
 func authenticateRelayToken(c *gin.Context) *relayTokenAuthFailure {
+	// Revalidation must not rewrite signalled OAuth credentials into an API
+	// key. This profile does not allow OAuth on long-lived relay transports.
+	if isOAuthResourceAttempt(c) {
+		return newRelayTokenAuthFailure(errors.New("OAuth requires its resource boundary"), http.StatusUnauthorized, "OAuth request is not authorized", types.ErrorCodeAccessDenied)
+	}
 	prepareRelayTokenCredential(c)
 	key, parts := relayTokenCredential(c)
 	token, err := model.ValidateUserToken(key)
