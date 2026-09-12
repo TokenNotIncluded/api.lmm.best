@@ -18,8 +18,9 @@ export function resolveApiBaseUrl(
       url.password ||
       url.search ||
       url.hash
-    )
-      {return null}
+    ) {
+      return null
+    }
     const root = url.pathname.replace(/\/+$/, '').replace(/(?:\/v1)+$/, '')
     url.pathname = `${root}/v1`
     return url.toString().replace(/\/+$/, '')
