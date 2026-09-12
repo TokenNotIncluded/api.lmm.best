@@ -179,6 +179,7 @@ func VisibleRatioChanges(event RatioNotification, user User, groups map[string]s
 		return []RatioChange{}, nil
 	}
 	allowed := map[string]bool{}
+	canonicalAllowed := map[string]bool{}
 	needsModels := false
 	for _, c := range all {
 		if c.Model != "" {
@@ -195,6 +196,7 @@ func VisibleRatioChanges(event RatioNotification, user User, groups map[string]s
 			for _, g := range p.EnableGroup {
 				if _, ok := groups[g]; ok || (g == "all" && len(groups) > 0) {
 					allowed[p.ModelName] = true
+					canonicalAllowed[ratio_setting.FormatMatchingModelName(p.ModelName)] = true
 					break
 				}
 			}
@@ -215,8 +217,18 @@ func VisibleRatioChanges(event RatioNotification, user User, groups map[string]s
 				}
 			}
 		}
-		if c.Model != "" && !allowed[c.Model] {
-			continue
+		if c.Model != "" {
+			matches := allowed[c.Model]
+			// Match the corresponding pricing getter, never arbitrary glob syntax.
+			// Normalize only visible catalog names, not the configuration key: a
+			// noncanonical concrete key is not used by GetModelRatio/GetModelPrice.
+			switch c.Option {
+			case "ModelRatio", "ModelPrice", "CompletionRatio", "AudioRatio", "AudioCompletionRatio":
+				matches = canonicalAllowed[c.Model]
+			}
+			if !matches {
+				continue
+			}
 		}
 		visible = append(visible, c)
 	}

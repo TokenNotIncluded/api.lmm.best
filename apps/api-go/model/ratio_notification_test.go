@@ -104,3 +104,35 @@ func TestRatioNotificationFanoutIdempotentAndNoEmail(t *testing.T) {
 	require.NoError(t, DB.First(&event, "id = ?", event.ID).Error)
 	require.True(t, event.Expanded)
 }
+
+func TestRatioNotificationMatchesCanonicalThinkingPriceWithoutBroadGlobs(t *testing.T) {
+	preservePricingTestState(t)
+	const concrete = "gemini-2.5-pro-thinking-128"
+	const canonical = "gemini-2.5-pro-thinking-*"
+	previous := ratio_setting.ModelRatio2JSONString()
+	t.Cleanup(func() { require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(previous)) })
+	require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(`{"gemini-2.5-pro-thinking-*":2}`))
+	ratio, found, key := ratio_setting.GetModelRatio(concrete)
+	require.True(t, found)
+	require.Equal(t, 2.0, ratio)
+	require.Equal(t, canonical, key)
+	pricingCache.Store(&pricingSnapshot{pricing: []Pricing{
+		{ModelName: concrete, EnableGroup: []string{"default"}},
+		{ModelName: "gemini-2.5-flash-thinking-128", EnableGroup: []string{"private"}},
+	}, generation: pricingInvalidation.Load(), refreshedAt: time.Now()})
+	changes := []RatioChange{
+		{Option: "ModelRatio", Model: canonical, Old: 1.0, New: 2.0},
+		{Option: "ModelPrice", Model: canonical, Old: 1.0, New: 2.0},
+		{Option: "ModelRatio", Model: "gemini-2.5-flash-thinking-*"},
+		{Option: "ModelRatio", Model: "gemini-*"},
+		{Option: "ModelRatio", Model: concrete},
+		{Option: "CacheRatio", Model: canonical},
+		{Option: "ImageRatio", Model: canonical},
+		{Option: "CacheRatio", Model: concrete, Old: 1.0, New: 2.0},
+	}
+	raw, err := json.Marshal(changes)
+	require.NoError(t, err)
+	visible, err := VisibleRatioChanges(RatioNotification{Changes: string(raw)}, User{Group: "default", Role: common.RoleAdminUser, Status: common.UserStatusEnabled}, map[string]string{"default": ""})
+	require.NoError(t, err)
+	require.Equal(t, []RatioChange{changes[0], changes[1], changes[7]}, visible)
+}
