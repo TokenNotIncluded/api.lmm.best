@@ -45,6 +45,35 @@ for (const key of [
   })
 }
 
+const matchMediaStub = () => ({
+  matches: false,
+  media: '',
+  addListener() {},
+  removeListener() {},
+  addEventListener() {},
+  removeEventListener() {},
+  dispatchEvent() {
+    return false
+  },
+})
+Object.defineProperty(domWindow, 'matchMedia', {
+  configurable: true,
+  value: matchMediaStub,
+})
+Object.defineProperty(globalThis, 'matchMedia', {
+  configurable: true,
+  value: matchMediaStub,
+})
+Object.defineProperty(globalThis, 'customElements', {
+  configurable: true,
+  value: {
+    get() {
+      return undefined
+    },
+    define() {},
+  },
+})
+
 const { act } = await import('react')
 const { createRoot } = await import('react-dom/client')
 const { QueryClient, QueryClientProvider } =
@@ -77,7 +106,6 @@ await i18n.use(initReactI18next).init({
   lng: 'en',
   resources: { en: { translation: {} } },
 })
-
 const user: AuthUser = {
   id: 7,
   username: 'new-user',

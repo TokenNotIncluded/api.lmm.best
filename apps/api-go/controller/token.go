@@ -339,10 +339,24 @@ func AddToken(c *gin.Context) {
 		if !setTokenAutoGroups(c, &token, request.AutoGroups.Groups) {
 			return
 		}
-	} else {
+	} else if strings.TrimSpace(token.Group) != "" {
+		userGroup, groupErr := getTokenRequestUserGroup(c)
+		if groupErr != nil {
+			common.ApiError(c, groupErr)
+			return
+		}
+		if !service.IsUserSelectableGroup(userGroup, token.Group) {
+			common.ApiError(c, fmt.Errorf("the selected group is not available to this account"))
+			return
+		}
 		if !requireGroupWarningConfirmation(c, token.Group, request.GroupWarningConfirmations) {
 			return
 		}
+		token.CrossGroupRetry = false
+		_ = token.SetAutoGroups(nil)
+	} else {
+		// An empty group keeps the existing API-key behavior: inherit the
+		// account's group at request time. It is not an explicit group choice.
 		token.CrossGroupRetry = false
 		_ = token.SetAutoGroups(nil)
 	}
@@ -373,10 +387,7 @@ func AddToken(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "",
-	})
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "", "data": gin.H{"id": cleanToken.Id, "name": cleanToken.Name, "group": cleanToken.Group}})
 }
 
 func DeleteToken(c *gin.Context) {

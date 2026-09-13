@@ -137,6 +137,8 @@ const CONTENT_SECTIONS = [
           AssistantCacheTTLMinutes: settings.AssistantCacheTTLMinutes,
           AssistantPersona: settings.AssistantPersona,
           AssistantSystemPrompt: settings.AssistantSystemPrompt,
+          AssistantPreConversationPresets:
+            settings.AssistantPreConversationPresets,
           AssistantSearchProvider: settings.AssistantSearchProvider,
           AssistantSearchURL: settings.AssistantSearchURL,
           AssistantSearchAPIKey: settings.AssistantSearchAPIKey,

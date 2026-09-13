@@ -30,6 +30,7 @@
   "scripts": {
     "test": "node --experimental-strip-types --test test/*.test.ts",
     "typecheck": "tsgo --noEmit",
-    "pack:check": "npm pack --dry-run --ignore-scripts"
+    "pack:check": "npm pack --dry-run --ignore-scripts",
+    "test:pi": "node scripts/test-pi.mjs"
   }
 }

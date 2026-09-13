@@ -1,24 +1,19 @@
 import type { Api, Model } from '@earendil-works/pi-ai';
-import { OPENAI_MODELS } from '@earendil-works/pi-ai/providers/openai.models';
-import { ANTHROPIC_MODELS } from '@earendil-works/pi-ai/providers/anthropic.models';
-import { DEEPSEEK_MODELS } from '@earendil-works/pi-ai/providers/deepseek.models';
-import { XAI_MODELS } from '@earendil-works/pi-ai/providers/xai.models';
-import { MOONSHOTAI_MODELS } from '@earendil-works/pi-ai/providers/moonshotai.models';
-import { MINIMAX_MODELS } from '@earendil-works/pi-ai/providers/minimax.models';
+import { getBuiltinModels } from '@earendil-works/pi-ai/providers/all';
 import type { CapabilityResolver, VerifiedCapabilities } from './catalog.ts';
 import { SUPPORTED_APIS, type LmmApi } from './protocol.ts';
 
-const sources: readonly [string, Readonly<Record<string, Model<Api>>>][] = [
-  ['openai', OPENAI_MODELS], ['anthropic', ANTHROPIC_MODELS],
-  ['deepseek', DEEPSEEK_MODELS], ['xai', XAI_MODELS],
-  ['moonshotai', MOONSHOTAI_MODELS], ['minimax', MINIMAX_MODELS],
-];
+const sources: readonly [string, ReadonlyMap<string, Model<Api>>][] = (
+  ['openai', 'anthropic', 'deepseek', 'xai', 'moonshotai', 'minimax'] as const
+).map((provider) => [
+  provider, new Map(getBuiltinModels(provider).map((model) => [model.id, model])),
+]);
 
 /** Exact vendor catalog matches only. LMM account pricing always comes from its server. */
 export const resolveKnownCapabilities: CapabilityResolver = (entry) => {
   const candidates: VerifiedCapabilities[] = [];
   for (const [provider, models] of sources) {
-    const model = models[entry.upstream_model];
+    const model = models.get(entry.upstream_model);
     if (!model || !SUPPORTED_APIS.includes(model.api as LmmApi) || !entry.apis.includes(model.api as LmmApi)) continue;
     const compat = structuredClone(model.compat ?? {});
     // A vendor fallback may use a different model and price not authorized by this catalog entry.

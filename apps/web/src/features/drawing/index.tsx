@@ -34,6 +34,14 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { Button, buttonVariants } from '@/components/ui/button'
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import {
   Drawer,
   DrawerContent,
   DrawerHeader,
@@ -53,11 +61,11 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Textarea } from '@/components/ui/textarea'
 import { api } from '@/lib/api'
 import { copyToClipboard } from '@/lib/copy-to-clipboard'
+import { formatQuota, parseQuotaFromDollars } from '@/lib/format'
 import { useAuthStore } from '@/stores/auth-store'
 import { useSystemConfigStore } from '@/stores/system-config-store'
 
 import { getAssistantStatus, type DrawingWebAccess } from '../assistant/api'
-import { rotateMcpToken } from '../open-source-bounties/api'
 import { getPricing } from '../pricing/api'
 import type { PricingModel } from '../pricing/types'
 import { DrawingErrorBoundary } from './drawing-error-boundary'
@@ -103,6 +111,17 @@ const maxReferenceImages = 8
 const maxReferenceImageBytes = 10 * 1024 * 1024
 const supportedReferenceImageTypes = ['image/jpeg', 'image/png', 'image/webp']
 const chineseImageOrdinals = ['一', '二', '三', '四', '五', '六', '七', '八']
+
+type DrawingMcpKey = {
+  id: number
+  name: string
+  group: string
+  status: number
+  expired_time: number
+  remain_quota: number
+  used_quota: number
+  unlimited_quota: boolean
+}
 
 function isImageModel(model: PricingModel): boolean {
   return model.supported_endpoint_types?.includes('image-generation') === true
@@ -218,8 +237,18 @@ function DrawingWorkbench({ userId }: { userId: number }) {
   )
 
   const [drawingMcpToken, setDrawingMcpToken] = useState('')
+  const [drawingMcpApiKeyId, setDrawingMcpApiKeyId] = useState<number | null>(
+    null
+  )
   const [drawingMcpPending, setDrawingMcpPending] = useState(false)
   const [drawingMcpOpen, setDrawingMcpOpen] = useState(false)
+  const [drawingMcpCreateOpen, setDrawingMcpCreateOpen] = useState(false)
+  const [drawingMcpCreateName, setDrawingMcpCreateName] =
+    useState('drawing-mcp')
+  const [drawingMcpCreateGroup, setDrawingMcpCreateGroup] = useState('image-2')
+  const [drawingMcpCreateQuota, setDrawingMcpCreateQuota] = useState('')
+  const [drawingMcpWarningConfirmations, setDrawingMcpWarningConfirmations] =
+    useState(0)
   const referenceInputRef = useRef<HTMLInputElement>(null)
   const previewUrlsRef = useRef(new Set<string>())
 
@@ -355,7 +384,7 @@ function DrawingWorkbench({ userId }: { userId: number }) {
   }
   const pricingQuery = useQuery({
     queryKey: ['drawing-pricing'],
-    queryFn: getPricing,
+    queryFn: ({ signal }) => getPricing(signal),
     staleTime: 5 * 60_000,
     retry: false,
   })
@@ -364,7 +393,19 @@ function DrawingWorkbench({ userId }: { userId: number }) {
     queryFn: async () => {
       const response = await api.get<{
         success: boolean
-        data?: Record<string, { desc: string; ratio: number | string }>
+        data?: Record<
+          string,
+          {
+            desc: string
+            ratio: number | string
+            warning?: {
+              enabled: boolean
+              message: string
+              mode: 'modal' | 'banner' | 'inline'
+              confirmations: number
+            }
+          }
+        >
         message?: string
       }>('/api/user/self/groups')
       return response.data
@@ -372,6 +413,54 @@ function DrawingWorkbench({ userId }: { userId: number }) {
     staleTime: 60_000,
     retry: false,
   })
+  const drawingMcpKeysQuery = useQuery({
+    queryKey: ['drawing-mcp-keys', userId],
+    queryFn: async () => {
+      const response = await api.get<{
+        success: boolean
+        data?: { keys?: DrawingMcpKey[] }
+      }>('/api/drawing/mcp-keys', {
+        skipBusinessError: true,
+        skipErrorHandler: true,
+      })
+      if (!response.data.success) throw new Error('Unable to load API keys')
+      return response.data.data?.keys ?? []
+    },
+    enabled: drawingMcpOpen && accessQuery.isSuccess,
+    staleTime: 30_000,
+    retry: false,
+  })
+  const drawingMcpTokenQuery = useQuery({
+    queryKey: ['drawing-mcp-token', userId],
+    queryFn: async () => {
+      const response = await api.get<{
+        success: boolean
+        data?: { status?: { configured: boolean; api_key_id?: number } }
+      }>('/api/drawing/mcp-token', {
+        skipBusinessError: true,
+        skipErrorHandler: true,
+      })
+      if (!response.data.success) throw new Error('Unable to load MCP token')
+      return response.data.data?.status ?? { configured: false }
+    },
+    enabled: drawingMcpOpen && accessQuery.isSuccess,
+    staleTime: 30_000,
+    retry: false,
+  })
+  useEffect(() => {
+    const configured = drawingMcpTokenQuery.data?.api_key_id
+    if (
+      drawingMcpApiKeyId === null &&
+      configured &&
+      drawingMcpKeysQuery.data?.some((key) => key.id === configured)
+    ) {
+      setDrawingMcpApiKeyId(configured)
+    }
+  }, [
+    drawingMcpApiKeyId,
+    drawingMcpKeysQuery.data,
+    drawingMcpTokenQuery.data?.api_key_id,
+  ])
 
   const imageModels = useMemo(
     () =>
@@ -389,6 +478,69 @@ function DrawingWorkbench({ userId }: { userId: number }) {
       )
       .sort((left, right) => left.localeCompare(right))
   }, [groupsQuery.data?.data, imageModels, pricingQuery.data?.usable_group])
+  useEffect(() => {
+    if (groups.length === 0 || groups.includes(drawingMcpCreateGroup)) return
+    setDrawingMcpCreateGroup(
+      groups.includes('image-2') ? 'image-2' : (groups[0] ?? '')
+    )
+  }, [drawingMcpCreateGroup, groups])
+  const createDrawingMcpKey = async () => {
+    if (drawingMcpPending) return
+    const name = drawingMcpCreateName.trim()
+    const createGroup = drawingMcpCreateGroup.trim()
+    const quotaText = drawingMcpCreateQuota.trim()
+    if (!name || !groups.includes(createGroup)) {
+      toast.error(t('Select a valid drawing group and enter a key name.'))
+      return
+    }
+    const warning = groupsQuery.data?.data?.[createGroup]?.warning
+    const requiredConfirmations = warning?.enabled
+      ? Math.max(1, warning.confirmations || 1)
+      : 0
+    if (drawingMcpWarningConfirmations < requiredConfirmations) {
+      setDrawingMcpWarningConfirmations((count) => count + 1)
+      return
+    }
+    const displayQuota = quotaText ? Number(quotaText) : 0
+    if (quotaText && (!Number.isFinite(displayQuota) || displayQuota < 0)) {
+      toast.error(t('Quota must be a non-negative decimal number.'))
+      return
+    }
+    const remainQuota = quotaText ? parseQuotaFromDollars(displayQuota) : 0
+    setDrawingMcpPending(true)
+    try {
+      const response = await api.post<{
+        success: boolean
+        data?: { id?: number; name?: string; group?: string }
+      }>('/api/token/', {
+        name,
+        group: createGroup,
+        remain_quota: remainQuota,
+        unlimited_quota: !quotaText,
+        expired_time: -1,
+        model_limits_enabled: false,
+        model_limits: '',
+        group_warning_confirmations: drawingMcpWarningConfirmations,
+        allow_ips: '',
+        auto_groups: [],
+        cross_group_retry: false,
+      })
+      if (!response.data.success) throw new Error('key creation failed')
+      const createdId = response.data.data?.id
+      if (!createdId) throw new Error('created key id was not returned')
+      const refreshed = await drawingMcpKeysQuery.refetch()
+      const created = (refreshed.data ?? []).find((key) => key.id === createdId)
+      if (!created) throw new Error('created key was not returned')
+      if (!isCurrentUser()) return
+      setDrawingMcpApiKeyId(created.id)
+      setDrawingMcpCreateOpen(false)
+      toast.success(t('API key created and selected for MCP billing.'))
+    } catch {
+      toast.error(t('Unable to create and select the API key.'))
+    } finally {
+      if (isCurrentUser()) setDrawingMcpPending(false)
+    }
+  }
   const selectedGroup = groups.includes(group)
     ? group
     : groups.includes('image-2')
@@ -776,6 +928,8 @@ function DrawingWorkbench({ userId }: { userId: number }) {
       ) {
         throw new Error('Unable to prepare drawing key')
       }
+      setDrawingMcpApiKeyId(response.data.data.id)
+      void drawingMcpKeysQuery.refetch()
       setKeyReady(true)
     } catch (cause) {
       if (isCurrentUser()) {
@@ -803,9 +957,30 @@ function DrawingWorkbench({ userId }: { userId: number }) {
           )
         )
         if (!confirmed) return
-        const connection = await rotateMcpToken()
+        if (!drawingMcpApiKeyId) {
+          throw new Error('Select an API key before generating the MCP config')
+        }
+        const response = await api.post<{
+          success: boolean
+          data?: { token?: string }
+        }>(
+          '/api/drawing/mcp-token',
+          { api_key_id: drawingMcpApiKeyId },
+          {
+            skipBusinessError: true,
+            skipErrorHandler: true,
+          }
+        )
+        if (!response.data.success || !response.data.data?.token) {
+          throw new Error('Unable to create the drawing MCP token')
+        }
+        const connection = response.data.data
         if (!isCurrentUser()) return
-        token = connection.token
+        const nextToken = connection.token
+        if (!nextToken) {
+          throw new Error('Unable to create the drawing MCP token')
+        }
+        token = nextToken
         setDrawingMcpToken(token)
       }
       const copied = await copyToClipboard(
@@ -821,6 +996,76 @@ function DrawingWorkbench({ userId }: { userId: number }) {
       if (isCurrentUser()) {
         toast.error(t('Unable to create the drawing MCP configuration.'))
       }
+    } finally {
+      if (isCurrentUser()) setDrawingMcpPending(false)
+    }
+  }
+
+  const revokeDrawingMcpToken = async () => {
+    if (drawingMcpPending || !isCurrentUser()) return
+    if (
+      !window.confirm(
+        t(
+          'Revoke this drawing MCP token? Existing MCP configurations will stop working.'
+        )
+      )
+    ) {
+      return
+    }
+    setDrawingMcpPending(true)
+    try {
+      const response = await api.delete<{ success: boolean }>(
+        '/api/drawing/mcp-token',
+        {
+          skipBusinessError: true,
+          skipErrorHandler: true,
+        }
+      )
+      if (!response.data.success) {
+        throw new Error('Unable to revoke drawing MCP token')
+      }
+      setDrawingMcpToken('')
+      await drawingMcpTokenQuery.refetch()
+      toast.success(t('Drawing MCP token revoked.'))
+    } catch {
+      toast.error(t('Unable to revoke the drawing MCP token.'))
+    } finally {
+      if (isCurrentUser()) setDrawingMcpPending(false)
+    }
+  }
+
+  const rotateDrawingMcpToken = async () => {
+    if (!drawingMcpApiKeyId || drawingMcpPending) return
+    if (
+      !window.confirm(
+        t(
+          'Rotate the drawing MCP token? Existing MCP configurations will stop working.'
+        )
+      )
+    ) {
+      return
+    }
+    setDrawingMcpPending(true)
+    try {
+      const response = await api.post<{
+        success: boolean
+        data?: { token?: string }
+      }>(
+        '/api/drawing/mcp-token',
+        { api_key_id: drawingMcpApiKeyId },
+        { skipBusinessError: true, skipErrorHandler: true }
+      )
+      const token = response.data.data?.token
+      if (!response.data.success || !token) throw new Error('rotate failed')
+      setDrawingMcpToken(token)
+      const copied = await copyToClipboard(
+        buildDrawingMcpConfig(drawingMcpEndpoint, token)
+      )
+      if (copied) toast.success(t('Drawing MCP configuration copied.'))
+      else toast.error(t('Unable to copy the drawing MCP configuration.'))
+      await drawingMcpTokenQuery.refetch()
+    } catch {
+      toast.error(t('Unable to rotate the drawing MCP token.'))
     } finally {
       if (isCurrentUser()) setDrawingMcpPending(false)
     }
@@ -1646,12 +1891,71 @@ function DrawingWorkbench({ userId }: { userId: number }) {
                     </p>
                   </div>
                 </div>
+                <div className='grid min-w-full gap-2 sm:min-w-80'>
+                  <Label htmlFor='drawing-mcp-api-key'>
+                    {t('API key for MCP billing')}
+                  </Label>
+                  <NativeSelect
+                    id='drawing-mcp-api-key'
+                    value={drawingMcpApiKeyId ?? ''}
+                    onChange={(event) => {
+                      const value = Number(event.target.value)
+                      setDrawingMcpApiKeyId(
+                        Number.isSafeInteger(value) && value > 0 ? value : null
+                      )
+                      setDrawingMcpToken('')
+                    }}
+                  >
+                    <NativeSelectOption value=''>
+                      {t('Select an API key before generating MCP config')}
+                    </NativeSelectOption>
+                    {(drawingMcpKeysQuery.data ?? []).map((key) => (
+                      <NativeSelectOption key={key.id} value={key.id}>
+                        {key.name} · {key.group} ·{' '}
+                        {key.unlimited_quota
+                          ? t('Unlimited')
+                          : `${formatQuota(key.remain_quota)} (平台) ${t('remaining')}`}
+                      </NativeSelectOption>
+                    ))}
+                  </NativeSelect>
+                  {drawingMcpApiKeyId
+                    ? (() => {
+                        const key = drawingMcpKeysQuery.data?.find(
+                          (item) => item.id === drawingMcpApiKeyId
+                        )
+                        return key ? (
+                          <p className='text-muted-foreground text-xs'>
+                            {t(
+                              'MCP uses this key; its total usage includes other clients.'
+                            )}{' '}
+                            {key.group} ·{' '}
+                            {key.status === 1 ? t('Enabled') : t('Unavailable')}{' '}
+                            ·{' '}
+                            {key.unlimited_quota
+                              ? t('Unlimited')
+                              : `${formatQuota(key.remain_quota)} (平台) ${t('remaining')}`}{' '}
+                            · {formatQuota(key.used_quota)} (平台) {t('used')}
+                          </p>
+                        ) : null
+                      })()
+                    : null}
+                  <Button
+                    type='button'
+                    size='sm'
+                    variant='ghost'
+                    className='w-fit px-0'
+                    disabled={keyPending}
+                    onClick={() => setDrawingMcpCreateOpen(true)}
+                  >
+                    {t('Create a new API key for MCP')}
+                  </Button>
+                </div>
                 <Button
                   type='button'
                   size='sm'
                   variant='outline'
                   onClick={() => void copyDrawingMcpConfig()}
-                  disabled={drawingMcpPending}
+                  disabled={drawingMcpPending || !drawingMcpApiKeyId}
                 >
                   <HugeiconsIcon
                     icon={drawingMcpPending ? Loading03Icon : Copy01Icon}
@@ -1666,6 +1970,27 @@ function DrawingWorkbench({ userId }: { userId: number }) {
                       ? t('Copy drawing MCP config')
                       : t('Generate token and copy config')}
                 </Button>
+                {drawingMcpTokenQuery.data?.configured ? (
+                  <div className='flex gap-2'>
+                    <Button
+                      type='button'
+                      size='sm'
+                      variant='ghost'
+                      disabled={drawingMcpPending}
+                      onClick={() => void rotateDrawingMcpToken()}
+                    >
+                      {t('Rotate MCP token')}
+                    </Button>
+                    <Button
+                      type='button'
+                      size='sm'
+                      variant='ghost'
+                      onClick={() => void revokeDrawingMcpToken()}
+                    >
+                      {t('Revoke MCP token')}
+                    </Button>
+                  </div>
+                ) : null}
               </div>
               <div className='grid gap-2'>
                 <Label htmlFor='drawing-mcp-endpoint'>
@@ -1701,6 +2026,101 @@ function DrawingWorkbench({ userId }: { userId: number }) {
           ) : null}
         </div>
       </SectionPageLayout.Content>
+      <Dialog
+        open={drawingMcpCreateOpen}
+        onOpenChange={setDrawingMcpCreateOpen}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t('Create an API key for drawing MCP')}</DialogTitle>
+            <DialogDescription>
+              {t(
+                'Create a new key and bind MCP billing to it. The key secret stays in API key management.'
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <div className='grid gap-3'>
+            <Label htmlFor='drawing-mcp-create-name'>{t('Key name')}</Label>
+            <Input
+              id='drawing-mcp-create-name'
+              value={drawingMcpCreateName}
+              onChange={(event) => setDrawingMcpCreateName(event.target.value)}
+            />
+            <Label htmlFor='drawing-mcp-create-group'>
+              {t('Routing group')}
+            </Label>
+            <NativeSelect
+              id='drawing-mcp-create-group'
+              value={drawingMcpCreateGroup}
+              onChange={(event) => {
+                setDrawingMcpCreateGroup(event.target.value)
+                setDrawingMcpWarningConfirmations(0)
+              }}
+            >
+              {groups.map((name) => (
+                <NativeSelectOption key={name} value={name}>
+                  {name}
+                </NativeSelectOption>
+              ))}
+            </NativeSelect>
+            <Label htmlFor='drawing-mcp-create-quota'>
+              {t('Platform credit')} ({t('Optional').toLowerCase()})
+            </Label>
+            <Input
+              id='drawing-mcp-create-quota'
+              inputMode='decimal'
+              value={drawingMcpCreateQuota}
+              onChange={(event) => setDrawingMcpCreateQuota(event.target.value)}
+              placeholder={t('Leave empty for unlimited')}
+            />
+            {groupsQuery.data?.data?.[drawingMcpCreateGroup]?.warning
+              ?.enabled ? (
+              <Alert variant='destructive'>
+                <AlertTitle>{t('Group warning')}</AlertTitle>
+                <AlertDescription>
+                  {
+                    groupsQuery.data.data[drawingMcpCreateGroup].warning
+                      ?.message
+                  }
+                  <span className='mt-2 block'>
+                    {t('Confirmation {{current}} of {{total}}', {
+                      current: Math.min(
+                        drawingMcpWarningConfirmations + 1,
+                        groupsQuery.data.data[drawingMcpCreateGroup].warning
+                          ?.confirmations ?? 1
+                      ),
+                      total:
+                        groupsQuery.data.data[drawingMcpCreateGroup].warning
+                          ?.confirmations ?? 1,
+                    })}
+                  </span>
+                </AlertDescription>
+              </Alert>
+            ) : null}
+          </div>
+          <DialogFooter>
+            <Button
+              type='button'
+              variant='outline'
+              onClick={() => setDrawingMcpCreateOpen(false)}
+            >
+              {t('Cancel')}
+            </Button>
+            <Button type='button' onClick={() => void createDrawingMcpKey()}>
+              {groupsQuery.data?.data?.[drawingMcpCreateGroup]?.warning
+                ?.enabled &&
+              drawingMcpWarningConfirmations <
+                Math.max(
+                  1,
+                  groupsQuery.data.data[drawingMcpCreateGroup].warning
+                    ?.confirmations ?? 1
+                )
+                ? t('I understand, continue')
+                : t('Create and select key')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </SectionPageLayout>
   )
 }

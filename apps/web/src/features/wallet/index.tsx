@@ -158,6 +158,7 @@ function WalletCheckout(props: WalletProps) {
   const [paymentFeedback, setPaymentFeedback] =
     useState<PaymentFeedback | null>(null)
   const paymentInputRevisionRef = useRef(0)
+  const quoteDebounceRef = useRef<number | null>(null)
   const confirmedQuoteRevisionRef = useRef<number | null>(null)
   const discountUrlValidationRef = useRef<
     (DiscountValidationContext & { code: string }) | null
@@ -194,6 +195,13 @@ function WalletCheckout(props: WalletProps) {
     setDiscountApplying(false)
     return ++paymentInputRevisionRef.current
   }, [invalidateQuote])
+  useEffect(() => {
+    return () => {
+      if (quoteDebounceRef.current !== null) {
+        window.clearTimeout(quoteDebounceRef.current)
+      }
+    }
+  }, [])
   const {
     affiliateLink,
     loading: affiliateLoading,
@@ -285,17 +293,25 @@ function WalletCheckout(props: WalletProps) {
   const topupAmountInitializedRef = useRef(false)
   useEffect(() => {
     if (topupInfo && !topupAmountInitializedRef.current) {
+      if (enteredTopupAmount !== null) return
       const defaultPaymentType = topupAvailability.defaultQuotedType
       if (!defaultPaymentType) return
 
       topupAmountInitializedRef.current = true
       const minTopup = getMinTopupAmount(topupInfo)
+      const initialAmount = Math.max(10, minTopup)
+      setTopupAmount(initialAmount)
       // Calculate initial payment amount with default payment type
-      calculatePaymentAmount(minTopup, defaultPaymentType, appliedDiscountCode)
+      calculatePaymentAmount(
+        initialAmount,
+        defaultPaymentType,
+        appliedDiscountCode
+      )
     }
   }, [
     topupInfo,
     topupAvailability,
+    enteredTopupAmount,
     calculatePaymentAmount,
     appliedDiscountCode,
   ])
@@ -450,7 +466,11 @@ function WalletCheckout(props: WalletProps) {
     }
   }, [initialDiscountCode])
 
-  const updateTopupAmount = (amount: number, preset: number | null) => {
+  const updateTopupAmount = (
+    amount: number,
+    preset: number | null,
+    options?: { deferQuote?: boolean }
+  ) => {
     const revision = resetPendingPayment()
     const nextDiscount = discountAfterAmountChange(
       { code: appliedDiscountCode, percent: discountPercent },
@@ -474,13 +494,37 @@ function WalletCheckout(props: WalletProps) {
       const isFromUrl =
         discountCodeOrigin === 'url' &&
         Boolean(candidateDiscountCode || discountCodeFromUrl)
-      void applyDiscountCode(candidateCode, isFromUrl, {
-        amount,
-        paymentType,
-        revision,
-      })
+      if (quoteDebounceRef.current !== null) {
+        window.clearTimeout(quoteDebounceRef.current)
+      }
+      const quote = () =>
+        applyDiscountCode(candidateCode, isFromUrl, {
+          amount,
+          paymentType,
+          revision,
+        })
+      if (options?.deferQuote) {
+        quoteDebounceRef.current = window.setTimeout(() => {
+          quoteDebounceRef.current = null
+          void quote()
+        }, 220)
+      } else {
+        void quote()
+      }
     } else {
-      void calculatePaymentAmount(amount, paymentType, nextDiscount.code)
+      if (quoteDebounceRef.current !== null) {
+        window.clearTimeout(quoteDebounceRef.current)
+      }
+      const quote = () =>
+        calculatePaymentAmount(amount, paymentType, nextDiscount.code)
+      if (options?.deferQuote) {
+        quoteDebounceRef.current = window.setTimeout(() => {
+          quoteDebounceRef.current = null
+          void quote()
+        }, 220)
+      } else {
+        void quote()
+      }
     }
   }
 
@@ -488,8 +532,11 @@ function WalletCheckout(props: WalletProps) {
     updateTopupAmount(preset.value, preset.value)
   }
 
-  const handleTopupAmountChange = (amount: number) => {
-    updateTopupAmount(amount, null)
+  const handleTopupAmountChange = (
+    amount: number,
+    options?: { deferQuote?: boolean }
+  ) => {
+    updateTopupAmount(amount, null, options)
   }
 
   const calculateCheckoutAmount = (paymentType: string, revision: number) => {

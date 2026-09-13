@@ -3,9 +3,7 @@ import {
   type Api, type AssistantMessage, type AssistantMessageEvent, type Context, type Model,
   type ProviderHeaders, type ProviderStreamOptions, type ProviderStreams, type StreamOptions,
 } from '@earendil-works/pi-ai';
-import { anthropicMessagesApi } from '@earendil-works/pi-ai/api/anthropic-messages.lazy';
-import { openAICompletionsApi } from '@earendil-works/pi-ai/api/openai-completions.lazy';
-import { openAIResponsesApi } from '@earendil-works/pi-ai/api/openai-responses.lazy';
+import { anthropicMessagesApi, openAICompletionsApi, openAIResponsesApi } from '@earendil-works/pi-ai/compat';
 import type { Admission } from './catalog.ts';
 import type { LmmHttp } from './http.ts';
 import { PROVIDER_ID, LmmError, accessToken, object, requireValue, type LmmApi } from './protocol.ts';

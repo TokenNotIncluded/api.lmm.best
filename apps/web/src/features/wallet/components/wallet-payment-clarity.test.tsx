@@ -79,7 +79,7 @@ await i18n.use(initReactI18next).init({
   },
 })
 
-const { useEffect } = await import('react')
+const { useEffect, useState } = await import('react')
 const { RechargeFormCard } = await import('./recharge-form-card')
 const { Wallet } = await import('../index')
 const { useTopupInfo } = await import('../hooks/use-topup-info')
@@ -398,6 +398,65 @@ describe('wallet payment clarity', () => {
       false
     )
     assert.equal(text.includes('$'), false)
+    await unmount(rendered)
+  })
+
+  test('long press spinner accelerates and stops on pointer release', async () => {
+    await i18n.changeLanguage('en')
+    setUsdBillingCurrency()
+    const changes: number[] = []
+
+    function Harness() {
+      const [amount, setAmount] = useState(10)
+      return (
+        <RechargeFormCard
+          topupInfo={topupInfo}
+          presetAmounts={[{ value: 10 }]}
+          selectedPreset={null}
+          onSelectPreset={() => undefined}
+          topupAmount={amount}
+          onTopupAmountChange={(value) => {
+            changes.push(value)
+            setAmount(value)
+          }}
+          paymentAmount={10}
+          calculating={false}
+          onPaymentMethodSelect={() => undefined}
+          paymentLoading={null}
+          redemptionCode=''
+          onRedemptionCodeChange={() => undefined}
+          onRedeem={() => undefined}
+          redeeming={false}
+        />
+      )
+    }
+
+    const rendered = await render(<Harness />)
+    const increase = rendered.container.querySelector(
+      'button[aria-label="Increase platform credit"]'
+    )
+    assert.ok(increase)
+    const down = new Event('pointerdown', { bubbles: true })
+    Object.defineProperties(down, {
+      button: { value: 0 },
+      pointerId: { value: 1 },
+      pointerType: { value: 'mouse' },
+    })
+    await act(async () => increase.dispatchEvent(down))
+    assert.deepEqual(changes, [11])
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 520))
+    })
+    const heldChanges = changes.length
+    assert.ok(heldChanges >= 2, 'hold should produce repeated increments')
+
+    await act(async () => {
+      increase.dispatchEvent(new Event('pointerup', { bubbles: true }))
+    })
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 240))
+    })
+    assert.equal(changes.length, heldChanges, 'release must stop the hold')
     await unmount(rendered)
   })
 

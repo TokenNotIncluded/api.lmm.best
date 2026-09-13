@@ -70,6 +70,9 @@ const HOME_SETUP_PROMPTS = [
   },
 ] as const
 
+const PI_INSTALL_COMMAND =
+  'pi install git:github.com/TokenNotIncluded/pi-lmm-provider'
+
 function codeForTab(tab: CodeTab) {
   if (tab === 'Claude') {
     return `curl https://api.lmm.best/v1/messages \\
@@ -226,6 +229,7 @@ export function ForgeHome() {
   const [message, setMessage] = useState('')
   const [messageFocused, setMessageFocused] = useState(false)
   const [codeTab, setCodeTab] = useState<CodeTab>('Chat')
+  const [piCommandCopied, setPiCommandCopied] = useState(false)
   const assistantEnabled = status?.assistant?.enabled !== false
   const messageInvalid = getAssistantPromptValidation(message).invalid
   const presetLanguage = i18n.resolvedLanguage || i18n.language || 'en'
@@ -278,6 +282,16 @@ export function ForgeHome() {
     startAssistant(message)
   }
 
+  const copyPiCommand = async () => {
+    try {
+      await navigator.clipboard.writeText(PI_INSTALL_COMMAND)
+      setPiCommandCopied(true)
+      window.setTimeout(() => setPiCommandCopied(false), 1400)
+    } catch {
+      setPiCommandCopied(false)
+    }
+  }
+
   return (
     <ForgePublicShell>
       <main className='forge-home-page'>
@@ -285,8 +299,7 @@ export function ForgeHome() {
           <div className='forge-home-hero-content'>
             <div className='forge-home-intro'>
               <h1 id='forge-home-title'>
-                <span>{t('Keep your tools.')}</span>
-                <span>{t('Choose your AI.')}</span>
+                {t('Use Pi without manually creating an API key')}
               </h1>
               <p className='forge-home-hero-description'>
                 {t(
@@ -323,6 +336,43 @@ export function ForgeHome() {
                   'Developer access requires approval. Payment does not unlock access.'
                 )}
               </p>
+              <div className='mt-6 max-w-xl p-0'>
+                <h2 className='text-sm font-semibold'>
+                  {t('Use Pi without manually creating an API key')}
+                </h2>
+                <p className='text-muted-foreground mt-1 text-sm leading-6'>
+                  {t(
+                    'Install the LMM Pi plugin, sign in with OAuth, and choose a model in Pi. Access uses your account and normal model pricing.'
+                  )}
+                </p>
+                <div className='mt-3 flex max-w-full items-center gap-2'>
+                  <code className='bg-muted min-w-0 flex-1 overflow-x-auto px-2 py-1 text-xs'>
+                    {PI_INSTALL_COMMAND}
+                  </code>
+                  <Button
+                    type='button'
+                    variant='outline'
+                    size='sm'
+                    className='shrink-0'
+                    onClick={() => void copyPiCommand()}
+                    aria-label={t('Copy Pi install command')}
+                  >
+                    {piCommandCopied ? t('Copied') : t('Copy')}
+                  </Button>
+                </div>
+                <a href='/guide#pi-oauth' className='forge-home-text-link mt-3'>
+                  {t('Read the Pi OAuth setup steps')}
+                  <ArrowRight aria-hidden='true' />
+                </a>
+                <p className='text-muted-foreground mt-4 border-t border-current/10 pt-3 text-xs leading-5'>
+                  <strong className='text-foreground'>
+                    {t('WebMCP tools for compatible browsers')}
+                  </strong>{' '}
+                  {t(
+                    'Browser agents can read site information, model prices, and account status or open pages; the normal UI remains available when WebMCP is unsupported.'
+                  )}
+                </p>
+              </div>
             </div>
             <form
               className='forge-home-hero-assistant'

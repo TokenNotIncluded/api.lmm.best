@@ -39,6 +39,7 @@ export const assistantSettingsSchema = z
     AssistantCacheTTLMinutes: z.number().int().min(0).max(10080),
     AssistantPersona: z.string().max(2000),
     AssistantSystemPrompt: z.string().max(8000),
+    AssistantPreConversationPresets: z.string().max(48000),
     AssistantSearchProvider: z.enum(ASSISTANT_SEARCH_PROVIDERS),
     AssistantSearchURL: z.string().max(512),
     AssistantSearchAPIKey: z.string().max(512),

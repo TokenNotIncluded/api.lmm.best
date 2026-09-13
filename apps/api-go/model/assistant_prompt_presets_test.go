@@ -3,9 +3,28 @@ package model
 import (
 	"testing"
 
+	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestPromptPresetCustomOptionSurvivesLocalizationAndAttribution(t *testing.T) {
+	setupPromptPresetTestDB(t)
+	common.OptionMapRWMutex.Lock()
+	previous := common.OptionMap
+	common.OptionMap = map[string]string{"AssistantPreConversationPresets": `[{"id":"setup_1","label":"Custom setup","prompt":"Please configure my client with the safest settings."}]`}
+	common.OptionMapRWMutex.Unlock()
+	t.Cleanup(func() { common.OptionMapRWMutex.Lock(); common.OptionMap = previous; common.OptionMapRWMutex.Unlock() })
+	set, err := GetPromptPresets()
+	require.NoError(t, err)
+	require.Len(t, set.Presets, 1)
+	assert.Equal(t, "custom", set.Presets[0].Source)
+	localized := LocalizePromptPresets(set, "zh")
+	assert.Equal(t, "Custom setup", localized.Presets[0].Label)
+	ref, err := ResolvePromptPreset("setup_1", localized.Presets[0].Prompt)
+	require.NoError(t, err)
+	assert.Equal(t, "setup_1", ref.PresetId)
+}
 
 func setupPromptPresetTestDB(t *testing.T) {
 	t.Helper()

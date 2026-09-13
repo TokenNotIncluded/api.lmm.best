@@ -40,10 +40,11 @@ func TestListWaffoPancakeCatalogUsesRootProductQuery(t *testing.T) {
 		case strings.Contains(request.Query, "onetimeProducts(storeId: $storeId, filter: { status: { eq: \"active\" } })"):
 			productQuerySeen = true
 			require.Contains(t, request.Query, "subscriptionProducts(storeId: $storeId")
+			require.Contains(t, request.Query, "prices")
 			require.Contains(t, request.Query, "billingPeriod")
 			require.NotContains(t, request.Query, "storeId: { eq:")
 			require.Equal(t, "STO_AbCdEfGhIjKlMnOpQrStUv", request.Variables["storeId"])
-			_, err = w.Write([]byte(`{"data":{"onetimeProducts":[{"id":"PROD_AbCdEfGhIjKlMnOpQrStUv","name":"wallet","status":"active"},{"id":"PROD_Inactive0000000000000000","name":"old","status":"inactive"}],"subscriptionProducts":[{"id":"PROD_Subscription000000000001","name":"monthly","status":"active","billingPeriod":"monthly"},{"id":"PROD_SubscriptionInactive000002","name":"legacy","status":"inactive","billingPeriod":"monthly"}]}}`))
+			_, err = w.Write([]byte(`{"data":{"onetimeProducts":[{"id":"PROD_AbCdEfGhIjKlMnOpQrStUv","name":"wallet","status":"active","prices":{"USD":{"amount":"1.00"},"CNY":{"amount":"7.20"}}},{"id":"PROD_Inactive0000000000000000","name":"old","status":"inactive"}],"subscriptionProducts":[{"id":"PROD_Subscription000000000001","name":"monthly","status":"active","billingPeriod":"monthly"},{"id":"PROD_SubscriptionInactive000002","name":"legacy","status":"inactive","billingPeriod":"monthly"}]}}`))
 			require.NoError(t, err)
 		default:
 			http.Error(w, "unexpected GraphQL query", http.StatusBadRequest)
@@ -83,6 +84,12 @@ func TestListWaffoPancakeCatalogUsesRootProductQuery(t *testing.T) {
 		catalog,
 		"STO_AbCdEfGhIjKlMnOpQrStUv",
 		"PROD_AbCdEfGhIjKlMnOpQrStUv",
+	))
+	require.True(t, WaffoPancakeCatalogHasActiveOneTimeProductForCurrency(
+		catalog, "STO_AbCdEfGhIjKlMnOpQrStUv", "PROD_AbCdEfGhIjKlMnOpQrStUv", "cny",
+	))
+	require.False(t, WaffoPancakeCatalogHasActiveOneTimeProductForCurrency(
+		catalog, "STO_AbCdEfGhIjKlMnOpQrStUv", "PROD_AbCdEfGhIjKlMnOpQrStUv", "EUR",
 	))
 	require.False(t, WaffoPancakeCatalogHasActiveOneTimeProduct(
 		catalog,

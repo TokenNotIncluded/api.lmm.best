@@ -18,7 +18,14 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useQuery } from '@tanstack/react-query'
-import { FileText, Plus, RefreshCw, Trash2 } from 'lucide-react'
+import {
+  ArrowDown,
+  ArrowUp,
+  FileText,
+  Plus,
+  RefreshCw,
+  Trash2,
+} from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useForm, useWatch } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
@@ -74,6 +81,171 @@ type AssistantSkillFile = {
 }
 
 const EMPTY_ASSISTANT_MODEL_IDS: string[] = []
+
+type ConversationStarter = { id: string; label: string; prompt: string }
+
+const DEFAULT_CONVERSATION_STARTERS: ConversationStarter[] = [
+  {
+    id: 'getting_started',
+    label: 'Where should I start?',
+    prompt: 'Where should I start?',
+  },
+  {
+    id: 'new_user_gift',
+    label: 'How do I get the new-user gift?',
+    prompt: 'How do I get the new-user gift?',
+  },
+  {
+    id: 'weekly_discount',
+    label: 'Any top-up discounts this week?',
+    prompt: 'Any top-up discounts this week?',
+  },
+  {
+    id: 'ai_recommendation',
+    label: 'Help me write an L1 recommendation.',
+    prompt: 'Help me write an L1 recommendation.',
+  },
+]
+
+function parseConversationStarters(value: string): ConversationStarter[] {
+  if (!value.trim()) return DEFAULT_CONVERSATION_STARTERS
+  try {
+    const parsed = JSON.parse(value) as unknown
+    if (!Array.isArray(parsed)) return []
+    return parsed.filter((item): item is ConversationStarter => {
+      if (!item || typeof item !== 'object') return false
+      const candidate = item as Record<string, unknown>
+      return (
+        typeof candidate.id === 'string' &&
+        typeof candidate.label === 'string' &&
+        typeof candidate.prompt === 'string'
+      )
+    })
+  } catch {
+    return []
+  }
+}
+
+export function ConversationStartersEditor(props: {
+  value: string
+  disabled: boolean
+  onChange: (value: string) => void
+}) {
+  const { t } = useTranslation()
+  const items = parseConversationStarters(props.value)
+  const write = (next: ConversationStarter[]) =>
+    props.onChange(JSON.stringify(next))
+  const update = (index: number, patch: Partial<ConversationStarter>) =>
+    write(
+      items.map((item, itemIndex) =>
+        itemIndex === index ? { ...item, ...patch } : item
+      )
+    )
+  const remove = (index: number) =>
+    write(items.filter((_, itemIndex) => itemIndex !== index))
+  const move = (index: number, direction: -1 | 1) => {
+    const target = index + direction
+    if (target < 0 || target >= items.length) return
+    const next = [...items]
+    ;[next[index], next[target]] = [next[target], next[index]]
+    write(next)
+  }
+  return (
+    <div
+      className='space-y-3'
+      data-testid='assistant-conversation-starters-editor'
+    >
+      <div className='text-muted-foreground text-sm'>
+        {t(
+          'These starter buttons use exactly the custom text you save. They are not translated automatically.'
+        )}
+      </div>
+      {items.map((item, index) => (
+        <div key={item.id} className='space-y-2 rounded-md border p-3'>
+          <div className='flex items-center justify-between gap-2'>
+            <span className='text-muted-foreground text-xs'>
+              {t('Starter {{number}}', { number: index + 1 })}
+            </span>
+            <div className='flex gap-1'>
+              <Button
+                type='button'
+                variant='ghost'
+                size='icon'
+                aria-label={t('Move starter up')}
+                onClick={() => move(index, -1)}
+                disabled={props.disabled || index === 0}
+              >
+                <ArrowUp className='size-4' />
+              </Button>
+              <Button
+                type='button'
+                variant='ghost'
+                size='icon'
+                aria-label={t('Move starter down')}
+                onClick={() => move(index, 1)}
+                disabled={props.disabled || index === items.length - 1}
+              >
+                <ArrowDown className='size-4' />
+              </Button>
+              <Button
+                type='button'
+                variant='ghost'
+                size='icon'
+                aria-label={t('Delete starter')}
+                onClick={() => remove(index)}
+                disabled={props.disabled}
+              >
+                <Trash2 className='size-4' />
+              </Button>
+            </div>
+          </div>
+          <Input
+            aria-label={t('Button label')}
+            value={item.label}
+            maxLength={80}
+            onChange={(event) => update(index, { label: event.target.value })}
+            disabled={props.disabled}
+          />
+          <Textarea
+            aria-label={t('Prompt text')}
+            value={item.prompt}
+            maxLength={2000}
+            rows={2}
+            onChange={(event) => update(index, { prompt: event.target.value })}
+            disabled={props.disabled}
+          />
+        </div>
+      ))}
+      <div className='flex flex-wrap gap-2'>
+        <Button
+          type='button'
+          variant='outline'
+          size='sm'
+          onClick={() =>
+            write([
+              ...items,
+              { id: `custom_${Date.now()}`, label: '', prompt: '' },
+            ])
+          }
+          disabled={props.disabled || items.length >= 20}
+        >
+          <Plus className='mr-1 size-4' />
+          {t('Add starter')}
+        </Button>
+        <Button
+          type='button'
+          variant='ghost'
+          size='sm'
+          onClick={() => props.onChange('')}
+          disabled={props.disabled}
+        >
+          {t('Restore defaults')}
+        </Button>
+      </div>
+    </div>
+  )
+}
+
 async function getEnabledAssistantModelIDs(group: string) {
   const response = await api.get<{ data?: unknown }>('/api/assistant/models', {
     params: { group },
@@ -774,6 +946,29 @@ export function AssistantSettingsSection(props: {
                   <FormDescription>
                     {t(
                       'These instructions are appended to the assistant context.'
+                    )}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name='AssistantPreConversationPresets'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t('Conversation starter prompts')}</FormLabel>
+                  <FormControl>
+                    <ConversationStartersEditor
+                      value={field.value}
+                      disabled={!enabled}
+                      onChange={field.onChange}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t(
+                      'Optional JSON list of starter buttons. Leave empty for reviewed defaults; use [] to hide them.'
                     )}
                   </FormDescription>
                   <FormMessage />

@@ -41,6 +41,8 @@ export type TopupInfoResponse = ApiResponse<TopupInfo>
 export type RedemptionResponse = ApiResponse<number>
 export type AmountResponse = ApiResponse<string> & {
   settlement_currency?: string
+  original_settlement_amount?: string
+  savings_settlement_amount?: string
 }
 export type DiscountCodeResponse = ApiResponse<{
   code: string

@@ -24,7 +24,7 @@ import {
   WalletCardsIcon,
 } from '@hugeicons/core-free-icons'
 import { HugeiconsIcon } from '@hugeicons/react'
-import { useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -112,7 +112,10 @@ interface RechargeFormCardProps {
   selectedPreset: number | null
   onSelectPreset: (preset: PresetAmount) => void
   topupAmount: number
-  onTopupAmountChange: (amount: number) => void
+  onTopupAmountChange: (
+    amount: number,
+    options?: { deferQuote?: boolean }
+  ) => void
   paymentAmount: number
   settlementQuote?: SettlementQuote | null
   selectedPaymentMethod?: PaymentMethod
@@ -201,17 +204,25 @@ export function RechargeFormCard({
       : topupAmount.toString()
   const [localWaffoPancakeRegionOverride, setLocalWaffoPancakeRegion] =
     useState<WaffoPancakeCheckoutRegion | null>(null)
+  const holdRef = useRef<{
+    delta: number
+    startedAt: number
+    timeoutId: number | null
+  } | null>(null)
 
-  const handleAmountChange = (value: string) => {
-    const parsedValue = Number.parseInt(value, 10)
-    if (Number.isFinite(parsedValue) && parsedValue >= 0) {
-      setAmountInput({ sourceAmount: parsedValue, value })
-      onTopupAmountChange(parsedValue)
-    } else if (value === '') {
-      setAmountInput({ sourceAmount: 0, value })
-      onTopupAmountChange(0)
-    }
-  }
+  const handleAmountChange = useCallback(
+    (value: string) => {
+      const parsedValue = Number.parseFloat(value)
+      if (Number.isFinite(parsedValue) && parsedValue >= 0) {
+        setAmountInput({ sourceAmount: parsedValue, value })
+        onTopupAmountChange(parsedValue)
+      } else if (value === '') {
+        setAmountInput({ sourceAmount: 0, value })
+        onTopupAmountChange(0)
+      }
+    },
+    [onTopupAmountChange]
+  )
 
   const handlePresetSelect = (preset: PresetAmount) => {
     setAmountInput({
@@ -252,6 +263,59 @@ export function RechargeFormCard({
           unit_price: topupInfo?.waffo_unit_price,
         }
       : undefined)
+  const maxTopup = getPaymentMaxTopupAmount(effectivePaymentMethod)
+  const clampTopupAmount = useCallback(
+    (value: number) =>
+      Math.max(minTopup, maxTopup === null ? value : Math.min(value, maxTopup)),
+    [maxTopup, minTopup]
+  )
+  const changeAmountBy = useCallback(
+    (delta: number) => {
+      const next = clampTopupAmount(topupAmount + delta)
+      if (next !== topupAmount) {
+        const parsedValue = next
+        onTopupAmountChange(parsedValue, { deferQuote: true })
+        setAmountInput({ sourceAmount: parsedValue, value: String(next) })
+      }
+    },
+    [clampTopupAmount, onTopupAmountChange, topupAmount]
+  )
+  const stopAmountHold = useCallback(() => {
+    const hold = holdRef.current
+    if (!hold) return
+    if (hold.timeoutId !== null) window.clearTimeout(hold.timeoutId)
+    holdRef.current = null
+  }, [])
+  const startAmountHold = useCallback(
+    (delta: number, event: React.PointerEvent<HTMLButtonElement>) => {
+      if (event.pointerType === 'mouse' && event.button !== 0) return
+      event.currentTarget.setPointerCapture?.(event.pointerId)
+      stopAmountHold()
+      changeAmountBy(delta)
+      const hold = {
+        delta,
+        startedAt: Date.now(),
+        timeoutId: null as number | null,
+      }
+      const tick = () => {
+        if (holdRef.current !== hold) return
+        changeAmountBy(delta)
+        const elapsed = Date.now() - hold.startedAt
+        hold.timeoutId = window.setTimeout(
+          tick,
+          Math.max(45, 180 - Math.floor(elapsed / 1000) * 30)
+        )
+      }
+      hold.timeoutId = window.setTimeout(tick, 450)
+      holdRef.current = hold
+    },
+    [changeAmountBy, stopAmountHold]
+  )
+  useEffect(() => stopAmountHold, [stopAmountHold])
+  useEffect(() => {
+    window.addEventListener('blur', stopAmountHold)
+    return () => window.removeEventListener('blur', stopAmountHold)
+  }, [stopAmountHold])
   const usesSettlementQuote = isWaffoPancakePayment(
     effectivePaymentMethod?.type ?? ''
   )
@@ -275,8 +339,19 @@ export function RechargeFormCard({
   const effectivePaymentAmount =
     usesSettlementQuote && quote ? Number(quote.amount) : paymentAmount
   const discountCodeSavingAmount = hasCurrentPaymentAmount
-    ? discountCodeSavings(effectivePaymentAmount, discountPercent)
+    ? usesSettlementQuote
+      ? 0
+      : discountCodeSavings(effectivePaymentAmount, discountPercent)
     : 0
+  const quoteSavingsAmount =
+    usesSettlementQuote && quote?.savingsAmount
+      ? Number(quote.savingsAmount)
+      : 0
+  const actualSavingAmount = discountCodeSavingAmount || quoteSavingsAmount
+  const quoteOriginalAmount =
+    usesSettlementQuote && quote?.originalAmount
+      ? Number(quote.originalAmount)
+      : 0
   const settlementUnit = usesSettlementQuote
     ? null
     : getPaymentSettlementUnit(effectivePaymentMethod, true)
@@ -358,6 +433,17 @@ export function RechargeFormCard({
       ? configuredSelectedPresetDiscount
       : null
   const selectedPresetQuoteBreakdown = (() => {
+    if (usesSettlementQuote && quote?.originalAmount) {
+      const originalPrice = Number(quote.originalAmount)
+      const savedAmount = quote.savingsAmount
+        ? Number(quote.savingsAmount)
+        : originalPrice - paymentAmount
+      return {
+        originalPrice,
+        savedAmount,
+        hasDiscount: savedAmount > 0,
+      }
+    }
     if (
       usesSettlementQuote ||
       selectedPresetDiscount === null ||
@@ -689,8 +775,8 @@ export function RechargeFormCard({
                     <InputGroup className='h-9 sm:h-10'>
                       <InputGroupInput
                         id='topup-amount'
-                        type='number'
-                        step='1'
+                        type='text'
+                        inputMode='decimal'
                         value={localAmount}
                         onChange={(e) => handleAmountChange(e.target.value)}
                         min={minTopup}
@@ -705,6 +791,48 @@ export function RechargeFormCard({
                         ({t('Platform')})
                       </InputGroupAddon>
                     </InputGroup>
+                    <div className='flex shrink-0 flex-col gap-1 sm:flex-row'>
+                      <Button
+                        type='button'
+                        variant='outline'
+                        size='icon'
+                        className='size-11 touch-manipulation'
+                        aria-label={t('Increase platform credit')}
+                        disabled={maxTopup !== null && topupAmount >= maxTopup}
+                        onPointerDown={(event) => startAmountHold(1, event)}
+                        onPointerUp={stopAmountHold}
+                        onPointerCancel={stopAmountHold}
+                        onLostPointerCapture={stopAmountHold}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter' || event.key === ' ') {
+                            event.preventDefault()
+                            changeAmountBy(1)
+                          }
+                        }}
+                      >
+                        +
+                      </Button>
+                      <Button
+                        type='button'
+                        variant='outline'
+                        size='icon'
+                        className='size-11 touch-manipulation'
+                        aria-label={t('Decrease platform credit')}
+                        disabled={topupAmount <= minTopup}
+                        onPointerDown={(event) => startAmountHold(-1, event)}
+                        onPointerUp={stopAmountHold}
+                        onPointerCancel={stopAmountHold}
+                        onLostPointerCapture={stopAmountHold}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter' || event.key === ' ') {
+                            event.preventDefault()
+                            changeAmountBy(-1)
+                          }
+                        }}
+                      >
+                        −
+                      </Button>
+                    </div>
                     <div className='bg-muted flex min-h-9 min-w-0 items-center justify-between gap-2 rounded-md border px-3 lg:min-w-52'>
                       <div className='flex min-w-0 flex-col gap-1 py-1'>
                         <span className='text-muted-foreground text-xs'>
@@ -835,12 +963,11 @@ export function RechargeFormCard({
                             percent: discountPercent,
                           })}
                         </span>
-                        {discountCodeSavingAmount > 0 ? (
+                        {actualSavingAmount > 0 ? (
                           <span className='font-medium'>
                             {t('Discount code saves {{amount}}', {
-                              amount: formatSelectedPaymentAmount(
-                                discountCodeSavingAmount
-                              ),
+                              amount:
+                                formatSelectedPaymentAmount(actualSavingAmount),
                             })}
                           </span>
                         ) : null}
@@ -1161,13 +1288,15 @@ export function RechargeFormCard({
                           <span className='text-xl font-bold sm:text-2xl'>
                             {paymentAmountLabel}
                           </span>
-                          {discountCodeSavingAmount > 0 &&
+                          {actualSavingAmount > 0 &&
                             hasCurrentPaymentAmount &&
                             !isUpdatingQuote && (
                               <span className='text-muted-foreground text-xs line-through'>
                                 {formatSelectedPaymentAmount(
-                                  effectivePaymentAmount +
-                                    discountCodeSavingAmount
+                                  quoteOriginalAmount > effectivePaymentAmount
+                                    ? quoteOriginalAmount
+                                    : effectivePaymentAmount +
+                                        discountCodeSavingAmount
                                 )}
                               </span>
                             )}

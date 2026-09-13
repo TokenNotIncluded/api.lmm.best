@@ -54,7 +54,7 @@ for (const key of [
   })
 }
 
-const { act } = await import('react')
+const { act, useState } = await import('react')
 const { createRoot } = await import('react-dom/client')
 const { QueryClient, QueryClientProvider } =
   await import('@tanstack/react-query')
@@ -62,6 +62,8 @@ const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { api } = await import('@/lib/api')
 const { AssistantSettingsSection } =
+  await import('./assistant-settings-section')
+const { ConversationStartersEditor } =
   await import('./assistant-settings-section')
 const { assistantSettingsSchema } = await import('./assistant-settings-schema')
 const {
@@ -103,6 +105,7 @@ const baseValues = {
   AssistantCacheTTLMinutes: 1440,
   AssistantPersona: '',
   AssistantSystemPrompt: '',
+  AssistantPreConversationPresets: '',
   AssistantSearchProvider: 'none',
   AssistantSearchURL: '',
   AssistantSearchAPIKey: '',
@@ -177,6 +180,86 @@ async function flushEffects() {
 after(() => domWindow.close())
 
 describe('assistant search provider settings', () => {
+  test('edits, reorders, deletes, and restores conversation starters through one JSON field', async () => {
+    const container = document.createElement('div')
+    document.body.append(container)
+    const root = createRoot(container)
+    const values: string[] = []
+    function Harness() {
+      const [value, setValue] = useState(
+        '[{"id":"one","label":"One","prompt":"Prompt one"}]'
+      )
+      return (
+        <ConversationStartersEditor
+          value={value}
+          disabled={false}
+          onChange={(next) => {
+            values.push(next)
+            setValue(next)
+          }}
+        />
+      )
+    }
+    await act(async () => {
+      root.render(
+        <I18nextProvider i18n={i18n}>
+          <Harness />
+        </I18nextProvider>
+      )
+    })
+    const editor = container.querySelector(
+      '[data-testid="assistant-conversation-starters-editor"]'
+    )
+    assert.ok(editor)
+    const inputs = editor.querySelectorAll('input')
+    const prompt = editor.querySelector('textarea') as HTMLTextAreaElement
+    const setValue = (
+      element: HTMLInputElement | HTMLTextAreaElement,
+      value: string
+    ) => {
+      const setter = Object.getOwnPropertyDescriptor(
+        Object.getPrototypeOf(element),
+        'value'
+      )?.set
+      setter?.call(element, value)
+    }
+    await act(async () => {
+      setValue(inputs[0], 'Edited label')
+      inputs[0].dispatchEvent(new Event('change', { bubbles: true }))
+      setValue(prompt, 'Edited prompt')
+      prompt.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+    assert.match(values.at(-1) ?? '', /Edited prompt/)
+    const add = [...editor.querySelectorAll('button')].find((button) =>
+      button.textContent?.includes('Add starter')
+    )
+    assert.ok(add)
+    await act(async () => add.click())
+    assert.equal(JSON.parse(values.at(-1) ?? '[]').length, 2)
+    const down = editor.querySelector(
+      'button[aria-label="Move starter down"]'
+    ) as HTMLButtonElement | null
+    assert.ok(down)
+    await act(async () => down.click())
+    assert.equal(
+      JSON.parse(values.at(-1) ?? '[]')[0].id.startsWith('custom_'),
+      true
+    )
+    const del = editor.querySelector(
+      'button[aria-label="Delete starter"]'
+    ) as HTMLButtonElement | null
+    assert.ok(del)
+    await act(async () => del.click())
+    assert.equal(JSON.parse(values.at(-1) ?? '[]').length, 1)
+    const restore = [...editor.querySelectorAll('button')].find((button) =>
+      button.textContent?.includes('Restore defaults')
+    )
+    assert.ok(restore)
+    await act(async () => restore.click())
+    assert.equal(values.at(-1), '')
+    await act(async () => root.unmount())
+    container.remove()
+  })
   test('requires an explicit complete L1 reviewer and finite confidence', () => {
     assert.equal(assistantSettingsSchema.safeParse(baseValues).success, true)
     assert.equal(

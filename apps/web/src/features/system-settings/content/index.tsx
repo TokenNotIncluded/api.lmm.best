@@ -55,6 +55,7 @@ const defaultContentSettings: ContentSettings = {
   AssistantCacheTTLMinutes: 1440,
   AssistantPersona: '',
   AssistantSystemPrompt: '',
+  AssistantPreConversationPresets: '',
   AssistantSearchProvider: 'none',
   AssistantSearchURL: '',
   AssistantSearchAPIKey: '',

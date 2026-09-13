@@ -343,6 +343,7 @@ func mainMigrationModels() []interface{} {
 		&DeveloperAccessRequest{}, &DeveloperAccessRecommendationArchive{},
 		&AccountActionRequest{},
 		&OpenSourceBountyLedger{}, &OpenSourceBountyDispute{}, &OpenSourceBountyMCPToken{},
+		&DrawingMCPToken{},
 		&OpenSourceBountyMCPConfirmation{}, &OpenSourceBountyMCPOperation{}, &OpenSourceBountyRESTOperation{},
 		&SubscriptionOrder{}, &SubscriptionPaymentEvent{}, &SubscriptionPaymentRefund{}, &WaffoPancakeSubscriptionPayment{}, &WaffoPancakeSubscriptionPeriod{}, &UserSubscription{}, &SubscriptionPreConsumeRecord{},
 		&SubscriptionResetVoucher{}, &SubscriptionResetEvent{}, &SubscriptionResetPreview{}, &SubscriptionResetOperation{}, &CustomOAuthProvider{},

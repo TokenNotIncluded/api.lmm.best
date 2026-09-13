@@ -158,6 +158,7 @@ func InitOptionMap() {
 	common.OptionMap[setting.AssistantCacheTTLMinutesOptionKey] = strconv.Itoa(assistantSettings.CacheTTLMinutes)
 	common.OptionMap[setting.AssistantPersonaOptionKey] = assistantSettings.Persona
 	common.OptionMap[setting.AssistantSystemPromptOptionKey] = assistantSettings.SystemPrompt
+	common.OptionMap[setting.AssistantPreConversationPresetsOptionKey] = ""
 	common.OptionMap[setting.AssistantSearchProviderOptionKey] = string(assistantSettings.SearchProvider)
 	common.OptionMap[setting.AssistantSearchURLOptionKey] = assistantSettings.SearchURL
 	common.OptionMap[setting.AssistantSearchAPIKeyOptionKey] = assistantSettings.SearchAPIKey
@@ -861,6 +862,8 @@ func updateOptionMap(key string, value string) (err error) {
 		err = setting.UpdateAssistantPersona(value)
 	case setting.AssistantSystemPromptOptionKey:
 		err = setting.UpdateAssistantSystemPrompt(value)
+	case setting.AssistantPreConversationPresetsOptionKey:
+		err = setting.ValidateAssistantOption(setting.AssistantPreConversationPresetsOptionKey, value)
 	case setting.AssistantSearchProviderOptionKey:
 		err = setting.UpdateAssistantSearchProvider(value)
 	case setting.AssistantSearchURLOptionKey:

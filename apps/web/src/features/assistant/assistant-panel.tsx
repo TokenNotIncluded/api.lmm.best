@@ -85,7 +85,7 @@ import { WaitCompanion } from '@/components/wait-companion'
 import { useSystemConfig } from '@/hooks/use-system-config'
 import { isConsoleActivated } from '@/lib/console-activation'
 import { cn } from '@/lib/utils'
-import { useAuthStore } from '@/stores/auth-store'
+import { useAuthStore, type AuthUser } from '@/stores/auth-store'
 
 import {
   getAssistantAvailableModels,
@@ -150,6 +150,7 @@ import { AssistantOnboardingTodo } from './assistant-onboarding-todo'
 import { AssistantPlanTool } from './assistant-plan-tool'
 import {
   ASSISTANT_PROMPT_PRESET_COPY_VERSION,
+  filterAssistantPreConversationPresets,
   localizeAssistantPreConversationPresets,
 } from './assistant-prompt-presets'
 import { getAssistantPromptValidation } from './assistant-prompt-validation'
@@ -766,13 +767,17 @@ function AssistantPromptInputSync(props: {
 
 function AssistantPresetPrompts(props: {
   presets: AssistantPreConversationPreset[] | undefined
+  user: Pick<AuthUser, 'role' | 'trust_level_info'> | null
   onSelect: (preset: AssistantPreConversationPreset) => void
 }) {
   const { t } = useTranslation()
   const {
     textInput: { setInput },
   } = usePromptInputController()
-  const presets = localizeAssistantPreConversationPresets(props.presets, t)
+  const presets = localizeAssistantPreConversationPresets(
+    filterAssistantPreConversationPresets(props.presets, props.user),
+    t
+  )
   if (presets.length === 0) return null
 
   return (
@@ -2753,6 +2758,7 @@ function AssistantPanelSession(props: AssistantPanelProps) {
                 {accountAccessConfirmed &&
                 !entries.some((entry) => entry.role === 'user') ? (
                   <AssistantPresetPrompts
+                    user={authUser}
                     presets={
                       preConversationPresetsQuery.isPending
                         ? []

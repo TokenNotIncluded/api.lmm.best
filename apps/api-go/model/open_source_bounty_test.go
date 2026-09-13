@@ -83,6 +83,34 @@ func openSourceBountyInput(repository string, reward int, slots int) OpenSourceB
 	}
 }
 
+func TestUpdateOpenSourceBountyContentAllowsOwnerAndAdminWithoutChangingFunding(t *testing.T) {
+	db := setupOpenSourceBountyTestDB(t)
+	owner := createOpenSourceBountyUser(t, db, "content-owner", 100_000, common.RoleCommonUser)
+	admin := createOpenSourceBountyUser(t, db, "content-admin", 0, common.RoleAdminUser)
+	other := createOpenSourceBountyUser(t, db, "content-other", 0, common.RoleCommonUser)
+	project, err := CreateOpenSourceBountyDraft(owner.Id, openSourceBountyInput("https://github.com/example/content", 1_000, 2))
+	require.NoError(t, err)
+	project, _, err = PublishOpenSourceBounty(owner.Id, project.Id)
+	require.NoError(t, err)
+	funded := *project
+	content := OpenSourceBountyDraftInput{Title: "Updated published bounty title", Description: "Updated scope with enough detail to remain an actionable published task.", Rules: "Updated acceptance rules require linked evidence and focused verification."}
+	updated, err := UpdateOpenSourceBountyContent(owner.Id, project.Id, content)
+	require.NoError(t, err)
+	assert.Equal(t, content.Title, updated.Title)
+	assert.Equal(t, content.Description, updated.Description)
+	assert.Equal(t, content.Rules, updated.Rules)
+	assert.Equal(t, funded.RewardQuota, updated.RewardQuota)
+	assert.Equal(t, funded.EscrowQuota, updated.EscrowQuota)
+	assert.Equal(t, funded.Status, updated.Status)
+
+	content.Title = "Admin corrected published title"
+	updated, err = UpdateOpenSourceBountyContent(admin.Id, project.Id, content)
+	require.NoError(t, err)
+	assert.Equal(t, content.Title, updated.Title)
+	_, err = UpdateOpenSourceBountyContent(other.Id, project.Id, content)
+	assert.Error(t, err)
+}
+
 func TestOpenSourceBountyEmptyListQueriesReturnNonNilSlices(t *testing.T) {
 	db := setupOpenSourceBountyTestDB(t)
 	user := createOpenSourceBountyUser(t, db, "empty-list-user", 0, common.RoleCommonUser)

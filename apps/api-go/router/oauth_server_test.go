@@ -142,7 +142,7 @@ func (h *oauthHTTPTest) request(method, path, body string, headers map[string]st
 }
 
 var oauthCSRFFixture = regexp.MustCompile(`name="csrf" value="([^"]+)"`)
-var oauthRedirectFixture = regexp.MustCompile(`<a href="(http://127\.0\.0\.1:[^"]+)"`)
+var oauthRedirectFixture = regexp.MustCompile(`<a[^>]*href="(http://127\.0\.0\.1:[^"]+)"`)
 
 func oauthFormState(t *testing.T, response *httptest.ResponseRecorder) (*http.Cookie, string) {
 	t.Helper()

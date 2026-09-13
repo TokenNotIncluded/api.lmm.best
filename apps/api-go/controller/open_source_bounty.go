@@ -221,7 +221,13 @@ func UpdateOpenSourceBounty(c *gin.Context) {
 		openSourceBountyApiError(c, &model.OpenSourceBountyError{Code: "OPEN_SOURCE_BOUNTY_INVALID_REQUEST", Message: "invalid bounty request"})
 		return
 	}
-	project, err := model.UpdateOpenSourceBountyDraft(c.GetInt("id"), projectId, request)
+	var project *model.OpenSourceBountyProject
+	var err error
+	if request.RewardQuota == 0 && request.RewardSlots == 0 {
+		project, err = model.UpdateOpenSourceBountyContent(c.GetInt("id"), projectId, request)
+	} else {
+		project, err = model.UpdateOpenSourceBountyDraft(c.GetInt("id"), projectId, request)
+	}
 	if err != nil {
 		openSourceBountyApiError(c, err)
 		return

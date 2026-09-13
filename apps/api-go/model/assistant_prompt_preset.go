@@ -1,8 +1,11 @@
 package model
 
 import (
+	"encoding/json"
 	"errors"
 	"strings"
+
+	"github.com/LIghtJUNction/api.lmm.best/common"
 )
 
 const (
@@ -87,6 +90,7 @@ type PromptPreset struct {
 	Id     string `json:"id"`
 	Prompt string `json:"prompt"`
 	Label  string `json:"label,omitempty"`
+	Source string `json:"source,omitempty"`
 }
 
 type PromptPresetSet struct {
@@ -164,6 +168,9 @@ func fallbackPromptPresets() PromptPresetSet {
 }
 
 func GetPromptPresets() (PromptPresetSet, error) {
+	if custom, configured := configuredPromptPresets(); configured {
+		return PromptPresetSet{Generation: 0, Version: "custom-v1", Presets: custom}, nil
+	}
 	var generation int64
 	if err := DB.Model(&PromptPresetRow{}).Select("COALESCE(MAX(generation), 0)").Scan(&generation).Error; err != nil {
 		return PromptPresetSet{}, err
@@ -192,7 +199,7 @@ func GetPromptPresets() (PromptPresetSet, error) {
 			// exist. Serve the new seed until the scheduled refresh replaces them.
 			return fallbackPromptPresets(), nil
 		}
-		presets = append(presets, PromptPreset{Id: row.PresetId, Prompt: row.Prompt, Label: row.Label})
+		presets = append(presets, PromptPreset{Id: row.PresetId, Prompt: row.Prompt, Label: row.Label, Source: "default"})
 		delete(required, row.PresetId)
 	}
 	if len(required) > 0 {
@@ -202,6 +209,26 @@ func GetPromptPresets() (PromptPresetSet, error) {
 		return fallbackPromptPresets(), nil
 	}
 	return PromptPresetSet{Generation: generation, Version: rows[0].Version, Presets: presets}, nil
+}
+
+func configuredPromptPresets() ([]PromptPreset, bool) {
+	common.OptionMapRWMutex.RLock()
+	raw := common.OptionMap["AssistantPreConversationPresets"]
+	common.OptionMapRWMutex.RUnlock()
+	if strings.TrimSpace(raw) == "" {
+		return nil, false
+	}
+	var entries []PromptPreset
+	if err := json.Unmarshal([]byte(raw), &entries); err != nil || len(entries) > 20 {
+		return nil, false
+	}
+	for i := range entries {
+		entries[i].Id = strings.TrimSpace(entries[i].Id)
+		entries[i].Label = strings.TrimSpace(entries[i].Label)
+		entries[i].Prompt = strings.TrimSpace(entries[i].Prompt)
+		entries[i].Source = "custom"
+	}
+	return entries, true
 }
 
 func findPromptPreset(presetId string) (*PromptPresetRef, string, error) {

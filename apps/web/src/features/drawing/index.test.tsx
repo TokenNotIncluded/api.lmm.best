@@ -376,6 +376,166 @@ describe('Drawing mobile controls', () => {
     }
   })
 
+  test('loads configured MCP management and clears the old secret when switching keys', async () => {
+    let tokenStatusKey = 1
+    api.get = (async (url: string) => {
+      if (url === '/api/assistant/status') {
+        return {
+          data: {
+            success: true,
+            data: {
+              enabled: true,
+              developer_access_granted: true,
+              drawing_web_access: {
+                minimum_balance_usd: 0,
+                balance_usd: 10,
+                allowed: true,
+              },
+            },
+          },
+        }
+      }
+      if (url === '/api/pricing') return { data: pricing }
+      if (url === '/api/user/self/groups') {
+        return {
+          data: {
+            success: true,
+            data: {
+              ...pricing.usable_group,
+              'mobile-image-group': {
+                ...pricing.usable_group['mobile-image-group'],
+                warning: {
+                  enabled: true,
+                  message: 'Confirm this drawing group.',
+                  mode: 'modal',
+                  confirmations: 2,
+                },
+              },
+            },
+          },
+        }
+      }
+      if (url === '/api/drawing/mcp-keys') {
+        return {
+          data: {
+            success: true,
+            data: {
+              keys: [
+                {
+                  id: 1,
+                  name: 'A',
+                  group: 'mobile-image-group',
+                  status: 1,
+                  remain_quota: 9000000,
+                  used_quota: 1000000,
+                  unlimited_quota: true,
+                },
+                {
+                  id: 2,
+                  name: 'B',
+                  group: 'mobile-image-group',
+                  status: 1,
+                  remain_quota: 8000000,
+                  used_quota: 2000000,
+                  unlimited_quota: false,
+                },
+              ],
+            },
+          },
+        }
+      }
+      if (url === '/api/drawing/mcp-token') {
+        return {
+          data: {
+            success: true,
+            data: { status: { configured: true, api_key_id: tokenStatusKey } },
+          },
+        }
+      }
+      throw new Error(`unexpected GET ${url}`)
+    }) as typeof api.get
+    api.post = (async (url: string) => {
+      assert.equal(url, '/api/drawing/mcp-token')
+      return { data: { success: true, data: { token: 'secret-A' } } }
+    }) as typeof api.post
+
+    const rendered = await renderDrawing()
+    try {
+      await act(
+        async () =>
+          await waitForCondition(
+            () => rendered.container.querySelectorAll('select').length === 5,
+            'drawing controls did not render'
+          )
+      )
+      const mcpButton = [...rendered.container.querySelectorAll('button')].find(
+        (button) => button.textContent?.includes('Drawing MCP')
+      )
+      assert.ok(mcpButton)
+      await act(async () => {
+        mcpButton.click()
+        await flushEffects()
+      })
+      await act(
+        async () =>
+          await waitForCondition(
+            () =>
+              rendered.container.querySelector('#drawing-mcp-api-key') !== null,
+            'MCP panel did not render'
+          )
+      )
+      assert.ok(
+        [...rendered.container.querySelectorAll('button')].some((button) =>
+          button.textContent?.includes('Rotate MCP token')
+        )
+      )
+      assert.match(
+        rendered.container.querySelector('#drawing-mcp-api-key')?.textContent ??
+          '',
+        /Unlimited/
+      )
+      const keySelect = rendered.container.querySelector(
+        '#drawing-mcp-api-key'
+      ) as HTMLSelectElement | null
+      assert.ok(keySelect)
+      keySelect.value = '1'
+      await act(async () => {
+        keySelect.dispatchEvent(new Event('change', { bubbles: true }))
+        await flushEffects()
+      })
+      const generate = [...rendered.container.querySelectorAll('button')].find(
+        (button) =>
+          button.textContent?.includes('Generate token and copy config')
+      )
+      assert.ok(generate)
+      await act(async () => {
+        generate.click()
+        await flushEffects()
+      })
+      assert.match(
+        (
+          rendered.container.querySelector(
+            '#drawing-mcp-config'
+          ) as HTMLTextAreaElement | null
+        )?.value ?? '',
+        /secret-A/
+      )
+      tokenStatusKey = 1
+      keySelect.value = '2'
+      await act(async () => {
+        keySelect.dispatchEvent(new Event('change', { bubbles: true }))
+        await flushEffects()
+      })
+      assert.equal(
+        rendered.container.querySelector('#drawing-mcp-config'),
+        null
+      )
+    } finally {
+      await act(async () => rendered.root.unmount())
+      rendered.queryClient.clear()
+    }
+  })
+
   test('surfaces an error and keeps generation available when no preview is usable', async () => {
     api.get = (async (url: string) => {
       if (url === '/api/assistant/status') {

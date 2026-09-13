@@ -1048,7 +1048,13 @@ describe('AssistantPanel', () => {
       }
     }) as typeof api.post
 
-    const rendered = await renderPanel()
+    const rendered = await renderPanel(undefined, 'mobile', {
+      id: 7,
+      username: 'l0-preset-user',
+      role: 1,
+      trust_level_info: { level: 0 } as AuthUser['trust_level_info'],
+      developer_access_granted: false,
+    })
     try {
       for (const [language, file] of [
         ['en', 'en'],
@@ -1183,7 +1189,13 @@ describe('AssistantPanel', () => {
       true
     )
     await i18n.changeLanguage('fr')
-    const rendered = await renderPanel()
+    const rendered = await renderPanel(undefined, 'mobile', {
+      id: 7,
+      username: 'l0-preset-user',
+      role: 1,
+      trust_level_info: { level: 0 } as AuthUser['trust_level_info'],
+      developer_access_granted: false,
+    })
     try {
       await act(async () =>
         waitForCondition(
@@ -1550,10 +1562,11 @@ describe('AssistantPanel', () => {
 
   test('mounts exactly one assistant panel on a narrow viewport', async () => {
     api.get = (async (url: string) => {
-      if (url === '/api/status')
+      if (url === '/api/status') {
         return {
           data: { success: true, data: { assistant: { enabled: true } } },
         }
+      }
       assert.equal(url, '/api/assistant/status')
       return { data: { success: true, data: assistantStatus } }
     }) as typeof api.get

@@ -433,6 +433,57 @@ func UpdateOpenSourceBountyDraft(ownerUserId int, projectId int, input OpenSourc
 	return GetOpenSourceBountyProject(projectId)
 }
 
+// UpdateOpenSourceBountyContent edits only the human-authored fields of an
+// active listing. Rewards, escrow, challenges, and lifecycle state are never
+// accepted from this path.
+func UpdateOpenSourceBountyContent(actorUserId int, projectId int, input OpenSourceBountyDraftInput) (*OpenSourceBountyProject, error) {
+	if actorUserId <= 0 {
+		return nil, bountyError("OPEN_SOURCE_BOUNTY_UNAUTHORIZED", "invalid bounty editor")
+	}
+	if _, err := normalizeBountyText(input.Title, input.Description, input.Rules); err != nil {
+		return nil, err
+	}
+	var project OpenSourceBountyProject
+	if err := DB.Where("id = ?", projectId).First(&project).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, bountyError("OPEN_SOURCE_BOUNTY_NOT_FOUND", "bounty project was not found")
+		}
+		return nil, err
+	}
+	if project.Status != OpenSourceBountyStatusPublished && project.Status != OpenSourceBountyStatusPaused {
+		return nil, bountyError("OPEN_SOURCE_BOUNTY_INVALID_STATE", "only an active published bounty can be edited")
+	}
+	if project.OwnerUserId != actorUserId && !IsAdmin(actorUserId) {
+		return nil, bountyError("OPEN_SOURCE_BOUNTY_FORBIDDEN", "only the bounty owner or an administrator can edit this bounty")
+	}
+	text, _ := normalizeBountyText(input.Title, input.Description, input.Rules)
+	result := DB.Model(&OpenSourceBountyProject{}).Where("id = ? AND status IN ?", projectId, []string{OpenSourceBountyStatusPublished, OpenSourceBountyStatusPaused}).Updates(map[string]interface{}{
+		"title": text.Title, "description": text.Description, "rules": text.Rules, "updated_at": common.GetTimestamp(),
+	})
+	if result.Error != nil {
+		return nil, result.Error
+	}
+	if result.RowsAffected != 1 {
+		return nil, bountyError("OPEN_SOURCE_BOUNTY_INVALID_STATE", "bounty state changed before the edit was saved")
+	}
+	RecordLog(actorUserId, LogTypeSystem, fmt.Sprintf("Edited open-source bounty %d content", projectId))
+	return GetOpenSourceBountyProject(projectId)
+}
+
+func normalizeBountyText(title, description, rules string) (OpenSourceBountyDraftInput, error) {
+	input := OpenSourceBountyDraftInput{Title: strings.TrimSpace(title), Description: strings.TrimSpace(description), Rules: strings.TrimSpace(rules)}
+	if len(input.Title) < 4 || len(input.Title) > 120 {
+		return input, bountyError("OPEN_SOURCE_BOUNTY_INVALID_TITLE", "title must contain 4 to 120 characters")
+	}
+	if len(input.Description) < 20 || len(input.Description) > 2000 {
+		return input, bountyError("OPEN_SOURCE_BOUNTY_INVALID_DESCRIPTION", "description must contain 20 to 2000 characters")
+	}
+	if len(input.Rules) < 20 || len(input.Rules) > 5000 {
+		return input, bountyError("OPEN_SOURCE_BOUNTY_INVALID_RULES", "rules must contain 20 to 5000 characters")
+	}
+	return input, nil
+}
+
 func DeleteOpenSourceBountyDraft(ownerUserId int, projectId int) error {
 	return deleteOpenSourceBountyDraft(ownerUserId, projectId, nil)
 }

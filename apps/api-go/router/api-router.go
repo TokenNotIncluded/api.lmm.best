@@ -499,6 +499,14 @@ func SetApiRouter(router *gin.Engine) {
 			tokenRoute.POST("/batch", middleware.RequestBodyLimit(tokenMutationRequestMaxBytes), controller.DeleteTokenBatch)
 			tokenRoute.POST("/batch/keys", middleware.RequestBodyLimit(tokenMutationRequestMaxBytes), middleware.CriticalRateLimit(), middleware.DisableCache(), controller.GetTokenKeysBatch)
 		}
+		drawingMCPRoute := apiRouter.Group("/drawing")
+		drawingMCPRoute.Use(middleware.UserAuth())
+		{
+			drawingMCPRoute.GET("/mcp-keys", middleware.DisableCache(), controller.GetDrawingMCPAPIKeys)
+			drawingMCPRoute.GET("/mcp-token", middleware.DisableCache(), controller.GetDrawingMCPToken)
+			drawingMCPRoute.POST("/mcp-token", middleware.CriticalRateLimit(), middleware.DisableCache(), middleware.RequestBodyLimit(tokenMutationRequestMaxBytes), controller.RotateDrawingMCPToken)
+			drawingMCPRoute.DELETE("/mcp-token", middleware.CriticalRateLimit(), middleware.DisableCache(), controller.RevokeDrawingMCPToken)
+		}
 
 		usageRoute := apiRouter.Group("/usage")
 		usageRoute.Use(middleware.CORS(), middleware.CriticalRateLimit())

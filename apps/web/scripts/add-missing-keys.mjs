@@ -22,9 +22,14 @@ Copyright (C) 2026 LIghtJUNction
 import fs from 'node:fs/promises'
 import path from 'node:path'
 
+import { assistantSettingsCopy } from './assistant-settings-copy.mjs'
 import { assistantToolCopy } from './assistant-tool-copy.mjs'
+import { drawingMcpExtraCopy } from './drawing-mcp-extra-copy.mjs'
+import { drawingWalletCopy } from './drawing-wallet-copy.mjs'
 import { homeEditorialCopy } from './home-editorial-copy.mjs'
 import { paymentPricingCopy } from './payment-pricing-copy.mjs'
+import { piGuideCopy } from './pi-guide-copy.mjs'
+import { piOAuthCopy } from './pi-oauth-copy.mjs'
 import { waitCompanionCopy } from './wait-companion-copy.mjs'
 
 const LOCALES_DIR = path.resolve('src/i18n/locales')
@@ -8193,6 +8198,11 @@ async function main() {
           ...baseTranslations,
           ...paymentPricingCopy[locale],
           ...homeEditorialCopy[locale],
+          ...drawingWalletCopy[locale],
+          ...piOAuthCopy[locale],
+          ...assistantSettingsCopy[locale],
+          ...drawingMcpExtraCopy[locale],
+          ...piGuideCopy[locale],
           ...waitCompanionCopy[locale],
         }
     const filePath = path.join(LOCALES_DIR, `${locale}.json`)
