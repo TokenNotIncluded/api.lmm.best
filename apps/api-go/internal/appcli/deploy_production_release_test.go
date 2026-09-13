@@ -440,6 +440,7 @@ func TestVerifySignedPackageLayoutAcceptsOnlyProviderLayoutAndExactLegacyRollbac
 	newPrefix := "lmm-api-go-0.2.0-linux-amd64/"
 	newReleaseEntries := []testTarEntry{
 		{name: newPrefix + "lmm-api-go", body: "provider-binary", mode: 0o755},
+		{name: newPrefix + "OAUTH_MANAGED_TOKEN_CAPABILITY", body: "v1\n", mode: 0o644},
 		{name: newPrefix + "lmm-api-go.env", body: "safe-env\n", mode: 0o640},
 		{name: newPrefix + "lmm-api-operator.sudoers", body: "safe-sudoers\n", mode: 0o644},
 		{name: newPrefix + "LICENSE", body: "license\n", mode: 0o644},
@@ -450,7 +451,7 @@ func TestVerifySignedPackageLayoutAcceptsOnlyProviderLayoutAndExactLegacyRollbac
 	if err != nil {
 		t.Fatal(err)
 	}
-	newPackageEntries := func(sudoers string) []testTarEntry {
+	newPackageEntries := func(sudoers, capability string) []testTarEntry {
 		entries := []testTarEntry{
 			{name: ".PKGINFO", body: testProductionPackageInfo(t, productionAURPackageName, "0.2.0-1"), mode: 0o644},
 			{name: ".MTREE", body: testPackageMtree(t, true), mode: 0o644},
@@ -461,16 +462,29 @@ func TestVerifySignedPackageLayoutAcceptsOnlyProviderLayoutAndExactLegacyRollbac
 			{name: "usr/share/licenses/lmm-api-go-bin/LICENSE", body: "license\n", mode: 0o644},
 			{name: "usr/share/doc/lmm-api-go-bin/RELEASE_ASSET_SHA256", body: newAssetSHA256 + "\n", mode: 0o644},
 		}
+		if capability != "" {
+			entries = append(entries, testTarEntry{name: "usr/share/doc/lmm-api-go-bin/OAUTH_MANAGED_TOKEN_CAPABILITY", body: capability, mode: 0o644})
+		}
 		return append(entries, testEdgePolicyTarEntries("usr/share/lmm-api-go/edge-policy/")...)
 	}
 	newPackage := filepath.Join(workspace, "new-provider.tar.gz")
-	writeTestTarGzip(t, newPackage, newPackageEntries("safe-sudoers\n"))
+	writeTestTarGzip(t, newPackage, newPackageEntries("safe-sudoers\n", "v1\n"))
 	if err := runtime.verifySignedPackageLayout(context.Background(), workspace, productionAURPackageName, "0.2.0-1", newPackage, newAsset, newAssetSHA256, true); err != nil {
 		t.Fatal(err)
 	}
+	missingCapability := filepath.Join(workspace, "new-missing-capability.tar.gz")
+	writeTestTarGzip(t, missingCapability, newPackageEntries("safe-sudoers\n", ""))
+	if err := runtime.verifySignedPackageLayout(context.Background(), workspace, productionAURPackageName, "0.2.0-1", missingCapability, newAsset, newAssetSHA256, true); err == nil {
+		t.Fatal("package without OAuth capability marker was accepted")
+	}
+	badCapability := filepath.Join(workspace, "new-bad-capability.tar.gz")
+	writeTestTarGzip(t, badCapability, newPackageEntries("safe-sudoers\n", "v0\n"))
+	if err := runtime.verifySignedPackageLayout(context.Background(), workspace, productionAURPackageName, "0.2.0-1", badCapability, newAsset, newAssetSHA256, true); err == nil {
+		t.Fatal("package with rewritten OAuth capability marker was accepted")
+	}
 
 	genericPayload := filepath.Join(workspace, "new-generic-payload.tar.gz")
-	genericEntries := newPackageEntries("safe-sudoers\n")
+	genericEntries := newPackageEntries("safe-sudoers\n", "v1\n")
 	genericEntries = append(genericEntries, testTarEntry{name: "usr/bin/lmm-api", body: "generic", mode: 0o755})
 	writeTestTarGzip(t, genericPayload, genericEntries)
 	if err := runtime.verifySignedPackageLayout(context.Background(), workspace, productionAURPackageName, "0.2.0-1", genericPayload, newAsset, newAssetSHA256, true); err == nil {
@@ -478,7 +492,7 @@ func TestVerifySignedPackageLayoutAcceptsOnlyProviderLayoutAndExactLegacyRollbac
 	}
 
 	reverseLink := filepath.Join(workspace, "new-reverse-link.tar.gz")
-	reverseEntries := newPackageEntries("safe-sudoers\n")
+	reverseEntries := newPackageEntries("safe-sudoers\n", "v1\n")
 	reverseEntries = append(reverseEntries, testTarEntry{name: "usr/bin/lmm-api", mode: 0o777, linkTo: "lmm-api-go"})
 	writeTestTarGzip(t, reverseLink, reverseEntries)
 	if err := runtime.verifySignedPackageLayout(context.Background(), workspace, productionAURPackageName, "0.2.0-1", reverseLink, newAsset, newAssetSHA256, true); err == nil || !strings.Contains(err.Error(), "unexpected symlink") {
@@ -486,7 +500,7 @@ func TestVerifySignedPackageLayoutAcceptsOnlyProviderLayoutAndExactLegacyRollbac
 	}
 
 	tampered := filepath.Join(workspace, "tampered-provider.tar.gz")
-	writeTestTarGzip(t, tampered, newPackageEntries("unsafe-sudoers\n"))
+	writeTestTarGzip(t, tampered, newPackageEntries("unsafe-sudoers\n", "v1\n"))
 	if err := runtime.verifySignedPackageLayout(context.Background(), workspace, productionAURPackageName, "0.2.0-1", tampered, newAsset, newAssetSHA256, true); err == nil || !strings.Contains(err.Error(), "differs from signed release") {
 		t.Fatalf("tampered package error=%v", err)
 	}

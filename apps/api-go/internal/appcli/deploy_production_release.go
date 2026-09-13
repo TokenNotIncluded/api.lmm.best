@@ -1159,6 +1159,8 @@ func signedPackageMember(packageName, packageVersion, relative string) (packageR
 		return "usr/share/licenses/" + packageName + "/" + relative, false, nil
 	case relative == "REVISION", relative == "API_ROUTE_CONTRACT_REVISION":
 		return "usr/share/doc/" + packageName + "/" + relative, false, nil
+	case relative == "OAUTH_MANAGED_TOKEN_CAPABILITY":
+		return "usr/share/doc/" + packageName + "/" + relative, false, nil
 	case packageVersion == "0.1.69-1" && relative == "CLI_TRANSITION_PHASE":
 		return "usr/share/doc/" + packageName + "/CLI_TRANSITION_PHASE", false, nil
 	default:
