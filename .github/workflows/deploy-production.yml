@@ -1,0 +1,59 @@
+name: LMM production auto deploy
+
+on:
+  workflow_run:
+    workflows:
+      - LMM Go backend release
+      - LMM web release
+    types: [completed]
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: production-auto-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy verified release to ArchDmit
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      (startsWith(github.event.workflow_run.head_branch, 'go-v') ||
+       startsWith(github.event.workflow_run.head_branch, 'web-v'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    environment: production
+    steps:
+      - name: Checkout the exact released revision
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install deployment tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes docker.io jq openssh-client
+
+      - name: Verify deployment credentials are configured
+        env:
+          PRODUCTION_SSH_PRIVATE_KEY: ${{ secrets.PRODUCTION_SSH_PRIVATE_KEY }}
+          PRODUCTION_SSH_KNOWN_HOSTS: ${{ secrets.PRODUCTION_SSH_KNOWN_HOSTS }}
+        run: |
+          test -n "$PRODUCTION_SSH_PRIVATE_KEY"
+          test -n "$PRODUCTION_SSH_KNOWN_HOSTS"
+
+      - name: Stage and promote the verified release
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.workflow_run.head_branch }}
+          RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
+          REPOSITORY: ${{ github.repository }}
+          PRODUCTION_SSH_PRIVATE_KEY: ${{ secrets.PRODUCTION_SSH_PRIVATE_KEY }}
+          PRODUCTION_SSH_KNOWN_HOSTS: ${{ secrets.PRODUCTION_SSH_KNOWN_HOSTS }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+        run: bash scripts/auto-deploy-production-release.sh
