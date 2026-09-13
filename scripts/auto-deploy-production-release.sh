@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+report_error() {
+  local status=$1 line=$2
+  printf 'automatic deployment failed at line %s (exit %s)\n' "$line" "$status" >&2
+  exit "$status"
+}
+trap 'report_error "$?" "$LINENO"' ERR
+
 : "${RELEASE_TAG:?RELEASE_TAG is required}"
 : "${RELEASE_SHA:?RELEASE_SHA is required}"
 : "${REPOSITORY:?REPOSITORY is required}"
@@ -47,23 +54,37 @@ jq -e --arg tag "$RELEASE_TAG" --arg sha "$RELEASE_SHA" \
   "$root/release.json" >/dev/null
 
 download_release() {
-  local tag=$1 dir=$2 prefix=$3
+  local tag=$1 dir=$2 release_component=$3 asset_version pattern workflow
+  case "$release_component" in
+    go)
+      asset_version=${tag#go-v}
+      pattern="lmm-api-go-${asset_version}-linux-amd64*"
+      workflow=release-go.yml
+      ;;
+    web)
+      asset_version=${tag#web-v}
+      pattern="lmm-api-web-${asset_version}*"
+      workflow=release-web.yml
+      ;;
+    *)
+      printf 'unsupported release component: %s\n' "$release_component" >&2
+      return 2
+      ;;
+  esac
   mkdir -p "$dir"
-  gh release download "$tag" --repo "$REPOSITORY" --dir "$dir" --pattern "${prefix}*" --clobber
+  gh release download "$tag" --repo "$REPOSITORY" --dir "$dir" --pattern "$pattern" --clobber
   [[ $(find "$dir" -maxdepth 1 -type f | wc -l) -eq 3 ]]
   for archive in "$dir"/*.tar.gz; do
     expected=$(awk 'NR == 1 {print $1}' "$archive.sha256")
     [[ "$expected" =~ ^[0-9a-f]{64}$ ]]
     printf '%s  %s\n' "$expected" "$archive" | sha256sum --check --status -
-    workflow=release-go.yml
-    [[ "$prefix" == lmm-api-web-* ]] && workflow=release-web.yml
     cosign verify-blob --bundle "$archive.sigstore.json" \
       --certificate-identity "https://github.com/${REPOSITORY}/.github/workflows/${workflow}@refs/tags/${tag}" \
       --certificate-oidc-issuer https://token.actions.githubusercontent.com "$archive" >/dev/null
   done
 }
 
-download_release "$RELEASE_TAG" "$root/assets" "lmm-api-${component}-"
+download_release "$RELEASE_TAG" "$root/assets" "$component"
 
 inventory=$(ssh ArchDmit 'set -eu
 for package in lmm-api-go-bin lmm-api-web-bin; do
@@ -80,16 +101,16 @@ while IFS=$'\t' read -r package pkgver path; do
 done <<<"$inventory"
 
 fetch_rollback() {
-  local package=$1 prefix=$2 release_prefix=$3
+  local package=$1 release_component=$2 release_prefix=$3
   local pkgver=${installed_version[$package]}
   local release_version=${pkgver%-*}
   local path=${installed_path[$package]}
   scp "ArchDmit:$path" "$root/rollback/$package.pkg.tar.zst"
   [[ -s "$root/rollback/$package.pkg.tar.zst" ]]
-  download_release "${release_prefix}${release_version}" "$root/rollback/$package" "$prefix"
+  download_release "${release_prefix}${release_version}" "$root/rollback/$package" "$release_component"
 }
-fetch_rollback lmm-api-go-bin lmm-api-go- go-v
-fetch_rollback lmm-api-web-bin lmm-api-web- web-v
+fetch_rollback lmm-api-go-bin go go-v
+fetch_rollback lmm-api-web-bin web web-v
 
 if [[ "$component" == go ]]; then
   docker run --rm --network host -v "$GITHUB_WORKSPACE:/repo:ro" -v "$root:/work" archlinux:base-devel \
