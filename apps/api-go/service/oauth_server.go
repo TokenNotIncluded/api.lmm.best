@@ -21,14 +21,18 @@ import (
 )
 
 const (
-	OAuthPiClientID   = "lmm-pi"
-	OAuthPiClientName = "LMM for Pi"
-	OAuthPiRedirect   = "http://127.0.0.1/oauth/lmm/callback"
-	OAuthCatalogScope = "catalog:read"
-	OAuthBalanceScope = "balance:read"
-	OAuthInvokeScope  = "models:invoke"
-	OAuthGroupHeader  = "X-LMM-Group"
+	OAuthPiClientID       = "lmm-pi"
+	OAuthPiClientName     = "LMM for Pi"
+	OAuthPiRedirect       = "http://127.0.0.1/oauth/lmm/callback"
+	OAuthCatalogScope     = "catalog:read"
+	OAuthBalanceScope     = "balance:read"
+	OAuthInvokeScope      = "models:invoke"
+	OAuthMCPBountiesScope = "mcp:bounties"
+	OAuthMCPDrawingScope  = "mcp:drawing"
+	OAuthGroupHeader      = "X-LMM-Group"
 )
+
+func OAuthBuiltinMCPScopes() []string { return []string{OAuthMCPBountiesScope, OAuthMCPDrawingScope} }
 
 var ErrOAuthDenied = errors.New("OAuth authorization is unavailable or not permitted")
 
@@ -99,6 +103,7 @@ func NewOAuthIntegration(db *gorm.DB, cfg OAuthServerConfig) (*OAuthIntegration,
 	groups := slices.Clone(cfg.Groups)
 	slices.Sort(groups)
 	scopes := []string{OAuthCatalogScope, OAuthBalanceScope, OAuthInvokeScope}
+	scopes = append(scopes, OAuthBuiltinMCPScopes()...)
 	for i, group := range groups {
 		if !validOAuthGroup(group) || i > 0 && groups[i-1] == group {
 			return nil, errors.New("invalid or repeated OAuth group")
@@ -226,6 +231,7 @@ func (s *OAuthIntegration) ConsentQuery(raw string, user *model.User) (string, [
 	}
 	requested := strings.Split(query.Get("scope"), " ")
 	expected := []string{OAuthCatalogScope, OAuthBalanceScope, OAuthInvokeScope}
+	expected = append(expected, OAuthBuiltinMCPScopes()...)
 	slices.Sort(requested)
 	slices.Sort(expected)
 	if !slices.Equal(requested, expected) {

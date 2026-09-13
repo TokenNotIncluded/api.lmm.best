@@ -113,13 +113,13 @@ func (h *OAuthHTTP) Metadata(c *gin.Context) {
 	metadata.TokenEndpoint = h.Integration.Issuer + "/api/oauth2/token"
 	metadata.RevocationEndpoint = h.Integration.Issuer + "/api/oauth2/revoke"
 	// Group scopes are consent-generated and can disclose deployment structure.
-	// Public discovery advertises only the initial application scopes.
-	metadata.ScopesSupported = []string{service.OAuthCatalogScope, service.OAuthBalanceScope, service.OAuthInvokeScope}
+	// Public discovery advertises the fixed application and built-in MCP scopes.
+	metadata.ScopesSupported = append([]string{service.OAuthCatalogScope, service.OAuthBalanceScope, service.OAuthInvokeScope}, service.OAuthBuiltinMCPScopes()...)
 	c.JSON(200, metadata)
 }
 
 func (h *OAuthHTTP) ResourceMetadata(c *gin.Context) {
-	c.JSON(200, gin.H{"resource": h.Integration.Resource, "authorization_servers": []string{h.Integration.Issuer}, "scopes_supported": []string{service.OAuthCatalogScope, service.OAuthBalanceScope, service.OAuthInvokeScope}, "bearer_methods_supported": []string{"header"}})
+	c.JSON(200, gin.H{"resource": h.Integration.Resource, "authorization_servers": []string{h.Integration.Issuer}, "scopes_supported": append([]string{service.OAuthCatalogScope, service.OAuthBalanceScope, service.OAuthInvokeScope}, service.OAuthBuiltinMCPScopes()...), "bearer_methods_supported": []string{"header"}})
 }
 
 func oauthProtocolFailure(c *gin.Context, err error) {

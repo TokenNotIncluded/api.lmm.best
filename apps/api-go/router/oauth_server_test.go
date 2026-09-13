@@ -124,7 +124,8 @@ func setupOAuthHTTP(t *testing.T) *oauthHTTPTest {
 	engine.GET("/read-only", middleware.TokenAuthReadOnly(), func(c *gin.Context) { c.Status(200) })
 	verifier := strings.Repeat("v", 64)
 	sum := sha256.Sum256([]byte(verifier))
-	query := url.Values{"client_id": {service.OAuthPiClientID}, "response_type": {"code"}, "redirect_uri": {"http://127.0.0.1:35679/oauth/lmm/callback"}, "resource": {integration.Resource}, "scope": {service.OAuthCatalogScope + " " + service.OAuthBalanceScope + " " + service.OAuthInvokeScope}, "state": {strings.Repeat("s", 32)}, "code_challenge": {base64.RawURLEncoding.EncodeToString(sum[:])}, "code_challenge_method": {"S256"}}.Encode()
+	initialScopes := append([]string{service.OAuthCatalogScope, service.OAuthBalanceScope, service.OAuthInvokeScope}, service.OAuthBuiltinMCPScopes()...)
+	query := url.Values{"client_id": {service.OAuthPiClientID}, "response_type": {"code"}, "redirect_uri": {"http://127.0.0.1:35679/oauth/lmm/callback"}, "resource": {integration.Resource}, "scope": {strings.Join(initialScopes, " ")}, "state": {strings.Repeat("s", 32)}, "code_challenge": {base64.RawURLEncoding.EncodeToString(sum[:])}, "code_challenge_method": {"S256"}}.Encode()
 	return &oauthHTTPTest{db: db, engine: engine, integration: integration, user: user, login: login, otherLogin: otherLogin, verifier: verifier, query: query}
 }
 
@@ -207,7 +208,7 @@ func TestOAuthHTTPDiscoveryAndDisabled(t *testing.T) {
 	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &metadata))
 	require.Equal(t, oauthTestIssuer+"/api/oauth2/authorize", metadata.AuthorizationEndpoint)
 	require.Equal(t, []string{"S256"}, metadata.CodeChallengeMethodsSupported)
-	require.Len(t, metadata.ScopesSupported, 3)
+	require.Len(t, metadata.ScopesSupported, 5)
 	require.Equal(t, "no-store", response.Header().Get("Cache-Control"))
 	disabled := gin.New()
 	MountOAuthServerRoutes(disabled, nil)
@@ -247,6 +248,9 @@ func TestOAuthHTTPAuthorizationCSRFAndIdentitySwitch(t *testing.T) {
 func TestOAuthHTTPResourceBillingIsolationAndRevocation(t *testing.T) {
 	h := setupOAuthHTTP(t)
 	credentials, _ := h.approve(t)
+	for _, scope := range service.OAuthBuiltinMCPScopes() {
+		require.Contains(t, credentials.Scope, scope)
+	}
 	require.Contains(t, credentials.Scope, service.OAuthGroupScope("vip"))
 	require.NotContains(t, credentials.Scope, service.OAuthGroupScope("future"))
 	auth := map[string]string{"Authorization": "Bearer " + credentials.AccessToken}
