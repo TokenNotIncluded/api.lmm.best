@@ -149,10 +149,20 @@ web_rollback_asset=$(find "$root/rollback/lmm-api-web-bin" -maxdepth 1 -type f -
 tar -xzf "$go_asset" -C "$root/probe"
 probe=$(find "$root/probe" -type f -name lmm-api-go -print -quit)
 [[ -x "$probe" ]]
+
+run_probe() {
+  docker run --rm --network host \
+    -v "$GITHUB_WORKSPACE:$GITHUB_WORKSPACE:ro" \
+    -v "$root:$root" \
+    -v "$HOME/.ssh:$HOME/.ssh:ro" \
+    -w "$GITHUB_WORKSPACE" \
+    archlinux:base-devel "$@"
+}
+
 deployment_id="release-${RELEASE_TAG//[^A-Za-z0-9_.-]/-}-${GITHUB_RUN_ID:-manual}"
 printf 'format=1\ndeployment_id=%s\nrole=controller\ncreated_at_utc=%s\n' "$deployment_id" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$root/controller/.lmm-deploy-workspace"
 chmod 600 "$root/controller/.lmm-deploy-workspace"
-plan_result=$("$probe" deploy production plan --repo "$GITHUB_WORKSPACE" --workspace "$root/controller" --deployment-id "$deployment_id" \
+plan_result=$(run_probe "$probe" deploy production plan --repo "$GITHUB_WORKSPACE" --workspace "$root/controller" --deployment-id "$deployment_id" \
   --go-package "$go_candidate" --go-release-asset "$go_asset" --go-release-bundle "$go_bundle" \
   --go-rollback-package "$go_rollback" --go-rollback-release-asset "$go_rollback_asset" --go-rollback-release-bundle "$go_rollback_asset.sigstore.json" \
   --web-package "$web_candidate" --web-release-asset "$web_asset" --web-release-bundle "$web_bundle" \
@@ -160,5 +170,5 @@ plan_result=$("$probe" deploy production plan --repo "$GITHUB_WORKSPACE" --works
   --probe-binary "$probe" --operator-binary "$probe" --preserve-edge-policy)
 plan=$(jq -er '.data.plan' <<<"$plan_result")
 plan_sha=$(jq -er '.data.plan_sha256' <<<"$plan_result")
-"$probe" deploy production stage --plan "$plan" --plan-sha256 "$plan_sha" --confirm api.lmm.best
-"$probe" deploy production promote --plan "$plan" --plan-sha256 "$plan_sha" --confirm api.lmm.best
+run_probe "$probe" deploy production stage --plan "$plan" --plan-sha256 "$plan_sha" --confirm api.lmm.best
+run_probe "$probe" deploy production promote --plan "$plan" --plan-sha256 "$plan_sha" --confirm api.lmm.best
