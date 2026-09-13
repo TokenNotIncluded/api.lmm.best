@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { parseCatalog } from '../src/catalog.ts';
+import { admitCatalog, nativeModelId, parseCatalog, priceReport } from '../src/catalog.ts';
 
 const group = { id: 'ZGVmYXVsdA', name: 'default', scope: 'group:ZGVmYXVsdA', multiplier: 2 };
 const pricing = {
@@ -14,6 +14,21 @@ const model = {
   native_cost: { input: 1, output: 2, cacheRead: 0.1, cacheWrite: 0.2 },
 };
 const catalog = { schema_version: 1, resource: 'https://lmm.test/api/oauth2', updated_at: 1789240000, groups: [group], models: [model] };
+
+test('native selector displays readable group and model while retaining the wire identity', () => {
+  const parsed = parseCatalog(catalog, catalog.resource, 'group:ZGVmYXVsdA');
+  const admitted = admitCatalog(parsed, 'https://lmm.test', () => ({
+    api: 'openai-completions', contextWindow: 1000, maxTokens: 100, reasoning: false,
+    input: ['text'], compat: {}, provenance: 'test fixture',
+  }));
+  assert.equal(admitted[0]!.model!.id, 'default / gpt-test');
+  assert.equal(admitted[0]!.entry.id, model.id);
+  assert.ok(!priceReport(admitted).includes(model.id));
+  assert.equal(nativeModelId({ group: '国产[Kimi/Deepseek/GLM]', upstream_model: 'deepseek-v4-flash' }),
+    '国产[Kimi/Deepseek/GLM] / deepseek-v4-flash');
+  assert.notEqual(nativeModelId({ group: 'a / b', upstream_model: 'c' }), nativeModelId({ group: 'a', upstream_model: 'b / c' }));
+  assert.notEqual(nativeModelId({ group: 'a%20%2F%20b', upstream_model: 'c' }), nativeModelId({ group: 'a / b', upstream_model: 'c' }));
+});
 
 test('accepts matching native cost under configured base rates', () => {
   assert.equal(parseCatalog(catalog, catalog.resource, 'catalog:read balance:read models:invoke group:ZGVmYXVsdA').models[0]!.native_cost?.output, 2);

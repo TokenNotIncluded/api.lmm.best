@@ -1355,6 +1355,10 @@ func objectSchema(properties map[string]any, required []string) map[string]any {
 }
 
 func setAssistantRelayRequest(c *gin.Context, request assistantOpenAIRequest) error {
+	// Keep the server-selected model explicit for billing and error reporting.
+	// Synthetic review contexts do not pass through the normal distributor
+	// model extraction middleware.
+	common.SetContextKey(c, constant.ContextKeyOriginalModel, request.Model)
 	payload, err := common.MarshalLimit(request, assistantUpstreamRequestMaxBytes)
 	if err != nil {
 		return err

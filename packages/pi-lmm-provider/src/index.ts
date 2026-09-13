@@ -26,6 +26,10 @@ export default function lmmExtension(pi: ExtensionAPI): void {
     });
     const error = result.errors.get(PROVIDER_ID);
     if (error && ctx.hasUI) ctx.ui.notify(safeMessage(error), 'warning');
+    if (!error && ctx.model?.provider === PROVIDER_ID) {
+      const readableModel = integration.modelForLegacyId(ctx.model.id);
+      if (readableModel) await pi.setModel(readableModel);
+    }
   });
 
   pi.registerCommand('lmm-prices', {

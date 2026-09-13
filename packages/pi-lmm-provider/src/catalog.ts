@@ -99,6 +99,12 @@ export interface VerifiedCapabilities {
 export type CapabilityResolver = (entry: Readonly<CatalogEntry>) => VerifiedCapabilities | undefined;
 export interface Admission { entry: CatalogEntry; model?: Model<LmmApi>; reason?: string }
 
+/** Pi renders model.id in its native picker. Keep wire IDs separate from readable IDs. */
+export function nativeModelId(entry: Pick<CatalogEntry, 'group' | 'upstream_model'>): string {
+  const part = (value: string) => value.replaceAll('%', '%25').replaceAll(' / ', '%20%2F%20');
+  return `${part(entry.group)} / ${part(entry.upstream_model)}`;
+}
+
 export function admitCatalog(catalog: Catalog, issuer: string, resolve: CapabilityResolver = () => undefined): Admission[] {
   return catalog.models.map((entry) => {
     const capabilities = resolve(entry);
@@ -111,7 +117,7 @@ export function admitCatalog(catalog: Catalog, issuer: string, resolve: Capabili
     const multiplier = entry.pricing.group_multiplier === null ? 'unknown' : `${entry.pricing.group_multiplier}×`;
     const estimate = entry.pricing.price_basis === 'dynamic_estimate' ? ' · estimate' : '';
     const model: Model<LmmApi> = {
-      id: entry.id, name: `${entry.group} / ${entry.upstream_model} · group ${multiplier}${estimate}`,
+      id: nativeModelId(entry), name: `${entry.group} / ${entry.upstream_model} · group ${multiplier}${estimate}`,
       provider: PROVIDER_ID, api: capabilities.api,
       baseUrl: capabilities.api === 'anthropic-messages' ? issuer : `${issuer}/v1`,
       reasoning: capabilities.reasoning, input: [...capabilities.input], contextWindow: capabilities.contextWindow,
@@ -129,7 +135,7 @@ export function priceReport(admissions: readonly Admission[], filter = ''): stri
   const lines = selected.slice(0, 40).map(({ entry, reason }) => {
     const p = entry.pricing;
     return [
-      `${entry.group} / ${entry.upstream_model} (${entry.id})`,
+      `${entry.group} / ${entry.upstream_model}`,
       `  ${p.currency}/${p.unit}; ${p.price_basis}; group ×${amount(p.group_multiplier)}, trust ×${amount(p.trust_multiplier)} (already included)`,
       `  input ${amount(p.input)}, output ${amount(p.output)}, cache read ${amount(p.cache_read)}, cache write ${amount(p.cache_write)}, request ${amount(p.request)}`,
       `  ${reason ?? 'Select using native /model.'} Snapshot ${new Date(p.updated_at * 1000).toISOString()}.`,

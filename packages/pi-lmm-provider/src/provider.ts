@@ -181,7 +181,12 @@ export class LmmIntegration {
 
   private lookup(modelId: string, access: string): Admission | undefined {
     if (!this.current || this.current.expires <= Date.now() || this.current.accessHash !== fingerprint(access)) return undefined;
-    return this.current.admissions.find((item) => item.entry.id === modelId);
+    return this.current.admissions.find((item) => item.model?.id === modelId || item.entry.id === modelId);
+  }
+
+  modelForLegacyId(id: string) {
+    const model = this.current?.admissions.find((item) => item.entry.id === id)?.model;
+    return model ? structuredClone(model) : undefined;
   }
 
   async refreshBalance(access: string, signal?: AbortSignal): Promise<void> {

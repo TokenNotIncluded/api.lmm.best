@@ -9,6 +9,7 @@ import (
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/LIghtJUNction/api.lmm.best/constant"
+	relaycommon "github.com/LIghtJUNction/api.lmm.best/relay/common"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -61,6 +62,9 @@ func TestAssistantRelayRequestSetsUpstreamResponseBudget(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, assistantUpstreamResponseMaxBytes, common.GetContextKeyInt(context, constant.ContextKeyResponseByteLimit))
+	assert.Equal(t, "test", common.GetContextKeyString(context, constant.ContextKeyOriginalModel))
+	assert.Equal(t, "test", relaycommon.GenRelayInfoOpenAI(context, nil).OriginModelName,
+		"billing must see the configured model even without distributor middleware")
 }
 
 func TestAssistantClientResponseKeepsNormalizedBodyWithinBudget(t *testing.T) {

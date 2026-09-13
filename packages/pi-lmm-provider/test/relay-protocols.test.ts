@@ -179,7 +179,7 @@ for (const protocol of ["openai-responses", "anthropic-messages"] as const) {
           lmm_session: "protocol-session",
           scope,
         });
-        const selected = integration.provider.getModels().find((m) => m.id === id);
+        const selected = integration.provider.getModels().find((m) => m.id === `default / ${modelName}`);
         assert.ok(selected, "known vendor model must be admitted without a capability override");
         const events: AssistantMessageEvent[] = [];
         for await (const e of integration.provider.streamSimple!(
@@ -191,7 +191,8 @@ for (const protocol of ["openai-responses", "anthropic-messages"] as const) {
         const done = events.find((e) => e.type === "done");
         assert.ok(done?.type === "done", JSON.stringify(events));
         assert.equal(done.message.stopReason, "stop");
-        assert.equal(done.message.model, id);
+        assert.equal(done.message.model, `default / ${modelName}`);
+        assert.equal(integration.modelForLegacyId(id)?.id, selected.id);
         assert.deepEqual(
           done.message.content.filter((c) => c.type === "text").map((c) => c.text),
           ["hello"],
