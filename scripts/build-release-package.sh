@@ -15,6 +15,12 @@ case "$component" in
   *) printf 'unsupported package component\n' >&2; exit 2 ;;
 esac
 
+# makepkg's AUR prepare() hook verifies the signed release bundle. The
+# ArchLinux build container does not include cosign by default.
+if ! command -v cosign >/dev/null 2>&1; then
+  pacman -Sy --noconfirm --needed cosign
+fi
+
 build=$(mktemp -d /tmp/lmm-package.XXXXXX)
 trap 'rm -rf -- "$build"' EXIT
 # AUR recipes share helper files through repository-relative symlinks. The
