@@ -146,6 +146,35 @@ func TestProductionBillingShutdownRequiresPositiveCleanEvidence(t *testing.T) {
 	}
 }
 
+func TestProductionBillingShutdownAcceptsValidatedRefundCompletionReport(t *testing.T) {
+	valid := "received signal: terminated\nrefund_tasks execution_complete=true accepted=2 finished=2 active=0 failed=0 (execution completion is not financial success)\nserver exited\nerror text after report is absent"
+	if err := validateBillingShutdownJournal([]byte(valid)); err == nil {
+		t.Fatal("validated report with unrelated error text was accepted")
+	}
+	valid = "received signal: terminated\nrefund_tasks execution_complete=true accepted=2 finished=2 active=0 failed=0 (execution completion is not financial success)\nserver exited\nbatch update finished"
+	if err := validateBillingShutdownJournal([]byte(valid)); err != nil {
+		t.Fatal(err)
+	}
+	formatted := strings.Replace(valid, "refund_tasks", "[SYS] 2026/09/13 - 10:20:00 | refund_tasks", 1)
+	if err := validateBillingShutdownJournal([]byte(formatted)); err != nil {
+		t.Fatal(err)
+	}
+	for _, report := range []string{
+		"error before refund_tasks execution_complete=true accepted=2 finished=2 active=0 failed=0 (execution completion is not financial success)",
+		"refund_tasks execution_complete=true accepted=18446744073709551616 finished=18446744073709551616 active=0 failed=0 (execution completion is not financial success)",
+		"refund_tasks execution_complete=true accepted=2 finished=2 active=0",
+		"refund_tasks execution_complete=false accepted=2 finished=2 active=0 failed=0 (execution completion is not financial success)",
+		"refund_tasks execution_complete=true accepted=2 finished=1 active=0 failed=0 (execution completion is not financial success)",
+		"refund_tasks execution_complete=true accepted=2 finished=2 active=1 failed=0 (execution completion is not financial success)",
+		"refund_tasks execution_complete=true accepted=2 finished=2 active=0 failed=1 (execution completion is not financial success)",
+		"refund_tasks execution_complete=true accepted=2 finished=2 active=0 failed=0 (execution completion is not financial success)\nrefund_tasks execution_complete=true accepted=3 finished=3 active=0 failed=0 (execution completion is not financial success)",
+	} {
+		if err := validateBillingShutdownJournal([]byte("received signal: terminated\n" + report + "\nserver exited")); err == nil {
+			t.Fatalf("accepted invalid report %q", report)
+		}
+	}
+}
+
 func TestProductionBillingGateWaitsForExistingGeneration(t *testing.T) {
 	f := newProductionFixture(t)
 	reads := 0

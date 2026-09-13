@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -209,6 +210,32 @@ func countBillingConnections() (int, error) {
 
 func validateBillingShutdownJournal(out []byte) error {
 	text := strings.ToLower(string(out))
+	reportPattern := regexp.MustCompile(`^(?:\[sys\] [0-9]{4}/[0-9]{2}/[0-9]{2} - [0-9]{2}:[0-9]{2}:[0-9]{2} \| )?refund_tasks execution_complete=(true|false) accepted=([0-9]+) finished=([0-9]+) active=([0-9]+) failed=([0-9]+) \(execution completion is not financial success\)$`)
+	lines := strings.Split(text, "\n")
+	reportCount := 0
+	filtered := make([]string, 0, len(lines))
+	for _, line := range lines {
+		match := reportPattern.FindStringSubmatch(strings.TrimSpace(line))
+		if match == nil {
+			if strings.Contains(line, "refund_tasks") {
+				return errors.New("malformed refund task completion report")
+			}
+			filtered = append(filtered, line)
+			continue
+		}
+		reportCount++
+		if reportCount > 1 || match[1] != "true" {
+			return errors.New("refund task completion report is invalid")
+		}
+		accepted, errAccepted := strconv.ParseUint(match[2], 10, 64)
+		finished, errFinished := strconv.ParseUint(match[3], 10, 64)
+		active, errActive := strconv.ParseUint(match[4], 10, 64)
+		failed, errFailed := strconv.ParseUint(match[5], 10, 64)
+		if errAccepted != nil || errFinished != nil || errActive != nil || errFailed != nil || accepted != finished || active != 0 || failed != 0 {
+			return errors.New("refund task completion report is inconsistent")
+		}
+	}
+	text = strings.Join(filtered, "\n")
 	if !strings.Contains(text, "received signal:") || !strings.Contains(text, "server exited") {
 		return errors.New("missing writer shutdown journal evidence")
 	}
