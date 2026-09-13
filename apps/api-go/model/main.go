@@ -926,23 +926,28 @@ func migrateSubscriptionPlanPriceAmount() {
 }
 
 func closeDB(db *gorm.DB) error {
+	if db == nil {
+		return nil
+	}
 	sqlDB, err := db.DB()
 	if err != nil {
 		return err
 	}
-	err = sqlDB.Close()
-	return err
+	return sqlDB.Close()
 }
 
 // pi-lens-ignore: go-bare-error
 func CloseDB() error {
-	if LOG_DB != DB {
-		err := closeDB(LOG_DB)
-		if err != nil {
-			return err
-		}
+	var err error
+	if LOG_DB != nil && LOG_DB != DB {
+		err = errors.Join(err, closeDB(LOG_DB))
+		LOG_DB = nil
 	}
-	return closeDB(DB)
+	if DB != nil {
+		err = errors.Join(err, closeDB(DB))
+		DB = nil
+	}
+	return err
 }
 
 // checkMySQLChineseSupport ensures the MySQL connection and current schema
