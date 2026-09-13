@@ -378,6 +378,7 @@ describe('Drawing mobile controls', () => {
 
   test('loads configured MCP management and clears the old secret when switching keys', async () => {
     let tokenStatusKey = 1
+    let keyCreateCalls = 0
     api.get = (async (url: string) => {
       if (url === '/api/assistant/status') {
         return {
@@ -439,6 +440,19 @@ describe('Drawing mobile controls', () => {
                   used_quota: 2000000,
                   unlimited_quota: false,
                 },
+                ...(keyCreateCalls > 0
+                  ? [
+                      {
+                        id: 3,
+                        name: 'new-mcp-key',
+                        group: 'mobile-image-group',
+                        status: 1,
+                        remain_quota: 7000000,
+                        used_quota: 0,
+                        unlimited_quota: false,
+                      },
+                    ]
+                  : []),
               ],
             },
           },
@@ -454,7 +468,16 @@ describe('Drawing mobile controls', () => {
       }
       throw new Error(`unexpected GET ${url}`)
     }) as typeof api.get
-    api.post = (async (url: string) => {
+    api.post = (async (url: string, body?: unknown) => {
+      if (url === '/api/token/') {
+        keyCreateCalls += 1
+        assert.equal(
+          (body as { group_warning_confirmations: number })
+            .group_warning_confirmations,
+          2
+        )
+        return { data: { success: true, data: { id: 3 } } }
+      }
       assert.equal(url, '/api/drawing/mcp-token')
       return { data: { success: true, data: { token: 'secret-A' } } }
     }) as typeof api.post
@@ -494,6 +517,48 @@ describe('Drawing mobile controls', () => {
           '',
         /Unlimited/
       )
+      const createButton = [
+        ...rendered.container.querySelectorAll('button'),
+      ].find((button) =>
+        button.textContent?.includes('Create a new API key for MCP')
+      )
+      assert.ok(createButton)
+      await act(async () => {
+        createButton.click()
+        await flushEffects()
+      })
+      await act(
+        async () =>
+          await waitForCondition(
+            () =>
+              document.body.textContent?.includes(
+                'Confirm this drawing group'
+              ) ?? false,
+            'MCP key warning dialog did not open'
+          )
+      )
+      const confirmationButton = () =>
+        [...document.querySelectorAll('button')].find((button) =>
+          button.textContent?.includes('I understand, continue')
+        )
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        const confirm = confirmationButton()
+        assert.ok(confirm)
+        await act(async () => {
+          confirm.click()
+          await flushEffects()
+        })
+        assert.equal(keyCreateCalls, 0)
+      }
+      const finalCreate = [...document.querySelectorAll('button')].find(
+        (button) => button.textContent?.includes('Create and select key')
+      )
+      assert.ok(finalCreate)
+      await act(async () => {
+        finalCreate.click()
+        await flushEffects()
+      })
+      assert.equal(keyCreateCalls, 1)
       const keySelect = rendered.container.querySelector(
         '#drawing-mcp-api-key'
       ) as HTMLSelectElement | null
@@ -665,7 +730,23 @@ describe('Drawing generation failures', () => {
         }
         if (url === '/api/pricing') return { data: pricing }
         if (url === '/api/user/self/groups') {
-          return { data: { success: true, data: pricing.usable_group } }
+          return {
+            data: {
+              success: true,
+              data: {
+                ...pricing.usable_group,
+                'mobile-image-group': {
+                  ...pricing.usable_group['mobile-image-group'],
+                  warning: {
+                    enabled: true,
+                    message: 'Confirm this drawing group.',
+                    mode: 'modal',
+                    confirmations: 2,
+                  },
+                },
+              },
+            },
+          }
         }
         throw new Error(`unexpected GET ${url}`)
       }) as typeof api.get

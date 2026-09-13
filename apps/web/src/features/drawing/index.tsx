@@ -2025,102 +2025,108 @@ function DrawingWorkbench({ userId }: { userId: number }) {
             </section>
           ) : null}
         </div>
-      </SectionPageLayout.Content>
-      <Dialog
-        open={drawingMcpCreateOpen}
-        onOpenChange={setDrawingMcpCreateOpen}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{t('Create an API key for drawing MCP')}</DialogTitle>
-            <DialogDescription>
-              {t(
-                'Create a new key and bind MCP billing to it. The key secret stays in API key management.'
-              )}
-            </DialogDescription>
-          </DialogHeader>
-          <div className='grid gap-3'>
-            <Label htmlFor='drawing-mcp-create-name'>{t('Key name')}</Label>
-            <Input
-              id='drawing-mcp-create-name'
-              value={drawingMcpCreateName}
-              onChange={(event) => setDrawingMcpCreateName(event.target.value)}
-            />
-            <Label htmlFor='drawing-mcp-create-group'>
-              {t('Routing group')}
-            </Label>
-            <NativeSelect
-              id='drawing-mcp-create-group'
-              value={drawingMcpCreateGroup}
-              onChange={(event) => {
-                setDrawingMcpCreateGroup(event.target.value)
-                setDrawingMcpWarningConfirmations(0)
-              }}
-            >
-              {groups.map((name) => (
-                <NativeSelectOption key={name} value={name}>
-                  {name}
-                </NativeSelectOption>
-              ))}
-            </NativeSelect>
-            <Label htmlFor='drawing-mcp-create-quota'>
-              {t('Platform credit')} ({t('Optional').toLowerCase()})
-            </Label>
-            <Input
-              id='drawing-mcp-create-quota'
-              inputMode='decimal'
-              value={drawingMcpCreateQuota}
-              onChange={(event) => setDrawingMcpCreateQuota(event.target.value)}
-              placeholder={t('Leave empty for unlimited')}
-            />
-            {groupsQuery.data?.data?.[drawingMcpCreateGroup]?.warning
-              ?.enabled ? (
-              <Alert variant='destructive'>
-                <AlertTitle>{t('Group warning')}</AlertTitle>
-                <AlertDescription>
-                  {
-                    groupsQuery.data.data[drawingMcpCreateGroup].warning
-                      ?.message
-                  }
-                  <span className='mt-2 block'>
-                    {t('Confirmation {{current}} of {{total}}', {
-                      current: Math.min(
-                        drawingMcpWarningConfirmations + 1,
-                        groupsQuery.data.data[drawingMcpCreateGroup].warning
-                          ?.confirmations ?? 1
-                      ),
-                      total:
-                        groupsQuery.data.data[drawingMcpCreateGroup].warning
-                          ?.confirmations ?? 1,
-                    })}
-                  </span>
-                </AlertDescription>
-              </Alert>
-            ) : null}
-          </div>
-          <DialogFooter>
-            <Button
-              type='button'
-              variant='outline'
-              onClick={() => setDrawingMcpCreateOpen(false)}
-            >
-              {t('Cancel')}
-            </Button>
-            <Button type='button' onClick={() => void createDrawingMcpKey()}>
+        <Dialog
+          open={drawingMcpCreateOpen}
+          onOpenChange={setDrawingMcpCreateOpen}
+        >
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>
+                {t('Create an API key for drawing MCP')}
+              </DialogTitle>
+              <DialogDescription>
+                {t(
+                  'Create a new key and bind MCP billing to it. The key secret stays in API key management.'
+                )}
+              </DialogDescription>
+            </DialogHeader>
+            <div className='grid gap-3'>
+              <Label htmlFor='drawing-mcp-create-name'>{t('Key name')}</Label>
+              <Input
+                id='drawing-mcp-create-name'
+                value={drawingMcpCreateName}
+                onChange={(event) =>
+                  setDrawingMcpCreateName(event.target.value)
+                }
+              />
+              <Label htmlFor='drawing-mcp-create-group'>
+                {t('Routing group')}
+              </Label>
+              <NativeSelect
+                id='drawing-mcp-create-group'
+                value={drawingMcpCreateGroup}
+                onChange={(event) => {
+                  setDrawingMcpCreateGroup(event.target.value)
+                  setDrawingMcpWarningConfirmations(0)
+                }}
+              >
+                {groups.map((name) => (
+                  <NativeSelectOption key={name} value={name}>
+                    {name}
+                  </NativeSelectOption>
+                ))}
+              </NativeSelect>
+              <Label htmlFor='drawing-mcp-create-quota'>
+                {t('Platform credit')} ({t('Optional').toLowerCase()})
+              </Label>
+              <Input
+                id='drawing-mcp-create-quota'
+                inputMode='decimal'
+                value={drawingMcpCreateQuota}
+                onChange={(event) =>
+                  setDrawingMcpCreateQuota(event.target.value)
+                }
+                placeholder={t('Leave empty for unlimited')}
+              />
               {groupsQuery.data?.data?.[drawingMcpCreateGroup]?.warning
-                ?.enabled &&
-              drawingMcpWarningConfirmations <
-                Math.max(
-                  1,
-                  groupsQuery.data.data[drawingMcpCreateGroup].warning
-                    ?.confirmations ?? 1
-                )
-                ? t('I understand, continue')
-                : t('Create and select key')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+                ?.enabled ? (
+                <Alert variant='destructive'>
+                  <AlertTitle>{t('Group warning')}</AlertTitle>
+                  <AlertDescription>
+                    {
+                      groupsQuery.data.data[drawingMcpCreateGroup].warning
+                        ?.message
+                    }
+                    <span className='mt-2 block'>
+                      {t('Confirmation {{current}} of {{total}}', {
+                        current: Math.min(
+                          drawingMcpWarningConfirmations + 1,
+                          groupsQuery.data.data[drawingMcpCreateGroup].warning
+                            ?.confirmations ?? 1
+                        ),
+                        total:
+                          groupsQuery.data.data[drawingMcpCreateGroup].warning
+                            ?.confirmations ?? 1,
+                      })}
+                    </span>
+                  </AlertDescription>
+                </Alert>
+              ) : null}
+            </div>
+            <DialogFooter>
+              <Button
+                type='button'
+                variant='outline'
+                onClick={() => setDrawingMcpCreateOpen(false)}
+              >
+                {t('Cancel')}
+              </Button>
+              <Button type='button' onClick={() => void createDrawingMcpKey()}>
+                {groupsQuery.data?.data?.[drawingMcpCreateGroup]?.warning
+                  ?.enabled &&
+                drawingMcpWarningConfirmations <
+                  Math.max(
+                    1,
+                    groupsQuery.data.data[drawingMcpCreateGroup].warning
+                      ?.confirmations ?? 1
+                  )
+                  ? t('I understand, continue')
+                  : t('Create and select key')}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </SectionPageLayout.Content>
     </SectionPageLayout>
   )
 }
