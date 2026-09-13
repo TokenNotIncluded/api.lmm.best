@@ -2,6 +2,7 @@ package controller
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/LIghtJUNction/api.lmm.best/model"
@@ -9,7 +10,8 @@ import (
 )
 
 type drawingMCPTokenRequest struct {
-	ApiKeyId int `json:"api_key_id"`
+	ApiKeyId     int    `json:"api_key_id"`
+	DefaultModel string `json:"default_model,omitempty"`
 }
 
 func GetDrawingMCPAPIKeys(c *gin.Context) {
@@ -36,7 +38,29 @@ func RotateDrawingMCPToken(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "api_key_id is required"})
 		return
 	}
-	token, status, err := model.RotateDrawingMCPToken(c.GetInt("id"), req.ApiKeyId)
+	user, err := drawingMCPAuthorizedUser(c.GetInt("id"))
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	group, err := drawingMCPBoundGroup(user, req.ApiKeyId)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	defaultModel := strings.TrimSpace(req.DefaultModel)
+	if defaultModel != "" {
+		resolved, resolveErr := drawingMCPResolveInput(user, drawingMCPGenerateInput{Prompt: "default model validation", Group: group, Model: defaultModel, N: 1})
+		if resolveErr != nil {
+			common.ApiError(c, resolveErr)
+			return
+		}
+		if err := drawingMCPValidateBoundModel(user.Id, req.ApiKeyId, group, resolved.Model); err != nil {
+			common.ApiError(c, err)
+			return
+		}
+	}
+	token, status, err := model.RotateDrawingMCPToken(c.GetInt("id"), req.ApiKeyId, defaultModel)
 	if err != nil {
 		common.ApiError(c, err)
 		return

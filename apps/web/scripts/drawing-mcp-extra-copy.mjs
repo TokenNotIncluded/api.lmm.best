@@ -25,6 +25,11 @@ const en = {
     'Unable to revoke the drawing MCP token.',
   'Unable to rotate the drawing MCP token.':
     'Unable to rotate the drawing MCP token.',
+  'Prepare an API key for MCP': 'Prepare an API key for MCP',
+  'Default drawing model': 'Default drawing model',
+  'Automatic (first available model)': 'Automatic (first available model)',
+  'Calls may switch to another available model allowed by this API key. Generate or rotate the MCP token to apply changes.':
+    'Calls may switch to another available model allowed by this API key. Generate or rotate the MCP token to apply changes.',
   Unavailable: 'Unavailable',
   remaining: 'remaining',
 }
@@ -51,6 +56,11 @@ const zh = {
   'Unable to create and select the API key.': '无法创建并选择 API 密钥。',
   'Unable to revoke the drawing MCP token.': '无法撤销绘图 MCP 令牌。',
   'Unable to rotate the drawing MCP token.': '无法轮换绘图 MCP 令牌。',
+  'Prepare an API key for MCP': '为 MCP 准备 API 密钥',
+  'Default drawing model': '默认绘图模型',
+  'Automatic (first available model)': '自动（首个可用模型）',
+  'Calls may switch to another available model allowed by this API key. Generate or rotate the MCP token to apply changes.':
+    '调用时可以切换为此 API 密钥允许的其他可用模型。生成或轮换 MCP 令牌后更改才会生效。',
   Unavailable: '不可用',
   remaining: '剩余',
 }
@@ -77,6 +87,11 @@ const zhTW = {
   'Unable to create and select the API key.': '無法建立並選取 API 金鑰。',
   'Unable to revoke the drawing MCP token.': '無法撤銷繪圖 MCP 權杖。',
   'Unable to rotate the drawing MCP token.': '無法輪換繪圖 MCP 權杖。',
+  'Prepare an API key for MCP': '為 MCP 準備 API 金鑰',
+  'Default drawing model': '預設繪圖模型',
+  'Automatic (first available model)': '自動（第一個可用模型）',
+  'Calls may switch to another available model allowed by this API key. Generate or rotate the MCP token to apply changes.':
+    '呼叫時可以切換為此 API 金鑰允許的其他可用模型。產生或輪換 MCP 權杖後變更才會生效。',
   Unavailable: '不可用',
   remaining: '剩餘',
 }
@@ -106,6 +121,12 @@ const fr = {
     'Impossible de révoquer le jeton MCP dessin.',
   'Unable to rotate the drawing MCP token.':
     'Impossible de faire tourner le jeton MCP dessin.',
+  'Prepare an API key for MCP': 'Préparer une clé API pour MCP',
+  'Default drawing model': 'Modèle de dessin par défaut',
+  'Automatic (first available model)':
+    'Automatique (premier modèle disponible)',
+  'Calls may switch to another available model allowed by this API key. Generate or rotate the MCP token to apply changes.':
+    'Les appels peuvent utiliser un autre modèle disponible autorisé par cette clé API. Générez ou renouvelez le jeton MCP pour appliquer les modifications.',
   Unavailable: 'Indisponible',
   remaining: 'restant',
 }
@@ -135,6 +156,11 @@ const ja = {
     '描画 MCP トークンを取り消せません。',
   'Unable to rotate the drawing MCP token.':
     '描画 MCP トークンを更新できません。',
+  'Prepare an API key for MCP': 'MCP 用 API キーを準備',
+  'Default drawing model': 'デフォルトの描画モデル',
+  'Automatic (first available model)': '自動（最初の利用可能なモデル）',
+  'Calls may switch to another available model allowed by this API key. Generate or rotate the MCP token to apply changes.':
+    '呼び出し時に、この API キーで許可された別の利用可能なモデルへ切り替えられます。変更を適用するには MCP トークンを生成または更新してください。',
   Unavailable: '利用不可',
   remaining: '残り',
 }
@@ -164,6 +190,12 @@ const ru = {
     'Не удалось отозвать токен графического MCP.',
   'Unable to rotate the drawing MCP token.':
     'Не удалось обновить токен графического MCP.',
+  'Prepare an API key for MCP': 'Подготовить API-ключ для MCP',
+  'Default drawing model': 'Модель рисования по умолчанию',
+  'Automatic (first available model)':
+    'Автоматически (первая доступная модель)',
+  'Calls may switch to another available model allowed by this API key. Generate or rotate the MCP token to apply changes.':
+    'При вызове можно выбрать другую доступную модель, разрешённую этим API-ключом. Чтобы применить изменения, создайте или обновите токен MCP.',
   Unavailable: 'Недоступно',
   remaining: 'осталось',
 }
@@ -191,6 +223,11 @@ const vi = {
   'Unable to revoke the drawing MCP token.': 'Không thể thu hồi token MCP vẽ.',
   'Unable to rotate the drawing MCP token.':
     'Không thể xoay vòng token MCP vẽ.',
+  'Prepare an API key for MCP': 'Chuẩn bị khóa API cho MCP',
+  'Default drawing model': 'Mô hình vẽ mặc định',
+  'Automatic (first available model)': 'Tự động (mô hình khả dụng đầu tiên)',
+  'Calls may switch to another available model allowed by this API key. Generate or rotate the MCP token to apply changes.':
+    'Lệnh gọi có thể chuyển sang mô hình khả dụng khác mà khóa API này cho phép. Hãy tạo hoặc xoay vòng token MCP để áp dụng thay đổi.',
   Unavailable: 'Không khả dụng',
   remaining: 'còn lại',
 }

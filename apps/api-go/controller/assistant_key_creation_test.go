@@ -222,6 +222,9 @@ func TestAssistantKeyConfirmationIsSessionBoundOneTimeAndOpaque(t *testing.T) {
 	var tokenCount int64
 	require.NoError(t, db.Model(&model.Token{}).Where("user_id = ?", user.Id).Count(&tokenCount).Error)
 	assert.EqualValues(t, 1, tokenCount)
+	var createdToken model.Token
+	require.NoError(t, db.Where("user_id = ?", user.Id).First(&createdToken).Error)
+	assert.Equal(t, model.TokenCreationSourceAssistant, createdToken.CreationSource)
 }
 
 func TestAssistantKeyConfirmationRejectsStaleAuthoritativeStateAndRollsBack(t *testing.T) {

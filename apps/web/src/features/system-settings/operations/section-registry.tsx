@@ -56,6 +56,10 @@ const HeroSmsSettingsSection = lazyNamedSection(
   () => import('./hero-sms-settings-section.js'),
   'HeroSmsSettingsSection'
 )
+const ScriptsSettingsSection = lazyNamedSection(
+  () => import('@/features/scripts/scripts-panel.js'),
+  'ScriptsSettingsSection'
+)
 
 const OPERATIONS_SECTIONS = [
   {
@@ -181,6 +185,11 @@ const OPERATIONS_SECTIONS = [
         startTime={startTime}
       />
     ),
+  },
+  {
+    id: 'scripts',
+    titleKey: 'Scripts',
+    build: () => <ScriptsSettingsSection />,
   },
 ] as const
 

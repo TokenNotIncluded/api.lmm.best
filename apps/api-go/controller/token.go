@@ -122,13 +122,18 @@ func setTokenAutoGroups(c *gin.Context, token *model.Token, groups []string) boo
 
 func GetAllTokens(c *gin.Context) {
 	userId := c.GetInt("id")
+	creationMode := c.Query("creation_mode")
 	pageInfo := common.GetPageQuery(c)
-	tokens, err := model.GetAllUserTokens(userId, pageInfo.GetStartIdx(), pageInfo.GetPageSize())
+	tokens, err := model.GetUserTokensByCreationMode(userId, pageInfo.GetStartIdx(), pageInfo.GetPageSize(), creationMode)
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	total, _ := model.CountUserTokens(userId)
+	total, err := model.CountUserTokensByCreationMode(userId, creationMode)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
 	pageInfo.SetTotal(int(total))
 	pageInfo.SetItems(buildMaskedTokenResponses(tokens))
 	common.ApiSuccess(c, pageInfo)
@@ -138,10 +143,11 @@ func SearchTokens(c *gin.Context) {
 	userId := c.GetInt("id")
 	keyword := c.Query("keyword")
 	token := c.Query("token")
+	creationMode := c.Query("creation_mode")
 
 	pageInfo := common.GetPageQuery(c)
 
-	tokens, total, err := model.SearchUserTokens(userId, keyword, token, pageInfo.GetStartIdx(), pageInfo.GetPageSize())
+	tokens, total, err := model.SearchUserTokensByCreationMode(userId, keyword, token, pageInfo.GetStartIdx(), pageInfo.GetPageSize(), creationMode)
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -381,6 +387,7 @@ func AddToken(c *gin.Context) {
 		Group:              token.Group,
 		CrossGroupRetry:    token.CrossGroupRetry,
 		AutoGroups:         token.AutoGroups,
+		CreationSource:     model.TokenCreationSourceManual,
 	}
 	err = model.InsertTokenAndActivateConsole(&cleanToken)
 	if err != nil {

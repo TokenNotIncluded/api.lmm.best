@@ -33,6 +33,7 @@ import {
   ListTodo,
   Medal,
   MessageSquare,
+  MonitorCog,
   PhoneCall,
   Radio,
   RotateCcw,
@@ -182,6 +183,11 @@ export function useSidebarData(): SidebarData {
             title: t('Drawing studio'),
             url: '/drawing',
             icon: ImageIcon,
+          },
+          {
+            title: t('Remote control'),
+            url: '/remote-control',
+            icon: MonitorCog,
           },
           {
             title: t('Usage Logs'),
