@@ -89,14 +89,11 @@ download_release "$RELEASE_TAG" "$root/assets" "$component"
 inventory=$(ssh ArchDmit 'set -eu
 for package in lmm-api-go-bin lmm-api-web-bin; do
   version=$(pacman -Q "$package" | awk "{print \$2}")
-  path=$(find /var/cache/pacman/pkg -maxdepth 1 -type f -name "$package-$version-*.pkg.tar.*" -print -quit)
-  test -n "$path"
-  printf "%s\t%s\t%s\n" "$package" "$version" "$path"
+  printf "%s\t%s\n" "$package" "$version"
 done')
-declare -A installed_path installed_version
-while IFS=$'\t' read -r package pkgver path; do
-  [[ "$package" =~ ^lmm-api-(go|web)-bin$ && "$path" == /var/cache/pacman/pkg/* ]]
-  installed_path["$package"]=$path
+declare -A installed_version
+while IFS=$'\t' read -r package pkgver; do
+  [[ "$package" =~ ^lmm-api-(go|web)-bin$ && "$pkgver" =~ ^[0-9]+\.[0-9]+\.[0-9]+-[1-9][0-9]*(\.[0-9]+)?$ ]]
   installed_version["$package"]=$pkgver
 done <<<"$inventory"
 
@@ -104,13 +101,21 @@ fetch_rollback() {
   local package=$1 release_component=$2 release_prefix=$3
   local pkgver=${installed_version[$package]}
   local release_version=${pkgver%-*}
-  local path=${installed_path[$package]}
-  scp "ArchDmit:$path" "$root/rollback/$package.pkg.tar.zst"
-  [[ -s "$root/rollback/$package.pkg.tar.zst" ]]
   download_release "${release_prefix}${release_version}" "$root/rollback/$package" "$release_component"
 }
 fetch_rollback lmm-api-go-bin go go-v
 fetch_rollback lmm-api-web-bin web web-v
+
+for rollback_component in go web; do
+  rollback_package="lmm-api-${rollback_component}-bin"
+  rollback_pkgver=${installed_version[$rollback_package]}
+  rollback_version=${rollback_pkgver%-*}
+  rollback_pkgrel=${rollback_pkgver##*-}
+  docker run --rm --network host -v "$GITHUB_WORKSPACE:/repo:ro" -v "$root:/work" archlinux:base-devel \
+    bash /repo/scripts/build-release-package.sh "$rollback_component" "$rollback_version" \
+      "/work/rollback/$rollback_package" "/work/rollback/$rollback_package.pkg.tar.zst" \
+      /repo "$rollback_pkgrel"
+done
 
 if [[ "$component" == go ]]; then
   docker run --rm --network host -v "$GITHUB_WORKSPACE:/repo:ro" -v "$root:/work" archlinux:base-devel \

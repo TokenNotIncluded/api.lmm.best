@@ -6,6 +6,8 @@ version=${2:?release version is required}
 assets=${3:?asset directory is required}
 output=${4:?output package path is required}
 repo=${5:?repository root is required}
+package_release=${6:-1}
+[[ "$package_release" =~ ^[1-9][0-9]*(\.[0-9]+)?$ ]]
 
 case "$component" in
   go) package_name=lmm-api-go-bin; recipe="$repo/packaging/aur/lmm-api-go-bin" ;;
@@ -17,6 +19,7 @@ build=$(mktemp -d /tmp/lmm-package.XXXXXX)
 trap 'rm -rf -- "$build"' EXIT
 cp -a "$recipe/." "$build/"
 sed -i -E "s/^pkgver=.*/pkgver=${version}/" "$build/PKGBUILD"
+sed -i -E "s/^pkgrel=.*/pkgrel=${package_release}/" "$build/PKGBUILD"
 
 asset=$(find "$assets" -maxdepth 1 -type f -name "lmm-api-${component}-${version}*.tar.gz" -print -quit)
 [[ -n "$asset" && -f "$asset" ]]
