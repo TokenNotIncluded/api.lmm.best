@@ -85,7 +85,7 @@ func ResolveDrawingToken(userID int, group string, groupAllowed func(string, str
 		token = Token{
 			UserId: userID, Key: key, Name: "drawing-image-2", Group: DrawingTokenGroup,
 			Status: common.TokenStatusEnabled, CreatedTime: now, AccessedTime: now,
-			ExpiredTime: -1, UnlimitedQuota: true,
+			ExpiredTime: -1, UnlimitedQuota: true, CreationSource: TokenCreationSourceDrawingMCP,
 		}
 		if err := tx.Create(&token).Error; err != nil {
 			return err

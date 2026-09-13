@@ -31,22 +31,25 @@ type DrawingMCPToken struct {
 	CreatedAt       int64  `json:"created_at" gorm:"bigint;not null"`
 	RotatedAt       int64  `json:"rotated_at" gorm:"bigint;not null"`
 	LastUsedAt      int64  `json:"last_used_at" gorm:"bigint;not null;default:0"`
+	DefaultModel    string `json:"default_model" gorm:"type:varchar(64);not null;default:''"`
 }
 
 func (DrawingMCPToken) TableName() string { return "drawing_mcp_tokens" }
 
 type DrawingMCPTokenStatus struct {
-	Configured bool   `json:"configured"`
-	ApiKeyId   int    `json:"api_key_id,omitempty"`
-	TokenHint  string `json:"token_hint,omitempty"`
-	CreatedAt  int64  `json:"created_at,omitempty"`
-	RotatedAt  int64  `json:"rotated_at,omitempty"`
-	LastUsedAt int64  `json:"last_used_at,omitempty"`
+	Configured   bool   `json:"configured"`
+	ApiKeyId     int    `json:"api_key_id,omitempty"`
+	TokenHint    string `json:"token_hint,omitempty"`
+	CreatedAt    int64  `json:"created_at,omitempty"`
+	RotatedAt    int64  `json:"rotated_at,omitempty"`
+	LastUsedAt   int64  `json:"last_used_at,omitempty"`
+	DefaultModel string `json:"default_model,omitempty"`
 }
 
 type DrawingMCPTokenIdentity struct {
-	UserId   int
-	ApiKeyId int
+	UserId       int
+	ApiKeyId     int
+	DefaultModel string
 }
 
 type DrawingMCPAPIKey struct {
@@ -115,7 +118,7 @@ func validateDrawingMCPKey(tx *gorm.DB, userId, apiKeyId int) (*Token, error) {
 	return &token, nil
 }
 
-func RotateDrawingMCPToken(userId, apiKeyId int) (string, *DrawingMCPTokenStatus, error) {
+func RotateDrawingMCPToken(userId, apiKeyId int, defaultModels ...string) (string, *DrawingMCPTokenStatus, error) {
 	if userId <= 0 || apiKeyId <= 0 {
 		return "", nil, ErrDrawingMCPForbidden
 	}
@@ -124,6 +127,10 @@ func RotateDrawingMCPToken(userId, apiKeyId int) (string, *DrawingMCPTokenStatus
 		return "", nil, err
 	}
 	now := common.GetTimestamp()
+	defaultModel := ""
+	if len(defaultModels) > 0 {
+		defaultModel = strings.TrimSpace(defaultModels[0])
+	}
 	var status DrawingMCPTokenStatus
 	err = DB.Transaction(func(tx *gorm.DB) error {
 		var user User
@@ -140,19 +147,19 @@ func RotateDrawingMCPToken(userId, apiKeyId int) (string, *DrawingMCPTokenStatus
 		record := DrawingMCPToken{
 			UserId: userId, ApiKeyId: apiKeyId, UserAuthVersion: user.AuthVersion,
 			TokenHash: drawingMCPTokenHash(token), TokenHint: drawingMCPTokenHint(token),
-			CreatedAt: now, RotatedAt: now,
+			CreatedAt: now, RotatedAt: now, DefaultModel: defaultModel,
 		}
 		if err := tx.Clauses(clause.OnConflict{
 			Columns: []clause.Column{{Name: "user_id"}},
 			DoUpdates: clause.Assignments(map[string]any{
 				"api_key_id": apiKeyId, "user_auth_version": user.AuthVersion,
 				"token_hash": record.TokenHash, "token_hint": record.TokenHint,
-				"rotated_at": now, "last_used_at": 0,
+				"rotated_at": now, "last_used_at": 0, "default_model": defaultModel,
 			}),
 		}).Create(&record).Error; err != nil {
 			return err
 		}
-		status = DrawingMCPTokenStatus{Configured: true, ApiKeyId: apiKeyId, TokenHint: record.TokenHint, CreatedAt: record.CreatedAt, RotatedAt: record.RotatedAt}
+		status = DrawingMCPTokenStatus{Configured: true, ApiKeyId: apiKeyId, TokenHint: record.TokenHint, CreatedAt: record.CreatedAt, RotatedAt: record.RotatedAt, DefaultModel: defaultModel}
 		return nil
 	})
 	if err != nil {
@@ -185,7 +192,7 @@ func GetDrawingMCPTokenStatus(userId int) (*DrawingMCPTokenStatus, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &DrawingMCPTokenStatus{Configured: true, ApiKeyId: token.ApiKeyId, TokenHint: token.TokenHint, CreatedAt: token.CreatedAt, RotatedAt: token.RotatedAt, LastUsedAt: token.LastUsedAt}, nil
+	return &DrawingMCPTokenStatus{Configured: true, ApiKeyId: token.ApiKeyId, TokenHint: token.TokenHint, CreatedAt: token.CreatedAt, RotatedAt: token.RotatedAt, LastUsedAt: token.LastUsedAt, DefaultModel: token.DefaultModel}, nil
 }
 
 func RevokeDrawingMCPToken(userId int) error {
@@ -213,5 +220,5 @@ func VerifyDrawingMCPToken(rawToken string) (DrawingMCPTokenIdentity, error) {
 	if token.LastUsedAt < now-60 {
 		_ = DB.Model(&DrawingMCPToken{}).Where("id = ? AND last_used_at < ?", token.Id, now-60).UpdateColumn("last_used_at", now).Error
 	}
-	return DrawingMCPTokenIdentity{UserId: token.UserId, ApiKeyId: token.ApiKeyId}, nil
+	return DrawingMCPTokenIdentity{UserId: token.UserId, ApiKeyId: token.ApiKeyId, DefaultModel: token.DefaultModel}, nil
 }

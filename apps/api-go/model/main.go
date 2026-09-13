@@ -372,6 +372,14 @@ func migrateDB() error {
 	if err != nil {
 		return err
 	}
+	if err := DB.Model(&Token{}).Where("creation_source IS NULL OR creation_source = ?", "").UpdateColumn("creation_source", TokenCreationSourceManual).Error; err != nil {
+		return fmt.Errorf("backfill token creation source: %w", err)
+	}
+	if err := DB.Model(&Token{}).
+		Where("oauth_managed = ? AND creation_source = ? AND name LIKE ?", false, TokenCreationSourceManual, "%的初始令牌").
+		UpdateColumn("creation_source", TokenCreationSourceSystem).Error; err != nil {
+		return fmt.Errorf("backfill system-created initial token source: %w", err)
+	}
 	if common.UsingMainDatabase(common.DatabaseTypePostgreSQL) {
 		if err := ensureCompanyBillingProfilePostgresContract(DB); err != nil {
 			return err

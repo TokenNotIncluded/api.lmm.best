@@ -136,15 +136,17 @@ func DecideAssistantNewUserGift(userID int, conversationID int64, amountCents in
 	if userID <= 0 || conversationID < 0 || amountCents < 0 || amountCents > assistantGiftMaxCents {
 		return nil, false, assistantGiftError("invalid_decision", ErrAssistantGiftInvalid)
 	}
-	// The controller counts each user turn only when it has at least four
-	// runes. Requiring two such turns is the actual product rule; a second
-	// language-dependent total-rune threshold would reject concise but valid
-	// conversations (for example, short Chinese project descriptions).
-	if substantiveTurns < 2 || substantiveRunes < 8 {
+	// Two short labels such as "code assistant" and a client name are not
+	// enough evidence for a cash-equivalent reward. Require a concrete amount
+	// of user-authored context in addition to multiple substantive turns.
+	if substantiveTurns < 2 || substantiveRunes < 24 {
 		return nil, false, assistantGiftError("insufficient_conversation", ErrAssistantGiftInvalid)
 	}
 	reason = strings.TrimSpace(redactAssistantHandoffMessage(reason))
-	if len([]rune(reason)) < 2 || len([]rune(reason)) > 240 {
+	// A model must provide a concrete purpose, not a one-word acknowledgement
+	// or an amount-only request. This check is intentionally in the model layer
+	// so direct tool/API callers cannot bypass the product eligibility policy.
+	if len([]rune(reason)) < 8 || len([]rune(reason)) > 240 {
 		return nil, false, assistantGiftError("invalid_decision", ErrAssistantGiftInvalid)
 	}
 

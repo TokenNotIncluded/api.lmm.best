@@ -230,12 +230,21 @@ func (s *OAuthIntegration) ConsentQuery(raw string, user *model.User) (string, [
 		return "", nil, err
 	}
 	requested := strings.Split(query.Get("scope"), " ")
-	expected := []string{OAuthCatalogScope, OAuthBalanceScope, OAuthInvokeScope}
-	expected = append(expected, OAuthBuiltinMCPScopes()...)
+	baseExpected := []string{OAuthCatalogScope, OAuthBalanceScope, OAuthInvokeScope}
+	expected := append([]string(nil), baseExpected...)
+	fullExpected := append(append([]string(nil), baseExpected...), OAuthBuiltinMCPScopes()...)
 	slices.Sort(requested)
 	slices.Sort(expected)
-	if !slices.Equal(requested, expected) {
+	slices.Sort(fullExpected)
+	if !slices.Equal(requested, expected) && !slices.Equal(requested, fullExpected) {
 		return "", nil, ErrOAuthDenied
+	}
+	// Older clients do not request built-in MCP scopes. Include the optional
+	// scopes in the consent snapshot so newer resource endpoints can be used
+	// after the user explicitly approves the same consent screen.
+	if slices.Equal(requested, expected) {
+		requested = append(requested, OAuthBuiltinMCPScopes()...)
+		slices.Sort(requested)
 	}
 	groups := s.AllowedGroups(user)
 	if len(groups) == 0 {

@@ -37,6 +37,7 @@ import {
   localizeAssistantPreConversationPresets,
 } from '@/features/assistant/assistant-prompt-presets'
 import { getAssistantPromptValidation } from '@/features/assistant/assistant-prompt-validation'
+import { PublicScriptsPanel } from '@/features/scripts/scripts-panel'
 import { useStatus } from '@/hooks/use-status'
 import { useTopNavLinks } from '@/hooks/use-top-nav-links'
 import { isConsoleActivated } from '@/lib/console-activation'
@@ -525,6 +526,16 @@ export function ForgeHome() {
               </Link>
             )}
           </div>
+        </section>
+
+        <section
+          className='forge-home-section'
+          aria-labelledby='forge-home-scripts-title'
+        >
+          <div className='forge-home-section-heading'>
+            <h2 id='forge-home-scripts-title'>{t('Scripts')}</h2>
+          </div>
+          <PublicScriptsPanel />
         </section>
 
         <section

@@ -97,6 +97,11 @@ func TestDrawingMCPAuthenticationDiscoveryAndConfirmation(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.True(t, invalid.IsError)
+	invalidModel, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "drawing.generate", Arguments: map[string]any{"prompt": "draw a safe test image", "model": "not-an-image-model"},
+	})
+	require.NoError(t, err)
+	assert.True(t, invalidModel.IsError, "an explicit model must not bypass the image catalog")
 }
 
 func TestDrawingMCPConfirmationRejectsForgeryWrongPayloadReplayAndDoubleSubmit(t *testing.T) {

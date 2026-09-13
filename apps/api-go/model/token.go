@@ -11,6 +11,16 @@ import (
 	"gorm.io/gorm/clause"
 )
 
+const (
+	TokenCreationSourceManual     = "manual"
+	TokenCreationSourceSystem     = "system"
+	TokenCreationSourceDrawingMCP = "drawing_mcp"
+	TokenCreationSourceAssistant  = "assistant"
+
+	TokenCreationModeManual    = "manual"
+	TokenCreationModeAutomatic = "automatic"
+)
+
 type Token struct {
 	Id                 int            `json:"id"`
 	UserId             int            `json:"user_id" gorm:"index"`
@@ -30,6 +40,7 @@ type Token struct {
 	CrossGroupRetry    bool           `json:"cross_group_retry"` // 跨分组重试，仅auto分组有效
 	AutoGroups         string         `json:"-" gorm:"type:text"`
 	OAuthManaged       bool           `json:"-" gorm:"column:oauth_managed;not null;default:false;index"`
+	CreationSource     string         `json:"creation_source" gorm:"type:varchar(32);not null;default:manual;index"`
 	DeletedAt          gorm.DeletedAt `gorm:"index"`
 }
 
@@ -111,10 +122,34 @@ func (token *Token) GetIpLimits() []string {
 }
 
 func GetAllUserTokens(userId int, startIdx int, num int) ([]*Token, error) {
+	return GetUserTokensByCreationMode(userId, startIdx, num, "")
+}
+
+func GetUserTokensByCreationMode(userId int, startIdx int, num int, creationMode string) ([]*Token, error) {
 	var tokens []*Token
-	var err error
-	err = DB.Where("user_id = ? AND oauth_managed = ?", userId, false).Order("id desc").Limit(num).Offset(startIdx).Find(&tokens).Error
+	query, err := filterTokensByCreationMode(
+		DB.Where("user_id = ? AND oauth_managed = ?", userId, false),
+		creationMode,
+	)
+	if err != nil {
+		return nil, err
+	}
+	err = query.Order("id desc").Limit(num).Offset(startIdx).Find(&tokens).Error
 	return tokens, err
+}
+
+func filterTokensByCreationMode(query *gorm.DB, creationMode string) (*gorm.DB, error) {
+	switch creationMode {
+	case "":
+		return query, nil
+	case TokenCreationModeManual:
+		// Treat legacy blank rows as manual until the startup migration backfills them.
+		return query.Where("creation_source = ? OR creation_source IS NULL OR creation_source = ''", TokenCreationSourceManual), nil
+	case TokenCreationModeAutomatic:
+		return query.Where("creation_source IS NOT NULL AND creation_source <> '' AND creation_source <> ?", TokenCreationSourceManual), nil
+	default:
+		return nil, errors.New("无效的令牌创建方式")
+	}
 }
 
 // sanitizeLikePattern 校验并清洗用户输入的 LIKE 搜索模式。
@@ -164,6 +199,10 @@ func validateLikePattern(input string) error {
 const searchHardLimit = 100
 
 func SearchUserTokens(userId int, keyword string, token string, offset int, limit int) (tokens []*Token, total int64, err error) {
+	return SearchUserTokensByCreationMode(userId, keyword, token, offset, limit, "")
+}
+
+func SearchUserTokensByCreationMode(userId int, keyword string, token string, offset int, limit int, creationMode string) (tokens []*Token, total int64, err error) {
 	// model 层强制截断
 	if limit <= 0 || limit > searchHardLimit {
 		limit = searchHardLimit
@@ -191,6 +230,10 @@ func SearchUserTokens(userId int, keyword string, token string, offset int, limi
 	}
 
 	baseQuery := DB.Model(&Token{}).Where("user_id = ? AND oauth_managed = ?", userId, false)
+	baseQuery, err = filterTokensByCreationMode(baseQuery, creationMode)
+	if err != nil {
+		return nil, 0, err
+	}
 
 	// 非空才加 LIKE 条件，空则跳过（不过滤该字段）
 	if keyword != "" {
@@ -434,8 +477,19 @@ func decreaseTokenQuota(id int, quota int) (err error) {
 
 // CountUserTokens returns total number of tokens for the given user, used for pagination
 func CountUserTokens(userId int) (int64, error) {
+	return CountUserTokensByCreationMode(userId, "")
+}
+
+func CountUserTokensByCreationMode(userId int, creationMode string) (int64, error) {
 	var total int64
-	err := DB.Model(&Token{}).Where("user_id = ? AND oauth_managed = ?", userId, false).Count(&total).Error
+	query, err := filterTokensByCreationMode(
+		DB.Model(&Token{}).Where("user_id = ? AND oauth_managed = ?", userId, false),
+		creationMode,
+	)
+	if err != nil {
+		return 0, err
+	}
+	err = query.Count(&total).Error
 	return total, err
 }
 

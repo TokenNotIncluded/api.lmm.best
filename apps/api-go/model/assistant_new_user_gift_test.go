@@ -147,11 +147,15 @@ func TestAssistantNewUserGiftRejectsIneligibleOrShallowDecisions(t *testing.T) {
 	_, _, err := DecideAssistantNewUserGift(user.Id, 0, 100, "Too early.", 1, 100, "198.51.100.20")
 	assert.ErrorIs(t, err, ErrAssistantGiftInvalid)
 	assert.Equal(t, "insufficient_conversation", AssistantGiftErrorCode(err))
+	shortReasonUser := newAssistantGiftUser(t, db, "short-reason-user", "short-reason@example.com")
+	_, _, err = DecideAssistantNewUserGift(shortReasonUser.Id, 1, 100, "please", 2, 24, "198.51.100.25")
+	assert.ErrorIs(t, err, ErrAssistantGiftInvalid)
+	assert.Equal(t, "invalid_decision", AssistantGiftErrorCode(err))
 
 	concise := newAssistantGiftUser(t, db, "concise-gift-user", "concise@example.com")
 	// Two substantive turns are sufficient even when the language uses fewer
 	// than the old, arbitrary 24-rune aggregate threshold.
-	gift, created, err := DecideAssistantNewUserGift(concise.Id, 1, 100, "软件开发与编程辅助。", 2, 23, "198.51.100.23")
+	gift, created, err := DecideAssistantNewUserGift(concise.Id, 1, 100, "软件开发与编程辅助。", 2, 24, "198.51.100.23")
 	require.NoError(t, err)
 	assert.True(t, created)
 	assert.Equal(t, AssistantGiftOffered, gift.Status)

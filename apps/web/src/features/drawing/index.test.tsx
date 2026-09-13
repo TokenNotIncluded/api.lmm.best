@@ -462,23 +462,39 @@ describe('Drawing mobile controls', () => {
         return {
           data: {
             success: true,
-            data: { status: { configured: true, api_key_id: tokenStatusKey } },
+            data: {
+              status: {
+                configured: true,
+                api_key_id: tokenStatusKey,
+                default_model: 'image-2',
+              },
+            },
           },
         }
       }
       throw new Error(`unexpected GET ${url}`)
     }) as typeof api.get
     api.post = (async (url: string, body?: unknown) => {
-      if (url === '/api/token/') {
+      if (url === '/api/drawing/key') {
         keyCreateCalls += 1
-        assert.equal(
-          (body as { group_warning_confirmations: number })
-            .group_warning_confirmations,
-          2
-        )
-        return { data: { success: true, data: { id: 3 } } }
+        assert.deepEqual(body, {})
+        return {
+          data: {
+            success: true,
+            data: {
+              id: 3,
+              name: 'drawing-image-2',
+              group: 'image-2',
+              created: true,
+            },
+          },
+        }
       }
       assert.equal(url, '/api/drawing/mcp-token')
+      assert.equal(
+        (body as { default_model?: string }).default_model,
+        'image-2'
+      )
       return { data: { success: true, data: { token: 'secret-A' } } }
     }) as typeof api.post
 
@@ -520,42 +536,11 @@ describe('Drawing mobile controls', () => {
       const createButton = [
         ...rendered.container.querySelectorAll('button'),
       ].find((button) =>
-        button.textContent?.includes('Create a new API key for MCP')
+        button.textContent?.includes('Prepare an API key for MCP')
       )
       assert.ok(createButton)
       await act(async () => {
         createButton.click()
-        await flushEffects()
-      })
-      await act(
-        async () =>
-          await waitForCondition(
-            () =>
-              document.body.textContent?.includes(
-                'Confirm this drawing group'
-              ) ?? false,
-            'MCP key warning dialog did not open'
-          )
-      )
-      const confirmationButton = () =>
-        [...document.querySelectorAll('button')].find((button) =>
-          button.textContent?.includes('I understand, continue')
-        )
-      for (let attempt = 0; attempt < 2; attempt += 1) {
-        const confirm = confirmationButton()
-        assert.ok(confirm)
-        await act(async () => {
-          confirm.click()
-          await flushEffects()
-        })
-        assert.equal(keyCreateCalls, 0)
-      }
-      const finalCreate = [...document.querySelectorAll('button')].find(
-        (button) => button.textContent?.includes('Create and select key')
-      )
-      assert.ok(finalCreate)
-      await act(async () => {
-        finalCreate.click()
         await flushEffects()
       })
       assert.equal(keyCreateCalls, 1)
@@ -563,6 +548,11 @@ describe('Drawing mobile controls', () => {
         '#drawing-mcp-api-key'
       ) as HTMLSelectElement | null
       assert.ok(keySelect)
+      const defaultModelSelect = rendered.container.querySelector(
+        '#drawing-mcp-default-model'
+      ) as HTMLSelectElement | null
+      assert.ok(defaultModelSelect)
+      assert.equal(defaultModelSelect.value, 'image-2')
       keySelect.value = '1'
       await act(async () => {
         keySelect.dispatchEvent(new Event('change', { bubbles: true }))
@@ -872,7 +862,7 @@ describe('Drawing balance and browser history', () => {
       mockWorkbench(() => balance)
       let keyCalls = 0
       api.post = (async (url: string, body: unknown) => {
-        assert.equal(url, '/api/assistant/drawing/key')
+        assert.equal(url, '/api/drawing/key')
         assert.deepEqual(body, {})
         keyCalls++
         return {
