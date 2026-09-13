@@ -139,6 +139,12 @@ func drawingMCPResolveInput(user *model.UserBase, input drawingMCPGenerateInput)
 }
 
 func drawingMCPValidateBoundModel(userID, apiKeyID int, group, modelName string) error {
+	// OAuth MCP grants intentionally do not bind to a user API key. The relay
+	// resolves the user's eligible drawing key at request time, so there is no
+	// per-key model-limit contract to validate here.
+	if apiKeyID <= 0 {
+		return nil
+	}
 	key, err := model.ResolveDrawingTokenByID(userID, apiKeyID, group)
 	if err != nil {
 		return errors.New("the drawing MCP token's API key is unavailable")
@@ -150,6 +156,9 @@ func drawingMCPValidateBoundModel(userID, apiKeyID int, group, modelName string)
 }
 
 func drawingMCPBoundGroup(user *model.UserBase, apiKeyID int) (string, error) {
+	if apiKeyID <= 0 {
+		return model.DrawingTokenGroup, nil
+	}
 	key, err := model.ResolveDrawingTokenByID(user.Id, apiKeyID, "")
 	if err != nil {
 		return "", errors.New("the drawing MCP token's API key is unavailable")
