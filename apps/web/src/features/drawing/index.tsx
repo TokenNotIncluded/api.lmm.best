@@ -1914,7 +1914,7 @@ function DrawingWorkbench({ userId }: { userId: number }) {
                         {key.name} · {key.group} ·{' '}
                         {key.unlimited_quota
                           ? t('Unlimited')
-                          : `${formatQuota(key.remain_quota)} (平台) ${t('remaining')}`}
+                          : `${formatQuota(key.remain_quota)} ${t('remaining')}`}
                       </NativeSelectOption>
                     ))}
                   </NativeSelect>
@@ -1933,8 +1933,8 @@ function DrawingWorkbench({ userId }: { userId: number }) {
                             ·{' '}
                             {key.unlimited_quota
                               ? t('Unlimited')
-                              : `${formatQuota(key.remain_quota)} (平台) ${t('remaining')}`}{' '}
-                            · {formatQuota(key.used_quota)} (平台) {t('used')}
+                              : `${formatQuota(key.remain_quota)} ${t('remaining')}`}{' '}
+                            · {formatQuota(key.used_quota)} {t('used')}
                           </p>
                         ) : null
                       })()
