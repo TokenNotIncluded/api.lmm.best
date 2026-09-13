@@ -543,10 +543,13 @@ func classifyAssistantRecommendationAction(message string) assistantRecommendati
 	if model.ClassifyAssistantIntent(text) != model.AssistantIntentRecommendation {
 		return assistantRecommendationActionNone
 	}
-	if !assistantTextContainsAny(text, "不要删除", "别删除", "不要清空", "别清空", "do not delete", "don't delete", "do not remove", "don't remove") &&
-		assistantTextContainsAny(text, "删除", "删掉", "移除", "清空", "清除", "撤回", "不要这封", "delete", "remove", "clear", "discard") {
+	if assistantActionDeclined(text, assistantRecommendationActionRule) {
+		return assistantRecommendationActionNone
+	}
+	if assistantTextContainsAny(text, "删除", "删掉", "移除", "清空", "清除", "撤回", "不要这封", "delete", "remove", "clear", "discard") {
 		return assistantRecommendationActionRemove
 	}
+
 	revisionVerbs := []string{"润色", "修改", "改写", "重写", "编辑", "优化", "更新", "替换", "精简", "缩短", "扩写", "polish", "edit", "revise", "rewrite", "update", "improve", "replace", "shorten", "expand"}
 	if !assistantTextContainsAny(text, revisionVerbs...) {
 		return assistantRecommendationActionNone
@@ -566,8 +569,15 @@ func assistantExplicitCreateKeyRequest(message string) bool {
 	text := strings.ToLower(strings.TrimSpace(message))
 	hasKeyTerm := assistantTextContainsAny(text, "api key", "api-key", "api_key", "apikey", "密钥") ||
 		assistantKeyWordPattern.MatchString(text)
-	return hasKeyTerm &&
-		assistantTextContainsAny(text, "创建", "新建", "生成", "开一个", "建一个", "create", "generate", "make", "new key")
+	if !hasKeyTerm || !assistantTextContainsAny(text, "创建", "新建", "生成", "开一个", "建一个", "create", "generate", "make", "new key") {
+		return false
+	}
+	if assistantActionDeclined(text, assistantKeyActionRule) || assistantTextContainsAny(text,
+		"如何创建", "怎么创建", "怎样创建", "如何生成", "怎么生成", "how to create", "how do i create", "how can i create", "how to generate", "how do i generate",
+	) {
+		return false
+	}
+	return true
 }
 
 // assistantExplicitProfileForgetRequest is the deterministic consent boundary
@@ -577,13 +587,12 @@ func assistantExplicitCreateKeyRequest(message string) bool {
 // controls deliberately remain false.
 func assistantExplicitProfileForgetRequest(message string) bool {
 	text := strings.ToLower(strings.TrimSpace(message))
-	if text == "" || assistantTextContainsAny(text,
-		"不要删除", "别删除", "不要删", "别删", "不要移除", "别移除", "不要忘记", "别忘记",
-		"do not delete", "don't delete", "do not remove", "don't remove", "do not forget", "don't forget",
+	if text == "" || assistantActionDeclined(text, assistantProfileActionRule) || assistantTextContainsAny(text,
 		"如何删除", "怎么删除", "怎样删除", "how to delete", "how can i remove", "how do i remove",
 	) {
 		return false
 	}
+
 	hasTarget := assistantTextContainsAny(text,
 		"用户画像", "个人画像", "ai画像", "ai profile", "assistant profile", "profile skill", "personalization",
 		"我的画像", "我的标签", "ai标签", "ai 标签", "标签", "tags",

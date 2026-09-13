@@ -2453,6 +2453,25 @@ func TestAssistantExplicitHumanHandoffUsesConfirmationTool(t *testing.T) {
 	assert.False(t, assistantHumanSupportRequest("客服入口在哪里？"))
 }
 
+func TestAssistantReadOnlyRequestDoesNotForceKeyOrSupport(t *testing.T) {
+	message := "只读验收：请查询本网站公开的 API 接入地址和支持的接口协议。不要创建密钥、修改配置或提交工单。"
+	context := assistantUserContext{AccessLevel: "L1", LatestUserRequest: message}
+	assert.False(t, assistantExplicitCreateKeyRequest(message))
+	assert.False(t, assistantHumanSupportRequest(message))
+	assert.Equal(t, "", assistantNamedToolChoiceName(assistantToolChoiceForAgentStep(context, map[string]bool{}, map[string]bool{})))
+}
+
+func TestAssistantExplicitReviewRefusalsOverridePendingWorkflows(t *testing.T) {
+	assert.False(t, assistantNewUserGiftRequest("不要给我免费额度"))
+	assert.False(t, assistantWeeklyDiscountRequest("我不需要每周折扣"))
+	assert.False(t, assistantWeeklyDiscountRequest("不要优惠码"))
+	assert.True(t, assistantNewUserGiftRequest("不要解释，帮我领取新用户福利"))
+	assert.True(t, assistantWeeklyDiscountRequest("不要解释，帮我申请本周折扣"))
+	context := assistantUserContext{AccessLevel: "L1", LatestUserRequest: "不要给我免费额度，也不要优惠码", NewUserGiftRequested: true, WeeklyDiscountRequested: true}
+	assert.False(t, assistantNewUserGiftWorkflowRequired(context))
+	assert.False(t, assistantWeeklyDiscountWorkflowRequired(context))
+}
+
 func TestAssistantSetupToolShellQuotesConfiguredValues(t *testing.T) {
 	maliciousModelID := "claude-$(touch /tmp/model-pwned)'suffix"
 	withAssistantModelRatios(t, maliciousModelID)

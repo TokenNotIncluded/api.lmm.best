@@ -859,10 +859,13 @@ func assistantBountyReadRequest(text string) bool {
 // confirmation-gated handoff tool so the assistant cannot merely draft prose;
 // the latter can still receive ordinary navigation guidance.
 func assistantHumanSupportRequest(text string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(assistantSupportQuotedText.ReplaceAllString(text, "")))
+	if assistantActionDeclined(normalized, assistantSupportActionRule) {
+		return false
+	}
 	if assistantExplicitHumanTransferRequest(text) {
 		return true
 	}
-	normalized := strings.ToLower(strings.TrimSpace(assistantSupportQuotedText.ReplaceAllString(text, "")))
 	return assistantTextContainsAny(normalized,
 		"提交人工客服", "提交工单", "人工核查", "联系管理员处理", "请管理员处理",
 		"submit a support ticket", "submit to support", "request human support", "human review",
@@ -903,6 +906,9 @@ func assistantGiftPromotionConflict(text string) bool {
 
 func assistantNewUserGiftRequest(text string) bool {
 	normalized := strings.ToLower(strings.TrimSpace(text))
+	if assistantActionDeclined(normalized, assistantGiftActionRule) {
+		return false
+	}
 	if assistantTextContainsAny(normalized,
 		"新用户礼包", "新用户福利", "新手礼包", "新手奖励", "新用户奖励", "新人礼包", "新人福利", "新手福利",
 		"welcome gift", "welcome bonus", "new-user gift", "new user gift", "new user bonus",
@@ -923,8 +929,11 @@ func assistantNewUserGiftRequest(text string) bool {
 
 func assistantWeeklyDiscountRequest(text string) bool {
 	normalized := strings.ToLower(strings.TrimSpace(text))
+	if assistantActionDeclined(normalized, assistantDiscountActionRule) {
+		return false
+	}
 	return assistantTextContainsAny(normalized,
-		"优惠码", "折扣码", "充值折扣", "每周优惠", "每周折扣", "本周优惠",
+		"优惠码", "折扣码", "充值折扣", "每周优惠", "每周折扣", "本周优惠", "本周折扣",
 		"weekly discount", "weekly coupon", "recharge discount", "discount code",
 	)
 }
@@ -955,10 +964,10 @@ func assistantReadChain(userContext assistantUserContext) []string {
 	if assistantPublicActivityQuestion(text) {
 		tools = append(tools, "get_service_facts")
 	}
-	if (assistantNewUserGiftRequest(text) || userContext.NewUserGiftRequested) && assistantNewUserGiftToolAllowed(userContext) {
+	if assistantNewUserGiftWorkflowRequired(userContext) {
 		tools = append(tools, "prepare_new_user_gift")
 	}
-	if (assistantWeeklyDiscountRequest(text) || userContext.WeeklyDiscountRequested) && assistantWeeklyDiscountToolAllowed(userContext) {
+	if assistantWeeklyDiscountWorkflowRequired(userContext) {
 		tools = append(tools, "prepare_weekly_discount")
 	}
 	if assistantTextContainsAny(text,
@@ -1020,12 +1029,14 @@ func assistantPublicActivityWorkflowRequired(userContext assistantUserContext) b
 }
 
 func assistantNewUserGiftWorkflowRequired(userContext assistantUserContext) bool {
-	return (assistantNewUserGiftRequest(userContext.LatestUserRequest) || userContext.NewUserGiftRequested) &&
+	return !assistantActionDeclined(userContext.LatestUserRequest, assistantGiftActionRule) &&
+		(assistantNewUserGiftRequest(userContext.LatestUserRequest) || userContext.NewUserGiftRequested) &&
 		assistantNewUserGiftToolAllowed(userContext)
 }
 
 func assistantWeeklyDiscountWorkflowRequired(userContext assistantUserContext) bool {
-	return (assistantWeeklyDiscountRequest(userContext.LatestUserRequest) || userContext.WeeklyDiscountRequested) &&
+	return !assistantActionDeclined(userContext.LatestUserRequest, assistantDiscountActionRule) &&
+		(assistantWeeklyDiscountRequest(userContext.LatestUserRequest) || userContext.WeeklyDiscountRequested) &&
 		assistantWeeklyDiscountToolAllowed(userContext)
 }
 
