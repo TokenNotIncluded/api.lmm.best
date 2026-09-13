@@ -70,3 +70,11 @@ func TestGetRequestAutoGroupsDoesNotFallBackAfterPermissionChange(t *testing.T) 
 
 	assert.Empty(t, groups)
 }
+
+func TestIsOAuthSelectableGroupDoesNotInheritAccountGroup(t *testing.T) {
+	configureRequestAutoGroupsTest(t)
+	require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(`{"vip":"VIP"}`))
+	assert.True(t, IsOAuthSelectableGroup("default", "vip"))
+	assert.False(t, IsOAuthSelectableGroup("default", "default"))
+	assert.True(t, IsUserSelectableGroup("default", "default"), "ordinary API routing keeps account-group inheritance")
+}

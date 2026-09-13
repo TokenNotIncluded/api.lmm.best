@@ -170,7 +170,7 @@ func (s *OAuthIntegration) AllowedGroups(user *model.User) []string {
 		// Groups requiring repeated warning acknowledgement are deliberately not
 		// available in this profile until that exact workflow can be preserved.
 		_, warning := ratio_setting.GetGroupWarning(group)
-		if !warning && IsUserSelectableGroup(user.Group, group) {
+		if !warning && IsOAuthSelectableGroup(user.Group, group) {
 			result = append(result, group)
 		}
 	}

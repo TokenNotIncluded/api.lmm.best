@@ -90,6 +90,11 @@ func (s *OAuthIntegration) liveAbilities(ctx context.Context, groups []string, n
 }
 
 func oauthAPIs(channelType int, name string) []string {
+	// Image routes also advertise a generic OpenAI endpoint, which must not
+	// turn an image generator into a language model in the Pi catalog.
+	if common.IsImageGenerationModel(name) {
+		return nil
+	}
 	// Advanced custom endpoint configuration needs its own audited capability
 	// mapping. Do not invent capabilities or return an unusable model for it.
 	if channelType == constant.ChannelTypeAdvancedCustom {
@@ -285,6 +290,14 @@ func (s *OAuthIntegration) Catalog(ctx context.Context, user *model.User, grant 
 		entry.NativeCost = entry.Pricing.NativeCost
 		result.Models = append(result.Models, *entry)
 	}
+	usedGroups := make(map[string]struct{}, len(result.Models))
+	for _, entry := range result.Models {
+		usedGroups[entry.Group] = struct{}{}
+	}
+	result.Groups = slices.DeleteFunc(result.Groups, func(group OAuthCatalogGroup) bool {
+		_, used := usedGroups[group.Name]
+		return !used
+	})
 	slices.SortFunc(result.Models, func(a, b OAuthCatalogModel) int {
 		if a.ID < b.ID {
 			return -1

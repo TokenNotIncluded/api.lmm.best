@@ -4,7 +4,7 @@ import type { CapabilityResolver, VerifiedCapabilities } from './catalog.ts';
 import { SUPPORTED_APIS, type LmmApi } from './protocol.ts';
 
 const sources: readonly [string, ReadonlyMap<string, Model<Api>>][] = (
-  ['openai', 'anthropic', 'deepseek', 'xai', 'moonshotai', 'minimax'] as const
+  ['openai', 'anthropic', 'deepseek', 'xai', 'moonshotai', 'minimax', 'google', 'zai'] as const
 ).map((provider) => [
   provider, new Map(getBuiltinModels(provider).map((model) => [model.id, model])),
 ]);
@@ -14,15 +14,23 @@ export const resolveKnownCapabilities: CapabilityResolver = (entry) => {
   const candidates: VerifiedCapabilities[] = [];
   for (const [provider, models] of sources) {
     const model = models.get(entry.upstream_model);
-    if (!model || !SUPPORTED_APIS.includes(model.api as LmmApi) || !entry.apis.includes(model.api as LmmApi)) continue;
-    const compat = structuredClone(model.compat ?? {});
+    if (!model) continue;
+    const nativeProtocol = SUPPORTED_APIS.includes(model.api as LmmApi) && entry.apis.includes(model.api as LmmApi);
+    // The server explicitly advertises the gateway transport. Capacity metadata
+    // still requires an exact vendor model, never a name-based approximation.
+    if (!nativeProtocol && (!entry.apis.includes('openai-completions') ||
+      !['openai-completions', 'openai-responses', 'anthropic-messages', 'google-generative-ai'].includes(model.api))) continue;
+    const compat = nativeProtocol ? structuredClone(model.compat ?? {}) : {
+      supportsDeveloperRole: false, supportsStore: false, supportsReasoningEffort: false,
+      maxTokensField: provider === 'openai' ? 'max_completion_tokens' as const : 'max_tokens' as const,
+    };
     // A vendor fallback may use a different model and price not authorized by this catalog entry.
     if ('allowedFallbackModels' in compat) delete compat.allowedFallbackModels;
     candidates.push({
-      api: model.api as LmmApi, contextWindow: model.contextWindow, maxTokens: model.maxTokens,
-      reasoning: model.reasoning, input: [...model.input], compat,
-      thinkingLevelMap: model.thinkingLevelMap ? structuredClone(model.thinkingLevelMap) : undefined,
-      provenance: `pi-ai vendor catalog: ${provider}/${model.id}`,
+      api: nativeProtocol ? model.api as LmmApi : 'openai-completions', contextWindow: model.contextWindow, maxTokens: model.maxTokens,
+      reasoning: nativeProtocol && model.reasoning, input: [...model.input], compat,
+      thinkingLevelMap: nativeProtocol && model.thinkingLevelMap ? structuredClone(model.thinkingLevelMap) : undefined,
+      provenance: `pi-ai vendor catalog: ${provider}/${model.id}${nativeProtocol ? '' : '; server-advertised OpenAI-compatible transport'}`,
     });
   }
   if (!candidates.length) return undefined;
