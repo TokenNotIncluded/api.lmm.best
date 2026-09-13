@@ -144,3 +144,31 @@ Memory override validation runs before stopping the backend on both activation
 and rollback. Strictly parsed Go heap limits at or below the packaged 256 MiB
 ceiling are retained, including the existing 192 MiB mitigation. Unknown cgroup
 or executable directives still fail closed before the service is stopped.
+
+## Legacy refund migration acceptance
+
+The Go operator can consume a one-instance acknowledgement at
+`<workspace>/state/legacy-refund-risk.json` for the historical
+`lmm-api-go-bin 0.2.17-1` writer. It requires an explicit user decision and a
+fresh, verified controller backup. The private, root-owned acknowledgement binds
+the deployment ID, exact rollback package identity and digest, writer PID and
+systemd invocation, and the digest and capture time of
+`controller-backup-reference.json`. The reference is an unchanged copy of the
+controller's verified database/roles/environment backup manifest; it is not
+native format-3 backup evidence and does not claim target-side decryption.
+Unknown outcomes remain `unknown`. Both records expire after 24 hours; malformed,
+symlinked, incorrectly owned, or mismatched records fail closed.
+
+This acknowledgement replaces only the historical refund-absence proof for
+that exact writer. Admission closure, connection drain, normal process exit,
+empty cgroup, shutdown journal, signed package verification, migrations and
+health checks remain mandatory. The records are retained with the transaction
+for later reconciliation. No credit adjustments are performed by this path.
+
+New signed Go packages advertise `REFUND_TASK_DRAIN_CAPABILITY` with exact
+contents `v1\n`. It is accepted only when package ownership, release metadata,
+and the running executable match the transaction. Such writers must emit the
+validated refund execution report during graceful shutdown: accepted equals
+finished, active and failed are zero, and execution_complete is true. This
+establishes execution completion; it does not certify historical financial
+correctness. Historical intent-log absence is not required for these writers.

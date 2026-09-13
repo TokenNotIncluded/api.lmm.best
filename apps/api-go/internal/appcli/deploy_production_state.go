@@ -279,17 +279,18 @@ func runVerifiedBinary(ctx context.Context, runner productionCommandRunner, bina
 }
 
 type productionRuntime struct {
-	billingAdmissionClosed bool
-	billingRollback        bool
-	billingConnections     func() (int, error)
-	paths                  productionPaths
-	runner                 productionCommandRunner
-	now                    func() time.Time
-	sleep                  func(time.Duration)
-	effectiveUID           func() int
-	hostname               func() (string, error)
-	probeAttempts          int
-	requiredOwnerUID       uint32
+	billingAdmissionClosed  bool
+	billingRollback         bool
+	billingConnections      func() (int, error)
+	billingExecutableSHA256 func(int) (string, error)
+	paths                   productionPaths
+	runner                  productionCommandRunner
+	now                     func() time.Time
+	sleep                   func(time.Duration)
+	effectiveUID            func() int
+	hostname                func() (string, error)
+	probeAttempts           int
+	requiredOwnerUID        uint32
 }
 
 func defaultProductionRuntime() *productionRuntime {

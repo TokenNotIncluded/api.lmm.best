@@ -1161,6 +1161,8 @@ func signedPackageMember(packageName, packageVersion, relative string) (packageR
 		return "usr/share/doc/" + packageName + "/" + relative, false, nil
 	case relative == "OAUTH_MANAGED_TOKEN_CAPABILITY":
 		return "usr/share/doc/" + packageName + "/" + relative, false, nil
+	case relative == "REFUND_TASK_DRAIN_CAPABILITY":
+		return "usr/share/doc/" + packageName + "/" + relative, false, nil
 	case packageVersion == "0.1.69-1" && relative == "CLI_TRANSITION_PHASE":
 		return "usr/share/doc/" + packageName + "/CLI_TRANSITION_PHASE", false, nil
 	default:

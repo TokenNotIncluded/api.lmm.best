@@ -246,6 +246,11 @@ jobs:
               "$bundle/OAUTH_MANAGED_TOKEN_CAPABILITY"
             [[ $(<"$bundle/OAUTH_MANAGED_TOKEN_CAPABILITY") == v1 ]]
           fi
+          if [[ -f packaging/common/lmm-api/REFUND_TASK_DRAIN_CAPABILITY ]]; then
+            cp packaging/common/lmm-api/REFUND_TASK_DRAIN_CAPABILITY \
+              "$bundle/REFUND_TASK_DRAIN_CAPABILITY"
+            [[ $(<"$bundle/REFUND_TASK_DRAIN_CAPABILITY") == v1 ]]
+          fi
           rm -- "$bundle/lmm-api"
           [[ ! -e "$bundle/lmm-api" && ! -L "$bundle/lmm-api" ]]
           [[ ! -e "$bundle/frontend-dist" ]]

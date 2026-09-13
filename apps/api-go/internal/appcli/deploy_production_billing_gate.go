@@ -331,6 +331,13 @@ func (runtime *productionRuntime) verifyBillingStopJournal(ctx context.Context, 
 	if err := validateBillingShutdownJournal(out); err != nil {
 		return err
 	}
+	tracked, err := runtime.trackedRefundWriter(ctx, manifest)
+	if err != nil {
+		return err
+	}
+	if tracked && !bytes.Contains(bytes.ToLower(out), []byte("refund_tasks execution_complete=")) {
+		return errors.New("tracked writer shutdown lacks its refund completion report")
+	}
 	gate.StopVerified, gate.ShutdownJournalSHA256 = true, fmt.Sprintf("%x", sha256Bytes(out))
 	return runtime.writeManifest(workspace, *manifest)
 }
@@ -348,6 +355,12 @@ func (w *boundedBillingOutput) Write(p []byte) (int, error) {
 }
 
 func (runtime *productionRuntime) verifyNoUntrackedRefunds(ctx context.Context, manifest *productionManifest) error {
+	if tracked, err := runtime.trackedRefundWriter(ctx, manifest); err != nil || tracked {
+		return err // Normal exit must still provide a verified completion report below.
+	}
+	if accepted, err := runtime.acceptedLegacyRefundRisk(manifest); err != nil || accepted {
+		return err // Explicit acceptance of unknown legacy outcomes; no fabricated journal digest.
+	}
 	g := manifest.BillingGate
 	out, err := runtime.runner.Run(ctx, productionCommand{Name: commandJournalctl, Args: []string{"--no-pager", "--output=json", "--output-fields=MESSAGE,__REALTIME_TIMESTAMP,__CURSOR", "--lines=20000", "-u", runtime.paths.Service, "_SYSTEMD_INVOCATION_ID=" + g.GoInvocationID}, Sensitive: true, OutputLimit: 16 << 20})
 	if err != nil {
