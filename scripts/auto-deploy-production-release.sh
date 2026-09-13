@@ -151,7 +151,7 @@ probe=$(find "$root/probe" -type f -name lmm-api-go -print -quit)
 [[ -x "$probe" ]]
 
 run_probe() {
-  docker run --rm --network host \
+  docker run --rm --network host --user "$(id -u):$(id -g)" \
     -v "$GITHUB_WORKSPACE:$GITHUB_WORKSPACE:ro" \
     -v "$root:$root" \
     -v "$HOME/.ssh:$HOME/.ssh:ro" \
