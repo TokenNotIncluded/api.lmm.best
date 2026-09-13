@@ -151,8 +151,12 @@ func TestProductionBillingShutdownAcceptsValidatedRefundCompletionReport(t *test
 	if err := validateBillingShutdownJournal([]byte(valid)); err == nil {
 		t.Fatal("validated report with unrelated error text was accepted")
 	}
-	valid = "received signal: terminated\nrefund_tasks execution_complete=true accepted=2 finished=2 active=0 failed=0 (execution completion is not financial success)\nserver exited\nbatch update finished"
+	valid = "received signal: terminated\nrefund_tasks execution_complete=true accepted=2 finished=2 active=0 failed=0 (execution completion is not financial success)\nquota dashboard flush: persisted=1 failed=0 dropped=0\nserver exited\nbatch update finished"
 	if err := validateBillingShutdownJournal([]byte(valid)); err != nil {
+		t.Fatal(err)
+	}
+	full := "[SYS] 2026/09/13 - 14:52:32 | received signal: terminated\n[SYS] 2026/09/13 - 14:52:32 | refund_tasks execution_complete=true accepted=5 finished=5 active=0 failed=0 (execution completion is not financial success)\n[SYS] 2026/09/13 - 14:52:32 | quota dashboard flush: persisted=1 failed=0 dropped=0\n[SYS] 2026/09/13 - 14:52:32 | server exited"
+	if err := validateBillingShutdownJournal([]byte(full)); err != nil {
 		t.Fatal(err)
 	}
 	formatted := strings.Replace(valid, "refund_tasks", "[SYS] 2026/09/13 - 10:20:00 | refund_tasks", 1)
@@ -168,6 +172,11 @@ func TestProductionBillingShutdownAcceptsValidatedRefundCompletionReport(t *test
 		"refund_tasks execution_complete=true accepted=2 finished=2 active=1 failed=0 (execution completion is not financial success)",
 		"refund_tasks execution_complete=true accepted=2 finished=2 active=0 failed=1 (execution completion is not financial success)",
 		"refund_tasks execution_complete=true accepted=2 finished=2 active=0 failed=0 (execution completion is not financial success)\nrefund_tasks execution_complete=true accepted=3 finished=3 active=0 failed=0 (execution completion is not financial success)",
+		"quota dashboard flush: persisted=1 failed=1 dropped=0",
+		"quota dashboard flush: persisted=1 failed=0 dropped=1",
+		"quota dashboard flush: persisted=18446744073709551616 failed=0 dropped=0",
+		"quota dashboard flush: persisted=1 failed=0 dropped=0\nquota dashboard flush: persisted=2 failed=0 dropped=0",
+		"quota dashboard flush: persisted=1 failed=0",
 	} {
 		if err := validateBillingShutdownJournal([]byte("received signal: terminated\n" + report + "\nserver exited")); err == nil {
 			t.Fatalf("accepted invalid report %q", report)

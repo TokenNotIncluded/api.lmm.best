@@ -211,14 +211,30 @@ func countBillingConnections() (int, error) {
 func validateBillingShutdownJournal(out []byte) error {
 	text := strings.ToLower(string(out))
 	reportPattern := regexp.MustCompile(`^(?:\[sys\] [0-9]{4}/[0-9]{2}/[0-9]{2} - [0-9]{2}:[0-9]{2}:[0-9]{2} \| )?refund_tasks execution_complete=(true|false) accepted=([0-9]+) finished=([0-9]+) active=([0-9]+) failed=([0-9]+) \(execution completion is not financial success\)$`)
+	flushPattern := regexp.MustCompile(`^(?:\[sys\] [0-9]{4}/[0-9]{2}/[0-9]{2} - [0-9]{2}:[0-9]{2}:[0-9]{2} \| )?quota dashboard flush: persisted=([0-9]+) failed=([0-9]+) dropped=([0-9]+)$`)
 	lines := strings.Split(text, "\n")
 	reportCount := 0
+	flushCount := 0
 	filtered := make([]string, 0, len(lines))
 	for _, line := range lines {
 		match := reportPattern.FindStringSubmatch(strings.TrimSpace(line))
+		flush := flushPattern.FindStringSubmatch(strings.TrimSpace(line))
+		if flush != nil {
+			flushCount++
+			if flushCount > 1 {
+				return errors.New("quota dashboard flush report is duplicated")
+			}
+			_, persistedErr := strconv.ParseUint(flush[1], 10, 64)
+			_, failedErr := strconv.ParseUint(flush[2], 10, 64)
+			_, droppedErr := strconv.ParseUint(flush[3], 10, 64)
+			if persistedErr != nil || failedErr != nil || droppedErr != nil || flush[2] != "0" || flush[3] != "0" {
+				return errors.New("quota dashboard flush report is invalid")
+			}
+			continue
+		}
 		if match == nil {
-			if strings.Contains(line, "refund_tasks") {
-				return errors.New("malformed refund task completion report")
+			if strings.Contains(line, "refund_tasks") || strings.Contains(line, "quota dashboard flush") {
+				return errors.New("malformed shutdown completion report")
 			}
 			filtered = append(filtered, line)
 			continue

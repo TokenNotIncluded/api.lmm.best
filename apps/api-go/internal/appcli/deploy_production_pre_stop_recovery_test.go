@@ -52,7 +52,7 @@ func TestProductionRollbackBeforeWriterStopRecoversWithoutSecondMutation(t *test
 	}
 }
 
-func TestProductionRollbackBeforeWriterStopRejectsChangedWriterIdentity(t *testing.T) {
+func TestProductionRollbackUsesFullDrainForChangedWriterIdentity(t *testing.T) {
 	fixture := preStopRecoveryFixture(t)
 	manifest, err := fixture.runtime.readManifest(fixture.workspace)
 	if err != nil {
@@ -63,17 +63,17 @@ func TestProductionRollbackBeforeWriterStopRejectsChangedWriterIdentity(t *testi
 		t.Fatal(err)
 	}
 	before := len(fixture.runner.events)
-	if _, err := fixture.runtime.rollback(context.Background(), fixture.workspace, "pre-stop-identity"); err == nil {
-		t.Fatal("changed writer identity was accepted")
+	fixture.runner.journalLossAfterAdmission = false
+	status, err := fixture.runtime.rollback(context.Background(), fixture.workspace, "pre-stop-identity")
+	if err != nil || status.Phase != "ROLLED_BACK" {
+		t.Fatalf("changed writer identity did not use complete rollback: status=%+v err=%v", status, err)
 	}
 	for _, event := range fixture.runner.events[before:] {
-		if event == "systemd-stop" || strings.HasPrefix(event, "paru-") || strings.HasPrefix(event, "migrate:") {
-			t.Fatalf("identity rejection performed mutation: %s", event)
+		if event == "systemd-stop" {
+			return
 		}
 	}
-	if _, err := os.Stat(fixture.runtime.paths.TransactionLock); err != nil {
-		t.Fatalf("recovery lock was released after rejection: %v", err)
-	}
+	t.Fatalf("complete rollback did not drain and stop the writer: events=%v", fixture.runner.events[before:])
 }
 
 func TestProductionRollbackBeforeWriterStopRejectsChangedEvidence(t *testing.T) {

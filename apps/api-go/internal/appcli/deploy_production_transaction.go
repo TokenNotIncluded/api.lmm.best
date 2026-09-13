@@ -1291,7 +1291,9 @@ func (runtime *productionRuntime) rollbackBeforeWriterStop(ctx context.Context, 
 		return false, productionStatus{}, nil
 	}
 	if state["MainPID"] != strconv.Itoa(gate.GoPID) || state["InvocationID"] != gate.GoInvocationID {
-		return true, productionStatus{}, errors.New("pre-stop rollback writer identity changed")
+		// A replacement writer cannot use the unchanged-writer shortcut. The
+		// normal rollback must drain and verify this instance before mutation.
+		return false, productionStatus{}, nil
 	}
 	if err := runtime.verifyManifestInstalled(ctx, *manifest, true); err != nil {
 		return true, productionStatus{}, fmt.Errorf("pre-stop rollback installed N-1 evidence failed: %w", err)

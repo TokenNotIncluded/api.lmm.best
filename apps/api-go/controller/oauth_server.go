@@ -178,6 +178,11 @@ func (h *OAuthHTTP) render(c *gin.Context, status int, data oauthPageData) {
 		return
 	}
 	data.Nonce = nonce
+	if data.Mode == "preflight" || data.Mode == "consent" {
+		// Native form POSTs under no-referrer send Origin: null. Keep the
+		// trusted origin for CSRF checks without disclosing paths or queries.
+		c.Header("Referrer-Policy", "strict-origin")
+	}
 	c.Header("Content-Security-Policy", "default-src 'none'; style-src 'nonce-"+nonce+"'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
 	c.Header("Content-Language", data.Language)
 	c.Header("Content-Type", "text/html; charset=utf-8")

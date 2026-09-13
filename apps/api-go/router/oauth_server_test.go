@@ -147,6 +147,7 @@ var oauthRedirectFixture = regexp.MustCompile(`<a href="(http://127\.0\.0\.1:[^"
 func oauthFormState(t *testing.T, response *httptest.ResponseRecorder) (*http.Cookie, string) {
 	t.Helper()
 	require.Equal(t, 200, response.Code, response.Body.String())
+	require.Equal(t, "strict-origin", response.Header().Get("Referrer-Policy"), "native form POSTs must preserve Origin without leaking authorization queries")
 	match := oauthCSRFFixture.FindStringSubmatch(response.Body.String())
 	require.Len(t, match, 2)
 	var cookie *http.Cookie
