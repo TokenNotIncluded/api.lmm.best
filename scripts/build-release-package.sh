@@ -28,6 +28,11 @@ checksum="$assets/${asset_name}.sha256"
 bundle="$assets/${asset_name}.sigstore.json"
 [[ -f "$checksum" && -f "$bundle" ]]
 
+# makepkg requires a writable SRCDEST. Keep the verified release inputs in the
+# container-local build directory instead of writing to the read-only/mounted
+# controller asset directory.
+install -m0644 "$asset" "$checksum" "$bundle" "$build/"
+
 asset_sha=$(sha256sum "$asset" | awk '{print $1}')
 checksum_sha=$(sha256sum "$checksum" | awk '{print $1}')
 bundle_sha=$(sha256sum "$bundle" | awk '{print $1}')
@@ -40,7 +45,7 @@ fi
 mkdir -p /tmp/lmm-pkgdest
 useradd --create-home --uid 1000 package-builder 2>/dev/null || true
 chown -R package-builder:package-builder "$build" /tmp/lmm-pkgdest
-runuser -u package-builder -- env SRCDEST="$assets" PKGDEST=/tmp/lmm-pkgdest \
+runuser -u package-builder -- env SRCDEST="$build" PKGDEST=/tmp/lmm-pkgdest \
   makepkg --nodeps --noconfirm --cleanbuild --clean --holdver --dir "$build"
 package=$(find /tmp/lmm-pkgdest -maxdepth 1 -type f -name "${package_name}-*.pkg.tar.*" -print -quit)
 [[ -n "$package" && -f "$package" ]]
