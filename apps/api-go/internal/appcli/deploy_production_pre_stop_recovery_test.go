@@ -39,6 +39,9 @@ func TestProductionRollbackBeforeWriterStopRecoversWithoutSecondMutation(t *test
 	if err != nil || status.Phase != "ROLLED_BACK" {
 		t.Fatalf("status=%+v err=%v", status, err)
 	}
+	if status.Format != productionStatusFormat || status.DeploymentID != fixture.workspace.id || status.UpdatedUTC.IsZero() {
+		t.Fatalf("recovery response lacks persisted identity: %+v", status)
+	}
 	for _, event := range fixture.runner.events[before:] {
 		if event == "systemd-stop" || strings.HasPrefix(event, "paru-") || strings.HasPrefix(event, "migrate:") {
 			t.Fatalf("recovery performed a second mutation: %s", event)

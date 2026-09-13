@@ -1320,10 +1320,14 @@ func (runtime *productionRuntime) rollbackBeforeWriterStop(ctx context.Context, 
 	if err := runtime.writeStatus(workspace, rolledBack); err != nil {
 		return true, productionStatus{}, err
 	}
+	persisted, err := runtime.readStatus(workspace)
+	if err != nil {
+		return true, productionStatus{}, err
+	}
 	if err := runtime.finalizeTransactionFiles(workspace); err != nil {
 		return true, productionStatus{}, err
 	}
-	return true, rolledBack, nil
+	return true, persisted, nil
 }
 
 func (runtime *productionRuntime) finalizeTransactionFiles(workspace productionWorkspace) error {
