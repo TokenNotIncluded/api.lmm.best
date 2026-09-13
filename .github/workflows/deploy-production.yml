@@ -36,7 +36,10 @@ jobs:
       - name: Install deployment tools
         run: |
           sudo apt-get update
-          sudo apt-get install --yes docker.io jq openssh-client
+          # ubuntu-latest provides Docker; installing docker.io conflicts with
+          # the runner's preinstalled containerd.io package.
+          sudo apt-get install --yes jq openssh-client
+          docker --version
 
       - name: Verify deployment credentials are configured
         env:
