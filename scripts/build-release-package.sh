@@ -17,7 +17,9 @@ esac
 
 build=$(mktemp -d /tmp/lmm-package.XXXXXX)
 trap 'rm -rf -- "$build"' EXIT
-cp -a "$recipe/." "$build/"
+# AUR recipes share helper files through repository-relative symlinks. The
+# isolated build directory needs the helper contents, not broken copied links.
+cp -aL "$recipe/." "$build/"
 sed -i -E "s/^pkgver=.*/pkgver=${version}/" "$build/PKGBUILD"
 sed -i -E "s/^pkgrel=.*/pkgrel=${package_release}/" "$build/PKGBUILD"
 
