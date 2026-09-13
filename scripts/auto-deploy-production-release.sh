@@ -86,6 +86,13 @@ download_release() {
 
 download_release "$RELEASE_TAG" "$root/assets" "$component"
 
+normalize_controller_file() {
+  local path=$1
+  local temporary="${path}.controller-copy"
+  cp --reflink=auto "$path" "$temporary"
+  mv -f "$temporary" "$path"
+}
+
 inventory=$(ssh ArchDmit 'set -eu
 for package in lmm-api-go-bin lmm-api-web-bin; do
   version=$(pacman -Q "$package" | awk "{print \$2}")
@@ -115,17 +122,17 @@ for rollback_component in go web; do
     bash /repo/scripts/build-release-package.sh "$rollback_component" "$rollback_version" \
       "/work/rollback/$rollback_package" "/work/rollback/$rollback_package.pkg.tar.zst" \
       /repo "$rollback_pkgrel"
-  chown "$(id -u):$(id -g)" "$root/rollback/$rollback_package.pkg.tar.zst"
+  normalize_controller_file "$root/rollback/$rollback_package.pkg.tar.zst"
 done
 
 if [[ "$component" == go ]]; then
   docker run --rm --network host -v "$GITHUB_WORKSPACE:/repo:ro" -v "$root:/work" archlinux:base-devel \
     bash /repo/scripts/build-release-package.sh go "$version" /work/assets /work/pkg/lmm-api-go-bin.pkg.tar.zst /repo
-  chown "$(id -u):$(id -g)" "$root/pkg/lmm-api-go-bin.pkg.tar.zst"
+  normalize_controller_file "$root/pkg/lmm-api-go-bin.pkg.tar.zst"
 else
   docker run --rm --network host -v "$GITHUB_WORKSPACE:/repo:ro" -v "$root:/work" archlinux:base-devel \
     bash /repo/scripts/build-release-package.sh web "$version" /work/assets /work/pkg/lmm-api-web-bin.pkg.tar.zst /repo
-  chown "$(id -u):$(id -g)" "$root/pkg/lmm-api-web-bin.pkg.tar.zst"
+  normalize_controller_file "$root/pkg/lmm-api-web-bin.pkg.tar.zst"
 fi
 
 go_candidate="$root/rollback/lmm-api-go-bin.pkg.tar.zst"; web_candidate="$root/rollback/lmm-api-web-bin.pkg.tar.zst"
