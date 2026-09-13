@@ -122,7 +122,7 @@ for arch in amd64 arm64; do
   [[ $expected == "${pins[0]}" ]] || fail "$artifact checksum asset does not bind the archive"
   cosign verify-blob \
     --bundle "$work/$artifact.sigstore.json" \
-    --certificate-identity "https://github.com/LIghtJUNction/api.lmm.best/.github/workflows/release-go.yml@refs/tags/$release_tag" \
+    --certificate-identity "https://github.com/TokenNotIncluded/api.lmm.best/.github/workflows/release-go.yml@refs/tags/$release_tag" \
     --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
     "$work/$artifact" >"$work/cosign-$arch.log" || fail "$artifact Sigstore bundle is invalid"
 done

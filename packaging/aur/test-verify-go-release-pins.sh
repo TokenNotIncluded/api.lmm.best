@@ -68,7 +68,7 @@ curl() {
 }
 cosign() {
   printf 'cosign %s\n' "$*" >>"$PIN_FIXTURES/calls"
-  [[ $* == *'--certificate-identity https://github.com/LIghtJUNction/api.lmm.best/.github/workflows/release-go.yml@refs/tags/go-v0.2.14'* &&
+  [[ $* == *'--certificate-identity https://github.com/TokenNotIncluded/api.lmm.best/.github/workflows/release-go.yml@refs/tags/go-v0.2.14'* &&
      $* == *'--certificate-oidc-issuer https://token.actions.githubusercontent.com'* &&
      ! -e $PIN_FIXTURES/reject-signature ]]
 }
