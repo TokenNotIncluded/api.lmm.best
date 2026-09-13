@@ -1,6 +1,7 @@
 package appcli
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -832,6 +833,11 @@ func (runtime *productionRuntime) apply(ctx context.Context, workspace productio
 			return productionStatus{}, err
 		}
 	}
+	if options.GoChanged {
+		if err := runtime.preflightBillingWriter(ctx, &manifest); err != nil {
+			return productionStatus{}, fmt.Errorf("billing writer preflight: %w", err)
+		}
+	}
 	if err := runtime.writeManifest(workspace, manifest); err != nil {
 		return productionStatus{}, fmt.Errorf("write deployment manifest: %w", err)
 	}
@@ -1169,6 +1175,12 @@ func (runtime *productionRuntime) rollback(ctx context.Context, workspace produc
 	if err := validateMemoryOverrides(runtime.paths.DropInDir); err != nil {
 		return fail(fmt.Errorf("rollback memory configuration preflight: %w", err))
 	}
+	if early, earlyStatus, earlyErr := runtime.rollbackBeforeWriterStop(ctx, workspace, &manifest, status); early {
+		if earlyErr != nil {
+			return fail(earlyErr)
+		}
+		return earlyStatus, nil
+	}
 	if manifest.Go.Changed {
 		if err := runtime.refuseManagedBillingRollback(ctx, workspace, manifest); err != nil {
 			return fail(err)
@@ -1260,6 +1272,58 @@ func (runtime *productionRuntime) rollback(ctx context.Context, workspace produc
 		return fail(err)
 	}
 	return rolledBack, nil
+}
+
+// rollbackBeforeWriterStop closes only the transaction bookkeeping when the
+// failed apply never changed the running N-1 release. It deliberately returns
+// (true, err) for a claimed-but-inconsistent pre-stop gate so the normal
+// rollback path cannot stop or replace an unverified writer.
+func (runtime *productionRuntime) rollbackBeforeWriterStop(ctx context.Context, workspace productionWorkspace, manifest *productionManifest, status productionStatus) (bool, productionStatus, error) {
+	if status.Phase != "ROLLBACK_REQUIRED" || !manifest.Go.Changed || manifest.BillingGate == nil || manifest.BillingGate.StopVerified {
+		return false, productionStatus{}, nil
+	}
+	gate := manifest.BillingGate
+	state, err := runtime.billingUnitState(ctx, runtime.paths.Service)
+	if err != nil {
+		return true, productionStatus{}, fmt.Errorf("pre-stop rollback writer evidence unavailable: %w", err)
+	}
+	if state["ActiveState"] != "active" {
+		return false, productionStatus{}, nil
+	}
+	if state["MainPID"] != strconv.Itoa(gate.GoPID) || state["InvocationID"] != gate.GoInvocationID {
+		return true, productionStatus{}, errors.New("pre-stop rollback writer identity changed")
+	}
+	if err := runtime.verifyManifestInstalled(ctx, *manifest, true); err != nil {
+		return true, productionStatus{}, fmt.Errorf("pre-stop rollback installed N-1 evidence failed: %w", err)
+	}
+	currentEnvironment, err := readPrivateRegularFile(filepath.Join(runtime.paths.ConfigDir, "lmm-api-go.env"), 1<<20)
+	if err != nil {
+		return true, productionStatus{}, errors.New("pre-stop rollback environment unavailable")
+	}
+	restoredEnvironment, err := readPrivateRegularFile(filepath.Join(workspace.configRestore, "lmm-api-go.env"), 1<<20)
+	if err != nil || fmt.Sprintf("%x", sha256Bytes(restoredEnvironment)) != manifest.EnvironmentRestoreSHA256 || !bytes.Equal(currentEnvironment, restoredEnvironment) {
+		return true, productionStatus{}, errors.New("pre-stop rollback environment changed")
+	}
+	if err := verifyFrontendIdentity(runtime.paths.FrontendRoot, manifest.Frontend.OldTarget, manifest.Frontend.OldIndexSHA256); err != nil {
+		return true, productionStatus{}, fmt.Errorf("pre-stop rollback frontend evidence failed: %w", err)
+	}
+	if err := runtime.verifyPreStopEdgeState(workspace, *manifest); err != nil {
+		return true, productionStatus{}, fmt.Errorf("pre-stop rollback edge evidence failed: %w", err)
+	}
+	if err := runtime.reopenBillingAdmission(ctx, workspace, manifest); err != nil {
+		return true, productionStatus{}, fmt.Errorf("pre-stop rollback billing restore failed: %w", err)
+	}
+	if err := runtime.probeReleaseWithBinary(ctx, workspace, runtime.paths.InstalledBinary, manifest.OldVersion, manifest.Frontend.OldIndexSHA256); err != nil {
+		return true, productionStatus{}, fmt.Errorf("pre-stop rollback N-1 probe failed: %w", err)
+	}
+	rolledBack := productionStatus{Phase: "ROLLED_BACK", Version: manifest.OldVersion, Previous: manifest.ExpectedVersion, Reason: "unchanged-writer-restored"}
+	if err := runtime.writeStatus(workspace, rolledBack); err != nil {
+		return true, productionStatus{}, err
+	}
+	if err := runtime.finalizeTransactionFiles(workspace); err != nil {
+		return true, productionStatus{}, err
+	}
+	return true, rolledBack, nil
 }
 
 func (runtime *productionRuntime) finalizeTransactionFiles(workspace productionWorkspace) error {

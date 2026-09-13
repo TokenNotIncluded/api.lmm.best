@@ -223,6 +223,24 @@ func validateBillingShutdownJournal(out []byte) error {
 	return nil
 }
 
+// Reject missing legacy billing evidence before installing an admission barrier.
+// stopBillingWriter repeats the same audit after admission closes, so this
+// early read does not authorize a later writer generation or a stale snapshot.
+func (runtime *productionRuntime) preflightBillingWriter(ctx context.Context, manifest *productionManifest) error {
+	state, err := runtime.billingUnitState(ctx, runtime.paths.Service)
+	if err != nil {
+		return fmt.Errorf("billing writer preflight: %w", err)
+	}
+	pid, err := strconv.Atoi(state["MainPID"])
+	invocation, decodeErr := hex.DecodeString(state["InvocationID"])
+	if err != nil || pid <= 1 || state["ActiveState"] != "active" || decodeErr != nil || len(invocation) != 16 {
+		return errors.New("billing writer preflight identity unavailable")
+	}
+	snapshot := *manifest
+	snapshot.BillingGate = &productionBillingGate{GoPID: pid, GoInvocationID: state["InvocationID"]}
+	return runtime.verifyNoUntrackedRefunds(ctx, &snapshot)
+}
+
 func (runtime *productionRuntime) stopBillingWriter(ctx context.Context, workspace productionWorkspace, manifest *productionManifest) error {
 	gate := manifest.BillingGate
 	if gate == nil || !gate.AdmissionClosed || !runtime.billingAdmissionClosed {
@@ -304,7 +322,7 @@ func (w *boundedBillingOutput) Write(p []byte) (int, error) {
 
 func (runtime *productionRuntime) verifyNoUntrackedRefunds(ctx context.Context, manifest *productionManifest) error {
 	g := manifest.BillingGate
-	out, err := runtime.runner.Run(ctx, productionCommand{Name: commandJournalctl, Args: []string{"--no-pager", "--output=json", "--lines=20000", "-u", runtime.paths.Service, "_SYSTEMD_INVOCATION_ID=" + g.GoInvocationID}, Sensitive: true, OutputLimit: 16 << 20})
+	out, err := runtime.runner.Run(ctx, productionCommand{Name: commandJournalctl, Args: []string{"--no-pager", "--output=json", "--output-fields=MESSAGE,__REALTIME_TIMESTAMP,__CURSOR", "--lines=20000", "-u", runtime.paths.Service, "_SYSTEMD_INVOCATION_ID=" + g.GoInvocationID}, Sensitive: true, OutputLimit: 16 << 20})
 	if err != nil {
 		return errors.New("whole writer invocation journal unavailable")
 	}

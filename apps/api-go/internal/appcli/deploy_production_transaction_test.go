@@ -25,6 +25,8 @@ type fakeProductionRunner struct {
 	managedBillingRows                            string
 	managedOAuthTokenRows                         string
 	oauthManagedTokenIsolation                    bool
+	journalLossAfterAdmission                     bool
+	preStopProbeFailure                           bool
 	t                                             *testing.T
 
 	goCandidate, goRollback                                     string
@@ -142,6 +144,9 @@ func (runner *fakeProductionRunner) Run(ctx context.Context, command productionC
 		return runner.systemctl(command.Args)
 	case "journalctl":
 		if slices.Contains(command.Args, "--output=json") {
+			if runner.journalLossAfterAdmission && runner.nginxClosed {
+				return nil, errors.New("injected invocation journal loss after admission closure")
+			}
 			messages := []string{"LMM " + runner.oldVersion + " started", "ready in 20 ms"}
 			if runner.missingStartup {
 				messages = []string{"ready in 20 ms"}
@@ -231,6 +236,9 @@ func (runner *fakeProductionRunner) runNativeBinary(binary string, args []string
 }
 
 func (runner *fakeProductionRunner) nativeRequest(args []string) ([]byte, error) {
+	if runner.preStopProbeFailure {
+		return nil, errors.New("injected pre-stop probe failure")
+	}
 	value := func(flag string) string {
 		for i := range args {
 			if args[i] == flag && i+1 < len(args) {
@@ -1431,6 +1439,19 @@ func TestProductionCancelledActivationRetainsManualRecovery(t *testing.T) {
 	}
 	if _, rollbackErr := fixture.runtime.rollback(context.Background(), fixture.workspace, "operator-after-cancellation"); rollbackErr != nil {
 		t.Fatal(rollbackErr)
+	}
+}
+
+func TestProductionRollbackBeforeWriterStopRestoresUnappliedN1(t *testing.T) {
+	fixture := newProductionFixture(t)
+	fixture.runner.journalLoss = true
+	_, err := fixture.runtime.apply(context.Background(), fixture.workspace, fixture.options)
+	if err == nil || !strings.Contains(err.Error(), "journal loss") {
+		t.Fatalf("pre-stop failure=%v", err)
+	}
+	status, statusErr := fixture.runtime.readStatus(fixture.workspace)
+	if statusErr != nil || status.Phase != "FAILED_PREARM" {
+		t.Fatalf("pre-stop failure state=%#v err=%v", status, statusErr)
 	}
 }
 

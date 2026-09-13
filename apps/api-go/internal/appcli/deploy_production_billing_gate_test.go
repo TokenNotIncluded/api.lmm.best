@@ -51,7 +51,11 @@ func TestProductionBillingGateStopsBeforeMigrationOnBadDrain(t *testing.T) {
 				}
 			}
 			status, err := f.runtime.readStatus(f.workspace)
-			if err != nil || status.Phase != "ROLLBACK_REQUIRED" {
+			wantPhase := "ROLLBACK_REQUIRED"
+			if mode == "refund-intent" || mode == "missing-history" || mode == "journal-loss" {
+				wantPhase = "FAILED_PREARM"
+			}
+			if err != nil || status.Phase != wantPhase {
 				t.Fatalf("recovery state=%+v err=%v", status, err)
 			}
 		})
