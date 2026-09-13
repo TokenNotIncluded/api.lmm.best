@@ -1205,8 +1205,34 @@ type waffoPancakeStoresQuery struct {
 }
 
 type waffoPancakeProductsQuery struct {
-	OnetimeProducts      []WaffoPancakeCatalogProduct `json:"onetimeProducts"`
-	SubscriptionProducts []WaffoPancakeCatalogProduct `json:"subscriptionProducts"`
+	OnetimeProducts      []waffoPancakeGraphQLProduct `json:"onetimeProducts"`
+	SubscriptionProducts []waffoPancakeGraphQLProduct `json:"subscriptionProducts"`
+}
+
+type waffoPancakeGraphQLProduct struct {
+	ID            string `json:"id"`
+	Name          string `json:"name"`
+	Status        string `json:"status"`
+	BillingPeriod string `json:"billingPeriod,omitempty"`
+	Prices        []struct {
+		Currency  string `json:"currency"`
+		PriceInfo struct {
+			Amount      string `json:"amount"`
+			TaxCategory string `json:"taxCategory,omitempty"`
+		} `json:"priceInfo"`
+	} `json:"prices"`
+}
+
+func mapWaffoPancakeGraphQLProduct(product waffoPancakeGraphQLProduct) WaffoPancakeCatalogProduct {
+	prices := make(map[string]WaffoPancakeCatalogPrice, len(product.Prices))
+	for _, price := range product.Prices {
+		currency := strings.ToUpper(strings.TrimSpace(price.Currency))
+		if currency == "" || strings.TrimSpace(price.PriceInfo.Amount) == "" {
+			continue
+		}
+		prices[currency] = WaffoPancakeCatalogPrice{Amount: price.PriceInfo.Amount, TaxCategory: price.PriceInfo.TaxCategory}
+	}
+	return WaffoPancakeCatalogProduct{ID: product.ID, Name: product.Name, Status: product.Status, BillingPeriod: product.BillingPeriod, Prices: prices}
 }
 
 func listWaffoPancakeCatalogWithClient(ctx context.Context, client *pancake.Client) (*WaffoPancakeCatalog, error) {
@@ -1240,7 +1266,10 @@ func listWaffoPancakeCatalogWithClient(ctx context.Context, client *pancake.Clie
 					id
 					name
 					status
-					prices
+					prices {
+						currency
+						priceInfo { amount taxCategory }
+					}
 				}
 				subscriptionProducts(storeId: $storeId, filter: { status: { eq: "active" } }) {
 					id
@@ -1258,8 +1287,14 @@ func listWaffoPancakeCatalogWithClient(ctx context.Context, client *pancake.Clie
 			return nil, fmt.Errorf("waffo pancake products query for store %s returned %d errors: %s",
 				storeID, len(productsResponse.Errors), productsResponse.Errors[0].Message)
 		}
-		stores[i].OnetimeProducts = productsResponse.Data.OnetimeProducts
-		stores[i].SubscriptionProducts = productsResponse.Data.SubscriptionProducts
+		stores[i].OnetimeProducts = make([]WaffoPancakeCatalogProduct, 0, len(productsResponse.Data.OnetimeProducts))
+		for _, product := range productsResponse.Data.OnetimeProducts {
+			stores[i].OnetimeProducts = append(stores[i].OnetimeProducts, mapWaffoPancakeGraphQLProduct(product))
+		}
+		stores[i].SubscriptionProducts = make([]WaffoPancakeCatalogProduct, 0, len(productsResponse.Data.SubscriptionProducts))
+		for _, product := range productsResponse.Data.SubscriptionProducts {
+			stores[i].SubscriptionProducts = append(stores[i].SubscriptionProducts, mapWaffoPancakeGraphQLProduct(product))
+		}
 	}
 
 	// Drop non-active products defensively as well as at the GraphQL filter,

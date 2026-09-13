@@ -40,11 +40,11 @@ func TestListWaffoPancakeCatalogUsesRootProductQuery(t *testing.T) {
 		case strings.Contains(request.Query, "onetimeProducts(storeId: $storeId, filter: { status: { eq: \"active\" } })"):
 			productQuerySeen = true
 			require.Contains(t, request.Query, "subscriptionProducts(storeId: $storeId")
-			require.Contains(t, request.Query, "prices")
+			require.Contains(t, request.Query, "prices {\n\t\t\t\t\t\tcurrency\n\t\t\t\t\t\tpriceInfo { amount taxCategory }")
 			require.Contains(t, request.Query, "billingPeriod")
 			require.NotContains(t, request.Query, "storeId: { eq:")
 			require.Equal(t, "STO_AbCdEfGhIjKlMnOpQrStUv", request.Variables["storeId"])
-			_, err = w.Write([]byte(`{"data":{"onetimeProducts":[{"id":"PROD_AbCdEfGhIjKlMnOpQrStUv","name":"wallet","status":"active","prices":{"USD":{"amount":"1.00"},"CNY":{"amount":"7.20"}}},{"id":"PROD_Inactive0000000000000000","name":"old","status":"inactive"}],"subscriptionProducts":[{"id":"PROD_Subscription000000000001","name":"monthly","status":"active","billingPeriod":"monthly"},{"id":"PROD_SubscriptionInactive000002","name":"legacy","status":"inactive","billingPeriod":"monthly"}]}}`))
+			_, err = w.Write([]byte(`{"data":{"onetimeProducts":[{"id":"PROD_AbCdEfGhIjKlMnOpQrStUv","name":"wallet","status":"active","prices":[{"currency":"USD","priceInfo":{"amount":"1.00","taxCategory":"standard"}},{"currency":"CNY","priceInfo":{"amount":"7.20"}}]},{"id":"PROD_Inactive0000000000000000","name":"old","status":"inactive","prices":[]}],"subscriptionProducts":[{"id":"PROD_Subscription000000000001","name":"monthly","status":"active","billingPeriod":"monthly","prices":[]},{"id":"PROD_SubscriptionInactive000002","name":"legacy","status":"inactive","billingPeriod":"monthly","prices":[]}]}}`))
 			require.NoError(t, err)
 		default:
 			http.Error(w, "unexpected GraphQL query", http.StatusBadRequest)
