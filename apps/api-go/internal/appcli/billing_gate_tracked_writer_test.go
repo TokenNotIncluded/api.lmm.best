@@ -21,6 +21,9 @@ func (r trackedReportRunner) Run(ctx context.Context, command productionCommand)
 		return []byte("another-package\n"), nil
 	}
 	out, err := r.base.Run(ctx, command)
+	if err == nil && command.Name == commandSystemctl && !r.base.serviceActive && strings.Contains(strings.Join(command.Args, " "), "InvocationID") {
+		out = []byte(strings.ReplaceAll(string(out), "InvocationID=11111111111111111111111111111111", "InvocationID="))
+	}
 	if err == nil && command.Name == commandJournalctl && strings.Contains(strings.Join(command.Args, " "), "_PID=") && r.report != "" {
 		out = append(out, []byte(r.report+"\n")...)
 	}

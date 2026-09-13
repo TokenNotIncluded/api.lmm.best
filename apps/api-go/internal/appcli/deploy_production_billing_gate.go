@@ -303,6 +303,33 @@ func (runtime *productionRuntime) stopBillingWriter(ctx context.Context, workspa
 	if err := runtime.verifyNoUntrackedRefunds(ctx, manifest); err != nil {
 		return err
 	}
+	tracked, err := runtime.trackedRefundWriter(ctx, manifest)
+	if err != nil {
+		return err
+	}
+	acceptedLegacy := false
+	if !tracked {
+		acceptedLegacy, err = runtime.acceptedLegacyRefundRisk(manifest)
+		if err != nil {
+			return err
+		}
+	}
+	if acceptedLegacy {
+		// Give already-scheduled legacy work time to finish after admission and
+		// upstream connections have drained. This is not proof of refund success.
+		runtime.sleep(10 * time.Second)
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		current, err := runtime.billingUnitState(ctx, runtime.paths.Service)
+		if err != nil || current["ActiveState"] != "active" || current["MainPID"] != strconv.Itoa(pid) || current["InvocationID"] != gate.GoInvocationID {
+			return errors.New("legacy writer changed during the accepted drain window")
+		}
+		gate.StopStartedUTC = runtime.now().UTC()
+		if err := runtime.writeManifest(workspace, *manifest); err != nil {
+			return err
+		}
+	}
 	if _, err := runtime.runner.Run(ctx, productionCommand{Name: commandSystemctl, Args: []string{"stop", runtime.paths.Service}}); err != nil {
 		return err
 	}

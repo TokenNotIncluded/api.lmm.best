@@ -51,11 +51,11 @@ func (runtime *productionRuntime) trackedRefundWriter(ctx context.Context, manif
 		return false, errors.New("refund drain writer identity missing")
 	}
 	state, err := runtime.billingUnitState(ctx, runtime.paths.Service)
-	if err != nil || state["InvocationID"] != g.GoInvocationID {
+	if err != nil {
 		return false, errors.New("refund drain writer invocation changed")
 	}
 	if state["ActiveState"] == "active" {
-		if state["MainPID"] != strconv.Itoa(g.GoPID) {
+		if state["MainPID"] != strconv.Itoa(g.GoPID) || state["InvocationID"] != g.GoInvocationID {
 			return false, errors.New("refund drain writer PID changed")
 		}
 		installed, err := sha256File(filepath.Join(filepath.Dir(runtime.paths.InstalledBinary), backendGoName))
