@@ -245,6 +245,33 @@ func TestOAuthHTTPAuthorizationCSRFAndIdentitySwitch(t *testing.T) {
 	require.Equal(t, "no-referrer", response.Header().Get("Referrer-Policy"))
 }
 
+func TestOAuthHTTPBrowserFlowSurvivesHandlerReplacement(t *testing.T) {
+	h := setupOAuthHTTP(t)
+	preflightCookie, csrf := h.begin(t)
+	// A second handler models a different reverse-proxy worker/process. The
+	// authorization row and one-time CSRF state must be shared through storage.
+	second := gin.New()
+	second.Use(middleware.BodyStorageCleanup())
+	MountOAuthServerRoutes(second, h.integration)
+	request := func(engine *gin.Engine, method, path, body string, headers map[string]string, cookies ...*http.Cookie) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, oauthTestIssuer+path, strings.NewReader(body))
+		for name, value := range headers {
+			req.Header.Set(name, value)
+		}
+		for _, cookie := range cookies {
+			req.AddCookie(cookie)
+		}
+		result := httptest.NewRecorder()
+		engine.ServeHTTP(result, req)
+		return result
+	}
+	response := request(second, "POST", "/api/user/auth/oauth2/continue", url.Values{"csrf": {csrf}}.Encode(), map[string]string{"Origin": oauthTestIssuer, "Content-Type": "application/x-www-form-urlencoded"}, preflightCookie, &http.Cookie{Name: service.RefreshCookieName, Value: h.login.RefreshToken})
+	consentCookie, consentCSRF := oauthFormState(t, response)
+	response = request(h.engine, "POST", "/api/user/auth/oauth2/consent", url.Values{"csrf": {consentCSRF}, "decision": {"allow"}}.Encode(), map[string]string{"Origin": oauthTestIssuer, "Content-Type": "application/x-www-form-urlencoded"}, consentCookie, &http.Cookie{Name: service.RefreshCookieName, Value: h.login.RefreshToken})
+	require.Equal(t, 200, response.Code, response.Body.String())
+	require.Contains(t, response.Body.String(), "Authorization complete")
+}
+
 func TestOAuthHTTPResourceBillingIsolationAndRevocation(t *testing.T) {
 	h := setupOAuthHTTP(t)
 	credentials, _ := h.approve(t)
