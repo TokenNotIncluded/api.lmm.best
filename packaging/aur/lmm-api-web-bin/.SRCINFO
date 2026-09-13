@@ -1,6 +1,6 @@
 pkgbase = lmm-api-web-bin
 	pkgdesc = LMM API production web frontend (prebuilt)
-	pkgver = 0.1.67
+	pkgver = 0.1.68
 	pkgrel = 1
 	url = https://github.com/TokenNotIncluded/api.lmm.best
 	install = lmm-api-web.install
@@ -9,14 +9,14 @@ pkgbase = lmm-api-web-bin
 	makedepends = cosign
 	depends = nginx
 	depends = lmm-api-provider
-	provides = lmm-api-web=0.1.67
+	provides = lmm-api-web=0.1.68
 	conflicts = lmm-api-web
-	noextract = lmm-api-web-0.1.67.tar.gz
-	source = lmm-api-web-0.1.67.tar.gz::https://github.com/TokenNotIncluded/api.lmm.best/releases/download/web-v0.1.67/lmm-api-web-0.1.67.tar.gz
-	source = lmm-api-web-0.1.67.tar.gz.sha256::https://github.com/TokenNotIncluded/api.lmm.best/releases/download/web-v0.1.67/lmm-api-web-0.1.67.tar.gz.sha256
-	source = lmm-api-web-0.1.67.tar.gz.sigstore.json::https://github.com/TokenNotIncluded/api.lmm.best/releases/download/web-v0.1.67/lmm-api-web-0.1.67.tar.gz.sigstore.json
-	sha256sums = ca2562d45c8d330395ca64ace40a54a9858350aef048b2f684fa179d4a4e2c71
-	sha256sums = b56b04d5b8f9be80abf3bd6afb65a7603bf14a5722bd2d68e4dd3a838fc9808d
-	sha256sums = 19b160b6ff9fbcb83708a0cf9e0ea2d945ff82b0da35ee740f68898040f4ce7b
+	noextract = lmm-api-web-0.1.68.tar.gz
+	source = lmm-api-web-0.1.68.tar.gz::https://github.com/TokenNotIncluded/api.lmm.best/releases/download/web-v0.1.68/lmm-api-web-0.1.68.tar.gz
+	source = lmm-api-web-0.1.68.tar.gz.sha256::https://github.com/TokenNotIncluded/api.lmm.best/releases/download/web-v0.1.68/lmm-api-web-0.1.68.tar.gz.sha256
+	source = lmm-api-web-0.1.68.tar.gz.sigstore.json::https://github.com/TokenNotIncluded/api.lmm.best/releases/download/web-v0.1.68/lmm-api-web-0.1.68.tar.gz.sigstore.json
+	sha256sums = cc98e7afdd6cfe174a040b858430b4f50fe3cb1f591e30e338e238d4dc4627a4
+	sha256sums = 4b2013de32e48ae18b609c3275e9a4ed716a26a4b2ed6b3afa720c97afffc676
+	sha256sums = 51fc7386523372a79521f78b95e92df893f4400e41e0d07da1dc87834b6b7d6d
 
 pkgname = lmm-api-web-bin
