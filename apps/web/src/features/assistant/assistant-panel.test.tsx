@@ -211,13 +211,13 @@ async function renderPanel(
   return { container, queryClient, root }
 }
 
-async function renderLauncher(user: AuthUser | null = null) {
+async function renderLauncher(user: AuthUser | null = null, width = 1280) {
   Object.defineProperty(window, 'innerWidth', {
     configurable: true,
-    value: 1280,
+    value: width,
   })
   window.matchMedia = ((query: string) => ({
-    matches: query === '(min-width: 1280px)',
+    matches: query === '(min-width: 1280px)' && width >= 1280,
     media: query,
     onchange: null,
     addEventListener: () => {},
@@ -1542,6 +1542,42 @@ describe('AssistantPanel', () => {
         'Open AI assistant'
       )
       assert.equal(launcherButton.getAttribute('title'), 'Open AI assistant')
+    } finally {
+      await act(async () => rendered.root.unmount())
+      rendered.queryClient.clear()
+    }
+  })
+
+  test('mounts exactly one assistant panel on a narrow viewport', async () => {
+    api.get = (async (url: string) => {
+      if (url === '/api/status')
+        return {
+          data: { success: true, data: { assistant: { enabled: true } } },
+        }
+      assert.equal(url, '/api/assistant/status')
+      return { data: { success: true, data: assistantStatus } }
+    }) as typeof api.get
+    const rendered = await renderLauncher(null, 390)
+    try {
+      const launcherButton = document.querySelector<HTMLButtonElement>(
+        '[data-testid="assistant-launcher"]'
+      )
+      assert.ok(launcherButton)
+      await act(async () => {
+        launcherButton.click()
+        await flushEffects()
+      })
+      await act(async () =>
+        waitForCondition(
+          () => document.querySelector('#ai-assistant-panel') !== null,
+          'Mobile assistant panel did not open'
+        )
+      )
+      assert.equal(document.querySelectorAll('#ai-assistant-panel').length, 1)
+      assert.equal(
+        document.querySelector('[data-testid="assistant-rail"]'),
+        null
+      )
     } finally {
       await act(async () => rendered.root.unmount())
       rendered.queryClient.clear()

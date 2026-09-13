@@ -205,40 +205,44 @@ export function AssistantLauncher(props: { page?: boolean }) {
        * opening it shrinks the content area, matching the shell's rounded
        * card language. The wrapper animates width; the inner panel keeps a
        * fixed width so text does not reflow mid-transition. */}
-      <div
-        className={cn(
-          'hidden shrink-0 overflow-hidden transition-[width,margin,opacity] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] xl:block',
-          railOpen ? cn('opacity-100', RAIL_WIDTH, 'ms-2') : 'w-0 opacity-0'
-        )}
-        data-testid='assistant-rail'
-        data-open={railOpen}
-        aria-hidden={!railOpen}
-      >
-        <div className={cn('h-full min-w-0', RAIL_WIDTH)}>
-          <Suspense
-            fallback={
-              <aside
-                className='bg-card h-full w-full rounded-xl border'
-                aria-hidden='true'
+      {!isOverlayViewport ? (
+        <div
+          className={cn(
+            'hidden shrink-0 overflow-hidden transition-[width,margin,opacity] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] xl:block',
+            railOpen ? cn('opacity-100', RAIL_WIDTH, 'ms-2') : 'w-0 opacity-0'
+          )}
+          data-testid='assistant-rail'
+          data-open={railOpen}
+          aria-hidden={!railOpen}
+        >
+          <div className={cn('h-full min-w-0', RAIL_WIDTH)}>
+            <Suspense
+              fallback={
+                <aside
+                  className='bg-card h-full w-full rounded-xl border'
+                  aria-hidden='true'
+                />
+              }
+            >
+              <AssistantPanel
+                mode='rail'
+                open={railOpen}
+                fullscreen={desktopFullscreen}
+                initialPreset={initialPreset}
+                initialMessage={initialMessage}
+                initialMessageRevision={initialMessageRevision}
+                autoSendRequestId={autoSendRequestId}
+                onAutoSendConsumed={handleAutoSendConsumed}
+                onOpenChange={setAssistantRailOpen}
+                onConversationReset={handleConversationReset}
+                onToggleFullscreen={() =>
+                  setDesktopFullscreen((value) => !value)
+                }
               />
-            }
-          >
-            <AssistantPanel
-              mode='rail'
-              open={railOpen}
-              fullscreen={desktopFullscreen}
-              initialPreset={initialPreset}
-              initialMessage={initialMessage}
-              initialMessageRevision={initialMessageRevision}
-              autoSendRequestId={autoSendRequestId}
-              onAutoSendConsumed={handleAutoSendConsumed}
-              onOpenChange={setAssistantRailOpen}
-              onConversationReset={handleConversationReset}
-              onToggleFullscreen={() => setDesktopFullscreen((value) => !value)}
-            />
-          </Suspense>
+            </Suspense>
+          </div>
         </div>
-      </div>
+      ) : null}
 
       {/* Mobile / narrow overlay sheet. Exclusive with the desktop rail so a
        * queued auto-send can never fire in both presentations. */}
