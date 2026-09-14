@@ -234,7 +234,7 @@ describe('AssistantActivationTool', () => {
         document.body.textContent ?? '',
         /without an AI recommendation/
       )
-      assert.equal(findButton('Submit for administrator review').disabled, true)
+      assert.equal(findButton('Submit for review').disabled, true)
     } finally {
       await unmount(rendered)
     }
@@ -262,7 +262,7 @@ describe('AssistantActivationTool', () => {
       await setTextareaValue(textarea, 'I need L1 for a small test client.')
 
       await act(async () => {
-        findButton('Submit for administrator review').click()
+        findButton('Submit for review').click()
         await flushEffects()
       })
       await waitForCondition(
@@ -309,7 +309,7 @@ describe('AssistantActivationTool', () => {
       )
 
       await act(async () => {
-        findButton('Confirm and send to administrator').click()
+        findButton('Confirm and submit for review').click()
         await flushEffects()
       })
       await waitForCondition(
@@ -354,7 +354,7 @@ describe('AssistantActivationTool', () => {
       )
 
       await act(async () => {
-        findButton('Confirm and send to administrator').click()
+        findButton('Confirm and submit for review').click()
         await flushEffects()
       })
       await waitForCondition(
@@ -832,7 +832,7 @@ describe('AssistantActivationTool', () => {
         assert.ok(textarea)
         await setTextareaValue(textarea, 'I need L1 for a small test client.')
         await act(async () => {
-          findButton('Submit for administrator review').click()
+          findButton('Submit for review').click()
           await flushEffects()
         })
         await waitForCondition(
