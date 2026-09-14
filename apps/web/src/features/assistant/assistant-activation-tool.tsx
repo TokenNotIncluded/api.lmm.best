@@ -77,6 +77,7 @@ export function AssistantActivationTool(props: {
   )
   const initializedLetterKey = useRef('')
   const initializedRevisionKey = useRef('')
+  const { recommendationDraft, onApproved } = props
 
   const userId = useAuthStore((state) => state.auth.user?.id) ?? 0
   const requestQueryKey = developerAccessRequestQueryKey(userId)
@@ -97,16 +98,16 @@ export function AssistantActivationTool(props: {
   useEffect(() => {
     if (request?.status === 'approved') {
       void queryClient.invalidateQueries({ queryKey: ['assistant-status'] })
-      props.onApproved?.()
+      onApproved?.()
     }
-  }, [props.onApproved, queryClient, request?.status])
+  }, [onApproved, queryClient, request?.status])
 
   useEffect(() => {
-    if (props.recommendationDraft) {
-      const key = `draft:${props.recommendationDraft.confirmation_token}`
+    if (recommendationDraft) {
+      const key = `draft:${recommendationDraft.confirmation_token}`
       if (initializedLetterKey.current !== key) {
         initializedLetterKey.current = key
-        setLetter(props.recommendationDraft.recommendation)
+        setLetter(recommendationDraft.recommendation)
         setDraftEditSource('ai')
       }
       if (
@@ -114,7 +115,7 @@ export function AssistantActivationTool(props: {
         initializedRevisionKey.current !== key
       ) {
         initializedRevisionKey.current = key
-        setPendingLetterDraft(props.recommendationDraft.recommendation)
+        setPendingLetterDraft(recommendationDraft.recommendation)
         setPendingEditSource('ai')
         setPendingLetterEditing(true)
       }
@@ -127,7 +128,7 @@ export function AssistantActivationTool(props: {
         setLetter(request.ai_recommendation)
       }
     }
-  }, [props.recommendationDraft, request])
+  }, [recommendationDraft, request])
 
   const showSubmitError = (error: unknown, recoverManualEdit = false) => {
     const messageKey = getServerErrorMessageKey(error)

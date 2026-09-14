@@ -72,7 +72,7 @@ export function DeveloperAccessRequestsPanel(props: {
     document
       .getElementById(`developer-access-request-${props.focusRequestId}`)
       ?.scrollIntoView({ block: 'center', behavior: 'smooth' })
-  }, [loading, props.focusRequestId, requests])
+  }, [loading, props.focusRequestId])
 
   const review = async (
     request: DeveloperAccessRequestAdmin,
