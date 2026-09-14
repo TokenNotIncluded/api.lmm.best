@@ -50,11 +50,13 @@ else
   perl -0pi -e "s/sha256sums=\(.*?\)/sha256sums=(\n  '${asset_sha}'\n  '${checksum_sha}'\n  '${bundle_sha}'\n)/s" "$build/PKGBUILD"
 fi
 
-mkdir -p /tmp/lmm-pkgdest
+pkgdest="$build/pkgdest"
+mkdir -p "$pkgdest"
 useradd --create-home --uid 1000 package-builder 2>/dev/null || true
-chown -R package-builder:package-builder "$build" /tmp/lmm-pkgdest
-runuser -u package-builder -- env SRCDEST="$build" PKGDEST=/tmp/lmm-pkgdest \
+chown -R package-builder:package-builder "$build"
+runuser -u package-builder -- env SRCDEST="$build" PKGDEST="$pkgdest" \
   makepkg --nodeps --noconfirm --cleanbuild --clean --holdver --dir "$build"
-package=$(find /tmp/lmm-pkgdest -maxdepth 1 -type f -name "${package_name}-*.pkg.tar.*" -print -quit)
+package=$(find "$pkgdest" -maxdepth 1 -type f \
+  -name "${package_name}-${version}-${package_release}-*.pkg.tar.*" -print -quit)
 [[ -n "$package" && -f "$package" ]]
 install -Dm0644 "$package" "$output"
