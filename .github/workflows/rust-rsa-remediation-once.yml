@@ -23,6 +23,12 @@ jobs:
           rustup default 1.91.0
           rustc --version --verbose
 
+      - name: Install repository gate prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ripgrep
+          rg --version
+
       - name: Apply, verify, and commit remediation
         env:
           CARGO_BUILD_JOBS: "2"
