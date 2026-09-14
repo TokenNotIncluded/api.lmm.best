@@ -1,6 +1,7 @@
 package appcli
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -92,7 +93,7 @@ production_promote_with_transport_retry "$STDERR_LOG" mock_promote
 			status := 0
 			if runErr != nil {
 				var exitErr *exec.ExitError
-				if !strings.Contains(runErr.Error(), "exit status") || !errorAs(runErr, &exitErr) {
+				if !errors.As(runErr, &exitErr) {
 					t.Fatalf("run helper: %v\n%s", runErr, output)
 				}
 				status = exitErr.ExitCode()
@@ -119,8 +120,4 @@ production_promote_with_transport_retry "$STDERR_LOG" mock_promote
 			}
 		})
 	}
-}
-
-func errorAs(err error, target any) bool {
-	return errors.As(err, target)
 }
