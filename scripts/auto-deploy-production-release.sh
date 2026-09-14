@@ -124,12 +124,20 @@ fetch_rollback() {
 fetch_rollback lmm-api-go-bin go go-v
 fetch_rollback lmm-api-web-bin web web-v
 
+deployment_image="lmm-production-deploy:${GITHUB_RUN_ID:-manual}"
+mkdir -p "$root/image-context"
+cat >"$root/image-context/Dockerfile" <<'EOF'
+FROM archlinux:base-devel
+RUN pacman -Sy --noconfirm --needed cosign git
+EOF
+docker build --network host --tag "$deployment_image" "$root/image-context"
+
 for rollback_component in go web; do
   rollback_package="lmm-api-${rollback_component}-bin"
   rollback_pkgver=${installed_version[$rollback_package]}
   rollback_version=${rollback_pkgver%-*}
   rollback_pkgrel=${rollback_pkgver##*-}
-  docker run --rm --network host -v "$GITHUB_WORKSPACE:/repo:ro" -v "$root:/work" archlinux:base-devel \
+  docker run --rm --network host -v "$GITHUB_WORKSPACE:/repo:ro" -v "$root:/work" "$deployment_image" \
     bash /repo/scripts/build-release-package.sh "$rollback_component" "$rollback_version" \
       "/work/rollback/$rollback_package" "/work/rollback/$rollback_package.pkg.tar.zst" \
       /repo "$rollback_pkgrel"
@@ -137,11 +145,11 @@ for rollback_component in go web; do
 done
 
 if [[ "$component" == go ]]; then
-  docker run --rm --network host -v "$GITHUB_WORKSPACE:/repo:ro" -v "$root:/work" archlinux:base-devel \
+  docker run --rm --network host -v "$GITHUB_WORKSPACE:/repo:ro" -v "$root:/work" "$deployment_image" \
     bash /repo/scripts/build-release-package.sh go "$version" /work/assets /work/pkg/lmm-api-go-bin.pkg.tar.zst /repo
   normalize_controller_file "$root/pkg/lmm-api-go-bin.pkg.tar.zst"
 else
-  docker run --rm --network host -v "$GITHUB_WORKSPACE:/repo:ro" -v "$root:/work" archlinux:base-devel \
+  docker run --rm --network host -v "$GITHUB_WORKSPACE:/repo:ro" -v "$root:/work" "$deployment_image" \
     bash /repo/scripts/build-release-package.sh web "$version" /work/assets /work/pkg/lmm-api-web-bin.pkg.tar.zst /repo
   normalize_controller_file "$root/pkg/lmm-api-web-bin.pkg.tar.zst"
 fi
@@ -162,16 +170,13 @@ probe=$(find "$root/probe" -type f -name lmm-api-go -print -quit)
 [[ -x "$probe" ]]
 
 run_probe() {
-  local cosign_binary
-  cosign_binary=$(command -v cosign)
   docker run --rm --network host --user "$(id -u):$(id -g)" \
     -e HOME="$root/cosign-home" \
     -v "$GITHUB_WORKSPACE:$GITHUB_WORKSPACE:ro" \
     -v "$root:$root" \
     -v "$HOME/.ssh:$HOME/.ssh:ro" \
-    -v "$cosign_binary:/usr/bin/cosign:ro" \
     -w "$GITHUB_WORKSPACE" \
-    archlinux:base-devel "$@"
+    "$deployment_image" "$@"
 }
 
 deployment_id="release-${RELEASE_TAG//[^A-Za-z0-9_.-]/-}-${GITHUB_RUN_ID:-manual}"
