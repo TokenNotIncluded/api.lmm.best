@@ -758,6 +758,13 @@ async fn create_order(
     if idem.is_empty() || idem.len() > 128 || input.offer_id.trim().is_empty() {
         return done(hero_error(invalid_request()));
     }
+    let user = match authenticated(&state, &headers).await {
+        Ok(user) => user,
+        Err(response) => return done(response),
+    };
+    if let Err(response) = ensure_sms_purchase_access(&state, &user).await {
+        return response;
+    }
     match purchase(&state, user_id, idem, &input).await {
         Ok((view, quota, status)) => done(hero_success_status(
             status,
