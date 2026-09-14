@@ -1374,7 +1374,7 @@ fn user_auth_error(headers: &HeaderMap, error: UserAuthPolicyError) -> Response 
 }
 
 fn console_not_found() -> Response {
-    (StatusCode::NOT_FOUND, Json(json!({"message": "Not Found"}))).into_response()
+    disable_cache((StatusCode::NOT_FOUND, Json(json!({"message": "Not Found"}))).into_response())
 }
 
 async fn bounded_body(request: Request) -> Result<axum::body::Bytes, Response> {
