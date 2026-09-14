@@ -29,6 +29,14 @@ text, n = re.subn(
 )
 if n != 1:
     raise SystemExit(f'rust_decimal replacement count={n}')
+text, n = re.subn(
+    r'sha2 = "[^"]+"',
+    'sha2 = { version = "0.10.9", features = ["oid"] }',
+    text,
+    count=1,
+)
+if n != 1:
+    raise SystemExit(f'sha2 OID feature replacement count={n}')
 if 'ring = "0.17.14"' not in text:
     text = text.replace(
         'redis = { version = "0.32.4", features = ["tokio-comp"] }\n',
