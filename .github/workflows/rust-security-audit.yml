@@ -6,6 +6,11 @@ on:
       - 'apps/api-rust/Cargo.toml'
       - 'apps/api-rust/Cargo.lock'
       - '.github/workflows/rust-security-audit.yml'
+  pull_request:
+    paths:
+      - 'apps/api-rust/Cargo.toml'
+      - 'apps/api-rust/Cargo.lock'
+      - '.github/workflows/rust-security-audit.yml'
   schedule:
     - cron: '23 3 * * *'
   workflow_dispatch:
