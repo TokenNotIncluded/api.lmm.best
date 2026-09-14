@@ -209,4 +209,6 @@ plan_result=$(run_probe "$probe" deploy production plan --repo "$GITHUB_WORKSPAC
 plan=$(jq -er '.plan' <<<"$plan_result")
 plan_sha=$(jq -er '.plan_sha256' <<<"$plan_result")
 run_probe "$probe" deploy production stage --plan "$plan" --plan-sha256 "$plan_sha" --confirm api.lmm.best
-run_probe "$probe" deploy production promote --plan "$plan" --plan-sha256 "$plan_sha" --confirm api.lmm.best
+source "$GITHUB_WORKSPACE/scripts/production-promote-retry.sh"
+production_promote_with_transport_retry "$root/promote.stderr" \
+  run_probe "$probe" deploy production promote --plan "$plan" --plan-sha256 "$plan_sha" --confirm api.lmm.best
