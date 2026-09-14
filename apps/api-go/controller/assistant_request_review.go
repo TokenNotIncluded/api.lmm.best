@@ -440,7 +440,10 @@ func newAssistantReviewContext(ctx context.Context, root *model.User, routeGroup
 	}
 	recorder := httptest.NewRecorder()
 	ginContext, _ := gin.CreateTestContext(recorder)
-	ginContext.Request = httptest.NewRequest(http.MethodPost, "http://assistant-review/v1/chat/completions", io.NopCloser(strings.NewReader("{}")))
+	// Keep synthetic review requests origin-less. Relay adaptors join this path
+	// to the selected channel base URL; an absolute URL here would be treated as
+	// path text and could produce https://provider.example/http://assistant-review/...
+	ginContext.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", io.NopCloser(strings.NewReader("{}")))
 	ginContext.Request = ginContext.Request.WithContext(ctx)
 	ginContext.Set(common.RequestIdKey, common.NewRequestId())
 	ginContext.Set("id", root.Id)

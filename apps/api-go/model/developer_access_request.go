@@ -127,6 +127,33 @@ func GetDeveloperAccessRequest(userID int) (*DeveloperAccessRequest, error) {
 	return &request, nil
 }
 
+// ListRecoverableDeveloperAccessRequests returns only each user's current L1
+// application when no automatic or human review note has been recorded. It is
+// used to restore best-effort in-memory review work after a process restart.
+func ListRecoverableDeveloperAccessRequests(limit int) ([]DeveloperAccessRequest, error) {
+	if limit <= 0 || limit > 200 {
+		limit = 32
+	}
+	requests := make([]DeveloperAccessRequest, 0, limit)
+	latest := DB.Table("developer_access_requests AS latest").
+		Select("MAX(latest.id)").
+		Where("latest.user_id = request.user_id")
+	err := DB.Table("developer_access_requests AS request").
+		Select("request.*").
+		Where("request.id = (?)", latest).
+		Where("request.status = ?", DeveloperAccessRequestPending).
+		Where("request.source IN ?", []string{
+			DeveloperAccessRequestSourceAI,
+			DeveloperAccessRequestSourceUser,
+			DeveloperAccessRequestSourceAssistant,
+		}).
+		Where("request.admin_note = '' OR request.admin_note IS NULL").
+		Order("request.id ASC").
+		Limit(limit).
+		Find(&requests).Error
+	return requests, err
+}
+
 // reopenDeveloperAccessRequestForUserWithTx reopens the user's one letter when
 // an administrator explicitly returns the account to L0.
 func reopenDeveloperAccessRequestForUserWithTx(tx *gorm.DB, userID int) error {
