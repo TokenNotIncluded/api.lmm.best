@@ -133,6 +133,17 @@ if n != 1:
     raise SystemExit(f'signer replacement count={n}')
 system.write_text(text)
 
+# `main` currently carries this identity map as pre-existing lint debt. The
+# strict remediation gate intentionally runs the repository's documented
+# `lint:rust` command, so remove the no-op adapter rather than weakening Clippy.
+sms = Path('apps/api-rust/src/routes/hero_sms/sms.rs')
+text = sms.read_text()
+old = '''    let user = authenticated(state, headers)\n        .await\n        .map_err(|response| response)?;'''
+new = '''    let user = authenticated(state, headers).await?;'''
+if old not in text:
+    raise SystemExit('HeroSMS inherited identity map not found')
+sms.write_text(text.replace(old, new, 1))
+
 workflow = Path('.github/workflows/rust-security-audit.yml')
 text = workflow.read_text()
 start_marker = '          # RUSTSEC-2026-0235 currently has no resolved workspace path:'
@@ -171,14 +182,14 @@ cargo fmt --all --check
 cargo check --workspace --all-targets --all-features --locked
 cargo test --locked routes::system_config -- --nocapture
 cargo test --locked routes::waffo_webhooks -- --nocapture
-cargo install cargo-audit --locked --version 0.21.2
+cargo install cargo-audit --locked --version 0.22.1
 cargo audit --ignore RUSTSEC-2023-0071
 cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 cargo test --workspace --all-targets --all-features --locked
 cargo test --workspace --doc --all-features --locked
 cd ../..
 
-git add apps/api-rust/Cargo.toml apps/api-rust/Cargo.lock apps/api-rust/src/routes/system_config.rs .github/workflows/rust-security-audit.yml
+git add apps/api-rust/Cargo.toml apps/api-rust/Cargo.lock apps/api-rust/src/routes/system_config.rs apps/api-rust/src/routes/hero_sms/sms.rs .github/workflows/rust-security-audit.yml
 git diff --cached --check
 git config user.name 'github-actions[bot]'
 git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
