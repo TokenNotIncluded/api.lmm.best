@@ -71,6 +71,26 @@ func TestApplyDeveloperAccessAutoReviewApproveAndReplay(t *testing.T) {
 	require.ErrorIs(t, err, ErrDeveloperAccessRequestReviewed)
 }
 
+func TestListRecoverableDeveloperAccessRequestsUsesOnlyCurrentUnreviewedRows(t *testing.T) {
+	useSingleConnectionTestDB(t, &DeveloperAccessRequest{})
+	rows := []DeveloperAccessRequest{
+		{UserId: 1, Status: DeveloperAccessRequestPending, Source: DeveloperAccessRequestSourceAssistant, Reason: "current recoverable", CreatedAt: 1},
+		{UserId: 2, Status: DeveloperAccessRequestPending, Source: DeveloperAccessRequestSourceAI, Reason: "already reviewed", AdminNote: "Awaiting manual review", CreatedAt: 2},
+		{UserId: 3, Status: DeveloperAccessRequestPending, Source: DeveloperAccessRequestSourceUser, Reason: "stale pending", CreatedAt: 3},
+		{UserId: 3, Status: DeveloperAccessRequestRejected, Source: DeveloperAccessRequestSourceUser, Reason: "newer decision", AdminNote: "Rejected", CreatedAt: 4},
+		{UserId: 4, Status: DeveloperAccessRequestPending, Source: DeveloperAccessRequestSourceOld, Reason: "legacy request", CreatedAt: 5},
+		{UserId: 5, Status: DeveloperAccessRequestApproved, Source: DeveloperAccessRequestSourceAI, Reason: "already approved", CreatedAt: 6},
+	}
+	for index := range rows {
+		require.NoError(t, DB.Create(&rows[index]).Error)
+	}
+
+	recovered, err := ListRecoverableDeveloperAccessRequests(32)
+	require.NoError(t, err)
+	require.Len(t, recovered, 1)
+	require.Equal(t, rows[0].Id, recovered[0].Id)
+}
+
 func TestApplyDeveloperAccessAutoReviewHumanReplyDoesNotGrantOrReject(t *testing.T) {
 	useSingleConnectionTestDB(t, l1AutoReviewTestModels...)
 	root, user, request, config := seedL1AutoReviewTest(t)

@@ -42,6 +42,7 @@ func TestResolveDrawingTokenCreatesReusesAndActivatesConsole(t *testing.T) {
 	assert.NotEmpty(t, first.Key)
 	assert.Equal(t, DrawingTokenGroup, first.Group)
 	assert.True(t, first.UnlimitedQuota)
+	assert.Equal(t, TokenCreationSourceDrawingMCP, first.CreationSource)
 	reused, created, err := ResolveDrawingToken(user.Id, DrawingTokenGroup, allowDrawingTestGroup)
 	require.NoError(t, err)
 	assert.False(t, created)

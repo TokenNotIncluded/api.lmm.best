@@ -122,13 +122,18 @@ func setTokenAutoGroups(c *gin.Context, token *model.Token, groups []string) boo
 
 func GetAllTokens(c *gin.Context) {
 	userId := c.GetInt("id")
+	creationMode := c.Query("creation_mode")
 	pageInfo := common.GetPageQuery(c)
-	tokens, err := model.GetAllUserTokens(userId, pageInfo.GetStartIdx(), pageInfo.GetPageSize())
+	tokens, err := model.GetUserTokensByCreationMode(userId, pageInfo.GetStartIdx(), pageInfo.GetPageSize(), creationMode)
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	total, _ := model.CountUserTokens(userId)
+	total, err := model.CountUserTokensByCreationMode(userId, creationMode)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
 	pageInfo.SetTotal(int(total))
 	pageInfo.SetItems(buildMaskedTokenResponses(tokens))
 	common.ApiSuccess(c, pageInfo)
@@ -138,10 +143,11 @@ func SearchTokens(c *gin.Context) {
 	userId := c.GetInt("id")
 	keyword := c.Query("keyword")
 	token := c.Query("token")
+	creationMode := c.Query("creation_mode")
 
 	pageInfo := common.GetPageQuery(c)
 
-	tokens, total, err := model.SearchUserTokens(userId, keyword, token, pageInfo.GetStartIdx(), pageInfo.GetPageSize())
+	tokens, total, err := model.SearchUserTokensByCreationMode(userId, keyword, token, pageInfo.GetStartIdx(), pageInfo.GetPageSize(), creationMode)
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -339,10 +345,24 @@ func AddToken(c *gin.Context) {
 		if !setTokenAutoGroups(c, &token, request.AutoGroups.Groups) {
 			return
 		}
-	} else {
+	} else if strings.TrimSpace(token.Group) != "" {
+		userGroup, groupErr := getTokenRequestUserGroup(c)
+		if groupErr != nil {
+			common.ApiError(c, groupErr)
+			return
+		}
+		if !service.IsUserSelectableGroup(userGroup, token.Group) {
+			common.ApiError(c, fmt.Errorf("the selected group is not available to this account"))
+			return
+		}
 		if !requireGroupWarningConfirmation(c, token.Group, request.GroupWarningConfirmations) {
 			return
 		}
+		token.CrossGroupRetry = false
+		_ = token.SetAutoGroups(nil)
+	} else {
+		// An empty group keeps the existing API-key behavior: inherit the
+		// account's group at request time. It is not an explicit group choice.
 		token.CrossGroupRetry = false
 		_ = token.SetAutoGroups(nil)
 	}
@@ -367,16 +387,14 @@ func AddToken(c *gin.Context) {
 		Group:              token.Group,
 		CrossGroupRetry:    token.CrossGroupRetry,
 		AutoGroups:         token.AutoGroups,
+		CreationSource:     model.TokenCreationSourceManual,
 	}
 	err = model.InsertTokenAndActivateConsole(&cleanToken)
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "",
-	})
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "", "data": gin.H{"id": cleanToken.Id, "name": cleanToken.Name, "group": cleanToken.Group}})
 }
 
 func DeleteToken(c *gin.Context) {

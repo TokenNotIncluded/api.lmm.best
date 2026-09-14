@@ -14,10 +14,17 @@ GNU Affero General Public License for more details.
 You should have received a copy of the GNU Affero General Public License
 along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
+import { ROLE } from '@/lib/roles'
+
 import type { AssistantPreConversationPreset } from './api'
 
 // Bump both the query key and HTTP URL when reviewed starter copy changes.
 export const ASSISTANT_PROMPT_PRESET_COPY_VERSION = 'natural-v2'
+
+type AssistantPresetViewer = {
+  role: number
+  trust_level_info?: { level: number }
+}
 
 const requiredPresetKeys = {
   ai_recommendation: 'Help me write an L1 recommendation.',
@@ -30,6 +37,24 @@ const fallbackPresets: AssistantPreConversationPreset[] = Object.entries(
   requiredPresetKeys
 ).map(([id, prompt]) => ({ id, prompt, label: prompt }))
 
+export function canSeeL1Recommendation(
+  user: AssistantPresetViewer | null | undefined
+): boolean {
+  return Boolean(
+    user && user.role < ROLE.ADMIN && user.trust_level_info?.level === 0
+  )
+}
+
+export function filterAssistantPreConversationPresets(
+  presets: AssistantPreConversationPreset[] | undefined,
+  user: AssistantPresetViewer | null | undefined
+): AssistantPreConversationPreset[] {
+  return (presets ?? fallbackPresets).filter(
+    (preset) =>
+      preset.id !== 'ai_recommendation' || canSeeL1Recommendation(user)
+  )
+}
+
 export function localizeAssistantPreConversationPresets(
   presets: AssistantPreConversationPreset[] | undefined,
   t: (key: string) => string
@@ -37,7 +62,12 @@ export function localizeAssistantPreConversationPresets(
   return (presets ?? fallbackPresets).map((preset) => {
     // Use stable IDs rather than legacy Chinese labels/prompts. This also fixes
     // old cached responses and updates immediately when the UI language changes.
-    if (!Object.hasOwn(requiredPresetKeys, preset.id)) return preset
+    if (
+      preset.source === 'custom' ||
+      !Object.hasOwn(requiredPresetKeys, preset.id)
+    ) {
+      return preset
+    }
     const key = requiredPresetKeys[preset.id as keyof typeof requiredPresetKeys]
     const prompt = t(key)
     return { ...preset, label: prompt, prompt }

@@ -2,6 +2,7 @@ package model
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -16,7 +17,9 @@ const (
 	DeveloperAccessRequestSourceAI        = "assistant_recommendation"
 	DeveloperAccessRequestSourceUser      = "user_edited"
 	DeveloperAccessRequestSourceAssistant = "assistant_request"
+	DeveloperAccessRequestSourceDirectAI  = "assistant_direct_grant"
 	DeveloperAccessRequestSourceOld       = "legacy"
+	AssistantDirectGrantMinCompletedTurns = 3
 	minDeveloperAccessRequestReason       = 5
 	minDeveloperAccessReviewNote          = 2
 	minDeveloperAccessRecommendation      = 20
@@ -33,7 +36,15 @@ var (
 	ErrDeveloperAccessReviewNoteTooShort      = errors.New("管理员意见至少需要 2 个字符")
 	ErrDeveloperAccessRequestNoteTooLong      = errors.New("解锁申请说明不能超过 2000 个字符")
 	ErrDeveloperAccessRequestQueueUnavailable = errors.New("解锁申请队列暂时不可用")
+	ErrAssistantDirectGrantTurnsRequired      = errors.New("assistant direct L1 grant requires three completed conversation turns")
+	ErrAssistantDirectGrantNotL0              = errors.New("assistant direct L1 grant requires an unrestricted L0 user")
 )
+
+type AssistantDeveloperAccessGrant struct {
+	Request        *DeveloperAccessRequest
+	CompletedTurns int
+	Activated      bool
+}
 
 // DeveloperAccessRequest records the non-payment path to L1 access. The
 // request is deliberately separate from User.TrustLevelOverride: approving a
@@ -114,6 +125,33 @@ func GetDeveloperAccessRequest(userID int) (*DeveloperAccessRequest, error) {
 		return nil, err
 	}
 	return &request, nil
+}
+
+// ListRecoverableDeveloperAccessRequests returns only each user's current L1
+// application when no automatic or human review note has been recorded. It is
+// used to restore best-effort in-memory review work after a process restart.
+func ListRecoverableDeveloperAccessRequests(limit int) ([]DeveloperAccessRequest, error) {
+	if limit <= 0 || limit > 200 {
+		limit = 32
+	}
+	requests := make([]DeveloperAccessRequest, 0, limit)
+	latest := DB.Table("developer_access_requests AS latest").
+		Select("MAX(latest.id)").
+		Where("latest.user_id = request.user_id")
+	err := DB.Table("developer_access_requests AS request").
+		Select("request.*").
+		Where("request.id = (?)", latest).
+		Where("request.status = ?", DeveloperAccessRequestPending).
+		Where("request.source IN ?", []string{
+			DeveloperAccessRequestSourceAI,
+			DeveloperAccessRequestSourceUser,
+			DeveloperAccessRequestSourceAssistant,
+		}).
+		Where("request.admin_note = '' OR request.admin_note IS NULL").
+		Order("request.id ASC").
+		Limit(limit).
+		Find(&requests).Error
+	return requests, err
 }
 
 // reopenDeveloperAccessRequestForUserWithTx reopens the user's one letter when
@@ -208,6 +246,106 @@ func SubmitConfirmedAssistantDeveloperAccessRecommendation(token string, match A
 		return nil, errors.Join(ErrDeveloperAccessRequestQueueUnavailable, err)
 	}
 	return request, nil
+}
+
+// GrantAssistantDeveloperAccess performs the narrowly scoped L0 -> L1 action
+// available to the customer assistant after three completed turns. The user
+// row serializes this action with submissions, reviews, resets, and concurrent
+// tool calls. The approved request row is the durable audit record.
+func GrantAssistantDeveloperAccess(userID int, conversationID int64, reason string, recommendation string) (*AssistantDeveloperAccessGrant, error) {
+	if userID <= 0 || conversationID <= 0 {
+		return nil, gorm.ErrInvalidData
+	}
+	normalizedReason, err := normalizeDeveloperAccessRequestReason(reason)
+	if err != nil {
+		return nil, err
+	}
+	normalizedRecommendation, err := normalizeDeveloperAccessRecommendation(recommendation)
+	if err != nil {
+		return nil, err
+	}
+
+	result := &AssistantDeveloperAccessGrant{}
+	err = DB.Transaction(func(tx *gorm.DB) error {
+		var user User
+		if err := lockForUpdate(tx).Where("id = ?", userID).First(&user).Error; err != nil {
+			return err
+		}
+		completedTurns, err := countCompletedAssistantConversationTurnsWithTx(tx, userID, conversationID, true)
+		if err != nil {
+			return err
+		}
+		result.CompletedTurns = completedTurns
+		if completedTurns < AssistantDirectGrantMinCompletedTurns {
+			return ErrAssistantDirectGrantTurnsRequired
+		}
+		if user.Status != common.UserStatusEnabled || user.Role != common.RoleCommonUser || user.TrustLevelOverride != nil {
+			return ErrAssistantDirectGrantNotL0
+		}
+		access, err := GetDeveloperAccessStateForUserBaseWithTx(tx, user.ToBaseUser(), CurrentDeveloperAccessPolicy())
+		if err != nil {
+			return err
+		}
+
+		var latest DeveloperAccessRequest
+		findErr := lockForUpdate(tx).Where("user_id = ?", userID).Order("id DESC").First(&latest).Error
+		if access.Granted {
+			if findErr == nil && latest.Status == DeveloperAccessRequestApproved && latest.Source == DeveloperAccessRequestSourceDirectAI {
+				result.Request = &latest
+				return nil
+			}
+			return ErrAssistantDirectGrantNotL0
+		}
+		if findErr != nil && !errors.Is(findErr, gorm.ErrRecordNotFound) {
+			return findErr
+		}
+
+		now := common.GetTimestamp()
+		auditNote := fmt.Sprintf("AI assistant granted L1 after %d completed turns in conversation %d", completedTurns, conversationID)
+		if errors.Is(findErr, gorm.ErrRecordNotFound) {
+			latest = DeveloperAccessRequest{
+				UserId: userID, Status: DeveloperAccessRequestApproved,
+				Source: DeveloperAccessRequestSourceDirectAI, Reason: redactAssistantHandoffMessage(normalizedReason),
+				AIRecommendation: normalizedRecommendation, AdminNote: auditNote,
+				CreatedAt: now, ReviewedAt: now,
+			}
+			if err := tx.Create(&latest).Error; err != nil {
+				return err
+			}
+		} else {
+			latest.Revision++
+			latest.Status = DeveloperAccessRequestApproved
+			latest.Source = DeveloperAccessRequestSourceDirectAI
+			latest.Reason = redactAssistantHandoffMessage(normalizedReason)
+			latest.AIRecommendation = normalizedRecommendation
+			latest.AdminUserId = 0
+			latest.AdminNote = auditNote
+			latest.ReviewedAt = now
+			if err := tx.Model(&latest).Updates(map[string]any{
+				"revision": latest.Revision, "status": latest.Status, "source": latest.Source,
+				"reason": latest.Reason, "ai_recommendation": latest.AIRecommendation,
+				"admin_user_id": 0, "admin_note": latest.AdminNote, "reviewed_at": now,
+			}).Error; err != nil {
+				return err
+			}
+		}
+		if err := tx.Model(&user).Update("console_activated_at", now).Error; err != nil {
+			return err
+		}
+		if err := archiveApprovedDeveloperAccessRecommendation(tx, latest); err != nil {
+			return err
+		}
+		result.Request = &latest
+		result.Activated = true
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	if result.Activated {
+		_ = InvalidateUserCache(userID)
+	}
+	return result, nil
 }
 
 func submitDeveloperAccessRequest(userID int, reason string, recommendation string, source string, clearRecommendation bool) (*DeveloperAccessRequest, error) {

@@ -29,10 +29,11 @@ import ReactDOM from 'react-dom/client'
 import { toast } from 'sonner'
 
 import { LoadingState } from '@/components/loading-state'
+import { installWebMcp } from '@/features/webmcp'
 import { getStatus } from '@/lib/api'
 import { bindAuthCache } from '@/lib/auth-session'
-import { installBuildMetadata } from '@/lib/build-metadata'
 import '@/lib/dayjs'
+import { installBuildMetadata } from '@/lib/build-metadata'
 import { resolveSystemName } from '@/lib/constants'
 import { initializeFrontendCache } from '@/lib/frontend-cache'
 import { handleServerError } from '@/lib/handle-server-error'
@@ -106,6 +107,8 @@ const router = createRouter({
   // The router-core update also handles an in-flight preload being evicted.
   defaultPreloadStaleTime: 30_000,
 })
+
+installWebMcp(router)
 
 // Register the router instance for type safety
 declare module '@tanstack/react-router' {

@@ -22,9 +22,16 @@ Copyright (C) 2026 LIghtJUNction
 import fs from 'node:fs/promises'
 import path from 'node:path'
 
+import { apiKeySourceCopy } from './api-key-source-copy.mjs'
+import { assistantSettingsCopy } from './assistant-settings-copy.mjs'
 import { assistantToolCopy } from './assistant-tool-copy.mjs'
+import { drawingMcpExtraCopy } from './drawing-mcp-extra-copy.mjs'
+import { drawingWalletCopy } from './drawing-wallet-copy.mjs'
 import { homeEditorialCopy } from './home-editorial-copy.mjs'
 import { paymentPricingCopy } from './payment-pricing-copy.mjs'
+import { piGuideCopy } from './pi-guide-copy.mjs'
+import { piOAuthCopy } from './pi-oauth-copy.mjs'
+import { remoteControlCopy } from './remote-control-copy.mjs'
 import { waitCompanionCopy } from './wait-companion-copy.mjs'
 
 const LOCALES_DIR = path.resolve('src/i18n/locales')
@@ -8169,6 +8176,100 @@ const deprecatedCurrencyKeys = new Set([
   'Use global price reciprocal',
 ])
 
+const scriptsCopy = {
+  en: {
+    Scripts: 'Scripts',
+    'Unable to load script': 'Unable to load script',
+    'Unable to load scripts': 'Unable to load scripts',
+    'Name is required': 'Name is required',
+    'Latest version': 'Latest version',
+    'Update available': 'Update available',
+    'Up to date': 'Up to date',
+    'GitHub release': 'GitHub release',
+    'Linux / macOS': 'Linux / macOS',
+    Windows: 'Windows',
+    'Failed to delete': 'Failed to delete',
+  },
+  zh: {
+    Scripts: '脚本',
+    'Unable to load script': '无法加载脚本',
+    'Unable to load scripts': '无法加载脚本列表',
+    'Name is required': '请输入名称',
+    'Latest version': '最新版本',
+    'Update available': '有可用更新',
+    'Up to date': '已是最新',
+    'GitHub release': 'GitHub 发布',
+    'Linux / macOS': 'Linux / macOS',
+    Windows: 'Windows',
+    'Failed to delete': '删除失败',
+  },
+  'zh-TW': {
+    Scripts: '腳本',
+    'Unable to load script': '無法載入腳本',
+    'Unable to load scripts': '無法載入腳本清單',
+    'Name is required': '請輸入名稱',
+    'Latest version': '最新版本',
+    'Update available': '有可用更新',
+    'Up to date': '已是最新',
+    'GitHub release': 'GitHub 發佈',
+    'Linux / macOS': 'Linux / macOS',
+    Windows: 'Windows',
+    'Failed to delete': '刪除失敗',
+  },
+  fr: {
+    Scripts: 'Scripts',
+    'Unable to load script': 'Impossible de charger le script',
+    'Unable to load scripts': 'Impossible de charger les scripts',
+    'Name is required': 'Le nom est requis',
+    'Latest version': 'Dernière version',
+    'Update available': 'Mise à jour disponible',
+    'Up to date': 'À jour',
+    'GitHub release': 'Publication GitHub',
+    'Linux / macOS': 'Linux / macOS',
+    Windows: 'Windows',
+    'Failed to delete': 'Échec de la suppression',
+  },
+  ja: {
+    Scripts: 'スクリプト',
+    'Unable to load script': 'スクリプトを読み込めません',
+    'Unable to load scripts': 'スクリプトを読み込めません',
+    'Name is required': '名前を入力してください',
+    'Latest version': '最新バージョン',
+    'Update available': '更新があります',
+    'Up to date': '最新です',
+    'GitHub release': 'GitHub リリース',
+    'Linux / macOS': 'Linux / macOS',
+    Windows: 'Windows',
+    'Failed to delete': '削除に失敗しました',
+  },
+  ru: {
+    Scripts: 'Скрипты',
+    'Unable to load script': 'Не удалось загрузить скрипт',
+    'Unable to load scripts': 'Не удалось загрузить скрипты',
+    'Name is required': 'Введите имя',
+    'Latest version': 'Последняя версия',
+    'Update available': 'Доступно обновление',
+    'Up to date': 'Установлена последняя версия',
+    'GitHub release': 'Релиз GitHub',
+    'Linux / macOS': 'Linux / macOS',
+    Windows: 'Windows',
+    'Failed to delete': 'Не удалось удалить',
+  },
+  vi: {
+    Scripts: 'Tập lệnh',
+    'Unable to load script': 'Không thể tải tập lệnh',
+    'Unable to load scripts': 'Không thể tải danh sách tập lệnh',
+    'Name is required': 'Cần nhập tên',
+    'Latest version': 'Phiên bản mới nhất',
+    'Update available': 'Có bản cập nhật',
+    'Up to date': 'Đã cập nhật',
+    'GitHub release': 'Bản phát hành GitHub',
+    'Linux / macOS': 'Linux / macOS',
+    Windows: 'Windows',
+    'Failed to delete': 'Xóa thất bại',
+  },
+}
+
 async function main() {
   // Allow scoped additions without overwriting unrelated in-progress translations.
   const paymentOnly = process.argv.includes('--only-payment-pricing')
@@ -8191,9 +8292,17 @@ async function main() {
       ? baseTranslations
       : {
           ...baseTranslations,
+          ...apiKeySourceCopy[locale],
           ...paymentPricingCopy[locale],
           ...homeEditorialCopy[locale],
+          ...drawingWalletCopy[locale],
+          ...piOAuthCopy[locale],
+          ...assistantSettingsCopy[locale],
+          ...drawingMcpExtraCopy[locale],
+          ...piGuideCopy[locale],
+          ...remoteControlCopy[locale],
           ...waitCompanionCopy[locale],
+          ...scriptsCopy[locale],
         }
     const filePath = path.join(LOCALES_DIR, `${locale}.json`)
     const json = JSON.parse(await fs.readFile(filePath, 'utf8'))

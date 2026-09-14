@@ -29,6 +29,7 @@ import {
   requestAssistantOpen,
 } from '@/features/assistant/assistant-events'
 import { ChallengeList } from '@/features/forge/challenge-list'
+import { PiOAuthGuide } from '@/features/guide/pi-oauth-guide'
 import {
   getAuthenticatedLandingRoute,
   getOnboardingState,
@@ -216,6 +217,7 @@ export function GettingStarted() {
                 )}
               </div>
             </section>
+            <PiOAuthGuide />
           </div>
         </SectionPageLayout.Content>
       </SectionPageLayout>
@@ -341,6 +343,8 @@ export function GettingStarted() {
               )}
             </p>
           </section>
+
+          <PiOAuthGuide />
 
           <section
             className='border px-5 py-6 sm:px-8'

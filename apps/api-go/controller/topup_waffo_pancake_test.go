@@ -9,6 +9,7 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/service"
 	"github.com/LIghtJUNction/api.lmm.best/setting"
 	"github.com/LIghtJUNction/api.lmm.best/setting/operation_setting"
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/require"
 )
 
@@ -28,6 +29,22 @@ func TestFormatWaffoPancakeAmount_UsesDisplayPriceString(t *testing.T) {
 			require.Equal(t, tc.expected, formatWaffoPancakeAmount(tc.amount))
 		})
 	}
+}
+
+func TestSettlementQuoteSavingsUsesRoundedSameCurrencyAmounts(t *testing.T) {
+	baseInput, err := decimal.NewFromString("2.004")
+	require.NoError(t, err)
+	finalInput, err := decimal.NewFromString("1.495")
+	require.NoError(t, err)
+	base, savings, discounted := settlementQuoteSavings(baseInput, finalInput)
+	require.True(t, discounted)
+	require.Equal(t, "2.00", base.StringFixed(2))
+	require.Equal(t, "0.50", savings.StringFixed(2))
+
+	exact, err := decimal.NewFromString("1.49")
+	require.NoError(t, err)
+	_, _, discounted = settlementQuoteSavings(exact, exact)
+	require.False(t, discounted)
 }
 
 func TestGetWaffoPancakePayMoney(t *testing.T) {

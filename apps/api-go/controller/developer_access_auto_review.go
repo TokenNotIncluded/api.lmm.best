@@ -23,6 +23,8 @@ import (
 const (
 	assistantL1AutoReviewQueueCapacity = 32
 	assistantL1AutoReviewTimeout       = 25 * time.Second
+	assistantL1AutoReviewRecoveryLimit = 32
+	assistantL1AutoReviewRecoveryEvery = time.Minute
 )
 
 // A small, conservative evidence gate supplements (never replaces) the agent.
@@ -31,6 +33,7 @@ var assistantL1AutoReviewUseCaseTerms = []string{
 	"api", "客户端", "模型", "研发", "项目", "集成", "代码", "机器人", "部署", "应用", "开发",
 	"客戶端", "研發", "專案", "項目", "整合", "程式", "機器人", "應用", "開發",
 	"client", "model", "project", "integrat", "code", "robot", "deploy", "app", "develop",
+	"cc switch", "cc-switch", "claude code", "cursor", "codex", "chatbox", "cherry studio",
 	"projet", "modèle", "développ", "intégr", "logiciel",
 	"開発", "モデル", "プロジェクト", "アプリ", "連携", "コード", "ロボット",
 	"модел", "проект", "разработ", "интеграц", "приложен", "робот",
@@ -84,14 +87,14 @@ func makeAssistantL1AutoReviewJob(request *model.DeveloperAccessRequest) (assist
 	}, true
 }
 
-func enqueueAssistantL1AutoReview(request *model.DeveloperAccessRequest) {
+func enqueueAssistantL1AutoReview(request *model.DeveloperAccessRequest) bool {
 	job, ok := makeAssistantL1AutoReviewJob(request)
 	if !ok {
-		return
+		return false
 	}
 	// A new revision must not be swallowed by an older in-flight review.
 	if _, loaded := assistantL1AutoReviewInFlight.LoadOrStore(job.key(), struct{}{}); loaded {
-		return
+		return false
 	}
 	assistantL1AutoReviewOnce.Do(func() {
 		assistantL1AutoReviewQueue = make(chan assistantL1AutoReviewJob, assistantL1AutoReviewQueueCapacity)
@@ -99,9 +102,73 @@ func enqueueAssistantL1AutoReview(request *model.DeveloperAccessRequest) {
 	})
 	select {
 	case assistantL1AutoReviewQueue <- job:
+		return true
 	default:
 		assistantL1AutoReviewInFlight.Delete(job.key())
 		common.SysError(fmt.Sprintf("automatic L1 review queue is full; request %d remains pending for human review", request.Id))
+		return false
+	}
+}
+
+// RecoverPendingAssistantL1AutoReviews re-enqueues a bounded startup batch of
+// durable applications that never received a review result. The model query
+// excludes stale rows and requests with an automatic human-fallback note, so a
+// restart cannot repeat a completed human decision.
+func RecoverPendingAssistantL1AutoReviews(ctx context.Context) (int, error) {
+	return recoverPendingAssistantL1AutoReviewsWith(ctx, enqueueAssistantL1AutoReview)
+}
+
+func recoverPendingAssistantL1AutoReviewsWith(ctx context.Context, enqueue func(*model.DeveloperAccessRequest) bool) (int, error) {
+	if ctx == nil {
+		return 0, errors.New("automatic L1 review recovery context is nil")
+	}
+	if enqueue == nil {
+		return 0, errors.New("automatic L1 review recovery enqueue function is nil")
+	}
+	requests, err := model.ListRecoverableDeveloperAccessRequests(assistantL1AutoReviewRecoveryLimit)
+	if err != nil {
+		return 0, err
+	}
+	recovered := 0
+	for index := range requests {
+		if err := ctx.Err(); err != nil {
+			return recovered, err
+		}
+		if enqueue(&requests[index]) {
+			recovered++
+		}
+	}
+	return recovered, nil
+}
+
+func RunPendingAssistantL1AutoReviewRecovery(ctx context.Context) {
+	_ = runPendingAssistantL1AutoReviewRecoveryLoop(ctx, assistantL1AutoReviewRecoveryEvery, RecoverPendingAssistantL1AutoReviews)
+}
+
+func runPendingAssistantL1AutoReviewRecoveryLoop(ctx context.Context, interval time.Duration, recover func(context.Context) (int, error)) error {
+	if ctx == nil {
+		return errors.New("automatic L1 review recovery context is nil")
+	}
+	if interval <= 0 || recover == nil {
+		return errors.New("automatic L1 review recovery loop is invalid")
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		recovered, err := recover(ctx)
+		if err != nil {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return err
+			}
+			common.SysError(fmt.Sprintf("automatic L1 review recovery failed: %v", err))
+		} else if recovered > 0 {
+			common.SysLog(fmt.Sprintf("re-enqueued %d pending automatic L1 reviews", recovered))
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
 	}
 }
 
@@ -195,7 +262,7 @@ func assistantL1AutoReviewEvidenceAllowed(reason, recommendation string) bool {
 		}
 	}
 	for _, term := range assistantL1AutoReviewUseCaseTerms {
-		if strings.Contains(strings.ToLower(reason), term) {
+		if strings.Contains(text, term) {
 			return true
 		}
 	}

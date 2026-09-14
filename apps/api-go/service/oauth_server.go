@@ -21,14 +21,18 @@ import (
 )
 
 const (
-	OAuthPiClientID   = "lmm-pi"
-	OAuthPiClientName = "LMM for Pi"
-	OAuthPiRedirect   = "http://127.0.0.1/oauth/lmm/callback"
-	OAuthCatalogScope = "catalog:read"
-	OAuthBalanceScope = "balance:read"
-	OAuthInvokeScope  = "models:invoke"
-	OAuthGroupHeader  = "X-LMM-Group"
+	OAuthPiClientID       = "lmm-pi"
+	OAuthPiClientName     = "LMM for Pi"
+	OAuthPiRedirect       = "http://127.0.0.1/oauth/lmm/callback"
+	OAuthCatalogScope     = "catalog:read"
+	OAuthBalanceScope     = "balance:read"
+	OAuthInvokeScope      = "models:invoke"
+	OAuthMCPBountiesScope = "mcp:bounties"
+	OAuthMCPDrawingScope  = "mcp:drawing"
+	OAuthGroupHeader      = "X-LMM-Group"
 )
+
+func OAuthBuiltinMCPScopes() []string { return []string{OAuthMCPBountiesScope, OAuthMCPDrawingScope} }
 
 var ErrOAuthDenied = errors.New("OAuth authorization is unavailable or not permitted")
 
@@ -99,6 +103,7 @@ func NewOAuthIntegration(db *gorm.DB, cfg OAuthServerConfig) (*OAuthIntegration,
 	groups := slices.Clone(cfg.Groups)
 	slices.Sort(groups)
 	scopes := []string{OAuthCatalogScope, OAuthBalanceScope, OAuthInvokeScope}
+	scopes = append(scopes, OAuthBuiltinMCPScopes()...)
 	for i, group := range groups {
 		if !validOAuthGroup(group) || i > 0 && groups[i-1] == group {
 			return nil, errors.New("invalid or repeated OAuth group")
@@ -170,7 +175,7 @@ func (s *OAuthIntegration) AllowedGroups(user *model.User) []string {
 		// Groups requiring repeated warning acknowledgement are deliberately not
 		// available in this profile until that exact workflow can be preserved.
 		_, warning := ratio_setting.GetGroupWarning(group)
-		if !warning && IsUserSelectableGroup(user.Group, group) {
+		if !warning && IsOAuthSelectableGroup(user.Group, group) {
 			result = append(result, group)
 		}
 	}
@@ -225,11 +230,21 @@ func (s *OAuthIntegration) ConsentQuery(raw string, user *model.User) (string, [
 		return "", nil, err
 	}
 	requested := strings.Split(query.Get("scope"), " ")
-	expected := []string{OAuthCatalogScope, OAuthBalanceScope, OAuthInvokeScope}
+	baseExpected := []string{OAuthCatalogScope, OAuthBalanceScope, OAuthInvokeScope}
+	expected := append([]string(nil), baseExpected...)
+	fullExpected := append(append([]string(nil), baseExpected...), OAuthBuiltinMCPScopes()...)
 	slices.Sort(requested)
 	slices.Sort(expected)
-	if !slices.Equal(requested, expected) {
+	slices.Sort(fullExpected)
+	if !slices.Equal(requested, expected) && !slices.Equal(requested, fullExpected) {
 		return "", nil, ErrOAuthDenied
+	}
+	// Older clients do not request built-in MCP scopes. Include the optional
+	// scopes in the consent snapshot so newer resource endpoints can be used
+	// after the user explicitly approves the same consent screen.
+	if slices.Equal(requested, expected) {
+		requested = append(requested, OAuthBuiltinMCPScopes()...)
+		slices.Sort(requested)
 	}
 	groups := s.AllowedGroups(user)
 	if len(groups) == 0 {

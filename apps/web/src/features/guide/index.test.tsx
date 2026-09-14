@@ -59,6 +59,34 @@ Object.defineProperty(domWindow.HTMLElement.prototype, 'scrollIntoView', {
   configurable: true,
   value() {},
 })
+const matchMediaStub = () => ({
+  matches: false,
+  media: '',
+  addListener() {},
+  removeListener() {},
+  addEventListener() {},
+  removeEventListener() {},
+  dispatchEvent() {
+    return false
+  },
+})
+Object.defineProperty(domWindow, 'matchMedia', {
+  configurable: true,
+  value: matchMediaStub,
+})
+Object.defineProperty(globalThis, 'matchMedia', {
+  configurable: true,
+  value: matchMediaStub,
+})
+Object.defineProperty(globalThis, 'customElements', {
+  configurable: true,
+  value: {
+    get() {
+      return undefined
+    },
+    define() {},
+  },
+})
 
 const { act } = await import('react')
 const { createRoot } = await import('react-dom/client')
@@ -190,6 +218,16 @@ describe('Guide when the AI assistant is disabled', () => {
     assert.ok(
       container.querySelector('#client-setup a[target="_blank"]'),
       'Official downloads remain accessible'
+    )
+    assert.ok(container.querySelector('#pi-oauth'))
+    assert.match(
+      container.textContent ?? '',
+      /pi install git:github.com\/TokenNotIncluded\/pi-lmm-provider/
+    )
+    assert.ok(
+      container.querySelector(
+        '#pi-oauth a[href*="npmjs.com/package/@earendil-works/pi-coding-agent"]'
+      )
     )
 
     await click(findButton(container, 'Continue to account setup'))

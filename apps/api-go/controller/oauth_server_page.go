@@ -49,13 +49,36 @@ type oauthPageData struct {
 var oauthPage = template.Must(template.New("oauth-consent").Parse(strings.TrimSpace(`<!doctype html>
 <html lang="{{.Language}}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{{.Copy.Title}}</title>
 {{if eq .Mode "complete"}}<meta http-equiv="refresh" content="0;url={{.Redirect}}">{{end}}
-<style nonce="{{.Nonce}}">body{font:1rem/1.6 system-ui,sans-serif;max-width:44rem;margin:3rem auto;padding:0 1.25rem;color:#202124;background:#fff}h1{font-size:1.8rem}dt{font-weight:600}dd{margin:0 0 1rem;overflow-wrap:anywhere}button,a{font:inherit}button{padding:.65rem 1rem;margin:.5rem .5rem .5rem 0;cursor:pointer}button:focus-visible,a:focus-visible{outline:3px solid #1658bd;outline-offset:3px}small{display:block}ul{padding-left:1.3rem}</style></head><body><main>
-<h1>{{.Copy.Title}}</h1>
-{{if eq .Mode "failed"}}<p role="alert">{{.Copy.Failed}}</p>
-{{else if eq .Mode "complete"}}<p>{{.Copy.Complete}}</p><a href="{{.Redirect}}" rel="noreferrer">{{.Copy.Return}}</a>
+<style nonce="{{.Nonce}}">
+:root { color-scheme: light; --paper: #f6f3ed; --ink: #23221f; --muted: #706c64; --line: #d8d2c7; --accent: #b85d43; --accent-ink: #fffaf5; }
+* { box-sizing: border-box; }
+body { margin: 0; min-height: 100vh; background: var(--paper); color: var(--ink); font: 16px/1.6 'Public Sans', system-ui, -apple-system, 'Segoe UI', sans-serif; }
+main { width: min(100% - 2rem, 42rem); margin: clamp(2rem, 8vw, 6rem) auto; padding: clamp(1rem, 5vw, 2.5rem) 0; }
+header { display: flex; align-items: center; gap: .7rem; margin-bottom: 3rem; font-weight: 700; letter-spacing: -.02em; }
+header svg { width: 2rem; height: 2rem; flex: none; } .mark { stroke: var(--accent); }
+h1 { max-width: 18ch; margin: 0 0 2.5rem; font: 700 clamp(2.25rem, 6vw, 3.5rem)/1.02 Georgia, 'Times New Roman', serif; letter-spacing: -.04em; }
+h2 { margin: 2.25rem 0 .9rem; font-size: .75rem; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+dl { display: grid; grid-template-columns: minmax(7rem, 9rem) 1fr; gap: .7rem 1.5rem; margin: 0; padding: 1.25rem 0; border-block: 1px solid var(--line); }
+dt { color: var(--muted); font-size: .85rem; } dd { margin: 0; overflow-wrap: anywhere; }
+.groups { display: flex; flex-wrap: wrap; gap: .25rem .75rem; margin: 0; padding: 0; list-style: none; }
+.groups li { white-space: nowrap; } p { margin: 1rem 0; color: var(--muted); }
+.notice { margin: 0 0 1.5rem; color: var(--muted); }
+.permissions { display: grid; gap: .85rem; margin: 0; padding: 0; list-style: none; }
+.permissions li { display: grid; grid-template-columns: 1.35rem 1fr; gap: .65rem; align-items: start; margin: 0; }
+.permissions svg { width: 1.15rem; height: 1.15rem; margin-top: .25rem; color: var(--accent); }
+.actions { display: flex; flex-wrap: wrap; gap: .75rem; margin-top: 2rem; } form { display: flex; flex-wrap: wrap; gap: .75rem; }
+button, a { font: inherit; } button, a.action { display: inline-flex; align-items: center; justify-content: center; min-height: 2.75rem; padding: .65rem 1.1rem; border: 1px solid var(--ink); border-radius: 7px; cursor: pointer; text-decoration: none; }
+button[type=submit][value=allow], button[type=submit]:not([value]) { background: var(--ink); color: var(--accent-ink); }
+button[type=submit][value=deny], a.action.secondary { background: transparent; color: var(--ink); border-color: var(--line); }
+button:focus-visible, a:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+@media (max-width: 36rem) { main { width: min(100% - 2rem, 42rem); margin: 1rem auto; padding: 1rem 0 2rem; } header { margin-bottom: 2rem; } h1 { font-size: 2.5rem; margin-bottom: 2rem; } dl { grid-template-columns: 1fr; gap: .15rem; } dt { margin-top: .75rem; } .actions, form { width: 100%; } .actions > *, form > * { flex: 1 1 100%; } }
+</style></head><body><main>
+<header><svg viewBox="0 0 56 56" aria-hidden="true"><path d="M10 39V16l18 18 18-18v23" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linejoin="round"/><path class="mark" d="M12 45h32" fill="none" stroke-width="2.5"/></svg><span>lmm.best</span></header><h1>{{.Copy.Title}}</h1>
+{{if eq .Mode "failed"}}<p class="notice" role="alert">{{.Copy.Failed}}</p>
+{{else if eq .Mode "complete"}}<p class="notice">{{.Copy.Complete}}</p><div class="actions"><a class="action" href="{{.Redirect}}" rel="noreferrer">{{.Copy.Return}}</a></div>
 {{else}}<dl><dt>{{.Copy.Application}}</dt><dd>LMM for Pi</dd><dt>{{.Copy.Resource}}</dt><dd>{{.Resource}}</dd>
 {{if eq .Mode "consent"}}<dt>{{.Copy.Account}}</dt><dd>{{.Account}}</dd><dt>{{.Copy.Groups}}</dt><dd><ul>{{range .Groups}}<li>{{.}}</li>{{end}}</ul></dd></dl>
-<h2>{{.Copy.Permissions}}</h2><ul><li>{{.Copy.Invoke}}</li><li>{{.Copy.Catalog}}</li><li>{{.Copy.Balance}}</li></ul><p>{{.Copy.Snapshot}}</p>
-<form method="post" action="{{.Action}}"><input type="hidden" name="csrf" value="{{.CSRF}}"><button type="submit" name="decision" value="allow">{{.Copy.Allow}}</button><button type="submit" name="decision" value="deny">{{.Copy.Cancel}}</button></form>
-{{else}}</dl><p>{{.Copy.LoginHelp}}</p><a href="/login" target="_blank" rel="noopener noreferrer">{{.Copy.Login}}</a><form method="post" action="{{.Action}}"><input type="hidden" name="csrf" value="{{.CSRF}}"><button type="submit">{{.Copy.Continue}}</button></form>{{end}}{{end}}
+<h2>{{.Copy.Permissions}}</h2><ul class="permissions"><li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M12 5l7 7-7 7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span>{{.Copy.Invoke}}</span></li><li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg><span>{{.Copy.Catalog}}</span></li><li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4a8 8 0 1 0 0 16 8 8 0 0 0 0-16Zm0 4v4l2.5 2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span>{{.Copy.Balance}}</span></li></ul><p>{{.Copy.Snapshot}}</p>
+<div class="actions"><form method="post" action="{{.Action}}"><input type="hidden" name="csrf" value="{{.CSRF}}"><button type="submit" name="decision" value="allow">{{.Copy.Allow}}</button><button type="submit" name="decision" value="deny">{{.Copy.Cancel}}</button></form></div>
+{{else}}</dl><p class="notice">{{.Copy.LoginHelp}}</p><div class="actions"><a class="action secondary" href="/login" target="_blank" rel="noopener noreferrer">{{.Copy.Login}}</a><form method="post" action="{{.Action}}"><input type="hidden" name="csrf" value="{{.CSRF}}"><button type="submit">{{.Copy.Continue}}</button></form></div>{{end}}{{end}}
 </main></body></html>`)))

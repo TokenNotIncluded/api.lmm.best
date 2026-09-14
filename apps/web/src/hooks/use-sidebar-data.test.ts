@@ -69,4 +69,13 @@ describe('authenticated sidebar discovery', () => {
     assert.match(activatedGeneralSection, /url: '\/pricing'/)
     assert.match(activatedGeneralSection, /interaction: 'model-panel'/)
   })
+
+  test('exposes Pi remote control in the authenticated general section', () => {
+    const generalStart = source.indexOf("id: 'general'")
+    const personalStart = source.indexOf("id: 'personal'", generalStart)
+    const activatedGeneralSection = source.slice(generalStart, personalStart)
+
+    assert.match(activatedGeneralSection, /title: t\('Remote control'\)/)
+    assert.match(activatedGeneralSection, /url: '\/remote-control'/)
+  })
 })

@@ -5,6 +5,14 @@ export const LIGHT_PUZZLE_SEEDS = [
   [1, 3, 7],
   [0, 2, 6, 8],
   [2, 3, 4, 7],
+  [0, 1, 5, 6],
+  [1, 4, 6, 8],
+  [0, 3, 5, 7],
+  [2, 4, 5, 6],
+  [0, 1, 2, 3, 4],
+  [1, 2, 3, 5, 6],
+  [0, 1, 4, 7, 8],
+  [2, 3, 6, 7, 8],
 ] as const
 
 export function toggleLight(
@@ -39,4 +47,28 @@ export function createLightPuzzle(round = 0): boolean[] {
     (board, move) => toggleLight(board, move),
     Array<boolean>(9).fill(false)
   )
+}
+
+/** Return a shortest solution. The complete 3x3 move space is only 512 sets. */
+export function solveLightPuzzle(board: readonly boolean[]): number[] {
+  if (board.length !== 9) {
+    throw new RangeError('Invalid light puzzle board')
+  }
+
+  let best: number[] | null = null
+  for (let mask = 0; mask < 1 << 9; mask++) {
+    const moves: number[] = []
+    for (let index = 0; index < 9; index++) {
+      if (mask & (1 << index)) moves.push(index)
+    }
+    if (best && moves.length >= best.length) continue
+
+    const result = moves.reduce<boolean[]>(
+      (state, move) => toggleLight(state, move),
+      [...board]
+    )
+    if (result.every((on) => !on)) best = moves
+  }
+
+  return best ?? []
 }

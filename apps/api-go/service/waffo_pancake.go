@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"strings"
 
 	"github.com/LIghtJUNction/api.lmm.best/model"
+	"github.com/LIghtJUNction/api.lmm.best/pkg/paymentpricing"
 	"github.com/LIghtJUNction/api.lmm.best/setting"
 	"github.com/shopspring/decimal"
 	pancake "github.com/waffo-com/waffo-pancake-sdk-go"
@@ -478,6 +480,23 @@ func FormatWaffoPancakeError(err error) string {
 		return fmt.Sprintf("status=%d notices=%s raw=%q", pancakeErr.Status, strings.Join(notices, "; "), err.Error())
 	}
 	return err.Error()
+}
+
+// WaffoPancakeIsUnsupportedProductCurrency identifies the provider's
+// deterministic product-currency rejection. Network and other provider
+// failures remain ambiguous and must keep the local order recoverable.
+func WaffoPancakeIsUnsupportedProductCurrency(err error) bool {
+	var pancakeErr *pancake.Error
+	if err == nil || !errors.As(err, &pancakeErr) || pancakeErr.Status != http.StatusBadRequest {
+		return false
+	}
+	for _, notice := range pancakeErr.Errors {
+		message := strings.ToLower(notice.Message)
+		if strings.Contains(message, "currency") && strings.Contains(message, "product") {
+			return true
+		}
+	}
+	return false
 }
 
 func optionalString(s string) *string {
@@ -1003,6 +1022,10 @@ func CreateWaffoPancakeProductForPlan(ctx context.Context, merchantID, privateKe
 // CreateWaffoPancakeOneTimeProductForPlan mints a live one-time product for
 // a plan. Checkout freezes the same settlement amount in its price snapshot.
 func CreateWaffoPancakeOneTimeProductForPlan(ctx context.Context, merchantID, privateKey, storeID, name, amount, returnURL string) (string, error) {
+	return CreateWaffoPancakeOneTimeProductForPlanCurrency(ctx, merchantID, privateKey, storeID, name, amount, paymentpricing.CurrencyUSD, returnURL)
+}
+
+func CreateWaffoPancakeOneTimeProductForPlanCurrency(ctx context.Context, merchantID, privateKey, storeID, name, amount, currency, returnURL string) (string, error) {
 	storeID = strings.TrimSpace(storeID)
 	if storeID == "" {
 		return "", fmt.Errorf("store id is required to create a product")
@@ -1015,19 +1038,18 @@ func CreateWaffoPancakeOneTimeProductForPlan(ctx context.Context, merchantID, pr
 	if err != nil || !parsedAmount.IsPositive() {
 		return "", fmt.Errorf("plan price must be positive")
 	}
+	prices, err := waffoPancakeOneTimePricesForCurrency(parsedAmount, currency)
+	if err != nil {
+		return "", err
+	}
 	client, err := newWaffoPancakeClientFromCreds(merchantID, privateKey)
 	if err != nil {
 		return "", err
 	}
 	prodRes, err := client.OnetimeProducts.Create(ctx, pancake.CreateOnetimeProductParams{
-		StoreID: storeID,
-		Name:    name,
-		Prices: pancake.Prices{
-			"USD": {
-				Amount:      parsedAmount.StringFixed(2),
-				TaxCategory: pancake.TaxCategory("saas"),
-			},
-		},
+		StoreID:    storeID,
+		Name:       name,
+		Prices:     prices,
 		SuccessURL: optionalString(strings.TrimSpace(returnURL)),
 	})
 	if err != nil {
@@ -1041,6 +1063,33 @@ func CreateWaffoPancakeOneTimeProductForPlan(ctx context.Context, merchantID, pr
 		return "", fmt.Errorf("publish Waffo Pancake one-time product: %w", err)
 	}
 	return productID, nil
+}
+
+func waffoPancakeOneTimePrices(usdAmount decimal.Decimal) (pancake.Prices, error) {
+	return waffoPancakeOneTimePricesForCurrency(usdAmount, paymentpricing.CurrencyUSD)
+}
+
+func waffoPancakeOneTimePricesForCurrency(amount decimal.Decimal, currency string) (pancake.Prices, error) {
+	rates, err := paymentpricing.CurrentRates()
+	if err != nil {
+		return nil, fmt.Errorf("read payment pricing for product: %w", err)
+	}
+	currency = strings.ToUpper(strings.TrimSpace(currency))
+	if currency != paymentpricing.CurrencyUSD && currency != paymentpricing.CurrencyCNY {
+		return nil, fmt.Errorf("unsupported product currency %q", currency)
+	}
+	usdAmount, err := rates.ConvertFiat(amount, currency, paymentpricing.CurrencyUSD)
+	if err != nil {
+		return nil, fmt.Errorf("convert product price to USD: %w", err)
+	}
+	cnyAmount, err := rates.ConvertFiat(amount, currency, paymentpricing.CurrencyCNY)
+	if err != nil {
+		return nil, fmt.Errorf("convert product price to CNY: %w", err)
+	}
+	return pancake.Prices{
+		"USD": {Amount: usdAmount.StringFixed(2), TaxCategory: pancake.TaxCategory("saas")},
+		"CNY": {Amount: cnyAmount.StringFixed(2), TaxCategory: pancake.TaxCategory("saas")},
+	}, nil
 }
 
 // CreateWaffoPancakePrimaryProduct mints a live wallet-top-up
@@ -1123,11 +1172,17 @@ func SaveWaffoPancakeConfig(ctx context.Context, merchantID, privateKey, returnU
 }
 
 type WaffoPancakeCatalogProduct struct {
-	ID            string `json:"id"`
-	Name          string `json:"name"`
-	Status        string `json:"status"`
-	BillingPeriod string `json:"billingPeriod,omitempty"`
-	ProductType   string `json:"product_type,omitempty"`
+	ID            string                              `json:"id"`
+	Name          string                              `json:"name"`
+	Status        string                              `json:"status"`
+	BillingPeriod string                              `json:"billingPeriod,omitempty"`
+	ProductType   string                              `json:"product_type,omitempty"`
+	Prices        map[string]WaffoPancakeCatalogPrice `json:"prices,omitempty"`
+}
+
+type WaffoPancakeCatalogPrice struct {
+	Amount      string `json:"amount"`
+	TaxCategory string `json:"taxCategory,omitempty"`
 }
 
 // WaffoPancakeCatalogStore keeps one-time wallet products and recurring plan
@@ -1150,8 +1205,34 @@ type waffoPancakeStoresQuery struct {
 }
 
 type waffoPancakeProductsQuery struct {
-	OnetimeProducts      []WaffoPancakeCatalogProduct `json:"onetimeProducts"`
-	SubscriptionProducts []WaffoPancakeCatalogProduct `json:"subscriptionProducts"`
+	OnetimeProducts      []waffoPancakeGraphQLProduct `json:"onetimeProducts"`
+	SubscriptionProducts []waffoPancakeGraphQLProduct `json:"subscriptionProducts"`
+}
+
+type waffoPancakeGraphQLProduct struct {
+	ID            string `json:"id"`
+	Name          string `json:"name"`
+	Status        string `json:"status"`
+	BillingPeriod string `json:"billingPeriod,omitempty"`
+	Prices        []struct {
+		Currency  string `json:"currency"`
+		PriceInfo struct {
+			Amount      string `json:"amount"`
+			TaxCategory string `json:"taxCategory,omitempty"`
+		} `json:"priceInfo"`
+	} `json:"prices"`
+}
+
+func mapWaffoPancakeGraphQLProduct(product waffoPancakeGraphQLProduct) WaffoPancakeCatalogProduct {
+	prices := make(map[string]WaffoPancakeCatalogPrice, len(product.Prices))
+	for _, price := range product.Prices {
+		currency := strings.ToUpper(strings.TrimSpace(price.Currency))
+		if currency == "" || strings.TrimSpace(price.PriceInfo.Amount) == "" {
+			continue
+		}
+		prices[currency] = WaffoPancakeCatalogPrice{Amount: price.PriceInfo.Amount, TaxCategory: price.PriceInfo.TaxCategory}
+	}
+	return WaffoPancakeCatalogProduct{ID: product.ID, Name: product.Name, Status: product.Status, BillingPeriod: product.BillingPeriod, Prices: prices}
 }
 
 func listWaffoPancakeCatalogWithClient(ctx context.Context, client *pancake.Client) (*WaffoPancakeCatalog, error) {
@@ -1185,6 +1266,10 @@ func listWaffoPancakeCatalogWithClient(ctx context.Context, client *pancake.Clie
 					id
 					name
 					status
+					prices {
+						currency
+						priceInfo { amount taxCategory }
+					}
 				}
 				subscriptionProducts(storeId: $storeId, filter: { status: { eq: "active" } }) {
 					id
@@ -1202,8 +1287,14 @@ func listWaffoPancakeCatalogWithClient(ctx context.Context, client *pancake.Clie
 			return nil, fmt.Errorf("waffo pancake products query for store %s returned %d errors: %s",
 				storeID, len(productsResponse.Errors), productsResponse.Errors[0].Message)
 		}
-		stores[i].OnetimeProducts = productsResponse.Data.OnetimeProducts
-		stores[i].SubscriptionProducts = productsResponse.Data.SubscriptionProducts
+		stores[i].OnetimeProducts = make([]WaffoPancakeCatalogProduct, 0, len(productsResponse.Data.OnetimeProducts))
+		for _, product := range productsResponse.Data.OnetimeProducts {
+			stores[i].OnetimeProducts = append(stores[i].OnetimeProducts, mapWaffoPancakeGraphQLProduct(product))
+		}
+		stores[i].SubscriptionProducts = make([]WaffoPancakeCatalogProduct, 0, len(productsResponse.Data.SubscriptionProducts))
+		for _, product := range productsResponse.Data.SubscriptionProducts {
+			stores[i].SubscriptionProducts = append(stores[i].SubscriptionProducts, mapWaffoPancakeGraphQLProduct(product))
+		}
 	}
 
 	// Drop non-active products defensively as well as at the GraphQL filter,
@@ -1249,6 +1340,34 @@ func WaffoPancakeCatalogHasActiveSubscriptionProduct(catalog *WaffoPancakeCatalo
 
 func WaffoPancakeCatalogHasActiveOneTimeProduct(catalog *WaffoPancakeCatalog, storeID, productID string) bool {
 	return waffoPancakeCatalogHasActiveProduct(catalog, storeID, productID, false)
+}
+
+func WaffoPancakeCatalogHasActiveOneTimeProductForCurrency(catalog *WaffoPancakeCatalog, storeID, productID, currency string) bool {
+	if catalog == nil {
+		return false
+	}
+	currency = strings.ToUpper(strings.TrimSpace(currency))
+	if currency == "" {
+		return false
+	}
+	for _, store := range catalog.Stores {
+		if strings.TrimSpace(store.ID) != strings.TrimSpace(storeID) {
+			continue
+		}
+		for _, product := range store.OnetimeProducts {
+			if strings.TrimSpace(product.ID) != strings.TrimSpace(productID) ||
+				!strings.EqualFold(strings.TrimSpace(product.Status), "active") {
+				continue
+			}
+			for code, price := range product.Prices {
+				amount, err := decimal.NewFromString(strings.TrimSpace(price.Amount))
+				if strings.EqualFold(strings.TrimSpace(code), currency) && err == nil && amount.IsPositive() {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 func waffoPancakeCatalogHasActiveProduct(catalog *WaffoPancakeCatalog, storeID, productID string, subscription bool) bool {

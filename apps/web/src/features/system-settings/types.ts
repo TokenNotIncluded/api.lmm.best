@@ -345,6 +345,7 @@ export type ContentSettings = {
   AssistantCacheTTLMinutes: number
   AssistantPersona: string
   AssistantSystemPrompt: string
+  AssistantPreConversationPresets: string
   AssistantSearchProvider: AssistantSearchProvider
   AssistantSearchURL: string
   AssistantSearchAPIKey: string

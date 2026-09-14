@@ -53,6 +53,7 @@ func (s *Server) BeginAuthorization(ctx context.Context, rawQuery, browserBindin
 		Resource: values.Get("resource"), Scope: strings.Join(scopes, " "), State: state,
 		CodeChallenge: values.Get("code_challenge"), BrowserDigest: browserDigest(browserBinding),
 		CreatedAtMs: now.UnixMilli(), ExpiresAtMs: now.Add(AuthorizationTTL).UnixMilli(),
+		BrowserCSRFHash: "", BrowserSessionID: "", BrowserSessionVersion: 0, BrowserAuthVersion: 0,
 	}
 	if err := s.db.WithContext(ctx).Create(&row).Error; err != nil {
 		return nil, storageError(err)
@@ -76,7 +77,154 @@ func (s *Server) authorizationError(code, redirect, state string) *ProtocolError
 
 func (s *Server) pendingView(row model.OAuthServerAuthorization, handle string) PendingAuthorization {
 	return PendingAuthorization{Transaction: handle, ClientID: row.ClientID, ClientName: s.clients[row.ClientID].Name,
-		RedirectURI: row.RedirectURI, Resource: row.Resource, Scopes: strings.Split(row.Scope, " "), ExpiresAt: time.UnixMilli(row.ExpiresAtMs)}
+		RedirectURI: row.RedirectURI, Resource: row.Resource, Scopes: strings.Split(row.Scope, " "),
+		State: row.State, CodeChallenge: row.CodeChallenge, UserID: row.UserID,
+		ExpiresAt: time.UnixMilli(row.ExpiresAtMs)}
+}
+
+// BrowserBindingDigest is exposed for trusted HTTP adapters that persist
+// auxiliary browser state. The raw binding remains cookie-only.
+func BrowserBindingDigest(binding string) string { return browserDigest(binding) }
+
+func (s *Server) lockBrowserAuthorization(tx *gorm.DB, binding string) (*model.OAuthServerAuthorization, error) {
+	digestValue := browserDigest(binding)
+	locked := tx.Model(&model.OAuthServerAuthorization{}).
+		Where("issuer = ? AND browser_digest = ?", s.issuer, digestValue).
+		UpdateColumn("lock_version", gorm.Expr("lock_version + 1"))
+	if locked.Error != nil {
+		return nil, locked.Error
+	}
+	if locked.RowsAffected != 1 {
+		return nil, nil
+	}
+	var row model.OAuthServerAuthorization
+	if err := tx.Where("issuer = ? AND browser_digest = ?", s.issuer, digestValue).Take(&row).Error; err != nil {
+		return nil, err
+	}
+	return &row, nil
+}
+
+func (s *Server) browserView(row *model.OAuthServerAuthorization) *BrowserAuthorization {
+	if row == nil {
+		return nil
+	}
+	return &BrowserAuthorization{PendingAuthorization: s.pendingView(*row, ""), SessionID: row.BrowserSessionID,
+		SessionVersion: row.BrowserSessionVersion, AuthVersion: row.BrowserAuthVersion}
+}
+
+// ConsumeBrowserFlow atomically consumes the one-time CSRF value. It is used
+// before identity checks so a failed or switched login cannot be replayed.
+func (s *Server) ConsumeBrowserFlow(ctx context.Context, binding, csrf string) (*BrowserAuthorization, error) {
+	if !validBrowserBinding(binding) || !validBrowserBinding(csrf) {
+		return nil, protocolError("invalid_request")
+	}
+	var view *BrowserAuthorization
+	err := s.transact(ctx, func(tx *gorm.DB) (*ProtocolError, error) {
+		row, err := s.lockBrowserAuthorization(tx, binding)
+		if err != nil {
+			return nil, err
+		}
+		if row == nil || !s.authorizationLive(row, binding) || row.BrowserCSRFHash == "" || !equalSecret(row.BrowserCSRFHash, digest(csrf)) {
+			return protocolError("invalid_request"), nil
+		}
+		if err := tx.Model(row).Update("browser_csrf_hash", "").Error; err != nil {
+			return nil, err
+		}
+		view = s.browserView(row)
+		return nil, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return view, nil
+}
+
+func (s *Server) BindBrowserSession(ctx context.Context, binding, csrf string, userID int64, sessionID string, sessionVersion, authVersion int64) error {
+	if !validBrowserBinding(binding) || !validBrowserBinding(csrf) || userID <= 0 || sessionID == "" || sessionVersion <= 0 || authVersion <= 0 {
+		return protocolError("invalid_request")
+	}
+	return s.transact(ctx, func(tx *gorm.DB) (*ProtocolError, error) {
+		row, err := s.lockBrowserAuthorization(tx, binding)
+		if err != nil {
+			return nil, err
+		}
+		if row == nil || !s.authorizationLive(row, binding) || row.UserID != userID || row.ConsentDigest == "" || row.BrowserCSRFHash != "" {
+			return protocolError("invalid_request"), nil
+		}
+		if err := tx.Model(row).Updates(map[string]any{"browser_csrf_hash": digest(csrf), "browser_session_id": sessionID, "browser_session_version": sessionVersion, "browser_auth_version": authVersion}).Error; err != nil {
+			return nil, err
+		}
+		return nil, nil
+	})
+}
+
+// SetBrowserCSRF attaches the first one-time form token to a pending
+// authorization before the browser has authenticated.
+func (s *Server) SetBrowserCSRF(ctx context.Context, transaction, binding, csrf string) error {
+	if !validSecret(transaction, transactionPrefix) || !validBrowserBinding(binding) || !validBrowserBinding(csrf) {
+		return protocolError("invalid_request")
+	}
+	return s.transact(ctx, func(tx *gorm.DB) (*ProtocolError, error) {
+		row, err := s.lockAuthorization(tx, transaction)
+		if err != nil {
+			return nil, err
+		}
+		if row == nil || !s.authorizationLive(row, binding) || row.UserID != 0 || row.BrowserCSRFHash != "" {
+			return protocolError("invalid_request"), nil
+		}
+		if err := tx.Model(row).Update("browser_csrf_hash", digest(csrf)).Error; err != nil {
+			return nil, err
+		}
+		return nil, nil
+	})
+}
+
+func (s *Server) TrustedApproveByBrowserBinding(ctx context.Context, binding string) (*AuthorizationResponse, error) {
+	return s.decideByBrowserBinding(ctx, binding, true)
+}
+
+func (s *Server) TrustedDenyByBrowserBinding(ctx context.Context, binding string) (*AuthorizationResponse, error) {
+	return s.decideByBrowserBinding(ctx, binding, false)
+}
+
+func (s *Server) decideByBrowserBinding(ctx context.Context, binding string, approve bool) (*AuthorizationResponse, error) {
+	if !validBrowserBinding(binding) {
+		return nil, protocolError("invalid_request")
+	}
+	var response AuthorizationResponse
+	err := s.transact(ctx, func(tx *gorm.DB) (*ProtocolError, error) {
+		row, err := s.lockBrowserAuthorization(tx, binding)
+		if err != nil {
+			return nil, err
+		}
+		if row == nil || !s.authorizationLive(row, binding) || row.UserID <= 0 || row.ConsentDigest == "" {
+			return protocolError("invalid_request"), nil
+		}
+		family := authorizationGrant(*row)
+		if approve && !s.grantPermitted(tx, family, row.Scope) {
+			return protocolError("access_denied"), nil
+		}
+		now := s.now()
+		if err := tx.Model(row).Update("consumed_at_ms", now.UnixMilli()).Error; err != nil {
+			return nil, err
+		}
+		query := url.Values{"state": {row.State}, "iss": {s.issuer}}
+		if approve {
+			code, err := s.createCode(tx, &family, row.CodeChallenge, now)
+			if err != nil {
+				return nil, err
+			}
+			query.Set("code", code)
+		} else {
+			query.Set("error", "access_denied")
+		}
+		response.RedirectURI = row.RedirectURI + "?" + query.Encode()
+		return nil, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &response, nil
 }
 
 // TrustedPrepareConsent is an INTERNAL browser-authentication boundary. The

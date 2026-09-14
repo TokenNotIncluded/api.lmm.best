@@ -9,6 +9,7 @@ import (
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/LIghtJUNction/api.lmm.best/model"
+	"github.com/LIghtJUNction/api.lmm.best/service"
 	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -707,16 +708,33 @@ func NewOpenSourceBountyMCPHandler() http.Handler {
 		PropagateRequestCancellation: true,
 	})
 	verifier := func(ctx context.Context, token string, request *http.Request) (*auth.TokenInfo, error) {
+		if strings.HasPrefix(token, "lmm_at_") {
+			integration := service.CurrentOAuthIntegration()
+			if integration == nil {
+				return nil, fmt.Errorf("%w: OAuth is unavailable", auth.ErrInvalidToken)
+			}
+			grant, user, err := integration.ValidateResource(ctx, token, service.OAuthMCPBountiesScope)
+			if err != nil {
+				return nil, fmt.Errorf("%w: invalid OAuth MCP grant", auth.ErrInvalidToken)
+			}
+			return &auth.TokenInfo{UserID: strconv.FormatInt(int64(user.Id), 10), Scopes: []string{service.OAuthMCPBountiesScope}, Extra: map[string]any{"protocol_version": openSourceBountyMCPProtocolVersion, "oauth": true, "scope_count": len(grant.Scopes)}}, nil
+		}
 		userId, err := model.VerifyOpenSourceBountyMCPToken(token)
 		if err != nil {
 			return nil, fmt.Errorf("%w: invalid personal MCP token", auth.ErrInvalidToken)
 		}
 		return &auth.TokenInfo{
-			UserID: strconv.Itoa(userId), Scopes: []string{"bounties:read", "bounties:write"},
+			UserID: strconv.Itoa(userId), Scopes: []string{"bounties:read", "bounties:write", service.OAuthMCPBountiesScope},
 			Extra: map[string]any{"protocol_version": openSourceBountyMCPProtocolVersion},
 		}, nil
 	}
+	resourceMetadataURL := ""
+	if integration := service.CurrentOAuthIntegration(); integration != nil {
+		resourceMetadataURL = integration.Issuer + "/.well-known/oauth-protected-resource/api/oauth2"
+	}
 	return auth.RequireBearerToken(verifier, &auth.RequireBearerTokenOptions{
-		Scopes: []string{"bounties:read", "bounties:write"}, AllowMissingExpiration: true,
+		ResourceMetadataURL:    resourceMetadataURL,
+		Scopes:                 []string{service.OAuthMCPBountiesScope},
+		AllowMissingExpiration: true,
 	})(streamable)
 }

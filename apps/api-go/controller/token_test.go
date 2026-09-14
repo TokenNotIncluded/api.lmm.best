@@ -17,6 +17,7 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/model"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
+	"github.com/stretchr/testify/require"
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -438,6 +439,23 @@ func TestAddLimitedTokenEnforcesJavaScriptSafeQuota(t *testing.T) {
 	if response := perform(common.MaxWalletQuota + 1); response.Success {
 		t.Fatal("quota above JS-safe maximum should be rejected")
 	}
+}
+
+func TestAddTokenCannotForgeAutomaticCreationSource(t *testing.T) {
+	db := setupTokenControllerTestDB(t)
+	user := model.User{Username: "manual-source-owner", Status: common.UserStatusEnabled, Group: "default"}
+	require.NoError(t, db.Create(&user).Error)
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Set("id", user.Id)
+	ctx.Set("group", "default")
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/api/token/", strings.NewReader(`{"name":"forged","expired_time":-1,"unlimited_quota":true,"creation_source":"drawing_mcp"}`))
+	ctx.Request.Header.Set("Content-Type", "application/json")
+	AddToken(ctx)
+	require.Equal(t, http.StatusOK, recorder.Code)
+	var stored model.Token
+	require.NoError(t, db.Where("user_id = ?", user.Id).First(&stored).Error)
+	require.Equal(t, model.TokenCreationSourceManual, stored.CreationSource)
 }
 
 func TestTokenAutoMigrateUsesVarchar128KeyColumn(t *testing.T) {

@@ -85,7 +85,7 @@ func ResolveDrawingToken(userID int, group string, groupAllowed func(string, str
 		token = Token{
 			UserId: userID, Key: key, Name: "drawing-image-2", Group: DrawingTokenGroup,
 			Status: common.TokenStatusEnabled, CreatedTime: now, AccessedTime: now,
-			ExpiredTime: -1, UnlimitedQuota: true,
+			ExpiredTime: -1, UnlimitedQuota: true, CreationSource: TokenCreationSourceDrawingMCP,
 		}
 		if err := tx.Create(&token).Error; err != nil {
 			return err
@@ -106,4 +106,49 @@ func ResolveDrawingToken(userID int, group string, groupAllowed func(string, str
 		}
 	}
 	return &token, created, nil
+}
+
+// ResolveDrawingTokenByID enforces an explicit user-selected API key. Unlike
+// ResolveDrawingToken it never creates or falls back to another key.
+func ResolveDrawingTokenByID(userID, tokenID int, group string) (*Token, error) {
+	if userID <= 0 || tokenID <= 0 {
+		return nil, ErrDrawingTokenRequired
+	}
+	var token Token
+	if err := DB.Where("id = ? AND user_id = ? AND oauth_managed = ?", tokenID, userID, false).First(&token).Error; err != nil {
+		return nil, ErrDrawingTokenRequired
+	}
+	if token.Status != common.TokenStatusEnabled || (token.ExpiredTime != -1 && token.ExpiredTime < common.GetTimestamp()) || (!token.UnlimitedQuota && token.RemainQuota <= 0) {
+		return nil, ErrDrawingTokenRequired
+	}
+	if strings.TrimSpace(group) == "" {
+		return &token, nil
+	}
+	if strings.TrimSpace(token.Group) == "" {
+		var user User
+		if err := DB.Select("id", "group").First(&user, userID).Error; err != nil || strings.TrimSpace(user.Group) != strings.TrimSpace(group) {
+			return nil, ErrDrawingTokenGroupUnavailable
+		}
+		return &token, nil
+	}
+	if token.Group != "auto" && strings.TrimSpace(token.Group) != "" && strings.TrimSpace(token.Group) != strings.TrimSpace(group) {
+		return nil, ErrDrawingTokenGroupUnavailable
+	}
+	if token.Group == "auto" {
+		groups, err := token.GetAutoGroups()
+		if err != nil {
+			return nil, ErrDrawingTokenGroupUnavailable
+		}
+		allowed := false
+		for _, candidate := range groups {
+			if strings.TrimSpace(candidate) == strings.TrimSpace(group) {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			return nil, ErrDrawingTokenGroupUnavailable
+		}
+	}
+	return &token, nil
 }

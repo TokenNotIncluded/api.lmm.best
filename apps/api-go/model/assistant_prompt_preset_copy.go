@@ -46,7 +46,7 @@ var requiredPromptPresetCopy = map[string]map[string]string{
 
 func requiredPromptPreset(id string) PromptPreset {
 	prompt := requiredPromptPresetCopy[id]["zh"]
-	return PromptPreset{Id: id, Prompt: prompt, Label: prompt}
+	return PromptPreset{Id: id, Prompt: prompt, Label: prompt, Source: "default"}
 }
 
 func normalizePromptPresetLanguage(value string) string {
@@ -72,6 +72,9 @@ func LocalizePromptPresets(set PromptPresetSet, language string) PromptPresetSet
 	presets := make([]PromptPreset, len(set.Presets))
 	copy(presets, set.Presets)
 	for index, preset := range presets {
+		if preset.Source == "custom" {
+			continue
+		}
 		if prompt, ok := requiredPromptPresetCopy[preset.Id][locale]; ok {
 			presets[index].Prompt = prompt
 			presets[index].Label = prompt

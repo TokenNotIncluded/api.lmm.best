@@ -124,7 +124,8 @@ func setupOAuthHTTP(t *testing.T) *oauthHTTPTest {
 	engine.GET("/read-only", middleware.TokenAuthReadOnly(), func(c *gin.Context) { c.Status(200) })
 	verifier := strings.Repeat("v", 64)
 	sum := sha256.Sum256([]byte(verifier))
-	query := url.Values{"client_id": {service.OAuthPiClientID}, "response_type": {"code"}, "redirect_uri": {"http://127.0.0.1:35679/oauth/lmm/callback"}, "resource": {integration.Resource}, "scope": {service.OAuthCatalogScope + " " + service.OAuthBalanceScope + " " + service.OAuthInvokeScope}, "state": {strings.Repeat("s", 32)}, "code_challenge": {base64.RawURLEncoding.EncodeToString(sum[:])}, "code_challenge_method": {"S256"}}.Encode()
+	initialScopes := append([]string{service.OAuthCatalogScope, service.OAuthBalanceScope, service.OAuthInvokeScope}, service.OAuthBuiltinMCPScopes()...)
+	query := url.Values{"client_id": {service.OAuthPiClientID}, "response_type": {"code"}, "redirect_uri": {"http://127.0.0.1:35679/oauth/lmm/callback"}, "resource": {integration.Resource}, "scope": {strings.Join(initialScopes, " ")}, "state": {strings.Repeat("s", 32)}, "code_challenge": {base64.RawURLEncoding.EncodeToString(sum[:])}, "code_challenge_method": {"S256"}}.Encode()
 	return &oauthHTTPTest{db: db, engine: engine, integration: integration, user: user, login: login, otherLogin: otherLogin, verifier: verifier, query: query}
 }
 
@@ -142,7 +143,7 @@ func (h *oauthHTTPTest) request(method, path, body string, headers map[string]st
 }
 
 var oauthCSRFFixture = regexp.MustCompile(`name="csrf" value="([^"]+)"`)
-var oauthRedirectFixture = regexp.MustCompile(`<a href="(http://127\.0\.0\.1:[^"]+)"`)
+var oauthRedirectFixture = regexp.MustCompile(`<a[^>]*href="(http://127\.0\.0\.1:[^"]+)"`)
 
 func oauthFormState(t *testing.T, response *httptest.ResponseRecorder) (*http.Cookie, string) {
 	t.Helper()
@@ -207,7 +208,7 @@ func TestOAuthHTTPDiscoveryAndDisabled(t *testing.T) {
 	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &metadata))
 	require.Equal(t, oauthTestIssuer+"/api/oauth2/authorize", metadata.AuthorizationEndpoint)
 	require.Equal(t, []string{"S256"}, metadata.CodeChallengeMethodsSupported)
-	require.Len(t, metadata.ScopesSupported, 3)
+	require.Len(t, metadata.ScopesSupported, 5)
 	require.Equal(t, "no-store", response.Header().Get("Cache-Control"))
 	disabled := gin.New()
 	MountOAuthServerRoutes(disabled, nil)
@@ -244,9 +245,39 @@ func TestOAuthHTTPAuthorizationCSRFAndIdentitySwitch(t *testing.T) {
 	require.Equal(t, "no-referrer", response.Header().Get("Referrer-Policy"))
 }
 
+func TestOAuthHTTPBrowserFlowSurvivesHandlerReplacement(t *testing.T) {
+	h := setupOAuthHTTP(t)
+	preflightCookie, csrf := h.begin(t)
+	// A second handler models a different reverse-proxy worker/process. The
+	// authorization row and one-time CSRF state must be shared through storage.
+	second := gin.New()
+	second.Use(middleware.BodyStorageCleanup())
+	MountOAuthServerRoutes(second, h.integration)
+	request := func(engine *gin.Engine, method, path, body string, headers map[string]string, cookies ...*http.Cookie) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, oauthTestIssuer+path, strings.NewReader(body))
+		for name, value := range headers {
+			req.Header.Set(name, value)
+		}
+		for _, cookie := range cookies {
+			req.AddCookie(cookie)
+		}
+		result := httptest.NewRecorder()
+		engine.ServeHTTP(result, req)
+		return result
+	}
+	response := request(second, "POST", "/api/user/auth/oauth2/continue", url.Values{"csrf": {csrf}}.Encode(), map[string]string{"Origin": oauthTestIssuer, "Content-Type": "application/x-www-form-urlencoded"}, preflightCookie, &http.Cookie{Name: service.RefreshCookieName, Value: h.login.RefreshToken})
+	consentCookie, consentCSRF := oauthFormState(t, response)
+	response = request(h.engine, "POST", "/api/user/auth/oauth2/consent", url.Values{"csrf": {consentCSRF}, "decision": {"allow"}}.Encode(), map[string]string{"Origin": oauthTestIssuer, "Content-Type": "application/x-www-form-urlencoded"}, consentCookie, &http.Cookie{Name: service.RefreshCookieName, Value: h.login.RefreshToken})
+	require.Equal(t, 200, response.Code, response.Body.String())
+	require.Contains(t, response.Body.String(), "Authorization complete")
+}
+
 func TestOAuthHTTPResourceBillingIsolationAndRevocation(t *testing.T) {
 	h := setupOAuthHTTP(t)
 	credentials, _ := h.approve(t)
+	for _, scope := range service.OAuthBuiltinMCPScopes() {
+		require.Contains(t, credentials.Scope, scope)
+	}
 	require.Contains(t, credentials.Scope, service.OAuthGroupScope("vip"))
 	require.NotContains(t, credentials.Scope, service.OAuthGroupScope("future"))
 	auth := map[string]string{"Authorization": "Bearer " + credentials.AccessToken}

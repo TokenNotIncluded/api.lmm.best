@@ -105,9 +105,10 @@ const (
 	toolGift
 	toolWeeklyDiscount
 	toolBounty
+	toolDirectL1Grant
 )
 
-var assistantToolSets [1 << 9]struct {
+var assistantToolSets [1 << 10]struct {
 	once  sync.Once
 	tools []assistantOpenAIToolDefinition
 }
@@ -296,7 +297,7 @@ func buildAssistantTools() []assistantOpenAIToolDefinition {
 			Type: "function",
 			Function: assistantOpenAIToolFunction{
 				Name:        "prepare_new_user_gift",
-				Description: "For an eligible signed-in user who has not used their one lifetime welcome-gift opportunity, make the decision after at least two substantive user turns. This includes users who have already reached L1; access level does not erase an unused opportunity. Judge demonstrated clarity, coherent follow-up, concrete legitimate use, and constructive engagement from the complete conversation. Choose an integer 0-1000 US cents. Zero is a valid final decision and consumes the opportunity. Do not reward demands for money, self-reported expertise alone, promotions, referrals, multiple accounts, automation, or unsafe behavior. The server enforces eligibility and one-time issuance; never promise an amount before this tool succeeds.",
+				Description: "For an eligible signed-in user who has not used their one lifetime welcome-gift opportunity, make the decision only after the conversation contains a concrete legitimate workflow, the work they plan to do, and enough user-authored detail to evaluate it. A category label and client name alone are insufficient. This includes users who have already reached L1; access level does not erase an unused opportunity. Judge demonstrated clarity, coherent follow-up, specificity, and constructive engagement from the complete conversation. Choose an integer 0-1000 US cents. Zero is a valid final decision and consumes the opportunity. Do not reward demands for money, self-reported expertise alone, promotions, referrals, multiple accounts, automation, or unsafe behavior. The server enforces eligibility and one-time issuance; never promise an amount before this tool succeeds.",
 				Parameters: objectSchema(map[string]any{
 					"amount_cents": map[string]any{"type": "integer", "minimum": 0, "maximum": 1000},
 					"reason":       map[string]any{"type": "string", "minLength": 2, "maxLength": 240},
@@ -416,8 +417,19 @@ func buildAssistantTools() []assistantOpenAIToolDefinition {
 		{
 			Type: "function",
 			Function: assistantOpenAIToolFunction{
+				Name:        "grant_l1_access",
+				Description: "Grant the signed-in L0 user L1 access directly after at least three complete server-recorded conversation turns. Use this only when the conversation establishes a legitimate use of the relay and the tool is available. This action needs no user confirmation or administrator approval. The server atomically rechecks the account, owned conversation, completed turns, and any administrator trust override; repeated or concurrent calls cannot grant twice.",
+				Parameters: objectSchema(map[string]any{
+					"user_statement": map[string]any{"type": "string", "minLength": 5, "maxLength": 2000},
+					"recommendation": map[string]any{"type": "string", "minLength": 20, "maxLength": 2000},
+				}, []string{"user_statement", "recommendation"}),
+			},
+		},
+		{
+			Type: "function",
+			Function: assistantOpenAIToolFunction{
 				Name:        "prepare_l1_recommendation",
-				Description: "Prepare a new or revised draft of the signed-in L0 user's one shared administrator recommendation after a substantive conversation. For an edit, use the current letter returned by get_l1_recommendation and the full conversation. Never use this tool to remove a letter. This does not submit, update, delete, or approve anything; the user must explicitly confirm the draft in the UI.",
+				Description: "Before the direct L1 grant tool becomes available, prepare a new or revised draft of the signed-in L0 user's one shared administrator recommendation after a substantive conversation. For an edit, use the current letter returned by get_l1_recommendation and the full conversation. Never use this tool to remove a letter. This does not submit, update, delete, or approve anything; the user must explicitly confirm the draft in the UI.",
 				Parameters: objectSchema(map[string]any{
 					"user_statement": map[string]any{"type": "string", "minLength": 5, "maxLength": 2000},
 					"recommendation": map[string]any{"type": "string", "minLength": 20, "maxLength": 2000},
@@ -618,7 +630,16 @@ func keyForTools(context assistantUserContext) toolSetKey {
 	if assistantBountyReadToolAllowed(context) {
 		key |= toolBounty
 	}
+	if assistantDirectL1GrantAllowed(context) {
+		key |= toolDirectL1Grant
+	}
 	return key
+}
+
+func assistantDirectL1GrantAllowed(context assistantUserContext) bool {
+	return !context.AdministratorMode && !context.DeveloperAccessGranted &&
+		strings.EqualFold(strings.TrimSpace(context.AccessLevel), "L0") &&
+		context.CompletedAssistantTurns >= model.AssistantDirectGrantMinCompletedTurns
 }
 
 func assistantNewUserGiftToolAllowed(context assistantUserContext) bool {
@@ -656,6 +677,9 @@ func assistantToolAllowedForContext(name string, userContext assistantUserContex
 	}
 	if name == "prepare_weekly_discount" {
 		return assistantWeeklyDiscountToolAllowed(userContext)
+	}
+	if name == "grant_l1_access" {
+		return assistantDirectL1GrantAllowed(userContext)
 	}
 	if name == "prepare_image_generation" {
 		return common.DrawingEnabled && userContext.DeveloperAccessGranted
@@ -1355,6 +1379,10 @@ func objectSchema(properties map[string]any, required []string) map[string]any {
 }
 
 func setAssistantRelayRequest(c *gin.Context, request assistantOpenAIRequest) error {
+	// Keep the server-selected model explicit for billing and error reporting.
+	// Synthetic review contexts do not pass through the normal distributor
+	// model extraction middleware.
+	common.SetContextKey(c, constant.ContextKeyOriginalModel, request.Model)
 	payload, err := common.MarshalLimit(request, assistantUpstreamRequestMaxBytes)
 	if err != nil {
 		return err
@@ -2070,8 +2098,10 @@ func runAssistantAgent(c *gin.Context, settings setting.AssistantSettings, conve
 				// it cannot consume the turns reserved for the user's task.
 				userContext = skipAssistantConversationTitle(c)
 			}
-			toolTraces = append(toolTraces, buildAssistantToolTrace(call, result))
-			c.Set(assistantClientToolsKey, toolTraces)
+			if toolName != "set_conversation_title" {
+				toolTraces = append(toolTraces, buildAssistantToolTrace(call, result))
+				c.Set(assistantClientToolsKey, toolTraces)
+			}
 			messages = append(messages, assistantOpenAIMessage{
 				Role:       "tool",
 				Content:    string(resultJSON),
@@ -2236,6 +2266,13 @@ func executeAssistantTool(c *gin.Context, call assistantOpenAIToolCall) map[stri
 	}
 	var input map[string]any
 	if err := json.Unmarshal([]byte(arguments), &input); err != nil {
+		if name == "set_conversation_title" {
+			// The title is optional metadata. Some compatible providers emit an
+			// incomplete argument fragment even though the forced tool call itself
+			// is valid; fall back to the already-redacted user message instead of
+			// surfacing an internal metadata failure or delaying the real answer.
+			return executeAssistantConversationTitleTool(c, nil)
+		}
 		return map[string]any{"ok": false, "error": "tool arguments must be valid JSON"}
 	}
 	if name == forgetProfileTool && (c == nil || !assistantExplicitProfileForgetRequest(c.GetString("assistant_history_latest_message"))) {
@@ -2408,6 +2445,8 @@ func executeAssistantTool(c *gin.Context, call assistantOpenAIToolCall) map[stri
 			}
 		}
 		return executeAssistantL1RecommendationTool(c, actorUserID, input)
+	case "grant_l1_access":
+		return executeAssistantDirectL1GrantTool(c, actorUserID, input)
 	case "request_create_key":
 		if c == nil {
 			return map[string]any{"ok": false, "error": "signed-in account is unavailable"}
@@ -2501,7 +2540,7 @@ func executeAssistantConversationTitleTool(c *gin.Context, input map[string]any)
 	}
 	title := strings.TrimSpace(inputString(input, "title"))
 	if title == "" {
-		return map[string]any{"ok": false, "error": "a conversation title is required"}
+		title = strings.TrimSpace(c.GetString("assistant_history_latest_message"))
 	}
 	runes := []rune(model.RedactAssistantHistoryContent(title))
 	if len(runes) > assistantConversationTitleMaxRunes {
@@ -2764,6 +2803,40 @@ func executeAssistantL1RecommendationTool(c *gin.Context, userID int, input map[
 		"status":  "confirmation_required",
 		"action":  "l1_recommendation",
 		"message": "Explain that this recommendation is only a draft. Ask the user to review and explicitly confirm it in the UI; administrator approval is still required.",
+	}
+}
+
+func executeAssistantDirectL1GrantTool(c *gin.Context, userID int, input map[string]any) map[string]any {
+	if c == nil || userID <= 0 {
+		return map[string]any{"ok": false, "status": "context_unavailable", "error": "signed-in account is unavailable"}
+	}
+	conversationID := assistantHistoryConversationID(c)
+	if conversationID <= 0 {
+		return map[string]any{"ok": false, "status": "turns_required", "error": "three completed turns in an existing conversation are required"}
+	}
+	statement := strings.TrimSpace(inputString(input, "user_statement"))
+	recommendation := strings.TrimSpace(inputString(input, "recommendation"))
+	grant, err := model.GrantAssistantDeveloperAccess(userID, conversationID, statement, recommendation)
+	if err != nil {
+		switch {
+		case errors.Is(err, model.ErrAssistantDirectGrantTurnsRequired):
+			return map[string]any{"ok": false, "status": "turns_required", "error": "three completed server-recorded conversation turns are required"}
+		case errors.Is(err, model.ErrAssistantDirectGrantNotL0):
+			return map[string]any{"ok": false, "status": "not_eligible", "error": "direct L1 grant is available only to an unrestricted L0 user"}
+		case errors.Is(err, model.ErrDeveloperAccessRequestReasonTooShort), errors.Is(err, model.ErrDeveloperAccessRecommendationTooShort), errors.Is(err, model.ErrDeveloperAccessRequestNoteTooLong):
+			return map[string]any{"ok": false, "status": "justification_invalid", "error": err.Error()}
+		default:
+			return map[string]any{"ok": false, "status": "grant_failed", "error": "L1 access could not be granted"}
+		}
+	}
+	status := "already_active"
+	if grant.Activated {
+		status = "activated"
+	}
+	return map[string]any{
+		"ok": true, "status": status, "access_level": "L1",
+		"completed_turns": grant.CompletedTurns, "request_id": grant.Request.Id,
+		"message": "L1 access is active. No further user or administrator approval is required.",
 	}
 }
 

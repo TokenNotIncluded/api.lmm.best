@@ -45,6 +45,8 @@ import {
 } from '@/lib/console-activation'
 import { useAuthStore } from '@/stores/auth-store'
 
+import { PiOAuthGuide } from './pi-oauth-guide'
+
 const COPY = {
   zh: {
     eyebrow: '新手指南',
@@ -401,6 +403,7 @@ curl ${rootUrl}/v1/chat/completions \
               </Button>
             </div>
           </header>
+          <PiOAuthGuide />
 
           <ol className='border-border/70 mt-12 grid gap-x-6 gap-y-5 border-y py-7 sm:grid-cols-3 lg:mt-16 lg:grid-cols-5'>
             {copy.stages.map((stage, index) => (

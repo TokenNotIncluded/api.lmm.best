@@ -64,6 +64,7 @@ const (
 )
 
 func SetApiRouter(router *gin.Engine) {
+	router.GET("/scripts/:name", middleware.DisableCache(), controller.GetScriptRaw)
 	operations := controller.NewAssistantAdminOperationRegistry(router)
 	apiRouter := &assistantRouterGroup{group: router.Group("/api"), operations: operations}
 	apiRouter.Use(operations.Middleware())
@@ -99,6 +100,23 @@ func SetApiRouter(router *gin.Engine) {
 		apiRouter.GET("/about", controller.GetAbout)
 		//apiRouter.GET("/midjourney", controller.GetMidjourney)
 		apiRouter.GET("/home_page_content", controller.GetHomePageContent)
+		piRemoteRoute := apiRouter.Group("/remote-control/v1/pi")
+		piRemoteRoute.Use(middleware.UserAuth(), middleware.DisableCache())
+		{
+			piRemoteRoute.GET("/sessions", controller.PiRemoteListSessions)
+			piRemoteRoute.PUT("/sessions/:session_id", middleware.RequestBodyLimit(24<<10), controller.PiRemoteUpsertSession)
+			piRemoteRoute.GET("/sessions/:session_id/messages", controller.PiRemoteGetMessages)
+			piRemoteRoute.POST("/sessions/:session_id/messages", middleware.RequestBodyLimit(80<<10), controller.PiRemoteAppendMessage)
+		}
+		apiRouter.GET("/scripts", middleware.DisableCache(), controller.ListScripts)
+		apiRouter.GET("/scripts/:name/raw", middleware.DisableCache(), controller.GetScriptRaw)
+		scriptRoute := apiRouter.Group("/scripts")
+		scriptRoute.Use(middleware.RootAuth(), middleware.DisableCache())
+		{
+			scriptRoute.GET("/:name", controller.GetScript)
+			scriptRoute.PUT("/:name", middleware.RequestBodyLimit(512<<10), controller.PutScript)
+			scriptRoute.DELETE("/:name", controller.DeleteScript)
+		}
 		securityRoute := apiRouter.Group("/security")
 		{
 			// Public policy/statistics intentionally omit matcher patterns,
@@ -394,6 +412,7 @@ func SetApiRouter(router *gin.Engine) {
 		optionRoute.Use(middleware.RootAuth())
 		{
 			optionRoute.GET("/", controller.GetOptions)
+			optionRoute.GET("/updates", middleware.DisableCache(), controller.GetUpdates)
 			optionRoute.GET("/exchange-rate", middleware.DisableCache(), controller.GetUsdExchangeRate)
 			optionRoute.PUT("/", controller.UpdateOption)
 			optionRoute.POST("/validate", middleware.RequestBodyLimit(rawOptionMutationRequestMaxBytes), controller.ValidateOptions)
@@ -498,6 +517,15 @@ func SetApiRouter(router *gin.Engine) {
 			tokenRoute.DELETE("/:id", controller.DeleteToken)
 			tokenRoute.POST("/batch", middleware.RequestBodyLimit(tokenMutationRequestMaxBytes), controller.DeleteTokenBatch)
 			tokenRoute.POST("/batch/keys", middleware.RequestBodyLimit(tokenMutationRequestMaxBytes), middleware.CriticalRateLimit(), middleware.DisableCache(), controller.GetTokenKeysBatch)
+		}
+		drawingMCPRoute := apiRouter.Group("/drawing")
+		drawingMCPRoute.Use(middleware.UserAuth())
+		{
+			drawingMCPRoute.POST("/key", middleware.CriticalRateLimit(), middleware.DisableCache(), middleware.RequestBodyLimit(1<<10), controller.EnsureAssistantDrawingKey)
+			drawingMCPRoute.GET("/mcp-keys", middleware.DisableCache(), controller.GetDrawingMCPAPIKeys)
+			drawingMCPRoute.GET("/mcp-token", middleware.DisableCache(), controller.GetDrawingMCPToken)
+			drawingMCPRoute.POST("/mcp-token", middleware.CriticalRateLimit(), middleware.DisableCache(), middleware.RequestBodyLimit(tokenMutationRequestMaxBytes), controller.RotateDrawingMCPToken)
+			drawingMCPRoute.DELETE("/mcp-token", middleware.CriticalRateLimit(), middleware.DisableCache(), controller.RevokeDrawingMCPToken)
 		}
 
 		usageRoute := apiRouter.Group("/usage")

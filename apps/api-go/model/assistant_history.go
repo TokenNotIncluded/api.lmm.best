@@ -649,6 +649,55 @@ func LoadAssistantConversationMessages(userID int, conversationID int64, limit i
 	return messages, nil
 }
 
+// CountCompletedAssistantConversationTurns counts only durable, adjacent
+// user/assistant pairs in an owned conversation. Browser-supplied history,
+// human-support messages, secure cards, and an unfinished user message do not
+// count toward permissions derived from completed assistant conversations.
+func CountCompletedAssistantConversationTurns(userID int, conversationID int64) (int, error) {
+	if userID <= 0 || conversationID <= 0 {
+		return 0, gorm.ErrInvalidData
+	}
+	return countCompletedAssistantConversationTurnsWithTx(DB, userID, conversationID, false)
+}
+
+func countCompletedAssistantConversationTurnsWithTx(tx *gorm.DB, userID int, conversationID int64, lock bool) (int, error) {
+	if tx == nil || userID <= 0 || conversationID <= 0 {
+		return 0, gorm.ErrInvalidData
+	}
+	var conversation AssistantConversation
+	query := tx.Where("id = ? AND user_id = ?", conversationID, userID)
+	if lock {
+		query = lockForUpdate(query)
+	}
+	if err := query.First(&conversation).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return 0, ErrAssistantConversationNotFound
+		}
+		return 0, err
+	}
+	if conversation.RestrictedAt > 0 {
+		return 0, ErrAssistantConversationRestricted
+	}
+
+	var messages []AssistantHistoryMessage
+	if err := tx.Where("conversation_id = ?", conversationID).
+		Where("role IN ?", []string{AssistantHistoryRoleUser, AssistantHistoryRoleAssistant}).
+		Order("sequence ASC").Limit(assistantHistoryConversationMaxMessages).Find(&messages).Error; err != nil {
+		return 0, err
+	}
+	completed := 0
+	for index := 1; index < len(messages); index++ {
+		userMessage, assistantMessage := messages[index-1], messages[index]
+		if userMessage.Role == AssistantHistoryRoleUser &&
+			assistantMessage.Role == AssistantHistoryRoleAssistant &&
+			assistantMessage.Sequence == userMessage.Sequence+1 {
+			completed++
+			index++
+		}
+	}
+	return completed, nil
+}
+
 // assistantHumanHistoryPair keeps each human reply marked as human context.
 // Whole oldest messages are removed only when the shared transcript byte
 // budget is exhausted; the latest question and reply are kept together.

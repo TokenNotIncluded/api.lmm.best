@@ -12,6 +12,7 @@ This directory contains operational, API, and legal documentation for LMM Forge.
 - [`go-memory-management.md`](./go-memory-management.md): Go request memory, optional large-request admission, and small-host tuning.
 - [`postgresql-migration.md`](./postgresql-migration.md): migration rehearsal workflow.
 - [`postgresql-cutover.md`](./postgresql-cutover.md): production cutover transaction.
+- [`automatic-production-deploy.md`](./automatic-production-deploy.md): release-triggered production deployment and required GitHub Environment configuration.
 - [`valkey-lmm-api.md`](./valkey-lmm-api.md): dedicated Valkey deployment guidance.
 - [`rust-blue-green.md`](./rust-blue-green.md): Rust blue-green and ownership checkpoints.
 - [`test-single-instance.md`](./test-single-instance.md): isolated Rust host operation note.
@@ -46,4 +47,3 @@ This directory contains operational, API, and legal documentation for LMM Forge.
 - Add new docs when a stable operational process or contract changes.
 - Use clear headings and date-sensitive notes for migration and cutover content.
 - For language-specific docs, include English fallback or keep linkable references.
-

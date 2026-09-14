@@ -164,6 +164,8 @@ export async function requestPaymentQuote(
     const settlementQuote = parseSettlementQuote({
       amount: response.data,
       currency: response.settlement_currency,
+      originalAmount: response.original_settlement_amount,
+      savingsAmount: response.savings_settlement_amount,
     })
     return settlementQuote
       ? { amount: Number(settlementQuote.amount), settlementQuote }

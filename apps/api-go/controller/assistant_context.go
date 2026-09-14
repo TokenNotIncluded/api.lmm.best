@@ -183,6 +183,10 @@ type assistantUserContext struct {
 	// WeeklyDiscountRequested carries a pending weekly reward request across a
 	// substantive follow-up turn without exposing it to the model context.
 	WeeklyDiscountRequested bool `json:"-"`
+	// CompletedAssistantTurns is derived only from durable, server-owned
+	// user/assistant pairs. It gates the narrow L0 direct-grant tool and never
+	// trusts transcript messages supplied by the browser.
+	CompletedAssistantTurns int `json:"-"`
 	// GiftRewardBlocked is derived from the complete current conversation, not
 	// just the latest turn. A user must not bypass the promotion/security guard
 	// by first asking for a gift with farming or abuse language and then

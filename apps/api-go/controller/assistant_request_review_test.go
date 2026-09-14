@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -15,6 +16,16 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
+
+func TestAssistantReviewContextUsesRelativeRelayPath(t *testing.T) {
+	root := &model.User{Id: 7, Username: "review-root", Role: common.RoleRootUser, Status: common.UserStatusEnabled}
+	ctx, _, err := newAssistantReviewContext(context.Background(), root, "review")
+	require.NoError(t, err)
+	require.NotNil(t, ctx.Request.URL)
+	require.Empty(t, ctx.Request.URL.Scheme)
+	require.Empty(t, ctx.Request.URL.Host)
+	require.Equal(t, "/v1/chat/completions", ctx.Request.URL.Path)
+}
 
 func TestAssistantReviewPolicyUsesGroupOverrideAndDefaultOff(t *testing.T) {
 	original := setting.GetAssistantSettings()

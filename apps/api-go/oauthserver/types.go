@@ -73,13 +73,25 @@ type Policy interface {
 }
 
 type PendingAuthorization struct {
-	Transaction string
-	ClientID    string
-	ClientName  string
-	RedirectURI string
-	Resource    string
-	Scopes      []string
-	ExpiresAt   time.Time
+	Transaction   string
+	ClientID      string
+	ClientName    string
+	RedirectURI   string
+	Resource      string
+	Scopes        []string
+	State         string
+	CodeChallenge string
+	UserID        int64
+	ExpiresAt     time.Time
+}
+
+// BrowserAuthorization is the safe view used by a browser adapter. It never
+// exposes the stored consent secret or any raw bearer capability.
+type BrowserAuthorization struct {
+	PendingAuthorization
+	SessionID      string
+	SessionVersion int64
+	AuthVersion    int64
 }
 
 type Consent struct {

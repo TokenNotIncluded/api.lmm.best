@@ -343,6 +343,7 @@ func mainMigrationModels() []interface{} {
 		&DeveloperAccessRequest{}, &DeveloperAccessRecommendationArchive{},
 		&AccountActionRequest{},
 		&OpenSourceBountyLedger{}, &OpenSourceBountyDispute{}, &OpenSourceBountyMCPToken{},
+		&DrawingMCPToken{},
 		&OpenSourceBountyMCPConfirmation{}, &OpenSourceBountyMCPOperation{}, &OpenSourceBountyRESTOperation{},
 		&SubscriptionOrder{}, &SubscriptionPaymentEvent{}, &SubscriptionPaymentRefund{}, &WaffoPancakeSubscriptionPayment{}, &WaffoPancakeSubscriptionPeriod{}, &UserSubscription{}, &SubscriptionPreConsumeRecord{},
 		&SubscriptionResetVoucher{}, &SubscriptionResetEvent{}, &SubscriptionResetPreview{}, &SubscriptionResetOperation{}, &CustomOAuthProvider{},
@@ -369,6 +370,9 @@ func migrateDB() error {
 
 	err := DB.AutoMigrate(mainMigrationModels()...)
 	if err != nil {
+		return err
+	}
+	if err := backfillTokenCreationSources(DB); err != nil {
 		return err
 	}
 	if common.UsingMainDatabase(common.DatabaseTypePostgreSQL) {
@@ -411,6 +415,27 @@ func migrateDB() error {
 	}
 	if err := migrateLegacySubscriptionPlanCurrencies(); err != nil {
 		return err
+	}
+	return nil
+}
+
+func backfillTokenCreationSources(db *gorm.DB) error {
+	if err := db.Model(&Token{}).Where("creation_source IS NULL OR creation_source = ?", "").UpdateColumn("creation_source", TokenCreationSourceManual).Error; err != nil {
+		return fmt.Errorf("backfill token creation source: %w", err)
+	}
+	if err := db.Model(&Token{}).
+		Where("oauth_managed = ? AND creation_source = ? AND name LIKE ?", false, TokenCreationSourceManual, "%的初始令牌").
+		UpdateColumn("creation_source", TokenCreationSourceSystem).Error; err != nil {
+		return fmt.Errorf("backfill system-created initial token source: %w", err)
+	}
+	// Drawing keys created before creation_source was introduced have a stable
+	// server-generated signature. Repair only that exact signature so a user's
+	// similarly named manual key is not reclassified.
+	if err := db.Model(&Token{}).
+		Where("oauth_managed = ? AND creation_source = ? AND unlimited_quota = ? AND expired_time = ?", false, TokenCreationSourceManual, true, -1).
+		Where(map[string]any{"name": "drawing-image-2", "group": DrawingTokenGroup}).
+		UpdateColumn("creation_source", TokenCreationSourceDrawingMCP).Error; err != nil {
+		return fmt.Errorf("backfill drawing MCP token source: %w", err)
 	}
 	return nil
 }
@@ -917,23 +942,28 @@ func migrateSubscriptionPlanPriceAmount() {
 }
 
 func closeDB(db *gorm.DB) error {
+	if db == nil {
+		return nil
+	}
 	sqlDB, err := db.DB()
 	if err != nil {
 		return err
 	}
-	err = sqlDB.Close()
-	return err
+	return sqlDB.Close()
 }
 
 // pi-lens-ignore: go-bare-error
 func CloseDB() error {
-	if LOG_DB != DB {
-		err := closeDB(LOG_DB)
-		if err != nil {
-			return err
-		}
+	var err error
+	if LOG_DB != nil && LOG_DB != DB {
+		err = errors.Join(err, closeDB(LOG_DB))
+		LOG_DB = nil
 	}
-	return closeDB(DB)
+	if DB != nil {
+		err = errors.Join(err, closeDB(DB))
+		DB = nil
+	}
+	return err
 }
 
 // checkMySQLChineseSupport ensures the MySQL connection and current schema

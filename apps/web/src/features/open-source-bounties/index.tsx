@@ -514,10 +514,16 @@ export function OpenSourceBounties({
       title: draft.title.trim(),
       description: draft.description.trim(),
       rules: draft.rules.trim(),
-      reward_quota: parseQuotaFromDollars(
-        parseBountyNumericInput(draft.rewardAmount)
-      ),
-      reward_slots: parseBountyNumericInput(draft.rewardSlots),
+      reward_quota:
+        editingProject?.status === 'published' ||
+        editingProject?.status === 'paused'
+          ? 0
+          : parseQuotaFromDollars(parseBountyNumericInput(draft.rewardAmount)),
+      reward_slots:
+        editingProject?.status === 'published' ||
+        editingProject?.status === 'paused'
+          ? 0
+          : parseBountyNumericInput(draft.rewardSlots),
     }
     const success = await runAction(
       'save-draft',
@@ -525,7 +531,12 @@ export function OpenSourceBounties({
         editingProject
           ? updateBounty(editingProject.id, input)
           : createBounty(input),
-      editingProject ? 'Bounty draft updated.' : 'Bounty draft created.'
+      editingProject?.status === 'published' ||
+        editingProject?.status === 'paused'
+        ? 'Your changes were saved.'
+        : editingProject
+          ? 'Bounty draft updated.'
+          : 'Bounty draft created.'
     )
     if (success) setDraftOpen(false)
   }
@@ -1129,6 +1140,10 @@ export function OpenSourceBounties({
         open={draftOpen}
         onOpenChange={setDraftOpen}
         editing={Boolean(editingProject)}
+        publishedEditing={
+          editingProject?.status === 'published' ||
+          editingProject?.status === 'paused'
+        }
         draft={draft}
         setDraft={setDraft}
         errors={draftErrors}
@@ -2120,6 +2135,7 @@ function DraftDialog(props: {
   open: boolean
   onOpenChange: (open: boolean) => void
   editing: boolean
+  publishedEditing: boolean
   draft: DraftForm
   setDraft: (draft: DraftForm) => void
   errors: BountyDraftErrors
@@ -2139,7 +2155,13 @@ function DraftDialog(props: {
     <Dialog
       open={props.open}
       onOpenChange={props.onOpenChange}
-      title={props.editing ? t('Edit bounty draft') : t('Create bounty')}
+      title={
+        props.publishedEditing
+          ? t('Edit')
+          : props.editing
+            ? t('Edit bounty draft')
+            : t('Create bounty')
+      }
       description={t(
         'Drafts are free. Your balance is charged only when you publish.'
       )}
@@ -2170,6 +2192,7 @@ function DraftDialog(props: {
           id='bounty-repository'
           value={props.draft.repositoryUrl}
           onChange={(e) => update('repositoryUrl', e.target.value)}
+          disabled={props.publishedEditing}
           placeholder='https://github.com/owner/repository'
           aria-invalid={Boolean(props.errors.repositoryUrl)}
           aria-describedby={
@@ -2246,6 +2269,7 @@ function DraftDialog(props: {
             step='any'
             value={props.draft.rewardAmount}
             onChange={(e) => update('rewardAmount', e.target.value)}
+            disabled={props.publishedEditing}
             aria-invalid={Boolean(props.errors.rewardAmount)}
             aria-describedby={
               props.errors.rewardAmount ? 'bounty-reward-error' : undefined
@@ -2265,6 +2289,7 @@ function DraftDialog(props: {
             step={1}
             value={props.draft.rewardSlots}
             onChange={(e) => update('rewardSlots', e.target.value)}
+            disabled={props.publishedEditing}
             aria-invalid={Boolean(props.errors.rewardSlots)}
             aria-describedby={
               props.errors.rewardSlots ? 'bounty-slots-error' : undefined

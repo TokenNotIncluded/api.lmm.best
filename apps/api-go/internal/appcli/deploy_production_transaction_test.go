@@ -972,6 +972,9 @@ func TestProductionRollbackRestoresBothPackagesAndFrontend(t *testing.T) {
 	if status.Phase != "ROLLED_BACK" || fixture.runner.installedGoVersion != fixture.runner.oldVersion || fixture.runner.installedWebVersion != fixture.runner.oldVersion {
 		t.Fatalf("status=%#v", status)
 	}
+	if status.Format != 2 || status.DeploymentID != fixture.workspace.id || status.UpdatedUTC.IsZero() {
+		t.Fatalf("rollback omitted persisted status metadata: %#v", status)
+	}
 	manifest, _ := fixture.runtime.readManifest(fixture.workspace)
 	if err := verifyFrontendIdentity(fixture.runtime.paths.FrontendRoot, manifest.Frontend.OldTarget, manifest.Frontend.OldIndexSHA256); err != nil {
 		t.Fatal(err)

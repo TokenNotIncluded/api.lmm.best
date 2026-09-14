@@ -19,6 +19,7 @@ const drawingWebMinimumBalanceUSD = 10
 // Only the private MCP relay engine sets this key. No client header, query or
 // tool argument is accepted as proof of an MCP origin.
 type drawingMCPRelayIdentityKey struct{}
+type drawingMCPAPIKeyIDKey struct{}
 type drawingMCPRelayIdentity struct {
 	UserID int
 }
@@ -107,8 +108,15 @@ func drawingRelayHeaders(headers http.Header) http.Header {
 	return headers
 }
 
-func prepareDrawingTokenContext(c *gin.Context, userID int, group string) (*model.Token, bool, bool) {
-	token, created, err := model.ResolveDrawingToken(userID, group, service.IsUserSelectableGroup)
+func prepareDrawingTokenContext(c *gin.Context, userID int, group string, selected ...int) (*model.Token, bool, bool) {
+	var token *model.Token
+	var created bool
+	var err error
+	if len(selected) > 0 && selected[0] > 0 {
+		token, err = model.ResolveDrawingTokenByID(userID, selected[0], group)
+	} else {
+		token, created, err = model.ResolveDrawingToken(userID, group, service.IsUserSelectableGroup)
+	}
 	if err != nil {
 		writeDrawingTokenError(c, err, group)
 		return nil, false, false
@@ -146,7 +154,8 @@ func PreparePlaygroundImageAuth(c *gin.Context) {
 		c.Abort()
 		return
 	}
-	if _, _, ok := prepareDrawingTokenContext(c, user.Id, group); !ok {
+	selectedKeyID, _ := c.Request.Context().Value(drawingMCPAPIKeyIDKey{}).(int)
+	if _, _, ok := prepareDrawingTokenContext(c, user.Id, group, selectedKeyID); !ok {
 		return
 	}
 	c.Next()

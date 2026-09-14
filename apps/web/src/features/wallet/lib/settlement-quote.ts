@@ -5,6 +5,8 @@ Copyright (C) 2026 LIghtJUNction
 export interface SettlementQuote {
   amount: string
   currency: 'CNY' | 'USD'
+  originalAmount?: string
+  savingsAmount?: string
 }
 
 export interface ExpectedSettlement {
@@ -29,7 +31,37 @@ export function parseSettlementQuote(value: unknown): SettlementQuote | null {
   ) {
     return null
   }
-  return { amount, currency }
+  const originalAmount = readOptionalSettlementAmount(
+    (value as { originalAmount?: unknown }).originalAmount
+  )
+  const savingsAmount = readOptionalSettlementAmount(
+    (value as { savingsAmount?: unknown }).savingsAmount
+  )
+  if (
+    (originalAmount !== undefined && Number(originalAmount) < Number(amount)) ||
+    (savingsAmount !== undefined && Number(savingsAmount) <= 0)
+  ) {
+    return null
+  }
+  return {
+    amount,
+    currency,
+    ...(originalAmount ? { originalAmount } : {}),
+    ...(savingsAmount ? { savingsAmount } : {}),
+  }
+}
+
+function readOptionalSettlementAmount(value: unknown): string | undefined {
+  if (value === undefined) return undefined
+  if (
+    typeof value !== 'string' ||
+    !/^[0-9]+(?:\.[0-9]+)?$/.test(value) ||
+    !Number.isFinite(Number(value)) ||
+    Number(value) <= 0
+  ) {
+    return undefined
+  }
+  return value
 }
 
 export function getAvailableSettlementQuote(

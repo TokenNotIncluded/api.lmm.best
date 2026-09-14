@@ -133,6 +133,7 @@ export type AssistantPreConversationPreset = {
   id: string
   prompt: string
   label?: string
+  source?: 'custom' | 'default'
 }
 
 export type AssistantPreConversationPresets = {

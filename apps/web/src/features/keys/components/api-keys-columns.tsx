@@ -36,11 +36,13 @@ import { formatQuota } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
 import { API_KEY_STATUSES } from '../constants'
-import type { ApiKey } from '../types'
+import type { ApiKey, ApiKeyCreationMode } from '../types'
+import { ApiKeyCreationSourceBadge } from './api-key-creation-source'
 import { ApiKeyGroupCell } from './api-key-group-cell'
 import { ApiKeyTimestampCell } from './api-key-timestamp-cell'
 import {
   ApiKeyCell,
+  ApiKeyUsedQuota,
   IpRestrictionsCell,
   ModelLimitsCell,
   UnlimitedQuotaBadge,
@@ -73,7 +75,10 @@ function useGroupRatios(): Record<string, number | string> {
   return data ?? {}
 }
 
-export function useApiKeysColumns(now: number): ColumnDef<ApiKey>[] {
+export function useApiKeysColumns(
+  now: number,
+  creationMode: ApiKeyCreationMode
+): ColumnDef<ApiKey>[] {
   const { t, i18n } = useTranslation()
   const groupRatios = useGroupRatios()
   const shouldReduceMotion = useMediaQuery('(prefers-reduced-motion: reduce)')
@@ -132,6 +137,19 @@ export function useApiKeysColumns(now: number): ColumnDef<ApiKey>[] {
       size: 120,
       meta: { mobileBadge: true },
     },
+    ...(creationMode === 'automatic'
+      ? [
+          {
+            id: 'creation_source',
+            header: t('Creation source'),
+            cell: ({ row }) => (
+              <ApiKeyCreationSourceBadge apiKey={row.original} />
+            ),
+            enableSorting: false,
+            size: 150,
+          } satisfies ColumnDef<ApiKey>,
+        ]
+      : []),
     {
       id: 'key',
       accessorKey: 'key',
@@ -189,6 +207,13 @@ export function useApiKeysColumns(now: number): ColumnDef<ApiKey>[] {
         )
       },
       size: 170,
+    },
+    {
+      id: 'used_quota',
+      accessorKey: 'used_quota',
+      header: t('Used quota'),
+      cell: ({ row }) => <ApiKeyUsedQuota used={row.original.used_quota} />,
+      size: 140,
     },
     {
       accessorKey: 'group',

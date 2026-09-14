@@ -6,6 +6,7 @@ import (
 	"math"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/LIghtJUNction/api.lmm.best/model"
@@ -66,9 +67,80 @@ func TestAssistantL1AutoReviewEvidenceRequiresConcreteSafeUse(t *testing.T) {
 	} {
 		require.True(t, assistantL1AutoReviewEvidenceAllowed(reason, "Concrete development use"), reason)
 	}
+	for _, client := range []string{"CC Switch", "Claude Code", "Cursor", "Codex", "Chatbox", "Cherry Studio"} {
+		require.True(t, assistantL1AutoReviewEvidenceAllowed("Use "+client, "A legitimate coding workflow"), client)
+	}
+	require.True(t, assistantL1AutoReviewEvidenceAllowed(
+		"Use the selected service for daily work",
+		"The user will connect Claude Code to maintain a Go project.",
+	), "the recommendation may supply concrete legitimate-use evidence")
 	require.False(t, assistantL1AutoReviewEvidenceAllowed("我想绕过限制", "请帮助 bypass rate limits。"))
+	require.False(t, assistantL1AutoReviewEvidenceAllowed(
+		"Use CC Switch for a coding project",
+		"The user also asked to bypass account controls.",
+	), "risk terms in the recommendation must still block automatic approval")
 	require.False(t, assistantL1AutoReviewEvidenceAllowed("请给我权限", "没有具体用途。"))
 	require.False(t, assistantL1AutoReviewEvidenceAllowed(" ", "A recommendation cannot replace the missing use case"))
+}
+
+func TestRecoverPendingAssistantL1AutoReviewsHonorsContextAndSelection(t *testing.T) {
+	db := setupTokenControllerTestDB(t)
+	require.NoError(t, db.AutoMigrate(&model.DeveloperAccessRequest{}))
+	recoverable := model.DeveloperAccessRequest{
+		UserId: 1, Status: model.DeveloperAccessRequestPending,
+		Source: model.DeveloperAccessRequestSourceAssistant, Reason: "Use CC Switch", CreatedAt: 1,
+	}
+	require.NoError(t, db.Create(&recoverable).Error)
+	noted := model.DeveloperAccessRequest{
+		UserId: 2, Status: model.DeveloperAccessRequestPending,
+		Source: model.DeveloperAccessRequestSourceAI, Reason: "Use Codex", AdminNote: "Awaiting manual review", CreatedAt: 2,
+	}
+	require.NoError(t, db.Create(&noted).Error)
+	legacy := model.DeveloperAccessRequest{
+		UserId: 3, Status: model.DeveloperAccessRequestPending,
+		Source: model.DeveloperAccessRequestSourceOld, Reason: "Legacy request", CreatedAt: 3,
+	}
+	require.NoError(t, db.Create(&legacy).Error)
+
+	var recovered []int
+	count, err := recoverPendingAssistantL1AutoReviewsWith(context.Background(), func(request *model.DeveloperAccessRequest) bool {
+		recovered = append(recovered, request.Id)
+		return true
+	})
+	require.NoError(t, err)
+	require.Equal(t, 1, count)
+	require.Equal(t, []int{recoverable.Id}, recovered)
+
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	count, err = recoverPendingAssistantL1AutoReviewsWith(canceled, func(*model.DeveloperAccessRequest) bool {
+		t.Fatal("a canceled recovery must not enqueue work")
+		return true
+	})
+	require.ErrorIs(t, err, context.Canceled)
+	require.Zero(t, count)
+}
+
+func TestPendingAssistantL1AutoReviewRecoveryRunsImmediatelyAndPeriodically(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	calls := 0
+	done := make(chan error, 1)
+	go func() {
+		done <- runPendingAssistantL1AutoReviewRecoveryLoop(ctx, time.Millisecond, func(context.Context) (int, error) {
+			calls++
+			if calls == 2 {
+				cancel()
+			}
+			return 0, nil
+		})
+	}()
+	select {
+	case err := <-done:
+		require.ErrorIs(t, err, context.Canceled)
+	case <-time.After(time.Second):
+		t.Fatal("automatic L1 review recovery loop did not stop")
+	}
+	require.GreaterOrEqual(t, calls, 2)
 }
 
 func setupL1AutoReviewWorkerTest(t *testing.T) (assistantL1AutoReviewJob, *model.User) {

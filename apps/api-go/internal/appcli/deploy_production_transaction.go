@@ -1271,7 +1271,7 @@ func (runtime *productionRuntime) rollback(ctx context.Context, workspace produc
 	if err := runtime.finalizeTransactionFiles(workspace); err != nil {
 		return fail(err)
 	}
-	return rolledBack, nil
+	return runtime.readStatus(workspace)
 }
 
 // rollbackBeforeWriterStop closes only the transaction bookkeeping when the

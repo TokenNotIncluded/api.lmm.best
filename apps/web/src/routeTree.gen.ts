@@ -62,6 +62,7 @@ import { Route as AuthenticatedPlaygroundIndexRouteImport } from './routes/_auth
 import { Route as AuthenticatedProfileIndexRouteImport } from './routes/_authenticated/profile/index'
 import { Route as AuthenticatedPublicRelayIndexRouteImport } from './routes/_authenticated/public-relay/index'
 import { Route as AuthenticatedRedemptionCodesIndexRouteImport } from './routes/_authenticated/redemption-codes/index'
+import { Route as AuthenticatedRemoteControlIndexRouteImport } from './routes/_authenticated/remote-control/index'
 import { Route as AuthenticatedSubscriptionsIndexRouteImport } from './routes/_authenticated/subscriptions/index'
 import { Route as AuthenticatedSubscriptionsResetRouteImport } from './routes/_authenticated/subscriptions/reset'
 import { Route as AuthenticatedSupportIndexRouteImport } from './routes/_authenticated/support/index'
@@ -372,6 +373,12 @@ const AuthenticatedRedemptionCodesIndexRoute =
     path: '/redemption-codes/',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedRemoteControlIndexRoute =
+  AuthenticatedRemoteControlIndexRouteImport.update({
+    id: '/remote-control/',
+    path: '/remote-control/',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedSubscriptionsIndexRoute =
   AuthenticatedSubscriptionsIndexRouteImport.update({
     id: '/subscriptions/',
@@ -586,6 +593,7 @@ export interface FileRoutesByFullPath {
   '/profile/': typeof AuthenticatedProfileIndexRoute
   '/public-relay/': typeof AuthenticatedPublicRelayIndexRoute
   '/redemption-codes/': typeof AuthenticatedRedemptionCodesIndexRoute
+  '/remote-control/': typeof AuthenticatedRemoteControlIndexRoute
   '/subscriptions/': typeof AuthenticatedSubscriptionsIndexRoute
   '/support/': typeof AuthenticatedSupportIndexRoute
   '/system-info/': typeof AuthenticatedSystemInfoIndexRoute
@@ -665,6 +673,7 @@ export interface FileRoutesByTo {
   '/profile': typeof AuthenticatedProfileIndexRoute
   '/public-relay': typeof AuthenticatedPublicRelayIndexRoute
   '/redemption-codes': typeof AuthenticatedRedemptionCodesIndexRoute
+  '/remote-control': typeof AuthenticatedRemoteControlIndexRoute
   '/subscriptions': typeof AuthenticatedSubscriptionsIndexRoute
   '/support': typeof AuthenticatedSupportIndexRoute
   '/system-info': typeof AuthenticatedSystemInfoIndexRoute
@@ -748,6 +757,7 @@ export interface FileRoutesById {
   '/_authenticated/profile/': typeof AuthenticatedProfileIndexRoute
   '/_authenticated/public-relay/': typeof AuthenticatedPublicRelayIndexRoute
   '/_authenticated/redemption-codes/': typeof AuthenticatedRedemptionCodesIndexRoute
+  '/_authenticated/remote-control/': typeof AuthenticatedRemoteControlIndexRoute
   '/_authenticated/subscriptions/': typeof AuthenticatedSubscriptionsIndexRoute
   '/_authenticated/support/': typeof AuthenticatedSupportIndexRoute
   '/_authenticated/system-info/': typeof AuthenticatedSystemInfoIndexRoute
@@ -830,6 +840,7 @@ export interface FileRouteTypes {
     | '/profile/'
     | '/public-relay/'
     | '/redemption-codes/'
+    | '/remote-control/'
     | '/subscriptions/'
     | '/support/'
     | '/system-info/'
@@ -909,6 +920,7 @@ export interface FileRouteTypes {
     | '/profile'
     | '/public-relay'
     | '/redemption-codes'
+    | '/remote-control'
     | '/subscriptions'
     | '/support'
     | '/system-info'
@@ -991,6 +1003,7 @@ export interface FileRouteTypes {
     | '/_authenticated/profile/'
     | '/_authenticated/public-relay/'
     | '/_authenticated/redemption-codes/'
+    | '/_authenticated/remote-control/'
     | '/_authenticated/subscriptions/'
     | '/_authenticated/support/'
     | '/_authenticated/system-info/'
@@ -1417,6 +1430,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedRedemptionCodesIndexRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/remote-control/': {
+      id: '/_authenticated/remote-control/'
+      path: '/remote-control'
+      fullPath: '/remote-control/'
+      preLoaderRoute: typeof AuthenticatedRemoteControlIndexRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/subscriptions/': {
       id: '/_authenticated/subscriptions/'
       path: '/subscriptions'
@@ -1719,6 +1739,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedProfileIndexRoute: typeof AuthenticatedProfileIndexRoute
   AuthenticatedPublicRelayIndexRoute: typeof AuthenticatedPublicRelayIndexRoute
   AuthenticatedRedemptionCodesIndexRoute: typeof AuthenticatedRedemptionCodesIndexRoute
+  AuthenticatedRemoteControlIndexRoute: typeof AuthenticatedRemoteControlIndexRoute
   AuthenticatedSubscriptionsIndexRoute: typeof AuthenticatedSubscriptionsIndexRoute
   AuthenticatedSupportIndexRoute: typeof AuthenticatedSupportIndexRoute
   AuthenticatedSystemInfoIndexRoute: typeof AuthenticatedSystemInfoIndexRoute
@@ -1760,6 +1781,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedPublicRelayIndexRoute: AuthenticatedPublicRelayIndexRoute,
   AuthenticatedRedemptionCodesIndexRoute:
     AuthenticatedRedemptionCodesIndexRoute,
+  AuthenticatedRemoteControlIndexRoute: AuthenticatedRemoteControlIndexRoute,
   AuthenticatedSubscriptionsIndexRoute: AuthenticatedSubscriptionsIndexRoute,
   AuthenticatedSupportIndexRoute: AuthenticatedSupportIndexRoute,
   AuthenticatedSystemInfoIndexRoute: AuthenticatedSystemInfoIndexRoute,

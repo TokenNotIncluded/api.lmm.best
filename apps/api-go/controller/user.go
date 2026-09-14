@@ -335,6 +335,7 @@ func Register(c *gin.Context) {
 			RemainQuota:        500000, // 示例额度
 			UnlimitedQuota:     true,
 			ModelLimitsEnabled: false,
+			CreationSource:     model.TokenCreationSourceSystem,
 		}
 		if setting.DefaultUseAutoGroup {
 			token.Group = "auto"

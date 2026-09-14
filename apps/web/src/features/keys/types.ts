@@ -46,6 +46,8 @@ export const apiKeySchema = z.object({
   model_limits_enabled: z.boolean(),
   model_limits: z.string().nullish().default(''),
   allow_ips: z.string().nullish().default(''),
+  creation_source: z.string().nullish().optional(),
+  source: z.string().nullish().optional(),
 })
 
 export type ApiKey = z.infer<typeof apiKeySchema>
@@ -63,6 +65,7 @@ export interface ApiResponse<T = unknown> {
 export interface GetApiKeysParams {
   p?: number
   size?: number
+  creation_mode?: ApiKeyCreationMode
 }
 
 export interface GetApiKeysResponse {
@@ -81,7 +84,10 @@ export interface SearchApiKeysParams {
   token?: string
   p?: number
   size?: number
+  creation_mode?: ApiKeyCreationMode
 }
+
+export type ApiKeyCreationMode = 'manual' | 'automatic'
 
 export interface ApiKeyFormData {
   name: string
@@ -100,6 +106,13 @@ export interface ApiKeyFormData {
 export interface TokenAutoGroupsConfig {
   groups: string[]
   max_count: number
+}
+
+export interface PreparedDrawingApiKey {
+  id: number
+  name: string
+  group: string
+  created: boolean
 }
 
 // ============================================================================

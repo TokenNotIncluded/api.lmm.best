@@ -38,6 +38,7 @@ const (
 	AssistantCacheTTLMinutesOptionKey        = "AssistantCacheTTLMinutes"
 	AssistantPersonaOptionKey                = "AssistantPersona"
 	AssistantSystemPromptOptionKey           = "AssistantSystemPrompt"
+	AssistantPreConversationPresetsOptionKey = "AssistantPreConversationPresets"
 	AssistantSearchProviderOptionKey         = "AssistantSearchProvider"
 	AssistantSearchURLOptionKey              = "AssistantSearchURL"
 	AssistantSearchAPIKeyOptionKey           = "AssistantSearchAPIKey"
@@ -854,6 +855,23 @@ func ValidateAssistantOption(key string, value string) error {
 	case AssistantSystemPromptOptionKey:
 		if len([]rune(strings.TrimSpace(value))) > 8000 {
 			return errors.New("assistant system prompt must be at most 8000 characters")
+		}
+	case AssistantPreConversationPresetsOptionKey:
+		if len([]rune(value)) > 48_000 {
+			return errors.New("assistant pre-conversation presets must be at most 48000 characters")
+		}
+		if strings.TrimSpace(value) != "" && strings.TrimSpace(value) != "[]" {
+			var entries []struct{ ID, Label, Prompt string }
+			if err := json.Unmarshal([]byte(value), &entries); err != nil || len(entries) > 20 {
+				return errors.New("assistant pre-conversation presets must be a JSON array of at most 20 items")
+			}
+			seen := map[string]bool{}
+			for _, entry := range entries {
+				if !regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`).MatchString(entry.ID) || seen[entry.ID] || utf8.RuneCountInString(entry.Label) < 1 || utf8.RuneCountInString(entry.Label) > 80 || utf8.RuneCountInString(entry.Prompt) < 1 || utf8.RuneCountInString(entry.Prompt) > 2000 {
+					return errors.New("assistant pre-conversation preset entry is invalid")
+				}
+				seen[entry.ID] = true
+			}
 		}
 	case AssistantSearchProviderOptionKey:
 		if !IsAssistantSearchProvider(AssistantSearchProvider(strings.TrimSpace(value))) {

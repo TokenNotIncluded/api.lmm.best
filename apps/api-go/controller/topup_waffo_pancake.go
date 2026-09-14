@@ -87,7 +87,30 @@ func RequestWaffoPancakeAmount(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "success", "data": payMoneyDecimal.StringFixed(2), "settlement_currency": currency})
+	finalSettlement := payMoneyDecimal.Round(2)
+	quoteData := gin.H{
+		"message":             "success",
+		"data":                finalSettlement.StringFixed(2),
+		"settlement_currency": currency,
+	}
+	// Return a same-currency breakdown only when the authoritative quote
+	// actually reduced the pre-code amount. Never infer savings from a
+	// percentage on the client, since rounding and gateway fees are server-owned.
+	baseSettlement, savings, discounted := settlementQuoteSavings(base, finalSettlement)
+	if discounted {
+		quoteData["original_settlement_amount"] = baseSettlement.StringFixed(2)
+		quoteData["savings_settlement_amount"] = savings.StringFixed(2)
+	}
+	c.JSON(http.StatusOK, quoteData)
+}
+
+func settlementQuoteSavings(base, final decimal.Decimal) (decimal.Decimal, decimal.Decimal, bool) {
+	base = base.Round(2)
+	final = final.Round(2)
+	if !base.GreaterThan(final) {
+		return base, decimal.Zero, false
+	}
+	return base, base.Sub(final), true
 }
 
 func getWaffoPancakePayMoney(amount int64, group string) float64 {
@@ -361,13 +384,14 @@ func CreateWaffoPancakeSubscriptionProduct(c *gin.Context) {
 	}
 	var productID string
 	if productType == model.WaffoPancakeProductTypeOneTime {
-		productID, err = service.CreateWaffoPancakeOneTimeProductForPlan(
+		productID, err = service.CreateWaffoPancakeOneTimeProductForPlanCurrency(
 			c.Request.Context(),
 			merchantID,
 			privateKey,
 			storeID,
 			req.Name,
-			settlementAmount.StringFixed(2),
+			req.Amount,
+			planCurrency,
 			setting.WaffoPancakeReturnURL,
 		)
 	} else {
@@ -537,6 +561,10 @@ func RequestWaffoPancakePay(c *gin.Context) {
 		common.ApiErrorMsg(c, "充值绑定的 Waffo Pancake 商品类型不匹配、无效或未启用")
 		return
 	}
+	if !service.WaffoPancakeCatalogHasActiveOneTimeProductForCurrency(catalog, storeID, productID, currency) {
+		common.ApiErrorMsg(c, "充值商品未配置所选结算币种")
+		return
+	}
 
 	tradeNo := fmt.Sprintf("WAFFO_PANCAKE-%d-%d-%s", id, time.Now().UnixMilli(), randstr.String(6))
 	paymentAmount := payMoneyDecimal.StringFixed(2)
@@ -598,6 +626,10 @@ func RequestWaffoPancakePay(c *gin.Context) {
 	})
 	if err != nil {
 		logger.LogError(c.Request.Context(), fmt.Sprintf("Waffo Pancake 创建结账会话失败 user_id=%d trade_no=%s currency=%s product_id=%s %s", id, tradeNo, currency, productID, service.FormatWaffoPancakeError(err)))
+		if service.WaffoPancakeIsUnsupportedProductCurrency(err) {
+			common.ApiErrorMsg(c, "充值商品未配置所选结算币种")
+			return
+		}
 		// The provider may have accepted the checkout before an I/O timeout.
 		// Keep the order pending so a later signed webhook remains recoverable.
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "拉起支付失败"})

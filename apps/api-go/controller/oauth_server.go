@@ -3,13 +3,12 @@ package controller
 import (
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
-	"crypto/subtle"
 	"encoding/base64"
 	"errors"
 	"net/http"
 	"net/url"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -34,23 +33,30 @@ type oauthBrowserFlow struct {
 	Expires  time.Time
 }
 
+func browserRawQuery(p oauthserver.PendingAuthorization) string {
+	return url.Values{
+		"response_type": {"code"}, "client_id": {p.ClientID}, "redirect_uri": {p.RedirectURI},
+		"scope": {strings.Join(p.Scopes, " ")}, "state": {p.State}, "code_challenge": {p.CodeChallenge},
+		"code_challenge_method": {"S256"}, "resource": {p.Resource},
+	}.Encode()
+}
+
 type oauthRateBucket struct {
 	Start time.Time
 	Count int
 }
 
-// Bounded, single-use browser state is intentionally ephemeral. Restart or
-// routing a form to another worker requires a fresh login; it cannot grant
-// access. Production multi-worker proxies need sticky browser-flow routing.
+// Browser bindings and CSRF state are persisted in the OAuth authorization
+// rows. A browser form may therefore move between workers safely; each value
+// is still single-use and expires with the authorization transaction.
 type OAuthHTTP struct {
 	Integration *service.OAuthIntegration
 	mu          sync.Mutex
-	flows       map[[32]byte]*oauthBrowserFlow
 	rates       map[string]oauthRateBucket
 }
 
 func NewOAuthHTTP(integration *service.OAuthIntegration) *OAuthHTTP {
-	return &OAuthHTTP{Integration: integration, flows: make(map[[32]byte]*oauthBrowserFlow), rates: make(map[string]oauthRateBucket)}
+	return &OAuthHTTP{Integration: integration, rates: make(map[string]oauthRateBucket)}
 }
 
 func oauthRandom() (string, error) {
@@ -113,13 +119,13 @@ func (h *OAuthHTTP) Metadata(c *gin.Context) {
 	metadata.TokenEndpoint = h.Integration.Issuer + "/api/oauth2/token"
 	metadata.RevocationEndpoint = h.Integration.Issuer + "/api/oauth2/revoke"
 	// Group scopes are consent-generated and can disclose deployment structure.
-	// Public discovery advertises only the initial application scopes.
-	metadata.ScopesSupported = []string{service.OAuthCatalogScope, service.OAuthBalanceScope, service.OAuthInvokeScope}
+	// Public discovery advertises the fixed application and built-in MCP scopes.
+	metadata.ScopesSupported = append([]string{service.OAuthCatalogScope, service.OAuthBalanceScope, service.OAuthInvokeScope}, service.OAuthBuiltinMCPScopes()...)
 	c.JSON(200, metadata)
 }
 
 func (h *OAuthHTTP) ResourceMetadata(c *gin.Context) {
-	c.JSON(200, gin.H{"resource": h.Integration.Resource, "authorization_servers": []string{h.Integration.Issuer}, "scopes_supported": []string{service.OAuthCatalogScope, service.OAuthBalanceScope, service.OAuthInvokeScope}, "bearer_methods_supported": []string{"header"}})
+	c.JSON(200, gin.H{"resource": h.Integration.Resource, "authorization_servers": []string{h.Integration.Issuer}, "scopes_supported": append([]string{service.OAuthCatalogScope, service.OAuthBalanceScope, service.OAuthInvokeScope}, service.OAuthBuiltinMCPScopes()...), "bearer_methods_supported": []string{"header"}})
 }
 
 func oauthProtocolFailure(c *gin.Context, err error) {
@@ -197,18 +203,6 @@ func oauthCookie(c *gin.Context, value string, age int) {
 }
 
 func (h *OAuthHTTP) putFlow(c *gin.Context, flow *oauthBrowserFlow) bool {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	now := time.Now()
-	for key, value := range h.flows {
-		if !value.Expires.After(now) {
-			delete(h.flows, key)
-		}
-	}
-	if len(h.flows) >= 4096 {
-		return false
-	}
-	h.flows[sha256.Sum256([]byte(flow.Binding))] = flow
 	oauthCookie(c, flow.Binding, 300)
 	return true
 }
@@ -241,15 +235,24 @@ func (h *OAuthHTTP) takeFlow(c *gin.Context) (*oauthBrowserFlow, url.Values, boo
 	if count != 1 || len(cookie) != 43 {
 		return nil, nil, false
 	}
-	key := sha256.Sum256([]byte(cookie))
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	flow := h.flows[key]
-	if flow == nil || !flow.Expires.After(time.Now()) || subtle.ConstantTimeCompare([]byte(flow.CSRF), []byte(values.Get("csrf"))) != 1 {
+	view, err := h.Integration.Core.ConsumeBrowserFlow(c.Request.Context(), cookie, values.Get("csrf"))
+	if err != nil || view == nil {
 		return nil, nil, false
 	}
-	delete(h.flows, key)
 	oauthCookie(c, "", -1)
+	identity := service.OAuthBrowserIdentity{UserID: view.UserID, SessionID: view.SessionID, SessionVersion: view.SessionVersion, AuthVersion: view.AuthVersion}
+	flow := &oauthBrowserFlow{RawQuery: browserRawQuery(view.PendingAuthorization), Binding: cookie, Identity: identity,
+		Account: "", Language: oauthPageLanguage(c.GetHeader("Accept-Language")), Expires: view.ExpiresAt}
+	if view.UserID > 0 {
+		flow.Consent = &oauthserver.Consent{PendingAuthorization: view.PendingAuthorization, UserID: view.UserID}
+		for _, scope := range view.Scopes {
+			if strings.HasPrefix(scope, "group:") {
+				if group, err := service.OAuthGroupFromID(strings.TrimPrefix(scope, "group:")); err == nil {
+					flow.Groups = append(flow.Groups, group)
+				}
+			}
+		}
+	}
 	return flow, values, true
 }
 
@@ -268,7 +271,16 @@ func (h *OAuthHTTP) showPreflight(c *gin.Context, raw, language string) {
 		h.failed(c, language)
 		return
 	}
-	flow := &oauthBrowserFlow{RawQuery: raw, Binding: binding, CSRF: csrf, Language: language, Expires: time.Now().Add(oauthserver.AuthorizationTTL)}
+	pending, err := h.Integration.Core.BeginAuthorization(c.Request.Context(), raw, binding)
+	if err != nil {
+		h.failed(c, language)
+		return
+	}
+	if err := h.Integration.Core.SetBrowserCSRF(c.Request.Context(), pending.Transaction, binding, csrf); err != nil {
+		h.failed(c, language)
+		return
+	}
+	flow := &oauthBrowserFlow{RawQuery: raw, Binding: binding, CSRF: csrf, Language: language, Expires: pending.ExpiresAt}
 	if !h.putFlow(c, flow) {
 		h.failed(c, language)
 		return
@@ -278,17 +290,6 @@ func (h *OAuthHTTP) showPreflight(c *gin.Context, raw, language string) {
 
 func (h *OAuthHTTP) Authorize(c *gin.Context) {
 	language := oauthPageLanguage(c.GetHeader("Accept-Language"))
-	binding, err := oauthRandom()
-	if err != nil {
-		h.failed(c, language)
-		return
-	}
-	// Validate raw query including duplicates before presenting any request. This
-	// unbound preflight row is never prepared/approved and expires automatically.
-	if _, err := h.Integration.Core.BeginAuthorization(c.Request.Context(), c.Request.URL.RawQuery, binding); err != nil {
-		h.failed(c, language)
-		return
-	}
 	h.showPreflight(c, c.Request.URL.RawQuery, language)
 }
 
@@ -334,6 +335,10 @@ func (h *OAuthHTTP) Continue(c *gin.Context) {
 		return
 	}
 	bound := &oauthBrowserFlow{RawQuery: flow.RawQuery, CSRF: csrf, Binding: binding, Identity: identity, Consent: consent, Groups: groups, Account: user.Username, Language: flow.Language, Expires: consent.ExpiresAt}
+	if err := h.Integration.Core.BindBrowserSession(c.Request.Context(), binding, csrf, identity.UserID, identity.SessionID, identity.SessionVersion, identity.AuthVersion); err != nil {
+		h.failed(c, flow.Language)
+		return
+	}
 	if !h.putFlow(c, bound) {
 		h.failed(c, flow.Language)
 		return
@@ -365,9 +370,9 @@ func (h *OAuthHTTP) Consent(c *gin.Context) {
 	}
 	var response *oauthserver.AuthorizationResponse
 	if values.Get("decision") == "allow" {
-		response, err = h.Integration.Core.TrustedApprove(c.Request.Context(), flow.Consent.Transaction, flow.Binding, flow.Consent.Secret)
+		response, err = h.Integration.Core.TrustedApproveByBrowserBinding(c.Request.Context(), flow.Binding)
 	} else {
-		response, err = h.Integration.Core.TrustedDeny(c.Request.Context(), flow.Consent.Transaction, flow.Binding, flow.Consent.Secret)
+		response, err = h.Integration.Core.TrustedDenyByBrowserBinding(c.Request.Context(), flow.Binding)
 	}
 	if err != nil {
 		h.failed(c, flow.Language)

@@ -102,13 +102,111 @@ const controls = {
   ru: ['Змейка', 'Вверх', 'Вниз', 'Влево', 'Вправо'],
   vi: ['Rắn săn mồi', 'Lên', 'Xuống', 'Trái', 'Phải'],
 }
+const challengeCopy = {
+  en: {
+    'Clear all lights in as few moves as possible. Each tap flips its neighbours.':
+      'Clear all lights in as few moves as possible. Each tap flips its neighbours.',
+    'Cleared: {{count}}': 'Cleared: {{count}}',
+    Hint: 'Hint',
+    'Lights: {{count}}': 'Lights: {{count}}',
+    'Perfect streak: {{count}}': 'Perfect streak: {{count}}',
+    'Perfect!': 'Perfect!',
+    'Puzzle {{number}}': 'Puzzle {{number}}',
+    'Target: {{count}}': 'Target: {{count}}',
+    'Try dot {{number}}': 'Try dot {{number}}',
+    Undo: 'Undo',
+  },
+  zh: {
+    'Clear all lights in as few moves as possible. Each tap flips its neighbours.':
+      '用尽量少的步数熄灭所有灯。每次点击也会切换相邻的灯。',
+    'Cleared: {{count}}': '通关：{{count}}',
+    Hint: '提示',
+    'Lights: {{count}}': '亮灯：{{count}}',
+    'Perfect streak: {{count}}': '完美连胜：{{count}}',
+    'Perfect!': '完美！',
+    'Puzzle {{number}}': '第 {{number}} 关',
+    'Target: {{count}}': '目标：{{count}} 步',
+    'Try dot {{number}}': '试试第 {{number}} 个点',
+    Undo: '撤销',
+  },
+  'zh-TW': {
+    'Clear all lights in as few moves as possible. Each tap flips its neighbours.':
+      '用盡量少的步數熄滅所有燈。每次點擊也會切換相鄰的燈。',
+    'Cleared: {{count}}': '通關：{{count}}',
+    Hint: '提示',
+    'Lights: {{count}}': '亮燈：{{count}}',
+    'Perfect streak: {{count}}': '完美連勝：{{count}}',
+    'Perfect!': '完美！',
+    'Puzzle {{number}}': '第 {{number}} 關',
+    'Target: {{count}}': '目標：{{count}} 步',
+    'Try dot {{number}}': '試試第 {{number}} 個點',
+    Undo: '復原',
+  },
+  fr: {
+    'Clear all lights in as few moves as possible. Each tap flips its neighbours.':
+      'Éteignez toutes les lumières en un minimum de coups. Chaque appui inverse aussi ses voisines.',
+    'Cleared: {{count}}': 'Résolues : {{count}}',
+    Hint: 'Indice',
+    'Lights: {{count}}': 'Lumières : {{count}}',
+    'Perfect streak: {{count}}': 'Série parfaite : {{count}}',
+    'Perfect!': 'Parfait !',
+    'Puzzle {{number}}': 'Grille {{number}}',
+    'Target: {{count}}': 'Objectif : {{count}}',
+    'Try dot {{number}}': 'Essayez le point {{number}}',
+    Undo: 'Annuler',
+  },
+  ja: {
+    'Clear all lights in as few moves as possible. Each tap flips its neighbours.':
+      'できるだけ少ない手数ですべてのライトを消しましょう。タップすると隣も切り替わります。',
+    'Cleared: {{count}}': 'クリア：{{count}}',
+    Hint: 'ヒント',
+    'Lights: {{count}}': '点灯：{{count}}',
+    'Perfect streak: {{count}}': '最短連続：{{count}}',
+    'Perfect!': 'パーフェクト！',
+    'Puzzle {{number}}': 'パズル {{number}}',
+    'Target: {{count}}': '目標：{{count}} 手',
+    'Try dot {{number}}': '{{number}} 番を試してみましょう',
+    Undo: '元に戻す',
+  },
+  ru: {
+    'Clear all lights in as few moves as possible. Each tap flips its neighbours.':
+      'Погасите все огни за минимум ходов. Нажатие переключает и соседние огни.',
+    'Cleared: {{count}}': 'Решено: {{count}}',
+    Hint: 'Подсказка',
+    'Lights: {{count}}': 'Огни: {{count}}',
+    'Perfect streak: {{count}}': 'Идеальная серия: {{count}}',
+    'Perfect!': 'Идеально!',
+    'Puzzle {{number}}': 'Головоломка {{number}}',
+    'Target: {{count}}': 'Цель: {{count}}',
+    'Try dot {{number}}': 'Попробуйте точку {{number}}',
+    Undo: 'Отменить',
+  },
+  vi: {
+    'Clear all lights in as few moves as possible. Each tap flips its neighbours.':
+      'Tắt mọi đèn với ít lượt nhất. Mỗi lần nhấn cũng đổi trạng thái các đèn bên cạnh.',
+    'Cleared: {{count}}': 'Đã giải: {{count}}',
+    Hint: 'Gợi ý',
+    'Lights: {{count}}': 'Đèn sáng: {{count}}',
+    'Perfect streak: {{count}}': 'Chuỗi hoàn hảo: {{count}}',
+    'Perfect!': 'Hoàn hảo!',
+    'Puzzle {{number}}': 'Câu đố {{number}}',
+    'Target: {{count}}': 'Mục tiêu: {{count}}',
+    'Try dot {{number}}': 'Thử chấm số {{number}}',
+    Undo: 'Hoàn tác',
+  },
+}
 export const waitCompanionCopy = Object.fromEntries(
   Object.entries(values).map(([locale, translations]) => {
     const allKeys = [...keys, ...controls.en]
     const allValues = [...translations, ...controls[locale]]
     return [
       locale,
-      Object.fromEntries(allKeys.map((key, index) => [key, allValues[index]])),
+      {
+        ...Object.fromEntries(
+          allKeys.map((key, index) => [key, allValues[index]])
+        ),
+        ...challengeCopy[locale],
+      },
     ]
   })
 )

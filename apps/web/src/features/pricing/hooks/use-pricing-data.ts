@@ -28,7 +28,7 @@ export function usePricingData(options?: { enabled?: boolean }) {
 
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['pricing'],
-    queryFn: getPricing,
+    queryFn: ({ signal }) => getPricing(signal),
     enabled: options?.enabled ?? true,
     staleTime: 5 * 60 * 1000,
   })
