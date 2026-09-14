@@ -42,6 +42,7 @@ import { ApiKeyGroupCell } from './api-key-group-cell'
 import { ApiKeyTimestampCell } from './api-key-timestamp-cell'
 import {
   ApiKeyCell,
+  ApiKeyUsedQuota,
   IpRestrictionsCell,
   ModelLimitsCell,
   UnlimitedQuotaBadge,
@@ -206,6 +207,13 @@ export function useApiKeysColumns(
         )
       },
       size: 170,
+    },
+    {
+      id: 'used_quota',
+      accessorKey: 'used_quota',
+      header: t('Used quota'),
+      cell: ({ row }) => <ApiKeyUsedQuota used={row.original.used_quota} />,
+      size: 140,
     },
     {
       accessorKey: 'group',

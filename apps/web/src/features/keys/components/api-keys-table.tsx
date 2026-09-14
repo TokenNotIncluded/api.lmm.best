@@ -54,7 +54,11 @@ import {
 } from '../constants'
 import type { ApiKey, ApiKeyCreationMode } from '../types'
 import { ApiKeyCreationSourceBadge } from './api-key-creation-source'
-import { ApiKeyCell, UnlimitedQuotaBadge } from './api-keys-cells'
+import {
+  ApiKeyCell,
+  ApiKeyUsedQuota,
+  UnlimitedQuotaBadge,
+} from './api-keys-cells'
 import { useApiKeysColumns } from './api-keys-columns'
 import { useApiKeys } from './api-keys-provider'
 import { DataTableBulkActions } from './data-table-bulk-actions'
@@ -191,6 +195,10 @@ function ApiKeysMobileList({
                   </span>
                 </span>
               )}
+            </div>
+            <div className='flex items-center justify-between gap-2 text-xs'>
+              <span className='text-muted-foreground'>{t('Used quota')}</span>
+              <ApiKeyUsedQuota used={apiKey.used_quota} />
             </div>
             {creationMode === 'automatic' ? (
               <div className='flex items-center justify-between gap-2 text-xs'>

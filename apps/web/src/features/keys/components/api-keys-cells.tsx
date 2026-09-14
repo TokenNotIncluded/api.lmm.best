@@ -286,6 +286,14 @@ export function UnlimitedQuotaBadge(props: UnlimitedQuotaBadgeProps) {
   )
 }
 
+export function ApiKeyUsedQuota({ used }: { used: number }) {
+  return (
+    <span data-api-key-used-quota className='font-medium tabular-nums'>
+      {formatQuota(used)}
+    </span>
+  )
+}
+
 export function ModelLimitsCell({ apiKey }: { apiKey: ApiKey }) {
   const { t } = useTranslation()
 
