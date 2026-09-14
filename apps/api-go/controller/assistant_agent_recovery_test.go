@@ -15,17 +15,19 @@ import (
 
 func TestAssistantAgentTitleFailurePreservesAnswerAndRequiredReads(t *testing.T) {
 	for _, test := range []struct {
-		name       string
-		firstBody  string
-		status     int
-		needsRead  bool
-		ignoreRead bool
-		wantTurns  int
+		name          string
+		firstBody     string
+		status        int
+		needsRead     bool
+		ignoreRead    bool
+		fallbackTitle bool
+		wantTurns     int
 	}{
 		{name: "unsupported title", status: http.StatusBadRequest, firstBody: `{"error":{"message":"provider does not support forced tool_choice"}}`, wantTurns: 2},
 		{name: "ignored title reuses answer", status: http.StatusOK, firstBody: `{"choices":[{"message":{"content":"useful answer"}}]}`, wantTurns: 1},
 		{name: "ignored title still reads facts", status: http.StatusOK, firstBody: `{"choices":[{"message":{"content":"unverified claim"}}]}`, needsRead: true, wantTurns: 3},
-		{name: "malformed title still reads facts", status: http.StatusOK, firstBody: `{"choices":[{"message":{"tool_calls":[{"id":"title","type":"function","function":{"name":"set_conversation_title","arguments":"{}"}}]}}]}`, needsRead: true, wantTurns: 3},
+		{name: "missing title falls back and still reads facts", status: http.StatusOK, firstBody: `{"choices":[{"message":{"tool_calls":[{"id":"title","type":"function","function":{"name":"set_conversation_title","arguments":"{}"}}]}}]}`, needsRead: true, fallbackTitle: true, wantTurns: 3},
+		{name: "malformed title falls back and still reads facts", status: http.StatusOK, firstBody: `{"choices":[{"message":{"tool_calls":[{"id":"title","type":"function","function":{"name":"set_conversation_title","arguments":"{"}}]}}]}`, needsRead: true, fallbackTitle: true, wantTurns: 3},
 		{name: "required read cannot be skipped", status: http.StatusOK, firstBody: `{"choices":[{"message":{"content":"unverified claim"}}]}`, needsRead: true, ignoreRead: true, wantTurns: 2},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -40,6 +42,7 @@ func TestAssistantAgentTitleFailurePreservesAnswerAndRequiredReads(t *testing.T)
 			c.Set(assistantUserContextKey, assistantUserContext{
 				AccessLevel: "L0", ConversationTitleNeeded: true, LatestUserRequest: message,
 			})
+			c.Set("assistant_history_latest_message", message)
 			turns := 0
 			originalRelay := relayAssistantAgentTurn
 			relayAssistantAgentTurn = func(_ *gin.Context, request assistantOpenAIRequest, _ string, _ int) (int, []byte, error) {
@@ -69,7 +72,16 @@ func TestAssistantAgentTitleFailurePreservesAnswerAndRequiredReads(t *testing.T)
 
 			assert.Equal(t, test.wantTurns, turns)
 			assert.False(t, assistantUserContextFromGin(c).ConversationTitleNeeded)
-			assert.Empty(t, c.GetString(assistantConversationTitleDraftKey))
+			if test.fallbackTitle {
+				assert.Equal(t, message, c.GetString(assistantConversationTitleDraftKey))
+			} else {
+				assert.Empty(t, c.GetString(assistantConversationTitleDraftKey))
+			}
+			if rawTraces, exists := c.Get(assistantClientToolsKey); exists {
+				for _, trace := range rawTraces.([]assistantToolTrace) {
+					assert.NotEqual(t, "set_conversation_title", trace.Name)
+				}
+			}
 			assert.NotContains(t, recorder.Body.String(), "unverified claim")
 			if test.ignoreRead {
 				assert.Equal(t, http.StatusBadGateway, recorder.Code)
