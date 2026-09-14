@@ -1,0 +1,209 @@
+name: Rust RSA remediation once
+
+on:
+  push:
+    branches: [codex/rust-rustsec-audit]
+    paths:
+      - '.github/workflows/rust-rsa-remediation-once.yml'
+
+permissions:
+  contents: write
+
+env:
+  RUST_TOOLCHAIN: "1.91.0"
+  CARGO_BUILD_JOBS: "2"
+  CARGO_INCREMENTAL: "0"
+  CARGO_PROFILE_DEV_DEBUG: "0"
+  CARGO_PROFILE_TEST_DEBUG: "0"
+
+jobs:
+  remediate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: codex/rust-rustsec-audit
+          fetch-depth: 0
+
+      - name: Set up pinned Rust toolchain
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component clippy,rustfmt
+          rustup default "$RUST_TOOLCHAIN"
+
+      - name: Apply focused crypto remediation
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          cargo = Path('apps/api-rust/Cargo.toml')
+          text = cargo.read_text()
+          text = text.replace(
+              'jsonwebtoken = { version = "10.3.0", default-features = false, features = ["rust_crypto"] }',
+              'jsonwebtoken = { version = "10.4.0", default-features = false, features = ["aws_lc_rs"] }',
+          )
+          text = text.replace(
+              'rust_decimal = { version = "1.40.0", default-features = false, features = ["std"] }',
+              'rust_decimal = { version = "1.43.0", default-features = false, features = ["std"] }',
+          )
+          if 'ring = "0.17.14"' not in text:
+              text = text.replace('redis = { version = "0.32.4", features = ["tokio-comp"] }\n', 'redis = { version = "0.32.4", features = ["tokio-comp"] }\nring = "0.17.14"\n')
+          if 'ring.workspace = true' not in text:
+              text = text.replace('reqwest.workspace = true\n', 'reqwest.workspace = true\nring.workspace = true\n')
+          cargo.write_text(text)
+
+          system = Path('apps/api-rust/src/routes/system_config.rs')
+          text = system.read_text()
+          old_import = '''use rsa::{
+              RsaPrivateKey,
+              pkcs1::DecodeRsaPrivateKey,
+              pkcs1v15::SigningKey,
+              pkcs8::DecodePrivateKey,
+              signature::{SignatureEncoding as _, Signer as _},
+          };'''
+          if old_import not in text:
+              raise SystemExit('expected rsa signing import block not found')
+          text = text.replace(old_import, 'use ring::{rand::SystemRandom, rsa, signature};')
+
+          parser = '''fn parse_pancake_private_key(raw: &str) -> Result<rsa::KeyPair, ()> {
+              let normalized = raw.replace("\\\\n", "\\n").replace("\\r\\n", "\\n");
+              let normalized = normalized.trim();
+              if normalized.is_empty() {
+                  return Err(());
+              }
+              fn pem_der(input: &str, label: &str) -> Result<Vec<u8>, ()> {
+                  let begin = format!("-----BEGIN {label}-----");
+                  let end = format!("-----END {label}-----");
+                  let start = input.find(&begin).ok_or(())? + begin.len();
+                  let finish = input[start..].find(&end).ok_or(())? + start;
+                  let encoded: String = input[start..finish]
+                      .chars()
+                      .filter(|ch| !ch.is_ascii_whitespace())
+                      .collect();
+                  BASE64.decode(encoded.as_bytes()).map_err(|_| ())
+              }
+              if normalized.contains("-----BEGIN RSA PRIVATE KEY-----") {
+                  // gitleaks:allow -- PEM boundary marker
+                  let der = pem_der(normalized, "RSA PRIVATE KEY")?;
+                  return rsa::KeyPair::from_der(&der).map_err(|_| ());
+              }
+              if normalized.contains("-----BEGIN PRIVATE KEY-----") {
+                  // gitleaks:allow -- PEM boundary marker
+                  let der = pem_der(normalized, "PRIVATE KEY")?;
+                  return rsa::KeyPair::from_pkcs8(&der).map_err(|_| ());
+              }
+              let der = BASE64.decode(normalized).map_err(|_| ())?;
+              rsa::KeyPair::from_pkcs8(&der)
+                  .or_else(|_| rsa::KeyPair::from_der(&der))
+                  .map_err(|_| ())
+          }'''
+          text, count = re.subn(
+              r'fn parse_pancake_private_key\(raw: &str\) -> Result<RsaPrivateKey, \(\)> \{.*?\n\}\n\nfn normalize_pancake_catalog',
+              parser + '\n\nfn normalize_pancake_catalog',
+              text,
+              count=1,
+              flags=re.S,
+          )
+          if count != 1:
+              raise SystemExit(f'private-key parser replacement count={count}')
+
+          signer = '''fn pancake_signature(
+              path: &str,
+              timestamp: &str,
+              body: &[u8],
+              private_key: &rsa::KeyPair,
+          ) -> Result<String, ()> {
+              let body_hash = BASE64.encode(Sha256::digest(body));
+              let canonical = format!("POST\\n{path}\\n{timestamp}\\n{body_hash}");
+              let rng = SystemRandom::new();
+              let mut output = vec![0_u8; private_key.public().modulus_len()];
+              private_key
+                  .sign(
+                      &signature::RSA_PKCS1_SHA256,
+                      &rng,
+                      canonical.as_bytes(),
+                      &mut output,
+                  )
+                  .map_err(|_| ())?;
+              Ok(BASE64.encode(output))
+          }'''
+          text, count = re.subn(
+              r'fn pancake_signature\(.*?\n\}\n\nfn pancake_idempotency_key',
+              signer + '\n\nfn pancake_idempotency_key',
+              text,
+              count=1,
+              flags=re.S,
+          )
+          if count != 1:
+              raise SystemExit(f'signer replacement count={count}')
+          system.write_text(text)
+          PY
+
+      - name: Refresh dependency graph
+        working-directory: apps/api-rust
+        run: |
+          cargo update -p jsonwebtoken --precise 10.4.0
+          cargo update -p rust_decimal --precise 1.43.0
+          cargo tree --locked -i rsa
+          if cargo tree --locked --target all -i rkyv >/tmp/rkyv-tree 2>&1; then
+            cat /tmp/rkyv-tree
+            if grep -q '^rkyv ' /tmp/rkyv-tree; then
+              echo 'rkyv remains resolved' >&2
+              exit 1
+            fi
+          fi
+
+      - name: Format and test focused Rust slice
+        working-directory: apps/api-rust
+        run: |
+          cargo fmt --all --check
+          cargo check --workspace --all-targets --all-features --locked
+          cargo test --locked routes::system_config -- --nocapture
+          cargo test --locked routes::waffo_webhooks -- --nocapture
+
+      - name: Update narrow RustSec policy
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('.github/workflows/rust-security-audit.yml')
+          text = path.read_text()
+          marker = '          # RUSTSEC-2026-0235 currently has no resolved workspace path:'
+          start = text.find(marker)
+          if start < 0:
+              raise SystemExit('old audit exception block not found')
+          end_line = '          ignore: RUSTSEC-2026-0235\n'
+          end = text.find(end_line, start)
+          if end < 0:
+              raise SystemExit('old audit ignore line not found')
+          end += len(end_line)
+          replacement = '''          # RUSTSEC-2023-0071 affects RSA private-key operations. The only
+          # remaining resolved `rsa` use after #276's first remediation slice
+          # is webhook public-key parsing/verification. Pancake private-key
+          # signing uses ring, and jsonwebtoken uses aws-lc-rs. Keep this exact
+          # exception only until the public verification path also migrates and
+          # `rsa` disappears from the lockfile; #276 tracks that removal.
+          ignore: RUSTSEC-2023-0071
+'''
+          path.write_text(text[:start] + replacement + text[end:])
+          PY
+
+      - name: Verify audit and full Rust quality gates
+        working-directory: apps/api-rust
+        run: |
+          cargo install cargo-audit --locked --version 0.21.2
+          cargo audit --ignore RUSTSEC-2023-0071
+          cargo fmt --all --check
+          cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+          cargo test --workspace --all-targets --all-features --locked
+          cargo test --workspace --doc --all-features --locked
+
+      - name: Commit remediation
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add apps/api-rust/Cargo.toml apps/api-rust/Cargo.lock apps/api-rust/src/routes/system_config.rs .github/workflows/rust-security-audit.yml
+          git diff --cached --check
+          git commit -m 'fix(rust): remove network RSA private signing exposure'
+          git push origin HEAD:codex/rust-rustsec-audit
