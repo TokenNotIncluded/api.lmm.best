@@ -128,9 +128,22 @@ deployment_image="lmm-production-deploy:${GITHUB_RUN_ID:-manual}"
 mkdir -p "$root/image-context"
 cat >"$root/image-context/Dockerfile" <<'EOF'
 FROM archlinux:base-devel
-RUN pacman -Sy --noconfirm --needed cosign git
+ARG RUNNER_UID
+ARG RUNNER_GID
+ARG RUNNER_HOME
+RUN pacman -Sy --noconfirm --needed cosign git openssh
+RUN if ! getent group "${RUNNER_GID}" >/dev/null; then groupadd --gid "${RUNNER_GID}" lmm-runner; fi; \
+    if getent passwd "${RUNNER_UID}" >/dev/null; then \
+      usermod --home "${RUNNER_HOME}" "$(getent passwd "${RUNNER_UID}" | cut -d: -f1)"; \
+    else \
+      useradd --uid "${RUNNER_UID}" --gid "${RUNNER_GID}" --home-dir "${RUNNER_HOME}" --no-create-home lmm-runner; \
+    fi
 EOF
-docker build --network host --tag "$deployment_image" "$root/image-context"
+docker build --network host --tag "$deployment_image" \
+  --build-arg RUNNER_UID="$(id -u)" \
+  --build-arg RUNNER_GID="$(id -g)" \
+  --build-arg RUNNER_HOME="$root/cosign-home" \
+  "$root/image-context"
 
 for rollback_component in go web; do
   rollback_package="lmm-api-${rollback_component}-bin"
@@ -174,7 +187,7 @@ run_probe() {
     -e HOME="$root/cosign-home" \
     -v "$GITHUB_WORKSPACE:$GITHUB_WORKSPACE:ro" \
     -v "$root:$root" \
-    -v "$HOME/.ssh:$HOME/.ssh:ro" \
+    -v "$ssh_dir:$root/cosign-home/.ssh:ro" \
     -w "$GITHUB_WORKSPACE" \
     "$deployment_image" "$@"
 }
