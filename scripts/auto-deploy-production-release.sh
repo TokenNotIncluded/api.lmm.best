@@ -54,6 +54,15 @@ jq -e --arg tag "$RELEASE_TAG" --arg sha "$RELEASE_SHA" \
   '.tagName == $tag and .targetCommitish == $sha and .isDraft == false and .isPrerelease == false' \
   "$root/release.json" >/dev/null
 
+fetch_release_tag() {
+  local tag=$1
+  git fetch --no-tags origin "refs/tags/${tag}:refs/tags/${tag}"
+}
+
+# workflow_run checkouts are pinned to a commit SHA and may not include the
+# tag refs that the deployment CLI uses to bind signed packages to releases.
+fetch_release_tag "$RELEASE_TAG"
+
 download_release() {
   local tag=$1 dir=$2 release_component=$3 asset_version pattern workflow
   case "$release_component" in
@@ -109,6 +118,7 @@ fetch_rollback() {
   local package=$1 release_component=$2 release_prefix=$3
   local pkgver=${installed_version[$package]}
   local release_version=${pkgver%-*}
+  fetch_release_tag "${release_prefix}${release_version}"
   download_release "${release_prefix}${release_version}" "$root/rollback/$package" "$release_component"
 }
 fetch_rollback lmm-api-go-bin go go-v
