@@ -32,6 +32,7 @@ const { createRoot } = await import('react-dom/client')
 const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { WaitCompanion } = await import('./wait-companion')
+const { solveLightPuzzle } = await import('../lib/light-puzzle')
 const i18n = createInstance()
 await i18n
   .use(initReactI18next)
@@ -71,6 +72,16 @@ function dots(host: HTMLElement) {
     host.querySelectorAll<HTMLButtonElement>('button[aria-pressed]')
   )
 }
+function board(host: HTMLElement) {
+  return dots(host).map(
+    (button) => button.getAttribute('aria-pressed') === 'true'
+  )
+}
+function findButton(host: HTMLElement, label: string) {
+  return Array.from(host.querySelectorAll<HTMLButtonElement>('button')).find(
+    (button) => button.textContent?.includes(label)
+  )
+}
 
 afterEach(async () => {
   for (const root of roots.splice(0)) await act(async () => root.unmount())
@@ -96,8 +107,9 @@ test('the game is opt-in, does not steal focus, and its initial puzzle can be so
   assert.equal(dots(host).length, 0)
   await click(host.querySelector('button'))
   assert.equal(dots(host).length, 9)
-  for (const cell of [0, 4, 8]) await click(dots(host)[cell])
-  assert.ok(host.textContent?.includes('All clear.'))
+  const solution = solveLightPuzzle(board(host))
+  for (const cell of solution) await click(dots(host)[cell])
+  assert.ok(host.textContent?.includes('Perfect!'))
   assert.equal(document.activeElement?.textContent, 'Another puzzle')
   assert.ok(
     dots(host).every(
@@ -105,7 +117,27 @@ test('the game is opt-in, does not steal focus, and its initial puzzle can be so
         button.disabled && button.getAttribute('aria-pressed') === 'false'
     )
   )
-  assert.ok(host.textContent?.includes('Moves: 3'))
+  assert.ok(host.textContent?.includes(`Moves: ${solution.length}`))
+  assert.ok(host.textContent?.includes('Cleared: 1'))
+  assert.ok(host.textContent?.includes('Perfect streak: 1'))
+})
+
+test('hint reveals an optimal move and undo restores the previous board', async () => {
+  const { host } = await mount({ pending: true, delayMs: 0 })
+  await settle()
+  await click(host.querySelector('button'))
+  const initial = board(host)
+  const expectedHint = solveLightPuzzle(initial)[0]
+
+  await click(findButton(host, 'Hint'))
+  assert.ok(host.textContent?.includes(`Try dot ${expectedHint + 1}`))
+  assert.equal(dots(host)[expectedHint]?.className.includes('ring-2'), true)
+
+  await click(dots(host)[expectedHint])
+  assert.ok(host.textContent?.includes('Moves: 1'))
+  await click(findButton(host, 'Undo'))
+  assert.deepEqual(board(host), initial)
+  assert.ok(host.textContent?.includes('Moves: 0'))
 })
 
 test('returning output removes the board and provides a route back to the task', async () => {
@@ -169,8 +201,10 @@ test('a new wait with the same task key starts a fresh playable puzzle', async (
   const { host, update } = await mount({ pending: true, delayMs: 0 })
   await settle()
   await click(host.querySelector('button'))
-  for (const cell of [0, 4, 8]) await click(dots(host)[cell])
-  assert.ok(host.textContent?.includes('All clear.'))
+  for (const cell of solveLightPuzzle(board(host))) {
+    await click(dots(host)[cell])
+  }
+  assert.ok(host.textContent?.includes('Perfect!'))
   assert.equal(document.activeElement?.textContent, 'Another puzzle')
   await update({ pending: false, delayMs: 0 })
   await update({ pending: true, delayMs: 0 })
