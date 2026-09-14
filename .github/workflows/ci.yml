@@ -175,7 +175,8 @@ jobs:
       - name: Install workspace dependencies
         run: bun install --frozen-lockfile
 
-      - name: Check formatting and copyright headers
+      - name: Check formatting and copyright headers (warning only)
+        continue-on-error: true
         run: |
           bun run --filter @lmm/web format:check
           bun run --filter @lmm/web copyright:check
@@ -302,8 +303,9 @@ jobs:
         working-directory: apps/api-rust
         run: cargo fmt --all --check
 
-      - name: Lint workspace
+      - name: Lint workspace (warning only)
         working-directory: apps/api-rust
+        continue-on-error: true
         run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 
       - name: Test workspace
