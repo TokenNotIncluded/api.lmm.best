@@ -742,8 +742,6 @@ func UpdateAllChannelsBalance(c *gin.Context) {
 	writeChannelBalanceRefreshResponse(c, summary, err)
 }
 
-type channelBalanceUpdater func(context.Context, *model.Channel) (channelBalanceResult, error)
-
 func automaticChannelBalanceLeadershipConfig(ctx context.Context, frequency int) (*sql.DB, time.Duration, error) {
 	if ctx == nil {
 		return nil, 0, errors.New("automatic channel balance context is nil")
