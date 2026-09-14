@@ -41,9 +41,9 @@ func oauthPageLanguage(accept string) string {
 }
 
 type oauthPageData struct {
-	Language, Nonce, Mode, CSRF, Action, Resource, Account, Redirect string
-	Groups                                                           []string
-	Copy                                                             oauthPageCopy
+	Language, Nonce, Mode, CSRF, Action, Resource, ClientName, Account, Redirect string
+	Groups                                                                       []string
+	Copy                                                                         oauthPageCopy
 }
 
 var oauthPage = template.Must(template.New("oauth-consent").Parse(strings.TrimSpace(`<!doctype html>
@@ -76,7 +76,7 @@ button:focus-visible, a:focus-visible { outline: 3px solid var(--accent); outlin
 <header><svg viewBox="0 0 56 56" aria-hidden="true"><path d="M10 39V16l18 18 18-18v23" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linejoin="round"/><path class="mark" d="M12 45h32" fill="none" stroke-width="2.5"/></svg><span>lmm.best</span></header><h1>{{.Copy.Title}}</h1>
 {{if eq .Mode "failed"}}<p class="notice" role="alert">{{.Copy.Failed}}</p>
 {{else if eq .Mode "complete"}}<p class="notice">{{.Copy.Complete}}</p><div class="actions"><a class="action" href="{{.Redirect}}" rel="noreferrer">{{.Copy.Return}}</a></div>
-{{else}}<dl><dt>{{.Copy.Application}}</dt><dd>LMM for Pi</dd><dt>{{.Copy.Resource}}</dt><dd>{{.Resource}}</dd>
+{{else}}<dl><dt>{{.Copy.Application}}</dt><dd>{{.ClientName}}</dd><dt>{{.Copy.Resource}}</dt><dd>{{.Resource}}</dd>
 {{if eq .Mode "consent"}}<dt>{{.Copy.Account}}</dt><dd>{{.Account}}</dd><dt>{{.Copy.Groups}}</dt><dd><ul>{{range .Groups}}<li>{{.}}</li>{{end}}</ul></dd></dl>
 <h2>{{.Copy.Permissions}}</h2><ul class="permissions"><li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M12 5l7 7-7 7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span>{{.Copy.Invoke}}</span></li><li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg><span>{{.Copy.Catalog}}</span></li><li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4a8 8 0 1 0 0 16 8 8 0 0 0 0-16Zm0 4v4l2.5 2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span>{{.Copy.Balance}}</span></li></ul><p>{{.Copy.Snapshot}}</p>
 <div class="actions"><form method="post" action="{{.Action}}"><input type="hidden" name="csrf" value="{{.CSRF}}"><button type="submit" name="decision" value="allow">{{.Copy.Allow}}</button><button type="submit" name="decision" value="deny">{{.Copy.Cancel}}</button></form></div>

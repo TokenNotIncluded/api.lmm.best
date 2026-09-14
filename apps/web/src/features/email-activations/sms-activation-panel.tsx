@@ -26,6 +26,7 @@ import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
 import { ConfirmDialog } from '@/components/confirm-dialog'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { useDebounce } from '@/hooks/use-debounce'
 
 import {
@@ -55,6 +56,7 @@ import {
 } from './sms-api.js'
 import { SmsBalanceNotice } from './sms-balance-notice.js'
 import { isSmsMinimumBalanceError } from './sms-balance.js'
+import { describeSmsAccessError } from './sms-error.js'
 import {
   SmsActiveOrdersCard,
   SmsOrderDetailDialog,
@@ -886,9 +888,19 @@ export function HeroSmsSmsActivationPanel() {
     historyError: queries.history.error,
     t,
   })
+  const catalogError = queries.services.error ?? queries.allCountries.error
+  const catalogFeedback = catalogError
+    ? describeSmsAccessError(catalogError, t)
+    : null
 
   return (
     <div className='space-y-6'>
+      {catalogFeedback ? (
+        <Alert variant='destructive' role='alert'>
+          <AlertTitle>{catalogFeedback.title}</AlertTitle>
+          <AlertDescription>{catalogFeedback.description}</AlertDescription>
+        </Alert>
+      ) : null}
       <SmsBalanceNotice
         {...purchaseBalance}
         onRefresh={() => void purchaseBalance.refresh()}

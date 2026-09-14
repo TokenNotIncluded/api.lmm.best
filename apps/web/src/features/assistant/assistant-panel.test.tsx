@@ -2678,7 +2678,7 @@ describe('AssistantPanel', () => {
       )
 
       await act(async () => {
-        findButton('Confirm and send to administrator').click()
+        findButton('Confirm and submit for review').click()
         await flushEffects()
       })
       await act(async () =>
@@ -2843,7 +2843,7 @@ describe('AssistantPanel', () => {
           'textarea[placeholder="Explain what you want to build and why you need L1 access."]'
         )
       )
-      assert.ok(findButton('Submit for administrator review'))
+      assert.ok(findButton('Submit for review'))
     } finally {
       await act(async () => rendered.root.unmount())
       rendered.queryClient.clear()
@@ -2893,7 +2893,7 @@ describe('AssistantPanel', () => {
 
       assert.equal(
         [...document.querySelectorAll('button')].some(
-          (button) => button.textContent === 'Submit for administrator review'
+          (button) => button.textContent === 'Submit for review'
         ),
         false
       )
@@ -2961,6 +2961,114 @@ describe('AssistantPanel', () => {
       assert.equal(document.querySelector('.cm-lineNumbers'), null)
       assert.ok(document.querySelector('strong'))
       assert.equal(document.querySelector('script'), null)
+    } finally {
+      await act(async () => rendered.root.unmount())
+      rendered.queryClient.clear()
+    }
+  })
+  test('refreshes global access and never offers manual review after a direct L1 grant', async () => {
+    const l0User: AuthUser = {
+      id: 91,
+      username: 'direct-grant-user',
+      role: 1,
+      developer_access_granted: false,
+    }
+    const l1User = { ...l0User, developer_access_granted: true }
+    let granted = false
+    let selfCalls = 0
+    useAuthStore.getState().auth.setBundle({
+      access_token: 'test-access-token',
+      token_type: 'Bearer',
+      access_expires_at: 1_900_000_000,
+      user: l0User,
+      session: {
+        sid: 'direct-grant-session',
+        current: true,
+        login_method: 'password',
+        ip: '127.0.0.1',
+        user_agent: 'test',
+        created_at: 1,
+        last_active_at: 1,
+        expires_at: 1_900_000_000,
+      },
+    })
+    api.get = (async (url: string) => {
+      if (url === '/api/assistant/status') {
+        return {
+          data: {
+            success: true,
+            data: {
+              ...assistantStatus,
+              developer_access_granted: granted,
+              access_level: granted ? 'L1' : 'L0',
+            },
+          },
+        }
+      }
+      if (url === '/api/user/self') {
+        selfCalls += 1
+        return { data: { success: true, data: l1User } }
+      }
+      if (url === '/api/assistant/pre-conversation-presets') {
+        return {
+          data: { success: true, data: assistantPreConversationPresets },
+        }
+      }
+      if (url === '/api/assistant/available-models') {
+        return { data: { success: true, data: { models: [] } } }
+      }
+      return { data: { success: true, data: null } }
+    }) as typeof api.get
+    api.post = (async (url: string) => {
+      assert.equal(url, '/api/assistant/chat')
+      granted = true
+      return {
+        data: {
+          choices: [
+            {
+              message: {
+                content: 'L1 access is active. No manual review is required.',
+              },
+            },
+          ],
+          lmm_assistant_intent: 'onboarding',
+          lmm_assistant_tools: [
+            { name: 'grant_l1_access', status: 'output-available' },
+          ],
+          lmm_assistant_history: { conversation_id: 41 },
+        },
+      }
+    }) as typeof api.post
+
+    const rendered = await renderPanel('onboarding', 'page', l0User)
+    try {
+      await setTextareaValue(
+        requireValue(
+          document.querySelector<HTMLTextAreaElement>(
+            'textarea[aria-label="Ask AI assistant"]'
+          )
+        ),
+        'Please grant me L1 access now.'
+      )
+      await act(async () => {
+        requireValue(
+          document.querySelector<HTMLButtonElement>('button[aria-label="Send"]')
+        ).click()
+        await flushEffects()
+      })
+      await waitForCondition(
+        () =>
+          useAuthStore.getState().auth.user?.developer_access_granted === true,
+        'Direct grant did not refresh the authenticated user'
+      )
+
+      assert.equal(selfCalls, 1)
+      assert.doesNotMatch(document.body.textContent ?? '', /Submit for review/)
+      assert.doesNotMatch(
+        document.body.textContent ?? '',
+        /Submit for review/
+      )
+      assert.match(document.body.textContent ?? '', /Open client setup guide/)
     } finally {
       await act(async () => rendered.root.unmount())
       rendered.queryClient.clear()

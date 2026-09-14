@@ -48,6 +48,8 @@ for (const key of [
 
 const { act } = await import('react')
 const { createRoot } = await import('react-dom/client')
+const { QueryClient, QueryClientProvider } =
+  await import('@tanstack/react-query')
 const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { api } = await import('@/lib/api')
@@ -93,6 +95,32 @@ async function setTextareaValue(textarea: HTMLTextAreaElement, value: string) {
     textarea.dispatchEvent(new Event('input', { bubbles: true }))
     await flushEffects()
   })
+}
+
+async function renderPanel() {
+  const container = document.createElement('div')
+  document.body.append(container)
+  const root = createRoot(container)
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  })
+  await act(async () => {
+    root.render(
+      <QueryClientProvider client={queryClient}>
+        <I18nextProvider i18n={i18n}>
+          <DeveloperAccessRequestsPanel />
+        </I18nextProvider>
+      </QueryClientProvider>
+    )
+    await flushEffects()
+  })
+  return { container, root, queryClient }
+}
+
+async function unmountPanel(panel: Awaited<ReturnType<typeof renderPanel>>) {
+  await act(async () => panel.root.unmount())
+  panel.queryClient.clear()
+  panel.container.remove()
 }
 
 afterEach(() => {
@@ -165,17 +193,7 @@ describe('DeveloperAccessRequestsPanel', () => {
       return { data: { success: true, data: {} } }
     }) as typeof api.post
 
-    const container = document.createElement('div')
-    document.body.append(container)
-    const root = createRoot(container)
-    await act(async () => {
-      root.render(
-        <I18nextProvider i18n={i18n}>
-          <DeveloperAccessRequestsPanel />
-        </I18nextProvider>
-      )
-      await flushEffects()
-    })
+    const panel = await renderPanel()
 
     try {
       await waitForCondition(
@@ -228,8 +246,130 @@ describe('DeveloperAccessRequestsPanel', () => {
         data: { note: 'Approved' },
       })
     } finally {
-      await act(async () => root.unmount())
-      container.remove()
+      await unmountPanel(panel)
+    }
+  })
+
+  test('removes requests approved by the background reviewer on refresh', async () => {
+    let pending = true
+    api.get = (async () => ({
+      data: {
+        success: true,
+        data: pending
+          ? [
+              {
+                id: 27,
+                user_id: 18,
+                status: 'pending',
+                reason: 'I am building an API client.',
+                source: 'assistant_recommendation',
+                ai_recommendation: 'Recommend L1 for an API client.',
+                admin_user_id: 0,
+                admin_note: '',
+                created_at: 1,
+                reviewed_at: 0,
+                username: 'auto-reviewed-user',
+                email: 'auto@example.test',
+              },
+            ]
+          : [],
+      },
+    })) as typeof api.get
+
+    const panel = await renderPanel()
+    try {
+      await waitForCondition(
+        () => document.body.textContent?.includes('auto-reviewed-user') === true,
+        'Pending request did not render'
+      )
+      const query = panel.queryClient.getQueryCache().find({
+        queryKey: ['developer-access-requests', 'pending'],
+      })
+      assert.ok(query)
+      const refetchInterval = (
+        query.options as { refetchInterval?: unknown }
+      ).refetchInterval
+      assert.equal(typeof refetchInterval, 'function')
+      assert.equal(
+        (refetchInterval as (value: typeof query) => number | false)(query),
+        5_000
+      )
+
+      pending = false
+      await act(async () => {
+        await panel.queryClient.refetchQueries({
+          queryKey: ['developer-access-requests', 'pending'],
+        })
+        await flushEffects()
+      })
+      assert.doesNotMatch(document.body.textContent ?? '', /auto-reviewed-user/)
+      assert.match(document.body.textContent ?? '', /No pending unlock requests/)
+    } finally {
+      await unmountPanel(panel)
+    }
+  })
+
+  test('reloads the pending queue after an approval conflict', async () => {
+    let getCalls = 0
+    api.get = (async () => {
+      getCalls += 1
+      return {
+        data: {
+          success: true,
+          data:
+            getCalls === 1
+              ? [
+                  {
+                    id: 37,
+                    user_id: 28,
+                    status: 'pending',
+                    reason: 'I am building a model client.',
+                    source: 'assistant_request',
+                    ai_recommendation: '',
+                    admin_user_id: 0,
+                    admin_note: '',
+                    created_at: 1,
+                    reviewed_at: 0,
+                    username: 'already-reviewed-user',
+                    email: 'reviewed@example.test',
+                  },
+                ]
+              : [],
+        },
+      }
+    }) as typeof api.get
+    api.post = (async () => {
+      const error = new Error('request was already reviewed')
+      Object.assign(error, { response: { status: 409 } })
+      throw error
+    }) as typeof api.post
+
+    const panel = await renderPanel()
+    try {
+      await waitForCondition(
+        () =>
+          document.body.textContent?.includes('already-reviewed-user') === true,
+        'Pending request did not render'
+      )
+      const textarea = document.querySelector('textarea')
+      assert.ok(textarea)
+      await setTextareaValue(textarea, 'Reviewed elsewhere')
+      const approve = [...document.querySelectorAll('button')].find((button) =>
+        button.textContent?.includes('Approve and unlock L1')
+      )
+      assert.ok(approve)
+      await act(async () => {
+        approve.click()
+        await flushEffects()
+      })
+      await waitForCondition(
+        () =>
+          document.body.textContent?.includes('already-reviewed-user') === false,
+        'Approval conflict did not refresh the queue'
+      )
+      assert.ok(getCalls >= 2)
+    } finally {
+      await unmountPanel(panel)
     }
   })
 })

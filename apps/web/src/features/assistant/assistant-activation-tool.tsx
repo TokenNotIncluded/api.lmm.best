@@ -33,11 +33,13 @@ import { Button } from '@/components/ui/button'
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Textarea } from '@/components/ui/textarea'
 import {
+  developerAccessRequestQueryKey,
   getDeveloperAccessRequest,
   submitDeveloperAccessRequest,
   type DeveloperAccessRequest,
 } from '@/features/onboarding/api'
 import { getServerErrorMessageKey } from '@/lib/server-error-message'
+import { useAuthStore } from '@/stores/auth-store'
 
 import type { AssistantL1RecommendationAction } from './api'
 
@@ -59,6 +61,7 @@ export function AssistantActivationTool(props: {
   onContinueSetup?: () => void
   onSubmitted?: (request: DeveloperAccessRequest) => void
   onDraftConsumed?: () => void
+  onApproved?: () => void
 }) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
@@ -75,10 +78,15 @@ export function AssistantActivationTool(props: {
   const initializedLetterKey = useRef('')
   const initializedRevisionKey = useRef('')
 
-  const requestQueryKey = ['assistant-developer-access-request'] as const
+  const userId = useAuthStore((state) => state.auth.user?.id) ?? 0
+  const requestQueryKey = developerAccessRequestQueryKey(userId)
   const requestQuery = useQuery({
     queryKey: requestQueryKey,
-    queryFn: getDeveloperAccessRequest,
+    queryFn: async () => {
+      const request = await getDeveloperAccessRequest()
+      return request ? { ...request } : request
+    },
+    initialData: null,
     staleTime: 0,
     retry: false,
     refetchInterval: (query) =>
@@ -89,8 +97,9 @@ export function AssistantActivationTool(props: {
   useEffect(() => {
     if (request?.status === 'approved') {
       void queryClient.invalidateQueries({ queryKey: ['assistant-status'] })
+      props.onApproved?.()
     }
-  }, [queryClient, request?.status])
+  }, [props.onApproved, queryClient, request?.status])
 
   useEffect(() => {
     if (props.recommendationDraft) {
@@ -404,7 +413,7 @@ export function AssistantActivationTool(props: {
           >
             {loading
               ? t('Submitting...')
-              : t('Confirm and send to administrator')}
+              : t('Confirm and submit for review')}
           </Button>
         </div>
       ) : null}
@@ -436,7 +445,7 @@ export function AssistantActivationTool(props: {
           >
             {loading
               ? t('Submitting...')
-              : t('Submit for administrator review')}
+              : t('Submit for review')}
           </Button>
         </div>
       ) : null}

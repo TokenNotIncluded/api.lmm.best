@@ -737,10 +737,7 @@ export function isExternalUrl(href: string): boolean {
   const trimmed = href.trim()
   if (
     trimmed.startsWith('#') ||
-    trimmed.startsWith('?') ||
-    trimmed.startsWith('mailto:') ||
-    trimmed.startsWith('tel:') ||
-    trimmed.startsWith('javascript:')
+    trimmed.startsWith('?')
   ) {
     return false
   }
@@ -750,6 +747,9 @@ export function isExternalUrl(href: string): boolean {
         ? window.location.href
         : 'http://localhost'
     const url = new URL(trimmed, base)
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+      return false
+    }
     const currentOrigin =
       typeof window !== 'undefined' && window.location?.origin
         ? window.location.origin

@@ -30,6 +30,7 @@ import { I18nextProvider } from 'react-i18next'
 import type { HeroSmsSmsOrder } from './sms-api.js'
 import { SmsBalanceNotice } from './sms-balance-notice.js'
 import { getSmsPurchaseBalance } from './sms-balance.js'
+import { describeSmsAccessError } from './sms-error.js'
 import { SmsActiveOrdersCard } from './sms-order-sections.js'
 import { SmsPurchaseCard } from './sms-purchase-card.js'
 
@@ -114,6 +115,54 @@ function button(markup: string, text: string) {
 }
 
 describe('SMS balance notice and action boundaries', () => {
+  test('turns access errors into actionable reasons', () => {
+    const t = ((key: string) => key) as never
+    assert.deepEqual(
+      describeSmsAccessError(
+        Object.assign(new Error('denied'), {
+          code: 'TEMPORARY_SMS_MINIMUM_BALANCE',
+        }),
+        t
+      ),
+      {
+        title: 'Insufficient quota',
+        description:
+          'Temporary SMS purchases require a balance of at least USD 10',
+      }
+    )
+    assert.deepEqual(
+      describeSmsAccessError(
+        {
+          response: {
+            status: 500,
+            data: {
+              code: 'FEATURE_NOT_UNLOCKED',
+              message: 'feature is locked',
+            },
+          },
+        },
+        t
+      ),
+      {
+        title: 'Purchasing unavailable',
+        description:
+          'A funded, active account gradually unlocks more tools and better rates. Your current level is shown in the wallet.',
+      }
+    )
+    assert.deepEqual(
+      describeSmsAccessError(
+        Object.assign(new Error('HeroSMS SMS purchasing is disabled'), {
+          code: 'NOT_CONFIGURED',
+        }),
+        t
+      ),
+      {
+        title: 'Purchasing unavailable',
+        description: 'HeroSMS purchasing is disabled',
+      }
+    )
+  })
+
   test('below-floor notice is persistent and shows the actual USD balance', () => {
     const markup = render(
       <SmsBalanceNotice
