@@ -27,7 +27,8 @@ esac
 umask 077
 root=$(mktemp -d /tmp/lmm-auto-deploy.XXXXXX)
 trap 'rm -rf -- "$root"' EXIT
-mkdir -p "$root/assets" "$root/rollback" "$root/probe" "$root/pkg" "$root/controller"
+mkdir -p "$root/assets" "$root/rollback" "$root/probe" "$root/pkg" "$root/controller" "$root/cosign-home"
+chmod 700 "$root/cosign-home"
 
 ssh_dir="$HOME/.ssh"
 mkdir -p "$ssh_dir"
@@ -154,6 +155,7 @@ run_probe() {
   local cosign_binary
   cosign_binary=$(command -v cosign)
   docker run --rm --network host --user "$(id -u):$(id -g)" \
+    -e HOME="$root/cosign-home" \
     -v "$GITHUB_WORKSPACE:$GITHUB_WORKSPACE:ro" \
     -v "$root:$root" \
     -v "$HOME/.ssh:$HOME/.ssh:ro" \
