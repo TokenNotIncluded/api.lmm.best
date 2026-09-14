@@ -20,12 +20,11 @@ import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import path from 'node:path'
 import { test } from 'node:test'
+import { fileURLToPath } from 'node:url'
 
-const script = path.resolve(
-  path.dirname(new URL(import.meta.url).pathname),
-  'operator-persona-suite.mjs'
-)
-const repository = path.resolve(path.dirname(script), '../../..')
+const scriptDirectory = path.dirname(fileURLToPath(import.meta.url))
+const script = path.join(scriptDirectory, 'operator-persona-suite.mjs')
+const repository = path.resolve(scriptDirectory, '../../..')
 const outputDirectory = path.join(repository, 'apps/web/scripts')
 
 function run(environment) {
