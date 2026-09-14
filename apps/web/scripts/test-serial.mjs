@@ -26,34 +26,57 @@ import { join, relative, resolve } from 'node:path'
 
 const root = resolve(import.meta.dirname, '..')
 const source = join(root, 'src')
-const preload = join(root, 'scripts', 'test-preload.mjs')
-const tests = []
+const scripts = join(root, 'scripts')
+const preload = join(scripts, 'test-preload.mjs')
+const sourceTests = []
+const scriptTests = []
 
-function collect(directory) {
+function collect(directory, pattern, target) {
   for (const entry of readdirSync(directory, { withFileTypes: true })) {
-    const path = join(directory, entry.name)
+    const filePath = join(directory, entry.name)
     if (entry.isDirectory()) {
-      collect(path)
-    } else if (/\.test\.(?:ts|tsx)$/.test(entry.name)) {
-      tests.push(relative(root, path))
+      collect(filePath, pattern, target)
+    } else if (pattern.test(entry.name)) {
+      target.push(relative(root, filePath))
     }
   }
 }
 
-collect(source)
-tests.sort()
-if (tests.length === 0) throw new Error('no web tests found')
-
-for (const test of tests) {
-  const result = spawnSync(
-    process.execPath,
-    ['test', '--preload', preload, '--timeout', '15000', test],
-    { cwd: root, encoding: 'utf8' }
-  )
+function run(executable, args) {
+  const result = spawnSync(executable, args, {
+    cwd: root,
+    encoding: 'utf8',
+  })
   if (result.stdout) process.stdout.write(result.stdout)
   if (result.stderr) process.stderr.write(result.stderr)
   if (result.error) throw result.error
   if (result.status !== 0) process.exit(result.status ?? 1)
 }
 
-console.log(`web tests passed serially: ${tests.length} files`)
+collect(source, /\.test\.(?:ts|tsx)$/, sourceTests)
+collect(scripts, /\.test\.mjs$/, scriptTests)
+sourceTests.sort()
+scriptTests.sort()
+
+if (sourceTests.length === 0 && scriptTests.length === 0) {
+  throw new Error('no web tests found')
+}
+
+for (const test of sourceTests) {
+  run(process.execPath, [
+    'test',
+    '--preload',
+    preload,
+    '--timeout',
+    '15000',
+    test,
+  ])
+}
+
+for (const test of scriptTests) {
+  run('node', ['--test', test])
+}
+
+console.log(
+  `web tests passed serially: ${sourceTests.length} source + ${scriptTests.length} script files`
+)
