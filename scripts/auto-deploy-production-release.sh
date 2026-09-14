@@ -206,7 +206,7 @@ plan_result=$(run_probe "$probe" deploy production plan --repo "$GITHUB_WORKSPAC
   --web-package "$web_candidate" --web-release-asset "$web_asset" --web-release-bundle "$web_bundle" \
   --web-rollback-package "$web_rollback" --web-rollback-release-asset "$web_rollback_asset" --web-rollback-release-bundle "$web_rollback_asset.sigstore.json" \
   --probe-binary "$probe" --operator-binary "$probe" --preserve-edge-policy)
-plan=$(jq -er '.data.plan' <<<"$plan_result")
-plan_sha=$(jq -er '.data.plan_sha256' <<<"$plan_result")
+plan=$(jq -er '.plan' <<<"$plan_result")
+plan_sha=$(jq -er '.plan_sha256' <<<"$plan_result")
 run_probe "$probe" deploy production stage --plan "$plan" --plan-sha256 "$plan_sha" --confirm api.lmm.best
 run_probe "$probe" deploy production promote --plan "$plan" --plan-sha256 "$plan_sha" --confirm api.lmm.best
