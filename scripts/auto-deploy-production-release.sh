@@ -150,31 +150,36 @@ for rollback_component in go web; do
   rollback_pkgver=${installed_version[$rollback_package]}
   rollback_version=${rollback_pkgver%-*}
   rollback_pkgrel=${rollback_pkgver##*-}
+  rollback_output="$root/rollback/${rollback_package}-${rollback_pkgver}.pkg.tar.zst"
+  rollback_container_output="/work/rollback/${rollback_package}-${rollback_pkgver}.pkg.tar.zst"
   docker run --rm --network host -v "$GITHUB_WORKSPACE:/repo:ro" -v "$root:/work" "$deployment_image" \
     bash /repo/scripts/build-release-package.sh "$rollback_component" "$rollback_version" \
-      "/work/rollback/$rollback_package" "/work/rollback/$rollback_package.pkg.tar.zst" \
+      "/work/rollback/$rollback_package" "$rollback_container_output" \
       /repo "$rollback_pkgrel"
-  normalize_controller_file "$root/rollback/$rollback_package.pkg.tar.zst"
+  normalize_controller_file "$rollback_output"
 done
 
 if [[ "$component" == go ]]; then
+  candidate_output="$root/pkg/lmm-api-go-bin-${version}-1.pkg.tar.zst"
   docker run --rm --network host -v "$GITHUB_WORKSPACE:/repo:ro" -v "$root:/work" "$deployment_image" \
-    bash /repo/scripts/build-release-package.sh go "$version" /work/assets /work/pkg/lmm-api-go-bin.pkg.tar.zst /repo
-  normalize_controller_file "$root/pkg/lmm-api-go-bin.pkg.tar.zst"
+    bash /repo/scripts/build-release-package.sh go "$version" /work/assets "/work/pkg/$(basename "$candidate_output")" /repo
+  normalize_controller_file "$candidate_output"
 else
+  candidate_output="$root/pkg/lmm-api-web-bin-${version}-1.pkg.tar.zst"
   docker run --rm --network host -v "$GITHUB_WORKSPACE:/repo:ro" -v "$root:/work" "$deployment_image" \
-    bash /repo/scripts/build-release-package.sh web "$version" /work/assets /work/pkg/lmm-api-web-bin.pkg.tar.zst /repo
-  normalize_controller_file "$root/pkg/lmm-api-web-bin.pkg.tar.zst"
+    bash /repo/scripts/build-release-package.sh web "$version" /work/assets "/work/pkg/$(basename "$candidate_output")" /repo
+  normalize_controller_file "$candidate_output"
 fi
 
-go_candidate="$root/rollback/lmm-api-go-bin.pkg.tar.zst"; web_candidate="$root/rollback/lmm-api-web-bin.pkg.tar.zst"
-[[ "$component" == go ]] && go_candidate="$root/pkg/lmm-api-go-bin.pkg.tar.zst"
-[[ "$component" == web ]] && web_candidate="$root/pkg/lmm-api-web-bin.pkg.tar.zst"
+go_rollback="$root/rollback/lmm-api-go-bin-${installed_version[lmm-api-go-bin]}.pkg.tar.zst"
+web_rollback="$root/rollback/lmm-api-web-bin-${installed_version[lmm-api-web-bin]}.pkg.tar.zst"
+go_candidate="$go_rollback"; web_candidate="$web_rollback"
+[[ "$component" == go ]] && go_candidate="$candidate_output"
+[[ "$component" == web ]] && web_candidate="$candidate_output"
 go_asset=$(find "$root/assets" "$root/rollback/lmm-api-go-bin" -maxdepth 1 -type f -name 'lmm-api-go-*.tar.gz' -print -quit)
 go_bundle="$go_asset.sigstore.json"
 web_asset=$(find "$root/assets" "$root/rollback/lmm-api-web-bin" -maxdepth 1 -type f -name 'lmm-api-web-*.tar.gz' -print -quit)
 web_bundle="$web_asset.sigstore.json"
-go_rollback="$root/rollback/lmm-api-go-bin.pkg.tar.zst"; web_rollback="$root/rollback/lmm-api-web-bin.pkg.tar.zst"
 go_rollback_asset=$(find "$root/rollback/lmm-api-go-bin" -maxdepth 1 -type f -name 'lmm-api-go-*.tar.gz' -print -quit)
 web_rollback_asset=$(find "$root/rollback/lmm-api-web-bin" -maxdepth 1 -type f -name 'lmm-api-web-*.tar.gz' -print -quit)
 
