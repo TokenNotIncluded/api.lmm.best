@@ -151,10 +151,13 @@ probe=$(find "$root/probe" -type f -name lmm-api-go -print -quit)
 [[ -x "$probe" ]]
 
 run_probe() {
+  local cosign_binary
+  cosign_binary=$(command -v cosign)
   docker run --rm --network host --user "$(id -u):$(id -g)" \
     -v "$GITHUB_WORKSPACE:$GITHUB_WORKSPACE:ro" \
     -v "$root:$root" \
     -v "$HOME/.ssh:$HOME/.ssh:ro" \
+    -v "$cosign_binary:/usr/bin/cosign:ro" \
     -w "$GITHUB_WORKSPACE" \
     archlinux:base-devel "$@"
 }
