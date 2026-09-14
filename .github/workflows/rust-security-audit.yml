@@ -40,3 +40,11 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           working-directory: apps/api-rust
+          # RUSTSEC-2026-0235 currently has no resolved workspace path:
+          # `cargo tree --locked --target all -i rkyv` is empty. The stale
+          # rkyv 0.7 lock entry comes from rust_decimal <=1.42 carrying the
+          # optional dependency in every lockfile; rust_decimal 1.43 removes
+          # that dependency. Keep this exact exception visible until #276
+          # upgrades the lock and removes the stale entry. Do not add the RSA
+          # advisory here: rsa private-key signing is reachable at runtime.
+          ignore: RUSTSEC-2026-0235
