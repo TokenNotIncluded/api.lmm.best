@@ -10,3 +10,4 @@ Analyze (go)|dynamic/github-code-scanning/codeql|dynamic|main
 Analyze (javascript-typescript)|dynamic/github-code-scanning/codeql|dynamic|main
 Analyze (python)|dynamic/github-code-scanning/codeql|dynamic|main
 Analyze (rust)|dynamic/github-code-scanning/codeql|dynamic|main
+Server release qualification gate|.github/workflows/server-release-qualification.yml|push|main
