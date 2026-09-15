@@ -23,7 +23,7 @@ const numericRunChunkSize = 3
 // multipliers 定义不同厂商的计费权重
 type multipliers struct {
 	Word       float64 // 英文单词 (每词)
-	Number     float64 // 数字 (每连续数字串)
+	Number     float64 // 数字短串的基础权重
 	CJK        float64 // 中日韩字符 (每字)
 	Symbol     float64 // 普通标点符号 (每个)
 	MathSymbol float64 // 数学符号 (∑,∫,∂,√等，每个)
@@ -139,10 +139,11 @@ func EstimateToken(provider Provider, text string) int {
 			} else if newType == Number {
 				numberRunLen++
 				// Common BPE pre-tokenizers split long digit runs into short
-				// chunks. Preserve the old cost for 1-3 digits while making
-				// longer runs scale instead of remaining constant forever.
+				// chunks. Preserve the calibrated provider-specific cost for
+				// the first 1-3 digits, then add roughly one token per extra
+				// three digits instead of reapplying the short-run multiplier.
 				if (numberRunLen-1)%numericRunChunkSize == 0 {
-					count += m.Number
+					count++
 				}
 			}
 		} else {
