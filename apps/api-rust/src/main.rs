@@ -541,9 +541,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Arc::new(PgChannelAdvancedStore::new(pg.clone())),
             Arc::new(
                 ReqwestChannelAdvancedUpstream::new()
-                    .map_err(|_| {
-                        io::Error::other("failed to initialize advanced channel client")
-                    })?
+                    .map_err(|_| io::Error::other("failed to initialize advanced channel client"))?
                     .with_pg_pool(pg.clone()),
             ),
         ));
