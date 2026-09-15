@@ -17,8 +17,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-/* Homepage-only cinematic motion layer inspired by Framer's spatial product
- * demos. The information architecture stays intact; motion is progressive. */
+/* Homepage-only cinematic layer. The product structure remains ForgeHome;
+ * this file adds spatial motion without leaking into other public pages. */
 .forge-home-motion-root {
   --home-pointer-x: 50%;
   --home-pointer-y: 50%;
@@ -43,7 +43,7 @@ For commercial licensing, please contact support@quantumnous.com
   isolation: isolate;
   background: linear-gradient(
     180deg,
-    color-mix(in oklch, var(--background) 98%, transparent) 0%,
+    color-mix(in oklch, var(--background) 98%, transparent),
     var(--background) 32rem
   );
 }
@@ -89,7 +89,12 @@ For commercial licensing, please contact support@quantumnous.com
       border-color 180ms ease;
   }
 
-  .forge-home-motion-root:has(a:hover, button:hover, input:hover, summary:hover)::after {
+  .forge-home-motion-root:has(
+      a:hover,
+      button:hover,
+      input:hover,
+      summary:hover
+    )::after {
     width: 4.25rem;
     height: 4.25rem;
     border-color: rgb(127 127 127 / 0.42);
@@ -97,6 +102,7 @@ For commercial licensing, please contact support@quantumnous.com
   }
 }
 
+/* Hero ---------------------------------------------------------------- */
 .forge-home-motion-root .forge-home-hero {
   width: min(100%, 96rem);
   min-height: min(58rem, calc(100svh - 3rem));
@@ -106,29 +112,16 @@ For commercial licensing, please contact support@quantumnous.com
   isolation: isolate;
 }
 
-.forge-home-motion-root .forge-home-hero::before {
+.forge-home-motion-root .forge-home-hero::before,
+.forge-home-motion-root .forge-home-hero::after {
   content: '';
   position: absolute;
-  z-index: 0;
   top: clamp(3.75rem, 8vw, 7.5rem);
   right: var(--home-gutter);
   width: min(55%, 46rem);
   height: clamp(31rem, 65svh, 43rem);
-  border: 1px solid color-mix(in oklch, var(--foreground) 14%, transparent);
   border-radius: clamp(1.5rem, 3vw, 2.8rem);
-  background:
-    radial-gradient(circle at 1.55rem 1.45rem, #ff6b62 0 0.26rem, transparent 0.29rem),
-    radial-gradient(circle at 2.45rem 1.45rem, #f2c04d 0 0.26rem, transparent 0.29rem),
-    radial-gradient(circle at 3.35rem 1.45rem, #6fcf8e 0 0.26rem, transparent 0.29rem),
-    linear-gradient(
-      180deg,
-      color-mix(in oklch, var(--background) 84%, transparent) 0 2.85rem,
-      transparent 2.85rem
-    ),
-    url('/forge-home-motion.webp') center / cover no-repeat;
-  box-shadow:
-    0 3rem 7rem rgb(0 0 0 / 0.18),
-    0 0 0 1px color-mix(in oklch, var(--background) 22%, transparent) inset;
+  pointer-events: none;
   transform:
     translate3d(
       var(--home-shift-x),
@@ -140,19 +133,42 @@ For commercial licensing, please contact support@quantumnous.com
   transform-origin: 58% 46%;
   transition: transform 110ms linear;
   will-change: transform;
+}
+
+.forge-home-motion-root .forge-home-hero::before {
+  z-index: 0;
+  border: 1px solid color-mix(in oklch, var(--foreground) 14%, transparent);
+  background:
+    radial-gradient(
+      circle at 1.55rem 1.45rem,
+      #ff6b62 0 0.26rem,
+      transparent 0.29rem
+    ),
+    radial-gradient(
+      circle at 2.45rem 1.45rem,
+      #f2c04d 0 0.26rem,
+      transparent 0.29rem
+    ),
+    radial-gradient(
+      circle at 3.35rem 1.45rem,
+      #6fcf8e 0 0.26rem,
+      transparent 0.29rem
+    ),
+    linear-gradient(
+      180deg,
+      color-mix(in oklch, var(--background) 84%, transparent) 0 2.85rem,
+      transparent 2.85rem
+    ),
+    url('/forge-home-motion.svg') center / cover no-repeat;
+  box-shadow:
+    0 3rem 7rem rgb(0 0 0 / 0.18),
+    0 0 0 1px color-mix(in oklch, var(--background) 22%, transparent)
+      inset;
   overflow: hidden;
 }
 
 .forge-home-motion-root .forge-home-hero::after {
-  content: '';
-  position: absolute;
   z-index: 1;
-  top: clamp(3.75rem, 8vw, 7.5rem);
-  right: var(--home-gutter);
-  width: min(55%, 46rem);
-  height: clamp(31rem, 65svh, 43rem);
-  border-radius: clamp(1.5rem, 3vw, 2.8rem);
-  pointer-events: none;
   background:
     radial-gradient(
       circle 13rem at var(--home-pointer-x) var(--home-pointer-y),
@@ -165,17 +181,6 @@ For commercial licensing, please contact support@quantumnous.com
       transparent 35% 72%,
       rgb(255 255 255 / 0.05)
     );
-  transform:
-    translate3d(
-      var(--home-shift-x),
-      calc(var(--home-shift-y) + var(--home-scroll-y)),
-      1px
-    )
-    rotateX(var(--home-tilt-x)) rotateY(var(--home-tilt-y))
-    scale(var(--home-scroll-scale));
-  transform-origin: 58% 46%;
-  transition: transform 110ms linear;
-  will-change: transform;
 }
 
 .forge-home-motion-root .forge-home-hero-content,
@@ -216,7 +221,8 @@ For commercial licensing, please contact support@quantumnous.com
 }
 
 .forge-home-motion-root .forge-home-hero-actions [data-slot='button'] {
-  box-shadow: 0 0.75rem 1.9rem color-mix(in oklch, var(--foreground) 16%, transparent);
+  box-shadow: 0 0.75rem 1.9rem
+    color-mix(in oklch, var(--foreground) 16%, transparent);
   transition:
     transform 220ms cubic-bezier(0.22, 1, 0.36, 1),
     box-shadow 220ms ease;
@@ -224,18 +230,24 @@ For commercial licensing, please contact support@quantumnous.com
 
 .forge-home-motion-root .forge-home-hero-actions [data-slot='button']:hover {
   transform: translateY(-2px) scale(1.015);
-  box-shadow: 0 1rem 2.3rem color-mix(in oklch, var(--foreground) 20%, transparent);
+  box-shadow: 0 1rem 2.3rem
+    color-mix(in oklch, var(--foreground) 20%, transparent);
+}
+
+.forge-home-motion-root .forge-home-intro > .mt-6,
+.forge-home-motion-root .forge-home-hero-assistant,
+.forge-home-motion-root .forge-home-connection {
+  border: 1px solid color-mix(in oklch, var(--foreground) 12%, transparent);
+  background: color-mix(in oklch, var(--background) 80%, transparent);
+  backdrop-filter: blur(22px) saturate(1.14);
+  -webkit-backdrop-filter: blur(22px) saturate(1.14);
 }
 
 .forge-home-motion-root .forge-home-intro > .mt-6 {
   max-width: 35rem;
   margin-top: clamp(2rem, 4vw, 3.25rem);
   padding: 1.25rem 1.35rem;
-  border: 1px solid color-mix(in oklch, var(--foreground) 11%, transparent);
   border-radius: 1.35rem;
-  background: color-mix(in oklch, var(--background) 78%, transparent);
-  backdrop-filter: blur(18px) saturate(1.1);
-  -webkit-backdrop-filter: blur(18px) saturate(1.1);
   box-shadow: 0 1rem 3rem rgb(0 0 0 / 0.05);
 }
 
@@ -245,11 +257,7 @@ For commercial licensing, please contact support@quantumnous.com
   width: min(100%, 29rem);
   margin-bottom: clamp(2rem, 5vw, 5rem);
   padding: 1.35rem;
-  border: 1px solid color-mix(in oklch, var(--foreground) 14%, transparent);
   border-radius: 1.6rem;
-  background: color-mix(in oklch, var(--background) 78%, transparent);
-  backdrop-filter: blur(28px) saturate(1.25);
-  -webkit-backdrop-filter: blur(28px) saturate(1.25);
   box-shadow:
     0 1.75rem 4.5rem rgb(0 0 0 / 0.18),
     0 1px 0 rgb(255 255 255 / 0.12) inset;
@@ -299,14 +307,11 @@ For commercial licensing, please contact support@quantumnous.com
   width: min(100%, 72rem);
   margin: clamp(-1.25rem, -2vw, -0.5rem) auto 0;
   padding: 0.9rem 1.15rem;
-  border: 1px solid color-mix(in oklch, var(--foreground) 12%, transparent);
   border-radius: 1.25rem;
-  background: color-mix(in oklch, var(--background) 80%, transparent);
-  backdrop-filter: blur(18px) saturate(1.12);
-  -webkit-backdrop-filter: blur(18px) saturate(1.12);
   box-shadow: 0 1rem 3rem rgb(0 0 0 / 0.06);
 }
 
+/* Scroll story -------------------------------------------------------- */
 .forge-home-motion-root .forge-home-section {
   scroll-margin-top: 6rem;
 }
@@ -320,14 +325,14 @@ For commercial licensing, please contact support@quantumnous.com
   gap: clamp(3rem, 7vw, 7rem);
 }
 
-.forge-home-motion-root .forge-home-steps {
-  gap: 0;
-}
-
 .forge-home-motion-root .forge-home-step {
   min-height: clamp(18rem, 38svh, 26rem);
   align-content: center;
-  border-bottom-color: color-mix(in oklch, var(--foreground) 12%, transparent);
+  border-bottom-color: color-mix(
+    in oklch,
+    var(--foreground) 12%,
+    transparent
+  );
   opacity: 0.52;
   transition:
     opacity 260ms ease,
@@ -372,18 +377,8 @@ For commercial licensing, please contact support@quantumnous.com
 
 .forge-home-motion-root .forge-home-code-tabs {
   padding-bottom: 0.8rem;
-  border-bottom: 1px solid color-mix(in oklch, var(--foreground) 10%, transparent);
-}
-
-.forge-home-motion-root .forge-home-code-tabs button {
-  transition:
-    transform 180ms cubic-bezier(0.22, 1, 0.36, 1),
-    background 180ms ease,
-    color 180ms ease;
-}
-
-.forge-home-motion-root .forge-home-code-tabs button:hover {
-  transform: translateY(-1px);
+  border-bottom: 1px solid
+    color-mix(in oklch, var(--foreground) 10%, transparent);
 }
 
 @supports (animation-timeline: view()) {
@@ -408,6 +403,7 @@ For commercial licensing, please contact support@quantumnous.com
     opacity: 0.42;
     transform: translateY(1.2rem) scale(0.985);
   }
+
   44%,
   62% {
     opacity: 1;
@@ -420,16 +416,19 @@ For commercial licensing, please contact support@quantumnous.com
     transform: perspective(1200px) translateY(2.6rem) rotateX(7deg)
       rotateY(-6deg) scale(0.94);
   }
+
   45% {
     transform: perspective(1200px) translateY(0) rotateX(0deg) rotateY(0deg)
       scale(1);
   }
+
   100% {
     transform: perspective(1200px) translateY(-2rem) rotateX(-5deg)
       rotateY(5deg) scale(0.965);
   }
 }
 
+/* Lower-page spatial cards ------------------------------------------- */
 .forge-home-motion-root .forge-home-explore {
   align-items: center;
   padding-top: clamp(7rem, 14vw, 13rem);
@@ -454,7 +453,7 @@ For commercial licensing, please contact support@quantumnous.com
   border-radius: 1.35rem;
   background: color-mix(in oklch, var(--card) 82%, transparent);
   box-shadow: 0 1rem 2.5rem rgb(0 0 0 / 0.045);
-  transform: perspective(900px) translateZ(0) rotateX(0deg) rotateY(0deg);
+  transform: perspective(900px) translateZ(0);
   transform-style: preserve-3d;
   transition:
     transform 260ms cubic-bezier(0.22, 1, 0.36, 1),
@@ -467,13 +466,13 @@ For commercial licensing, please contact support@quantumnous.com
   border-color: color-mix(in oklch, var(--foreground) 22%, transparent);
   background: color-mix(in oklch, var(--card) 94%, transparent);
   box-shadow: 0 1.5rem 3.4rem rgb(0 0 0 / 0.09);
-  transform: perspective(900px) translate3d(0, -0.3rem, 1.4rem) rotateX(-2deg)
-    rotateY(1.2deg);
+  transform: perspective(900px) translate3d(0, -0.3rem, 1.4rem)
+    rotateX(-2deg) rotateY(1.2deg);
 }
 
 .forge-home-motion-root .forge-home-destinations a:nth-child(even):hover {
-  transform: perspective(900px) translate3d(0, -0.3rem, 1.4rem) rotateX(-2deg)
-    rotateY(-1.2deg);
+  transform: perspective(900px) translate3d(0, -0.3rem, 1.4rem)
+    rotateX(-2deg) rotateY(-1.2deg);
 }
 
 .forge-home-motion-root .forge-home-section:not(.forge-home-quickstart) {
@@ -484,6 +483,7 @@ For commercial licensing, please contact support@quantumnous.com
   padding-bottom: clamp(5rem, 10vw, 9rem);
 }
 
+/* Responsive --------------------------------------------------------- */
 @media (max-width: 74rem) {
   .forge-home-motion-root .forge-home-hero::before,
   .forge-home-motion-root .forge-home-hero::after {
@@ -517,8 +517,12 @@ For commercial licensing, please contact support@quantumnous.com
     opacity: 0.6;
   }
 
-  .forge-home-motion-root .forge-home-hero-content {
+  .forge-home-motion-root .forge-home-hero-content,
+  .forge-home-motion-root .forge-home-quickstart-grid {
     grid-template-columns: 1fr;
+  }
+
+  .forge-home-motion-root .forge-home-hero-content {
     min-height: auto;
     gap: 4rem;
   }
@@ -543,10 +547,6 @@ For commercial licensing, please contact support@quantumnous.com
 
   .forge-home-motion-root .forge-home-connection {
     margin-top: 1rem;
-  }
-
-  .forge-home-motion-root .forge-home-quickstart-grid {
-    grid-template-columns: 1fr;
   }
 
   .forge-home-motion-root .forge-home-step {
@@ -582,12 +582,12 @@ For commercial licensing, please contact support@quantumnous.com
     letter-spacing: -0.055em;
   }
 
-  .forge-home-motion-root .forge-home-intro > .mt-6 {
+  .forge-home-motion-root .forge-home-intro > .mt-6,
+  .forge-home-motion-root .forge-home-hero-assistant {
     padding: 1rem;
   }
 
   .forge-home-motion-root .forge-home-hero-assistant {
-    padding: 1rem;
     border-radius: 1.35rem;
   }
 
@@ -601,34 +601,20 @@ For commercial licensing, please contact support@quantumnous.com
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .forge-home-motion-root .forge-home-hero::before {
-    background:
-      radial-gradient(circle at 1.55rem 1.45rem, #ff6b62 0 0.26rem, transparent 0.29rem),
-      radial-gradient(circle at 2.45rem 1.45rem, #f2c04d 0 0.26rem, transparent 0.29rem),
-      radial-gradient(circle at 3.35rem 1.45rem, #6fcf8e 0 0.26rem, transparent 0.29rem),
-      linear-gradient(
-        180deg,
-        color-mix(in oklch, var(--background) 84%, transparent) 0 2.85rem,
-        transparent 2.85rem
-      ),
-      url('/forge-home-motion-poster.webp') center / cover no-repeat;
-    transform: none;
-    transition: none;
-  }
-
-  .forge-home-motion-root .forge-home-hero::after {
-    transform: none;
-    transition: none;
-  }
-
-  .forge-home-motion-root::after {
-    display: none;
-  }
-
+  .forge-home-motion-root .forge-home-hero::before,
+  .forge-home-motion-root .forge-home-hero::after,
   .forge-home-motion-root .forge-home-code-card,
   .forge-home-motion-root .forge-home-step {
     animation: none !important;
     transform: none;
+    transition: none;
+  }
+
+  .forge-home-motion-root .forge-home-step {
     opacity: 1;
+  }
+
+  .forge-home-motion-root::after {
+    display: none;
   }
 }
