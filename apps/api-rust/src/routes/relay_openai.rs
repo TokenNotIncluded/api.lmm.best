@@ -1432,7 +1432,9 @@ fn openai_upstream_request_failure(error: RelayHttpError) -> OpenAiRelayFailure 
             "upstream_timeout",
             "upstream first response timeout",
         ),
-        RelayHttpError::ResponseHeaders => upstream_transport_failure("upstream response timed out"),
+        RelayHttpError::ResponseHeaders => {
+            upstream_transport_failure("upstream response timed out")
+        }
         _ => upstream_transport_failure("upstream request failed"),
     }
 }
