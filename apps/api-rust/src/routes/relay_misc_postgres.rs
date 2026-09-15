@@ -874,11 +874,7 @@ impl PgRelayMiscService {
             ));
         }
         let usage = usage_from_response(&response_body);
-        let actual_quota = if usage.billable() {
-            selected.pricing.settlement_quota
-        } else {
-            0
-        };
+        let actual_quota = successful_fixed_price_quota(&selected.pricing);
         settle_success(
             &mut tx,
             &principal,
@@ -1150,6 +1146,10 @@ struct FixedPrice {
     settlement_quota: i64,
 }
 
+fn successful_fixed_price_quota(pricing: &FixedPrice) -> i64 {
+    pricing.settlement_quota
+}
+
 struct TokenCredential {
     key: String,
     channel_suffix: Option<String>,
@@ -1167,12 +1167,6 @@ struct Usage {
     prompt_tokens: i64,
     completion_tokens: i64,
     total_tokens: i64,
-}
-
-impl Usage {
-    fn billable(&self) -> bool {
-        self.prompt_tokens > 0 || self.completion_tokens > 0 || self.total_tokens > 0
-    }
 }
 
 async fn options(pg: &PgPool, keys: &[&str]) -> Result<HashMap<String, String>, ()> {
@@ -2507,9 +2501,25 @@ mod tests {
     #[test]
     fn response_usage_detects_embedding_input_tokens() {
         let usage = usage_from_response(br#"{"usage":{"prompt_tokens":1,"total_tokens":1}}"#);
-        assert!(usage.billable());
         assert_eq!(usage.prompt_tokens, 1);
         assert_eq!(usage.completion_tokens, 0);
+        assert_eq!(usage.total_tokens, 1);
+    }
+
+    #[test]
+    fn successful_fixed_price_response_without_usage_keeps_charge() {
+        let usage = usage_from_response(br#"{"data":[]}"#);
+        assert_eq!(usage.prompt_tokens, 0);
+        assert_eq!(usage.completion_tokens, 0);
+        assert_eq!(usage.total_tokens, 0);
+        let pricing = FixedPrice {
+            model_price: 1.0,
+            group_ratio: 1.0,
+            user_group_ratio: -1.0,
+            preconsume_quota: 17,
+            settlement_quota: 17,
+        };
+        assert_eq!(successful_fixed_price_quota(&pricing), 17);
     }
 
     #[test]
