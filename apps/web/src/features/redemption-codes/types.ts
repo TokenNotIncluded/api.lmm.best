@@ -32,9 +32,9 @@ export const redemptionSchema = z.object({
   key: z.string(),
   status: z.number(), // 1: enabled, 2: disabled, 3: used
   quota: z.number(),
-  reward_type: redemptionRewardTypeSchema.optional().default('quota'),
-  reset_plan_id: z.number().optional().default(0),
-  reset_voucher_expires_at: z.number().optional().default(0),
+  reward_type: redemptionRewardTypeSchema.optional(),
+  reset_plan_id: z.number().optional(),
+  reset_voucher_expires_at: z.number().optional(),
   created_time: z.number(),
   redeemed_time: z.number(),
   expired_time: z.number(), // 0 for never expires
