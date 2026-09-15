@@ -118,8 +118,12 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 		case "response.completed", "response.done":
 			terminal = true
 			if streamResponse.Response != nil {
+				failed := relaycommon.IsNonBillableResponsesStatus(streamResponse.Response.Status)
+				if failed {
+					info.StreamStatus.RecordError("upstream Responses terminal failure")
+				}
 				if !imageCommitted {
-					if relaycommon.IsNonBillableResponsesStatus(streamResponse.Response.Status) {
+					if failed {
 						imageCounter.Reset()
 						imageCounter.Commit(info)
 						imageCommitted = true
@@ -138,6 +142,10 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 			}
 		case "response.failed", "response.incomplete", "response.cancelled", "response.canceled":
 			terminal = true
+			// A terminal event stops scanning; it does not by itself prove
+			// successful consumption. Keep measured usage, but prohibit the
+			// empty-usage estimator from treating this as a successful request.
+			info.StreamStatus.RecordError("upstream Responses terminal failure")
 			if !imageCommitted {
 				imageCounter.Reset()
 				imageCounter.Commit(info)
