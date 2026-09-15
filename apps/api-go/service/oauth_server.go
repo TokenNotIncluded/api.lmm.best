@@ -229,30 +229,43 @@ func (s *OAuthIntegration) ValidateResource(ctx context.Context, token string, s
 	return *grant, user, err
 }
 
-// ConsentQuery only expands the initial application scope into the exact group
-// snapshot which is about to be shown for explicit consent. It cannot be called
-// with a user-supplied scope snapshot or a wildcard. Core revalidates the result.
+func oauthScopeProfileMatches(requested, profile []string) bool {
+	if len(requested) != len(profile) {
+		return false
+	}
+	candidate := slices.Clone(profile)
+	slices.Sort(candidate)
+	return slices.Equal(requested, candidate)
+}
+
+// ConsentQuery expands only a known native-client application scope profile
+// into the exact group snapshot which is about to be shown for explicit consent.
+// Historical profiles are accepted for reauthorization, but their scopes are
+// never widened: clients only receive application/MCP scopes they requested.
 func (s *OAuthIntegration) ConsentQuery(raw string, user *model.User) (string, []string, error) {
 	query, err := url.ParseQuery(raw)
 	if err != nil {
 		return "", nil, err
 	}
 	requested := strings.Split(query.Get("scope"), " ")
-	baseExpected := []string{OAuthCatalogScope, OAuthBalanceScope, OAuthUsageScope, OAuthInvokeScope}
-	expected := append([]string(nil), baseExpected...)
-	fullExpected := append(append([]string(nil), baseExpected...), OAuthBuiltinMCPScopes()...)
-	slices.Sort(requested)
-	slices.Sort(expected)
-	slices.Sort(fullExpected)
-	if !slices.Equal(requested, expected) && !slices.Equal(requested, fullExpected) {
-		return "", nil, ErrOAuthDenied
+	legacyBase := []string{OAuthCatalogScope, OAuthBalanceScope, OAuthInvokeScope}
+	currentBase := []string{OAuthCatalogScope, OAuthBalanceScope, OAuthUsageScope, OAuthInvokeScope}
+	profiles := [][]string{
+		legacyBase,
+		append(slices.Clone(legacyBase), OAuthBuiltinMCPScopes()...),
+		currentBase,
+		append(slices.Clone(currentBase), OAuthBuiltinMCPScopes()...),
 	}
-	// Older clients do not request built-in MCP scopes. Include the optional
-	// scopes in the consent snapshot so newer resource endpoints can be used
-	// after the user explicitly approves the same consent screen.
-	if slices.Equal(requested, expected) {
-		requested = append(requested, OAuthBuiltinMCPScopes()...)
-		slices.Sort(requested)
+	slices.Sort(requested)
+	validProfile := false
+	for _, profile := range profiles {
+		if oauthScopeProfileMatches(requested, profile) {
+			validProfile = true
+			break
+		}
+	}
+	if !validProfile {
+		return "", nil, ErrOAuthDenied
 	}
 	groups := s.AllowedGroups(user)
 	if len(groups) == 0 {
