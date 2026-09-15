@@ -83,5 +83,5 @@ func TestClaudeMessagesResponseUsesClaudePipeline(t *testing.T) {
 	require.Equal(t, 9, usage.TotalTokens)
 	require.Equal(t, "anthropic", usage.UsageSemantic)
 	require.JSONEq(t, body, recorder.Body.String())
-	require.Equal(t, types.RelayFormatClaude, info.FinalRequestRelayFormat)
+	require.Equal(t, types.RelayFormat(types.RelayFormatClaude), info.FinalRequestRelayFormat)
 }
