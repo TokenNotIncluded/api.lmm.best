@@ -22,13 +22,7 @@ use axum::{
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use bcrypt::{DEFAULT_COST, hash, verify};
 use redis::AsyncCommands;
-use rsa::{
-    RsaPrivateKey,
-    pkcs1::DecodeRsaPrivateKey,
-    pkcs1v15::SigningKey,
-    pkcs8::DecodePrivateKey,
-    signature::{SignatureEncoding as _, Signer as _},
-};
+use ring::{rand::SystemRandom, rsa, signature};
 use rust_decimal::Decimal;
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
@@ -1549,12 +1543,21 @@ fn pancake_signature(
     path: &str,
     timestamp: &str,
     body: &[u8],
-    private_key: &RsaPrivateKey,
+    private_key: &rsa::KeyPair,
 ) -> Result<String, ()> {
     let body_hash = BASE64.encode(Sha256::digest(body));
     let canonical = format!("POST\n{path}\n{timestamp}\n{body_hash}");
-    let signature = SigningKey::<Sha256>::new(private_key.clone()).sign(canonical.as_bytes());
-    Ok(BASE64.encode(signature.to_vec()))
+    let rng = SystemRandom::new();
+    let mut output = vec![0_u8; private_key.public().modulus_len()];
+    private_key
+        .sign(
+            &signature::RSA_PKCS1_SHA256,
+            &rng,
+            canonical.as_bytes(),
+            &mut output,
+        )
+        .map_err(|_| ())?;
+    Ok(BASE64.encode(output))
 }
 
 fn pancake_idempotency_key(merchant_id: &str, path: &str, body: &[u8]) -> String {
@@ -1567,22 +1570,39 @@ fn pancake_idempotency_key(merchant_id: &str, path: &str, body: &[u8]) -> String
     hex::encode(digest.finalize())
 }
 
-fn parse_pancake_private_key(raw: &str) -> Result<RsaPrivateKey, ()> {
+fn parse_pancake_private_key(raw: &str) -> Result<rsa::KeyPair, ()> {
     let normalized = raw.replace("\\n", "\n").replace("\r\n", "\n");
     let normalized = normalized.trim();
     if normalized.is_empty() {
         return Err(());
     }
+
+    fn pem_der(input: &str, label: &str) -> Result<Vec<u8>, ()> {
+        let begin = format!("-----BEGIN {label}-----");
+        let end = format!("-----END {label}-----");
+        let start = input.find(&begin).ok_or(())? + begin.len();
+        let finish = input[start..].find(&end).ok_or(())? + start;
+        let encoded: String = input[start..finish]
+            .chars()
+            .filter(|ch| !ch.is_ascii_whitespace())
+            .collect();
+        BASE64.decode(encoded.as_bytes()).map_err(|_| ())
+    }
+
     if normalized.contains("-----BEGIN RSA PRIVATE KEY-----") {
         // gitleaks:allow -- PEM boundary marker
-        return RsaPrivateKey::from_pkcs1_pem(normalized).map_err(|_| ());
+        let der = pem_der(normalized, "RSA PRIVATE KEY")?;
+        return rsa::KeyPair::from_der(&der).map_err(|_| ());
     }
     if normalized.contains("-----BEGIN PRIVATE KEY-----") {
         // gitleaks:allow -- PEM boundary marker
-        return RsaPrivateKey::from_pkcs8_pem(normalized).map_err(|_| ());
+        let der = pem_der(normalized, "PRIVATE KEY")?;
+        return rsa::KeyPair::from_pkcs8(&der).map_err(|_| ());
     }
-    let raw = BASE64.decode(normalized).map_err(|_| ())?;
-    RsaPrivateKey::from_pkcs8_der(&raw).map_err(|_| ())
+    let der = BASE64.decode(normalized).map_err(|_| ())?;
+    rsa::KeyPair::from_pkcs8(&der)
+        .or_else(|_| rsa::KeyPair::from_der(&der))
+        .map_err(|_| ())
 }
 
 fn normalize_pancake_catalog(data: Value) -> Result<Value, ()> {
