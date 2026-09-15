@@ -181,12 +181,11 @@ impl OpenAiUpstreamClient {
         let upstream_request =
             copy_upstream_headers(self.client.post(url), &request.headers, &target.api_key)
                 .body(request.raw_body.clone());
-        let upstream = self.client.send(upstream_request).await.map_err(|error| {
-            upstream_transport_failure(match error {
-                RelayHttpError::ResponseHeaders => "upstream response timed out",
-                _ => "upstream request failed",
-            })
-        })?;
+        let upstream = self
+            .client
+            .send(upstream_request)
+            .await
+            .map_err(openai_upstream_request_failure)?;
         let status = upstream.status();
         let headers = upstream.headers().clone();
         if !status.is_success() {
@@ -1426,6 +1425,18 @@ fn invalid_target_failure() -> OpenAiRelayFailure {
     )
 }
 
+fn openai_upstream_request_failure(error: RelayHttpError) -> OpenAiRelayFailure {
+    match error {
+        RelayHttpError::FirstOutput => OpenAiRelayFailure::new(
+            StatusCode::GATEWAY_TIMEOUT,
+            "upstream_timeout",
+            "upstream first response timeout",
+        ),
+        RelayHttpError::ResponseHeaders => upstream_transport_failure("upstream response timed out"),
+        _ => upstream_transport_failure("upstream request failed"),
+    }
+}
+
 fn upstream_transport_failure(message: &'static str) -> OpenAiRelayFailure {
     OpenAiRelayFailure::new(
         StatusCode::INTERNAL_SERVER_ERROR,
@@ -1637,7 +1648,7 @@ mod tests {
             request_id: "request-1".to_owned(),
             headers,
             request: with_context(
-                completion_request_to_canonical(br#"{"model":"mock-model","prompt":"hello"}"#),
+                completion_request_to_canonical(br#"{\"model\":\"mock-model\",\"prompt\":\"hello\"}"#),
                 "build canonical relay test request",
             )?,
             raw_body: Bytes::copy_from_slice(raw_body),
@@ -1662,7 +1673,7 @@ mod tests {
 
     #[test]
     fn native_openai_parse_extracts_metadata_without_filtering_unknown_wire_fields() -> TestResult {
-        let body = br#"{"model":"gpt-future","stream":true,"tools":[{"type":"future_tool","opaque":{"x":1}}],"future_request_field":[1,2,3]}"#;
+        let body = br#"{\"model\":\"gpt-future\",\"stream\":true,\"tools\":[{\"type\":\"future_tool\",\"opaque\":{\"x\":1}}],\"future_request_field\":[1,2,3]}"#;
         let canonical = with_context(
             parse_request(OpenAiRelayEndpoint::ChatCompletions, body),
             "parse native Chat Completions metadata",
@@ -1682,7 +1693,7 @@ mod tests {
 
     #[test]
     fn native_openai_parse_rejects_malformed_stream_metadata_without_reading_other_fields() {
-        let body = br#"{"model":"gpt-future","stream":"yes","future":true}"#;
+        let body = br#"{\"model\":\"gpt-future\",\"stream\":\"yes\",\"future\":true}"#;
         assert!(matches!(
             parse_request(OpenAiRelayEndpoint::Responses, body),
             Err(RelayConvertError::Unsupported(message))
@@ -1763,7 +1774,7 @@ mod tests {
                 .method("POST")
                 .uri("/v1/chat/completions")
                 .header(header::AUTHORIZATION, "Bearer tenant-token")
-                .body(Body::from(r#"{"model":"gpt-future"}"#)),
+                .body(Body::from(r#"{\"model\":\"gpt-future\"}"#)),
             "build missing-registry relay request",
         )?;
 
@@ -1819,6 +1830,15 @@ mod tests {
         );
         assert!(!rolled_back.details.flag_decision.enabled);
         Ok(())
+    }
+
+    #[test]
+    fn first_output_timeout_maps_to_go_upstream_timeout_envelope() {
+        let failure = openai_upstream_request_failure(RelayHttpError::FirstOutput);
+        assert_eq!(failure.status, StatusCode::GATEWAY_TIMEOUT);
+        assert_eq!(failure.code, "upstream_timeout");
+        assert_eq!(failure.message, "upstream first response timeout");
+        assert!(failure.headers.is_empty());
     }
 
     #[tokio::test]
@@ -1901,12 +1921,12 @@ mod tests {
         let (base_url, mut received, task) = mock_server(MockUpstreamResponse {
             status: StatusCode::OK,
             headers,
-            body: br#"{"opaque_provider_field":true}"#.to_vec(),
+            body: br#"{\"opaque_provider_field\":true}"#.to_vec(),
         })
         .await?;
         let request = relay_request(
             OpenAiRelayEndpoint::ChatCompletions,
-            br#"{"model":"mock-model","messages":[{"role":"user","content":"hello"}],"provider_option":true}"#,
+            br#"{\"model\":\"mock-model\",\"messages\":[{\"role\":\"user\",\"content\":\"hello\"}],\"provider_option\":true}"#,
         )?;
         let client = OpenAiUpstreamClient::new(
             crate::relay_http::RelayHttpClient::new(crate::relay_http::RelayTimeoutConfig {
@@ -1953,7 +1973,7 @@ mod tests {
             to_bytes(body, usize::MAX).await,
             "read the upstream passthrough body",
         )?;
-        assert_eq!(body.as_ref(), br#"{"opaque_provider_field":true}"#);
+        assert_eq!(body.as_ref(), br#"{\"opaque_provider_field\":true}"#);
         task.abort();
         Ok(())
     }
@@ -1986,7 +2006,7 @@ mod tests {
                         base_url,
                         api_key: String::new(),
                     },
-                    &relay_request(OpenAiRelayEndpoint::Responses, br#"{"model":"mock-model"}"#)?,
+                    &relay_request(OpenAiRelayEndpoint::Responses, br#"{\"model\":\"mock-model\"}"#)?,
                 )
                 .await,
             "forward the SSE request to the mock upstream",
@@ -2019,7 +2039,7 @@ mod tests {
         let (base_url, _received, task) = mock_server(MockUpstreamResponse {
             status: StatusCode::TOO_MANY_REQUESTS,
             headers,
-            body: br#"{"error":{"message":"rate limited","code":"rate_limit_exceeded"}}"#.to_vec(),
+            body: br#"{\"error\":{\"message\":\"rate limited\",\"code\":\"rate_limit_exceeded\"}}"#.to_vec(),
         })
         .await?;
         let client = OpenAiUpstreamClient::new(
@@ -2035,7 +2055,7 @@ mod tests {
                     base_url,
                     api_key: String::new(),
                 },
-                &relay_request(OpenAiRelayEndpoint::Responses, br#"{"model":"mock-model"}"#)?,
+                &relay_request(OpenAiRelayEndpoint::Responses, br#"{\"model\":\"mock-model\"}"#)?,
             )
             .await;
         let error = match result {
