@@ -489,7 +489,14 @@ mod tests {
 
     #[test]
     fn first_output_env_matches_go_bounds_and_disable_semantics() {
-        for value in [None, Some("0"), Some("29"), Some("601"), Some("-1"), Some("bad")] {
+        for value in [
+            None,
+            Some("0"),
+            Some("29"),
+            Some("601"),
+            Some("-1"),
+            Some("bad"),
+        ] {
             assert_eq!(
                 openai_first_output_timeout_from_lookup(|_| value.map(str::to_owned)),
                 None
@@ -529,18 +536,26 @@ mod tests {
         let mut buffered =
             b"data: {\"choices\":[{\"delta\":{\"role\":\"assistant\"}}]}\n\n".to_vec();
         let mut offset = 0;
-        assert!(!scan_new_sse_events_for_visible_output(&buffered, &mut offset));
+        assert!(!scan_new_sse_events_for_visible_output(
+            &buffered,
+            &mut offset
+        ));
         buffered.extend_from_slice(b"data: {\"choices\":[{\"delta\":{\"content\":\"he");
-        assert!(!scan_new_sse_events_for_visible_output(&buffered, &mut offset));
+        assert!(!scan_new_sse_events_for_visible_output(
+            &buffered,
+            &mut offset
+        ));
         buffered.extend_from_slice(b"llo\"}}]}\n\n");
-        assert!(scan_new_sse_events_for_visible_output(&buffered, &mut offset));
+        assert!(scan_new_sse_events_for_visible_output(
+            &buffered,
+            &mut offset
+        ));
     }
 
     #[tokio::test(start_paused = true)]
     async fn first_output_guard_times_out_role_only_stream() {
-        let role_only = Bytes::from_static(
-            b"data: {\"choices\":[{\"delta\":{\"role\":\"assistant\"}}]}\n\n",
-        );
+        let role_only =
+            Bytes::from_static(b"data: {\"choices\":[{\"delta\":{\"role\":\"assistant\"}}]}\n\n");
         let body = stream::iter([Ok(role_only)])
             .chain(stream::pending())
             .boxed();
@@ -550,12 +565,10 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn first_output_guard_replays_exact_prefix_and_retires_after_visible_content() {
-        let role_only = Bytes::from_static(
-            b"data: {\"choices\":[{\"delta\":{\"role\":\"assistant\"}}]}\n\n",
-        );
-        let visible = Bytes::from_static(
-            b"data: {\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}\n\n",
-        );
+        let role_only =
+            Bytes::from_static(b"data: {\"choices\":[{\"delta\":{\"role\":\"assistant\"}}]}\n\n");
+        let visible =
+            Bytes::from_static(b"data: {\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}\n\n");
         let done = Bytes::from_static(b"data: [DONE]\n\n");
         let expected = [role_only.as_ref(), visible.as_ref(), done.as_ref()].concat();
         let body = stream::iter([Ok(role_only), Ok(visible), Ok(done)]).boxed();
@@ -575,7 +588,10 @@ mod tests {
         let oversized = Bytes::from(vec![b'x'; OPENAI_FIRST_OUTPUT_BUFFER_LIMIT + 1]);
         let body = stream::iter([Ok(oversized)]).boxed();
         let result = wait_for_openai_first_visible_output(body, Duration::from_secs(30)).await;
-        assert!(matches!(result, Err(RelayHttpError::FirstOutputBufferLimit)));
+        assert!(matches!(
+            result,
+            Err(RelayHttpError::FirstOutputBufferLimit)
+        ));
     }
 
     #[tokio::test]
