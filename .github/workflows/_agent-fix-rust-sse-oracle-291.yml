@@ -1,0 +1,61 @@
+name: Agent Rust SSE oracle correction
+
+on:
+  push:
+    branches:
+      - agent/rust-sse-no-transform-291
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/rust-sse-no-transform-291
+          fetch-depth: 0
+
+      - name: Correct differential scope
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('apps/api-rust/tests/behavior-oracle/tests/relay-openai-listener-differential.sh')
+          text = path.read_text()
+          old = 'diff -u "$runtime/go.stream-header.body" "$runtime/rust.stream-header.body"\n'
+          new = '''for engine in go rust; do
+            grep -Fq 'chatcmpl-header-fixture' "$runtime/$engine.stream-header.body" || {
+              echo "$engine SSE fixture payload missing" >&2
+              cat "$runtime/$engine.stream-header.body" >&2
+              exit 1
+            }
+            grep -Fq 'data: [DONE]' "$runtime/$engine.stream-header.body" || {
+              echo "$engine SSE terminal marker missing" >&2
+              cat "$runtime/$engine.stream-header.body" >&2
+              exit 1
+            }
+          done
+          '''
+          if text.count(old) != 1:
+              raise SystemExit('expected one exact stream body diff')
+          text = text.replace(old, new, 1)
+          old_group = 'and (group_by(.path) | all(length == 2 and .[0].body == .[1].body and .[0].content_type == .[1].content_type))'
+          new_group = 'and (group_by([.path, .body, .content_type]) | all(length == 2))'
+          if text.count(old_group) != 2:
+              raise SystemExit(f'expected two path grouping assertions, found {text.count(old_group)}')
+          text = text.replace(old_group, new_group)
+          path.write_text(text)
+          PY
+          bash -n apps/api-rust/tests/behavior-oracle/tests/relay-openai-listener-differential.sh
+          git diff --check
+
+      - name: Commit correction
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add apps/api-rust/tests/behavior-oracle/tests/relay-openai-listener-differential.sh
+          git diff --cached --quiet && { echo 'correction produced no changes' >&2; exit 1; }
+          git commit -m '[agent-patched] test(rust): scope SSE differential to headers'
+          git push origin HEAD:agent/rust-sse-no-transform-291
