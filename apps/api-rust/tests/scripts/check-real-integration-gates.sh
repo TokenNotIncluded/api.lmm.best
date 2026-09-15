@@ -88,11 +88,11 @@ for oracle_test in \
     exit 1
   }
 done
-grep -Fq "--lib 'channel_balance::tests::'" "$runner" || {
+grep -Fq -- "--lib 'channel_balance::tests::'" "$runner" || {
   echo "real-integration runner does not execute Rust DeepSeek balance contracts" >&2
   exit 1
 }
-grep -Fq "--lib 'channel_balance_provider::tests::'" "$runner" || {
+grep -Fq -- "--lib 'channel_balance_provider::tests::'" "$runner" || {
   echo "real-integration runner does not execute Rust channel balance route contracts" >&2
   exit 1
 }
