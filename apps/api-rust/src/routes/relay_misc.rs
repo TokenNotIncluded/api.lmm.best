@@ -679,6 +679,10 @@ pub(super) fn filtered_upstream_response(mut response: Response) -> Response {
         })
     {
         response.headers_mut().insert(
+            header::CACHE_CONTROL,
+            header::HeaderValue::from_static("no-cache, no-transform"),
+        );
+        response.headers_mut().insert(
             header::HeaderName::from_static("x-accel-buffering"),
             header::HeaderValue::from_static("no"),
         );
@@ -1352,6 +1356,10 @@ mod tests {
 
         let response = filtered_upstream_response(response);
 
+        assert_eq!(
+            response.headers()[header::CACHE_CONTROL],
+            "no-cache, no-transform"
+        );
         assert_eq!(response.headers()["x-accel-buffering"], "no");
     }
 

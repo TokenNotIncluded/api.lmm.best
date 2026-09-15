@@ -300,6 +300,11 @@ async fn responses_route_serializes_typed_stream_as_named_sse_events() {
         "text/event-stream; charset=utf-8"
     );
     assert_eq!(
+        response.headers()[header::CACHE_CONTROL],
+        "no-cache, no-transform",
+        "streaming responses must forbid intermediary transforms"
+    );
+    assert_eq!(
         response.headers()["x-accel-buffering"],
         "no",
         "streaming responses must opt out of reverse-proxy buffering"
@@ -341,6 +346,10 @@ async fn native_openai_sse_sets_reverse_proxy_buffering_header() {
         .expect("response");
 
     assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response.headers()[header::CACHE_CONTROL],
+        "no-cache, no-transform"
+    );
     assert_eq!(response.headers()["x-accel-buffering"], "no");
 }
 
