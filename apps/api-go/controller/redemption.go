@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 	"unicode/utf8"
@@ -61,6 +62,13 @@ func GetRedemption(c *gin.Context) {
 	return
 }
 
+func validateRedemptionRewardForAdmin(redemption *model.Redemption) error {
+	if redemption.ResetVoucherExpiresAt > 0 && redemption.ResetVoucherExpiresAt <= common.GetTimestamp() {
+		return errors.New("banked reset 券过期时间必须晚于当前时间")
+	}
+	return model.ValidateRedemptionReward(redemption)
+}
+
 func AddRedemption(c *gin.Context) {
 	if !operation_setting.IsPaymentComplianceConfirmed() {
 		common.ApiErrorI18n(c, i18n.MsgPaymentComplianceRequired)
@@ -85,7 +93,7 @@ func AddRedemption(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgRedemptionCountMax)
 		return
 	}
-	if err := common.ValidateWalletQuota(redemption.Quota); err != nil {
+	if err := validateRedemptionRewardForAdmin(&redemption); err != nil {
 		common.ApiError(c, err)
 		return
 	}
@@ -97,12 +105,15 @@ func AddRedemption(c *gin.Context) {
 	for i := 0; i < redemption.Count; i++ {
 		key := common.GetUUID()
 		cleanRedemption := model.Redemption{
-			UserId:      c.GetInt("id"),
-			Name:        redemption.Name,
-			Key:         key,
-			CreatedTime: common.GetTimestamp(),
-			Quota:       redemption.Quota,
-			ExpiredTime: redemption.ExpiredTime,
+			UserId:                c.GetInt("id"),
+			Name:                  redemption.Name,
+			Key:                   key,
+			CreatedTime:           common.GetTimestamp(),
+			Quota:                 redemption.Quota,
+			RewardType:            redemption.RewardType,
+			ResetPlanId:           redemption.ResetPlanId,
+			ResetVoucherExpiresAt: redemption.ResetVoucherExpiresAt,
+			ExpiredTime:           redemption.ExpiredTime,
 		}
 		err = cleanRedemption.Insert()
 		if err != nil {
@@ -116,11 +127,18 @@ func AddRedemption(c *gin.Context) {
 		}
 		keys = append(keys, key)
 	}
-	recordManageAudit(c, "redemption.create", map[string]interface{}{
-		"name":  redemption.Name,
-		"count": redemption.Count,
-		"quota": logger.LogQuota(redemption.Quota),
-	})
+	audit := map[string]interface{}{
+		"name":        redemption.Name,
+		"count":       redemption.Count,
+		"reward_type": redemption.RewardType,
+	}
+	if redemption.RewardType == model.RedemptionRewardResetVoucher {
+		audit["reset_plan_id"] = redemption.ResetPlanId
+		audit["reset_voucher_expires_at"] = redemption.ResetVoucherExpiresAt
+	} else {
+		audit["quota"] = logger.LogQuota(redemption.Quota)
+	}
+	recordManageAudit(c, "redemption.create", audit)
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
@@ -157,18 +175,20 @@ func UpdateRedemption(c *gin.Context) {
 		return
 	}
 	if statusOnly == "" {
-		if err := common.ValidateWalletQuota(redemption.Quota); err != nil {
-			common.ApiError(c, err)
-			return
-		}
 		if valid, msg := validateExpiredTime(c, redemption.ExpiredTime); !valid {
 			c.JSON(http.StatusOK, gin.H{"success": false, "message": msg})
 			return
 		}
-		// If you add more fields, please also update redemption.Update()
 		cleanRedemption.Name = redemption.Name
 		cleanRedemption.Quota = redemption.Quota
+		cleanRedemption.RewardType = redemption.RewardType
+		cleanRedemption.ResetPlanId = redemption.ResetPlanId
+		cleanRedemption.ResetVoucherExpiresAt = redemption.ResetVoucherExpiresAt
 		cleanRedemption.ExpiredTime = redemption.ExpiredTime
+		if err := validateRedemptionRewardForAdmin(cleanRedemption); err != nil {
+			common.ApiError(c, err)
+			return
+		}
 	}
 	if statusOnly != "" {
 		cleanRedemption.Status = redemption.Status

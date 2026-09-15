@@ -1,5 +1,8 @@
 {
   "translation": {
+    "Allow this key to read account balance": "Autoriser cette clé à consulter le solde du compte",
+    "Unable to update account balance access": "Impossible de modifier l'accès au solde du compte",
+    "Anyone holding this key can read your wallet balance. Turn off to revoke access. Subscription and key quotas are separate.": "Toute personne possédant cette clé peut consulter le solde de votre portefeuille. Désactivez pour révoquer l'accès. Les quotas d'abonnement et de clé sont distincts.",
     "360": "360",
     "1000": "1000",
     "10000": "10000",

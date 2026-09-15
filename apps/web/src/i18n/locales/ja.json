@@ -1,5 +1,8 @@
 {
   "translation": {
+    "Allow this key to read account balance": "このキーによるアカウント残高の読み取りを許可",
+    "Unable to update account balance access": "アカウント残高の読み取り権限を更新できません",
+    "Anyone holding this key can read your wallet balance. Turn off to revoke access. Subscription and key quotas are separate.": "このキーを持つ人はウォレット残高を読み取れます。オフにすると権限を取り消せます。サブスクリプションとキーの割り当ては別です。",
     "360": "360",
     "1000": "1000",
     "10000": "10000",
