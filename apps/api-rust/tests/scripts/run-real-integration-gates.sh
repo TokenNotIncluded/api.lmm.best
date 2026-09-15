@@ -11,7 +11,7 @@ manifest="$repo_root/apps/api-rust/Cargo.toml"
 suite=${1:-all}
 
 usage() {
-  echo "usage: $0 {auth|models|api-token|subscription-reset|migration|system-config|relay-timeouts|all}" >&2
+  echo "usage: $0 {auth|models|api-token|subscription-reset|migration|system-config|relay-timeouts|channel-balance|all}" >&2
   exit 2
 }
 
@@ -39,6 +39,18 @@ run_exact_migration_test() {
   fi
   cargo test --locked --manifest-path "$manifest" -p lmm-db-migrate \
     --test "$target" "$test_name" -- --ignored --exact --test-threads=1
+}
+
+run_exact_api_lib_test() {
+  local test_name=$1 listing
+  listing=$(cargo test --locked --manifest-path "$manifest" -p lmm-api-rs \
+    --lib "$test_name" -- --ignored --exact --list)
+  if ! grep -Fxq "$test_name: test" <<<"$listing"; then
+    echo "required integration test is missing: lmm-api-rs::$test_name" >&2
+    exit 1
+  fi
+  cargo test --locked --manifest-path "$manifest" -p lmm-api-rs \
+    --lib "$test_name" -- --ignored --exact --test-threads=1
 }
 
 run_auth() {
@@ -104,6 +116,12 @@ run_relay_timeouts() {
     --test relay_misc_pg -- --ignored --test-threads=1
 }
 
+run_channel_balance() {
+  require_loopback_url LMM_TEST_DATABASE_URL
+  TEST_DATABASE_URL="$LMM_TEST_DATABASE_URL" \
+    run_exact_api_lib_test channel_balance_store::tests::persisted_balance_updates_value_and_timestamp_together
+}
+
 case "$suite" in
   auth) run_auth ;;
   models) run_models ;;
@@ -112,6 +130,7 @@ case "$suite" in
   migration) run_migration ;;
   system-config) run_system_config ;;
   relay-timeouts) run_relay_timeouts ;;
-  all) run_auth; run_models; run_api_token; run_subscription_reset; run_system_config; run_migration; run_relay_timeouts ;;
+  channel-balance) run_channel_balance ;;
+  all) run_auth; run_models; run_api_token; run_subscription_reset; run_system_config; run_migration; run_relay_timeouts; run_channel_balance ;;
   *) usage ;;
 esac

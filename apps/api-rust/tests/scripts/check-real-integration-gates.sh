@@ -57,6 +57,17 @@ for file in "${!requirements[@]}"; do
   }
 done
 
+balance_source="$repo_root/apps/api-rust/src/channel_balance_store.rs"
+[[ -f $balance_source ]] || { echo "missing channel balance persistence source: $balance_source" >&2; exit 1; }
+grep -Fq 'async fn persisted_balance_updates_value_and_timestamp_together()' "$balance_source" || {
+  echo "channel balance persistence regression test is missing" >&2
+  exit 1
+}
+grep -Fq 'channel_balance_store::tests::persisted_balance_updates_value_and_timestamp_together' "$runner" || {
+  echo "real-integration runner does not execute the channel balance persistence regression" >&2
+  exit 1
+}
+
 for hostile_url in \
   'redis://:secret@10.0.0.1:6379' \
   'redis://:secret@example.com:6379'; do
@@ -80,7 +91,7 @@ if rg -U -n 'else\s*\{\s*return;\s*\}' \
   exit 1
 fi
 
-for suite in auth models api-token system-config migration; do
+for suite in auth models api-token system-config migration channel-balance; do
   if env -u LMM_TEST_DATABASE_URL -u LMM_AUTH_TEST_ALLOW_SCHEMA_RESET -u LMM_AUTH_TEST_DATABASE_URL -u LMM_AUTH_TEST_VALKEY_URL \
     -u LMM_MODELS_TEST_DATABASE_URL -u LMM_MODELS_TEST_VALKEY_URL \
     -u LMM_API_TOKEN_TEST_DATABASE_URL -u LMM_API_TOKEN_TEST_VALKEY_URL \
@@ -110,4 +121,4 @@ rg -Fq 'required integration test is missing:' "$empty_test_bin/output" || {
   exit 1
 }
 
-echo "real integration gates valid: $total_ignored ignored tests across ${#requirements[@]} modules; missing environment hard-fails"
+echo "real integration gates valid: $total_ignored ignored tests across ${#requirements[@]} modules plus channel balance persistence; missing environment hard-fails"

@@ -58,6 +58,13 @@ pub fn legacy_empty_response(status: StatusCode, retry_after_seconds: Option<u64
 /// Dashboard authentication routes and their PostgreSQL/Valkey adapter.
 pub mod auth;
 
+/// Provider balance response normalization shared by channel operations.
+pub(crate) mod channel_balance;
+/// Durable PostgreSQL state for provider balance refresh operations.
+pub(crate) mod channel_balance_store;
+/// Mounted single-channel provider balance adapter for advanced routes.
+pub mod channel_balance_provider;
+
 /// Legacy-compatible OpenAI model discovery route.
 pub mod models;
 

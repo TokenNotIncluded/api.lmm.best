@@ -12,6 +12,7 @@ use lmm_api_rs::{
         AuthConfig, AuthHttpState, DashboardAuth, DashboardDeveloperAccessPolicy,
         PgValkeyDashboardAuth,
     },
+    channel_balance_provider::DeepSeekBalanceChannelAdvancedProvider,
     models::{ModelsHttpState, ModelsListenerMode, PgModelsService},
     protocol_runtime_registry::validated_current_registry,
     routes::{
@@ -532,22 +533,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             channel_authorizer,
         ));
         // Advanced channel management owns its persisted channel lookup and
-        // outbound protocol boundary in Rust.  The adapter still fails closed
-        // for destinations that do not satisfy its target policy; mounting it
-        // here makes the normal listener's route surface explicit instead of
-        // silently falling through to Go.
+        // outbound protocol boundary in Rust. The DeepSeek decorator owns only
+        // the single-channel balance path; unrelated operations remain on the
+        // existing provider and batch balance refresh stays fail-closed until
+        // its own parity slice is complete.
+        let channel_advanced_provider = Arc::new(StoreBackedChannelAdvancedProvider::new(
+            Arc::new(PgChannelAdvancedStore::new(pg.clone())),
+            Arc::new(
+                ReqwestChannelAdvancedUpstream::new()
+                    .map_err(|_| {
+                        io::Error::other("failed to initialize advanced channel client")
+                    })?
+                    .with_pg_pool(pg.clone()),
+            ),
+        ));
         let channel_advanced = channel_advanced_router(ChannelAdvancedHttpState::new(
             Arc::new(DashboardChannelAdvancedAuthorizer::new(Arc::clone(&auth))),
-            Arc::new(StoreBackedChannelAdvancedProvider::new(
-                Arc::new(PgChannelAdvancedStore::new(pg.clone())),
-                Arc::new(
-                    ReqwestChannelAdvancedUpstream::new()
-                        .map_err(|_| {
-                            io::Error::other("failed to initialize advanced channel client")
-                        })?
-                        .with_pg_pool(pg.clone()),
-                ),
-            )),
+            Arc::new(
+                DeepSeekBalanceChannelAdvancedProvider::new(channel_advanced_provider, pg.clone())
+                    .map_err(|_| {
+                        io::Error::other("failed to initialize DeepSeek balance provider")
+                    })?,
+            ),
         ));
         // Deployment management is mounted on the normal listener with the
         // durable PostgreSQL/Valkey coordinator.  A missing server-owned
