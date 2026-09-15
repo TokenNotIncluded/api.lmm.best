@@ -1,5 +1,8 @@
 {
   "translation": {
+    "Allow this key to read account balance": "允許此金鑰讀取帳戶餘額",
+    "Unable to update account balance access": "無法更新帳戶餘額讀取權限",
+    "Anyone holding this key can read your wallet balance. Turn off to revoke access. Subscription and key quotas are separate.": "持有此金鑰的人皆可讀取你的錢包餘額。關閉即可撤銷權限。訂閱額度與金鑰額度另行計算。",
     "360": "360",
     "1000": "1000",
     "10000": "10000",

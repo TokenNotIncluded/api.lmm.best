@@ -60,6 +60,13 @@ export async function searchApiKeys(
 }
 
 // Get single API key by ID
+export async function setAccountBalanceAccess(id: number, enabled: boolean) {
+  const res = await api.put(`/api/token/${id}/account-balance-access`, {
+    enabled,
+  })
+  return res.data as ApiResponse
+}
+
 export async function getApiKey(id: number): Promise<ApiResponse<ApiKey>> {
   const res = await api.get(`/api/token/${id}`)
   return res.data

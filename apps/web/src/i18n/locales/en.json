@@ -1,5 +1,8 @@
 {
   "translation": {
+    "Allow this key to read account balance": "Allow this key to read account balance",
+    "Unable to update account balance access": "Unable to update account balance access",
+    "Anyone holding this key can read your wallet balance. Turn off to revoke access. Subscription and key quotas are separate.": "Anyone holding this key can read your wallet balance. Turn off to revoke access. Subscription and key quotas are separate.",
     "360": "360",
     "1000": "1000",
     "10000": "10000",

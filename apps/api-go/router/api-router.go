@@ -506,6 +506,7 @@ func SetApiRouter(router *gin.Engine) {
 		registerAuthzRoutes(apiRouter)
 		tokenRoute := apiRouter.Group("/token")
 		tokenRoute.Use(middleware.UserAuth())
+		tokenRoute.PUT("/:id/account-balance-access", middleware.RequestBodyLimit(tokenMutationRequestMaxBytes), middleware.CriticalRateLimit(), middleware.DisableCache(), controller.SetAccountBalanceAccess)
 		{
 			tokenRoute.GET("/", controller.GetAllTokens)
 			tokenRoute.GET("/search", middleware.SearchRateLimit(), controller.SearchTokens)

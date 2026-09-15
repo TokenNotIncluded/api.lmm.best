@@ -1,5 +1,8 @@
 {
   "translation": {
+    "Allow this key to read account balance": "Cho phép khóa này đọc số dư tài khoản",
+    "Unable to update account balance access": "Không thể cập nhật quyền đọc số dư tài khoản",
+    "Anyone holding this key can read your wallet balance. Turn off to revoke access. Subscription and key quotas are separate.": "Bất kỳ ai có khóa này đều có thể đọc số dư ví của bạn. Tắt để thu hồi quyền. Hạn mức gói đăng ký và khóa được tính riêng.",
     "360": "360",
     "1000": "1000",
     "10000": "10000",
