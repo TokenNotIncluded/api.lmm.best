@@ -417,9 +417,7 @@ async fn catalog_context<T>(
     headers: &HeaderMap,
     validate: impl FnOnce() -> Result<T, Response>,
 ) -> Result<(T, String), Response> {
-    let user = authenticated(state, headers)
-        .await
-        .map_err(|response| response)?;
+    let user = authenticated(state, headers).await?;
     let validated = validate()?;
     ensure_sms_purchase_access(state, &user).await?;
     let key = configured_key_response(state).await?;
