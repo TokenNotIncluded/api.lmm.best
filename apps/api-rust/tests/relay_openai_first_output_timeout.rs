@@ -13,7 +13,10 @@ use tokio::{net::TcpListener, task::JoinHandle};
 
 const ROLE_ONLY: &[u8] = b"data: {\"choices\":[{\"delta\":{\"role\":\"assistant\"}}]}\n\n";
 const VISIBLE: &[u8] = b"data: {\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}\n\n";
+const TOOL_VISIBLE: &[u8] = b"data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"name\":\"lookup\"}}]}}]}\n\n";
+const FUNCTION_VISIBLE: &[u8] = b"data: {\"choices\":[{\"delta\":{\"function_call\":{\"arguments\":\"{}\"}}}]}\n\n";
 const DONE: &[u8] = b"data: [DONE]\n\n";
+const PRE_OUTPUT_BUFFER_LIMIT: usize = 1024 * 1024;
 
 struct Server(JoinHandle<()>);
 
@@ -45,6 +48,51 @@ fn client(timeout: Option<Duration>) -> RelayHttpClient {
     })
     .expect("relay client")
     .with_openai_first_output_timeout(timeout)
+}
+
+async fn visible_delta_retires_deadline(visible: &'static [u8]) {
+    let app = Router::new().route(
+        "/v1/chat/completions",
+        post(move || async move {
+            let prefix = stream::iter([
+                Ok::<_, Infallible>(Bytes::from_static(ROLE_ONLY)),
+                Ok(Bytes::from_static(visible)),
+            ]);
+            let tail = stream::once(async {
+                tokio::time::sleep(Duration::from_millis(100)).await;
+                Ok::<_, Infallible>(Bytes::from_static(DONE))
+            });
+            (
+                [(header::CONTENT_TYPE, "text/event-stream")],
+                Body::from_stream(prefix.chain(tail)),
+            )
+                .into_response()
+        }),
+    );
+    let (url, _server) = serve(app).await;
+    let relay = client(Some(Duration::from_millis(50)));
+    let mut response = relay
+        .send(relay.request(Method::POST, url))
+        .await
+        .expect("visible output should release the response");
+    assert_eq!(response.status(), StatusCode::OK);
+    let first = response
+        .chunk()
+        .await
+        .expect("first buffered chunk")
+        .expect("first buffered chunk present");
+    let expected_prefix = [ROLE_ONLY, visible].concat();
+    assert_eq!(first.as_ref(), expected_prefix.as_slice());
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert_eq!(
+        response
+            .chunk()
+            .await
+            .expect("tail chunk")
+            .expect("tail chunk present")
+            .as_ref(),
+        DONE
+    );
 }
 
 #[tokio::test]
@@ -86,48 +134,37 @@ async fn role_only_frame_does_not_satisfy_first_visible_output_deadline() {
 
 #[tokio::test]
 async fn visible_content_retires_deadline_and_preserves_buffered_wire_bytes() {
+    visible_delta_retires_deadline(VISIBLE).await;
+}
+
+#[tokio::test]
+async fn visible_tool_and_function_output_retire_deadline() {
+    visible_delta_retires_deadline(TOOL_VISIBLE).await;
+    visible_delta_retires_deadline(FUNCTION_VISIBLE).await;
+}
+
+#[tokio::test]
+async fn pre_output_buffer_limit_fails_closed_before_unbounded_growth() {
     let app = Router::new().route(
         "/v1/chat/completions",
         post(|| async {
-            let prefix = stream::iter([
-                Ok::<_, Infallible>(Bytes::from_static(ROLE_ONLY)),
-                Ok(Bytes::from_static(VISIBLE)),
-            ]);
-            let tail = stream::once(async {
-                tokio::time::sleep(Duration::from_millis(100)).await;
-                Ok::<_, Infallible>(Bytes::from_static(DONE))
+            let oversized = stream::once(async {
+                Ok::<_, Infallible>(Bytes::from(vec![b'x'; PRE_OUTPUT_BUFFER_LIMIT + 1]))
             });
             (
                 [(header::CONTENT_TYPE, "text/event-stream")],
-                Body::from_stream(prefix.chain(tail)),
+                Body::from_stream(oversized),
             )
                 .into_response()
         }),
     );
     let (url, _server) = serve(app).await;
-    let relay = client(Some(Duration::from_millis(50)));
-    let mut response = relay
-        .send(relay.request(Method::POST, url))
-        .await
-        .expect("visible output should release the response");
-    assert_eq!(response.status(), StatusCode::OK);
-    let first = response
-        .chunk()
-        .await
-        .expect("first buffered chunk")
-        .expect("first buffered chunk present");
-    let expected_prefix = [ROLE_ONLY, VISIBLE].concat();
-    assert_eq!(first.as_ref(), expected_prefix.as_slice());
-    tokio::time::sleep(Duration::from_millis(100)).await;
-    assert_eq!(
-        response
-            .chunk()
-            .await
-            .expect("tail chunk")
-            .expect("tail chunk present")
-            .as_ref(),
-        DONE
-    );
+    let relay = client(Some(Duration::from_secs(1)));
+    let result = relay.send(relay.request(Method::POST, url)).await;
+    assert!(matches!(
+        result,
+        Err(RelayHttpError::FirstOutputBufferLimit)
+    ));
 }
 
 #[tokio::test]
