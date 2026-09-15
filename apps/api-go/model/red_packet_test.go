@@ -31,12 +31,12 @@ func TestClaimRedPacketHonorsPerUserLimitAndInventory(t *testing.T) {
 	now := common.GetTimestamp()
 	for index := 0; index < 2; index++ {
 		row := Redemption{
-			UserId: 1,
-			Key: fmt.Sprintf("packet-code-%d", index),
-			Status: common.RedemptionCodeStatusEnabled,
-			Name: fmt.Sprintf("reward-%d", index),
-			Quota: 100 + index,
-			RewardType: RedemptionRewardQuota,
+			UserId:      1,
+			Key:         fmt.Sprintf("packet-code-%d", index),
+			Status:      common.RedemptionCodeStatusEnabled,
+			Name:        fmt.Sprintf("reward-%d", index),
+			Quota:       100 + index,
+			RewardType:  RedemptionRewardQuota,
 			CreatedTime: now,
 		}
 		require.NoError(t, db.Create(&row).Error)
@@ -45,11 +45,11 @@ func TestClaimRedPacketHonorsPerUserLimitAndInventory(t *testing.T) {
 	require.NoError(t, db.Order("id ASC").Find(&rows).Error)
 
 	packet := RedPacket{
-		Title: "fair packet",
-		DrawMode: RedPacketDrawSequence,
+		Title:        "fair packet",
+		DrawMode:     RedPacketDrawSequence,
 		PerUserLimit: 1,
-		Enabled: true,
-		CreatedBy: 1,
+		Enabled:      true,
+		CreatedBy:    1,
 	}
 	require.NoError(t, CreateRedPacket(&packet, []RedPacketItemInput{
 		{ItemType: RedPacketItemRedemption, SourceId: rows[0].Id, Weight: 1},
@@ -79,13 +79,13 @@ func TestClaimRedPacketBindsDiscountCodeToClaimant(t *testing.T) {
 	db := setupRedPacketTestDB(t, &DiscountCode{}, &RedPacket{}, &RedPacketItem{}, &RedPacketClaim{})
 	now := common.GetTimestamp()
 	code := DiscountCode{
-		Code: "PACKET10",
-		Name: "packet discount",
+		Code:            "PACKET10",
+		Name:            "packet discount",
 		DiscountPercent: 10,
-		Status: DiscountCodeStatusEnabled,
-		MaxUses: 1,
-		CreatedTime: now,
-		UpdatedTime: now,
+		Status:          DiscountCodeStatusEnabled,
+		MaxUses:         1,
+		CreatedTime:     now,
+		UpdatedTime:     now,
 	}
 	require.NoError(t, db.Create(&code).Error)
 	packet := RedPacket{Title: "discount", DrawMode: RedPacketDrawRandom, PerUserLimit: 1, Enabled: true, CreatedBy: 1}
@@ -106,11 +106,11 @@ func TestRedeemWithResultCreatesBankedResetVoucher(t *testing.T) {
 	require.NoError(t, db.Create(&plan).Error)
 
 	redemption := Redemption{
-		UserId: 1,
-		Key: "reset-voucher-code",
-		Status: common.RedemptionCodeStatusEnabled,
-		Name: "banked reset",
-		RewardType: RedemptionRewardResetVoucher,
+		UserId:      1,
+		Key:         "reset-voucher-code",
+		Status:      common.RedemptionCodeStatusEnabled,
+		Name:        "banked reset",
+		RewardType:  RedemptionRewardResetVoucher,
 		ResetPlanId: plan.Id,
 		CreatedTime: common.GetTimestamp(),
 	}
