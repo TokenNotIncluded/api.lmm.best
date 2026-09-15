@@ -17,10 +17,12 @@ const (
 	Unknown Provider = "unknown" // 兜底默认
 )
 
+const numericRunChunkSize = 3
+
 // multipliers 定义不同厂商的计费权重
 type multipliers struct {
 	Word       float64 // 英文单词 (每词)
-	Number     float64 // 数字 (每连续数字串)
+	Number     float64 // 数字短串的基础权重
 	CJK        float64 // 中日韩字符 (每字)
 	Symbol     float64 // 普通标点符号 (每个)
 	MathSymbol float64 // 数学符号 (∑,∫,∂,√等，每个)
@@ -78,11 +80,13 @@ func EstimateToken(provider Provider, text string) int {
 		Number
 	)
 	currentWordType := None
+	numberRunLen := 0
 
 	for _, r := range text {
 		// 1. 处理空格和换行符
 		if unicode.IsSpace(r) {
 			currentWordType = None
+			numberRunLen = 0
 			// 换行符和制表符使用Newline权重
 			if r == '\n' || r == '\t' {
 				count += m.Newline
@@ -96,6 +100,7 @@ func EstimateToken(provider Provider, text string) int {
 		// 2. 处理 CJK (中日韩) - 按字符计费
 		if isCJK(r) {
 			currentWordType = None
+			numberRunLen = 0
 			count += m.CJK
 			continue
 		}
@@ -103,6 +108,7 @@ func EstimateToken(provider Provider, text string) int {
 		// 3. 处理Emoji - 使用专门的Emoji权重
 		if isEmoji(r) {
 			currentWordType = None
+			numberRunLen = 0
 			count += m.Emoji
 			continue
 		}
@@ -121,17 +127,28 @@ func EstimateToken(provider Provider, text string) int {
 			if currentWordType == None || currentWordType != newType {
 				if newType == Number {
 					count += m.Number
+					numberRunLen = 1
 				} else {
 					count += m.Word
+					numberRunLen = 0
 				}
 				currentWordType = newType
+			} else if newType == Number {
+				numberRunLen++
+				// Common BPE pre-tokenizers split long digit runs into short
+				// chunks. Preserve the calibrated provider-specific cost for
+				// the first 1-3 digits, then add roughly one token per extra
+				// three digits instead of keeping the run constant forever.
+				if (numberRunLen-1)%numericRunChunkSize == 0 {
+					count++
+				}
 			}
-			// 单词中间的字符不额外计费
 			continue
 		}
 
 		// 5. 处理标点符号/特殊字符 - 按类型使用不同权重
 		currentWordType = None
+		numberRunLen = 0
 		if isMathSymbol(r) {
 			count += m.MathSymbol
 		} else if r == '@' {
