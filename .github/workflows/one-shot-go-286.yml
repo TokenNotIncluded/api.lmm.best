@@ -1,4 +1,4 @@
-name: One-shot Go #286 apply
+name: "One-shot Go 286 apply"
 
 on:
   push:
@@ -26,6 +26,9 @@ jobs:
 
       - name: Apply raw JSON token-count normalization
         shell: bash
+        env:
+          HELPER_B64: cGFja2FnZSBkdG8KCmltcG9ydCAoCgkiZW5jb2RpbmcvanNvbiIKCSJ1bmljb2RlL3V0ZjE2IgoJInVuaWNvZGUvdXRmOCIKKQoKLy8gbm9ybWFsaXplUmF3SlNPTkZvclRva2VuQ291bnQgZGVjb2RlcyBKU09OIFVuaWNvZGUgZXNjYXBlcyBvbmx5IHdoaWxlCi8vIHNjYW5uaW5nIEpTT04gc3RyaW5nIGxpdGVyYWxzLiBJdCBpcyBpbnRlbnRpb25hbGx5IHVzZWQgb25seSBhdCByYXctSlNPTgovLyB0b2tlbi1jb3VudCBib3VuZGFyaWVzOiBzZW1hbnRpYyBzdHJpbmdzIGhhdmUgYWxyZWFkeSBiZWVuIGRlY29kZWQgYnkgdGhlCi8vIEpTT04gcGFyc2VyIGFuZCBtdXN0IG5vdCBiZSBkZWNvZGVkIGEgc2Vjb25kIHRpbWUuCmZ1bmMgbm9ybWFsaXplUmF3SlNPTkZvclRva2VuQ291bnQocmF3IGpzb24uUmF3TWVzc2FnZSkgc3RyaW5nIHsKCWlmIGxlbihyYXcpID09IDAgewoJCXJldHVybiAiIgoJfQoKCW91dCA6PSBtYWtlKFtdYnl0ZSwgMCwgbGVuKHJhdykpCglpblN0cmluZyA6PSBmYWxzZQoJZm9yIGkgOj0gMDsgaSA8IGxlbihyYXcpOyB7CgkJYiA6PSByYXdbaV0KCQlpZiAhaW5TdHJpbmcgewoJCQlvdXQgPSBhcHBlbmQob3V0LCBiKQoJCQlpZiBiID09ICciJyB7CgkJCQlpblN0cmluZyA9IHRydWUKCQkJfQoJCQlpKysKCQkJY29udGludWUKCQl9CgoJCWlmIGIgPT0gJyInIHsKCQkJb3V0ID0gYXBwZW5kKG91dCwgYikKCQkJaW5TdHJpbmcgPSBmYWxzZQoJCQlpKysKCQkJY29udGludWUKCQl9CgkJaWYgYiAhPSAnXFwnIHsKCQkJb3V0ID0gYXBwZW5kKG91dCwgYikKCQkJaSsrCgkJCWNvbnRpbnVlCgkJfQoJCWlmIGkrMSA+PSBsZW4ocmF3KSB7CgkJCW91dCA9IGFwcGVuZChvdXQsIGIpCgkJCWkrKwoJCQljb250aW51ZQoJCX0KCQlpZiByYXdbaSsxXSAhPSAndScgewoJCQkvLyBDb25zdW1lIHRoZSBlc2NhcGVkIGJ5dGUgYXMgYSBwYWlyLiBUaGlzIGtlZXBzIGVzY2FwZWQgcXVvdGVzIGZyb20KCQkJLy8gdG9nZ2xpbmcgc3RyaW5nIHN0YXRlIGFuZCBrZWVwcyBlc2NhcGVkIGJhY2tzbGFzaGVzIGZyb20gZXhwb3NpbmcgYQoJCQkvLyBmb2xsb3dpbmcgbGl0ZXJhbCAidVhYWFgiIHNlcXVlbmNlIHRvIHRoaXMgc2Nhbm5lci4KCQkJb3V0ID0gYXBwZW5kKG91dCwgcmF3W2ldLCByYXdbaSsxXSkKCQkJaSArPSAyCgkJCWNvbnRpbnVlCgkJfQoKCQljb2RlVW5pdCwgb2sgOj0gZGVjb2RlSlNPTkhleDQocmF3W2krMjpdKQoJCWlmICFvayB7CgkJCW91dCA9IGFwcGVuZChvdXQsIHJhd1tpXSwgcmF3W2krMV0pCgkJCWkgKz0gMgoJCQljb250aW51ZQoJCX0KCgkJciA6PSBydW5lKGNvZGVVbml0KQoJCWlmIGNvZGVVbml0ID49IDB4RDgwMCAmJiBjb2RlVW5pdCA8PSAweERCRkYgewoJCQlpZiBpKzEyIDw9IGxlbihyYXcpICYmIHJhd1tpKzZdID09ICdcXCcgJiYgcmF3W2krN10gPT0gJ3UnIHsKCQkJCWxvdywgbG93T0sgOj0gZGVjb2RlSlNPTkhleDQocmF3W2krODpdKQoJCQkJaWYgbG93T0sgJiYgbG93ID49IDB4REMwMCAmJiBsb3cgPD0gMHhERkZGIHsKCQkJCQlvdXQgPSB1dGY4LkFwcGVuZFJ1bmUob3V0LCB1dGYxNi5EZWNvZGVSdW5lKHIsIHJ1bmUobG93KSkpCgkJCQkJaSArPSAxMgoJCQkJCWNvbnRpbnVlCgkJCQl9CgkJCX0KCQkJLy8gUHJlc2VydmUgbWFsZm9ybWVkL2xvbmUgc3Vycm9nYXRlcyBpbnN0ZWFkIG9mIG1hbnVmYWN0dXJpbmcgdGhlCgkJCS8vIHJlcGxhY2VtZW50IHJ1bmUuIEJpbGxpbmcgbm9ybWFsaXphdGlvbiBtdXN0IGJlIGRldGVybWluaXN0aWMuCgkJCW91dCA9IGFwcGVuZChvdXQsIHJhd1tpOmkrNl0uLi4pCgkJCWkgKz0gNgoJCQljb250aW51ZQoJCX0KCQlpZiBjb2RlVW5pdCA+PSAweERDMDAgJiYgY29kZVVuaXQgPD0gMHhERkZGIHsKCQkJb3V0ID0gYXBwZW5kKG91dCwgcmF3W2k6aSs2XS4uLikKCQkJaSArPSA2CgkJCWNvbnRpbnVlCgkJfQoKCQlvdXQgPSB1dGY4LkFwcGVuZFJ1bmUob3V0LCByKQoJCWkgKz0gNgoJfQoJcmV0dXJuIHN0cmluZyhvdXQpCn0KCmZ1bmMgZGVjb2RlSlNPTkhleDQocmF3IFtdYnl0ZSkgKHVpbnQxNiwgYm9vbCkgewoJaWYgbGVuKHJhdykgPCA0IHsKCQlyZXR1cm4gMCwgZmFsc2UKCX0KCXZhciB2YWx1ZSB1aW50MTYKCWZvciBfLCBiIDo9IHJhbmdlIHJhd1s6NF0gewoJCXZhbHVlIDw8PSA0CgkJc3dpdGNoIHsKCQljYXNlIGIgPj0gJzAnICYmIGIgPD0gJzknOgoJCQl2YWx1ZSB8PSB1aW50MTYoYiAtICcwJykKCQljYXNlIGIgPj0gJ2EnICYmIGIgPD0gJ2YnOgoJCQl2YWx1ZSB8PSB1aW50MTYoYi0nYScpICsgMTAKCQljYXNlIGIgPj0gJ0EnICYmIGIgPD0gJ0YnOgoJCQl2YWx1ZSB8PSB1aW50MTYoYi0nQScpICsgMTAKCQlkZWZhdWx0OgoJCQlyZXR1cm4gMCwgZmFsc2UKCQl9Cgl9CglyZXR1cm4gdmFsdWUsIHRydWUKfQo=
+          TEST_B64: cGFja2FnZSBkdG8KCmltcG9ydCAoCgkiZW5jb2RpbmcvanNvbiIKCSJ0ZXN0aW5nIgoKCSJnaXRodWIuY29tL3N0cmV0Y2hyL3Rlc3RpZnkvcmVxdWlyZSIKKQoKZnVuYyBUZXN0Tm9ybWFsaXplUmF3SlNPTkZvclRva2VuQ291bnQodCAqdGVzdGluZy5UKSB7Cgl0ZXN0cyA6PSBbXXN0cnVjdCB7CgkJbmFtZSBzdHJpbmcKCQlyYXcgIHN0cmluZwoJCXdhbnQgc3RyaW5nCgl9ewoJCXtuYW1lOiAiYmFzaWMgQ0pLIiwgcmF3OiBgeyJ4IjoiXHU0ZTJkIn1gLCB3YW50OiBgeyJ4Ijoi5LitIn1gfSwKCQl7bmFtZTogInN1cnJvZ2F0ZSBwYWlyIiwgcmF3OiBgeyJ4IjoiXHVEODNEXHVERTAwIn1gLCB3YW50OiBgeyJ4Ijoi8J+YgCJ9YH0sCgkJe25hbWU6ICJlc2NhcGVkIGJhY2tzbGFzaCIsIHJhdzogYHsieCI6IlxcdTRlMmQifWAsIHdhbnQ6IGB7IngiOiJcXHU0ZTJkIn1gfSwKCQl7bmFtZTogImVzY2FwZWQgcXVvdGUgYmVmb3JlIHVuaWNvZGUiLCByYXc6IGB7IngiOiJhXCJiXHU0ZTJkIn1gLCB3YW50OiBgeyJ4IjoiYVwiYuS4rSJ9YH0sCgkJe25hbWU6ICJsb25lIGhpZ2ggc3Vycm9nYXRlIiwgcmF3OiBgeyJ4IjoiXHVEODNEISJ9YCwgd2FudDogYHsieCI6Ilx1RDgzRCEifWB9LAoJCXtuYW1lOiAibG9uZSBsb3cgc3Vycm9nYXRlIiwgcmF3OiBgeyJ4IjoiXHVERTAwIn1gLCB3YW50OiBgeyJ4IjoiXHVERTAwIn1gfSwKCQl7bmFtZTogIm1hbGZvcm1lZCBoZXgiLCByYXc6IGB7IngiOiJcdTEyRzQifWAsIHdhbnQ6IGB7IngiOiJcdTEyRzQifWB9LAoJCXtuYW1lOiAidHJ1bmNhdGVkIiwgcmF3OiBgeyJ4IjoiXHUxMjMifWAsIHdhbnQ6IGB7IngiOiJcdTEyMyJ9YH0sCgkJe25hbWU6ICJvdXRzaWRlIHN0cmluZyIsIHJhdzogYHsieCI6MSwicmF3Ijp1NGUyZH1gLCB3YW50OiBgeyJ4IjoxLCJyYXciOnU0ZTJkfWB9LAoJfQoJZm9yIF8sIHRjIDo9IHJhbmdlIHRlc3RzIHsKCQl0LlJ1bih0Yy5uYW1lLCBmdW5jKHQgKnRlc3RpbmcuVCkgewoJCQlyZXF1aXJlLkVxdWFsKHQsIHRjLndhbnQsIG5vcm1hbGl6ZVJhd0pTT05Gb3JUb2tlbkNvdW50KGpzb24uUmF3TWVzc2FnZSh0Yy5yYXcpKSkKCQl9KQoJfQp9CgpmdW5jIFRlc3RSZXNwb25zZXNSYXdKU09OVW5pY29kZU5vcm1hbGl6YXRpb24odCAqdGVzdGluZy5UKSB7CglyYXdVVEY4IDo9IE9wZW5BSVJlc3BvbnNlc1JlcXVlc3R7CgkJSW5zdHJ1Y3Rpb25zOiBqc29uLlJhd01lc3NhZ2UoYCLkvaDlpb0iYCksCgkJTWV0YWRhdGE6ICAgICBqc29uLlJhd01lc3NhZ2UoYHsibGFiZWwiOiLkuK3mlocifWApLAoJCVRleHQ6ICAgICAgICAganNvbi5SYXdNZXNzYWdlKGB7ImZvcm1hdCI6eyJkZXNjcmlwdGlvbiI6IuWkqeawlCJ9fWApLAoJCVRvb2xDaG9pY2U6ICAganNvbi5SYXdNZXNzYWdlKGB7InR5cGUiOiJmdW5jdGlvbiIsIm5hbWUiOiLmn6Xor6IifWApLAoJCVByb21wdDogICAgICAganNvbi5SYXdNZXNzYWdlKGB7ImlkIjoi5o+Q56S6In1gKSwKCQlUb29sczogICAgICAgIGpzb24uUmF3TWVzc2FnZShgW3sidHlwZSI6ImZ1bmN0aW9uIiwibmFtZSI6IuWkqeawlCJ9XWApLAoJfQoJZXNjYXBlZCA6PSBPcGVuQUlSZXNwb25zZXNSZXF1ZXN0ewoJCUluc3RydWN0aW9uczoganNvbi5SYXdNZXNzYWdlKGAiXHU0ZjYwXHU1OTdkImApLAoJCU1ldGFkYXRhOiAgICAganNvbi5SYXdNZXNzYWdlKGB7ImxhYmVsIjoiXHU0ZTJkXHU2NTg3In1gKSwKCQlUZXh0OiAgICAgICAgIGpzb24uUmF3TWVzc2FnZShgeyJmb3JtYXQiOnsiZGVzY3JpcHRpb24iOiJcdTU5MjlcdTZjMTQifX1gKSwKCQlUb29sQ2hvaWNlOiAgIGpzb24uUmF3TWVzc2FnZShgeyJ0eXBlIjoiZnVuY3Rpb24iLCJuYW1lIjoiXHU2N2U1XHU4YmUyIn1gKSwKCQlQcm9tcHQ6ICAgICAgIGpzb24uUmF3TWVzc2FnZShgeyJpZCI6Ilx1NjNkMFx1NzkzYSJ9YCksCgkJVG9vbHM6ICAgICAgICBqc29uLlJhd01lc3NhZ2UoYFt7InR5cGUiOiJmdW5jdGlvbiIsIm5hbWUiOiJcdTU5MjlcdTZjMTQifV1gKSwKCX0KCXJlcXVpcmUuRXF1YWwodCwgcmF3VVRGOC5HZXRUb2tlbkNvdW50TWV0YSgpLkNvbWJpbmVUZXh0LCBlc2NhcGVkLkdldFRva2VuQ291bnRNZXRhKCkuQ29tYmluZVRleHQpCn0KCmZ1bmMgVGVzdENvbXBhY3Rpb25SYXdKU09OVW5pY29kZU5vcm1hbGl6YXRpb24odCAqdGVzdGluZy5UKSB7CglyYXdVVEY4IDo9IE9wZW5BSVJlc3BvbnNlc0NvbXBhY3Rpb25SZXF1ZXN0ewoJCUluc3RydWN0aW9uczoganNvbi5SYXdNZXNzYWdlKGAi5pGY6KaBImApLAoJCVRvb2xzOiAgICAgICAganNvbi5SYXdNZXNzYWdlKGBbeyJuYW1lIjoi5bel5YW3In1dYCksCgkJSW5wdXQ6ICAgICAgICBqc29uLlJhd01lc3NhZ2UoYFt7InR5cGUiOiJmdW5jdGlvbl9jYWxsX291dHB1dCIsIm91dHB1dCI6IuS4reaWhyJ9XWApLAoJfQoJZXNjYXBlZCA6PSBPcGVuQUlSZXNwb25zZXNDb21wYWN0aW9uUmVxdWVzdHsKCQlJbnN0cnVjdGlvbnM6IGpzb24uUmF3TWVzc2FnZShgIlx1NjQ1OFx1ODk4MSJgKSwKCQlUb29sczogICAgICAgIGpzb24uUmF3TWVzc2FnZShgW3sibmFtZSI6Ilx1NWRlNVx1NTE3NyJ9XWApLAoJCUlucHV0OiAgICAgICAganNvbi5SYXdNZXNzYWdlKGBbeyJ0eXBlIjoiZnVuY3Rpb25fY2FsbF9vdXRwdXQiLCJvdXRwdXQiOiJcdTRlMmRcdTY1ODcifV1gKSwKCX0KCXJlcXVpcmUuRXF1YWwodCwgcmF3VVRGOC5HZXRUb2tlbkNvdW50TWV0YSgpLkNvbWJpbmVUZXh0LCBlc2NhcGVkLkdldFRva2VuQ291bnRNZXRhKCkuQ29tYmluZVRleHQpCn0KCmZ1bmMgVGVzdFNlbWFudGljU3RyaW5nc0FyZU5vdFJlY3Vyc2l2ZWx5RGVjb2RlZCh0ICp0ZXN0aW5nLlQpIHsKCWNvbXBhY3QgOj0gT3BlbkFJUmVzcG9uc2VzQ29tcGFjdGlvblJlcXVlc3R7SW5wdXQ6IGpzb24uUmF3TWVzc2FnZShgIlxcdTRlMmQiYCl9CglyZXF1aXJlLkVxdWFsKHQsIGBcdTRlMmRgLCBjb21wYWN0LkdldFRva2VuQ291bnRNZXRhKCkuQ29tYmluZVRleHQpCgoJdmFyIGNoYXQgR2VuZXJhbE9wZW5BSVJlcXVlc3QKCXJlcXVpcmUuTm9FcnJvcih0LCBqc29uLlVubWFyc2hhbChbXWJ5dGUoYHsibWVzc2FnZXMiOlt7InJvbGUiOiJ1c2VyIiwiY29udGVudCI6IlxcdTRlMmQifV19YCksICZjaGF0KSkKCW1ldGEgOj0gY2hhdC5HZXRUb2tlbkNvdW50TWV0YSgpCglyZXF1aXJlLkNvbnRhaW5zKHQsIG1ldGEuQ29tYmluZVRleHQsIGBcdTRlMmRgKQoJcmVxdWlyZS5Ob3RDb250YWlucyh0LCBtZXRhLkNvbWJpbmVUZXh0LCAi5LitIikKfQoKZnVuYyBUZXN0QWxwaGFTZWFyY2hSYXdKU09OVW5pY29kZU5vcm1hbGl6YXRpb24odCAqdGVzdGluZy5UKSB7CglyYXdVVEY4IDo9IEFscGhhU2VhcmNoUmVxdWVzdHtSYXdCb2R5OiBqc29uLlJhd01lc3NhZ2UoYHsicXVlcnkiOiLkuK3mlocifWApfQoJZXNjYXBlZCA6PSBBbHBoYVNlYXJjaFJlcXVlc3R7UmF3Qm9keToganNvbi5SYXdNZXNzYWdlKGB7InF1ZXJ5IjoiXHU0ZTJkXHU2NTg3In1gKX0KCXJlcXVpcmUuRXF1YWwodCwgcmF3VVRGOC5HZXRUb2tlbkNvdW50TWV0YSgpLkNvbWJpbmVUZXh0LCBlc2NhcGVkLkdldFRva2VuQ291bnRNZXRhKCkuQ29tYmluZVRleHQpCn0K
         run: |
           python3 - <<'PY'
           from pathlib import Path
@@ -40,239 +43,18 @@ jobs:
 
           request = "apps/api-go/relaykit/dto/openai_request.go"
           for field in ("Instructions", "Metadata", "Text", "ToolChoice", "Prompt", "Tools"):
-              replace_once(
-                  request,
-                  f"texts = append(texts, string(r.{field}))",
-                  f"texts = append(texts, normalizeRawJSONForTokenCount(r.{field}))",
-              )
+              replace_once(request, f"texts = append(texts, string(r.{field}))", f"texts = append(texts, normalizeRawJSONForTokenCount(r.{field}))")
 
           compaction = "apps/api-go/relaykit/dto/openai_responses_compaction_request.go"
-          replace_once(
-              compaction,
-              "parts = append(parts, string(r.Instructions))",
-              "parts = append(parts, normalizeRawJSONForTokenCount(r.Instructions))",
-          )
-          replace_once(
-              compaction,
-              "parts = append(parts, string(r.Tools))",
-              "parts = append(parts, normalizeRawJSONForTokenCount(r.Tools))",
-          )
-          replace_once(
-              compaction,
-              "*texts = append(*texts, string(raw))",
-              "*texts = append(*texts, normalizeRawJSONForTokenCount(raw))",
-          )
-
-          replace_once(
-              "apps/api-go/relaykit/dto/alpha_search_request.go",
-              "combineText = string(r.RawBody)",
-              "combineText = normalizeRawJSONForTokenCount(r.RawBody)",
-          )
-
-          Path("apps/api-go/relaykit/dto/raw_json_token_text.go").write_text(r'''package dto
-
-import (
-	"encoding/json"
-	"unicode/utf16"
-	"unicode/utf8"
-)
-
-// normalizeRawJSONForTokenCount decodes JSON Unicode escapes only while
-// scanning JSON string literals. It is intentionally used only at raw-JSON
-// token-count boundaries: semantic strings have already been decoded by the
-// JSON parser and must not be decoded a second time.
-func normalizeRawJSONForTokenCount(raw json.RawMessage) string {
-	if len(raw) == 0 {
-		return ""
-	}
-
-	out := make([]byte, 0, len(raw))
-	inString := false
-	for i := 0; i < len(raw); {
-		b := raw[i]
-		if !inString {
-			out = append(out, b)
-			if b == '"' {
-				inString = true
-			}
-			i++
-			continue
-		}
-
-		if b == '"' {
-			out = append(out, b)
-			inString = false
-			i++
-			continue
-		}
-		if b != '\\' {
-			out = append(out, b)
-			i++
-			continue
-		}
-		if i+1 >= len(raw) {
-			out = append(out, b)
-			i++
-			continue
-		}
-		if raw[i+1] != 'u' {
-			// Consume the escaped byte as a pair. This keeps escaped quotes from
-			// toggling string state and keeps escaped backslashes from exposing a
-			// following literal "uXXXX" sequence to this scanner.
-			out = append(out, raw[i], raw[i+1])
-			i += 2
-			continue
-		}
-
-		codeUnit, ok := decodeJSONHex4(raw[i+2:])
-		if !ok {
-			out = append(out, raw[i], raw[i+1])
-			i += 2
-			continue
-		}
-
-		r := rune(codeUnit)
-		if codeUnit >= 0xD800 && codeUnit <= 0xDBFF {
-			if i+12 <= len(raw) && raw[i+6] == '\\' && raw[i+7] == 'u' {
-				low, lowOK := decodeJSONHex4(raw[i+8:])
-				if lowOK && low >= 0xDC00 && low <= 0xDFFF {
-					out = utf8.AppendRune(out, utf16.DecodeRune(r, rune(low)))
-					i += 12
-					continue
-				}
-			}
-			// Preserve malformed/lone surrogates instead of manufacturing the
-			// replacement rune. Billing normalization must be deterministic.
-			out = append(out, raw[i:i+6]...)
-			i += 6
-			continue
-		}
-		if codeUnit >= 0xDC00 && codeUnit <= 0xDFFF {
-			out = append(out, raw[i:i+6]...)
-			i += 6
-			continue
-		}
-
-		out = utf8.AppendRune(out, r)
-		i += 6
-	}
-	return string(out)
-}
-
-func decodeJSONHex4(raw []byte) (uint16, bool) {
-	if len(raw) < 4 {
-		return 0, false
-	}
-	var value uint16
-	for _, b := range raw[:4] {
-		value <<= 4
-		switch {
-		case b >= '0' && b <= '9':
-			value |= uint16(b - '0')
-		case b >= 'a' && b <= 'f':
-			value |= uint16(b-'a') + 10
-		case b >= 'A' && b <= 'F':
-			value |= uint16(b-'A') + 10
-		default:
-			return 0, false
-		}
-	}
-	return value, true
-}
-''')
-
-          Path("apps/api-go/relaykit/dto/raw_json_token_text_test.go").write_text(r'''package dto
-
-import (
-	"encoding/json"
-	"testing"
-
-	"github.com/stretchr/testify/require"
-)
-
-func TestNormalizeRawJSONForTokenCount(t *testing.T) {
-	tests := []struct {
-		name string
-		raw  string
-		want string
-	}{
-		{name: "basic CJK", raw: `{"x":"\u4e2d"}`, want: `{"x":"中"}`},
-		{name: "surrogate pair", raw: `{"x":"\uD83D\uDE00"}`, want: `{"x":"😀"}`},
-		{name: "escaped backslash", raw: `{"x":"\\u4e2d"}`, want: `{"x":"\\u4e2d"}`},
-		{name: "escaped quote before unicode", raw: `{"x":"a\\\"b\u4e2d"}`, want: `{"x":"a\\\"b中"}`},
-		{name: "lone high surrogate", raw: `{"x":"\uD83D!"}`, want: `{"x":"\uD83D!"}`},
-		{name: "lone low surrogate", raw: `{"x":"\uDE00"}`, want: `{"x":"\uDE00"}`},
-		{name: "malformed hex", raw: `{"x":"\u12G4"}`, want: `{"x":"\u12G4"}`},
-		{name: "truncated", raw: `{"x":"\u123"}`, want: `{"x":"\u123"}`},
-		{name: "outside string", raw: `{"x":1,"raw":u4e2d}`, want: `{"x":1,"raw":u4e2d}`},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			require.Equal(t, tc.want, normalizeRawJSONForTokenCount(json.RawMessage(tc.raw)))
-		})
-	}
-}
-
-func TestResponsesRawJSONUnicodeNormalization(t *testing.T) {
-	rawUTF8 := OpenAIResponsesRequest{
-		Instructions: json.RawMessage(`"你好"`),
-		Metadata:     json.RawMessage(`{"label":"中文"}`),
-		Text:         json.RawMessage(`{"format":{"description":"天气"}}`),
-		ToolChoice:   json.RawMessage(`{"type":"function","name":"查询"}`),
-		Prompt:       json.RawMessage(`{"id":"提示"}`),
-		Tools:        json.RawMessage(`[{"type":"function","name":"天气"}]`),
-	}
-	escaped := OpenAIResponsesRequest{
-		Instructions: json.RawMessage(`"\u4f60\u597d"`),
-		Metadata:     json.RawMessage(`{"label":"\u4e2d\u6587"}`),
-		Text:         json.RawMessage(`{"format":{"description":"\u5929\u6c14"}}`),
-		ToolChoice:   json.RawMessage(`{"type":"function","name":"\u67e5\u8be2"}`),
-		Prompt:       json.RawMessage(`{"id":"\u63d0\u793a"}`),
-		Tools:        json.RawMessage(`[{"type":"function","name":"\u5929\u6c14"}]`),
-	}
-	require.Equal(t, rawUTF8.GetTokenCountMeta().CombineText, escaped.GetTokenCountMeta().CombineText)
-}
-
-func TestCompactionRawJSONUnicodeNormalization(t *testing.T) {
-	rawUTF8 := OpenAIResponsesCompactionRequest{
-		Instructions: json.RawMessage(`"摘要"`),
-		Tools:        json.RawMessage(`[{"name":"工具"}]`),
-		Input:        json.RawMessage(`[{"type":"function_call_output","output":"中文"}]`),
-	}
-	escaped := OpenAIResponsesCompactionRequest{
-		Instructions: json.RawMessage(`"\u6458\u8981"`),
-		Tools:        json.RawMessage(`[{"name":"\u5de5\u5177"}]`),
-		Input:        json.RawMessage(`[{"type":"function_call_output","output":"\u4e2d\u6587"}]`),
-	}
-	require.Equal(t, rawUTF8.GetTokenCountMeta().CombineText, escaped.GetTokenCountMeta().CombineText)
-}
-
-func TestSemanticStringsAreNotRecursivelyDecoded(t *testing.T) {
-	compact := OpenAIResponsesCompactionRequest{Input: json.RawMessage(`"\\u4e2d"`)}
-	require.Equal(t, `\u4e2d`, compact.GetTokenCountMeta().CombineText)
-
-	var chat GeneralOpenAIRequest
-	require.NoError(t, json.Unmarshal([]byte(`{"messages":[{"role":"user","content":"\\u4e2d"}]}`), &chat))
-	meta := chat.GetTokenCountMeta()
-	require.Contains(t, meta.CombineText, `\u4e2d`)
-	require.NotContains(t, meta.CombineText, "中")
-}
-
-func TestAlphaSearchRawJSONUnicodeNormalization(t *testing.T) {
-	rawUTF8 := AlphaSearchRequest{RawBody: json.RawMessage(`{"query":"中文"}`)}
-	escaped := AlphaSearchRequest{RawBody: json.RawMessage(`{"query":"\u4e2d\u6587"}`)}
-	require.Equal(t, rawUTF8.GetTokenCountMeta().CombineText, escaped.GetTokenCountMeta().CombineText)
-}
-''')
+          replace_once(compaction, "parts = append(parts, string(r.Instructions))", "parts = append(parts, normalizeRawJSONForTokenCount(r.Instructions))")
+          replace_once(compaction, "parts = append(parts, string(r.Tools))", "parts = append(parts, normalizeRawJSONForTokenCount(r.Tools))")
+          replace_once(compaction, "*texts = append(*texts, string(raw))", "*texts = append(*texts, normalizeRawJSONForTokenCount(raw))")
+          replace_once("apps/api-go/relaykit/dto/alpha_search_request.go", "combineText = string(r.RawBody)", "combineText = normalizeRawJSONForTokenCount(r.RawBody)")
           PY
-
+          printf '%s' "$HELPER_B64" | base64 -d > apps/api-go/relaykit/dto/raw_json_token_text.go
+          printf '%s' "$TEST_B64" | base64 -d > apps/api-go/relaykit/dto/raw_json_token_text_test.go
           rm .github/workflows/one-shot-go-286.yml
-          gofmt -w \
-            apps/api-go/relaykit/dto/raw_json_token_text.go \
-            apps/api-go/relaykit/dto/raw_json_token_text_test.go \
-            apps/api-go/relaykit/dto/openai_request.go \
-            apps/api-go/relaykit/dto/openai_responses_compaction_request.go \
-            apps/api-go/relaykit/dto/alpha_search_request.go
+          gofmt -w apps/api-go/relaykit/dto/raw_json_token_text.go apps/api-go/relaykit/dto/raw_json_token_text_test.go apps/api-go/relaykit/dto/openai_request.go apps/api-go/relaykit/dto/openai_responses_compaction_request.go apps/api-go/relaykit/dto/alpha_search_request.go
 
       - name: Run focused Go tests
         working-directory: apps/api-go
@@ -285,9 +67,5 @@ func TestAlphaSearchRawJSONUnicodeNormalization(t *testing.T) {
           git config user.email "215191720+chatgpt-codex-connector[bot]@users.noreply.github.com"
           git add -A
           git diff --cached --check
-          if git diff --cached --quiet; then
-            echo "No changes to commit"
-            exit 0
-          fi
           git commit -m "fix(billing): normalize raw JSON unicode escapes"
           git push origin HEAD:fix/billing-raw-unicode-286
