@@ -1,0 +1,172 @@
+name: Server release qualification
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+  schedule:
+    - cron: "17 3 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: server-release-qualification-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CI: "true"
+
+jobs:
+  harness-contracts:
+    name: Server qualification harness contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Install contract tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends shellcheck
+
+      - name: Validate qualification harnesses
+        run: |
+          set -euo pipefail
+          bash -n \
+            scripts/ci/configure-release-wiremock.sh \
+            scripts/ci/qualify-live-server.sh \
+            scripts/ci/run-server-release-qualification.sh
+          shellcheck \
+            scripts/ci/configure-release-wiremock.sh \
+            scripts/ci/qualify-live-server.sh \
+            scripts/ci/run-server-release-qualification.sh
+
+  go-server:
+    name: Go full server qualification
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_DB: lmm_test_release
+          POSTGRES_USER: lmm_test_release
+          POSTGRES_PASSWORD: lmm-release-postgres-password
+        ports:
+          - "127.0.0.1:5432:5432"
+        options: >-
+          --health-cmd "pg_isready -U lmm_test_release -d lmm_test_release"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+      valkey:
+        image: valkey/valkey:8-alpine
+        ports:
+          - "127.0.0.1:6379:6379"
+        options: >-
+          --health-cmd "valkey-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+      wiremock:
+        image: wiremock/wiremock:3.13.2
+        ports:
+          - "127.0.0.1:18080:8080"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6.2.0
+        with:
+          go-version-file: apps/api-go/go.mod
+          cache-dependency-path: apps/api-go/go.sum
+
+      - name: Install live qualification tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends postgresql-client jq libarchive-tools
+
+      - name: Require authenticated Valkey
+        env:
+          VALKEY_CONTAINER_ID: ${{ job.services.valkey.id }}
+          VALKEY_PASSWORD: lmm-release-valkey-password
+        run: |
+          set -euo pipefail
+          docker exec "$VALKEY_CONTAINER_ID" valkey-cli CONFIG SET requirepass "$VALKEY_PASSWORD" >/dev/null
+          test "$(docker exec "$VALKEY_CONTAINER_ID" valkey-cli --no-auth-warning -a "$VALKEY_PASSWORD" ping)" = PONG
+
+      - name: Check Go formatting, vet, race tests, and relaykit
+        run: |
+          set -euo pipefail
+          formatting_issues="$(gofmt -l apps/api-go)"
+          if [[ -n "$formatting_issues" ]]; then
+            printf '%s\n' "$formatting_issues"
+            exit 1
+          fi
+          (cd apps/api-go && go vet ./... && go test -count=1 -race ./...)
+          (cd apps/api-go/relaykit && go vet ./... && go test -count=1 -race ./...)
+
+      - name: Build production-shaped static Go binary
+        working-directory: apps/api-go
+        env:
+          CGO_ENABLED: "0"
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/lmm-release-bin"
+          go build -p 2 -trimpath \
+            -ldflags="-s -w -X github.com/LIghtJUNction/api.lmm.best/common.Version=v0.0.0-release-qualification" \
+            -o "$RUNNER_TEMP/lmm-release-bin/lmm-api-go" .
+          file "$RUNNER_TEMP/lmm-release-bin/lmm-api-go"
+          if ldd "$RUNNER_TEMP/lmm-release-bin/lmm-api-go" 2>&1 | grep -qvE 'not a dynamic executable|statically linked'; then
+            echo 'Go release qualification binary is dynamically linked' >&2
+            exit 1
+          fi
+
+      - name: Run production-shaped Go server against local mocks
+        env:
+          LMM_QUALIFICATION_GO_BINARY: ${{ runner.temp }}/lmm-release-bin/lmm-api-go
+          LMM_QUALIFICATION_PG_USER: lmm_test_release
+          LMM_QUALIFICATION_PG_PASSWORD: lmm-release-postgres-password
+          LMM_QUALIFICATION_PG_DATABASE: lmm_test_release
+          LMM_QUALIFICATION_VALKEY_PASSWORD: lmm-release-valkey-password
+          WIREMOCK_ADMIN_URL: http://127.0.0.1:18080
+        run: bash scripts/ci/run-server-release-qualification.sh go
+
+      - name: Upload Go qualification evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: go-server-qualification-${{ github.run_id }}
+          path: qualification-artifacts/go/
+          if-no-files-found: warn
+          retention-days: 14
+
+  release-gate:
+    name: Server release qualification gate
+    if: ${{ always() && !cancelled() }}
+    needs:
+      - harness-contracts
+      - go-server
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require Go production qualification layers
+        env:
+          HARNESS_RESULT: ${{ needs.harness-contracts.result }}
+          GO_RESULT: ${{ needs.go-server.result }}
+        run: |
+          set -euo pipefail
+          printf 'harness=%s\ngo=%s\n' "$HARNESS_RESULT" "$GO_RESULT"
+          test "$HARNESS_RESULT" = success
+          test "$GO_RESULT" = success
