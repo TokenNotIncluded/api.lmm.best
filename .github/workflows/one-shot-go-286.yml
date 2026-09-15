@@ -21,8 +21,8 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6.2.0
         with:
-          go-version-file: apps/api-go/go.mod
-          cache-dependency-path: apps/api-go/go.sum
+          go-version-file: apps/api-go/relaykit/go.mod
+          cache-dependency-path: apps/api-go/relaykit/go.sum
 
       - name: Apply raw JSON token-count normalization
         shell: bash
@@ -57,8 +57,8 @@ jobs:
           gofmt -w apps/api-go/relaykit/dto/raw_json_token_text.go apps/api-go/relaykit/dto/raw_json_token_text_test.go apps/api-go/relaykit/dto/openai_request.go apps/api-go/relaykit/dto/openai_responses_compaction_request.go apps/api-go/relaykit/dto/alpha_search_request.go
 
       - name: Run focused Go tests
-        working-directory: apps/api-go
-        run: go test ./relaykit/dto
+        working-directory: apps/api-go/relaykit
+        run: go test ./dto
 
       - name: Commit verified fix
         shell: bash
