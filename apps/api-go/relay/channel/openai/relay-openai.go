@@ -190,6 +190,16 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 				}
 				lastStreamDataSent = true
 			}
+			// Converted protocols do not need to wait for the next upstream event:
+			// forwarding the current chunk here avoids adding one model-token worth
+			// of latency before Claude/Gemini clients see the first output.
+			if info.RelayFormat != types.RelayFormatOpenAI && !shouldHoldOpenAIUsageChunk(info, data) {
+				if err := HandleStreamFormat(c, info, data, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent); err != nil {
+					common.SysLog("error handling converted stream format: " + err.Error())
+					sr.Error(err)
+				}
+				lastStreamDataSent = true
+			}
 		}
 	})
 	if errors.Is(info.StreamStatus.EndError, helper.ErrFirstResponseTimeout) && !info.FirstResponseObserved {
