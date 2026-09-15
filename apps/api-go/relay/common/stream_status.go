@@ -1,7 +1,11 @@
 package common
 
 import (
+	"context"
+	"errors"
 	"fmt"
+	"io"
+	"net"
 	"strings"
 	"sync"
 	"time"
@@ -52,6 +56,37 @@ func (s *StreamStatus) SetEndReason(reason StreamEndReason, err error) {
 	})
 }
 
+// StreamErrorClass returns a bounded, non-sensitive error category for logs
+// and persisted stream metadata. Keep the original error on StreamStatus for
+// control flow and errors.Is/errors.As checks, but never expose its text to
+// observability surfaces because transport errors can contain upstream hosts,
+// IP addresses, ports, proxy details, or other sensitive connection context.
+func StreamErrorClass(err error) string {
+	if err == nil {
+		return ""
+	}
+	switch {
+	case errors.Is(err, context.Canceled):
+		return "context_canceled"
+	case errors.Is(err, context.DeadlineExceeded):
+		return "deadline_exceeded"
+	case errors.Is(err, io.ErrUnexpectedEOF):
+		return "unexpected_eof"
+	case errors.Is(err, io.EOF):
+		return "eof"
+	case errors.Is(err, net.ErrClosed):
+		return "connection_closed"
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) {
+		if netErr.Timeout() {
+			return "network_timeout"
+		}
+		return "network_error"
+	}
+	return "stream_error"
+}
+
 func (s *StreamStatus) RecordError(msg string) {
 	if s == nil {
 		return
@@ -100,8 +135,8 @@ func (s *StreamStatus) Summary() string {
 	}
 	b := &strings.Builder{}
 	fmt.Fprintf(b, "reason=%s", s.EndReason)
-	if s.EndError != nil {
-		fmt.Fprintf(b, " end_error=%q", s.EndError.Error())
+	if class := StreamErrorClass(s.EndError); class != "" {
+		fmt.Fprintf(b, " end_error=%q", class)
 	}
 	s.mu.Lock()
 	if s.ErrorCount > 0 {
