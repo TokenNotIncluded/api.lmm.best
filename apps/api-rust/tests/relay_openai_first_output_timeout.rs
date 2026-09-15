@@ -14,7 +14,8 @@ use tokio::{net::TcpListener, task::JoinHandle};
 const ROLE_ONLY: &[u8] = b"data: {\"choices\":[{\"delta\":{\"role\":\"assistant\"}}]}\n\n";
 const VISIBLE: &[u8] = b"data: {\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}\n\n";
 const TOOL_VISIBLE: &[u8] = b"data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"name\":\"lookup\"}}]}}]}\n\n";
-const FUNCTION_VISIBLE: &[u8] = b"data: {\"choices\":[{\"delta\":{\"function_call\":{\"arguments\":\"{}\"}}}]}\n\n";
+const FUNCTION_VISIBLE: &[u8] =
+    b"data: {\"choices\":[{\"delta\":{\"function_call\":{\"arguments\":\"{}\"}}}]}\n\n";
 const DONE: &[u8] = b"data: [DONE]\n\n";
 const PRE_OUTPUT_BUFFER_LIMIT: usize = 1024 * 1024;
 
