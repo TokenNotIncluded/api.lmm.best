@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 import { Link } from '@tanstack/react-router'
 import { Box, ExternalLink, Search } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useId, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { ErrorState } from '@/components/error-state'
@@ -161,6 +161,7 @@ function ModelPanelSkeleton() {
 
 export function ModelPlazaPanel() {
   const { t } = useTranslation()
+  const filterId = useId()
   const { open, closePanel } = useModelPlaza()
   const pricing = usePricingData({ enabled: open })
   const {
@@ -242,40 +243,72 @@ export function ModelPlazaPanel() {
                   autoFocus
                 />
               </div>
-              <div className='grid grid-cols-2 gap-2'>
-                <Select
-                  value={vendor}
-                  onValueChange={(value) => value && setVendor(value)}
-                >
-                  <SelectTrigger className='h-10'>
-                    <SelectValue placeholder={t('Provider')} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value='all'>{t('All')}</SelectItem>
-                    {pricing.vendors.map((item) => (
-                      <SelectItem key={item.id} value={item.name}>
-                        {item.name}
+              <div className='grid grid-cols-1 gap-3 sm:grid-cols-2'>
+                <div className='min-w-0 space-y-1.5'>
+                  <label
+                    htmlFor={`${filterId}-provider`}
+                    className='text-sm font-medium'
+                  >
+                    {t('Provider')}
+                  </label>
+                  <Select
+                    value={vendor}
+                    onValueChange={(value) => value && setVendor(value)}
+                  >
+                    <SelectTrigger
+                      id={`${filterId}-provider`}
+                      className='min-h-11 w-full'
+                    >
+                      <SelectValue>
+                        {vendor === 'all' ? t('All') : vendor}
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value='all'>{t('All')}</SelectItem>
+                      {pricing.vendors.map((item) => (
+                        <SelectItem key={item.id} value={item.name}>
+                          {item.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className='min-w-0 space-y-1.5'>
+                  <label
+                    htmlFor={`${filterId}-status`}
+                    className='text-sm font-medium'
+                  >
+                    {t('Status')}
+                  </label>
+                  <Select
+                    value={availability}
+                    onValueChange={(value) =>
+                      value && setAvailability(value as AvailabilityFilter)
+                    }
+                  >
+                    <SelectTrigger
+                      id={`${filterId}-status`}
+                      className='min-h-11 w-full'
+                    >
+                      <SelectValue className='break-words whitespace-normal'>
+                        {availability === 'all'
+                          ? t('All')
+                          : availability === 'available'
+                            ? t('Available')
+                            : t('No performance data available')}
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value='all'>{t('All')}</SelectItem>
+                      <SelectItem value='available'>
+                        {t('Available')}
                       </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Select
-                  value={availability}
-                  onValueChange={(value) =>
-                    value && setAvailability(value as AvailabilityFilter)
-                  }
-                >
-                  <SelectTrigger className='h-10'>
-                    <SelectValue placeholder={t('Status')} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value='all'>{t('All')}</SelectItem>
-                    <SelectItem value='available'>{t('Available')}</SelectItem>
-                    <SelectItem value='no-data'>
-                      {t('No performance data available')}
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
+                      <SelectItem value='no-data'>
+                        {t('No performance data available')}
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
               <div className='text-muted-foreground flex items-center justify-between text-xs'>
                 <span>
