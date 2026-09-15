@@ -3,15 +3,10 @@
 //! 799135cbe07c45819da0ab4bf777c64fcc956220 (MIT; see assets/pancake/LICENSE).
 use async_trait::async_trait;
 use base64::{Engine as _, engine::general_purpose::STANDARD};
-use rsa::{
-    RsaPublicKey,
-    pkcs1::DecodeRsaPublicKey,
-    pkcs1v15::{Signature, VerifyingKey},
-    pkcs8::DecodePublicKey,
-    signature::Verifier,
-};
+use pkcs1::RsaPublicKey as ParsedRsaPublicKey;
+use ring::signature;
 use serde::Deserialize;
-use sha2::Sha256;
+use spki::SubjectPublicKeyInfoRef;
 
 use super::{PancakeEvent, PancakeWebhookVerifier, WebhookFailure};
 
@@ -107,41 +102,72 @@ struct Envelope {
     data: PancakeEventData,
 }
 
+#[derive(Clone)]
+struct RsaVerificationKey {
+    pkcs1_der: Vec<u8>,
+}
+
+impl RsaVerificationKey {
+    fn parse(pem: &str) -> Result<Self, WebhookFailure> {
+        let pem = pem.trim().replace("\\n", "\n");
+        let is_pkcs1 = pem.contains("-----BEGIN RSA PUBLIC KEY-----");
+        let mut encoded = pem;
+        for marker in [
+            "-----BEGIN PUBLIC KEY-----",
+            "-----END PUBLIC KEY-----",
+            "-----BEGIN RSA PUBLIC KEY-----",
+            "-----END RSA PUBLIC KEY-----",
+        ] {
+            encoded = encoded.replace(marker, "");
+        }
+        encoded.retain(|ch| !ch.is_whitespace());
+        let der = STANDARD
+            .decode(encoded)
+            .map_err(|_| WebhookFailure::Unavailable)?;
+
+        let pkcs1_der = if is_pkcs1 {
+            ParsedRsaPublicKey::try_from(der.as_slice())
+                .map_err(|_| WebhookFailure::Unavailable)?;
+            der
+        } else {
+            let spki = SubjectPublicKeyInfoRef::try_from(der.as_slice())
+                .map_err(|_| WebhookFailure::Unavailable)?;
+            if spki.algorithm.oid != pkcs1::ALGORITHM_OID {
+                return Err(WebhookFailure::Unavailable);
+            }
+            let inner = spki
+                .subject_public_key
+                .as_bytes()
+                .ok_or(WebhookFailure::Unavailable)?;
+            ParsedRsaPublicKey::try_from(inner).map_err(|_| WebhookFailure::Unavailable)?;
+            inner.to_vec()
+        };
+
+        Ok(Self { pkcs1_der })
+    }
+
+    fn verify(&self, message: &[u8], signature_bytes: &[u8]) -> Result<(), WebhookFailure> {
+        signature::UnparsedPublicKey::new(
+            &signature::RSA_PKCS1_2048_8192_SHA256,
+            self.pkcs1_der.as_slice(),
+        )
+        .verify(message, signature_bytes)
+        .map_err(|_| WebhookFailure::InvalidSignature)
+    }
+}
+
 /// Keys are parsed once. No network access, payload logging, or unverified
 /// business side effects occur during verification.
 pub struct RsaPancakeWebhookVerifier {
-    test: VerifyingKey<Sha256>,
-    prod: VerifyingKey<Sha256>,
+    test: RsaVerificationKey,
+    prod: RsaVerificationKey,
 }
 
 impl RsaPancakeWebhookVerifier {
     pub fn new(test_pem: &str, prod_pem: &str) -> Result<Self, WebhookFailure> {
-        fn parse(pem: &str) -> Result<VerifyingKey<Sha256>, WebhookFailure> {
-            let pem = pem.trim().replace("\\n", "\n");
-            let pkcs1 = pem.contains("-----BEGIN RSA PUBLIC KEY-----");
-            let mut encoded = pem;
-            for marker in [
-                "-----BEGIN PUBLIC KEY-----",
-                "-----END PUBLIC KEY-----",
-                "-----BEGIN RSA PUBLIC KEY-----",
-                "-----END RSA PUBLIC KEY-----",
-            ] {
-                encoded = encoded.replace(marker, "");
-            }
-            encoded.retain(|ch| !ch.is_whitespace());
-            let der = STANDARD
-                .decode(encoded)
-                .map_err(|_| WebhookFailure::Unavailable)?;
-            let key = if pkcs1 {
-                RsaPublicKey::from_pkcs1_der(&der).map_err(|_| WebhookFailure::Unavailable)?
-            } else {
-                RsaPublicKey::from_public_key_der(&der).map_err(|_| WebhookFailure::Unavailable)?
-            };
-            Ok(VerifyingKey::new(key))
-        }
         Ok(Self {
-            test: parse(test_pem)?,
-            prod: parse(prod_pem)?,
+            test: RsaVerificationKey::parse(test_pem)?,
+            prod: RsaVerificationKey::parse(prod_pem)?,
         })
     }
 
@@ -203,11 +229,9 @@ impl RsaPancakeWebhookVerifier {
         if !(-FUTURE_TOLERANCE_MS..=PAST_TOLERANCE_MS).contains(&age) {
             return Err(WebhookFailure::InvalidSignature);
         }
-        let raw = STANDARD
+        let signature_bytes = STANDARD
             .decode(encoded_signature.ok_or(WebhookFailure::InvalidSignature)?)
             .map_err(|_| WebhookFailure::InvalidSignature)?;
-        let signature =
-            Signature::try_from(raw.as_slice()).map_err(|_| WebhookFailure::InvalidSignature)?;
         let envelope: Envelope =
             serde_json::from_slice(payload).map_err(|_| WebhookFailure::InvalidPayload)?;
         let mode = envelope.mode.unwrap_or_default();
@@ -222,8 +246,7 @@ impl RsaPancakeWebhookVerifier {
         signed.extend_from_slice(timestamp.as_bytes());
         signed.push(b'.');
         signed.extend_from_slice(payload);
-        key.verify(&signed, &signature)
-            .map_err(|_| WebhookFailure::InvalidSignature)?;
+        key.verify(&signed, &signature_bytes)?;
         Ok(PancakeEvent {
             id: envelope.id.unwrap_or_default(),
             event_id: envelope.event_id.unwrap_or_default(),
@@ -353,7 +376,7 @@ mod tests {
     }
 
     #[test]
-    fn built_in_and_escaped_pem_keys_parse_without_network_access() {
+    fn built_in_spki_pkcs1_and_escaped_pem_keys_parse_without_network_access() {
         let test = include_str!("../../../assets/pancake/test.pem");
         let prod = include_str!("../../../assets/pancake/prod.pem");
         assert!(RsaPancakeWebhookVerifier::new(test, prod).is_ok());
@@ -362,8 +385,22 @@ mod tests {
             .filter(|line| !line.starts_with("-----"))
             .collect::<String>();
         assert!(RsaPancakeWebhookVerifier::new(&raw, prod).is_ok());
-
         assert!(RsaPancakeWebhookVerifier::new(&test.replace('\n', "\\n"), prod).is_ok());
+
+        let fixture = include_str!("../../../tests/fixtures/pancake/test-public.pem");
+        let fixture_raw = fixture
+            .lines()
+            .filter(|line| !line.starts_with("-----"))
+            .collect::<String>();
+        let der = STANDARD.decode(fixture_raw).unwrap();
+        let spki = SubjectPublicKeyInfoRef::try_from(der.as_slice()).unwrap();
+        let inner = spki.subject_public_key.as_bytes().unwrap();
+        let pkcs1_pem = format!(
+            "-----BEGIN RSA PUBLIC KEY-----\n{}\n-----END RSA PUBLIC KEY-----",
+            STANDARD.encode(inner)
+        );
+        let verifier = RsaPancakeWebhookVerifier::new(&pkcs1_pem, prod).unwrap();
+        assert!(verifier.verify_at(BODY, HEADER, NOW).is_ok());
     }
 
     #[test]

@@ -729,7 +729,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e7c1832837b905bbfb5101e07cc24c8deddf52f93225eee6ead5f4d63d53ddcb"
 dependencies = [
  "const-oid 0.9.6",
- "pem-rfc7468",
  "zeroize",
 ]
 
@@ -1494,9 +1493,6 @@ name = "lazy_static"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bbd2bcb4c963f2ddae06a2efc7e9f3591312473c50c6685e1f298068316e66fe"
-dependencies = [
- "spin",
-]
 
 [[package]]
 name = "lettre"
@@ -1530,12 +1526,6 @@ name = "libc"
 version = "0.2.189"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3eaf3ede3fee6db1a4c2ee091bf8a8b4dccdc6d17f656fb07896ee72867612f2"
-
-[[package]]
-name = "libm"
-version = "0.2.16"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b6d2cec3eae94f9f509c767b45932f1ada8350c4bdb85af2fcab4a3c14807981"
 
 [[package]]
 name = "libredox"
@@ -1602,17 +1592,18 @@ dependencies = [
  "lmm-contracts",
  "lmm-domain",
  "lmm-observability",
+ "pkcs1",
  "rand 0.9.5",
  "redis",
  "reqwest",
  "ring",
- "rsa",
  "rust_decimal",
  "rustix",
  "secrecy",
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "spki",
  "sqlx",
  "subtle",
  "thiserror",
@@ -1790,37 +1781,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "num-bigint-dig"
-version = "0.8.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e661dda6640fad38e827a6d4a310ff4763082116fe217f279885c97f511bb0b7"
-dependencies = [
- "lazy_static",
- "libm",
- "num-integer",
- "num-iter",
- "num-traits",
- "rand 0.8.7",
- "smallvec",
- "zeroize",
-]
-
-[[package]]
 name = "num-integer"
 version = "0.1.46"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7969661fd2958a5cb096e56c8e1ad0444ac2bbcd0061bd28660485a44879858f"
 dependencies = [
- "num-traits",
-]
-
-[[package]]
-name = "num-iter"
-version = "0.1.46"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c92800bd69a1eac91786bcfe9da64a897eb72911b8dc3095decbd07429e8048b"
-dependencies = [
- "num-integer",
  "num-traits",
 ]
 
@@ -1831,7 +1796,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "071dfc062690e90b734c0b2273ce72ad0ffa95f0c74596bc250dcfd960262841"
 dependencies = [
  "autocfg",
- "libm",
 ]
 
 [[package]]
@@ -1897,15 +1861,6 @@ dependencies = [
  "redox_syscall 0.5.18",
  "smallvec",
  "windows-link",
-]
-
-[[package]]
-name = "pem-rfc7468"
-version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "88b39c9bfcfc231068454382784bb460aae594343fb030d46e9f50a645418412"
-dependencies = [
- "base64ct",
 ]
 
 [[package]]
@@ -2346,26 +2301,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rsa"
-version = "0.9.10"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b8573f03f5883dcaebdfcf4725caa1ecb9c15b2ef50c43a07b816e06799bb12d"
-dependencies = [
- "const-oid 0.9.6",
- "digest 0.10.7",
- "num-bigint-dig",
- "num-integer",
- "num-traits",
- "pkcs1",
- "pkcs8",
- "rand_core 0.6.4",
- "signature",
- "spki",
- "subtle",
- "zeroize",
-]
-
-[[package]]
 name = "rusqlite"
 version = "0.37.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2630,7 +2565,6 @@ version = "2.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "77549399552de45a898a580c1b41d445bf730df867cc44e6c0233bbc4b8329de"
 dependencies = [
- "digest 0.10.7",
  "rand_core 0.6.4",
 ]
 
@@ -2670,12 +2604,6 @@ dependencies = [
  "libc",
  "windows-sys 0.61.2",
 ]
-
-[[package]]
-name = "spin"
-version = "0.9.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3763264f6b73151db08c50ff20d7d8a0b8796e021cdea7ceedad07b80155fa0e"
 
 [[package]]
 name = "spki"
