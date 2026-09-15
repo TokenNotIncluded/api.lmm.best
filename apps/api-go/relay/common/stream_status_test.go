@@ -1,7 +1,11 @@
 package common
 
 import (
+	"context"
+	"errors"
 	"fmt"
+	"io"
+	"net"
 	"sync"
 	"testing"
 
@@ -157,6 +161,36 @@ func TestStreamStatus_IsNormalEnd_NilSafe(t *testing.T) {
 	assert.True(t, s.IsNormalEnd())
 }
 
+type timeoutNetError struct{}
+
+func (timeoutNetError) Error() string   { return "secret upstream timeout details" }
+func (timeoutNetError) Timeout() bool   { return true }
+func (timeoutNetError) Temporary() bool { return true }
+
+func TestStreamErrorClass(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		err  error
+		want string
+	}{
+		{name: "nil", err: nil, want: ""},
+		{name: "canceled", err: fmt.Errorf("wrapped: %w", context.Canceled), want: "context_canceled"},
+		{name: "deadline", err: fmt.Errorf("wrapped: %w", context.DeadlineExceeded), want: "deadline_exceeded"},
+		{name: "unexpected eof", err: fmt.Errorf("wrapped: %w", io.ErrUnexpectedEOF), want: "unexpected_eof"},
+		{name: "eof", err: io.EOF, want: "eof"},
+		{name: "closed", err: fmt.Errorf("wrapped: %w", net.ErrClosed), want: "connection_closed"},
+		{name: "network timeout", err: timeoutNetError{}, want: "network_timeout"},
+		{name: "generic", err: errors.New("private upstream address and key"), want: "stream_error"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want, StreamErrorClass(tt.err))
+		})
+	}
+}
+
 func TestStreamStatus_Summary(t *testing.T) {
 	t.Parallel()
 
@@ -173,6 +207,19 @@ func TestStreamStatus_Summary(t *testing.T) {
 	summary2 := s2.Summary()
 	assert.Contains(t, summary2, "reason=timeout")
 	assert.Contains(t, summary2, "soft_errors=2")
+}
+
+func TestStreamStatus_SummaryRedactsEndError(t *testing.T) {
+	t.Parallel()
+	s := NewStreamStatus()
+	secret := "read tcp 10.0.0.5:1234->203.0.113.9:443 api_key=secret"
+	s.SetEndReason(StreamEndReasonScannerErr, errors.New(secret))
+
+	summary := s.Summary()
+	assert.Contains(t, summary, `end_error="stream_error"`)
+	assert.NotContains(t, summary, secret)
+	assert.NotContains(t, summary, "10.0.0.5")
+	assert.NotContains(t, summary, "api_key")
 }
 
 func TestStreamStatus_Summary_NilSafe(t *testing.T) {
