@@ -145,8 +145,11 @@ func appendStreamStatus(relayInfo *relaycommon.RelayInfo, other map[string]inter
 		"status":     status,
 		"end_reason": string(ss.EndReason),
 	}
-	if ss.EndError != nil {
-		streamInfo["end_error"] = ss.EndError.Error()
+	if class := relaycommon.StreamErrorClass(ss.EndError); class != "" {
+		// Preserve the existing key for admin UI/schema compatibility while
+		// storing only a bounded class. Raw transport errors can contain
+		// upstream IPs, ports, proxy details, or other sensitive context.
+		streamInfo["end_error"] = class
 	}
 	if ss.ErrorCount > 0 {
 		streamInfo["error_count"] = ss.ErrorCount
