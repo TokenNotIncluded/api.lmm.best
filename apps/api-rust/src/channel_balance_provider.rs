@@ -152,8 +152,7 @@ mod tests {
     use serde_json::{Value, json};
 
     use super::{
-        DeepSeekBalanceChannelAdvancedProvider, DeepSeekBalanceRefresh,
-        DeepSeekBalanceStoreError,
+        DeepSeekBalanceChannelAdvancedProvider, DeepSeekBalanceRefresh, DeepSeekBalanceStoreError,
     };
     use crate::routes::channel_advanced::{
         ChannelAdvancedCall, ChannelAdvancedError, ChannelAdvancedOperation,
