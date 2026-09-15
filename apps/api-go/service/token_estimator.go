@@ -5,7 +5,6 @@ import (
 	"strings"
 	"sync"
 	"unicode"
-	"unicode/utf8"
 )
 
 // Provider 定义模型厂商大类
@@ -82,51 +81,49 @@ func EstimateToken(provider Provider, text string) int {
 	)
 	currentWordType := None
 	numberRunLen := 0
-	backslashRun := 0
 
-	for i := 0; i < len(text); {
-		r, size := utf8.DecodeRuneInString(text[i:])
-		decodedEscape := false
-		// Some request metadata retains raw JSON fragments (for example tools).
-		// Charge an unescaped JSON \uXXXX sequence as the decoded rune so the
-		// same semantic text is not billed differently solely because a client
-		// used ensure_ascii-style serialization. An odd preceding backslash run
-		// means this backslash is itself escaped and must remain literal.
-		if r == '\\' && backslashRun%2 == 0 {
-			if decoded, consumed, ok := decodeUnicodeEscape(text[i:]); ok {
-				r = decoded
-				size = consumed
-				decodedEscape = true
-			}
-		}
-
+	for _, r := range text {
 		// 1. 处理空格和换行符
 		if unicode.IsSpace(r) {
 			currentWordType = None
 			numberRunLen = 0
+			// 换行符和制表符使用Newline权重
 			if r == '\n' || r == '\t' {
 				count += m.Newline
 			} else {
+				// 普通空格使用Space权重
 				count += m.Space
 			}
-		} else if isCJK(r) {
-			// 2. 处理 CJK (中日韩) - 按字符计费
+			continue
+		}
+
+		// 2. 处理 CJK (中日韩) - 按字符计费
+		if isCJK(r) {
 			currentWordType = None
 			numberRunLen = 0
 			count += m.CJK
-		} else if isEmoji(r) {
-			// 3. 处理Emoji - 使用专门的Emoji权重
+			continue
+		}
+
+		// 3. 处理Emoji - 使用专门的Emoji权重
+		if isEmoji(r) {
 			currentWordType = None
 			numberRunLen = 0
 			count += m.Emoji
-		} else if isLatinOrNumber(r) {
-			// 4. 处理拉丁字母/数字 (英文单词)
+			continue
+		}
+
+		// 4. 处理拉丁字母/数字 (英文单词)
+		if isLatinOrNumber(r) {
 			isNum := unicode.IsNumber(r)
 			newType := Latin
 			if isNum {
 				newType = Number
 			}
 
+			// 如果之前不在单词中，或者类型发生变化（字母<->数字），则视为新token
+			// 注意：对于OpenAI，通常"version 3.5"会切分，"abc123xyz"有时也会切分
+			// 这里简单起见，字母和数字切换时增加权重
 			if currentWordType == None || currentWordType != newType {
 				if newType == Number {
 					count += m.Number
@@ -141,90 +138,30 @@ func EstimateToken(provider Provider, text string) int {
 				// Common BPE pre-tokenizers split long digit runs into short
 				// chunks. Preserve the calibrated provider-specific cost for
 				// the first 1-3 digits, then add roughly one token per extra
-				// three digits instead of reapplying the short-run multiplier.
+				// three digits instead of keeping the run constant forever.
 				if (numberRunLen-1)%numericRunChunkSize == 0 {
 					count++
 				}
 			}
-		} else {
-			// 5. 处理标点符号/特殊字符 - 按类型使用不同权重
-			currentWordType = None
-			numberRunLen = 0
-			if isMathSymbol(r) {
-				count += m.MathSymbol
-			} else if r == '@' {
-				count += m.AtSign
-			} else if isURLDelim(r) {
-				count += m.URLDelim
-			} else {
-				count += m.Symbol
-			}
+			continue
 		}
 
-		if decodedEscape {
-			backslashRun = 0
-		} else if r == '\\' {
-			backslashRun++
+		// 5. 处理标点符号/特殊字符 - 按类型使用不同权重
+		currentWordType = None
+		numberRunLen = 0
+		if isMathSymbol(r) {
+			count += m.MathSymbol
+		} else if r == '@' {
+			count += m.AtSign
+		} else if isURLDelim(r) {
+			count += m.URLDelim
 		} else {
-			backslashRun = 0
+			count += m.Symbol
 		}
-		i += size
 	}
 
 	// 向上取整并加上基础 padding
 	return int(math.Ceil(count)) + m.BasePad
-}
-
-func decodeUnicodeEscape(text string) (rune, int, bool) {
-	if len(text) < 6 || text[0] != '\\' || text[1] != 'u' {
-		return 0, 0, false
-	}
-	first, ok := parseHex4(text[2:6])
-	if !ok {
-		return 0, 0, false
-	}
-	if first >= 0xD800 && first <= 0xDBFF {
-		if len(text) >= 12 && text[6] == '\\' && text[7] == 'u' {
-			second, secondOK := parseHex4(text[8:12])
-			if secondOK && second >= 0xDC00 && second <= 0xDFFF {
-				decoded := rune(0x10000 + (uint32(first-0xD800) << 10) + uint32(second-0xDC00))
-				return decoded, 12, true
-			}
-		}
-		return utf8.RuneError, 6, true
-	}
-	if first >= 0xDC00 && first <= 0xDFFF {
-		return utf8.RuneError, 6, true
-	}
-	return rune(first), 6, true
-}
-
-func parseHex4(value string) (uint16, bool) {
-	if len(value) != 4 {
-		return 0, false
-	}
-	var result uint16
-	for i := 0; i < 4; i++ {
-		nibble, ok := hexNibble(value[i])
-		if !ok {
-			return 0, false
-		}
-		result = result<<4 | uint16(nibble)
-	}
-	return result, true
-}
-
-func hexNibble(value byte) (byte, bool) {
-	switch {
-	case value >= '0' && value <= '9':
-		return value - '0', true
-	case value >= 'a' && value <= 'f':
-		return value - 'a' + 10, true
-	case value >= 'A' && value <= 'F':
-		return value - 'A' + 10, true
-	default:
-		return 0, false
-	}
 }
 
 // 辅助：判断是否为 CJK 字符
