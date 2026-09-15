@@ -86,7 +86,7 @@ func TestEstimateTokenRepresentativePlaintextStable(t *testing.T) {
 	// intentionally local to valid Unicode escapes and numeric runs longer than
 	// three digits.
 	cases := []struct {
-		text                       string
+		text                    string
 		openAI, gemini, claude int
 	}{
 		{text: "hello world", openAI: 3, gemini: 3, claude: 3},
