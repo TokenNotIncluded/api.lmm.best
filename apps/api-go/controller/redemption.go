@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 	"unicode/utf8"
@@ -63,7 +64,7 @@ func GetRedemption(c *gin.Context) {
 
 func validateRedemptionRewardForAdmin(redemption *model.Redemption) error {
 	if redemption.ResetVoucherExpiresAt > 0 && redemption.ResetVoucherExpiresAt <= common.GetTimestamp() {
-		return strconv.ErrSyntax
+		return errors.New("banked reset 券过期时间必须晚于当前时间")
 	}
 	return model.ValidateRedemptionReward(redemption)
 }
