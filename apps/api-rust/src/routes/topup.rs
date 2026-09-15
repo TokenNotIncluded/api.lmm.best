@@ -1608,9 +1608,6 @@ fn payment_compliance_values(options: &HashMap<String, String>) -> bool {
     if split_options {
         return true;
     }
-    // Existing Go installations also retain the original registered JSON
-    // configuration object.  Read it as a compatibility fallback while new
-    // instances use the separately auditable compliance option keys above.
     options
         .get("payment_setting")
         .and_then(|raw| serde_json::from_str::<Value>(raw).ok())
@@ -1638,8 +1635,6 @@ fn json_value(options: &HashMap<String, String>, key: &str, default: Value) -> V
         .unwrap_or(default)
 }
 fn bool_value(options: &HashMap<String, String>, key: &str) -> bool {
-    // Waffo's Go option loader uses `value == "true"`, rather than the
-    // broader truthy convention used by payment compliance settings.
     options.get(key).is_some_and(|value| value == "true")
 }
 fn nonempty(options: &HashMap<String, String>, key: &str) -> bool {
@@ -2388,13 +2383,11 @@ mod tests {
         let ordinary_history =
             response_json(list_topups(&pool, &PageQuery::from_raw(None), None).await).await?;
         assert_eq!(ordinary_history["data"]["total"], 10_003);
-        let self_history = response_json(
-            list_self_topups(&pool, &PageQuery::from_raw(None), Some(11)).await,
-        )
-        .await?;
+        let self_history =
+            response_json(list_self_topups(&pool, &PageQuery::from_raw(None), Some(11)).await)
+                .await?;
         assert_eq!(
-            self_history["data"]["total"],
-            10_002,
+            self_history["data"]["total"], 10_002,
             "self history must keep orders even when create_time is older than 30 days"
         );
         let searched_history = response_json(
