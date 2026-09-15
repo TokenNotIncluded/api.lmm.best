@@ -144,7 +144,6 @@ func mergeToolSurchargeItems(items []ToolSurchargeItem) []ToolSurchargeItem {
 	if len(items) == 0 {
 		return nil
 	}
-
 	sort.Slice(items, func(i, j int) bool {
 		if items[i].Name == items[j].Name {
 			return items[i].Price < items[j].Price
@@ -371,7 +370,7 @@ func calculateTextQuotaSummary(ctx *gin.Context, relayInfo *relaycommon.RelayInf
 			if summary.AudioInputPrice > 0 {
 				baseTokens = baseTokens.Sub(dAudioTokens)
 				audioInputQuota = decimal.NewFromFloat(summary.AudioInputPrice).
-					Div(decimal.NewFromInt(1000000)).Mul(dAudioTokens).Mul(dQuotaPerUnit)
+					Div(decimal.NewFromInt(1000000)).Mul(dAudioTokens).Mul(dGroupRatio).Mul(dQuotaPerUnit)
 			}
 		}
 
@@ -583,9 +582,11 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 	}
 	if summary.CacheCreationTokens5m > 0 {
 		other["cache_creation_tokens_5m"] = summary.CacheCreationTokens5m
+		other["cache_creation_ratio_5m"] = summary.CacheCreationRatio5m
 	}
 	if summary.CacheCreationTokens1h > 0 {
 		other["cache_creation_tokens_1h"] = summary.CacheCreationTokens1h
+		other["cache_creation_ratio_1h"] = summary.CacheCreationRatio1h
 	}
 	cacheWriteTokens := cacheWriteTokensTotal(summary)
 	if cacheWriteTokens > 0 {
