@@ -266,14 +266,14 @@ func RedeemWithResult(key string, userId int) (*RedemptionRedeemResult, error) {
 				return errors.New("banked reset 券已过期")
 			}
 			voucher := SubscriptionResetVoucher{
-				UserId: userId,
-				PlanId: redemption.ResetPlanId,
+				UserId:      userId,
+				PlanId:      redemption.ResetPlanId,
 				OperationId: fmt.Sprintf("redemption:%d", redemption.Id),
-				Status: SubscriptionResetVoucherAvailable,
-				ExpiresAt: expiresAt,
-				CreatedBy: redemption.UserId,
-				CreatedAt: now,
-				UpdatedAt: now,
+				Status:      SubscriptionResetVoucherAvailable,
+				ExpiresAt:   expiresAt,
+				CreatedBy:   redemption.UserId,
+				CreatedAt:   now,
+				UpdatedAt:   now,
 			}
 			if err := tx.Create(&voucher).Error; err != nil {
 				return err
