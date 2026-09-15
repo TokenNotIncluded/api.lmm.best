@@ -617,7 +617,17 @@ func BatchInsertChannels(channels []Channel) error {
 			}
 		}
 	}
-	return tx.Commit().Error
+	if err := tx.Commit().Error; err != nil {
+		return err
+	}
+	// The database transaction is already committed, so a cache refresh failure
+	// must not make callers retry the insert and create duplicate channels. Keep
+	// the successful mutation authoritative and let InitChannelCache record/log
+	// any refresh failure while preserving the previous routing snapshot.
+	if common.MemoryCacheEnabled {
+		_ = InitChannelCache()
+	}
+	return nil
 }
 
 func BatchDeleteChannels(ids []int) (int64, error) {
@@ -1077,7 +1087,7 @@ func EditChannelByTag(tag string, newTag *string, modelMapping *string, models *
 	updateData := Channel{}
 	shouldReCreateAbilities := false
 	updatedTag := tag
-	// 如果 newTag 不为空且不等于 tag，则更新 tag
+	// 如果 new_tag 不为空且不等于 tag，则更新 tag
 	if newTag != nil && *newTag != tag {
 		updateData.Tag = newTag
 		updatedTag = *newTag
