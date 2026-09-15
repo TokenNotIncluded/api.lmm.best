@@ -150,9 +150,6 @@ start_marker = '          # RUSTSEC-2026-0235 currently has no resolved workspac
 end_marker = '          ignore: RUSTSEC-2026-0235\n'
 start = text.find(start_marker)
 end = text.find(end_marker, start)
-if start < 0 or end < 0:
-    raise SystemExit('old RustSec exception block not found')
-end += len(end_marker)
 replacement = '''          # RUSTSEC-2023-0071 affects RSA private-key operations. After #276's
           # first remediation slice, Pancake private-key signing uses ring and
           # jsonwebtoken uses aws-lc-rs; the remaining resolved `rsa` use is
@@ -161,7 +158,11 @@ replacement = '''          # RUSTSEC-2023-0071 affects RSA private-key operation
           # the lockfile. #276 tracks removal.
           ignore: RUSTSEC-2023-0071
 '''
-workflow.write_text(text[:start] + replacement + text[end:])
+if start >= 0 and end >= 0:
+    end += len(end_marker)
+    workflow.write_text(text[:start] + replacement + text[end:])
+elif 'ignore: RUSTSEC-2023-0071' not in text:
+    raise SystemExit('expected RustSec exception block not found')
 PY
 
 cd apps/api-rust
