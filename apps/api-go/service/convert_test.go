@@ -87,6 +87,16 @@ func TestRequestConverterFacadeAcceptsTypedNilRelayInfo(t *testing.T) {
 	}
 }
 
+func TestRequestConverterFacadeWithoutChannelMeta(t *testing.T) {
+	result, err := ConvertRequest(nil, &relaycommon.RelayInfo{IsStream: true}, types.RelayFormatOpenAI, &dto.GeminiChatRequest{
+		Contents: []dto.GeminiChatContent{{Role: "user", Parts: []dto.GeminiPart{{Text: "hello"}}}},
+	})
+	require.NoError(t, err)
+	chatRequest, ok := result.Value.(*dto.GeneralOpenAIRequest)
+	require.True(t, ok)
+	assert.Nil(t, chatRequest.StreamOptions)
+}
+
 func TestCrossProtocolStreamingRequestsIncludeUsage(t *testing.T) {
 	newInfo := func(isStream, supportsStreamOptions bool) *relaycommon.RelayInfo {
 		return &relaycommon.RelayInfo{
