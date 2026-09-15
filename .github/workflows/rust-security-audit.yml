@@ -40,9 +40,3 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           working-directory: apps/api-rust
-          # RUSTSEC-2023-0071 affects RSA private-key operations. #276 moves
-          # Pancake private-key signing to ring and jsonwebtoken to aws-lc-rs;
-          # the remaining resolved `rsa` use is public-key webhook verification
-          # only. Keep this exact exception only until that verification path
-          # also migrates and `rsa` leaves the lockfile. #276 tracks removal.
-          ignore: RUSTSEC-2023-0071
