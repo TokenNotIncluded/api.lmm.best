@@ -65,7 +65,7 @@ func TestEstimateTokenNumericRunsScaleByLength(t *testing.T) {
 			for _, length := range lengths {
 				got := EstimateToken(provider, strings.Repeat("7", length))
 				chunks := (length + numericRunChunkSize - 1) / numericRunChunkSize
-				want := int(math.Ceil(float64(chunks) * m.Number)) + m.BasePad
+				want := int(math.Ceil(m.Number+float64(chunks-1))) + m.BasePad
 				require.Equal(t, want, got, "length=%d", length)
 				require.GreaterOrEqual(t, got, previous, "length=%d", length)
 				previous = got
