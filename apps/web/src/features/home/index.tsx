@@ -26,7 +26,6 @@ import {
 import { ForgeHome } from '@/features/forge/forge-home'
 
 import './framer-home-motion.css'
-import './framer-home-media.css'
 
 type PointerPosition = {
   x: number
