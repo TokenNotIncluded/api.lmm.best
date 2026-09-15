@@ -20,6 +20,9 @@ SUCCESS_BODY = (
     b'{"data":[{"embedding":[0.25],"index":0}],"model":"gpt-test",'
     b'"usage":{"prompt_tokens":1,"total_tokens":1}}'
 )
+SUCCESS_BODY_WITHOUT_USAGE = (
+    b'{"data":[{"embedding":[0.25],"index":0}],"model":"gpt-test"}'
+)
 ERROR_BODIES = {
     "fail": b'{"error":"fixture-rate-limit"}',
     "fail-message": b'{"message":"fixture-message"}',
@@ -74,7 +77,10 @@ class Fixture(http.server.BaseHTTPRequestHandler):
 
         input_value = record["body"].get("input")
         failing = input_value in ERROR_BODIES
-        response_body = ERROR_BODIES.get(input_value, SUCCESS_BODY)
+        if input_value == "missing-usage":
+            response_body = SUCCESS_BODY_WITHOUT_USAGE
+        else:
+            response_body = ERROR_BODIES.get(input_value, SUCCESS_BODY)
         self.send_response(429 if failing else 200)
         self.send_header("content-type", "application/json")
         self.send_header("x-request-id", "provider-generic-request-id")
