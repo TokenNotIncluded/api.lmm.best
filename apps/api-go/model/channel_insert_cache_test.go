@@ -21,16 +21,16 @@ func TestBatchInsertChannelsPublishesNewEnabledChannelToRoutingCache(t *testing.
 	baseURL := "http://127.0.0.1:18080/ok"
 	const modelName = "channel-create-cache-model"
 	channels := []Channel{{
-		Type:      constant.ChannelTypeOpenAI,
-		Key:       "release-ci-upstream-key",
-		Status:    common.ChannelStatusEnabled,
-		Name:      "newly-created-enabled-channel",
-		Weight:    &weight,
-		Priority:  &priority,
-		BaseURL:   &baseURL,
-		Models:    modelName,
-		Group:     "default",
-		AutoBan:   common.GetPointer(0),
+		Type:     constant.ChannelTypeOpenAI,
+		Key:      "release-ci-upstream-key",
+		Status:   common.ChannelStatusEnabled,
+		Name:     "newly-created-enabled-channel",
+		Weight:   &weight,
+		Priority: &priority,
+		BaseURL:  &baseURL,
+		Models:   modelName,
+		Group:    "default",
+		AutoBan:  common.GetPointer(0),
 	}}
 
 	if err := BatchInsertChannels(channels); err != nil {
