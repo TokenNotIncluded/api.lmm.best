@@ -14,40 +14,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestEstimateTokenUnicodeEscapesMatchDecodedText(t *testing.T) {
+func TestEstimateTokenLiteralUnicodeEscapeRemainsLiteral(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
-		name    string
-		raw     string
-		escaped string
-	}{
-		{name: "cjk", raw: "中文测试", escaped: `\u4e2d\u6587\u6d4b\u8bd5`},
-		{name: "mixed", raw: "中A文9", escaped: `\u4e2dA\u65879`},
-		{name: "surrogate_pair", raw: "😀", escaped: `\ud83d\ude00`},
-	}
-
-	providers := []Provider{OpenAI, Gemini, Claude}
-	for _, provider := range providers {
-		provider := provider
-		for _, tc := range cases {
-			tc := tc
-			t.Run(string(provider)+"/"+tc.name, func(t *testing.T) {
-				t.Parallel()
-				rawTokens := EstimateToken(provider, tc.raw)
-				escapedTokens := EstimateToken(provider, tc.escaped)
-				require.Equal(t, rawTokens, escapedTokens)
-			})
-		}
-	}
-}
-
-func TestEstimateTokenEscapedBackslashKeepsLiteralUnicodeEscape(t *testing.T) {
-	t.Parallel()
-
-	// Two backslashes represent a literal backslash followed by "u4e2d" in
-	// serialized JSON. It must not be treated as an encoded Chinese rune.
-	literal := `\\u4e2d`
+	// EstimateToken receives semantic text on the common Chat path. A user can
+	// legitimately discuss the six literal characters "\\u4e2d"; decoding that
+	// here would undercount the prompt and change pre-existing semantics.
+	literal := `\u4e2d`
+	require.Equal(t, 7, EstimateToken(OpenAI, literal))
+	require.Equal(t, 10, EstimateToken(Gemini, literal))
+	require.Equal(t, 8, EstimateToken(Claude, literal))
 	require.NotEqual(t, EstimateToken(OpenAI, "中"), EstimateToken(OpenAI, literal))
 }
 
@@ -83,10 +59,9 @@ func TestEstimateTokenRepresentativePlaintextStable(t *testing.T) {
 	t.Parallel()
 
 	// These exact values are the pre-fix estimator outputs. The correction is
-	// intentionally local to valid Unicode escapes and numeric runs longer than
-	// three digits.
+	// intentionally local to numeric runs longer than three digits.
 	cases := []struct {
-		text                    string
+		text                   string
 		openAI, gemini, claude int
 	}{
 		{text: "hello world", openAI: 3, gemini: 3, claude: 3},
