@@ -60,10 +60,10 @@ pub mod auth;
 
 /// Provider balance response normalization shared by channel operations.
 pub(crate) mod channel_balance;
-/// Durable PostgreSQL state for provider balance refresh operations.
-pub(crate) mod channel_balance_store;
 /// Mounted single-channel provider balance adapter for advanced routes.
 pub mod channel_balance_provider;
+/// Durable PostgreSQL state for provider balance refresh operations.
+pub(crate) mod channel_balance_store;
 
 /// Legacy-compatible OpenAI model discovery route.
 pub mod models;
