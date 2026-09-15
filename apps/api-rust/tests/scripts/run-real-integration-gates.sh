@@ -116,8 +116,34 @@ run_relay_timeouts() {
     --test relay_misc_pg -- --ignored --test-threads=1
 }
 
+run_channel_balance_go_oracle() {
+  local go_root="$repo_root/apps/api-go"
+  [[ -f $go_root/go.mod && ! -L $go_root/go.mod ]] || {
+    echo "Go production oracle module is unavailable: $go_root" >&2
+    exit 1
+  }
+  (
+    cd "$go_root"
+    go test ./controller \
+      -run '^(TestConvertCNYBalanceToUSDUsesSynchronizedRate|TestConvertCNYBalanceToUSDRejectsInvalidRate|TestConvertCNYBalanceToUSDRejectsNonFiniteRate|TestGetDeepSeekBalanceUSD|TestRefreshChannelBalancesCapturesAndSanitizesProviderFailure|TestRefreshChannelBalancesCapturesAndSanitizesDatabaseFailure|TestRefreshChannelBalancesReportsMixedOutcome|TestRefreshChannelBalancesReportsAllSuccess|TestRefreshChannelBalancesBoundsFailureDetailsWithoutDroppingCounts|TestWriteChannelBalanceRefreshResponseUsesCompatiblePartialAndFullFailureEnvelopes)$' \
+      -count=1
+  )
+}
+
+run_channel_balance_rust_contracts() {
+  cargo test --locked --manifest-path "$manifest" -p lmm-api-rs \
+    --lib 'channel_balance::tests::' -- --test-threads=1
+  cargo test --locked --manifest-path "$manifest" -p lmm-api-rs \
+    --lib 'channel_balance_provider::tests::' -- --test-threads=1
+}
+
 run_channel_balance() {
   require_loopback_url LMM_TEST_DATABASE_URL
+  # Execute the current Go production-oracle vectors and the Rust parser/route
+  # contracts in the same gate before checking the durable PostgreSQL side
+  # effect. This keeps the balance evidence isolated from unrelated Go failures.
+  run_channel_balance_go_oracle
+  run_channel_balance_rust_contracts
   TEST_DATABASE_URL="$LMM_TEST_DATABASE_URL" \
     run_exact_api_lib_test channel_balance_store::tests::persisted_balance_updates_value_and_timestamp_together
 }
