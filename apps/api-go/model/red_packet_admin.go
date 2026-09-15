@@ -2,6 +2,7 @@ package model
 
 import (
 	"errors"
+	"strconv"
 	"strings"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
@@ -56,7 +57,7 @@ func ReplaceRedPacketItems(packetId int, inputs []RedPacketItemInput) error {
 			if input.SourceId <= 0 || (input.ItemType != RedPacketItemRedemption && input.ItemType != RedPacketItemDiscount) {
 				return ErrRedPacketInvalidItem
 			}
-			key := input.ItemType + ":" + string(rune(input.SourceId))
+			key := input.ItemType + ":" + strconv.Itoa(input.SourceId)
 			if _, exists := seen[key]; exists {
 				return ErrRedPacketItemDuplicated
 			}
