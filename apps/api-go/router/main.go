@@ -28,6 +28,7 @@ func SetRouter(router *gin.Engine) error {
 		return err
 	}
 	SetApiRouter(router)
+	SetRedPacketRouter(router)
 	SetOpenSourceBountyMCPRouter(router)
 	SetDrawingMCPRouter(router, largeRequestAdmission)
 	SetDashboardRouter(router)
