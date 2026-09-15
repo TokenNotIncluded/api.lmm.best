@@ -97,6 +97,23 @@ func TestRequestConverterFacadeWithoutChannelMeta(t *testing.T) {
 	assert.Nil(t, chatRequest.StreamOptions)
 }
 
+func TestGenericClaudeConversionDoesNotInjectStreamUsage(t *testing.T) {
+	info := &relaycommon.RelayInfo{
+		IsStream: true,
+		ChannelMeta: &relaycommon.ChannelMeta{
+			SupportStreamOptions: true,
+		},
+	}
+	result, err := ConvertRequest(nil, info, types.RelayFormatOpenAI, &dto.ClaudeRequest{
+		Model:    "gpt-test",
+		Messages: []dto.ClaudeMessage{{Role: "user", Content: "hello"}},
+	})
+	require.NoError(t, err)
+	chatRequest, ok := result.Value.(*dto.GeneralOpenAIRequest)
+	require.True(t, ok)
+	assert.Nil(t, chatRequest.StreamOptions)
+}
+
 func TestCrossProtocolStreamingRequestsIncludeUsage(t *testing.T) {
 	newInfo := func(isStream, supportsStreamOptions bool) *relaycommon.RelayInfo {
 		return &relaycommon.RelayInfo{
