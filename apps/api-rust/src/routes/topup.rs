@@ -128,7 +128,6 @@ fn apply_standard_payment_pricing(
 const TOPUP_PENDING: &str = "pending";
 const TOPUP_SUCCESS: &str = "success";
 const DEFAULT_QUOTA_PER_UNIT: f64 = 500_000.0;
-const TOPUP_QUERY_WINDOW_SECONDS: i64 = 30 * 24 * 60 * 60;
 const SEARCH_COUNT_HARD_LIMIT: i64 = 10_000;
 
 /// Dependencies for top-up history and redemption routes.
@@ -723,9 +722,10 @@ async fn fetch_topups(
 ) -> Result<Page<TopupRecord>, TopupListError> {
     let keyword = query.keyword.as_deref().unwrap_or("");
     let pattern = like_pattern(keyword).map_err(TopupListError::InvalidSearch)?;
-    let cutoff = unix_now().saturating_sub(TOPUP_QUERY_WINDOW_SECONDS);
+    // Top-up orders are durable financial records. Log retention must never
+    // hide them; pagination and the indexed user_id keep self-history bounded.
     let where_sql = if user_id.is_some() {
-        "user_id = $1 AND create_time >= $2 AND ($3 = '' OR trade_no LIKE $4 ESCAPE '!')"
+        "user_id = $1 AND ($2 = '' OR trade_no LIKE $3 ESCAPE '!')"
     } else {
         "($1 = '' OR trade_no LIKE $2 ESCAPE '!')"
     };
@@ -741,14 +741,13 @@ async fn fetch_topups(
     let order_by = query.sort_spec(user_id.is_none()).order_by();
     let list_sql = format!(
         "SELECT {TOPUP_COLUMNS} FROM top_ups WHERE {where_sql} ORDER BY {order_by} LIMIT ${} OFFSET ${}",
-        if user_id.is_some() { 5 } else { 3 },
-        if user_id.is_some() { 6 } else { 4 }
+        if user_id.is_some() { 4 } else { 3 },
+        if user_id.is_some() { 5 } else { 4 }
     );
     let mut tx = pool.begin().await?;
     let count_result = if let Some(id) = user_id {
         sqlx::query_scalar::<_, i64>(&count_sql)
             .bind(id)
-            .bind(cutoff)
             .bind(keyword)
             .bind(&pattern)
             .fetch_one(&mut *tx)
@@ -764,7 +763,6 @@ async fn fetch_topups(
     let rows = if let Some(id) = user_id {
         sqlx::query(&list_sql)
             .bind(id)
-            .bind(cutoff)
             .bind(keyword)
             .bind(&pattern)
             .bind(query.page_size())
@@ -1610,9 +1608,6 @@ fn payment_compliance_values(options: &HashMap<String, String>) -> bool {
     if split_options {
         return true;
     }
-    // Existing Go installations also retain the original registered JSON
-    // configuration object.  Read it as a compatibility fallback while new
-    // instances use the separately auditable compliance option keys above.
     options
         .get("payment_setting")
         .and_then(|raw| serde_json::from_str::<Value>(raw).ok())
@@ -1640,8 +1635,6 @@ fn json_value(options: &HashMap<String, String>, key: &str, default: Value) -> V
         .unwrap_or(default)
 }
 fn bool_value(options: &HashMap<String, String>, key: &str) -> bool {
-    // Waffo's Go option loader uses `value == "true"`, rather than the
-    // broader truthy convention used by payment compliance settings.
     options.get(key).is_some_and(|value| value == "true")
 }
 fn nonempty(options: &HashMap<String, String>, key: &str) -> bool {
@@ -2390,6 +2383,13 @@ mod tests {
         let ordinary_history =
             response_json(list_topups(&pool, &PageQuery::from_raw(None), None).await).await?;
         assert_eq!(ordinary_history["data"]["total"], 10_003);
+        let self_history =
+            response_json(list_self_topups(&pool, &PageQuery::from_raw(None), Some(11)).await)
+                .await?;
+        assert_eq!(
+            self_history["data"]["total"], 10_002,
+            "self history must keep orders even when create_time is older than 30 days"
+        );
         let searched_history = response_json(
             list_topups(
                 &pool,
