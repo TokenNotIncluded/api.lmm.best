@@ -18,13 +18,30 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { parseCurrencyDisplayType } from '@/lib/currency'
 
-import { CheckinSettingsSection } from '../general/checkin-settings-section'
-import { PricingSection } from '../general/pricing-section'
-import { QuotaSettingsSection } from '../general/quota-settings-section'
-import { PaymentSettingsSection } from '../integrations/payment-settings-section'
-import { RatioSettingsCard } from '../models/ratio-settings-card'
 import type { BillingSettings } from '../types'
+import { lazyNamedSection } from '../utils/lazy-section'
 import { createSectionRegistry } from '../utils/section-registry'
+
+const CheckinSettingsSection = lazyNamedSection(
+  () => import('../general/checkin-settings-section'),
+  'CheckinSettingsSection'
+)
+const PricingSection = lazyNamedSection(
+  () => import('../general/pricing-section'),
+  'PricingSection'
+)
+const QuotaSettingsSection = lazyNamedSection(
+  () => import('../general/quota-settings-section'),
+  'QuotaSettingsSection'
+)
+const PaymentSettingsSection = lazyNamedSection(
+  () => import('../integrations/payment-settings-section'),
+  'PaymentSettingsSection'
+)
+const RatioSettingsCard = lazyNamedSection(
+  () => import('../models/ratio-settings-card'),
+  'RatioSettingsCard'
+)
 
 const getModelDefaults = (settings: BillingSettings) => ({
   ModelPrice: settings.ModelPrice,

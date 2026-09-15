@@ -82,6 +82,7 @@ export function useFilters(models: PricingModel[]) {
     ]
   )
   const [filterState, setFilterState] = useState<FilterState>(routeFilters)
+  const latestSearchRef = useRef(routeFilters.search)
 
   const cancelPendingSearchUpdate = useCallback(() => {
     if (searchTimerRef.current === null) return
@@ -95,6 +96,7 @@ export function useFilters(models: PricingModel[]) {
 
   useEffect(() => {
     cancelPendingSearchUpdate()
+    latestSearchRef.current = routeFilters.search
     // Keep browser back/forward navigation in sync with the controlled filters.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setFilterState(routeFilters)
@@ -114,9 +116,16 @@ export function useFilters(models: PricingModel[]) {
 
   const updateFilters = useCallback(
     (updates: Record<string, unknown>) => {
+      const nextSearch = Object.hasOwn(updates, 'search')
+        ? typeof updates.search === 'string' && updates.search
+          ? updates.search
+          : undefined
+        : latestSearchRef.current
+      const flushedUpdates = { ...updates, search: nextSearch }
+      latestSearchRef.current = nextSearch
       cancelPendingSearchUpdate()
       setFilterState((prev) => {
-        const next: Record<string, unknown> = { ...prev, ...updates }
+        const next: Record<string, unknown> = { ...prev, ...flushedUpdates }
         for (const key of Object.keys(next)) {
           if (next[key] === undefined || next[key] === null) {
             delete next[key]
@@ -126,7 +135,7 @@ export function useFilters(models: PricingModel[]) {
       })
       void navigate({
         replace: true,
-        search: (previous) => ({ ...previous, ...updates }),
+        search: (previous) => ({ ...previous, ...flushedUpdates }),
       })
     },
     [cancelPendingSearchUpdate, navigate]
@@ -134,6 +143,7 @@ export function useFilters(models: PricingModel[]) {
 
   const setSearchInput = useCallback(
     (v: string) => {
+      latestSearchRef.current = v || undefined
       setFilterState((previous) => ({ ...previous, search: v || undefined }))
       cancelPendingSearchUpdate()
       searchTimerRef.current = setTimeout(() => {

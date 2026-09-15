@@ -177,4 +177,24 @@ describe('pricing filter URL synchronization', () => {
     assert.equal(routeSearch.search, undefined)
     assert.equal(navigateCalls.at(-1)?.search, undefined)
   })
+
+  test('flushes a pending search when another filter changes', async () => {
+    assert.ok(filterResult)
+
+    installFakeTimers()
+    await act(async () => {
+      filterResult?.setSearchInput('needle')
+      filterResult?.setVendorFilter('openai')
+    })
+
+    assert.equal(routeSearch.search, 'needle')
+    assert.equal(routeSearch.vendor, 'openai')
+    assert.equal(pendingTimers.size, 0)
+    assert.equal(navigateCalls.length, 1)
+
+    await act(async () => {
+      advanceFakeTimers()
+    })
+    assert.equal(navigateCalls.length, 1)
+  })
 })

@@ -5,6 +5,8 @@ umask 077
 
 readonly MARKER_NAME='.lmm-deploy-workspace'
 readonly ID_PATTERN='^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$'
+readonly STATE_WARNING_BYTES=$((256 * 1024 * 1024))
+readonly STATE_STOP_BYTES=$((512 * 1024 * 1024))
 
 usage() {
   printf 'Usage: %s --role controller|target --deployment-id ID [--root ABSOLUTE_PATH]\n' "${0##*/}" >&2
@@ -64,6 +66,22 @@ validate_root() {
   printf '%s\n' "$canonical"
 }
 
+check_state_budget() {
+  local state_root=$1
+  local size_bytes
+
+  [[ -d $state_root && ! -L $state_root ]] || die 'state root is not a real directory'
+  size_bytes=$(du -sb -- "$state_root" | awk 'NR == 1 { print $1 }')
+  [[ $size_bytes =~ ^[0-9]+$ ]] || die 'could not measure state root size'
+  if ((size_bytes >= STATE_STOP_BYTES)); then
+    die "state root uses ${size_bytes} bytes; clean terminal marker-owned workspaces before creating another deployment (stop=${STATE_STOP_BYTES})"
+  fi
+  if ((size_bytes >= STATE_WARNING_BYTES)); then
+    printf 'warning: state root uses %s bytes (warning=%s, stop=%s)\n' \
+      "$size_bytes" "$STATE_WARNING_BYTES" "$STATE_STOP_BYTES" >&2
+  fi
+}
+
 role=''
 deployment_id=''
 root=''
@@ -119,6 +137,7 @@ chmod 0700 -- "$root"
 assert_no_symlink_components "$root"
 [[ -d $root && ! -L $root ]] || die 'workspace root is not a real directory'
 [[ $(realpath -e -- "$root") == "$root" ]] || die 'workspace root changed during creation'
+check_state_budget "$(dirname -- "$root")"
 
 workspace="$root/$deployment_id"
 [[ ! -e $workspace && ! -L $workspace ]] || die 'deployment workspace already exists'

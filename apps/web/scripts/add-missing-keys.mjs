@@ -6135,16 +6135,16 @@ for (const [locale, translations] of Object.entries(
 
 const walletTerminologyTranslations = {
   en: {
-    'Platform credit': 'Platform credit ($ (Platform))',
-    'Custom platform credit': 'Custom platform credit ($ (Platform))',
+    'Platform credit': 'Platform credit',
+    'Custom platform credit': 'Custom platform credit',
     'Maximum platform credit per payment: {{amount}}':
       'Maximum platform credit per payment: {{amount}}',
     'Maximum: {{amount}}': 'Maximum: {{amount}}',
     'Credit {{amount}}; pay {{payment}}': 'Credit {{amount}}; pay {{payment}}',
   },
   zh: {
-    'Platform credit': '平台金额（$（平台））',
-    'Custom platform credit': '自定义平台金额（$（平台））',
+    'Platform credit': '平台额度',
+    'Custom platform credit': '自定义平台额度',
     'Maximum platform credit per payment: {{amount}}':
       '单笔最高平台金额：{{amount}}',
     'Maximum: {{amount}}': '上限：{{amount}}',
@@ -6152,8 +6152,8 @@ const walletTerminologyTranslations = {
       '到账 {{amount}}；实际支付 {{payment}}',
   },
   'zh-TW': {
-    'Platform credit': '平台金額（$（平台））',
-    'Custom platform credit': '自訂平台金額（$（平台））',
+    'Platform credit': '平台額度',
+    'Custom platform credit': '自訂平台額度',
     'Maximum platform credit per payment: {{amount}}':
       '單筆最高平台金額：{{amount}}',
     'Maximum: {{amount}}': '上限：{{amount}}',
@@ -6161,9 +6161,8 @@ const walletTerminologyTranslations = {
       '入帳 {{amount}}；實際支付 {{payment}}',
   },
   fr: {
-    'Platform credit': 'Crédit de plateforme ($ (Plateforme))',
-    'Custom platform credit':
-      'Crédit de plateforme personnalisé ($ (Plateforme))',
+    'Platform credit': 'Crédit de plateforme',
+    'Custom platform credit': 'Crédit de plateforme personnalisé',
     'Maximum platform credit per payment: {{amount}}':
       'Crédit de plateforme maximal par paiement : {{amount}}',
     'Maximum: {{amount}}': 'Maximum : {{amount}}',
@@ -6171,9 +6170,8 @@ const walletTerminologyTranslations = {
       'Crédit {{amount}} ; paiement {{payment}}',
   },
   ja: {
-    'Platform credit': 'プラットフォーム残高（$（プラットフォーム））',
-    'Custom platform credit':
-      'カスタムのプラットフォーム残高（$（プラットフォーム））',
+    'Platform credit': 'プラットフォームクレジット',
+    'Custom platform credit': '任意のプラットフォームクレジット',
     'Maximum platform credit per payment: {{amount}}':
       '1回あたりの最大プラットフォーム残高：{{amount}}',
     'Maximum: {{amount}}': '上限：{{amount}}',
@@ -6181,9 +6179,8 @@ const walletTerminologyTranslations = {
       '付与額 {{amount}}；支払額 {{payment}}',
   },
   ru: {
-    'Platform credit': 'Платформенный кредит ($ (Платформа))',
-    'Custom platform credit':
-      'Пользовательский платформенный кредит ($ (Платформа))',
+    'Platform credit': 'Платформенный кредит',
+    'Custom platform credit': 'Другая сумма кредита платформы',
     'Maximum platform credit per payment: {{amount}}':
       'Максимальный платформенный кредит за платёж: {{amount}}',
     'Maximum: {{amount}}': 'Максимум: {{amount}}',
@@ -6191,8 +6188,8 @@ const walletTerminologyTranslations = {
       'Зачисление {{amount}}; оплата {{payment}}',
   },
   vi: {
-    'Platform credit': 'Tín dụng nền tảng ($ (Nền tảng))',
-    'Custom platform credit': 'Tín dụng nền tảng tùy chỉnh ($ (Nền tảng))',
+    'Platform credit': 'Tín dụng nền tảng',
+    'Custom platform credit': 'Tín dụng nền tảng tùy chỉnh',
     'Maximum platform credit per payment: {{amount}}':
       'Tín dụng nền tảng tối đa mỗi lần thanh toán: {{amount}}',
     'Maximum: {{amount}}': 'Tối đa: {{amount}}',
@@ -6986,6 +6983,161 @@ const roundStatusTranslations = {
   },
 }
 for (const [locale, translations] of Object.entries(roundStatusTranslations)) {
+  Object.assign(newKeys[locale], translations)
+}
+
+const bountyLifecycleTranslations = {
+  en: {
+    'Rejected challenges can still be appealed. Wait until the seven-day appeal window ends unless a dispute is opened.':
+      'Rejected challenges can still be appealed. Wait until the seven-day appeal window ends unless a dispute is opened.',
+    'Resolve all open disputes before closing this bounty or refunding escrow.':
+      'Resolve all open disputes before closing this bounty or refunding escrow.',
+    'Bounty status summary': 'Bounty status summary',
+    Participants: 'Participants',
+    'In progress': 'In progress',
+    'Awaiting review': 'Awaiting review',
+    'In appeal window': 'In appeal window',
+    'Open disputes': 'Open disputes',
+    'Why closing is unavailable': 'Why closing is unavailable',
+    'This bounty cannot be closed yet. Resolve the blockers below:':
+      'This bounty cannot be closed yet. Resolve the blockers below:',
+    'In progress: {{accepted}} · Awaiting review: {{submitted}}':
+      'In progress: {{accepted}} · Awaiting review: {{submitted}}',
+    'Challenges still in the appeal window: {{count}}. Latest deadline: {{date}}.':
+      'Challenges still in the appeal window: {{count}}. Latest deadline: {{date}}.',
+    'Open disputes: {{count}}. A third-party administrator must resolve them before escrow can be refunded.':
+      'Open disputes: {{count}}. A third-party administrator must resolve them before escrow can be refunded.',
+  },
+  zh: {
+    'Rejected challenges can still be appealed. Wait until the seven-day appeal window ends unless a dispute is opened.':
+      '被拒绝的挑战仍可申诉。请等待 7 天申诉期结束；若有人发起争议，则需先处理争议。',
+    'Resolve all open disputes before closing this bounty or refunding escrow.':
+      '关闭悬赏或退回托管额度前，请先解决所有未结争议。',
+    'Bounty status summary': '悬赏状态概览',
+    Participants: '参与人数',
+    'In progress': '进行中',
+    'Awaiting review': '等待审核',
+    'In appeal window': '申诉期内',
+    'Open disputes': '未结争议',
+    'Why closing is unavailable': '为什么暂时无法关闭',
+    'This bounty cannot be closed yet. Resolve the blockers below:':
+      '此悬赏暂时无法关闭，请先处理以下事项：',
+    'In progress: {{accepted}} · Awaiting review: {{submitted}}':
+      '进行中：{{accepted}} · 等待审核：{{submitted}}',
+    'Challenges still in the appeal window: {{count}}. Latest deadline: {{date}}.':
+      '仍在申诉期内的挑战：{{count}} 个。最晚截止时间：{{date}}。',
+    'Open disputes: {{count}}. A third-party administrator must resolve them before escrow can be refunded.':
+      '未结争议：{{count}} 个。必须由第三方管理员解决后，才能退回托管额度。',
+  },
+  'zh-TW': {
+    'Rejected challenges can still be appealed. Wait until the seven-day appeal window ends unless a dispute is opened.':
+      '遭拒絕的挑戰仍可申訴。請等待 7 天申訴期結束；若有人提出爭議，則需先處理爭議。',
+    'Resolve all open disputes before closing this bounty or refunding escrow.':
+      '關閉懸賞或退回託管額度前，請先解決所有未結爭議。',
+    'Bounty status summary': '懸賞狀態概覽',
+    Participants: '參與人數',
+    'In progress': '進行中',
+    'Awaiting review': '等待審核',
+    'In appeal window': '申訴期內',
+    'Open disputes': '未結爭議',
+    'Why closing is unavailable': '為什麼暫時無法關閉',
+    'This bounty cannot be closed yet. Resolve the blockers below:':
+      '此懸賞暫時無法關閉，請先處理以下事項：',
+    'In progress: {{accepted}} · Awaiting review: {{submitted}}':
+      '進行中：{{accepted}} · 等待審核：{{submitted}}',
+    'Challenges still in the appeal window: {{count}}. Latest deadline: {{date}}.':
+      '仍在申訴期內的挑戰：{{count}} 個。最晚截止時間：{{date}}。',
+    'Open disputes: {{count}}. A third-party administrator must resolve them before escrow can be refunded.':
+      '未結爭議：{{count}} 個。必須由第三方管理員解決後，才能退回託管額度。',
+  },
+  fr: {
+    'Rejected challenges can still be appealed. Wait until the seven-day appeal window ends unless a dispute is opened.':
+      'Les défis rejetés peuvent encore faire l’objet d’un recours. Attendez la fin du délai de sept jours, sauf si un litige est ouvert.',
+    'Resolve all open disputes before closing this bounty or refunding escrow.':
+      'Résolvez tous les litiges ouverts avant de clôturer cette prime ou de rembourser les fonds bloqués.',
+    'Bounty status summary': 'Résumé de l’état de la prime',
+    Participants: 'Participants',
+    'In progress': 'En cours',
+    'Awaiting review': 'En attente de validation',
+    'In appeal window': 'Dans le délai de recours',
+    'Open disputes': 'Litiges ouverts',
+    'Why closing is unavailable': 'Pourquoi la clôture est indisponible',
+    'This bounty cannot be closed yet. Resolve the blockers below:':
+      'Cette prime ne peut pas encore être clôturée. Résolvez d’abord les blocages suivants :',
+    'In progress: {{accepted}} · Awaiting review: {{submitted}}':
+      'En cours : {{accepted}} · En attente de validation : {{submitted}}',
+    'Challenges still in the appeal window: {{count}}. Latest deadline: {{date}}.':
+      'Défis encore dans le délai de recours : {{count}}. Échéance la plus tardive : {{date}}.',
+    'Open disputes: {{count}}. A third-party administrator must resolve them before escrow can be refunded.':
+      'Litiges ouverts : {{count}}. Un administrateur tiers doit les résoudre avant le remboursement des fonds bloqués.',
+  },
+  ja: {
+    'Rejected challenges can still be appealed. Wait until the seven-day appeal window ends unless a dispute is opened.':
+      '却下されたチャレンジにはまだ異議を申し立てられます。異議が開始された場合を除き、7 日間の申立期間が終了するまでお待ちください。',
+    'Resolve all open disputes before closing this bounty or refunding escrow.':
+      '懸賞を終了またはエスクローを返金する前に、未解決の異議をすべて解決してください。',
+    'Bounty status summary': '懸賞ステータスの概要',
+    Participants: '参加者数',
+    'In progress': '進行中',
+    'Awaiting review': 'レビュー待ち',
+    'In appeal window': '異議申立期間中',
+    'Open disputes': '未解決の異議',
+    'Why closing is unavailable': '終了できない理由',
+    'This bounty cannot be closed yet. Resolve the blockers below:':
+      'この懸賞はまだ終了できません。以下の阻害要因を解消してください：',
+    'In progress: {{accepted}} · Awaiting review: {{submitted}}':
+      '進行中：{{accepted}}・レビュー待ち：{{submitted}}',
+    'Challenges still in the appeal window: {{count}}. Latest deadline: {{date}}.':
+      '異議申立期間中のチャレンジ：{{count}}件。最も遅い期限：{{date}}。',
+    'Open disputes: {{count}}. A third-party administrator must resolve them before escrow can be refunded.':
+      '未解決の異議：{{count}}件。エスクローを返金するには、第三者の管理者による解決が必要です。',
+  },
+  ru: {
+    'Rejected challenges can still be appealed. Wait until the seven-day appeal window ends unless a dispute is opened.':
+      'Отклонённые заявки ещё можно обжаловать. Дождитесь окончания семидневного срока, если спор не будет открыт.',
+    'Resolve all open disputes before closing this bounty or refunding escrow.':
+      'Разрешите все открытые споры перед закрытием награды или возвратом средств из эскроу.',
+    'Bounty status summary': 'Сводка статуса награды',
+    Participants: 'Участники',
+    'In progress': 'В работе',
+    'Awaiting review': 'Ожидают проверки',
+    'In appeal window': 'В периоде обжалования',
+    'Open disputes': 'Открытые споры',
+    'Why closing is unavailable': 'Почему закрытие недоступно',
+    'This bounty cannot be closed yet. Resolve the blockers below:':
+      'Эту награду пока нельзя закрыть. Устраните следующие препятствия:',
+    'In progress: {{accepted}} · Awaiting review: {{submitted}}':
+      'В работе: {{accepted}} · Ожидают проверки: {{submitted}}',
+    'Challenges still in the appeal window: {{count}}. Latest deadline: {{date}}.':
+      'Заявки в периоде обжалования: {{count}}. Самый поздний срок: {{date}}.',
+    'Open disputes: {{count}}. A third-party administrator must resolve them before escrow can be refunded.':
+      'Открытые споры: {{count}}. Сторонний администратор должен разрешить их до возврата средств из эскроу.',
+  },
+  vi: {
+    'Rejected challenges can still be appealed. Wait until the seven-day appeal window ends unless a dispute is opened.':
+      'Thử thách bị từ chối vẫn có thể được kháng nghị. Hãy chờ hết thời hạn bảy ngày, trừ khi có tranh chấp được mở.',
+    'Resolve all open disputes before closing this bounty or refunding escrow.':
+      'Hãy giải quyết mọi tranh chấp đang mở trước khi đóng tiền thưởng hoặc hoàn lại khoản ký quỹ.',
+    'Bounty status summary': 'Tóm tắt trạng thái tiền thưởng',
+    Participants: 'Người tham gia',
+    'In progress': 'Đang thực hiện',
+    'Awaiting review': 'Đang chờ duyệt',
+    'In appeal window': 'Trong thời hạn kháng nghị',
+    'Open disputes': 'Tranh chấp đang mở',
+    'Why closing is unavailable': 'Lý do chưa thể đóng',
+    'This bounty cannot be closed yet. Resolve the blockers below:':
+      'Tiền thưởng này chưa thể đóng. Hãy xử lý các trở ngại sau:',
+    'In progress: {{accepted}} · Awaiting review: {{submitted}}':
+      'Đang thực hiện: {{accepted}} · Đang chờ duyệt: {{submitted}}',
+    'Challenges still in the appeal window: {{count}}. Latest deadline: {{date}}.':
+      'Thử thách vẫn trong thời hạn kháng nghị: {{count}}. Hạn muộn nhất: {{date}}.',
+    'Open disputes: {{count}}. A third-party administrator must resolve them before escrow can be refunded.':
+      'Tranh chấp đang mở: {{count}}. Quản trị viên bên thứ ba phải giải quyết chúng trước khi hoàn lại khoản ký quỹ.',
+  },
+}
+for (const [locale, translations] of Object.entries(
+  bountyLifecycleTranslations
+)) {
   Object.assign(newKeys[locale], translations)
 }
 

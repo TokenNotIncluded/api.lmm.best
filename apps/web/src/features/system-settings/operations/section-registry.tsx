@@ -16,32 +16,46 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { lazy, Suspense } from 'react'
-
-import { SystemBehaviorSection } from '../general/system-behavior-section.js'
-import { EmailSettingsSection } from '../integrations/email-settings-section.js'
-import { MonitoringSettingsSection } from '../integrations/monitoring-settings-section.js'
-import { WorkerSettingsSection } from '../integrations/worker-settings-section.js'
-import { LogSettingsSection } from '../maintenance/log-settings-section.js'
-import { PerformanceSection } from '../maintenance/performance-section.js'
-import { UpdateCheckerSection } from '../maintenance/update-checker-section.js'
 import type { OperationsSettings } from '../types.js'
+import { lazyNamedSection } from '../utils/lazy-section.js'
 import { createSectionRegistry } from '../utils/section-registry.js'
-import { RawJsonConfigurationSection } from './raw-json-configuration-section.js'
 
-const HeroSmsSettingsSection = lazy(() =>
-  import('./hero-sms-settings-section.js').then((module) => ({
-    default: module.HeroSmsSettingsSection,
-  }))
+const SystemBehaviorSection = lazyNamedSection(
+  () => import('../general/system-behavior-section.js'),
+  'SystemBehaviorSection'
 )
-
-function LazyHeroSmsSettingsSection() {
-  return (
-    <Suspense fallback={<div className='min-h-40' aria-busy='true' />}>
-      <HeroSmsSettingsSection />
-    </Suspense>
-  )
-}
+const EmailSettingsSection = lazyNamedSection(
+  () => import('../integrations/email-settings-section.js'),
+  'EmailSettingsSection'
+)
+const MonitoringSettingsSection = lazyNamedSection(
+  () => import('../integrations/monitoring-settings-section.js'),
+  'MonitoringSettingsSection'
+)
+const WorkerSettingsSection = lazyNamedSection(
+  () => import('../integrations/worker-settings-section.js'),
+  'WorkerSettingsSection'
+)
+const LogSettingsSection = lazyNamedSection(
+  () => import('../maintenance/log-settings-section.js'),
+  'LogSettingsSection'
+)
+const PerformanceSection = lazyNamedSection(
+  () => import('../maintenance/performance-section.js'),
+  'PerformanceSection'
+)
+const UpdateCheckerSection = lazyNamedSection(
+  () => import('../maintenance/update-checker-section.js'),
+  'UpdateCheckerSection'
+)
+const RawJsonConfigurationSection = lazyNamedSection(
+  () => import('./raw-json-configuration-section.js'),
+  'RawJsonConfigurationSection'
+)
+const HeroSmsSettingsSection = lazyNamedSection(
+  () => import('./hero-sms-settings-section.js'),
+  'HeroSmsSettingsSection'
+)
 
 const OPERATIONS_SECTIONS = [
   {
@@ -112,7 +126,7 @@ const OPERATIONS_SECTIONS = [
   {
     id: 'hero-sms',
     titleKey: 'HeroSMS temporary activations',
-    build: () => <LazyHeroSmsSettingsSection />,
+    build: () => <HeroSmsSettingsSection />,
   },
   {
     id: 'logs',
