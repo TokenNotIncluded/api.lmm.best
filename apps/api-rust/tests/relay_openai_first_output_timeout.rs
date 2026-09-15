@@ -70,9 +70,7 @@ async fn role_only_frame_does_not_satisfy_first_visible_output_deadline() {
     let app = Router::new().route(
         "/v1/chat/completions",
         post(|| async {
-            let role = stream::once(async {
-                Ok::<_, Infallible>(Bytes::from_static(ROLE_ONLY))
-            });
+            let role = stream::once(async { Ok::<_, Infallible>(Bytes::from_static(ROLE_ONLY)) });
             (
                 [(header::CONTENT_TYPE, "text/event-stream")],
                 Body::from_stream(role.chain(stream::pending())),
