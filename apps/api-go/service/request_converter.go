@@ -56,7 +56,7 @@ func ConvertRequestVia(c *gin.Context, info *relaycommon.RelayInfo, request any,
 // a converted streaming request must explicitly ask a compatible upstream to
 // include usage for billing and usage accounting.
 func applyCrossProtocolStreamUsage(info *relaycommon.RelayInfo, result *relayconvert.RequestResult) {
-	if info == nil || result == nil || !info.SupportStreamOptions || !info.IsStream {
+	if info == nil || info.ChannelMeta == nil || result == nil || !info.SupportStreamOptions || !info.IsStream {
 		return
 	}
 	if result.From == result.To || result.To != types.RelayFormatOpenAI {
