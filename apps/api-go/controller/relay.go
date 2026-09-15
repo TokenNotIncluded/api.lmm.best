@@ -426,12 +426,40 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 			AutoBan: &autoBanInt,
 		}, nil
 	}
-	channel, selectGroup, err := service.CacheGetRandomSatisfiedChannel(retryParam)
-	if err != nil {
-		return nil, types.NewError(fmt.Errorf("获取分组 %s 下模型 %s 的可用渠道失败（retry）: %s", selectGroup, info.OriginModelName, err.Error()), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
-	}
-	if channel == nil {
-		return nil, types.NewError(fmt.Errorf("分组 %s 下模型 %s 的可用渠道不存在（retry）", selectGroup, info.OriginModelName), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
+
+	var (
+		channel             *model.Channel
+		selectGroup         string
+		err                 error
+		rejectedUnsupported bool
+	)
+	for {
+		channel, selectGroup, err = service.CacheGetRandomSatisfiedChannel(retryParam)
+		if err != nil {
+			return nil, types.NewError(fmt.Errorf("获取分组 %s 下模型 %s 的可用渠道失败（retry）: %s", selectGroup, info.OriginModelName, err.Error()), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
+		}
+		if channel == nil {
+			// The original attempt already passed distributor admission. If every
+			// remaining retry candidate is protocol-incompatible, keep the real
+			// upstream failure instead of replacing it with a misleading local 400.
+			if rejectedUnsupported && info.LastError != nil {
+				return nil, info.LastError
+			}
+			if rejectedUnsupported {
+				return nil, types.NewErrorWithStatusCode(
+					errors.New("no retry channel supports requested endpoint"),
+					types.ErrorCodeChannelUnsupportedEndpoint,
+					http.StatusBadRequest,
+					types.ErrOptionWithSkipRetry(),
+				)
+			}
+			return nil, types.NewError(fmt.Errorf("分组 %s 下模型 %s 的可用渠道不存在（retry）", selectGroup, info.OriginModelName), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
+		}
+		if middleware.ChannelSupportsRequestPath(channel, retryParam.RequestPath, info.OriginModelName) {
+			break
+		}
+		rejectedUnsupported = true
+		retryParam.ExcludeChannel(channel.Id)
 	}
 
 	info.PriceData.GroupRatioInfo = helper.HandleGroupRatio(c, info)
