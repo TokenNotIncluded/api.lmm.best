@@ -1,6 +1,7 @@
 package openai
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -19,6 +20,12 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
 )
+
+func hasVisibleStreamOutput(data string) bool {
+	return gjson.Get(data, "choices.0.delta.content").String() != "" ||
+		gjson.Get(data, "choices.0.delta.reasoning_content").String() != "" ||
+		gjson.Get(data, "choices.0.delta.tool_calls").Exists()
+}
 
 func sendStreamData(c *gin.Context, info *relaycommon.RelayInfo, data string, forceFormat bool, thinkToContent bool) error {
 	if data == "" {
@@ -138,6 +145,9 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 	isAudioModel := strings.Contains(strings.ToLower(model), "audio")
 
 	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
+		if !info.FirstResponseObserved && hasVisibleStreamOutput(data) {
+			info.FirstResponseObserved = true
+		}
 		if lastStreamData != "" && !lastStreamDataSent && !shouldHoldOpenAIUsageChunk(info, lastStreamData) {
 			if err := HandleStreamFormat(c, info, lastStreamData, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent); err != nil {
 				common.SysLog("error handling stream format: " + err.Error())
@@ -167,6 +177,9 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 			}
 		}
 	})
+	if errors.Is(info.StreamStatus.EndError, helper.ErrFirstResponseTimeout) && !c.Writer.Written() {
+		return nil, types.NewOpenAIError(helper.ErrFirstResponseTimeout, types.ErrorCodeUpstreamTimeout, http.StatusGatewayTimeout)
+	}
 
 	// 对音频模型，从倒数第二个stream data中提取usage信息
 	if isAudioModel && secondLastStreamData != "" {

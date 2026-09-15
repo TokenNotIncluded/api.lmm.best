@@ -3,6 +3,7 @@ package helper
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -21,6 +22,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 )
+
+var ErrFirstResponseTimeout = errors.New("upstream first response timeout")
 
 const (
 	InitialScannerBufferSize    = 64 << 10 // 64KB (64*1024)
@@ -93,6 +96,13 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 	ctx, cancel := context.WithCancel(context.Background())
 
 	streamingTimeout := time.Duration(constant.StreamingTimeout) * time.Second
+	firstResponseTimer := (*time.Timer)(nil)
+	var firstResponseCh <-chan time.Time
+	if info != nil && info.FirstResponseTimeout > 0 {
+		firstResponseTimer = time.NewTimer(info.FirstResponseTimeout)
+		firstResponseCh = firstResponseTimer.C
+		defer firstResponseTimer.Stop()
+	}
 
 	var (
 		stopChan        = make(chan bool, 3) // 增加缓冲区避免阻塞
@@ -338,6 +348,10 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 	select {
 	case <-ticker.C:
 		info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonTimeout, nil)
+	case <-firstResponseCh:
+		if info != nil && !info.FirstResponseObserved && !c.Writer.Written() {
+			info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonTimeout, ErrFirstResponseTimeout)
+		}
 	case <-stopChan:
 		// EndReason already set by the goroutine that triggered stopChan
 	case <-c.Request.Context().Done():
