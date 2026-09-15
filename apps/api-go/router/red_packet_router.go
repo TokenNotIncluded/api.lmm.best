@@ -3,6 +3,7 @@ package router
 import (
 	"github.com/LIghtJUNction/api.lmm.best/controller"
 	"github.com/LIghtJUNction/api.lmm.best/middleware"
+	"github.com/LIghtJUNction/api.lmm.best/model"
 	"github.com/gin-contrib/gzip"
 	"github.com/gin-gonic/gin"
 )
@@ -12,7 +13,11 @@ const redPacketMutationRequestMaxBytes = 4 << 20
 // SetRedPacketRouter keeps share-link discovery outside ConsoleAccessGate so a
 // recipient can open a packet before signing in. Claim and management paths
 // still enforce the normal user/admin authorization boundaries.
-func SetRedPacketRouter(router *gin.Engine) {
+func SetRedPacketRouter(router *gin.Engine) error {
+	if err := model.EnsureRedPacketSchemaAtStartup(); err != nil {
+		return err
+	}
+
 	group := router.Group("/api/red-packet")
 	group.Use(middleware.RouteTag("api"))
 	group.Use(gzip.Gzip(gzip.DefaultCompression))
@@ -37,4 +42,5 @@ func SetRedPacketRouter(router *gin.Engine) {
 	user := router.Group("/api/user")
 	user.Use(middleware.RouteTag("api"), middleware.BodyStorageCleanup(), middleware.GlobalAPIRateLimit())
 	user.POST("/redemption", middleware.RequestBodyLimit(4<<10), middleware.UserAuth(), middleware.CriticalRateLimit(), middleware.DisableCache(), controller.RedeemCodeV2)
+	return nil
 }
