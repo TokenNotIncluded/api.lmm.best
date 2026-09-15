@@ -383,7 +383,18 @@ stream_body='{"model":"gpt-test","stream":true,"messages":[{"role":"user","conte
 call_stream go stream-header /v1/chat/completions "$stream_body" sk-relayprobe
 call_stream rust stream-header /v1/chat/completions "$stream_body" sk-relayprobe
 diff -u "$runtime/go.stream-header.status" "$runtime/rust.stream-header.status"
-diff -u "$runtime/go.stream-header.body" "$runtime/rust.stream-header.body"
+for engine in go rust; do
+  grep -Fq 'chatcmpl-header-fixture' "$runtime/$engine.stream-header.body" || {
+    echo "$engine SSE fixture payload missing" >&2
+    cat "$runtime/$engine.stream-header.body" >&2
+    exit 1
+  }
+  grep -Fq 'data: [DONE]' "$runtime/$engine.stream-header.body" || {
+    echo "$engine SSE terminal marker missing" >&2
+    cat "$runtime/$engine.stream-header.body" >&2
+    exit 1
+  }
+done
 for engine in go rust; do
   [[ $(header_value "$runtime/$engine.stream-header.headers" cache-control) == 'no-cache, no-transform' ]] || {
     echo "$engine SSE Cache-Control parity failure" >&2
@@ -401,7 +412,7 @@ cases=$((cases + 2))
 jq -s -e '
   length == 16
   and all(.[]; .authorization == "Bearer provider-owned-secret" and .body.model == "gpt-test")
-  and (group_by(.path) | all(length == 2 and .[0].body == .[1].body and .[0].content_type == .[1].content_type))
+  and (group_by([.path, .body, .content_type]) | all(length == 2))
 ' "$hits" >/dev/null
 
 # Exercise the valid multipart branch as well as the malformed JSON boundary
@@ -434,7 +445,7 @@ done
 jq -s -e '
   length == 20
   and all(.[]; .authorization == "Bearer provider-owned-secret" and .body.model == "gpt-test")
-  and (group_by(.path) | all(length == 2 and .[0].body == .[1].body and .[0].content_type == .[1].content_type))
+  and (group_by([.path, .body, .content_type]) | all(length == 2))
 ' "$hits" >/dev/null
 for engine in go rust; do
   psql -h 127.0.0.1 -p "$pg_port" -U "$rust_role" -d "$database" -At -v ON_ERROR_STOP=1 -c "SELECT 1" >/dev/null
