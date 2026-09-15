@@ -28,7 +28,12 @@ func ConvertRequest(c *gin.Context, info *relaycommon.RelayInfo, target types.Re
 	if err != nil {
 		return nil, err
 	}
-	applyCrossProtocolStreamUsage(info, result)
+	// The direct OpenAI-compatible adaptor converts Gemini requests through this
+	// generic facade. Claude has its own adaptor-side handling, and keeping that
+	// distinction avoids changing internal Claude -> Chat -> Responses staging.
+	if result.From == types.RelayFormatGemini {
+		applyOpenAIChatStreamUsage(info, result)
+	}
 	return result, nil
 }
 
@@ -37,25 +42,22 @@ func ConvertRequestByID(c *gin.Context, info *relaycommon.RelayInfo, converter s
 	if err != nil {
 		return nil, err
 	}
-	applyCrossProtocolStreamUsage(info, result)
+	// Explicit converter IDs are currently consumed by the advanced-custom
+	// adaptor. Its Claude, Gemini, and Responses -> Chat routes all need the
+	// same upstream usage contract.
+	applyOpenAIChatStreamUsage(info, result)
 	return result, nil
 }
 
 func ConvertRequestVia(c *gin.Context, info *relaycommon.RelayInfo, request any, path ...types.RelayFormat) (*relayconvert.RequestResult, error) {
-	result, err := relayconvert.ConvertRequestVia(c, info, request, path...)
-	if err != nil {
-		return nil, err
-	}
-	applyCrossProtocolStreamUsage(info, result)
-	return result, nil
+	return relayconvert.ConvertRequestVia(c, info, request, path...)
 }
 
-// applyCrossProtocolStreamUsage enforces the host-side OpenAI Chat streaming
-// contract after format conversion. Downstream Claude, Gemini, and Responses
-// requests cannot carry OpenAI Chat's stream_options contract themselves, so
-// a converted streaming request must explicitly ask a compatible upstream to
-// include usage for billing and usage accounting.
-func applyCrossProtocolStreamUsage(info *relaycommon.RelayInfo, result *relayconvert.RequestResult) {
+// applyOpenAIChatStreamUsage asks compatible OpenAI Chat upstreams to report
+// usage on streaming cross-protocol requests. The downstream protocol cannot
+// carry OpenAI Chat's stream_options field itself, while billing still needs
+// the upstream usage frame.
+func applyOpenAIChatStreamUsage(info *relaycommon.RelayInfo, result *relayconvert.RequestResult) {
 	if info == nil || info.ChannelMeta == nil || result == nil || !info.SupportStreamOptions || !info.IsStream {
 		return
 	}
