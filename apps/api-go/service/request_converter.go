@@ -24,15 +24,52 @@ func init() {
 }
 
 func ConvertRequest(c *gin.Context, info *relaycommon.RelayInfo, target types.RelayFormat, request any) (*relayconvert.RequestResult, error) {
-	return relayconvert.ConvertRequest(c, info, target, request)
+	result, err := relayconvert.ConvertRequest(c, info, target, request)
+	if err != nil {
+		return nil, err
+	}
+	applyCrossProtocolStreamUsage(info, result)
+	return result, nil
 }
 
 func ConvertRequestByID(c *gin.Context, info *relaycommon.RelayInfo, converter string, request any) (*relayconvert.RequestResult, error) {
-	return relayconvert.ConvertRequestByID(c, info, converter, request)
+	result, err := relayconvert.ConvertRequestByID(c, info, converter, request)
+	if err != nil {
+		return nil, err
+	}
+	applyCrossProtocolStreamUsage(info, result)
+	return result, nil
 }
 
 func ConvertRequestVia(c *gin.Context, info *relaycommon.RelayInfo, request any, path ...types.RelayFormat) (*relayconvert.RequestResult, error) {
-	return relayconvert.ConvertRequestVia(c, info, request, path...)
+	result, err := relayconvert.ConvertRequestVia(c, info, request, path...)
+	if err != nil {
+		return nil, err
+	}
+	applyCrossProtocolStreamUsage(info, result)
+	return result, nil
+}
+
+// applyCrossProtocolStreamUsage enforces the host-side OpenAI Chat streaming
+// contract after format conversion. Downstream Claude, Gemini, and Responses
+// requests cannot carry OpenAI's stream_options field themselves, so a
+// converted streaming request must explicitly ask a compatible upstream to
+// include usage for billing and usage accounting.
+func applyCrossProtocolStreamUsage(info *relaycommon.RelayInfo, result *relayconvert.RequestResult) {
+	if info == nil || result == nil || !info.SupportStreamOptions || !info.IsStream {
+		return
+	}
+	if result.From == result.To || result.To != types.RelayFormatOpenAI {
+		return
+	}
+	request, ok := result.Value.(*dto.GeneralOpenAIRequest)
+	if !ok || request == nil {
+		return
+	}
+	if request.StreamOptions == nil {
+		request.StreamOptions = &dto.StreamOptions{}
+	}
+	request.StreamOptions.IncludeUsage = true
 }
 
 func ClaudeToOpenAIRequest(claudeRequest dto.ClaudeRequest, info *relaycommon.RelayInfo) (*dto.GeneralOpenAIRequest, error) {
