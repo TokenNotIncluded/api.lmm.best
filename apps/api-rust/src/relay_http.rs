@@ -1,6 +1,6 @@
 //! Provider relay deadlines, independent of control-plane dependencies.
 
-use std::time::Duration;
+use std::{fmt, time::Duration};
 
 use axum::{
     body::{Body, Bytes},
@@ -43,7 +43,7 @@ impl RelayRequestBuilder {
     }
 }
 
-#[derive(Debug, Error)]
+#[derive(Error)]
 pub enum RelayHttpError {
     #[error("upstream response timed out")]
     ResponseHeaders,
@@ -51,6 +51,16 @@ pub enum RelayHttpError {
     Idle,
     #[error("upstream request failed")]
     Transport(#[source] reqwest::Error),
+}
+
+impl fmt::Debug for RelayHttpError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::ResponseHeaders => formatter.write_str("ResponseHeaders"),
+            Self::Idle => formatter.write_str("Idle"),
+            Self::Transport(_) => formatter.write_str("Transport(<redacted>)"),
+        }
+    }
 }
 
 impl RelayHttpClient {
@@ -308,6 +318,33 @@ mod tests {
             Bytes::from_static(b"b")
         );
         assert!(body.next().await.is_none());
+    }
+
+    #[tokio::test]
+    async fn transport_debug_redacts_provider_endpoint_details() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        drop(listener);
+        let secret_path = "private-upstream-token";
+        let url: reqwest::Url = format!("http://{address}/{secret_path}").parse().unwrap();
+        let client = RelayHttpClient::new(RelayTimeoutConfig {
+            response_headers: Some(Duration::from_secs(1)),
+            idle: Duration::from_secs(1),
+            total: Some(Duration::from_secs(1)),
+        })
+        .unwrap();
+
+        match client.send(client.request(Method::GET, url)).await {
+            Err(error @ RelayHttpError::Transport(_)) => {
+                let debug = format!("{error:?}");
+                assert_eq!(debug, "Transport(<redacted>)");
+                assert!(!debug.contains(&address.to_string()));
+                assert!(!debug.contains(secret_path));
+                assert!(std::error::Error::source(&error).is_some());
+            }
+            Err(error) => panic!("expected transport error, got {error:?}"),
+            Ok(_) => panic!("expected transport error"),
+        }
     }
 
     fn config(values: &[(&str, &str)]) -> Result<RelayTimeoutConfig, RelayTimeoutConfigError> {
