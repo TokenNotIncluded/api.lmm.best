@@ -275,10 +275,13 @@ func calculateTextQuotaSummary(ctx *gin.Context, relayInfo *relaycommon.RelayInf
 	summary.IsClaudeUsageSemantic = summary.UsageSemantic == "anthropic"
 
 	if usage == nil {
-		usage = &dto.Usage{
-			PromptTokens:     relayInfo.GetEstimatePromptTokens(),
-			CompletionTokens: 0,
-			TotalTokens:      relayInfo.GetEstimatePromptTokens(),
+		usage = &dto.Usage{}
+		// The request-side estimate is not evidence of upstream consumption.
+		// Apply the same completion gate as historical/prepayment fallback
+		// before turning an absent usage payload into billable input tokens.
+		if canEstimateMissingTextUsage(ctx, relayInfo) {
+			usage.PromptTokens = relayInfo.GetEstimatePromptTokens()
+			usage.TotalTokens = usage.PromptTokens
 		}
 	}
 
