@@ -40,11 +40,9 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           working-directory: apps/api-rust
-          # RUSTSEC-2026-0235 currently has no resolved workspace path:
-          # `cargo tree --locked --target all -i rkyv` is empty. The stale
-          # rkyv 0.7 lock entry comes from rust_decimal <=1.42 carrying the
-          # optional dependency in every lockfile; rust_decimal 1.43 removes
-          # that dependency. Keep this exact exception visible until #276
-          # upgrades the lock and removes the stale entry. Do not add the RSA
-          # advisory here: rsa private-key signing is reachable at runtime.
-          ignore: RUSTSEC-2026-0235
+          # RUSTSEC-2023-0071 affects RSA private-key operations. #276 moves
+          # Pancake private-key signing to ring and jsonwebtoken to aws-lc-rs;
+          # the remaining resolved `rsa` use is public-key webhook verification
+          # only. Keep this exact exception only until that verification path
+          # also migrates and `rsa` leaves the lockfile. #276 tracks removal.
+          ignore: RUSTSEC-2023-0071
