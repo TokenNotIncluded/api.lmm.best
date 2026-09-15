@@ -987,9 +987,10 @@ fn legacy_success(
                 header::CONTENT_TYPE,
                 HeaderValue::from_static("text/event-stream; charset=utf-8"),
             );
-            response
-                .headers_mut()
-                .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
+            response.headers_mut().insert(
+                header::CACHE_CONTROL,
+                HeaderValue::from_static("no-cache, no-transform"),
+            );
             response.headers_mut().insert(
                 HeaderName::from_static("x-accel-buffering"),
                 HeaderValue::from_static("no"),
@@ -1028,6 +1029,7 @@ fn legacy_success(
         }
     };
     copy_safe_headers(&result.headers, response.headers_mut());
+    enforce_sse_response_headers(&mut response);
     attach_legacy_headers(state, request_id, &mut response);
     response
 }
@@ -1301,6 +1303,25 @@ fn attach_legacy_headers(state: &OpenAiRelayHttpState, request_id: &str, respons
         response
             .headers_mut()
             .insert("x-oneapi-request-id", request_id);
+    }
+}
+
+fn enforce_sse_response_headers(response: &mut Response) {
+    let is_event_stream = response
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.split(';').next())
+        .is_some_and(|value| value.trim().eq_ignore_ascii_case("text/event-stream"));
+    if is_event_stream {
+        response.headers_mut().insert(
+            header::CACHE_CONTROL,
+            HeaderValue::from_static("no-cache, no-transform"),
+        );
+        response.headers_mut().insert(
+            HeaderName::from_static("x-accel-buffering"),
+            HeaderValue::from_static("no"),
+        );
     }
 }
 

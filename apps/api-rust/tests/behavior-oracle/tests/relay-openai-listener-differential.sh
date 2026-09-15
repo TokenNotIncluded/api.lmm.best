@@ -312,6 +312,33 @@ call() {
   jq -e . "$prefix.body" >/dev/null
 }
 
+call_stream() {
+  local engine=$1 name=$2 path=$3 body=$4 token=${5:-} port prefix
+  [[ $engine == go ]] && port=$go_port || port=$rust_port
+  prefix="$runtime/$engine.$name"
+  curl -sS -D "$prefix.headers" -o "$prefix.body" -w '%{http_code}' -X POST \
+    -H 'content-type: application/json' -H 'accept: text/event-stream' \
+    ${token:+-H "authorization: Bearer $token"} --data-binary "$body" \
+    "http://127.0.0.1:$port$path" >"$prefix.status"
+}
+
+header_value() {
+  local file=$1 name=$2
+  awk -v wanted="${name,,}" '
+    BEGIN { IGNORECASE=1 }
+    index($0, ":") {
+      key=$0
+      sub(/:.*/, "", key)
+      if (tolower(key) == wanted) {
+        sub(/^[^:]*:[[:space:]]*/, "")
+        sub(/\r$/, "")
+        print
+        exit
+      }
+    }
+  ' "$file"
+}
+
 call_multipart() {
   local engine=$1 name=$2 path=$3 token=${4:-} port prefix
   [[ $engine == go ]] && port=$go_port || port=$rust_port
@@ -352,8 +379,27 @@ for route in "${routes[@]}"; do
   cases=$((cases + 2))
 done
 
+stream_body='{"model":"gpt-test","stream":true,"messages":[{"role":"user","content":"relay-header:sse"}]}'
+call_stream go stream-header /v1/chat/completions "$stream_body" sk-relayprobe
+call_stream rust stream-header /v1/chat/completions "$stream_body" sk-relayprobe
+diff -u "$runtime/go.stream-header.status" "$runtime/rust.stream-header.status"
+diff -u "$runtime/go.stream-header.body" "$runtime/rust.stream-header.body"
+for engine in go rust; do
+  [[ $(header_value "$runtime/$engine.stream-header.headers" cache-control) == 'no-cache, no-transform' ]] || {
+    echo "$engine SSE Cache-Control parity failure" >&2
+    cat "$runtime/$engine.stream-header.headers" >&2
+    exit 1
+  }
+  [[ $(header_value "$runtime/$engine.stream-header.headers" x-accel-buffering) == 'no' ]] || {
+    echo "$engine SSE X-Accel-Buffering parity failure" >&2
+    cat "$runtime/$engine.stream-header.headers" >&2
+    exit 1
+  }
+done
+cases=$((cases + 2))
+
 jq -s -e '
-  length == 14
+  length == 16
   and all(.[]; .authorization == "Bearer provider-owned-secret" and .body.model == "gpt-test")
   and (group_by(.path) | all(length == 2 and .[0].body == .[1].body and .[0].content_type == .[1].content_type))
 ' "$hits" >/dev/null
@@ -386,7 +432,7 @@ for route in 'audio-transcriptions|/v1/audio/transcriptions' 'audio-translations
   cases=$((cases + 2))
 done
 jq -s -e '
-  length == 18
+  length == 20
   and all(.[]; .authorization == "Bearer provider-owned-secret" and .body.model == "gpt-test")
   and (group_by(.path) | all(length == 2 and .[0].body == .[1].body and .[0].content_type == .[1].content_type))
 ' "$hits" >/dev/null
@@ -422,4 +468,4 @@ if [[ -n $result_dir ]]; then
 fi
 
 jq -cn --argjson cases "$cases" --arg provider "127.0.0.1:$provider_port" \
-  '{test:"relay-openai-listener-differential",result:"passed",cases:$cases,provider_loopback_only:true,provider_hits:18,anonymous_and_valid_token_parity:true,postgresql_and_valkey_isolated:true,provider:$provider}'
+  '{test:"relay-openai-listener-differential",result:"passed",cases:$cases,provider_loopback_only:true,provider_hits:20,anonymous_and_valid_token_parity:true,sse_cache_control_no_transform_parity:true,postgresql_and_valkey_isolated:true,provider:$provider}'
