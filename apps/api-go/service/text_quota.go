@@ -474,36 +474,30 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 	}
 
 	if !summary.hasBillableUsage() {
-		eligibleDisconnect := ctx != nil && ctx.Request != nil && ctx.Request.Context().Err() != nil
-		if relayInfo != nil && relayInfo.StreamStatus != nil && relayInfo.StreamStatus.EndReason == relaycommon.StreamEndReasonClientGone {
-			eligibleDisconnect = true
+		estimated, samples, estimateErr := model.EstimateRecentModelQuota(summary.ModelName, relayInfo.FinalPreConsumedQuota)
+		estimateSamples = samples
+		if estimateErr != nil {
+			logger.LogError(ctx, "missing-usage quota estimate failed: "+estimateErr.Error())
+		} else if estimated > 0 {
+			summary.Quota = estimated
+			estimatedMissingUsage = true
+			estimateBasis = "same_model_recent_success_average"
+			model.UpdateUserUsedQuotaAndRequestCount(relayInfo.UserId, summary.Quota)
+			model.UpdateChannelUsedQuota(relayInfo.ChannelId, summary.Quota)
+			extraContent = append(extraContent, fmt.Sprintf("上游未返回用量；按同模型 %d 个历史成功请求的平均额度估算结算", samples))
 		}
-		if eligibleDisconnect {
-			estimated, samples, estimateErr := model.EstimateRecentModelQuota(summary.ModelName, relayInfo.FinalPreConsumedQuota)
-			estimateSamples = samples
-			if estimateErr != nil {
-				logger.LogError(ctx, "missing-usage quota estimate failed: "+estimateErr.Error())
-			} else if estimated > 0 {
-				summary.Quota = estimated
-				estimatedMissingUsage = true
-				estimateBasis = "same_model_recent_success_average"
-				model.UpdateUserUsedQuotaAndRequestCount(relayInfo.UserId, summary.Quota)
-				model.UpdateChannelUsedQuota(relayInfo.ChannelId, summary.Quota)
-				extraContent = append(extraContent, fmt.Sprintf("上游未返回用量；按同模型 %d 个历史成功请求的平均额度估算结算", samples))
-			}
-			if !estimatedMissingUsage && relayInfo.FinalPreConsumedQuota > 0 {
-				summary.Quota = relayInfo.FinalPreConsumedQuota
-				estimatedMissingUsage = true
-				estimateBasis = "preconsumed_fallback_no_history"
-				model.UpdateUserUsedQuotaAndRequestCount(relayInfo.UserId, summary.Quota)
-				model.UpdateChannelUsedQuota(relayInfo.ChannelId, summary.Quota)
-				extraContent = append(extraContent, "上游未返回用量且无同模型历史样本；保留本次预扣额度结算")
-			}
+		if !estimatedMissingUsage && relayInfo.FinalPreConsumedQuota > 0 {
+			summary.Quota = relayInfo.FinalPreConsumedQuota
+			estimatedMissingUsage = true
+			estimateBasis = "preconsumed_fallback_no_history"
+			model.UpdateUserUsedQuotaAndRequestCount(relayInfo.UserId, summary.Quota)
+			model.UpdateChannelUsedQuota(relayInfo.ChannelId, summary.Quota)
+			extraContent = append(extraContent, "上游未返回用量且无同模型历史样本；保留本次预扣额度结算")
 		}
 		if !estimatedMissingUsage {
-			extraContent = append(extraContent, "上游没有返回计费信息，无法扣费（可能是上游超时）")
+			extraContent = append(extraContent, "上游没有返回计费信息且本地无法估算，本次没有可结算额度")
 		}
-		logger.LogError(ctx, fmt.Sprintf("total tokens is 0, cannot consume quota, userId %d, channelId %d, tokenId %d, model %s， pre-consumed quota %d", relayInfo.UserId, relayInfo.ChannelId, relayInfo.TokenId, summary.ModelName, relayInfo.FinalPreConsumedQuota))
+		logger.LogError(ctx, fmt.Sprintf("total tokens is 0, fallback billing applied=%t, userId %d, channelId %d, tokenId %d, model %s, pre-consumed quota %d", estimatedMissingUsage, relayInfo.UserId, relayInfo.ChannelId, relayInfo.TokenId, summary.ModelName, relayInfo.FinalPreConsumedQuota))
 	} else {
 		model.UpdateUserUsedQuotaAndRequestCount(relayInfo.UserId, summary.Quota)
 		model.UpdateChannelUsedQuota(relayInfo.ChannelId, summary.Quota)
