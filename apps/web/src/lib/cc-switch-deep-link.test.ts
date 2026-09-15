@@ -18,10 +18,54 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
+import { runInNewContext } from 'node:vm'
 
 import { buildCCSwitchProviderURL } from './cc-switch-deep-link'
 
 describe('CC Switch deep links', () => {
+  test('imports an account-scoped balance script without embedding credentials', () => {
+    const url = new URL(
+      buildCCSwitchProviderURL({
+        app: 'codex',
+        name: 'Fixture',
+        apiKey: 'sk-fixture',
+        endpoint: 'https://example.com/v1',
+        accountBalanceURL: 'https://example.com/v1/balance',
+      })
+    )
+    assert.equal(url.searchParams.get('usageEnabled'), 'true')
+    assert.equal(url.searchParams.get('usageAutoInterval'), '5')
+    assert.equal(
+      url.searchParams.get('usageBaseUrl'),
+      'https://example.com/v1/balance'
+    )
+    const encodedScript = url.searchParams.get('usageScript')
+    assert.ok(encodedScript)
+    const script = atob(encodedScript)
+    assert.ok(!script.includes('sk-fixture'))
+    const query = runInNewContext(script)
+    assert.equal(query.request.url, '{{baseUrl}}')
+    for (const remaining of [23.61, 0, -1]) {
+      const result = query.extractor({
+        valid: true,
+        scope: 'account',
+        currency: 'USD',
+        remaining,
+      })
+      assert.equal(result.isValid, true)
+      assert.equal(result.remaining, remaining)
+      assert.equal(result.unit, 'USD')
+    }
+    for (const response of [
+      { valid: true, scope: 'token', currency: 'USD', remaining: 100 },
+      { valid: true, scope: 'account', currency: 'USD', remaining: null },
+      { valid: true, scope: 'account', currency: 'USD', remaining: Infinity },
+      { valid: false, error: 'account_balance_access_required' },
+    ]) {
+      assert.equal(query.extractor(response).isValid, false)
+      assert.equal(query.extractor(response).remaining, undefined)
+    }
+  })
   test('builds a URL-encoded Claude provider import link', () => {
     assert.equal(
       buildCCSwitchProviderURL({

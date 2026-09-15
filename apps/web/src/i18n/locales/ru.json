@@ -1,5 +1,8 @@
 {
   "translation": {
+    "Allow this key to read account balance": "Разрешить этому ключу чтение баланса аккаунта",
+    "Unable to update account balance access": "Не удалось изменить доступ к балансу аккаунта",
+    "Anyone holding this key can read your wallet balance. Turn off to revoke access. Subscription and key quotas are separate.": "Любой владелец этого ключа сможет видеть баланс кошелька. Отключите, чтобы отозвать доступ. Квоты подписки и ключа учитываются отдельно.",
     "360": "360",
     "1000": "1000",
     "10000": "10000",

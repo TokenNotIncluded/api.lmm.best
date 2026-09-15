@@ -24,6 +24,7 @@ export type CCSwitchProviderDeepLinkOptions = {
   models?: Record<string, string>
   homepage?: string
   enabled?: boolean
+  accountBalanceURL?: string
 }
 
 export function buildCCSwitchProviderURL(
@@ -42,5 +43,28 @@ export function buildCCSwitchProviderURL(
   if (options.enabled !== undefined) {
     params.set('enabled', String(options.enabled))
   }
+  if (options.accountBalanceURL) {
+    params.set('usageEnabled', 'true')
+    params.set('usageBaseUrl', options.accountBalanceURL)
+    params.set('usageAutoInterval', '5')
+    params.set('usageScript', btoa(CC_SWITCH_ACCOUNT_BALANCE_SCRIPT))
+  }
   return `ccswitch://v1/import?${params.toString()}`
 }
+
+// ASCII-only script: credentials are resolved by CC Switch, not embedded here.
+export const CC_SWITCH_ACCOUNT_BALANCE_SCRIPT = `({
+  request: {
+    url: "{{baseUrl}}",
+    method: "GET",
+    headers: { "Authorization": "Bearer {{apiKey}}", "Accept": "application/json" }
+  },
+  extractor: function(response) {
+    if (response.valid !== true || response.scope !== "account" ||
+        response.currency !== "USD" || typeof response.remaining !== "number" ||
+        !isFinite(response.remaining)) {
+      return { isValid: false, invalidMessage: "Account balance unavailable; check balance access permission" };
+    }
+    return { isValid: true, remaining: response.remaining, unit: "USD" };
+  }
+})`
