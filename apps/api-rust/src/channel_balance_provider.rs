@@ -1,9 +1,10 @@
 //! Route-level DeepSeek balance wiring for the advanced channel surface.
 //!
 //! The mounted legacy route stays behind the existing dashboard authorization
-//! boundary. This adapter intercepts only the single-channel balance operation,
-//! delegates all other operations unchanged, and keeps provider/database errors
-//! inside a bounded legacy-compatible JSON envelope.
+//! boundary. This adapter owns the DeepSeek single-channel balance operation,
+//! delegates unrelated operations unchanged, and keeps the batch balance route
+//! on an explicit fail-closed experimental boundary until full Go parity exists.
+//! Provider/database errors remain inside bounded legacy-compatible envelopes.
 
 use std::sync::Arc;
 
@@ -35,9 +36,12 @@ impl DeepSeekBalanceRefresh for PgDeepSeekBalanceService {
 /// Decorates the advanced channel provider with the production DeepSeek
 /// single-channel balance operation.
 ///
-/// Go remains the production oracle. Only `UpdateBalance` is intercepted here;
-/// the batch operation and every unrelated advanced operation continue through
-/// the existing provider until their own parity work is complete.
+/// Go remains the production oracle. `UpdateBalance` is intercepted here.
+/// `UpdateAllBalances` is also intercepted, but deliberately returns an
+/// explicit non-success boundary instead of falling through to an unrelated
+/// generic provider error while Rust still lacks Go's multi-provider batch
+/// semantics. Every unrelated advanced operation continues through the
+/// existing provider unchanged.
 #[derive(Clone)]
 pub struct DeepSeekBalanceChannelAdvancedProvider {
     inner: Arc<dyn ChannelAdvancedProvider>,
@@ -77,35 +81,39 @@ impl DeepSeekBalanceChannelAdvancedProvider {
 #[async_trait]
 impl ChannelAdvancedProvider for DeepSeekBalanceChannelAdvancedProvider {
     async fn execute(&self, call: ChannelAdvancedCall) -> Result<Value, ChannelAdvancedError> {
-        if call.operation != ChannelAdvancedOperation::UpdateBalance {
-            return self.inner.execute(call).await;
+        match call.operation {
+            ChannelAdvancedOperation::UpdateBalance => self
+                .refresh(&call)
+                .await
+                .map(Value::from)
+                .map_err(map_balance_error),
+            ChannelAdvancedOperation::UpdateAllBalances => Err(ChannelAdvancedError::Provider),
+            _ => self.inner.execute(call).await,
         }
-        self.refresh(&call)
-            .await
-            .map(Value::from)
-            .map_err(map_balance_error)
     }
 
     async fn execute_reply(
         &self,
         call: ChannelAdvancedCall,
     ) -> Result<ChannelAdvancedReply, ChannelAdvancedError> {
-        if call.operation != ChannelAdvancedOperation::UpdateBalance {
-            return self.inner.execute_reply(call).await;
+        match call.operation {
+            ChannelAdvancedOperation::UpdateBalance => {
+                let reply = match self.refresh(&call).await {
+                    Ok(balance) => ChannelAdvancedReply::new(
+                        StatusCode::OK,
+                        json!({
+                            "success": true,
+                            "message": "",
+                            "balance": balance,
+                        }),
+                    ),
+                    Err(error) => balance_error_reply(error),
+                };
+                Ok(reply)
+            }
+            ChannelAdvancedOperation::UpdateAllBalances => Ok(batch_not_implemented_reply()),
+            _ => self.inner.execute_reply(call).await,
         }
-
-        let reply = match self.refresh(&call).await {
-            Ok(balance) => ChannelAdvancedReply::new(
-                StatusCode::OK,
-                json!({
-                    "success": true,
-                    "message": "",
-                    "balance": balance,
-                }),
-            ),
-            Err(error) => balance_error_reply(error),
-        };
-        Ok(reply)
     }
 }
 
@@ -137,6 +145,23 @@ fn balance_error_reply(error: DeepSeekBalanceStoreError) -> ChannelAdvancedReply
         json!({
             "success": false,
             "message": message,
+        }),
+    )
+}
+
+fn batch_not_implemented_reply() -> ChannelAdvancedReply {
+    ChannelAdvancedReply::new(
+        StatusCode::NOT_IMPLEMENTED,
+        json!({
+            "success": false,
+            "message": "channel balance batch refresh is not available in the experimental Rust backend",
+            "data": {
+                "attempted": 0,
+                "updated": 0,
+                "failed": 0,
+                "failures": [],
+                "failures_omitted": 0,
+            },
         }),
     )
 }
@@ -237,6 +262,38 @@ mod tests {
             }
             ChannelAdvancedReply::Raw(_) => panic!("balance reply must be JSON"),
         }
+    }
+
+    #[tokio::test]
+    async fn update_all_balances_is_explicit_fail_closed_boundary_without_delegating() {
+        let inner = Arc::new(CountingInner::default());
+        let provider = DeepSeekBalanceChannelAdvancedProvider::with_balance_service(
+            inner.clone(),
+            Arc::new(FixedBalance(Ok(99.0))),
+        );
+
+        let reply = provider
+            .execute_reply(call(ChannelAdvancedOperation::UpdateAllBalances))
+            .await
+            .expect("batch boundary reply");
+        match reply {
+            ChannelAdvancedReply::Json { status, body } => {
+                assert_eq!(status, axum::http::StatusCode::NOT_IMPLEMENTED);
+                assert_eq!(body["success"], false);
+                assert_eq!(body["data"]["attempted"], 0);
+                assert_eq!(body["data"]["updated"], 0);
+                assert_eq!(body["data"]["failed"], 0);
+                assert_eq!(body["data"]["failures"], json!([]));
+                assert_eq!(body["data"]["failures_omitted"], 0);
+                assert!(
+                    body["message"]
+                        .as_str()
+                        .is_some_and(|message| message.contains("experimental Rust backend"))
+                );
+            }
+            ChannelAdvancedReply::Raw(_) => panic!("batch boundary reply must be JSON"),
+        }
+        assert_eq!(inner.calls.load(Ordering::SeqCst), 0);
     }
 
     #[tokio::test]
