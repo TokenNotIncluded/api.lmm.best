@@ -25,6 +25,7 @@ import {
   Compass,
   CreditCard,
   FileText,
+  Gift as GiftIcon,
   Image as ImageIcon,
   Key,
   LayoutDashboard,
@@ -268,6 +269,11 @@ export function useSidebarData(): SidebarData {
             title: t('Discount Codes'),
             url: '/discount-codes',
             icon: Ticket,
+          },
+          {
+            title: t('Red Packets'),
+            url: '/red-packets',
+            icon: GiftIcon,
           },
           {
             title: t('Subscriptions'),

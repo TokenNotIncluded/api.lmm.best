@@ -20,14 +20,22 @@ import i18next from 'i18next'
 import { useState, useCallback } from 'react'
 import { toast } from 'sonner'
 
-import { getSelf } from '@/lib/api'
+import { api, getSelf } from '@/lib/api'
 import { formatQuota } from '@/lib/format'
 
-import { redeemTopupCode } from '../api'
+type RedemptionReward = {
+  reward_type: 'quota' | 'reset_voucher'
+  quota?: number
+  reset_voucher_id?: number
+  reset_plan_id?: number
+  reset_voucher_expires_at?: number
+}
 
-// ============================================================================
-// Redemption Hook
-// ============================================================================
+type RedemptionResponse = {
+  success: boolean
+  message?: string
+  data?: RedemptionReward
+}
 
 export function useRedemption() {
   const [redeeming, setRedeeming] = useState(false)
@@ -40,15 +48,23 @@ export function useRedemption() {
 
     try {
       setRedeeming(true)
-      const response = await redeemTopupCode({ key: code })
+      const result = await api.post<RedemptionResponse>('/api/user/redemption', {
+        key: code.trim(),
+      })
+      const response = result.data
 
       if (response.success && response.data) {
-        const quotaAdded = response.data
-        toast.success(
-          i18next.t('Redemption successful! Added: {{quota}}', {
-            quota: formatQuota(quotaAdded),
-          })
-        )
+        if (response.data.reward_type === 'reset_voucher') {
+          toast.success(
+            i18next.t('Redemption successful! A banked reset voucher was added.')
+          )
+        } else {
+          toast.success(
+            i18next.t('Redemption successful! Added: {{quota}}', {
+              quota: formatQuota(response.data.quota ?? 0),
+            })
+          )
+        }
         await getSelf()
         return true
       }
