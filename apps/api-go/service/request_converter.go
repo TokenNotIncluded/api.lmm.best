@@ -52,8 +52,8 @@ func ConvertRequestVia(c *gin.Context, info *relaycommon.RelayInfo, request any,
 
 // applyCrossProtocolStreamUsage enforces the host-side OpenAI Chat streaming
 // contract after format conversion. Downstream Claude, Gemini, and Responses
-// requests cannot carry OpenAI's stream_options field themselves, so a
-// converted streaming request must explicitly ask a compatible upstream to
+// requests cannot carry OpenAI Chat's stream_options contract themselves, so
+// a converted streaming request must explicitly ask a compatible upstream to
 // include usage for billing and usage accounting.
 func applyCrossProtocolStreamUsage(info *relaycommon.RelayInfo, result *relayconvert.RequestResult) {
 	if info == nil || result == nil || !info.SupportStreamOptions || !info.IsStream {
@@ -66,10 +66,7 @@ func applyCrossProtocolStreamUsage(info *relaycommon.RelayInfo, result *relaycon
 	if !ok || request == nil {
 		return
 	}
-	if request.StreamOptions == nil {
-		request.StreamOptions = &dto.StreamOptions{}
-	}
-	request.StreamOptions.IncludeUsage = true
+	request.StreamOptions = &dto.StreamOptions{IncludeUsage: true}
 }
 
 func ClaudeToOpenAIRequest(claudeRequest dto.ClaudeRequest, info *relaycommon.RelayInfo) (*dto.GeneralOpenAIRequest, error) {
