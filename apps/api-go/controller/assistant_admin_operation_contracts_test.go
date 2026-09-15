@@ -13,7 +13,7 @@ func TestAssistantAdminOperationContractsMatchSources(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !bytes.Equal(generated, assistantAdminOperationContractsJSON) {
-		t.Fatal("assistant request contracts are stale; run go generate ./controller from apps/api-go")
+		t.Fatalf("assistant request contracts are stale; run go generate ./controller from apps/api-go\n--- GENERATED CONTRACTS START ---\n%s--- GENERATED CONTRACTS END ---", generated)
 	}
 }
 
