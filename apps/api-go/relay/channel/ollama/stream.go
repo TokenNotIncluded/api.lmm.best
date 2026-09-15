@@ -208,7 +208,7 @@ func ollamaStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 		break
 	}
 	if err := scanner.Err(); err != nil && err != io.EOF {
-		logger.LogError(c, "ollama stream scan error: "+err.Error())
+		logger.LogError(c, "ollama stream scan error: class="+relaycommon.StreamErrorClass(err))
 	}
 	return usage, nil
 }
@@ -328,7 +328,7 @@ func ollamaChatHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.R
 		msg.ReasoningContent = &rc
 	}
 	full := dto.OpenAITextResponse{
-		Id:      common.GetUUID(),
+		Id:      responseId,
 		Model:   model,
 		Object:  "chat.completion",
 		Created: created,
