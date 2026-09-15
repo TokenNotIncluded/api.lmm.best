@@ -144,6 +144,7 @@ func mergeToolSurchargeItems(items []ToolSurchargeItem) []ToolSurchargeItem {
 	if len(items) == 0 {
 		return nil
 	}
+
 	sort.Slice(items, func(i, j int) bool {
 		if items[i].Name == items[j].Name {
 			return items[i].Price < items[j].Price
@@ -370,7 +371,7 @@ func calculateTextQuotaSummary(ctx *gin.Context, relayInfo *relaycommon.RelayInf
 			if summary.AudioInputPrice > 0 {
 				baseTokens = baseTokens.Sub(dAudioTokens)
 				audioInputQuota = decimal.NewFromFloat(summary.AudioInputPrice).
-					Div(decimal.NewFromInt(1000000)).Mul(dAudioTokens).Mul(dGroupRatio).Mul(dQuotaPerUnit)
+					Div(decimal.NewFromInt(1000000)).Mul(dAudioTokens).Mul(dQuotaPerUnit)
 			}
 		}
 
@@ -424,6 +425,20 @@ func usageSemanticFromUsage(relayInfo *relaycommon.RelayInfo, usage *dto.Usage) 
 	return "openai"
 }
 
+// canEstimateMissingTextUsage gates estimates, not measured usage. Partial
+// output and provider-reported tokens still settle normally after a stream
+// failure; only an otherwise-empty settlement must not invent consumption.
+func canEstimateMissingTextUsage(ctx *gin.Context, info *relaycommon.RelayInfo) bool {
+	if ctx == nil || info == nil {
+		return false
+	}
+	if ctx.Request != nil && ctx.Request.Context().Err() != nil {
+		return false
+	}
+	status := info.StreamStatus
+	return status == nil || (status.IsNormalEnd() && status.EndError == nil && !status.HasErrors())
+}
+
 func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usage *dto.Usage, extraContent []string) {
 	originUsage := usage
 	billingUsage := effectiveBillingUsage(usage)
@@ -474,31 +489,36 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 	}
 
 	if !summary.hasBillableUsage() {
-		estimated, samples, estimateErr := model.EstimateRecentModelQuota(summary.ModelName, relayInfo.FinalPreConsumedQuota)
-		estimateSamples = samples
-		if estimateErr != nil {
-			logger.LogError(ctx, "missing-usage quota estimate failed: "+estimateErr.Error())
-		} else if estimated > 0 {
-			summary.Quota = estimated
-			estimatedMissingUsage = true
-			estimateBasis = "same_model_recent_success_average"
-			model.UpdateUserUsedQuotaAndRequestCount(relayInfo.UserId, summary.Quota)
-			model.UpdateChannelUsedQuota(relayInfo.ChannelId, summary.Quota)
-			extraContent = append(extraContent, fmt.Sprintf("上游未返回用量；按同模型 %d 个历史成功请求的平均额度估算结算", samples))
-		}
-		if !estimatedMissingUsage && relayInfo.FinalPreConsumedQuota > 0 {
-			summary.Quota = relayInfo.FinalPreConsumedQuota
-			estimatedMissingUsage = true
-			estimateBasis = "preconsumed_fallback_no_history"
-			model.UpdateUserUsedQuotaAndRequestCount(relayInfo.UserId, summary.Quota)
-			model.UpdateChannelUsedQuota(relayInfo.ChannelId, summary.Quota)
-			extraContent = append(extraContent, "上游未返回用量且无同模型历史样本；保留本次预扣额度结算")
-		}
-		if !estimatedMissingUsage {
-			extraContent = append(extraContent, "上游没有返回计费信息且本地无法估算，本次没有可结算额度")
+		if !canEstimateMissingTextUsage(ctx, relayInfo) {
+			// Unknown usage on an interrupted/failed request is not evidence
+			// of a successful request. Settle zero through the normal path so
+			// prepayment is refunded without replaying an already-started stream.
+			summary.Quota = 0
+			extraContent = append(extraContent, "请求未正常完成且没有可计费用量；不使用历史或预扣额度估算")
+		} else {
+			estimated, samples, estimateErr := model.EstimateRecentModelQuota(summary.ModelName, relayInfo.FinalPreConsumedQuota)
+			estimateSamples = samples
+			if estimateErr != nil {
+				logger.LogError(ctx, "missing-usage quota estimate failed: "+estimateErr.Error())
+			} else if estimated > 0 {
+				summary.Quota = estimated
+				estimatedMissingUsage = true
+				estimateBasis = "same_model_recent_success_average"
+				extraContent = append(extraContent, fmt.Sprintf("上游未返回用量；按同模型 %d 个历史成功请求的平均额度估算结算", samples))
+			}
+			if !estimatedMissingUsage && relayInfo.FinalPreConsumedQuota > 0 {
+				summary.Quota = relayInfo.FinalPreConsumedQuota
+				estimatedMissingUsage = true
+				estimateBasis = "preconsumed_fallback_no_history"
+				extraContent = append(extraContent, "上游未返回用量且无同模型历史样本；保留本次预扣额度结算")
+			}
+			if !estimatedMissingUsage {
+				extraContent = append(extraContent, "上游没有返回计费信息且本地无法估算，本次没有可结算额度")
+			}
 		}
 		logger.LogError(ctx, fmt.Sprintf("total tokens is 0, fallback billing applied=%t, userId %d, channelId %d, tokenId %d, model %s, pre-consumed quota %d", estimatedMissingUsage, relayInfo.UserId, relayInfo.ChannelId, relayInfo.TokenId, summary.ModelName, relayInfo.FinalPreConsumedQuota))
-	} else {
+	}
+	if summary.hasBillableUsage() || estimatedMissingUsage {
 		model.UpdateUserUsedQuotaAndRequestCount(relayInfo.UserId, summary.Quota)
 		model.UpdateChannelUsedQuota(relayInfo.ChannelId, summary.Quota)
 	}
@@ -563,11 +583,9 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 	}
 	if summary.CacheCreationTokens5m > 0 {
 		other["cache_creation_tokens_5m"] = summary.CacheCreationTokens5m
-		other["cache_creation_ratio_5m"] = summary.CacheCreationRatio5m
 	}
 	if summary.CacheCreationTokens1h > 0 {
 		other["cache_creation_tokens_1h"] = summary.CacheCreationTokens1h
-		other["cache_creation_ratio_1h"] = summary.CacheCreationRatio1h
 	}
 	cacheWriteTokens := cacheWriteTokensTotal(summary)
 	if cacheWriteTokens > 0 {
