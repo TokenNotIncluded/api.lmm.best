@@ -32,7 +32,7 @@ func TestResponsesRelayPartialSettlement(t *testing.T) {
 		{"text_eof", "data: {\"type\":\"response.output_text.delta\",\"delta\":\"hello world\"}\n\n", true, -1},
 		{"text_read_error", "data: {\"type\":\"response.output_text.delta\",\"delta\":\"hello world\"}\n\n", true, -1},
 		{"tool_eof", "data: {\"type\":\"response.function_call_arguments.delta\",\"delta\":\"hello world\"}\n\n", true, -1},
-		{"created_unknown", "", false, 0},
+		{"created_unknown", "", true, 0},
 		{"created_input_usage", "data: {\"type\":\"response.in_progress\",\"response\":{\"usage\":{\"input_tokens\":100,\"output_tokens\":0,\"total_tokens\":100}}}\n\n", true, 100},
 		{"incomplete_usage", "data: {\"type\":\"response.incomplete\",\"response\":{\"usage\":{\"input_tokens\":100,\"output_tokens\":64,\"total_tokens\":164}}}\n\n", true, 100},
 	} {
