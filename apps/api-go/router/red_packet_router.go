@@ -24,9 +24,10 @@ func SetRedPacketRouter(router *gin.Engine) error {
 	group.Use(middleware.BodyStorageCleanup())
 	group.Use(middleware.GlobalAPIRateLimit())
 
-	group.GET("/:slug", middleware.DisableCache(), controller.GetRedPacket)
-	group.GET("/:slug/claims/me", middleware.UserAuth(), middleware.DisableCache(), controller.GetMyRedPacketClaims)
-	group.POST("/:slug/claim", middleware.RequestBodyLimit(4<<10), middleware.UserAuth(), middleware.CriticalRateLimit(), middleware.DisableCache(), controller.ClaimRedPacket)
+	public := group.Group("/public")
+	public.GET("/:slug", middleware.DisableCache(), controller.GetRedPacket)
+	public.GET("/:slug/claims/me", middleware.UserAuth(), middleware.DisableCache(), controller.GetMyRedPacketClaims)
+	public.POST("/:slug/claim", middleware.RequestBodyLimit(4<<10), middleware.UserAuth(), middleware.CriticalRateLimit(), middleware.DisableCache(), controller.ClaimRedPacket)
 
 	admin := group.Group("/admin")
 	admin.Use(middleware.AdminAuth(), middleware.DisableCache())
