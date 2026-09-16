@@ -1,0 +1,57 @@
+name: Recover failed Go 0.2.51 activation
+
+on:
+  push:
+    branches: [release/acceptance-20260916]
+    paths: [.github/workflows/rollback-failed-go-0251.yml]
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: production-auto-deploy
+  cancel-in-progress: false
+
+jobs:
+  rollback:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    environment: production
+    steps:
+      - name: Require the exact completed failed deployment
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api repos/TokenNotIncluded/api.lmm.best/actions/runs/35116594330 \
+            --jq '{id,path,status,conclusion,head_sha,run_attempt}' > /tmp/failed-run.json
+          jq -e '.id == 35116594330 and .path == ".github/workflows/deploy-reviewed-go-release.yml" and .status == "completed" and .conclusion == "failure" and .head_sha == "d1ab03e51a8b35921ea0b0bcb0b8c6d4a355ce3b" and .run_attempt == 1' /tmp/failed-run.json
+      - name: Request the installed native recovery command for the failed transaction
+        env:
+          PRODUCTION_SSH_PRIVATE_KEY: ${{ secrets.PRODUCTION_SSH_PRIVATE_KEY }}
+          PRODUCTION_SSH_KNOWN_HOSTS: ${{ secrets.PRODUCTION_SSH_KNOWN_HOSTS }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$PRODUCTION_SSH_PRIVATE_KEY"
+          test -n "$PRODUCTION_SSH_KNOWN_HOSTS"
+          umask 077
+          root=$(mktemp -d)
+          trap 'rm -rf -- "$root"' EXIT
+          printf '%s\n' "$PRODUCTION_SSH_PRIVATE_KEY" > "$root/key"
+          printf '%s\n' "$PRODUCTION_SSH_KNOWN_HOSTS" > "$root/known_hosts"
+          # Use the installed native rollback. It validates the transaction,
+          # rollback archives, writer identity and configuration itself. There
+          # is no force flag, direct database operation or manual lock removal.
+          ssh -i "$root/key" -p 222 -o BatchMode=yes -o ConnectTimeout=10 \
+            -o ServerAliveInterval=10 -o ServerAliveCountMax=3 \
+            -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$root/known_hosts" root@45.59.187.63 \
+            /usr/bin/lmm-api deploy production rollback \
+            --workspace /var/lib/lmm-api-go-deploy/work/release-go-v0.2.51-35116594330-attempt-1 \
+            --reason release-activation-failed > "$root/result.json"
+          jq -e '.phase == "ROLLED_BACK" and .version == "0.2.31"' "$root/result.json"
+          jq '{deployment_id,phase,version,previous_version,reason}' "$root/result.json"
+          echo 'Native rollback returned ROLLED_BACK. Public health and any subsequent deployment require separate verification.' >> "$GITHUB_STEP_SUMMARY"
