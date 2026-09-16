@@ -1,0 +1,25 @@
+name: Referral development workspace
+
+on:
+  push:
+    branches: [codex/referral-first-topup-20260916]
+    paths: [.github/workflows/referral-development.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          persist-credentials: false
+      - name: Export tracked development sources
+        run: git archive --format=tar.gz --output=referral-source.tar.gz HEAD
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: referral-development-source
+          path: referral-source.tar.gz
+          retention-days: 1
