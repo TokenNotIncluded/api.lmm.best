@@ -1,0 +1,42 @@
+name: Inspect concurrent release merge
+on:
+  push:
+    branches: [release/acceptance-20260916]
+    paths: [.github/workflows/release-merge-inspect.yml]
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: 93ebc0644874ef71bfc9639e9140bf0b7c1e3bed
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Preserve exact source and conflict evidence without updating repository refs
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/release-merge
+          git fetch --no-tags origin 749960b73b6ea6f2c7fecd6691203d85941e3436
+          git update-ref refs/heads/export-candidate 93ebc0644874ef71bfc9639e9140bf0b7c1e3bed
+          git update-ref refs/heads/export-main 749960b73b6ea6f2c7fecd6691203d85941e3436
+          git bundle create /tmp/release-merge/source-delta.bundle refs/heads/export-candidate refs/heads/export-main ^9e48a9e7795283631fac1f0c6ba06bc40f1508d1 ^a33982d2d394a5d4d46f7d03f7269a5f40c08ebb
+          set +e
+          git merge-tree --write-tree refs/heads/export-candidate refs/heads/export-main > /tmp/release-merge/merge.txt
+          code=$?
+          set -e
+          cat /tmp/release-merge/merge.txt
+          test "$code" -le 1
+          sha256sum /tmp/release-merge/source-delta.bundle
+      - name: Check current public pages and assets without privileged credentials
+        run: python3 -B scripts/verify-public-production.py | tee /tmp/release-merge/public-acceptance.json
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: ${{ always() }}
+        with:
+          name: release-merge-${{ github.run_id }}
+          path: /tmp/release-merge/
+          retention-days: 3
+          if-no-files-found: error
