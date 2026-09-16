@@ -1,0 +1,42 @@
+name: PR 340 exact CI evidence
+on:
+  push:
+    branches: ['assistant/pr340-integration-20260916']
+    paths: ['.github/workflows/pr340-ci-log-extract.yml']
+permissions:
+  actions: read
+jobs:
+  collect:
+    if: github.repository == 'TokenNotIncluded/api.lmm.best'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Download existing failed-job logs to files, sanitize terminal controls
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p /tmp/pr340-logs
+          for job in 104792753029 104792752923; do
+            gh api "repos/TokenNotIncluded/api.lmm.best/actions/jobs/$job" > "/tmp/pr340-logs/$job.json"
+            gh api --allow-escape-sequences "repos/TokenNotIncluded/api.lmm.best/actions/jobs/$job/logs" > "/tmp/pr340-logs/$job.log"
+          done
+          python3 - <<'PY'
+          import pathlib,re
+          root=pathlib.Path('/tmp/pr340-logs'); out=[]
+          for p in root.glob('*.log'):
+              clean=re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', p.read_text(errors='replace'))
+              p.write_text(clean)
+              lines=clean.splitlines(); keep=set()
+              for i,line in enumerate(lines):
+                  if re.search(r'(--- FAIL:|WARNING: DATA RACE|signal: killed|fatal error:|##\[error\]|^.{0,35}FAIL\s|##\[group\]Run go |go test .*\.\.\.)',line):
+                      keep.update(range(max(0,i-2),min(len(lines),i+16)))
+              out.extend(['FILE '+p.name]+[lines[i] for i in sorted(keep)])
+          text='\n'.join(out); (root/'failures.txt').write_text(text)
+          print(text[-20000:])
+          PY
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: pr340-exact-sanitized-ci-evidence
+          path: /tmp/pr340-logs
+          retention-days: 3
