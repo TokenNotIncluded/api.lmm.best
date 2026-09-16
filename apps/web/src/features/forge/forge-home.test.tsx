@@ -62,9 +62,11 @@ for (const key of [
   })
 }
 
-const matchMediaStub = () => ({
-  matches: false,
-  media: '',
+// Keep unrelated React integration tests on the OS reduced-motion path;
+// the motion lifecycle has its own manually stepped animation tests.
+const matchMediaStub = (media: string) => ({
+  matches: media === '(prefers-reduced-motion: reduce)',
+  media,
   addListener() {},
   removeListener() {},
   addEventListener() {},
@@ -333,9 +335,7 @@ describe('ForgeHome configured destinations', () => {
       }),
     })
     assert.equal(
-      hidden.container.querySelector(
-        '.forge-home-destinations a[href="/security"]'
-      ),
+      hidden.container.querySelector('.lmm-destinations a[href="/security"]'),
       null
     )
     await unmountHome(hidden)
@@ -346,7 +346,7 @@ describe('ForgeHome configured destinations', () => {
     })
     assert.ok(
       gated.container.querySelector(
-        '.forge-home-destinations a[href="/sign-in?redirect=%2Fsecurity"]'
+        '.lmm-destinations a[href="/sign-in?redirect=%2Fsecurity"]'
       )
     )
     await unmountHome(gated)
@@ -729,7 +729,7 @@ describe('Purchase entry follows account access', () => {
     const pending = await renderHome(null, true, true)
     assert.equal(
       pending.container
-        .querySelector('.forge-home-hero-actions a')
+        .querySelector('.lmm-intro-actions a')
         ?.getAttribute('href'),
       '/sign-in?redirect=%2Fwallet'
     )
@@ -738,7 +738,7 @@ describe('Purchase entry follows account access', () => {
     const ready = await renderHome(null)
     assert.equal(
       ready.container
-        .querySelector('.forge-home-hero-actions a')
+        .querySelector('.lmm-intro-actions a')
         ?.getAttribute('href'),
       '/sign-up'
     )
@@ -754,7 +754,7 @@ describe('Purchase entry follows account access', () => {
     })
     assert.equal(
       rendered.container
-        .querySelector('.forge-home-hero-actions a')
+        .querySelector('.lmm-intro-actions a')
         ?.textContent?.trim(),
       'Sign in'
     )
@@ -769,7 +769,7 @@ describe('Purchase entry follows account access', () => {
       developer_access_granted: true,
     })
     const purchase = rendered.container.querySelector<HTMLAnchorElement>(
-      '.forge-home-hero-actions a'
+      '.lmm-intro-actions a'
     )
     assert.ok(purchase)
     await act(async () => {
@@ -788,7 +788,7 @@ describe('Purchase entry follows account access', () => {
       developer_access_granted: false,
     })
     const purchase = rendered.container.querySelector<HTMLAnchorElement>(
-      '.forge-home-hero-actions a'
+      '.lmm-intro-actions a'
     )
     assert.ok(purchase)
     assert.equal(purchase.textContent?.trim(), 'Check access status')

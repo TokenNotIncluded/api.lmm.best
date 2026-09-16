@@ -33,5 +33,10 @@ export function AssistantActivationTool(props: {
   onDraftConsumed?: () => void
   onApproved?: () => void
 }) {
-  return <AssistantRegistrationStatus onContinueSetup={props.onContinueSetup} />
+  return (
+    <AssistantRegistrationStatus
+      onContinueSetup={props.onContinueSetup}
+      onApproved={props.onApproved}
+    />
+  )
 }

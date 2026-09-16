@@ -24,8 +24,22 @@ test('homepage does not load optional GPU ornament runtimes or announce a rotati
   assert.doesNotMatch(source, /HOME_MODEL_NAMES|HOME_MODEL_ROTATION_MS/)
 })
 
-test('scroll animation is progressive and has a reduced-motion fallback', () => {
-  assert.match(css, /@supports \(animation-timeline: view\(\)\)/)
-  assert.match(css, /prefers-reduced-motion: reduce/)
+test('the homepage owns and cleans up its progressive motion enhancement', () => {
+  assert.match(source, /return mountHomeMotion\(rootRef\.current\)/)
   assert.doesNotMatch(source, /addEventListener\(['"]scroll/)
+})
+
+test('reduced motion disables animation, transitions and transformed surfaces', () => {
+  const reducedMotion = css.match(
+    /@media \(prefers-reduced-motion: reduce\) \{([\s\S]*?)\n\}/
+  )?.[1]
+  assert.ok(reducedMotion)
+  assert.match(reducedMotion, /animation: none !important/)
+  assert.match(reducedMotion, /transition: none !important/)
+  assert.match(reducedMotion, /scroll-behavior: auto !important/)
+  assert.match(reducedMotion, /transform: none !important/)
+  assert.match(
+    css,
+    /\.lmm-story:not\(\[data-chapter\]\) \[data-story-panel='2'\]/
+  )
 })

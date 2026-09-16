@@ -75,7 +75,11 @@ await i18n.use(initReactI18next).init({
   resources: { en: { translation: {} } },
 })
 
-async function renderState(state: string, failed = false) {
+async function renderState(
+  state: string,
+  failed = false,
+  onApproved?: () => void
+) {
   useAuthStore.getState().auth.setUser({ id: 71, username: 'test', role: 1 })
   api.get = (async (url: string) => {
     assert.equal(url, '/api/assistant/registration-check')
@@ -95,7 +99,7 @@ async function renderState(state: string, failed = false) {
     root.render(
       <QueryClientProvider client={queryClient}>
         <I18nextProvider i18n={i18n}>
-          <AssistantActivationTool />
+          <AssistantActivationTool onApproved={onApproved} />
         </I18nextProvider>
       </QueryClientProvider>
     )
@@ -120,6 +124,43 @@ afterEach(() => {
 })
 after(() => domWindow.close())
 describe('tool-based admission status', () => {
+  test('refreshes the parent only after confirmed active access', async () => {
+    let approvals = 0
+    const view = await renderState('active', false, () => {
+      approvals += 1
+    })
+    try {
+      assert.equal(approvals, 1)
+      assert.match(view.container.textContent ?? '', /L1 access is active/)
+    } finally {
+      await view.cleanup()
+    }
+  })
+  test('does not refresh account access for ready or held states', async () => {
+    let approvals = 0
+    for (const state of ['ready', 'held', 'context_needed']) {
+      const view = await renderState(state, false, () => {
+        approvals += 1
+      })
+      try {
+        assert.equal(approvals, 0)
+      } finally {
+        await view.cleanup()
+      }
+    }
+  })
+  test('does not report approval when the active-state request fails', async () => {
+    let approvals = 0
+    const view = await renderState('active', true, () => {
+      approvals += 1
+    })
+    try {
+      assert.equal(approvals, 0)
+    } finally {
+      await view.cleanup()
+    }
+  })
+
   test('does not show or submit a recommendation letter', async () => {
     const view = await renderState('ready')
     try {

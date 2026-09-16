@@ -26,3 +26,23 @@ The workflow is serialized with a single concurrency group. A failed release
 workflow, draft/prerelease, unsupported tag, signature mismatch, missing
 rollback package, SSH host-key mismatch, or production health failure stops
 the deployment without automatic rollback.
+
+
+### Reruns and external acceptance
+
+Each workflow attempt has a unique native deployment ID:
+`release-<component-tag>-<run-id>-attempt-<attempt>`. A rerun must not recycle or
+remove an older workspace: its activation receipt and rollback data may still
+be needed. A new workspace does not override any pending native transaction.
+
+After native promotion, the workflow performs a credential-free public probe
+of `/api/status`, `/`, `/login` and `/console`, and downloads every referenced
+same-origin JavaScript/CSS entry once. Backend releases must report the exact
+released version. An HTTP 200 page served instead of a missing JS/CSS file is
+an error, not a healthy asset. Requests retain TLS checks, reject cross-origin
+redirects, and have bounded response sizes and an overall deadline.
+
+This probe does not exercise paid model requests or privileged account actions,
+and does not replace the native authenticated health checks. In particular,
+`AWAITING_CONFIRMATION` still requires the existing confirmation procedure; the
+external probe never auto-confirms a transaction or suppresses rollback.
