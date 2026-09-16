@@ -1,0 +1,78 @@
+name: Merged-main release acceptance
+on:
+  push:
+    branches: [release/acceptance-20260916]
+    paths: [.github/workflows/release-final-acceptance.yml]
+permissions:
+  contents: read
+  actions: read
+  checks: read
+  issues: read
+  pull-requests: read
+jobs:
+  acceptance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    env:
+      EXPECTED_SHA: a50db823a1fc2c57ee136ce64507c31c7e82ebfe
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: a50db823a1fc2c57ee136ce64507c31c7e82ebfe
+          persist-credentials: false
+      - name: Verify actual merged-main release checks and record live publication barrier
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          mkdir -p /tmp/final-acceptance
+          set +e
+          bash scripts/verify-release-commit-checks.sh "$EXPECTED_SHA" > /tmp/final-acceptance/main-checks.log 2>&1
+          checks=$?
+          python3 -B scripts/verify-release-work-items.py > /tmp/final-acceptance/work-items.log 2>&1
+          work_items=$?
+          python3 -B scripts/verify-public-production.py > /tmp/final-acceptance/public-acceptance.json 2> /tmp/final-acceptance/public-error.log
+          public=$?
+          set -e
+          export CHECKS_EXIT="$checks" WORK_ITEMS_EXIT="$work_items" PUBLIC_EXIT="$public"
+          python3 - <<'PY'
+          import json, os, pathlib, subprocess
+          repo=os.environ['GITHUB_REPOSITORY']; root=pathlib.Path('/tmp/final-acceptance')
+          def api(path):
+              return json.loads(subprocess.run(['gh','api',f'repos/{repo}/{path}'],capture_output=True,text=True,check=True,timeout=30).stdout)
+          rows=api('issues?state=open&per_page=100')
+          runs=api(f'actions/runs?head_sha={os.environ["EXPECTED_SHA"]}&per_page=100')['workflow_runs']
+          result={
+            'validated_sha':os.environ['EXPECTED_SHA'],
+            'current_main':api('git/ref/heads/main')['object']['sha'],
+            'checks_exit':int(os.environ['CHECKS_EXIT']),
+            'work_items_exit':int(os.environ['WORK_ITEMS_EXIT']),
+            'public_exit':int(os.environ['PUBLIC_EXIT']),
+            'open_issues':[{'number':x['number'],'title':x['title']} for x in rows if 'pull_request' not in x],
+            'open_pull_requests':[x['number'] for x in rows if 'pull_request' in x],
+            'main_runs':[{key:x.get(key) for key in ('id','name','event','status','conclusion','head_sha','html_url')} for x in runs],
+            'publication_attempted':False,'production_modified':False,
+          }
+          (root/'result.json').write_text(json.dumps(result,ensure_ascii=False,indent=2))
+          print(json.dumps(result,ensure_ascii=False))
+          PY
+          cat /tmp/final-acceptance/main-checks.log /tmp/final-acceptance/work-items.log
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: ${{ always() }}
+        with:
+          name: merged-main-acceptance-${{ github.run_id }}
+          path: /tmp/final-acceptance/
+          retention-days: 7
+          if-no-files-found: error
+      - name: Preserve actual release-readiness result
+        run: |
+          python3 - <<'PY'
+          import json, sys
+          result=json.load(open('/tmp/final-acceptance/result.json'))
+          ready=all(result[name]==0 for name in ('checks_exit','work_items_exit','public_exit')) and result['current_main']==result['validated_sha']
+          print('Release ready' if ready else 'Release blocked; no tag, publication or deployment was performed')
+          sys.exit(0 if ready else 1)
+          PY
