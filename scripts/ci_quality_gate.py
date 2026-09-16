@@ -21,6 +21,21 @@ REQUIRED_JOBS = (
 KNOWN_RESULTS = frozenset(("success", "failure", "cancelled", "skipped"))
 
 
+def unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    """Reject ambiguous duplicate keys instead of silently accepting the last one."""
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("Duplicate JSON object key")
+        result[key] = value
+    return result
+
+
+def reject_constant(value: str) -> None:
+    """GitHub emits standard JSON; NaN and Infinity are not valid job evidence."""
+    raise ValueError("Non-standard JSON constant")
+
+
 def check_needs(needs: object) -> tuple[dict[str, str], list[str]]:
     """Fail closed on absent, malformed, skipped, or non-success job results."""
     results = dict.fromkeys(REQUIRED_JOBS, "missing")
@@ -36,7 +51,7 @@ def check_needs(needs: object) -> tuple[dict[str, str], list[str]]:
             continue
         entry = needs[job]
         result = entry.get("result") if isinstance(entry, dict) else None
-        # Do not render arbitrary outputs or untrusted strings in workflow commands.
+        # Never render arbitrary outputs or untrusted strings in workflow commands.
         status = result if isinstance(result, str) and result in KNOWN_RESULTS else "invalid"
         results[job] = status
         if status != "success":
@@ -55,10 +70,14 @@ def summary_text(results: dict[str, str], errors: list[str]) -> str:
 
 def main() -> int:
     try:
-        needs = json.loads(os.environ.get("CI_NEEDS", ""))
-    except json.JSONDecodeError:
+        needs = json.loads(
+            os.environ.get("CI_NEEDS", ""),
+            object_pairs_hook=unique_object,
+            parse_constant=reject_constant,
+        )
+    except (ValueError, RecursionError):
         results = dict.fromkeys(REQUIRED_JOBS, "missing")
-        errors = ["CI_NEEDS is missing or is not valid JSON."]
+        errors = ["CI_NEEDS is missing or is not valid unambiguous JSON."]
     else:
         results, errors = check_needs(needs)
 

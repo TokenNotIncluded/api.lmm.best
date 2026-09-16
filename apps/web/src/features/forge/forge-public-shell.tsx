@@ -18,8 +18,9 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useEffect } from 'react'
 
+import { BrandLogo } from '@/components/brand-logo'
 import { PublicLayout } from '@/components/layout'
-import { LMM_BRAND_NAME, LmmBrandMark } from '@/components/lmm-brand-mark'
+import { LMM_BRAND_NAME } from '@/components/lmm-brand-mark'
 import { useSystemConfig } from '@/hooks/use-system-config'
 import { useTopNavLinks } from '@/hooks/use-top-nav-links'
 import { DEFAULT_SYSTEM_NAME } from '@/lib/constants'
@@ -31,7 +32,7 @@ type ForgePublicShellProps = {
 }
 
 export function ForgePublicShell(props: ForgePublicShellProps) {
-  const { systemName } = useSystemConfig()
+  const { systemName, logo } = useSystemConfig()
   const siteName =
     systemName === DEFAULT_SYSTEM_NAME ? LMM_BRAND_NAME : systemName
   const securityLink = useTopNavLinks().find(
@@ -50,7 +51,7 @@ export function ForgePublicShell(props: ForgePublicShellProps) {
     <PublicLayout
       showMainContainer={false}
       siteName={siteName}
-      logo={<LmmBrandMark className='size-7' title={siteName} />}
+      logo={<BrandLogo src={logo} className='size-7 object-contain' />}
       navLinks={[
         { title: 'Home', href: '/' },
         { title: 'Model Square', href: '/pricing' },

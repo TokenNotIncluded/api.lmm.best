@@ -2049,15 +2049,15 @@ function AssistantPanelSession(props: AssistantPanelProps) {
         )
         return
       }
-      const canShowVerificationWithoutAssistant =
+      const showVerificationOnFailure =
         accountAccessState === 'restricted' &&
         isExplicitAssistantL1Request(message)
-      if (canShowVerificationWithoutAssistant) {
+      if (showVerificationOnFailure) {
         setRecommendationDraft(null)
         setActiveTool('activation')
       }
       let errorAction: AssistantAction | undefined
-      if (canShowVerificationWithoutAssistant) {
+      if (showVerificationOnFailure) {
         errorAction = {
           kind: 'tool',
           label: t('Registration verification'),
