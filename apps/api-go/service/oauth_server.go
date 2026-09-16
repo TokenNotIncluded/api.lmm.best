@@ -23,9 +23,13 @@ import (
 const (
 	OAuthPiClientID       = "lmm-pi"
 	OAuthPiClientName     = "LMM for Pi"
-	OAuthPiRedirect       = "http://127.0.0.1/oauth/lmm/callback"
+	OAuthDshClientID      = "lmm-dsh"
+	OAuthDshClientName    = "LMM for DSH"
+	OAuthNativeRedirect   = "http://127.0.0.1/oauth/lmm/callback"
+	OAuthPiRedirect       = OAuthNativeRedirect
 	OAuthCatalogScope     = "catalog:read"
 	OAuthBalanceScope     = "balance:read"
+	OAuthUsageScope       = "usage:read"
 	OAuthInvokeScope      = "models:invoke"
 	OAuthMCPBountiesScope = "mcp:bounties"
 	OAuthMCPDrawingScope  = "mcp:drawing"
@@ -102,7 +106,7 @@ func NewOAuthIntegration(db *gorm.DB, cfg OAuthServerConfig) (*OAuthIntegration,
 	}
 	groups := slices.Clone(cfg.Groups)
 	slices.Sort(groups)
-	scopes := []string{OAuthCatalogScope, OAuthBalanceScope, OAuthInvokeScope}
+	scopes := []string{OAuthCatalogScope, OAuthBalanceScope, OAuthUsageScope, OAuthInvokeScope}
 	scopes = append(scopes, OAuthBuiltinMCPScopes()...)
 	for i, group := range groups {
 		if !validOAuthGroup(group) || i > 0 && groups[i-1] == group {
@@ -111,7 +115,11 @@ func NewOAuthIntegration(db *gorm.DB, cfg OAuthServerConfig) (*OAuthIntegration,
 		scopes = append(scopes, OAuthGroupScope(group))
 	}
 	integration := &OAuthIntegration{DB: db, Issuer: cfg.Issuer, Resource: cfg.Issuer + "/api/oauth2", TrustLoopbackProxy: cfg.TrustLoopbackProxy, groups: groups}
-	core, err := oauthserver.New(db, oauthserver.Config{Issuer: cfg.Issuer, Clients: []oauthserver.NativeClient{{ID: OAuthPiClientID, Name: OAuthPiClientName, RedirectURIs: []string{OAuthPiRedirect}, Resources: []string{integration.Resource}, Scopes: scopes}}}, integration)
+	clients := []oauthserver.NativeClient{
+		{ID: OAuthPiClientID, Name: OAuthPiClientName, RedirectURIs: []string{OAuthNativeRedirect}, Resources: []string{integration.Resource}, Scopes: scopes},
+		{ID: OAuthDshClientID, Name: OAuthDshClientName, RedirectURIs: []string{OAuthNativeRedirect}, Resources: []string{integration.Resource}, Scopes: scopes},
+	}
+	core, err := oauthserver.New(db, oauthserver.Config{Issuer: cfg.Issuer, Clients: clients}, integration)
 	if err != nil {
 		return nil, err
 	}
@@ -196,7 +204,7 @@ func (s *OAuthIntegration) GrantedGroups(user *model.User, grant oauthserver.Gra
 // validation. Database/cache failures never imply access. It does not mutate
 // OAuth tables or acquire a second pool connection while core owns a transaction.
 func (s *OAuthIntegration) Authorize(ctx context.Context, tx *gorm.DB, grant oauthserver.Grant) error {
-	if grant.ClientID != OAuthPiClientID || grant.Resource != s.Resource {
+	if (grant.ClientID != OAuthPiClientID && grant.ClientID != OAuthDshClientID) || grant.Resource != s.Resource {
 		return ErrOAuthDenied
 	}
 	if tx == nil {
@@ -221,30 +229,43 @@ func (s *OAuthIntegration) ValidateResource(ctx context.Context, token string, s
 	return *grant, user, err
 }
 
-// ConsentQuery only expands the initial application scope into the exact group
-// snapshot which is about to be shown for explicit consent. It cannot be called
-// with a user-supplied scope snapshot or a wildcard. Core revalidates the result.
+func oauthScopeProfileMatches(requested, profile []string) bool {
+	if len(requested) != len(profile) {
+		return false
+	}
+	candidate := slices.Clone(profile)
+	slices.Sort(candidate)
+	return slices.Equal(requested, candidate)
+}
+
+// ConsentQuery expands only a known native-client application scope profile
+// into the exact group snapshot which is about to be shown for explicit consent.
+// Historical profiles are accepted for reauthorization, but their scopes are
+// never widened: clients only receive application/MCP scopes they requested.
 func (s *OAuthIntegration) ConsentQuery(raw string, user *model.User) (string, []string, error) {
 	query, err := url.ParseQuery(raw)
 	if err != nil {
 		return "", nil, err
 	}
 	requested := strings.Split(query.Get("scope"), " ")
-	baseExpected := []string{OAuthCatalogScope, OAuthBalanceScope, OAuthInvokeScope}
-	expected := append([]string(nil), baseExpected...)
-	fullExpected := append(append([]string(nil), baseExpected...), OAuthBuiltinMCPScopes()...)
-	slices.Sort(requested)
-	slices.Sort(expected)
-	slices.Sort(fullExpected)
-	if !slices.Equal(requested, expected) && !slices.Equal(requested, fullExpected) {
-		return "", nil, ErrOAuthDenied
+	legacyBase := []string{OAuthCatalogScope, OAuthBalanceScope, OAuthInvokeScope}
+	currentBase := []string{OAuthCatalogScope, OAuthBalanceScope, OAuthUsageScope, OAuthInvokeScope}
+	profiles := [][]string{
+		legacyBase,
+		append(slices.Clone(legacyBase), OAuthBuiltinMCPScopes()...),
+		currentBase,
+		append(slices.Clone(currentBase), OAuthBuiltinMCPScopes()...),
 	}
-	// Older clients do not request built-in MCP scopes. Include the optional
-	// scopes in the consent snapshot so newer resource endpoints can be used
-	// after the user explicitly approves the same consent screen.
-	if slices.Equal(requested, expected) {
-		requested = append(requested, OAuthBuiltinMCPScopes()...)
-		slices.Sort(requested)
+	slices.Sort(requested)
+	validProfile := false
+	for _, profile := range profiles {
+		if oauthScopeProfileMatches(requested, profile) {
+			validProfile = true
+			break
+		}
+	}
+	if !validProfile {
+		return "", nil, ErrOAuthDenied
 	}
 	groups := s.AllowedGroups(user)
 	if len(groups) == 0 {

@@ -1,5 +1,8 @@
 {
   "translation": {
+    "Allow this key to read account balance": "允許此金鑰讀取帳戶餘額",
+    "Unable to update account balance access": "無法更新帳戶餘額讀取權限",
+    "Anyone holding this key can read your wallet balance. Turn off to revoke access. Subscription and key quotas are separate.": "持有此金鑰的人皆可讀取你的錢包餘額。關閉即可撤銷權限。訂閱額度與金鑰額度另行計算。",
     "360": "360",
     "1000": "1000",
     "10000": "10000",
@@ -1645,6 +1648,7 @@
     "Confirm and send": "確認並傳送",
     "Confirm and send for administrator review": "確認並提交管理員審核",
     "Confirm and send to administrator": "確認並傳送給管理員",
+    "Confirm and submit for review": "確認並提交審核",
     "Confirm banked reset vouchers": "確認發放已儲備重設券",
     "Confirm Batch Update": "確認大量更新",
     "Confirm Billing Conflicts": "確認賬單衝突",
@@ -2332,6 +2336,7 @@
     "Discover the most-used models, top apps, and rising vendors on the platform — updated continuously across every category.": "發掘平台上最受歡迎的模型、熱門套用與崛起的廠商——每個分類的數據持續更新。",
     "Discovering...": "發現中...",
     "Discuss your use case with the AI assistant, confirm its recommendation, and wait for administrator approval.": "向 AI 助手說明使用情境，確認推薦信，然後等待管理員批准。",
+    "Discuss your use case with the AI assistant. After three completed turns, it can grant L1 directly; earlier requests continue through automatic review with human fallback.": "向 AI 助手說明你的用途。完成三輪對話後，它可以直接授予 L1；較早提交的申請會先自動審核，必要時轉由人工處理。",
     "Disk cache cleared": "磁碟緩存已清理",
     "Disk Cache Settings": "磁碟緩存設定",
     "Disk Cache Threshold (MB)": "磁碟緩存閾值 (MB)",
@@ -5253,6 +5258,7 @@
     "Penalises repetition of frequent tokens": "懲罰高頻 token 的重複出現",
     "pending": "等待中",
     "Pending": "待確認",
+    "Pending L0 requests appear here only when automatic review has not approved them. The assistant may also grant L1 directly after three completed turns.": "這裡只顯示尚未獲自動審核批准的 L0 申請。完成三輪對話後，助手也可以直接授予 L1。",
     "Pending review": "待審核",
     "Pending support": "待處理客服",
     "Pending support tasks are unavailable.": "暫時無法載入待處理的客服任務。",

@@ -10,7 +10,7 @@ import subprocess
 import sys
 import time
 
-REPOSITORY = 'LIghtJUNction/api.lmm.best'
+REPOSITORY = 'TokenNotIncluded/api.lmm.best'
 OWNER = 'LIghtJUNction'
 REQUEST = '.github/server-ops-343-request.json'
 SCRIPT = 'scripts/server-repairs/inspect-startup-343.sh'
@@ -96,7 +96,7 @@ def main():
             return 0
         if sys.argv[1:]:
             raise ValueError('Unknown argument')
-        spec = importlib.util.spec_from_file_location('manual_ops', Path(__file__).with_name('server-ops.py'))
+        spec = importlib.util.spec_from_file_location('manual_ops', Path(__file__).with_name('server-ops-transport.py'))
         ops = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(ops)
         # This is a separately validated owner-commit entry, not an impersonated dispatch.

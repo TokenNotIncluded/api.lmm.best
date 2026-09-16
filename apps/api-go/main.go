@@ -313,6 +313,12 @@ func runServer() {
 		Handler: server,
 	}
 
+	// Readiness can succeed as soon as the listener starts. Install the signal
+	// handler first so an immediate stop still drains requests and billing work.
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(quit)
+
 	go func() {
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			common.FatalLog("failed to start HTTP server: " + err.Error())
@@ -323,8 +329,6 @@ func runServer() {
 
 	common.LogStartupSuccess(startTime, port)
 
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	sig := <-quit
 	common.SysLog(fmt.Sprintf("received signal: %v, shutting down...", sig))
 

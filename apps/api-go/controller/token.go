@@ -42,7 +42,8 @@ type tokenRequest struct {
 
 type tokenResponse struct {
 	*model.Token
-	AutoGroups []string `json:"auto_groups"`
+	AutoGroups         []string `json:"auto_groups"`
+	AccountBalanceRead bool     `json:"account_balance_read"`
 }
 
 func buildMaskedTokenResponse(token *model.Token) *tokenResponse {
@@ -59,7 +60,7 @@ func buildMaskedTokenResponse(token *model.Token) *tokenResponse {
 	if len(autoGroups) == 0 {
 		autoGroups = nil
 	}
-	return &tokenResponse{Token: &maskedToken, AutoGroups: autoGroups}
+	return &tokenResponse{Token: &maskedToken, AutoGroups: autoGroups, AccountBalanceRead: token.AccountBalanceRead}
 }
 
 func buildMaskedTokenResponses(tokens []*model.Token) []*tokenResponse {

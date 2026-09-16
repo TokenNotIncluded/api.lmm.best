@@ -8,12 +8,21 @@ import (
 // to record soft errors, signal fatal stops, or mark normal completion.
 // StreamScannerHandler checks IsStopped() after each callback invocation.
 type StreamResult struct {
-	status  *relaycommon.StreamStatus
-	stopped bool
+	status            *relaycommon.StreamStatus
+	stopped           bool
+	firstResponseFunc func()
 }
 
-func newStreamResult(status *relaycommon.StreamStatus) *StreamResult {
-	return &StreamResult{status: status}
+func newStreamResult(status *relaycommon.StreamStatus, firstResponseFunc func()) *StreamResult {
+	return &StreamResult{status: status, firstResponseFunc: firstResponseFunc}
+}
+
+// MarkFirstResponse stops an optional first-output deadline after the handler
+// has successfully written a visible response chunk.
+func (r *StreamResult) MarkFirstResponse() {
+	if r != nil && r.firstResponseFunc != nil {
+		r.firstResponseFunc()
+	}
 }
 
 // Error records a soft error. The stream continues processing.

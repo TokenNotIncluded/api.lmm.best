@@ -25,6 +25,41 @@ class StartupDiagnosticTests(unittest.TestCase):
         self.assertEqual(result["missing_red_packet_tables"], ["red_packets"])
         self.assertEqual(result["categories"]["route_configuration"], 1)
 
+    def test_actual_fatal_log_brackets_and_plain_messages(self):
+        for table in module.TABLES:
+            for wrapped in (False, True):
+                with self.subTest(table=table, wrapped=wrapped):
+                    message = "failed to configure routes: configure red packet routes: red packet schema verification failed: missing table " + table
+                    if wrapped:
+                        message = "[FATAL] 2026/09/16 - 18:05:00 | [" + message + "] "
+                    result = module.classify([message])
+                    self.assertEqual(result["missing_red_packet_tables"], [table])
+                    self.assertEqual(result["categories"]["red_packet_schema"], 1)
+
+    def test_source_derived_route_labels_do_not_export_private_suffixes(self):
+        cases = {
+            "oauth_groups_invalid_json": "configure OAuth server: OAUTH_SERVER_GROUPS must be an explicit JSON string array",
+            "oauth_issuer_invalid": "initialize OAuth server: oauth server: issuer must be a canonical HTTPS DNS origin",
+            "frontend_current_link_invalid": "configure packaged frontend: LMM_API_FRONTEND_DIR symlink must be an atomic current link",
+            "frontend_path_resolve_failure": "configure packaged frontend: resolve frontend directory:",
+            "frontend_nested_symlink": "configure packaged frontend: frontend directory contains a symlink:",
+            "red_packet_apply_failure": "configure red packet routes: migrate red packet schema:",
+            "red_packet_mode_invalid": "configure red packet routes: LMM_DB_MIGRATION_MODE must be exactly apply or verify",
+            "red_packet_mode_unsupported": "configure red packet routes: unsupported red packet migration mode",
+        }
+        for label, message in cases.items():
+            with self.subTest(label=label):
+                result = module.classify(["[FATAL] now | [failed to configure routes: " + message + " PRIVATE_TOKEN_SENTINEL postgres://private-user:private-password@private-host/db]"])
+                self.assertEqual(result["categories"][label], 1)
+                for secret in ("PRIVATE_TOKEN_SENTINEL", "private-user", "private-password", "private-host", "postgres://"):
+                    self.assertNotIn(secret, json.dumps(result))
+
+    def test_brackets_do_not_allow_unknown_table_suffixes(self):
+        for name in ("red_packets_secret", "red_packetsx", "private_customer_table"):
+            result = module.classify(["[red packet schema verification failed: missing table " + name + "]"])
+            self.assertEqual(result["missing_red_packet_tables"], [])
+            self.assertNotIn(name, json.dumps(result))
+
     def test_secret_log_content_is_never_exported(self):
         secret = "PRIVATE_TOKEN_SENTINEL"
         result = module.classify(["failed to initialize resources: " + secret + " postgresql://user:password@private-host/db", "::error::" + secret])

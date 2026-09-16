@@ -17,24 +17,46 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useSearch } from '@tanstack/react-router'
-import { useEffect, useState, type ReactNode } from 'react'
+import { ChevronRight } from 'lucide-react'
+import {
+  lazy,
+  Suspense,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { SectionPageLayout } from '@/components/layout'
-import { AccountActionRequestsPanel } from '@/features/users/components/account-action-requests-panel'
-import { AssistantLeadsPanel } from '@/features/users/components/assistant-leads-panel'
-import { DeveloperAccessRequestsPanel } from '@/features/users/components/developer-access-requests-panel'
 import { ROLE } from '@/lib/roles'
+import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { UnifiedTodoList } from './unified-todo-list'
 
+const AccountActionRequestsPanel = lazy(() =>
+  import('@/features/users/components/account-action-requests-panel').then(
+    (module) => ({ default: module.AccountActionRequestsPanel })
+  )
+)
+const AssistantLeadsPanel = lazy(() =>
+  import('@/features/users/components/assistant-leads-panel').then(
+    (module) => ({ default: module.AssistantLeadsPanel })
+  )
+)
+const DeveloperAccessRequestsPanel = lazy(() =>
+  import('@/features/users/components/developer-access-requests-panel').then(
+    (module) => ({ default: module.DeveloperAccessRequestsPanel })
+  )
+)
+
 export function Todos() {
   const { t } = useTranslation()
   const search = useSearch({ from: '/_authenticated/todos/' })
-  const isAdmin = useAuthStore(
-    (state) => (state.auth.user?.role ?? 0) >= ROLE.ADMIN
-  )
+  const user = useAuthStore((state) => state.auth.user)
+  const sessionId = useAuthStore((state) => state.auth.session?.sid)
+  const isAdmin = (user?.role ?? 0) >= ROLE.ADMIN
   const focusAccountActionId =
     search.todo === 'account_action' ? search.request : undefined
   const focusDeveloperAccessId =
@@ -44,16 +66,20 @@ export function Todos() {
     <SectionPageLayout>
       <SectionPageLayout.Title>{t('To-dos')}</SectionPageLayout.Title>
       <SectionPageLayout.Content>
-        <div className='mx-auto flex min-h-0 w-full max-w-5xl flex-col gap-14 pb-20'>
+        <div
+          key={`${user?.id ?? ''}:${sessionId ?? ''}:${user?.role ?? 0}`}
+          className='mx-auto flex min-h-0 w-full max-w-6xl flex-col gap-8 pb-6'
+        >
           <UnifiedTodoList />
           {isAdmin ? (
-            <>
+            <div className='space-y-3'>
               <AdminTodoSection title={t('Assistant support tasks')}>
                 <AssistantLeadsPanel />
               </AdminTodoSection>
               <AdminTodoSection
                 title={t('Account safety review')}
                 initiallyExpanded={focusAccountActionId !== undefined}
+                focusRequestId={focusAccountActionId}
               >
                 <AccountActionRequestsPanel
                   focusRequestId={focusAccountActionId}
@@ -62,12 +88,13 @@ export function Todos() {
               <AdminTodoSection
                 title={t('L1 access requests')}
                 initiallyExpanded={focusDeveloperAccessId !== undefined}
+                focusRequestId={focusDeveloperAccessId}
               >
                 <DeveloperAccessRequestsPanel
                   focusRequestId={focusDeveloperAccessId}
                 />
               </AdminTodoSection>
-            </>
+            </div>
           ) : null}
         </div>
       </SectionPageLayout.Content>
@@ -79,20 +106,27 @@ function AdminTodoSection(props: {
   title: string
   children: ReactNode
   initiallyExpanded?: boolean
+  focusRequestId?: number
 }) {
+  const { t } = useTranslation()
   const [expanded, setExpanded] = useState(props.initiallyExpanded ?? false)
   const [mounted, setMounted] = useState(props.initiallyExpanded ?? false)
+  const summaryRef = useRef<HTMLElement>(null)
 
   useEffect(() => {
-    if (props.initiallyExpanded) {
-      setExpanded(true)
-      setMounted(true)
-    }
-  }, [props.initiallyExpanded])
+    if (!props.initiallyExpanded) return
+    setExpanded(true)
+    setMounted(true)
+    const frame = requestAnimationFrame(() => {
+      summaryRef.current?.scrollIntoView({ block: 'start' })
+      summaryRef.current?.focus({ preventScroll: true })
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [props.initiallyExpanded, props.focusRequestId])
 
   return (
     <details
-      className='border-border border-t py-5'
+      className='border-border rounded-xl border px-4 py-1 sm:px-5'
       open={expanded}
       onToggle={(event) => {
         const open = event.currentTarget.open
@@ -100,18 +134,28 @@ function AdminTodoSection(props: {
         if (open) setMounted(true)
       }}
     >
-      <summary className='text-foreground cursor-pointer list-none text-sm font-medium [&::-webkit-details-marker]:hidden'>
-        <span className='inline-flex items-center gap-2'>
-          <span
-            aria-hidden='true'
-            className='text-muted-foreground inline-block text-xs'
-          >
-            ›
-          </span>
-          {props.title}
-        </span>
+      <summary
+        ref={summaryRef}
+        className='focus-visible:ring-ring text-foreground flex min-h-11 cursor-pointer scroll-mt-4 list-none items-center justify-between gap-3 rounded-sm text-sm font-medium outline-none focus-visible:ring-2 [&::-webkit-details-marker]:hidden'
+      >
+        {props.title}
+        <ChevronRight
+          aria-hidden='true'
+          className={cn(
+            'text-muted-foreground size-4 shrink-0 transition-transform motion-reduce:transition-none',
+            expanded && 'rotate-90'
+          )}
+        />
       </summary>
-      {mounted ? <div className='pt-5'>{props.children}</div> : null}
+      <Suspense
+        fallback={
+          <p role='status' className='text-muted-foreground py-5 text-sm'>
+            {t('Loading')}
+          </p>
+        }
+      >
+        {mounted ? <div className='pt-5'>{props.children}</div> : null}
+      </Suspense>
     </details>
   )
 }

@@ -1,6 +1,7 @@
 package model
 
 import (
+	"context"
 	"fmt"
 	"strconv"
 	"sync/atomic"
@@ -269,6 +270,10 @@ func getPaidTopUpAggregate(userID int) (paidTopUpAggregate, error) {
 }
 
 func getPaidTopUpAggregates(userIDs []int) (map[int]paidTopUpAggregate, error) {
+	return getPaidTopUpAggregatesContext(context.Background(), userIDs)
+}
+
+func getPaidTopUpAggregatesContext(ctx context.Context, userIDs []int) (map[int]paidTopUpAggregate, error) {
 	result := make(map[int]paidTopUpAggregate, len(userIDs))
 	missing := make([]int, 0, len(userIDs))
 	seen := make(map[int]struct{}, len(userIDs))
@@ -294,7 +299,7 @@ func getPaidTopUpAggregates(userIDs []int) (map[int]paidTopUpAggregate, error) {
 		return nil, gorm.ErrInvalidDB
 	}
 
-	fresh, err := getFreshPaidTopUpAggregates(missing)
+	fresh, err := getFreshPaidTopUpAggregatesContext(ctx, missing)
 	if err != nil {
 		return nil, err
 	}
@@ -322,6 +327,10 @@ func getFreshPaidTopUpAggregate(userID int) (paidTopUpAggregate, error) {
 }
 
 func getFreshPaidTopUpAggregates(userIDs []int) (map[int]paidTopUpAggregate, error) {
+	return getFreshPaidTopUpAggregatesContext(context.Background(), userIDs)
+}
+
+func getFreshPaidTopUpAggregatesContext(ctx context.Context, userIDs []int) (map[int]paidTopUpAggregate, error) {
 	result := make(map[int]paidTopUpAggregate, len(userIDs))
 	uniqueUserIDs := make([]int, 0, len(userIDs))
 	seen := make(map[int]struct{}, len(userIDs))
@@ -355,7 +364,7 @@ func getFreshPaidTopUpAggregates(userIDs []int) (map[int]paidTopUpAggregate, err
 		"COALESCE(SUM(" + creditedQuotaExpression + "), 0) AS credited_quota, " +
 		"COALESCE(MAX(" + activityExpression + "), 0) AS last_paid_complete_at, " +
 		"COUNT(*) AS activation_complete_rows"
-	query := DB.Model(&TopUp{}).
+	query := DB.WithContext(ctx).Model(&TopUp{}).
 		Select(selectClause, creditedQuotaArgs...).
 		Where("user_id IN ?", uniqueUserIDs).
 		Where("("+creditedQuotaExpression+") > 0", creditedQuotaArgs...).
@@ -652,13 +661,17 @@ func onboardingStage(state OnboardingState) string {
 }
 
 func EnrichUsersTrustLevels(users []*User) error {
+	return EnrichUsersTrustLevelsContext(context.Background(), users)
+}
+
+func EnrichUsersTrustLevelsContext(ctx context.Context, users []*User) error {
 	userIDs := make([]int, 0, len(users))
 	for _, user := range users {
 		if user != nil && user.Role < common.RoleAdminUser && user.TrustLevelOverride == nil {
 			userIDs = append(userIDs, user.Id)
 		}
 	}
-	aggregates, err := getPaidTopUpAggregates(userIDs)
+	aggregates, err := getPaidTopUpAggregatesContext(ctx, userIDs)
 	if err != nil {
 		return err
 	}

@@ -80,12 +80,12 @@ func (r *AssistantAdminOperationRegistry) Middleware() gin.HandlerFunc {
 func assistantAdminOperationToolDefinitions() []assistantOpenAIToolDefinition {
 	return []assistantOpenAIToolDefinition{
 		{Type: "function", Function: assistantOpenAIToolFunction{Name: "list_admin_operations", Description: "Discover authorized administration operations from the live dashboard router. Search by handler or route, paginate results, and inspect an exact operation_id to obtain its body/query/path contract. Includes all administrator and root dashboard features accessible to your current account. Unknown or partial schemas require inspection; never invent fields or credentials. The generic execution tool only permits read-only operations; mutations require an explicit UI confirmation flow. Existing role, permission, security-proof and audit controls still apply.", Parameters: objectSchema(map[string]any{
-			"query":        map[string]any{"type": "string", "description": "Case-insensitive route or handler search, e.g. pricing, option, channel, subscription."},
+			"query":        map[string]any{"type": "string", "description": "Case-insensitive route or handler search, e.g. user, pricing, option, channel, subscription. Match English identifiers, not natural-language questions."},
 			"operation_id": map[string]any{"type": "string", "description": "Exact METHOD /api/path-template from this catalog; returns its full contract."},
 			"offset":       map[string]any{"type": "integer", "minimum": 0},
 			"limit":        map[string]any{"type": "integer", "minimum": 1, "maximum": 30},
 		}, nil)}},
-		{Type: "function", Function: assistantOpenAIToolFunction{Name: "execute_admin_operation", Description: "Execute an exact read-only operation discovered with list_admin_operations through the original authenticated dashboard route. Mutations require an explicit administrator confirmation flow and cannot be executed by this tool. Use only documented path_params and query parameters. No URL, headers, token, role or actor override is accepted.", Parameters: objectSchema(map[string]any{
+		{Type: "function", Function: assistantOpenAIToolFunction{Name: "execute_admin_operation", Description: "Execute an exact read-only operation discovered with list_admin_operations through the original authenticated dashboard route. Mutations require an explicit administrator confirmation flow and cannot be executed by this tool. Use only documented path_params and query parameters. For user lists, start with page_size=10 and paginate; a page is not the entire user population. No URL, headers, token, role or actor override is accepted.", Parameters: objectSchema(map[string]any{
 			"operation_id": map[string]any{"type": "string"},
 			"path_params":  map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "string"}},
 			"query":        map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "string"}},
@@ -150,6 +150,9 @@ func executeAssistantAdminOperationsTool(c *gin.Context, userID int, input map[s
 	result := map[string]any{"ok": true, "operations": items, "total": total, "offset": offset, "has_more": end < total, "contract_lookup": "Call again with an exact operation_id to inspect its request contract before execution.", "authorization": "Every execution reruns the original dashboard authentication, permissions, security verification and audit middleware."}
 	if end < total {
 		result["next_offset"] = end
+	}
+	if total == 0 {
+		result["hint"] = "No route matched. Search a single English identifier such as user, channel, option or subscription, or omit query to discover the catalog. Do not repeat this empty search."
 	}
 	return result
 }

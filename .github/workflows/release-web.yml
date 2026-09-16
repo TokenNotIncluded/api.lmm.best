@@ -29,6 +29,7 @@ jobs:
       actions: read
       checks: read
       contents: write
+      issues: read
       id-token: write
     steps:
       - name: Checkout immutable web release revision
@@ -75,6 +76,11 @@ jobs:
             echo "revision=$revision"
           } >>"$GITHUB_OUTPUT"
 
+      - name: Require all issues and pull requests resolved
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 -B scripts/verify-release-work-items.py
+
       - name: Require successful CI, CodeQL, and release contracts
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -101,12 +107,15 @@ jobs:
       - name: Install workspace dependencies
         run: bun install --frozen-lockfile
 
+      - name: Check formatting and copyright headers
+        run: |
+          bun run --filter @lmm/web format:check
+          bun run --filter @lmm/web copyright:check
+
       - name: Test and build the web frontend
         env:
           VITE_REACT_APP_VERSION: ${{ steps.identity.outputs.version }}
         run: |
-          bun run --filter @lmm/web format:check
-          bun run --filter @lmm/web copyright:check
           bun run --filter @lmm/web lint
           bun run --filter @lmm/web typecheck
           bun run --filter @lmm/web test
@@ -175,6 +184,7 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
+          python3 -B scripts/verify-release-work-items.py
           shopt -s nullglob
           version=${RELEASE_TAG#web-v}
           expected_names=(

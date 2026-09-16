@@ -30,13 +30,13 @@ func (r *OpenAIResponsesCompactionRequest) GetTokenCountMeta() *types.TokenCount
 	var parts []string
 	var files []*types.FileMeta
 	if len(r.Instructions) > 0 {
-		parts = append(parts, string(r.Instructions))
+		parts = append(parts, normalizeRawJSONForTokenCount(r.Instructions))
 	}
 	if len(r.Input) > 0 {
 		collectResponsesTokenInput(r.Input, &parts, &files)
 	}
 	if len(r.Tools) > 0 {
-		parts = append(parts, string(r.Tools))
+		parts = append(parts, normalizeRawJSONForTokenCount(r.Tools))
 	}
 	return &types.TokenCountMeta{
 		CombineText: strings.Join(parts, "\n"),
@@ -96,7 +96,7 @@ func collectResponsesTokenInput(raw json.RawMessage, texts *[]string, files *[]*
 			}
 		}
 	}
-	*texts = append(*texts, string(raw))
+	*texts = append(*texts, normalizeRawJSONForTokenCount(raw))
 }
 
 func responsesMediaURL(raw json.RawMessage) string {

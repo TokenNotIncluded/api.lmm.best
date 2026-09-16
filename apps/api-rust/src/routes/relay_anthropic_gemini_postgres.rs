@@ -55,9 +55,9 @@ impl PgAnthropicGeminiRelayBackend {
         self
     }
 
-    async fn channel_target(&self, channel_id: i64) -> Result<(String, String), RelayFailure> {
+    async fn channel_target(&self, channel_id: i64) -> Result<(String, String, i64), RelayFailure> {
         let row = sqlx::query(
-            "SELECT COALESCE(base_url,'') AS base_url, COALESCE(key,'') AS channel_key \
+            "SELECT COALESCE(base_url,'') AS base_url, COALESCE(key,'') AS channel_key, type AS channel_type \
              FROM channels WHERE id=$1 AND COALESCE(status,1)=1",
         )
         .bind(channel_id)
@@ -79,7 +79,10 @@ impl PgAnthropicGeminiRelayBackend {
         if base_url.trim().is_empty() || channel_key.is_empty() {
             return Err(RelayFailure::NoChannel);
         }
-        Ok((base_url, channel_key))
+        let channel_type = row
+            .try_get::<i64, _>("channel_type")
+            .map_err(|_| RelayFailure::Upstream)?;
+        Ok((base_url, channel_key, channel_type))
     }
 
     async fn token_context(
@@ -132,7 +135,12 @@ impl PgAnthropicGeminiRelayBackend {
         channel: &RelayChannel,
         request: UpstreamRequest,
     ) -> Result<UpstreamReply, RelayFailure> {
-        let (base_url, channel_key) = self.channel_target(channel.id).await?;
+        let (base_url, channel_key, channel_type) = self.channel_target(channel.id).await?;
+        // Revalidate persisted provider capability on every invocation; a
+        // disabled or repurposed channel must not receive a retried request.
+        if !protocol_channel_types(request.protocol).contains(&channel_type) {
+            return Err(RelayFailure::NoChannel);
+        }
         let base = Url::parse(&base_url).map_err(|_| RelayFailure::Upstream)?;
         if !matches!(base.scheme(), "http" | "https") || base.host_str().is_none() {
             return Err(RelayFailure::Upstream);
@@ -165,9 +173,14 @@ impl PgAnthropicGeminiRelayBackend {
             .header(header::ACCEPT, upstream_accept_header(request.streaming));
         match request.protocol {
             RelayProtocol::Anthropic => {
-                outbound = outbound
-                    .header("x-api-key", &channel_key)
-                    .header("anthropic-version", ANTHROPIC_VERSION);
+                outbound = outbound.header("anthropic-version", ANTHROPIC_VERSION);
+                outbound = if channel_type == 48 {
+                    // xAI's deprecated native Messages endpoint uses its own
+                    // persisted Bearer credential, not the caller's API key.
+                    outbound.header(header::AUTHORIZATION, format!("Bearer {channel_key}"))
+                } else {
+                    outbound.header("x-api-key", &channel_key)
+                };
             }
             RelayProtocol::Gemini => {
                 outbound = outbound.header("x-goog-api-key", &channel_key);
@@ -333,20 +346,14 @@ impl RelayBackend for PgAnthropicGeminiRelayBackend {
                JOIN abilities a ON a."group"=COALESCE(NULLIF(t."group",''),u."group")
                                 AND a.model=$2 AND COALESCE(a.enabled,TRUE)
                JOIN channels c ON c.id=a.channel_id AND COALESCE(c.status,1)=1
-                                AND CASE WHEN $3 = 14
-                                         THEN c.type IN (14,25,33,41,53,59,60)
-                                         ELSE c.type IN (1,11,24,41,53,59,60)
-                                    END
+                                AND c.type = ANY($3)
                WHERE t.id=$1 AND t.deleted_at IS NULL AND u.deleted_at IS NULL
                ORDER BY COALESCE(a.priority,0) DESC, COALESCE(a.weight,0) DESC, c.id ASC
                LIMIT 1"#,
         )
         .bind(token_id)
         .bind(model)
-        .bind(match protocol {
-            RelayProtocol::Anthropic => 14_i64,
-            RelayProtocol::Gemini | RelayProtocol::OpenAi => 24_i64,
-        })
+        .bind(protocol_channel_types(protocol))
         .fetch_optional(&self.pg)
         .await
         .map_err(|_| RelayFailure::Upstream)?
@@ -382,6 +389,13 @@ impl RelayBackend for PgAnthropicGeminiRelayBackend {
         // provider response.  Usage/log settlement is intentionally kept in
         // the channel-specific relay adapters until their ratio calculator is
         // wired; this adapter never grants a provider response from memory.
+    }
+}
+
+fn protocol_channel_types(protocol: RelayProtocol) -> &'static [i64] {
+    match protocol {
+        RelayProtocol::Anthropic => &[14, 25, 33, 41, 48, 53, 59, 60],
+        RelayProtocol::Gemini | RelayProtocol::OpenAi => &[1, 11, 24, 41, 53, 59, 60],
     }
 }
 

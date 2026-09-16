@@ -441,6 +441,9 @@ func (runtime *productionRuntime) captureDatabaseAccess(ctx context.Context, wor
 FROM tokens
 JOIN users ON users.id = tokens.user_id
 WHERE tokens.deleted_at IS NULL
+  -- OAuth-managed rows are accounting records, not raw bearer credentials.
+  -- to_jsonb preserves the pre-OAuth schema used by older rollback packages.
+  AND COALESCE((to_jsonb(tokens)->>'oauth_managed')::boolean, false) = false
   AND tokens.status = 1
   AND users.status = 1
   AND users.role >= 10

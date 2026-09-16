@@ -1,6 +1,7 @@
 package model
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -174,6 +175,10 @@ func joinAssistantReviewViolationTotals(tx, query *gorm.DB) *gorm.DB {
 // user list. It deliberately groups in SQL so the handler never loads every
 // historical payment row into memory.
 func PopulateUserTopups(users []*User) error {
+	return PopulateUserTopupsContext(context.Background(), users)
+}
+
+func PopulateUserTopupsContext(ctx context.Context, users []*User) error {
 	if len(users) == 0 {
 		return nil
 	}
@@ -193,7 +198,7 @@ func PopulateUserTopups(users []*User) error {
 	creditedQuotaExpression, creditedQuotaArgs := positiveNormalizedCreditedQuotaSQL()
 	moneyMicrosExpression := userTopupMoneyMicrosSQL(DB)
 	settlementCurrencyExpression := "COALESCE(NULLIF(UPPER(TRIM(settlement_currency)), ''), 'UNKNOWN')"
-	if err := successfulExternalPaidTopUpQuery(DB.Model(&TopUp{})).
+	if err := successfulExternalPaidTopUpQuery(DB.WithContext(ctx).Model(&TopUp{})).
 		Select("user_id, payment_method, payment_provider, "+settlementCurrencyExpression+" AS settlement_currency, COALESCE(SUM("+creditedQuotaExpression+"), 0) AS credited_quota, COALESCE(SUM("+moneyMicrosExpression+"), 0) AS money_micros, COUNT(*) AS orders", creditedQuotaArgs...).
 		Where("user_id IN ?", ids).
 		Where("(credited_quota <> 0 OR amount <> 0)").
@@ -614,14 +619,19 @@ func applyL0UserFilter(tx *gorm.DB, query *gorm.DB) *gorm.DB {
 }
 
 func GetAllUsers(pageInfo *common.PageInfo, onlyL0 bool, sortOptions ...UserSortOptions) (users []*User, total int64, err error) {
+	return GetAllUsersContext(context.Background(), pageInfo, onlyL0, sortOptions...)
+}
+
+func GetAllUsersContext(ctx context.Context, pageInfo *common.PageInfo, onlyL0 bool, sortOptions ...UserSortOptions) (users []*User, total int64, err error) {
 	// Start transaction
-	tx := DB.Begin()
+	tx := DB.WithContext(ctx).Begin()
 	if tx.Error != nil {
 		return nil, 0, tx.Error
 	}
 	defer func() {
 		if r := recover(); r != nil {
 			tx.Rollback()
+			panic(r)
 		}
 	}()
 
@@ -652,7 +662,7 @@ func GetAllUsers(pageInfo *common.PageInfo, onlyL0 bool, sortOptions ...UserSort
 	if err = tx.Commit().Error; err != nil {
 		return nil, 0, err
 	}
-	if err = EnrichUsersTrustLevels(users); err != nil {
+	if err = EnrichUsersTrustLevelsContext(ctx, users); err != nil {
 		return nil, 0, err
 	}
 
@@ -660,18 +670,23 @@ func GetAllUsers(pageInfo *common.PageInfo, onlyL0 bool, sortOptions ...UserSort
 }
 
 func SearchUsers(keyword string, group string, role *int, status *int, onlyL0 bool, startIdx int, num int, sortOptions ...UserSortOptions) ([]*User, int64, error) {
+	return SearchUsersContext(context.Background(), keyword, group, role, status, onlyL0, startIdx, num, sortOptions...)
+}
+
+func SearchUsersContext(ctx context.Context, keyword string, group string, role *int, status *int, onlyL0 bool, startIdx int, num int, sortOptions ...UserSortOptions) ([]*User, int64, error) {
 	var users []*User
 	var total int64
 	var err error
 
 	// 开始事务
-	tx := DB.Begin()
+	tx := DB.WithContext(ctx).Begin()
 	if tx.Error != nil {
 		return nil, 0, tx.Error
 	}
 	defer func() {
 		if r := recover(); r != nil {
 			tx.Rollback()
+			panic(r)
 		}
 	}()
 
@@ -730,7 +745,7 @@ func SearchUsers(keyword string, group string, role *int, status *int, onlyL0 bo
 	if err = tx.Commit().Error; err != nil {
 		return nil, 0, err
 	}
-	if err = EnrichUsersTrustLevels(users); err != nil {
+	if err = EnrichUsersTrustLevelsContext(ctx, users); err != nil {
 		return nil, 0, err
 	}
 

@@ -78,6 +78,21 @@ def response_for(path: str, body: Mapping[str, object]) -> dict[str, object]:
 
 
 class Fixture(http.server.BaseHTTPRequestHandler):
+    def header_stream(self) -> None:
+        frame = b'data: {"id":"chatcmpl-header-fixture","choices":[{"delta":{"content":"hello"},"index":0}]}\n\ndata: [DONE]\n\n'
+        self.send_response(200)
+        self.send_header("content-type", "text/event-stream")
+        # Deliberately conflict with the gateway policy: the relay must not
+        # forward a cacheable/transformable SSE policy to its client.
+        self.send_header("cache-control", "public, max-age=3600")
+        self.send_header("x-request-id", "provider-header-stream")
+        self.end_headers()
+        try:
+            self.wfile.write(frame)
+            self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+
     def timeout_stream(self, request: Mapping[str, object]) -> None:
         scenarios = json.loads(
             (pathlib.Path(__file__).parent / "scenarios/relay_timeouts.json").read_text()
@@ -162,6 +177,11 @@ class Fixture(http.server.BaseHTTPRequestHandler):
             }
             status = 400
         else:
+            if body.get("stream") and body.get("messages") == [
+                {"role": "user", "content": "relay-header:sse"}
+            ]:
+                self.header_stream()
+                return
             if body.get("stream") and body.get("messages") in (
                 [{"role": "user", "content": "relay-timeout:stream"}],
                 [{"role": "user", "content": "relay-timeout:fragments"}],

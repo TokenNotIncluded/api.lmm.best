@@ -57,6 +57,46 @@ for file in "${!requirements[@]}"; do
   }
 done
 
+balance_source="$repo_root/apps/api-rust/src/channel_balance_store.rs"
+go_balance_tests="$repo_root/apps/api-go/controller/channel_billing_currency_test.go"
+go_refresh_tests="$repo_root/apps/api-go/controller/channel_balance_refresh_test.go"
+[[ -f $balance_source ]] || { echo "missing channel balance persistence source: $balance_source" >&2; exit 1; }
+[[ -f $go_balance_tests ]] || { echo "missing Go channel balance oracle tests: $go_balance_tests" >&2; exit 1; }
+[[ -f $go_refresh_tests ]] || { echo "missing Go channel refresh oracle tests: $go_refresh_tests" >&2; exit 1; }
+grep -Fq 'async fn persisted_balance_updates_value_and_timestamp_together()' "$balance_source" || {
+  echo "channel balance persistence regression test is missing" >&2
+  exit 1
+}
+grep -Fq 'channel_balance_store::tests::persisted_balance_updates_value_and_timestamp_together' "$runner" || {
+  echo "real-integration runner does not execute the channel balance persistence regression" >&2
+  exit 1
+}
+for oracle_test in \
+  TestGetDeepSeekBalanceUSD \
+  TestRefreshChannelBalancesCapturesAndSanitizesProviderFailure \
+  TestRefreshChannelBalancesCapturesAndSanitizesDatabaseFailure \
+  TestRefreshChannelBalancesReportsMixedOutcome \
+  TestRefreshChannelBalancesReportsAllSuccess \
+  TestRefreshChannelBalancesBoundsFailureDetailsWithoutDroppingCounts \
+  TestWriteChannelBalanceRefreshResponseUsesCompatiblePartialAndFullFailureEnvelopes; do
+  grep -Fq "func $oracle_test" "$go_balance_tests" "$go_refresh_tests" || {
+    echo "Go channel balance oracle test is missing: $oracle_test" >&2
+    exit 1
+  }
+  grep -Fq "$oracle_test" "$runner" || {
+    echo "real-integration runner does not execute Go oracle test: $oracle_test" >&2
+    exit 1
+  }
+done
+grep -Fq -- "--lib 'channel_balance::tests::'" "$runner" || {
+  echo "real-integration runner does not execute Rust DeepSeek balance contracts" >&2
+  exit 1
+}
+grep -Fq -- "--lib 'channel_balance_provider::tests::'" "$runner" || {
+  echo "real-integration runner does not execute Rust channel balance route contracts" >&2
+  exit 1
+}
+
 for hostile_url in \
   'redis://:secret@10.0.0.1:6379' \
   'redis://:secret@example.com:6379'; do
@@ -80,7 +120,7 @@ if rg -U -n 'else\s*\{\s*return;\s*\}' \
   exit 1
 fi
 
-for suite in auth models api-token system-config migration; do
+for suite in auth models api-token system-config migration channel-balance; do
   if env -u LMM_TEST_DATABASE_URL -u LMM_AUTH_TEST_ALLOW_SCHEMA_RESET -u LMM_AUTH_TEST_DATABASE_URL -u LMM_AUTH_TEST_VALKEY_URL \
     -u LMM_MODELS_TEST_DATABASE_URL -u LMM_MODELS_TEST_VALKEY_URL \
     -u LMM_API_TOKEN_TEST_DATABASE_URL -u LMM_API_TOKEN_TEST_VALKEY_URL \
@@ -110,4 +150,4 @@ rg -Fq 'required integration test is missing:' "$empty_test_bin/output" || {
   exit 1
 }
 
-echo "real integration gates valid: $total_ignored ignored tests across ${#requirements[@]} modules; missing environment hard-fails"
+echo "real integration gates valid: $total_ignored ignored tests across ${#requirements[@]} modules plus Go/Rust channel balance oracle contracts and PostgreSQL persistence; missing environment hard-fails"

@@ -45,21 +45,21 @@ type oauthHTTPTest struct {
 
 func setupOAuthHTTP(t *testing.T) *oauthHTTPTest {
 	t.Helper()
-	oldDB, oldRedis, oldSecret, oldType := model.DB, common.RedisEnabled, common.SessionSecret, common.MainDatabaseType()
+	oldDB, oldLogDB, oldRedis, oldSecret, oldType := model.DB, model.LOG_DB, common.RedisEnabled, common.SessionSecret, common.MainDatabaseType()
 	oldGroups, oldRatios := setting.UserUsableGroups2JSONString(), ratio_setting.GroupRatio2JSONString()
 	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "oauth.db")+"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)"), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
 	require.NoError(t, err)
 	sqlDB, err := db.DB()
 	require.NoError(t, err)
 	sqlDB.SetMaxOpenConns(8)
-	require.NoError(t, db.AutoMigrate(&model.User{}, &model.UserSession{}, &model.Token{}, &model.Channel{}, &model.Ability{}))
-	model.DB, common.RedisEnabled, common.SessionSecret = db, false, "isolated-oauth-http-session-test"
+	require.NoError(t, db.AutoMigrate(&model.User{}, &model.UserSession{}, &model.Token{}, &model.Channel{}, &model.Ability{}, &model.Log{}))
+	model.DB, model.LOG_DB, common.RedisEnabled, common.SessionSecret = db, db, false, "isolated-oauth-http-session-test"
 	common.SetMainDatabaseType(common.DatabaseTypeSQLite)
 	require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(`{"default":"Default","vip":"VIP"}`))
 	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"default":1,"vip":2,"future":3}`))
 	t.Cleanup(func() {
 		_, _ = service.ConfigureOAuthIntegration(nil, service.OAuthServerConfig{})
-		model.DB, common.RedisEnabled, common.SessionSecret = oldDB, oldRedis, oldSecret
+		model.DB, model.LOG_DB, common.RedisEnabled, common.SessionSecret = oldDB, oldLogDB, oldRedis, oldSecret
 		common.SetMainDatabaseType(oldType)
 		_ = setting.UpdateUserUsableGroupsByJSONString(oldGroups)
 		_ = ratio_setting.UpdateGroupRatioByJSONString(oldRatios)
@@ -124,7 +124,7 @@ func setupOAuthHTTP(t *testing.T) *oauthHTTPTest {
 	engine.GET("/read-only", middleware.TokenAuthReadOnly(), func(c *gin.Context) { c.Status(200) })
 	verifier := strings.Repeat("v", 64)
 	sum := sha256.Sum256([]byte(verifier))
-	initialScopes := append([]string{service.OAuthCatalogScope, service.OAuthBalanceScope, service.OAuthInvokeScope}, service.OAuthBuiltinMCPScopes()...)
+	initialScopes := append([]string{service.OAuthCatalogScope, service.OAuthBalanceScope, service.OAuthUsageScope, service.OAuthInvokeScope}, service.OAuthBuiltinMCPScopes()...)
 	query := url.Values{"client_id": {service.OAuthPiClientID}, "response_type": {"code"}, "redirect_uri": {"http://127.0.0.1:35679/oauth/lmm/callback"}, "resource": {integration.Resource}, "scope": {strings.Join(initialScopes, " ")}, "state": {strings.Repeat("s", 32)}, "code_challenge": {base64.RawURLEncoding.EncodeToString(sum[:])}, "code_challenge_method": {"S256"}}.Encode()
 	return &oauthHTTPTest{db: db, engine: engine, integration: integration, user: user, login: login, otherLogin: otherLogin, verifier: verifier, query: query}
 }
@@ -208,7 +208,7 @@ func TestOAuthHTTPDiscoveryAndDisabled(t *testing.T) {
 	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &metadata))
 	require.Equal(t, oauthTestIssuer+"/api/oauth2/authorize", metadata.AuthorizationEndpoint)
 	require.Equal(t, []string{"S256"}, metadata.CodeChallengeMethodsSupported)
-	require.Len(t, metadata.ScopesSupported, 5)
+	require.Len(t, metadata.ScopesSupported, 6)
 	require.Equal(t, "no-store", response.Header().Get("Cache-Control"))
 	disabled := gin.New()
 	MountOAuthServerRoutes(disabled, nil)
@@ -221,6 +221,18 @@ func TestOAuthHTTPDiscoveryAndDisabled(t *testing.T) {
 	h.engine.ServeHTTP(recorder, request)
 	require.Equal(t, 400, recorder.Code)
 	require.Equal(t, 200, h.request("GET", "/.well-known/oauth-protected-resource/api/oauth2", "", nil).Code)
+}
+
+func TestOAuthHTTPRegistersDshAsAnIndependentNativeClient(t *testing.T) {
+	h := setupOAuthHTTP(t)
+	dshQuery, err := url.ParseQuery(h.query)
+	require.NoError(t, err)
+	dshQuery.Set("client_id", service.OAuthDshClientID)
+	response := h.request("GET", "/api/oauth2/authorize?"+dshQuery.Encode(), "", nil)
+	require.Equal(t, 200, response.Code, response.Body.String())
+	require.Contains(t, response.Body.String(), service.OAuthDshClientName)
+	require.Contains(t, response.Body.String(), "Authorize DSH")
+	require.NotContains(t, response.Body.String(), service.OAuthPiClientName)
 }
 
 func TestOAuthHTTPAuthorizationCSRFAndIdentitySwitch(t *testing.T) {
@@ -367,4 +379,64 @@ func TestOAuthHTTPRejectsAmbiguityAndLiveGroupChanges(t *testing.T) {
 	require.NotEqual(t, 200, h.request("POST", "/v1/chat/completions", `{"model":"gpt-4o"}`, headers).Code)
 	require.NoError(t, h.db.Model(&model.User{}).Where("id = ?", h.user.Id).Update("status", common.UserStatusDisabled).Error)
 	require.NotEqual(t, 200, h.request("GET", "/api/oauth2/balance", "", auth).Code)
+}
+
+func TestOAuthHTTPActivityIsScopedAndAggregated(t *testing.T) {
+	h := setupOAuthHTTP(t)
+	credentials, _ := h.approve(t)
+	const start int64 = 1704067200 // 2024-01-01T00:00:00Z
+	const end int64 = start + 3*24*60*60
+	require.NoError(t, h.db.Create(&[]model.Log{
+		{UserId: h.user.Id, CreatedAt: start + 60, Type: model.LogTypeConsume, PromptTokens: 10, CompletionTokens: 5, Quota: 100},
+		{UserId: h.user.Id, CreatedAt: start + 2*24*60*60 + 60, Type: model.LogTypeConsume, PromptTokens: 20, CompletionTokens: 7, Quota: 200},
+		{UserId: h.user.Id, CreatedAt: start + 2*24*60*60 + 120, Type: model.LogTypeSystem, PromptTokens: 99, CompletionTokens: 99, Quota: 999},
+		{UserId: h.user.Id + 1, CreatedAt: start + 60, Type: model.LogTypeConsume, PromptTokens: 999, CompletionTokens: 999, Quota: 9999},
+	}).Error)
+	auth := map[string]string{"Authorization": "Bearer " + credentials.AccessToken}
+	response := h.request("GET", "/api/oauth2/usage/activity?from=1704067200&to=1704326400", "", auth)
+	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+	var payload struct {
+		Timezone string                   `json:"timezone"`
+		Days     []model.UsageActivityDay `json:"days"`
+		Totals   struct {
+			Requests         int64 `json:"requests"`
+			PromptTokens     int64 `json:"prompt_tokens"`
+			CompletionTokens int64 `json:"completion_tokens"`
+			TotalTokens      int64 `json:"total_tokens"`
+			Quota            int64 `json:"quota"`
+		} `json:"totals"`
+	}
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &payload))
+	require.Equal(t, "UTC", payload.Timezone)
+	require.Len(t, payload.Days, 2)
+	require.Equal(t, "2024-01-01", payload.Days[0].Date)
+	require.EqualValues(t, 1, payload.Days[0].Requests)
+	require.Equal(t, "2024-01-03", payload.Days[1].Date)
+	require.EqualValues(t, 1, payload.Days[1].Requests)
+	require.EqualValues(t, 2, payload.Totals.Requests)
+	require.EqualValues(t, 30, payload.Totals.PromptTokens)
+	require.EqualValues(t, 12, payload.Totals.CompletionTokens)
+	require.EqualValues(t, 42, payload.Totals.TotalTokens)
+	require.EqualValues(t, 300, payload.Totals.Quota)
+
+	// Query parameters are intentionally narrow and duplicate values are
+	// rejected rather than silently selecting one of them.
+	require.Equal(t, http.StatusBadRequest, h.request("GET", "/api/oauth2/usage/activity?from=1704067200&from=1704067201&to=1704326400", "", auth).Code)
+	require.Equal(t, http.StatusBadRequest, h.request("GET", "/api/oauth2/usage/activity?from=1704067200&to=1704326400&user_id=2", "", auth).Code)
+}
+
+func TestOAuthHTTPActivityRequiresUsageScope(t *testing.T) {
+	h := setupOAuthHTTP(t)
+	credentials, _ := h.approve(t)
+	form := url.Values{
+		"grant_type": {"refresh_token"}, "client_id": {service.OAuthPiClientID},
+		"refresh_token": {credentials.RefreshToken}, "resource": {h.integration.Resource},
+		"scope": {service.OAuthCatalogScope + " " + service.OAuthBalanceScope + " " + service.OAuthInvokeScope + " " + service.OAuthGroupScope("default")},
+	}
+	response := h.request("POST", "/api/oauth2/token", form.Encode(), map[string]string{"Content-Type": "application/x-www-form-urlencoded"})
+	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+	var narrowed oauthserver.TokenResponse
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &narrowed))
+	auth := map[string]string{"Authorization": "Bearer " + narrowed.AccessToken}
+	require.Equal(t, http.StatusUnauthorized, h.request("GET", "/api/oauth2/usage/activity", "", auth).Code)
 }

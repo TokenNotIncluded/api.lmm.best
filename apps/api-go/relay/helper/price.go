@@ -351,7 +351,7 @@ func modelPriceHelperTiered(c *gin.Context, info *relaycommon.RelayInfo, promptT
 		estimatedCompletionTokens = defaultTieredPreConsumeMaxTokens
 	}
 
-	requestInput, err := ResolveIncomingBillingExprRequestInput(c, info)
+	requestInput, err := ResolveIncomingBillingExprRequestInputForExpr(c, info, exprStr)
 	if err != nil {
 		return hosttypes.PriceData{}, err
 	}
