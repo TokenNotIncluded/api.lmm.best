@@ -1989,7 +1989,7 @@ function AssistantPanelSession(props: AssistantPanelProps) {
         setActiveTool('activation')
         suggestedAction ??= {
           kind: 'tool',
-          label: t('Submit for review'),
+          label: t('Registration verification'),
           tool: 'activation',
         }
       }
@@ -2048,18 +2048,18 @@ function AssistantPanelSession(props: AssistantPanelProps) {
         )
         return
       }
-      const canSubmitWithoutAssistant =
+      const canShowVerificationWithoutAssistant =
         accountAccessState === 'restricted' &&
         isExplicitAssistantL1Request(message)
-      if (canSubmitWithoutAssistant) {
+      if (canShowVerificationWithoutAssistant) {
         setRecommendationDraft(null)
         setActiveTool('activation')
       }
       let errorAction: AssistantAction | undefined
-      if (canSubmitWithoutAssistant) {
+      if (canShowVerificationWithoutAssistant) {
         errorAction = {
           kind: 'tool',
-          label: t('Submit for review'),
+          label: t('Registration verification'),
           tool: 'activation',
         }
       } else if (accountAccessConfirmed) {
