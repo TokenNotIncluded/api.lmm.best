@@ -33,6 +33,8 @@ jobs:
         id: resolve
         shell: bash
         run: |
+          lock=apps/api-rust/tests/root-route-acceptance/Cargo.lock
+          sed -i 's/9b4f627cb1b25917193a259e49bd08f671f8d9708acfd5fe0a8c1455d87220/9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220/' "$lock"
           set +e
           cargo update -p rustls --precise 0.23.45 \
             --manifest-path apps/api-rust/tests/root-route-acceptance/Cargo.toml \
@@ -44,7 +46,7 @@ jobs:
           git diff --check || true
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add rust327-diagnostic.txt apps/api-rust/tests/root-route-acceptance/Cargo.lock
+          git add rust327-diagnostic.txt "$lock"
           git commit -m 'generated acceptance diagnostic'
           git push origin HEAD:automation/rust-327-verify
           echo "status=$status" >> "$GITHUB_OUTPUT"
