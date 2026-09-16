@@ -63,8 +63,10 @@ import {
   submitAssistantHandoff,
   type AssistantHumanSupportAction,
 } from './api'
-
-const minAssistantHandoffCharacters = 5
+import {
+  getAssistantHandoffConfirmationToken,
+  minAssistantHandoffCharacters,
+} from './assistant-handoff-confirmation'
 
 export function AssistantHandoffTool(props: {
   confirmationAction?: AssistantHumanSupportAction | null
@@ -146,13 +148,16 @@ function AssistantHandoffToolContent(props: {
     props.confirmationAction?.confirmation_token === consumedConfirmationToken
       ? undefined
       : props.confirmationAction
-  const confirmationToken = confirmationAction?.confirmation_token
-  const isPreparedAction = Boolean(confirmationAction)
+  const confirmationToken =
+    getAssistantHandoffConfirmationToken(confirmationAction)
+  const isPreparedAction = Boolean(confirmationToken)
+  const preparedMessage = confirmationAction?.message
+  const preparedToken = confirmationAction?.confirmation_token
   useEffect(() => {
-    if (confirmationAction) {
-      setMessage(confirmationAction.message)
+    if (preparedMessage !== undefined) {
+      setMessage(preparedMessage)
     }
-  }, [confirmationAction, consumedConfirmationToken])
+  }, [preparedMessage, preparedToken])
   const trimmedMessage = message.trim()
   const messageLength = [...trimmedMessage].length
   const messageTooShort =
@@ -352,8 +357,7 @@ function AssistantHandoffToolContent(props: {
             type='button'
             onClick={() => setConfirmOpen(true)}
             disabled={
-              messageLength < minAssistantHandoffCharacters ||
-              handoffQuery.isLoading
+              submitting || messageLength < minAssistantHandoffCharacters
             }
           >
             <HugeiconsIcon
@@ -382,7 +386,10 @@ function AssistantHandoffToolContent(props: {
               {t('Cancel')}
             </AlertDialogCancel>
             <AlertDialogAction
-              onClick={() => void submit()}
+              onClick={(event) => {
+                event.preventDefault()
+                void submit()
+              }}
               disabled={submitting}
             >
               {submitting ? <Spinner data-icon='inline-start' /> : null}
