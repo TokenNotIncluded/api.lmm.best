@@ -36,7 +36,10 @@ import {
 } from '@/lib/console-activation'
 import { useAuthStore } from '@/stores/auth-store'
 
-import { getDeveloperAccessRequest, type DeveloperAccessRequest } from './api'
+import {
+  getDeveloperAccessRequest,
+  type DeveloperAccessRequest,
+} from './api'
 import { claimOnboardingAssistantPrompt } from './pending-review-assistant'
 import { useAuthUserRefresh } from './use-auth-user-refresh'
 
@@ -48,6 +51,7 @@ export function GettingStarted() {
   const onboarding = getOnboardingState(user)
   const trustLevel = user?.trust_level_info?.level ?? 0
   const [prompt, setPrompt] = useState('')
+  const userId = user?.id ?? 0
   const [accessRequest, setAccessRequest] =
     useState<DeveloperAccessRequest | null>(null)
   const [requestLoaded, setRequestLoaded] = useState(false)
@@ -58,22 +62,39 @@ export function GettingStarted() {
       return
     }
     let cancelled = false
-    void getDeveloperAccessRequest()
-      .then((request) => {
-        if (!cancelled) setAccessRequest(request)
-      })
-      .catch(() => undefined)
-      .finally(() => {
+    let pollTimer: ReturnType<typeof setInterval> | undefined
+    const load = async () => {
+      try {
+        const request = await getDeveloperAccessRequest()
+        if (cancelled) return
+        setAccessRequest(request ? { ...request } : request)
+        setRequestLoaded(true)
+        if (request?.status === 'pending' && !pollTimer) {
+          pollTimer = setInterval(() => {
+            void load()
+          }, 5_000)
+        }
+        if (request?.status !== 'pending' && pollTimer) {
+          clearInterval(pollTimer)
+          pollTimer = undefined
+        }
+      } catch {
         if (!cancelled) setRequestLoaded(true)
-      })
+      }
+    }
+    void load()
+    const handleFocus = () => {
+      void load()
+    }
+    window.addEventListener('focus', handleFocus)
     return () => {
       cancelled = true
+      window.removeEventListener('focus', handleFocus)
+      if (pollTimer) clearInterval(pollTimer)
     }
   }, [onboarding.stage])
-
   const pendingRequestId =
     accessRequest?.status === 'pending' ? accessRequest.id : 0
-  const userId = user?.id ?? 0
   useEffect(() => {
     if (!requestLoaded || onboarding.stage !== 'activate') return
     if (!claimOnboardingAssistantPrompt(userId, pendingRequestId)) return
@@ -84,26 +105,20 @@ export function GettingStarted() {
   useEffect(() => {
     if (
       !requestLoaded ||
-      accessRequest?.status !== 'approved' ||
-      onboarding.activationComplete
+      accessRequest?.status !== 'approved'
     ) {
       return
     }
 
-    let cancelled = false
-    void refreshUser().then((refreshedUser) => {
-      if (cancelled || refreshedUser?.developer_access_granted !== true) {
+    void refreshUser().then(async (refreshedUser) => {
+      if (refreshedUser?.developer_access_granted !== true) {
         return
       }
-      void navigate({ to: getAuthenticatedLandingRoute(refreshedUser) })
+      await navigate({ to: getAuthenticatedLandingRoute(refreshedUser) })
     })
-    return () => {
-      cancelled = true
-    }
   }, [
     accessRequest?.status,
     navigate,
-    onboarding.activationComplete,
     refreshUser,
     requestLoaded,
   ])
@@ -232,7 +247,7 @@ export function GettingStarted() {
       complete: onboarding.activationComplete,
       title: t('Unlock L1 access'),
       description: t(
-        'Discuss your use case with the AI assistant, confirm its recommendation, and wait for administrator approval.'
+        'Discuss your use case with the AI assistant. After three completed turns, it can grant L1 directly; earlier requests continue through automatic review with human fallback.'
       ),
       preset: 'onboarding' as const,
     },

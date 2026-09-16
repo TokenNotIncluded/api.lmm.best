@@ -83,6 +83,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton'
 import { WaitCompanion } from '@/components/wait-companion'
 import { useSystemConfig } from '@/hooks/use-system-config'
+import { getSelf } from '@/lib/api'
 import { isConsoleActivated } from '@/lib/console-activation'
 import { cn } from '@/lib/utils'
 import { useAuthStore, type AuthUser } from '@/stores/auth-store'
@@ -1333,6 +1334,26 @@ function AssistantPanelSession(props: AssistantPanelProps) {
   const baseUrl = getBaseUrl()
   const authUser = useAuthStore((state) => state.auth.user)
   const authSessionId = useAuthStore((state) => state.auth.session?.sid)
+  const refreshAuthenticatedUser = useCallback(async () => {
+    const expectedUserId = authUser?.id
+    const expectedSessionId = authSessionId
+    if (!expectedUserId || !expectedSessionId) return
+    try {
+      const response = await getSelf()
+      const current = useAuthStore.getState().auth
+      if (
+        response?.success &&
+        response.data &&
+        current.user?.id === expectedUserId &&
+        current.session?.sid === expectedSessionId
+      ) {
+        current.setUser(response.data as AuthUser)
+      }
+    } catch {
+      // The assistant status is still refreshed below; focus/reload can retry
+      // the account snapshot without turning a successful grant into an error.
+    }
+  }, [authSessionId, authUser?.id])
   const mountedRef = useRef(true)
   const conversationGenerationRef = useRef(0)
   const [entries, setEntries] = useState<ConversationEntry[]>([])
@@ -1840,6 +1861,13 @@ function AssistantPanelSession(props: AssistantPanelProps) {
         reply.action?.type === 'user_account_action'
           ? reply.action
           : undefined
+      const directL1GrantSucceeded =
+        reply.tools?.some(
+          (trace) =>
+            trace.name === 'grant_l1_access' &&
+            trace.status === 'output-available'
+        ) === true
+      if (directL1GrantSucceeded) void refreshAuthenticatedUser()
       let suggestedAction: AssistantAction | undefined
       const restrictedTargetAllowed =
         accountAccessState === 'restricted' &&
@@ -1857,7 +1885,15 @@ function AssistantPanelSession(props: AssistantPanelProps) {
       if (developerAccessGranted || restrictedTargetAllowed) {
         suggestedAction = getAssistantActionForTarget(suggestedTarget, t)
       }
-      if (imageAction) {
+      if (directL1GrantSucceeded) {
+        setRecommendationDraft(null)
+        setAccountDisableDraft(null)
+        setHumanSupportAction(null)
+        setKeyCreationAction(null)
+        setUserActionDraft(null)
+        setActiveTool('setup')
+        suggestedAction = getAssistantActionForTarget('client-setup', t)
+      } else if (imageAction) {
         setRecommendationDraft(null)
         setAccountDisableDraft(null)
         setHumanSupportAction(null)
@@ -1892,7 +1928,7 @@ function AssistantPanelSession(props: AssistantPanelProps) {
         setActiveTool('activation')
         suggestedAction = {
           kind: 'tool',
-          label: t('Review AI recommendation'),
+          label: t('Registration verification'),
           tool: 'activation',
         }
       } else if (reply.action?.type === 'account_disable_request') {
@@ -1931,6 +1967,7 @@ function AssistantPanelSession(props: AssistantPanelProps) {
       if (
         accountAccessState === 'restricted' &&
         isExplicitAssistantL1Request(message) &&
+        !directL1GrantSucceeded &&
         !adminChange &&
         !imageAction &&
         !humanSupportAction &&
@@ -1943,7 +1980,7 @@ function AssistantPanelSession(props: AssistantPanelProps) {
         setActiveTool('activation')
         suggestedAction ??= {
           kind: 'tool',
-          label: t('Submit for administrator review'),
+          label: t('Registration verification'),
           tool: 'activation',
         }
       }
@@ -1970,6 +2007,7 @@ function AssistantPanelSession(props: AssistantPanelProps) {
       void Promise.all(
         [
           'assistant-status',
+          'assistant-registration-state',
           'assistant-journey',
           'assistant-new-user-gift',
           'assistant-weekly-discount',
@@ -2002,18 +2040,18 @@ function AssistantPanelSession(props: AssistantPanelProps) {
         )
         return
       }
-      const canSubmitWithoutAssistant =
+      const showVerificationOnFailure =
         accountAccessState === 'restricted' &&
         isExplicitAssistantL1Request(message)
-      if (canSubmitWithoutAssistant) {
+      if (showVerificationOnFailure) {
         setRecommendationDraft(null)
         setActiveTool('activation')
       }
       let errorAction: AssistantAction | undefined
-      if (canSubmitWithoutAssistant) {
+      if (showVerificationOnFailure) {
         errorAction = {
           kind: 'tool',
-          label: t('Submit for administrator review'),
+          label: t('Registration verification'),
           tool: 'activation',
         }
       } else if (accountAccessConfirmed) {
@@ -2540,19 +2578,7 @@ function AssistantPanelSession(props: AssistantPanelProps) {
                           recommendationDraft={recommendationDraft}
                           onDraftConsumed={() => setRecommendationDraft(null)}
                           onContinueSetup={() => setActiveTool('setup')}
-                          onSubmitted={() => {
-                            setRecommendationDraft(null)
-                            setEntries((current) => [
-                              ...current,
-                              {
-                                id: nanoid(),
-                                role: 'assistant',
-                                content: t(
-                                  'Your AI recommendation was submitted to the automatic review agent. L1 remains locked until automatic review approves it or human fallback completes.'
-                                ),
-                              },
-                            ])
-                          }}
+                          onApproved={refreshAuthenticatedUser}
                         />
                       ) : null}
                       {accountDisableDraft ? (

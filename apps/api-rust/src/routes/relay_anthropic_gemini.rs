@@ -124,7 +124,7 @@ impl NativeSseReply {
     ///
     /// `content_type` is copied from the upstream response when present. The
     /// HTTP boundary supplies the event-stream fallback when it is absent and
-    /// always applies its safe `Cache-Control: no-cache` policy.
+    /// always applies its safe `Cache-Control: no-cache, no-transform` policy.
     #[must_use]
     pub fn new(status: StatusCode, body: Body, content_type: Option<HeaderValue>) -> Self {
         Self {
@@ -877,9 +877,10 @@ fn success(
                 header::CONTENT_TYPE,
                 HeaderValue::from_static("text/event-stream; charset=utf-8"),
             );
-            response
-                .headers_mut()
-                .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
+            response.headers_mut().insert(
+                header::CACHE_CONTROL,
+                HeaderValue::from_static("no-cache, no-transform"),
+            );
             observe_buffered_response(response, (*observer).clone(), labels)
         }
         UpstreamReply::NativeSse(native) => {
@@ -897,9 +898,10 @@ fn success(
                     HeaderValue::from_static("text/event-stream; charset=utf-8")
                 }),
             );
-            response
-                .headers_mut()
-                .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
+            response.headers_mut().insert(
+                header::CACHE_CONTROL,
+                HeaderValue::from_static("no-cache, no-transform"),
+            );
             response
         }
     };

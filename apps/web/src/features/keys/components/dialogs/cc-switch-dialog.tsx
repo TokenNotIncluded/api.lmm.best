@@ -26,10 +26,13 @@ import { Button } from '@/components/ui/button'
 import { ComboboxInput } from '@/components/ui/combobox-input'
 import { Label } from '@/components/ui/label'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
+import { Switch } from '@/components/ui/switch'
 import { getUserModels } from '@/lib/api'
 import { buildCCSwitchProviderURL } from '@/lib/cc-switch-deep-link'
 import { openExternalUrl } from '@/lib/external-navigation'
 import { validatedExternalUrl } from '@/lib/validated-external-url'
+
+import { getApiKey, setAccountBalanceAccess } from '../../api'
 
 const APP_CONFIGS = {
   claude: {
@@ -73,6 +76,7 @@ interface Props {
   open: boolean
   onOpenChange: (open: boolean) => void
   tokenKey: string
+  tokenId?: number
 }
 
 export function CCSwitchDialog(props: Props) {
@@ -80,6 +84,30 @@ export function CCSwitchDialog(props: Props) {
   const [app, setApp] = useState<AppType>('claude')
   const [name, setName] = useState<string>(APP_CONFIGS.claude.defaultName)
   const [models, setModels] = useState<Record<string, string>>({})
+  const [savingBalanceAccess, setSavingBalanceAccess] = useState(false)
+  const balanceAccess = useQuery({
+    queryKey: ['cc-switch-balance-access', props.tokenId],
+    queryFn: () => {
+      if (props.tokenId === undefined) throw new Error('Missing API key ID')
+      return getApiKey(props.tokenId)
+    },
+    enabled: props.open && props.tokenId !== undefined,
+    staleTime: 0,
+  })
+  const canReadBalance = balanceAccess.data?.data?.account_balance_read === true
+  const changeBalanceAccess = async (enabled: boolean) => {
+    if (props.tokenId === undefined) return
+    setSavingBalanceAccess(true)
+    try {
+      const result = await setAccountBalanceAccess(props.tokenId, enabled)
+      if (!result.success) throw new Error('Balance access update failed')
+      await balanceAccess.refetch()
+    } catch {
+      toast.error(t('Unable to update account balance access'))
+    } finally {
+      setSavingBalanceAccess(false)
+    }
+  }
 
   const { data: modelsData } = useQuery({
     queryKey: ['user-models-ccswitch'],
@@ -132,6 +160,9 @@ export function CCSwitchDialog(props: Props) {
         models,
         homepage: serverAddress,
         enabled: true,
+        accountBalanceURL: canReadBalance
+          ? `${serverAddress.replace(/\/+$/, '')}/v1/balance`
+          : undefined,
       }),
       {
         protocols: ['ccswitch:'],
@@ -170,11 +201,40 @@ export function CCSwitchDialog(props: Props) {
           <Button variant='outline' onClick={() => props.onOpenChange(false)}>
             {t('Cancel')}
           </Button>
-          <Button onClick={handleSubmit}>{t('Open CC Switch')}</Button>
+          <Button
+            onClick={handleSubmit}
+            disabled={savingBalanceAccess || balanceAccess.isFetching}
+          >
+            {t('Open CC Switch')}
+          </Button>
         </>
       }
     >
       <div className='space-y-4'>
+        {props.tokenId !== undefined && (
+          <div className='space-y-2'>
+            <div className='flex items-center justify-between gap-4'>
+              <Label htmlFor='cc-switch-balance-access'>
+                {t('Allow this key to read account balance')}
+              </Label>
+              <Switch
+                id='cc-switch-balance-access'
+                checked={canReadBalance}
+                disabled={
+                  savingBalanceAccess ||
+                  balanceAccess.isFetching ||
+                  !balanceAccess.data?.success
+                }
+                onCheckedChange={changeBalanceAccess}
+              />
+            </div>
+            <p className='text-muted-foreground text-sm'>
+              {t(
+                'Anyone holding this key can read your wallet balance. Turn off to revoke access. Subscription and key quotas are separate.'
+              )}
+            </p>
+          </div>
+        )}
         <div className='space-y-2'>
           <Label>{t('Application')}</Label>
           <RadioGroup

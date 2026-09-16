@@ -1,5 +1,8 @@
 {
   "translation": {
+    "Allow this key to read account balance": "Cho phép khóa này đọc số dư tài khoản",
+    "Unable to update account balance access": "Không thể cập nhật quyền đọc số dư tài khoản",
+    "Anyone holding this key can read your wallet balance. Turn off to revoke access. Subscription and key quotas are separate.": "Bất kỳ ai có khóa này đều có thể đọc số dư ví của bạn. Tắt để thu hồi quyền. Hạn mức gói đăng ký và khóa được tính riêng.",
     "360": "360",
     "1000": "1000",
     "10000": "10000",
@@ -1645,6 +1648,7 @@
     "Confirm and send": "Xác nhận và gửi",
     "Confirm and send for administrator review": "Xác nhận và gửi quản trị viên xét duyệt",
     "Confirm and send to administrator": "Xác nhận và gửi cho quản trị viên",
+    "Confirm and submit for review": "Xác nhận và gửi xét duyệt",
     "Confirm banked reset vouchers": "Xác nhận phiếu đặt lại dự trữ",
     "Confirm Batch Update": "Xác nhận Cập nhật Hàng loạt",
     "Confirm Billing Conflicts": "Xác nhận xung đột thanh toán",
@@ -2332,6 +2336,7 @@
     "Discover the most-used models, top apps, and rising vendors on the platform — updated continuously across every category.": "Khám phá các mô hình, ứng dụng và nhà cung cấp nổi bật trên hệ thống — cập nhật liên tục cho từng danh mục.",
     "Discovering...": "Đang khám phá...",
     "Discuss your use case with the AI assistant, confirm its recommendation, and wait for administrator approval.": "Trao đổi nhu cầu với trợ lý AI, xác nhận thư đề xuất và chờ quản trị viên phê duyệt.",
+    "Discuss your use case with the AI assistant. After three completed turns, it can grant L1 directly; earlier requests continue through automatic review with human fallback.": "Hãy mô tả mục đích sử dụng cho trợ lý AI. Sau ba lượt trao đổi hoàn chỉnh, trợ lý có thể cấp thẳng L1; các yêu cầu gửi sớm hơn sẽ được xét duyệt tự động và chuyển cho người thật khi cần.",
     "Disk cache cleared": "Đã xóa bộ nhớ đệm đĩa",
     "Disk Cache Settings": "Cài đặt bộ nhớ đệm đĩa",
     "Disk Cache Threshold (MB)": "Ngưỡng bộ nhớ đệm đĩa (MB)",
@@ -5253,6 +5258,7 @@
     "Penalises repetition of frequent tokens": "Phạt việc lặp các token phổ biến",
     "pending": "đang chờ",
     "Pending": "Đang chờ",
+    "Pending L0 requests appear here only when automatic review has not approved them. The assistant may also grant L1 directly after three completed turns.": "Chỉ các yêu cầu L0 chưa được xét duyệt tự động chấp thuận mới xuất hiện ở đây. Trợ lý cũng có thể cấp thẳng L1 sau ba lượt trao đổi hoàn chỉnh.",
     "Pending review": "Đang chờ duyệt",
     "Pending support": "Hỗ trợ đang chờ",
     "Pending support tasks are unavailable.": "Không thể tải tác vụ hỗ trợ đang chờ.",

@@ -11,8 +11,21 @@ import (
 )
 
 func ResolveIncomingBillingExprRequestInput(c *gin.Context, info *relaycommon.RelayInfo) (billingexpr.RequestInput, error) {
+	return resolveIncomingBillingExprRequestInput(c, info, true)
+}
+
+// ResolveIncomingBillingExprRequestInputForExpr avoids materializing and retaining
+// the request body when the compiled billing expression cannot call param().
+// If expression introspection fails, keep the body to preserve billing semantics.
+func ResolveIncomingBillingExprRequestInputForExpr(c *gin.Context, info *relaycommon.RelayInfo, exprStr string) (billingexpr.RequestInput, error) {
+	usedVars := billingexpr.UsedVars(exprStr)
+	includeBody := usedVars == nil || usedVars["param"]
+	return resolveIncomingBillingExprRequestInput(c, info, includeBody)
+}
+
+func resolveIncomingBillingExprRequestInput(c *gin.Context, info *relaycommon.RelayInfo, includeBody bool) (billingexpr.RequestInput, error) {
 	if info != nil && info.BillingRequestInput != nil {
-		input := cloneRequestInput(*info.BillingRequestInput)
+		input := cloneRequestInput(*info.BillingRequestInput, includeBody)
 		merged := cloneStringMap(info.RequestHeaders)
 		for k, v := range input.Headers {
 			merged[k] = v
@@ -24,6 +37,9 @@ func ResolveIncomingBillingExprRequestInput(c *gin.Context, info *relaycommon.Re
 	input := billingexpr.RequestInput{}
 	if info != nil {
 		input.Headers = cloneStringMap(info.RequestHeaders)
+	}
+	if !includeBody {
+		return input, nil
 	}
 
 	bodyBytes, err := readIncomingBillingExprBody(c)
@@ -61,11 +77,11 @@ func readIncomingBillingExprBody(c *gin.Context) ([]byte, error) {
 	return storage.Bytes()
 }
 
-func cloneRequestInput(src billingexpr.RequestInput) billingexpr.RequestInput {
+func cloneRequestInput(src billingexpr.RequestInput, includeBody bool) billingexpr.RequestInput {
 	input := billingexpr.RequestInput{
 		Headers: cloneStringMap(src.Headers),
 	}
-	if len(src.Body) > 0 {
+	if includeBody && len(src.Body) > 0 {
 		input.Body = append([]byte(nil), src.Body...)
 	}
 	return input

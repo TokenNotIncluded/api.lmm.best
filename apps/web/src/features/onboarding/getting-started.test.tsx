@@ -209,7 +209,15 @@ async function renderPage(
     )
     await flushEffects()
   })
-  return { container, root, queryClient, gets, getConfigs }
+  return {
+    container,
+    root,
+    queryClient,
+    router,
+    currentUser,
+    gets,
+    getConfigs,
+  }
 }
 
 async function unmountPage(page: Awaited<ReturnType<typeof renderPage>>) {
@@ -391,6 +399,43 @@ describe('getting started access boundaries', () => {
       false
     )
     assert.equal(page.container.querySelector('[role="progressbar"]'), null)
+    await unmountPage(page)
+  })
+
+  test('polls a pending request, refreshes auth after approval, and leaves L0 onboarding', async () => {
+    const request = {
+      id: 9905,
+      status: 'pending',
+      reason: 'I am building a private coding client.',
+      source: 'assistant_recommendation',
+      ai_recommendation: 'Recommend L1 for a concrete coding workflow.',
+      admin_note: '',
+      created_at: 1,
+      reviewed_at: 0,
+    }
+    const page = await renderPage(false, undefined, request, { id: 7005 })
+    request.status = 'approved'
+    request.admin_note = 'Approved automatically.'
+    request.reviewed_at = 2
+    page.currentUser.developer_access_granted = true
+    await act(async () => {
+      window.dispatchEvent(new Event('focus'))
+      await flushEffects()
+    })
+    const deadline = Date.now() + 2_000
+    while (
+      Date.now() < deadline &&
+      useAuthStore.getState().auth.user?.developer_access_granted !== true
+    ) {
+      await act(flushEffects)
+    }
+
+    assert.equal(
+      useAuthStore.getState().auth.user?.developer_access_granted,
+      true
+    )
+    assert.equal(page.router.state.location.pathname, '/dashboard')
+    assert.ok(page.gets.includes('/api/user/self'))
     await unmountPage(page)
   })
 

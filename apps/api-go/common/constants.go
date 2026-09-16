@@ -187,6 +187,9 @@ var RelayIdleConnTimeout int // unit is second
 // ResponseHeaderTimeout only bounds the wait for the response headers; once the
 // headers arrive, streaming is unaffected.
 var RelayResponseHeaderTimeout int // unit is second
+// OpenAIFirstOutputTimeout bounds the wait for the first visible OpenAI stream
+// output after upstream response headers arrive. Zero disables the guard.
+var OpenAIFirstOutputTimeout int // unit is second
 var RelayMaxIdleConns int
 var RelayMaxIdleConnsPerHost int
 

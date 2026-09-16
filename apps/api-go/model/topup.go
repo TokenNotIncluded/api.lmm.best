@@ -1132,9 +1132,6 @@ func Recharge(referenceId string, customerId string, callerIp string) (err error
 	return nil
 }
 
-// topUpQueryWindowSeconds 限制充值记录查询的时间窗口（秒）。
-const topUpQueryWindowSeconds int64 = 30 * 24 * 60 * 60
-
 const defaultTopUpOrderClause = "create_time DESC, id DESC"
 
 type topUpSortClauses struct {
@@ -1187,11 +1184,9 @@ func applyTopUpSort(query *gorm.DB, spec TopUpSortSpec) *gorm.DB {
 	return query.Order(spec.orderClause())
 }
 
-// topUpQueryCutoff 返回允许查询的最早 create_time（秒级 Unix 时间戳）。
-func topUpQueryCutoff() int64 {
-	return common.GetTimestamp() - topUpQueryWindowSeconds
-}
-
+// User top-up history is a durable financial record. Retention/cleanup applies
+// to operational logs only; history queries stay unbounded and rely on indexed
+// user_id plus pagination instead of hiding older orders.
 func GetUserTopUps(userId int, pageInfo *common.PageInfo, sortSpec TopUpSortSpec) (topups []*TopUp, total int64, err error) {
 	// Start transaction
 	tx := DB.Begin()
@@ -1204,17 +1199,15 @@ func GetUserTopUps(userId int, pageInfo *common.PageInfo, sortSpec TopUpSortSpec
 		}
 	}()
 
-	cutoff := topUpQueryCutoff()
-
 	// Get total count within transaction
-	err = tx.Model(&TopUp{}).Where("user_id = ? AND create_time >= ?", userId, cutoff).Count(&total).Error
+	err = tx.Model(&TopUp{}).Where("user_id = ?", userId).Count(&total).Error
 	if err != nil {
 		tx.Rollback()
 		return nil, 0, err
 	}
 
 	// Get paginated topups within same transaction
-	err = applyTopUpSort(tx.Where("user_id = ? AND create_time >= ?", userId, cutoff), sortSpec).Limit(pageInfo.GetPageSize()).Offset(pageInfo.GetStartIdx()).Find(&topups).Error
+	err = applyTopUpSort(tx.Where("user_id = ?", userId), sortSpec).Limit(pageInfo.GetPageSize()).Offset(pageInfo.GetStartIdx()).Find(&topups).Error
 	if err != nil {
 		tx.Rollback()
 		return nil, 0, err
@@ -1273,7 +1266,7 @@ func SearchUserTopUps(userId int, keyword string, pageInfo *common.PageInfo, sor
 		}
 	}()
 
-	query := tx.Model(&TopUp{}).Where("user_id = ? AND create_time >= ?", userId, topUpQueryCutoff())
+	query := tx.Model(&TopUp{}).Where("user_id = ?", userId)
 	if keyword != "" {
 		pattern, perr := sanitizeLikePattern(keyword)
 		if perr != nil {

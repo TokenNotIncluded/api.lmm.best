@@ -1035,27 +1035,27 @@ func (r *OpenAIResponsesRequest) GetTokenCountMeta() *types.TokenCountMeta {
 	}
 
 	if len(r.Instructions) > 0 {
-		texts = append(texts, string(r.Instructions))
+		texts = append(texts, normalizeRawJSONForTokenCount(r.Instructions))
 	}
 
 	if len(r.Metadata) > 0 {
-		texts = append(texts, string(r.Metadata))
+		texts = append(texts, normalizeRawJSONForTokenCount(r.Metadata))
 	}
 
 	if len(r.Text) > 0 {
-		texts = append(texts, string(r.Text))
+		texts = append(texts, normalizeRawJSONForTokenCount(r.Text))
 	}
 
 	if len(r.ToolChoice) > 0 {
-		texts = append(texts, string(r.ToolChoice))
+		texts = append(texts, normalizeRawJSONForTokenCount(r.ToolChoice))
 	}
 
 	if len(r.Prompt) > 0 {
-		texts = append(texts, string(r.Prompt))
+		texts = append(texts, normalizeRawJSONForTokenCount(r.Prompt))
 	}
 
 	if len(r.Tools) > 0 {
-		texts = append(texts, string(r.Tools))
+		texts = append(texts, normalizeRawJSONForTokenCount(r.Tools))
 	}
 
 	return &types.TokenCountMeta{
