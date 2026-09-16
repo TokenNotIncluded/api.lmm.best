@@ -452,3 +452,118 @@ async fn postgres_specific_channel_first_output_timeout_never_fails_over_even_wi
     cleanup?;
     Ok(())
 }
+
+#[tokio::test]
+#[ignore = "requires isolated PostgreSQL via LMM_TEST_DATABASE_URL"]
+async fn postgres_first_output_timeout_retries_next_channel_and_commits_only_success() -> TestResult
+{
+    let Some((admin, pool, schema)) = isolated_pool().await? else {
+        eprintln!("skipping OpenAI failover PostgreSQL test: LMM_TEST_DATABASE_URL is unset");
+        return Ok(());
+    };
+
+    let mut first = spawn_upstream(MockUpstreamBehavior::RoleOnlySseThenStall).await?;
+    let mut second = spawn_upstream(MockUpstreamBehavior::JsonSuccess).await?;
+
+    let result = async {
+        create_minimal_relay_schema(&pool).await?;
+        sqlx::query("INSERT INTO options (key,value) VALUES ('RetryTimes','1')")
+            .execute(&pool)
+            .await?;
+        sqlx::query("INSERT INTO users (id,status,quota,role) VALUES (1,1,100,1)")
+            .execute(&pool)
+            .await?;
+        sqlx::query(
+            "INSERT INTO tokens (id,user_id,status,expired_time,remain_quota,unlimited_quota,allow_ips,key,\"group\") VALUES (11,1,1,-1,100,FALSE,'','tenant','default')",
+        )
+        .execute(&pool)
+        .await?;
+        sqlx::query(
+            "INSERT INTO channels (id,status,base_url,key) VALUES (1,1,$1,'first-key'),(2,1,$2,'second-key')",
+        )
+        .bind(&first.base_url)
+        .bind(&second.base_url)
+        .execute(&pool)
+        .await?;
+        sqlx::query(
+            "INSERT INTO abilities (\"group\",model,channel_id,enabled,priority,weight) VALUES ('default','gpt-4o',1,TRUE,100,100),('default','gpt-4o',2,TRUE,1,1)",
+        )
+        .execute(&pool)
+        .await?;
+
+        let service = PgOpenAiRelayService::new(
+            pool.clone(),
+            OpenAiUpstreamClient::new(first_output_test_client()?),
+            1,
+        );
+        let router = openai_relay_router(OpenAiRelayHttpState::new(Arc::new(service), "test"));
+
+        assert_eq!(
+            relay_request(&router, "Bearer sk-tenant", true).await?,
+            StatusCode::OK,
+            "RetryTimes=1 must fail over after a pre-visible first-output timeout"
+        );
+        assert!(
+            timeout(Duration::from_secs(1), first.received.recv())
+                .await?
+                .is_some(),
+            "the highest-priority channel did not receive the first attempt"
+        );
+        assert!(
+            timeout(Duration::from_secs(1), second.received.recv())
+                .await?
+                .is_some(),
+            "the retry did not reach the next eligible channel"
+        );
+        assert!(
+            first.received.try_recv().is_err() && second.received.try_recv().is_err(),
+            "each eligible channel must be attempted at most once for this request"
+        );
+
+        let user: (i64, i64, i64) =
+            sqlx::query_as("SELECT quota,used_quota,request_count FROM users WHERE id=1")
+                .fetch_one(&pool)
+                .await?;
+        assert_eq!(user, (99, 1, 1), "only the successful attempt may remain charged");
+
+        let token: (i64, i64) =
+            sqlx::query_as("SELECT remain_quota,used_quota FROM tokens WHERE id=11")
+                .fetch_one(&pool)
+                .await?;
+        assert_eq!(token, (99, 1), "token accounting must reflect one successful attempt");
+
+        let channel_usage: Vec<(i64, i64)> =
+            sqlx::query_as("SELECT id,COALESCE(used_quota,0) FROM channels ORDER BY id")
+                .fetch_all(&pool)
+                .await?;
+        assert_eq!(
+            channel_usage,
+            vec![(1, 0), (2, 1)],
+            "the failed channel must be refunded and the successful channel charged once"
+        );
+
+        let logs: Vec<(i64, i64)> =
+            sqlx::query_as("SELECT channel_id,quota FROM logs WHERE type=2 ORDER BY channel_id")
+                .fetch_all(&pool)
+                .await?;
+        assert_eq!(
+            logs,
+            vec![(2, 1)],
+            "only the successful retry may create a success usage log"
+        );
+        Ok::<(), Box<dyn std::error::Error>>(())
+    }
+    .await;
+
+    first.task.abort();
+    second.task.abort();
+    drop(pool);
+    let cleanup = sqlx::query(&format!("DROP SCHEMA {schema} CASCADE"))
+        .execute(&admin)
+        .await;
+    drop(admin);
+
+    result?;
+    cleanup?;
+    Ok(())
+}
