@@ -1,0 +1,79 @@
+name: Deploy reviewed Go release
+
+on:
+  push:
+    branches: [release/acceptance-20260916]
+    paths: [.github/workflows/deploy-reviewed-go-release.yml]
+
+permissions:
+  contents: read
+  actions: read
+  checks: read
+  issues: read
+
+concurrency:
+  group: production-auto-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy signed Go 0.2.51 using native production gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    environment: production
+    env:
+      RELEASE_SHA: 13b22e03ea2c88fa118814c34f780aa6e77af723
+      RELEASE_TAG: go-v0.2.51
+      REPOSITORY: TokenNotIncluded/api.lmm.best
+    steps:
+      - name: Checkout the exact released revision
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: 13b22e03ea2c88fa118814c34f780aa6e77af723
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify successful signed release and current work-item barrier
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$RELEASE_SHA"
+          gh api "repos/$REPOSITORY/actions/runs/35115452776" \
+            --jq '{id,path,head_sha,head_branch,status,conclusion}' > /tmp/release-run.json
+          jq -e --arg sha "$RELEASE_SHA" --arg tag "$RELEASE_TAG" \
+            '.id == 35115452776 and .path == ".github/workflows/release-go.yml" and .head_sha == $sha and .head_branch == $tag and .status == "completed" and .conclusion == "success"' /tmp/release-run.json
+          python3 -B scripts/verify-release-work-items.py
+          bash scripts/verify-release-commit-checks.sh "$RELEASE_SHA"
+          gh api "repos/$REPOSITORY/actions/workflows/deploy-production.yml" --jq '{name,state,path}'
+      - name: Install normal deployment tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo --preserve-env=GITHUB_ACTIONS python3 scripts/prepare-ci-apt.py
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes jq openssh-client
+          docker --version
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6
+      - name: Stage and promote through the released deployment script
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
+          PRODUCTION_SSH_PRIVATE_KEY: ${{ secrets.PRODUCTION_SSH_PRIVATE_KEY }}
+          PRODUCTION_SSH_KNOWN_HOSTS: ${{ secrets.PRODUCTION_SSH_KNOWN_HOSTS }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$PRODUCTION_SSH_PRIVATE_KEY"
+          test -n "$PRODUCTION_SSH_KNOWN_HOSTS"
+          bash scripts/auto-deploy-production-release.sh
+      - name: Require the actual public backend version and assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B scripts/verify-public-production.py --expected-backend-version 0.2.51
+          echo 'Promotion and public read-only acceptance passed. Native transaction confirmation remains separate and requires review.' >> "$GITHUB_STEP_SUMMARY"
