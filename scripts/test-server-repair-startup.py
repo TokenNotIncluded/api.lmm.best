@@ -113,5 +113,45 @@ class StartupDiagnosticTests(unittest.TestCase):
         self.assertIn('"production_changed": False', TEXT)
 
 
+class UnitPropertyTests(unittest.TestCase):
+    def test_explicit_empty_is_different_from_absent(self):
+        base = "MainPID=0\nExecMainPID=0\nExecMainCode=1\nExecMainStatus=1\nActiveState=activating\nSubState=start-post\nResult=exit-code\nRestart=always\nInvocationID=test\n"
+        absent = module.summarize_unit_state(base)
+        empty = module.summarize_unit_state(base + "ControlGroup=\n")
+        self.assertEqual(absent["missing_properties"], ["ControlGroup"])
+        self.assertFalse(absent["control_group_empty"])
+        self.assertEqual(empty["missing_properties"], [])
+        self.assertTrue(empty["control_group_empty"])
+
+    def test_unknown_values_cannot_publish_secrets(self):
+        secret = "PRIVATE_SENTINEL"
+        value = module.summarize_unit_state("Environment=" + secret + "\nControlGroup=" + secret + "\nInvocationID=" + secret + "\nMainPID=" + secret + "\nActiveState=" + secret)
+        self.assertNotIn(secret, json.dumps(value))
+        self.assertEqual(value["ActiveState"], "other")
+        self.assertNotIn("MainPID", value)
+
+    def test_duplicate_or_malformed_property_is_explicit(self):
+        self.assertTrue(module.summarize_unit_state("MainPID=0\nMainPID=9")["malformed"])
+        self.assertTrue(module.summarize_unit_state("bad line")["malformed"])
+
+    def test_bounded_read_only_commands(self):
+        from unittest.mock import patch
+        with patch.object(module.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, "MainPID=0\nControlGroup=\n")) as run:
+            value = module.inspect_unit_property_presence()
+        self.assertEqual(run.call_count, 2)
+        commands = [call.args[0] for call in run.call_args_list]
+        self.assertNotIn("--all", commands[0])
+        self.assertIn("--all", commands[1])
+        self.assertTrue(all(command[:3] == ["systemctl", "show", "lmm-api.service"] for command in commands))
+        self.assertTrue(all(call.kwargs["timeout"] == 8 for call in run.call_args_list))
+        self.assertEqual(value["all_properties"]["MainPID"], 0)
+
+    def test_read_error_and_oversize_remain_errors(self):
+        from unittest.mock import patch
+        self.assertEqual(module.summarize_unit_state("x" * 16385), {"oversized": True})
+        with patch.object(module.subprocess, "run", side_effect=OSError("PRIVATE")):
+            self.assertEqual(module.inspect_unit_property_presence(), {"default": {"read_failed": True}, "all_properties": {"read_failed": True}})
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
