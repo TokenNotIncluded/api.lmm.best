@@ -1,0 +1,104 @@
+name: Pending PR integration review
+
+on:
+  push:
+    branches: [integration/pr-merge-20260916]
+    paths: [.github/workflows/pr-integration-review-20260916.yml]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: pending-pr-integration-review
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: '1.3.14'
+      - name: Inspect pinned pending PRs and preserve conflicts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          mkdir -p integration-evidence
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          python3 - <<'PY'
+          import json, os, pathlib, subprocess, urllib.request
+          out = pathlib.Path('integration-evidence')
+          repo = os.environ['REPOSITORY']
+          order = [324, 316, 334, 320, 328, 329, 333, 336, 337, 338, 335]
+          report = []
+          def run(*args, check=True):
+              return subprocess.run(args, check=check, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+          for number in order:
+              request = urllib.request.Request(f'https://api.github.com/repos/{repo}/pulls/{number}', headers={'Authorization': f'Bearer {os.environ["GH_TOKEN"]}', 'Accept': 'application/vnd.github+json'})
+              with urllib.request.urlopen(request) as response:
+                  pr = json.load(response)
+              entry = {key: pr.get(key) for key in ['number', 'title', 'state', 'merged', 'draft', 'mergeable']}
+              entry.update(head_sha=pr['head']['sha'], head_repo=pr['head']['repo']['full_name'], head_ref=pr['head']['ref'], base_sha=pr['base']['sha'])
+              if pr['state'] != 'open':
+                  entry['result'] = 'not_open'
+                  report.append(entry)
+                  continue
+              ref = f'refs/heads/integration-input-{number}'
+              run('git', 'fetch', '--no-tags', 'origin', f'refs/pull/{number}/head:{ref}')
+              actual = run('git', 'rev-parse', ref).stdout.strip()
+              if actual != entry['head_sha']:
+                  raise RuntimeError(f'PR {number} changed during fetch')
+              merge_base = run('git', 'merge-base', 'HEAD', ref).stdout.strip()
+              entry['merge_base'] = merge_base
+              (out / f'pr-{number}.patch').write_text(run('git', 'diff', merge_base, ref).stdout)
+              result = run('git', 'merge', '--no-ff', '--no-edit', ref, check=False)
+              (out / f'pr-{number}-merge.log').write_text(result.stdout)
+              if result.returncode:
+                  paths = run('git', 'diff', '--name-only', '--diff-filter=U', '-z').stdout.split('\0')
+                  entry['conflicts'] = [path for path in paths if path]
+                  entry['result'] = 'conflict' if entry['conflicts'] else 'merge_error'
+                  for path in entry['conflicts']:
+                      for stage in [1, 2, 3]:
+                          content = run('git', 'show', f':{stage}:{path}', check=False)
+                          if not content.returncode:
+                              target = out / f'conflicts-{number}' / str(stage) / path
+                              target.parent.mkdir(parents=True, exist_ok=True)
+                              target.write_text(content.stdout)
+                  run('git', 'merge', '--abort')
+              else:
+                  entry['result'] = 'merged_locally'
+              report.append(entry)
+              print(json.dumps(entry, ensure_ascii=False))
+          (out / 'merge-report.json').write_text(json.dumps(report, indent=2, ensure_ascii=False))
+          (out / 'local-head.txt').write_text(run('git', 'rev-parse', 'HEAD').stdout)
+          (out / 'git-status.txt').write_text(run('git', 'status', '--short').stdout)
+          run('git', 'bundle', 'create', str(out / 'integration.bundle'), '--all')
+          PY
+      - name: Install exact dependencies
+        id: install
+        run: bun install --frozen-lockfile 2>&1 | tee integration-evidence/install.log
+      - name: Build and preserve bundle diagnostics
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: |
+          bun run --filter @lmm/web build 2>&1 | tee integration-evidence/build.log
+          bun run --filter @lmm/web bundle:check 2>&1 | tee integration-evidence/bundle-check.log
+      - name: Upload source and review evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: pending-pr-integration-review-${{ github.sha }}
+          path: integration-evidence/
+          retention-days: 3
+          if-no-files-found: error
