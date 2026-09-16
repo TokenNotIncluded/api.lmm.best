@@ -251,9 +251,10 @@ func (runtime *productionRuntime) recoverInstalledSchema(ctx context.Context, wo
 	if err := validateMemoryOverrides(runtime.paths.DropInDir); err != nil {
 		return productionStatus{}, err
 	}
-	state, err := runtime.billingUnitState(ctx, runtime.paths.Service)
-	if err != nil || state["MainPID"] != "0" || (state["ActiveState"] != "failed" && state["ActiveState"] != "activating" && state["ActiveState"] != "inactive") {
-		return productionStatus{}, errors.New("recovery will not interrupt a running application writer")
+	if err := waitIncident343Quiescent(ctx, func(readCtx context.Context) (map[string]string, error) {
+		return runtime.billingUnitState(readCtx, runtime.paths.Service)
+	}, sleepIncident343); err != nil {
+		return productionStatus{}, err
 	}
 	dsn, databaseURL, environment, err := runtime.recoveryDatabase(ctx, workspace, manifest)
 	if err != nil {
@@ -293,7 +294,7 @@ func (runtime *productionRuntime) recoverInstalledSchema(ctx context.Context, wo
 			}
 		}
 	}()
-	state, err = runtime.billingUnitState(ctx, runtime.paths.Service)
+	state, err := runtime.billingUnitState(ctx, runtime.paths.Service)
 	if err != nil || state["MainPID"] != "0" || state["ActiveState"] != "inactive" || state["ControlGroup"] != "" {
 		return productionStatus{}, errors.New("failed service cgroup is not verifiably empty")
 	}
