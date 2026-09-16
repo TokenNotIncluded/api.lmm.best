@@ -6,8 +6,8 @@ it under the terms of the GNU Affero General Public License as published by
 the Free Software Foundation, either version 3 of the License, or
 (at your option) any later version.
 */
-import { Check, RefreshCw, X } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
+import { Check, RefreshCw, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -104,7 +104,7 @@ export function DeveloperAccessRequestsPanel(props: {
       toast.error(
         error instanceof Error
           ? error.message
-            : t('Unable to review unlock request')
+          : t('Unable to review unlock request')
       )
       await requestsQuery.refetch()
     } finally {

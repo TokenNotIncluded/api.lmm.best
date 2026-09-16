@@ -109,12 +109,18 @@ describe('assistant automatic retry policy', () => {
   test('does not replay a request with an unknown transport outcome', async () => {
     let callCount = 0
     const expected = assistantAxiosError()
-    await withAssistantPost(async () => {
-      callCount += 1
-      throw expected
-    }, async () => {
-      await assert.rejects(() => sendAssistantMessage('hello'), (error) => error === expected)
-    })
+    await withAssistantPost(
+      async () => {
+        callCount += 1
+        throw expected
+      },
+      async () => {
+        await assert.rejects(
+          () => sendAssistantMessage('hello'),
+          (error) => error === expected
+        )
+      }
+    )
     assert.equal(callCount, 1)
   })
 

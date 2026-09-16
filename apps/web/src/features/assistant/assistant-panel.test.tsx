@@ -3064,10 +3064,7 @@ describe('AssistantPanel', () => {
 
       assert.equal(selfCalls, 1)
       assert.doesNotMatch(document.body.textContent ?? '', /Submit for review/)
-      assert.doesNotMatch(
-        document.body.textContent ?? '',
-        /Submit for review/
-      )
+      assert.doesNotMatch(document.body.textContent ?? '', /Submit for review/)
       assert.match(document.body.textContent ?? '', /Open client setup guide/)
     } finally {
       await act(async () => rendered.root.unmount())

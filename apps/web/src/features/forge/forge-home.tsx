@@ -23,16 +23,25 @@ import { type FormEvent, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
-import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from '@/components/ui/input-group'
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupButton,
+  InputGroupInput,
+} from '@/components/ui/input-group'
 import { getAssistantPreConversationPresets } from '@/features/assistant/api'
 import { requestAssistantSend } from '@/features/assistant/assistant-events'
 import { redactAssistantMessageForRequest } from '@/features/assistant/assistant-message-safety'
 import {
   ASSISTANT_PROMPT_PRESET_COPY_VERSION,
-  localizeAssistantPreConversationPresets
+  localizeAssistantPreConversationPresets,
 } from '@/features/assistant/assistant-prompt-presets'
 import { getAssistantPromptValidation } from '@/features/assistant/assistant-prompt-validation'
-import { CodePreview, type CodeTab, codeForTab } from '@/features/home/home-code-preview'
+import {
+  CodePreview,
+  type CodeTab,
+  codeForTab,
+} from '@/features/home/home-code-preview'
 import { HomeLanding } from '@/features/home/home-landing'
 import { mountHomeMotion } from '@/features/home/home-motion'
 import { PublicScriptsPanel } from '@/features/scripts/scripts-panel'
@@ -51,18 +60,22 @@ import './forge-home.css'
 const HOME_SETUP_PROMPTS = [
   {
     label: 'Help me choose an app',
-    prompt: 'I am new here. Help me choose an AI app. Ask about my device and what I want to do, then give me its official download link and installation steps.'
+    prompt:
+      'I am new here. Help me choose an AI app. Ask about my device and what I want to do, then give me its official download link and installation steps.',
   },
   {
     label: 'Connect my API key',
-    prompt: 'Help me connect an AI app to LMM step by step. Ask which app and device I use, explain the API address and model settings, and show me where to safely import my API key. Do not ask me to paste my key into chat.'
+    prompt:
+      'Help me connect an AI app to LMM step by step. Ask which app and device I use, explain the API address and model settings, and show me where to safely import my API key. Do not ask me to paste my key into chat.',
   },
   {
     label: 'Fix a connection issue',
-    prompt: 'My AI app cannot connect. Ask which app I use and what error I see, then walk me through one check at a time. Remind me to hide API keys and personal details in screenshots.'
+    prompt:
+      'My AI app cannot connect. Ask which app I use and what error I see, then walk me through one check at a time. Remind me to hide API keys and personal details in screenshots.',
   },
 ] as const
-const PI_INSTALL_COMMAND = 'pi install git:github.com/TokenNotIncluded/pi-lmm-provider'
+const PI_INSTALL_COMMAND =
+  'pi install git:github.com/TokenNotIncluded/pi-lmm-provider'
 
 function useCopyFeedback() {
   const [copied, setCopied] = useState(false)
@@ -70,7 +83,10 @@ function useCopyFeedback() {
   const mounted = useRef(false)
   useEffect(() => {
     mounted.current = true
-    return () => { mounted.current = false; clearTimeout(timer.current) }
+    return () => {
+      mounted.current = false
+      clearTimeout(timer.current)
+    }
   }, [])
   const copy = async (value: string) => {
     clearTimeout(timer.current)
@@ -79,7 +95,9 @@ function useCopyFeedback() {
       if (!mounted.current) return
       setCopied(true)
       timer.current = setTimeout(() => setCopied(false), 1400)
-    } catch { if (mounted.current) setCopied(false) }
+    } catch {
+      if (mounted.current) setCopied(false)
+    }
   }
   return { copied, copy }
 }
@@ -90,7 +108,9 @@ export function ForgeHome() {
   const purchaseEntry = usePurchaseEntry()
   const user = useAuthStore((state) => state.auth.user)
   const { status } = useStatus()
-  const securityLink = useTopNavLinks().find((link) => link.href === '/security')
+  const securityLink = useTopNavLinks().find(
+    (link) => link.href === '/security'
+  )
   const rootRef = useRef<HTMLElement>(null)
   const [message, setMessage] = useState('')
   const [messageFocused, setMessageFocused] = useState(false)
@@ -104,7 +124,7 @@ export function ForgeHome() {
     queryKey: [
       'assistant-pre-conversation-presets',
       presetLanguage,
-      ASSISTANT_PROMPT_PRESET_COPY_VERSION
+      ASSISTANT_PROMPT_PRESET_COPY_VERSION,
     ],
     queryFn: () => getAssistantPreConversationPresets(presetLanguage),
     placeholderData: (previous) => previous,
@@ -113,7 +133,10 @@ export function ForgeHome() {
     retry: false,
   })
   const animatedPlaceholder = useTypewriterPlaceholder(
-    localizeAssistantPreConversationPresets(preConversationPresetsQuery.data?.presets, t).map((preset) => preset.prompt),
+    localizeAssistantPreConversationPresets(
+      preConversationPresetsQuery.data?.presets,
+      t
+    ).map((preset) => preset.prompt),
     assistantEnabled && message.length === 0 && !messageFocused
   )
   useEffect(() => {
@@ -122,7 +145,12 @@ export function ForgeHome() {
 
   const startAssistant = (prompt: string) => {
     const safeMessage = redactAssistantMessageForRequest(prompt).content.trim()
-    if (!safeMessage || getAssistantPromptValidation(prompt).invalid || !assistantEnabled) return
+    if (
+      !safeMessage ||
+      getAssistantPromptValidation(prompt).invalid ||
+      !assistantEnabled
+    )
+      return
     if (!user) {
       requestAssistantSend(undefined, safeMessage)
       void navigate({ to: '/sign-in', search: { redirect: '/dashboard' } })
@@ -132,36 +160,57 @@ export function ForgeHome() {
     requestAssistantSend(activated ? 'service' : 'onboarding', safeMessage)
     void navigate({ to: activated ? '/dashboard' : '/getting-started' })
   }
-  const submitMessage = (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); startAssistant(message) }
+  const submitMessage = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    startAssistant(message)
+  }
 
   return (
     <ForgePublicShell>
-      <HomeLanding rootRef={rootRef} t={t}
+      <HomeLanding
+        rootRef={rootRef}
+        t={t}
         primaryAction={
           <Button
             size='lg'
-            render={<Link
-              to={purchaseEntry.to}
-              search={purchaseEntry.to === '/sign-in' ? { redirect: '/wallet' } : undefined}
-            />}
+            render={
+              <Link
+                to={purchaseEntry.to}
+                search={
+                  purchaseEntry.to === '/sign-in'
+                    ? { redirect: '/wallet' }
+                    : undefined
+                }
+              />
+            }
           >
-            {t(purchaseEntry.label)}<ArrowRight data-icon='inline-end' />
+            {t(purchaseEntry.label)}
+            <ArrowRight data-icon='inline-end' />
           </Button>
         }
-        pricingAction={<Link to='/pricing' className='lmm-text-link'>
-          {isConsoleActivated(user) ? t('View model pricing') : t('Pricing and access')}
-          <ArrowRight aria-hidden='true' />
-        </Link>}
-        code={<CodePreview
-          t={t}
-          tab={codeTab}
-          copied={codeCopy.copied}
-          onTabChange={setCodeTab}
-          onCopy={() => void codeCopy.copy(codeForTab(codeTab))}
-        />}
+        pricingAction={
+          <Link to='/pricing' className='lmm-text-link'>
+            {isConsoleActivated(user)
+              ? t('View model pricing')
+              : t('Pricing and access')}
+            <ArrowRight aria-hidden='true' />
+          </Link>
+        }
+        code={
+          <CodePreview
+            t={t}
+            tab={codeTab}
+            copied={codeCopy.copied}
+            onTabChange={setCodeTab}
+            onCopy={() => void codeCopy.copy(codeForTab(codeTab))}
+          />
+        }
         assistant={
           <form onSubmit={submitMessage}>
-            <label className='forge-home-assistant-label' htmlFor='forge-home-message'>
+            <label
+              className='forge-home-assistant-label'
+              htmlFor='forge-home-message'
+            >
               {t('Describe what you need...')}
             </label>
             <InputGroup className='forge-home-input'>
@@ -172,7 +221,9 @@ export function ForgeHome() {
                 onFocus={() => setMessageFocused(true)}
                 onBlur={() => setMessageFocused(false)}
                 className='min-w-0'
-                placeholder={animatedPlaceholder || t('Describe what you need...')}
+                placeholder={
+                  animatedPlaceholder || t('Describe what you need...')
+                }
                 maxLength={4000}
               />
               <InputGroupAddon align='inline-end'>
@@ -182,28 +233,39 @@ export function ForgeHome() {
                   size='sm'
                   className='h-11 rounded-full px-4'
                   aria-label={t('Ask AI assistant')}
-                  disabled={!message.trim() || messageInvalid || !assistantEnabled}
+                  disabled={
+                    !message.trim() || messageInvalid || !assistantEnabled
+                  }
                 >
-                  <ArrowRight className='forge-home-submit-icon size-4' aria-hidden='true' />
+                  <ArrowRight
+                    className='forge-home-submit-icon size-4'
+                    aria-hidden='true'
+                  />
                 </InputGroupButton>
               </InputGroupAddon>
             </InputGroup>
-            {assistantEnabled && <div className='forge-home-assistant-prompts'>
-              {HOME_SETUP_PROMPTS.map((preset) => <button
-                key={preset.label}
-                type='button'
-                onClick={() => startAssistant(t(preset.prompt))}
-              >
-                {t(preset.label)}
-                <ArrowRight className='size-3.5' aria-hidden='true' />
-              </button>)}
-            </div>}
+            {assistantEnabled && (
+              <div className='forge-home-assistant-prompts'>
+                {HOME_SETUP_PROMPTS.map((preset) => (
+                  <button
+                    key={preset.label}
+                    type='button'
+                    onClick={() => startAssistant(t(preset.prompt))}
+                  >
+                    {t(preset.label)}
+                    <ArrowRight className='size-3.5' aria-hidden='true' />
+                  </button>
+                ))}
+              </div>
+            )}
           </form>
         }
         pi={
           <>
             <p className='lmm-pi-description'>
-              {t('Install the LMM Pi plugin, sign in with OAuth, and choose a model in Pi. Access uses your account and normal model pricing.')}
+              {t(
+                'Install the LMM Pi plugin, sign in with OAuth, and choose a model in Pi. Access uses your account and normal model pricing.'
+              )}
             </p>
             <div className='lmm-pi-command'>
               <code>{PI_INSTALL_COMMAND}</code>
@@ -214,7 +276,9 @@ export function ForgeHome() {
                 onClick={() => void piCopy.copy(PI_INSTALL_COMMAND)}
                 aria-label={t('Copy Pi install command')}
               >
-                <span aria-live='polite'>{piCopy.copied ? t('Copied') : t('Copy')}</span>
+                <span aria-live='polite'>
+                  {piCopy.copied ? t('Copied') : t('Copy')}
+                </span>
               </Button>
             </div>
             <a href='/guide#pi-oauth' className='lmm-text-link'>
@@ -222,9 +286,10 @@ export function ForgeHome() {
               <ArrowRight aria-hidden='true' />
             </a>
             <p className='lmm-webmcp-note'>
-              <strong>{t('WebMCP tools for compatible browsers')}</strong>
-              {' '}
-              {t('Browser agents can read site information, model prices, and account status or open pages; the normal UI remains available when WebMCP is unsupported.')}
+              <strong>{t('WebMCP tools for compatible browsers')}</strong>{' '}
+              {t(
+                'Browser agents can read site information, model prices, and account status or open pages; the normal UI remains available when WebMCP is unsupported.'
+              )}
             </p>
           </>
         }
@@ -238,13 +303,19 @@ export function ForgeHome() {
               <span>{t('Open-source challenges')}</span>
               <ArrowRight aria-hidden='true' />
             </Link>
-            {securityLink && <Link
-              to={securityLink.requiresAuth ? '/sign-in' : '/security'}
-              search={securityLink.requiresAuth ? { redirect: '/security' } : undefined}
-            >
-              <span>{t('Security')}</span>
-              <ArrowRight aria-hidden='true' />
-            </Link>}
+            {securityLink && (
+              <Link
+                to={securityLink.requiresAuth ? '/sign-in' : '/security'}
+                search={
+                  securityLink.requiresAuth
+                    ? { redirect: '/security' }
+                    : undefined
+                }
+              >
+                <span>{t('Security')}</span>
+                <ArrowRight aria-hidden='true' />
+              </Link>
+            )}
           </>
         }
         scripts={<PublicScriptsPanel />}

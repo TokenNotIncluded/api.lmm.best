@@ -64,9 +64,8 @@ for (const key of domGlobals) {
   })
 }
 
-const { QueryClient, QueryClientProvider } = await import(
-  '@tanstack/react-query'
-)
+const { QueryClient, QueryClientProvider } =
+  await import('@tanstack/react-query')
 const { act } = await import('react')
 const { createRoot } = await import('react-dom/client')
 const i18n = (await import('i18next')).default

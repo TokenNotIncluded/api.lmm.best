@@ -313,7 +313,10 @@ test('oversized prepared text is editable and Unicode maximum is enforced before
 const supportTrace: ToolTrace = {
   name: 'request_human_support',
   status: 'approval-requested',
-  input: { action: 'support', message: 'Do not replay this historical message.' },
+  input: {
+    action: 'support',
+    message: 'Do not replay this historical message.',
+  },
 }
 
 test('waiting tool card has a visible manual recovery button outside the disclosure trigger', async () => {

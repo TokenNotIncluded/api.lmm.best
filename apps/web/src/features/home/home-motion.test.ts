@@ -30,13 +30,34 @@ describe('home motion geometry', () => {
     assert.equal(unit(Number.POSITIVE_INFINITY), 0)
   })
   it('centers pointer coordinates in the scene, not the viewport', () => {
-    assert.deepEqual(pointerPosition(400, 450, { left: 200, top: 300, width: 400, height: 300 }), { x: 0, y: 0 })
+    assert.deepEqual(
+      pointerPosition(400, 450, {
+        left: 200,
+        top: 300,
+        width: 400,
+        height: 300,
+      }),
+      { x: 0, y: 0 }
+    )
   })
   it('bounds pointer movement outside the scene', () => {
-    assert.deepEqual(pointerPosition(-20, 1000, { left: 200, top: 300, width: 400, height: 300 }), { x: -0.5, y: 0.5 })
+    assert.deepEqual(
+      pointerPosition(-20, 1000, {
+        left: 200,
+        top: 300,
+        width: 400,
+        height: 300,
+      }),
+      { x: -0.5, y: 0.5 }
+    )
   })
   it('handles zero-sized and invalid geometry', () => {
-    const position = pointerPosition(0, 0, { left: 0, top: 0, width: 0, height: 0 })
+    const position = pointerPosition(0, 0, {
+      left: 0,
+      top: 0,
+      width: 0,
+      height: 0,
+    })
     assert.ok(Number.isFinite(position.x) && Number.isFinite(position.y))
     assert.equal(storyPosition(0, 0, 800), 1)
     assert.equal(storyPosition(Number.NaN, 400, 800), 0)
@@ -48,7 +69,12 @@ describe('home motion geometry', () => {
     assert.equal(storyPosition(-500, 900, 800), 1)
   })
   it('is monotonic as the page moves through the story', () => {
-    const positions = [800, 400, 100, -200, -500, -1000].map((top) => storyPosition(top, 900, 800))
-    assert.deepEqual(positions, [...positions].sort((a, b) => a - b))
+    const positions = [800, 400, 100, -200, -500, -1000].map((top) =>
+      storyPosition(top, 900, 800)
+    )
+    assert.deepEqual(
+      positions,
+      [...positions].sort((a, b) => a - b)
+    )
   })
 })

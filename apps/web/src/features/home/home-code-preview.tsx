@@ -20,7 +20,8 @@ export const CODE_TABS = ['Chat', 'API', 'Claude', 'Gemini'] as const
 export type CodeTab = (typeof CODE_TABS)[number]
 
 export function codeForTab(tab: CodeTab) {
-  if (tab === 'Claude') return `curl https://api.lmm.best/v1/messages \\
+  if (tab === 'Claude')
+    return `curl https://api.lmm.best/v1/messages \\
   -H "x-api-key: $LMM_API_KEY" \\
   -H "anthropic-version: 2023-06-01" \\
   -H "Content-Type: application/json" \\
@@ -29,7 +30,8 @@ export function codeForTab(tab: CodeTab) {
     "max_tokens": 256,
     "messages": [{ "role": "user", "content": "Hello" }]
   }'`
-  if (tab === 'Gemini') return `curl "https://api.lmm.best/v1beta/models/model-name:generateContent" \\
+  if (tab === 'Gemini')
+    return `curl "https://api.lmm.best/v1beta/models/model-name:generateContent" \\
   -H "x-goog-api-key: $LMM_API_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{
@@ -38,7 +40,8 @@ export function codeForTab(tab: CodeTab) {
       "parts": [{ "text": "Hello" }]
     }]
   }'`
-  if (tab === 'API') return `import OpenAI from "openai"
+  if (tab === 'API')
+    return `import OpenAI from "openai"
 
 const client = new OpenAI({
   baseURL: "https://api.lmm.best/v1",
@@ -66,7 +69,13 @@ type CodePreviewProps = {
   onCopy: () => void
 }
 
-export function CodePreview({ t, tab, copied, onTabChange, onCopy }: CodePreviewProps) {
+export function CodePreview({
+  t,
+  tab,
+  copied,
+  onTabChange,
+  onCopy,
+}: CodePreviewProps) {
   return (
     <div className='forge-home-code-card'>
       <div
@@ -75,14 +84,35 @@ export function CodePreview({ t, tab, copied, onTabChange, onCopy }: CodePreview
         aria-label={t('API Endpoints')}
       >
         {CODE_TABS.map((name, index) => (
-          <button key={name} type='button' role='tab' id={`home-code-tab-${name}`} aria-controls='home-code-panel' tabIndex={tab === name ? 0 : -1} aria-selected={tab === name} className={tab === name ? 'is-active' : undefined}
-            onClick={() => onTabChange(name)} onKeyDown={(event) => {
-              const next = event.key === 'ArrowRight' ? (index + 1) % CODE_TABS.length : event.key === 'ArrowLeft' ? (index + CODE_TABS.length - 1) % CODE_TABS.length : event.key === 'Home' ? 0 : event.key === 'End' ? CODE_TABS.length - 1 : null
+          <button
+            key={name}
+            type='button'
+            role='tab'
+            id={`home-code-tab-${name}`}
+            aria-controls='home-code-panel'
+            tabIndex={tab === name ? 0 : -1}
+            aria-selected={tab === name}
+            className={tab === name ? 'is-active' : undefined}
+            onClick={() => onTabChange(name)}
+            onKeyDown={(event) => {
+              const next =
+                event.key === 'ArrowRight'
+                  ? (index + 1) % CODE_TABS.length
+                  : event.key === 'ArrowLeft'
+                    ? (index + CODE_TABS.length - 1) % CODE_TABS.length
+                    : event.key === 'Home'
+                      ? 0
+                      : event.key === 'End'
+                        ? CODE_TABS.length - 1
+                        : null
               if (next === null) return
               event.preventDefault()
               onTabChange(CODE_TABS[next])
-              event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('[role="tab"]')[next]?.focus()
-            }}>
+              event.currentTarget.parentElement
+                ?.querySelectorAll<HTMLButtonElement>('[role="tab"]')
+                [next]?.focus()
+            }}
+          >
             {t(name)}
           </button>
         ))}
@@ -111,13 +141,17 @@ export function CodePreview({ t, tab, copied, onTabChange, onCopy }: CodePreview
           <code>{codeForTab(tab)}</code>
         </pre>
         <p className='forge-home-code-help'>
-          {t('Replace model-name with an available model ID for the selected API. Set LMM_API_KEY locally; never put your key in browser code.')}
+          {t(
+            'Replace model-name with an available model ID for the selected API. Set LMM_API_KEY locally; never put your key in browser code.'
+          )}
         </p>
-        {tab === 'API' && <p className='forge-home-code-help'>
-          {t('For server-side JavaScript, install the SDK first:')}
+        {tab === 'API' && (
+          <p className='forge-home-code-help'>
+            {t('For server-side JavaScript, install the SDK first:')}
 
-          <code>npm install openai</code>
-        </p>}
+            <code>npm install openai</code>
+          </p>
+        )}
       </div>
     </div>
   )

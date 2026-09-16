@@ -20,10 +20,14 @@ export function unit(value: number) {
   return Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : 0
 }
 
-export function pointerPosition(x: number, y: number, rect: Pick<DOMRect, 'left' | 'top' | 'width' | 'height'>) {
+export function pointerPosition(
+  x: number,
+  y: number,
+  rect: Pick<DOMRect, 'left' | 'top' | 'width' | 'height'>
+) {
   return {
     x: unit((x - rect.left) / Math.max(rect.width, 1)) - 0.5,
-    y: unit((y - rect.top) / Math.max(rect.height, 1)) - 0.5
+    y: unit((y - rect.top) / Math.max(rect.height, 1)) - 0.5,
   }
 }
 
@@ -42,22 +46,22 @@ function sculpture(narrow: boolean): Face[] {
   const point = (a: number, b: number): Point => ({
     x: (1.72 + 0.38 * Math.cos(b)) * Math.cos(a),
     y: (1.72 + 0.38 * Math.cos(b)) * Math.sin(a),
-    z: 0.38 * Math.sin(b)
+    z: 0.38 * Math.sin(b),
   })
   for (let rib = 0; rib < ribs; rib++) {
     const a = (rib / ribs) * Math.PI * 2
-    const next = a + (Math.PI * 2 / ribs)
+    const next = a + (Math.PI * 2) / ribs
     for (let side = 0; side < sides; side++) {
-      const b = side / sides * Math.PI * 2
-      const end = (side + 1) / sides * Math.PI * 2
+      const b = (side / sides) * Math.PI * 2
+      const end = ((side + 1) / sides) * Math.PI * 2
       const mid = (b + end) / 2
       faces.push({
         points: [point(a, b), point(next, b), point(next, end), point(a, end)],
         normal: {
           x: Math.cos(mid) * Math.cos(a),
           y: Math.cos(mid) * Math.sin(a),
-          z: Math.sin(mid)
-        }
+          z: Math.sin(mid),
+        },
       })
     }
   }
@@ -72,7 +76,11 @@ function createFilm(canvas: HTMLCanvasElement) {
   let width = 0
   let height = 0
   let pixelRatio = 0
-  return (time: number, pointer: { x: number; y: number }, progress: number) => {
+  return (
+    time: number,
+    pointer: { x: number; y: number },
+    progress: number
+  ) => {
     const w = canvas.clientWidth
     const h = canvas.clientHeight
     if (!w || !h) return
@@ -91,25 +99,34 @@ function createFilm(canvas: HTMLCanvasElement) {
     backdrop.addColorStop(1, '#77806a')
     ctx.fillStyle = backdrop
     ctx.fillRect(0, 0, w, h)
-    const glow = ctx.createRadialGradient(w * 0.43, h * 0.4, 0, w * 0.43, h * 0.4, h * 0.8)
+    const glow = ctx.createRadialGradient(
+      w * 0.43,
+      h * 0.4,
+      0,
+      w * 0.43,
+      h * 0.4,
+      h * 0.8
+    )
     glow.addColorStop(0, '#b8b08366')
     glow.addColorStop(1, '#b8b08300')
     ctx.fillStyle = glow
     ctx.fillRect(0, 0, w, h)
     const narrow = w < 650
-    const cx = w * (narrow ? 0.51 : 0.40)
+    const cx = w * (narrow ? 0.51 : 0.4)
     const cy = h * (narrow ? 0.32 : 0.46)
     const scale = Math.min(w * (narrow ? 0.19 : 0.15), h * 0.19)
-    const ry = 0.60 + Math.sin(time * 0.20) * 0.16 + pointer.x * 0.27 + progress * 0.28
-    const rx = -0.22 + Math.cos(time * 0.16) * 0.10 + pointer.y * 0.18 - progress * 0.12
-    const rz = -0.40 + Math.sin(time * 0.12) * 0.09
+    const ry =
+      0.6 + Math.sin(time * 0.2) * 0.16 + pointer.x * 0.27 + progress * 0.28
+    const rx =
+      -0.22 + Math.cos(time * 0.16) * 0.1 + pointer.y * 0.18 - progress * 0.12
+    const rz = -0.4 + Math.sin(time * 0.12) * 0.09
     const [sx, cxr, sy, cyr, sz, czr] = [
       Math.sin(rx),
       Math.cos(rx),
       Math.sin(ry),
       Math.cos(ry),
       Math.sin(rz),
-      Math.cos(rz)
+      Math.cos(rz),
     ]
     const rotate = (p: Point): Point => {
       const x = p.x * cyr + p.z * sy
@@ -117,7 +134,14 @@ function createFilm(canvas: HTMLCanvasElement) {
       const y = p.y * cxr - z * sx
       return { x: x * czr - y * sz, y: x * sz + y * czr, z: p.y * sx + z * cxr }
     }
-    const shadow = ctx.createRadialGradient(cx, h * 0.88, 0, cx, h * 0.88, scale * 2.5)
+    const shadow = ctx.createRadialGradient(
+      cx,
+      h * 0.88,
+      0,
+      cx,
+      h * 0.88,
+      scale * 2.5
+    )
     shadow.addColorStop(0, '#020b0999')
     shadow.addColorStop(1, '#020b0900')
     ctx.save()
@@ -126,20 +150,26 @@ function createFilm(canvas: HTMLCanvasElement) {
     ctx.fillStyle = shadow
     ctx.fillRect(0, -h * 3, w, h * 6)
     ctx.restore()
-    const transformed = mesh.map((face) => {
-      const points = face.points.map(rotate)
-      return {
-        points,
-        normal: rotate(face.normal),
-        z: points.reduce((sum, p) => sum + p.z, 0) / 4
-      }
-    }).sort((a, b) => a.z - b.z)
+    const transformed = mesh
+      .map((face) => {
+        const points = face.points.map(rotate)
+        return {
+          points,
+          normal: rotate(face.normal),
+          z: points.reduce((sum, p) => sum + p.z, 0) / 4,
+        }
+      })
+      .sort((a, b) => a.z - b.z)
     for (const face of transformed) {
       const n = face.normal
       const diffuse = Math.max(0, -n.x * 0.4 + n.y * 0.5 + n.z * 0.7)
-      const specular = Math.pow(Math.max(0, -n.x * 0.22 + n.y * 0.28 + n.z * 0.93), 22)
+      const specular = Math.pow(
+        Math.max(0, -n.x * 0.22 + n.y * 0.28 + n.z * 0.93),
+        22
+      )
       const luminance = 0.38 + diffuse * 0.74
-      const c = (base: number, shine: number) => Math.round(Math.min(255, base * luminance + specular * shine))
+      const c = (base: number, shine: number) =>
+        Math.round(Math.min(255, base * luminance + specular * shine))
       ctx.fillStyle = `rgb(${c(206, 75)} ${c(133, 104)} ${c(83, 129)})`
       ctx.beginPath()
       face.points.forEach((p, i) => {
@@ -164,7 +194,7 @@ export function mountHomeMotion(root: HTMLElement) {
   const cinema = root.querySelector<HTMLElement>('[data-cinema]')
   const inner = root.querySelector<HTMLElement>('[data-cinema-inner]')
   const canvas = root.querySelector<HTMLCanvasElement>('[data-film]')
-  if (!cinema || !inner || !canvas) return () => { }
+  if (!cinema || !inner || !canvas) return () => {}
   const draw = createFilm(canvas)
   const story = root.querySelector<HTMLElement>('[data-story]')
   const steps = [...root.querySelectorAll<HTMLElement>('[data-story-step]')]
@@ -174,11 +204,13 @@ export function mountHomeMotion(root: HTMLElement) {
   if (!('IntersectionObserver' in window) || !('ResizeObserver' in window)) {
     draw?.(0, { x: 0, y: 0 }, 0)
     if (toggle) toggle.hidden = true
-    return () => { }
+    return () => {}
   }
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)')
   const fine = window.matchMedia('(hover: hover) and (pointer: fine)')
-  const connection = (navigator as Navigator & { connection?: { saveData?: boolean } }).connection
+  const connection = (
+    navigator as Navigator & { connection?: { saveData?: boolean } }
+  ).connection
   let paused = !!connection?.saveData
   let visible = false
   let disposed = false
@@ -192,7 +224,11 @@ export function mountHomeMotion(root: HTMLElement) {
   let sceneProgress = 0
 
   const updateControls = () => {
-    root.dataset.motion = reduced.matches ? 'reduced' : paused ? 'paused' : 'playing'
+    root.dataset.motion = reduced.matches
+      ? 'reduced'
+      : paused
+        ? 'paused'
+        : 'playing'
     if (!toggle) return
     toggle.hidden = reduced.matches || !draw
     toggle.setAttribute('aria-pressed', String(paused))
@@ -202,24 +238,49 @@ export function mountHomeMotion(root: HTMLElement) {
     if (pause) pause.hidden = paused
     toggle.querySelector('[data-play-icon]')?.toggleAttribute('hidden', !paused)
     toggle.querySelector('[data-pause-icon]')?.toggleAttribute('hidden', paused)
-    toggle.setAttribute('aria-label', (paused ? play : pause)?.textContent || '')
+    toggle.setAttribute(
+      'aria-label',
+      (paused ? play : pause)?.textContent || ''
+    )
   }
   const schedule = () => {
-    if (!disposed && frame === null && !document.hidden) frame = requestAnimationFrame(render)
+    if (!disposed && frame === null && !document.hidden)
+      frame = requestAnimationFrame(render)
   }
   const readLayout = () => {
     const cinemaRect = cinema.getBoundingClientRect()
-    sceneProgress = reduced.matches || paused ? 0 : unit(-cinemaRect.top / Math.max(cinemaRect.height, 1))
+    sceneProgress =
+      reduced.matches || paused
+        ? 0
+        : unit(-cinemaRect.top / Math.max(cinemaRect.height, 1))
     inner.style.setProperty('--scene-progress', String(sceneProgress))
     if (story) {
       const rect = story.getBoundingClientRect()
       const progress = storyPosition(rect.top, rect.height, window.innerHeight)
       story.style.setProperty('--story-progress', String(progress))
-      const distances = steps.map((step) => Math.abs(step.getBoundingClientRect().top + step.offsetHeight / 2 - window.innerHeight / 2))
+      const distances = steps.map((step) =>
+        Math.abs(
+          step.getBoundingClientRect().top +
+            step.offsetHeight / 2 -
+            window.innerHeight / 2
+        )
+      )
       const active = distances.indexOf(Math.min(...distances))
-      steps.forEach((step, i) => step.toggleAttribute('data-active', i === active))
-      const keepFocus = panels.findIndex((panel) => panel.contains(document.activeElement))
-      const chapter = keepFocus >= 0 ? keepFocus : reduced.matches || paused || window.innerWidth <= 680 || window.innerHeight <= 650 ? 2 : active
+      steps.forEach((step, i) =>
+        step.toggleAttribute('data-active', i === active)
+      )
+      const keepFocus = panels.findIndex((panel) =>
+        panel.contains(document.activeElement)
+      )
+      const chapter =
+        keepFocus >= 0
+          ? keepFocus
+          : reduced.matches ||
+              paused ||
+              window.innerWidth <= 680 ||
+              window.innerHeight <= 650
+            ? 2
+            : active
       story.dataset.chapter = String(chapter)
       panels.forEach((panel, index) => {
         panel.setAttribute('aria-hidden', String(index !== chapter))
@@ -246,7 +307,10 @@ export function mountHomeMotion(root: HTMLElement) {
     inner.style.setProperty('--rotate-x', `${-pointer.y * 3}deg`)
     inner.style.setProperty('--rotate-y', `${pointer.x * 4}deg`)
     // Film is capped at 30fps; a hidden tab/offscreen scene owns no running loop.
-    if (draw && (dirty || (animate && visible && now - lastTime >= 1000 / 30))) {
+    if (
+      draw &&
+      (dirty || (animate && visible && now - lastTime >= 1000 / 30))
+    ) {
       if (lastTime && animate) clock += Math.min((now - lastTime) / 1000, 0.1)
       draw(reduced.matches ? 0 : clock, pointer, sceneProgress)
       lastTime = now
@@ -254,14 +318,34 @@ export function mountHomeMotion(root: HTMLElement) {
     }
     if (draw && animate && visible) schedule()
   }
-  const update = () => { measured = true; schedule() }
-  const resize = () => { measured = true; dirty = true; schedule() }
-  const move = (event: PointerEvent) => {
-    if (event.pointerType === 'touch' || !fine.matches || reduced.matches || paused) return
-    target = pointerPosition(event.clientX, event.clientY, cinema.getBoundingClientRect())
+  const update = () => {
+    measured = true
     schedule()
   }
-  const leave = () => { target = { x: 0, y: 0 }; schedule() }
+  const resize = () => {
+    measured = true
+    dirty = true
+    schedule()
+  }
+  const move = (event: PointerEvent) => {
+    if (
+      event.pointerType === 'touch' ||
+      !fine.matches ||
+      reduced.matches ||
+      paused
+    )
+      return
+    target = pointerPosition(
+      event.clientX,
+      event.clientY,
+      cinema.getBoundingClientRect()
+    )
+    schedule()
+  }
+  const leave = () => {
+    target = { x: 0, y: 0 }
+    schedule()
+  }
   const preferences = () => {
     target = { x: 0, y: 0 }
 
@@ -274,19 +358,34 @@ export function mountHomeMotion(root: HTMLElement) {
     updateControls()
 
     schedule()
-
   }
-  const toggleMotion = () => { paused = !paused; preferences() }
+  const toggleMotion = () => {
+    paused = !paused
+    preferences()
+  }
   const visibility = () => {
-    if (document.hidden && frame !== null) { cancelAnimationFrame(frame); frame = null }
+    if (document.hidden && frame !== null) {
+      cancelAnimationFrame(frame)
+      frame = null
+    }
     lastTime = 0
-    if (!document.hidden) { dirty = true; measured = true; schedule() }
+    if (!document.hidden) {
+      dirty = true
+      measured = true
+      schedule()
+    }
   }
   const observer = new IntersectionObserver(([entry]) => {
     visible = entry.isIntersecting
     lastTime = 0
-    if (!visible && frame !== null) { cancelAnimationFrame(frame); frame = null }
-    if (visible) { dirty = true; schedule() }
+    if (!visible && frame !== null) {
+      cancelAnimationFrame(frame)
+      frame = null
+    }
+    if (visible) {
+      dirty = true
+      schedule()
+    }
   })
   observer.observe(cinema)
   const resizeObserver = new ResizeObserver(resize)
@@ -321,11 +420,21 @@ export function mountHomeMotion(root: HTMLElement) {
     reduced.removeEventListener('change', preferences)
     fine.removeEventListener('change', preferences)
     delete root.dataset.motion
-    for (const key of ['--pointer-x', '--pointer-y', '--rotate-x', '--rotate-y', '--scene-progress']) inner.style.removeProperty(key)
+    for (const key of [
+      '--pointer-x',
+      '--pointer-y',
+      '--rotate-x',
+      '--rotate-y',
+      '--scene-progress',
+    ])
+      inner.style.removeProperty(key)
     story?.style.removeProperty('--story-progress')
     if (story) delete story.dataset.chapter
     steps.forEach((step) => step.removeAttribute('data-active'))
-    panels.forEach((panel) => { panel.inert = false; panel.removeAttribute('aria-hidden') })
+    panels.forEach((panel) => {
+      panel.inert = false
+      panel.removeAttribute('aria-hidden')
+    })
     links.forEach((link) => link.removeAttribute('aria-current'))
   }
 }

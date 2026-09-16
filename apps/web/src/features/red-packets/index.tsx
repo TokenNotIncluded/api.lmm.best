@@ -54,7 +54,8 @@ const emptyForm: FormState = {
   title: '',
   description: '',
   coverImage: '',
-  coverPrompt: '设计一张简洁、高级、具有节日感的数字红包封面，不要出现具体金额，适合 AI API 开发者社区。',
+  coverPrompt:
+    '设计一张简洁、高级、具有节日感的数字红包封面，不要出现具体金额，适合 AI API 开发者社区。',
   drawMode: 'random',
   perUserLimit: 1,
   startAt: '',
@@ -99,7 +100,8 @@ function readImage(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
     reader.onload = () => resolve(String(reader.result ?? ''))
-    reader.onerror = () => reject(reader.error ?? new Error('Unable to read image'))
+    reader.onerror = () =>
+      reject(reader.error ?? new Error('Unable to read image'))
     reader.readAsDataURL(file)
   })
 }
@@ -137,7 +139,10 @@ export function RedPackets() {
   const [selected, setSelected] = useState<Record<string, number>>({})
   const [generatingCover, setGeneratingCover] = useState(false)
 
-  const packetsQuery = useQuery({ queryKey: ['red-packets', 'admin'], queryFn: listRedPackets })
+  const packetsQuery = useQuery({
+    queryKey: ['red-packets', 'admin'],
+    queryFn: listRedPackets,
+  })
   const redemptionsQuery = useQuery({
     queryKey: ['red-packets', 'redemptions'],
     queryFn: loadRedemptions,
@@ -152,7 +157,10 @@ export function RedPackets() {
   const candidates = useMemo(() => {
     const now = Math.floor(Date.now() / 1000)
     const redemptions = (redemptionsQuery.data ?? [])
-      .filter((row) => row.status === 1 && (!row.expired_time || row.expired_time >= now))
+      .filter(
+        (row) =>
+          row.status === 1 && (!row.expired_time || row.expired_time >= now)
+      )
       .map(candidateFromRedemption)
     const discounts = (discountsQuery.data ?? [])
       .filter(
@@ -179,7 +187,9 @@ export function RedPackets() {
       setOpen(false)
       setForm(emptyForm)
       setSelected({})
-      await queryClient.invalidateQueries({ queryKey: ['red-packets', 'admin'] })
+      await queryClient.invalidateQueries({
+        queryKey: ['red-packets', 'admin'],
+      })
     },
   })
 
@@ -264,15 +274,24 @@ export function RedPackets() {
       <SectionPageLayout.Content>
         <div className='mx-auto w-full max-w-6xl space-y-4'>
           <p className='text-muted-foreground text-sm'>
-            {t('Distribute redemption and discount codes fairly through a shareable draw link.')}
+            {t(
+              'Distribute redemption and discount codes fairly through a shareable draw link.'
+            )}
           </p>
           <div className='grid gap-3 md:grid-cols-2 xl:grid-cols-3'>
             {packets.map((packet) => {
               const shareUrl = `${window.location.origin}/red-packet/${packet.slug}`
               return (
-                <div key={packet.id} className='bg-card overflow-hidden rounded-xl border'>
+                <div
+                  key={packet.id}
+                  className='bg-card overflow-hidden rounded-xl border'
+                >
                   {packet.cover_image ? (
-                    <img src={packet.cover_image} alt='' className='aspect-[3/1] w-full object-cover' />
+                    <img
+                      src={packet.cover_image}
+                      alt=''
+                      className='aspect-[3/1] w-full object-cover'
+                    />
                   ) : (
                     <div className='from-primary/15 to-muted flex aspect-[3/1] items-center justify-center bg-gradient-to-br'>
                       <Gift className='text-muted-foreground size-8' />
@@ -282,11 +301,16 @@ export function RedPackets() {
                     <div>
                       <div className='font-medium'>{packet.title}</div>
                       <div className='text-muted-foreground mt-1 text-xs'>
-                        {packet.remaining_items}/{packet.total_items} {t('remaining')} · {packet.claim_count} {t('claims')}
+                        {packet.remaining_items}/{packet.total_items}{' '}
+                        {t('remaining')} · {packet.claim_count} {t('claims')}
                       </div>
                     </div>
                     <div className='flex gap-2'>
-                      <Input value={shareUrl} readOnly className='h-8 text-xs' />
+                      <Input
+                        value={shareUrl}
+                        readOnly
+                        className='h-8 text-xs'
+                      />
                       <Button
                         size='sm'
                         variant='outline'
@@ -316,7 +340,9 @@ export function RedPackets() {
           <DialogHeader>
             <DialogTitle>{t('Create red packet')}</DialogTitle>
             <DialogDescription>
-              {t('Choose existing codes, set the draw rule, then share one link instead of publishing every code.')}
+              {t(
+                'Choose existing codes, set the draw rule, then share one link instead of publishing every code.'
+              )}
             </DialogDescription>
           </DialogHeader>
 
@@ -324,23 +350,53 @@ export function RedPackets() {
             <div className='grid gap-3 sm:grid-cols-2'>
               <div className='space-y-2'>
                 <Label>{t('Title')}</Label>
-                <Input value={form.title} onChange={(event) => setForm((v) => ({ ...v, title: event.target.value }))} />
+                <Input
+                  value={form.title}
+                  onChange={(event) =>
+                    setForm((v) => ({ ...v, title: event.target.value }))
+                  }
+                />
               </div>
               <div className='space-y-2'>
                 <Label>{t('Per-user draws')}</Label>
-                <Input type='number' min={1} max={100} value={form.perUserLimit} onChange={(event) => setForm((v) => ({ ...v, perUserLimit: Number(event.target.value) || 1 }))} />
+                <Input
+                  type='number'
+                  min={1}
+                  max={100}
+                  value={form.perUserLimit}
+                  onChange={(event) =>
+                    setForm((v) => ({
+                      ...v,
+                      perUserLimit: Number(event.target.value) || 1,
+                    }))
+                  }
+                />
               </div>
             </div>
 
             <div className='space-y-2'>
               <Label>{t('Description')}</Label>
-              <Textarea value={form.description} onChange={(event) => setForm((v) => ({ ...v, description: event.target.value }))} />
+              <Textarea
+                value={form.description}
+                onChange={(event) =>
+                  setForm((v) => ({ ...v, description: event.target.value }))
+                }
+              />
             </div>
 
             <div className='grid gap-3 sm:grid-cols-3'>
               <div className='space-y-2'>
                 <Label>{t('Draw rule')}</Label>
-                <select className='border-input bg-background h-9 w-full rounded-md border px-3 text-sm' value={form.drawMode} onChange={(event) => setForm((v) => ({ ...v, drawMode: event.target.value as RedPacketDrawMode }))}>
+                <select
+                  className='border-input bg-background h-9 w-full rounded-md border px-3 text-sm'
+                  value={form.drawMode}
+                  onChange={(event) =>
+                    setForm((v) => ({
+                      ...v,
+                      drawMode: event.target.value as RedPacketDrawMode,
+                    }))
+                  }
+                >
                   <option value='random'>{t('Random')}</option>
                   <option value='weighted'>{t('Weighted random')}</option>
                   <option value='sequence'>{t('Sequence')}</option>
@@ -348,11 +404,23 @@ export function RedPackets() {
               </div>
               <div className='space-y-2'>
                 <Label>{t('Starts at')}</Label>
-                <Input type='datetime-local' value={form.startAt} onChange={(event) => setForm((v) => ({ ...v, startAt: event.target.value }))} />
+                <Input
+                  type='datetime-local'
+                  value={form.startAt}
+                  onChange={(event) =>
+                    setForm((v) => ({ ...v, startAt: event.target.value }))
+                  }
+                />
               </div>
               <div className='space-y-2'>
                 <Label>{t('Ends at')}</Label>
-                <Input type='datetime-local' value={form.endAt} onChange={(event) => setForm((v) => ({ ...v, endAt: event.target.value }))} />
+                <Input
+                  type='datetime-local'
+                  value={form.endAt}
+                  onChange={(event) =>
+                    setForm((v) => ({ ...v, endAt: event.target.value }))
+                  }
+                />
               </div>
             </div>
 
@@ -360,10 +428,27 @@ export function RedPackets() {
               <div className='flex items-center gap-2 font-medium'>
                 <ImagePlus className='size-4' /> {t('Cover')}
               </div>
-              {form.coverImage ? <img src={form.coverImage} alt='' className='aspect-[3/1] w-full rounded-lg object-cover' /> : null}
-              <Textarea value={form.coverPrompt} onChange={(event) => setForm((v) => ({ ...v, coverPrompt: event.target.value }))} placeholder={t('Describe the cover you want')} />
+              {form.coverImage ? (
+                <img
+                  src={form.coverImage}
+                  alt=''
+                  className='aspect-[3/1] w-full rounded-lg object-cover'
+                />
+              ) : null}
+              <Textarea
+                value={form.coverPrompt}
+                onChange={(event) =>
+                  setForm((v) => ({ ...v, coverPrompt: event.target.value }))
+                }
+                placeholder={t('Describe the cover you want')}
+              />
               <div className='flex flex-wrap gap-2'>
-                <Button type='button' variant='outline' disabled={generatingCover} onClick={() => void generateCover()}>
+                <Button
+                  type='button'
+                  variant='outline'
+                  disabled={generatingCover}
+                  onClick={() => void generateCover()}
+                >
                   <Sparkles className='mr-2 size-4' />
                   {generatingCover ? t('Generating...') : t('Generate with AI')}
                 </Button>
@@ -377,8 +462,16 @@ export function RedPackets() {
                       const file = event.target.files?.[0]
                       if (!file) return
                       void readImage(file)
-                        .then((coverImage) => setForm((v) => ({ ...v, coverImage })))
-                        .catch((error: unknown) => toast.error(error instanceof Error ? error.message : t('Unable to read image')))
+                        .then((coverImage) =>
+                          setForm((v) => ({ ...v, coverImage }))
+                        )
+                        .catch((error: unknown) =>
+                          toast.error(
+                            error instanceof Error
+                              ? error.message
+                              : t('Unable to read image')
+                          )
+                        )
                     }}
                   />
                 </label>
@@ -388,17 +481,32 @@ export function RedPackets() {
             <div className='space-y-3'>
               <div className='flex items-center justify-between'>
                 <Label>{t('Rewards')}</Label>
-                <span className='text-muted-foreground text-xs'>{Object.keys(selected).length} {t('selected')}</span>
+                <span className='text-muted-foreground text-xs'>
+                  {Object.keys(selected).length} {t('selected')}
+                </span>
               </div>
               <div className='max-h-80 space-y-2 overflow-y-auto rounded-xl border p-2'>
                 {candidates.map((candidate) => {
                   const checked = selected[candidate.key] !== undefined
                   return (
-                    <label key={candidate.key} className='hover:bg-muted/50 flex cursor-pointer items-center gap-3 rounded-lg p-2'>
-                      <input type='checkbox' checked={checked} onChange={(event) => toggleCandidate(candidate, event.target.checked)} />
+                    <label
+                      key={candidate.key}
+                      className='hover:bg-muted/50 flex cursor-pointer items-center gap-3 rounded-lg p-2'
+                    >
+                      <input
+                        type='checkbox'
+                        checked={checked}
+                        onChange={(event) =>
+                          toggleCandidate(candidate, event.target.checked)
+                        }
+                      />
                       <div className='min-w-0 flex-1'>
-                        <div className='truncate text-sm font-medium'>{candidate.title}</div>
-                        <div className='text-muted-foreground truncate text-xs'>{candidate.itemType} · {candidate.detail}</div>
+                        <div className='truncate text-sm font-medium'>
+                          {candidate.title}
+                        </div>
+                        <div className='text-muted-foreground truncate text-xs'>
+                          {candidate.itemType} · {candidate.detail}
+                        </div>
                       </div>
                       {form.drawMode === 'weighted' && checked ? (
                         <Input
@@ -406,24 +514,40 @@ export function RedPackets() {
                           type='number'
                           min={1}
                           value={selected[candidate.key]}
-                          onChange={(event) => setSelected((previous) => ({ ...previous, [candidate.key]: Math.max(1, Number(event.target.value) || 1) }))}
+                          onChange={(event) =>
+                            setSelected((previous) => ({
+                              ...previous,
+                              [candidate.key]: Math.max(
+                                1,
+                                Number(event.target.value) || 1
+                              ),
+                            }))
+                          }
                           onClick={(event) => event.preventDefault()}
                         />
                       ) : null}
                     </label>
                   )
                 })}
-                {!redemptionsQuery.isLoading && !discountsQuery.isLoading && candidates.length === 0 ? (
-                  <div className='text-muted-foreground p-5 text-center text-sm'>{t('No available codes')}</div>
+                {!redemptionsQuery.isLoading &&
+                !discountsQuery.isLoading &&
+                candidates.length === 0 ? (
+                  <div className='text-muted-foreground p-5 text-center text-sm'>
+                    {t('No available codes')}
+                  </div>
                 ) : null}
               </div>
             </div>
           </div>
 
           <DialogFooter>
-            <Button variant='outline' onClick={() => setOpen(false)}>{t('Cancel')}</Button>
+            <Button variant='outline' onClick={() => setOpen(false)}>
+              {t('Cancel')}
+            </Button>
             <Button onClick={submit} disabled={createMutation.isPending}>
-              {createMutation.isPending ? t('Creating...') : t('Create and copy link')}
+              {createMutation.isPending
+                ? t('Creating...')
+                : t('Create and copy link')}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -346,11 +346,7 @@ function AssistantHandoffToolContent(props: {
             </Alert>
           ) : null}
           <div className='grid gap-1.5'>
-            <Label
-              htmlFor={
-                isPreparedAction ? undefined : messageInputId
-              }
-            >
+            <Label htmlFor={isPreparedAction ? undefined : messageInputId}>
               {t('Issue description')}
             </Label>
             {isPreparedAction ? (

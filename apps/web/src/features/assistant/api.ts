@@ -1394,11 +1394,9 @@ async function consumeAssistantStream(
   handlers: AssistantStreamHandlers,
   signal?: AbortSignal
 ): Promise<AssistantChatPayload> {
-  return (await consumeAssistantAISDKStream(
-    body,
-    handlers,
-    { signal }
-  )) as AssistantChatPayload
+  return (await consumeAssistantAISDKStream(body, handlers, {
+    signal,
+  })) as AssistantChatPayload
 }
 
 async function sendAssistantMessageStream(
@@ -1455,7 +1453,11 @@ async function sendAssistantMessageStream(
       'Assistant stream body is unavailable'
     )
   }
-  const streamedPayload = await consumeAssistantStream(response.body, handlers, signal)
+  const streamedPayload = await consumeAssistantStream(
+    response.body,
+    handlers,
+    signal
+  )
   throwIfAssistantAborted(signal)
   return buildAssistantReply(
     streamedPayload,
@@ -1481,52 +1483,52 @@ export async function sendAssistantMessage(
     presetId
   )
   return withAssistantDeadline(async (signal) => {
-  for (
-    let attempt = 1;
-    attempt <= ASSISTANT_MAX_REQUEST_ATTEMPTS;
-    attempt += 1
-  ) {
-    throwIfAssistantAborted(signal)
-    if (attempt > 1) handlers?.onReset?.()
-    try {
-      if (handlers?.onDelta) {
-        return await sendAssistantMessageStream(
+    for (
+      let attempt = 1;
+      attempt <= ASSISTANT_MAX_REQUEST_ATTEMPTS;
+      attempt += 1
+    ) {
+      throwIfAssistantAborted(signal)
+      if (attempt > 1) handlers?.onReset?.()
+      try {
+        if (handlers?.onDelta) {
+          return await sendAssistantMessageStream(
+            requestBody,
+            attempt,
+            handlers,
+            signal
+          )
+        }
+        const response = await api.post<AssistantChatPayload>(
+          '/api/assistant/chat',
           requestBody,
-          attempt,
-          handlers,
+          {
+            skipBusinessError: true,
+            skipErrorHandler: true,
+            signal,
+            headers: { 'X-LMM-Assistant-Attempt': String(attempt) },
+          }
+        )
+        throwIfAssistantAborted(signal)
+        return buildAssistantReply(
+          response.data,
+          response.headers['x-lmm-assistant-intent']
+        )
+      } catch (error) {
+        throwIfAssistantAborted(signal)
+        if (
+          !isRetryableAssistantError(error) ||
+          attempt >= ASSISTANT_MAX_REQUEST_ATTEMPTS
+        ) {
+          throw error
+        }
+        await waitForAssistantRetry(
+          ASSISTANT_RETRY_DELAYS_MS[attempt - 1] ?? 1_500,
           signal
         )
       }
-      const response = await api.post<AssistantChatPayload>(
-        '/api/assistant/chat',
-        requestBody,
-        {
-          skipBusinessError: true,
-          skipErrorHandler: true,
-          signal,
-          headers: { 'X-LMM-Assistant-Attempt': String(attempt) },
-        }
-      )
-      throwIfAssistantAborted(signal)
-      return buildAssistantReply(
-        response.data,
-        response.headers['x-lmm-assistant-intent']
-      )
-    } catch (error) {
-      throwIfAssistantAborted(signal)
-      if (
-        !isRetryableAssistantError(error) ||
-        attempt >= ASSISTANT_MAX_REQUEST_ATTEMPTS
-      ) {
-        throw error
-      }
-      await waitForAssistantRetry(
-        ASSISTANT_RETRY_DELAYS_MS[attempt - 1] ?? 1_500,
-        signal
-      )
     }
-  }
-  throw new Error('Assistant request did not complete')
+    throw new Error('Assistant request did not complete')
   }, signal)
 }
 

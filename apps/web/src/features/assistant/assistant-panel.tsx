@@ -1813,7 +1813,8 @@ function AssistantPanelSession(props: AssistantPanelProps) {
         presetId,
         {
           onProgress: ({ step }) => {
-            if (isCurrentRequest() && !abortController.signal.aborted) setAgentStep(step)
+            if (isCurrentRequest() && !abortController.signal.aborted)
+              setAgentStep(step)
           },
           onDelta: (delta) => {
             if (!isCurrentRequest() || abortController.signal.aborted) return
@@ -2522,7 +2523,10 @@ function AssistantPanelSession(props: AssistantPanelProps) {
                         aria-live='polite'
                       >
                         <Loader size={14} />
-                        <span>{t('Assistant is thinking...')}{agentStep > 0 ? ` · ${agentStep}` : ''}</span>
+                        <span>
+                          {t('Assistant is thinking...')}
+                          {agentStep > 0 ? ` · ${agentStep}` : ''}
+                        </span>
                       </MessageContent>
                     </Message>
                   ) : null}

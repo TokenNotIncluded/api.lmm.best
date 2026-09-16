@@ -67,11 +67,7 @@ for (const [label, trace, expected] of [
     { ...supportTrace, input: undefined },
     true,
   ],
-  [
-    'completed tool',
-    { ...supportTrace, status: 'output-available' },
-    false,
-  ],
+  ['completed tool', { ...supportTrace, status: 'output-available' }, false],
   ['failed tool', { ...supportTrace, status: 'output-error' }, false],
   [
     'account disabling',
