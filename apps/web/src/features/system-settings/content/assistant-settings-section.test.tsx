@@ -112,6 +112,8 @@ const baseValues = {
   AssistantSearchMCPTool: '',
   AssistantSkills: '',
   AssistantSkillFiles: '[]',
+  AssistantRegistrationAutoSuspendEnabled: true,
+  AssistantRegistrationDailySuspendCap: 5,
   AssistantL1AutoReviewEnabled: false,
   AssistantL1AutoReviewGroup: '',
   AssistantL1AutoReviewModel: '',
@@ -260,175 +262,99 @@ describe('assistant search provider settings', () => {
     await act(async () => root.unmount())
     container.remove()
   })
-  test('requires an explicit complete L1 reviewer and finite confidence', () => {
+  test('uses bounded built-in registration rules without a separate reviewer', () => {
     assert.equal(assistantSettingsSchema.safeParse(baseValues).success, true)
+    for (const cap of [-1, 6, 1.5, Number.NaN, Infinity]) {
+      assert.equal(
+        assistantSettingsSchema.safeParse({
+          ...baseValues,
+          AssistantRegistrationDailySuspendCap: cap,
+        }).success,
+        false
+      )
+    }
+    assert.equal(
+      assistantSettingsSchema.safeParse({
+        ...baseValues,
+        AssistantRegistrationDailySuspendCap: 0,
+      }).success,
+      true
+    )
     assert.equal(
       assistantSettingsSchema.safeParse({
         ...baseValues,
         AssistantL1AutoReviewEnabled: true,
       }).success,
-      false
-    )
-    const enabled = {
-      ...baseValues,
-      AssistantL1AutoReviewEnabled: true,
-      AssistantL1AutoReviewGroup: 'default',
-      AssistantL1AutoReviewModel: 'review-model',
-      AssistantL1AutoReviewPrompt:
-        'Approve only verified development use cases.',
-    }
-    assert.equal(assistantSettingsSchema.safeParse(enabled).success, true)
-    for (const value of [Number.NaN, Infinity, -Infinity, -0.01, 1.01]) {
-      assert.equal(
-        assistantSettingsSchema.safeParse({
-          ...enabled,
-          AssistantL1AutoReviewMinConfidence: value,
-        }).success,
-        false
-      )
-    }
-    for (const value of ['0', '-1', '7,not-an-id']) {
-      assert.equal(
-        assistantSettingsSchema.safeParse({
-          ...enabled,
-          AssistantL1AutoApprovalUserIDs: value,
-        }).success,
-        false
-      )
-    }
-    assert.equal(
-      assistantSettingsSchema.safeParse({
-        ...enabled,
-        AssistantL1AutoApprovalUserIDs: '7,42',
-      }).success,
       true
     )
   })
 
-  test('renders independent L1 controls with fail-closed defaults', async () => {
-    const { container, cleanup } = await renderSettings('none')
-    try {
-      const panel = container.querySelector(
-        '[data-testid="assistant-l1-review-settings"]'
-      )
-      assert.ok(panel)
-      assert.match(panel.textContent ?? '', /Enable automatic L1 review/)
-      assert.match(
-        panel.textContent ?? '',
-        /Leave blank to review all new applications/
-      )
-      assert.equal(
-        panel.querySelector('[role="switch"]')?.getAttribute('aria-checked'),
-        'false'
-      )
-      const prompt = panel.querySelector(
-        'textarea[name="AssistantL1AutoReviewPrompt"]'
-      ) as HTMLTextAreaElement
-      assert.ok(prompt)
-      assert.equal(prompt.disabled, false)
-      assert.equal(prompt.maxLength, 8000)
-      assert.equal(
-        (
-          panel.querySelector(
-            'input[name="AssistantL1AutoReviewMinConfidence"]'
-          ) as HTMLInputElement
-        ).value,
-        '0.98'
-      )
-      assert.equal(
-        (
-          panel.querySelector(
-            '[data-testid="assistant-l1-get-model-list"]'
-          ) as HTMLButtonElement
-        ).disabled,
-        true
-      )
-    } finally {
-      await cleanup()
-    }
-  })
-
   for (const outcome of ['loaded', 'empty', 'error'] as const) {
-    test(`loads only the configured L1 route and handles ${outcome} model lists`, async () => {
+    test(`loads the registration inbox with ${outcome} evidence`, async () => {
       const originalGet = api.get
-      const requestedGroups: string[] = []
-      api.get = (async (
-        url: string,
-        config?: { params?: { group?: string } }
-      ) => {
-        if (url === '/api/group/') {
-          return { data: { data: ['default', 'l1-route', 'other-route'] } }
+      const requests: string[] = []
+      api.get = (async (url: string) => {
+        requests.push(url)
+        if (url === '/api/group/') return { data: { data: ['default'] } }
+        assert.equal(url, '/api/assistant/admin/registration-events')
+        if (outcome === 'error') throw new Error('offline')
+        return {
+          data: {
+            success: true,
+            data:
+              outcome === 'empty'
+                ? []
+                : [
+                    {
+                      id: 1,
+                      user_id: 7,
+                      action: 'notify',
+                      created_at: 1,
+                      policy_version: 'registration-v1',
+                      evidence: '{"decision":{"alert":true}}',
+                    },
+                  ],
+          },
         }
-        if (url === '/api/assistant/models') {
-          requestedGroups.push(config?.params?.group ?? '')
-          if (outcome === 'error') {
-            throw new Error('Review model list unavailable')
-          }
-          return {
-            data: { data: outcome === 'empty' ? [] : ['l1-review-model'] },
-          }
-        }
-        throw new Error(`unexpected GET ${url}`)
       }) as typeof api.get
-      const rendered = await renderSettings('none', {
-        AssistantL1AutoReviewGroup: 'l1-route',
-        AssistantL1AutoReviewModel: 'l1-review-model',
-      })
+      const rendered = await renderSettings('none')
       try {
         await act(flushEffects)
-        const panel = rendered.container.querySelector<HTMLElement>(
-          '[data-testid="assistant-l1-review-settings"]'
+        const panel = rendered.container.querySelector(
+          '[data-testid="assistant-registration-guard-settings"]'
         )
         assert.ok(panel)
-        const routeControls = panel.querySelectorAll<HTMLButtonElement>(
-          'button[role="combobox"]'
+        assert.match(panel.textContent ?? '', /Registration protection/)
+        assert.equal(
+          panel.querySelector('[role="switch"]')?.getAttribute('aria-checked'),
+          'true'
         )
-        const refresh = panel.querySelector<HTMLButtonElement>(
-          '[data-testid="assistant-l1-get-model-list"]'
+        assert.equal(
+          panel.querySelector('input[type="number"]')?.getAttribute('max'),
+          '5'
         )
-        assert.ok(refresh)
-        assert.equal(routeControls[1]?.disabled, true)
-        assert.deepEqual(requestedGroups, [])
-        await act(async () => {
-          refresh.click()
-          await flushEffects()
-          await flushEffects()
-        })
-        assert.deepEqual(requestedGroups, ['l1-route'])
-        assert.equal(routeControls[1]?.disabled, outcome !== 'loaded')
-        if (outcome === 'empty') {
-          assert.match(
+        assert.equal(
+          rendered.container.querySelector(
+            '[data-testid="assistant-l1-review-settings"]'
+          ),
+          null
+        )
+        assert.equal(
+          rendered.container.querySelector(
+            '[data-testid="assistant-review-route-fields"]'
+          ),
+          null
+        )
+        assert.equal(requests.includes('/api/assistant/models'), false)
+        if (outcome === 'error')
+          {assert.match(panel.textContent ?? '', /Unable to load risk inbox/)}
+        if (outcome === 'empty')
+          {assert.match(
             panel.textContent ?? '',
-            /This group has no enabled model IDs/
-          )
-        }
-        if (outcome === 'error') {
-          assert.match(panel.textContent ?? '', /Could not load review models/)
-        }
-        if (outcome === 'loaded') {
-          await act(async () => {
-            routeControls[0]?.click()
-            await flushEffects()
-          })
-          const otherGroup = [
-            ...document.querySelectorAll<HTMLElement>('[role="option"]'),
-          ].find((option) => option.textContent?.trim() === 'other-route')
-          assert.ok(otherGroup)
-          await act(async () => {
-            otherGroup.click()
-            await flushEffects()
-          })
-          assert.equal(routeControls[1]?.disabled, true)
-          assert.doesNotMatch(
-            routeControls[1]?.textContent ?? '',
-            /l1-review-model/
-          )
-          assert.deepEqual(
-            requestedGroups,
-            ['l1-route'],
-            'changing groups must not invoke a hidden fallback model fetch'
-          )
-        }
+            /No recorded registration alerts/
+          )}
+        if (outcome === 'loaded')
+          {assert.match(panel.textContent ?? '', /registration-v1/)}
       } finally {
         api.get = originalGet
         await rendered.cleanup()
@@ -436,27 +362,25 @@ describe('assistant search provider settings', () => {
     })
   }
 
-  test('saves the independent L1 switch through the bulk settings endpoint', async () => {
+  test('saves the bounded suspension switch through the bulk settings endpoint', async () => {
     const originalGet = api.get
     const originalPost = api.post
     let capturedValues: Record<string, string> | undefined
-    api.get = (async () => ({ data: { data: ['default'] } })) as typeof api.get
+    api.get = (async (url: string) => ({
+      data: { success: true, data: url === '/api/group/' ? ['default'] : [] },
+    })) as typeof api.get
     api.post = (async (
       url: string,
       body: { values?: Record<string, string> }
     ) => {
       assert.equal(url, '/api/option/bulk')
       capturedValues = body.values
-      return { data: { success: true, message: '' } }
+      return { data: { success: true } }
     }) as typeof api.post
-    const rendered = await renderSettings('none', {
-      AssistantL1AutoReviewGroup: 'default',
-      AssistantL1AutoReviewModel: 'l1-review-model',
-      AssistantL1AutoReviewPrompt: 'Review legitimate development use cases.',
-    })
+    const rendered = await renderSettings('none')
     try {
       const toggle = rendered.container.querySelector<HTMLButtonElement>(
-        '[data-testid="assistant-l1-review-settings"] [role="switch"]'
+        '[data-testid="assistant-registration-guard-settings"] [role="switch"]'
       )
       const form = rendered.container.querySelector('form')
       assert.ok(toggle)
@@ -472,7 +396,9 @@ describe('assistant search provider settings', () => {
         await flushEffects()
         await flushEffects()
       })
-      assert.deepEqual(capturedValues, { AssistantL1AutoReviewEnabled: 'true' })
+      assert.deepEqual(capturedValues, {
+        AssistantRegistrationAutoSuspendEnabled: 'false',
+      })
     } finally {
       api.get = originalGet
       api.post = originalPost
@@ -608,66 +534,27 @@ describe('assistant search provider settings', () => {
     await cleanup()
   })
 
-  test('uses enum controls for the review group, model ID, and reasoning effort', async () => {
-    const originalGet = api.get
-    const requestedGroups: string[] = []
-    api.get = (async (
-      url: string,
-      config?: { params?: { group?: string } }
-    ) => {
-      if (url === '/api/group/') {
-        return { data: { data: ['default', 'review-premium'] } }
-      }
-      if (url === '/api/assistant/models') {
-        requestedGroups.push(config?.params?.group ?? '')
-        return { data: { data: ['review-model-live'] } }
-      }
-      throw new Error(`unexpected GET ${url}`)
-    }) as typeof api.get
-
+  test('retains aggregate reporting but not a separate sampled review model', async () => {
     const rendered = await renderSettings('none')
     try {
-      await act(flushEffects)
-      const routeFields = rendered.container.querySelector<HTMLElement>(
-        '[data-testid="assistant-review-route-fields"]'
-      )
-      assert.ok(routeFields)
       assert.equal(
-        routeFields.querySelector('input[name="AssistantReviewModel"]'),
+        rendered.container.querySelector(
+          '[data-testid="assistant-review-route-fields"]'
+        ),
         null
       )
-
-      const getModelListButton = routeFields.querySelector<HTMLButtonElement>(
-        '[data-testid="assistant-review-get-model-list"]'
+      assert.equal(
+        rendered.container.querySelector(
+          'input[name="AssistantReviewProbability"]'
+        ),
+        null
       )
-      assert.ok(getModelListButton)
-      const routeComboboxes = routeFields.querySelectorAll<HTMLButtonElement>(
-        'button[role="combobox"]'
-      )
-      assert.equal(routeComboboxes.length, 3)
-      assert.equal(routeComboboxes[1]?.disabled, true)
-
-      await act(async () => {
-        getModelListButton.click()
-        await flushEffects()
-      })
-
-      assert.deepEqual(requestedGroups, ['default'])
-      assert.equal(routeComboboxes[1]?.disabled, false)
-      await act(async () => {
-        routeComboboxes[2]?.click()
-        await flushEffects()
-      })
-      const effortOptions = new Set(
-        [...document.querySelectorAll('[role="option"]')].map((option) =>
-          option.textContent?.trim()
+      assert.ok(
+        rendered.container.querySelector(
+          'input[name="AssistantReviewWindowDays"]'
         )
       )
-      for (const effort of ASSISTANT_REASONING_EFFORTS) {
-        assert.ok(effortOptions.has(effort), effort)
-      }
     } finally {
-      api.get = originalGet
       await rendered.cleanup()
     }
   })

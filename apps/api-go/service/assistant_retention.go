@@ -62,6 +62,10 @@ func (assistantRetentionHandler) Run(ctx context.Context, task *model.SystemTask
 		failSystemTask(task, runnerID, errors.New("assistant retention cutoffs are required"))
 		return
 	}
+	if err := model.PruneAssistantRegistrationFingerprints(time.Now()); err != nil {
+		failSystemTask(task, runnerID, err)
+		return
+	}
 	payload.BatchSize = model.NormalizeAssistantRetentionBatchSize(payload.BatchSize)
 
 	state := AssistantRetentionState{}

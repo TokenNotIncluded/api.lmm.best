@@ -19,18 +19,23 @@ For commercial licensing, please contact support@quantumnous.com
 /*
 Copyright (C) 2026 LIghtJUNction
 */
-import type { DeveloperAccessRequest } from '@/features/onboarding/api'
+import assert from 'node:assert/strict'
+import { test } from 'node:test'
 
-import type { AssistantL1RecommendationAction } from './api'
-import { AssistantRegistrationStatus } from './assistant-registration-status'
+import {
+  registrationState,
+  registrationStateCopy,
+} from './assistant-registration-state'
 
-// Old draft props remain source-compatible while historical conversations are
-// opened. They cannot submit, confirm or silently replay an application letter.
-export function AssistantActivationTool(props: {
-  recommendationDraft?: AssistantL1RecommendationAction | null
-  onContinueSetup?: () => void
-  onSubmitted?: (request: DeveloperAccessRequest) => void
-  onDraftConsumed?: () => void
-}) {
-  return <AssistantRegistrationStatus onContinueSetup={props.onContinueSetup} />
-}
+test('unrecognized or missing server states never imply approval', () => {
+  for (const state of [undefined, null, 'approved', 'verified_human', {}, 1]) {
+    assert.equal(registrationState(state), 'context_needed')
+  }
+})
+test('ready means eligible, not already activated', () => {
+  assert.doesNotMatch(registrationStateCopy('ready').title, /active/)
+  assert.match(registrationStateCopy('active').title, /active/)
+})
+test('a hold preserves a human support path', () => {
+  assert.match(registrationStateCopy('held').detail, /human support/)
+})
