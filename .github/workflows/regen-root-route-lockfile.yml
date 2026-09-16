@@ -5,10 +5,11 @@ on:
     branches: [automation/rust-327-rustls-refresh]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   regenerate:
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
@@ -20,8 +21,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          persist-credentials: false
 
       - name: Set up pinned Rust toolchain
         run: |
@@ -39,7 +38,19 @@ jobs:
           cargo fetch --locked \
             --manifest-path apps/api-rust/tests/root-route-acceptance/Cargo.toml
           bash apps/api-rust/tests/scripts/test-root-route-acceptance.sh
-          git diff -- apps/api-rust/tests/root-route-acceptance/Cargo.lock
+
+      - name: Commit regenerated lockfile
+        run: |
+          set -euo pipefail
+          git add apps/api-rust/tests/root-route-acceptance/Cargo.lock
+          if git diff --cached --quiet; then
+            echo "lockfile already matches Cargo output"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "chore(rust): regenerate root-route acceptance lockfile"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
 
       - name: Upload regenerated lockfile
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
