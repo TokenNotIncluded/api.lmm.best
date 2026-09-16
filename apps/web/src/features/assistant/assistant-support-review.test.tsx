@@ -6,7 +6,12 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
 import type { AssistantToolTrace } from './api'
-import { act, api, flushEffects, waitFor } from './assistant-key-tool-test-support'
+import {
+  act,
+  api,
+  flushEffects,
+  waitFor,
+} from './assistant-key-tool-test-support'
 
 const { createRoot } = await import('react-dom/client')
 const { QueryClient, QueryClientProvider } =
@@ -57,23 +62,37 @@ const supportTrace: AssistantToolTrace = {
 
 for (const [label, trace, expected] of [
   ['pending support', supportTrace, true],
-  ['restored trace without arguments', { ...supportTrace, input: undefined }, true],
-  ['completed tool', { ...supportTrace, status: 'output-available' }, false],
+  [
+    'restored trace without arguments',
+    { ...supportTrace, input: undefined },
+    true,
+  ],
+  [
+    'completed tool',
+    { ...supportTrace, status: 'output-available' },
+    false,
+  ],
   ['failed tool', { ...supportTrace, status: 'output-error' }, false],
-  ['account disabling', { ...supportTrace, input: { action: 'disable_account' } }, false],
+  [
+    'account disabling',
+    { ...supportTrace, input: { action: 'disable_account' } },
+    false,
+  ],
   ['different tool', { ...supportTrace, name: 'request_create_key' }, false],
 ] satisfies [string, AssistantToolTrace, boolean][]) {
   test(`support review visibility: ${label}`, async () => {
     const rendered = await renderTraces([trace])
     try {
-      assert.equal(
-        rendered.container.querySelector('[data-testid="assistant-support-review"]') !== null,
-        expected
+      const button = rendered.container.querySelector(
+        '[data-testid="assistant-support-review"]'
       )
+      assert.equal(button !== null, expected)
       assert.equal(document.querySelector('[role="dialog"]'), null)
       // The recovery action must not disappear with the parameter disclosure.
-      const button = rendered.container.querySelector('[data-testid="assistant-support-review"]')
-      assert.equal(button?.closest('[data-slot="collapsible-content"]') ?? null, null)
+      assert.equal(
+        button?.closest('[data-slot="collapsible-content"]') ?? null,
+        null
+      )
     } finally {
       await rendered.cleanup()
     }
@@ -124,9 +143,9 @@ test('opening support review never replays trace arguments or submits a request'
     assert.equal(textarea.value, '')
     assert.ok(reads > 0)
     assert.equal(writes, 0)
-    const review = [...document.querySelectorAll<HTMLButtonElement>('button')].find(
-      (button) => button.textContent?.includes('Review message')
-    )
+    const review = [
+      ...document.querySelectorAll<HTMLButtonElement>('button'),
+    ].find((button) => button.textContent?.includes('Review message'))
     assert.ok(review)
     assert.equal(review.disabled, true)
     const close = document.querySelector<HTMLButtonElement>(
