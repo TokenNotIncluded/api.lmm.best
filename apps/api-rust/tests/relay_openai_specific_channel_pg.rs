@@ -20,8 +20,7 @@ use tokio::{net::TcpListener, sync::mpsc, task::JoinHandle, time::timeout};
 use tower::ServiceExt;
 
 const OPENAI_RESPONSE: &str = r#"{"id":"chatcmpl-fixed","object":"chat.completion","created":1,"model":"gpt-4o","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}"#;
-const ROLE_ONLY_SSE: &[u8] =
-    b"data: {\"choices\":[{\"delta\":{\"role\":\"assistant\"}}]}\n\n";
+const ROLE_ONLY_SSE: &[u8] = b"data: {\"choices\":[{\"delta\":{\"role\":\"assistant\"}}]}\n\n";
 
 type TestResult<T = ()> = Result<T, Box<dyn std::error::Error>>;
 
@@ -53,10 +52,9 @@ async fn upstream(State(state): State<MockUpstreamState>) -> Response {
         )
             .into_response(),
         MockUpstreamBehavior::RoleOnlySseThenStall => {
-            let body = stream::once(async {
-                Ok::<Bytes, Infallible>(Bytes::from_static(ROLE_ONLY_SSE))
-            })
-            .chain(stream::pending::<Result<Bytes, Infallible>>());
+            let body =
+                stream::once(async { Ok::<Bytes, Infallible>(Bytes::from_static(ROLE_ONLY_SSE)) })
+                    .chain(stream::pending::<Result<Bytes, Infallible>>());
             Response::builder()
                 .status(StatusCode::OK)
                 .header(header::CONTENT_TYPE, "text/event-stream")
@@ -162,20 +160,27 @@ async fn assert_reservation_refunded(pool: &PgPool, user_id: i64, token_id: i64)
             .bind(user_id)
             .fetch_one(pool)
             .await?;
-    assert_eq!(user, (100, 0, 0), "failed attempt must fully refund user reservation");
+    assert_eq!(
+        user,
+        (100, 0, 0),
+        "failed attempt must fully refund user reservation"
+    );
 
     let token: (i64, i64) =
         sqlx::query_as("SELECT remain_quota,used_quota FROM tokens WHERE id=$1")
             .bind(token_id)
             .fetch_one(pool)
             .await?;
-    assert_eq!(token, (100, 0), "failed attempt must fully refund token reservation");
+    assert_eq!(
+        token,
+        (100, 0),
+        "failed attempt must fully refund token reservation"
+    );
 
-    let channel_usage: Vec<(i64, i64)> = sqlx::query_as(
-        "SELECT id,COALESCE(used_quota,0) FROM channels ORDER BY id",
-    )
-    .fetch_all(pool)
-    .await?;
+    let channel_usage: Vec<(i64, i64)> =
+        sqlx::query_as("SELECT id,COALESCE(used_quota,0) FROM channels ORDER BY id")
+            .fetch_all(pool)
+            .await?;
     assert!(
         channel_usage.iter().all(|(_, used_quota)| *used_quota == 0),
         "failed attempt must not leave channel usage charged: {channel_usage:?}"
@@ -292,11 +297,10 @@ async fn postgres_specific_channel_enforces_role_pin_and_disabled_channel() -> T
 
 #[tokio::test]
 #[ignore = "requires isolated PostgreSQL via LMM_TEST_DATABASE_URL"]
-async fn postgres_retry_times_zero_keeps_first_output_timeout_single_attempt_and_refunds() -> TestResult {
+async fn postgres_retry_times_zero_keeps_first_output_timeout_single_attempt_and_refunds()
+-> TestResult {
     let Some((admin, pool, schema)) = isolated_pool().await? else {
-        eprintln!(
-            "skipping OpenAI RetryTimes=0 PostgreSQL test: LMM_TEST_DATABASE_URL is unset"
-        );
+        eprintln!("skipping OpenAI RetryTimes=0 PostgreSQL test: LMM_TEST_DATABASE_URL is unset");
         return Ok(());
     };
 
