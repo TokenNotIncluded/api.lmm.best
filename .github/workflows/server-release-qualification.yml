@@ -43,11 +43,13 @@ jobs:
           bash -n \
             scripts/ci/configure-release-wiremock.sh \
             scripts/ci/qualify-live-server.sh \
-            scripts/ci/run-server-release-qualification.sh
+            scripts/ci/run-server-release-qualification.sh \
+            scripts/ci/qualify-go-migration-startup.sh
           shellcheck \
             scripts/ci/configure-release-wiremock.sh \
             scripts/ci/qualify-live-server.sh \
-            scripts/ci/run-server-release-qualification.sh
+            scripts/ci/run-server-release-qualification.sh \
+            scripts/ci/qualify-go-migration-startup.sh
 
   go-server:
     name: Go full server qualification
@@ -132,6 +134,14 @@ jobs:
             echo 'Go release qualification binary is dynamically linked' >&2
             exit 1
           fi
+
+      - name: Require standalone migrations before verify-mode HTTP startup
+        env:
+          LMM_QUALIFICATION_GO_BINARY: ${{ runner.temp }}/lmm-release-bin/lmm-api-go
+          LMM_QUALIFICATION_PG_USER: lmm_test_release
+          LMM_QUALIFICATION_PG_PASSWORD: lmm-release-postgres-password
+          LMM_QUALIFICATION_PG_DATABASE: lmm_test_release
+        run: bash scripts/ci/qualify-go-migration-startup.sh
 
       - name: Run production-shaped Go server against local mocks
         env:
