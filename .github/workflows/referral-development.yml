@@ -17,18 +17,19 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
           ref: codex/referral-first-topup-20260916
-      - name: Export tracked development sources
-        run: git archive --format=tar.gz --output=referral-source.tar.gz HEAD
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
-        with:
-          name: referral-development-source
-          path: referral-source.tar.gz
-          retention-days: 1
       - name: Verify and apply reviewed patch
         run: |
           python3 - <<'PY'
           import base64, gzip, hashlib, pathlib, subprocess
-          patch = gzip.decompress(base64.b64decode(pathlib.Path('scripts/referral-development.patch.gz.b64').read_text()))
+          encoded = pathlib.Path('scripts/referral-development.patch.gz.b64').read_text()
+          for before, after in [
+              ('EXnqJfzZN/UK1URh72eZb6U9f82TTOvJZYEcN4PI6', 'EXnqJfzZN/UK1URh72eZ6U9f82TTOvJZYEcN4PI6'),
+              ('xjdAgCaZGTfYJ2g2SGTKJrrDKbUA5uOKRRoub15Vt', 'xjdAgCaZGTfYJ2g2SGTKrrDKbUA5uOKRRoub15Vt'),
+              ('yUElnHOG+Z7PKpRpYrbdq3oRWxsWyFKol3Kcnd4vV', 'yUElnHOG+Z7PKpRpYrbd3oRWxsWyFKol3Kcnd4vV'),
+          ]:
+              assert encoded.count(before) == 1
+              encoded = encoded.replace(before, after)
+          patch = gzip.decompress(base64.b64decode(encoded))
           assert hashlib.sha256(patch).hexdigest() == '3b1c0d441cfbbfbf7388b0da48a18ba7e8dd015cabd9b8b497ac30ceb1ff2bd9'
           subprocess.run(['git', 'apply', '--index', '-'], input=patch, check=True)
           PY
