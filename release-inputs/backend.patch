@@ -1,0 +1,332 @@
+diff --git a/apps/api-go/relay/channel/xai/adaptor_test.go b/apps/api-go/relay/channel/xai/adaptor_test.go
+index e793e593..65539b1c 100644
+--- a/apps/api-go/relay/channel/xai/adaptor_test.go
++++ b/apps/api-go/relay/channel/xai/adaptor_test.go
+@@ -4,6 +4,7 @@ import (
+ 	"io"
+ 	"net/http"
+ 	"net/http/httptest"
++	"os"
+ 	"strings"
+ 	"testing"
+ 
+@@ -85,3 +86,43 @@ func TestClaudeMessagesResponseUsesClaudePipeline(t *testing.T) {
+ 	require.JSONEq(t, body, recorder.Body.String())
+ 	require.Equal(t, types.RelayFormat(types.RelayFormatClaude), info.FinalRequestRelayFormat)
+ }
++
++func TestClaudeMessagesSSEPreservesSharedNativeToolEvents(t *testing.T) {
++	gin.SetMode(gin.TestMode)
++	body, err := os.ReadFile("testdata/native-messages.sse")
++	require.NoError(t, err)
++	body = append(body, '\n') // Complete the final SSE frame delimiter.
++	adaptor := &Adaptor{}
++	recorder := httptest.NewRecorder()
++	ctx, _ := gin.CreateTestContext(recorder)
++	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
++	info := &relaycommon.RelayInfo{
++		RelayFormat:     types.RelayFormatClaude,
++		OriginModelName: "grok-test",
++		IsStream:        true,
++		ChannelMeta: &relaycommon.ChannelMeta{
++			ChannelType:       constant.ChannelTypeXai,
++			UpstreamModelName: "grok-test",
++		},
++	}
++	resp := &http.Response{
++		StatusCode: http.StatusOK,
++		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
++		Body:       io.NopCloser(strings.NewReader(string(body))),
++	}
++	usageValue, apiErr := adaptor.DoResponse(ctx, resp, info)
++	require.Nil(t, apiErr)
++	usage, ok := usageValue.(*dto.Usage)
++	require.True(t, ok)
++	require.Equal(t, 7, usage.PromptTokens)
++	require.Equal(t, 2, usage.CompletionTokens)
++	require.Equal(t, "anthropic", usage.UsageSemantic)
++	// The Go pipeline may enrich message_delta usage. Native tool events and
++	// unknown future fields must otherwise remain the same shared wire data.
++	for _, line := range strings.Split(string(body), "\n") {
++		if strings.HasPrefix(line, "data: ") && !strings.Contains(line, `"type":"message_delta"`) {
++			require.Contains(t, recorder.Body.String(), line)
++		}
++	}
++	require.Equal(t, types.RelayFormat(types.RelayFormatClaude), info.FinalRequestRelayFormat)
++}
+diff --git a/apps/api-go/relay/channel/xai/testdata/native-messages.sse b/apps/api-go/relay/channel/xai/testdata/native-messages.sse
+new file mode 100644
+index 00000000..1226798a
+--- /dev/null
++++ b/apps/api-go/relay/channel/xai/testdata/native-messages.sse
+@@ -0,0 +1,14 @@
++event: message_start
++data: {"type":"message_start","message":{"id":"msg_xai","model":"grok-test","usage":{"input_tokens":7,"output_tokens":0}}}
++
++event: content_block_start
++data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"tool_1","name":"echo","input":{}}}
++
++event: content_block_delta
++data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{}"}}
++
++event: message_delta
++data: {"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"input_tokens":7,"output_tokens":2}}
++
++event: message_stop
++data: {"type":"message_stop","future_field":true}
+diff --git a/apps/api-rust/src/routes/relay_anthropic_gemini_postgres.rs b/apps/api-rust/src/routes/relay_anthropic_gemini_postgres.rs
+index ffbcfa72..e36f1571 100644
+--- a/apps/api-rust/src/routes/relay_anthropic_gemini_postgres.rs
++++ b/apps/api-rust/src/routes/relay_anthropic_gemini_postgres.rs
+@@ -55,9 +55,9 @@ impl PgAnthropicGeminiRelayBackend {
+         self
+     }
+ 
+-    async fn channel_target(&self, channel_id: i64) -> Result<(String, String), RelayFailure> {
++    async fn channel_target(&self, channel_id: i64) -> Result<(String, String, i64), RelayFailure> {
+         let row = sqlx::query(
+-            "SELECT COALESCE(base_url,'') AS base_url, COALESCE(key,'') AS channel_key \
++            "SELECT COALESCE(base_url,'') AS base_url, COALESCE(key,'') AS channel_key, type AS channel_type \
+              FROM channels WHERE id=$1 AND COALESCE(status,1)=1",
+         )
+         .bind(channel_id)
+@@ -79,7 +79,9 @@ impl PgAnthropicGeminiRelayBackend {
+         if base_url.trim().is_empty() || channel_key.is_empty() {
+             return Err(RelayFailure::NoChannel);
+         }
+-        Ok((base_url, channel_key))
++        let channel_type = row.try_get::<i64, _>("channel_type")
++            .map_err(|_| RelayFailure::Upstream)?;
++        Ok((base_url, channel_key, channel_type))
+     }
+ 
+     async fn token_context(
+@@ -132,7 +134,12 @@ impl PgAnthropicGeminiRelayBackend {
+         channel: &RelayChannel,
+         request: UpstreamRequest,
+     ) -> Result<UpstreamReply, RelayFailure> {
+-        let (base_url, channel_key) = self.channel_target(channel.id).await?;
++        let (base_url, channel_key, channel_type) = self.channel_target(channel.id).await?;
++        // Revalidate persisted provider capability on every invocation; a
++        // disabled or repurposed channel must not receive a retried request.
++        if !protocol_channel_types(request.protocol).contains(&channel_type) {
++            return Err(RelayFailure::NoChannel);
++        }
+         let base = Url::parse(&base_url).map_err(|_| RelayFailure::Upstream)?;
+         if !matches!(base.scheme(), "http" | "https") || base.host_str().is_none() {
+             return Err(RelayFailure::Upstream);
+@@ -165,9 +172,14 @@ impl PgAnthropicGeminiRelayBackend {
+             .header(header::ACCEPT, upstream_accept_header(request.streaming));
+         match request.protocol {
+             RelayProtocol::Anthropic => {
+-                outbound = outbound
+-                    .header("x-api-key", &channel_key)
+-                    .header("anthropic-version", ANTHROPIC_VERSION);
++                outbound = outbound.header("anthropic-version", ANTHROPIC_VERSION);
++                outbound = if channel_type == 48 {
++                    // xAI's deprecated native Messages endpoint uses its own
++                    // persisted Bearer credential, not the caller's API key.
++                    outbound.header(header::AUTHORIZATION, format!("Bearer {channel_key}"))
++                } else {
++                    outbound.header("x-api-key", &channel_key)
++                };
+             }
+             RelayProtocol::Gemini => {
+                 outbound = outbound.header("x-goog-api-key", &channel_key);
+@@ -333,20 +345,14 @@ impl RelayBackend for PgAnthropicGeminiRelayBackend {
+                JOIN abilities a ON a."group"=COALESCE(NULLIF(t."group",''),u."group")
+                                 AND a.model=$2 AND COALESCE(a.enabled,TRUE)
+                JOIN channels c ON c.id=a.channel_id AND COALESCE(c.status,1)=1
+-                                AND CASE WHEN $3 = 14
+-                                         THEN c.type IN (14,25,33,41,53,59,60)
+-                                         ELSE c.type IN (1,11,24,41,53,59,60)
+-                                    END
++                                AND c.type = ANY($3)
+                WHERE t.id=$1 AND t.deleted_at IS NULL AND u.deleted_at IS NULL
+                ORDER BY COALESCE(a.priority,0) DESC, COALESCE(a.weight,0) DESC, c.id ASC
+                LIMIT 1"#,
+         )
+         .bind(token_id)
+         .bind(model)
+-        .bind(match protocol {
+-            RelayProtocol::Anthropic => 14_i64,
+-            RelayProtocol::Gemini | RelayProtocol::OpenAi => 24_i64,
+-        })
++        .bind(protocol_channel_types(protocol))
+         .fetch_optional(&self.pg)
+         .await
+         .map_err(|_| RelayFailure::Upstream)?
+@@ -385,6 +391,13 @@ impl RelayBackend for PgAnthropicGeminiRelayBackend {
+     }
+ }
+ 
++fn protocol_channel_types(protocol: RelayProtocol) -> &'static [i64] {
++    match protocol {
++        RelayProtocol::Anthropic => &[14, 25, 33, 41, 48, 53, 59, 60],
++        RelayProtocol::Gemini | RelayProtocol::OpenAi => &[1, 11, 24, 41, 53, 59, 60],
++    }
++}
++
+ fn mapped_model(origin: &str, raw_mapping: &str) -> Result<String, RelayFailure> {
+     if raw_mapping.trim().is_empty() {
+         return Ok(origin.to_owned());
+diff --git a/apps/api-rust/tests/relay_anthropic_gemini_postgres.rs b/apps/api-rust/tests/relay_anthropic_gemini_postgres.rs
+index 0cbcc4c6..2b04f9ef 100644
+--- a/apps/api-rust/tests/relay_anthropic_gemini_postgres.rs
++++ b/apps/api-rust/tests/relay_anthropic_gemini_postgres.rs
+@@ -55,7 +55,7 @@ async fn assert_native_timeout_scenario(scenario: TimeoutScenario) {
+         .await
+         .expect("isolated PostgreSQL connection");
+     sqlx::query(
+-        "CREATE TEMPORARY TABLE channels (id BIGINT, base_url TEXT, key TEXT, status BIGINT)",
++        "CREATE TEMPORARY TABLE channels (id BIGINT, base_url TEXT, key TEXT, status BIGINT, type BIGINT)",
+     )
+     .execute(&pg)
+     .await
+@@ -82,7 +82,7 @@ async fn assert_native_timeout_scenario(scenario: TimeoutScenario) {
+         )
+         .into_future(),
+     );
+-    sqlx::query("INSERT INTO channels VALUES (1, $1, 'fixture-key', 1)")
++    sqlx::query("INSERT INTO channels VALUES (1, $1, 'fixture-key', 1, 41)")
+         .bind(format!("http://{address}"))
+         .execute(&pg)
+         .await
+@@ -153,3 +153,119 @@ async fn postgres_relay_backend_accepts_lazy_listener_dependencies() {
+ 
+     let _backend = PgAnthropicGeminiRelayBackend::new(pg, client);
+ }
++
++#[tokio::test]
++#[ignore = "requires isolated PostgreSQL via LMM_TEST_DATABASE_URL"]
++async fn xai_messages_preserve_provider_auth_json_sse_and_selection_boundaries() {
++    use std::sync::Arc;
++
++    use axum::{
++        Json, Router,
++        body::{Body, to_bytes},
++        http::{HeaderMap, Request, StatusCode},
++        response::{IntoResponse, Response},
++        routing::post,
++    };
++    use lmm_api_rs::{
++        relay_http::RelayHttpClient,
++        routes::relay_anthropic_gemini::{
++            RelayBackend, RelayFailure, RelayHttpState, RelayProtocol, UpstreamRequest, router,
++        },
++    };
++    use serde_json::{Value, json};
++    use tower::ServiceExt;
++
++    const EVENTS: &str = concat!(include_str!("../../api-go/relay/channel/xai/testdata/native-messages.sse"), "\n");
++    let reply = json!({"id":"msg_xai","type":"message","role":"assistant","content":[{"type":"tool_use","id":"tool_1","name":"echo","input":{}}],"model":"grok-test","stop_reason":"tool_use","usage":{"input_tokens":7,"output_tokens":2}});
++    let database_url = std::env::var("LMM_TEST_DATABASE_URL")
++        .expect("isolated PostgreSQL URL must be configured");
++    let pg = PgPoolOptions::new().max_connections(1).connect(&database_url).await.unwrap();
++    for sql in [
++        "CREATE TEMPORARY TABLE channels (id BIGINT, base_url TEXT, key TEXT, status BIGINT, type BIGINT, model_mapping TEXT)",
++        "CREATE TEMPORARY TABLE users (id BIGINT, status BIGINT, \"group\" TEXT, deleted_at TIMESTAMPTZ)",
++        "CREATE TEMPORARY TABLE tokens (id BIGINT, user_id BIGINT, key TEXT, status BIGINT, expired_time BIGINT, remain_quota BIGINT, unlimited_quota BOOLEAN, \"group\" TEXT, deleted_at TIMESTAMPTZ)",
++        "CREATE TEMPORARY TABLE abilities (channel_id BIGINT, \"group\" TEXT, model TEXT, enabled BOOLEAN, priority BIGINT, weight BIGINT)",
++        "INSERT INTO users VALUES (1, 1, 'default', NULL)",
++        "INSERT INTO tokens VALUES (1, 1, 'caller-token', 1, -1, 1000, FALSE, '', NULL)",
++    ] { sqlx::query(sql).execute(&pg).await.unwrap(); }
++    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
++    let address = listener.local_addr().unwrap();
++    let (sender, mut requests) = tokio::sync::mpsc::unbounded_channel();
++    let provider_reply = reply.clone();
++    let provider = tokio::spawn(axum::serve(listener, Router::new().route("/v1/messages", post(
++        move |headers: HeaderMap, Json(body): Json<Value>| {
++            let sender = sender.clone();
++            let reply = provider_reply.clone();
++            async move {
++                sender.send((headers, body.clone())).unwrap();
++                if body.get("max_tokens") == Some(&json!(13)) {
++                    return (StatusCode::TOO_MANY_REQUESTS, Json(json!({"type":"error","error":{"type":"rate_limit_error","message":"fixture limit"}}))).into_response();
++                }
++                if body["stream"] == true {
++                    Response::builder().header("content-type", "text/event-stream").body(Body::from(EVENTS)).unwrap()
++                } else { Json(reply).into_response() }
++            }
++        }
++    ))).into_future());
++    // A higher-priority incompatible provider must never receive Messages,
++    // including when selection is repeated after the xAI channel is disabled.
++    for (id, kind, priority, key) in [(1_i64, 24_i64, 100_i64, "gemini-key"), (2, 48, 50, "xai-persisted-key"), (3, 14, 40, "anthropic-key")] {
++        sqlx::query("INSERT INTO channels VALUES ($1, $2, $3, 1, $4, $5)")
++            .bind(id).bind(format!("http://{address}")).bind(key).bind(kind)
++            .bind(r#"{"public-test":"grok-test"}"#).execute(&pg).await.unwrap();
++        sqlx::query("INSERT INTO abilities VALUES ($1, 'default', 'public-test', TRUE, $2, 1)")
++            .bind(id).bind(priority).execute(&pg).await.unwrap();
++    }
++    let backend = Arc::new(PgAnthropicGeminiRelayBackend::new(pg.clone(), RelayHttpClient::new(Default::default()).unwrap()));
++    let identity = backend.authenticate("sk-caller-token").await.unwrap();
++    let selected = backend.select_channel(&identity, RelayProtocol::Anthropic, "public-test").await.unwrap();
++    assert_eq!(selected.id, 2);
++    assert_eq!(selected.upstream_model, "grok-test");
++    assert_eq!(backend.select_channel(&identity, RelayProtocol::Gemini, "public-test").await.unwrap().id, 1);
++    let app = router(RelayHttpState::new(backend.clone()));
++    for streaming in [false, true] {
++        let body = json!({"model":"public-test","max_tokens":16,"messages":[{"role":"user","content":[{"type":"text","text":"hello"}]}],"tools":[{"name":"echo","input_schema":{"type":"object"}}],"tool_choice":{"type":"auto"},"metadata":{"fixture":"unchanged"},"stream":streaming});
++        let response = app.clone().oneshot(Request::builder().method("POST").uri("/v1/messages")
++            .header("x-api-key", "sk-caller-token").header("content-type", "application/json")
++            .body(Body::from(serde_json::to_vec(&body).unwrap())).unwrap()).await.unwrap();
++        assert_eq!(response.status(), StatusCode::OK);
++        if streaming {
++            assert_eq!(response.headers()["cache-control"], "no-cache, no-transform");
++            assert_eq!(response.headers()["x-accel-buffering"], "no");
++        }
++        let raw = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
++        if streaming { assert_eq!(raw.as_ref(), EVENTS.as_bytes()); }
++        else { assert_eq!(serde_json::from_slice::<Value>(&raw).unwrap(), reply); }
++        let (headers, mut received) = tokio::time::timeout(std::time::Duration::from_secs(5), requests.recv()).await.unwrap().unwrap();
++        assert_eq!(headers["authorization"], "Bearer xai-persisted-key");
++        assert!(!headers.contains_key("x-api-key"));
++        assert!(!headers.contains_key("x-goog-api-key"));
++        assert_eq!(received["model"], "grok-test");
++        received["model"] = json!("public-test");
++        assert_eq!(received, body);
++    }
++    let response = app.clone().oneshot(Request::builder().method("POST").uri("/v1/messages")
++        .header("x-api-key", "sk-caller-token").header("content-type", "application/json")
++        .body(Body::from(r#"{"model":"public-test","max_tokens":13,"messages":[]}"#)).unwrap()).await.unwrap();
++    assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
++    assert_eq!(serde_json::from_slice::<Value>(&to_bytes(response.into_body(), 4096).await.unwrap()).unwrap()["error"]["type"], "rate_limit_error");
++    tokio::time::timeout(std::time::Duration::from_secs(5), requests.recv()).await.unwrap().unwrap();
++    assert!(requests.try_recv().is_err(), "a provider error must not trigger an unbounded or incompatible replay");
++    sqlx::query("UPDATE channels SET status=2 WHERE id=2").execute(&pg).await.unwrap();
++    assert_eq!(backend.select_channel(&identity, RelayProtocol::Anthropic, "public-test").await.unwrap().id, 3);
++    let body = json!({"model":"public-test","max_tokens":16,"messages":[]});
++    let request = UpstreamRequest { protocol: RelayProtocol::Anthropic, model:"public-test".into(), request_path:"/v1/messages".into(), raw_body:serde_json::to_vec(&body).unwrap(), body, streaming:false, request_id:"stale-selection".into() };
++    assert!(matches!(backend.invoke(&selected, request).await, Err(RelayFailure::NoChannel)));
++    let response = app.oneshot(Request::builder().method("POST").uri("/v1/messages")
++        .header("x-api-key", "sk-caller-token").header("content-type", "application/json")
++        .body(Body::from(r#"{"model":"public-test","max_tokens":16,"messages":[]}"#)).unwrap()).await.unwrap();
++    assert_eq!(response.status(), StatusCode::OK);
++    let (headers, _) = tokio::time::timeout(std::time::Duration::from_secs(5), requests.recv()).await.unwrap().unwrap();
++    assert_eq!(headers["x-api-key"], "anthropic-key");
++    assert_eq!(headers["anthropic-version"], "2023-06-01");
++    assert!(!headers.contains_key("authorization"));
++    assert!(requests.try_recv().is_err());
++    provider.abort();
++    assert!(provider.await.unwrap_err().is_cancelled());
++    pg.close().await;
++}
+diff --git a/apps/api-rust/tests/scripts/run-real-integration-gates.sh b/apps/api-rust/tests/scripts/run-real-integration-gates.sh
+index 65965884..ae3473d4 100755
+--- a/apps/api-rust/tests/scripts/run-real-integration-gates.sh
++++ b/apps/api-rust/tests/scripts/run-real-integration-gates.sh
+@@ -104,6 +104,13 @@ run_system_config() {
+ 
+ run_relay_timeouts() {
+   require_loopback_url LMM_TEST_DATABASE_URL
++  # Both implementations consume the same native xAI SSE fixture. Retain the
++  # Go provider and retry oracle beside the real PostgreSQL Rust boundary test.
++  (
++    cd "$repo_root/apps/api-go"
++    go test ./relay/channel/xai -run '^TestClaudeMessages' -count=1
++    go test ./controller -run '^TestGetChannelRetrySkipsUnsupportedEndpointCandidates$' -count=1
++  )
+   cargo test --locked --manifest-path "$manifest" -p lmm-api-rs \
+     --test relay_anthropic_gemini_postgres -- --ignored --test-threads=1
+   cargo test --locked --manifest-path "$manifest" -p lmm-api-rs \
