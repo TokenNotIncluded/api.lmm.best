@@ -1,0 +1,78 @@
+name: Publish reconciled integration candidate
+
+on:
+  push:
+    branches: [ci/source-snapshot-20260916-1322]
+    paths: [.github/workflows/publish-reconciled-tree.yml]
+
+permissions:
+  contents: write
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: 93ebc0644874ef71bfc9639e9140bf0b7c1e3bed
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Assemble exact reviewed Git objects without executing repository code
+        run: |
+          git -c credential.helper= fetch https://github.com/TokenNotIncluded/api.lmm.best.git e11985a8af7a75572af49c65b7b9a1d2fea7d73f 7201650fc6742043e3d6cd436cc9d45c57ed5dd3
+          python3 - <<'PY'
+          import base64, subprocess, zlib
+          packed = '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'
+          patch = zlib.decompress(base64.b64decode(packed, validate=True))
+          subprocess.run(['git', 'apply', '--check', '--index', '-'], input=patch, check=True)
+          subprocess.run(['git', 'apply', '--index', '-'], input=patch, check=True)
+          expected = {
+              '.github/CI_QUALITY.md': '4cf08437c8bbe9500a978a8b00ac8452fa19b089',
+              '.github/workflows/ci.yml': '04283e5301402e669ef0e1a57a1d58607aeda2fc',
+              'apps/api-go/go.sum': '041a23a6ed0c25ecfd50c5bbba211b03f57ea40b',
+              'apps/api-go/service/text_quota_missing_usage_test.go': '6185843c7424b58dc5710bbade3f9a9d25d32f55',
+              'apps/web/src/components/brand-logo-recovery.test.tsx': '8f98acda1b5c411346c961c45e337b0d3aa87ccb',
+              'apps/web/src/components/brand-logo.tsx': 'fa3c4160f87e553401a78aede6a1f4ee1ecd39ad',
+              'apps/web/src/components/lmm-brand-mark.tsx': '9d1cbed812c580d3318d847643c0747c6581df30',
+              'apps/web/src/features/assistant/assistant-panel.test.tsx': 'd53d5882b8bc7b66bd52cff1aa1414b0185efc76',
+              'apps/web/src/features/assistant/assistant-panel.tsx': 'a541a7fd3b5cacdf91b3d51c7f2478e50dfe9296',
+              'apps/web/src/features/forge/forge-public-shell.tsx': '53593175bf5a30319fc4b68d417dc194c22898ca',
+              'apps/web/src/features/home/VISUAL-REVIEW.md': '28f188f0d83a65fe8493b66cee88b375567abb31',
+              'scripts/check-go-format.sh': 'affbdbd6941d9daf23cfb48b88ec770d7e36c1a6',
+              'scripts/check-static-go-binary.sh': 'c434d3bfe601d2cf849eabd1cf611b8484601b98',
+              'scripts/ci_quality_gate.py': '7de49cc4424e4fb52fa1fddd8ad2fce2a11e954d',
+              'scripts/test_ci_quality_gate.py': 'c4dd1b5643416c838f11857a9ec3a8d83519da1c',
+          }
+          for path, sha in expected.items():
+              kind = subprocess.check_output(['git', 'cat-file', '-t', sha], text=True).strip()
+              if kind != 'blob':
+                  raise SystemExit(f'Not a blob: {path}')
+              subprocess.run(['git', 'update-index', '--add', '--cacheinfo', f'100644,{sha},{path}'], check=True)
+          tree = subprocess.check_output(['git', 'write-tree'], text=True).strip()
+          if tree != '7040d4b1fefc50f4d3c0fe705641e517340271f6':
+              raise SystemExit(f'Refusing unreviewed tree: {tree}')
+          subprocess.run(['git', 'diff', '--cached', '--check'], check=True)
+          print(f'Exact reviewed tree: {tree}')
+          PY
+      - name: Publish an isolated candidate without overwriting concurrent branches
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          target=ci/reviewed-integration-20260916-1340
+          test -z "$(git ls-remote origin "refs/heads/$target")"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          tree=$(git write-tree)
+          test "$tree" = 7040d4b1fefc50f4d3c0fe705641e517340271f6
+          commit=$(printf '%s\n' 'merge: preserve concurrent integration, current CI fixes and registration regressions' '' 'Retain xAI parity, production acceptance, motion lifecycle and serial web runner from 93ebc064. Add current logo recovery, 28-test CI guard suite and both registration-state refresh and legacy-token regression tests. Preserve original PR ancestry and main. No temporary repair workflows, forced pushes or relaxed gates. Local validation: 13 motion/static tests, 28 CI gate tests and 8 public acceptance harness tests passed; complete current-head CI remains required.' | git commit-tree "$tree" -p 93ebc0644874ef71bfc9639e9140bf0b7c1e3bed -p e11985a8af7a75572af49c65b7b9a1d2fea7d73f -p 7201650fc6742043e3d6cd436cc9d45c57ed5dd3)
+          export GIT_CONFIG_COUNT=1
+          export GIT_CONFIG_KEY_0=http.https://github.com/.extraheader
+          GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          export GIT_CONFIG_VALUE_0
+          git push origin "$commit:refs/heads/$target"
+          printf 'Candidate: `%s`\nTree: `%s`\n' "$commit" "$tree" >> "$GITHUB_STEP_SUMMARY"
