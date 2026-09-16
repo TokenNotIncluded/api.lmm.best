@@ -1146,10 +1146,8 @@ func assistantRecommendationWorkflowMinSteps(userContext assistantUserContext) i
 		return 0
 	}
 	steps := 2 // read the current letter, then produce a final answer
-	if userContext.RecommendationAction == assistantRecommendationActionRevise &&
-		!userContext.DeveloperAccessGranted &&
-		strings.EqualFold(strings.TrimSpace(userContext.AccessLevel), "L0") {
-		steps++ // prepare the confirmation-gated revision draft
+	if userContext.RecommendationAction == assistantRecommendationActionRevise && assistantDirectL1GrantAllowed(userContext) {
+		steps += 2 // read registration evidence, grant access, then answer
 	}
 	if userContext.ConversationTitleNeeded {
 		steps++
@@ -2595,7 +2593,7 @@ func executeAssistantL1RecommendationStateTool(c *gin.Context, userID int) map[s
 			"ok":             true,
 			"status":         "none",
 			"recommendation": "",
-			"next_step":      "Use the conversation context to prepare the user's one L1 recommendation when requested.",
+			"next_step":      "Recommendation submission has been retired. Continue tool-based registration verification; never direct the user to a recommendation form.",
 		}
 		if assistantUserContextFromGin(c).RecommendationAction == assistantRecommendationActionRemove {
 			result["next_step"] = "Tell the user there is no recommendation letter to remove. Do not call prepare_l1_recommendation."
@@ -2610,11 +2608,11 @@ func executeAssistantL1RecommendationStateTool(c *gin.Context, userID int) map[s
 		"recommendation":          request.AIRecommendation,
 		"administrator_note":      request.AdminNote,
 		"is_single_shared_letter": true,
-		"next_step":               "For an AI edit, prepare a revised draft of this same letter and require UI confirmation before replacing it.",
+		"next_step":               "This is read-only historical data. Recommendation editing and submission are retired. Continue tool-based registration verification without preparing a letter.",
 	}
 	if assistantUserContextFromGin(c).RecommendationAction == assistantRecommendationActionRemove {
-		result["next_step"] = "Do not call prepare_l1_recommendation and do not change the administrator queue. Tell the user to clear the visible Recommendation letter field in the existing UI and choose Save changes; that direct user action remains explicitly confirmed."
-		result["removal_requires_user_ui"] = true
+		result["next_step"] = "Do not call prepare_l1_recommendation. The recommendation form is retired; do not promise deletion or direct the user to that form. Explain that this historical record remains unchanged and offer human support for a record-removal request."
+		result["historical_read_only"] = true
 	}
 	return result
 }

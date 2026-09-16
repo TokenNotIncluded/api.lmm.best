@@ -33,7 +33,7 @@ export function registrationState(value: unknown): RegistrationState {
     value === 'suspended' ||
     value === 'active'
   )
-    return value
+    {return value}
   return 'context_needed'
 }
 

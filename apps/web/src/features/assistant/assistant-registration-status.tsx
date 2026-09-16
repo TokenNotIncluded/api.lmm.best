@@ -53,7 +53,7 @@ export function AssistantRegistrationStatus({
         skipErrorHandler: true,
       })
       if (!data.success || !data.data)
-        throw new Error('Registration status is unavailable')
+        {throw new Error('Registration status is unavailable')}
       return registrationState(data.data.state)
     },
     enabled: Boolean(userID),

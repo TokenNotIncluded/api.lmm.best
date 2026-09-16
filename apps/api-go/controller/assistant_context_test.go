@@ -293,17 +293,27 @@ func TestAssistantRecommendationEditWorkflowToolChoices(t *testing.T) {
 		RecommendationAction: assistantRecommendationActionRevise,
 	}
 	assert.Equal(t, "get_l1_recommendation", assistantNamedToolChoiceName(assistantToolChoiceForAgentStep(revise, nil, nil)))
-	assert.Equal(t, "prepare_l1_recommendation", assistantNamedToolChoiceName(assistantToolChoiceForAgentStep(
+	assert.Equal(t, "none", assistantToolChoiceForAgentStep(
 		revise,
 		map[string]bool{"get_l1_recommendation": true},
 		map[string]bool{"get_l1_recommendation": true},
+	))
+	assert.False(t, assistantToolAllowedForContext("prepare_l1_recommendation", revise))
+	eligible := revise
+	eligible.CompletedAssistantTurns = model.AssistantDirectGrantMinCompletedTurns
+	assert.Equal(t, "get_registration_risk", assistantNamedToolChoiceName(assistantToolChoiceForAgentStep(
+		eligible, map[string]bool{"get_l1_recommendation": true}, map[string]bool{"get_l1_recommendation": true},
 	)))
+	assert.Equal(t, "grant_l1_access", assistantNamedToolChoiceName(assistantToolChoiceForAgentStep(
+		eligible, map[string]bool{"get_l1_recommendation": true, "get_registration_risk": true}, map[string]bool{"get_l1_recommendation": true, "get_registration_risk": true},
+	)))
+	assert.Equal(t, 4, assistantRecommendationWorkflowMinSteps(eligible))
 	assert.Equal(t, "none", assistantToolChoiceForAgentStep(
 		revise,
 		map[string]bool{"get_l1_recommendation": true, "prepare_l1_recommendation": true},
 		map[string]bool{"get_l1_recommendation": true, "prepare_l1_recommendation": true},
 	))
-	assert.Equal(t, 3, assistantRecommendationWorkflowMinSteps(revise))
+	assert.Equal(t, 2, assistantRecommendationWorkflowMinSteps(revise))
 
 	remove := revise
 	remove.RecommendationAction = assistantRecommendationActionRemove
@@ -316,7 +326,7 @@ func TestAssistantRecommendationEditWorkflowToolChoices(t *testing.T) {
 
 	revise.ConversationTitleNeeded = true
 	assert.Equal(t, "set_conversation_title", assistantNamedToolChoiceName(assistantToolChoiceForAgentStep(revise, nil, nil)))
-	assert.Equal(t, 4, assistantRecommendationWorkflowMinSteps(revise))
+	assert.Equal(t, 3, assistantRecommendationWorkflowMinSteps(revise))
 
 	encoded, err := json.Marshal(revise)
 	require.NoError(t, err)
