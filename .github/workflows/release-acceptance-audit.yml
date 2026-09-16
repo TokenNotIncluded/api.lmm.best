@@ -1,0 +1,83 @@
+name: Release acceptance audit
+on:
+  push:
+    branches: [release/acceptance-20260916]
+    paths: [.github/workflows/release-acceptance-audit.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+  checks: read
+  issues: read
+  pull-requests: read
+concurrency:
+  group: release-acceptance-audit
+  cancel-in-progress: false
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          persist-credentials: false
+      - name: Inspect current upstream, release runs and open work
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo '=== MAIN ==='
+          gh api "repos/$REPO/branches/main" --jq '{sha:.commit.sha,protected}'
+          echo '=== ISSUES ==='
+          gh api --paginate "repos/$REPO/issues?state=open&per_page=100" --jq '.[]|select(.pull_request==null)|{number,title,body}'
+          echo '=== PULL REQUESTS ==='
+          gh api --paginate "repos/$REPO/pulls?state=open&per_page=100" --jq '.[]|{number,title,draft,head:.head.sha,branch:.head.ref,repo:.head.repo.full_name}'
+          for n in 339 340; do
+            echo "=== PR $n ==="
+            gh api "repos/$REPO/pulls/$n" --jq '{number,state,merged,mergeable,mergeable_state,head:.head.sha,base:.base.sha}'
+            sha=$(gh api "repos/$REPO/pulls/$n" --jq '.head.sha')
+            gh api --paginate "repos/$REPO/commits/$sha/check-runs?per_page=100" --jq '.check_runs[]|{name,status,conclusion,details_url}'
+          done
+          echo '=== RECENT RELEASES ==='
+          gh api "repos/$REPO/releases?per_page=8" --jq '.[]|{tag_name,published_at,draft,prerelease,target_commitish,assets:[.assets[].name]}'
+          echo '=== RELEASE AND DEPLOY RUNS ==='
+          for file in release-go.yml release-web.yml deploy-production.yml; do
+            gh api "repos/$REPO/actions/workflows/$file/runs?per_page=3" --jq '.workflow_runs[]|{id,name,status,conclusion,head_sha,head_branch,event,html_url}'
+          done
+          echo '=== DEPLOY SCRIPT ==='
+          sed -n '1,320p' scripts/auto-deploy-production-release.sh
+          echo '=== RELEASE VERSION FILES ==='
+          git ls-files '*VERSION*' '*version*' | head -40
+      - name: Probe public production endpoints without credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, ssl, urllib.request, urllib.error, socket, time
+          for hostname in ('api.lmm.best', 'api.lmm.beas'):
+              try:
+                  print('DNS', hostname, 'resolved' if socket.getaddrinfo(hostname, 443) else 'empty')
+              except OSError as exc:
+                  print('DNS', hostname, type(exc).__name__)
+          for path in ('/', '/api/status', '/login', '/console'):
+              start = time.monotonic()
+              request = urllib.request.Request('https://api.lmm.best' + path, headers={'User-Agent': 'LMM-Release-Acceptance/1.0', 'Cache-Control': 'no-cache'})
+              try:
+                  with urllib.request.urlopen(request, timeout=30, context=ssl.create_default_context()) as response:
+                      raw = response.read(2097152)
+                      row = {'path': path, 'status': response.status, 'content_type': response.headers.get('Content-Type'), 'bytes': len(raw), 'seconds': round(time.monotonic()-start, 3)}
+                      if path == '/api/status':
+                          payload = json.loads(raw)
+                          row['success'] = payload.get('success')
+                          data = payload.get('data') or {}
+                          row['version'] = data.get('version')
+                          row['system_name'] = data.get('system_name')
+                      else:
+                          import re
+                          row['assets'] = re.findall(r'(?:src|href)=[\"\x27]([^\"\x27]+\.(?:js|css)(?:\?[^\"\x27]*)?)[\"\x27]', raw.decode('utf-8', errors='replace'))[:12]
+                      print(json.dumps(row))
+              except Exception as exc:
+                  print(json.dumps({'path': path, 'error_type': type(exc).__name__, 'error': str(exc)[:200]}))
+          PY
