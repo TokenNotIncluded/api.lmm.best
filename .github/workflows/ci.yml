@@ -7,9 +7,16 @@ on:
     branches: [main]
     tags: ["*"]
   workflow_dispatch:
+  merge_group:
+    types: [checks_requested]
 
 permissions:
   contents: read
+
+defaults:
+  run:
+    # Explicit bash enables pipefail so log pipelines cannot hide failed commands.
+    shell: bash
 
 concurrency:
   # Replace obsolete PR runs without cancelling another main commit's release gates.
@@ -45,6 +52,9 @@ jobs:
         env:
           GOWORK: "off"
         run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 -color
+
+      - name: Test CI quality gate
+        run: python3 -B -m unittest discover -s scripts -p test_ci_quality_gate.py
 
       - name: Test PR description policy
         run: node --test scripts/pr-quality.test.mjs
@@ -175,11 +185,11 @@ jobs:
       - name: Install workspace dependencies
         run: bun install --frozen-lockfile
 
-      - name: Check formatting and copyright headers (warning only)
-        continue-on-error: true
-        run: |
-          bun run --filter @lmm/web format:check
-          bun run --filter @lmm/web copyright:check
+      - name: Check formatting
+        run: bun run --filter @lmm/web format:check
+
+      - name: Check copyright headers
+        run: bun run --filter @lmm/web copyright:check
 
       - name: Lint and typecheck
         run: |
@@ -224,7 +234,11 @@ jobs:
       - name: Check formatting and static analysis
         working-directory: apps/api-go
         run: |
-          test -z "$(gofmt -l .)"
+          unformatted=$(gofmt -l .)
+          if [[ -n "$unformatted" ]]; then
+            printf 'Go files need formatting:\n%s\n' "$unformatted"
+            exit 1
+          fi
           go vet ./...
 
       - name: Install production contract tools
@@ -303,9 +317,8 @@ jobs:
         working-directory: apps/api-rust
         run: cargo fmt --all --check
 
-      - name: Lint workspace (warning only)
+      - name: Lint workspace
         working-directory: apps/api-rust
-        continue-on-error: true
         run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 
       - name: Test workspace
@@ -548,3 +561,30 @@ jobs:
       - name: Validate binary package with makepkg and paru
         run: |
           runuser --user package-builder -- env TMPDIR=/home/package-builder/lmm-ci-tmp bash packaging/aur/test-bin-makepkg.sh
+
+  quality-gate:
+    name: CI Quality Gate
+    # Run even when a dependency fails or is skipped; only success is acceptable.
+    if: ${{ always() }}
+    needs:
+      - repository-contracts
+      - release-artifact-contract
+      - pi-lmm-provider
+      - web
+      - go
+      - rust-preview
+      - route-coverage-contract
+      - rust-real-integration
+      - aur-package-matrix
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Require all mandatory jobs to succeed
+        env:
+          CI_NEEDS: ${{ toJSON(needs) }}
+        run: python3 -B scripts/ci_quality_gate.py
