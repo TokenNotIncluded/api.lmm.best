@@ -59,7 +59,8 @@ jobs:
                   t.Fatal("the original writer did not remain running")
                 }
                 for _, event := range f.runner.events {
-                  if event == "systemd-stop" || strings.HasPrefix(event, "paru-") || strings.HasPrefix(event, "migrate:") {
+                  // The normal preflight has read-only migrate --verify calls.
+                  if event == "systemd-stop" || strings.HasPrefix(event, "paru-") || event == "migrate:--apply" {
                     t.Fatalf("unexpected writer mutation during admission-only failure: %s", event)
                   }
                 }
@@ -72,7 +73,7 @@ jobs:
                   t.Fatalf("expected fail-closed managed-billing rejection: %v", err)
                 }
                 for _, event := range f.runner.events[before:] {
-                  if event == "systemd-stop" || strings.HasPrefix(event, "paru-") || strings.HasPrefix(event, "migrate:") {
+                  if event == "systemd-stop" || strings.HasPrefix(event, "paru-") || event == "migrate:--apply" {
                     t.Fatalf("rollback rejection mutated writer: %s", event)
                   }
                 }
