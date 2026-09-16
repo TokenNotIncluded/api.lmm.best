@@ -22,12 +22,15 @@ PHASES = {"ROLLBACK_REQUIRED", "ROLLING_BACK", "ROLLED_BACK", "CONFIRMED",
           "AWAITING_CONFIRMATION", "OBSERVING", "DEPLOYING_GO", "DEPLOYING_WEB"}
 # Report known diagnostic labels only. Never copy log text or SQL into Actions.
 PATTERNS = {
-    "red_packet_schema": re.compile(r"red packet schema verification failed: missing (?:table )?(?:red_packets|red_packet_items|red_packet_claims)(?:\.|\s|$)"),
+    "red_packet_schema": re.compile(r"red packet schema verification failed: missing (?:table )?(?:red_packets|red_packet_items|red_packet_claims)(?:\.|\s|\]|$)"),
     "resource_initialization": re.compile(r"failed to initialize resources:"),
     "route_configuration": re.compile(r"failed to configure routes:"),
     "route_oauth_configuration": re.compile(r"failed to configure routes: configure OAuth server:"),
     "route_oauth_initialization": re.compile(r"failed to configure routes: initialize OAuth server:"),
     "route_red_packet_configuration": re.compile(r"failed to configure routes: configure red packet routes:"),
+    "red_packet_apply_failure": re.compile(r"configure red packet routes: migrate red packet schema:"),
+    "red_packet_mode_invalid": re.compile(r"configure red packet routes: LMM_DB_MIGRATION_MODE must be exactly apply or verify"),
+    "red_packet_mode_unsupported": re.compile(r"configure red packet routes: unsupported red packet migration mode"),
     "route_packaged_frontend": re.compile(r"failed to configure routes: configure packaged frontend:"),
     "route_frontend_exclusive_settings": re.compile(r"failed to configure routes: LMM_API_FRONTEND_DIR and FRONTEND_BASE_URL are mutually exclusive"),
     "oauth_enabled_invalid": re.compile(r"configure OAuth server: OAUTH_SERVER_ENABLED must be true or false"),
@@ -70,7 +73,7 @@ def classify(messages):
         for label, pattern in PATTERNS.items():
             if pattern.search(text):
                 counts[label] += 1
-        for match in re.finditer(r"red packet schema verification failed: missing table ([a-z_]+)(?:\s|$)", text):
+        for match in re.finditer(r"red packet schema verification failed: missing table ([a-z_]+)(?:\s|\]|$)", text):
             if match.group(1) in TABLES:
                 tables.add(match.group(1))
     return {"messages_scanned": scanned, "categories": dict(sorted(counts.items())),
