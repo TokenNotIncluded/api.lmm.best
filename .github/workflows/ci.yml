@@ -74,8 +74,9 @@ jobs:
         run: |
           node --test scripts/workflow-topology.test.mjs
           python3 scripts/test-server-ops.py
-          python3 scripts/test-server-ops-commit-request.py
           python3 scripts/test-server-repair-startup.py
+          python3 scripts/test-server-ops-commit-request.py
+          python3 scripts/test-server-ops-helper-payload.py
 
       - name: Test PR description policy
         run: node --test scripts/pr-quality.test.mjs
@@ -620,6 +621,7 @@ jobs:
         run: node --test scripts/check-i18n.test.mjs
 
       - name: Check added keys and removed translations
+        # The checker still runs on tags; only the branch comparison is inapplicable.
         if: github.ref_type != 'tag'
         env:
           EVENT_NAME: ${{ github.event_name }}

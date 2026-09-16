@@ -385,7 +385,7 @@ jobs:
   deploy:
     name: Deploy verified release to ArchDmit
     needs: [prepare, publish]
-    if: success() && startsWith(github.ref, 'refs/tags/go-v')
+    if: success() && github.repository == 'TokenNotIncluded/api.lmm.best' && startsWith(github.ref, 'refs/tags/go-v')
     runs-on: ubuntu-latest
     timeout-minutes: 50
     permissions:
