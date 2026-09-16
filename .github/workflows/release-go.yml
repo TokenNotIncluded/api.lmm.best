@@ -4,6 +4,8 @@ on:
   push:
     tags:
       - "go-v*.*.*"
+  # Explicit retries use the same immutable tag and all identity/CI gates below.
+  workflow_dispatch:
 
 permissions:
   actions: read
