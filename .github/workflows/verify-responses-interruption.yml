@@ -45,7 +45,8 @@ jobs:
           cargo +1.91.0 clippy --locked --workspace --all-targets -- -D warnings
       - name: Run actual Responses guard and surrounding HTTP route tests
         working-directory: apps/api-rust
-        run: cargo +1.91.0 test --locked --lib routes::relay_openai:: -- --nocapture
+        run: |
+          cargo +1.91.0 test --locked --lib routes::relay_openai:: -- --nocapture
       - name: Store immutable formatted source objects without updating any branch
         env:
           GH_TOKEN: ${{ github.token }}
