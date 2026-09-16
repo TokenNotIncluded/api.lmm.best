@@ -108,7 +108,7 @@ func (runner osProductionCommandRunner) DumpIncident343(ctx context.Context, dat
 	}
 	// Do not turn this fixed native capability into an arbitrary file writer.
 	expected := filepath.Join(defaultProductionPaths().WorkRoot, incident343Deployment, "state", "incident-343-schema-recovery")
-	if target != filepath.Join(expected, "before-schema.database.dump") && target != filepath.Join(expected, "backup-retry-1", "before-schema.database.dump") {
+	if target != filepath.Join(expected, "before-schema.database.dump") && target != filepath.Join(expected, "backup-retry-1", "before-schema.database.dump") && target != filepath.Join(expected, "post-stop-retry-1", "before-schema.database.dump") {
 		return errors.New("incident backup target is outside the native audit")
 	}
 	for directory := filepath.Dir(target); directory != "/"; directory = filepath.Dir(directory) {
