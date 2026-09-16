@@ -1,0 +1,70 @@
+name: Recover stalled deployment preparation
+
+on:
+  push:
+    branches: [release/acceptance-20260916]
+    paths: [.github/workflows/recover-stalled-deploy-preparation.yml]
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: production
+    steps:
+      - name: Require no target transaction before stopping runner-only preparation
+        env:
+          PRODUCTION_SSH_PRIVATE_KEY: ${{ secrets.PRODUCTION_SSH_PRIVATE_KEY }}
+          PRODUCTION_SSH_KNOWN_HOSTS: ${{ secrets.PRODUCTION_SSH_KNOWN_HOSTS }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          root=$(mktemp -d)
+          trap 'rm -rf "$root"' EXIT
+          test -n "$PRODUCTION_SSH_PRIVATE_KEY"
+          test -n "$PRODUCTION_SSH_KNOWN_HOSTS"
+          printf '%s\n' "$PRODUCTION_SSH_PRIVATE_KEY" > "$root/key"
+          printf '%s\n' "$PRODUCTION_SSH_KNOWN_HOSTS" > "$root/known_hosts"
+          ssh -i "$root/key" -p 222 -o BatchMode=yes -o ConnectTimeout=10 \
+            -o ServerAliveInterval=5 -o ServerAliveCountMax=2 \
+            -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$root/known_hosts" root@45.59.187.63 python3 - <<'PY'
+          import json, os, subprocess
+          from pathlib import Path
+          base = Path('/var/lib/lmm-api-go-deploy')
+          workspace = base / 'work' / 'release-go-v0.2.51-35116594330-attempt-1'
+          assert base.is_dir() and not base.is_symlink()
+          assert not os.path.lexists(workspace), 'Native deployment workspace already exists; do not cancel or retry blindly'
+          assert not os.path.lexists(base / 'transaction.lock'), 'Native transaction exists; preserve it for explicit review'
+          subprocess.run(['/usr/bin/systemctl','is-active','--quiet','lmm-api.service'], timeout=15, check=True)
+          packages = subprocess.check_output(['/usr/bin/pacman','-Q','lmm-api-go-bin','lmm-api-web-bin'], text=True, timeout=15).strip()
+          print(json.dumps({'runner_preparation_only':True,'native_workspace_exists':False,'transaction_exists':False,'service_active':True,'packages':packages}))
+          PY
+      - name: Stop only the exact stalled preparation run to obtain its original logs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import datetime, json, os, subprocess
+          repo = os.environ['REPOSITORY']
+          def api(path, method='GET'):
+              result = subprocess.run(['gh','api','--method',method,f'repos/{repo}/{path}'],capture_output=True,text=True,timeout=30,check=True)
+              return json.loads(result.stdout) if result.stdout.strip() else None
+          run = api('actions/runs/35116594330')
+          assert run['path'] == '.github/workflows/deploy-reviewed-go-release.yml'
+          assert run['head_sha'] == 'd1ab03e51a8b35921ea0b0bcb0b8c6d4a355ce3b'
+          if run['status'] == 'completed':
+              print('Run already finished; no cancellation requested:', run['conclusion'])
+          else:
+              started = datetime.datetime.fromisoformat(run['run_started_at'].replace('Z','+00:00'))
+              assert (datetime.datetime.now(datetime.timezone.utc)-started).total_seconds() > 300
+              api('actions/runs/35116594330/cancel','POST')
+              print('Stopped only stalled runner preparation for run 35116594330. No target state, service, release tag, archive or rollback evidence was changed by this recovery job.')
+          PY
