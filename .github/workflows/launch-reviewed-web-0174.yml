@@ -1,0 +1,69 @@
+name: Launch reviewed Web 0.1.74
+
+on:
+  push:
+    branches: [release/acceptance-20260916]
+    paths: [.github/workflows/launch-reviewed-web-0174.yml]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: launch-reviewed-web-0174
+  cancel-in-progress: false
+
+jobs:
+  launch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      actions: write
+      checks: read
+      issues: read
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: 13b22e03ea2c88fa118814c34f780aa6e77af723
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Require accepted current main and no unresolved work
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          revision=13b22e03ea2c88fa118814c34f780aa6e77af723
+          test "$(git rev-parse HEAD)" = "$revision"
+          test "$(gh api "repos/$REPOSITORY/git/ref/heads/main" --jq .object.sha)" = "$revision"
+          python3 -B scripts/verify-release-work-items.py
+          bash scripts/verify-release-commit-checks.sh "$revision"
+      - name: Create immutable tag and dispatch the normal release workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          revision=13b22e03ea2c88fa118814c34f780aa6e77af723
+          tag=web-v0.1.74
+          python3 -B scripts/verify-release-work-items.py
+          test "$(gh api "repos/$REPOSITORY/git/ref/heads/main" --jq .object.sha)" = "$revision"
+          refs=$(gh api "repos/$REPOSITORY/git/matching-refs/tags/$tag")
+          count=$(jq --arg ref "refs/tags/$tag" '[.[] | select(.ref == $ref)] | length' <<<"$refs")
+          if [[ "$count" == 0 ]]; then
+            gh api --method POST "repos/$REPOSITORY/git/refs" -f "ref=refs/tags/$tag" -f "sha=$revision" --jq '{ref,object}'
+          else
+            jq -e --arg ref "refs/tags/$tag" --arg sha "$revision" \
+              'length == 1 and .[0].ref == $ref and .[0].object.type == "commit" and .[0].object.sha == $sha' <<<"$refs" >/dev/null
+          fi
+          runs=$(gh api "repos/$REPOSITORY/actions/workflows/release-web.yml/runs?branch=$tag&per_page=100")
+          count=$(jq --arg sha "$revision" '[.workflow_runs[] | select(.head_sha == $sha and (.status != "completed" or .conclusion == "success"))] | length' <<<"$runs")
+          if [[ "$count" != 0 ]]; then
+            echo 'The exact Web release already has an active or successful run; no duplicate dispatch.'
+            exit 0
+          fi
+          gh api --method POST "repos/$REPOSITORY/actions/workflows/release-web.yml/dispatches" -f "ref=$tag"
+          echo 'Dispatched normal Web 0.1.74 release. This is not publication or production acceptance.'
