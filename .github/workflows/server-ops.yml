@@ -1,0 +1,75 @@
+name: LMM assistant server ops
+run-name: Server ops / ${{ inputs.operation }} / @${{ github.actor }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: 'diagnose is read-only; repair runs a reviewed main-branch script'
+        type: choice
+        options: [diagnose, repair]
+        default: diagnose
+        required: true
+      reason:
+        description: 'Reason or issue reference (public; never enter secrets)'
+        type: string
+        required: true
+        default: Manual server diagnosis
+      repair_script:
+        description: 'Repair only: scripts/server-repairs/<name>.sh, committed on main'
+        type: string
+        required: false
+      confirm:
+        description: 'Repair only: enter api.lmm.best to authorize production changes'
+        type: string
+        required: false
+      timeout_seconds:
+        description: 'Remote operation deadline, including health checks'
+        type: choice
+        options: ['60', '180', '300', '600']
+        default: '180'
+        required: true
+
+permissions:
+  contents: read
+
+# Share the existing deployment lane. Never cancel an in-flight mutation.
+concurrency:
+  group: production-auto-deploy
+  cancel-in-progress: false
+
+jobs:
+  server-ops:
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.repository == 'LIghtJUNction/api.lmm.best' &&
+      github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+    env:
+      OPS_OPERATION: ${{ inputs.operation }}
+      OPS_REASON: ${{ inputs.reason }}
+      OPS_REPAIR_SCRIPT: ${{ inputs.repair_script }}
+      OPS_CONFIRM: ${{ inputs.confirm }}
+      OPS_TIMEOUT: ${{ inputs.timeout_seconds }}
+      # Owner is always allowed; explicitly list any additional operator/bot logins.
+      OPS_ALLOWED_ACTORS: ${{ vars.PRODUCTION_OPS_ALLOWED_ACTORS }}
+    steps:
+      - name: Checkout the exact manually selected main revision
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Test the controller without production credentials
+        run: python3 scripts/test-server-ops.py
+
+      - name: Validate authorization and the repair script before loading credentials
+        run: python3 scripts/server-ops.py --validate-only
+
+      - name: Diagnose or repair production over pinned SSH
+        env:
+          PRODUCTION_SSH_PRIVATE_KEY: ${{ secrets.PRODUCTION_SSH_PRIVATE_KEY }}
+          PRODUCTION_SSH_KNOWN_HOSTS: ${{ secrets.PRODUCTION_SSH_KNOWN_HOSTS }}
+        run: python3 scripts/server-ops.py
