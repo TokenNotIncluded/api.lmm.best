@@ -1,0 +1,82 @@
+name: Verify Responses HTTP boundary
+on:
+  push:
+    branches: [release/acceptance-20260916]
+    paths: [.github/workflows/verify-responses-http-boundary.yml]
+permissions:
+  contents: write
+defaults:
+  run:
+    shell: bash
+env:
+  CARGO_BUILD_JOBS: "2"
+  CARGO_INCREMENTAL: "0"
+  CARGO_PROFILE_DEV_DEBUG: "0"
+  CARGO_PROFILE_TEST_DEBUG: "0"
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: d1bb53a7905442a74811f93d70c14edbaa226a5e
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Apply reviewed boundary case and remove diagnostic helper
+        run: |
+          python3 .github/release-review/apply-responses-runtime.py
+          git rm .github/release-review/apply-responses-runtime.py
+          rustup toolchain install 1.91.0 --profile minimal --component clippy,rustfmt
+      - name: Format and lint the full workspace
+        working-directory: apps/api-rust
+        run: |
+          cargo +1.91.0 fmt --all
+          cargo +1.91.0 clippy --workspace --all-targets --all-features --locked -- -D warnings
+      - name: Exercise guard, real-socket routing and existing integration tests
+        working-directory: apps/api-rust
+        run: |
+          cargo +1.91.0 test --locked --lib routes::relay_openai:: -- --nocapture
+          cargo +1.91.0 test --locked --test relay_openai -- --nocapture
+      - name: Store exact verified source objects without changing branches
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git add apps/api-rust/src/routes/relay_openai.rs apps/api-rust/src/routes/relay_openai/responses_terminal.rs apps/api-rust/src/routes/relay_openai/responses_terminal/tests.rs apps/api-go/controller/relay_responses_settlement_test.go
+          git diff --cached --check
+          python3 - <<'PY'
+          import json, os, subprocess
+          from pathlib import Path
+          repo = os.environ['GITHUB_REPOSITORY']
+          expected = {'apps/api-rust/src/routes/relay_openai.rs', 'apps/api-rust/src/routes/relay_openai/responses_terminal.rs', 'apps/api-rust/src/routes/relay_openai/responses_terminal/tests.rs', 'apps/api-go/controller/relay_responses_settlement_test.go'}
+          paths = subprocess.check_output(['git','diff','--cached','--name-only','a50db823a1fc2c57ee136ce64507c31c7e82ebfe'],text=True).splitlines()
+          assert set(paths) == expected, paths
+          def api(kind,payload):
+              result = subprocess.run(['gh','api','--method','POST',f'repos/{repo}/git/{kind}','--input','-'],input=json.dumps(payload),text=True,capture_output=True)
+              if result.returncode:
+                  raise RuntimeError(f'Git object storage failed: {kind}')
+              return json.loads(result.stdout)
+          entries=[]
+          for path in sorted(paths):
+              blob=api('blobs',{'content':Path(path).read_text(),'encoding':'utf-8'})
+              assert blob['sha']==subprocess.check_output(['git','hash-object',path],text=True).strip()
+              entries.append({'path':path,'mode':'100644','type':'blob','sha':blob['sha']})
+          tree=api('trees',{'base_tree':'11fe68c61a3e30c7fddec1e67b6eb075264bfda0','tree':entries})
+          assert tree['sha']==subprocess.check_output(['git','write-tree'],text=True).strip()
+          evidence={'tree':tree['sha'],'files':entries,'production_changes':False}
+          print(json.dumps(evidence,indent=2))
+          Path('/tmp/responses-source.json').write_text(json.dumps(evidence,indent=2))
+          PY
+      - name: Export final source for independent review
+        if: ${{ always() }}
+        run: |
+          git diff a50db823a1fc2c57ee136ce64507c31c7e82ebfe -- apps/api-rust/src/routes/relay_openai.rs apps/api-rust/src/routes/relay_openai/responses_terminal.rs apps/api-rust/src/routes/relay_openai/responses_terminal/tests.rs apps/api-go/controller/relay_responses_settlement_test.go > /tmp/responses-source.patch
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: ${{ always() }}
+        with:
+          name: responses-http-boundary-source
+          path: |
+            /tmp/responses-source.patch
+            /tmp/responses-source.json
+          retention-days: 3
+          if-no-files-found: error
