@@ -1,0 +1,71 @@
+name: Launch reviewed Go release
+
+on:
+  push:
+    branches: [release/acceptance-20260916]
+    paths: [.github/workflows/launch-reviewed-go-release.yml]
+
+permissions:
+  contents: write
+  actions: write
+  checks: read
+  issues: read
+
+concurrency:
+  group: launch-reviewed-go-0.2.51
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      RELEASE_SHA: 13b22e03ea2c88fa118814c34f780aa6e77af723
+      RELEASE_TAG: go-v0.2.51
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: 13b22e03ea2c88fa118814c34f780aa6e77af723
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Require exact main and all existing publication gates
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$RELEASE_SHA"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)" = "$RELEASE_SHA"
+          python3 -B scripts/verify-release-work-items.py
+          bash scripts/verify-release-commit-checks.sh "$RELEASE_SHA"
+      - name: Create immutable tag and dispatch the standard signed release workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os, subprocess
+          repo, sha, tag = (os.environ[k] for k in ('GITHUB_REPOSITORY','RELEASE_SHA','RELEASE_TAG'))
+          def api(path, method='GET', data=None):
+              args = ['gh','api','--method',method,f'repos/{repo}/{path}']
+              if data is not None:
+                  args += ['--input','-']
+              result = subprocess.run(args,input=json.dumps(data) if data is not None else None,text=True,capture_output=True,timeout=45,check=True)
+              return json.loads(result.stdout) if result.stdout.strip() else None
+          assert api('git/ref/heads/main')['object']['sha'] == sha
+          assert api('issues?state=open&per_page=1') == [], 'Unresolved work blocks release'
+          refs = api(f'git/matching-refs/tags/{tag}')
+          exact = [r for r in refs if r['ref'] == f'refs/tags/{tag}']
+          if exact:
+              assert len(exact)==1 and exact[0]['object']['type']=='commit' and exact[0]['object']['sha']==sha, 'Refusing to move an existing tag'
+          else:
+              api('git/refs','POST',{'ref':f'refs/tags/{tag}','sha':sha})
+          runs = api(f'actions/runs?head_sha={sha}&per_page=100')['workflow_runs']
+          matching = [r for r in runs if r['path']=='.github/workflows/release-go.yml' and r['head_branch']==tag]
+          assert not any(r['status']!='completed' or r['conclusion']=='success' for r in matching), 'Release already running or published; inspect before retrying'
+          api('actions/workflows/release-go.yml/dispatches','POST',{'ref':tag})
+          print(f'Dispatched the standard signed Go release: {tag} at {sha}')
+          print('No release assets uploaded by this launcher; all normal tests, signing and deployment approvals remain in force.')
+          PY
