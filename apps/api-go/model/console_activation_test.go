@@ -24,7 +24,7 @@ func setupConsoleActivationTestDB(t *testing.T) *gorm.DB {
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	require.NoError(t, err)
 	DB, LOG_DB = db, db
-	require.NoError(t, db.AutoMigrate(&User{}, &Token{}))
+	require.NoError(t, db.AutoMigrate(&User{}, &Token{}, &ReferralReward{}, &ReferralRewardEntry{}, &ReferralModerationOperation{}))
 
 	t.Cleanup(func() {
 		DB, LOG_DB = previousDB, previousLogDB

@@ -541,6 +541,10 @@ func GetAffCode(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	if c.Query("history") == "1" {
+		getReferralRewardHistory(c, user)
+		return
+	}
 	if err := ensureAffiliateCode(user); err != nil {
 		common.ApiError(c, err)
 		return
@@ -615,6 +619,7 @@ func buildSelfUserData(user *model.User) map[string]interface{} {
 		"aff_count":                user.AffCount,
 		"aff_quota":                user.AffQuota,
 		"aff_history_quota":        user.AffHistoryQuota,
+		"aff_debt_quota":           user.AffDebtQuota,
 		"inviter_id":               user.InviterId,
 		"linux_do_id":              user.LinuxDOId,
 		"setting":                  user.Setting,
@@ -1252,10 +1257,15 @@ func updateAdminPermissionsForUserInTx(c *gin.Context, tx *gorm.DB, userID int, 
 }
 
 type ManageRequest struct {
-	Id     int    `json:"id"`
-	Action string `json:"action"`
-	Value  int    `json:"value"`
-	Mode   string `json:"mode"`
+	Id               int    `json:"id"`
+	Action           string `json:"action"`
+	Value            int    `json:"value"`
+	Mode             string `json:"mode"`
+	Reason           string `json:"reason"`
+	Note             string `json:"note"`
+	ConfirmPenalty   bool   `json:"confirm_penalty"`
+	OperationKey     string `json:"operation_key"`
+	ExpectedRevision int64  `json:"expected_revision"`
 }
 
 // ManageUser Only admin user can do this
@@ -1271,8 +1281,7 @@ func ManageUser(c *gin.Context) {
 		Id: req.Id,
 	}
 	// Fill attributes
-	model.DB.Unscoped().Where(&user).First(&user)
-	if user.Id == 0 {
+	if req.Id <= 0 || model.DB.Unscoped().Where("id = ?", req.Id).First(&user).Error != nil {
 		common.ApiErrorI18n(c, i18n.MsgUserNotExists)
 		return
 	}
@@ -1282,6 +1291,9 @@ func ManageUser(c *gin.Context) {
 		return
 	}
 	switch req.Action {
+	case "referral_preview", "disable_abuse", "restore_referral":
+		manageReferralReward(c, req)
+		return
 	case "disable":
 		user.Status = common.UserStatusDisabled
 		if user.Role == common.RoleRootUser {

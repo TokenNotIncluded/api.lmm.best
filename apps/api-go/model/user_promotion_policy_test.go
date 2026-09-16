@@ -91,7 +91,7 @@ func TestInsertKeepsPromotionalCreditsForDurableEmail(t *testing.T) {
 
 	var storedInviter User
 	require.NoError(t, DB.First(&storedInviter, inviter.Id).Error)
-	assert.Equal(t, 200, storedInviter.AffQuota)
+	assert.Zero(t, storedInviter.AffQuota) // registration is not a paid referral
 	assert.Equal(t, 1, storedInviter.AffCount)
 }
 

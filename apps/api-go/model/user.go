@@ -277,7 +277,8 @@ type User struct {
 	Group                         string          `json:"group" gorm:"type:varchar(64);default:'default'"`
 	AffCode                       string          `json:"aff_code" gorm:"type:varchar(32);column:aff_code;uniqueIndex"`
 	AffCount                      int             `json:"aff_count" gorm:"type:int;default:0;column:aff_count"`
-	AffQuota                      int             `json:"aff_quota" gorm:"type:bigint;default:0;column:aff_quota"`           // 邀请剩余额度
+	AffQuota                      int             `json:"aff_quota" gorm:"type:bigint;default:0;column:aff_quota"` // 邀请剩余额度
+	AffDebtQuota                  int64           `json:"aff_debt_quota" gorm:"type:bigint;not null;default:0"`
 	AffHistoryQuota               int             `json:"aff_history_quota" gorm:"type:bigint;default:0;column:aff_history"` // 邀请历史额度
 	InviterId                     int             `json:"inviter_id" gorm:"type:int;column:inviter_id;index"`
 	DeletedAt                     gorm.DeletedAt  `gorm:"index"`
@@ -800,9 +801,7 @@ func HardDeleteUserById(id int) error {
 
 func inviteUser(inviterId int) error {
 	result := DB.Model(&User{}).Where("id = ?", inviterId).Updates(map[string]interface{}{
-		"aff_count":   boundedInt32CounterExpr("aff_count", 1),
-		"aff_quota":   boundedQuotaCounterExpr("aff_quota", common.QuotaForInviter),
-		"aff_history": boundedQuotaCounterExpr("aff_history", common.QuotaForInviter),
+		"aff_count": boundedInt32CounterExpr("aff_count", 1),
 	})
 	if result.Error != nil {
 		return result.Error
@@ -838,13 +837,16 @@ func (user *User) TransferAffQuotaToQuota(quota int) error {
 	if err := lockForUpdate(tx).First(user, user.Id).Error; err != nil {
 		return err
 	}
+	if user.AffDebtQuota > 0 {
+		return errors.New("outstanding referral debt must be settled before transferring rewards")
+	}
 	if user.AffQuota < quota {
 		return errors.New("邀请额度不足！")
 	}
 
 	// Keep the affiliate debit and the final wallet ceiling in the same UPDATE.
 	query, err := GuardWalletQuotaDelta(
-		tx.Model(&User{}).Where("id = ? AND aff_quota >= ?", user.Id, quota),
+		tx.Model(&User{}).Where("id = ? AND aff_quota >= ? AND aff_debt_quota = 0", user.Id, quota),
 		quota,
 	)
 	if err != nil {
@@ -926,6 +928,9 @@ func (user *User) Insert(inviterId int) error {
 			if err := user.prepareForInsert(tx); err != nil {
 				return err
 			}
+			if err := bindRegistrationInviterTx(tx, user, inviterId); err != nil {
+				return err
+			}
 			user.Quota = registrationQuotaForEmail(user.Email)
 			user.AffCode = common.GetRandomString(4)
 
@@ -972,11 +977,8 @@ func (user *User) finishInsert(inviterId int) {
 			_ = IncreaseUserQuota(user.Id, common.QuotaForInvitee, true)
 			RecordLog(user.Id, LogTypeSystem, fmt.Sprintf("使用邀请码赠送 %s", logger.LogQuota(common.QuotaForInvitee)))
 		}
-		if common.QuotaForInviter > 0 {
-			//_ = IncreaseUserQuota(inviterId, common.QuotaForInviter)
-			RecordLog(inviterId, LogTypeSystem, fmt.Sprintf("邀请用户赠送 %s", logger.LogQuota(common.QuotaForInviter)))
-			_ = inviteUser(inviterId)
-		}
+		// Registration records the relationship; only real first payment earns a reward.
+		_ = inviteUser(inviterId)
 	}
 }
 
@@ -990,6 +992,9 @@ func (user *User) FinishInsert(inviterId int) {
 func (user *User) InsertWithTx(tx *gorm.DB, inviterId int) error {
 	return withNormalizedEmailLock(tx, user.Email, func(tx *gorm.DB) error {
 		if err := user.prepareForInsert(tx); err != nil {
+			return err
+		}
+		if err := bindRegistrationInviterTx(tx, user, inviterId); err != nil {
 			return err
 		}
 		user.Quota = registrationQuotaForEmail(user.Email)
@@ -1031,10 +1036,8 @@ func (user *User) FinalizeOAuthUserCreation(inviterId int) {
 			_ = IncreaseUserQuota(user.Id, common.QuotaForInvitee, true)
 			RecordLog(user.Id, LogTypeSystem, fmt.Sprintf("使用邀请码赠送 %s", logger.LogQuota(common.QuotaForInvitee)))
 		}
-		if common.QuotaForInviter > 0 {
-			RecordLog(inviterId, LogTypeSystem, fmt.Sprintf("邀请用户赠送 %s", logger.LogQuota(common.QuotaForInviter)))
-			_ = inviteUser(inviterId)
-		}
+		// Registration records the relationship; only real first payment earns a reward.
+		_ = inviteUser(inviterId)
 	}
 }
 
@@ -1091,6 +1094,8 @@ func (user *User) UpdateWithTx(tx *gorm.DB, updatePassword bool) error {
 		"request_count",
 		"aff_count",
 		"aff_quota",
+		"aff_debt_quota",
+		"inviter_id",
 		"aff_history",
 		"auth_version",
 	).Updates(newUser).Error; err != nil {

@@ -42,7 +42,7 @@ func setupExternalTopUpSettlementDB(t *testing.T, maxOpenConnections int) *gorm.
 	sqlDB, err := db.DB()
 	require.NoError(t, err)
 	sqlDB.SetMaxOpenConns(maxOpenConnections)
-	require.NoError(t, db.AutoMigrate(&User{}, &TopUp{}))
+	require.NoError(t, db.AutoMigrate(&User{}, &TopUp{}, &ReferralReward{}, &ReferralRewardEntry{}, &ReferralModerationOperation{}))
 	DB = db
 	common.SetMainDatabaseType(common.DatabaseTypeSQLite)
 	t.Cleanup(func() {

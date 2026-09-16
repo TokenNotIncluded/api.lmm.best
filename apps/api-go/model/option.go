@@ -48,6 +48,7 @@ func AllOption() ([]*Option, error) {
 func InitOptionMap() {
 	common.OptionMapRWMutex.Lock()
 	common.OptionMap = make(map[string]string)
+	common.OptionMap[operation_setting.ReferralRewardOptionKey] = operation_setting.DefaultReferralRewardPolicyJSON
 	common.OptionMap[AssistantRegistrationAutoSuspendOption] = "true"
 	common.OptionMap[AssistantRegistrationDailyCapOption] = "5"
 
@@ -366,6 +367,10 @@ func validateOptionValue(key string, value string) error {
 	if err := setting.ValidateIPAccessRoutingOption(key, value); err != nil {
 		return err
 	}
+	if key == operation_setting.ReferralRewardOptionKey {
+		_, err := operation_setting.ParseReferralRewardPolicy(value)
+		return err
+	}
 	if key == operation_setting.ToolPriceOptionKey {
 		return operation_setting.ValidateToolPricesJSON(value)
 	}
@@ -638,6 +643,18 @@ func UpdateAdvancedSecurityOptions(enabled, onPrompt bool, action, rules string)
 }
 
 func updateOptionMap(key string, value string) (err error) {
+	if key == operation_setting.ReferralRewardOptionKey {
+		if err := operation_setting.UpdateReferralRewardPolicy(value); err != nil {
+			return err
+		}
+		common.OptionMapRWMutex.Lock()
+		defer common.OptionMapRWMutex.Unlock()
+		if common.OptionMap == nil {
+			common.OptionMap = make(map[string]string)
+		}
+		common.OptionMap[key] = value
+		return nil
+	}
 	if isRetiredIPAccessOptionKey(key) {
 		common.OptionMapRWMutex.Lock()
 		delete(common.OptionMap, key)

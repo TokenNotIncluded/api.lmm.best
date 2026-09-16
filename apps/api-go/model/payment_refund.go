@@ -157,6 +157,9 @@ func ApplyPaymentRefund(
 					if err := tx.Model(&TopUp{}).Where("id = ?", topUp.Id).Updates(updates).Error; err != nil {
 						return err
 					}
+					if err := refundReferralRewardTx(tx, &topUp, topUp.RefundedAmountMicros+appliedAmount, actorID); err != nil {
+						return err
+					}
 				}
 			} else {
 				if errors.Is(topUpErr, gorm.ErrRecordNotFound) {

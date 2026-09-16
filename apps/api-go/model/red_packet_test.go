@@ -19,7 +19,7 @@ func setupRedPacketTestDB(t *testing.T, models ...interface{}) *gorm.DB {
 	DB, LOG_DB = db, db
 	common.SetMainDatabaseType(common.DatabaseTypeSQLite)
 	common.SetLogDatabaseType(common.DatabaseTypeSQLite)
-	require.NoError(t, db.AutoMigrate(models...))
+	require.NoError(t, db.AutoMigrate(append(models, &ReferralReward{}, &ReferralRewardEntry{}, &ReferralModerationOperation{})...))
 	t.Cleanup(func() {
 		DB, LOG_DB = previousDB, previousLogDB
 	})

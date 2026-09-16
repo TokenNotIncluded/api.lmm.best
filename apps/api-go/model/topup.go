@@ -486,12 +486,12 @@ func completeExternalTopUpOnDB(db *gorm.DB, settlement ExternalTopUpSettlement) 
 			if err := consumeDiscountCodeUsage(tx, &completed); err != nil {
 				return err
 			}
-			return nil
+			return settleReferralRewardTx(tx, &completed)
 		})
 		if err == nil {
 			return &completed, nil
 		}
-		raceError := errors.Is(err, ErrTopUpStatusInvalid) || uniqueConstraintError(err) || strings.Contains(strings.ToLower(err.Error()), "locked")
+		raceError := errors.Is(err, ErrTopUpStatusInvalid) || uniqueConstraintError(err) || referralRetryable(err)
 		if raceError {
 			reloaded, matches, reloadErr := reloadMatchingCompletedSettlement(db, settlement)
 			if reloadErr == nil && matches {
