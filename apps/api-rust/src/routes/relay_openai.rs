@@ -181,12 +181,11 @@ impl OpenAiUpstreamClient {
         let upstream_request =
             copy_upstream_headers(self.client.post(url), &request.headers, &target.api_key)
                 .body(request.raw_body.clone());
-        let upstream = self.client.send(upstream_request).await.map_err(|error| {
-            upstream_transport_failure(match error {
-                RelayHttpError::ResponseHeaders => "upstream response timed out",
-                _ => "upstream request failed",
-            })
-        })?;
+        let upstream = self
+            .client
+            .send(upstream_request)
+            .await
+            .map_err(openai_upstream_request_failure)?;
         let status = upstream.status();
         let headers = upstream.headers().clone();
         if !status.is_success() {
@@ -1426,6 +1425,20 @@ fn invalid_target_failure() -> OpenAiRelayFailure {
     )
 }
 
+fn openai_upstream_request_failure(error: RelayHttpError) -> OpenAiRelayFailure {
+    match error {
+        RelayHttpError::FirstOutput => OpenAiRelayFailure::new(
+            StatusCode::GATEWAY_TIMEOUT,
+            "upstream_timeout",
+            "upstream first response timeout",
+        ),
+        RelayHttpError::ResponseHeaders => {
+            upstream_transport_failure("upstream response timed out")
+        }
+        _ => upstream_transport_failure("upstream request failed"),
+    }
+}
+
 fn upstream_transport_failure(message: &'static str) -> OpenAiRelayFailure {
     OpenAiRelayFailure::new(
         StatusCode::INTERNAL_SERVER_ERROR,
@@ -1819,6 +1832,15 @@ mod tests {
         );
         assert!(!rolled_back.details.flag_decision.enabled);
         Ok(())
+    }
+
+    #[test]
+    fn first_output_timeout_maps_to_go_upstream_timeout_envelope() {
+        let failure = openai_upstream_request_failure(RelayHttpError::FirstOutput);
+        assert_eq!(failure.status, StatusCode::GATEWAY_TIMEOUT);
+        assert_eq!(failure.code, "upstream_timeout");
+        assert_eq!(failure.message, "upstream first response timeout");
+        assert!(failure.headers.is_empty());
     }
 
     #[tokio::test]
