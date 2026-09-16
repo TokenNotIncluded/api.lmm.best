@@ -1,0 +1,87 @@
+name: Diagnose signed release preparation
+on:
+  push:
+    branches: [release/acceptance-20260916]
+    paths: [.github/workflows/diagnose-release-preparation.yml]
+permissions:
+  contents: read
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: 13b22e03ea2c88fa118814c34f780aa6e77af723
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6
+      - name: Download and verify the three public input releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          root=$(mktemp -d /tmp/lmm-preparation.XXXXXX)
+          echo "PREPARATION_ROOT=$root" >> "$GITHUB_ENV"
+          mkdir -p "$root"/{go-new,go-old,web-old,pkg,probe,controller,cosign-home,image}
+          for entry in go-v0.2.51:go-new go-v0.2.31:go-old web-v0.1.71:web-old; do
+            tag=${entry%%:*}; directory=${entry##*:}
+            if [[ "$tag" == go-v* ]]; then pattern="lmm-api-go-${tag#go-v}-linux-amd64*"; workflow=release-go.yml; else pattern="lmm-api-web-${tag#web-v}*"; workflow=release-web.yml; fi
+            timeout 120 gh release download "$tag" --repo TokenNotIncluded/api.lmm.best --dir "$root/$directory" --pattern "$pattern"
+            for archive in "$root/$directory"/*.tar.gz; do
+              expected=$(awk 'NR == 1 {print $1}' "$archive.sha256")
+              [[ "$expected" =~ ^[0-9a-f]{64}$ ]]
+              printf '%s  %s\n' "$expected" "$archive" | sha256sum --check --status -
+              timeout 90 cosign verify-blob --bundle "$archive.sigstore.json" --certificate-identity "https://github.com/TokenNotIncluded/api.lmm.best/.github/workflows/$workflow@refs/tags/$tag" --certificate-oidc-issuer https://token.actions.githubusercontent.com "$archive"
+            done
+          done
+      - name: Reproduce the Arch packaging environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          root=$PREPARATION_ROOT
+          cat > "$root/image/Dockerfile" <<'EOF'
+          FROM archlinux:base-devel
+          ARG RUNNER_UID
+          ARG RUNNER_GID
+          ARG RUNNER_HOME
+          RUN pacman -Sy --noconfirm --needed cosign git openssh
+          RUN if ! getent group "${RUNNER_GID}" >/dev/null; then groupadd --gid "${RUNNER_GID}" lmm-runner; fi; \
+              if getent passwd "${RUNNER_UID}" >/dev/null; then usermod --home "${RUNNER_HOME}" "$(getent passwd "${RUNNER_UID}" | cut -d: -f1)"; \
+              else useradd --uid "${RUNNER_UID}" --gid "${RUNNER_GID}" --home-dir "${RUNNER_HOME}" --no-create-home lmm-runner; fi
+          EOF
+          timeout 180 docker build --network host --tag lmm-prepare-diagnostic --build-arg RUNNER_UID="$(id -u)" --build-arg RUNNER_GID="$(id -g)" --build-arg RUNNER_HOME="$root/cosign-home" "$root/image"
+      - name: Reproduce Go rollback package 0.2.31
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout 180 docker run --rm --network host -v "$GITHUB_WORKSPACE:/repo:ro" -v "$PREPARATION_ROOT:/work" lmm-prepare-diagnostic bash /repo/scripts/build-release-package.sh go 0.2.31 /work/go-old /work/pkg/go-old.pkg.tar.zst /repo 1
+      - name: Reproduce Web rollback package 0.1.71
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout 180 docker run --rm --network host -v "$GITHUB_WORKSPACE:/repo:ro" -v "$PREPARATION_ROOT:/work" lmm-prepare-diagnostic bash /repo/scripts/build-release-package.sh web 0.1.71 /work/web-old /work/pkg/web-old.pkg.tar.zst /repo 2
+      - name: Reproduce Go candidate package 0.2.51
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout 180 docker run --rm --network host -v "$GITHUB_WORKSPACE:/repo:ro" -v "$PREPARATION_ROOT:/work" lmm-prepare-diagnostic bash /repo/scripts/build-release-package.sh go 0.2.51 /work/go-new /work/pkg/go-new.pkg.tar.zst /repo 1
+      - name: Validate the local release plan without staging or SSH
+        shell: bash
+        run: |
+          set -euo pipefail
+          root=$PREPARATION_ROOT
+          for file in "$root/pkg"/*; do cp "$file" "$file.copy"; mv -f "$file.copy" "$file"; done
+          tar -xzf "$root/go-new/lmm-api-go-0.2.51-linux-amd64.tar.gz" -C "$root/probe"
+          probe=$(find "$root/probe" -type f -name lmm-api-go -print -quit)
+          test -x "$probe"
+          id=prepare-go0251-diagnostic
+          printf 'format=1\ndeployment_id=%s\nrole=controller\ncreated_at_utc=%s\n' "$id" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$root/controller/.lmm-deploy-workspace"
+          chmod 600 "$root/controller/.lmm-deploy-workspace"
+          go_new="$root/go-new/lmm-api-go-0.2.51-linux-amd64.tar.gz"
+          go_old="$root/go-old/lmm-api-go-0.2.31-linux-amd64.tar.gz"
+          web="$root/web-old/lmm-api-web-0.1.71.tar.gz"
+          timeout 180 docker run --rm --network host --user "$(id -u):$(id -g)" -e HOME="$root/cosign-home" -v "$GITHUB_WORKSPACE:$GITHUB_WORKSPACE:ro" -v "$root:$root" -w "$GITHUB_WORKSPACE" lmm-prepare-diagnostic "$probe" deploy production plan --repo "$GITHUB_WORKSPACE" --workspace "$root/controller" --deployment-id "$id" --go-package "$root/pkg/go-new.pkg.tar.zst" --go-release-asset "$go_new" --go-release-bundle "$go_new.sigstore.json" --go-rollback-package "$root/pkg/go-old.pkg.tar.zst" --go-rollback-release-asset "$go_old" --go-rollback-release-bundle "$go_old.sigstore.json" --web-package "$root/pkg/web-old.pkg.tar.zst" --web-release-asset "$web" --web-release-bundle "$web.sigstore.json" --web-rollback-package "$root/pkg/web-old.pkg.tar.zst" --web-rollback-release-asset "$web" --web-rollback-release-bundle "$web.sigstore.json" --probe-binary "$probe" --operator-binary "$probe" --preserve-edge-policy
+          echo 'Local preparation passed. No server connection, production secret, staging, promotion or confirmation was used.'
