@@ -170,8 +170,13 @@ export async function consumeAssistantAISDKStream(
         let payload: AssistantStreamPayload
         try {
           payload = JSON.parse(data) as AssistantStreamPayload
-          if (!payload || typeof payload !== 'object' || Array.isArray(payload))
+          if (
+            !payload ||
+            typeof payload !== 'object' ||
+            Array.isArray(payload)
+          ) {
             throw new Error()
+          }
         } catch {
           throw protocolError('Assistant stream returned invalid event data')
         }
@@ -223,12 +228,14 @@ export async function consumeAssistantAISDKStream(
       const processLine = (rawLine: string) => {
         const line = rawLine.endsWith('\r') ? rawLine.slice(0, -1) : rawLine
         eventSize += line.length
-        if (eventSize > ASSISTANT_STREAM_EVENT_MAX_CHARS)
+        if (eventSize > ASSISTANT_STREAM_EVENT_MAX_CHARS) {
           throw protocolError('Assistant stream event exceeds its size limit')
+        }
         if (!line) dispatch()
         else if (line.startsWith('event:')) eventName = line.slice(6).trim()
-        else if (line.startsWith('data:'))
+        else if (line.startsWith('data:')) {
           eventData.push(line.slice(5).replace(/^ /, ''))
+        }
       }
       try {
         if (signal.aborted) throw assistantAbortReason(signal)
@@ -240,8 +247,9 @@ export async function consumeAssistantAISDKStream(
             buffer += decoder.decode()
             if (buffer) processLine(buffer)
             dispatch()
-            if (!result)
+            if (!result) {
               throw protocolError('Assistant stream ended before completion')
+            }
             break
           }
           // Heartbeats reset idle time, never the absolute request deadline.
@@ -261,14 +269,18 @@ export async function consumeAssistantAISDKStream(
             throw protocolError('Assistant stream event exceeds its size limit')
           }
         }
-        return result!
+        if (!result) {
+          throw protocolError('Assistant stream ended before completion')
+        }
+        return result
       } catch (error) {
         if (signal.aborted) throw assistantAbortReason(signal)
         if (
           error instanceof AssistantStreamError ||
           (error instanceof Error && error.name === 'AbortError')
-        )
+        ) {
           throw error
+        }
         throw protocolError('Assistant stream could not be read')
       } finally {
         clearTimeout(idleTimer)

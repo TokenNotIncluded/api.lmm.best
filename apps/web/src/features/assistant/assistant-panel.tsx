@@ -1813,8 +1813,9 @@ function AssistantPanelSession(props: AssistantPanelProps) {
         presetId,
         {
           onProgress: ({ step }) => {
-            if (isCurrentRequest() && !abortController.signal.aborted)
+            if (isCurrentRequest() && !abortController.signal.aborted) {
               setAgentStep(step)
+            }
           },
           onDelta: (delta) => {
             if (!isCurrentRequest() || abortController.signal.aborted) return
@@ -1927,14 +1928,16 @@ function AssistantPanelSession(props: AssistantPanelProps) {
           href: assistantNavigationHref(reply.action),
         }
       } else if (reply.action?.type === 'l1_recommendation') {
-        setRecommendationDraft(reply.action)
+        // Old cached replies may contain a letter/token. Access is now decided
+        // from server-recorded evidence; do not restore that retired form.
+        setRecommendationDraft(null)
         setAccountDisableDraft(null)
         setHumanSupportAction(null)
         setUserActionDraft(null)
         setActiveTool('activation')
         suggestedAction = {
           kind: 'tool',
-          label: t('Review AI recommendation'),
+          label: t('Registration verification'),
           tool: 'activation',
         }
       } else if (reply.action?.type === 'account_disable_request') {

@@ -198,7 +198,7 @@ describe('assistant bounded execution', () => {
   })
 
   test('rejects unterminated oversized events without retrying', async () => {
-    const { body } = eventStream('data: ' + 'x'.repeat(512 * 1024), false)
+    const { body } = eventStream(`data: ${'x'.repeat(512 * 1024)}`, false)
     await assert.rejects(
       consumeAssistantAISDKStream(body, {}),
       (error: unknown) =>

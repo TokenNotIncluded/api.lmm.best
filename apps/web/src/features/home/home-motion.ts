@@ -244,8 +244,9 @@ export function mountHomeMotion(root: HTMLElement) {
     )
   }
   const schedule = () => {
-    if (!disposed && frame === null && !document.hidden)
+    if (!disposed && frame === null && !document.hidden) {
       frame = requestAnimationFrame(render)
+    }
   }
   const readLayout = () => {
     const cinemaRect = cinema.getBoundingClientRect()
@@ -333,8 +334,9 @@ export function mountHomeMotion(root: HTMLElement) {
       !fine.matches ||
       reduced.matches ||
       paused
-    )
+    ) {
       return
+    }
     target = pointerPosition(
       event.clientX,
       event.clientY,
@@ -426,8 +428,9 @@ export function mountHomeMotion(root: HTMLElement) {
       '--rotate-x',
       '--rotate-y',
       '--scene-progress',
-    ])
+    ]) {
       inner.style.removeProperty(key)
+    }
     story?.style.removeProperty('--story-progress')
     if (story) delete story.dataset.chapter
     steps.forEach((step) => step.removeAttribute('data-active'))

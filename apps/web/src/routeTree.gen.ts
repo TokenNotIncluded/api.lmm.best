@@ -38,6 +38,7 @@ import { Route as GuideIndexRouteImport } from './routes/guide/index'
 import { Route as OauthProviderRouteImport } from './routes/oauth/$provider'
 import { Route as PricingIndexRouteImport } from './routes/pricing/index'
 import { Route as RankingsIndexRouteImport } from './routes/rankings/index'
+import { Route as RedPacketSlugRouteImport } from './routes/red-packet/$slug'
 import { Route as SecurityIndexRouteImport } from './routes/security/index'
 import { Route as SetupIndexRouteImport } from './routes/setup/index'
 import { Route as StatusIndexRouteImport } from './routes/status/index'
@@ -61,6 +62,7 @@ import { Route as AuthenticatedOpenSourceBountiesIndexRouteImport } from './rout
 import { Route as AuthenticatedPlaygroundIndexRouteImport } from './routes/_authenticated/playground/index'
 import { Route as AuthenticatedProfileIndexRouteImport } from './routes/_authenticated/profile/index'
 import { Route as AuthenticatedPublicRelayIndexRouteImport } from './routes/_authenticated/public-relay/index'
+import { Route as AuthenticatedRedPacketsIndexRouteImport } from './routes/_authenticated/red-packets/index'
 import { Route as AuthenticatedRedemptionCodesIndexRouteImport } from './routes/_authenticated/redemption-codes/index'
 import { Route as AuthenticatedRemoteControlIndexRouteImport } from './routes/_authenticated/remote-control/index'
 import { Route as AuthenticatedSubscriptionsIndexRouteImport } from './routes/_authenticated/subscriptions/index'
@@ -235,6 +237,11 @@ const RankingsIndexRoute = RankingsIndexRouteImport.update({
   path: '/rankings/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const RedPacketSlugRoute = RedPacketSlugRouteImport.update({
+  id: '/red-packet/$slug',
+  path: '/red-packet/$slug',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SecurityIndexRoute = SecurityIndexRouteImport.update({
   id: '/security/',
   path: '/security/',
@@ -365,6 +372,12 @@ const AuthenticatedPublicRelayIndexRoute =
   AuthenticatedPublicRelayIndexRouteImport.update({
     id: '/public-relay/',
     path: '/public-relay/',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedRedPacketsIndexRoute =
+  AuthenticatedRedPacketsIndexRouteImport.update({
+    id: '/red-packets/',
+    path: '/red-packets/',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
 const AuthenticatedRedemptionCodesIndexRoute =
@@ -562,6 +575,7 @@ export interface FileRoutesByFullPath {
   '/chat2link': typeof AuthenticatedChat2linkRoute
   '/challenges/$challengeId': typeof ChallengesChallengeIdRoute
   '/oauth/$provider': typeof OauthProviderRoute
+  '/red-packet/$slug': typeof RedPacketSlugRoute
   '/about/': typeof AboutIndexRoute
   '/challenges/': typeof ChallengesIndexRoute
   '/guide/': typeof GuideIndexRoute
@@ -592,6 +606,7 @@ export interface FileRoutesByFullPath {
   '/playground/': typeof AuthenticatedPlaygroundIndexRoute
   '/profile/': typeof AuthenticatedProfileIndexRoute
   '/public-relay/': typeof AuthenticatedPublicRelayIndexRoute
+  '/red-packets/': typeof AuthenticatedRedPacketsIndexRoute
   '/redemption-codes/': typeof AuthenticatedRedemptionCodesIndexRoute
   '/remote-control/': typeof AuthenticatedRemoteControlIndexRoute
   '/subscriptions/': typeof AuthenticatedSubscriptionsIndexRoute
@@ -642,6 +657,7 @@ export interface FileRoutesByTo {
   '/chat2link': typeof AuthenticatedChat2linkRoute
   '/challenges/$challengeId': typeof ChallengesChallengeIdRoute
   '/oauth/$provider': typeof OauthProviderRoute
+  '/red-packet/$slug': typeof RedPacketSlugRoute
   '/about': typeof AboutIndexRoute
   '/challenges': typeof ChallengesIndexRoute
   '/guide': typeof GuideIndexRoute
@@ -672,6 +688,7 @@ export interface FileRoutesByTo {
   '/playground': typeof AuthenticatedPlaygroundIndexRoute
   '/profile': typeof AuthenticatedProfileIndexRoute
   '/public-relay': typeof AuthenticatedPublicRelayIndexRoute
+  '/red-packets': typeof AuthenticatedRedPacketsIndexRoute
   '/redemption-codes': typeof AuthenticatedRedemptionCodesIndexRoute
   '/remote-control': typeof AuthenticatedRemoteControlIndexRoute
   '/subscriptions': typeof AuthenticatedSubscriptionsIndexRoute
@@ -726,6 +743,7 @@ export interface FileRoutesById {
   '/_authenticated/chat2link': typeof AuthenticatedChat2linkRoute
   '/challenges/$challengeId': typeof ChallengesChallengeIdRoute
   '/oauth/$provider': typeof OauthProviderRoute
+  '/red-packet/$slug': typeof RedPacketSlugRoute
   '/about/': typeof AboutIndexRoute
   '/challenges/': typeof ChallengesIndexRoute
   '/guide/': typeof GuideIndexRoute
@@ -756,6 +774,7 @@ export interface FileRoutesById {
   '/_authenticated/playground/': typeof AuthenticatedPlaygroundIndexRoute
   '/_authenticated/profile/': typeof AuthenticatedProfileIndexRoute
   '/_authenticated/public-relay/': typeof AuthenticatedPublicRelayIndexRoute
+  '/_authenticated/red-packets/': typeof AuthenticatedRedPacketsIndexRoute
   '/_authenticated/redemption-codes/': typeof AuthenticatedRedemptionCodesIndexRoute
   '/_authenticated/remote-control/': typeof AuthenticatedRemoteControlIndexRoute
   '/_authenticated/subscriptions/': typeof AuthenticatedSubscriptionsIndexRoute
@@ -809,6 +828,7 @@ export interface FileRouteTypes {
     | '/chat2link'
     | '/challenges/$challengeId'
     | '/oauth/$provider'
+    | '/red-packet/$slug'
     | '/about/'
     | '/challenges/'
     | '/guide/'
@@ -839,6 +859,7 @@ export interface FileRouteTypes {
     | '/playground/'
     | '/profile/'
     | '/public-relay/'
+    | '/red-packets/'
     | '/redemption-codes/'
     | '/remote-control/'
     | '/subscriptions/'
@@ -889,6 +910,7 @@ export interface FileRouteTypes {
     | '/chat2link'
     | '/challenges/$challengeId'
     | '/oauth/$provider'
+    | '/red-packet/$slug'
     | '/about'
     | '/challenges'
     | '/guide'
@@ -919,6 +941,7 @@ export interface FileRouteTypes {
     | '/playground'
     | '/profile'
     | '/public-relay'
+    | '/red-packets'
     | '/redemption-codes'
     | '/remote-control'
     | '/subscriptions'
@@ -972,6 +995,7 @@ export interface FileRouteTypes {
     | '/_authenticated/chat2link'
     | '/challenges/$challengeId'
     | '/oauth/$provider'
+    | '/red-packet/$slug'
     | '/about/'
     | '/challenges/'
     | '/guide/'
@@ -1002,6 +1026,7 @@ export interface FileRouteTypes {
     | '/_authenticated/playground/'
     | '/_authenticated/profile/'
     | '/_authenticated/public-relay/'
+    | '/_authenticated/red-packets/'
     | '/_authenticated/redemption-codes/'
     | '/_authenticated/remote-control/'
     | '/_authenticated/subscriptions/'
@@ -1046,6 +1071,7 @@ export interface RootRouteChildren {
   errors503Route: typeof errors503Route
   ChallengesChallengeIdRoute: typeof ChallengesChallengeIdRoute
   OauthProviderRoute: typeof OauthProviderRoute
+  RedPacketSlugRoute: typeof RedPacketSlugRoute
   AboutIndexRoute: typeof AboutIndexRoute
   ChallengesIndexRoute: typeof ChallengesIndexRoute
   GuideIndexRoute: typeof GuideIndexRoute
@@ -1262,6 +1288,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof RankingsIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/red-packet/$slug': {
+      id: '/red-packet/$slug'
+      path: '/red-packet/$slug'
+      fullPath: '/red-packet/$slug'
+      preLoaderRoute: typeof RedPacketSlugRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/security/': {
       id: '/security/'
       path: '/security'
@@ -1421,6 +1454,13 @@ declare module '@tanstack/react-router' {
       path: '/public-relay'
       fullPath: '/public-relay/'
       preLoaderRoute: typeof AuthenticatedPublicRelayIndexRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/red-packets/': {
+      id: '/_authenticated/red-packets/'
+      path: '/red-packets'
+      fullPath: '/red-packets/'
+      preLoaderRoute: typeof AuthenticatedRedPacketsIndexRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/redemption-codes/': {
@@ -1738,6 +1778,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedPlaygroundIndexRoute: typeof AuthenticatedPlaygroundIndexRoute
   AuthenticatedProfileIndexRoute: typeof AuthenticatedProfileIndexRoute
   AuthenticatedPublicRelayIndexRoute: typeof AuthenticatedPublicRelayIndexRoute
+  AuthenticatedRedPacketsIndexRoute: typeof AuthenticatedRedPacketsIndexRoute
   AuthenticatedRedemptionCodesIndexRoute: typeof AuthenticatedRedemptionCodesIndexRoute
   AuthenticatedRemoteControlIndexRoute: typeof AuthenticatedRemoteControlIndexRoute
   AuthenticatedSubscriptionsIndexRoute: typeof AuthenticatedSubscriptionsIndexRoute
@@ -1779,6 +1820,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedPlaygroundIndexRoute: AuthenticatedPlaygroundIndexRoute,
   AuthenticatedProfileIndexRoute: AuthenticatedProfileIndexRoute,
   AuthenticatedPublicRelayIndexRoute: AuthenticatedPublicRelayIndexRoute,
+  AuthenticatedRedPacketsIndexRoute: AuthenticatedRedPacketsIndexRoute,
   AuthenticatedRedemptionCodesIndexRoute:
     AuthenticatedRedemptionCodesIndexRoute,
   AuthenticatedRemoteControlIndexRoute: AuthenticatedRemoteControlIndexRoute,
@@ -1812,6 +1854,7 @@ const rootRouteChildren: RootRouteChildren = {
   errors503Route: errors503Route,
   ChallengesChallengeIdRoute: ChallengesChallengeIdRoute,
   OauthProviderRoute: OauthProviderRoute,
+  RedPacketSlugRoute: RedPacketSlugRoute,
   AboutIndexRoute: AboutIndexRoute,
   ChallengesIndexRoute: ChallengesIndexRoute,
   GuideIndexRoute: GuideIndexRoute,

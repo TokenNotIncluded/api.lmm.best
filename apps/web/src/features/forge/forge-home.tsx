@@ -37,11 +37,8 @@ import {
   localizeAssistantPreConversationPresets,
 } from '@/features/assistant/assistant-prompt-presets'
 import { getAssistantPromptValidation } from '@/features/assistant/assistant-prompt-validation'
-import {
-  CodePreview,
-  type CodeTab,
-  codeForTab,
-} from '@/features/home/home-code-preview'
+import { codeForTab, type CodeTab } from '@/features/home/home-code-examples'
+import { CodePreview } from '@/features/home/home-code-preview'
 import { HomeLanding } from '@/features/home/home-landing'
 import { mountHomeMotion } from '@/features/home/home-motion'
 import { PublicScriptsPanel } from '@/features/scripts/scripts-panel'
@@ -149,8 +146,9 @@ export function ForgeHome() {
       !safeMessage ||
       getAssistantPromptValidation(prompt).invalid ||
       !assistantEnabled
-    )
+    ) {
       return
+    }
     if (!user) {
       requestAssistantSend(undefined, safeMessage)
       void navigate({ to: '/sign-in', search: { redirect: '/dashboard' } })
