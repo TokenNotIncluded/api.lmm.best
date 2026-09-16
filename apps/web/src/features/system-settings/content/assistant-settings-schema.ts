@@ -46,6 +46,8 @@ export const assistantSettingsSchema = z
     AssistantSearchMCPTool: z.string().max(128),
     AssistantSkills: z.string().max(12000),
     AssistantSkillFiles: z.string().max(400000),
+    AssistantRegistrationAutoSuspendEnabled: z.boolean(),
+    AssistantRegistrationDailySuspendCap: z.number().int().min(0).max(5),
     AssistantL1AutoReviewEnabled: z.boolean(),
     AssistantL1AutoReviewGroup: z.string().trim().max(64),
     AssistantL1AutoReviewModel: z.string().trim().max(128),
@@ -70,18 +72,7 @@ export const assistantSettingsSchema = z
     AssistantSecurityRetentionDays: z.number().int().min(30).max(3650),
     AssistantRetentionIntervalHours: z.number().int().min(1).max(168),
   })
-  .superRefine((values, context) => {
-    if (!values.AssistantL1AutoReviewEnabled) return
-    for (const key of [
-      'AssistantL1AutoReviewGroup',
-      'AssistantL1AutoReviewModel',
-      'AssistantL1AutoReviewPrompt',
-    ] as const) {
-      if (!values[key]) {
-        context.addIssue({ code: 'custom', path: [key], message: 'Required' })
-      }
-    }
-  })
+
 
 export type AssistantSettingsFormValues = z.infer<
   typeof assistantSettingsSchema

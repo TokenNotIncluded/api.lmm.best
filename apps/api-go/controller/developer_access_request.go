@@ -191,7 +191,6 @@ func SubmitDeveloperAccessRequest(c *gin.Context) {
 	// configured, bounded review queue. A strict reviewer can approve clear legitimate requests; any
 	// uncertainty, timeout, or malformed response leaves the request pending for
 	// the existing human review path.
-	enqueueAssistantL1AutoReview(request)
 	common.ApiSuccess(c, toDeveloperAccessRequestSelfResponse(request))
 }
 
@@ -291,4 +290,10 @@ func ApproveDeveloperAccessRequest(c *gin.Context) {
 
 func RejectDeveloperAccessRequest(c *gin.Context) {
 	reviewDeveloperAccessRequest(c, false)
+}
+
+// RetiredDeveloperAccessRequest never creates a queue entry or consumes a legacy
+// confirmation token. Existing requests remain readable for historical auditing.
+func RetiredDeveloperAccessRequest(c *gin.Context) {
+	developerAccessRequestError(c, http.StatusGone, "DEVELOPER_ACCESS_LETTER_RETIRED", "请继续与内置客服对话完成核验，无需提交推荐信。Continue with the built-in assistant; recommendation letters are no longer required.")
 }

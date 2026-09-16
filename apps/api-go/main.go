@@ -167,7 +167,6 @@ func runServer() {
 	loops.Go(func(ctx context.Context) { model.SyncOptionsContext(ctx, common.SyncFrequency) })
 	// Recover automatic L1 reviews that were lost with a previous process's
 	// in-memory worker or left pending after a transient reviewer failure.
-	loops.Go(controller.RunPendingAssistantL1AutoReviewRecovery)
 
 	// 周期性重载授权策略，保证多节点/多 master 部署下权限变更能传播到每个实例
 	loops.Go(func(ctx context.Context) { authz.StartPolicySyncContext(ctx, common.SyncFrequency) })

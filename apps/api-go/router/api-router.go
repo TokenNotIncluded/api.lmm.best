@@ -245,7 +245,7 @@ func SetApiRouter(router *gin.Engine) {
 				selfRoute.GET("/self/onboarding/todo", middleware.DisableCache(), controller.GetL1OnboardingTodo)
 				selfRoute.PATCH("/self/onboarding/todo", middleware.DisableCache(), controller.PatchL1OnboardingTodo)
 				selfRoute.GET("/developer-access/request", controller.GetDeveloperAccessRequest)
-				selfRoute.POST("/developer-access/request", middleware.CriticalRateLimit(), middleware.DecompressRequestMiddleware(), middleware.RequestBodyLimit(userSelfMutationRequestMaxBytes), controller.SubmitDeveloperAccessRequest)
+				selfRoute.POST("/developer-access/request", middleware.CriticalRateLimit(), middleware.DecompressRequestMiddleware(), middleware.RequestBodyLimit(userSelfMutationRequestMaxBytes), controller.RetiredDeveloperAccessRequest)
 				selfRoute.GET("/account-action-requests/appeal", middleware.DisableCache(), controller.GetAccountAppeal)
 				selfRoute.GET("/violation-fees", middleware.DisableCache(), controller.ListSelfViolationFeeRecords)
 				selfRoute.PUT("/self", middleware.CriticalRateLimit(), middleware.DisableCache(), middleware.DecompressRequestMiddleware(), middleware.RequestBodyLimit(userSelfMutationRequestMaxBytes), controller.UpdateSelf)

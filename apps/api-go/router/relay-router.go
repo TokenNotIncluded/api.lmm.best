@@ -125,6 +125,7 @@ func SetRelayRouter(router *gin.Engine, sharedAdmission ...gin.HandlerFunc) {
 	assistantRouter.Use(middleware.UserAuth(), largeRequestAdmission)
 	{
 		assistantRouter.GET("/status", controller.GetAssistantStatus)
+		assistantRouter.GET("/registration-check", middleware.DisableCache(), controller.GetAssistantRegistrationState)
 		assistantRouter.GET("/models", middleware.AdminAuth(), controller.GetAssistantModels)
 		assistantRouter.GET("/offers", controller.GetAssistantPlanOffers)
 		assistantRouter.GET("/journey", middleware.DisableCache(), controller.GetAssistantJourney)
@@ -160,6 +161,8 @@ func SetRelayRouter(router *gin.Engine, sharedAdmission ...gin.HandlerFunc) {
 	assistantAdminRouter.Use(middleware.AdminAuth())
 	{
 		assistantAdminRouter.POST("/apply", middleware.RequestBodyLimit(assistantMutationRequestMaxBytes), middleware.CriticalRateLimit(), middleware.DisableCache(), controller.ApplyAssistantAdminChange)
+		assistantAdminRouter.GET("/registration-events", middleware.DisableCache(), controller.AdminListAssistantRegistrationEvents)
+		assistantAdminRouter.POST("/registration-events/:user_id/release", middleware.RequestBodyLimit(assistantMutationRequestMaxBytes), middleware.CriticalRateLimit(), middleware.DisableCache(), controller.AdminReleaseAssistantRegistration)
 		assistantAdminRouter.GET("/handoffs", controller.AdminListAssistantHandoffs)
 		assistantAdminRouter.POST("/handoffs/:id/resolve", middleware.RequestBodyLimit(assistantMutationRequestMaxBytes), middleware.CriticalRateLimit(), controller.AdminResolveAssistantHandoff)
 		assistantAdminRouter.GET("/intents", controller.AdminGetAssistantIntentSummary)

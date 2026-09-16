@@ -19,285 +19,66 @@ For commercial licensing, please contact support@quantumnous.com
 /*
 Copyright (C) 2026 LIghtJUNction
 */
-import { useQuery } from '@tanstack/react-query'
-import { RefreshCw } from 'lucide-react'
-import { useFormContext, useWatch } from 'react-hook-form'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useState } from 'react'
+import { useFormContext } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
-
+import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
-import {
-  FormControl,
-  FormDescription,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from '@/components/ui/form'
+import { FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
-import { Textarea } from '@/components/ui/textarea'
-
-import {
-  SettingsSwitchContent,
-  SettingsSwitchItem,
-} from '../components/settings-form-layout'
-import { safeNumberFieldProps } from '../utils/numeric-field'
+import { api } from '@/lib/api'
 import type { AssistantSettingsFormValues } from './assistant-settings-schema'
 
-export function AssistantL1ReviewSettings({
-  groups,
-  groupsLoading,
-  getModels,
-}: {
-  groups: string[]
-  groupsLoading: boolean
-  getModels: (group: string) => Promise<string[]>
-}) {
+type RiskEvent = {id: number; user_id: number; action: string; created_at: number; policy_version: string; evidence: string}
+type Envelope<T> = {success: boolean; message?: string; data?: T}
+
+export function AssistantL1ReviewSettings(_props: {groups: string[]; groupsLoading: boolean; getModels: (group: string) => Promise<string[]>}) {
   const { t } = useTranslation()
   const form = useFormContext<AssistantSettingsFormValues>()
-  const group = useWatch({
-    control: form.control,
-    name: 'AssistantL1AutoReviewGroup',
-  })
-  const selectedModel = useWatch({
-    control: form.control,
-    name: 'AssistantL1AutoReviewModel',
-  })
-  const modelsQuery = useQuery({
-    queryKey: ['assistant-routing-models', group],
-    queryFn: () => getModels(group),
-    enabled: false,
+  const queryClient = useQueryClient()
+  const [before, setBefore] = useState<number>()
+  const [busyUser, setBusyUser] = useState<number>()
+  const events = useQuery({
+    queryKey: ['assistant-registration-events', before],
+    queryFn: async () => {
+      const { data } = await api.get<Envelope<RiskEvent[]>>('/api/assistant/admin/registration-events', { params: { before }, skipBusinessError: true })
+      if (!data.success || !data.data) throw new Error(data.message ?? 'Unable to load risk inbox')
+      return data.data
+    },
     retry: false,
-    staleTime: 60_000,
+    staleTime: 15_000,
   })
-  const models = modelsQuery.data ?? []
-  const modelOptions = [...new Set([...models, selectedModel].filter(Boolean))]
-  const groupOptions = [...new Set([...groups, group].filter(Boolean))]
-
+  async function release(userID: number) {
+    if (!window.confirm(t('Restore this account after reviewing the recorded evidence?'))) return
+    setBusyUser(userID)
+    try {
+      const { data } = await api.post<Envelope<RiskEvent>>(`/api/assistant/admin/registration-events/${userID}/release`, { confirmed: true })
+      if (!data.success || data.data?.action !== 'released') throw new Error('No release receipt')
+      toast.success(t('Account restored'))
+      await queryClient.invalidateQueries({ queryKey: ['assistant-registration-events'] })
+    } catch { toast.error(t('Account could not be restored. Check its current state.')) }
+    finally { setBusyUser(undefined) }
+  }
   return (
-    <div
-      className='grid gap-5 border-t pt-6'
-      data-testid='assistant-l1-review-settings'
-    >
-      <div>
-        <h3 className='text-sm font-medium'>{t('L1 application review')}</h3>
-        <p className='text-muted-foreground mt-1 text-sm'>
-          {t(
-            'Review new L1 applications in the background. Failed, uncertain or invalid reviews stay in the manual queue.'
-          )}
-        </p>
+    <section className='grid gap-5 border-t pt-6' data-testid='assistant-registration-guard-settings'>
+      <div><h3 className='text-sm font-medium'>{t('Registration protection')}</h3><p className='text-muted-foreground mt-1 text-sm leading-6'>{t('The built-in assistant handles L0 verification using server-checked tools. No separate review model or recommendation-letter queue is required.')}</p></div>
+      <div className='bg-muted/30 grid gap-4 rounded-xl border p-4 sm:grid-cols-2'>
+        <FormField control={form.control} name='AssistantRegistrationAutoSuspendEnabled' render={({field}) => <FormItem><div className='flex items-center justify-between gap-3'><FormLabel>{t('Allow evidence-gated L0 suspensions')}</FormLabel><FormControl><Switch checked={field.value} onCheckedChange={field.onChange} /></FormControl></div><FormMessage /></FormItem>} />
+        <FormField control={form.control} name='AssistantRegistrationDailySuspendCap' render={({field}) => <FormItem><FormLabel>{t('Maximum automatic suspensions per UTC day')}</FormLabel><FormControl><Input type='number' min={0} max={5} step={1} value={field.value} onChange={(event) => field.onChange(event.target.value === '' ? 0 : Number(event.target.value))} /></FormControl><FormMessage /></FormItem>} />
       </div>
-      <FormField
-        control={form.control}
-        name='AssistantL1AutoReviewEnabled'
-        render={({ field }) => (
-          <SettingsSwitchItem>
-            <SettingsSwitchContent>
-              <FormLabel>{t('Enable automatic L1 review')}</FormLabel>
-              <FormDescription>
-                {t(
-                  'Uses its own model and instructions, independently of chat and scheduled reviews. Only L0 to L1 access can be approved.'
-                )}
-              </FormDescription>
-            </SettingsSwitchContent>
-            <FormControl>
-              <Switch checked={field.value} onCheckedChange={field.onChange} />
-            </FormControl>
-            <FormMessage />
-          </SettingsSwitchItem>
-        )}
-      />
-      <div className='grid gap-5 sm:grid-cols-2'>
-        <FormField
-          control={form.control}
-          name='AssistantL1AutoReviewGroup'
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>{t('L1 review routing group')}</FormLabel>
-              <div className='flex flex-col gap-2 sm:flex-row sm:items-center'>
-                <Select
-                  value={field.value}
-                  onValueChange={(value) => {
-                    if (
-                      typeof value !== 'string' ||
-                      !value.trim() ||
-                      value === field.value
-                    ) {
-                      return
-                    }
-                    field.onChange(value)
-                    form.setValue('AssistantL1AutoReviewModel', '', {
-                      shouldDirty: true,
-                      shouldValidate: true,
-                    })
-                  }}
-                >
-                  <FormControl>
-                    <SelectTrigger
-                      className='w-full sm:flex-1'
-                      disabled={groupsLoading}
-                    >
-                      <SelectValue placeholder={t('Select a group')} />
-                    </SelectTrigger>
-                  </FormControl>
-                  <SelectContent alignItemWithTrigger={false}>
-                    <SelectGroup>
-                      {groupOptions.map((value) => (
-                        <SelectItem key={value} value={value}>
-                          {value}
-                        </SelectItem>
-                      ))}
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
-                <Button
-                  type='button'
-                  variant='outline'
-                  className='w-full sm:w-auto'
-                  data-testid='assistant-l1-get-model-list'
-                  disabled={!group || modelsQuery.isFetching}
-                  onClick={() => {
-                    void modelsQuery.refetch()
-                  }}
-                >
-                  <RefreshCw
-                    data-icon='inline-start'
-                    className={
-                      modelsQuery.isFetching ? 'animate-spin' : undefined
-                    }
-                  />
-                  <span>{t('Get model list')}</span>
-                </Button>
-              </div>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-        <FormField
-          control={form.control}
-          name='AssistantL1AutoReviewModel'
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>{t('L1 review model')}</FormLabel>
-              <Select
-                value={field.value}
-                onValueChange={(value) => {
-                  if (typeof value === 'string' && value.trim()) {
-                    field.onChange(value)
-                  }
-                }}
-              >
-                <FormControl>
-                  <SelectTrigger
-                    className='w-full'
-                    disabled={
-                      modelsQuery.data === undefined ||
-                      modelsQuery.isFetching ||
-                      modelsQuery.isError ||
-                      models.length === 0
-                    }
-                  >
-                    <SelectValue placeholder={t('Select a model ID')} />
-                  </SelectTrigger>
-                </FormControl>
-                <SelectContent alignItemWithTrigger={false}>
-                  <SelectGroup>
-                    {modelOptions.map((value) => (
-                      <SelectItem key={value} value={value}>
-                        {value}
-                        {modelsQuery.data !== undefined &&
-                        !models.includes(value)
-                          ? ` · ${t('not enabled')}`
-                          : null}
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-              <FormDescription>
-                {modelsQuery.isError
-                  ? t('Could not load review models. Try again.')
-                  : modelsQuery.isFetching
-                    ? t('Loading model list...')
-                    : modelsQuery.data !== undefined && models.length === 0
-                      ? t('This group has no enabled model IDs.')
-                      : t(
-                          'Choose a group, then click Get model list to load its enabled model IDs.'
-                        )}
-              </FormDescription>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-        <FormField
-          control={form.control}
-          name='AssistantL1AutoReviewMinConfidence'
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>{t('Minimum review confidence')}</FormLabel>
-              <FormControl>
-                <Input
-                  type='number'
-                  min={0}
-                  max={1}
-                  step={0.01}
-                  {...safeNumberFieldProps(field)}
-                />
-              </FormControl>
-              <FormDescription>
-                {t(
-                  'Use a value from 0 to 1. Results below this threshold require manual review.'
-                )}
-              </FormDescription>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-        <FormField
-          control={form.control}
-          name='AssistantL1AutoApprovalUserIDs'
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>{t('Trial user IDs (optional)')}</FormLabel>
-              <FormControl>
-                <Input {...field} maxLength={4000} />
-              </FormControl>
-              <FormDescription>
-                {t(
-                  'Leave blank to review all new applications when enabled. Enter comma-separated user IDs to limit the rollout.'
-                )}
-              </FormDescription>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-      </div>
-      <FormField
-        control={form.control}
-        name='AssistantL1AutoReviewPrompt'
-        render={({ field }) => (
-          <FormItem>
-            <FormLabel>{t('L1 review instructions')}</FormLabel>
-            <FormControl>
-              <Textarea {...field} rows={6} maxLength={8000} />
-            </FormControl>
-            <FormDescription>
-              {t(
-                'Describe the evidence needed for approval. The agent replies to the applicant in their language; safety rules and the required output format cannot be overridden.'
-              )}
-            </FormDescription>
-            <FormMessage />
-          </FormItem>
-        )}
-      />
-    </div>
+      <p className='text-muted-foreground text-xs leading-5'>{t('Suspension requires a matching multi-message campaign, linked network peers and a consumed reward identity together. The cap applies across all server instances. Disabling suspension still preserves verification holds and alerts. These settings take effect only after saving.')}</p>
+      <div className='flex items-center justify-between gap-3'><h4 className='text-sm font-medium'>{t('Registration risk inbox')}</h4><Button type='button' size='sm' variant='outline' disabled={events.isFetching} onClick={() => void events.refetch()}>{t('Refresh')}</Button></div>
+      {events.isPending ? <p role='status' className='text-muted-foreground text-sm'>{t('Loading recorded actions…')}</p> : events.isError ? <p role='alert' className='text-sm'>{t('Unable to load risk inbox')}</p> : events.data?.length === 0 ? <p className='text-muted-foreground rounded-xl border border-dashed p-5 text-sm'>{t('No recorded registration alerts in this page.')}</p> : <div className='grid gap-2'>
+        {events.data?.map((event) => <article key={event.id} className='grid gap-2 rounded-xl border p-3'>
+          <div className='flex flex-wrap items-center justify-between gap-2'><p className='text-sm font-medium'>{t('User')} #{event.user_id} <span className='bg-muted ml-2 rounded px-2 py-0.5 text-xs'>{t(event.action)}</span></p><time className='text-muted-foreground text-xs' dateTime={new Date(event.created_at * 1000).toISOString()}>{new Date(event.created_at * 1000).toLocaleString()}</time></div>
+          <details className='text-muted-foreground text-xs'><summary className='cursor-pointer'>{t('Server evidence and policy version')}</summary><pre className='mt-2 overflow-auto rounded bg-muted p-2 whitespace-pre-wrap break-all'>{event.policy_version}{'\n'}{event.evidence}</pre></details>
+          {event.action === 'suspend' ? <Button type='button' size='sm' variant='outline' className='justify-self-start' disabled={busyUser !== undefined} onClick={() => void release(event.user_id)}>{t('Review and restore account')}</Button> : null}
+        </article>)}
+      </div>}
+      <div className='flex gap-2'><Button type='button' size='sm' variant='ghost' disabled={before === undefined || events.isFetching} onClick={() => setBefore(undefined)}>{t('Latest')}</Button><Button type='button' size='sm' variant='ghost' disabled={events.isFetching || events.data?.length !== 50} onClick={() => setBefore(events.data?.at(-1)?.id)}>{t('Older records')}</Button></div>
+      <p className='text-muted-foreground text-xs'>{t('A record here confirms an in-site alert, not delivery of an email. Raw cross-account conversations, IP addresses and email addresses are not shown.')}</p>
+    </section>
   )
 }
