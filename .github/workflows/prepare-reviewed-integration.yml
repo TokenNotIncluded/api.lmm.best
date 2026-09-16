@@ -62,35 +62,9 @@ jobs:
           part = text[start:end]
           part = part.replace("async () => {\n    api.get", "async () => {\n    let registrationReads = 0\n    api.get", 1)
           part = part.replace("if (url === '/api/assistant/registration-check') {\n", "if (url === '/api/assistant/registration-check') {\n        registrationReads += 1\n", 1)
-          needle = '''      assert.ok(
-                  document.querySelector('[data-testid="assistant-registration-status"]')
-                )
-          '''
-          # Keep source indentation independent from workflow indentation.
-          needle = '\n'.join(line[4:] if index in (1, 2) else line for index, line in enumerate(needle.split('\n')))
           needle = "      assert.ok(\n        document.querySelector('[data-testid=\"assistant-registration-status\"]')\n      )\n"
           assert needle in part
-          extra = '''      const readsBeforeRefresh = registrationReads
-                await act(async () => {
-                  const refresh = document.querySelector<HTMLButtonElement>(
-                    '[aria-label="Refresh registration status"]'
-                  )
-                  assert.ok(refresh)
-                  refresh.click()
-                  await flushEffects()
-                })
-                await act(async () =>
-                  waitForCondition(
-                    () => registrationReads > readsBeforeRefresh,
-                    'Verification refresh must work independently of the failed AI request'
-                  )
-                )
-                assert.doesNotMatch(
-                  document.body.textContent ?? '',
-                  /L1 access is active|Submit for review/
-                )
-          '''
-          extra = '\n'.join(line[10:] if index > 0 and line else line for index, line in enumerate(extra.split('\n')))
+          extra = "      const readsBeforeRefresh = registrationReads\n      await act(async () => {\n        const refresh = document.querySelector<HTMLButtonElement>(\n          '[aria-label=\"Refresh registration status\"]'\n        )\n        assert.ok(refresh)\n        refresh.click()\n        await flushEffects()\n      })\n      await act(async () =>\n        waitForCondition(\n          () => registrationReads > readsBeforeRefresh,\n          'Verification refresh must work independently of the failed AI request'\n        )\n      )\n      assert.doesNotMatch(\n        document.body.textContent ?? '',\n        /L1 access is active|Submit for review/\n      )\n"
           part = part.replace(needle, needle + extra, 1)
           path.write_text(text[:start] + part + text[end:])
           subprocess.run(['git', 'add', *files], check=True)
