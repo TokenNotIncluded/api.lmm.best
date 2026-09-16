@@ -17,9 +17,13 @@ concurrency:
 
 env:
   TARGET_BRANCH: ci/fail-closed-quality-gates-20260916
-  EXPECTED_PARENT: 630baa3da865142e4d95e7694ad078290aa999a8
+  EXPECTED_PARENT: 23e2f6ab1ef4c327d3aa13c708232784e14cc8bc
   ALLOWED_PATHS: |
     apps/api-go/controller/assistant_admin_operation_contracts.json
+    apps/api-go/controller/relay_responses_settlement_test.go
+    apps/api-go/relay/common/relay_info.go
+    apps/api-go/relay/channel/openai/relay_responses.go
+    apps/api-go/service/text_quota.go
     apps/web/scripts/assistant-tool-copy.mjs
     apps/web/src/components/ui/markdown.test.ts
     apps/web/src/components/ui/markdown.tsx
@@ -74,11 +78,19 @@ jobs:
           bun run --filter @lmm/web format
           bun run --filter @lmm/web format:check
           bun run --filter @lmm/web copyright:check
+      - name: Apply the source-anchored Responses settlement fix
+        run: python3 scripts/pr335-repair-generated.py
       - name: Regenerate the source-derived request contracts
         working-directory: apps/api-go
         env:
           GOWORK: "off"
         run: go run ./cmd/assistant-contracts -root .
+      - name: Test real Responses settlement and generated contracts
+        working-directory: apps/api-go
+        env:
+          GOWORK: "off"
+          GOMAXPROCS: "2"
+        run: go test -p 2 ./controller -run '^(TestResponsesRelayPartialSettlement|TestAssistantAdminOperationContracts.*)$' -count=1
       - name: Reject out-of-scope changes and export the patch
         run: |
           python3 - <<'PY'
