@@ -106,23 +106,16 @@ describe('assistant automatic retry policy', () => {
     }
   })
 
-  test('retries an Axios network error once and keeps attempt numbering monotonic', async () => {
-    const attempts: Array<string | undefined> = []
+  test('does not replay a request with an unknown transport outcome', async () => {
     let callCount = 0
-
-    const reply = await withAssistantPost(
-      async (_url, _data, config) => {
-        callCount += 1
-        attempts.push(assistantAttempt(config))
-        if (callCount === 1) throw assistantAxiosError()
-        return assistantResponse('network recovered')
-      },
-      () => sendAssistantMessage('hello')
-    )
-
-    assert.equal(reply.content, 'network recovered')
-    assert.equal(callCount, 2)
-    assert.deepEqual(attempts, ['1', '2'])
+    const expected = assistantAxiosError()
+    await withAssistantPost(async () => {
+      callCount += 1
+      throw expected
+    }, async () => {
+      await assert.rejects(() => sendAssistantMessage('hello'), (error) => error === expected)
+    })
+    assert.equal(callCount, 1)
   })
 
   test('does not retry non-retryable HTTP 4xx responses', async () => {
@@ -171,7 +164,7 @@ describe('assistant automatic retry policy', () => {
     )
 
     assert.equal(callCount, ASSISTANT_MAX_REQUEST_ATTEMPTS)
-    assert.deepEqual(attempts, ['1', '2', '3', '4', '5'])
+    assert.deepEqual(attempts, ['1', '2'])
   })
 })
 

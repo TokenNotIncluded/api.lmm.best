@@ -1585,53 +1585,52 @@ func relayAssistantTurnWithRetry(c *gin.Context, request assistantOpenAIRequest,
 func relayAssistantTurnWithRetryUsing(c *gin.Context, request assistantOpenAIRequest, rootRequestID string, step int, turn func(*gin.Context, assistantOpenAIRequest, string, int) (int, []byte, error)) (int, []byte, error) {
 	var status int
 	var body []byte
+	var err error
 	responsesToolChoiceFallbackUsed := false
 	omitToolChoiceFallbackUsed := false
 	for attempt := 1; attempt <= assistantUpstreamMaxAttempts; attempt++ {
 		if err := c.Request.Context().Err(); err != nil {
 			return http.StatusRequestTimeout, nil, err
 		}
-		status, body, err := turn(c, request, rootRequestID, step)
+		// Do not shadow status/body: a compatibility fallback on the last
+		// attempt must return that failure, not a fabricated status 0.
+		status, body, err = turn(c, request, rootRequestID, step)
 		if err != nil {
 			return status, body, err
 		}
+		invalidResponse := false
 		if status >= http.StatusOK && status < http.StatusMultipleChoices {
 			response, parseErr := parseAssistantResponse(body)
 			if parseErr == nil && len(response.Choices) > 0 {
-				return status, body, nil
+				message := response.Choices[0].Message
+				if len(message.ToolCalls) > 0 || strings.TrimSpace(assistantResponseContent(message.Content)) != "" {
+					return status, body, nil
+				}
 			}
-			// A malformed/empty successful provider response is treated as a
-			// transient upstream failure and receives the same bounded retry.
-			if attempt == assistantUpstreamMaxAttempts {
-				return status, body, nil
-			}
+			invalidResponse = true
+		}
+		if attempt == assistantUpstreamMaxAttempts {
+			return status, body, nil
 		}
 		if assistantToolChoiceNameRequired(body) {
 			if !responsesToolChoiceFallbackUsed {
 				if fallback, ok := assistantResponsesToolChoice(request.ToolChoice); ok {
-					// A few OpenAI-compatible Responses gateways expose the chat
-					// endpoint but validate tool_choice using the Responses shape:
-					// {"type":"function","name":"..."}. Retry once with that
-					// shape instead of burning the normal retry budget on the same
-					// invalid request.
 					request.ToolChoice = fallback
 					responsesToolChoiceFallbackUsed = true
 					continue
 				}
 			}
 			if !omitToolChoiceFallbackUsed && assistantOmitToolChoiceForMissingName(request.ToolChoice) {
-				// Some gateways reject `auto` or `none` as if a named function
-				// were required. Omitting the field is the provider-neutral
-				// fallback for a turn that does not have a required tool.
 				request.ToolChoice = nil
 				omitToolChoiceFallbackUsed = true
 				continue
 			}
 		}
-		if !assistantRetryableUpstreamStatus(status) || attempt == assistantUpstreamMaxAttempts {
+		// A malformed HTTP 200 used to fall through the HTTP-status gate and
+		// return immediately, despite the documented recovery policy.
+		if !invalidResponse && !assistantRetryableUpstreamStatus(status) {
 			return status, body, nil
 		}
-
 		timer := time.NewTimer(assistantUpstreamRetryDelay(attempt))
 		select {
 		case <-c.Request.Context().Done():
@@ -1721,401 +1720,6 @@ func assistantAgentToolResultJSON(result map[string]any) []byte {
 	return encoded
 }
 
-func runAssistantAgent(c *gin.Context, settings setting.AssistantSettings, conversation []assistantOpenAIMessage) {
-	release, acquired := assistantAgentLimiter.TryAcquire()
-	if !acquired {
-		writeAssistantError(c, http.StatusServiceUnavailable, "ASSISTANT_BUSY", errors.New("AI assistant is busy; retry shortly"))
-		return
-	}
-	defer release()
-
-	timeout := time.Duration(settings.TimeoutSeconds) * time.Second
-	if timeout < 5*time.Second {
-		timeout = assistantAgentDefaultTimeout
-	}
-	timeout = min(timeout, 5*time.Minute)
-	ctx, cancel := context.WithTimeout(c.Request.Context(), timeout)
-	defer cancel()
-	originalRequest := c.Request
-	c.Request = c.Request.WithContext(ctx)
-	defer func() {
-		c.Request = originalRequest
-		common.CleanupBodyStorage(c)
-	}()
-	streamSession := assistantStreamSessionFrom(c)
-	if streamSession != nil && c.GetBool(assistantSupportGuardKey) {
-		// Stream deltas can arrive once per token. Poll at most four times a
-		// second here; model/tool/final boundaries always check immediately.
-		var lastSupportCheck time.Time
-		var supportCheckMu sync.Mutex
-		streamSession.setSupportCheck(func() error {
-			supportCheckMu.Lock()
-			if time.Since(lastSupportCheck) < 250*time.Millisecond {
-				supportCheckMu.Unlock()
-				return nil
-			}
-			lastSupportCheck = time.Now()
-			supportCheckMu.Unlock()
-			if err := assistantSupportGuardError(c); err != nil {
-				cancel()
-				return err
-			}
-			return nil
-		})
-		defer streamSession.setSupportCheck(nil)
-	}
-	if assistantHumanSupportInterrupted(c) || assistantAgentRequestStopped(c) {
-		return
-	}
-
-	rootRequestID := c.GetString(common.RequestIdKey)
-	if rootRequestID == "" {
-		rootRequestID = common.NewRequestId()
-		c.Set(common.RequestIdKey, rootRequestID)
-	}
-
-	userContext := assistantUserContextFromGin(c)
-	adminAutomationAllowed := false
-	if settings.AgentLoopEnabled && userContext.AdministratorMode {
-		_, authErr := validateAssistantAdminAutomationSession(c, assistantActorUserID(c))
-		adminAutomationAllowed = authErr == nil
-	}
-	c.Set(assistantAdminAutomationContextKey, adminAutomationAllowed)
-	messages := make([]assistantOpenAIMessage, 1, len(conversation)+1)
-	messages[0] = assistantOpenAIMessage{Role: "system", Content: assistantPrompt(c, settings, userContext)}
-	messages = append(messages, conversation...)
-	var compactErr error
-	messages, compactErr = compactAssistantAgentContext(messages)
-	if compactErr != nil {
-		writeAssistantError(c, http.StatusRequestEntityTooLarge, "ASSISTANT_CONTEXT_TOO_LARGE", errors.New("assistant context exceeded its byte budget"))
-		return
-	}
-	maxSteps := settings.MaxSteps
-	if maxSteps < 1 {
-		maxSteps = 1
-	}
-	maxSteps = min(maxSteps, assistantAgentMaxSteps)
-	forceL0Assessment := assistantL0InterlocutorAssessmentRequired(userContext)
-	forceRecommendationWorkflow := assistantRecommendationWorkflowRequired(userContext)
-	forceCreateKeyWorkflow := assistantCreateKeyWorkflowRequired(userContext)
-	forceImageGenerationWorkflow := assistantImageGenerationWorkflowRequired(userContext)
-	forcePublicActivityWorkflow := assistantPublicActivityWorkflowRequired(userContext)
-	forceNewUserGiftWorkflow := assistantNewUserGiftWorkflowRequired(userContext)
-	forceWeeklyDiscountWorkflow := assistantWeeklyDiscountWorkflowRequired(userContext)
-	forceSupportBooking := assistantSupportBookingDecision(userContext.LatestUserRequest) > 0 || (!settings.AgentLoopEnabled && assistantSupportBookingAuthorized(c))
-	forceHumanSupportWorkflow := forceSupportBooking || assistantHumanSupportWorkflowRequired(userContext)
-	forceConversationTitle := userContext.ConversationTitleNeeded
-	forceReadChain := assistantLiveReadRequired(userContext)
-	if forceL0Assessment && maxSteps < 2 {
-		maxSteps = 2
-	}
-	if forceConversationTitle {
-		// Reserve an actual task tool and answer after the title attempt,
-		// including when the general-purpose loop is disabled.
-		minimum := 2
-		taskContext := userContext
-		taskContext.ConversationTitleNeeded = false
-		if assistantNamedToolChoiceName(assistantToolChoiceForContext(taskContext)) != "" {
-			minimum++
-		}
-		if maxSteps < minimum {
-			maxSteps = minimum
-		}
-	}
-	if minimum := assistantRecommendationWorkflowMinSteps(userContext); maxSteps < minimum {
-		maxSteps = minimum
-	}
-	if minimum := assistantCreateKeyWorkflowMinSteps(userContext); maxSteps < minimum {
-		maxSteps = minimum
-	}
-	if minimum := assistantImageGenerationWorkflowMinSteps(userContext); maxSteps < minimum {
-		maxSteps = minimum
-	}
-	if minimum := assistantLiveActivityWorkflowMinSteps(userContext); maxSteps < minimum {
-		maxSteps = minimum
-	}
-	if forceSupportBooking && maxSteps < 3 {
-		maxSteps = 3
-	}
-	if minimum := assistantHumanSupportWorkflowMinSteps(userContext); maxSteps < minimum {
-		maxSteps = minimum
-	}
-	if minimum := assistantReadChainSteps(userContext); maxSteps < minimum {
-		maxSteps = minimum
-	}
-	if !settings.AgentLoopEnabled {
-		if !forceL0Assessment && !forceConversationTitle && !forceRecommendationWorkflow && !forceCreateKeyWorkflow && !forceImageGenerationWorkflow && !forcePublicActivityWorkflow && !forceNewUserGiftWorkflow && !forceWeeklyDiscountWorkflow && !forceHumanSupportWorkflow && !forceReadChain {
-			maxSteps = 1
-		}
-	}
-	cacheKey := c.GetString("assistant_cache_key")
-	usedCacheSensitiveTool := false
-	agentEnabled := maxSteps > 1 && (settings.AgentLoopEnabled || forceL0Assessment || forceConversationTitle || forceRecommendationWorkflow || forceCreateKeyWorkflow || forceImageGenerationWorkflow || forcePublicActivityWorkflow || forceNewUserGiftWorkflow || forceWeeklyDiscountWorkflow || forceHumanSupportWorkflow || forceReadChain)
-	var tools []assistantOpenAIToolDefinition
-	var calledTools, successfulTools map[string]bool
-	toolTraces := make([]assistantToolTrace, 0, assistantToolCallsPerTurn)
-	if agentEnabled {
-		tools = assistantToolDefinitionsForContext(userContext)
-		calledTools = make(map[string]bool)
-		successfulTools = make(map[string]bool)
-	}
-	usedCallIDs := make(map[string]bool)
-	for _, message := range messages {
-		for _, call := range message.ToolCalls {
-			usedCallIDs[call.ID] = true
-		}
-	}
-	var loopGuard agent.LoopGuard
-	finalAnswerOnly := false
-	contextRecoveries := 0
-
-	for step := 0; step < maxSteps; step++ {
-		if assistantHumanSupportInterrupted(c) || assistantAgentRequestStopped(c) {
-			return
-		}
-		messages, compactErr = compactAssistantAgentContext(messages)
-		if compactErr != nil {
-			writeAssistantError(c, http.StatusRequestEntityTooLarge, "ASSISTANT_CONTEXT_TOO_LARGE", errors.New("required assistant context exceeded its byte budget"))
-			return
-		}
-		streamTurn := streamSession != nil && settings.StreamEnabled
-		request := assistantOpenAIRequest{
-			Model:           settings.Model,
-			Messages:        messages,
-			Stream:          streamTurn,
-			Temperature:     settings.Temperature,
-			MaxTokens:       settings.MaxTokens,
-			ReasoningEffort: assistantReasoningEffort(settings),
-		}
-		// Reserve the last turn for a final natural-language answer. This
-		// makes MaxSteps a hard bound while ensuring a tool call can finish.
-		if agentEnabled && step < maxSteps-1 && !finalAnswerOnly {
-			request.Tools = tools
-			request.ToolChoice = assistantToolChoiceForAgentStep(userContext, calledTools, successfulTools)
-		}
-
-		var status int
-		var body []byte
-		var err error
-		if streamTurn {
-			attempts := 0
-			status, body, err = relayAssistantTurnWithRetryUsing(c, request, rootRequestID, step, func(c *gin.Context, request assistantOpenAIRequest, rootRequestID string, step int) (int, []byte, error) {
-				if attempts > 0 {
-					if err := streamSession.resetContent(); err != nil {
-						return http.StatusBadGateway, nil, err
-					}
-				}
-				attempts++
-				return relayAssistantStreamTurn(c, request, rootRequestID, step, streamSession)
-			})
-		} else {
-			status, body, err = relayAssistantAgentTurn(c, request, rootRequestID, step)
-		}
-		if assistantHumanSupportInterrupted(c) || assistantAgentRequestStopped(c) {
-			return
-		}
-		if err != nil {
-			writeAssistantError(c, http.StatusInternalServerError, "ASSISTANT_REQUEST_BUILD_FAILED", errors.New("failed to build assistant request"))
-			return
-		}
-		if status < http.StatusOK || status >= http.StatusMultipleChoices {
-			if contextRecoveries < 2 && assistantUpstreamContextExceeded(status, body) {
-				// Provider windows differ. Retry a rejected model request with a
-				// smaller history, keeping exact policy, current task and latest
-				// tool receipt. No tool has executed for this failed turn.
-				if compacted, compactErr := agent.Compact(messages, assistantContextBytes(messages)*2/3); compactErr == nil {
-					messages = compacted
-					contextRecoveries++
-					if resetErr := streamSession.resetContent(); resetErr != nil {
-						writeAssistantError(c, http.StatusBadGateway, "ASSISTANT_STREAM_WRITE_FAILED", errors.New("assistant stream output failed"))
-						return
-					}
-					step--
-					continue
-				}
-			}
-			forcedTool := assistantNamedToolChoiceName(request.ToolChoice)
-			if forcedTool == "set_conversation_title" && assistantNamedToolChoiceUnsupported(body) {
-				// A provider's optional metadata limitation must not block the
-				// actual task. History already supplies a safe fallback title.
-				userContext = skipAssistantConversationTitle(c)
-				continue
-			}
-			if assistantNamedToolChoiceUnsupported(body) && assistantServerReadFallbackAllowed(forcedTool) {
-				// The provider cannot select the read explicitly. Execute the
-				// bounded server-owned read, append its verified result, then let
-				// the next streamed model turn draft from that context.
-				call := assistantOpenAIToolCall{
-					ID:       fmt.Sprintf("assistant-server-read-%d", step+1),
-					Type:     "function",
-					Function: assistantOpenAIToolCallFunction{Name: forcedTool},
-				}
-				call = agent.NormalizeCalls([]assistantOpenAIToolCall{call}, step, usedCallIDs)[0]
-				result := executeAssistantTool(c, call)
-				if c.IsAborted() {
-					return
-				}
-				resultJSON := assistantAgentToolResultJSON(result)
-				calledTools[forcedTool] = true
-				if ok, _ := result["ok"].(bool); ok {
-					successfulTools[forcedTool] = true
-				}
-				usedCacheSensitiveTool = true
-				toolTraces = append(toolTraces, buildAssistantToolTrace(call, result))
-				c.Set(assistantClientToolsKey, toolTraces)
-				messages = append(messages, assistantOpenAIMessage{
-					Role:      "assistant",
-					ToolCalls: []assistantOpenAIToolCall{call},
-				})
-				messages = append(messages, assistantOpenAIMessage{
-					Role:       "tool",
-					Content:    string(resultJSON),
-					ToolCallID: call.ID,
-				})
-				continue
-			}
-			writeAssistantUpstreamError(c, "ASSISTANT_UPSTREAM_FAILED", "AI assistant upstream request failed")
-			return
-		}
-
-		response, err := parseAssistantResponse(body)
-		if err != nil || len(response.Choices) == 0 {
-			writeAssistantUpstreamError(c, "ASSISTANT_INVALID_UPSTREAM_RESPONSE", "AI assistant upstream returned an invalid response")
-			return
-		}
-		message := response.Choices[0].Message
-		if assistantNamedToolChoiceName(request.ToolChoice) == "set_conversation_title" &&
-			(len(message.ToolCalls) != 1 || strings.TrimSpace(message.ToolCalls[0].Function.Name) != "set_conversation_title") {
-			userContext = skipAssistantConversationTitle(c)
-			// Reuse a complete answer to a plain question. A task that still
-			// needs an authoritative tool read must go through that workflow;
-			// never accept unsupported account or pricing claims as a fallback.
-			nextChoice := assistantToolChoiceForAgentStep(userContext, calledTools, successfulTools)
-			if assistantNamedToolChoiceName(nextChoice) != "" || len(message.ToolCalls) > 0 || strings.TrimSpace(assistantResponseContent(message.Content)) == "" {
-				if err := streamSession.resetContent(); err != nil {
-					writeAssistantError(c, http.StatusBadGateway, "ASSISTANT_STREAM_WRITE_FAILED", errors.New("assistant stream output failed"))
-					return
-				}
-				continue
-			}
-			request.ToolChoice = nil
-		}
-		if forceConversationTitle || forceRecommendationWorkflow || forceCreateKeyWorkflow || forceImageGenerationWorkflow || forcePublicActivityWorkflow || forceNewUserGiftWorkflow || forceWeeklyDiscountWorkflow || forceHumanSupportWorkflow || forceReadChain {
-			requiredTool := assistantNamedToolChoiceName(request.ToolChoice)
-			if requiredTool != "" && (len(message.ToolCalls) != 1 || strings.TrimSpace(message.ToolCalls[0].Function.Name) != requiredTool) {
-				writeAssistantError(c, http.StatusBadGateway, "ASSISTANT_REQUIRED_TOOL_MISSING", errors.New("assistant did not follow the required tool workflow"))
-				return
-			}
-		}
-		if len(message.ToolCalls) == 0 {
-			normalizedBody, normalizeErr := normalizeAssistantClientResponse(c, body)
-			if normalizeErr != nil {
-				writeAssistantUpstreamError(c, "ASSISTANT_EMPTY_UPSTREAM_RESPONSE", "AI assistant upstream returned no usable answer")
-				return
-			}
-			if !usedCacheSensitiveTool && cacheKey != "" {
-				storeAssistantCachedResponse(settings, cacheKey, status, normalizedBody, c.GetString(assistantConversationTitleDraftKey))
-				c.Header("X-LMM-Assistant-Cache", "STORE")
-			}
-			if streamSession != nil {
-				enrichedBody := assistantHistoryResponseBody(c, status, normalizedBody)
-				if c.GetBool("assistant_support_response_replaced") {
-					writeAssistantSupportCompletion(c, enrichedBody)
-					return
-				}
-				if !streamTurn {
-					finalResponse, parseErr := parseAssistantResponse(normalizedBody)
-					if parseErr == nil && len(finalResponse.Choices) > 0 {
-						_ = streamSession.appendContent(assistantResponseContent(finalResponse.Choices[0].Message.Content))
-					}
-				}
-				streamBody := sanitizeAssistantStreamResponseBody(enrichedBody, streamSession.safeContent())
-				c.Set(assistantFinalResponseBodyKey, streamBody)
-				if err := streamSession.finish(enrichedBody); err != nil {
-					writeAssistantError(c, http.StatusBadGateway, "ASSISTANT_STREAM_WRITE_FAILED", errors.New("assistant stream output failed"))
-				}
-				return
-			}
-			c.Data(status, "application/json; charset=utf-8", normalizedBody)
-			return
-		}
-		if (!settings.AgentLoopEnabled && !forceL0Assessment && !forceConversationTitle && !forceRecommendationWorkflow && !forceCreateKeyWorkflow && !forceImageGenerationWorkflow && !forcePublicActivityWorkflow && !forceNewUserGiftWorkflow && !forceWeeklyDiscountWorkflow && !forceHumanSupportWorkflow && !forceReadChain) || step >= maxSteps-1 || finalAnswerOnly {
-			writeAssistantError(c, http.StatusBadGateway, "ASSISTANT_AGENT_MAX_STEPS", errors.New("assistant agent reached its step limit before producing a final answer"))
-			return
-		}
-		if len(message.ToolCalls) > assistantToolCallsPerResponse {
-			writeAssistantError(c, http.StatusBadGateway, "ASSISTANT_TOO_MANY_TOOL_CALLS", errors.New("assistant requested too many tools in one turn"))
-			return
-		}
-
-		// Canonicalize before retaining the assistant message as well as its
-		// results. Repairing only tool_call_id leaves orphaned tool responses
-		// when a compatible provider omits IDs or surrounds them with spaces.
-		message.ToolCalls = agent.NormalizeCalls(message.ToolCalls, step, usedCallIDs)
-		messages = append(messages, assistantOpenAIMessage{
-			Role:      "assistant",
-			Content:   assistantResponseContent(message.Content),
-			ToolCalls: message.ToolCalls,
-		})
-		executed := 0
-		for _, call := range message.ToolCalls {
-			if assistantHumanSupportInterrupted(c) || assistantAgentRequestStopped(c) {
-				return
-			}
-			toolName := strings.TrimSpace(call.Function.Name)
-			if toolName != "set_conversation_title" {
-				usedCacheSensitiveTool = true
-			}
-			readOnly := assistantToolCallReadOnly(c, call)
-			var result map[string]any
-			switch {
-			case executed >= assistantToolCallsPerTurn:
-				result = map[string]any{"ok": false, "status": "tool_batch_limit", "error": "not executed: at most four tools run per round; request this call again in a later round"}
-			case assistantAdminRetryMutationBlocked(c, call):
-				result = assistantAdminRetryMutationResult()
-			case !loopGuard.Allow(call, readOnly):
-				result = map[string]any{"ok": false, "status": "tool_repetition_limit", "error": "not executed: this exact call already succeeded or repeatedly made no progress; use the existing result, change the request, or explain the remaining work"}
-			default:
-				calledTools[toolName] = true
-				executed++
-				result = executeAssistantTool(c, call)
-				ok, _ := result["ok"].(bool)
-				attempted, _ := result["mutation_attempted"].(bool)
-				loopGuard.Complete(call, readOnly, ok || attempted)
-				if isAssistantAdministratorTool(toolName) && !readOnly && (attempted || (ok && c.GetBool(assistantAdminAutomationContextKey))) {
-					c.Set("assistant_admin_mutation_attempted", true)
-				}
-			}
-			if c.IsAborted() {
-				return
-			}
-			resultJSON := assistantAgentToolResultJSON(result)
-			if ok, _ := result["ok"].(bool); ok {
-				successfulTools[toolName] = true
-			}
-			if toolName == "set_conversation_title" {
-				// Attempt optional metadata once, including malformed drafts, so
-				// it cannot consume the turns reserved for the user's task.
-				userContext = skipAssistantConversationTitle(c)
-			}
-			if toolName != "set_conversation_title" {
-				toolTraces = append(toolTraces, buildAssistantToolTrace(call, result))
-				c.Set(assistantClientToolsKey, toolTraces)
-			}
-			messages = append(messages, assistantOpenAIMessage{
-				Role:       "tool",
-				Content:    string(resultJSON),
-				ToolCallID: call.ID,
-			})
-		}
-		// An entirely repeated batch gets one final answer turn, so stalled
-		// plans cannot spend the remaining budget repeating identical calls.
-		finalAnswerOnly = executed == 0
-	}
-
-	writeAssistantError(c, http.StatusBadGateway, "ASSISTANT_AGENT_MAX_STEPS", errors.New("assistant agent reached its step limit"))
-}
-
 func skipAssistantConversationTitle(c *gin.Context) assistantUserContext {
 	userContext := assistantUserContextFromGin(c)
 	userContext.ConversationTitleNeeded = false
@@ -2171,7 +1775,7 @@ func normalizeAssistantClientResponse(c *gin.Context, body []byte) ([]byte, erro
 }
 
 func writeAssistantUpstreamError(c *gin.Context, code, message string) {
-	payload := gin.H{"success": false, "code": code, "message": message, "retryable": !c.GetBool("assistant_admin_mutation_attempted")}
+	payload := gin.H{"success": false, "code": code, "message": message, "retryable": !c.GetBool("assistant_admin_mutation_attempted") && !c.GetBool("assistant_work_started")}
 	if requestID := strings.TrimSpace(c.GetString(common.RequestIdKey)); requestID != "" {
 		payload["request_id"] = requestID
 	}

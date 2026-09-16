@@ -422,7 +422,7 @@ func writeAssistantError(c *gin.Context, status int, code string, err error) {
 			return
 		}
 	}
-	response := gin.H{"success": false, "code": code, "message": err.Error()}
+	response := gin.H{"success": false, "code": code, "message": err.Error(), "retryable": assistantErrorRetryable(status, code, c.GetBool("assistant_work_started") || c.GetBool("assistant_admin_mutation_attempted"))}
 	if c.GetBool("assistant_admin_mutation_attempted") {
 		response["retryable"] = false
 		response["mutation_attempted"] = true
