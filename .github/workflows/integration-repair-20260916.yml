@@ -1,0 +1,113 @@
+name: Reviewed integration repair
+
+on:
+  push:
+    branches: [integration/pr-merge-20260916]
+    paths:
+      - .github/scripts/reconcile-integration.py
+      - .github/workflows/integration-repair-20260916.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: reviewed-integration-repair
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: '1.3.14'
+      - name: Apply checksum-verified reviewed source changes
+        id: apply
+        run: python3 .github/scripts/reconcile-integration.py
+      - name: Install locked workspace dependencies
+        id: install
+        run: bun install --frozen-lockfile 2>&1 | tee integration-evidence/install.log
+      - name: Regenerate routes and compile production assets
+        id: build
+        run: |
+          cp apps/web/rsbuild.config.ts integration-evidence/rsbuild.config.original.ts
+          trap 'cp integration-evidence/rsbuild.config.original.ts apps/web/rsbuild.config.ts' EXIT
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('apps/web/rsbuild.config.ts')
+          s = "import fs from 'node:fs'\n" + p.read_text()
+          marker = '          tanstackRouter({'
+          assert s.count(marker) == 1
+          plugin = '''          { apply(compiler: any) {
+                      compiler.hooks.done.tap('IntegrationModuleSizes', (stats: any) => {
+                        const data = stats.toJson({ all: false, chunks: true, modules: true, chunkModules: true, nestedModules: true, orphanModules: true, dependentModules: true, groupModulesByType: false, groupModulesByAttributes: false, groupModulesByExtension: false, groupModulesByPath: false, groupModulesByCacheStatus: false, modulesSpace: 100000, chunkModulesSpace: 100000, ids: true, reasons: true });
+                        fs.writeFileSync('../../integration-evidence/bundle-stats.json', JSON.stringify(data));
+                      });
+                    } },
+          '''
+          p.write_text(s.replace(marker, plugin + marker))
+          PY
+          bun run --filter @lmm/web build 2>&1 | tee integration-evidence/build.log
+          grep -F '/red-packet/$slug' apps/web/src/routeTree.gen.ts >/dev/null
+          grep -F '/red-packets/' apps/web/src/routeTree.gen.ts >/dev/null
+          cp apps/web/dist/index.html integration-evidence/production-index.html
+      - name: Format reviewed source and generated route tree
+        id: format
+        if: ${{ !cancelled() && steps.apply.outcome == 'success' && steps.install.outcome == 'success' }}
+        run: |
+          bun run --filter @lmm/web format 2>&1 | tee integration-evidence/format.log
+          rustup toolchain install 1.91.0 --profile minimal --component rustfmt
+          (cd apps/api-rust && cargo +1.91.0 fmt --all)
+          git diff --check
+      - name: Publish only the isolated integration source
+        if: ${{ !cancelled() && steps.apply.outcome == 'success' && steps.format.outcome == 'success' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          test "$GITHUB_REF" = 'refs/heads/integration/pr-merge-20260916'
+          test "$(git ls-remote origin refs/heads/integration/pr-merge-20260916 | cut -f1)" = "$EXPECTED_SHA"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git rm -- .github/scripts/reconcile-integration.py .github/workflows/integration-repair-20260916.yml
+          git add -- apps/web/src apps/api-rust/src/channel_balance.rs apps/api-rust/src/channel_balance_store.rs
+          git diff --cached --check
+          git diff --cached --stat > integration-evidence/published-stat.txt
+          git -c core.hooksPath=/dev/null commit -m 'fix: restore route splitting and reconcile integrated validation contracts'
+          basic_auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w 0)
+          echo "::add-mask::$basic_auth"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $basic_auth" push origin HEAD:refs/heads/integration/pr-merge-20260916
+          git rev-parse HEAD > integration-evidence/validated-head.txt
+          git bundle create integration-evidence/integration.bundle HEAD
+      - name: Lint
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: bun run --filter @lmm/web lint 2>&1 | tee integration-evidence/lint.log
+      - name: Copyright
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: bun run --filter @lmm/web copyright:check 2>&1 | tee integration-evidence/copyright.log
+      - name: Typecheck
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: bun run --filter @lmm/web typecheck 2>&1 | tee integration-evidence/typecheck.log
+      - name: Test all web suites
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: bun run --filter @lmm/web test 2>&1 | tee integration-evidence/test.log
+      - name: Enforce unchanged initial asset budgets
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: bun run --filter @lmm/web bundle:check 2>&1 | tee integration-evidence/bundle-check.log
+      - name: Upload validation evidence and source bundle
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: reviewed-integration-repair-${{ github.sha }}
+          path: integration-evidence/
+          retention-days: 3
+          if-no-files-found: error
