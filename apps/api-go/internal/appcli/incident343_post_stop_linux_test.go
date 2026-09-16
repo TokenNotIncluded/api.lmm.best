@@ -75,7 +75,7 @@ func TestIncident343ForwardAuditRejectsAdditionalProgress(t *testing.T) {
 			if err := os.WriteFile(path, []byte("{}\n"), 0600); err != nil {
 				t.Fatal(err)
 			}
-			runtime := &productionRuntime{requiredOwnerUID: os.Geteuid()}
+			runtime := &productionRuntime{requiredOwnerUID: uint32(os.Geteuid())}
 			if err := runtime.requireIncident343Entries(directory, []string{"before-status.json"}); err != nil {
 				t.Fatal(err)
 			}
