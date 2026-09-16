@@ -1,0 +1,26 @@
+name: Assistant repair workspace
+
+on:
+  push:
+    branches: [fix/assistant-agent-liveness]
+    paths: [.github/workflows/assistant-agent-repair.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          persist-credentials: false
+      - name: Archive tracked source for isolated regression work
+        run: git archive --format=tar HEAD -o "$RUNNER_TEMP/assistant-source.tar"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: assistant-source
+          path: ${{ runner.temp }}/assistant-source.tar
+          retention-days: 1
+          if-no-files-found: error
