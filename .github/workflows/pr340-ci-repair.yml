@@ -1,0 +1,117 @@
+name: PR 340 CI repair
+on:
+  push:
+    branches: ['assistant/pr340-integration-20260916']
+    paths: ['.github/workflows/pr340-ci-repair.yml']
+permissions:
+  contents: read
+jobs:
+  diagnostics:
+    if: github.repository == 'TokenNotIncluded/api.lmm.best'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+    steps:
+      - name: Collect failed-job evidence without dumping full logs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p /tmp/pr340-diagnostics
+          for job in 104792753029 104792752923; do
+            gh api "repos/TokenNotIncluded/api.lmm.best/actions/jobs/$job" > "/tmp/pr340-diagnostics/$job.json"
+            gh api "repos/TokenNotIncluded/api.lmm.best/actions/jobs/$job/logs" > "/tmp/pr340-diagnostics/$job.log"
+          done
+          python3 - <<'PY'
+          import pathlib, re
+          root=pathlib.Path('/tmp/pr340-diagnostics')
+          out=[]
+          for p in root.glob('*.log'):
+              lines=p.read_text(errors='replace').splitlines()
+              keep=set(range(min(12,len(lines))))
+              for i,line in enumerate(lines):
+                  if re.search(r'(--- FAIL:|WARNING: DATA RACE|signal: killed|fatal error:|##\[error\]|^.{0,35}FAIL\s|##\[group\]Run go |go test .*\.\.\.)',line):
+                      keep.update(range(max(0,i-3),min(len(lines),i+18)))
+              out.extend(['FILE '+p.name]+[lines[i] for i in sorted(keep)])
+          text='\n'.join(out)
+          (root/'failures.txt').write_text(text)
+          print(text[-18000:])
+          PY
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: pr340-exact-ci-failures
+          path: /tmp/pr340-diagnostics
+          retention-days: 3
+  panel:
+    if: github.repository == 'TokenNotIncluded/api.lmm.best' && github.ref == 'refs/heads/assistant/pr340-integration-20260916'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: a33982d2d394a5d4d46f7d03f7269a5f40c08ebb
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: '1.3.14'
+      - run: bun install --frozen-lockfile
+      - name: Update stale panel fixtures and test retired-action replay protection
+        env:
+          PLAN: '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'
+        run: |
+          python3 - <<'PY'
+          import os,pathlib,hashlib,json,lzma,base64
+          blob=base64.b64decode(os.environ['PLAN'],validate=True)
+          assert hashlib.sha256(blob).hexdigest()=='5ed6ac3c6027f2b8c21b9e2ed97a299fd713b7ad3714d1f68ba60b8e3b9bd4fc'
+          rows=json.loads(lzma.decompress(blob)); assert len(rows)==1
+          r=rows[0]; assert r['path']=='apps/web/src/features/assistant/assistant-panel.test.tsx'
+          p=pathlib.Path(r['path']); old=p.read_bytes(); assert hashlib.sha256(old).hexdigest()==r['old']
+          lines=old.decode().splitlines(keepends=True)
+          for start,end,text in reversed(r['changes']): lines[start:end]=[text]
+          result=''.join(lines).encode(); assert hashlib.sha256(result).hexdigest()==r['new']
+          p.write_bytes(result)
+          PY
+          mkdir -p /tmp/pr340-panel
+          bun run --filter @lmm/web format > /tmp/pr340-panel/format.log 2>&1
+          python3 - <<'PY'
+          import subprocess
+          for path in subprocess.check_output(['git','diff','--name-only'],text=True).splitlines():
+              if path!='apps/web/src/features/assistant/assistant-panel.test.tsx': subprocess.run(['git','restore','--',path],check=True)
+          PY
+      - name: Run complete web test suite and static checks
+        shell: bash
+        run: |
+          status=0
+          for command in lint typecheck test build bundle:check copyright:check; do
+            bun run --filter @lmm/web "$command" > "/tmp/pr340-panel/$command.log" 2>&1 || { tail -70 "/tmp/pr340-panel/$command.log"; status=1; }
+          done
+          git diff --check || status=1
+          exit "$status"
+      - name: Commit and publish tested candidate only
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          test "$GITHUB_REF" = refs/heads/assistant/pr340-integration-20260916
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add apps/web/src/features/assistant/assistant-panel.test.tsx
+          git commit -m 'test(assistant): align panel fixtures and reject retired recommendation replay'
+          auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          echo "::add-mask::$auth"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" push origin HEAD:refs/heads/assistant/pr340-merged-20260916
+          git rev-parse HEAD HEAD^{tree} > /tmp/pr340-panel/commit.txt
+      - name: Save actual source and test evidence
+        if: always()
+        run: |
+          mkdir -p /tmp/pr340-panel
+          cp apps/web/src/features/assistant/assistant-panel.test.tsx /tmp/pr340-panel/assistant-panel.test.tsx
+          git diff > /tmp/pr340-panel/panel.patch
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: pr340-panel-regression
+          path: /tmp/pr340-panel
+          retention-days: 3
