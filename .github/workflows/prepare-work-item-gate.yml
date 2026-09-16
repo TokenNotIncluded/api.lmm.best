@@ -1,0 +1,102 @@
+name: Verify release work-item barrier
+
+on:
+  push:
+    branches: [release/acceptance-20260916]
+    paths: [.github/workflows/prepare-work-item-gate.yml]
+
+permissions:
+  contents: write
+  issues: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: candidate
+        shell: bash
+    steps:
+      - name: Checkout immutable reviewed patch
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: 31d30ba66adcf49fad50594afdc0fdee7376259f
+          path: review-input
+          sparse-checkout: .github/release-review
+          persist-credentials: false
+      - name: Checkout exact integration base
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: 1dc03f7a23c0d0ed31dfc19c0d16c9e37ee4cc85
+          path: candidate
+          persist-credentials: false
+      - name: Verify patch checksum and resulting source tree
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib
+          from pathlib import Path
+          data = Path('../review-input/.github/release-review/work-items.patch').read_bytes()
+          # Repair only a transport-added space before a diff header, then
+          # require the exact independently reviewed patch checksum.
+          data = data.replace(b'\n diff --git ', b'\ndiff --git ')
+          assert hashlib.sha256(data).hexdigest() == '5cdbcbde4631253e6d3aace80efce7492be67faf94002355fea8238340f3b782'
+          Path('/tmp/reviewed-work-items.patch').write_bytes(data)
+          PY
+          git apply --check /tmp/reviewed-work-items.patch
+          git apply --index /tmp/reviewed-work-items.patch
+          git diff --cached --check
+          test "$(git write-tree)" = ea234eb44b84cb9e67baa8431ee4ea2ede1b1c83
+      - name: Test blocking publication and existing quality contracts
+        run: |
+          set -euo pipefail
+          python3 -B -m unittest discover -s scripts -p test_release_work_items.py -v
+          python3 -B -m unittest discover -s scripts -p test_ci_quality_gate.py
+          python3 -B -m unittest discover -s scripts -p test_public_production.py
+      - name: Set up Go for workflow validation
+        uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5
+        with:
+          go-version-file: candidate/apps/api-go/go.mod
+          cache: false
+      - name: Validate all candidate workflows
+        env:
+          GOWORK: off
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 -color
+      - name: Exercise the live read-only gate and store exact immutable objects
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import importlib.util, json, os, subprocess
+          from pathlib import Path
+          repository = os.environ['GITHUB_REPOSITORY']
+          spec = importlib.util.spec_from_file_location('work_items', 'scripts/verify-release-work-items.py')
+          module = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(module)
+          try:
+              module.verify(repository)
+          except module.ReleaseBlocked as error:
+              if not str(error).startswith(('open issue #', 'open pull request #')):
+                  raise
+              print('Live gate correctly refused publication:', error)
+          else:
+              print('Live gate found no open work; no publication was attempted.')
+          def api(path, payload):
+              response = subprocess.run(['gh', 'api', '--hostname', 'github.com', '--method', 'POST', f'repos/{repository}/git/{path}', '--input', '-'], input=json.dumps(payload), text=True, capture_output=True, check=True)
+              return json.loads(response.stdout)
+          paths = subprocess.check_output(['git', 'diff', '--cached', '--name-only', 'HEAD'], text=True).splitlines()
+          assert len(paths) == 6, paths
+          entries = []
+          for path in paths:
+              blob = api('blobs', {'content': Path(path).read_text(), 'encoding': 'utf-8'})
+              expected = subprocess.check_output(['git', 'rev-parse', ':' + path], text=True).strip()
+              assert blob['sha'] == expected, path
+              entries.append({'path': path, 'mode': '100644', 'type': 'blob', 'sha': blob['sha']})
+          tree = api('trees', {'base_tree': 'aa4b45e81633ef35ac90e1742b38448785095e16', 'tree': entries})
+          assert tree['sha'] == 'ea234eb44b84cb9e67baa8431ee4ea2ede1b1c83', tree['sha']
+          print('Validated immutable tree:', tree['sha'])
+          print('No branch, release, tag, issue state or production service was changed.')
+          PY
