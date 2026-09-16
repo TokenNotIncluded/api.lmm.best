@@ -1,13 +1,47 @@
     Updating crates.io index
-error: checksum for `percent-encoding v2.3.2` changed between lock files
+    Removing ahash v0.7.8
+      Adding aws-lc-rs v1.18.1
+      Adding aws-lc-sys v0.45.0
+    Removing base16ct v0.2.0
+    Removing bitvec v1.1.1
+    Removing bytecheck v0.6.12
+    Removing bytecheck_derive v0.6.12
+      Adding cmake v0.1.58
+    Removing crypto-bigint v0.5.5
+      Adding dunce v1.0.5
+    Removing ecdsa v0.16.9
+    Removing elliptic-curve v0.13.8
+    Removing ff v0.13.1
+      Adding fs_extra v1.3.0
+    Removing funty v2.0.0
+    Removing group v0.13.0
+    Removing hashbrown v0.12.3
+    Updating jsonwebtoken v10.3.0 -> v10.4.0 (requires Rust 1.88.0)
+    Removing libm v0.2.16
+    Removing num-bigint-dig v0.8.6
+    Removing num-iter v0.1.46
+    Removing p256 v0.13.2
+    Removing p384 v0.13.1
+    Removing pem-rfc7468 v0.7.0
+    Removing primeorder v0.13.6
+    Removing ptr_meta v0.1.4
+    Removing ptr_meta_derive v0.1.4
+    Removing radium v0.7.0
+    Removing rend v0.4.2
+    Removing rfc6979 v0.4.0
+    Removing rkyv v0.7.46
+    Removing rkyv_derive v0.7.46
+    Removing rsa v0.9.10
+    Updating rust_decimal v1.42.1 -> v1.43.0
+    Removing seahash v4.1.0
+    Removing sec1 v0.7.3
+    Removing simdutf8 v0.1.5
+    Removing spin v0.9.9
+    Removing syn v1.0.109
+    Removing tap v1.0.1
+      Adding untrusted v0.7.1
+    Removing wyz v0.5.1
+      Adding zeroize_derive v1.5.0
+note: pass `--verbose` to see 83 unchanged dependencies behind latest
 
-this could be indicative of a few possible errors:
-
-    * the lock file is corrupt
-    * a replacement source in use (e.g., a mirror) returned a different checksum
-    * the source itself may be corrupt in one way or another
-
-unable to verify that `percent-encoding v2.3.2` is the same as when the lockfile was generated
-
-
-exit_code=101
+exit_code=0
