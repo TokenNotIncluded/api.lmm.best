@@ -106,6 +106,8 @@ run_relay_timeouts() {
   require_loopback_url LMM_TEST_DATABASE_URL
   cargo test --locked --manifest-path "$manifest" -p lmm-api-rs \
     --test relay_anthropic_gemini_postgres -- --ignored --test-threads=1
+  cargo test --locked --manifest-path "$manifest" -p lmm-api-rs \
+    --test relay_openai_specific_channel_pg -- --ignored --test-threads=1
   [[ ${LMM_AUTH_TEST_ALLOW_SCHEMA_RESET:-} == 1 ]] || {
     echo "LMM_AUTH_TEST_ALLOW_SCHEMA_RESET=1 is required for the isolated relay-misc schema reset" >&2
     exit 1

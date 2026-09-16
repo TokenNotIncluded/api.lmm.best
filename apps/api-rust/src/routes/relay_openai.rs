@@ -250,6 +250,15 @@ pub trait OpenAiRelayService: Send + Sync {
     ) -> Result<OpenAiRelayResult, OpenAiRelayFailure>;
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct RelayTokenCredential {
+    key: String,
+    // Keep an explicitly empty suffix as `Some("")`: Go's TokenAuth rejects
+    // any suffix for non-admin users, while an admin token ending in `-`
+    // behaves like an unpinned request after authorization.
+    channel_suffix: Option<String>,
+}
+
 /// PostgreSQL-backed minimal production executor for OpenAI-compatible
 /// channels.
 ///
@@ -286,7 +295,7 @@ impl PgOpenAiRelayService {
         headers: &HeaderMap,
         client_ip: Option<IpAddr>,
     ) -> Result<(), OpenAiRelayFailure> {
-        let key = token_key(headers).ok_or_else(unauthorized_failure)?;
+        let credential = relay_token_credential(headers).ok_or_else(unauthorized_failure)?;
         let now = epoch_seconds();
         let row = sqlx::query(
             r#"SELECT COALESCE(t.status,1) AS token_status,
@@ -294,11 +303,12 @@ impl PgOpenAiRelayService {
                       COALESCE(t.remain_quota,0) AS remain_quota,
                       COALESCE(t.unlimited_quota,FALSE) AS unlimited_quota,
                       COALESCE(t.allow_ips,'') AS allow_ips,
-                      COALESCE(u.status,1) AS user_status
+                      COALESCE(u.status,1) AS user_status,
+                      COALESCE(u.role,1) AS user_role
                FROM tokens t JOIN users u ON u.id=t.user_id
                WHERE t.key=$1 AND t.deleted_at IS NULL AND u.deleted_at IS NULL"#,
         )
-        .bind(key)
+        .bind(&credential.key)
         .fetch_optional(&self.pg)
         .await
         .map_err(|_| internal_failure())?
@@ -323,6 +333,12 @@ impl PgOpenAiRelayService {
                 "your IP is not allowed by this token",
             ));
         }
+        let role = row
+            .try_get::<i64, _>("user_role")
+            .map_err(|_| internal_failure())?;
+        if credential.channel_suffix.is_some() && role < 10 {
+            return Err(specific_channel_forbidden_failure());
+        }
         Ok(())
     }
 
@@ -330,7 +346,13 @@ impl PgOpenAiRelayService {
         &self,
         request: &OpenAiRelayRequest,
     ) -> Result<Reservation, OpenAiRelayFailure> {
-        let key = token_key(&request.headers).ok_or_else(unauthorized_failure)?;
+        let credential =
+            relay_token_credential(&request.headers).ok_or_else(unauthorized_failure)?;
+        let specific_channel_id = match credential.channel_suffix.as_deref() {
+            None | Some("") => None,
+            Some(raw) => Some(raw.parse::<i64>().map_err(|_| invalid_channel_failure())?),
+        };
+        let key = &credential.key;
         let now = epoch_seconds();
         let selection_model = channel_selection_model(request.endpoint, &request.request.model);
         let mut tx = self.pg.begin().await.map_err(|_| internal_failure())?;
@@ -344,7 +366,7 @@ impl PgOpenAiRelayService {
         let replayed = sqlx::query_scalar::<_, i64>(
             "SELECT 1 FROM logs WHERE token_id=(SELECT id FROM tokens WHERE key=$1 AND deleted_at IS NULL) AND request_id=$2 AND type=2 LIMIT 1",
         )
-        .bind(&key)
+        .bind(key)
         .bind(&request.request_id)
         .fetch_optional(&mut *tx)
         .await
@@ -365,23 +387,38 @@ impl PgOpenAiRelayService {
                       COALESCE(t.unlimited_quota,FALSE) AS unlimited_quota,
                       COALESCE(u.status,1) AS user_status,
                       COALESCE(u.quota,0) AS user_quota,
-                      c.id AS channel_id, COALESCE(c.base_url,'') AS base_url,
+                      c.id AS channel_id, COALESCE(c.status,1) AS channel_status,
+                      COALESCE(c.base_url,'') AS base_url,
                       c.key AS channel_key
                FROM tokens t JOIN users u ON u.id=t.user_id
                JOIN abilities a ON a."group"=t."group" AND a.model=$2
                    AND COALESCE(a.enabled,TRUE)
                JOIN channels c ON c.id=a.channel_id
                WHERE t.key=$1 AND t.deleted_at IS NULL AND u.deleted_at IS NULL
-                   AND COALESCE(c.status,1)=1
+                   AND ($3::BIGINT IS NULL OR c.id=$3)
+                   AND ($3::BIGINT IS NOT NULL OR COALESCE(c.status,1)=1)
                ORDER BY COALESCE(a.priority,0) DESC, COALESCE(a.weight,0) DESC, c.id
                LIMIT 1 FOR UPDATE OF t,u,c"#,
         )
-        .bind(&key)
+        .bind(key)
         .bind(selection_model)
+        .bind(specific_channel_id)
         .fetch_optional(&mut *tx)
         .await
-        .map_err(|_| internal_failure())?
-        .ok_or_else(no_channel_failure)?;
+        .map_err(|_| internal_failure())?;
+        let row = match row {
+            Some(row) => row,
+            None if specific_channel_id.is_some() => return Err(invalid_channel_failure()),
+            None => return Err(no_channel_failure()),
+        };
+        if specific_channel_id.is_some()
+            && row
+                .try_get::<i64, _>("channel_status")
+                .map_err(|_| internal_failure())?
+                != 1
+        {
+            return Err(channel_disabled_failure());
+        }
         let token_status: i64 = row
             .try_get("token_status")
             .map_err(|_| internal_failure())?;
@@ -1221,7 +1258,7 @@ fn request_id(request: &Request) -> String {
         .map_or_else(|| uuid::Uuid::new_v4().to_string(), str::to_owned)
 }
 
-fn token_key(headers: &HeaderMap) -> Option<String> {
+fn relay_token_credential(headers: &HeaderMap) -> Option<RelayTokenCredential> {
     let raw = headers
         .get(header::AUTHORIZATION)
         .or_else(|| headers.get("api-key"))?
@@ -1232,11 +1269,17 @@ fn token_key(headers: &HeaderMap) -> Option<String> {
         .strip_prefix("Bearer ")
         .or_else(|| raw.strip_prefix("bearer "))
         .unwrap_or(raw)
-        .trim()
-        .strip_prefix("sk-")
-        .unwrap_or(raw);
-    let key = raw.split('-').next().unwrap_or_default().trim();
-    (!key.is_empty()).then(|| key.to_owned())
+        .trim();
+    let raw = raw.strip_prefix("sk-").unwrap_or(raw);
+    let mut parts = raw.split('-');
+    let key = parts.next().unwrap_or_default().trim();
+    if key.is_empty() {
+        return None;
+    }
+    Some(RelayTokenCredential {
+        key: key.to_owned(),
+        channel_suffix: parts.next().map(|part| part.trim().to_owned()),
+    })
 }
 
 fn ip_is_allowed(client_ip: Option<IpAddr>, raw_limits: &str) -> bool {
@@ -1268,6 +1311,23 @@ fn epoch_seconds() -> i64 {
 
 fn unauthorized_failure() -> OpenAiRelayFailure {
     OpenAiRelayFailure::new(StatusCode::UNAUTHORIZED, "", "Invalid token")
+}
+
+fn specific_channel_forbidden_failure() -> OpenAiRelayFailure {
+    let mut failure = OpenAiRelayFailure::new(StatusCode::FORBIDDEN, "", "普通用户不支持指定渠道");
+    failure.headers.insert(
+        HeaderName::from_static("specific_channel_version"),
+        HeaderValue::from_static("701e3ae1dc3f7975556d354e0675168d004891c8"),
+    );
+    failure
+}
+
+fn invalid_channel_failure() -> OpenAiRelayFailure {
+    OpenAiRelayFailure::new(StatusCode::BAD_REQUEST, "", "无效的渠道 Id")
+}
+
+fn channel_disabled_failure() -> OpenAiRelayFailure {
+    OpenAiRelayFailure::new(StatusCode::FORBIDDEN, "", "该渠道已被禁用")
 }
 
 fn no_channel_failure() -> OpenAiRelayFailure {
@@ -2078,13 +2138,43 @@ mod tests {
     }
 
     #[test]
-    fn legacy_token_parser_removes_transport_and_channel_suffixes() {
+    fn legacy_token_parser_preserves_go_specific_channel_suffix() {
         let mut headers = HeaderMap::new();
         headers.insert(
             header::AUTHORIZATION,
-            HeaderValue::from_static("Bearer sk-tenant-key-channel-7"),
+            HeaderValue::from_static("Bearer sk-tenant-7-extra"),
         );
-        assert_eq!(token_key(&headers).as_deref(), Some("tenant"));
+        assert_eq!(
+            relay_token_credential(&headers),
+            Some(RelayTokenCredential {
+                key: "tenant".to_owned(),
+                channel_suffix: Some("7".to_owned()),
+            })
+        );
+
+        headers.insert(
+            header::AUTHORIZATION,
+            HeaderValue::from_static("Bearer sk-tenant-"),
+        );
+        assert_eq!(
+            relay_token_credential(&headers),
+            Some(RelayTokenCredential {
+                key: "tenant".to_owned(),
+                channel_suffix: Some(String::new()),
+            })
+        );
+    }
+
+    #[test]
+    fn specific_channel_denial_matches_go_legacy_contract() {
+        let failure = specific_channel_forbidden_failure();
+        assert_eq!(failure.status, StatusCode::FORBIDDEN);
+        assert_eq!(failure.code, "");
+        assert_eq!(failure.message, "普通用户不支持指定渠道");
+        assert_eq!(
+            failure.headers["specific_channel_version"],
+            "701e3ae1dc3f7975556d354e0675168d004891c8"
+        );
     }
 
     #[test]
