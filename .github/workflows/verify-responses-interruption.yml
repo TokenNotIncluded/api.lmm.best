@@ -1,0 +1,118 @@
+name: Verify Responses interruption remediation
+
+on:
+  push:
+    branches: [release/acceptance-20260916]
+    paths: [.github/workflows/verify-responses-interruption.yml]
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  CARGO_BUILD_JOBS: "2"
+  CARGO_INCREMENTAL: "0"
+  CARGO_PROFILE_DEV_DEBUG: "0"
+  CARGO_PROFILE_TEST_DEBUG: "0"
+  GOMAXPROCS: "2"
+
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout immutable diagnostic candidate
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: e24a16184da0b9f8c83ae604dcd7478547fa3ef5
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Prepare exact source and exclude diagnostic helper
+        run: |
+          python3 .github/release-review/apply-responses-runtime.py
+          git rm .github/release-review/apply-responses-runtime.py
+      - name: Install pinned Rust toolchain
+        run: rustup toolchain install 1.91.0 --profile minimal --component clippy,rustfmt
+      - name: Format and check Rust candidate
+        working-directory: apps/api-rust
+        run: |
+          cargo +1.91.0 fmt --all
+          cargo +1.91.0 clippy --locked --workspace --all-targets -- -D warnings
+      - name: Run actual Responses guard and surrounding HTTP route tests
+        working-directory: apps/api-rust
+        run: cargo +1.91.0 test --locked --lib routes::relay_openai:: -- --nocapture
+      - name: Store immutable formatted source objects without updating any branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git add apps/api-rust/src/routes/relay_openai.rs apps/api-rust/src/routes/relay_openai/responses_terminal.rs apps/api-rust/src/routes/relay_openai/responses_terminal/tests.rs apps/api-go/controller/relay_responses_settlement_test.go
+          git diff --cached --check
+          python3 - <<'PY'
+          import json, os, subprocess
+          from pathlib import Path
+          repo = os.environ['GITHUB_REPOSITORY']
+          expected = {
+              'apps/api-rust/src/routes/relay_openai.rs',
+              'apps/api-rust/src/routes/relay_openai/responses_terminal.rs',
+              'apps/api-rust/src/routes/relay_openai/responses_terminal/tests.rs',
+              'apps/api-go/controller/relay_responses_settlement_test.go',
+          }
+          paths = subprocess.check_output(['git','diff','--cached','--name-only','a50db823a1fc2c57ee136ce64507c31c7e82ebfe'], text=True).splitlines()
+          assert set(paths) == expected, paths
+          def api(kind, payload):
+              process = subprocess.run(['gh','api','--method','POST',f'repos/{repo}/git/{kind}','--input','-'], input=json.dumps(payload), text=True, capture_output=True)
+              if process.returncode:
+                  raise RuntimeError(f'Git object storage failed: {kind}')
+              return json.loads(process.stdout)
+          entries = []
+          for path in sorted(paths):
+              blob = api('blobs', {'content': Path(path).read_text(), 'encoding':'utf-8'})
+              assert blob['sha'] == subprocess.check_output(['git','hash-object',path], text=True).strip()
+              entries.append({'path':path,'mode':'100644','type':'blob','sha':blob['sha']})
+          tree = api('trees', {'base_tree':'11fe68c61a3e30c7fddec1e67b6eb075264bfda0','tree':entries})
+          assert tree['sha'] == subprocess.check_output(['git','write-tree'], text=True).strip()
+          print(json.dumps({'tree':tree['sha'],'files':entries,'production_changes':False}, indent=2))
+          Path('/tmp/responses-source.json').write_text(json.dumps({'tree':tree['sha'],'files':entries},indent=2))
+          PY
+      - name: Export source review evidence
+        if: ${{ always() }}
+        run: |
+          git diff a50db823a1fc2c57ee136ce64507c31c7e82ebfe -- apps/api-rust/src/routes/relay_openai.rs apps/api-rust/src/routes/relay_openai/responses_terminal.rs apps/api-rust/src/routes/relay_openai/responses_terminal/tests.rs apps/api-go/controller/relay_responses_settlement_test.go > /tmp/responses-source.patch
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: ${{ always() }}
+        with:
+          name: responses-interruption-source
+          path: |
+            /tmp/responses-source.patch
+            /tmp/responses-source.json
+          retention-days: 3
+          if-no-files-found: error
+  go:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout immutable diagnostic candidate
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: e24a16184da0b9f8c83ae604dcd7478547fa3ef5
+          persist-credentials: false
+      - name: Prepare exact source
+        run: python3 .github/release-review/apply-responses-runtime.py
+      - name: Set up Go
+        uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5
+        with:
+          go-version-file: apps/api-go/go.mod
+          cache-dependency-path: apps/api-go/go.sum
+      - name: Check Go source format
+        run: test -z "$(gofmt -l apps/api-go/controller/relay_responses_settlement_test.go)"
+      - name: Exercise real HTTP streaming and exact billing with race detection
+        working-directory: apps/api-go
+        run: go test -race -p 2 ./controller -run '^TestResponsesRelayPartialSettlement$' -count=1 -v
+      - name: Exercise terminal, scanner and billing regression packages
+        working-directory: apps/api-go
+        run: go test -race -p 2 ./relay/channel/openai ./relay/helper ./service -count=1
