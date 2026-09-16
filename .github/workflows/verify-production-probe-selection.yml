@@ -1,0 +1,94 @@
+name: Verify production probe credential boundary
+on:
+  push:
+    branches: [release/acceptance-20260916]
+    paths: [.github/workflows/verify-production-probe-selection.yml]
+permissions:
+  contents: write
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: fixture
+          POSTGRES_PASSWORD: fixture-test-password
+          POSTGRES_DB: fixture
+        ports:
+          - '127.0.0.1:5432:5432'
+        options: >-
+          --health-cmd 'pg_isready -U fixture -d fixture'
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: 2ab88d155091855ba8f1285c9a44ffdaf638cbbf
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Apply minimal reviewed selection predicate
+        run: |
+          python3 .github/release-review/apply-probe-credential-boundary.py
+          git rm .github/release-review/apply-probe-credential-boundary.py
+          test "$(git hash-object apps/api-go/internal/appcli/deploy_production_probe_selection_test.go)" = 78bcc05822fece9cd9cab4bc2bce0f1e75d3b3f6
+          git add apps/api-go/internal/appcli/deploy_production_backup.go
+          git diff --cached --check
+          test "$(git write-tree)" = b875254405faa7b1176ddb3e4c141d7418df15c1
+      - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5
+        with:
+          go-version-file: apps/api-go/go.mod
+          cache-dependency-path: apps/api-go/go.sum
+      - name: Install real database and archive contract tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes postgresql-client libarchive-tools
+      - name: Check native selection and all deployment contracts with race detection
+        working-directory: apps/api-go
+        run: |
+          test -z "$(gofmt -l internal/appcli/deploy_production_backup.go internal/appcli/deploy_production_probe_selection_test.go)"
+          go test -race -p 2 ./internal/appcli -count=1
+      - name: Execute the canonical SQL against modern and pre-OAuth PostgreSQL schemas
+        env:
+          PGPASSWORD: fixture-test-password
+        run: |
+          python3 - <<'PY'
+          import re, subprocess
+          from pathlib import Path
+          source=Path('apps/api-go/internal/appcli/deploy_production_backup.go').read_text()
+          query=re.search(r'const tokenQuery = `([^`]+)`',source,re.S).group(1)
+          old=query.replace("  -- OAuth-managed rows are accounting records, not raw bearer credentials.\n  -- to_jsonb preserves the pre-OAuth schema used by older rollback packages.\n  AND COALESCE((to_jsonb(tokens)->>'oauth_managed')::boolean, false) = false\n",'')
+          assert old!=query
+          setup="""BEGIN;
+          CREATE TEMP TABLE users (id integer,status integer,role integer);
+          INSERT INTO users VALUES (1,1,100);
+          CREATE TEMP TABLE tokens (id integer,user_id integer,key text,deleted_at timestamp,status integer,expired_time bigint,unlimited_quota boolean,remain_quota bigint,allow_ips text,oauth_managed boolean);
+          INSERT INTO tokens VALUES (2,1,'oauth_accounting_identifier',NULL,1,-1,true,9999,'',true),(1,1,'manual_bearer_credential',NULL,1,-1,false,100,'',false);
+          """
+          args=['psql','-X','-A','-t','-q','-v','ON_ERROR_STOP=1','-h','127.0.0.1','-U','fixture','-d','fixture']
+          sql=setup+old+';\n'+query+';\nDELETE FROM tokens WHERE oauth_managed=false;\n'+query+';\nTRUNCATE tokens;\nALTER TABLE tokens DROP COLUMN oauth_managed;\nINSERT INTO tokens VALUES (1,1,\'legacy_bearer_credential\',NULL,1,-1,false,100,\'\');\n'+query+';\nROLLBACK;\n'
+          result=subprocess.run(args,input=sql,text=True,capture_output=True,check=True)
+          assert result.stdout.splitlines()==['oauth_accounting_identifier','manual_bearer_credential','legacy_bearer_credential'],result.stdout
+          print('PostgreSQL 18: old query selects unusable OAuth row; fixed query selects manual bearer; OAuth-only returns no credential; legacy schema remains compatible.')
+          PY
+      - name: Store exact verified source objects only
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import json,os,subprocess
+          from pathlib import Path
+          repo=os.environ['GITHUB_REPOSITORY']
+          entries=[]
+          for path in ['apps/api-go/internal/appcli/deploy_production_backup.go','apps/api-go/internal/appcli/deploy_production_probe_selection_test.go']:
+              result=subprocess.run(['gh','api','--method','POST',f'repos/{repo}/git/blobs','--input','-'],input=json.dumps({'content':Path(path).read_text(),'encoding':'utf-8'}),text=True,capture_output=True,check=True)
+              blob=json.loads(result.stdout)
+              assert blob['sha']==subprocess.check_output(['git','hash-object',path],text=True).strip()
+              entries.append({'path':path,'mode':'100644','type':'blob','sha':blob['sha']})
+          result=subprocess.run(['gh','api','--method','POST',f'repos/{repo}/git/trees','--input','-'],input=json.dumps({'base_tree':'e5e4210797a1578efbce87d1008e55591afb073b','tree':entries}),text=True,capture_output=True,check=True)
+          tree=json.loads(result.stdout)['sha']
+          assert tree=='b875254405faa7b1176ddb3e4c141d7418df15c1'
+          print(json.dumps({'tree':tree,'files':entries,'release_or_production_changes':False},indent=2))
+          PY
