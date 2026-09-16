@@ -342,9 +342,11 @@ mod tests {
         }
     }
 
+    type RecordedRequests = Arc<Mutex<Vec<(String, Option<String>)>>>;
+
     #[derive(Clone)]
     struct MockState {
-        requests: Arc<Mutex<Vec<(String, Option<String>)>>>,
+        requests: RecordedRequests,
         body: Vec<u8>,
         redirect: bool,
     }
@@ -368,7 +370,7 @@ mod tests {
         redirect: bool,
     ) -> (
         reqwest::Url,
-        Arc<Mutex<Vec<(String, Option<String>)>>>,
+        RecordedRequests,
         tokio::task::JoinHandle<std::io::Result<()>>,
     ) {
         let requests = Arc::new(Mutex::new(Vec::new()));
