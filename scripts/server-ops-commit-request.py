@@ -16,6 +16,7 @@ REQUEST = '.github/server-ops-343-request.json'
 SCRIPT = 'scripts/server-repairs/inspect-startup-343.sh'
 RECOVERY_OPERATION = 'recover-red-packet-schema-343'
 OPERATIONS = {'inspect-startup-343': SCRIPT,
+              'inspect-backup-343': 'scripts/server-repairs/inspect-backup-343.sh',
               RECOVERY_OPERATION: 'scripts/server-repairs/recover-red-packet-schema-343.sh'}
 
 
