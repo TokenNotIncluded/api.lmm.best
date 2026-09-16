@@ -1,0 +1,33 @@
+name: Release source export
+on:
+  push:
+    branches: [release/acceptance-20260916]
+    paths: [.github/workflows/release-source-export.yml]
+permissions:
+  contents: read
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Export source objects without credentials or working-directory secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin refs/pull/339/head:refs/remotes/origin/export-pr339 refs/pull/340/head:refs/remotes/origin/export-pr340
+          mkdir -p /tmp/lmm-release-source
+          git bundle create /tmp/lmm-release-source/source.bundle refs/remotes/origin/main refs/remotes/origin/export-pr339 refs/remotes/origin/export-pr340 refs/heads/release/acceptance-20260916
+          git bundle verify /tmp/lmm-release-source/source.bundle
+          git bundle list-heads /tmp/lmm-release-source/source.bundle | tee /tmp/lmm-release-source/refs.txt
+          sha256sum /tmp/lmm-release-source/source.bundle
+          du -h /tmp/lmm-release-source/source.bundle
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: release-source-${{ github.run_id }}
+          path: /tmp/lmm-release-source/
+          retention-days: 1
+          if-no-files-found: error
