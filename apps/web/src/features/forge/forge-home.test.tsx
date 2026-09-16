@@ -333,9 +333,7 @@ describe('ForgeHome configured destinations', () => {
       }),
     })
     assert.equal(
-      hidden.container.querySelector(
-        '.forge-home-destinations a[href="/security"]'
-      ),
+      hidden.container.querySelector('.lmm-destinations a[href="/security"]'),
       null
     )
     await unmountHome(hidden)
@@ -346,7 +344,7 @@ describe('ForgeHome configured destinations', () => {
     })
     assert.ok(
       gated.container.querySelector(
-        '.forge-home-destinations a[href="/sign-in?redirect=%2Fsecurity"]'
+        '.lmm-destinations a[href="/sign-in?redirect=%2Fsecurity"]'
       )
     )
     await unmountHome(gated)

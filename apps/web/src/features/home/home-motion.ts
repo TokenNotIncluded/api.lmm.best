@@ -377,7 +377,7 @@ export function mountHomeMotion(root: HTMLElement) {
       schedule()
     }
   }
-  const observer = new IntersectionObserver(([entry]) => {
+  const observer = new window.IntersectionObserver(([entry]) => {
     visible = entry.isIntersecting
     lastTime = 0
     if (!visible && frame !== null) {
@@ -390,7 +390,7 @@ export function mountHomeMotion(root: HTMLElement) {
     }
   })
   observer.observe(cinema)
-  const resizeObserver = new ResizeObserver(resize)
+  const resizeObserver = new window.ResizeObserver(resize)
   resizeObserver.observe(root)
   resizeObserver.observe(cinema)
   cinema.addEventListener('pointermove', move, { passive: true })
