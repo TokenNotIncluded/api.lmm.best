@@ -1,0 +1,29 @@
+name: PR 340 integration context
+on:
+  push:
+    branches: ['assistant/pr340-integration-20260916']
+    paths: ['.github/workflows/pr340-integration-context.yml']
+permissions:
+  contents: read
+jobs:
+  context:
+    if: github.repository == 'TokenNotIncluded/api.lmm.best'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Export tracked Git objects only
+        run: |
+          git fetch --no-tags origin main:refs/heads/upstream-main refs/pull/340/head:refs/heads/pr340-head
+          mkdir -p /tmp/pr340-context
+          git rev-parse upstream-main pr340-head > /tmp/pr340-context/refs.txt
+          git bundle create /tmp/pr340-context/context.bundle upstream-main pr340-head
+          sha256sum /tmp/pr340-context/context.bundle > /tmp/pr340-context/SHA256SUMS
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: pr340-integration-context
+          path: /tmp/pr340-context
+          retention-days: 3
