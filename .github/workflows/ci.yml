@@ -2,11 +2,17 @@ name: CI
 
 on:
   pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
   push:
     # Feature branches run through pull_request; keep main and tag evidence for releases.
     branches: [main]
     tags: ["*"]
   workflow_dispatch:
+    inputs:
+      base-ref:
+        description: Git ref for the translation regression comparison
+        default: HEAD^
+        type: string
   merge_group:
     types: [checks_requested]
 
@@ -63,6 +69,13 @@ jobs:
 
       - name: Test public production acceptance
         run: python3 -B -m unittest discover -s scripts -p test_public_production.py
+
+      - name: Test workflow topology and deployment guards
+        run: |
+          node --test scripts/workflow-topology.test.mjs
+          python3 scripts/test-server-ops.py
+          python3 scripts/test-server-repair-startup.py
+          python3 scripts/test-server-ops-commit-request.py
 
       - name: Test PR description policy
         run: node --test scripts/pr-quality.test.mjs
@@ -577,6 +590,7 @@ jobs:
       - route-coverage-contract
       - rust-real-integration
       - aur-package-matrix
+      - translations
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -589,3 +603,31 @@ jobs:
         env:
           CI_NEEDS: ${{ toJSON(needs) }}
         run: python3 -B scripts/ci_quality_gate.py
+
+  translations:
+    name: Translation regression check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout source and comparison history
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          # Use the PR merge ref so older branches receive the current checker.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Test the translation checker
+        run: node --test scripts/check-i18n.test.mjs
+
+      - name: Check added keys and removed translations
+        # The checker still runs on tags; only the branch comparison is inapplicable.
+        if: github.event_name != 'push' || github.ref_type != 'tag'
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before || inputs.base-ref || 'HEAD^' }}
+        run: |
+          if [[ "$EVENT_NAME" == pull_request ]]; then
+            node scripts/check-i18n.mjs --base "$BASE_REF" --merge-base
+          else
+            node scripts/check-i18n.mjs --base "$BASE_REF"
+          fi
