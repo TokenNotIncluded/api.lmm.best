@@ -24,11 +24,28 @@ import type { ReactNode } from 'react'
 
 const domWindow = new Window({ url: 'https://console.example.test/' })
 for (const key of [
-  'window', 'document', 'navigator', 'history', 'location', 'HTMLElement',
-  'HTMLButtonElement', 'HTMLTextAreaElement', 'SVGElement', 'Node', 'Element',
-  'Event', 'MouseEvent', 'PointerEvent', 'FocusEvent', 'CustomEvent',
-  'MutationObserver', 'ResizeObserver', 'requestAnimationFrame',
-  'cancelAnimationFrame', 'getComputedStyle', 'scrollTo',
+  'window',
+  'document',
+  'navigator',
+  'history',
+  'location',
+  'HTMLElement',
+  'HTMLButtonElement',
+  'HTMLTextAreaElement',
+  'SVGElement',
+  'Node',
+  'Element',
+  'Event',
+  'MouseEvent',
+  'PointerEvent',
+  'FocusEvent',
+  'CustomEvent',
+  'MutationObserver',
+  'ResizeObserver',
+  'requestAnimationFrame',
+  'cancelAnimationFrame',
+  'getComputedStyle',
+  'scrollTo',
 ] as const) {
   Object.defineProperty(globalThis, key, {
     configurable: true,
@@ -38,7 +55,8 @@ for (const key of [
 
 const { act } = await import('react')
 const { createRoot } = await import('react-dom/client')
-const { QueryClient, QueryClientProvider } = await import('@tanstack/react-query')
+const { QueryClient, QueryClientProvider } =
+  await import('@tanstack/react-query')
 const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { api } = await import('@/lib/api')
@@ -50,9 +68,10 @@ type ToolTrace = import('./api').AssistantToolTrace
 
 const originalGet = api.get
 const originalPost = api.post
-;(globalThis as typeof globalThis & {
+const reactTestGlobals = globalThis as typeof globalThis & {
   IS_REACT_ACT_ENVIRONMENT?: boolean
-}).IS_REACT_ACT_ENVIRONMENT = true
+}
+reactTestGlobals.IS_REACT_ACT_ENVIRONMENT = true
 
 const i18n = createInstance()
 await i18n.use(initReactI18next).init({
@@ -115,8 +134,9 @@ async function render(element: ReactNode) {
 }
 
 function button(label: string): HTMLButtonElement {
-  const found = [...document.querySelectorAll<HTMLButtonElement>('button')]
-    .find((candidate) => candidate.textContent?.trim() === label)
+  const found = [
+    ...document.querySelectorAll<HTMLButtonElement>('button'),
+  ].find((candidate) => candidate.textContent?.trim() === label)
   assert.ok(found, `Missing button: ${label}`)
   return found
 }
@@ -130,7 +150,8 @@ async function click(label: string) {
 
 async function edit(textarea: HTMLTextAreaElement, value: string) {
   const setter = Object.getOwnPropertyDescriptor(
-    HTMLTextAreaElement.prototype, 'value'
+    HTMLTextAreaElement.prototype,
+    'value'
   )?.set
   assert.ok(setter)
   await act(async () => {
@@ -141,7 +162,9 @@ async function edit(textarea: HTMLTextAreaElement, value: string) {
 }
 
 beforeEach(() => {
-  api.get = (async () => ({ data: { success: true, data: null } })) as typeof api.get
+  api.get = (async () => ({
+    data: { success: true, data: null },
+  })) as typeof api.get
   api.post = (async () => {
     assert.fail('A request must not be sent without explicit confirmation')
   }) as typeof api.post
@@ -158,10 +181,15 @@ afterEach(async () => {
 after(() => domWindow.close())
 
 test('review shows literal message text and does not submit before confirmation', async () => {
-  const action = { ...prepared, message: '<img src=x onerror=alert(1)> support request' }
+  const action = {
+    ...prepared,
+    message: '<img src=x onerror=alert(1)> support request',
+  }
   await render(<AssistantHandoffTool confirmationAction={action} />)
   await click('Review message')
-  const preview = document.querySelector('[data-testid="assistant-handoff-review-message"]')
+  const preview = document.querySelector(
+    '[data-testid="assistant-handoff-review-message"]'
+  )
   assert.equal(preview?.textContent, action.message)
   assert.equal(preview?.querySelector('img'), null)
   assert.equal(button('Confirm and send').disabled, false)
@@ -169,38 +197,52 @@ test('review shows literal message text and does not submit before confirmation'
 
 test('new action token invalidates an open review, even with the same text', async () => {
   let requests = 0
-  api.post = (async () => { requests += 1; return response() }) as typeof api.post
-  const view = await render(<AssistantHandoffTool confirmationAction={prepared} />)
+  api.post = (async () => {
+    requests += 1
+    return response()
+  }) as typeof api.post
+  const view = await render(
+    <AssistantHandoffTool confirmationAction={prepared} />
+  )
   await click('Review message')
   const oldConfirm = button('Confirm and send')
   await view.rerender(
-    <AssistantHandoffTool confirmationAction={{ ...prepared, confirmation_token: 'replacement' }} />
+    <AssistantHandoffTool
+      confirmationAction={{ ...prepared, confirmation_token: 'replacement' }}
+    />
   )
-  await act(async () => { oldConfirm.click(); await flushEffects() })
+  await act(async () => {
+    oldConfirm.click()
+    await flushEffects()
+  })
   assert.equal(requests, 0)
   await click('Review message')
   assert.equal(button('Confirm and send').disabled, false)
 })
 
 test('editing a signed request discards its token and survives equivalent rerenders', async () => {
-  let posted: Record<string, unknown> | undefined
+  const posted: Array<Record<string, unknown>> = []
   api.post = (async (_url: string, body: Record<string, unknown>) => {
-    posted = body
+    posted.push(body)
     return response()
   }) as typeof api.post
-  const view = await render(<AssistantHandoffTool confirmationAction={prepared} />)
+  const view = await render(
+    <AssistantHandoffTool confirmationAction={prepared} />
+  )
   await click('Edit')
   const textarea = view.container.querySelector('textarea')
   assert.ok(textarea)
   const message = 'A manually edited request for a human administrator.'
   await edit(textarea, message)
-  await view.rerender(<AssistantHandoffTool confirmationAction={{ ...prepared }} />)
+  await view.rerender(
+    <AssistantHandoffTool confirmationAction={{ ...prepared }} />
+  )
   assert.equal(view.container.querySelector('textarea')?.value, message)
-  assert.equal(posted, undefined)
+  assert.equal(posted.length, 0)
   await click('Review message')
   await click('Confirm and send')
-  assert.equal(posted?.message, message)
-  assert.equal(posted?.confirmation_token, undefined)
+  assert.equal(posted[0]?.message, message)
+  assert.equal(posted[0]?.confirmation_token, undefined)
 })
 
 test('two same-tick confirmation clicks send only one request', async () => {
@@ -209,7 +251,10 @@ test('two same-tick confirmation clicks send only one request', async () => {
   const inFlight = new Promise<ReturnType<typeof response>>((resolve) => {
     finish = resolve
   })
-  api.post = (async () => { requests += 1; return inFlight }) as typeof api.post
+  api.post = (async () => {
+    requests += 1
+    return inFlight
+  }) as typeof api.post
   await render(<AssistantHandoffTool confirmationAction={prepared} />)
   await click('Review message')
   await act(async () => {
@@ -220,7 +265,10 @@ test('two same-tick confirmation clicks send only one request', async () => {
   })
   assert.equal(requests, 1)
   assert.equal(button('Confirm and send').disabled, true)
-  await act(async () => { finish(response()); await flushEffects() })
+  await act(async () => {
+    finish(response())
+    await flushEffects()
+  })
 })
 
 test('a failed request remains visible and retries only after another explicit click', async () => {
@@ -234,9 +282,11 @@ test('a failed request remains visible and retries only after another explicit c
   await click('Review message')
   await click('Confirm and send')
   assert.equal(bodies.length, 1)
-  assert.ok([...document.querySelectorAll('[role="alert"]')].some(
-    (alert) => alert.textContent?.includes('Temporary support outage')
-  ))
+  assert.ok(
+    [...document.querySelectorAll('[role="alert"]')].some((alert) =>
+      alert.textContent?.includes('Temporary support outage')
+    )
+  )
   assert.equal(button('Confirm and send').disabled, false)
   await act(flushEffects)
   assert.equal(bodies.length, 1)
@@ -247,7 +297,9 @@ test('a failed request remains visible and retries only after another explicit c
 
 test('oversized prepared text is editable and Unicode maximum is enforced before review', async () => {
   const view = await render(
-    <AssistantHandoffTool confirmationAction={{ ...prepared, message: '中'.repeat(2001) }} />
+    <AssistantHandoffTool
+      confirmationAction={{ ...prepared, message: '中'.repeat(2001) }}
+    />
   )
   const textarea = view.container.querySelector('textarea')
   assert.ok(textarea)
@@ -265,9 +317,9 @@ const supportTrace: ToolTrace = {
 }
 
 test('waiting tool card has a visible manual recovery button outside the disclosure trigger', async () => {
-  let posted: Record<string, unknown> | undefined
+  const posted: Array<Record<string, unknown>> = []
   api.post = (async (_url: string, body: Record<string, unknown>) => {
-    posted = body
+    posted.push(body)
     return response()
   }) as typeof api.post
   const view = await render(<AssistantToolCalls traces={[supportTrace]} />)
@@ -278,38 +330,56 @@ test('waiting tool card has a visible manual recovery button outside the disclos
   const textarea = document.querySelector('textarea')
   assert.ok(textarea)
   assert.equal(textarea.value, '')
-  assert.equal(posted, undefined)
+  assert.equal(posted.length, 0)
   await edit(textarea, 'Please ask a human administrator to investigate.')
   await click('Review message')
-  assert.equal(posted, undefined)
+  assert.equal(posted.length, 0)
   await click('Confirm and send')
-  assert.equal(posted?.message, 'Please ask a human administrator to investigate.')
-  assert.equal(posted?.confirmation_token, undefined)
+  assert.equal(
+    posted[0]?.message,
+    'Please ask a human administrator to investigate.'
+  )
+  assert.equal(posted[0]?.confirmation_token, undefined)
 })
 
 test('manual recovery is not offered for account-disable or unknown tool actions', async () => {
-  const view = await render(<AssistantToolCalls traces={[
-    { ...supportTrace, input: { action: 'disable_account' } },
-    { ...supportTrace, input: { action: 'unknown_action' } },
-    { ...supportTrace, status: 'output-available', input: { action: 'support' } },
-  ]} />)
-  assert.equal([...view.container.querySelectorAll('button')].some(
-    (candidate) => candidate.textContent?.includes('Send a message to an administrator')
-  ), false)
+  const view = await render(
+    <AssistantToolCalls
+      traces={[
+        { ...supportTrace, input: { action: 'disable_account' } },
+        { ...supportTrace, input: { action: 'unknown_action' } },
+        {
+          ...supportTrace,
+          status: 'output-available',
+          input: { action: 'support' },
+        },
+      ]}
+    />
+  )
+  assert.equal(
+    [...view.container.querySelectorAll('button')].some((candidate) =>
+      candidate.textContent?.includes('Send a message to an administrator')
+    ),
+    false
+  )
 })
 
 test('manual recovery input does not reuse the existing form label ID', async () => {
-  await render(<>
-    <AssistantHandoffTool />
-    <AssistantToolCalls traces={[supportTrace]} />
-  </>)
+  await render(
+    <>
+      <AssistantHandoffTool />
+      <AssistantToolCalls traces={[supportTrace]} />
+    </>
+  )
   await click('Send a message to an administrator')
   const inputs = [...document.querySelectorAll('textarea')]
   assert.equal(inputs.length, 2)
   assert.equal(new Set(inputs.map((input) => input.id)).size, 2)
   for (const input of inputs) {
-    assert.ok([...document.querySelectorAll('label')].some(
-      (label) => label.htmlFor === input.id
-    ))
+    assert.ok(
+      [...document.querySelectorAll('label')].some(
+        (label) => label.htmlFor === input.id
+      )
+    )
   }
 })
