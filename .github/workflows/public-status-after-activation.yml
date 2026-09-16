@@ -1,0 +1,67 @@
+name: Public status after activation
+on:
+  push:
+    branches: [release/acceptance-20260916]
+    paths: [.github/workflows/public-status-after-activation.yml]
+permissions:
+  contents: read
+jobs:
+  public-status:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Probe public endpoints without credentials or server access
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          python3 - <<'PY'
+          import datetime, hashlib, json, ssl, time, urllib.error, urllib.request
+          from pathlib import Path
+          class NoRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self, request, fp, code, message, headers, new_url):
+                  return None
+          opener = urllib.request.build_opener(NoRedirect(), urllib.request.HTTPSHandler(context=ssl.create_default_context()))
+          report = {'at':datetime.datetime.now(datetime.timezone.utc).isoformat(), 'origin':'https://api.lmm.best', 'endpoints':[]}
+          deadline = time.monotonic() + 60
+          for path in ('/api/status','/','/login','/console'):
+              row = {'path':path}
+              started = time.monotonic()
+              try:
+                  remaining = deadline - started
+                  if remaining <= 0:
+                      raise TimeoutError('probe deadline exceeded')
+                  request = urllib.request.Request(report['origin']+path, headers={'Accept-Encoding':'identity','Cache-Control':'no-cache','User-Agent':'LMM-Public-Availability/1.0'})
+                  try:
+                      response = opener.open(request, timeout=min(12, remaining))
+                  except urllib.error.HTTPError as error:
+                      response = error
+                  with response:
+                      body = response.read(1048577)
+                      row.update({'status':response.code,'content_type':response.headers.get('Content-Type',''),'bytes':len(body)})
+                      if len(body) > 1048576:
+                          raise ValueError('oversized response')
+                      row['body_sha256'] = hashlib.sha256(body).hexdigest()
+                      if path == '/api/status' and response.code == 200 and 'json' in row['content_type']:
+                          payload = json.loads(body)
+                          row['success'] = payload.get('success') is True
+                          version = (payload.get('data') or {}).get('version')
+                          if isinstance(version,str) and len(version) <= 80:
+                              row['backend_version'] = version
+              except Exception as error:
+                  row['error_type'] = type(error).__name__
+              row['seconds'] = round(time.monotonic()-started,3)
+              report['endpoints'].append(row)
+          report['available'] = all(row.get('status') == 200 and 'error_type' not in row for row in report['endpoints']) and report['endpoints'][0].get('success') is True
+          report['new_backend_observed'] = report['endpoints'][0].get('backend_version') == '0.2.51'
+          report['scope'] = 'Public availability only; no authenticated model call, deployment mutation or native transaction confirmation.'
+          Path('evidence/public-status.json').write_text(json.dumps(report,indent=2))
+          print(json.dumps(report,indent=2))
+          raise SystemExit(0 if report['available'] else 1)
+          PY
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: ${{ always() }}
+        with:
+          name: public-status-after-activation-${{ github.run_attempt }}
+          path: evidence/
+          retention-days: 2
