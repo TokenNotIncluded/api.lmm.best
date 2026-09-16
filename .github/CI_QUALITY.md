@@ -1,40 +1,41 @@
 # CI quality gate
 
-`CI Quality Gate` aggregates every mandatory job in `workflows/ci.yml`. It runs
-with `always()` and accepts only `success`: failed, cancelled, skipped, missing,
-and malformed results fail the gate. Job results and failure reasons are written
-to the Actions job summary. No job outputs or credentials are included.
+`CI Quality Gate` aggregates the nine mandatory jobs in `workflows/ci.yml`.
+It runs with `always()` and accepts only `success`. Failed, cancelled, skipped,
+missing and malformed results fail. Duplicate JSON keys and non-standard JSON
+constants are rejected. The summary contains fixed job names and normalized
+results only, not job outputs or credentials.
 
-The web formatting and copyright checks and Rust Clippy are blocking checks,
-not advisory steps. Existing formatting or lint debt must be corrected before
-merging; do not restore green checks with `continue-on-error`, warning wrappers,
-or skipped mandatory jobs. No repository-wide formatting changes are included
-in the gate implementation.
-
-Explicit Bash is the workflow default, enabling `pipefail` for run steps. Keep
-intentional error handling local to the command that requires it. The Go format
-check propagates gofmt parse errors and prints the files needing formatting. Actions and
-toolchain pins, read-only permissions, job timeouts, and release-sensitive
-concurrency behavior are preserved.
-
-CI also runs on merge queue `checks_requested` events. It still runs for PRs,
-main pushes, tags, and manual dispatches.
+Web formatting/copyright and Rust Clippy are blocking checks. Existing lint or
+formatting failures must be corrected, not hidden behind `continue-on-error`.
+Explicit Bash enables `pipefail`. The Go formatting guard preserves gofmt parse
+failures; the static-binary guard rejects empty, unexpected and failed ldd
+results, while allowing Linux ldd's normal static-executable exit status.
 
 ## Local regression tests
 
 ```sh
+shellcheck scripts/check-go-format.sh scripts/check-static-go-binary.sh
 python3 -B -m unittest discover -s scripts -p test_ci_quality_gate.py -v
 ```
 
-The tests exercise failure propagation, malformed input, missing jobs, skipped
-and cancelled results, safe summaries, and the actual process exit status. They
-require only the Python standard library. Repository Contracts runs them in CI.
-When adding or removing mandatory jobs, update both `quality-gate.needs` and
-`REQUIRED_JOBS` in `scripts/ci_quality_gate.py`.
+The tests use Python's standard library, Bash and gofmt. Shell-guard tests execute
+real processes. Static-check tests use an ldd fixture; these do not replace the
+production-binary build check. No project dependencies are needed for the tests.
 
-## Branch protection
+When changing mandatory jobs, update both `quality-gate.needs` in the workflow
+and `REQUIRED_JOBS` in `scripts/ci_quality_gate.py`. The inventory regression
+rejects additions or omissions until both lists agree.
 
-After this workflow has run successfully, a repository administrator should add
-`CI Quality Gate` to the required status checks for `main`. Keep existing required
-checks until the new gate is verified. Changing this workflow does not configure
-branch protection, remove bypass permissions, or alter release approval rules.
+## Scope and activation
+
+The gate covers this workflow only, not independent release workflows or all
+open issues. It does not prove the project builds, change branch protection,
+merge PRs, or deploy anything. After the workflow passes, an administrator may
+add `CI Quality Gate` as a required check while preserving existing protections.
+
+This patch overlaps PR #335's CI changes. Apply it to the stated upstream base
+instead of applying both versions blindly. Resolve overlap explicitly if #335
+has already landed. Billing, assistant, homepage and other business changes are
+not included. Full Web/Go/Rust builds, actionlint and database integration still
+need to run on the complete repository; local gate tests are not that evidence.

@@ -21,6 +21,7 @@ Copyright (C) 2026 LIghtJUNction
 */
 import { useQuery } from '@tanstack/react-query'
 import { ShieldCheck, RefreshCw } from 'lucide-react'
+import { useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
@@ -35,9 +36,11 @@ import {
 export function AssistantRegistrationStatus({
   compact = false,
   onContinueSetup,
+  onApproved,
 }: {
   compact?: boolean
   onContinueSetup?: () => void
+  onApproved?: () => void
 }) {
   const { t } = useTranslation()
   const userID = useAuthStore((state) => state.auth.user?.id)
@@ -64,6 +67,11 @@ export function AssistantRegistrationStatus({
       q.state.data === 'active' || q.state.error ? false : 15_000,
     refetchIntervalInBackground: false,
   })
+  useEffect(() => {
+    if (userID && query.data === 'active' && !query.isError) {
+      onApproved?.()
+    }
+  }, [onApproved, query.data, query.isError, userID])
   if (!userID || (compact && query.data === 'active')) return null
   const copy = registrationStateCopy(query.data ?? 'context_needed')
   return (

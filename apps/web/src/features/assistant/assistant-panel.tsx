@@ -2016,6 +2016,7 @@ function AssistantPanelSession(props: AssistantPanelProps) {
       void Promise.all(
         [
           'assistant-status',
+          'assistant-registration-state',
           'assistant-journey',
           'assistant-new-user-gift',
           'assistant-weekly-discount',
@@ -2048,15 +2049,15 @@ function AssistantPanelSession(props: AssistantPanelProps) {
         )
         return
       }
-      const canShowVerificationWithoutAssistant =
+      const showVerificationOnFailure =
         accountAccessState === 'restricted' &&
         isExplicitAssistantL1Request(message)
-      if (canShowVerificationWithoutAssistant) {
+      if (showVerificationOnFailure) {
         setRecommendationDraft(null)
         setActiveTool('activation')
       }
       let errorAction: AssistantAction | undefined
-      if (canShowVerificationWithoutAssistant) {
+      if (showVerificationOnFailure) {
         errorAction = {
           kind: 'tool',
           label: t('Registration verification'),
@@ -2590,19 +2591,6 @@ function AssistantPanelSession(props: AssistantPanelProps) {
                           onDraftConsumed={() => setRecommendationDraft(null)}
                           onContinueSetup={() => setActiveTool('setup')}
                           onApproved={refreshAuthenticatedUser}
-                          onSubmitted={() => {
-                            setRecommendationDraft(null)
-                            setEntries((current) => [
-                              ...current,
-                              {
-                                id: nanoid(),
-                                role: 'assistant',
-                                content: t(
-                                  'Your AI recommendation was submitted to the automatic review agent. L1 remains locked until automatic review approves it or human fallback completes.'
-                                ),
-                              },
-                            ])
-                          }}
                         />
                       ) : null}
                       {accountDisableDraft ? (
