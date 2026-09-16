@@ -1,0 +1,40 @@
+name: Rust 327 acceptance verification
+
+on:
+  push:
+    branches:
+      - automation/rust-327-verify
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CARGO_BUILD_JOBS: "2"
+      CARGO_INCREMENTAL: "0"
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_PROFILE_TEST_DEBUG: "0"
+      RUST_TOOLCHAIN: "1.91.0"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Set up pinned Rust toolchain
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component clippy
+          rustup default "$RUST_TOOLCHAIN"
+          rustc --version --verbose
+
+      - name: Fetch independent acceptance harness dependencies
+        run: cargo fetch --locked --manifest-path apps/api-rust/tests/root-route-acceptance/Cargo.toml
+
+      - name: Run locked acceptance support tests
+        run: bash apps/api-rust/tests/scripts/test-root-route-acceptance.sh
+
+      - name: Run locked runtime acceptance harness
+        run: bash apps/api-rust/tests/scripts/run-root-route-acceptance.sh
