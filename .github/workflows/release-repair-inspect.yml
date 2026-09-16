@@ -1,0 +1,62 @@
+name: Release repair inspection
+on:
+  push:
+    branches: [release/acceptance-20260916]
+    paths: [.github/workflows/release-repair-inspect.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+  pull-requests: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Summarize failed jobs and inspect merge conflicts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os, re, subprocess
+          repo = os.environ['REPO']
+          for job in (104087241159, 104792148327, 104792753029, 104792753201):
+              result = subprocess.run(['gh', 'api', f'repos/{repo}/actions/jobs/{job}/logs'], capture_output=True, text=True, check=True)
+              lines = result.stdout.splitlines()
+              needles = re.compile(r'(?:\(fail\)|^FAIL|\sFAIL\s|::error|##\[error\]|panic:|^error:| error:|failed at|production (?:stage|promote)|fatal:|AssertionError|unexpected total quota|^.*--- FAIL:)')
+              selected = set()
+              for i, line in enumerate(lines):
+                  if needles.search(line):
+                      selected.update(range(max(0, i-3), min(len(lines), i+6)))
+              print(f'=== JOB {job} FAILURE CONTEXT ===')
+              for i in sorted(selected)[-100:]:
+                  print(lines[i])
+              print('=== FINAL LINES ===')
+              print('\n'.join(lines[-12:]))
+          PY
+          git fetch --no-tags origin refs/pull/339/head:refs/remotes/origin/audit-pr339 refs/pull/340/head:refs/remotes/origin/audit-pr340
+          echo '=== PR HEADS ==='
+          git rev-parse refs/remotes/origin/audit-pr339 refs/remotes/origin/audit-pr340
+          echo '=== INTEGRATION MERGE RESULT (NO REF UPDATE) ==='
+          set +e
+          git merge-tree --write-tree refs/remotes/origin/audit-pr339 refs/remotes/origin/audit-pr340 > /tmp/merge-result
+          status=$?
+          set -e
+          cat /tmp/merge-result
+          test "$status" -le 1
+          echo '=== PRODUCTION WORKSPACE AND PROBE CONTRACTS ==='
+          grep -n -A45 -B12 'release-scoped production workspace already exists' apps/api-go/internal/appcli/deploy_production_snapshot.go
+          grep -n -A140 'func (runtime .* healthCheck' apps/api-go/internal/appcli/deploy_production_probe.go
+          echo '=== DEPLOY TESTS AND SCRIPTS ==='
+          git ls-files '*deploy*test*' '*release*test*' '*production*retry*' '*release*check*'
+          echo '=== RUST ANTHROPIC ROUTING ==='
+          grep -n -A24 -B12 -E '14,25|14, 25|x-api-key|ANTHROPIC_VERSION|anthropic-version|Authorization|reqwest::header::' apps/api-rust/src/routes/relay_anthropic_gemini_postgres.rs
+          echo '=== RUST XAI COVERAGE ==='
+          git grep -n -i 'xai' -- apps/api-rust/src/routes/relay_anthropic_gemini_postgres.rs apps/api-rust/tests || test "$?" -eq 1
