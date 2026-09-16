@@ -1,9 +1,10 @@
 # Manual assistant server operations
 
-`.github/workflows/server-ops.yml` is a **manual-only** SSH transport for an
-operator or an authorized assistant. It has no schedule, push, PR, comment, or
-release trigger. The safe default is `diagnose`; it does not modify services or
-application configuration. Exactly one additional workflow is introduced.
+`.github/workflows/server-ops.yml` in **TokenNotIncluded/api.lmm.best** is the
+production operator entry. Manual `workflow_dispatch` remains separate from the
+existing, fixed read-only owner-commit diagnosis described in
+`docs/incident-343-owner-ops.md`. Neither PRs nor releases trigger arbitrary repairs. The safe default is `diagnose`; it does not modify services or
+application configuration. The standalone entry replaces the diagnostic job previously embedded in deployment.
 
 ## Connection and authorization
 
@@ -12,7 +13,8 @@ and `PRODUCTION_SSH_KNOWN_HOSTS`, and the same ArchDmit host/port as automatic
 production deployment. It does not create credentials, disable host-key checks,
 or install an inbound management service. Missing secrets fail before SSH.
 
-Only the repository owner's login is allowed by default. To authorize a specific
+Only the maintainer `LIghtJUNction` is allowed by default. The organization name
+`TokenNotIncluded` is not a user login and must not be inferred as an operator. To authorize a specific
 GitHub App/operator, set the repository/environment variable
 `PRODUCTION_OPS_ALLOWED_ACTORS` to comma-separated **exact GitHub actor logins**.
 Both the original dispatcher and a rerun's triggering actor must be authorized.
@@ -30,12 +32,12 @@ Supply a public, non-sensitive reason or issue reference.
 ```sh
 # Diagnose: disk, memory, selected systemd metadata, package versions, backend
 # selector, local HTTP status, and external JSON success status.
-gh workflow run server-ops.yml --repo LIghtJUNction/api.lmm.best --ref main \
+gh workflow run server-ops.yml --repo TokenNotIncluded/api.lmm.best --ref main \
   -f operation=diagnose -f reason='Investigate service availability' \
   -f timeout_seconds=180
 
 # Example repair: validate nginx configuration, then gracefully reload it.
-gh workflow run server-ops.yml --repo LIghtJUNction/api.lmm.best --ref main \
+gh workflow run server-ops.yml --repo TokenNotIncluded/api.lmm.best --ref main \
   -f operation=repair -f reason='Apply reviewed nginx configuration' \
   -f repair_script=scripts/server-repairs/reload-nginx.sh \
   -f confirm=api.lmm.best -f timeout_seconds=180
@@ -64,7 +66,8 @@ change databases as a generic repair. A failed operation is not automatically
 retried or rolled back. An existing repair run cannot be rerun; inspect the
 outcome first and explicitly dispatch a new run when appropriate.
 
-Repairs share the `production-auto-deploy` concurrency group and also take a
+Within this production repository, repairs share the `production-auto-deploy`
+concurrency group and also take a
 server-side manual-ops flock. This serializes Actions deployments and this
 transport; it does **not** replace the native deployment transaction lock or
 coordinate unrelated root sessions. The transport itself makes no claims about
@@ -95,5 +98,8 @@ contract. Repair failures remain failures even when the public endpoint is healt
 Local checks require both services active and HTTP success; the external check
 also requires `success: true`. These are availability checks, not a complete
 payment, database, or release acceptance test.
+
+The fork does not inherit upstream secrets or share its Actions concurrency.
+Do not copy credentials into the fork to work around this repository boundary.
 
 Run offline controller tests with `python3 scripts/test-server-ops.py`.

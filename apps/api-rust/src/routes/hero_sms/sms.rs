@@ -417,10 +417,40 @@ async fn catalog_context<T>(
     headers: &HeaderMap,
     validate: impl FnOnce() -> Result<T, Response>,
 ) -> Result<(T, String), Response> {
-    ensure_authenticated(state, headers).await?;
+    let user = authenticated(state, headers).await?;
     let validated = validate()?;
+    ensure_sms_purchase_access(state, &user).await?;
     let key = configured_key_response(state).await?;
     Ok((validated, key))
+}
+
+/// Catalog and quote requests are the entry point for the temporary SMS UI.
+/// Keep the access policy here so an account that cannot purchase never gets a
+/// provider request (or a generic 500) while the page is loading.
+async fn ensure_sms_purchase_access(
+    state: &HeroSmsState,
+    user: &DashboardUserView,
+) -> Result<(), Response> {
+    if !user.developer_access_granted {
+        return Err(done(hero_error(HeroSmsApiError {
+            status: StatusCode::FORBIDDEN,
+            code: "FEATURE_NOT_UNLOCKED",
+            message: "Temporary SMS is unavailable until developer access is unlocked",
+        })));
+    }
+    let options = load_options(&state.pg)
+        .await
+        .map_err(|error| done(hero_error(error)))?;
+    let minimum = charge_quota_decimal(Decimal::from(10), &options)
+        .map_err(|error| done(hero_error(error)))?;
+    if user.quota < minimum {
+        return Err(done(hero_error(HeroSmsApiError {
+            status: StatusCode::PAYMENT_REQUIRED,
+            code: "TEMPORARY_SMS_MINIMUM_BALANCE",
+            message: "Temporary SMS purchases require a balance of at least USD 10",
+        })));
+    }
+    Ok(())
 }
 
 async fn configured_key_response(state: &HeroSmsState) -> Result<String, Response> {
@@ -567,6 +597,9 @@ async fn offer(
     }
     if service.is_empty() || service.len() > 64 || operator.len() > 64 {
         return done(hero_error(invalid_request()));
+    }
+    if let Err(response) = ensure_sms_purchase_access(&state, &user).await {
+        return response;
     }
     let key = match configured_key_response(&state).await {
         Ok(key) => key,
@@ -722,6 +755,13 @@ async fn create_order(
         .unwrap_or("");
     if idem.is_empty() || idem.len() > 128 || input.offer_id.trim().is_empty() {
         return done(hero_error(invalid_request()));
+    }
+    let user = match authenticated(&state, &headers).await {
+        Ok(user) => user,
+        Err(response) => return done(response),
+    };
+    if let Err(response) = ensure_sms_purchase_access(&state, &user).await {
+        return response;
     }
     match purchase(&state, user_id, idem, &input).await {
         Ok((view, quota, status)) => done(hero_success_status(

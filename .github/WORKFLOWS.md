@@ -1,6 +1,6 @@
 # GitHub Actions
 
-Keep five workflow entry points. Consolidate shared steps under `.github/actions/`
+Keep nine upstream workflow entry points, including the four existing qualification workflows. Consolidate shared steps under `.github/actions/`
 instead of adding another independently triggered workflow.
 
 | Workflow | Triggers | Responsibility |
@@ -9,14 +9,21 @@ instead of adding another independently triggered workflow.
 | `pr-check.yml` | PR metadata/code events, including description edits | Read-only description policy using trusted base code |
 | `release-go.yml` | `go-v*.*.*` tags | Verify, test, build both architectures, sign, publish, then deploy the Go backend |
 | `release-web.yml` | `web-v*.*.*` tags; manual runs on a release tag | Verify, test, build, sign, publish, then deploy the web frontend |
-| `server-ops.yml` | Manual runs on `main` only | Authorized server diagnosis or reviewed repairs; shares the production deployment lock |
+| `server-ops.yml` | Manual runs on `main`; explicit owner diagnostic request | Authorized server diagnosis or reviewed repairs; shares the production deployment lock |
+
+The independent `server-release-qualification.yml`, `rust-root-route-acceptance.yml`,
+`rust-security-audit.yml`, and `assistant-support-regressions.yml` remain intact.
+The standalone deploy subscriber and i18n workflow are folded into their callers;
+their protections are not removed.
 
 ## CI and translations
 
 The `Translation regression check` job keeps its existing check name, full
 comparison history, checker tests, and PR merge-base behavior. Manual CI runs
 accept `base-ref` (default `HEAD^`). Tag pushes skip only the translation
-comparison; all original CI release gates remain. Feature-branch pushes do not
+comparison, not the checker tests. Translations are a required CI Quality Gate
+dependency; merge-queue comparisons use `merge_group.base_sha`. All original CI
+release gates remain. Feature-branch pushes do not
 start another copy of PR CI.
 
 PR description policy stays separate deliberately: `pull_request_target` reads
@@ -38,9 +45,9 @@ with `cancel-in-progress: false`. Environment approvals and secrets still apply.
 policy must allow `go-v*` and `web-v*` tags; unlike the old default-branch
 `workflow_run` subscriber, the final job now runs in the release tag context.
 The checkout and local deployment action are pinned to the exact released commit.
-The common action checks the event, checkout and tag identity before invoking the
+The common action checks checkout and tag identity before invoking the
 existing signed-package verification, rollback preparation, staging and promotion
-script. No production rollout is needed just to test this topology change.
+script and the same public version/page/asset acceptance. No production rollout is needed just to test this topology change.
 
 Do not rename `release-go.yml` or `release-web.yml` casually: their paths are part
 of the Sigstore certificate identities used by existing releases and package
@@ -58,7 +65,8 @@ read-only diagnosis, and repairs still require explicit confirmation and a revie
 script from `main`. It retains the protected `production` environment, pinned
 checkout and SSH keys, operator authorization, and the same
 `production-auto-deploy` concurrency group with cancellation disabled.
-See `docs/server-ops.md` for the existing operator contract.
+See `docs/server-ops.md` for the operator contract. The fixed owner-request diagnostic
+trigger lives only in `server-ops.yml`; ordinary code pushes cannot execute repairs.
 
 ## Regression checks
 

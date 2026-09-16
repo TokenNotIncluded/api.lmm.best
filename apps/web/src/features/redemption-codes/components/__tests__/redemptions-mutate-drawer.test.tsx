@@ -64,6 +64,8 @@ for (const key of domGlobals) {
   })
 }
 
+const { QueryClient, QueryClientProvider } =
+  await import('@tanstack/react-query')
 const { act } = await import('react')
 const { createRoot } = await import('react-dom/client')
 const i18n = (await import('i18next')).default
@@ -92,6 +94,14 @@ const reactTestGlobals = globalThis as typeof globalThis & {
   IS_REACT_ACT_ENVIRONMENT?: boolean
 }
 reactTestGlobals.IS_REACT_ACT_ENVIRONMENT = true
+
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      retry: false,
+    },
+  },
+})
 
 type ApiMethod = (url: string, data?: unknown) => Promise<{ data: unknown }>
 type MockableApi = {
@@ -140,16 +150,18 @@ function deferred<T>() {
 
 function drawerTree(currentRow: Redemption) {
   return (
-    <I18nextProvider i18n={i18n}>
-      <RedemptionsProvider>
-        <RedemptionsMutateDrawer
-          open
-          currentRow={currentRow}
-          onOpenChange={() => undefined}
-        />
-      </RedemptionsProvider>
-      <Toaster duration={60_000} />
-    </I18nextProvider>
+    <QueryClientProvider client={queryClient}>
+      <I18nextProvider i18n={i18n}>
+        <RedemptionsProvider>
+          <RedemptionsMutateDrawer
+            open
+            currentRow={currentRow}
+            onOpenChange={() => undefined}
+          />
+        </RedemptionsProvider>
+        <Toaster duration={60_000} />
+      </I18nextProvider>
+    </QueryClientProvider>
   )
 }
 
@@ -279,6 +291,7 @@ afterEach(async () => {
   apiClient.put = originalPut
   Reflect.set(console, 'log', originalConsoleLog)
   toast.dismiss()
+  queryClient.clear()
   domWindow.localStorage.clear()
   if (renderedDrawer) {
     await act(async () => renderedDrawer?.root.unmount())

@@ -22,15 +22,16 @@ const oauthBrowserContinue = "/api/user/auth/oauth2/continue"
 const oauthBrowserConsent = "/api/user/auth/oauth2/consent"
 
 type oauthBrowserFlow struct {
-	RawQuery string
-	CSRF     string
-	Binding  string
-	Identity service.OAuthBrowserIdentity
-	Consent  *oauthserver.Consent
-	Groups   []string
-	Account  string
-	Language string
-	Expires  time.Time
+	RawQuery   string
+	ClientName string
+	CSRF       string
+	Binding    string
+	Identity   service.OAuthBrowserIdentity
+	Consent    *oauthserver.Consent
+	Groups     []string
+	Account    string
+	Language   string
+	Expires    time.Time
 }
 
 func browserRawQuery(p oauthserver.PendingAuthorization) string {
@@ -120,12 +121,12 @@ func (h *OAuthHTTP) Metadata(c *gin.Context) {
 	metadata.RevocationEndpoint = h.Integration.Issuer + "/api/oauth2/revoke"
 	// Group scopes are consent-generated and can disclose deployment structure.
 	// Public discovery advertises the fixed application and built-in MCP scopes.
-	metadata.ScopesSupported = append([]string{service.OAuthCatalogScope, service.OAuthBalanceScope, service.OAuthInvokeScope}, service.OAuthBuiltinMCPScopes()...)
+	metadata.ScopesSupported = append([]string{service.OAuthCatalogScope, service.OAuthBalanceScope, service.OAuthUsageScope, service.OAuthInvokeScope}, service.OAuthBuiltinMCPScopes()...)
 	c.JSON(200, metadata)
 }
 
 func (h *OAuthHTTP) ResourceMetadata(c *gin.Context) {
-	c.JSON(200, gin.H{"resource": h.Integration.Resource, "authorization_servers": []string{h.Integration.Issuer}, "scopes_supported": append([]string{service.OAuthCatalogScope, service.OAuthBalanceScope, service.OAuthInvokeScope}, service.OAuthBuiltinMCPScopes()...), "bearer_methods_supported": []string{"header"}})
+	c.JSON(200, gin.H{"resource": h.Integration.Resource, "authorization_servers": []string{h.Integration.Issuer}, "scopes_supported": append([]string{service.OAuthCatalogScope, service.OAuthBalanceScope, service.OAuthUsageScope, service.OAuthInvokeScope}, service.OAuthBuiltinMCPScopes()...), "bearer_methods_supported": []string{"header"}})
 }
 
 func oauthProtocolFailure(c *gin.Context, err error) {
@@ -178,6 +179,16 @@ func (h *OAuthHTTP) render(c *gin.Context, status int, data oauthPageData) {
 		data.Language = "en"
 		data.Copy = oauthPageCopies["en"]
 	}
+	if data.ClientName == "" {
+		data.ClientName = service.OAuthPiClientName
+	}
+	hostName := "Pi"
+	if data.ClientName == service.OAuthDshClientName {
+		hostName = "DSH"
+	}
+	data.Copy.Title = strings.ReplaceAll(data.Copy.Title, "Pi", hostName)
+	data.Copy.Failed = strings.ReplaceAll(data.Copy.Failed, "Pi", hostName)
+	data.Copy.Return = strings.ReplaceAll(data.Copy.Return, "Pi", hostName)
 	nonce, err := oauthRandom()
 	if err != nil {
 		c.Status(503)
@@ -241,7 +252,7 @@ func (h *OAuthHTTP) takeFlow(c *gin.Context) (*oauthBrowserFlow, url.Values, boo
 	}
 	oauthCookie(c, "", -1)
 	identity := service.OAuthBrowserIdentity{UserID: view.UserID, SessionID: view.SessionID, SessionVersion: view.SessionVersion, AuthVersion: view.AuthVersion}
-	flow := &oauthBrowserFlow{RawQuery: browserRawQuery(view.PendingAuthorization), Binding: cookie, Identity: identity,
+	flow := &oauthBrowserFlow{RawQuery: browserRawQuery(view.PendingAuthorization), ClientName: view.ClientName, Binding: cookie, Identity: identity,
 		Account: "", Language: oauthPageLanguage(c.GetHeader("Accept-Language")), Expires: view.ExpiresAt}
 	if view.UserID > 0 {
 		flow.Consent = &oauthserver.Consent{PendingAuthorization: view.PendingAuthorization, UserID: view.UserID}
@@ -280,12 +291,12 @@ func (h *OAuthHTTP) showPreflight(c *gin.Context, raw, language string) {
 		h.failed(c, language)
 		return
 	}
-	flow := &oauthBrowserFlow{RawQuery: raw, Binding: binding, CSRF: csrf, Language: language, Expires: pending.ExpiresAt}
+	flow := &oauthBrowserFlow{RawQuery: raw, ClientName: pending.ClientName, Binding: binding, CSRF: csrf, Language: language, Expires: pending.ExpiresAt}
 	if !h.putFlow(c, flow) {
 		h.failed(c, language)
 		return
 	}
-	h.render(c, 200, oauthPageData{Language: language, Mode: "preflight", CSRF: csrf, Action: oauthBrowserContinue, Resource: h.Integration.Resource})
+	h.render(c, 200, oauthPageData{Language: language, Mode: "preflight", CSRF: csrf, Action: oauthBrowserContinue, Resource: h.Integration.Resource, ClientName: pending.ClientName})
 }
 
 func (h *OAuthHTTP) Authorize(c *gin.Context) {
@@ -334,7 +345,7 @@ func (h *OAuthHTTP) Continue(c *gin.Context) {
 		h.failed(c, flow.Language)
 		return
 	}
-	bound := &oauthBrowserFlow{RawQuery: flow.RawQuery, CSRF: csrf, Binding: binding, Identity: identity, Consent: consent, Groups: groups, Account: user.Username, Language: flow.Language, Expires: consent.ExpiresAt}
+	bound := &oauthBrowserFlow{RawQuery: flow.RawQuery, ClientName: consent.ClientName, CSRF: csrf, Binding: binding, Identity: identity, Consent: consent, Groups: groups, Account: user.Username, Language: flow.Language, Expires: consent.ExpiresAt}
 	if err := h.Integration.Core.BindBrowserSession(c.Request.Context(), binding, csrf, identity.UserID, identity.SessionID, identity.SessionVersion, identity.AuthVersion); err != nil {
 		h.failed(c, flow.Language)
 		return
@@ -343,7 +354,7 @@ func (h *OAuthHTTP) Continue(c *gin.Context) {
 		h.failed(c, flow.Language)
 		return
 	}
-	h.render(c, 200, oauthPageData{Language: flow.Language, Mode: "consent", CSRF: csrf, Action: oauthBrowserConsent, Resource: h.Integration.Resource, Account: user.Username, Groups: groups})
+	h.render(c, 200, oauthPageData{Language: flow.Language, Mode: "consent", CSRF: csrf, Action: oauthBrowserConsent, Resource: h.Integration.Resource, ClientName: consent.ClientName, Account: user.Username, Groups: groups})
 }
 
 func (h *OAuthHTTP) Consent(c *gin.Context) {
@@ -378,5 +389,5 @@ func (h *OAuthHTTP) Consent(c *gin.Context) {
 		h.failed(c, flow.Language)
 		return
 	}
-	h.render(c, 200, oauthPageData{Language: flow.Language, Mode: "complete", Redirect: response.RedirectURI})
+	h.render(c, 200, oauthPageData{Language: flow.Language, Mode: "complete", ClientName: flow.ClientName, Redirect: response.RedirectURI})
 }

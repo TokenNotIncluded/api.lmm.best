@@ -28,6 +28,9 @@ func SetRouter(router *gin.Engine) error {
 		return err
 	}
 	SetApiRouter(router)
+	if err := SetRedPacketRouter(router); err != nil {
+		return fmt.Errorf("configure red packet routes: %w", err)
+	}
 	SetOpenSourceBountyMCPRouter(router)
 	SetDrawingMCPRouter(router, largeRequestAdmission)
 	SetDashboardRouter(router)

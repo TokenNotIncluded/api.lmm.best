@@ -15,6 +15,10 @@ const source = readFileSync(
   'utf8'
 )
 const css = readFileSync(new URL('./forge-home.css', import.meta.url), 'utf8')
+const motion = readFileSync(
+  new URL('../home/home-motion.ts', import.meta.url),
+  'utf8'
+)
 
 test('homepage does not load optional GPU ornament runtimes or announce a rotating hardcoded catalog', () => {
   assert.doesNotMatch(
@@ -24,8 +28,62 @@ test('homepage does not load optional GPU ornament runtimes or announce a rotati
   assert.doesNotMatch(source, /HOME_MODEL_NAMES|HOME_MODEL_ROTATION_MS/)
 })
 
-test('scroll animation is progressive and has a reduced-motion fallback', () => {
-  assert.match(css, /@supports \(animation-timeline: view\(\)\)/)
-  assert.match(css, /prefers-reduced-motion: reduce/)
+test('the homepage owns and cleans up its progressive motion enhancement', () => {
+  assert.match(source, /return mountHomeMotion\(rootRef\.current\)/)
   assert.doesNotMatch(source, /addEventListener\(['"]scroll/)
+})
+
+test('reduced motion disables animation, transitions and transformed surfaces', () => {
+  const reducedMotion = css.match(
+    /@media \(prefers-reduced-motion: reduce\) \{([\s\S]*?)\n\}/
+  )?.[1]
+  assert.ok(reducedMotion)
+  assert.match(reducedMotion, /animation: none !important/)
+  assert.match(reducedMotion, /transition: none !important/)
+  assert.match(reducedMotion, /scroll-behavior: auto !important/)
+  assert.match(reducedMotion, /transform: none !important/)
+  assert.match(
+    css,
+    /\.lmm-story:not\(\[data-chapter\]\) \[data-story-panel='2'\]/
+  )
+})
+
+test('scroll motion retains passive listeners, cancellation and observer cleanup', () => {
+  assert.match(
+    motion,
+    /document\.addEventListener\('scroll', update, \{ passive: true, capture: true \}\)/
+  )
+  assert.match(
+    motion,
+    /document\.removeEventListener\('scroll', update, true\)/
+  )
+  assert.match(motion, /cancelAnimationFrame\(frame\)/)
+  assert.match(motion, /observer\.disconnect\(\)/)
+  assert.match(motion, /resizeObserver\.disconnect\(\)/)
+})
+
+test('section progress drives the current scene and story styles', () => {
+  assert.match(motion, /setProperty\('--scene-progress',/)
+  assert.match(motion, /setProperty\('--story-progress',/)
+  assert.match(css, /var\(--scene-progress,\s*0\)/)
+  assert.match(css, /var\(--story-progress\)/)
+})
+
+test('missing observer constructors preserve static content', () => {
+  assert.match(motion, /typeof window\.IntersectionObserver !== 'function'/)
+  assert.match(motion, /typeof window\.ResizeObserver !== 'function'/)
+  assert.match(
+    motion,
+    /draw\?\.\(0, \{ x: 0, y: 0 \}, 0\)\s*if \(toggle\) toggle\.hidden = true\s*return \(\) => \{\}/
+  )
+  assert.match(css, /\.lmm-story:not\(\[data-chapter\]\)/)
+})
+
+test('paused and reduced-motion states keep the code surface static', () => {
+  assert.match(
+    css,
+    /\.lmm-home\[data-motion='paused'\] \.lmm-code-surface,\s*\.lmm-home\[data-motion='reduced'\] \.lmm-code-surface \{\s*transform: none;/
+  )
+  assert.match(motion, /matchMedia\('\(prefers-reduced-motion: reduce\)'\)/)
+  assert.match(motion, /const animate = !reduced\.matches && !paused/)
 })

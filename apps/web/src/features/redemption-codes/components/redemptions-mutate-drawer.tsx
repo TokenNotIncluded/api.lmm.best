@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
+import { useQuery } from '@tanstack/react-query'
 import { type FormEvent, useEffect, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
@@ -50,6 +51,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet'
+import { getAdminPlans } from '@/features/subscriptions/api'
 import { getCurrencyDisplay, getCurrencyLabel } from '@/lib/currency'
 import {
   formatQuota,
@@ -68,7 +70,7 @@ import {
   transformFormDataToPayload,
   transformRedemptionToFormDefaults,
 } from '../lib'
-import type { Redemption } from '../types'
+import type { Redemption, RedemptionRewardType } from '../types'
 import { useRedemptions } from './redemptions-provider'
 
 type RedemptionsMutateDrawerProps = {
@@ -98,8 +100,14 @@ export function RedemptionsMutateDrawer({
     resolver: zodResolver(getRedemptionFormSchema(t)),
     defaultValues: REDEMPTION_FORM_DEFAULT_VALUES,
   })
+  const rewardType = form.watch('reward_type')
+  const plansQuery = useQuery({
+    queryKey: ['subscription-plans', 'admin', 'redemption-reward'],
+    queryFn: () => getAdminPlans(true),
+    enabled: open && rewardType === 'reset_voucher',
+  })
+  const plans = plansQuery.data?.data ?? []
 
-  // Load existing data when updating
   useEffect(() => {
     if (!open) {
       setRedemptionLoadState('idle')
@@ -161,9 +169,12 @@ export function RedemptionsMutateDrawer({
       const basePayload = transformFormDataToPayload(data)
 
       if (isUpdate && currentRow && loadedRedemption) {
-        const quota = form.getFieldState('quota_dollars').isDirty
-          ? basePayload.quota
-          : loadedRedemption.quota
+        const quota =
+          data.reward_type === 'quota' &&
+          !form.getFieldState('quota_dollars').isDirty &&
+          loadedRedemption.reward_type !== 'reset_voucher'
+            ? loadedRedemption.quota
+            : basePayload.quota
         const result = await updateRedemption({
           ...basePayload,
           quota,
@@ -175,7 +186,6 @@ export function RedemptionsMutateDrawer({
           triggerRefresh()
         }
       } else {
-        // Create mode
         const result = await createRedemption(basePayload)
         if (result.success) {
           const count = result.data?.length || 0
@@ -199,8 +209,12 @@ export function RedemptionsMutateDrawer({
     if (!isUpdate) {
       const name = form.getValues('name')
       if (!name?.trim()) {
-        const quota = parseQuotaFromDollars(form.getValues('quota_dollars'))
-        form.setValue('name', formatQuota(quota), { shouldValidate: true })
+        if (form.getValues('reward_type') === 'reset_voucher') {
+          form.setValue('name', 'Banked reset', { shouldValidate: true })
+        } else {
+          const quota = parseQuotaFromDollars(form.getValues('quota_dollars'))
+          form.setValue('name', formatQuota(quota), { shouldValidate: true })
+        }
       }
     }
 
@@ -229,9 +243,7 @@ export function RedemptionsMutateDrawer({
       open={open}
       onOpenChange={(v) => {
         onOpenChange(v)
-        if (!v) {
-          form.reset()
-        }
+        if (!v) form.reset()
       }}
     >
       <SheetContent className={sideDrawerContentClassName('sm:max-w-[600px]')}>
@@ -281,41 +293,138 @@ export function RedemptionsMutateDrawer({
 
                 <FormField
                   control={form.control}
-                  name='quota_dollars'
+                  name='reward_type'
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>{quotaLabel}</FormLabel>
+                      <FormLabel>{t('Reward')}</FormLabel>
                       <FormControl>
-                        <Input
-                          {...field}
-                          type='number'
-                          step={quotaStep}
-                          placeholder={quotaPlaceholder}
-                          onChange={(e) =>
+                        <select
+                          className='border-input bg-background h-9 w-full rounded-md border px-3 text-sm'
+                          value={field.value}
+                          onChange={(event) =>
                             field.onChange(
-                              Number.parseFloat(e.target.value) || 0
+                              event.target.value as RedemptionRewardType
                             )
                           }
-                        />
+                        >
+                          <option value='quota'>{t('Quota')}</option>
+                          <option value='reset_voucher'>
+                            {t('Banked reset voucher')}
+                          </option>
+                        </select>
                       </FormControl>
                       <FormDescription>
-                        {tokensOnly
-                          ? t('Enter the quota amount in tokens')
-                          : t('Enter the quota amount in {{currency}}', {
-                              currency: currencyLabel,
-                            })}
+                        {t(
+                          'Choose what this redemption code grants when redeemed.'
+                        )}
                       </FormDescription>
                       <FormMessage />
                     </FormItem>
                   )}
                 />
 
+                {rewardType === 'quota' ? (
+                  <FormField
+                    control={form.control}
+                    name='quota_dollars'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{quotaLabel}</FormLabel>
+                        <FormControl>
+                          <Input
+                            {...field}
+                            type='number'
+                            step={quotaStep}
+                            placeholder={quotaPlaceholder}
+                            onChange={(e) =>
+                              field.onChange(
+                                Number.parseFloat(e.target.value) || 0
+                              )
+                            }
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          {tokensOnly
+                            ? t('Enter the quota amount in tokens')
+                            : t('Enter the quota amount in {{currency}}', {
+                                currency: currencyLabel,
+                              })}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                ) : (
+                  <>
+                    <FormField
+                      control={form.control}
+                      name='reset_plan_id'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t('Subscription plan')}</FormLabel>
+                          <FormControl>
+                            <select
+                              className='border-input bg-background h-9 w-full rounded-md border px-3 text-sm'
+                              value={String(field.value || '')}
+                              onChange={(event) =>
+                                field.onChange(Number(event.target.value) || 0)
+                              }
+                            >
+                              <option value=''>
+                                {plansQuery.isLoading
+                                  ? t('Loading...')
+                                  : t('Choose a plan')}
+                              </option>
+                              {plans.map((record) => (
+                                <option
+                                  key={record.plan.id}
+                                  value={record.plan.id}
+                                >
+                                  {record.plan.title} (#{record.plan.id})
+                                </option>
+                              ))}
+                            </select>
+                          </FormControl>
+                          <FormDescription>
+                            {t(
+                              'Redeeming the code creates one available banked reset voucher for this plan.'
+                            )}
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name='reset_voucher_expires_at'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t('Reset voucher expiration')}</FormLabel>
+                          <FormControl>
+                            <DateTimePicker
+                              value={field.value}
+                              onChange={field.onChange}
+                              placeholder={t('No practical expiration')}
+                            />
+                          </FormControl>
+                          <FormDescription>
+                            {t(
+                              'Leave empty to use the platform maximum voucher lifetime.'
+                            )}
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </>
+                )}
+
                 <FormField
                   control={form.control}
                   name='expired_time'
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>{t('Expiration Time')}</FormLabel>
+                      <FormLabel>{t('Redemption code expiration')}</FormLabel>
                       <div className='flex flex-col gap-2'>
                         <FormControl>
                           <DateTimePicker
@@ -329,7 +438,9 @@ export function RedemptionsMutateDrawer({
                             type='button'
                             variant='outline'
                             size='sm'
-                            onClick={() => handleSetExpiry(0, 0, 0)}
+                            onClick={() =>
+                              form.setValue('expired_time', undefined)
+                            }
                           >
                             {t('Never')}
                           </Button>
@@ -360,7 +471,9 @@ export function RedemptionsMutateDrawer({
                         </div>
                       </div>
                       <FormDescription>
-                        {t('Leave empty for never expires')}
+                        {t(
+                          'This controls how long the redemption code itself can be used.'
+                        )}
                       </FormDescription>
                       <FormMessage />
                     </FormItem>

@@ -34,6 +34,7 @@ func MountOAuthServerRoutes(router *gin.Engine, integration *service.OAuthIntegr
 	browser := h.Guard(30, "browser")
 	tokens := h.Guard(60, "token")
 	resources := h.Guard(120, "resource")
+	activity := h.Guard(30, "activity")
 	router.GET("/.well-known/oauth-authorization-server", discovery, h.Metadata)
 	router.GET("/.well-known/oauth-protected-resource/api/oauth2", discovery, h.ResourceMetadata)
 	router.GET("/api/oauth2/authorize", browser, h.Authorize)
@@ -43,4 +44,5 @@ func MountOAuthServerRoutes(router *gin.Engine, integration *service.OAuthIntegr
 	router.POST("/api/oauth2/revoke", tokens, h.Revoke)
 	router.GET("/api/oauth2/catalog", resources, h.Catalog)
 	router.GET("/api/oauth2/balance", resources, h.Balance)
+	router.GET("/api/oauth2/usage/activity", activity, h.Activity)
 }

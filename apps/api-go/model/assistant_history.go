@@ -1,6 +1,7 @@
 package model
 
 import (
+	"context"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/hmac"
@@ -1100,6 +1101,10 @@ func ListAssistantConversations(viewerUserID, ownerUserID int, limit int, archiv
 // administrator receives counts only for accounts with a strictly lower role.
 // Empty conversation shells are excluded to match the history list.
 func PopulateAssistantConversationCounts(users []*User, viewerUserID, viewerRole int) error {
+	return PopulateAssistantConversationCountsContext(context.Background(), users, viewerUserID, viewerRole)
+}
+
+func PopulateAssistantConversationCountsContext(ctx context.Context, users []*User, viewerUserID, viewerRole int) error {
 	authorizedUserIDs := make([]int, 0, len(users))
 	usersByID := make(map[int]*User, len(users))
 	for _, user := range users {
@@ -1126,7 +1131,7 @@ func PopulateAssistantConversationCounts(users []*User, viewerUserID, viewerRole
 		Count  int64 `gorm:"column:count"`
 	}
 	var counts []conversationCount
-	if err := DB.Table("assistant_conversations").
+	if err := DB.WithContext(ctx).Table("assistant_conversations").
 		Select("assistant_conversations.user_id, COUNT(DISTINCT assistant_conversations.id) AS count").
 		Joins("JOIN assistant_history_messages ON assistant_history_messages.conversation_id = assistant_conversations.id").
 		Where("assistant_conversations.user_id IN ?", authorizedUserIDs).

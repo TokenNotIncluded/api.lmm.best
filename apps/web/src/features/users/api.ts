@@ -44,6 +44,7 @@ export type DeveloperAccessRequestAdmin = {
     | 'assistant_recommendation'
     | 'user_edited'
     | 'assistant_request'
+    | 'assistant_direct_grant'
     | 'legacy'
   ai_recommendation: string
   admin_user_id: number
@@ -62,6 +63,7 @@ export type DeveloperAccessRecommendationArchive = {
     | 'assistant_recommendation'
     | 'user_edited'
     | 'assistant_request'
+    | 'assistant_direct_grant'
     | 'legacy'
   reason: string
   recommendation: string

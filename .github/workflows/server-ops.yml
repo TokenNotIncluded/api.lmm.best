@@ -46,7 +46,7 @@ jobs:
   server-ops:
     if: >-
       github.event_name == 'workflow_dispatch' &&
-      github.repository == 'LIghtJUNction/api.lmm.best' &&
+      github.repository == 'TokenNotIncluded/api.lmm.best' &&
       github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -81,7 +81,7 @@ jobs:
     name: Owner-requested read-only incident diagnosis
     if: >-
       github.event_name == 'push' &&
-      github.repository == 'LIghtJUNction/api.lmm.best' &&
+      github.repository == 'TokenNotIncluded/api.lmm.best' &&
       github.ref == 'refs/heads/main' &&
       github.actor == 'LIghtJUNction' &&
       github.triggering_actor == 'LIghtJUNction'
@@ -101,7 +101,9 @@ jobs:
           python3 scripts/test-server-repair-startup.py
           python3 scripts/test-server-ops-commit-request.py
       - name: Validate the owner request before loading credentials
-        run: python3 scripts/server-ops-commit-request.py --validate-only
+        run: |
+          test "$(git rev-parse HEAD:scripts/server-ops-transport.py)" = 291b68df38ec40005872060aac98a4a4631a79af
+          python3 scripts/server-ops-commit-request.py --validate-only
       - name: Execute only the explicitly requested read-only diagnosis
         env:
           PRODUCTION_SSH_PRIVATE_KEY: ${{ secrets.PRODUCTION_SSH_PRIVATE_KEY }}

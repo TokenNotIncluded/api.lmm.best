@@ -70,7 +70,7 @@ func EnsureOAuthBillingToken(ctx context.Context, db *gorm.DB, grantID string, u
 		}
 		digest := sha256.Sum256([]byte(grantID + "\x00" + group))
 		token = Token{UserId: userID, Key: OAuthBillingKeyPrefix + hex.EncodeToString(digest[:]), OAuthManaged: true, Status: common.TokenStatusEnabled,
-			Name: "OAuth / LMM for Pi", Group: group, CreatedTime: now / 1000, AccessedTime: now / 1000, ExpiredTime: grant.AbsoluteExpiresAtMs / 1000, UnlimitedQuota: true, CrossGroupRetry: false}
+			Name: "OAuth / LMM", Group: group, CreatedTime: now / 1000, AccessedTime: now / 1000, ExpiredTime: grant.AbsoluteExpiresAtMs / 1000, UnlimitedQuota: true, CrossGroupRetry: false}
 		if err := tx.Create(&token).Error; err != nil {
 			return err
 		}

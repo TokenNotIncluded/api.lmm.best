@@ -629,10 +629,10 @@ describe('assistant chat retry policy', () => {
     let calls = 0
     api.post = (async (_url: string, _data: unknown, config: unknown) => {
       calls += 1
-      assert.equal(
-        (config as { signal?: AbortSignal }).signal,
-        controller.signal
-      )
+      const signal = (config as { signal: AbortSignal }).signal
+      assert.equal(signal.aborted, false)
+      controller.abort()
+      assert.equal(signal.aborted, true)
       throw Object.assign(new Error('cancelled'), { __CANCEL__: true })
     }) as typeof api.post
     try {
@@ -1065,7 +1065,7 @@ describe('assistant chat retry policy', () => {
     assert.deepEqual(attempts, ['1', '2'])
   })
 
-  test('stops after five total attempts', async () => {
+  test('stops after two total attempts', async () => {
     const originalPost = api.post
     let callCount = 0
     api.post = (async () => {

@@ -137,6 +137,84 @@ func TestOaiStreamHandlerFlushesFirstChunkWithForcedFormat(t *testing.T) {
 	require.Contains(t, body, `"content":"hello"`)
 }
 
+func TestOaiStreamHandlerReturnsFirstOutputTimeout(t *testing.T) {
+	oldStreamingTimeout := constant.StreamingTimeout
+	constant.StreamingTimeout = 30
+	t.Cleanup(func() { constant.StreamingTimeout = oldStreamingTimeout })
+
+	reader, writer := io.Pipe()
+	t.Cleanup(func() {
+		_ = reader.Close()
+		_ = writer.Close()
+	})
+
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	info := &relaycommon.RelayInfo{
+		ChannelMeta:          &relaycommon.ChannelMeta{UpstreamModelName: "gpt-test"},
+		IsStream:             true,
+		RelayMode:            relayconstant.RelayModeChatCompletions,
+		RelayFormat:          relaytypes.RelayFormatOpenAI,
+		DisablePing:          true,
+		FirstResponseTimeout: 50 * time.Millisecond,
+	}
+
+	done := make(chan *relaytypes.NewAPIError, 1)
+	go func() {
+		_, apiErr := OaiStreamHandler(c, info, &http.Response{StatusCode: http.StatusOK, Body: reader})
+		done <- apiErr
+	}()
+
+	select {
+	case apiErr := <-done:
+		require.NotNil(t, apiErr)
+		require.Equal(t, relaytypes.ErrorCodeUpstreamTimeout, apiErr.GetErrorCode())
+		require.Equal(t, http.StatusGatewayTimeout, apiErr.StatusCode)
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("first output timeout was not returned")
+	}
+}
+
+func TestOaiStreamHandlerDoesNotTreatRoleOnlyAsFirstOutput(t *testing.T) {
+	oldStreamingTimeout := constant.StreamingTimeout
+	constant.StreamingTimeout = 30
+	t.Cleanup(func() { constant.StreamingTimeout = oldStreamingTimeout })
+
+	reader, writer := io.Pipe()
+	t.Cleanup(func() {
+		_ = reader.Close()
+		_ = writer.Close()
+	})
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	info := &relaycommon.RelayInfo{
+		ChannelMeta:          &relaycommon.ChannelMeta{UpstreamModelName: "gpt-test"},
+		IsStream:             true,
+		RelayMode:            relayconstant.RelayModeChatCompletions,
+		RelayFormat:          relaytypes.RelayFormatOpenAI,
+		DisablePing:          true,
+		FirstResponseTimeout: 50 * time.Millisecond,
+	}
+
+	done := make(chan *relaytypes.NewAPIError, 1)
+	go func() {
+		_, apiErr := OaiStreamHandler(c, info, &http.Response{StatusCode: http.StatusOK, Body: reader})
+		done <- apiErr
+	}()
+	_, err := fmt.Fprint(writer, "data: {\"choices\":[{\"delta\":{\"role\":\"assistant\"}}]}\n\n")
+	require.NoError(t, err)
+
+	select {
+	case apiErr := <-done:
+		require.NotNil(t, apiErr)
+		require.Equal(t, relaytypes.ErrorCodeUpstreamTimeout, apiErr.GetErrorCode())
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("role-only stream did not time out before visible output")
+	}
+}
+
 func runOaiAudioStream(t *testing.T, shouldIncludeUsage bool) (*dto.Usage, string) {
 	t.Helper()
 

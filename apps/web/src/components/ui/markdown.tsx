@@ -735,13 +735,7 @@ markdownParser.use(...markdownExtensions)
 export function isExternalUrl(href: string): boolean {
   if (!href) return false
   const trimmed = href.trim()
-  if (
-    trimmed.startsWith('#') ||
-    trimmed.startsWith('?') ||
-    trimmed.startsWith('mailto:') ||
-    trimmed.startsWith('tel:') ||
-    trimmed.startsWith('javascript:')
-  ) {
+  if (trimmed.startsWith('#') || trimmed.startsWith('?')) {
     return false
   }
   try {
@@ -750,6 +744,9 @@ export function isExternalUrl(href: string): boolean {
         ? window.location.href
         : 'http://localhost'
     const url = new URL(trimmed, base)
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+      return false
+    }
     const currentOrigin =
       typeof window !== 'undefined' && window.location?.origin
         ? window.location.origin

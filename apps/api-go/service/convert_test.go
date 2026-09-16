@@ -1,10 +1,12 @@
 package service
 
 import (
+	"encoding/json"
 	"testing"
 
 	relaycommon "github.com/LIghtJUNction/api.lmm.best/relay/common"
 	"github.com/LIghtJUNction/api.lmm.best/relaykit/dto"
+	"github.com/LIghtJUNction/api.lmm.best/relaykit/relayconvert"
 	"github.com/LIghtJUNction/api.lmm.best/relaykit/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -81,6 +83,129 @@ func TestRequestConverterFacadeAcceptsTypedNilRelayInfo(t *testing.T) {
 			require.NoError(t, err)
 			require.NotNil(t, result)
 			assert.Equal(t, target, result.To)
+		})
+	}
+}
+
+func TestRequestConverterFacadeWithoutChannelMeta(t *testing.T) {
+	result, err := ConvertRequest(nil, &relaycommon.RelayInfo{IsStream: true}, types.RelayFormatOpenAI, &dto.GeminiChatRequest{
+		Contents: []dto.GeminiChatContent{{Role: "user", Parts: []dto.GeminiPart{{Text: "hello"}}}},
+	})
+	require.NoError(t, err)
+	chatRequest, ok := result.Value.(*dto.GeneralOpenAIRequest)
+	require.True(t, ok)
+	assert.Nil(t, chatRequest.StreamOptions)
+}
+
+func TestGenericClaudeConversionDoesNotInjectStreamUsage(t *testing.T) {
+	info := &relaycommon.RelayInfo{
+		IsStream: true,
+		ChannelMeta: &relaycommon.ChannelMeta{
+			SupportStreamOptions: true,
+		},
+	}
+	result, err := ConvertRequest(nil, info, types.RelayFormatOpenAI, &dto.ClaudeRequest{
+		Model:    "gpt-test",
+		Messages: []dto.ClaudeMessage{{Role: "user", Content: "hello"}},
+	})
+	require.NoError(t, err)
+	chatRequest, ok := result.Value.(*dto.GeneralOpenAIRequest)
+	require.True(t, ok)
+	assert.Nil(t, chatRequest.StreamOptions)
+}
+
+func TestCrossProtocolStreamingRequestsIncludeUsage(t *testing.T) {
+	newInfo := func(isStream, supportsStreamOptions bool) *relaycommon.RelayInfo {
+		return &relaycommon.RelayInfo{
+			IsStream: isStream,
+			ChannelMeta: &relaycommon.ChannelMeta{
+				SupportStreamOptions: supportsStreamOptions,
+			},
+		}
+	}
+
+	t.Run("direct Gemini conversion", func(t *testing.T) {
+		result, err := ConvertRequest(nil, newInfo(true, true), types.RelayFormatOpenAI, &dto.GeminiChatRequest{
+			Contents: []dto.GeminiChatContent{{Role: "user", Parts: []dto.GeminiPart{{Text: "hello"}}}},
+		})
+		require.NoError(t, err)
+		chatRequest, ok := result.Value.(*dto.GeneralOpenAIRequest)
+		require.True(t, ok)
+		require.NotNil(t, chatRequest.StreamOptions)
+		assert.True(t, chatRequest.StreamOptions.IncludeUsage)
+	})
+
+	byIDCases := []struct {
+		name      string
+		converter string
+		request   any
+	}{
+		{
+			name:      "Claude",
+			converter: relayconvert.ConverterClaudeMessagesToOpenAIChat,
+			request: &dto.ClaudeRequest{
+				Model:    "gpt-test",
+				Messages: []dto.ClaudeMessage{{Role: "user", Content: "hello"}},
+			},
+		},
+		{
+			name:      "Gemini",
+			converter: relayconvert.ConverterGeminiContentToOpenAIChat,
+			request: &dto.GeminiChatRequest{
+				Contents: []dto.GeminiChatContent{{Role: "user", Parts: []dto.GeminiPart{{Text: "hello"}}}},
+			},
+		},
+		{
+			name:      "Responses",
+			converter: relayconvert.ConverterOpenAIResponsesToOpenAIChat,
+			request: &dto.OpenAIResponsesRequest{
+				Model: "gpt-test",
+				Input: json.RawMessage(`"hello"`),
+			},
+		},
+	}
+
+	for _, tc := range byIDCases {
+		t.Run("advanced custom "+tc.name, func(t *testing.T) {
+			result, err := ConvertRequestByID(nil, newInfo(true, true), tc.converter, tc.request)
+			require.NoError(t, err)
+			chatRequest, ok := result.Value.(*dto.GeneralOpenAIRequest)
+			require.True(t, ok)
+			require.NotNil(t, chatRequest.StreamOptions)
+			assert.True(t, chatRequest.StreamOptions.IncludeUsage)
+		})
+	}
+}
+
+func TestCrossProtocolStreamUsageRespectsStreamCapability(t *testing.T) {
+	request := func() *dto.GeminiChatRequest {
+		return &dto.GeminiChatRequest{
+			Contents: []dto.GeminiChatContent{{Role: "user", Parts: []dto.GeminiPart{{Text: "hello"}}}},
+		}
+	}
+
+	tests := []struct {
+		name                  string
+		isStream              bool
+		supportsStreamOptions bool
+	}{
+		{name: "non-stream", isStream: false, supportsStreamOptions: true},
+		{name: "unsupported upstream", isStream: true, supportsStreamOptions: false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			info := &relaycommon.RelayInfo{
+				IsStream: tc.isStream,
+				ChannelMeta: &relaycommon.ChannelMeta{
+					SupportStreamOptions: tc.supportsStreamOptions,
+				},
+			}
+			result, err := ConvertRequest(nil, info, types.RelayFormatOpenAI, request())
+			require.NoError(t, err)
+			chatRequest, ok := result.Value.(*dto.GeneralOpenAIRequest)
+			require.True(t, ok)
+			assert.Nil(t, chatRequest.StreamOptions)
 		})
 	}
 }

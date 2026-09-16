@@ -46,7 +46,7 @@ func TestAdaptorEndpointCapabilities(t *testing.T) {
 		{"baidu-v2", constant.APITypeBaiduV2, "key", true, false},
 		{"openrouter", constant.APITypeOpenRouter, "key", true, true},
 		{"xinference", constant.APITypeXinference, "key", true, true},
-		{"xai", constant.APITypeXai, "key", false, false},
+		{"xai", constant.APITypeXai, "key", true, false},
 		{"coze", constant.APITypeCoze, "key", false, false},
 		{"jimeng", constant.APITypeJimeng, "key", false, false},
 		{"moonshot", constant.APITypeMoonshot, "key", true, true},
