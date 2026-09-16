@@ -1,0 +1,91 @@
+name: PR 340 route splitting verification
+on:
+  push:
+    branches: ['assistant/pr340-integration-20260916']
+    paths: ['.github/workflows/pr340-route-split-repair.yml']
+permissions:
+  contents: read
+jobs:
+  web:
+    if: github.repository == 'TokenNotIncluded/api.lmm.best' && github.ref == 'refs/heads/assistant/pr340-integration-20260916'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: 49ceff83f99244e798f93de7dcd3bb16ad5edbf3
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: '1.3.14'
+      - run: bun install --frozen-lockfile
+      - name: Restore generator-compatible route identifiers
+        run: |
+          mkdir -p /tmp/pr340-route-split
+          python3 - <<'PY'
+          import pathlib
+          root=pathlib.Path('apps/web/src/routes')
+          rows=[('_authenticated/red-packets/index.tsx',"// The TanStack Vite plugin regenerates routeTree.gen.ts during production\n// builds. Cast here so standalone `tsc` can validate a newly-added file route\n// before that generated artifact has been refreshed in the working tree.\n", "'/_authenticated/red-packets/'"),('red-packet/$slug.tsx',"// routeTree.gen.ts is refreshed by the TanStack Vite plugin during builds; the\n// cast keeps standalone typecheck compatible with the newly-added file route.\n", "'/red-packet/$slug'")]
+          for name,comment,route in rows:
+              p=root/name;s=p.read_text()
+              assert s.count(comment)==1 and s.count(route+' as never')==1
+              s=s.replace(comment,'').replace(route+' as never',route)
+              p.write_text(s)
+          PY
+      - name: Generate real routes and enforce unchanged initial bundle budgets
+        shell: bash
+        run: |
+          bun run --filter @lmm/web build 2>&1 | tee /tmp/pr340-route-split/build.log
+          python3 - <<'PY'
+          import pathlib
+          log=pathlib.Path('/tmp/pr340-route-split/build.log').read_text()
+          assert 'Error transforming route file' not in log
+          tree=pathlib.Path('apps/web/src/routeTree.gen.ts').read_text()
+          assert '/red-packet/$slug' in tree and '/_authenticated/red-packets/' in tree
+          PY
+          bun run --filter @lmm/web bundle:check 2>&1 | tee /tmp/pr340-route-split/bundle-check.log
+      - name: Verify regenerated route tree and complete web regression suite
+        shell: bash
+        run: |
+          status=0
+          for command in lint typecheck test copyright:check; do
+            file=${command//:/-}
+            bun run --filter @lmm/web "$command" > "/tmp/pr340-route-split/$file.log" 2>&1 || { tail -70 "/tmp/pr340-route-split/$file.log"; status=1; }
+          done
+          bash apps/api-rust/tests/behavior-oracle/tests/test-frontend-api-route-manifest.sh > /tmp/pr340-route-split/api-manifest.log 2>&1 || { tail -60 /tmp/pr340-route-split/api-manifest.log; status=1; }
+          git diff --check || status=1
+          exit "$status"
+      - name: Publish verified source candidate only
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          test "$GITHUB_REF" = refs/heads/assistant/pr340-integration-20260916
+          python3 - <<'PY'
+          import subprocess
+          allowed={'apps/web/src/routes/_authenticated/red-packets/index.tsx','apps/web/src/routes/red-packet/$slug.tsx','apps/web/src/routeTree.gen.ts'}
+          changed=set(subprocess.check_output(['git','diff','--name-only'],text=True).splitlines())
+          assert changed <= allowed, changed
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add apps/web/src/routes apps/web/src/routeTree.gen.ts
+          git commit -m 'fix(web): restore literal route IDs and regenerate production route splits'
+          auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          echo "::add-mask::$auth"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" push origin HEAD:refs/heads/assistant/pr340-merged-20260916
+          git rev-parse HEAD HEAD^{tree} > /tmp/pr340-route-split/commit.txt
+      - name: Save source and exact build evidence
+        if: always()
+        run: |
+          mkdir -p /tmp/pr340-route-split
+          git diff > /tmp/pr340-route-split/route-split.patch
+          tar -cf /tmp/pr340-route-split/changed-source.tar apps/web/src/routes/_authenticated/red-packets/index.tsx 'apps/web/src/routes/red-packet/$slug.tsx' apps/web/src/routeTree.gen.ts
+          if test -f apps/web/dist/index.html; then cp apps/web/dist/index.html /tmp/pr340-route-split/index.html; fi
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: pr340-route-splitting-evidence
+          path: /tmp/pr340-route-split
+          retention-days: 3
