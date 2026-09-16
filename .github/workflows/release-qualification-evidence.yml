@@ -1,0 +1,66 @@
+name: Reconcile main qualification evidence
+on:
+  push:
+    branches: [release/acceptance-20260916]
+    paths: [.github/workflows/release-qualification-evidence.yml]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: a50db823a1fc2c57ee136ce64507c31c7e82ebfe
+          persist-credentials: false
+      - name: Read exact failing run and source without rerunning or changing its result
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/qualification-evidence
+          test "$(git rev-parse HEAD)" = a50db823a1fc2c57ee136ce64507c31c7e82ebfe
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib, re, subprocess
+          root=pathlib.Path('/tmp/qualification-evidence'); repo=os.environ['REPO']
+          def get(path):
+              return subprocess.run(['gh','api',f'repos/{repo}/{path}'],stdout=subprocess.PIPE,stderr=subprocess.PIPE,check=True,timeout=45).stdout
+          run=json.loads(get('actions/runs/35107071809'))
+          job=json.loads(get('actions/jobs/104830953399'))
+          assert run['head_sha']=='a50db823a1fc2c57ee136ce64507c31c7e82ebfe'
+          assert job['run_id']==run['id']
+          summary={'run':{key:run.get(key) for key in ('id','head_sha','event','conclusion','run_attempt','path')},'job':{key:job.get(key) for key in ('id','name','status','conclusion','steps')}}
+          (root/'identity.json').write_text(json.dumps(summary,indent=2))
+          print(json.dumps(summary))
+          raw=get('actions/jobs/104830953399/logs')
+          (root/'job.log').write_bytes(raw)
+          print('RAW_LOG_SHA256',hashlib.sha256(raw).hexdigest(),'BYTES',len(raw))
+          lines=raw.decode(errors='replace').splitlines(); indices=set()
+          for i,line in enumerate(lines):
+              if re.search(r'--- FAIL:|##\[error\]|unexpected total quota|settlement mismatch|panic:|Error Trace:|runtime acceptance failed',line):
+                  indices.update(range(max(0,i-5),min(len(lines),i+14)))
+          context='\n'.join(lines[i] for i in sorted(indices))
+          (root/'failure-context.log').write_text(context)
+          print(context)
+          for path in ('.github/workflows/server-release-qualification.yml','scripts/ci/run-server-release-qualification.sh','scripts/ci/qualify-live-server.sh','apps/api-rust/tests/go-backend/relay_smoke_test.go'):
+              target=pathlib.Path(path)
+              if target.is_file():
+                  raw=target.read_bytes(); (root/path.replace('/','__')).write_bytes(raw)
+                  print('SOURCE',path,hashlib.sha256(raw).hexdigest(),len(raw))
+              else: print('ABSENT_AT_EXACT_SHA',path)
+          result=subprocess.run(['git','grep','-n','-e','unexpected total quota','-e','concurrent settlement mismatch','-e','TestGoBackendFoundationRelayContract'],capture_output=True,text=True)
+          if result.returncode not in (0,1): raise RuntimeError(result.stderr)
+          (root/'source-search.txt').write_text(result.stdout)
+          print(result.stdout)
+          PY
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: ${{ always() }}
+        with:
+          name: qualification-evidence-${{ github.run_id }}
+          path: /tmp/qualification-evidence/
+          if-no-files-found: error
+          retention-days: 7
