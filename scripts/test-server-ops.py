@@ -185,11 +185,18 @@ class TransportTests(unittest.TestCase):
             ops.execute(environment(), b"")
         run.assert_not_called()
 
-    def test_workflow_is_manual_pinned_and_serialized(self):
+    def test_workflow_manual_entry_and_owner_request_are_separate(self):
         text = (ROOT / ".github/workflows/server-ops.yml").read_text()
         self.assertIn("  workflow_dispatch:", text)
-        for event in ("push:", "schedule:", "pull_request:", "workflow_run:", "repository_dispatch:"):
+        for event in ("schedule:", "pull_request:", "workflow_run:", "repository_dispatch:"):
             self.assertNotIn(event, text)
+        self.assertIn("  push:\n    branches: [main]\n    paths: [.github/server-ops-343-request.json]", text)
+        manual, owner_request = text.split("  owner-request:", 1)
+        self.assertIn("github.event_name == 'workflow_dispatch'", manual)
+        self.assertIn("github.event_name == 'push'", owner_request)
+        self.assertIn("github.actor == 'LIghtJUNction'", owner_request)
+        self.assertIn("github.triggering_actor == 'LIghtJUNction'", owner_request)
+        self.assertIn("server-ops-commit-request.py --validate-only", owner_request)
         self.assertIn("group: production-auto-deploy", text)
         self.assertIn("cancel-in-progress: false", text)
         self.assertIn("persist-credentials: false", text)
@@ -204,7 +211,6 @@ class TransportTests(unittest.TestCase):
                 response.status = 200
                 response.read.return_value = data
                 self.assertEqual(ops.public_health(), expected)
-
 
     def test_remote_repair_preserves_failure_and_keeps_raw_logs_private(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -231,7 +237,6 @@ class TransportTests(unittest.TestCase):
             self.assertIn("PRIVATE_TOKEN_MUST_NOT_LEAK", (audit / "repair.log").read_text())
             self.assertEqual((audit / "exit-code").read_text().strip(), "7")
             self.assertFalse((root / "SHOULD_NOT_EXIST").exists())
-            # A duplicate run ID must not overwrite its audit or execute the script again.
             second = subprocess.run(["bash", "-se"], input=script, text=True,
                                     capture_output=True, cwd=root, timeout=10)
             self.assertNotEqual(second.returncode, 0)
