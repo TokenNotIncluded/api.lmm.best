@@ -89,6 +89,10 @@ func TestClaudeMessagesResponseUsesClaudePipeline(t *testing.T) {
 
 func TestClaudeMessagesSSEPreservesSharedNativeToolEvents(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	// The application initializes this global during startup; adapter tests do not.
+	previousTimeout := constant.StreamingTimeout
+	constant.StreamingTimeout = 30
+	t.Cleanup(func() { constant.StreamingTimeout = previousTimeout })
 	body, err := os.ReadFile("testdata/native-messages.sse")
 	require.NoError(t, err)
 	body = append(body, '\n') // Complete the final SSE frame delimiter.
