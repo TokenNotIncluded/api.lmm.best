@@ -201,10 +201,8 @@ func (runtime *productionRuntime) snapshotRecoveryDatabase(ctx context.Context, 
 	if _, err := os.Lstat(backup); !errors.Is(err, os.ErrNotExist) {
 		return errors.New("incident database snapshot already exists")
 	}
-	if _, err := runtime.runner.Run(ctx, productionCommand{Name: commandPGDump,
-		Args: []string{"--no-password", "--format=custom", "--file=" + backup, databaseURL}, Env: environment,
-		Sensitive: true, Timeout: 2 * time.Minute}); err != nil {
-		return errors.New("fresh incident database backup failed")
+	if err := dumpIncident343Database(ctx, runtime.runner, databaseURL, environment, backup); err != nil {
+		return fmt.Errorf("fresh incident database backup failed: %w", err)
 	}
 	if err := os.Chmod(backup, 0600); err != nil {
 		return err
