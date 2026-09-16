@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   verify:
-    if: github.event.head_commit.message != 'chore: generated acceptance lock verification'
+    if: github.event.head_commit.message != 'generated acceptance lock verification'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -41,7 +41,7 @@ jobs:
             git config user.name github-actions[bot]
             git config user.email 41898282+github-actions[bot]@users.noreply.github.com
             git add apps/api-rust/tests/root-route-acceptance/Cargo.lock
-            git commit -m 'chore: generated acceptance lock verification'
+            git commit -m 'generated acceptance lock verification'
             git push origin HEAD:automation/rust-327-verify
           fi
 
