@@ -46,3 +46,15 @@ This probe does not exercise paid model requests or privileged account actions,
 and does not replace the native authenticated health checks. In particular,
 `AWAITING_CONFIRMATION` still requires the existing confirmation procedure; the
 external probe never auto-confirms a transaction or suppresses rollback.
+
+### Resolve all work before publication
+
+Go and Web release workflows now query the live repository before their CI
+verification and again immediately before publication. Any open issue or pull
+request (including drafts) blocks publication. A failed, timed-out or malformed
+GitHub API response also blocks publication; it is never treated as an empty
+backlog. The read-only query requires `issues: read` and does not close items.
+Resolution still requires reviewed fixes and relevant tests, not merely closing
+records. The existing exact-revision CI, signature and production confirmation
+gates remain mandatory. A new issue opened during a build stops publication at
+the final check; it does not cancel or overwrite existing immutable releases.
