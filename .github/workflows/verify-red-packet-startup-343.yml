@@ -1,0 +1,123 @@
+name: Verify red packet startup fix 343
+on:
+  push:
+    branches: [release/acceptance-20260916]
+    paths: [.github/workflows/verify-red-packet-startup-343.yml]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: lmm_test_release
+          POSTGRES_PASSWORD: lmm-release-postgres-password
+          POSTGRES_DB: lmm_test_release
+        ports: ['127.0.0.1:5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U lmm_test_release -d lmm_test_release"
+          --health-interval 5s --health-timeout 3s --health-retries 12
+    steps:
+      - name: Checkout immutable patch input
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: dbf2916230fcf82fe9e24ae297f7121d90e4b063
+          path: review-input
+          sparse-checkout: .github/release-review
+          persist-credentials: false
+      - name: Checkout exact released base
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: 13b22e03ea2c88fa118814c34f780aa6e77af723
+          path: candidate
+          persist-credentials: false
+      - name: Apply patch and require exact independently reviewed tree
+        working-directory: candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          text=Path('../review-input/.github/release-review/red-packet-startup-343.patch').read_text()
+          # Diff-index hints are not source. The complete resulting tree below
+          # pins every file, including any transport whitespace correction.
+          text=text.replace('\n diff --git ', '\ndiff --git ')
+          text=re.sub(r'^index [^\n]*\n','',text,flags=re.M)
+          Path('/tmp/startup-fix.patch').write_text(text)
+          PY
+          git apply --check /tmp/startup-fix.patch
+          git apply --index /tmp/startup-fix.patch
+          git diff --cached --check
+          test "$(git write-tree)" = e6b3be2507bb3f81ee920ffa830db7ae2737ca98
+      - name: Store only reviewed immutable source blobs
+        working-directory: candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p source-evidence
+          python3 - <<'PY'
+          import json, subprocess
+          from pathlib import Path
+          entries=[]
+          paths=subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines()
+          assert len(paths)==5,paths
+          for path in paths:
+              response=subprocess.run(['gh','api','--method','POST','repos/TokenNotIncluded/api.lmm.best/git/blobs','--input','-'],input=json.dumps({'content':Path(path).read_text(),'encoding':'utf-8'}),text=True,capture_output=True,check=True)
+              actual=json.loads(response.stdout)['sha']
+              expected=subprocess.check_output(['git','rev-parse',':'+path],text=True).strip()
+              assert actual==expected,path
+              entries.append({'path':path,'mode':'100644','type':'blob','sha':actual})
+          Path('source-evidence/blobs.json').write_text(json.dumps({'tree':'e6b3be2507bb3f81ee920ffa830db7ae2737ca98','entries':entries},indent=2))
+          print('Reviewed source blobs stored; no branch, release, or production change.')
+          PY
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: startup-fix-343-source
+          path: candidate/source-evidence/
+          retention-days: 3
+      - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5
+        with:
+          go-version-file: candidate/apps/api-go/go.mod
+          cache-dependency-path: candidate/apps/api-go/go.sum
+      - name: Install isolated qualification tools
+        working-directory: candidate
+        run: |
+          sudo --preserve-env=GITHUB_ACTIONS python3 scripts/prepare-ci-apt.py
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes postgresql-client jq shellcheck
+      - name: Validate formatting, workflows, and scripts
+        working-directory: candidate
+        env:
+          GOWORK: 'off'
+        run: |
+          set -euo pipefail
+          test -z "$(gofmt -l apps/api-go/model/main.go apps/api-go/model/red_packet_migration*.go)"
+          shellcheck scripts/ci/qualify-go-migration-startup.sh
+          go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 -color
+      - name: Run affected Go race tests and build candidate
+        working-directory: candidate/apps/api-go
+        env:
+          GOMAXPROCS: '2'
+        run: |
+          set -euo pipefail
+          go test -p 2 -race ./model ./controller ./router -count=1
+          CGO_ENABLED=0 go build -p 2 -trimpath -o "$RUNNER_TEMP/startup-candidate" .
+      - name: Require CLI migrations and verify-mode startup and repair
+        working-directory: candidate
+        env:
+          LMM_QUALIFICATION_GO_BINARY: ${{ runner.temp }}/startup-candidate
+        run: bash scripts/ci/qualify-go-migration-startup.sh
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: ${{ always() }}
+        with:
+          name: startup-fix-343-validation
+          path: candidate/qualification-artifacts/
+          retention-days: 3
