@@ -76,8 +76,8 @@ export function isSameAssistantHandoffConfirmation(
 ): boolean {
   return Boolean(
     left &&
-      right &&
-      left.message === right.message &&
-      left.confirmationToken === right.confirmationToken
+    right &&
+    left.message === right.message &&
+    left.confirmationToken === right.confirmationToken
   )
 }
