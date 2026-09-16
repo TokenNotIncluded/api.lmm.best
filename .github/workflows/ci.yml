@@ -2,11 +2,17 @@ name: CI
 
 on:
   pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
   push:
     # Feature branches run through pull_request; keep main and tag evidence for releases.
     branches: [main]
     tags: ["*"]
   workflow_dispatch:
+    inputs:
+      base-ref:
+        description: Git ref for the translation regression comparison
+        default: HEAD^
+        type: string
 
 permissions:
   contents: read
@@ -45,6 +51,9 @@ jobs:
         env:
           GOWORK: "off"
         run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 -color
+
+      - name: Test workflow topology and deployment guards
+        run: node --test scripts/workflow-topology.test.mjs
 
       - name: Test PR description policy
         run: node --test scripts/pr-quality.test.mjs
@@ -546,3 +555,31 @@ jobs:
       - name: Validate binary package with makepkg and paru
         run: |
           runuser --user package-builder -- env TMPDIR=/home/package-builder/lmm-ci-tmp bash packaging/aur/test-bin-makepkg.sh
+
+  translations:
+    name: Translation regression check
+    # Tag pushes have no meaningful previous branch revision to compare.
+    if: github.event_name != 'push' || github.ref_type != 'tag'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout source and comparison history
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          # Use the PR merge ref so older branches receive the current checker.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Test the translation checker
+        run: node --test scripts/check-i18n.test.mjs
+
+      - name: Check added keys and removed translations
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.event.pull_request.base.sha || github.event.before || inputs.base-ref || 'HEAD^' }}
+        run: |
+          if [[ "$EVENT_NAME" == pull_request ]]; then
+            node scripts/check-i18n.mjs --base "$BASE_REF" --merge-base
+          else
+            node scripts/check-i18n.mjs --base "$BASE_REF"
+          fi

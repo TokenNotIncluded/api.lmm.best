@@ -1,0 +1,70 @@
+name: Deploy signed production release
+description: Verify the release context, then stage and promote through the existing signed-package deployment script.
+
+inputs:
+  release-tag:
+    description: The immutable go-v or web-v release tag
+    required: true
+  release-sha:
+    description: The exact commit that passed release verification and publication
+    required: true
+  github-token:
+    description: Read-only repository token for release downloads
+    required: true
+  ssh-private-key:
+    description: Production SSH private key from the protected environment
+    required: true
+  ssh-known-hosts:
+    description: Pinned production SSH host keys
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Verify deployment context
+      shell: bash
+      env:
+        RELEASE_TAG: ${{ inputs.release-tag }}
+        RELEASE_SHA: ${{ inputs.release-sha }}
+      run: |
+        set -euo pipefail
+        [[ "$RELEASE_TAG" =~ ^(go|web)-v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+        [[ "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]]
+        [[ "$GITHUB_REF" == "refs/tags/$RELEASE_TAG" ]]
+        [[ "$RELEASE_SHA" == "$GITHUB_SHA" ]]
+        [[ $(git rev-parse HEAD) == "$RELEASE_SHA" ]]
+        [[ $(git rev-list -n 1 "$RELEASE_TAG") == "$RELEASE_SHA" ]]
+
+    - name: Verify deployment credentials are configured
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+        PRODUCTION_SSH_PRIVATE_KEY: ${{ inputs.ssh-private-key }}
+        PRODUCTION_SSH_KNOWN_HOSTS: ${{ inputs.ssh-known-hosts }}
+      run: |
+        test -n "$GITHUB_TOKEN"
+        test -n "$PRODUCTION_SSH_PRIVATE_KEY"
+        test -n "$PRODUCTION_SSH_KNOWN_HOSTS"
+
+    - name: Install deployment tools
+      shell: bash
+      run: |
+        sudo --preserve-env=GITHUB_ACTIONS python3 scripts/prepare-ci-apt.py
+        sudo apt-get update
+        # Use the runner's Docker installation; docker.io conflicts with containerd.io.
+        sudo apt-get install --yes jq openssh-client
+        docker --version
+
+    - name: Install cosign
+      uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+    - name: Stage and promote the verified release
+      shell: bash
+      env:
+        RELEASE_TAG: ${{ inputs.release-tag }}
+        RELEASE_SHA: ${{ inputs.release-sha }}
+        REPOSITORY: ${{ github.repository }}
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+        PRODUCTION_SSH_PRIVATE_KEY: ${{ inputs.ssh-private-key }}
+        PRODUCTION_SSH_KNOWN_HOSTS: ${{ inputs.ssh-known-hosts }}
+      run: bash scripts/auto-deploy-production-release.sh
