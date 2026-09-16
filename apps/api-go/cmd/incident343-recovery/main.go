@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/LIghtJUNction/api.lmm.best/internal/appcli"
@@ -77,7 +78,46 @@ func createAbsentRedPacketSchema(ctx context.Context, dsn, schema string) error 
 			if err := tx.Migrator().CreateTable(entry.value); err != nil {
 				return fmt.Errorf("create %s with reviewed model: transaction will roll back", entry.name)
 			}
+			// PostgreSQL's IF NOT EXISTS can silently skip an index whose name
+			// belongs to another relation. Verify ownership, uniqueness and key
+			// columns before committing; a name match alone is not a constraint.
+			if err := verifyCreatedIndexes(tx, schema, entry.name, entry.value); err != nil {
+				return err
+			}
 		}
 		return nil
 	})
+}
+
+func verifyCreatedIndexes(tx *gorm.DB, schema, table string, value any) error {
+	statement := &gorm.Statement{DB: tx}
+	if err := statement.Parse(value); err != nil {
+		return errors.New("parse reviewed recovery index definitions")
+	}
+	for _, index := range statement.Schema.ParseIndexes() {
+		columns := make([]string, 0, len(index.Fields))
+		for _, field := range index.Fields {
+			if field.Expression != "" || field.DBName == "" {
+				return errors.New("recovery requires plain reviewed index columns")
+			}
+			columns = append(columns, field.DBName)
+		}
+		var matches int64
+		query := `SELECT count(*) FROM pg_catalog.pg_index i
+JOIN pg_catalog.pg_class ix ON ix.oid=i.indexrelid
+JOIN pg_catalog.pg_class t ON t.oid=i.indrelid
+JOIN pg_catalog.pg_namespace n ON n.oid=t.relnamespace
+WHERE n.nspname=? AND t.relname=? AND ix.relname=?
+  AND i.indisvalid AND i.indisready AND i.indisunique=?
+  AND i.indpred IS NULL AND i.indexprs IS NULL
+  AND i.indnkeyatts=? AND i.indnatts=?
+  AND (SELECT string_agg(a.attname, ',' ORDER BY k.ordinality)
+       FROM unnest(i.indkey) WITH ORDINALITY AS k(attnum, ordinality)
+       JOIN pg_catalog.pg_attribute a ON a.attrelid=i.indrelid AND a.attnum=k.attnum)=?`
+		if err := tx.Raw(query, schema, table, index.Name, index.Class == "UNIQUE",
+			len(columns), len(columns), strings.Join(columns, ",")).Scan(&matches).Error; err != nil || matches != 1 {
+			return fmt.Errorf("required index for %s is absent or incompatible: transaction will roll back", table)
+		}
+	}
+	return nil
 }
