@@ -1,0 +1,63 @@
+name: Release evidence audit 1540
+on:
+  push:
+    branches: [release/acceptance-20260916]
+    paths: [.github/workflows/release-audit-1540.yml]
+permissions:
+  contents: read
+  actions: read
+  checks: read
+  issues: read
+  pull-requests: read
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: 13b22e03ea2c88fa118814c34f780aa6e77af723
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Collect bounded release and remediation evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          python3 - <<'PY'
+          import json, subprocess
+          from pathlib import Path
+          repo = 'TokenNotIncluded/api.lmm.best'
+          def api(path):
+              return json.loads(subprocess.check_output(['gh','api',f'repos/{repo}/{path}'],text=True,timeout=30))
+          sha = subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()
+          data = {'source':sha,'main':api('git/ref/heads/main')['object']['sha']}
+          data['open_items'] = [{'number':x['number'],'title':x['title'],'pull_request':'pull_request' in x} for x in api('issues?state=open&per_page=100')]
+          data['releases'] = [{k:r[k] for k in ('tag_name','target_commitish','published_at','draft','prerelease')} | {'assets':[x['name'] for x in r['assets']]} for r in api('releases?per_page=5')]
+          runs = api('actions/runs?per_page=35')['workflow_runs']
+          current = api(f'actions/runs?head_sha={sha}&per_page=30')['workflow_runs']
+          data['runs'] = [{k:r[k] for k in ('id','name','head_branch','head_sha','event','status','conclusion','run_attempt','created_at','updated_at')} for r in {r['id']:r for r in runs+current}.values()]
+          data['checks'] = [{k:c.get(k) for k in ('name','status','conclusion','details_url')} for c in api(f'commits/{sha}/check-runs?per_page=100')['check_runs']]
+          data['issues'] = []
+          for number in (271,302,321):
+              row = api(f'issues/{number}')
+              item = {k:row.get(k) for k in ('number','title','state','state_reason','closed_at')}
+              item['comments'] = [{'at':x['created_at'],'body':x['body']} for x in api(f'issues/{number}/comments?per_page=100')][-4:]
+              data['issues'].append(item)
+          Path('evidence/audit.json').write_text(json.dumps(data,indent=2))
+          print(json.dumps({k:v for k,v in data.items() if k != 'issues'},indent=2))
+          PY
+          git archive --format=tar.gz --output=evidence/source.tar.gz HEAD
+      - name: Read public production status and actual frontend resources
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B scripts/verify-public-production.py | tee evidence/public.json
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: ${{ always() }}
+        with:
+          name: release-evidence-1540
+          path: evidence/
+          retention-days: 2
