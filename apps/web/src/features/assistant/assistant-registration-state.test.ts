@@ -19,18 +19,23 @@ For commercial licensing, please contact support@quantumnous.com
 /*
 Copyright (C) 2026 LIghtJUNction
 */
-import { expect, test } from 'bun:test'
-import { registrationState, registrationStateCopy } from './assistant-registration-state'
+import assert from 'node:assert/strict'
+import { test } from 'node:test'
+
+import {
+  registrationState,
+  registrationStateCopy,
+} from './assistant-registration-state'
 
 test('unrecognized or missing server states never imply approval', () => {
   for (const state of [undefined, null, 'approved', 'verified_human', {}, 1]) {
-    expect(registrationState(state)).toBe('context_needed')
+    assert.equal(registrationState(state), 'context_needed')
   }
 })
 test('ready means eligible, not already activated', () => {
-  expect(registrationStateCopy('ready').title).not.toContain('active')
-  expect(registrationStateCopy('active').title).toContain('active')
+  assert.doesNotMatch(registrationStateCopy('ready').title, /active/)
+  assert.match(registrationStateCopy('active').title, /active/)
 })
 test('a hold preserves a human support path', () => {
-  expect(registrationStateCopy('held').detail).toContain('human support')
+  assert.match(registrationStateCopy('held').detail, /human support/)
 })

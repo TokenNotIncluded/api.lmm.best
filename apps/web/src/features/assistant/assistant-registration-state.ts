@@ -19,19 +19,54 @@ For commercial licensing, please contact support@quantumnous.com
 /*
 Copyright (C) 2026 LIghtJUNction
 */
-export type RegistrationState = 'context_needed' | 'ready' | 'held' | 'suspended' | 'active'
+export type RegistrationState =
+  | 'context_needed'
+  | 'ready'
+  | 'held'
+  | 'suspended'
+  | 'active'
 
 export function registrationState(value: unknown): RegistrationState {
-  if (value === 'ready' || value === 'held' || value === 'suspended' || value === 'active') return value
+  if (
+    value === 'ready' ||
+    value === 'held' ||
+    value === 'suspended' ||
+    value === 'active'
+  )
+    return value
   return 'context_needed'
 }
 
 export function registrationStateCopy(state: RegistrationState) {
   switch (state) {
-    case 'active': return { title: 'L1 access is active', detail: 'You can continue setting up your client.' }
-    case 'ready': return { title: 'Continue with the assistant', detail: 'The assistant can complete access verification during this conversation. No recommendation letter is required.' }
-    case 'held': return { title: 'Registration needs another check', detail: 'Access and welcome rewards are on hold. You can keep asking questions or request human support.' }
-    case 'suspended': return { title: 'Account access is paused', detail: 'An administrator can review the recorded action. A pause is not a judgment about your writing style.' }
-    default: return { title: 'Tell us what you need', detail: 'A brief description in your own words is enough to start. There is no difficult puzzle or application letter.' }
+    case 'active':
+      return {
+        title: 'L1 access is active',
+        detail: 'You can continue setting up your client.',
+      }
+    case 'ready':
+      return {
+        title: 'Continue with the assistant',
+        detail:
+          'The assistant can complete access verification during this conversation. No recommendation letter is required.',
+      }
+    case 'held':
+      return {
+        title: 'Registration needs another check',
+        detail:
+          'Access and welcome rewards are on hold. You can keep asking questions or request human support.',
+      }
+    case 'suspended':
+      return {
+        title: 'Account access is paused',
+        detail:
+          'An administrator can review the recorded action. A pause is not a judgment about your writing style.',
+      }
+    default:
+      return {
+        title: 'Tell us what you need',
+        detail:
+          'A brief description in your own words is enough to start. There is no difficult puzzle or application letter.',
+      }
   }
 }

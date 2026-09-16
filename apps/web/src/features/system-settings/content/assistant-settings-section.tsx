@@ -1361,7 +1361,6 @@ export function AssistantSettingsSection(props: {
                 )}
               />
             </div>
-
           </div>
 
           <div className='grid gap-5 border-t pt-6'>

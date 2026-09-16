@@ -145,8 +145,10 @@ const CONTENT_SECTIONS = [
           AssistantSearchMCPTool: settings.AssistantSearchMCPTool,
           AssistantSkills: settings.AssistantSkills,
           AssistantSkillFiles: settings.AssistantSkillFiles,
-          AssistantRegistrationAutoSuspendEnabled: settings.AssistantRegistrationAutoSuspendEnabled,
-          AssistantRegistrationDailySuspendCap: settings.AssistantRegistrationDailySuspendCap,
+          AssistantRegistrationAutoSuspendEnabled:
+            settings.AssistantRegistrationAutoSuspendEnabled,
+          AssistantRegistrationDailySuspendCap:
+            settings.AssistantRegistrationDailySuspendCap,
           AssistantL1AutoReviewEnabled: settings.AssistantL1AutoReviewEnabled,
           AssistantL1AutoReviewGroup: settings.AssistantL1AutoReviewGroup,
           AssistantL1AutoReviewModel: settings.AssistantL1AutoReviewModel,

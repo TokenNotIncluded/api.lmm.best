@@ -258,12 +258,12 @@ func registrationSuspendBudgetTx(tx *gorm.DB) (bool, error) {
 		return false, err
 	}
 	var budget Option
-	if err := lockForUpdate(tx).Where("key = ?", seed.Key).First(&budget).Error; err != nil {
+	if err := lockForUpdate(tx).Where(&Option{Key: seed.Key}).First(&budget).Error; err != nil {
 		return false, err
 	}
 	enabled, cap := true, 5
 	var options []Option
-	if err := tx.Where("key IN ?", []string{AssistantRegistrationAutoSuspendOption, AssistantRegistrationDailyCapOption}).Find(&options).Error; err != nil {
+	if err := tx.Where(clause.IN{Column: clause.Column{Name: "key"}, Values: []any{AssistantRegistrationAutoSuspendOption, AssistantRegistrationDailyCapOption}}).Find(&options).Error; err != nil {
 		return false, err
 	}
 	for _, option := range options {

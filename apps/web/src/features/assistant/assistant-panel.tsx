@@ -115,7 +115,6 @@ import {
 } from './assistant-access'
 import { AssistantAccountActionTool } from './assistant-account-action-tool'
 import { AssistantActivationTool } from './assistant-activation-tool'
-import { AssistantRegistrationStatus } from './assistant-registration-status'
 import { AssistantAdminChangeTool } from './assistant-admin-change-tool'
 import {
   copyAssistantText,
@@ -155,6 +154,7 @@ import {
   localizeAssistantPreConversationPresets,
 } from './assistant-prompt-presets'
 import { getAssistantPromptValidation } from './assistant-prompt-validation'
+import { AssistantRegistrationStatus } from './assistant-registration-status'
 import { AssistantSetupTool } from './assistant-setup-tool'
 import {
   isExplicitAssistantHandoff,
@@ -2720,7 +2720,13 @@ function AssistantPanelSession(props: AssistantPanelProps) {
                 classicLayout && 'px-5 py-4 sm:px-8 sm:py-5'
               )}
             >
-              {accountAccessConfirmed && !developerAccessGranted && activeTool !== 'activation' ? <div className='mb-2'><AssistantRegistrationStatus compact /></div> : null}
+              {accountAccessConfirmed &&
+              !developerAccessGranted &&
+              activeTool !== 'activation' ? (
+                <div className='mb-2'>
+                  <AssistantRegistrationStatus compact />
+                </div>
+              ) : null}
               <PromptInputProvider
                 key={conversationResetRevision}
                 initialInput={props.initialMessage}

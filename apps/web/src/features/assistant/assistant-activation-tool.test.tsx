@@ -75,38 +75,82 @@ await i18n.use(initReactI18next).init({
   resources: { en: { translation: {} } },
 })
 
-
 async function renderState(state: string, failed = false) {
-  useAuthStore.setState({ user: { id: 71, username: 'test', role: 1 } })
+  useAuthStore.getState().auth.setUser({ id: 71, username: 'test', role: 1 })
   api.get = (async (url: string) => {
     assert.equal(url, '/api/assistant/registration-check')
     if (failed) throw new Error('offline')
     return { data: { success: true, data: { state } } }
   }) as typeof api.get
-  api.post = (async () => { throw new Error('The status card must never submit a recommendation') }) as typeof api.post
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  const container = document.createElement('div'); document.body.append(container)
+  api.post = (async () => {
+    throw new Error('The status card must never submit a recommendation')
+  }) as typeof api.post
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  })
+  const container = document.createElement('div')
+  document.body.append(container)
   const root = createRoot(container)
   await act(async () => {
-    root.render(<QueryClientProvider client={queryClient}><I18nextProvider i18n={i18n}><AssistantActivationTool /></I18nextProvider></QueryClientProvider>)
+    root.render(
+      <QueryClientProvider client={queryClient}>
+        <I18nextProvider i18n={i18n}>
+          <AssistantActivationTool />
+        </I18nextProvider>
+      </QueryClientProvider>
+    )
     await new Promise((resolve) => setTimeout(resolve, 50))
   })
-  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 50)) })
-  return { container, async cleanup() { await act(async () => root.unmount()); queryClient.clear(); container.remove() } }
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 50))
+  })
+  return {
+    container,
+    async cleanup() {
+      await act(async () => root.unmount())
+      queryClient.clear()
+      container.remove()
+    },
+  }
 }
-afterEach(() => { api.get = originalGet; api.post = originalPost; useAuthStore.setState({ user: null }) })
+afterEach(() => {
+  api.get = originalGet
+  api.post = originalPost
+  useAuthStore.getState().auth.setUser(null)
+})
 after(() => domWindow.close())
 describe('tool-based admission status', () => {
   test('does not show or submit a recommendation letter', async () => {
     const view = await renderState('ready')
-    try { assert.match(view.container.textContent ?? '', /No recommendation letter is required/); assert.equal(view.container.querySelector('textarea'), null) } finally { await view.cleanup() }
+    try {
+      assert.match(
+        view.container.textContent ?? '',
+        /No recommendation letter is required/
+      )
+      assert.equal(view.container.querySelector('textarea'), null)
+    } finally {
+      await view.cleanup()
+    }
   })
   test('hold preserves a human support explanation', async () => {
     const view = await renderState('held')
-    try { assert.match(view.container.textContent ?? '', /human support/); assert.match(view.container.textContent ?? '', /on hold/) } finally { await view.cleanup() }
+    try {
+      assert.match(view.container.textContent ?? '', /human support/)
+      assert.match(view.container.textContent ?? '', /on hold/)
+    } finally {
+      await view.cleanup()
+    }
   })
   test('request failure does not imply activation', async () => {
     const view = await renderState('active', true)
-    try { assert.match(view.container.textContent ?? '', /status is unavailable/); assert.doesNotMatch(view.container.textContent ?? '', /L1 access is active/) } finally { await view.cleanup() }
+    try {
+      assert.match(view.container.textContent ?? '', /status is unavailable/)
+      assert.doesNotMatch(
+        view.container.textContent ?? '',
+        /L1 access is active/
+      )
+    } finally {
+      await view.cleanup()
+    }
   })
 })

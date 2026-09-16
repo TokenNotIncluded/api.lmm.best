@@ -20,6 +20,7 @@ For commercial licensing, please contact support@quantumnous.com
 Copyright (C) 2026 LIghtJUNction
 */
 import type { DeveloperAccessRequest } from '@/features/onboarding/api'
+
 import type { AssistantL1RecommendationAction } from './api'
 import { AssistantRegistrationStatus } from './assistant-registration-status'
 
