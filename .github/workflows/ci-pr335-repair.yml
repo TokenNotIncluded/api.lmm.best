@@ -17,7 +17,7 @@ concurrency:
 
 env:
   TARGET_BRANCH: ci/fail-closed-quality-gates-20260916
-  EXPECTED_PARENT: ba209e95b38a7e4a109b628129814fd9e0a1c471
+  EXPECTED_PARENT: 630baa3da865142e4d95e7694ad078290aa999a8
   ALLOWED_PATHS: |
     apps/api-go/controller/assistant_admin_operation_contracts.json
     apps/web/scripts/assistant-tool-copy.mjs
@@ -26,6 +26,10 @@ env:
     apps/web/src/features/assistant/assistant-activation-tool.tsx
     apps/web/src/features/assistant/assistant-panel.test.tsx
     apps/web/src/features/onboarding/getting-started.tsx
+    apps/web/src/features/red-packets/api.ts
+    apps/web/src/features/red-packets/types.ts
+    apps/web/src/routes/_authenticated/red-packets/index.tsx
+    apps/web/src/routes/red-packet/$slug.tsx
     apps/web/src/features/red-packets/index.tsx
     apps/web/src/features/red-packets/public.tsx
     apps/web/src/features/redemption-codes/components/__tests__/redemptions-mutate-drawer.test.tsx
@@ -66,6 +70,7 @@ jobs:
         run: bun install --frozen-lockfile --ignore-scripts
       - name: Apply the repository's copyright-preserving formatter
         run: |
+          bun run --filter @lmm/web copyright
           bun run --filter @lmm/web format
           bun run --filter @lmm/web format:check
           bun run --filter @lmm/web copyright:check
