@@ -28,6 +28,7 @@ import {
 } from '@/components/ai-elements/tool'
 
 import type { AssistantToolTrace } from './api.js'
+import { AssistantSupportReview } from './assistant-support-review'
 import {
   assistantToolTraceKey,
   assistantToolOutcome,
@@ -53,6 +54,7 @@ const TOOL_TITLE_KEYS = {
   calculate_cost: 'Calculate cost',
   set_conversation_title: 'Update conversation title',
   request_create_key: 'Prepare API key creation',
+  request_human_support: 'Human technical support',
 } satisfies Record<string, string>
 
 const TOOL_SUMMARY_KEYS = {
@@ -147,6 +149,10 @@ export function AssistantToolCalls(props: { traces: AssistantToolTrace[] }) {
       {traces.map((trace, index) => {
         const isError = trace.status === 'output-error'
         const isApproval = trace.status === 'approval-requested'
+        const canReviewSupport =
+          isApproval &&
+          trace.name === 'request_human_support' &&
+          trace.input?.action !== 'disable_account'
         const parameterCount = Object.keys(trace.input ?? {}).length
         const statusText = toolStatusText(trace, t)
         const completedSummary = t(
@@ -180,6 +186,7 @@ export function AssistantToolCalls(props: { traces: AssistantToolTrace[] }) {
               state={trace.status}
               summary={summary}
             />
+            {canReviewSupport ? <AssistantSupportReview /> : null}
             {hasContent ? (
               <ToolContent>
                 {parameterCount > 0 ? (
