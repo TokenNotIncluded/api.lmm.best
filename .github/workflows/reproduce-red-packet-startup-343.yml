@@ -1,0 +1,72 @@
+name: Reproduce red packet startup gap 343
+on:
+  push:
+    branches: [release/acceptance-20260916]
+    paths: [.github/workflows/reproduce-red-packet-startup-343.yml]
+permissions:
+  contents: read
+jobs:
+  reproduce:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: startup_test
+          POSTGRES_PASSWORD: synthetic-startup-test-only
+          POSTGRES_DB: startup_test
+        ports: ['15432:5432']
+        options: >-
+          --health-cmd "pg_isready -U startup_test -d startup_test"
+          --health-interval 5s --health-timeout 3s --health-retries 12
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: 13b22e03ea2c88fa118814c34f780aa6e77af723
+          persist-credentials: false
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6
+      - name: Verify exact published binary
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release-input evidence runtime
+          gh release download go-v0.2.51 --repo TokenNotIncluded/api.lmm.best --dir release-input --pattern 'lmm-api-go-0.2.51-linux-amd64.tar.gz*'
+          archive=release-input/lmm-api-go-0.2.51-linux-amd64.tar.gz
+          printf '%s  %s\n' 13f56f5744825b76cc73cb308e2a0ed9e11a849c7ce00ae86d296a8eee45bf6f "$archive" | sha256sum --check
+          cosign verify-blob --bundle "$archive.sigstore.json" --certificate-identity 'https://github.com/TokenNotIncluded/api.lmm.best/.github/workflows/release-go.yml@refs/tags/go-v0.2.51' --certificate-oidc-issuer https://token.actions.githubusercontent.com "$archive"
+          tar -xzf "$archive" -C runtime
+          test "$(cat runtime/REVISION)" = 13b22e03ea2c88fa118814c34f780aa6e77af723
+      - name: Apply then verify without starting an auto-migrating HTTP server
+        env:
+          SQL_DSN: postgres://startup_test:synthetic-startup-test-only@127.0.0.1:15432/startup_test?sslmode=disable
+          SESSION_SECRET: synthetic-session-secret-for-startup-reproduction
+          CRYPTO_SECRET: synthetic-crypto-secret-for-startup-reproduction
+          GIN_MODE: release
+          TRUSTED_PROXIES: none
+          LMM_LOCAL_ACCEPTANCE: 'true'
+          LMM_API_BIND_ADDRESS: 127.0.0.1
+          LMM_API_PORT: '18081'
+          PORT: '18081'
+        shell: bash
+        run: |
+          set -euo pipefail
+          binary=$(find "$GITHUB_WORKSPACE/runtime" -name lmm-api-go -type f -print -quit)
+          test -x "$binary"
+          timeout 90 "$binary" migrate --apply > evidence/apply.log 2>&1
+          timeout 60 "$binary" migrate --verify > evidence/verify.log 2>&1
+          set +e
+          timeout 25 env LMM_DB_MIGRATION_MODE=verify "$binary" serve > evidence/serve-verify.log 2>&1
+          result=$?
+          set -e
+          test "$result" = 1
+          grep -F 'red packet schema verification failed: missing table red_packets' evidence/serve-verify.log
+          printf '{"result":"reproduced","revision":"13b22e03ea2c88fa118814c34f780aa6e77af723","migration_apply":true,"migration_verify":true,"serve_verify_exit":1,"missing_table":"red_packets","scope":"isolated synthetic PostgreSQL only; no production access or mutation"}\n' > evidence/result.json
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: ${{ always() }}
+        with:
+          name: red-packet-startup-reproduction-343
+          path: evidence/
+          retention-days: 3
