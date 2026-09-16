@@ -72,7 +72,14 @@ def connection(values):
 def categories(data):
     text = data[:65536].decode('utf-8', errors='replace').lower()
     patterns = {'version_mismatch': 'server version mismatch',
-                'permission_denied': 'permission denied', 'authentication': 'authentication failed',
+                'permission_denied': 'permission denied',
+                'table_privilege': 'permission denied for table',
+                'schema_privilege': 'permission denied for schema',
+                'sequence_privilege': 'permission denied for sequence',
+                'function_privilege': 'permission denied for function',
+                'large_object_privilege': 'permission denied for large object',
+                'filesystem_output': 'could not open output file',
+                'authentication': 'authentication failed',
                 'connection_refused': 'connection refused', 'connection_timeout': 'timeout expired',
                 'lock_timeout': 'lock timeout', 'disk_full': 'no space left',
                 'unsupported_option': 'unrecognized option', 'ssl_error': 'ssl error'}
@@ -121,6 +128,11 @@ def diagnose(report_path):
         if version:
             answer['tools'][tool]['version'] = version[1].decode('ascii')
     try:
+        prior = Path('/var/log/lmm-server-ops/35142354120-1/schema-only-probe.stderr')
+        answer['previous_dump_error_categories'] = categories(private_bytes(prior))
+    except (ValueError, OSError):
+        answer['previous_dump_error_unavailable'] = True
+    try:
         database, env = connection(parse_environment(private_bytes(CONFIG).decode('utf-8')))
         outcome, stdout = run_private(report.parent, 'server-version',
             ['/usr/bin/psql', '-X', '--no-password', '-At', '-v', 'ON_ERROR_STOP=1',
@@ -138,6 +150,41 @@ def diagnose(report_path):
                     ['/usr/bin/pg_dump', '--no-password', '--schema-only', '--format=custom',
                      '--lock-wait-timeout=5s', '--file=' + str(target), database], env, 30)
                 answer['schema_only_probe'] = outcome
+        query = """SELECT json_build_object(
+          'schema_is_public',current_schema()='public',
+          'schema_usage',has_schema_privilege(current_schema(),'USAGE'),
+          'schema_create',has_schema_privilege(current_schema(),'CREATE'),
+          'tables',count(*) FILTER (WHERE n.nspname=current_schema() AND c.relkind IN ('r','p','m')),
+          'tables_without_select',count(*) FILTER (WHERE n.nspname=current_schema() AND c.relkind IN ('r','p','m') AND NOT has_table_privilege(c.oid,'SELECT')),
+          'sequences_without_select',count(*) FILTER (WHERE n.nspname=current_schema() AND c.relkind='S' AND NOT has_sequence_privilege(c.oid,'SELECT')),
+          'other_schema_tables_without_select',count(*) FILTER (WHERE n.nspname<>current_schema() AND c.relkind IN ('r','p','m') AND NOT has_table_privilege(c.oid,'SELECT')),
+          'tables_with_row_security',count(*) FILTER (WHERE n.nspname=current_schema() AND c.relrowsecurity))
+          FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+          WHERE n.nspname NOT LIKE 'pg_%' AND n.nspname<>'information_schema'"""
+        outcome, stdout = run_private(report.parent, 'schema-permissions',
+            ['/usr/bin/psql','-X','--no-password','-At','-v','ON_ERROR_STOP=1','-c',query,database],env,15)
+        answer['permission_probe'] = outcome
+        if outcome.get('exit_code') == 0:
+            parsed = json.loads(stdout)
+            allowed = {'schema_is_public','schema_usage','schema_create','tables',
+                       'tables_without_select','sequences_without_select',
+                       'other_schema_tables_without_select','tables_with_row_security'}
+            if not isinstance(parsed, dict) or set(parsed) != allowed or any(type(v) not in (bool,int) for v in parsed.values()):
+                raise ValueError('invalid_permission_metadata')
+            answer['schema_permissions'] = parsed
+        outcome, stdout = run_private(report.parent, 'current-schema',
+            ['/usr/bin/psql','-X','--no-password','-At','-v','ON_ERROR_STOP=1','-c','SELECT pg_catalog.current_schema()',database],env,12)
+        if outcome.get('exit_code') == 0 and re.fullmatch(rb'[A-Za-z_][A-Za-z0-9_]{0,62}\n?',stdout):
+            schema = stdout.strip().decode('ascii')
+            target = report.parent / 'app-schema-only-probe.dump'
+            if target.exists() or target.is_symlink():
+                raise ValueError('diagnostic_target_exists')
+            outcome, _ = run_private(report.parent,'app-schema-only-probe',
+                ['/usr/bin/pg_dump','--no-password','--schema-only','--format=custom',
+                 '--schema="' + schema + '"','--strict-names','--lock-wait-timeout=5s','--file='+str(target),database],env,30)
+            answer['app_schema_only_probe'] = outcome
+        else:
+            answer['app_schema_only_probe'] = {'error_type':'SchemaUnverified'}
     except (ValueError, OSError, UnicodeError) as e:
         answer['diagnostic_error_type'] = type(e).__name__
     report.write_text(json.dumps(answer, sort_keys=True, indent=2) + '\n')
