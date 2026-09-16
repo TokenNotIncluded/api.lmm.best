@@ -25,3 +25,5 @@ the new validator; its original fork-only manual CLI is not an upstream entry.
 The diagnostic script only reads service metadata and bounded logs. It makes
 no migrations, restarts, rollbacks, admission changes or transaction changes.
 A failing public health check remains failure, not successful recovery.
+
+All production operations are maintained only in TokenNotIncluded/api.lmm.best. The migration preserves the fixed recovery handler, its pre-credential PostgreSQL qualification and helper digest. The historical deploy-production.yml adapter handles only old signed release tags, never owner requests.
