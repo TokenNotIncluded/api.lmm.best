@@ -201,7 +201,10 @@ export function mountHomeMotion(root: HTMLElement) {
   const toggle = root.querySelector<HTMLButtonElement>('[data-motion-toggle]')
   const panels = [...root.querySelectorAll<HTMLElement>('[data-story-panel]')]
   const links = [...root.querySelectorAll<HTMLElement>('[data-step-link]')]
-  if (!('IntersectionObserver' in window) || !('ResizeObserver' in window)) {
+  if (
+    typeof window.IntersectionObserver !== 'function' ||
+    typeof window.ResizeObserver !== 'function'
+  ) {
     draw?.(0, { x: 0, y: 0 }, 0)
     if (toggle) toggle.hidden = true
     return () => {}

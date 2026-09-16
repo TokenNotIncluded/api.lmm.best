@@ -2851,6 +2851,10 @@ describe('AssistantPanel', () => {
       )
       assert.throws(() => findButton('Write request myself'))
       assert.throws(() => findButton('Submit for review'))
+      assert.ok(findButton('Registration verification'))
+      assert.ok(
+        document.querySelector('[data-testid="assistant-registration-status"]')
+      )
       const refresh = document.querySelector<HTMLButtonElement>(
         'button[aria-label="Refresh registration status"]'
       )
@@ -2921,7 +2925,7 @@ describe('AssistantPanel', () => {
 
       assert.equal(
         [...document.querySelectorAll('button')].some(
-          (button) => button.textContent === 'Submit for review'
+          (button) => button.textContent === 'Registration verification'
         ),
         false
       )

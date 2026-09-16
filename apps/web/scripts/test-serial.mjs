@@ -30,6 +30,7 @@ const scripts = join(root, 'scripts')
 const preload = join(scripts, 'test-preload.mjs')
 const sourceTests = []
 const scriptTests = []
+const failures = []
 
 function collect(directory, pattern, target) {
   for (const entry of readdirSync(directory, { withFileTypes: true })) {
@@ -49,8 +50,10 @@ function run(executable, args) {
   })
   if (result.stdout) process.stdout.write(result.stdout)
   if (result.stderr) process.stderr.write(result.stderr)
-  if (result.error) throw result.error
-  if (result.status !== 0) process.exit(result.status ?? 1)
+  if (result.error) console.error(result.error)
+  if (result.error || result.status !== 0) {
+    failures.push({ file: args.at(-1), status: result.status ?? 1 })
+  }
 }
 
 collect(source, /\.test\.(?:ts|tsx)$/, sourceTests)
@@ -75,6 +78,11 @@ for (const test of sourceTests) {
 
 for (const test of scriptTests) {
   run('node', ['--test', test])
+}
+
+if (failures.length > 0) {
+  console.error('Web test failures:', JSON.stringify(failures, null, 2))
+  process.exit(1)
 }
 
 console.log(

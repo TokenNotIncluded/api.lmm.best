@@ -56,6 +56,9 @@ jobs:
       - name: Test CI quality gate
         run: python3 -B -m unittest discover -s scripts -p test_ci_quality_gate.py
 
+      - name: Test public production acceptance
+        run: python3 -B -m unittest discover -s scripts -p test_public_production.py
+
       - name: Test PR description policy
         run: node --test scripts/pr-quality.test.mjs
 
