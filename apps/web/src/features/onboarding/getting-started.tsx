@@ -36,10 +36,7 @@ import {
 } from '@/lib/console-activation'
 import { useAuthStore } from '@/stores/auth-store'
 
-import {
-  getDeveloperAccessRequest,
-  type DeveloperAccessRequest,
-} from './api'
+import { getDeveloperAccessRequest, type DeveloperAccessRequest } from './api'
 import { claimOnboardingAssistantPrompt } from './pending-review-assistant'
 import { useAuthUserRefresh } from './use-auth-user-refresh'
 
@@ -103,10 +100,7 @@ export function GettingStarted() {
   }, [onboarding.stage, pendingRequestId, requestLoaded, userId])
 
   useEffect(() => {
-    if (
-      !requestLoaded ||
-      accessRequest?.status !== 'approved'
-    ) {
+    if (!requestLoaded || accessRequest?.status !== 'approved') {
       return
     }
 
@@ -116,12 +110,7 @@ export function GettingStarted() {
       }
       await navigate({ to: getAuthenticatedLandingRoute(refreshedUser) })
     })
-  }, [
-    accessRequest?.status,
-    navigate,
-    refreshUser,
-    requestLoaded,
-  ])
+  }, [accessRequest?.status, navigate, refreshUser, requestLoaded])
 
   const submitPrompt = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()

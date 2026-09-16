@@ -48,15 +48,20 @@ export function useRedemption() {
 
     try {
       setRedeeming(true)
-      const result = await api.post<RedemptionResponse>('/api/user/redemption', {
-        key: code.trim(),
-      })
+      const result = await api.post<RedemptionResponse>(
+        '/api/user/redemption',
+        {
+          key: code.trim(),
+        }
+      )
       const response = result.data
 
       if (response.success && response.data) {
         if (response.data.reward_type === 'reset_voucher') {
           toast.success(
-            i18next.t('Redemption successful! A banked reset voucher was added.')
+            i18next.t(
+              'Redemption successful! A banked reset voucher was added.'
+            )
           )
         } else {
           toast.success(
