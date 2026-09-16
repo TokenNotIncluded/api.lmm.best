@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""An explicit owner commit can request one fixed incident diagnosis, never a repair."""
+"""Authenticate explicit owner requests for fixed incident diagnosis or recovery."""
 import hashlib
 import importlib.util
 import json
@@ -14,6 +14,9 @@ REPOSITORY = 'TokenNotIncluded/api.lmm.best'
 OWNER = 'LIghtJUNction'
 REQUEST = '.github/server-ops-343-request.json'
 SCRIPT = 'scripts/server-repairs/inspect-startup-343.sh'
+RECOVERY_OPERATION = 'recover-red-packet-schema-343'
+OPERATIONS = {'inspect-startup-343': SCRIPT,
+              RECOVERY_OPERATION: 'scripts/server-repairs/recover-red-packet-schema-343.sh'}
 
 
 def git(*args):
@@ -71,11 +74,11 @@ def validate_request(env, now=None):
     data = json.loads(read_object(sha, REQUEST, 4096), object_pairs_hook=unique_object)
     if not isinstance(data, dict) or set(data) != {'format', 'incident', 'operation', 'base_sha', 'script_sha256', 'confirm'}:
         raise ValueError('Unexpected request fields')
-    if (type(data['format']) is not int or data['format'] != 1 or data['incident'] != 343
-            or data['operation'] != 'inspect-startup-343' or data['confirm'] != 'api.lmm.best'
+    if (type(data['format']) is not int or data['format'] != 1 or type(data['incident']) is not int or data['incident'] != 343
+            or not isinstance(data['operation'], str) or data['operation'] not in OPERATIONS or data['confirm'] != 'api.lmm.best'
             or data['base_sha'] != parents[1]):
-        raise ValueError('Only the explicitly confirmed incident diagnosis is delegated')
-    payload = read_object(sha, SCRIPT, 65536)
+        raise ValueError('Only the explicitly confirmed fixed incident operations are delegated')
+    payload = read_object(sha, OPERATIONS[data['operation']], 65536)
     if hashlib.sha256(payload).hexdigest() != data['script_sha256']:
         raise ValueError('Reviewed script digest mismatch')
     if b'\0' in payload or b'\r' in payload:
@@ -91,24 +94,31 @@ def main():
     try:
         env = dict(os.environ)
         payload = validate_request(env)
+        operation = json.loads(read_object(env['GITHUB_SHA'], REQUEST, 4096))['operation']
         if sys.argv[1:] == ['--validate-only']:
-            print('Validated owner-commit read-only diagnosis; script_sha256=' + hashlib.sha256(payload).hexdigest())
+            print('Validated owner-commit operation=' + operation + '; script_sha256=' + hashlib.sha256(payload).hexdigest())
+            if env.get('GITHUB_OUTPUT'):
+                with open(env['GITHUB_OUTPUT'], 'a', encoding='utf-8') as output:
+                    output.write('operation=' + operation + '\n')
             return 0
         if sys.argv[1:]:
             raise ValueError('Unknown argument')
         spec = importlib.util.spec_from_file_location('manual_ops', Path(__file__).with_name('server-ops-transport.py'))
         ops = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(ops)
-        # This is a separately validated owner-commit entry, not an impersonated dispatch.
-        # GitHub event, actor, revision and run identifiers remain unchanged in the audit.
-        env.update(OPS_OPERATION='repair', OPS_REASON='Owner-authorized read-only startup diagnosis for incident #343',
-                   OPS_REPAIR_SCRIPT=SCRIPT, OPS_CONFIRM='api.lmm.best', OPS_TIMEOUT='180')
+        if operation == RECOVERY_OPERATION:
+            helper_spec = importlib.util.spec_from_file_location('helper_payload', Path(__file__).with_name('server-ops-helper-payload.py'))
+            helper = importlib.util.module_from_spec(helper_spec)
+            helper_spec.loader.exec_module(helper)
+            payload = helper.prepare_helper_payload(payload, Path(env['RUNNER_TEMP']) / 'lmm-incident343', env['GITHUB_SHA'])
+        env.update(OPS_OPERATION='repair', OPS_REASON='Owner-authorized incident #343: ' + operation,
+                   OPS_REPAIR_SCRIPT=OPERATIONS[operation], OPS_CONFIRM='api.lmm.best',
+                   OPS_TIMEOUT='600' if operation == RECOVERY_OPERATION else '180')
         result = ops.execute(env, payload)
         public_ok = ops.public_health()
         print('public_status_success=' + str(public_ok).lower())
         return result if result else (0 if public_ok else 1)
     except (ValueError, OSError, KeyError, subprocess.SubprocessError) as error:
-        # Never include subprocess output, payloads, environment or secret values.
         print('Owner request stopped: ' + str(error) if isinstance(error, ValueError)
               else 'Owner request stopped: ' + type(error).__name__)
         return 1
