@@ -350,10 +350,7 @@ impl PgOpenAiRelayService {
             relay_token_credential(&request.headers).ok_or_else(unauthorized_failure)?;
         let specific_channel_id = match credential.channel_suffix.as_deref() {
             None | Some("") => None,
-            Some(raw) => Some(
-                raw.parse::<i64>()
-                    .map_err(|_| invalid_channel_failure())?,
-            ),
+            Some(raw) => Some(raw.parse::<i64>().map_err(|_| invalid_channel_failure())?),
         };
         let key = &credential.key;
         let now = epoch_seconds();
@@ -1317,11 +1314,7 @@ fn unauthorized_failure() -> OpenAiRelayFailure {
 }
 
 fn specific_channel_forbidden_failure() -> OpenAiRelayFailure {
-    let mut failure = OpenAiRelayFailure::new(
-        StatusCode::FORBIDDEN,
-        "",
-        "普通用户不支持指定渠道",
-    );
+    let mut failure = OpenAiRelayFailure::new(StatusCode::FORBIDDEN, "", "普通用户不支持指定渠道");
     failure.headers.insert(
         HeaderName::from_static("specific_channel_version"),
         HeaderValue::from_static("701e3ae1dc3f7975556d354e0675168d004891c8"),
