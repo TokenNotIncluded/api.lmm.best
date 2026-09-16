@@ -1,0 +1,32 @@
+name: Release source snapshot
+
+on:
+  push:
+    branches: [release/acceptance-20260916]
+    paths: [.github/workflows/release-source-snapshot.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Bundle public repository refs for offline review
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin '+refs/pull/339/head:refs/remotes/review/339'
+          git bundle create /tmp/lmm-release-source.bundle --all
+          git bundle verify /tmp/lmm-release-source.bundle
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-source-snapshot
+          path: /tmp/lmm-release-source.bundle
+          retention-days: 1
