@@ -66,8 +66,9 @@ export function AssistantL1ReviewSettings(_props: {
         '/api/assistant/admin/registration-events',
         { params: { before }, skipBusinessError: true }
       )
-      if (!data.success || !data.data)
-        {throw new Error(data.message ?? 'Unable to load risk inbox')}
+      if (!data.success || !data.data) {
+        throw new Error(data.message ?? 'Unable to load risk inbox')
+      }
       return data.data
     },
     retry: false,
@@ -78,16 +79,18 @@ export function AssistantL1ReviewSettings(_props: {
       !window.confirm(
         t('Restore this account after reviewing the recorded evidence?')
       )
-    )
-      {return}
+    ) {
+      return
+    }
     setBusyUser(userID)
     try {
       const { data } = await api.post<Envelope<RiskEvent>>(
         `/api/assistant/admin/registration-events/${userID}/release`,
         { confirmed: true }
       )
-      if (!data.success || data.data?.action !== 'released')
-        {throw new Error('No release receipt')}
+      if (!data.success || data.data?.action !== 'released') {
+        throw new Error('No release receipt')
+      }
       toast.success(t('Account restored'))
       await queryClient.invalidateQueries({
         queryKey: ['assistant-registration-events'],
