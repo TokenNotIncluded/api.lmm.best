@@ -3,7 +3,9 @@ name: Pending PR integration review
 on:
   push:
     branches: [integration/pr-merge-20260916]
-    paths: [.github/workflows/pr-integration-review-20260916.yml]
+    paths:
+      - .github/workflows/pr-integration-review-20260916.yml
+      - .github/scripts/integrate-pr-snapshot.py
 
 permissions:
   contents: write
