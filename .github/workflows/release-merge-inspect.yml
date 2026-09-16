@@ -5,6 +5,7 @@ on:
     paths: [.github/workflows/release-merge-inspect.yml]
 permissions:
   contents: read
+  actions: read
 jobs:
   inspect:
     runs-on: ubuntu-latest
@@ -12,7 +13,7 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
-          ref: 93ebc0644874ef71bfc9639e9140bf0b7c1e3bed
+          ref: b0c86b9614022779dcbc99ef3818f606a994423e
           fetch-depth: 0
           persist-credentials: false
       - name: Preserve exact source and conflict evidence without updating repository refs
@@ -20,10 +21,10 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p /tmp/release-merge
-          git fetch --no-tags origin 749960b73b6ea6f2c7fecd6691203d85941e3436
-          git update-ref refs/heads/export-candidate 93ebc0644874ef71bfc9639e9140bf0b7c1e3bed
-          git update-ref refs/heads/export-main 749960b73b6ea6f2c7fecd6691203d85941e3436
-          git bundle create /tmp/release-merge/source-delta.bundle refs/heads/export-candidate refs/heads/export-main ^9e48a9e7795283631fac1f0c6ba06bc40f1508d1 ^a33982d2d394a5d4d46f7d03f7269a5f40c08ebb
+          git fetch --no-tags origin 4350edb8d2e40496c6f2c126fed0b6738b10cd7f
+          git update-ref refs/heads/export-candidate b0c86b9614022779dcbc99ef3818f606a994423e
+          git update-ref refs/heads/export-main 4350edb8d2e40496c6f2c126fed0b6738b10cd7f
+          git bundle create /tmp/release-merge/source-delta.bundle refs/heads/export-candidate refs/heads/export-main ^93ebc0644874ef71bfc9639e9140bf0b7c1e3bed ^749960b73b6ea6f2c7fecd6691203d85941e3436
           set +e
           git merge-tree --write-tree refs/heads/export-candidate refs/heads/export-main > /tmp/release-merge/merge.txt
           code=$?
@@ -31,6 +32,24 @@ jobs:
           cat /tmp/release-merge/merge.txt
           test "$code" -le 1
           sha256sum /tmp/release-merge/source-delta.bundle
+      - name: Extract relevant failed integration-test context
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          python3 - <<'PY'
+          import os, pathlib, re, subprocess
+          for job in (104817697695, 104817697820):
+              result = subprocess.run(['gh','api',f'repos/{os.environ["REPO"]}/actions/jobs/{job}/logs'], capture_output=True, text=True, check=True)
+              lines=result.stdout.splitlines()
+              indices=set()
+              for i,line in enumerate(lines):
+                  if re.search(r'--- FAIL:|panicked at|panic:|FAILED|##\[error\]|Error Trace:|assertion .*failed|error: test failed',line):
+                      indices.update(range(max(0,i-3),min(len(lines),i+14)))
+              text='\n'.join(lines[i] for i in sorted(indices))
+              print(f'=== JOB {job} ===\n{text}')
+              pathlib.Path(f'/tmp/release-merge/job-{job}-failures.txt').write_text(text)
+          PY
       - name: Check current public pages and assets without privileged credentials
         run: python3 -B scripts/verify-public-production.py | tee /tmp/release-merge/public-acceptance.json
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
