@@ -23,9 +23,8 @@ function job(source, id) {
 test('migration preserves upstream qualification and isolates the legacy deployment adapter', () => {
   const files = readdirSync(new URL('.github/workflows/', root))
     .filter((name) => /\.ya?ml$/.test(name)).sort();
-  assert.deepEqual(files, ['assistant-support-regressions.yml', 'ci.yml', 'deploy-production.yml',
-    'pr-check.yml', 'release-go.yml', 'release-web.yml', 'rust-root-route-acceptance.yml',
-    'rust-security-audit.yml', 'server-ops.yml', 'server-release-qualification.yml']);
+  assert.deepEqual(files, ['ci.yml', 'deploy-production.yml', 'pr-check.yml', 'release-go.yml',
+    'release-web.yml', 'server-ops.yml', 'server-release-qualification.yml']);
   const legacy = workflow('deploy-production');
   assert.match(legacy, /^  workflow_run:/m);
   assert.doesNotMatch(legacy, /^  push:/m);
@@ -208,3 +207,33 @@ for (const [name, env] of [
     assert.notEqual(checkContext(env), 0);
   });
 }
+
+
+test('consolidation retains specialist evidence without independent trigger storms', () => {
+  const ci = workflow('ci');
+  assert.match(job(ci, 'web'), /assistant-handoff-confirmation.test.ts/);
+  assert.match(job(ci, 'web'), /assistant-handoff-tool.test.tsx/);
+  assert.match(job(ci, 'web'), /assistant-handoff-review.test.tsx/);
+  assert.match(job(ci, 'web'), /bun test --preload .* --timeout 15000/);
+  assert.match(job(ci, 'root-route-acceptance-lockfile'), /cargo fetch --locked/);
+  assert.match(job(ci, 'root-route-acceptance-lockfile'), /test-root-route-acceptance.sh/);
+  assert.match(job(ci, 'rustsec'), /rustsec\/audit-check@858dc40f52ca2b8570b7a997c1c4e35c6fc9a432/);
+  assert.match(ci, /cron: "23 3 \* \* \*"/);
+  assert.match(job(ci, 'quality-gate'), /- root-route-acceptance-lockfile/);
+  assert.match(job(ci, 'quality-gate'), /- rustsec/);
+  assert.match(read('.github/required-release-checks.txt'),
+    /Rust root-route acceptance lockfile\|\.github\/workflows\/ci.yml\|push\|main/);
+  assert.doesNotMatch(read('.github/required-release-checks.txt'), /rust-root-route-acceptance.yml/);
+});
+
+test('test-only concurrency and request filtering cannot cancel production work', () => {
+  for (const name of ['ci', 'server-release-qualification']) {
+    const source = workflow(name);
+    assert.match(source, /paths-ignore: \[\.github\/server-ops-343-request.json\]/);
+    assert.doesNotMatch(source, /production-auto-deploy/);
+    assert.match(source, /github.event_name == 'pull_request'/);
+    assert.match(source, /github.event_name == 'push'/);
+    assert.match(source, /github.run_id/);
+  }
+  assert.doesNotMatch(workflow('server-release-qualification'), /fix\/incident343-additive-recovery/);
+});

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Require successful evidence from every mandatory job in CI's needs context."""
+"""Require successful evidence for the explicit CI plan; never hide failures."""
 
 import json
 import os
@@ -8,6 +8,7 @@ from pathlib import Path
 
 # Keep this list and quality-gate.needs in .github/workflows/ci.yml in sync.
 REQUIRED_JOBS = (
+    "changes",
     "repository-contracts",
     "release-artifact-contract",
     "pi-lmm-provider",
@@ -18,6 +19,8 @@ REQUIRED_JOBS = (
     "rust-real-integration",
     "aur-package-matrix",
     "translations",
+    "root-route-acceptance-lockfile",
+    "rustsec",
 )
 KNOWN_RESULTS = frozenset(("success", "failure", "cancelled", "skipped"))
 
@@ -37,13 +40,34 @@ def reject_constant(value: str) -> None:
     raise ValueError("Non-standard JSON constant")
 
 
-def check_needs(needs: object) -> tuple[dict[str, str], list[str]]:
-    """Fail closed on absent, malformed, skipped, or non-success job results."""
+def validate_selection(selected: object, event: str) -> set[str]:
+    if (not isinstance(selected, list) or not selected
+            or any(not isinstance(job, str) for job in selected)
+            or len(set(selected)) != len(selected)
+            or set(selected) - set(REQUIRED_JOBS)):
+        raise ValueError("Invalid CI job selection")
+    required = set(selected)
+    if event == "pull_request":
+        if not {"changes", "repository-contracts"} <= required:
+            raise ValueError("PR planning and repository contracts are mandatory")
+    elif event == "schedule":
+        if required != {"changes", "rustsec"}:
+            raise ValueError("Scheduled CI must run the advisory scan")
+    elif required != set(REQUIRED_JOBS):
+        raise ValueError("Main, tags, manual and merge-queue runs require full CI")
+    return required
+
+
+def check_needs(needs: object, selected: set[str] | None = None) -> tuple[dict[str, str], list[str]]:
+    """Only planned omissions may be skipped. Failed/cancelled jobs always fail."""
+    required = set(REQUIRED_JOBS) if selected is None else selected
     results = dict.fromkeys(REQUIRED_JOBS, "missing")
     if not isinstance(needs, dict):
         return results, ["CI_NEEDS must be a JSON object containing job results."]
 
     errors = []
+    if not required or required - set(REQUIRED_JOBS):
+        errors.append("Invalid mandatory-job inventory.")
     if set(needs) - set(REQUIRED_JOBS):
         errors.append("Unexpected jobs in CI_NEEDS; review the required-job inventory.")
     for job in REQUIRED_JOBS:
@@ -55,6 +79,8 @@ def check_needs(needs: object) -> tuple[dict[str, str], list[str]]:
         # Never render arbitrary outputs or untrusted strings in workflow commands.
         status = result if isinstance(result, str) and result in KNOWN_RESULTS else "invalid"
         results[job] = status
+        if status == "skipped" and job not in required:
+            continue
         if status != "success":
             errors.append(f"{job}: expected success, got {status}.")
     return results, errors
@@ -76,11 +102,17 @@ def main() -> int:
             object_pairs_hook=unique_object,
             parse_constant=reject_constant,
         )
+        selected = None
+        if "CI_SELECTED" in os.environ:
+            selected = validate_selection(
+                json.loads(os.environ["CI_SELECTED"], parse_constant=reject_constant),
+                os.environ.get("GITHUB_EVENT_NAME", ""),
+            )
     except (ValueError, RecursionError):
         results = dict.fromkeys(REQUIRED_JOBS, "missing")
-        errors = ["CI_NEEDS is missing or is not valid unambiguous JSON."]
+        errors = ["CI_NEEDS or CI_SELECTED is missing or is not valid unambiguous evidence."]
     else:
-        results, errors = check_needs(needs)
+        results, errors = check_needs(needs, selected)
 
     summary = summary_text(results, errors)
     print(summary, end="")
