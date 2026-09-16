@@ -1,0 +1,67 @@
+name: Rust root-route acceptance support
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rust-root-route-acceptance-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_BUILD_JOBS: "2"
+  CARGO_INCREMENTAL: "0"
+  CARGO_PROFILE_DEV_DEBUG: "0"
+  CARGO_PROFILE_TEST_DEBUG: "0"
+  RUST_TOOLCHAIN: "1.91.0"
+
+jobs:
+  root-route-acceptance-lockfile:
+    name: Rust root-route acceptance lockfile
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Set up pinned Rust toolchain
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component clippy
+          rustup default "$RUST_TOOLCHAIN"
+          rustc --version --verbose
+
+      - name: Validate independent lockfile structure
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          import tomllib
+
+          lockfile = Path("apps/api-rust/tests/root-route-acceptance/Cargo.lock")
+          data = tomllib.loads(lockfile.read_text())
+          invalid = []
+          for package in data.get("package", []):
+              source = package.get("source", "")
+              checksum = package.get("checksum")
+              if source.startswith("registry+") and not (
+                  isinstance(checksum, str) and re.fullmatch(r"[0-9a-f]{64}", checksum)
+              ):
+                  invalid.append(f"{package['name']} {package['version']}: {checksum!r}")
+          if invalid:
+              raise SystemExit("invalid registry checksums:\n" + "\n".join(invalid))
+          PY
+
+      - name: Fetch independent locked dependencies
+        run: |
+          cargo fetch --locked \
+            --manifest-path apps/api-rust/tests/root-route-acceptance/Cargo.toml
+
+      - name: Test root-route acceptance support harness
+        run: bash apps/api-rust/tests/scripts/test-root-route-acceptance.sh
