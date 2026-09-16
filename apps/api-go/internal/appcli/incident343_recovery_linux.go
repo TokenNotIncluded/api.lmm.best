@@ -263,18 +263,9 @@ func (runtime *productionRuntime) recoverInstalledSchema(ctx context.Context, wo
 	if err := runtime.requireAbsentRedPacketTables(ctx, databaseURL, environment, manifest.DatabaseSchema); err != nil {
 		return productionStatus{}, err
 	}
-	audit := filepath.Join(workspace.stateDir, "incident-343-schema-recovery")
-	if err := os.Mkdir(audit, 0700); err != nil {
-		return productionStatus{}, errors.New("incident recovery evidence already exists; inspect it instead of replaying")
-	}
-	for name, data := range map[string]any{"before-manifest.json": manifest, "before-status.json": status} {
-		encoded, err := json.MarshalIndent(data, "", "  ")
-		if err != nil {
-			return productionStatus{}, err
-		}
-		if err := writeAtomicRegularFile(filepath.Join(audit, name), append(encoded, '\n'), 0600); err != nil {
-			return productionStatus{}, err
-		}
+	audit, err := runtime.prepareIncident343Audit(workspace, manifest, status)
+	if err != nil {
+		return productionStatus{}, err
 	}
 	if err := runtime.snapshotRecoveryDatabase(ctx, audit, databaseURL, environment); err != nil {
 		return productionStatus{}, err
