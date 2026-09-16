@@ -1,36 +1,17 @@
 package model
 
-import (
-	"errors"
-	"fmt"
+import "fmt"
 
-	"github.com/LIghtJUNction/api.lmm.best/common"
-)
-
-// EnsureRedPacketSchemaAtStartup extends the normal startup migration contract
-// without doing schema writes from request handlers. In apply mode only the
-// master node mutates the schema. Verify mode is read-only and fails closed when
-// a required table/column is absent.
+// EnsureRedPacketSchemaAtStartup verifies the route's schema without changing it.
+// mainMigrationModels owns table creation and verification before routes are
+// registered. DDL here would escape the startup advisory lock and
+// hide omissions from the standalone migrate --apply / --verify contract.
 func EnsureRedPacketSchemaAtStartup() error {
 	if DB == nil {
 		return nil
 	}
-	mode, err := databaseMigrationModeFromEnv()
-	if err != nil {
+	if _, err := databaseMigrationModeFromEnv(); err != nil {
 		return err
-	}
-	models := []interface{}{&RedPacket{}, &RedPacketItem{}, &RedPacketClaim{}}
-	if mode == DBMigrationModeApply {
-		if !common.IsMasterNode {
-			return nil
-		}
-		if err := DB.AutoMigrate(models...); err != nil {
-			return fmt.Errorf("migrate red packet schema: %w", err)
-		}
-		return nil
-	}
-	if mode != DBMigrationModeVerify {
-		return errors.New("unsupported red packet migration mode")
 	}
 
 	required := []struct {
