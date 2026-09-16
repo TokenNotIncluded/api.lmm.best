@@ -111,6 +111,13 @@ jobs:
           set -euo pipefail
           mkdir -p ../../qualification-artifacts/go/incident343
           go test -race -count=1 -v ./internal/appcli ./cmd/incident343-recovery -run TestIncident343 -timeout 180s | tee ../../qualification-artifacts/go/incident343/tests.log
+      - name: Protect claimed red-packet audit history under concurrent deletion
+        working-directory: apps/api-go
+        env:
+          TEST_POSTGRES_DSN: postgres://lmm_test_release:lmm-release-postgres-password@127.0.0.1:5432/lmm_test_release?sslmode=disable
+          TEST_POSTGRES_ISOLATED_SCHEMA: '1'
+        run: go test -race -count=1 ./model -run '^TestRedPacketDeleteCannotEraseConcurrentClaimPostgres$' -timeout 90s
+
       - name: Check Go formatting, vet, race tests, and relaykit
         env:
           LMM_INCIDENT343_TEST_DSN: postgres://lmm_test_release:lmm-release-postgres-password@127.0.0.1:5432/lmm_test_release?sslmode=disable

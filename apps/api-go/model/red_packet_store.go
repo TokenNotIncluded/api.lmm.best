@@ -130,6 +130,15 @@ func DeleteRedPacket(packetID int) error {
 		return ErrRedPacketNotFound
 	}
 	return DB.Transaction(func(tx *gorm.DB) error {
+		// Claims and inventory replacement lock the packet first. Use the same
+		// ordering so an uncommitted claim cannot look like unclaimed stock.
+		var packet RedPacket
+		if err := lockForUpdate(tx).First(&packet, "id = ?", packetID).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return nil // Preserve idempotent deletion of an absent packet.
+			}
+			return err
+		}
 		var claimed int64
 		if err := tx.Model(&RedPacketItem{}).Where("packet_id = ? AND claimed_by <> 0", packetID).Count(&claimed).Error; err != nil {
 			return err
