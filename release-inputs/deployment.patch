@@ -1,0 +1,335 @@
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+index 6afab829..596ac50b 100644
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -56,6 +56,9 @@ jobs:
+       - name: Test CI quality gate
+         run: python3 -B -m unittest discover -s scripts -p test_ci_quality_gate.py
+ 
++      - name: Test public production acceptance
++        run: python3 -B -m unittest discover -s scripts -p test_public_production.py
++
+       - name: Test PR description policy
+         run: node --test scripts/pr-quality.test.mjs
+ 
+diff --git a/.github/workflows/deploy-production.yml b/.github/workflows/deploy-production.yml
+index 4311376a..48870308 100644
+--- a/.github/workflows/deploy-production.yml
++++ b/.github/workflows/deploy-production.yml
+@@ -62,4 +62,21 @@ jobs:
+           PRODUCTION_SSH_PRIVATE_KEY: ${{ secrets.PRODUCTION_SSH_PRIVATE_KEY }}
+           PRODUCTION_SSH_KNOWN_HOSTS: ${{ secrets.PRODUCTION_SSH_KNOWN_HOSTS }}
+           GITHUB_RUN_ID: ${{ github.run_id }}
++          GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
+         run: bash scripts/auto-deploy-production-release.sh
++
++      - name: Verify public pages, backend version and referenced assets
++        env:
++          RELEASE_TAG: ${{ github.event.workflow_run.head_branch }}
++        run: |
++          set -euo pipefail
++          arguments=()
++          if [[ "$RELEASE_TAG" == go-v* ]]; then
++            arguments+=(--expected-backend-version "${RELEASE_TAG#go-v}")
++          fi
++          python3 -B scripts/verify-public-production.py "${arguments[@]}"
++          {
++            echo '## Public release acceptance passed'
++            echo 'The public API, frontend entry pages and their JavaScript/CSS resources were checked.'
++            echo 'This read-only check does not confirm or bypass the native production transaction. Follow its recorded confirmation/rollback state.'
++          } >> "$GITHUB_STEP_SUMMARY"
+diff --git a/apps/api-go/internal/appcli/deploy_production_script_test.go b/apps/api-go/internal/appcli/deploy_production_script_test.go
+index 3a958c79..f45d6521 100644
+--- a/apps/api-go/internal/appcli/deploy_production_script_test.go
++++ b/apps/api-go/internal/appcli/deploy_production_script_test.go
+@@ -121,3 +121,36 @@ production_promote_with_transport_retry "$STDERR_LOG" mock_promote
+ 		})
+ 	}
+ }
++
++func TestProductionDeploymentIDSeparatesRetries(t *testing.T) {
++	if runtime.GOOS == "windows" {
++		t.Skip("production deployment scripts require bash")
++	}
++	helper, err := filepath.Abs(filepath.Join("..", "..", "..", "..", "scripts", "production-deployment-id.sh"))
++	if err != nil {
++		t.Fatal(err)
++	}
++	for _, tt := range []struct{ tag, run, attempt, want string }{
++		{"web-v0.1.74", "35098436757", "1", "release-web-v0.1.74-35098436757-attempt-1"},
++		{"web-v0.1.74", "35098436757", "2", "release-web-v0.1.74-35098436757-attempt-2"},
++		{"go-v0.2.51", "35098436757", "1", "release-go-v0.2.51-35098436757-attempt-1"},
++		{"../web-v0.1.74", "1", "1", ""},
++		{"web-v0.1.74", "manual", "1", ""},
++		{"web-v0.1.74", "1", "0", ""},
++		{"web-v0.1.74", "1", "", ""},
++	} {
++		t.Run(tt.tag+"/"+tt.run+"/"+tt.attempt, func(t *testing.T) {
++			command := exec.Command("bash", "-c", `source "$1"; production_deployment_id "$2" "$3" "$4"`, "test", helper, tt.tag, tt.run, tt.attempt)
++			output, err := command.Output()
++			if tt.want == "" {
++				if err == nil || len(output) != 0 {
++					t.Fatalf("invalid input produced an ID: %q (%v)", output, err)
++				}
++				return
++			}
++			if err != nil || strings.TrimSpace(string(output)) != tt.want {
++				t.Fatalf("ID=%q error=%v want=%q", output, err, tt.want)
++			}
++		})
++	}
++}
+diff --git a/docs/automatic-production-deploy.md b/docs/automatic-production-deploy.md
+index b18b6bdf..5a6a9fc0 100644
+--- a/docs/automatic-production-deploy.md
++++ b/docs/automatic-production-deploy.md
+@@ -26,3 +26,23 @@ The workflow is serialized with a single concurrency group. A failed release
+ workflow, draft/prerelease, unsupported tag, signature mismatch, missing
+ rollback package, SSH host-key mismatch, or production health failure stops
+ the deployment without automatic rollback.
++
++
++### Reruns and external acceptance
++
++Each workflow attempt has a unique native deployment ID:
++`release-<component-tag>-<run-id>-attempt-<attempt>`. A rerun must not recycle or
++remove an older workspace: its activation receipt and rollback data may still
++be needed. A new workspace does not override any pending native transaction.
++
++After native promotion, the workflow performs a credential-free public probe
++of `/api/status`, `/`, `/login` and `/console`, and downloads every referenced
++same-origin JavaScript/CSS entry once. Backend releases must report the exact
++released version. An HTTP 200 page served instead of a missing JS/CSS file is
++an error, not a healthy asset. Requests retain TLS checks, reject cross-origin
++redirects, and have bounded response sizes and an overall deadline.
++
++This probe does not exercise paid model requests or privileged account actions,
++and does not replace the native authenticated health checks. In particular,
++`AWAITING_CONFIRMATION` still requires the existing confirmation procedure; the
++external probe never auto-confirms a transaction or suppresses rollback.
+diff --git a/scripts/auto-deploy-production-release.sh b/scripts/auto-deploy-production-release.sh
+index 3a6c1842..9ea61eeb 100755
+--- a/scripts/auto-deploy-production-release.sh
++++ b/scripts/auto-deploy-production-release.sh
+@@ -197,7 +197,8 @@ run_probe() {
+     "$deployment_image" "$@"
+ }
+ 
+-deployment_id="release-${RELEASE_TAG//[^A-Za-z0-9_.-]/-}-${GITHUB_RUN_ID:-manual}"
++source "$GITHUB_WORKSPACE/scripts/production-deployment-id.sh"
++deployment_id=$(production_deployment_id "$RELEASE_TAG" "${GITHUB_RUN_ID:?GITHUB_RUN_ID is required}" "${GITHUB_RUN_ATTEMPT:?GITHUB_RUN_ATTEMPT is required}")
+ printf 'format=1\ndeployment_id=%s\nrole=controller\ncreated_at_utc=%s\n' "$deployment_id" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$root/controller/.lmm-deploy-workspace"
+ chmod 600 "$root/controller/.lmm-deploy-workspace"
+ plan_result=$(run_probe "$probe" deploy production plan --repo "$GITHUB_WORKSPACE" --workspace "$root/controller" --deployment-id "$deployment_id" \
+diff --git a/scripts/production-deployment-id.sh b/scripts/production-deployment-id.sh
+new file mode 100644
+index 00000000..53868160
+--- /dev/null
++++ b/scripts/production-deployment-id.sh
+@@ -0,0 +1,12 @@
++#!/usr/bin/env bash
++# Keep every workflow rerun in its own auditable workspace. Never recycle or
++# remove a prior transaction's directory to make a retry appear successful.
++production_deployment_id() {
++  local tag=${1:-} run_id=${2:-} attempt=${3:-}
++  if [[ ! $tag =~ ^(go|web)-v[0-9]+\.[0-9]+\.[0-9]+$ ||
++        ! $run_id =~ ^[1-9][0-9]*$ || ! $attempt =~ ^[1-9][0-9]*$ ]]; then
++    printf 'invalid release tag, workflow run ID, or attempt\n' >&2
++    return 2
++  fi
++  printf 'release-%s-%s-attempt-%s\n' "$tag" "$run_id" "$attempt"
++}
+diff --git a/scripts/test_public_production.py b/scripts/test_public_production.py
+new file mode 100644
+index 00000000..ee60e359
+--- /dev/null
++++ b/scripts/test_public_production.py
+@@ -0,0 +1,71 @@
++"""Offline regression coverage for read-only public release acceptance."""
++import importlib.util
++import json
++from pathlib import Path
++import sys
++import unittest
++
++spec = importlib.util.spec_from_file_location("public_production", Path(__file__).with_name("verify-public-production.py"))
++module = importlib.util.module_from_spec(spec)
++sys.modules[spec.name] = module
++spec.loader.exec_module(module)
++
++
++class AcceptanceTest(unittest.TestCase):
++    def setUp(self):
++        self.responses = {
++            "/api/status": module.Response(200, "application/json", json.dumps({"success": True, "data": {"version": "0.2.51"}}).encode()),
++            "/app.js": module.Response(200, "application/javascript", b"console.log('loaded')"),
++            "/app.css": module.Response(200, "text/css", b"body{margin:0}"),
++        }
++        for path in ("/", "/login", "/console"):
++            self.responses[path] = module.Response(200, "text/html", b'<script src="/app.js"></script><link rel="stylesheet" href="/app.css">')
++        self.visited = []
++
++    def fetch(self, url):
++        self.assertTrue(url.startswith(module.ORIGIN + "/"))
++        path = url.removeprefix(module.ORIGIN)
++        self.visited.append(path)
++        return self.responses[path]
++
++    def test_success_checks_pages_and_deduplicates_assets(self):
++        result = module.verify(self.fetch, "0.2.51")
++        self.assertEqual(result["assets"], 2)
++        self.assertEqual(result["pages"], 3)
++        self.assertEqual(self.visited.count("/app.js"), 1)
++
++    def test_old_backend_is_not_accepted_as_success(self):
++        with self.assertRaisesRegex(ValueError, "version mismatch"):
++            module.verify(self.fetch, "0.2.52")
++
++    def test_http_200_spa_fallback_is_not_a_successful_asset(self):
++        self.responses["/app.js"] = self.responses["/"]
++        with self.assertRaisesRegex(ValueError, "SPA fallback"):
++            module.verify(self.fetch)
++
++    def test_missing_stylesheet_fails(self):
++        self.responses["/app.css"] = module.Response(404, "text/css", b"missing")
++        with self.assertRaises(ValueError):
++            module.verify(self.fetch)
++
++    def test_service_error_disguised_as_html_fails(self):
++        self.responses["/"] = module.Response(200, "text/html", b"service unavailable")
++        with self.assertRaisesRegex(ValueError, "no local JavaScript"):
++            module.verify(self.fetch)
++
++    def test_false_api_success_fails(self):
++        self.responses["/api/status"] = module.Response(200, "application/json", b'{"success":false,"data":{"version":"0.2.51"}}')
++        with self.assertRaises(ValueError):
++            module.verify(self.fetch)
++
++    def test_cross_origin_redirect_is_refused(self):
++        with self.assertRaisesRegex(ValueError, "cross-origin"):
++            module.SameOriginRedirect().redirect_request(None, None, 302, "", {}, "https://untrusted.test/asset.js")
++
++    def test_insecure_redirect_is_refused(self):
++        with self.assertRaisesRegex(ValueError, "non-HTTPS"):
++            module.SameOriginRedirect().redirect_request(None, None, 302, "", {}, "http://api.lmm.best/asset.js")
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/scripts/verify-public-production.py b/scripts/verify-public-production.py
+new file mode 100644
+index 00000000..bbcdbfc3
+--- /dev/null
++++ b/scripts/verify-public-production.py
+@@ -0,0 +1,111 @@
++#!/usr/bin/env python3
++"""Read-only acceptance for the public origin; never confirms a native transaction."""
++import argparse
++from dataclasses import dataclass
++from html.parser import HTMLParser
++import json
++import re
++import ssl
++import time
++import urllib.parse
++import urllib.request
++
++ORIGIN = "https://api.lmm.best"
++MAX_BODY = 8 * 1024 * 1024
++
++
++@dataclass(frozen=True)
++class Response:
++    status: int
++    content_type: str
++    body: bytes
++
++
++class Assets(HTMLParser):
++    def __init__(self):
++        super().__init__()
++        self.urls = set()
++
++    def handle_starttag(self, tag, attributes):
++        values = dict(attributes)
++        url = values.get("src") if tag == "script" else values.get("href") if tag == "link" else None
++        if url and re.search(r"\.(?:js|css)$", urllib.parse.urlsplit(url).path):
++            self.urls.add(url)
++
++
++class SameOriginRedirect(urllib.request.HTTPRedirectHandler):
++    def redirect_request(self, request, fp, code, message, headers, new_url):
++        if urllib.parse.urlsplit(new_url).netloc != urllib.parse.urlsplit(ORIGIN).netloc:
++            raise ValueError("public probe refused a cross-origin redirect")
++        if urllib.parse.urlsplit(new_url).scheme != "https":
++            raise ValueError("public probe refused a non-HTTPS redirect")
++        return super().redirect_request(request, fp, code, message, headers, new_url)
++
++
++def verify(fetch, expected_version=None):
++    status = fetch(ORIGIN + "/api/status")
++    if status.status != 200 or "json" not in status.content_type:
++        raise ValueError("status endpoint did not return HTTP 200 JSON")
++    payload = json.loads(status.body)
++    data = payload.get("data") or {}
++    if payload.get("success") is not True or not isinstance(data.get("version"), str):
++        raise ValueError("status endpoint is not a healthy versioned response")
++    if expected_version and data["version"] != expected_version:
++        raise ValueError(f"backend version mismatch: expected {expected_version}, got {data['version']}")
++    assets = set()
++    for path in ("/", "/login", "/console"):
++        response = fetch(ORIGIN + path)
++        if response.status != 200 or "text/html" not in response.content_type:
++            raise ValueError(f"public page {path} is not HTTP 200 HTML")
++        parser = Assets()
++        parser.feed(response.body.decode("utf-8"))
++        local = set()
++        for raw in parser.urls:
++            url = urllib.parse.urljoin(ORIGIN + "/", raw)
++            parsed = urllib.parse.urlsplit(url)
++            if parsed.scheme == "https" and parsed.netloc == urllib.parse.urlsplit(ORIGIN).netloc:
++                local.add(urllib.parse.urlunsplit(parsed._replace(fragment="")))
++        if not any(urllib.parse.urlsplit(url).path.endswith(".js") for url in local):
++            raise ValueError(f"public page {path} has no local JavaScript entry")
++        if not any(urllib.parse.urlsplit(url).path.endswith(".css") for url in local):
++            raise ValueError(f"public page {path} has no local stylesheet")
++        assets.update(local)
++    if len(assets) > 64:
++        raise ValueError("public page references too many assets")
++    total = 0
++    for url in sorted(assets):
++        response = fetch(url)
++        kind = "css" if urllib.parse.urlsplit(url).path.endswith(".css") else "javascript"
++        if response.status != 200 or not response.body or kind not in response.content_type:
++            raise ValueError(f"asset is missing or served as a SPA fallback: {urllib.parse.urlsplit(url).path}")
++        if len(response.body) > MAX_BODY:
++            raise ValueError("public asset exceeds the probe size limit")
++        total += len(response.body)
++        if total > 64 * 1024 * 1024:
++            raise ValueError("public assets exceed the total probe size limit")
++    return {"origin": ORIGIN, "backend_version": data["version"], "pages": 3, "assets": len(assets), "asset_bytes": total}
++
++
++def main():
++    parser = argparse.ArgumentParser(description=__doc__)
++    parser.add_argument("--expected-backend-version")
++    args = parser.parse_args()
++    opener = urllib.request.build_opener(SameOriginRedirect(), urllib.request.HTTPSHandler(context=ssl.create_default_context()))
++    deadline = time.monotonic() + 120
++
++    def fetch(url):
++        remaining = deadline - time.monotonic()
++        if remaining <= 0:
++            raise TimeoutError("public acceptance exceeded its two-minute deadline")
++        request = urllib.request.Request(url, headers={"User-Agent": "LMM-Release-Acceptance/1.0", "Cache-Control": "no-cache", "Accept-Encoding": "identity"})
++        with opener.open(request, timeout=min(15, remaining)) as response:
++            body = response.read(MAX_BODY + 1)
++            if len(body) > MAX_BODY:
++                raise ValueError("public response exceeds the probe size limit")
++            return Response(response.status, response.headers.get("Content-Type", ""), body)
++
++    print(json.dumps(verify(fetch, args.expected_backend_version), sort_keys=True))
++
++
++if __name__ == "__main__":
++    main()
