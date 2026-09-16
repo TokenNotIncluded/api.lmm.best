@@ -8,7 +8,7 @@ permissions:
 jobs:
   reproduce:
     runs-on: ubuntu-latest
-    timeout-minutes: 6
+    timeout-minutes: 8
     services:
       postgres:
         image: postgres:18
@@ -16,7 +16,7 @@ jobs:
           POSTGRES_USER: startup_test
           POSTGRES_PASSWORD: synthetic-startup-test-only
           POSTGRES_DB: startup_test
-        ports: ['15432:5432']
+        ports: ['127.0.0.1:15432:5432']
         options: >-
           --health-cmd "pg_isready -U startup_test -d startup_test"
           --health-interval 5s --health-timeout 3s --health-retries 12
@@ -37,13 +37,14 @@ jobs:
           archive=release-input/lmm-api-go-0.2.51-linux-amd64.tar.gz
           printf '%s  %s\n' 13f56f5744825b76cc73cb308e2a0ed9e11a849c7ce00ae86d296a8eee45bf6f "$archive" | sha256sum --check
           cosign verify-blob --bundle "$archive.sigstore.json" --certificate-identity 'https://github.com/TokenNotIncluded/api.lmm.best/.github/workflows/release-go.yml@refs/tags/go-v0.2.51' --certificate-oidc-issuer https://token.actions.githubusercontent.com "$archive"
-          tar -xzf "$archive" -C runtime
+          tar -xzf "$archive" --strip-components=1 -C runtime
           test "$(cat runtime/REVISION)" = 13b22e03ea2c88fa118814c34f780aa6e77af723
       - name: Apply then verify without starting an auto-migrating HTTP server
         env:
-          SQL_DSN: postgres://startup_test:synthetic-startup-test-only@127.0.0.1:15432/startup_test?sslmode=disable
+          SQL_DSN: postgres://startup_test:synthetic-startup-test-only@127.0.0.1:15432/startup_test?sslmode=disable&search_path=public
           SESSION_SECRET: synthetic-session-secret-for-startup-reproduction
           CRYPTO_SECRET: synthetic-crypto-secret-for-startup-reproduction
+          POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
           GIN_MODE: release
           TRUSTED_PROXIES: none
           LMM_LOCAL_ACCEPTANCE: 'true'
@@ -56,6 +57,9 @@ jobs:
           binary=$(find "$GITHUB_WORKSPACE/runtime" -name lmm-api-go -type f -print -quit)
           test -x "$binary"
           timeout 90 "$binary" migrate --apply > evidence/apply.log 2>&1
+          # This is the disposable runner PostgreSQL service, never production.
+          docker exec "$POSTGRES_CONTAINER" psql -U startup_test -d startup_test -v ON_ERROR_STOP=1 -c "INSERT INTO users (username,password,role,status,aff_code) VALUES ('startup-root','unusable-synthetic-test-password',100,1,'startup-fixture');" > evidence/fixture.log
+          timeout 90 "$binary" migrate --apply > evidence/setup-apply.log 2>&1
           timeout 60 "$binary" migrate --verify > evidence/verify.log 2>&1
           set +e
           timeout 25 env LMM_DB_MIGRATION_MODE=verify "$binary" serve > evidence/serve-verify.log 2>&1
