@@ -1,0 +1,49 @@
+name: Regenerate root-route acceptance lockfile
+
+on:
+  push:
+    branches: [automation/rust-327-rustls-refresh]
+
+permissions:
+  contents: read
+
+jobs:
+  regenerate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CARGO_BUILD_JOBS: "2"
+      CARGO_INCREMENTAL: "0"
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_PROFILE_TEST_DEBUG: "0"
+      RUST_TOOLCHAIN: "1.91.0"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Set up pinned Rust toolchain
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component clippy
+          rustup default "$RUST_TOOLCHAIN"
+
+      - name: Regenerate targeted lockfile from main baseline
+        run: |
+          set -euo pipefail
+          git fetch --depth=1 origin main
+          git show origin/main:apps/api-rust/tests/root-route-acceptance/Cargo.lock \
+            > apps/api-rust/tests/root-route-acceptance/Cargo.lock
+          cargo update --manifest-path apps/api-rust/tests/root-route-acceptance/Cargo.toml \
+            -p rustls@0.23.43 --precise 0.23.45
+          cargo fetch --locked \
+            --manifest-path apps/api-rust/tests/root-route-acceptance/Cargo.toml
+          bash apps/api-rust/tests/scripts/test-root-route-acceptance.sh
+          git diff -- apps/api-rust/tests/root-route-acceptance/Cargo.lock
+
+      - name: Upload regenerated lockfile
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: root-route-acceptance-lockfile
+          path: apps/api-rust/tests/root-route-acceptance/Cargo.lock
+          if-no-files-found: error
