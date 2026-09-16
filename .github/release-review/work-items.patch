@@ -1,0 +1,339 @@
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+index 04283e53..226e9df8 100644
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -58,6 +58,9 @@ jobs:
+           shellcheck scripts/check-go-format.sh scripts/check-static-go-binary.sh
+           python3 -B -m unittest discover -s scripts -p test_ci_quality_gate.py
+ 
++      - name: Test release work-item barrier
++        run: python3 -B -m unittest discover -s scripts -p test_release_work_items.py
++
+       - name: Test public production acceptance
+         run: python3 -B -m unittest discover -s scripts -p test_public_production.py
+ 
+ diff --git a/.github/workflows/release-go.yml b/.github/workflows/release-go.yml
+index de4e04ec..933a99d8 100644
+--- a/.github/workflows/release-go.yml
++++ b/.github/workflows/release-go.yml
+@@ -11,6 +11,7 @@ permissions:
+   actions: read
+   checks: read
+   contents: read
++  issues: read
+ 
+ concurrency:
+   group: go-release-${{ github.ref }}
+@@ -86,6 +87,11 @@ jobs:
+             echo "revision=$revision"
+           } >>"$GITHUB_OUTPUT"
+ 
++      - name: Require all issues and pull requests resolved
++        env:
++          GH_TOKEN: ${{ github.token }}
++        run: python3 -B scripts/verify-release-work-items.py
++
+       - name: Require successful CI, CodeQL, and release contracts
+         env:
+           GITHUB_TOKEN: ${{ github.token }}
+@@ -292,7 +298,14 @@ jobs:
+     runs-on: ubuntu-latest
+     permissions:
+       contents: write
++      issues: read
+     steps:
++      - name: Checkout release gate at the verified revision
++        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
++        with:
++          ref: ${{ needs.prepare.outputs.revision }}
++          persist-credentials: false
++
+       - name: Download signed Go artifacts
+         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+         with:
+@@ -308,6 +321,7 @@ jobs:
+           RELEASE_TAG: ${{ github.ref_name }}
+         run: |
+           set -euo pipefail
++          python3 -B scripts/verify-release-work-items.py
+           shopt -s nullglob
+           version=${RELEASE_TAG#go-v}
+           expected_names=(
+diff --git a/.github/workflows/release-web.yml b/.github/workflows/release-web.yml
+index 2e876d4c..0c1c1baf 100644
+--- a/.github/workflows/release-web.yml
++++ b/.github/workflows/release-web.yml
+@@ -29,6 +29,7 @@ jobs:
+       actions: read
+       checks: read
+       contents: write
++      issues: read
+       id-token: write
+     steps:
+       - name: Checkout immutable web release revision
+@@ -75,6 +76,11 @@ jobs:
+             echo "revision=$revision"
+           } >>"$GITHUB_OUTPUT"
+ 
++      - name: Require all issues and pull requests resolved
++        env:
++          GH_TOKEN: ${{ github.token }}
++        run: python3 -B scripts/verify-release-work-items.py
++
+       - name: Require successful CI, CodeQL, and release contracts
+         env:
+           GITHUB_TOKEN: ${{ github.token }}
+@@ -101,8 +107,7 @@ jobs:
+       - name: Install workspace dependencies
+         run: bun install --frozen-lockfile
+ 
+-      - name: Check formatting and copyright headers (warning only)
+-        continue-on-error: true
++      - name: Check formatting and copyright headers
+         run: |
+           bun run --filter @lmm/web format:check
+           bun run --filter @lmm/web copyright:check
+@@ -179,6 +184,7 @@ jobs:
+           RELEASE_TAG: ${{ github.ref_name }}
+         run: |
+           set -euo pipefail
++          python3 -B scripts/verify-release-work-items.py
+           shopt -s nullglob
+           version=${RELEASE_TAG#web-v}
+           expected_names=(
+diff --git a/docs/automatic-production-deploy.md b/docs/automatic-production-deploy.md
+index 5a6a9fc0..ab5e9286 100644
+--- a/docs/automatic-production-deploy.md
++++ b/docs/automatic-production-deploy.md
+@@ -46,3 +46,15 @@ This probe does not exercise paid model requests or privileged account actions,
+ and does not replace the native authenticated health checks. In particular,
+ `AWAITING_CONFIRMATION` still requires the existing confirmation procedure; the
+ external probe never auto-confirms a transaction or suppresses rollback.
++
++### Resolve all work before publication
++
++Go and Web release workflows now query the live repository before their CI
++verification and again immediately before publication. Any open issue or pull
++request (including drafts) blocks publication. A failed, timed-out or malformed
++GitHub API response also blocks publication; it is never treated as an empty
++backlog. The read-only query requires `issues: read` and does not close items.
++Resolution still requires reviewed fixes and relevant tests, not merely closing
++records. The existing exact-revision CI, signature and production confirmation
++gates remain mandatory. A new issue opened during a build stops publication at
++the final check; it does not cancel or overwrite existing immutable releases.
+diff --git a/scripts/test_release_work_items.py b/scripts/test_release_work_items.py
+new file mode 100644
+index 00000000..b76d65b8
+--- /dev/null
++++ b/scripts/test_release_work_items.py
+@@ -0,0 +1,133 @@
++"""Offline regressions for the mandatory pre-publication work-item barrier."""
++
++import importlib.util
++import json
++import os
++from pathlib import Path
++import subprocess
++import sys
++import tempfile
++import unittest
++
++SCRIPTS = Path(__file__).resolve().parent
++SCRIPT = SCRIPTS / "verify-release-work-items.py"
++spec = importlib.util.spec_from_file_location("release_work_items", SCRIPT)
++module = importlib.util.module_from_spec(spec)
++spec.loader.exec_module(module)
++REPOSITORY = "TokenNotIncluded/api.lmm.best"
++
++
++class ReleaseWorkItemsTests(unittest.TestCase):
++    def runner(self, payload, code=0):
++        def run(command, **options):
++            self.assertEqual(command[2:6], ["--hostname", "github.com", "--method", "GET"])
++            self.assertEqual(command[-1], f"repos/{REPOSITORY}/issues?state=open&per_page=1")
++            self.assertEqual(options["timeout"], 30)
++            self.assertTrue(options["capture_output"])
++            self.assertFalse(options["check"])
++            return subprocess.CompletedProcess(command, code, json.dumps(payload), "secret-stderr")
++        return run
++
++    def test_empty_first_page_passes(self):
++        module.verify(REPOSITORY, self.runner([]))
++
++    def test_open_issue_blocks_release(self):
++        with self.assertRaisesRegex(module.ReleaseBlocked, "open issue #271"):
++            module.verify(REPOSITORY, self.runner([{"number": 271, "state": "open"}]))
++
++    def test_open_pr_including_drafts_blocks_release(self):
++        for draft in (False, True):
++            with self.subTest(draft=draft), self.assertRaisesRegex(module.ReleaseBlocked, "pull request #339"):
++                module.verify(REPOSITORY, self.runner([{
++                    "number": 339, "state": "open", "draft": draft, "pull_request": {},
++                }]))
++
++    def test_invalid_collection_never_passes(self):
++        for payload in ({}, {"message": "Not Found"}, None, True, "[]", 0, [{}, {}]):
++            with self.subTest(payload=payload), self.assertRaises(module.ReleaseBlocked):
++                module.verify(REPOSITORY, self.runner(payload))
++
++    def test_malformed_or_closed_items_never_pass(self):
++        for item in (None, {}, [], "open", {"number": True, "state": "open"},
++                     {"number": -1, "state": "open"}, {"number": "1", "state": "open"},
++                     {"number": 1, "state": "closed"}, {"number": 1},
++                     {"number": 1, "state": "open", "pull_request": None}):
++            with self.subTest(item=item), self.assertRaises(module.ReleaseBlocked):
++                module.verify(REPOSITORY, self.runner([item]))
++
++    def test_api_failure_cannot_be_mistaken_for_empty_repository(self):
++        with self.assertRaisesRegex(module.ReleaseBlocked, "query failed"):
++            module.verify(REPOSITORY, self.runner([], code=1))
++
++    def test_invalid_json_blocks_release(self):
++        def run(*args, **kwargs):
++            return subprocess.CompletedProcess(args[0], 0, "invalid-json", "")
++        with self.assertRaisesRegex(module.ReleaseBlocked, "invalid work-item response"):
++            module.verify(REPOSITORY, run)
++
++    def test_timeout_and_missing_cli_block_release(self):
++        for failure in (FileNotFoundError("secret-path"), subprocess.TimeoutExpired("gh", 30)):
++            def run(*args, **kwargs):
++                raise failure
++            with self.subTest(error=type(failure)), self.assertRaisesRegex(module.ReleaseBlocked, "could not verify"):
++                module.verify(REPOSITORY, run)
++
++    def test_invalid_repository_is_rejected_before_network(self):
++        def forbidden(*args, **kwargs):
++            self.fail("invalid repository must not reach the network")
++        for repository in (None, "", "owner", "../repo", "owner/repo?state=closed", "owner/repo/extra", "owner/repo\n"):
++            with self.subTest(repository=repository), self.assertRaises(module.ReleaseBlocked):
++                module.verify(repository, forbidden)
++
++    def test_issue_content_is_not_logged_or_executed(self):
++        payload = [{"number": 1, "state": "open", "title": "\n::error::injected", "body": "secret-body"}]
++        with self.assertRaises(module.ReleaseBlocked) as caught:
++            module.verify(REPOSITORY, self.runner(payload))
++        self.assertNotIn("injected", str(caught.exception))
++        self.assertNotIn("secret", str(caught.exception))
++
++    def test_real_cli_exit_status_and_sanitized_errors(self):
++        with tempfile.TemporaryDirectory() as directory:
++            executable = Path(directory) / "gh"
++            executable.write_text(
++                f"#!{sys.executable}\nimport os,sys\n"
++                "print(os.environ['TEST_REPLY'])\n"
++                "print('secret-cli-diagnostic', file=sys.stderr)\n"
++                "sys.exit(int(os.environ['TEST_EXIT']))\n", encoding="utf-8",
++            )
++            executable.chmod(0o700)
++            env = {**os.environ, "PATH": directory + os.pathsep + os.environ.get("PATH", ""), "GITHUB_REPOSITORY": REPOSITORY}
++            for raw, code, expected in (("[]", 0, 0), ('[{"number":1,"state":"open"}]', 0, 1), ("[]", 1, 1), ("not-json", 0, 1)):
++                with self.subTest(raw=raw, code=code):
++                    result = subprocess.run([sys.executable, "-B", str(SCRIPT)], env={**env, "TEST_REPLY": raw, "TEST_EXIT": str(code)}, capture_output=True, text=True, timeout=10, check=False)
++                    self.assertEqual(result.returncode, expected)
++                    self.assertNotIn("secret-cli-diagnostic", result.stderr)
++
++    def test_both_release_workflows_have_early_and_final_barriers(self):
++        for component in ("go", "web"):
++            text = (SCRIPTS.parent / f".github/workflows/release-{component}.yml").read_text()
++            with self.subTest(component=component):
++                self.assertEqual(text.count("python3 -B scripts/verify-release-work-items.py"), 2)
++                self.assertIn("issues: read", text)
++                early = text.index("python3 -B scripts/verify-release-work-items.py")
++                self.assertLess(early, text.index("scripts/verify-release-commit-checks.sh"))
++                label = "Go" if component == "go" else "web"
++                publish = text.index(f"      - name: Publish immutable {label} release")
++                final = text.index("python3 -B scripts/verify-release-work-items.py", early + 1)
++                self.assertGreater(final, publish)
++                self.assertLess(final, text.index("gh release create", publish))
++                self.assertNotIn("continue-on-error", text)
++        go = (SCRIPTS.parent / ".github/workflows/release-go.yml").read_text().split("  publish:\n", 1)[1]
++        self.assertIn("issues: read", go)
++        self.assertIn("ref: ${{ needs.prepare.outputs.revision }}", go)
++        self.assertIn("persist-credentials: false", go)
++        web = (SCRIPTS.parent / ".github/workflows/release-web.yml").read_text().split("  web:\n", 1)[1]
++        self.assertIn("issues: read", web)
++
++    def test_contract_suite_is_part_of_blocking_ci(self):
++        ci = (SCRIPTS.parent / ".github/workflows/ci.yml").read_text()
++        self.assertIn("python3 -B -m unittest discover -s scripts -p test_release_work_items.py", ci)
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/scripts/verify-release-work-items.py b/scripts/verify-release-work-items.py
+new file mode 100644
+index 00000000..e5322ace
+--- /dev/null
++++ b/scripts/verify-release-work-items.py
+@@ -0,0 +1,71 @@
++#!/usr/bin/env python3
++"""Refuse publication while any issue or pull request remains open."""
++
++import json
++import os
++import re
++import subprocess
++import sys
++
++
++class ReleaseBlocked(Exception):
++    """The repository cannot yet be declared ready for publication."""
++
++
++def verify(repository, run=subprocess.run):
++    if not isinstance(repository, str) or not re.fullmatch(
++        r"[A-Za-z0-9][A-Za-z0-9-]*/[A-Za-z0-9_][A-Za-z0-9_.-]*", repository
++    ):
++        raise ReleaseBlocked("a valid GITHUB_REPOSITORY is required")
++    # GitHub's repository issues endpoint also returns pull requests. One item
++    # is sufficient to reject publication; an empty first page proves neither
++    # type has an open item. No search index or pagination assumption is used.
++    command = [
++        "gh", "api", "--hostname", "github.com", "--method", "GET",
++        "-H", "Accept: application/vnd.github+json",
++        f"repos/{repository}/issues?state=open&per_page=1",
++    ]
++    try:
++        result = run(command, capture_output=True, text=True, timeout=30, check=False)
++    except (OSError, subprocess.SubprocessError) as error:
++        raise ReleaseBlocked("could not verify live repository work items") from error
++    # Do not echo API bodies or stderr: issue text and credentials do not belong
++    # in a release log, and untrusted text may contain workflow commands.
++    if result.returncode != 0:
++        raise ReleaseBlocked("GitHub work-item query failed; publication is blocked")
++    try:
++        rows = json.loads(result.stdout)
++    except (TypeError, ValueError) as error:
++        raise ReleaseBlocked("GitHub returned an invalid work-item response") from error
++    if not isinstance(rows, list) or len(rows) > 1:
++        raise ReleaseBlocked("GitHub returned an invalid work-item collection")
++    if not rows:
++        return
++    item = rows[0]
++    if (
++        not isinstance(item, dict)
++        or type(item.get("number")) is not int
++        or item["number"] <= 0
++        or item.get("state") != "open"
++        or ("pull_request" in item and not isinstance(item["pull_request"], dict))
++    ):
++        raise ReleaseBlocked("GitHub returned an invalid work item")
++    kind = "pull request" if "pull_request" in item else "issue"
++    raise ReleaseBlocked(
++        f"open {kind} #{item['number']} blocks publication; "
++        "finish verified remediation and review before releasing"
++    )
++
++
++def main():
++    try:
++        verify(os.environ.get("GITHUB_REPOSITORY"))
++    except ReleaseBlocked as error:
++        print(f"release-work-items: {error}", file=sys.stderr)
++        return 1
++    print("release-work-items: no open issues or pull requests")
++    return 0
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
