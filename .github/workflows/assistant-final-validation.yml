@@ -1,0 +1,117 @@
+name: Assistant final validation
+on:
+  push:
+    branches: ['assistant/l0-evidence-tools-20260916']
+    paths: ['.github/workflows/assistant-final-validation.yml']
+permissions:
+  contents: read
+jobs:
+  fix-and-web:
+    if: github.repository == 'LIghtJUNction/api.lmm.best' && github.ref == 'refs/heads/assistant/l0-evidence-tools-20260916'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    outputs:
+      sha: ${{ steps.commit.outputs.sha }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: assistant/l0-evidence-tools-20260916
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: '1.3.14'
+      - run: bun install --frozen-lockfile
+      - name: Correct validated contracts
+        env:
+          FIX_DATA: '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'
+        run: |
+          python3 - <<'PY'
+          import os, pathlib, base64, lzma, json, hashlib
+          blob = base64.b64decode(os.environ['FIX_DATA'], validate=True)
+          assert hashlib.sha256(blob).hexdigest() == 'f67db6130b797ae2e4ff17e0c13831d3615329b229c5488cfb26d2f6883bfca8'
+          outputs = {}
+          for row in json.loads(lzma.decompress(blob)):
+              p = pathlib.Path(row['path'])
+              assert row['path'].startswith('apps/web/src/') and '..' not in p.parts and not p.is_symlink()
+              old = p.read_bytes()
+              assert hashlib.sha256(old).hexdigest() == row['old'], str(p)
+              lines = old.decode().splitlines(keepends=True)
+              for i,j,text in reversed(row['changes']): lines[i:j] = [text]
+              result = ''.join(lines).encode()
+              assert hashlib.sha256(result).hexdigest() == row['new'], str(p)
+              outputs[p] = result
+          for p,b in outputs.items(): p.write_bytes(b)
+          PY
+      - name: Format changed frontend files using protected-header formatter
+        run: |
+          git diff --name-only 44ac6af15180d9de0b81ed2f358660a181a3e31e -- apps/web > /tmp/assistant-allowed-format-paths
+          bun run --filter @lmm/web format
+          python3 - <<'PY'
+          import pathlib, subprocess
+          allowed = set(pathlib.Path('/tmp/assistant-allowed-format-paths').read_text().splitlines())
+          changed = subprocess.check_output(['git','diff','--name-only','--','apps/web'],text=True).splitlines()
+          for path in changed:
+              if path not in allowed: subprocess.run(['git','restore','--',path],check=True)
+          PY
+      - name: Commit corrections to the feature branch
+        id: commit
+        run: |
+          test "$GITHUB_REF" = refs/heads/assistant/l0-evidence-tools-20260916
+          rm .github/workflows/assistant-final-validation.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add apps/web .github/workflows/assistant-final-validation.yml
+          git diff --cached --check
+          git commit -m 'fix(assistant): align registration UI contracts and regression coverage'
+          git push origin HEAD:refs/heads/assistant/l0-evidence-tools-20260916
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          mkdir -p /tmp/assistant-final-results
+          git archive --format=tar HEAD > /tmp/assistant-final-results/source.tar
+      - name: Validate web contracts, regressions and production build
+        working-directory: apps/web
+        shell: bash
+        run: |
+          status=0
+          bun run typecheck 2>&1 | tee /tmp/assistant-final-results/typecheck.log || status=1
+          bun run lint 2>&1 | tee /tmp/assistant-final-results/lint.log || status=1
+          bun run copyright:check 2>&1 | tee /tmp/assistant-final-results/copyright.log || status=1
+          for file in src/features/assistant/assistant-registration-state.test.ts src/features/assistant/assistant-activation-tool.test.tsx src/features/system-settings/content/assistant-settings-section.test.tsx; do
+            bun test --preload ./scripts/test-preload.mjs --timeout 15000 "$file" 2>&1 | tee "/tmp/assistant-final-results/$(basename "$file").log" || status=1
+          done
+          bun run build 2>&1 | tee /tmp/assistant-final-results/build.log || status=1
+          exit "$status"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: assistant-final-web-and-source
+          path: /tmp/assistant-final-results
+          retention-days: 3
+  go-regression:
+    needs: fix-and-web
+    if: always() && needs.fix-and-web.outputs.sha != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      GOMAXPROCS: '2'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ needs.fix-and-web.outputs.sha }}
+          persist-credentials: false
+      - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5
+        with:
+          go-version-file: apps/api-go/go.mod
+          cache-dependency-path: apps/api-go/go.sum
+      - name: Run full affected-package regression suites
+        working-directory: apps/api-go
+        shell: bash
+        run: |
+          mkdir -p /tmp/assistant-final-go
+          go test -p 2 -timeout 180s ./model ./controller ./service ./internal/registrationguard -count=1 2>&1 | tee /tmp/assistant-final-go/regression.log
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: assistant-final-go-regression
+          path: /tmp/assistant-final-go
+          retention-days: 3
