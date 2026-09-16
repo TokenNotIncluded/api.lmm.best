@@ -1,0 +1,102 @@
+name: Verify published components publicly
+
+on:
+  push:
+    branches: [release/acceptance-20260916]
+    paths: [.github/workflows/verify-published-components-1538.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: 13b22e03ea2c88fa118814c34f780aa6e77af723
+          persist-credentials: false
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6
+      - name: Download and verify the published Web release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release-input evidence
+          gh release download web-v0.1.74 --repo TokenNotIncluded/api.lmm.best --dir release-input --pattern 'lmm-api-web-0.1.74.tar.gz*'
+          (cd release-input && sha256sum --check lmm-api-web-0.1.74.tar.gz.sha256)
+          cosign verify-blob --bundle release-input/lmm-api-web-0.1.74.tar.gz.sigstore.json \
+            --certificate-identity 'https://github.com/TokenNotIncluded/api.lmm.best/.github/workflows/release-web.yml@refs/tags/web-v0.1.74' \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com release-input/lmm-api-web-0.1.74.tar.gz
+      - name: Match public Go version and Web entry asset hashes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, importlib.util, json, ssl, sys, tarfile, time, urllib.parse, urllib.request
+          from pathlib import Path
+          spec = importlib.util.spec_from_file_location('public_probe', 'scripts/verify-public-production.py')
+          module = importlib.util.module_from_spec(spec)
+          sys.modules[spec.name] = module
+          spec.loader.exec_module(module)
+          opener = urllib.request.build_opener(module.SameOriginRedirect(), urllib.request.HTTPSHandler(context=ssl.create_default_context()))
+          deadline = time.monotonic() + 120
+          def fetch(url):
+              remaining = deadline - time.monotonic()
+              if remaining <= 0:
+                  raise TimeoutError('public acceptance deadline exceeded')
+              request = urllib.request.Request(url, headers={'User-Agent':'LMM-Release-Acceptance/1.0','Accept-Encoding':'identity','Cache-Control':'no-cache'})
+              with opener.open(request, timeout=min(15,remaining)) as response:
+                  data = response.read(module.MAX_BODY + 1)
+                  if len(data) > module.MAX_BODY:
+                      raise ValueError('response exceeds acceptance size limit')
+                  return module.Response(response.status,response.headers.get('Content-Type',''),data)
+          report = {'expected_go':'0.2.51','expected_web':'0.1.74','revision':'13b22e03ea2c88fa118814c34f780aa6e77af723','errors':[]}
+          try:
+              report['availability'] = module.verify(fetch)
+              report['go_matches'] = report['availability']['backend_version'] == report['expected_go']
+              if not report['go_matches']:
+                  report['errors'].append('public backend is not the released Go version')
+              with tarfile.open('release-input/lmm-api-web-0.1.74.tar.gz','r:gz') as archive:
+                  def read(name):
+                      member = archive.getmember(name)
+                      if not member.isfile() or member.size > module.MAX_BODY:
+                          raise ValueError('invalid signed archive member')
+                      return archive.extractfile(member).read()
+                  if read('REVISION').decode().strip() != report['revision']:
+                      raise ValueError('signed Web archive revision mismatch')
+                  expected_html = read('dist/index.html')
+                  actual_html = fetch(module.ORIGIN + '/').body
+                  report['web_html_matches'] = actual_html == expected_html
+                  if not report['web_html_matches']:
+                      report['errors'].append('public frontend is not the signed Web release entry page')
+                  parser = module.Assets()
+                  parser.feed(expected_html.decode())
+                  report['web_assets'] = []
+                  for raw in sorted(parser.urls):
+                      url = urllib.parse.urljoin(module.ORIGIN + '/',raw)
+                      parsed = urllib.parse.urlsplit(url)
+                      if parsed.scheme != 'https' or parsed.netloc != 'api.lmm.best':
+                          continue
+                      expected = read('dist/' + parsed.path.lstrip('/'))
+                      response = fetch(url)
+                      kind = 'css' if parsed.path.endswith('.css') else 'javascript'
+                      matches = response.status == 200 and kind in response.content_type and response.body == expected
+                      report['web_assets'].append({'path':parsed.path,'matches':matches,'sha256':hashlib.sha256(expected).hexdigest()})
+                  if not report['web_assets'] or not all(asset['matches'] for asset in report['web_assets']):
+                      report['errors'].append('public entry assets do not match the signed Web release')
+          except Exception as error:
+              report['errors'].append(type(error).__name__)
+          report['accepted'] = not report['errors']
+          Path('evidence/public-release-acceptance.json').write_text(json.dumps(report,indent=2))
+          print(json.dumps(report,indent=2))
+          raise SystemExit(0 if report['accepted'] else 1)
+          PY
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: ${{ always() && !cancelled() }}
+        with:
+          name: public-release-acceptance-${{ github.run_attempt }}
+          path: evidence/
+          retention-days: 2
