@@ -155,6 +155,7 @@ import {
   localizeAssistantPreConversationPresets,
 } from './assistant-prompt-presets'
 import { getAssistantPromptValidation } from './assistant-prompt-validation'
+import { AssistantRegistrationStatus } from './assistant-registration-status'
 import { AssistantSetupTool } from './assistant-setup-tool'
 import {
   isExplicitAssistantHandoff,
@@ -1927,7 +1928,7 @@ function AssistantPanelSession(props: AssistantPanelProps) {
         setActiveTool('activation')
         suggestedAction = {
           kind: 'tool',
-          label: t('Review AI recommendation'),
+          label: t('Registration verification'),
           tool: 'activation',
         }
       } else if (reply.action?.type === 'account_disable_request') {
@@ -1979,7 +1980,7 @@ function AssistantPanelSession(props: AssistantPanelProps) {
         setActiveTool('activation')
         suggestedAction ??= {
           kind: 'tool',
-          label: t('Submit for review'),
+          label: t('Registration verification'),
           tool: 'activation',
         }
       }
@@ -2006,6 +2007,7 @@ function AssistantPanelSession(props: AssistantPanelProps) {
       void Promise.all(
         [
           'assistant-status',
+          'assistant-registration-state',
           'assistant-journey',
           'assistant-new-user-gift',
           'assistant-weekly-discount',
@@ -2038,18 +2040,18 @@ function AssistantPanelSession(props: AssistantPanelProps) {
         )
         return
       }
-      const canSubmitWithoutAssistant =
+      const showVerificationOnFailure =
         accountAccessState === 'restricted' &&
         isExplicitAssistantL1Request(message)
-      if (canSubmitWithoutAssistant) {
+      if (showVerificationOnFailure) {
         setRecommendationDraft(null)
         setActiveTool('activation')
       }
       let errorAction: AssistantAction | undefined
-      if (canSubmitWithoutAssistant) {
+      if (showVerificationOnFailure) {
         errorAction = {
           kind: 'tool',
-          label: t('Submit for review'),
+          label: t('Registration verification'),
           tool: 'activation',
         }
       } else if (accountAccessConfirmed) {
@@ -2577,19 +2579,6 @@ function AssistantPanelSession(props: AssistantPanelProps) {
                           onDraftConsumed={() => setRecommendationDraft(null)}
                           onContinueSetup={() => setActiveTool('setup')}
                           onApproved={refreshAuthenticatedUser}
-                          onSubmitted={() => {
-                            setRecommendationDraft(null)
-                            setEntries((current) => [
-                              ...current,
-                              {
-                                id: nanoid(),
-                                role: 'assistant',
-                                content: t(
-                                  'Your AI recommendation was submitted to the automatic review agent. L1 remains locked until automatic review approves it or human fallback completes.'
-                                ),
-                              },
-                            ])
-                          }}
                         />
                       ) : null}
                       {accountDisableDraft ? (
@@ -2757,6 +2746,13 @@ function AssistantPanelSession(props: AssistantPanelProps) {
                 classicLayout && 'px-5 py-4 sm:px-8 sm:py-5'
               )}
             >
+              {accountAccessConfirmed &&
+              !developerAccessGranted &&
+              activeTool !== 'activation' ? (
+                <div className='mb-2'>
+                  <AssistantRegistrationStatus compact />
+                </div>
+              ) : null}
               <PromptInputProvider
                 key={conversationResetRevision}
                 initialInput={props.initialMessage}

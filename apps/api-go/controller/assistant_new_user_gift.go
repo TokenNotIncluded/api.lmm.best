@@ -24,6 +24,10 @@ func GetAssistantNewUserGift(c *gin.Context) {
 }
 
 func ClaimAssistantNewUserGift(c *gin.Context) {
+	if err := model.ObserveAssistantRegistration(c.GetInt("id"), c.ClientIP(), ""); err != nil {
+		common.ApiError(c, model.ErrAssistantRegistrationCheck)
+		return
+	}
 	gift, alreadyClaimed, err := model.ClaimAssistantNewUserGift(c.GetInt("id"))
 	if err != nil {
 		status := http.StatusConflict

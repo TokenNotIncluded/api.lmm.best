@@ -73,3 +73,65 @@ func TestPostTextConsumeQuotaMissingUsageKeepsPreConsumedQuota(t *testing.T) {
 	require.NoError(t, db.First(&channel, channel.Id).Error)
 	require.EqualValues(t, 60000, channel.UsedQuota)
 }
+
+// A transport acceptance frame is not a successful completion. Preserve the
+// successful-request fallback above, but never infer usage for an interrupted
+// stream whose handler returned no upstream or locally counted consumption.
+func TestPostTextConsumeQuotaFailedEmptyStreamRefundsPreConsumedQuota(t *testing.T) {
+	for _, reason := range []relaycommon.StreamEndReason{
+		relaycommon.StreamEndReasonEOF,
+		relaycommon.StreamEndReasonTimeout,
+		relaycommon.StreamEndReasonClientGone,
+		relaycommon.StreamEndReasonScannerErr,
+		relaycommon.StreamEndReasonHandlerStop,
+	} {
+		t.Run(string(reason), func(t *testing.T) {
+			db, info, c := subscriptionBillingFixture(t, 100000, true, "subscription_first")
+			require.NoError(t, db.AutoMigrate(&model.Log{}, &model.Channel{}))
+			previousLogDB, previousLogEnabled := model.LOG_DB, common.LogConsumeEnabled
+			model.LOG_DB, common.LogConsumeEnabled = db, true
+			t.Cleanup(func() {
+				model.LOG_DB, common.LogConsumeEnabled = previousLogDB, previousLogEnabled
+			})
+			channel := model.Channel{Name: "failed-empty-stream"}
+			require.NoError(t, db.Create(&channel).Error)
+			info.ChannelMeta = &relaycommon.ChannelMeta{ChannelId: channel.Id}
+			info.StartTime = time.Now()
+			info.OriginModelName = "failed-empty-stream"
+			info.IsStream = true
+			info.StreamStatus = relaycommon.NewStreamStatus()
+			info.StreamStatus.SetEndReason(reason, nil)
+			if reason == relaycommon.StreamEndReasonEOF || reason == relaycommon.StreamEndReasonHandlerStop {
+				info.StreamStatus.RecordError("stream ended without a successful terminal event")
+			}
+			info.PriceData = hosttypes.PriceData{
+				ModelRatio: 1, CompletionRatio: 1,
+				GroupRatioInfo: hosttypes.GroupRatioInfo{GroupRatio: 1},
+			}
+			session, apiErr := NewBillingSession(c, info, 60000)
+			require.Nil(t, apiErr)
+			info.Billing = session
+			info.FinalPreConsumedQuota = session.GetPreConsumedQuota()
+			info.SubscriptionAmountTotal = 0
+			require.Equal(t, 60000, info.FinalPreConsumedQuota)
+
+			PostTextConsumeQuota(c, info, &dto.Usage{}, nil)
+
+			var log model.Log
+			require.NoError(t, db.Where("type = ?", model.LogTypeConsume).First(&log).Error)
+			require.Zero(t, log.Quota)
+			var other map[string]interface{}
+			require.NoError(t, json.Unmarshal([]byte(log.Other), &other))
+			require.Equal(t, true, other["upstream_empty_usage"])
+			require.NotContains(t, other, "usage_estimated")
+			billing := other["billing_settlement"].(map[string]interface{})
+			require.Zero(t, billing["actual_quota"])
+			require.Zero(t, billing["charged_quota"])
+			var user model.User
+			require.NoError(t, db.First(&user, info.UserId).Error)
+			require.Zero(t, user.UsedQuota)
+			require.NoError(t, db.First(&channel, channel.Id).Error)
+			require.Zero(t, channel.UsedQuota)
+		})
+	}
+}

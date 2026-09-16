@@ -352,6 +352,8 @@ export type ContentSettings = {
   AssistantSearchMCPTool: string
   AssistantSkills: string
   AssistantSkillFiles: string
+  AssistantRegistrationAutoSuspendEnabled: boolean
+  AssistantRegistrationDailySuspendCap: number
   AssistantL1AutoReviewEnabled: boolean
   AssistantL1AutoReviewGroup: string
   AssistantL1AutoReviewModel: string

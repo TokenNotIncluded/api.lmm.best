@@ -192,6 +192,16 @@ func DecideAssistantNewUserGift(userID int, conversationID int64, amountCents in
 		if !errors.Is(existingErr, gorm.ErrRecordNotFound) {
 			return existingErr
 		}
+		summary, checkErr := registrationSummaryTx(tx, userID)
+		if checkErr != nil {
+			return assistantGiftError("registration_verification_required", ErrAssistantGiftIneligible)
+		}
+		if summary.Evidence.IdentityRewardUsed {
+			return assistantGiftError("identity_already_used", ErrAssistantGiftAbuse)
+		}
+		if summary.Decision.Hold {
+			return assistantGiftError("registration_verification_required", ErrAssistantGiftIneligible)
+		}
 		riskSecret, err := getAssistantGiftRiskSecret(tx)
 		if err != nil {
 			return assistantGiftError("risk_check_unavailable", ErrAssistantGiftIneligible)
@@ -369,6 +379,9 @@ func ClaimAssistantNewUserGift(userID int) (*AssistantNewUserGift, bool, error) 
 		if gift.Status == AssistantGiftClaimed {
 			alreadyClaimed = true
 			return nil
+		}
+		if err := checkAssistantRegistrationTx(tx, userID); err != nil {
+			return assistantGiftError("registration_verification_required", ErrAssistantGiftIneligible)
 		}
 		if gift.Status != AssistantGiftOffered || gift.AmountCents <= 0 || gift.Quota <= 0 {
 			return ErrAssistantGiftUnavailable

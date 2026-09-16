@@ -48,6 +48,8 @@ func AllOption() ([]*Option, error) {
 func InitOptionMap() {
 	common.OptionMapRWMutex.Lock()
 	common.OptionMap = make(map[string]string)
+	common.OptionMap[AssistantRegistrationAutoSuspendOption] = "true"
+	common.OptionMap[AssistantRegistrationDailyCapOption] = "5"
 
 	// 添加原有的系统配置
 	common.OptionMap["FileUploadPermission"] = strconv.Itoa(common.FileUploadPermission)
@@ -306,6 +308,12 @@ func SyncOptionsContext(ctx context.Context, frequency int) {
 }
 
 func validateOptionValue(key string, value string) error {
+	if isRegistrationGuardOption(key) {
+		if key != AssistantRegistrationAutoSuspendOption && key != AssistantRegistrationDailyCapOption {
+			return errors.New("registration guard internal state is not configurable")
+		}
+		return ValidateRegistrationGuardOption(key, value)
+	}
 	if setting.IsAssistantL1AutoReviewOption(key) {
 		return validateAssistantL1AutoReviewValues(map[string]string{key: value})
 	}
