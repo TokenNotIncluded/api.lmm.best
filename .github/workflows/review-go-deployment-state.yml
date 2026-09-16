@@ -1,0 +1,82 @@
+name: Review Go deployment state
+
+on:
+  push:
+    branches: [release/acceptance-20260916]
+    paths: [.github/workflows/review-go-deployment-state.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    environment: production
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: 13b22e03ea2c88fa118814c34f780aa6e77af723
+          persist-credentials: false
+      - name: Read exact deployment state without changing it
+        env:
+          PRODUCTION_SSH_PRIVATE_KEY: ${{ secrets.PRODUCTION_SSH_PRIVATE_KEY }}
+          PRODUCTION_SSH_KNOWN_HOSTS: ${{ secrets.PRODUCTION_SSH_KNOWN_HOSTS }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          root=$(mktemp -d)
+          trap 'rm -rf "$root"' EXIT
+          test -n "$PRODUCTION_SSH_PRIVATE_KEY"
+          test -n "$PRODUCTION_SSH_KNOWN_HOSTS"
+          printf '%s\n' "$PRODUCTION_SSH_PRIVATE_KEY" > "$root/key"
+          printf '%s\n' "$PRODUCTION_SSH_KNOWN_HOSTS" > "$root/known_hosts"
+          mkdir -p evidence
+          ssh -i "$root/key" -p 222 -o BatchMode=yes -o ConnectTimeout=10 \
+            -o ServerAliveInterval=5 -o ServerAliveCountMax=2 \
+            -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$root/known_hosts" root@45.59.187.63 python3 - <<'PY' | tee evidence/transaction.json
+          import hashlib, json, re, subprocess
+          from pathlib import Path
+          deployment_id = 'release-go-v0.2.51-35116594330-attempt-1'
+          workspace = Path('/var/lib/lmm-api-go-deploy/work') / deployment_id
+          def read(path):
+              assert not path.is_symlink(), 'Unsafe state path'
+              with path.open('rb') as source:
+                  raw = source.read(1048577)
+              assert len(raw) <= 1048576, 'Oversized state'
+              return raw
+          def command(args):
+              result = subprocess.run(args, capture_output=True, text=True, timeout=20)
+              return {'exit_code':result.returncode,'output':result.stdout.strip()[:4000]}
+          report = {'deployment_id':deployment_id,'packages':command(['/usr/bin/pacman','-Q','lmm-api-go-bin','lmm-api-web-bin']), 'service':command(['/usr/bin/systemctl','show','lmm-api.service','--property=ActiveState,SubState,MainPID,NRestarts,Result'])}
+          for filename in ('status.json','deployment.json'):
+              path = workspace / 'state' / filename
+              if not path.exists():
+                  report[filename] = None
+                  continue
+              raw = read(path)
+              data = json.loads(raw)
+              allowed = ('format','deployment_id','phase','reason','version','previous_version','expected_version','old_version','observation_started_utc','observation_seconds','service_restart_baseline','backups_enabled','probe_binary','probe_binary_sha256','operator_binary','operator_binary_sha256')
+              item = {k:data[k] for k in allowed if k in data}
+              if filename == 'deployment.json':
+                  item['manifest_sha256'] = hashlib.sha256(raw).hexdigest()
+                  for component in ('go','web'):
+                      item[component] = {k:data[component].get(k) for k in ('changed','candidate_identity','candidate_git_revision','candidate_sha256','rollback_identity','rollback_git_revision')}
+              report[filename] = item
+          report['revisions'] = {c:read(Path(f'/usr/share/doc/lmm-api-{c}-bin/REVISION')).decode().strip() for c in ('go','web')}
+          print(json.dumps(report, indent=2, sort_keys=True))
+          PY
+      - name: Inspect public origin
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B scripts/verify-public-production.py | tee evidence/public.json
+      - name: Retain read-only evidence
+        if: ${{ always() && !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: reviewed-go-deployment-${{ github.run_attempt }}
+          path: evidence/
+          retention-days: 2
