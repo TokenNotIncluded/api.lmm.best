@@ -68,7 +68,6 @@ def classify(messages):
         if not isinstance(message, str):
             continue
         scanned += 1
-        # A classifier is evidence, not authorization for any corrective action.
         text = message[:16384]
         for label, pattern in PATTERNS.items():
             if pattern.search(text):
@@ -94,6 +93,57 @@ def bounded_tail(path):
         return data.decode("utf-8", errors="replace").splitlines(), start > 0
 
 
+STATE_KEYS = ("MainPID", "ExecMainPID", "ExecMainCode", "ExecMainStatus", "ActiveState",
+              "SubState", "Result", "ControlGroup", "Restart", "InvocationID")
+
+
+def summarize_unit_state(text):
+    """Only fixed property names, counters and whitelisted states can be published."""
+    if len(text) > 16384:
+        return {"oversized": True}
+    fields = {}
+    malformed = False
+    for line in text.splitlines():
+        key, separator, value = line.partition("=")
+        if not separator or key in fields:
+            malformed = True
+            continue
+        if key in STATE_KEYS:
+            fields[key] = value
+    result = {"missing_properties": [key for key in STATE_KEYS if key not in fields],
+              "malformed": malformed,
+              "control_group_empty": fields.get("ControlGroup") == "",
+              "invocation_present": bool(fields.get("InvocationID"))}
+    for key in ("MainPID", "ExecMainPID", "ExecMainCode", "ExecMainStatus"):
+        value = fields.get(key, "")
+        if re.fullmatch(r"[0-9]{1,10}", value):
+            result[key] = int(value)
+    choices = {"ActiveState": {"active", "activating", "deactivating", "inactive", "failed"},
+               "SubState": {"running", "start", "start-pre", "start-post", "auto-restart",
+                            "stop", "stop-sigterm", "stop-post", "dead", "failed"},
+               "Result": {"success", "exit-code", "signal", "timeout", "core-dump", "resources"},
+               "Restart": {"no", "always", "on-failure", "on-abnormal", "on-success", "on-abort", "on-watchdog"}}
+    for key, allowed in choices.items():
+        result[key] = fields.get(key) if fields.get(key) in allowed else "other"
+    return result
+
+
+def inspect_unit_property_presence():
+    reports = {}
+    for label, extra in (("default", []), ("all_properties", ["--all"])):
+        try:
+            completed = subprocess.run(
+                ["systemctl", "show", "lmm-api.service", "--no-pager", *extra,
+                 "--property=" + ",".join(STATE_KEYS)], stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL, text=True, timeout=8, check=False)
+            reports[label] = {"exit_code": completed.returncode,
+                              **summarize_unit_state(completed.stdout)}
+        except (OSError, subprocess.TimeoutExpired):
+            reports[label] = {"read_failed": True}
+    # Sequential snapshots are not an atomic proof that a writer cannot start.
+    return reports
+
+
 def main(report_path):
     report = Path(report_path)
     if not report.is_file() or report.is_symlink():
@@ -103,6 +153,7 @@ def main(report_path):
     result = {"operation_kind": "read_only_diagnosis", "deployment_id": DEPLOYMENT,
               "at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
               "sources": {}, "production_changed": False}
+    result["unit_property_snapshots"] = inspect_unit_property_presence()
     messages = []
     with os.fdopen(descriptor, "wb") as output:
         try:
@@ -124,8 +175,6 @@ def main(report_path):
                 messages.append(entry.get("MESSAGE"))
         except ValueError:
             pass
-    # The packaged service's working directory and default logger location.
-    # A custom log location is deliberately not followed or published.
     log_root = Path("/var/lib/lmm-api-go/logs")
     candidates = []
     try:
