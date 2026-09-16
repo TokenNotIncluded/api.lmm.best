@@ -20,7 +20,11 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
 import {
+  createAssistantHandoffConfirmation,
   getAssistantHandoffConfirmationToken,
+  isSameAssistantHandoffConfirmation,
+  isValidAssistantHandoffMessage,
+  maxAssistantHandoffCharacters,
   minAssistantHandoffCharacters,
 } from './assistant-handoff-confirmation'
 
@@ -31,8 +35,14 @@ for (const [name, action] of [
   ['empty message', { confirmation_token: 'bound', message: '' }],
   ['whitespace message', { confirmation_token: 'bound', message: '     ' }],
   ['empty token', { confirmation_token: '', message: 'Please contact support.' }],
-  ['whitespace token', { confirmation_token: '  ', message: 'Please contact support.' }],
-  ['four Unicode code points', { confirmation_token: 'bound', message: '\u{1F600}'.repeat(4) }],
+  [
+    'whitespace token',
+    { confirmation_token: '  ', message: 'Please contact support.' },
+  ],
+  [
+    'four Unicode code points',
+    { confirmation_token: 'bound', message: '\u{1F600}'.repeat(4) },
+  ],
 ] as const) {
   test(`does not bind an unusable prepared action: ${name}`, () => {
     assert.equal(getAssistantHandoffConfirmationToken(action), undefined)
@@ -58,4 +68,100 @@ test('does not mutate the action or attach its token after editing a short messa
   assert.equal(token, undefined)
   assert.equal(action.message, '放行IP')
   assert.equal(action.confirmation_token, 'short-message-token')
+})
+
+for (const character of ['a', '中', '\u{1F600}']) {
+  for (const length of [4, 5, 1999, 2000, 2001]) {
+    test(`message bounds count Unicode code points: ${character} x ${length}`, () => {
+      const message = `  ${character.repeat(length)}  `
+      const valid = length >= 5 && length <= 2000
+      assert.equal(isValidAssistantHandoffMessage(message), valid)
+      assert.equal(Boolean(createAssistantHandoffConfirmation(message)), valid)
+      const action = { message, confirmation_token: 'signed' }
+      assert.equal(
+        getAssistantHandoffConfirmationToken(action),
+        valid ? 'signed' : undefined
+      )
+    })
+  }
+}
+
+test('an oversized prepared action becomes editable instead of keeping its token', () => {
+  const action = {
+    confirmation_token: 'oversized',
+    message: '中'.repeat(maxAssistantHandoffCharacters + 1),
+  }
+  assert.equal(getAssistantHandoffConfirmationToken(action), undefined)
+  assert.equal(createAssistantHandoffConfirmation(action.message, action), null)
+})
+
+test('review is an immutable copy, not a live reference to the AI action', () => {
+  const action = { message: 'Original support request', confirmation_token: 'v1' }
+  const confirmation = createAssistantHandoffConfirmation(action.message, action)
+  assert.ok(confirmation)
+  assert.equal(Object.isFrozen(confirmation), true)
+  action.message = 'An entirely different request'
+  action.confirmation_token = 'v2'
+  assert.deepEqual(confirmation, {
+    message: 'Original support request',
+    confirmationToken: 'v1',
+  })
+  assert.equal(
+    isSameAssistantHandoffConfirmation(
+      confirmation,
+      createAssistantHandoffConfirmation(action.message, action)
+    ),
+    false
+  )
+})
+
+test('a changed token requires a fresh review even when the message is unchanged', () => {
+  const message = 'Please investigate the login problem.'
+  const before = createAssistantHandoffConfirmation(message, {
+    message,
+    confirmation_token: 'before',
+  })
+  const after = createAssistantHandoffConfirmation(message, {
+    message,
+    confirmation_token: 'after',
+  })
+  assert.equal(isSameAssistantHandoffConfirmation(before, after), false)
+})
+
+test('refuses a visible message that disagrees with the server-bound action', () => {
+  assert.equal(
+    createAssistantHandoffConfirmation('User edited this message', {
+      message: 'The original signed message',
+      confirmation_token: 'original-token',
+    }),
+    null
+  )
+})
+
+test('manual recovery is reviewed without replaying a signed action', () => {
+  const confirmation = createAssistantHandoffConfirmation('  Edited support request  ', null)
+  assert.deepEqual(confirmation, {
+    message: 'Edited support request',
+    confirmationToken: undefined,
+  })
+})
+
+test('blank and absent reviews are never considered confirmation', () => {
+  assert.equal(createAssistantHandoffConfirmation('   '), null)
+  assert.equal(isSameAssistantHandoffConfirmation(null, null), false)
+  assert.equal(
+    isSameAssistantHandoffConfirmation(createAssistantHandoffConfirmation('Valid message'), null),
+    false
+  )
+})
+
+test('equivalent reviewed values remain current without depending on object identity', () => {
+  const message = 'A request that is still unchanged.'
+  assert.equal(
+    isSameAssistantHandoffConfirmation(
+      createAssistantHandoffConfirmation(message),
+      createAssistantHandoffConfirmation(`  ${message}  `)
+    ),
+    true
+  )
 })

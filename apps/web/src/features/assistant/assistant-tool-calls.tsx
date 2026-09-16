@@ -28,6 +28,7 @@ import {
 } from '@/components/ai-elements/tool'
 
 import type { AssistantToolTrace } from './api.js'
+import { AssistantSupportReviewDialog } from './assistant-support-review-dialog'
 import {
   assistantToolTraceKey,
   assistantToolOutcome,
@@ -180,6 +181,14 @@ export function AssistantToolCalls(props: { traces: AssistantToolTrace[] }) {
               state={trace.status}
               summary={summary}
             />
+            {isApproval &&
+            trace.name === 'request_human_support' &&
+            (trace.input?.action === undefined ||
+              trace.input.action === 'support') ? (
+              <div className='px-3 pb-3'>
+                <AssistantSupportReviewDialog />
+              </div>
+            ) : null}
             {hasContent ? (
               <ToolContent>
                 {parameterCount > 0 ? (

@@ -18,15 +18,28 @@ For commercial licensing, please contact support@quantumnous.com
 */
 
 export const minAssistantHandoffCharacters = 5
+export const maxAssistantHandoffCharacters = 2000
 
 type PreparedHandoff = {
   confirmation_token: string
   message: string
 }
 
+export type AssistantHandoffConfirmation = Readonly<{
+  message: string
+  confirmationToken?: string
+}>
+
+export function isValidAssistantHandoffMessage(message: string): boolean {
+  const length = [...message.trim()].length
+  return (
+    length >= minAssistantHandoffCharacters &&
+    length <= maxAssistantHandoffCharacters
+  )
+}
+
 // An unusable prepared action must not lock the message into a read-only form.
-// The user can instead edit and explicitly confirm a manual support message;
-// the original action token must never be attached to that edited message.
+// Manual edits require a new review and must never reuse the original token.
 export function getAssistantHandoffConfirmationToken(
   action: PreparedHandoff | null | undefined
 ): string | undefined {
@@ -35,9 +48,36 @@ export function getAssistantHandoffConfirmationToken(
     typeof action.confirmation_token !== 'string' ||
     !action.confirmation_token.trim() ||
     typeof action.message !== 'string' ||
-    [...action.message.trim()].length < minAssistantHandoffCharacters
+    !isValidAssistantHandoffMessage(action.message)
   ) {
     return undefined
   }
   return action.confirmation_token
+}
+
+export function createAssistantHandoffConfirmation(
+  message: string,
+  action?: PreparedHandoff | null
+): AssistantHandoffConfirmation | null {
+  const trimmedMessage = message.trim()
+  if (!isValidAssistantHandoffMessage(trimmedMessage)) return null
+  const confirmationToken = getAssistantHandoffConfirmationToken(action)
+  // The server submits the token-bound message, not the supplied message.
+  // Never let the visible preview disagree with that immutable server action.
+  if (confirmationToken && trimmedMessage !== action?.message.trim()) {
+    return null
+  }
+  return Object.freeze({ message: trimmedMessage, confirmationToken })
+}
+
+export function isSameAssistantHandoffConfirmation(
+  left: AssistantHandoffConfirmation | null,
+  right: AssistantHandoffConfirmation | null
+): boolean {
+  return Boolean(
+    left &&
+      right &&
+      left.message === right.message &&
+      left.confirmationToken === right.confirmationToken
+  )
 }
