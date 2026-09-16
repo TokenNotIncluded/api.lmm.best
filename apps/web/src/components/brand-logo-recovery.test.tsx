@@ -98,7 +98,10 @@ for (const src of [
     await withLogo({ src }, (container) => {
       assert.ok(container.querySelector('svg'))
       assert.equal(container.querySelector('img'), null)
-      assert.equal(container.querySelector('svg')?.getAttribute('aria-hidden'), 'true')
+      assert.equal(
+        container.querySelector('svg')?.getAttribute('aria-hidden'),
+        'true'
+      )
     })
   })
 }
@@ -119,7 +122,13 @@ for (const src of [
 
 test('custom logo retains dimensions and its accessible name after failure', async () => {
   await withLogo(
-    { src: '/tenant.svg', alt: 'Tenant', width: 32, height: 32, className: 'brand-test' },
+    {
+      src: '/tenant.svg',
+      alt: 'Tenant',
+      width: 32,
+      height: 32,
+      className: 'brand-test',
+    },
     async (container) => {
       const img = container.querySelector('img')
       assert.ok(img)
@@ -148,38 +157,59 @@ test('failure is stable on rerender but resets for a new URL', async () => {
     })
     await update({ src: '/missing.svg', alt: 'Updated label' })
     assert.equal(container.querySelector('img'), null)
-    assert.equal(container.querySelector('svg')?.getAttribute('aria-label'), 'Updated label')
+    assert.equal(
+      container.querySelector('svg')?.getAttribute('aria-label'),
+      'Updated label'
+    )
     await update({ src: '/replacement.svg', alt: 'Updated label' })
-    assert.equal(container.querySelector('img')?.getAttribute('src'), '/replacement.svg')
+    assert.equal(
+      container.querySelector('img')?.getAttribute('src'),
+      '/replacement.svg'
+    )
     await act(async () => {
       oldImage.dispatchEvent(new Event('error'))
     })
-    assert.equal(container.querySelector('img')?.getAttribute('src'), '/replacement.svg')
+    assert.equal(
+      container.querySelector('img')?.getAttribute('src'),
+      '/replacement.svg'
+    )
     await update({ src: '/logo.png' })
     assert.equal(container.querySelector('img'), null)
     await update({ src: '/replacement.svg' })
-    assert.equal(container.querySelector('img')?.getAttribute('src'), '/replacement.svg')
+    assert.equal(
+      container.querySelector('img')?.getAttribute('src'),
+      '/replacement.svg'
+    )
   })
 })
 
 test('external artwork is preserved even when named logo.png', async () => {
-  await withLogo({ src: ' https://tenant.example/logo.png ', decoding: 'async' }, (container) => {
-    const image = container.querySelector('img')
-    assert.ok(image)
-    assert.equal(image.getAttribute('src'), 'https://tenant.example/logo.png')
-    assert.equal(image.getAttribute('alt'), '')
-    assert.equal(image.getAttribute('decoding'), 'async')
-  })
+  await withLogo(
+    { src: ' https://tenant.example/logo.png ', decoding: 'async' },
+    (container) => {
+      const image = container.querySelector('img')
+      assert.ok(image)
+      assert.equal(image.getAttribute('src'), 'https://tenant.example/logo.png')
+      assert.equal(image.getAttribute('alt'), '')
+      assert.equal(image.getAttribute('decoding'), 'async')
+    }
+  )
 })
 
 test('mark has visible color fallbacks outside the Forge theme', async () => {
   await withLogo({}, (container) => {
-    assert.equal(container.querySelector('path')?.getAttribute('stroke'), 'var(--forge-brand-mark-ink, currentColor)')
+    assert.equal(
+      container.querySelector('path')?.getAttribute('stroke'),
+      'var(--forge-brand-mark-ink, currentColor)'
+    )
   })
 })
 
 test('public shell uses the same configured BrandLogo as the console', () => {
-  const shell = readFileSync(new URL('../features/forge/forge-public-shell.tsx', import.meta.url), 'utf8')
+  const shell = readFileSync(
+    new URL('../features/forge/forge-public-shell.tsx', import.meta.url),
+    'utf8'
+  )
   assert.match(shell, /<BrandLogo\s+src=\{logo\}/)
   assert.doesNotMatch(shell, /<LmmBrandMark/)
 })
