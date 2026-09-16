@@ -1,7 +1,10 @@
 name: LMM assistant server ops
-run-name: Server ops / ${{ inputs.operation }} / @${{ github.actor }}
+run-name: Server ops / ${{ inputs.operation || 'owner incident request' }} / @${{ github.actor }}
 
 on:
+  push:
+    branches: [main]
+    paths: [.github/server-ops-343-request.json]
   workflow_dispatch:
     inputs:
       operation:
@@ -54,7 +57,6 @@ jobs:
       OPS_REPAIR_SCRIPT: ${{ inputs.repair_script }}
       OPS_CONFIRM: ${{ inputs.confirm }}
       OPS_TIMEOUT: ${{ inputs.timeout_seconds }}
-      # Owner is always allowed; explicitly list any additional operator/bot logins.
       OPS_ALLOWED_ACTORS: ${{ vars.PRODUCTION_OPS_ALLOWED_ACTORS }}
     steps:
       - name: Checkout the exact manually selected main revision
@@ -62,17 +64,46 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
-
       - name: Test the controller and startup diagnosis without production credentials
         run: |
           python3 scripts/test-server-ops.py
           python3 scripts/test-server-repair-startup.py
-
+          python3 scripts/test-server-ops-commit-request.py
       - name: Validate authorization and the repair script before loading credentials
         run: python3 scripts/server-ops.py --validate-only
-
       - name: Diagnose or repair production over pinned SSH
         env:
           PRODUCTION_SSH_PRIVATE_KEY: ${{ secrets.PRODUCTION_SSH_PRIVATE_KEY }}
           PRODUCTION_SSH_KNOWN_HOSTS: ${{ secrets.PRODUCTION_SSH_KNOWN_HOSTS }}
         run: python3 scripts/server-ops.py
+
+  owner-request:
+    name: Owner-requested read-only incident diagnosis
+    if: >-
+      github.event_name == 'push' &&
+      github.repository == 'LIghtJUNction/api.lmm.best' &&
+      github.ref == 'refs/heads/main' &&
+      github.actor == 'LIghtJUNction' &&
+      github.triggering_actor == 'LIghtJUNction'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production
+    steps:
+      - name: Checkout the exact owner request and parent
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Test all authorization and diagnostic contracts without credentials
+        run: |
+          python3 scripts/test-server-ops.py
+          python3 scripts/test-server-repair-startup.py
+          python3 scripts/test-server-ops-commit-request.py
+      - name: Validate the owner request before loading credentials
+        run: python3 scripts/server-ops-commit-request.py --validate-only
+      - name: Execute only the explicitly requested read-only diagnosis
+        env:
+          PRODUCTION_SSH_PRIVATE_KEY: ${{ secrets.PRODUCTION_SSH_PRIVATE_KEY }}
+          PRODUCTION_SSH_KNOWN_HOSTS: ${{ secrets.PRODUCTION_SSH_KNOWN_HOSTS }}
+        run: python3 scripts/server-ops-commit-request.py
