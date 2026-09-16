@@ -143,6 +143,14 @@ const assistantPreConversationPresets = {
   ],
 }
 
+const registrationUser: AuthUser = {
+  id: 93,
+  username: 'registration-user',
+  role: 1,
+  developer_access_granted: false,
+  trust_level_info: { level: 0 } as AuthUser['trust_level_info'],
+}
+
 async function flushEffects() {
   await new Promise((resolve) => setTimeout(resolve, 25))
 }
@@ -1817,7 +1825,7 @@ describe('AssistantPanel', () => {
         }
       }
       if (url === '/api/assistant/registration-check') {
-        return { data: { success: true, data: { state: 'ready' } } }
+        return { data: { success: true, data: { state: 'context_needed' } } }
       }
       if (url === '/api/assistant/pre-conversation-presets') {
         return {
@@ -1827,33 +1835,29 @@ describe('AssistantPanel', () => {
       throw new Error(`Unexpected GET ${url}`)
     }) as typeof api.get
 
-    const rendered = await renderPanel('onboarding', 'mobile', {
-      id: 71,
-      username: 'l0-user',
-      role: 1,
-      developer_access_granted: false,
-    })
+    const rendered = await renderPanel('onboarding', 'mobile', registrationUser)
     try {
       await act(async () =>
         waitForCondition(
           () =>
-            document.body.textContent?.includes(
-              'Continue with the assistant'
-            ) === true,
-          'L0 registration status did not render'
+            document.body.textContent?.includes('Tell us what you need') ===
+            true,
+          'Authenticated L0 verification did not render'
         )
       )
-      assert.match(
+      assert.ok(
+        document.querySelector('[data-testid="assistant-registration-status"]')
+      )
+      assert.doesNotMatch(
         document.body.textContent ?? '',
-        /No recommendation letter is required/
+        /Submit for review|Confirm AI recommendation/
       )
       assert.equal(
         document.querySelector(
-          '[data-testid="assistant-registration-status"]'
-        ) === null,
-        false
+          'textarea[placeholder="Explain what you want to build and why you need L1 access."]'
+        ),
+        null
       )
-      assert.throws(() => findButton('Write request myself'))
       assert.doesNotMatch(
         document.body.textContent ?? '',
         /Ask an administrator to raise my access level/
@@ -2606,8 +2610,9 @@ describe('AssistantPanel', () => {
     }
   })
 
-  test('discards legacy L1 recommendation tokens and shows server verification status', async () => {
-    let submittedRecommendation: unknown
+  test('keeps cached recommendation actions read-only without replaying retired submission', async () => {
+    const posted: string[] = []
+    let registrationReads = 0
     api.get = (async (url: string) => {
       if (url === '/api/assistant/status') {
         return {
@@ -2618,58 +2623,40 @@ describe('AssistantPanel', () => {
         }
       }
       if (url === '/api/assistant/registration-check') {
+        registrationReads += 1
         return { data: { success: true, data: { state: 'ready' } } }
       }
       throw new Error(`Unexpected GET ${url}`)
     }) as typeof api.get
-    api.post = (async (url: string, data: unknown) => {
-      if (url === '/api/assistant/chat') {
-        return {
-          data: {
-            choices: [
-              {
-                message: {
-                  content: 'I have enough detail to recommend L1 access.',
-                },
-              },
-            ],
-            lmm_assistant_action: {
-              type: 'l1_recommendation',
-              user_statement: 'I will connect Claude Code for private work.',
-              recommendation:
-                'Recommend L1 because the user identified a specific client and purpose.',
-              confirmation_token: 'assistant-confirmation-token',
-            },
-          },
-          headers: { 'x-lmm-assistant-intent': 'onboarding' },
-        }
-      }
-      assert.equal(url, '/api/user/developer-access/request')
-      submittedRecommendation = data
+    api.post = (async (url: string) => {
+      posted.push(url)
+      assert.equal(
+        url,
+        '/api/assistant/chat',
+        'A cached recommendation must never submit a write'
+      )
       return {
         data: {
-          success: true,
-          data: {
-            id: 11,
-            status: 'pending',
-            reason: 'I will connect Claude Code for private work.',
-            source: 'assistant_recommendation',
-            ai_recommendation:
+          choices: [
+            {
+              message: {
+                content: 'I have enough detail to recommend L1 access.',
+              },
+            },
+          ],
+          lmm_assistant_action: {
+            type: 'l1_recommendation',
+            user_statement: 'I will connect Claude Code for private work.',
+            recommendation:
               'Recommend L1 because the user identified a specific client and purpose.',
-            admin_note: '',
-            created_at: 1_786_400_000,
-            reviewed_at: 0,
+            confirmation_token: 'assistant-confirmation-token',
           },
         },
+        headers: { 'x-lmm-assistant-intent': 'onboarding' },
       }
     }) as typeof api.post
 
-    const rendered = await renderPanel(undefined, 'mobile', {
-      id: 71,
-      username: 'l0-user',
-      role: 1,
-      developer_access_granted: false,
-    })
+    const rendered = await renderPanel(undefined, 'mobile', registrationUser)
     try {
       const textarea = document.querySelector<HTMLTextAreaElement>(
         'textarea[placeholder="Ask AI assistant"]'
@@ -2679,31 +2666,52 @@ describe('AssistantPanel', () => {
         textarea,
         'I want Claude Code access for my private project.'
       )
-      const submit = document.querySelector<HTMLButtonElement>(
-        'button[aria-label="Send"]'
-      )
-      assert.ok(submit)
       await act(async () => {
-        submit.click()
+        findButton('Send').click()
         await flushEffects()
       })
       await act(async () =>
         waitForCondition(
           () =>
             document.body.textContent?.includes(
-              'No recommendation letter is required'
+              'No recommendation letter is required.'
             ) === true,
-          'Server verification status did not render'
+          'Cached recommendation did not fall back to read-only verification'
         )
       )
-      assert.equal(submittedRecommendation, undefined)
+      assert.ok(
+        document.querySelector('[data-testid="assistant-registration-status"]')
+      )
       assert.doesNotMatch(
         document.body.textContent ?? '',
-        /assistant-confirmation-token/
+        /Confirm AI recommendation|Confirm and submit|assistant-confirmation-token/
       )
-      assert.throws(() => findButton('Confirm and submit for review'))
-      assert.throws(() => findButton('Confirm AI recommendation'))
-      assert.ok(findButton('Registration verification'))
+      assert.equal(
+        document.querySelector(
+          'textarea[placeholder="Explain what you want to build and why you need L1 access."]'
+        ),
+        null
+      )
+      const readsBeforeRefresh = registrationReads
+      await act(async () => {
+        const refresh = document.querySelector<HTMLButtonElement>(
+          '[aria-label="Refresh registration status"]'
+        )
+        assert.ok(refresh)
+        refresh.click()
+        await flushEffects()
+      })
+      await act(async () =>
+        waitForCondition(
+          () => registrationReads > readsBeforeRefresh,
+          'Verification refresh did not perform a read'
+        )
+      )
+      assert.deepEqual(posted, ['/api/assistant/chat'])
+      assert.equal(
+        useAuthStore.getState().auth.user?.developer_access_granted,
+        false
+      )
     } finally {
       await act(async () => rendered.root.unmount())
       rendered.queryClient.clear()
@@ -2796,7 +2804,8 @@ describe('AssistantPanel', () => {
     rendered.queryClient.clear()
   })
 
-  test('keeps verification refresh available without a letter bypass when AI fails', async () => {
+  test('keeps verification visible without reviving legacy letters when AI fails', async () => {
+    let registrationReads = 0
     api.get = (async (url: string) => {
       if (url === '/api/assistant/status') {
         return {
@@ -2807,7 +2816,8 @@ describe('AssistantPanel', () => {
         }
       }
       if (url === '/api/assistant/registration-check') {
-        return { data: { success: true, data: { state: 'ready' } } }
+        registrationReads += 1
+        return { data: { success: true, data: { state: 'context_needed' } } }
       }
       throw new Error(`Unexpected GET ${url}`)
     }) as typeof api.get
@@ -2816,12 +2826,7 @@ describe('AssistantPanel', () => {
       throw new Error('assistant offline')
     }) as typeof api.post
 
-    const rendered = await renderPanel('onboarding', 'mobile', {
-      id: 71,
-      username: 'l0-user',
-      role: 1,
-      developer_access_granted: false,
-    })
+    const rendered = await renderPanel('onboarding', 'mobile', registrationUser)
     try {
       const textarea = document.querySelector<HTMLTextAreaElement>(
         'textarea[placeholder="Ask AI assistant"]'
@@ -2849,32 +2854,34 @@ describe('AssistantPanel', () => {
         ),
         null
       )
-      assert.throws(() => findButton('Write request myself'))
-      assert.throws(() => findButton('Submit for review'))
+      assert.equal(
+        [...document.querySelectorAll('button')].some(
+          (button) => button.textContent === 'Write request myself'
+        ),
+        false
+      )
       assert.ok(findButton('Registration verification'))
       assert.ok(
         document.querySelector('[data-testid="assistant-registration-status"]')
       )
-      const refresh = document.querySelector<HTMLButtonElement>(
-        'button[aria-label="Refresh registration status"]'
-      )
-      assert.ok(refresh)
+      const readsBeforeRefresh = registrationReads
       await act(async () => {
+        const refresh = document.querySelector<HTMLButtonElement>(
+          '[aria-label="Refresh registration status"]'
+        )
+        assert.ok(refresh)
         refresh.click()
         await flushEffects()
       })
       await act(async () =>
         waitForCondition(
-          () =>
-            document.body.textContent?.includes(
-              'No recommendation letter is required'
-            ) === true,
-          'Verification refresh did not recover independently of the AI request'
+          () => registrationReads > readsBeforeRefresh,
+          'Verification refresh must work independently of the failed AI request'
         )
       )
       assert.doesNotMatch(
         document.body.textContent ?? '',
-        /L1 access is active/
+        /L1 access is active|Submit for review/
       )
     } finally {
       await act(async () => rendered.root.unmount())
@@ -3096,7 +3103,10 @@ describe('AssistantPanel', () => {
 
       assert.equal(selfCalls, 1)
       assert.doesNotMatch(document.body.textContent ?? '', /Submit for review/)
-      assert.doesNotMatch(document.body.textContent ?? '', /Submit for review/)
+      assert.doesNotMatch(
+        document.body.textContent ?? '',
+        /Write request myself/
+      )
       assert.match(document.body.textContent ?? '', /Open client setup guide/)
     } finally {
       await act(async () => rendered.root.unmount())
