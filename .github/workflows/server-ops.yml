@@ -1,0 +1,111 @@
+name: LMM assistant server ops
+run-name: Server ops / ${{ inputs.operation || 'owner incident request' }} / @${{ github.actor }}
+
+on:
+  push:
+    branches: [main]
+    paths: [.github/server-ops-343-request.json]
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: 'diagnose is read-only; repair runs a reviewed main-branch script'
+        type: choice
+        options: [diagnose, repair]
+        default: diagnose
+        required: true
+      reason:
+        description: 'Reason or issue reference (public; never enter secrets)'
+        type: string
+        required: true
+        default: Manual server diagnosis
+      repair_script:
+        description: 'Repair only: scripts/server-repairs/<name>.sh, committed on main'
+        type: string
+        required: false
+      confirm:
+        description: 'Repair only: enter api.lmm.best to authorize production changes'
+        type: string
+        required: false
+      timeout_seconds:
+        description: 'Remote operation deadline, including health checks'
+        type: choice
+        options: ['60', '180', '300', '600']
+        default: '180'
+        required: true
+
+permissions:
+  contents: read
+
+# Share the deployment lane within THIS repository; concurrency is not cross-repository.
+# Never cancel an in-flight mutation.
+concurrency:
+  group: production-auto-deploy
+  cancel-in-progress: false
+
+jobs:
+  server-ops:
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.repository == 'TokenNotIncluded/api.lmm.best' &&
+      github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+    env:
+      OPS_OPERATION: ${{ inputs.operation }}
+      OPS_REASON: ${{ inputs.reason }}
+      OPS_REPAIR_SCRIPT: ${{ inputs.repair_script }}
+      OPS_CONFIRM: ${{ inputs.confirm }}
+      OPS_TIMEOUT: ${{ inputs.timeout_seconds }}
+      OPS_ALLOWED_ACTORS: ${{ vars.PRODUCTION_OPS_ALLOWED_ACTORS }}
+    steps:
+      - name: Checkout the exact manually selected main revision
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Test the controller and startup diagnosis without production credentials
+        run: |
+          test "$(git rev-parse HEAD:scripts/server-ops.py)" = 7e43973c497773870e99008b1affbf43d9fda9d0
+          python3 scripts/test-server-ops.py
+          python3 scripts/test-server-repair-startup.py
+          python3 scripts/test-server-ops-commit-request.py
+      - name: Validate authorization and the repair script before loading credentials
+        run: python3 scripts/server-ops.py --validate-only
+      - name: Diagnose or repair production over pinned SSH
+        env:
+          PRODUCTION_SSH_PRIVATE_KEY: ${{ secrets.PRODUCTION_SSH_PRIVATE_KEY }}
+          PRODUCTION_SSH_KNOWN_HOSTS: ${{ secrets.PRODUCTION_SSH_KNOWN_HOSTS }}
+        run: python3 scripts/server-ops.py
+
+  owner-request:
+    name: Owner-requested read-only incident diagnosis
+    if: >-
+      github.event_name == 'push' &&
+      github.repository == 'TokenNotIncluded/api.lmm.best' &&
+      github.ref == 'refs/heads/main' &&
+      github.actor == 'LIghtJUNction' &&
+      github.triggering_actor == 'LIghtJUNction'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production
+    steps:
+      - name: Checkout the exact owner request and parent
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Test all authorization and diagnostic contracts without credentials
+        run: |
+          test "$(git rev-parse HEAD:scripts/server-ops.py)" = 7e43973c497773870e99008b1affbf43d9fda9d0
+          python3 scripts/test-server-ops.py
+          python3 scripts/test-server-repair-startup.py
+          python3 scripts/test-server-ops-commit-request.py
+      - name: Validate the owner request before loading credentials
+        run: python3 scripts/server-ops-commit-request.py --validate-only
+      - name: Execute only the explicitly requested read-only diagnosis
+        env:
+          PRODUCTION_SSH_PRIVATE_KEY: ${{ secrets.PRODUCTION_SSH_PRIVATE_KEY }}
+          PRODUCTION_SSH_KNOWN_HOSTS: ${{ secrets.PRODUCTION_SSH_KNOWN_HOSTS }}
+        run: python3 scripts/server-ops-commit-request.py

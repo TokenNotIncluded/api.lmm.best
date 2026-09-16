@@ -1,9 +1,6 @@
 name: LMM production auto deploy
 
 on:
-  push:
-    branches: [main]
-    paths: [.github/server-ops-343-request.json]
   workflow_run:
     workflows:
       - LMM Go backend release
@@ -19,9 +16,37 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  legacy-route:
+    name: Select legacy release deployment
+    if: >-
+      github.event_name == 'workflow_run' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      (startsWith(github.event.workflow_run.head_branch, 'go-v') ||
+       startsWith(github.event.workflow_run.head_branch, 'web-v'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      required: ${{ steps.route.outputs.required }}
+    steps:
+      - name: Inspect immutable release source without production credentials
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
+      - name: Skip releases that already own their deployment job
+        id: route
+        run: |
+          if [[ -f .github/actions/deploy-production/action.yml ]]; then
+            echo 'required=false' >> "$GITHUB_OUTPUT"
+          else
+            echo 'required=true' >> "$GITHUB_OUTPUT"
+          fi
+
   deploy:
+    needs: legacy-route
     name: Deploy verified release to ArchDmit
     if: >-
+      needs.legacy-route.outputs.required == 'true' &&
       github.event_name == 'workflow_run' &&
       github.event.workflow_run.conclusion == 'success' &&
       (startsWith(github.event.workflow_run.head_branch, 'go-v') ||
@@ -78,35 +103,3 @@ jobs:
             echo 'The public API, frontend entry pages and their JavaScript/CSS resources were checked.'
             echo 'This read-only check does not confirm or bypass the native production transaction. Follow its recorded confirmation/rollback state.'
           } >> "$GITHUB_STEP_SUMMARY"
-
-  owner-incident-diagnosis:
-    name: Owner-requested read-only startup diagnosis
-    if: >-
-      github.event_name == 'push' &&
-      github.repository == 'TokenNotIncluded/api.lmm.best' &&
-      github.ref == 'refs/heads/main' &&
-      github.actor == 'LIghtJUNction' &&
-      github.triggering_actor == 'LIghtJUNction'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    environment: production
-    steps:
-      - name: Checkout the exact owner request and parent
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          ref: ${{ github.sha }}
-          fetch-depth: 2
-          persist-credentials: false
-      - name: Test diagnosis and authorization before credentials
-        run: |
-          set -euo pipefail
-          test "$(git rev-parse HEAD:scripts/server-ops-transport.py)" = 291b68df38ec40005872060aac98a4a4631a79af
-          python3 scripts/test-server-repair-startup.py
-          python3 scripts/test-server-ops-commit-request.py
-      - name: Validate explicit owner request
-        run: python3 scripts/server-ops-commit-request.py --validate-only
-      - name: Run only the pinned read-only diagnostic in the existing production environment
-        env:
-          PRODUCTION_SSH_PRIVATE_KEY: ${{ secrets.PRODUCTION_SSH_PRIVATE_KEY }}
-          PRODUCTION_SSH_KNOWN_HOSTS: ${{ secrets.PRODUCTION_SSH_KNOWN_HOSTS }}
-        run: python3 scripts/server-ops-commit-request.py

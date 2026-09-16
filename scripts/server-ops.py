@@ -13,7 +13,8 @@ import sys
 import tempfile
 import urllib.request
 
-REPOSITORY = "LIghtJUNction/api.lmm.best"
+REPOSITORY = "TokenNotIncluded/api.lmm.best"
+OWNER = "LIghtJUNction"
 HOST = "root@45.59.187.63"
 PUBLIC_STATUS = "https://api.lmm.best/api/status"
 TIMEOUTS = {"60", "180", "300", "600"}
@@ -26,7 +27,7 @@ def validate(env):
             or env.get("GITHUB_REPOSITORY") != REPOSITORY
             or env.get("GITHUB_REF") != "refs/heads/main"):
         raise ValueError("Only a manual dispatch on this repository's main branch is allowed")
-    owner = REPOSITORY.split("/")[0]
+    owner = OWNER
     allowed = {owner.casefold()} | {
         actor.strip().casefold()
         for actor in env.get("OPS_ALLOWED_ACTORS", "").split(",") if actor.strip()

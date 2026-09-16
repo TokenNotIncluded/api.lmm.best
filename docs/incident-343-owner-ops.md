@@ -1,27 +1,21 @@
-# Incident 343 owner diagnosis
+# Incident 343 owner operations
 
-The maintainer delegated production recovery on 2026-09-16. The manual
-operator workflow in LIghtJUNction/api.lmm.best is a fork; its first authorized
-request (35131181048) passed all 50 controller/diagnostic/authorization tests
-but had no production SSH credentials. No server connection was made there.
+The production repository is TokenNotIncluded/api.lmm.best. The earlier personal
+fork did not hold SSH credentials; those credentials were not copied or exported.
 
-Use the original protected production environment in this repository; do not
-export or copy credentials between repositories. Its existing deployment lane
-now accepts an explicit owner commit changing only
-`.github/server-ops-343-request.json`. All other pushes cannot diagnose or
-deploy. The original release-triggered deploy job and all native safety gates
-remain unchanged. No additional workflow entry file was added.
+The `server-ops.yml` workflow now owns both the manual main-only operator path and
+the existing explicit-owner read-only request path. `deploy-production.yml` is only
+a compatibility adapter for releases whose immutable source predates inline deploy.
+All paths share the upstream production environment and deployment concurrency.
 
-The request validator permits only actual LIghtJUNction actor/sender identities,
-main, an unforced single-parent request-only commit less than 30 minutes old,
-a matching base SHA, confirmation and fixed diagnostic-script digest. It
-rejects bots, replays and arbitrary repairs. This is a distinct authenticated
-push entry, not a forged workflow_dispatch. Protected environment approval,
-pinned SSH, timeout, private audit logs and failure propagation still apply.
+The fixed `.github/server-ops-343-request.json` request still requires an actual
+LIghtJUNction actor/sender, a fresh unforced single-parent commit changing only that
+request, matching parent SHA and diagnostic digest, and explicit confirmation.
+It permits no arbitrary repair and no replay. Manual repairs have separate script
+selection and operator checks. Both call the one reviewed `scripts/server-ops.py`
+transport; there is no fork-specific transport or impersonated dispatch.
 
-The copied transport is the exact blob already tested in the owner's ops
-workflow, pinned again before credentials. It is used only as a transport by
-the new validator; its original fork-only manual CLI is not an upstream entry.
-The diagnostic script only reads service metadata and bounded logs. It makes
-no migrations, restarts, rollbacks, admission changes or transaction changes.
-A failing public health check remains failure, not successful recovery.
+The corrected diagnostic accepts the real FatalLog bracket suffix. It only reads
+selected service metadata and bounded logs and publishes fixed labels. It does not
+migrate, restart, roll back, open admission, or confirm the native transaction.
+A failing local/public check remains failure, not successful recovery.
