@@ -43,6 +43,7 @@ func TestAssistantRetentionHandlerUsesConfiguredScheduleAndPrivacySafePayload(t 
 
 func TestAssistantRetentionHandlerDeletesInBatchesAndFinishesTask(t *testing.T) {
 	truncate(t)
+	require.NoError(t, model.DB.AutoMigrate(model.RegistrationGuardMigrationModels()...))
 	require.NoError(t, model.DB.AutoMigrate(
 		&model.AssistantLead{},
 		&model.AssistantUserProfileAudit{},

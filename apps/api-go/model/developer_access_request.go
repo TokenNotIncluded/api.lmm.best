@@ -300,6 +300,12 @@ func GrantAssistantDeveloperAccess(userID int, conversationID int64, reason stri
 			return findErr
 		}
 
+		if err := checkAssistantRegistrationTx(tx, userID); err != nil {
+			return err
+		}
+		if findErr == nil && latest.AdminUserId > 0 && latest.Status == DeveloperAccessRequestRejected {
+			return ErrAssistantDirectGrantNotL0
+		}
 		now := common.GetTimestamp()
 		auditNote := fmt.Sprintf("AI assistant granted L1 after %d completed turns in conversation %d", completedTurns, conversationID)
 		if errors.Is(findErr, gorm.ErrRecordNotFound) {

@@ -473,7 +473,15 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 		extraContent = append(extraContent, fmt.Sprintf("Audio Input 花费 %s", logger.LogQuota(common.QuotaFromDecimal(q))))
 	}
 
-	if !summary.hasBillableUsage() {
+	if !summary.hasBillableUsage() && relayInfo.StreamStatus != nil &&
+		(relayInfo.StreamStatus.HasErrors() || !relayInfo.StreamStatus.IsNormalEnd()) {
+		// The missing-usage fallback applies to successful requests only.
+		// Accepting a stream is not proof of consumption: an interrupted stream
+		// with no reported or locally observed billable output must refund its
+		// precharge. Partial output and provider usage still settle below.
+		summary.Quota = 0
+		extraContent = append(extraContent, "流异常结束且没有可计费用量，退还本次预扣额度")
+	} else if !summary.hasBillableUsage() {
 		estimated, samples, estimateErr := model.EstimateRecentModelQuota(summary.ModelName, relayInfo.FinalPreConsumedQuota)
 		estimateSamples = samples
 		if estimateErr != nil {

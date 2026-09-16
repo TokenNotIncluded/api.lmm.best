@@ -27,6 +27,7 @@ func setupAssistantGiftTestDB(t *testing.T) *gorm.DB {
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	require.NoError(t, err)
 	DB = db
+	require.NoError(t, db.AutoMigrate(RegistrationGuardMigrationModels()...))
 	require.NoError(t, db.AutoMigrate(&User{}, &TopUp{}, &AssistantNewUserGift{}, &AssistantGiftRiskKey{}, &AssistantGiftRiskMemory{}))
 	t.Cleanup(func() {
 		DB = previousDB
@@ -46,6 +47,9 @@ func newAssistantGiftUser(t *testing.T, db *gorm.DB, username, email string) Use
 		TrustLevelOverride: &level, AffCode: username + "-aff",
 	}
 	require.NoError(t, db.Create(&user).Error)
+	if canonicalAssistantGiftEmail(email) != "" {
+		require.NoError(t, ObserveAssistantRegistration(user.Id, "198.51.100.10", ""))
+	}
 	return user
 }
 

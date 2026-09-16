@@ -13,15 +13,18 @@ import (
 func setupAssistantDirectL1GrantTest(t *testing.T) (*User, *AssistantConversation) {
 	t.Helper()
 	db := setupConsoleActivationTestDB(t)
+	require.NoError(t, db.AutoMigrate(RegistrationGuardMigrationModels()...))
+	require.NoError(t, db.AutoMigrate(&AssistantNewUserGift{}, &AssistantGiftRiskKey{}, &AssistantGiftRiskMemory{}))
 	require.NoError(t, db.AutoMigrate(
 		&TopUp{}, &DeveloperAccessRequest{}, &DeveloperAccessRecommendationArchive{},
 		&AssistantConversation{}, &AssistantHistoryMessage{}, &AssistantSupportRequest{},
 	))
 	user := &User{
-		Username: "assistant-direct-l1", AffCode: "assistant-direct-l1-aff", Password: "password",
+		Email: "direct@example.test", Username: "assistant-direct-l1", AffCode: "assistant-direct-l1-aff", Password: "password",
 		Role: common.RoleCommonUser, Status: common.UserStatusEnabled,
 	}
 	require.NoError(t, db.Create(user).Error)
+	require.NoError(t, ObserveAssistantRegistration(user.Id, "198.51.100.10", ""))
 	conversation, err := PrepareAssistantConversation(user.Id, 0, "first question")
 	require.NoError(t, err)
 	return user, conversation

@@ -47,6 +47,8 @@ const (
 // session keys, provider API keys, payment secrets, and arbitrary database or
 // shell settings never enter the assistant write path.
 var assistantAdminConfigAllowlist = map[string]string{
+	model.AssistantRegistrationAutoSuspendOption:    "Enable evidence-gated current-L0 suspensions",
+	model.AssistantRegistrationDailyCapOption:       "Maximum automatic suspensions per UTC day (0-5)",
 	"FileUploadPermission":                          "File upload permission level",
 	"FileDownloadPermission":                        "File download permission level",
 	"ImageUploadPermission":                         "Image upload permission level",
