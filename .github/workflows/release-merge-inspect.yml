@@ -6,56 +6,65 @@ on:
 permissions:
   contents: read
   actions: read
+  checks: read
+  issues: read
+  pull-requests: read
 jobs:
   inspect:
     runs-on: ubuntu-latest
     timeout-minutes: 8
+    env:
+      CANDIDATE: 8445c31c02cf4b1b5b79834b993f8dd31158b442
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
-          ref: b0c86b9614022779dcbc99ef3818f606a994423e
+          ref: 8445c31c02cf4b1b5b79834b993f8dd31158b442
           fetch-depth: 0
           persist-credentials: false
-      - name: Preserve exact source and conflict evidence without updating repository refs
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p /tmp/release-merge
-          git fetch --no-tags origin 4350edb8d2e40496c6f2c126fed0b6738b10cd7f
-          git update-ref refs/heads/export-candidate b0c86b9614022779dcbc99ef3818f606a994423e
-          git update-ref refs/heads/export-main 4350edb8d2e40496c6f2c126fed0b6738b10cd7f
-          git bundle create /tmp/release-merge/source-delta.bundle refs/heads/export-candidate refs/heads/export-main ^93ebc0644874ef71bfc9639e9140bf0b7c1e3bed ^749960b73b6ea6f2c7fecd6691203d85941e3436
-          set +e
-          git merge-tree --write-tree refs/heads/export-candidate refs/heads/export-main > /tmp/release-merge/merge.txt
-          code=$?
-          set -e
-          cat /tmp/release-merge/merge.txt
-          test "$code" -le 1
-          sha256sum /tmp/release-merge/source-delta.bundle
-      - name: Extract relevant failed integration-test context
+      - name: Record immutable candidate, current upstream and release evidence
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
+        shell: bash
         run: |
+          set -euo pipefail
+          mkdir -p /tmp/release-readiness
+          test "$(git rev-parse HEAD)" = "$CANDIDATE"
           python3 - <<'PY'
-          import os, pathlib, re, subprocess
-          for job in (104817697695, 104817697820):
-              result = subprocess.run(['gh','api',f'repos/{os.environ["REPO"]}/actions/jobs/{job}/logs'], capture_output=True, text=True, check=True)
-              lines=result.stdout.splitlines()
-              indices=set()
-              for i,line in enumerate(lines):
-                  if re.search(r'--- FAIL:|panicked at|panic:|FAILED|##\[error\]|Error Trace:|assertion .*failed|error: test failed',line):
-                      indices.update(range(max(0,i-3),min(len(lines),i+14)))
-              text='\n'.join(lines[i] for i in sorted(indices))
-              print(f'=== JOB {job} ===\n{text}')
-              pathlib.Path(f'/tmp/release-merge/job-{job}-failures.txt').write_text(text)
+          import json, os, pathlib, subprocess
+          root=pathlib.Path('/tmp/release-readiness')
+          repo=os.environ['REPO']; candidate=os.environ['CANDIDATE']
+          def api(path):
+              return json.loads(subprocess.run(['gh','api',f'repos/{repo}/{path}'], capture_output=True,text=True,check=True).stdout)
+          def save(name, value):
+              raw=json.dumps(value,ensure_ascii=False,indent=2)
+              (root/(name+'.json')).write_text(raw)
+              print('=== '+name+' ===\n'+raw)
+          main=api('git/ref/heads/main')['object']['sha']
+          prs=api('pulls?state=open&per_page=100')
+          rows=[]
+          for pr in prs:
+              number=pr['number']; sha=pr['head']['sha']
+              subprocess.run(['git','fetch','--no-tags','origin',f'refs/pull/{number}/head'],check=True,stdout=subprocess.DEVNULL)
+              result=subprocess.run(['git','merge-base','--is-ancestor',sha,candidate])
+              if result.returncode not in (0,1): raise RuntimeError('ancestry inspection failed')
+              rows.append({'number':number,'head':sha,'included_in_candidate':result.returncode==0,'draft':pr['draft']})
+          save('candidate',{'candidate':candidate,'main':main,'open_pull_requests':rows})
+          issues=api('issues?state=open&per_page=100')
+          save('issues',[{'number':r['number'],'title':r['title'],'state':r['state']} for r in issues if 'pull_request' not in r])
+          releases=api('releases?per_page=100')
+          save('releases',[{'tag':r['tag_name'],'revision':r['target_commitish'],'published':r['published_at'],'draft':r['draft'],'prerelease':r['prerelease'],'assets':[a['name'] for a in r['assets']]} for r in releases[:8]])
+          checks=api(f'commits/{candidate}/check-runs?per_page=100')['check_runs']
+          save('checks',[{k:r.get(k) for k in ('name','status','conclusion','details_url')} for r in checks])
+          runs=api(f'actions/runs?head_sha={candidate}&per_page=100')['workflow_runs']
+          save('runs',[{k:r.get(k) for k in ('id','name','status','conclusion','event','head_sha','head_branch','html_url')} for r in runs])
           PY
-      - name: Check current public pages and assets without privileged credentials
-        run: python3 -B scripts/verify-public-production.py | tee /tmp/release-merge/public-acceptance.json
+      - name: Check public pages and assets without privileged credentials
+        run: python3 -B scripts/verify-public-production.py | tee /tmp/release-readiness/public-acceptance.json
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: ${{ always() }}
         with:
-          name: release-merge-${{ github.run_id }}
-          path: /tmp/release-merge/
+          name: release-readiness-${{ github.run_id }}
+          path: /tmp/release-readiness/
           retention-days: 3
           if-no-files-found: error
