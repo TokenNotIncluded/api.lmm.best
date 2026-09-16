@@ -250,7 +250,7 @@ func (runtime *productionRuntime) recoverInstalledSchema(ctx context.Context, wo
 		return productionStatus{}, err
 	}
 	if err := waitIncident343Quiescent(ctx, func(readCtx context.Context) (map[string]string, error) {
-		return runtime.billingUnitState(readCtx, runtime.paths.Service)
+		return runtime.incident343RecoveryUnitState(readCtx)
 	}, sleepIncident343); err != nil {
 		return productionStatus{}, err
 	}
@@ -261,7 +261,7 @@ func (runtime *productionRuntime) recoverInstalledSchema(ctx context.Context, wo
 	if err := runtime.requireAbsentRedPacketTables(ctx, databaseURL, environment, manifest.DatabaseSchema); err != nil {
 		return productionStatus{}, err
 	}
-	audit, err := runtime.prepareIncident343Audit(workspace, manifest, status)
+	audit, err := runtime.prepareIncident343ForwardAudit(ctx, workspace, manifest, status)
 	if err != nil {
 		return productionStatus{}, err
 	}
@@ -283,9 +283,8 @@ func (runtime *productionRuntime) recoverInstalledSchema(ctx context.Context, wo
 			}
 		}
 	}()
-	state, err := runtime.billingUnitState(ctx, runtime.paths.Service)
-	if err != nil || state["MainPID"] != "0" || state["ActiveState"] != "inactive" || state["ControlGroup"] != "" {
-		return productionStatus{}, errors.New("failed service cgroup is not verifiably empty")
+	if err := runtime.verifyIncident343Stopped(ctx); err != nil {
+		return productionStatus{}, err
 	}
 	if err := runtime.requireAbsentRedPacketTables(ctx, databaseURL, environment, manifest.DatabaseSchema); err != nil {
 		return productionStatus{}, err
