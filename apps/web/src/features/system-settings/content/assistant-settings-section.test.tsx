@@ -346,15 +346,18 @@ describe('assistant search provider settings', () => {
           null
         )
         assert.equal(requests.includes('/api/assistant/models'), false)
-        if (outcome === 'error')
-          {assert.match(panel.textContent ?? '', /Unable to load risk inbox/)}
-        if (outcome === 'empty')
-          {assert.match(
+        if (outcome === 'error') {
+          assert.match(panel.textContent ?? '', /Unable to load risk inbox/)
+        }
+        if (outcome === 'empty') {
+          assert.match(
             panel.textContent ?? '',
             /No recorded registration alerts/
-          )}
-        if (outcome === 'loaded')
-          {assert.match(panel.textContent ?? '', /registration-v1/)}
+          )
+        }
+        if (outcome === 'loaded') {
+          assert.match(panel.textContent ?? '', /registration-v1/)
+        }
       } finally {
         api.get = originalGet
         await rendered.cleanup()
