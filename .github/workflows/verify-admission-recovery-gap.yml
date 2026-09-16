@@ -1,0 +1,99 @@
+name: Reproduce admission-only recovery gap
+
+on:
+  push:
+    branches: [release/acceptance-20260916]
+    paths: [.github/workflows/verify-admission-recovery-gap.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  reproduce:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: 13b22e03ea2c88fa118814c34f780aa6e77af723
+          persist-credentials: false
+      - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5
+        with:
+          go-version-file: apps/api-go/go.mod
+          cache-dependency-path: apps/api-go/go.sum
+      - name: Reproduce the native failed-admission recovery boundary in fixtures
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > apps/api-go/internal/appcli/admission_recovery_incident_test.go <<'EOF'
+          //go:build !windows
+
+          package appcli
+
+          import (
+            "context"
+            "strings"
+            "testing"
+          )
+
+          func TestIncident343AdmissionFailureHasNoCapturedWriterIdentity(t *testing.T) {
+            for _, mode := range []string{"nginx-probe", "open-upstream-sockets"} {
+              t.Run(mode, func(t *testing.T) {
+                f := newProductionFixture(t)
+                if mode == "nginx-probe" {
+                  f.runner.nginxDrainFailure = true
+                } else {
+                  f.runtime.billingConnections = func() (int, error) { return 1, nil }
+                }
+                _, err := f.runtime.apply(context.Background(), f.workspace, f.options)
+                if err == nil || !strings.Contains(err.Error(), "admission or upstream drain timed out") {
+                  t.Fatalf("unexpected admission failure: %v", err)
+                }
+                manifest, err := f.runtime.readManifest(f.workspace)
+                if err != nil { t.Fatal(err) }
+                gate := manifest.BillingGate
+                if gate == nil || gate.GoPID != 0 || gate.GoInvocationID != "" || !gate.StopStartedUTC.IsZero() || gate.StopVerified || gate.AdmissionClosed {
+                  t.Fatal("expected admission-only failure before writer identity capture")
+                }
+                if !f.runner.serviceActive || f.runner.installedGoVersion != f.runner.oldVersion {
+                  t.Fatal("the original writer did not remain running")
+                }
+                for _, event := range f.runner.events {
+                  if event == "systemd-stop" || strings.HasPrefix(event, "paru-") || strings.HasPrefix(event, "migrate:") {
+                    t.Fatalf("unexpected writer mutation during admission-only failure: %s", event)
+                  }
+                }
+                f.runner.nginxDrainFailure = false
+                f.runtime.billingConnections = func() (int, error) { return 0, nil }
+                f.runner.managedBillingRows = "1"
+                before := len(f.runner.events)
+                _, err = f.runtime.rollback(context.Background(), f.workspace, "incident-343-fixture")
+                if err == nil || !strings.Contains(err.Error(), "managed billing records block old writer rollback") {
+                  t.Fatalf("expected fail-closed managed-billing rejection: %v", err)
+                }
+                for _, event := range f.runner.events[before:] {
+                  if event == "systemd-stop" || strings.HasPrefix(event, "paru-") || strings.HasPrefix(event, "migrate:") {
+                    t.Fatalf("rollback rejection mutated writer: %s", event)
+                  }
+                }
+                status, err := f.runtime.readStatus(f.workspace)
+                if err != nil || status.Phase != "ROLLBACK_REQUIRED" {
+                  t.Fatalf("unjustified recovered status: %v / %s", err, status.Phase)
+                }
+                t.Log("REPRODUCED: failed admission leaves N-1 running with no captured PID; the managed-billing guard correctly refuses an unproven downgrade. This is a fixture reproduction, not the production root-cause determination or a repair.")
+              })
+            }
+          }
+          EOF
+          gofmt -w apps/api-go/internal/appcli/admission_recovery_incident_test.go
+          mkdir -p evidence
+          sha256sum apps/api-go/internal/appcli/admission_recovery_incident_test.go | tee evidence/test.sha256
+          cp apps/api-go/internal/appcli/admission_recovery_incident_test.go evidence/
+          cd apps/api-go
+          go test -p 2 ./internal/appcli -run '^TestIncident343AdmissionFailureHasNoCapturedWriterIdentity$' -count=1 -v 2>&1 | tee ../../evidence/reproduction.log
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: ${{ always() && !cancelled() }}
+        with:
+          name: admission-recovery-gap-${{ github.run_attempt }}
+          path: evidence/
+          retention-days: 7
