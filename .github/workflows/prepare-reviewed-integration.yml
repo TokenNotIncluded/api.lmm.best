@@ -1,0 +1,126 @@
+name: Prepare reviewed integration
+
+on:
+  push:
+    branches: [release/acceptance-20260916]
+    paths: [.github/workflows/prepare-reviewed-integration.yml]
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: 4d49c2f405298286e65b7dfb0a06c90db55ba933
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Reproduce reviewed conflict resolutions
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name LIghtJUNction
+          git config user.email lightjunction.me@gmail.com
+          if git merge --no-commit --no-ff 749960b73b6ea6f2c7fecd6691203d85941e3436; then
+            echo 'Expected reviewed conflicts were not present' >&2
+            exit 1
+          fi
+          python3 - <<'PY'
+          from pathlib import Path
+          import re, subprocess
+          expected = {
+            'apps/api-go/controller/assistant_agent.go',
+            'apps/api-go/service/text_quota.go',
+            'apps/web/src/features/assistant/assistant-activation-tool.test.tsx',
+            'apps/web/src/features/assistant/assistant-activation-tool.tsx',
+            'apps/web/src/features/assistant/assistant-panel.test.tsx',
+            'apps/web/src/features/assistant/assistant-panel.tsx',
+            'apps/web/src/features/assistant/assistant-registration-status.tsx',
+            'apps/web/src/features/red-packets/public.tsx',
+          }
+          ours = {
+            'apps/api-go/controller/assistant_agent.go',
+            'apps/api-go/service/text_quota.go',
+            'apps/web/src/features/assistant/assistant-panel.tsx',
+            'apps/web/src/features/red-packets/public.tsx',
+          }
+          files = subprocess.check_output(['git', 'diff', '--name-only', '--diff-filter=U'], text=True).splitlines()
+          assert set(files) == expected, files
+          pattern = r'^<<<<<<< HEAD\n(.*?)^=======\n(.*?)^>>>>>>>[^\n]*\n'
+          for filename in files:
+            path = Path(filename)
+            text, count = re.subn(pattern, lambda match: match.group(1 if filename in ours else 2), path.read_text(), flags=re.M | re.S)
+            assert count and not re.search(r'^(<<<<<<<|=======|>>>>>>>)', text, re.M), filename
+            path.write_text(text)
+          path = Path('apps/web/src/features/assistant/assistant-panel.test.tsx')
+          text = path.read_text()
+          start = text.index("  test('keeps verification visible without reviving legacy letters when AI fails'")
+          end = text.index("  test('does not push a general L0 question", start)
+          part = text[start:end]
+          part = part.replace("async () => {\n    api.get", "async () => {\n    let registrationReads = 0\n    api.get", 1)
+          part = part.replace("if (url === '/api/assistant/registration-check') {\n", "if (url === '/api/assistant/registration-check') {\n        registrationReads += 1\n", 1)
+          needle = '''      assert.ok(
+                  document.querySelector('[data-testid="assistant-registration-status"]')
+                )
+          '''
+          # Keep source indentation independent from workflow indentation.
+          needle = '\n'.join(line[4:] if index in (1, 2) else line for index, line in enumerate(needle.split('\n')))
+          needle = "      assert.ok(\n        document.querySelector('[data-testid=\"assistant-registration-status\"]')\n      )\n"
+          assert needle in part
+          extra = '''      const readsBeforeRefresh = registrationReads
+                await act(async () => {
+                  const refresh = document.querySelector<HTMLButtonElement>(
+                    '[aria-label="Refresh registration status"]'
+                  )
+                  assert.ok(refresh)
+                  refresh.click()
+                  await flushEffects()
+                })
+                await act(async () =>
+                  waitForCondition(
+                    () => registrationReads > readsBeforeRefresh,
+                    'Verification refresh must work independently of the failed AI request'
+                  )
+                )
+                assert.doesNotMatch(
+                  document.body.textContent ?? '',
+                  /L1 access is active|Submit for review/
+                )
+          '''
+          extra = '\n'.join(line[10:] if index > 0 and line else line for index, line in enumerate(extra.split('\n')))
+          part = part.replace(needle, needle + extra, 1)
+          path.write_text(text[:start] + part + text[end:])
+          subprocess.run(['git', 'add', *files], check=True)
+          PY
+          git diff --check
+          git diff --cached --check
+          test "$(git write-tree)" = a47f694c1ea82adccb6f49fb6774cb33764b0618
+      - name: Store reviewed immutable Git objects only
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os, subprocess
+          from pathlib import Path
+          repository = os.environ['REPOSITORY']
+          def api(path, payload):
+            result = subprocess.run(['gh', 'api', '--method', 'POST', f'repos/{repository}/git/{path}', '--input', '-'], input=json.dumps(payload), text=True, capture_output=True, check=True)
+            return json.loads(result.stdout)
+          paths = subprocess.check_output(['git', 'diff', '--cached', '--name-only', 'HEAD'], text=True).splitlines()
+          entries = []
+          for path in paths:
+            blob = api('blobs', {'content': Path(path).read_text(), 'encoding': 'utf-8'})
+            expected = subprocess.check_output(['git', 'rev-parse', ':' + path], text=True).strip()
+            assert blob['sha'] == expected, path
+            entries.append({'path': path, 'mode': '100644', 'type': 'blob', 'sha': blob['sha']})
+          tree = api('trees', {'base_tree': '1f328895ad9c80c91532c5e1c9a06fc8a60dbbab', 'tree': entries})
+          assert tree['sha'] == 'a47f694c1ea82adccb6f49fb6774cb33764b0618', tree['sha']
+          print('Reviewed tree stored:', tree['sha'])
+          print('No branch updated; no checks waived; no release or deployment performed.')
+          PY
