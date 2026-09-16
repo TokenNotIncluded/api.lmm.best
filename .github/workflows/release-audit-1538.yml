@@ -1,0 +1,55 @@
+name: Release rollout audit 1538
+
+on:
+  push:
+    branches: [release/acceptance-20260916]
+    paths: [.github/workflows/release-audit-1538.yml]
+
+permissions:
+  contents: read
+  actions: read
+  issues: read
+  pull-requests: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: 13b22e03ea2c88fa118814c34f780aa6e77af723
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Collect bounded release evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir evidence
+          python3 - <<'PY'
+          import json, os, subprocess
+          from pathlib import Path
+          repo = os.environ['REPO']
+          def api(path):
+              p = subprocess.run(['gh','api',f'repos/{repo}/{path}'],capture_output=True,text=True,timeout=40,check=True)
+              return json.loads(p.stdout)
+          report = {'main':api('git/ref/heads/main')['object']['sha']}
+          report['open'] = [{'number':r['number'],'is_pr':'pull_request' in r} for r in api('issues?state=open&per_page=100')]
+          report['tags'] = api('git/matching-refs/tags/web-v0.1.7')
+          report['runs'] = []
+          for w in ('ci.yml','server-release-qualification.yml','release-go.yml','release-web.yml','deploy-production.yml'):
+              for r in api(f'actions/workflows/{w}/runs?per_page=2')['workflow_runs']:
+                  report['runs'].append({k:r.get(k) for k in ('id','name','status','conclusion','event','head_sha','head_branch','run_attempt')})
+          report['recent'] = [{k:r.get(k) for k in ('id','name','status','conclusion','event','head_sha','head_branch')} for r in api('actions/runs?branch=release%2Facceptance-20260916&per_page=10')['workflow_runs']]
+          print(json.dumps(report,indent=2))
+          Path('evidence/status.json').write_text(json.dumps(report,indent=2))
+          PY
+          git bundle create evidence/source.bundle HEAD
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: release-rollout-evidence-1538
+          path: evidence/
+          retention-days: 1
