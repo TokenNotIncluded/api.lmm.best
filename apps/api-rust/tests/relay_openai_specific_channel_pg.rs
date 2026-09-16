@@ -57,10 +57,7 @@ async fn isolated_pool() -> TestResult<Option<(PgPool, PgPool, String)>> {
         return Ok(None);
     };
     let admin = PgPool::connect(&database_url).await?;
-    let schema = format!(
-        "relay_openai_specific_{}",
-        uuid::Uuid::new_v4().simple()
-    );
+    let schema = format!("relay_openai_specific_{}", uuid::Uuid::new_v4().simple());
     sqlx::query(&format!("CREATE SCHEMA {schema}"))
         .execute(&admin)
         .await?;
@@ -115,7 +112,9 @@ async fn relay_request(router: &Router, authorization: &str) -> TestResult<Statu
 #[ignore = "requires isolated PostgreSQL via LMM_TEST_DATABASE_URL"]
 async fn postgres_specific_channel_enforces_role_pin_and_disabled_channel() -> TestResult {
     let Some((admin, pool, schema)) = isolated_pool().await? else {
-        eprintln!("skipping OpenAI specific-channel PostgreSQL test: LMM_TEST_DATABASE_URL is unset");
+        eprintln!(
+            "skipping OpenAI specific-channel PostgreSQL test: LMM_TEST_DATABASE_URL is unset"
+        );
         return Ok(());
     };
 
