@@ -40,6 +40,8 @@ class AuthorizationTests(unittest.TestCase):
     def test_wrong_event_repository_branch_and_actor(self):
         for key, value in [("GITHUB_EVENT_NAME", "push"), ("GITHUB_EVENT_NAME", "pull_request_target"),
                            ("GITHUB_REPOSITORY", "attacker/api.lmm.best"),
+                           ("GITHUB_REPOSITORY", "LIghtJUNction/api.lmm.best"),
+                           ("GITHUB_ACTOR", "TokenNotIncluded"),
                            ("GITHUB_REF", "refs/heads/untrusted"),
                            ("GITHUB_ACTOR", "untrusted"), ("GITHUB_TRIGGERING_ACTOR", "untrusted")]:
             with self.subTest(key=key, value=value), self.assertRaises(ValueError):

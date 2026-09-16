@@ -20,28 +20,42 @@ function job(source, id) {
   return found;
 }
 
-test('consolidation retains upstream server, assistant and security qualification', () => {
+test('migration preserves upstream qualification and isolates the legacy deployment adapter', () => {
   const files = readdirSync(new URL('.github/workflows/', root))
     .filter((name) => /\.ya?ml$/.test(name)).sort();
-  assert.deepEqual(files, ['assistant-support-regressions.yml', 'ci.yml', 'pr-check.yml', 'release-go.yml', 'release-web.yml', 'rust-root-route-acceptance.yml', 'rust-security-audit.yml', 'server-ops.yml', 'server-release-qualification.yml']);
-  for (const file of files) {
-    assert.doesNotMatch(read(`.github/workflows/${file}`), /^  workflow_run:/m);
-  }
+  assert.deepEqual(files, ['assistant-support-regressions.yml', 'ci.yml', 'deploy-production.yml',
+    'pr-check.yml', 'release-go.yml', 'release-web.yml', 'rust-root-route-acceptance.yml',
+    'rust-security-audit.yml', 'server-ops.yml', 'server-release-qualification.yml']);
+  const legacy = workflow('deploy-production');
+  assert.match(legacy, /^  workflow_run:/m);
+  assert.doesNotMatch(legacy, /^  push:/m);
+  assert.match(job(legacy, 'deploy'), /needs: legacy-route/);
+  assert.match(job(legacy, 'deploy'), /needs.legacy-route.outputs.required == 'true'/);
+  assert.match(job(legacy, 'legacy-route'), /-f \.github\/actions\/deploy-production\/action.yml/);
+  assert.doesNotMatch(job(legacy, 'legacy-route'), /secrets\.|environment: production/);
+  assert.match(workflow('server-release-qualification'), /qualify-go-migration-startup.sh/);
 });
 
-test('manual operations and owner-only diagnosis are main-only and share the production lock', () => {
+test('server operations stay manual, main-only, and share the production lock', () => {
   const ops = workflow('server-ops');
   const controller = job(ops, 'server-ops');
-  assert.match(ops, /  workflow_dispatch:/);
+  assert.match(ops, /^  workflow_dispatch:/m);
   assert.doesNotMatch(ops, /^  (?:pull_request|pull_request_target|schedule|workflow_run):/m);
-  assert.match(ops, /default: diagnose/);
-  assert.match(ops, /paths: \[\.github\/server-ops-343-request\.json\]/);
-  const owner = job(ops, 'owner-request');
-  assert.match(owner, /github\.actor == 'LIghtJUNction'/);
-  assert.match(owner, /github\.triggering_actor == 'LIghtJUNction'/);
-  assert.match(owner, /server-ops-commit-request\.py --validate-only/);
+  assert.match(ops, /paths: \[\.github\/server-ops-343-request.json\]/);
+  const request = job(ops, 'owner-request');
+  assert.match(request, /github.actor == 'LIghtJUNction'/);
+  assert.match(request, /github.triggering_actor == 'LIghtJUNction'/);
+  assert.match(request, /server-ops-commit-request.py --validate-only/);
+  assert.match(request, /recover-red-packet-schema-343/);
+  assert.match(request, /go test -race -count=1/);
+  assert.match(request, /prepare-ci-apt.py/);
+  assert.match(request, /POSTGRES_DB: lmm_test_release/);
+  assert.match(request, /server-ops-helper-payload.py/);
+  assert.match(request, /HEAD:scripts\/server-ops.py/);
+  assert.doesNotMatch(request, /server-ops-transport.py/);
   assert.match(controller, /github\.repository == 'TokenNotIncluded\/api\.lmm\.best'/);
   assert.match(controller, /github\.event_name == 'workflow_dispatch'/);
+  assert.match(ops, /default: diagnose/);
   assert.match(ops, /group: production-auto-deploy\n  cancel-in-progress: false/);
   assert.match(ops, /permissions:\n  contents: read/);
   assert.match(controller, /github\.ref == 'refs\/heads\/main'/);
@@ -68,6 +82,7 @@ test('CI keeps every original quality gate and the translation check name', () =
   assert.match(translations, /name: Translation regression check/);
   assert.match(translations, /if: github\.ref_type != 'tag'/);
   assert.match(job(ci, 'quality-gate'), /- translations/);
+  assert.match(ci, /merge_group:/);
   assert.match(translations, /github\.event\.merge_group\.base_sha/);
   assert.match(translations, /fetch-depth: 0/);
   assert.match(translations, /persist-credentials: false/);
@@ -98,7 +113,7 @@ for (const [component, needs, revision] of [
     const source = workflow(`release-${component}`);
     const deploy = job(source, 'deploy');
     assert.ok(deploy.includes(`    needs: ${needs}\n`));
-    assert.ok(deploy.includes(`if: success() && startsWith(github.ref, 'refs/tags/${component}-v')`));
+    assert.ok(deploy.includes(`if: success() && github.repository == 'TokenNotIncluded/api.lmm.best' && startsWith(github.ref, 'refs/tags/${component}-v')`));
     assert.match(deploy, /environment: production/);
     assert.match(deploy, /group: production-auto-deploy\n      cancel-in-progress: false/);
     assert.match(deploy, /timeout-minutes: 50/);
@@ -124,11 +139,11 @@ test('shared deployment keeps the signed-package script and pinned verification 
   assert.match(action, /using: composite/);
   assert.match(action, /sigstore\/cosign-installer@[0-9a-f]{40}/);
   assert.match(action, /run: bash scripts\/auto-deploy-production-release\.sh/);
-  assert.match(action, /scripts\/verify-public-production\.py/);
-  assert.match(action, /--expected-backend-version/);
   assert.match(action, /sudo --preserve-env=GITHUB_ACTIONS python3 scripts\/prepare-ci-apt\.py/);
   assert.match(action, /test -n "\$PRODUCTION_SSH_PRIVATE_KEY"/);
   assert.match(action, /test -n "\$PRODUCTION_SSH_KNOWN_HOSTS"/);
+  assert.match(action, /verify-public-production.py/);
+  assert.match(action, /--expected-backend-version/);
   assert.doesNotMatch(action, /apt-get install[^\n]*docker\.io|secrets\./);
 });
 
@@ -161,6 +176,7 @@ function checkContext(overrides = {}) {
       ...process.env,
       RELEASE_TAG: 'go-v1.2.3', RELEASE_SHA: revision,
       GITHUB_SHA: revision, GITHUB_REF: 'refs/tags/go-v1.2.3',
+      GITHUB_REPOSITORY: 'TokenNotIncluded/api.lmm.best',
       ...overrides,
     },
   });
@@ -175,6 +191,7 @@ for (const tag of ['go-v1.2.3', 'web-v1.2.3', 'web-v1.2.4']) {
 }
 
 for (const [name, env] of [
+  ['personal fork', { GITHUB_REPOSITORY: 'LIghtJUNction/api.lmm.best' }],
   ['branch ref', { GITHUB_REF: 'refs/heads/main' }],
   ['wrong component ref', { GITHUB_REF: 'refs/tags/web-v1.2.3' }],
   ['non-release tag', { RELEASE_TAG: 'v1.2.3', GITHUB_REF: 'refs/tags/v1.2.3' }],

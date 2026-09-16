@@ -1,10 +1,10 @@
 # Manual assistant server operations
 
-`.github/workflows/server-ops.yml` in **TokenNotIncluded/api.lmm.best** is the
-production operator entry. Manual `workflow_dispatch` remains separate from the
-existing, fixed read-only owner-commit diagnosis described in
-`docs/incident-343-owner-ops.md`. Neither PRs nor releases trigger arbitrary repairs. The safe default is `diagnose`; it does not modify services or
-application configuration. The standalone entry replaces the diagnostic job previously embedded in deployment.
+`.github/workflows/server-ops.yml` is the upstream SSH operations entry. Manual
+requests default to read-only diagnosis. Its separate push entry accepts only the
+existing explicit owner request for fixed incident diagnosis or schema recovery; ordinary
+pushes, PRs, comments and releases do not run repairs. The original upstream
+production environment is used, not the personal fork.
 
 ## Connection and authorization
 
@@ -13,8 +13,7 @@ and `PRODUCTION_SSH_KNOWN_HOSTS`, and the same ArchDmit host/port as automatic
 production deployment. It does not create credentials, disable host-key checks,
 or install an inbound management service. Missing secrets fail before SSH.
 
-Only the maintainer `LIghtJUNction` is allowed by default. The organization name
-`TokenNotIncluded` is not a user login and must not be inferred as an operator. To authorize a specific
+Only the maintainer LIghtJUNction is allowed by default; the organization name is not an operator login. To authorize a specific
 GitHub App/operator, set the repository/environment variable
 `PRODUCTION_OPS_ALLOWED_ACTORS` to comma-separated **exact GitHub actor logins**.
 Both the original dispatcher and a rerun's triggering actor must be authorized.
@@ -66,8 +65,7 @@ change databases as a generic repair. A failed operation is not automatically
 retried or rolled back. An existing repair run cannot be rerun; inspect the
 outcome first and explicitly dispatch a new run when appropriate.
 
-Within this production repository, repairs share the `production-auto-deploy`
-concurrency group and also take a
+Repairs share the `production-auto-deploy` concurrency group and also take a
 server-side manual-ops flock. This serializes Actions deployments and this
 transport; it does **not** replace the native deployment transaction lock or
 coordinate unrelated root sessions. The transport itself makes no claims about
@@ -98,8 +96,5 @@ contract. Repair failures remain failures even when the public endpoint is healt
 Local checks require both services active and HTTP success; the external check
 also requires `success: true`. These are availability checks, not a complete
 payment, database, or release acceptance test.
-
-The fork does not inherit upstream secrets or share its Actions concurrency.
-Do not copy credentials into the fork to work around this repository boundary.
 
 Run offline controller tests with `python3 scripts/test-server-ops.py`.

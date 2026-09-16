@@ -28,6 +28,7 @@ runs:
         RELEASE_SHA: ${{ inputs.release-sha }}
       run: |
         set -euo pipefail
+        [[ "$GITHUB_REPOSITORY" == TokenNotIncluded/api.lmm.best ]]
         [[ "$RELEASE_TAG" =~ ^(go|web)-v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
         [[ "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]]
         [[ "$GITHUB_REF" == "refs/tags/$RELEASE_TAG" ]]
@@ -69,8 +70,7 @@ runs:
         PRODUCTION_SSH_KNOWN_HOSTS: ${{ inputs.ssh-known-hosts }}
       run: bash scripts/auto-deploy-production-release.sh
 
-
-    - name: Verify public backend version and frontend entry assets
+    - name: Verify public backend version, pages and referenced assets
       shell: bash
       env:
         RELEASE_TAG: ${{ inputs.release-tag }}

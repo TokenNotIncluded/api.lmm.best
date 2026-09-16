@@ -1,77 +1,47 @@
-# GitHub Actions
+# GitHub Actions in TokenNotIncluded/api.lmm.best
 
-Keep nine upstream workflow entry points, including the four existing qualification workflows. Consolidate shared steps under `.github/actions/`
-instead of adding another independently triggered workflow.
+The production repository is **TokenNotIncluded/api.lmm.best**. The personal fork
+is not a production operations entry point and receives no production credentials.
 
-| Workflow | Triggers | Responsibility |
-| --- | --- | --- |
-| `ci.yml` | PR code events, main pushes, tag pushes, manual runs | Existing Go, Rust, web, provider, integration and package checks, plus translation regressions |
-| `pr-check.yml` | PR metadata/code events, including description edits | Read-only description policy using trusted base code |
-| `release-go.yml` | `go-v*.*.*` tags | Verify, test, build both architectures, sign, publish, then deploy the Go backend |
-| `release-web.yml` | `web-v*.*.*` tags; manual runs on a release tag | Verify, test, build, sign, publish, then deploy the web frontend |
-| `server-ops.yml` | Manual runs on `main`; explicit owner diagnostic request | Authorized server diagnosis or reviewed repairs; shares the production deployment lock |
+## Migrated workflows
 
-The independent `server-release-qualification.yml`, `rust-root-route-acceptance.yml`,
-`rust-security-audit.yml`, and `assistant-support-regressions.yml` remain intact.
-The standalone deploy subscriber and i18n workflow are folded into their callers;
-their protections are not removed.
+- `server-ops.yml`: manual main-only diagnose/repair and the existing explicit
+  owner-only, request-only incident diagnosis or fixed schema recovery. Both use the original protected
+  production environment and the same `production-auto-deploy` concurrency group.
+- `ci.yml`: all upstream Go/Rust/Web/integration/package gates, merge-queue support,
+  and the migrated translation checker. CI Quality Gate requires translations too.
+  A tag still tests the checker; only its branch-to-branch comparison is skipped.
+- `release-go.yml` and `release-web.yml`: retain exact-source release checks,
+  unresolved-work barriers, and signing identities. New releases own their final
+  serialized deployment job through `.github/actions/deploy-production/`.
+- `deploy-production.yml`: compatibility adapter for historical tags only. It
+  inspects the immutable source and skips releases with the inline deployment
+  action, preventing duplicate deployments. It no longer handles owner requests.
 
-## CI and translations
+Do not delete upstream qualification workflows to match the former fork's count
+of five files. Server release qualification, root-route acceptance, security audit
+and assistant regressions remain. Their checks and native migration/observation
+contracts are not replaced by topology tests or a successful package publication.
 
-The `Translation regression check` job keeps its existing check name, full
-comparison history, checker tests, and PR merge-base behavior. Manual CI runs
-accept `base-ref` (default `HEAD^`). Tag pushes skip only the translation
-comparison, not the checker tests. Translations are a required CI Quality Gate
-dependency; merge-queue comparisons use `merge_group.base_sha`. All original CI
-release gates remain. Feature-branch pushes do not
-start another copy of PR CI.
+## Trust and rollout
 
-PR description policy stays separate deliberately: `pull_request_target` reads
-trusted base policy only. It does not execute PR head code, gain write permissions,
-or receive production secrets. Editing a PR description reruns that small policy
-check, not the entire build and integration suite.
+Operations require main, the actual authorized dispatcher and triggering actor,
+an exact committed script, confirmation, and a new run for mutations. Fixed
+owner requests retain their separate non-forced single-parent request-only commit,
+age and digest checks. No caller identity is synthesized. Recovery retains its freshly tested, digest-bound helper and original native
+confirmation boundary. One canonical `scripts/server-ops.py` transport serves both paths and is hash-checked before
+credentials. Raw repair logs stay on the host. See `docs/server-ops.md`.
 
-## Release and deployment
+GitHub concurrency is repository-scoped. All maintained production jobs must stay
+in this upstream repository; the server's native transaction lock remains required.
+The tag-based deployment environment must permit the intended Go/Web release tags;
+this migration does not change its reviewers, secrets or deployment rules.
 
-Deployment is the final job of the corresponding release run, not a separate
-`workflow_run` subscriber. Go deployment needs `prepare` and `publish`; web
-deployment needs `web`. Publication failure or a non-release branch cannot reach
-deployment. A deployment failure is visible in the same run; retry the failed
-`deploy` job rather than rebuilding or attempting to overwrite signed assets.
+Old immutable tags keep their historical workflow definitions. Retaining the
+legacy adapter lets those tags work without rewriting them. New and legacy
+operations never auto-confirm a transaction or bypass a pending recovery.
 
-Both jobs retain the `production` environment, a 50-minute timeout, read-only
-repository permissions, and the shared `production-auto-deploy` concurrency group
-with `cancel-in-progress: false`. Environment approvals and secrets still apply. The environment deployment-ref
-policy must allow `go-v*` and `web-v*` tags; unlike the old default-branch
-`workflow_run` subscriber, the final job now runs in the release tag context.
-The checkout and local deployment action are pinned to the exact released commit.
-The common action checks checkout and tag identity before invoking the
-existing signed-package verification, rollback preparation, staging and promotion
-script and the same public version/page/asset acceptance. No production rollout is needed just to test this topology change.
-
-Do not rename `release-go.yml` or `release-web.yml` casually: their paths are part
-of the Sigstore certificate identities used by existing releases and package
-verifiers. Sharing deployment steps does not change those identities.
-
-When applying this consolidation, let any already-running legacy release and
-deployment runs finish first. Old tags retain their historical workflow definitions
-and do not gain the new in-workflow deployment job retroactively. New release tags
-must include this change. Historical Actions run records are not deleted.
-
-## Manual server operations
-
-Keep `server-ops.yml` separate from tag-triggered releases. Its default remains
-read-only diagnosis, and repairs still require explicit confirmation and a reviewed
-script from `main`. It retains the protected `production` environment, pinned
-checkout and SSH keys, operator authorization, and the same
-`production-auto-deploy` concurrency group with cancellation disabled.
-See `docs/server-ops.md` for the operator contract. The fixed owner-request diagnostic
-trigger lives only in `server-ops.yml`; ordinary code pushes cannot execute repairs.
-
-## Regression checks
-
-Run `node --test scripts/workflow-topology.test.mjs` and actionlint before merging.
-The tests cover the five entry points, existing CI gates, trusted PR policy,
-publication dependencies, production concurrency, signing identities, and actual
-release-context shell guards using disposable local Git repositories. They never
-use SSH credentials or contact production.
+Run `node --test scripts/workflow-topology.test.mjs`, all server-ops Python tests,
+`python3 -m unittest discover -s scripts -p test_ci_quality_gate.py`, and actionlint.
+These local tests do not establish production health. No release or server change
+is requested merely by merging this migration.
