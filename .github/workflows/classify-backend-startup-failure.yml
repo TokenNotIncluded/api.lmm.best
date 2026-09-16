@@ -1,0 +1,77 @@
+name: Classify backend startup failure
+
+on:
+  push:
+    branches: [release/acceptance-20260916]
+    paths: [.github/workflows/classify-backend-startup-failure.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  classify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: production
+    steps:
+      - name: Report only known startup failure classes and Go source line numbers
+        env:
+          PRODUCTION_SSH_PRIVATE_KEY: ${{ secrets.PRODUCTION_SSH_PRIVATE_KEY }}
+          PRODUCTION_SSH_KNOWN_HOSTS: ${{ secrets.PRODUCTION_SSH_KNOWN_HOSTS }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$PRODUCTION_SSH_PRIVATE_KEY"
+          test -n "$PRODUCTION_SSH_KNOWN_HOSTS"
+          umask 077
+          root=$(mktemp -d)
+          trap 'rm -rf -- "$root"' EXIT
+          printf '%s\n' "$PRODUCTION_SSH_PRIVATE_KEY" > "$root/key"
+          printf '%s\n' "$PRODUCTION_SSH_KNOWN_HOSTS" > "$root/known_hosts"
+          ssh -i "$root/key" -p 222 -o BatchMode=yes -o ConnectTimeout=10 \
+            -o ServerAliveInterval=5 -o ServerAliveCountMax=2 \
+            -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$root/known_hosts" root@45.59.187.63 python3 - <<'PY'
+          import json, re, subprocess
+          command = ['/usr/bin/journalctl','--unit=lmm-api.service','--since=2026-09-16 15:49:00 UTC','--no-pager','--output=json','--output-fields=MESSAGE','--lines=1000']
+          result = subprocess.run(command,capture_output=True,timeout=20,check=True)
+          if len(result.stdout) > 4194304:
+              raise RuntimeError('startup evidence exceeds inspection limit')
+          classes = {
+            'nil-pointer':'invalid memory address or nil pointer dereference',
+            'nil-map':'assignment to entry in nil map',
+            'index-bounds':'index out of range',
+            'slice-bounds':'slice bounds out of range',
+            'gin-wildcard-conflict':'conflicts with existing wildcard',
+            'gin-route-conflict':'handlers are already registered',
+            'gin-catchall-conflict':'catch-all conflicts',
+            'database-connect':'failed to connect',
+            'permission-denied':'permission denied',
+            'port-conflict':'address already in use',
+            'missing-file':'no such file or directory',
+            'out-of-memory':'out of memory',
+            'oom-kill':'oom-kill',
+            'database-migration':'migration failed',
+            'duplicate-key':'duplicate key value violates unique constraint',
+            'startup-panic':'panic:',
+            'fatal-runtime':'fatal error:',
+            'start-post-failure':'control process exited',
+            'restart-loop':'scheduled restart job',
+          }
+          counts = {}
+          frames = set()
+          lines = result.stdout.splitlines()
+          for line in lines:
+              message = json.loads(line).get('MESSAGE','')
+              if not isinstance(message,str):
+                  continue
+              lower = message.lower()
+              for category, marker in classes.items():
+                  if marker in lower:
+                      counts[category] = counts.get(category,0) + 1
+              for name, number in re.findall(r'/([A-Za-z0-9_.-]+\.go):([0-9]+)',message):
+                  frames.add(name + ':' + number)
+          # Never export raw messages, credentials, arguments, user content,
+          # native transaction files, database rows, or process environments.
+          print(json.dumps({'journal_entries_scanned':len(lines),'failure_classes':counts,'source_frames':sorted(frames)[:80],'scope':'startup exception classification only; no recovery or service mutation'},indent=2))
+          PY
