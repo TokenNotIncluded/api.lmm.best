@@ -129,22 +129,28 @@ test('opening support review never replays trace arguments or submits a request'
       await flushEffects()
     })
     await waitFor(
-      () => document.querySelector('#assistant-handoff-message') !== null,
+      () => document.querySelector('[role="dialog"] textarea') !== null,
       'The support form should open inside the visible dialog'
     )
-    const textarea = document.querySelector<HTMLTextAreaElement>(
-      '#assistant-handoff-message'
-    )
+    const dialog = document.querySelector('[role="dialog"]')
+    assert.ok(dialog)
+    const textarea = dialog.querySelector<HTMLTextAreaElement>('textarea')
     assert.ok(textarea)
+    assert.notEqual(textarea.id, '')
+    assert.notEqual(textarea.id, 'assistant-handoff-message')
+    const label = [...dialog.querySelectorAll<HTMLLabelElement>('label')].find(
+      (entry) => entry.htmlFor === textarea.id
+    )
+    assert.equal(label?.textContent, 'Issue description')
     assert.equal(textarea.value, '')
     assert.ok(reads > 0)
     assert.equal(writes, 0)
     const review = [
-      ...document.querySelectorAll<HTMLButtonElement>('button'),
+      ...dialog.querySelectorAll<HTMLButtonElement>('button'),
     ].find((button) => button.textContent?.includes('Review message'))
     assert.ok(review)
     assert.equal(review.disabled, true)
-    const close = document.querySelector<HTMLButtonElement>(
+    const close = dialog.querySelector<HTMLButtonElement>(
       '[data-slot="dialog-close"]'
     )
     assert.ok(close)
