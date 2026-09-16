@@ -48,3 +48,33 @@ Verify the real `/` route in both themes at the viewports above. Exercise guest,
 unapproved and approved account actions, assistant-disabled behavior, copy denial,
 language changes, touch input, keyboard navigation, reduced motion and route
 unmount/remount. Confirm that real account access rules and notices remain intact.
+
+## Logo follow-up — upstream delivery and scope
+
+Target: `TokenNotIncluded/api.lmm.best`, existing PR #320, branch
+`feat/framer-inspired-home-motion`. `LIghtJUNction/api.lmm.best` is a fork;
+its integration permissions do not establish the upstream permissions.
+
+The public Forge shell now reads the configured logo through `BrandLogo`, as
+`SystemBrand` already does in the console. A failed custom image falls back to
+the same inline mark, keeping its size, class and accessible name. Updating its
+URL resets only that image instance's error state. The inline mark has
+`currentColor` fallbacks when Forge color variables are not in scope.
+
+Before pushing this follow-up, a separate Chromium component harness ran the
+original and changed code against the same 32 checks: original 23/32, changed
+32/32, zero page runtime errors. Checks include safe/default/custom sources,
+image failure and recovery, independent instances, public-shell logo selection,
+light/dark visibility, and overflow at 320/390/768/1200px. Desktop (1200px) and
+mobile (390px) screenshots of actual logo components were inspected.
+
+This is an isolated React 16.0.0 component review, not an application screenshot.
+The image responses are local test fixtures; the shell's layout, configuration,
+navigation hooks and title effect are test doubles. No live backend or tenant
+artwork was loaded. The added `brand-logo-recovery.test.tsx` suite targets the
+repository's React 19 + happy-dom environment; only its syntax was checked
+locally because Bun/project dependencies could not be installed. Full lint,
+typecheck, tests, application preview and CI remain unverified merge gates.
+
+This follow-up does not claim the requested interior-page redesign or complete
+favicon/static-logo audit is finished. No merge or deployment is included.
