@@ -1,0 +1,105 @@
+name: PR 340 resolve and format
+on:
+  push:
+    branches: ['assistant/pr340-integration-20260916']
+    paths: ['.github/workflows/pr340-resolve.yml']
+permissions:
+  contents: read
+jobs:
+  integrate:
+    if: github.repository == 'TokenNotIncluded/api.lmm.best' && github.ref == 'refs/heads/assistant/pr340-integration-20260916'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Prepare pinned merge and resolve reviewed conflicts
+        run: |
+          cp .pr340-integration/plan.b64 /tmp/pr340-plan.b64
+          git fetch --no-tags origin main:refs/heads/upstream-main refs/pull/340/head:refs/heads/pr340-head
+          test "$(git rev-parse upstream-main)" = 67bf1826b10b57e6e0eab3b2ef5845d4db8ff7b8
+          test "$(git rev-parse pr340-head)" = e70e9b749d4a5ab7e66f232a0d0396a5714a2af6
+          git checkout --detach pr340-head
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git merge --no-commit --no-ff upstream-main || test -f .git/MERGE_HEAD
+          python3 - <<'PY'
+          import subprocess
+          expected = {'apps/web/src/features/assistant/assistant-activation-tool.tsx', 'apps/web/src/features/assistant/assistant-activation-tool.test.tsx'}
+          conflicts = set(subprocess.check_output(['git','diff','--name-only','--diff-filter=U'], text=True).splitlines())
+          assert conflicts == expected, conflicts
+          for path in sorted(expected):
+              subprocess.run(['git','checkout','--ours','--',path], check=True)
+              subprocess.run(['git','add','--',path], check=True)
+          PY
+          python3 - <<'PY'
+          import pathlib, base64, hashlib, json, lzma
+          blob = base64.b64decode(pathlib.Path('/tmp/pr340-plan.b64').read_text().strip(), validate=True)
+          assert hashlib.sha256(blob).hexdigest() == 'f833b8b6390ba5e7c065b3ffb2f40bfbe34b12dc9458469b725a0e09fce81198'
+          rows = json.loads(lzma.decompress(blob))
+          assert len(rows) == 6
+          outputs = {}
+          for row in rows:
+              path = pathlib.Path(row['path'])
+              assert str(path).startswith('apps/') and '..' not in path.parts and not path.is_symlink()
+              old = path.read_bytes()
+              assert hashlib.sha256(old).hexdigest() == row['old'], str(path)
+              lines = old.decode().splitlines(keepends=True)
+              previous = len(lines) + 1
+              for start,end,text in reversed(row['changes']):
+                  assert 0 <= start <= end <= len(lines) and end < previous
+                  lines[start:end] = [text]
+                  previous = start
+              content = ''.join(lines).encode()
+              assert hashlib.sha256(content).hexdigest() == row['new'], str(path)
+              outputs[path] = content
+          for path,content in outputs.items(): path.write_bytes(content)
+          PY
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: '1.3.14'
+      - run: bun install --frozen-lockfile
+      - name: Format changed web files only, preserving upstream files and copyright headers
+        run: |
+          git diff --name-only upstream-main -- apps/web > /tmp/pr340-format-allowlist
+          bun run --filter @lmm/web format
+          python3 - <<'PY'
+          import pathlib, subprocess
+          allowed = set(pathlib.Path('/tmp/pr340-format-allowlist').read_text().splitlines())
+          for path in subprocess.check_output(['git','diff','--name-only','--','apps/web'],text=True).splitlines():
+              if path not in allowed:
+                  subprocess.run(['git','restore','--',path],check=True)
+          PY
+      - name: Verify source contracts before publishing candidate
+        run: |
+          bun run --filter @lmm/web lint
+          bun run --filter @lmm/web typecheck
+          node scripts/check-i18n.mjs --base upstream-main
+          git add apps
+          git diff --cached --check
+          test -z "$(git diff --name-only --diff-filter=U)"
+          test ! -e .pr340-integration
+          test ! -e .github/workflows/pr340-resolve.yml
+          git commit -m 'Merge upstream main into PR 340; preserve tool-only admission and activation refresh'
+          mkdir -p /tmp/pr340-candidate
+          git rev-parse HEAD HEAD^{tree} > /tmp/pr340-candidate/commit.txt
+          git show --stat --oneline HEAD > /tmp/pr340-candidate/merge-summary.txt
+          git archive --format=tar HEAD > /tmp/pr340-candidate/source.tar
+      - name: Publish isolated integration candidate, never main
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          test "$GITHUB_REF" = refs/heads/assistant/pr340-integration-20260916
+          auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          echo "::add-mask::$auth"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" push origin HEAD:refs/heads/assistant/pr340-merged-20260916
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: pr340-integration-candidate
+          path: /tmp/pr340-candidate
+          retention-days: 3
