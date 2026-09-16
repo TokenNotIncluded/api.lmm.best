@@ -16,6 +16,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { Component } from 'react'
+
 import { LmmBrandMark } from '@/components/lmm-brand-mark'
 import { DEFAULT_LOGO, isDefaultLogo } from '@/lib/constants'
 import { isSafeResourceUrl } from '@/lib/content-format'
@@ -32,42 +34,47 @@ type BrandLogoProps = {
   fetchPriority?: 'high' | 'low' | 'auto'
 }
 
-/**
- * Renders the built-in mark inline and only creates an image request for a
- * tenant-provided logo. The legacy DEFAULT_LOGO sentinel remains the config
- * fallback but is never emitted as an image URL.
- */
-export function BrandLogo({
-  src,
-  alt = '',
-  className,
-  width,
-  height,
-  decoding,
-  fetchPriority,
-}: BrandLogoProps) {
-  const resolvedSrc = src?.trim() || DEFAULT_LOGO
-
-  if (isDefaultLogo(resolvedSrc) || !isSafeResourceUrl(resolvedSrc)) {
-    return (
-      <LmmBrandMark
-        title={alt || undefined}
-        width={width}
-        height={height}
-        className={className}
-      />
-    )
-  }
-
+function BuiltInLogo({ alt, className, width, height }: BrandLogoProps) {
   return (
-    <img
-      src={resolvedSrc}
-      alt={alt}
+    <LmmBrandMark
+      title={alt || undefined}
       width={width}
       height={height}
-      decoding={decoding}
-      fetchPriority={fetchPriority}
       className={className}
     />
   )
+}
+
+class ConfiguredLogo extends Component<
+  BrandLogoProps & { src: string },
+  { failed: boolean }
+> {
+  override state = { failed: false }
+
+  override render() {
+    if (this.state.failed) return <BuiltInLogo {...this.props} />
+
+    return (
+      <img
+        {...this.props}
+        alt={this.props.alt ?? ''}
+        onError={() => this.setState({ failed: true })}
+      />
+    )
+  }
+}
+
+/**
+ * Use one mark across public and authenticated pages. Default, unsafe and
+ * failed image sources fall back to the inline mark without another request.
+ */
+export function BrandLogo({ src, ...props }: BrandLogoProps) {
+  const resolvedSrc = src?.trim() || DEFAULT_LOGO
+
+  if (isDefaultLogo(resolvedSrc) || !isSafeResourceUrl(resolvedSrc)) {
+    return <BuiltInLogo {...props} />
+  }
+
+  // A new URL gets fresh error state; an old image error cannot hide it.
+  return <ConfiguredLogo key={resolvedSrc} {...props} src={resolvedSrc} />
 }
