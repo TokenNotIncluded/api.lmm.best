@@ -357,25 +357,25 @@ func GetAllUsers(c *gin.Context) {
 	pageInfo := common.GetPageQuery(c)
 	sortOptions := model.NewUserSortOptions(c.Query("sort_by"), c.Query("sort_order"))
 	onlyL0 := c.Query("trust_level") == strconv.Itoa(model.TrustLevelMinUser)
-	users, total, err := model.GetAllUsers(pageInfo, onlyL0, sortOptions)
+	users, total, err := model.GetAllUsersContext(c.Request.Context(), pageInfo, onlyL0, sortOptions)
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
 	model.PopulateAdminPaymentRestrictions(users)
-	if err := model.PopulateAssistantConversationCounts(users, c.GetInt("id"), c.GetInt("role")); err != nil {
+	if err := model.PopulateAssistantConversationCountsContext(c.Request.Context(), users, c.GetInt("id"), c.GetInt("role")); err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	if err := model.PopulateAssistantUserProfiles(users, c.GetInt("id"), c.GetInt("role")); err != nil {
+	if err := model.PopulateAssistantUserProfilesContext(c.Request.Context(), users, c.GetInt("id"), c.GetInt("role")); err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	if err := model.PopulateUserTopups(users); err != nil {
+	if err := model.PopulateUserTopupsContext(c.Request.Context(), users); err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	if err := model.PopulateAssistantReviewViolationCountsForViewer(users, c.GetInt("id"), c.GetInt("role")); err != nil {
+	if err := model.PopulateAssistantReviewViolationCountsForViewerContext(c.Request.Context(), users, c.GetInt("id"), c.GetInt("role")); err != nil {
 		common.ApiError(c, err)
 		return
 	}
@@ -405,25 +405,25 @@ func SearchUsers(c *gin.Context) {
 	pageInfo := common.GetPageQuery(c)
 	sortOptions := model.NewUserSortOptions(c.Query("sort_by"), c.Query("sort_order"))
 	onlyL0 := c.Query("trust_level") == strconv.Itoa(model.TrustLevelMinUser)
-	users, total, err := model.SearchUsers(keyword, group, role, status, onlyL0, pageInfo.GetStartIdx(), pageInfo.GetPageSize(), sortOptions)
+	users, total, err := model.SearchUsersContext(c.Request.Context(), keyword, group, role, status, onlyL0, pageInfo.GetStartIdx(), pageInfo.GetPageSize(), sortOptions)
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
 	model.PopulateAdminPaymentRestrictions(users)
-	if err := model.PopulateAssistantConversationCounts(users, c.GetInt("id"), c.GetInt("role")); err != nil {
+	if err := model.PopulateAssistantConversationCountsContext(c.Request.Context(), users, c.GetInt("id"), c.GetInt("role")); err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	if err := model.PopulateAssistantUserProfiles(users, c.GetInt("id"), c.GetInt("role")); err != nil {
+	if err := model.PopulateAssistantUserProfilesContext(c.Request.Context(), users, c.GetInt("id"), c.GetInt("role")); err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	if err := model.PopulateUserTopups(users); err != nil {
+	if err := model.PopulateUserTopupsContext(c.Request.Context(), users); err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	if err := model.PopulateAssistantReviewViolationCountsForViewer(users, c.GetInt("id"), c.GetInt("role")); err != nil {
+	if err := model.PopulateAssistantReviewViolationCountsForViewerContext(c.Request.Context(), users, c.GetInt("id"), c.GetInt("role")); err != nil {
 		common.ApiError(c, err)
 		return
 	}
@@ -462,11 +462,11 @@ func GetUser(c *gin.Context) {
 	user.TrustLevelInfo = &trustLevel
 	user.AdminPermissions = authz.Capabilities(user.Id, user.Role)
 	model.PopulateAdminPaymentRestriction(user)
-	if err := model.PopulateAssistantUserProfiles([]*model.User{user}, c.GetInt("id"), myRole); err != nil {
+	if err := model.PopulateAssistantUserProfilesContext(c.Request.Context(), []*model.User{user}, c.GetInt("id"), myRole); err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	if err := model.PopulateAssistantReviewViolationCountsForViewer([]*model.User{user}, c.GetInt("id"), myRole); err != nil {
+	if err := model.PopulateAssistantReviewViolationCountsForViewerContext(c.Request.Context(), []*model.User{user}, c.GetInt("id"), myRole); err != nil {
 		common.ApiError(c, err)
 		return
 	}

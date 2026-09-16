@@ -1367,6 +1367,7 @@ function AssistantPanelSession(props: AssistantPanelProps) {
     useState<string | null>(null)
   const [conversationRestricted, setConversationRestricted] = useState(false)
   const [sending, setSending] = useState(false)
+  const [agentStep, setAgentStep] = useState(0)
   const assistantAbortControllerRef = useRef<AbortController | null>(null)
   const [classicLayout, setClassicLayout] = useState(readAssistantClassicLayout)
   const submittedAutoSendIdRef = useRef<string | undefined>(undefined)
@@ -1767,6 +1768,7 @@ function AssistantPanelSession(props: AssistantPanelProps) {
       return
     }
     setSending(true)
+    setAgentStep(0)
     const abortController = new AbortController()
     assistantAbortControllerRef.current = abortController
     const isCurrentRequest = () =>
@@ -1809,6 +1811,9 @@ function AssistantPanelSession(props: AssistantPanelProps) {
         conversationId ?? undefined,
         presetId,
         {
+          onProgress: ({ step }) => {
+            if (isCurrentRequest() && !abortController.signal.aborted) setAgentStep(step)
+          },
           onDelta: (delta) => {
             if (!isCurrentRequest() || abortController.signal.aborted) return
             streamedContent += delta
@@ -2516,7 +2521,7 @@ function AssistantPanelSession(props: AssistantPanelProps) {
                         aria-live='polite'
                       >
                         <Loader size={14} />
-                        <span>{t('Assistant is thinking...')}</span>
+                        <span>{t('Assistant is thinking...')}{agentStep > 0 ? ` · ${agentStep}` : ''}</span>
                       </MessageContent>
                     </Message>
                   ) : null}

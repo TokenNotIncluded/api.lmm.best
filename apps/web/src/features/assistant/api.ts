@@ -29,6 +29,9 @@ import { useAuthStore } from '@/stores/auth-store'
 
 import {
   AssistantStreamError,
+  assistantAbortReason,
+  withAssistantDeadline,
+  type AssistantProgress,
   consumeAssistantAISDKStream,
   isRetryableAssistantStatus,
 } from './assistant-ai-stream'
@@ -68,12 +71,13 @@ export type AssistantChatMessage = {
 const ASSISTANT_CONVERSATION_MAX_ITEMS = 12
 const ASSISTANT_CONVERSATION_MAX_RUNES = 12_000
 const ASSISTANT_MESSAGE_MAX_RUNES = 4_000
-export const ASSISTANT_MAX_REQUEST_ATTEMPTS = 5
-const ASSISTANT_RETRY_DELAYS_MS = [200, 500, 1_000, 1_500] as const
+export const ASSISTANT_MAX_REQUEST_ATTEMPTS = 2
+const ASSISTANT_RETRY_DELAYS_MS = [200] as const
 
 type AssistantStreamHandlers = {
   onDelta?: (content: string) => void
   onReset?: () => void
+  onProgress?: (progress: AssistantProgress) => void
 }
 
 function isRetryableAssistantError(error: unknown): boolean {
@@ -82,14 +86,14 @@ function isRetryableAssistantError(error: unknown): boolean {
     const status = error.response?.status
     const retryable = error.response?.data?.retryable
     if (typeof retryable === 'boolean') return retryable
-    return status === undefined || isRetryableAssistantStatus(status)
+    return status !== undefined && isRetryableAssistantStatus(status)
   }
   if (error instanceof AssistantStreamError) {
     return error.retryable
   }
-  // A failed fetch has no HTTP status. It is safe to retry because the
-  // browser has not received a completed assistant response.
-  return error instanceof TypeError
+  // A transport failure does not establish whether server-side work ran.
+  // Only an explicit HTTP/SSE outcome can authorize a whole-request retry.
+  return false
 }
 
 export function isAssistantRequestAborted(error: unknown): boolean {
@@ -101,7 +105,7 @@ export function isAssistantRequestAborted(error: unknown): boolean {
 
 function throwIfAssistantAborted(signal?: AbortSignal): void {
   if (signal?.aborted) {
-    throw new DOMException('The assistant request was cancelled.', 'AbortError')
+    throw assistantAbortReason(signal)
   }
 }
 
@@ -1387,11 +1391,13 @@ async function readAssistantFetchPayload(
 
 async function consumeAssistantStream(
   body: ReadableStream<Uint8Array>,
-  handlers: AssistantStreamHandlers
+  handlers: AssistantStreamHandlers,
+  signal?: AbortSignal
 ): Promise<AssistantChatPayload> {
   return (await consumeAssistantAISDKStream(
     body,
-    handlers
+    handlers,
+    { signal }
   )) as AssistantChatPayload
 }
 
@@ -1449,7 +1455,7 @@ async function sendAssistantMessageStream(
       'Assistant stream body is unavailable'
     )
   }
-  const streamedPayload = await consumeAssistantStream(response.body, handlers)
+  const streamedPayload = await consumeAssistantStream(response.body, handlers, signal)
   throwIfAssistantAborted(signal)
   return buildAssistantReply(
     streamedPayload,
@@ -1474,6 +1480,7 @@ export async function sendAssistantMessage(
     conversationId,
     presetId
   )
+  return withAssistantDeadline(async (signal) => {
   for (
     let attempt = 1;
     attempt <= ASSISTANT_MAX_REQUEST_ATTEMPTS;
@@ -1520,6 +1527,7 @@ export async function sendAssistantMessage(
     }
   }
   throw new Error('Assistant request did not complete')
+  }, signal)
 }
 
 export async function getAssistantPreConversationPresets(

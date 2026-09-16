@@ -2,12 +2,15 @@ package controller
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"sort"
 	"strings"
 	"sync"
+	"time"
 	"unicode"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
@@ -33,6 +36,8 @@ type assistantStreamSession struct {
 	rawContent   strings.Builder
 	emittedSafe  string
 	supportCheck func() error
+	workStarted  bool
+	cancel       context.CancelFunc
 }
 
 func newAssistantStreamSession(writer gin.ResponseWriter) *assistantStreamSession {
@@ -57,6 +62,93 @@ func (s *assistantStreamSession) start() error {
 	s.writer.WriteHeader(http.StatusOK)
 	s.started = true
 	return s.writeJSONEventLocked("ready", map[string]string{"type": "ready"})
+}
+
+// watch owns no Gin state. All writes, including a terminal timeout, use the
+// same session mutex; stop joins it before the HTTP handler returns.
+func (s *assistantStreamSession) watch(ctx context.Context, cancel context.CancelFunc, interval time.Duration) func() {
+	if s == nil {
+		return func() {}
+	}
+	s.mu.Lock()
+	s.cancel = cancel
+	s.mu.Unlock()
+	stop, done := make(chan struct{}), make(chan struct{})
+	go func() {
+		defer close(done)
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-ctx.Done():
+				code := "ASSISTANT_REQUEST_CANCELLED"
+				if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+					code = "ASSISTANT_REQUEST_TIMEOUT"
+				}
+				_ = s.fail(http.StatusRequestTimeout, code, "assistant request stopped; inspect completed actions before retrying")
+				return
+			case <-ticker.C:
+				if err := s.heartbeat(); err != nil {
+					cancel()
+					return
+				}
+			}
+		}
+	}()
+	return func() {
+		close(stop)
+		<-done
+		s.mu.Lock()
+		s.cancel = nil
+		s.mu.Unlock()
+	}
+}
+
+func (s *assistantStreamSession) heartbeat() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.started || s.finished {
+		return nil
+	}
+	return s.writeJSONEventLocked("heartbeat", map[string]string{"type": "heartbeat"})
+}
+
+func (s *assistantStreamSession) markWorkStarted() {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	s.workStarted = true
+	s.mu.Unlock()
+}
+
+func (s *assistantStreamSession) progress(phase string, step int) error {
+	if s == nil {
+		return nil
+	}
+	if phase != "model" && phase != "tool" && phase != "answer" {
+		return errors.New("invalid assistant phase")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.started || s.finished {
+		return nil
+	}
+	return s.writeJSONEventLocked("progress", map[string]any{"phase": phase, "step": step})
+}
+
+func (s *assistantStreamSession) cancelRun() {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	cancel := s.cancel
+	s.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
 }
 
 func (s *assistantStreamSession) setSupportCheck(check func() error) {
@@ -155,7 +247,7 @@ func (s *assistantStreamSession) fail(status int, code, message string, mutation
 		"code":      code,
 		"message":   message,
 		"status":    status,
-		"retryable": (len(mutationAttempted) == 0 || !mutationAttempted[0]) && (status == http.StatusRequestTimeout || status == http.StatusTooEarly || status == http.StatusTooManyRequests || status >= http.StatusInternalServerError),
+		"retryable": assistantErrorRetryable(status, code, s.workStarted || (len(mutationAttempted) > 0 && mutationAttempted[0])),
 	})
 	s.finished = true
 	return err
@@ -194,11 +286,12 @@ func (s *assistantStreamSession) writeRawEventLocked(event string, data []byte) 
 	if len(data) == 0 {
 		data = []byte("{}")
 	}
+	// Bound socket backpressure, including the watchdog's terminal write.
+	_ = http.NewResponseController(s.writer).SetWriteDeadline(time.Now().Add(5 * time.Second))
 	if _, err := fmt.Fprintf(s.writer, "event: %s\ndata: %s\n\n", event, data); err != nil {
 		return err
 	}
-	s.writer.Flush()
-	return nil
+	return http.NewResponseController(s.writer).Flush()
 }
 
 func (s *assistantStreamSession) emitStableContentLocked(final bool) error {
@@ -426,13 +519,19 @@ func (r *assistantStreamingRelayWriter) WriteHeaderNow() {
 func (r *assistantStreamingRelayWriter) Write(data []byte) (int, error) {
 	r.WriteHeaderNow()
 	if r.writeErr != nil {
-		return len(data), nil
+		r.session.cancelRun()
+		return 0, r.writeErr
 	}
 	if _, err := r.body.Write(data); err != nil {
 		r.writeErr = err
-		return len(data), nil
+		r.session.cancelRun()
+		return 0, err
 	}
 	r.decoder.feed(data, r.handleData)
+	if r.writeErr != nil {
+		r.session.cancelRun()
+		return 0, r.writeErr
+	}
 	return len(data), nil
 }
 
@@ -481,8 +580,16 @@ func (r *assistantStreamingRelayWriter) handleData(data string) {
 	if data == "" || data == "[DONE]" {
 		return
 	}
+	var failure struct {
+		Error json.RawMessage `json:"error"`
+	}
+	if json.Unmarshal([]byte(data), &failure) != nil || (len(failure.Error) > 0 && string(failure.Error) != "null") {
+		r.writeErr = errors.New("assistant upstream stream returned an invalid or error event")
+		return
+	}
 	var chunk assistantChatStreamChunk
 	if json.Unmarshal([]byte(data), &chunk) != nil {
+		r.writeErr = errors.New("assistant upstream stream returned invalid event data")
 		return
 	}
 	for _, choice := range chunk.Choices {
@@ -504,7 +611,9 @@ func (r *assistantStreamingRelayWriter) handleData(data string) {
 				if streamedCall.Function.Name != "" {
 					call.Function.Name = mergeAssistantStreamFragment(call.Function.Name, streamedCall.Function.Name)
 				}
-				call.Function.Arguments = mergeAssistantStreamFragment(call.Function.Arguments, streamedCall.Function.Arguments)
+				// Arguments are deltas, not snapshots. Deduplicating prefixes
+				// corrupts repeated digits/braces and can invalidate tool JSON.
+				call.Function.Arguments += streamedCall.Function.Arguments
 				r.toolCalls[streamedCall.Index] = call
 			}
 		}
@@ -521,17 +630,29 @@ func (r *assistantStreamingRelayWriter) handleData(data string) {
 
 func (r *assistantStreamingRelayWriter) responseBody() ([]byte, error) {
 	r.decoder.flush(r.handleData)
+	if r.writeErr != nil {
+		return nil, r.writeErr
+	}
 	if !r.toolCallSeen && r.content.Len() == 0 && r.body.Len() > 0 {
-		if response, err := agent.Parse(r.body.Bytes()); err == nil && len(response.Choices) > 0 {
-			content := agent.Text(response.Choices[0].Message.Content)
+		body := r.body.Bytes()
+		if r.Status() < 200 || r.Status() >= 300 {
+			return body, nil
+		}
+		if response, err := agent.Parse(body); err == nil && len(response.Choices) > 0 {
+			message := response.Choices[0].Message
+			if len(message.ToolCalls) > 0 {
+				return body, nil
+			}
+			content := agent.Text(message.Content)
 			if content != "" {
 				r.content.WriteString(content)
-				if err := r.session.appendContent(content); err != nil && r.writeErr == nil {
-					r.writeErr = err
+				if err := r.session.appendContent(content); err != nil {
+					return nil, err
 				}
 			}
 		}
 	}
+
 	message := map[string]any{
 		"role":    "assistant",
 		"content": r.content.String(),
