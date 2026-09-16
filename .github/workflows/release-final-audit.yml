@@ -1,0 +1,65 @@
+name: Final release evidence audit
+
+on:
+  push:
+    branches: [release/acceptance-20260916]
+    paths: [.github/workflows/release-final-audit.yml]
+
+permissions:
+  contents: read
+  actions: read
+  checks: read
+  issues: read
+  pull-requests: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: 13b22e03ea2c88fa118814c34f780aa6e77af723
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Collect read-only evidence and source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          python3 - <<'PY'
+          import json, os, subprocess
+          from pathlib import Path
+          repo = os.environ['REPOSITORY']
+          def api(path):
+              result = subprocess.run(['gh', 'api', f'repos/{repo}/{path}'], text=True, capture_output=True, timeout=40, check=True)
+              return json.loads(result.stdout)
+          sha = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+          report = {'sha': sha, 'main': api('git/ref/heads/main')['object']['sha']}
+          report['open'] = [{k: r.get(k) for k in ('number','state','title','pull_request')} for r in api('issues?state=open&per_page=100')]
+          report['runs'] = []
+          for run in api(f'actions/runs?head_sha={sha}&per_page=100')['workflow_runs']:
+              row = {k: run.get(k) for k in ('id','name','head_sha','event','status','conclusion','html_url','run_attempt')}
+              row['jobs'] = [{k: j.get(k) for k in ('id','name','status','conclusion','steps')} for j in api(f"actions/runs/{run['id']}/jobs?per_page=100")['jobs']]
+              report['runs'].append(row)
+          report['checks'] = [{k:r.get(k) for k in ('name','status','conclusion','details_url')} for r in api(f'commits/{sha}/check-runs?per_page=100')['check_runs']]
+          report['issues'] = {}
+          for number in (271,302,321):
+              issue = api(f'issues/{number}')
+              row = {k: issue.get(k) for k in ('state','state_reason','closed_at','title')}
+              row['comments'] = [{k:r.get(k) for k in ('body','html_url','updated_at')} for r in api(f'issues/{number}/comments?per_page=100')[-3:]]
+              report['issues'][str(number)] = row
+          report['releases'] = [{k:r.get(k) for k in ('tag_name','target_commitish','draft','prerelease','published_at')} for r in api('releases?per_page=8')]
+          Path('evidence/status.json').write_text(json.dumps(report, indent=2))
+          print(json.dumps({'sha':sha,'main':report['main'],'open':report['open'],'runs':[{k:r[k] for k in ('id','name','status','conclusion')} for r in report['runs']]}, indent=2))
+          PY
+          git bundle create evidence/source.bundle --all
+          sha256sum evidence/*
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: final-release-evidence
+          path: evidence/
+          retention-days: 1
