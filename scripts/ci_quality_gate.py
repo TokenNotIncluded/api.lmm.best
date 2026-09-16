@@ -17,6 +17,7 @@ REQUIRED_JOBS = (
     "route-coverage-contract",
     "rust-real-integration",
     "aur-package-matrix",
+    "translations",
 )
 KNOWN_RESULTS = frozenset(("success", "failure", "cancelled", "skipped"))
 

@@ -1,0 +1,163 @@
+name: LMM assistant server ops
+run-name: Server ops / ${{ inputs.operation || 'owner incident request' }} / @${{ github.actor }}
+
+on:
+  push:
+    branches: [main]
+    paths: [.github/server-ops-343-request.json]
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: 'diagnose is read-only; repair runs a reviewed main-branch script'
+        type: choice
+        options: [diagnose, repair]
+        default: diagnose
+        required: true
+      reason:
+        description: 'Reason or issue reference (public; never enter secrets)'
+        type: string
+        required: true
+        default: Manual server diagnosis
+      repair_script:
+        description: 'Repair only: scripts/server-repairs/<name>.sh, committed on main'
+        type: string
+        required: false
+      confirm:
+        description: 'Repair only: enter api.lmm.best to authorize production changes'
+        type: string
+        required: false
+      timeout_seconds:
+        description: 'Remote operation deadline, including health checks'
+        type: choice
+        options: ['60', '180', '300', '600']
+        default: '180'
+        required: true
+
+permissions:
+  contents: read
+
+# Share the deployment lane within THIS repository; concurrency is not cross-repository.
+# Never cancel an in-flight mutation.
+concurrency:
+  group: production-auto-deploy
+  cancel-in-progress: false
+
+jobs:
+  server-ops:
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.repository == 'TokenNotIncluded/api.lmm.best' &&
+      github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+    env:
+      OPS_OPERATION: ${{ inputs.operation }}
+      OPS_REASON: ${{ inputs.reason }}
+      OPS_REPAIR_SCRIPT: ${{ inputs.repair_script }}
+      OPS_CONFIRM: ${{ inputs.confirm }}
+      OPS_TIMEOUT: ${{ inputs.timeout_seconds }}
+      OPS_ALLOWED_ACTORS: ${{ vars.PRODUCTION_OPS_ALLOWED_ACTORS }}
+    steps:
+      - name: Checkout the exact manually selected main revision
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Test the controller and startup diagnosis without production credentials
+        run: |
+          test "$(git rev-parse HEAD:scripts/server-ops.py)" = 7e43973c497773870e99008b1affbf43d9fda9d0
+          python3 scripts/test-server-ops.py
+          python3 scripts/test-server-repair-startup.py
+          python3 scripts/test-server-ops-commit-request.py
+      - name: Validate authorization and the repair script before loading credentials
+        run: python3 scripts/server-ops.py --validate-only
+      - name: Diagnose or repair production over pinned SSH
+        env:
+          PRODUCTION_SSH_PRIVATE_KEY: ${{ secrets.PRODUCTION_SSH_PRIVATE_KEY }}
+          PRODUCTION_SSH_KNOWN_HOSTS: ${{ secrets.PRODUCTION_SSH_KNOWN_HOSTS }}
+        run: python3 scripts/server-ops.py
+
+  owner-request:
+    name: Owner-requested incident operation
+    if: >-
+      github.event_name == 'push' &&
+      github.repository == 'TokenNotIncluded/api.lmm.best' &&
+      github.ref == 'refs/heads/main' &&
+      github.actor == 'LIghtJUNction' &&
+      github.triggering_actor == 'LIghtJUNction'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: production
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_DB: lmm_test_release
+          POSTGRES_USER: lmm_test_release
+          POSTGRES_PASSWORD: lmm-release-postgres-password
+        ports:
+          - "127.0.0.1:5432:5432"
+        options: >-
+          --health-cmd "pg_isready -U lmm_test_release -d lmm_test_release"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - name: Checkout the exact owner request and parent
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Test authorization and transport before credentials
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD:scripts/server-ops.py)" = 7e43973c497773870e99008b1affbf43d9fda9d0
+          python3 scripts/test-server-ops.py
+          python3 scripts/test-server-repair-startup.py
+          python3 scripts/test-server-ops-commit-request.py
+          python3 scripts/test-server-ops-helper-payload.py
+      - name: Validate explicit owner request
+        id: request
+        run: python3 scripts/server-ops-commit-request.py --validate-only
+      - name: Set up Go for the fixed recovery helper
+        if: steps.request.outputs.operation == 'recover-red-packet-schema-343'
+        uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6.2.0
+        with:
+          go-version-file: apps/api-go/go.mod
+          cache-dependency-path: apps/api-go/go.sum
+      - name: Install local recovery test tools
+        if: steps.request.outputs.operation == 'recover-red-packet-schema-343'
+        run: |
+          set -euo pipefail
+          sudo --preserve-env=GITHUB_ACTIONS python3 scripts/prepare-ci-apt.py
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends libarchive-tools
+      - name: Retest and build the exact helper without production credentials
+        if: steps.request.outputs.operation == 'recover-red-packet-schema-343'
+        working-directory: apps/api-go
+        env:
+          LMM_INCIDENT343_TEST_DSN: postgres://lmm_test_release:lmm-release-postgres-password@127.0.0.1:5432/lmm_test_release?sslmode=disable
+        run: |
+          set -euo pipefail
+          git diff --exit-code
+          go test -race -count=1 ./internal/appcli ./cmd/incident343-recovery -timeout 180s
+          mkdir -p "$RUNNER_TEMP/lmm-incident343"
+          CGO_ENABLED=0 go build -p 2 -trimpath -ldflags='-s -w' \
+            -o "$RUNNER_TEMP/lmm-incident343/incident343-recovery" ./cmd/incident343-recovery
+          git diff --exit-code
+          python3 - <<'PY'
+          import hashlib,json,os
+          from pathlib import Path
+          root=Path(os.environ['RUNNER_TEMP'])/'lmm-incident343'
+          binary=root/'incident343-recovery'
+          receipt={'revision':os.environ['GITHUB_SHA'],'sha256':hashlib.sha256(binary.read_bytes()).hexdigest()}
+          (root/'receipt.json').write_text(json.dumps(receipt)+'\n')
+          print(json.dumps(receipt))
+          PY
+      - name: Execute only the explicitly requested fixed operation
+        env:
+          PRODUCTION_SSH_PRIVATE_KEY: ${{ secrets.PRODUCTION_SSH_PRIVATE_KEY }}
+          PRODUCTION_SSH_KNOWN_HOSTS: ${{ secrets.PRODUCTION_SSH_KNOWN_HOSTS }}
+        run: python3 scripts/server-ops-commit-request.py

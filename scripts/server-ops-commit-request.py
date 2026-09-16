@@ -104,7 +104,7 @@ def main():
             return 0
         if sys.argv[1:]:
             raise ValueError('Unknown argument')
-        spec = importlib.util.spec_from_file_location('manual_ops', Path(__file__).with_name('server-ops-transport.py'))
+        spec = importlib.util.spec_from_file_location('manual_ops', Path(__file__).with_name('server-ops.py'))
         ops = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(ops)
         if operation == RECOVERY_OPERATION:
