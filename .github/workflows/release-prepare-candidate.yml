@@ -1,0 +1,83 @@
+name: Prepare reviewed release candidate
+on:
+  push:
+    branches: [release/acceptance-20260916]
+    paths: [.github/workflows/release-prepare-candidate.yml]
+permissions:
+  contents: write
+concurrency:
+  group: prepare-reviewed-release-20260916
+  cancel-in-progress: false
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      BASE: 9e48a9e7795283631fac1f0c6ba06bc40f1508d1
+      MERGE_PARENT: a33982d2d394a5d4d46f7d03f7269a5f40c08ebb
+      INPUT_SHA: 9989635cb0d139a1f3fe7bf17c65c17e6fff668a
+      CANDIDATE_BRANCH: release/candidate-20260916-r1
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: 9e48a9e7795283631fac1f0c6ba06bc40f1508d1
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify exact inputs and apply reviewed source patches
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$BASE"
+          git fetch --no-tags origin "$INPUT_SHA" "$MERGE_PARENT"
+          mkdir -p /tmp/release-inputs /tmp/release-candidate
+          for name in backend frontend deployment; do
+            git show "$INPUT_SHA:release-inputs/$name.patch" > "/tmp/release-inputs/$name.patch"
+          done
+          cd /tmp/release-inputs
+          printf '%s\n' \
+            '097567e40b1991fbbc732086eaf2a3766c3dd04ae08e5a01f9f1b4ede86ded72  backend.patch' \
+            '7a6c2daea0fbfe464dfc0f1264967bed1bfe0d3351f9c32bd0018a613baa22b1  frontend.patch' \
+            '2ccd1a81128e9ad1175ebe7103a07a6154a15f48e4ab18d0143fcbcbc771adf5  deployment.patch' | sha256sum --check --strict
+          cd "$GITHUB_WORKSPACE"
+          git apply --check /tmp/release-inputs/backend.patch /tmp/release-inputs/frontend.patch /tmp/release-inputs/deployment.patch
+          git apply --index /tmp/release-inputs/backend.patch /tmp/release-inputs/frontend.patch /tmp/release-inputs/deployment.patch
+          git diff --cached --check
+      - name: Apply pinned Rust formatting and run offline acceptance contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.91.0 --profile minimal --component rustfmt
+          cargo +1.91.0 fmt --all --manifest-path apps/api-rust/Cargo.toml
+          python3 -B -m unittest discover -s scripts -p test_public_production.py
+          bash -n scripts/production-deployment-id.sh scripts/auto-deploy-production-release.sh apps/api-rust/tests/scripts/run-real-integration-gates.sh
+          git add apps/api-rust/src/routes/relay_anthropic_gemini_postgres.rs apps/api-rust/tests/relay_anthropic_gemini_postgres.rs
+          git diff --cached --check
+      - name: Publish candidate only, preserving both reviewed PR parents
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$BASE"
+          tree=$(git write-tree)
+          if git ls-tree --name-only "$tree" | grep -Fxq release-inputs; then
+            echo 'Temporary repair inputs must not be included in the candidate' >&2
+            exit 1
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          candidate=$(git commit-tree "$tree" -p "$BASE" -p "$MERGE_PARENT" -m 'fix: integrate PR 340, repair release gates and add verified production acceptance')
+          git update-ref refs/heads/reviewed-candidate "$candidate"
+          git -c credential.helper='!gh auth git-credential' push origin "$candidate:refs/heads/$CANDIDATE_BRANCH"
+          git diff --binary "$BASE" "$candidate" > /tmp/release-candidate/release-repairs.patch
+          git bundle create /tmp/release-candidate/candidate.bundle refs/heads/reviewed-candidate "^$BASE" "^$MERGE_PARENT"
+          printf '%s\n' "$candidate" > /tmp/release-candidate/commit.txt
+          git show --no-patch --format=fuller "$candidate"
+          git diff --stat "$BASE" "$candidate"
+          printf 'Candidate: `%s` on `%s`. Main, PR refs, releases and production were not changed by this workflow.\n' "$candidate" "$CANDIDATE_BRANCH" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: reviewed-candidate-${{ github.run_id }}
+          path: /tmp/release-candidate/
+          if-no-files-found: error
+          retention-days: 3
