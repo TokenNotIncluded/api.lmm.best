@@ -15,9 +15,11 @@ OWNER = 'LIghtJUNction'
 REQUEST = '.github/server-ops-343-request.json'
 SCRIPT = 'scripts/server-repairs/inspect-startup-343.sh'
 RECOVERY_OPERATION = 'recover-red-packet-schema-343'
+CONFIRM_OPERATION = 'confirm-recovery-343'
 OPERATIONS = {'inspect-startup-343': SCRIPT,
               'inspect-backup-343': 'scripts/server-repairs/inspect-backup-343.sh',
-              RECOVERY_OPERATION: 'scripts/server-repairs/recover-red-packet-schema-343.sh'}
+              RECOVERY_OPERATION: 'scripts/server-repairs/recover-red-packet-schema-343.sh',
+              CONFIRM_OPERATION: 'scripts/server-repairs/confirm-recovery-343.sh'}
 
 
 def git(*args):
@@ -114,7 +116,7 @@ def main():
             payload = helper.prepare_helper_payload(payload, Path(env['RUNNER_TEMP']) / 'lmm-incident343', env['GITHUB_SHA'])
         env.update(OPS_OPERATION='repair', OPS_REASON='Owner-authorized incident #343: ' + operation,
                    OPS_REPAIR_SCRIPT=OPERATIONS[operation], OPS_CONFIRM='api.lmm.best',
-                   OPS_TIMEOUT='600' if operation == RECOVERY_OPERATION else '180')
+                   OPS_TIMEOUT='600' if operation in (RECOVERY_OPERATION, CONFIRM_OPERATION) else '180')
         result = ops.execute(env, payload)
         public_ok = ops.public_health()
         print('public_status_success=' + str(public_ok).lower())
