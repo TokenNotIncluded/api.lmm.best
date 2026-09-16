@@ -1,0 +1,86 @@
+name: Verify main settlement baseline
+on:
+  push:
+    branches: [release/acceptance-20260916]
+    paths: [.github/workflows/verify-main-settlement-baseline.yml]
+permissions:
+  contents: read
+  actions: read
+  checks: read
+  issues: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      GOMAXPROCS: "2"
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: 13b22e03ea2c88fa118814c34f780aa6e77af723
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5
+        with:
+          go-version-file: apps/api-go/go.mod
+          cache-dependency-path: apps/api-go/go.sum
+      - name: Install native archive contract tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes libarchive-tools
+      - name: Reproduce exact former and current settlement tests without changing runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/settlement-evidence
+          git rev-parse HEAD HEAD^{tree}
+          git diff a50db823a1fc2c57ee136ce64507c31c7e82ebfe HEAD -- apps/api-go/service/text_quota.go apps/api-go/service/billing_session.go apps/api-go/relay/channel/openai
+          python3 - <<'PY'
+          import hashlib,json,subprocess
+          from pathlib import Path
+          path='apps/api-go/controller/relay_responses_settlement_test.go'
+          current=Path(path).read_bytes()
+          old=subprocess.check_output(['git','show','a50db823a1fc2c57ee136ce64507c31c7e82ebfe:'+path])
+          results=[]
+          try:
+              for name,data in [('former-recorder',old),('current-real-http',current)]:
+                  Path(path).write_bytes(data)
+                  commands=[['go','test','-race','-p','2','./controller','-run','^TestResponsesRelayPartialSettlement$','-count=50','-json'],['go','test','-race','-p','2','./controller','-shuffle=391','-count=1','-json']]
+                  for index,command in enumerate(commands):
+                      output=Path(f'/tmp/settlement-evidence/{name}-{index}.jsonl')
+                      with output.open('wb') as stream:
+                          result=subprocess.run(command,cwd='apps/api-go',stdout=stream,stderr=subprocess.STDOUT,timeout=600)
+                      failures=[]
+                      for line in output.read_text(errors='replace').splitlines():
+                          try: row=json.loads(line)
+                          except ValueError: continue
+                          if row.get('Action')=='fail': failures.append({k:row[k] for k in ('Package','Test','Elapsed') if k in row})
+                          if '--- FAIL:' in row.get('Output','') or 'Error:' in row.get('Output',''): print(row.get('Output','').strip())
+                      item={'source':name,'sha256':hashlib.sha256(data).hexdigest(),'command':command,'exit_code':result.returncode,'failures':failures}
+                      results.append(item)
+                      print(json.dumps(item),flush=True)
+          finally:
+              Path(path).write_bytes(current)
+              Path('/tmp/settlement-evidence/results.json').write_text(json.dumps(results,indent=2))
+          if any(row['exit_code'] for row in results): raise SystemExit(1)
+          PY
+          git diff --exit-code
+      - name: Inspect exact main workflow and check provenance
+        if: ${{ always() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: 13b22e03ea2c88fa118814c34f780aa6e77af723
+          MAX_ATTEMPTS: "1"
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$RELEASE_SHA&per_page=30" --jq '.workflow_runs[]|{id,name,path,event,head_branch,head_sha,status,conclusion}'
+          gh api "repos/$GITHUB_REPOSITORY/issues?state=open&per_page=100" --jq '.[]|{number,state,pull_request:(.pull_request!=null)}'
+          bash scripts/verify-release-commit-checks.sh
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: ${{ always() }}
+        with:
+          name: main-settlement-baseline-evidence
+          path: /tmp/settlement-evidence
+          retention-days: 3
+          if-no-files-found: error
