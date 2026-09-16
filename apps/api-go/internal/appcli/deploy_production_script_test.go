@@ -121,3 +121,36 @@ production_promote_with_transport_retry "$STDERR_LOG" mock_promote
 		})
 	}
 }
+
+func TestProductionDeploymentIDSeparatesRetries(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("production deployment scripts require bash")
+	}
+	helper, err := filepath.Abs(filepath.Join("..", "..", "..", "..", "scripts", "production-deployment-id.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tt := range []struct{ tag, run, attempt, want string }{
+		{"web-v0.1.74", "35098436757", "1", "release-web-v0.1.74-35098436757-attempt-1"},
+		{"web-v0.1.74", "35098436757", "2", "release-web-v0.1.74-35098436757-attempt-2"},
+		{"go-v0.2.51", "35098436757", "1", "release-go-v0.2.51-35098436757-attempt-1"},
+		{"../web-v0.1.74", "1", "1", ""},
+		{"web-v0.1.74", "manual", "1", ""},
+		{"web-v0.1.74", "1", "0", ""},
+		{"web-v0.1.74", "1", "", ""},
+	} {
+		t.Run(tt.tag+"/"+tt.run+"/"+tt.attempt, func(t *testing.T) {
+			command := exec.Command("bash", "-c", `source "$1"; production_deployment_id "$2" "$3" "$4"`, "test", helper, tt.tag, tt.run, tt.attempt)
+			output, err := command.Output()
+			if tt.want == "" {
+				if err == nil || len(output) != 0 {
+					t.Fatalf("invalid input produced an ID: %q (%v)", output, err)
+				}
+				return
+			}
+			if err != nil || strings.TrimSpace(string(output)) != tt.want {
+				t.Fatalf("ID=%q error=%v want=%q", output, err, tt.want)
+			}
+		})
+	}
+}

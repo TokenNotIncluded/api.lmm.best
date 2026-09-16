@@ -63,9 +63,18 @@ async function unwrap<T>(request: Promise<{ data: ApiEnvelope<T> }>) {
   return response.data.data
 }
 
-export function getTodos(category: TodoCategory) {
+export function getTodos(
+  category: TodoCategory,
+  page = 1,
+  signal?: AbortSignal
+) {
+  if (!Number.isSafeInteger(page) || page < 1) {
+    throw new RangeError('Todo page must be a positive integer')
+  }
   return unwrap<TodoPage>(
-    api.get(`/api/todos?category=${category}&p=1&page_size=50`)
+    api.get(`/api/todos?category=${category}&p=${page}&page_size=50`, {
+      signal,
+    })
   )
 }
 

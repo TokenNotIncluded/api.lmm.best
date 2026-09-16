@@ -2805,6 +2805,7 @@ describe('AssistantPanel', () => {
   })
 
   test('keeps verification visible without reviving legacy letters when AI fails', async () => {
+    let registrationReads = 0
     api.get = (async (url: string) => {
       if (url === '/api/assistant/status') {
         return {
@@ -2815,6 +2816,7 @@ describe('AssistantPanel', () => {
         }
       }
       if (url === '/api/assistant/registration-check') {
+        registrationReads += 1
         return { data: { success: true, data: { state: 'context_needed' } } }
       }
       throw new Error(`Unexpected GET ${url}`)
@@ -2861,6 +2863,25 @@ describe('AssistantPanel', () => {
       assert.ok(findButton('Registration verification'))
       assert.ok(
         document.querySelector('[data-testid="assistant-registration-status"]')
+      )
+      const readsBeforeRefresh = registrationReads
+      await act(async () => {
+        const refresh = document.querySelector<HTMLButtonElement>(
+          '[aria-label="Refresh registration status"]'
+        )
+        assert.ok(refresh)
+        refresh.click()
+        await flushEffects()
+      })
+      await act(async () =>
+        waitForCondition(
+          () => registrationReads > readsBeforeRefresh,
+          'Verification refresh must work independently of the failed AI request'
+        )
+      )
+      assert.doesNotMatch(
+        document.body.textContent ?? '',
+        /L1 access is active|Submit for review/
       )
     } finally {
       await act(async () => rendered.root.unmount())

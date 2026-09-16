@@ -104,6 +104,13 @@ run_system_config() {
 
 run_relay_timeouts() {
   require_loopback_url LMM_TEST_DATABASE_URL
+  # Both implementations consume the same native xAI SSE fixture. Retain the
+  # Go provider and retry oracle beside the real PostgreSQL Rust boundary test.
+  (
+    cd "$repo_root/apps/api-go"
+    go test ./relay/channel/xai -run '^TestClaudeMessages' -count=1
+    go test ./controller -run '^TestGetChannelRetrySkipsUnsupportedEndpointCandidates$' -count=1
+  )
   cargo test --locked --manifest-path "$manifest" -p lmm-api-rs \
     --test relay_anthropic_gemini_postgres -- --ignored --test-threads=1
   cargo test --locked --manifest-path "$manifest" -p lmm-api-rs \

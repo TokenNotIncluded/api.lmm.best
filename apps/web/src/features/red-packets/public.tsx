@@ -16,10 +16,10 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 /*
 Copyright (C) 2026 LIghtJUNction
 */
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import { Check, Copy, Gift, RotateCcw, Ticket, Wallet } from 'lucide-react'
 import { useTranslation } from 'react-i18next'

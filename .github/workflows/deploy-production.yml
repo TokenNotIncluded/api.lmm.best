@@ -62,4 +62,21 @@ jobs:
           PRODUCTION_SSH_PRIVATE_KEY: ${{ secrets.PRODUCTION_SSH_PRIVATE_KEY }}
           PRODUCTION_SSH_KNOWN_HOSTS: ${{ secrets.PRODUCTION_SSH_KNOWN_HOSTS }}
           GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
         run: bash scripts/auto-deploy-production-release.sh
+
+      - name: Verify public pages, backend version and referenced assets
+        env:
+          RELEASE_TAG: ${{ github.event.workflow_run.head_branch }}
+        run: |
+          set -euo pipefail
+          arguments=()
+          if [[ "$RELEASE_TAG" == go-v* ]]; then
+            arguments+=(--expected-backend-version "${RELEASE_TAG#go-v}")
+          fi
+          python3 -B scripts/verify-public-production.py "${arguments[@]}"
+          {
+            echo '## Public release acceptance passed'
+            echo 'The public API, frontend entry pages and their JavaScript/CSS resources were checked.'
+            echo 'This read-only check does not confirm or bypass the native production transaction. Follow its recorded confirmation/rollback state.'
+          } >> "$GITHUB_STEP_SUMMARY"

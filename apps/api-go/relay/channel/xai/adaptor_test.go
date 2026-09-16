@@ -4,6 +4,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
@@ -83,5 +84,49 @@ func TestClaudeMessagesResponseUsesClaudePipeline(t *testing.T) {
 	require.Equal(t, 9, usage.TotalTokens)
 	require.Equal(t, "anthropic", usage.UsageSemantic)
 	require.JSONEq(t, body, recorder.Body.String())
+	require.Equal(t, types.RelayFormat(types.RelayFormatClaude), info.FinalRequestRelayFormat)
+}
+
+func TestClaudeMessagesSSEPreservesSharedNativeToolEvents(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	// The application initializes this global during startup; adapter tests do not.
+	previousTimeout := constant.StreamingTimeout
+	constant.StreamingTimeout = 30
+	t.Cleanup(func() { constant.StreamingTimeout = previousTimeout })
+	body, err := os.ReadFile("testdata/native-messages.sse")
+	require.NoError(t, err)
+	body = append(body, '\n') // Complete the final SSE frame delimiter.
+	adaptor := &Adaptor{}
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	info := &relaycommon.RelayInfo{
+		RelayFormat:     types.RelayFormatClaude,
+		OriginModelName: "grok-test",
+		IsStream:        true,
+		ChannelMeta: &relaycommon.ChannelMeta{
+			ChannelType:       constant.ChannelTypeXai,
+			UpstreamModelName: "grok-test",
+		},
+	}
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body:       io.NopCloser(strings.NewReader(string(body))),
+	}
+	usageValue, apiErr := adaptor.DoResponse(ctx, resp, info)
+	require.Nil(t, apiErr)
+	usage, ok := usageValue.(*dto.Usage)
+	require.True(t, ok)
+	require.Equal(t, 7, usage.PromptTokens)
+	require.Equal(t, 2, usage.CompletionTokens)
+	require.Equal(t, "anthropic", usage.UsageSemantic)
+	// The Go pipeline may enrich message_delta usage. Native tool events and
+	// unknown future fields must otherwise remain the same shared wire data.
+	for _, line := range strings.Split(string(body), "\n") {
+		if strings.HasPrefix(line, "data: ") && !strings.Contains(line, `"type":"message_delta"`) {
+			require.Contains(t, recorder.Body.String(), line)
+		}
+	}
 	require.Equal(t, types.RelayFormat(types.RelayFormatClaude), info.FinalRequestRelayFormat)
 }
