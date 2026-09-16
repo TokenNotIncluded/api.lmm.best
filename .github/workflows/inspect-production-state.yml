@@ -1,0 +1,89 @@
+name: Inspect production release state
+
+on:
+  push:
+    branches: [release/acceptance-20260916]
+    paths: [.github/workflows/inspect-production-state.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    environment: production
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: f97b4a4df9fcf0f53440ef3e5ceb81fe7febe867
+          persist-credentials: false
+      - name: Read installed versions and native transaction state
+        env:
+          PRODUCTION_SSH_PRIVATE_KEY: ${{ secrets.PRODUCTION_SSH_PRIVATE_KEY }}
+          PRODUCTION_SSH_KNOWN_HOSTS: ${{ secrets.PRODUCTION_SSH_KNOWN_HOSTS }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$PRODUCTION_SSH_PRIVATE_KEY"
+          test -n "$PRODUCTION_SSH_KNOWN_HOSTS"
+          umask 077
+          root=$(mktemp -d)
+          trap 'rm -rf "$root"' EXIT
+          printf '%s\n' "$PRODUCTION_SSH_PRIVATE_KEY" > "$root/key"
+          printf '%s\n' "$PRODUCTION_SSH_KNOWN_HOSTS" > "$root/known_hosts"
+          ssh -i "$root/key" -p 222 -o BatchMode=yes -o ConnectTimeout=10 \
+            -o ServerAliveInterval=5 -o ServerAliveCountMax=2 \
+            -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$root/known_hosts" root@45.59.187.63 python3 - <<'PY'
+          import json, re, subprocess
+          from pathlib import Path
+          def command(args):
+              result = subprocess.run(args, capture_output=True, text=True, timeout=15)
+              return {'exit_code': result.returncode, 'output': result.stdout.strip()[:2000]}
+          def read(path):
+              if path.is_symlink():
+                  raise ValueError('refused symlink')
+              with path.open('rb') as source:
+                  data = source.read(65537)
+              if len(data) > 65536:
+                  raise ValueError('state exceeds inspection limit')
+              return data.decode('utf-8')
+          base = Path('/var/lib/lmm-api-go-deploy')
+          report = {
+              'packages': command(['/usr/bin/pacman', '-Q', 'lmm-api-go-bin', 'lmm-api-web-bin']),
+              'services': command(['/usr/bin/systemctl', 'is-active', 'nginx', 'lmm-api-go.service']),
+              'workspaces': [],
+          }
+          marker = base / 'transaction.lock' / 'deployment.env'
+          if marker.exists():
+              fields = dict(line.split('=', 1) for line in read(marker).splitlines() if '=' in line)
+              report['transaction'] = {key: fields.get(key) for key in ('format', 'deployment_id', 'status')}
+          else:
+              report['transaction'] = None
+          work = base / 'work'
+          if work.exists():
+              paths = sorted(work.iterdir(), key=lambda path: path.stat().st_mtime, reverse=True)[:20]
+              for path in paths:
+                  if path.is_symlink() or not path.is_dir() or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]{0,79}', path.name):
+                      continue
+                  row = {'deployment_id': path.name}
+                  for filename in ('status.json', 'deployment.json'):
+                      state = path / 'state' / filename
+                      if state.exists():
+                          data = json.loads(read(state))
+                          allowed = ('format', 'deployment_id', 'phase', 'version', 'previous_version', 'reason', 'updated_utc', 'expected_version', 'old_version', 'observation_started_utc', 'observation_seconds')
+                          row[filename] = {key: data[key] for key in allowed if key in data}
+                  report['workspaces'].append(row)
+          report['revisions'] = {}
+          for component in ('go', 'web'):
+              path = Path(f'/usr/share/doc/lmm-api-{component}-bin/REVISION')
+              if path.exists():
+                  value = read(path).strip()
+                  report['revisions'][component] = value if re.fullmatch('[0-9a-f]{40,64}', value) else 'invalid revision'
+          print(json.dumps(report, indent=2, sort_keys=True))
+          PY
+      - name: Verify public origin without assuming it is the new release
+        if: ${{ always() && !cancelled() }}
+        shell: bash
+        run: python3 -B scripts/verify-public-production.py
