@@ -1,8 +1,8 @@
 {
   "format": 1,
   "incident": 343,
-  "operation": "recover-red-packet-schema-343",
-  "base_sha": "23185820f2e7ecfd0b380e4b4ecabe4e6033a205",
-  "script_sha256": "8f79028f52fcfa57c718149e61b9b65548da8215a572d75a058ee83cee58d7c2",
+  "operation": "confirm-recovery-343",
+  "base_sha": "5a725056820af8ebb925f0020bf4eca48c5ef4f6",
+  "script_sha256": "a020720c1a3e55ab32e2ec723d851e7c4ec1c829eda59e388ace319326a9dd41",
   "confirm": "api.lmm.best"
 }
