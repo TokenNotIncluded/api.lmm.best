@@ -1,0 +1,131 @@
+name: PR 340 verified regression candidate
+on:
+  push:
+    branches: ['assistant/pr340-integration-20260916']
+    paths: ['.github/workflows/pr340-regression-candidate.yml']
+permissions:
+  contents: read
+jobs:
+  candidate:
+    if: github.repository == 'TokenNotIncluded/api.lmm.best' && github.ref == 'refs/heads/assistant/pr340-integration-20260916'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    env:
+      GOMAXPROCS: '2'
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          persist-credentials: false
+      - name: Apply hash-checked panel and billing corrections to the pinned candidate
+        env:
+          BILLING_PLAN: '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'
+        run: |
+          python3 - <<'PY'
+          import pathlib,re,os
+          s=pathlib.Path('.github/workflows/pr340-ci-repair.yml').read_text()
+          pathlib.Path('/tmp/pr340-panel-plan').write_text(re.search(r"PLAN: '([^']+)'",s).group(1))
+          pathlib.Path('/tmp/pr340-billing-plan').write_text(os.environ['BILLING_PLAN'])
+          PY
+          git fetch --no-tags --depth=1 origin a33982d2d394a5d4d46f7d03f7269a5f40c08ebb
+          git checkout --detach a33982d2d394a5d4d46f7d03f7269a5f40c08ebb
+          python3 - <<'PY'
+          import pathlib,hashlib,json,lzma,base64
+          outputs={}
+          for name,digest in [('panel','5ed6ac3c6027f2b8c21b9e2ed97a299fd713b7ad3714d1f68ba60b8e3b9bd4fc'),('billing','af93e5a088067405c52ab7397f93d16a8b368a959892d7b355b97840995cebeb')]:
+              blob=base64.b64decode(pathlib.Path('/tmp/pr340-'+name+'-plan').read_text(),validate=True)
+              assert hashlib.sha256(blob).hexdigest()==digest
+              for r in json.loads(lzma.decompress(blob)):
+                  p=pathlib.Path(r['path']); assert str(p).startswith('apps/') and '..' not in p.parts and not p.is_symlink() and p not in outputs
+                  old=p.read_bytes(); assert hashlib.sha256(old).hexdigest()==r['old'],str(p)
+                  lines=old.decode().splitlines(keepends=True)
+                  for start,end,text in reversed(r['changes']): lines[start:end]=[text]
+                  result=''.join(lines).encode(); assert hashlib.sha256(result).hexdigest()==r['new'],str(p)
+                  outputs[p]=result
+          assert len(outputs)==3
+          for p,b in outputs.items(): p.write_bytes(b)
+          PY
+          mkdir -p /tmp/pr340-verification
+      - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5
+        with:
+          go-version-file: apps/api-go/go.mod
+          cache-dependency-path: apps/api-go/go.sum
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: '1.3.14'
+      - run: bun install --frozen-lockfile
+      - name: Preserve copyright headers and format only intended web changes
+        run: |
+          bun run --filter @lmm/web copyright > /tmp/pr340-verification/copyright-update.log 2>&1
+          git diff --name-only -- apps/web > /tmp/pr340-format-allowed
+          bun run --filter @lmm/web format > /tmp/pr340-verification/format.log 2>&1
+          python3 - <<'PY'
+          import pathlib,subprocess
+          allowed=set(pathlib.Path('/tmp/pr340-format-allowed').read_text().splitlines())
+          for p in subprocess.check_output(['git','diff','--name-only','--','apps/web'],text=True).splitlines():
+              if p not in allowed: subprocess.run(['git','restore','--',p],check=True)
+          PY
+      - name: Verify settlement and frontend regressions without relaxing assertions
+        shell: bash
+        run: |
+          status=0
+          (cd apps/api-go && go test -p 2 ./controller -run '^TestResponsesRelayPartialSettlement$' -count=1) > /tmp/pr340-verification/settlement.log 2>&1 || { tail -60 /tmp/pr340-verification/settlement.log; status=1; }
+          (cd apps/api-go && go test -p 2 -race ./service -run '^TestPostTextConsumeQuota(MissingUsage|FailedEmptyStream)' -count=1) > /tmp/pr340-verification/billing-race.log 2>&1 || { tail -80 /tmp/pr340-verification/billing-race.log; status=1; }
+          (cd apps/web && bun test --preload ./scripts/test-preload.mjs --timeout 15000 src/features/assistant/assistant-panel.test.tsx) > /tmp/pr340-verification/panel.log 2>&1 || { tail -70 /tmp/pr340-verification/panel.log; status=1; }
+          for command in lint typecheck copyright:check; do
+            file=${command//:/-}
+            bun run --filter @lmm/web "$command" > "/tmp/pr340-verification/$file.log" 2>&1 || { tail -40 "/tmp/pr340-verification/$file.log"; status=1; }
+          done
+          git diff --check || status=1
+          exit "$status"
+      - name: Publish corrected isolated candidate, not the pull request or main
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          test "$GITHUB_REF" = refs/heads/assistant/pr340-integration-20260916
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add apps
+          git diff --cached --check
+          git commit -m 'fix(relay): refund failed empty streams; update onboarding regression fixtures'
+          auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          echo "::add-mask::$auth"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" push origin HEAD:refs/heads/assistant/pr340-merged-20260916
+          git rev-parse HEAD HEAD^{tree} > /tmp/pr340-verification/commit.txt
+          git archive --format=tar HEAD > /tmp/pr340-verification/source.tar
+      - name: Inspect initial bundle modules without shipping diagnostic configuration
+        if: always()
+        shell: bash
+        run: |
+          cp apps/web/rsbuild.config.ts /tmp/pr340-rsbuild-original
+          trap 'cp /tmp/pr340-rsbuild-original apps/web/rsbuild.config.ts' EXIT
+          python3 - <<'PY'
+          import pathlib
+          p=pathlib.Path('apps/web/rsbuild.config.ts');s=p.read_text()
+          s="import { writeFileSync } from 'node:fs'\n"+s
+          needle='        plugins: [\n'
+          assert s.count(needle)==1
+          s=s.replace(needle,needle+"          { apply(compiler) { compiler.hooks.done.tap('PR340Stats', stats => writeFileSync('/tmp/pr340-verification/stats.json', JSON.stringify(stats.toJson({ all: false, assets: true, chunks: true, chunkModules: true, modules: true, nestedModules: true, reasons: true, entrypoints: true })))); } },\n")
+          p.write_text(s)
+          PY
+          bun run --filter @lmm/web build > /tmp/pr340-verification/build.log 2>&1 || { tail -60 /tmp/pr340-verification/build.log; exit 1; }
+          bun run --filter @lmm/web bundle:check > /tmp/pr340-verification/bundle-check.log 2>&1 || tail -20 /tmp/pr340-verification/bundle-check.log
+          cp apps/web/dist/index.html /tmp/pr340-verification/index.html
+          python3 - <<'PY'
+          import pathlib,json
+          p=pathlib.Path('/tmp/pr340-verification');stats=json.loads((p/'stats.json').read_text())
+          report=[]
+          for c in stats.get('chunks',[]):
+              if not c.get('initial'): continue
+              mods=sorted(c.get('modules',[]),key=lambda x:x.get('size',0),reverse=True)
+              report.append({'files':c.get('files'),'size':c.get('size'),'modules':[{'name':m.get('name'),'size':m.get('size'),'issuer':m.get('issuerName'),'reasons':m.get('reasons')} for m in mods[:30]]})
+          (p/'initial-modules.json').write_text(json.dumps(report,indent=2))
+          print(json.dumps([{'files':r['files'],'size':r['size'],'largest':[{'name':m['name'],'size':m['size']} for m in r['modules'][:8]]} for r in report],indent=2))
+          PY
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: pr340-regression-and-bundle-evidence
+          path: /tmp/pr340-verification
+          retention-days: 3
