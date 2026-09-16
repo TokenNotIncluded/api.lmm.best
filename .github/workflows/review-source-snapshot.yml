@@ -24,11 +24,12 @@ jobs:
       - name: Fetch public PR tips without credentials and record exact commits
         run: |
           mkdir -p source-evidence
-          git -c credential.helper= fetch https://github.com/TokenNotIncluded/api.lmm.best.git refs/heads/main:refs/heads/snapshot-main
+          git -c credential.helper= fetch https://github.com/TokenNotIncluded/api.lmm.best.git refs/heads/main:refs/heads/snapshot-main refs/heads/ci/reviewed-integration-20260916-1334:refs/heads/snapshot-candidate
           for pr in 316 320 324 328 329 333 334 335 336 337 338 339 340; do
             git -c credential.helper= fetch https://github.com/TokenNotIncluded/api.lmm.best.git "refs/pull/${pr}/head:refs/heads/snapshot-pr-${pr}"
           done
-          git for-each-ref --format='%(objectname) %(refname)' refs/heads/snapshot- > source-evidence/refs.txt
+          git for-each-ref --format='%(objectname) %(refname)' 'refs/heads/snapshot-*' > source-evidence/refs.txt
+          test -s source-evidence/refs.txt
           git bundle create source-evidence/review.bundle --branches='snapshot-*'
           git bundle verify source-evidence/review.bundle
           sha256sum source-evidence/review.bundle > source-evidence/SHA256SUMS
