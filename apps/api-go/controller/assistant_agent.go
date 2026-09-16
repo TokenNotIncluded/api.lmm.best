@@ -106,9 +106,10 @@ const (
 	toolWeeklyDiscount
 	toolBounty
 	toolDirectL1Grant
+	toolRegistration
 )
 
-var assistantToolSets [1 << 10]struct {
+var assistantToolSets [1 << 11]struct {
 	once  sync.Once
 	tools []assistantOpenAIToolDefinition
 }
@@ -578,6 +579,10 @@ func buildAssistantTools() []assistantOpenAIToolDefinition {
 			},
 		},
 	}
+	definitions = slices.DeleteFunc(definitions, func(tool assistantOpenAIToolDefinition) bool {
+		return tool.Function.Name == "prepare_l1_recommendation" || tool.Function.Name == assistantInterlocutorAssessmentTool
+	})
+	definitions = append(definitions, assistantRegistrationTools()...)
 	definitions = append(definitions, assistantAdminOperationToolDefinitions()...)
 	definitions = append(definitions, assistantAdminPricingAuditTools()...)
 	return append(definitions, assistantSkillTools()...)
@@ -603,6 +608,9 @@ func assistantToolDefinitionsForContext(userContext assistantUserContext) []assi
 
 func keyForTools(context assistantUserContext) toolSetKey {
 	var key toolSetKey
+	if !context.AdministratorMode && !context.DeveloperAccessGranted && context.AccessLevel == "L0" {
+		key |= toolRegistration
+	}
 	if assistantL0InterlocutorAssessmentRequired(context) {
 		key |= toolAssessment
 	}
@@ -663,6 +671,12 @@ func assistantWeeklyDiscountToolAllowed(context assistantUserContext) bool {
 }
 
 func assistantToolAllowedForContext(name string, userContext assistantUserContext) bool {
+	if name == "prepare_l1_recommendation" {
+		return false
+	}
+	if isAssistantRegistrationTool(name) {
+		return !userContext.AdministratorMode && !userContext.DeveloperAccessGranted && userContext.AccessLevel == "L0"
+	}
 	if assistantL0InterlocutorAssessmentRequired(userContext) {
 		return name == assistantInterlocutorAssessmentTool
 	}
@@ -1132,10 +1146,8 @@ func assistantRecommendationWorkflowMinSteps(userContext assistantUserContext) i
 		return 0
 	}
 	steps := 2 // read the current letter, then produce a final answer
-	if userContext.RecommendationAction == assistantRecommendationActionRevise &&
-		!userContext.DeveloperAccessGranted &&
-		strings.EqualFold(strings.TrimSpace(userContext.AccessLevel), "L0") {
-		steps++ // prepare the confirmation-gated revision draft
+	if userContext.RecommendationAction == assistantRecommendationActionRevise && assistantDirectL1GrantAllowed(userContext) {
+		steps += 2 // read registration evidence, grant access, then answer
 	}
 	if userContext.ConversationTitleNeeded {
 		steps++
@@ -1243,8 +1255,13 @@ func assistantToolChoiceForAgentStep(userContext assistantUserContext, calledToo
 	if userContext.DeveloperAccessGranted || !strings.EqualFold(strings.TrimSpace(userContext.AccessLevel), "L0") {
 		return "none"
 	}
-	if !successfulTools["prepare_l1_recommendation"] {
-		return assistantNamedToolChoice("prepare_l1_recommendation")
+	if assistantDirectL1GrantAllowed(userContext) {
+		if !calledTools["get_registration_risk"] {
+			return assistantNamedToolChoice("get_registration_risk")
+		}
+		if successfulTools["get_registration_risk"] && !calledTools["grant_l1_access"] {
+			return assistantNamedToolChoice("grant_l1_access")
+		}
 	}
 	return "none"
 }
@@ -1893,6 +1910,9 @@ func executeAssistantTool(c *gin.Context, call assistantOpenAIToolCall) map[stri
 			}
 		}
 	}
+	if isAssistantRegistrationTool(name) {
+		return executeAssistantRegistrationTool(c, name, input)
+	}
 	if result, handled := runSkillTool(name, actorUserID, input, explicitProfileForget); handled {
 		return result
 	}
@@ -2174,7 +2194,7 @@ func executeAssistantL1RecommendationStateTool(c *gin.Context, userID int) map[s
 			"ok":             true,
 			"status":         "none",
 			"recommendation": "",
-			"next_step":      "Use the conversation context to prepare the user's one L1 recommendation when requested.",
+			"next_step":      "Recommendation submission has been retired. Continue tool-based registration verification; never direct the user to a recommendation form.",
 		}
 		if assistantUserContextFromGin(c).RecommendationAction == assistantRecommendationActionRemove {
 			result["next_step"] = "Tell the user there is no recommendation letter to remove. Do not call prepare_l1_recommendation."
@@ -2189,11 +2209,11 @@ func executeAssistantL1RecommendationStateTool(c *gin.Context, userID int) map[s
 		"recommendation":          request.AIRecommendation,
 		"administrator_note":      request.AdminNote,
 		"is_single_shared_letter": true,
-		"next_step":               "For an AI edit, prepare a revised draft of this same letter and require UI confirmation before replacing it.",
+		"next_step":               "This is read-only historical data. Recommendation editing and submission are retired. Continue tool-based registration verification without preparing a letter.",
 	}
 	if assistantUserContextFromGin(c).RecommendationAction == assistantRecommendationActionRemove {
-		result["next_step"] = "Do not call prepare_l1_recommendation and do not change the administrator queue. Tell the user to clear the visible Recommendation letter field in the existing UI and choose Save changes; that direct user action remains explicitly confirmed."
-		result["removal_requires_user_ui"] = true
+		result["next_step"] = "Do not call prepare_l1_recommendation. The recommendation form is retired; do not promise deletion or direct the user to that form. Explain that this historical record remains unchanged and offer human support for a record-removal request."
+		result["historical_read_only"] = true
 	}
 	return result
 }
@@ -2423,6 +2443,8 @@ func executeAssistantDirectL1GrantTool(c *gin.Context, userID int, input map[str
 	grant, err := model.GrantAssistantDeveloperAccess(userID, conversationID, statement, recommendation)
 	if err != nil {
 		switch {
+		case errors.Is(err, model.ErrAssistantRegistrationCheck):
+			return map[string]any{"ok": false, "status": "verification_required", "error": "registration verification needs more context or human support; no access was granted"}
 		case errors.Is(err, model.ErrAssistantDirectGrantTurnsRequired):
 			return map[string]any{"ok": false, "status": "turns_required", "error": "three completed server-recorded conversation turns are required"}
 		case errors.Is(err, model.ErrAssistantDirectGrantNotL0):

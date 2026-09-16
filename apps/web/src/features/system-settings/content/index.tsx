@@ -62,6 +62,8 @@ const defaultContentSettings: ContentSettings = {
   AssistantSearchMCPTool: '',
   AssistantSkills: '',
   AssistantSkillFiles: '[]',
+  AssistantRegistrationAutoSuspendEnabled: true,
+  AssistantRegistrationDailySuspendCap: 5,
   AssistantL1AutoReviewEnabled: false,
   AssistantL1AutoReviewGroup: '',
   AssistantL1AutoReviewModel: '',

@@ -39,6 +39,9 @@ func executeAssistantAgentTool(c *gin.Context, call assistantOpenAIToolCall) (re
 		return map[string]any{"ok": false, "status": "cancelled", "error": "tool cancelled before execution"}
 	}
 	result = executeAssistantTool(c, call)
+				if finishAssistantRegistrationTermination(c) {
+					return
+				}
 	if ctx.Err() != nil {
 		// A timed-out write may have committed. Keep that uncertainty fenced.
 		return map[string]any{"ok": false, "status": "tool_timeout", "error": "tool exceeded its time limit; narrow the read or verify live state", "mutation_attempted": !readOnly, "do_not_retry": true}

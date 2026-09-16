@@ -33,12 +33,15 @@ func TestAssistantDirectL1GrantToolRequiresEligibleL0Context(t *testing.T) {
 func TestExecuteAssistantDirectL1GrantToolActivatesWithoutConfirmation(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := setupTokenControllerTestDB(t)
+	require.NoError(t, db.AutoMigrate(model.RegistrationGuardMigrationModels()...))
+	require.NoError(t, db.AutoMigrate(&model.AssistantNewUserGift{}, &model.AssistantGiftRiskKey{}, &model.AssistantGiftRiskMemory{}))
 	require.NoError(t, db.AutoMigrate(
 		&model.TopUp{}, &model.DeveloperAccessRequest{}, &model.DeveloperAccessRecommendationArchive{},
 		&model.AssistantConversation{}, &model.AssistantHistoryMessage{}, &model.AssistantSupportRequest{},
 	))
-	user := model.User{Username: "assistant-direct-controller", AffCode: "assistant-direct-controller-aff", Password: "password", Role: common.RoleCommonUser, Status: common.UserStatusEnabled}
+	user := model.User{Email: "direct@example.test", Username: "assistant-direct-controller", AffCode: "assistant-direct-controller-aff", Password: "password", Role: common.RoleCommonUser, Status: common.UserStatusEnabled}
 	require.NoError(t, db.Create(&user).Error)
+	require.NoError(t, model.ObserveAssistantRegistration(user.Id, "198.51.100.10", ""))
 	conversation, err := model.PrepareAssistantConversation(user.Id, 0, "first")
 	require.NoError(t, err)
 	for range model.AssistantDirectGrantMinCompletedTurns - 1 {
