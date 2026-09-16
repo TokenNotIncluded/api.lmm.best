@@ -76,11 +76,6 @@ impl PgDeepSeekBalanceService {
         })
     }
 
-    #[cfg(test)]
-    pub(crate) fn with_client(pg: PgPool, client: DeepSeekBalanceClient) -> Self {
-        Self { pg, client }
-    }
-
     /// Refreshes one persisted DeepSeek channel and publishes the Go-compatible
     /// USD-denominated balance plus update timestamp atomically.
     pub(crate) async fn refresh_channel(
@@ -149,9 +144,7 @@ impl PgDeepSeekBalanceService {
         }
         if balance < 0.0 {
             return Err(DeepSeekBalanceStoreError::Fetch(
-                DeepSeekBalanceFetchError::Parse(
-                    crate::channel_balance::DeepSeekBalanceError::NegativeBalance,
-                ),
+                DeepSeekBalanceError_PLACEHOLDER
             ));
         }
         let updated_at = unix_timestamp()?;
