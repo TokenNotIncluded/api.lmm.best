@@ -290,6 +290,20 @@ impl PgOpenAiRelayService {
         }
     }
 
+    async fn retry_times(&self) -> Result<usize, OpenAiRelayFailure> {
+        let value = sqlx::query_scalar::<_, Option<String>>(
+            "SELECT value FROM options WHERE key = 'RetryTimes'",
+        )
+        .fetch_optional(&self.pg)
+        .await
+        .map_err(|_| internal_failure())?
+        .flatten();
+        Ok(value
+            .as_deref()
+            .and_then(|value| value.trim().parse::<usize>().ok())
+            .unwrap_or(0))
+    }
+
     async fn token_for_auth(
         &self,
         headers: &HeaderMap,
@@ -345,6 +359,7 @@ impl PgOpenAiRelayService {
     async fn reserve(
         &self,
         request: &OpenAiRelayRequest,
+        excluded_channel_ids: &[i64],
     ) -> Result<Reservation, OpenAiRelayFailure> {
         let credential =
             relay_token_credential(&request.headers).ok_or_else(unauthorized_failure)?;
@@ -396,13 +411,20 @@ impl PgOpenAiRelayService {
                JOIN channels c ON c.id=a.channel_id
                WHERE t.key=$1 AND t.deleted_at IS NULL AND u.deleted_at IS NULL
                    AND ($3::BIGINT IS NULL OR c.id=$3)
-                   AND ($3::BIGINT IS NOT NULL OR COALESCE(c.status,1)=1)
+                   AND (
+                       $3::BIGINT IS NOT NULL
+                       OR (
+                           COALESCE(c.status,1)=1
+                           AND NOT (c.id = ANY($4::BIGINT[]))
+                       )
+                   )
                ORDER BY COALESCE(a.priority,0) DESC, COALESCE(a.weight,0) DESC, c.id
                LIMIT 1 FOR UPDATE OF t,u,c"#,
         )
         .bind(key)
         .bind(selection_model)
         .bind(specific_channel_id)
+        .bind(excluded_channel_ids)
         .fetch_optional(&mut *tx)
         .await
         .map_err(|_| internal_failure())?;
@@ -532,30 +554,53 @@ impl OpenAiRelayService for PgOpenAiRelayService {
         &self,
         request: OpenAiRelayRequest,
     ) -> Result<OpenAiRelayResult, OpenAiRelayFailure> {
-        let reservation = self.reserve(&request).await?;
-        match self.upstream.forward(&reservation.target, &request).await {
-            Ok(result) => {
-                if let Err(error) = self.log_success(&reservation, &request).await {
+        let credential =
+            relay_token_credential(&request.headers).ok_or_else(unauthorized_failure)?;
+        let specific_channel = credential
+            .channel_suffix
+            .as_deref()
+            .is_some_and(|channel| !channel.is_empty());
+        let retry_times = if specific_channel {
+            0
+        } else {
+            self.retry_times().await?
+        };
+        let mut excluded_channel_ids = Vec::new();
+
+        for attempt in 0..=retry_times {
+            let reservation = self.reserve(&request, &excluded_channel_ids).await?;
+            match self.upstream.forward(&reservation.target, &request).await {
+                Ok(result) => {
+                    if let Err(error) = self.log_success(&reservation, &request).await {
+                        self.refund(
+                            reservation.token_id,
+                            reservation.user_id,
+                            reservation.channel_id,
+                        )
+                        .await?;
+                        return Err(error);
+                    }
+                    return Ok(result);
+                }
+                Err(error) => {
                     self.refund(
                         reservation.token_id,
                         reservation.user_id,
                         reservation.channel_id,
                     )
                     .await?;
-                    return Err(error);
+                    if specific_channel
+                        || attempt >= retry_times
+                        || !is_first_output_retry_failure(&error)
+                    {
+                        return Err(error);
+                    }
+                    excluded_channel_ids.push(reservation.channel_id);
                 }
-                Ok(result)
-            }
-            Err(error) => {
-                self.refund(
-                    reservation.token_id,
-                    reservation.user_id,
-                    reservation.channel_id,
-                )
-                .await?;
-                Err(error)
             }
         }
+
+        Err(no_channel_failure())
     }
 }
 
@@ -1483,6 +1528,12 @@ fn invalid_target_failure() -> OpenAiRelayFailure {
         "upstream_error",
         "invalid upstream target",
     )
+}
+
+fn is_first_output_retry_failure(failure: &OpenAiRelayFailure) -> bool {
+    failure.status == StatusCode::GATEWAY_TIMEOUT
+        && failure.code == "upstream_timeout"
+        && failure.message == "upstream first response timeout"
 }
 
 fn openai_upstream_request_failure(error: RelayHttpError) -> OpenAiRelayFailure {
