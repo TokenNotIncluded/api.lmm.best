@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/LIghtJUNction/api.lmm.best/internal/appcli"
@@ -76,6 +77,33 @@ func createAbsentRedPacketSchema(ctx context.Context, dsn, schema string) error 
 		} {
 			if err := tx.Migrator().CreateTable(entry.value); err != nil {
 				return fmt.Errorf("create %s with reviewed model: transaction will roll back", entry.name)
+			}
+			// PostgreSQL's GORM driver uses CREATE INDEX IF NOT EXISTS. A name
+			// collision must not silently leave a new table without its indexes.
+			statement := &gorm.Statement{DB: tx}
+			if err := statement.Parse(entry.value); err != nil {
+				return errors.New("parse reviewed index inventory")
+			}
+			for _, index := range statement.Schema.ParseIndexes() {
+				columns := make([]string, 0, len(index.Fields))
+				for _, field := range index.Fields {
+					columns = append(columns, field.DBName)
+				}
+				var matches int64
+				query := `SELECT count(*) FROM pg_catalog.pg_index x
+JOIN pg_catalog.pg_class i ON i.oid=x.indexrelid
+JOIN pg_catalog.pg_class t ON t.oid=x.indrelid
+JOIN pg_catalog.pg_namespace n ON n.oid=t.relnamespace
+WHERE n.nspname=? AND t.relname=? AND i.relname=?
+AND x.indisvalid AND x.indisready AND x.indisunique=?
+AND x.indpred IS NULL AND x.indexprs IS NULL
+AND (SELECT string_agg(a.attname,',' ORDER BY k.ord)
+ FROM unnest(x.indkey) WITH ORDINALITY k(attnum,ord)
+ JOIN pg_catalog.pg_attribute a ON a.attrelid=t.oid AND a.attnum=k.attnum
+ WHERE k.ord<=x.indnkeyatts)=?`
+				if err := tx.Raw(query, schema, entry.name, index.Name, index.Class == "UNIQUE", strings.Join(columns, ",")).Scan(&matches).Error; err != nil || matches != 1 {
+					return errors.New("created table index identity mismatch; transaction will roll back")
+				}
 			}
 		}
 		return nil
