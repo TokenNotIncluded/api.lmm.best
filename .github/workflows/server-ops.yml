@@ -33,7 +33,8 @@ on:
 permissions:
   contents: read
 
-# Share the existing deployment lane. Never cancel an in-flight mutation.
+# Share the deployment lane within THIS repository; concurrency is not cross-repository.
+# Never cancel an in-flight mutation.
 concurrency:
   group: production-auto-deploy
   cancel-in-progress: false
@@ -62,8 +63,10 @@ jobs:
           ref: ${{ github.sha }}
           persist-credentials: false
 
-      - name: Test the controller without production credentials
-        run: python3 scripts/test-server-ops.py
+      - name: Test the controller and startup diagnosis without production credentials
+        run: |
+          python3 scripts/test-server-ops.py
+          python3 scripts/test-server-repair-startup.py
 
       - name: Validate authorization and the repair script before loading credentials
         run: python3 scripts/server-ops.py --validate-only
