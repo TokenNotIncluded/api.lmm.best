@@ -22,6 +22,7 @@ SNAPSHOT = [
     (336, '83feb35bb5debde1583aa74080aa4d3f2e0b5138'),
     (337, '03c3037783ead5f9d84a08ef66974a19ec44c82f'),
 ]
+CONFLICT = re.compile(r'^<<<<<<< [^\n]*\n(.*?)^=======\n(.*?)^>>>>>>> [^\n]*\n', re.M | re.S)
 
 
 def run(*args, check=True):
@@ -42,8 +43,7 @@ def incoming(path, sha):
 
 def drop_restored_loop(path):
     content = (ROOT / path).read_text()
-    pattern = re.compile(r'^<<<<<<< .*\n(.*?)^=======\n(.*?)^>>>>>>> .*\n', re.M | re.S)
-    matches = list(pattern.finditer(content))
+    matches = list(CONFLICT.finditer(content))
     if len(matches) != 1:
         raise RuntimeError('Expected one moved-agent-loop conflict')
     match = matches[0]
@@ -68,11 +68,10 @@ for number, sha in SNAPSHOT:
         if number == 329 and conflicts == {'apps/web/src/features/assistant/assistant-tool-calls.tsx'}:
             path = 'apps/web/src/features/assistant/assistant-tool-calls.tsx'
             content = (ROOT / path).read_text()
-            pattern = re.compile(r'^<<<<<<< .*\n(.*?)^=======\n(.*?)^>>>>>>> .*\n', re.M | re.S)
-            matches = list(pattern.finditer(content))
+            matches = list(CONFLICT.finditer(content))
             if len(matches) != 2 or 'AssistantSupportReview' not in matches[0][1] or 'canReviewSupport' not in matches[1][1]:
                 raise RuntimeError('Unexpected support recovery conflict')
-            (ROOT / path).write_text(pattern.sub(lambda match: match[1], content))
+            (ROOT / path).write_text(CONFLICT.sub(lambda match: match[1], content))
             replace_once(path, "trace.input?.action !== 'disable_account'", "(trace.input?.action === undefined || trace.input.action === 'support')")
             path = ROOT / 'apps/web/src/features/assistant/assistant-support-review.tsx'
             header = path.read_text().split('import ', 1)[0]
