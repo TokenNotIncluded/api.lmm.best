@@ -152,7 +152,7 @@ export function AssistantToolCalls(props: { traces: AssistantToolTrace[] }) {
         const canReviewSupport =
           isApproval &&
           trace.name === 'request_human_support' &&
-          trace.input?.action !== 'disable_account'
+          (trace.input?.action === undefined || trace.input.action === 'support')
         const parameterCount = Object.keys(trace.input ?? {}).length
         const statusText = toolStatusText(trace, t)
         const completedSummary = t(

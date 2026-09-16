@@ -63,11 +63,18 @@ import {
   submitAssistantHandoff,
   type AssistantHumanSupportAction,
 } from './api'
-
-const minAssistantHandoffCharacters = 5
+import {
+  createAssistantHandoffConfirmation,
+  getAssistantHandoffConfirmationToken,
+  isSameAssistantHandoffConfirmation,
+  maxAssistantHandoffCharacters,
+  minAssistantHandoffCharacters,
+  type AssistantHandoffConfirmation,
+} from './assistant-handoff-confirmation'
 
 export function AssistantHandoffTool(props: {
   confirmationAction?: AssistantHumanSupportAction | null
+  messageInputId?: string
   onTransfer?: () => Promise<boolean>
   transferring?: boolean
 }) {
@@ -114,11 +121,13 @@ export function AssistantHandoffTool(props: {
 
 function AssistantHandoffToolContent(props: {
   confirmationAction?: AssistantHumanSupportAction | null
+  messageInputId?: string
   userId: number | null
   sessionId: string | null
 }) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
+  const messageInputId = props.messageInputId ?? 'assistant-handoff-message'
   const mountedRef = useRef(false)
   useEffect(() => {
     mountedRef.current = true
@@ -129,9 +138,12 @@ function AssistantHandoffToolContent(props: {
   const [message, setMessage] = useState(
     props.confirmationAction?.message ?? ''
   )
-  const [confirmOpen, setConfirmOpen] = useState(false)
+  const [confirmation, setConfirmation] =
+    useState<AssistantHandoffConfirmation | null>(null)
+  const [submissionError, setSubmissionError] = useState<string | null>(null)
+  const submissionRef = useRef(false)
   const [submitting, setSubmitting] = useState(false)
-  const [consumedConfirmationToken, setConsumedConfirmationToken] = useState<
+  const [inactiveConfirmationToken, setInactiveConfirmationToken] = useState<
     string | null
   >(null)
   const queryKey = ['assistant-handoff', props.userId, props.sessionId] as const
@@ -143,23 +155,41 @@ function AssistantHandoffToolContent(props: {
   })
   const current = handoffQuery.data
   const confirmationAction =
-    props.confirmationAction?.confirmation_token === consumedConfirmationToken
+    props.confirmationAction?.confirmation_token === inactiveConfirmationToken
       ? undefined
       : props.confirmationAction
-  const confirmationToken = confirmationAction?.confirmation_token
-  const isPreparedAction = Boolean(confirmationAction)
+  const confirmationToken =
+    getAssistantHandoffConfirmationToken(confirmationAction)
+  const isPreparedAction = Boolean(confirmationToken)
+  const preparedMessage = confirmationAction?.message
+  const preparedToken = confirmationAction?.confirmation_token
+  const latestPreparedTokenRef = useRef(preparedToken)
   useEffect(() => {
-    if (confirmationAction) {
-      setMessage(confirmationAction.message)
+    latestPreparedTokenRef.current = preparedToken
+    if (preparedMessage !== undefined) {
+      setMessage(preparedMessage)
     }
-  }, [confirmationAction, consumedConfirmationToken])
+    setConfirmation(null)
+    setSubmissionError(null)
+  }, [preparedMessage, preparedToken])
   const trimmedMessage = message.trim()
   const messageLength = [...trimmedMessage].length
   const messageTooShort =
     trimmedMessage.length > 0 && messageLength < minAssistantHandoffCharacters
+  const messageTooLong = messageLength > maxAssistantHandoffCharacters
+  const currentConfirmation = createAssistantHandoffConfirmation(
+    message,
+    confirmationAction
+  )
+  const reviewIsCurrent = isSameAssistantHandoffConfirmation(
+    confirmation,
+    currentConfirmation
+  )
 
   const submit = async () => {
-    if (submitting || messageLength < minAssistantHandoffCharacters) return
+    // State alone cannot prevent two clicks before React commits a render.
+    if (submissionRef.current || !confirmation || !reviewIsCurrent) return
+    const submitted = confirmation
     const isCurrentSubmission = () => {
       const auth = useAuthStore.getState().auth
       return (
@@ -169,11 +199,13 @@ function AssistantHandoffToolContent(props: {
       )
     }
     if (!isCurrentSubmission()) return
+    submissionRef.current = true
     setSubmitting(true)
+    setSubmissionError(null)
     try {
       const result = await submitAssistantHandoff(
-        trimmedMessage,
-        confirmationToken
+        submitted.message,
+        submitted.confirmationToken
       )
       if (!isCurrentSubmission()) return
       // A status lookup started before submission must not overwrite the
@@ -181,18 +213,25 @@ function AssistantHandoffToolContent(props: {
       await queryClient.cancelQueries({ queryKey, exact: true })
       if (!isCurrentSubmission()) return
       queryClient.setQueryData(queryKey, result)
-      if (confirmationToken) setConsumedConfirmationToken(confirmationToken)
-      setMessage((current) =>
-        current.trim() === trimmedMessage ? '' : current
-      )
-      setConfirmOpen(false)
+      if (submitted.confirmationToken) {
+        setInactiveConfirmationToken(submitted.confirmationToken)
+      }
+      // A newer prepared action may arrive while the request is in flight.
+      if (latestPreparedTokenRef.current === preparedToken) {
+        setMessage((current) =>
+          current.trim() === submitted.message ? '' : current
+        )
+      }
+      setConfirmation(null)
       toast.success(t('Your message was sent to an administrator'))
     } catch (error) {
       if (!isCurrentSubmission()) return
-      toast.error(
+      const errorMessage =
         error instanceof Error ? error.message : t('Unable to contact support')
-      )
+      setSubmissionError(errorMessage)
+      toast.error(errorMessage)
     } finally {
+      submissionRef.current = false
       if (isCurrentSubmission()) setSubmitting(false)
     }
   }
@@ -309,7 +348,7 @@ function AssistantHandoffToolContent(props: {
           <div className='grid gap-1.5'>
             <Label
               htmlFor={
-                isPreparedAction ? undefined : 'assistant-handoff-message'
+                isPreparedAction ? undefined : messageInputId
               }
             >
               {t('Issue description')}
@@ -323,24 +362,59 @@ function AssistantHandoffToolContent(props: {
               </div>
             ) : (
               <Textarea
-                id='assistant-handoff-message'
+                id={messageInputId}
                 rows={4}
-                maxLength={2000}
+                maxLength={maxAssistantHandoffCharacters * 2}
                 minLength={minAssistantHandoffCharacters}
                 required
                 aria-required='true'
-                aria-invalid={messageTooShort}
+                disabled={submitting}
+                aria-invalid={messageTooShort || messageTooLong}
                 aria-describedby={
-                  messageTooShort ? 'assistant-handoff-message-hint' : undefined
+                  messageTooShort
+                    ? `${messageInputId}-hint`
+                    : `${messageInputId}-length`
                 }
                 value={message}
-                onChange={(event) => setMessage(event.target.value)}
+                onChange={(event) => {
+                  setMessage(event.target.value)
+                  setConfirmation(null)
+                  setSubmissionError(null)
+                }}
                 placeholder={t('What happened, where, and when?')}
               />
             )}
+            {isPreparedAction ? (
+              <Button
+                type='button'
+                size='sm'
+                variant='outline'
+                disabled={submitting}
+                onClick={() => {
+                  if (submissionRef.current || !confirmationToken) return
+                  setInactiveConfirmationToken(confirmationToken)
+                  setConfirmation(null)
+                  setSubmissionError(null)
+                }}
+              >
+                {t('Edit')}
+              </Button>
+            ) : (
+              <p
+                id={`${messageInputId}-length`}
+                className={
+                  messageTooLong
+                    ? 'text-destructive text-sm'
+                    : 'text-muted-foreground text-sm'
+                }
+                role={messageTooLong ? 'alert' : undefined}
+              >
+                {messageLength} / {maxAssistantHandoffCharacters}
+              </p>
+            )}
             {!isPreparedAction && messageTooShort ? (
               <p
-                id='assistant-handoff-message-hint'
+                id={`${messageInputId}-hint`}
                 className='text-destructive text-sm'
                 role='alert'
               >
@@ -350,11 +424,12 @@ function AssistantHandoffToolContent(props: {
           </div>
           <Button
             type='button'
-            onClick={() => setConfirmOpen(true)}
-            disabled={
-              messageLength < minAssistantHandoffCharacters ||
-              handoffQuery.isLoading
-            }
+            onClick={() => {
+              if (submissionRef.current || !currentConfirmation) return
+              setSubmissionError(null)
+              setConfirmation(currentConfirmation)
+            }}
+            disabled={submitting || !currentConfirmation}
           >
             <HugeiconsIcon
               icon={MailSend01Icon}
@@ -367,7 +442,12 @@ function AssistantHandoffToolContent(props: {
         </CardContent>
       </Card>
 
-      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+      <AlertDialog
+        open={confirmation !== null}
+        onOpenChange={(open) => {
+          if (!open && !submissionRef.current) setConfirmation(null)
+        }}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>{t('Send this message?')}</AlertDialogTitle>
@@ -377,13 +457,28 @@ function AssistantHandoffToolContent(props: {
               )}
             </AlertDialogDescription>
           </AlertDialogHeader>
+          <div
+            className='bg-muted/40 max-h-60 overflow-y-auto rounded-lg border p-3 text-sm whitespace-pre-wrap'
+            aria-label={t('Issue description')}
+            data-testid='assistant-handoff-review-message'
+          >
+            {confirmation?.message}
+          </div>
+          {submissionError ? (
+            <p className='text-destructive text-sm' role='alert'>
+              {submissionError}
+            </p>
+          ) : null}
           <AlertDialogFooter>
             <AlertDialogCancel disabled={submitting}>
               {t('Cancel')}
             </AlertDialogCancel>
             <AlertDialogAction
-              onClick={() => void submit()}
-              disabled={submitting}
+              onClick={(event) => {
+                event.preventDefault()
+                void submit()
+              }}
+              disabled={submitting || !reviewIsCurrent}
             >
               {submitting ? <Spinner data-icon='inline-start' /> : null}
               {t('Confirm and send')}
