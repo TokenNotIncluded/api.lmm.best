@@ -144,7 +144,9 @@ impl PgDeepSeekBalanceService {
         }
         if balance < 0.0 {
             return Err(DeepSeekBalanceStoreError::Fetch(
-                DeepSeekBalanceError_PLACEHOLDER
+                DeepSeekBalanceFetchError::Parse(
+                    crate::channel_balance::DeepSeekBalanceError::NegativeBalance,
+                ),
             ));
         }
         let updated_at = unix_timestamp()?;
