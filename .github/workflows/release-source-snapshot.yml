@@ -18,14 +18,16 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - name: Bundle public repository refs for offline review
+      - name: Bundle public upstream refs and proposed migration for offline review
         shell: bash
         run: |
           set -euo pipefail
-          git fetch --no-tags origin '+refs/pull/339/head:refs/remotes/review/339'
+          git fetch --no-tags origin \
+            '+refs/pull/346/head:refs/remotes/review/346' \
+            '+refs/pull/347/head:refs/remotes/review/347'
           git bundle create /tmp/lmm-release-source.bundle --all
           git bundle verify /tmp/lmm-release-source.bundle
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: release-source-snapshot
           path: /tmp/lmm-release-source.bundle
