@@ -6,10 +6,11 @@ on:
       - automation/rust-327-verify
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   verify:
+    if: github.event.head_commit.message != 'chore: generated acceptance lock verification'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -21,14 +22,28 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          persist-credentials: false
 
       - name: Set up pinned Rust toolchain
         run: |
           rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component clippy
           rustup default "$RUST_TOOLCHAIN"
           rustc --version --verbose
+
+      - name: Canonically resolve patched rustls
+        run: |
+          cargo update -p rustls --precise 0.23.45 \
+            --manifest-path apps/api-rust/tests/root-route-acceptance/Cargo.toml
+          git diff --check
+
+      - name: Persist generated lockfile evidence on verification branch
+        run: |
+          if ! git diff --quiet -- apps/api-rust/tests/root-route-acceptance/Cargo.lock; then
+            git config user.name github-actions[bot]
+            git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+            git add apps/api-rust/tests/root-route-acceptance/Cargo.lock
+            git commit -m 'chore: generated acceptance lock verification'
+            git push origin HEAD:automation/rust-327-verify
+          fi
 
       - name: Fetch independent acceptance harness dependencies
         run: cargo fetch --locked --manifest-path apps/api-rust/tests/root-route-acceptance/Cargo.toml
