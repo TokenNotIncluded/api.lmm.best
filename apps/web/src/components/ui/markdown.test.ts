@@ -83,7 +83,10 @@ describe('markdown isExternalUrl classification', () => {
     assert.equal(isExternalUrl('tel:+1234567890'), false)
     assert.equal(isExternalUrl('javascript:void(0)'), false)
     assert.equal(isExternalUrl('JaVaScRiPt:void(0)'), false)
-    assert.equal(isExternalUrl('data:text/html,<script>alert(1)</script>'), false)
+    assert.equal(
+      isExternalUrl('data:text/html,<script>alert(1)</script>'),
+      false
+    )
     assert.equal(isExternalUrl('vbscript:msgbox(1)'), false)
   })
 

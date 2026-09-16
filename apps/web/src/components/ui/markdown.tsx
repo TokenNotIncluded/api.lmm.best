@@ -735,10 +735,7 @@ markdownParser.use(...markdownExtensions)
 export function isExternalUrl(href: string): boolean {
   if (!href) return false
   const trimmed = href.trim()
-  if (
-    trimmed.startsWith('#') ||
-    trimmed.startsWith('?')
-  ) {
+  if (trimmed.startsWith('#') || trimmed.startsWith('?')) {
     return false
   }
   try {

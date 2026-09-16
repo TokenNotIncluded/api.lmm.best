@@ -256,7 +256,9 @@ export function RedemptionsMutateDrawer({
           <SheetDescription>
             {isUpdate
               ? t('Update the redemption code by providing necessary info.')
-              : t('Add new redemption code(s) by providing necessary info.')}{' '}
+              : t(
+                  'Add new redemption code(s) by providing necessary info.'
+                )}{' '}
             {t('Click save when you&apos;re done.')}
           </SheetDescription>
         </SheetHeader>
@@ -312,7 +314,9 @@ export function RedemptionsMutateDrawer({
                         </select>
                       </FormControl>
                       <FormDescription>
-                        {t('Choose what this redemption code grants when redeemed.')}
+                        {t(
+                          'Choose what this redemption code grants when redeemed.'
+                        )}
                       </FormDescription>
                       <FormMessage />
                     </FormItem>
@@ -372,14 +376,19 @@ export function RedemptionsMutateDrawer({
                                   : t('Choose a plan')}
                               </option>
                               {plans.map((record) => (
-                                <option key={record.plan.id} value={record.plan.id}>
+                                <option
+                                  key={record.plan.id}
+                                  value={record.plan.id}
+                                >
                                   {record.plan.title} (#{record.plan.id})
                                 </option>
                               ))}
                             </select>
                           </FormControl>
                           <FormDescription>
-                            {t('Redeeming the code creates one available banked reset voucher for this plan.')}
+                            {t(
+                              'Redeeming the code creates one available banked reset voucher for this plan.'
+                            )}
                           </FormDescription>
                           <FormMessage />
                         </FormItem>
@@ -399,7 +408,9 @@ export function RedemptionsMutateDrawer({
                             />
                           </FormControl>
                           <FormDescription>
-                            {t('Leave empty to use the platform maximum voucher lifetime.')}
+                            {t(
+                              'Leave empty to use the platform maximum voucher lifetime.'
+                            )}
                           </FormDescription>
                           <FormMessage />
                         </FormItem>
@@ -427,23 +438,42 @@ export function RedemptionsMutateDrawer({
                             type='button'
                             variant='outline'
                             size='sm'
-                            onClick={() => form.setValue('expired_time', undefined)}
+                            onClick={() =>
+                              form.setValue('expired_time', undefined)
+                            }
                           >
                             {t('Never')}
                           </Button>
-                          <Button type='button' variant='outline' size='sm' onClick={() => handleSetExpiry(1, 0, 0)}>
+                          <Button
+                            type='button'
+                            variant='outline'
+                            size='sm'
+                            onClick={() => handleSetExpiry(1, 0, 0)}
+                          >
                             {t('1M')}
                           </Button>
-                          <Button type='button' variant='outline' size='sm' onClick={() => handleSetExpiry(0, 7, 0)}>
+                          <Button
+                            type='button'
+                            variant='outline'
+                            size='sm'
+                            onClick={() => handleSetExpiry(0, 7, 0)}
+                          >
                             {t('1W')}
                           </Button>
-                          <Button type='button' variant='outline' size='sm' onClick={() => handleSetExpiry(0, 1, 0)}>
+                          <Button
+                            type='button'
+                            variant='outline'
+                            size='sm'
+                            onClick={() => handleSetExpiry(0, 1, 0)}
+                          >
                             {t('1 Day')}
                           </Button>
                         </div>
                       </div>
                       <FormDescription>
-                        {t('This controls how long the redemption code itself can be used.')}
+                        {t(
+                          'This controls how long the redemption code itself can be used.'
+                        )}
                       </FormDescription>
                       <FormMessage />
                     </FormItem>
@@ -472,7 +502,9 @@ export function RedemptionsMutateDrawer({
                           />
                         </FormControl>
                         <FormDescription>
-                          {t('Create multiple redemption codes at once (1-100)')}
+                          {t(
+                            'Create multiple redemption codes at once (1-100)'
+                          )}
                         </FormDescription>
                         <FormMessage />
                       </FormItem>

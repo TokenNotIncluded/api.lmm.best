@@ -1,5 +1,26 @@
-import { Link } from '@tanstack/react-router'
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+/*
+Copyright (C) 2026 LIghtJUNction
+*/
+import { Link } from '@tanstack/react-router'
 import { Check, Copy, Gift, RotateCcw, Ticket, Wallet } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -108,10 +129,18 @@ export function RedPacketPublicPage({ slug }: { slug: string }) {
     : 0
 
   if (packetQuery.isLoading) {
-    return <div className='text-muted-foreground flex min-h-screen items-center justify-center'>{t('Loading...')}</div>
+    return (
+      <div className='text-muted-foreground flex min-h-screen items-center justify-center'>
+        {t('Loading...')}
+      </div>
+    )
   }
   if (!packet) {
-    return <div className='text-muted-foreground flex min-h-screen items-center justify-center'>{t('This red packet is unavailable.')}</div>
+    return (
+      <div className='text-muted-foreground flex min-h-screen items-center justify-center'>
+        {t('This red packet is unavailable.')}
+      </div>
+    )
   }
 
   const now = Math.floor(Date.now() / 1000)
@@ -126,7 +155,11 @@ export function RedPacketPublicPage({ slug }: { slug: string }) {
       <div className='mx-auto w-full max-w-xl'>
         <div className='bg-card overflow-hidden rounded-3xl border shadow-xl shadow-black/5'>
           {packet.cover_image ? (
-            <img src={packet.cover_image} alt='' className='aspect-[3/1] w-full object-cover' />
+            <img
+              src={packet.cover_image}
+              alt=''
+              className='aspect-[3/1] w-full object-cover'
+            />
           ) : (
             <div className='from-primary/20 via-primary/5 to-muted flex aspect-[3/1] items-center justify-center bg-gradient-to-br'>
               <Gift className='text-primary size-12' />
@@ -137,25 +170,41 @@ export function RedPacketPublicPage({ slug }: { slug: string }) {
               <div className='bg-primary/10 text-primary mx-auto mb-4 flex size-12 items-center justify-center rounded-full'>
                 <Gift className='size-6' />
               </div>
-              <h1 className='text-2xl font-semibold tracking-tight'>{packet.title}</h1>
+              <h1 className='text-2xl font-semibold tracking-tight'>
+                {packet.title}
+              </h1>
               {packet.description ? (
-                <p className='text-muted-foreground mt-2 text-sm'>{packet.description}</p>
+                <p className='text-muted-foreground mt-2 text-sm'>
+                  {packet.description}
+                </p>
               ) : null}
               <p className='text-muted-foreground mt-3 text-xs'>
-                {packet.remaining_items}/{packet.total_items} {t('remaining')} · {packet.claim_count} {t('claimed')}
+                {packet.remaining_items}/{packet.total_items} {t('remaining')} ·{' '}
+                {packet.claim_count} {t('claimed')}
               </p>
             </div>
 
             <div className='mt-6'>
               {!user ? (
-                <Button className='w-full' size='lg' render={<Link to='/sign-in' search={{ redirect: `/red-packet/${slug}` }} />}>
+                <Button
+                  className='w-full'
+                  size='lg'
+                  render={
+                    <Link
+                      to='/sign-in'
+                      search={{ redirect: `/red-packet/${slug}` }}
+                    />
+                  }
+                >
                   {t('Sign in to draw')}
                 </Button>
               ) : (
                 <Button
                   className='w-full'
                   size='lg'
-                  disabled={inactive || remainingDraws <= 0 || claimMutation.isPending}
+                  disabled={
+                    inactive || remainingDraws <= 0 || claimMutation.isPending
+                  }
                   onClick={() => claimMutation.mutate()}
                 >
                   {claimMutation.isPending
@@ -169,7 +218,9 @@ export function RedPacketPublicPage({ slug }: { slug: string }) {
               )}
               {user && remainingDraws > 0 ? (
                 <div className='text-muted-foreground mt-2 text-center text-xs'>
-                  {t('{{count}} draw(s) remaining for you', { count: remainingDraws })}
+                  {t('{{count}} draw(s) remaining for you', {
+                    count: remainingDraws,
+                  })}
                 </div>
               ) : null}
             </div>

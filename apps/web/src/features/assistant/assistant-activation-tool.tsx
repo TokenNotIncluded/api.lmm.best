@@ -412,9 +412,7 @@ export function AssistantActivationTool(props: {
               loading || (letter ?? draft.recommendation).trim().length < 20
             }
           >
-            {loading
-              ? t('Submitting...')
-              : t('Confirm and submit for review')}
+            {loading ? t('Submitting...') : t('Confirm and submit for review')}
           </Button>
         </div>
       ) : null}
@@ -444,9 +442,7 @@ export function AssistantActivationTool(props: {
             onClick={() => void submitWithoutAI()}
             disabled={loading || manualReason.trim().length < 5}
           >
-            {loading
-              ? t('Submitting...')
-              : t('Submit for review')}
+            {loading ? t('Submitting...') : t('Submit for review')}
           </Button>
         </div>
       ) : null}

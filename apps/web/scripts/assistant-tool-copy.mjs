@@ -31,8 +31,8 @@ const values = {
     'Création de la clé API préparée',
     'Préparé ; confirmation requise',
     'Confirmer et soumettre à examen',
-    "Décrivez votre usage à l’assistant IA. Après trois échanges complets, il peut accorder directement le niveau L1 ; les demandes antérieures passent par l’examen automatique avec recours humain.",
-    "Seules les demandes L0 non approuvées automatiquement figurent ici. L’assistant peut aussi accorder directement le niveau L1 après trois échanges complets.",
+    'Décrivez votre usage à l’assistant IA. Après trois échanges complets, il peut accorder directement le niveau L1 ; les demandes antérieures passent par l’examen automatique avec recours humain.',
+    'Seules les demandes L0 non approuvées automatiquement figurent ici. L’assistant peut aussi accorder directement le niveau L1 après trois échanges complets.',
   ],
   ja: [
     'API キーの作成を準備',

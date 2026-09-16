@@ -279,16 +279,16 @@ describe('DeveloperAccessRequestsPanel', () => {
     const panel = await renderPanel()
     try {
       await waitForCondition(
-        () => document.body.textContent?.includes('auto-reviewed-user') === true,
+        () =>
+          document.body.textContent?.includes('auto-reviewed-user') === true,
         'Pending request did not render'
       )
       const query = panel.queryClient.getQueryCache().find({
         queryKey: ['developer-access-requests', 'pending'],
       })
       assert.ok(query)
-      const refetchInterval = (
-        query.options as { refetchInterval?: unknown }
-      ).refetchInterval
+      const refetchInterval = (query.options as { refetchInterval?: unknown })
+        .refetchInterval
       assert.equal(typeof refetchInterval, 'function')
       assert.equal(
         (refetchInterval as (value: typeof query) => number | false)(query),
@@ -303,7 +303,10 @@ describe('DeveloperAccessRequestsPanel', () => {
         await flushEffects()
       })
       assert.doesNotMatch(document.body.textContent ?? '', /auto-reviewed-user/)
-      assert.match(document.body.textContent ?? '', /No pending unlock requests/)
+      assert.match(
+        document.body.textContent ?? '',
+        /No pending unlock requests/
+      )
     } finally {
       await unmountPanel(panel)
     }
@@ -364,7 +367,8 @@ describe('DeveloperAccessRequestsPanel', () => {
       })
       await waitForCondition(
         () =>
-          document.body.textContent?.includes('already-reviewed-user') === false,
+          document.body.textContent?.includes('already-reviewed-user') ===
+          false,
         'Approval conflict did not refresh the queue'
       )
       assert.ok(getCalls >= 2)
