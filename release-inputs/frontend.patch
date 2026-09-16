@@ -1,0 +1,611 @@
+diff --git a/apps/web/scripts/test-serial.mjs b/apps/web/scripts/test-serial.mjs
+index b85d1464..fcfcf3cf 100644
+--- a/apps/web/scripts/test-serial.mjs
++++ b/apps/web/scripts/test-serial.mjs
+@@ -30,6 +30,7 @@ const scripts = join(root, 'scripts')
+ const preload = join(scripts, 'test-preload.mjs')
+ const sourceTests = []
+ const scriptTests = []
++const failures = []
+ 
+ function collect(directory, pattern, target) {
+   for (const entry of readdirSync(directory, { withFileTypes: true })) {
+@@ -49,8 +50,10 @@ function run(executable, args) {
+   })
+   if (result.stdout) process.stdout.write(result.stdout)
+   if (result.stderr) process.stderr.write(result.stderr)
+-  if (result.error) throw result.error
+-  if (result.status !== 0) process.exit(result.status ?? 1)
++  if (result.error) console.error(result.error)
++  if (result.error || result.status !== 0) {
++    failures.push({ file: args.at(-1), status: result.status ?? 1 })
++  }
+ }
+ 
+ collect(source, /\.test\.(?:ts|tsx)$/, sourceTests)
+@@ -77,6 +80,11 @@ for (const test of scriptTests) {
+   run('node', ['--test', test])
+ }
+ 
++if (failures.length > 0) {
++  console.error('Web test failures:', JSON.stringify(failures, null, 2))
++  process.exit(1)
++}
++
+ console.log(
+   `web tests passed serially: ${sourceTests.length} source + ${scriptTests.length} script files`
+ )
+diff --git a/apps/web/src/features/assistant/assistant-activation-tool.test.tsx b/apps/web/src/features/assistant/assistant-activation-tool.test.tsx
+index 9e09522a..fd63e238 100644
+--- a/apps/web/src/features/assistant/assistant-activation-tool.test.tsx
++++ b/apps/web/src/features/assistant/assistant-activation-tool.test.tsx
+@@ -75,7 +75,11 @@ await i18n.use(initReactI18next).init({
+   resources: { en: { translation: {} } },
+ })
+ 
+-async function renderState(state: string, failed = false) {
++async function renderState(
++  state: string,
++  failed = false,
++  onApproved?: () => void
++) {
+   useAuthStore.getState().auth.setUser({ id: 71, username: 'test', role: 1 })
+   api.get = (async (url: string) => {
+     assert.equal(url, '/api/assistant/registration-check')
+@@ -95,7 +99,7 @@ async function renderState(state: string, failed = false) {
+     root.render(
+       <QueryClientProvider client={queryClient}>
+         <I18nextProvider i18n={i18n}>
+-          <AssistantActivationTool />
++          <AssistantActivationTool onApproved={onApproved} />
+         </I18nextProvider>
+       </QueryClientProvider>
+     )
+@@ -120,6 +124,43 @@ afterEach(() => {
+ })
+ after(() => domWindow.close())
+ describe('tool-based admission status', () => {
++  test('refreshes the parent only after confirmed active access', async () => {
++    let approvals = 0
++    const view = await renderState('active', false, () => {
++      approvals += 1
++    })
++    try {
++      assert.equal(approvals, 1)
++      assert.match(view.container.textContent ?? '', /L1 access is active/)
++    } finally {
++      await view.cleanup()
++    }
++  })
++  test('does not refresh account access for ready or held states', async () => {
++    let approvals = 0
++    for (const state of ['ready', 'held', 'context_needed']) {
++      const view = await renderState(state, false, () => {
++        approvals += 1
++      })
++      try {
++        assert.equal(approvals, 0)
++      } finally {
++        await view.cleanup()
++      }
++    }
++  })
++  test('does not report approval when the active-state request fails', async () => {
++    let approvals = 0
++    const view = await renderState('active', true, () => {
++      approvals += 1
++    })
++    try {
++      assert.equal(approvals, 0)
++    } finally {
++      await view.cleanup()
++    }
++  })
++
+   test('does not show or submit a recommendation letter', async () => {
+     const view = await renderState('ready')
+     try {
+diff --git a/apps/web/src/features/assistant/assistant-activation-tool.tsx b/apps/web/src/features/assistant/assistant-activation-tool.tsx
+index 635a55e9..596bc93f 100644
+--- a/apps/web/src/features/assistant/assistant-activation-tool.tsx
++++ b/apps/web/src/features/assistant/assistant-activation-tool.tsx
+@@ -33,5 +33,10 @@ export function AssistantActivationTool(props: {
+   onDraftConsumed?: () => void
+   onApproved?: () => void
+ }) {
+-  return <AssistantRegistrationStatus onContinueSetup={props.onContinueSetup} />
++  return (
++    <AssistantRegistrationStatus
++      onContinueSetup={props.onContinueSetup}
++      onApproved={props.onApproved}
++    />
++  )
+ }
+diff --git a/apps/web/src/features/assistant/assistant-panel.test.tsx b/apps/web/src/features/assistant/assistant-panel.test.tsx
+index d80911a1..064d7399 100644
+--- a/apps/web/src/features/assistant/assistant-panel.test.tsx
++++ b/apps/web/src/features/assistant/assistant-panel.test.tsx
+@@ -2851,6 +2851,10 @@ describe('AssistantPanel', () => {
+       )
+       assert.throws(() => findButton('Write request myself'))
+       assert.throws(() => findButton('Submit for review'))
++      assert.ok(findButton('Registration verification'))
++      assert.ok(
++        document.querySelector('[data-testid="assistant-registration-status"]')
++      )
+       const refresh = document.querySelector<HTMLButtonElement>(
+         'button[aria-label="Refresh registration status"]'
+       )
+@@ -2921,7 +2925,7 @@ describe('AssistantPanel', () => {
+ 
+       assert.equal(
+         [...document.querySelectorAll('button')].some(
+-          (button) => button.textContent === 'Submit for review'
++          (button) => button.textContent === 'Registration verification'
+         ),
+         false
+       )
+diff --git a/apps/web/src/features/assistant/assistant-panel.tsx b/apps/web/src/features/assistant/assistant-panel.tsx
+index d6cdee91..9dbf8e13 100644
+--- a/apps/web/src/features/assistant/assistant-panel.tsx
++++ b/apps/web/src/features/assistant/assistant-panel.tsx
+@@ -2016,6 +2016,7 @@ function AssistantPanelSession(props: AssistantPanelProps) {
+       void Promise.all(
+         [
+           'assistant-status',
++          'assistant-registration-state',
+           'assistant-journey',
+           'assistant-new-user-gift',
+           'assistant-weekly-discount',
+@@ -2590,19 +2591,6 @@ function AssistantPanelSession(props: AssistantPanelProps) {
+                           onDraftConsumed={() => setRecommendationDraft(null)}
+                           onContinueSetup={() => setActiveTool('setup')}
+                           onApproved={refreshAuthenticatedUser}
+-                          onSubmitted={() => {
+-                            setRecommendationDraft(null)
+-                            setEntries((current) => [
+-                              ...current,
+-                              {
+-                                id: nanoid(),
+-                                role: 'assistant',
+-                                content: t(
+-                                  'Your AI recommendation was submitted to the automatic review agent. L1 remains locked until automatic review approves it or human fallback completes.'
+-                                ),
+-                              },
+-                            ])
+-                          }}
+                         />
+                       ) : null}
+                       {accountDisableDraft ? (
+diff --git a/apps/web/src/features/assistant/assistant-registration-status.tsx b/apps/web/src/features/assistant/assistant-registration-status.tsx
+index 64c1d5b5..f6836d41 100644
+--- a/apps/web/src/features/assistant/assistant-registration-status.tsx
++++ b/apps/web/src/features/assistant/assistant-registration-status.tsx
+@@ -21,6 +21,7 @@ Copyright (C) 2026 LIghtJUNction
+ */
+ import { useQuery } from '@tanstack/react-query'
+ import { ShieldCheck, RefreshCw } from 'lucide-react'
++import { useEffect } from 'react'
+ import { useTranslation } from 'react-i18next'
+ 
+ import { Button } from '@/components/ui/button'
+@@ -35,9 +36,11 @@ import {
+ export function AssistantRegistrationStatus({
+   compact = false,
+   onContinueSetup,
++  onApproved,
+ }: {
+   compact?: boolean
+   onContinueSetup?: () => void
++  onApproved?: () => void
+ }) {
+   const { t } = useTranslation()
+   const userID = useAuthStore((state) => state.auth.user?.id)
+@@ -64,6 +67,11 @@ export function AssistantRegistrationStatus({
+       q.state.data === 'active' || q.state.error ? false : 15_000,
+     refetchIntervalInBackground: false,
+   })
++  useEffect(() => {
++    if (userID && query.data === 'active' && !query.isError) {
++      onApproved?.()
++    }
++  }, [onApproved, query.data, query.isError, userID])
+   if (!userID || (compact && query.data === 'active')) return null
+   const copy = registrationStateCopy(query.data ?? 'context_needed')
+   return (
+diff --git a/apps/web/src/features/forge/forge-home-mobile.test.ts b/apps/web/src/features/forge/forge-home-mobile.test.ts
+index d6e366da..cea2d080 100644
+--- a/apps/web/src/features/forge/forge-home-mobile.test.ts
++++ b/apps/web/src/features/forge/forge-home-mobile.test.ts
+@@ -24,8 +24,22 @@ test('homepage does not load optional GPU ornament runtimes or announce a rotati
+   assert.doesNotMatch(source, /HOME_MODEL_NAMES|HOME_MODEL_ROTATION_MS/)
+ })
+ 
+-test('scroll animation is progressive and has a reduced-motion fallback', () => {
+-  assert.match(css, /@supports \(animation-timeline: view\(\)\)/)
+-  assert.match(css, /prefers-reduced-motion: reduce/)
++test('the homepage owns and cleans up its progressive motion enhancement', () => {
++  assert.match(source, /return mountHomeMotion\(rootRef\.current\)/)
+   assert.doesNotMatch(source, /addEventListener\(['"]scroll/)
+ })
++
++test('reduced motion disables animation, transitions and transformed surfaces', () => {
++  const reducedMotion = css.match(
++    /@media \(prefers-reduced-motion: reduce\) \{([\s\S]*?)\n\}/
++  )?.[1]
++  assert.ok(reducedMotion)
++  assert.match(reducedMotion, /animation: none !important/)
++  assert.match(reducedMotion, /transition: none !important/)
++  assert.match(reducedMotion, /scroll-behavior: auto !important/)
++  assert.match(reducedMotion, /transform: none !important/)
++  assert.match(
++    css,
++    /\.lmm-story:not\(\[data-chapter\]\) \[data-story-panel='2'\]/
++  )
++})
+diff --git a/apps/web/src/features/forge/forge-home.test.tsx b/apps/web/src/features/forge/forge-home.test.tsx
+index a3fe066a..1b026fe3 100644
+--- a/apps/web/src/features/forge/forge-home.test.tsx
++++ b/apps/web/src/features/forge/forge-home.test.tsx
+@@ -62,9 +62,11 @@ for (const key of [
+   })
+ }
+ 
+-const matchMediaStub = () => ({
+-  matches: false,
+-  media: '',
++// Keep unrelated React integration tests on the OS reduced-motion path;
++// the motion lifecycle has its own manually stepped animation tests.
++const matchMediaStub = (media: string) => ({
++  matches: media === '(prefers-reduced-motion: reduce)',
++  media,
+   addListener() {},
+   removeListener() {},
+   addEventListener() {},
+@@ -333,9 +335,7 @@ describe('ForgeHome configured destinations', () => {
+       }),
+     })
+     assert.equal(
+-      hidden.container.querySelector(
+-        '.forge-home-destinations a[href="/security"]'
+-      ),
++      hidden.container.querySelector('.lmm-destinations a[href="/security"]'),
+       null
+     )
+     await unmountHome(hidden)
+@@ -346,7 +346,7 @@ describe('ForgeHome configured destinations', () => {
+     })
+     assert.ok(
+       gated.container.querySelector(
+-        '.forge-home-destinations a[href="/sign-in?redirect=%2Fsecurity"]'
++        '.lmm-destinations a[href="/sign-in?redirect=%2Fsecurity"]'
+       )
+     )
+     await unmountHome(gated)
+@@ -729,7 +729,7 @@ describe('Purchase entry follows account access', () => {
+     const pending = await renderHome(null, true, true)
+     assert.equal(
+       pending.container
+-        .querySelector('.forge-home-hero-actions a')
++        .querySelector('.lmm-intro-actions a')
+         ?.getAttribute('href'),
+       '/sign-in?redirect=%2Fwallet'
+     )
+@@ -738,7 +738,7 @@ describe('Purchase entry follows account access', () => {
+     const ready = await renderHome(null)
+     assert.equal(
+       ready.container
+-        .querySelector('.forge-home-hero-actions a')
++        .querySelector('.lmm-intro-actions a')
+         ?.getAttribute('href'),
+       '/sign-up'
+     )
+@@ -754,7 +754,7 @@ describe('Purchase entry follows account access', () => {
+     })
+     assert.equal(
+       rendered.container
+-        .querySelector('.forge-home-hero-actions a')
++        .querySelector('.lmm-intro-actions a')
+         ?.textContent?.trim(),
+       'Sign in'
+     )
+@@ -769,7 +769,7 @@ describe('Purchase entry follows account access', () => {
+       developer_access_granted: true,
+     })
+     const purchase = rendered.container.querySelector<HTMLAnchorElement>(
+-      '.forge-home-hero-actions a'
++      '.lmm-intro-actions a'
+     )
+     assert.ok(purchase)
+     await act(async () => {
+@@ -788,7 +788,7 @@ describe('Purchase entry follows account access', () => {
+       developer_access_granted: false,
+     })
+     const purchase = rendered.container.querySelector<HTMLAnchorElement>(
+-      '.forge-home-hero-actions a'
++      '.lmm-intro-actions a'
+     )
+     assert.ok(purchase)
+     assert.equal(purchase.textContent?.trim(), 'Check access status')
+diff --git a/apps/web/src/features/home/home-motion-lifecycle.test.ts b/apps/web/src/features/home/home-motion-lifecycle.test.ts
+new file mode 100644
+index 00000000..57b330dc
+--- /dev/null
++++ b/apps/web/src/features/home/home-motion-lifecycle.test.ts
+@@ -0,0 +1,242 @@
++/*
++Copyright (C) 2023-2026 QuantumNous
++
++This program is free software: you can redistribute it and/or modify
++it under the terms of the GNU Affero General Public License as
++published by the Free Software Foundation, either version 3 of the
++License, or (at your option) any later version.
++
++This program is distributed in the hope that it will be useful,
++but WITHOUT ANY WARRANTY; without even the implied warranty of
++MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
++GNU Affero General Public License for more details.
++
++You should have received a copy of the GNU Affero General Public License
++along with this program. If not, see <https://www.gnu.org/licenses/>.
++
++For commercial licensing, please contact support@quantumnous.com
++*/
++import assert from 'node:assert/strict'
++import { test } from 'node:test'
++
++import { Window } from 'happy-dom'
++
++import { mountHomeMotion } from './home-motion'
++
++function fixture() {
++  const view = new Window({ url: 'https://example.test/' })
++  const frames = new Map<number, FrameRequestCallback>()
++  let nextFrame = 0
++  let disconnected = 0
++  let intersection:
++    | ((entries: { isIntersecting: boolean }[]) => void)
++    | undefined
++  const listeners = new Set<() => void>()
++  const reduced = {
++    matches: false,
++    addEventListener(_event: string, listener: () => void) {
++      listeners.add(listener)
++    },
++    removeEventListener(_event: string, listener: () => void) {
++      listeners.delete(listener)
++    },
++  }
++  Object.defineProperty(view, 'matchMedia', {
++    value: (query: string) =>
++      query.includes('prefers-reduced-motion')
++        ? reduced
++        : { matches: true, addEventListener() {}, removeEventListener() {} },
++  })
++  Object.defineProperty(view.document, 'hidden', {
++    configurable: true,
++    value: false,
++  })
++  Object.defineProperty(view, 'IntersectionObserver', {
++    configurable: true,
++    value: class {
++      constructor(callback: typeof intersection) {
++        intersection = callback
++      }
++      observe() {}
++      disconnect() {
++        disconnected += 1
++      }
++    },
++  })
++  Object.defineProperty(view, 'ResizeObserver', {
++    value: class {
++      observe() {}
++      disconnect() {
++        disconnected += 1
++      }
++    },
++  })
++  const globals = {
++    window: view,
++    document: view.document,
++    navigator: view.navigator,
++    requestAnimationFrame: (callback: FrameRequestCallback) => {
++      frames.set(++nextFrame, callback)
++      return nextFrame
++    },
++    cancelAnimationFrame: (id: number) => {
++      frames.delete(id)
++    },
++  }
++  const previous = new Map<string, PropertyDescriptor | undefined>()
++  for (const [key, value] of Object.entries(globals)) {
++    previous.set(key, Object.getOwnPropertyDescriptor(globalThis, key))
++    Object.defineProperty(globalThis, key, { configurable: true, value })
++  }
++  document.body.innerHTML = `<main>
++    <section data-cinema><div data-cinema-inner><canvas data-film></canvas></div></section>
++    <button data-motion-toggle><span data-play-label>Play</span><span data-pause-label>Pause</span></button>
++    <section data-story>
++      <div data-story-step></div><div data-story-step></div><div data-story-step></div>
++      <div data-story-panel><button>One</button></div>
++      <div data-story-panel><button>Two</button></div>
++      <div data-story-panel><button>Three</button></div>
++    </section></main>`
++  const root = document.querySelector<HTMLElement>('main')
++  assert.ok(root)
++  const canvas = root.querySelector('canvas')
++  assert.ok(canvas)
++  // A zero-size canvas never draws geometry, but retains a real animation
++  // lifecycle. The clock below is advanced explicitly, not by real timers.
++  Object.defineProperty(canvas, 'getContext', { value: () => ({}) })
++  let cleanup: (() => void) | undefined
++  return {
++    root,
++    view,
++    frames,
++    reduced,
++    get disconnected() {
++      return disconnected
++    },
++    mount() {
++      cleanup = mountHomeMotion(root)
++    },
++    visible(value: boolean) {
++      intersection?.([{ isIntersecting: value }])
++    },
++    reduce(value: boolean) {
++      reduced.matches = value
++      for (const listener of listeners) listener()
++    },
++    tick(now = 100) {
++      const pending = [...frames.values()]
++      frames.clear()
++      for (const callback of pending) callback(now)
++    },
++    stop() {
++      cleanup?.()
++      cleanup = undefined
++    },
++    close() {
++      cleanup?.()
++      view.close()
++      for (const [key, descriptor] of previous) {
++        if (descriptor) Object.defineProperty(globalThis, key, descriptor)
++        else Reflect.deleteProperty(globalThis, key)
++      }
++    },
++  }
++}
++
++test('motion uses the feature-tested window observers and releases all owned work', () => {
++  const page = fixture()
++  try {
++    page.mount()
++    page.visible(true)
++    page.tick()
++    assert.equal(page.root.dataset.motion, 'playing')
++    assert.equal(page.frames.size, 1)
++    page.stop()
++    assert.equal(page.disconnected, 2)
++    assert.equal(page.frames.size, 0)
++    assert.equal(page.root.dataset.motion, undefined)
++    page.reduce(true)
++    assert.equal(page.frames.size, 0)
++  } finally {
++    page.close()
++  }
++})
++
++test('reduced motion stops the film and leaves the useful final panel accessible', () => {
++  const page = fixture()
++  try {
++    page.mount()
++    page.visible(true)
++    page.tick()
++    page.reduce(true)
++    page.tick(200)
++    assert.equal(page.frames.size, 0)
++    assert.equal(page.root.dataset.motion, 'reduced')
++    assert.equal(
++      page.root.querySelector<HTMLElement>('[data-motion-toggle]')?.hidden,
++      true
++    )
++    assert.equal(
++      page.root
++        .querySelector<HTMLElement>('[data-cinema-inner]')
++        ?.style.getPropertyValue('--scene-progress'),
++      '0'
++    )
++    const panels = [
++      ...page.root.querySelectorAll<HTMLElement>('[data-story-panel]'),
++    ]
++    assert.deepEqual(
++      panels.map((panel) => panel.inert),
++      [true, true, false]
++    )
++    assert.equal(panels[2].getAttribute('aria-hidden'), 'false')
++  } finally {
++    page.close()
++  }
++})
++
++test('pausing and hidden tabs do not retain a running animation loop', () => {
++  const page = fixture()
++  try {
++    page.mount()
++    page.visible(true)
++    page.tick()
++    const toggle = page.root.querySelector<HTMLButtonElement>(
++      '[data-motion-toggle]'
++    )
++    assert.ok(toggle)
++    toggle.click()
++    page.tick(200)
++    assert.equal(page.root.dataset.motion, 'paused')
++    assert.equal(toggle.getAttribute('aria-pressed'), 'true')
++    assert.equal(page.frames.size, 0)
++    toggle.click()
++    assert.equal(page.frames.size, 1)
++    Object.defineProperty(document, 'hidden', {
++      configurable: true,
++      value: true,
++    })
++    page.view.document.dispatchEvent(new page.view.Event('visibilitychange'))
++    assert.equal(page.frames.size, 0)
++  } finally {
++    page.close()
++  }
++})
++
++test('missing observer support leaves static content usable without attaching an animation', () => {
++  const page = fixture()
++  try {
++    Object.defineProperty(page.view, 'IntersectionObserver', {
++      value: undefined,
++    })
++    page.mount()
++    assert.equal(page.frames.size, 0)
++    assert.equal(
++      page.root.querySelector<HTMLElement>('[data-motion-toggle]')?.hidden,
++      true
++    )
++    assert.equal(page.root.querySelectorAll('[data-story-panel]').length, 3)
++  } finally {
++    page.close()
++  }
++})
+diff --git a/apps/web/src/features/home/home-motion.ts b/apps/web/src/features/home/home-motion.ts
+index 30f15b18..64c52215 100644
+--- a/apps/web/src/features/home/home-motion.ts
++++ b/apps/web/src/features/home/home-motion.ts
+@@ -201,7 +201,10 @@ export function mountHomeMotion(root: HTMLElement) {
+   const toggle = root.querySelector<HTMLButtonElement>('[data-motion-toggle]')
+   const panels = [...root.querySelectorAll<HTMLElement>('[data-story-panel]')]
+   const links = [...root.querySelectorAll<HTMLElement>('[data-step-link]')]
+-  if (!('IntersectionObserver' in window) || !('ResizeObserver' in window)) {
++  if (
++    typeof window.IntersectionObserver !== 'function' ||
++    typeof window.ResizeObserver !== 'function'
++  ) {
+     draw?.(0, { x: 0, y: 0 }, 0)
+     if (toggle) toggle.hidden = true
+     return () => {}
+@@ -377,7 +380,7 @@ export function mountHomeMotion(root: HTMLElement) {
+       schedule()
+     }
+   }
+-  const observer = new IntersectionObserver(([entry]) => {
++  const observer = new window.IntersectionObserver(([entry]) => {
+     visible = entry.isIntersecting
+     lastTime = 0
+     if (!visible && frame !== null) {
+@@ -390,7 +393,7 @@ export function mountHomeMotion(root: HTMLElement) {
+     }
+   })
+   observer.observe(cinema)
+-  const resizeObserver = new ResizeObserver(resize)
++  const resizeObserver = new window.ResizeObserver(resize)
+   resizeObserver.observe(root)
+   resizeObserver.observe(cinema)
+   cinema.addEventListener('pointermove', move, { passive: true })
