@@ -32,7 +32,11 @@ jobs:
           bun-version: '1.3.14'
       - name: Apply checksum-verified reviewed source changes
         id: apply
-        run: python3 .github/scripts/reconcile-integration.py
+        run: |
+          mkdir -p integration-evidence
+          git config core.abbrev 9
+          trap 'git diff -- apps > integration-evidence/reproduced.patch' EXIT
+          python3 .github/scripts/reconcile-integration.py
       - name: Install locked workspace dependencies
         id: install
         run: bun install --frozen-lockfile 2>&1 | tee integration-evidence/install.log
