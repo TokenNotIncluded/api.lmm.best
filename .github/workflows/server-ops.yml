@@ -118,6 +118,8 @@ jobs:
           python3 scripts/test-server-repair-startup.py
           python3 scripts/test-server-ops-commit-request.py
           python3 scripts/test-server-ops-helper-payload.py
+          python3 scripts/test-server-confirm-recovery.py
+          python3 scripts/test-server-recovery-confirmation.py
       - name: Validate explicit owner request
         id: request
         run: python3 scripts/server-ops-commit-request.py --validate-only
@@ -156,8 +158,14 @@ jobs:
           (root/'receipt.json').write_text(json.dumps(receipt)+'\n')
           print(json.dumps(receipt))
           PY
+      - name: Require public release health before native confirmation
+        if: steps.request.outputs.operation == 'confirm-recovery-343'
+        run: python3 -B scripts/verify-public-production.py --expected-backend-version 0.2.51
       - name: Execute only the explicitly requested fixed operation
         env:
           PRODUCTION_SSH_PRIVATE_KEY: ${{ secrets.PRODUCTION_SSH_PRIVATE_KEY }}
           PRODUCTION_SSH_KNOWN_HOSTS: ${{ secrets.PRODUCTION_SSH_KNOWN_HOSTS }}
         run: python3 scripts/server-ops-commit-request.py
+      - name: Verify public release health after native confirmation
+        if: steps.request.outputs.operation == 'confirm-recovery-343'
+        run: python3 -B scripts/verify-public-production.py --expected-backend-version 0.2.51
