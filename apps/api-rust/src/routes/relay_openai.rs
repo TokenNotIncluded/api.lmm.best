@@ -47,6 +47,8 @@ use lmm_contracts::relay::{
 use serde::Serialize;
 use sqlx::{PgPool, Row};
 
+mod responses_terminal;
+
 const MAX_RELAY_BODY_BYTES: usize = 64 * 1024 * 1024;
 const MAX_UPSTREAM_ERROR_BODY_BYTES: usize = 1024 * 1024;
 const COMPACT_MODEL_SUFFIX: &str = "-openai-compact";
@@ -1079,20 +1081,19 @@ fn legacy_success(
             response
         }
         OpenAiRelayBody::Upstream { content_type, body } => {
-            // Native passthrough records bytes/result only. It intentionally
-            // does not decode JSON or inspect provider event names.
+            // Native Responses checks bounded event framing and completion.
+            // Other native protocols keep their existing raw-byte observer.
             let stream = content_type
                 .as_ref()
                 .and_then(|value| value.to_str().ok())
                 .and_then(|value| value.split(';').next())
                 .is_some_and(|value| value.trim().eq_ignore_ascii_case("text/event-stream"));
             let labels = MetricLabels::native_raw(protocol, stream, ConversionResult::Success);
-            let body = observe_body_with_timing(
-                body,
-                (*observer).clone(),
-                labels,
-                StreamTiming::default(),
-            );
+            let body = if stream && protocol == Protocol::OpenAiResponses {
+                responses_terminal::observe(body, (*observer).clone(), labels)
+            } else {
+                observe_body_with_timing(body, (*observer).clone(), labels, StreamTiming::default())
+            };
             let mut response = Response::new(body);
             *response.status_mut() = result.status;
             if let Some(content_type) = content_type {
