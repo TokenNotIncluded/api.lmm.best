@@ -2,7 +2,7 @@
   "format": 1,
   "incident": 343,
   "operation": "recover-red-packet-schema-343",
-  "base_sha": "ec33a1d0c024e0af68cbe9284cfb17596390f619",
+  "base_sha": "23185820f2e7ecfd0b380e4b4ecabe4e6033a205",
   "script_sha256": "8f79028f52fcfa57c718149e61b9b65548da8215a572d75a058ee83cee58d7c2",
   "confirm": "api.lmm.best"
 }
