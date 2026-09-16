@@ -59,6 +59,8 @@ jobs:
           PY
 
       - name: Fetch independent locked dependencies
+        # pull_request workflows validate the synthetic merge commit, so path
+        # dependencies and this independent lockfile are checked against current main.
         run: |
           cargo fetch --locked \
             --manifest-path apps/api-rust/tests/root-route-acceptance/Cargo.toml
