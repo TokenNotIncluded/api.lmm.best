@@ -1,0 +1,103 @@
+name: Inspect production Responses readiness
+on:
+  push:
+    branches: [release/acceptance-20260916]
+    paths: [.github/workflows/inspect-production-sse.yml]
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: production
+    steps:
+      - name: Inspect service and reuse an existing protected native probe
+        env:
+          PRODUCTION_SSH_PRIVATE_KEY: ${{ secrets.PRODUCTION_SSH_PRIVATE_KEY }}
+          PRODUCTION_SSH_KNOWN_HOSTS: ${{ secrets.PRODUCTION_SSH_KNOWN_HOSTS }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$PRODUCTION_SSH_PRIVATE_KEY"
+          test -n "$PRODUCTION_SSH_KNOWN_HOSTS"
+          umask 077
+          root=$(mktemp -d)
+          trap 'rm -rf "$root"' EXIT
+          printf '%s\n' "$PRODUCTION_SSH_PRIVATE_KEY" > "$root/key"
+          printf '%s\n' "$PRODUCTION_SSH_KNOWN_HOSTS" > "$root/known_hosts"
+          timeout 150 ssh -i "$root/key" -p 222 -o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=5 -o ServerAliveCountMax=2 -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$root/known_hosts" root@45.59.187.63 python3 - <<'PY'
+          import gzip, json, re, stat, subprocess, time, urllib.request, urllib.error
+          from pathlib import Path
+          class NoRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self, req, fp, code, msg, headers, newurl):
+                  raise ValueError('redirect refused')
+          opener = urllib.request.build_opener(NoRedirect())
+          def request(path, token=None, data=None):
+              headers={'User-Agent':'LMM-Release-Acceptance/1.0','Cache-Control':'no-cache','Accept-Encoding':'gzip'}
+              if token: headers['Authorization']='Bearer '+token
+              if data is not None: headers['Content-Type']='application/json'
+              req=urllib.request.Request('https://api.lmm.best'+path,headers=headers,data=None if data is None else json.dumps(data).encode())
+              with opener.open(req,timeout=45) as response:
+                  raw=response.read(1048577)
+                  if len(raw)>1048576: raise ValueError('probe response too large')
+                  encoding=response.headers.get('Content-Encoding','').lower()
+                  if encoding=='gzip': raw=gzip.decompress(raw)
+                  elif encoding not in ('','identity'): raise ValueError('unexpected content encoding')
+                  if len(raw)>1048576: raise ValueError('decoded response too large')
+                  return response.status,dict(response.headers),raw
+          def private_read(path, limit):
+              info=path.lstat()
+              if not stat.S_ISREG(info.st_mode) or info.st_mode & 0o077: raise ValueError('unprotected probe file')
+              if info.st_size>limit: raise ValueError('oversized probe file')
+              return path.read_text()
+          report={'services':{},'native_failures':[],'authenticated_sse':'not_attempted'}
+          for unit in ('nginx.service','lmm-api.service'):
+              result=subprocess.run(['/usr/bin/systemctl','is-active',unit],capture_output=True,text=True,timeout=10)
+              report['services'][unit]=result.stdout.strip()
+          token=None
+          work=Path('/var/lib/lmm-api-go-deploy/work')
+          categories=('pre-upgrade local status probe failed','pre-upgrade public status probe failed','pre-upgrade public frontend probe failed','pre-upgrade authenticated business probe failed','pre-upgrade live probe failed','installed','rollback package','candidate probe binary version mismatch','active frontend does not exactly match rollback Web package','N-1 schema preflight hard stop','billing writer preflight','verify memory','controller backup')
+          for workspace in sorted(work.iterdir(),key=lambda p:p.lstat().st_mtime,reverse=True)[:30]:
+              if workspace.is_symlink() or not workspace.is_dir(): continue
+              state=workspace/'state'/'status.json'
+              if not state.exists() or state.is_symlink(): continue
+              value=json.loads(private_read(state,65536))
+              if value.get('phase')=='FAILED_PREARM':
+                  failure=str(value.get('failure',''))
+                  category=next((prefix for prefix in categories if prefix in failure),'unclassified_prearm')
+                  report['native_failures'].append({'phase':'FAILED_PREARM','reason':value.get('reason'),'category':category})
+              probe=workspace/'state'/'probe-token'
+              if token is None and value.get('phase')=='CONFIRMED' and probe.exists():
+                  candidate=private_read(probe,256).strip()
+                  if re.fullmatch(r'sk-[A-Za-z0-9_-]{16,128}',candidate): token=candidate
+          try:
+              _,_,raw=request('/api/status')
+              status=json.loads(raw)
+              report['backend_version']=status.get('data',{}).get('version')
+              report['status_success']=status.get('success') is True
+              if token:
+                  _,_,raw=request('/v1/models',token)
+                  models={row.get('id') for row in json.loads(raw).get('data',[]) if isinstance(row,dict)}
+                  chosen=next((model for model in ('gpt-4.1-nano','gpt-4o-mini','gpt-4.1-mini') if model in models),None)
+                  if chosen:
+                      started=time.monotonic()
+                      code,headers,raw=request('/v1/responses',token,{'model':chosen,'input':'Reply with only the word OK.','stream':True,'max_output_tokens':16})
+                      kinds=[]
+                      for line in raw.decode('utf-8').splitlines():
+                          if line.startswith('data: '):
+                              data=line[6:]
+                              if data=='[DONE]': continue
+                              event=json.loads(data)
+                              kind=event.get('type','')
+                              if re.fullmatch(r'[A-Za-z0-9_.-]{1,80}',kind): kinds.append(kind)
+                      report['authenticated_sse']={'status':code,'model':chosen,'seconds':round(time.monotonic()-started,3),'event_count':len(kinds),'terminal_events':[kind for kind in kinds if kind in ('response.completed','response.done','response.failed','response.incomplete','response.cancelled','response.canceled')],'http_body_decoded':True,'cache_control':headers.get('Cache-Control',headers.get('cache-control',''))}
+                  else: report['authenticated_sse']='no_low_cost_probe_model'
+              else: report['authenticated_sse']='no_existing_confirmed_probe_token'
+          except Exception as error:
+              report['probe_error_type']=type(error).__name__
+              if isinstance(error,urllib.error.HTTPError): report['probe_http_status']=error.code
+          finally:
+              token=None
+          print(json.dumps(report,indent=2,sort_keys=True))
+          if not report.get('status_success') or any(state!='active' for state in report['services'].values()): raise SystemExit(1)
+          PY
