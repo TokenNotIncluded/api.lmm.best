@@ -112,11 +112,11 @@ def identity_query(row):
     schema = row['schema'].encode().hex()
     table = row['table'].encode().hex()
     return """SELECT json_build_object(
-      'database',current_database(),'database_oid',d.oid,
+      'database',current_database(),'database_oid',d.oid::bigint,
       'started',extract(epoch FROM pg_postmaster_start_time())::text,
       'version',current_setting('server_version_num'),
-      'port',current_setting('port'),'namespace_oid',n.oid,
-      'relation_oid',c.oid,'owner_oid',c.relowner)
+      'port',current_setting('port'),'namespace_oid',n.oid::bigint,
+      'relation_oid',c.oid::bigint,'owner_oid',c.relowner::bigint)
       FROM pg_catalog.pg_database d CROSS JOIN pg_catalog.pg_class c
       JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
       WHERE d.datname=current_database()
@@ -172,7 +172,7 @@ def diagnose(report_path):
     if os.geteuid() != 0 or not report.is_file() or report.is_symlink():
         raise ValueError('private_root_audit_required')
     answer = {'operation':'inspect-backup-343','database_changed':False,
-              'service_changed':False,'diagnostic_version':4}
+              'service_changed':False,'diagnostic_version':5}
     try:
         database, env = connection(parse_environment(private_bytes(CONFIG).decode('utf-8')))
         u = urllib.parse.urlsplit(database)
@@ -250,6 +250,13 @@ def diagnose(report_path):
         answer['application_privileges_changed'] = False
     except (ValueError,OSError,UnicodeError,KeyError) as e:
         answer['diagnostic_error_type'] = type(e).__name__
+        allowed = {'invalid_database_identity','invalid_database_port','local_postgres_account_unavailable',
+                   'no_verified_local_database_identity','database_size_unverified',
+                   'insufficient_bounded_backup_capacity','local_full_backup_failed',
+                   'unsafe_full_backup_output','invalid_full_backup_archive',
+                   'application_identity_unavailable','invalid_recorded_relation','recorded_relation_mismatch'}
+        if type(e) is ValueError and str(e) in allowed:
+            answer['diagnostic_error_code'] = str(e)
     report.write_text(json.dumps(answer,sort_keys=True,indent=2)+'\n')
 
 
