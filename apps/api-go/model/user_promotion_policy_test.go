@@ -64,7 +64,7 @@ func TestInsertSuppressesPromotionalCreditsForDisposableEmail(t *testing.T) {
 	assert.Zero(t, storedInviter.AffCount)
 }
 
-func TestInsertKeepsPromotionalCreditsForDurableEmail(t *testing.T) {
+func TestInsertKeepsRegistrationGiftButDefersReferralReward(t *testing.T) {
 	setupUserUpdateTestState(t)
 	preserveRegistrationRewardSettings(t)
 
@@ -87,11 +87,12 @@ func TestInsertKeepsPromotionalCreditsForDurableEmail(t *testing.T) {
 
 	var stored User
 	require.NoError(t, DB.First(&stored, durable.Id).Error)
-	assert.Equal(t, 400, stored.Quota)
+	assert.Equal(t, 100, stored.Quota)
+	assert.Equal(t, inviter.Id, stored.InviterId)
 
 	var storedInviter User
 	require.NoError(t, DB.First(&storedInviter, inviter.Id).Error)
-	assert.Equal(t, 200, storedInviter.AffQuota)
+	assert.Zero(t, storedInviter.AffQuota)
 	assert.Equal(t, 1, storedInviter.AffCount)
 }
 

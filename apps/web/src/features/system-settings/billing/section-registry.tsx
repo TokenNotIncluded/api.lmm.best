@@ -80,7 +80,10 @@ const BILLING_SECTIONS = [
           QuotaForNewUser: settings.QuotaForNewUser,
           PreConsumedQuota: settings.PreConsumedQuota,
           QuotaForInviter: settings.QuotaForInviter,
-          QuotaForInvitee: settings.QuotaForInvitee,
+          ReferralMinTopUpQuota: settings.ReferralMinTopUpQuota,
+          ReferralMaxRewardQuota: settings.ReferralMaxRewardQuota,
+          ReferralPenaltyPercent: settings.ReferralPenaltyPercent,
+          ReferralMaxPenaltyQuota: settings.ReferralMaxPenaltyQuota,
           OpenSourceBountyFeeRate: settings.OpenSourceBountyFeeRate,
           TopUpLink: settings.TopUpLink,
           general_setting: {

@@ -134,6 +134,23 @@ function listChangedFiles(before, files) {
   return changed
 }
 
+function reportFirstDifference(file, before) {
+  const path = join(root, file)
+  const previous = before.get(path).toString('utf8').split('\n')
+  const current = readFileSync(path, 'utf8').split('\n')
+  const count = Math.max(previous.length, current.length)
+  for (let index = 0; index < count; index++) {
+    if (previous[index] === current[index]) continue
+    console.error(`  First difference at line ${index + 1}:`)
+    // Prefix and JSON-escape source text so it cannot become workflow commands.
+    const beforeLine = JSON.stringify(previous[index]?.slice(0, 240))
+    const afterLine = JSON.stringify(current[index]?.slice(0, 240))
+    console.error(`  before: ${beforeLine}`)
+    console.error(`  after:  ${afterLine}`)
+    break
+  }
+}
+
 const files = walk(root).filter(
   (file) => statSync(file).size < 10 * 1024 * 1024
 )
@@ -160,6 +177,7 @@ try {
       console.error('Format issues found in protected-header-safe check:')
       for (const file of changed) {
         console.error(file)
+        reportFirstDifference(file, before)
       }
       exitCode = 1
     }

@@ -315,6 +315,7 @@ export interface UserWalletData {
   request_count: number
   /** Affiliate quota (pending rewards) */
   aff_quota: number
+  aff_debt?: number
   /** Total affiliate quota earned (historical) */
   aff_history_quota: number
   /** Number of successful affiliate invites */

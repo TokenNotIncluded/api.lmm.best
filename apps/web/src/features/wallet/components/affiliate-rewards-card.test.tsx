@@ -62,8 +62,22 @@ describe('AffiliateRewardsCard referral description', () => {
 
     assert.match(
       markup,
-      /Earn rewards when users join through your referral link/
+      /Earn a reward after an invited user completes their first real paid top-up/
     )
     assert.doesNotMatch(markup, /line-clamp-1/)
   })
+})
+
+test('shows reward debt and hides transfer when rewards have been clawed back', () => {
+  const markup = renderToStaticMarkup(
+    <I18nextProvider i18n={i18n}>
+      <AffiliateRewardsCard
+        user={{ ...user, aff_debt: 500000 }}
+        affiliateLink='https://example.com/signup?aff=x'
+        onTransfer={() => {}}
+      />
+    </I18nextProvider>
+  )
+  assert.match(markup, /Reward debt/)
+  assert.doesNotMatch(markup, /Transfer to Balance/)
 })

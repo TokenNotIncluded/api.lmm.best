@@ -369,3 +369,18 @@ export async function adminUnbindCustomOAuth(
   )
   return res.data
 }
+
+export type ReferralModerationPayload = {
+  id: number
+  action: 'ban_abuse' | 'restore_referral'
+  reason: 'abuse' | 'bulk_registration' | 'mistaken_ban'
+  evidence: string
+  penalize_inviter: boolean
+  request_id: string
+}
+
+export async function moderateReferralUser(
+  payload: ReferralModerationPayload
+): Promise<ApiResponse<null>> {
+  return (await api.post('/api/user/manage', payload)).data
+}

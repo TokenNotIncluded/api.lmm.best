@@ -17,6 +17,7 @@ import (
 )
 
 type TopUp struct {
+	ReferralExcluded      bool    `json:"-" gorm:"not null;default:false"`
 	Id                    int     `json:"id"`
 	UserId                int     `json:"user_id" gorm:"index"`
 	Amount                int64   `json:"amount"` // deprecated integer projection
@@ -481,6 +482,9 @@ func completeExternalTopUpOnDB(db *gorm.DB, settlement ExternalTopUpSettlement) 
 				}
 			}
 			if err := creditTopUpQuota(tx, completed.UserId, quota, userUpdates); err != nil {
+				return err
+			}
+			if err := grantFirstTopUpReferralTx(tx, &completed); err != nil {
 				return err
 			}
 			if err := consumeDiscountCodeUsage(tx, &completed); err != nil {
@@ -1377,6 +1381,7 @@ func ManualCompleteTopUp(tradeNo string, callerIp string) error {
 		topUp.CreditedQuota = int64(quotaToAdd)
 		topUp.CompleteTime = common.GetTimestamp()
 		topUp.Status = common.TopUpStatusSuccess
+		topUp.ReferralExcluded = true
 		if err := tx.Save(topUp).Error; err != nil {
 			return err
 		}

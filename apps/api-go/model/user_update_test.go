@@ -155,7 +155,7 @@ func TestTransferAffQuotaToQuotaRejectsFinalWalletOverflowAtomically(t *testing.
 	require.Equal(t, transferQuota, stored.AffQuota)
 }
 
-func TestInviteRewardSaturatesAffiliateBalancesAtJSSafeBounds(t *testing.T) {
+func TestInviteCountSaturatesWithoutAwardingAtSignup(t *testing.T) {
 	setupUserUpdateTestState(t)
 	oldInviterQuota := common.QuotaForInviter
 	common.QuotaForInviter = 10
@@ -170,13 +170,14 @@ func TestInviteRewardSaturatesAffiliateBalancesAtJSSafeBounds(t *testing.T) {
 	}
 	require.NoError(t, DB.Create(&inviter).Error)
 
-	require.NoError(t, inviteUser(inviter.Id))
+	invitee := User{Username: "count-only-signup", AffCode: "count-only-aff", Status: common.UserStatusEnabled}
+	require.NoError(t, DB.Transaction(func(tx *gorm.DB) error { return createUserWithInviterTx(tx, &invitee, inviter.Id) }))
 
 	var stored User
 	require.NoError(t, DB.First(&stored, inviter.Id).Error)
 	require.Equal(t, math.MaxInt32, stored.AffCount)
-	require.Equal(t, common.MaxWalletQuota, stored.AffQuota)
-	require.Equal(t, common.MaxWalletQuota, stored.AffHistoryQuota)
+	require.Equal(t, common.MaxWalletQuota-5, stored.AffQuota)
+	require.Equal(t, common.MaxWalletQuota-5, stored.AffHistoryQuota)
 }
 
 func TestBatchWalletAccountingRejectsOverflowWithoutApplyingCounters(t *testing.T) {
