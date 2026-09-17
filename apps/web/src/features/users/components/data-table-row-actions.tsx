@@ -59,6 +59,7 @@ import {
 import { getUserActionMessage } from '../lib'
 import type { User, ManageUserAction } from '../types'
 import { UserBindingDialog } from './dialogs/user-binding-dialog'
+import { ReferralModerationDialog } from './referral-moderation-dialog'
 import { UserRecommendationArchiveDialog } from './user-recommendation-archive-dialog'
 import { useUsers } from './users-provider'
 
@@ -70,6 +71,9 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
   const { t } = useTranslation()
   const user = row.original
   const { setOpen, setCurrentRow, triggerRefresh } = useUsers()
+  const [referralAction, setReferralAction] = useState<
+    'ban' | 'restore' | null
+  >(null)
   const [resetPasskeyOpen, setResetPasskeyOpen] = useState(false)
   const [resetTwoFAOpen, setResetTwoFAOpen] = useState(false)
   const [bindingDialogOpen, setBindingDialogOpen] = useState(false)
@@ -186,6 +190,17 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
           </DropdownMenuItem>
         )}
 
+        {!isRoot && (
+          <>
+            <DropdownMenuItem onClick={() => setReferralAction('ban')}>
+              {t('Ban for abuse')}
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setReferralAction('restore')}>
+              {t('Overturn abuse ban')}
+            </DropdownMenuItem>
+          </>
+        )}
+
         {isAdmin && !isRoot && (
           <DropdownMenuItem onClick={() => handleManage('demote')}>
             {t('Demote')}
@@ -282,6 +297,15 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
           </DropdownMenuShortcut>
         </DropdownMenuItem>
       </DataTableRowActionMenu>
+
+      {referralAction && (
+        <ReferralModerationDialog
+          user={user}
+          restore={referralAction === 'restore'}
+          onClose={() => setReferralAction(null)}
+          onSuccess={triggerRefresh}
+        />
+      )}
 
       <ConfirmDialog
         open={resetPasskeyOpen}

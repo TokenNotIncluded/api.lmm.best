@@ -129,6 +129,9 @@ func TestApplySubscriptionPaymentEventRenewsExactlyOncePerProviderPeriod(t *test
 	wrongAmount.SettlementAmountMicros = 6_800_000
 	require.Error(t, ApplySubscriptionPaymentEvent(tradeNo, &wrongAmount, "ORD_recurring", "active"))
 
+	// Cancellation is effective when the terminal event is applied, not at the
+	// earlier request time or the beginning of this test. Bound the actual call.
+	cancellationStarted := common.GetTimestamp()
 	require.NoError(t, UpdateSubscriptionProviderState(
 		tradeNo,
 		PaymentProviderWaffoPancake,
@@ -136,9 +139,12 @@ func TestApplySubscriptionPaymentEventRenewsExactlyOncePerProviderPeriod(t *test
 		"canceled",
 		secondStart,
 		secondEnd,
-		now,
+		now-60,
 	))
 	require.NoError(t, DB.First(&subscription, storedOrder.UserSubscriptionId).Error)
 	require.Equal(t, "cancelled", subscription.Status)
-	require.LessOrEqual(t, subscription.EndTime, now)
+	require.GreaterOrEqual(t, subscription.EndTime, cancellationStarted)
+	require.LessOrEqual(t, subscription.EndTime, common.GetTimestamp())
+	require.Equal(t, subscription.UpdatedAt, subscription.EndTime)
+	require.Zero(t, subscription.NextResetTime)
 }

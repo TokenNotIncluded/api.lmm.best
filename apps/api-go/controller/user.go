@@ -613,7 +613,8 @@ func buildSelfUserData(user *model.User) map[string]interface{} {
 		"request_count":            user.RequestCount,
 		"aff_code":                 user.AffCode,
 		"aff_count":                user.AffCount,
-		"aff_quota":                user.AffQuota,
+		"aff_quota":                max(0, user.AffQuota),
+		"aff_debt":                 max(0, -user.AffQuota),
 		"aff_history_quota":        user.AffHistoryQuota,
 		"inviter_id":               user.InviterId,
 		"linux_do_id":              user.LinuxDOId,
@@ -1252,10 +1253,14 @@ func updateAdminPermissionsForUserInTx(c *gin.Context, tx *gorm.DB, userID int, 
 }
 
 type ManageRequest struct {
-	Id     int    `json:"id"`
-	Action string `json:"action"`
-	Value  int    `json:"value"`
-	Mode   string `json:"mode"`
+	Id              int    `json:"id"`
+	Action          string `json:"action"`
+	Value           int    `json:"value"`
+	Mode            string `json:"mode"`
+	RequestId       string `json:"request_id"`
+	Reason          string `json:"reason"`
+	Evidence        string `json:"evidence"`
+	PenalizeInviter bool   `json:"penalize_inviter"`
 }
 
 // ManageUser Only admin user can do this
@@ -1279,6 +1284,10 @@ func ManageUser(c *gin.Context) {
 	myRole := c.GetInt("role")
 	if !canManageTargetRole(myRole, user.Role) {
 		common.ApiErrorI18n(c, i18n.MsgUserNoPermissionHigherLevel)
+		return
+	}
+	if req.Action == "ban_abuse" || req.Action == "restore_referral" {
+		manageReferralModeration(c, req)
 		return
 	}
 	switch req.Action {

@@ -154,6 +154,9 @@ func ApplyPaymentRefund(
 						"refunded_amount_micros": topUp.RefundedAmountMicros + appliedAmount,
 						"refunded_quota":         topUp.RefundedQuota + refundQuota,
 					}
+					if err := refundReferralTx(tx, &topUp, topUp.RefundedAmountMicros+appliedAmount); err != nil {
+						return err
+					}
 					if err := tx.Model(&TopUp{}).Where("id = ?", topUp.Id).Updates(updates).Error; err != nil {
 						return err
 					}

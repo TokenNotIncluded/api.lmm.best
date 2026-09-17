@@ -195,6 +195,9 @@ func InitOptionMap() {
 	common.OptionMap["TurnstileSecretKey"] = ""
 	common.OptionMap["QuotaForNewUser"] = strconv.Itoa(common.QuotaForNewUser)
 	common.OptionMap[OpenSourceBountyFeeRateOptionKey] = "1"
+	for key, value := range referralOptionDefaults() {
+		common.OptionMap[key] = value
+	}
 	common.OptionMap["QuotaForInviter"] = strconv.Itoa(common.QuotaForInviter)
 	common.OptionMap["QuotaForInvitee"] = strconv.Itoa(common.QuotaForInvitee)
 	common.OptionMap["QuotaRemindThreshold"] = strconv.Itoa(common.QuotaRemindThreshold)
@@ -308,6 +311,9 @@ func SyncOptionsContext(ctx context.Context, frequency int) {
 }
 
 func validateOptionValue(key string, value string) error {
+	if err := validateReferralOption(key, value); err != nil {
+		return err
+	}
 	if isRegistrationGuardOption(key) {
 		if key != AssistantRegistrationAutoSuspendOption && key != AssistantRegistrationDailyCapOption {
 			return errors.New("registration guard internal state is not configurable")

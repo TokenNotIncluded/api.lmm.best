@@ -27,6 +27,7 @@ import { formatQuota } from '@/lib/format'
 
 import type { UserWalletData } from '../types'
 import { AffiliateInviteDialog } from './affiliate-invite-dialog'
+import { ReferralHistoryDialog } from './referral-history-dialog'
 
 interface AffiliateRewardsCardProps {
   user: UserWalletData | null
@@ -74,7 +75,7 @@ export function AffiliateRewardsCard({
             </h3>
             <p className='text-muted-foreground text-xs'>
               {t(
-                'Earn rewards when users join through your referral link. Transfer accumulated rewards to your balance anytime.'
+                'Earn a reward after an invited user completes their first real paid top-up. Rewards may be revoked for confirmed abuse or a full refund.'
               )}
             </p>
           </div>
@@ -82,7 +83,14 @@ export function AffiliateRewardsCard({
 
         <div className='grid grid-cols-3 gap-1.5 text-center'>
           {[
-            [t('Pending'), formatQuota(user?.aff_quota ?? 0)],
+            [
+              (user?.aff_debt ?? 0) > 0 ? t('Reward debt') : t('Pending'),
+              formatQuota(
+                (user?.aff_debt ?? 0) > 0
+                  ? (user?.aff_debt ?? 0)
+                  : (user?.aff_quota ?? 0)
+              ),
+            ],
             [t('Total Earned'), formatQuota(user?.aff_history_quota ?? 0)],
             [t('Invites'), String(user?.aff_count ?? 0)],
           ].map(([label, value]) => (
@@ -99,6 +107,7 @@ export function AffiliateRewardsCard({
 
         <div className='flex flex-wrap items-center justify-end gap-2'>
           <AffiliateInviteDialog affiliateLink={affiliateLink} />
+          <ReferralHistoryDialog />
           {hasRewards && (
             <Button
               onClick={onTransfer}

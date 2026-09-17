@@ -449,6 +449,11 @@ export type ModelSettings = {
 }
 
 export type BillingSettings = {
+  ReferralMinTopUpQuota: number
+  ReferralMaxRewardQuota: number
+  ReferralPenaltyPercent: number
+  ReferralMaxPenaltyQuota: number
+
   QuotaForNewUser: number
   PreConsumedQuota: number
   QuotaForInviter: number
