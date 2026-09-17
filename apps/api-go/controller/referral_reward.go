@@ -27,6 +27,11 @@ func manageReferralModeration(c *gin.Context, req ManageRequest) {
 // Caller identity is always taken from authentication, never a query user_id.
 // Cursor pagination remains stable while new events are appended.
 func GetReferralRewards(c *gin.Context) {
+	userID := c.GetInt("id")
+	if userID <= 0 {
+		c.JSON(http.StatusUnauthorized, gin.H{"success": false, "message": "authentication required"})
+		return
+	}
 	before := 0
 	if raw := c.Query("before"); raw != "" {
 		var err error
@@ -36,9 +41,11 @@ func GetReferralRewards(c *gin.Context) {
 			return
 		}
 	}
-	userID := c.GetInt("id")
+	// Closing the history dialog or disconnecting the client must also cancel
+	// its database work, not just discard the eventual HTTP response.
+	db := model.DB.WithContext(c.Request.Context())
 	entries := []model.ReferralLedgerEntry{}
-	query := model.DB.Where("user_id = ?", userID)
+	query := db.Where("user_id = ?", userID)
 	if before > 0 {
 		query = query.Where("id < ?", before)
 	}
@@ -52,7 +59,7 @@ func GetReferralRewards(c *gin.Context) {
 		next = entries[49].Id
 	}
 	var user model.User
-	if err := model.DB.Select("id", "aff_quota").First(&user, userID).Error; err != nil {
+	if err := db.Select("id", "aff_quota").First(&user, userID).Error; err != nil {
 		common.ApiError(c, err)
 		return
 	}
