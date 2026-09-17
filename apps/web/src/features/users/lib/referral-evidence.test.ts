@@ -32,7 +32,10 @@ type Fixture = {
 }
 const fixtures: Fixture[] = JSON.parse(
   readFileSync(
-    new URL('../../../../../../contracts/referral-evidence.json', import.meta.url),
+    new URL(
+      '../../../../../../contracts/referral-evidence.json',
+      import.meta.url
+    ),
     'utf8'
   )
 )
