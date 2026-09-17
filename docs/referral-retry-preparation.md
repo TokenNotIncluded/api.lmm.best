@@ -15,3 +15,11 @@ This mechanism is retry-driven, not a background outbox. A crash or error after 
 Local: five isolated request-identity tests passed after strict TypeScript compilation; changed TSX parsed; Go files passed gofmt/parser validation. The local Go toolchain is 1.23.2 while the application requires 1.25.1, so no full local model test success is claimed.
 
 Added Go fault-injection regressions require CI execution: cache-publication failure, token-invalidation failure, session-cleanup failure; exact retry keeps one moderation event and unchanged ledger/auth version; an old ban retry after appeal preserves a same-second new session; a second cleanup batch failure resumes only remaining old sessions and rejects a missing version boundary. Complete current-head CI, production-shaped tests and full payment/refund/moderation review remain release prerequisites. No live payment, production database write, tag, release or deployment is authorized by this preparation.
+
+## Unicode evidence validation (#357)
+
+Evidence is limited to 1000 Unicode code points after the existing edge-whitespace normalization, matching the PostgreSQL `varchar(1000)` column. UTF-8 bytes and UTF-16 units are not the limit. Combining marks remain distinct code points, and evidence is never normalized or truncated beyond edge whitespace. Empty text, NUL and invalid Unicode are rejected before a transaction or an immutable browser submission is created.
+
+The dialog shows the matching character count and disables invalid submissions. Its native HTML maximum is 2000 UTF-16 units so that 1000 supplementary characters fit; the actual acceptance limit remains 1000 code points. Server or transport failures still retain the original payload and request ID for safe retries. Validation does not relax moderation authorization or change rewards, purchased balances, schema, workflows or deployment behavior.
+
+Regressions cover 334 Chinese characters (the former 1002-byte failure), 1000 Chinese/emoji characters, combining marks, over-limit and NUL input, no database effects on invalid requests, exact evidence persistence, and no duplicate deductions on retry or after appeal. `TestReferralPostgresUnicodeEvidenceAndRetry` uses the existing isolated PostgreSQL fixture and existing qualification job; it must actually pass there before release, not merely skip without a test database.

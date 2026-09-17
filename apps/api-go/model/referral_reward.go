@@ -296,9 +296,11 @@ func moderateReferralUserWithEffects(event ReferralModerationEvent, effects refe
 	if effects.publish == nil || effects.invalidate == nil || effects.revoke == nil {
 		return gorm.ErrInvalidData
 	}
-	event.RequestId, event.Evidence = strings.TrimSpace(event.RequestId), strings.TrimSpace(event.Evidence)
+	event.RequestId = strings.TrimSpace(event.RequestId)
+	var evidenceValid bool
+	event.Evidence, evidenceValid = normalizeReferralEvidence(event.Evidence)
 	if event.UserId <= 0 || event.ActorId <= 0 || event.RequestId == "" || len(event.RequestId) > 100 ||
-		event.Evidence == "" || len(event.Evidence) > 1000 {
+		!evidenceValid {
 		return gorm.ErrInvalidData
 	}
 	if event.Action == "ban_abuse" {
