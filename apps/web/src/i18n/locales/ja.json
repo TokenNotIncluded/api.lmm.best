@@ -3189,7 +3189,7 @@
     "footer.columns.related.links.midjourney": "MjProxy",
     "footer.columns.related.title": "関連プロジェクト",
     "footer.defaultCopyright": "すべての権利を留保します。",
-    "footer.new\u0061pi.projectAttributionSuffix": "すべての権利を留保します。プロジェクトコントリビューターにより設計・開発されています。",
+    "footer.newapi.projectAttributionSuffix": "すべての権利を留保します。プロジェクトコントリビューターにより設計・開発されています。",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "2025 年 5 月 10 日以降に追加されたチャネルの場合、デプロイ時にモデル名から「.」を削除する必要はありません",
     "For example, a reliable OpenAI-compatible endpoint": "例：信頼できる OpenAI 互換エンドポイント",
     "For example: 12, 34, 56": "例：12, 34, 56",
@@ -8486,6 +8486,22 @@
     "Extra referral penalty (%)": "追加ペナルティ率（%）",
     "Maximum extra penalty quota (0 = no additional cap)": "追加ペナルティの上限（0 = 追加上限なし）",
     "Reward after the invited user’s first real paid top-up ({{formattedQuota}})": "紹介ユーザーの初回有料チャージ後の報酬（{{formattedQuota}}）",
-    "Applied only when an administrator confirms inviter involvement. The policy is fixed when the reward is granted.": "管理者が紹介者の関与を確認した場合のみ適用します。適用ルールは報酬付与時の設定で固定されます。"
+    "Applied only when an administrator confirms inviter involvement. The policy is fixed when the reward is granted.": "管理者が紹介者の関与を確認した場合のみ適用します。適用ルールは報酬付与時の設定で固定されます。",
+    "{{percent}}% discount code": "{{percent}}% 割引コード",
+    "Banked reset voucher for plan #{{plan}}": "プラン #{{plan}} のバンク済みリセットバウチャー",
+    "Quota: {{quota}}": "クォータ：{{quota}}",
+    "This discount code is bound to your account after claiming.": "このディスカウントコードは領有後、アカウントにバインドされます。",
+    "Redeem this code in Wallet when you are ready.": "準備ができたら、ウォレットでこのコードを引き換えます。",
+    "Unable to claim red packet": "紅包を受け取ることができません",
+    "Claimed successfully": "正常に受け取りました",
+    "This red packet is unavailable.": "この紅包は利用できません。",
+    "claimed": "受け取った",
+    "Sign in to draw": "サインインして抽選に参加",
+    "Drawing...": "抽選中...",
+    "You have used all draws": "すべての抽選を使用しました",
+    "Red packet unavailable": "紅包は利用できません",
+    "{{count}} draw(s) remaining for you": "残り {{count}} 回の抽選があります",
+    "Your rewards": "あなたの報酬",
+    "Open red packet": "紅包を開く"
   }
 }

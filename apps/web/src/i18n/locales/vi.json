@@ -3189,7 +3189,7 @@
     "footer.columns.related.links.midjourney": "MjProxy",
     "footer.columns.related.title": "Các Dự Án Liên Quan",
     "footer.defaultCopyright": "Bản quyền được bảo lưu.",
-    "footer.new\u0061pi.projectAttributionSuffix": "Bản quyền được bảo lưu. Được thiết kế và phát triển bởi các cộng tác viên dự án.",
+    "footer.newapi.projectAttributionSuffix": "Bản quyền được bảo lưu. Được thiết kế và phát triển bởi các cộng tác viên dự án.",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "Đối với các kênh được thêm sau ngày 10 tháng 5 năm 2025, không cần loại bỏ \".\" khỏi tên mô hình trong quá trình triển khai",
     "For example, a reliable OpenAI-compatible endpoint": "Ví dụ: một endpoint tương thích OpenAI đáng tin cậy",
     "For example: 12, 34, 56": "Ví dụ: 12, 34, 56",
@@ -8486,6 +8486,22 @@
     "Extra referral penalty (%)": "Tỷ lệ phạt bổ sung (%)",
     "Maximum extra penalty quota (0 = no additional cap)": "Giới hạn phạt bổ sung (0 = không giới hạn thêm)",
     "Reward after the invited user’s first real paid top-up ({{formattedQuota}})": "Thưởng sau lần nạp đầu bằng tiền thật của người được mời ({{formattedQuota}})",
-    "Applied only when an administrator confirms inviter involvement. The policy is fixed when the reward is granted.": "Chỉ áp dụng khi quản trị viên xác nhận người mời tham gia vi phạm. Quy tắc được cố định khi trao thưởng."
+    "Applied only when an administrator confirms inviter involvement. The policy is fixed when the reward is granted.": "Chỉ áp dụng khi quản trị viên xác nhận người mời tham gia vi phạm. Quy tắc được cố định khi trao thưởng.",
+    "{{percent}}% discount code": "Mã giảm giá {{percent}}%",
+    "Banked reset voucher for plan #{{plan}}": "Phiếu đặt lại dự phòng cho kế hoạch #{{plan}}",
+    "Quota: {{quota}}": "Hạn mức: {{quota}}",
+    "This discount code is bound to your account after claiming.": "Mã giảm giá này sẽ được liên kết với tài khoản của bạn sau khi nhận.",
+    "Redeem this code in Wallet when you are ready.": "Đổi mã này trong Ví khi bạn sẵn sàng.",
+    "Unable to claim red packet": "Không thể nhận gói lì xì",
+    "Claimed successfully": "Nhận thành công",
+    "This red packet is unavailable.": "Gói lì xì này không có sẵn.",
+    "claimed": "đã nhận",
+    "Sign in to draw": "Đăng nhập để tham gia rút thăm",
+    "Drawing...": "Rút thăm...",
+    "You have used all draws": "Bạn đã sử dụng tất cả các lần rút thăm",
+    "Red packet unavailable": "Gói lì xì không có sẵn",
+    "{{count}} draw(s) remaining for you": "Còn {{count}} lần rút thăm cho bạn",
+    "Your rewards": "Phần thưởng của bạn",
+    "Open red packet": "Mở gói lì xì"
   }
 }

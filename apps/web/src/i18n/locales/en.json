@@ -3189,7 +3189,7 @@
     "footer.columns.related.links.midjourney": "MjProxy",
     "footer.columns.related.title": "Related Projects",
     "footer.defaultCopyright": "All rights reserved.",
-    "footer.new\u0061pi.projectAttributionSuffix": "All rights reserved. Designed and developed by the project contributors.",
+    "footer.newapi.projectAttributionSuffix": "All rights reserved. Designed and developed by the project contributors.",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment",
     "For example, a reliable OpenAI-compatible endpoint": "For example, a reliable OpenAI-compatible endpoint",
     "For example: 12, 34, 56": "For example: 12, 34, 56",
@@ -8486,6 +8486,22 @@
     "Extra referral penalty (%)": "Extra referral penalty (%)",
     "Maximum extra penalty quota (0 = no additional cap)": "Maximum extra penalty quota (0 = no additional cap)",
     "Reward after the invited user’s first real paid top-up ({{formattedQuota}})": "Reward after the invited user’s first real paid top-up ({{formattedQuota}})",
-    "Applied only when an administrator confirms inviter involvement. The policy is fixed when the reward is granted.": "Applied only when an administrator confirms inviter involvement. The policy is fixed when the reward is granted."
+    "Applied only when an administrator confirms inviter involvement. The policy is fixed when the reward is granted.": "Applied only when an administrator confirms inviter involvement. The policy is fixed when the reward is granted.",
+    "{{percent}}% discount code": "{{percent}}% discount code",
+    "Banked reset voucher for plan #{{plan}}": "Banked reset voucher for plan #{{plan}}",
+    "Quota: {{quota}}": "Quota: {{quota}}",
+    "This discount code is bound to your account after claiming.": "This discount code is bound to your account after claiming.",
+    "Redeem this code in Wallet when you are ready.": "Redeem this code in Wallet when you are ready.",
+    "Unable to claim red packet": "Unable to claim red packet",
+    "Claimed successfully": "Claimed successfully",
+    "This red packet is unavailable.": "This red packet is unavailable.",
+    "claimed": "claimed",
+    "Sign in to draw": "Sign in to draw",
+    "Drawing...": "Drawing...",
+    "You have used all draws": "You have used all draws",
+    "Red packet unavailable": "Red packet unavailable",
+    "{{count}} draw(s) remaining for you": "{{count}} draw(s) remaining for you",
+    "Your rewards": "Your rewards",
+    "Open red packet": "Open red packet"
   }
 }
