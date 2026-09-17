@@ -129,6 +129,25 @@ func (store *FileStore) locked(ctx context.Context, action func(*os.File) (State
 		}
 	}
 	defer syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
+	// Opening a safe file before waiting does not prove that it is still the
+	// named lock after acquisition. A replaced/unlinked inode would otherwise
+	// let this waiter write alongside a holder of the replacement lock.
+	currentLock, err := openStoreFile(dir, "state.lock", syscall.O_RDONLY)
+	if err != nil {
+		return State{}, err
+	}
+	defer currentLock.Close()
+	heldInfo, err := lock.Stat()
+	if err != nil {
+		return State{}, err
+	}
+	currentInfo, err := currentLock.Stat()
+	if err != nil {
+		return State{}, err
+	}
+	if !os.SameFile(heldInfo, currentInfo) {
+		return State{}, errors.New("slot lock identity changed while waiting")
+	}
 	if err := ctx.Err(); err != nil {
 		return State{}, err
 	}
