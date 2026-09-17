@@ -2,7 +2,6 @@ package controller
 
 import (
 	"fmt"
-	"maps"
 	"net/http"
 	"sort"
 	"strconv"
@@ -21,17 +20,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-var completionRatioMetaOptionKeys = []string{
-	"ModelPrice",
-	"ModelRatio",
-	"CompletionRatio",
-	"CacheRatio",
-	"CreateCacheRatio",
-	"ImageRatio",
-	"AudioRatio",
-	"AudioCompletionRatio",
-}
-
 func isPaymentComplianceOptionKey(key string) bool {
 	return strings.HasPrefix(key, "payment_setting.compliance_")
 }
@@ -45,50 +33,9 @@ func isPositiveOptionValue(value string) bool {
 	return err == nil && floatValue > 0
 }
 
-func collectModelNamesFromOptionValue(raw string, modelNames map[string]struct{}) {
-	if strings.TrimSpace(raw) == "" {
-		return
-	}
-
-	parsed := make(map[string]any)
-	if err := common.UnmarshalJsonStr(raw, &parsed); err != nil {
-		return
-	}
-	if len(parsed) == 0 {
-		return
-	}
-
-	for modelName := range maps.Keys(parsed) {
-		modelNames[modelName] = struct{}{}
-	}
-}
-
-func buildCompletionRatioMetaValue(optionValues map[string]string) string {
-	modelNames := make(map[string]struct{})
-	for _, key := range completionRatioMetaOptionKeys {
-		collectModelNamesFromOptionValue(optionValues[key], modelNames)
-	}
-	if len(modelNames) == 0 {
-		return "{}"
-	}
-
-	meta := make(map[string]ratio_setting.CompletionRatioInfo, len(modelNames))
-	for modelName := range maps.Keys(modelNames) {
-		meta[modelName] = ratio_setting.GetCompletionRatioInfo(modelName)
-	}
-
-	jsonBytes, err := common.Marshal(meta)
-	if err != nil {
-		return "{}"
-	}
-	return string(jsonBytes)
-}
-
 func GetOptions(c *gin.Context) {
 	var options []*model.Option
-	optionValues := make(map[string]string)
-	common.OptionMapRWMutex.Lock()
-	for k, v := range common.OptionMap {
+	for k, v := range model.GetOptionsSnapshot() {
 		if k == "theme.frontend" {
 			continue
 		}
@@ -105,18 +52,7 @@ func GetOptions(c *gin.Context) {
 			Key:   k,
 			Value: value,
 		})
-		for _, optionKey := range completionRatioMetaOptionKeys {
-			if optionKey == k {
-				optionValues[k] = value
-				break
-			}
-		}
 	}
-	common.OptionMapRWMutex.Unlock()
-	options = append(options, &model.Option{
-		Key:   "CompletionRatioMeta",
-		Value: buildCompletionRatioMetaValue(optionValues),
-	})
 	c.JSON(http.StatusOK, gin.H{
 		"success":      true,
 		"message":      "",
@@ -227,6 +163,7 @@ func UpdateOption(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
 			"success": true, "message": "",
 			"warnings": result.Warnings, "locked_models": result.LockedModels,
+			"pricing": result.Pricing,
 		})
 		return
 	}
