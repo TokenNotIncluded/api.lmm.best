@@ -194,7 +194,11 @@ export function LoginSessionsCard() {
         {sessions.map((session, index) => (
           <div key={session.sid}>
             {index > 0 && <Separator />}
-            <LoginSessionItem session={session} onRevoke={setRevokeTarget} />
+            <LoginSessionItem
+              session={session}
+              sessionAutoLogout={sessionsQuery.data?.sessionAutoLogout ?? true}
+              onRevoke={setRevokeTarget}
+            />
           </div>
         ))}
       </div>

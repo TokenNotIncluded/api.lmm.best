@@ -25,14 +25,20 @@ import { Button } from '@/components/ui/button'
 import dayjs from '@/lib/dayjs'
 import type { LoginSession } from '@/stores/auth-store'
 
+import { loginSessionExpiresAt } from './login-session-expiry'
 import { loginMethodLabel, sessionDevice } from './login-session-utils'
 
 interface LoginSessionItemProps {
   session: LoginSession
+  sessionAutoLogout?: boolean
   onRevoke: (session: LoginSession) => void
 }
 
-export function LoginSessionItem({ session, onRevoke }: LoginSessionItemProps) {
+export function LoginSessionItem({
+  session,
+  sessionAutoLogout = true,
+  onRevoke,
+}: LoginSessionItemProps) {
   const { t } = useTranslation()
   const maxTouchPoints =
     session.current && typeof navigator !== 'undefined'
@@ -65,7 +71,9 @@ export function LoginSessionItem({ session, onRevoke }: LoginSessionItemProps) {
         <p className='text-muted-foreground mt-1 text-xs'>
           {t('Last active {{time}} · Expires {{expires}}', {
             time: dayjs.unix(session.last_active_at).fromNow(),
-            expires: dayjs.unix(session.expires_at).format('YYYY-MM-DD HH:mm'),
+            expires: dayjs
+              .unix(loginSessionExpiresAt(session, sessionAutoLogout))
+              .format('YYYY-MM-DD HH:mm'),
           })}
         </p>
       </div>
