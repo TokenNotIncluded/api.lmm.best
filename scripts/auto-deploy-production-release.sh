@@ -14,6 +14,7 @@ trap 'report_error "$?" "$LINENO"' ERR
 : "${GITHUB_TOKEN:?GITHUB_TOKEN is required}"
 : "${PRODUCTION_SSH_PRIVATE_KEY:?PRODUCTION_SSH_PRIVATE_KEY is required}"
 : "${PRODUCTION_SSH_KNOWN_HOSTS:?PRODUCTION_SSH_KNOWN_HOSTS is required}"
+: "${PRODUCTION_RESULT_FILE:?PRODUCTION_RESULT_FILE is required outside the temporary deployment directory}"
 export GH_TOKEN="$GITHUB_TOKEN"
 
 case "$RELEASE_TAG" in
@@ -187,14 +188,17 @@ tar -xzf "$go_asset" -C "$root/probe"
 probe=$(find "$root/probe" -type f -name lmm-api-go -print -quit)
 [[ -x "$probe" ]]
 
+probe_runner=(
+  docker run --rm --network host --user "$(id -u):$(id -g)"
+  -e HOME="$root/cosign-home"
+  -v "$GITHUB_WORKSPACE:$GITHUB_WORKSPACE:ro"
+  -v "$root:$root"
+  -v "$ssh_dir:$root/cosign-home/.ssh:ro"
+  -w "$GITHUB_WORKSPACE"
+  "$deployment_image"
+)
 run_probe() {
-  docker run --rm --network host --user "$(id -u):$(id -g)" \
-    -e HOME="$root/cosign-home" \
-    -v "$GITHUB_WORKSPACE:$GITHUB_WORKSPACE:ro" \
-    -v "$root:$root" \
-    -v "$ssh_dir:$root/cosign-home/.ssh:ro" \
-    -w "$GITHUB_WORKSPACE" \
-    "$deployment_image" "$@"
+  "${probe_runner[@]}" "$@"
 }
 
 source "$GITHUB_WORKSPACE/scripts/production-deployment-id.sh"
@@ -210,6 +214,14 @@ plan_result=$(run_probe "$probe" deploy production plan --repo "$GITHUB_WORKSPAC
 plan=$(jq -er '.plan' <<<"$plan_result")
 plan_sha=$(jq -er '.plan_sha256' <<<"$plan_result")
 run_probe "$probe" deploy production stage --plan "$plan" --plan-sha256 "$plan_sha" --confirm api.lmm.best
-source "$GITHUB_WORKSPACE/scripts/production-promote-retry.sh"
-production_promote_with_transport_retry "$root/promote.stderr" \
-  run_probe "$probe" deploy production promote --plan "$plan" --plan-sha256 "$plan_sha" --confirm api.lmm.best
+
+# Keep acceptance inside the transaction, before native confirmation. A Web-only
+# update must also verify the unchanged backend, not merely any healthy backend.
+expected_backend_version=${installed_version[lmm-api-go-bin]%-*}
+[[ "$component" != go ]] || expected_backend_version=$version
+python3 -B "$GITHUB_WORKSPACE/scripts/production-release-transaction.py" \
+  --deployment-id "$deployment_id" --plan "$plan" --plan-sha256 "$plan_sha" \
+  --expected-backend-version "$expected_backend_version" \
+  --acceptance-script "$GITHUB_WORKSPACE/scripts/verify-public-production.py" \
+  --result-file "$PRODUCTION_RESULT_FILE" \
+  -- "${probe_runner[@]}" "$probe"

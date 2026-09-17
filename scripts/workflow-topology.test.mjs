@@ -20,7 +20,7 @@ function job(source, id) {
   return found;
 }
 
-test('migration preserves upstream qualification and isolates the legacy deployment adapter', () => {
+test('migration preserves qualification and retires the legacy deployment adapter', () => {
   const files = readdirSync(new URL('.github/workflows/', root))
     .filter((name) => /\.ya?ml$/.test(name)).sort();
   assert.deepEqual(files, ['ci.yml', 'deploy-production.yml', 'pr-check.yml', 'release-go.yml',
@@ -28,10 +28,12 @@ test('migration preserves upstream qualification and isolates the legacy deploym
   const legacy = workflow('deploy-production');
   assert.match(legacy, /^  workflow_run:/m);
   assert.doesNotMatch(legacy, /^  push:/m);
-  assert.match(job(legacy, 'deploy'), /needs: legacy-route/);
-  assert.match(job(legacy, 'deploy'), /needs.legacy-route.outputs.required == 'true'/);
+  assert.match(job(legacy, 'reject-legacy-deploy'), /needs: legacy-route/);
+  assert.match(job(legacy, 'reject-legacy-deploy'), /needs.legacy-route.outputs.required == 'true'/);
   assert.match(job(legacy, 'legacy-route'), /-f \.github\/actions\/deploy-production\/action.yml/);
   assert.doesNotMatch(job(legacy, 'legacy-route'), /secrets\.|environment: production/);
+  assert.doesNotMatch(legacy, /secrets\.|environment: production|run: bash scripts\/auto-deploy-production-release/);
+  assert.match(job(legacy, 'reject-legacy-deploy'), /exit 1/);
   assert.match(workflow('server-release-qualification'), /qualify-go-migration-startup.sh/);
 });
 
@@ -141,8 +143,14 @@ test('shared deployment keeps the signed-package script and pinned verification 
   assert.match(action, /sudo --preserve-env=GITHUB_ACTIONS python3 scripts\/prepare-ci-apt\.py/);
   assert.match(action, /test -n "\$PRODUCTION_SSH_PRIVATE_KEY"/);
   assert.match(action, /test -n "\$PRODUCTION_SSH_KNOWN_HOSTS"/);
-  assert.match(action, /verify-public-production.py/);
-  assert.match(action, /--expected-backend-version/);
+  const script = read('scripts/auto-deploy-production-release.sh');
+  assert.match(script, /production-release-transaction.py/);
+  assert.match(script, /--acceptance-script .*verify-public-production.py/);
+  assert.match(script, /--expected-backend-version/);
+  assert.doesNotMatch(action, /run:.*verify-public-production.py/);
+  assert.match(action, /test-production-release-transaction.py/);
+  assert.match(action, /actions\/upload-artifact@[0-9a-f]{40}/);
+  assert.match(action, /PRODUCTION_RESULT_FILE: \$\{\{ runner.temp \}\}/);
   assert.doesNotMatch(action, /apt-get install[^\n]*docker\.io|secrets\./);
 });
 
