@@ -102,7 +102,7 @@ async function setup() {
     assert.equal(config?.disableDuplicate, true)
     assert.equal(config?.skipBusinessError, true)
     assert.equal(config?.skipErrorHandler, true)
-    return new Promise((resolve, reject) => {
+    return new Promise<{ data: Result }>((resolve, reject) => {
       pending.push({
         before: config?.params?.before ?? 0,
         signal: config?.signal,
