@@ -31,10 +31,21 @@ const documentSource = readFileSync(
 
 describe('authenticated layout responsive contract', () => {
   test('keeps the narrow viewport content row and inset stretchable', () => {
-    assert.match(
-      source,
-      /console-editorial h-dvh min-h-0 flex-col overflow-hidden/
+    const wrapper = source.match(
+      /<SidebarProvider\b[^>]*\bclassName='([^']+)'/
     )
+    assert.ok(wrapper, 'SidebarProvider must declare its layout classes')
+    const classes = new Set(wrapper[1].split(/\s+/))
+    for (const name of [
+      'console-editorial',
+      'workspace-ui',
+      'h-dvh',
+      'min-h-0',
+      'flex-col',
+      'overflow-hidden',
+    ]) {
+      assert.ok(classes.has(name), `Missing wrapper class: ${name}`)
+    }
     assert.match(
       source,
       /flex min-h-0 w-full min-w-0 flex-1 basis-0 flex-col flex-nowrap md:flex-row/
