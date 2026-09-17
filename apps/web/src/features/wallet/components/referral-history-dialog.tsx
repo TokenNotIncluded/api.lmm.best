@@ -16,13 +16,15 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Dialog } from '@/components/dialog'
 import { Button } from '@/components/ui/button'
 import { api } from '@/lib/api'
 import { formatQuota, formatTimestamp } from '@/lib/format'
+
+import { createReferralHistoryRequests } from '../lib/referral-history-requests'
 
 type Entry = {
   id: number
@@ -59,9 +61,13 @@ export function ReferralHistoryDialog() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [history, setHistory] = useState<History | null>(null)
-  const request = useRef(0)
+  const [failedCursor, setFailedCursor] = useState(0)
+  const [requests] = useState(createReferralHistoryRequests)
+  useEffect(() => () => requests.cancel(), [requests])
+
   const load = async (before = 0) => {
-    const current = ++request.current
+    const current = requests.begin(before)
+    if (!current) return
     setLoading(true)
     setError('')
     try {
@@ -71,13 +77,18 @@ export function ReferralHistoryDialog() {
         data: History
       }>('/api/user/self/aff/rewards', {
         params: before ? { before } : undefined,
+        signal: current.controller.signal,
+        // This dialog owns cancellation; do not reuse another GET promise.
+        disableDuplicate: true,
+        skipBusinessError: true,
+        skipErrorHandler: true,
       })
+      if (!requests.isCurrent(current)) return
       if (!response.data.success) {
         throw new Error(
           response.data.message || t('Failed to load referral history')
         )
       }
-      if (current !== request.current) return
       const data = response.data.data
       setHistory((previous) => ({
         ...data,
@@ -86,7 +97,8 @@ export function ReferralHistoryDialog() {
           : data.entries,
       }))
     } catch (caught) {
-      if (current === request.current) {
+      if (requests.isCurrent(current)) {
+        setFailedCursor(current.before)
         setError(
           caught instanceof Error
             ? caught.message
@@ -94,21 +106,19 @@ export function ReferralHistoryDialog() {
         )
       }
     } finally {
-      if (current === request.current) setLoading(false)
+      if (requests.finish(current)) setLoading(false)
     }
   }
   return (
     <Dialog
       open={open}
       onOpenChange={(value) => {
+        requests.cancel()
         setOpen(value)
-        if (value) {
-          setHistory(null)
-          void load()
-        } else {
-          request.current++
-          setLoading(false)
-        }
+        setHistory(null)
+        setError('')
+        setLoading(false)
+        if (value) void load()
       }}
       title={t('Referral reward history')}
       description={t(
@@ -125,7 +135,7 @@ export function ReferralHistoryDialog() {
             <Button
               variant='outline'
               disabled={loading}
-              onClick={() => void load(history?.next_cursor ?? 0)}
+              onClick={() => void load(failedCursor)}
             >
               {t('Retry')}
             </Button>
