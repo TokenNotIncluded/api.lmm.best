@@ -48,10 +48,15 @@ function run(executable, args) {
     cwd: root,
     encoding: 'utf8',
   })
-  if (result.stdout) process.stdout.write(result.stdout)
-  if (result.stderr) process.stderr.write(result.stderr)
-  if (result.error) console.error(result.error)
-  if (result.error || result.status !== 0) {
+  const failed = Boolean(result.error) || result.status !== 0
+  // Preserve complete failure output; passing transcripts are opt-in.
+  if (failed || process.env.LMM_WEB_TEST_VERBOSE === '1') {
+    console.log(`Web test: ${args.at(-1)}`)
+    if (result.stdout) process.stdout.write(result.stdout)
+    if (result.stderr) process.stderr.write(result.stderr)
+    if (result.error) console.error(result.error)
+  }
+  if (failed) {
     failures.push({ file: args.at(-1), status: result.status ?? 1 })
   }
 }
