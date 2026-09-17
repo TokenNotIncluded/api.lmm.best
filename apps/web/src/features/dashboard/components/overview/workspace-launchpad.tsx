@@ -22,10 +22,7 @@ import { ArrowUpRight, Search } from 'lucide-react'
 import type { WorkspaceCopy } from '@/components/layout/lib/workspace-copy'
 import type { NavLink } from '@/components/layout/types'
 
-function shortcutDescription(
-  url: NavLink['url'],
-  copy: WorkspaceCopy
-): string {
+function shortcutDescription(url: NavLink['url'], copy: WorkspaceCopy): string {
   switch (url) {
     case '/keys':
       return copy.keys

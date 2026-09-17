@@ -67,7 +67,10 @@ test('blank search preserves registry identity', () => {
 test('case-insensitive search matches all title and URL tokens', () => {
   const result = filterWorkspaceNavigation(navigation(), 'GENERAL api')
   assert.equal(result.length, 1)
-  assert.deepEqual(result[0].items.map((item) => item.url), ['/keys'])
+  assert.deepEqual(
+    result[0].items.map((item) => item.url),
+    ['/keys']
+  )
 })
 
 test('Chinese and accented labels are searchable', () => {

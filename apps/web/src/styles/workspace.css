@@ -344,7 +344,7 @@ For commercial licensing, please contact support@quantumnous.com
   outline-offset: 3px;
 }
 
-@container content (min-width: 30rem) {
+@container content (min-width: 22rem) {
   .workspace-shortcuts {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
