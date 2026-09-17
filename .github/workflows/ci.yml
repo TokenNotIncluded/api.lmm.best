@@ -2,11 +2,21 @@ name: CI
 
 on:
   pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
   push:
     # Feature branches run through pull_request; keep main and tag evidence for releases.
     branches: [main]
     tags: ["*"]
+    # A production operation request is not a source change or release candidate.
+    paths-ignore: [.github/server-ops-343-request.json]
   workflow_dispatch:
+    inputs:
+      base-ref:
+        description: Git ref for the translation regression comparison
+        default: HEAD^
+        type: string
+  schedule:
+    - cron: "23 3 * * *"
   merge_group:
     types: [checks_requested]
 
@@ -19,9 +29,9 @@ defaults:
     shell: bash
 
 concurrency:
-  # Replace obsolete PR runs without cancelling another main commit's release gates.
-  group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}-${{ github.event_name == 'pull_request' && 'latest' || github.sha }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  # Replace obsolete test runs, never a release, manual run, or production operation.
+  group: ci-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}-${{ (github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main')) && 'latest' || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main') }}
 
 env:
   CI: "true"
@@ -32,7 +42,27 @@ env:
   RUST_TOOLCHAIN: "1.91.0"
 
 jobs:
+  changes:
+    name: Select CI checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      required: ${{ steps.plan.outputs.required }}
+    steps:
+      - name: Checkout complete comparison history
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Select PR checks or full release evidence
+        id: plan
+        env:
+          CI_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: python3 -B scripts/ci_plan.py
+
   repository-contracts:
+    needs: changes
+    if: ${{ contains(fromJSON(needs.changes.outputs.required), 'repository-contracts') }}
     name: Workflow and resource-safety contracts
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -57,12 +87,21 @@ jobs:
         run: |
           shellcheck scripts/check-go-format.sh scripts/check-static-go-binary.sh
           python3 -B -m unittest discover -s scripts -p test_ci_quality_gate.py
+          python3 -B -m unittest discover -s scripts -p test_ci_plan.py
 
       - name: Test release work-item barrier
         run: python3 -B -m unittest discover -s scripts -p test_release_work_items.py
 
       - name: Test public production acceptance
         run: python3 -B -m unittest discover -s scripts -p test_public_production.py
+
+      - name: Test workflow topology and deployment guards
+        run: |
+          node --test scripts/workflow-topology.test.mjs
+          python3 scripts/test-server-ops.py
+          python3 scripts/test-server-repair-startup.py
+          python3 scripts/test-server-ops-commit-request.py
+          python3 scripts/test-server-ops-helper-payload.py
 
       - name: Test PR description policy
         run: node --test scripts/pr-quality.test.mjs
@@ -112,6 +151,8 @@ jobs:
           bash apps/api-rust/tests/scripts/check-real-integration-gates.sh
 
   release-artifact-contract:
+    needs: changes
+    if: ${{ contains(fromJSON(needs.changes.outputs.required), 'release-artifact-contract') }}
     name: Release artifact contract
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -142,6 +183,8 @@ jobs:
         run: go test -p 2 ./internal/appcli -count=1
 
   pi-lmm-provider:
+    needs: changes
+    if: ${{ contains(fromJSON(needs.changes.outputs.required), 'pi-lmm-provider') }}
     name: Pi LMM provider package
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -176,6 +219,8 @@ jobs:
         run: npm run pack:check
 
   web:
+    needs: changes
+    if: ${{ contains(fromJSON(needs.changes.outputs.required), 'web') }}
     name: Web checks, route manifest, and production build
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -209,6 +254,17 @@ jobs:
           bun run --filter @lmm/web test
           node --test scripts/service-unavailable.test.mjs
 
+      - name: Human-support confirmation regressions
+        working-directory: apps/web
+        run: |
+          for test in \
+            assistant-handoff-confirmation.test.ts \
+            assistant-handoff-tool.test.tsx \
+            assistant-handoff-review.test.tsx
+          do
+            bun test --preload ./scripts/test-preload.mjs --timeout 15000 "./src/features/assistant/$test"
+          done
+
       - name: Validate frontend API route manifest
         run: bash apps/api-rust/tests/behavior-oracle/tests/test-frontend-api-route-manifest.sh
 
@@ -220,6 +276,8 @@ jobs:
           bun run --filter @lmm/web bundle:check
 
   go:
+    needs: changes
+    if: ${{ contains(fromJSON(needs.changes.outputs.required), 'go') }}
     name: Go default backend, relaykit, and static build
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -281,6 +339,8 @@ jobs:
           bash ../../scripts/check-static-go-binary.sh out/lmm-api-go
 
   rust-preview:
+    needs: changes
+    if: ${{ contains(fromJSON(needs.changes.outputs.required), 'rust-preview') }}
     name: Rust backend formatting, lint, and tests
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -331,6 +391,8 @@ jobs:
         run: cargo test --workspace --doc --all-features --locked
 
   route-coverage-contract:
+    needs: changes
+    if: ${{ contains(fromJSON(needs.changes.outputs.required), 'route-coverage-contract') }}
     name: Go and Rust route/behavior alignment gates
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -441,6 +503,8 @@ jobs:
           if-no-files-found: error
 
   rust-real-integration:
+    needs: changes
+    if: ${{ contains(fromJSON(needs.changes.outputs.required), 'rust-real-integration') }}
     name: Rust PostgreSQL 18 and Valkey integration gates
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -517,6 +581,8 @@ jobs:
         run: bash apps/api-rust/tests/scripts/run-real-integration-gates.sh all
 
   aur-package-matrix:
+    needs: changes
+    if: ${{ contains(fromJSON(needs.changes.outputs.required), 'aur-package-matrix') }}
     name: AUR direct-backend package contract
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -565,9 +631,10 @@ jobs:
 
   quality-gate:
     name: CI Quality Gate
-    # Failed, cancelled, missing, or skipped dependencies must not pass the gate.
+    # Only explicitly unselected jobs may skip; all failures/cancellations still fail.
     if: ${{ always() }}
     needs:
+      - changes
       - repository-contracts
       - release-artifact-contract
       - pi-lmm-provider
@@ -577,6 +644,9 @@ jobs:
       - route-coverage-contract
       - rust-real-integration
       - aur-package-matrix
+      - translations
+      - root-route-acceptance-lockfile
+      - rustsec
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -588,4 +658,99 @@ jobs:
       - name: Require all mandatory jobs to succeed
         env:
           CI_NEEDS: ${{ toJSON(needs) }}
+          CI_SELECTED: ${{ needs.changes.outputs.required }}
         run: python3 -B scripts/ci_quality_gate.py
+
+  translations:
+    needs: changes
+    if: ${{ contains(fromJSON(needs.changes.outputs.required), 'translations') }}
+    name: Translation regression check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout source and comparison history
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          # Use the PR merge ref so older branches receive the current checker.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Test the translation checker
+        run: node --test scripts/check-i18n.test.mjs
+
+      - name: Check added keys and removed translations
+        # The checker still runs on tags; only the branch comparison is inapplicable.
+        if: github.ref_type != 'tag'
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before || inputs.base-ref || 'HEAD^' }}
+        run: |
+          if [[ "$EVENT_NAME" == pull_request ]]; then
+            node scripts/check-i18n.mjs --base "$BASE_REF" --merge-base
+          else
+            node scripts/check-i18n.mjs --base "$BASE_REF"
+          fi
+
+  root-route-acceptance-lockfile:
+    name: Rust root-route acceptance lockfile
+    needs: changes
+    if: ${{ contains(fromJSON(needs.changes.outputs.required), 'root-route-acceptance-lockfile') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Set up pinned Rust toolchain
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component clippy
+          rustup default "$RUST_TOOLCHAIN"
+          rustc --version --verbose
+      - name: Validate independent lockfile structure
+        run: |
+          python3 - <<'PYTHON'
+          from pathlib import Path
+          import re
+          import tomllib
+
+          lockfile = Path("apps/api-rust/tests/root-route-acceptance/Cargo.lock")
+          data = tomllib.loads(lockfile.read_text())
+          invalid = []
+          for package in data.get("package", []):
+              source = package.get("source", "")
+              checksum = package.get("checksum")
+              if source.startswith("registry+") and not (
+                  isinstance(checksum, str) and re.fullmatch(r"[0-9a-f]{64}", checksum)
+              ):
+                  invalid.append(f"{package['name']} {package['version']}: {checksum!r}")
+          if invalid:
+              raise SystemExit("invalid registry checksums:\n" + "\n".join(invalid))
+          PYTHON
+      - name: Fetch independent locked dependencies
+        run: |
+          cargo fetch --locked \
+            --manifest-path apps/api-rust/tests/root-route-acceptance/Cargo.toml
+      - name: Test root-route acceptance support harness
+        run: bash apps/api-rust/tests/scripts/test-root-route-acceptance.sh
+
+  rustsec:
+    name: RustSec advisory scan
+    needs: changes
+    if: ${{ contains(fromJSON(needs.changes.outputs.required), 'rustsec') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      checks: write
+      issues: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Audit locked Rust dependencies
+        uses: rustsec/audit-check@858dc40f52ca2b8570b7a997c1c4e35c6fc9a432 # Node 24 support
+        with:
+          token: ${{ github.token }}
+          working-directory: apps/api-rust

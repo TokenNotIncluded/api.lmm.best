@@ -61,7 +61,8 @@ test('later form edits and external mutations cannot change a retry', () => {
   assert.equal(first.evidence, 'reviewed evidence')
   assert.equal(first.penalize_inviter, false)
   assert.equal(Object.isFrozen(first), true)
-  assert.equal(submission(() => source), first)
+  const retry = submission(() => source)
+  assert.equal(retry, first)
 })
 
 test('repeated submissions allocate the request ID only once', () => {
@@ -76,17 +77,21 @@ test('repeated submissions allocate the request ID only once', () => {
 
 test('creation failure does not retain an invalid request', () => {
   const submission = createReferralSubmission<Payload>()
-  assert.throws(() => submission(() => payload('  ')))
+  const blank = () => payload('  ')
+  assert.throws(() => submission(blank))
   const unavailable = (): Payload => {
     throw new Error('UUID unavailable')
   }
   assert.throws(() => submission(unavailable))
-  assert.equal(submission(() => payload('valid')).request_id, 'valid')
+  const valid = submission(() => payload('valid'))
+  assert.equal(valid.request_id, 'valid')
 })
 
 test('separate dialogs do not share retained evidence', () => {
   const first = createReferralSubmission<Payload>()
   const second = createReferralSubmission<Payload>()
-  assert.equal(first(() => payload('one')).request_id, 'one')
-  assert.equal(second(() => payload('two')).request_id, 'two')
+  const one = first(() => payload('one'))
+  const two = second(() => payload('two'))
+  assert.equal(one.request_id, 'one')
+  assert.equal(two.request_id, 'two')
 })

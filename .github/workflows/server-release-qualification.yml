@@ -7,6 +7,7 @@ on:
   push:
     branches:
       - main
+    paths-ignore: [.github/server-ops-343-request.json]
   workflow_dispatch:
   schedule:
     - cron: "17 3 * * *"
@@ -15,8 +16,9 @@ permissions:
   contents: read
 
 concurrency:
-  group: server-release-qualification-${{ github.ref }}
-  cancel-in-progress: true
+  # Never let a PR/main test update cancel an explicit operator qualification.
+  group: server-release-qualification-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}-${{ (github.event_name == 'pull_request' || github.event_name == 'push') && 'latest' || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
 
 env:
   CI: "true"
@@ -31,23 +33,23 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
-
       - name: Install contract tooling
         run: |
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends shellcheck
-
       - name: Validate qualification harnesses
         run: |
           set -euo pipefail
           bash -n \
             scripts/ci/configure-release-wiremock.sh \
             scripts/ci/qualify-live-server.sh \
-            scripts/ci/run-server-release-qualification.sh
+            scripts/ci/run-server-release-qualification.sh \
+            scripts/ci/qualify-go-migration-startup.sh
           shellcheck \
             scripts/ci/configure-release-wiremock.sh \
             scripts/ci/qualify-live-server.sh \
-            scripts/ci/run-server-release-qualification.sh
+            scripts/ci/run-server-release-qualification.sh \
+            scripts/ci/qualify-go-migration-startup.sh
 
   go-server:
     name: Go full server qualification
@@ -85,18 +87,15 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
-
       - name: Set up Go
         uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6.2.0
         with:
           go-version-file: apps/api-go/go.mod
           cache-dependency-path: apps/api-go/go.sum
-
       - name: Install live qualification tooling
         run: |
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends postgresql-client jq libarchive-tools
-
       - name: Require authenticated Valkey
         env:
           VALKEY_CONTAINER_ID: ${{ job.services.valkey.id }}
@@ -105,8 +104,24 @@ jobs:
           set -euo pipefail
           docker exec "$VALKEY_CONTAINER_ID" valkey-cli CONFIG SET requirepass "$VALKEY_PASSWORD" >/dev/null
           test "$(docker exec "$VALKEY_CONTAINER_ID" valkey-cli --no-auth-warning -a "$VALKEY_PASSWORD" ping)" = PONG
+      - name: Prove incident recovery against disposable PostgreSQL and native transaction fixtures
+        working-directory: apps/api-go
+        env:
+          LMM_INCIDENT343_TEST_DSN: postgres://lmm_test_release:lmm-release-postgres-password@127.0.0.1:5432/lmm_test_release?sslmode=disable
+        run: |
+          set -euo pipefail
+          mkdir -p ../../qualification-artifacts/go/incident343
+          go test -race -count=1 -v ./internal/appcli ./cmd/incident343-recovery -run TestIncident343 -timeout 180s | tee ../../qualification-artifacts/go/incident343/tests.log
+      - name: Protect referral and red-packet accounting under PostgreSQL concurrency
+        working-directory: apps/api-go
+        env:
+          TEST_POSTGRES_DSN: postgres://lmm_test_release:lmm-release-postgres-password@127.0.0.1:5432/lmm_test_release?sslmode=disable
+          TEST_POSTGRES_ISOLATED_SCHEMA: '1'
+        run: go test -race -count=1 -v ./model -run '^(TestRedPacketDeleteCannotEraseConcurrentClaimPostgres|TestReferralPostgres.*)$' -timeout 180s
 
       - name: Check Go formatting, vet, race tests, and relaykit
+        env:
+          LMM_INCIDENT343_TEST_DSN: postgres://lmm_test_release:lmm-release-postgres-password@127.0.0.1:5432/lmm_test_release?sslmode=disable
         run: |
           set -euo pipefail
           formatting_issues="$(gofmt -l apps/api-go)"
@@ -116,7 +131,6 @@ jobs:
           fi
           (cd apps/api-go && go vet ./... && go test -count=1 -race ./...)
           (cd apps/api-go/relaykit && go vet ./... && go test -count=1 -race ./...)
-
       - name: Build production-shaped static Go binary
         working-directory: apps/api-go
         env:
@@ -132,7 +146,13 @@ jobs:
             echo 'Go release qualification binary is dynamically linked' >&2
             exit 1
           fi
-
+      - name: Require standalone migrations before verify-mode HTTP startup
+        env:
+          LMM_QUALIFICATION_GO_BINARY: ${{ runner.temp }}/lmm-release-bin/lmm-api-go
+          LMM_QUALIFICATION_PG_USER: lmm_test_release
+          LMM_QUALIFICATION_PG_PASSWORD: lmm-release-postgres-password
+          LMM_QUALIFICATION_PG_DATABASE: lmm_test_release
+        run: bash scripts/ci/qualify-go-migration-startup.sh
       - name: Run production-shaped Go server against local mocks
         env:
           LMM_QUALIFICATION_GO_BINARY: ${{ runner.temp }}/lmm-release-bin/lmm-api-go
@@ -142,7 +162,6 @@ jobs:
           LMM_QUALIFICATION_VALKEY_PASSWORD: lmm-release-valkey-password
           WIREMOCK_ADMIN_URL: http://127.0.0.1:18080
         run: bash scripts/ci/run-server-release-qualification.sh go
-
       - name: Upload Go qualification evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
