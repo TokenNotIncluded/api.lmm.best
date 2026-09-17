@@ -8524,6 +8524,22 @@
     "Extra referral penalty (%)": "额外处罚比例（%）",
     "Maximum extra penalty quota (0 = no additional cap)": "额外处罚上限（0 为不额外限制）",
     "Reward after the invited user’s first real paid top-up ({{formattedQuota}})": "被邀请者首次真实支付充值后的奖励（{{formattedQuota}}）",
-    "Applied only when an administrator confirms inviter involvement. The policy is fixed when the reward is granted.": "仅在管理员确认邀请者参与违规时执行。处罚规则按发奖时的配置固定。"
+    "Applied only when an administrator confirms inviter involvement. The policy is fixed when the reward is granted.": "仅在管理员确认邀请者参与违规时执行。处罚规则按发奖时的配置固定。",
+    "{{percent}}% discount code": "{{percent}}% 折扣码",
+    "Banked reset voucher for plan #{{plan}}": "计划 #{{plan}} 的已存储重置凭证",
+    "Quota: {{quota}}": "配额：{{quota}}",
+    "This discount code is bound to your account after claiming.": "此折扣码在领取后将绑定到您的账户。",
+    "Redeem this code in Wallet when you are ready.": "准备好时，在钱包中兑换此代码。",
+    "Unable to claim red packet": "无法领取红包",
+    "Claimed successfully": "领取成功",
+    "This red packet is unavailable.": "此红包不可用。",
+    "claimed": "已领取",
+    "Sign in to draw": "登录以参与抽奖",
+    "Drawing...": "抽奖中...",
+    "You have used all draws": "您已使用所有抽奖次数",
+    "Red packet unavailable": "红包不可用",
+    "{{count}} draw(s) remaining for you": "您还有 {{count}} 次抽奖机会",
+    "Your rewards": "您的奖励",
+    "Open red packet": "打开红包"
   }
 }

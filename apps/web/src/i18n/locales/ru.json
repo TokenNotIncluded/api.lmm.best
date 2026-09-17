@@ -3189,7 +3189,7 @@
     "footer.columns.related.links.midjourney": "MjProxy",
     "footer.columns.related.title": "Связанные проекты",
     "footer.defaultCopyright": "Все права защищены.",
-    "footer.new\u0061pi.projectAttributionSuffix": "Все права защищены. Разработано участниками проекта.",
+    "footer.newapi.projectAttributionSuffix": "Все права защищены. Разработано участниками проекта.",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "Для каналов, добавленных после 10 мая 2025 г., не нужно удалять \".\" из имён моделей при развёртывании",
     "For example, a reliable OpenAI-compatible endpoint": "Например: надежный эндпоинт, совместимый с OpenAI",
     "For example: 12, 34, 56": "Например: 12, 34, 56",
@@ -8486,6 +8486,22 @@
     "Extra referral penalty (%)": "Дополнительный штраф (%)",
     "Maximum extra penalty quota (0 = no additional cap)": "Лимит дополнительного штрафа (0 = без дополнительного лимита)",
     "Reward after the invited user’s first real paid top-up ({{formattedQuota}})": "Награда за первое реальное пополнение приглашённого ({{formattedQuota}})",
-    "Applied only when an administrator confirms inviter involvement. The policy is fixed when the reward is granted.": "Применяется только при подтверждённом администратором участии пригласившего. Правила фиксируются при начислении награды."
+    "Applied only when an administrator confirms inviter involvement. The policy is fixed when the reward is granted.": "Применяется только при подтверждённом администратором участии пригласившего. Правила фиксируются при начислении награды.",
+    "{{percent}}% discount code": "Код скидки {{percent}}%",
+    "Banked reset voucher for plan #{{plan}}": "Зарезервированный ваучер сброса для плана #{{plan}}",
+    "Quota: {{quota}}": "Квота: {{quota}}",
+    "This discount code is bound to your account after claiming.": "Этот код скидки будет привязан к вашему аккаунту после получения.",
+    "Redeem this code in Wallet when you are ready.": "Обменяйте этот код в кошельке, когда будете готовы.",
+    "Unable to claim red packet": "Не удается получить красный конверт",
+    "Claimed successfully": "Успешно получено",
+    "This red packet is unavailable.": "Этот красный конверт недоступен.",
+    "claimed": "получено",
+    "Sign in to draw": "Войдите, чтобы участвовать в розыгрыше",
+    "Drawing...": "Розыгрыш...",
+    "You have used all draws": "Вы использовали все розыгрыши",
+    "Red packet unavailable": "Красный конверт недоступен",
+    "{{count}} draw(s) remaining for you": "У вас осталось {{count}} розыгрыш(ей)",
+    "Your rewards": "Ваши награды",
+    "Open red packet": "Открыть красный конверт"
   }
 }

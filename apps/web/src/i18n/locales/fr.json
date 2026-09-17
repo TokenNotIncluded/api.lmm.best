@@ -3189,7 +3189,7 @@
     "footer.columns.related.links.midjourney": "MjProxy",
     "footer.columns.related.title": "Projets liés",
     "footer.defaultCopyright": "Tous droits réservés.",
-    "footer.new\u0061pi.projectAttributionSuffix": "Tous droits réservés. Conçu et développé par les contributeurs du projet.",
+    "footer.newapi.projectAttributionSuffix": "Tous droits réservés. Conçu et développé par les contributeurs du projet.",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "Pour les canaux ajoutés après le 10 mai 2025, pas besoin de supprimer \".\" des noms de modèles lors du déploiement",
     "For example, a reliable OpenAI-compatible endpoint": "Par exemple : un point d’accès OpenAI compatible fiable",
     "For example: 12, 34, 56": "Par exemple : 12, 34, 56",
@@ -8486,6 +8486,22 @@
     "Extra referral penalty (%)": "Pénalité supplémentaire (%)",
     "Maximum extra penalty quota (0 = no additional cap)": "Plafond de pénalité (0 = sans plafond supplémentaire)",
     "Reward after the invited user’s first real paid top-up ({{formattedQuota}})": "Prime après le premier rechargement réellement payé du filleul ({{formattedQuota}})",
-    "Applied only when an administrator confirms inviter involvement. The policy is fixed when the reward is granted.": "Appliquée uniquement après confirmation de l’implication du parrain par un administrateur. La règle est figée lors de l’attribution de la prime."
+    "Applied only when an administrator confirms inviter involvement. The policy is fixed when the reward is granted.": "Appliquée uniquement après confirmation de l’implication du parrain par un administrateur. La règle est figée lors de l’attribution de la prime.",
+    "{{percent}}% discount code": "Code de réduction {{percent}}%",
+    "Banked reset voucher for plan #{{plan}}": "Bon de réinitialisation bancaire pour le plan #{{plan}}",
+    "Quota: {{quota}}": "Quota : {{quota}}",
+    "This discount code is bound to your account after claiming.": "Ce code de réduction est lié à votre compte après réclamation.",
+    "Redeem this code in Wallet when you are ready.": "Échangez ce code dans Wallet quand vous êtes prêt.",
+    "Unable to claim red packet": "Impossible de réclamer le paquet rouge",
+    "Claimed successfully": "Réclamé avec succès",
+    "This red packet is unavailable.": "Ce paquet rouge n'est pas disponible.",
+    "claimed": "réclamé",
+    "Sign in to draw": "Connectez-vous pour participer au tirage",
+    "Drawing...": "Tirage en cours...",
+    "You have used all draws": "Vous avez utilisé tous les tirages",
+    "Red packet unavailable": "Paquet rouge non disponible",
+    "{{count}} draw(s) remaining for you": "{{count}} tirage(s) restant(s) pour vous",
+    "Your rewards": "Vos récompenses",
+    "Open red packet": "Ouvrir le paquet rouge"
   }
 }

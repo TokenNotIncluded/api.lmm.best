@@ -3189,7 +3189,7 @@
     "footer.columns.related.links.midjourney": "MjProxy",
     "footer.columns.related.title": "相關項目",
     "footer.defaultCopyright": "版權所有。",
-    "footer.new\u0061pi.projectAttributionSuffix": "版權所有，由項目貢獻者設計與開發。",
+    "footer.newapi.projectAttributionSuffix": "版權所有，由項目貢獻者設計與開發。",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "對於 2025 年 5 月 10 日之後新增的渠道，在部署時無需從模型名稱中移除 \".\"",
     "For example, a reliable OpenAI-compatible endpoint": "例如：穩定的 OpenAI 相容介面",
     "For example: 12, 34, 56": "例如：12, 34, 56",
@@ -8486,6 +8486,22 @@
     "Extra referral penalty (%)": "額外處罰比例（%）",
     "Maximum extra penalty quota (0 = no additional cap)": "額外處罰上限（0 為不額外限制）",
     "Reward after the invited user’s first real paid top-up ({{formattedQuota}})": "受邀者首次真實付款儲值後的獎勵（{{formattedQuota}}）",
-    "Applied only when an administrator confirms inviter involvement. The policy is fixed when the reward is granted.": "僅在管理員確認邀請者參與違規時執行。處罰規則依發獎時的設定固定。"
+    "Applied only when an administrator confirms inviter involvement. The policy is fixed when the reward is granted.": "僅在管理員確認邀請者參與違規時執行。處罰規則依發獎時的設定固定。",
+    "{{percent}}% discount code": "{{percent}}% 折扣碼",
+    "Banked reset voucher for plan #{{plan}}": "計畫 #{{plan}} 的已存儲重置憑證",
+    "Quota: {{quota}}": "配額：{{quota}}",
+    "This discount code is bound to your account after claiming.": "此折扣碼在領取後將綁定到您的帳戶。",
+    "Redeem this code in Wallet when you are ready.": "準備好時，在錢包中兌換此代碼。",
+    "Unable to claim red packet": "無法領取紅包",
+    "Claimed successfully": "領取成功",
+    "This red packet is unavailable.": "此紅包無法使用。",
+    "claimed": "已領取",
+    "Sign in to draw": "登入以參與抽獎",
+    "Drawing...": "抽獎中...",
+    "You have used all draws": "您已使用所有抽獎次數",
+    "Red packet unavailable": "紅包不可用",
+    "{{count}} draw(s) remaining for you": "您還有 {{count}} 次抽獎機會",
+    "Your rewards": "您的獎勵",
+    "Open red packet": "打開紅包"
   }
 }
