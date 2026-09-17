@@ -155,7 +155,7 @@ async function setup(shortcuts: NavLink[] = []) {
             'value'
           )?.set
         ).call(element, value)
-        element.dispatchEvent(new domWindow.Event('input', { bubbles: true }))
+        element.dispatchEvent(new Event('input', { bubbles: true }))
       })
     },
     async update(value: ViewState) {
@@ -178,7 +178,7 @@ test('nested navigation matches are visible and Escape clears the filter', async
     assert.equal(nav.querySelector('a')?.getAttribute('href'), '/pricing')
     await act(async () => {
       ctx.input().dispatchEvent(
-        new domWindow.KeyboardEvent('keydown', {
+        new KeyboardEvent('keydown', {
           key: 'Escape',
           bubbles: true,
           cancelable: true,

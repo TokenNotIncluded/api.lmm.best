@@ -19,7 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import type { NavGroup, NavItem, NavLink } from '../types'
 
 function normalize(value: string): string {
-  return value.normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase()
+  return value.normalize('NFKD').replaceAll(/\p{M}/gu, '').toLowerCase()
 }
 
 /** Search the supplied, permission-filtered groups without fetching more links. */

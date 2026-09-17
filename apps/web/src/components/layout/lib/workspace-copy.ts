@@ -132,11 +132,9 @@ const translations: Record<string, WorkspaceCopy> = {
 }
 
 export function getWorkspaceCopy(language: string): WorkspaceCopy {
-  const normalized = language.toLowerCase().replace(/_/g, '-')
+  const normalized = language.toLowerCase().replaceAll('_', '-')
   if (/^zh(?:tw|-tw|-hk|-mo|-hant)/.test(normalized)) return translations.zhTW
   if (normalized.startsWith('zh')) return translations.zhCN
   const locale = normalized.split('-')[0]
-  return Object.prototype.hasOwnProperty.call(translations, locale)
-    ? translations[locale]
-    : english
+  return Object.hasOwn(translations, locale) ? translations[locale] : english
 }
