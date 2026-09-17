@@ -42,64 +42,15 @@ jobs:
             echo 'required=true' >> "$GITHUB_OUTPUT"
           fi
 
-  deploy:
+  reject-legacy-deploy:
     needs: legacy-route
-    name: Deploy verified release to ArchDmit
-    if: >-
-      needs.legacy-route.outputs.required == 'true' &&
-      github.event_name == 'workflow_run' &&
-      github.event.workflow_run.conclusion == 'success' &&
-      (startsWith(github.event.workflow_run.head_branch, 'go-v') ||
-       startsWith(github.event.workflow_run.head_branch, 'web-v'))
+    name: Reject the retired overwrite-deployment fallback
+    if: needs.legacy-route.outputs.required == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 50
-    environment: production
+    timeout-minutes: 5
+    # Deliberately no production environment, credentials or remote commands.
     steps:
-      - name: Checkout the exact released revision
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          ref: ${{ github.event.workflow_run.head_sha }}
-          fetch-depth: 0
-          persist-credentials: false
-      - name: Install deployment tools
+      - name: Require a release with the reviewed deployment action
         run: |
-          sudo apt-get update
-          # Use the runner Docker installation, not the conflicting docker.io package.
-          sudo apt-get install --yes jq openssh-client
-          docker --version
-      - name: Install cosign
-        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
-      - name: Verify deployment credentials are configured
-        env:
-          PRODUCTION_SSH_PRIVATE_KEY: ${{ secrets.PRODUCTION_SSH_PRIVATE_KEY }}
-          PRODUCTION_SSH_KNOWN_HOSTS: ${{ secrets.PRODUCTION_SSH_KNOWN_HOSTS }}
-        run: |
-          test -n "$PRODUCTION_SSH_PRIVATE_KEY"
-          test -n "$PRODUCTION_SSH_KNOWN_HOSTS"
-      - name: Stage and promote the verified release
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.event.workflow_run.head_branch }}
-          RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
-          REPOSITORY: ${{ github.repository }}
-          PRODUCTION_SSH_PRIVATE_KEY: ${{ secrets.PRODUCTION_SSH_PRIVATE_KEY }}
-          PRODUCTION_SSH_KNOWN_HOSTS: ${{ secrets.PRODUCTION_SSH_KNOWN_HOSTS }}
-          GITHUB_RUN_ID: ${{ github.run_id }}
-          GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
-        run: bash scripts/auto-deploy-production-release.sh
-      - name: Verify public pages, backend version and referenced assets
-        env:
-          RELEASE_TAG: ${{ github.event.workflow_run.head_branch }}
-        run: |
-          set -euo pipefail
-          arguments=()
-          if [[ "$RELEASE_TAG" == go-v* ]]; then
-            arguments+=(--expected-backend-version "${RELEASE_TAG#go-v}")
-          fi
-          python3 -B scripts/verify-public-production.py "${arguments[@]}"
-          {
-            echo '## Public release acceptance passed'
-            echo 'The public API, frontend entry pages and their JavaScript/CSS resources were checked.'
-            echo 'This read-only check does not confirm or bypass the native production transaction. Follow its recorded confirmation/rollback state.'
-          } >> "$GITHUB_STEP_SUMMARY"
+          echo '::error::This legacy release has no deployment action. Automatic fallback deployment is retired; use a newly verified release or explicit native incident recovery.'
+          exit 1
