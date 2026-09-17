@@ -97,7 +97,9 @@ test('legacy read failures and missing capability do not pass', async () => {
     async () => ({ ...options(), success: false }),
     async () => ({ ...options(), capabilities: undefined }),
   ]) {
-    await assert.rejects(resolvePriceLockSnapshot(success, 'source', true, load))
+    await assert.rejects(
+      resolvePriceLockSnapshot(success, 'source', true, load)
+    )
   }
   await assert.rejects(
     resolvePriceLockSnapshot(
