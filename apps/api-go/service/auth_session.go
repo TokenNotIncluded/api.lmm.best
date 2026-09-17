@@ -408,14 +408,6 @@ func deriveNextRefreshSecret(sid, currentSecret string) string {
 	return common.GenerateHMACWithKey(authSigningKey("refresh-rotate"), sid+"."+currentSecret)
 }
 
-func truncateAuthMetadata(value string, max int) string {
-	value = strings.TrimSpace(value)
-	if len(value) <= max {
-		return value
-	}
-	return value[:max]
-}
-
 func authSessionErrorCode(err error) (int, string) {
 	switch {
 	case errors.Is(err, model.ErrUserSessionLimit):
