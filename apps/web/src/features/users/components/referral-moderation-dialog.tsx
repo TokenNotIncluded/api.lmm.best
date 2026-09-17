@@ -27,6 +27,7 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 
 import { moderateReferralUser, type ReferralModerationPayload } from '../api'
+import { createReferralSubmission } from '../lib/referral-submission'
 import type { User } from '../types'
 
 export function ReferralModerationDialog({
@@ -45,27 +46,26 @@ export function ReferralModerationDialog({
   const [bulk, setBulk] = useState(false)
   const [penalize, setPenalize] = useState(false)
   const [pending, setPending] = useState(false)
-  // Freeze the same payload/key after a network failure: retrying cannot double-charge.
-  const submission = useRef<ReferralModerationPayload | null>(null)
+  const busy = useRef(false)
+  // Both transport and API errors may arrive after the transaction committed.
+  const submission = useRef(createReferralSubmission<ReferralModerationPayload>())
   const [locked, setLocked] = useState(false)
   const submit = async () => {
-    if (pending || !evidence.trim()) return
-    const payload: ReferralModerationPayload = submission.current ?? {
-      id: user.id,
-      action: restore ? 'restore_referral' : 'ban_abuse',
-      reason: restore ? 'mistaken_ban' : bulk ? 'bulk_registration' : 'abuse',
-      evidence: evidence.trim(),
-      penalize_inviter: !restore && penalize,
-      request_id: crypto.randomUUID(),
-    }
-    submission.current = payload
-    setLocked(true)
+    if (busy.current || !evidence.trim()) return
+    busy.current = true
     setPending(true)
     try {
+      const payload = submission.current(() => ({
+        id: user.id,
+        action: restore ? 'restore_referral' : 'ban_abuse',
+        reason: restore ? 'mistaken_ban' : bulk ? 'bulk_registration' : 'abuse',
+        evidence: evidence.trim(),
+        penalize_inviter: !restore && penalize,
+        request_id: crypto.randomUUID(),
+      }))
+      setLocked(true)
       const response = await moderateReferralUser(payload)
       if (!response.success) {
-        submission.current = null
-        setLocked(false)
         throw new Error(response.message || t('Referral moderation failed'))
       }
       toast.success(t('Referral moderation saved'))
@@ -76,6 +76,7 @@ export function ReferralModerationDialog({
         error instanceof Error ? error.message : t('Referral moderation failed')
       )
     } finally {
+      busy.current = false
       setPending(false)
     }
   }
@@ -83,7 +84,7 @@ export function ReferralModerationDialog({
     <Dialog
       open
       onOpenChange={(open) => {
-        if (!open && !pending) onClose()
+        if (!open && !busy.current) onClose()
       }}
       title={restore ? t('Overturn abuse ban') : t('Ban for abuse')}
       description={
