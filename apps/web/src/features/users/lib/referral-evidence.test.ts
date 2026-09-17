@@ -23,6 +23,15 @@ import { test } from 'node:test'
 import { validateReferralEvidence } from './referral-evidence'
 import { createReferralSubmission } from './referral-submission'
 
+type Payload = {
+  request_id: string
+  evidence: string
+}
+
+function payload(request_id: string, evidence: string): Payload {
+  return { request_id, evidence }
+}
+
 type Fixture = {
   name: string
   text: string
@@ -50,30 +59,22 @@ for (const fixture of fixtures) {
 }
 
 test('Chinese and emoji overflow cannot become a retained financial request', () => {
-  const submit = createReferralSubmission<{
-    request_id: string
-    evidence: string
-  }>()
+  const submit = createReferralSubmission<Payload>()
   for (const evidence of ['证'.repeat(334), '😀'.repeat(251), 'bad\0text']) {
-    assert.throws(() => submit(() => ({ request_id: 'invalid', evidence })))
+    assert.throws(() => submit(() => payload('invalid', evidence)))
   }
-  const valid = submit(() => ({ request_id: 'corrected', evidence: '审核完成' }))
+  const valid = submit(() => payload('corrected', '审核完成'))
   assert.equal(valid.request_id, 'corrected')
   assert.equal(valid.evidence, '审核完成')
 })
 
 test('normalization happens before retention and exact retries stay immutable', () => {
-  const submit = createReferralSubmission<{
-    request_id: string
-    evidence: string
-  }>()
-  const first = submit(() => ({
-    request_id: 'stable',
-    evidence: '\u0085  审核完成 \u3000',
-  }))
+  const submit = createReferralSubmission<Payload>()
+  const original = payload('stable', '\u0085  审核完成 \u3000')
+  const first = submit(() => original)
   assert.equal(first.evidence, '审核完成')
   assert.equal(Object.isFrozen(first), true)
-  const retry = submit(() => ({ request_id: 'new', evidence: 'different' }))
+  const retry = submit(() => payload('new', 'different'))
   assert.equal(retry, first)
 })
 
