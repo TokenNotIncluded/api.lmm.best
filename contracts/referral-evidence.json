@@ -1,0 +1,100 @@
+[
+  {
+    "name": "empty",
+    "text": "",
+    "repeat": 1,
+    "bytes": 0,
+    "valid": false
+  },
+  {
+    "name": "ascii-limit",
+    "text": "a",
+    "repeat": 1000,
+    "bytes": 1000,
+    "valid": true
+  },
+  {
+    "name": "ascii-overflow",
+    "text": "a",
+    "repeat": 1001,
+    "bytes": 1001,
+    "valid": false
+  },
+  {
+    "name": "chinese-under-limit",
+    "text": "\u8bc1",
+    "repeat": 333,
+    "bytes": 999,
+    "valid": true
+  },
+  {
+    "name": "chinese-overflow",
+    "text": "\u8bc1",
+    "repeat": 334,
+    "bytes": 1002,
+    "valid": false
+  },
+  {
+    "name": "emoji-limit",
+    "text": "\ud83d\ude00",
+    "repeat": 250,
+    "bytes": 1000,
+    "valid": true
+  },
+  {
+    "name": "emoji-overflow",
+    "text": "\ud83d\ude00",
+    "repeat": 251,
+    "bytes": 1004,
+    "valid": false
+  },
+  {
+    "name": "combining-limit",
+    "text": "e\u0301",
+    "repeat": 333,
+    "bytes": 999,
+    "valid": true
+  },
+  {
+    "name": "combining-overflow",
+    "text": "e\u0301",
+    "repeat": 334,
+    "bytes": 1002,
+    "valid": false
+  },
+  {
+    "name": "unicode-whitespace-only",
+    "text": "\u0085\u00a0\u3000\n\t",
+    "repeat": 1,
+    "bytes": 0,
+    "valid": false
+  },
+  {
+    "name": "unicode-trim",
+    "text": "\u0085\u00a0  \u5ba1\u6838\u8bc1\u636e \u3000\n",
+    "repeat": 1,
+    "bytes": 12,
+    "valid": true
+  },
+  {
+    "name": "bom-is-not-go-whitespace",
+    "text": "\ufeff",
+    "repeat": 1,
+    "bytes": 3,
+    "valid": true
+  },
+  {
+    "name": "nul-not-database-text",
+    "text": "evidence\u0000suffix",
+    "repeat": 1,
+    "bytes": 15,
+    "valid": false
+  },
+  {
+    "name": "internal-newline",
+    "text": "review\nreference",
+    "repeat": 1,
+    "bytes": 16,
+    "valid": true
+  }
+]

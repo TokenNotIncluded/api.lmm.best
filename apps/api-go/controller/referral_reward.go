@@ -5,14 +5,20 @@ import (
 	"strconv"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
+	"github.com/LIghtJUNction/api.lmm.best/internal/referralinput"
 	"github.com/LIghtJUNction/api.lmm.best/model"
 	"github.com/gin-gonic/gin"
 )
 
 func manageReferralModeration(c *gin.Context, req ManageRequest) {
-	err := model.ModerateReferralUser(model.ReferralModerationEvent{
+	evidence, err := referralinput.NormalizeEvidence(req.Evidence)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	err = model.ModerateReferralUser(model.ReferralModerationEvent{
 		RequestId: req.RequestId, ActorId: c.GetInt("id"), UserId: req.Id,
-		Action: req.Action, Reason: req.Reason, Evidence: req.Evidence, Penalize: req.PenalizeInviter,
+		Action: req.Action, Reason: req.Reason, Evidence: evidence, Penalize: req.PenalizeInviter,
 	})
 	if err != nil {
 		common.ApiError(c, err)

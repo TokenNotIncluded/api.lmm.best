@@ -27,6 +27,10 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 
 import { moderateReferralUser, type ReferralModerationPayload } from '../api'
+import {
+  REFERRAL_EVIDENCE_MAX_BYTES,
+  validateReferralEvidence,
+} from '../lib/referral-evidence'
 import { createReferralSubmission } from '../lib/referral-submission'
 import type { User } from '../types'
 
@@ -52,8 +56,11 @@ export function ReferralModerationDialog({
     createReferralSubmission<ReferralModerationPayload>()
   )
   const [locked, setLocked] = useState(false)
+  const checkedEvidence = validateReferralEvidence(evidence)
+  const invalidEvidence = evidence.length > 0 && !checkedEvidence.valid
+  const evidenceHintId = `referral-evidence-hint-${user.id}`
   const submit = async () => {
-    if (busy.current || !evidence.trim()) return
+    if (busy.current || !checkedEvidence.valid) return
     busy.current = true
     setPending(true)
     try {
@@ -61,7 +68,7 @@ export function ReferralModerationDialog({
         id: user.id,
         action: restore ? 'restore_referral' : 'ban_abuse',
         reason: restore ? 'mistaken_ban' : bulk ? 'bulk_registration' : 'abuse',
-        evidence: evidence.trim(),
+        evidence: checkedEvidence.value,
         penalize_inviter: !restore && penalize,
         request_id: crypto.randomUUID(),
       }))
@@ -105,7 +112,7 @@ export function ReferralModerationDialog({
           </Button>
           <Button
             variant={restore ? 'default' : 'destructive'}
-            disabled={pending || !evidence.trim()}
+            disabled={pending || !checkedEvidence.valid}
             onClick={() => void submit()}
           >
             {pending ? t('Saving...') : t('Confirm')}
@@ -125,10 +132,24 @@ export function ReferralModerationDialog({
             id={`referral-evidence-${user.id}`}
             value={evidence}
             onChange={(event) => setEvidence(event.target.value)}
-            maxLength={1000}
+            maxLength={REFERRAL_EVIDENCE_MAX_BYTES}
+            aria-invalid={invalidEvidence}
+            aria-describedby={evidenceHintId}
             disabled={locked}
             required
           />
+          <p
+            id={evidenceHintId}
+            role='status'
+            className={
+              invalidEvidence
+                ? 'text-destructive text-xs'
+                : 'text-muted-foreground text-xs'
+            }
+          >
+            {invalidEvidence && `${t('Referral moderation failed')} · `}
+            UTF-8: {checkedEvidence.bytes} / {REFERRAL_EVIDENCE_MAX_BYTES} B
+          </p>
         </div>
         {!restore && (
           <>

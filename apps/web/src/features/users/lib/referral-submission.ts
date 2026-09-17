@@ -16,11 +16,15 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { validateReferralEvidence } from './referral-evidence'
+
 /** Keep one primitive-valued payload and request ID for the entire dialog.
  * An API error can happen after the database committed, so neither a network
  * failure nor success:false authorizes issuing a fresh financial operation.
  */
-export function createReferralSubmission<T extends { request_id: string }>() {
+export function createReferralSubmission<
+  T extends { request_id: string; evidence: string },
+>() {
   let retained: Readonly<T> | undefined
   return (create: () => T): Readonly<T> => {
     if (!retained) {
@@ -28,7 +32,11 @@ export function createReferralSubmission<T extends { request_id: string }>() {
       if (!proposed.request_id.trim()) {
         throw new Error('A stable referral request ID is required')
       }
-      retained = Object.freeze({ ...proposed })
+      const evidence = validateReferralEvidence(proposed.evidence)
+      if (!evidence.valid) {
+        throw new Error('Invalid referral moderation evidence')
+      }
+      retained = Object.freeze({ ...proposed, evidence: evidence.value })
     }
     return retained
   }
