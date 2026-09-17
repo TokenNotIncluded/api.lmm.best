@@ -27,6 +27,10 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 
 import { moderateReferralUser, type ReferralModerationPayload } from '../api'
+import {
+  inspectReferralEvidence,
+  REFERRAL_EVIDENCE_MAX_CHARACTERS,
+} from '../lib/referral-evidence'
 import { createReferralSubmission } from '../lib/referral-submission'
 import type { User } from '../types'
 
@@ -52,8 +56,10 @@ export function ReferralModerationDialog({
     createReferralSubmission<ReferralModerationPayload>()
   )
   const [locked, setLocked] = useState(false)
+  const evidenceInput = inspectReferralEvidence(evidence)
   const submit = async () => {
-    if (busy.current || !evidence.trim()) return
+    // Reject local validation errors before retaining an immutable request.
+    if (busy.current || !evidenceInput.valid) return
     busy.current = true
     setPending(true)
     try {
@@ -61,7 +67,7 @@ export function ReferralModerationDialog({
         id: user.id,
         action: restore ? 'restore_referral' : 'ban_abuse',
         reason: restore ? 'mistaken_ban' : bulk ? 'bulk_registration' : 'abuse',
-        evidence: evidence.trim(),
+        evidence: evidenceInput.value,
         penalize_inviter: !restore && penalize,
         request_id: crypto.randomUUID(),
       }))
@@ -105,7 +111,7 @@ export function ReferralModerationDialog({
           </Button>
           <Button
             variant={restore ? 'default' : 'destructive'}
-            disabled={pending || !evidence.trim()}
+            disabled={pending || !evidenceInput.valid}
             onClick={() => void submit()}
           >
             {pending ? t('Saving...') : t('Confirm')}
@@ -125,10 +131,22 @@ export function ReferralModerationDialog({
             id={`referral-evidence-${user.id}`}
             value={evidence}
             onChange={(event) => setEvidence(event.target.value)}
-            maxLength={1000}
+            maxLength={REFERRAL_EVIDENCE_MAX_CHARACTERS * 2}
+            aria-invalid={evidence.length > 0 && !evidenceInput.valid}
+            aria-describedby={`referral-evidence-count-${user.id}`}
             disabled={locked}
             required
           />
+          <p
+            id={`referral-evidence-count-${user.id}`}
+            className={
+              evidence.length > 0 && !evidenceInput.valid
+                ? 'text-destructive text-xs tabular-nums'
+                : 'text-muted-foreground text-xs tabular-nums'
+            }
+          >
+            {evidenceInput.length} / {REFERRAL_EVIDENCE_MAX_CHARACTERS}
+          </p>
         </div>
         {!restore && (
           <>
