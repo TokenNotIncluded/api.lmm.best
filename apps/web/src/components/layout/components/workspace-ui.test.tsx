@@ -58,9 +58,8 @@ const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { SidebarProvider } = await import('@/components/ui/sidebar')
 const { ModelPlazaProvider } = await import('@/context/model-plaza-provider')
-const { WorkspaceLaunchpad } = await import(
-  '@/features/dashboard/components/overview/workspace-launchpad'
-)
+const { WorkspaceLaunchpad } =
+  await import('@/features/dashboard/components/overview/workspace-launchpad')
 const { getWorkspaceCopy } = await import('../lib/workspace-copy')
 const { SidebarNavigation } = await import('./sidebar-navigation')
 

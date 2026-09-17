@@ -64,11 +64,7 @@ export function WorkspaceLaunchpad({
           </h2>
           <p className='workspace-description'>{copy.description}</p>
         </div>
-        <button
-          type='button'
-          className='workspace-command'
-          onClick={onSearch}
-        >
+        <button type='button' className='workspace-command' onClick={onSearch}>
           <Search size={17} aria-hidden='true' />
           <span>{copy.allTools}</span>
           <ArrowUpRight size={17} aria-hidden='true' />
@@ -83,10 +79,7 @@ export function WorkspaceLaunchpad({
                   <span className='workspace-shortcut-icon'>
                     {item.icon && <item.icon size={21} aria-hidden='true' />}
                   </span>
-                  <span
-                    className='workspace-shortcut-index'
-                    aria-hidden='true'
-                  >
+                  <span className='workspace-shortcut-index' aria-hidden='true'>
                     0{index + 1}
                   </span>
                 </span>
@@ -110,11 +103,7 @@ export function WorkspaceLaunchpad({
                 {contents}
               </button>
             ) : (
-              <Link
-                key={item.url}
-                to={item.url}
-                className='workspace-shortcut'
-              >
+              <Link key={item.url} to={item.url} className='workspace-shortcut'>
                 {contents}
               </Link>
             )
