@@ -26,6 +26,11 @@ import { toast } from 'sonner'
 
 import { getSystemOptions, updateSystemOption } from '../api'
 import { useSystemOptions } from '../hooks/use-system-options'
+import type { SystemOptionsResponse } from '../types'
+import {
+  mergePriceLockSnapshot,
+  resolvePriceLockSnapshot,
+} from './model-price-lock-snapshot'
 import { buildModelSnapshots } from './model-pricing-snapshots'
 
 export function parseModelPriceLocks(value?: string): Record<string, boolean> {
@@ -81,6 +86,7 @@ export function useModelPriceLocks() {
       const locked = locks[name] !== true
       pendingRef.current = true
       setPending(true)
+      let writeAttempted = false
       try {
         // Check every write: a cached capability can outlive a backend rollback.
         const current = await getSystemOptions()
@@ -96,6 +102,7 @@ export function useModelPriceLocks() {
           return
         }
         await queryClient.cancelQueries({ queryKey: ['system-options'] })
+        writeAttempted = true
         const response = await updateSystemOption({
           key: 'ModelPriceLock',
           model: name,
@@ -104,18 +111,32 @@ export function useModelPriceLocks() {
         if (!response.success) {
           throw new Error(response.message || t('Failed to update price lock'))
         }
-        // Pricing can change between the capability check and the lock write.
-        // Publish only the authoritative snapshot read after the write.
-        const accepted = await getSystemOptions()
-        if (!accepted.success) {
-          throw new Error(accepted.message || t('Failed to load settings'))
-        }
+        const { pricing, legacyOptions } = await resolvePriceLockSnapshot(
+          response,
+          name,
+          locked,
+          getSystemOptions
+        )
+        // Cancel reads started during the write before publishing its receipt.
+        await queryClient.cancelQueries({ queryKey: ['system-options'] })
+        const previous = queryClient.getQueryData<SystemOptionsResponse>([
+          'system-options',
+        ])
+        const accepted = mergePriceLockSnapshot(
+          legacyOptions || (previous?.success ? previous : current),
+          pricing
+        )
         queryClient.setQueryData(['system-options'], accepted)
         if (response.warnings?.length) {
           response.warnings.forEach((warning) => toast.warning(warning))
         }
         return { locked, options: accepted.data }
       } catch (error) {
+        if (writeAttempted) {
+          // A transport/refresh failure does not prove the write was rejected.
+          // Mark cached locks stale so a later successful read can reconcile.
+          void queryClient.invalidateQueries({ queryKey: ['system-options'] })
+        }
         toast.error(
           error instanceof Error
             ? error.message

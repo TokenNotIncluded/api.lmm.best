@@ -31,8 +31,9 @@ var modelPriceOptionKeys = []string{
 }
 
 type OptionUpdateResult struct {
-	Warnings     []string `json:"warnings,omitempty"`
-	LockedModels []string `json:"locked_models,omitempty"`
+	Warnings     []string          `json:"warnings,omitempty"`
+	LockedModels []string          `json:"locked_models,omitempty"`
+	Pricing      map[string]string `json:"pricing,omitempty"`
 }
 
 func isModelPriceOption(key string) bool {
@@ -75,15 +76,17 @@ func IsModelPriceLocked(model string) bool { return GetModelPriceLocksCopy()[mod
 
 func priceOptionSnapshot() map[string]string {
 	values := map[string]string{
-		ModelPriceLocksOptionKey: "{}",
-		"ModelRatio":             ratio_setting.ModelRatio2JSONString(),
-		"CompletionRatio":        ratio_setting.CompletionRatio2JSONString(),
-		"ModelPrice":             ratio_setting.ModelPrice2JSONString(),
-		"CacheRatio":             ratio_setting.CacheRatio2JSONString(),
-		"CreateCacheRatio":       ratio_setting.CreateCacheRatio2JSONString(),
-		"ImageRatio":             ratio_setting.ImageRatio2JSONString(),
-		"AudioRatio":             ratio_setting.AudioRatio2JSONString(),
-		"AudioCompletionRatio":   ratio_setting.AudioCompletionRatio2JSONString(),
+		ModelPriceLocksOptionKey:       "{}",
+		"ModelRatio":                   ratio_setting.ModelRatio2JSONString(),
+		"CompletionRatio":              ratio_setting.CompletionRatio2JSONString(),
+		"ModelPrice":                   ratio_setting.ModelPrice2JSONString(),
+		"CacheRatio":                   ratio_setting.CacheRatio2JSONString(),
+		"CreateCacheRatio":             ratio_setting.CreateCacheRatio2JSONString(),
+		"ImageRatio":                   ratio_setting.ImageRatio2JSONString(),
+		"AudioRatio":                   ratio_setting.AudioRatio2JSONString(),
+		"AudioCompletionRatio":         ratio_setting.AudioCompletionRatio2JSONString(),
+		"billing_setting.billing_mode": "{}",
+		"billing_setting.billing_expr": "{}",
 	}
 	for key, value := range config.GlobalConfig.ExportAllConfigs() {
 		if isModelPriceOption(key) {
@@ -318,6 +321,7 @@ func updateOptionsWithPriceLocks(values map[string]string, lockModel string, loc
 		}
 	}
 	var accepted map[string]string
+	var pricingSnapshot map[string]string
 	var keys []string
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		if err := lockAssistantL1AutoReviewOptions(tx, values); err != nil {
@@ -363,6 +367,13 @@ func updateOptionsWithPriceLocks(values map[string]string, lockModel string, loc
 			if err := validateModelPriceValues(accepted); err != nil {
 				return err
 			}
+			if lockModel != "" {
+				// Capture stored pricing under the policy-row lock. A later GET
+				// may hit another node with a stale cache or fail after commit.
+				// This map contains only the pricing allowlist, never secrets.
+				pricingSnapshot = maps.Clone(current)
+				pricingSnapshot[ModelPriceLocksOptionKey] = accepted[ModelPriceLocksOptionKey]
+			}
 		}
 		if err := recordRatioNotification(tx, accepted); err != nil {
 			return err
@@ -390,6 +401,8 @@ func updateOptionsWithPriceLocks(values map[string]string, lockModel string, loc
 			return result, err
 		}
 	}
+	// Publish a receipt only after persistence and runtime publication succeed.
+	result.Pricing = pricingSnapshot
 	for _, warning := range result.Warnings {
 		common.SysLog(warning)
 	}
