@@ -38,7 +38,10 @@ for (const character of ['a', '证', 'é', '🙂', '𠀀']) {
 test('normalization preserves evidence and counts combining code points', () => {
   const padded = ' \u0085\u00a0证据\u3000 '
   assert.equal(inspectReferralEvidence(padded).value, '证据')
-  assert.equal(inspectReferralEvidence('\ufeffevidence').value, '\ufeffevidence')
+  assert.equal(
+    inspectReferralEvidence('\ufeffevidence').value,
+    '\ufeffevidence'
+  )
   assert.equal(inspectReferralEvidence('e\u0301'.repeat(500)).valid, true)
   assert.equal(inspectReferralEvidence('e\u0301'.repeat(501)).valid, false)
   assert.equal(
