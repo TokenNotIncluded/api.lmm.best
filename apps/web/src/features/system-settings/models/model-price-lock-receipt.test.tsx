@@ -62,7 +62,10 @@ function options(): SystemOptionsResponse {
     success: true,
     message: '',
     capabilities: { model_price_locks: true },
-    data: Object.entries(pricing(false)).map(([key, value]) => ({ key, value })),
+    data: Object.entries(pricing(false)).map(([key, value]) => ({
+      key,
+      value,
+    })),
   }
 }
 
@@ -135,7 +138,7 @@ async function harness(response: unknown, failReadAfterWrite = true) {
   }
 }
 
-test('actual hook accepts committed pricing without a fallible read after PUT', async () => {
+test('hook uses committed pricing without a read after PUT', async () => {
   const ctx = await harness({
     success: true,
     message: '',
@@ -160,7 +163,7 @@ test('actual hook accepts committed pricing without a fallible read after PUT', 
   }
 })
 
-test('actual hook invalidates unknown outcomes and never returns a successful draft', async () => {
+test('hook invalidates unknown outcomes without accepting drafts', async () => {
   for (const response of [
     { success: true, message: '' },
     { success: true, message: '', pricing: null },

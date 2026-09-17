@@ -93,7 +93,11 @@ func TestPriceLockReceiptIsAbsentForOrdinaryWritesAndFailedTransactions(t *testi
 
 	const callback = "test:price-lock-snapshot-failure"
 	require.NoError(t, DB.Callback().Create().Before("gorm:create").Register(callback, func(tx *gorm.DB) {
-		tx.AddError(errors.New("injected persistence failure"))
+		if option, ok := tx.Statement.Dest.(*Option); ok &&
+			option.Key == ModelPriceLocksOptionKey && option.Value != "{}" {
+			// Fail the final write after the transaction snapshot was captured.
+			tx.AddError(errors.New("injected persistence failure"))
+		}
 	}))
 	t.Cleanup(func() { _ = DB.Callback().Create().Remove(callback) })
 	result, err = UpdateModelPriceLock("source", true)

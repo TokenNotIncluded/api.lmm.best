@@ -46,7 +46,7 @@ test('committed snapshot succeeds without a follow-up GET', async () => {
   assert.notEqual(result.pricing, pricing)
 })
 
-test('new snapshot replaces lagging pricing but preserves unrelated cache', async () => {
+test('snapshot replaces pricing and preserves unrelated cache', async () => {
   const old = options(snapshot(false))
   old.data.push({ key: 'Notice', value: 'latest unrelated edit' })
   const receipt = await resolvePriceLockSnapshot(
@@ -68,7 +68,10 @@ test('new snapshot replaces lagging pricing but preserves unrelated cache', asyn
     old.data.find(({ key }) => key === 'ModelPriceLock')?.value,
     snapshot(false).ModelPriceLock
   )
-  assert.equal(new Set(merged.data.map(({ key }) => key)).size, merged.data.length)
+  assert.equal(
+    new Set(merged.data.map(({ key }) => key)).size,
+    merged.data.length
+  )
 })
 
 test('legacy provider performs one checked post-write read', async () => {
@@ -88,15 +91,13 @@ test('legacy provider performs one checked post-write read', async () => {
   assert.deepEqual(result.pricing, snapshot())
 })
 
-test('legacy refresh failure, rejected response and removed capability do not pass', async () => {
+test('legacy read failures and missing capability do not pass', async () => {
   for (const load of [
     neverLoad,
     async () => ({ ...options(), success: false }),
     async () => ({ ...options(), capabilities: undefined }),
   ]) {
-    await assert.rejects(
-      resolvePriceLockSnapshot(success, 'source', true, load)
-    )
+    await assert.rejects(resolvePriceLockSnapshot(success, 'source', true, load))
   }
   await assert.rejects(
     resolvePriceLockSnapshot(
@@ -109,7 +110,7 @@ test('legacy refresh failure, rejected response and removed capability do not pa
   )
 })
 
-test('partial, extra-key and non-object receipts cannot fall back to stale GET', async () => {
+test('malformed receipts cannot fall back to stale GET', async () => {
   const missing = snapshot()
   delete missing.ModelRatio
   for (const pricing of [
@@ -155,7 +156,7 @@ test('invalid pricing types, JSON and lock booleans are rejected', async () => {
   }
 })
 
-test('receipt must match the requested lock state, including unlock', async () => {
+test('receipt must match lock and unlock intent', async () => {
   for (const locked of [true, false]) {
     await resolvePriceLockSnapshot(
       { ...success, pricing: snapshot(locked) },
@@ -184,7 +185,7 @@ test('legacy duplicated pricing keys are ambiguous', async () => {
   )
 })
 
-test('legacy read of another lock state is not reported as the requested success', async () => {
+test('stale legacy state is not reported as success', async () => {
   await assert.rejects(
     resolvePriceLockSnapshot(success, 'source', true, async () =>
       options(snapshot(false))
@@ -193,7 +194,7 @@ test('legacy read of another lock state is not reported as the requested success
   )
 })
 
-test('prototype-named model is treated only as an own boolean entry', async () => {
+test('prototype names require an own boolean entry', async () => {
   const pricing = snapshot()
   pricing.ModelPriceLock = '{"__proto__":true,"constructor":true}'
   for (const name of ['__proto__', 'constructor']) {
