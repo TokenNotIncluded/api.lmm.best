@@ -238,9 +238,8 @@ test('launchpad preserves links, panel triggers and command search', async () =>
     const model = required(nav.querySelector('button'))
     await act(async () => model.click())
     assert.equal(ctx.getModelTrigger(), model)
-    const search = ctx.container.querySelector<HTMLButtonElement>(
-      '.workspace-command'
-    )
+    const search =
+      ctx.container.querySelector<HTMLButtonElement>('.workspace-command')
     await act(async () => required(search).click())
     assert.equal(ctx.getSearchCalls(), 1)
     assert.equal(ctx.container.querySelector('img'), null)
@@ -253,9 +252,8 @@ test('launchpad preserves links, panel triggers and command search', async () =>
 test('empty permitted shortcuts cannot fabricate a launch destination', async () => {
   const ctx = await setup()
   try {
-    const section = required(
-      ctx.container.querySelector('.workspace-launchpad')
-    )
+    const panel = ctx.container.querySelector('.workspace-launchpad')
+    const section = required(panel)
     assert.equal(section.querySelectorAll('a').length, 0)
     assert.match(section.textContent ?? '', /Only tools available/)
   } finally {
