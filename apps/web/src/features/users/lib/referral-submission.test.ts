@@ -39,7 +39,9 @@ test('network and application failures both retain the exact request', () => {
   const first = submission(() => payload('same-request'))
   for (const failure of ['network', 'application']) {
     try {
-      if (failure === 'network') throw new Error('connection lost after commit')
+      if (failure === 'network') {
+        throw new Error('connection lost after commit')
+      }
       const response = { success: false, message: 'cache publication failed' }
       if (!response.success) throw new Error(response.message)
     } catch {

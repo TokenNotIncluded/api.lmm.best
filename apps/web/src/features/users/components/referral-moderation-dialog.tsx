@@ -48,7 +48,9 @@ export function ReferralModerationDialog({
   const [pending, setPending] = useState(false)
   const busy = useRef(false)
   // Both transport and API errors may arrive after the transaction committed.
-  const submission = useRef(createReferralSubmission<ReferralModerationPayload>())
+  const submission = useRef(
+    createReferralSubmission<ReferralModerationPayload>()
+  )
   const [locked, setLocked] = useState(false)
   const submit = async () => {
     if (busy.current || !evidence.trim()) return
