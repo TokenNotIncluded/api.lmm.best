@@ -37,6 +37,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends shellcheck
+      - name: Exercise native release confirmation and rollback failures offline
+        run: python3 -B scripts/test-production-release-transaction.py
       - name: Validate qualification harnesses
         run: |
           set -euo pipefail
