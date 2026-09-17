@@ -31,9 +31,8 @@ const documentSource = readFileSync(
 
 describe('authenticated layout responsive contract', () => {
   test('keeps the narrow viewport content row and inset stretchable', () => {
-    const wrapper = source.match(
-      /<SidebarProvider\b[^>]*\bclassName='([^']+)'/
-    )
+    const pattern = /<SidebarProvider\b[^>]*\bclassName='([^']+)'/
+    const wrapper = source.match(pattern)
     assert.ok(wrapper, 'SidebarProvider must declare its layout classes')
     const classes = new Set(wrapper[1].split(/\s+/))
     for (const name of [
