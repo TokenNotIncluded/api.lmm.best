@@ -1,8 +1,8 @@
 {
   "format": 1,
   "incident": 343,
-  "operation": "inspect-backup-343",
-  "base_sha": "22e1c3d19e2bf479ad5f37fe85acc47401e52f75",
-  "script_sha256": "77bd382205b1761cd0b9e84919bd04eaa8be1d0a4ec06779e2b84acfcc9e59f1",
+  "operation": "confirm-recovery-343",
+  "base_sha": "5a725056820af8ebb925f0020bf4eca48c5ef4f6",
+  "script_sha256": "a020720c1a3e55ab32e2ec723d851e7c4ec1c829eda59e388ace319326a9dd41",
   "confirm": "api.lmm.best"
 }

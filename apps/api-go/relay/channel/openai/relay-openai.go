@@ -197,6 +197,8 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 				if err := HandleStreamFormat(c, info, data, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent); err != nil {
 					common.SysLog("error handling converted stream format: " + err.Error())
 					sr.Error(err)
+				} else if hasVisibleStreamOutput(data) {
+					sr.MarkFirstResponse()
 				}
 				lastStreamDataSent = true
 			}

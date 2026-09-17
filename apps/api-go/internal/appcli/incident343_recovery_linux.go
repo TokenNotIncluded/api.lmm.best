@@ -201,10 +201,8 @@ func (runtime *productionRuntime) snapshotRecoveryDatabase(ctx context.Context, 
 	if _, err := os.Lstat(backup); !errors.Is(err, os.ErrNotExist) {
 		return errors.New("incident database snapshot already exists")
 	}
-	if _, err := runtime.runner.Run(ctx, productionCommand{Name: commandPGDump,
-		Args: []string{"--no-password", "--format=custom", "--file=" + backup, databaseURL}, Env: environment,
-		Sensitive: true, Timeout: 2 * time.Minute}); err != nil {
-		return errors.New("fresh incident database backup failed")
+	if err := dumpIncident343Database(ctx, runtime.runner, databaseURL, environment, backup); err != nil {
+		return fmt.Errorf("fresh incident database backup failed: %w", err)
 	}
 	if err := os.Chmod(backup, 0600); err != nil {
 		return err
@@ -252,7 +250,7 @@ func (runtime *productionRuntime) recoverInstalledSchema(ctx context.Context, wo
 		return productionStatus{}, err
 	}
 	if err := waitIncident343Quiescent(ctx, func(readCtx context.Context) (map[string]string, error) {
-		return runtime.billingUnitState(readCtx, runtime.paths.Service)
+		return runtime.incident343RecoveryUnitState(readCtx)
 	}, sleepIncident343); err != nil {
 		return productionStatus{}, err
 	}
@@ -263,18 +261,9 @@ func (runtime *productionRuntime) recoverInstalledSchema(ctx context.Context, wo
 	if err := runtime.requireAbsentRedPacketTables(ctx, databaseURL, environment, manifest.DatabaseSchema); err != nil {
 		return productionStatus{}, err
 	}
-	audit := filepath.Join(workspace.stateDir, "incident-343-schema-recovery")
-	if err := os.Mkdir(audit, 0700); err != nil {
-		return productionStatus{}, errors.New("incident recovery evidence already exists; inspect it instead of replaying")
-	}
-	for name, data := range map[string]any{"before-manifest.json": manifest, "before-status.json": status} {
-		encoded, err := json.MarshalIndent(data, "", "  ")
-		if err != nil {
-			return productionStatus{}, err
-		}
-		if err := writeAtomicRegularFile(filepath.Join(audit, name), append(encoded, '\n'), 0600); err != nil {
-			return productionStatus{}, err
-		}
+	audit, err := runtime.prepareIncident343ForwardAudit(ctx, workspace, manifest, status)
+	if err != nil {
+		return productionStatus{}, err
 	}
 	if err := runtime.snapshotRecoveryDatabase(ctx, audit, databaseURL, environment); err != nil {
 		return productionStatus{}, err
@@ -294,9 +283,8 @@ func (runtime *productionRuntime) recoverInstalledSchema(ctx context.Context, wo
 			}
 		}
 	}()
-	state, err := runtime.billingUnitState(ctx, runtime.paths.Service)
-	if err != nil || state["MainPID"] != "0" || state["ActiveState"] != "inactive" || state["ControlGroup"] != "" {
-		return productionStatus{}, errors.New("failed service cgroup is not verifiably empty")
+	if err := runtime.verifyIncident343Stopped(ctx); err != nil {
+		return productionStatus{}, err
 	}
 	if err := runtime.requireAbsentRedPacketTables(ctx, databaseURL, environment, manifest.DatabaseSchema); err != nil {
 		return productionStatus{}, err

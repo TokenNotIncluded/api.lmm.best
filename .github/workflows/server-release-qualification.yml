@@ -7,7 +7,7 @@ on:
   push:
     branches:
       - main
-      - fix/incident343-additive-recovery
+    paths-ignore: [.github/server-ops-343-request.json]
   workflow_dispatch:
   schedule:
     - cron: "17 3 * * *"
@@ -16,8 +16,9 @@ permissions:
   contents: read
 
 concurrency:
-  group: server-release-qualification-${{ github.ref }}
-  cancel-in-progress: true
+  # Never let a PR/main test update cancel an explicit operator qualification.
+  group: server-release-qualification-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}-${{ (github.event_name == 'pull_request' || github.event_name == 'push') && 'latest' || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
 
 env:
   CI: "true"
