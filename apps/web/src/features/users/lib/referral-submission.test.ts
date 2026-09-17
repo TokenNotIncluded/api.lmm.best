@@ -68,10 +68,8 @@ test('repeated submissions allocate the request ID only once', () => {
   let allocations = 0
   const submission = createReferralSubmission<Payload>()
   for (let index = 0; index < 10; index++) {
-    assert.equal(
-      submission(() => payload(String(++allocations))).request_id,
-      '1'
-    )
+    const request = submission(() => payload(String(++allocations)))
+    assert.equal(request.request_id, '1')
   }
   assert.equal(allocations, 1)
 })
@@ -79,11 +77,10 @@ test('repeated submissions allocate the request ID only once', () => {
 test('creation failure does not retain an invalid request', () => {
   const submission = createReferralSubmission<Payload>()
   assert.throws(() => submission(() => payload('  ')))
-  assert.throws(() =>
-    submission(() => {
-      throw new Error('UUID unavailable')
-    })
-  )
+  const unavailable = (): Payload => {
+    throw new Error('UUID unavailable')
+  }
+  assert.throws(() => submission(unavailable))
   assert.equal(submission(() => payload('valid')).request_id, 'valid')
 })
 
