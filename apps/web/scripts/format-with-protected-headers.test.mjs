@@ -61,14 +61,14 @@ test('check reports exact first difference and restores protected bytes', (t) =>
   assert.equal(result.status, 1)
   assert.match(result.stderr, /First difference at line 4/)
   assert.match(result.stderr, /before: "const value=1"/)
-  assert.match(result.stderr, /after:  "const value = 1"/)
-  assert.equal(result.source, header + 'const value=1\n')
+  assert.match(result.stderr, /after: {2}"const value = 1"/)
+  assert.equal(result.source, `${header}const value=1\n`)
 })
 
 test('formatter failure still fails and restores original bytes', (t) => {
   const result = check(t, '--check', 'original\n', 'partial change\n', 7)
   assert.equal(result.status, 7)
-  assert.equal(result.source, header + 'original\n')
+  assert.equal(result.source, `${header}original\n`)
 })
 
 test('clean check stays successful without invented differences', (t) => {
@@ -80,11 +80,11 @@ test('clean check stays successful without invented differences', (t) => {
 test('write preserves header and applies formatting', (t) => {
   const result = check(t, '--write', 'const value=1\n', 'const value = 1\n')
   assert.equal(result.status, 0)
-  assert.equal(result.source, header + 'const value = 1\n')
+  assert.equal(result.source, `${header}const value = 1\n`)
 })
 
 test('diagnostic lines are bounded and cannot emit workflow commands', (t) => {
-  const source = '::error::' + 'x'.repeat(1000) + '\n'
+  const source = `::error::${'x'.repeat(1000)}\n`
   const result = check(t, '--check', source, 'fixed\n')
   assert.equal(result.status, 1)
   assert.doesNotMatch(result.stderr, /^::/m)

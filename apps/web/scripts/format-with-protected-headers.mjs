@@ -143,8 +143,10 @@ function reportFirstDifference(file, before) {
     if (previous[index] === current[index]) continue
     console.error(`  First difference at line ${index + 1}:`)
     // Prefix and JSON-escape source text so it cannot become workflow commands.
-    console.error('  before: ' + JSON.stringify(previous[index]?.slice(0, 240)))
-    console.error('  after:  ' + JSON.stringify(current[index]?.slice(0, 240)))
+    const beforeLine = JSON.stringify(previous[index]?.slice(0, 240))
+    const afterLine = JSON.stringify(current[index]?.slice(0, 240))
+    console.error(`  before: ${beforeLine}`)
+    console.error(`  after:  ${afterLine}`)
     break
   }
 }
