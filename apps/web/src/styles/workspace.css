@@ -1,0 +1,448 @@
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+/* Authenticated workspace only; theme presets remain the palette authority. */
+.workspace-ui {
+  background: color-mix(in oklch, var(--muted) 42%, var(--background));
+}
+
+.workspace-ui .console-section-header {
+  border-bottom: 1px solid var(--border);
+  background: var(--background);
+}
+
+.workspace-ui .console-section-content {
+  padding: clamp(1rem, 2.5cqi, 2.5rem);
+  scroll-padding-block: 1.5rem;
+}
+
+.workspace-ui .workspace-overview {
+  display: flex;
+  flex-direction: column;
+  gap: clamp(1.5rem, 3cqi, 2.5rem);
+  width: 100%;
+  max-width: 96rem;
+  margin-inline: auto;
+  background: transparent;
+}
+
+.workspace-launchpad {
+  min-width: 0;
+}
+
+.workspace-welcome {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 1.25rem;
+  padding-block: 0.25rem 1.75rem;
+}
+
+.workspace-welcome-copy {
+  min-width: 0;
+  max-width: 48rem;
+}
+
+.workspace-eyebrow {
+  margin: 0 0 0.75rem;
+  color: var(--muted-foreground);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.workspace-welcome h2 {
+  margin: 0;
+  font-size: clamp(1.8rem, 4.5cqi, 3.2rem);
+  line-height: 1.16;
+  letter-spacing: -0.04em;
+  overflow-wrap: anywhere;
+  text-wrap: balance;
+}
+
+.workspace-welcome h2 > span {
+  margin-inline-start: 0.45em;
+  color: var(--primary);
+}
+
+.workspace-description {
+  margin: 0.8rem 0 0;
+  color: var(--muted-foreground);
+  max-width: 44rem;
+  font-size: 0.92rem;
+  line-height: 1.7;
+}
+
+.workspace-command {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.65rem;
+  min-height: 2.75rem;
+  max-width: 100%;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  background: var(--card);
+  color: var(--foreground);
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.workspace-command > svg {
+  flex-shrink: 0;
+}
+
+.workspace-command > span {
+  overflow-wrap: anywhere;
+}
+
+.workspace-shortcuts {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.8rem;
+}
+
+.workspace-shortcut {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 1.2rem;
+  border: 1px solid var(--border);
+  border-radius: 1rem;
+  background: var(--card);
+  color: var(--foreground);
+  text-align: start;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.workspace-shortcut-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1.6rem;
+}
+
+.workspace-shortcut-icon {
+  display: inline-flex;
+  color: var(--primary);
+}
+
+.workspace-shortcut-index {
+  font-size: 0.7rem;
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+}
+
+.workspace-shortcut-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  font-size: 0.98rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.workspace-shortcut-title > svg {
+  flex-shrink: 0;
+  color: var(--muted-foreground);
+}
+
+.workspace-shortcut-description {
+  margin-top: 0.5rem;
+  color: var(--muted-foreground);
+  font-size: 0.8rem;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.workspace-empty-hint {
+  color: var(--muted-foreground);
+  font-size: 0.85rem;
+}
+
+.workspace-command:hover,
+.workspace-shortcut:hover {
+  border-color: var(--primary);
+  background: color-mix(in oklch, var(--primary) 3%, var(--card));
+}
+
+.workspace-metrics {
+  min-width: 0;
+}
+
+.workspace-metrics > section {
+  padding: clamp(1.15rem, 2.5cqi, 2rem);
+  border: 1px solid var(--border);
+  border-radius: 1rem;
+  background: var(--card);
+}
+
+.workspace-metrics > section > div {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1.5rem;
+}
+
+.workspace-metrics > section > div > div:last-child {
+  order: -1;
+  padding-bottom: 1.5rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.workspace-resource-grid,
+.workspace-main-panels {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1rem;
+  align-items: start;
+  min-width: 0;
+}
+
+.workspace-panel {
+  min-width: 0;
+  padding: 1.25rem;
+  border: 1px solid var(--border);
+  border-radius: 1rem;
+  background: var(--card);
+}
+
+.workspace-panel > * {
+  max-width: 100%;
+  min-width: 0;
+}
+
+/* The mobile sidebar is portalled; its new elements scope themselves. */
+.workspace-sidebar-filter {
+  padding: 0.75rem 0.9rem 1rem;
+}
+
+.workspace-sidebar-label {
+  display: block;
+  padding-inline: 0.15rem;
+  margin-bottom: 0.6rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  color: var(--muted-foreground);
+  text-transform: uppercase;
+}
+
+.workspace-search-field {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  background: var(--background);
+}
+
+.workspace-search-field > svg {
+  flex-shrink: 0;
+  margin-inline-start: 0.8rem;
+  color: var(--muted-foreground);
+}
+
+.workspace-search-field input {
+  width: 100%;
+  min-width: 0;
+  height: 2.75rem;
+  border: 0;
+  background: transparent;
+  padding-inline: 0.6rem;
+  font-size: 0.85rem;
+  box-shadow: none;
+}
+
+.workspace-search-field:focus-within {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.workspace-search-field input:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+.workspace-search-field input::-webkit-search-cancel-button {
+  appearance: none;
+}
+
+.workspace-search-field button {
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  cursor: pointer;
+  color: var(--muted-foreground);
+  border-radius: 0.65rem;
+}
+
+.workspace-navigation {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.workspace-navigation [data-slot='sidebar-menu-button'] {
+  border-radius: 0.65rem;
+}
+
+.workspace-navigation [data-active='true'] {
+  font-weight: 600;
+}
+
+.workspace-navigation-empty {
+  padding: 0.75rem 1rem;
+  color: var(--muted-foreground);
+  font-size: 0.8rem;
+  line-height: 1.7;
+}
+
+.workspace-navigation-empty button {
+  min-height: 2.75rem;
+  margin-top: 0.5rem;
+  padding-inline: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.65rem;
+  color: var(--foreground);
+  cursor: pointer;
+}
+
+[data-collapsible='icon'] .workspace-sidebar-filter {
+  display: none;
+}
+
+:where(
+  .workspace-command,
+  .workspace-shortcut,
+  .workspace-search-field button,
+  .workspace-navigation-empty button
+):focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 3px;
+}
+
+@container content (min-width: 30rem) {
+  .workspace-shortcuts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@container content (min-width: 54rem) {
+  .workspace-shortcuts {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 1rem;
+  }
+
+  .workspace-metrics > section > div {
+    grid-template-columns: minmax(0, 1fr) 16rem;
+  }
+
+  .workspace-metrics > section > div > div:last-child {
+    order: 2;
+    border-bottom: 0;
+    padding-bottom: 0;
+    padding-inline-start: 1.5rem;
+    border-inline-start: 1px solid var(--border);
+  }
+
+  .workspace-main-panels {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .workspace-panel-wide {
+    grid-column: 1 / -1;
+  }
+}
+
+@container content (min-width: 76rem) {
+  .workspace-resource-grid-split {
+    grid-template-columns: minmax(0, 1fr) 20rem;
+  }
+}
+
+@media (max-width: 767px) {
+  .workspace-welcome {
+    padding-block: 0.25rem 1.25rem;
+    gap: 1rem;
+  }
+
+  .workspace-command {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .workspace-shortcut {
+    padding: 1rem;
+  }
+
+  .workspace-shortcut-top {
+    margin-bottom: 0.9rem;
+  }
+
+  .workspace-search-field input {
+    font-size: 1rem;
+  }
+
+  .workspace-navigation
+    :where(
+      [data-slot='sidebar-menu-button'],
+      [data-slot='sidebar-menu-sub-button']
+    ) {
+    min-height: 2.75rem;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .workspace-command,
+  .workspace-shortcut {
+    transition:
+      border-color 160ms ease,
+      background-color 160ms ease,
+      transform 160ms ease;
+  }
+
+  .workspace-shortcut:hover {
+    transform: translateY(-2px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workspace-command,
+  .workspace-shortcut {
+    transition: none;
+    transform: none;
+  }
+}
+
+@media (forced-colors: active) {
+  .workspace-command,
+  .workspace-shortcut,
+  .workspace-metrics > section,
+  .workspace-panel,
+  .workspace-search-field {
+    border-color: CanvasText;
+  }
+}

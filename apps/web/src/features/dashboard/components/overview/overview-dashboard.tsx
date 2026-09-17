@@ -27,6 +27,7 @@ import { FAQPanel } from './faq-panel'
 import { PerformanceHealthPanel } from './performance-health-panel'
 import { SummaryCards } from './summary-cards'
 import { UptimePanel } from './uptime-panel'
+import { WorkspaceStart } from './workspace-start'
 
 export function OverviewDashboard() {
   const user = useAuthStore((state) => state.auth.user)
@@ -42,50 +43,46 @@ export function OverviewDashboard() {
   const showContentPanels = showLeftContentPanels || showUptimePanel
 
   return (
-    <div className='dashboard-editorial flex flex-col gap-10'>
-      <SummaryCards />
-
+    <div className='dashboard-editorial workspace-overview'>
+      <WorkspaceStart />
+      <div className='workspace-metrics'>
+        <SummaryCards />
+      </div>
       {showContentPanels && (
         <div
           className={cn(
-            'grid grid-cols-1 items-start gap-8',
+            'workspace-resource-grid',
             showLeftContentPanels &&
               showUptimePanel &&
-              'xl:grid-cols-[minmax(0,1fr)_22rem]'
+              'workspace-resource-grid-split'
           )}
         >
           {showLeftContentPanels && (
-            <div
-              className={cn(
-                'grid min-w-0 grid-cols-1 items-start gap-8',
-                (showApiInfoPanel || showAnnouncementsPanel || showFAQPanel) &&
-                  'lg:grid-cols-2'
-              )}
-            >
+            <div className='workspace-main-panels'>
               {isAdmin && (
-                <div className='lg:col-span-2'>
+                <div className='workspace-panel workspace-panel-wide'>
                   <PerformanceHealthPanel />
                 </div>
               )}
               {showApiInfoPanel && (
-                <div>
+                <div className='workspace-panel'>
                   <ApiInfoPanel />
                 </div>
               )}
               {showAnnouncementsPanel && (
-                <div>
+                <div className='workspace-panel'>
                   <AnnouncementsPanel />
                 </div>
               )}
               {showFAQPanel && (
-                <div>
+                <div className='workspace-panel'>
                   <FAQPanel />
                 </div>
               )}
             </div>
           )}
           {showUptimePanel && (
-            <div>
+            <div className='workspace-panel'>
               <UptimePanel />
             </div>
           )}
