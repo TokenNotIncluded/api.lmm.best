@@ -44,15 +44,18 @@ type ReferralLedgerEntry struct {
 }
 
 type ReferralModerationEvent struct {
-	Id        int
-	RequestId string `gorm:"type:varchar(100);uniqueIndex;not null"`
-	ActorId   int
-	UserId    int    `gorm:"index;not null"`
-	Action    string `gorm:"type:varchar(32);not null"`
-	Reason    string `gorm:"type:varchar(32);not null"`
-	Evidence  string `gorm:"type:varchar(1000);not null"`
-	Penalize  bool
-	CreatedAt int64
+	// Bound retryable session cleanup to sessions that existed before this
+	// decision. An old ban retry must not revoke sessions issued after appeal.
+	RevokeThroughAuthVersion int64 `gorm:"not null;default:0"`
+	Id                       int
+	RequestId                string `gorm:"type:varchar(100);uniqueIndex;not null"`
+	ActorId                  int
+	UserId                   int    `gorm:"index;not null"`
+	Action                   string `gorm:"type:varchar(32);not null"`
+	Reason                   string `gorm:"type:varchar(32);not null"`
+	Evidence                 string `gorm:"type:varchar(1000);not null"`
+	Penalize                 bool
+	CreatedAt                int64
 }
 
 var ErrReferralConflict = errors.New("referral operation conflicts with an earlier request")
@@ -282,6 +285,17 @@ func refundReferralTx(tx *gorm.DB, topUp *TopUp, cumulativeRefund int64) error {
 // disable/enable operations never touch rewards. Request IDs make retries safe
 // even when the original ban has subsequently been overturned.
 func ModerateReferralUser(event ReferralModerationEvent) error {
+	return moderateReferralUserWithEffects(event, referralModerationEffects{
+		publish: PublishUserAuthCache, invalidate: InvalidateUserTokensCache,
+		revoke: revokeReferralSessionsThroughVersion,
+	})
+}
+
+// Effects are injected only by same-package tests, never by an HTTP caller.
+func moderateReferralUserWithEffects(event ReferralModerationEvent, effects referralModerationEffects) error {
+	if effects.publish == nil || effects.invalidate == nil || effects.revoke == nil {
+		return gorm.ErrInvalidData
+	}
 	event.RequestId, event.Evidence = strings.TrimSpace(event.RequestId), strings.TrimSpace(event.Evidence)
 	if event.UserId <= 0 || event.ActorId <= 0 || event.RequestId == "" || len(event.RequestId) > 100 ||
 		event.Evidence == "" || len(event.Evidence) > 1000 {
@@ -294,7 +308,6 @@ func ModerateReferralUser(event ReferralModerationEvent) error {
 	} else if event.Action != "restore_referral" || event.Reason != "mistaken_ban" || event.Penalize {
 		return gorm.ErrInvalidData
 	}
-	applied := false
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		var actor, user User
 		if err := tx.First(&actor, event.ActorId).Error; err != nil {
@@ -305,6 +318,10 @@ func ModerateReferralUser(event ReferralModerationEvent) error {
 		}
 		if actor.Status != common.UserStatusEnabled || actor.Role < common.RoleAdminUser || actor.Role <= user.Role {
 			return errors.New("no permission to moderate this user")
+		}
+		event.RevokeThroughAuthVersion = 0
+		if event.Action == "ban_abuse" {
+			event.RevokeThroughAuthVersion = max(user.AuthVersion, 1)
 		}
 		event.CreatedAt = common.GetTimestamp()
 		created := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&event)
@@ -320,9 +337,10 @@ func ModerateReferralUser(event ReferralModerationEvent) error {
 				previous.Reason != event.Reason || previous.Penalize != event.Penalize || previous.Evidence != event.Evidence {
 				return ErrReferralConflict
 			}
+			// Keep the original cleanup boundary, not the user's version now.
+			event = previous
 			return nil
 		}
-		applied = true
 		var reward ReferralReward
 		err := lockForUpdate(tx).Where("invitee_id = ?", user.Id).First(&reward).Error
 		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
@@ -353,18 +371,17 @@ func ModerateReferralUser(event ReferralModerationEvent) error {
 	if err != nil {
 		return err
 	}
-	if !applied {
-		return nil
-	}
-	// Publish, do not delete the authentication-version floor.
-	if err := PublishUserAuthCache(event.UserId); err != nil {
+	// A database commit does not prove cache publication/session cleanup
+	// completed. Exact retries repeat only these idempotent effects, publishing
+	// CURRENT user state so an old ban cannot overwrite a later appeal.
+	if err := effects.publish(event.UserId); err != nil {
 		return err
 	}
-	if err := InvalidateUserTokensCache(event.UserId); err != nil {
+	if err := effects.invalidate(event.UserId); err != nil {
 		return err
 	}
 	if event.Action == "ban_abuse" {
-		_, err = RevokeAllUserSessions(event.UserId, "confirmed_referral_abuse")
+		_, err = effects.revoke(event.UserId, event.RevokeThroughAuthVersion)
 	}
 	return err
 }
