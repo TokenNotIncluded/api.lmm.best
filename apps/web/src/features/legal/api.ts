@@ -20,12 +20,16 @@ import { api } from '@/lib/api'
 
 import type { LegalDocumentResponse } from './types'
 
-export async function getUserAgreement() {
-  const res = await api.get<LegalDocumentResponse>('/api/user-agreement')
+export async function getUserAgreement(language?: string) {
+  const res = await api.get<LegalDocumentResponse>('/api/user-agreement', {
+    params: language ? { lang: language } : undefined,
+  })
   return res.data
 }
 
-export async function getPrivacyPolicy() {
-  const res = await api.get<LegalDocumentResponse>('/api/privacy-policy')
+export async function getPrivacyPolicy(language?: string) {
+  const res = await api.get<LegalDocumentResponse>('/api/privacy-policy', {
+    params: language ? { lang: language } : undefined,
+  })
   return res.data
 }

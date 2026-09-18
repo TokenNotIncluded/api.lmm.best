@@ -18,6 +18,7 @@ import (
 	"strings"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
+	"github.com/LIghtJUNction/api.lmm.best/model"
 	"github.com/LIghtJUNction/api.lmm.best/setting"
 	"github.com/gin-gonic/gin"
 )
@@ -50,12 +51,61 @@ func loopbackPeer(remoteAddr string) bool {
 	return err == nil && addr.IsLoopback()
 }
 
+// relayTokenKeyFromAuthorizationHeader mirrors the credential extraction used
+// by the relay token middlewares (Bearer/"sk-" prefix, group suffix split).
+// Duplicated here in miniature rather than exported across packages because
+// this internal policy check must stay a read-only, side-effect-free lookup.
+func relayTokenKeyFromAuthorizationHeader(header string) string {
+	key := strings.TrimSpace(header)
+	if key == "" {
+		return ""
+	}
+	if strings.HasPrefix(key, "Bearer ") || strings.HasPrefix(key, "bearer ") {
+		key = strings.TrimSpace(key[len("Bearer "):])
+	}
+	key = strings.TrimPrefix(key, "sk-")
+	return strings.Split(key, "-")[0]
+}
+
+// keyBypassesIPPolicy reports whether the forwarded Authorization header
+// carries a valid API key belonging to an enabled, L1+ trust-level user who
+// has explicitly opted in to bypassing the IP/region access policy. Any
+// failure (missing/invalid key, insufficient trust, opt-in disabled, or a
+// lookup error) must fall through to the normal policy evaluation below
+// without ever revealing which specific check failed — that concealment is
+// the existing job of authenticateRelayToken once the request reaches the
+// Go application layer.
+func keyBypassesIPPolicy(c *gin.Context) bool {
+	key := relayTokenKeyFromAuthorizationHeader(c.GetHeader("Authorization"))
+	if key == "" {
+		return false
+	}
+	token, err := model.ValidateUserToken(key)
+	if err != nil {
+		return false
+	}
+	userCache, err := model.GetUserCache(token.UserId)
+	if err != nil || userCache.Status != common.UserStatusEnabled {
+		return false
+	}
+	trustInfo, err := model.GetTrustLevelInfoForUserBase(userCache)
+	if err != nil || trustInfo.Level < 1 {
+		return false
+	}
+	return userCache.GetSetting().AllowKeyBypassIPPolicy
+}
+
 // CheckIPAccessRoutingPolicy is consumed only by Nginx auth_request. The
 // handler requires a loopback peer and evaluates the administrator's ordered
 // inbound route rules against edge-owned request metadata.
 func CheckIPAccessRoutingPolicy(c *gin.Context) {
 	if !loopbackPeer(c.Request.RemoteAddr) {
 		ipAccessRoutingError(c, http.StatusForbidden, "INTERNAL_ONLY", "internal policy endpoint")
+		return
+	}
+
+	if keyBypassesIPPolicy(c) {
+		c.Status(http.StatusNoContent)
 		return
 	}
 

@@ -1604,6 +1604,7 @@ type UpdateUserSettingRequest struct {
 	AcceptUnsetModelRatioModel       bool    `json:"accept_unset_model_ratio_model"`
 	RecordIpLog                      bool    `json:"record_ip_log"`
 	UsageLeaderboardVisibility       string  `json:"usage_leaderboard_visibility,omitempty"`
+	AllowKeyBypassIPPolicy           bool    `json:"allow_key_bypass_ip_policy"`
 }
 
 func UpdateUserSetting(c *gin.Context) {
@@ -1707,6 +1708,13 @@ func UpdateUserSetting(c *gin.Context) {
 		usageLeaderboardVisibility = dto.NormalizeUsageLeaderboardVisibility(req.UsageLeaderboardVisibility)
 	}
 
+	// 仅 L1+（信任等级 >= 1）用户可以开启"API key 绕过 IP 访问策略"；
+	// 未达到等级的账号提交该字段时静默保留旧值，不报错、不采纳。
+	allowKeyBypassIPPolicy := existingSettings.AllowKeyBypassIPPolicy
+	if trustInfo, trustErr := model.GetTrustLevelInfoForUserBase(user.ToBaseUser()); trustErr == nil && trustInfo.Level >= 1 {
+		allowKeyBypassIPPolicy = req.AllowKeyBypassIPPolicy
+	}
+
 	// 构建设置
 	settings := dto.UserSetting{
 		SessionAutoLogout:                existingSettings.SessionAutoLogout,
@@ -1716,6 +1724,7 @@ func UpdateUserSetting(c *gin.Context) {
 		AcceptUnsetRatioModel:            req.AcceptUnsetModelRatioModel,
 		RecordIpLog:                      req.RecordIpLog,
 		UsageLeaderboardVisibility:       usageLeaderboardVisibility,
+		AllowKeyBypassIPPolicy:           allowKeyBypassIPPolicy,
 	}
 
 	// 如果是webhook类型,添加webhook相关设置

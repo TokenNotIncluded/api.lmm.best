@@ -25,6 +25,7 @@ type UserSetting struct {
 	Language                         string  `json:"language,omitempty"`                             // Language 用户语言偏好 (zh, en)
 	SettlementCurrency               string  `json:"settlement_currency,omitempty"`                  // Customer fiat preference; empty follows language, not quota display.
 	UsageLeaderboardVisibility       string  `json:"usage_leaderboard_visibility,omitempty"`         // 用户使用排行榜展示方式
+	AllowKeyBypassIPPolicy           bool    `json:"allow_key_bypass_ip_policy,omitempty"`           // L1+ 用户凭有效 API key 绕过 IP/地区访问策略
 }
 
 // NormalizeSettlementCurrencyPreference accepts only currencies supported by

@@ -56,6 +56,8 @@ const _systemInfoSchema = z.object({
   legal: z.object({
     user_agreement: z.string().optional(),
     privacy_policy: z.string().optional(),
+    user_agreement_en: z.string().optional(),
+    privacy_policy_en: z.string().optional(),
   }),
 })
 
@@ -86,6 +88,8 @@ export function SystemInfoSection({ defaultValues }: SystemInfoSectionProps) {
     legal: {
       user_agreement: normalizeValue(defaultValues.legal?.user_agreement),
       privacy_policy: normalizeValue(defaultValues.legal?.privacy_policy),
+      user_agreement_en: normalizeValue(defaultValues.legal?.user_agreement_en),
+      privacy_policy_en: normalizeValue(defaultValues.legal?.privacy_policy_en),
     },
   }
 
@@ -101,6 +105,8 @@ export function SystemInfoSection({ defaultValues }: SystemInfoSectionProps) {
     legal: z.object({
       user_agreement: z.string().optional(),
       privacy_policy: z.string().optional(),
+      user_agreement_en: z.string().optional(),
+      privacy_policy_en: z.string().optional(),
     }),
   })
 
@@ -325,6 +331,56 @@ export function SystemInfoSection({ defaultValues }: SystemInfoSectionProps) {
                     <FormDescription>
                       {t(
                         'Leave empty to disable the privacy policy requirement. Supports Markdown, HTML, or a full URL to redirect users.'
+                      )}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name='legal.user_agreement_en'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('User Agreement')} (English)</FormLabel>
+                    <FormControl>
+                      <Textarea
+                        placeholder={t(
+                          'Provide Markdown, HTML, or an external URL for the user agreement'
+                        )}
+                        rows={6}
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {t(
+                        'Shown to English-language visitors. Leave empty to fall back to the primary-language version above.'
+                      )}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name='legal.privacy_policy_en'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('Privacy Policy')} (English)</FormLabel>
+                    <FormControl>
+                      <Textarea
+                        placeholder={t(
+                          'Provide Markdown, HTML, or an external URL for the privacy policy'
+                        )}
+                        rows={6}
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {t(
+                        'Shown to English-language visitors. Leave empty to fall back to the primary-language version above.'
                       )}
                     </FormDescription>
                     <FormMessage />

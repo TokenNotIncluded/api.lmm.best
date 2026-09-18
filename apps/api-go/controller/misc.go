@@ -305,7 +305,7 @@ func GetUserAgreement(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
-		"data":    system_setting.GetLegalSettings().UserAgreement,
+		"data":    system_setting.UserAgreementForLanguage(strings.EqualFold(c.Query("lang"), "en")),
 	})
 	return
 }
@@ -314,7 +314,7 @@ func GetPrivacyPolicy(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
-		"data":    system_setting.GetLegalSettings().PrivacyPolicy,
+		"data":    system_setting.PrivacyPolicyForLanguage(strings.EqualFold(c.Query("lang"), "en")),
 	})
 	return
 }

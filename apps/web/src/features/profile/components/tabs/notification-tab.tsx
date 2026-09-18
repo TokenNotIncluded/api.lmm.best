@@ -103,6 +103,7 @@ interface NotificationTabProps {
 export function NotificationTab({ profile, onUpdate }: NotificationTabProps) {
   const { t } = useTranslation()
   const isAdmin = (profile?.role ?? 0) >= ROLE.ADMIN
+  const isL1OrAbove = (profile?.trust_level_info?.level ?? 0) >= 1
   const [loading, setLoading] = useState(false)
   const [settings, setSettings] = useState<UserSettings>({
     notify_type: 'email',
@@ -118,6 +119,7 @@ export function NotificationTab({ profile, onUpdate }: NotificationTabProps) {
     record_ip_log: false,
     upstream_model_update_notify_enabled: false,
     usage_leaderboard_visibility: 'anonymous',
+    allow_key_bypass_ip_policy: false,
   })
 
   // Update form field helper
@@ -150,6 +152,7 @@ export function NotificationTab({ profile, onUpdate }: NotificationTabProps) {
         usage_leaderboard_visibility: normalizeUsageLeaderboardVisibility(
           parsed.usage_leaderboard_visibility
         ),
+        allow_key_bypass_ip_policy: parsed.allow_key_bypass_ip_policy || false,
       })
     }
   }, [profile])
@@ -508,6 +511,30 @@ export function NotificationTab({ profile, onUpdate }: NotificationTabProps) {
             onCheckedChange={(checked) => updateField('record_ip_log', checked)}
           />
         </div>
+
+        {/* Bypass IP/Region Policy With API Key (L1+ only) */}
+        {isL1OrAbove && (
+          <div className='flex items-start justify-between gap-3 rounded-none border p-3 sm:items-center sm:p-4'>
+            <div className='space-y-0.5'>
+              <Label htmlFor='allowKeyBypassIpPolicy'>
+                {t('Bypass IP/Region Policy With API Key')}
+              </Label>
+              <p className='text-muted-foreground line-clamp-3 text-xs sm:line-clamp-none sm:text-sm'>
+                {t(
+                  'Available from trust level L1. When enabled, requests that include a valid API key for your account skip IP/region access restrictions. Requests without a valid key are unaffected.'
+                )}
+              </p>
+            </div>
+            <Switch
+              id='allowKeyBypassIpPolicy'
+              className='shrink-0'
+              checked={settings.allow_key_bypass_ip_policy}
+              onCheckedChange={(checked) =>
+                updateField('allow_key_bypass_ip_policy', checked)
+              }
+            />
+          </div>
+        )}
       </div>
 
       {/* Save Button */}

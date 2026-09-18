@@ -193,11 +193,35 @@ func TestAccessPolicyErrorPageRequiresCapturedDenial(t *testing.T) {
 	for name, value := range validHeaders {
 		jsonHeaders[name] = value
 	}
+	// AI/relay paths never disclose that IP/region policy rejected the
+	// request: they get a plain 404, indistinguishable from a path that does
+	// not exist, instead of the diagnostic 451 JSON error below.
 	jsonHeaders[accessPolicyOriginalURIHeader] = "/v1/models?debug=1"
 	jsonHeaders[accessPolicyOriginalAcceptHeader] = "*/*"
 	jsonHeaders["Origin"] = "https://sdk.example"
 	jsonHeaders["Authorization"] = "Bearer must-not-leak"
 	jsonHeaders["Cookie"] = "session=must-not-leak"
+	status, response = request("127.0.0.1:42000", jsonHeaders)
+	require.Equal(t, http.StatusNotFound, status)
+	assert.Contains(t, response.Header().Get("Content-Type"), "application/json")
+	assert.NotContains(t, response.Body.String(), "must-not-leak")
+	assert.NotContains(t, response.Body.String(), "203.0.113.42")
+	var maskedPayload struct {
+		Message string `json:"message"`
+	}
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &maskedPayload))
+	assert.Equal(t, "Not Found", maskedPayload.Message)
+
+	jsonHeaders[accessPolicyOriginalURIHeader] = "/api/status"
+	jsonHeaders[accessPolicyOriginalAcceptHeader] = "text/plain, application/problem+json; q=0.9"
+	status, response = request("127.0.0.1:42000", jsonHeaders)
+	require.Equal(t, http.StatusNotFound, status)
+	assert.Contains(t, response.Header().Get("Content-Type"), "application/json")
+
+	// A non-AI path with the JSON-preferring Accept header still gets the
+	// diagnostic 451 JSON error, unaffected by the AI-path masking above.
+	jsonHeaders[accessPolicyOriginalURIHeader] = "/dashboard/settings"
+	jsonHeaders[accessPolicyOriginalAcceptHeader] = "text/plain, application/problem+json; q=0.9"
 	status, response = request("127.0.0.1:42000", jsonHeaders)
 	require.Equal(t, http.StatusUnavailableForLegalReasons, status)
 	assert.Contains(t, response.Header().Get("Content-Type"), "application/json")
@@ -221,12 +245,6 @@ func TestAccessPolicyErrorPageRequiresCapturedDenial(t *testing.T) {
 	assert.Equal(t, accessPolicyRejectedMessage, payload.Error.Message)
 	assert.Equal(t, accessPolicyRejectedErrorType, payload.Error.Type)
 	assert.NotEmpty(t, payload.Error.RequestID)
-
-	jsonHeaders[accessPolicyOriginalURIHeader] = "/api/status"
-	jsonHeaders[accessPolicyOriginalAcceptHeader] = "text/plain, application/problem+json; q=0.9"
-	status, response = request("127.0.0.1:42000", jsonHeaders)
-	require.Equal(t, http.StatusUnavailableForLegalReasons, status)
-	assert.Contains(t, response.Header().Get("Content-Type"), "application/json")
 
 	for _, frontendURI := range []string{"/", "/oauth/mj", "/static/mj/asset.js"} {
 		jsonHeaders[accessPolicyOriginalURIHeader] = frontendURI
