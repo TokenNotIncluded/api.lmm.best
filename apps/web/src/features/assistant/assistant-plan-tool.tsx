@@ -202,7 +202,8 @@ export function AssistantPlanTool(props: {
                 </strong>
                 {!comparison.oneTimeOnly &&
                 comparison.monthlyCostAmount !== null &&
-                comparison.monthlyCostAmount !== Number(plan.price_amount || 0) ? (
+                comparison.monthlyCostAmount !==
+                  Number(plan.price_amount || 0) ? (
                   <span className='text-muted-foreground block text-[11px] leading-4'>
                     {t('≈ {{amount}} / month if renewed', {
                       amount: formatPlanPrice(
