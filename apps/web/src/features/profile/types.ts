@@ -131,6 +131,8 @@ export interface UserSettings {
   settlement_currency?: SettlementCurrencyPreference
   /** How this user's usage appears on the public leaderboard */
   usage_leaderboard_visibility?: UsageLeaderboardVisibility
+  /** L1+ only: bypass IP/region access policy when a valid API key is used */
+  allow_key_bypass_ip_policy?: boolean
 }
 
 /**
@@ -159,6 +161,7 @@ export interface UpdateUserSettingsRequest {
   record_ip_log?: boolean
   upstream_model_update_notify_enabled?: boolean
   usage_leaderboard_visibility?: UsageLeaderboardVisibility
+  allow_key_bypass_ip_policy?: boolean
 }
 
 /**

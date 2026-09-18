@@ -226,6 +226,8 @@ export type SiteSettings = {
   ServerAddress: string
   'legal.user_agreement': string
   'legal.privacy_policy': string
+  'legal.user_agreement_en': string
+  'legal.privacy_policy_en': string
   HeaderNavModules: string
   SidebarModulesAdmin: string
 }
