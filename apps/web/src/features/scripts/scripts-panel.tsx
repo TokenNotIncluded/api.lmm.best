@@ -71,8 +71,9 @@ function platformsFor(name: string): Platform[] {
 function commandFor(name: string, platform: Platform) {
   const url = scriptUrl(name)
   if (platform === 'windows') {
-    if (name.toLowerCase().endsWith('.ps1'))
+    if (name.toLowerCase().endsWith('.ps1')) {
       return `Invoke-WebRequest -Uri "${url}" -OutFile "${name}"; powershell -ExecutionPolicy Bypass -File ".\\${name}"`
+    }
     return `Invoke-WebRequest -Uri "${url}" -OutFile "${name}"; .\\${name}`
   }
   const shell = name.toLowerCase().endsWith('.zsh') ? 'zsh' : 'bash'
@@ -83,15 +84,18 @@ async function readScript(name: string, publicOnly = false) {
     `/api/scripts/${encodeURIComponent(name)}${publicOnly ? '/raw' : ''}`,
     { skipBusinessError: true }
   )
-  if (publicOnly && typeof response.data === 'string') return response.data
+  if (publicOnly && typeof response.data === 'string') {
+    return response.data
+  }
   if (
     !publicOnly &&
     typeof response.data !== 'string' &&
     response.data.success &&
     response.data.data &&
     !Array.isArray(response.data.data)
-  )
+  ) {
     return response.data.data.content
+  }
   throw new Error(
     typeof response.data === 'string'
       ? 'Unable to load script'
@@ -105,8 +109,9 @@ function useScriptList() {
       const response = await api.get<ScriptResponse>('/api/scripts', {
         skipBusinessError: true,
       })
-      if (!response.data.success || !Array.isArray(response.data.data))
+      if (!response.data.success || !Array.isArray(response.data.data)) {
         throw new Error(response.data.message || 'Unable to load scripts')
+      }
       return response.data.data
     },
     staleTime: 30_000,
