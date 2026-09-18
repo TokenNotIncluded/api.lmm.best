@@ -321,6 +321,13 @@ export function AssistantHistory(props: {
     setAuditInputError(false)
   }
 
+  const handleAuditUserIdInput = (value: string) => {
+    setAuditUserIdInput(value)
+    setAuditUserId(null)
+    setSelectedAuditUser(null)
+    setAuditInputError(false)
+  }
+
   const submitAuditUserId = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     const input = event.currentTarget.elements.namedItem(
@@ -473,12 +480,12 @@ export function AssistantHistory(props: {
                       id='assistant-history-audit-user-id'
                       className={historyInputClassName}
                       value={auditUserIdInput}
-                      onChange={(event) => {
-                        setAuditUserIdInput(event.target.value)
-                        setAuditUserId(null)
-                        setSelectedAuditUser(null)
-                        setAuditInputError(false)
-                      }}
+                      onChange={(event) =>
+                        handleAuditUserIdInput(event.target.value)
+                      }
+                      onInput={(event) =>
+                        handleAuditUserIdInput(event.currentTarget.value)
+                      }
                       inputMode='numeric'
                       autoComplete='off'
                       placeholder={t('Enter a positive integer')}
