@@ -229,6 +229,11 @@ export function RedPackets() {
         queryKey: ['red-packets', 'admin'],
       })
     },
+    onError: (error) => {
+      toast.error(
+        error instanceof Error ? error.message : t('Failed to create red packet')
+      )
+    },
   })
 
   const toggleCandidate = (candidate: Candidate, checked: boolean) => {
@@ -307,7 +312,7 @@ export function RedPackets() {
     <SectionPageLayout>
       <SectionPageLayout.Title>{t('Red Packets')}</SectionPageLayout.Title>
       <SectionPageLayout.Actions>
-        <Button onClick={() => setOpen(true)}>
+        <Button type='button' onClick={() => setOpen(true)}>
           <Plus className='mr-2 size-4' />
           {t('Create red packet')}
         </Button>
@@ -590,10 +595,11 @@ export function RedPackets() {
                   : t('Select at least one redemption or discount code')}
               </span>
             ) : null}
-            <Button variant='outline' onClick={() => setOpen(false)}>
+            <Button type='button' variant='outline' onClick={() => setOpen(false)}>
               {t('Cancel')}
             </Button>
             <Button
+              type='button'
               onClick={submit}
               disabled={!canSubmit || createMutation.isPending}
             >

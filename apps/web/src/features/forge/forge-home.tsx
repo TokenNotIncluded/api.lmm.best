@@ -301,6 +301,10 @@ export function ForgeHome() {
               <span>{t('Open-source challenges')}</span>
               <ArrowRight aria-hidden='true' />
             </Link>
+            <Link to='/scripts'>
+              <span>{t('Public scripts')}</span>
+              <ArrowRight aria-hidden='true' />
+            </Link>
             {securityLink && (
               <Link
                 to={securityLink.requiresAuth ? '/sign-in' : '/security'}

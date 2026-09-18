@@ -39,6 +39,7 @@ import { Route as OauthProviderRouteImport } from './routes/oauth/$provider'
 import { Route as PricingIndexRouteImport } from './routes/pricing/index'
 import { Route as RankingsIndexRouteImport } from './routes/rankings/index'
 import { Route as RedPacketSlugRouteImport } from './routes/red-packet/$slug'
+import { Route as ScriptsIndexRouteImport } from './routes/scripts/index'
 import { Route as SecurityIndexRouteImport } from './routes/security/index'
 import { Route as SetupIndexRouteImport } from './routes/setup/index'
 import { Route as StatusIndexRouteImport } from './routes/status/index'
@@ -240,6 +241,11 @@ const RankingsIndexRoute = RankingsIndexRouteImport.update({
 const RedPacketSlugRoute = RedPacketSlugRouteImport.update({
   id: '/red-packet/$slug',
   path: '/red-packet/$slug',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ScriptsIndexRoute = ScriptsIndexRouteImport.update({
+  id: '/scripts/',
+  path: '/scripts/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SecurityIndexRoute = SecurityIndexRouteImport.update({
@@ -581,6 +587,7 @@ export interface FileRoutesByFullPath {
   '/guide/': typeof GuideIndexRoute
   '/pricing/': typeof PricingIndexRoute
   '/rankings/': typeof RankingsIndexRoute
+  '/scripts/': typeof ScriptsIndexRoute
   '/security/': typeof SecurityIndexRoute
   '/setup/': typeof SetupIndexRoute
   '/status/': typeof StatusIndexRoute
@@ -663,6 +670,7 @@ export interface FileRoutesByTo {
   '/guide': typeof GuideIndexRoute
   '/pricing': typeof PricingIndexRoute
   '/rankings': typeof RankingsIndexRoute
+  '/scripts': typeof ScriptsIndexRoute
   '/security': typeof SecurityIndexRoute
   '/setup': typeof SetupIndexRoute
   '/status': typeof StatusIndexRoute
@@ -749,6 +757,7 @@ export interface FileRoutesById {
   '/guide/': typeof GuideIndexRoute
   '/pricing/': typeof PricingIndexRoute
   '/rankings/': typeof RankingsIndexRoute
+  '/scripts/': typeof ScriptsIndexRoute
   '/security/': typeof SecurityIndexRoute
   '/setup/': typeof SetupIndexRoute
   '/status/': typeof StatusIndexRoute
@@ -834,6 +843,7 @@ export interface FileRouteTypes {
     | '/guide/'
     | '/pricing/'
     | '/rankings/'
+    | '/scripts/'
     | '/security/'
     | '/setup/'
     | '/status/'
@@ -916,6 +926,7 @@ export interface FileRouteTypes {
     | '/guide'
     | '/pricing'
     | '/rankings'
+    | '/scripts'
     | '/security'
     | '/setup'
     | '/status'
@@ -1001,6 +1012,7 @@ export interface FileRouteTypes {
     | '/guide/'
     | '/pricing/'
     | '/rankings/'
+    | '/scripts/'
     | '/security/'
     | '/setup/'
     | '/status/'
@@ -1077,6 +1089,7 @@ export interface RootRouteChildren {
   GuideIndexRoute: typeof GuideIndexRoute
   PricingIndexRoute: typeof PricingIndexRoute
   RankingsIndexRoute: typeof RankingsIndexRoute
+  ScriptsIndexRoute: typeof ScriptsIndexRoute
   SecurityIndexRoute: typeof SecurityIndexRoute
   SetupIndexRoute: typeof SetupIndexRoute
   StatusIndexRoute: typeof StatusIndexRoute
@@ -1293,6 +1306,13 @@ declare module '@tanstack/react-router' {
       path: '/red-packet/$slug'
       fullPath: '/red-packet/$slug'
       preLoaderRoute: typeof RedPacketSlugRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/scripts/': {
+      id: '/scripts/'
+      path: '/scripts'
+      fullPath: '/scripts/'
+      preLoaderRoute: typeof ScriptsIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/security/': {
@@ -1860,6 +1880,7 @@ const rootRouteChildren: RootRouteChildren = {
   GuideIndexRoute: GuideIndexRoute,
   PricingIndexRoute: PricingIndexRoute,
   RankingsIndexRoute: RankingsIndexRoute,
+  ScriptsIndexRoute: ScriptsIndexRoute,
   SecurityIndexRoute: SecurityIndexRoute,
   SetupIndexRoute: SetupIndexRoute,
   StatusIndexRoute: StatusIndexRoute,
