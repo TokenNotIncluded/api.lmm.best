@@ -22,6 +22,8 @@ export type AssistantPlanComparison = {
   record: PlanRecord
   includedCreditUSD: number | null
   monthlyCreditUSD: number | null
+  monthlyCostAmount: number | null
+  oneTimeOnly: boolean
   coverageRatio: number | null
   recommended: boolean
 }
@@ -48,6 +50,17 @@ function planDurationSeconds(plan: PlanRecord['plan']): number {
   return Number(plan.custom_seconds || 0)
 }
 
+// How many times per month the plan itself must be repurchased to sustain
+// access, based on its own duration (independent of any internal quota reset
+// cadence). This is the only extrapolation that may also be applied to price:
+// a quota reset within a single purchase (e.g. daily refill on a 1-month
+// plan) never implies repurchasing, but a plan whose duration is shorter
+// than a month does.
+function monthlyRepeatFactor(plan: PlanRecord['plan']): number | null {
+  const durationSeconds = planDurationSeconds(plan)
+  return durationSeconds > 0 ? MONTH_SECONDS / durationSeconds : null
+}
+
 function monthlyPlanCredit(
   record: PlanRecord,
   includedCreditUSD: number | null
@@ -66,10 +79,20 @@ function monthlyPlanCredit(
       : includedCreditUSD
   }
 
-  const durationSeconds = planDurationSeconds(plan)
-  return durationSeconds > 0
-    ? includedCreditUSD * (MONTH_SECONDS / durationSeconds)
-    : includedCreditUSD
+  const factor = monthlyRepeatFactor(plan)
+  return factor !== null ? includedCreditUSD * factor : includedCreditUSD
+}
+
+// Monthly-equivalent price: what it would actually cost, per month, to
+// sustain access by repurchasing this plan at its own duration cadence.
+// Must use the same repeat factor as the duration-based fallback above so a
+// plan's displayed price and displayed capacity are never extrapolated by
+// different multipliers.
+function monthlyPlanCost(plan: PlanRecord['plan']): number | null {
+  const price = Number(plan.price_amount || 0)
+  if (price <= 0) return 0
+  const factor = monthlyRepeatFactor(plan)
+  return factor !== null ? price * factor : null
 }
 
 export function compareAssistantPlans(
@@ -86,15 +109,24 @@ export function compareAssistantPlans(
   const candidates = plans
     .filter((record) => record.plan?.enabled !== false)
     .map((record) => {
+      const plan = record.plan
       const includedCreditUSD = normalizedCredit(
-        Number(record.plan.total_amount || 0),
+        Number(plan.total_amount || 0),
         quotaPerUnit
       )
       const monthlyCreditUSD = monthlyPlanCredit(record, includedCreditUSD)
+      const monthlyCostAmount = monthlyPlanCost(plan)
+      // A plan capped at one purchase per user (e.g. a new-user trial pack)
+      // can never be repurchased to sustain a monthly-equivalent rate, so it
+      // must never be treated as a recurring alternative to plans priced and
+      // sized for ongoing monthly use.
+      const oneTimeOnly = Number(plan.max_purchase_per_user || 0) === 1
       return {
         record,
         includedCreditUSD,
         monthlyCreditUSD,
+        monthlyCostAmount,
+        oneTimeOnly,
         coverageRatio:
           expected > 0 && monthlyCreditUSD !== null
             ? monthlyCreditUSD / expected
@@ -102,7 +134,9 @@ export function compareAssistantPlans(
       }
     })
 
-  const covering = candidates
+  const repeatable = candidates.filter((item) => !item.oneTimeOnly)
+
+  const covering = repeatable
     .filter(
       (item) =>
         item.monthlyCreditUSD === null || item.monthlyCreditUSD >= expected
@@ -110,16 +144,23 @@ export function compareAssistantPlans(
     .sort((left, right) => {
       if (left.monthlyCreditUSD === null) return 1
       if (right.monthlyCreditUSD === null) return -1
+      // Prefer the cheapest true monthly cost among plans that cover the
+      // estimate; only fall back to capacity when cost is a tie or unknown.
+      if (left.monthlyCostAmount !== null && right.monthlyCostAmount !== null) {
+        const costDiff = left.monthlyCostAmount - right.monthlyCostAmount
+        if (costDiff !== 0) return costDiff
+      }
       return left.monthlyCreditUSD - right.monthlyCreditUSD
     })
   const recommended =
     covering[0] ??
-    candidates
+    repeatable
       .filter((item) => item.monthlyCreditUSD !== null)
       .sort(
         (left, right) =>
           (right.monthlyCreditUSD ?? 0) - (left.monthlyCreditUSD ?? 0)
       )[0] ??
+    repeatable[0] ??
     candidates[0]
 
   return candidates

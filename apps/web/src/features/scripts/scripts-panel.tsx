@@ -56,7 +56,7 @@ function commandFor(name: string, platform: 'linux' | 'macos' | 'windows') {
   if (platform === 'windows') {
     return `Invoke-WebRequest -Uri "${url}" -OutFile "${name}"; .\\${name}`
   }
-  return `curl -fsSL "${url}" -o "${name}" && chmod +x "${name}" && ./${name}`
+  return `curl -fsSL "${url}" | bash`
 }
 
 async function readScript(name: string, publicOnly = false) {

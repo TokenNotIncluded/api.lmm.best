@@ -54,6 +54,21 @@ func TestResolveDrawingTokenCreatesReusesAndActivatesConsole(t *testing.T) {
 	assert.EqualValues(t, 1, count)
 }
 
+func TestResolveDrawingTokenRetagsExistingManualKeyAsDrawingMCP(t *testing.T) {
+	db, user := setupDrawingTokenTest(t)
+	manual := Token{UserId: user.Id, Key: "existing-manual-drawing-key", Group: DrawingTokenGroup,
+		Status: common.TokenStatusEnabled, ExpiredTime: -1, UnlimitedQuota: true, CreationSource: TokenCreationSourceManual}
+	require.NoError(t, db.Create(&manual).Error)
+	resolved, created, err := ResolveDrawingToken(user.Id, DrawingTokenGroup, allowDrawingTestGroup)
+	require.NoError(t, err)
+	assert.False(t, created)
+	assert.Equal(t, manual.Id, resolved.Id)
+	assert.Equal(t, TokenCreationSourceDrawingMCP, resolved.CreationSource)
+	var reloaded Token
+	require.NoError(t, db.First(&reloaded, manual.Id).Error)
+	assert.Equal(t, TokenCreationSourceDrawingMCP, reloaded.CreationSource)
+}
+
 func TestResolveDrawingTokenNeverReplacesRestrictedOrDisabledKey(t *testing.T) {
 	db, user := setupDrawingTokenTest(t)
 	key := Token{UserId: user.Id, Key: "existing-restricted-drawing-key", Group: DrawingTokenGroup, Status: common.TokenStatusDisabled,

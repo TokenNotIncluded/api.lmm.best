@@ -3,6 +3,7 @@ package oauthserver
 import (
 	"context"
 	"net/url"
+	"sort"
 	"strings"
 	"time"
 
@@ -332,25 +333,84 @@ func authorizationGrant(row model.OAuthServerAuthorization) model.OAuthServerGra
 }
 
 func (s *Server) createCode(tx *gorm.DB, family *model.OAuthServerGrant, challenge string, now time.Time) (string, error) {
-	id, err := newSecret("")
-	if err != nil {
-		return "", err
-	}
 	code, err := newSecret(codePrefix)
 	if err != nil {
 		return "", err
 	}
-	family.ID, family.CreatedAtMs = id, now.UnixMilli()
-	family.AbsoluteExpiresAtMs = now.Add(s.absoluteTTL).UnixMilli()
-	if err := tx.Create(family).Error; err != nil {
+	if err := s.reuseOrCreateGrant(tx, family, now); err != nil {
 		return "", err
 	}
-	row := model.OAuthServerCode{Digest: digest(code), Issuer: s.issuer, FamilyID: id, CodeChallenge: challenge,
+	row := model.OAuthServerCode{Digest: digest(code), Issuer: s.issuer, FamilyID: family.ID, CodeChallenge: challenge,
 		CreatedAtMs: now.UnixMilli(), ExpiresAtMs: now.Add(CodeTTL).UnixMilli()}
 	if err := tx.Create(&row).Error; err != nil {
 		return "", err
 	}
 	return code, nil
+}
+
+// reuseOrCreateGrant reuses the caller's existing live token family for this
+// exact issuer/client/user/resource instead of minting a new one on every
+// re-consented login. Minting a fresh family per login previously left the
+// user with one duplicate grant (and one duplicate billing binding, which is
+// keyed off grant_id) per sign-in. The reused family's scope only ever grows
+// (never shrinks below what an earlier login already held), its redirect URI
+// follows the current login, and its absolute expiry is refreshed so signing
+// in again actually extends the session.
+//
+// Locking mirrors lockFamily/lockAuthorization: the FIRST statement is a
+// write, so PostgreSQL/SQLite serialize concurrent approvals instead of two
+// callers both observing "no live grant" and each inserting one.
+func (s *Server) reuseOrCreateGrant(tx *gorm.DB, family *model.OAuthServerGrant, now time.Time) error {
+	where := "issuer = ? AND client_id = ? AND user_id = ? AND resource = ? AND revoked_at_ms = 0 AND absolute_expires_at_ms > ?"
+	args := []any{family.Issuer, family.ClientID, family.UserID, family.Resource, now.UnixMilli()}
+	locked := tx.Model(&model.OAuthServerGrant{}).Where(where, args...).
+		UpdateColumn("lock_version", gorm.Expr("lock_version + 1"))
+	if locked.Error != nil {
+		return locked.Error
+	}
+	if locked.RowsAffected > 0 {
+		var existing model.OAuthServerGrant
+		// Duplicates predating this fix (or awaiting the separate grant-revocation
+		// cleanup) may still match; take the most recently issued one and leave
+		// the rest alone rather than guessing which one to revoke here.
+		if err := tx.Where(where, args...).Order("created_at_ms DESC").Take(&existing).Error; err != nil {
+			return err
+		}
+		existing.RedirectURI = family.RedirectURI
+		existing.Scope = unionScopes(existing.Scope, family.Scope)
+		existing.AbsoluteExpiresAtMs = now.Add(s.absoluteTTL).UnixMilli()
+		if err := tx.Model(&existing).Updates(map[string]any{
+			"redirect_uri": existing.RedirectURI, "scope": existing.Scope,
+			"absolute_expires_at_ms": existing.AbsoluteExpiresAtMs,
+		}).Error; err != nil {
+			return err
+		}
+		*family = existing
+		return nil
+	}
+	id, err := newSecret("")
+	if err != nil {
+		return err
+	}
+	family.ID, family.CreatedAtMs = id, now.UnixMilli()
+	family.AbsoluteExpiresAtMs = now.Add(s.absoluteTTL).UnixMilli()
+	return tx.Create(family).Error
+}
+
+// unionScopes merges two space-separated scope lists, deduplicated and sorted
+// for a deterministic result.
+func unionScopes(a, b string) string {
+	seen := make(map[string]bool)
+	var scopes []string
+	for _, scope := range append(strings.Split(a, " "), strings.Split(b, " ")...) {
+		if scope == "" || seen[scope] {
+			continue
+		}
+		seen[scope] = true
+		scopes = append(scopes, scope)
+	}
+	sort.Strings(scopes)
+	return strings.Join(scopes, " ")
 }
 
 func (s *Server) lockAuthorization(tx *gorm.DB, handle string) (*model.OAuthServerAuthorization, error) {
