@@ -113,6 +113,9 @@ func SetApiRouter(router *gin.Engine) {
 		scriptRoute := apiRouter.Group("/scripts")
 		scriptRoute.Use(middleware.RootAuth(), middleware.DisableCache())
 		{
+			scriptRoute.GET("/repository", controller.GetScriptRepository)
+			scriptRoute.PUT("/repository", middleware.RequestBodyLimit(16<<10), controller.PutScriptRepository)
+			scriptRoute.POST("/repository/pull", middleware.CriticalRateLimit(), controller.PullScriptRepository)
 			scriptRoute.GET("/:name", controller.GetScript)
 			scriptRoute.PUT("/:name", middleware.RequestBodyLimit(512<<10), controller.PutScript)
 			scriptRoute.DELETE("/:name", controller.DeleteScript)

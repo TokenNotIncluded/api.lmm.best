@@ -21,6 +21,7 @@ import type { ApiKey, ApiKeyCreationMode } from '../types'
 export type ApiKeyCreationSource =
   | 'manual'
   | 'legacy'
+  | 'system'
   | 'drawing_mcp'
   | 'assistant'
   | string

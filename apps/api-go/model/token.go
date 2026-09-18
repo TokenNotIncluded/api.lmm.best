@@ -145,9 +145,11 @@ func filterTokensByCreationMode(query *gorm.DB, creationMode string) (*gorm.DB, 
 		return query, nil
 	case TokenCreationModeManual:
 		// Treat legacy blank rows as manual until the startup migration backfills them.
-		return query.Where("creation_source = ? OR creation_source IS NULL OR creation_source = ''", TokenCreationSourceManual), nil
+		return query.Where("(creation_source = ? OR creation_source IS NULL OR creation_source = '') AND name NOT LIKE ?", TokenCreationSourceManual, "%的初始令牌"), nil
 	case TokenCreationModeAutomatic:
-		return query.Where("creation_source IS NOT NULL AND creation_source <> '' AND creation_source <> ?", TokenCreationSourceManual), nil
+		// Older installations may have created the initial system key before
+		// creation_source was introduced. Keep that key visible in Automatic.
+		return query.Where("(creation_source IS NOT NULL AND creation_source <> '' AND creation_source <> ?) OR name LIKE ?", TokenCreationSourceManual, "%的初始令牌"), nil
 	default:
 		return nil, errors.New("无效的令牌创建方式")
 	}
