@@ -20,20 +20,11 @@ function job(source, id) {
   return found;
 }
 
-test('migration preserves qualification and retires the legacy deployment adapter', () => {
+test('migration preserves qualification and has no separate legacy deployment workflow', () => {
   const files = readdirSync(new URL('.github/workflows/', root))
     .filter((name) => /\.ya?ml$/.test(name)).sort();
-  assert.deepEqual(files, ['ci.yml', 'deploy-production.yml', 'pr-check.yml', 'release-go.yml',
+  assert.deepEqual(files, ['ci.yml', 'pr-check.yml', 'release-go.yml',
     'release-web.yml', 'server-ops.yml', 'server-release-qualification.yml']);
-  const legacy = workflow('deploy-production');
-  assert.match(legacy, /^  workflow_run:/m);
-  assert.doesNotMatch(legacy, /^  push:/m);
-  assert.match(job(legacy, 'reject-legacy-deploy'), /needs: legacy-route/);
-  assert.match(job(legacy, 'reject-legacy-deploy'), /needs.legacy-route.outputs.required == 'true'/);
-  assert.match(job(legacy, 'legacy-route'), /-f \.github\/actions\/deploy-production\/action.yml/);
-  assert.doesNotMatch(job(legacy, 'legacy-route'), /secrets\.|environment: production/);
-  assert.doesNotMatch(legacy, /secrets\.|environment: production|run: bash scripts\/auto-deploy-production-release/);
-  assert.match(job(legacy, 'reject-legacy-deploy'), /exit 1/);
   assert.match(workflow('server-release-qualification'), /qualify-go-migration-startup.sh/);
 });
 

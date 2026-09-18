@@ -1,15 +1,14 @@
 # GitHub Actions 入口
 
-工作流从 10 个收敛为 7 个。精简的是触发和重复环境准备，不是发布验收标准。
+工作流从 10 个收敛为 6 个。精简的是触发和重复环境准备，不是发布验收标准。
 
 | 文件 | 职责 |
 | --- | --- |
 | `ci.yml` | PR 按改动范围检查；main、标签、手动运行和合并队列全量检查；每日 RustSec 扫描 |
 | `pr-check.yml` | 只检查 PR 描述，使用可信 base 代码；编辑描述不触发整套构建 |
 | `server-release-qualification.yml` | 保留生产形态 Go、PostgreSQL、Valkey、迁移和恢复验收，以及每日验收 |
-| `release-go.yml` | Go 签名发布，成功发布后部署 |
-| `release-web.yml` | Web 签名发布，成功发布后部署 |
-| `deploy-production.yml` | 历史发布的部署兼容入口，不重复部署新发布流程已处理的版本 |
+| `release-go.yml` | Go 签名发布，成功发布后通过内联的 `.github/actions/deploy-production/` 部署 |
+| `release-web.yml` | Web 签名发布，成功发布后通过内联的 `.github/actions/deploy-production/` 部署 |
 | `server-ops.yml` | 独立的人工诊断和明确授权的生产恢复 |
 
 GitHub 默认配置的 CodeQL 是仓库设置管理的动态工作流，不是这里额外生成的 YAML；本次不修改它的扫描或权限。

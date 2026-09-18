@@ -239,14 +239,6 @@ class WorkflowWiringTests(unittest.TestCase):
         self.assertIn('run: python3 -B scripts/test-production-release-transaction.py', text)
         self.assertNotIn('test -f scripts/test-production-release-transaction.py', text)
 
-    def test_legacy_fallback_has_no_production_credentials_or_mutation(self):
-        text = (SCRIPT.parent.parent / '.github/workflows/deploy-production.yml').read_text()
-        self.assertIn('reject-legacy-deploy:', text)
-        self.assertIn('cancel-in-progress: false', text)
-        self.assertNotIn('secrets.', text)
-        self.assertNotIn('environment: production', text)
-        self.assertNotIn('run: bash scripts/auto-deploy-production-release.sh', text)
-
 
 class ProcessIntegrationTests(unittest.TestCase):
     def exercise(self, public_ok):

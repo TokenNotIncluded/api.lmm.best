@@ -12,11 +12,9 @@ is not a production operations entry point and receives no production credential
   and the migrated translation checker. CI Quality Gate requires translations too.
   A tag still tests the checker; only its branch-to-branch comparison is skipped.
 - `release-go.yml` and `release-web.yml`: retain exact-source release checks,
-  unresolved-work barriers, and signing identities. New releases own their final
-  serialized deployment job through `.github/actions/deploy-production/`.
-- `deploy-production.yml`: compatibility adapter for historical tags only. It
-  inspects the immutable source and skips releases with the inline deployment
-  action, preventing duplicate deployments. It no longer handles owner requests.
+  unresolved-work barriers, and signing identities. Releases own their final
+  serialized deployment job through `.github/actions/deploy-production/`. There
+  is no separate `workflow_run`-triggered legacy deployment workflow.
 
 Do not delete upstream qualification workflows to match the former fork's count
 of five files. Server release qualification, root-route acceptance, security audit
@@ -37,9 +35,8 @@ in this upstream repository; the server's native transaction lock remains requir
 The tag-based deployment environment must permit the intended Go/Web release tags;
 this migration does not change its reviewers, secrets or deployment rules.
 
-Old immutable tags keep their historical workflow definitions. Retaining the
-legacy adapter lets those tags work without rewriting them. New and legacy
-operations never auto-confirm a transaction or bypass a pending recovery.
+New and legacy operations never auto-confirm a transaction or bypass a
+pending recovery.
 
 Run `node --test scripts/workflow-topology.test.mjs`, all server-ops Python tests,
 `python3 -m unittest discover -s scripts -p test_ci_quality_gate.py`, and actionlint.
