@@ -319,7 +319,7 @@ describe('AssistantPlanTool', () => {
     assert.match(rendered.container.textContent ?? '', /Closest fit/)
     assert.match(
       rendered.container.textContent ?? '',
-      /smallest available capacity that covers your 20 \(Platform\) monthly estimate/
+      /lowest monthly-equivalent cost that covers your 20 \(Platform\) monthly estimate/
     )
     assert.match(rendered.container.textContent ?? '', /save 20%/)
     assert.equal(calls, 2)
