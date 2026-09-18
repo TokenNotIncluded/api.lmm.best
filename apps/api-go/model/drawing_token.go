@@ -57,6 +57,12 @@ func ResolveDrawingToken(userID int, group string, groupAllowed func(string, str
 		}
 		err = tx.Where("user_id = ? AND "+commonGroupCol+" = ? AND oauth_managed = ?", userID, group, false).Order("id ASC").First(&token).Error
 		if err == nil {
+			if token.CreationSource != TokenCreationSourceDrawingMCP {
+				if err := tx.Model(&Token{}).Where("id = ?", token.Id).Update("creation_source", TokenCreationSourceDrawingMCP).Error; err != nil {
+					return err
+				}
+				token.CreationSource = TokenCreationSourceDrawingMCP
+			}
 			return nil
 		}
 		if !errors.Is(err, gorm.ErrRecordNotFound) {

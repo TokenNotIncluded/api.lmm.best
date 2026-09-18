@@ -144,6 +144,56 @@ func TestConcurrentRefreshAndRevocationCannotEscapeFamilyLock(t *testing.T) {
 	})
 }
 
+// TestConcurrentReapprovalReusesSingleGrant guards the write-first locking in
+// reuseOrCreateGrant: many near-simultaneous approvals for the same
+// issuer/client/user/resource, dispatched across two independent DB pools,
+// must all serialize onto the one pre-existing live family instead of a
+// caller occasionally observing "no live grant" and inserting a duplicate.
+func TestConcurrentReapprovalReusesSingleGrant(t *testing.T) {
+	forDatabases(t, func(t *testing.T, db, otherDB *gorm.DB) {
+		first, _, _ := testServer(t, db)
+		second, _, _ := testServer(t, otherDB)
+		servers := []*Server{first, second}
+
+		approveFlow(t, first)
+		var seeded model.OAuthServerGrant
+		require.NoError(t, db.Take(&seeded).Error)
+
+		const n = 8
+		flows := make([]testFlow, n)
+		for i := range n {
+			flows[i] = prepareFlow(t, servers[i%2])
+		}
+		start := make(chan struct{})
+		results := make(chan error, n)
+		for i := range n {
+			s, flow := servers[i%2], flows[i]
+			go func() {
+				<-start
+				_, err := s.TrustedApprove(context.Background(), flow.pending.Transaction, testBrowser, flow.consent.Secret)
+				results <- err
+			}()
+		}
+		close(start)
+		for range n {
+			require.NoError(t, <-results)
+		}
+
+		var count int64
+		require.NoError(t, db.Model(&model.OAuthServerGrant{}).Count(&count).Error)
+		require.Equal(t, int64(1), count)
+		var reused model.OAuthServerGrant
+		require.NoError(t, db.Take(&reused).Error)
+		require.Equal(t, seeded.ID, reused.ID)
+		require.Equal(t, seeded.CreatedAtMs, reused.CreatedAtMs)
+		require.GreaterOrEqual(t, reused.AbsoluteExpiresAtMs, seeded.AbsoluteExpiresAtMs)
+
+		var codes int64
+		require.NoError(t, db.Model(&model.OAuthServerCode{}).Count(&codes).Error)
+		require.Equal(t, int64(n+1), codes)
+	})
+}
+
 func TestTokenInsertFailureRollsBackConsumption(t *testing.T) {
 	forDatabases(t, func(t *testing.T, db, _ *gorm.DB) {
 		s, _, _ := testServer(t, db)

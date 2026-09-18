@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useQuery } from '@tanstack/react-query'
 import type { ColumnDef } from '@tanstack/react-table'
+import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { StatusBadge } from '@/components/status-badge'
@@ -36,9 +37,11 @@ import { formatQuota } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
 import { API_KEY_STATUSES } from '../constants'
+import { buildApiKeyGroupOptions } from '../lib'
 import type { ApiKey, ApiKeyCreationMode } from '../types'
 import { ApiKeyCreationSourceBadge } from './api-key-creation-source'
-import { ApiKeyGroupCell } from './api-key-group-cell'
+import type { ApiKeyGroupOption } from './api-key-group-combobox'
+import { ApiKeyGroupQuickSwitch } from './api-key-group-quick-switch'
 import { ApiKeyTimestampCell } from './api-key-timestamp-cell'
 import {
   ApiKeyCell,
@@ -55,24 +58,18 @@ function getQuotaProgressColor(percentage: number): string {
   return 'console-status-progress-success'
 }
 
-function useGroupRatios(): Record<string, number | string> {
-  const { data } = useQuery({
+function useGroupOptions(): {
+  options: ApiKeyGroupOption[]
+  isLoading: boolean
+} {
+  const { data, isLoading } = useQuery({
     queryKey: ['user-groups'],
     queryFn: getUserGroups,
     staleTime: 0,
-    select: (res) => {
-      if (!res.success || !res.data) return {}
-      const ratios: Record<string, number | string> = {}
-      for (const [group, info] of Object.entries(res.data)) {
-        if (typeof info.ratio === 'number' || typeof info.ratio === 'string') {
-          ratios[group] = info.ratio
-        }
-      }
-      return ratios
-    },
+    select: (res) => buildApiKeyGroupOptions(res.success ? res.data : undefined),
   })
 
-  return data ?? {}
+  return { options: data ?? [], isLoading }
 }
 
 export function useApiKeysColumns(
@@ -80,7 +77,17 @@ export function useApiKeysColumns(
   creationMode: ApiKeyCreationMode
 ): ColumnDef<ApiKey>[] {
   const { t, i18n } = useTranslation()
-  const groupRatios = useGroupRatios()
+  const { options: groupOptions, isLoading: groupOptionsLoading } =
+    useGroupOptions()
+  const groupRatios = useMemo(() => {
+    const ratios: Record<string, number | string> = {}
+    for (const option of groupOptions) {
+      if (typeof option.ratio === 'number' || typeof option.ratio === 'string') {
+        ratios[option.value] = option.ratio
+      }
+    }
+    return ratios
+  }, [groupOptions])
   const shouldReduceMotion = useMediaQuery('(prefers-reduced-motion: reduce)')
   const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
   const justNowLabel = t('Just now')
@@ -222,10 +229,11 @@ export function useApiKeysColumns(
         const apiKey = row.original
         const group = row.getValue('group') as string
         return (
-          <ApiKeyGroupCell
-            group={group}
+          <ApiKeyGroupQuickSwitch
+            apiKey={apiKey}
+            options={groupOptions}
+            optionsLoading={groupOptionsLoading}
             ratio={groupRatios[group]}
-            crossGroupRetry={apiKey.cross_group_retry}
             shouldReduceMotion={shouldReduceMotion}
           />
         )

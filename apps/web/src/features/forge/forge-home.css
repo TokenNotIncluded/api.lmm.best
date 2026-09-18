@@ -64,6 +64,7 @@ For commercial licensing, please contact support@quantumnous.com
   color: var(--muted-foreground);
   font-size: 0.72rem;
   font-weight: 550;
+  font-variant-numeric: tabular-nums;
   letter-spacing: 0.1em;
 }
 .lmm-intro .lmm-eyebrow {
@@ -209,6 +210,7 @@ For commercial licensing, please contact support@quantumnous.com
   justify-content: space-between;
   gap: 1rem;
   font: 500 0.62rem/1.6 var(--font-body);
+  font-variant-numeric: tabular-nums;
   letter-spacing: 0.15em;
   opacity: 0.82;
 }
@@ -392,7 +394,9 @@ For commercial licensing, please contact support@quantumnous.com
 .lmm-step-number {
   padding-top: 0.3rem;
   font: 0.75rem/1.5 monospace;
+  font-variant-numeric: tabular-nums;
   color: var(--muted-foreground);
+  transition: color 220ms ease;
 }
 .lmm-story-step[data-active] .lmm-step-number {
   color: var(--foreground);
@@ -411,6 +415,7 @@ For commercial licensing, please contact support@quantumnous.com
   margin-bottom: 1rem;
   color: var(--muted-foreground);
   font: 0.65rem/1 monospace;
+  font-variant-numeric: tabular-nums;
 }
 .lmm-story-controls a {
   min-height: 2.75rem;
@@ -418,6 +423,10 @@ For commercial licensing, please contact support@quantumnous.com
   display: grid;
   place-items: center;
   text-decoration: none;
+  border-radius: 0.4rem;
+  transition:
+    color 200ms ease,
+    background-color 200ms ease;
 }
 .lmm-story-controls a[aria-current] {
   color: var(--foreground);
@@ -671,6 +680,13 @@ For commercial licensing, please contact support@quantumnous.com
   color: inherit;
   text-decoration: none;
   font-size: 1.1rem;
+  transition:
+    border-color 220ms ease,
+    color 220ms ease;
+}
+.lmm-destinations a:hover {
+  border-block-color: var(--home-accent);
+  color: var(--home-accent);
 }
 .lmm-destinations svg {
   width: 1.2rem;

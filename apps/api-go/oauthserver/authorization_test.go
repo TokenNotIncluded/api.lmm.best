@@ -198,3 +198,126 @@ func TestTrustedConsentExpiryAtExactBoundary(t *testing.T) {
 		expectProtocol(t, err, "invalid_request")
 	})
 }
+
+// authorizeWithScope runs a full begin/consent/approve cycle for user 42 with
+// an explicit scope, independent of the fixed scope baked into authorizationValues.
+func authorizeWithScope(t *testing.T, s *Server, scope string) testFlow {
+	t.Helper()
+	values := authorizationValues()
+	values.Set("scope", scope)
+	pending, err := s.BeginAuthorization(context.Background(), values.Encode(), testBrowser)
+	require.NoError(t, err)
+	consent, err := s.TrustedPrepareConsent(context.Background(), pending.Transaction, testBrowser, 42)
+	require.NoError(t, err)
+	response, err := s.TrustedApprove(context.Background(), pending.Transaction, testBrowser, consent.Secret)
+	require.NoError(t, err)
+	u, err := url.Parse(response.RedirectURI)
+	require.NoError(t, err)
+	return testFlow{pending: pending, consent: consent, code: u.Query().Get("code")}
+}
+
+// TestGrantReuseOnReapprovalRefreshesInPlace guards reuseOrCreateGrant: a
+// second login for the same issuer/client/user/resource must reuse the
+// existing token family (same ID, same CreatedAtMs) rather than mint a
+// duplicate, and its absolute expiry must be extended by the reapproval.
+func TestGrantReuseOnReapprovalRefreshesInPlace(t *testing.T) {
+	forDatabases(t, func(t *testing.T, db, _ *gorm.DB) {
+		s, clock, _ := testServer(t, db)
+		approveFlow(t, s)
+		var first model.OAuthServerGrant
+		require.NoError(t, db.Take(&first).Error)
+
+		clock.advance(time.Hour)
+		approveFlow(t, s)
+		var second model.OAuthServerGrant
+		require.NoError(t, db.Take(&second).Error)
+
+		require.Equal(t, first.ID, second.ID)
+		require.Equal(t, first.CreatedAtMs, second.CreatedAtMs)
+		require.Equal(t, clock.now().Add(s.absoluteTTL).UnixMilli(), second.AbsoluteExpiresAtMs)
+		require.Greater(t, second.AbsoluteExpiresAtMs, first.AbsoluteExpiresAtMs)
+
+		var count int64
+		require.NoError(t, db.Model(&model.OAuthServerGrant{}).Count(&count).Error)
+		require.Equal(t, int64(1), count)
+	})
+}
+
+// TestGrantReuseUnionsScopeAcrossLogins guards unionScopes: reapproving with a
+// different scope grows the reused family's scope, and reapproving with an
+// already-covered scope never shrinks it back down.
+func TestGrantReuseUnionsScopeAcrossLogins(t *testing.T) {
+	forDatabases(t, func(t *testing.T, db, _ *gorm.DB) {
+		s, _, _ := testServer(t, db)
+		authorizeWithScope(t, s, "models:read")
+		var grant model.OAuthServerGrant
+		require.NoError(t, db.Take(&grant).Error)
+		require.Equal(t, "models:read", grant.Scope)
+
+		authorizeWithScope(t, s, "relay:invoke")
+		require.NoError(t, db.Take(&grant).Error)
+		require.Equal(t, "models:read relay:invoke", grant.Scope)
+
+		authorizeWithScope(t, s, "models:read")
+		require.NoError(t, db.Take(&grant).Error)
+		require.Equal(t, "models:read relay:invoke", grant.Scope)
+
+		var count int64
+		require.NoError(t, db.Model(&model.OAuthServerGrant{}).Count(&count).Error)
+		require.Equal(t, int64(1), count)
+	})
+}
+
+// TestRevokedGrantIsNotReusedButLeftIntact guards the reuseOrCreateGrant WHERE
+// clause boundary "revoked_at_ms = 0": a revoked family must never be resurrected
+// by a later login, and a brand new family must be minted alongside it instead.
+func TestRevokedGrantIsNotReusedButLeftIntact(t *testing.T) {
+	forDatabases(t, func(t *testing.T, db, _ *gorm.DB) {
+		s, _, _ := testServer(t, db)
+		approveFlow(t, s)
+		var original model.OAuthServerGrant
+		require.NoError(t, db.Take(&original).Error)
+		require.NoError(t, db.Model(&model.OAuthServerGrant{}).Where("id = ?", original.ID).
+			Updates(map[string]any{"revoked_at_ms": 1, "revocation_reason": "test"}).Error)
+
+		approveFlow(t, s)
+
+		var count int64
+		require.NoError(t, db.Model(&model.OAuthServerGrant{}).Count(&count).Error)
+		require.Equal(t, int64(2), count)
+		var stillRevoked model.OAuthServerGrant
+		require.NoError(t, db.Where("id = ?", original.ID).Take(&stillRevoked).Error)
+		require.Equal(t, int64(1), stillRevoked.RevokedAtMs)
+		require.Equal(t, "test", stillRevoked.RevocationReason)
+		var fresh model.OAuthServerGrant
+		require.NoError(t, db.Where("id <> ?", original.ID).Take(&fresh).Error)
+		require.Zero(t, fresh.RevokedAtMs)
+	})
+}
+
+// TestExpiredGrantIsNotReusedButLeftIntact guards the reuseOrCreateGrant WHERE
+// clause boundary "absolute_expires_at_ms > now": a family expired at or
+// before the current instant must not be reused, mirroring the strict
+// inequality already covered for authorizationLive in
+// TestTrustedConsentExpiryAtExactBoundary.
+func TestExpiredGrantIsNotReusedButLeftIntact(t *testing.T) {
+	forDatabases(t, func(t *testing.T, db, _ *gorm.DB) {
+		s, clock, _ := testServer(t, db)
+		approveFlow(t, s)
+		var original model.OAuthServerGrant
+		require.NoError(t, db.Take(&original).Error)
+
+		clock.millis.Store(original.AbsoluteExpiresAtMs)
+		approveFlow(t, s)
+
+		var count int64
+		require.NoError(t, db.Model(&model.OAuthServerGrant{}).Count(&count).Error)
+		require.Equal(t, int64(2), count)
+		var stillExpired model.OAuthServerGrant
+		require.NoError(t, db.Where("id = ?", original.ID).Take(&stillExpired).Error)
+		require.Equal(t, original.AbsoluteExpiresAtMs, stillExpired.AbsoluteExpiresAtMs)
+		var fresh model.OAuthServerGrant
+		require.NoError(t, db.Where("id <> ?", original.ID).Take(&fresh).Error)
+		require.Greater(t, fresh.AbsoluteExpiresAtMs, original.AbsoluteExpiresAtMs)
+	})
+}

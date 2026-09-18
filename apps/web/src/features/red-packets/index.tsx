@@ -20,6 +20,7 @@ For commercial licensing, please contact support@quantumnous.com
 Copyright (C) 2026 LIghtJUNction
 */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import type { TFunction } from 'i18next'
 import { Copy, Gift, ImagePlus, Plus, Sparkles } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -111,27 +112,42 @@ async function loadDiscountCodes(): Promise<DiscountCode[]> {
   return result
 }
 
+type ReadImageErrorCode = 'invalid-type' | 'too-large' | 'read-failed'
+
 function readImage(file: File): Promise<string> {
   if (!file.type.startsWith('image/')) {
-    return Promise.reject(new Error('Please choose an image file'))
+    const code: ReadImageErrorCode = 'invalid-type'
+    return Promise.reject(new Error(code))
   }
   if (file.size > 3 * 1024 * 1024) {
-    return Promise.reject(new Error('Cover image must be smaller than 3 MB'))
+    const code: ReadImageErrorCode = 'too-large'
+    return Promise.reject(new Error(code))
   }
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
     reader.onload = () => resolve(String(reader.result ?? ''))
-    reader.onerror = () =>
-      reject(reader.error ?? new Error('Unable to read image'))
+    reader.onerror = () => {
+      const code: ReadImageErrorCode = 'read-failed'
+      reject(reader.error ?? new Error(code))
+    }
     reader.readAsDataURL(file)
   })
 }
 
-function candidateFromRedemption(row: Redemption): Candidate {
+function readImageErrorMessage(error: unknown, t: TFunction): string {
+  const code = error instanceof Error ? error.message : ''
+  if (code === 'invalid-type') return t('Please choose an image file')
+  if (code === 'too-large') return t('Cover image must be smaller than 3 MB')
+  return t('Unable to read image')
+}
+
+function candidateFromRedemption(row: Redemption, t: TFunction): Candidate {
   const rewardType = row.reward_type ?? 'quota'
   const detail =
     rewardType === 'reset_voucher'
-      ? `Banked reset · plan #${row.reset_plan_id}`
+      ? t('Banked reset voucher for plan #{{plan}}', {
+          plan: row.reset_plan_id,
+        })
       : formatQuota(row.quota)
   return {
     key: `redemption:${row.id}`,
@@ -142,13 +158,14 @@ function candidateFromRedemption(row: Redemption): Candidate {
   }
 }
 
-function candidateFromDiscount(row: DiscountCode): Candidate {
+function candidateFromDiscount(row: DiscountCode, t: TFunction): Candidate {
+  const percentOff = t('{{percent}}% off', { percent: row.discount_percent })
   return {
     key: `discount:${row.id}`,
     itemType: 'discount',
     sourceId: row.id,
     title: row.name || row.code,
-    detail: `${row.discount_percent}% off · ${row.code}`,
+    detail: `${percentOff} · ${row.code}`,
   }
 }
 
@@ -182,7 +199,7 @@ export function RedPackets() {
         (row) =>
           row.status === 1 && (!row.expired_time || row.expired_time >= now)
       )
-      .map(candidateFromRedemption)
+      .map((row) => candidateFromRedemption(row, t))
     const discounts = (discountsQuery.data ?? [])
       .filter(
         (row) =>
@@ -191,9 +208,9 @@ export function RedPackets() {
           (!row.expired_time || row.expired_time >= now) &&
           (!row.max_uses || row.used_count < row.max_uses)
       )
-      .map(candidateFromDiscount)
+      .map((row) => candidateFromDiscount(row, t))
     return [...redemptions, ...discounts]
-  }, [redemptionsQuery.data, discountsQuery.data])
+  }, [redemptionsQuery.data, discountsQuery.data, t])
 
   const createMutation = useMutation({
     mutationFn: createRedPacket,
@@ -222,6 +239,9 @@ export function RedPackets() {
       return next
     })
   }
+
+  const selectedCount = Object.keys(selected).length
+  const canSubmit = form.title.trim().length > 0 && selectedCount > 0
 
   const submit = () => {
     const items: RedPacketItemInput[] = candidates
@@ -487,11 +507,7 @@ export function RedPackets() {
                           setForm((v) => ({ ...v, coverImage }))
                         )
                         .catch((error: unknown) =>
-                          toast.error(
-                            error instanceof Error
-                              ? error.message
-                              : t('Unable to read image')
-                          )
+                          toast.error(readImageErrorMessage(error, t))
                         )
                     }}
                   />
@@ -503,7 +519,7 @@ export function RedPackets() {
               <div className='flex items-center justify-between'>
                 <Label>{t('Rewards')}</Label>
                 <span className='text-muted-foreground text-xs'>
-                  {Object.keys(selected).length} {t('selected')}
+                  {selectedCount} {t('selected')}
                 </span>
               </div>
               <div className='max-h-80 space-y-2 overflow-y-auto rounded-xl border p-2'>
@@ -526,7 +542,12 @@ export function RedPackets() {
                           {candidate.title}
                         </div>
                         <div className='text-muted-foreground truncate text-xs'>
-                          {candidate.itemType} · {candidate.detail}
+                          {t(
+                            candidate.itemType === 'redemption'
+                              ? 'Redemption Code'
+                              : 'Discount code'
+                          )}{' '}
+                          · {candidate.detail}
                         </div>
                       </div>
                       {form.drawMode === 'weighted' && checked ? (
@@ -561,11 +582,21 @@ export function RedPackets() {
             </div>
           </div>
 
-          <DialogFooter>
+          <DialogFooter className='items-center gap-2 sm:items-center'>
+            {!canSubmit ? (
+              <span className='text-muted-foreground mr-auto text-xs'>
+                {!form.title.trim()
+                  ? t('Please enter a title')
+                  : t('Select at least one redemption or discount code')}
+              </span>
+            ) : null}
             <Button variant='outline' onClick={() => setOpen(false)}>
               {t('Cancel')}
             </Button>
-            <Button onClick={submit} disabled={createMutation.isPending}>
+            <Button
+              onClick={submit}
+              disabled={!canSubmit || createMutation.isPending}
+            >
               {createMutation.isPending
                 ? t('Creating...')
                 : t('Create and copy link')}

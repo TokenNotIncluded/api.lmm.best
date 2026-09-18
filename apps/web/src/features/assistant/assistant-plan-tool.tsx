@@ -65,6 +65,7 @@ import { formatFiatCurrencyAmount, getCurrencyDisplay } from '@/lib/currency'
 
 import { getAssistantPlanOffers } from './api'
 import {
+  type AssistantPlanComparison,
   compareAssistantPlans,
   getAssistantTopupOffers,
 } from './plan-recommender'
@@ -80,10 +81,17 @@ function formatPlanPrice(amount: number, currency: string, locale?: string) {
 
 function getRecommendationMessage(
   t: TFunction,
-  monthlyCreditUSD: number | null,
+  comparison: AssistantPlanComparison,
   expectedCreditUSD: number,
   amount: string
 ) {
+  if (comparison.oneTimeOnly) {
+    return t(
+      'This plan can only be purchased once and cannot be renewed to sustain monthly capacity. Shown because no renewable plan currently covers your {{amount}} monthly estimate.',
+      { amount }
+    )
+  }
+  const monthlyCreditUSD = comparison.monthlyCreditUSD
   if (monthlyCreditUSD === null) {
     return t(
       'Recommended because unlimited capacity covers your {{amount}} monthly estimate.',
@@ -92,7 +100,7 @@ function getRecommendationMessage(
   }
   if (monthlyCreditUSD >= expectedCreditUSD) {
     return t(
-      'Recommended as the smallest available capacity that covers your {{amount}} monthly estimate.',
+      'Recommended as the lowest monthly-equivalent cost that covers your {{amount}} monthly estimate.',
       { amount }
     )
   }
@@ -184,19 +192,41 @@ export function AssistantPlanTool(props: {
                     : formatCreditBalance(comparison.monthlyCreditUSD)}
                 </strong>
               </span>
-              <strong>
-                {formatPlanPrice(
-                  Number(plan.price_amount || 0),
-                  plan.currency,
-                  toIntlLocale(i18n.language)
-                )}
-              </strong>
+              <span className='text-right'>
+                <strong>
+                  {formatPlanPrice(
+                    Number(plan.price_amount || 0),
+                    plan.currency,
+                    toIntlLocale(i18n.language)
+                  )}
+                </strong>
+                {!comparison.oneTimeOnly &&
+                comparison.monthlyCostAmount !== null &&
+                comparison.monthlyCostAmount !== Number(plan.price_amount || 0) ? (
+                  <span className='text-muted-foreground block text-[11px] leading-4'>
+                    {t('≈ {{amount}} / month if renewed', {
+                      amount: formatPlanPrice(
+                        comparison.monthlyCostAmount,
+                        plan.currency,
+                        toIntlLocale(i18n.language)
+                      ),
+                    })}
+                  </span>
+                ) : null}
+              </span>
             </div>
+            {comparison.oneTimeOnly ? (
+              <p className='text-muted-foreground text-xs leading-5'>
+                {t(
+                  'One-time purchase only — cannot be bought again to sustain ongoing monthly capacity.'
+                )}
+              </p>
+            ) : null}
             {comparison.recommended ? (
               <p className='text-muted-foreground text-xs leading-5'>
                 {getRecommendationMessage(
                   t,
-                  comparison.monthlyCreditUSD,
+                  comparison,
                   normalizedExpected,
                   formatCreditBalance(normalizedExpected)
                 )}
