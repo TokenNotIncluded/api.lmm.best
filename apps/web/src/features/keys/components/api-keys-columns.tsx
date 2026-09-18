@@ -66,7 +66,8 @@ function useGroupOptions(): {
     queryKey: ['user-groups'],
     queryFn: getUserGroups,
     staleTime: 0,
-    select: (res) => buildApiKeyGroupOptions(res.success ? res.data : undefined),
+    select: (res) =>
+      buildApiKeyGroupOptions(res.success ? res.data : undefined),
   })
 
   return { options: data ?? [], isLoading }
@@ -82,7 +83,10 @@ export function useApiKeysColumns(
   const groupRatios = useMemo(() => {
     const ratios: Record<string, number | string> = {}
     for (const option of groupOptions) {
-      if (typeof option.ratio === 'number' || typeof option.ratio === 'string') {
+      if (
+        typeof option.ratio === 'number' ||
+        typeof option.ratio === 'string'
+      ) {
         ratios[option.value] = option.ratio
       }
     }

@@ -126,7 +126,11 @@ describe('assistant plan recommender', () => {
 
     const recurringPlan = plan(1, 20_000_000)
 
-    const ranked = compareAssistantPlans([trialPack, recurringPlan], 20, 1_000_000)
+    const ranked = compareAssistantPlans(
+      [trialPack, recurringPlan],
+      20,
+      1_000_000
+    )
     const trial = ranked.find((item) => item.record.plan.id === 2)
     const recurring = ranked.find((item) => item.record.plan.id === 1)
     assert.equal(trial?.oneTimeOnly, true)

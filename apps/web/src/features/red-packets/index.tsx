@@ -231,7 +231,9 @@ export function RedPackets() {
     },
     onError: (error) => {
       toast.error(
-        error instanceof Error ? error.message : t('Failed to create red packet')
+        error instanceof Error
+          ? error.message
+          : t('Failed to create red packet')
       )
     },
   })
@@ -595,7 +597,11 @@ export function RedPackets() {
                   : t('Select at least one redemption or discount code')}
               </span>
             ) : null}
-            <Button type='button' variant='outline' onClick={() => setOpen(false)}>
+            <Button
+              type='button'
+              variant='outline'
+              onClick={() => setOpen(false)}
+            >
               {t('Cancel')}
             </Button>
             <Button
