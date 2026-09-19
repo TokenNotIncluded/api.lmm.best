@@ -43,6 +43,7 @@ Key differentiators:
 | Frontend | Shared React application in `apps/web` |
 | Default backend | Go provider CLI/service in `apps/api-go` |
 | Preview backend | Rust provider CLI/service in `apps/api-rust` (not default production traffic) |
+| LMM CLI | Rust setup tool in [`apps/lmm`](apps/lmm/README.md) (preview: discovery, planning and read-only OAuth login) |
 | Deployment | Reviewed `/usr/bin/lmm-api-deploy` script plus manual release operations |
 | Packaging | Provider binaries and immutable runtime assets in `packaging/` |
 
