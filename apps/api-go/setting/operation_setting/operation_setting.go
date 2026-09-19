@@ -1,9 +1,14 @@
 package operation_setting
 
-import "strings"
+import (
+	"strings"
+	"sync/atomic"
+)
 
 var DemoSiteEnabled = false
-var SelfUseModeEnabled = false
+
+// Pricing refreshes read this flag concurrently with live settings updates.
+var SelfUseModeEnabled atomic.Bool
 
 var AutomaticDisableKeywords = []string{
 	"Your credit balance is too low",
