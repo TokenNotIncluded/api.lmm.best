@@ -609,53 +609,6 @@ export const SYSTEM_JSON_CONFIGURATIONS = {
       },
     ]
   ),
-  'dynamic_pricing_setting.channel_costs': numberRecord(
-    { '12': 0.5, '34': 1.2 },
-    '<channelId>',
-    'exclusiveMinimum: 0; finite: true'
-  ),
-  'dynamic_pricing_setting.per_model': configuration(
-    {
-      'gpt-5': {
-        target_tpm: 50000,
-        target_rpm: 60,
-        target_cost_rate: 1,
-        base_price_usd_per_million: 8,
-      },
-    },
-    'Record<string, ModelPricingOverride>',
-    [
-      { path: '<model>', type: 'object', example: '"gpt-5"' },
-      {
-        path: '<model>.target_tpm',
-        type: 'number',
-        required: false,
-        rules: 'minimum: 0; 0: inherit-global',
-        example: '50000',
-      },
-      {
-        path: '<model>.target_rpm',
-        type: 'number',
-        required: false,
-        rules: 'minimum: 0; 0: inherit-global',
-        example: '60',
-      },
-      {
-        path: '<model>.target_cost_rate',
-        type: 'number',
-        required: false,
-        rules: 'minimum: 0; 0: inherit-global',
-        example: '1',
-      },
-      {
-        path: '<model>.base_price_usd_per_million',
-        type: 'number',
-        required: false,
-        rules: 'minimum: 0; 0: inherit-global',
-        example: '8',
-      },
-    ]
-  ),
   'billing_setting.billing_mode': stringRecord(
     { 'gpt-5': 'tiered_expr', 'gpt-4o': 'ratio' },
     '<model>',

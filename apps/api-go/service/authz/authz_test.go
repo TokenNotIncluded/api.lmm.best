@@ -279,3 +279,14 @@ func TestAcquisitionSummaryPermissionDoesNotGrantAccountDetails(t *testing.T) {
 	assert.False(t, Can(92, common.RoleAdminUser, AcquisitionExport))
 	assert.False(t, Can(93, common.RoleCommonUser, AcquisitionRead))
 }
+
+func TestAcquisitionDetailsAndExportMustBeGrantedSeparately(t *testing.T) {
+	db := newAuthzTestDB(t)
+	require.NoError(t, Init(db))
+	require.NoError(t, SetUserPermissions(94, PermissionsMap{"acquisition": {"details": true, "export": false}}))
+	assert.True(t, Can(94, common.RoleAdminUser, AcquisitionDetails))
+	assert.False(t, Can(94, common.RoleAdminUser, AcquisitionExport))
+	require.NoError(t, SetUserPermissions(94, PermissionsMap{"acquisition": {"details": false, "export": true}}))
+	assert.False(t, Can(94, common.RoleAdminUser, AcquisitionDetails))
+	assert.True(t, Can(94, common.RoleAdminUser, AcquisitionExport))
+}

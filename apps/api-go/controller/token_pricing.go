@@ -11,7 +11,6 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/constant"
 	"github.com/LIghtJUNction/api.lmm.best/model"
 	"github.com/LIghtJUNction/api.lmm.best/setting/billing_setting"
-	"github.com/LIghtJUNction/api.lmm.best/setting/dynamic_pricing_setting"
 	"github.com/LIghtJUNction/api.lmm.best/setting/ratio_setting"
 	"github.com/gin-gonic/gin"
 )
@@ -32,7 +31,6 @@ type tokenPricingEntry struct {
 	OutputPrice      *float64 `json:"output_price,omitempty"`
 	RequestPrice     *float64 `json:"request_price,omitempty"`
 	Expression       string   `json:"billing_expression,omitempty"`
-	DynamicPricing   bool     `json:"dynamic_pricing"`
 }
 
 // Only disclose prices for the same token group/model boundary as /v1/models.
@@ -62,7 +60,7 @@ func tokenPricingEntries(catalog []model.Pricing, groups modelListGroups, limite
 				ratio = ratio_setting.GetGroupRatio(group)
 			}
 			ratio *= discount
-			entry := tokenPricingEntry{Model: name, Group: group, Currency: "USD", GroupRatio: ratio, TrustDiscount: discount, DynamicPricing: dynamic_pricing_setting.IsEnabled()}
+			entry := tokenPricingEntry{Model: name, Group: group, Currency: "USD", GroupRatio: ratio, TrustDiscount: discount}
 			if billing_setting.GetBillingMode(name) == billing_setting.BillingModeTieredExpr {
 				entry.BillingMode, entry.Unit = "tiered_expr", "expression"
 				entry.Expression, ok = billing_setting.GetBillingExpr(name)

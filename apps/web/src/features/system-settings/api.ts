@@ -20,8 +20,6 @@ import { api } from '@/lib/api'
 
 import type {
   ConfirmPaymentComplianceResponse,
-  DynamicPricingSettingUpdate,
-  DynamicPricingStatusResponse,
   FetchUpstreamRatiosRequest,
   LogCleanupTask,
   SystemOptionsResponse,
@@ -78,23 +76,6 @@ export async function updateSystemOptions(values: Record<string, string>) {
   const res = await api.post<UpdateOptionResponse>('/api/option/bulk', {
     values,
   })
-  return res.data
-}
-
-export async function getDynamicPricingStatus() {
-  const res = await api.get<DynamicPricingStatusResponse>(
-    '/api/dynamic_pricing/status'
-  )
-  return res.data
-}
-
-export async function updateDynamicPricingSetting(
-  request: DynamicPricingSettingUpdate
-) {
-  const res = await api.put<DynamicPricingStatusResponse>(
-    '/api/dynamic_pricing/setting',
-    request
-  )
   return res.data
 }
 

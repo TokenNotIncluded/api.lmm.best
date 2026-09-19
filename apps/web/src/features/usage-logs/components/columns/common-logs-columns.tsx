@@ -94,7 +94,7 @@ function getGroupRatio(other: LogOtherData | null): number | null {
   return null
 }
 
-function getDynamicProfitMultiplier(other: LogOtherData | null): number | null {
+function getLegacyPricingAdjustment(other: LogOtherData | null): number | null {
   const multiplier = other?.dynamic_pricing
   if (multiplier == null || !Number.isFinite(multiplier) || multiplier <= 0) {
     return null
@@ -566,7 +566,7 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
       let group = log.group
       if (!group) group = other?.group || ''
       const groupRatio = getGroupRatio(other)
-      const dynamicProfitMultiplier = getDynamicProfitMultiplier(other)
+      const legacyPricingAdjustment = getLegacyPricingAdjustment(other)
 
       return (
         <div className='flex max-w-[200px] flex-col gap-0.5'>
@@ -589,7 +589,7 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
               )}
             </Tooltip>
           </TooltipProvider>
-          {(group || groupRatio != null || dynamicProfitMultiplier != null) && (
+          {(group || groupRatio != null || legacyPricingAdjustment != null) && (
             <span className='flex max-w-full flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs leading-none'>
               {group ? (
                 <GroupBadge
@@ -610,14 +610,14 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
                   {t('Cost multiplier')} {formatRatioCompact(groupRatio)}x
                 </span>
               ) : null}
-              {dynamicProfitMultiplier != null ? (
+              {legacyPricingAdjustment != null ? (
                 <span
                   className='text-primary/80 relative top-px align-baseline tabular-nums'
-                  title={t('Profit multiplier')}
-                  aria-label={`${t('Profit multiplier')}: ${formatRatioCompact(dynamicProfitMultiplier)}x`}
+                  title={t('Legacy pricing adjustment')}
+                  aria-label={`${t('Legacy pricing adjustment')}: ${formatRatioCompact(legacyPricingAdjustment)}x`}
                 >
-                  {t('Profit multiplier')}{' '}
-                  {formatRatioCompact(dynamicProfitMultiplier)}x
+                  {t('Legacy pricing adjustment')}{' '}
+                  {formatRatioCompact(legacyPricingAdjustment)}x
                 </span>
               ) : null}
             </span>

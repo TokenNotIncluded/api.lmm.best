@@ -32,10 +32,6 @@ const ClaudeSettingsCard = lazyNamedSection(
   () => import('./claude-settings-card'),
   'ClaudeSettingsCard'
 )
-const DynamicPricingSection = lazyNamedSection(
-  () => import('./dynamic-pricing-section'),
-  'DynamicPricingSection'
-)
 const GeminiSettingsCard = lazyNamedSection(
   () => import('./gemini-settings-card'),
   'GeminiSettingsCard'
@@ -112,29 +108,6 @@ const MODELS_SECTIONS = [
             settings['monitor_setting.auto_test_channel_minutes'],
           'monitor_setting.channel_test_mode':
             settings['monitor_setting.channel_test_mode'],
-        }}
-      />
-    ),
-  },
-  {
-    id: 'dynamic-group-multiplier',
-    titleKey: 'Dynamic Profit Pricing',
-    build: (settings: ModelSettings) => (
-      <DynamicPricingSection
-        defaultValues={{
-          GroupRatio: settings.GroupRatio,
-          'dynamic_pricing_setting.enabled':
-            settings['dynamic_pricing_setting.enabled'],
-          'dynamic_pricing_setting.min_factor':
-            settings['dynamic_pricing_setting.min_factor'],
-          'dynamic_pricing_setting.base_price_usd_per_million':
-            settings['dynamic_pricing_setting.base_price_usd_per_million'],
-          'dynamic_pricing_setting.cost_floor_factor':
-            settings['dynamic_pricing_setting.cost_floor_factor'],
-          'dynamic_pricing_setting.max_factor':
-            settings['dynamic_pricing_setting.max_factor'],
-          'dynamic_pricing_setting.channel_costs':
-            settings['dynamic_pricing_setting.channel_costs'],
         }}
       />
     ),
