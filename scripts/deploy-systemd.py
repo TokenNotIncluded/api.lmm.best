@@ -92,11 +92,28 @@ def check_layout():
             raise RuntimeError('provider is package-owned; use the package deployment path')
 
 
+def service_environment_files():
+    # Preserve drop-in order: cluster settings may override database/cache hosts.
+    value = property_value('EnvironmentFiles')
+    files = []
+    for line in value.splitlines():
+        match = re.fullmatch(r'(/[^\s\\"\']+) \(ignore_errors=(yes|no)\)', line)
+        if not match:
+            raise RuntimeError('unsupported service EnvironmentFiles; schema verification refused')
+        path, optional = match.groups()
+        if str(Path(path)) != path or '..' in Path(path).parts:
+            raise RuntimeError('service environment file path must be canonical')
+        files.append(('-' if optional == 'yes' else '') + path)
+    if not files:
+        raise RuntimeError('service has no EnvironmentFiles; schema verification refused')
+    return ' '.join(files)
+
+
 def verify(work, label, mode='verify'):
     args = ['systemd-run', '--quiet', '--wait', '--collect', '--pipe',
             '--unit=lmm-schema-' + work.name + '-' + label,
             '-p', 'Type=oneshot', '-p', 'TimeoutStartSec=180',
-            '-p', 'EnvironmentFile=/etc/lmm-api-go/lmm-api-go.env',
+            '-p', 'EnvironmentFile=' + service_environment_files(),
             '-p', 'Environment=LMM_DB_MIGRATION_MODE=' + mode,
             '-p', 'MemoryMax=384M', '-p', 'NoNewPrivileges=yes',
             '-p', 'ProtectSystem=strict', '-p', 'PrivateTmp=yes',
