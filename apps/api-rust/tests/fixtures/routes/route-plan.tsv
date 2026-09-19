@@ -206,7 +206,6 @@ POST	/api/token/batch/keys	github.com/QuantumNous/new-api/controller.GetTokenKey
 GET	/api/token/search	github.com/QuantumNous/new-api/controller.SearchTokens	api-token	user	read	none	P1	lmm_api_rs::routes::api_token	none
 GET	/api/uptime/status	github.com/QuantumNous/new-api/controller.GetUptimeKumaStatus	control-plane	public	read	none	P0	lmm_api_rs::routes::control_plane	none
 GET	/api/usage/token/	github.com/QuantumNous/new-api/controller.GetTokenUsage	control-plane	token	read	none	P2	lmm_api_rs::routes::control_plane	none
-GET	/v1/balance	github.com/LIghtJUNction/api.lmm.best/controller.GetAccountBalance	relay	token	read	none	P1	lmm_api_rs::routes::public_catalog	none
 GET	/api/user-agreement	github.com/QuantumNous/new-api/controller.GetUserAgreement	control-plane	public	read	none	P2	lmm_api_rs::routes::control_plane	none
 GET	/api/user/	github.com/QuantumNous/new-api/controller.GetAllUsers	identity-user	user	read	none	P1	lmm_api_rs::routes::identity_user	none
 POST	/api/user/	github.com/QuantumNous/new-api/controller.CreateUser	identity-user	user	write	none	P1	lmm_api_rs::routes::identity_user	none
@@ -315,6 +314,7 @@ POST	/v1/alpha/search	github.com/QuantumNous/new-api/router.SetRelayRouter.func1
 POST	/v1/audio/speech	github.com/QuantumNous/new-api/router.SetRelayRouter.func18	relay	token	read-write-stream	sse-optional	P1	lmm_api_rs::routes::relay	relay-upstream
 POST	/v1/audio/transcriptions	github.com/QuantumNous/new-api/router.SetRelayRouter.func16	relay	token	read-write-stream	sse-optional	P1	lmm_api_rs::routes::relay	relay-upstream
 POST	/v1/audio/translations	github.com/QuantumNous/new-api/router.SetRelayRouter.func17	relay	token	read-write-stream	sse-optional	P1	lmm_api_rs::routes::relay	relay-upstream
+GET	/v1/balance	github.com/LIghtJUNction/api.lmm.best/controller.GetAccountBalance	relay	token	read	none	P1	lmm_api_rs::routes::public_catalog	none
 POST	/v1/chat/completions	github.com/QuantumNous/new-api/router.SetRelayRouter.func8	relay	token	read-write-stream	sse-optional	P1	lmm_api_rs::routes::relay	relay-upstream
 POST	/v1/completions	github.com/QuantumNous/new-api/router.SetRelayRouter.func7	relay	token	read-write-stream	sse-optional	P1	lmm_api_rs::routes::relay	relay-upstream
 GET	/v1/dashboard/billing/subscription	github.com/QuantumNous/new-api/controller.GetSubscription	relay	token	read-write-stream	sse-optional	P1	lmm_api_rs::routes::relay	relay-upstream

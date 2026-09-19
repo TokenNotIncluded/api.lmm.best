@@ -206,7 +206,6 @@ POST	/api/token/batch/keys	user
 GET	/api/token/search	user
 GET	/api/uptime/status	public
 GET	/api/usage/token/	token
-GET	/v1/balance	token
 GET	/api/user-agreement	public
 GET	/api/user/	user
 POST	/api/user/	user
@@ -315,6 +314,7 @@ POST	/v1/alpha/search	token
 POST	/v1/audio/speech	token
 POST	/v1/audio/transcriptions	token
 POST	/v1/audio/translations	token
+GET	/v1/balance	token
 POST	/v1/chat/completions	token
 POST	/v1/completions	token
 GET	/v1/dashboard/billing/subscription	token
