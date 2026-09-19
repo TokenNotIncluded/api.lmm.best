@@ -150,13 +150,13 @@ func runProductionReleasePlan(args []string, stdout, stderr io.Writer) int {
 		return ExitOK
 	}
 	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "%s deploy production plan: %v\n", ProgramName, err)
+		_, _ = fmt.Fprintf(stderr, "%s production plan: %v\n", DeployProgramName, err)
 		return ExitUsage
 	}
 	runtime := &productionReleaseRuntime{runner: osProductionCommandRunner{}, now: time.Now}
 	result, err := runtime.createPlan(context.Background(), options)
 	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "%s deploy production plan: %v\n", ProgramName, err)
+		_, _ = fmt.Fprintf(stderr, "%s production plan: %v\n", DeployProgramName, err)
 		return ExitError
 	}
 	return writeJSONCommandResult(result, stdout, stderr, "production release plan")
@@ -164,7 +164,7 @@ func runProductionReleasePlan(args []string, stdout, stderr io.Writer) int {
 
 func parseProductionReleasePlanOptions(args []string, stderr io.Writer) (productionReleasePlanOptions, error) {
 	options := productionReleasePlanOptions{ObservationSeconds: 180}
-	flags := flag.NewFlagSet("deploy production plan", flag.ContinueOnError)
+	flags := flag.NewFlagSet(DeployProgramName+" production plan", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	flags.StringVar(&options.Repo, "repo", "", "clean api.lmm.best source checkout with fetched release tags")
 	flags.StringVar(&options.Workspace, "workspace", "", "marker-owned controller workspace")

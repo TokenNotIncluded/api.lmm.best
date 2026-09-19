@@ -80,6 +80,7 @@ install -Dm0644 "$SCRIPT_DIR/PKGBUILD" "$build_dir/PKGBUILD"
 install -Dm0644 "$REPO_ROOT/packaging/common/lmm-api/lmm-api-go-package.sh" \
   "$build_dir/lmm-api-go-package.sh"
 install -Dm0755 "$GO_BINARY" "$build_dir/lmm-api-go"
+install -Dm0755 "$REPO_ROOT/packaging/common/lmm-api/lmm-api-deploy" "$build_dir/lmm-api-deploy"
 install -Dm0644 "$REPO_ROOT/packaging/common/lmm-api/lmm-api.service" "$build_dir/lmm-api.service"
 install -Dm0600 "$REPO_ROOT/packaging/common/lmm-api/lmm-api-go.env" "$build_dir/lmm-api-go.env"
 install -Dm0644 "$REPO_ROOT/packaging/common/lmm-api/lmm-api-operator.sysusers" "$build_dir/lmm-api-operator.sysusers"

@@ -27,6 +27,10 @@ for package in "${PACKAGES[@]}"; do
   "$EXPORTER" "$package" "$destination" >/dev/null
   [[ -f $destination/lmm-api-go-package.sh && ! -L $destination/lmm-api-go-package.sh ]] ||
     fail "$package export did not materialize the shared helper"
+  if [[ $package == lmm-api-go-bin ]]; then
+    cmp -s "$destination/lmm-api-deploy" "$HERE/../common/lmm-api/lmm-api-deploy" ||
+      fail "$package export contains a stale deployment script"
+  fi
   [[ -z $(find "$destination" -type l -print -quit) ]] || fail "$package export contains a symlink"
   generated=$(cd -- "$destination" && makepkg --printsrcinfo)
   cmp -s <(printf '%s\n' "$generated") "$destination/.SRCINFO" ||

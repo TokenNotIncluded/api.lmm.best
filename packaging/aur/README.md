@@ -47,7 +47,7 @@ route gate and provider handover are explicitly approved.
 which calls:
 
 ```text
-/usr/bin/lmm-api deploy frontend package-activate --package-version <version>
+/usr/bin/lmm-api-deploy frontend package-activate --package-version <version>
 ```
 
 Those releases do not package `frontend-release.sh`, `lmm-api-web-activate`, or

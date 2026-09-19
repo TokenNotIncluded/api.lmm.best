@@ -43,6 +43,7 @@ package() {
   local file
 
   install -Dm0755 "${srcdir}/lmm-api-go" "${pkgdir}/usr/bin/lmm-api-go"
+  install -Dm0755 "${root}/packaging/common/lmm-api/lmm-api-deploy" "${pkgdir}/usr/bin/lmm-api-deploy"
   lmm_go_package_assert_payload "$pkgdir" "$pkgname" "$pkgver"
   install -Dm0644 "${shared}/lmm-api.service" \
     "${pkgdir}/usr/lib/systemd/system/lmm-api.service"

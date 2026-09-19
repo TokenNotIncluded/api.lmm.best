@@ -58,11 +58,11 @@ type productionArchiveRoot struct {
 
 func runProductionWorkspace(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		_, _ = fmt.Fprintf(stderr, "%s deploy production workspace: choose create, abort, or cleanup\n", ProgramName)
+		_, _ = fmt.Fprintf(stderr, "%s production workspace: choose create, abort, or cleanup\n", DeployProgramName)
 		return ExitUsage
 	}
 	if args[0] == "cleanup" {
-		flags := flag.NewFlagSet("deploy production workspace cleanup", flag.ContinueOnError)
+		flags := flag.NewFlagSet(DeployProgramName+" production workspace cleanup", flag.ContinueOnError)
 		flags.SetOutput(stderr)
 		retention := productionWorkspaceCleanupRetention
 		execute := false
@@ -77,13 +77,13 @@ func runProductionWorkspace(args []string, stdout, stderr io.Writer) int {
 		runtime := defaultProductionRuntime()
 		result, err := runtime.cleanupWorkspaces(context.Background(), productionWorkspaceCleanupOptions{OlderThan: retention, Execute: execute})
 		if err != nil {
-			_, _ = fmt.Fprintf(stderr, "%s deploy production workspace cleanup: %v\n", ProgramName, err)
+			_, _ = fmt.Fprintf(stderr, "%s production workspace cleanup: %v\n", DeployProgramName, err)
 			return ExitError
 		}
 		return writeJSONCommandResult(result, stdout, stderr, "production workspace cleanup")
 	}
 	if args[0] == "abort" {
-		flags := flag.NewFlagSet("deploy production workspace abort", flag.ContinueOnError)
+		flags := flag.NewFlagSet(DeployProgramName+" production workspace abort", flag.ContinueOnError)
 		flags.SetOutput(stderr)
 		workspacePath := ""
 		flags.StringVar(&workspacePath, "workspace", "", "marker-owned target deployment workspace")
@@ -94,22 +94,22 @@ func runProductionWorkspace(args []string, stdout, stderr io.Writer) int {
 		}
 		clean, err := cleanAbsoluteNonRoot(workspacePath)
 		if err != nil {
-			_, _ = fmt.Fprintf(stderr, "%s deploy production workspace abort: invalid --workspace: %v\n", ProgramName, err)
+			_, _ = fmt.Fprintf(stderr, "%s production workspace abort: invalid --workspace: %v\n", DeployProgramName, err)
 			return ExitUsage
 		}
 		runtime := defaultProductionRuntime()
 		status, err := runtime.abortWorkspace(context.Background(), clean)
 		if err != nil {
-			_, _ = fmt.Fprintf(stderr, "%s deploy production workspace abort: %v\n", ProgramName, err)
+			_, _ = fmt.Fprintf(stderr, "%s production workspace abort: %v\n", DeployProgramName, err)
 			return ExitError
 		}
 		return writeJSONCommandResult(status, stdout, stderr, "production workspace abort")
 	}
 	if args[0] != "create" {
-		_, _ = fmt.Fprintf(stderr, "%s deploy production workspace: choose create, abort, or cleanup\n", ProgramName)
+		_, _ = fmt.Fprintf(stderr, "%s production workspace: choose create, abort, or cleanup\n", DeployProgramName)
 		return ExitUsage
 	}
-	flags := flag.NewFlagSet("deploy production workspace create", flag.ContinueOnError)
+	flags := flag.NewFlagSet(DeployProgramName+" production workspace create", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	deploymentID := ""
 	flags.StringVar(&deploymentID, "deployment-id", "", "unique release-scoped deployment ID")
@@ -120,13 +120,13 @@ func runProductionWorkspace(args []string, stdout, stderr io.Writer) int {
 		return ExitUsage
 	}
 	if flags.NArg() != 0 || !productionIDPattern.MatchString(deploymentID) {
-		_, _ = fmt.Fprintf(stderr, "%s deploy production workspace create: valid --deployment-id is required\n", ProgramName)
+		_, _ = fmt.Fprintf(stderr, "%s production workspace create: valid --deployment-id is required\n", DeployProgramName)
 		return ExitUsage
 	}
 	runtime := defaultProductionRuntime()
 	result, err := runtime.createWorkspace(context.Background(), deploymentID)
 	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "%s deploy production workspace create: %v\n", ProgramName, err)
+		_, _ = fmt.Fprintf(stderr, "%s production workspace create: %v\n", DeployProgramName, err)
 		return ExitError
 	}
 	return writeJSONCommandResult(result, stdout, stderr, "production workspace create")
@@ -134,13 +134,13 @@ func runProductionWorkspace(args []string, stdout, stderr io.Writer) int {
 
 func runProductionPackage(args []string, stdout, stderr io.Writer) int {
 	if len(args) != 1 || args[0] != "current" {
-		_, _ = fmt.Fprintf(stderr, "%s deploy production package: choose current\n", ProgramName)
+		_, _ = fmt.Fprintf(stderr, "%s production package: choose current\n", DeployProgramName)
 		return ExitUsage
 	}
 	runtime := defaultProductionRuntime()
 	result, err := runtime.currentPackage(context.Background())
 	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "%s deploy production package current: %v\n", ProgramName, err)
+		_, _ = fmt.Fprintf(stderr, "%s production package current: %v\n", DeployProgramName, err)
 		return ExitError
 	}
 	return writeJSONCommandResult(result, stdout, stderr, "production package current")
@@ -148,7 +148,7 @@ func runProductionPackage(args []string, stdout, stderr io.Writer) int {
 
 func runProductionBackup(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		_, _ = fmt.Fprintf(stderr, "%s deploy production backup: choose create, export, or attest\n", ProgramName)
+		_, _ = fmt.Fprintf(stderr, "%s production backup: choose create, export, or attest\n", DeployProgramName)
 		return ExitUsage
 	}
 	switch args[0] {
@@ -160,7 +160,7 @@ func runProductionBackup(args []string, stdout, stderr io.Writer) int {
 		return runProductionBackupAttest(args[1:], stdout, stderr)
 	case "create":
 	default:
-		_, _ = fmt.Fprintf(stderr, "%s deploy production backup: choose create, export, or attest\n", ProgramName)
+		_, _ = fmt.Fprintf(stderr, "%s production backup: choose create, export, or attest\n", DeployProgramName)
 		return ExitUsage
 	}
 	options, err := parseProductionBackupOptions(args[1:], stderr)
@@ -168,13 +168,13 @@ func runProductionBackup(args []string, stdout, stderr io.Writer) int {
 		return ExitOK
 	}
 	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "%s deploy production backup: %v\n", ProgramName, err)
+		_, _ = fmt.Fprintf(stderr, "%s production backup: %v\n", DeployProgramName, err)
 		return ExitUsage
 	}
 	runtime := defaultProductionRuntime()
 	result, err := runtime.createBackup(context.Background(), options)
 	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "%s deploy production backup: %v\n", ProgramName, err)
+		_, _ = fmt.Fprintf(stderr, "%s production backup: %v\n", DeployProgramName, err)
 		return ExitError
 	}
 	return writeJSONCommandResult(result, stdout, stderr, "production backup")
@@ -183,7 +183,7 @@ func runProductionBackup(args []string, stdout, stderr io.Writer) int {
 func writeJSONCommandResult(value any, stdout, stderr io.Writer, label string) int {
 	encoded, err := json.MarshalIndent(value, "", "  ")
 	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "%s deploy %s: encode result: %v\n", ProgramName, label, err)
+		_, _ = fmt.Fprintf(stderr, "%s %s: encode result: %v\n", DeployProgramName, label, err)
 		return ExitError
 	}
 	_, _ = stdout.Write(append(encoded, '\n'))
@@ -192,7 +192,7 @@ func writeJSONCommandResult(value any, stdout, stderr io.Writer, label string) i
 
 func parseProductionBackupOptions(args []string, stderr io.Writer) (productionBackupOptions, error) {
 	options := productionBackupOptions{}
-	flags := flag.NewFlagSet("deploy production backup", flag.ContinueOnError)
+	flags := flag.NewFlagSet(DeployProgramName+" production backup", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	flags.StringVar(&options.Workspace, "workspace", "", "marker-owned target deployment workspace")
 	flags.StringVar(&options.RollbackPackage, "rollback-package", "", "captured package matching installed lmm-api-go")

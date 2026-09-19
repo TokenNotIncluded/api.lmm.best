@@ -43,7 +43,7 @@ health operations enter only through the verified public symlink:
 ```text
 /usr/bin/lmm-api doctor
 /usr/bin/lmm-api status
-/usr/bin/lmm-api deploy production status ...
+/usr/bin/lmm-api-deploy production status ...
 ```
 
 Before application mutation, verify:

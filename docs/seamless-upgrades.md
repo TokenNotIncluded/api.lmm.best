@@ -43,12 +43,12 @@ contract revisions before writing canonical immutable JSON.
 Production uses resumable controller phases:
 
 ```bash
-/usr/bin/lmm-api deploy production plan ...
-/usr/bin/lmm-api deploy production stage \
+/usr/bin/lmm-api-deploy production plan ...
+/usr/bin/lmm-api-deploy production stage \
   --plan <release-plan.json> --plan-sha256 <sha256> --confirm api.lmm.best
-/usr/bin/lmm-api deploy production promote \
+/usr/bin/lmm-api-deploy production promote \
   --plan <release-plan.json> --plan-sha256 <sha256> --confirm api.lmm.best
-/usr/bin/lmm-api deploy production status|confirm|rollback \
+/usr/bin/lmm-api-deploy production status|confirm|rollback \
   --plan <release-plan.json> --plan-sha256 <sha256> --confirm api.lmm.best
 ```
 

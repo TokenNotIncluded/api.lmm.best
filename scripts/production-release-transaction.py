@@ -235,7 +235,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         parser.error("result file must have an existing absolute parent directory")
 
     def native(action: str) -> bytes:
-        tail = ["deploy", "production", action, "--plan", str(args.plan),
+        tail = ["operator", "production", action, "--plan", str(args.plan),
                 "--plan-sha256", args.plan_sha256, "--confirm", "api.lmm.best"]
         if action == "rollback":
             tail += ["--reason", "workflow-release-acceptance-failed"]

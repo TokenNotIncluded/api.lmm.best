@@ -83,13 +83,13 @@ func runProductionBackupExport(args []string, stdout, stderr io.Writer) int {
 		return ExitOK
 	}
 	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "%s deploy production backup export: %v\n", ProgramName, err)
+		_, _ = fmt.Fprintf(stderr, "%s production backup export: %v\n", DeployProgramName, err)
 		return ExitUsage
 	}
 	runtime := defaultProductionRuntime()
 	result, err := runtime.exportBackup(context.Background(), options)
 	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "%s deploy production backup export: %v\n", ProgramName, err)
+		_, _ = fmt.Fprintf(stderr, "%s production backup export: %v\n", DeployProgramName, err)
 		return ExitError
 	}
 	return writeJSONCommandResult(result, stdout, stderr, "production backup export")
@@ -101,13 +101,13 @@ func runProductionBackupAttest(args []string, stdout, stderr io.Writer) int {
 		return ExitOK
 	}
 	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "%s deploy production backup attest: %v\n", ProgramName, err)
+		_, _ = fmt.Fprintf(stderr, "%s production backup attest: %v\n", DeployProgramName, err)
 		return ExitUsage
 	}
 	runtime := defaultProductionRuntime()
 	attestation, err := runtime.attestBackup(context.Background(), options)
 	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "%s deploy production backup attest: %v\n", ProgramName, err)
+		_, _ = fmt.Fprintf(stderr, "%s production backup attest: %v\n", DeployProgramName, err)
 		return ExitError
 	}
 	return writeJSONCommandResult(attestation, stdout, stderr, "production backup attest")
@@ -119,13 +119,13 @@ func runProductionBackupVerify(args []string, stdout, stderr io.Writer) int {
 		return ExitOK
 	}
 	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "%s deploy production backup verify: %v\n", ProgramName, err)
+		_, _ = fmt.Fprintf(stderr, "%s production backup verify: %v\n", DeployProgramName, err)
 		return ExitUsage
 	}
 	runtime := &productionRuntime{runner: osProductionCommandRunner{}, now: time.Now, effectiveUID: os.Geteuid}
 	result, err := runtime.verifyExternalBackups(context.Background(), options)
 	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "%s deploy production backup verify: %v\n", ProgramName, err)
+		_, _ = fmt.Fprintf(stderr, "%s production backup verify: %v\n", DeployProgramName, err)
 		return ExitError
 	}
 	return writeJSONCommandResult(result, stdout, stderr, "production backup verify")
@@ -133,7 +133,7 @@ func runProductionBackupVerify(args []string, stdout, stderr io.Writer) int {
 
 func parseProductionBackupExportOptions(args []string, stderr io.Writer) (productionBackupExportOptions, error) {
 	options := productionBackupExportOptions{}
-	flags := flag.NewFlagSet("deploy production backup export", flag.ContinueOnError)
+	flags := flag.NewFlagSet(DeployProgramName+" production backup export", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	flags.StringVar(&options.Workspace, "workspace", "", "marker-owned target deployment workspace")
 	flags.StringVar(&options.Role, "role", "", "external copy role: controller or off-host")
@@ -169,7 +169,7 @@ func parseProductionBackupExportOptions(args []string, stderr io.Writer) (produc
 
 func parseProductionBackupAttestOptions(args []string, stderr io.Writer) (productionBackupAttestOptions, error) {
 	options := productionBackupAttestOptions{}
-	flags := flag.NewFlagSet("deploy production backup attest", flag.ContinueOnError)
+	flags := flag.NewFlagSet(DeployProgramName+" production backup attest", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	flags.StringVar(&options.Workspace, "workspace", "", "marker-owned target deployment workspace")
 	flags.StringVar(&options.TargetDigest, "target-digest", "", "controller-verified target checksum digest")
@@ -196,7 +196,7 @@ func parseProductionBackupAttestOptions(args []string, stderr io.Writer) (produc
 
 func parseProductionBackupVerifyOptions(args []string, stderr io.Writer) (productionBackupVerifyOptions, error) {
 	options := productionBackupVerifyOptions{}
-	flags := flag.NewFlagSet("deploy production backup verify", flag.ContinueOnError)
+	flags := flag.NewFlagSet(DeployProgramName+" production backup verify", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	flags.StringVar(&options.Workspace, "workspace", "", "marker-owned controller verification workspace")
 	flags.StringVar(&options.Target, "target", "", "plain protected target backup copy")

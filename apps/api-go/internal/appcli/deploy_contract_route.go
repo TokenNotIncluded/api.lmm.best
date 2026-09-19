@@ -30,7 +30,7 @@ func runDeployContract(args []string, stdout, stderr io.Writer) int {
 		revisionPath: "/usr/share/doc/lmm-api-go-bin/API_ROUTE_CONTRACT_REVISION",
 	}
 	if err := runtime.run(args[1:], stdout); err != nil {
-		_, _ = fmt.Fprintf(stderr, "%s deploy contract route: %v\n", ProgramName, err)
+		_, _ = fmt.Fprintf(stderr, "%s contract route: %v\n", DeployProgramName, err)
 		return ExitError
 	}
 	return ExitOK
@@ -38,9 +38,9 @@ func runDeployContract(args []string, stdout, stderr io.Writer) int {
 
 func writeDeployContractUsage(output io.Writer) {
 	_, _ = fmt.Fprintln(output, `Usage:
-  lmm-api deploy contract route print
-  lmm-api deploy contract route generate OUTPUT
-  lmm-api deploy contract route verify REVISION_FILE`)
+  lmm-api-deploy contract route print
+  lmm-api-deploy contract route generate OUTPUT
+  lmm-api-deploy contract route verify REVISION_FILE`)
 }
 
 func (runtime routeContractRuntime) revision() (string, error) {

@@ -250,7 +250,7 @@ class ProcessIntegrationTests(unittest.TestCase):
 from pathlib import Path
 root = Path(__file__).parent
 action = sys.argv[3]
-assert sys.argv[1:3] == ['deploy','production']
+assert sys.argv[1:3] == ['operator','production']
 assert sys.argv[4:6] == ['--plan', str(root/'plan.json')]
 assert sys.argv[6:10] == ['--plan-sha256', 'a'*64, '--confirm', 'api.lmm.best']
 with (root/'calls').open('a') as log: log.write(action+'\\n')

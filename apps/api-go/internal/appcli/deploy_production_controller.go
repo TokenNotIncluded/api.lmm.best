@@ -68,13 +68,13 @@ func runProductionReleaseStage(args []string, stdout, stderr io.Writer) int {
 		return ExitOK
 	}
 	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "%s deploy production stage: %v\n", ProgramName, err)
+		_, _ = fmt.Fprintf(stderr, "%s production stage: %v\n", DeployProgramName, err)
 		return ExitUsage
 	}
 	runtime := &productionReleaseRuntime{runner: osProductionCommandRunner{}, now: time.Now}
 	result, err := runtime.stage(context.Background(), options)
 	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "%s deploy production stage: %v\n", ProgramName, err)
+		_, _ = fmt.Fprintf(stderr, "%s production stage: %v\n", DeployProgramName, err)
 		return ExitError
 	}
 	return writeJSONCommandResult(result, stdout, stderr, "production release stage")
@@ -86,13 +86,13 @@ func runProductionReleasePromote(args []string, stdout, stderr io.Writer) int {
 		return ExitOK
 	}
 	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "%s deploy production promote: %v\n", ProgramName, err)
+		_, _ = fmt.Fprintf(stderr, "%s production promote: %v\n", DeployProgramName, err)
 		return ExitUsage
 	}
 	runtime := &productionReleaseRuntime{runner: osProductionCommandRunner{}, now: time.Now}
 	result, err := runtime.promote(context.Background(), options)
 	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "%s deploy production promote: %v\n", ProgramName, err)
+		_, _ = fmt.Fprintf(stderr, "%s production promote: %v\n", DeployProgramName, err)
 		return ExitError
 	}
 	return writeJSONCommandResult(result, stdout, stderr, "production release promote")
@@ -104,13 +104,13 @@ func runProductionReleaseControllerAction(action string, args []string, stdout, 
 		return ExitOK
 	}
 	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "%s deploy production %s: %v\n", ProgramName, action, err)
+		_, _ = fmt.Fprintf(stderr, "%s production %s: %v\n", DeployProgramName, action, err)
 		return ExitUsage
 	}
 	runtime := &productionReleaseRuntime{runner: osProductionCommandRunner{}, now: time.Now}
 	result, err := runtime.control(context.Background(), action, options)
 	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "%s deploy production %s: %v\n", ProgramName, action, err)
+		_, _ = fmt.Fprintf(stderr, "%s production %s: %v\n", DeployProgramName, action, err)
 		return ExitError
 	}
 	return writeJSONCommandResult(result, stdout, stderr, "production release "+action)
@@ -118,7 +118,7 @@ func runProductionReleaseControllerAction(action string, args []string, stdout, 
 
 func parseProductionReleaseControllerOptions(action string, args []string, stderr io.Writer) (productionReleaseControllerOptions, error) {
 	options := productionReleaseControllerOptions{Reason: "operator-request"}
-	flags := flag.NewFlagSet("deploy production "+action, flag.ContinueOnError)
+	flags := flag.NewFlagSet(DeployProgramName+" production "+action, flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	flags.StringVar(&options.Plan, "plan", "", "immutable controller release plan")
 	flags.StringVar(&options.PlanSHA256, "plan-sha256", "", "exact immutable release-plan SHA-256")
@@ -188,7 +188,7 @@ func (runtime *productionReleaseRuntime) stage(ctx context.Context, options prod
 	}
 	if state.RemoteWorkspace == "" {
 		output, err := runtime.ssh(ctx, plan.TargetAlias, 2*time.Minute,
-			productionOperatorBinary, "deploy", "production", "workspace", "create", "--deployment-id", plan.DeploymentID)
+			productionOperatorBinary, "operator", "production", "workspace", "create", "--deployment-id", plan.DeploymentID)
 		if err != nil {
 			return productionReleaseControllerResult{}, fmt.Errorf("create target deployment workspace: %w", err)
 		}
@@ -330,7 +330,7 @@ func (runtime *productionReleaseRuntime) control(ctx context.Context, action str
 		}
 	}
 	if action != "status" {
-		arguments := []string{"deploy", "production", action, "--workspace", state.RemoteWorkspace}
+		arguments := []string{"operator", "production", action, "--workspace", state.RemoteWorkspace}
 		if action == "rollback" {
 			arguments = append(arguments, "--reason", options.Reason)
 		}
@@ -385,7 +385,7 @@ func (runtime *productionReleaseRuntime) productionApplyArguments(plan productio
 	arguments := []string{
 		"systemd-run", "--quiet", "--wait", "--collect", "--unit", productionActivationUnit(plan.DeploymentID),
 		"--property=Type=oneshot", "--property=TimeoutStartSec=18min",
-		remoteOperator, "deploy", "production", "apply",
+		remoteOperator, "operator", "production", "apply",
 		"--workspace", state.RemoteWorkspace,
 		"--operator-user", plan.OperatorUser,
 		"--go-package", filepath.Join(remoteStage, filepath.Base(plan.GoCandidate.PackagePath)),
@@ -432,7 +432,7 @@ func (runtime *productionReleaseRuntime) remoteDispatchEvidence(ctx context.Cont
 		return productionDispatchEvidence{}, err
 	}
 	output, err := runtime.ssh(ctx, plan.TargetAlias, 30*time.Second,
-		remoteOperator, "deploy", "production", "dispatch-evidence",
+		remoteOperator, "operator", "production", "dispatch-evidence",
 		"--workspace", state.RemoteWorkspace, "--unit", state.ActivationUnit)
 	if err != nil {
 		return productionDispatchEvidence{}, fmt.Errorf("reconcile production activation dispatch: %w", err)
@@ -590,7 +590,7 @@ func (runtime *productionReleaseRuntime) readRemoteReleaseStatus(ctx context.Con
 		return productionStatus{}, err
 	}
 	output, err := runtime.ssh(ctx, plan.TargetAlias, 2*time.Minute,
-		operator, "deploy", "production", "status", "--workspace", state.RemoteWorkspace)
+		operator, "operator", "production", "status", "--workspace", state.RemoteWorkspace)
 	if err != nil {
 		return productionStatus{}, fmt.Errorf("read production release status: %w", err)
 	}
@@ -799,7 +799,7 @@ func (runtime *productionReleaseRuntime) prepareControllerBackups(ctx context.Co
 			return productionPreparedBackups{}, err
 		}
 		if _, err := runtime.ssh(ctx, plan.TargetAlias, 12*time.Minute,
-			remoteProbe, "deploy", "production", "backup", "create",
+			remoteProbe, "operator", "production", "backup", "create",
 			"--workspace", state.RemoteWorkspace,
 			"--rollback-package", remoteRollback,
 			"--rollback-sha256", plan.GoRollback.PackageSHA256,
@@ -825,7 +825,7 @@ func (runtime *productionReleaseRuntime) prepareControllerBackups(ctx context.Co
 			return productionPreparedBackups{}, err
 		}
 		if _, err := runtime.ssh(ctx, plan.TargetAlias, 12*time.Minute,
-			remoteProbe, "deploy", "production", "backup", "export",
+			remoteProbe, "operator", "production", "backup", "export",
 			"--workspace", state.RemoteWorkspace, "--role", role, "--output", output,
 			"--age-recipient-file", remoteRecipient,
 		); err != nil {
@@ -938,7 +938,7 @@ func (runtime *productionReleaseRuntime) prepareControllerBackups(ctx context.Co
 		return productionPreparedBackups{}, err
 	}
 	if _, err := runtime.ssh(ctx, plan.TargetAlias, 2*time.Minute,
-		remoteProbe, "deploy", "production", "backup", "attest", "--workspace", state.RemoteWorkspace,
+		remoteProbe, "operator", "production", "backup", "attest", "--workspace", state.RemoteWorkspace,
 		"--target-digest", verification.TargetDigest, "--controller-digest", verification.ControllerDigest, "--offhost-digest", verification.OffhostDigest,
 	); err != nil {
 		return productionPreparedBackups{}, fmt.Errorf("attest verified external backup copies: %w", err)
@@ -1065,7 +1065,7 @@ func (runtime *productionReleaseRuntime) reverifyControllerBackups(ctx context.C
 		return err
 	}
 	if _, err := runtime.ssh(ctx, plan.TargetAlias, 2*time.Minute,
-		remoteOperator, "deploy", "production", "backup", "attest", "--workspace", state.RemoteWorkspace,
+		remoteOperator, "operator", "production", "backup", "attest", "--workspace", state.RemoteWorkspace,
 		"--confirmation",
 		"--target-digest", verification.TargetDigest, "--controller-digest", verification.ControllerDigest, "--offhost-digest", verification.OffhostDigest,
 	); err != nil {
