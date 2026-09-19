@@ -337,7 +337,7 @@ func WriteRefreshCookie(c *gin.Context, rawToken string) {
 	}
 	// The validated global policy permits Secure=false only for local HTTP
 	// compatibility; construct securely before applying that explicit mode.
-	// lgtm [go/cookie-secure-not-set] -- false is explicitly limited to local HTTP compatibility; production startup requires true.
+	// codeql[go/cookie-secure-not-set] -- false is explicitly limited to local HTTP compatibility; production startup requires true.
 	cookie.Secure = common.SessionCookieSecure
 	http.SetCookie(c.Writer, cookie)
 }
@@ -353,7 +353,7 @@ func ClearRefreshCookie(c *gin.Context) {
 		Secure:   true,
 		SameSite: http.SameSiteStrictMode,
 	}
-	// lgtm [go/cookie-secure-not-set] -- false is explicitly limited to local HTTP compatibility; production startup requires true.
+	// codeql[go/cookie-secure-not-set] -- false is explicitly limited to local HTTP compatibility; production startup requires true.
 	cookie.Secure = common.SessionCookieSecure
 	http.SetCookie(c.Writer, cookie)
 }

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
-import { validateDescription } from './pr-quality.mjs'
+import { validateDescription, visible } from './pr-quality.mjs'
 
 const template = readFileSync(new URL('../.github/PULL_REQUEST_TEMPLATE.md', import.meta.url), 'utf8')
 const complete = template.replaceAll('- [ ]', '- [x]')
@@ -35,7 +35,7 @@ test('checked boxes shown as a code example do not complete the checklist', () =
 })
 
 test('commented and fenced headings cannot substitute for real sections', () => {
-  assert.equal(validateDescription(`<!--\n${complete.replace(/<!--[\s\S]*?-->/g, "")}\n-->`, template).length, 7)
+  assert.equal(validateDescription(`<!--\n${visible(complete)}\n-->`, template).length, 7)
   assert.equal(validateDescription(`~~~~\n${complete}\n~~~~`, template).length, 7)
 })
 

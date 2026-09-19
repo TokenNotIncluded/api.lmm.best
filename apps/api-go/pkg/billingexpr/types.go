@@ -81,8 +81,8 @@ type TieredResult struct {
 // The expression is configuration metadata, not a password or credential, so
 // a plain SHA-256 digest is sufficient and keeps identities stable across
 // installations and secret rotation.
-// lgtm [go/weak-sensitive-data-hashing] -- this value is never used to protect sensitive data.
 func ExprHashString(expr string) string {
+	// codeql[go/weak-sensitive-data-hashing] -- this value is never used to protect sensitive data.
 	h := sha256.Sum256([]byte(expr))
 	return fmt.Sprintf("%x", h)
 }
