@@ -21,6 +21,7 @@ import (
 type fakeProductionRunner struct {
 	nginxClosed, nginxDrainFailure, badWriterStop bool
 	shutdownJournalFailure                        bool
+	shutdownJournalSince                          string
 	refundIntent, missingStartup, journalLoss     bool
 	managedBillingRows                            string
 	managedOAuthTokenRows                         string
@@ -169,6 +170,7 @@ func (runner *fakeProductionRunner) Run(ctx context.Context, command productionC
 			return nil, nil
 		}
 		if strings.Contains(strings.Join(command.Args, " "), "_PID=") {
+			runner.shutdownJournalSince = command.Args[slices.Index(command.Args, "--since")+1]
 			if runner.shutdownJournalFailure {
 				return []byte("received signal: terminated\nfailed to batch update token quota\nserver exited\n"), nil
 			}

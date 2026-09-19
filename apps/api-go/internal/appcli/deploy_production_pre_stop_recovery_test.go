@@ -194,3 +194,53 @@ func TestProductionAdmissionTimeoutRecoveryRequiresPredatingWriter(t *testing.T)
 		})
 	}
 }
+
+func TestProductionRollbackResumesUnchangedStoppedWriter(t *testing.T) {
+	f := newProductionFixture(t)
+	f.runner.shutdownJournalFailure = true
+	if _, err := f.runtime.apply(context.Background(), f.workspace, f.options); err == nil {
+		t.Fatal("expected shutdown audit failure")
+	}
+	if f.runner.serviceActive {
+		t.Fatal("writer was not stopped")
+	}
+	f.runner.shutdownJournalFailure = false
+	f.runner.managedBillingRows = "3"
+	before := len(f.runner.events)
+	status, err := f.runtime.rollback(context.Background(), f.workspace, "unchanged-provider-recovery")
+	if err != nil || status.Phase != "ROLLED_BACK" || !f.runner.serviceActive {
+		t.Fatalf("status=%+v err=%v active=%v", status, err, f.runner.serviceActive)
+	}
+	for _, event := range f.runner.events[before:] {
+		if strings.HasPrefix(event, "paru-") || strings.Contains(event, "candidate-apply") {
+			t.Fatalf("unchanged provider was replaced/migrated: %s", event)
+		}
+	}
+}
+
+func TestProductionRollbackStoppedWriterStillRejectsDirtyExit(t *testing.T) {
+	f := newProductionFixture(t)
+	f.runner.shutdownJournalFailure = true
+	if _, err := f.runtime.apply(context.Background(), f.workspace, f.options); err == nil {
+		t.Fatal("expected shutdown audit failure")
+	}
+	f.runner.managedBillingRows = "3"
+	if _, err := f.runtime.rollback(context.Background(), f.workspace, "dirty-exit"); err == nil {
+		t.Fatal("accepted dirty shutdown")
+	}
+	if f.runner.serviceActive {
+		t.Fatal("dirty writer restarted")
+	}
+}
+
+func TestProductionShutdownBoundaryPreservesMicroseconds(t *testing.T) {
+	f := newProductionFixture(t)
+	f.runtime.now = func() time.Time { return time.Unix(1700000000, 670601656).UTC() }
+	f.runner.shutdownJournalFailure = true
+	if _, err := f.runtime.apply(context.Background(), f.workspace, f.options); err == nil {
+		t.Fatal("expected audit failure")
+	}
+	if f.runner.shutdownJournalSince != "@1700000000.670601" {
+		t.Fatalf("rounded shutdown boundary: %s", f.runner.shutdownJournalSince)
+	}
+}
