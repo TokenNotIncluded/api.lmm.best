@@ -25,7 +25,7 @@ type ModelContext = {
   registerTool: (
     tool: ModelContextTool,
     options?: { signal?: AbortSignal }
-  ) => Promise<void>
+  ) => void | Promise<void>
 }
 type WebMcpRouter = {
   navigate: (options: { to: string }) => Promise<unknown>
@@ -211,7 +211,13 @@ export function installWebMcp(router: WebMcpRouter): () => void {
     controller = new AbortController()
     const signal = controller.signal
     for (const tool of toolsFor(router)) {
-      void modelContext.registerTool(tool, { signal }).catch(() => undefined)
+      try {
+        void Promise.resolve(modelContext.registerTool(tool, { signal })).catch(
+          () => undefined
+        )
+      } catch {
+        // Optional browser integration must never prevent the app from mounting.
+      }
     }
   }
   const refresh = () => {

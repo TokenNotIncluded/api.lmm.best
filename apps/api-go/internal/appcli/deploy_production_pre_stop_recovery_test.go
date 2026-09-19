@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func preStopRecoveryFixture(t *testing.T) productionFixture {
@@ -138,6 +139,57 @@ func TestProductionRollbackBeforeWriterStopRejectsChangedEvidence(t *testing.T) 
 			}
 			if _, err := os.Stat(f.runtime.paths.TransactionLock); err != nil {
 				t.Fatalf("recovery lock was released after rejection: %v", err)
+			}
+		})
+	}
+}
+
+type admissionTimestampRunner struct {
+	productionCommandRunner
+	started string
+}
+
+func (r admissionTimestampRunner) Run(ctx context.Context, command productionCommand) ([]byte, error) {
+	if command.Name == commandSystemctl && strings.Contains(strings.Join(command.Args, " "), "--property=ExecMainStartTimestamp") {
+		return []byte(r.started), nil
+	}
+	return r.productionCommandRunner.Run(ctx, command)
+}
+func TestProductionAdmissionTimeoutRecoveryRequiresPredatingWriter(t *testing.T) {
+	for _, kind := range []string{"original", "replacement", "unknown"} {
+		t.Run(kind, func(t *testing.T) {
+			f := preStopRecoveryFixture(t)
+			m, err := f.runtime.readManifest(f.workspace)
+			if err != nil {
+				t.Fatal(err)
+			}
+			m.BillingGate.GoPID = 0
+			m.BillingGate.GoInvocationID = ""
+			m.BillingGate.AdmissionClosed = false
+			m.BillingGate.StopStartedUTC = time.Time{}
+			if err := f.runtime.writeManifest(f.workspace, m); err != nil {
+				t.Fatal(err)
+			}
+			started := m.BillingGate.StartedUTC.Add(-time.Hour).UTC().Format("Mon 2006-01-02 15:04:05 MST")
+			if kind == "replacement" {
+				started = m.BillingGate.StartedUTC.Add(time.Minute).UTC().Format("Mon 2006-01-02 15:04:05 MST")
+			}
+			if kind == "unknown" {
+				started = "n/a"
+			}
+			f.runtime.runner = admissionTimestampRunner{f.runner, started}
+			before := len(f.runner.events)
+			status, err := f.runtime.rollback(context.Background(), f.workspace, "admission-timeout-recovery")
+			if kind == "original" && (err != nil || status.Phase != "ROLLED_BACK") {
+				t.Fatalf("status=%+v error=%v", status, err)
+			}
+			if kind != "original" && err == nil {
+				t.Fatal("unverified writer accepted")
+			}
+			for _, event := range f.runner.events[before:] {
+				if event == "systemd-stop" || strings.HasPrefix(event, "paru-") || strings.HasPrefix(event, "migrate:") {
+					t.Fatalf("unexpected mutation: %s", event)
+				}
 			}
 		})
 	}
