@@ -309,11 +309,11 @@ POST	/pg/chat/completions	github.com/QuantumNous/new-api/controller.Playground
 POST	/suno/fetch	github.com/QuantumNous/new-api/controller.RelayTaskFetch
 GET	/suno/fetch/:id	github.com/QuantumNous/new-api/controller.RelayTaskFetch
 POST	/suno/submit/:action	github.com/QuantumNous/new-api/controller.RelayTask
-GET	/v1/balance	github.com/LIghtJUNction/api.lmm.best/controller.GetAccountBalance
 POST	/v1/alpha/search	github.com/QuantumNous/new-api/router.SetRelayRouter.func11
 POST	/v1/audio/speech	github.com/QuantumNous/new-api/router.SetRelayRouter.func18
 POST	/v1/audio/transcriptions	github.com/QuantumNous/new-api/router.SetRelayRouter.func16
 POST	/v1/audio/translations	github.com/QuantumNous/new-api/router.SetRelayRouter.func17
+GET	/v1/balance	github.com/LIghtJUNction/api.lmm.best/controller.GetAccountBalance
 POST	/v1/chat/completions	github.com/QuantumNous/new-api/router.SetRelayRouter.func8
 POST	/v1/completions	github.com/QuantumNous/new-api/router.SetRelayRouter.func7
 GET	/v1/dashboard/billing/subscription	github.com/QuantumNous/new-api/controller.GetSubscription
