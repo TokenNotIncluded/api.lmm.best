@@ -95,8 +95,9 @@ use lmm_api_rs::{
         },
         open_source_bounties::{OpenSourceBountyState, router as open_source_bounty_router},
         public_catalog::{
-            DashboardPublicCatalogAuthorizer, DashboardPublicCatalogRateLimiter, HeaderNavAccess,
-            PublicCatalogState, PublicCatalogStore, PublicCatalogStoreError,
+            AccountBalanceSnapshot, AccountBalanceToken, DashboardPublicCatalogAuthorizer,
+            DashboardPublicCatalogRateLimiter, HeaderNavAccess, PublicCatalogState,
+            PublicCatalogStore, PublicCatalogStoreError, ValkeyAccountBalanceRateLimiter,
             parse_header_nav_access, public_catalog_router,
         },
         ratio_sync::{
@@ -207,7 +208,12 @@ pub fn safe_control_public_surface(pg: PgPool) -> Router {
 /// the durable store plus the listener's shared dashboard session authority.
 /// Keep the constructor here shared with the isolated candidate surface so
 /// the two listeners cannot silently drift in their database/query contract.
-pub fn durable_public_catalog_surface(pg: PgPool, auth: Arc<dyn DashboardAuth>) -> Router {
+pub fn durable_public_catalog_surface(
+    pg: PgPool,
+    valkey: redis::Client,
+    dependency_timeout: std::time::Duration,
+    auth: Arc<dyn DashboardAuth>,
+) -> Router {
     public_catalog_router(
         PublicCatalogState::new(
             Arc::new(PgPublicCatalogStore::new(pg)),
@@ -215,6 +221,12 @@ pub fn durable_public_catalog_surface(pg: PgPool, auth: Arc<dyn DashboardAuth>) 
         )
         .with_critical_rate_limiter(Arc::new(DashboardPublicCatalogRateLimiter::new(
             Arc::clone(&auth),
+        )))
+        .with_account_balance_rate_limiter(Arc::new(ValkeyAccountBalanceRateLimiter::new(
+            valkey,
+            30,
+            std::time::Duration::from_secs(60),
+            dependency_timeout,
         )))
         .with_console_access_gate(auth),
     )
@@ -391,6 +403,8 @@ pub fn safe_candidate_surface(
         // deliberately fail-closed on the isolated test instance.
         .merge(durable_public_catalog_surface(
             pg.clone(),
+            valkey.clone(),
+            std::time::Duration::from_secs(2),
             Arc::clone(&auth),
         ))
         .merge(ratio_sync_router(RatioSyncHttpState::new(
@@ -1447,6 +1461,85 @@ impl PublicCatalogStore for PgPublicCatalogStore {
             },
         ))
     }
+
+    async fn account_balance_token(
+        &self,
+        key: &str,
+    ) -> Result<Option<AccountBalanceToken>, PublicCatalogStoreError> {
+        let row = sqlx::query_as::<_, (i64, i64, i64, Option<String>, bool, bool)>(
+            "SELECT user_id, COALESCE(status, 1), COALESCE(expired_time, -1), allow_ips, \
+                    COALESCE((to_jsonb(tokens)->>'oauth_managed')::boolean, FALSE), \
+                    COALESCE((to_jsonb(tokens)->>'account_balance_read')::boolean, FALSE) \
+             FROM tokens WHERE key = $1 AND deleted_at IS NULL",
+        )
+        .bind(key)
+        .fetch_optional(&self.pg)
+        .await
+        .map_err(|error| PublicCatalogStoreError::new(error.to_string()))?;
+        let Some((user_id, status, expired_time, allow_ips, oauth_managed, account_balance_read)) =
+            row
+        else {
+            return Ok(None);
+        };
+        let user_status = sqlx::query_scalar::<_, i64>(
+            "SELECT COALESCE(status, 0) FROM users WHERE id = $1 AND deleted_at IS NULL",
+        )
+        .bind(user_id)
+        .fetch_optional(&self.pg)
+        .await
+        .map_err(|error| PublicCatalogStoreError::new(error.to_string()))?;
+        let Some(user_status) = user_status else {
+            return Ok(None);
+        };
+        Ok(Some(AccountBalanceToken {
+            user_id,
+            status,
+            expired_time,
+            allow_ips,
+            oauth_managed,
+            account_balance_read,
+            user_status,
+        }))
+    }
+
+    async fn account_balance_for_owner(
+        &self,
+        user_id: i64,
+    ) -> Result<Option<AccountBalanceSnapshot>, PublicCatalogStoreError> {
+        let Some(quota) = sqlx::query_scalar::<_, i64>(
+            "SELECT COALESCE(quota, 0) FROM users WHERE id = $1 AND status = 1 AND deleted_at IS NULL",
+        )
+        .bind(user_id)
+        .fetch_optional(&self.pg)
+        .await
+        .map_err(|error| PublicCatalogStoreError::new(error.to_string()))?
+        else {
+            return Ok(None);
+        };
+        let raw_quota_per_unit =
+            sqlx::query_scalar::<_, String>("SELECT value FROM options WHERE key = 'QuotaPerUnit'")
+                .fetch_optional(&self.pg)
+                .await
+                .map_err(|error| PublicCatalogStoreError::new(error.to_string()))?
+                // Go initializes common.QuotaPerUnit before overlaying saved options.
+                // Absence uses the default; an explicitly invalid value still fails closed.
+                .unwrap_or_else(|| "500000".to_owned());
+        let Ok(quota_per_unit) = raw_quota_per_unit.trim().parse::<f64>() else {
+            return Ok(None);
+        };
+        if !quota_per_unit.is_finite() || quota_per_unit <= 0.0 {
+            return Ok(None);
+        }
+        let updated_at = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .ok()
+            .and_then(|duration| i64::try_from(duration.as_secs()).ok())
+            .unwrap_or(i64::MAX);
+        Ok(Some(AccountBalanceSnapshot {
+            remaining: quota as f64 / quota_per_unit,
+            updated_at,
+        }))
+    }
 }
 
 const RANKING_LEADERBOARD_LIMIT: usize = 20;
@@ -2269,6 +2362,10 @@ impl ProjectUpdateClient for DenyProjectUpdate {
         Err(())
     }
 }
+
+#[cfg(test)]
+#[path = "account_balance_pg_tests.rs"]
+mod account_balance_pg_tests;
 
 #[cfg(test)]
 mod tests {

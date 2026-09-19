@@ -299,6 +299,7 @@ POST	/api/token/	lmm_api_rs::routes::api_token::create
 PUT	/api/token/	lmm_api_rs::routes::api_token::update
 DELETE	/api/token/:id	lmm_api_rs::routes::api_token::remove
 GET	/api/token/:id	lmm_api_rs::routes::api_token::detail
+PUT	/api/token/:id/account-balance-access	lmm_api_rs::routes::api_token::account_balance_access
 POST	/api/token/:id/key	lmm_api_rs::routes::api_token::key
 GET	/api/token/auto-groups	lmm_api_rs::routes::api_token::auto_groups
 POST	/api/token/batch	lmm_api_rs::routes::api_token::batch_delete
@@ -306,6 +307,7 @@ POST	/api/token/batch/keys	lmm_api_rs::routes::api_token::batch_keys
 GET	/api/token/search	lmm_api_rs::routes::api_token::search
 GET	/api/uptime/status	lmm_api_rs::routes::control_public::control_public_router
 GET	/api/usage/token/	lmm_api_rs::routes::public_catalog::public_catalog_router
+GET	/v1/balance	lmm_api_rs::routes::public_catalog::public_catalog_router
 GET	/api/user-agreement	lmm_api_rs::routes::control_public::control_public_router
 GET	/api/user/	lmm_api_rs::routes::identity_admin::router
 POST	/api/user/	lmm_api_rs::routes::identity_admin::router
