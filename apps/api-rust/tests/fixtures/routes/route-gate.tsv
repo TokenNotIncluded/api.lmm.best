@@ -199,7 +199,6 @@ POST	/api/token/	present	unverified	mounted	unverified	not-applicable	go	mounted
 PUT	/api/token/	present	unverified	mounted	unverified	not-applicable	go	mounted-unverified	apps/api-rust/src/routes/api_token.rs
 DELETE	/api/token/:id	present	unverified	mounted	unverified	not-applicable	go	mounted-unverified	apps/api-rust/src/routes/api_token.rs
 GET	/api/token/:id	present	unverified	mounted	unverified	not-applicable	go	mounted-unverified	apps/api-rust/src/routes/api_token.rs
-PUT	/api/token/:id/account-balance-access	present	unverified	mounted	unverified	not-applicable	go	mounted-unverified	apps/api-rust/src/routes/api_token.rs
 POST	/api/token/:id/key	present	unverified	mounted	unverified	not-applicable	go	mounted-unverified	apps/api-rust/src/routes/api_token.rs
 POST	/api/token/batch	present	unverified	mounted	unverified	not-applicable	go	mounted-unverified	apps/api-rust/src/routes/api_token.rs
 POST	/api/token/batch/keys	present	unverified	mounted	unverified	not-applicable	go	mounted-unverified	apps/api-rust/src/routes/api_token.rs
@@ -314,7 +313,6 @@ POST	/v1/alpha/search	present	unverified	mounted	unverified	pending-independent-
 POST	/v1/audio/speech	present	unverified	mounted	unverified	not-applicable	go	mounted-unverified	source=apps/api-rust/src/routes/relay_media.rs;mount=apps/api-rust/src/routes/relay_media.rs;listener=apps/api-rust/src/main.rs
 POST	/v1/audio/transcriptions	present	unverified	mounted	unverified	not-applicable	go	mounted-unverified	source=apps/api-rust/src/routes/relay_media.rs;mount=apps/api-rust/src/routes/relay_media.rs;listener=apps/api-rust/src/main.rs
 POST	/v1/audio/translations	present	unverified	mounted	unverified	not-applicable	go	mounted-unverified	source=apps/api-rust/src/routes/relay_media.rs;mount=apps/api-rust/src/routes/relay_media.rs;listener=apps/api-rust/src/main.rs
-GET	/v1/balance	present	unverified	mounted	unverified	not-applicable	go	mounted-unverified	apps/api-rust/src/routes/public_catalog.rs
 POST	/v1/chat/completions	present	unverified	mounted	unverified	pending-independent-approval	go	candidate-pending-independent-approval	source=apps/api-rust/src/routes/relay_openai.rs;mount=apps/api-rust/src/routes/relay_openai.rs;listener=apps/api-rust/src/main.rs;differential=apps/api-rust/tests/behavior-oracle/tests/relay-openai-listener-differential.sh
 POST	/v1/completions	present	unverified	mounted	unverified	pending-independent-approval	go	candidate-pending-independent-approval	source=apps/api-rust/src/routes/relay_openai.rs;mount=apps/api-rust/src/routes/relay_openai.rs;listener=apps/api-rust/src/main.rs;differential=apps/api-rust/tests/behavior-oracle/tests/relay-openai-listener-differential.sh
 GET	/v1/dashboard/billing/subscription	present	unverified	mounted	unverified	not-applicable	go	mounted-unverified	apps/api-rust/src/routes/billing_dashboard.rs

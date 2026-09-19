@@ -13,16 +13,39 @@ fn account_balance_access_migration_is_additive_idempotent_and_default_denied() 
     let sql = MIGRATION_SQL.replace("__LMM_APP_SCHEMA__", &format!("\"{schema}\""));
     transaction
         .batch_execute(&format!(
-            "CREATE SCHEMA {schema}; CREATE TABLE {schema}.tokens (id BIGINT PRIMARY KEY); {sql}"
+            "CREATE SCHEMA {schema}; CREATE TABLE {schema}.tokens (id BIGINT PRIMARY KEY); INSERT INTO {schema}.tokens VALUES (42); {sql}"
         ))
         .expect("apply account-balance migration");
     verify_account_balance_access_schema(&mut transaction, &schema)
         .expect("account-balance schema contract");
+    assert!(
+        !transaction
+            .query_one(
+                &format!("SELECT account_balance_read FROM {schema}.tokens WHERE id=42"),
+                &[]
+            )
+            .expect("pre-existing token is default denied")
+            .get::<_, bool>(0)
+    );
+    transaction
+        .batch_execute(&format!(
+            "UPDATE {schema}.tokens SET account_balance_read=TRUE WHERE id=42"
+        ))
+        .expect("persist an existing grant before replay");
     transaction
         .batch_execute(&sql)
         .expect("account-balance migration is idempotent");
     verify_account_balance_access_schema(&mut transaction, &schema)
         .expect("account-balance schema contract after replay");
+    assert!(
+        transaction
+            .query_one(
+                &format!("SELECT account_balance_read FROM {schema}.tokens WHERE id=42"),
+                &[]
+            )
+            .expect("replay preserves existing grant")
+            .get::<_, bool>(0)
+    );
     let column = transaction
         .query_one(
             &format!(
@@ -41,7 +64,7 @@ fn account_balance_access_migration_is_additive_idempotent_and_default_denied() 
     assert!(
         !transaction
             .query_one(
-                &format!("SELECT account_balance_read FROM {schema}.tokens"),
+                &format!("SELECT account_balance_read FROM {schema}.tokens WHERE id=1"),
                 &[],
             )
             .expect("read default token")

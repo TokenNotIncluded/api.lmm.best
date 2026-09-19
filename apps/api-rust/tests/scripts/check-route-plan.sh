@@ -48,7 +48,7 @@ awk -F '\t' '
   function frozen_auth_scope(method, path) {
     if (method == "GET" && (path == "/api/mj/self" || path == "/api/models" || path == "/api/task/self")) return "user"
     if (method == "GET" && (path == "/api/ratio_config" || path == "/api/user/groups")) return "public"
-    if (method == "GET" && (path == "/api/usage/token/" || path == "/v1/balance" || path == "/dashboard/billing/subscription" || path == "/dashboard/billing/usage")) return "token"
+    if (method == "GET" && (path == "/api/usage/token/" || path == "/dashboard/billing/subscription" || path == "/dashboard/billing/usage")) return "token"
     if (method == "POST" && path == "/api/user/topup/complete") return "admin"
     if (method == "POST" && path == "/pg/chat/completions") return "user"
     if ((method == "GET" && path == "/api/ratio_sync/channels") || (method == "POST" && path == "/api/ratio_sync/fetch")) return "root"
@@ -61,7 +61,7 @@ awk -F '\t' '
   function is_api_token_route(method, path) {
     return (method == "GET" && (path == "/api/token/" || path == "/api/token/:id" || path == "/api/token/search")) ||
       (method == "POST" && (path == "/api/token/" || path == "/api/token/:id/key" || path == "/api/token/batch" || path == "/api/token/batch/keys")) ||
-      (method == "PUT" && (path == "/api/token/" || path == "/api/token/:id/account-balance-access")) ||
+      (method == "PUT" && path == "/api/token/") ||
       (method == "DELETE" && path == "/api/token/:id")
   }
   NR == 1 { next }
@@ -88,8 +88,8 @@ awk -F '\t' '
     }
   }
   END {
-    if (NR != 356) { printf "expected 355 routes, got %d\n", NR - 1 > "/dev/stderr"; failed=1 }
-    if (api_token_routes != 10) { printf "expected 10 exact API-token authorization rows, got %d\n", api_token_routes > "/dev/stderr"; failed=1 }
+    if (NR != 354) { printf "expected 353 routes, got %d\n", NR - 1 > "/dev/stderr"; failed=1 }
+    if (api_token_routes != 9) { printf "expected 9 exact API-token authorization rows, got %d\n", api_token_routes > "/dev/stderr"; failed=1 }
     exit failed
   }
 ' <(tsv_without_crlf "$plan")
@@ -588,4 +588,4 @@ awk -F '\t' '
   }
 ' <(tsv_without_crlf "$gate")
 
-echo "route plan valid: 355 frozen legacy routes covered exactly; route ownership policy satisfied"
+echo "route plan valid: 353 frozen legacy routes covered exactly; route ownership policy satisfied"
