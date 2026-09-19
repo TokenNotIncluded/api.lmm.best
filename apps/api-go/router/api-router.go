@@ -122,6 +122,12 @@ func SetApiRouter(router *gin.Engine) {
 			scriptRoute.PUT("/:name", middleware.RequestBodyLimit(512<<10), controller.PutScript)
 			scriptRoute.DELETE("/:name", controller.DeleteScript)
 		}
+		apiRouter.POST("/games/signal/attempts", middleware.CriticalRateLimit(), middleware.RequestBodyLimit(1024), middleware.DisableCache(), controller.BeginSignalGameAttempt)
+		apiRouter.POST("/games/signal/finish", middleware.CriticalRateLimit(), middleware.RequestBodyLimit(512<<10), middleware.DisableCache(), controller.FinishSignalGameAttempt)
+		apiRouter.GET("/games/signal/daily", middleware.DisableCache(), controller.GetSignalGameDaily)
+		apiRouter.GET("/games/signal/leaderboard", middleware.DisableCache(), controller.GetSignalGameLeaderboard)
+		apiRouter.GET("/games/signal/records", middleware.UserAuth(), middleware.DisableCache(), controller.GetSignalGameRecords)
+		apiRouter.POST("/games/signal/records", middleware.CriticalRateLimit(), middleware.RequestBodyLimit(512<<10), middleware.SessionCookieOriginGuard(), middleware.UserAuth(), middleware.DisableCache(), controller.SaveSignalGameRecord)
 		securityRoute := apiRouter.Group("/security")
 		{
 			// Public policy/statistics intentionally omit matcher patterns,

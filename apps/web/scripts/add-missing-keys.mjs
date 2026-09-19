@@ -10475,8 +10475,10 @@ async function main() {
       const merged = {}
       for (const key of new Set([...Object.keys(ours.translation), ...Object.keys(theirs.translation)])) {
         const a = base.translation[key], b = ours.translation[key], c = theirs.translation[key]
-        if (b !== c && b !== a && c !== a) throw new Error(`Resolve translation meaning before merging: ${locale}: ${key}`)
-        const value = b !== a ? b : c
+        const decisions = { 'zh:Account': '账户', 'zh-TW:Account': '帳戶', 'ru:Public': 'Публичный' }
+        const conflict = b !== c && b !== a && c !== a
+        if (conflict && !Object.hasOwn(decisions, `${locale}:${key}`)) throw new Error(`Resolve translation meaning before merging: ${locale}: ${key}`)
+        const value = conflict ? decisions[`${locale}:${key}`] : b !== a ? b : c
         if (value !== undefined) merged[key] = value
       }
       ours.translation = Object.fromEntries(Object.entries(merged).sort(([a], [b]) => a.localeCompare(b)))
@@ -10501,9 +10503,10 @@ async function main() {
   const feedbackOnly = process.argv.includes('--only-source-feedback')
   const clientsOnly = process.argv.includes('--only-client-presets')
   const costOnly = process.argv.includes('--only-acquisition-cost')
-  const scoped = costOnly || clientsOnly || feedbackOnly || logRecoveryOnly || statusOnly || parallelOnly || estimateOnly || activityOnly || toolMarketOnly || acquisitionOnly ||
+  const competitionOnly = process.argv.includes('--only-signal-competition')
+  const scoped = competitionOnly || costOnly || clientsOnly || feedbackOnly || logRecoveryOnly || statusOnly || parallelOnly || estimateOnly || activityOnly || toolMarketOnly || acquisitionOnly ||
     experienceOnly || paymentOnly || homeOnly || waitOnly || assistantToolOnly
-  const entries = costOnly ? acquisitionCostCopy : clientsOnly ? clientPresetsCopy : feedbackOnly ? sourceFeedbackCopy : logRecoveryOnly ? logRecoveryCopy : statusOnly ? modelStatusCopy : parallelOnly ? parallelExperienceCopy : estimateOnly ? requestEstimateCopy : activityOnly ? acquisitionActivityCopy : toolMarketOnly ? toolMarketCopy : acquisitionOnly ? acquisitionCopy : experienceOnly
+  const entries = competitionOnly ? Object.fromEntries(Object.entries(signalCompetitionKeys).map(([locale, values]) => [locale, Object.fromEntries(Object.entries(values).filter(([key]) => !['Account', 'Public'].includes(key)))])) : costOnly ? acquisitionCostCopy : clientsOnly ? clientPresetsCopy : feedbackOnly ? sourceFeedbackCopy : logRecoveryOnly ? logRecoveryCopy : statusOnly ? modelStatusCopy : parallelOnly ? parallelExperienceCopy : estimateOnly ? requestEstimateCopy : activityOnly ? acquisitionActivityCopy : toolMarketOnly ? toolMarketCopy : acquisitionOnly ? acquisitionCopy : experienceOnly
     ? experienceCopy
     : paymentOnly
       ? paymentPricingCopy
@@ -10941,6 +10944,496 @@ const signalGameKeys = {
 for (const [locale, values] of Object.entries(signalGameKeys)) {
   Object.assign(newKeys[locale], values)
 }
+
+const signalCompetitionKeys = {
+  en: {
+    Account: 'Account',
+    'Account records': 'Account records',
+    'Advanced mode': 'Advanced mode',
+    'Board size': 'Board size',
+    'Browser and WebMCP indicate the entry used, not verified human or model identity.':
+      'Browser and WebMCP indicate the entry used, not verified human or model identity.',
+    'Browser player': 'Browser player',
+    'Challenge verification failed. Keep the local record and retry.':
+      'Challenge verification failed. Keep the local record and retry.',
+    'Challenges: 3-second countdown, no hints, ranked by moves then time.':
+      'Challenges: 3-second countdown, no hints, ranked by moves then time.',
+    'Copy failed. Select the prompt below to copy it.':
+      'Copy failed. Select the prompt below to copy it.',
+    'Copy prompt for AI': 'Copy prompt for AI',
+    'Could not load account records': 'Could not load account records',
+    'Email (optional, private)': 'Email (optional, private)',
+    'Finish a circuit to record your result':
+      'Finish a circuit to record your result',
+    'Game service unavailable. Practice is still available.':
+      'Game service unavailable. Practice is still available.',
+    'Guest play is allowed. Only lmm_signal_submit requires sign-in. It never signs in, creates accounts or spends credits for you.':
+      'Guest play is allowed. Only lmm_signal_submit requires sign-in. It never signs in, creates accounts or spends credits for you.',
+    'Guest results stay in this browser. Sign in later to upload them; clearing browser data removes local records.':
+      'Guest results stay in this browser. Sign in later to upload them; clearing browser data removes local records.',
+    Leaderboard: 'Leaderboard',
+    'Leaderboard unavailable. You can still practice.':
+      'Leaderboard unavailable. You can still practice.',
+    'Leaderboard, records and AI guide': 'Leaderboard, records and AI guide',
+    'Let an AI play through WebMCP': 'Let an AI play through WebMCP',
+    'Local records': 'Local records',
+    'Local storage failed. Keep this page open until your record is saved.':
+      'Local storage failed. Keep this page open until your record is saved.',
+    'No submitted scores yet': 'No submitted scores yet',
+    Practice: 'Practice',
+    Private: 'Private',
+    Public: 'Public',
+    'Public note (optional)': 'Public note (optional)',
+    'Read the board with lmm_signal_state; rotate at most 32 tiles per lmm_signal_rotate call. Challenge hints are disabled, including through tools.':
+      'Read the board with lmm_signal_state; rotate at most 32 tiles per lmm_signal_rotate call. Challenge hints are disabled, including through tools.',
+    'Retry score verification': 'Retry score verification',
+    'Rotate selected tile': 'Rotate selected tile',
+    'Same daily board, ranked by moves, then time. Only submitted challenges are public.':
+      'Same daily board, ranked by moves, then time. Only submitted challenges are public.',
+    'Save to my records': 'Save to my records',
+    'Score saved': 'Score saved',
+    'Score submission failed. Your local record is still available.':
+      'Score submission failed. Your local record is still available.',
+    'Select a record': 'Select a record',
+    'Sign in to submit your score': 'Sign in to submit your score',
+    'Start challenge': 'Start challenge',
+    'Submit to leaderboard': 'Submit to leaderboard',
+    'The agent must declare its model ID, harness and agent name before a round. Uploaded scores belong to the account signed in at submission.':
+      'The agent must declare its model ID, harness and agent name before a round. Uploaded scores belong to the account signed in at submission.',
+    'Use a browser agent that supports document.modelContext. Open this game page in that browser.':
+      'Use a browser agent that supports document.modelContext. Open this game page in that browser.',
+    'Zoom in': 'Zoom in',
+    'Zoom out': 'Zoom out',
+    'Read the game board and current round':
+      'Read the game board and current round',
+    'Start a game as an identified AI participant':
+      'Start a game as an identified AI participant',
+    'Rotate game tiles in bounded batches':
+      'Rotate game tiles in bounded batches',
+    'Use a hint in practice mode only': 'Use a hint in practice mode only',
+    'Read game records and the leaderboard':
+      'Read game records and the leaderboard',
+    'Submit a completed result using the signed-in account':
+      'Submit a completed result using the signed-in account',
+    'Open {{url}} and play one {{size}} × {{size}} Signal path challenge through WebMCP. Before starting, provide your actual model ID, harness name and an agent name in lmm_signal_start. Ask me if an identity field is unknown; do not invent it. Read lmm_signal_state, wait for the three-second countdown, and use lmm_signal_rotate with the returned round_id. Hints are forbidden. Stop after winning or {{limit}} rotations; do not automatically start another round. Report moves and time. Submit with lmm_signal_submit only when I ask you to upload; it uses my signed-in account. If signed out, ask me to sign in manually and keep the local record. Do not register an account or perform payments.':
+      'Open {{url}} and play one {{size}} × {{size}} Signal path challenge through WebMCP. Before starting, provide your actual model ID, harness name and an agent name in lmm_signal_start. Ask me if an identity field is unknown; do not invent it. Read lmm_signal_state, wait for the three-second countdown, and use lmm_signal_rotate with the returned round_id. Hints are forbidden. Stop after winning or {{limit}} rotations; do not automatically start another round. Report moves and time. Submit with lmm_signal_submit only when I ask you to upload; it uses my signed-in account. If signed out, ask me to sign in manually and keep the local record. Do not register an account or perform payments.',
+  },
+  zh: {
+    Account: '账号',
+    'Account records': '账号记录',
+    'Advanced mode': '进阶模式',
+    'Board size': '棋盘尺寸',
+    'Browser and WebMCP indicate the entry used, not verified human or model identity.':
+      '网页／WebMCP 表示参与入口，不代表已验证真人或模型身份。',
+    'Browser player': '网页玩家',
+    'Challenge verification failed. Keep the local record and retry.':
+      '挑战验证失败，请保留本机记录并重试。',
+    'Challenges: 3-second countdown, no hints, ranked by moves then time.':
+      '挑战开始前倒计时 3 秒，不提供提示；排名先比步数，再比用时。',
+    'Copy failed. Select the prompt below to copy it.':
+      '复制失败，请选中下方提示词手动复制。',
+    'Copy prompt for AI': '复制给 AI',
+    'Could not load account records': '无法加载账号记录',
+    'Email (optional, private)': '邮箱（可选，不公开）',
+    'Finish a circuit to record your result': '接通一局后会留下记录',
+    'Game service unavailable. Practice is still available.':
+      '游戏服务暂不可用，仍可玩练习模式。',
+    'Guest play is allowed. Only lmm_signal_submit requires sign-in. It never signs in, creates accounts or spends credits for you.':
+      '游客可以玩；只有 lmm_signal_submit 要求登录。工具不会代你登录、注册账号或消费额度。',
+    'Guest results stay in this browser. Sign in later to upload them; clearing browser data removes local records.':
+      '游客成绩保存在此浏览器，登录后可以补交；清除浏览器数据会删除本机记录。',
+    Leaderboard: '排行榜',
+    'Leaderboard unavailable. You can still practice.':
+      '暂时无法获取排行榜，仍可继续练习。',
+    'Leaderboard, records and AI guide': '排行榜、记录与 AI 教程',
+    'Let an AI play through WebMCP': '通过 WebMCP 让 AI 来玩',
+    'Local records': '本机记录',
+    'Local storage failed. Keep this page open until your record is saved.':
+      '本机保存失败，记录保存前请保留此页面。',
+    'No submitted scores yet': '还没有人提交成绩',
+    Practice: '练习',
+    Private: '私有',
+    Public: '公开',
+    'Public note (optional)': '公开备注（可选）',
+    'Read the board with lmm_signal_state; rotate at most 32 tiles per lmm_signal_rotate call. Challenge hints are disabled, including through tools.':
+      '用 lmm_signal_state 读取棋盘；每次 lmm_signal_rotate 最多旋转 32 格。挑战模式禁止提示，工具也不能绕过。',
+    'Retry score verification': '重试成绩验证',
+    'Rotate selected tile': '转动选中的格子',
+    'Same daily board, ranked by moves, then time. Only submitted challenges are public.':
+      '每日同图，先比步数，再比用时；只有主动提交的挑战成绩会公开。',
+    'Save to my records': '保存到我的记录',
+    'Score saved': '成绩已保存',
+    'Score submission failed. Your local record is still available.':
+      '成绩提交失败，本机记录仍然保留。',
+    'Select a record': '选择记录',
+    'Sign in to submit your score': '登录后提交成绩',
+    'Start challenge': '开始挑战',
+    'Submit to leaderboard': '提交到排行榜',
+    'The agent must declare its model ID, harness and agent name before a round. Uploaded scores belong to the account signed in at submission.':
+      'Agent 开局前必须填写模型 ID、harness 和 Agent 名称。上传的成绩归属提交时登录的账号。',
+    'Use a browser agent that supports document.modelContext. Open this game page in that browser.':
+      '使用支持 document.modelContext 的浏览器代理，并在该浏览器中打开本游戏页面。',
+    'Zoom in': '放大',
+    'Zoom out': '缩小',
+    'Read the game board and current round': '读取棋盘与当前对局',
+    'Start a game as an identified AI participant':
+      '以已填写身份的 AI 玩家开局',
+    'Rotate game tiles in bounded batches': '分批旋转格子',
+    'Use a hint in practice mode only': '仅在练习模式使用提示',
+    'Read game records and the leaderboard': '读取对局记录与排行榜',
+    'Submit a completed result using the signed-in account':
+      '用当前登录账号提交完成的成绩',
+    'Open {{url}} and play one {{size}} × {{size}} Signal path challenge through WebMCP. Before starting, provide your actual model ID, harness name and an agent name in lmm_signal_start. Ask me if an identity field is unknown; do not invent it. Read lmm_signal_state, wait for the three-second countdown, and use lmm_signal_rotate with the returned round_id. Hints are forbidden. Stop after winning or {{limit}} rotations; do not automatically start another round. Report moves and time. Submit with lmm_signal_submit only when I ask you to upload; it uses my signed-in account. If signed out, ask me to sign in manually and keep the local record. Do not register an account or perform payments.':
+      '打开 {{url}}，通过 WebMCP 玩一局 {{size}} × {{size}} 的接通信号挑战。开局前，在 lmm_signal_start 填写真实模型 ID、harness 名称和 Agent 名称；不知道的身份字段先问我，不要编造。用 lmm_signal_state 读取棋盘，等待 3 秒倒计时，然后携带返回的 round_id 调用 lmm_signal_rotate。禁止提示。通关或旋转达到 {{limit}} 次后立即停止，不自动开新局，报告步数和用时。只有我要求上传时才用 lmm_signal_submit 提交，归属我当前登录的账号。未登录时请让我手动登录，并保留本机记录。不要注册账号或进行付款。',
+  },
+  'zh-TW': {
+    Account: '帳號',
+    'Account records': '帳號紀錄',
+    'Advanced mode': '進階模式',
+    'Board size': '棋盤尺寸',
+    'Browser and WebMCP indicate the entry used, not verified human or model identity.':
+      '網頁／WebMCP 表示參與入口，不代表已驗證真人或模型身分。',
+    'Browser player': '網頁玩家',
+    'Challenge verification failed. Keep the local record and retry.':
+      '挑戰驗證失敗，請保留本機紀錄並重試。',
+    'Challenges: 3-second countdown, no hints, ranked by moves then time.':
+      '挑戰開始前倒數 3 秒，不提供提示；排名先比步數，再比用時。',
+    'Copy failed. Select the prompt below to copy it.':
+      '複製失敗，請選取下方提示詞手動複製。',
+    'Copy prompt for AI': '複製給 AI',
+    'Could not load account records': '無法載入帳號紀錄',
+    'Email (optional, private)': '電子郵件（選填，不公開）',
+    'Finish a circuit to record your result': '接通一局後會留下紀錄',
+    'Game service unavailable. Practice is still available.':
+      '遊戲服務暫時無法使用，仍可玩練習模式。',
+    'Guest play is allowed. Only lmm_signal_submit requires sign-in. It never signs in, creates accounts or spends credits for you.':
+      '訪客可以玩；只有 lmm_signal_submit 要求登入。工具不會代你登入、註冊帳號或消費額度。',
+    'Guest results stay in this browser. Sign in later to upload them; clearing browser data removes local records.':
+      '訪客成績儲存在此瀏覽器，登入後可以補交；清除瀏覽器資料會刪除本機紀錄。',
+    Leaderboard: '排行榜',
+    'Leaderboard unavailable. You can still practice.':
+      '暫時無法取得排行榜，仍可繼續練習。',
+    'Leaderboard, records and AI guide': '排行榜、紀錄與 AI 教學',
+    'Let an AI play through WebMCP': '透過 WebMCP 讓 AI 來玩',
+    'Local records': '本機紀錄',
+    'Local storage failed. Keep this page open until your record is saved.':
+      '本機儲存失敗，紀錄儲存前請保留此頁面。',
+    'No submitted scores yet': '還沒有人提交成績',
+    Practice: '練習',
+    Private: '私人',
+    Public: '公開',
+    'Public note (optional)': '公開備註（選填）',
+    'Read the board with lmm_signal_state; rotate at most 32 tiles per lmm_signal_rotate call. Challenge hints are disabled, including through tools.':
+      '用 lmm_signal_state 讀取棋盤；每次 lmm_signal_rotate 最多旋轉 32 格。挑戰模式禁止提示，工具也不能繞過。',
+    'Retry score verification': '重試成績驗證',
+    'Rotate selected tile': '轉動選取的格子',
+    'Same daily board, ranked by moves, then time. Only submitted challenges are public.':
+      '每日同圖，先比步數，再比用時；只有主動提交的挑戰成績會公開。',
+    'Save to my records': '儲存至我的紀錄',
+    'Score saved': '成績已儲存',
+    'Score submission failed. Your local record is still available.':
+      '成績提交失敗，本機紀錄仍然保留。',
+    'Select a record': '選擇紀錄',
+    'Sign in to submit your score': '登入後提交成績',
+    'Start challenge': '開始挑戰',
+    'Submit to leaderboard': '提交至排行榜',
+    'The agent must declare its model ID, harness and agent name before a round. Uploaded scores belong to the account signed in at submission.':
+      'Agent 開局前必須填寫模型 ID、harness 和 Agent 名稱。上傳的成績歸屬提交時登入的帳號。',
+    'Use a browser agent that supports document.modelContext. Open this game page in that browser.':
+      '使用支援 document.modelContext 的瀏覽器代理，並在該瀏覽器開啟本遊戲頁面。',
+    'Zoom in': '放大',
+    'Zoom out': '縮小',
+    'Read the game board and current round': '讀取棋盤與目前對局',
+    'Start a game as an identified AI participant':
+      '以已填寫身分的 AI 玩家開局',
+    'Rotate game tiles in bounded batches': '分批旋轉格子',
+    'Use a hint in practice mode only': '僅在練習模式使用提示',
+    'Read game records and the leaderboard': '讀取對局紀錄與排行榜',
+    'Submit a completed result using the signed-in account':
+      '用目前登入帳號提交完成的成績',
+    'Open {{url}} and play one {{size}} × {{size}} Signal path challenge through WebMCP. Before starting, provide your actual model ID, harness name and an agent name in lmm_signal_start. Ask me if an identity field is unknown; do not invent it. Read lmm_signal_state, wait for the three-second countdown, and use lmm_signal_rotate with the returned round_id. Hints are forbidden. Stop after winning or {{limit}} rotations; do not automatically start another round. Report moves and time. Submit with lmm_signal_submit only when I ask you to upload; it uses my signed-in account. If signed out, ask me to sign in manually and keep the local record. Do not register an account or perform payments.':
+      '開啟 {{url}}，透過 WebMCP 玩一局 {{size}} × {{size}} 的接通信號挑戰。開局前，在 lmm_signal_start 填寫真實模型 ID、harness 名稱和 Agent 名稱；不知道的身分欄位先問我，不要編造。用 lmm_signal_state 讀取棋盤，等待 3 秒倒數，再帶上回傳的 round_id 呼叫 lmm_signal_rotate。禁止提示。通關或旋轉達到 {{limit}} 次後立即停止，不自動開新局，回報步數與用時。只有我要求上傳時才用 lmm_signal_submit 提交，歸屬我目前登入的帳號。未登入時請讓我手動登入，並保留本機紀錄。不要註冊帳號或付款。',
+  },
+  fr: {
+    Account: 'Compte',
+    'Account records': 'Historique du compte',
+    'Advanced mode': 'Mode avancé',
+    'Board size': 'Taille de grille',
+    'Browser and WebMCP indicate the entry used, not verified human or model identity.':
+      'Navigateur et WebMCP indiquent le mode d’accès, pas une identité humaine ou un modèle vérifié.',
+    'Browser player': 'Joueur navigateur',
+    'Challenge verification failed. Keep the local record and retry.':
+      'Échec de vérification. Conservez la partie locale et réessayez.',
+    'Challenges: 3-second countdown, no hints, ranked by moves then time.':
+      'Défi : décompte de 3 secondes, sans indice. Classement par coups, puis par temps.',
+    'Copy failed. Select the prompt below to copy it.':
+      'Copie impossible. Sélectionnez le texte ci-dessous pour le copier.',
+    'Copy prompt for AI': 'Copier pour l’IA',
+    'Could not load account records': 'Historique du compte indisponible',
+    'Email (optional, private)': 'E-mail (facultatif, privé)',
+    'Finish a circuit to record your result':
+      'Terminez un circuit pour enregistrer votre résultat',
+    'Game service unavailable. Practice is still available.':
+      'Service de jeu indisponible. L’entraînement reste accessible.',
+    'Guest play is allowed. Only lmm_signal_submit requires sign-in. It never signs in, creates accounts or spends credits for you.':
+      'Le jeu est ouvert aux invités. Seul lmm_signal_submit exige une connexion. Aucun outil ne se connecte, ne crée de compte ni ne dépense de crédits pour vous.',
+    'Guest results stay in this browser. Sign in later to upload them; clearing browser data removes local records.':
+      'Les résultats invités restent dans ce navigateur et peuvent être envoyés après connexion. Effacer les données du navigateur les supprime.',
+    Leaderboard: 'Classement',
+    'Leaderboard unavailable. You can still practice.':
+      'Classement indisponible. Vous pouvez continuer à vous entraîner.',
+    'Leaderboard, records and AI guide': 'Classement, historique et guide IA',
+    'Let an AI play through WebMCP': 'Faire jouer une IA via WebMCP',
+    'Local records': 'Historique local',
+    'Local storage failed. Keep this page open until your record is saved.':
+      'Échec de sauvegarde locale. Gardez cette page ouverte jusqu’à l’enregistrement.',
+    'No submitted scores yet': 'Aucun score envoyé',
+    Practice: 'Entraînement',
+    Private: 'Privé',
+    Public: 'Public',
+    'Public note (optional)': 'Note publique (facultative)',
+    'Read the board with lmm_signal_state; rotate at most 32 tiles per lmm_signal_rotate call. Challenge hints are disabled, including through tools.':
+      'Lisez la grille avec lmm_signal_state ; chaque appel lmm_signal_rotate tourne au plus 32 cases. Aucun indice en défi, même via les outils.',
+    'Retry score verification': 'Revérifier le score',
+    'Rotate selected tile': 'Tourner la case sélectionnée',
+    'Same daily board, ranked by moves, then time. Only submitted challenges are public.':
+      'Même grille du jour, classement par coups puis par temps. Seuls les défis envoyés sont publics.',
+    'Save to my records': 'Enregistrer dans mon historique',
+    'Score saved': 'Score enregistré',
+    'Score submission failed. Your local record is still available.':
+      'Échec de l’envoi. Votre résultat local est conservé.',
+    'Select a record': 'Choisir une partie',
+    'Sign in to submit your score': 'Se connecter pour envoyer un score',
+    'Start challenge': 'Lancer le défi',
+    'Submit to leaderboard': 'Publier au classement',
+    'The agent must declare its model ID, harness and agent name before a round. Uploaded scores belong to the account signed in at submission.':
+      'L’agent déclare son identifiant de modèle, son harness et son nom avant de jouer. Le score appartient au compte connecté lors de l’envoi.',
+    'Use a browser agent that supports document.modelContext. Open this game page in that browser.':
+      'Utilisez un agent navigateur compatible avec document.modelContext et ouvrez cette page de jeu dans ce navigateur.',
+    'Zoom in': 'Agrandir',
+    'Zoom out': 'Réduire',
+    'Read the game board and current round': 'Lire la grille et la partie',
+    'Start a game as an identified AI participant':
+      'Démarrer avec une identité IA déclarée',
+    'Rotate game tiles in bounded batches': 'Tourner un lot limité de cases',
+    'Use a hint in practice mode only': 'Utiliser un indice en entraînement',
+    'Read game records and the leaderboard':
+      'Lire l’historique et le classement',
+    'Submit a completed result using the signed-in account':
+      'Envoyer un résultat avec le compte connecté',
+    'Open {{url}} and play one {{size}} × {{size}} Signal path challenge through WebMCP. Before starting, provide your actual model ID, harness name and an agent name in lmm_signal_start. Ask me if an identity field is unknown; do not invent it. Read lmm_signal_state, wait for the three-second countdown, and use lmm_signal_rotate with the returned round_id. Hints are forbidden. Stop after winning or {{limit}} rotations; do not automatically start another round. Report moves and time. Submit with lmm_signal_submit only when I ask you to upload; it uses my signed-in account. If signed out, ask me to sign in manually and keep the local record. Do not register an account or perform payments.':
+      'Ouvre {{url}} et joue un seul défi Signal path de {{size}} × {{size}} via WebMCP. Dans lmm_signal_start, indique ton vrai ID de modèle, ton harness et un nom d’agent. Demande-moi toute identité inconnue, sans l’inventer. Lis lmm_signal_state, attends le décompte de trois secondes, puis utilise lmm_signal_rotate avec le round_id reçu. Aucun indice. Arrête-toi dès la victoire ou après {{limit}} rotations, sans relancer de partie. Rapporte les coups et le temps. Utilise lmm_signal_submit uniquement si je demande l’envoi, avec mon compte connecté. Sinon, demande-moi de me connecter manuellement et conserve la partie locale. Ne crée aucun compte et n’effectue aucun paiement.',
+  },
+  ja: {
+    Account: 'アカウント',
+    'Account records': 'アカウントの記録',
+    'Advanced mode': '上級モード',
+    'Board size': '盤面サイズ',
+    'Browser and WebMCP indicate the entry used, not verified human or model identity.':
+      'ブラウザー／WebMCP は参加経路を示します。人間やモデルの本人確認を保証するものではありません。',
+    'Browser player': 'ブラウザー参加者',
+    'Challenge verification failed. Keep the local record and retry.':
+      'チャレンジの検証に失敗しました。ローカル記録を残して再試行してください。',
+    'Challenges: 3-second countdown, no hints, ranked by moves then time.':
+      'チャレンジは3秒カウントダウン後に開始。ヒントなし、手数とタイムの順で順位が決まります。',
+    'Copy failed. Select the prompt below to copy it.':
+      'コピーできませんでした。下の文章を選択してコピーしてください。',
+    'Copy prompt for AI': 'AI 用プロンプトをコピー',
+    'Could not load account records': 'アカウントの記録を読み込めません',
+    'Email (optional, private)': 'メールアドレス（任意・非公開）',
+    'Finish a circuit to record your result':
+      '回路を完成させると結果が記録されます',
+    'Game service unavailable. Practice is still available.':
+      'ゲームサービスを利用できません。練習モードは引き続き遊べます。',
+    'Guest play is allowed. Only lmm_signal_submit requires sign-in. It never signs in, creates accounts or spends credits for you.':
+      'ゲストでも遊べます。ログインが必要なのは lmm_signal_submit だけです。ツールがログイン、登録、クレジット消費を代行することはありません。',
+    'Guest results stay in this browser. Sign in later to upload them; clearing browser data removes local records.':
+      'ゲストの結果はこのブラウザーに保存され、ログイン後に送信できます。ブラウザーのデータを消すと記録も消えます。',
+    Leaderboard: 'ランキング',
+    'Leaderboard unavailable. You can still practice.':
+      'ランキングを取得できません。練習は続けられます。',
+    'Leaderboard, records and AI guide': 'ランキング・記録・AI ガイド',
+    'Let an AI play through WebMCP': 'WebMCP で AI に遊んでもらう',
+    'Local records': 'ローカル記録',
+    'Local storage failed. Keep this page open until your record is saved.':
+      'ローカル保存に失敗しました。保存されるまでこのページを開いたままにしてください。',
+    'No submitted scores yet': 'まだスコアが送信されていません',
+    Practice: '練習',
+    Private: '非公開',
+    Public: '公開',
+    'Public note (optional)': '公開メモ（任意）',
+    'Read the board with lmm_signal_state; rotate at most 32 tiles per lmm_signal_rotate call. Challenge hints are disabled, including through tools.':
+      'lmm_signal_state で盤面を読み、lmm_signal_rotate 1回につき最大32マスを回転できます。チャレンジではツール経由でもヒントは使えません。',
+    'Retry score verification': 'スコアを再検証',
+    'Rotate selected tile': '選択したタイルを回転',
+    'Same daily board, ranked by moves, then time. Only submitted challenges are public.':
+      '毎日同じ盤面で、手数、タイムの順に順位を決めます。送信したチャレンジ結果だけが公開されます。',
+    'Save to my records': '自分の記録に保存',
+    'Score saved': 'スコアを保存しました',
+    'Score submission failed. Your local record is still available.':
+      'スコアを送信できませんでした。ローカル記録は残っています。',
+    'Select a record': '記録を選択',
+    'Sign in to submit your score': 'ログインしてスコアを送信',
+    'Start challenge': 'チャレンジ開始',
+    'Submit to leaderboard': 'ランキングに送信',
+    'The agent must declare its model ID, harness and agent name before a round. Uploaded scores belong to the account signed in at submission.':
+      '開始前にモデル ID、harness、Agent 名を登録します。送信した結果は送信時にログインしているアカウントに紐づきます。',
+    'Use a browser agent that supports document.modelContext. Open this game page in that browser.':
+      'document.modelContext 対応のブラウザーエージェントを使い、そのブラウザーでこのゲームページを開きます。',
+    'Zoom in': '拡大',
+    'Zoom out': '縮小',
+    'Read the game board and current round': '盤面と現在のラウンドを読む',
+    'Start a game as an identified AI participant':
+      'AI の参加情報を指定して開始',
+    'Rotate game tiles in bounded batches': '上限付きの一括回転',
+    'Use a hint in practice mode only': '練習モードでのみヒントを使用',
+    'Read game records and the leaderboard': '記録とランキングを読む',
+    'Submit a completed result using the signed-in account':
+      'ログイン中のアカウントで結果を送信',
+    'Open {{url}} and play one {{size}} × {{size}} Signal path challenge through WebMCP. Before starting, provide your actual model ID, harness name and an agent name in lmm_signal_start. Ask me if an identity field is unknown; do not invent it. Read lmm_signal_state, wait for the three-second countdown, and use lmm_signal_rotate with the returned round_id. Hints are forbidden. Stop after winning or {{limit}} rotations; do not automatically start another round. Report moves and time. Submit with lmm_signal_submit only when I ask you to upload; it uses my signed-in account. If signed out, ask me to sign in manually and keep the local record. Do not register an account or perform payments.':
+      '{{url}} を開き、WebMCP で {{size}} × {{size}} の Signal path チャレンジを1回遊んでください。lmm_signal_start に実際のモデル ID、harness 名、Agent 名を指定します。不明な情報は捏造せず私に確認してください。lmm_signal_state で盤面を読み、3秒のカウントダウンを待ち、返された round_id を使って lmm_signal_rotate を呼びます。ヒントは禁止です。成功するか {{limit}} 回回転したら停止し、自動で次のラウンドを始めず、手数とタイムを報告してください。私が送信を頼んだ場合のみ lmm_signal_submit でログイン中の私のアカウントに結果を送信してください。未ログインなら手動ログインを私に依頼し、ローカル記録を保持してください。アカウント登録や支払いはしないでください。',
+  },
+  ru: {
+    Account: 'Аккаунт',
+    'Account records': 'Записи аккаунта',
+    'Advanced mode': 'Продвинутый режим',
+    'Board size': 'Размер поля',
+    'Browser and WebMCP indicate the entry used, not verified human or model identity.':
+      'Браузер и WebMCP обозначают способ участия, а не подтверждённую личность человека или модели.',
+    'Browser player': 'Игрок в браузере',
+    'Challenge verification failed. Keep the local record and retry.':
+      'Проверка испытания не удалась. Сохраните локальную запись и повторите попытку.',
+    'Challenges: 3-second countdown, no hints, ranked by moves then time.':
+      'Испытание: отсчёт 3 секунды, без подсказок. Рейтинг по ходам, затем по времени.',
+    'Copy failed. Select the prompt below to copy it.':
+      'Не удалось скопировать. Выделите текст ниже и скопируйте вручную.',
+    'Copy prompt for AI': 'Скопировать запрос для ИИ',
+    'Could not load account records': 'Не удалось загрузить записи аккаунта',
+    'Email (optional, private)': 'Почта (необязательно, скрыта)',
+    'Finish a circuit to record your result':
+      'Завершите цепь, чтобы появилась запись',
+    'Game service unavailable. Practice is still available.':
+      'Игровой сервис недоступен. Тренировка по-прежнему работает.',
+    'Guest play is allowed. Only lmm_signal_submit requires sign-in. It never signs in, creates accounts or spends credits for you.':
+      'Гости могут играть. Вход нужен только для lmm_signal_submit. Инструменты не входят в аккаунт, не регистрируют его и не тратят кредиты за вас.',
+    'Guest results stay in this browser. Sign in later to upload them; clearing browser data removes local records.':
+      'Результаты гостя хранятся в этом браузере и доступны для отправки после входа. Очистка данных браузера удалит их.',
+    Leaderboard: 'Рейтинг',
+    'Leaderboard unavailable. You can still practice.':
+      'Рейтинг недоступен. Можно продолжить тренировку.',
+    'Leaderboard, records and AI guide': 'Рейтинг, записи и руководство для ИИ',
+    'Let an AI play through WebMCP': 'Пусть ИИ сыграет через WebMCP',
+    'Local records': 'Локальные записи',
+    'Local storage failed. Keep this page open until your record is saved.':
+      'Локальное сохранение не удалось. Не закрывайте страницу, пока запись не сохранена.',
+    'No submitted scores yet': 'Пока нет отправленных результатов',
+    Practice: 'Тренировка',
+    Private: 'Личное',
+    Public: 'Публичное',
+    'Public note (optional)': 'Публичная заметка (необязательно)',
+    'Read the board with lmm_signal_state; rotate at most 32 tiles per lmm_signal_rotate call. Challenge hints are disabled, including through tools.':
+      'Читайте поле через lmm_signal_state; один вызов lmm_signal_rotate поворачивает до 32 плиток. В испытании подсказки запрещены и через инструменты.',
+    'Retry score verification': 'Повторить проверку результата',
+    'Rotate selected tile': 'Повернуть выбранную плитку',
+    'Same daily board, ranked by moves, then time. Only submitted challenges are public.':
+      'Одинаковое поле дня, рейтинг по ходам, затем по времени. Публичны только отправленные результаты испытаний.',
+    'Save to my records': 'Сохранить в мои записи',
+    'Score saved': 'Результат сохранён',
+    'Score submission failed. Your local record is still available.':
+      'Не удалось отправить результат. Локальная запись сохранена.',
+    'Select a record': 'Выбрать запись',
+    'Sign in to submit your score': 'Войти для отправки результата',
+    'Start challenge': 'Начать испытание',
+    'Submit to leaderboard': 'Отправить в рейтинг',
+    'The agent must declare its model ID, harness and agent name before a round. Uploaded scores belong to the account signed in at submission.':
+      'Перед игрой агент указывает ID модели, harness и имя агента. Результат принадлежит аккаунту, в который выполнен вход при отправке.',
+    'Use a browser agent that supports document.modelContext. Open this game page in that browser.':
+      'Используйте браузерного агента с поддержкой document.modelContext и откройте в нём эту страницу игры.',
+    'Zoom in': 'Увеличить',
+    'Zoom out': 'Уменьшить',
+    'Read the game board and current round': 'Прочитать поле и текущий раунд',
+    'Start a game as an identified AI participant':
+      'Начать игру с указанной личностью ИИ',
+    'Rotate game tiles in bounded batches':
+      'Повернуть ограниченную группу плиток',
+    'Use a hint in practice mode only': 'Подсказка только в тренировке',
+    'Read game records and the leaderboard': 'Прочитать записи и рейтинг',
+    'Submit a completed result using the signed-in account':
+      'Отправить результат от текущего аккаунта',
+    'Open {{url}} and play one {{size}} × {{size}} Signal path challenge through WebMCP. Before starting, provide your actual model ID, harness name and an agent name in lmm_signal_start. Ask me if an identity field is unknown; do not invent it. Read lmm_signal_state, wait for the three-second countdown, and use lmm_signal_rotate with the returned round_id. Hints are forbidden. Stop after winning or {{limit}} rotations; do not automatically start another round. Report moves and time. Submit with lmm_signal_submit only when I ask you to upload; it uses my signed-in account. If signed out, ask me to sign in manually and keep the local record. Do not register an account or perform payments.':
+      'Открой {{url}} и сыграй один раунд Signal path {{size}} × {{size}} через WebMCP. Перед началом укажи в lmm_signal_start настоящий ID модели, harness и имя агента. Неизвестные данные спроси у меня, не выдумывай. Прочитай lmm_signal_state, дождись трёхсекундного отсчёта и вызывай lmm_signal_rotate с полученным round_id. Подсказки запрещены. Остановись после победы или {{limit}} поворотов, не начинай новую игру автоматически. Сообщи ходы и время. Отправляй результат через lmm_signal_submit только по моей просьбе, от аккаунта, в который я вошёл. Если вход не выполнен, попроси меня войти вручную и сохрани локальную запись. Не регистрируй аккаунт и не выполняй платежи.',
+  },
+  vi: {
+    Account: 'Tài khoản',
+    'Account records': 'Lịch sử tài khoản',
+    'Advanced mode': 'Chế độ nâng cao',
+    'Board size': 'Kích thước bàn chơi',
+    'Browser and WebMCP indicate the entry used, not verified human or model identity.':
+      'Trình duyệt và WebMCP chỉ cho biết cách tham gia, không xác minh danh tính con người hay mô hình.',
+    'Browser player': 'Người chơi qua trình duyệt',
+    'Challenge verification failed. Keep the local record and retry.':
+      'Xác minh thử thách thất bại. Giữ bản ghi trên thiết bị và thử lại.',
+    'Challenges: 3-second countdown, no hints, ranked by moves then time.':
+      'Thử thách đếm ngược 3 giây, không có gợi ý; xếp hạng theo số lượt rồi đến thời gian.',
+    'Copy failed. Select the prompt below to copy it.':
+      'Sao chép thất bại. Hãy chọn nội dung bên dưới để sao chép.',
+    'Copy prompt for AI': 'Sao chép yêu cầu cho AI',
+    'Could not load account records': 'Không tải được lịch sử tài khoản',
+    'Email (optional, private)': 'Email (không bắt buộc, riêng tư)',
+    'Finish a circuit to record your result':
+      'Hoàn thành một mạch để ghi lại kết quả',
+    'Game service unavailable. Practice is still available.':
+      'Dịch vụ trò chơi chưa khả dụng. Bạn vẫn có thể luyện tập.',
+    'Guest play is allowed. Only lmm_signal_submit requires sign-in. It never signs in, creates accounts or spends credits for you.':
+      'Khách vẫn chơi được. Chỉ lmm_signal_submit yêu cầu đăng nhập. Công cụ không tự đăng nhập, tạo tài khoản hay tiêu tín dụng.',
+    'Guest results stay in this browser. Sign in later to upload them; clearing browser data removes local records.':
+      'Kết quả của khách được lưu trong trình duyệt này và có thể gửi sau khi đăng nhập. Xóa dữ liệu trình duyệt sẽ xóa các bản ghi này.',
+    Leaderboard: 'Bảng xếp hạng',
+    'Leaderboard unavailable. You can still practice.':
+      'Chưa tải được bảng xếp hạng. Bạn vẫn có thể luyện tập.',
+    'Leaderboard, records and AI guide': 'Xếp hạng, lịch sử và hướng dẫn AI',
+    'Let an AI play through WebMCP': 'Cho AI chơi qua WebMCP',
+    'Local records': 'Lịch sử trên thiết bị',
+    'Local storage failed. Keep this page open until your record is saved.':
+      'Lưu trên thiết bị thất bại. Giữ trang mở cho đến khi bản ghi được lưu.',
+    'No submitted scores yet': 'Chưa có điểm nào được gửi',
+    Practice: 'Luyện tập',
+    Private: 'Riêng tư',
+    Public: 'Công khai',
+    'Public note (optional)': 'Ghi chú công khai (không bắt buộc)',
+    'Read the board with lmm_signal_state; rotate at most 32 tiles per lmm_signal_rotate call. Challenge hints are disabled, including through tools.':
+      'Đọc bàn chơi bằng lmm_signal_state; mỗi lmm_signal_rotate xoay tối đa 32 ô. Thử thách không cho phép gợi ý, kể cả qua công cụ.',
+    'Retry score verification': 'Thử xác minh điểm lại',
+    'Rotate selected tile': 'Xoay ô đã chọn',
+    'Same daily board, ranked by moves, then time. Only submitted challenges are public.':
+      'Cùng bàn chơi mỗi ngày, xếp hạng theo số lượt rồi thời gian. Chỉ kết quả thử thách chủ động gửi mới được công khai.',
+    'Save to my records': 'Lưu vào lịch sử của tôi',
+    'Score saved': 'Đã lưu điểm',
+    'Score submission failed. Your local record is still available.':
+      'Gửi điểm thất bại. Bản ghi trên thiết bị vẫn còn.',
+    'Select a record': 'Chọn bản ghi',
+    'Sign in to submit your score': 'Đăng nhập để gửi điểm',
+    'Start challenge': 'Bắt đầu thử thách',
+    'Submit to leaderboard': 'Gửi lên bảng xếp hạng',
+    'The agent must declare its model ID, harness and agent name before a round. Uploaded scores belong to the account signed in at submission.':
+      'Agent phải khai báo ID mô hình, harness và tên trước khi chơi. Điểm gửi lên thuộc tài khoản đang đăng nhập lúc gửi.',
+    'Use a browser agent that supports document.modelContext. Open this game page in that browser.':
+      'Dùng tác nhân trình duyệt hỗ trợ document.modelContext và mở trang trò chơi này trong trình duyệt đó.',
+    'Zoom in': 'Phóng to',
+    'Zoom out': 'Thu nhỏ',
+    'Read the game board and current round': 'Đọc bàn chơi và ván hiện tại',
+    'Start a game as an identified AI participant':
+      'Bắt đầu với thông tin người chơi AI',
+    'Rotate game tiles in bounded batches': 'Xoay các ô theo nhóm có giới hạn',
+    'Use a hint in practice mode only': 'Chỉ dùng gợi ý trong luyện tập',
+    'Read game records and the leaderboard': 'Đọc lịch sử và bảng xếp hạng',
+    'Submit a completed result using the signed-in account':
+      'Gửi kết quả bằng tài khoản đang đăng nhập',
+    'Open {{url}} and play one {{size}} × {{size}} Signal path challenge through WebMCP. Before starting, provide your actual model ID, harness name and an agent name in lmm_signal_start. Ask me if an identity field is unknown; do not invent it. Read lmm_signal_state, wait for the three-second countdown, and use lmm_signal_rotate with the returned round_id. Hints are forbidden. Stop after winning or {{limit}} rotations; do not automatically start another round. Report moves and time. Submit with lmm_signal_submit only when I ask you to upload; it uses my signed-in account. If signed out, ask me to sign in manually and keep the local record. Do not register an account or perform payments.':
+      'Mở {{url}} và chơi một thử thách Signal path {{size}} × {{size}} qua WebMCP. Trước khi bắt đầu, điền ID mô hình thực, tên harness và tên Agent vào lmm_signal_start. Hỏi tôi nếu không biết thông tin nhận dạng, không tự bịa. Đọc lmm_signal_state, chờ đếm ngược ba giây rồi dùng lmm_signal_rotate với round_id đã nhận. Không dùng gợi ý. Dừng khi thắng hoặc đạt {{limit}} lượt xoay, không tự mở ván mới; báo số lượt và thời gian. Chỉ dùng lmm_signal_submit khi tôi yêu cầu gửi kết quả, bằng tài khoản tôi đang đăng nhập. Nếu chưa đăng nhập, yêu cầu tôi đăng nhập thủ công và giữ bản ghi trên thiết bị. Không tạo tài khoản hay thanh toán.',
+  },
+}
+for (const [locale, values] of Object.entries(signalCompetitionKeys)) { Object.assign(newKeys[locale], values) }
 
 main().catch((error) => {
   console.error(error)
