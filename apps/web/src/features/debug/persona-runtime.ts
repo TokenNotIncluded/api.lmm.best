@@ -799,10 +799,16 @@ const debugAdapter: AxiosAdapter = async (config) => {
     return response(config, envelope(authBundle(state.activePersona)))
   }
   if (method === 'GET' && path === '/api/user/self/announcements') {
-    const required =
-      new URLSearchParams(window.location.search).get(
-        'required-announcements'
-      ) === '1'
+    const scenario = new URLSearchParams(window.location.search).get(
+      'required-announcements'
+    )
+    if (scenario === 'unsupported') {
+      rejectRequest(config, 404, 'Legacy backend has no announcement API')
+    }
+    if (scenario === 'unavailable') {
+      rejectRequest(config, 503, 'Announcement service is unavailable')
+    }
+    const required = scenario === '1'
     return response(
       config,
       envelope(

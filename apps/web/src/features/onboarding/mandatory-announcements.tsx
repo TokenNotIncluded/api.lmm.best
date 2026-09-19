@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useQuery } from '@tanstack/react-query'
+import { isAxiosError } from 'axios'
 import { type ReactNode, useLayoutEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -36,14 +37,27 @@ export type MandatoryAnnouncement = {
 }
 
 async function loadAnnouncements() {
-  const response = await api.get('/api/user/self/announcements', {
-    skipErrorHandler: true,
-    skipBusinessError: true,
-  })
-  if (!response.data.success || !Array.isArray(response.data.data)) {
-    throw new Error('Unable to load announcements')
+  try {
+    const response = await api.get('/api/user/self/announcements', {
+      skipErrorHandler: true,
+      skipBusinessError: true,
+    })
+    if (!response.data.success || !Array.isArray(response.data.data)) {
+      throw new Error('Unable to load announcements')
+    }
+    return {
+      supported: true,
+      items: response.data.data as MandatoryAnnouncement[],
+    }
+  } catch (error) {
+    // Older backends have no announcement acknowledgement API. A missing route
+    // must not lock every authenticated page behind an impossible retry.
+    // Real authorization/server/transport failures must still require a retry.
+    if (isAxiosError(error) && error.response?.status === 404) {
+      return { supported: false, items: [] as MandatoryAnnouncement[] }
+    }
+    throw error
   }
-  return response.data.data as MandatoryAnnouncement[]
 }
 
 export function MandatoryAnnouncements({ children }: { children: ReactNode }) {
@@ -54,11 +68,15 @@ export function MandatoryAnnouncements({ children }: { children: ReactNode }) {
     queryFn: loadAnnouncements,
     enabled: !!userID,
     retry: false,
-    staleTime: 0,
-    refetchOnMount: 'always',
-    refetchInterval: 60_000,
+    staleTime: (query) =>
+      query.state.data?.supported === false ? 5 * 60_000 : 0,
+    refetchOnMount: true,
+    refetchOnWindowFocus: false,
+    refetchInterval: (query) =>
+      query.state.data?.supported === false ? false : 60_000,
   })
-  const items = query.data ?? []
+  if (!userID) return children
+  const items = query.data?.items ?? []
   const next = items.find((item) => !item.read_at)
   if (query.isError || query.isPending) {
     return (
@@ -69,12 +87,17 @@ export function MandatoryAnnouncements({ children }: { children: ReactNode }) {
         <h1 className='text-xl font-semibold'>{t('Announcements')}</h1>
         <p>{t(query.isError ? 'Unable to load announcements' : 'Loading')}</p>
         {query.isError && (
-          <Button
-            disabled={query.isFetching}
-            onClick={() => void query.refetch()}
-          >
-            {t('Retry')}
-          </Button>
+          <div className='flex flex-wrap gap-2'>
+            <Button
+              disabled={query.isFetching}
+              onClick={() => void query.refetch()}
+            >
+              {t('Retry')}
+            </Button>
+            <Button variant='outline' render={<a href='/' />}>
+              {t('Back to home')}
+            </Button>
+          </div>
         )}
       </main>
     )
