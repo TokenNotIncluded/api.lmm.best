@@ -92,6 +92,7 @@ prepare_go_fixture() {
   fi
   add_go_runtime "$bundle"
   if [[ $version != 0.1.69 ]]; then
+    cp "$SHARED/lmm-api-deploy" "$bundle/lmm-api-deploy"
     printf 'v1\n' >"$bundle/OAUTH_MANAGED_TOKEN_CAPABILITY"
   fi
   create_archive "$work" "$artifact"

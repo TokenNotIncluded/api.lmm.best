@@ -1,9 +1,17 @@
 post_install() {
-  /usr/bin/lmm-api-deploy frontend package-activate --package-version "$1"
+  if [ -x /usr/bin/lmm-api-deploy ]; then
+    /usr/bin/lmm-api-deploy frontend package-activate --package-version "$1"
+  else
+    /usr/bin/lmm-api deploy frontend package-activate --package-version "$1"
+  fi
 }
 
 post_upgrade() {
-  /usr/bin/lmm-api-deploy frontend package-activate --package-version "$1"
+  if [ -x /usr/bin/lmm-api-deploy ]; then
+    /usr/bin/lmm-api-deploy frontend package-activate --package-version "$1"
+  else
+    /usr/bin/lmm-api deploy frontend package-activate --package-version "$1"
+  fi
 }
 
 post_remove() {

@@ -241,16 +241,16 @@ class WorkflowWiringTests(unittest.TestCase):
 
 
 class ProcessIntegrationTests(unittest.TestCase):
-    def exercise(self, public_ok):
+    def exercise(self, public_ok, operator_command="operator"):
         with tempfile.TemporaryDirectory(prefix='lmm transaction ') as directory:
             root = Path(directory)
             (root / 'plan.json').write_text('{}')
             fixture = root / 'native.py'
-            fixture.write_text("""import json,sys
+            fixture.write_text("EXPECTED_COMMAND = " + repr(operator_command) + "\n" + """import json,sys
 from pathlib import Path
 root = Path(__file__).parent
 action = sys.argv[3]
-assert sys.argv[1:3] == ['operator','production']
+assert sys.argv[1:3] == [EXPECTED_COMMAND,'production']
 assert sys.argv[4:6] == ['--plan', str(root/'plan.json')]
 assert sys.argv[6:10] == ['--plan-sha256', 'a'*64, '--confirm', 'api.lmm.best']
 with (root/'calls').open('a') as log: log.write(action+'\\n')
@@ -269,6 +269,7 @@ print(json.dumps({'deployment_id':'go-v0.2.52-r42-a1','plan_sha256':'a'*64,'vers
                 '--deployment-id', DEPLOYMENT, '--plan', str(root/'plan.json'),
                 '--plan-sha256', DIGEST, '--expected-backend-version', VERSION,
                 '--acceptance-script', str(public), '--result-file', str(result_path),
+                '--operator-command', operator_command,
                 '--', sys.executable, str(fixture)], capture_output=True, text=True, timeout=10)
             receipt_value = json.loads(result_path.read_text())
             return result, receipt_value, (root/'calls').read_text().splitlines()
@@ -278,6 +279,14 @@ print(json.dumps({'deployment_id':'go-v0.2.52-r42-a1','plan_sha256':'a'*64,'vers
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(value['outcome'], 'confirmed')
         self.assertEqual(calls, ['promote','status','status','confirm','status'])
+
+    def test_legacy_signed_backend_keeps_full_transaction_guards(self):
+        for public_ok in (True, False):
+            with self.subTest(public_ok=public_ok):
+                result, value, calls = self.exercise(public_ok, "deploy")
+                self.assertEqual(result.returncode, 0 if public_ok else 1, result.stderr)
+                self.assertEqual(value['outcome'], 'confirmed' if public_ok else 'failed-rolled-back')
+                self.assertIn('confirm' if public_ok else 'rollback', calls)
 
     def test_cli_failure_rolls_back_and_keeps_nonzero_exit(self):
         result, value, calls = self.exercise(False)

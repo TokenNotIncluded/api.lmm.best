@@ -11,9 +11,12 @@ is not a production operations entry point and receives no production credential
 - `ci.yml`: all upstream Go/Rust/Web/integration/package gates, merge-queue support,
   and the migrated translation checker. CI Quality Gate requires translations too.
   A tag still tests the checker; only its branch-to-branch comparison is skipped.
-- Automatic tag-based release and production workflows have been removed.
-  Production deployment is manual; the reusable deployment action and scripts
-  remain available for an explicitly authorized operator-run deployment.
+- `release-go.yml` and `release-web.yml` are manual-only signed publication
+  workflows. Dispatch on an immutable component tag after its source checks pass.
+  Publication does not deploy by default; deployment additionally requires
+  `deploy=true` and `confirm=api.lmm.best`. Tag pushes never publish or deploy.
+  The existing signed-package, rollback, observation and native confirmation
+  contracts remain mandatory.
 
 Do not delete upstream qualification workflows to match the former fork's count
 of five files. Server release qualification, root-route acceptance, security audit

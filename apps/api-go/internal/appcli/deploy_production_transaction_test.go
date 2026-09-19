@@ -1903,3 +1903,47 @@ func TestApplyAndRollbackPreserveConservativeHeapMitigation(t *testing.T) {
 		t.Fatal("existing heap protection changed")
 	}
 }
+
+func TestProductionFrontendDriftStopsBeforeMutation(t *testing.T) {
+	for _, drift := range []string{"target", "contents"} {
+		t.Run(drift, func(t *testing.T) {
+			fixture := newProductionFixture(t)
+			root := fixture.runtime.paths.FrontendRoot
+			if drift == "contents" {
+				if err := os.Chmod(filepath.Join(root, "current", "index.html"), 0644); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(root, "current", "index.html"), []byte("different frontend"), 0644); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				target, err := os.Readlink(filepath.Join(root, "current"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				other := target + "-different"
+				if err := os.Rename(filepath.Join(root, target), filepath.Join(root, other)); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Remove(filepath.Join(root, "current")); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(other, filepath.Join(root, "current")); err != nil {
+					t.Fatal(err)
+				}
+			}
+			_, err := fixture.runtime.apply(context.Background(), fixture.workspace, fixture.options)
+			if err == nil || !strings.Contains(err.Error(), "active target=") || !strings.Contains(err.Error(), "rollback package=") {
+				t.Fatalf("missing drift diagnosis: %v", err)
+			}
+			if fixture.runner.timerActive || !fixture.runner.serviceActive {
+				t.Fatal("frontend drift changed running service")
+			}
+			for _, event := range fixture.runner.events {
+				if event == "systemd-stop" || strings.HasPrefix(event, "paru-") {
+					t.Fatalf("frontend drift mutated production: %v", fixture.runner.events)
+				}
+			}
+		})
+	}
+}

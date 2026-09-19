@@ -1,0 +1,420 @@
+name: LMM Go backend release
+
+on:
+  workflow_dispatch:
+    inputs:
+      deploy:
+        description: Deploy after publication using the native production transaction
+        type: boolean
+        default: false
+      confirm:
+        description: For deployment, enter api.lmm.best
+        type: string
+        required: false
+
+permissions:
+  actions: read
+  checks: read
+  contents: read
+  issues: read
+
+concurrency:
+  group: go-release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CI: "true"
+  GOMAXPROCS: "2"
+
+jobs:
+  prepare:
+    name: Verify immutable Go release identity
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      contract_revision: ${{ steps.identity.outputs.contract_revision }}
+      revision: ${{ steps.identity.outputs.revision }}
+      version: ${{ steps.identity.outputs.version }}
+    steps:
+      - name: Checkout exact release revision
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ github.sha }}
+
+      - name: Set up Go for the native deployment contract CLI
+        uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6.2.0
+        with:
+          go-version-file: apps/api-go/go.mod
+          cache: false
+
+      - name: Verify version, ancestry, tag, and contract
+        id: identity
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          revision=$(git rev-parse HEAD)
+          [[ "$revision" == "$GITHUB_SHA" ]]
+          [[ "$GITHUB_REF" == "refs/tags/$GITHUB_REF_NAME" ]]
+          version=${GITHUB_REF_NAME#go-v}
+          [[ "$GITHUB_REF_NAME" == "go-v${version}" ]]
+          [[ "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+
+          default_branch_ref="refs/remotes/origin/$DEFAULT_BRANCH"
+          git fetch --no-tags origin \
+            "refs/heads/$DEFAULT_BRANCH:$default_branch_ref"
+          git merge-base --is-ancestor "$revision" "${default_branch_ref}^{commit}" || {
+            echo "$revision is not reachable from default branch $DEFAULT_BRANCH" >&2
+            exit 1
+          }
+          [[ $(git rev-list -n 1 "$GITHUB_REF_NAME") == "$revision" ]]
+
+          # AUR metadata stays on the last published asset until the release is
+          # signed. The post-release pin must therefore be strictly older here.
+          aur_version=$(sed -n 's/^pkgver=//p' packaging/aur/lmm-api-go-bin/PKGBUILD)
+          [[ "$aur_version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          [[ "$aur_version" != "$version" ]]
+          [[ $(printf '%s\n%s\n' "$aur_version" "$version" | sort -V | tail -n 1) == "$version" ]]
+
+          contract_cli_dir="$RUNNER_TEMP/lmm-api-route-contract"
+          mkdir -p "$contract_cli_dir"
+          (cd apps/api-go && go build -p 2 -trimpath -o "$contract_cli_dir/lmm-api-go" .)
+          ln -s lmm-api-go "$contract_cli_dir/lmm-api"
+          [[ $(readlink "$contract_cli_dir/lmm-api") == lmm-api-go ]]
+          [[ $(sha256sum "$contract_cli_dir/lmm-api" | cut -d' ' -f1) == \
+             $(sha256sum "$contract_cli_dir/lmm-api-go" | cut -d' ' -f1) ]]
+          contract_revision=$("$contract_cli_dir/lmm-api" operator contract route print)
+          {
+            echo "contract_revision=$contract_revision"
+            echo "version=$version"
+            echo "revision=$revision"
+          } >>"$GITHUB_OUTPUT"
+
+      - name: Require all issues and pull requests resolved
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 -B scripts/verify-release-work-items.py
+
+      - name: Require successful CI, CodeQL, and release contracts
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: bash scripts/verify-release-commit-checks.sh "${GITHUB_SHA}"
+
+  test:
+    name: Test Go backend
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout immutable release revision
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+          ref: ${{ needs.prepare.outputs.revision }}
+
+      - name: Set up Go
+        uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6.2.0
+        with:
+          go-version-file: apps/api-go/go.mod
+          cache: false
+
+      - name: Install archive inspection tool
+        run: |
+          sudo --preserve-env=GITHUB_ACTIONS python3 scripts/prepare-ci-apt.py
+          sudo apt-get update && sudo apt-get install --yes libarchive-tools
+
+      - name: Check and test default Go module
+        working-directory: apps/api-go
+        run: |
+          test -z "$(gofmt -l .)"
+          go vet ./...
+          go test -p 2 ./...
+
+      - name: Check independent relaykit module
+        working-directory: apps/api-go/relaykit
+        env:
+          GOWORK: "off"
+        run: |
+          go vet ./...
+          go test -p 2 ./...
+          go build -p 2 ./...
+
+  package-contract:
+    name: Verify Go AUR and deployment contracts
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    container: archlinux:base-devel
+    steps:
+      - name: Install package contract tools
+        run: |
+          pacman --sync --refresh --noconfirm git jq libarchive shellcheck
+          useradd --create-home package-builder
+          install -d -o package-builder -g package-builder /home/package-builder/lmm-ci-tmp
+
+      - name: Checkout immutable release revision
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ needs.prepare.outputs.revision }}
+
+      - name: Validate split package and release metadata
+        run: |
+          set -euo pipefail
+          chown --recursive package-builder:package-builder "$GITHUB_WORKSPACE"
+          shellcheck \
+            packaging/aur/export-go-package-base.sh \
+            packaging/aur/test-bin-makepkg.sh \
+            packaging/aur/test-export-go-package-base.sh \
+            packaging/aur/test-matrix.sh
+          runuser --user package-builder -- env TMPDIR=/home/package-builder/lmm-ci-tmp \
+            bash packaging/aur/test-matrix.sh
+          runuser --user package-builder -- env TMPDIR=/home/package-builder/lmm-ci-tmp \
+            bash packaging/aur/test-bin-makepkg.sh
+          runuser --user package-builder -- env TMPDIR=/home/package-builder/lmm-ci-tmp \
+            bash packaging/aur/test-export-go-package-base.sh
+
+  build:
+    name: Build and sign Go linux/${{ matrix.arch }}
+    needs: [prepare, test, package-contract]
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout immutable release revision
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+          ref: ${{ needs.prepare.outputs.revision }}
+
+      - name: Set up Go
+        uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6.2.0
+        with:
+          go-version-file: apps/api-go/go.mod
+          cache: false
+
+      - name: Build static backend and immutable Go-only archive
+        env:
+          GOARCH: ${{ matrix.arch }}
+          GOOS: linux
+          CGO_ENABLED: "0"
+          EXPECTED_CONTRACT_REVISION: ${{ needs.prepare.outputs.contract_revision }}
+          RELEASE_REVISION: ${{ needs.prepare.outputs.revision }}
+          RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          artifact="lmm-api-go-${RELEASE_VERSION}-linux-${GOARCH}"
+          bundle="release-go/${artifact}"
+          mkdir -p "$bundle"
+          (
+            cd apps/api-go
+            go build -p 2 -trimpath \
+              -ldflags="-s -w -X github.com/LIghtJUNction/api.lmm.best/common.Version=${RELEASE_VERSION}" \
+              -o "../../${bundle}/lmm-api-go" .
+          )
+          file "$bundle/lmm-api-go"
+          if ldd "$bundle/lmm-api-go" 2>&1 | grep -qvE 'not a dynamic executable|statically linked'; then
+            echo 'Go release binary is dynamically linked' >&2
+            exit 1
+          fi
+          cp packaging/common/lmm-api/lmm-api-deploy "$bundle/"
+          cp packaging/common/lmm-api/lmm-api.service "$bundle/"
+          cp packaging/common/lmm-api/lmm-api-go.env "$bundle/"
+          cp packaging/common/lmm-api/lmm-api-memory.conf "$bundle/"
+          cp packaging/common/lmm-api/lmm-api-operator.sysusers \
+            packaging/common/lmm-api/lmm-api-operator.tmpfiles \
+            packaging/common/lmm-api/lmm-api-operator.sudoers \
+            "$bundle/"
+          mkdir -p "$bundle/edge-policy/nginx"
+          cp packaging/common/lmm-api/edge-policy/nginx/http-map.conf \
+            packaging/common/lmm-api/edge-policy/nginx/lmm-api-locations.conf \
+            packaging/common/lmm-api/edge-policy/nginx/mime.types \
+            packaging/common/lmm-api/edge-policy/nginx/new-api.conf \
+            packaging/common/lmm-api/edge-policy/nginx/lmm-api-region-policy.conf \
+            "$bundle/edge-policy/nginx/"
+          cp packaging/common/lmm-api/geoip2-country-update.service \
+            packaging/common/lmm-api/geoip2-country-update.timer \
+            "$bundle/edge-policy/"
+          cp LICENSE NOTICE THIRD-PARTY-LICENSES.md "$bundle/"
+          printf '%s\n' "$RELEASE_REVISION" >"$bundle/REVISION"
+          provider_sha256=$(sha256sum "$bundle/lmm-api-go" | cut -d' ' -f1)
+          ln -s lmm-api-go "$bundle/lmm-api"
+          [[ $(readlink "$bundle/lmm-api") == lmm-api-go ]]
+          [[ $(sha256sum "$bundle/lmm-api" | cut -d' ' -f1) == "$provider_sha256" ]]
+          # Cross-compiled providers cannot execute on the x86_64 runner. The
+          # prepare job derives this revision through the native public CLI.
+          printf '%s\n' "$EXPECTED_CONTRACT_REVISION" > \
+            "$bundle/API_ROUTE_CONTRACT_REVISION"
+          [[ $(<"$bundle/API_ROUTE_CONTRACT_REVISION") == "$EXPECTED_CONTRACT_REVISION" ]]
+          if [[ -f packaging/common/lmm-api/OAUTH_MANAGED_TOKEN_CAPABILITY ]]; then
+            cp packaging/common/lmm-api/OAUTH_MANAGED_TOKEN_CAPABILITY \
+              "$bundle/OAUTH_MANAGED_TOKEN_CAPABILITY"
+            [[ $(<"$bundle/OAUTH_MANAGED_TOKEN_CAPABILITY") == v1 ]]
+          fi
+          if [[ -f packaging/common/lmm-api/REFUND_TASK_DRAIN_CAPABILITY ]]; then
+            cp packaging/common/lmm-api/REFUND_TASK_DRAIN_CAPABILITY \
+              "$bundle/REFUND_TASK_DRAIN_CAPABILITY"
+            [[ $(<"$bundle/REFUND_TASK_DRAIN_CAPABILITY") == v1 ]]
+          fi
+          rm -- "$bundle/lmm-api"
+          [[ ! -e "$bundle/lmm-api" && ! -L "$bundle/lmm-api" ]]
+          [[ ! -e "$bundle/frontend-dist" ]]
+          tar -czf "release-go/${artifact}.tar.gz" -C release-go "$artifact"
+          (cd release-go && sha256sum "${artifact}.tar.gz" >"${artifact}.tar.gz.sha256")
+          (cd release-go && sha256sum --check "${artifact}.tar.gz.sha256")
+          rm -rf -- "$bundle"
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: Sign and verify Go artifact
+        env:
+          ARCH: ${{ matrix.arch }}
+          RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          archive="release-go/lmm-api-go-${RELEASE_VERSION}-linux-${ARCH}.tar.gz"
+          cosign sign-blob --yes --bundle "${archive}.sigstore.json" "$archive"
+          cosign verify-blob \
+            --bundle "${archive}.sigstore.json" \
+            --certificate-identity \
+              "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/.github/workflows/release-go.yml@refs/tags/${GITHUB_REF_NAME}" \
+            --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
+            "$archive"
+
+      - name: Upload signed Go artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: go-release-linux-${{ matrix.arch }}
+          path: release-go/*
+          if-no-files-found: error
+
+  publish:
+    name: Publish signed Go release
+    needs: [prepare, test, package-contract, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: read
+    steps:
+      - name: Checkout release gate at the verified revision
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ needs.prepare.outputs.revision }}
+          persist-credentials: false
+
+      - name: Download signed Go artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: go-release-linux-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Publish immutable Go release
+        env:
+          CONTRACT_REVISION: ${{ needs.prepare.outputs.contract_revision }}
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_REVISION: ${{ needs.prepare.outputs.revision }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          python3 -B scripts/verify-release-work-items.py
+          shopt -s nullglob
+          version=${RELEASE_TAG#go-v}
+          expected_names=(
+            "lmm-api-go-${version}-linux-amd64.tar.gz"
+            "lmm-api-go-${version}-linux-amd64.tar.gz.sha256"
+            "lmm-api-go-${version}-linux-amd64.tar.gz.sigstore.json"
+            "lmm-api-go-${version}-linux-arm64.tar.gz"
+            "lmm-api-go-${version}-linux-arm64.tar.gz.sha256"
+            "lmm-api-go-${version}-linux-arm64.tar.gz.sigstore.json"
+          )
+          assets=(release-assets/*)
+          mapfile -t actual_names < <(printf '%s\n' "${assets[@]##*/}" | sort)
+          mapfile -t expected_names < <(printf '%s\n' "${expected_names[@]}" | sort)
+          [[ "${actual_names[*]}" == "${expected_names[*]}" ]] || {
+            echo 'Signed Go release assets do not match the exact six-file contract.' >&2
+            exit 1
+          }
+          notes="$RUNNER_TEMP/go-release-notes.md"
+          printf "%s\n\nRevision: \`%s\`\nAPI/route contract revision: \`%s\`\n" \
+            'Independent production Go-only backend release.' \
+            "$RELEASE_REVISION" "$CONTRACT_REVISION" > "$notes"
+
+          verify_release() {
+            local readback=$1 asset name local_digest published_digest published_list
+            [[ $(jq -r '.tagName' <<<"$readback") == "$RELEASE_TAG" ]] || return 1
+            [[ $(jq -r '.targetCommitish' <<<"$readback") == "$RELEASE_REVISION" ]] || return 1
+            [[ $(jq -r '.name' <<<"$readback") == "LMM Go backend $RELEASE_TAG" ]] || return 1
+            [[ $(jq -r '.body' <<<"$readback") == "$(<"$notes")" ]] || return 1
+            [[ $(jq -r '.isDraft, .isPrerelease' <<<"$readback") == $'false\nfalse' ]] || return 1
+            published_list=$(jq -er '.assets | map(.name) | sort | .[]' <<<"$readback") || return 1
+            mapfile -t published_names <<<"$published_list"
+            [[ "${published_names[*]}" == "${expected_names[*]}" ]] || return 1
+            for asset in "${assets[@]}"; do
+              name=${asset##*/}
+              local_digest=$(sha256sum "$asset" | cut -d' ' -f1) || return 1
+              published_digest=$(jq -er --arg name "$name" \
+                '.assets[] | select(.name == $name) | .digest' <<<"$readback") || return 1
+              [[ "$published_digest" == "sha256:$local_digest" ]] || return 1
+            done
+          }
+
+          if readback=$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --json tagName,targetCommitish,name,body,isDraft,isPrerelease,assets 2>/dev/null); then
+            verify_release "$readback" || {
+              echo "Release $RELEASE_TAG exists but differs; immutable releases cannot be edited or overwritten." >&2
+              exit 1
+            }
+            echo "Release $RELEASE_TAG already exists and exactly matches the immutable contract."
+            exit 0
+          fi
+          gh release create "$RELEASE_TAG" "${assets[@]}" \
+            --repo "$GITHUB_REPOSITORY" --verify-tag \
+            --target "$RELEASE_REVISION" \
+            --title "LMM Go backend $RELEASE_TAG" \
+            --notes-file "$notes" --latest
+
+          readback=$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --json tagName,targetCommitish,name,body,isDraft,isPrerelease,assets)
+          verify_release "$readback"
+
+  deploy:
+    name: Deploy verified release to ArchDmit
+    needs: [prepare, publish]
+    if: success() && inputs.deploy && inputs.confirm == 'api.lmm.best' && github.event_name == 'workflow_dispatch' && github.repository == 'TokenNotIncluded/api.lmm.best' && startsWith(github.ref, 'refs/tags/go-v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    permissions:
+      contents: read
+      actions: read
+    environment: production
+    # Both component releases share the production lock. Never interrupt a promotion.
+    concurrency:
+      group: production-auto-deploy
+      cancel-in-progress: false
+    steps:
+      - name: Checkout the exact released revision
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ needs.prepare.outputs.revision }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Deploy the signed release
+        uses: ./.github/actions/deploy-production
+        with:
+          release-tag: ${{ github.ref_name }}
+          release-sha: ${{ needs.prepare.outputs.revision }}
+          github-token: ${{ github.token }}
+          ssh-private-key: ${{ secrets.PRODUCTION_SSH_PRIVATE_KEY }}
+          ssh-known-hosts: ${{ secrets.PRODUCTION_SSH_KNOWN_HOSTS }}

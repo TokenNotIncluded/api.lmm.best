@@ -23,11 +23,13 @@ function job(source, id) {
 test('migration preserves qualification and has no separate legacy deployment workflow', () => {
   const files = readdirSync(new URL('.github/workflows/', root))
     .filter((name) => /\.ya?ml$/.test(name)).sort();
-  assert.deepEqual(files, ['ci.yml', 'pr-check.yml', 'server-ops.yml',
+  assert.deepEqual(files, ['ci.yml', 'pr-check.yml', 'release-go.yml', 'release-web.yml', 'server-ops.yml',
     'server-release-qualification.yml']);
   assert.match(workflow('server-release-qualification'), /qualify-go-migration-startup.sh/);
-  assert.throws(() => workflow('release-go'), /ENOENT/);
-  assert.throws(() => workflow('release-web'), /ENOENT/);
+  for (const component of ['go', 'web']) {
+    assert.match(workflow(`release-${component}`), /^  workflow_dispatch:/m);
+    assert.doesNotMatch(workflow(`release-${component}`), /^  (?:push|pull_request|schedule|workflow_run):/m);
+  }
 });
 
 test('server operations stay manual, main-only, and share the production lock', () => {
@@ -99,9 +101,16 @@ test('PR metadata policy stays isolated, read-only, and on trusted base code', (
   assert.doesNotMatch(pr, /: write|secrets\.|pull_request\.head\./);
 });
 
-test('automatic release workflows stay removed while manual deployment support remains', () => {
-  assert.throws(() => read('.github/workflows/release-go.yml'), /ENOENT/);
-  assert.throws(() => read('.github/workflows/release-web.yml'), /ENOENT/);
+test('release publication and deployment require explicit manual dispatch', () => {
+  for (const component of ['go', 'web']) {
+    const source = workflow(`release-${component}`);
+    assert.match(source, /^  workflow_dispatch:/m);
+    assert.doesNotMatch(source, /^  (?:push|pull_request|schedule|workflow_run):/m);
+    assert.match(source, /default: false/);
+    assert.match(job(source, 'deploy'), /inputs.deploy && inputs.confirm == 'api.lmm.best'/);
+    assert.match(source, /verify-release-work-items.py/);
+    assert.match(source, /verify-release-commit-checks.sh/);
+  }
   assert.match(action, /using: composite/);
   assert.match(action, /run: bash scripts\/auto-deploy-production-release\.sh/);
 });
