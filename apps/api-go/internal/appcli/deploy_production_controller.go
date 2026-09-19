@@ -187,18 +187,9 @@ func (runtime *productionReleaseRuntime) stage(ctx context.Context, options prod
 		}
 	}
 	if state.RemoteWorkspace == "" {
-		output, err := runtime.ssh(ctx, plan.TargetAlias, 2*time.Minute,
-			productionOperatorBinary, "operator", "production", "workspace", "create", "--deployment-id", plan.DeploymentID)
+		workspace, err := runtime.bootstrapRemoteWorkspace(ctx, plan)
 		if err != nil {
 			return productionReleaseControllerResult{}, fmt.Errorf("create target deployment workspace: %w", err)
-		}
-		var workspace productionWorkspaceResult
-		if err := json.Unmarshal(output, &workspace); err != nil || workspace.DeploymentID != plan.DeploymentID || !workspace.TransactionSet {
-			return productionReleaseControllerResult{}, errors.New("target workspace response is invalid")
-		}
-		expected := filepath.Join(defaultProductionPaths().WorkRoot, plan.DeploymentID)
-		if workspace.Workspace != expected {
-			return productionReleaseControllerResult{}, errors.New("target workspace path is not canonical")
 		}
 		state.RemoteWorkspace = workspace.Workspace
 		state.Phase = productionReleasePhaseWorkspaceCreated
