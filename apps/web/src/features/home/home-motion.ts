@@ -22,6 +22,7 @@ import {
   transformCorePoint,
   type CorePoint,
 } from './home-core'
+import { createWebGLCore, type CoreFilm } from './home-core-webgl'
 
 export function unit(value: number) {
   return Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : 0
@@ -54,8 +55,10 @@ export function cinemaPosition(
   return unit((stickyTop - top) / Math.max(height - frameHeight, 1))
 }
 
-/** An abstract Transformer sculpture: attention heads, residual paths and token flow. */
-function createFilm(canvas: HTMLCanvasElement) {
+/** A conceptual Transformer architecture: matrices, attention branches and residual paths. */
+function createFilm(canvas: HTMLCanvasElement): CoreFilm | null {
+  const accelerated = createWebGLCore(canvas)
+  if (accelerated) return accelerated
   const ctx = canvas.getContext('2d', { alpha: false })
   if (!ctx) return null
   const mesh = createCoreMesh()
@@ -81,9 +84,9 @@ function createFilm(canvas: HTMLCanvasElement) {
       ctx.setTransform(ratio, 0, 0, ratio, 0, 0)
     }
     const backdrop = ctx.createLinearGradient(0, h, w, 0)
-    backdrop.addColorStop(0, '#13221d')
-    backdrop.addColorStop(0.55, '#26392c')
-    backdrop.addColorStop(1, '#58604b')
+    backdrop.addColorStop(0, '#f3f0e9')
+    backdrop.addColorStop(0.55, '#f3f0e9')
+    backdrop.addColorStop(1, '#e8e4dc')
     ctx.fillStyle = backdrop
     ctx.fillRect(0, 0, w, h)
     const glow = ctx.createRadialGradient(
@@ -94,22 +97,22 @@ function createFilm(canvas: HTMLCanvasElement) {
       h * 0.4,
       h * 0.8
     )
-    glow.addColorStop(0, '#b8b08366')
-    glow.addColorStop(1, '#b8b08300')
+    glow.addColorStop(0, '#ffffff33')
+    glow.addColorStop(1, '#ffffff00')
     ctx.fillStyle = glow
     ctx.fillRect(0, 0, w, h)
     const narrow = w < 650
     const cx = w * (narrow ? 0.5 : 0.255)
     const cy = h * (narrow ? 0.255 : 0.49)
     const scale = Math.min(
-      w * (narrow ? 0.19 : 0.105),
-      h * (narrow ? 0.15 : 0.21)
+      w * (narrow ? 0.105 : 0.1),
+      h * (narrow ? 0.15 : 0.095)
     )
     const ry =
       -0.48 +
       Math.sin(time * 0.2) * 0.16 +
       pointer.x * 0.27 +
-      progress * Math.PI * 1.8
+      Math.sin(progress * Math.PI * 2) * 0.42
     const rx =
       -0.28 +
       Math.cos(time * 0.16) * 0.035 +
@@ -258,7 +261,7 @@ export function mountHomeMotion(root: HTMLElement) {
   const inner = root.querySelector<HTMLElement>('[data-cinema-inner]')
   const canvas = root.querySelector<HTMLCanvasElement>('[data-film]')
   if (!cinema || !inner || !canvas) return () => {}
-  const draw = createFilm(canvas)
+  let draw = createFilm(canvas)
   const scenePanels = [
     ...root.querySelectorAll<HTMLElement>('[data-cinema-panel]'),
   ]
@@ -278,6 +281,7 @@ export function mountHomeMotion(root: HTMLElement) {
     root.dataset.motion = 'static'
     if (toggle) toggle.hidden = true
     return () => {
+      draw?.dispose?.()
       delete root.dataset.motion
     }
   }
@@ -428,6 +432,12 @@ export function mountHomeMotion(root: HTMLElement) {
     measured = true
     schedule()
   }
+  const filmUnavailable = () => {
+    draw?.dispose?.()
+    draw = null
+    updateControls()
+    update()
+  }
   const resize = () => {
     measured = true
     dirty = true
@@ -498,6 +508,7 @@ export function mountHomeMotion(root: HTMLElement) {
   const resizeObserver = new window.ResizeObserver(resize)
   resizeObserver.observe(root)
   resizeObserver.observe(cinema)
+  canvas.addEventListener('webglcontextlost', filmUnavailable)
   cinema.addEventListener('pointermove', move, { passive: true })
   cinema.addEventListener('pointerleave', leave)
   toggle?.addEventListener('click', toggleMotion)
@@ -513,9 +524,11 @@ export function mountHomeMotion(root: HTMLElement) {
   schedule()
   return () => {
     disposed = true
+    draw?.dispose?.()
     if (frame !== null) cancelAnimationFrame(frame)
     observer.disconnect()
     resizeObserver.disconnect()
+    canvas.removeEventListener('webglcontextlost', filmUnavailable)
     cinema.removeEventListener('pointermove', move)
     cinema.removeEventListener('pointerleave', leave)
     toggle?.removeEventListener('click', toggleMotion)

@@ -77,7 +77,7 @@ test('missing observer constructors preserve static content', () => {
   assert.match(motion, /typeof window\.ResizeObserver !== 'function'/)
   assert.match(
     motion,
-    /draw\?\.\(0, \{ x: 0, y: 0 \}, 0\)\s*root\.dataset\.motion = 'static'\s*if \(toggle\) toggle\.hidden = true\s*return \(\) => \{\s*delete root\.dataset\.motion\s*\}/
+    /draw\?\.\(0, \{ x: 0, y: 0 \}, 0\)\s*root\.dataset\.motion = 'static'\s*if \(toggle\) toggle\.hidden = true\s*return \(\) => \{\s*draw\?\.dispose\?\.\(\)\s*delete root\.dataset\.motion\s*\}/
   )
   assert.match(css, /\.lmm-story:not\(\[data-chapter\]\)/)
 })

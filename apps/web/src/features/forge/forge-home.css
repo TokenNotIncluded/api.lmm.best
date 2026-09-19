@@ -21,7 +21,7 @@ For commercial licensing, please contact support@quantumnous.com
   --home-gutter: clamp(1.25rem, 4.5vw, 5rem);
   --home-rule: color-mix(in oklch, var(--foreground) 14%, transparent);
   --home-accent: var(--forge-clay);
-  --home-stage-ink: #f8f4e9;
+  --home-stage-ink: #292a28;
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-body);
@@ -161,7 +161,7 @@ For commercial licensing, please contact support@quantumnous.com
   isolation: isolate;
   overflow: hidden;
   border-radius: 1rem;
-  background: #172d24;
+  background: #f3f0e9;
   color: var(--home-stage-ink);
   min-height: 38rem;
   padding-bottom: 8rem;
@@ -231,7 +231,7 @@ For commercial licensing, please contact support@quantumnous.com
   line-height: 1.04;
   letter-spacing: -0.04em;
   text-wrap: balance;
-  color: #f8f4e9;
+  color: #292a28;
 }
 .lmm-scene-panel h2 {
   font-size: clamp(2.2rem, 3.6vw, 3.8rem);
@@ -240,13 +240,13 @@ For commercial licensing, please contact support@quantumnous.com
 .lmm-scene-panel .lmm-intro-description {
   max-width: 42ch;
   margin: 1.5rem 0 0;
-  color: #e0e4d3;
+  color: #565851;
   font-size: clamp(0.94rem, 1.3vw, 1.15rem);
   line-height: 1.6;
 }
 .lmm-scene-panel .lmm-access-note {
   font-size: 0.75rem;
-  color: #cbd5c5;
+  color: #62645c;
   margin-top: 1rem;
 }
 .lmm-scene-panel .lmm-intro-actions {
@@ -258,7 +258,7 @@ For commercial licensing, please contact support@quantumnous.com
   flex-wrap: wrap;
   gap: 0.6rem 1rem;
   margin-top: 1.6rem;
-  color: #f1bf87;
+  color: #975d36;
   font-size: 0.78rem;
 }
 .lmm-core-protocols code {
@@ -269,12 +269,12 @@ For commercial licensing, please contact support@quantumnous.com
   display: inline-flex;
   align-items: center;
   gap: 0.6rem;
-  color: #f8f4e9;
+  color: #292a28;
   text-underline-offset: 0.3em;
 }
 .lmm-core-link {
   margin-top: 1.5rem;
-  border-bottom: 1px solid #b7c3aa;
+  border-bottom: 1px solid #aaa79f;
   padding-bottom: 0.3rem;
   font-size: 0.9rem;
 }
@@ -296,8 +296,8 @@ For commercial licensing, please contact support@quantumnous.com
   border-bottom: 2px solid transparent;
 }
 .lmm-core-steps [data-active] {
-  color: #fff8e8;
-  border-color: #edb880;
+  color: #292a28;
+  border-color: #a66b47;
   font-weight: 600;
 }
 .lmm-core-continue {
@@ -395,7 +395,7 @@ For commercial licensing, please contact support@quantumnous.com
   right: 7%;
   width: clamp(15rem, 26vw, 23rem);
   padding: 1.4rem;
-  color: #f8f4e9;
+  color: #292a28;
   background: #14231ff2;
   border: 1px solid #cedcc329;
   border-radius: 0.75rem;
@@ -455,10 +455,10 @@ For commercial licensing, please contact support@quantumnous.com
   gap: 0.5rem;
   padding: 0.6rem 0.8rem;
   min-height: 2.75rem;
-  border: 1px solid #e0e9d942;
+  border: 1px solid #bcb8ad;
   border-radius: 2rem;
-  background: #183024bb;
-  color: #fff;
+  background: #eeebe4;
+  color: #3d4039;
   font-size: 0.68rem;
 }
 .lmm-motion-toggle svg {
@@ -469,7 +469,7 @@ For commercial licensing, please contact support@quantumnous.com
   stroke-width: 1.5;
 }
 .lmm-motion-toggle:hover {
-  background: #263e31;
+  background: #e2ded5;
 }
 .lmm-home .lmm-motion-toggle:focus-visible {
   outline-color: #fff;
@@ -1358,4 +1358,19 @@ For commercial licensing, please contact support@quantumnous.com
   top: 1.6rem;
   right: 1.6rem;
   bottom: auto;
+}
+
+.lmm-cinema .lmm-intro-actions [data-slot='button'] {
+  background: #30362f;
+  color: #faf8f3;
+}
+.lmm-cinema .lmm-intro-actions [data-slot='button']:hover {
+  background: #485044;
+}
+.lmm-cinema .lmm-core-steps {
+  color: #62665e;
+}
+.lmm-cinema ::selection {
+  background: #d9c6ad;
+  color: #242820;
 }
