@@ -1,5 +1,7 @@
 # New API selective upstream review — 2026-09-09
 
+> Later change (2026-09-19): the load-based dynamic profit multiplier was removed. References below describe the earlier review snapshot; fixed group ratios, price locks, and token-tier expressions remain separate features.
+
 ## Scope and comparison
 
 Compared LMM base `74384a66939cacb7d74a78ca3c7aa035900d1b24` with

@@ -23,7 +23,7 @@ func TestOAuthPricingConvertsPlatformUnitsToUSDOnce(t *testing.T) {
 	require.NoError(t, ratio_setting.UpdateCacheRatioByJSONString(`{"oauth-pricing-test":0.1}`))
 	require.NoError(t, ratio_setting.UpdateCreateCacheRatioByJSONString(`{"oauth-pricing-test":0.2}`))
 
-	p := oauthPricing("oauth-pricing-test", floatPtr(2), floatPtr(0.5), []int{1}, 1)
+	p := oauthPricing("oauth-pricing-test", floatPtr(2), floatPtr(0.5), 1)
 	require.Equal(t, "USD", p.Currency)
 	require.Equal(t, "configured_base_rates", p.PriceBasis)
 	require.InDelta(t, 2.0/9.0, *p.Input, 1e-12)
@@ -33,14 +33,14 @@ func TestOAuthPricingConvertsPlatformUnitsToUSDOnce(t *testing.T) {
 	require.NotNil(t, p.NativeCost)
 	require.NoError(t, ratio_setting.UpdateCacheRatioByJSONString(`{}`))
 	require.NoError(t, ratio_setting.UpdateCreateCacheRatioByJSONString(`{}`))
-	p = oauthPricing("oauth-pricing-test", floatPtr(2), floatPtr(0.5), []int{1}, 1)
+	p = oauthPricing("oauth-pricing-test", floatPtr(2), floatPtr(0.5), 1)
 	require.InDelta(t, 2.0/9.0, *p.CacheRead, 1e-12)
 	require.InDelta(t, 2.5/9.0, *p.CacheWrite, 1e-12)
 	require.NotNil(t, p.NativeCost)
 }
 
 func TestOAuthPricingUnknownAndMissingCacheStayNull(t *testing.T) {
-	p := oauthPricing("definitely-unknown-oauth-model", nil, floatPtr(1), nil, 1)
+	p := oauthPricing("definitely-unknown-oauth-model", nil, floatPtr(1), 1)
 	require.Nil(t, p.Input)
 	require.Nil(t, p.NativeCost)
 }
@@ -49,7 +49,7 @@ func TestOAuthPricingRejectsNonFinitePlatformAmount(t *testing.T) {
 	old := ratio_setting.ModelRatio2JSONString()
 	t.Cleanup(func() { require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(old)) })
 	require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(`{"oauth-overflow-test":1}`))
-	p := oauthPricing("oauth-overflow-test", floatPtr(1e308), floatPtr(1e308), []int{1}, 1)
+	p := oauthPricing("oauth-overflow-test", floatPtr(1e308), floatPtr(1e308), 1)
 	require.Nil(t, p.Input)
 }
 
