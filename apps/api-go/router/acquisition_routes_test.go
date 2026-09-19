@@ -23,7 +23,12 @@ func TestAcquisitionPrivateRoutesRejectAnonymousRequests(t *testing.T) {
 		{http.MethodPut, "/api/acquisition/self-report"},
 		{http.MethodDelete, "/api/acquisition/self-report"},
 		{http.MethodPost, "/api/admin/acquisition/activity/rebuild"},
+		{http.MethodGet, "/api/admin/acquisition/users/export"},
+		{http.MethodGet, "/api/admin/acquisition/users/1/corrections"},
+		{http.MethodPost, "/api/admin/acquisition/users/1/corrections"},
 		{http.MethodGet, "/api/admin/acquisition/users"},
+		{http.MethodGet, "/api/admin/acquisition/visitors"},
+		{http.MethodGet, "/api/admin/acquisition/funnel"},
 		{http.MethodGet, "/api/admin/acquisition/users/1"},
 		{http.MethodPut, "/api/admin/acquisition/lookback"},
 	} {

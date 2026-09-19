@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { QRCodeSVG } from 'qrcode.react'
-import { type FormEvent, useState } from 'react'
+import { type FormEvent, useId, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { CopyButton } from '@/components/copy-button'
@@ -18,6 +18,7 @@ import {
   type ActivitySummary,
 } from './activity-panel'
 import { AcquisitionCostComparison } from './cost-comparison'
+import { AcquisitionFunnelPanel } from './funnel-panel'
 /*
 Copyright (C) 2023-2026 QuantumNous
 
@@ -37,8 +38,10 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { AcquisitionLinkPreview } from './link-preview'
+import { customAcquisitionRange, presetAcquisitionRange } from './report-range'
 import { sourceSummaryCSV } from './summary-export'
 import { SourceUsers } from './user-sources'
+import { AcquisitionVisitorPanel } from './visitor-panel'
 
 type LinkRecord = {
   id: string
@@ -105,7 +108,12 @@ export function Acquisition() {
   const [selectedSource, setSelectedSource] = useState<string | null>(() =>
     new URLSearchParams(window.location.search).get('source')
   )
-  const [days, setDays] = useState(30)
+  const [days, setDays] = useState<number | null>(30)
+  const [range, setRange] = useState(() =>
+    presetAcquisitionRange(30, Math.floor(Date.now() / 1000))
+  )
+  const [rangeError, setRangeError] = useState(false)
+  const rangeId = useId()
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
   const [qr, setQR] = useState('')
@@ -126,12 +134,11 @@ export function Acquisition() {
     retry: false,
   })
   const report = useQuery({
-    queryKey: ['acquisition-report', days],
+    queryKey: ['acquisition-report', range.from, range.to],
     refetchInterval: 60_000,
     queryFn: () => {
-      const to = Math.floor(Date.now() / 1000)
       return read<Report>(
-        `/api/admin/acquisition/report?from=${to - days * 86400}&to=${to}`
+        `/api/admin/acquisition/report?from=${range.from}&to=${range.to}`
       )
     },
     retry: false,
@@ -215,16 +222,79 @@ export function Acquisition() {
             )}
           </p>
           <div className='flex flex-wrap gap-2'>
-            {[1, 7, 30].map((value) => (
+            {([0, 7, 30] as const).map((value) => (
               <Button
                 key={value}
                 variant={days === value ? 'default' : 'outline'}
-                onClick={() => setDays(value)}
+                onClick={() => {
+                  setDays(value)
+                  setRange(
+                    presetAcquisitionRange(value, Math.floor(Date.now() / 1000))
+                  )
+                  setRangeError(false)
+                }}
               >
-                {t('Past {{days}} days', { days: value })}
+                {value === 0
+                  ? t('Today (UTC)')
+                  : t('Past {{days}} days', { days: value })}
               </Button>
             ))}
           </div>
+          <form
+            className='space-y-2'
+            onSubmit={(event) => {
+              event.preventDefault()
+              const data = new FormData(event.currentTarget)
+              const value = customAcquisitionRange(
+                String(data.get('start')),
+                String(data.get('end')),
+                Math.floor(Date.now() / 1000)
+              )
+              setRangeError(!value)
+              if (value) {
+                setRange(value)
+                setDays(null)
+              }
+            }}
+          >
+            <div className='flex flex-wrap items-end gap-3'>
+              <label
+                htmlFor={`${rangeId}-start`}
+                className='grid gap-1 text-sm'
+              >
+                {t('Start date')}
+                <Input
+                  id={`${rangeId}-start`}
+                  type='date'
+                  name='start'
+                  required
+                />
+              </label>
+              <label htmlFor={`${rangeId}-end`} className='grid gap-1 text-sm'>
+                {t('End date')}
+                <Input id={`${rangeId}-end`} type='date' name='end' required />
+              </label>
+              <Button
+                type='submit'
+                variant={days === null ? 'default' : 'outline'}
+              >
+                {t('Apply date range')}
+              </Button>
+            </div>
+            <p className='text-muted-foreground text-xs'>
+              {t('Dates use UTC; the end date is included. Up to 366 days.')}
+            </p>
+            {rangeError && (
+              <p role='alert'>
+                {t('Choose a valid date range ending no later than today.')}
+              </p>
+            )}
+          </form>
+          <p className='text-muted-foreground text-xs'>
+            {t('Selected registration period')}:{' '}
+            {new Date(range.from * 1000).toISOString()} →{' '}
+            {new Date(range.to * 1000).toISOString()}
+          </p>
           <Button
             variant='outline'
             disabled={!report.data || report.isError}
@@ -371,6 +441,8 @@ export function Acquisition() {
               onRefresh={() => report.refetch()}
             />
           )}
+          <AcquisitionVisitorPanel {...range} />
+          <AcquisitionFunnelPanel {...range} />
           {canReadDetails && report.data && (
             <div className='space-y-4'>
               <div className='flex flex-wrap gap-2'>

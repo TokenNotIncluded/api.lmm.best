@@ -16,17 +16,21 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { useAuthStore } from '@/stores/auth-store'
+
 import { ApiKeysDeleteDialog } from './api-keys-delete-dialog'
 import { ApiKeysMutateDrawer } from './api-keys-mutate-drawer'
 import { useApiKeys } from './api-keys-provider'
 import { CCSwitchDialog } from './dialogs/cc-switch-dialog'
 
 export function ApiKeysDialogs() {
+  const userId = useAuthStore((state) => state.auth.user?.id)
   const { open, setOpen, currentRow, resolvedKey } = useApiKeys()
 
   return (
     <>
       <ApiKeysMutateDrawer
+        key={`${userId}:${open}`}
         open={open === 'create' || open === 'update'}
         onOpenChange={(isOpen) => !isOpen && setOpen(null)}
         currentRow={open === 'update' ? currentRow || undefined : undefined}

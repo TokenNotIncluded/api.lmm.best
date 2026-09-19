@@ -98,6 +98,14 @@ const extendedModelFormSchema = z.object({
   vendor_id: z.number().optional(),
   endpoints: z.string(),
   name_rule: z.number(),
+  operational_status: z.enum([
+    'auto',
+    'congested',
+    'maintenance',
+    'unavailable',
+  ]),
+  operational_notice: z.string().max(280),
+  operational_until: z.number(),
   status: z.boolean(),
   sync_official: z.boolean(),
   price: z.string().optional(),
@@ -375,6 +383,9 @@ export function ModelMutateDrawer({
       vendor_id: undefined,
       endpoints: '',
       name_rule: 0,
+      operational_status: 'auto',
+      operational_notice: '',
+      operational_until: 0,
       status: true,
       sync_official: true,
       price: '',
@@ -449,6 +460,9 @@ export function ModelMutateDrawer({
         vendor_id: model.vendor_id,
         endpoints: model.endpoints || '',
         name_rule: model.name_rule || 0,
+        operational_status: model.operational_status || 'auto',
+        operational_notice: model.operational_notice || '',
+        operational_until: model.operational_until || 0,
         status: model.status === 1,
         sync_official: model.sync_official === 1,
         ...pricing.fields,
@@ -474,6 +488,9 @@ export function ModelMutateDrawer({
         vendor_id: undefined,
         endpoints: '',
         name_rule: 0,
+        operational_status: 'auto',
+        operational_notice: '',
+        operational_until: 0,
         status: true,
         sync_official: true,
         ...pricing.fields,
@@ -1393,6 +1410,105 @@ export function ModelMutateDrawer({
                 </>
               )}
             </fieldset>
+
+            <SideDrawerSection>
+              <h3 className='text-sm font-semibold'>
+                {t('Public operational status')}
+              </h3>
+              <p className='text-muted-foreground text-xs'>
+                {t(
+                  'This publishes a status notice only. It does not disable channels or change routing. Notices must expire within 30 days.'
+                )}
+              </p>
+              <FormField
+                control={form.control}
+                name='operational_status'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('Operational status')}</FormLabel>
+                    <FormControl>
+                      <select
+                        className='bg-background h-10 w-full rounded border px-3'
+                        {...field}
+                        onChange={(event) => {
+                          field.onChange(event.target.value)
+                          if (
+                            event.target.value !== 'auto' &&
+                            !form.getValues('operational_until')
+                          )
+                            {form.setValue(
+                              'operational_until',
+                              Math.floor(Date.now() / 1000) + 3600
+                            )}
+                        }}
+                      >
+                        <option value='auto'>
+                          {t('Use routing configuration')}
+                        </option>
+                        <option value='congested'>{t('Congested')}</option>
+                        <option value='maintenance'>
+                          {t('Under maintenance')}
+                        </option>
+                        <option value='unavailable'>
+                          {t('Temporarily unavailable')}
+                        </option>
+                      </select>
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name='operational_notice'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('Public status explanation')}</FormLabel>
+                    <FormControl>
+                      <Textarea {...field} maxLength={280} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name='operational_until'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('Status notice expires')}</FormLabel>
+                    <FormControl>
+                      <Input
+                        type='datetime-local'
+                        value={
+                          field.value
+                            ? new Date(
+                                field.value * 1000 -
+                                  new Date(
+                                    field.value * 1000
+                                  ).getTimezoneOffset() *
+                                    60_000
+                              )
+                                .toISOString()
+                                .slice(0, 16)
+                            : ''
+                        }
+                        onChange={(event) =>
+                          field.onChange(
+                            event.target.value
+                              ? Math.floor(
+                                  new Date(event.target.value).getTime() / 1000
+                                )
+                              : 0
+                          )
+                        }
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </SideDrawerSection>
 
             {/* Status & Sync */}
             <SideDrawerSection>

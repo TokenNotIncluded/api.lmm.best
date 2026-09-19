@@ -38,35 +38,14 @@ func TestAssistantAdminConfigValidationKeepsWriteSurfaceSafe(t *testing.T) {
 	require.Error(t, validateAssistantAdminConfigValue("billing_setting.billing_mode", `{"tiered-model":"shell"}`))
 }
 
-func TestAssistantAdminConfigExposesSafeDynamicPricingAndGroupWarnings(t *testing.T) {
+func TestAssistantAdminConfigRejectsRetiredPricingAndRetainsGroupWarnings(t *testing.T) {
 	labels := assistantAdminAvailableConfigLabels()
-	for _, key := range []string{
-		"dynamic_pricing_setting.enabled",
-		"dynamic_pricing_setting.min_factor",
-		"dynamic_pricing_setting.base_price_usd_per_million",
-		"dynamic_pricing_setting.cost_floor_factor",
-		"dynamic_pricing_setting.max_factor",
-		"dynamic_pricing_setting.channel_costs",
-		"group_ratio_setting.group_warnings",
-	} {
-		assert.Contains(t, labels, key)
-	}
-	assert.NotContains(t, labels, "dynamic_pricing_setting.per_model")
-	require.NoError(t, validateAssistantAdminConfigValue(
-		"group_ratio_setting.group_warnings",
-		`{"free":{"enabled":true,"message":"Accept the relay risks","mode":"modal","confirmations":3}}`,
-	))
-
-	changes, err := assistantAdminConfigChanges(map[string]any{
-		"changes": map[string]any{
-			"dynamic_pricing_setting.enabled":                    true,
-			"dynamic_pricing_setting.base_price_usd_per_million": 2.0,
-			"dynamic_pricing_setting.channel_costs":              map[string]any{"42": 1.25},
-		},
-	})
-	require.NoError(t, err)
-	assert.Equal(t, "true", changes["dynamic_pricing_setting.enabled"])
-	assert.Equal(t, `{"42":1.25}`, changes["dynamic_pricing_setting.channel_costs"])
+	assert.Contains(t, labels, "group_ratio_setting.group_warnings")
+	assert.NotContains(t, labels, "dynamic_pricing_setting.enabled")
+	assert.NotContains(t, labels, "dynamic_pricing_setting.channel_costs")
+	require.NoError(t, validateAssistantAdminConfigValue("group_ratio_setting.group_warnings", `{"free":{"enabled":true,"message":"Accept the relay risks","mode":"modal","confirmations":3}}`))
+	_, err := assistantAdminConfigChanges(map[string]any{"changes": map[string]any{"dynamic_pricing_setting.enabled": true}})
+	require.Error(t, err)
 }
 
 func TestAssistantAdminConfigExposesNonSecretRuntimeControls(t *testing.T) {
