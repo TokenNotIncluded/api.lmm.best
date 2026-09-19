@@ -34,7 +34,7 @@ content hash emitted by:
 
 ```bash
 cd /path/to/api.lmm.best
-/usr/bin/lmm-api deploy contract route print
+/usr/bin/lmm-api-deploy contract route print
 ```
 
 Both candidate packages must carry the expected

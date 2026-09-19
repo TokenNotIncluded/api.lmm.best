@@ -83,6 +83,7 @@ prepare_go_fixture() {
   mkdir -p "$bundle"
   cp "$HERE/lmm-api-go-bin/PKGBUILD" "$work/"
   cp -L "$HERE/lmm-api-go-bin/lmm-api-go-package.sh" "$work/"
+  cp "$HERE/lmm-api-go-bin/lmm-api-deploy" "$work/"
   sed -i "s/^pkgver=.*/pkgver=${version}/" "$work/PKGBUILD"
   printf '#!/bin/sh\nexit 0\n' >"$bundle/$payload"
   chmod 0755 "$bundle/$payload"
@@ -124,9 +125,9 @@ next_archive=$(build_package go-next "$next_work" \
   usr/lib/systemd/system/lmm-api.service.d/20-memory.conf \
   usr/lib/sysusers.d/lmm-api-operator.conf usr/lib/tmpfiles.d/lmm-api-operator.conf \
   etc/sudoers.d/lmm-api-operator usr/share/doc/lmm-api-go-bin/API_ROUTE_CONTRACT_REVISION \
-  usr/share/doc/lmm-api-go-bin/OAUTH_MANAGED_TOKEN_CAPABILITY)
-if bsdtar -tf "$next_archive" | grep -Eq 'usr/bin/lmm-api$|usr/bin/lmm-api-deploy$|CLI_TRANSITION_PHASE|frontend-dist'; then
-  die 'new Go provider package contains a generic/reverse/deploy/phase/frontend payload'
+  usr/share/doc/lmm-api-go-bin/OAUTH_MANAGED_TOKEN_CAPABILITY usr/bin/lmm-api-deploy)
+if bsdtar -tf "$next_archive" | grep -Eq 'usr/bin/lmm-api$|CLI_TRANSITION_PHASE|frontend-dist'; then
+  die 'new Go provider package contains a generic/reverse/phase/frontend payload'
 fi
 next_pkginfo=$(bsdtar -xOf "$next_archive" .PKGINFO)
 grep -Fqx 'provides = lmm-api-go=0.2.0' <<<"$next_pkginfo" || die 'new Go package lacks provider capability'
@@ -164,7 +165,7 @@ if bsdtar -tf "$web_archive" | grep -Eq 'frontend-release\.sh|lmm-api-web-activa
   die 'Web package still contains a shell publisher'
 fi
 # shellcheck disable=SC2016 # Deliberately inspect the literal package-hook argument.
-grep -Fq '/usr/bin/lmm-api deploy frontend package-activate --package-version "$1"' \
+grep -Fq '/usr/bin/lmm-api-deploy frontend package-activate --package-version "$1"' \
   "$web_work/lmm-api-web.install" || die 'Web install hook does not invoke the public backend CLI'
 
 printf '%s\n' 'prebuilt provider and Web packages built with makepkg'

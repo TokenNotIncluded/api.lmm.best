@@ -141,7 +141,7 @@ web_pkgver=$(sed -n 's/^pkgver=//p' "$HERE/lmm-api-web-bin/PKGBUILD")
 if (( $(vercmp "$web_pkgver" 0.1.52) >= 0 )); then
   contains_srcinfo lmm-api-web-bin $'\tdepends = lmm-api-provider'
   # shellcheck disable=SC2016 # Deliberately inspect the literal package-hook argument.
-  grep -Fq '/usr/bin/lmm-api deploy frontend package-activate --package-version "$1"' \
+  grep -Fq '/usr/bin/lmm-api-deploy frontend package-activate --package-version "$1"' \
     "$HERE/lmm-api-web-bin/lmm-api-web.install" ||
     die 'Web package install hook does not use the public backend CLI'
 else
@@ -153,7 +153,7 @@ fi
 [[ ! -e $HERE/lmm-api-web-bin/lmm-api-web-activate && ! -L $HERE/lmm-api-web-bin/lmm-api-web-activate ]] ||
   die 'repository retains an unsigned local Web activation wrapper'
 # shellcheck disable=SC2016 # Deliberately inspect the future signed package hook.
-grep -Fq '/usr/bin/lmm-api deploy frontend package-activate --package-version "$1"' \
+grep -Fq '/usr/bin/lmm-api-deploy frontend package-activate --package-version "$1"' \
   "$SHARED/lmm-api-web.install" ||
   die 'future Web release hook does not use the public backend CLI'
 go_release_workflow="$ROOT/.github/workflows/release-go.yml"

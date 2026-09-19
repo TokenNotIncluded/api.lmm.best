@@ -26,7 +26,7 @@ _legacy_external_operator_version=0.1.57
 # go-v0.1.58 produced no release assets. Only signed 0.1.69 is accepted as the legacy N-1 layout.
 _artifact="lmm-api-go-${pkgver}-linux"
 _release_base="${url}/releases/download/${_release_tag}"
-source=('lmm-api-go-package.sh')
+source=('lmm-api-go-package.sh' 'lmm-api-deploy')
 source_x86_64=(
   "${_artifact}-amd64.tar.gz::${_release_base}/${_artifact}-amd64.tar.gz"
   "${_artifact}-amd64.tar.gz.sha256::${_release_base}/${_artifact}-amd64.tar.gz.sha256"
@@ -38,7 +38,7 @@ source_aarch64=(
   "${_artifact}-arm64.tar.gz.sigstore.json::${_release_base}/${_artifact}-arm64.tar.gz.sigstore.json"
 )
 noextract=("${_artifact}-amd64.tar.gz" "${_artifact}-arm64.tar.gz")
-sha256sums=('655e9346a6d87baa1cb81d97dcc412243d7ee305f90371b99d89033ea0e99bb1')
+sha256sums=('655e9346a6d87baa1cb81d97dcc412243d7ee305f90371b99d89033ea0e99bb1' 'SKIP')
 sha256sums_x86_64=(
   '3eba2af2aaa7175ae36b91e9c35a10616bb7acfaef68e584e0ce0fdaf57ce12d'
   '60f3443b25c91da5fccac254b8aead4a17852100291fda5838289221cc3f96b5'
@@ -128,6 +128,7 @@ package() {
   else
     install -Dm0755 "${bundle}/${cli}" "${pkgdir}/usr/bin/lmm-api-go"
   fi
+  install -Dm0755 "${srcdir}/lmm-api-deploy" "${pkgdir}/usr/bin/lmm-api-deploy"
   lmm_go_package_assert_payload "$pkgdir" "$pkgname" "$pkgver"
   install -Dm0644 "${bundle}/lmm-api.service" \
     "${pkgdir}/usr/lib/systemd/system/lmm-api.service"

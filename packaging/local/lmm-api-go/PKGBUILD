@@ -19,6 +19,7 @@ backup=('etc/lmm-api-go/lmm-api-go.env')
 options=('!strip')
 source=(
   lmm-api-go
+  lmm-api-deploy
   lmm-api-go-package.sh
   frontend-dist.tar
   lmm-api.service
@@ -38,7 +39,7 @@ source=(
   geoip2-country-update.service
   geoip2-country-update.timer
 )
-sha256sums=('SKIP' '655e9346a6d87baa1cb81d97dcc412243d7ee305f90371b99d89033ea0e99bb1' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
+sha256sums=('SKIP' 'SKIP' '655e9346a6d87baa1cb81d97dcc412243d7ee305f90371b99d89033ea0e99bb1' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
 
 prepare() {
   install -d -m0755 "${srcdir}/frontend-dist"
@@ -49,6 +50,7 @@ package() {
   local file
 
   install -Dm0755 "${srcdir}/lmm-api-go" "${pkgdir}/usr/bin/lmm-api-go"
+  install -Dm0755 "${srcdir}/lmm-api-deploy" "${pkgdir}/usr/bin/lmm-api-deploy"
   lmm_go_package_assert_payload "$pkgdir" "$pkgname" "$pkgver"
   install -Dm0644 "${srcdir}/lmm-api.service" \
     "${pkgdir}/usr/lib/systemd/system/lmm-api.service"

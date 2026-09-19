@@ -205,7 +205,7 @@ source "$GITHUB_WORKSPACE/scripts/production-deployment-id.sh"
 deployment_id=$(production_deployment_id "$RELEASE_TAG" "${GITHUB_RUN_ID:?GITHUB_RUN_ID is required}" "${GITHUB_RUN_ATTEMPT:?GITHUB_RUN_ATTEMPT is required}")
 printf 'format=1\ndeployment_id=%s\nrole=controller\ncreated_at_utc=%s\n' "$deployment_id" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$root/controller/.lmm-deploy-workspace"
 chmod 600 "$root/controller/.lmm-deploy-workspace"
-plan_result=$(run_probe "$probe" deploy production plan --repo "$GITHUB_WORKSPACE" --workspace "$root/controller" --deployment-id "$deployment_id" \
+plan_result=$(run_probe "$probe" operator production plan --repo "$GITHUB_WORKSPACE" --workspace "$root/controller" --deployment-id "$deployment_id" \
   --go-package "$go_candidate" --go-release-asset "$go_asset" --go-release-bundle "$go_bundle" \
   --go-rollback-package "$go_rollback" --go-rollback-release-asset "$go_rollback_asset" --go-rollback-release-bundle "$go_rollback_asset.sigstore.json" \
   --web-package "$web_candidate" --web-release-asset "$web_asset" --web-release-bundle "$web_bundle" \
@@ -213,7 +213,7 @@ plan_result=$(run_probe "$probe" deploy production plan --repo "$GITHUB_WORKSPAC
   --probe-binary "$probe" --operator-binary "$probe" --preserve-edge-policy)
 plan=$(jq -er '.plan' <<<"$plan_result")
 plan_sha=$(jq -er '.plan_sha256' <<<"$plan_result")
-run_probe "$probe" deploy production stage --plan "$plan" --plan-sha256 "$plan_sha" --confirm api.lmm.best
+run_probe "$probe" operator production stage --plan "$plan" --plan-sha256 "$plan_sha" --confirm api.lmm.best
 
 # Keep acceptance inside the transaction, before native confirmation. A Web-only
 # update must also verify the unchanged backend, not merely any healthy backend.

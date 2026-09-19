@@ -762,18 +762,18 @@ func runProductionTransaction(action string, args []string, stdout, stderr io.Wr
 		return ExitOK
 	}
 	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "%s deploy production %s: %v\n", ProgramName, action, err)
+		_, _ = fmt.Fprintf(stderr, "%s production %s: %v\n", DeployProgramName, action, err)
 		return ExitUsage
 	}
 	runtime := defaultProductionRuntime()
 	status, err := runtime.executeTransaction(context.Background(), options)
 	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "%s deploy production %s: %v\n", ProgramName, action, err)
+		_, _ = fmt.Fprintf(stderr, "%s production %s: %v\n", DeployProgramName, action, err)
 		return ExitError
 	}
 	encoded, err := json.MarshalIndent(status, "", "  ")
 	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "%s deploy production %s: encode status: %v\n", ProgramName, action, err)
+		_, _ = fmt.Fprintf(stderr, "%s production %s: encode status: %v\n", DeployProgramName, action, err)
 		return ExitError
 	}
 	_, _ = stdout.Write(append(encoded, '\n'))
@@ -784,7 +784,7 @@ func parseProductionTransactionOptions(action string, args []string, stderr io.W
 	options := productionTransactionOptions{
 		Action: action, ObservationWindow: productionDefaultObservation, Reason: "operator-request",
 	}
-	flags := flag.NewFlagSet("deploy production "+action, flag.ContinueOnError)
+	flags := flag.NewFlagSet(DeployProgramName+" production "+action, flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	flags.StringVar(&options.Workspace, "workspace", "", "marker-owned target deployment workspace")
 	if action == "apply" {

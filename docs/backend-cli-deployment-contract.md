@@ -37,9 +37,9 @@ Production services and operator actions MUST invoke `/usr/bin/lmm-api`:
 ```text
 /usr/bin/lmm-api serve
 /usr/bin/lmm-api migrate --verify
-/usr/bin/lmm-api deploy production status ...
-/usr/bin/lmm-api deploy production confirm ...
-/usr/bin/lmm-api deploy production rollback ...
+/usr/bin/lmm-api-deploy production status ...
+/usr/bin/lmm-api-deploy production confirm ...
+/usr/bin/lmm-api-deploy production rollback ...
 ```
 
 Deployment code MUST NOT directly execute `/usr/bin/lmm-api-go` or
@@ -89,7 +89,7 @@ transaction lock. A failure after that boundary becomes `ROLLBACK_REQUIRED` and
 retains the lock and evidence. Recovery requires an explicit operator command:
 
 ```text
-/usr/bin/lmm-api deploy production rollback ...
+/usr/bin/lmm-api-deploy production rollback ...
 ```
 
 Healthy promotion completes the observation gate and stops at
@@ -128,7 +128,7 @@ confirmed with the live health endpoint before the page announces availability.
 An operator can publish a reviewed explanation and a real estimate with:
 
 ```sh
-/usr/bin/lmm-api deploy production maintenance \
+/usr/bin/lmm-api-deploy production maintenance \
   --deployment-id "$DEPLOYMENT_ID" --confirm api.lmm.best \
   --state maintenance --service "LMM Best API" \
   --message "Scheduled service update" \

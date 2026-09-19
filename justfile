@@ -182,7 +182,7 @@ docker-rust:
 package: package-go
 
 package-go: build
-    apps/api-go/out/lmm-api deploy build \
+    scripts/lmm-api-deploy.sh build \
       --repo "$(pwd)" \
       --workspace "$LMM_API_BUILD_WORKSPACE"
 
@@ -193,14 +193,14 @@ test-package-bin:
 
 # Stage an already-created immutable production release plan.
 stage-production:
-    apps/api-go/out/lmm-api deploy production stage \
+    scripts/lmm-api-deploy.sh production stage \
       --plan "$LMM_API_RELEASE_PLAN" \
       --plan-sha256 "$LMM_API_RELEASE_PLAN_SHA256" \
       --confirm "$CONFIRM_PRODUCTION"
 
 # Promote an already-staged immutable production release plan.
 deploy-production:
-    apps/api-go/out/lmm-api deploy production promote \
+    scripts/lmm-api-deploy.sh production promote \
       --plan "$LMM_API_RELEASE_PLAN" \
       --plan-sha256 "$LMM_API_RELEASE_PLAN_SHA256" \
       --age-identity-file "$LMM_BACKUP_AGE_IDENTITY_FILE" \

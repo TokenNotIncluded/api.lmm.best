@@ -23,7 +23,7 @@ type productionDispatchEvidence struct {
 }
 
 func runProductionDispatchEvidence(args []string, stdout, stderr io.Writer) int {
-	flags := flag.NewFlagSet("deploy production dispatch-evidence", flag.ContinueOnError)
+	flags := flag.NewFlagSet(DeployProgramName+" production dispatch-evidence", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	workspacePath := flags.String("workspace", "", "canonical target workspace")
 	unit := flags.String("unit", "", "exact activation unit")
@@ -40,12 +40,12 @@ func runProductionDispatchEvidence(args []string, stdout, stderr io.Writer) int 
 	runtime := defaultProductionRuntime()
 	evidence, err := runtime.productionDispatchEvidence(context.Background(), *workspacePath, *unit)
 	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "%s deploy production dispatch-evidence: %v\n", ProgramName, err)
+		_, _ = fmt.Fprintf(stderr, "%s production dispatch-evidence: %v\n", DeployProgramName, err)
 		return ExitError
 	}
 	encoded, err := json.Marshal(evidence)
 	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "%s deploy production dispatch-evidence: encode result: %v\n", ProgramName, err)
+		_, _ = fmt.Fprintf(stderr, "%s production dispatch-evidence: encode result: %v\n", DeployProgramName, err)
 		return ExitError
 	}
 	_, _ = stdout.Write(append(encoded, '\n'))
