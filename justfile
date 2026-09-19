@@ -2,6 +2,20 @@ set shell := ["bash", "-eu", "-o", "pipefail", "-c"]
 
 default: dev
 
+# Run the independent LMM CLI development preview.
+lmm *args:
+    cargo run --manifest-path apps/lmm/Cargo.toml --locked -- {{args}}
+
+# Build the LMM CLI without rebuilding either backend.
+build-lmm:
+    cargo build --manifest-path apps/lmm/Cargo.toml --locked --release
+
+# Validate LMM CLI policy, discovery and subprocess behavior.
+test-lmm:
+    cargo fmt --manifest-path apps/lmm/Cargo.toml --all --check
+    cargo clippy --manifest-path apps/lmm/Cargo.toml --locked --all-targets --all-features -- -D warnings
+    cargo test --manifest-path apps/lmm/Cargo.toml --locked --all-targets
+
 # Install workspace dependencies from the committed lockfile.
 setup:
     bun install --frozen-lockfile
