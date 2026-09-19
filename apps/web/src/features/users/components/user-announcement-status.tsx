@@ -33,8 +33,9 @@ export function UserAnnouncementStatus({ userID }: { userID: number }) {
         skipBusinessError: true,
         skipErrorHandler: true,
       })
-      if (!response.data.success || !Array.isArray(response.data.data))
-        {throw new Error('Unable to load announcements')}
+      if (!response.data.success || !Array.isArray(response.data.data)) {
+        throw new Error('Unable to load announcements')
+      }
       return response.data.data as MandatoryAnnouncement[]
     },
     retry: false,

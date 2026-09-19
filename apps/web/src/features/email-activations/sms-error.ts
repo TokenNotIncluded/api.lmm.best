@@ -18,6 +18,17 @@ export function describeSmsAccessError(
   const code = parsed.code?.toUpperCase() ?? ''
   const message = parsed.message.toLowerCase()
   if (
+    code === 'PROVIDER_BALANCE_INSUFFICIENT' ||
+    /(?:provider|upstream).*balance.*insufficient/.test(message)
+  ) {
+    return {
+      title: t('Purchasing unavailable'),
+      description: t(
+        'The SMS provider has insufficient balance. Contact site support; this is not your wallet balance.'
+      ),
+    }
+  }
+  if (
     code === 'TEMPORARY_SMS_MINIMUM_BALANCE' ||
     code === 'INSUFFICIENT_BALANCE' ||
     code === 'INSUFFICIENT_QUOTA' ||

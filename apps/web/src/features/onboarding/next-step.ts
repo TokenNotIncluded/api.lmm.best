@@ -47,8 +47,9 @@ export function getAccountNextStep(
             : 'Check API access status'
     return { to: '/getting-started', label }
   }
-  if (state.firstRequestComplete)
-    {return { to: '/dashboard', label: 'Open dashboard' }}
+  if (state.firstRequestComplete) {
+    return { to: '/dashboard', label: 'Open dashboard' }
+  }
   // Without a selected client, never force an OAuth user to create a manual key.
   if (!method) return { to: '/guide', label: 'Choose your client' }
   if (

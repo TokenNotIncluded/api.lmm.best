@@ -374,7 +374,12 @@ export function HomeLanding({
               </div>
             </div>
           ) : (
-            <div className='lmm-story-preview'><h3 className='mb-4 text-xl font-semibold'>{t('Use Pi without manually creating an API key')}</h3>{pi}</div>
+            <div className='lmm-story-preview'>
+              <h3 className='mb-4 text-xl font-semibold'>
+                {t('Use Pi without manually creating an API key')}
+              </h3>
+              {pi}
+            </div>
           )}
         </div>
       </section>

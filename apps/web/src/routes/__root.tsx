@@ -28,12 +28,12 @@ import {
 import { TanStackRouterDevtools } from '@tanstack/react-router-devtools'
 import { lazy, Suspense, useEffect } from 'react'
 
-import { SourceConsent } from '@/features/acquisition/consent'
 import { FeedbackRewardButton } from '@/components/feedback-reward-button'
 import { Footer } from '@/components/layout/components/footer'
 import { NavigationProgress } from '@/components/navigation-progress'
 import { Toaster } from '@/components/ui/sonner'
 import { ThemeCustomizationProvider } from '@/context/theme-customization-provider'
+import { SourceConsent } from '@/features/acquisition/consent'
 import { saveAffiliateCode } from '@/features/auth/lib/storage'
 import { GeneralError } from '@/features/errors/general-error'
 import { NotFoundError } from '@/features/errors/not-found-error'
@@ -163,6 +163,7 @@ const NON_BLOCKING_PUBLIC_PATHS = [
   '/challenges',
   '/pricing',
   '/status',
+  '/games/signal',
   '/privacy-policy',
   '/user-agreement',
   '/terms',

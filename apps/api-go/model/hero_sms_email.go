@@ -2203,7 +2203,8 @@ func mapHeroSMSProviderError(err error) error {
 	if err == nil {
 		return nil
 	}
-	if heroErr, ok := err.(*HeroSMSError); ok {
+	var heroErr *HeroSMSError
+	if errors.As(err, &heroErr) && heroErr != nil {
 		return heroErr
 	}
 	switch {
@@ -2214,7 +2215,7 @@ func mapHeroSMSProviderError(err error) error {
 	case errors.Is(err, herosms.ErrNoSMSNumbersAvailable):
 		return newHeroSMSError(http.StatusConflict, "PRICE_CHANGED", "HeroSMS has no matching phone numbers")
 	case errors.Is(err, herosms.ErrProviderBalanceInsufficient):
-		return newHeroSMSError(http.StatusServiceUnavailable, "UPSTREAM_BUSY", "HeroSMS provider balance is insufficient")
+		return newHeroSMSError(http.StatusServiceUnavailable, "PROVIDER_BALANCE_INSUFFICIENT", "HeroSMS provider balance is insufficient")
 	case errors.Is(err, herosms.ErrInvalidRequest):
 		return newHeroSMSError(http.StatusBadRequest, "INVALID_REQUEST", "HeroSMS request was rejected")
 	case errors.Is(err, herosms.ErrRateLimited):

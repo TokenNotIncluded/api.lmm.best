@@ -39,11 +39,13 @@ export function GameClock({
   startedAt,
   readyAt,
   elapsedMs,
+  displayCountdown = false,
 }: {
   phase: string
   startedAt: number
   readyAt: number
   elapsedMs: number | null
+  displayCountdown?: boolean
 }) {
   const [now, setNow] = useState(() => performance.now())
   useEffect(() => {
@@ -51,7 +53,7 @@ export function GameClock({
     const timer = setInterval(() => setNow(performance.now()), 100)
     return () => clearInterval(timer)
   }, [phase, startedAt, readyAt])
-  if (phase === 'countdown') {
+  if (phase === 'countdown' && displayCountdown) {
     return (
       <strong className='text-6xl'>
         {Math.max(1, Math.ceil((readyAt - now) / 1000))}
@@ -73,13 +75,15 @@ export function AuthArtPanel() {
     [size, setSize] = useState(state.circuit.size),
     [advanced, setAdvanced] = useState(state.circuit.size > 12),
     [error, setError] = useState(false)
-  const tiles = state.tiles
-  const boardSize = state.circuit.size
+  useEffect(() => {
+    setSize(state.circuit.size)
+    setAdvanced(state.circuit.size > 12)
+  }, [state.circuit.size])
   const trace = useMemo(
-    () => traceCircuit(tiles, boardSize),
-    [tiles, boardSize]
-  )
-  const powered = useMemo(() => new Set(trace.path), [trace.path])
+      () => traceCircuit(state.tiles, state.circuit.size),
+      [state.tiles, state.circuit.size]
+    ),
+    powered = useMemo(() => new Set(trace.path), [trace.path])
   const turn = (index: number) => {
     try {
       rotateSignalTile(index)
@@ -202,6 +206,7 @@ export function AuthArtPanel() {
                 key={state.roundId}
                 {...state}
                 elapsedMs={state.elapsedMs}
+                displayCountdown
               />
             )}
           </div>

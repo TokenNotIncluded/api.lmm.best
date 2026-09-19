@@ -121,22 +121,27 @@ func GetSignalGameRecords(c *gin.Context) {
 }
 func SaveSignalGameRecord(c *gin.Context) {
 	var input struct {
-		Mode         string `json:"mode"`
-		Size         int    `json:"size"`
-		Seed         uint32 `json:"seed"`
-		RulesVersion int    `json:"rules_version"`
-		Actions      []int  `json:"actions"`
-		Token        string `json:"token"`
-		Publish      bool   `json:"publish"`
-		Actor        string `json:"actor"`
-		ModelId      string `json:"model_id"`
-		Harness      string `json:"harness"`
-		AgentName    string `json:"agent_name"`
-		Email        string `json:"email"`
-		Note         string `json:"note"`
+		ExpectedUserId int    `json:"expected_user_id"`
+		Mode           string `json:"mode"`
+		Size           int    `json:"size"`
+		Seed           uint32 `json:"seed"`
+		RulesVersion   int    `json:"rules_version"`
+		Actions        []int  `json:"actions"`
+		Token          string `json:"token"`
+		Publish        bool   `json:"publish"`
+		Actor          string `json:"actor"`
+		ModelId        string `json:"model_id"`
+		Harness        string `json:"harness"`
+		AgentName      string `json:"agent_name"`
+		Email          string `json:"email"`
+		Note           string `json:"note"`
 	}
 	if err := c.ShouldBindJSON(&input); err != nil || input.RulesVersion != signalgames.RulesVersion || !utf8.ValidString(input.Note) || utf8.RuneCountInString(input.Note) > 160 || len(input.Email) > 254 {
 		signalError(c, 400, "Invalid game record")
+		return
+	}
+	if input.ExpectedUserId != 0 && input.ExpectedUserId != c.GetInt("id") {
+		signalError(c, 409, "Account changed before submission")
 		return
 	}
 	if input.Email != "" {
@@ -194,7 +199,8 @@ func SaveSignalGameRecord(c *gin.Context) {
 		signalError(c, 400, "Invalid game mode")
 		return
 	}
-	row.ParticipantKey = signalHash(strings.Join([]string{row.Actor, row.ModelId, row.Harness, row.AgentName}, "\x00"))
+	identity, _ := json.Marshal([]string{row.Actor, row.ModelId, row.Harness, row.AgentName})
+	row.ParticipantKey = signalHash(string(identity))
 	if err := model.SaveSignalGameRecord(&row); err != nil {
 		if errors.Is(err, model.ErrSignalGameConflict) {
 			signalError(c, 409, "This result belongs to another account")

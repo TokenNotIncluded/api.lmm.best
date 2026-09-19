@@ -170,8 +170,8 @@ export function ApiKeyCell({ apiKey }: { apiKey: ApiKey }) {
     copyTooltip = t('Copied!')
   }
 
-  if (apiKey.one_time_reveal)
-    {return (
+  if (apiKey.one_time_reveal) {
+    return (
       <div className='space-y-1'>
         <code className='text-xs'>{apiKey.key}</code>
         <p className='text-muted-foreground text-xs'>
@@ -180,7 +180,8 @@ export function ApiKeyCell({ apiKey }: { apiKey: ApiKey }) {
           )}
         </p>
       </div>
-    )}
+    )
+  }
 
   return (
     <div className='flex max-w-full min-w-0 items-center'>

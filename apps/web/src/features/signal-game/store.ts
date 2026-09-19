@@ -316,7 +316,10 @@ export async function uploadSignalRecord(
   if (record.mode === 'challenge' && !record.verified) {
     record = await verifySignalRecord(id)
   }
-  const saved = await saveRecord(record, publish, email, note)
+  if (useAuthStore.getState().auth.user?.id !== user.id) {
+    throw new Error('Account changed before submission')
+  }
+  const saved = await saveRecord(record, publish, email, note, user.id)
   await remember({
     ...record,
     uploaded_account: user.id,

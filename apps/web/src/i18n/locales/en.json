@@ -7825,6 +7825,7 @@
     "The setup wizard will use this database during initialization.": "The setup wizard will use this database during initialization.",
     "The site is not available at the moment.": "The site is not available at the moment.",
     "The slug is appended to the URL:": "The slug is appended to the URL:",
+    "The SMS provider has insufficient balance. Contact site support; this is not your wallet balance.": "The SMS provider has insufficient balance. Contact site support; this is not your wallet balance.",
     "The sync will fetch missing models and vendors from the selected source. Existing records are updated only when you approve conflicts.": "The sync will fetch missing models and vendors from the selected source. Existing records are updated only when you approve conflicts.",
     "The system automatically attaches the project, Issue, pull request, completion note, payment history, and mutual ratings.": "The system automatically attaches the project, Issue, pull request, completion note, payment history, and mutual ratings.",
     "The system automatically attaches the project, Issue, pull request, encrypted review message, payment history, and mutual ratings.": "The system automatically attaches the project, Issue, pull request, encrypted review message, payment history, and mutual ratings.",

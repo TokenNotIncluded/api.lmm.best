@@ -1429,11 +1429,12 @@ export function ModelMutateDrawer({
                           if (
                             event.target.value !== 'auto' &&
                             !form.getValues('operational_until')
-                          )
-                            {form.setValue(
+                          ) {
+                            form.setValue(
                               'operational_until',
                               Math.floor(Date.now() / 1000) + 3600
-                            )}
+                            )
+                          }
                         }}
                       >
                         <option value='auto'>

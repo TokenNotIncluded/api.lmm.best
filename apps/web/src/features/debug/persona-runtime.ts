@@ -316,7 +316,9 @@ function initialConversations(): MockConversation[] {
 function initialDebugPersona(): DebugPersonaId {
   if (typeof window === 'undefined') return 'l0'
   const value = new URLSearchParams(window.location.search).get('debug_persona')
-  return DEBUG_PERSONA_IDS.includes(value as DebugPersonaId) ? value as DebugPersonaId : 'l0'
+  return DEBUG_PERSONA_IDS.includes(value as DebugPersonaId)
+    ? (value as DebugPersonaId)
+    : 'l0'
 }
 let state: DebugState = {
   activePersona: initialDebugPersona(),
@@ -541,32 +543,241 @@ const debugAdapter: AxiosAdapter = async (config) => {
   const method = (config.method ?? 'get').toUpperCase()
 
   if (method === 'GET' && path === '/api/admin/acquisition/links') {
-    return response(config, envelope({items:[{ id: '0123456789abcdef0123456789abcdef', name: 'Local documentation example', source: 'documentation', medium: 'readme', campaign: 'local-preview', content: 'setup-guide', target: '/guide', archived: false }],total:1,page:1}))
+    return response(
+      config,
+      envelope({
+        items: [
+          {
+            id: '0123456789abcdef0123456789abcdef',
+            name: 'Local documentation example',
+            source: 'documentation',
+            medium: 'readme',
+            campaign: 'local-preview',
+            content: 'setup-guide',
+            target: '/guide',
+            archived: false,
+          },
+        ],
+        total: 1,
+        page: 1,
+      })
+    )
   }
-  if (method === 'GET' && /^\/api\/admin\/acquisition\/links\/[^/]+\/preview$/.test(path)) {
-    return response(config, envelope({link_id:'0123456789abcdef0123456789abcdef',target:'/guide',source:'documentation',medium:'readme',campaign:'local-preview',content:'setup-guide',evidence:'promotion_link',referrer_host:'',excluded:true,archived:false}))
+  if (
+    method === 'GET' &&
+    /^\/api\/admin\/acquisition\/links\/[^/]+\/preview$/.test(path)
+  ) {
+    return response(
+      config,
+      envelope({
+        link_id: '0123456789abcdef0123456789abcdef',
+        target: '/guide',
+        source: 'documentation',
+        medium: 'readme',
+        campaign: 'local-preview',
+        content: 'setup-guide',
+        evidence: 'promotion_link',
+        referrer_host: '',
+        excluded: true,
+        archived: false,
+      })
+    )
   }
-  if (method === 'GET' && path === '/api/acquisition/self-report') return response(config, envelope(null))
-  if (method === 'GET' && path === '/api/log/self') return response(config, envelope({items:[],total:0,page:1,page_size:1}))
-  if (method === 'GET' && path === '/api/admin/acquisition/visitors') return response(config, envelope({from:now-30*86400,to:now,available_from:now-20*86400,coverage_complete:false,observed_visitors:5,channels:[{source:'documentation',visitors:3},{source:'unknown',visitors:2}]}))
-  if (method === 'GET' && path === '/api/admin/acquisition/funnel') return response(config, envelope({from:now-30*86400,to:now,observed_until:now,observation_days:30,attribution:'registration',payment_snapshot_updated_at:now,payment_snapshot_status:'ready',unavailable:['historical_permission_events'],first_payment_sources:[{source:'documentation',evidence:'promotion_link',rule:'last_external_before_payment_v1',lookback_days:30,inferred:true,accounts:1}],channels:[{source:'documentation',registrations:3,mature_accounts:1,observing_accounts:2,stages:['application_submitted','access_approved','oauth_authorized','api_key_created','credential_ready','client_configured','first_successful_request','first_payment','repeat_payment'].map(id=>({id,observed:id==='client_configured'?0:1,not_observed:0,unknown:id==='client_configured'?3:0,mature_observed:id==='client_configured'?0:1,mature_known:id==='client_configured'?0:1,observing:2,conversion_rate:id==='client_configured'?null:1,timing_accounts:id==='client_configured'?0:1,mean_seconds_from_registration:id==='client_configured'?null:3600}))}]}))
+  if (method === 'GET' && path === '/api/acquisition/self-report') {
+    return response(config, envelope(null))
+  }
+  if (method === 'GET' && path === '/api/log/self') {
+    return response(
+      config,
+      envelope({ items: [], total: 0, page: 1, page_size: 1 })
+    )
+  }
+  if (method === 'GET' && path === '/api/admin/acquisition/visitors') {
+    return response(
+      config,
+      envelope({
+        from: now - 30 * 86400,
+        to: now,
+        available_from: now - 20 * 86400,
+        coverage_complete: false,
+        observed_visitors: 5,
+        channels: [
+          { source: 'documentation', visitors: 3 },
+          { source: 'unknown', visitors: 2 },
+        ],
+      })
+    )
+  }
+  if (method === 'GET' && path === '/api/admin/acquisition/funnel') {
+    return response(
+      config,
+      envelope({
+        from: now - 30 * 86400,
+        to: now,
+        observed_until: now,
+        observation_days: 30,
+        attribution: 'registration',
+        payment_snapshot_updated_at: now,
+        payment_snapshot_status: 'ready',
+        unavailable: ['historical_permission_events'],
+        first_payment_sources: [
+          {
+            source: 'documentation',
+            evidence: 'promotion_link',
+            rule: 'last_external_before_payment_v1',
+            lookback_days: 30,
+            inferred: true,
+            accounts: 1,
+          },
+        ],
+        channels: [
+          {
+            source: 'documentation',
+            registrations: 3,
+            mature_accounts: 1,
+            observing_accounts: 2,
+            stages: [
+              'application_submitted',
+              'access_approved',
+              'oauth_authorized',
+              'api_key_created',
+              'credential_ready',
+              'client_configured',
+              'first_successful_request',
+              'first_payment',
+              'repeat_payment',
+            ].map((id) => ({
+              id,
+              observed: id === 'client_configured' ? 0 : 1,
+              not_observed: 0,
+              unknown: id === 'client_configured' ? 3 : 0,
+              mature_observed: id === 'client_configured' ? 0 : 1,
+              mature_known: id === 'client_configured' ? 0 : 1,
+              observing: 2,
+              conversion_rate: id === 'client_configured' ? null : 1,
+              timing_accounts: id === 'client_configured' ? 0 : 1,
+              mean_seconds_from_registration:
+                id === 'client_configured' ? null : 3600,
+            })),
+          },
+        ],
+      })
+    )
+  }
   if (method === 'GET' && path === '/api/admin/acquisition/report') {
-    return response(config, envelope({
-      from: now-30*86400, to:now, unclassified_payment_rows:0, lookback_days:30, applied_lookback_days:[30], started_at:now-20*86400, observed_until:now,
-      channels:[{source:'documentation',evidence:'promotion_link',registrations:3,identified_registrations:3},{source:'unknown',evidence:'unavailable',registrations:2,identified_registrations:0}],
-      payments:[{source:'documentation',currency:'USD',paid_micros:10000000,refund_micros:2000000,net_micros:8000000,paying_accounts:1}],
-      activity_state:{started_at:now-20*86400,scanned_through:now-60,updated_at:now,status:'ready',incomplete:false},
-      activity:[{source:'documentation',eligible_accounts:3,successful_accounts:2,mature_accounts:1,retained_accounts:1,observing_accounts:1,incomplete_accounts:0,retention_rate:1}],
-    }))
+    return response(
+      config,
+      envelope({
+        from: now - 30 * 86400,
+        to: now,
+        unclassified_payment_rows: 0,
+        lookback_days: 30,
+        applied_lookback_days: [30],
+        started_at: now - 20 * 86400,
+        observed_until: now,
+        channels: [
+          {
+            source: 'documentation',
+            evidence: 'promotion_link',
+            registrations: 3,
+            identified_registrations: 3,
+          },
+          {
+            source: 'unknown',
+            evidence: 'unavailable',
+            registrations: 2,
+            identified_registrations: 0,
+          },
+        ],
+        payments: [
+          {
+            source: 'documentation',
+            currency: 'USD',
+            paid_micros: 10000000,
+            refund_micros: 2000000,
+            net_micros: 8000000,
+            paying_accounts: 1,
+          },
+        ],
+        activity_state: {
+          started_at: now - 20 * 86400,
+          scanned_through: now - 60,
+          updated_at: now,
+          status: 'ready',
+          incomplete: false,
+        },
+        activity: [
+          {
+            source: 'documentation',
+            eligible_accounts: 3,
+            successful_accounts: 2,
+            mature_accounts: 1,
+            retained_accounts: 1,
+            observing_accounts: 1,
+            incomplete_accounts: 0,
+            retention_rate: 1,
+          },
+        ],
+      })
+    )
   }
   if (method === 'GET' && path === '/api/admin/acquisition/users') {
-    return response(config, envelope({total:3,items:[1003,1004,1005].map((id,index)=>({user_id:id,registered_at:now-(15-index*5)*86400,source:'documentation',evidence:'promotion_link',first_success_at:index<2?now-(12-index*5)*86400:0}))}))
+    return response(
+      config,
+      envelope({
+        total: 3,
+        items: [1003, 1004, 1005].map((id, index) => ({
+          user_id: id,
+          registered_at: now - (15 - index * 5) * 86400,
+          source: 'documentation',
+          evidence: 'promotion_link',
+          first_success_at: index < 2 ? now - (12 - index * 5) * 86400 : 0,
+        })),
+      })
+    )
   }
-  if (method === 'GET' && /^\/api\/admin\/acquisition\/users\/\d+$/.test(path)) {
-    return response(config,envelope({user_id:Number(path.split('/').at(-1)),registered_at:now-15*86400,historical:false,first_success_at:now-12*86400,attribution:{first_source:'documentation',first_observed_at:now-15*86400-300,registration_source:'documentation',registration_campaign:'local-preview',registration_inferred:false,registration_visit_id:1,lookback_days:30},recent:[{id:1,source:'documentation',evidence:'promotion_link',created_at:now-15*86400-300,referrer_host:'github.com',landing:'/guide'}]}))
+  if (
+    method === 'GET' &&
+    /^\/api\/admin\/acquisition\/users\/\d+$/.test(path)
+  ) {
+    return response(
+      config,
+      envelope({
+        user_id: Number(path.split('/').at(-1)),
+        registered_at: now - 15 * 86400,
+        historical: false,
+        first_success_at: now - 12 * 86400,
+        attribution: {
+          first_source: 'documentation',
+          first_observed_at: now - 15 * 86400 - 300,
+          registration_source: 'documentation',
+          registration_campaign: 'local-preview',
+          registration_inferred: false,
+          registration_visit_id: 1,
+          lookback_days: 30,
+        },
+        recent: [
+          {
+            id: 1,
+            source: 'documentation',
+            evidence: 'promotion_link',
+            created_at: now - 15 * 86400 - 300,
+            referrer_host: 'github.com',
+            landing: '/guide',
+          },
+        ],
+      })
+    )
   }
-  if (path === '/api/acquisition/consent' && ['POST','DELETE'].includes(method)) return response(config,envelope({allowed:method==='POST'}))
-  if (path === '/api/admin/acquisition/activity/rebuild' && method==='POST') return response(config,envelope({scheduled:true}))
+  if (
+    path === '/api/acquisition/consent' &&
+    ['POST', 'DELETE'].includes(method)
+  ) {
+    return response(config, envelope({ allowed: method === 'POST' }))
+  }
+  if (path === '/api/admin/acquisition/activity/rebuild' && method === 'POST') {
+    return response(config, envelope({ scheduled: true }))
+  }
   if (method === 'GET' && path === '/api/status') {
     return response(
       config,
@@ -653,7 +864,10 @@ const debugAdapter: AxiosAdapter = async (config) => {
     return response(config, envelope([]))
   }
   if (method === 'GET' && path === '/api/token/auto-groups') {
-    return response(config, envelope({ groups: [activeUser().group || 'default'], max_count: 5 }))
+    return response(
+      config,
+      envelope({ groups: [activeUser().group || 'default'], max_count: 5 })
+    )
   }
   if (method === 'GET' && path === '/api/token/') {
     const developerAccessGranted =

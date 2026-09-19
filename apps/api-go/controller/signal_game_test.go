@@ -66,6 +66,9 @@ func TestSignalGameGuestCompletionThenAuthenticatedClaim(t *testing.T) {
 	require.Equal(t, 200, call("POST", "/finish", map[string]any{"token": token, "actions": actions}, false).Code)
 	submit := map[string]any{"mode": "challenge", "rules_version": 2, "token": token, "publish": true, "email": "private@example.test", "note": "Testing", "user_id": 999, "moves": 0, "elapsed_ms": 0, "model_id": "forged-model"}
 	require.Equal(t, 401, call("POST", "/records", submit, false).Code)
+	submit["expected_user_id"] = 999
+	require.Equal(t, 409, call("POST", "/records", submit, true).Code)
+	submit["expected_user_id"] = user.Id
 	saved := call("POST", "/records", submit, true)
 	require.Equal(t, 200, saved.Code, saved.Body.String())
 	require.NotContains(t, saved.Body.String(), "private@example.test")

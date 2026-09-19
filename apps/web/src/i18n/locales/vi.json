@@ -7825,6 +7825,7 @@
     "The setup wizard will use this database during initialization.": "Trình hướng dẫn thiết lập sẽ sử dụng cơ sở dữ liệu này trong quá trình khởi tạo.",
     "The site is not available at the moment.": "Trang web hiện không khả dụng.",
     "The slug is appended to the URL:": "Slug được gắn vào URL:",
+    "The SMS provider has insufficient balance. Contact site support; this is not your wallet balance.": "Nhà cung cấp SMS không đủ số dư. Hãy liên hệ hỗ trợ trang web; đây không phải số dư ví của bạn.",
     "The sync will fetch missing models and vendors from the selected source. Existing records are updated only when you approve conflicts.": "Đồng bộ hóa sẽ tìm nạp các mẫu và nhà cung cấp còn thiếu từ nguồn đã chọn. Các bản ghi hiện có chỉ được cập nhật khi bạn chấp thuận các xung đột.",
     "The system automatically attaches the project, Issue, pull request, completion note, payment history, and mutual ratings.": "Hệ thống tự động đính kèm dự án, Issue, pull request, ghi chú hoàn thành, lịch sử thanh toán và đánh giá lẫn nhau.",
     "The system automatically attaches the project, Issue, pull request, encrypted review message, payment history, and mutual ratings.": "Hệ thống tự động đính kèm dự án, Issue, pull request, thông điệp xem xét được mã hóa, lịch sử thanh toán và đánh giá lẫn nhau.",

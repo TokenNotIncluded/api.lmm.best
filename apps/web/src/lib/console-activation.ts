@@ -182,8 +182,10 @@ export function isContributorRoute(pathname: string): boolean {
   // outside the console under /challenges; wallet and bounty-management
   // routes must remain unavailable until L1 is approved.
   return (
-    pathname === '/getting-started' || pathname.startsWith('/getting-started/') ||
-    pathname === '/tool-market' || pathname.startsWith('/tool-market/')
+    pathname === '/getting-started' ||
+    pathname.startsWith('/getting-started/') ||
+    pathname === '/tool-market' ||
+    pathname.startsWith('/tool-market/')
   )
 }
 

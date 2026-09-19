@@ -1,3 +1,24 @@
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+/*
+Copyright (C) 2026 LIghtJUNction
+*/
 import { RULES_VERSION } from '@/features/auth/components/signal-game'
 /* Copyright (C) 2026 LIghtJUNction. AGPL-3.0-or-later. */
 import { api } from '@/lib/api'
@@ -72,7 +93,13 @@ export async function beginAttempt(
     api.post(
       '/api/games/signal/attempts',
       { size, ...participant },
-      { timeout: 12000, signal }
+      {
+        timeout: 12000,
+        skipAuthRefresh: true,
+        skipBusinessError: true,
+        skipErrorHandler: true,
+        signal,
+      }
     )
   )
   if (
@@ -92,7 +119,13 @@ export const finishAttempt = (record: GameRecord, signal?: AbortSignal) =>
     api.post(
       '/api/games/signal/finish',
       { token: record.token, actions: record.actions },
-      { timeout: 20000, signal }
+      {
+        timeout: 20000,
+        signal,
+        skipErrorHandler: true,
+        skipAuthRefresh: true,
+        skipBusinessError: true,
+      }
     )
   )
 export const saveRecord = (
@@ -100,12 +133,14 @@ export const saveRecord = (
   publish: boolean,
   email: string,
   note: string,
+  expectedUserId: number,
   signal?: AbortSignal
 ) =>
   body<SavedRecord>(
     api.post(
       '/api/games/signal/records',
       {
+        expected_user_id: expectedUserId,
         mode: record.mode,
         size: record.size,
         seed: record.seed,
@@ -120,7 +155,7 @@ export const saveRecord = (
         harness: record.harness,
         agent_name: record.agent_name,
       },
-      { timeout: 20000, signal }
+      { timeout: 20000, signal, skipErrorHandler: true }
     )
   )
 export const getLeaderboard = (
@@ -132,10 +167,19 @@ export const getLeaderboard = (
     api.get('/api/games/signal/leaderboard', {
       params: { size, ...(day ? { day } : {}) },
       timeout: 12000,
+      skipAuthRefresh: true,
+      skipBusinessError: true,
+      skipErrorHandler: true,
       signal,
     })
   )
 export const getMyRecords = (signal?: AbortSignal) =>
   body<SavedRecord[]>(
-    api.get('/api/games/signal/records', { timeout: 12000, signal })
+    api.get('/api/games/signal/records', {
+      timeout: 12000,
+
+      skipBusinessError: true,
+      skipErrorHandler: true,
+      signal,
+    })
   )
