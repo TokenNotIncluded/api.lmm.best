@@ -23,6 +23,8 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { REPOSITORIES, repositoryUrl } from '@/features/repositories/api'
+import { RepositoryLink } from '@/features/repositories/repository-link'
 import { SettingsSection } from '@/features/system-settings/components/settings-section'
 import { api } from '@/lib/api'
 
@@ -266,6 +268,20 @@ export function PublicScriptsPage() {
           >
             {t('Back to home')}
           </a>
+        </div>
+        <div className='mb-8 flex flex-wrap items-center justify-between gap-4 border-y py-5'>
+          <div>
+            <p className='text-sm font-medium'>{t('Script repository')}</p>
+            <a
+              className='text-muted-foreground text-sm break-all underline underline-offset-4'
+              href={repositoryUrl('scripts')}
+              target='_blank'
+              rel='noopener noreferrer'
+            >
+              {REPOSITORIES.scripts}
+            </a>
+          </div>
+          <RepositoryLink kind='scripts' />
         </div>
         <PublicScriptsPanel fullPage />
       </div>

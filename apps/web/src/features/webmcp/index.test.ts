@@ -38,6 +38,8 @@ test('registers safe read/navigation tools and aborts them on cleanup', async ()
         'lmm_site_info',
         'lmm_navigate',
         'lmm_model_prices',
+        'lmm_public_scripts',
+        'lmm_source_repositories',
         'lmm_account_status',
       ]
     )
@@ -150,7 +152,7 @@ for (const mode of ['sync', 'throw', 'reject'] as const) {
         subscribe: () => () => undefined,
       })
       await new Promise((resolve) => setTimeout(resolve, 0))
-      assert.equal(calls, 4)
+      assert.equal(calls, 6)
       cleanup()
     } finally {
       if (previous) Object.defineProperty(globalThis, 'document', previous)
@@ -158,3 +160,21 @@ for (const mode of ['sync', 'throw', 'reject'] as const) {
     }
   })
 }
+
+test('blocked browser capability getter cannot break startup', () => {
+  const previous = Object.getOwnPropertyDescriptor(globalThis, 'document')
+  Object.defineProperty(globalThis, 'document', {
+    configurable: true,
+    value: Object.defineProperty({}, 'modelContext', {
+      get() {
+        throw new Error('Capability blocked')
+      },
+    }),
+  })
+  try {
+    assert.doesNotThrow(() => installWebMcp({} as never))
+  } finally {
+    if (previous) Object.defineProperty(globalThis, 'document', previous)
+    else delete (globalThis as { document?: unknown }).document
+  }
+})

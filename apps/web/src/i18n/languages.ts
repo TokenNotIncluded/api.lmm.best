@@ -57,7 +57,7 @@ export function normalizeInterfaceLanguage(
 
   return (
     INTERFACE_LANGUAGE_OPTIONS.find(
-      (lang) => lang.code.toLowerCase() === normalized
+      (lang) => lang.code.toLowerCase() === normalized.split('-')[0]
     )?.code ?? 'en'
   )
 }
@@ -76,6 +76,7 @@ export function convertDetectedLanguage(value: string): string {
   const lower = value.trim().replaceAll('_', '-').toLowerCase()
   if (!lower.startsWith('zh')) return value
   if (
+    lower === 'zhtw' ||
     lower === 'zh-tw' ||
     lower === 'zh-hk' ||
     lower === 'zh-mo' ||

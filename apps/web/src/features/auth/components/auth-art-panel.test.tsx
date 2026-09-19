@@ -17,7 +17,6 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
 import { after, afterEach, describe, test } from 'node:test'
 
 import { Window } from 'happy-dom'
@@ -80,58 +79,65 @@ afterEach(() => {
 })
 after(() => domWindow.close())
 
-describe('AuthArtPanel', () => {
-  test('renders a current Responses API example with a live visual signal', async () => {
-    api.get = (async (url: string) => {
-      assert.equal(url, '/api/status')
-      return {
-        data: {
-          data: {
-            preview_model_ids: ['live-model-alpha', 'live-model-beta'],
-          },
-        },
-      }
+describe('AuthArtPanel optional game', () => {
+  test('plays, hints, wins and restarts without network requests', async () => {
+    let requests = 0
+    api.get = (async () => {
+      requests++
+      throw new Error('game must stay local')
     }) as typeof api.get
-
     const rendered = await renderArtwork()
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 0))
-    })
-    const preview = rendered.container.querySelector(
-      '[data-live-request-preview]'
-    )
-
-    assert.ok(preview)
-    assert.equal(
-      preview.querySelector('[data-request-endpoint]')?.textContent?.trim(),
-      '/v1/responses'
-    )
-    assert.equal(
-      preview.querySelector('[data-request-model]')?.textContent?.trim(),
-      'live-model-alpha'
-    )
-    assert.ok(preview.querySelector('.auth-art-request-sweep'))
-    assert.ok(preview.querySelector('.auth-art-request-pulse'))
-
-    await act(async () => rendered.root.unmount())
-  })
-
-  test('loads model IDs instead of embedding a static model list', () => {
-    const source = readFileSync(
-      new URL('./auth-art-panel.tsx', import.meta.url),
-      'utf8'
-    )
-    const styles = readFileSync(
-      new URL('../../../styles/index.css', import.meta.url),
-      'utf8'
-    )
-
-    assert.match(source, /preview_model_ids/)
-    assert.match(source, /getStatus/)
-    assert.doesNotMatch(source, /gpt-[\d.]+/)
-    assert.doesNotMatch(source, /gemini-[\d.]+/)
-    assert.match(source, /setInterval/)
-    assert.match(styles, /@keyframes auth-art-request-sweep/)
-    assert.match(styles, /\.auth-art-request-pulse/)
+    try {
+      const tiles = [
+        ...rendered.container.querySelectorAll<HTMLButtonElement>(
+          'button[aria-label^="Rotate tile"]'
+        ),
+      ]
+      assert.equal(tiles.length, 25)
+      assert.ok(tiles.every((button) => button.type === 'button'))
+      const tile = tiles[10]
+      const label = tile.getAttribute('aria-label')
+      await act(async () => tile.click())
+      assert.notEqual(tile.getAttribute('aria-label'), label)
+      const hint = [
+        ...rendered.container.querySelectorAll<HTMLButtonElement>('button'),
+      ].find((button) => button.textContent?.includes('Hint'))
+      assert.ok(hint)
+      for (let move = 0; move < 76 && !hint.disabled; move++) {
+        await act(async () => hint.click())
+      }
+      assert.equal(hint.disabled, true)
+      assert.match(
+        rendered.container.querySelector('[role="status"]')?.textContent ?? '',
+        /Connected in/
+      )
+      const again = [
+        ...rendered.container.querySelectorAll<HTMLButtonElement>('button'),
+      ].find((button) => button.textContent?.includes('Play again'))
+      assert.ok(again)
+      await act(async () => again.click())
+      assert.equal(hint.disabled, false)
+      assert.equal(requests, 0)
+      const active = rendered.container.querySelector<HTMLButtonElement>(
+        '[role="grid"] button[tabindex="0"]'
+      )
+      assert.ok(active)
+      await act(async () =>
+        active.dispatchEvent(
+          new domWindow.KeyboardEvent('keydown', {
+            key: 'ArrowRight',
+            bubbles: true,
+          }) as unknown as Event
+        )
+      )
+      assert.equal(
+        rendered.container.querySelectorAll(
+          '[role="grid"] button[tabindex="0"]'
+        ).length,
+        1
+      )
+    } finally {
+      await act(async () => rendered.root.unmount())
+    }
   })
 })

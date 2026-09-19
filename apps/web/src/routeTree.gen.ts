@@ -43,6 +43,7 @@ import { Route as ScriptsIndexRouteImport } from './routes/scripts/index'
 import { Route as SecurityIndexRouteImport } from './routes/security/index'
 import { Route as SetupIndexRouteImport } from './routes/setup/index'
 import { Route as StatusIndexRouteImport } from './routes/status/index'
+import { Route as WebmcpIndexRouteImport } from './routes/webmcp/index'
 import { Route as authUserResetRouteImport } from './routes/(auth)/user/reset'
 import { Route as AuthenticatedChannelsIndexRouteImport } from './routes/_authenticated/channels/index'
 import { Route as AuthenticatedChatManagementIndexRouteImport } from './routes/_authenticated/chat-management/index'
@@ -263,6 +264,11 @@ const SetupIndexRoute = SetupIndexRouteImport.update({
 const StatusIndexRoute = StatusIndexRouteImport.update({
   id: '/status/',
   path: '/status/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const WebmcpIndexRoute = WebmcpIndexRouteImport.update({
+  id: '/webmcp/',
+  path: '/webmcp/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const authUserResetRoute = authUserResetRouteImport.update({
@@ -605,6 +611,7 @@ export interface FileRoutesByFullPath {
   '/security/': typeof SecurityIndexRoute
   '/setup/': typeof SetupIndexRoute
   '/status/': typeof StatusIndexRoute
+  '/webmcp/': typeof WebmcpIndexRoute
   '/user/reset': typeof authUserResetRoute
   '/chat/$chatId': typeof AuthenticatedChatChatIdRoute
   '/dashboard/$section': typeof AuthenticatedDashboardSectionRoute
@@ -690,6 +697,7 @@ export interface FileRoutesByTo {
   '/security': typeof SecurityIndexRoute
   '/setup': typeof SetupIndexRoute
   '/status': typeof StatusIndexRoute
+  '/webmcp': typeof WebmcpIndexRoute
   '/user/reset': typeof authUserResetRoute
   '/chat/$chatId': typeof AuthenticatedChatChatIdRoute
   '/dashboard/$section': typeof AuthenticatedDashboardSectionRoute
@@ -779,6 +787,7 @@ export interface FileRoutesById {
   '/security/': typeof SecurityIndexRoute
   '/setup/': typeof SetupIndexRoute
   '/status/': typeof StatusIndexRoute
+  '/webmcp/': typeof WebmcpIndexRoute
   '/(auth)/user/reset': typeof authUserResetRoute
   '/_authenticated/chat/$chatId': typeof AuthenticatedChatChatIdRoute
   '/_authenticated/dashboard/$section': typeof AuthenticatedDashboardSectionRoute
@@ -867,6 +876,7 @@ export interface FileRouteTypes {
     | '/security/'
     | '/setup/'
     | '/status/'
+    | '/webmcp/'
     | '/user/reset'
     | '/chat/$chatId'
     | '/dashboard/$section'
@@ -952,6 +962,7 @@ export interface FileRouteTypes {
     | '/security'
     | '/setup'
     | '/status'
+    | '/webmcp'
     | '/user/reset'
     | '/chat/$chatId'
     | '/dashboard/$section'
@@ -1040,6 +1051,7 @@ export interface FileRouteTypes {
     | '/security/'
     | '/setup/'
     | '/status/'
+    | '/webmcp/'
     | '/(auth)/user/reset'
     | '/_authenticated/chat/$chatId'
     | '/_authenticated/dashboard/$section'
@@ -1119,6 +1131,7 @@ export interface RootRouteChildren {
   SecurityIndexRoute: typeof SecurityIndexRoute
   SetupIndexRoute: typeof SetupIndexRoute
   StatusIndexRoute: typeof StatusIndexRoute
+  WebmcpIndexRoute: typeof WebmcpIndexRoute
   PricingModelIdIndexRoute: typeof PricingModelIdIndexRoute
 }
 
@@ -1360,6 +1373,13 @@ declare module '@tanstack/react-router' {
       path: '/status'
       fullPath: '/status/'
       preLoaderRoute: typeof StatusIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/webmcp/': {
+      id: '/webmcp/'
+      path: '/webmcp'
+      fullPath: '/webmcp/'
+      preLoaderRoute: typeof WebmcpIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/(auth)/user/reset': {
@@ -1928,6 +1948,7 @@ const rootRouteChildren: RootRouteChildren = {
   SecurityIndexRoute: SecurityIndexRoute,
   SetupIndexRoute: SetupIndexRoute,
   StatusIndexRoute: StatusIndexRoute,
+  WebmcpIndexRoute: WebmcpIndexRoute,
   PricingModelIdIndexRoute: PricingModelIdIndexRoute,
 }
 export const routeTree = rootRouteImport

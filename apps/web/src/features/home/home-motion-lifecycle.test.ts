@@ -240,3 +240,26 @@ test('missing observer support leaves static content usable without attaching an
     page.close()
   }
 })
+
+test('losing the graphics context stops drawing and exposes a usable static page', () => {
+  const page = fixture()
+  try {
+    page.mount()
+    page.visible(true)
+    page.tick()
+    const canvas = page.root.querySelector('canvas')
+    assert.ok(canvas)
+    canvas.dispatchEvent(
+      new page.view.Event('webglcontextlost') as unknown as Event
+    )
+    page.tick(200)
+    assert.equal(page.frames.size, 0)
+    assert.equal(page.root.dataset.motion, 'static')
+    assert.equal(
+      page.root.querySelector<HTMLElement>('[data-motion-toggle]')?.hidden,
+      true
+    )
+  } finally {
+    page.close()
+  }
+})

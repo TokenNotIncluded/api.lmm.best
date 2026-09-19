@@ -21,7 +21,7 @@ For commercial licensing, please contact support@quantumnous.com
   --home-gutter: clamp(1.25rem, 4.5vw, 5rem);
   --home-rule: color-mix(in oklch, var(--foreground) 14%, transparent);
   --home-accent: var(--forge-clay);
-  --home-stage-ink: #f8f4e9;
+  --home-stage-ink: #292a28;
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-body);
@@ -151,40 +151,190 @@ For commercial licensing, please contact support@quantumnous.com
   transform: translateX(3px);
 }
 .lmm-cinema {
-  width: min(calc(100% - 3rem), 88rem);
-  margin: 0 auto;
-  padding: 0.5rem;
-  perspective: 1600px;
+  width: min(calc(100% - 3rem), 100rem);
+  margin: 1rem auto 0;
 }
 .lmm-cinema-inner {
   --pointer-x: 0px;
   --pointer-y: 0px;
-  --rotate-x: 0deg;
-  --rotate-y: 0deg;
   position: relative;
   isolation: isolate;
-  height: clamp(29rem, 44vw, 39rem);
   overflow: hidden;
   border-radius: 1rem;
-  background: radial-gradient(ellipse at 40% 40%, #747353, #172d24 70%);
+  background: #f3f0e9;
   color: var(--home-stage-ink);
-  transform: rotateX(var(--rotate-x)) rotateY(var(--rotate-y))
-    scale(calc(1 - var(--scene-progress, 0) * 0.035));
-  box-shadow: 0 1rem 3rem -2rem #10221d88;
+  min-height: 38rem;
+  padding-bottom: 8rem;
+}
+.lmm-home:is([data-motion='playing'], [data-motion='paused']) .lmm-cinema {
+  height: 440svh;
+  min-height: 160rem;
+}
+.lmm-home:is([data-motion='playing'], [data-motion='paused'])
+  .lmm-cinema-inner {
+  position: sticky;
+  top: 5rem;
+  height: calc(100svh - 6rem);
+  min-height: 32rem;
+  max-height: 64rem;
+  padding-bottom: 0;
 }
 .lmm-cinema-inner:not([data-rendered])::before {
   content: '';
   position: absolute;
-  width: 18rem;
-  height: 18rem;
-  left: 22%;
-  top: 15%;
-  border: 3.5rem solid #b68150;
-  border-radius: 50%;
-  transform: rotate(-25deg) scaleX(0.72);
+  width: 13rem;
+  height: 13rem;
+  left: 13%;
+  top: 28%;
+  background: #9c7555;
+  border: 1rem solid #c4c6ac;
+  border-radius: 1.2rem;
+  transform: rotate(-22deg) skewY(12deg);
   box-shadow:
-    inset 1rem 0.5rem 3rem #493a29,
-    1.2rem 0 0 #674f35;
+    1rem 1.1rem 0 #30483d,
+    1.5rem 1.7rem 0 #a98b60,
+    2rem 2.3rem 2rem #07180a88;
+}
+.lmm-scene-panel {
+  position: relative;
+  z-index: 2;
+  width: min(42%, 35rem);
+  margin: 4rem 5% 0 auto;
+  padding: 0;
+  text-align: left;
+}
+.lmm-home:is([data-motion='playing'], [data-motion='paused']) .lmm-scene-panel {
+  position: absolute;
+  top: 50%;
+  right: 5%;
+  margin: 0;
+  transform: translateY(-50%);
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    opacity 240ms ease-out,
+    visibility 240ms;
+  pointer-events: none;
+}
+.lmm-home:is([data-motion='playing'], [data-motion='paused'])
+  .lmm-scene-panel[data-active] {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+}
+.lmm-scene-panel h2,
+.lmm-scene-panel.lmm-intro h1 {
+  margin: 0;
+  font-family: var(--font-heading, var(--font-body));
+  font-size: clamp(2.2rem, 4.5vw, 4.8rem);
+  font-weight: 500;
+  line-height: 1.04;
+  letter-spacing: -0.04em;
+  text-wrap: balance;
+  color: #292a28;
+}
+.lmm-scene-panel h2 {
+  font-size: clamp(2.2rem, 3.6vw, 3.8rem);
+}
+.lmm-scene-panel > p,
+.lmm-scene-panel .lmm-intro-description {
+  max-width: 42ch;
+  margin: 1.5rem 0 0;
+  color: #565851;
+  font-size: clamp(0.94rem, 1.3vw, 1.15rem);
+  line-height: 1.6;
+}
+.lmm-scene-panel .lmm-access-note {
+  font-size: 0.75rem;
+  color: #62645c;
+  margin-top: 1rem;
+}
+.lmm-scene-panel .lmm-intro-actions {
+  justify-content: flex-start;
+  margin-top: 1.6rem;
+}
+.lmm-core-protocols {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem 1rem;
+  margin-top: 1.6rem;
+  color: #975d36;
+  font-size: 0.78rem;
+}
+.lmm-core-protocols code {
+  overflow-wrap: anywhere;
+}
+.lmm-core-link,
+.lmm-core-continue {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  color: #292a28;
+  text-underline-offset: 0.3em;
+}
+.lmm-core-link {
+  margin-top: 1.5rem;
+  border-bottom: 1px solid #aaa79f;
+  padding-bottom: 0.3rem;
+  font-size: 0.9rem;
+}
+.lmm-core-steps {
+  position: absolute;
+  z-index: 3;
+  left: 2.4rem;
+  bottom: 1.4rem;
+  display: flex;
+  gap: 1.25rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 0.68rem;
+  color: #c4cdbb;
+}
+.lmm-core-steps li {
+  padding: 0.45rem 0;
+  border-bottom: 2px solid transparent;
+}
+.lmm-core-steps [data-active] {
+  color: #292a28;
+  border-color: #a66b47;
+  font-weight: 600;
+}
+.lmm-core-continue {
+  position: absolute;
+  z-index: 3;
+  left: 2.4rem;
+  top: 1.8rem;
+  font-size: 0.78rem;
+}
+.lmm-core-continue svg,
+.lmm-core-link svg {
+  width: 1rem;
+  height: 1rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+}
+.lmm-home:not([data-motion='playing']):not([data-motion='paused']) .lmm-film {
+  height: 36rem;
+}
+.lmm-home:not([data-motion='playing']):not([data-motion='paused'])
+  .lmm-cinema-inner {
+  position: relative;
+  top: auto;
+  height: auto;
+  max-height: none;
+  padding-top: 36rem;
+}
+.lmm-home:not([data-motion='playing']):not([data-motion='paused'])
+  .lmm-scene-panel {
+  width: auto;
+  max-width: 42rem;
+  margin: 2.5rem 2rem;
+}
+.lmm-home:not([data-motion='playing']):not([data-motion='paused'])
+  .lmm-core-steps {
+  display: none;
 }
 .lmm-film {
   position: absolute;
@@ -231,9 +381,9 @@ For commercial licensing, please contact support@quantumnous.com
   margin: 0 0 0.5rem;
 }
 .lmm-cinema-caption > span {
-  font-size: clamp(2.3rem, 4.4vw, 4rem);
+  font-size: clamp(1rem, 1.8vw, 1.4rem);
   font-weight: 500;
-  letter-spacing: -0.065em;
+  letter-spacing: -0.03em;
   line-height: 1;
 }
 .lmm-caption-dot {
@@ -245,7 +395,7 @@ For commercial licensing, please contact support@quantumnous.com
   right: 7%;
   width: clamp(15rem, 26vw, 23rem);
   padding: 1.4rem;
-  color: #f8f4e9;
+  color: #292a28;
   background: #14231ff2;
   border: 1px solid #cedcc329;
   border-radius: 0.75rem;
@@ -305,10 +455,10 @@ For commercial licensing, please contact support@quantumnous.com
   gap: 0.5rem;
   padding: 0.6rem 0.8rem;
   min-height: 2.75rem;
-  border: 1px solid #e0e9d942;
+  border: 1px solid #bcb8ad;
   border-radius: 2rem;
-  background: #183024bb;
-  color: #fff;
+  background: #eeebe4;
+  color: #3d4039;
   font-size: 0.68rem;
 }
 .lmm-motion-toggle svg {
@@ -319,7 +469,7 @@ For commercial licensing, please contact support@quantumnous.com
   stroke-width: 1.5;
 }
 .lmm-motion-toggle:hover {
-  background: #263e31;
+  background: #e2ded5;
 }
 .lmm-home .lmm-motion-toggle:focus-visible {
   outline-color: #fff;
@@ -1098,4 +1248,129 @@ For commercial licensing, please contact support@quantumnous.com
   :lang(zh) .lmm-intro h1 {
     font-size: clamp(2.2rem, 10.6vw, 4.2rem);
   }
+}
+
+/* A native scroll runway pins the scene; wheel, touch, keyboard and scrollbar
+   remain native. Small/reduced-motion viewports receive the complete static story. */
+@media (max-width: 680px) and (min-height: 601px) {
+  .lmm-home:is([data-motion='playing'], [data-motion='paused']) .lmm-cinema {
+    width: calc(100% - 1rem);
+    height: 380svh;
+    min-height: 120rem;
+    padding: 0;
+  }
+  .lmm-home:is([data-motion='playing'], [data-motion='paused'])
+    .lmm-cinema-inner {
+    top: 4.25rem;
+    height: calc(100svh - 4.75rem);
+    min-height: 36rem;
+  }
+  .lmm-home:is([data-motion='playing'], [data-motion='paused'])
+    .lmm-scene-panel {
+    width: auto;
+    left: 1.6rem;
+    right: 1.6rem;
+    top: 49%;
+    transform: none;
+  }
+  .lmm-scene-panel h2,
+  .lmm-scene-panel.lmm-intro h1 {
+    font-size: clamp(2rem, 8.5vw, 2.9rem);
+    line-height: 1.08;
+  }
+  .lmm-scene-panel > p,
+  .lmm-scene-panel .lmm-intro-description {
+    font-size: 0.86rem;
+    line-height: 1.5;
+    margin-top: 0.9rem;
+  }
+  .lmm-scene-panel .lmm-access-note {
+    font-size: 0.65rem;
+    margin-top: 0.65rem;
+  }
+  .lmm-scene-panel .lmm-intro-actions {
+    margin-top: 1rem;
+  }
+  .lmm-core-protocols {
+    margin-top: 0.9rem;
+    font-size: 0.68rem;
+  }
+  .lmm-core-link {
+    margin-top: 0.85rem;
+    font-size: 0.75rem;
+  }
+  .lmm-cinema-caption {
+    display: none;
+  }
+  .lmm-core-steps {
+    left: 1.25rem;
+    gap: 0.6rem;
+    bottom: 0.8rem;
+    font-size: 0.52rem;
+  }
+  .lmm-core-continue {
+    left: 1.2rem;
+    top: 1.2rem;
+    font-size: 0.65rem;
+  }
+  .lmm-cinema .lmm-motion-toggle {
+    right: 1.2rem;
+    top: 1.2rem;
+    bottom: auto;
+  }
+}
+@media (max-height: 600px), (prefers-reduced-motion: reduce) {
+  .lmm-home[data-motion] .lmm-cinema {
+    height: auto;
+    min-height: 0;
+  }
+  .lmm-home[data-motion] .lmm-cinema-inner {
+    position: relative;
+    top: auto;
+    height: auto;
+    max-height: none;
+    padding: 22rem 0 6rem;
+  }
+  .lmm-home[data-motion] .lmm-film {
+    height: 24rem;
+  }
+  .lmm-home[data-motion] .lmm-scene-panel {
+    position: relative;
+    top: auto;
+    right: auto;
+    width: auto;
+    margin: 2rem;
+    transform: none;
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+  }
+  .lmm-core-steps,
+  .lmm-cinema-caption {
+    display: none;
+  }
+}
+
+.lmm-cinema .lmm-intro {
+  padding: 0;
+}
+.lmm-cinema .lmm-motion-toggle {
+  top: 1.6rem;
+  right: 1.6rem;
+  bottom: auto;
+}
+
+.lmm-cinema .lmm-intro-actions [data-slot='button'] {
+  background: #30362f;
+  color: #faf8f3;
+}
+.lmm-cinema .lmm-intro-actions [data-slot='button']:hover {
+  background: #485044;
+}
+.lmm-cinema .lmm-core-steps {
+  color: #62665e;
+}
+.lmm-cinema ::selection {
+  background: #d9c6ad;
+  color: #242820;
 }

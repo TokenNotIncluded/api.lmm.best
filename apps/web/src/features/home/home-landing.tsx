@@ -20,6 +20,7 @@ import type { ReactNode, Ref } from 'react'
 
 import { Button } from '@/components/ui/button'
 import type { ConnectionMethod } from '@/features/onboarding/next-step'
+import { RepositoryLink } from '@/features/repositories/repository-link'
 
 type HomeLandingProps = {
   rootRef: Ref<HTMLElement>
@@ -103,75 +104,115 @@ export function HomeLanding({
   const steps = connectionMethod === 'oauth' ? OAUTH_STEPS : STEPS
   return (
     <main className='lmm-home' ref={rootRef}>
-      <section className='lmm-intro' aria-labelledby='lmm-home-title'>
-        <p className='lmm-eyebrow'>
-          <span className='lmm-wordmark'>
-            lmm<span>↗</span>
-          </span>
-          <span>{t('One endpoint')}</span>
-        </p>
-        <h1 id='lmm-home-title'>
-          {headline.split(/(?<=[，,])\s*/u).map((phrase) => (
-            <span className='lmm-title-phrase' key={phrase}>
-              {phrase}
-            </span>
-          ))}
-        </h1>
-        <p className='lmm-intro-description'>
-          {t(
-            'Choose your client to get started. Available models and account pricing are shown after access approval.'
-          )}
-        </p>
-        <div className='lmm-intro-actions'>
-          {primaryAction}
-          {pricingAction}
-        </div>
-        <p className='lmm-access-note'>
-          {t(
-            'Developer access requires approval. Payment does not unlock access.'
-          )}
-        </p>
-      </section>
-
       <section
         className='lmm-cinema'
         data-cinema
         aria-label={t('One endpoint')}
       >
         <div className='lmm-cinema-inner' data-cinema-inner>
+          <section
+            className='lmm-intro lmm-scene-panel'
+            data-cinema-panel='0'
+            data-active
+            aria-labelledby='lmm-home-title'
+          >
+            <h1 id='lmm-home-title'>
+              {headline.split(/(?<=[，,])\s*/u).map((phrase) => (
+                <span className='lmm-title-phrase' key={phrase}>
+                  {phrase}
+                </span>
+              ))}
+            </h1>
+            <p className='lmm-intro-description'>
+              {t(
+                'Choose your client to get started. Available models and account pricing are shown after access approval.'
+              )}
+            </p>
+            <div className='lmm-intro-actions'>
+              {primaryAction}
+              {pricingAction}
+              <RepositoryLink kind='project' className='lmm-home-repository' />
+            </div>
+            <p className='lmm-access-note'>
+              {t(
+                'Developer access requires approval. Payment does not unlock access.'
+              )}
+            </p>
+          </section>
+
           <canvas className='lmm-film' data-film aria-hidden='true' />
-          <div className='lmm-cinema-grain' aria-hidden='true' />
-          <div className='lmm-cinema-topline'>
-            <span>LMM / CONNECTION STUDY</span>
-            <span>01 — ∞</span>
-          </div>
-          <div className='lmm-cinema-caption'>
-            <p>{t('One endpoint')}</p>
-            <span>
-              api.lmm.best<span className='lmm-caption-dot'>.</span>
-            </span>
-          </div>
-          <div className='lmm-request-sample' data-depth-card>
-            <div className='lmm-sample-heading'>
-              <span>{t('API Requests')}</span>
-              <span>{t('Example')}</span>
-            </div>
-            <div className='lmm-sample-route'>
-              <span>POST</span>
+          <section className='lmm-scene-panel' data-cinema-panel='1'>
+            <h2>{t('One endpoint')}</h2>
+            <p>
+              {t(
+                'Chat, reasoning, vision, and audio models behind one endpoint.'
+              )}
+            </p>
+            <div className='lmm-core-protocols'>
               <code>/v1/chat/completions</code>
+              <code>/v1/messages</code>
+              <span>Gemini</span>
             </div>
-            <pre>
-              <code>
-                {
-                  '{\n  "model": "model-name",\n  "messages": [{\n    "role": "user",\n    "content": "Hello"\n  }]\n}'
-                }
-              </code>
-            </pre>
-            <div className='lmm-sample-bottom'>
-              <span>{t('One endpoint')}</span>
-              <span aria-hidden='true'>↗</span>
+            <a className='lmm-core-link' href='/guide'>
+              {t('Guide')} <Arrow />
+            </a>
+          </section>
+          <section className='lmm-scene-panel' data-cinema-panel='2'>
+            <h2>{t('OAuth2 with Pi · no API key')}</h2>
+            <p>
+              {t(
+                'Install the LMM Pi plugin, sign in with OAuth, and choose a model in Pi. Access uses your account and normal model pricing.'
+              )}
+            </p>
+            <div className='lmm-core-protocols'>
+              <span>Pi</span>
+              <span>OAuth 2.0 / PKCE</span>
             </div>
-          </div>
+            <a className='lmm-core-link' href='/guide'>
+              {t('Read the Pi OAuth setup steps')} <Arrow />
+            </a>
+          </section>
+          <section className='lmm-scene-panel' data-cinema-panel='3'>
+            <h2>{t('WebMCP tools for compatible browsers')}</h2>
+            <p>
+              {t(
+                'Browser agents can read site information, model prices, and account status or open pages; the normal UI remains available when WebMCP is unsupported.'
+              )}
+            </p>
+            <div className='lmm-core-protocols'>
+              <code>lmm_model_prices</code>
+              <code>lmm_account_status</code>
+            </div>
+            <a className='lmm-core-link' href='/webmcp'>
+              {t('WebMCP documentation')} <Arrow />
+            </a>
+          </section>
+          <section className='lmm-scene-panel' data-cinema-panel='4'>
+            <h2>{t('Model prices')}</h2>
+            <p>
+              {t(
+                'Choose your client to get started. Available models and account pricing are shown after access approval.'
+              )}
+            </p>
+            <div className='lmm-core-protocols'>
+              <code>GET /v1/pricing</code>
+            </div>
+            <a className='lmm-core-link' href='/pricing'>
+              {t('Pricing')} <Arrow />
+            </a>
+          </section>
+          <ol className='lmm-core-steps' aria-label={t('Guide')}>
+            <li data-cinema-step data-active>
+              {t('Home')}
+            </li>
+            <li data-cinema-step>{t('API Endpoints')}</li>
+            <li data-cinema-step>{t('OAuth')}</li>
+            <li data-cinema-step>WebMCP</li>
+            <li data-cinema-step>{t('Pricing')}</li>
+          </ol>
+          <a className='lmm-core-continue' href='#lmm-connect-title'>
+            {t('Continue')} <Arrow />
+          </a>
           <button
             className='lmm-motion-toggle'
             type='button'
