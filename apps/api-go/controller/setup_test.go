@@ -28,13 +28,13 @@ func setupPostSetupTestDB(t *testing.T) *gorm.DB {
 	previousOptionMap := common.OptionMap
 	previousMainDatabaseType := common.MainDatabaseType()
 	previousLogDatabaseType := common.LogDatabaseType()
-	previousSelfUseMode := operation_setting.SelfUseModeEnabled
+	previousSelfUseMode := operation_setting.SelfUseModeEnabled.Load()
 	previousDemoSite := operation_setting.DemoSiteEnabled
 
 	common.SetDatabaseTypes(common.DatabaseTypeSQLite, common.DatabaseTypeSQLite)
 	constant.SetSetup(false)
 	common.OptionMap = map[string]string{}
-	operation_setting.SelfUseModeEnabled = false
+	operation_setting.SelfUseModeEnabled.Store(false)
 	operation_setting.DemoSiteEnabled = false
 
 	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", strings.ReplaceAll(t.Name(), "/", "_"))
@@ -48,7 +48,7 @@ func setupPostSetupTestDB(t *testing.T) *gorm.DB {
 		constant.SetSetup(previousSetup)
 		common.OptionMap = previousOptionMap
 		common.SetDatabaseTypes(previousMainDatabaseType, previousLogDatabaseType)
-		operation_setting.SelfUseModeEnabled = previousSelfUseMode
+		operation_setting.SelfUseModeEnabled.Store(previousSelfUseMode)
 		operation_setting.DemoSiteEnabled = previousDemoSite
 		if sqlDB, err := db.DB(); err == nil {
 			_ = sqlDB.Close()
@@ -138,5 +138,5 @@ func TestPostSetupRequiresRootCredentialsWhenRootExists(t *testing.T) {
 	var setupCount int64
 	require.NoError(t, db.Model(&model.Setup{}).Count(&setupCount).Error)
 	assert.Equal(t, int64(1), setupCount)
-	assert.True(t, operation_setting.SelfUseModeEnabled)
+	assert.True(t, operation_setting.SelfUseModeEnabled.Load())
 }

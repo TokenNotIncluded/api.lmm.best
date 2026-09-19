@@ -205,7 +205,7 @@ func getModelListGroups(c *gin.Context) (modelListGroups, error) {
 }
 
 func modelListAcceptsUnsetRatioModel(userID int) bool {
-	if operation_setting.SelfUseModeEnabled {
+	if operation_setting.SelfUseModeEnabled.Load() {
 		return true
 	}
 	if userID <= 0 {
